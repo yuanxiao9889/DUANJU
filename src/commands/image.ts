@@ -47,6 +47,12 @@ export interface MergeStoryboardImagesPayload {
   frameNotes?: string[];
 }
 
+export interface StoryboardImageMetadata {
+  gridRows: number;
+  gridCols: number;
+  frameNotes: string[];
+}
+
 export interface PrepareNodeImageSourceResult {
   imagePath: string;
   previewImagePath: string;
@@ -79,6 +85,19 @@ export async function mergeStoryboardImages(
   payload: MergeStoryboardImagesPayload
 ): Promise<MergeStoryboardImagesResult> {
   return await invoke('merge_storyboard_images', { payload });
+}
+
+export async function readStoryboardImageMetadata(
+  source: string
+): Promise<StoryboardImageMetadata | null> {
+  return await invoke('read_storyboard_image_metadata', { source });
+}
+
+export async function embedStoryboardImageMetadata(
+  source: string,
+  metadata: StoryboardImageMetadata
+): Promise<string> {
+  return await invoke('embed_storyboard_image_metadata', { source, metadata });
 }
 
 export async function prepareNodeImageSource(

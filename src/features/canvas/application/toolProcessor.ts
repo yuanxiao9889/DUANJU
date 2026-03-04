@@ -10,7 +10,7 @@ import {
   parseAspectRatio,
   persistImageLocally,
 } from './imageData';
-import { cropImageSource } from '@/commands/image';
+import { cropImageSource, readStoryboardImageMetadata } from '@/commands/image';
 import { drawAnnotations, parseAnnotationItems } from '../tools/annotation';
 import type {
   IdGenerator,
@@ -31,11 +31,13 @@ export class CanvasToolProcessor implements ToolProcessor {
     options: Record<string, unknown>
   ): Promise<ToolProcessorResult> {
     if (toolType === NODE_TOOL_TYPES.splitStoryboard) {
+      const metadata = await this.readStoryboardMetadata(sourceImageUrl);
       return await this.splitStoryboard(
         sourceImageUrl,
-        Number(options.rows ?? 3),
-        Number(options.cols ?? 3),
-        Number(options.lineThickness ?? 0)
+        Number(options.rows ?? metadata?.gridRows ?? 3),
+        Number(options.cols ?? metadata?.gridCols ?? 3),
+        Number(options.lineThickness ?? 0),
+        metadata?.frameNotes
       );
     }
 
@@ -207,7 +209,8 @@ export class CanvasToolProcessor implements ToolProcessor {
     sourceImage: string,
     rows: number,
     cols: number,
-    lineThickness: number
+    lineThickness: number,
+    frameNotes?: string[]
   ): Promise<ToolProcessorResult> {
     const normalizedRows = Number.isFinite(rows) ? rows : 3;
     const normalizedCols = Number.isFinite(cols) ? cols : 3;
@@ -254,7 +257,7 @@ export class CanvasToolProcessor implements ToolProcessor {
       imageUrl,
       previewImageUrl: imageUrl,
       aspectRatio: resolvedFrameAspectRatio,
-      note: '',
+      note: typeof frameNotes?.[index] === 'string' ? frameNotes[index].trim() : '',
       order: index,
     }));
 
@@ -264,6 +267,25 @@ export class CanvasToolProcessor implements ToolProcessor {
       cols: safeCols,
       frameAspectRatio: resolvedFrameAspectRatio,
     };
+  }
+
+  private async readStoryboardMetadata(
+    sourceImage: string
+  ): Promise<{ gridRows: number; gridCols: number; frameNotes: string[] } | null> {
+    try {
+      const metadata = await readStoryboardImageMetadata(sourceImage);
+      if (!metadata) {
+        return null;
+      }
+
+      return {
+        gridRows: metadata.gridRows,
+        gridCols: metadata.gridCols,
+        frameNotes: Array.isArray(metadata.frameNotes) ? metadata.frameNotes : [],
+      };
+    } catch {
+      return null;
+    }
   }
 
   private splitIntoSegments(totalSize: number, segmentCount: number): number[] {

@@ -35,6 +35,7 @@ arboard = "3.4"
 fast_image_resize = "6.0.0"
 imageproc = "0.26.1"
 ab_glyph = "0.2.32"
+png = "0.17"
 
 [profile.dev]
 opt-level = 1

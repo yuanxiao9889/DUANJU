@@ -7,6 +7,7 @@ import {
   canvasToolProcessor,
 } from '@/features/canvas/application/canvasServices';
 import { prepareNodeImage } from '@/features/canvas/application/imageData';
+import { readStoryboardImageMetadata } from '@/commands/image';
 import { getToolPlugin, type ToolOptions } from '@/features/canvas/tools';
 import { useCanvasStore } from '@/stores/canvasStore';
 import { UiButton, UiModal } from '@/components/ui';
@@ -62,9 +63,44 @@ export function NodeToolDialog() {
       return;
     }
 
+    let cancelled = false;
     setError(null);
-    setOptions(activePlugin.createInitialOptions(sourceNode));
-  }, [dialogKey, sourceNode, activePlugin]);
+    const initialOptions = activePlugin.createInitialOptions(sourceNode);
+    setOptions(initialOptions);
+
+    if (activePlugin.editor !== 'split' || !sourceImageUrl) {
+      return () => {
+        cancelled = true;
+      };
+    }
+
+    void (async () => {
+      try {
+        const metadata = await readStoryboardImageMetadata(sourceImageUrl);
+        if (!metadata || cancelled) {
+          return;
+        }
+
+        const nextRows = Math.max(1, Math.min(8, Math.floor(metadata.gridRows)));
+        const nextCols = Math.max(1, Math.min(8, Math.floor(metadata.gridCols)));
+        if (!Number.isFinite(nextRows) || !Number.isFinite(nextCols)) {
+          return;
+        }
+
+        setOptions((previous) => ({
+          ...previous,
+          rows: nextRows,
+          cols: nextCols,
+        }));
+      } catch (error) {
+        console.warn('[StoryboardMetadata] read failed on split dialog init', error);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [dialogKey, sourceNode, activePlugin, sourceImageUrl]);
 
   const closeDialog = useCallback(() => {
     canvasEventBus.publish('tool-dialog/close', undefined);

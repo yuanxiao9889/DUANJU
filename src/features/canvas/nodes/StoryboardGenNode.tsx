@@ -10,6 +10,7 @@ import {
 } from 'react';
 import { Handle, Position, useViewport } from '@xyflow/react';
 import { ArrowUp, Minus, Plus, Sparkles } from 'lucide-react';
+import { embedStoryboardImageMetadata } from '@/commands/image';
 
 import {
   AUTO_REQUEST_ASPECT_RATIO,
@@ -765,11 +766,25 @@ export const StoryboardGenNode = memo(({ id, data, selected, width, height }: St
       });
 
       const prepared = await prepareNodeImage(resultUrl);
+      const metadataFrameNotes = nodeData.frames
+        .slice(0, nodeData.gridRows * nodeData.gridCols)
+        .map((frame) => frame.description.replace(/@(?=图\d+)/g, '').trim());
+      const imageWithMetadata = await embedStoryboardImageMetadata(prepared.imageUrl, {
+        gridRows: nodeData.gridRows,
+        gridCols: nodeData.gridCols,
+        frameNotes: metadataFrameNotes,
+      }).catch((error) => {
+        console.warn('[StoryboardMetadata] embed failed on generation output', error);
+        return prepared.imageUrl;
+      });
+      const previewWithMetadata = prepared.previewImageUrl === prepared.imageUrl
+        ? imageWithMetadata
+        : prepared.previewImageUrl;
 
       // Update the new image node with generated result
       updateNodeData(newNodeId, {
-        imageUrl: prepared.imageUrl,
-        previewImageUrl: prepared.previewImageUrl,
+        imageUrl: imageWithMetadata,
+        previewImageUrl: previewWithMetadata,
         aspectRatio: prepared.aspectRatio,
         isGenerating: false,
         generationStartedAt: null,

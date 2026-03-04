@@ -11,6 +11,7 @@ import { Handle, Position, useViewport, type NodeProps } from '@xyflow/react';
 import { Download, ImagePlus, PenSquare } from 'lucide-react';
 
 import {
+  embedStoryboardImageMetadata,
   mergeStoryboardImages,
   type MergeStoryboardImagesResult,
 } from '@/commands/image';
@@ -715,6 +716,24 @@ export const StoryboardNode = memo(({ id, data, selected, width, height }: Story
           persistedPath: finalImagePath,
         });
       }
+
+      const metadataStart = performance.now();
+      const metadataFrameNotes = orderedFrames.map((frame) => frame.note ?? '');
+      const imagePathWithMetadata = await embedStoryboardImageMetadata(finalImagePath, {
+        gridRows,
+        gridCols,
+        frameNotes: metadataFrameNotes,
+      }).catch((error) => {
+        console.warn('[StoryboardMetadata] embed failed on storyboard export', error);
+        return finalImagePath;
+      });
+      finalImagePath = imagePathWithMetadata;
+      finalPreviewPath = imagePathWithMetadata;
+      console.info(`${EXPORT_TRACE_PREFIX} metadata-embedded`, {
+        traceId,
+        elapsedMs: Math.round(performance.now() - metadataStart),
+        imagePath: finalImagePath,
+      });
 
       const createNodeStart = performance.now();
       const createdNodeId = addDerivedExportNode(

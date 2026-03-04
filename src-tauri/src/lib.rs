@@ -35,6 +35,8 @@ pub fn run() {
             image::prepare_node_image_source,
             image::crop_image_source,
             image::merge_storyboard_images,
+            image::read_storyboard_image_metadata,
+            image::embed_storyboard_image_metadata,
             image::load_image,
             image::persist_image_source,
             image::persist_image_binary,
