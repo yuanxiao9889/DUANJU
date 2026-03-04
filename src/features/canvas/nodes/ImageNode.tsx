@@ -5,7 +5,6 @@ import { Image as ImageIcon, Sparkles } from 'lucide-react';
 import {
   CANVAS_NODE_TYPES,
   DEFAULT_ASPECT_RATIO,
-  EXPORT_RESULT_NODE_DEFAULT_WIDTH,
   EXPORT_RESULT_NODE_MIN_HEIGHT,
   EXPORT_RESULT_NODE_MIN_WIDTH,
   type CanvasNodeType,
@@ -37,6 +36,28 @@ function toAspectRatioValue(aspectRatio: string): number {
   return width / height;
 }
 
+function resolveCompactImageNodeSize(aspectRatio: string): { width: number; height: number } {
+  const ratio = Math.max(0.1, toAspectRatioValue(aspectRatio));
+  const widthFirst = {
+    width: EXPORT_RESULT_NODE_MIN_WIDTH,
+    height: Math.max(1, Math.round(EXPORT_RESULT_NODE_MIN_WIDTH / ratio)),
+  };
+  const heightFirst = {
+    width: Math.max(1, Math.round(EXPORT_RESULT_NODE_MIN_HEIGHT * ratio)),
+    height: EXPORT_RESULT_NODE_MIN_HEIGHT,
+  };
+  return widthFirst.width * widthFirst.height <= heightFirst.width * heightFirst.height
+    ? widthFirst
+    : heightFirst;
+}
+
+function resolveNodeDimension(value: number | undefined, fallback: number): number {
+  if (typeof value === 'number' && Number.isFinite(value) && value > 1) {
+    return Math.round(value);
+  }
+  return fallback;
+}
+
 export const ImageNode = memo(({ id, data, selected, type, width, height }: ImageNodeProps) => {
   const setSelectedNode = useCanvasStore((state) => state.setSelectedNode);
   const updateNodeData = useCanvasStore((state) => state.updateNodeData);
@@ -49,14 +70,12 @@ export const ImageNode = memo(({ id, data, selected, type, width, height }: Imag
   const generationDurationMs =
     typeof data.generationDurationMs === 'number' ? data.generationDurationMs : 60000;
   const resolvedAspectRatio = data.aspectRatio || DEFAULT_ASPECT_RATIO;
-  const defaultWidth = EXPORT_RESULT_NODE_DEFAULT_WIDTH;
-  const minWidth = EXPORT_RESULT_NODE_MIN_WIDTH;
-  const minHeight = EXPORT_RESULT_NODE_MIN_HEIGHT;
-  const resolvedWidth = Math.max(minWidth, Math.round(width ?? defaultWidth));
-  const resolvedHeight = Math.max(
-    minHeight,
-    Math.round(height ?? (resolvedWidth / toAspectRatioValue(resolvedAspectRatio)))
-  );
+  const compactSize = resolveCompactImageNodeSize(resolvedAspectRatio);
+  const resolvedWidth = resolveNodeDimension(width, compactSize.width);
+  const resolvedHeight = resolveNodeDimension(height, compactSize.height);
+  const isWideImage = toAspectRatioValue(resolvedAspectRatio) >= EXPORT_RESULT_NODE_MIN_WIDTH / EXPORT_RESULT_NODE_MIN_HEIGHT;
+  const resizeMinWidth = isWideImage ? EXPORT_RESULT_NODE_MIN_WIDTH : 1;
+  const resizeMinHeight = isWideImage ? 1 : EXPORT_RESULT_NODE_MIN_HEIGHT;
   const resolvedTitle = useMemo(
     () => resolveNodeDisplayName(type as CanvasNodeType, data),
     [data, type]
@@ -152,17 +171,19 @@ export const ImageNode = memo(({ id, data, selected, type, width, height }: Imag
 
       <Handle
         type="target"
+        id="target"
         position={Position.Left}
         className="!h-2 !w-2 !border-surface-dark !bg-accent"
       />
       <Handle
         type="source"
+        id="source"
         position={Position.Right}
         className="!h-2 !w-2 !border-surface-dark !bg-accent"
       />
       <NodeResizeHandle
-        minWidth={EXPORT_RESULT_NODE_MIN_WIDTH}
-        minHeight={EXPORT_RESULT_NODE_MIN_HEIGHT}
+        minWidth={resizeMinWidth}
+        minHeight={resizeMinHeight}
         maxWidth={1600}
         maxHeight={1600}
       />

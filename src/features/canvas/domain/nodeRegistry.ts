@@ -63,7 +63,7 @@ const uploadNodeDefinition: CanvasNodeDefinition<UploadImageNodeData> = {
     displayName: DEFAULT_NODE_DISPLAY_NAME[CANVAS_NODE_TYPES.upload],
     imageUrl: null,
     previewImageUrl: null,
-    aspectRatio: DEFAULT_ASPECT_RATIO,
+    aspectRatio: '1:1',
     isSizeManuallyAdjusted: false,
     sourceFileName: null,
   }),
@@ -76,7 +76,7 @@ const imageEditNodeDefinition: CanvasNodeDefinition<ImageEditNodeData> = {
   visibleInMenu: true,
   capabilities: {
     toolbar: true,
-    promptInput: true,
+    promptInput: false,
   },
   connectivity: {
     sourceHandle: true,

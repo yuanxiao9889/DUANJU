@@ -3,6 +3,7 @@ import {
   Connection,
   EdgeChange,
   NodeChange,
+  type Viewport,
   addEdge,
   applyEdgeChanges,
   applyNodeChanges,
@@ -56,6 +57,7 @@ export interface CanvasHistoryState {
 }
 
 const MAX_HISTORY_STEPS = 50;
+const IMAGE_NODE_VISUAL_MIN_EDGE = 96;
 
 interface CanvasState {
   nodes: CanvasNode[];
@@ -64,6 +66,8 @@ interface CanvasState {
   activeToolDialog: ActiveToolDialog | null;
   history: CanvasHistoryState;
   dragHistorySnapshot: CanvasHistorySnapshot | null;
+  currentViewport: Viewport;
+  canvasViewportSize: { width: number; height: number };
 
   onNodesChange: (changes: NodeChange<CanvasNode>[]) => void;
   onEdgesChange: (changes: EdgeChange<CanvasEdge>[]) => void;
@@ -123,6 +127,8 @@ interface CanvasState {
 
   openToolDialog: (dialog: ActiveToolDialog) => void;
   closeToolDialog: () => void;
+  setViewportState: (viewport: Viewport) => void;
+  setCanvasViewportSize: (size: { width: number; height: number }) => void;
 
   undo: () => boolean;
   redo: () => boolean;
@@ -156,8 +162,10 @@ function normalizeEdgesWithNodes(rawEdges: CanvasEdge[], nodes: CanvasNode[]): C
     .map((edge) => ({
       ...edge,
       type: edge.type ?? 'disconnectableEdge',
-      sourceHandle: normalizeHandleId((edge as CanvasEdge & { sourceHandle?: unknown }).sourceHandle),
-      targetHandle: normalizeHandleId((edge as CanvasEdge & { targetHandle?: unknown }).targetHandle),
+      sourceHandle:
+        normalizeHandleId((edge as CanvasEdge & { sourceHandle?: unknown }).sourceHandle) ?? 'source',
+      targetHandle:
+        normalizeHandleId((edge as CanvasEdge & { targetHandle?: unknown }).targetHandle) ?? 'target',
     }));
 }
 
@@ -304,22 +312,6 @@ function parseAspectRatioValue(aspectRatio: string): number {
   return width / height;
 }
 
-function getNodeStyleDimension(value: unknown): number | null {
-  if (typeof value === 'number' && Number.isFinite(value) && value > 0) {
-    return value;
-  }
-  if (typeof value !== 'string') {
-    return null;
-  }
-
-  const parsed = Number.parseFloat(value);
-  if (!Number.isFinite(parsed) || parsed <= 0) {
-    return null;
-  }
-
-  return parsed;
-}
-
 function isImageAutoResizableType(type: CanvasNodeType): boolean {
   return type === CANVAS_NODE_TYPES.upload
     || type === CANVAS_NODE_TYPES.imageEdit
@@ -341,29 +333,81 @@ function withManualSizeLock(node: CanvasNode): CanvasNode {
   };
 }
 
-function resolveNodeWidthForAutoResize(node: CanvasNode): number {
-  const widthFromNode =
-    typeof node.width === 'number' && Number.isFinite(node.width) && node.width > 0
-      ? node.width
-      : null;
-  if (widthFromNode !== null) {
-    return Math.max(EXPORT_RESULT_NODE_MIN_WIDTH, Math.round(widthFromNode));
+function resolveAutoImageNodeDimensions(
+  aspectRatio: string
+): { width: number; height: number } {
+  const aspectValue = Math.max(0.1, parseAspectRatioValue(aspectRatio));
+  const widthFirst = {
+    width: EXPORT_RESULT_NODE_MIN_WIDTH,
+    height: Math.max(1, Math.round(EXPORT_RESULT_NODE_MIN_WIDTH / aspectValue)),
+  };
+  const heightFirst = {
+    width: Math.max(1, Math.round(EXPORT_RESULT_NODE_MIN_HEIGHT * aspectValue)),
+    height: EXPORT_RESULT_NODE_MIN_HEIGHT,
+  };
+
+  const widthFirstArea = widthFirst.width * widthFirst.height;
+  const heightFirstArea = heightFirst.width * heightFirst.height;
+  const chosen = widthFirstArea <= heightFirstArea ? widthFirst : heightFirst;
+  return {
+    width: Math.max(IMAGE_NODE_VISUAL_MIN_EDGE, chosen.width),
+    height: Math.max(IMAGE_NODE_VISUAL_MIN_EDGE, chosen.height),
+  };
+}
+
+function resolveGeneratedImageNodeDimensions(aspectRatio: string): { width: number; height: number } {
+  const ratio = Math.max(0.1, parseAspectRatioValue(aspectRatio));
+  const targetWidth = EXPORT_RESULT_NODE_DEFAULT_WIDTH;
+  const targetHeight = EXPORT_RESULT_NODE_LAYOUT_HEIGHT;
+  const targetRatio = targetWidth / Math.max(1, targetHeight);
+
+  let width = targetWidth;
+  let height = targetHeight;
+  if (ratio >= targetRatio) {
+    width = targetWidth;
+    height = Math.round(width / ratio);
+  } else {
+    height = targetHeight;
+    width = Math.round(height * ratio);
   }
 
-  const widthFromMeasured =
-    typeof node.measured?.width === 'number' && Number.isFinite(node.measured.width) && node.measured.width > 0
-      ? node.measured.width
-      : null;
-  if (widthFromMeasured !== null) {
-    return Math.max(EXPORT_RESULT_NODE_MIN_WIDTH, Math.round(widthFromMeasured));
+  return {
+    width: Math.max(IMAGE_NODE_VISUAL_MIN_EDGE, width),
+    height: Math.max(IMAGE_NODE_VISUAL_MIN_EDGE, height),
+  };
+}
+
+function resolveDerivedAspectRatio(
+  sourceNode: CanvasNode | undefined,
+  fallbackAspectRatio: string
+): string {
+  if (!sourceNode) {
+    return fallbackAspectRatio;
   }
 
-  const widthFromStyle = getNodeStyleDimension((node.style as { width?: unknown } | undefined)?.width);
-  if (widthFromStyle !== null) {
-    return Math.max(EXPORT_RESULT_NODE_MIN_WIDTH, Math.round(widthFromStyle));
+  if (sourceNode.type === CANVAS_NODE_TYPES.storyboardGen) {
+    const data = sourceNode.data as { requestAspectRatio?: string; aspectRatio?: string };
+    const preferred = data.requestAspectRatio && data.requestAspectRatio !== 'auto'
+      ? data.requestAspectRatio
+      : data.aspectRatio;
+    return preferred || fallbackAspectRatio;
   }
 
-  return EXPORT_RESULT_NODE_DEFAULT_WIDTH;
+  if (sourceNode.type === CANVAS_NODE_TYPES.storyboardSplit) {
+    const data = sourceNode.data as { frameAspectRatio?: string; aspectRatio?: string };
+    return data.frameAspectRatio || data.aspectRatio || fallbackAspectRatio;
+  }
+
+  if (sourceNode.type === CANVAS_NODE_TYPES.imageEdit) {
+    const data = sourceNode.data as { requestAspectRatio?: string; aspectRatio?: string };
+    const preferred = data.requestAspectRatio && data.requestAspectRatio !== 'auto'
+      ? data.requestAspectRatio
+      : data.aspectRatio;
+    return preferred || fallbackAspectRatio;
+  }
+
+  const imageLikeAspect = (sourceNode.data as { aspectRatio?: string }).aspectRatio;
+  return imageLikeAspect || fallbackAspectRatio;
 }
 
 function maybeApplyImageAutoResize(node: CanvasNode, patch: Partial<CanvasNodeData>): CanvasNode {
@@ -398,21 +442,16 @@ function maybeApplyImageAutoResize(node: CanvasNode, patch: Partial<CanvasNodeDa
   }
 
   const nextAspectRatio = patchData.aspectRatio ?? nodeData.aspectRatio ?? DEFAULT_ASPECT_RATIO;
-  const aspectValue = parseAspectRatioValue(nextAspectRatio);
-  const nextWidth = resolveNodeWidthForAutoResize(node);
-  const nextHeight = Math.max(
-    EXPORT_RESULT_NODE_MIN_HEIGHT,
-    Math.round(nextWidth / Math.max(0.1, aspectValue))
-  );
+  const nextSize = resolveAutoImageNodeDimensions(nextAspectRatio);
 
   return {
     ...node,
-    width: nextWidth,
-    height: nextHeight,
+    width: nextSize.width,
+    height: nextSize.height,
     style: {
       ...(node.style ?? {}),
-      width: nextWidth,
-      height: nextHeight,
+      width: nextSize.width,
+      height: nextSize.height,
     },
   };
 }
@@ -507,6 +546,8 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
   activeToolDialog: null,
   history: { past: [], future: [] },
   dragHistorySnapshot: null,
+  currentViewport: { x: 0, y: 0, zoom: 1 },
+  canvasViewportSize: { width: 0, height: 0 },
 
   onNodesChange: (changes) => {
     set((state) => {
@@ -612,8 +653,13 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
   },
 
   onConnect: (connection) => {
+    const sourceHandle = normalizeHandleId(connection.sourceHandle) ?? 'source';
+    const targetHandle = normalizeHandleId(connection.targetHandle) ?? 'target';
     set((state) => ({
-      edges: addEdge<CanvasEdge>({ ...connection, type: 'disconnectableEdge' }, state.edges),
+      edges: addEdge<CanvasEdge>(
+        { ...connection, sourceHandle, targetHandle, type: 'disconnectableEdge' },
+        state.edges
+      ),
       history: {
         past: pushSnapshot(state.history.past, createSnapshot(state.nodes, state.edges)),
         future: [],
@@ -634,6 +680,14 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
       history: normalizeHistory(history),
       dragHistorySnapshot: null,
     });
+  },
+
+  setViewportState: (viewport) => {
+    set({ currentViewport: viewport });
+  },
+
+  setCanvasViewportSize: (size) => {
+    set({ canvasViewportSize: size });
   },
 
   addNode: (type, position, data = {}) => {
@@ -672,6 +726,8 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
       id: edgeId,
       source,
       target,
+      sourceHandle: 'source',
+      targetHandle: 'target',
       type: 'disconnectableEdge',
     };
 
@@ -694,7 +750,7 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
       return state.nodes.some((node) => {
         const nodeWidth = node.measured?.width ?? DEFAULT_NODE_WIDTH;
         const nodeHeight = node.measured?.height ?? 200;
-        const margin = 20;
+        const margin = 8;
         return (
           x < node.position.x + nodeWidth + margin &&
           x + width + margin > node.position.x &&
@@ -705,43 +761,145 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
     };
 
     const sourceWidth = sourceNode.measured?.width ?? DEFAULT_NODE_WIDTH;
-    const anchorX = sourceNode.position.x + sourceWidth + 56;
+    const sourceHeight = sourceNode.measured?.height ?? 200;
+    const anchorX = sourceNode.position.x + sourceWidth + 28;
     const anchorY = sourceNode.position.y;
 
-    const stepX = Math.max(newNodeWidth + 22, 180);
-    const stepY = Math.max(Math.round(newNodeHeight * 0.62), 112);
-    const maxColumns = 7;
-    const maxBands = 4;
-
-    // Keep new nodes close first: center, then +-1, +-2...
-    for (let col = 0; col < maxColumns; col += 1) {
-      const candidateX = anchorX + col * stepX;
-      for (let band = 0; band <= maxBands; band += 1) {
-        const offsets = band === 0 ? [0] : [-band, band];
-        for (const offset of offsets) {
-          const candidateY = anchorY + offset * stepY;
-          if (!collides(candidateX, candidateY, newNodeWidth, newNodeHeight)) {
-            return { x: candidateX, y: candidateY };
-          }
+    const zoom = Math.max(0.01, state.currentViewport.zoom || 1);
+    const viewportWidth = state.canvasViewportSize.width;
+    const viewportHeight = state.canvasViewportSize.height;
+    const hasViewportBounds = viewportWidth > 0 && viewportHeight > 0;
+    const visibleBounds = hasViewportBounds
+      ? {
+          minX: -state.currentViewport.x / zoom,
+          minY: -state.currentViewport.y / zoom,
+          maxX: -state.currentViewport.x / zoom + viewportWidth / zoom,
+          maxY: -state.currentViewport.y / zoom + viewportHeight / zoom,
         }
+      : null;
+
+    const overflowAmount = (x: number, y: number): number => {
+      if (!visibleBounds) {
+        return 0;
+      }
+      const overLeft = Math.max(0, visibleBounds.minX - x);
+      const overTop = Math.max(0, visibleBounds.minY - y);
+      const overRight = Math.max(0, x + newNodeWidth - visibleBounds.maxX);
+      const overBottom = Math.max(0, y + newNodeHeight - visibleBounds.maxY);
+      return overLeft + overTop + overRight + overBottom;
+    };
+
+    const stepX = Math.max(newNodeWidth + 12, 110);
+    const stepY = Math.max(Math.round(newNodeHeight * 0.35), 54);
+    const baseCandidates = [
+      { x: anchorX, y: anchorY },
+      { x: sourceNode.position.x, y: sourceNode.position.y + sourceHeight + 20 },
+      { x: sourceNode.position.x - newNodeWidth - 20, y: sourceNode.position.y },
+      { x: sourceNode.position.x, y: sourceNode.position.y - newNodeHeight - 20 },
+    ];
+
+    let bestInView: { x: number; y: number; score: number } | null = null;
+    let bestOutOfView: { x: number; y: number; score: number } | null = null;
+
+    const evaluateCandidate = (x: number, y: number) => {
+      if (collides(x, y, newNodeWidth, newNodeHeight)) {
+        return;
+      }
+
+      const dx = x - anchorX;
+      const dy = y - anchorY;
+      const distanceScore = Math.hypot(dx, dy);
+      const upwardPenalty = dy < 0 ? Math.abs(dy) * 0.25 : 0;
+      const overflow = overflowAmount(x, y);
+      const score = distanceScore + upwardPenalty + overflow * 1000;
+      const candidate = { x, y, score };
+
+      if (overflow === 0) {
+        if (!bestInView || score < bestInView.score) {
+          bestInView = candidate;
+        }
+      } else if (!bestOutOfView || score < bestOutOfView.score) {
+        bestOutOfView = candidate;
+      }
+    };
+
+    for (const base of baseCandidates) {
+      evaluateCandidate(base.x, base.y);
+    }
+
+    for (let ring = 1; ring <= 8; ring += 1) {
+      const offsets = [
+        { x: ring, y: 0 },
+        { x: ring, y: 1 },
+        { x: ring, y: -1 },
+        { x: 0, y: ring },
+        { x: 0, y: -ring },
+        { x: -ring, y: 0 },
+        { x: ring, y: 2 },
+        { x: ring, y: -2 },
+        { x: -ring, y: 1 },
+        { x: -ring, y: -1 },
+      ];
+      for (const offset of offsets) {
+        evaluateCandidate(anchorX + offset.x * stepX, anchorY + offset.y * stepY);
       }
     }
 
-    // Fallback: place farther right of the scanned area.
-    return {
-      x: anchorX + maxColumns * stepX,
-      y: anchorY,
-    };
+    // If ring sampling misses an available slot in current viewport,
+    // run a denser viewport sweep before falling back outside view.
+    if (!bestInView && visibleBounds) {
+      const padding = 8;
+      const minX = visibleBounds.minX + padding;
+      const maxX = visibleBounds.maxX - newNodeWidth - padding;
+      const minY = visibleBounds.minY + padding;
+      const maxY = visibleBounds.maxY - newNodeHeight - padding;
+
+      if (maxX >= minX && maxY >= minY) {
+        const scanStepX = Math.max(42, Math.round(newNodeWidth * 0.32));
+        const scanStepY = Math.max(42, Math.round(newNodeHeight * 0.32));
+
+        for (let y = minY; y <= maxY; y += scanStepY) {
+          for (let x = minX; x <= maxX; x += scanStepX) {
+            evaluateCandidate(x, y);
+          }
+        }
+
+        // Ensure boundary positions are also considered.
+        evaluateCandidate(minX, minY);
+        evaluateCandidate(maxX, minY);
+        evaluateCandidate(minX, maxY);
+        evaluateCandidate(maxX, maxY);
+      }
+    }
+
+    const resolvedCandidate = (bestInView || bestOutOfView) as
+      | { x: number; y: number; score: number }
+      | null;
+    if (resolvedCandidate) {
+      return { x: resolvedCandidate.x, y: resolvedCandidate.y };
+    }
+
+    return { x: anchorX + 2 * stepX, y: anchorY };
   },
 
   addDerivedUploadNode: (sourceNodeId, imageUrl, aspectRatio, previewImageUrl) => {
     const state = get();
     const position = getDerivedNodePosition(state.nodes, sourceNodeId);
+    const sourceNode = state.nodes.find((node) => node.id === sourceNodeId);
+    const resolvedAspectRatio = resolveDerivedAspectRatio(sourceNode, aspectRatio);
     const node = canvasNodeFactory.createNode(CANVAS_NODE_TYPES.upload, position, {
       imageUrl,
       previewImageUrl: previewImageUrl ?? null,
-      aspectRatio,
+      aspectRatio: resolvedAspectRatio,
     });
+    const derivedSize = resolveGeneratedImageNodeDimensions(resolvedAspectRatio);
+    node.width = derivedSize.width;
+    node.height = derivedSize.height;
+    node.style = {
+      ...(node.style ?? {}),
+      width: derivedSize.width,
+      height: derivedSize.height,
+    };
 
     set({
       nodes: [...state.nodes, node],
@@ -759,15 +917,18 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
 
   addDerivedExportNode: (sourceNodeId, imageUrl, aspectRatio, previewImageUrl, options) => {
     const state = get();
+    const sourceNode = state.nodes.find((node) => node.id === sourceNodeId);
+    const resolvedAspectRatio = resolveDerivedAspectRatio(sourceNode, aspectRatio);
+    const derivedSize = resolveGeneratedImageNodeDimensions(resolvedAspectRatio);
     const position = state.findNodePosition(
       sourceNodeId,
-      EXPORT_RESULT_NODE_DEFAULT_WIDTH,
-      EXPORT_RESULT_NODE_LAYOUT_HEIGHT
+      derivedSize.width,
+      derivedSize.height
     );
     const exportNodeData: Partial<CanvasNodeData> = {
       imageUrl,
       previewImageUrl: previewImageUrl ?? null,
-      aspectRatio,
+      aspectRatio: resolvedAspectRatio,
     };
     if (options?.defaultTitle) {
       (exportNodeData as { displayName?: string }).displayName = options.defaultTitle;
@@ -782,6 +943,13 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
     const node = canvasNodeFactory.createNode(CANVAS_NODE_TYPES.exportImage, position, {
       ...exportNodeData,
     });
+    node.width = derivedSize.width;
+    node.height = derivedSize.height;
+    node.style = {
+      ...(node.style ?? {}),
+      width: derivedSize.width,
+      height: derivedSize.height,
+    };
 
     set({
       nodes: [...state.nodes, node],

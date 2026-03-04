@@ -27,11 +27,17 @@ import { useCanvasStore } from '@/stores/canvasStore';
 import { useProjectStore } from '@/stores/projectStore';
 import { canvasEventBus } from '@/features/canvas/application/canvasServices';
 import {
+  CANVAS_NODE_TYPES,
   type CanvasEdge,
   type CanvasNode,
   type CanvasNodeType,
+  DEFAULT_NODE_WIDTH,
 } from '@/features/canvas/domain/canvasNodes';
-import { getConnectMenuNodeTypes } from '@/features/canvas/domain/nodeRegistry';
+import {
+  getConnectMenuNodeTypes,
+  nodeHasSourceHandle,
+  nodeHasTargetHandle,
+} from '@/features/canvas/domain/nodeRegistry';
 import { nodeTypes } from './nodes';
 import { edgeTypes } from './edges';
 import { NodeSelectionMenu } from './NodeSelectionMenu';
@@ -43,6 +49,10 @@ const DEFAULT_VIEWPORT: Viewport = { x: 0, y: 0, zoom: 1 };
 interface PendingConnectStart {
   nodeId: string;
   handleType: HandleType;
+  start?: {
+    x: number;
+    y: number;
+  };
 }
 
 interface PreviewConnectionVisual {
@@ -56,8 +66,75 @@ interface PreviewConnectionVisual {
   height: number;
 }
 
+interface ClipboardSnapshot {
+  nodes: CanvasNode[];
+  edges: CanvasEdge[];
+}
+
+interface DuplicateOptions {
+  explicitOffset?: { x: number; y: number };
+  disableOffsetIteration?: boolean;
+  suppressSelect?: boolean;
+  suppressPersist?: boolean;
+}
+
+interface DuplicateResult {
+  firstNodeId: string | null;
+  idMap: Map<string, string>;
+}
+
+const ALT_DRAG_COPY_Z_INDEX = 2000;
+
+function getNodeSize(node: CanvasNode): { width: number; height: number } {
+  const styleWidth = typeof node.style?.width === 'number' ? node.style.width : null;
+  const styleHeight = typeof node.style?.height === 'number' ? node.style.height : null;
+  return {
+    width: node.measured?.width ?? styleWidth ?? DEFAULT_NODE_WIDTH,
+    height: node.measured?.height ?? styleHeight ?? 200,
+  };
+}
+
+function hasRectCollision(
+  candidateRect: { x: number; y: number; width: number; height: number },
+  nodes: CanvasNode[],
+  ignoreNodeIds: Set<string>
+): boolean {
+  const margin = 18;
+  return nodes.some((node) => {
+    if (ignoreNodeIds.has(node.id)) {
+      return false;
+    }
+    const size = getNodeSize(node);
+    return (
+      candidateRect.x < node.position.x + size.width + margin &&
+      candidateRect.x + candidateRect.width + margin > node.position.x &&
+      candidateRect.y < node.position.y + size.height + margin &&
+      candidateRect.y + candidateRect.height + margin > node.position.y
+    );
+  });
+}
+
+function cloneNodeData<T>(value: T): T {
+  if (typeof structuredClone === 'function') {
+    return structuredClone(value);
+  }
+  return JSON.parse(JSON.stringify(value)) as T;
+}
+
 function resolveAllowedNodeTypes(handleType: HandleType): CanvasNodeType[] {
   return getConnectMenuNodeTypes(handleType);
+}
+
+function canNodeTypeBeManualConnectionSource(type: CanvasNodeType): boolean {
+  return type === CANVAS_NODE_TYPES.upload || type === CANVAS_NODE_TYPES.exportImage;
+}
+
+function canNodeBeManualConnectionSource(nodeId: string | null | undefined, nodes: CanvasNode[]): boolean {
+  if (!nodeId) {
+    return false;
+  }
+  const node = nodes.find((item) => item.id === nodeId);
+  return node ? canNodeTypeBeManualConnectionSource(node.type) : false;
 }
 
 function getClientPosition(event: MouseEvent | TouchEvent): { x: number; y: number } | null {
@@ -113,6 +190,15 @@ export function Canvas() {
 
   const isRestoringCanvasRef = useRef(true);
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const copiedSnapshotRef = useRef<ClipboardSnapshot | null>(null);
+  const pasteIterationRef = useRef(0);
+  const duplicateNodesRef = useRef<((sourceNodeIds: string[]) => string | null) | null>(null);
+  const altDragCopyRef = useRef<{
+    sourceNodeIds: string[];
+    startPositions: Map<string, { x: number; y: number }>;
+    copiedNodeIds: string[];
+    sourceToCopyIdMap: Map<string, string>;
+  } | null>(null);
 
   const nodes = useCanvasStore((state) => state.nodes);
   const edges = useCanvasStore((state) => state.edges);
@@ -130,6 +216,8 @@ export function Canvas() {
   const redo = useCanvasStore((state) => state.redo);
   const openToolDialog = useCanvasStore((state) => state.openToolDialog);
   const closeToolDialog = useCanvasStore((state) => state.closeToolDialog);
+  const setViewportState = useCanvasStore((state) => state.setViewportState);
+  const setCanvasViewportSize = useCanvasStore((state) => state.setCanvasViewportSize);
 
   const getCurrentProject = useProjectStore((state) => state.getCurrentProject);
   const saveCurrentProject = useProjectStore((state) => state.saveCurrentProject);
@@ -192,9 +280,12 @@ export function Canvas() {
     const project = getCurrentProject();
     if (project) {
       setCanvasData(project.nodes, project.edges, project.history);
+      setViewportState(project.viewport ?? DEFAULT_VIEWPORT);
       requestAnimationFrame(() => {
         reactFlowInstance.setViewport(project.viewport ?? DEFAULT_VIEWPORT, { duration: 0 });
       });
+    } else {
+      setViewportState(DEFAULT_VIEWPORT);
     }
     const restoreTimer = setTimeout(() => {
       isRestoringCanvasRef.current = false;
@@ -208,7 +299,30 @@ export function Canvas() {
       }
       persistCanvasSnapshot();
     };
-  }, [getCurrentProject, persistCanvasSnapshot, reactFlowInstance, setCanvasData]);
+  }, [getCurrentProject, persistCanvasSnapshot, reactFlowInstance, setCanvasData, setViewportState]);
+
+  useEffect(() => {
+    const element = wrapperRef.current;
+    if (!element) {
+      return;
+    }
+
+    const updateSize = () => {
+      const rect = element.getBoundingClientRect();
+      setCanvasViewportSize({
+        width: Math.max(0, Math.round(rect.width)),
+        height: Math.max(0, Math.round(rect.height)),
+      });
+    };
+
+    updateSize();
+    const observer = new ResizeObserver(updateSize);
+    observer.observe(element);
+
+    return () => {
+      observer.disconnect();
+    };
+  }, [setCanvasViewportSize]);
 
   const handleNodesChange = useCallback(
     (changes: NodeChange<CanvasNode>[]) => {
@@ -265,21 +379,32 @@ export function Canvas() {
 
   const handleConnect = useCallback(
     (connection: Connection) => {
+      if (!canNodeBeManualConnectionSource(connection.source, nodes)) {
+        return;
+      }
       connectNodes(connection);
       scheduleCanvasPersist(0);
     },
-    [connectNodes, scheduleCanvasPersist]
+    [connectNodes, nodes, scheduleCanvasPersist]
   );
 
   const handleMoveEnd = useCallback(
     (_event: unknown, viewport: Viewport) => {
+      setViewportState(viewport);
       const project = getCurrentProject();
       if (!project || isRestoringCanvasRef.current) {
         return;
       }
       saveCurrentProjectViewport(viewport);
     },
-    [getCurrentProject, saveCurrentProjectViewport]
+    [getCurrentProject, saveCurrentProjectViewport, setViewportState]
+  );
+
+  const handleMove = useCallback(
+    (_event: unknown, viewport: Viewport) => {
+      setViewportState(viewport);
+    },
+    [setViewportState]
   );
 
   const handleMoveStart = useCallback(() => {
@@ -324,6 +449,32 @@ export function Canvas() {
       const isUndo = commandPressed && key === 'z' && !event.shiftKey;
       const isRedo = commandPressed && (key === 'y' || (key === 'z' && event.shiftKey));
       const isGroup = commandPressed && key === 'g';
+      const isCopy = commandPressed && key === 'c' && !event.shiftKey;
+      const isPaste = commandPressed && key === 'v' && !event.shiftKey;
+
+      if (isCopy) {
+        if (selectedNodeIds.length === 0) {
+          return;
+        }
+        event.preventDefault();
+        const selectedIdSet = new Set(selectedNodeIds);
+        copiedSnapshotRef.current = {
+          nodes: nodes.filter((node) => selectedIdSet.has(node.id)),
+          edges: edges.filter(
+            (edge) => selectedIdSet.has(edge.source) && selectedIdSet.has(edge.target)
+          ),
+        };
+        return;
+      }
+
+      if (isPaste) {
+        if (!copiedSnapshotRef.current || copiedSnapshotRef.current.nodes.length === 0) {
+          return;
+        }
+        event.preventDefault();
+        void duplicateNodesRef.current?.(copiedSnapshotRef.current.nodes.map((node) => node.id));
+        return;
+      }
 
       if (isUndo || isRedo) {
         event.preventDefault();
@@ -373,6 +524,8 @@ export function Canvas() {
       document.removeEventListener('keydown', handleKeyDown);
     };
   }, [
+    edges,
+    nodes,
     selectedNodeId,
     selectedNodeIds,
     deleteNode,
@@ -431,15 +584,15 @@ export function Canvas() {
           connectNodes({
             source: pendingConnectStart.nodeId,
             target: newNodeId,
-            sourceHandle: null,
-            targetHandle: null,
+            sourceHandle: 'source',
+            targetHandle: 'target',
           });
         } else {
           connectNodes({
             source: newNodeId,
             target: pendingConnectStart.nodeId,
-            sourceHandle: null,
-            targetHandle: null,
+            sourceHandle: 'source',
+            targetHandle: 'target',
           });
         }
       }
@@ -460,8 +613,133 @@ export function Canvas() {
     ]
   );
 
+  const duplicateNodes = useCallback(
+    (sourceNodeIds: string[], options: DuplicateOptions = {}) => {
+      const dedupedIds = Array.from(new Set(sourceNodeIds));
+      if (dedupedIds.length === 0) {
+        return null as DuplicateResult | null;
+      }
+
+      const sourceNodes = nodes.filter((node) => dedupedIds.includes(node.id));
+      if (sourceNodes.length === 0) {
+        return null as DuplicateResult | null;
+      }
+
+      const sourceIdSet = new Set(sourceNodes.map((node) => node.id));
+      const internalEdges = edges.filter(
+        (edge) => sourceIdSet.has(edge.source) && sourceIdSet.has(edge.target)
+      );
+
+      const baseOffsets = [
+        { x: 44, y: 30 },
+        { x: 72, y: 8 },
+        { x: 18, y: 68 },
+        { x: 96, y: 42 },
+      ];
+      const existingNodes = useCanvasStore.getState().nodes;
+      const ignoreNodeIds = new Set<string>();
+      const offsetStep = options.disableOffsetIteration ? 0 : pasteIterationRef.current;
+      let chosenOffset = options.explicitOffset ?? baseOffsets[0];
+
+      const isOffsetAvailable = (offset: { x: number; y: number }) => sourceNodes.every((node) => {
+        const size = getNodeSize(node);
+        return !hasRectCollision(
+          {
+            x: node.position.x + offset.x + offsetStep * 8,
+            y: node.position.y + offset.y + offsetStep * 6,
+            width: size.width,
+            height: size.height,
+          },
+          existingNodes,
+          ignoreNodeIds
+        );
+      });
+
+      if (!options.explicitOffset) {
+        const matchedBaseOffset = baseOffsets.find((offset) => isOffsetAvailable(offset));
+        if (matchedBaseOffset) {
+          chosenOffset = matchedBaseOffset;
+        } else {
+          const maxStep = 16;
+          for (let step = 1; step <= maxStep; step += 1) {
+            const candidate = { x: 24 + step * 26, y: 16 + step * 18 };
+            if (isOffsetAvailable(candidate)) {
+              chosenOffset = candidate;
+              break;
+            }
+          }
+        }
+      }
+
+      const idMap = new Map<string, string>();
+      const sizeMap = new Map<string, { width: number; height: number }>();
+      for (const sourceNode of sourceNodes) {
+        const data = cloneNodeData(sourceNode.data);
+        if ('isGenerating' in (data as Record<string, unknown>)) {
+          (data as { isGenerating?: boolean }).isGenerating = false;
+        }
+        if ('generationStartedAt' in (data as Record<string, unknown>)) {
+          (data as { generationStartedAt?: number | null }).generationStartedAt = null;
+        }
+
+        const nextNodeId = addNode(
+          sourceNode.type as CanvasNodeType,
+          {
+            x: sourceNode.position.x + chosenOffset.x + offsetStep * 8,
+            y: sourceNode.position.y + chosenOffset.y + offsetStep * 6,
+          },
+          { ...data }
+        );
+        idMap.set(sourceNode.id, nextNodeId);
+        sizeMap.set(nextNodeId, getNodeSize(sourceNode));
+      }
+
+      const sizeSyncChanges = Array.from(sizeMap.entries()).map(([nodeId, size]) => ({
+        id: nodeId,
+        type: 'dimensions' as const,
+        dimensions: { width: size.width, height: size.height },
+        resizing: false,
+        setAttributes: true,
+      }));
+      if (sizeSyncChanges.length > 0) {
+        applyNodesChange(sizeSyncChanges);
+      }
+
+      for (const edge of internalEdges) {
+        const nextSource = idMap.get(edge.source);
+        const nextTarget = idMap.get(edge.target);
+        if (!nextSource || !nextTarget) {
+          continue;
+        }
+        connectNodes({
+          source: nextSource,
+          target: nextTarget,
+          sourceHandle: edge.sourceHandle ?? 'source',
+          targetHandle: edge.targetHandle ?? 'target',
+        });
+      }
+
+      if (!options.disableOffsetIteration) {
+        pasteIterationRef.current += 1;
+      }
+      const firstNodeId = idMap.get(sourceNodes[0].id) ?? null;
+      if (firstNodeId && !options.suppressSelect) {
+        setSelectedNode(firstNodeId);
+      }
+      if (!options.suppressPersist) {
+        scheduleCanvasPersist(0);
+      }
+      return { firstNodeId, idMap };
+    },
+    [addNode, applyNodesChange, connectNodes, edges, nodes, scheduleCanvasPersist, setSelectedNode]
+  );
+
+  useEffect(() => {
+    duplicateNodesRef.current = (sourceNodeIds: string[]) => duplicateNodes(sourceNodeIds)?.firstNodeId ?? null;
+  }, [duplicateNodes]);
+
   const handleConnectStart = useCallback(
-    (_event: MouseEvent | TouchEvent, params: OnConnectStartParams) => {
+    (event: MouseEvent | TouchEvent, params: OnConnectStartParams) => {
       setShowNodeMenu(false);
       setMenuAllowedTypes(undefined);
       setPreviewConnectionVisual(null);
@@ -471,12 +749,250 @@ export function Canvas() {
         return;
       }
 
+      if (
+        params.handleType === 'source'
+        && !canNodeBeManualConnectionSource(params.nodeId, nodes)
+      ) {
+        setPendingConnectStart(null);
+        return;
+      }
+
+      const containerRect = wrapperRef.current?.getBoundingClientRect();
+      const eventTarget = event.target as Element | null;
+      const handleElement = eventTarget?.closest?.('.react-flow__handle') as HTMLElement | null;
+      const clientPosition = getClientPosition(event);
+      let start: { x: number; y: number } | undefined;
+      if (containerRect && handleElement) {
+        const handleRect = handleElement.getBoundingClientRect();
+        start = {
+          x: handleRect.left - containerRect.left + handleRect.width / 2,
+          y: handleRect.top - containerRect.top + handleRect.height / 2,
+        };
+      } else if (containerRect && clientPosition) {
+        start = {
+          x: clientPosition.x - containerRect.left,
+          y: clientPosition.y - containerRect.top,
+        };
+      }
+
       setPendingConnectStart({
         nodeId: params.nodeId,
         handleType: params.handleType,
+        start,
       });
     },
-    []
+    [nodes]
+  );
+
+  const handleNodeDragStart = useCallback(
+    (event: ReactMouseEvent, node: CanvasNode) => {
+      if (!event.altKey) {
+        altDragCopyRef.current = null;
+        return;
+      }
+
+      const sourceNodeIds = selectedNodeIds.includes(node.id)
+        ? selectedNodeIds
+        : [node.id];
+      if (sourceNodeIds.length === 0) {
+        altDragCopyRef.current = null;
+        return;
+      }
+      const startPositions = new Map<string, { x: number; y: number }>();
+      for (const sourceNodeId of sourceNodeIds) {
+        const sourceNode = nodes.find((item) => item.id === sourceNodeId);
+        if (!sourceNode) {
+          continue;
+        }
+        startPositions.set(sourceNodeId, {
+          x: sourceNode.position.x,
+          y: sourceNode.position.y,
+        });
+      }
+      if (startPositions.size === 0) {
+        altDragCopyRef.current = null;
+        return;
+      }
+
+      const duplicateResult = duplicateNodes(sourceNodeIds, {
+        explicitOffset: { x: 0, y: 0 },
+        disableOffsetIteration: true,
+        suppressPersist: true,
+        suppressSelect: true,
+      });
+      if (!duplicateResult) {
+        altDragCopyRef.current = null;
+        return;
+      }
+
+      const copiedNodeIds = sourceNodeIds
+        .map((sourceId) => duplicateResult.idMap.get(sourceId))
+        .filter((id): id is string => Boolean(id));
+      if (copiedNodeIds.length === 0) {
+        altDragCopyRef.current = null;
+        return;
+      }
+
+      // Keep the duplicated nodes visually above the original dragged node.
+      useCanvasStore.setState((state) => ({
+        nodes: state.nodes.map((currentNode) => {
+          if (!copiedNodeIds.includes(currentNode.id)) {
+            return currentNode;
+          }
+          return {
+            ...currentNode,
+            zIndex: ALT_DRAG_COPY_Z_INDEX,
+            style: {
+              ...(currentNode.style ?? {}),
+              zIndex: ALT_DRAG_COPY_Z_INDEX,
+            },
+          };
+        }),
+      }));
+
+      altDragCopyRef.current = {
+        sourceNodeIds,
+        startPositions,
+        copiedNodeIds,
+        sourceToCopyIdMap: duplicateResult.idMap,
+      };
+    },
+    [duplicateNodes, nodes, selectedNodeIds]
+  );
+
+  const handleNodeDrag = useCallback(
+    (_event: ReactMouseEvent, node: CanvasNode) => {
+      const altCopyState = altDragCopyRef.current;
+      if (!altCopyState) {
+        return;
+      }
+
+      const startPosition = altCopyState.startPositions.get(node.id);
+      if (!startPosition) {
+        return;
+      }
+
+      const deltaX = node.position.x - startPosition.x;
+      const deltaY = node.position.y - startPosition.y;
+
+      const restoreSourceChanges = altCopyState.sourceNodeIds
+        .map((sourceId) => {
+          const sourceStart = altCopyState.startPositions.get(sourceId);
+          if (!sourceStart) {
+            return null;
+          }
+          return {
+            id: sourceId,
+            type: 'position' as const,
+            position: sourceStart,
+            dragging: true,
+          };
+        })
+        .filter((change): change is {
+          id: string;
+          type: 'position';
+          position: { x: number; y: number };
+          dragging: true;
+        } => Boolean(change));
+
+      const moveCopyChanges = altCopyState.sourceNodeIds
+        .map((sourceId) => {
+          const sourceStart = altCopyState.startPositions.get(sourceId);
+          const copyId = altCopyState.sourceToCopyIdMap.get(sourceId);
+          if (!sourceStart || !copyId) {
+            return null;
+          }
+          return {
+            id: copyId,
+            type: 'position' as const,
+            position: { x: sourceStart.x + deltaX, y: sourceStart.y + deltaY },
+            dragging: true,
+          };
+        })
+        .filter((change): change is {
+          id: string;
+          type: 'position';
+          position: { x: number; y: number };
+          dragging: true;
+        } => Boolean(change));
+
+      const allChanges = [...restoreSourceChanges, ...moveCopyChanges];
+      if (allChanges.length > 0) {
+        applyNodesChange(allChanges);
+      }
+    },
+    [applyNodesChange]
+  );
+
+  const handleNodeDragStop = useCallback(
+    (_event: ReactMouseEvent, node: CanvasNode) => {
+      const altCopyState = altDragCopyRef.current;
+      if (!altCopyState) {
+        return;
+      }
+      altDragCopyRef.current = null;
+
+      const startPosition = altCopyState.startPositions.get(node.id);
+      if (!startPosition) {
+        return;
+      }
+
+      const offset = {
+        x: node.position.x - startPosition.x,
+        y: node.position.y - startPosition.y,
+      };
+
+      const restoreSourceChanges = altCopyState.sourceNodeIds
+        .map((sourceId) => {
+          const sourceStart = altCopyState.startPositions.get(sourceId);
+          if (!sourceStart) {
+            return null;
+          }
+          return {
+            id: sourceId,
+            type: 'position' as const,
+            position: sourceStart,
+            dragging: false,
+          };
+        })
+        .filter((change): change is {
+          id: string;
+          type: 'position';
+          position: { x: number; y: number };
+          dragging: false;
+        } => Boolean(change));
+
+      const finalizeCopyChanges = altCopyState.sourceNodeIds
+        .map((sourceId) => {
+          const sourceStart = altCopyState.startPositions.get(sourceId);
+          const copyId = altCopyState.sourceToCopyIdMap.get(sourceId);
+          if (!sourceStart || !copyId) {
+            return null;
+          }
+          return {
+            id: copyId,
+            type: 'position' as const,
+            position: { x: sourceStart.x + offset.x, y: sourceStart.y + offset.y },
+            dragging: false,
+          };
+        })
+        .filter((change): change is {
+          id: string;
+          type: 'position';
+          position: { x: number; y: number };
+          dragging: false;
+        } => Boolean(change));
+
+      const allChanges = [...restoreSourceChanges, ...finalizeCopyChanges];
+      if (allChanges.length > 0) {
+        applyNodesChange(allChanges);
+      }
+      if (altCopyState.copiedNodeIds.length > 0) {
+        setSelectedNode(altCopyState.copiedNodeIds[0]);
+      }
+      scheduleCanvasPersist(0);
+    },
+    [applyNodesChange, scheduleCanvasPersist, setSelectedNode]
   );
 
   const handleConnectEnd = useCallback(
@@ -495,6 +1011,43 @@ export function Canvas() {
         return;
       }
 
+      const eventTarget = event.target as Element | null;
+      const nodeElementFromTarget = eventTarget?.closest?.('.react-flow__node[data-id]') as HTMLElement | null;
+      const nodeElementFromPoint = document.elementFromPoint(clientPosition.x, clientPosition.y)
+        ?.closest?.('.react-flow__node[data-id]') as HTMLElement | null;
+      const dropNodeElement = nodeElementFromTarget ?? nodeElementFromPoint;
+      const dropNodeId = dropNodeElement?.dataset?.id ?? null;
+
+      if (dropNodeId && dropNodeId !== pendingConnectStart.nodeId) {
+        const sourceNode =
+          pendingConnectStart.handleType === 'source'
+            ? nodes.find((node) => node.id === pendingConnectStart.nodeId)
+            : nodes.find((node) => node.id === dropNodeId);
+        const targetNode =
+          pendingConnectStart.handleType === 'source'
+            ? nodes.find((node) => node.id === dropNodeId)
+            : nodes.find((node) => node.id === pendingConnectStart.nodeId);
+
+        if (
+          sourceNode &&
+          targetNode &&
+          canNodeTypeBeManualConnectionSource(sourceNode.type) &&
+          nodeHasSourceHandle(sourceNode.type) &&
+          nodeHasTargetHandle(targetNode.type)
+        ) {
+          connectNodes({
+            source: sourceNode.id,
+            target: targetNode.id,
+            sourceHandle: 'source',
+            targetHandle: 'target',
+          });
+          scheduleCanvasPersist(0);
+          setPendingConnectStart(null);
+          setPreviewConnectionVisual(null);
+          return;
+        }
+      }
+
       const allowedTypes = resolveAllowedNodeTypes(pendingConnectStart.handleType);
       if (allowedTypes.length === 0) {
         setPendingConnectStart(null);
@@ -504,29 +1057,31 @@ export function Canvas() {
 
       const endX = clientPosition.x - containerRect.left;
       const endY = clientPosition.y - containerRect.top;
-      let startX: number | null = null;
-      let startY: number | null = null;
+      let startX: number | null = pendingConnectStart.start?.x ?? null;
+      let startY: number | null = pendingConnectStart.start?.y ?? null;
 
-      const nodeElement = wrapperRef.current?.querySelector<HTMLElement>(
-        `.react-flow__node[data-id="${pendingConnectStart.nodeId}"]`
-      );
-      const handleElement = nodeElement?.querySelector<HTMLElement>(
-        `.react-flow__handle-${pendingConnectStart.handleType}`
-      );
-      if (handleElement) {
-        const handleRect = handleElement.getBoundingClientRect();
-        startX = handleRect.left - containerRect.left + handleRect.width / 2;
-        startY = handleRect.top - containerRect.top + handleRect.height / 2;
-      } else if (nodeElement) {
-        const nodeRect = nodeElement.getBoundingClientRect();
-        startX =
-          pendingConnectStart.handleType === 'source'
-            ? nodeRect.right - containerRect.left
-            : nodeRect.left - containerRect.left;
-        startY = nodeRect.top - containerRect.top + nodeRect.height / 2;
-      } else if (connectionState.from) {
-        startX = connectionState.from.x;
-        startY = connectionState.from.y;
+      if (startX === null || startY === null) {
+        const nodeElement = wrapperRef.current?.querySelector<HTMLElement>(
+          `.react-flow__node[data-id="${pendingConnectStart.nodeId}"]`
+        );
+        const handleElement = nodeElement?.querySelector<HTMLElement>(
+          `.react-flow__handle-${pendingConnectStart.handleType}`
+        );
+        if (handleElement) {
+          const handleRect = handleElement.getBoundingClientRect();
+          startX = handleRect.left - containerRect.left + handleRect.width / 2;
+          startY = handleRect.top - containerRect.top + handleRect.height / 2;
+        } else if (nodeElement) {
+          const nodeRect = nodeElement.getBoundingClientRect();
+          startX =
+            pendingConnectStart.handleType === 'source'
+              ? nodeRect.right - containerRect.left
+              : nodeRect.left - containerRect.left;
+          startY = nodeRect.top - containerRect.top + nodeRect.height / 2;
+        } else if (connectionState.from) {
+          startX = connectionState.from.x;
+          startY = connectionState.from.y;
+        }
       }
 
       if (startX === null || startY === null) {
@@ -558,7 +1113,7 @@ export function Canvas() {
       suppressNextPaneClickRef.current = true;
       setShowNodeMenu(true);
     },
-    [pendingConnectStart, reactFlowInstance]
+    [connectNodes, nodes, pendingConnectStart, reactFlowInstance, scheduleCanvasPersist]
   );
 
   const emptyHint = useMemo(
@@ -583,7 +1138,11 @@ export function Canvas() {
         onConnect={handleConnect}
         onConnectStart={handleConnectStart}
         onConnectEnd={handleConnectEnd}
+        onNodeDragStart={handleNodeDragStart}
+        onNodeDrag={handleNodeDrag}
+        onNodeDragStop={handleNodeDragStop}
         onPaneClick={handlePaneClick}
+        onMove={handleMove}
         onMoveStart={handleMoveStart}
         onMoveEnd={handleMoveEnd}
         nodeTypes={nodeTypes}

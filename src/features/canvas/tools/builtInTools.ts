@@ -68,7 +68,7 @@ export const splitStoryboardToolPlugin: CanvasToolPlugin = {
   createInitialOptions: () => ({
     rows: 3,
     cols: 3,
-    lineThickness: 6,
+    lineThicknessPercent: 0.5,
   }),
   fields: [],
   execute: async (sourceImageUrl, options, context) =>

@@ -1,5 +1,5 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { NodeToolbar as ReactFlowNodeToolbar, Position } from '@xyflow/react';
+import { NodeToolbar as ReactFlowNodeToolbar } from '@xyflow/react';
 import { Copy, Crop, Download, FolderOpen, PenLine, RefreshCw, Scissors, Trash2, Unlink2 } from 'lucide-react';
 import { save } from '@tauri-apps/plugin-dialog';
 
@@ -7,6 +7,8 @@ import {
   isExportImageNode,
   isGroupNode,
   isImageEditNode,
+  isStoryboardGenNode,
+  isStoryboardSplitNode,
   isUploadNode,
   type CanvasNode,
 } from '@/features/canvas/domain/canvasNodes';
@@ -21,6 +23,12 @@ import {
 } from '@/commands/image';
 import { useSettingsStore } from '@/stores/settingsStore';
 import { useCanvasStore } from '@/stores/canvasStore';
+import {
+  NODE_TOOLBAR_ALIGN,
+  NODE_TOOLBAR_CLASS,
+  NODE_TOOLBAR_OFFSET,
+  NODE_TOOLBAR_POSITION,
+} from './nodeToolbarConfig';
 
 interface NodeActionToolbarProps {
   node: CanvasNode;
@@ -37,6 +45,10 @@ const TOOLBAR_NEUTRAL_BUTTON_CLASS =
   'border-[rgba(255,255,255,0.18)] bg-bg-dark/70 text-text-dark hover:border-[rgba(255,255,255,0.32)] hover:bg-bg-dark';
 
 export const NodeActionToolbar = memo(({ node }: NodeActionToolbarProps) => {
+  const isImageEdit = isImageEditNode(node);
+  const isStoryboardGen = isStoryboardGenNode(node);
+  const isStoryboardSplit = isStoryboardSplitNode(node);
+  const canCopyStoryboardText = isStoryboardGen || isStoryboardSplit;
   const tools = useMemo(() => getNodeToolPlugins(node), [node]);
   const deleteNode = useCanvasStore((state) => state.deleteNode);
   const ungroupNode = useCanvasStore((state) => state.ungroupNode);
@@ -44,8 +56,10 @@ export const NodeActionToolbar = memo(({ node }: NodeActionToolbarProps) => {
   const downloadPresetPaths = useSettingsStore((state) => state.downloadPresetPaths);
   const [downloadMenu, setDownloadMenu] = useState<{ x: number; y: number } | null>(null);
   const [isCopySuccess, setIsCopySuccess] = useState(false);
+  const [isCopyTextSuccess, setIsCopyTextSuccess] = useState(false);
   const downloadMenuRef = useRef<HTMLDivElement | null>(null);
   const copyFeedbackTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const copyTextFeedbackTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const imageSource = useMemo(() => {
     if (isUploadNode(node) || isImageEditNode(node) || isExportImageNode(node)) {
       return node.data.imageUrl || node.data.previewImageUrl || null;
@@ -82,6 +96,9 @@ export const NodeActionToolbar = memo(({ node }: NodeActionToolbarProps) => {
       if (copyFeedbackTimerRef.current) {
         clearTimeout(copyFeedbackTimerRef.current);
       }
+      if (copyTextFeedbackTimerRef.current) {
+        clearTimeout(copyTextFeedbackTimerRef.current);
+      }
     };
   }, []);
 
@@ -105,6 +122,42 @@ export const NodeActionToolbar = memo(({ node }: NodeActionToolbarProps) => {
       console.error('Failed to copy image to clipboard', error);
     }
   }, [imageSource]);
+
+  const storyboardText = useMemo(() => {
+    if (isStoryboardGen) {
+      return node.data.frames
+        .map((frame, index) => `分镜 ${String(index + 1).padStart(2, '0')}：${frame.description?.trim() ?? ''}`)
+        .join('\n');
+    }
+    if (isStoryboardSplit) {
+      const orderedFrames = [...node.data.frames].sort((a, b) => a.order - b.order);
+      return orderedFrames
+        .map((frame, index) => `分镜 ${String(index + 1).padStart(2, '0')}：${frame.note?.trim() ?? ''}`)
+        .join('\n');
+    }
+    return '';
+  }, [isStoryboardGen, isStoryboardSplit, node]);
+
+  const handleCopyStoryboardText = useCallback(async () => {
+    if (!storyboardText) {
+      return;
+    }
+
+    setIsCopyTextSuccess(true);
+    if (copyTextFeedbackTimerRef.current) {
+      clearTimeout(copyTextFeedbackTimerRef.current);
+    }
+    copyTextFeedbackTimerRef.current = setTimeout(() => {
+      setIsCopyTextSuccess(false);
+      copyTextFeedbackTimerRef.current = null;
+    }, 1100);
+
+    try {
+      await navigator.clipboard.writeText(storyboardText);
+    } catch (error) {
+      console.error('Failed to copy storyboard text', error);
+    }
+  }, [storyboardText]);
 
   const handleDownloadSaveAs = useCallback(async () => {
     if (!imageSource) {
@@ -144,13 +197,13 @@ export const NodeActionToolbar = memo(({ node }: NodeActionToolbarProps) => {
     <ReactFlowNodeToolbar
       nodeId={node.id}
       isVisible
-      position={Position.Top}
-      align="center"
-      offset={25}
-      className="pointer-events-auto"
+      position={NODE_TOOLBAR_POSITION}
+      align={NODE_TOOLBAR_ALIGN}
+      offset={NODE_TOOLBAR_OFFSET}
+      className={NODE_TOOLBAR_CLASS}
     >
       <UiPanel className="flex items-center gap-1 rounded-full p-1">
-        {tools.map((tool) => {
+        {!isImageEdit && tools.map((tool) => {
           const Icon = toolIconMap[tool.icon] ?? Crop;
 
           return (
@@ -169,7 +222,7 @@ export const NodeActionToolbar = memo(({ node }: NodeActionToolbarProps) => {
             </UiChipButton>
           );
         })}
-        {canReupload && (
+        {!isImageEdit && canReupload && (
           <UiChipButton
             key="upload-reupload"
             className={`h-8 ${TOOLBAR_BUTTON_RADIUS_CLASS} px-2.5 text-xs ${TOOLBAR_NEUTRAL_BUTTON_CLASS}`}
@@ -183,7 +236,7 @@ export const NodeActionToolbar = memo(({ node }: NodeActionToolbarProps) => {
             重新上传
           </UiChipButton>
         )}
-        {canHandleImage && (
+        {!isImageEdit && canHandleImage && (
           <UiChipButton
             key="image-copy"
             className={`h-8 ${TOOLBAR_BUTTON_RADIUS_CLASS} px-2.5 text-xs ${TOOLBAR_NEUTRAL_BUTTON_CLASS} ${
@@ -199,7 +252,23 @@ export const NodeActionToolbar = memo(({ node }: NodeActionToolbarProps) => {
             复制
           </UiChipButton>
         )}
-        {canHandleImage && (
+        {!isImageEdit && canCopyStoryboardText && (
+          <UiChipButton
+            key="storyboard-text-copy"
+            className={`h-8 ${TOOLBAR_BUTTON_RADIUS_CLASS} px-2.5 text-xs ${TOOLBAR_NEUTRAL_BUTTON_CLASS} ${
+              isCopyTextSuccess
+                ? '!border-emerald-400/70 !bg-emerald-500/20 !text-emerald-200 hover:!bg-emerald-500/30'
+                : ''
+            }`}
+            onClick={() => {
+              void handleCopyStoryboardText();
+            }}
+          >
+            <Copy className="h-3.5 w-3.5" />
+            复制文本
+          </UiChipButton>
+        )}
+        {!isImageEdit && canHandleImage && (
           <UiChipButton
             key="image-download"
             className={`h-8 ${TOOLBAR_BUTTON_RADIUS_CLASS} px-2.5 text-xs ${TOOLBAR_NEUTRAL_BUTTON_CLASS}`}
@@ -219,7 +288,7 @@ export const NodeActionToolbar = memo(({ node }: NodeActionToolbarProps) => {
             下载
           </UiChipButton>
         )}
-        {isGroupNode(node) && (
+        {!isImageEdit && isGroupNode(node) && (
           <UiChipButton
             key="group-ungroup"
             className={`h-8 ${TOOLBAR_BUTTON_RADIUS_CLASS} px-2.5 text-xs ${TOOLBAR_NEUTRAL_BUTTON_CLASS} hover:!border-amber-400/60 hover:!bg-amber-500/20 hover:!text-amber-200`}
@@ -247,7 +316,7 @@ export const NodeActionToolbar = memo(({ node }: NodeActionToolbarProps) => {
         </UiChipButton>
       </UiPanel>
 
-      {downloadMenu && (
+      {!isImageEdit && downloadMenu && (
         <div
           ref={downloadMenuRef}
           className="fixed z-[120] min-w-[280px] rounded-xl border border-[rgba(255,255,255,0.18)] bg-surface-dark/95 p-2 shadow-2xl backdrop-blur-sm"

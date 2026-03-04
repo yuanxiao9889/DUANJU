@@ -135,7 +135,11 @@ export function NodeHeader({
   const resolvedTitle = useMemo(() => {
     if (!canEditTitle) {
       if (titleText) {
-        return <span className={joinClasses(NODE_HEADER_TITLE_CLASS, tone, titleClassName)}>{titleText}</span>;
+        return (
+          <span className={joinClasses('cursor-grab select-none active:cursor-grabbing', NODE_HEADER_TITLE_CLASS, tone, titleClassName)}>
+            {titleText}
+          </span>
+        );
       }
       return title;
     }
@@ -173,13 +177,12 @@ export function NodeHeader({
       <button
         type="button"
         className={joinClasses(
-          'nodrag inline-flex cursor-text items-center rounded px-0 text-left',
+          'inline-flex cursor-grab select-none items-center rounded px-0 text-left active:cursor-grabbing',
           NODE_HEADER_TITLE_CLASS,
           tone,
           titleClassName
         )}
         title={titleText}
-        onPointerDown={(event) => event.stopPropagation()}
         onClick={(event) => event.stopPropagation()}
         onDoubleClick={(event) => {
           event.stopPropagation();

@@ -24,11 +24,13 @@
 
 3. 节点与覆盖层
 - `src/features/canvas/nodes/*.tsx`
+- `src/features/canvas/nodes/ImageEditNode.tsx`
 - `src/features/canvas/nodes/GroupNode.tsx`
 - `src/features/canvas/ui/SelectedNodeOverlay.tsx`
-- `src/features/canvas/ui/NodePromptInput.tsx`
 - `src/features/canvas/ui/NodeActionToolbar.tsx`
 - `src/features/canvas/ui/NodeToolDialog.tsx`
+- `src/features/canvas/ui/nodeControlStyles.ts`
+- `src/features/canvas/ui/nodeToolbarConfig.ts`
 
 4. 工具体系（重点）
 - `src/features/canvas/tools/types.ts`
@@ -108,6 +110,9 @@
 - 复用统一 UI 组件：`src/components/ui/primitives.tsx`。
 - 风格统一使用设计变量和 token（`index.css`），避免散落硬编码样式。
 - 输入框、工具条、弹窗保持与节点对齐，交互动画保持一致。
+- 节点底部控制条（模型/比例/生成/导出等）尺寸样式统一从 `src/features/canvas/ui/nodeControlStyles.ts` 引用，禁止在各节点散落硬编码一套新尺寸。
+- 节点工具条（NodeToolbar）位置、对齐、偏移统一从 `src/features/canvas/ui/nodeToolbarConfig.ts` 引用；禁止通过 `left/translate` 等绝对定位覆盖跟随逻辑。
+- 选中覆盖层 `SelectedNodeOverlay` 只承载轻量通用覆盖能力（如工具条），节点核心业务输入区应内聚到节点组件本体（例如 `ImageEditNode`）。
 - 对话框支持“打开/关闭”过渡，避免突兀闪烁。
 - 明暗主题要可读，避免高饱和蓝色抢占焦点（导航图已优化为灰黑系）。
 - 快捷键应避开输入态（`input/textarea/contentEditable`）避免误触。
@@ -185,6 +190,10 @@ npm run build
    - 可手动创建：配置 `connectMenu.fromSource/fromTarget`。
    - 仅流程创建：关闭 `connectMenu`，由工具/应用服务触发。
 5. 如新增分组/父子节点行为，必须同步验证删除、解组、连线清理与历史快照。
+6. 节点内控制条优先复用 `nodeControlStyles.ts` 里的统一尺寸 token；若需特化，基于统一 token 小幅覆盖，不新建一整套尺寸体系。
+7. 节点工具条必须复用 `nodeToolbarConfig.ts`，并验证两点：
+   - 拖拽节点时工具条随节点同步移动。
+   - 多种节点尺寸下工具条仍保持相对居中（不出现固定在画布某处的情况）。
 
 ## 9. 持久化规范
 

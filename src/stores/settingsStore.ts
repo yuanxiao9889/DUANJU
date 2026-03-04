@@ -19,7 +19,7 @@ export const useSettingsStore = create<SettingsState>()(
     (set) => ({
       apiKey: '',
       downloadPresetPaths: [],
-      useUploadFilenameAsNodeTitle: false,
+      useUploadFilenameAsNodeTitle: true,
       storyboardGenKeepStyleConsistent: true,
       storyboardGenDisableTextInImage: true,
       setApiKey: (apiKey) => set({ apiKey }),

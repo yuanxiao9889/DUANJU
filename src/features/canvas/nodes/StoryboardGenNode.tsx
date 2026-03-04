@@ -8,8 +8,8 @@ import {
   useEffect,
   useRef,
 } from 'react';
-import { Handle, Position, useViewport } from '@xyflow/react';
-import { ArrowUp, Minus, Plus, Sparkles } from 'lucide-react';
+import { Handle, Position, useUpdateNodeInternals, useViewport } from '@xyflow/react';
+import { Minus, Plus, Sparkles } from 'lucide-react';
 import { embedStoryboardImageMetadata } from '@/commands/image';
 
 import {
@@ -45,6 +45,13 @@ import {
 } from '@/components/ui';
 import { NodeHeader, NODE_HEADER_FLOATING_POSITION_CLASS } from '@/features/canvas/ui/NodeHeader';
 import { NodeResizeHandle } from '@/features/canvas/ui/NodeResizeHandle';
+import {
+  NODE_CONTROL_CHIP_CLASS,
+  NODE_CONTROL_ICON_CLASS,
+  NODE_CONTROL_MODEL_CHIP_CLASS,
+  NODE_CONTROL_PARAMS_CHIP_CLASS,
+  NODE_CONTROL_PRIMARY_BUTTON_CLASS,
+} from '@/features/canvas/ui/nodeControlStyles';
 
 type StoryboardGenNodeProps = {
   id: string;
@@ -78,6 +85,8 @@ const STORYBOARD_GRID_BASE_CELL_HEIGHT_PX = 78;
 const STORYBOARD_GRID_MAX_WIDTH_PX = 320;
 const STORYBOARD_CONTROL_ROW_WIDTH_PX = 274;
 const STORYBOARD_PARAMS_ROW_WIDTH_PX = 286;
+const STORYBOARD_GEN_NODE_MIN_WIDTH_PX = 520;
+const STORYBOARD_GEN_NODE_MIN_HEIGHT_PX = 320;
 const STORYBOARD_GEN_HEADER_ADJUST = { x: 0, y: 0, scale: 1 };
 const STORYBOARD_GEN_ICON_ADJUST = { x: 0, y: 0, scale: 0.95 };
 const STORYBOARD_GEN_TITLE_ADJUST = { x: 0, y: 0, scale: 1 };
@@ -396,6 +405,7 @@ function generateGridImageDataUrl(
 
 export const StoryboardGenNode = memo(({ id, data, selected, width, height }: StoryboardGenNodeProps) => {
   const { zoom } = useViewport();
+  const updateNodeInternals = useUpdateNodeInternals();
   const setSelectedNode = useCanvasStore((state) => state.setSelectedNode);
   const nodes = useCanvasStore((state) => state.nodes);
   const edges = useCanvasStore((state) => state.edges);
@@ -497,14 +507,20 @@ export const StoryboardGenNode = memo(({ id, data, selected, width, height }: St
       STORYBOARD_PARAMS_ROW_WIDTH_PX,
       roundedGridWidth
     );
-    const nodeWidth = Math.round(nodeInnerWidth + STORYBOARD_NODE_HORIZONTAL_PADDING_PX);
-    const nodeHeight = Math.round(
+    const nodeWidth = Math.max(
+      STORYBOARD_GEN_NODE_MIN_WIDTH_PX,
+      Math.round(nodeInnerWidth + STORYBOARD_NODE_HORIZONTAL_PADDING_PX)
+    );
+    const nodeHeight = Math.max(
+      STORYBOARD_GEN_NODE_MIN_HEIGHT_PX,
+      Math.round(
       NODE_VERTICAL_PADDING_PX +
       CONTROL_ROW_HEIGHT_PX +
       CONTROL_ROW_MARGIN_BOTTOM_PX +
       roundedGridHeight +
       FRAME_GRID_MARGIN_BOTTOM_PX +
       PARAM_ROW_HEIGHT_PX
+      )
     );
 
     return {
@@ -568,6 +584,10 @@ export const StoryboardGenNode = memo(({ id, data, selected, width, height }: St
       cellAspectRatio: toCssAspectRatio(frameAspectRatioValue),
     };
   }, [frameAspectRatioValue, nodeData.gridCols, nodeData.gridRows, resolvedNodeHeight, resolvedNodeWidth]);
+
+  useEffect(() => {
+    updateNodeInternals(id);
+  }, [id, resolvedNodeHeight, resolvedNodeWidth, updateNodeInternals]);
 
   // Sync model, size, aspect ratio with node data
   useEffect(() => {
@@ -1054,7 +1074,7 @@ export const StoryboardGenNode = memo(({ id, data, selected, width, height }: St
                   activeFrameTextareaRef.current = event.currentTarget;
                   syncFrameHighlightScroll(frame.id);
                 }}
-                placeholder="..."
+                placeholder={`分镜 ${String(index + 1).padStart(2, '0')} 描述`}
                 wrap="soft"
                 className="ui-scrollbar nodrag nowheel relative z-10 h-full w-full resize-none overflow-y-auto overflow-x-hidden bg-transparent px-1.5 py-1 text-left text-[10px] leading-4 text-transparent caret-text-dark placeholder:text-text-muted/40 focus:border-accent/50 focus:outline-none whitespace-pre-wrap break-words"
               />
@@ -1117,9 +1137,9 @@ export const StoryboardGenNode = memo(({ id, data, selected, width, height }: St
             updateNodeData(id, { requestAspectRatio: aspectRatio })
           }
           triggerSize="sm"
-          chipClassName="!h-5 !gap-1 !rounded-md !px-1.5 !text-[11px]"
-          modelChipClassName="!w-[160px] !justify-start"
-          paramsChipClassName="!w-[78px] !justify-start"
+          chipClassName={NODE_CONTROL_CHIP_CLASS}
+          modelChipClassName={NODE_CONTROL_MODEL_CHIP_CLASS}
+          paramsChipClassName={NODE_CONTROL_PARAMS_CHIP_CLASS}
           modelPanelAlign="center"
           paramsPanelAlign="center"
           modelPanelClassName="w-[360px] p-2"
@@ -1130,19 +1150,22 @@ export const StoryboardGenNode = memo(({ id, data, selected, width, height }: St
           onClick={(e) => { e.stopPropagation(); handleGenerate(); }}
           variant="primary"
           size="sm"
-          className="!h-5 !w-5 !min-w-0 shrink-0 !rounded-md !p-0"
+          className={`!min-w-0 shrink-0 ${NODE_CONTROL_PRIMARY_BUTTON_CLASS}`}
         >
-          <ArrowUp className="h-2.5 w-2.5" strokeWidth={2.8} />
+          <Sparkles className={NODE_CONTROL_ICON_CLASS} strokeWidth={2.8} />
+          生成
         </UiButton>
       </div>
 
       <Handle
         type="target"
+        id="target"
         position={Position.Left}
         className="!h-2 !w-2 !border-surface-dark !bg-accent"
       />
       <Handle
         type="source"
+        id="source"
         position={Position.Right}
         className="!h-2 !w-2 !border-surface-dark !bg-accent"
       />

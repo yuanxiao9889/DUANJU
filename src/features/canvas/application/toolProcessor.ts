@@ -36,6 +36,7 @@ export class CanvasToolProcessor implements ToolProcessor {
         sourceImageUrl,
         Number(options.rows ?? metadata?.gridRows ?? 3),
         Number(options.cols ?? metadata?.gridCols ?? 3),
+        Number(options.lineThicknessPercent),
         Number(options.lineThickness ?? 0),
         metadata?.frameNotes
       );
@@ -209,16 +210,28 @@ export class CanvasToolProcessor implements ToolProcessor {
     sourceImage: string,
     rows: number,
     cols: number,
-    lineThickness: number,
+    lineThicknessPercent: number,
+    lineThicknessPxFallback: number,
     frameNotes?: string[]
   ): Promise<ToolProcessorResult> {
     const normalizedRows = Number.isFinite(rows) ? rows : 3;
     const normalizedCols = Number.isFinite(cols) ? cols : 3;
-    const normalizedLineThickness = Number.isFinite(lineThickness) ? lineThickness : 0;
+    const normalizedLineThicknessPercent = Number.isFinite(lineThicknessPercent)
+      ? lineThicknessPercent
+      : NaN;
+    const normalizedLineThicknessPxFallback = Number.isFinite(lineThicknessPxFallback)
+      ? lineThicknessPxFallback
+      : 0;
 
     const safeRows = Math.max(1, Math.floor(normalizedRows));
     const safeCols = Math.max(1, Math.floor(normalizedCols));
-    const safeLineThickness = Math.max(0, Math.floor(normalizedLineThickness));
+    const safeLineThickness = await this.resolveSplitLineThicknessPx(
+      sourceImage,
+      safeRows,
+      safeCols,
+      normalizedLineThicknessPercent,
+      normalizedLineThicknessPxFallback
+    );
 
     if (safeRows <= 0 || safeCols <= 0) {
       throw new Error('分镜行列必须大于 0');
@@ -269,6 +282,42 @@ export class CanvasToolProcessor implements ToolProcessor {
     };
   }
 
+  private resolveMaxAllowedLineThickness(
+    imageWidth: number,
+    imageHeight: number,
+    rows: number,
+    cols: number
+  ): number {
+    const maxLineByWidth = cols > 1 ? Math.floor((imageWidth - cols) / (cols - 1)) : Number.MAX_SAFE_INTEGER;
+    const maxLineByHeight = rows > 1 ? Math.floor((imageHeight - rows) / (rows - 1)) : Number.MAX_SAFE_INTEGER;
+    return Math.max(0, Math.min(maxLineByWidth, maxLineByHeight));
+  }
+
+  private async resolveSplitLineThicknessPx(
+    sourceImage: string,
+    rows: number,
+    cols: number,
+    lineThicknessPercent: number,
+    lineThicknessPxFallback: number
+  ): Promise<number> {
+    if (!Number.isFinite(lineThicknessPercent)) {
+      return Math.max(0, Math.floor(lineThicknessPxFallback));
+    }
+
+    const normalizedPercent = Math.max(0, lineThicknessPercent);
+    if (normalizedPercent <= 0) {
+      return 0;
+    }
+
+    const image = await loadImageElement(sourceImage);
+    const imageWidth = Math.max(1, image.naturalWidth);
+    const imageHeight = Math.max(1, image.naturalHeight);
+    const basis = Math.max(1, Math.min(imageWidth, imageHeight));
+    const rawPixelThickness = Math.max(1, Math.round((basis * normalizedPercent) / 100));
+    const maxAllowedThickness = this.resolveMaxAllowedLineThickness(imageWidth, imageHeight, rows, cols);
+    return Math.max(0, Math.min(rawPixelThickness, maxAllowedThickness));
+  }
+
   private async readStoryboardMetadata(
     sourceImage: string
   ): Promise<{ gridRows: number; gridCols: number; frameNotes: string[] } | null> {
@@ -306,11 +355,12 @@ export class CanvasToolProcessor implements ToolProcessor {
   ): Promise<string[]> {
     const image = await loadImageElement(sourceImage);
 
-    const maxLineByWidth =
-      cols > 1 ? Math.floor((image.naturalWidth - cols) / (cols - 1)) : lineThickness;
-    const maxLineByHeight =
-      rows > 1 ? Math.floor((image.naturalHeight - rows) / (rows - 1)) : lineThickness;
-    const maxAllowedLine = Math.max(0, Math.min(maxLineByWidth, maxLineByHeight));
+    const maxAllowedLine = this.resolveMaxAllowedLineThickness(
+      image.naturalWidth,
+      image.naturalHeight,
+      rows,
+      cols
+    );
     const resolvedLineThickness = Math.min(Math.max(0, lineThickness), maxAllowedLine);
 
     const usableWidth = image.naturalWidth - (cols - 1) * resolvedLineThickness;

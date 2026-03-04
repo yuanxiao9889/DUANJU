@@ -8,7 +8,7 @@ import {
 } from 'react';
 import { createPortal } from 'react-dom';
 import { Handle, Position, useViewport, type NodeProps } from '@xyflow/react';
-import { Download, ImagePlus, PenSquare } from 'lucide-react';
+import { Download, ImagePlus, SlidersHorizontal, SquareArrowOutUpRight } from 'lucide-react';
 
 import {
   embedStoryboardImageMetadata,
@@ -33,14 +33,18 @@ import { EXPORT_RESULT_DISPLAY_NAME, resolveNodeDisplayName } from '@/features/c
 import {
   canvasToDataUrl,
   loadImageElement,
-  parseAspectRatio,
   prepareNodeImage,
   persistImageLocally,
   reduceAspectRatio,
   resolveImageDisplayUrl,
   shouldUseOriginalImageByZoom,
 } from '@/features/canvas/application/imageData';
-import { UiButton, UiCheckbox, UiInput, UiSelect } from '@/components/ui';
+import { UiButton, UiCheckbox, UiChipButton, UiInput, UiPanel, UiSelect } from '@/components/ui';
+import {
+  NODE_CONTROL_CHIP_CLASS,
+  NODE_CONTROL_ICON_CLASS,
+  NODE_CONTROL_PRIMARY_BUTTON_CLASS,
+} from '@/features/canvas/ui/nodeControlStyles';
 import { useCanvasStore } from '@/stores/canvasStore';
 
 type StoryboardNodeProps = NodeProps & {
@@ -247,6 +251,11 @@ interface IncomingImageItem {
   label: string;
 }
 
+interface PanelAnchor {
+  left: number;
+  top: number;
+}
+
 const FrameCard = memo(
   ({
     nodeId,
@@ -328,7 +337,7 @@ const FrameCard = memo(
             }}
             title="单独编辑此格"
           >
-            <PenSquare className="h-3 w-3" />
+            <SquareArrowOutUpRight className="h-3 w-3" />
           </button>
 
           <button
@@ -353,8 +362,8 @@ const FrameCard = memo(
             })
           }
           onMouseDown={(event) => event.stopPropagation()}
-          placeholder={`分镜 ${index + 1} 描述`}
-          className="ui-scrollbar nodrag nowheel h-10 w-full resize-none overflow-y-auto border-0 border-t border-[rgba(255,255,255,0.12)] bg-bg-dark/90 px-2 py-1 text-[11px] text-text-dark outline-none focus:border-accent"
+          placeholder={`分镜 ${String(index + 1).padStart(2, '0')} 描述`}
+          className="ui-scrollbar nodrag nowheel h-10 w-full resize-none overflow-y-auto border-0 border-t border-[rgba(255,255,255,0.12)] bg-bg-dark/90 px-2 py-1 text-[10px] text-text-dark outline-none focus:border-accent"
         />
       </div>
     );
@@ -366,6 +375,8 @@ FrameCard.displayName = 'FrameCard';
 export const StoryboardNode = memo(({ id, data, selected, width, height }: StoryboardNodeProps) => {
   const rootRef = useRef<HTMLDivElement>(null);
   const pickerMenuRef = useRef<HTMLDivElement>(null);
+  const exportSettingsTriggerRef = useRef<HTMLDivElement>(null);
+  const exportSettingsPanelRef = useRef<HTMLDivElement>(null);
   const setSelectedNode = useCanvasStore((state) => state.setSelectedNode);
   const nodes = useCanvasStore((state) => state.nodes);
   const edges = useCanvasStore((state) => state.edges);
@@ -380,6 +391,9 @@ export const StoryboardNode = memo(({ id, data, selected, width, height }: Story
   const [pickerState, setPickerState] = useState<{ frameId: string; x: number; y: number } | null>(null);
   const [isExporting, setIsExporting] = useState(false);
   const [exportError, setExportError] = useState<string | null>(null);
+  const [isExportPanelOpen, setIsExportPanelOpen] = useState(false);
+  const [isExportPanelVisible, setIsExportPanelVisible] = useState(false);
+  const [exportPanelAnchor, setExportPanelAnchor] = useState<PanelAnchor | null>(null);
 
   const orderedFrames = useMemo(
     () => [...data.frames].sort((a, b) => a.order - b.order),
@@ -399,11 +413,6 @@ export const StoryboardNode = memo(({ id, data, selected, width, height }: Story
     [frameAspectRatio]
   );
 
-  const aspectValue = useMemo(
-    () => clamp(parseAspectRatio(frameAspectRatio), 0.15, 6),
-    [frameAspectRatio]
-  );
-
   const gridCols = Math.max(1, data.gridCols);
   const gridRows = Math.max(1, data.gridRows);
   const totalFrames = orderedFrames.length;
@@ -416,21 +425,6 @@ export const StoryboardNode = memo(({ id, data, selected, width, height }: Story
     () => resolveNodeDisplayName(CANVAS_NODE_TYPES.storyboardSplit, data),
     [data]
   );
-
-  const gridMetrics = useMemo(() => {
-    const contentWidth = resolvedNodeWidth - 16;
-    const gap = STORYBOARD_GRID_GAP_PX;
-    const cellWidth = Math.max(
-      26,
-      Math.floor((contentWidth - Math.max(0, gridCols - 1) * gap) / gridCols)
-    );
-
-    return {
-      gap,
-      cellWidth,
-      cellHeight: Math.max(18, Math.round(cellWidth / aspectValue)),
-    };
-  }, [aspectValue, gridCols, resolvedNodeWidth]);
 
   const exportOptions = useMemo(
     () => resolveExportOptions(data.exportOptions),
@@ -483,18 +477,57 @@ export const StoryboardNode = memo(({ id, data, selected, width, height }: Story
       if (!rootRef.current) {
         return;
       }
-      if (
-        rootRef.current.contains(event.target as Node) ||
-        pickerMenuRef.current?.contains(event.target as Node)
-      ) {
-        return;
+
+      const target = event.target as Node;
+      const insideRoot = rootRef.current.contains(target);
+      const insidePickerMenu = pickerMenuRef.current?.contains(target) ?? false;
+      const insideExportPanel = exportSettingsPanelRef.current?.contains(target) ?? false;
+      const insideExportTrigger = exportSettingsTriggerRef.current?.contains(target) ?? false;
+
+      if (!insideRoot && !insidePickerMenu) {
+        setPickerState(null);
       }
-      setPickerState(null);
+
+      if (!insideExportPanel && !insideExportTrigger) {
+        setIsExportPanelOpen(false);
+      }
     };
 
     document.addEventListener('pointerdown', handleOutsidePointerDown, true);
     return () => {
       document.removeEventListener('pointerdown', handleOutsidePointerDown, true);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!isExportPanelOpen) {
+      setIsExportPanelVisible(false);
+      return;
+    }
+
+    let raf2: number | null = null;
+    const raf1 = requestAnimationFrame(() => {
+      raf2 = requestAnimationFrame(() => {
+        setIsExportPanelVisible(true);
+      });
+    });
+
+    return () => {
+      cancelAnimationFrame(raf1);
+      if (raf2 !== null) {
+        cancelAnimationFrame(raf2);
+      }
+    };
+  }, [isExportPanelOpen]);
+
+  const getPanelAnchor = useCallback((triggerElement: HTMLDivElement | null): PanelAnchor | null => {
+    if (!triggerElement) {
+      return null;
+    }
+    const rect = triggerElement.getBoundingClientRect();
+    return {
+      left: rect.left + rect.width / 2,
+      top: rect.top - 8,
     };
   }, []);
 
@@ -572,6 +605,10 @@ export const StoryboardNode = memo(({ id, data, selected, width, height }: Story
           setExportError('该分镜没有可编辑图片');
           return;
         }
+        const frameIndex = orderedFrames.findIndex((item) => item.id === frame.id);
+        const frameTitle = frameIndex >= 0
+          ? `分镜 ${frameIndex + 1}`
+          : EXPORT_RESULT_DISPLAY_NAME.storyboardFrameEdit;
 
         const prepared = await prepareNodeImage(sourceImage);
         const createdNodeId = addDerivedExportNode(
@@ -580,7 +617,7 @@ export const StoryboardNode = memo(({ id, data, selected, width, height }: Story
           prepared.aspectRatio,
           prepared.previewImageUrl,
           {
-            defaultTitle: EXPORT_RESULT_DISPLAY_NAME.storyboardFrameEdit,
+            defaultTitle: frameTitle,
             resultKind: 'storyboardFrameEdit',
           }
         );
@@ -592,7 +629,7 @@ export const StoryboardNode = memo(({ id, data, selected, width, height }: Story
         setExportError(error instanceof Error ? error.message : '创建编辑节点失败');
       }
     },
-    [addDerivedExportNode, addEdge, id]
+    [addDerivedExportNode, addEdge, id, orderedFrames]
   );
 
   const handleExport = useCallback(async () => {
@@ -825,25 +862,6 @@ export const StoryboardNode = memo(({ id, data, selected, width, height }: Story
         onTitleChange={(nextTitle) => updateNodeData(id, { displayName: nextTitle })}
       />
 
-      <div className="mb-1.5 flex items-start justify-between gap-2">
-        <div className="text-[11px] text-text-muted/80">
-          {gridRows} x {gridCols} | {totalFrames} 格 | 单格约 {gridMetrics.cellWidth} x {gridMetrics.cellHeight}px
-        </div>
-        <UiButton
-          size="sm"
-          variant="primary"
-          className="nodrag h-8 gap-1 px-2.5"
-          onClick={(event) => {
-            event.stopPropagation();
-            void handleExport();
-          }}
-          disabled={isExporting}
-        >
-          <Download className="h-3.5 w-3.5" />
-          {isExporting ? '导出中...' : '导出'}
-        </UiButton>
-      </div>
-
       <div className="ui-scrollbar min-h-0 flex-1 overflow-auto">
         <div
           className="grid overflow-hidden rounded-lg border border-[rgba(255,255,255,0.16)] bg-[rgba(255,255,255,0.14)]"
@@ -914,130 +932,189 @@ export const StoryboardNode = memo(({ id, data, selected, width, height }: Story
         )
         : null}
 
-      <details
-        className="nodrag mt-2 shrink-0 rounded-lg border border-[rgba(255,255,255,0.12)] bg-bg-dark/55 p-2"
-        onClick={(event) => event.stopPropagation()}
-      >
-        <summary className="cursor-pointer select-none text-xs text-text-muted">导出设置</summary>
-
-        <div className="mt-2 space-y-2 text-xs text-text-muted">
-          <label className="flex items-center gap-2">
-            <UiCheckbox
-              checked={exportOptions.showFrameIndex}
-              onCheckedChange={(checked) => patchExportOptions({ showFrameIndex: checked })}
-            />
-            显示分镜序号
-          </label>
-
-          <label className="flex items-center gap-2">
-            <UiCheckbox
-              checked={exportOptions.showFrameNote}
-              onCheckedChange={(checked) => patchExportOptions({ showFrameNote: checked })}
-            />
-            显示分镜描述
-          </label>
-
-          <div className="grid grid-cols-2 gap-2">
-            <div>
-              <div className="mb-1">图片填充</div>
-              <UiSelect
-                value={exportOptions.imageFit}
-                onChange={(event) =>
-                  patchExportOptions({
-                    imageFit: event.target.value === 'contain' ? 'contain' : 'cover',
-                  })
+      <div className="mt-2 flex shrink-0 items-center justify-between gap-2">
+        <div className="flex min-w-0 items-center gap-2">
+          <div ref={exportSettingsTriggerRef} className="nodrag relative flex">
+            <UiChipButton
+              active={isExportPanelOpen}
+              className={NODE_CONTROL_CHIP_CLASS}
+              onClick={(event) => {
+                event.stopPropagation();
+                if (isExportPanelOpen) {
+                  setIsExportPanelOpen(false);
+                  return;
                 }
-              >
-                <option value="cover">填充满格子</option>
-                <option value="contain">完整显示</option>
-              </UiSelect>
-            </div>
-            <div>
-              <div className="mb-1">序号前缀</div>
-              <UiInput
-                value={exportOptions.frameIndexPrefix}
-                maxLength={4}
-                className="h-8"
-                onChange={(event) => patchExportOptions({ frameIndexPrefix: event.target.value })}
-              />
-            </div>
-            <div>
-              <div className="mb-1">描述位置</div>
-              <UiSelect
-                value={exportOptions.notePlacement}
-                onChange={(event) =>
-                  patchExportOptions({
-                    notePlacement: event.target.value === 'bottom' ? 'bottom' : 'overlay',
-                  })
-                }
-              >
-                <option value="overlay">图上遮罩</option>
-                <option value="bottom">图下文字</option>
-              </UiSelect>
-            </div>
+                setExportPanelAnchor(getPanelAnchor(exportSettingsTriggerRef.current));
+                setIsExportPanelOpen(true);
+              }}
+            >
+              <SlidersHorizontal className={`${NODE_CONTROL_ICON_CLASS} shrink-0`} />
+              <span>导出设置</span>
+            </UiChipButton>
           </div>
 
-          <div className="grid grid-cols-2 gap-2">
-            <div>
-              <div className="mb-1">间距</div>
-              <UiInput
-                type="number"
-                min={0}
-                max={120}
-                value={exportOptions.cellGap}
-                className="h-8"
-                onChange={(event) =>
-                  patchExportOptions({ cellGap: Number(event.target.value) || 0 })
-                }
-              />
-            </div>
-            <div>
-              <div className="mb-1">字号(%)</div>
-              <UiInput
-                type="number"
-                min={1}
-                max={20}
-                value={exportOptions.fontSize}
-                className="h-8"
-                onChange={(event) =>
-                  patchExportOptions({ fontSize: Number(event.target.value) || 4 })
-                }
-              />
-            </div>
-          </div>
-
-          <div className="grid grid-cols-2 gap-2">
-            <label className="flex items-center gap-2">
-              <span>背景</span>
-              <input
-                type="color"
-                value={exportOptions.backgroundColor}
-                onChange={(event) => patchExportOptions({ backgroundColor: event.target.value })}
-                className="h-7 w-full rounded border border-[rgba(255,255,255,0.14)] bg-transparent"
-              />
-            </label>
-            <label className="flex items-center gap-2">
-              <span>文字</span>
-              <input
-                type="color"
-                value={exportOptions.textColor}
-                onChange={(event) => patchExportOptions({ textColor: event.target.value })}
-                className="h-7 w-full rounded border border-[rgba(255,255,255,0.14)] bg-transparent"
-              />
-            </label>
+          <div className="truncate text-[11px] text-text-muted/80">
+            {gridRows} x {gridCols} | {totalFrames} 格
           </div>
         </div>
-      </details>
+
+        <div className="flex min-w-0 items-center gap-2">
+          <UiButton
+            size="sm"
+            variant="primary"
+            className={`nodrag ${NODE_CONTROL_PRIMARY_BUTTON_CLASS}`}
+            onClick={(event) => {
+              event.stopPropagation();
+              void handleExport();
+            }}
+            disabled={isExporting}
+          >
+            <Download className={NODE_CONTROL_ICON_CLASS} />
+            {isExporting ? '导出中...' : '合并导出'}
+          </UiButton>
+        </div>
+      </div>
+
+      {typeof document !== 'undefined' && isExportPanelOpen && createPortal(
+        <div
+          ref={exportSettingsPanelRef}
+          className={`fixed z-[120] w-[340px] transform-gpu transition-all duration-200 ease-out ${isExportPanelVisible ? 'opacity-100' : 'pointer-events-none opacity-0'
+            }`}
+          style={exportPanelAnchor
+            ? {
+              left: exportPanelAnchor.left,
+              top: exportPanelAnchor.top,
+              transform: isExportPanelVisible
+                ? 'translateX(-50%) translateY(-100%) scale(1)'
+                : 'translateX(-50%) translateY(calc(-100% + 8px)) scale(0.95)',
+            }
+            : undefined}
+          onMouseDown={(event) => event.stopPropagation()}
+        >
+          <UiPanel className="p-2.5">
+            <div className="space-y-2 text-xs text-text-muted">
+              <label className="flex items-center gap-2">
+                <UiCheckbox
+                  checked={exportOptions.showFrameIndex}
+                  onCheckedChange={(checked) => patchExportOptions({ showFrameIndex: checked })}
+                />
+                显示分镜序号
+              </label>
+
+              <label className="flex items-center gap-2">
+                <UiCheckbox
+                  checked={exportOptions.showFrameNote}
+                  onCheckedChange={(checked) => patchExportOptions({ showFrameNote: checked })}
+                />
+                显示分镜描述
+              </label>
+
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <div className="mb-1">图片填充</div>
+                  <UiSelect
+                    value={exportOptions.imageFit}
+                    onChange={(event) =>
+                      patchExportOptions({
+                        imageFit: event.target.value === 'contain' ? 'contain' : 'cover',
+                      })
+                    }
+                  >
+                    <option value="cover">填充满格子</option>
+                    <option value="contain">完整显示</option>
+                  </UiSelect>
+                </div>
+                <div>
+                  <div className="mb-1">序号前缀</div>
+                  <UiInput
+                    value={exportOptions.frameIndexPrefix}
+                    maxLength={4}
+                    className="h-8"
+                    onChange={(event) => patchExportOptions({ frameIndexPrefix: event.target.value })}
+                  />
+                </div>
+                <div>
+                  <div className="mb-1">描述位置</div>
+                  <UiSelect
+                    value={exportOptions.notePlacement}
+                    onChange={(event) =>
+                      patchExportOptions({
+                        notePlacement: event.target.value === 'bottom' ? 'bottom' : 'overlay',
+                      })
+                    }
+                  >
+                    <option value="overlay">图上遮罩</option>
+                    <option value="bottom">图下文字</option>
+                  </UiSelect>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <div className="mb-1">间距</div>
+                  <UiInput
+                    type="number"
+                    min={0}
+                    max={120}
+                    value={exportOptions.cellGap}
+                    className="h-8"
+                    onChange={(event) =>
+                      patchExportOptions({ cellGap: Number(event.target.value) || 0 })
+                    }
+                  />
+                </div>
+                <div>
+                  <div className="mb-1">字号(%)</div>
+                  <UiInput
+                    type="number"
+                    min={1}
+                    max={20}
+                    value={exportOptions.fontSize}
+                    className="h-8"
+                    onChange={(event) =>
+                      patchExportOptions({ fontSize: Number(event.target.value) || 4 })
+                    }
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-2">
+                <label className="flex items-center gap-2">
+                  <span>背景</span>
+                  <input
+                    type="color"
+                    value={exportOptions.backgroundColor}
+                    onChange={(event) => patchExportOptions({ backgroundColor: event.target.value })}
+                    className="h-7 w-full rounded border border-[rgba(255,255,255,0.14)] bg-transparent"
+                  />
+                </label>
+                <label className="flex items-center gap-2">
+                  <span>文字</span>
+                  <input
+                    type="color"
+                    value={exportOptions.textColor}
+                    onChange={(event) => patchExportOptions({ textColor: event.target.value })}
+                    className="h-7 w-full rounded border border-[rgba(255,255,255,0.14)] bg-transparent"
+                  />
+                </label>
+              </div>
+            </div>
+          </UiPanel>
+        </div>,
+        document.body
+      )}
 
       {exportError && <div className="mt-2 shrink-0 text-xs text-red-400">{exportError}</div>}
 
       <Handle
         type="target"
+        id="target"
         position={Position.Left}
         className="!h-2 !w-2 !border-surface-dark !bg-accent"
       />
       <Handle
         type="source"
+        id="source"
         position={Position.Right}
         className="!h-2 !w-2 !border-surface-dark !bg-accent"
       />

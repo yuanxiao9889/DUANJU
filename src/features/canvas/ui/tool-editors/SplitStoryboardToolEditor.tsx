@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 
 import { resolveImageDisplayUrl } from '@/features/canvas/application/imageData';
 import { UiInput } from '@/components/ui';
@@ -6,7 +6,10 @@ import type { VisualToolEditorProps } from './types';
 
 const MIN_GRID_SIZE = 1;
 const MAX_GRID_SIZE = 8;
-const MAX_LINE_THICKNESS = 160;
+const DEFAULT_LINE_THICKNESS_PERCENT = 0.5;
+const MAX_LINE_THICKNESS_PERCENT = 20;
+const LEGACY_DEFAULT_LINE_THICKNESS_PX = 6;
+const PREVIEW_VIEWPORT_HEIGHT = 'h-[min(560px,60vh)]';
 
 interface OverlayRect {
   x: number;
@@ -51,15 +54,34 @@ function clampInteger(value: number, min: number, max: number, fallback = min): 
   return Math.max(min, Math.min(max, Math.round(safeValue)));
 }
 
-function resolveLineThickness(lineThickness: number, rows: number, cols: number, width: number, height: number): number {
-  if (lineThickness <= 0) {
+function clampDecimal(value: number, min: number, max: number, fallback = min, precision = 2): number {
+  const safeValue = Number.isFinite(value) ? value : fallback;
+  const clamped = Math.max(min, Math.min(max, safeValue));
+  const factor = 10 ** precision;
+  return Math.round(clamped * factor) / factor;
+}
+
+function resolveMaxLineThicknessPx(rows: number, cols: number, width: number, height: number): number {
+  const maxByWidth = cols > 1 ? Math.floor((width - cols) / (cols - 1)) : Number.MAX_SAFE_INTEGER;
+  const maxByHeight = rows > 1 ? Math.floor((height - rows) / (rows - 1)) : Number.MAX_SAFE_INTEGER;
+  return Math.max(0, Math.min(maxByWidth, maxByHeight));
+}
+
+function resolveLineThicknessPxFromPercent(
+  lineThicknessPercent: number,
+  rows: number,
+  cols: number,
+  width: number,
+  height: number
+): number {
+  if (lineThicknessPercent <= 0) {
     return 0;
   }
 
-  const maxByWidth = cols > 1 ? Math.floor((width - cols) / (cols - 1)) : MAX_LINE_THICKNESS;
-  const maxByHeight = rows > 1 ? Math.floor((height - rows) / (rows - 1)) : MAX_LINE_THICKNESS;
-  const maxAllowed = Math.max(0, Math.min(MAX_LINE_THICKNESS, maxByWidth, maxByHeight));
-  return clampInteger(lineThickness, 0, maxAllowed);
+  const basis = Math.max(1, Math.min(width, height));
+  const rawPixelThickness = Math.max(1, Math.round((basis * lineThicknessPercent) / 100));
+  const maxAllowed = resolveMaxLineThicknessPx(rows, cols, width, height);
+  return clampInteger(rawPixelThickness, 0, maxAllowed);
 }
 
 function splitSizes(total: number, segments: number): number[] {
@@ -157,6 +179,10 @@ function splitSizeLabel(min: number, max: number): string {
   return `${min} - ${max}`;
 }
 
+function formatPercent(value: number): string {
+  return `${Number.isInteger(value) ? value.toFixed(0) : value.toFixed(1)}%`;
+}
+
 interface NumberStepperProps {
   label: string;
   value: number;
@@ -207,23 +233,62 @@ export function SplitStoryboardToolEditor({ sourceImageUrl, options, onOptionsCh
   const [naturalSize, setNaturalSize] = useState<{ width: number; height: number } | null>(null);
   const displaySourceImageUrl = useMemo(() => resolveImageDisplayUrl(sourceImageUrl), [sourceImageUrl]);
 
+  useEffect(() => {
+    setNaturalSize(null);
+  }, [displaySourceImageUrl]);
+
   const rows = clampInteger(toFiniteNumber(options.rows, 3), MIN_GRID_SIZE, MAX_GRID_SIZE);
   const cols = clampInteger(toFiniteNumber(options.cols, 3), MIN_GRID_SIZE, MAX_GRID_SIZE);
 
-  const rawLineThickness = Math.max(0, toFiniteNumber(options.lineThickness, 6));
-  const lineThickness = useMemo(() => {
+  const legacyLineThicknessPx = Math.max(0, toFiniteNumber(options.lineThickness, LEGACY_DEFAULT_LINE_THICKNESS_PX));
+  const maxLineThicknessPercent = useMemo(() => {
     if (!naturalSize) {
-      return clampInteger(rawLineThickness, 0, MAX_LINE_THICKNESS);
+      return MAX_LINE_THICKNESS_PERCENT;
     }
 
-    return resolveLineThickness(
-      rawLineThickness,
+    const maxLinePx = resolveMaxLineThicknessPx(rows, cols, naturalSize.width, naturalSize.height);
+    const basis = Math.max(1, Math.min(naturalSize.width, naturalSize.height));
+    return clampDecimal((maxLinePx / basis) * 100, 0, MAX_LINE_THICKNESS_PERCENT);
+  }, [cols, naturalSize, rows]);
+
+  const fallbackLineThicknessPercent = useMemo(() => {
+    if (!naturalSize) {
+      return DEFAULT_LINE_THICKNESS_PERCENT;
+    }
+
+    const basis = Math.max(1, Math.min(naturalSize.width, naturalSize.height));
+    return clampDecimal(
+      (legacyLineThicknessPx / basis) * 100,
+      0,
+      maxLineThicknessPercent,
+      DEFAULT_LINE_THICKNESS_PERCENT
+    );
+  }, [legacyLineThicknessPx, maxLineThicknessPercent, naturalSize]);
+
+  const rawLineThicknessPercent = Math.max(
+    0,
+    toFiniteNumber(options.lineThicknessPercent, fallbackLineThicknessPercent)
+  );
+  const lineThicknessPercent = clampDecimal(
+    rawLineThicknessPercent,
+    0,
+    maxLineThicknessPercent,
+    fallbackLineThicknessPercent
+  );
+
+  const lineThicknessPx = useMemo(() => {
+    if (!naturalSize) {
+      return 0;
+    }
+
+    return resolveLineThicknessPxFromPercent(
+      lineThicknessPercent,
       rows,
       cols,
       naturalSize.width,
       naturalSize.height
     );
-  }, [cols, naturalSize, rawLineThickness, rows]);
+  }, [cols, lineThicknessPercent, naturalSize, rows]);
 
   const layout = useMemo(() => {
     if (!naturalSize) {
@@ -235,12 +300,12 @@ export function SplitStoryboardToolEditor({ sourceImageUrl, options, onOptionsCh
       naturalSize.height,
       rows,
       cols,
-      lineThickness
+      lineThicknessPx
     );
-  }, [cols, lineThickness, naturalSize, rows]);
+  }, [cols, lineThicknessPx, naturalSize, rows]);
 
   const updateOptions = useCallback(
-    (patch: Partial<Record<'rows' | 'cols' | 'lineThickness', number>>) => {
+    (patch: Partial<Record<'rows' | 'cols' | 'lineThicknessPercent', number>>) => {
       const nextRows = clampInteger(
         patch.rows ?? rows,
         MIN_GRID_SIZE,
@@ -252,44 +317,36 @@ export function SplitStoryboardToolEditor({ sourceImageUrl, options, onOptionsCh
         MAX_GRID_SIZE
       );
 
-      const unresolvedLineThickness = Math.max(
+      const unresolvedLineThicknessPercent = Math.max(
         0,
-        patch.lineThickness ?? lineThickness
+        patch.lineThicknessPercent ?? lineThicknessPercent
       );
 
-      const nextLineThickness = naturalSize
-        ? resolveLineThickness(
-            unresolvedLineThickness,
-            nextRows,
-            nextCols,
-            naturalSize.width,
-            naturalSize.height
+      const nextMaxLineThicknessPercent = naturalSize
+        ? clampDecimal(
+            (resolveMaxLineThicknessPx(nextRows, nextCols, naturalSize.width, naturalSize.height) /
+              Math.max(1, Math.min(naturalSize.width, naturalSize.height))) *
+              100,
+            0,
+            MAX_LINE_THICKNESS_PERCENT
           )
-        : clampInteger(unresolvedLineThickness, 0, MAX_LINE_THICKNESS);
+        : MAX_LINE_THICKNESS_PERCENT;
+
+      const nextLineThicknessPercent = clampDecimal(
+        unresolvedLineThicknessPercent,
+        0,
+        nextMaxLineThicknessPercent
+      );
 
       onOptionsChange({
         ...options,
         rows: nextRows,
         cols: nextCols,
-        lineThickness: nextLineThickness,
+        lineThicknessPercent: nextLineThicknessPercent,
       });
     },
-    [cols, lineThickness, naturalSize, onOptionsChange, options, rows]
+    [cols, lineThicknessPercent, naturalSize, onOptionsChange, options, rows]
   );
-
-  const maxLineThickness = useMemo(() => {
-    if (!naturalSize) {
-      return MAX_LINE_THICKNESS;
-    }
-
-    return resolveLineThickness(
-      MAX_LINE_THICKNESS,
-      rows,
-      cols,
-      naturalSize.width,
-      naturalSize.height
-    );
-  }, [cols, naturalSize, rows]);
 
   const hasLayoutError = Boolean(naturalSize && !layout);
 
@@ -305,12 +362,14 @@ export function SplitStoryboardToolEditor({ sourceImageUrl, options, onOptionsCh
           )}
         </div>
 
-        <div className="ui-scrollbar flex min-h-[360px] items-center justify-center overflow-auto rounded-xl border border-[rgba(255,255,255,0.12)] bg-bg-dark/70 p-3">
-          <div className="relative inline-block">
+        <div
+          className={`ui-scrollbar flex ${PREVIEW_VIEWPORT_HEIGHT} items-center justify-center overflow-auto rounded-xl border border-[rgba(255,255,255,0.12)] bg-bg-dark/70 p-3`}
+        >
+          <div className="relative inline-flex items-center justify-center">
             <img
               src={displaySourceImageUrl}
               alt="split-preview"
-              className="max-h-[560px] w-auto max-w-full rounded-lg border border-[rgba(255,255,255,0.08)] object-contain"
+              className="max-h-full w-auto max-w-full rounded-lg border border-[rgba(255,255,255,0.08)] object-contain"
               onLoad={(event) => {
                 const target = event.currentTarget;
                 setNaturalSize({
@@ -383,24 +442,27 @@ export function SplitStoryboardToolEditor({ sourceImageUrl, options, onOptionsCh
         <div className="space-y-2">
           <div className="flex items-center justify-between text-xs text-text-muted">
             <span>分割线粗细</span>
-            <span>{lineThickness}px</span>
+            <span>
+              {formatPercent(lineThicknessPercent)}
+              {naturalSize ? ` (${lineThicknessPx}px)` : ''}
+            </span>
           </div>
           <input
             type="range"
             min={0}
-            max={Math.max(0, maxLineThickness)}
-            step={1}
-            value={lineThickness}
-            onChange={(event) => updateOptions({ lineThickness: Number(event.target.value) })}
+            max={Math.max(0, maxLineThicknessPercent)}
+            step={0.1}
+            value={lineThicknessPercent}
+            onChange={(event) => updateOptions({ lineThicknessPercent: Number(event.target.value) })}
             className="h-2 w-full cursor-pointer appearance-none rounded-full bg-white/15"
           />
           <UiInput
             type="number"
-            value={lineThickness}
+            value={lineThicknessPercent}
             min={0}
-            max={Math.max(0, maxLineThickness)}
-            step={1}
-            onChange={(event) => updateOptions({ lineThickness: Number(event.target.value) })}
+            max={Math.max(0, maxLineThicknessPercent)}
+            step={0.1}
+            onChange={(event) => updateOptions({ lineThicknessPercent: Number(event.target.value) })}
             className="h-9"
           />
         </div>

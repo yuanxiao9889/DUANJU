@@ -6,7 +6,7 @@ import {
   canvasEventBus,
   canvasToolProcessor,
 } from '@/features/canvas/application/canvasServices';
-import { prepareNodeImage } from '@/features/canvas/application/imageData';
+import { prepareNodeImage, resolveImageDisplayUrl } from '@/features/canvas/application/imageData';
 import { readStoryboardImageMetadata } from '@/commands/image';
 import { getToolPlugin, type ToolOptions } from '@/features/canvas/tools';
 import { useCanvasStore } from '@/stores/canvasStore';
@@ -25,6 +25,7 @@ export function NodeToolDialog() {
   const [isProcessing, setIsProcessing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [options, setOptions] = useState<ToolOptions>({});
+  const [isSplitImageReady, setIsSplitImageReady] = useState(true);
 
   const sourceNode = useMemo(() => {
     if (!activeToolDialog) {
@@ -101,6 +102,43 @@ export function NodeToolDialog() {
       cancelled = true;
     };
   }, [dialogKey, sourceNode, activePlugin, sourceImageUrl]);
+
+  useEffect(() => {
+    const requiresSplitPreload = activePlugin?.editor === 'split' && Boolean(sourceImageUrl);
+    if (!requiresSplitPreload || !sourceImageUrl) {
+      setIsSplitImageReady(true);
+      return;
+    }
+
+    let cancelled = false;
+    const image = new Image();
+    const displayImageUrl = resolveImageDisplayUrl(sourceImageUrl);
+
+    setIsSplitImageReady(false);
+
+    image.onload = () => {
+      if (cancelled) {
+        return;
+      }
+      setIsSplitImageReady(true);
+    };
+
+    image.onerror = () => {
+      if (cancelled) {
+        return;
+      }
+      setIsSplitImageReady(true);
+    };
+
+    image.src = displayImageUrl;
+    if (image.complete) {
+      setIsSplitImageReady(true);
+    }
+
+    return () => {
+      cancelled = true;
+    };
+  }, [activePlugin?.editor, sourceImageUrl]);
 
   const closeDialog = useCallback(() => {
     canvasEventBus.publish('tool-dialog/close', undefined);
@@ -224,7 +262,7 @@ export function NodeToolDialog() {
     );
   }, [activePlugin, options, sourceImageUrl]);
 
-  const isOpen = Boolean(activeToolDialog && sourceNode && activePlugin);
+  const isOpen = Boolean(activeToolDialog && sourceNode && activePlugin && isSplitImageReady);
 
   return (
     <UiModal

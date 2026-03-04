@@ -12,8 +12,6 @@ import { Upload } from 'lucide-react';
 
 import {
   CANVAS_NODE_TYPES,
-  DEFAULT_ASPECT_RATIO,
-  EXPORT_RESULT_NODE_DEFAULT_WIDTH,
   EXPORT_RESULT_NODE_MIN_HEIGHT,
   EXPORT_RESULT_NODE_MIN_WIDTH,
   type UploadImageNodeData,
@@ -50,18 +48,41 @@ function toAspectRatioValue(aspectRatio: string): number {
   return width / height;
 }
 
+function resolveCompactImageNodeSize(aspectRatio: string): { width: number; height: number } {
+  const ratio = Math.max(0.1, toAspectRatioValue(aspectRatio));
+  const widthFirst = {
+    width: EXPORT_RESULT_NODE_MIN_WIDTH,
+    height: Math.max(1, Math.round(EXPORT_RESULT_NODE_MIN_WIDTH / ratio)),
+  };
+  const heightFirst = {
+    width: Math.max(1, Math.round(EXPORT_RESULT_NODE_MIN_HEIGHT * ratio)),
+    height: EXPORT_RESULT_NODE_MIN_HEIGHT,
+  };
+  return widthFirst.width * widthFirst.height <= heightFirst.width * heightFirst.height
+    ? widthFirst
+    : heightFirst;
+}
+
+function resolveNodeDimension(value: number | undefined, fallback: number): number {
+  if (typeof value === 'number' && Number.isFinite(value) && value > 1) {
+    return Math.round(value);
+  }
+  return fallback;
+}
+
 export const UploadNode = memo(({ id, data, selected, width, height }: UploadNodeProps) => {
   const setSelectedNode = useCanvasStore((state) => state.setSelectedNode);
   const updateNodeData = useCanvasStore((state) => state.updateNodeData);
   const useUploadFilenameAsNodeTitle = useSettingsStore((state) => state.useUploadFilenameAsNodeTitle);
   const { zoom } = useViewport();
   const inputRef = useRef<HTMLInputElement>(null);
-  const resolvedAspectRatio = data.aspectRatio || DEFAULT_ASPECT_RATIO;
-  const resolvedWidth = Math.max(EXPORT_RESULT_NODE_MIN_WIDTH, Math.round(width ?? EXPORT_RESULT_NODE_DEFAULT_WIDTH));
-  const resolvedHeight = Math.max(
-    EXPORT_RESULT_NODE_MIN_HEIGHT,
-    Math.round(height ?? (resolvedWidth / toAspectRatioValue(resolvedAspectRatio)))
-  );
+  const resolvedAspectRatio = data.aspectRatio || '1:1';
+  const compactSize = resolveCompactImageNodeSize(resolvedAspectRatio);
+  const resolvedWidth = resolveNodeDimension(width, compactSize.width);
+  const resolvedHeight = resolveNodeDimension(height, compactSize.height);
+  const isWideImage = toAspectRatioValue(resolvedAspectRatio) >= EXPORT_RESULT_NODE_MIN_WIDTH / EXPORT_RESULT_NODE_MIN_HEIGHT;
+  const resizeMinWidth = isWideImage ? EXPORT_RESULT_NODE_MIN_WIDTH : 1;
+  const resizeMinHeight = isWideImage ? 1 : EXPORT_RESULT_NODE_MIN_HEIGHT;
   const resolvedTitle = useMemo(() => {
     const sourceFileName = typeof data.sourceFileName === 'string' ? data.sourceFileName.trim() : '';
     if (
@@ -88,7 +109,7 @@ export const UploadNode = memo(({ id, data, selected, width, height }: UploadNod
       const nextData: Partial<UploadImageNodeData> = {
         imageUrl: prepared.imageUrl,
         previewImageUrl: prepared.previewImageUrl,
-        aspectRatio: prepared.aspectRatio || DEFAULT_ASPECT_RATIO,
+        aspectRatio: prepared.aspectRatio || '1:1',
         sourceFileName: file.name,
       };
       if (useUploadFilenameAsNodeTitle) {
@@ -200,12 +221,13 @@ export const UploadNode = memo(({ id, data, selected, width, height }: UploadNod
 
       <Handle
         type="source"
+        id="source"
         position={Position.Right}
         className="!h-2 !w-2 !border-surface-dark !bg-accent"
       />
       <NodeResizeHandle
-        minWidth={EXPORT_RESULT_NODE_MIN_WIDTH}
-        minHeight={EXPORT_RESULT_NODE_MIN_HEIGHT}
+        minWidth={resizeMinWidth}
+        minHeight={resizeMinHeight}
         maxWidth={1400}
         maxHeight={1400}
       />

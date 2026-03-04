@@ -1,10 +1,7 @@
 import { memo, useMemo } from 'react';
 
 import { useCanvasStore } from '@/stores/canvasStore';
-import { getNodeDefinition } from '@/features/canvas/domain/nodeRegistry';
-import { isImageEditNode } from '@/features/canvas/domain/canvasNodes';
 import { NodeActionToolbar } from './NodeActionToolbar';
-import { NodePromptInput } from './NodePromptInput';
 
 export const SelectedNodeOverlay = memo(() => {
   const nodes = useCanvasStore((state) => state.nodes);
@@ -22,13 +19,9 @@ export const SelectedNodeOverlay = memo(() => {
     return null;
   }
 
-  const definition = getNodeDefinition(selectedNode.type);
-  const hidePromptInput = isImageEditNode(selectedNode) && Boolean(selectedNode.data.isGenerating);
-
   return (
     <>
       <NodeActionToolbar node={selectedNode} />
-      {definition.capabilities.promptInput && !hidePromptInput && <NodePromptInput node={selectedNode} />}
     </>
   );
 });
