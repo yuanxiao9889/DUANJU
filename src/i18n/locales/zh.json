@@ -159,6 +159,8 @@
     "providersDesc": "配置 AI 服务商的 API 密钥",
     "appearance": "外观",
     "appearanceDesc": "自定义应用外观",
+    "about": "关于",
+    "aboutDesc": "应用信息",
     "general": "通用",
     "generalDesc": "通用设置",
     "apiKey": "API Key",
@@ -192,6 +194,13 @@
     "addPath": "添加路径",
     "chooseFolder": "选择文件夹",
     "noDownloadPresetPaths": "暂无预设路径",
-    "getApiKeyLink": "点击这里获取密钥"
+    "getApiKeyLink": "点击这里获取密钥",
+    "aboutAppName": "分镜助手",
+    "aboutIntro": "基于节点画布的 AI 分镜工作台，一站式完成图片生成、编辑与分镜流程。",
+    "aboutVersionLabel": "版本",
+    "aboutVersionUnknown": "未知",
+    "aboutAuthorLabel": "作者",
+    "aboutAuthor": "痕继痕迹",
+    "aboutRepositoryLabel": "项目仓库"
   }
 }
