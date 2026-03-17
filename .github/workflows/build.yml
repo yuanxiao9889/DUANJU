@@ -18,6 +18,9 @@ on:
 jobs:
   build-windows:
     runs-on: windows-latest
+    env:
+      CARGO_REGISTRIES_CRATES_IO_PROTOCOL: sparse
+      RUSTFLAGS: "-C target-cpu=native"
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -30,6 +33,19 @@ jobs:
 
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
+
+      - name: Configure cargo mirror
+        run: |
+          mkdir -p ~/.cargo
+          echo '[source.crates-io-mirror]' >> ~/.cargo/config.toml
+          echo 'replace-with = "rsproxy-sparse"' >> ~/.cargo/config.toml
+          echo '[registries.rsproxy-sparse]' >> ~/.cargo/config.toml
+          echo 'index = "https://rsproxy.cn/crates.io-index"' >> ~/.cargo/config.toml
+          echo '[registries.rsproxy]' >> ~/.cargo/config.toml
+          echo 'index = "https://rsproxy.cn/crates.io-index"' >> ~/.cargo/config.toml
+          echo '[net]' >> ~/.cargo/config.toml
+          echo 'git-fetch-with-cli = true' >> ~/.cargo/config.toml
+          echo 'retry = 5' >> ~/.cargo/config.toml
 
       - name: Setup Rust cache
         uses: Swatinem/rust-cache@v2
@@ -91,6 +107,8 @@ jobs:
 
   build-macos:
     runs-on: macos-latest
+    env:
+      CARGO_REGISTRIES_CRATES_IO_PROTOCOL: sparse
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -105,6 +123,19 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
         with:
           targets: aarch64-apple-darwin,x86_64-apple-darwin
+
+      - name: Configure cargo mirror
+        run: |
+          mkdir -p ~/.cargo
+          echo '[source.crates-io-mirror]' >> ~/.cargo/config.toml
+          echo 'replace-with = "rsproxy-sparse"' >> ~/.cargo/config.toml
+          echo '[registries.rsproxy-sparse]' >> ~/.cargo/config.toml
+          echo 'index = "https://rsproxy.cn/crates.io-index"' >> ~/.cargo/config.toml
+          echo '[registries.rsproxy]' >> ~/.cargo/config.toml
+          echo 'index = "https://rsproxy.cn/crates.io-index"' >> ~/.cargo/config.toml
+          echo '[net]' >> ~/.cargo/config.toml
+          echo 'git-fetch-with-cli = true' >> ~/.cargo/config.toml
+          echo 'retry = 5' >> ~/.cargo/config.toml
 
       - name: Setup Rust cache
         uses: Swatinem/rust-cache@v2
