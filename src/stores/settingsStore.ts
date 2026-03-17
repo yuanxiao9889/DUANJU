@@ -6,6 +6,8 @@ import {
   type GrsaiCreditTierId,
   type PriceDisplayCurrencyMode,
 } from '@/features/canvas/pricing/types';
+import { DEFAULT_ALIBABA_TEXT_MODEL } from '@/features/canvas/models/providers/alibaba';
+import { DEFAULT_CODING_MODEL } from '@/features/canvas/models/providers/coding';
 
 export type UiRadiusPreset = 'compact' | 'default' | 'large';
 export type ThemeTonePreset = 'neutral' | 'warm' | 'cool';
@@ -16,7 +18,12 @@ export const DEFAULT_GRSAI_NANO_BANANA_PRO_MODEL = 'nano-banana-pro';
 interface SettingsState {
   isHydrated: boolean;
   apiKeys: ProviderApiKeys;
-  grsaiNanoBananaProModel: string;
+  scriptProviderEnabled: string;
+  scriptModelOverrides: Record<string, string>;
+  storyboardModelOverrides: Record<string, string>;
+  hrsaiNanoBananaProModel: string;
+  alibabaTextModel: string;
+  codingModel: string;
   hideProviderGuidePopover: boolean;
   downloadPresetPaths: string[];
   useUploadFilenameAsNodeTitle: boolean;
@@ -37,8 +44,14 @@ interface SettingsState {
   canvasEdgeRoutingMode: CanvasEdgeRoutingMode;
   autoCheckAppUpdateOnLaunch: boolean;
   enableUpdateDialog: boolean;
+  setIsHydrated: (isHydrated: boolean) => void;
   setProviderApiKey: (providerId: string, key: string) => void;
+  setScriptProviderEnabled: (providerId: string) => void;
+  setScriptModelOverride: (providerId: string, model: string) => void;
+  setStoryboardModelOverride: (providerId: string, model: string) => void;
   setGrsaiNanoBananaProModel: (model: string) => void;
+  setAlibabaTextModel: (model: string) => void;
+  setCodingModel: (model: string) => void;
   setHideProviderGuidePopover: (hide: boolean) => void;
   setDownloadPresetPaths: (paths: string[]) => void;
   setUseUploadFilenameAsNodeTitle: (enabled: boolean) => void;
@@ -141,6 +154,28 @@ function normalizeApiKeys(input: ProviderApiKeys | null | undefined): ProviderAp
   }, {});
 }
 
+function normalizeScriptProviderEnabled(
+  input: string | null | undefined,
+  apiKeys: ProviderApiKeys
+): string {
+  if ((input === 'alibaba' || input === 'coding') && (apiKeys[input]?.trim().length ?? 0) > 0) {
+    return input;
+  }
+
+  if ((apiKeys.alibaba ?? '').trim().length > 0) {
+    return 'alibaba';
+  }
+  if ((apiKeys.coding ?? '').trim().length > 0) {
+    return 'coding';
+  }
+
+  if (input === 'alibaba' || input === 'coding') {
+    return input;
+  }
+
+  return 'alibaba';
+}
+
 export function hasConfiguredApiKey(apiKeys: ProviderApiKeys): boolean {
   return getConfiguredApiKeyCount(apiKeys) > 0;
 }
@@ -163,7 +198,12 @@ export const useSettingsStore = create<SettingsState>()(
     (set) => ({
       isHydrated: false,
       apiKeys: {},
-      grsaiNanoBananaProModel: DEFAULT_GRSAI_NANO_BANANA_PRO_MODEL,
+      scriptProviderEnabled: 'alibaba',
+      scriptModelOverrides: {},
+      storyboardModelOverrides: {},
+      hrsaiNanoBananaProModel: DEFAULT_GRSAI_NANO_BANANA_PRO_MODEL,
+      alibabaTextModel: DEFAULT_ALIBABA_TEXT_MODEL,
+      codingModel: DEFAULT_CODING_MODEL,
       hideProviderGuidePopover: false,
       downloadPresetPaths: [],
       useUploadFilenameAsNodeTitle: true,
@@ -184,6 +224,7 @@ export const useSettingsStore = create<SettingsState>()(
       canvasEdgeRoutingMode: 'spline',
       autoCheckAppUpdateOnLaunch: true,
       enableUpdateDialog: true,
+      setIsHydrated: (isHydrated) => set({ isHydrated }),
       setProviderApiKey: (providerId, key) =>
         set((state) => ({
           apiKeys: {
@@ -191,10 +232,21 @@ export const useSettingsStore = create<SettingsState>()(
             [providerId]: normalizeApiKey(key),
           },
         })),
+      setScriptProviderEnabled: (providerId) => set({ scriptProviderEnabled: providerId }),
+      setScriptModelOverride: (providerId, model) =>
+        set((state) => ({
+          scriptModelOverrides: { ...state.scriptModelOverrides, [providerId]: model },
+        })),
+      setStoryboardModelOverride: (providerId, model) =>
+        set((state) => ({
+          storyboardModelOverrides: { ...state.storyboardModelOverrides, [providerId]: model },
+        })),
       setGrsaiNanoBananaProModel: (model) =>
         set({
-          grsaiNanoBananaProModel: normalizeGrsaiNanoBananaProModel(model),
+          hrsaiNanoBananaProModel: normalizeGrsaiNanoBananaProModel(model),
         }),
+      setAlibabaTextModel: (model) => set({ alibabaTextModel: model }),
+      setCodingModel: (model) => set({ codingModel: model }),
       setHideProviderGuidePopover: (hide) => set({ hideProviderGuidePopover: hide }),
       setDownloadPresetPaths: (paths) => {
         const uniquePaths = Array.from(
@@ -236,19 +288,21 @@ export const useSettingsStore = create<SettingsState>()(
     }),
     {
       name: 'settings-storage',
-      version: 10,
+      version: 11,
       onRehydrateStorage: () => {
-        return (_state, error) => {
+        return (state, error) => {
           if (error) {
             console.error('failed to hydrate settings storage', error);
           }
-          useSettingsStore.setState({ isHydrated: true });
+          state?.setIsHydrated(true);
         };
       },
       migrate: (persistedState: unknown) => {
         const state = (persistedState ?? {}) as {
           apiKey?: string;
           apiKeys?: ProviderApiKeys;
+          scriptProviderEnabled?: string;
+          storyboardProviderEnabled?: string;
           ignoreAtTagWhenCopyingAndGenerating?: boolean;
           grsaiNanoBananaProModel?: string;
           hideProviderGuidePopover?: boolean;
@@ -266,40 +320,24 @@ export const useSettingsStore = create<SettingsState>()(
         };
 
         const migratedApiKeys = normalizeApiKeys(state.apiKeys);
+        const fallbackApiKeys =
+          Object.keys(migratedApiKeys).length > 0
+            ? migratedApiKeys
+            : state.apiKey
+              ? { ppio: normalizeApiKey(state.apiKey) }
+              : {};
+        const normalizedScriptProviderEnabled = normalizeScriptProviderEnabled(
+          state.scriptProviderEnabled,
+          fallbackApiKeys
+        );
         const ignoreAtTagWhenCopyingAndGenerating =
           state.ignoreAtTagWhenCopyingAndGenerating ?? true;
-        if (Object.keys(migratedApiKeys).length > 0) {
-          return {
-            ...(persistedState as object),
-            isHydrated: true,
-            apiKeys: migratedApiKeys,
-            ignoreAtTagWhenCopyingAndGenerating,
-            grsaiNanoBananaProModel: normalizeGrsaiNanoBananaProModel(
-              state.grsaiNanoBananaProModel
-            ),
-            hideProviderGuidePopover: state.hideProviderGuidePopover ?? false,
-            canvasEdgeRoutingMode: normalizeCanvasEdgeRoutingMode(state.canvasEdgeRoutingMode),
-            autoCheckAppUpdateOnLaunch: state.autoCheckAppUpdateOnLaunch ?? true,
-            enableUpdateDialog: state.enableUpdateDialog ?? true,
-            enableStoryboardGenGridPreviewShortcut:
-              state.enableStoryboardGenGridPreviewShortcut ?? false,
-            showStoryboardGenAdvancedRatioControls:
-              state.showStoryboardGenAdvancedRatioControls ?? false,
-            storyboardGenAutoInferEmptyFrame: state.storyboardGenAutoInferEmptyFrame ?? true,
-            showNodePrice: state.showNodePrice ?? true,
-            priceDisplayCurrencyMode: normalizePriceDisplayCurrencyMode(
-              state.priceDisplayCurrencyMode
-            ),
-            usdToCnyRate: normalizeUsdToCnyRate(state.usdToCnyRate),
-            preferDiscountedPrice: state.preferDiscountedPrice ?? false,
-            grsaiCreditTierId: normalizeGrsaiCreditTierId(state.grsaiCreditTierId),
-          };
-        }
 
         return {
           ...(persistedState as object),
           isHydrated: true,
-          apiKeys: state.apiKey ? { ppio: normalizeApiKey(state.apiKey) } : {},
+          apiKeys: fallbackApiKeys,
+          scriptProviderEnabled: normalizedScriptProviderEnabled,
           ignoreAtTagWhenCopyingAndGenerating,
           grsaiNanoBananaProModel: normalizeGrsaiNanoBananaProModel(
             state.grsaiNanoBananaProModel

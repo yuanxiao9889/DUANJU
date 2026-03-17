@@ -11,9 +11,15 @@ use tauri::{AppHandle, Manager};
 pub struct ProjectSummaryRecord {
     pub id: String,
     pub name: String,
+    #[serde(default = "default_project_type")]
+    pub project_type: String,
     pub created_at: i64,
     pub updated_at: i64,
     pub node_count: i64,
+}
+
+fn default_project_type() -> String {
+    "storyboard".to_string()
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -21,6 +27,8 @@ pub struct ProjectSummaryRecord {
 pub struct ProjectRecord {
     pub id: String,
     pub name: String,
+    #[serde(default = "default_project_type")]
+    pub project_type: String,
     pub created_at: i64,
     pub updated_at: i64,
     pub node_count: i64,
@@ -48,6 +56,7 @@ fn ensure_projects_table(conn: &Connection) -> Result<(), String> {
         CREATE TABLE IF NOT EXISTS projects (
           id TEXT PRIMARY KEY,
           name TEXT NOT NULL,
+          project_type TEXT NOT NULL DEFAULT 'storyboard',
           created_at INTEGER NOT NULL,
           updated_at INTEGER NOT NULL,
           node_count INTEGER NOT NULL DEFAULT 0,
@@ -68,6 +77,7 @@ fn ensure_projects_table(conn: &Connection) -> Result<(), String> {
     .map_err(|e| format!("Failed to initialize projects table: {}", e))?;
 
     let mut has_node_count = false;
+    let mut has_project_type = false;
     let mut stmt = conn
         .prepare("PRAGMA table_info(projects)")
         .map_err(|e| format!("Failed to inspect projects schema: {}", e))?;
@@ -80,7 +90,9 @@ fn ensure_projects_table(conn: &Connection) -> Result<(), String> {
             name_result.map_err(|e| format!("Failed to read projects column name: {}", e))?;
         if column_name == "node_count" {
             has_node_count = true;
-            break;
+        }
+        if column_name == "project_type" {
+            has_project_type = true;
         }
     }
 
@@ -90,6 +102,14 @@ fn ensure_projects_table(conn: &Connection) -> Result<(), String> {
             [],
         )
         .map_err(|e| format!("Failed to add node_count column: {}", e))?;
+    }
+
+    if !has_project_type {
+        conn.execute(
+            "ALTER TABLE projects ADD COLUMN project_type TEXT NOT NULL DEFAULT 'storyboard'",
+            [],
+        )
+        .map_err(|e| format!("Failed to add project_type column: {}", e))?;
     }
 
     Ok(())
@@ -136,7 +156,7 @@ fn collect_image_paths_from_nodes(
     for node in nodes {
         let data = match node.get("data").and_then(|value| value.as_object()) {
             Some(value) => value,
-            None => continue,
+            Option::None => continue,
         };
 
         for key in ["imageUrl", "previewImageUrl"] {
@@ -151,7 +171,7 @@ fn collect_image_paths_from_nodes(
             for frame in frames {
                 let frame_obj = match frame.as_object() {
                     Some(value) => value,
-                    None => continue,
+                    Option::None => continue,
                 };
                 for key in ["imageUrl", "previewImageUrl"] {
                     if let Some(raw_value) = frame_obj.get(key).and_then(|value| value.as_str()) {
@@ -268,6 +288,7 @@ pub fn list_project_summaries(app: AppHandle) -> Result<Vec<ProjectSummaryRecord
             SELECT
               id,
               name,
+              COALESCE(project_type, 'storyboard') as project_type,
               created_at,
               updated_at,
               node_count
@@ -282,9 +303,10 @@ pub fn list_project_summaries(app: AppHandle) -> Result<Vec<ProjectSummaryRecord
             Ok(ProjectSummaryRecord {
                 id: row.get(0)?,
                 name: row.get(1)?,
-                created_at: row.get(2)?,
-                updated_at: row.get(3)?,
-                node_count: row.get(4)?,
+                project_type: row.get(2)?,
+                created_at: row.get(3)?,
+                updated_at: row.get(4)?,
+                node_count: row.get(5)?,
             })
         })
         .map_err(|e| format!("Failed to query project summaries: {}", e))?;
@@ -308,6 +330,7 @@ pub fn get_project_record(
             SELECT
               id,
               name,
+              COALESCE(project_type, 'storyboard') as project_type,
               created_at,
               updated_at,
               node_count,
@@ -326,13 +349,14 @@ pub fn get_project_record(
         Ok(ProjectRecord {
             id: row.get(0)?,
             name: row.get(1)?,
-            created_at: row.get(2)?,
-            updated_at: row.get(3)?,
-            node_count: row.get(4)?,
-            nodes_json: row.get(5)?,
-            edges_json: row.get(6)?,
-            viewport_json: row.get(7)?,
-            history_json: row.get(8)?,
+            project_type: row.get(2)?,
+            created_at: row.get(3)?,
+            updated_at: row.get(4)?,
+            node_count: row.get(5)?,
+            nodes_json: row.get(6)?,
+            edges_json: row.get(7)?,
+            viewport_json: row.get(8)?,
+            history_json: row.get(9)?,
         })
     });
 
@@ -356,6 +380,7 @@ pub fn upsert_project_record(app: AppHandle, record: ProjectRecord) -> Result<()
         INSERT INTO projects (
           id,
           name,
+          project_type,
           created_at,
           updated_at,
           node_count,
@@ -364,9 +389,10 @@ pub fn upsert_project_record(app: AppHandle, record: ProjectRecord) -> Result<()
           viewport_json,
           history_json
         )
-        VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)
+        VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)
         ON CONFLICT(id) DO UPDATE SET
           name = excluded.name,
+          project_type = excluded.project_type,
           created_at = excluded.created_at,
           updated_at = excluded.updated_at,
           node_count = excluded.node_count,
@@ -378,6 +404,7 @@ pub fn upsert_project_record(app: AppHandle, record: ProjectRecord) -> Result<()
         params![
             record.id,
             record.name,
+            record.project_type,
             record.created_at,
             record.updated_at,
             record.node_count,

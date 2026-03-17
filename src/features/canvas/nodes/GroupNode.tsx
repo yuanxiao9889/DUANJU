@@ -40,7 +40,7 @@ export const GroupNode = memo(({ id, data, selected }: GroupNodeProps) => {
           label: nextTitle,
         })}
       />
-      <NodeResizeHandle minWidth={220} minHeight={140} maxWidth={2200} maxHeight={1600} />
+      <NodeResizeHandle minWidth={220} minHeight={140} maxWidth={2200} maxHeight={1600} isVisible={selected} />
     </div>
   );
 });

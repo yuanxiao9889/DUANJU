@@ -52,9 +52,12 @@ const viewportUpsertTimers = new Map<string, ReturnType<typeof setTimeout>>();
 const viewportUpsertsInFlight = new Set<string>();
 const deletingProjectIds = new Set<string>();
 
+export type ProjectType = 'storyboard' | 'script';
+
 export interface ProjectSummary {
   id: string;
   name: string;
+  projectType: ProjectType;
   createdAt: number;
   updatedAt: number;
   nodeCount: number;
@@ -63,7 +66,7 @@ export interface ProjectSummary {
 export interface Project extends ProjectSummary {
   nodes: CanvasNode[];
   edges: CanvasEdge[];
-  viewport: Viewport;
+  viewport?: Viewport;
   history: CanvasHistoryState;
 }
 
@@ -273,6 +276,7 @@ function toProjectSummary(record: ProjectSummaryRecord): ProjectSummary {
   return {
     id: record.id,
     name: record.name,
+    projectType: (record.projectType as ProjectType) || 'storyboard',
     createdAt: record.createdAt,
     updatedAt: record.updatedAt,
     nodeCount: record.nodeCount,
@@ -287,6 +291,7 @@ function toProjectRecord(project: Project): ProjectRecord {
   return {
     id: encodedProject.id,
     name: encodedProject.name,
+    projectType: encodedProject.projectType || 'storyboard',
     createdAt: encodedProject.createdAt,
     updatedAt: encodedProject.updatedAt,
     nodeCount: encodedProject.nodeCount,
@@ -328,6 +333,7 @@ function fromProjectRecord(record: ProjectRecord): Project {
   const persistedProject: PersistedProject = {
     id: record.id,
     name: record.name,
+    projectType: (record.projectType as ProjectType) || 'storyboard',
     createdAt: record.createdAt,
     updatedAt: record.updatedAt,
     nodeCount: record.nodeCount,
@@ -588,7 +594,7 @@ interface ProjectState {
   isOpeningProject: boolean;
 
   hydrate: () => Promise<void>;
-  createProject: (name: string) => string;
+  createProject: (name: string, projectType: ProjectType) => string;
   deleteProject: (id: string) => void;
   renameProject: (id: string, name: string) => void;
   openProject: (id: string) => void;
@@ -636,12 +642,13 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
     }
   },
 
-  createProject: (name) => {
+  createProject: (name, projectType) => {
     const id = uuidv4();
     const now = Date.now();
     const project: Project = {
       id,
       name,
+      projectType,
       createdAt: now,
       updatedAt: now,
       nodeCount: 0,
@@ -734,6 +741,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
           projects: updateProjectSummary(state.projects, {
             id: project.id,
             name: project.name,
+            projectType: project.projectType,
             createdAt: project.createdAt,
             updatedAt: project.updatedAt,
             nodeCount: project.nodeCount,
@@ -770,6 +778,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
       persistedSummary = {
         id: nextProject.id,
         name: nextProject.name,
+        projectType: nextProject.projectType,
         createdAt: nextProject.createdAt,
         updatedAt: nextProject.updatedAt,
         nodeCount: nextProject.nodeCount,
@@ -804,14 +813,15 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
       return;
     }
 
+    const currentViewport = currentProject.viewport ?? DEFAULT_VIEWPORT;
     const nextViewport = viewport ?? currentProject.viewport ?? DEFAULT_VIEWPORT;
     const nextHistory = history ?? currentProject.history ?? createEmptyHistory();
     const nextNodeCount = nodes.length;
 
     const hasViewportChanged =
-      currentProject.viewport.x !== nextViewport.x ||
-      currentProject.viewport.y !== nextViewport.y ||
-      currentProject.viewport.zoom !== nextViewport.zoom;
+      currentViewport.x !== nextViewport.x ||
+      currentViewport.y !== nextViewport.y ||
+      currentViewport.zoom !== nextViewport.zoom;
     const hasChanged =
       currentProject.nodes !== nodes ||
       currentProject.edges !== edges ||
@@ -837,6 +847,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
       projects: updateProjectSummary(state.projects, {
         id: nextProject.id,
         name: nextProject.name,
+        projectType: nextProject.projectType,
         createdAt: nextProject.createdAt,
         updatedAt: nextProject.updatedAt,
         nodeCount: nextProject.nodeCount,
@@ -852,7 +863,8 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
     }
 
     const nextViewport = normalizeViewport(viewport);
-    const hasChanged = hasViewportMeaningfulDelta(currentProject.viewport, nextViewport);
+    const currentViewport = currentProject.viewport ?? DEFAULT_VIEWPORT;
+    const hasChanged = hasViewportMeaningfulDelta(currentViewport, nextViewport);
     if (!hasChanged) {
       return;
     }

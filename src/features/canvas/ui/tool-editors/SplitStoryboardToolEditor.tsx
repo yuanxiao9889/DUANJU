@@ -1,7 +1,8 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { ZoomIn, ZoomOut } from 'lucide-react';
 
 import { resolveImageDisplayUrl } from '@/features/canvas/application/imageData';
-import { UiInput } from '@/components/ui';
+import { UiInput, UiButton } from '@/components/ui';
 import type { VisualToolEditorProps } from './types';
 
 const MIN_GRID_SIZE = 1;
@@ -10,6 +11,9 @@ const DEFAULT_LINE_THICKNESS_PERCENT = 0.5;
 const MAX_LINE_THICKNESS_PERCENT = 20;
 const LEGACY_DEFAULT_LINE_THICKNESS_PX = 6;
 const PREVIEW_VIEWPORT_HEIGHT = 'h-[min(560px,60vh)]';
+const MIN_ZOOM = 0.5;
+const MAX_ZOOM = 4;
+const ZOOM_STEP = 0.25;
 
 interface OverlayRect {
   x: number;
@@ -32,6 +36,8 @@ interface SplitLayout {
   maxCellWidth: number;
   minCellHeight: number;
   maxCellHeight: number;
+  verticalLineInfos: { index: number; x: number }[];
+  horizontalLineInfos: { index: number; y: number }[];
 }
 
 function toFiniteNumber(value: unknown, fallback: number): number {
@@ -96,7 +102,9 @@ function computeSplitLayout(
   imageHeight: number,
   rows: number,
   cols: number,
-  lineThickness: number
+  lineThickness: number,
+  colRatios?: number[],
+  rowRatios?: number[]
 ): SplitLayout | null {
   const usableWidth = imageWidth - (cols - 1) * lineThickness;
   const usableHeight = imageHeight - (rows - 1) * lineThickness;
@@ -105,8 +113,12 @@ function computeSplitLayout(
     return null;
   }
 
-  const colWidths = splitSizes(usableWidth, cols);
-  const rowHeights = splitSizes(usableHeight, rows);
+  const colWidths = colRatios && colRatios.length === cols
+    ? colRatios.map(r => Math.max(1, Math.floor(usableWidth * r / 100)))
+    : splitSizes(usableWidth, cols);
+  const rowHeights = rowRatios && rowRatios.length === rows
+    ? rowRatios.map(r => Math.max(1, Math.floor(usableHeight * r / 100)))
+    : splitSizes(usableHeight, rows);
 
   const lineRects: OverlayRect[] = [];
   const xOffsets: number[] = [];
@@ -154,6 +166,19 @@ function computeSplitLayout(
     }
   }
 
+  const verticalLineInfos: { index: number; x: number }[] = [];
+  const horizontalLineInfos: { index: number; y: number }[] = [];
+  
+  for (let col = 0; col < cols - 1; col += 1) {
+    const lineX = xOffsets[col] + colWidths[col] + lineThickness / 2;
+    verticalLineInfos.push({ index: col, x: lineX });
+  }
+  
+  for (let row = 0; row < rows - 1; row += 1) {
+    const lineY = yOffsets[row] + rowHeights[row] + lineThickness / 2;
+    horizontalLineInfos.push({ index: row, y: lineY });
+  }
+
   return {
     lineRects,
     cellRects,
@@ -161,6 +186,8 @@ function computeSplitLayout(
     maxCellWidth: Math.max(...colWidths),
     minCellHeight: Math.min(...rowHeights),
     maxCellHeight: Math.max(...rowHeights),
+    verticalLineInfos,
+    horizontalLineInfos,
   };
 }
 
@@ -232,9 +259,29 @@ function NumberStepper({ label, value, min, max, onChange }: NumberStepperProps)
 export function SplitStoryboardToolEditor({ sourceImageUrl, options, onOptionsChange }: VisualToolEditorProps) {
   const [naturalSize, setNaturalSize] = useState<{ width: number; height: number } | null>(null);
   const displaySourceImageUrl = useMemo(() => resolveImageDisplayUrl(sourceImageUrl), [sourceImageUrl]);
+  const previewContainerRef = useRef<HTMLDivElement>(null);
+  
+  const [zoom, setZoom] = useState(1);
+  const [pan, setPan] = useState({ x: 0, y: 0 });
+  const [isPanning, setIsPanning] = useState(false);
+  const [panStart, setPanStart] = useState({ x: 0, y: 0 });
+  
+  const [colRatios, setColRatios] = useState<number[]>([]);
+  const [rowRatios, setRowRatios] = useState<number[]>([]);
+  const [draggingLine, setDraggingLine] = useState<{
+    type: 'horizontal' | 'vertical';
+    index: number;
+    startX: number;
+    startY: number;
+    startRatio: number;
+  } | null>(null);
 
   useEffect(() => {
     setNaturalSize(null);
+    setZoom(1);
+    setPan({ x: 0, y: 0 });
+    setColRatios([]);
+    setRowRatios([]);
   }, [displaySourceImageUrl]);
 
   const rows = clampInteger(toFiniteNumber(options.rows, 3), MIN_GRID_SIZE, MAX_GRID_SIZE);
@@ -300,9 +347,11 @@ export function SplitStoryboardToolEditor({ sourceImageUrl, options, onOptionsCh
       naturalSize.height,
       rows,
       cols,
-      lineThicknessPx
+      lineThicknessPx,
+      colRatios.length === cols ? colRatios : undefined,
+      rowRatios.length === rows ? rowRatios : undefined
     );
-  }, [cols, lineThicknessPx, naturalSize, rows]);
+  }, [cols, lineThicknessPx, naturalSize, rows, colRatios, rowRatios]);
 
   const updateOptions = useCallback(
     (patch: Partial<Record<'rows' | 'cols' | 'lineThicknessPercent', number>>) => {
@@ -343,10 +392,168 @@ export function SplitStoryboardToolEditor({ sourceImageUrl, options, onOptionsCh
         rows: nextRows,
         cols: nextCols,
         lineThicknessPercent: nextLineThicknessPercent,
+        colRatios: colRatios.length === nextCols ? colRatios : [],
+        rowRatios: rowRatios.length === nextRows ? rowRatios : [],
       });
     },
-    [cols, lineThicknessPercent, naturalSize, onOptionsChange, options, rows]
+    [cols, lineThicknessPercent, naturalSize, onOptionsChange, options, rows, colRatios, rowRatios]
   );
+
+  const handleZoomIn = useCallback(() => {
+    setZoom((z) => Math.min(MAX_ZOOM, z + ZOOM_STEP));
+  }, []);
+
+  const handleZoomOut = useCallback(() => {
+    setZoom((z) => Math.max(MIN_ZOOM, z - ZOOM_STEP));
+  }, []);
+
+  const handleResetZoom = useCallback(() => {
+    setZoom(1);
+    setPan({ x: 0, y: 0 });
+  }, []);
+
+  const handleWheel = useCallback((e: React.WheelEvent) => {
+    if (e.ctrlKey || e.metaKey) {
+      e.preventDefault();
+      const delta = e.deltaY > 0 ? -ZOOM_STEP : ZOOM_STEP;
+      const newZoom = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, zoom + delta));
+      
+      if (previewContainerRef.current) {
+        const rect = previewContainerRef.current.getBoundingClientRect();
+        const mouseX = e.clientX - rect.left;
+        const mouseY = e.clientY - rect.top;
+        const scale = newZoom / zoom;
+        setPan({
+          x: mouseX - (mouseX - pan.x) * scale,
+          y: mouseY - (mouseY - pan.y) * scale,
+        });
+      }
+      
+      setZoom(newZoom);
+    }
+  }, [zoom, pan]);
+
+  const handlePanStart = useCallback((e: React.MouseEvent) => {
+    if (zoom > 1 && e.button === 0) {
+      setIsPanning(true);
+      setPanStart({ x: e.clientX - pan.x, y: e.clientY - pan.y });
+    }
+  }, [zoom, pan]);
+
+  const handlePanMove = useCallback((e: React.MouseEvent) => {
+    if (isPanning) {
+      setPan({
+        x: e.clientX - panStart.x,
+        y: e.clientY - panStart.y,
+      });
+    }
+  }, [isPanning, panStart]);
+
+  const handlePanEnd = useCallback(() => {
+    setIsPanning(false);
+  }, []);
+
+  const handleLineDragStart = useCallback((
+    type: 'horizontal' | 'vertical',
+    index: number,
+    e: React.MouseEvent
+  ) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const ratios = type === 'vertical' ? colRatios : rowRatios;
+    const defaultRatios = type === 'vertical' 
+      ? Array.from({ length: cols }, () => 100 / cols)
+      : Array.from({ length: rows }, () => 100 / rows);
+    const currentRatios = ratios.length > 0 ? ratios : defaultRatios;
+    
+    setDraggingLine({
+      type,
+      index,
+      startX: e.clientX,
+      startY: e.clientY,
+      startRatio: currentRatios[index] || 100 / (type === 'vertical' ? cols : rows),
+    });
+  }, [colRatios, rowRatios, cols, rows]);
+
+  const handleLineDragMove = useCallback((e: React.MouseEvent) => {
+    if (!draggingLine || !naturalSize || !previewContainerRef.current) return;
+
+    const imageElement = previewContainerRef.current.querySelector('img');
+    const imageRect = imageElement?.getBoundingClientRect();
+    
+    if (!imageRect) return;
+    
+    const imageDisplayWidth = imageRect.width;
+    const imageDisplayHeight = imageRect.height;
+    
+    if (draggingLine.type === 'vertical') {
+      const deltaX = e.clientX - draggingLine.startX;
+      const deltaPercent = (deltaX / imageDisplayWidth) * 100;
+      const defaultRatios = Array.from({ length: cols }, () => 100 / cols);
+      const currentRatios = colRatios.length === cols ? [...colRatios] : [...defaultRatios];
+      
+      const newRatio = Math.max(5, Math.min(95, currentRatios[draggingLine.index] + deltaPercent));
+      const diff = newRatio - currentRatios[draggingLine.index];
+      
+      if (draggingLine.index < cols - 1) {
+        const nextRatio = currentRatios[draggingLine.index + 1] - diff;
+        if (nextRatio >= 5) {
+          currentRatios[draggingLine.index] = newRatio;
+          currentRatios[draggingLine.index + 1] = nextRatio;
+          setColRatios(currentRatios);
+        }
+      }
+    } else {
+      const deltaY = e.clientY - draggingLine.startY;
+      const deltaPercent = (deltaY / imageDisplayHeight) * 100;
+      const defaultRatios = Array.from({ length: rows }, () => 100 / rows);
+      const currentRatios = rowRatios.length === rows ? [...rowRatios] : [...defaultRatios];
+      
+      const newRatio = Math.max(5, Math.min(95, currentRatios[draggingLine.index] + deltaPercent));
+      const diff = newRatio - currentRatios[draggingLine.index];
+      
+      if (draggingLine.index < rows - 1) {
+        const nextRatio = currentRatios[draggingLine.index + 1] - diff;
+        if (nextRatio >= 5) {
+          currentRatios[draggingLine.index] = newRatio;
+          currentRatios[draggingLine.index + 1] = nextRatio;
+          setRowRatios(currentRatios);
+        }
+      }
+    }
+    
+    setDraggingLine(prev => prev ? { ...prev, startX: e.clientX, startY: e.clientY } : null);
+  }, [draggingLine, naturalSize, colRatios, rowRatios, cols, rows]);
+
+  const handleLineDragEnd = useCallback(() => {
+    setDraggingLine(null);
+  }, []);
+
+  const handleResetRatios = useCallback(() => {
+    setColRatios([]);
+    setRowRatios([]);
+  }, []);
+
+  useEffect(() => {
+    const handleGlobalMouseMove = (e: MouseEvent) => {
+      if (draggingLine) {
+        handleLineDragMove(e as unknown as React.MouseEvent);
+      }
+    };
+    const handleGlobalMouseUp = () => {
+      handleLineDragEnd();
+    };
+    
+    if (draggingLine) {
+      window.addEventListener('mousemove', handleGlobalMouseMove);
+      window.addEventListener('mouseup', handleGlobalMouseUp);
+    }
+    
+    return () => {
+      window.removeEventListener('mousemove', handleGlobalMouseMove);
+      window.removeEventListener('mouseup', handleGlobalMouseUp);
+    };
+  }, [draggingLine, handleLineDragMove, handleLineDragEnd]);
 
   const hasLayoutError = Boolean(naturalSize && !layout);
 
@@ -355,17 +562,61 @@ export function SplitStoryboardToolEditor({ sourceImageUrl, options, onOptionsCh
       <div className="space-y-2">
         <div className="flex items-center justify-between text-xs text-text-muted">
           <span>原图 + 切割预览</span>
-          {naturalSize && (
-            <span>
-              {naturalSize.width} x {naturalSize.height}px
-            </span>
-          )}
+          <div className="flex items-center gap-2">
+            {naturalSize && (
+              <span>
+                {naturalSize.width} x {naturalSize.height}px
+              </span>
+            )}
+            <div className="flex items-center gap-1 rounded-lg border border-[rgba(255,255,255,0.12)] bg-bg-dark/60 px-2 py-1">
+              <button
+                type="button"
+                onClick={handleZoomOut}
+                disabled={zoom <= MIN_ZOOM}
+                className="p-0.5 text-text-muted hover:text-text-dark disabled:opacity-40 disabled:cursor-not-allowed"
+                title="缩小"
+              >
+                <ZoomOut className="h-3.5 w-3.5" />
+              </button>
+              <span className="min-w-[40px] text-center text-[11px]">{Math.round(zoom * 100)}%</span>
+              <button
+                type="button"
+                onClick={handleZoomIn}
+                disabled={zoom >= MAX_ZOOM}
+                className="p-0.5 text-text-muted hover:text-text-dark disabled:opacity-40 disabled:cursor-not-allowed"
+                title="放大"
+              >
+                <ZoomIn className="h-3.5 w-3.5" />
+              </button>
+              <button
+                type="button"
+                onClick={handleResetZoom}
+                disabled={zoom === 1 && pan.x === 0 && pan.y === 0}
+                className="ml-1 px-1.5 py-0.5 text-[10px] text-text-muted hover:text-text-dark disabled:opacity-40 disabled:cursor-not-allowed rounded border border-[rgba(255,255,255,0.08)]"
+                title="重置视图"
+              >
+                重置
+              </button>
+            </div>
+          </div>
         </div>
 
         <div
-          className={`ui-scrollbar flex ${PREVIEW_VIEWPORT_HEIGHT} items-center justify-center overflow-auto rounded-xl border border-[rgba(255,255,255,0.12)] bg-bg-dark/70 p-3`}
+          ref={previewContainerRef}
+          className={`ui-scrollbar flex ${PREVIEW_VIEWPORT_HEIGHT} items-center justify-center overflow-auto rounded-xl border border-[rgba(255,255,255,0.12)] bg-bg-dark/70 p-3 ${zoom > 1 ? 'cursor-grab' : ''} ${isPanning ? 'cursor-grabbing' : ''}`}
+          onWheel={handleWheel}
+          onMouseDown={handlePanStart}
+          onMouseMove={handlePanMove}
+          onMouseUp={handlePanEnd}
+          onMouseLeave={handlePanEnd}
         >
-          <div className="relative inline-flex items-center justify-center">
+          <div 
+            className="relative inline-flex items-center justify-center"
+            style={{
+              transform: `scale(${zoom}) translate(${pan.x}px, ${pan.y}px)`,
+              transformOrigin: 'center center',
+            }}
+          >
             <img
               src={displaySourceImageUrl}
               alt="split-preview"
@@ -377,22 +628,49 @@ export function SplitStoryboardToolEditor({ sourceImageUrl, options, onOptionsCh
                   height: Math.max(1, target.naturalHeight),
                 });
               }}
+              draggable={false}
             />
 
             {naturalSize && layout && (
               <div className="pointer-events-none absolute inset-0 rounded-lg">
-                {layout.lineRects.map((rect, index) => (
-                  <div
-                    key={`line-${index}`}
-                    className="absolute bg-red-400/35"
-                    style={{
-                      left: toPercent(rect.x, naturalSize.width),
-                      top: toPercent(rect.y, naturalSize.height),
-                      width: toPercent(rect.width, naturalSize.width),
-                      height: toPercent(rect.height, naturalSize.height),
-                    }}
-                  />
-                ))}
+                {layout.lineRects.map((rect, index) => {
+                  const isVertical = rect.width < rect.height;
+                  const lineIndex = isVertical 
+                    ? layout.verticalLineInfos.findIndex(v => Math.abs(v.x - (rect.x + rect.width / 2)) < 2)
+                    : layout.horizontalLineInfos.findIndex(h => Math.abs(h.y - (rect.y + rect.height / 2)) < 2);
+                  
+                  return (
+                    <div
+                      key={`line-${index}`}
+                      className={`absolute ${isVertical ? 'cursor-ew-resize' : 'cursor-ns-resize'} pointer-events-auto group`}
+                      style={{
+                        left: toPercent(rect.x, naturalSize.width),
+                        top: toPercent(rect.y, naturalSize.height),
+                        width: toPercent(rect.width, naturalSize.width),
+                        height: toPercent(rect.height, naturalSize.height),
+                      }}
+                      onMouseDown={(e) => {
+                        if (lineIndex >= 0) {
+                          handleLineDragStart(
+                            isVertical ? 'vertical' : 'horizontal',
+                            lineIndex,
+                            e
+                          );
+                        }
+                      }}
+                    >
+                      <div className="absolute inset-0 bg-red-400/35 group-hover:bg-yellow-400/50 transition-colors" />
+                      {lineIndex >= 0 && (
+                        <div className={`absolute ${isVertical ? 'top-1/2 -translate-y-1/2 left-1/2 -translate-x-1/2' : 'left-1/2 -translate-x-1/2 top-1/2 -translate-y-1/2'} hidden group-hover:flex items-center justify-center bg-black/70 rounded px-1 py-0.5 text-[9px] text-white whitespace-nowrap z-10`}>
+                          {isVertical 
+                            ? `${(colRatios[lineIndex] || (100 / cols)).toFixed(1)}%`
+                            : `${(rowRatios[lineIndex] || (100 / rows)).toFixed(1)}%`
+                          }
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
 
                 {layout.cellRects.map((cell, index) => (
                   <div
@@ -411,10 +689,13 @@ export function SplitStoryboardToolEditor({ sourceImageUrl, options, onOptionsCh
           </div>
         </div>
 
-        <div className="flex items-center gap-3 text-xs text-text-muted">
+        <div className="flex items-center justify-between text-xs text-text-muted">
           <div className="inline-flex items-center gap-2">
             <span className="h-2.5 w-2.5 rounded-sm bg-red-400/70" />
             红色区域为切割时会丢弃的分割线像素
+          </div>
+          <div className="text-[11px]">
+            Ctrl + 滚轮缩放 | 拖动分割线调整比例
           </div>
         </div>
       </div>
@@ -428,14 +709,20 @@ export function SplitStoryboardToolEditor({ sourceImageUrl, options, onOptionsCh
             value={rows}
             min={MIN_GRID_SIZE}
             max={MAX_GRID_SIZE}
-            onChange={(value) => updateOptions({ rows: value })}
+            onChange={(value) => {
+              updateOptions({ rows: value });
+              setRowRatios([]);
+            }}
           />
           <NumberStepper
             label="列数"
             value={cols}
             min={MIN_GRID_SIZE}
             max={MAX_GRID_SIZE}
-            onChange={(value) => updateOptions({ cols: value })}
+            onChange={(value) => {
+              updateOptions({ cols: value });
+              setColRatios([]);
+            }}
           />
         </div>
 
@@ -466,6 +753,20 @@ export function SplitStoryboardToolEditor({ sourceImageUrl, options, onOptionsCh
             className="h-9"
           />
         </div>
+
+        {(colRatios.length > 0 || rowRatios.length > 0) && (
+          <div className="flex items-center justify-between">
+            <span className="text-xs text-text-muted">自定义比例</span>
+            <UiButton
+              variant="ghost"
+              size="sm"
+              onClick={handleResetRatios}
+              className="h-7 px-2 text-xs"
+            >
+              重置为等分
+            </UiButton>
+          </div>
+        )}
 
         <div className="rounded-lg border border-[rgba(255,255,255,0.12)] bg-bg-dark/80 px-3 py-2 text-xs text-text-muted">
           <div className="flex items-center justify-between">

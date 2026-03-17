@@ -8,6 +8,13 @@ export const CANVAS_NODE_TYPES = {
   group: 'groupNode',
   storyboardSplit: 'storyboardNode',
   storyboardGen: 'storyboardGenNode',
+  scriptRoot: 'scriptRootNode',
+  scriptChapter: 'scriptChapterNode',
+  scriptCharacter: 'scriptCharacterNode',
+  scriptLocation: 'scriptLocationNode',
+  scriptItem: 'scriptItemNode',
+  scriptPlotPoint: 'scriptPlotPointNode',
+  scriptWorldview: 'scriptWorldviewNode',
 } as const;
 
 export type CanvasNodeType = (typeof CANVAS_NODE_TYPES)[keyof typeof CANVAS_NODE_TYPES];
@@ -140,6 +147,105 @@ export interface StoryboardGenNodeData {
   [key: string]: unknown;
 }
 
+export interface StyleProfile {
+  dialogueRatio: number;
+  actionDetailLevel: string;
+  slangTerms: string[];
+}
+
+export interface BranchOption {
+  id: string;
+  label: string;
+  targetChapterId: string;
+  description: string;
+}
+
+export interface PlotPoint {
+  id: string;
+  type: 'setup' | 'conflict' | 'result' | 'emotional_shift';
+  description: string;
+}
+
+export interface ScriptTableRow {
+  [key: string]: string;
+}
+
+export interface ScriptTable {
+  id: string;
+  type: 'dialogue' | 'scene' | 'custom';
+  columns: string[];
+  rows: ScriptTableRow[];
+}
+
+export interface ScriptRootNodeData extends NodeDisplayData {
+  title: string;
+  genre: string;
+  totalChapters: number;
+  styleProfile?: StyleProfile;
+}
+
+export interface ScriptChapterNodeData extends NodeDisplayData {
+  chapterNumber: number;
+  title: string;
+  content: string;
+  summary: string;
+  sceneHeadings: string[];
+  characters: string[];
+  locations: string[];
+  items: string[];
+  emotionalShift: string;
+  setupRef?: string;
+  payoffRef?: string;
+  isBranchPoint: boolean;
+  branchType?: 'main' | 'branch' | 'supplement';
+  linkedChapterId?: string;
+  branches?: BranchOption[];
+  tables?: ScriptTable[];
+  plotPoints?: PlotPoint[];
+  parentId?: string;
+  branchIndex?: number;
+  depth?: number;
+}
+
+export interface ScriptCharacterNodeData extends NodeDisplayData {
+  name: string;
+  description: string;
+  personality: string;
+  appearance: string;
+  statusUpdates: { chapterId: string; status: string }[];
+  relationships: { targetId: string; type: string }[];
+}
+
+export interface ScriptLocationNodeData extends NodeDisplayData {
+  name: string;
+  description: string;
+  appearances: string[];
+}
+
+export interface ScriptItemNodeData extends NodeDisplayData {
+  name: string;
+  description: string;
+  appearances: string[];
+}
+
+export interface ScriptPlotPointNodeData extends NodeDisplayData {
+  pointType: 'setup' | 'payoff';
+  description: string;
+  relatedChapterId?: string;
+  relatedPointId?: string;
+}
+
+export interface ScriptWorldviewNodeData extends NodeDisplayData {
+  worldviewName: string;
+  description: string;
+  era: string;
+  technology: string;
+  magic: string;
+  society: string;
+  geography: string;
+  rules: string[];
+}
+
 export type CanvasNodeData =
   | UploadImageNodeData
   | ExportImageNodeData
@@ -147,7 +253,14 @@ export type CanvasNodeData =
   | GroupNodeData
   | ImageEditNodeData
   | StoryboardSplitNodeData
-  | StoryboardGenNodeData;
+  | StoryboardGenNodeData
+  | ScriptRootNodeData
+  | ScriptChapterNodeData
+  | ScriptCharacterNodeData
+  | ScriptLocationNodeData
+  | ScriptItemNodeData
+  | ScriptPlotPointNodeData
+  | ScriptWorldviewNodeData;
 
 export type CanvasNode = Node<CanvasNodeData, CanvasNodeType>;
 export type CanvasEdge = Edge;
@@ -220,6 +333,48 @@ export function isStoryboardGenNode(
   return node?.type === CANVAS_NODE_TYPES.storyboardGen;
 }
 
+export function isScriptRootNode(
+  node: CanvasNode | null | undefined
+): node is Node<ScriptRootNodeData, typeof CANVAS_NODE_TYPES.scriptRoot> {
+  return node?.type === CANVAS_NODE_TYPES.scriptRoot;
+}
+
+export function isScriptChapterNode(
+  node: CanvasNode | null | undefined
+): node is Node<ScriptChapterNodeData, typeof CANVAS_NODE_TYPES.scriptChapter> {
+  return node?.type === CANVAS_NODE_TYPES.scriptChapter;
+}
+
+export function isScriptCharacterNode(
+  node: CanvasNode | null | undefined
+): node is Node<ScriptCharacterNodeData, typeof CANVAS_NODE_TYPES.scriptCharacter> {
+  return node?.type === CANVAS_NODE_TYPES.scriptCharacter;
+}
+
+export function isScriptLocationNode(
+  node: CanvasNode | null | undefined
+): node is Node<ScriptLocationNodeData, typeof CANVAS_NODE_TYPES.scriptLocation> {
+  return node?.type === CANVAS_NODE_TYPES.scriptLocation;
+}
+
+export function isScriptItemNode(
+  node: CanvasNode | null | undefined
+): node is Node<ScriptItemNodeData, typeof CANVAS_NODE_TYPES.scriptItem> {
+  return node?.type === CANVAS_NODE_TYPES.scriptItem;
+}
+
+export function isScriptPlotPointNode(
+  node: CanvasNode | null | undefined
+): node is Node<ScriptPlotPointNodeData, typeof CANVAS_NODE_TYPES.scriptPlotPoint> {
+  return node?.type === CANVAS_NODE_TYPES.scriptPlotPoint;
+}
+
+export function isScriptWorldviewNode(
+  node: CanvasNode | null | undefined
+): node is Node<ScriptWorldviewNodeData, typeof CANVAS_NODE_TYPES.scriptWorldview> {
+  return node?.type === CANVAS_NODE_TYPES.scriptWorldview;
+}
+
 export function nodeHasImage(node: CanvasNode | null | undefined): boolean {
   if (!node) {
     return false;
@@ -235,6 +390,18 @@ export function nodeHasImage(node: CanvasNode | null | undefined): boolean {
 
   if (isStoryboardGenNode(node)) {
     return Boolean(node.data.imageUrl);
+  }
+
+  if (
+    isScriptRootNode(node) ||
+    isScriptChapterNode(node) ||
+    isScriptCharacterNode(node) ||
+    isScriptLocationNode(node) ||
+    isScriptItemNode(node) ||
+    isScriptPlotPointNode(node) ||
+    isScriptWorldviewNode(node)
+  ) {
+    return false;
   }
 
   return false;

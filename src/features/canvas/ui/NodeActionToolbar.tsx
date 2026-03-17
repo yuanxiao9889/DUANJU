@@ -1,6 +1,6 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { NodeToolbar as ReactFlowNodeToolbar } from '@xyflow/react';
-import { Copy, Crop, Download, FolderOpen, PenLine, RefreshCw, Scissors, Trash2, Unlink2 } from 'lucide-react';
+import { Copy, Crop, Download, FolderOpen, PenLine, RefreshCw, Scissors, Trash2, Unlink2, Table, Upload, Sparkles } from 'lucide-react';
 import { save } from '@tauri-apps/plugin-dialog';
 import { useTranslation } from 'react-i18next';
 
@@ -44,11 +44,26 @@ const toolIconMap: Record<ToolIconKey, typeof Crop> = {
   crop: Crop,
   annotate: PenLine,
   split: Scissors,
+  table: Table,
+  import: Upload,
+  ai: Sparkles,
 };
 
 const TOOLBAR_BUTTON_RADIUS_CLASS = 'rounded-full';
 const TOOLBAR_NEUTRAL_BUTTON_CLASS =
   'border-[rgba(255,255,255,0.18)] bg-bg-dark/70 text-text-dark hover:border-[rgba(255,255,255,0.32)] hover:bg-bg-dark';
+
+const SCRIPT_ASSET_NODE_TYPES = new Set<string>([
+  'scriptCharacterNode',
+  'scriptLocationNode',
+  'scriptItemNode',
+  'scriptPlotPointNode',
+  'scriptWorldviewNode',
+]);
+
+function isScriptAssetNode(node: CanvasNode): boolean {
+  return SCRIPT_ASSET_NODE_TYPES.has(node.type ?? '');
+}
 
 export const NodeActionToolbar = memo(({ node }: NodeActionToolbarProps) => {
   const { t, i18n } = useTranslation();
@@ -56,6 +71,7 @@ export const NodeActionToolbar = memo(({ node }: NodeActionToolbarProps) => {
   const isStoryboardGen = isStoryboardGenNode(node);
   const isStoryboardSplit = isStoryboardSplitNode(node);
   const canCopyStoryboardText = isStoryboardGen || isStoryboardSplit;
+  const isAssetNode = isScriptAssetNode(node);
   const tools = useMemo(() => getNodeToolPlugins(node), [node]);
   const deleteNode = useCanvasStore((state) => state.deleteNode);
   const ungroupNode = useCanvasStore((state) => state.ungroupNode);
@@ -425,18 +441,20 @@ export const NodeActionToolbar = memo(({ node }: NodeActionToolbarProps) => {
             {t('nodeToolbar.ungroup')}
           </UiChipButton>
         )}
-        <UiChipButton
-          key="node-delete"
-          className={`h-8 ${TOOLBAR_BUTTON_RADIUS_CLASS} border-red-500/45 bg-red-500/15 px-2.5 text-xs text-red-300 hover:bg-red-500/25`}
-          onClick={(event) => {
-            event.stopPropagation();
-            closeDownloadMenu();
-            deleteNode(node.id);
-          }}
-        >
-          <Trash2 className="h-3.5 w-3.5" />
-          {t('common.delete')}
-        </UiChipButton>
+        {!isAssetNode && (
+          <UiChipButton
+            key="node-delete"
+            className={`h-8 ${TOOLBAR_BUTTON_RADIUS_CLASS} border-red-500/45 bg-red-500/15 px-2.5 text-xs text-red-300 hover:bg-red-500/25`}
+            onClick={(event) => {
+              event.stopPropagation();
+              closeDownloadMenu();
+              deleteNode(node.id);
+            }}
+          >
+            <Trash2 className="h-3.5 w-3.5" />
+            {t('common.delete')}
+          </UiChipButton>
+        )}
       </UiPanel>
 
       {!isImageEdit && downloadMenu && (

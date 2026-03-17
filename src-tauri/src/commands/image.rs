@@ -116,6 +116,8 @@ pub async fn split_image_source(
     rows: u32,
     cols: u32,
     line_thickness: Option<u32>,
+    col_ratios: Option<Vec<f64>>,
+    row_ratios: Option<Vec<f64>>,
 ) -> Result<Vec<String>, String> {
     let started = Instant::now();
     let trimmed_source = source.trim();
@@ -146,8 +148,25 @@ pub async fn split_image_source(
         return Err("分割线过粗，无法完成切割".to_string());
     }
 
-    let column_widths = split_sizes(usable_width, safe_cols);
-    let row_heights = split_sizes(usable_height, safe_rows);
+    let column_widths = if let Some(ratios) = col_ratios {
+        if ratios.len() == safe_cols as usize {
+            ratios.iter().map(|r| (usable_width as f64 * r / 100.0).max(1.0) as u32).collect()
+        } else {
+            split_sizes(usable_width, safe_cols)
+        }
+    } else {
+        split_sizes(usable_width, safe_cols)
+    };
+
+    let row_heights = if let Some(ratios) = row_ratios {
+        if ratios.len() == safe_rows as usize {
+            ratios.iter().map(|r| (usable_height as f64 * r / 100.0).max(1.0) as u32).collect()
+        } else {
+            split_sizes(usable_height, safe_rows)
+        }
+    } else {
+        split_sizes(usable_height, safe_rows)
+    };
 
     let mut x_offsets = Vec::with_capacity(safe_cols as usize);
     let mut cursor_x = 0_u32;
@@ -896,7 +915,7 @@ pub async fn merge_storyboard_images(
         output_height.max(1),
         parse_hex_color(&payload.background_color),
     );
-    let placeholder = Rgba([0, 0, 0, 90]);
+    let placeholder = Rgba([255, 255, 255, 255]);
     let border = Rgba([255, 255, 255, 56]);
     let overlay_font = if overlay_requested { load_overlay_font() } else { None };
     let overlay_scale = PxScale::from(font_size.max(9) as f32);

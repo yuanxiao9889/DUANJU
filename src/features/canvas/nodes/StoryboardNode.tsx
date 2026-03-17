@@ -14,7 +14,7 @@ import {
   useViewport,
   type NodeProps,
 } from '@xyflow/react';
-import { Download, FolderOpen, ImagePlus, SlidersHorizontal, SquareArrowOutUpRight } from 'lucide-react';
+import { Download, FolderOpen, ImagePlus, SlidersHorizontal, SquareArrowOutUpRight, Plus, Trash2 } from 'lucide-react';
 import { open } from '@tauri-apps/plugin-dialog';
 import { openPath, revealItemInDir } from '@tauri-apps/plugin-opener';
 import { join } from '@tauri-apps/api/path';
@@ -279,6 +279,7 @@ interface FrameCardProps {
   onSortHover: (frameId: string) => void;
   onTogglePicker: (frameId: string, x: number, y: number) => void;
   onEditFrame: (frame: StoryboardFrameItem) => void;
+  onRemoveFrame: (frameId: string) => void;
 }
 
 interface IncomingImageItem {
@@ -307,21 +308,26 @@ const FrameCard = memo(
     onSortHover,
     onTogglePicker,
     onEditFrame,
+    onRemoveFrame,
   }: FrameCardProps) => {
     const updateStoryboardFrame = useCanvasStore((state) => state.updateStoryboardFrame);
     const { zoom } = useViewport();
 
+    const isWhitePlaceholder = frame.imageUrl === 'white-placeholder';
+
     const imageSource = useMemo(() => {
+      if (isWhitePlaceholder) return null;
       const preferOriginal = shouldUseOriginalImageByZoom(zoom);
       const picked = preferOriginal
         ? frame.imageUrl || frame.previewImageUrl
         : frame.previewImageUrl || frame.imageUrl;
       return picked ? resolveImageDisplayUrl(picked) : null;
-    }, [frame.imageUrl, frame.previewImageUrl, zoom]);
+    }, [frame.imageUrl, frame.previewImageUrl, zoom, isWhitePlaceholder]);
     const viewerSource = useMemo(() => {
+      if (isWhitePlaceholder) return null;
       const picked = frame.imageUrl || frame.previewImageUrl;
       return picked ? resolveImageDisplayUrl(picked) : null;
-    }, [frame.imageUrl, frame.previewImageUrl]);
+    }, [frame.imageUrl, frame.previewImageUrl, isWhitePlaceholder]);
 
     const dragging = draggedFrameId === frame.id;
     const asDropTarget = dropTargetFrameId === frame.id && !dragging;
@@ -356,7 +362,11 @@ const FrameCard = memo(
             onSortStart(frame.id);
           }}
         >
-          {frame.imageUrl ? (
+          {isWhitePlaceholder ? (
+            <div className="flex h-full w-full items-center justify-center bg-white">
+              <span className="text-xs text-gray-400">白色占位</span>
+            </div>
+          ) : frame.imageUrl ? (
             <CanvasNodeImage
               src={imageSource ?? ''}
               alt={`Frame ${index + 1}`}
@@ -366,10 +376,28 @@ const FrameCard = memo(
               draggable={false}
             />
           ) : (
-            <div className="flex h-full w-full items-center justify-center text-[11px] text-text-muted">
-              空分镜
+            <div className="flex h-full w-full cursor-pointer items-center justify-center bg-white/5 text-[11px] text-text-muted hover:bg-white/10"
+              onClick={(e) => {
+                e.stopPropagation();
+                onTogglePicker(frame.id, e.clientX, e.clientY);
+              }}
+            >
+              <Plus className="h-6 w-6 text-white/30" />
             </div>
           )}
+
+          <button
+            type="button"
+            className="absolute left-1 top-1 rounded bg-black/60 p-1 text-white opacity-0 transition-all duration-150 hover:bg-red-500/75 group-hover/frame:opacity-100"
+            onPointerDown={(event) => event.stopPropagation()}
+            onClick={(event) => {
+              event.stopPropagation();
+              onRemoveFrame(frame.id);
+            }}
+            title="删除此格"
+          >
+            <Trash2 className="h-3 w-3" />
+          </button>
 
           <button
             type="button"
@@ -409,7 +437,7 @@ const FrameCard = memo(
           onMouseDown={(event) => event.stopPropagation()}
           onWheelCapture={(event) => event.stopPropagation()}
           placeholder={`分镜 ${String(index + 1).padStart(2, '0')} 描述`}
-          className="ui-scrollbar nodrag nowheel h-10 w-full resize-none overflow-y-auto border-0 border-t border-[rgba(255,255,255,0.12)] bg-bg-dark/90 px-2 py-1 text-[10px] text-text-dark outline-none focus:border-accent"
+          className="ui-scrollbar nodrag nowheel h-10 w-full resize-none overflow-y-auto border-0 border-t border-[rgba(255,255,255,0.12)] bg-bg-dark/90 px-1.5 py-0.5 text-[11px] text-text-dark outline-none placeholder:text-text-muted/50"
         />
       </div>
     );
@@ -432,6 +460,8 @@ export const StoryboardNode = memo(({ id, data, selected, width, height }: Story
   const addEdge = useCanvasStore((state) => state.addEdge);
   const updateStoryboardFrame = useCanvasStore((state) => state.updateStoryboardFrame);
   const updateNodeData = useCanvasStore((state) => state.updateNodeData);
+  const addStoryboardFrame = useCanvasStore((state) => state.addStoryboardFrame);
+  const removeStoryboardFrame = useCanvasStore((state) => state.removeStoryboardFrame);
   const currentProjectName = useProjectStore((state) => state.currentProject?.name);
   const downloadPresetPaths = useSettingsStore((state) => state.downloadPresetPaths);
 
@@ -725,10 +755,15 @@ export const StoryboardNode = memo(({ id, data, selected, width, height }: Story
     try {
       const stageFrameStart = performance.now();
       const frameSources = orderedFrames.map(
-        (frame) => frame.imageUrl ?? frame.previewImageUrl ?? ''
+        (frame) => {
+          if (frame.imageUrl === 'white-placeholder') {
+            return '';
+          }
+          return frame.imageUrl ?? frame.previewImageUrl ?? '';
+        }
       );
-      if (frameSources.every((source) => !source)) {
-        throw new Error('没有可导出的图片');
+      if (frameSources.length === 0) {
+        throw new Error('没有可导出的分镜');
       }
       console.info(`${EXPORT_TRACE_PREFIX} frame-sources-ready`, {
         traceId,
@@ -1035,6 +1070,30 @@ export const StoryboardNode = memo(({ id, data, selected, width, height }: Story
         titleAdjust={STORYBOARD_SPLIT_TITLE_ADJUST}
         editable
         onTitleChange={(nextTitle) => updateNodeData(id, { displayName: nextTitle })}
+        rightSlot={
+          <div className="flex items-center gap-1">
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                addStoryboardFrame(id, false);
+              }}
+              className="p-1.5 rounded-lg hover:bg-white/10 transition-colors"
+              title="添加空白格"
+            >
+              <Plus className="w-3.5 h-3.5 text-white/60" />
+            </button>
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                addStoryboardFrame(id, true);
+              }}
+              className="p-1.5 rounded-lg hover:bg-white/10 transition-colors"
+              title="添加白色占位格"
+            >
+              <div className="w-3.5 h-3.5 bg-white/60 rounded-sm" />
+            </button>
+          </div>
+        }
       />
 
       <div
@@ -1065,6 +1124,7 @@ export const StoryboardNode = memo(({ id, data, selected, width, height }: Story
               onEditFrame={(targetFrame) => {
                 void handleEditFrame(targetFrame);
               }}
+              onRemoveFrame={(frameId) => removeStoryboardFrame(id, frameId)}
             />
           ))}
         </div>
@@ -1315,10 +1375,11 @@ export const StoryboardNode = memo(({ id, data, selected, width, height }: Story
         className="!h-2 !w-2 !border-surface-dark !bg-accent"
       />
       <NodeResizeHandle
-        minWidth={STORYBOARD_NODE_WIDTH_PX}
-        minHeight={STORYBOARD_NODE_MIN_HEIGHT_PX}
-        maxWidth={1800}
+        minWidth={280}
+        minHeight={200}
+        maxWidth={2000}
         maxHeight={1600}
+        isVisible={selected}
       />
 
       {typeof document !== 'undefined' && isPackDoneDialogOpen

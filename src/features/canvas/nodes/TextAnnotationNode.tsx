@@ -71,6 +71,7 @@ export const TextAnnotationNode = memo(({
         minHeight={MIN_HEIGHT}
         maxWidth={MAX_WIDTH}
         maxHeight={MAX_HEIGHT}
+        isVisible={selected}
       />
 
       {selected ? (

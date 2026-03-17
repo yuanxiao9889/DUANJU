@@ -550,7 +550,7 @@ export const StoryboardGenNode = memo(({ id, data, selected, width, height }: St
   const addEdge = useCanvasStore((state) => state.addEdge);
   const findNodePosition = useCanvasStore((state) => state.findNodePosition);
   const apiKeys = useSettingsStore((state) => state.apiKeys);
-  const grsaiNanoBananaProModel = useSettingsStore((state) => state.grsaiNanoBananaProModel);
+  const hrsaiNanoBananaProModel = useSettingsStore((state) => state.hrsaiNanoBananaProModel);
   const storyboardGenKeepStyleConsistent = useSettingsStore(
     (state) => state.storyboardGenKeepStyleConsistent
   );
@@ -626,10 +626,10 @@ export const StoryboardGenNode = memo(({ id, data, selected, width, height }: St
     () => ({
       ...(nodeData.extraParams ?? {}),
       ...(selectedModel.id === GRSAI_NANO_BANANA_PRO_MODEL_ID
-        ? { grsai_pro_model: grsaiNanoBananaProModel }
+        ? { grsai_pro_model: hrsaiNanoBananaProModel }
         : {}),
     }),
-    [grsaiNanoBananaProModel, nodeData.extraParams, selectedModel.id]
+    [hrsaiNanoBananaProModel, nodeData.extraParams, selectedModel.id]
   );
   const resolutionOptions = useMemo(
     () => resolveImageModelResolutions(selectedModel, { extraParams: effectiveExtraParams }),
@@ -1687,10 +1687,11 @@ export const StoryboardGenNode = memo(({ id, data, selected, width, height }: St
         className="!h-2 !w-2 !border-surface-dark !bg-accent"
       />
       <NodeResizeHandle
-        minWidth={baseFrameLayout.nodeWidth}
-        minHeight={baseFrameLayout.nodeHeight}
-        maxWidth={1800}
-        maxHeight={1400}
+        minWidth={280}
+        minHeight={240}
+        maxWidth={2000}
+        maxHeight={1600}
+        isVisible={selected}
       />
     </div>
   );

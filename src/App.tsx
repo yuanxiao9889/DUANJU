@@ -124,9 +124,9 @@ function App() {
         }
 
         const retryDelayMs = Math.min(500, 80 * attempt);
-        retryTimer = window.setTimeout(() => {
+        retryTimer = setTimeout(() => {
           void notifyFrontendReady(attempt + 1);
-        }, retryDelayMs);
+        }, retryDelayMs) as ReturnType<typeof setTimeout>;
       }
     };
 

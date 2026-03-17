@@ -18,13 +18,17 @@ export async function splitImageSource(
   source: string,
   rows: number,
   cols: number,
-  lineThickness = 0
+  lineThickness: number,
+  colRatios?: number[],
+  rowRatios?: number[]
 ): Promise<string[]> {
   return await invoke('split_image_source', {
     source,
     rows,
     cols,
     lineThickness,
+    colRatios,
+    rowRatios,
   });
 }
 

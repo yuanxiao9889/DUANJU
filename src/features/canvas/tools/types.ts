@@ -2,7 +2,8 @@ import type { CanvasNode, NodeToolType } from '../domain/canvasNodes';
 import type { ToolProcessorResult } from '../application/ports';
 
 export type ToolOptionPrimitive = string | number | boolean;
-export type ToolOptions = Record<string, ToolOptionPrimitive>;
+export type ToolOptionValue = ToolOptionPrimitive | ToolOptionPrimitive[];
+export type ToolOptions = Record<string, ToolOptionValue>;
 
 interface ToolFieldBase {
   key: string;
@@ -47,8 +48,8 @@ export interface ToolExecutionContext {
   ) => Promise<ToolProcessorResult>;
 }
 
-export type ToolIconKey = 'crop' | 'annotate' | 'split';
-export type ToolEditorKind = 'form' | 'crop' | 'annotate' | 'split';
+export type ToolIconKey = 'crop' | 'annotate' | 'split' | 'import' | 'table' | 'ai';
+export type ToolEditorKind = 'form' | 'crop' | 'annotate' | 'split' | 'import';
 
 export interface CanvasToolPlugin {
   type: NodeToolType;

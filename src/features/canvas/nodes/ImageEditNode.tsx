@@ -247,7 +247,7 @@ export const ImageEditNode = memo(({ id, data, selected, width, height }: ImageE
   const findNodePosition = useCanvasStore((state) => state.findNodePosition);
   const addEdge = useCanvasStore((state) => state.addEdge);
   const apiKeys = useSettingsStore((state) => state.apiKeys);
-  const grsaiNanoBananaProModel = useSettingsStore((state) => state.grsaiNanoBananaProModel);
+  const hrsaiNanoBananaProModel = useSettingsStore((state) => state.hrsaiNanoBananaProModel);
   const showNodePrice = useSettingsStore((state) => state.showNodePrice);
   const priceDisplayCurrencyMode = useSettingsStore((state) => state.priceDisplayCurrencyMode);
   const usdToCnyRate = useSettingsStore((state) => state.usdToCnyRate);
@@ -284,10 +284,10 @@ export const ImageEditNode = memo(({ id, data, selected, width, height }: ImageE
     () => ({
       ...(data.extraParams ?? {}),
       ...(selectedModel.id === GRSAI_NANO_BANANA_PRO_MODEL_ID
-        ? { grsai_pro_model: grsaiNanoBananaProModel }
+        ? { grsai_pro_model: hrsaiNanoBananaProModel }
         : {}),
     }),
-    [data.extraParams, grsaiNanoBananaProModel, selectedModel.id]
+    [data.extraParams, hrsaiNanoBananaProModel, selectedModel.id]
   );
   const resolutionOptions = useMemo(
     () => resolveImageModelResolutions(selectedModel, { extraParams: effectiveExtraParams }),
@@ -887,6 +887,7 @@ export const ImageEditNode = memo(({ id, data, selected, width, height }: ImageE
         minHeight={IMAGE_EDIT_NODE_MIN_HEIGHT}
         maxWidth={IMAGE_EDIT_NODE_MAX_WIDTH}
         maxHeight={IMAGE_EDIT_NODE_MAX_HEIGHT}
+        isVisible={selected}
       />
     </div>
   );

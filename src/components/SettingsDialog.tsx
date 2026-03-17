@@ -1,20 +1,18 @@
 import { useState, useCallback, useEffect, useMemo } from 'react';
-import { X, Eye, EyeOff, FolderOpen, Plus, Trash2 } from 'lucide-react';
+import { X, Eye, EyeOff, FolderOpen, Plus, Trash2, Maximize2, Minimize2 } from 'lucide-react';
 import { Trans, useTranslation } from 'react-i18next';
-import ReactMarkdown from 'react-markdown';
-import remarkGfm from 'remark-gfm';
-import remarkBreaks from 'remark-breaks';
 import { getVersion } from '@tauri-apps/api/app';
 import { open } from '@tauri-apps/plugin-dialog';
-import { openUrl } from '@tauri-apps/plugin-opener';
 import { useSettingsStore } from '@/stores/settingsStore';
+import { testProviderConnection } from '@/commands/textGen';
 import { UiCheckbox, UiSelect } from '@/components/ui';
 import { UI_CONTENT_OVERLAY_INSET_CLASS, UI_DIALOG_TRANSITION_MS } from '@/components/ui/motion';
 import { useDialogTransition } from '@/components/ui/useDialogTransition';
 import { listModelProviders } from '@/features/canvas/models';
 import { GRSAI_NANO_BANANA_PRO_MODEL_OPTIONS } from '@/features/canvas/models/providers/grsai';
+import { ALIBABA_TEXT_MODEL_OPTIONS } from '@/features/canvas/models/providers/alibaba';
+import { CODING_MODEL_OPTIONS } from '@/features/canvas/models/providers/coding';
 import { GRSAI_CREDIT_TIERS } from '@/features/canvas/pricing/types';
-import providerGuideMarkdown from '../../docs/settings/provider-guide.md?raw';
 import type { SettingsCategory } from '@/features/settings/settingsEvents';
 
 interface SettingsDialogProps {
@@ -36,6 +34,8 @@ const PROVIDER_REGISTER_URLS: Record<string, string> = {
   grsai: 'https://grsai.com',
   kie: 'https://kie.ai?ref=eef20ef0b0595cad227d45b29c635f6c',
   fal: 'https://fal.ai',
+  alibaba: 'https://bailian.console.aliyun.com',
+  coding: 'https://bailian.console.aliyun.com',
 };
 
 const PROVIDER_GET_KEY_URLS: Record<string, string> = {
@@ -43,6 +43,8 @@ const PROVIDER_GET_KEY_URLS: Record<string, string> = {
   grsai: 'https://grsai.com/zh/dashboard/api-keys',
   kie: 'https://kie.ai/api-key',
   fal: 'https://fal.ai/dashboard/keys',
+  alibaba: 'https://bailian.console.aliyun.com/cn-beijing/#/api-key',
+  coding: 'https://bailian.console.aliyun.com/cn-beijing/#/api-key',
 };
 
 function SettingsCheckboxCard({
@@ -89,8 +91,10 @@ export function SettingsDialog({
   const { t, i18n } = useTranslation();
   const {
     apiKeys,
-    grsaiNanoBananaProModel,
-    hideProviderGuidePopover,
+    scriptProviderEnabled,
+    hrsaiNanoBananaProModel,
+    alibabaTextModel,
+    codingModel,
     downloadPresetPaths,
     useUploadFilenameAsNodeTitle,
     storyboardGenKeepStyleConsistent,
@@ -111,7 +115,10 @@ export function SettingsDialog({
     autoCheckAppUpdateOnLaunch,
     enableUpdateDialog,
     setProviderApiKey,
+    setScriptProviderEnabled,
     setGrsaiNanoBananaProModel,
+    setAlibabaTextModel,
+    setCodingModel,
     setDownloadPresetPaths,
     setUseUploadFilenameAsNodeTitle,
     setStoryboardGenKeepStyleConsistent,
@@ -133,7 +140,7 @@ export function SettingsDialog({
     setEnableUpdateDialog,
   } = useSettingsStore();
   const providers = useMemo(() => {
-    const providerOrder = ['kie', 'ppio', 'fal', 'grsai'];
+    const providerOrder = ['kie', 'ppio', 'fal', 'grsai', 'alibaba', 'coding'];
     const providerIndex = new Map(providerOrder.map((id, index) => [id, index]));
     return listModelProviders().slice().sort((left, right) => {
       const leftIndex = providerIndex.get(left.id) ?? Number.MAX_SAFE_INTEGER;
@@ -141,12 +148,20 @@ export function SettingsDialog({
       return leftIndex - rightIndex;
     });
   }, []);
+  const scriptProviders = useMemo(() => providers.filter(p => p.id === 'alibaba' || p.id === 'coding'), [providers]);
+  const storyboardProviders = useMemo(() => providers.filter(p => p.id !== 'alibaba' && p.id !== 'coding'), [providers]);
   const [activeCategory, setActiveCategory] = useState<SettingsCategory>(initialCategory);
+  const [localProviderTab, setLocalProviderTab] = useState<'script' | 'storyboard'>('script');
   const [appVersion, setAppVersion] = useState<string>('');
   const [localApiKeys, setLocalApiKeys] = useState<Record<string, string>>(apiKeys);
   const [localGrsaiNanoBananaProModel, setLocalGrsaiNanoBananaProModel] = useState(
-    grsaiNanoBananaProModel
+   hrsaiNanoBananaProModel
   );
+  const [localScriptProviderEnabled, setLocalScriptProviderEnabled] = useState(scriptProviderEnabled);
+  const [selectedScriptProvider, setSelectedScriptProvider] = useState(scriptProviderEnabled || scriptProviders[0]?.id || '');
+  const [selectedStoryboardProvider, setSelectedStoryboardProvider] = useState(storyboardProviders[0]?.id || '');
+  const [localAlibabaTextModel, setLocalAlibabaTextModel] = useState('qwen-plus');
+  const [localCodingModel, setLocalCodingModel] = useState('qwen3.5-plus');
   const [localDownloadPathInput, setLocalDownloadPathInput] = useState('');
   const [localDownloadPresetPaths, setLocalDownloadPresetPaths] = useState(downloadPresetPaths);
   const [localUseUploadFilenameAsNodeTitle, setLocalUseUploadFilenameAsNodeTitle] = useState(
@@ -185,6 +200,9 @@ export function SettingsDialog({
   const [localEnableUpdateDialog, setLocalEnableUpdateDialog] = useState(enableUpdateDialog);
   const [checkUpdateStatus, setCheckUpdateStatus] = useState<'' | 'checking' | 'has-update' | 'up-to-date' | 'failed'>('');
   const [revealedApiKeys, setRevealedApiKeys] = useState<Record<string, boolean>>({});
+  const [testingConnection, setTestingConnection] = useState<string | null>(null);
+  const [testResults, setTestResults] = useState<Record<string, { success: boolean; message: string }>>({});
+  const [isDialogExpanded, setIsDialogExpanded] = useState(false);
   const { shouldRender, isVisible } = useDialogTransition(isOpen, UI_DIALOG_TRANSITION_MS);
 
   useEffect(() => {
@@ -213,7 +231,11 @@ export function SettingsDialog({
     }
     setLocalApiKeys(apiKeys);
     setLocalDownloadPresetPaths(downloadPresetPaths);
-    setLocalGrsaiNanoBananaProModel(grsaiNanoBananaProModel);
+    setLocalGrsaiNanoBananaProModel(hrsaiNanoBananaProModel);
+    setLocalScriptProviderEnabled(scriptProviderEnabled);
+    setSelectedScriptProvider(scriptProviderEnabled || scriptProviders[0]?.id || '');
+    setLocalAlibabaTextModel(alibabaTextModel || 'qwen-plus');
+    setLocalCodingModel(codingModel || 'qwen3.5-plus');
     setLocalUseUploadFilenameAsNodeTitle(useUploadFilenameAsNodeTitle);
     setLocalStoryboardGenKeepStyleConsistent(storyboardGenKeepStyleConsistent);
     setLocalStoryboardGenDisableTextInImage(storyboardGenDisableTextInImage);
@@ -237,6 +259,32 @@ export function SettingsDialog({
     setLocalDownloadPathInput('');
   }, [
     isOpen,
+    apiKeys,
+    downloadPresetPaths,
+    hrsaiNanoBananaProModel,
+    scriptProviderEnabled,
+    alibabaTextModel,
+    codingModel,
+    useUploadFilenameAsNodeTitle,
+    storyboardGenKeepStyleConsistent,
+    storyboardGenDisableTextInImage,
+    storyboardGenAutoInferEmptyFrame,
+    ignoreAtTagWhenCopyingAndGenerating,
+    enableStoryboardGenGridPreviewShortcut,
+    showStoryboardGenAdvancedRatioControls,
+    showNodePrice,
+    priceDisplayCurrencyMode,
+    usdToCnyRate,
+    preferDiscountedPrice,
+    grsaiCreditTierId,
+    uiRadiusPreset,
+    themeTonePreset,
+    accentColor,
+    canvasEdgeRoutingMode,
+    autoCheckAppUpdateOnLaunch,
+    enableUpdateDialog,
+    scriptProviders,
+    storyboardProviders,
   ]);
 
   useEffect(() => {
@@ -252,6 +300,9 @@ export function SettingsDialog({
       setProviderApiKey(provider.id, localApiKeys[provider.id] ?? '');
     });
     setGrsaiNanoBananaProModel(localGrsaiNanoBananaProModel);
+    setScriptProviderEnabled(localScriptProviderEnabled);
+    setAlibabaTextModel(localAlibabaTextModel);
+    setCodingModel(localCodingModel);
     setDownloadPresetPaths(localDownloadPresetPaths);
     setUseUploadFilenameAsNodeTitle(localUseUploadFilenameAsNodeTitle);
     setStoryboardGenKeepStyleConsistent(localStoryboardGenKeepStyleConsistent);
@@ -297,6 +348,9 @@ export function SettingsDialog({
     providers,
     setProviderApiKey,
     setGrsaiNanoBananaProModel,
+    setScriptProviderEnabled,
+    setAlibabaTextModel,
+    setCodingModel,
     setDownloadPresetPaths,
     setUseUploadFilenameAsNodeTitle,
     setStoryboardGenKeepStyleConsistent,
@@ -317,6 +371,9 @@ export function SettingsDialog({
     setAutoCheckAppUpdateOnLaunch,
     setEnableUpdateDialog,
     onClose,
+    localScriptProviderEnabled,
+    localAlibabaTextModel,
+    localCodingModel,
   ]);
 
   const handleCheckUpdate = useCallback(async () => {
@@ -367,13 +424,6 @@ export function SettingsDialog({
     setLocalDownloadPresetPaths((previous) => previous.filter((value) => value !== path));
   }, []);
 
-  const handleMarkdownLinkClick = useCallback((href?: string) => {
-    if (!href) {
-      return;
-    }
-    void openUrl(href);
-  }, []);
-
   if (!shouldRender) return null;
 
   return (
@@ -384,15 +434,27 @@ export function SettingsDialog({
       />
       <div className="relative w-[min(96vw,1120px)]">
         <div
-          className={`relative mx-auto h-[500px] w-[700px] overflow-hidden rounded-lg border border-border-dark bg-surface-dark shadow-xl transition-opacity duration-200 ${isVisible ? 'opacity-100' : 'opacity-0'} flex`}
+          className={`relative mx-auto overflow-hidden rounded-lg border border-border-dark bg-surface-dark shadow-xl transition-all duration-200 ${isVisible ? 'opacity-100' : 'opacity-0'} flex ${isDialogExpanded ? 'w-[min(94vw,1000px)] h-[min(90vh,700px)]' : 'w-[700px] h-[500px]'}`}
         >
-          {/* Close button */}
-          <button
-            onClick={onClose}
-            className="absolute top-3 right-3 p-1 hover:bg-bg-dark rounded transition-colors z-10"
-          >
-            <X className="w-5 h-5 text-text-muted" />
-          </button>
+          <div className="absolute top-3 right-3 flex items-center gap-1 z-10">
+            <button
+              onClick={() => setIsDialogExpanded(!isDialogExpanded)}
+              className="p-1 hover:bg-bg-dark rounded transition-colors"
+              title={isDialogExpanded ? t('settings.dialogCollapse') : t('settings.dialogExpand')}
+            >
+              {isDialogExpanded ? (
+                <Minimize2 className="w-5 h-5 text-text-muted" />
+              ) : (
+                <Maximize2 className="w-5 h-5 text-text-muted" />
+              )}
+            </button>
+            <button
+              onClick={onClose}
+              className="p-1 hover:bg-bg-dark rounded transition-colors"
+            >
+              <X className="w-5 h-5 text-text-muted" />
+            </button>
+          </div>
 
           {/* Sidebar */}
           <div className="w-[180px] bg-bg-dark border-r border-border-dark flex flex-col">
@@ -493,121 +555,331 @@ export function SettingsDialog({
           <div className="flex-1 flex flex-col">
             {activeCategory === 'providers' && (
               <>
-                <div className="px-6 py-5 border-b border-border-dark">
-                  <h2 className="text-lg font-semibold text-text-dark">
-                    {t('settings.providers')}
-                  </h2>
-                  <p className="text-sm text-text-muted mt-1">
-                    {t('settings.providersDesc')}
-                  </p>
+                <div className="px-6 py-4 border-b border-border-dark">
+                  <div className="flex gap-1">
+                    <button
+                      onClick={() => setLocalProviderTab('script')}
+                      className={`px-4 py-2 text-sm font-medium rounded-t transition-colors ${
+                        localProviderTab === 'script'
+                          ? 'bg-surface-dark text-text-dark border-t border-l border-r border-border-dark -mb-px'
+                          : 'text-text-muted hover:text-text-dark'
+                      }`}
+                    >
+                      {t('settings.scriptApiEnabled')}
+                    </button>
+                    <button
+                      onClick={() => setLocalProviderTab('storyboard')}
+                      className={`px-4 py-2 text-sm font-medium rounded-t transition-colors ${
+                        localProviderTab === 'storyboard'
+                          ? 'bg-surface-dark text-text-dark border-t border-l border-r border-border-dark -mb-px'
+                          : 'text-text-muted hover:text-text-dark'
+                      }`}
+                    >
+                      {t('settings.storyboardApiEnabled')}
+                    </button>
+                  </div>
                 </div>
 
-                <div className="ui-scrollbar flex-1 space-y-4 overflow-y-auto p-6">
-                  {providers.map((provider) => {
-                    const displayName = i18n.language.startsWith('zh') ? provider.label : provider.name;
-                    const isRevealed = Boolean(revealedApiKeys[provider.id]);
-
-                    return (
-                      <div key={provider.id} className="rounded-lg border border-border-dark bg-bg-dark p-4">
-                        <div className="mb-3">
-                          <h3 className="text-sm font-medium text-text-dark">{displayName}</h3>
-                          {PROVIDER_REGISTER_URLS[provider.id] && PROVIDER_GET_KEY_URLS[provider.id] ? (
-                            <p className="text-xs text-text-muted">
-                              {t('settings.providerApiKeyGuidePrefix')}{' '}
-                              <a
-                                href={PROVIDER_REGISTER_URLS[provider.id]}
-                                target="_blank"
-                                rel="noreferrer"
-                                className="text-accent hover:underline"
-                              >
-                                {t('settings.providerRegisterLink')}
-                              </a>
-                              {t('settings.providerApiKeyGuideMiddle')}{' '}
-                              <a
-                                href={PROVIDER_GET_KEY_URLS[provider.id]}
-                                target="_blank"
-                                rel="noreferrer"
-                                className="text-accent hover:underline"
-                              >
-                                {t('settings.getApiKeyLink')}
-                              </a>
-                            </p>
-                          ) : (
-                            <p className="text-xs text-text-muted">{provider.id}</p>
-                          )}
-                        </div>
-
-                        <div className="relative">
-                          <input
-                            type={isRevealed ? 'text' : 'password'}
-                            value={localApiKeys[provider.id] ?? ''}
-                            onChange={(event) => {
-                              const nextValue = event.target.value;
-                              setLocalApiKeys((previous) => ({
-                                ...previous,
-                                [provider.id]: nextValue,
-                              }));
-                              setProviderApiKey(provider.id, nextValue);
-                            }}
-                            placeholder={t('settings.enterApiKey')}
-                            className="w-full rounded border border-border-dark bg-surface-dark px-3 py-2 pr-10 text-sm text-text-dark placeholder:text-text-muted"
-                          />
+                <div className="flex-1 flex min-h-0">
+                  <div className="w-[140px] border-r border-border-dark bg-bg-dark flex flex-col">
+                    <div className="px-3 py-3 text-xs font-medium text-text-muted uppercase tracking-wider">
+                      {t('settings.providerList')}
+                    </div>
+                    <nav className="flex-1 overflow-y-auto ui-scrollbar">
+                      {(localProviderTab === 'script' ? scriptProviders : storyboardProviders).map((provider) => {
+                        const hasKey = Boolean((localApiKeys[provider.id] ?? '').trim());
+                        const selectedProviderId = localProviderTab === 'script' ? selectedScriptProvider : selectedStoryboardProvider;
+                        const isSelected = selectedProviderId === provider.id;
+                        const isEnabled = localProviderTab === 'script' && localScriptProviderEnabled === provider.id;
+                        return (
                           <button
-                            type="button"
-                            onClick={() =>
-                              setRevealedApiKeys((previous) => ({
-                                ...previous,
-                                [provider.id]: !isRevealed,
-                              }))
-                            }
-                            className="absolute right-2 top-1/2 -translate-y-1/2 rounded p-1 hover:bg-bg-dark"
+                            key={provider.id}
+                            onClick={() => {
+                              if (localProviderTab === 'script') {
+                                setSelectedScriptProvider(provider.id);
+                              } else {
+                                setSelectedStoryboardProvider(provider.id);
+                              }
+                            }}
+                            className={`w-full flex items-center gap-2 px-3 py-2 text-left transition-colors ${
+                              isSelected
+                                ? 'bg-accent/10 text-text-dark border-l-2 border-accent'
+                                : 'text-text-muted hover:bg-surface-dark hover:text-text-dark'
+                            }`}
                           >
-                            {isRevealed ? (
-                              <EyeOff className="h-4 w-4 text-text-muted" />
-                            ) : (
-                              <Eye className="h-4 w-4 text-text-muted" />
+                            <span
+                              className={`w-2 h-2 rounded-full shrink-0 ${hasKey ? 'bg-green-500' : 'bg-border-dark'}`}
+                              title={hasKey ? t('settings.keyConfigured') : t('settings.keyNotConfigured')}
+                            />
+                            <span className="text-xs truncate">
+                              {i18n.language.startsWith('zh') ? provider.label : provider.name}
+                            </span>
+                            {isEnabled && (
+                              <span className="ml-auto text-[10px] text-amber-500 font-medium">已激活</span>
                             )}
                           </button>
-                        </div>
+                        );
+                      })}
+                    </nav>
+                  </div>
 
-                        {provider.id === 'grsai' && (
-                          <div className="mt-3">
-                            <div className="mb-1 text-xs font-medium text-text-dark">
-                              {t('settings.nanoBananaProModel')}
-                            </div>
-                            <p className="mb-2 text-xs text-text-muted">
-                              <Trans
-                                i18nKey="settings.nanoBananaProModelDesc"
-                                components={{
-                                  modelListLink: (
-                                    <a
-                                      href="https://grsai.com/zh/dashboard/models"
-                                      target="_blank"
-                                      rel="noreferrer"
-                                      className="text-accent hover:underline"
-                                    />
-                                  ),
-                                }}
+                  <div className="flex-1 overflow-y-auto ui-scrollbar p-5">
+                    {(() => {
+                      const selectedProviderId = localProviderTab === 'script' ? selectedScriptProvider : selectedStoryboardProvider;
+                      const provider = providers.find(p => p.id === selectedProviderId);
+                      if (!provider) return null;
+                      const displayName = i18n.language.startsWith('zh') ? provider.label : provider.name;
+                      const isRevealed = Boolean(revealedApiKeys[provider.id]);
+                      const hasKey = Boolean((localApiKeys[provider.id] ?? '').trim());
+                      const isScriptTab = localProviderTab === 'script';
+                      const isEnabled = isScriptTab && localScriptProviderEnabled === provider.id;
+
+                      return (
+                        <div className="space-y-4">
+                          <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-3">
+                              <span
+                                className={`w-3 h-3 rounded-full ${hasKey ? 'bg-green-500' : 'bg-border-dark'}`}
                               />
-                            </p>
-                            <UiSelect
-                              value={localGrsaiNanoBananaProModel}
-                              onChange={(event) =>
-                                setLocalGrsaiNanoBananaProModel(event.target.value)
-                              }
-                              className="h-9 text-sm"
-                            >
-                              {GRSAI_NANO_BANANA_PRO_MODEL_OPTIONS.map((option) => (
-                                <option key={option} value={option}>
-                                  {option}
-                                </option>
-                              ))}
-                            </UiSelect>
+                              <h3 className="text-base font-medium text-text-dark">{displayName}</h3>
+                              {hasKey && (
+                                <span className="text-xs text-green-500 bg-green-500/10 px-2 py-0.5 rounded">
+                                  {t('settings.keyConfigured')}
+                                </span>
+                              )}
+                            </div>
+                            {isScriptTab && (
+                              <button
+                                type="button"
+                                disabled={!hasKey}
+                                onClick={(e) => {
+                                  e.preventDefault();
+                                  e.stopPropagation();
+                                  const switchedAt = Date.now();
+                                  const nextProvider = isEnabled ? '' : provider.id;
+                                  console.info('[TextModelActivation] switch provider', {
+                                    scope: 'script',
+                                    from: localScriptProviderEnabled,
+                                    to: nextProvider,
+                                    switchedAt,
+                                  });
+                                  setLocalScriptProviderEnabled(isEnabled ? '' : provider.id);
+                                }}
+                                className={`px-4 py-1.5 text-xs font-medium rounded transition-colors ${
+                                  isEnabled
+                                    ? 'bg-amber-500 text-white hover:bg-amber-600'
+                                    : 'bg-surface-dark text-text-dark border border-border-dark hover:bg-bg-dark disabled:opacity-50 disabled:cursor-not-allowed'
+                                }`}
+                              >
+                                {isEnabled ? '已激活' : '激活'}
+                              </button>
+                            )}
                           </div>
-                        )}
-                      </div>
-                    );
-                  })}
+
+                          <div className="rounded-lg border border-border-dark bg-bg-dark p-4">
+                            <div className="mb-2 text-xs font-medium text-text-dark">
+                              {t('settings.apiKey')}
+                            </div>
+                            {PROVIDER_REGISTER_URLS[provider.id] && PROVIDER_GET_KEY_URLS[provider.id] && (
+                              <p className="mb-3 text-xs text-text-muted">
+                                {t('settings.providerApiKeyGuidePrefix')}{' '}
+                                <a
+                                  href={PROVIDER_REGISTER_URLS[provider.id]}
+                                  target="_blank"
+                                  rel="noreferrer"
+                                  className="text-accent hover:underline"
+                                >
+                                  {t('settings.providerRegisterLink')}
+                                </a>
+                                {t('settings.providerApiKeyGuideMiddle')}{' '}
+                                <a
+                                  href={PROVIDER_GET_KEY_URLS[provider.id]}
+                                  target="_blank"
+                                  rel="noreferrer"
+                                  className="text-accent hover:underline"
+                                >
+                                  {t('settings.getApiKeyLink')}
+                                </a>
+                              </p>
+                            )}
+                            <div className="relative">
+                              <input
+                                type={isRevealed ? 'text' : 'password'}
+                                value={localApiKeys[provider.id] ?? ''}
+                                onChange={(event) => {
+                                  const nextValue = event.target.value;
+                                  setLocalApiKeys((previous) => ({
+                                    ...previous,
+                                    [provider.id]: nextValue,
+                                  }));
+                                }}
+                                placeholder={t('settings.enterApiKey')}
+                                className="w-full rounded border border-border-dark bg-surface-dark px-3 py-2 pr-10 text-sm text-text-dark placeholder:text-text-muted"
+                              />
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  setRevealedApiKeys((previous) => ({
+                                    ...previous,
+                                    [provider.id]: !isRevealed,
+                                  }))
+                                }
+                                className="absolute right-2 top-1/2 -translate-y-1/2 rounded p-1 hover:bg-bg-dark"
+                              >
+                                {isRevealed ? (
+                                  <EyeOff className="h-4 w-4 text-text-muted" />
+                                ) : (
+                                  <Eye className="h-4 w-4 text-text-muted" />
+                                )}
+                              </button>
+                            </div>
+                            <div className="mt-3 flex items-center gap-3">
+                              <button
+                                type="button"
+                                disabled={testingConnection === provider.id || !hasKey}
+                                onClick={async () => {
+                                  setTestingConnection(provider.id);
+                                  const model = provider.id === 'alibaba' ? localAlibabaTextModel 
+                                    : provider.id === 'coding' ? localCodingModel 
+                                    : provider.id === 'grsai' ? localGrsaiNanoBananaProModel 
+                                    : 'gemini-2.0-flash';
+                                  const result = await testProviderConnection({
+                                    provider: provider.id,
+                                    apiKey: localApiKeys[provider.id] || '',
+                                    model,
+                                  });
+                                  setTestResults(prev => ({ ...prev, [provider.id]: result }));
+                                  setTestingConnection(null);
+                                }}
+                                className="rounded px-3 py-1.5 text-xs bg-surface-dark text-text-dark border border-border-dark hover:bg-bg-dark disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                              >
+                                {testingConnection === provider.id ? t('common.loading') : t('settings.testConnection')}
+                              </button>
+                              {testResults[provider.id] && (
+                                <span className={`text-xs ${testResults[provider.id].success ? 'text-green-500' : 'text-red-500'}`}>
+                                  {testResults[provider.id].success ? '✓' : '✗'} {testResults[provider.id].message}
+                                </span>
+                              )}
+                            </div>
+                          </div>
+
+                          {provider.id === 'grsai' && (
+                            <div className="rounded-lg border border-border-dark bg-bg-dark p-4">
+                              <div className="mb-1 text-xs font-medium text-text-dark">
+                                {t('settings.nanoBananaProModel')}
+                              </div>
+                              <p className="mb-2 text-xs text-text-muted">
+                                <Trans
+                                  i18nKey="settings.nanoBananaProModelDesc"
+                                  components={{
+                                    modelListLink: (
+                                      <a
+                                        href="https://grsai.com/zh/dashboard/models"
+                                        target="_blank"
+                                        rel="noreferrer"
+                                        className="text-accent hover:underline"
+                                      />
+                                    ),
+                                  }}
+                                />
+                              </p>
+                              <UiSelect
+                                value={localGrsaiNanoBananaProModel}
+                                onChange={(event) =>
+                                  setLocalGrsaiNanoBananaProModel(event.target.value)
+                                }
+                                className="h-9 text-sm"
+                              >
+                                {GRSAI_NANO_BANANA_PRO_MODEL_OPTIONS.map((option) => (
+                                  <option key={option} value={option}>
+                                    {option}
+                                  </option>
+                                ))}
+                              </UiSelect>
+                            </div>
+                          )}
+
+                          {provider.id === 'alibaba' && (
+                            <div className="rounded-lg border border-border-dark bg-bg-dark p-4">
+                              <div className="mb-1 text-xs font-medium text-text-dark">
+                                {t('settings.alibabaTextModel')}
+                              </div>
+                              <UiSelect
+                                value={localAlibabaTextModel}
+                                onChange={(event) => {
+                                  const switchedAt = Date.now();
+                                  const nextModel = event.target.value;
+                                  console.info('[TextModelActivation] switch model', {
+                                    provider: 'alibaba',
+                                    from: localAlibabaTextModel,
+                                    to: nextModel,
+                                    switchedAt,
+                                  });
+                                  setLocalAlibabaTextModel(nextModel);
+                                }}
+                                className="h-9 text-sm"
+                              >
+                                {ALIBABA_TEXT_MODEL_OPTIONS.map((option) => (
+                                  <option key={option.value} value={option.value}>
+                                    {option.label}
+                                  </option>
+                                ))}
+                              </UiSelect>
+                            </div>
+                          )}
+
+                          {provider.id === 'coding' && (
+                            <div className="rounded-lg border border-border-dark bg-bg-dark p-4">
+                              <div className="mb-1 text-xs font-medium text-text-dark">
+                                {t('settings.codingModel')}
+                              </div>
+                              <div className="space-y-2">
+                                <UiSelect
+                                  value={CODING_MODEL_OPTIONS.some(o => o.value === localCodingModel) ? localCodingModel : 'custom'}
+                                  onChange={(event) => {
+                                    const val = event.target.value;
+                                    if (val === 'custom') {
+                                      console.info('[TextModelActivation] switch model', {
+                                        provider: 'coding',
+                                        from: localCodingModel,
+                                        to: '',
+                                        switchedAt: Date.now(),
+                                      });
+                                      setLocalCodingModel('');
+                                    } else {
+                                      console.info('[TextModelActivation] switch model', {
+                                        provider: 'coding',
+                                        from: localCodingModel,
+                                        to: val,
+                                        switchedAt: Date.now(),
+                                      });
+                                      setLocalCodingModel(val);
+                                    }
+                                  }}
+                                  className="h-9 text-sm"
+                                >
+                                  {CODING_MODEL_OPTIONS.map((option) => (
+                                    <option key={option.value} value={option.value}>
+                                      {option.label}
+                                    </option>
+                                  ))}
+                                </UiSelect>
+                                {(localCodingModel === '' || !CODING_MODEL_OPTIONS.some(o => o.value === localCodingModel)) && (
+                                  <input
+                                    type="text"
+                                    value={localCodingModel}
+                                    onChange={(e) => setLocalCodingModel(e.target.value)}
+                                    placeholder="Enter custom model ID (e.g. ep-20250204-xyz)"
+                                    className="h-9 w-full rounded border border-border-dark bg-surface-dark px-3 text-sm text-text-dark outline-none placeholder:text-text-muted"
+                                  />
+                                )}
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })()}
+                  </div>
                 </div>
 
                 <div className="px-6 py-4 border-t border-border-dark flex justify-end">
@@ -1131,35 +1403,6 @@ export function SettingsDialog({
             )}
           </div>
         </div>
-        {activeCategory === 'providers' && !hideProviderGuidePopover && (
-          <div
-            className={`absolute top-0 bottom-0 left-[calc(50%+366px)] right-0 min-w-[240px] max-w-[380px] rounded-lg border border-border-dark bg-surface-dark/95 p-3 shadow-xl transition-opacity duration-200 ${isVisible ? 'opacity-100' : 'opacity-0'}`}
-          >
-            <div className="markdown-body break-words text-xs leading-5 text-text-muted [&_a]:text-accent [&_blockquote]:border-l-2 [&_blockquote]:border-white/20 [&_blockquote]:pl-3 [&_code]:rounded [&_code]:bg-white/10 [&_code]:px-1 [&_code]:py-0.5 [&_h1]:text-sm [&_h1]:font-semibold [&_h2]:text-xs [&_h2]:font-semibold [&_h3]:text-xs [&_h3]:font-semibold [&_hr]:border-white/10 [&_li]:my-0.5 [&_ol]:list-decimal [&_ol]:pl-4 [&_p]:my-0 [&_p+_p]:mt-4 [&_pre]:overflow-auto [&_pre]:rounded-md [&_pre]:bg-black/30 [&_pre]:p-2 [&_ul]:list-disc [&_ul]:pl-4">
-              <ReactMarkdown
-                remarkPlugins={[remarkGfm, remarkBreaks]}
-                components={{
-                  a: ({ href, children, ...props }) => (
-                    <a
-                      {...props}
-                      href={href}
-                      target="_blank"
-                      rel="noreferrer"
-                      onClick={(event) => {
-                        event.preventDefault();
-                        handleMarkdownLinkClick(href);
-                      }}
-                    >
-                      {children}
-                    </a>
-                  ),
-                }}
-              >
-                {providerGuideMarkdown}
-              </ReactMarkdown>
-            </div>
-          </div>
-        )}
       </div>
     </div>
   );

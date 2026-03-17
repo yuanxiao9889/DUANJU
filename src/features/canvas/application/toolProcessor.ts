@@ -32,13 +32,17 @@ export class CanvasToolProcessor implements ToolProcessor {
   ): Promise<ToolProcessorResult> {
     if (toolType === NODE_TOOL_TYPES.splitStoryboard) {
       const metadata = await this.readStoryboardMetadata(sourceImageUrl);
+      const colRatios = options.colRatios as number[] | undefined;
+      const rowRatios = options.rowRatios as number[] | undefined;
       return await this.splitStoryboard(
         sourceImageUrl,
         Number(options.rows ?? metadata?.gridRows ?? 3),
         Number(options.cols ?? metadata?.gridCols ?? 3),
         Number(options.lineThicknessPercent),
         Number(options.lineThickness ?? 0),
-        metadata?.frameNotes
+        metadata?.frameNotes,
+        colRatios?.length ? colRatios : undefined,
+        rowRatios?.length ? rowRatios : undefined
       );
     }
 
@@ -212,7 +216,9 @@ export class CanvasToolProcessor implements ToolProcessor {
     cols: number,
     lineThicknessPercent: number,
     lineThicknessPxFallback: number,
-    frameNotes?: string[]
+    frameNotes?: string[],
+    colRatios?: number[],
+    rowRatios?: number[]
   ): Promise<ToolProcessorResult> {
     const normalizedRows = Number.isFinite(rows) ? rows : 3;
     const normalizedCols = Number.isFinite(cols) ? cols : 3;
@@ -243,11 +249,13 @@ export class CanvasToolProcessor implements ToolProcessor {
         sourceImage,
         safeRows,
         safeCols,
-        safeLineThickness
+        safeLineThickness,
+        colRatios,
+        rowRatios
       );
     } catch {
       // Fallback when Tauri command is unavailable or fails.
-      outputs = await this.localSplit(sourceImage, safeRows, safeCols, safeLineThickness);
+      outputs = await this.localSplit(sourceImage, safeRows, safeCols, safeLineThickness, colRatios, rowRatios);
     }
 
     const persistedFrameImages = await Promise.all(
@@ -351,7 +359,9 @@ export class CanvasToolProcessor implements ToolProcessor {
     sourceImage: string,
     rows: number,
     cols: number,
-    lineThickness: number
+    lineThickness: number,
+    colRatios?: number[],
+    rowRatios?: number[]
   ): Promise<string[]> {
     const image = await loadImageElement(sourceImage);
 
@@ -370,8 +380,12 @@ export class CanvasToolProcessor implements ToolProcessor {
       throw new Error('分割线过粗，无法完成切割');
     }
 
-    const columnWidths = this.splitIntoSegments(usableWidth, cols);
-    const rowHeights = this.splitIntoSegments(usableHeight, rows);
+    const columnWidths = colRatios && colRatios.length === cols
+      ? colRatios.map(r => Math.max(1, Math.floor(usableWidth * r / 100)))
+      : this.splitIntoSegments(usableWidth, cols);
+    const rowHeights = rowRatios && rowRatios.length === rows
+      ? rowRatios.map(r => Math.max(1, Math.floor(usableHeight * r / 100)))
+      : this.splitIntoSegments(usableHeight, rows);
 
     const results: string[] = [];
 

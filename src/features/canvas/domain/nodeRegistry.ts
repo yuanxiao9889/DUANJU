@@ -12,6 +12,13 @@ import {
   type StoryboardGenNodeData,
   type TextAnnotationNodeData,
   type UploadImageNodeData,
+  type ScriptRootNodeData,
+  type ScriptChapterNodeData,
+  type ScriptCharacterNodeData,
+  type ScriptLocationNodeData,
+  type ScriptItemNodeData,
+  type ScriptPlotPointNodeData,
+  type ScriptWorldviewNodeData,
 } from './canvasNodes';
 import { DEFAULT_NODE_DISPLAY_NAME } from './nodeDisplay';
 import { DEFAULT_IMAGE_MODEL_ID } from '../models';
@@ -26,9 +33,13 @@ export interface CanvasNodeCapabilities {
 export interface CanvasNodeConnectivity {
   sourceHandle: boolean;
   targetHandle: boolean;
+  branchHandle?: boolean;
+  supplementHandle?: boolean;
   connectMenu: {
     fromSource: boolean;
     fromTarget: boolean;
+    fromBranch?: boolean;
+    fromSupplement?: boolean;
   };
 }
 
@@ -251,6 +262,200 @@ const storyboardGenNodeDefinition: CanvasNodeDefinition<StoryboardGenNodeData> =
   }),
 };
 
+const scriptRootNodeDefinition: CanvasNodeDefinition<ScriptRootNodeData> = {
+  type: CANVAS_NODE_TYPES.scriptRoot,
+  menuLabelKey: 'node.menu.scriptRoot',
+  menuIcon: 'text',
+  visibleInMenu: false,
+  capabilities: {
+    toolbar: false,
+    promptInput: false,
+  },
+  connectivity: {
+    sourceHandle: true,
+    targetHandle: false,
+    connectMenu: {
+      fromSource: true,
+      fromTarget: false,
+    },
+  },
+  createDefaultData: () => ({
+    displayName: DEFAULT_NODE_DISPLAY_NAME[CANVAS_NODE_TYPES.scriptRoot] || '剧本',
+    title: '',
+    genre: '',
+    totalChapters: 0,
+  }),
+};
+
+const scriptChapterNodeDefinition: CanvasNodeDefinition<ScriptChapterNodeData> = {
+  type: CANVAS_NODE_TYPES.scriptChapter,
+  menuLabelKey: 'node.menu.scriptChapter',
+  menuIcon: 'text',
+  visibleInMenu: true,
+  capabilities: {
+    toolbar: true,
+    promptInput: false,
+  },
+  connectivity: {
+    sourceHandle: true,
+    targetHandle: true,
+    supplementHandle: true,
+    connectMenu: {
+      fromSource: true,
+      fromTarget: true,
+      fromSupplement: true,
+    },
+  },
+  createDefaultData: () => ({
+    displayName: DEFAULT_NODE_DISPLAY_NAME[CANVAS_NODE_TYPES.scriptChapter] || '章节',
+    chapterNumber: 1,
+    title: '',
+    content: '',
+    summary: '',
+    sceneHeadings: [],
+    characters: [],
+    locations: [],
+    items: [],
+    emotionalShift: '',
+    isBranchPoint: false,
+    branchType: 'main',
+    tables: [],
+    plotPoints: [],
+  }),
+};
+
+const scriptCharacterNodeDefinition: CanvasNodeDefinition<ScriptCharacterNodeData> = {
+  type: CANVAS_NODE_TYPES.scriptCharacter,
+  menuLabelKey: 'node.menu.scriptCharacter',
+  menuIcon: 'text',
+  visibleInMenu: true,
+  capabilities: {
+    toolbar: false,
+    promptInput: false,
+  },
+  connectivity: {
+    sourceHandle: false,
+    targetHandle: false,
+    connectMenu: {
+      fromSource: false,
+      fromTarget: false,
+    },
+  },
+  createDefaultData: () => ({
+    displayName: DEFAULT_NODE_DISPLAY_NAME[CANVAS_NODE_TYPES.scriptCharacter] || '角色',
+    name: '',
+    description: '',
+    personality: '',
+    appearance: '',
+    statusUpdates: [],
+    relationships: [],
+  }),
+};
+
+const scriptLocationNodeDefinition: CanvasNodeDefinition<ScriptLocationNodeData> = {
+  type: CANVAS_NODE_TYPES.scriptLocation,
+  menuLabelKey: 'node.menu.scriptLocation',
+  menuIcon: 'text',
+  visibleInMenu: true,
+  capabilities: {
+    toolbar: false,
+    promptInput: false,
+  },
+  connectivity: {
+    sourceHandle: false,
+    targetHandle: false,
+    connectMenu: {
+      fromSource: false,
+      fromTarget: false,
+    },
+  },
+  createDefaultData: () => ({
+    displayName: DEFAULT_NODE_DISPLAY_NAME[CANVAS_NODE_TYPES.scriptLocation] || '场景',
+    name: '',
+    description: '',
+    appearances: [],
+  }),
+};
+
+const scriptItemNodeDefinition: CanvasNodeDefinition<ScriptItemNodeData> = {
+  type: CANVAS_NODE_TYPES.scriptItem,
+  menuLabelKey: 'node.menu.scriptItem',
+  menuIcon: 'text',
+  visibleInMenu: true,
+  capabilities: {
+    toolbar: false,
+    promptInput: false,
+  },
+  connectivity: {
+    sourceHandle: false,
+    targetHandle: false,
+    connectMenu: {
+      fromSource: false,
+      fromTarget: false,
+    },
+  },
+  createDefaultData: () => ({
+    displayName: DEFAULT_NODE_DISPLAY_NAME[CANVAS_NODE_TYPES.scriptItem] || '道具',
+    name: '',
+    description: '',
+    appearances: [],
+  }),
+};
+
+const scriptPlotPointNodeDefinition: CanvasNodeDefinition<ScriptPlotPointNodeData> = {
+  type: CANVAS_NODE_TYPES.scriptPlotPoint,
+  menuLabelKey: 'node.menu.scriptPlotPoint',
+  menuIcon: 'text',
+  visibleInMenu: false,
+  capabilities: {
+    toolbar: false,
+    promptInput: false,
+  },
+  connectivity: {
+    sourceHandle: true,
+    targetHandle: true,
+    connectMenu: {
+      fromSource: false,
+      fromTarget: false,
+    },
+  },
+  createDefaultData: () => ({
+    displayName: DEFAULT_NODE_DISPLAY_NAME[CANVAS_NODE_TYPES.scriptPlotPoint] || '情节点',
+    pointType: 'setup',
+    description: '',
+  }),
+};
+
+const scriptWorldviewNodeDefinition: CanvasNodeDefinition<ScriptWorldviewNodeData> = {
+  type: CANVAS_NODE_TYPES.scriptWorldview,
+  menuLabelKey: 'node.menu.scriptWorldview',
+  menuIcon: 'text',
+  visibleInMenu: false,
+  capabilities: {
+    toolbar: false,
+    promptInput: false,
+  },
+  connectivity: {
+    sourceHandle: false,
+    targetHandle: false,
+    connectMenu: {
+      fromSource: false,
+      fromTarget: false,
+    },
+  },
+  createDefaultData: () => ({
+    displayName: DEFAULT_NODE_DISPLAY_NAME[CANVAS_NODE_TYPES.scriptWorldview] || '世界观',
+    worldviewName: '',
+    description: '',
+    era: '',
+    technology: '',
+    magic: '',
+    society: '',
+    geography: '',
+    rules: [],
+  }),
+};
+
 export const canvasNodeDefinitions: Record<CanvasNodeType, CanvasNodeDefinition> = {
   [CANVAS_NODE_TYPES.upload]: uploadNodeDefinition,
   [CANVAS_NODE_TYPES.imageEdit]: imageEditNodeDefinition,
@@ -259,6 +464,13 @@ export const canvasNodeDefinitions: Record<CanvasNodeType, CanvasNodeDefinition>
   [CANVAS_NODE_TYPES.group]: groupNodeDefinition,
   [CANVAS_NODE_TYPES.storyboardSplit]: storyboardSplitDefinition,
   [CANVAS_NODE_TYPES.storyboardGen]: storyboardGenNodeDefinition,
+  [CANVAS_NODE_TYPES.scriptRoot]: scriptRootNodeDefinition,
+  [CANVAS_NODE_TYPES.scriptChapter]: scriptChapterNodeDefinition,
+  [CANVAS_NODE_TYPES.scriptCharacter]: scriptCharacterNodeDefinition,
+  [CANVAS_NODE_TYPES.scriptLocation]: scriptLocationNodeDefinition,
+  [CANVAS_NODE_TYPES.scriptItem]: scriptItemNodeDefinition,
+  [CANVAS_NODE_TYPES.scriptPlotPoint]: scriptPlotPointNodeDefinition,
+  [CANVAS_NODE_TYPES.scriptWorldview]: scriptWorldviewNodeDefinition,
 };
 
 export function getNodeDefinition(type: CanvasNodeType): CanvasNodeDefinition {

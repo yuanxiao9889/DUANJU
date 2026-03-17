@@ -1,8 +1,11 @@
 import { invoke } from '@tauri-apps/api/core';
 
+export type ProjectType = 'storyboard' | 'script';
+
 export interface ProjectSummaryRecord {
   id: string;
   name: string;
+  projectType: ProjectType;
   createdAt: number;
   updatedAt: number;
   nodeCount: number;
@@ -11,6 +14,7 @@ export interface ProjectSummaryRecord {
 export interface ProjectRecord {
   id: string;
   name: string;
+  projectType: ProjectType;
   createdAt: number;
   updatedAt: number;
   nodeCount: number;

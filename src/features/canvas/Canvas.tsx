@@ -22,6 +22,7 @@ import {
   type Viewport,
 } from '@xyflow/react';
 import { useTranslation } from 'react-i18next';
+import { Upload, Grid3x3, Map as MapIcon, Plus, Minus, AlignCenter } from 'lucide-react';
 import '@xyflow/react/dist/style.css';
 
 import { useCanvasStore } from '@/stores/canvasStore';
@@ -33,9 +34,11 @@ import {
   type CanvasEdge,
   type CanvasNode,
   type CanvasNodeType,
+  type CanvasNodeData,
+  type ScriptChapterNodeData,
   DEFAULT_NODE_WIDTH,
 } from '@/features/canvas/domain/canvasNodes';
-import { prepareNodeImage } from '@/features/canvas/application/imageData';
+import { prepareNodeImage, prepareNodeImageFromFile } from '@/features/canvas/application/imageData';
 import {
   buildGenerationErrorReport,
   CURRENT_RUNTIME_SESSION_ID,
@@ -46,6 +49,11 @@ import {
   nodeHasSourceHandle,
   nodeHasTargetHandle,
 } from '@/features/canvas/domain/nodeRegistry';
+import {
+  calculateChildNodePosition,
+  calculateBranchNodePosition,
+  DEFAULT_LAYOUT_CONFIG,
+} from '@/features/canvas/application/mindMapLayout';
 import { embedStoryboardImageMetadata } from '@/commands/image';
 import { listModelProviders } from '@/features/canvas/models';
 import { nodeTypes } from './nodes';
@@ -55,12 +63,21 @@ import { SelectedNodeOverlay } from './ui/SelectedNodeOverlay';
 import { NodeToolDialog } from './ui/NodeToolDialog';
 import { ImageViewerModal } from './ui/ImageViewerModal';
 import { MissingApiKeyHint } from '@/features/settings/MissingApiKeyHint';
+import { ScriptBiblePanel } from './ui/ScriptBiblePanel';
+import { ScriptWelcomeDialog } from './ui/ScriptWelcomeDialog';
+import { AlignmentGuides } from './ui/AlignmentGuides';
+import { detectAlignments, type AlignmentGuide } from './application/nodeAlignment';
+import { MergedConnectionAnchor } from './ui/MergedConnectionAnchor';
+import { BranchConnectionPreview } from './ui/BranchConnectionPreview';
+import { BatchOperationMenu } from './ui/BatchOperationMenu';
+import { calculateNodesBounds } from './application/nodeBounds';
 
 const DEFAULT_VIEWPORT: Viewport = { x: 0, y: 0, zoom: 1 };
 
 interface PendingConnectStart {
   nodeId: string;
   handleType: HandleType;
+  handleId?: string;
   start?: {
     x: number;
     y: number;
@@ -92,7 +109,7 @@ interface DuplicateOptions {
 
 interface DuplicateResult {
   firstNodeId: string | null;
-  idMap: Map<string, string>;
+  idMap: globalThis.Map<string, string>;
 }
 
 const ALT_DRAG_COPY_Z_INDEX = 2000;
@@ -180,12 +197,49 @@ function resolveClipboardImageFile(event: ClipboardEvent): File | null {
   return null;
 }
 
-function resolveAllowedNodeTypes(handleType: HandleType): CanvasNodeType[] {
-  return getConnectMenuNodeTypes(handleType);
+function resolveAllowedNodeTypes(
+  handleType: HandleType,
+  sourceNodeId?: string | null,
+  nodes?: CanvasNode[]
+): CanvasNodeType[] {
+  const baseTypes = getConnectMenuNodeTypes(handleType);
+  
+  if (!sourceNodeId || !nodes) {
+    return baseTypes;
+  }
+  
+  const sourceNode = nodes.find((n) => n.id === sourceNodeId);
+  if (!sourceNode) {
+    return baseTypes;
+  }
+  
+  const isSourceRootNode = sourceNode.type === CANVAS_NODE_TYPES.scriptRoot;
+  const isSourceChapterNode = sourceNode.type === CANVAS_NODE_TYPES.scriptChapter;
+  
+  if (isSourceChapterNode) {
+    const sourceData = sourceNode.data as ScriptChapterNodeData;
+    const sourceDepth = sourceData.depth || 1;
+    const isMainChapter = sourceData.branchType === 'main' && sourceDepth === 1;
+    
+    if (isMainChapter) {
+      return baseTypes.filter(
+        (type) => type !== CANVAS_NODE_TYPES.scriptChapter || 
+        (type === CANVAS_NODE_TYPES.scriptChapter && handleType === 'source')
+      );
+    }
+    
+    return baseTypes.filter((type) => type !== CANVAS_NODE_TYPES.scriptChapter);
+  }
+  
+  if (isSourceRootNode) {
+    return baseTypes;
+  }
+  
+  return baseTypes;
 }
 
 function canNodeTypeBeManualConnectionSource(type: CanvasNodeType): boolean {
-  return type === CANVAS_NODE_TYPES.upload || type === CANVAS_NODE_TYPES.exportImage;
+  return nodeHasSourceHandle(type);
 }
 
 function canNodeBeManualConnectionSource(nodeId: string | null | undefined, nodes: CanvasNode[]): boolean {
@@ -233,11 +287,22 @@ interface PreviewConnectionLine {
 export function Canvas() {
   const { t } = useTranslation();
   const reactFlowInstance = useReactFlow();
+  const { zoomIn, zoomOut } = reactFlowInstance;
   const wrapperRef = useRef<HTMLDivElement>(null);
+  const reactFlowWrapperRef = useRef<HTMLDivElement>(null);
   const suppressNextPaneClickRef = useRef(false);
   const suppressNextEdgeClickRef = useRef(false);
 
   const [showNodeMenu, setShowNodeMenu] = useState(false);
+  const [showWelcomeDialog, setShowWelcomeDialog] = useState(false);
+  const [showMiniMap, setShowMiniMap] = useState(true);
+  const [alignmentGuides, setAlignmentGuides] = useState<AlignmentGuide[]>([]);
+  const [isDraggingNode, setIsDraggingNode] = useState(false);
+  const [isDraggingBranchConnection, setIsDraggingBranchConnection] = useState(false);
+  const [branchConnectionSource, setBranchConnectionSource] = useState<CanvasNode[]>([]);
+  const [branchConnectionPosition, setBranchConnectionPosition] = useState<{ x: number; y: number } | null>(null);
+  const [showBatchMenu, setShowBatchMenu] = useState(false);
+  const [batchMenuPosition, setBatchMenuPosition] = useState({ x: 0, y: 0 });
   const [menuPosition, setMenuPosition] = useState({ x: 0, y: 0 });
   const [flowPosition, setFlowPosition] = useState({ x: 0, y: 0 });
   const [menuAllowedTypes, setMenuAllowedTypes] = useState<CanvasNodeType[] | undefined>(
@@ -248,6 +313,7 @@ export function Canvas() {
   );
   const [previewConnectionVisual, setPreviewConnectionVisual] =
     useState<PreviewConnectionVisual | null>(null);
+  const [isDragOver, setIsDragOver] = useState(false);
 
   const isRestoringCanvasRef = useRef(true);
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -258,9 +324,9 @@ export function Canvas() {
   const duplicateNodesRef = useRef<((sourceNodeIds: string[]) => string | null) | null>(null);
   const altDragCopyRef = useRef<{
     sourceNodeIds: string[];
-    startPositions: Map<string, { x: number; y: number }>;
+    startPositions: globalThis.Map<string, { x: number; y: number }>;
     copiedNodeIds: string[];
-    sourceToCopyIdMap: Map<string, string>;
+    sourceToCopyIdMap: globalThis.Map<string, string>;
   } | null>(null);
   const edgePanGestureRef = useRef<{
     active: boolean;
@@ -295,9 +361,18 @@ export function Canvas() {
   const closeToolDialog = useCanvasStore((state) => state.closeToolDialog);
   const setViewportState = useCanvasStore((state) => state.setViewportState);
   const setCanvasViewportSize = useCanvasStore((state) => state.setCanvasViewportSize);
+  const currentViewport = useCanvasStore((state) => state.currentViewport);
   const imageViewer = useCanvasStore((state) => state.imageViewer);
   const closeImageViewer = useCanvasStore((state) => state.closeImageViewer);
   const navigateImageViewer = useCanvasStore((state) => state.navigateImageViewer);
+  const snapToGrid = useCanvasStore((state) => state.snapToGrid);
+  const snapGridSize = useCanvasStore((state) => state.snapGridSize);
+  const showGrid = useCanvasStore((state) => state.showGrid);
+  const setSnapToGrid = useCanvasStore((state) => state.setSnapToGrid);
+  const enableNodeAlignment = useCanvasStore((state) => state.enableNodeAlignment);
+  const alignmentThreshold = useCanvasStore((state) => state.alignmentThreshold);
+  const showAlignmentGuides = useCanvasStore((state) => state.showAlignmentGuides);
+  const setShowAlignmentGuides = useCanvasStore((state) => state.setShowAlignmentGuides);
   const apiKeys = useSettingsStore((state) => state.apiKeys);
   const providerIds = useMemo(() => listModelProviders().map((provider) => provider.id), []);
   const configuredApiKeyCount = useSettingsStore((state) =>
@@ -305,6 +380,7 @@ export function Canvas() {
   );
 
   const getCurrentProject = useProjectStore((state) => state.getCurrentProject);
+  const project = getCurrentProject();
   const saveCurrentProject = useProjectStore((state) => state.saveCurrentProject);
   const saveCurrentProjectViewport = useProjectStore((state) => state.saveCurrentProjectViewport);
   const cancelPendingViewportPersist = useProjectStore(
@@ -393,6 +469,20 @@ export function Canvas() {
     setCanvasData,
     setViewportState,
   ]);
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      const currentProject = getCurrentProject();
+      if (!isRestoringCanvasRef.current && currentProject?.projectType === 'script') {
+        const hasChapters = nodes.some((n) => n.type === 'scriptChapterNode');
+        const hasRoot = nodes.some((n) => n.type === 'scriptRootNode');
+        if (!hasChapters && !hasRoot) {
+          setShowWelcomeDialog(true);
+        }
+      }
+    }, 500);
+    return () => clearTimeout(timer);
+  }, [nodes, getCurrentProject]);
 
   useEffect(() => {
     if (isRestoringCanvasRef.current || dragHistorySnapshot) {
@@ -825,6 +915,28 @@ export function Canvas() {
   }, [selectedNodeId, selectedNodeIds, setSelectedNode]);
 
   useEffect(() => {
+    if (!isDraggingBranchConnection) return;
+
+    const handleMouseMove = (e: MouseEvent) => {
+      setBranchConnectionPosition({ x: e.clientX, y: e.clientY });
+    };
+
+    const handleMouseUp = (e: MouseEvent) => {
+      setIsDraggingBranchConnection(false);
+      setBatchMenuPosition({ x: e.clientX, y: e.clientY });
+      setShowBatchMenu(true);
+    };
+
+    document.addEventListener('mousemove', handleMouseMove);
+    document.addEventListener('mouseup', handleMouseUp);
+
+    return () => {
+      document.removeEventListener('mousemove', handleMouseMove);
+      document.removeEventListener('mouseup', handleMouseUp);
+    };
+  }, [isDraggingBranchConnection]);
+
+  useEffect(() => {
     const handlePaste = (event: ClipboardEvent) => {
       pasteImageHandledRef.current = false;
       if (!selectedUploadNodeId || isTypingTarget(event.target)) {
@@ -967,7 +1079,7 @@ export function Canvas() {
   ]);
 
   const openNodeMenuAtClientPosition = useCallback((clientX: number, clientY: number) => {
-    const containerRect = wrapperRef.current?.getBoundingClientRect();
+    const containerRect = reactFlowWrapperRef.current?.getBoundingClientRect();
     if (!containerRect) {
       return;
     }
@@ -988,6 +1100,81 @@ export function Canvas() {
     setShowNodeMenu(true);
   }, [reactFlowInstance]);
 
+  const handleDragOver = useCallback((event: React.DragEvent) => {
+    event.preventDefault();
+    event.stopPropagation();
+    const hasFiles = event.dataTransfer.types.includes('Files') || 
+      event.dataTransfer.types.includes('text/uri-list');
+    if (hasFiles) {
+      setIsDragOver(true);
+    }
+  }, []);
+
+  const handleDragLeave = useCallback((event: React.DragEvent) => {
+    event.preventDefault();
+    event.stopPropagation();
+    const rect = event.currentTarget.getBoundingClientRect();
+    const x = event.clientX;
+    const y = event.clientY;
+    if (x < rect.left || x > rect.right || y < rect.top || y > rect.bottom) {
+      setIsDragOver(false);
+    }
+  }, []);
+
+  const handleDrop = useCallback(async (event: React.DragEvent) => {
+    event.preventDefault();
+    event.stopPropagation();
+    setIsDragOver(false);
+
+    const files: File[] = [];
+    
+    if (event.dataTransfer.files?.length) {
+      Array.from(event.dataTransfer.files).forEach(file => {
+        if (file.type.startsWith('image/')) {
+          files.push(file);
+        }
+      });
+    } else {
+      Array.from(event.dataTransfer.items || []).forEach(item => {
+        if (item.kind === 'file' && item.type?.startsWith('image/')) {
+          const file = item.getAsFile();
+          if (file) files.push(file);
+        }
+      });
+    }
+
+    if (files.length === 0) {
+      return;
+    }
+
+    const basePosition = reactFlowInstance.screenToFlowPosition({
+      x: event.clientX,
+      y: event.clientY,
+    });
+
+    const NODE_OFFSET = 30;
+
+    for (let i = 0; i < files.length; i++) {
+      const file = files[i];
+      const position = {
+        x: basePosition.x + (i % 4) * NODE_OFFSET,
+        y: basePosition.y + Math.floor(i / 4) * NODE_OFFSET,
+      };
+
+      try {
+        const imageData = await prepareNodeImageFromFile(file);
+        addNode(CANVAS_NODE_TYPES.upload, position, {
+          displayName: '上传图片',
+          imageUrl: imageData.imageUrl,
+          previewUrl: imageData.previewImageUrl,
+          aspectRatio: imageData.aspectRatio,
+        });
+      } catch (err) {
+        console.error('Failed to process dropped image:', err);
+      }
+    }
+  }, [reactFlowInstance, addNode]);
+
   const handlePaneClick = useCallback((event: ReactMouseEvent) => {
     if (suppressNextPaneClickRef.current) {
       suppressNextPaneClickRef.current = false;
@@ -1006,23 +1193,244 @@ export function Canvas() {
     setPreviewConnectionVisual(null);
   }, [openNodeMenuAtClientPosition, setSelectedNode]);
 
+  const handlePaneContextMenu = useCallback((event: MouseEvent | React.MouseEvent) => {
+    event.preventDefault();
+    const clientX = 'clientX' in event ? event.clientX : 0;
+    const clientY = 'clientY' in event ? event.clientY : 0;
+    openNodeMenuAtClientPosition(clientX, clientY);
+  }, [openNodeMenuAtClientPosition]);
+
   const handleNodeSelect = useCallback(
-    (type: CanvasNodeType) => {
-      const newNodeId = addNode(type, flowPosition);
+  (type: CanvasNodeType) => {
+    const isSupplementConnection = pendingConnectStart?.handleId === 'supplement';
+    const isBranchConnection = (() => {
+      if (!pendingConnectStart?.nodeId) return false;
+      if (isSupplementConnection) return false;
+      const sourceNode = nodes.find(n => n.id === pendingConnectStart.nodeId);
+      return sourceNode?.type === CANVAS_NODE_TYPES.scriptChapter;
+    })();
+    
+    let nodeData: Partial<CanvasNodeData> = {};
+    let nodePosition = flowPosition;
+      
+      if (type === CANVAS_NODE_TYPES.scriptChapter && isSupplementConnection) {
+      const sourceNode = nodes.find(n => n.id === pendingConnectStart?.nodeId);
+      const sourceData = sourceNode?.data as ScriptChapterNodeData | undefined;
+      const sourceDepth = sourceData?.depth || 1;
+      
+      nodeData = {
+        branchType: 'supplement',
+        parentId: pendingConnectStart?.nodeId,
+        chapterNumber: sourceData?.chapterNumber || 1,
+        displayName: `补充`,
+        depth: sourceDepth + 1,
+      };
+        
+        if (sourceNode) {
+          const sourceNodeHeight = sourceNode.measured?.height ?? DEFAULT_LAYOUT_CONFIG.nodeHeight;
+          nodePosition = {
+            x: sourceNode.position.x,
+            y: sourceNode.position.y + sourceNodeHeight + 40,
+          };
+        }
+      } else if (type === CANVAS_NODE_TYPES.scriptChapter && isBranchConnection) {
+        const sourceNode = nodes.find(n => n.id === pendingConnectStart?.nodeId);
+        const isSourceRootNode = sourceNode?.type === CANVAS_NODE_TYPES.scriptRoot;
+        
+        if (isSourceRootNode) {
+          const maxChapterNumber = nodes.reduce((max, node) => {
+            if (node.type !== CANVAS_NODE_TYPES.scriptChapter) return max;
+            const d = node.data as ScriptChapterNodeData;
+            if (d.branchType === 'branch') return max;
+            return Math.max(max, d.chapterNumber || 0);
+          }, 0);
+          
+          const nextChapterNumber = maxChapterNumber + 1;
+          
+          nodeData = {
+            chapterNumber: nextChapterNumber,
+            branchType: 'main',
+            depth: 1,
+            parentId: pendingConnectStart?.nodeId,
+          };
+          
+          const mainLineChildren = nodes.filter(n => {
+            const d = n.data as ScriptChapterNodeData;
+            return n.type === CANVAS_NODE_TYPES.scriptChapter && 
+                   d.branchType === 'main' &&
+                   d.parentId === pendingConnectStart?.nodeId;
+          });
+          nodePosition = calculateChildNodePosition(
+            sourceNode,
+            mainLineChildren.length,
+            mainLineChildren.length + 1,
+            DEFAULT_LAYOUT_CONFIG
+          );
+        } else {
+          const sourceData = sourceNode?.data as ScriptChapterNodeData | undefined;
+    const sourceDepth = sourceData?.depth || 1;
+    const parentChapterNumber = sourceData?.chapterNumber || 1;
+    const parentDisplayName = sourceData?.displayName;
+    
+    const existingBranches = nodes.filter(n => {
+      const d = n.data as ScriptChapterNodeData;
+      return n.type === CANVAS_NODE_TYPES.scriptChapter && 
+             d.branchType === 'branch' && 
+             d.parentId === pendingConnectStart?.nodeId;
+    });
+    const branchIndex = existingBranches.length + 1;
+    
+    const newDisplayName = parentDisplayName 
+      ? `${parentDisplayName}-${branchIndex}`
+      : `${parentChapterNumber}-${branchIndex}`;
+    
+    nodeData = {
+      branchType: 'branch',
+      parentId: pendingConnectStart?.nodeId,
+      branchIndex,
+      chapterNumber: parentChapterNumber,
+      displayName: newDisplayName,
+      depth: sourceDepth + 1,
+    };
+          
+          if (sourceNode) {
+            nodePosition = calculateBranchNodePosition(
+              sourceNode,
+              existingBranches.length,
+              DEFAULT_LAYOUT_CONFIG
+            );
+          }
+        }
+      } else if (type === CANVAS_NODE_TYPES.scriptChapter) {
+  if (pendingConnectStart) {
+    const sourceNode = nodes.find(n => n.id === pendingConnectStart.nodeId);
+    if (sourceNode && sourceNode.type === CANVAS_NODE_TYPES.scriptChapter) {
+      const sourceData = sourceNode.data as ScriptChapterNodeData;
+      const sourceDepth = sourceData?.depth || 1;
+      const parentChapterNumber = sourceData?.chapterNumber || 1;
+      const parentDisplayName = sourceData?.displayName;
+      
+      const existingBranches = nodes.filter(n => {
+        const d = n.data as ScriptChapterNodeData;
+        return n.type === CANVAS_NODE_TYPES.scriptChapter && 
+               d.branchType === 'branch' && 
+               d.parentId === pendingConnectStart.nodeId;
+      });
+      const branchIndex = existingBranches.length + 1;
+      
+      const newDisplayName = parentDisplayName 
+        ? `${parentDisplayName}-${branchIndex}`
+        : `${parentChapterNumber}-${branchIndex}`;
+      
+      nodeData = {
+        branchType: 'branch',
+        parentId: pendingConnectStart.nodeId,
+        branchIndex,
+        chapterNumber: parentChapterNumber,
+        displayName: newDisplayName,
+        depth: sourceDepth + 1,
+      };
+      
+      nodePosition = calculateBranchNodePosition(
+        sourceNode,
+        existingBranches.length,
+        DEFAULT_LAYOUT_CONFIG
+      );
+    } else if (sourceNode && sourceNode.type === CANVAS_NODE_TYPES.scriptRoot) {
+      const maxChapterNumber = nodes.reduce((max, node) => {
+        if (node.type !== CANVAS_NODE_TYPES.scriptChapter) return max;
+        const d = node.data as ScriptChapterNodeData;
+        if (d.branchType === 'branch') return max;
+        return Math.max(max, d.chapterNumber || 0);
+      }, 0);
+      
+      const nextChapterNumber = maxChapterNumber + 1;
+      nodeData = {
+        chapterNumber: nextChapterNumber,
+        branchType: 'main',
+        depth: 1,
+        parentId: pendingConnectStart.nodeId,
+      };
+      
+      const mainLineChildren = nodes.filter(n => {
+        const d = n.data as ScriptChapterNodeData;
+        return n.type === CANVAS_NODE_TYPES.scriptChapter && 
+               d.branchType === 'main' &&
+               d.parentId === pendingConnectStart.nodeId;
+      });
+      nodePosition = calculateChildNodePosition(
+        sourceNode,
+        mainLineChildren.length,
+        mainLineChildren.length + 1,
+        DEFAULT_LAYOUT_CONFIG
+      );
+    }
+  } else {
+    const maxChapterNumber = nodes.reduce((max, node) => {
+      if (node.type !== CANVAS_NODE_TYPES.scriptChapter) return max;
+      const d = node.data as ScriptChapterNodeData;
+      if (d.branchType === 'branch') return max;
+      return Math.max(max, d.chapterNumber || 0);
+    }, 0);
+    
+    const nextChapterNumber = maxChapterNumber + 1;
+    nodeData = {
+      chapterNumber: nextChapterNumber,
+      branchType: 'main',
+      depth: 1,
+    };
+  }
+}
+
+      const newNodeId = addNode(type, nodePosition, nodeData);
       if (pendingConnectStart) {
         if (pendingConnectStart.handleType === 'source') {
+          const existingOutgoingEdges = edges.filter(
+            (e) => e.source === pendingConnectStart.nodeId && e.sourceHandle === 'source'
+          );
+          
+          existingOutgoingEdges.forEach((edge) => {
+            deleteEdge(edge.id);
+          });
+          
           connectNodes({
             source: pendingConnectStart.nodeId,
             target: newNodeId,
             sourceHandle: 'source',
             targetHandle: 'target',
           });
+          
+          existingOutgoingEdges.forEach((edge) => {
+            connectNodes({
+              source: newNodeId,
+              target: edge.target,
+              sourceHandle: 'source',
+              targetHandle: edge.targetHandle ?? 'target',
+            });
+          });
         } else {
+          const existingIncomingEdges = edges.filter(
+            (e) => e.target === pendingConnectStart.nodeId
+          );
+          
+          existingIncomingEdges.forEach((edge) => {
+            deleteEdge(edge.id);
+          });
+          
           connectNodes({
             source: newNodeId,
             target: pendingConnectStart.nodeId,
             sourceHandle: 'source',
             targetHandle: 'target',
+          });
+          
+          existingIncomingEdges.forEach((edge) => {
+            connectNodes({
+              source: edge.source,
+              target: newNodeId,
+              sourceHandle: edge.sourceHandle ?? 'source',
+              targetHandle: 'target',
+            });
           });
         }
       }
@@ -1036,12 +1444,161 @@ export function Canvas() {
     [
       addNode,
       connectNodes,
+      deleteEdge,
+      edges,
       flowPosition,
+      nodes,
       pendingConnectStart,
       scheduleCanvasPersist,
       setPreviewConnectionVisual,
     ]
   );
+
+  const handleCreateBranch = useCallback((action?: 'createBranch' | 'createSupplement') => {
+  if (!pendingConnectStart) return;
+  
+  const sourceNode = nodes.find(n => n.id === pendingConnectStart.nodeId);
+  if (!sourceNode) return;
+  
+  const isSupplementConnection = action === 'createSupplement' || pendingConnectStart.handleId === 'supplement';
+  
+  if (isSupplementConnection) {
+    const sourceData = sourceNode.data as ScriptChapterNodeData;
+    const sourceDepth = sourceData?.depth || 1;
+    const sourceNodeHeight = sourceNode.measured?.height ?? DEFAULT_LAYOUT_CONFIG.nodeHeight;
+    
+    const nodeData: Partial<ScriptChapterNodeData> = {
+      branchType: 'supplement',
+      parentId: pendingConnectStart.nodeId,
+      chapterNumber: sourceData?.chapterNumber || 1,
+      displayName: `补充`,
+      depth: sourceDepth + 1,
+    };
+    
+    const nodePosition = {
+      x: sourceNode.position.x,
+      y: sourceNode.position.y + sourceNodeHeight + 40,
+    };
+    
+    const newNodeId = addNode(CANVAS_NODE_TYPES.scriptChapter, nodePosition, nodeData);
+    
+    connectNodes({
+      source: pendingConnectStart.nodeId,
+      target: newNodeId,
+      sourceHandle: 'supplement',
+      targetHandle: 'target',
+    });
+    
+    scheduleCanvasPersist(0);
+    setShowNodeMenu(false);
+    setMenuAllowedTypes(undefined);
+    setPendingConnectStart(null);
+    setPreviewConnectionVisual(null);
+    return;
+  }
+  
+  const isSourceRootNode = sourceNode.type === CANVAS_NODE_TYPES.scriptRoot;
+  
+  if (isSourceRootNode) {
+    const maxChapterNumber = nodes.reduce((max, node) => {
+      if (node.type !== CANVAS_NODE_TYPES.scriptChapter) return max;
+      const d = node.data as ScriptChapterNodeData;
+      if (d.branchType === 'branch') return max;
+      return Math.max(max, d.chapterNumber || 0);
+    }, 0);
+    
+    const nextChapterNumber = maxChapterNumber + 1;
+    
+    const nodeData: Partial<ScriptChapterNodeData> = {
+      chapterNumber: nextChapterNumber,
+      branchType: 'main',
+      depth: 1,
+      parentId: pendingConnectStart.nodeId,
+    };
+    
+    const mainLineChildren = nodes.filter(n => {
+      const d = n.data as ScriptChapterNodeData;
+      return n.type === CANVAS_NODE_TYPES.scriptChapter && 
+             d.branchType === 'main' &&
+             d.parentId === pendingConnectStart.nodeId;
+    });
+    const nodePosition = calculateChildNodePosition(
+      sourceNode,
+      mainLineChildren.length,
+      mainLineChildren.length + 1,
+      DEFAULT_LAYOUT_CONFIG
+    );
+    
+    const newNodeId = addNode(CANVAS_NODE_TYPES.scriptChapter, nodePosition, nodeData);
+    
+    connectNodes({
+      source: pendingConnectStart.nodeId,
+      target: newNodeId,
+      sourceHandle: 'source',
+      targetHandle: 'target',
+    });
+    
+    scheduleCanvasPersist(0);
+    setShowNodeMenu(false);
+    setMenuAllowedTypes(undefined);
+    setPendingConnectStart(null);
+    setPreviewConnectionVisual(null);
+    return;
+  }
+  
+  const sourceData = sourceNode.data as ScriptChapterNodeData;
+  const sourceDepth = sourceData?.depth || 1;
+  const parentChapterNumber = sourceData?.chapterNumber || 1;
+  const parentDisplayName = sourceData?.displayName;
+  
+  const existingBranches = nodes.filter(n => {
+    const d = n.data as ScriptChapterNodeData;
+    return n.type === CANVAS_NODE_TYPES.scriptChapter && 
+           d.branchType === 'branch' && 
+           d.parentId === pendingConnectStart.nodeId;
+  });
+  const branchIndex = existingBranches.length + 1;
+  
+  const newDisplayName = parentDisplayName 
+    ? `${parentDisplayName}-${branchIndex}`
+    : `${parentChapterNumber}-${branchIndex}`;
+  
+  const nodeData: Partial<ScriptChapterNodeData> = {
+    branchType: 'branch',
+    parentId: pendingConnectStart.nodeId,
+    branchIndex,
+    chapterNumber: parentChapterNumber,
+    displayName: newDisplayName,
+    depth: sourceDepth + 1,
+  };
+  
+  const nodePosition = calculateBranchNodePosition(
+    sourceNode,
+    existingBranches.length,
+    DEFAULT_LAYOUT_CONFIG
+  );
+  
+  const newNodeId = addNode(CANVAS_NODE_TYPES.scriptChapter, nodePosition, nodeData);
+  
+  connectNodes({
+    source: pendingConnectStart.nodeId,
+    target: newNodeId,
+    sourceHandle: 'source',
+    targetHandle: 'target',
+  });
+  
+  scheduleCanvasPersist(0);
+  setShowNodeMenu(false);
+  setMenuAllowedTypes(undefined);
+  setPendingConnectStart(null);
+  setPreviewConnectionVisual(null);
+}, [
+  addNode,
+  connectNodes,
+  nodes,
+  pendingConnectStart,
+  scheduleCanvasPersist,
+]);
 
   const duplicateNodes = useCallback(
     (sourceNodeIds: string[], options: DuplicateOptions = {}) => {
@@ -1101,8 +1658,8 @@ export function Canvas() {
         }
       }
 
-      const idMap = new Map<string, string>();
-      const sizeMap = new Map<string, { width: number; height: number }>();
+      const idMap = new globalThis.Map<string, string>();
+      const sizeMap = new globalThis.Map<string, { width: number; height: number }>();
       for (const sourceNode of sourceNodes) {
         const data = cloneNodeData(sourceNode.data);
         if ('isGenerating' in (data as Record<string, unknown>)) {
@@ -1145,7 +1702,7 @@ export function Canvas() {
         sizeMap.set(nextNodeId, getNodeSize(sourceNode));
       }
 
-      const sizeSyncChanges = Array.from(sizeMap.entries()).map(([nodeId, size]) => ({
+      const sizeSyncChanges = Array.from(sizeMap.entries()).map(([nodeId, size]: [string, { width: number; height: number }]) => ({
         id: nodeId,
         type: 'dimensions' as const,
         dimensions: { width: size.width, height: size.height },
@@ -1153,7 +1710,7 @@ export function Canvas() {
         setAttributes: true,
       }));
       if (sizeSyncChanges.length > 0) {
-        applyNodesChange(sizeSyncChanges);
+        applyNodesChange(sizeSyncChanges as NodeChange<CanvasNode>[]);
       }
 
       for (const edge of internalEdges) {
@@ -1208,10 +1765,11 @@ export function Canvas() {
         return;
       }
 
-      const containerRect = wrapperRef.current?.getBoundingClientRect();
+      const containerRect = reactFlowWrapperRef.current?.getBoundingClientRect();
       const eventTarget = event.target as Element | null;
       const handleElement = eventTarget?.closest?.('.react-flow__handle') as HTMLElement | null;
       const clientPosition = getClientPosition(event);
+      const handleId = handleElement?.dataset?.handleid;
       let start: { x: number; y: number } | undefined;
       if (containerRect && handleElement) {
         const handleRect = handleElement.getBoundingClientRect();
@@ -1229,6 +1787,7 @@ export function Canvas() {
       setPendingConnectStart({
         nodeId: params.nodeId,
         handleType: params.handleType,
+        handleId,
         start,
       });
     },
@@ -1249,7 +1808,7 @@ export function Canvas() {
         altDragCopyRef.current = null;
         return;
       }
-      const startPositions = new Map<string, { x: number; y: number }>();
+      const startPositions = new globalThis.Map<string, { x: number; y: number }>();
       for (const sourceNodeId of sourceNodeIds) {
         const sourceNode = nodes.find((item) => item.id === sourceNodeId);
         if (!sourceNode) {
@@ -1313,6 +1872,14 @@ export function Canvas() {
 
   const handleNodeDrag = useCallback(
     (_event: ReactMouseEvent, node: CanvasNode) => {
+      // 节点对齐检测
+      if (enableNodeAlignment && showAlignmentGuides) {
+        setIsDraggingNode(true);
+        const otherNodes = nodes.filter((n) => n.id !== node.id);
+        const alignments = detectAlignments(node, otherNodes, alignmentThreshold);
+        setAlignmentGuides(alignments.map((a) => a.guide));
+      }
+
       const altCopyState = altDragCopyRef.current;
       if (!altCopyState) {
         return;
@@ -1372,11 +1939,15 @@ export function Canvas() {
         applyNodesChange(allChanges);
       }
     },
-    [applyNodesChange]
+    [applyNodesChange, enableNodeAlignment, showAlignmentGuides, nodes, alignmentThreshold]
   );
 
   const handleNodeDragStop = useCallback(
     (_event: ReactMouseEvent, node: CanvasNode) => {
+      // 清除对齐辅助线
+      setIsDraggingNode(false);
+      setAlignmentGuides([]);
+
       const altCopyState = altDragCopyRef.current;
       if (!altCopyState) {
         return;
@@ -1455,7 +2026,7 @@ export function Canvas() {
       }
 
       const clientPosition = getClientPosition(event);
-      const containerRect = wrapperRef.current?.getBoundingClientRect();
+      const containerRect = reactFlowWrapperRef.current?.getBoundingClientRect();
       if (!clientPosition || !containerRect) {
         setPendingConnectStart(null);
         setPreviewConnectionVisual(null);
@@ -1468,6 +2039,14 @@ export function Canvas() {
         ?.closest?.('.react-flow__node[data-id]') as HTMLElement | null;
       const dropNodeElement = nodeElementFromTarget ?? nodeElementFromPoint;
       const dropNodeId = dropNodeElement?.dataset?.id ?? null;
+
+      const isSupplementConnection = pendingConnectStart.handleId === 'supplement';
+      const isBranchConnection = (() => {
+        if (!pendingConnectStart?.nodeId) return false;
+        if (isSupplementConnection) return false;
+        const sourceNode = nodes.find(n => n.id === pendingConnectStart.nodeId);
+        return sourceNode?.type === CANVAS_NODE_TYPES.scriptChapter;
+      })();
 
       if (dropNodeId && dropNodeId !== pendingConnectStart.nodeId) {
         const sourceNode =
@@ -1499,7 +2078,11 @@ export function Canvas() {
         }
       }
 
-      const allowedTypes = resolveAllowedNodeTypes(pendingConnectStart.handleType);
+      const allowedTypes = resolveAllowedNodeTypes(
+        pendingConnectStart.handleType,
+        pendingConnectStart.nodeId,
+        nodes
+      );
       if (allowedTypes.length === 0) {
         setPendingConnectStart(null);
         setPreviewConnectionVisual(null);
@@ -1512,7 +2095,7 @@ export function Canvas() {
       let startY: number | null = pendingConnectStart.start?.y ?? null;
 
       if (startX === null || startY === null) {
-        const nodeElement = wrapperRef.current?.querySelector<HTMLElement>(
+        const nodeElement = reactFlowWrapperRef.current?.querySelector<HTMLElement>(
           `.react-flow__node[data-id="${pendingConnectStart.nodeId}"]`
         );
         const handleElement = nodeElement?.querySelector<HTMLElement>(
@@ -1544,7 +2127,7 @@ export function Canvas() {
             end: { x: endX, y: endY },
             handleType: pendingConnectStart.handleType,
           }),
-          stroke: 'rgba(255,255,255,0.9)',
+          stroke: isBranchConnection ? 'rgba(168, 85, 247, 0.9)' : 'rgba(255,255,255,0.9)',
           strokeWidth: 1,
           strokeLinecap: 'round',
           left: 0,
@@ -1582,8 +2165,47 @@ export function Canvas() {
     [configuredApiKeyCount, t]
   );
 
+  const selectedNodes = useMemo(() => nodes.filter(n => n.selected), [nodes]);
+
+  const handleMergedAnchorMouseDown = useCallback((e: ReactMouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDraggingBranchConnection(true);
+    setBranchConnectionSource(selectedNodes as CanvasNode[]);
+    setBranchConnectionPosition({ x: e.clientX, y: e.clientY });
+  }, [selectedNodes]);
+
+  const handleBatchOperationSelect = useCallback((nodeType: CanvasNodeType) => {
+    if (branchConnectionSource.length === 0) return;
+
+    const bounds = calculateNodesBounds(branchConnectionSource);
+    const newNodePosition = {
+      x: bounds.right + 100,
+      y: bounds.centerY,
+    };
+
+    const newNodeId = addNode(nodeType, newNodePosition, undefined);
+
+    // 自动连接所有源节点到新节点
+    for (const sourceNode of branchConnectionSource) {
+      connectNodes({
+        source: sourceNode.id,
+        target: newNodeId,
+        sourceHandle: 'source',
+        targetHandle: 'target',
+      });
+    }
+
+    setShowBatchMenu(false);
+    setBranchConnectionSource([]);
+    setBranchConnectionPosition(null);
+  }, [branchConnectionSource, addNode, connectNodes]);
+
   return (
-    <div ref={wrapperRef} className="relative h-full w-full">
+    <div ref={wrapperRef} className="relative h-full w-full flex">
+      <ScriptBiblePanel />
+      <ScriptWelcomeDialog isOpen={showWelcomeDialog} onClose={() => setShowWelcomeDialog(false)} />
+      <div ref={reactFlowWrapperRef} className="flex-1 relative">
       <ReactFlow
         nodes={nodes}
         edges={edges}
@@ -1598,9 +2220,13 @@ export function Canvas() {
         onNodeDrag={handleNodeDrag}
         onNodeDragStop={handleNodeDragStop}
         onPaneClick={handlePaneClick}
+        onPaneContextMenu={handlePaneContextMenu}
         onMove={handleMove}
         onMoveStart={handleMoveStart}
         onMoveEnd={handleMoveEnd}
+        onDragOver={handleDragOver}
+        onDragLeave={handleDragLeave}
+        onDrop={handleDrop}
         nodeTypes={nodeTypes}
         edgeTypes={edgeTypes}
         defaultEdgeOptions={{ type: 'disconnectableEdge' }}
@@ -1614,21 +2240,171 @@ export function Canvas() {
         deleteKeyCode={null}
         onlyRenderVisibleElements
         zoomOnDoubleClick={false}
+        snapToGrid={snapToGrid}
+        snapGrid={[snapGridSize, snapGridSize]}
         proOptions={{ hideAttribution: true }}
         className="bg-bg-dark"
       >
-        <Background variant={BackgroundVariant.Dots} gap={20} size={1} color="#2a2a2a" />
-        <MiniMap
-          className="canvas-minimap nopan nowheel !border-border-dark !bg-surface-dark"
-          style={{ pointerEvents: 'all', zIndex: 10000 }}
-          nodeColor="rgba(120, 120, 120, 0.92)"
-          maskColor="rgba(0, 0, 0, 0.62)"
-          pannable
-          zoomable
-        />
+        <Background variant={BackgroundVariant.Dots} gap={snapGridSize} size={1} color={showGrid ? "rgba(255,255,255,0.08)" : "transparent"} />
+        
+        {showMiniMap && (
+          <MiniMap
+            className="canvas-minimap nopan nowheel !border-border-dark !bg-surface-dark"
+            style={{ pointerEvents: 'all', zIndex: 10000 }}
+            nodeColor="rgba(120, 120, 120, 0.92)"
+            maskColor="rgba(0, 0, 0, 0.62)"
+            pannable
+            zoomable
+          />
+        )}
 
         <SelectedNodeOverlay />
+
+        {/* 对齐辅助线 */}
+        {isDraggingNode && alignmentGuides.length > 0 && (
+          <AlignmentGuides 
+            guides={alignmentGuides} 
+            viewport={currentViewport}
+          />
+        )}
       </ReactFlow>
+
+      {/* 合并锚点 - 多选时显示 */}
+      {selectedNodes.length >= 2 && !isDraggingBranchConnection && (
+        <MergedConnectionAnchor
+          selectedNodes={selectedNodes}
+          viewport={currentViewport}
+          onMouseDown={handleMergedAnchorMouseDown}
+        />
+      )}
+
+      {/* 分支连线预览 */}
+      {isDraggingBranchConnection && branchConnectionPosition && (
+        <BranchConnectionPreview
+          sourceNodes={branchConnectionSource}
+          currentPosition={branchConnectionPosition}
+          viewport={currentViewport}
+        />
+      )}
+
+      {/* 批量操作菜单 */}
+      {showBatchMenu && branchConnectionSource.length > 0 && (
+        <BatchOperationMenu
+          position={batchMenuPosition}
+          sourceNodeIds={branchConnectionSource.map(n => n.id)}
+          sourceNodeType={branchConnectionSource[0]?.type || 'default'}
+          onSelectNodeType={handleBatchOperationSelect}
+          onClose={() => {
+            setShowBatchMenu(false);
+            setBranchConnectionSource([]);
+            setBranchConnectionPosition(null);
+          }}
+        />
+      )}
+
+      {/* 右下角控制条 */}
+      <div 
+        className="absolute flex items-center gap-1 rounded-lg border border-border-dark bg-surface-dark px-2 py-1.5 shadow-lg"
+        style={{ 
+          bottom: '16px', 
+          right: '16px', 
+          zIndex: 9999 
+        }}
+      >
+        {/* 网格吸附开关 */}
+        <button
+          onClick={() => setSnapToGrid(!snapToGrid)}
+          style={{ 
+            color: snapToGrid ? '#3b82f6' : '#6b7280',
+            padding: '6px',
+            borderRadius: '4px'
+          }}
+          title={snapToGrid ? '关闭网格吸附' : '开启网格吸附'}
+        >
+          <Grid3x3 style={{ width: '16px', height: '16px' }} />
+        </button>
+
+        <div style={{ width: '1px', height: '16px', backgroundColor: '#374151' }} />
+
+        {/* 对齐辅助线开关 */}
+        <button
+          onClick={() => setShowAlignmentGuides(!showAlignmentGuides)}
+          style={{
+            color: showAlignmentGuides ? '#3b82f6' : '#6b7280',
+            padding: '6px',
+            borderRadius: '4px'
+          }}
+          title={showAlignmentGuides ? '关闭对齐辅助线' : '开启对齐辅助线'}
+        >
+          <AlignCenter style={{ width: '16px', height: '16px' }} />
+        </button>
+
+        <div style={{ width: '1px', height: '16px', backgroundColor: '#374151' }} />
+
+        {/* 小地图开关 */}
+        <button
+          onClick={() => setShowMiniMap(!showMiniMap)}
+          style={{ 
+            color: showMiniMap ? '#3b82f6' : '#6b7280',
+            padding: '6px',
+            borderRadius: '4px'
+          }}
+          title={showMiniMap ? '关闭小地图' : '开启小地图'}
+        >
+          <MapIcon style={{ width: '16px', height: '16px' }} />
+        </button>
+
+        <div style={{ width: '1px', height: '16px', backgroundColor: '#374151' }} />
+
+        {/* 缩小 */}
+        <button
+          onClick={() => zoomOut()}
+          style={{ 
+            color: '#6b7280',
+            padding: '6px',
+            borderRadius: '4px'
+          }}
+          title="缩小"
+        >
+          <Minus style={{ width: '16px', height: '16px' }} />
+        </button>
+
+        {/* 缩放百分比 */}
+        <span style={{ 
+          minWidth: '40px', 
+          textAlign: 'center', 
+          fontSize: '12px',
+          color: '#6b7280'
+        }}>
+          {Math.round((currentViewport?.zoom ?? 1) * 100)}%
+        </span>
+
+        {/* 放大 */}
+        <button
+          onClick={() => zoomIn()}
+          style={{ 
+            color: '#6b7280',
+            padding: '6px',
+            borderRadius: '4px'
+          }}
+          title="放大"
+        >
+          <Plus style={{ width: '16px', height: '16px' }} />
+        </button>
+      </div>
+
+      {isDragOver && (
+        <div className="absolute inset-0 z-50 pointer-events-none">
+          <div className="absolute inset-0 bg-amber-500/10 border-2 border-dashed border-amber-500/50 rounded-lg m-4 flex items-center justify-center">
+            <div className="bg-surface-dark/90 px-6 py-4 rounded-xl border border-amber-500/30 shadow-lg">
+              <div className="flex items-center gap-3 text-amber-400">
+                <Upload className="w-6 h-6" />
+                <span className="text-lg font-medium">释放图片以上传（支持多张）</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {nodes.length === 0 && emptyHint}
       {nodes.length > 0 && configuredApiKeyCount === 0 && (
@@ -1664,7 +2440,29 @@ export function Canvas() {
         <NodeSelectionMenu
           position={menuPosition}
           allowedTypes={menuAllowedTypes}
+          projectType={project?.projectType as 'storyboard' | 'script' | undefined}
+          showBranchOption={(() => {
+            if (project?.projectType !== 'script' || !pendingConnectStart?.nodeId) return false;
+            if (pendingConnectStart.handleId === 'supplement') return false;
+            const sourceNode = nodes.find(n => n.id === pendingConnectStart.nodeId);
+            return sourceNode?.type === CANVAS_NODE_TYPES.scriptChapter || sourceNode?.type === CANVAS_NODE_TYPES.scriptRoot;
+          })()}
+          onlyBranchOption={(() => {
+            if (project?.projectType !== 'script' || !pendingConnectStart?.nodeId) return false;
+            if (pendingConnectStart.handleId === 'supplement') return false;
+            const sourceNode = nodes.find(n => n.id === pendingConnectStart.nodeId);
+            return sourceNode?.type === CANVAS_NODE_TYPES.scriptChapter || sourceNode?.type === CANVAS_NODE_TYPES.scriptRoot;
+          })()}
+          showSupplementOption={(() => {
+            if (project?.projectType !== 'script' || !pendingConnectStart?.nodeId) return false;
+            return pendingConnectStart.handleId === 'supplement';
+          })()}
+          onlySupplementOption={(() => {
+            if (project?.projectType !== 'script' || !pendingConnectStart?.nodeId) return false;
+            return pendingConnectStart.handleId === 'supplement';
+          })()}
           onSelect={handleNodeSelect}
+          onSpecialAction={handleCreateBranch}
           onClose={() => {
             setShowNodeMenu(false);
             setMenuAllowedTypes(undefined);
@@ -1684,6 +2482,7 @@ export function Canvas() {
         onClose={closeImageViewer}
         onNavigate={navigateImageViewer}
       />
+      </div>
     </div>
   );
 }

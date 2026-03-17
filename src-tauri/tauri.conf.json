@@ -1,6 +1,6 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "分镜助手",
+  "productName": "短剧助手",
   "version": "0.1.13",
   "identifier": "com.storyboard.copilot",
   "build": {
@@ -16,7 +16,7 @@
       {
         "label": "main",
         "create": false,
-        "title": "分镜助手 Storyboard-Copilot",
+        "title": "短剧助手",
         "dragDropEnabled": false,
         "width": 1280,
         "height": 800,

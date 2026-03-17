@@ -13,6 +13,13 @@ export const DEFAULT_NODE_DISPLAY_NAME: Record<CanvasNodeType, string> = {
   [CANVAS_NODE_TYPES.group]: '分组',
   [CANVAS_NODE_TYPES.storyboardSplit]: '切割结果',
   [CANVAS_NODE_TYPES.storyboardGen]: '分镜生成',
+  [CANVAS_NODE_TYPES.scriptRoot]: '剧本',
+  [CANVAS_NODE_TYPES.scriptChapter]: '章节',
+  [CANVAS_NODE_TYPES.scriptCharacter]: '角色',
+  [CANVAS_NODE_TYPES.scriptLocation]: '场景',
+  [CANVAS_NODE_TYPES.scriptItem]: '道具',
+  [CANVAS_NODE_TYPES.scriptPlotPoint]: '情节点',
+  [CANVAS_NODE_TYPES.scriptWorldview]: '世界观',
 };
 
 export const EXPORT_RESULT_DISPLAY_NAME: Record<ExportImageNodeResultKind, string> = {

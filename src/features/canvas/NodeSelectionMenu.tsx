@@ -1,17 +1,30 @@
 import { useMemo, useCallback, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Image, Upload, Sparkles, LayoutGrid, Type } from 'lucide-react';
+import { Image, Upload, Sparkles, LayoutGrid, Type, GitBranch } from 'lucide-react';
 import { UI_POPOVER_TRANSITION_MS } from '@/components/ui/motion';
 
 import type { CanvasNodeType } from '@/features/canvas/domain/canvasNodes';
 import { nodeCatalog } from '@/features/canvas/application/nodeCatalog';
 import type { MenuIconKey } from '@/features/canvas/domain/nodeRegistry';
 
+export interface SpecialMenuItem {
+  id: string;
+  icon: typeof Upload;
+  labelKey: string;
+  action: 'createBranch' | 'createSupplement';
+}
+
 interface NodeSelectionMenuProps {
   position: { x: number; y: number };
   allowedTypes?: CanvasNodeType[];
   onSelect: (type: CanvasNodeType) => void;
+  onSpecialAction?: (action: 'createBranch' | 'createSupplement') => void;
+  showBranchOption?: boolean;
+  onlyBranchOption?: boolean;
+  showSupplementOption?: boolean;
+  onlySupplementOption?: boolean;
   onClose: () => void;
+  projectType?: 'storyboard' | 'script';
 }
 
 const iconMap: Record<MenuIconKey, typeof Upload> = {
@@ -21,11 +34,31 @@ const iconMap: Record<MenuIconKey, typeof Upload> = {
   text: Type,
 };
 
+const BRANCH_MENU_ITEM: SpecialMenuItem = {
+  id: 'create-branch',
+  icon: GitBranch,
+  labelKey: 'node.menu.createBranch',
+  action: 'createBranch',
+};
+
+const SUPPLEMENT_MENU_ITEM: SpecialMenuItem = {
+  id: 'create-supplement',
+  icon: Sparkles,
+  labelKey: 'node.menu.createSupplement',
+  action: 'createSupplement',
+};
+
 export function NodeSelectionMenu({
   position,
   allowedTypes,
   onSelect,
+  onSpecialAction,
+  showBranchOption = false,
+  onlyBranchOption = false,
+  showSupplementOption = false,
+  onlySupplementOption = false,
   onClose,
+  projectType = 'storyboard',
 }: NodeSelectionMenuProps) {
   const { t } = useTranslation();
   const menuRef = useRef<HTMLDivElement>(null);
@@ -41,22 +74,28 @@ export function NodeSelectionMenu({
       ? nodeCatalog.getMenuDefinitions()
       : Array.from(new Set(allowedTypes)).map((type) => nodeCatalog.getDefinition(type));
 
-    const dedupedByLabel = new Map<string, (typeof candidates)[number]>();
-    for (const definition of candidates) {
+    const filteredCandidates = candidates.filter((item) => {
+      if (projectType === 'script') {
+        return item.menuLabelKey !== 'node.generateImage';
+      }
+      return true;
+    });
+
+    const dedupedByLabel = new Map<string, typeof filteredCandidates[number]>();
+    for (const definition of filteredCandidates) {
       const existing = dedupedByLabel.get(definition.menuLabelKey);
       if (!existing) {
         dedupedByLabel.set(definition.menuLabelKey, definition);
         continue;
       }
 
-      // Prefer user-visible definitions when multiple internal node types share the same label.
       if (!existing.visibleInMenu && definition.visibleInMenu) {
         dedupedByLabel.set(definition.menuLabelKey, definition);
       }
     }
 
     return Array.from(dedupedByLabel.values());
-  }, [allowedTypeSet, allowedTypes]);
+  }, [allowedTypeSet, allowedTypes, projectType]);
 
   useEffect(() => {
     requestAnimationFrame(() => {
@@ -94,16 +133,48 @@ export function NodeSelectionMenu({
       `}
       style={{ left: position.x, top: position.y }}
     >
-      {menuItems.map((item, index) => {
+      {(showBranchOption || onlyBranchOption) && (
+        <button
+          key={BRANCH_MENU_ITEM.id}
+          className={`flex w-full items-center gap-3 px-4 py-3 text-left transition-colors hover:bg-bg-dark ${!onlyBranchOption ? 'border-b border-border-dark' : ''}`}
+          style={{ transitionDelay: isVisible ? '0ms' : '0ms' }}
+          onClick={() => {
+            onSpecialAction?.(BRANCH_MENU_ITEM.action);
+            handleClose();
+          }}
+        >
+          <div className="flex h-8 w-8 items-center justify-center rounded-md bg-purple-500/20">
+            <BRANCH_MENU_ITEM.icon className="h-4 w-4 text-purple-400" />
+          </div>
+          <span className="text-sm text-text-dark">{t(BRANCH_MENU_ITEM.labelKey)}</span>
+        </button>
+      )}
+      {(showSupplementOption || onlySupplementOption) && (
+        <button
+          key={SUPPLEMENT_MENU_ITEM.id}
+          className={`flex w-full items-center gap-3 px-4 py-3 text-left transition-colors hover:bg-bg-dark ${!onlySupplementOption ? 'border-b border-border-dark' : ''}`}
+          style={{ transitionDelay: isVisible ? `${(showBranchOption ? 1 : 0) * 30}ms` : '0ms' }}
+          onClick={() => {
+            onSpecialAction?.(SUPPLEMENT_MENU_ITEM.action);
+            handleClose();
+          }}
+        >
+          <div className="flex h-8 w-8 items-center justify-center rounded-md bg-green-500/20">
+            <SUPPLEMENT_MENU_ITEM.icon className="h-4 w-4 text-green-400" />
+          </div>
+          <span className="text-sm text-text-dark">{t(SUPPLEMENT_MENU_ITEM.labelKey)}</span>
+        </button>
+      )}
+      {!onlyBranchOption && !onlySupplementOption && menuItems.map((item, index) => {
         const Icon = iconMap[item.menuIcon] ?? Image;
         return (
           <button
             key={item.type}
             className="flex w-full items-center gap-3 px-4 py-3 text-left transition-colors hover:bg-bg-dark"
-            style={{ transitionDelay: isVisible ? `${index * 30}ms` : '0ms' }}
+            style={{ transitionDelay: isVisible ? `${((showBranchOption ? 1 : 0) + (showSupplementOption ? 1 : 0) + index) * 30}ms` : '0ms' }}
             onClick={() => {
+              onSelect(item.type);
               handleClose();
-              setTimeout(() => onSelect(item.type), UI_POPOVER_TRANSITION_MS + 10);
             }}
           >
             <div className="flex h-8 w-8 items-center justify-center rounded-md bg-bg-dark">

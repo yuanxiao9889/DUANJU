@@ -365,6 +365,7 @@ export const UploadNode = memo(({ id, data, selected, width, height }: UploadNod
         minHeight={resizeMinHeight}
         maxWidth={1400}
         maxHeight={1400}
+        isVisible={selected}
       />
     </div>
   );

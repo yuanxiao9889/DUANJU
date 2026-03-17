@@ -1,0 +1,211 @@
+================================================================
+        Nano Banana API 接口文档
+        基于 ComfyUI-GrsAI 仓库源码分析
+        仓库地址：https://github.com/31702160136/ComfyUI-GrsAI
+================================================================
+
+
+一、概述
+----------------------------------------------------------------
+Nano Banana 是 GrsAI 平台提供的图像生成/编辑 API，
+支持【文生图】和【图生图（图像编辑）】两种模式。
+
+- Base URL：  https://grsai.dakka.com.cn
+- 认证方式：  Bearer Token（API Key 以 sk- 开头）
+- 请求格式：  application/json; charset=utf-8
+- User-Agent：ComfyUI-GrsAI/1.0
+
+
+二、认证
+----------------------------------------------------------------
+所有请求需在 Header 中携带：
+
+  Authorization: Bearer sk-xxxxxxxxxxxxxxxx
+  Content-Type: application/json
+
+API Key 通过环境变量配置，或写入项目根目录 .env 文件：
+
+  GRSAI_API_KEY=sk-your_api_key_here
+
+获取 API Key：https://grsai.com
+
+
+三、核心接口 —— Nano Banana 图像生成
+----------------------------------------------------------------
+接口：POST /v1/draw/nano-banana
+
+【请求参数】
+
+  参数名          类型      必填   说明
+  ----------      ------    ----   --------------------------------
+  model           string    是     模型名称（见下方模型列表）
+  prompt          string    是     图像描述文本
+  urls            array     否     参考图片 URL 列表（图像编辑用，最多 6 张）
+  aspectRatio     string    否     宽高比（见下方支持列表）
+  imageSize       string    否     输出分辨率（仅 PRO/PRO-VT 模型支持）
+  shutProgress    boolean   否     固定传 true
+  cdn             string    否     固定传 "zh"
+
+
+【支持的模型（model）】
+
+  模型名                    说明                支持 imageSize
+  --------------------      ----------------    --------------
+  nano-banana-fast          快速版（默认推荐）  否
+  nano-banana               标准版              否
+  nano-banana-pro           专业版，高质量      是
+  nano-banana-pro-vt        专业版视频帧        是
+
+
+【支持的宽高比（aspectRatio）】
+
+  auto, 1:1, 16:9, 9:16, 4:3, 3:4, 3:2, 2:3, 5:4, 4:5, 21:9
+
+
+【支持的分辨率（imageSize，仅 PRO/PRO-VT）】
+
+  1K, 2K, 4K
+
+
+【请求示例 —— 文生图】
+
+  {
+    "model": "nano-banana-fast",
+    "prompt": "Create a high-quality studio shot of a ripe banana on a matte surface, soft shadows, natural lighting.",
+    "urls": [],
+    "shutProgress": true,
+    "cdn": "zh"
+  }
+
+
+【请求示例 —— 图生图（带参考图）】
+
+  {
+    "model": "nano-banana-pro",
+    "prompt": "将图片中的香蕉变成金色",
+    "urls": [
+      "https://example.com/input-image.png"
+    ],
+    "aspectRatio": "1:1",
+    "imageSize": "1K",
+    "shutProgress": true,
+    "cdn": "zh"
+  }
+
+
+【成功响应】
+
+  {
+    "status": "succeeded",
+    "id": "task-id-xxx",
+    "results": [
+      {
+        "url": "https://cdn.grsai.com/output/image.png"
+      }
+    ]
+  }
+
+
+【失败响应】
+
+  {
+    "status": "failed",
+    "id": "task-id-xxx",
+    "error": "错误信息"
+  }
+
+
+【错误码】
+
+  HTTP 状态码   说明
+  ----------    ----------------------------------------
+  200           成功
+  401           API Key 无效或已过期
+  429           请求频率超限，需稍后重试
+  5xx           服务器错误，自动重试（最多 3 次，指数退避）
+
+
+四、ComfyUI 节点参数
+----------------------------------------------------------------
+在 ComfyUI 中使用 [GrsAI Nano Banana] 节点时：
+
+【必填参数】
+
+  参数名    类型          默认值                    说明
+  ------    ----------    ----------------------    ----------------
+  prompt    STRING        "Create a high-quality…"  图像描述（多行）
+  model     下拉选择      nano-banana-fast          模型选择
+
+
+【可选参数】
+
+  参数名              类型        默认值   说明
+  ----------------    --------    ------   --------------------------------
+  use_aspect_ratio    BOOLEAN     False    是否启用宽高比控制
+  aspect_ratio        下拉选择    auto     宽高比（需 use_aspect_ratio=True）
+  image_size          下拉选择    1K       分辨率（仅 PRO/PRO-VT 有效）
+  image_1 ~ image_6   IMAGE       无       参考图片（最多 6 张，图像编辑用）
+
+
+【输出】
+
+  输出名    类型      说明
+  ------    ------    --------------------
+  image     IMAGE     生成的图像 tensor
+  status    STRING    执行状态信息
+
+
+五、图像上传（辅助）
+----------------------------------------------------------------
+图生图模式下，本地图片需先上传获取 URL，再传入 urls 参数。
+上传接口封装在 upload.py 的 upload_file_zh() 函数中，
+使用相同的 API Key 认证。
+
+
+六、重试机制
+----------------------------------------------------------------
+- 最大重试次数：3 次
+- 重试策略：指数退避（2^attempt 秒）
+- 触发条件：HTTP 5xx 错误、连接超时、网络错误
+- 默认超时：300 秒（图片下载超时 120 秒）
+
+
+七、Python SDK 调用示例
+----------------------------------------------------------------
+
+  from api_client import GrsaiAPI
+
+  client = GrsaiAPI(api_key="sk-your_key_here")
+
+  # 文生图
+  pil_images, image_urls, errors = client.banana_generate_image(
+      prompt="A ripe banana on a white background",
+      model="nano-banana-fast",
+      urls=[],
+      aspect_ratio="16:9",
+  )
+
+  # 图生图（编辑）
+  pil_images, image_urls, errors = client.banana_generate_image(
+      prompt="将背景改为蓝色",
+      model="nano-banana-pro",
+      urls=["https://example.com/input.png"],
+      image_size="2K",
+  )
+
+  if pil_images:
+      pil_images[0].save("output.png")
+
+
+八、注意事项
+----------------------------------------------------------------
+1. API Key 格式：必须以 sk- 开头，否则会被拒绝
+2. imageSize 限制：只有 nano-banana-pro 和 nano-banana-pro-vt
+   支持 imageSize 参数，其他模型传入会被忽略
+3. 图片上传：参考图片需先上传到 GrsAI CDN，不能直接传本地路径
+4. 并发下载：多张图片生成后会并发下载，提升效率
+5. 获取 API Key：前往 https://grsai.com 注册获取
+
+================================================================
+                        文档结束
+================================================================

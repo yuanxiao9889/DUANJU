@@ -8,6 +8,7 @@ import {
   applyEdgeChanges,
   applyNodeChanges,
 } from '@xyflow/react';
+import { v4 as uuidv4 } from 'uuid';
 
 import {
   CANVAS_NODE_TYPES,
@@ -40,6 +41,10 @@ import {
   resolveMinEdgeFittedSize,
   resolveSizeInsideTargetBox,
 } from '@/features/canvas/application/imageNodeSizing';
+import {
+  calculateMindMapLayout,
+  DEFAULT_LAYOUT_CONFIG,
+} from '@/features/canvas/application/mindMapLayout';
 
 export type {
   ActiveToolDialog,
@@ -64,6 +69,19 @@ export interface CanvasHistoryState {
 const MAX_HISTORY_STEPS = 50;
 const IMAGE_NODE_VISUAL_MIN_EDGE = 96;
 
+function calculateGridLayout(frameCount: number): { rows: number; cols: number } {
+  if (frameCount <= 1) return { rows: 1, cols: 1 };
+  if (frameCount <= 2) return { rows: 1, cols: 2 };
+  if (frameCount <= 4) return { rows: 2, cols: 2 };
+  if (frameCount <= 6) return { rows: 2, cols: 3 };
+  if (frameCount <= 9) return { rows: 3, cols: 3 };
+  if (frameCount <= 12) return { rows: 3, cols: 4 };
+  if (frameCount <= 16) return { rows: 4, cols: 4 };
+  const cols = Math.ceil(Math.sqrt(frameCount));
+  const rows = Math.ceil(frameCount / cols);
+  return { rows, cols };
+}
+
 interface CanvasState {
   nodes: CanvasNode[];
   edges: CanvasEdge[];
@@ -79,6 +97,22 @@ interface CanvasState {
     imageList: string[];
     currentIndex: number;
   };
+
+  // 网格设置
+  snapToGrid: boolean;
+  snapGridSize: number;
+  showGrid: boolean;
+  setSnapToGrid: (enabled: boolean) => void;
+  setSnapGridSize: (size: number) => void;
+  setShowGrid: (show: boolean) => void;
+
+  // 节点对齐设置
+  enableNodeAlignment: boolean;
+  alignmentThreshold: number;
+  showAlignmentGuides: boolean;
+  setEnableNodeAlignment: (enabled: boolean) => void;
+  setAlignmentThreshold: (threshold: number) => void;
+  setShowAlignmentGuides: (show: boolean) => void;
 
   onNodesChange: (changes: NodeChange<CanvasNode>[]) => void;
   onEdgesChange: (changes: EdgeChange<CanvasEdge>[]) => void;
@@ -131,6 +165,10 @@ interface CanvasState {
     draggedFrameId: string,
     targetFrameId: string
   ) => void;
+  addStoryboardFrame: (nodeId: string, isWhitePlaceholder?: boolean) => void;
+  removeStoryboardFrame: (nodeId: string, frameId: string) => void;
+  setStoryboardFrameImage: (nodeId: string, frameId: string, imageUrl: string | null) => void;
+  createMergedImageNode: (sourceNodeId: string) => Promise<string | null>;
 
   deleteNode: (nodeId: string) => void;
   deleteNodes: (nodeIds: string[]) => void;
@@ -150,6 +188,7 @@ interface CanvasState {
   undo: () => boolean;
   redo: () => boolean;
 
+  applyMindMapLayout: () => void;
   clearCanvas: () => void;
 }
 
@@ -557,6 +596,16 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
     imageList: [],
     currentIndex: 0,
   },
+
+  // 网格设置默认值
+  snapToGrid: true,
+  snapGridSize: 20,
+  showGrid: true,
+
+  // 节点对齐默认值
+  enableNodeAlignment: true,
+  alignmentThreshold: 10,
+  showAlignmentGuides: true,
 
   onNodesChange: (changes) => {
     set((state) => {
@@ -1250,6 +1299,184 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
     });
   },
 
+  addStoryboardFrame: (nodeId, isWhitePlaceholder = false) => {
+    set((state) => {
+      const node = state.nodes.find((n) => n.id === nodeId);
+      if (!node || !isStoryboardSplitNode(node)) {
+        return {};
+      }
+
+      const frames = [...node.data.frames].sort((a, b) => a.order - b.order);
+      const newFrameId = uuidv4();
+      const newFrame: StoryboardFrameItem = {
+        id: newFrameId,
+        imageUrl: isWhitePlaceholder ? 'white-placeholder' : null,
+        note: '',
+        order: frames.length,
+      };
+
+      const newFrames = [...frames, newFrame];
+      const gridLayout = calculateGridLayout(newFrames.length);
+
+      return {
+        nodes: state.nodes.map((n) =>
+          n.id === nodeId
+            ? {
+                ...n,
+                data: {
+                  ...n.data,
+                  frames: newFrames,
+                  gridRows: gridLayout.rows,
+                  gridCols: gridLayout.cols,
+                },
+              }
+            : n
+        ),
+        history: {
+          past: pushSnapshot(state.history.past, createSnapshot(state.nodes, state.edges)),
+          future: [],
+        },
+        dragHistorySnapshot: null,
+      };
+    });
+  },
+
+  removeStoryboardFrame: (nodeId, frameId) => {
+    set((state) => {
+      const node = state.nodes.find((n) => n.id === nodeId);
+      if (!node || !isStoryboardSplitNode(node)) {
+        return {};
+      }
+
+      const frames = node.data.frames.filter((f) => f.id !== frameId);
+      if (frames.length === node.data.frames.length) {
+        return {};
+      }
+
+      const reorderedFrames = frames
+        .sort((a, b) => a.order - b.order)
+        .map((frame, index) => ({ ...frame, order: index }));
+      const gridLayout = calculateGridLayout(reorderedFrames.length);
+
+      return {
+        nodes: state.nodes.map((n) =>
+          n.id === nodeId
+            ? {
+                ...n,
+                data: {
+                  ...n.data,
+                  frames: reorderedFrames,
+                  gridRows: gridLayout.rows,
+                  gridCols: gridLayout.cols,
+                },
+              }
+            : n
+        ),
+        history: {
+          past: pushSnapshot(state.history.past, createSnapshot(state.nodes, state.edges)),
+          future: [],
+        },
+        dragHistorySnapshot: null,
+      };
+    });
+  },
+
+  setStoryboardFrameImage: (nodeId, frameId, imageUrl) => {
+    set((state) => {
+      let changed = false;
+      const nextNodes = state.nodes.map((node) => {
+        if (node.id !== nodeId || !isStoryboardSplitNode(node)) {
+          return node;
+        }
+
+        const nextFrames = node.data.frames.map((frame) => {
+          if (frame.id !== frameId) {
+            return frame;
+          }
+          changed = true;
+          return { ...frame, imageUrl };
+        });
+
+        return { ...node, data: { ...node.data, frames: nextFrames } };
+      });
+
+      if (!changed) {
+        return {};
+      }
+
+      return {
+        nodes: nextNodes,
+        history: {
+          past: pushSnapshot(state.history.past, createSnapshot(state.nodes, state.edges)),
+          future: [],
+        },
+        dragHistorySnapshot: null,
+      };
+    });
+  },
+
+  createMergedImageNode: async (sourceNodeId) => {
+    const state = get();
+    const node = state.nodes.find((n) => n.id === sourceNodeId);
+    if (!node || !isStoryboardSplitNode(node)) {
+      return null;
+    }
+
+    const { frames, exportOptions, aspectRatio } = node.data;
+    const frameSources = frames
+      .sort((a, b) => a.order - b.order)
+      .map((frame) => frame.imageUrl === 'white-placeholder' ? null : (frame.imageUrl ?? null));
+
+    if (frameSources.length === 0) {
+      return null;
+    }
+
+    const gridRows = node.data.gridRows;
+    const gridCols = node.data.gridCols;
+
+    try {
+      const { mergeStoryboardImages } = await import('@/commands/image');
+      const result = await mergeStoryboardImages({
+        frameSources: frameSources as string[],
+        rows: gridRows,
+        cols: gridCols,
+        cellGap: exportOptions?.cellGap ?? 1,
+        outerPadding: exportOptions?.outerPadding ?? 0,
+        noteHeight: 0,
+        fontSize: 12,
+        backgroundColor: exportOptions?.backgroundColor ?? '#FFFFFF',
+        maxDimension: 4096,
+        showFrameIndex: exportOptions?.showFrameIndex ?? false,
+        showFrameNote: exportOptions?.showFrameNote ?? false,
+        notePlacement: exportOptions?.notePlacement ?? 'overlay',
+        imageFit: exportOptions?.imageFit ?? 'cover',
+        frameIndexPrefix: exportOptions?.frameIndexPrefix ?? '',
+        textColor: exportOptions?.textColor ?? '#000000',
+        frameNotes: frames.map((f) => f.note),
+      });
+
+      if (!result.imagePath) {
+        return null;
+      }
+
+      const nodePosition = {
+        x: (node.position?.x ?? 0) + 400,
+        y: node.position?.y ?? 0,
+      };
+
+      const newNodeId = get().addNode(CANVAS_NODE_TYPES.exportImage, nodePosition, {
+        displayName: '合并分镜',
+        imageUrl: result.imagePath,
+        aspectRatio: aspectRatio,
+      });
+
+      return newNodeId;
+    } catch (error) {
+      console.error('Failed to create merged image node:', error);
+      return null;
+    }
+  },
+
   deleteNode: (nodeId) => {
     get().deleteNodes([nodeId]);
   },
@@ -1587,5 +1814,62 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
         dragHistorySnapshot: null,
       };
     });
+  },
+
+  applyMindMapLayout: () => {
+    set((state) => {
+      if (state.nodes.length === 0) {
+        return {};
+      }
+
+      const positions = calculateMindMapLayout(
+        state.nodes,
+        state.edges,
+        DEFAULT_LAYOUT_CONFIG
+      );
+
+      const updatedNodes = state.nodes.map((node) => {
+        const newPosition = positions.get(node.id);
+        if (newPosition) {
+          return {
+            ...node,
+            position: newPosition,
+          };
+        }
+        return node;
+      });
+
+      return {
+        nodes: updatedNodes,
+        history: {
+          past: pushSnapshot(state.history.past, createSnapshot(state.nodes, state.edges)),
+          future: [],
+        },
+      };
+    });
+  },
+
+  setSnapToGrid: (enabled) => {
+    set({ snapToGrid: enabled });
+  },
+
+  setSnapGridSize: (size) => {
+    set({ snapGridSize: Math.max(5, Math.min(100, size)) });
+  },
+
+  setShowGrid: (show) => {
+    set({ showGrid: show });
+  },
+
+  setEnableNodeAlignment: (enabled) => {
+    set({ enableNodeAlignment: enabled });
+  },
+
+  setAlignmentThreshold: (threshold) => {
+    set({ alignmentThreshold: Math.max(5, Math.min(50, threshold)) });
+  },
+
+  setShowAlignmentGuides: (show) => {
+    set({ showAlignmentGuides: show });
   },
 }));

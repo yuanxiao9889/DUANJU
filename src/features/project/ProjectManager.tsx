@@ -1,13 +1,14 @@
 import { useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Plus, FolderOpen, Pencil, Trash2 } from 'lucide-react';
-import { useProjectStore } from '@/stores/projectStore';
+import { useProjectStore, type ProjectType } from '@/stores/projectStore';
 import { getConfiguredApiKeyCount, useSettingsStore } from '@/stores/settingsStore';
 import { UI_CONTENT_OVERLAY_INSET_CLASS } from '@/components/ui/motion';
 import { UiButton, UiSelect } from '@/components/ui/primitives';
 import { MissingApiKeyHint } from '@/features/settings/MissingApiKeyHint';
 import { listModelProviders } from '@/features/canvas/models';
 import { RenameDialog } from './RenameDialog';
+import { ProjectTypeSelector, CreateProjectDialog } from './ProjectTypeSelector';
 
 type ProjectSortField = 'name' | 'createdAt' | 'updatedAt';
 type SortDirection = 'asc' | 'desc';
@@ -23,14 +24,25 @@ export function ProjectManager() {
   const configuredApiKeyCount = useSettingsStore((state) =>
     getConfiguredApiKeyCount(state.apiKeys, providerIds)
   );
+  const [showTypeSelector, setShowTypeSelector] = useState(false);
+  const [selectedProjectType, setSelectedProjectType] = useState<ProjectType | null>(null);
 
-  const { projects, isOpeningProject, createProject, deleteProject, renameProject, openProject } =
+  const { projects, isOpeningProject, deleteProject, renameProject, openProject } =
     useProjectStore();
 
   const handleCreateProject = () => {
     setEditingProjectId(null);
     setEditingProjectName('');
-    setShowRenameDialog(true);
+    setShowTypeSelector(true);
+  };
+
+  const handleTypeSelected = (type: ProjectType) => {
+    setSelectedProjectType(type);
+    setShowTypeSelector(false);
+  };
+
+  const handleCreateDialogClose = () => {
+    setSelectedProjectType(null);
   };
 
   const handleRenameClick = (id: string, name: string, e: React.MouseEvent) => {
@@ -48,8 +60,6 @@ export function ProjectManager() {
   const handleConfirm = (name: string) => {
     if (editingProjectId) {
       renameProject(editingProjectId, name);
-    } else {
-      createProject(name);
     }
   };
 
@@ -125,9 +135,18 @@ export function ProjectManager() {
                 className="bg-surface-dark border border-border-dark rounded-lg p-4 cursor-pointer hover:border-primary/50 hover:shadow-lg transition-all group"
               >
                 <div className="flex items-start justify-between mb-2">
-                  <h3 className="font-semibold text-text-dark truncate flex-1">
-                    {project.name}
-                  </h3>
+                  <div className="flex-1 min-w-0">
+                    <h3 className="font-semibold text-text-dark truncate">
+                      {project.name}
+                    </h3>
+                    <span className={`inline-block text-xs px-2 py-0.5 rounded mt-1 ${
+                      project.projectType === 'script' 
+                        ? 'bg-amber-500/20 text-amber-400' 
+                        : 'bg-primary/20 text-primary'
+                    }`}>
+                      {project.projectType === 'script' ? '剧本' : '分镜'}
+                    </span>
+                  </div>
                   <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
                     <button
                       type="button"
@@ -172,6 +191,21 @@ export function ProjectManager() {
         onClose={() => setShowRenameDialog(false)}
         onConfirm={handleConfirm}
       />
+
+      {showTypeSelector && (
+        <ProjectTypeSelector
+          onClose={() => setShowTypeSelector(false)}
+          onSelectType={handleTypeSelected}
+        />
+      )}
+
+      {selectedProjectType && (
+        <CreateProjectDialog
+          projectType={selectedProjectType}
+          isOpen={true}
+          onClose={handleCreateDialogClose}
+        />
+      )}
     </div>
   );
 }

@@ -8,6 +8,7 @@ use commands::ai as ai_commands;
 use commands::image;
 use commands::project_state;
 use commands::system;
+use commands::text_gen;
 use commands::update;
 use tauri::Manager;
 use tracing::{info, warn};
@@ -188,6 +189,9 @@ pub fn run() {
             project_state::rename_project_record,
             project_state::delete_project_record,
             system::get_runtime_system_info,
+            text_gen::generate_text,
+            text_gen::test_provider_connection,
+            text_gen::get_active_text_model_status,
             update::check_latest_release_tag,
         ])
         .run(tauri::generate_context!())

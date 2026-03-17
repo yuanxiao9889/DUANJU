@@ -234,6 +234,7 @@ export const ImageNode = memo(({ id, data, selected, type, width, height }: Imag
         minHeight={resizeMinHeight}
         maxWidth={1600}
         maxHeight={1600}
+        isVisible={selected}
       />
     </div>
   );
