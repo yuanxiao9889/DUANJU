@@ -1,6 +1,6 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { NodeToolbar as ReactFlowNodeToolbar } from '@xyflow/react';
-import { Copy, Crop, Download, FolderOpen, PenLine, RefreshCw, Scissors, Trash2, Unlink2, Table, Upload, Sparkles, Send, Check } from 'lucide-react';
+import { Copy, Crop, Download, FolderOpen, PenLine, RefreshCw, Scissors, Trash2, Unlink2, Table, Upload, Sparkles, Send, Check, LayoutTemplate } from 'lucide-react';
 import { save } from '@tauri-apps/plugin-dialog';
 import { useTranslation } from 'react-i18next';
 
@@ -76,6 +76,7 @@ export const NodeActionToolbar = memo(({ node }: NodeActionToolbarProps) => {
   const isAssetNode = isScriptAssetNode(node);
   const tools = useMemo(() => getNodeToolPlugins(node), [node]);
   const deleteNode = useCanvasStore((state) => state.deleteNode);
+  const layoutGroupNode = useCanvasStore((state) => state.layoutGroupNode);
   const ungroupNode = useCanvasStore((state) => state.ungroupNode);
   const canReupload = isUploadNode(node) && Boolean(node.data.imageUrl);
   const downloadPresetPaths = useSettingsStore((state) => state.downloadPresetPaths);
@@ -493,6 +494,20 @@ export const NodeActionToolbar = memo(({ node }: NodeActionToolbarProps) => {
               <Send className="h-3.5 w-3.5" />
             )}
             {isPsSendSuccess ? t('nodeToolbar.sent') : (psServerStatus.ps_connected ? t('nodeToolbar.sendToPs') : t('nodeToolbar.psNotConnected'))}
+          </UiChipButton>
+        )}
+        {!isImageEdit && isGroupNode(node) && (
+          <UiChipButton
+            key="group-layout"
+            className={`h-8 ${TOOLBAR_BUTTON_RADIUS_CLASS} px-2.5 text-xs ${TOOLBAR_NEUTRAL_BUTTON_CLASS} hover:!border-cyan-400/60 hover:!bg-cyan-500/20 hover:!text-cyan-100`}
+            onClick={(event) => {
+              event.stopPropagation();
+              closeDownloadMenu();
+              layoutGroupNode(node.id);
+            }}
+          >
+            <LayoutTemplate className="h-3.5 w-3.5" />
+            {t('nodeToolbar.arrangeGroup')}
           </UiChipButton>
         )}
         {!isImageEdit && isGroupNode(node) && (

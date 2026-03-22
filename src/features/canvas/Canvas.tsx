@@ -64,6 +64,7 @@ import { SelectedNodeOverlay } from './ui/SelectedNodeOverlay';
 import { NodeToolDialog } from './ui/NodeToolDialog';
 import { ImageViewerModal } from './ui/ImageViewerModal';
 import { MissingApiKeyHint } from '@/features/settings/MissingApiKeyHint';
+import { eventMatchesShortcut } from '@/features/settings/keyboardShortcuts';
 import { ScriptBiblePanel } from './ui/ScriptBiblePanel';
 import { ScriptWelcomeDialog } from './ui/ScriptWelcomeDialog';
 import { AlignmentGuides } from './ui/AlignmentGuides';
@@ -72,6 +73,8 @@ import { MergedConnectionAnchor } from './ui/MergedConnectionAnchor';
 import { BranchConnectionPreview } from './ui/BranchConnectionPreview';
 import { BatchOperationMenu } from './ui/BatchOperationMenu';
 import { calculateNodesBounds } from './application/nodeBounds';
+import { GroupSidebar } from './ui/GroupSidebar';
+import { SelectionGroupBar } from './ui/SelectionGroupBar';
 
 const DEFAULT_VIEWPORT: Viewport = { x: 0, y: 0, zoom: 1 };
 
@@ -129,6 +132,69 @@ function getNodeSize(node: CanvasNode): { width: number; height: number } {
     width: node.measured?.width ?? styleWidth ?? DEFAULT_NODE_WIDTH,
     height: node.measured?.height ?? styleHeight ?? 200,
   };
+}
+
+function resolveAbsoluteNodePosition(
+  node: CanvasNode,
+  nodeMap: globalThis.Map<string, CanvasNode>
+): { x: number; y: number } {
+  let x = node.position.x;
+  let y = node.position.y;
+  let currentParentId = node.parentId;
+  const visited = new Set<string>();
+
+  while (currentParentId && !visited.has(currentParentId)) {
+    visited.add(currentParentId);
+    const parentNode = nodeMap.get(currentParentId);
+    if (!parentNode) {
+      break;
+    }
+    x += parentNode.position.x;
+    y += parentNode.position.y;
+    currentParentId = parentNode.parentId;
+  }
+
+  return { x, y };
+}
+
+function findContainingGroupId(
+  node: CanvasNode,
+  allNodes: CanvasNode[]
+): string | null {
+  if (node.type === CANVAS_NODE_TYPES.group) {
+    return null;
+  }
+
+  const nodeMap = new globalThis.Map(allNodes.map((item) => [item.id, item] as const));
+  const nodeAbsolutePosition = resolveAbsoluteNodePosition(node, nodeMap);
+  const nodeSize = getNodeSize(node);
+  const nodeCenter = {
+    x: nodeAbsolutePosition.x + nodeSize.width / 2,
+    y: nodeAbsolutePosition.y + nodeSize.height / 2,
+  };
+
+  const candidateGroups = allNodes
+    .filter((item) => item.type === CANVAS_NODE_TYPES.group && item.id !== node.id)
+    .map((groupNode) => {
+      const groupAbsolutePosition = resolveAbsoluteNodePosition(groupNode, nodeMap);
+      const groupSize = getNodeSize(groupNode);
+      const containsCenter =
+        nodeCenter.x >= groupAbsolutePosition.x &&
+        nodeCenter.x <= groupAbsolutePosition.x + groupSize.width &&
+        nodeCenter.y >= groupAbsolutePosition.y &&
+        nodeCenter.y <= groupAbsolutePosition.y + groupSize.height;
+
+      return containsCenter
+        ? {
+            id: groupNode.id,
+            area: groupSize.width * groupSize.height,
+          }
+        : null;
+    })
+    .filter((group): group is { id: string; area: number } => Boolean(group))
+    .sort((left, right) => left.area - right.area);
+
+  return candidateGroups[0]?.id ?? null;
 }
 
 function hasRectCollision(
@@ -322,6 +388,9 @@ export function Canvas() {
   const pasteImageHandledRef = useRef(false);
   const activeGenerationPollNodeIdsRef = useRef(new Set<string>());
   const duplicateNodesRef = useRef<((sourceNodeIds: string[]) => string | null) | null>(null);
+  const connectionPointerRef = useRef<{ x: number; y: number } | null>(null);
+  const connectionSpacePanActiveRef = useRef(false);
+  const connectionSpacePanMovedRef = useRef(false);
   const altDragCopyRef = useRef<{
     sourceNodeIds: string[];
     startPositions: globalThis.Map<string, { x: number; y: number }>;
@@ -357,6 +426,7 @@ export function Canvas() {
   const groupNodes = useCanvasStore((state) => state.groupNodes);
   const undo = useCanvasStore((state) => state.undo);
   const redo = useCanvasStore((state) => state.redo);
+  const reparentNodesToGroup = useCanvasStore((state) => state.reparentNodesToGroup);
   const openToolDialog = useCanvasStore((state) => state.openToolDialog);
   const closeToolDialog = useCanvasStore((state) => state.closeToolDialog);
   const setViewportState = useCanvasStore((state) => state.setViewportState);
@@ -373,6 +443,7 @@ export function Canvas() {
   const showMiniMap = useSettingsStore((state) => state.showMiniMap);
   const showGrid = useSettingsStore((state) => state.showGrid);
   const showAlignmentGuides = useSettingsStore((state) => state.showAlignmentGuides);
+  const groupNodesShortcut = useSettingsStore((state) => state.groupNodesShortcut);
   const setShowMiniMap = useSettingsStore((state) => state.setShowMiniMap);
   const setShowAlignmentGuides = useSettingsStore((state) => state.setShowAlignmentGuides);
   const apiKeys = useSettingsStore((state) => state.apiKeys);
@@ -902,6 +973,18 @@ export function Canvas() {
     }
     return selectedNode.id;
   }, [nodes, selectedNodeIds]);
+  const groupNodesList = useMemo(
+    () => nodes.filter((node) => node.type === CANVAS_NODE_TYPES.group),
+    [nodes]
+  );
+  const selectedGroupId = useMemo(() => {
+    if (!selectedNodeId) {
+      return null;
+    }
+
+    const selectedNode = nodes.find((node) => node.id === selectedNodeId);
+    return selectedNode?.type === CANVAS_NODE_TYPES.group ? selectedNode.id : null;
+  }, [nodes, selectedNodeId]);
 
   useEffect(() => {
     if (selectedNodeIds.length === 1) {
@@ -965,8 +1048,85 @@ export function Canvas() {
   }, [selectedUploadNodeId]);
 
   useEffect(() => {
+    const handlePointerMove = (event: PointerEvent) => {
+      if (!pendingConnectStart) {
+        return;
+      }
+
+      const currentPosition = { x: event.clientX, y: event.clientY };
+      const previousPosition = connectionPointerRef.current;
+      connectionPointerRef.current = currentPosition;
+
+      if (!connectionSpacePanActiveRef.current || !previousPosition) {
+        return;
+      }
+
+      const viewport = reactFlowInstance.getViewport();
+      const nextViewport = {
+        x: viewport.x + (currentPosition.x - previousPosition.x),
+        y: viewport.y + (currentPosition.y - previousPosition.y),
+        zoom: viewport.zoom,
+      };
+
+      connectionSpacePanMovedRef.current = true;
+      reactFlowInstance.setViewport(nextViewport, { duration: 0 });
+      setViewportState(nextViewport);
+    };
+
+    const handlePointerUp = () => {
+      connectionPointerRef.current = null;
+      connectionSpacePanActiveRef.current = false;
+    };
+
+    window.addEventListener('pointermove', handlePointerMove, true);
+    window.addEventListener('pointerup', handlePointerUp, true);
+    window.addEventListener('pointercancel', handlePointerUp, true);
+
+    return () => {
+      window.removeEventListener('pointermove', handlePointerMove, true);
+      window.removeEventListener('pointerup', handlePointerUp, true);
+      window.removeEventListener('pointercancel', handlePointerUp, true);
+    };
+  }, [pendingConnectStart, reactFlowInstance, setViewportState]);
+
+  useEffect(() => {
+    if (pendingConnectStart) {
+      return;
+    }
+
+    connectionPointerRef.current = null;
+    connectionSpacePanActiveRef.current = false;
+
+    if (!connectionSpacePanMovedRef.current) {
+      return;
+    }
+
+    connectionSpacePanMovedRef.current = false;
+    const viewport = reactFlowInstance.getViewport();
+    setViewportState(viewport);
+    const currentProject = getCurrentProject();
+    if (!currentProject || isRestoringCanvasRef.current) {
+      return;
+    }
+    saveCurrentProjectViewport(viewport);
+  }, [
+    getCurrentProject,
+    pendingConnectStart,
+    reactFlowInstance,
+    saveCurrentProjectViewport,
+    setViewportState,
+  ]);
+
+  useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
       if (isTypingTarget(event.target)) {
+        return;
+      }
+
+      if (event.key === ' ' && pendingConnectStart) {
+        event.preventDefault();
+        connectionSpacePanActiveRef.current = true;
+        cancelPendingViewportPersist();
         return;
       }
 
@@ -974,7 +1134,7 @@ export function Canvas() {
       const key = event.key.toLowerCase();
       const isUndo = commandPressed && key === 'z' && !event.shiftKey;
       const isRedo = commandPressed && (key === 'y' || (key === 'z' && event.shiftKey));
-      const isGroup = commandPressed && key === 'g';
+      const isGroup = eventMatchesShortcut(event, groupNodesShortcut);
       const isCopy = commandPressed && key === 'c' && !event.shiftKey;
       const isPaste = commandPressed && key === 'v' && !event.shiftKey;
 
@@ -1063,12 +1223,22 @@ export function Canvas() {
     };
 
     document.addEventListener('keydown', handleKeyDown);
+    const handleKeyUp = (event: KeyboardEvent) => {
+      if (event.key === ' ') {
+        connectionSpacePanActiveRef.current = false;
+        connectionPointerRef.current = null;
+      }
+    };
+    document.addEventListener('keyup', handleKeyUp);
     return () => {
       document.removeEventListener('keydown', handleKeyDown);
+      document.removeEventListener('keyup', handleKeyUp);
     };
   }, [
+    cancelPendingViewportPersist,
     edges,
     nodes,
+    pendingConnectStart,
     selectedNodeId,
     selectedNodeIds,
     deleteNode,
@@ -1076,6 +1246,7 @@ export function Canvas() {
     groupNodes,
     undo,
     redo,
+    groupNodesShortcut,
     scheduleCanvasPersist,
     selectedUploadNodeId,
   ]);
@@ -1690,6 +1861,7 @@ export function Canvas() {
 
       const idMap = new globalThis.Map<string, string>();
       const sizeMap = new globalThis.Map<string, { width: number; height: number }>();
+      const sourceById = new globalThis.Map(sourceNodes.map((sourceNode) => [sourceNode.id, sourceNode] as const));
       for (const sourceNode of sourceNodes) {
         const data = cloneNodeData(sourceNode.data);
         if ('isGenerating' in (data as Record<string, unknown>)) {
@@ -1742,6 +1914,30 @@ export function Canvas() {
       if (sizeSyncChanges.length > 0) {
         applyNodesChange(sizeSyncChanges as NodeChange<CanvasNode>[]);
       }
+
+      useCanvasStore.setState((state) => ({
+        nodes: state.nodes.map((currentNode) => {
+          const sourceNodeEntry = Array.from(idMap.entries()).find(([, copiedId]) => copiedId === currentNode.id);
+          if (!sourceNodeEntry) {
+            return currentNode;
+          }
+
+          const sourceNode = sourceById.get(sourceNodeEntry[0]);
+          if (!sourceNode) {
+            return currentNode;
+          }
+
+          const copiedParentId = sourceNode.parentId
+            ? (idMap.get(sourceNode.parentId) ?? sourceNode.parentId)
+            : undefined;
+
+          return {
+            ...currentNode,
+            parentId: copiedParentId,
+            extent: copiedParentId ? 'parent' : undefined,
+          };
+        }),
+      }));
 
       for (const edge of internalEdges) {
         const nextSource = idMap.get(edge.source);
@@ -1813,6 +2009,17 @@ export function Canvas() {
           y: clientPosition.y - containerRect.top,
         };
       }
+
+      if (clientPosition) {
+        connectionPointerRef.current = {
+          x: clientPosition.x,
+          y: clientPosition.y,
+        };
+      } else {
+        connectionPointerRef.current = null;
+      }
+      connectionSpacePanActiveRef.current = false;
+      connectionSpacePanMovedRef.current = false;
 
       setPendingConnectStart({
         nodeId: params.nodeId,
@@ -1980,6 +2187,33 @@ export function Canvas() {
 
       const altCopyState = altDragCopyRef.current;
       if (!altCopyState) {
+        const currentNodes = useCanvasStore.getState().nodes;
+        const draggedNodeIds = selectedNodeIds.includes(node.id) ? selectedNodeIds : [node.id];
+        const groupAssignments = new Map<string, string[]>();
+
+        draggedNodeIds.forEach((draggedNodeId) => {
+          const draggedNode = currentNodes.find((currentNode) => currentNode.id === draggedNodeId);
+          if (!draggedNode || draggedNode.type === CANVAS_NODE_TYPES.group) {
+            return;
+          }
+
+          const targetGroupId = findContainingGroupId(draggedNode, currentNodes);
+          if (!targetGroupId) {
+            return;
+          }
+
+          const currentAssignment = groupAssignments.get(targetGroupId) ?? [];
+          currentAssignment.push(draggedNodeId);
+          groupAssignments.set(targetGroupId, currentAssignment);
+        });
+
+        groupAssignments.forEach((nodeIds, groupNodeId) => {
+          reparentNodesToGroup(nodeIds, groupNodeId);
+        });
+
+        if (groupAssignments.size > 0) {
+          scheduleCanvasPersist(0);
+        }
         return;
       }
       altDragCopyRef.current = null;
@@ -2039,12 +2273,41 @@ export function Canvas() {
       if (allChanges.length > 0) {
         applyNodesChange(allChanges);
       }
+
+      const currentNodes = useCanvasStore.getState().nodes;
+      const groupAssignments = new Map<string, string[]>();
+      altCopyState.copiedNodeIds.forEach((copiedNodeId) => {
+        const copiedNode = currentNodes.find((currentNode) => currentNode.id === copiedNodeId);
+        if (!copiedNode || copiedNode.type === CANVAS_NODE_TYPES.group) {
+          return;
+        }
+
+        const targetGroupId = findContainingGroupId(copiedNode, currentNodes);
+        if (!targetGroupId) {
+          return;
+        }
+
+        const currentAssignment = groupAssignments.get(targetGroupId) ?? [];
+        currentAssignment.push(copiedNodeId);
+        groupAssignments.set(targetGroupId, currentAssignment);
+      });
+
+      groupAssignments.forEach((nodeIds, groupNodeId) => {
+        reparentNodesToGroup(nodeIds, groupNodeId);
+      });
+
       if (altCopyState.copiedNodeIds.length > 0) {
         setSelectedNode(altCopyState.copiedNodeIds[0]);
       }
       scheduleCanvasPersist(0);
     },
-    [applyNodesChange, scheduleCanvasPersist, setSelectedNode]
+    [
+      applyNodesChange,
+      reparentNodesToGroup,
+      scheduleCanvasPersist,
+      selectedNodeIds,
+      setSelectedNode,
+    ]
   );
 
   const handleConnectEnd = useCallback(
@@ -2197,6 +2460,37 @@ export function Canvas() {
 
   const selectedNodes = useMemo(() => nodes.filter(n => n.selected), [nodes]);
 
+  const handleGroupSelectedNodes = useCallback(() => {
+    if (selectedNodeIds.length < 2) {
+      return;
+    }
+
+    const createdGroupId = groupNodes(selectedNodeIds);
+    if (createdGroupId) {
+      scheduleCanvasPersist(0);
+    }
+  }, [groupNodes, scheduleCanvasPersist, selectedNodeIds]);
+
+  const handleLocateGroup = useCallback((groupId: string) => {
+    const groupNode = nodes.find((node) => node.id === groupId && node.type === CANVAS_NODE_TYPES.group);
+    if (!groupNode) {
+      return;
+    }
+
+    const nodeWidth = groupNode.measured?.width ?? groupNode.width ?? DEFAULT_NODE_WIDTH;
+    const nodeHeight = groupNode.measured?.height ?? groupNode.height ?? 200;
+
+    setSelectedNode(groupNode.id);
+    reactFlowInstance.setCenter(
+      groupNode.position.x + nodeWidth / 2,
+      groupNode.position.y + nodeHeight / 2,
+      {
+        zoom: Math.max(reactFlowInstance.getZoom(), 0.85),
+        duration: 260,
+      }
+    );
+  }, [nodes, reactFlowInstance, setSelectedNode]);
+
   const handleMergedAnchorMouseDown = useCallback((e: ReactMouseEvent) => {
     e.preventDefault();
     e.stopPropagation();
@@ -2236,6 +2530,12 @@ export function Canvas() {
       <ScriptBiblePanel />
       <ScriptWelcomeDialog isOpen={showWelcomeDialog} onClose={() => setShowWelcomeDialog(false)} />
       <div ref={reactFlowWrapperRef} className="flex-1 relative">
+      <GroupSidebar
+        groups={groupNodesList}
+        selectedGroupId={selectedGroupId}
+        onLocateGroup={handleLocateGroup}
+        onSelectGroup={handleLocateGroup}
+      />
       <ReactFlow
         nodes={nodes}
         edges={edges}
@@ -2289,6 +2589,11 @@ export function Canvas() {
         )}
 
         <SelectedNodeOverlay />
+        <SelectionGroupBar
+          selectedNodes={selectedNodes}
+          viewport={currentViewport}
+          onGroup={handleGroupSelectedNodes}
+        />
 
         {/* 对齐辅助线 */}
         {isDraggingNode && alignmentGuides.length > 0 && (

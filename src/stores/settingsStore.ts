@@ -8,6 +8,10 @@ import {
 } from '@/features/canvas/pricing/types';
 import { DEFAULT_ALIBABA_TEXT_MODEL } from '@/features/canvas/models/providers/alibaba';
 import { DEFAULT_CODING_MODEL } from '@/features/canvas/models/providers/coding';
+import {
+  DEFAULT_GROUP_NODES_SHORTCUT,
+  normalizeShortcut,
+} from '@/features/settings/keyboardShortcuts';
 
 export type UiRadiusPreset = 'compact' | 'default' | 'large';
 export type ThemeTonePreset = 'neutral' | 'warm' | 'cool';
@@ -39,6 +43,7 @@ interface SettingsState {
   storyboardGenAutoInferEmptyFrame: boolean;
   ignoreAtTagWhenCopyingAndGenerating: boolean;
   enableStoryboardGenGridPreviewShortcut: boolean;
+  groupNodesShortcut: string;
   showStoryboardGenAdvancedRatioControls: boolean;
   showNodePrice: boolean;
   priceDisplayCurrencyMode: PriceDisplayCurrencyMode;
@@ -74,6 +79,7 @@ interface SettingsState {
   setStoryboardGenAutoInferEmptyFrame: (enabled: boolean) => void;
   setIgnoreAtTagWhenCopyingAndGenerating: (enabled: boolean) => void;
   setEnableStoryboardGenGridPreviewShortcut: (enabled: boolean) => void;
+  setGroupNodesShortcut: (shortcut: string) => void;
   setShowStoryboardGenAdvancedRatioControls: (enabled: boolean) => void;
   setShowNodePrice: (enabled: boolean) => void;
   setPriceDisplayCurrencyMode: (mode: PriceDisplayCurrencyMode) => void;
@@ -235,6 +241,7 @@ export const useSettingsStore = create<SettingsState>()(
       storyboardGenAutoInferEmptyFrame: true,
       ignoreAtTagWhenCopyingAndGenerating: true,
       enableStoryboardGenGridPreviewShortcut: false,
+      groupNodesShortcut: DEFAULT_GROUP_NODES_SHORTCUT,
       showStoryboardGenAdvancedRatioControls: false,
       showNodePrice: true,
       priceDisplayCurrencyMode: 'auto',
@@ -295,6 +302,8 @@ export const useSettingsStore = create<SettingsState>()(
         set({ ignoreAtTagWhenCopyingAndGenerating: enabled }),
       setEnableStoryboardGenGridPreviewShortcut: (enabled) =>
         set({ enableStoryboardGenGridPreviewShortcut: enabled }),
+      setGroupNodesShortcut: (shortcut) =>
+        set({ groupNodesShortcut: normalizeShortcut(shortcut) }),
       setShowStoryboardGenAdvancedRatioControls: (enabled) =>
         set({ showStoryboardGenAdvancedRatioControls: enabled }),
       setShowNodePrice: (enabled) => set({ showNodePrice: enabled }),
@@ -345,7 +354,7 @@ export const useSettingsStore = create<SettingsState>()(
     }),
     {
       name: 'settings-storage',
-      version: 14,
+      version: 15,
       onRehydrateStorage: () => {
         return (state, error) => {
           if (error) {
@@ -367,6 +376,7 @@ export const useSettingsStore = create<SettingsState>()(
           autoCheckAppUpdateOnLaunch?: boolean;
           enableUpdateDialog?: boolean;
           enableStoryboardGenGridPreviewShortcut?: boolean;
+          groupNodesShortcut?: string;
           showStoryboardGenAdvancedRatioControls?: boolean;
           storyboardGenAutoInferEmptyFrame?: boolean;
           showNodePrice?: boolean;
@@ -408,6 +418,7 @@ export const useSettingsStore = create<SettingsState>()(
           enableUpdateDialog: state.enableUpdateDialog ?? true,
           enableStoryboardGenGridPreviewShortcut:
             state.enableStoryboardGenGridPreviewShortcut ?? false,
+          groupNodesShortcut: normalizeShortcut(state.groupNodesShortcut),
           showStoryboardGenAdvancedRatioControls:
             state.showStoryboardGenAdvancedRatioControls ?? false,
           storyboardGenAutoInferEmptyFrame: state.storyboardGenAutoInferEmptyFrame ?? true,

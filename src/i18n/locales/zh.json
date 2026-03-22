@@ -1,6 +1,6 @@
 {
   "app": {
-    "title": "短剧助手 v1.0",
+    "title": "短剧助手",
     "subtitle": "Storyboard Copilot"
   },
   "common": {
@@ -40,6 +40,14 @@
       "unlock": "解锁画布"
     }
   },
+  "group": {
+    "sidebarTitle": "分组",
+    "sidebarCount": "{{count}} 个分组",
+    "locate": "定位到分组",
+    "expandSidebar": "展开分组栏",
+    "collapseSidebar": "收起分组栏",
+    "groupSelected": "编组 {{count}} 个节点"
+  },
   "tool": {
     "crop": "裁剪",
     "annotate": "标注",
@@ -64,6 +72,7 @@
     "sendToPs": "发送到 PS",
     "sent": "已发送",
     "psNotConnected": "PS 未连接",
+    "arrangeGroup": "整理分组",
     "ungroup": "解散",
     "saveAs": "另存为...",
     "noDownloadPresetPathsHint": "暂无预设路径，请在设置 - 通用中添加",
@@ -140,7 +149,11 @@
       "frames": "分镜格",
       "rows": "行数",
       "cols": "列数",
-      "frameIndex": "第 {{index}} 格"
+      "rowsShort": "行",
+      "colsShort": "列",
+      "frameIndex": "第 {{index}} 格",
+      "layoutSummary": "{{rows}} × {{cols}} ｜ {{count}} / {{capacity}} 格",
+      "emptySlot": "空位"
     },
     "storyboardGen": {
       "rowsShort": "行",
@@ -305,6 +318,12 @@
     "ignoreAtTagWhenCopyingAndGeneratingDesc": "启用后，复制文本和写入图片分镜元数据时会忽略类似“@图1”的标签；发送生成请求时仅移除“@”并保留“图1”。",
     "useUploadFilenameAsNodeTitle": "上传节点自动使用文件名作为标题",
     "useUploadFilenameAsNodeTitleDesc": "启用后，新上传图片会默认使用文件名作为节点标题（仍可双击手动重命名）。",
+    "groupNodesShortcut": "分组快捷键",
+    "groupNodesShortcutDesc": "自定义画布中将选中节点编组时使用的快捷键。",
+    "shortcutRecording": "请按下快捷键...",
+    "shortcutPressNew": "现在按下新的组合键，按 Esc 取消。",
+    "shortcutReset": "恢复默认",
+    "shortcutCurrent": "当前快捷键：{{shortcut}}",
     "downloadPathPlaceholder": "输入目录路径，例如 /Users/name/Pictures/Storyboard 或 D:\\\\Images\\\\Storyboard",
     "addPath": "添加路径",
     "chooseFolder": "选择文件夹",

@@ -69,6 +69,8 @@ export interface ExportImageNodeData extends NodeImageData {
 
 export interface GroupNodeData extends NodeDisplayData {
   label: string;
+  layoutDirection?: 'horizontal' | 'vertical';
+  maxItemsPerLine?: number;
   [key: string]: unknown;
 }
 

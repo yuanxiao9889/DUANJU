@@ -1,6 +1,7 @@
-import { useState, useCallback, useEffect, useMemo } from 'react';
-import { X, Eye, EyeOff, FolderOpen, Plus, Trash2, Maximize2, Minimize2, HardDrive, Loader2, Circle } from 'lucide-react';
+import { useState, useCallback, useEffect, useMemo, type KeyboardEvent as ReactKeyboardEvent } from 'react';
+import { X, Eye, EyeOff, FolderOpen, Plus, Trash2, Maximize2, Minimize2, HardDrive, Loader2, Circle, Keyboard, RotateCcw } from 'lucide-react';
 import { Trans, useTranslation } from 'react-i18next';
+import { getVersion } from '@tauri-apps/api/app';
 import { open } from '@tauri-apps/plugin-dialog';
 import { openPath } from '@tauri-apps/plugin-opener';
 import { useSettingsStore } from '@/stores/settingsStore';
@@ -23,6 +24,11 @@ import { ALIBABA_TEXT_MODEL_OPTIONS } from '@/features/canvas/models/providers/a
 import { CODING_MODEL_OPTIONS } from '@/features/canvas/models/providers/coding';
 import { GRSAI_CREDIT_TIERS } from '@/features/canvas/pricing/types';
 import type { SettingsCategory } from '@/features/settings/settingsEvents';
+import {
+  DEFAULT_GROUP_NODES_SHORTCUT,
+  formatShortcutForDisplay,
+  getShortcutFromKeyboardEvent,
+} from '@/features/settings/keyboardShortcuts';
 
 interface SettingsDialogProps {
   isOpen: boolean;
@@ -116,6 +122,7 @@ export function SettingsDialog({
     storyboardGenAutoInferEmptyFrame,
     ignoreAtTagWhenCopyingAndGenerating,
     enableStoryboardGenGridPreviewShortcut,
+    groupNodesShortcut,
     showStoryboardGenAdvancedRatioControls,
     showNodePrice,
     priceDisplayCurrencyMode,
@@ -138,6 +145,7 @@ export function SettingsDialog({
     setStoryboardGenAutoInferEmptyFrame,
     setIgnoreAtTagWhenCopyingAndGenerating,
     setEnableStoryboardGenGridPreviewShortcut,
+    setGroupNodesShortcut,
     setShowStoryboardGenAdvancedRatioControls,
     setShowNodePrice,
     setPriceDisplayCurrencyMode,
@@ -201,6 +209,7 @@ export function SettingsDialog({
     useState(ignoreAtTagWhenCopyingAndGenerating);
   const [localEnableStoryboardGenGridPreviewShortcut, setLocalEnableStoryboardGenGridPreviewShortcut] =
     useState(enableStoryboardGenGridPreviewShortcut);
+  const [localGroupNodesShortcut, setLocalGroupNodesShortcut] = useState(groupNodesShortcut);
   const [localShowStoryboardGenAdvancedRatioControls, setLocalShowStoryboardGenAdvancedRatioControls] =
     useState(showStoryboardGenAdvancedRatioControls);
   const [localShowNodePrice, setLocalShowNodePrice] = useState(showNodePrice);
@@ -227,6 +236,8 @@ export function SettingsDialog({
   const [isLoadingStorageInfo, setIsLoadingStorageInfo] = useState(false);
   const [isMigrating, setIsMigrating] = useState(false);
   const [migrationError, setMigrationError] = useState<string | null>(null);
+  const [runtimeVersion, setRuntimeVersion] = useState<string>('');
+  const [isCapturingGroupShortcut, setIsCapturingGroupShortcut] = useState(false);
   const { shouldRender, isVisible } = useDialogTransition(isOpen, UI_DIALOG_TRANSITION_MS);
   const runtimePsPort = serverStatus.running ? serverStatus.port : null;
   const pluginPsPort = runtimePsPort ?? psServerPort;
@@ -234,6 +245,28 @@ export function SettingsDialog({
     serverStatus.running
     && serverStatus.port !== null
     && serverStatus.port !== psServerPort;
+
+  useEffect(() => {
+    let mounted = true;
+
+    const loadVersion = async () => {
+      try {
+        const version = await getVersion();
+        if (mounted) {
+          setRuntimeVersion(version);
+        }
+      } catch {
+        if (mounted) {
+          setRuntimeVersion('');
+        }
+      }
+    };
+
+    void loadVersion();
+    return () => {
+      mounted = false;
+    };
+  }, []);
 
   useEffect(() => {
     if (!isOpen) {
@@ -252,6 +285,7 @@ export function SettingsDialog({
     setLocalStoryboardGenAutoInferEmptyFrame(storyboardGenAutoInferEmptyFrame);
     setLocalIgnoreAtTagWhenCopyingAndGenerating(ignoreAtTagWhenCopyingAndGenerating);
     setLocalEnableStoryboardGenGridPreviewShortcut(enableStoryboardGenGridPreviewShortcut);
+    setLocalGroupNodesShortcut(groupNodesShortcut);
     setLocalShowStoryboardGenAdvancedRatioControls(showStoryboardGenAdvancedRatioControls);
     setLocalShowNodePrice(showNodePrice);
     setLocalPriceDisplayCurrencyMode(priceDisplayCurrencyMode);
@@ -265,6 +299,7 @@ export function SettingsDialog({
     setLocalPsIntegrationEnabled(psIntegrationEnabled);
     setLocalPsServerPort(psServerPort);
     setLocalPsAutoStartServer(psAutoStartServer);
+    setIsCapturingGroupShortcut(false);
     setRevealedApiKeys({});
     setLocalDownloadPathInput('');
   }, [
@@ -281,6 +316,7 @@ export function SettingsDialog({
     storyboardGenAutoInferEmptyFrame,
     ignoreAtTagWhenCopyingAndGenerating,
     enableStoryboardGenGridPreviewShortcut,
+    groupNodesShortcut,
     showStoryboardGenAdvancedRatioControls,
     showNodePrice,
     priceDisplayCurrencyMode,
@@ -370,6 +406,7 @@ export function SettingsDialog({
     setStoryboardGenAutoInferEmptyFrame(localStoryboardGenAutoInferEmptyFrame);
     setIgnoreAtTagWhenCopyingAndGenerating(localIgnoreAtTagWhenCopyingAndGenerating);
     setEnableStoryboardGenGridPreviewShortcut(localEnableStoryboardGenGridPreviewShortcut);
+    setGroupNodesShortcut(localGroupNodesShortcut);
     setShowStoryboardGenAdvancedRatioControls(localShowStoryboardGenAdvancedRatioControls);
     setShowNodePrice(localShowNodePrice);
     setPriceDisplayCurrencyMode(localPriceDisplayCurrencyMode);
@@ -394,6 +431,7 @@ export function SettingsDialog({
     localStoryboardGenAutoInferEmptyFrame,
     localIgnoreAtTagWhenCopyingAndGenerating,
     localEnableStoryboardGenGridPreviewShortcut,
+    localGroupNodesShortcut,
     localShowStoryboardGenAdvancedRatioControls,
     localShowNodePrice,
     localPriceDisplayCurrencyMode,
@@ -420,6 +458,7 @@ export function SettingsDialog({
     setStoryboardGenAutoInferEmptyFrame,
     setIgnoreAtTagWhenCopyingAndGenerating,
     setEnableStoryboardGenGridPreviewShortcut,
+    setGroupNodesShortcut,
     setShowStoryboardGenAdvancedRatioControls,
     setShowNodePrice,
     setPriceDisplayCurrencyMode,
@@ -438,6 +477,35 @@ export function SettingsDialog({
     localAlibabaTextModel,
     localCodingModel,
   ]);
+
+  const displayedGroupNodesShortcut = useMemo(
+    () => formatShortcutForDisplay(localGroupNodesShortcut),
+    [localGroupNodesShortcut]
+  );
+
+  const handleGroupShortcutKeyDown = useCallback(
+    (event: ReactKeyboardEvent<HTMLButtonElement>) => {
+      event.preventDefault();
+      event.stopPropagation();
+
+      if (event.key === 'Escape') {
+        setIsCapturingGroupShortcut(false);
+        return;
+      }
+
+      const nextShortcut = getShortcutFromKeyboardEvent(
+        event.nativeEvent,
+        localGroupNodesShortcut
+      );
+      if (!nextShortcut) {
+        return;
+      }
+
+      setLocalGroupNodesShortcut(nextShortcut);
+      setIsCapturingGroupShortcut(false);
+    },
+    [localGroupNodesShortcut]
+  );
 
   const handlePickDownloadPath = useCallback(async () => {
     try {
@@ -1233,6 +1301,56 @@ export function SettingsDialog({
 
                   <div className="rounded-lg border border-border-dark bg-bg-dark p-4">
                     <div className="mb-3">
+                      <h3 className="flex items-center gap-2 text-sm font-medium text-text-dark">
+                        <Keyboard className="h-4 w-4" />
+                        {t('settings.groupNodesShortcut')}
+                      </h3>
+                      <p className="mt-1 text-xs text-text-muted">
+                        {t('settings.groupNodesShortcutDesc')}
+                      </p>
+                    </div>
+
+                    <div className="flex flex-wrap items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setIsCapturingGroupShortcut(true)}
+                        onKeyDown={handleGroupShortcutKeyDown}
+                        onBlur={() => setIsCapturingGroupShortcut(false)}
+                        className={`inline-flex h-9 min-w-[160px] items-center justify-center rounded border px-3 text-sm transition-colors ${
+                          isCapturingGroupShortcut
+                            ? 'border-accent bg-accent/10 text-accent'
+                            : 'border-border-dark bg-surface-dark text-text-dark hover:bg-bg-dark'
+                        }`}
+                      >
+                        {isCapturingGroupShortcut
+                          ? t('settings.shortcutRecording')
+                          : displayedGroupNodesShortcut}
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setLocalGroupNodesShortcut(DEFAULT_GROUP_NODES_SHORTCUT);
+                          setIsCapturingGroupShortcut(false);
+                        }}
+                        className="inline-flex h-9 items-center justify-center rounded border border-border-dark bg-surface-dark px-3 text-xs text-text-dark transition-colors hover:bg-bg-dark"
+                      >
+                        <RotateCcw className="mr-1.5 h-3.5 w-3.5" />
+                        {t('settings.shortcutReset')}
+                      </button>
+                    </div>
+
+                    <p className="mt-2 text-xs text-text-muted">
+                      {isCapturingGroupShortcut
+                        ? t('settings.shortcutPressNew')
+                        : t('settings.shortcutCurrent', {
+                            shortcut: displayedGroupNodesShortcut,
+                          })}
+                    </p>
+                  </div>
+
+                  <div className="rounded-lg border border-border-dark bg-bg-dark p-4">
+                    <div className="mb-3">
                       <h3 className="text-sm font-medium text-text-dark">
                         {t('settings.downloadPresetPaths')}
                       </h3>
@@ -1617,7 +1735,9 @@ export function SettingsDialog({
 
                   <div className="rounded-lg border border-border-dark bg-bg-dark p-4 space-y-2 text-sm">
                     <p className="text-text-dark">
-                      {t('settings.aboutVersionLabel')}: <span className="text-text-muted">1.0</span>
+                      {t('settings.aboutVersionLabel')}: <span className="text-text-muted">
+                        {runtimeVersion || t('settings.aboutVersionUnknown')}
+                      </span>
                     </p>
                   </div>
 
