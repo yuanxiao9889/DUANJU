@@ -12,6 +12,7 @@ import {
   type StoryboardGenNodeData,
   type TextAnnotationNodeData,
   type UploadImageNodeData,
+  type VideoNodeData,
   type ScriptRootNodeData,
   type ScriptChapterNodeData,
   type ScriptCharacterNodeData,
@@ -23,7 +24,7 @@ import {
 import { DEFAULT_NODE_DISPLAY_NAME } from './nodeDisplay';
 import { DEFAULT_IMAGE_MODEL_ID } from '../models';
 
-export type MenuIconKey = 'upload' | 'sparkles' | 'layout' | 'text';
+export type MenuIconKey = 'upload' | 'sparkles' | 'layout' | 'text' | 'video';
 
 export interface CanvasNodeCapabilities {
   toolbar: boolean;
@@ -262,6 +263,32 @@ const storyboardGenNodeDefinition: CanvasNodeDefinition<StoryboardGenNodeData> =
   }),
 };
 
+const videoNodeDefinition: CanvasNodeDefinition<VideoNodeData> = {
+  type: CANVAS_NODE_TYPES.video,
+  menuLabelKey: 'node.menu.videoNode',
+  menuIcon: 'video',
+  visibleInMenu: true,
+  capabilities: {
+    toolbar: true,
+    promptInput: false,
+  },
+  connectivity: {
+    sourceHandle: true,
+    targetHandle: false,
+    connectMenu: {
+      fromSource: false,
+      fromTarget: true,
+    },
+  },
+  createDefaultData: () => ({
+    displayName: DEFAULT_NODE_DISPLAY_NAME[CANVAS_NODE_TYPES.video],
+    videoUrl: null,
+    videoFileName: null,
+    aspectRatio: '16:9',
+    isSizeManuallyAdjusted: false,
+  }),
+};
+
 const scriptRootNodeDefinition: CanvasNodeDefinition<ScriptRootNodeData> = {
   type: CANVAS_NODE_TYPES.scriptRoot,
   menuLabelKey: 'node.menu.scriptRoot',
@@ -464,6 +491,7 @@ export const canvasNodeDefinitions: Record<CanvasNodeType, CanvasNodeDefinition>
   [CANVAS_NODE_TYPES.group]: groupNodeDefinition,
   [CANVAS_NODE_TYPES.storyboardSplit]: storyboardSplitDefinition,
   [CANVAS_NODE_TYPES.storyboardGen]: storyboardGenNodeDefinition,
+  [CANVAS_NODE_TYPES.video]: videoNodeDefinition,
   [CANVAS_NODE_TYPES.scriptRoot]: scriptRootNodeDefinition,
   [CANVAS_NODE_TYPES.scriptChapter]: scriptChapterNodeDefinition,
   [CANVAS_NODE_TYPES.scriptCharacter]: scriptCharacterNodeDefinition,

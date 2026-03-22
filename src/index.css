@@ -161,13 +161,158 @@ html[data-platform='macos'] #root {
   background: rgba(148, 163, 184, 0.72);
 }
 
+.react-flow {
+  background: var(--bg);
+}
+
+.react-flow__background {
+  opacity: 1;
+}
+
+.dark .react-flow__background {
+  opacity: 0.95;
+}
+
 .react-flow__node {
-  border-radius: 8px;
+  border-radius: var(--node-radius);
 }
 
 .react-flow__handle {
-  width: 8px;
-  height: 8px;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  border: 2px solid var(--surface);
+  transition: transform 0.15s ease, box-shadow 0.15s ease, background-color 0.15s ease;
+}
+
+.react-flow__handle-left {
+  transform: translateX(-50%);
+}
+
+.react-flow__handle-right {
+  transform: translateX(50%);
+}
+
+.react-flow__handle-top {
+  transform: translateY(-50%);
+}
+
+.react-flow__handle-bottom {
+  transform: translateY(50%);
+}
+
+.react-flow__handle:hover {
+  transform: scale(1.25);
+  box-shadow: 0 0 0 4px rgba(var(--accent-rgb), 0.25);
+}
+
+.react-flow__handle-left:hover {
+  transform: translateX(-50%) scale(1.25);
+}
+
+.react-flow__handle-right:hover {
+  transform: translateX(50%) scale(1.25);
+}
+
+.react-flow__handle-top:hover {
+  transform: translateY(-50%) scale(1.25);
+}
+
+.react-flow__handle-bottom:hover {
+  transform: translateY(50%) scale(1.25);
+}
+
+.react-flow__handle.connecting {
+  transform: scale(1.35);
+  box-shadow: 0 0 0 6px rgba(var(--accent-rgb), 0.35);
+  animation: handle-pulse 1s ease-in-out infinite;
+}
+
+.react-flow__handle-left.connecting {
+  transform: translateX(-50%) scale(1.35);
+}
+
+.react-flow__handle-right.connecting {
+  transform: translateX(50%) scale(1.35);
+}
+
+.react-flow__handle-top.connecting {
+  transform: translateY(-50%) scale(1.35);
+}
+
+.react-flow__handle-bottom.connecting {
+  transform: translateY(50%) scale(1.35);
+}
+
+.react-flow__handle.valid {
+  box-shadow: 0 0 0 6px rgba(var(--accent-rgb), 0.4);
+}
+
+@keyframes handle-pulse {
+  0%, 100% { box-shadow: 0 0 0 4px rgba(var(--accent-rgb), 0.25); }
+  50% { box-shadow: 0 0 0 8px rgba(var(--accent-rgb), 0.45); }
+}
+
+.react-flow__edge-path {
+  stroke: rgba(var(--text-muted-rgb), 0.5);
+  stroke-width: 2px;
+  transition: stroke 0.2s ease, stroke-width 0.2s ease;
+}
+
+.react-flow__edge.selected .react-flow__edge-path {
+  stroke: rgba(var(--accent-rgb), 0.8);
+  stroke-width: 2.5px;
+}
+
+.react-flow__edge:hover .react-flow__edge-path {
+  stroke: rgba(var(--text-muted-rgb), 0.7);
+}
+
+.canvas-edge-glow {
+  stroke: rgb(var(--accent-rgb) / 0.25);
+  stroke-width: 10px;
+  filter: blur(3px);
+  animation: edge-glow-pulse 1.5s ease-in-out infinite;
+}
+
+@keyframes edge-glow-pulse {
+  0%, 100% { 
+    stroke: rgb(var(--accent-rgb) / 0.15);
+    stroke-width: 8px;
+    filter: blur(2px);
+  }
+  50% { 
+    stroke: rgb(var(--accent-rgb) / 0.4);
+    stroke-width: 12px;
+    filter: blur(4px);
+  }
+}
+
+.canvas-edge-flow-line {
+  stroke: rgb(var(--accent-rgb) / 0.7);
+  stroke-width: 2px;
+  stroke-dasharray: 6 12;
+  animation: edge-flow 1.5s linear infinite;
+}
+
+@keyframes edge-flow {
+  from { stroke-dashoffset: 0; }
+  to { stroke-dashoffset: -18; }
+}
+
+.edge-particles circle {
+  filter: drop-shadow(0 0 2px rgb(var(--accent-rgb) / 0.5));
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .edge-particles circle {
+    animation: none !important;
+    opacity: 0.4;
+  }
+  
+  .edge-particles circle animateMotion {
+    display: none;
+  }
 }
 
 .ui-panel {
@@ -312,4 +457,30 @@ html[data-platform='macos'] #root {
   float: left;
   height: 0;
   pointer-events: none;
+}
+
+/* Script Content Styles */
+.ProseMirror h2 {
+  color: #f59e0b;
+  border-bottom: 1px solid rgba(245, 158, 11, 0.3);
+  padding-bottom: 0.5em;
+  margin-top: 1.5em;
+  margin-bottom: 0.75em;
+  font-size: 1.25em;
+}
+
+.ProseMirror hr {
+  border: none;
+  border-top: 1px solid rgba(245, 158, 11, 0.3);
+  margin: 1.5em 0;
+}
+
+.ProseMirror strong {
+  color: #fbbf24;
+  font-weight: 600;
+}
+
+.ProseMirror p {
+  margin-bottom: 0.75em;
+  line-height: 1.7;
 }

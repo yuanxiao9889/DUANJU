@@ -1,6 +1,6 @@
 [package]
 name = "storyboard-copilot"
-version = "0.1.14"
+version = "0.1.16"
 description = "分镜助手 - AI图像生成与分镜工具"
 authors = ["you"]
 edition = "2021"
@@ -39,6 +39,9 @@ imageproc = "0.26.1"
 ab_glyph = "0.2.32"
 png = "0.17"
 urlencoding = "2"
+warp = "0.3"
+lazy_static = "1.4"
+futures-util = "0.3"
 
 [profile.dev]
 opt-level = 1

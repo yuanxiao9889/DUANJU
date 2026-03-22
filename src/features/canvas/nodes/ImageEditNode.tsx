@@ -54,17 +54,17 @@ import {
   resolveImageModelResolutions,
 } from '@/features/canvas/models';
 import { GRSAI_NANO_BANANA_PRO_MODEL_ID } from '@/features/canvas/models/image/grsai/nanoBananaPro';
-import { FAL_NANO_BANANA_2_MODEL_ID } from '@/features/canvas/models/image/fal/nanoBanana2';
-import { KIE_NANO_BANANA_2_MODEL_ID } from '@/features/canvas/models/image/kie/nanoBanana2';
+
 import { resolveModelPriceDisplay } from '@/features/canvas/pricing';
 import {
   NODE_CONTROL_CHIP_CLASS,
-  NODE_CONTROL_ICON_CLASS,
   NODE_CONTROL_MODEL_CHIP_CLASS,
   NODE_CONTROL_PARAMS_CHIP_CLASS,
   NODE_CONTROL_PRIMARY_BUTTON_CLASS,
+  NODE_CONTROL_GENERATE_ICON_CLASS,
 } from '@/features/canvas/ui/nodeControlStyles';
 import { ModelParamsControls } from '@/features/canvas/ui/ModelParamsControls';
+import { StyleTemplateDialog } from '@/features/project/StyleTemplateDialog';
 import { CanvasNodeImage } from '@/features/canvas/ui/CanvasNodeImage';
 import { NodePriceBadge } from '@/features/canvas/ui/NodePriceBadge';
 import { UiButton } from '@/components/ui';
@@ -234,6 +234,9 @@ export const ImageEditNode = memo(({ id, data, selected, width, height }: ImageE
   const promptHighlightRef = useRef<HTMLDivElement>(null);
   const [promptDraft, setPromptDraft] = useState(() => data.prompt ?? '');
   const promptDraftRef = useRef(promptDraft);
+  const [selectedStyleTemplateId, setSelectedStyleTemplateId] = useState<string | null>(null);
+  const [styleTemplatePrompt, setStyleTemplatePrompt] = useState<string>('');
+  const [showStyleTemplateDialog, setShowStyleTemplateDialog] = useState(false);
   const [showImagePicker, setShowImagePicker] = useState(false);
   const [pickerCursor, setPickerCursor] = useState<number | null>(null);
   const [pickerActiveIndex, setPickerActiveIndex] = useState(0);
@@ -317,10 +320,6 @@ export const ImageEditNode = memo(({ id, data, selected, width, height }: ImageE
   const requestResolution = selectedModel.resolveRequest({
     referenceImageCount: incomingImages.length,
   });
-  const showWebSearchToggle =
-    selectedModel.id === FAL_NANO_BANANA_2_MODEL_ID ||
-    selectedModel.id === KIE_NANO_BANANA_2_MODEL_ID;
-  const webSearchEnabled = Boolean(data.extraParams?.enable_web_search);
   const resolvedPriceDisplay = useMemo(
     () =>
       showNodePrice
@@ -714,10 +713,10 @@ export const ImageEditNode = memo(({ id, data, selected, width, height }: ImageE
     <div
       ref={rootRef}
       className={`
-        group relative flex h-full flex-col overflow-visible rounded-[var(--node-radius)] border bg-surface-dark/90 p-2 transition-colors duration-150
+        group relative flex h-full flex-col overflow-visible rounded-[var(--node-radius)] border bg-surface-dark/90 p-2 transition-all duration-150
         ${selected
-          ? 'border-accent shadow-[0_0_0_1px_rgba(59,130,246,0.32)]'
-          : 'border-[rgba(15,23,42,0.22)] hover:border-[rgba(15,23,42,0.34)] dark:border-[rgba(255,255,255,0.22)] dark:hover:border-[rgba(255,255,255,0.34)]'}
+          ? 'border-accent shadow-[0_0_0_2px_rgba(59,130,246,0.5),0_4px_20px_rgba(59,130,246,0.2)]'
+          : 'border-[rgba(15,23,42,0.22)] hover:border-[rgba(15,23,42,0.34)] hover:shadow-[0_4px_16px_rgba(0,0,0,0.12)] dark:border-[rgba(255,255,255,0.22)] dark:hover:border-[rgba(255,255,255,0.34)] dark:hover:shadow-[0_4px_16px_rgba(0,0,0,0.25)]'}
       `}
       style={{ width: `${resolvedWidth}px`, height: `${resolvedHeight}px` }}
       onClick={() => setSelectedNode(id)}
@@ -837,16 +836,22 @@ export const ImageEditNode = memo(({ id, data, selected, width, height }: ImageE
               },
             })
           }
-          showWebSearchToggle={showWebSearchToggle}
-          webSearchEnabled={webSearchEnabled}
-          onWebSearchToggle={(enabled) =>
-            updateNodeData(id, {
-              extraParams: {
-                ...(data.extraParams ?? {}),
-                enable_web_search: enabled,
-              },
-            })
-          }
+          selectedStyleTemplateId={selectedStyleTemplateId}
+          onStyleTemplateChange={(templateId, prompt) => {
+            setSelectedStyleTemplateId(templateId);
+            setStyleTemplatePrompt(prompt);
+            const basePrompt = promptDraftRef.current.replace(/\s*,\s*[^,]*$/, '').trim();
+            if (prompt) {
+              const newPrompt = basePrompt ? `${basePrompt}, ${prompt}` : prompt;
+              setPromptDraft(newPrompt);
+              promptDraftRef.current = newPrompt;
+            } else if (styleTemplatePrompt) {
+              const cleanedPrompt = basePrompt.replace(new RegExp(`\\s*,?\\s*${styleTemplatePrompt.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\s*$`), '').trim();
+              setPromptDraft(cleanedPrompt);
+              promptDraftRef.current = cleanedPrompt;
+            }
+          }}
+          onOpenStyleTemplateManager={() => setShowStyleTemplateDialog(true)}
           triggerSize="sm"
           chipClassName={NODE_CONTROL_CHIP_CLASS}
           modelChipClassName={NODE_CONTROL_MODEL_CHIP_CLASS}
@@ -855,17 +860,19 @@ export const ImageEditNode = memo(({ id, data, selected, width, height }: ImageE
 
         <div className="ml-auto" />
 
-        <UiButton
-          onClick={(event) => {
-            event.stopPropagation();
-            void handleGenerate();
-          }}
-          variant="primary"
-          className={`shrink-0 ${NODE_CONTROL_PRIMARY_BUTTON_CLASS}`}
-        >
-          <Sparkles className={NODE_CONTROL_ICON_CLASS} strokeWidth={2.8} />
-          {t('canvas.generate')}
-        </UiButton>
+        <div className="p-2 -m-2 shrink-0">
+          <UiButton
+            onClick={(event) => {
+              event.stopPropagation();
+              void handleGenerate();
+            }}
+            variant="primary"
+            className={NODE_CONTROL_PRIMARY_BUTTON_CLASS}
+          >
+            <Sparkles className={NODE_CONTROL_GENERATE_ICON_CLASS} strokeWidth={2.5} />
+            {t('canvas.generate')}
+          </UiButton>
+        </div>
       </div>
 
       {error && <div className="mt-1 shrink-0 text-xs text-red-400">{error}</div>}
@@ -874,13 +881,13 @@ export const ImageEditNode = memo(({ id, data, selected, width, height }: ImageE
         type="target"
         id="target"
         position={Position.Left}
-        className="!h-2 !w-2 !border-surface-dark !bg-accent"
+        className="!h-2.5 !w-2.5 !border-2 !border-surface-dark !bg-accent"
       />
       <Handle
         type="source"
         id="source"
         position={Position.Right}
-        className="!h-2 !w-2 !border-surface-dark !bg-accent"
+        className="!h-2.5 !w-2.5 !border-2 !border-surface-dark !bg-accent"
       />
       <NodeResizeHandle
         minWidth={IMAGE_EDIT_NODE_MIN_WIDTH}
@@ -888,6 +895,11 @@ export const ImageEditNode = memo(({ id, data, selected, width, height }: ImageE
         maxWidth={IMAGE_EDIT_NODE_MAX_WIDTH}
         maxHeight={IMAGE_EDIT_NODE_MAX_HEIGHT}
         isVisible={selected}
+      />
+      
+      <StyleTemplateDialog
+        isOpen={showStyleTemplateDialog}
+        onClose={() => setShowStyleTemplateDialog(false)}
       />
     </div>
   );

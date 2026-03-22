@@ -11,13 +11,18 @@ import type { AiGateway, GenerateImagePayload } from '../application/ports';
 async function normalizeReferenceImages(payload: GenerateImagePayload): Promise<string[] | undefined> {
   const isKieModel = payload.model.startsWith('kie/');
   const isFalModel = payload.model.startsWith('fal/');
+  const isRunningHubModel = payload.model.startsWith('runninghub/');
   return payload.referenceImages
     ? await Promise.all(
-      payload.referenceImages.map(async (imageUrl) =>
-        isKieModel || isFalModel
-          ? await imageUrlToDataUrl(imageUrl)
-          : await persistImageLocally(imageUrl)
-      )
+      payload.referenceImages.map(async (imageUrl) => {
+        if (isKieModel || isFalModel) {
+          return await imageUrlToDataUrl(imageUrl);
+        }
+        if (isRunningHubModel) {
+          return await persistImageLocally(imageUrl);
+        }
+        return await persistImageLocally(imageUrl);
+      })
     )
     : undefined;
 }

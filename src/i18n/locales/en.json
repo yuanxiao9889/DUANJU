@@ -1,6 +1,6 @@
 {
   "app": {
-    "title": "Storyboard Copilot",
+    "title": "Storyboard Copilot v1.0",
     "subtitle": "AI Storyboard Tool"
   },
   "common": {
@@ -61,6 +61,9 @@
     "copyErrorReport": "Copy Error",
     "copied": "Copied",
     "download": "Download",
+    "sendToPs": "Send to PS",
+    "sent": "Sent",
+    "psNotConnected": "PS Not Connected",
     "ungroup": "Ungroup",
     "saveAs": "Save as...",
     "noDownloadPresetPathsHint": "No preset path. Add one in Settings > General.",
@@ -91,6 +94,7 @@
       "storyboard": "Storyboard Node",
       "storyboardGen": "Storyboard Generation",
       "textAnnotation": "Text Annotation",
+      "videoNode": "Video Node",
       "scriptChapter": "Chapter Node",
       "scriptCharacter": "Character",
       "scriptLocation": "Location",
@@ -123,6 +127,10 @@
       "resultTitle": "Result Image",
       "promptPlaceholder": "Describe anything you want to generate or edit"
     },
+    "sendToPs": "Send to PS",
+    "sendToPsSuccess": "Sent to Photoshop",
+    "sendToPsFailed": "Send failed: {{error}}",
+    "psNotConnected": "Photoshop not connected",
     "upload": {
       "uploadedAlt": "Uploaded image",
       "hint": "Click or drag to upload image"
@@ -149,6 +157,20 @@
     "textAnnotation": {
       "placeholder": "Write Markdown text. It will render when unselected.",
       "empty": "Empty note"
+    },
+    "videoNode": {
+      "title": "Video Node",
+      "uploadHint": "Drag or click to upload video",
+      "screenshot": "Screenshot",
+      "viewScreenshots": "View Screenshots",
+      "screenshotSuccess": "Screenshot created",
+      "play": "Play",
+      "pause": "Pause",
+      "unsupportedFormat": "Unsupported video format",
+      "screenshotShortcut": "Press S to take screenshot",
+      "prevFrame": "Previous Frame",
+      "nextFrame": "Next Frame",
+      "frameByFrameHint": "← → Arrow keys for frame-by-frame / S for screenshot"
     }
   },
   "viewer": {
@@ -183,6 +205,15 @@
     "rename": "Rename",
     "renameTitle": "Rename Project",
     "delete": "Delete Project",
+    "deleteConfirmTitle": "Delete Confirmation",
+    "deleteConfirmMessage": "Are you sure you want to delete project \"{{name}}\"? This action cannot be undone.",
+    "deleteSelectedConfirmMessage": "Are you sure you want to delete {{count}} selected projects? This action cannot be undone.",
+    "selectMode": "Select Mode",
+    "selectAll": "Select All",
+    "deselectAll": "Deselect All",
+    "deleteSelected": "Delete Selected",
+    "selectedCount": "{{count}} projects selected",
+    "exitSelectMode": "Exit Select Mode",
     "created": "Created",
     "modified": "Modified",
     "updatedAt": "Updated",
@@ -230,6 +261,7 @@
     "providerPpioName": "PPIO",
     "providerAlibabaName": "Alibaba Cloud Bailian",
     "providerCodingName": "Alibaba Cloud Coding Plan",
+    "providerRunninghubName": "RunningHub",
     "comingSoon": "Coming soon...",
     "radiusPreset": "Corner Radius",
     "radiusPresetDesc": "Control global corner style for panels, inputs, and nodes.",
@@ -311,7 +343,40 @@
     "checkingUpdate": "Checking for updates...",
     "checkUpdateHasUpdate": "New version detected.",
     "checkUpdateUpToDate": "You are on the latest version.",
-    "checkUpdateFailed": "Update check failed. Please try again later."
+    "checkUpdateFailed": "Update check failed. Please try again later.",
+    "projectStoragePath": "Project Storage Path",
+    "projectStoragePathDesc": "Change the storage location for project database and image files. Existing data will be automatically migrated to the new location.",
+    "currentPath": "Current path",
+    "customPath": "Custom",
+    "database": "Database",
+    "images": "Images",
+    "total": "Total",
+    "changePath": "Change Path",
+    "openFolder": "Open Folder",
+    "migrating": "Migrating...",
+    "failedToLoadStorageInfo": "Failed to load storage info",
+    "psIntegration": "Photoshop Integration",
+    "psIntegrationDesc": "Configure Photoshop plugin integration settings",
+    "psIntegrationEnabled": "Enable Photoshop Integration",
+    "psIntegrationEnabledDesc": "Allow image data exchange with Photoshop plugin",
+    "psServerPort": "Server Port",
+    "psServerPortDesc": "Port number for PS integration server (1024-65535)",
+    "psAutoStartServer": "Auto-start server on launch",
+    "psAutoStartServerDesc": "Automatically start PS integration server when app launches",
+    "psStatus": "Current Status",
+    "psConnected": "Connected (port {{port}})",
+    "psDisconnected": "Disconnected",
+    "startServer": "Start Server",
+    "stopServer": "Stop Server",
+    "openPluginDir": "Open Plugin Directory",
+    "psPreferredPort": "Preferred Startup Port",
+    "psRuntimePort": "Current Runtime Port",
+    "psPluginPort": "Plugin Port",
+    "psPluginPortDesc": "Use port {{port}} in the Photoshop plugin panel",
+    "psPortAutoAdjusted": "Preferred port {{requested}} was occupied, so the app switched to {{actual}} automatically",
+    "psServerNotRunning": "Not running",
+    "aboutPsPortTitle": "Photoshop Integration Port",
+    "aboutPsPortDesc": "Shows the actual port currently used by the app so you can keep the plugin panel in sync."
   },
   "pricing": {
     "nativePrice": "Native: {{value}}",
@@ -334,6 +399,34 @@
   "errorDialog": {
     "detailsTitle": "Error details",
     "copyReport": "Copy error report"
+  },
+  "script": {
+    "importChapterCount": "Import Script",
+    "importChapterCountDesc": "Please enter the number of chapters, empty chapter nodes will be created accordingly",
+    "expandFromSummary": "Expand from Summary",
+    "expandFromSummaryDesc": "Generate complete script content based on chapter summary"
+  },
+  "branch": {
+    "createTitle": "Create Story Branch",
+    "countLabel": "Branch Count",
+    "countUnit": "",
+    "sourceChapter": "Source Chapter",
+    "generateButton": "AI Generate Branches",
+    "generating": "Generating...",
+    "generateFailed": "Generation failed, please retry",
+    "selectHint": "Select branches to keep (editable)",
+    "branchLabel": "Branch",
+    "titlePlaceholder": "Branch title",
+    "summaryPlaceholder": "Branch summary",
+    "conditionPlaceholder": "Trigger condition",
+    "typeChoice": "Choice",
+    "typeRandom": "Random",
+    "typeCondition": "Condition",
+    "selectedCount": "{{count}} branches selected",
+    "confirmCreate": "Confirm Create"
+  },
+  "psImageToast": {
+    "imageFromPs": "Image from Photoshop",
+    "addToCanvas": "Add to Canvas"
   }
 }
-

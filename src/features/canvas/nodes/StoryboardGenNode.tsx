@@ -61,8 +61,6 @@ import {
   resolveImageModelResolutions,
 } from '@/features/canvas/models';
 import { GRSAI_NANO_BANANA_PRO_MODEL_ID } from '@/features/canvas/models/image/grsai/nanoBananaPro';
-import { FAL_NANO_BANANA_2_MODEL_ID } from '@/features/canvas/models/image/fal/nanoBanana2';
-import { KIE_NANO_BANANA_2_MODEL_ID } from '@/features/canvas/models/image/kie/nanoBanana2';
 import { resolveModelPriceDisplay } from '@/features/canvas/pricing';
 import { ModelParamsControls } from '@/features/canvas/ui/ModelParamsControls';
 import { CanvasNodeImage } from '@/features/canvas/ui/CanvasNodeImage';
@@ -74,10 +72,10 @@ import { NodePriceBadge } from '@/features/canvas/ui/NodePriceBadge';
 import { NodeResizeHandle } from '@/features/canvas/ui/NodeResizeHandle';
 import {
   NODE_CONTROL_CHIP_CLASS,
-  NODE_CONTROL_ICON_CLASS,
   NODE_CONTROL_MODEL_CHIP_CLASS,
   NODE_CONTROL_PARAMS_CHIP_CLASS,
   NODE_CONTROL_PRIMARY_BUTTON_CLASS,
+  NODE_CONTROL_GENERATE_ICON_CLASS,
 } from '@/features/canvas/ui/nodeControlStyles';
 
 type StoryboardGenNodeProps = {
@@ -721,10 +719,6 @@ export const StoryboardGenNode = memo(({ id, data, selected, width, height }: St
   const requestResolution = selectedModel.resolveRequest({
     referenceImageCount: incomingImages.length,
   });
-  const showWebSearchToggle =
-    selectedModel.id === FAL_NANO_BANANA_2_MODEL_ID ||
-    selectedModel.id === KIE_NANO_BANANA_2_MODEL_ID;
-  const webSearchEnabled = Boolean(nodeData.extraParams?.enable_web_search);
   const resolvedPriceDisplay = useMemo(
     () =>
       showNodePrice
@@ -1638,16 +1632,6 @@ export const StoryboardGenNode = memo(({ id, data, selected, width, height }: St
               },
             })
           }
-          showWebSearchToggle={showWebSearchToggle}
-          webSearchEnabled={webSearchEnabled}
-          onWebSearchToggle={(enabled) =>
-            updateNodeData(id, {
-              extraParams: {
-                ...(nodeData.extraParams ?? {}),
-                enable_web_search: enabled,
-              },
-            })
-          }
           triggerSize="sm"
           chipClassName={NODE_CONTROL_CHIP_CLASS}
           modelChipClassName={NODE_CONTROL_MODEL_CHIP_CLASS}
@@ -1658,20 +1642,22 @@ export const StoryboardGenNode = memo(({ id, data, selected, width, height }: St
           paramsPanelClassName="w-[420px] p-3"
         />
 
-        <UiButton
-          onClick={(event: ReactMouseEvent<HTMLButtonElement>) => {
-            event.stopPropagation();
-            const previewGridOnly =
-              enableStoryboardGenGridPreviewShortcut && event.ctrlKey && event.altKey && event.shiftKey;
-            void handleGenerate(previewGridOnly);
-          }}
-          variant="primary"
-          size="sm"
-          className={`!min-w-0 shrink-0 ${NODE_CONTROL_PRIMARY_BUTTON_CLASS}`}
-        >
-          <Sparkles className={NODE_CONTROL_ICON_CLASS} strokeWidth={2.8} />
-          {t('canvas.generate')}
-        </UiButton>
+        <div className="p-2 -m-2 shrink-0">
+          <UiButton
+            onClick={(event: ReactMouseEvent<HTMLButtonElement>) => {
+              event.stopPropagation();
+              const previewGridOnly =
+                enableStoryboardGenGridPreviewShortcut && event.ctrlKey && event.altKey && event.shiftKey;
+              void handleGenerate(previewGridOnly);
+            }}
+            variant="primary"
+            size="sm"
+            className={`!min-w-0 ${NODE_CONTROL_PRIMARY_BUTTON_CLASS}`}
+          >
+            <Sparkles className={NODE_CONTROL_GENERATE_ICON_CLASS} strokeWidth={2.5} />
+            {t('canvas.generate')}
+          </UiButton>
+        </div>
       </div>
 
       <Handle

@@ -1,0 +1,59 @@
+{
+  "id": "com.storyboard-copilot.ps-plugin",
+  "name": "Storyboard Copilot",
+  "version": "1.0.0",
+  "main": "index.html",
+  "manifestVersion": 5,
+  "host": {
+    "app": "PS",
+    "minVersion": "24.4.0"
+  },
+  "featureFlags": {
+    "enableAlerts": true
+  },
+  "requiredPermissions": {
+    "localFileSystem": "fullAccess",
+    "clipboard": "readAndWrite",
+    "allowCodeGenerationFromStrings": true,
+    "launchProcess": {
+      "schemes": [
+        "http",
+        "https"
+      ]
+    },
+    "network": {
+      "domains": "all"
+    },
+    "webview": {
+      "allow": "yes",
+      "allowLocalRendering": "yes",
+      "domains": "all",
+      "enableMessageBridge": "localAndRemote"
+    }
+  },
+  "entrypoints": [
+    {
+      "type": "panel",
+      "id": "mainPanel",
+      "label": {
+        "default": "Storyboard Copilot"
+      },
+      "minimumSize": {
+        "width": 300,
+        "height": 380
+      },
+      "maximumSize": {
+        "width": 600,
+        "height": 800
+      },
+      "preferredDockedSize": {
+        "width": 320,
+        "height": 520
+      },
+      "preferredFloatingSize": {
+        "width": 360,
+        "height": 580
+      }
+    }
+  ]
+}

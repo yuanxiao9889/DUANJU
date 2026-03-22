@@ -10,6 +10,7 @@ pub mod alibaba;
 pub mod coding;
 pub mod zhenzhen;
 pub mod comfly;
+pub mod runninghub;
 
 pub use fal::FalProvider;
 pub use grsai::GrsaiProvider;
@@ -19,6 +20,7 @@ pub use alibaba::AlibabaProvider;
 pub use coding::CodingProvider;
 pub use zhenzhen::ZhenzhenProvider;
 pub use comfly::ComflyProvider;
+pub use runninghub::RunningHubProvider;
 
 pub fn build_default_providers() -> Vec<Arc<dyn AIProvider>> {
     vec![
@@ -30,5 +32,6 @@ pub fn build_default_providers() -> Vec<Arc<dyn AIProvider>> {
         Arc::new(CodingProvider::new()),
         Arc::new(ZhenzhenProvider::new()),
         Arc::new(ComflyProvider::new()),
+        Arc::new(RunningHubProvider::new()),
     ]
 }

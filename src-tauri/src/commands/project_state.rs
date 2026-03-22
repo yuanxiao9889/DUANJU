@@ -6,6 +6,8 @@ use rusqlite::{params, Connection};
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Manager};
 
+use super::storage;
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ProjectSummaryRecord {
@@ -39,15 +41,7 @@ pub struct ProjectRecord {
 }
 
 fn resolve_db_path(app: &AppHandle) -> Result<PathBuf, String> {
-    let app_data_dir = app
-        .path()
-        .app_data_dir()
-        .map_err(|e| format!("Failed to resolve app data dir: {}", e))?;
-
-    std::fs::create_dir_all(&app_data_dir)
-        .map_err(|e| format!("Failed to create app data dir: {}", e))?;
-
-    Ok(app_data_dir.join("projects.db"))
+    storage::resolve_db_path(app)
 }
 
 fn ensure_projects_table(conn: &Connection) -> Result<(), String> {
@@ -214,15 +208,7 @@ fn extract_project_image_paths(nodes_json: &str, history_json: &str) -> HashSet<
 }
 
 fn resolve_images_dir(app: &AppHandle) -> Result<PathBuf, String> {
-    let app_data_dir = app
-        .path()
-        .app_data_dir()
-        .map_err(|e| format!("Failed to resolve app data dir: {}", e))?;
-
-    let images_dir = app_data_dir.join("images");
-    std::fs::create_dir_all(&images_dir)
-        .map_err(|e| format!("Failed to create images dir: {}", e))?;
-    Ok(images_dir)
+    storage::resolve_images_dir(app)
 }
 
 fn prune_unreferenced_images(app: &AppHandle) -> Result<(), String> {

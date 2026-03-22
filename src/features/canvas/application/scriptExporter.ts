@@ -1,5 +1,6 @@
-import { Document, Packer, Paragraph, TextRun, HeadingLevel, AlignmentType } from 'docx';
-import { saveAs } from 'file-saver';
+import { Document, Packer, Paragraph, TextRun, HeadingLevel, AlignmentType, BorderStyle } from 'docx';
+import { save } from '@tauri-apps/plugin-dialog';
+import { invoke } from '@tauri-apps/api/core';
 import {
   CANVAS_NODE_TYPES,
   type ScriptRootNodeData,
@@ -9,6 +10,7 @@ import {
   type ScriptItemNodeData,
   type ScriptPlotPointNodeData,
 } from '../domain/canvasNodes';
+import type { Edge } from '@xyflow/react';
 
 export type ExportFormat = 'txt' | 'docx' | 'json' | 'markdown';
 
@@ -18,6 +20,7 @@ export interface BranchInfo {
   startChapter: number;
   endChapter: number;
   path: string[];
+  nodeIds: string[];
   isMainBranch: boolean;
 }
 
@@ -26,13 +29,184 @@ export interface ExportOptions {
   branchIds?: string[];
 }
 
+interface ChapterWithId {
+  id: string;
+  data: ScriptChapterNodeData;
+}
+
 interface ScriptData {
   root: ScriptRootNodeData | null;
-  chapters: ScriptChapterNodeData[];
+  chapters: ChapterWithId[];
   characters: ScriptCharacterNodeData[];
   locations: ScriptLocationNodeData[];
   items: ScriptItemNodeData[];
   plotPoints: ScriptPlotPointNodeData[];
+}
+
+function decodeHtmlEntities(text: string): string {
+  const entities: Record<string, string> = {
+    '&lt;': '<',
+    '&gt;': '>',
+    '&amp;': '&',
+    '&nbsp;': ' ',
+    '&quot;': '"',
+    '&#39;': "'",
+    '&apos;': "'",
+  };
+  
+  return text.replace(/&[^;]+;/g, (match) => entities[match] || match);
+}
+
+function parseHtmlToDocxParagraphs(html: string): Paragraph[] {
+  if (!html || !html.trim()) {
+    return [];
+  }
+
+  const paragraphs: Paragraph[] = [];
+  
+  try {
+    const parser = new DOMParser();
+    const doc = parser.parseFromString(html, 'text/html');
+    const body = doc.body;
+
+    function processInlineNodes(node: Node, textRuns: TextRun[], isBold: boolean = false, isItalic: boolean = false): void {
+      if (node.nodeType === Node.TEXT_NODE) {
+        const text = node.textContent || '';
+        if (text.trim()) {
+          textRuns.push(new TextRun({
+            text: decodeHtmlEntities(text),
+            bold: isBold,
+            italics: isItalic,
+          }));
+        }
+      } else if (node.nodeType === Node.ELEMENT_NODE) {
+        const element = node as Element;
+        const tagName = element.tagName.toLowerCase();
+
+        switch (tagName) {
+          case 'strong':
+          case 'b':
+            for (const child of element.childNodes) {
+              processInlineNodes(child, textRuns, true, isItalic);
+            }
+            break;
+          case 'em':
+          case 'i':
+            for (const child of element.childNodes) {
+              processInlineNodes(child, textRuns, isBold, true);
+            }
+            break;
+          case 'br':
+            textRuns.push(new TextRun({ text: '', break: 1 }));
+            break;
+          default:
+            for (const child of element.childNodes) {
+              processInlineNodes(child, textRuns, isBold, isItalic);
+            }
+        }
+      }
+    }
+
+    function processBlockNode(node: Node): void {
+      if (node.nodeType === Node.TEXT_NODE) {
+        const text = node.textContent || '';
+        if (text.trim()) {
+          paragraphs.push(new Paragraph({ text: decodeHtmlEntities(text) }));
+        }
+      } else if (node.nodeType === Node.ELEMENT_NODE) {
+        const element = node as Element;
+        const tagName = element.tagName.toLowerCase();
+
+        switch (tagName) {
+          case 'h1':
+          case 'h2': {
+            const textRuns: TextRun[] = [];
+            for (const child of element.childNodes) {
+              processInlineNodes(child, textRuns);
+            }
+            if (textRuns.length > 0) {
+              paragraphs.push(new Paragraph({
+                children: textRuns,
+                heading: HeadingLevel.HEADING_2,
+              }));
+            }
+            break;
+          }
+          case 'h3':
+          case 'h4':
+          case 'h5':
+          case 'h6': {
+            const textRuns: TextRun[] = [];
+            for (const child of element.childNodes) {
+              processInlineNodes(child, textRuns);
+            }
+            if (textRuns.length > 0) {
+              paragraphs.push(new Paragraph({
+                children: textRuns,
+                heading: HeadingLevel.HEADING_3,
+              }));
+            }
+            break;
+          }
+          case 'p': {
+            const textRuns: TextRun[] = [];
+            for (const child of element.childNodes) {
+              processInlineNodes(child, textRuns);
+            }
+            if (textRuns.length > 0) {
+              paragraphs.push(new Paragraph({ children: textRuns }));
+            } else {
+              paragraphs.push(new Paragraph({ text: '' }));
+            }
+            break;
+          }
+          case 'hr': {
+            paragraphs.push(new Paragraph({
+              text: '',
+              border: {
+                bottom: {
+                  color: 'auto',
+                  space: 1,
+                  style: BorderStyle.SINGLE,
+                  size: 6,
+                },
+              },
+            }));
+            break;
+          }
+          case 'div':
+          case 'section':
+          case 'article':
+            for (const child of element.childNodes) {
+              processBlockNode(child);
+            }
+            break;
+          default: {
+            const textRuns: TextRun[] = [];
+            for (const child of element.childNodes) {
+              processInlineNodes(child, textRuns);
+            }
+            if (textRuns.length > 0) {
+              paragraphs.push(new Paragraph({ children: textRuns }));
+            }
+          }
+        }
+      }
+    }
+
+    for (const child of body.childNodes) {
+      processBlockNode(child);
+    }
+
+    if (paragraphs.length === 0) {
+      paragraphs.push(new Paragraph({ text: decodeHtmlEntities(html) }));
+    }
+  } catch (error) {
+    console.error('Failed to parse HTML for DOCX export:', error);
+    paragraphs.push(new Paragraph({ text: decodeHtmlEntities(html) }));
+  }
+
+  return paragraphs;
 }
 
 export function extractScriptData(
@@ -42,72 +216,161 @@ export function extractScriptData(
   const root = nodes.find((n) => n.type === CANVAS_NODE_TYPES.scriptRoot);
   const chapters = nodes
     .filter((n) => n.type === CANVAS_NODE_TYPES.scriptChapter)
-    .sort((a, b) => (a.data.chapterNumber || 0) - (b.data.chapterNumber || 0));
-  const characters = nodes.filter((n) => n.type === CANVAS_NODE_TYPES.scriptCharacter);
-  const locations = nodes.filter((n) => n.type === CANVAS_NODE_TYPES.scriptLocation);
-  const items = nodes.filter((n) => n.type === CANVAS_NODE_TYPES.scriptItem);
-  const plotPoints = nodes.filter((n) => n.type === CANVAS_NODE_TYPES.scriptPlotPoint);
+    .sort((a, b) => (a.data.chapterNumber || 0) - (b.data.chapterNumber || 0))
+    .map((n) => ({ id: n.id, data: n.data }));
+  const characters = nodes.filter((n) => n.type === CANVAS_NODE_TYPES.scriptCharacter).map((n) => n.data);
+  const locations = nodes.filter((n) => n.type === CANVAS_NODE_TYPES.scriptLocation).map((n) => n.data);
+  const items = nodes.filter((n) => n.type === CANVAS_NODE_TYPES.scriptItem).map((n) => n.data);
+  const plotPoints = nodes.filter((n) => n.type === CANVAS_NODE_TYPES.scriptPlotPoint).map((n) => n.data);
 
   return {
     root: root?.data || null,
-    chapters: chapters.map((c) => c.data),
-    characters: characters.map((c) => c.data),
-    locations: locations.map((l) => l.data),
-    items: items.map((i) => i.data),
-    plotPoints: plotPoints.map((p) => p.data),
+    chapters,
+    characters,
+    locations,
+    items,
+    plotPoints,
   };
 }
 
+function tracePath(
+  startId: string,
+  adjacency: Map<string, string[]>,
+  validNodes: Set<string>
+): string[] {
+  const path: string[] = [startId];
+  let current = startId;
+
+  while (true) {
+    const targets = adjacency.get(current) ?? [];
+    if (targets.length !== 1) break;
+
+    const next = targets[0];
+    if (!validNodes.has(next) || path.includes(next)) break;
+
+    path.push(next);
+    current = next;
+  }
+
+  return path;
+}
+
 export function detectBranches(
-  chapters: ScriptChapterNodeData[],
-  _edges: unknown
+  chapters: ChapterWithId[],
+  edges: unknown
 ): BranchInfo[] {
-  const branchNodes = chapters.filter((c) => c.isBranchPoint);
-  
-  if (branchNodes.length === 0) {
+  if (!chapters || chapters.length === 0) {
     return [{
       id: 'main',
       name: '主分支',
       startChapter: 1,
-      endChapter: chapters.length,
-      path: chapters.map((_, i) => String(i + 1)),
+      endChapter: 1,
+      path: ['1'],
+      nodeIds: [],
       isMainBranch: true,
     }];
   }
 
-  const branches: BranchInfo[] = [];
-  
-  branches.push({
-    id: 'main',
-    name: '主分支',
-    startChapter: 1,
-    endChapter: branchNodes[0]?.chapterNumber || chapters.length,
-    path: chapters.slice(0, branchNodes[0]?.chapterNumber || chapters.length).map((_, i) => String(i + 1)),
-    isMainBranch: true,
-  });
+  const typedEdges = (edges as Edge[]).filter(
+    (e) => e.source && e.target
+  );
 
-  branchNodes.forEach((branch, index) => {
-    const nextBranch = branchNodes[index + 1];
-    const endChapter = nextBranch ? nextBranch.chapterNumber - 1 : chapters.length;
-    
+  const nodeIdSet = new Set(chapters.map((c) => c.id));
+
+  const adjacency = new Map<string, string[]>();
+  for (const edge of typedEdges) {
+    if (nodeIdSet.has(edge.source) && nodeIdSet.has(edge.target)) {
+      const targets = adjacency.get(edge.source) ?? [];
+      targets.push(edge.target);
+      adjacency.set(edge.source, targets);
+    }
+  }
+
+  const branchPoints = new Set<string>();
+  for (const chapter of chapters) {
+    const targets = adjacency.get(chapter.id) ?? [];
+    if (targets.length > 1 || chapter.data.branchType === 'branch') {
+      branchPoints.add(chapter.id);
+    }
+  }
+
+  const visitedNodes = new Set<string>();
+  const branches: BranchInfo[] = [];
+
+  const chapterNumberById = new Map(chapters.map((c) => [c.id, c.data.chapterNumber]));
+
+  const mainPathNodeIds: string[] = [];
+  for (const chapter of chapters) {
+    if (!branchPoints.has(chapter.id) && !visitedNodes.has(chapter.id)) {
+      mainPathNodeIds.push(chapter.id);
+      visitedNodes.add(chapter.id);
+    }
+    if (branchPoints.has(chapter.id)) {
+      mainPathNodeIds.push(chapter.id);
+      visitedNodes.add(chapter.id);
+      break;
+    }
+  }
+
+  if (mainPathNodeIds.length > 0) {
+    const startChapter = chapterNumberById.get(mainPathNodeIds[0]) ?? 1;
+    const endChapter = chapterNumberById.get(mainPathNodeIds[mainPathNodeIds.length - 1]) ?? chapters.length;
     branches.push({
-      id: `branch-${index + 1}`,
-      name: `分支 ${String.fromCharCode(65 + index)}`,
-      startChapter: branch.chapterNumber,
+      id: 'main',
+      name: '主分支',
+      startChapter,
       endChapter,
-      path: chapters.slice(branch.chapterNumber - 1, endChapter).map((_, i) => String(branch.chapterNumber + i)),
-      isMainBranch: false,
+      path: mainPathNodeIds.map((id) => String(chapterNumberById.get(id) ?? 0)),
+      nodeIds: mainPathNodeIds,
+      isMainBranch: true,
     });
-  });
+  }
+
+  for (const branchPointId of branchPoints) {
+    const targets = adjacency.get(branchPointId) ?? [];
+    const branchPointChapter = chapterNumberById.get(branchPointId) ?? 0;
+
+    for (let i = 0; i < targets.length; i++) {
+      const targetId = targets[i];
+      if (visitedNodes.has(targetId)) continue;
+
+      const pathNodeIds = tracePath(targetId, adjacency, nodeIdSet);
+      pathNodeIds.forEach((id) => visitedNodes.add(id));
+
+      const branchLabel = `分支 ${String.fromCharCode(65 + branches.filter((b) => !b.isMainBranch).length)}`;
+
+      branches.push({
+        id: `branch-${branchPointId}-${i}`,
+        name: branchLabel,
+        startChapter: chapterNumberById.get(targetId) ?? branchPointChapter + 1,
+        endChapter: chapterNumberById.get(pathNodeIds[pathNodeIds.length - 1]) ?? chapters.length,
+        path: pathNodeIds.map((id) => String(chapterNumberById.get(id) ?? 0)),
+        nodeIds: pathNodeIds,
+        isMainBranch: false,
+      });
+    }
+  }
+
+  if (branches.length === 0) {
+    branches.push({
+      id: 'main',
+      name: '主分支',
+      startChapter: 1,
+      endChapter: chapters.length,
+      path: chapters.map((c) => String(c.data.chapterNumber)),
+      nodeIds: chapters.map((c) => c.id),
+      isMainBranch: true,
+    });
+  }
 
   return branches;
 }
 
-export function exportScript(
+export async function exportScript(
   nodes: any[],
   edges: unknown[],
   options: ExportOptions
-): void {
+): Promise<boolean> {
   const scriptData = extractScriptData(nodes, edges);
   const branches = detectBranches(scriptData.chapters, edges);
   
@@ -115,23 +378,53 @@ export function exportScript(
     ? branches.filter((b) => options.branchIds?.includes(b.id))
     : branches.filter((b) => b.isMainBranch);
 
+  const title = scriptData.root?.title || '未命名剧本';
+  let defaultPath = title;
+  
   switch (options.format) {
     case 'txt':
-      exportAsTxt(scriptData, selectedBranches);
+      defaultPath = `${title}.txt`;
       break;
     case 'docx':
-      exportAsDocx(scriptData, selectedBranches);
+      defaultPath = `${title}.docx`;
       break;
     case 'json':
-      exportAsJson(scriptData, selectedBranches);
+      defaultPath = `${title}.json`;
       break;
     case 'markdown':
-      exportAsMarkdown(scriptData, selectedBranches);
+      defaultPath = `${title}.md`;
       break;
+  }
+
+  const filePath = await save({
+    defaultPath,
+    filters: [
+      { name: 'Word 文档', extensions: ['docx'] },
+      { name: '文本文件', extensions: ['txt'] },
+      { name: 'JSON', extensions: ['json'] },
+      { name: 'Markdown', extensions: ['md'] },
+    ],
+  });
+
+  if (!filePath) {
+    return false;
+  }
+
+  switch (options.format) {
+    case 'txt':
+      return exportAsTxt(scriptData, selectedBranches, filePath);
+    case 'docx':
+      return exportAsDocx(scriptData, selectedBranches, filePath);
+    case 'json':
+      return exportAsJson(scriptData, selectedBranches, filePath);
+    case 'markdown':
+      return exportAsMarkdown(scriptData, selectedBranches, filePath);
+    default:
+      return false;
   }
 }
 
-function exportAsTxt(data: ScriptData, branches: BranchInfo[]): void {
+async function exportAsTxt(data: ScriptData, branches: BranchInfo[], filePath: string): Promise<boolean> {
   const lines: string[] = [];
   const title = data.root?.title || '未命名剧本';
   const genre = data.root?.genre || '未指定类型';
@@ -147,16 +440,16 @@ function exportAsTxt(data: ScriptData, branches: BranchInfo[]): void {
 
   lines.push('【故事大纲】');
   branches.forEach((branch) => {
-    const branchChapters = data.chapters.filter((_, i) => 
-      branch.path.includes(String(i + 1))
+    const branchChapters = data.chapters.filter((c) => 
+      branch.nodeIds.includes(c.id)
     );
     if (!branch.isMainBranch) {
       lines.push(`[${branch.name}]`);
     }
     branchChapters.forEach((chapter) => {
-      lines.push(`第${chapter.chapterNumber}章: ${chapter.title || '未命名'}`);
-      if (chapter.summary) {
-        lines.push(`  摘要: ${chapter.summary.slice(0, 100)}`);
+      lines.push(`第${chapter.data.chapterNumber}章: ${chapter.data.title || '未命名'}`);
+      if (chapter.data.summary) {
+        lines.push(`  摘要: ${chapter.data.summary.slice(0, 100)}`);
       }
     });
   });
@@ -191,8 +484,8 @@ function exportAsTxt(data: ScriptData, branches: BranchInfo[]): void {
   lines.push('================================================================================');
 
   branches.forEach((branch) => {
-    const branchChapters = data.chapters.filter((_, i) => 
-      branch.path.includes(String(i + 1))
+    const branchChapters = data.chapters.filter((c) => 
+      branch.nodeIds.includes(c.id)
     );
     
     if (!branch.isMainBranch) {
@@ -202,17 +495,17 @@ function exportAsTxt(data: ScriptData, branches: BranchInfo[]): void {
 
     branchChapters.forEach((chapter) => {
       lines.push('');
-      lines.push(`第${chapter.chapterNumber}章 ${chapter.title || '未命名'}`);
+      lines.push(`第${chapter.data.chapterNumber}章 ${chapter.data.title || '未命名'}`);
       lines.push('──────────────────────────────────────');
       lines.push('');
-      if (chapter.sceneHeadings?.length) {
-        chapter.sceneHeadings.forEach((heading) => {
+      if (chapter.data.sceneHeadings?.length) {
+        chapter.data.sceneHeadings.forEach((heading) => {
           lines.push(heading);
           lines.push('');
         });
       }
-      if (chapter.content) {
-        lines.push(chapter.content);
+      if (chapter.data.content) {
+        lines.push(chapter.data.content);
       }
       lines.push('');
     });
@@ -243,11 +536,18 @@ function exportAsTxt(data: ScriptData, branches: BranchInfo[]): void {
     }
   }
 
-  const blob = new Blob([lines.join('\n')], { type: 'text/plain;charset=utf-8' });
-  saveAs(blob, `${title}.txt`);
+  const content = lines.join('\n');
+  
+  try {
+    await invoke('save_text_file', { path: filePath, content });
+    return true;
+  } catch (error) {
+    console.error('Failed to save TXT file:', error);
+    return false;
+  }
 }
 
-async function exportAsDocx(data: ScriptData, branches: BranchInfo[]): Promise<void> {
+async function exportAsDocx(data: ScriptData, branches: BranchInfo[], filePath: string): Promise<boolean> {
   const title = data.root?.title || '未命名剧本';
   const docChildren: any[] = [];
 
@@ -347,8 +647,8 @@ async function exportAsDocx(data: ScriptData, branches: BranchInfo[]): Promise<v
   );
 
   branches.forEach((branch) => {
-    const branchChapters = data.chapters.filter((_, i) => 
-      branch.path.includes(String(i + 1))
+    const branchChapters = data.chapters.filter((c) => 
+      branch.nodeIds.includes(c.id)
     );
 
     if (!branch.isMainBranch) {
@@ -363,19 +663,20 @@ async function exportAsDocx(data: ScriptData, branches: BranchInfo[]): Promise<v
     branchChapters.forEach((chapter) => {
       docChildren.push(
         new Paragraph({
-          text: `第${chapter.chapterNumber}章 ${chapter.title || '未命名'}`,
+          text: `第${chapter.data.chapterNumber}章 ${chapter.data.title || '未命名'}`,
           heading: HeadingLevel.HEADING_3,
         })
       );
 
-      if (chapter.sceneHeadings?.length) {
-        chapter.sceneHeadings.forEach((heading) => {
+      if (chapter.data.sceneHeadings?.length) {
+        chapter.data.sceneHeadings.forEach((heading) => {
           docChildren.push(new Paragraph({ text: heading }));
         });
       }
 
-      if (chapter.content) {
-        docChildren.push(new Paragraph({ text: chapter.content }));
+      if (chapter.data.content) {
+        const contentParagraphs = parseHtmlToDocxParagraphs(chapter.data.content);
+        docChildren.push(...contentParagraphs);
       }
 
       docChildren.push(new Paragraph({ text: '' }));
@@ -389,11 +690,18 @@ async function exportAsDocx(data: ScriptData, branches: BranchInfo[]): Promise<v
     }],
   });
 
-  const blob = await Packer.toBlob(doc);
-  saveAs(blob, `${title}.docx`);
+  try {
+    const blob = await Packer.toBlob(doc);
+    const buffer = await blob.arrayBuffer();
+    await invoke('save_binary_file', { path: filePath, content: Array.from(new Uint8Array(buffer)) });
+    return true;
+  } catch (error) {
+    console.error('Failed to save DOCX file:', error);
+    return false;
+  }
 }
 
-function exportAsJson(data: ScriptData, branches: BranchInfo[]): void {
+async function exportAsJson(data: ScriptData, branches: BranchInfo[], filePath: string): Promise<boolean> {
   const title = data.root?.title || '未命名剧本';
   
   const exportData = {
@@ -403,12 +711,12 @@ function exportAsJson(data: ScriptData, branches: BranchInfo[]): void {
     branches: branches.map((branch) => ({
       name: branch.name,
       isMain: branch.isMainBranch,
-      chapters: data.chapters.filter((_, i) => branch.path.includes(String(i + 1))).map((c) => ({
-        chapterNumber: c.chapterNumber,
-        title: c.title,
-        summary: c.summary,
-        content: c.content,
-        sceneHeadings: c.sceneHeadings,
+      chapters: data.chapters.filter((c) => branch.nodeIds.includes(c.id)).map((c) => ({
+        chapterNumber: c.data.chapterNumber,
+        title: c.data.title,
+        summary: c.data.summary,
+        content: c.data.content,
+        sceneHeadings: c.data.sceneHeadings,
       })),
     })),
     characters: data.characters.map((c) => ({
@@ -433,11 +741,18 @@ function exportAsJson(data: ScriptData, branches: BranchInfo[]): void {
     })),
   };
 
-  const blob = new Blob([JSON.stringify(exportData, null, 2)], { type: 'application/json' });
-  saveAs(blob, `${title}.json`);
+  const content = JSON.stringify(exportData, null, 2);
+  
+  try {
+    await invoke('save_text_file', { path: filePath, content });
+    return true;
+  } catch (error) {
+    console.error('Failed to save JSON file:', error);
+    return false;
+  }
 }
 
-function exportAsMarkdown(data: ScriptData, branches: BranchInfo[]): void {
+async function exportAsMarkdown(data: ScriptData, branches: BranchInfo[], filePath: string): Promise<boolean> {
   const lines: string[] = [];
   const title = data.root?.title || '未命名剧本';
   const genre = data.root?.genre || '未指定类型';
@@ -498,8 +813,8 @@ function exportAsMarkdown(data: ScriptData, branches: BranchInfo[]): void {
   lines.push('');
 
   branches.forEach((branch) => {
-    const branchChapters = data.chapters.filter((_, i) => 
-      branch.path.includes(String(i + 1))
+    const branchChapters = data.chapters.filter((c) => 
+      branch.nodeIds.includes(c.id)
     );
 
     if (!branch.isMainBranch) {
@@ -508,23 +823,23 @@ function exportAsMarkdown(data: ScriptData, branches: BranchInfo[]): void {
     }
 
     branchChapters.forEach((chapter) => {
-      lines.push(`### 第${chapter.chapterNumber}章 ${chapter.title || '未命名'}`);
+      lines.push(`### 第${chapter.data.chapterNumber}章 ${chapter.data.title || '未命名'}`);
       lines.push('');
 
-      if (chapter.sceneHeadings?.length) {
-        chapter.sceneHeadings.forEach((heading) => {
+      if (chapter.data.sceneHeadings?.length) {
+        chapter.data.sceneHeadings.forEach((heading) => {
           lines.push(`\`\`\`\n${heading}\n\`\`\``);
           lines.push('');
         });
       }
 
-      if (chapter.content) {
-        lines.push(chapter.content);
+      if (chapter.data.content) {
+        lines.push(chapter.data.content);
         lines.push('');
       }
 
-      if (chapter.summary) {
-        lines.push(`> 摘要: ${chapter.summary}`);
+      if (chapter.data.summary) {
+        lines.push(`> 摘要: ${chapter.data.summary}`);
         lines.push('');
       }
     });
@@ -555,6 +870,13 @@ function exportAsMarkdown(data: ScriptData, branches: BranchInfo[]): void {
     }
   }
 
-  const blob = new Blob([lines.join('\n')], { type: 'text/markdown;charset=utf-8' });
-  saveAs(blob, `${title}.md`);
+  const content = lines.join('\n');
+  
+  try {
+    await invoke('save_text_file', { path: filePath, content });
+    return true;
+  } catch (error) {
+    console.error('Failed to save Markdown file:', error);
+    return false;
+  }
 }

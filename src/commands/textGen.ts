@@ -164,6 +164,61 @@ ${request.requirement}
   return result.text;
 }
 
+export interface SummaryExpandRequest {
+  summary: string;
+  chapterTitle: string;
+  chapterNumber?: number;
+  instruction?: string;
+  model?: string;
+}
+
+export async function expandFromSummary(request: SummaryExpandRequest): Promise<string> {
+  const prompt = `你是一位专业的剧本编剧助手。请根据以下章节摘要，扩写成完整的剧本内容。
+
+章节标题：${request.chapterTitle}
+${request.chapterNumber ? `章节序号：第${request.chapterNumber}章` : ''}
+
+章节摘要：
+${request.summary}
+
+${request.instruction ? `扩写要求：${request.instruction}` : ''}
+
+请按照以下 Markdown 格式输出剧本内容：
+
+## 场景X：地点 - 时间 - 内/外景
+
+场景描述文字...
+
+---
+
+**角色名**：（动作/表情）对白内容
+
+**角色名**：对白内容
+
+---
+
+## 场景Y：...
+
+格式说明：
+- 使用 ## 标记场景标题
+- 使用 --- 分隔不同场景
+- 使用 **角色名**： 标记对白
+- 使用（）标记动作或表情说明
+- 场景描述使用普通段落
+- 每个段落之间用空行分隔
+
+请直接输出 Markdown 格式的剧本内容，不要添加任何解释。`;
+
+  const result = await generateText({
+    prompt,
+    model: request.model,
+    temperature: 0.8,
+    maxTokens: 4096,
+  });
+
+  return result.text;
+}
+
 export async function analyzeScriptStructure(content: string): Promise<{
   chapters: { title: string; summary: string }[];
   characters: { name: string; description: string }[];
@@ -257,4 +312,163 @@ export async function getActiveTextModelStatus(): Promise<ActiveTextModelStatus>
     return { active: false };
   }
   return await invoke<ActiveTextModelStatus>('get_active_text_model_status');
+}
+
+export interface BranchGenerationRequest {
+  chapterContent: string;
+  chapterTitle: string;
+  chapterNumber: number;
+  branchCount: number;
+  storyContext?: string;
+}
+
+export interface GeneratedBranch {
+  title: string;
+  summary: string;
+  condition: string;
+  conditionType: 'choice' | 'random' | 'condition';
+  content: string;
+}
+
+export async function generateBranches(request: BranchGenerationRequest): Promise<GeneratedBranch[]> {
+  const prompt = `你是一位专业的剧本编剧助手。请根据以下章节内容，生成 ${request.branchCount} 个不同的剧情分支走向。
+
+当前章节：第${request.chapterNumber}章 ${request.chapterTitle}
+
+章节内容/摘要：
+${request.chapterContent}
+
+${request.storyContext ? `故事背景：${request.storyContext}` : ''}
+
+请生成 ${request.branchCount} 个不同的剧情走向，每个分支应该：
+1. 有一个吸引人的标题（简短有力）
+2. 有 50-100 字的摘要描述剧情发展
+3. 有一个触发条件（如"选择A"、"如果..."、"随机触发"等）
+4. 有 200-400 字的剧本内容（使用 Markdown 格式）
+
+剧本内容格式要求：
+## 场景X：地点 - 时间 - 内/外景
+
+场景描述文字...
+
+---
+
+**角色名**：（动作/表情）对白内容
+
+---
+
+以 JSON 数组格式输出，不要添加任何解释：
+[
+  {
+    "title": "分支标题",
+    "summary": "分支摘要描述...",
+    "condition": "触发条件描述",
+    "conditionType": "choice",
+    "content": "## 场景一：...\\n\\n场景描述...\\n\\n---\\n\\n**角色**：对白..."
+  }
+]
+
+conditionType 说明：
+- choice: 玩家/读者主动选择
+- random: 随机触发
+- condition: 特定条件满足时触发`;
+
+  const result = await generateText({
+    prompt,
+    temperature: 0.9,
+    maxTokens: 4096,
+  });
+
+  try {
+    const jsonMatch = result.text.match(/\[[\s\S]*\]/);
+    if (jsonMatch) {
+      const branches = JSON.parse(jsonMatch[0]) as GeneratedBranch[];
+      return branches.map(branch => ({
+        ...branch,
+        conditionType: branch.conditionType || 'choice',
+        content: branch.content || '',
+      }));
+    }
+  } catch (e) {
+    console.error('[AI] Failed to parse branches result', e);
+  }
+
+  return [];
+}
+
+export interface MergedBranchContent {
+  title: string;
+  content: string;
+  summary: string;
+  branchIndex?: number;
+  chapterNumber?: number;
+  branchLabel?: string;
+}
+
+export interface MergedExpandRequest {
+  chapterTitle: string;
+  chapterNumber?: number;
+  summary: string;
+  mergedBranches: MergedBranchContent[];
+  instruction?: string;
+}
+
+export async function expandFromMergedBranches(request: MergedExpandRequest): Promise<string> {
+  const branchesText = request.mergedBranches.map((b, i) => `
+【分支${String.fromCharCode(65 + i)}：${b.title}】
+${b.content || b.summary}
+`).join('\n');
+
+  const prompt = `你是一位专业的剧本编剧助手。请根据以下内容，生成融合后的章节内容。
+
+章节标题：${request.chapterTitle}
+${request.chapterNumber ? `章节序号：第${request.chapterNumber}章` : ''}
+
+章节摘要：
+${request.summary}
+
+以下是合并到此章节的多个分支剧情，请综合考虑这些内容进行创作：
+${branchesText}
+
+${request.instruction ? `创作要求：${request.instruction}` : ''}
+
+请创作一个融合了多个分支走向的章节内容，要求：
+1. 保持剧情的连贯性和合理性
+2. 可以选择性地融合各分支的精彩元素
+3. 或者选择其中一个分支作为主线继续发展
+4. 如果分支内容有冲突，选择最合理的走向
+
+请按照以下 Markdown 格式输出剧本内容：
+
+## 场景X：地点 - 时间 - 内/外景
+
+场景描述文字...
+
+---
+
+**角色名**：（动作/表情）对白内容
+
+**角色名**：对白内容
+
+---
+
+## 场景Y：...
+
+格式说明：
+- 使用 ## 标记场景标题
+- 使用 --- 分隔不同场景
+- 使用 **角色名**： 标记对白
+- 使用（）标记动作或表情说明
+- 场景描述使用普通段落
+- 每个段落之间用空行分隔
+
+请直接输出 Markdown 格式的剧本内容，不要添加任何解释。`;
+
+  const result = await generateText({
+    prompt,
+    temperature: 0.8,
+    maxTokens: 4096,
+  });
+
+  return result.text;
 }

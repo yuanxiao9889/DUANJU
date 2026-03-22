@@ -1,14 +1,13 @@
 import { useState, useMemo, useCallback } from 'react';
 import { useReactFlow } from '@xyflow/react';
-import { ChevronDown, ChevronRight, ChevronLeft, ChevronRight as ExpandIcon, Users, MapPin, Package, Link2, FileText, Upload, Plus, Pencil, Download, Sparkles, Globe, Eye } from 'lucide-react';
+import { ChevronDown, ChevronRight, ChevronLeft, ChevronRight as ExpandIcon, Users, MapPin, Package, Link2, FileText, Plus, Pencil, Download, Sparkles, Globe, Eye, FilePlus } from 'lucide-react';
 import { useProjectStore } from '@/stores/projectStore';
 import { useCanvasStore } from '@/stores/canvasStore';
-import { parseDocument } from '../application/documentParser';
-import { analyzeScript, createChapterNodesFromAnalysis } from '../application/scriptAnalyzer';
 import { extractAssetsFromChapters } from '../application/assetExtractor';
 import { AssetEditDialog, type AssetType } from './AssetEditDialog';
 import { BranchSelectionDialog } from './BranchSelectionDialog';
 import { PlotTreeView } from './PlotTreeView';
+import { ChapterCountDialog } from './ChapterCountDialog';
 import {
   CANVAS_NODE_TYPES,
   type ScriptChapterNodeData,
@@ -18,7 +17,6 @@ import {
   type ScriptPlotPointNodeData,
   type ScriptWorldviewNodeData,
 } from '../domain/canvasNodes';
-import { v4 as uuidv4 } from 'uuid';
 
 interface CollapsibleSectionProps {
   title: string;
@@ -108,9 +106,9 @@ function AssetItem({ label, description, onClick, onEdit, onShowOnCanvas, showOn
 
 export function ScriptBiblePanel() {
   const currentProject = useProjectStore((state) => state.getCurrentProject());
-  const { nodes, addNode, addEdge } = useCanvasStore();
+  const { nodes, addNode } = useCanvasStore();
   const { setCenter } = useReactFlow();
-  const [isImporting, setIsImporting] = useState(false);
+  const [showChapterCountDialog, setShowChapterCountDialog] = useState(false);
   const [showExportDialog, setShowExportDialog] = useState(false);
   const [isPanelCollapsed, setIsPanelCollapsed] = useState(false);
   const [isExtracting, setIsExtracting] = useState(false);
@@ -230,42 +228,66 @@ export function ScriptBiblePanel() {
     }
   }, [nodes, setCenter]);
 
-  const handleImport = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    
-    setIsImporting(true);
-    try {
-      const parsed = await parseDocument(file);
-      const analysis = await analyzeScript(parsed);
-      const projectId = uuidv4();
-      const chapterNodes = createChapterNodesFromAnalysis(analysis, projectId);
-      
-      const rootNode = {
-        id: projectId,
-        type: CANVAS_NODE_TYPES.scriptRoot,
-        data: {
-          displayName: '剧本',
-          title: parsed.title,
-          genre: '',
-          totalChapters: chapterNodes.length,
-        },
-        position: { x: 50, y: 100 },
-      };
+  const handleImportScript = useCallback(() => {
+    setShowChapterCountDialog(true);
+  }, []);
 
-      addNode(CANVAS_NODE_TYPES.scriptRoot, { x: 50, y: 100 }, rootNode.data);
+  const handleChapterCountConfirm = useCallback((count: number) => {
+    const CHAPTER_NODE_HEIGHT = 380;
+    const ROOT_NODE_WIDTH = 320;
+    const ROOT_NODE_HEIGHT = 120;
+    const GAP = 60;
+    const HORIZONTAL_GAP = 150;
+
+    // 计算章节列表的总高度
+    const totalChaptersHeight = count * CHAPTER_NODE_HEIGHT + (count - 1) * GAP;
+    
+    // 章节起始Y坐标（从100开始）
+    const chapterStartY = 100;
+    
+    // 根节点垂直居中：章节列表中心 - 根节点高度/2
+    const rootY = chapterStartY + totalChaptersHeight / 2 - ROOT_NODE_HEIGHT / 2;
+    // 根节点在章节左侧，保持横向间距
+    const rootX = 100;
+    
+    // 章节节点在根节点右侧
+    const chapterX = rootX + ROOT_NODE_WIDTH + HORIZONTAL_GAP;
+
+    addNode(CANVAS_NODE_TYPES.scriptRoot, { x: rootX, y: rootY }, {
+      displayName: '剧本',
+      title: '新剧本',
+      genre: '',
+      totalChapters: count,
+    });
+
+    for (let i = 1; i <= count; i++) {
+      const position = {
+        x: chapterX,
+        y: chapterStartY + (i - 1) * (CHAPTER_NODE_HEIGHT + GAP),
+      };
       
-      chapterNodes.forEach((chapter) => {
-        addNode(chapter.type as any, chapter.position, chapter.data);
-        addEdge(projectId, chapter.id);
-      });
-    } catch (err) {
-      console.error('Import failed:', err);
-    } finally {
-      setIsImporting(false);
-      e.target.value = '';
+      addNode(CANVAS_NODE_TYPES.scriptChapter, position, {
+        displayName: `第${i}章`,
+        chapterNumber: i,
+        title: `第${i}章`,
+        content: '',
+        summary: '',
+        sceneHeadings: [],
+        characters: [],
+        locations: [],
+        items: [],
+        emotionalShift: '',
+        isBranchPoint: false,
+        branchType: 'main',
+        depth: 1,
+        tables: [],
+        plotPoints: [],
+      } as ScriptChapterNodeData);
     }
-  }, [addNode, addEdge]);
+
+    setShowChapterCountDialog(false);
+    console.log(`[ScriptImport] 创建了 ${count} 个章节节点`);
+  }, [addNode]);
 
   const handleAddAsset = useCallback((type: AssetType) => {
     setEditDialogState({ isOpen: true, assetType: type });
@@ -301,13 +323,10 @@ export function ScriptBiblePanel() {
 
   return (
     <div className="w-64 h-full bg-surface-dark border-r border-border-dark overflow-hidden flex flex-col transition-all duration-300">
-      <input
-        type="file"
-        accept=".txt,.pdf,.docx,.doc"
-        onChange={handleImport}
-        disabled={isImporting}
-        className="hidden"
-        id="script-import-trigger"
+      <ChapterCountDialog
+        isOpen={showChapterCountDialog}
+        onClose={() => setShowChapterCountDialog(false)}
+        onConfirm={handleChapterCountConfirm}
       />
       <div className="sticky top-0 bg-surface-dark border-b border-border-dark px-3 py-2 flex items-center justify-between z-10">
         <div className="flex items-center gap-2 flex-1">
@@ -330,13 +349,13 @@ export function ScriptBiblePanel() {
           >
             <Download className="w-4 h-4" />
           </button>
-          <label
-            htmlFor="script-import-trigger"
-            className="p-1 rounded hover:bg-bg-dark cursor-pointer"
-            title="导入剧本"
-          >
-            <Upload className="w-4 h-4 text-text-muted" />
-          </label>
+          <button
+                onClick={handleImportScript}
+                className="p-1 rounded hover:bg-bg-dark cursor-pointer"
+                title="导入剧本"
+              >
+                <FilePlus className="w-4 h-4 text-text-muted" />
+              </button>
           <button
             onClick={handlePanelCollapse}
             className="p-1 rounded hover:bg-bg-dark text-text-muted hover:text-text-dark"

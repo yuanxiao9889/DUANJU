@@ -11,6 +11,7 @@ import { CANVAS_NODE_TYPES } from '@/features/canvas/domain/canvasNodes';
 import { useCanvasStore } from '@/stores/canvasStore';
 import { useSettingsStore } from '@/stores/settingsStore';
 import { buildOrthogonalRoute } from './edgeRouting';
+import { EdgeParticles } from './EdgeParticles';
 
 export const DisconnectableEdge = memo(function DisconnectableEdge(props: EdgeProps) {
   const {
@@ -30,6 +31,13 @@ export const DisconnectableEdge = memo(function DisconnectableEdge(props: EdgePr
   const deleteEdge = useCanvasStore((state) => state.deleteEdge);
   const nodes = useCanvasStore((state) => state.nodes);
   const canvasEdgeRoutingMode = useSettingsStore((state) => state.canvasEdgeRoutingMode);
+
+  const isTargetNodeSelected = useMemo(() => {
+    const targetNode = nodes.find((node) => node.id === target);
+    return targetNode?.selected === true;
+  }, [nodes, target]);
+
+  const isRelatedHighlight = selected || isTargetNodeSelected;
 
   const { edgePath, labelX, labelY } = useMemo(() => {
     if (canvasEdgeRoutingMode === 'spline') {
@@ -101,18 +109,33 @@ export const DisconnectableEdge = memo(function DisconnectableEdge(props: EdgePr
 
   const processingStroke = 'rgb(var(--accent-rgb) / 0.94)';
   const processingDashStroke = 'rgb(var(--accent-rgb) / 1)';
+  const defaultStroke = isRelatedHighlight
+    ? 'rgb(var(--accent-rgb) / 0.85)'
+    : 'rgb(var(--text-muted-rgb) / 0.55)';
   const baseStrokeWidth = isProcessingEdge
-    ? (selected ? 2.7 : 2.2)
-    : (selected ? 2.4 : 1.9);
+    ? (isRelatedHighlight ? 2.8 : 2.3)
+    : (isRelatedHighlight ? 2.5 : 2);
+
+  const showParticles = isRelatedHighlight || isProcessingEdge;
+  const particleColor = isRelatedHighlight ? '#3B82F6' : '#3B82F6';
 
   return (
     <>
+      <path
+        d={edgePath}
+        fill="none"
+        stroke={isRelatedHighlight ? 'rgb(var(--accent-rgb) / 0.3)' : 'rgb(var(--accent-rgb) / 0.15)'}
+        strokeWidth={isRelatedHighlight ? 8 : 6}
+        strokeLinecap="round"
+        className={isRelatedHighlight ? 'canvas-edge-glow' : ''}
+        style={{ pointerEvents: 'none' }}
+      />
       {isProcessingEdge && (
         <path
           d={edgePath}
           fill="none"
           stroke={processingDashStroke}
-          strokeWidth={selected ? 2.5 : 2.1}
+          strokeWidth={isRelatedHighlight ? 3.5 : 3}
           strokeLinecap="round"
           strokeDasharray="8 10"
           className="canvas-processing-edge__flow"
@@ -124,11 +147,21 @@ export const DisconnectableEdge = memo(function DisconnectableEdge(props: EdgePr
         path={edgePath}
         markerEnd={markerEnd}
         style={{
-          stroke: isProcessingEdge ? processingStroke : style?.stroke,
+          stroke: isProcessingEdge ? processingStroke : (style?.stroke ?? defaultStroke),
           strokeWidth: baseStrokeWidth,
           ...style,
         }}
       />
+      {showParticles && (
+        <EdgeParticles
+          path={edgePath}
+          particleCount={5}
+          particleSize={3}
+          duration={2}
+          color={particleColor}
+          opacity={0.7}
+        />
+      )}
       {selected && (
         <EdgeLabelRenderer>
           <button

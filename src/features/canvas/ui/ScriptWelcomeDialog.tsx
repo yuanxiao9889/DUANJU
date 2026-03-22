@@ -1,15 +1,15 @@
 import { useState, useCallback, useEffect } from 'react';
-import { FileText, Sparkles, Upload, Wand2 } from 'lucide-react';
+import { FileText, Sparkles, Upload, Wand2, ArrowLeft } from 'lucide-react';
 import { useCanvasStore } from '@/stores/canvasStore';
 import { useSettingsStore } from '@/stores/settingsStore';
-import { parseDocument, detectCharacterNames, detectLocations } from '../application/documentParser';
-import { analyzeScript, createChapterNodesFromAnalysis } from '../application/scriptAnalyzer';
+import { useProjectStore } from '@/stores/projectStore';
 import { generateOutline } from '../application/outlineGenerator';
 import { CANVAS_NODE_TYPES } from '../domain/canvasNodes';
 import { UiButton } from '@/components/ui/primitives';
 import { openSettingsDialog } from '@/features/settings/settingsEvents';
 import { OutlineConfirmDialog, type OutlineGenerationOptions } from './OutlineConfirmDialog';
 import type { StoryOutline } from '../application/outlineGenerator';
+import { ChapterCountDialog } from './ChapterCountDialog';
 
 interface ScriptWelcomeDialogProps {
   isOpen: boolean;
@@ -19,13 +19,14 @@ interface ScriptWelcomeDialogProps {
 export function ScriptWelcomeDialog({ isOpen, onClose }: ScriptWelcomeDialogProps) {
   const { addNode, addEdge } = useCanvasStore();
   const { scriptProviderEnabled, apiKeys } = useSettingsStore();
+  const closeProject = useProjectStore((state) => state.closeProject);
   const [mode, setMode] = useState<'select' | 'import' | 'create'>('select');
   const [storyOutline, setStoryOutline] = useState('');
-  const [isProcessing, setIsProcessing] = useState(false);
   const [outlineDialogOpen, setOutlineDialogOpen] = useState(false);
   const [generatedOutline, setGeneratedOutline] = useState<StoryOutline | null>(null);
   const [isGeneratingOutline, setIsGeneratingOutline] = useState(false);
   const [chapterCount, setChapterCount] = useState(5);
+  const [showChapterCountDialog, setShowChapterCountDialog] = useState(false);
   const hasScriptProvider = scriptProviderEnabled && apiKeys[scriptProviderEnabled];
 
   useEffect(() => {
@@ -58,17 +59,28 @@ export function ScriptWelcomeDialog({ isOpen, onClose }: ScriptWelcomeDialogProp
   }, [storyOutline, hasScriptProvider]);
 
   const handleConfirmOutline = useCallback((outline: StoryOutline, options: OutlineGenerationOptions) => {
-    const rootId = addNode(CANVAS_NODE_TYPES.scriptRoot, { x: 50, y: 100 }, {
+    const CHAPTER_NODE_HEIGHT = 380;
+    const ROOT_NODE_WIDTH = 320;
+    const ROOT_NODE_HEIGHT = 120;
+    const GAP = 60;
+    const HORIZONTAL_GAP = 150;
+
+    const chapterCount = outline.chapters.length;
+    const totalChaptersHeight = chapterCount * CHAPTER_NODE_HEIGHT + (chapterCount - 1) * GAP;
+    const chapterStartY = 100;
+    const rootY = chapterStartY + totalChaptersHeight / 2 - ROOT_NODE_HEIGHT / 2;
+    const rootX = 100;
+    const chapterX = rootX + ROOT_NODE_WIDTH + HORIZONTAL_GAP;
+
+    const rootId = addNode(CANVAS_NODE_TYPES.scriptRoot, { x: rootX, y: rootY }, {
       displayName: '剧本',
       title: outline.title,
       genre: outline.genre || '',
-      totalChapters: outline.chapters.length,
+      totalChapters: chapterCount,
     });
 
-    const NODE_HEIGHT = 400;
-    const GAP = 40;
     outline.chapters.forEach((chapter, index) => {
-      const chapterId = addNode(CANVAS_NODE_TYPES.scriptChapter, { x: 500, y: 100 + index * (NODE_HEIGHT + GAP) }, {
+      const chapterId = addNode(CANVAS_NODE_TYPES.scriptChapter, { x: chapterX, y: chapterStartY + index * (CHAPTER_NODE_HEIGHT + GAP) }, {
         displayName: `第${chapter.number}章 ${chapter.title}`,
         chapterNumber: chapter.number,
         title: chapter.title,
@@ -125,56 +137,70 @@ export function ScriptWelcomeDialog({ isOpen, onClose }: ScriptWelcomeDialogProp
     handleGenerateOutline({ chapterCount, style: '', worldviewDescription: '' });
   }, [storyOutline, hasScriptProvider, chapterCount, handleGenerateOutline]);
 
-  const handleImport = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
+  const handleImport = useCallback(() => {
+    setShowChapterCountDialog(true);
+  }, []);
+
+  const handleChapterCountConfirm = useCallback((count: number) => {
+    const CHAPTER_NODE_HEIGHT = 380;
+    const ROOT_NODE_WIDTH = 320;
+    const ROOT_NODE_HEIGHT = 120;
+    const GAP = 60;
+    const HORIZONTAL_GAP = 150;
+
+    // 计算章节列表的总高度
+    const totalChaptersHeight = count * CHAPTER_NODE_HEIGHT + (count - 1) * GAP;
     
-    setIsProcessing(true);
-    try {
-      const parsed = await parseDocument(file);
-      const analysis = await analyzeScript(parsed);
-      const chapterNodes = createChapterNodesFromAnalysis(analysis, '');
+    // 章节起始Y坐标（从100开始）
+    const chapterStartY = 100;
+    
+    // 根节点垂直居中：章节列表中心 - 根节点高度/2
+    const rootY = chapterStartY + totalChaptersHeight / 2 - ROOT_NODE_HEIGHT / 2;
+    // 根节点在章节左侧，保持横向间距
+    const rootX = 100;
+    
+    // 章节节点在根节点右侧
+    const chapterX = rootX + ROOT_NODE_WIDTH + HORIZONTAL_GAP;
+
+    const rootId = addNode(CANVAS_NODE_TYPES.scriptRoot, { x: rootX, y: rootY }, {
+      displayName: '剧本',
+      title: '新剧本',
+      genre: '',
+      totalChapters: count,
+    });
+
+    for (let i = 1; i <= count; i++) {
+      const position = {
+        x: chapterX,
+        y: chapterStartY + (i - 1) * (CHAPTER_NODE_HEIGHT + GAP),
+      };
       
-      const rootId = addNode(CANVAS_NODE_TYPES.scriptRoot, { x: 50, y: 100 }, {
-        displayName: '剧本',
-        title: parsed.title,
-        genre: '',
-        totalChapters: chapterNodes.length,
+      const chapterId = addNode(CANVAS_NODE_TYPES.scriptChapter, position, {
+        displayName: `第${i}章`,
+        chapterNumber: i,
+        title: `第${i}章`,
+        content: '',
+        summary: '',
+        sceneHeadings: [],
+        characters: [],
+        locations: [],
+        items: [],
+        emotionalShift: '',
+        isBranchPoint: false,
+        branchType: 'main',
+        depth: 1,
+        tables: [],
+        plotPoints: [],
       });
-
-      const characterNames = detectCharacterNames(parsed.scenes);
-      const locations = detectLocations(parsed.scenes);
-
-      chapterNodes.forEach((chapter) => {
-        const chapterId = addNode(chapter.type as any, chapter.position, chapter.data);
-        if (rootId && chapterId) {
-          addEdge(rootId, chapterId);
-        }
-      });
-
-      characterNames.forEach((name, index) => {
-        addNode(CANVAS_NODE_TYPES.scriptCharacter, { x: 600, y: 100 + index * 120 }, {
-          displayName: name,
-          name,
-          description: '',
-        });
-      });
-
-      locations.forEach((name, index) => {
-        addNode(CANVAS_NODE_TYPES.scriptLocation, { x: 850, y: 100 + index * 120 }, {
-          displayName: name,
-          name,
-          description: '',
-        });
-      });
-
-      onClose();
-    } catch (err) {
-      console.error('Import failed:', err);
-    } finally {
-      setIsProcessing(false);
-      e.target.value = '';
+      
+      if (rootId && chapterId) {
+        addEdge(rootId, chapterId);
+      }
     }
+
+    setShowChapterCountDialog(false);
+    onClose();
+    console.log(`[ScriptImport] 创建了 ${count} 个章节节点`);
   }, [addNode, addEdge, onClose]);
 
   if (!isOpen) return null;
@@ -228,32 +254,38 @@ export function ScriptWelcomeDialog({ isOpen, onClose }: ScriptWelcomeDialogProp
                 </div>
               </div>
             </button>
+
+            <div className="pt-4 border-t border-border-dark">
+              <button
+                onClick={() => {
+                  closeProject();
+                }}
+                className="w-full p-3 flex items-center justify-center gap-2 text-text-muted hover:text-text-dark hover:bg-bg-dark rounded-lg transition-colors"
+              >
+                <ArrowLeft className="w-4 h-4" />
+                <span className="text-sm">返回项目管理页面</span>
+              </button>
+            </div>
           </div>
         )}
 
         {mode === 'import' && (
           <div className="p-6 space-y-4">
-            <div className="border-2 border-dashed border-border-dark rounded-lg p-8 text-center">
-              <input
-                type="file"
-                accept=".txt,.pdf,.docx,.doc"
-                onChange={handleImport}
-                disabled={isProcessing}
-                className="hidden"
-                id="welcome-import-trigger"
-              />
-              <label
-                htmlFor="welcome-import-trigger"
-                className="cursor-pointer"
-              >
-                <FileText className="w-12 h-12 text-text-muted mx-auto mb-3" />
-                <div className="text-sm text-text-dark mb-1">
-                  点击选择文件或拖拽到此处
-                </div>
-                <div className="text-xs text-text-muted">
-                  支持 TXT、PDF、Word 格式
-                </div>
-              </label>
+            <ChapterCountDialog
+              isOpen={showChapterCountDialog}
+              onClose={() => setShowChapterCountDialog(false)}
+              onConfirm={handleChapterCountConfirm}
+            />
+            
+            <div className="text-center py-8">
+              <FileText className="w-16 h-16 text-accent/50 mx-auto mb-4" />
+              <h3 className="text-lg font-medium text-text-dark mb-2">创建空白剧本</h3>
+              <p className="text-sm text-text-muted mb-6">
+                输入章节数量，系统将创建对应数量的空章节节点，您可以自行填写内容
+              </p>
+              <UiButton variant="primary" onClick={handleImport}>
+                开始创建
+              </UiButton>
             </div>
 
             <div className="flex gap-2">
@@ -310,16 +342,16 @@ export function ScriptWelcomeDialog({ isOpen, onClose }: ScriptWelcomeDialogProp
               <UiButton
                 variant="primary"
                 onClick={handleCreateStory}
-                disabled={!storyOutline.trim() || isProcessing}
+                disabled={!storyOutline.trim() || isGeneratingOutline}
                 className="flex-1"
               >
-                {isProcessing ? 'AI 生成中...' : (hasScriptProvider ? '生成大纲' : '配置 API')}
+                {isGeneratingOutline ? 'AI 生成中...' : (hasScriptProvider ? '生成大纲' : '配置 API')}
               </UiButton>
             </div>
           </div>
         )}
 
-        {isProcessing && (
+        {isGeneratingOutline && (
           <div className="absolute inset-0 bg-surface-dark/80 flex items-center justify-center rounded-xl">
             <div className="text-center">
               <div className="animate-spin w-8 h-8 border-2 border-amber-500 border-t-transparent rounded-full mx-auto mb-2" />

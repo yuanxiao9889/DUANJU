@@ -7,6 +7,7 @@ import { StoryboardGenNode } from './StoryboardGenNode';
 import { StoryboardNode } from './StoryboardNode';
 import { TextAnnotationNode } from './TextAnnotationNode';
 import { UploadNode } from './UploadNode';
+import { VideoNode } from './VideoNode';
 import { ScriptRootNode } from './ScriptRootNode';
 import { ScriptChapterNode } from './ScriptChapterNode';
 import { ScriptWorldviewNode } from './ScriptWorldviewNode';
@@ -23,6 +24,7 @@ export const nodeTypes: NodeTypes = {
   storyboardNode: StoryboardNode,
   textAnnotationNode: TextAnnotationNode,
   uploadNode: UploadNode,
+  videoNode: VideoNode,
   scriptRootNode: ScriptRootNode,
   scriptChapterNode: ScriptChapterNode,
   scriptWorldviewNode: ScriptWorldviewNode,
@@ -40,6 +42,7 @@ export {
   StoryboardNode, 
   TextAnnotationNode, 
   UploadNode, 
+  VideoNode,
   ScriptRootNode, 
   ScriptChapterNode, 
   ScriptWorldviewNode,

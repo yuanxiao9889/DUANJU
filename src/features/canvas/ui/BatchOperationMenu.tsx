@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, useMemo, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Image, Upload, Sparkles, LayoutGrid, Type, X } from 'lucide-react';
+import { Image, Upload, Sparkles, LayoutGrid, Type, X, Video } from 'lucide-react';
 import { UI_POPOVER_TRANSITION_MS } from '@/components/ui/motion';
 
 import type { CanvasNodeType } from '@/features/canvas/domain/canvasNodes';
@@ -20,6 +20,7 @@ const iconMap: Record<MenuIconKey, typeof Upload> = {
   sparkles: Sparkles,
   layout: LayoutGrid,
   text: Type,
+  video: Video,
 };
 
 export function BatchOperationMenu({

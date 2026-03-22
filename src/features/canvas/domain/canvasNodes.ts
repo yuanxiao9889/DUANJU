@@ -8,6 +8,7 @@ export const CANVAS_NODE_TYPES = {
   group: 'groupNode',
   storyboardSplit: 'storyboardNode',
   storyboardGen: 'storyboardGenNode',
+  video: 'videoNode',
   scriptRoot: 'scriptRootNode',
   scriptChapter: 'scriptChapterNode',
   scriptCharacter: 'scriptCharacterNode',
@@ -73,6 +74,15 @@ export interface GroupNodeData extends NodeDisplayData {
 
 export interface TextAnnotationNodeData extends NodeDisplayData {
   content: string;
+  [key: string]: unknown;
+}
+
+export interface VideoNodeData extends NodeDisplayData {
+  videoUrl: string | null;
+  videoFileName?: string | null;
+  aspectRatio: string;
+  duration?: number;
+  isSizeManuallyAdjusted?: boolean;
   [key: string]: unknown;
 }
 
@@ -205,6 +215,8 @@ export interface ScriptChapterNodeData extends NodeDisplayData {
   parentId?: string;
   branchIndex?: number;
   depth?: number;
+  isMergePoint?: boolean;
+  mergedFromBranches?: string[];
 }
 
 export interface ScriptCharacterNodeData extends NodeDisplayData {
@@ -254,6 +266,7 @@ export type CanvasNodeData =
   | ImageEditNodeData
   | StoryboardSplitNodeData
   | StoryboardGenNodeData
+  | VideoNodeData
   | ScriptRootNodeData
   | ScriptChapterNodeData
   | ScriptCharacterNodeData
@@ -319,6 +332,12 @@ export function isTextAnnotationNode(
   node: CanvasNode | null | undefined
 ): node is Node<TextAnnotationNodeData, typeof CANVAS_NODE_TYPES.textAnnotation> {
   return node?.type === CANVAS_NODE_TYPES.textAnnotation;
+}
+
+export function isVideoNode(
+  node: CanvasNode | null | undefined
+): node is Node<VideoNodeData, typeof CANVAS_NODE_TYPES.video> {
+  return node?.type === CANVAS_NODE_TYPES.video;
 }
 
 export function isStoryboardSplitNode(
@@ -393,6 +412,7 @@ export function nodeHasImage(node: CanvasNode | null | undefined): boolean {
   }
 
   if (
+    isVideoNode(node) ||
     isScriptRootNode(node) ||
     isScriptChapterNode(node) ||
     isScriptCharacterNode(node) ||

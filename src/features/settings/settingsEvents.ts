@@ -4,6 +4,7 @@ export type SettingsCategory =
   | 'appearance'
   | 'general'
   | 'experimental'
+  | 'psIntegration'
   | 'about';
 
 interface OpenSettingsEventDetail {

@@ -1,6 +1,6 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { NodeToolbar as ReactFlowNodeToolbar } from '@xyflow/react';
-import { Copy, Crop, Download, FolderOpen, PenLine, RefreshCw, Scissors, Trash2, Unlink2, Table, Upload, Sparkles } from 'lucide-react';
+import { Copy, Crop, Download, FolderOpen, PenLine, RefreshCw, Scissors, Trash2, Unlink2, Table, Upload, Sparkles, Send, Check } from 'lucide-react';
 import { save } from '@tauri-apps/plugin-dialog';
 import { useTranslation } from 'react-i18next';
 
@@ -24,8 +24,10 @@ import {
   saveImageSourceToDirectory,
   saveImageSourceToPath,
 } from '@/commands/image';
+import { sendImageToPhotoshop } from '@/commands/psIntegration';
 import { useSettingsStore } from '@/stores/settingsStore';
 import { useCanvasStore } from '@/stores/canvasStore';
+import { usePsIntegrationStore } from '@/stores/psIntegrationStore';
 import { UI_POPOVER_TRANSITION_MS } from '@/components/ui/motion';
 import { sanitizeStoryboardText } from '@/features/canvas/application/storyboardText';
 import { buildGenerationErrorReport } from '@/features/canvas/application/generationErrorReport';
@@ -80,11 +82,14 @@ export const NodeActionToolbar = memo(({ node }: NodeActionToolbarProps) => {
   const ignoreAtTagWhenCopyingAndGenerating = useSettingsStore(
     (state) => state.ignoreAtTagWhenCopyingAndGenerating
   );
+  const psServerStatus = usePsIntegrationStore((state) => state.serverStatus);
   const [downloadMenu, setDownloadMenu] = useState<{ x: number; y: number } | null>(null);
   const [isDownloadMenuVisible, setIsDownloadMenuVisible] = useState(false);
   const [isCopySuccess, setIsCopySuccess] = useState(false);
   const [isCopyTextSuccess, setIsCopyTextSuccess] = useState(false);
   const [isCopyErrorSuccess, setIsCopyErrorSuccess] = useState(false);
+  const [isSendingToPs, setIsSendingToPs] = useState(false);
+  const [isPsSendSuccess, setIsPsSendSuccess] = useState(false);
   const downloadMenuRef = useRef<HTMLDivElement | null>(null);
   const copyFeedbackTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const copyTextFeedbackTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -281,6 +286,40 @@ export const NodeActionToolbar = memo(({ node }: NodeActionToolbarProps) => {
     }
   }, [canCopyGenerationError, generationErrorReport]);
 
+  const handleSendToPs = useCallback(async () => {
+    if (!imageSource) {
+      console.warn('handleSendToPs: no imageSource');
+      return;
+    }
+    
+    if (!psServerStatus.running) {
+      console.warn('handleSendToPs: PS server not running');
+      return;
+    }
+    
+    if (!psServerStatus.ps_connected) {
+      console.warn('handleSendToPs: PS not connected');
+      return;
+    }
+
+    console.log('handleSendToPs: sending image...', imageSource.substring(0, 50));
+    setIsSendingToPs(true);
+    setIsPsSendSuccess(false);
+
+    try {
+      await sendImageToPhotoshop(imageSource);
+      console.log('handleSendToPs: success');
+      setIsPsSendSuccess(true);
+      setTimeout(() => {
+        setIsPsSendSuccess(false);
+      }, 1500);
+    } catch (error) {
+      console.error('Failed to send image to Photoshop:', error);
+    } finally {
+      setIsSendingToPs(false);
+    }
+  }, [imageSource, psServerStatus.running, psServerStatus.ps_connected]);
+
   const handleDownloadSaveAs = useCallback(async () => {
     if (!imageSource) {
       return;
@@ -425,6 +464,35 @@ export const NodeActionToolbar = memo(({ node }: NodeActionToolbarProps) => {
           >
             <Download className="h-3.5 w-3.5" />
             {t('nodeToolbar.download')}
+          </UiChipButton>
+        )}
+        {!isImageEdit && canHandleImage && psServerStatus.running && (
+          <UiChipButton
+            key="send-to-ps"
+            className={`h-8 ${TOOLBAR_BUTTON_RADIUS_CLASS} px-2.5 text-xs ${
+              isPsSendSuccess
+                ? '!border-emerald-400/70 !bg-emerald-500/20 !text-emerald-200 hover:!bg-emerald-500/30'
+                : !psServerStatus.ps_connected
+                  ? '!border-gray-500/30 !bg-gray-500/10 !text-gray-400'
+                  : TOOLBAR_NEUTRAL_BUTTON_CLASS
+            }`}
+            onClick={(event) => {
+              event.stopPropagation();
+              if (psServerStatus.ps_connected) {
+                void handleSendToPs();
+              }
+            }}
+            disabled={isSendingToPs || !psServerStatus.ps_connected}
+            title={psServerStatus.ps_connected ? t('nodeToolbar.sendToPs') : t('nodeToolbar.psNotConnected')}
+          >
+            {isSendingToPs ? (
+              <RefreshCw className="h-3.5 w-3.5 animate-spin" />
+            ) : isPsSendSuccess ? (
+              <Check className="h-3.5 w-3.5" />
+            ) : (
+              <Send className="h-3.5 w-3.5" />
+            )}
+            {isPsSendSuccess ? t('nodeToolbar.sent') : (psServerStatus.ps_connected ? t('nodeToolbar.sendToPs') : t('nodeToolbar.psNotConnected'))}
           </UiChipButton>
         )}
         {!isImageEdit && isGroupNode(node) && (

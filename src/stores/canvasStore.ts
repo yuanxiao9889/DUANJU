@@ -27,6 +27,7 @@ import {
   type NodeToolType,
   type StoryboardExportOptions,
   type StoryboardFrameItem,
+  type ScriptChapterNodeData,
   isStoryboardSplitNode,
 } from '@/features/canvas/domain/canvasNodes';
 import {
@@ -101,18 +102,14 @@ interface CanvasState {
   // 网格设置
   snapToGrid: boolean;
   snapGridSize: number;
-  showGrid: boolean;
   setSnapToGrid: (enabled: boolean) => void;
   setSnapGridSize: (size: number) => void;
-  setShowGrid: (show: boolean) => void;
 
   // 节点对齐设置
   enableNodeAlignment: boolean;
   alignmentThreshold: number;
-  showAlignmentGuides: boolean;
   setEnableNodeAlignment: (enabled: boolean) => void;
   setAlignmentThreshold: (threshold: number) => void;
-  setShowAlignmentGuides: (show: boolean) => void;
 
   onNodesChange: (changes: NodeChange<CanvasNode>[]) => void;
   onEdgesChange: (changes: EdgeChange<CanvasEdge>[]) => void;
@@ -190,6 +187,8 @@ interface CanvasState {
 
   applyMindMapLayout: () => void;
   clearCanvas: () => void;
+
+  addImageFromBase64: (base64: string, width: number, height: number) => Promise<string>;
 }
 
 function normalizeHandleId(value: unknown): string | undefined {
@@ -600,12 +599,10 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
   // 网格设置默认值
   snapToGrid: true,
   snapGridSize: 20,
-  showGrid: true,
 
   // 节点对齐默认值
   enableNodeAlignment: true,
   alignmentThreshold: 10,
-  showAlignmentGuides: true,
 
   onNodesChange: (changes) => {
     set((state) => {
@@ -812,7 +809,6 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
 
   addEdge: (source, target) => {
     const state = get();
-    // Check if both nodes exist
     const sourceNode = state.nodes.find((n) => n.id === source);
     const targetNode = state.nodes.find((n) => n.id === target);
     if (!sourceNode || !targetNode) {
@@ -823,7 +819,6 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
     }
 
     const edgeId = `e-${source}-${target}`;
-    // Check if edge already exists
     if (state.edges.some((e) => e.id === edgeId)) {
       return edgeId;
     }
@@ -837,8 +832,53 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
       type: 'disconnectableEdge',
     };
 
+    const isBranchToChapterConnection =
+      sourceNode.type === CANVAS_NODE_TYPES.scriptChapter &&
+      targetNode.type === CANVAS_NODE_TYPES.scriptChapter &&
+      (sourceNode.data as ScriptChapterNodeData)?.branchType === 'branch';
+
+    console.log('[Debug addEdge] source:', source, 'target:', target, 'isBranchToChapterConnection:', isBranchToChapterConnection, 'sourceBranchType:', (sourceNode.data as ScriptChapterNodeData)?.branchType);
+
+    let updatedNodes = state.nodes;
+    if (isBranchToChapterConnection) {
+      const targetData = targetNode.data as ScriptChapterNodeData;
+      const existingMergedFrom = targetData.mergedFromBranches || [];
+      const newMergedFrom = [...new Set([...existingMergedFrom, source])];
+      console.log('[Debug addEdge] newMergedFrom:', newMergedFrom);
+
+      if (newMergedFrom.length >= 2) {
+        updatedNodes = state.nodes.map((n) => {
+          if (n.id === target) {
+            return {
+              ...n,
+              data: {
+                ...n.data,
+                isMergePoint: true,
+                mergedFromBranches: newMergedFrom,
+              },
+            };
+          }
+          return n;
+        });
+      } else {
+        updatedNodes = state.nodes.map((n) => {
+          if (n.id === target) {
+            return {
+              ...n,
+              data: {
+                ...n.data,
+                mergedFromBranches: newMergedFrom,
+              },
+            };
+          }
+          return n;
+        });
+      }
+    }
+
     set({
       edges: [...state.edges, newEdge],
+      nodes: updatedNodes,
     });
 
     return edgeId;
@@ -1857,10 +1897,6 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
     set({ snapGridSize: Math.max(5, Math.min(100, size)) });
   },
 
-  setShowGrid: (show) => {
-    set({ showGrid: show });
-  },
-
   setEnableNodeAlignment: (enabled) => {
     set({ enableNodeAlignment: enabled });
   },
@@ -1869,7 +1905,54 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
     set({ alignmentThreshold: Math.max(5, Math.min(50, threshold)) });
   },
 
-  setShowAlignmentGuides: (show) => {
-    set({ showAlignmentGuides: show });
+  addImageFromBase64: async (base64, width, height) => {
+    const { prepareNodeImageBinary } = await import('@/commands/image');
+    
+    const isJpeg = base64.startsWith('/9j/') || !base64.startsWith('iVBOR');
+    const base64Data = base64.replace(/^data:image\/\w+;base64,/, '');
+    const binaryString = atob(base64Data);
+    const bytes = new Uint8Array(binaryString.length);
+    for (let i = 0; i < binaryString.length; i += 1) {
+      bytes[i] = binaryString.charCodeAt(i);
+    }
+
+    const extension = isJpeg ? 'jpg' : 'png';
+    const result = await prepareNodeImageBinary(bytes, extension, 512);
+
+    const state = get();
+    const viewportCenterX = state.canvasViewportSize.width / 2;
+    const viewportCenterY = state.canvasViewportSize.height / 2;
+    const zoom = Math.max(0.01, state.currentViewport.zoom || 1);
+    const centerX = (-state.currentViewport.x + viewportCenterX) / zoom;
+    const centerY = (-state.currentViewport.y + viewportCenterY) / zoom;
+
+    const aspectRatio = `${width}:${height}`;
+    const nodeSize = resolveGeneratedImageNodeDimensions(aspectRatio);
+
+    const node = canvasNodeFactory.createNode(CANVAS_NODE_TYPES.upload, { x: centerX - nodeSize.width / 2, y: centerY - nodeSize.height / 2 }, {
+      imageUrl: result.imagePath,
+      previewImageUrl: result.previewImagePath,
+      aspectRatio: result.aspectRatio,
+    });
+    node.width = nodeSize.width;
+    node.height = nodeSize.height;
+    node.style = {
+      ...(node.style ?? {}),
+      width: nodeSize.width,
+      height: nodeSize.height,
+    };
+
+    set({
+      nodes: [...state.nodes, node],
+      selectedNodeId: node.id,
+      activeToolDialog: null,
+      history: {
+        past: pushSnapshot(state.history.past, createSnapshot(state.nodes, state.edges)),
+        future: [],
+      },
+      dragHistorySnapshot: null,
+    });
+
+    return node.id;
   },
 }));

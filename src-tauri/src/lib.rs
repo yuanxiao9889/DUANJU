@@ -7,6 +7,7 @@ use std::time::Duration;
 use commands::ai as ai_commands;
 use commands::image;
 use commands::project_state;
+use commands::ps_server;
 use commands::system;
 use commands::text_gen;
 use commands::update;
@@ -193,6 +194,18 @@ pub fn run() {
             text_gen::test_provider_connection,
             text_gen::get_active_text_model_status,
             update::check_latest_release_tag,
+            commands::export::save_text_file,
+            commands::export::save_binary_file,
+            commands::storage::get_storage_info,
+            commands::storage::migrate_storage,
+            commands::storage::reset_storage_to_default,
+            commands::storage::open_storage_folder,
+            ps_server::start_ps_server,
+            ps_server::stop_ps_server,
+            ps_server::get_ps_server_status,
+            ps_server::send_image_to_photoshop,
+            ps_server::get_ps_selection,
+            ps_server::get_ps_selection_image,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

@@ -1,6 +1,6 @@
 {
   "app": {
-    "title": "分镜助手",
+    "title": "短剧助手 v1.0",
     "subtitle": "Storyboard Copilot"
   },
   "common": {
@@ -61,6 +61,9 @@
     "copyErrorReport": "复制报错",
     "copied": "已复制",
     "download": "下载",
+    "sendToPs": "发送到 PS",
+    "sent": "已发送",
+    "psNotConnected": "PS 未连接",
     "ungroup": "解散",
     "saveAs": "另存为...",
     "noDownloadPresetPathsHint": "暂无预设路径，请在设置 - 通用中添加",
@@ -91,6 +94,7 @@
       "storyboard": "分镜节点",
       "storyboardGen": "分镜生成",
       "textAnnotation": "文本注释",
+      "videoNode": "视频节点",
       "scriptChapter": "章节节点",
       "scriptCharacter": "角色",
       "scriptLocation": "场景",
@@ -123,6 +127,10 @@
       "resultTitle": "结果图片",
       "promptPlaceholder": "描述任何你想要生成或编辑的内容"
     },
+    "sendToPs": "发送到 PS",
+    "sendToPsSuccess": "已发送到 Photoshop",
+    "sendToPsFailed": "发送失败：{{error}}",
+    "psNotConnected": "Photoshop 未连接",
     "upload": {
       "uploadedAlt": "已上传图片",
       "hint": "点击或拖拽上传图片"
@@ -149,6 +157,20 @@
     "textAnnotation": {
       "placeholder": "输入 Markdown 文本，取消选中后会渲染预览",
       "empty": "空注释"
+    },
+    "videoNode": {
+      "title": "视频节点",
+      "uploadHint": "拖拽或点击上传视频",
+      "screenshot": "截图",
+      "viewScreenshots": "查看截图",
+      "screenshotSuccess": "截图已创建",
+      "play": "播放",
+      "pause": "暂停",
+      "unsupportedFormat": "不支持的视频格式",
+      "screenshotShortcut": "按 S 键快速截图",
+      "prevFrame": "上一帧",
+      "nextFrame": "下一帧",
+      "frameByFrameHint": "← → 方向键逐帧 / S 键截图"
     }
   },
   "viewer": {
@@ -183,6 +205,15 @@
     "rename": "重命名",
     "renameTitle": "重命名项目",
     "delete": "删除项目",
+    "deleteConfirmTitle": "删除确认",
+    "deleteConfirmMessage": "确定要删除项目「{{name}}」吗？此操作不可撤销。",
+    "deleteSelectedConfirmMessage": "确定要删除选中的 {{count}} 个项目吗？此操作不可撤销。",
+    "selectMode": "选择模式",
+    "selectAll": "全选",
+    "deselectAll": "取消全选",
+    "deleteSelected": "删除选中",
+    "selectedCount": "已选择 {{count}} 个项目",
+    "exitSelectMode": "退出选择",
     "created": "创建时间",
     "modified": "修改时间",
     "updatedAt": "更新时间",
@@ -197,6 +228,20 @@
     "noProjects": "暂无项目",
     "empty": "暂无项目",
     "emptyHint": "点击上方按钮创建新项目"
+  },
+  "styleTemplate": {
+    "title": "风格模板",
+    "newTemplate": "新建模板",
+    "editTemplate": "编辑模板",
+    "templateName": "模板名称",
+    "templateNamePlaceholder": "输入模板名称",
+    "templatePrompt": "提示词内容",
+    "templatePromptPlaceholder": "输入风格提示词，选择后将自动追加到提示词末尾",
+    "deleteConfirm": "确定删除此模板？",
+    "emptyHint": "暂无风格模板，点击上方按钮创建",
+    "noTemplate": "无",
+    "selectTemplate": "选择风格",
+    "manageTemplates": "管理风格模板..."
   },
   "settings": {
     "title": "设置",
@@ -230,6 +275,7 @@
     "providerPpioName": "派欧云",
     "providerAlibabaName": "阿里云百炼",
     "providerCodingName": "阿里云 Coding Plan",
+    "providerRunninghubName": "RunningHub",
     "comingSoon": "即将推出...",
     "radiusPreset": "圆角大小",
     "radiusPresetDesc": "控制面板、输入框与节点的全局圆角风格。",
@@ -276,7 +322,7 @@
     "storyboardApiDesc": "选择用于分镜生成的 API 提供商",
     "missingAnyApiKeyMessage": "您尚未配置任何密钥，请打开设置进行配置。",
     "openProvidersSettings": "打开设置",
-    "aboutAppName": "分镜助手",
+    "aboutAppName": "短剧助手",
     "aboutIntro": "基于节点画布的 AI 分镜工作台，一站式完成图片生成、编辑与分镜流程。",
     "aboutVersionLabel": "版本",
     "aboutVersionUnknown": "未知",
@@ -311,7 +357,40 @@
     "checkingUpdate": "正在检查更新...",
     "checkUpdateHasUpdate": "检测到新版本。",
     "checkUpdateUpToDate": "当前已是最新版本。",
-    "checkUpdateFailed": "检查更新失败，请稍后重试。"
+    "checkUpdateFailed": "检查更新失败，请稍后重试。",
+    "projectStoragePath": "项目存储路径",
+    "projectStoragePathDesc": "更改项目数据库和图片文件的存储位置。更改后现有数据将自动迁移到新位置。",
+    "currentPath": "当前路径",
+    "customPath": "自定义",
+    "database": "数据库",
+    "images": "图片",
+    "total": "总计",
+    "changePath": "更改路径",
+    "openFolder": "打开目录",
+    "migrating": "迁移中...",
+    "failedToLoadStorageInfo": "无法加载存储信息",
+    "psIntegration": "Photoshop 联动",
+    "psIntegrationDesc": "配置与 Photoshop 插件的联动设置",
+    "psIntegrationEnabled": "启用 Photoshop 联动功能",
+    "psIntegrationEnabledDesc": "允许与 Photoshop 插件进行图像数据交换",
+    "psServerPort": "服务器端口",
+    "psServerPortDesc": "PS 联动服务监听的端口号（1024-65535）",
+    "psAutoStartServer": "应用启动时自动启动服务器",
+    "psAutoStartServerDesc": "每次打开应用时自动启动 PS 联动服务器",
+    "psStatus": "当前状态",
+    "psConnected": "已连接（端口 {{port}}）",
+    "psDisconnected": "未连接",
+    "startServer": "启动服务器",
+    "stopServer": "停止服务器",
+    "openPluginDir": "打开插件目录",
+    "psPreferredPort": "\u9996\u9009\u542f\u52a8\u7aef\u53e3",
+    "psRuntimePort": "\u5f53\u524d\u8fd0\u884c\u7aef\u53e3",
+    "psPluginPort": "\u63d2\u4ef6\u586b\u5199\u7aef\u53e3",
+    "psPluginPortDesc": "\u8bf7\u5728 Photoshop \u63d2\u4ef6\u9762\u677f\u4e2d\u586b\u5199\u7aef\u53e3 {{port}}",
+    "psPortAutoAdjusted": "\u9996\u9009\u7aef\u53e3 {{requested}} \u5df2\u88ab\u5360\u7528\uff0c\u5f53\u524d\u5df2\u81ea\u52a8\u5207\u6362\u5230 {{actual}}",
+    "psServerNotRunning": "\u672a\u542f\u52a8",
+    "aboutPsPortTitle": "Photoshop \u8054\u52a8\u7aef\u53e3",
+    "aboutPsPortDesc": "\u8fd9\u91cc\u4f1a\u663e\u793a\u5e94\u7528\u5f53\u524d\u5b9e\u9645\u4f7f\u7528\u7684\u8054\u52a8\u7aef\u53e3\uff0c\u65b9\u4fbf\u5728\u63d2\u4ef6\u9762\u677f\u4e2d\u4fdd\u6301\u4e00\u81f4\u3002"
   },
   "pricing": {
     "nativePrice": "原币种：{{value}}",
@@ -334,6 +413,34 @@
   "errorDialog": {
     "detailsTitle": "错误详情",
     "copyReport": "复制报错信息"
+  },
+  "script": {
+    "importChapterCount": "导入剧本",
+    "importChapterCountDesc": "请输入章节数量，将创建对应数量的空章节节点",
+    "expandFromSummary": "基于摘要扩写",
+    "expandFromSummaryDesc": "根据章节摘要生成完整的剧本内容"
+  },
+  "branch": {
+    "createTitle": "创建剧情分支",
+    "countLabel": "分支数量",
+    "countUnit": "个",
+    "sourceChapter": "来源章节",
+    "generateButton": "AI 生成分支",
+    "generating": "生成中...",
+    "generateFailed": "生成失败，请重试",
+    "selectHint": "选择要保留的分支（可编辑修改）",
+    "branchLabel": "分支",
+    "titlePlaceholder": "分支标题",
+    "summaryPlaceholder": "分支摘要",
+    "conditionPlaceholder": "触发条件",
+    "typeChoice": "选择型",
+    "typeRandom": "随机型",
+    "typeCondition": "条件型",
+    "selectedCount": "已选择 {{count}} 个分支",
+    "confirmCreate": "确认创建"
+  },
+  "psImageToast": {
+    "imageFromPs": "来自 Photoshop 的图片",
+    "addToCanvas": "添加到画布"
   }
 }
-
