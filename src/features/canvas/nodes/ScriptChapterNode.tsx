@@ -1,13 +1,35 @@
-import { memo, useState, useCallback, useEffect, useRef } from 'react';
+import { memo, useState, useCallback, useEffect, useRef, Fragment } from 'react';
 import { Handle, Position } from '@xyflow/react';
-import { FileText, GitBranch, Sparkles, Pencil, PlusCircle } from 'lucide-react';
+import { FileText, GitBranch, Sparkles, Pencil, PlusCircle, GitFork } from 'lucide-react';
 import { NodeHeader, NODE_HEADER_FLOATING_POSITION_CLASS } from '@/features/canvas/ui/NodeHeader';
 import { NodeResizeHandle } from '@/features/canvas/ui/NodeResizeHandle';
 import { AiWriterDialog } from '@/features/canvas/ui/AiWriterDialog';
 import { RichTextEditor } from '@/features/canvas/ui/RichTextEditor';
+import { BranchPointDialog } from '@/features/canvas/ui/BranchPointDialog';
 import { CANVAS_NODE_TYPES, type ScriptChapterNodeData } from '@/features/canvas/domain/canvasNodes';
 import { resolveNodeDisplayName } from '@/features/canvas/domain/nodeDisplay';
 import { useCanvasStore } from '@/stores/canvasStore';
+import type { GeneratedBranch } from '@/commands/textGen';
+
+function simpleMarkdownToHtml(text: string): string {
+  let html = text
+    .replace(/^## (.+)$/gm, '<h2>$1</h2>')
+    .replace(/^---$/gm, '<hr>')
+    .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+
+  const blocks = html.split(/\n\n+/);
+  html = blocks.map(block => {
+    block = block.trim();
+    if (!block) return '';
+    if (block.startsWith('<h2>') || block.startsWith('<hr>')) {
+      return block;
+    }
+    block = block.replace(/\n/g, '<br>');
+    return `<p>${block}</p>`;
+  }).join('\n');
+
+  return html;
+}
 
 type ScriptChapterNodeProps = {
   id: string;
@@ -116,11 +138,19 @@ function TextContextMenu({
 
 export const ScriptChapterNode = memo(({ id, data, selected, width, height }: ScriptChapterNodeProps) => {
   const updateNodeData = useCanvasStore((state) => state.updateNodeData);
+  const addNode = useCanvasStore((state) => state.addNode);
+  const addEdge = useCanvasStore((state) => state.addEdge);
+  const nodes = useCanvasStore((state) => state.nodes);
   const resolvedTitle = resolveNodeDisplayName(CANVAS_NODE_TYPES.scriptChapter, data);
-  const [aiDialogMode, setAiDialogMode] = useState<'expand' | 'rewrite' | null>(null);
+  const [aiDialogMode, setAiDialogMode] = useState<'expand' | 'rewrite' | 'expandFromSummary' | 'expandFromMerged' | null>(null);
   const [selectedText, setSelectedText] = useState('');
   const [contextMenuPosition, setContextMenuPosition] = useState<ContextMenuPosition>(null);
+  const [showBranchDialog, setShowBranchDialog] = useState(false);
+  const [pendingReplacement, setPendingReplacement] = useState<{ requestId: number; text: string } | null>(null);
+  const replacementRequestIdRef = useRef(0);
   const nodeContainerRef = useRef<HTMLDivElement>(null);
+  const aiButtonRef = useRef<HTMLButtonElement>(null);
+  const contextMenuAnchorRef = useRef<HTMLDivElement>(null);
 
   const resolvedWidth = resolveNodeDimension(width, DEFAULT_NODE_WIDTH);
   const resolvedHeight = resolveNodeDimension(height, DEFAULT_NODE_HEIGHT);
@@ -146,17 +176,33 @@ export const ScriptChapterNode = memo(({ id, data, selected, width, height }: Sc
   const handleContextMenu = useCallback((e: { clientX: number; clientY: number }) => {
     if (selectedText.trim()) {
       setContextMenuPosition({ x: e.clientX, y: e.clientY });
+      if (contextMenuAnchorRef.current) {
+        contextMenuAnchorRef.current.style.left = `${e.clientX}px`;
+        contextMenuAnchorRef.current.style.top = `${e.clientY}px`;
+      }
     }
   }, [selectedText]);
 
   const handleAiConfirm = useCallback(
     (result: string) => {
-      updateNodeData(id, { content: result });
+      if (selectedText.trim()) {
+        replacementRequestIdRef.current += 1;
+        setPendingReplacement({
+          requestId: replacementRequestIdRef.current,
+          text: result,
+        });
+      } else {
+        updateNodeData(id, { content: result });
+      }
       setAiDialogMode(null);
       setSelectedText('');
     },
-    [id, updateNodeData]
+    [id, updateNodeData, selectedText]
   );
+
+  const handleReplacementApplied = useCallback(() => {
+    setPendingReplacement(null);
+  }, []);
 
   const updateTableCell = useCallback(
     (tableId: string, rowIndex: number, column: string, value: string) => {
@@ -200,6 +246,81 @@ export const ScriptChapterNode = memo(({ id, data, selected, width, height }: Sc
     },
     [id, data.tables, updateNodeData]
   );
+
+  const handleBranchConfirm = useCallback((branches: GeneratedBranch[]) => {
+    const BRANCH_NODE_WIDTH = 420;
+    const HORIZONTAL_GAP = 50;
+    const VERTICAL_GAP = 80;
+
+    const totalWidth = branches.length * BRANCH_NODE_WIDTH + (branches.length - 1) * HORIZONTAL_GAP;
+    const nodeWidth = resolvedWidth;
+    const startX = nodeWidth / 2 - totalWidth / 2;
+    const startY = resolvedHeight + VERTICAL_GAP;
+
+    updateNodeData(id, { isBranchPoint: true });
+
+    branches.forEach((branch, index) => {
+      const position = {
+        x: startX + index * (BRANCH_NODE_WIDTH + HORIZONTAL_GAP),
+        y: startY,
+      };
+
+      const chapterId = addNode(
+        CANVAS_NODE_TYPES.scriptChapter,
+        position,
+        {
+          displayName: branch.title,
+          title: branch.title,
+          summary: branch.summary,
+          content: simpleMarkdownToHtml(branch.content || ''),
+          chapterNumber: data.chapterNumber,
+          branchType: 'branch',
+          parentId: id,
+          branchIndex: index + 1,
+          depth: (data.depth || 1) + 1,
+          sceneHeadings: [],
+          characters: [],
+          locations: [],
+          items: [],
+          emotionalShift: '',
+          isBranchPoint: false,
+          tables: [],
+          plotPoints: [],
+        } as ScriptChapterNodeData
+      );
+
+      if (chapterId) {
+        addEdge(id, chapterId);
+      }
+    });
+
+    setShowBranchDialog(false);
+  }, [id, data.chapterNumber, data.depth, resolvedWidth, resolvedHeight, updateNodeData, addNode, addEdge]);
+
+  const hasMergedBranches = data.mergedFromBranches && data.mergedFromBranches.length > 0;
+  const isMergePoint = data.isMergePoint || (hasMergedBranches && data.mergedFromBranches!.length >= 2);
+
+  console.log('[Debug] hasMergedBranches:', hasMergedBranches, 'mergedFromBranches:', data.mergedFromBranches);
+
+  const collectMergedBranchContents = useCallback(() => {
+    if (!data.mergedFromBranches) return [];
+    console.log('[Debug] collectMergedBranchContents called, mergedFromBranches:', data.mergedFromBranches);
+    return data.mergedFromBranches.map(branchId => {
+      const branchNode = nodes.find(n => n.id === branchId);
+      const branchData = branchNode?.data as ScriptChapterNodeData | undefined;
+      const branchLabel = branchData?.chapterNumber && branchData?.branchIndex
+        ? `${branchData.chapterNumber}-${branchData.branchIndex}`
+        : undefined;
+      return {
+        title: branchData?.title || '',
+        content: branchData?.content || '',
+        summary: branchData?.summary || '',
+        branchIndex: branchData?.branchIndex,
+        chapterNumber: branchData?.chapterNumber,
+        branchLabel,
+      };
+    });
+  }, [data.mergedFromBranches, nodes]);
 
   return (
     <>
@@ -257,12 +378,29 @@ export const ScriptChapterNode = memo(({ id, data, selected, width, height }: Sc
             )}
           </div>
 
+          {hasMergedBranches && (
+            <div className="flex items-center gap-1 flex-wrap shrink-0 mt-1">
+              <GitFork className="w-3 h-3 text-cyan-400" />
+              <span className="text-xs text-cyan-400">来自</span>
+              {collectMergedBranchContents().filter(b => b.branchLabel).map((branch, index, arr) => (
+                <Fragment key={index}>
+                  <span className="px-1.5 py-0.5 rounded bg-cyan-500/20 text-cyan-400 text-xs font-medium">
+                    {branch.branchLabel}
+                  </span>
+                  {index < arr.length - 1 && <span className="text-xs text-cyan-400">,</span>}
+                </Fragment>
+              ))}
+            </div>
+          )}
+
           <div className="flex-1 min-h-0 mt-3 overflow-hidden">
             <RichTextEditor
               content={data.content || ''}
               onChange={handleContentChange}
               onSelect={handleTextSelect}
               onContextMenu={handleContextMenu}
+              pendingSelectionReplacement={pendingReplacement}
+              onSelectionReplacementApplied={handleReplacementApplied}
               placeholder="开始编写剧本内容..."
               className="h-full"
             />
@@ -325,11 +463,45 @@ export const ScriptChapterNode = memo(({ id, data, selected, width, height }: Sc
 
           {data.summary && (
             <div className="pt-2 border-t border-border-dark mt-3 shrink-0">
-              <p className="text-xs text-text-muted">
-                <span className="font-medium">摘要:</span> {data.summary}
-              </p>
+              <div className="flex items-start justify-between gap-2">
+                <p className="text-xs text-text-muted flex-1">
+                  <span className="font-medium">摘要:</span> {data.summary}
+                </p>
+                <div className="flex items-center gap-1 shrink-0">
+                  {isMergePoint && (
+                    <button
+                      type="button"
+                      onClick={() => setAiDialogMode('expandFromMerged')}
+                      className="p-1.5 rounded-lg hover:bg-cyan-500/20 text-cyan-400 transition-colors"
+                      title="基于分支融合扩写"
+                    >
+                      <GitFork className="w-4 h-4" />
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    ref={aiButtonRef}
+                    onClick={() => setAiDialogMode('expandFromSummary')}
+                    className="p-1.5 rounded-lg hover:bg-amber-500/20 text-amber-400 transition-colors"
+                    title="基于摘要扩写"
+                  >
+                    <Sparkles className="w-4 h-4" />
+                  </button>
+                </div>
+              </div>
             </div>
           )}
+
+          {!data.branchType || data.branchType === 'main' ? (
+            <button
+              type="button"
+              onClick={() => setShowBranchDialog(true)}
+              className="mt-3 w-full flex items-center justify-center gap-2 py-2 text-sm text-purple-400 bg-purple-500/10 hover:bg-purple-500/20 rounded-lg border border-purple-500/30 transition-colors"
+            >
+              <GitBranch className="w-4 h-4" />
+              创建分支
+            </button>
+          ) : null}
         </div>
         <Handle
           type="source"
@@ -362,11 +534,29 @@ export const ScriptChapterNode = memo(({ id, data, selected, width, height }: Sc
         <AiWriterDialog
           isOpen={true}
           mode={aiDialogMode}
-          originalText={selectedText}
+          originalText={aiDialogMode === 'expandFromSummary' || aiDialogMode === 'expandFromMerged' ? (data.summary || '') : selectedText}
+          chapterTitle={data.title}
+          chapterNumber={data.chapterNumber}
+          mergedBranchContents={hasMergedBranches ? collectMergedBranchContents() : undefined}
           onClose={() => setAiDialogMode(null)}
           onConfirm={handleAiConfirm}
           anchorRef={nodeContainerRef}
           preferredPosition="right"
+        />
+      )}
+
+      <div
+        ref={contextMenuAnchorRef}
+        style={{ position: 'fixed', left: 0, top: 0, width: 1, height: 1, pointerEvents: 'none' }}
+      />
+
+      {showBranchDialog && (
+        <BranchPointDialog
+          isOpen={true}
+          sourceNodeId={id}
+          sourceChapterData={data}
+          onClose={() => setShowBranchDialog(false)}
+          onConfirm={handleBranchConfirm}
         />
       )}
 

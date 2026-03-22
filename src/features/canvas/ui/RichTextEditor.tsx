@@ -1,4 +1,4 @@
-import { useEffect, useCallback } from 'react';
+import { useEffect, useCallback, useRef } from 'react';
 import { useEditor, EditorContent } from '@tiptap/react';
 import StarterKit from '@tiptap/starter-kit';
 import { Bold, Italic } from 'lucide-react';
@@ -8,8 +8,18 @@ type RichTextEditorProps = {
   onChange: (content: string) => void;
   onSelect?: (text: string) => void;
   onContextMenu?: (e: { clientX: number; clientY: number }) => void;
+  pendingSelectionReplacement?: {
+    requestId: number;
+    text: string;
+  } | null;
+  onSelectionReplacementApplied?: () => void;
   placeholder?: string;
   className?: string;
+};
+
+type SelectionRange = {
+  from: number;
+  to: number;
 };
 
 export function RichTextEditor({
@@ -17,9 +27,13 @@ export function RichTextEditor({
   onChange,
   onSelect,
   onContextMenu,
+  pendingSelectionReplacement,
+  onSelectionReplacementApplied,
   placeholder = '开始编写内容...',
   className = '',
 }: RichTextEditorProps) {
+  const lastSelectionRangeRef = useRef<SelectionRange | null>(null);
+  const lastAppliedReplacementIdRef = useRef<number | null>(null);
   const editor = useEditor({
     extensions: [
       StarterKit.configure({
@@ -61,9 +75,11 @@ export function RichTextEditor({
     const handleSelection = () => {
       const { from, to } = editor.state.selection;
       if (from !== to) {
+        lastSelectionRangeRef.current = { from, to };
         const text = editor.state.doc.textBetween(from, to);
         onSelect(text);
       } else {
+        lastSelectionRangeRef.current = null;
         onSelect('');
       }
     };
@@ -73,6 +89,37 @@ export function RichTextEditor({
       editor.off('selectionUpdate', handleSelection);
     };
   }, [editor, onSelect]);
+
+  useEffect(() => {
+    if (!editor || !pendingSelectionReplacement) return;
+    
+    const { requestId, text } = pendingSelectionReplacement;
+    
+    if (requestId === lastAppliedReplacementIdRef.current) {
+      return;
+    }
+    
+    lastAppliedReplacementIdRef.current = requestId;
+    
+    const range = lastSelectionRangeRef.current;
+    
+    if (range) {
+      editor.chain()
+        .focus()
+        .setTextSelection({ from: range.from, to: range.to })
+        .insertContent(text)
+        .run();
+    } else {
+      editor.chain()
+        .focus()
+        .insertContent(text)
+        .run();
+    }
+    
+    lastSelectionRangeRef.current = null;
+    
+    onSelectionReplacementApplied?.();
+  }, [editor, pendingSelectionReplacement, onSelectionReplacementApplied]);
 
   const toggleBold = useCallback(() => {
     if (!editor) return;

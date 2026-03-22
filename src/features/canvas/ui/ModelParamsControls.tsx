@@ -1,6 +1,6 @@
 import { memo, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { SlidersHorizontal, Zap } from 'lucide-react';
+import { SlidersHorizontal, Zap, Palette, Settings } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 
 import { AUTO_REQUEST_ASPECT_RATIO } from '@/features/canvas/domain/canvasNodes';
@@ -34,10 +34,9 @@ interface ModelParamsControlsProps {
   onAspectRatioChange: (aspectRatio: string) => void;
   extraParams?: Record<string, unknown>;
   onExtraParamChange?: (key: string, value: boolean | number | string) => void;
-  showWebSearchToggle?: boolean;
-  webSearchEnabled?: boolean;
-  onWebSearchToggle?: (enabled: boolean) => void;
-  webSearchLabel?: string;
+  selectedStyleTemplateId?: string | null;
+  onStyleTemplateChange?: (templateId: string | null, prompt: string) => void;
+  onOpenStyleTemplateManager?: () => void;
   showProviderName?: boolean;
   triggerSize?: 'md' | 'sm';
   chipClassName?: string;
@@ -148,10 +147,9 @@ export const ModelParamsControls = memo(({
   onAspectRatioChange,
   extraParams,
   onExtraParamChange,
-  showWebSearchToggle = false,
-  webSearchEnabled = false,
-  onWebSearchToggle,
-  webSearchLabel,
+  selectedStyleTemplateId,
+  onStyleTemplateChange,
+  onOpenStyleTemplateManager,
   showProviderName = true,
   triggerSize = 'md',
   chipClassName = '',
@@ -183,7 +181,9 @@ export const ModelParamsControls = memo(({
   const [otherParamsAnchorBaseWidth, setOtherParamsAnchorBaseWidth] = useState<number | null>(null);
   const [panelProviderId, setPanelProviderId] = useState(selectedModel.providerId);
   const [missingKeyProviderName, setMissingKeyProviderName] = useState<string | null>(null);
+  const [styleTemplatePanelOpen, setStyleTemplatePanelOpen] = useState(false);
   const apiKeys = useSettingsStore((state) => state.apiKeys);
+  const styleTemplates = useSettingsStore((state) => state.styleTemplates);
 
   const selectedProvider = useMemo(
     () => getModelProvider(selectedModel.providerId),
@@ -250,7 +250,7 @@ export const ModelParamsControls = memo(({
     () => extraParamSchema.filter((definition) => definition.key !== 'thinking_level'),
     [extraParamSchema]
   );
-  const hasOtherParamsPanel = showWebSearchToggle || inlineExtraParamSchema.length > 0;
+  const hasOtherParamsPanel = inlineExtraParamSchema.length > 0;
 
   useEffect(() => {
     const animationDurationMs = 200;
@@ -429,6 +429,79 @@ export const ModelParamsControls = memo(({
           <span className={paramsSecondaryTextClassName}>· {selectedResolution.label}</span>
         </UiChipButton>
       </div>
+
+      {onStyleTemplateChange && (
+        <div className="relative flex">
+          <UiChipButton
+            active={styleTemplatePanelOpen}
+            className={`${chipClassName} w-auto shrink-0 justify-center`}
+            onClick={(event) => {
+              event.stopPropagation();
+              setStyleTemplatePanelOpen(!styleTemplatePanelOpen);
+            }}
+          >
+            <Palette className={paramsIconClassName} />
+            <span className={paramsPrimaryTextClassName}>
+              {selectedStyleTemplateId
+                ? styleTemplates.find((t) => t.id === selectedStyleTemplateId)?.name ?? t('styleTemplate.selectTemplate')
+                : t('styleTemplate.selectTemplate')}
+            </span>
+          </UiChipButton>
+          
+          {styleTemplatePanelOpen && (
+            <UiPanel
+              className="absolute left-1/2 top-full z-50 mt-1 min-w-[160px] -translate-x-1/2 p-1"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <button
+                className={`w-full rounded-md px-3 py-1.5 text-left text-xs transition-colors ${
+                  !selectedStyleTemplateId ? 'bg-accent/15 text-accent' : 'text-text-muted hover:bg-surface-hover'
+                }`}
+                onClick={() => {
+                  onStyleTemplateChange(null, '');
+                  setStyleTemplatePanelOpen(false);
+                }}
+              >
+                {t('styleTemplate.noTemplate')}
+              </button>
+              
+              {styleTemplates.length > 0 && (
+                <div className="my-1 border-t border-border" />
+              )}
+              
+              {styleTemplates.map((template) => (
+                <button
+                  key={template.id}
+                  className={`w-full rounded-md px-3 py-1.5 text-left text-xs transition-colors ${
+                    selectedStyleTemplateId === template.id
+                      ? 'bg-accent/15 text-accent'
+                      : 'text-text-muted hover:bg-surface-hover'
+                  }`}
+                  onClick={() => {
+                    onStyleTemplateChange(template.id, template.prompt);
+                    setStyleTemplatePanelOpen(false);
+                  }}
+                >
+                  {template.name}
+                </button>
+              ))}
+              
+              <div className="my-1 border-t border-border" />
+              
+              <button
+                className="flex w-full items-center gap-1.5 rounded-md px-3 py-1.5 text-left text-xs text-text-muted transition-colors hover:bg-surface-hover"
+                onClick={() => {
+                  setStyleTemplatePanelOpen(false);
+                  onOpenStyleTemplateManager?.();
+                }}
+              >
+                <Settings className="h-3 w-3" />
+                {t('styleTemplate.manageTemplates')}
+              </button>
+            </UiPanel>
+          )}
+        </div>
+      )}
 
       {hasOtherParamsPanel && (
         <div ref={otherParamsTriggerRef} className="relative flex">
@@ -715,21 +788,6 @@ export const ModelParamsControls = memo(({
         >
           <UiPanel className={OTHER_PARAMS_PANEL_CLASS_NAME}>
             <div className="space-y-3">
-              {showWebSearchToggle && (
-                <label className="flex cursor-pointer items-start gap-3 rounded-lg border border-[rgba(255,255,255,0.08)] bg-bg-dark/65 px-3 py-2">
-                  <UiCheckbox
-                    checked={webSearchEnabled}
-                    onCheckedChange={(checked) => onWebSearchToggle?.(checked)}
-                    className="mt-0.5"
-                  />
-                  <div className="min-w-0">
-                    <div className="text-xs font-medium text-text-dark">
-                      {webSearchLabel ?? t('modelParams.enableWebSearch')}
-                    </div>
-                  </div>
-                </label>
-              )}
-
               {inlineExtraParamSchema.map((definition) => {
                 const translatedLabel = resolveTranslatedText(t, definition.labelKey, definition.label);
                 const translatedDescription = definition.description || definition.descriptionKey

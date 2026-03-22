@@ -150,14 +150,14 @@ export const ImageNode = memo(({ id, data, selected, type, width, height }: Imag
   return (
     <div
       className={`
-        group relative overflow-visible rounded-[var(--node-radius)] border bg-surface-dark/85 p-0 transition-colors duration-150
+        group relative overflow-visible rounded-[var(--node-radius)] border bg-surface-dark/85 p-0 transition-all duration-150
         ${hasGenerationError
           ? (selected
-            ? 'border-red-400 shadow-[0_0_0_1px_rgba(248,113,113,0.42)]'
+            ? 'border-red-400 shadow-[0_0_0_2px_rgba(248,113,113,0.5),0_4px_20px_rgba(248,113,113,0.25)]'
             : 'border-red-500/70 bg-[rgba(127,29,29,0.12)] hover:border-red-400/80 dark:border-red-500/70 dark:hover:border-red-400/80')
           : selected
-          ? 'border-accent shadow-[0_0_0_1px_rgba(59,130,246,0.32)]'
-          : 'border-[rgba(15,23,42,0.22)] hover:border-[rgba(15,23,42,0.34)] dark:border-[rgba(255,255,255,0.22)] dark:hover:border-[rgba(255,255,255,0.34)]'}
+          ? 'border-accent shadow-[0_0_0_2px_rgba(59,130,246,0.5),0_4px_20px_rgba(59,130,246,0.2)]'
+          : 'border-[rgba(15,23,42,0.22)] hover:border-[rgba(15,23,42,0.34)] hover:shadow-[0_4px_16px_rgba(0,0,0,0.12)] dark:border-[rgba(255,255,255,0.22)] dark:hover:border-[rgba(255,255,255,0.34)] dark:hover:shadow-[0_4px_16px_rgba(0,0,0,0.25)]'}
       `}
       style={{ width: resolvedWidth, height: resolvedHeight }}
       onClick={() => setSelectedNode(id)}
@@ -221,13 +221,13 @@ export const ImageNode = memo(({ id, data, selected, type, width, height }: Imag
         type="target"
         id="target"
         position={Position.Left}
-        className="!h-2 !w-2 !border-surface-dark !bg-accent"
+        className="!h-2.5 !w-2.5 !border-2 !border-surface-dark !bg-accent"
       />
       <Handle
         type="source"
         id="source"
         position={Position.Right}
-        className="!h-2 !w-2 !border-surface-dark !bg-accent"
+        className="!h-2.5 !w-2.5 !border-2 !border-surface-dark !bg-accent"
       />
       <NodeResizeHandle
         minWidth={resizeMinWidth}

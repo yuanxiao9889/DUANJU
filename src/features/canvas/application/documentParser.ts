@@ -21,6 +21,8 @@ export async function parseDocument(file: File): Promise<ParsedScriptContent> {
   
   if (fileName.endsWith('.txt')) {
     return parseTxtFile(file);
+  } else if (fileName.endsWith('.md') || fileName.endsWith('.markdown')) {
+    return parseMarkdownFile(file);
   } else if (fileName.endsWith('.pdf')) {
     return parsePdfFile(file);
   } else if (fileName.endsWith('.docx') || fileName.endsWith('.doc')) {
@@ -33,6 +35,11 @@ export async function parseDocument(file: File): Promise<ParsedScriptContent> {
 async function parseTxtFile(file: File): Promise<ParsedScriptContent> {
   const text = await file.text();
   return parseScriptText(text, file.name.replace(/\.[^/.]+$/, ''));
+}
+
+async function parseMarkdownFile(file: File): Promise<ParsedScriptContent> {
+  const text = await file.text();
+  return parseMarkdownText(text, file.name.replace(/\.[^/.]+$/, ''));
 }
 
 async function parsePdfFile(file: File): Promise<ParsedScriptContent> {
@@ -150,4 +157,52 @@ export function detectLocations(scenes: ParsedScene[]): string[] {
   }
   
   return Array.from(locationSet).sort();
+}
+
+function parseMarkdownText(text: string, title: string): ParsedScriptContent {
+  const lines = text.split('\n');
+  const scenes: ParsedScene[] = [];
+  
+  const headingRegex = /^(#{1,3})\s+(.+)$/;
+  
+  let currentScene: ParsedScene | null = null;
+  let sceneContent: string[] = [];
+  
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    const lineNumber = i + 1;
+    const match = line.match(headingRegex);
+    
+    if (match) {
+      if (currentScene) {
+        currentScene.content = sceneContent.join('\n').trim();
+        scenes.push(currentScene);
+      }
+      
+      currentScene = {
+        heading: match[2].trim(),
+        content: '',
+        lineStart: lineNumber,
+        lineEnd: lineNumber,
+      };
+      sceneContent = [];
+    } else if (currentScene) {
+      sceneContent.push(line);
+    }
+    
+    if (currentScene) {
+      currentScene.lineEnd = lineNumber;
+    }
+  }
+  
+  if (currentScene) {
+    currentScene.content = sceneContent.join('\n').trim();
+    scenes.push(currentScene);
+  }
+  
+  return {
+    title,
+    rawText: text,
+    scenes: scenes.length > 0 ? scenes : [{ heading: '全文', content: text, lineStart: 1, lineEnd: lines.length }],
+  };
 }

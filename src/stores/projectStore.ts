@@ -596,6 +596,7 @@ interface ProjectState {
   hydrate: () => Promise<void>;
   createProject: (name: string, projectType: ProjectType) => string;
   deleteProject: (id: string) => void;
+  deleteProjects: (ids: string[]) => void;
   renameProject: (id: string, name: string) => void;
   openProject: (id: string) => void;
   closeProject: () => void;
@@ -677,6 +678,18 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
     }));
 
     persistProjectDelete(id);
+  },
+
+  deleteProjects: (ids) => {
+    const idSet = new Set(ids);
+    set((state) => ({
+      projects: state.projects.filter((project) => !idSet.has(project.id)),
+      currentProjectId: idSet.has(state.currentProjectId ?? '') ? null : state.currentProjectId,
+      currentProject: idSet.has(state.currentProject?.id ?? '') ? null : state.currentProject,
+      isOpeningProject: false,
+    }));
+
+    ids.forEach((id) => persistProjectDelete(id));
   },
 
   renameProject: (id, name) => {

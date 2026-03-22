@@ -39,6 +39,7 @@ import {
   DEFAULT_NODE_WIDTH,
 } from '@/features/canvas/domain/canvasNodes';
 import { prepareNodeImage, prepareNodeImageFromFile } from '@/features/canvas/application/imageData';
+import { prepareNodeVideoFromFile } from '@/features/canvas/application/videoData';
 import {
   buildGenerationErrorReport,
   CURRENT_RUNTIME_SESSION_ID,
@@ -295,7 +296,6 @@ export function Canvas() {
 
   const [showNodeMenu, setShowNodeMenu] = useState(false);
   const [showWelcomeDialog, setShowWelcomeDialog] = useState(false);
-  const [showMiniMap, setShowMiniMap] = useState(true);
   const [alignmentGuides, setAlignmentGuides] = useState<AlignmentGuide[]>([]);
   const [isDraggingNode, setIsDraggingNode] = useState(false);
   const [isDraggingBranchConnection, setIsDraggingBranchConnection] = useState(false);
@@ -367,12 +367,14 @@ export function Canvas() {
   const navigateImageViewer = useCanvasStore((state) => state.navigateImageViewer);
   const snapToGrid = useCanvasStore((state) => state.snapToGrid);
   const snapGridSize = useCanvasStore((state) => state.snapGridSize);
-  const showGrid = useCanvasStore((state) => state.showGrid);
   const setSnapToGrid = useCanvasStore((state) => state.setSnapToGrid);
   const enableNodeAlignment = useCanvasStore((state) => state.enableNodeAlignment);
   const alignmentThreshold = useCanvasStore((state) => state.alignmentThreshold);
-  const showAlignmentGuides = useCanvasStore((state) => state.showAlignmentGuides);
-  const setShowAlignmentGuides = useCanvasStore((state) => state.setShowAlignmentGuides);
+  const showMiniMap = useSettingsStore((state) => state.showMiniMap);
+  const showGrid = useSettingsStore((state) => state.showGrid);
+  const showAlignmentGuides = useSettingsStore((state) => state.showAlignmentGuides);
+  const setShowMiniMap = useSettingsStore((state) => state.setShowMiniMap);
+  const setShowAlignmentGuides = useSettingsStore((state) => state.setShowAlignmentGuides);
   const apiKeys = useSettingsStore((state) => state.apiKeys);
   const providerIds = useMemo(() => listModelProviders().map((provider) => provider.id), []);
   const configuredApiKeyCount = useSettingsStore((state) =>
@@ -1126,24 +1128,32 @@ export function Canvas() {
     event.stopPropagation();
     setIsDragOver(false);
 
-    const files: File[] = [];
+    const imageFiles: File[] = [];
+    const videoFiles: File[] = [];
     
     if (event.dataTransfer.files?.length) {
       Array.from(event.dataTransfer.files).forEach(file => {
         if (file.type.startsWith('image/')) {
-          files.push(file);
+          imageFiles.push(file);
+        } else if (file.type.startsWith('video/')) {
+          videoFiles.push(file);
         }
       });
     } else {
       Array.from(event.dataTransfer.items || []).forEach(item => {
-        if (item.kind === 'file' && item.type?.startsWith('image/')) {
-          const file = item.getAsFile();
-          if (file) files.push(file);
+        if (item.kind === 'file') {
+          if (item.type?.startsWith('image/')) {
+            const file = item.getAsFile();
+            if (file) imageFiles.push(file);
+          } else if (item.type?.startsWith('video/')) {
+            const file = item.getAsFile();
+            if (file) videoFiles.push(file);
+          }
         }
       });
     }
 
-    if (files.length === 0) {
+    if (imageFiles.length === 0 && videoFiles.length === 0) {
       return;
     }
 
@@ -1154,8 +1164,8 @@ export function Canvas() {
 
     const NODE_OFFSET = 30;
 
-    for (let i = 0; i < files.length; i++) {
-      const file = files[i];
+    for (let i = 0; i < imageFiles.length; i++) {
+      const file = imageFiles[i];
       const position = {
         x: basePosition.x + (i % 4) * NODE_OFFSET,
         y: basePosition.y + Math.floor(i / 4) * NODE_OFFSET,
@@ -1171,6 +1181,26 @@ export function Canvas() {
         });
       } catch (err) {
         console.error('Failed to process dropped image:', err);
+      }
+    }
+
+    for (let i = 0; i < videoFiles.length; i++) {
+      const file = videoFiles[i];
+      const position = {
+        x: basePosition.x + ((imageFiles.length + i) % 4) * NODE_OFFSET,
+        y: basePosition.y + Math.floor((imageFiles.length + i) / 4) * NODE_OFFSET,
+      };
+
+      try {
+        const videoData = await prepareNodeVideoFromFile(file);
+        addNode(CANVAS_NODE_TYPES.video, position, {
+          videoUrl: videoData.videoUrl,
+          videoFileName: file.name,
+          aspectRatio: videoData.aspectRatio,
+          duration: videoData.duration,
+        });
+      } catch (err) {
+        console.error('Failed to process dropped video:', err);
       }
     }
   }, [reactFlowInstance, addNode]);
@@ -2245,7 +2275,7 @@ export function Canvas() {
         proOptions={{ hideAttribution: true }}
         className="bg-bg-dark"
       >
-        <Background variant={BackgroundVariant.Dots} gap={snapGridSize} size={1} color={showGrid ? "rgba(255,255,255,0.08)" : "transparent"} />
+        <Background variant={BackgroundVariant.Dots} gap={snapGridSize} size={1.5} color={showGrid ? "rgba(255,255,255,0.12)" : "transparent"} />
         
         {showMiniMap && (
           <MiniMap

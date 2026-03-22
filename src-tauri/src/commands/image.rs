@@ -17,6 +17,8 @@ use std::time::{Instant, SystemTime, UNIX_EPOCH};
 use tauri::{AppHandle, Manager};
 use tracing::info;
 
+use super::storage;
+
 const STORYBOARD_METADATA_PNG_TEXT_KEY: &str = "StoryboardCopilotMetadata";
 const FAST_PREVIEW_BYPASS_MAX_BYTES: usize = 2_000_000;
 const FAST_PREVIEW_BYPASS_MAX_DIMENSION: u32 = 2048;
@@ -1062,16 +1064,7 @@ pub async fn merge_storyboard_images(
 }
 
 fn resolve_images_dir(app: &AppHandle) -> Result<PathBuf, String> {
-    let app_data_dir = app
-        .path()
-        .app_data_dir()
-        .map_err(|e| format!("Failed to resolve app data dir: {}", e))?;
-
-    let images_dir = app_data_dir.join("images");
-    std::fs::create_dir_all(&images_dir)
-        .map_err(|e| format!("Failed to create images dir: {}", e))?;
-
-    Ok(images_dir)
+    storage::resolve_images_dir(app)
 }
 
 fn persist_image_bytes(app: &AppHandle, bytes: &[u8], extension: &str) -> Result<String, String> {
@@ -1565,12 +1558,9 @@ pub async fn save_image_source_to_app_debug_dir(
         return Err("Image source is empty".to_string());
     }
 
-    let app_data_dir = app
-        .path()
-        .app_data_dir()
-        .map_err(|e| format!("Failed to resolve app data dir: {}", e))?;
+    let debug_dir = storage::resolve_debug_dir(&app)?;
     let normalized_category = sanitize_file_stem(category.as_deref().unwrap_or("grid"));
-    let target_dir = app_data_dir.join("debug").join(normalized_category);
+    let target_dir = debug_dir.join(normalized_category);
     std::fs::create_dir_all(&target_dir)
         .map_err(|e| format!("Failed to create app debug dir: {}", e))?;
 

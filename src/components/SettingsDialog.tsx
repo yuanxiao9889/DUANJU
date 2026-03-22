@@ -1,10 +1,19 @@
 import { useState, useCallback, useEffect, useMemo } from 'react';
-import { X, Eye, EyeOff, FolderOpen, Plus, Trash2, Maximize2, Minimize2 } from 'lucide-react';
+import { X, Eye, EyeOff, FolderOpen, Plus, Trash2, Maximize2, Minimize2, HardDrive, Loader2, Circle } from 'lucide-react';
 import { Trans, useTranslation } from 'react-i18next';
-import { getVersion } from '@tauri-apps/api/app';
 import { open } from '@tauri-apps/plugin-dialog';
+import { openPath } from '@tauri-apps/plugin-opener';
 import { useSettingsStore } from '@/stores/settingsStore';
+import { usePsIntegrationStore } from '@/stores/psIntegrationStore';
 import { testProviderConnection } from '@/commands/textGen';
+import { 
+  getStorageInfo, 
+  migrateStorage, 
+  openStorageFolder, 
+  selectStorageFolder, 
+  formatBytes,
+  type StorageInfo 
+} from '@/commands/storage';
 import { UiCheckbox, UiSelect } from '@/components/ui';
 import { UI_CONTENT_OVERLAY_INSET_CLASS, UI_DIALOG_TRANSITION_MS } from '@/components/ui/motion';
 import { useDialogTransition } from '@/components/ui/useDialogTransition';
@@ -36,6 +45,9 @@ const PROVIDER_REGISTER_URLS: Record<string, string> = {
   fal: 'https://fal.ai',
   alibaba: 'https://bailian.console.aliyun.com',
   coding: 'https://bailian.console.aliyun.com',
+  comfly: 'https://ai.comfly.chat/register?aff=25c82943753',
+  zhenzhen: 'https://ai.t8star.cn/register?aff=9d51cc44298',
+  runninghub: 'https://www.runninghub.cn/?inviteCode=zfoso01c',
 };
 
 const PROVIDER_GET_KEY_URLS: Record<string, string> = {
@@ -45,6 +57,9 @@ const PROVIDER_GET_KEY_URLS: Record<string, string> = {
   fal: 'https://fal.ai/dashboard/keys',
   alibaba: 'https://bailian.console.aliyun.com/cn-beijing/#/api-key',
   coding: 'https://bailian.console.aliyun.com/cn-beijing/#/api-key',
+  comfly: 'https://ai.comfly.chat/register?aff=25c82943753',
+  zhenzhen: 'https://ai.t8star.cn/register?aff=9d51cc44298',
+  runninghub: 'https://www.runninghub.cn/?inviteCode=zfoso01c',
 };
 
 function SettingsCheckboxCard({
@@ -86,7 +101,6 @@ export function SettingsDialog({
   isOpen,
   onClose,
   initialCategory = 'general',
-  onCheckUpdate,
 }: SettingsDialogProps) {
   const { t, i18n } = useTranslation();
   const {
@@ -112,8 +126,6 @@ export function SettingsDialog({
     themeTonePreset,
     accentColor,
     canvasEdgeRoutingMode,
-    autoCheckAppUpdateOnLaunch,
-    enableUpdateDialog,
     setProviderApiKey,
     setScriptProviderEnabled,
     setGrsaiNanoBananaProModel,
@@ -136,9 +148,20 @@ export function SettingsDialog({
     setThemeTonePreset,
     setAccentColor,
     setCanvasEdgeRoutingMode,
-    setAutoCheckAppUpdateOnLaunch,
-    setEnableUpdateDialog,
+    psIntegrationEnabled,
+    psServerPort,
+    psAutoStartServer,
+    setPsIntegrationEnabled,
+    setPsServerPort,
+    setPsAutoStartServer,
   } = useSettingsStore();
+  const {
+    serverStatus,
+    isStarting,
+    isStopping,
+    startServer,
+    stopServer,
+  } = usePsIntegrationStore();
   const providers = useMemo(() => {
     const providerOrder = ['kie', 'ppio', 'fal', 'grsai', 'alibaba', 'coding'];
     const providerIndex = new Map(providerOrder.map((id, index) => [id, index]));
@@ -152,7 +175,6 @@ export function SettingsDialog({
   const storyboardProviders = useMemo(() => providers.filter(p => p.id !== 'alibaba' && p.id !== 'coding'), [providers]);
   const [activeCategory, setActiveCategory] = useState<SettingsCategory>(initialCategory);
   const [localProviderTab, setLocalProviderTab] = useState<'script' | 'storyboard'>('script');
-  const [appVersion, setAppVersion] = useState<string>('');
   const [localApiKeys, setLocalApiKeys] = useState<Record<string, string>>(apiKeys);
   const [localGrsaiNanoBananaProModel, setLocalGrsaiNanoBananaProModel] = useState(
    hrsaiNanoBananaProModel
@@ -194,36 +216,24 @@ export function SettingsDialog({
   const [localThemeTonePreset, setLocalThemeTonePreset] = useState(themeTonePreset);
   const [localAccentColor, setLocalAccentColor] = useState(accentColor);
   const [localCanvasEdgeRoutingMode, setLocalCanvasEdgeRoutingMode] = useState(canvasEdgeRoutingMode);
-  const [localAutoCheckAppUpdateOnLaunch, setLocalAutoCheckAppUpdateOnLaunch] = useState(
-    autoCheckAppUpdateOnLaunch
-  );
-  const [localEnableUpdateDialog, setLocalEnableUpdateDialog] = useState(enableUpdateDialog);
-  const [checkUpdateStatus, setCheckUpdateStatus] = useState<'' | 'checking' | 'has-update' | 'up-to-date' | 'failed'>('');
+  const [localPsIntegrationEnabled, setLocalPsIntegrationEnabled] = useState(psIntegrationEnabled);
+  const [localPsServerPort, setLocalPsServerPort] = useState(psServerPort);
+  const [localPsAutoStartServer, setLocalPsAutoStartServer] = useState(psAutoStartServer);
   const [revealedApiKeys, setRevealedApiKeys] = useState<Record<string, boolean>>({});
   const [testingConnection, setTestingConnection] = useState<string | null>(null);
   const [testResults, setTestResults] = useState<Record<string, { success: boolean; message: string }>>({});
   const [isDialogExpanded, setIsDialogExpanded] = useState(false);
+  const [storageInfo, setStorageInfo] = useState<StorageInfo | null>(null);
+  const [isLoadingStorageInfo, setIsLoadingStorageInfo] = useState(false);
+  const [isMigrating, setIsMigrating] = useState(false);
+  const [migrationError, setMigrationError] = useState<string | null>(null);
   const { shouldRender, isVisible } = useDialogTransition(isOpen, UI_DIALOG_TRANSITION_MS);
-
-  useEffect(() => {
-    let mounted = true;
-    const loadAppVersion = async () => {
-      try {
-        const version = await getVersion();
-        if (mounted) {
-          setAppVersion(version);
-        }
-      } catch {
-        if (mounted) {
-          setAppVersion('');
-        }
-      }
-    };
-    void loadAppVersion();
-    return () => {
-      mounted = false;
-    };
-  }, []);
+  const runtimePsPort = serverStatus.running ? serverStatus.port : null;
+  const pluginPsPort = runtimePsPort ?? psServerPort;
+  const psPortAutoAdjusted =
+    serverStatus.running
+    && serverStatus.port !== null
+    && serverStatus.port !== psServerPort;
 
   useEffect(() => {
     if (!isOpen) {
@@ -252,9 +262,9 @@ export function SettingsDialog({
     setLocalThemeTonePreset(themeTonePreset);
     setLocalAccentColor(accentColor);
     setLocalCanvasEdgeRoutingMode(canvasEdgeRoutingMode);
-    setLocalAutoCheckAppUpdateOnLaunch(autoCheckAppUpdateOnLaunch);
-    setLocalEnableUpdateDialog(enableUpdateDialog);
-    setCheckUpdateStatus('');
+    setLocalPsIntegrationEnabled(psIntegrationEnabled);
+    setLocalPsServerPort(psServerPort);
+    setLocalPsAutoStartServer(psAutoStartServer);
     setRevealedApiKeys({});
     setLocalDownloadPathInput('');
   }, [
@@ -281,8 +291,9 @@ export function SettingsDialog({
     themeTonePreset,
     accentColor,
     canvasEdgeRoutingMode,
-    autoCheckAppUpdateOnLaunch,
-    enableUpdateDialog,
+    psIntegrationEnabled,
+    psServerPort,
+    psAutoStartServer,
     scriptProviders,
     storyboardProviders,
   ]);
@@ -294,6 +305,55 @@ export function SettingsDialog({
 
     setActiveCategory(initialCategory);
   }, [initialCategory, isOpen]);
+
+  useEffect(() => {
+    if (!isOpen || activeCategory !== 'general') {
+      return;
+    }
+
+    const loadStorageInfo = async () => {
+      setIsLoadingStorageInfo(true);
+      try {
+        const info = await getStorageInfo();
+        setStorageInfo(info);
+      } catch (error) {
+        console.error('Failed to load storage info:', error);
+      } finally {
+        setIsLoadingStorageInfo(false);
+      }
+    };
+
+    void loadStorageInfo();
+  }, [isOpen, activeCategory]);
+
+  const handleChangeStoragePath = useCallback(async () => {
+    if (isMigrating) return;
+
+    try {
+      const newPath = await selectStorageFolder();
+      if (!newPath) return;
+
+      setMigrationError(null);
+      setIsMigrating(true);
+
+      await migrateStorage(newPath, true);
+
+      const info = await getStorageInfo();
+      setStorageInfo(info);
+    } catch (error) {
+      setMigrationError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setIsMigrating(false);
+    }
+  }, [isMigrating]);
+
+  const handleOpenStorageFolder = useCallback(async () => {
+    try {
+      await openStorageFolder();
+    } catch (error) {
+      console.error('Failed to open storage folder:', error);
+    }
+  }, []);
 
   const handleSave = useCallback(() => {
     providers.forEach((provider) => {
@@ -320,8 +380,9 @@ export function SettingsDialog({
     setThemeTonePreset(localThemeTonePreset);
     setAccentColor(localAccentColor);
     setCanvasEdgeRoutingMode(localCanvasEdgeRoutingMode);
-    setAutoCheckAppUpdateOnLaunch(localAutoCheckAppUpdateOnLaunch);
-    setEnableUpdateDialog(localEnableUpdateDialog);
+    setPsIntegrationEnabled(localPsIntegrationEnabled);
+    setPsServerPort(localPsServerPort);
+    setPsAutoStartServer(localPsAutoStartServer);
     onClose();
   }, [
     localApiKeys,
@@ -343,8 +404,9 @@ export function SettingsDialog({
     localThemeTonePreset,
     localAccentColor,
     localCanvasEdgeRoutingMode,
-    localAutoCheckAppUpdateOnLaunch,
-    localEnableUpdateDialog,
+    localPsIntegrationEnabled,
+    localPsServerPort,
+    localPsAutoStartServer,
     providers,
     setProviderApiKey,
     setGrsaiNanoBananaProModel,
@@ -368,23 +430,14 @@ export function SettingsDialog({
     setThemeTonePreset,
     setAccentColor,
     setCanvasEdgeRoutingMode,
-    setAutoCheckAppUpdateOnLaunch,
-    setEnableUpdateDialog,
+    setPsIntegrationEnabled,
+    setPsServerPort,
+    setPsAutoStartServer,
     onClose,
     localScriptProviderEnabled,
     localAlibabaTextModel,
     localCodingModel,
   ]);
-
-  const handleCheckUpdate = useCallback(async () => {
-    if (!onCheckUpdate) {
-      return;
-    }
-
-    setCheckUpdateStatus('checking');
-    const status = await onCheckUpdate();
-    setCheckUpdateStatus(status);
-  }, [onCheckUpdate]);
 
   const handlePickDownloadPath = useCallback(async () => {
     try {
@@ -536,6 +589,20 @@ export function SettingsDialog({
               </button>
 
               <button
+                onClick={() => setActiveCategory('psIntegration')}
+                className={`
+                w-full flex items-center gap-3 px-4 py-2.5 text-left
+                transition-colors
+                ${activeCategory === 'psIntegration'
+                    ? 'bg-accent/10 text-text-dark border-l-2 border-accent'
+                    : 'text-text-muted hover:bg-bg-dark hover:text-text-dark'
+                  }
+              `}
+              >
+                <span className="text-sm">{t('settings.psIntegration')}</span>
+              </button>
+
+              <button
                 onClick={() => setActiveCategory('about')}
                 className={`
                 w-full flex items-center gap-3 px-4 py-2.5 text-left
@@ -590,7 +657,7 @@ export function SettingsDialog({
                         const hasKey = Boolean((localApiKeys[provider.id] ?? '').trim());
                         const selectedProviderId = localProviderTab === 'script' ? selectedScriptProvider : selectedStoryboardProvider;
                         const isSelected = selectedProviderId === provider.id;
-                        const isEnabled = localProviderTab === 'script' && localScriptProviderEnabled === provider.id;
+                        const isEnabled = localProviderTab === 'script' && localScriptProviderEnabled === provider.id && hasKey;
                         return (
                           <button
                             key={provider.id}
@@ -632,7 +699,7 @@ export function SettingsDialog({
                       const isRevealed = Boolean(revealedApiKeys[provider.id]);
                       const hasKey = Boolean((localApiKeys[provider.id] ?? '').trim());
                       const isScriptTab = localProviderTab === 'script';
-                      const isEnabled = isScriptTab && localScriptProviderEnabled === provider.id;
+                      const isEnabled = isScriptTab && localScriptProviderEnabled === provider.id && hasKey;
 
                       return (
                         <div className="space-y-4">
@@ -1224,6 +1291,87 @@ export function SettingsDialog({
                       )}
                     </div>
                   </div>
+
+                  <div className="rounded-lg border border-border-dark bg-bg-dark p-4">
+                    <div className="mb-3">
+                      <h3 className="text-sm font-medium text-text-dark flex items-center gap-2">
+                        <HardDrive className="h-4 w-4" />
+                        {t('settings.projectStoragePath')}
+                      </h3>
+                      <p className="mt-1 text-xs text-text-muted">
+                        {t('settings.projectStoragePathDesc')}
+                      </p>
+                    </div>
+
+                    {isLoadingStorageInfo ? (
+                      <div className="flex items-center justify-center py-4">
+                        <Loader2 className="h-5 w-5 animate-spin text-text-muted" />
+                      </div>
+                    ) : storageInfo ? (
+                      <>
+                        <div className="mb-3 rounded border border-border-dark bg-surface-dark p-3">
+                          <div className="mb-2 flex items-center gap-2">
+                            <span className="text-xs text-text-muted">{t('settings.currentPath')}:</span>
+                            <span className="flex-1 truncate text-xs text-text-dark">
+                              {storageInfo.currentPath}
+                            </span>
+                            {storageInfo.isCustom && (
+                              <span className="rounded bg-amber-500/20 px-1.5 py-0.5 text-[10px] text-amber-400">
+                                {t('settings.customPath')}
+                              </span>
+                            )}
+                          </div>
+                          <div className="flex items-center gap-4 text-xs text-text-muted">
+                            <span>
+                              {t('settings.database')}: {formatBytes(storageInfo.dbSize)}
+                            </span>
+                            <span>
+                              {t('settings.images')}: {formatBytes(storageInfo.imagesSize)}
+                            </span>
+                            <span>
+                              {t('settings.total')}: {formatBytes(storageInfo.totalSize)}
+                            </span>
+                          </div>
+                        </div>
+
+                        {migrationError && (
+                          <div className="mb-3 rounded border border-red-500/30 bg-red-500/10 p-2 text-xs text-red-400">
+                            {migrationError}
+                          </div>
+                        )}
+
+                        <div className="flex items-center gap-2">
+                          <button
+                            type="button"
+                            disabled={isMigrating}
+                            onClick={() => void handleChangeStoragePath()}
+                            className="inline-flex h-9 items-center justify-center rounded border border-border-dark bg-surface-dark px-3 text-xs text-text-dark transition-colors hover:bg-bg-dark disabled:opacity-50"
+                          >
+                            {isMigrating ? (
+                              <>
+                                <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+                                {t('settings.migrating')}
+                              </>
+                            ) : (
+                              <>
+                                <FolderOpen className="mr-1.5 h-3.5 w-3.5" />
+                                {t('settings.changePath')}
+                              </>
+                            )}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => void handleOpenStorageFolder()}
+                            className="inline-flex h-9 items-center justify-center rounded border border-border-dark bg-surface-dark px-3 text-xs text-text-dark transition-colors hover:bg-bg-dark"
+                          >
+                            {t('settings.openFolder')}
+                          </button>
+                        </div>
+                      </>
+                    ) : (
+                      <div className="text-xs text-text-muted">{t('settings.failedToLoadStorageInfo')}</div>
+                    )}
+                  </div>
                 </div>
 
                 <div className="flex justify-end border-t border-border-dark px-6 py-4">
@@ -1282,6 +1430,161 @@ export function SettingsDialog({
               </>
             )}
 
+            {activeCategory === 'psIntegration' && (
+              <>
+                <div className="px-6 py-5 border-b border-border-dark">
+                  <h2 className="text-lg font-semibold text-text-dark">
+                    {t('settings.psIntegration')}
+                  </h2>
+                  <p className="text-sm text-text-muted mt-1">
+                    {t('settings.psIntegrationDesc')}
+                  </p>
+                </div>
+
+                <div className="ui-scrollbar flex-1 space-y-4 overflow-y-auto p-6">
+                  <SettingsCheckboxCard
+                    checked={localPsIntegrationEnabled}
+                    onCheckedChange={setLocalPsIntegrationEnabled}
+                    title={t('settings.psIntegrationEnabled')}
+                    description={t('settings.psIntegrationEnabledDesc')}
+                  />
+
+                  <div className="rounded-lg border border-border-dark bg-bg-dark p-4">
+                    <h3 className="text-sm font-medium text-text-dark">
+                      {t('settings.psServerPort')}
+                    </h3>
+                    <p className="mt-1 text-xs text-text-muted">
+                      {t('settings.psServerPortDesc')}
+                    </p>
+                    <div className="mt-3">
+                      <input
+                        type="number"
+                        min={1024}
+                        max={65535}
+                        value={localPsServerPort}
+                        onChange={(event) => {
+                          const port = parseInt(event.target.value, 10);
+                          if (!isNaN(port) && port >= 1024 && port <= 65535) {
+                            setLocalPsServerPort(port);
+                          }
+                        }}
+                        className="h-9 w-full rounded border border-border-dark bg-surface-dark px-3 text-sm text-text-dark outline-none placeholder:text-text-muted"
+                      />
+                    </div>
+                    <div className="mt-3 space-y-1 rounded-md border border-border-dark bg-surface-dark/70 p-3 text-xs">
+                      <div className="flex items-center justify-between gap-3">
+                        <span className="text-text-muted">{t('settings.psPreferredPort')}</span>
+                        <span className="font-medium text-text-dark">{psServerPort}</span>
+                      </div>
+                      <div className="flex items-center justify-between gap-3">
+                        <span className="text-text-muted">{t('settings.psRuntimePort')}</span>
+                        <span className="font-medium text-text-dark">
+                          {runtimePsPort ?? t('settings.psServerNotRunning')}
+                        </span>
+                      </div>
+                      <div className="flex items-center justify-between gap-3">
+                        <span className="text-text-muted">{t('settings.psPluginPort')}</span>
+                        <span className="font-medium text-accent">{pluginPsPort}</span>
+                      </div>
+                    </div>
+                    {psPortAutoAdjusted && runtimePsPort !== null && (
+                      <p className="mt-3 text-xs text-amber-400">
+                        {t('settings.psPortAutoAdjusted', {
+                          actual: runtimePsPort,
+                          requested: psServerPort,
+                        })}
+                      </p>
+                    )}
+                  </div>
+
+                  <SettingsCheckboxCard
+                    checked={localPsAutoStartServer}
+                    onCheckedChange={setLocalPsAutoStartServer}
+                    title={t('settings.psAutoStartServer')}
+                    description={t('settings.psAutoStartServerDesc')}
+                  />
+
+                  <div className="rounded-lg border border-border-dark bg-bg-dark p-4">
+                    <h3 className="text-sm font-medium text-text-dark mb-3">
+                      {t('settings.psStatus')}
+                    </h3>
+                    <div className="flex items-center gap-2 mb-4">
+                      <Circle
+                        className={`w-2.5 h-2.5 ${
+                          serverStatus.running ? 'fill-green-500 text-green-500' : 'fill-text-muted text-text-muted'
+                        }`}
+                      />
+                      <span className="text-sm text-text-dark">
+                        {serverStatus.running
+                          ? t('settings.psConnected', { port: serverStatus.port })
+                          : t('settings.psDisconnected')}
+                      </span>
+                    </div>
+                    <p className="mb-4 text-xs text-text-muted">
+                      {t('settings.psPluginPortDesc', { port: pluginPsPort })}
+                    </p>
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        disabled={isStarting || serverStatus.running}
+                        onClick={() => void startServer(localPsServerPort)}
+                        className="inline-flex h-9 items-center justify-center rounded border border-border-dark bg-surface-dark px-3 text-xs text-text-dark transition-colors hover:bg-bg-dark disabled:opacity-50 disabled:cursor-not-allowed"
+                      >
+                        {isStarting ? (
+                          <>
+                            <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+                            {t('common.loading')}
+                          </>
+                        ) : (
+                          t('settings.startServer')
+                        )}
+                      </button>
+                      <button
+                        type="button"
+                        disabled={isStopping || !serverStatus.running}
+                        onClick={() => void stopServer()}
+                        className="inline-flex h-9 items-center justify-center rounded border border-border-dark bg-surface-dark px-3 text-xs text-text-dark transition-colors hover:bg-bg-dark disabled:opacity-50 disabled:cursor-not-allowed"
+                      >
+                        {isStopping ? (
+                          <>
+                            <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+                            {t('common.loading')}
+                          </>
+                        ) : (
+                          t('settings.stopServer')
+                        )}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={async () => {
+                          try {
+                            const { resourceDir } = await import('@tauri-apps/api/path');
+                            const pluginPath = await resourceDir();
+                            await openPath(pluginPath + '/ps-plugin');
+                          } catch (error) {
+                            console.error('Failed to open plugin directory:', error);
+                          }
+                        }}
+                        className="inline-flex h-9 items-center justify-center rounded border border-border-dark bg-surface-dark px-3 text-xs text-text-dark transition-colors hover:bg-bg-dark"
+                      >
+                        <FolderOpen className="mr-1.5 h-3.5 w-3.5" />
+                        {t('settings.openPluginDir')}
+                      </button>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="flex justify-end border-t border-border-dark px-6 py-4">
+                  <button
+                    onClick={handleSave}
+                    className="rounded bg-accent px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-accent/80"
+                  >
+                    {t('common.save')}
+                  </button>
+                </div>
+              </>
+            )}
+
             {activeCategory === 'about' && (
               <>
                 <div className="px-6 py-5 border-b border-border-dark">
@@ -1302,14 +1605,9 @@ export function SettingsDialog({
                         className="h-14 w-14 rounded-lg border border-border-dark object-cover"
                       />
                       <div className="min-w-0 flex-1">
-                        <a
-                          href="https://space.bilibili.com/39337803"
-                          target="_blank"
-                          rel="noreferrer"
-                          className="text-base font-semibold text-accent hover:underline"
-                        >
+                        <span className="text-base font-semibold text-text-dark">
                           {t('settings.aboutAppName')}
-                        </a>
+                        </span>
                         <p className="mt-1 text-sm text-text-muted">
                           {t('settings.aboutIntro')}
                         </p>
@@ -1319,64 +1617,34 @@ export function SettingsDialog({
 
                   <div className="rounded-lg border border-border-dark bg-bg-dark p-4 space-y-2 text-sm">
                     <p className="text-text-dark">
-                      {t('settings.aboutVersionLabel')}: <span className="text-text-muted">{appVersion || t('settings.aboutVersionUnknown')}</span>
-                    </p>
-                    <p className="text-text-dark">
-                      {t('settings.aboutAuthorLabel')}:{' '}
-                      <a
-                        href="https://space.bilibili.com/39337803"
-                        target="_blank"
-                        rel="noreferrer"
-                        className="text-accent hover:underline"
-                      >
-                        {t('settings.aboutAuthor')}
-                      </a>
-                    </p>
-                    <p className="text-text-dark">
-                      {t('settings.aboutRepositoryLabel')}:{' '}
-                      <a
-                        href="https://github.com/henjicc/Storyboard-Copilot"
-                        target="_blank"
-                        rel="noreferrer"
-                        className="text-accent hover:underline break-all"
-                      >
-                        https://github.com/henjicc/Storyboard-Copilot
-                      </a>
+                      {t('settings.aboutVersionLabel')}: <span className="text-text-muted">1.0</span>
                     </p>
                   </div>
 
-                  <div className="space-y-3">
-                    <SettingsCheckboxCard
-                      checked={localAutoCheckAppUpdateOnLaunch}
-                      onCheckedChange={setLocalAutoCheckAppUpdateOnLaunch}
-                      title={t('settings.autoCheckUpdateOnLaunch')}
-                      description={t('settings.autoCheckUpdateOnLaunchDesc')}
-                    />
-                    <SettingsCheckboxCard
-                      checked={localEnableUpdateDialog}
-                      onCheckedChange={setLocalEnableUpdateDialog}
-                      title={t('settings.enableUpdateDialog')}
-                      description={t('settings.enableUpdateDialogDesc')}
-                    />
-                    <div className="pt-1">
-                      <button
-                        type="button"
-                        onClick={() => {
-                          void handleCheckUpdate();
-                        }}
-                        className="rounded border border-border-dark bg-surface-dark px-3 py-2 text-sm text-text-dark transition-colors hover:bg-bg-dark disabled:cursor-not-allowed disabled:opacity-50"
-                        disabled={checkUpdateStatus === 'checking'}
-                      >
-                        {checkUpdateStatus === 'checking'
-                          ? t('settings.checkingUpdate')
-                          : t('settings.checkUpdateNow')}
-                      </button>
-                      {checkUpdateStatus !== '' && (
-                        <p className="mt-2 text-xs text-text-muted">
-                          {checkUpdateStatus === 'has-update' && t('settings.checkUpdateHasUpdate')}
-                          {checkUpdateStatus === 'up-to-date' && t('settings.checkUpdateUpToDate')}
-                          {checkUpdateStatus === 'failed' && t('settings.checkUpdateFailed')}
-                          {checkUpdateStatus === 'checking' && t('settings.checkingUpdate')}
+                  <div className="rounded-lg border border-border-dark bg-bg-dark p-4">
+                    <h3 className="text-sm font-medium text-text-dark">
+                      {t('settings.aboutPsPortTitle')}
+                    </h3>
+                    <p className="mt-1 text-xs text-text-muted">
+                      {t('settings.aboutPsPortDesc')}
+                    </p>
+                    <div className="mt-3 space-y-2 text-sm">
+                      <p className="text-text-dark">
+                        {t('settings.psRuntimePort')}: <span className="text-text-muted">
+                          {runtimePsPort ?? t('settings.psServerNotRunning')}
+                        </span>
+                      </p>
+                      <p className="text-text-dark">
+                        {t('settings.psPluginPort')}: <span className="text-accent">
+                          {pluginPsPort}
+                        </span>
+                      </p>
+                      {psPortAutoAdjusted && runtimePsPort !== null && (
+                        <p className="text-xs text-amber-400">
+                          {t('settings.psPortAutoAdjusted', {
+                            actual: runtimePsPort,
+                            requested: psServerPort,
+                          })}
                         </p>
                       )}
                     </div>

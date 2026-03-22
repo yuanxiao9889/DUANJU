@@ -12,20 +12,20 @@ interface ProjectTypeSelectorProps {
 export function ProjectTypeSelector({ onClose, onSelectType }: ProjectTypeSelectorProps) {
   return (
     <div className={`fixed ${UI_CONTENT_OVERLAY_INSET_CLASS} z-50 flex items-center justify-center`}>
-      <div className="absolute inset-0 bg-black/60" onClick={onClose} />
-      <div className="relative bg-surface-dark border border-border-dark rounded-xl p-8 max-w-lg w-full mx-4 shadow-2xl">
-        <div className="text-center mb-6">
+      <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={onClose} />
+      <div className="relative bg-surface-dark/95 backdrop-blur-md border border-border-dark/50 rounded-2xl p-8 max-w-lg w-full mx-4 shadow-[0_24px_48px_rgba(0,0,0,0.25)]">
+        <div className="text-center mb-8">
           <h2 className="text-2xl font-bold text-text-dark">选择项目类型</h2>
           <p className="text-text-muted mt-2">请选择您要创建的项目类型</p>
         </div>
 
-        <div className="grid grid-cols-2 gap-4 mb-6">
+        <div className="grid grid-cols-2 gap-5 mb-6">
           <button
             onClick={() => onSelectType('storyboard')}
-            className="flex flex-col items-center gap-4 p-6 border-2 border-border-dark rounded-xl hover:border-primary/50 hover:bg-bg-dark transition-all group"
+            className="flex flex-col items-center gap-4 p-6 border-2 border-border-dark/50 rounded-2xl bg-bg-dark/30 hover:border-accent/50 hover:bg-accent/5 hover:shadow-[0_8px_24px_rgba(59,130,246,0.15)] transition-all duration-300 group"
           >
-            <div className="w-16 h-16 rounded-full bg-primary/10 flex items-center justify-center group-hover:bg-primary/20 transition-colors">
-              <Film className="w-8 h-8 text-primary" />
+            <div className="w-16 h-16 rounded-xl bg-accent/10 flex items-center justify-center group-hover:bg-accent/20 group-hover:scale-110 transition-all">
+              <Film className="w-8 h-8 text-accent" />
             </div>
             <div className="text-center">
               <h3 className="font-semibold text-text-dark">分镜项目</h3>
@@ -36,9 +36,9 @@ export function ProjectTypeSelector({ onClose, onSelectType }: ProjectTypeSelect
 
           <button
             onClick={() => onSelectType('script')}
-            className="flex flex-col items-center gap-4 p-6 border-2 border-border-dark rounded-xl hover:border-primary/50 hover:bg-bg-dark transition-all group"
+            className="flex flex-col items-center gap-4 p-6 border-2 border-border-dark/50 rounded-2xl bg-bg-dark/30 hover:border-amber-500/50 hover:bg-amber-500/5 hover:shadow-[0_8px_24px_rgba(245,158,11,0.15)] transition-all duration-300 group"
           >
-            <div className="w-16 h-16 rounded-full bg-amber-500/10 flex items-center justify-center group-hover:bg-amber-500/20 transition-colors">
+            <div className="w-16 h-16 rounded-xl bg-amber-500/10 flex items-center justify-center group-hover:bg-amber-500/20 group-hover:scale-110 transition-all">
               <FileText className="w-8 h-8 text-amber-400" />
             </div>
             <div className="text-center">
@@ -85,13 +85,13 @@ export function CreateProjectDialog({ projectType, isOpen, onClose }: CreateProj
 
   return (
     <div className={`fixed ${UI_CONTENT_OVERLAY_INSET_CLASS} z-50 flex items-center justify-center`}>
-      <div className="absolute inset-0 bg-black/60" onClick={onClose} />
-      <div className="relative bg-surface-dark border border-border-dark rounded-xl p-6 max-w-md w-full mx-4 shadow-2xl">
-        <h2 className="text-xl font-bold text-text-dark mb-4">
+      <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={onClose} />
+      <div className="relative bg-surface-dark/95 backdrop-blur-md border border-border-dark/50 rounded-2xl p-8 max-w-md w-full mx-4 shadow-[0_24px_48px_rgba(0,0,0,0.25)]">
+        <h2 className="text-xl font-bold text-text-dark mb-5">
           {projectType === 'script' ? '创建剧本项目' : '创建分镜项目'}
         </h2>
 
-        <div className="mb-4">
+        <div className="mb-5">
           <label className="block text-sm font-medium text-text-dark mb-2">
             项目名称
           </label>
@@ -101,20 +101,20 @@ export function CreateProjectDialog({ projectType, isOpen, onClose }: CreateProj
             onChange={(e) => setName(e.target.value)}
             onKeyDown={handleKeyDown}
             placeholder="请输入项目名称"
-            className="w-full px-4 py-2 bg-bg-dark border border-border-dark rounded-lg text-text-dark placeholder:text-text-muted focus:outline-none focus:border-primary"
+            className="w-full px-4 py-2.5 bg-bg-dark/80 border border-border-dark/50 rounded-xl text-text-dark placeholder:text-text-muted focus:outline-none focus:border-accent/50 focus:ring-2 focus:ring-accent/20 transition-all"
             autoFocus
           />
         </div>
 
         <div className="flex gap-3">
-          <UiButton variant="ghost" onClick={onClose} className="flex-1">
+          <UiButton variant="ghost" onClick={onClose} className="flex-1 rounded-xl">
             取消
           </UiButton>
           <UiButton 
             variant="primary" 
             onClick={handleConfirm} 
             disabled={!name.trim()}
-            className="flex-1"
+            className="flex-1 rounded-xl shadow-lg shadow-accent/20"
           >
             创建项目
           </UiButton>

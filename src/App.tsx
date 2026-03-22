@@ -6,6 +6,7 @@ import { TitleBar } from './components/TitleBar';
 import { SettingsDialog } from './components/SettingsDialog';
 import { UpdateAvailableDialog, type UpdateIgnoreMode } from './components/UpdateAvailableDialog';
 import { GlobalErrorDialog } from './components/GlobalErrorDialog';
+import { PsImageToast } from './components/PsImageToast';
 import { ProjectManager } from './features/project/ProjectManager';
 import { useThemeStore } from './stores/themeStore';
 import { useProjectStore } from './stores/projectStore';
@@ -23,6 +24,7 @@ import {
   subscribeOpenSettingsDialog,
   type SettingsCategory,
 } from './features/settings/settingsEvents';
+import { initializePsIntegration } from './stores/psIntegrationStore';
 
 function toRgbCssValue(hexColor: string): string {
   const hex = hexColor.replace('#', '');
@@ -43,6 +45,7 @@ function App() {
   const autoCheckAppUpdateOnLaunch = useSettingsStore((state) => state.autoCheckAppUpdateOnLaunch);
   const enableUpdateDialog = useSettingsStore((state) => state.enableUpdateDialog);
   const setEnableUpdateDialog = useSettingsStore((state) => state.setEnableUpdateDialog);
+  const settingsHydrated = useSettingsStore((state) => state.isHydrated);
   const [showSettings, setShowSettings] = useState(false);
   const [settingsInitialCategory, setSettingsInitialCategory] = useState<SettingsCategory>('general');
   const [showUpdateDialog, setShowUpdateDialog] = useState(false);
@@ -87,6 +90,26 @@ function App() {
   useEffect(() => {
     void hydrate();
   }, [hydrate]);
+
+  useEffect(() => {
+    if (!settingsHydrated) {
+      return;
+    }
+
+    const {
+      psIntegrationEnabled,
+      psServerPort,
+      psAutoStartServer,
+    } = useSettingsStore.getState();
+
+    const unsubscribe = initializePsIntegration({
+      enabled: psIntegrationEnabled,
+      preferredPort: psServerPort,
+      autoStart: psAutoStartServer,
+    });
+
+    return unsubscribe;
+  }, [settingsHydrated]);
 
   useEffect(() => {
     const unsubscribe = subscribeOpenGlobalErrorDialog((detail) => {
@@ -243,6 +266,7 @@ function App() {
           copyText={globalError?.copyText}
           onClose={() => setGlobalError(null)}
         />
+        <PsImageToast />
       </div>
     </ReactFlowProvider>
   );

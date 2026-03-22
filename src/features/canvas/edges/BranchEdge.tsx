@@ -10,6 +10,7 @@ export function BranchEdge({
   targetY,
   style,
   markerEnd,
+  selected,
 }: EdgeProps) {
   const [edgePath] = useMemo(() => {
     const [path] = getBezierPath({
@@ -22,6 +23,11 @@ export function BranchEdge({
     return [path];
   }, [sourceX, sourceY, targetX, targetY]);
 
+  const strokeColor = selected
+    ? 'rgb(var(--accent-rgb) / 0.9)'
+    : 'rgb(var(--accent-rgb) / 0.65)';
+  const strokeWidth = selected ? 2.5 : 2;
+
   return (
     <>
       <path
@@ -30,16 +36,16 @@ export function BranchEdge({
         className="react-flow__edge-path"
         d={edgePath}
         markerEnd={markerEnd}
-        stroke="#3b82f6"
-        strokeWidth={2}
+        stroke={strokeColor}
+        strokeWidth={strokeWidth}
         fill="none"
       />
       <circle
         cx={(sourceX + targetX) / 2}
         cy={(sourceY + targetY) / 2}
-        r="4"
-        fill="#3b82f6"
-        opacity="0.6"
+        r={selected ? 5 : 4}
+        fill={strokeColor}
+        opacity={selected ? 0.8 : 0.6}
       />
     </>
   );

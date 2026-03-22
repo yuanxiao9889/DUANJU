@@ -15,6 +15,13 @@ export type CanvasEdgeRoutingMode = 'spline' | 'orthogonal' | 'smartOrthogonal';
 export type ProviderApiKeys = Record<string, string>;
 export const DEFAULT_GRSAI_NANO_BANANA_PRO_MODEL = 'nano-banana-pro';
 
+export interface StyleTemplate {
+  id: string;
+  name: string;
+  prompt: string;
+  createdAt: number;
+}
+
 interface SettingsState {
   isHydrated: boolean;
   apiKeys: ProviderApiKeys;
@@ -44,6 +51,13 @@ interface SettingsState {
   canvasEdgeRoutingMode: CanvasEdgeRoutingMode;
   autoCheckAppUpdateOnLaunch: boolean;
   enableUpdateDialog: boolean;
+  showMiniMap: boolean;
+  showGrid: boolean;
+  showAlignmentGuides: boolean;
+  styleTemplates: StyleTemplate[];
+  psIntegrationEnabled: boolean;
+  psServerPort: number;
+  psAutoStartServer: boolean;
   setIsHydrated: (isHydrated: boolean) => void;
   setProviderApiKey: (providerId: string, key: string) => void;
   setScriptProviderEnabled: (providerId: string) => void;
@@ -72,6 +86,15 @@ interface SettingsState {
   setCanvasEdgeRoutingMode: (mode: CanvasEdgeRoutingMode) => void;
   setAutoCheckAppUpdateOnLaunch: (enabled: boolean) => void;
   setEnableUpdateDialog: (enabled: boolean) => void;
+  setShowMiniMap: (show: boolean) => void;
+  setShowGrid: (show: boolean) => void;
+  setShowAlignmentGuides: (show: boolean) => void;
+  addStyleTemplate: (template: Omit<StyleTemplate, 'id' | 'createdAt'>) => void;
+  updateStyleTemplate: (id: string, updates: Partial<Pick<StyleTemplate, 'name' | 'prompt'>>) => void;
+  deleteStyleTemplate: (id: string) => void;
+  setPsIntegrationEnabled: (enabled: boolean) => void;
+  setPsServerPort: (port: number) => void;
+  setPsAutoStartServer: (enabled: boolean) => void;
 }
 
 const HEX_COLOR_PATTERN = /^#?[0-9a-fA-F]{6}$/;
@@ -224,6 +247,13 @@ export const useSettingsStore = create<SettingsState>()(
       canvasEdgeRoutingMode: 'spline',
       autoCheckAppUpdateOnLaunch: true,
       enableUpdateDialog: true,
+      showMiniMap: true,
+      showGrid: true,
+      showAlignmentGuides: true,
+      styleTemplates: [],
+      psIntegrationEnabled: true,
+      psServerPort: 9527,
+      psAutoStartServer: true,
       setIsHydrated: (isHydrated) => set({ isHydrated }),
       setProviderApiKey: (providerId, key) =>
         set((state) => ({
@@ -285,10 +315,37 @@ export const useSettingsStore = create<SettingsState>()(
         set({ canvasEdgeRoutingMode: normalizeCanvasEdgeRoutingMode(canvasEdgeRoutingMode) }),
       setAutoCheckAppUpdateOnLaunch: (enabled) => set({ autoCheckAppUpdateOnLaunch: enabled }),
       setEnableUpdateDialog: (enabled) => set({ enableUpdateDialog: enabled }),
+      setShowMiniMap: (show) => set({ showMiniMap: show }),
+      setShowGrid: (show) => set({ showGrid: show }),
+      setShowAlignmentGuides: (show) => set({ showAlignmentGuides: show }),
+      addStyleTemplate: (template) =>
+        set((state) => ({
+          styleTemplates: [
+            ...state.styleTemplates,
+            {
+              ...template,
+              id: crypto.randomUUID(),
+              createdAt: Date.now(),
+            },
+          ],
+        })),
+      updateStyleTemplate: (id, updates) =>
+        set((state) => ({
+          styleTemplates: state.styleTemplates.map((t) =>
+            t.id === id ? { ...t, ...updates } : t
+          ),
+        })),
+      deleteStyleTemplate: (id) =>
+        set((state) => ({
+          styleTemplates: state.styleTemplates.filter((t) => t.id !== id),
+        })),
+      setPsIntegrationEnabled: (enabled) => set({ psIntegrationEnabled: enabled }),
+      setPsServerPort: (port) => set({ psServerPort: port }),
+      setPsAutoStartServer: (enabled) => set({ psAutoStartServer: enabled }),
     }),
     {
       name: 'settings-storage',
-      version: 11,
+      version: 14,
       onRehydrateStorage: () => {
         return (state, error) => {
           if (error) {
@@ -317,6 +374,9 @@ export const useSettingsStore = create<SettingsState>()(
           usdToCnyRate?: number | string;
           preferDiscountedPrice?: boolean;
           grsaiCreditTierId?: GrsaiCreditTierId | string;
+          showMiniMap?: boolean;
+          showGrid?: boolean;
+          showAlignmentGuides?: boolean;
         };
 
         const migratedApiKeys = normalizeApiKeys(state.apiKeys);
@@ -358,6 +418,13 @@ export const useSettingsStore = create<SettingsState>()(
           usdToCnyRate: normalizeUsdToCnyRate(state.usdToCnyRate),
           preferDiscountedPrice: state.preferDiscountedPrice ?? false,
           grsaiCreditTierId: normalizeGrsaiCreditTierId(state.grsaiCreditTierId),
+          showMiniMap: state.showMiniMap ?? true,
+          showGrid: state.showGrid ?? true,
+          showAlignmentGuides: state.showAlignmentGuides ?? true,
+          styleTemplates: [],
+          psIntegrationEnabled: true,
+          psServerPort: 9527,
+          psAutoStartServer: true,
         };
       },
     }

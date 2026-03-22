@@ -1,12 +1,37 @@
 import { useState, useCallback, useEffect, useRef } from 'react';
-import { Sparkles, X, Loader2, ArrowRight } from 'lucide-react';
-import { expandScript, rewriteScript } from '@/commands/textGen';
+import { createPortal } from 'react-dom';
+import { Sparkles, X, Loader2, ArrowRight, GitFork } from 'lucide-react';
+import { expandScript, rewriteScript, expandFromSummary, expandFromMergedBranches } from '@/commands/textGen';
+import type { MergedBranchContent } from '@/commands/textGen';
 import { UiButton } from '@/components/ui/primitives';
+
+function simpleMarkdownToHtml(text: string): string {
+  let html = text
+    .replace(/^## (.+)$/gm, '<h2>$1</h2>')
+    .replace(/^---$/gm, '<hr>')
+    .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+
+  const blocks = html.split(/\n\n+/);
+  html = blocks.map(block => {
+    block = block.trim();
+    if (!block) return '';
+    if (block.startsWith('<h2>') || block.startsWith('<hr>')) {
+      return block;
+    }
+    block = block.replace(/\n/g, '<br>');
+    return `<p>${block}</p>`;
+  }).join('\n');
+
+  return html;
+}
 
 interface AiWriterDialogProps {
   isOpen: boolean;
-  mode: 'expand' | 'rewrite';
+  mode: 'expand' | 'rewrite' | 'expandFromSummary' | 'expandFromMerged';
   originalText: string;
+  chapterTitle?: string;
+  chapterNumber?: number;
+  mergedBranchContents?: MergedBranchContent[];
   onClose: () => void;
   onConfirm: (result: string) => void;
   anchorRef?: React.RefObject<HTMLElement>;
@@ -17,6 +42,9 @@ export function AiWriterDialog({
   isOpen,
   mode,
   originalText,
+  chapterTitle,
+  chapterNumber,
+  mergedBranchContents,
   onClose,
   onConfirm,
   anchorRef,
@@ -45,6 +73,23 @@ export function AiWriterDialog({
           content: originalText,
           instruction: instruction || '请扩写这段内容，使其更加丰富生动',
         });
+      } else if (mode === 'expandFromSummary') {
+        const rawText = await expandFromSummary({
+          summary: originalText,
+          chapterTitle: chapterTitle || '未命名章节',
+          chapterNumber,
+          instruction: instruction || undefined,
+        });
+        generatedText = simpleMarkdownToHtml(rawText);
+      } else if (mode === 'expandFromMerged') {
+        const rawText = await expandFromMergedBranches({
+          summary: originalText,
+          chapterTitle: chapterTitle || '未命名章节',
+          chapterNumber,
+          mergedBranches: mergedBranchContents || [],
+          instruction: instruction || undefined,
+        });
+        generatedText = simpleMarkdownToHtml(rawText);
       } else {
         generatedText = await rewriteScript({
           content: originalText,
@@ -57,7 +102,7 @@ export function AiWriterDialog({
     } finally {
       setIsLoading(false);
     }
-  }, [mode, originalText, instruction]);
+  }, [mode, originalText, instruction, chapterTitle, chapterNumber, mergedBranchContents]);
 
   const handleConfirm = useCallback(() => {
     if (result) {
@@ -84,65 +129,121 @@ export function AiWriterDialog({
     }
 
     const calculatePosition = () => {
-      const anchorRect = anchorRef.current!.getBoundingClientRect();
+      if (!anchorRef?.current) return;
+      
+      const anchorRect = anchorRef.current.getBoundingClientRect();
       const viewportWidth = window.innerWidth;
       const viewportHeight = window.innerHeight;
       const dialogWidth = 400;
       const dialogHeight = 360;
       const gap = 8;
 
+      console.log('[AiWriterDialog] 锚点位置:', {
+        left: anchorRect.left,
+        right: anchorRect.right,
+        top: anchorRect.top,
+        width: anchorRect.width,
+        height: anchorRect.height,
+        viewportWidth,
+        viewportHeight,
+        preferredPosition
+      });
+
       let position: { left?: number; right?: number; top?: number } = {};
 
+      // 计算水平位置 - 紧邻锚点显示
       if (preferredPosition === 'right') {
+        // 放在锚点右侧，紧邻锚点
         position.left = anchorRect.right + gap;
+        console.log('[AiWriterDialog] 初始 left:', position.left, 'anchorRect.right:', anchorRect.right, 'gap:', gap);
+        // 如果超出视口右边界，则放在锚点左侧
+        if (position.left + dialogWidth > viewportWidth - gap) {
+          console.log('[AiWriterDialog] 超出右边界，调整到左侧');
+          position.left = Math.max(gap, anchorRect.left - dialogWidth - gap);
+        }
       } else if (preferredPosition === 'left') {
+        // 放在锚点左侧
         position.left = Math.max(gap, anchorRect.left - dialogWidth - gap);
+        // 如果超出视口左边界，则放在锚点右侧
+        if (position.left < gap) {
+          position.left = anchorRect.right + gap;
+        }
       } else {
+        // 居中显示
         position.left = Math.max(gap, (viewportWidth - dialogWidth) / 2);
       }
 
-      if (position.left + dialogWidth > viewportWidth - gap) {
-        position.left = Math.max(gap, anchorRect.left - dialogWidth - gap);
-      }
-
+      // 计算垂直位置：弹窗顶部对齐锚点顶部（更紧凑）
       position.top = anchorRect.top;
-
+      
+      // 确保不超出视口底部
       if (position.top + dialogHeight > viewportHeight - gap) {
         position.top = Math.max(gap, viewportHeight - dialogHeight - gap);
       }
 
+      console.log('[AiWriterDialog] 弹窗位置:', position);
+
       setDialogPosition(position);
     };
 
-    calculatePosition();
+    // 使用 requestAnimationFrame 确保在浏览器绘制完成后获取位置
+    let rafId: number;
+    const timer = setTimeout(() => {
+      rafId = requestAnimationFrame(() => {
+        calculatePosition();
+        // 再延迟一帧，确保位置稳定
+        rafId = requestAnimationFrame(() => {
+          calculatePosition();
+        });
+      });
+    }, 0);
+    
     window.addEventListener('resize', calculatePosition);
-    return () => window.removeEventListener('resize', calculatePosition);
+    return () => {
+      clearTimeout(timer);
+      if (rafId) cancelAnimationFrame(rafId);
+      window.removeEventListener('resize', calculatePosition);
+    };
   }, [isOpen, anchorRef, preferredPosition]);
 
   if (!isOpen) return null;
 
   const isPositioned = dialogPosition !== null && anchorRef?.current;
+  
+  // 如果锚点模式但位置还未计算好，显示透明遮罩等待定位
+  const isPositioning = anchorRef?.current && dialogPosition === null;
 
-  return (
+  return createPortal(
     <div className={`fixed inset-0 z-50 ${isPositioned ? '' : 'flex items-center justify-center'}`}>
       <div className="absolute inset-0 bg-black/60" onClick={handleClose} />
+      {isPositioning ? (
+        // 位置计算中，显示加载指示器
+        <div className="flex items-center justify-center">
+          <div className="w-8 h-8 border-2 border-amber-400 border-t-transparent rounded-full animate-spin" />
+        </div>
+      ) : (
       <div
         ref={dialogRef}
-        className="relative bg-surface-dark border border-border-dark rounded-xl max-w-2xl w-full mx-4 shadow-2xl max-h-[80vh] flex flex-col"
+        className={`bg-surface-dark border border-border-dark rounded-xl w-full shadow-2xl max-h-[80vh] flex flex-col ${isPositioned ? '' : 'max-w-2xl mx-4'}`}
         style={isPositioned ? {
           position: 'fixed',
           left: dialogPosition.left,
-          right: dialogPosition.right,
           top: dialogPosition.top,
+          width: '400px',
           maxWidth: '400px',
-          margin: 0,
         } : {}}
       >
         <div className="flex items-center justify-between p-4 border-b border-border-dark">
           <div className="flex items-center gap-2">
-            <Sparkles className="w-5 h-5 text-amber-400" />
+            {mode === 'expandFromMerged' ? (
+              <GitFork className="w-5 h-5 text-cyan-400" />
+            ) : (
+              <Sparkles className="w-5 h-5 text-amber-400" />
+            )}
             <h2 className="text-lg font-semibold text-text-dark">
-              {mode === 'expand' ? 'AI 扩写' : 'AI 改写'}
+              {mode === 'expandFromMerged' ? '基于分支融合扩写' :
+               mode === 'expandFromSummary' ? '基于摘要扩写' :
+               mode === 'expand' ? 'AI 扩写' : 'AI 改写'}
             </h2>
           </div>
           <button
@@ -178,7 +279,7 @@ export function AiWriterDialog({
             </div>
           )}
 
-          {mode === 'expand' && (
+          {(mode === 'expand' || mode === 'expandFromSummary' || mode === 'expandFromMerged') && (
             <div>
               <label className="block text-sm font-medium text-text-dark mb-2">
                 扩写要求（可选）
@@ -187,9 +288,37 @@ export function AiWriterDialog({
                 type="text"
                 value={instruction}
                 onChange={(e) => setInstruction(e.target.value)}
-                placeholder="例如：增加细节描写、丰富人物心理..."
+                placeholder={mode === 'expandFromMerged' ? '例如：融合所有分支、选择主线发展...' :
+                            mode === 'expandFromSummary' ? '例如：增加对白、强化冲突...' :
+                            '例如：增加细节描写、丰富人物心理...'}
                 className="w-full px-3 py-2 bg-bg-dark border border-border-dark rounded-lg text-text-dark placeholder:text-text-muted focus:outline-none focus:border-amber-500"
               />
+            </div>
+          )}
+
+          {mergedBranchContents && mergedBranchContents.length > 0 && (
+            <div className="border border-cyan-500/30 rounded-lg p-3 bg-cyan-500/5">
+              <label className="block text-sm font-medium text-cyan-400 mb-2 flex items-center gap-2">
+                <GitFork className="w-4 h-4" />
+                已接入的分支内容 ({mergedBranchContents.length}个)
+              </label>
+              <div className="space-y-2 max-h-40 overflow-y-auto">
+                {mergedBranchContents.map((branch, index) => (
+                  <div key={index} className="p-2 bg-bg-dark rounded-lg text-xs border border-cyan-500/20">
+                    <div className="flex items-center gap-2 mb-1">
+                      <span className="px-1.5 py-0.5 rounded bg-cyan-500/20 text-cyan-400 font-medium">
+                        {branch.branchLabel || `分支${String.fromCharCode(65 + index)}`}
+                      </span>
+                      <span className="font-medium text-text-dark">
+                        {branch.title}
+                      </span>
+                    </div>
+                    <div className="text-text-muted line-clamp-2">
+                      {branch.content || branch.summary}
+                    </div>
+                  </div>
+                ))}
+              </div>
             </div>
           )}
 
@@ -230,8 +359,10 @@ export function AiWriterDialog({
                 </>
               ) : (
                 <>
-                  <Sparkles className="w-4 h-4" />
-                  {mode === 'expand' ? '开始扩写' : '开始改写'}
+                  {mode === 'expandFromMerged' ? <GitFork className="w-4 h-4" /> : <Sparkles className="w-4 h-4" />}
+                  {mode === 'expandFromMerged' ? '开始融合扩写' :
+                   mode === 'expandFromSummary' ? '开始扩写' :
+                   mode === 'expand' ? '开始扩写' : '开始改写'}
                 </>
               )}
             </UiButton>
@@ -246,6 +377,8 @@ export function AiWriterDialog({
           )}
         </div>
       </div>
-    </div>
+      )}
+    </div>,
+    document.body
   );
 }

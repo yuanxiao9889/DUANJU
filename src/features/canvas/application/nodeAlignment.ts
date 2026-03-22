@@ -37,22 +37,15 @@ export function detectAlignments(
 
   for (const otherNode of otherNodes) {
     if (otherNode.id === draggedNode.id) continue;
-    
+
     const otherBounds = getNodeBounds(otherNode);
-    
+
     // 检测水平对齐（y轴方向）
     // 顶部对齐
     if (Math.abs(draggedBounds.top - otherBounds.top) < threshold) {
       alignments.push({
         guide: { type: 'horizontal', position: otherBounds.top, style: 'top' },
         snapOffset: { x: 0, y: otherBounds.top - draggedBounds.top },
-      });
-    }
-    // 中部对齐
-    if (Math.abs(draggedBounds.centerY - otherBounds.centerY) < threshold) {
-      alignments.push({
-        guide: { type: 'horizontal', position: otherBounds.centerY, style: 'center' },
-        snapOffset: { x: 0, y: otherBounds.centerY - draggedBounds.centerY },
       });
     }
     // 底部对齐
@@ -71,13 +64,6 @@ export function detectAlignments(
         snapOffset: { x: otherBounds.left - draggedBounds.left, y: 0 },
       });
     }
-    // 中对齐
-    if (Math.abs(draggedBounds.centerX - otherBounds.centerX) < threshold) {
-      alignments.push({
-        guide: { type: 'vertical', position: otherBounds.centerX, style: 'middle' },
-        snapOffset: { x: otherBounds.centerX - draggedBounds.centerX, y: 0 },
-      });
-    }
     // 右对齐
     if (Math.abs(draggedBounds.right - otherBounds.right) < threshold) {
       alignments.push({
@@ -91,8 +77,8 @@ export function detectAlignments(
 }
 
 function getNodeBounds(node: Node): NodeBounds {
-  const width = node.width ?? 200;
-  const height = node.height ?? 100;
+  const width = node.measured?.width ?? node.width ?? 200;
+  const height = node.measured?.height ?? node.height ?? 100;
   const x = node.position.x;
   const y = node.position.y;
   
