@@ -1,4 +1,5 @@
-import { useCallback } from 'react';
+import { useCallback, useEffect, useState } from 'react';
+import { getVersion } from '@tauri-apps/api/app';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { Minus, X, Maximize2, Settings, ArrowLeft } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
@@ -22,13 +23,36 @@ export function TitleBar({ onSettingsClick, showBackButton, onBackClick }: Title
   const { t, i18n } = useTranslation();
   const { theme, toggleTheme } = useThemeStore();
   const currentProjectName = useProjectStore((state) => state.currentProject?.name);
+  const [runtimeVersion, setRuntimeVersion] = useState<string>('');
 
   const appWindow = getCurrentWindow();
   const isZh = i18n.language.startsWith('zh');
   const isMac =
     typeof navigator !== 'undefined'
     && /(Mac|iPhone|iPad|iPod)/i.test(`${navigator.platform} ${navigator.userAgent}`);
-  const appTitle = t('app.title');
+  useEffect(() => {
+    let mounted = true;
+
+    const loadVersion = async () => {
+      try {
+        const version = await getVersion();
+        if (mounted) {
+          setRuntimeVersion(version);
+        }
+      } catch {
+        if (mounted) {
+          setRuntimeVersion('');
+        }
+      }
+    };
+
+    void loadVersion();
+    return () => {
+      mounted = false;
+    };
+  }, []);
+
+  const appTitle = runtimeVersion ? `${t('app.title')} v${runtimeVersion}` : t('app.title');
   const titleText = currentProjectName ? `${currentProjectName} - ${appTitle}` : appTitle;
 
   const handleMinimize = useCallback(async () => {

@@ -1,6 +1,6 @@
 {
   "app": {
-    "title": "Storyboard Copilot v1.0",
+    "title": "Storyboard Copilot",
     "subtitle": "AI Storyboard Tool"
   },
   "common": {
@@ -40,6 +40,14 @@
       "unlock": "Unlock Canvas"
     }
   },
+  "group": {
+    "sidebarTitle": "Groups",
+    "sidebarCount": "{{count}} groups",
+    "locate": "Locate group",
+    "expandSidebar": "Expand groups sidebar",
+    "collapseSidebar": "Collapse groups sidebar",
+    "groupSelected": "Group {{count}} nodes"
+  },
   "tool": {
     "crop": "Crop",
     "annotate": "Annotate",
@@ -64,6 +72,7 @@
     "sendToPs": "Send to PS",
     "sent": "Sent",
     "psNotConnected": "PS Not Connected",
+    "arrangeGroup": "Arrange Group",
     "ungroup": "Ungroup",
     "saveAs": "Save as...",
     "noDownloadPresetPathsHint": "No preset path. Add one in Settings > General.",
@@ -140,7 +149,11 @@
       "frames": "Frames",
       "rows": "Rows",
       "cols": "Columns",
-      "frameIndex": "Frame {{index}}"
+      "rowsShort": "R",
+      "colsShort": "C",
+      "frameIndex": "Frame {{index}}",
+      "layoutSummary": "{{rows}} × {{cols}} | {{count}} / {{capacity}} slots",
+      "emptySlot": "Empty"
     },
     "storyboardGen": {
       "rowsShort": "R",
@@ -291,6 +304,12 @@
     "ignoreAtTagWhenCopyingAndGeneratingDesc": "When enabled, copied text and embedded storyboard metadata remove tags like \"@图1\"; generation requests only remove \"@\" and keep \"图1\".",
     "useUploadFilenameAsNodeTitle": "Use uploaded filename as node title",
     "useUploadFilenameAsNodeTitleDesc": "When enabled, newly uploaded images use the file name as the node title by default (still editable via double-click).",
+    "groupNodesShortcut": "Group shortcut",
+    "groupNodesShortcutDesc": "Customize the shortcut used to group selected nodes on the canvas.",
+    "shortcutRecording": "Press shortcut...",
+    "shortcutPressNew": "Press a key combination now. Press Esc to cancel.",
+    "shortcutReset": "Reset",
+    "shortcutCurrent": "Current shortcut: {{shortcut}}",
     "downloadPathPlaceholder": "Input folder path, e.g. /Users/name/Pictures/Storyboard or D:\\\\Images\\\\Storyboard",
     "addPath": "Add Path",
     "chooseFolder": "Choose Folder",

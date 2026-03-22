@@ -17,25 +17,55 @@ const storyboardCopilot = {
   lastSelectionBounds: null,
   lastSelectionDocId: null,
   lastSelectionLogKey: null,
+  lastSelectionSource: "init",
+  lastSelectionStatusMessage: "\u63d2\u4ef6\u5df2\u52a0\u8f7d\uff0c\u7b49\u5f85\u68c0\u6d4b\u9009\u533a",
   isProcessingCommand: false,
+  diagnosticsInstalled: false,
+  buildStamp: "2026-03-22 21:25",
 
   getServerUrl(port) {
     return `http://localhost:${port || this.serverPort}`;
   },
 
   showStatus(message, type) {
-    const statusEl = document.getElementById("statusMessage");
-    if (statusEl) {
-      statusEl.textContent = message;
-      statusEl.className = "status-message " + type;
-      statusEl.style.display = "block";
-      
-      if (type !== "error") {
-        setTimeout(function() {
-          statusEl.style.display = "none";
-        }, 3000);
-      }
+    let toast = document.getElementById("statusToast");
+    if (!toast) {
+      toast = document.createElement("div");
+      toast.id = "statusToast";
+      toast.className = "status-toast";
+      document.body.appendChild(toast);
     }
+    
+    toast.textContent = message;
+    toast.className = "status-toast " + type;
+    
+    requestAnimationFrame(() => {
+      toast.classList.add("show");
+    });
+    
+    if (type !== "error") {
+      setTimeout(() => {
+        toast.classList.remove("show");
+      }, 3000);
+    }
+  },
+
+  updateSelectionDebug: function(message, source) {
+    if (typeof message === "string" && message.length > 0) {
+      this.lastSelectionStatusMessage = message;
+    }
+
+    if (typeof source === "string" && source.length > 0) {
+      this.lastSelectionSource = source;
+    }
+
+    const debugEl = document.getElementById("selectionDebug");
+    if (!debugEl) {
+      return;
+    }
+
+    const sourceLabel = this.lastSelectionSource || "unknown";
+    debugEl.textContent = `Build ${this.buildStamp} | ${sourceLabel} | ${this.lastSelectionStatusMessage}`;
   },
 
   withBusyState: async function(taskName, task) {
@@ -64,10 +94,10 @@ const storyboardCopilot = {
     
     if (statusEl) {
       if (connected) {
-        statusEl.className = "status-badge connected";
-        statusEl.innerHTML = '<span class="status-dot"></span><span>已连接 (' + this.serverPort + ')</span>';
+        statusEl.className = "connection-status connected";
+        statusEl.innerHTML = '<span class="status-dot"></span><span>已连接</span>';
       } else {
-        statusEl.className = "status-badge disconnected";
+        statusEl.className = "connection-status disconnected";
         statusEl.innerHTML = '<span class="status-dot"></span><span>未连接</span>';
       }
     }
@@ -277,27 +307,154 @@ const storyboardCopilot = {
     if (value && typeof value === "object" && typeof value._value === "number") {
       return value._value;
     }
+    if (value && typeof value === "object" && typeof value.value === "number") {
+      return value.value;
+    }
     if (typeof value === "number") {
       return value;
     }
     return null;
   },
 
-  extractSelectionBounds: function(selection) {
-    if (!selection || typeof selection !== "object" || selection._enum === "none") {
+  isFiniteNumber: function(value) {
+    return typeof value === "number" && Number.isFinite(value);
+  },
+
+  createBoundsRect: function(boundsLike) {
+    if (!boundsLike) {
       return null;
     }
 
-    const left = this.normalizeBoundsValue(selection.left);
-    const top = this.normalizeBoundsValue(selection.top);
-    const right = this.normalizeBoundsValue(selection.right);
-    const bottom = this.normalizeBoundsValue(selection.bottom);
+    if (Array.isArray(boundsLike) && boundsLike.length >= 4) {
+      const left = this.normalizeBoundsValue(boundsLike[0]);
+      const top = this.normalizeBoundsValue(boundsLike[1]);
+      const right = this.normalizeBoundsValue(boundsLike[2]);
+      const bottom = this.normalizeBoundsValue(boundsLike[3]);
 
-    if ([left, top, right, bottom].some((value) => typeof value !== "number")) {
+      if (![left, top, right, bottom].every((value) => this.isFiniteNumber(value))) {
+        return null;
+      }
+
+      if (right <= left || bottom <= top) {
+        return null;
+      }
+
+      return { left, top, right, bottom };
+    }
+
+    if (typeof boundsLike !== "object") {
+      return null;
+    }
+
+    const candidate = boundsLike.bounds && typeof boundsLike.bounds === "object"
+      ? boundsLike.bounds
+      : boundsLike;
+
+    const left = this.normalizeBoundsValue(candidate.left);
+    const top = this.normalizeBoundsValue(candidate.top);
+    const right = this.normalizeBoundsValue(candidate.right);
+    const bottom = this.normalizeBoundsValue(candidate.bottom);
+
+    if (![left, top, right, bottom].every((value) => this.isFiniteNumber(value))) {
+      return null;
+    }
+
+    if (right <= left || bottom <= top) {
       return null;
     }
 
     return { left, top, right, bottom };
+  },
+
+  extractSelectionBounds: function(selection) {
+    if (!selection || (typeof selection !== "object" && !Array.isArray(selection))) {
+      return null;
+    }
+
+    if (selection._enum === "none") {
+      return null;
+    }
+
+    const directBounds = this.createBoundsRect(selection);
+    if (directBounds) {
+      return directBounds;
+    }
+
+    if (selection.bounds) {
+      const nestedBounds = this.extractSelectionBounds(selection.bounds);
+      if (nestedBounds) {
+        return nestedBounds;
+      }
+    }
+
+    if (selection.selection) {
+      const nestedSelection = this.extractSelectionBounds(selection.selection);
+      if (nestedSelection) {
+        return nestedSelection;
+      }
+    }
+
+    if (selection.rectangle) {
+      const rectangleBounds = this.extractSelectionBounds(selection.rectangle);
+      if (rectangleBounds) {
+        return rectangleBounds;
+      }
+    }
+
+    return null;
+  },
+
+  rememberSelectionBounds: function(docId, bounds, rawResult, source) {
+    if (!this.isSelectionBoundsValid(bounds)) {
+      this.updateSelectionDebug("\u5f53\u524d\u672a\u68c0\u6d4b\u5230\u53ef\u7528\u9009\u533a", source || "none");
+      this.logSelectionBoundsIfChanged(docId, null, rawResult);
+      return null;
+    }
+
+    this.lastSelectionBounds = { ...bounds };
+    this.lastSelectionDocId = docId;
+    this.updateSelectionDebug(
+      `\u5df2\u8bc6\u522b\u9009\u533a ${Math.round(bounds.right - bounds.left)}x${Math.round(bounds.bottom - bounds.top)}`,
+      source || "unknown"
+    );
+    this.logSelectionBoundsIfChanged(docId, bounds, rawResult);
+    return bounds;
+  },
+
+  getSelectionBoundsFromDom: function(doc) {
+    if (!doc || !doc.selection) {
+      return null;
+    }
+
+    try {
+      return this.extractSelectionBounds(doc.selection.bounds);
+    } catch (error) {
+      if (DEBUG_SELECTION_BOUNDS) {
+        console.warn("Failed to read selection bounds from DOM:", error);
+      }
+      return null;
+    }
+  },
+
+  getSelectionBoundsFromImaging: async function(docId) {
+    try {
+      const result = await imaging.getSelection(
+        typeof docId === "number"
+          ? { documentID: docId, targetSize: { width: 1, height: 1 } }
+          : { targetSize: { width: 1, height: 1 } }
+      );
+
+      if (result && result.imageData && typeof result.imageData.dispose === "function") {
+        result.imageData.dispose();
+      }
+
+      return this.extractSelectionBounds(result && result.sourceBounds ? result.sourceBounds : null);
+    } catch (error) {
+      if (DEBUG_SELECTION_BOUNDS) {
+        console.warn("Failed to read selection bounds from imaging API:", error);
+      }
+      return null;
+    }
   },
 
   getSelectionLogKey: function(docId, bounds) {
@@ -341,6 +498,16 @@ const storyboardCopilot = {
       }
 
       const docId = this.getDocumentId(doc);
+      const domBounds = this.getSelectionBoundsFromDom(doc);
+      if (domBounds) {
+        return this.rememberSelectionBounds(docId, domBounds, { source: "dom" }, "dom");
+      }
+
+      const imagingBounds = await this.getSelectionBoundsFromImaging(docId);
+      if (imagingBounds) {
+        return this.rememberSelectionBounds(docId, imagingBounds, { source: "imaging" }, "imaging");
+      }
+
       const documentTarget = typeof docId === "number"
         ? { _ref: "document", _id: docId }
         : { _ref: "document", _enum: "ordinal", _value: "targetEnum" };
@@ -359,23 +526,20 @@ const storyboardCopilot = {
         }
       );
 
-      if (result && result[0] && result[0].selection) {
-        const bounds = this.extractSelectionBounds(result[0].selection);
-        if (!bounds) {
-          this.logSelectionBoundsIfChanged(docId, null, result);
-          return null;
-        }
-
-        this.lastSelectionBounds = bounds;
-        this.lastSelectionDocId = docId;
-        this.logSelectionBoundsIfChanged(docId, bounds, result);
-        return bounds;
+      if (result && result[0]) {
+        const bounds = this.extractSelectionBounds(result[0].selection || result[0]);
+        return this.rememberSelectionBounds(docId, bounds, result, "batchPlay");
       }
 
+      this.updateSelectionDebug("\u672a\u4ece Photoshop \u8fd4\u56de\u4e2d\u89e3\u6790\u5230\u9009\u533a", "batchPlay");
       this.logSelectionBoundsIfChanged(docId, null, result);
       return null;
     } catch (error) {
       console.error("getSelectionBounds error:", error);
+      this.updateSelectionDebug(
+        error && error.message ? error.message : "\u8bfb\u53d6\u9009\u533a\u5931\u8d25",
+        "error"
+      );
       return null;
     }
   },
@@ -384,16 +548,27 @@ const storyboardCopilot = {
     try {
       const doc = this.getActiveDocumentSafe();
       if (!doc) {
+        this.updateSelectionDebug("\u6ca1\u6709\u6d3b\u52a8\u6587\u6863", "no-document");
         return { type: "selectionInfo", hasSelection: false, error: "No active document" };
       }
       
       const bounds = await this.getSelectionBounds();
-      if (!bounds) {
+      if (!this.isSelectionBoundsValid(bounds)) {
+        this.updateSelectionDebug("\u5f53\u524d\u9009\u533a\u4e0d\u53ef\u7528", "invalid");
         return { type: "selectionInfo", hasSelection: false };
       }
       
       const width = bounds.right - bounds.left;
       const height = bounds.bottom - bounds.top;
+
+      if (!this.isFiniteNumber(width) || !this.isFiniteNumber(height) || width <= 0 || height <= 0) {
+        this.updateSelectionDebug("\u9009\u533a\u5c3a\u5bf8\u65e0\u6548", "invalid-size");
+        return {
+          type: "selectionInfo",
+          hasSelection: false,
+          error: "\u65e0\u6cd5\u8bfb\u53d6\u5f53\u524d\u9009\u533a\u5c3a\u5bf8"
+        };
+      }
       
       return {
         type: "selectionInfo",
@@ -401,9 +576,14 @@ const storyboardCopilot = {
         bounds: bounds,
         width: width,
         height: height,
-        documentName: doc.name
+        documentName: doc.name,
+        source: this.lastSelectionSource
       };
     } catch (error) {
+      this.updateSelectionDebug(
+        error && error.message ? error.message : "\u8bfb\u53d6\u9009\u533a\u4fe1\u606f\u5931\u8d25",
+        "error"
+      );
       return { type: "selectionInfo", hasSelection: false, error: error.message };
     }
   },
@@ -1046,30 +1226,6 @@ const storyboardCopilot = {
     });
   },
 
-  updateSelectionDisplay: function() {
-    const infoEl = document.getElementById("selectionInfo");
-    if (!infoEl) return;
-    if (this.isProcessingCommand) return;
-    
-    const self = this;
-    this.getSelectionInfo().then(function(info) {
-      if (!info.hasSelection) {
-        infoEl.innerHTML = "<p>选区信息：" + (info.error || "无选区") + "</p>";
-      } else {
-        const needsResize = Math.max(info.width, info.height) > MAX_SIZE;
-        let html = "<p>选区信息：</p><ul>";
-        html += "<li>宽度: " + info.width.toFixed(0) + " px</li>";
-        html += "<li>高度: " + info.height.toFixed(0) + " px</li>";
-        html += "<li>位置: (" + info.bounds.left.toFixed(0) + ", " + info.bounds.top.toFixed(0) + ")</li>";
-        if (needsResize) {
-          html += '<li style="color: #f59e0b;">⚠ 尺寸超过 2K，将自动压缩至 ' + MAX_SIZE + 'px</li>';
-        }
-        html += "</ul>";
-        infoEl.innerHTML = html;
-      }
-    });
-  },
-
   escapeHtml: function(value) {
     if (typeof value !== "string") {
       return "";
@@ -1083,33 +1239,6 @@ const storyboardCopilot = {
       .replace(/'/g, "&#39;");
   },
 
-  updateConnectionStatus: function(connected, port) {
-    this.isConnected = connected;
-    if (port) this.serverPort = port;
-
-    const statusEl = document.getElementById("connectionStatus");
-    const sendBtn = document.getElementById("sendSelectionBtn");
-    const portInput = document.getElementById("serverPort");
-
-    if (statusEl) {
-      if (connected) {
-        statusEl.className = "status-badge connected";
-        statusEl.innerHTML = '<span class="status-dot"></span><span>已连接 ' + this.serverPort + '</span>';
-      } else {
-        statusEl.className = "status-badge disconnected";
-        statusEl.innerHTML = '<span class="status-dot"></span><span>未连接</span>';
-      }
-    }
-
-    if (sendBtn) {
-      sendBtn.disabled = !connected;
-    }
-
-    if (portInput && connected) {
-      portInput.value = this.serverPort;
-    }
-  },
-
   updateSelectionDisplay: function() {
     const infoEl = document.getElementById("selectionInfo");
     if (!infoEl) return;
@@ -1119,221 +1248,112 @@ const storyboardCopilot = {
     this.getSelectionInfo().then(function(info) {
       if (!info.hasSelection) {
         infoEl.innerHTML = [
-          '<div class="selection-header">',
-          '<span class="selection-title">选区信息</span>',
-          '</div>',
           '<div class="selection-empty">',
-          self.escapeHtml(info.error || "未检测到选区"),
+          '<div class="selection-empty-icon">◻</div>',
+          '<div class="selection-empty-text">' + self.escapeHtml(info.error || "在 PS 中框选区域以查看信息") + '</div>',
           '</div>'
         ].join("");
         return;
       }
 
       const needsResize = Math.max(info.width, info.height) > MAX_SIZE;
-      let html = '<div class="selection-header">';
-      html += '<span class="selection-title">当前选区</span>';
-      if (needsResize) {
-        html += '<span class="info-chip warning">自动压缩至 2K</span>';
-      }
-      html += '</div>';
-      html += '<div class="selection-grid">';
-      html += '<div class="selection-item"><span class="selection-key">宽度</span><span class="selection-value">' + info.width.toFixed(0) + ' px</span></div>';
-      html += '<div class="selection-item"><span class="selection-key">高度</span><span class="selection-value">' + info.height.toFixed(0) + ' px</span></div>';
-      html += '<div class="selection-item"><span class="selection-key">X</span><span class="selection-value">' + info.bounds.left.toFixed(0) + '</span></div>';
-      html += '<div class="selection-item"><span class="selection-key">Y</span><span class="selection-value">' + info.bounds.top.toFixed(0) + '</span></div>';
+      let html = '<div class="selection-data">';
+      html += '<div class="data-item"><span class="data-label">宽度</span><span class="data-value">' + info.width.toFixed(0) + ' <span class="dim">px</span></span></div>';
+      html += '<div class="data-item"><span class="data-label">高度</span><span class="data-value">' + info.height.toFixed(0) + ' <span class="dim">px</span></span></div>';
+      html += '<div class="data-item"><span class="data-label">X 坐标</span><span class="data-value">' + info.bounds.left.toFixed(0) + '</span></div>';
+      html += '<div class="data-item"><span class="data-label">Y 坐标</span><span class="data-value">' + info.bounds.top.toFixed(0) + '</span></div>';
       if (info.documentName) {
-        html += '<div class="selection-item full"><span class="selection-key">文档</span><span class="selection-value">' + self.escapeHtml(info.documentName) + '</span></div>';
+        html += '<div class="data-item doc-name"><span class="data-label">文档</span><span class="data-value" title="' + self.escapeHtml(info.documentName) + '">' + self.escapeHtml(info.documentName) + '</span></div>';
       }
       html += '</div>';
+      
+      if (needsResize) {
+        html += '<div class="selection-meta"><span class="selection-meta-icon">⚠</span><span>大尺寸选区将自动压缩至 2K</span></div>';
+      }
+      
       infoEl.innerHTML = html;
     });
   },
 
-  renderPanelLegacy: function(root) {
-    const container = document.createElement("div");
-    container.className = "container";
-    
-    const header = document.createElement("div");
-    header.className = "header";
-    
-    const title = document.createElement("h1");
-    title.textContent = "Storyboard Copilot";
-    header.appendChild(title);
-    
-    const statusBadge = document.createElement("div");
-    statusBadge.id = "connectionStatus";
-    statusBadge.className = "status-badge disconnected";
-    statusBadge.innerHTML = '<span class="status-dot"></span><span>未连接</span>';
-    header.appendChild(statusBadge);
-    
-    container.appendChild(header);
-    
-    const portSection = document.createElement("div");
-    portSection.className = "section";
-    
-    const portLabel = document.createElement("label");
-    portLabel.className = "label";
-    portLabel.textContent = "服务器端口";
-    portSection.appendChild(portLabel);
-    
-    const portInput = document.createElement("input");
-    portInput.type = "number";
-    portInput.id = "serverPort";
-    portInput.className = "input";
-    portInput.value = this.serverPort;
-    portInput.min = "9527";
-    portInput.max = "9537";
-    portSection.appendChild(portInput);
-    
-    container.appendChild(portSection);
-    
-    const testBtnSection = document.createElement("div");
-    testBtnSection.className = "section";
-    
-    const testBtn = document.createElement("button");
-    testBtn.id = "testConnectionBtn";
-    testBtn.className = "button secondary";
-    testBtn.textContent = "测试连接";
-    testBtnSection.appendChild(testBtn);
-    
-    container.appendChild(testBtnSection);
-    
-    const infoSection = document.createElement("div");
-    infoSection.className = "section";
-    
-    const infoBox = document.createElement("div");
-    infoBox.id = "selectionInfo";
-    infoBox.className = "info-box";
-    infoBox.innerHTML = "<p>选区信息：检测中...</p>";
-    infoSection.appendChild(infoBox);
-    
-    container.appendChild(infoSection);
-    
-    const sendBtnSection = document.createElement("div");
-    sendBtnSection.className = "section";
-    
-    const sendBtn = document.createElement("button");
-    sendBtn.id = "sendSelectionBtn";
-    sendBtn.className = "button primary";
-    sendBtn.textContent = "发送选区到画布";
-    sendBtn.disabled = true;
-    sendBtnSection.appendChild(sendBtn);
-    
-    container.appendChild(sendBtnSection);
-    
-    const statusMessage = document.createElement("div");
-    statusMessage.id = "statusMessage";
-    statusMessage.className = "status-message";
-    statusMessage.style.display = "none";
-    container.appendChild(statusMessage);
-    
-    const hint = document.createElement("div");
-    hint.className = "hint";
-    hint.innerHTML = "<p>提示：从画布发送图像时，PS 会自动接收并填充到当前选区</p>";
-    container.appendChild(hint);
-    
-    root.appendChild(container);
-    
-    this.setupEventListeners();
-  },
-
   renderPanel: function(root) {
-    const container = document.createElement("div");
-    container.className = "container";
+    this.installDiagnostics();
+    root.innerHTML = "";
+    const panel = document.createElement("div");
+    panel.className = "panel";
 
-    const hero = document.createElement("div");
-    hero.className = "hero-card";
-
+    // Header
     const header = document.createElement("div");
     header.className = "header";
+    header.innerHTML = [
+      '<div class="brand">',
+      '<div class="brand-text">',
+      '<div class="brand-title">Storyboard Copilot</div>',
+      '<div class="brand-subtitle">PS ↔ Storyboard 同步</div>',
+      '</div>',
+      '</div>',
+      '<div id="connectionStatus" class="connection-status disconnected">',
+      '<span class="status-dot"></span><span>未连接</span>',
+      '</div>'
+    ].join("");
+    panel.appendChild(header);
 
-    const headerCopy = document.createElement("div");
-    headerCopy.className = "header-copy";
+    // Content
+    const content = document.createElement("div");
+    content.className = "content";
 
-    const title = document.createElement("h1");
-    title.textContent = "Storyboard Copilot";
-    headerCopy.appendChild(title);
+    // Connection Section
+    const connSection = document.createElement("div");
+    connSection.className = "input-group";
+    connSection.innerHTML = [
+      '<div class="section-title">服务器设置</div>',
+      '<input type="number" id="serverPort" class="input" value="' + this.serverPort + '" min="9527" max="9537">',
+      '<button id="testConnectionBtn" class="btn btn-secondary" style="width: 100%; margin-top: 4px;">测试连接</button>'
+    ].join("");
+    content.appendChild(connSection);
 
-    const subtitle = document.createElement("div");
-    subtitle.className = "header-subtitle";
-    subtitle.textContent = "PS \u2194 Storyboard \u540c\u6b65";
-    headerCopy.appendChild(subtitle);
+    // Selection Section
+    const selSection = document.createElement("div");
+    const selTitle = document.createElement("div");
+    selTitle.className = "section-title";
+    selTitle.textContent = "选区信息";
+    selSection.appendChild(selTitle);
 
-    header.appendChild(headerCopy);
+    const selectionDebug = document.createElement("div");
+    selectionDebug.id = "selectionDebug";
+    selectionDebug.className = "selection-debug";
+    selSection.appendChild(selectionDebug);
 
-    const statusBadge = document.createElement("div");
-    statusBadge.id = "connectionStatus";
-    statusBadge.className = "status-badge disconnected";
-    statusBadge.innerHTML = '<span class="status-dot"></span><span>\u672a\u8fde\u63a5</span>';
-    header.appendChild(statusBadge);
+    const selectionInfo = document.createElement("div");
+    selectionInfo.id = "selectionInfo";
+    selectionInfo.className = "selection-info";
+    selSection.appendChild(selectionInfo);
+    this.renderSelectionEmptyState(selectionInfo, "在 PS 中框选区域以查看信息");
+    this.updateSelectionDebug(this.lastSelectionStatusMessage, this.lastSelectionSource);
 
-    hero.appendChild(header);
-    container.appendChild(hero);
+    content.appendChild(selSection);
 
-    const portSection = document.createElement("div");
-    portSection.className = "section section-card compact-block";
+    panel.appendChild(content);
 
-    const portLabel = document.createElement("label");
-    portLabel.className = "label";
-    portLabel.textContent = "\u670d\u52a1\u5668\u7aef\u53e3";
-    portSection.appendChild(portLabel);
+    // Action Section
+    const actionSection = document.createElement("div");
+    actionSection.className = "action-section";
+    actionSection.innerHTML = [
+      '<button id="sendSelectionBtn" class="btn btn-primary btn-large action-btn" disabled>',
+      '发送选区到画布',
+      '</button>'
+    ].join("");
+    panel.appendChild(actionSection);
 
-    const inputShell = document.createElement("div");
-    inputShell.className = "input-shell";
-
-    const portInput = document.createElement("input");
-    portInput.type = "number";
-    portInput.id = "serverPort";
-    portInput.className = "input";
-    portInput.value = this.serverPort;
-    portInput.min = "9527";
-    portInput.max = "9537";
-    inputShell.appendChild(portInput);
-    portSection.appendChild(inputShell);
-
-    const testBtn = document.createElement("button");
-    testBtn.id = "testConnectionBtn";
-    testBtn.className = "button secondary";
-    testBtn.textContent = "\u6d4b\u8bd5\u8fde\u63a5";
-    portSection.appendChild(testBtn);
-
-    container.appendChild(portSection);
-
-    const infoSection = document.createElement("div");
-    infoSection.className = "section section-card selection-card compact-block";
-
-    const infoBox = document.createElement("div");
-    infoBox.id = "selectionInfo";
-    infoBox.className = "info-box";
-    infoBox.innerHTML = "<p>\u9009\u533a\u4fe1\u606f\uff1a\u68c0\u6d4b\u4e2d...</p>";
-    infoSection.appendChild(infoBox);
-
-    container.appendChild(infoSection);
-
-    const sendBtnSection = document.createElement("div");
-    sendBtnSection.className = "section section-card action-card compact-block";
-
-    const sendBtn = document.createElement("button");
-    sendBtn.id = "sendSelectionBtn";
-    sendBtn.className = "button primary action-button";
-    sendBtn.textContent = "\u53d1\u9001\u9009\u533a\u5230\u753b\u5e03";
-    sendBtn.disabled = true;
-    sendBtnSection.appendChild(sendBtn);
-
-    const statusMessage = document.createElement("div");
-    statusMessage.id = "statusMessage";
-    statusMessage.className = "status-message";
-    statusMessage.style.display = "none";
-    sendBtnSection.appendChild(statusMessage);
-
-    container.appendChild(sendBtnSection);
-
+    // Hint
     const hint = document.createElement("div");
     hint.className = "hint";
-    hint.innerHTML = "<p>\u63d0\u793a\uff1a\u4ece\u753b\u5e03\u53d1\u9001\u56fe\u50cf\u65f6\uff0cPS \u4f1a\u81ea\u52a8\u63a5\u6536\u5e76\u586b\u5145\u5230\u5f53\u524d\u9009\u533a</p>";
-    container.appendChild(hint);
+    hint.innerHTML = [
+      '<span class="hint-icon">💡</span>',
+      '<span>从画布发送图像时，PS 会自动接收并填充到当前选区</span>'
+    ].join("");
+    panel.appendChild(hint);
 
-    root.appendChild(container);
+    root.appendChild(panel);
 
     this.setupEventListeners();
   },
@@ -1373,8 +1393,151 @@ const storyboardCopilot = {
     }
   },
 
+  installDiagnostics: function() {
+    if (this.diagnosticsInstalled || typeof window === "undefined") {
+      return;
+    }
+
+    this.diagnosticsInstalled = true;
+    const self = this;
+
+    window.addEventListener("error", function(event) {
+      const message = event && event.message ? event.message : "Panel runtime error";
+      self.updateSelectionDebug(message, "window.error");
+    });
+
+    window.addEventListener("unhandledrejection", function(event) {
+      const reason = event && event.reason;
+      const message = reason && reason.message
+        ? reason.message
+        : (typeof reason === "string" ? reason : "Unhandled promise rejection");
+      self.updateSelectionDebug(message, "promise.error");
+    });
+  },
+
+  createSelectionInfoItem: function(label, value, options) {
+    const item = document.createElement("div");
+    item.className = "data-item";
+    if (options && options.fullWidth) {
+      item.classList.add("doc-name");
+    }
+
+    const labelEl = document.createElement("span");
+    labelEl.className = "data-label";
+    labelEl.textContent = label;
+    item.appendChild(labelEl);
+
+    const valueEl = document.createElement("span");
+    valueEl.className = "data-value";
+    if (options && options.title) {
+      valueEl.title = options.title;
+    }
+    valueEl.textContent = value;
+    item.appendChild(valueEl);
+
+    return item;
+  },
+
+  renderSelectionEmptyState: function(container, message) {
+    if (!container) {
+      return;
+    }
+
+    const wrapper = document.createElement("div");
+    wrapper.style.padding = "12px";
+    wrapper.style.border = "1px dashed rgba(255,255,255,0.14)";
+    wrapper.style.borderRadius = "8px";
+    wrapper.style.background = "rgba(255,255,255,0.02)";
+    wrapper.style.color = "#9ca3af";
+    wrapper.style.fontSize = "12px";
+    wrapper.style.lineHeight = "1.5";
+    wrapper.style.whiteSpace = "pre-wrap";
+    wrapper.textContent = message;
+
+    while (container.firstChild) {
+      container.removeChild(container.firstChild);
+    }
+    container.appendChild(wrapper);
+  },
+
+  renderSelectionInfoState: function(container, info) {
+    if (!container) {
+      return;
+    }
+
+    const width = this.normalizeBoundsValue(info.width);
+    const height = this.normalizeBoundsValue(info.height);
+    const left = this.normalizeBoundsValue(info.bounds.left);
+    const top = this.normalizeBoundsValue(info.bounds.top);
+
+    if (![width, height, left, top].every((value) => this.isFiniteNumber(value))) {
+      this.renderSelectionEmptyState(container, "无法渲染当前选区信息");
+      return;
+    }
+
+    const lines = [
+      `宽度: ${width.toFixed(0)} px`,
+      `高度: ${height.toFixed(0)} px`,
+      `X 坐标: ${left.toFixed(0)}`,
+      `Y 坐标: ${top.toFixed(0)}`
+    ];
+
+    if (info.documentName) {
+      lines.push(`文档: ${info.documentName}`);
+    }
+
+    if (Math.max(width, height) > MAX_SIZE) {
+      lines.push("提示: 大尺寸选区将自动压缩至 2K");
+    }
+
+    const box = document.createElement("div");
+    box.style.padding = "12px";
+    box.style.border = "1px solid rgba(255,255,255,0.08)";
+    box.style.borderRadius = "8px";
+    box.style.background = "#16181d";
+    box.style.color = "#f0f2f5";
+    box.style.fontSize = "12px";
+    box.style.lineHeight = "1.7";
+    box.style.whiteSpace = "pre-wrap";
+    box.textContent = lines.join("\n");
+
+    while (container.firstChild) {
+      container.removeChild(container.firstChild);
+    }
+    container.appendChild(box);
+  },
+
+  updateSelectionDisplay: function() {
+    const infoEl = document.getElementById("selectionInfo");
+    if (!infoEl || this.isProcessingCommand) {
+      return;
+    }
+
+    const self = this;
+
+    this.getSelectionInfo().then(function(info) {
+      if (!info || !info.hasSelection || !self.isSelectionBoundsValid(info.bounds)) {
+        self.renderSelectionEmptyState(
+          infoEl,
+          info && info.error ? info.error : "在 PS 中框选区域以查看信息"
+        );
+        return;
+      }
+      self.renderSelectionInfoState(infoEl, info);
+    }).catch(function(error) {
+      console.error("updateSelectionDisplay error:", error);
+      self.renderSelectionEmptyState(
+        infoEl,
+        error && error.message ? error.message : "无法读取当前选区"
+      );
+    });
+  },
+
   startAutoRefresh: function() {
     const self = this;
+    
+    this.updateSelectionDisplay();
+    
     this.selectionInterval = setInterval(function() {
       self.updateSelectionDisplay();
     }, 1000);

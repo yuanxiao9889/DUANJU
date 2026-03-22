@@ -46,6 +46,13 @@ import {
   calculateMindMapLayout,
   DEFAULT_LAYOUT_CONFIG,
 } from '@/features/canvas/application/mindMapLayout';
+import {
+  DEFAULT_GROUP_LAYOUT_MAX_ITEMS_PER_LINE,
+  GROUP_NODE_BOTTOM_PADDING,
+  GROUP_NODE_SIDE_PADDING,
+  GROUP_NODE_TOP_PADDING,
+  layoutGroupChildren,
+} from '@/features/canvas/application/groupLayout';
 
 export type {
   ActiveToolDialog,
@@ -69,6 +76,18 @@ export interface CanvasHistoryState {
 
 const MAX_HISTORY_STEPS = 50;
 const IMAGE_NODE_VISUAL_MIN_EDGE = 96;
+const DERIVED_NODE_COLUMN_GAP = 28;
+const DERIVED_NODE_STACK_GAP = 20;
+const DERIVED_NODE_MAX_ROWS_PER_COLUMN = 4;
+const DERIVED_NODE_NEXT_COLUMN_GAP = 32;
+const DERIVED_NODE_COLUMN_ALIGNMENT_THRESHOLD = 48;
+const STORYBOARD_SPLIT_NODE_BASE_WIDTH = 620;
+const STORYBOARD_SPLIT_NODE_MIN_HEIGHT = 360;
+const STORYBOARD_SPLIT_NODE_WIDTH_PADDING = 200;
+const STORYBOARD_SPLIT_NODE_HEIGHT_PADDING = 160;
+const STORYBOARD_SPLIT_NODE_COL_WIDTH = 136;
+const STORYBOARD_SPLIT_NODE_ROW_HEIGHT = 92;
+type StoryboardGridAxis = 'rows' | 'cols';
 
 function calculateGridLayout(frameCount: number): { rows: number; cols: number } {
   if (frameCount <= 1) return { rows: 1, cols: 1 };
@@ -81,6 +100,77 @@ function calculateGridLayout(frameCount: number): { rows: number; cols: number }
   const cols = Math.ceil(Math.sqrt(frameCount));
   const rows = Math.ceil(frameCount / cols);
   return { rows, cols };
+}
+
+function clampStoryboardGridDimension(value: number, frameCount: number): number {
+  const safeMax = Math.max(1, Math.floor(frameCount));
+  const normalized = Number.isFinite(value) ? Math.floor(value) : 1;
+  return Math.max(1, Math.min(safeMax, normalized));
+}
+
+function resolveStoryboardGridLayoutForAxis(
+  frameCount: number,
+  axis: StoryboardGridAxis,
+  value: number
+): { rows: number; cols: number } {
+  const safeFrameCount = Math.max(0, Math.floor(frameCount));
+  if (safeFrameCount <= 0) {
+    return { rows: 1, cols: 1 };
+  }
+
+  const safeValue = clampStoryboardGridDimension(value, safeFrameCount);
+  if (axis === 'rows') {
+    return {
+      rows: safeValue,
+      cols: clampStoryboardGridDimension(Math.ceil(safeFrameCount / safeValue), safeFrameCount),
+    };
+  }
+
+  return {
+    rows: clampStoryboardGridDimension(Math.ceil(safeFrameCount / safeValue), safeFrameCount),
+    cols: safeValue,
+  };
+}
+
+function normalizeStoryboardGridLayout(
+  frameCount: number,
+  rows: number,
+  cols: number
+): { rows: number; cols: number } {
+  const safeFrameCount = Math.max(0, Math.floor(frameCount));
+  if (safeFrameCount <= 0) {
+    return { rows: 1, cols: 1 };
+  }
+
+  const fallback = calculateGridLayout(safeFrameCount);
+  const safeRows = Number.isFinite(rows)
+    ? clampStoryboardGridDimension(rows, safeFrameCount)
+    : fallback.rows;
+  const safeCols = Number.isFinite(cols)
+    ? clampStoryboardGridDimension(cols, safeFrameCount)
+    : fallback.cols;
+
+  if (safeRows * safeCols >= safeFrameCount) {
+    return { rows: safeRows, cols: safeCols };
+  }
+
+  return resolveStoryboardGridLayoutForAxis(safeFrameCount, 'cols', safeCols);
+}
+
+function resolveStoryboardSplitNodeSize(rows: number, cols: number): { width: number; height: number } {
+  const safeRows = Math.max(1, Math.floor(rows));
+  const safeCols = Math.max(1, Math.floor(cols));
+
+  return {
+    width: Math.max(
+      STORYBOARD_SPLIT_NODE_BASE_WIDTH,
+      STORYBOARD_SPLIT_NODE_WIDTH_PADDING + safeCols * STORYBOARD_SPLIT_NODE_COL_WIDTH
+    ),
+    height: Math.max(
+      STORYBOARD_SPLIT_NODE_MIN_HEIGHT,
+      STORYBOARD_SPLIT_NODE_HEIGHT_PADDING + safeRows * STORYBOARD_SPLIT_NODE_ROW_HEIGHT
+    ),
+  };
 }
 
 interface CanvasState {
@@ -157,6 +247,11 @@ interface CanvasState {
     frameId: string,
     data: Partial<StoryboardFrameItem>
   ) => void;
+  updateStoryboardGridLayout: (
+    nodeId: string,
+    axis: StoryboardGridAxis,
+    value: number
+  ) => void;
   reorderStoryboardFrame: (
     nodeId: string,
     draggedFrameId: string,
@@ -170,6 +265,8 @@ interface CanvasState {
   deleteNode: (nodeId: string) => void;
   deleteNodes: (nodeIds: string[]) => void;
   groupNodes: (nodeIds: string[]) => string | null;
+  layoutGroupNode: (groupNodeId: string) => boolean;
+  reparentNodesToGroup: (nodeIds: string[], groupNodeId: string) => boolean;
   ungroupNode: (groupNodeId: string) => boolean;
   deleteEdge: (edgeId: string) => void;
   setSelectedNode: (nodeId: string | null) => void;
@@ -249,7 +346,7 @@ function normalizeNodes(rawNodes: CanvasNode[]): CanvasNode[] {
           DEFAULT_ASPECT_RATIO;
 
         (mergedData as { frameAspectRatio: string }).frameAspectRatio = normalizedFrameAspectRatio;
-        (mergedData as { frames: StoryboardFrameItem[] }).frames = frames.map((frame, index) => ({
+        const normalizedFrames = frames.map((frame, index) => ({
           id: frame.id,
           imageUrl: frame.imageUrl ?? null,
           previewImageUrl: frame.previewImageUrl ?? null,
@@ -260,6 +357,15 @@ function normalizeNodes(rawNodes: CanvasNode[]): CanvasNode[] {
           note: frame.note ?? '',
           order: Number.isFinite(frame.order) ? frame.order : index,
         }));
+        const normalizedGridLayout = normalizeStoryboardGridLayout(
+          normalizedFrames.length,
+          Number((mergedData as { gridRows?: unknown }).gridRows),
+          Number((mergedData as { gridCols?: unknown }).gridCols)
+        );
+
+        (mergedData as { frames: StoryboardFrameItem[] }).frames = normalizedFrames;
+        (mergedData as { gridRows: number }).gridRows = normalizedGridLayout.rows;
+        (mergedData as { gridCols: number }).gridCols = normalizedGridLayout.cols;
 
         const rawExportOptions = (mergedData as { exportOptions?: Partial<StoryboardExportOptions> })
           .exportOptions;
@@ -361,6 +467,83 @@ function getNodeSize(node: CanvasNode): { width: number; height: number } {
           ? node.height
           : 200,
   };
+}
+
+function collidesWithExistingNodes(
+  nodes: CanvasNode[],
+  x: number,
+  y: number,
+  width: number,
+  height: number
+): boolean {
+  return nodes.some((node) => {
+    const nodeSize = getNodeSize(node);
+    const margin = 8;
+    return (
+      x < node.position.x + nodeSize.width + margin &&
+      x + width + margin > node.position.x &&
+      y < node.position.y + nodeSize.height + margin &&
+      y + height + margin > node.position.y
+    );
+  });
+}
+
+function resolvePreferredDerivedColumnPosition(
+  nodes: CanvasNode[],
+  edges: CanvasEdge[],
+  sourceNode: CanvasNode,
+  newNodeWidth: number,
+  newNodeHeight: number
+): { x: number; y: number } | null {
+  const sourceSize = getNodeSize(sourceNode);
+  const anchorX = sourceNode.position.x + sourceSize.width + DERIVED_NODE_COLUMN_GAP;
+  const anchorY = sourceNode.position.y;
+  const minAcceptedColumnX = anchorX - DERIVED_NODE_COLUMN_ALIGNMENT_THRESHOLD;
+  const stepX = newNodeWidth + DERIVED_NODE_NEXT_COLUMN_GAP;
+  const stepY = newNodeHeight + DERIVED_NODE_STACK_GAP;
+
+  const directTargetIds = new Set(
+    edges
+      .filter((edge) => edge.source === sourceNode.id)
+      .map((edge) => edge.target)
+  );
+
+  const directTargets = nodes.filter(
+    (node) => directTargetIds.has(node.id) && node.position.x >= minAcceptedColumnX
+  );
+
+  const occupiedSlots = new Set<string>();
+  for (const targetNode of directTargets) {
+    const columnOffset = Math.max(0, targetNode.position.x - anchorX);
+    const rowOffset = Math.max(0, targetNode.position.y - anchorY);
+    const rawColumnIndex = Math.max(0, Math.round(columnOffset / stepX));
+    const rawRowIndex = Math.max(0, Math.round(rowOffset / stepY));
+    const columnIndex = rawColumnIndex + Math.floor(rawRowIndex / DERIVED_NODE_MAX_ROWS_PER_COLUMN);
+    const rowIndex = rawRowIndex % DERIVED_NODE_MAX_ROWS_PER_COLUMN;
+    occupiedSlots.add(`${columnIndex}:${rowIndex}`);
+  }
+
+  const maxColumnCount = Math.max(
+    2,
+    Math.ceil((directTargets.length + 1) / DERIVED_NODE_MAX_ROWS_PER_COLUMN) + 1
+  );
+
+  for (let columnIndex = 0; columnIndex < maxColumnCount; columnIndex += 1) {
+    for (let rowIndex = 0; rowIndex < DERIVED_NODE_MAX_ROWS_PER_COLUMN; rowIndex += 1) {
+      const slotKey = `${columnIndex}:${rowIndex}`;
+      if (occupiedSlots.has(slotKey)) {
+        continue;
+      }
+
+      const candidateX = anchorX + columnIndex * stepX;
+      const candidateY = anchorY + rowIndex * stepY;
+      if (!collidesWithExistingNodes(nodes, candidateX, candidateY, newNodeWidth, newNodeHeight)) {
+        return { x: candidateX, y: candidateY };
+      }
+    }
+  }
+
+  return null;
 }
 
 function isImageAutoResizableType(type: CanvasNodeType): boolean {
@@ -534,18 +717,6 @@ function pushSnapshot(
     next.shift();
   }
   return next;
-}
-
-function getDerivedNodePosition(nodes: CanvasNode[], sourceNodeId: string): { x: number; y: number } {
-  const sourceNode = nodes.find((node) => node.id === sourceNodeId);
-  if (!sourceNode) {
-    return { x: 100, y: 100 };
-  }
-
-  return {
-    x: sourceNode.position.x + DEFAULT_NODE_WIDTH + 100,
-    y: sourceNode.position.y,
-  };
 }
 
 function resolveSelectedNodeId(selectedNodeId: string | null, nodes: CanvasNode[]): string | null {
@@ -891,24 +1062,19 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
       return { x: 100, y: 100 };
     }
 
-    // Helper to check if a position collides with existing nodes.
-    const collides = (x: number, y: number, width: number, height: number) => {
-      return state.nodes.some((node) => {
-        const nodeWidth = node.measured?.width ?? DEFAULT_NODE_WIDTH;
-        const nodeHeight = node.measured?.height ?? 200;
-        const margin = 8;
-        return (
-          x < node.position.x + nodeWidth + margin &&
-          x + width + margin > node.position.x &&
-          y < node.position.y + nodeHeight + margin &&
-          y + height + margin > node.position.y
-        );
-      });
-    };
+    const preferredColumnPosition = resolvePreferredDerivedColumnPosition(
+      state.nodes,
+      state.edges,
+      sourceNode,
+      newNodeWidth,
+      newNodeHeight
+    );
+    if (preferredColumnPosition) {
+      return preferredColumnPosition;
+    }
 
-    const sourceWidth = sourceNode.measured?.width ?? DEFAULT_NODE_WIDTH;
-    const sourceHeight = sourceNode.measured?.height ?? 200;
-    const anchorX = sourceNode.position.x + sourceWidth + 28;
+    const sourceSize = getNodeSize(sourceNode);
+    const anchorX = sourceNode.position.x + sourceSize.width + DERIVED_NODE_COLUMN_GAP;
     const anchorY = sourceNode.position.y;
 
     const zoom = Math.max(0.01, state.currentViewport.zoom || 1);
@@ -939,7 +1105,7 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
     const stepY = Math.max(Math.round(newNodeHeight * 0.35), 54);
     const baseCandidates = [
       { x: anchorX, y: anchorY },
-      { x: sourceNode.position.x, y: sourceNode.position.y + sourceHeight + 20 },
+      { x: sourceNode.position.x, y: sourceNode.position.y + sourceSize.height + 20 },
       { x: sourceNode.position.x - newNodeWidth - 20, y: sourceNode.position.y },
       { x: sourceNode.position.x, y: sourceNode.position.y - newNodeHeight - 20 },
     ];
@@ -948,7 +1114,7 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
     let bestOutOfView: { x: number; y: number; score: number } | null = null;
 
     const evaluateCandidate = (x: number, y: number) => {
-      if (collides(x, y, newNodeWidth, newNodeHeight)) {
+      if (collidesWithExistingNodes(state.nodes, x, y, newNodeWidth, newNodeHeight)) {
         return;
       }
 
@@ -1030,15 +1196,19 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
 
   addDerivedUploadNode: (sourceNodeId, imageUrl, aspectRatio, previewImageUrl) => {
     const state = get();
-    const position = getDerivedNodePosition(state.nodes, sourceNodeId);
     const sourceNode = state.nodes.find((node) => node.id === sourceNodeId);
     const resolvedAspectRatio = resolveDerivedAspectRatio(sourceNode, aspectRatio);
+    const derivedSize = resolveGeneratedImageNodeDimensions(resolvedAspectRatio);
+    const position = state.findNodePosition(
+      sourceNodeId,
+      derivedSize.width,
+      derivedSize.height
+    );
     const node = canvasNodeFactory.createNode(CANVAS_NODE_TYPES.upload, position, {
       imageUrl,
       previewImageUrl: previewImageUrl ?? null,
       aspectRatio: resolvedAspectRatio,
     });
-    const derivedSize = resolveGeneratedImageNodeDimensions(resolvedAspectRatio);
     node.width = derivedSize.width;
     node.height = derivedSize.height;
     node.style = {
@@ -1135,20 +1305,36 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
 
   addStoryboardSplitNode: (sourceNodeId, rows, cols, frames, frameAspectRatio) => {
     const state = get();
-    const position = getDerivedNodePosition(state.nodes, sourceNodeId);
+    const normalizedGridLayout = normalizeStoryboardGridLayout(frames.length, rows, cols);
     const resolvedFrameAspectRatio =
       frameAspectRatio ??
       frames.find((frame) => typeof frame.aspectRatio === 'string')?.aspectRatio ??
       DEFAULT_ASPECT_RATIO;
+    const nodeSize = resolveStoryboardSplitNodeSize(
+      normalizedGridLayout.rows,
+      normalizedGridLayout.cols
+    );
+    const position = state.findNodePosition(
+      sourceNodeId,
+      nodeSize.width,
+      nodeSize.height
+    );
 
     const node = canvasNodeFactory.createNode(CANVAS_NODE_TYPES.storyboardSplit, position, {
-      gridRows: rows,
-      gridCols: cols,
+      gridRows: normalizedGridLayout.rows,
+      gridCols: normalizedGridLayout.cols,
       frames,
       aspectRatio: resolvedFrameAspectRatio,
       frameAspectRatio: resolvedFrameAspectRatio,
       exportOptions: createDefaultStoryboardExportOptions(),
     });
+    node.width = nodeSize.width;
+    node.height = nodeSize.height;
+    node.style = {
+      ...(node.style ?? {}),
+      width: nodeSize.width,
+      height: nodeSize.height,
+    };
 
     set({
       nodes: [...state.nodes, node],
@@ -1292,6 +1478,48 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
     });
   },
 
+  updateStoryboardGridLayout: (nodeId, axis, value) => {
+    set((state) => {
+      const node = state.nodes.find((currentNode) => currentNode.id === nodeId);
+      if (!node || !isStoryboardSplitNode(node)) {
+        return {};
+      }
+
+      const nextGridLayout = resolveStoryboardGridLayoutForAxis(
+        node.data.frames.length,
+        axis,
+        value
+      );
+
+      if (
+        nextGridLayout.rows === node.data.gridRows &&
+        nextGridLayout.cols === node.data.gridCols
+      ) {
+        return {};
+      }
+
+      return {
+        nodes: state.nodes.map((currentNode) =>
+          currentNode.id === nodeId
+            ? {
+                ...currentNode,
+                data: {
+                  ...currentNode.data,
+                  gridRows: nextGridLayout.rows,
+                  gridCols: nextGridLayout.cols,
+                },
+              }
+            : currentNode
+        ),
+        history: {
+          past: pushSnapshot(state.history.past, createSnapshot(state.nodes, state.edges)),
+          future: [],
+        },
+        dragHistorySnapshot: null,
+      };
+    });
+  },
+
   reorderStoryboardFrame: (nodeId, draggedFrameId, targetFrameId) => {
     set((state) => {
       let changed = false;
@@ -1356,7 +1584,11 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
       };
 
       const newFrames = [...frames, newFrame];
-      const gridLayout = calculateGridLayout(newFrames.length);
+      const gridLayout = resolveStoryboardGridLayoutForAxis(
+        newFrames.length,
+        'cols',
+        node.data.gridCols
+      );
 
       return {
         nodes: state.nodes.map((n) =>
@@ -1396,7 +1628,11 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
       const reorderedFrames = frames
         .sort((a, b) => a.order - b.order)
         .map((frame, index) => ({ ...frame, order: index }));
-      const gridLayout = calculateGridLayout(reorderedFrames.length);
+      const gridLayout = resolveStoryboardGridLayoutForAxis(
+        reorderedFrames.length,
+        'cols',
+        node.data.gridCols
+      );
 
       return {
         nodes: state.nodes.map((n) =>
@@ -1615,16 +1851,19 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
       return null;
     }
 
-    const SIDE_PADDING = 20;
-    const TOP_PADDING = 34;
-    const BOTTOM_PADDING = 20;
-    const groupX = Math.round(absoluteBounds.minX - SIDE_PADDING);
-    const groupY = Math.round(absoluteBounds.minY - TOP_PADDING);
+    const groupX = Math.round(absoluteBounds.minX - GROUP_NODE_SIDE_PADDING);
+    const groupY = Math.round(absoluteBounds.minY - GROUP_NODE_TOP_PADDING);
     const groupWidth = Math.round(
-      Math.max(220, absoluteBounds.maxX - absoluteBounds.minX + SIDE_PADDING * 2)
+      Math.max(220, absoluteBounds.maxX - absoluteBounds.minX + GROUP_NODE_SIDE_PADDING * 2)
     );
     const groupHeight = Math.round(
-      Math.max(140, absoluteBounds.maxY - absoluteBounds.minY + TOP_PADDING + BOTTOM_PADDING)
+      Math.max(
+        140,
+        absoluteBounds.maxY
+          - absoluteBounds.minY
+          + GROUP_NODE_TOP_PADDING
+          + GROUP_NODE_BOTTOM_PADDING
+      )
     );
 
     const existingGroupCount = state.nodes.filter((node) => node.type === CANVAS_NODE_TYPES.group).length;
@@ -1635,8 +1874,12 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
       {
         label: groupDisplayName,
         displayName: groupDisplayName,
+        layoutDirection: 'horizontal',
+        maxItemsPerLine: DEFAULT_GROUP_LAYOUT_MAX_ITEMS_PER_LINE,
       }
     );
+    groupNode.width = groupWidth;
+    groupNode.height = groupHeight;
     groupNode.style = { width: groupWidth, height: groupHeight };
     groupNode.selected = true;
 
@@ -1701,6 +1944,180 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
     });
 
     return groupNode.id;
+  },
+
+  layoutGroupNode: (groupNodeId) => {
+    let didLayout = false;
+
+    set((state) => {
+      const groupNode = state.nodes.find(
+        (node) => node.id === groupNodeId && node.type === CANVAS_NODE_TYPES.group
+      );
+      if (!groupNode) {
+        return {};
+      }
+
+      const directChildren = state.nodes.filter((node) => node.parentId === groupNodeId);
+      if (directChildren.length < 2) {
+        return {};
+      }
+
+      const childIdSet = new Set(directChildren.map((node) => node.id));
+      const internalEdges = state.edges.filter(
+        (edge) => childIdSet.has(edge.source) && childIdSet.has(edge.target)
+      );
+
+      const layoutResult = layoutGroupChildren(directChildren, internalEdges, {
+        maxItemsPerLine:
+          typeof groupNode.data.maxItemsPerLine === 'number'
+            ? groupNode.data.maxItemsPerLine
+            : DEFAULT_GROUP_LAYOUT_MAX_ITEMS_PER_LINE,
+      });
+
+      const nextNodes = state.nodes.map((node) => {
+        if (node.id === groupNodeId) {
+          const widthChanged = Math.round(node.width ?? 0) !== layoutResult.size.width;
+          const heightChanged = Math.round(node.height ?? 0) !== layoutResult.size.height;
+          const directionChanged = node.data.layoutDirection !== layoutResult.direction;
+          const maxItemsChanged =
+            node.data.maxItemsPerLine !== layoutResult.maxItemsPerLine;
+
+          if (!widthChanged && !heightChanged && !directionChanged && !maxItemsChanged) {
+            return {
+              ...node,
+              selected: true,
+            };
+          }
+
+          didLayout = true;
+          return {
+            ...node,
+            width: layoutResult.size.width,
+            height: layoutResult.size.height,
+            style: {
+              ...(node.style ?? {}),
+              width: layoutResult.size.width,
+              height: layoutResult.size.height,
+            },
+            selected: true,
+            data: {
+              ...node.data,
+              layoutDirection: layoutResult.direction,
+              maxItemsPerLine: layoutResult.maxItemsPerLine,
+            },
+          };
+        }
+
+        if (!childIdSet.has(node.id)) {
+          return node;
+        }
+
+        const nextPosition = layoutResult.positions.get(node.id);
+        if (!nextPosition) {
+          return {
+            ...node,
+            selected: false,
+          };
+        }
+
+        const positionChanged =
+          Math.round(node.position.x) !== nextPosition.x ||
+          Math.round(node.position.y) !== nextPosition.y;
+
+        if (positionChanged) {
+          didLayout = true;
+        }
+
+        return {
+          ...node,
+          position: nextPosition,
+          selected: false,
+        };
+      });
+
+      if (!didLayout) {
+        return {};
+      }
+
+      return {
+        nodes: nextNodes,
+        selectedNodeId: groupNodeId,
+        activeToolDialog:
+          state.activeToolDialog && childIdSet.has(state.activeToolDialog.nodeId)
+            ? null
+            : state.activeToolDialog,
+        history: {
+          past: pushSnapshot(state.history.past, createSnapshot(state.nodes, state.edges)),
+          future: [],
+        },
+        dragHistorySnapshot: null,
+      };
+    });
+
+    return didLayout;
+  },
+
+  reparentNodesToGroup: (nodeIds, groupNodeId) => {
+    const uniqueIds = Array.from(new Set(nodeIds.filter((nodeId) => nodeId.trim().length > 0)));
+    if (uniqueIds.length === 0) {
+      return false;
+    }
+
+    let didReparent = false;
+
+    set((state) => {
+      const groupNode = state.nodes.find(
+        (node) => node.id === groupNodeId && node.type === CANVAS_NODE_TYPES.group
+      );
+      if (!groupNode) {
+        return {};
+      }
+
+      const nodeMap = new Map(state.nodes.map((node) => [node.id, node] as const));
+      const groupAbsolutePosition = resolveAbsolutePosition(groupNode, nodeMap);
+      const nodeIdSet = new Set(uniqueIds);
+
+      const nextNodes = state.nodes.map((node) => {
+        if (!nodeIdSet.has(node.id)) {
+          return node;
+        }
+
+        if (node.id === groupNodeId || node.type === CANVAS_NODE_TYPES.group) {
+          return node;
+        }
+
+        if (node.parentId === groupNodeId && node.extent === 'parent') {
+          return node;
+        }
+
+        const absolutePosition = resolveAbsolutePosition(node, nodeMap);
+        didReparent = true;
+        return {
+          ...node,
+          parentId: groupNodeId,
+          extent: 'parent' as const,
+          position: {
+            x: Math.round(absolutePosition.x - groupAbsolutePosition.x),
+            y: Math.round(absolutePosition.y - groupAbsolutePosition.y),
+          },
+        };
+      });
+
+      if (!didReparent) {
+        return {};
+      }
+
+      return {
+        nodes: nextNodes,
+        history: {
+          past: pushSnapshot(state.history.past, createSnapshot(state.nodes, state.edges)),
+          future: [],
+        },
+        dragHistorySnapshot: null,
+      };
+    });
+
+    return didReparent;
   },
 
   ungroupNode: (groupNodeId) => {

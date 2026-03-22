@@ -7,6 +7,7 @@ import {
   useRef,
 } from 'react';
 import { createPortal } from 'react-dom';
+import { useTranslation } from 'react-i18next';
 import {
   Handle,
   Position,
@@ -14,7 +15,7 @@ import {
   useViewport,
   type NodeProps,
 } from '@xyflow/react';
-import { Download, FolderOpen, ImagePlus, SlidersHorizontal, SquareArrowOutUpRight, Plus, Trash2 } from 'lucide-react';
+import { Download, FolderOpen, ImagePlus, SlidersHorizontal, SquareArrowOutUpRight, Minus, Plus, Trash2 } from 'lucide-react';
 import { open } from '@tauri-apps/plugin-dialog';
 import { openPath, revealItemInDir } from '@tauri-apps/plugin-opener';
 import { join } from '@tauri-apps/api/path';
@@ -66,14 +67,24 @@ type StoryboardNodeProps = NodeProps & {
   selected?: boolean;
 };
 
-const STORYBOARD_NODE_WIDTH_PX = 318;
-const STORYBOARD_NODE_MIN_HEIGHT_PX = 320;
+const STORYBOARD_NODE_WIDTH_PX = 620;
+const STORYBOARD_NODE_MIN_WIDTH_PX = 620;
+const STORYBOARD_NODE_MIN_HEIGHT_PX = 360;
 const STORYBOARD_GRID_GAP_PX = 1;
 const EXPORT_MAX_DIMENSION = 4096;
 const EXPORT_TRACE_PREFIX = '[StoryboardExport]';
 const STORYBOARD_SPLIT_HEADER_ADJUST = { x: 0, y: 0, scale: 1 };
 const STORYBOARD_SPLIT_ICON_ADJUST = { x: 0, y: 0, scale: 1 };
 const STORYBOARD_SPLIT_TITLE_ADJUST = { x: 0, y: 0, scale: 1 };
+const STORYBOARD_NODE_WIDTH_PADDING_PX = 200;
+const STORYBOARD_NODE_HEIGHT_PADDING_PX = 160;
+const STORYBOARD_NODE_COL_WIDTH_PX = 136;
+const STORYBOARD_NODE_ROW_HEIGHT_PX = 92;
+const GRID_CONTROL_CONTAINER_CLASS = 'flex h-6 items-center gap-1 rounded-full border border-[rgba(255,255,255,0.14)] bg-[rgba(255,255,255,0.05)] px-1.5';
+const GRID_CONTROL_LABEL_CLASS = 'text-[10px] text-text-muted';
+const GRID_CONTROL_BUTTON_CLASS = 'flex h-4 w-4 items-center justify-center rounded-full text-text-muted transition-colors hover:bg-white/10 hover:text-text-dark disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-text-muted';
+const GRID_CONTROL_ICON_CLASS = 'h-2.5 w-2.5';
+const GRID_CONTROL_VALUE_CLASS = 'min-w-[16px] text-center text-[10px] font-semibold text-text-dark';
 
 function SplitResultIcon({ className }: { className?: string }) {
   return (
@@ -91,6 +102,22 @@ function SplitResultIcon({ className }: { className?: string }) {
 
 function clamp(value: number, min: number, max: number): number {
   return Math.max(min, Math.min(max, value));
+}
+
+function resolveStoryboardNodeDefaultSize(rows: number, cols: number): { width: number; height: number } {
+  const safeRows = Math.max(1, Math.floor(rows));
+  const safeCols = Math.max(1, Math.floor(cols));
+
+  return {
+    width: Math.max(
+      STORYBOARD_NODE_WIDTH_PX,
+      STORYBOARD_NODE_WIDTH_PADDING_PX + safeCols * STORYBOARD_NODE_COL_WIDTH_PX
+    ),
+    height: Math.max(
+      STORYBOARD_NODE_MIN_HEIGHT_PX,
+      STORYBOARD_NODE_HEIGHT_PADDING_PX + safeRows * STORYBOARD_NODE_ROW_HEIGHT_PX
+    ),
+  };
 }
 
 function sanitizePathSegment(raw: string, fallback: string): string {
@@ -264,6 +291,73 @@ async function applyStoryboardTextOverlay(
   }
 
   return canvasToDataUrl(canvas);
+}
+
+type GridStepperControlProps = {
+  label: string;
+  value: number;
+  canDecrease: boolean;
+  canIncrease: boolean;
+  onDecrease: () => void;
+  onIncrease: () => void;
+};
+
+function GridStepperControl({
+  label,
+  value,
+  canDecrease,
+  canIncrease,
+  onDecrease,
+  onIncrease,
+}: GridStepperControlProps) {
+  return (
+    <div className={GRID_CONTROL_CONTAINER_CLASS}>
+      <span className={GRID_CONTROL_LABEL_CLASS}>{label}</span>
+      <button
+        type="button"
+        className={GRID_CONTROL_BUTTON_CLASS}
+        disabled={!canDecrease}
+        onClick={(event) => {
+          event.stopPropagation();
+          onDecrease();
+        }}
+      >
+        <Minus className={GRID_CONTROL_ICON_CLASS} />
+      </button>
+      <span className={GRID_CONTROL_VALUE_CLASS}>{value}</span>
+      <button
+        type="button"
+        className={GRID_CONTROL_BUTTON_CLASS}
+        disabled={!canIncrease}
+        onClick={(event) => {
+          event.stopPropagation();
+          onIncrease();
+        }}
+      >
+        <Plus className={GRID_CONTROL_ICON_CLASS} />
+      </button>
+    </div>
+  );
+}
+
+function EmptyFrameSlot({
+  frameAspectRatioCss,
+  label,
+}: {
+  frameAspectRatioCss: string;
+  label: string;
+}) {
+  return (
+    <div className="nodrag relative bg-bg-dark/70">
+      <div
+        className="flex items-center justify-center border border-dashed border-[rgba(255,255,255,0.14)] bg-[rgba(255,255,255,0.03)]"
+        style={{ aspectRatio: frameAspectRatioCss }}
+      >
+        <span className="text-[10px] text-text-muted/65">{label}</span>
+      </div>
+      <div className="h-10 border-t border-[rgba(255,255,255,0.08)] bg-bg-dark/80" />
+    </div>
+  );
 }
 
 interface FrameCardProps {
@@ -447,6 +541,7 @@ const FrameCard = memo(
 FrameCard.displayName = 'FrameCard';
 
 export const StoryboardNode = memo(({ id, data, selected, width, height }: StoryboardNodeProps) => {
+  const { t } = useTranslation();
   const updateNodeInternals = useUpdateNodeInternals();
   const rootRef = useRef<HTMLDivElement>(null);
   const pickerMenuRef = useRef<HTMLDivElement>(null);
@@ -459,6 +554,7 @@ export const StoryboardNode = memo(({ id, data, selected, width, height }: Story
   const addDerivedExportNode = useCanvasStore((state) => state.addDerivedExportNode);
   const addEdge = useCanvasStore((state) => state.addEdge);
   const updateStoryboardFrame = useCanvasStore((state) => state.updateStoryboardFrame);
+  const updateStoryboardGridLayout = useCanvasStore((state) => state.updateStoryboardGridLayout);
   const updateNodeData = useCanvasStore((state) => state.updateNodeData);
   const addStoryboardFrame = useCanvasStore((state) => state.addStoryboardFrame);
   const removeStoryboardFrame = useCanvasStore((state) => state.removeStoryboardFrame);
@@ -499,10 +595,20 @@ export const StoryboardNode = memo(({ id, data, selected, width, height }: Story
   const gridCols = Math.max(1, data.gridCols);
   const gridRows = Math.max(1, data.gridRows);
   const totalFrames = orderedFrames.length;
-  const resolvedNodeWidth = Math.max(STORYBOARD_NODE_WIDTH_PX, Math.round(width ?? STORYBOARD_NODE_WIDTH_PX));
+  const totalGridSlots = Math.max(1, gridRows * gridCols);
+  const emptyFrameSlotCount = Math.max(0, totalGridSlots - totalFrames);
+  const maxLayoutDimension = Math.max(1, totalFrames);
+  const defaultNodeSize = useMemo(
+    () => resolveStoryboardNodeDefaultSize(gridRows, gridCols),
+    [gridCols, gridRows]
+  );
+  const resolvedNodeWidth = Math.max(
+    STORYBOARD_NODE_MIN_WIDTH_PX,
+    Math.round(width ?? defaultNodeSize.width)
+  );
   const resolvedNodeHeight = Math.max(
     STORYBOARD_NODE_MIN_HEIGHT_PX,
-    Math.round(height ?? STORYBOARD_NODE_MIN_HEIGHT_PX)
+    Math.round(height ?? defaultNodeSize.height)
   );
 
   useEffect(() => {
@@ -1049,6 +1155,16 @@ export const StoryboardNode = memo(({ id, data, selected, width, height }: Story
     [id, incomingImageItems, updateStoryboardFrame]
   );
 
+  const handleGridRowsChange = useCallback((delta: number) => {
+    const nextRows = clamp(gridRows + delta, 1, maxLayoutDimension);
+    updateStoryboardGridLayout(id, 'rows', nextRows);
+  }, [gridRows, id, maxLayoutDimension, updateStoryboardGridLayout]);
+
+  const handleGridColsChange = useCallback((delta: number) => {
+    const nextCols = clamp(gridCols + delta, 1, maxLayoutDimension);
+    updateStoryboardGridLayout(id, 'cols', nextCols);
+  }, [gridCols, id, maxLayoutDimension, updateStoryboardGridLayout]);
+
   return (
     <div
       ref={rootRef}
@@ -1127,6 +1243,13 @@ export const StoryboardNode = memo(({ id, data, selected, width, height }: Story
               onRemoveFrame={(frameId) => removeStoryboardFrame(id, frameId)}
             />
           ))}
+          {Array.from({ length: emptyFrameSlotCount }, (_, index) => (
+            <EmptyFrameSlot
+              key={`empty-frame-slot-${index}`}
+              frameAspectRatioCss={frameAspectRatioCss}
+              label={t('node.storyboardNode.emptySlot')}
+            />
+          ))}
         </div>
       </div>
 
@@ -1179,6 +1302,24 @@ export const StoryboardNode = memo(({ id, data, selected, width, height }: Story
 
       <div className="mt-2 flex shrink-0 items-center justify-between gap-2">
         <div className="flex min-w-0 items-center gap-2">
+          <div className="flex shrink-0 items-center gap-1.5">
+            <GridStepperControl
+              label={t('node.storyboardNode.rowsShort')}
+              value={gridRows}
+              canDecrease={gridRows > 1}
+              canIncrease={gridRows < maxLayoutDimension}
+              onDecrease={() => handleGridRowsChange(-1)}
+              onIncrease={() => handleGridRowsChange(1)}
+            />
+            <GridStepperControl
+              label={t('node.storyboardNode.colsShort')}
+              value={gridCols}
+              canDecrease={gridCols > 1}
+              canIncrease={gridCols < maxLayoutDimension}
+              onDecrease={() => handleGridColsChange(-1)}
+              onIncrease={() => handleGridColsChange(1)}
+            />
+          </div>
           <div ref={exportSettingsTriggerRef} className="nodrag relative flex">
             <UiChipButton
               active={isExportPanelOpen}
@@ -1199,7 +1340,12 @@ export const StoryboardNode = memo(({ id, data, selected, width, height }: Story
           </div>
 
           <div className="truncate text-[11px] text-text-muted/80">
-            {gridRows} x {gridCols} | {totalFrames} 格
+            {t('node.storyboardNode.layoutSummary', {
+              rows: gridRows,
+              cols: gridCols,
+              count: totalFrames,
+              capacity: totalGridSlots,
+            })}
           </div>
         </div>
 
@@ -1375,8 +1521,8 @@ export const StoryboardNode = memo(({ id, data, selected, width, height }: Story
         className="!h-2 !w-2 !border-surface-dark !bg-accent"
       />
       <NodeResizeHandle
-        minWidth={280}
-        minHeight={200}
+        minWidth={STORYBOARD_NODE_MIN_WIDTH_PX}
+        minHeight={STORYBOARD_NODE_MIN_HEIGHT_PX}
         maxWidth={2000}
         maxHeight={1600}
         isVisible={selected}
