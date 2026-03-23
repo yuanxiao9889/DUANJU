@@ -84,7 +84,7 @@ jobs:
             args: --bundles nsis
           - name: macOS
             platform: macos-latest
-            args: --bundles dmg --target universal-apple-darwin
+            args: --bundles dmg
     name: Build ${{ matrix.name }}
     runs-on: ${{ matrix.platform }}
     steps:
