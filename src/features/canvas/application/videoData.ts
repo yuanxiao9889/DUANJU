@@ -1,4 +1,5 @@
 import { isTauri } from '@tauri-apps/api/core';
+import { persistImageBinary, persistImageSource } from '@/commands/image';
 import { reduceAspectRatio } from './imageData';
 
 export interface VideoMetadata {
@@ -24,6 +25,24 @@ const SUPPORTED_VIDEO_TYPES = [
 
 export function isSupportedVideoType(mimeType: string): boolean {
   return SUPPORTED_VIDEO_TYPES.includes(mimeType.toLowerCase());
+}
+
+function resolveVideoExtension(file: File): string {
+  const mime = file.type.toLowerCase();
+  if (mime === 'video/mp4') return 'mp4';
+  if (mime === 'video/webm') return 'webm';
+  if (mime === 'video/ogg') return 'ogv';
+  if (mime === 'video/quicktime') return 'mov';
+  if (mime === 'video/x-msvideo') return 'avi';
+  if (mime === 'video/x-matroska') return 'mkv';
+
+  const name = file.name.trim();
+  const dot = name.lastIndexOf('.');
+  if (dot >= 0 && dot < name.length - 1) {
+    return name.slice(dot + 1).toLowerCase();
+  }
+
+  return 'mp4';
 }
 
 export function getVideoMetadata(file: File): Promise<VideoMetadata> {
@@ -53,23 +72,34 @@ export async function prepareNodeVideoFromFile(file: File): Promise<PreparedVide
   if (!isSupportedVideoType(file.type)) {
     throw new Error(`Unsupported video type: ${file.type}`);
   }
-  
+
   const metadata = await getVideoMetadata(file);
   const aspectRatio = reduceAspectRatio(metadata.width, metadata.height);
-  
+
   const tauriFilePath = (file as File & { path?: string }).path;
   const normalizedPath = typeof tauriFilePath === 'string' ? tauriFilePath.trim() : '';
-  
+
   if (isTauri() && normalizedPath.length > 0) {
+    const persistedVideoPath = await persistImageSource(normalizedPath);
     return {
-      videoUrl: normalizedPath,
+      videoUrl: persistedVideoPath,
       aspectRatio,
       duration: metadata.duration,
     };
   }
-  
+
+  if (isTauri()) {
+    const bytes = new Uint8Array(await file.arrayBuffer());
+    const persistedVideoPath = await persistImageBinary(bytes, resolveVideoExtension(file));
+    return {
+      videoUrl: persistedVideoPath,
+      aspectRatio,
+      duration: metadata.duration,
+    };
+  }
+
   const videoUrl = URL.createObjectURL(file);
-  
+
   return {
     videoUrl,
     aspectRatio,
