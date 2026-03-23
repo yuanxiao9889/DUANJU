@@ -129,5 +129,6 @@ jobs:
           releaseCommitish: ${{ github.sha }}
           releaseDraft: false
           prerelease: false
+          tauriScript: npx tauri
           retryAttempts: 2
           args: ${{ matrix.args }}
