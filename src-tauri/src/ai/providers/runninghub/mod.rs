@@ -1,4 +1,3 @@
-use reqwest::multipart::{Form, Part};
 use reqwest::Client;
 use serde::Serialize;
 use serde_json::Value;
@@ -16,8 +15,8 @@ use crate::ai::{
 
 const DEFAULT_BASE_URL: &str = "https://www.runninghub.cn";
 const QUERY_ENDPOINT_PATH: &str = "/openapi/v2/query";
-const UPLOAD_ENDPOINT_PATH: &str = "/openapi/v2/media/upload/binary";
 const POLL_INTERVAL_MS: u64 = 5000;
+const MAX_INLINE_IMAGE_BYTES: usize = 10 * 1024 * 1024;
 
 const BANANA_PRO_MODEL: &str = "rhart-image-n-pro";
 const BANANA_2_MODEL: &str = "rhart-image-n-g31-flash";
@@ -54,7 +53,7 @@ fn source_to_bytes(source: &str) -> Result<Vec<u8>, String> {
             return STANDARD
                 .decode(payload)
                 .map_err(|err| format!("invalid data URL payload: {}", err));
-        }
+        };
     }
 
     let likely_base64 = trimmed.len() > 256
@@ -96,7 +95,7 @@ fn file_extension_from_source(source: &str) -> String {
             .trim();
         if !suffix.is_empty() {
             return suffix.to_lowercase();
-        }
+        };
     }
 
     if trimmed.starts_with("file://") || (!trimmed.starts_with("http://") && !trimmed.starts_with("https://")) {
@@ -114,6 +113,19 @@ fn file_extension_from_source(source: &str) -> String {
     }
 
     "png".to_string()
+}
+
+fn mime_type_from_extension(extension: &str) -> &'static str {
+    match extension.trim().to_ascii_lowercase().as_str() {
+        "jpg" | "jpeg" => "image/jpeg",
+        "png" => "image/png",
+        "webp" => "image/webp",
+        "gif" => "image/gif",
+        "bmp" => "image/bmp",
+        "tif" | "tiff" => "image/tiff",
+        "avif" => "image/avif",
+        _ => "image/png",
+    }
 }
 
 #[derive(Debug, Serialize)]
@@ -147,21 +159,29 @@ impl RunningHubProvider {
         }
     }
 
-    async fn upload_image(&self, api_key: &str, source: &str) -> Result<String, AIError> {
+    async fn upload_image(&self, _api_key: &str, source: &str) -> Result<String, AIError> {
         info!("[RunningHub] upload_image called, source length: {}, prefix: {:?}", 
             source.len(), 
             if source.len() > 50 { &source[..50] } else { source }
         );
-        
-        if source.starts_with("http://") || source.starts_with("https://") {
-            info!("[RunningHub] Source is already a URL, returning as-is");
-            return Ok(source.to_string());
+
+        let trimmed = source.trim().trim_matches('`').trim();
+
+        if trimmed.starts_with("http://") || trimmed.starts_with("https://") {
+            info!("[RunningHub] Source is already a public URL, returning as-is");
+            return Ok(trimmed.to_string());
         }
 
-        let extension = file_extension_from_source(source);
-        info!("[RunningHub] Detected extension: {}", extension);
+        if trimmed.starts_with("data:image/") {
+            info!("[RunningHub] Source is already a data URI, returning as-is");
+            return Ok(trimmed.to_string());
+        }
+
+        let extension = file_extension_from_source(trimmed);
+        let mime_type = mime_type_from_extension(&extension);
+        info!("[RunningHub] Detected extension: {}, mime: {}", extension, mime_type);
         
-        let bytes = match source_to_bytes(source) {
+        let bytes = match source_to_bytes(trimmed) {
             Ok(b) => {
                 info!("[RunningHub] Successfully read {} bytes", b.len());
                 b
@@ -169,71 +189,22 @@ impl RunningHubProvider {
             Err(err) => {
                 info!("[RunningHub] Failed to read bytes: {}", err);
                 return Err(AIError::InvalidRequest(format!(
-                    "Failed to read reference image for RunningHub upload: {}",
+                    "Failed to read reference image for RunningHub request: {}",
                     err
                 )));
             }
         };
 
-        let file_part = Part::bytes(bytes)
-            .file_name(format!("image.{}", extension))
-            .mime_str("image/png")
-            .map_err(|e| {
-                info!("[RunningHub] Failed to set mime type: {}", e);
-                AIError::Provider(format!("Failed to set mime type: {}", e))
-            })?;
-
-        let form = Form::new().part("file", file_part);
-
-        let upload_endpoint = format!("{}{}", self.base_url, UPLOAD_ENDPOINT_PATH);
-        info!("[RunningHub] Uploading to: {}", upload_endpoint);
-        
-        let response = self
-            .client
-            .post(&upload_endpoint)
-            .header("Authorization", format!("Bearer {}", api_key))
-            .multipart(form)
-            .timeout(std::time::Duration::from_secs(120))
-            .send()
-            .await?;
-
-        info!("[RunningHub] Upload response status: {}", response.status());
-        
-        if !response.status().is_success() {
-            let status = response.status();
-            let error_text = response.text().await.unwrap_or_default();
-            info!("[RunningHub] Upload failed: {} - {}", status, error_text);
-            return Err(AIError::Provider(format!(
-                "RunningHub upload failed {}: {}",
-                status, error_text
+        if bytes.len() > MAX_INLINE_IMAGE_BYTES {
+            return Err(AIError::InvalidRequest(format!(
+                "RunningHub reference image exceeds 10MB limit: {} bytes",
+                bytes.len()
             )));
         }
 
-        let response_json = response.json::<Value>().await?;
-        info!("[RunningHub] Upload response: {:?}", response_json);
-        
-        if let Some(code) = response_json.get("code").and_then(|v| v.as_i64()) {
-            if code != 0 {
-                let msg = response_json
-                    .get("message")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("unknown error");
-                info!("[RunningHub] API returned error code {}: {}", code, msg);
-                return Err(AIError::Provider(format!("RunningHub upload error: {}", msg)));
-            }
-        }
-
-        let download_url = response_json
-            .get("data")
-            .and_then(|data| data.get("download_url"))
-            .and_then(|v| v.as_str())
-            .ok_or_else(|| {
-                info!("[RunningHub] Response missing download_url");
-                AIError::Provider("RunningHub upload response missing download_url".to_string())
-            })?;
-
-        info!("[RunningHub] Upload successful, download_url: {}", download_url);
-        Ok(download_url.to_string())
+        let data_uri = format!("data:{};base64,{}", mime_type, STANDARD.encode(&bytes));
+        info!("[RunningHub] Prepared inline data URI for reference image, bytes: {}", bytes.len());
+        Ok(data_uri)
     }
 
     fn resolve_model_and_endpoint(&self, request: &GenerateRequest) -> (String, String) {
@@ -265,14 +236,14 @@ impl RunningHubProvider {
         if let Some(images) = request.reference_images.as_ref() {
             info!("[RunningHub] Processing {} reference images", images.len());
             for (idx, image) in images.iter().take(10).enumerate() {
-                info!("[RunningHub] Uploading image {}: {}...", idx, &image[..image.len().min(100)]);
+                info!("[RunningHub] Preparing image {}: {}...", idx, &image[..image.len().min(100)]);
                 match self.upload_image(&api_key, image).await {
                     Ok(url) => {
-                        info!("[RunningHub] Image {} uploaded successfully: {}", idx, url);
+                        info!("[RunningHub] Image {} prepared successfully", idx);
                         image_urls.push(url);
                     }
                     Err(e) => {
-                        let err_msg = format!("Image {} upload failed: {}", idx, e);
+                        let err_msg = format!("Image {} prepare failed: {}", idx, e);
                         info!("[RunningHub] {}", err_msg);
                         upload_errors.push(err_msg);
                     }

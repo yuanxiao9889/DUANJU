@@ -11,6 +11,7 @@ import {
 import { v4 as uuidv4 } from 'uuid';
 
 import {
+  AUTO_REQUEST_ASPECT_RATIO,
   CANVAS_NODE_TYPES,
   DEFAULT_ASPECT_RATIO,
   DEFAULT_NODE_WIDTH,
@@ -91,7 +92,27 @@ const STORYBOARD_SPLIT_NODE_WIDTH_PADDING = 200;
 const STORYBOARD_SPLIT_NODE_HEIGHT_PADDING = 160;
 const STORYBOARD_SPLIT_NODE_COL_WIDTH = 136;
 const STORYBOARD_SPLIT_NODE_ROW_HEIGHT = 92;
+const GROUP_LAYOUT_ANIMATION_CLASS = 'canvas-node--layout-animating';
+const GROUP_LAYOUT_ANIMATION_MS = 220;
+let latestGroupLayoutAnimationRunId = 0;
 type StoryboardGridAxis = 'rows' | 'cols';
+
+interface AddNodeOptions {
+  parentId?: string;
+  inheritParentFromNodeId?: string;
+  positionSpace?: 'canvas' | 'parent';
+}
+
+function appendNodeClassName(existing: string | undefined, className: string): string {
+  const classes = new Set((existing ?? '').split(/\s+/).filter(Boolean));
+  classes.add(className);
+  return Array.from(classes).join(' ');
+}
+
+function removeNodeClassName(existing: string | undefined, className: string): string | undefined {
+  const classes = (existing ?? '').split(/\s+/).filter(Boolean).filter((value) => value !== className);
+  return classes.length > 0 ? classes.join(' ') : undefined;
+}
 
 function calculateGridLayout(frameCount: number): { rows: number; cols: number } {
   if (frameCount <= 1) return { rows: 1, cols: 1 };
@@ -213,7 +234,8 @@ interface CanvasState {
   addNode: (
     type: CanvasNodeType,
     position: { x: number; y: number },
-    data?: Partial<CanvasNodeData>
+    data?: Partial<CanvasNodeData>,
+    options?: AddNodeOptions
   ) => string;
   addEdge: (source: string, target: string) => string | null;
   findNodePosition: (sourceNodeId: string, newNodeWidth: number, newNodeHeight: number) => { x: number; y: number };
@@ -271,6 +293,7 @@ interface CanvasState {
   groupNodes: (nodeIds: string[]) => string | null;
   layoutGroupNode: (groupNodeId: string) => boolean;
   reparentNodesToGroup: (nodeIds: string[], groupNodeId: string) => boolean;
+  detachNodesFromGroup: (nodeIds: string[]) => boolean;
   ungroupNode: (groupNodeId: string) => boolean;
   deleteEdge: (edgeId: string) => void;
   setSelectedNode: (nodeId: string | null) => void;
@@ -326,7 +349,7 @@ function normalizeEdgesWithNodes(rawEdges: CanvasEdge[], nodes: CanvasNode[]): C
 }
 
 function normalizeNodes(rawNodes: CanvasNode[]): CanvasNode[] {
-  return rawNodes
+  const normalizedNodes = rawNodes
     .map((node) => {
       if (!Object.values(CANVAS_NODE_TYPES).includes(node.type as CanvasNodeType)) {
         return null;
@@ -411,6 +434,23 @@ function normalizeNodes(rawNodes: CanvasNode[]): CanvasNode[] {
       };
     })
     .filter((node): node is CanvasNode => Boolean(node));
+
+  const nodeMap = new Map(normalizedNodes.map((node) => [node.id, node] as const));
+  return normalizedNodes.map((node) => {
+    if (!node.parentId || typeof node.extent === 'undefined') {
+      return node;
+    }
+
+    const parentNode = nodeMap.get(node.parentId);
+    if (parentNode?.type !== CANVAS_NODE_TYPES.group) {
+      return node;
+    }
+
+    return {
+      ...node,
+      extent: undefined,
+    };
+  });
 }
 
 function normalizeHistory(history?: CanvasHistoryState): CanvasHistoryState {
@@ -475,19 +515,26 @@ function getNodeSize(node: CanvasNode): { width: number; height: number } {
 
 function collidesWithExistingNodes(
   nodes: CanvasNode[],
+  nodeMap: Map<string, CanvasNode>,
   x: number,
   y: number,
   width: number,
-  height: number
+  height: number,
+  ignoredNodeIds?: Set<string>
 ): boolean {
   return nodes.some((node) => {
+    if (ignoredNodeIds?.has(node.id)) {
+      return false;
+    }
+
+    const absolutePosition = resolveAbsolutePosition(node, nodeMap);
     const nodeSize = getNodeSize(node);
     const margin = 8;
     return (
-      x < node.position.x + nodeSize.width + margin &&
-      x + width + margin > node.position.x &&
-      y < node.position.y + nodeSize.height + margin &&
-      y + height + margin > node.position.y
+      x < absolutePosition.x + nodeSize.width + margin &&
+      x + width + margin > absolutePosition.x &&
+      y < absolutePosition.y + nodeSize.height + margin &&
+      y + height + margin > absolutePosition.y
     );
   });
 }
@@ -503,12 +550,15 @@ function resolvePreferredDerivedColumnPosition(
   edges: CanvasEdge[],
   sourceNode: CanvasNode,
   newNodeWidth: number,
-  newNodeHeight: number
+  newNodeHeight: number,
+  nodeMap: Map<string, CanvasNode>,
+  ignoredCollisionNodeIds?: Set<string>
 ): { x: number; y: number } | null {
+  const sourcePosition = resolveAbsolutePosition(sourceNode, nodeMap);
   const sourceSize = getNodeSize(sourceNode);
   const stackGap = resolveDerivedNodeStackGap(sourceNode);
-  const anchorX = sourceNode.position.x + sourceSize.width + DERIVED_NODE_COLUMN_GAP;
-  const anchorY = sourceNode.position.y;
+  const anchorX = sourcePosition.x + sourceSize.width + DERIVED_NODE_COLUMN_GAP;
+  const anchorY = sourcePosition.y;
   const minAcceptedColumnX = anchorX - DERIVED_NODE_COLUMN_ALIGNMENT_THRESHOLD;
   const stepX = newNodeWidth + DERIVED_NODE_NEXT_COLUMN_GAP;
   const stepY = newNodeHeight + stackGap;
@@ -519,14 +569,19 @@ function resolvePreferredDerivedColumnPosition(
       .map((edge) => edge.target)
   );
 
-  const directTargets = nodes.filter(
-    (node) => directTargetIds.has(node.id) && node.position.x >= minAcceptedColumnX
-  );
+  const directTargets = nodes.filter((node) => {
+    if (!directTargetIds.has(node.id)) {
+      return false;
+    }
+
+    return resolveAbsolutePosition(node, nodeMap).x >= minAcceptedColumnX;
+  });
 
   const occupiedSlots = new Set<string>();
   for (const targetNode of directTargets) {
-    const columnOffset = Math.max(0, targetNode.position.x - anchorX);
-    const rowOffset = Math.max(0, targetNode.position.y - anchorY);
+    const targetPosition = resolveAbsolutePosition(targetNode, nodeMap);
+    const columnOffset = Math.max(0, targetPosition.x - anchorX);
+    const rowOffset = Math.max(0, targetPosition.y - anchorY);
     const rawColumnIndex = Math.max(0, Math.round(columnOffset / stepX));
     const rawRowIndex = Math.max(0, Math.round(rowOffset / stepY));
     const columnIndex = rawColumnIndex + Math.floor(rawRowIndex / DERIVED_NODE_MAX_ROWS_PER_COLUMN);
@@ -548,7 +603,17 @@ function resolvePreferredDerivedColumnPosition(
 
       const candidateX = anchorX + columnIndex * stepX;
       const candidateY = anchorY + rowIndex * stepY;
-      if (!collidesWithExistingNodes(nodes, candidateX, candidateY, newNodeWidth, newNodeHeight)) {
+      if (
+        !collidesWithExistingNodes(
+          nodes,
+          nodeMap,
+          candidateX,
+          candidateY,
+          newNodeWidth,
+          newNodeHeight,
+          ignoredCollisionNodeIds
+        )
+      ) {
         return { x: candidateX, y: candidateY };
       }
     }
@@ -615,13 +680,21 @@ function resolveNodeCreationDefaults(
     return data;
   }
 
-  const { lastImageEditModelId, lastImageEditSize } = useSettingsStore.getState();
+  const {
+    lastImageEditModelId,
+    lastImageEditSize,
+    lastImageEditRequestAspectRatio,
+  } = useSettingsStore.getState();
   const preferredModelId = getImageModel(lastImageEditModelId).id;
   const imageEditData = data as Partial<ImageEditNodeData>;
 
   return {
     model: imageEditData.model ?? preferredModelId,
     size: imageEditData.size ?? lastImageEditSize,
+    requestAspectRatio:
+      imageEditData.requestAspectRatio
+      ?? lastImageEditRequestAspectRatio
+      ?? AUTO_REQUEST_ASPECT_RATIO,
     ...imageEditData,
   } as Partial<CanvasNodeData>;
 }
@@ -731,6 +804,185 @@ function resolveAbsolutePosition(
   }
 
   return { x, y };
+}
+
+function collectAncestorGroupNodeIds(
+  node: CanvasNode,
+  nodeMap: Map<string, CanvasNode>
+): Set<string> {
+  const groupIds = new Set<string>();
+  let currentParentId = node.parentId;
+  const visited = new Set<string>();
+
+  while (currentParentId && !visited.has(currentParentId)) {
+    visited.add(currentParentId);
+    const parentNode = nodeMap.get(currentParentId);
+    if (!parentNode) {
+      break;
+    }
+
+    if (parentNode.type === CANVAS_NODE_TYPES.group) {
+      groupIds.add(parentNode.id);
+    }
+
+    currentParentId = parentNode.parentId;
+  }
+
+  return groupIds;
+}
+
+function isGroupNodeId(nodeId: string | undefined, nodeMap: Map<string, CanvasNode>): boolean {
+  if (!nodeId) {
+    return false;
+  }
+
+  return nodeMap.get(nodeId)?.type === CANVAS_NODE_TYPES.group;
+}
+
+function resolveInheritedGroupParentId(
+  sourceNode: CanvasNode | undefined,
+  nodeMap: Map<string, CanvasNode>
+): string | undefined {
+  if (!sourceNode?.parentId) {
+    return undefined;
+  }
+
+  return isGroupNodeId(sourceNode.parentId, nodeMap) ? sourceNode.parentId : undefined;
+}
+
+function attachNodeToGroupParent(
+  node: CanvasNode,
+  position: { x: number; y: number },
+  parentGroupId: string | undefined,
+  nodeMap: Map<string, CanvasNode>,
+  positionSpace: 'canvas' | 'parent' = 'canvas'
+): CanvasNode {
+  if (!parentGroupId) {
+    return node;
+  }
+
+  const parentNode = nodeMap.get(parentGroupId);
+  if (parentNode?.type !== CANVAS_NODE_TYPES.group) {
+    return node;
+  }
+
+  const parentAbsolutePosition = resolveAbsolutePosition(parentNode, nodeMap);
+  const nextPosition = positionSpace === 'parent'
+    ? {
+        x: Math.round(position.x),
+        y: Math.round(position.y),
+      }
+    : {
+        x: Math.round(position.x - parentAbsolutePosition.x),
+        y: Math.round(position.y - parentAbsolutePosition.y),
+      };
+
+  return {
+    ...node,
+    parentId: parentGroupId,
+    extent: undefined,
+    position: nextPosition,
+  };
+}
+
+function fitGroupNodeToChildren(nodes: CanvasNode[], groupNodeId: string): CanvasNode[] {
+  const nodeMap = new Map(nodes.map((node) => [node.id, node] as const));
+  const groupNode = nodeMap.get(groupNodeId);
+  if (!groupNode || groupNode.type !== CANVAS_NODE_TYPES.group) {
+    return nodes;
+  }
+
+  const directChildren = nodes.filter((node) => node.parentId === groupNodeId);
+  if (directChildren.length === 0) {
+    return nodes;
+  }
+
+  const groupAbsolutePosition = resolveAbsolutePosition(groupNode, nodeMap);
+  const groupSize = getNodeSize(groupNode);
+  const childBounds = directChildren.reduce(
+    (acc, childNode) => {
+      const absolutePosition = resolveAbsolutePosition(childNode, nodeMap);
+      const childSize = getNodeSize(childNode);
+      return {
+        minX: Math.min(acc.minX, absolutePosition.x),
+        minY: Math.min(acc.minY, absolutePosition.y),
+        maxX: Math.max(acc.maxX, absolutePosition.x + childSize.width),
+        maxY: Math.max(acc.maxY, absolutePosition.y + childSize.height),
+      };
+    },
+    {
+      minX: Number.POSITIVE_INFINITY,
+      minY: Number.POSITIVE_INFINITY,
+      maxX: Number.NEGATIVE_INFINITY,
+      maxY: Number.NEGATIVE_INFINITY,
+    }
+  );
+
+  if (!Number.isFinite(childBounds.minX) || !Number.isFinite(childBounds.minY)) {
+    return nodes;
+  }
+
+  const nextAbsoluteX = Math.round(
+    Math.min(groupAbsolutePosition.x, childBounds.minX - GROUP_NODE_SIDE_PADDING)
+  );
+  const nextAbsoluteY = Math.round(
+    Math.min(groupAbsolutePosition.y, childBounds.minY - GROUP_NODE_TOP_PADDING)
+  );
+  const nextRight = Math.round(
+    Math.max(groupAbsolutePosition.x + groupSize.width, childBounds.maxX + GROUP_NODE_SIDE_PADDING)
+  );
+  const nextBottom = Math.round(
+    Math.max(groupAbsolutePosition.y + groupSize.height, childBounds.maxY + GROUP_NODE_BOTTOM_PADDING)
+  );
+  const nextWidth = Math.max(220, nextRight - nextAbsoluteX);
+  const nextHeight = Math.max(140, nextBottom - nextAbsoluteY);
+
+  const parentNode = groupNode.parentId ? nodeMap.get(groupNode.parentId) : undefined;
+  const parentAbsolutePosition = parentNode
+    ? resolveAbsolutePosition(parentNode, nodeMap)
+    : { x: 0, y: 0 };
+  const nextGroupPosition = {
+    x: nextAbsoluteX - parentAbsolutePosition.x,
+    y: nextAbsoluteY - parentAbsolutePosition.y,
+  };
+  const didMoveGroup =
+    Math.round(groupNode.position.x) !== Math.round(nextGroupPosition.x)
+    || Math.round(groupNode.position.y) !== Math.round(nextGroupPosition.y);
+  const didResizeGroup =
+    Math.round(groupSize.width) !== nextWidth || Math.round(groupSize.height) !== nextHeight;
+
+  if (!didMoveGroup && !didResizeGroup) {
+    return nodes;
+  }
+
+  return nodes.map((node) => {
+    if (node.id === groupNodeId) {
+      return {
+        ...node,
+        position: nextGroupPosition,
+        width: nextWidth,
+        height: nextHeight,
+        style: {
+          ...(node.style ?? {}),
+          width: nextWidth,
+          height: nextHeight,
+        },
+      };
+    }
+
+    if (node.parentId !== groupNodeId) {
+      return node;
+    }
+
+    const absolutePosition = resolveAbsolutePosition(node, nodeMap);
+    return {
+      ...node,
+      position: {
+        x: Math.round(absolutePosition.x - nextAbsoluteX),
+        y: Math.round(absolutePosition.y - nextAbsoluteY),
+      },
+    };
+  });
 }
 
 function pushSnapshot(
@@ -994,12 +1246,27 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
     }
   },
 
-  addNode: (type, position, data = {}) => {
+  addNode: (type, position, data = {}, options = {}) => {
     const state = get();
     const initialData = resolveNodeCreationDefaults(type, data);
-    const newNode = canvasNodeFactory.createNode(type, position, initialData);
+    const sourceNode = options.inheritParentFromNodeId
+      ? state.nodes.find((node) => node.id === options.inheritParentFromNodeId)
+      : undefined;
+    const nodeMap = new Map(state.nodes.map((node) => [node.id, node] as const));
+    const parentGroupId = options.parentId ?? resolveInheritedGroupParentId(sourceNode, nodeMap);
+    const createdNode = canvasNodeFactory.createNode(type, position, initialData);
+    const newNode = attachNodeToGroupParent(
+      createdNode,
+      position,
+      parentGroupId,
+      nodeMap,
+      options.positionSpace ?? 'canvas'
+    );
+    const nextNodes = parentGroupId
+      ? fitGroupNodeToChildren([...state.nodes, newNode], parentGroupId)
+      : [...state.nodes, newNode];
     set({
-      nodes: [...state.nodes, newNode],
+      nodes: nextNodes,
       history: {
         past: pushSnapshot(state.history.past, createSnapshot(state.nodes, state.edges)),
         future: [],
@@ -1092,13 +1359,18 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
     if (!sourceNode) {
       return { x: 100, y: 100 };
     }
+    const nodeMap = new Map(state.nodes.map((node) => [node.id, node] as const));
+    const sourcePosition = resolveAbsolutePosition(sourceNode, nodeMap);
+    const ignoredCollisionNodeIds = collectAncestorGroupNodeIds(sourceNode, nodeMap);
 
     const preferredColumnPosition = resolvePreferredDerivedColumnPosition(
       state.nodes,
       state.edges,
       sourceNode,
       newNodeWidth,
-      newNodeHeight
+      newNodeHeight,
+      nodeMap,
+      ignoredCollisionNodeIds
     );
     if (preferredColumnPosition) {
       return preferredColumnPosition;
@@ -1106,8 +1378,8 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
 
     const sourceSize = getNodeSize(sourceNode);
     const stackGap = resolveDerivedNodeStackGap(sourceNode);
-    const anchorX = sourceNode.position.x + sourceSize.width + DERIVED_NODE_COLUMN_GAP;
-    const anchorY = sourceNode.position.y;
+    const anchorX = sourcePosition.x + sourceSize.width + DERIVED_NODE_COLUMN_GAP;
+    const anchorY = sourcePosition.y;
 
     const zoom = Math.max(0.01, state.currentViewport.zoom || 1);
     const viewportWidth = state.canvasViewportSize.width;
@@ -1139,16 +1411,26 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
       : Math.max(Math.round(newNodeHeight * 0.35), 54);
     const baseCandidates = [
       { x: anchorX, y: anchorY },
-      { x: sourceNode.position.x, y: sourceNode.position.y + sourceSize.height + stackGap },
-      { x: sourceNode.position.x - newNodeWidth - 20, y: sourceNode.position.y },
-      { x: sourceNode.position.x, y: sourceNode.position.y - newNodeHeight - stackGap },
+      { x: sourcePosition.x, y: sourcePosition.y + sourceSize.height + stackGap },
+      { x: sourcePosition.x - newNodeWidth - 20, y: sourcePosition.y },
+      { x: sourcePosition.x, y: sourcePosition.y - newNodeHeight - stackGap },
     ];
 
     let bestInView: { x: number; y: number; score: number } | null = null;
     let bestOutOfView: { x: number; y: number; score: number } | null = null;
 
     const evaluateCandidate = (x: number, y: number) => {
-      if (collidesWithExistingNodes(state.nodes, x, y, newNodeWidth, newNodeHeight)) {
+      if (
+        collidesWithExistingNodes(
+          state.nodes,
+          nodeMap,
+          x,
+          y,
+          newNodeWidth,
+          newNodeHeight,
+          ignoredCollisionNodeIds
+        )
+      ) {
         return;
       }
 
@@ -1231,6 +1513,8 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
   addDerivedUploadNode: (sourceNodeId, imageUrl, aspectRatio, previewImageUrl) => {
     const state = get();
     const sourceNode = state.nodes.find((node) => node.id === sourceNodeId);
+    const nodeMap = new Map(state.nodes.map((node) => [node.id, node] as const));
+    const parentGroupId = resolveInheritedGroupParentId(sourceNode, nodeMap);
     const resolvedAspectRatio = resolveDerivedAspectRatio(sourceNode, aspectRatio);
     const derivedSize = resolveGeneratedImageNodeDimensions(resolvedAspectRatio);
     const position = state.findNodePosition(
@@ -1238,7 +1522,7 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
       derivedSize.width,
       derivedSize.height
     );
-    const node = canvasNodeFactory.createNode(CANVAS_NODE_TYPES.upload, position, {
+    let node = canvasNodeFactory.createNode(CANVAS_NODE_TYPES.upload, position, {
       imageUrl,
       previewImageUrl: previewImageUrl ?? null,
       aspectRatio: resolvedAspectRatio,
@@ -1250,9 +1534,13 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
       width: derivedSize.width,
       height: derivedSize.height,
     };
+    node = attachNodeToGroupParent(node, position, parentGroupId, nodeMap);
+    const nextNodes = parentGroupId
+      ? fitGroupNodeToChildren([...state.nodes, node], parentGroupId)
+      : [...state.nodes, node];
 
     set({
-      nodes: [...state.nodes, node],
+      nodes: nextNodes,
       selectedNodeId: node.id,
       activeToolDialog: null,
       history: {
@@ -1268,6 +1556,8 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
   addDerivedExportNode: (sourceNodeId, imageUrl, aspectRatio, previewImageUrl, options) => {
     const state = get();
     const sourceNode = state.nodes.find((node) => node.id === sourceNodeId);
+    const nodeMap = new Map(state.nodes.map((node) => [node.id, node] as const));
+    const parentGroupId = resolveInheritedGroupParentId(sourceNode, nodeMap);
     const aspectRatioStrategy = options?.aspectRatioStrategy ?? 'provided';
     const resolvedAspectRatio = aspectRatioStrategy === 'derivedFromSource'
       ? resolveDerivedAspectRatio(sourceNode, aspectRatio)
@@ -1312,7 +1602,7 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
           EXPORT_RESULT_DISPLAY_NAME[options.resultKind];
       }
     }
-    const node = canvasNodeFactory.createNode(CANVAS_NODE_TYPES.exportImage, position, {
+    let node = canvasNodeFactory.createNode(CANVAS_NODE_TYPES.exportImage, position, {
       ...exportNodeData,
     });
     node.width = derivedSize.width;
@@ -1322,9 +1612,13 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
       width: derivedSize.width,
       height: derivedSize.height,
     };
+    node = attachNodeToGroupParent(node, position, parentGroupId, nodeMap);
+    const nextNodes = parentGroupId
+      ? fitGroupNodeToChildren([...state.nodes, node], parentGroupId)
+      : [...state.nodes, node];
 
     set({
-      nodes: [...state.nodes, node],
+      nodes: nextNodes,
       selectedNodeId: node.id,
       activeToolDialog: null,
       history: {
@@ -1339,6 +1633,9 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
 
   addStoryboardSplitNode: (sourceNodeId, rows, cols, frames, frameAspectRatio) => {
     const state = get();
+    const sourceNode = state.nodes.find((node) => node.id === sourceNodeId);
+    const nodeMap = new Map(state.nodes.map((node) => [node.id, node] as const));
+    const parentGroupId = resolveInheritedGroupParentId(sourceNode, nodeMap);
     const normalizedGridLayout = normalizeStoryboardGridLayout(frames.length, rows, cols);
     const resolvedFrameAspectRatio =
       frameAspectRatio ??
@@ -1354,7 +1651,7 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
       nodeSize.height
     );
 
-    const node = canvasNodeFactory.createNode(CANVAS_NODE_TYPES.storyboardSplit, position, {
+    let node = canvasNodeFactory.createNode(CANVAS_NODE_TYPES.storyboardSplit, position, {
       gridRows: normalizedGridLayout.rows,
       gridCols: normalizedGridLayout.cols,
       frames,
@@ -1369,9 +1666,13 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
       width: nodeSize.width,
       height: nodeSize.height,
     };
+    node = attachNodeToGroupParent(node, position, parentGroupId, nodeMap);
+    const nextNodes = parentGroupId
+      ? fitGroupNodeToChildren([...state.nodes, node], parentGroupId)
+      : [...state.nodes, node];
 
     set({
-      nodes: [...state.nodes, node],
+      nodes: nextNodes,
       selectedNodeId: node.id,
       activeToolDialog: null,
       history: {
@@ -1923,7 +2224,7 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
       updatedMemberMap.set(node.id, {
         ...node,
         parentId: groupNode.id,
-        extent: 'parent',
+        extent: undefined,
         position: {
           x: Math.round(absolute.x - groupX),
           y: Math.round(absolute.y - groupY),
@@ -1982,6 +2283,7 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
 
   layoutGroupNode: (groupNodeId) => {
     let didLayout = false;
+    const animatedNodeIds = new Set<string>();
 
     set((state) => {
       const groupNode = state.nodes.find(
@@ -2024,10 +2326,12 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
           }
 
           didLayout = true;
+          animatedNodeIds.add(node.id);
           return {
             ...node,
             width: layoutResult.size.width,
             height: layoutResult.size.height,
+            className: appendNodeClassName(node.className, GROUP_LAYOUT_ANIMATION_CLASS),
             style: {
               ...(node.style ?? {}),
               width: layoutResult.size.width,
@@ -2060,11 +2364,15 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
 
         if (positionChanged) {
           didLayout = true;
+          animatedNodeIds.add(node.id);
         }
 
         return {
           ...node,
           position: nextPosition,
+          className: positionChanged
+            ? appendNodeClassName(node.className, GROUP_LAYOUT_ANIMATION_CLASS)
+            : node.className,
           selected: false,
         };
       });
@@ -2087,6 +2395,26 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
         dragHistorySnapshot: null,
       };
     });
+
+    if (didLayout && typeof window !== 'undefined' && animatedNodeIds.size > 0) {
+      const runId = ++latestGroupLayoutAnimationRunId;
+      window.setTimeout(() => {
+        if (runId !== latestGroupLayoutAnimationRunId) {
+          return;
+        }
+
+        set((state) => ({
+          nodes: state.nodes.map((node) =>
+            animatedNodeIds.has(node.id)
+              ? {
+                  ...node,
+                  className: removeNodeClassName(node.className, GROUP_LAYOUT_ANIMATION_CLASS),
+                }
+              : node
+          ),
+        }));
+      }, GROUP_LAYOUT_ANIMATION_MS + 40);
+    }
 
     return didLayout;
   },
@@ -2120,7 +2448,7 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
           return node;
         }
 
-        if (node.parentId === groupNodeId && node.extent === 'parent') {
+        if (node.parentId === groupNodeId) {
           return node;
         }
 
@@ -2129,7 +2457,7 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
         return {
           ...node,
           parentId: groupNodeId,
-          extent: 'parent' as const,
+          extent: undefined,
           position: {
             x: Math.round(absolutePosition.x - groupAbsolutePosition.x),
             y: Math.round(absolutePosition.y - groupAbsolutePosition.y),
@@ -2152,6 +2480,57 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
     });
 
     return didReparent;
+  },
+
+  detachNodesFromGroup: (nodeIds) => {
+    const uniqueIds = Array.from(new Set(nodeIds.filter((nodeId) => nodeId.trim().length > 0)));
+    if (uniqueIds.length === 0) {
+      return false;
+    }
+
+    let didDetach = false;
+
+    set((state) => {
+      const nodeMap = new Map(state.nodes.map((node) => [node.id, node] as const));
+      const nodeIdSet = new Set(uniqueIds);
+
+      const nextNodes = state.nodes.map((node) => {
+        if (!nodeIdSet.has(node.id) || node.type === CANVAS_NODE_TYPES.group) {
+          return node;
+        }
+
+        if (!isGroupNodeId(node.parentId, nodeMap)) {
+          return node;
+        }
+
+        const absolutePosition = resolveAbsolutePosition(node, nodeMap);
+        didDetach = true;
+        return {
+          ...node,
+          parentId: undefined,
+          extent: undefined,
+          position: {
+            x: Math.round(absolutePosition.x),
+            y: Math.round(absolutePosition.y),
+          },
+        };
+      });
+
+      if (!didDetach) {
+        return {};
+      }
+
+      return {
+        nodes: nextNodes,
+        history: {
+          past: pushSnapshot(state.history.past, createSnapshot(state.nodes, state.edges)),
+          future: [],
+        },
+        dragHistorySnapshot: null,
+      };
+    });
+
+    return didDetach;
   },
 
   ungroupNode: (groupNodeId) => {

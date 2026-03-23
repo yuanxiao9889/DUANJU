@@ -23,6 +23,7 @@ import {
   resolveResizeMinConstraintsByAspect,
 } from '@/features/canvas/application/imageNodeSizing';
 import {
+  detectImageDimensions,
   resolveImageDisplayUrl,
   shouldUseOriginalImageByZoom,
 } from '@/features/canvas/application/imageData';
@@ -30,6 +31,8 @@ import { resolveNodeDisplayName } from '@/features/canvas/domain/nodeDisplay';
 import { NodeHeader, NODE_HEADER_FLOATING_POSITION_CLASS } from '@/features/canvas/ui/NodeHeader';
 import { NodeResizeHandle } from '@/features/canvas/ui/NodeResizeHandle';
 import { CanvasNodeImage } from '@/features/canvas/ui/CanvasNodeImage';
+import { ImageResolutionBadge } from '@/features/canvas/ui/ImageResolutionBadge';
+import { NodeStatusBadge } from '@/features/canvas/ui/NodeStatusBadge';
 import { useCanvasStore } from '@/stores/canvasStore';
 
 type ImageNodeProps = NodeProps & {
@@ -81,6 +84,14 @@ export const ImageNode = memo(({ id, data, selected, type, width, height }: Imag
   });
   const resizeMinWidth = resizeConstraints.minWidth;
   const resizeMinHeight = resizeConstraints.minHeight;
+  const imageWidth =
+    typeof data.imageWidth === 'number' && Number.isFinite(data.imageWidth) && data.imageWidth > 0
+      ? Math.round(data.imageWidth)
+      : null;
+  const imageHeight =
+    typeof data.imageHeight === 'number' && Number.isFinite(data.imageHeight) && data.imageHeight > 0
+      ? Math.round(data.imageHeight)
+      : null;
   const resolvedWidth = resolveNodeDimension(width, compactSize.width);
   const resolvedHeight = resolveNodeDimension(height, compactSize.height);
   const resolvedTitle = useMemo(
@@ -105,6 +116,31 @@ export const ImageNode = memo(({ id, data, selected, type, width, height }: Imag
       window.clearInterval(timer);
     };
   }, [isGenerating]);
+
+  useEffect(() => {
+    if (!data.imageUrl || (imageWidth !== null && imageHeight !== null)) {
+      return;
+    }
+
+    let disposed = false;
+
+    void detectImageDimensions(data.imageUrl)
+      .then((dimensions) => {
+        if (disposed) {
+          return;
+        }
+
+        updateNodeData(id, {
+          imageWidth: dimensions.width,
+          imageHeight: dimensions.height,
+        });
+      })
+      .catch(() => {});
+
+    return () => {
+      disposed = true;
+    };
+  }, [data.imageUrl, id, imageHeight, imageWidth, updateNodeData]);
 
   const simulatedProgress = useMemo(() => {
     if (!isGenerating) {
@@ -166,6 +202,42 @@ export const ImageNode = memo(({ id, data, selected, type, width, height }: Imag
     });
   };
 
+  const headerStatus = useMemo(() => {
+    if (hasGenerationError) {
+      return (
+        <NodeStatusBadge
+          icon={<AlertTriangle className="h-3 w-3" />}
+          label={t('nodeStatus.error')}
+          tone="danger"
+          title={generationError}
+        />
+      );
+    }
+
+    if (isGenerating) {
+      return (
+        <NodeStatusBadge
+          icon={<RefreshCw className="h-3 w-3" />}
+          label={t('nodeStatus.generating')}
+          tone="processing"
+          animate
+        />
+      );
+    }
+
+    if (canManualRefresh) {
+      return (
+        <NodeStatusBadge
+          icon={<RefreshCw className="h-3 w-3" />}
+          label={t('nodeStatus.retryAvailable')}
+          tone="warning"
+        />
+      );
+    }
+
+    return null;
+  }, [canManualRefresh, generationError, hasGenerationError, isGenerating, t]);
+
   return (
     <div
       className={`
@@ -188,6 +260,7 @@ export const ImageNode = memo(({ id, data, selected, type, width, height }: Imag
           : <Sparkles className="h-4 w-4" />}
         titleText={resolvedTitle}
         titleClassName="inline-block max-w-[220px] truncate whitespace-nowrap align-bottom"
+        rightSlot={headerStatus}
         editable
         onTitleChange={(nextTitle) => updateNodeData(id, { displayName: nextTitle })}
       />
@@ -250,6 +323,8 @@ export const ImageNode = memo(({ id, data, selected, type, width, height }: Imag
             </button>
           </div>
         )}
+
+        <ImageResolutionBadge width={imageWidth} height={imageHeight} />
       </div>
 
       <Handle

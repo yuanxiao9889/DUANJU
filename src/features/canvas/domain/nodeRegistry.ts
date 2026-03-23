@@ -283,6 +283,7 @@ const videoNodeDefinition: CanvasNodeDefinition<VideoNodeData> = {
   createDefaultData: () => ({
     displayName: DEFAULT_NODE_DISPLAY_NAME[CANVAS_NODE_TYPES.video],
     videoUrl: null,
+    previewImageUrl: null,
     videoFileName: null,
     aspectRatio: '16:9',
     isSizeManuallyAdjusted: false,

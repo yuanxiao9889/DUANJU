@@ -7,7 +7,7 @@ interface AlignmentGuidesProps {
 
 export function AlignmentGuides({ guides, viewport }: AlignmentGuidesProps) {
   return (
-    <div 
+    <div
       className="pointer-events-none absolute inset-0 overflow-hidden"
       style={{ zIndex: 9998 }}
     >
@@ -15,6 +15,7 @@ export function AlignmentGuides({ guides, viewport }: AlignmentGuidesProps) {
         const screenPosition = guide.type === 'horizontal'
           ? guide.position * viewport.zoom + viewport.y
           : guide.position * viewport.zoom + viewport.x;
+        const isCenterGuide = guide.style === 'center' || guide.style === 'middle';
 
         return (
           <div
@@ -26,13 +27,17 @@ export function AlignmentGuides({ guides, viewport }: AlignmentGuidesProps) {
                 left: 0,
                 right: 0,
                 height: '1px',
-                borderTop: '1px dashed rgba(59, 130, 246, 0.6)',
+                borderTop: isCenterGuide
+                  ? '1px solid rgba(59, 130, 246, 0.82)'
+                  : '1px dashed rgba(59, 130, 246, 0.6)',
               } : {
                 left: screenPosition,
                 top: 0,
                 bottom: 0,
                 width: '1px',
-                borderLeft: '1px dashed rgba(59, 130, 246, 0.6)',
+                borderLeft: isCenterGuide
+                  ? '1px solid rgba(59, 130, 246, 0.82)'
+                  : '1px dashed rgba(59, 130, 246, 0.6)',
               }),
             }}
           />

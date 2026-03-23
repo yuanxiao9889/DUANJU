@@ -18,6 +18,10 @@ export interface GenerationJobStatus {
   error?: string | null;
 }
 
+export interface GetGenerateImageJobOptions {
+  forceRefresh?: boolean;
+}
+
 const BASE64_PREVIEW_HEAD = 96;
 const BASE64_PREVIEW_TAIL = 24;
 
@@ -191,12 +195,18 @@ export async function submitGenerateImageJob(request: GenerateRequest): Promise<
   return jobId.trim();
 }
 
-export async function getGenerateImageJob(jobId: string): Promise<GenerationJobStatus> {
+export async function getGenerateImageJob(
+  jobId: string,
+  options: GetGenerateImageJobOptions = {}
+): Promise<GenerationJobStatus> {
   if (!isTauri()) {
     throw new Error('当前不是 Tauri 容器环境，请使用 `npm run tauri dev` 启动');
   }
 
-  const result = await invoke<GenerationJobStatus>('get_generate_image_job', { jobId });
+  const result = await invoke<GenerationJobStatus>('get_generate_image_job', {
+    jobId,
+    forceRefresh: options.forceRefresh === true,
+  });
   if (!result || typeof result !== 'object' || typeof result.status !== 'string') {
     throw new Error('get_generate_image_job returned invalid payload');
   }

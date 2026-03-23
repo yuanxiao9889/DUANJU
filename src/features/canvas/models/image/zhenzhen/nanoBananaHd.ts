@@ -1,6 +1,7 @@
 import type { ImageModelDefinition, ResolutionOption } from '../../types';
 
 export const ZHENZHEN_NANO_BANANA_HD_MODEL_ID = 'zhenzhen/nano-banana-hd';
+export const ZHENZHEN_NANO_BANANA_2_4K_REQUEST_MODEL_ID = 'zhenzhen/nano-banana-2-4k';
 
 const NANO_BANANA_ASPECT_RATIOS = [
   '1:1',
@@ -16,7 +17,6 @@ const NANO_BANANA_ASPECT_RATIOS = [
 ] as const;
 
 const HD_RESOLUTION_OPTIONS: ResolutionOption[] = [
-  { value: '2K', label: '2K' },
   { value: '4K', label: '4K' },
 ];
 
@@ -33,7 +33,7 @@ export const imageModel: ImageModelDefinition = {
   aspectRatios: NANO_BANANA_ASPECT_RATIOS.map((value) => ({ value, label: value })),
   resolutions: HD_RESOLUTION_OPTIONS,
   resolveRequest: ({ referenceImageCount }) => ({
-    requestModel: ZHENZHEN_NANO_BANANA_HD_MODEL_ID,
+    requestModel: ZHENZHEN_NANO_BANANA_2_4K_REQUEST_MODEL_ID,
     modeLabel: referenceImageCount > 0 ? '编辑模式' : '生成模式',
   }),
 };

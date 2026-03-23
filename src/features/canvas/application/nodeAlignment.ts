@@ -23,6 +23,15 @@ interface NodeBounds {
 export interface AlignmentResult {
   guide: AlignmentGuide;
   snapOffset: { x: number; y: number };
+  distance: number;
+}
+
+interface AlignmentCandidate {
+  axis: 'horizontal' | 'vertical';
+  style: AlignmentGuide['style'];
+  position: number;
+  delta: number;
+  distance: number;
 }
 
 const DEFAULT_THRESHOLD = 10;
@@ -33,47 +42,118 @@ export function detectAlignments(
   threshold: number = DEFAULT_THRESHOLD
 ): AlignmentResult[] {
   const draggedBounds = getNodeBounds(draggedNode);
-  const alignments: AlignmentResult[] = [];
+  let bestHorizontal: AlignmentCandidate | null = null;
+  let bestVertical: AlignmentCandidate | null = null;
 
   for (const otherNode of otherNodes) {
-    if (otherNode.id === draggedNode.id) continue;
+    if (otherNode.id === draggedNode.id) {
+      continue;
+    }
 
     const otherBounds = getNodeBounds(otherNode);
 
-    // 检测水平对齐（y轴方向）
-    // 顶部对齐
-    if (Math.abs(draggedBounds.top - otherBounds.top) < threshold) {
-      alignments.push({
-        guide: { type: 'horizontal', position: otherBounds.top, style: 'top' },
-        snapOffset: { x: 0, y: otherBounds.top - draggedBounds.top },
-      });
-    }
-    // 底部对齐
-    if (Math.abs(draggedBounds.bottom - otherBounds.bottom) < threshold) {
-      alignments.push({
-        guide: { type: 'horizontal', position: otherBounds.bottom, style: 'bottom' },
-        snapOffset: { x: 0, y: otherBounds.bottom - draggedBounds.bottom },
-      });
+    const horizontalCandidates: AlignmentCandidate[] = [
+      {
+        axis: 'horizontal',
+        style: 'top',
+        position: otherBounds.top,
+        delta: otherBounds.top - draggedBounds.top,
+        distance: Math.abs(otherBounds.top - draggedBounds.top),
+      },
+      {
+        axis: 'horizontal',
+        style: 'center',
+        position: otherBounds.centerY,
+        delta: otherBounds.centerY - draggedBounds.centerY,
+        distance: Math.abs(otherBounds.centerY - draggedBounds.centerY),
+      },
+      {
+        axis: 'horizontal',
+        style: 'bottom',
+        position: otherBounds.bottom,
+        delta: otherBounds.bottom - draggedBounds.bottom,
+        distance: Math.abs(otherBounds.bottom - draggedBounds.bottom),
+      },
+    ];
+
+    const verticalCandidates: AlignmentCandidate[] = [
+      {
+        axis: 'vertical',
+        style: 'left',
+        position: otherBounds.left,
+        delta: otherBounds.left - draggedBounds.left,
+        distance: Math.abs(otherBounds.left - draggedBounds.left),
+      },
+      {
+        axis: 'vertical',
+        style: 'middle',
+        position: otherBounds.centerX,
+        delta: otherBounds.centerX - draggedBounds.centerX,
+        distance: Math.abs(otherBounds.centerX - draggedBounds.centerX),
+      },
+      {
+        axis: 'vertical',
+        style: 'right',
+        position: otherBounds.right,
+        delta: otherBounds.right - draggedBounds.right,
+        distance: Math.abs(otherBounds.right - draggedBounds.right),
+      },
+    ];
+
+    bestHorizontal = pickBetterAlignment(bestHorizontal, horizontalCandidates, threshold);
+    bestVertical = pickBetterAlignment(bestVertical, verticalCandidates, threshold);
+  }
+
+  return [bestHorizontal, bestVertical]
+    .filter((candidate): candidate is AlignmentCandidate => candidate !== null)
+    .map((candidate) => ({
+      guide: {
+        type: candidate.axis,
+        position: candidate.position,
+        style: candidate.style,
+      },
+      snapOffset: {
+        x: candidate.axis === 'vertical' ? candidate.delta : 0,
+        y: candidate.axis === 'horizontal' ? candidate.delta : 0,
+      },
+      distance: candidate.distance,
+    }));
+}
+
+function pickBetterAlignment(
+  current: AlignmentCandidate | null,
+  candidates: AlignmentCandidate[],
+  threshold: number
+): AlignmentCandidate | null {
+  let best = current;
+
+  for (const candidate of candidates) {
+    if (candidate.distance > threshold) {
+      continue;
     }
 
-    // 检测垂直对齐（x轴方向）
-    // 左对齐
-    if (Math.abs(draggedBounds.left - otherBounds.left) < threshold) {
-      alignments.push({
-        guide: { type: 'vertical', position: otherBounds.left, style: 'left' },
-        snapOffset: { x: otherBounds.left - draggedBounds.left, y: 0 },
-      });
+    if (!best || candidate.distance < best.distance) {
+      best = candidate;
+      continue;
     }
-    // 右对齐
-    if (Math.abs(draggedBounds.right - otherBounds.right) < threshold) {
-      alignments.push({
-        guide: { type: 'vertical', position: otherBounds.right, style: 'right' },
-        snapOffset: { x: otherBounds.right - draggedBounds.right, y: 0 },
-      });
+
+    if (
+      best
+      && candidate.distance === best.distance
+      && getAlignmentStylePriority(candidate.style) < getAlignmentStylePriority(best.style)
+    ) {
+      best = candidate;
     }
   }
 
-  return alignments;
+  return best;
+}
+
+function getAlignmentStylePriority(style: AlignmentGuide['style']): number {
+  if (style === 'center' || style === 'middle') {
+    return 0;
+  }
+  return 1;
 }
 
 function getNodeBounds(node: Node): NodeBounds {
@@ -81,7 +161,7 @@ function getNodeBounds(node: Node): NodeBounds {
   const height = node.measured?.height ?? node.height ?? 100;
   const x = node.position.x;
   const y = node.position.y;
-  
+
   return {
     id: node.id,
     x,

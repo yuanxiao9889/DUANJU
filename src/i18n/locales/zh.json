@@ -37,7 +37,17 @@
       "zoomOut": "缩小",
       "fitView": "适应视图",
       "lock": "锁定画布",
-      "unlock": "解锁画布"
+      "unlock": "解锁画布",
+      "gridSnapOn": "??????",
+      "gridSnapOff": "??????",
+      "alignmentGuidesOn": "??????",
+      "alignmentGuidesOff": "??????",
+      "miniMapOn": "?????",
+      "miniMapOff": "?????"
+    },
+    "batchMenu": {
+      "referenceSelected": "????? {{count}} ?{{type}}????",
+      "node": "??"
     }
   },
   "group": {
@@ -140,7 +150,8 @@
       "promptRequired": "请输入提示词",
       "apiKeyRequired": "请在设置中填写 API Key",
       "resultTitle": "结果图片",
-      "promptPlaceholder": "描述任何你想要生成或编辑的内容"
+      "promptPlaceholder": "描述任何你想要生成或编辑的内容",
+      "referenceImageLabel": "?{{index}}"
     },
     "sendToPs": "发送到 PS",
     "sendToPsSuccess": "已发送到 Photoshop",
@@ -171,7 +182,10 @@
       "overallAspectRatio": "整体比例",
       "requestAspectRatio": "请求比例",
       "framePlaceholder": "分镜 {{index}} 描述",
-      "gridPreviewTitle": "网格预览"
+      "gridPreviewTitle": "网格预览",
+      "promptRequired": "???????????",
+      "apiKeyRequired": "???????? API Key",
+      "referenceImageLabel": "?{{index}}"
     },
     "textAnnotation": {
       "placeholder": "输入 Markdown 文本，取消选中后会渲染预览",
@@ -189,7 +203,16 @@
       "screenshotShortcut": "按 S 键快速截图",
       "prevFrame": "上一帧",
       "nextFrame": "下一帧",
-      "frameByFrameHint": "← → 方向键逐帧 / S 键截图"
+      "frameByFrameHint": "← → 方向键逐帧 / S 键截图",
+      "processing": "???????",
+      "processFailed": "??????",
+      "loadFailed": "??????",
+      "loadFailedShort": "????",
+      "retryLoad": "????",
+      "posterAlt": "?????",
+      "supportedFormats": "?????MP4?WebM?OGG?MOV?AVI?MKV",
+      "screenshotMarker": "?? {{index}}",
+      "screenshotName": "{{name}} ?? {{index}}"
     }
   },
   "viewer": {
@@ -408,22 +431,22 @@
     "startServer": "启动服务器",
     "stopServer": "停止服务器",
     "openPluginDir": "打开插件目录",
-    "psPreferredPort": "\u9996\u9009\u542f\u52a8\u7aef\u53e3",
-    "psRuntimePort": "\u5f53\u524d\u8fd0\u884c\u7aef\u53e3",
-    "psPluginPort": "\u63d2\u4ef6\u586b\u5199\u7aef\u53e3",
-    "psPluginPortDesc": "\u8bf7\u5728 Photoshop \u63d2\u4ef6\u9762\u677f\u4e2d\u586b\u5199\u7aef\u53e3 {{port}}",
-    "psPortAutoAdjusted": "\u9996\u9009\u7aef\u53e3 {{requested}} \u5df2\u88ab\u5360\u7528\uff0c\u5f53\u524d\u5df2\u81ea\u52a8\u5207\u6362\u5230 {{actual}}",
-    "psServerNotRunning": "\u672a\u542f\u52a8",
-    "aboutPsPortTitle": "Photoshop \u8054\u52a8\u7aef\u53e3",
-    "aboutPsPortDesc": "\u8fd9\u91cc\u4f1a\u663e\u793a\u5e94\u7528\u5f53\u524d\u5b9e\u9645\u4f7f\u7528\u7684\u8054\u52a8\u7aef\u53e3\uff0c\u65b9\u4fbf\u5728\u63d2\u4ef6\u9762\u677f\u4e2d\u4fdd\u6301\u4e00\u81f4\u3002",
-    "releaseNotes": "\u66f4\u65b0\u8bb0\u5f55",
-    "releaseNotesDesc": "\u8bb0\u5f55\u6bcf\u4e2a\u7248\u672c\u65b0\u589e\u3001\u4f18\u5316\u548c\u4fee\u590d\u7684\u529f\u80fd\uff0c\u4ece 0.1.16 \u5f00\u59cb\u6301\u7eed\u7ef4\u62a4\u3002",
-    "releaseNotesEmpty": "\u6682\u65e0\u66f4\u65b0\u8bb0\u5f55",
-    "releaseDate": "\u66f4\u65b0\u65e5\u671f",
-    "releaseSectionAdded": "\u65b0\u589e",
-    "releaseSectionOptimized": "\u4f18\u5316",
-    "releaseSectionFixed": "\u4fee\u590d",
-    "currentVersionBadge": "\u5f53\u524d\u7248\u672c",
+    "psPreferredPort": "首选启动端口",
+    "psRuntimePort": "当前运行端口",
+    "psPluginPort": "插件填写端口",
+    "psPluginPortDesc": "请在 Photoshop 插件面板中填写端口 {{port}}",
+    "psPortAutoAdjusted": "首选端口 {{requested}} 已被占用，当前已自动切换到 {{actual}}",
+    "psServerNotRunning": "未启动",
+    "aboutPsPortTitle": "Photoshop 联动端口",
+    "aboutPsPortDesc": "这里会显示应用当前实际使用的联动端口，方便在插件面板中保持一致。",
+    "releaseNotes": "更新记录",
+    "releaseNotesDesc": "记录每个版本新增、优化和修复的功能，从 0.1.16 开始持续维护。",
+    "releaseNotesEmpty": "暂无更新记录",
+    "releaseDate": "更新日期",
+    "releaseSectionAdded": "新增",
+    "releaseSectionOptimized": "优化",
+    "releaseSectionFixed": "修复",
+    "currentVersionBadge": "当前版本",
     "releaseNotesEntries": {
       "v0_1_17": {
         "added": {
@@ -442,19 +465,19 @@
       },
       "v0_1_16": {
         "added": {
-          "groupShortcut": "\u8bbe\u7f6e\u4e2d\u65b0\u589e\u5206\u7ec4\u5feb\u6377\u952e\u81ea\u5b9a\u4e49",
-          "groupSidebar": "\u753b\u5e03\u65b0\u589e\u5206\u7ec4\u4fa7\u680f\uff0c\u652f\u6301\u5feb\u901f\u5b9a\u4f4d\u5206\u7ec4",
-          "releaseNotes": "\u8bbe\u7f6e\u4e2d\u65b0\u589e\u66f4\u65b0\u8bb0\u5f55\u680f\uff0c\u7528\u4e8e\u6301\u7eed\u8bb0\u5f55\u7248\u672c\u529f\u80fd\u53d8\u66f4"
+          "groupShortcut": "设置中新增分组快捷键自定义",
+          "groupSidebar": "画布新增分组侧栏，支持快速定位分组",
+          "releaseNotes": "设置中新增更新记录栏，用于持续记录版本功能变更"
         },
         "optimized": {
-          "generatedNodeLayout": "AI \u56fe\u7247\u751f\u6210\u8282\u70b9\u4e0e\u5207\u5272\u7ed3\u679c\u8282\u70b9\u652f\u6301\u66f4\u6574\u9f50\u7684\u5206\u5217\u6392\u5217",
-          "groupAutoArrange": "\u5206\u7ec4\u652f\u6301\u624b\u52a8\u6574\u7406\uff0c\u6309\u4ece\u5de6\u5230\u53f3\u6d41\u7a0b\u81ea\u52a8\u6392\u5e03\u7ec4\u5185\u8282\u70b9",
-          "dragIntoGroup": "\u8282\u70b9\u53ef\u76f4\u63a5\u62d6\u5165\u5206\u7ec4\u533a\u57df\u5e76\u81ea\u52a8\u5f52\u5165\u7ec4\u5185",
-          "spacePanWhileConnecting": "\u8fde\u7ebf\u62d6\u62fd\u8fc7\u7a0b\u4e2d\u652f\u6301\u6309\u4f4f\u7a7a\u683c\u5e73\u79fb\u753b\u5e03\uff0c\u4fbf\u4e8e\u8fde\u63a5\u8fdc\u5904\u8282\u70b9"
+          "generatedNodeLayout": "AI 图片生成节点与切割结果节点支持更整齐的分列排列",
+          "groupAutoArrange": "分组支持手动整理，按从左到右流程自动排布组内节点",
+          "dragIntoGroup": "节点可直接拖入分组区域并自动归入组内",
+          "spacePanWhileConnecting": "连线拖拽过程中支持按住空格平移画布，便于连接远处节点"
         },
         "fixed": {
-          "groupSidebarReopen": "\u4fee\u590d\u5206\u7ec4\u680f\u6536\u8d77\u540e\u65e0\u6cd5\u518d\u6b21\u5c55\u5f00\u7684\u95ee\u9898",
-          "groupAltDuplicate": "\u4fee\u590d\u7ec4\u5185\u8282\u70b9\u65e0\u6cd5\u4f7f\u7528 Alt \u62d6\u62fd\u590d\u5236\u7684\u95ee\u9898"
+          "groupSidebarReopen": "修复分组栏收起后无法再次展开的问题",
+          "groupAltDuplicate": "修复组内节点无法使用 Alt 拖拽复制的问题"
         }
       }
     }
@@ -509,5 +532,62 @@
   "psImageToast": {
     "imageFromPs": "来自 Photoshop 的图片",
     "addToCanvas": "添加到画布"
+  },
+  "nodeStatus": {
+    "generating": "???",
+    "retryAvailable": "???",
+    "error": "??"
+  },
+  "scriptNodes": {
+    "common": {
+      "description": "??",
+      "appearances": "????",
+      "appearancesPlaceholder": "??1, ??2, ??3"
+    },
+    "character": {
+      "name": "????",
+      "namePlaceholder": "??????",
+      "descriptionPlaceholder": "????????",
+      "personality": "??",
+      "personalityPlaceholder": "??????",
+      "appearance": "??",
+      "appearancePlaceholder": "??????",
+      "emptyHint": "??????????"
+    },
+    "location": {
+      "name": "????",
+      "namePlaceholder": "??????",
+      "descriptionPlaceholder": "?????????",
+      "emptyHint": "??????????"
+    },
+    "item": {
+      "name": "????",
+      "namePlaceholder": "??????",
+      "descriptionPlaceholder": "??????",
+      "emptyHint": "??????????"
+    },
+    "plotPoint": {
+      "type": "??",
+      "setup": "??",
+      "payoff": "??",
+      "descriptionPlaceholder": "????{{type}}",
+      "emptyHint": "??????{{type}}??"
+    },
+    "worldview": {
+      "name": "?????",
+      "namePlaceholder": "???????",
+      "descriptionPlaceholder": "???????????",
+      "era": "??",
+      "eraPlaceholder": "?????????",
+      "technology": "??",
+      "technologyPlaceholder": "???????????",
+      "magic": "??",
+      "magicPlaceholder": "???????????",
+      "society": "??",
+      "societyPlaceholder": "????????",
+      "geography": "??",
+      "geographyPlaceholder": "???????????",
+      "emptyHint": "???????????"
+    }
   }
 }

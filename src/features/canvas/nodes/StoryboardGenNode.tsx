@@ -10,19 +10,20 @@ import {
   useRef,
 } from 'react';
 import { Handle, Position, useUpdateNodeInternals, useViewport } from '@xyflow/react';
-import { Minus, Plus, Sparkles } from 'lucide-react';
+import { AlertTriangle, Minus, Plus, Sparkles } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 
 import {
   AUTO_REQUEST_ASPECT_RATIO,
   CANVAS_NODE_TYPES,
   DEFAULT_ASPECT_RATIO,
-  EXPORT_RESULT_NODE_DEFAULT_WIDTH,
-  EXPORT_RESULT_NODE_LAYOUT_HEIGHT,
+  EXPORT_RESULT_NODE_MIN_HEIGHT,
+  EXPORT_RESULT_NODE_MIN_WIDTH,
   type ImageSize,
   type StoryboardRatioControlMode,
   type StoryboardGenNodeData,
 } from '@/features/canvas/domain/canvasNodes';
+import { resolveMinEdgeFittedSize } from '@/features/canvas/application/imageNodeSizing';
 import { EXPORT_RESULT_DISPLAY_NAME, resolveNodeDisplayName } from '@/features/canvas/domain/nodeDisplay';
 import { useCanvasStore } from '@/stores/canvasStore';
 import { useSettingsStore } from '@/stores/settingsStore';
@@ -70,6 +71,7 @@ import {
 import { NodeHeader, NODE_HEADER_FLOATING_POSITION_CLASS } from '@/features/canvas/ui/NodeHeader';
 import { NodePriceBadge } from '@/features/canvas/ui/NodePriceBadge';
 import { NodeResizeHandle } from '@/features/canvas/ui/NodeResizeHandle';
+import { NodeStatusBadge } from '@/features/canvas/ui/NodeStatusBadge';
 import {
   NODE_CONTROL_CHIP_CLASS,
   NODE_CONTROL_MODEL_CHIP_CLASS,
@@ -96,10 +98,6 @@ interface PickerAnchor {
   top: number;
 }
 
-const AUTO_ASPECT_RATIO_OPTION: AspectRatioChoice = {
-  value: AUTO_REQUEST_ASPECT_RATIO,
-  label: '自动',
-};
 const PICKER_FALLBACK_ANCHOR: PickerAnchor = { left: 8, top: 8 };
 
 const STORYBOARD_NODE_HORIZONTAL_PADDING_PX = 24;
@@ -641,14 +639,17 @@ export const StoryboardGenNode = memo(({ id, data, selected, width, height }: St
   }, [effectiveExtraParams, nodeData.size, selectedModel]);
 
   const aspectRatioOptions = useMemo<AspectRatioChoice[]>(
-    () => [AUTO_ASPECT_RATIO_OPTION, ...selectedModel.aspectRatios],
-    [selectedModel.aspectRatios]
+    () => [{
+      value: AUTO_REQUEST_ASPECT_RATIO,
+      label: t('modelParams.autoAspectRatio'),
+    }, ...selectedModel.aspectRatios],
+    [selectedModel.aspectRatios, t]
   );
 
   const selectedAspectRatio = useMemo((): AspectRatioChoice => {
     const nodeAspectRatio = nodeData.requestAspectRatio;
     const found = nodeAspectRatio ? aspectRatioOptions.find((item) => item.value === nodeAspectRatio) : undefined;
-    return found ?? AUTO_ASPECT_RATIO_OPTION;
+    return found ?? aspectRatioOptions[0];
   }, [aspectRatioOptions, nodeData.requestAspectRatio]);
 
   const ratioControlMode: StoryboardRatioControlMode = showStoryboardGenAdvancedRatioControls
@@ -773,6 +774,38 @@ export const StoryboardGenNode = memo(({ id, data, selected, width, height }: St
     }
     return lines.join('\n');
   }, [i18n.language, resolvedPriceDisplay, t]);
+  const headerStatus = useMemo(() => {
+    if (!error) {
+      return null;
+    }
+
+    return (
+      <NodeStatusBadge
+        icon={<AlertTriangle className="h-3 w-3" />}
+        label={t('nodeStatus.error')}
+        tone="danger"
+        title={error}
+      />
+    );
+  }, [error, t]);
+  const headerRightSlot = useMemo(() => {
+    if (!resolvedPriceDisplay && !headerStatus) {
+      return undefined;
+    }
+
+    return (
+      <div className="mr-2 flex items-center gap-2">
+        {resolvedPriceDisplay ? (
+          <NodePriceBadge
+            label={resolvedPriceDisplay.label}
+            title={resolvedPriceTooltip}
+            className="mr-0"
+          />
+        ) : null}
+        {headerStatus}
+      </div>
+    );
+  }, [headerStatus, resolvedPriceDisplay, resolvedPriceTooltip]);
 
   const supportedAspectRatioValues = useMemo(
     () => selectedModel.aspectRatios.map((item) => item.value),
@@ -1011,6 +1044,10 @@ export const StoryboardGenNode = memo(({ id, data, selected, width, height }: St
     const safeRows = Math.max(1, nodeData.gridRows);
     const safeCols = Math.max(1, nodeData.gridCols);
     const resolvedRequestAspectRatio = await resolveEffectiveRequestAspectRatio();
+    const predictedResultSize = resolveMinEdgeFittedSize(resolvedRequestAspectRatio, {
+      minWidth: EXPORT_RESULT_NODE_MIN_WIDTH,
+      minHeight: EXPORT_RESULT_NODE_MIN_HEIGHT,
+    });
 
     if (previewGridOnly) {
       const gridImageDataUrl = generateGridImageDataUrl(
@@ -1021,8 +1058,8 @@ export const StoryboardGenNode = memo(({ id, data, selected, width, height }: St
       );
       const newNodePosition = findNodePosition(
         id,
-        EXPORT_RESULT_NODE_DEFAULT_WIDTH,
-        EXPORT_RESULT_NODE_LAYOUT_HEIGHT
+        predictedResultSize.width,
+        predictedResultSize.height
       );
       const previewNodeId = addNode(
         CANVAS_NODE_TYPES.exportImage,
@@ -1036,7 +1073,8 @@ export const StoryboardGenNode = memo(({ id, data, selected, width, height }: St
           isGenerating: false,
           generationStartedAt: null,
           requestAspectRatio: resolvedRequestAspectRatio,
-        }
+        },
+        { inheritParentFromNodeId: id }
       );
       addEdge(id, previewNodeId);
       setSelectedNode(null);
@@ -1046,16 +1084,16 @@ export const StoryboardGenNode = memo(({ id, data, selected, width, height }: St
 
     const prompt = buildPrompt();
     if (!prompt) {
-      const errorMessage = '请填写至少一个分镜内容描述';
+      const errorMessage = t('node.storyboardGen.promptRequired');
       setError(errorMessage);
-      void showErrorDialog(errorMessage, '错误');
+      void showErrorDialog(errorMessage, t('common.error'));
       return;
     }
 
     if (!providerApiKey) {
-      const errorMessage = '请在设置中填写 API Key';
+      const errorMessage = t('node.storyboardGen.apiKeyRequired');
       setError(errorMessage);
-      void showErrorDialog(errorMessage, '错误');
+      void showErrorDialog(errorMessage, t('common.error'));
       return;
     }
 
@@ -1067,8 +1105,8 @@ export const StoryboardGenNode = memo(({ id, data, selected, width, height }: St
     // Use auto-positioning to avoid collisions with existing nodes
     const newNodePosition = findNodePosition(
       id,
-      EXPORT_RESULT_NODE_DEFAULT_WIDTH,
-      EXPORT_RESULT_NODE_LAYOUT_HEIGHT
+      predictedResultSize.width,
+      predictedResultSize.height
     );
     const newNodeId = addNode(
       CANVAS_NODE_TYPES.exportImage,
@@ -1082,8 +1120,10 @@ export const StoryboardGenNode = memo(({ id, data, selected, width, height }: St
         prompt: '',
         model: selectedModel.id,
         size: selectedResolution.value as ImageSize,
+        aspectRatio: resolvedRequestAspectRatio,
         requestAspectRatio: mappedOverallRequestAspectRatio,
-      }
+      },
+      { inheritParentFromNodeId: id }
     );
 
     // Connect the storyboard node to the new image node
@@ -1150,7 +1190,7 @@ export const StoryboardGenNode = memo(({ id, data, selected, width, height }: St
         },
       });
     } catch (generationError) {
-      const resolvedError = resolveErrorContent(generationError, '生成失败');
+      const finalResolvedError = resolveErrorContent(generationError, t('ai.error'));
       const generationDebugContext: GenerationDebugContext = {
         sourceType: 'storyboardGen',
         providerId: selectedModel.providerId,
@@ -1168,13 +1208,17 @@ export const StoryboardGenNode = memo(({ id, data, selected, width, height }: St
         userAgent: runtimeDiagnostics.userAgent,
       };
       const reportText = buildGenerationErrorReport({
-        errorMessage: resolvedError.message,
-        errorDetails: resolvedError.details,
+        errorMessage: finalResolvedError.message,
+        errorDetails: finalResolvedError.details,
         context: generationDebugContext,
       });
-      setError(resolvedError.message);
-      void showErrorDialog(resolvedError.message, '错误', resolvedError.details, reportText);
-      // Clear generating state and mark as failed
+      setError(finalResolvedError.message);
+      void showErrorDialog(
+        finalResolvedError.message,
+        t('common.error'),
+        finalResolvedError.details,
+        reportText
+      );
       updateNodeData(newNodeId, {
         isGenerating: false,
         generationStartedAt: null,
@@ -1182,10 +1226,11 @@ export const StoryboardGenNode = memo(({ id, data, selected, width, height }: St
         generationProviderId: null,
         generationClientSessionId: null,
         generationStoryboardMetadata: undefined,
-        generationError: resolvedError.message,
-        generationErrorDetails: resolvedError.details ?? null,
+        generationError: finalResolvedError.message,
+        generationErrorDetails: finalResolvedError.details ?? null,
         generationDebugContext,
       });
+      return;
     }
   }, [
     providerApiKey,
@@ -1426,14 +1471,7 @@ export const StoryboardGenNode = memo(({ id, data, selected, width, height }: St
         headerAdjust={STORYBOARD_GEN_HEADER_ADJUST}
         iconAdjust={STORYBOARD_GEN_ICON_ADJUST}
         titleAdjust={STORYBOARD_GEN_TITLE_ADJUST}
-        rightSlot={
-          resolvedPriceDisplay ? (
-            <NodePriceBadge
-              label={resolvedPriceDisplay.label}
-              title={resolvedPriceTooltip}
-            />
-          ) : undefined
-        }
+        rightSlot={headerRightSlot}
         editable
         onTitleChange={(nextTitle) => updateNodeData(id, { displayName: nextTitle })}
       />
@@ -1590,19 +1628,17 @@ export const StoryboardGenNode = memo(({ id, data, selected, width, height }: St
               >
                 <CanvasNodeImage
                   src={item.displayUrl}
-                  alt={item.label}
+                  alt={t('node.storyboardGen.referenceImageLabel', { index: imageIndex + 1 })}
                   viewerSourceUrl={resolveImageDisplayUrl(item.imageUrl)}
                   viewerImageList={incomingImageViewerList}
                   className="h-8 w-8 rounded object-cover"
                 />
-                <span>{item.label}</span>
+                <span>{t('node.storyboardGen.referenceImageLabel', { index: imageIndex + 1 })}</span>
               </button>
             ))}
           </div>
         </div>
       )}
-
-      {error && <div className="mb-1.5 shrink-0 text-[10px] text-red-400">{error}</div>}
 
       {/* AI Parameters */}
       <div

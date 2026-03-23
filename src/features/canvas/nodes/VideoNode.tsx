@@ -7,15 +7,26 @@ import {
   useState,
   type ChangeEvent,
   type DragEvent,
+  type MouseEvent as ReactMouseEvent,
 } from 'react';
 import {
   Handle,
-  Position,
   useUpdateNodeInternals,
   NodeToolbar,
+  Position,
   type NodeProps,
 } from '@xyflow/react';
-import { Video, Play, Pause, Camera, Upload, ChevronLeft, ChevronRight } from 'lucide-react';
+import {
+  AlertTriangle,
+  Camera,
+  ChevronLeft,
+  ChevronRight,
+  Pause,
+  Play,
+  RefreshCw,
+  Upload,
+  Video,
+} from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { convertFileSrc, isTauri } from '@tauri-apps/api/core';
 
@@ -46,9 +57,13 @@ import {
   isSupportedVideoType,
   prepareNodeVideoFromFile,
 } from '@/features/canvas/application/videoData';
-import { prepareNodeImage } from '@/features/canvas/application/imageData';
+import {
+  prepareNodeImage,
+  resolveImageDisplayUrl,
+} from '@/features/canvas/application/imageData';
 import { useCanvasStore } from '@/stores/canvasStore';
 import { useSettingsStore } from '@/stores/settingsStore';
+import { NodeStatusBadge } from '@/features/canvas/ui/NodeStatusBadge';
 
 type VideoNodeProps = NodeProps & {
   id: string;
@@ -99,6 +114,9 @@ export const VideoNode = memo(({ id, data, selected, width, height }: VideoNodeP
   const [isDraggingProgress, setIsDraggingProgress] = useState(false);
   const [flashFrame, setFlashFrame] = useState(false);
   const [screenshots, setScreenshots] = useState<Array<{ time: number; nodeId: string }>>([]);
+  const [isProcessingFile, setIsProcessingFile] = useState(false);
+  const [videoError, setVideoError] = useState<string | null>(null);
+  const [isVideoReady, setIsVideoReady] = useState(false);
   
   const resolvedAspectRatio = data.aspectRatio || '16:9';
   const compactSize = resolveMinEdgeFittedSize(resolvedAspectRatio, {
@@ -135,17 +153,54 @@ export const VideoNode = memo(({ id, data, selected, width, height }: VideoNodeP
     return data.videoUrl;
   }, [data.videoUrl]);
 
+  const posterSource = useMemo(() => {
+    if (!data.previewImageUrl) {
+      return null;
+    }
+    return resolveImageDisplayUrl(data.previewImageUrl);
+  }, [data.previewImageUrl]);
+
+  const headerStatus = useMemo(() => {
+    if (isProcessingFile) {
+      return (
+        <NodeStatusBadge
+          icon={<RefreshCw className="h-3 w-3" />}
+          label={t('node.videoNode.processing')}
+          tone="processing"
+          animate
+        />
+      );
+    }
+
+    if (videoError) {
+      return (
+        <NodeStatusBadge
+          icon={<AlertTriangle className="h-3 w-3" />}
+          label={t('node.videoNode.loadFailedShort')}
+          tone="danger"
+          title={videoError}
+        />
+      );
+    }
+
+    return null;
+  }, [isProcessingFile, t, videoError]);
+
   const processFile = useCallback(
     async (file: File) => {
       if (!isSupportedVideoType(file.type)) {
-        console.error('Unsupported video type:', file.type);
+        setVideoError(t('node.videoNode.unsupportedFormat'));
         return;
       }
 
       try {
+        setIsProcessingFile(true);
+        setVideoError(null);
+        setIsVideoReady(false);
         const prepared = await prepareNodeVideoFromFile(file);
         const nextData: Partial<VideoNodeData> = {
           videoUrl: prepared.videoUrl,
+          previewImageUrl: prepared.previewImageUrl,
           videoFileName: file.name,
           aspectRatio: prepared.aspectRatio,
           duration: prepared.duration,
@@ -155,13 +210,21 @@ export const VideoNode = memo(({ id, data, selected, width, height }: VideoNodeP
         }
         updateNodeData(id, nextData);
         setDuration(prepared.duration);
+        setCurrentTime(0);
         screenshotCountRef.current = 0;
         setScreenshots([]);
       } catch (error) {
         console.error('Failed to process video file:', error);
+        setVideoError(
+          error instanceof Error && error.message.trim().length > 0
+            ? error.message
+            : t('node.videoNode.processFailed')
+        );
+      } finally {
+        setIsProcessingFile(false);
       }
     },
-    [id, updateNodeData, useUploadFilenameAsNodeTitle]
+    [id, t, updateNodeData, useUploadFilenameAsNodeTitle]
   );
 
   const handleDrop = useCallback(
@@ -239,9 +302,31 @@ export const VideoNode = memo(({ id, data, selected, width, height }: VideoNodeP
   const handleLoadedMetadata = useCallback(() => {
     if (!videoRef.current) return;
     setDuration(videoRef.current.duration);
+    setVideoError(null);
   }, []);
 
-  const handleProgressClick = useCallback((event: React.MouseEvent<HTMLDivElement>) => {
+  const handleCanPlay = useCallback(() => {
+    setIsVideoReady(true);
+    setVideoError(null);
+  }, []);
+
+  const handleVideoError = useCallback(() => {
+    setIsPlaying(false);
+    setIsVideoReady(false);
+    setVideoError(t('node.videoNode.loadFailed'));
+  }, [t]);
+
+  const handleRetryLoad = useCallback(() => {
+    if (!videoRef.current) {
+      return;
+    }
+
+    setVideoError(null);
+    setIsVideoReady(false);
+    videoRef.current.load();
+  }, []);
+
+  const handleProgressClick = useCallback((event: ReactMouseEvent<HTMLDivElement>) => {
     if (!videoRef.current || !progressRef.current) return;
     
     const rect = progressRef.current.getBoundingClientRect();
@@ -274,8 +359,11 @@ export const VideoNode = memo(({ id, data, selected, width, height }: VideoNodeP
         imageUrl: prepared.imageUrl,
         previewImageUrl: prepared.previewImageUrl,
         aspectRatio: prepared.aspectRatio,
-        displayName: `${data.videoFileName || 'video'} - 截图 ${screenshotIndex}`,
-      });
+        displayName: t('node.videoNode.screenshotName', {
+          name: data.videoFileName || t('node.videoNode.title'),
+          index: screenshotIndex,
+        }),
+      }, { inheritParentFromNodeId: id });
       
       addEdge(id, newNodeId);
       
@@ -289,7 +377,7 @@ export const VideoNode = memo(({ id, data, selected, width, height }: VideoNodeP
     } catch (error) {
       console.error('Failed to capture screenshot:', error);
     }
-  }, [id, data.videoUrl, data.videoFileName, currentTime, resolvedWidth, nodes, addNode, addEdge]);
+  }, [addEdge, addNode, currentTime, data.videoFileName, data.videoUrl, id, nodes, resolvedWidth, t]);
 
   useEffect(() => {
     if (!selected) return;
@@ -344,6 +432,18 @@ export const VideoNode = memo(({ id, data, selected, width, height }: VideoNodeP
     updateNodeInternals(id);
   }, [id, resolvedHeight, resolvedWidth, updateNodeInternals]);
 
+  useEffect(() => {
+    if (!data.videoUrl) {
+      setVideoError(null);
+      setIsVideoReady(false);
+      setCurrentTime(0);
+      return;
+    }
+
+    setVideoError(null);
+    setIsVideoReady(false);
+  }, [data.videoUrl]);
+
   const progressPercent = duration > 0 ? (currentTime / duration) * 100 : 0;
 
   return (
@@ -363,23 +463,62 @@ export const VideoNode = memo(({ id, data, selected, width, height }: VideoNodeP
         className={NODE_HEADER_FLOATING_POSITION_CLASS}
         icon={<Video className="h-4 w-4" />}
         titleText={resolvedTitle}
+        rightSlot={headerStatus}
         editable
         onTitleChange={(nextTitle) => updateNodeData(id, { displayName: nextTitle })}
       />
 
       {data.videoUrl ? (
         <>
-          <div className={`h-full w-full overflow-hidden rounded-[var(--node-radius)] ${flashFrame ? 'animate-pulse bg-white/20' : ''}`}>
+          <div className={`relative h-full w-full overflow-hidden rounded-[var(--node-radius)] ${flashFrame ? 'animate-pulse bg-white/20' : ''}`}>
+            {posterSource && (!isVideoReady || Boolean(videoError)) ? (
+              <img
+                src={posterSource}
+                alt={t('node.videoNode.posterAlt')}
+                className="absolute inset-0 h-full w-full object-cover"
+              />
+            ) : null}
             <video
               ref={videoRef}
               src={videoSource ?? undefined}
-              className="h-full w-full object-cover bg-black"
+              poster={posterSource ?? undefined}
+              preload="metadata"
+              className={`h-full w-full object-cover bg-black transition-opacity duration-150 ${
+                videoError ? 'opacity-35' : 'opacity-100'
+              }`}
               onPlay={handleVideoPlay}
               onPause={handleVideoPause}
               onTimeUpdate={handleTimeUpdate}
               onLoadedMetadata={handleLoadedMetadata}
+              onCanPlay={handleCanPlay}
+              onError={handleVideoError}
               playsInline
             />
+
+            {videoError ? (
+              <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-[rgba(15,23,42,0.56)] px-5 text-center">
+                <div className="flex h-12 w-12 items-center justify-center rounded-full border border-red-400/25 bg-red-500/12 text-red-200">
+                  <AlertTriangle className="h-5 w-5" />
+                </div>
+                <div className="space-y-1">
+                  <div className="text-sm font-medium text-text-dark">
+                    {t('node.videoNode.loadFailed')}
+                  </div>
+                  <div className="text-xs leading-5 text-text-muted">{videoError}</div>
+                </div>
+                <button
+                  type="button"
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    handleRetryLoad();
+                  }}
+                  className="inline-flex items-center gap-2 rounded-full border border-border-dark/70 bg-bg-dark/92 px-3 py-2 text-xs font-medium text-text-dark transition-colors hover:border-accent/40 hover:bg-bg-dark"
+                >
+                  <RefreshCw className="h-3.5 w-3.5" />
+                  {t('node.videoNode.retryLoad')}
+                </button>
+              </div>
+            ) : null}
           </div>
           
           <NodeToolbar
@@ -474,7 +613,7 @@ export const VideoNode = memo(({ id, data, selected, width, height }: VideoNodeP
                     key={index}
                     className="absolute top-1/2 h-3 w-1 -translate-y-1/2 rounded-full bg-yellow-400"
                     style={{ left: `${(screenshot.time / duration) * 100}%` }}
-                    title={`截图 ${index + 1}`}
+                    title={t('node.videoNode.screenshotMarker', { index: index + 1 })}
                   />
                 ))}
               </div>
@@ -501,10 +640,20 @@ export const VideoNode = memo(({ id, data, selected, width, height }: VideoNodeP
         <label className="block h-full w-full overflow-hidden rounded-[var(--node-radius)] bg-bg-dark">
           <div className="flex h-full w-full cursor-pointer flex-col items-center justify-center gap-3 text-text-muted/85">
             <div className="flex h-14 w-14 items-center justify-center rounded-xl bg-accent/10">
-              <Upload className="h-7 w-7 text-accent/60" />
+              {isProcessingFile ? (
+                <RefreshCw className="h-7 w-7 animate-spin text-accent/75" />
+              ) : videoError ? (
+                <AlertTriangle className="h-7 w-7 text-red-300/80" />
+              ) : (
+                <Upload className="h-7 w-7 text-accent/60" />
+              )}
             </div>
-            <span className="px-4 text-center text-sm">{t('node.videoNode.uploadHint')}</span>
-            <span className="text-xs text-text-muted/50">MP4, WebM, MOV, AVI</span>
+            <span className="px-4 text-center text-sm">
+              {isProcessingFile
+                ? t('node.videoNode.processing')
+                : videoError || t('node.videoNode.uploadHint')}
+            </span>
+            <span className="text-xs text-text-muted/50">{t('node.videoNode.supportedFormats')}</span>
           </div>
         </label>
       )}

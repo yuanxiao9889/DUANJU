@@ -44,7 +44,7 @@ export interface AiGateway {
   setApiKey: (provider: string, apiKey: string) => Promise<void>;
   generateImage: (payload: GenerateImagePayload) => Promise<string>;
   submitGenerateImageJob: (payload: GenerateImagePayload) => Promise<string>;
-  getGenerateImageJob: (jobId: string) => Promise<{
+  getGenerateImageJob: (jobId: string, options?: { forceRefresh?: boolean }) => Promise<{
     job_id: string;
     status: 'queued' | 'running' | 'succeeded' | 'failed' | 'not_found';
     result?: string | null;
