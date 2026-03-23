@@ -153,7 +153,7 @@ fn collect_image_paths_from_nodes(
             Option::None => continue,
         };
 
-        for key in ["imageUrl", "previewImageUrl"] {
+        for key in ["imageUrl", "previewImageUrl", "videoUrl"] {
             if let Some(raw_value) = data.get(key).and_then(|value| value.as_str()) {
                 if let Some(path) = resolve_image_ref(raw_value, image_pool) {
                     paths.insert(path);
