@@ -3,6 +3,7 @@ export type SettingsCategory =
   | 'pricing'
   | 'appearance'
   | 'general'
+  | 'releaseNotes'
   | 'experimental'
   | 'psIntegration'
   | 'about';

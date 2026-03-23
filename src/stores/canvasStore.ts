@@ -24,6 +24,7 @@ import {
   type CanvasNodeData,
   type CanvasNodeType,
   type ExportImageNodeResultKind,
+  type ImageEditNodeData,
   type NodeToolType,
   type StoryboardExportOptions,
   type StoryboardFrameItem,
@@ -53,6 +54,8 @@ import {
   GROUP_NODE_TOP_PADDING,
   layoutGroupChildren,
 } from '@/features/canvas/application/groupLayout';
+import { useSettingsStore } from '@/stores/settingsStore';
+import { getImageModel } from '@/features/canvas/models';
 
 export type {
   ActiveToolDialog,
@@ -78,6 +81,7 @@ const MAX_HISTORY_STEPS = 50;
 const IMAGE_NODE_VISUAL_MIN_EDGE = 96;
 const DERIVED_NODE_COLUMN_GAP = 28;
 const DERIVED_NODE_STACK_GAP = 20;
+const IMAGE_EDIT_DERIVED_NODE_STACK_GAP = 12;
 const DERIVED_NODE_MAX_ROWS_PER_COLUMN = 4;
 const DERIVED_NODE_NEXT_COLUMN_GAP = 32;
 const DERIVED_NODE_COLUMN_ALIGNMENT_THRESHOLD = 48;
@@ -488,6 +492,12 @@ function collidesWithExistingNodes(
   });
 }
 
+function resolveDerivedNodeStackGap(sourceNode: CanvasNode): number {
+  return sourceNode.type === CANVAS_NODE_TYPES.imageEdit
+    ? IMAGE_EDIT_DERIVED_NODE_STACK_GAP
+    : DERIVED_NODE_STACK_GAP;
+}
+
 function resolvePreferredDerivedColumnPosition(
   nodes: CanvasNode[],
   edges: CanvasEdge[],
@@ -496,11 +506,12 @@ function resolvePreferredDerivedColumnPosition(
   newNodeHeight: number
 ): { x: number; y: number } | null {
   const sourceSize = getNodeSize(sourceNode);
+  const stackGap = resolveDerivedNodeStackGap(sourceNode);
   const anchorX = sourceNode.position.x + sourceSize.width + DERIVED_NODE_COLUMN_GAP;
   const anchorY = sourceNode.position.y;
   const minAcceptedColumnX = anchorX - DERIVED_NODE_COLUMN_ALIGNMENT_THRESHOLD;
   const stepX = newNodeWidth + DERIVED_NODE_NEXT_COLUMN_GAP;
-  const stepY = newNodeHeight + DERIVED_NODE_STACK_GAP;
+  const stepY = newNodeHeight + stackGap;
 
   const directTargetIds = new Set(
     edges
@@ -594,6 +605,25 @@ function resolveGeneratedImageNodeDimensions(
   const minHeight = options?.minHeight ?? IMAGE_NODE_VISUAL_MIN_EDGE;
 
   return ensureAtLeastOneMinEdge(size, { minWidth, minHeight });
+}
+
+function resolveNodeCreationDefaults(
+  type: CanvasNodeType,
+  data: Partial<CanvasNodeData>
+): Partial<CanvasNodeData> {
+  if (type !== CANVAS_NODE_TYPES.imageEdit) {
+    return data;
+  }
+
+  const { lastImageEditModelId, lastImageEditSize } = useSettingsStore.getState();
+  const preferredModelId = getImageModel(lastImageEditModelId).id;
+  const imageEditData = data as Partial<ImageEditNodeData>;
+
+  return {
+    model: imageEditData.model ?? preferredModelId,
+    size: imageEditData.size ?? lastImageEditSize,
+    ...imageEditData,
+  } as Partial<CanvasNodeData>;
 }
 
 function resolveDerivedAspectRatio(
@@ -966,7 +996,8 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
 
   addNode: (type, position, data = {}) => {
     const state = get();
-    const newNode = canvasNodeFactory.createNode(type, position, data);
+    const initialData = resolveNodeCreationDefaults(type, data);
+    const newNode = canvasNodeFactory.createNode(type, position, initialData);
     set({
       nodes: [...state.nodes, newNode],
       history: {
@@ -1074,6 +1105,7 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
     }
 
     const sourceSize = getNodeSize(sourceNode);
+    const stackGap = resolveDerivedNodeStackGap(sourceNode);
     const anchorX = sourceNode.position.x + sourceSize.width + DERIVED_NODE_COLUMN_GAP;
     const anchorY = sourceNode.position.y;
 
@@ -1102,12 +1134,14 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
     };
 
     const stepX = Math.max(newNodeWidth + 12, 110);
-    const stepY = Math.max(Math.round(newNodeHeight * 0.35), 54);
+    const stepY = sourceNode.type === CANVAS_NODE_TYPES.imageEdit
+      ? newNodeHeight + stackGap
+      : Math.max(Math.round(newNodeHeight * 0.35), 54);
     const baseCandidates = [
       { x: anchorX, y: anchorY },
-      { x: sourceNode.position.x, y: sourceNode.position.y + sourceSize.height + 20 },
+      { x: sourceNode.position.x, y: sourceNode.position.y + sourceSize.height + stackGap },
       { x: sourceNode.position.x - newNodeWidth - 20, y: sourceNode.position.y },
-      { x: sourceNode.position.x, y: sourceNode.position.y - newNodeHeight - 20 },
+      { x: sourceNode.position.x, y: sourceNode.position.y - newNodeHeight - stackGap },
     ];
 
     let bestInView: { x: number; y: number; score: number } | null = null;

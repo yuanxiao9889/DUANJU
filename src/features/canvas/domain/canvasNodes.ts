@@ -396,21 +396,33 @@ export function isScriptWorldviewNode(
   return node?.type === CANVAS_NODE_TYPES.scriptWorldview;
 }
 
-export function nodeHasImage(node: CanvasNode | null | undefined): boolean {
+export function getNodePrimaryImageSource(
+  node: CanvasNode | null | undefined
+): string | null {
   if (!node) {
-    return false;
+    return null;
   }
 
-  if (isUploadNode(node) || isImageEditNode(node) || isExportImageNode(node)) {
-    return Boolean(node.data.imageUrl);
+  if (
+    isUploadNode(node) ||
+    isImageEditNode(node) ||
+    isExportImageNode(node) ||
+    isStoryboardGenNode(node)
+  ) {
+    const imageUrl = node.data.imageUrl;
+    return typeof imageUrl === 'string' && imageUrl.trim().length > 0 ? imageUrl : null;
+  }
+
+  return null;
+}
+
+export function nodeHasImage(node: CanvasNode | null | undefined): boolean {
+  if (getNodePrimaryImageSource(node)) {
+    return true;
   }
 
   if (isStoryboardSplitNode(node)) {
     return node.data.frames.some((frame) => Boolean(frame.imageUrl));
-  }
-
-  if (isStoryboardGenNode(node)) {
-    return Boolean(node.data.imageUrl);
   }
 
   if (
