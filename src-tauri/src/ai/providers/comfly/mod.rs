@@ -17,10 +17,22 @@ const TASKS_ENDPOINT_PATH: &str = "/v1/images/tasks";
 const POLL_INTERVAL_MS: u64 = 2000;
 const MAX_POLL_RETRIES: u32 = 150;
 
-const SUPPORTED_MODELS: [&str; 2] = ["nano-banana", "nano-banana-hd"];
+const SUPPORTED_MODELS: [&str; 6] = [
+    "nano-banana",
+    "nano-banana-hd",
+    "nano-banana-2",
+    "nano-banana-2-2k",
+    "nano-banana-2-4k",
+    "gemini-3.1-flash-image-preview-4k",
+];
+const LEGACY_HD_MODEL: &str = "nano-banana-hd";
+const TWO_K_MODEL: &str = "nano-banana-2-2k";
+const FOUR_K_MODEL: &str = "nano-banana-2-4k";
+const GEMINI_FLASH_IMAGE_PREVIEW_4K_MODEL: &str = "gemini-3.1-flash-image-preview-4k";
 
-const SUPPORTED_ASPECT_RATIOS: [&str; 10] = [
-    "1:1", "2:3", "3:2", "3:4", "4:3", "4:5", "5:4", "9:16", "16:9", "21:9",
+const SUPPORTED_ASPECT_RATIOS: [&str; 14] = [
+    "1:1", "1:4", "1:8", "2:3", "3:2", "3:4", "4:1", "4:3", "4:5", "5:4", "8:1",
+    "9:16", "16:9", "21:9",
 ];
 
 #[derive(Debug, Deserialize)]
@@ -62,6 +74,8 @@ struct GenerationsRequestBody {
     #[serde(skip_serializing_if = "Option::is_none")]
     response_format: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    image_size: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     aspect_ratio: Option<String>,
 }
 
@@ -85,6 +99,26 @@ impl ComflyProvider {
             .split_once('/')
             .map(|(_, bare)| bare.to_string())
             .unwrap_or_else(|| model.to_string())
+    }
+
+    fn resolve_effective_model(model: &str, requested_size: &str) -> String {
+        let sanitized_model = Self::sanitize_model(model);
+        let normalized_size = requested_size.trim().to_ascii_uppercase();
+
+        if sanitized_model == GEMINI_FLASH_IMAGE_PREVIEW_4K_MODEL {
+            return sanitized_model;
+        }
+        if normalized_size == "4K" {
+            return FOUR_K_MODEL.to_string();
+        }
+        if normalized_size == "2K" {
+            return TWO_K_MODEL.to_string();
+        }
+        if sanitized_model == LEGACY_HD_MODEL {
+            return FOUR_K_MODEL.to_string();
+        }
+
+        sanitized_model
     }
 
     fn decode_file_url_path(value: &str) -> String {
@@ -155,6 +189,21 @@ impl ComflyProvider {
         SUPPORTED_ASPECT_RATIOS.contains(&aspect_ratio)
     }
 
+    fn resolve_image_size(model: &str, size: &str) -> Option<String> {
+        let normalized_model = model.trim().to_ascii_lowercase();
+        if normalized_model == TWO_K_MODEL
+            || normalized_model == FOUR_K_MODEL
+        {
+            return None;
+        }
+
+        let normalized_size = size.trim().to_ascii_uppercase();
+        match normalized_size.as_str() {
+            "1K" | "2K" | "4K" => Some(normalized_size),
+            _ => None,
+        }
+    }
+
     async fn submit_text2img(
         &self,
         request: &GenerateRequest,
@@ -172,6 +221,7 @@ impl ComflyProvider {
             model: model.clone(),
             prompt: request.prompt.clone(),
             response_format: Some("url".to_string()),
+            image_size: Self::resolve_image_size(&model, &request.size),
             aspect_ratio: if !request.aspect_ratio.is_empty() && Self::validate_aspect_ratio(&request.aspect_ratio) {
                 Some(request.aspect_ratio.clone())
             } else {
@@ -179,8 +229,13 @@ impl ComflyProvider {
             },
         };
 
-        info!("[Comfly API] Text2Img URL: {}", endpoint);
-        info!("[Comfly API] Model: {}, AspectRatio: {}", model, request.aspect_ratio);
+        info!(
+            "[Comfly API] Text2Img URL: {}, model: {}, size: {}, aspect_ratio: {}",
+            endpoint,
+            model,
+            request.size,
+            request.aspect_ratio
+        );
 
         let response = self
             .client
@@ -230,13 +285,23 @@ impl ComflyProvider {
             AIError::InvalidRequest("Reference images required for img2img".to_string())
         })?;
 
-        info!("[Comfly API] Img2Img URL: {}", endpoint);
-        info!("[Comfly API] Model: {}, AspectRatio: {}, Images: {}", model, request.aspect_ratio, reference_images.len());
+        info!(
+            "[Comfly API] Img2Img URL: {}, model: {}, size: {}, aspect_ratio: {}, images: {}",
+            endpoint,
+            model,
+            request.size,
+            request.aspect_ratio,
+            reference_images.len()
+        );
 
         let mut form = reqwest::multipart::Form::new();
         form = form.text("prompt", request.prompt.clone());
         form = form.text("model", model.clone());
         form = form.text("response_format", "url".to_string());
+
+        if let Some(image_size) = Self::resolve_image_size(&model, &request.size) {
+            form = form.text("image_size", image_size);
+        }
 
         if !request.aspect_ratio.is_empty() && Self::validate_aspect_ratio(&request.aspect_ratio) {
             form = form.text("aspect_ratio", request.aspect_ratio.clone());
@@ -384,6 +449,10 @@ impl AIProvider for ComflyProvider {
         vec![
             "comfly/nano-banana".to_string(),
             "comfly/nano-banana-hd".to_string(),
+            "comfly/nano-banana-2".to_string(),
+            "comfly/nano-banana-2-2k".to_string(),
+            "comfly/nano-banana-2-4k".to_string(),
+            "comfly/gemini-3.1-flash-image-preview-4k".to_string(),
         ]
     }
 
@@ -394,14 +463,15 @@ impl AIProvider for ComflyProvider {
     }
 
     async fn generate(&self, request: GenerateRequest) -> Result<String, AIError> {
-        let model = Self::sanitize_model(&request.model);
+        let model = Self::resolve_effective_model(&request.model, &request.size);
         let has_reference_images = request.reference_images.as_ref()
             .map(|imgs| !imgs.is_empty())
             .unwrap_or(false);
 
         info!(
-            "[Comfly Request] model: {}, aspect_ratio: {}, has_images: {}",
+            "[Comfly Request] model: {}, size: {}, aspect_ratio: {}, has_images: {}",
             model,
+            request.size,
             request.aspect_ratio,
             has_reference_images
         );

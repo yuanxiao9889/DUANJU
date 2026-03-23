@@ -9,14 +9,14 @@ import {
   useRef,
 } from 'react';
 import { Handle, Position, useUpdateNodeInternals, type NodeProps } from '@xyflow/react';
-import { Sparkles } from 'lucide-react';
+import { AlertTriangle, Sparkles } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 
 import {
   AUTO_REQUEST_ASPECT_RATIO,
   CANVAS_NODE_TYPES,
-  EXPORT_RESULT_NODE_DEFAULT_WIDTH,
-  EXPORT_RESULT_NODE_LAYOUT_HEIGHT,
+  EXPORT_RESULT_NODE_MIN_HEIGHT,
+  EXPORT_RESULT_NODE_MIN_WIDTH,
   type ImageEditNodeData,
   type ImageSize,
 } from '@/features/canvas/domain/canvasNodes';
@@ -33,6 +33,7 @@ import {
   parseAspectRatio,
   resolveImageDisplayUrl,
 } from '@/features/canvas/application/imageData';
+import { resolveMinEdgeFittedSize } from '@/features/canvas/application/imageNodeSizing';
 import {
   buildGenerationErrorReport,
   CURRENT_RUNTIME_SESSION_ID,
@@ -67,6 +68,7 @@ import { ModelParamsControls } from '@/features/canvas/ui/ModelParamsControls';
 import { StyleTemplateDialog } from '@/features/project/StyleTemplateDialog';
 import { CanvasNodeImage } from '@/features/canvas/ui/CanvasNodeImage';
 import { NodePriceBadge } from '@/features/canvas/ui/NodePriceBadge';
+import { NodeStatusBadge } from '@/features/canvas/ui/NodeStatusBadge';
 import { UiButton } from '@/components/ui';
 import { useCanvasStore } from '@/stores/canvasStore';
 import { useSettingsStore } from '@/stores/settingsStore';
@@ -268,9 +270,9 @@ export const ImageEditNode = memo(({ id, data, selected, width, height }: ImageE
       incomingImages.map((imageUrl, index) => ({
         imageUrl,
         displayUrl: resolveImageDisplayUrl(imageUrl),
-        label: `图${index + 1}`,
+        label: t('node.imageEdit.referenceImageLabel', { index: index + 1 }),
       })),
-    [incomingImages]
+    [incomingImages, t]
   );
   const incomingImageViewerList = useMemo(
     () => incomingImageItems.map((item) => resolveImageDisplayUrl(item.imageUrl)),
@@ -385,6 +387,38 @@ export const ImageEditNode = memo(({ id, data, selected, width, height }: ImageE
     () => resolveNodeDisplayName(CANVAS_NODE_TYPES.imageEdit, data),
     [data]
   );
+  const headerStatus = useMemo(() => {
+    if (!error) {
+      return null;
+    }
+
+    return (
+      <NodeStatusBadge
+        icon={<AlertTriangle className="h-3 w-3" />}
+        label={t('nodeStatus.error')}
+        tone="danger"
+        title={error}
+      />
+    );
+  }, [error, t]);
+  const headerRightSlot = useMemo(() => {
+    if (!resolvedPriceDisplay && !headerStatus) {
+      return undefined;
+    }
+
+    return (
+      <div className="mr-2 flex items-center gap-2">
+        {resolvedPriceDisplay ? (
+          <NodePriceBadge
+            label={resolvedPriceDisplay.label}
+            title={resolvedPriceTooltip}
+            className="mr-0"
+          />
+        ) : null}
+        {headerStatus}
+      </div>
+    );
+  }, [headerStatus, resolvedPriceDisplay, resolvedPriceTooltip]);
 
   const resolvedWidth = Math.max(IMAGE_EDIT_NODE_MIN_WIDTH, Math.round(width ?? IMAGE_EDIT_NODE_DEFAULT_WIDTH));
   const resolvedHeight = Math.max(IMAGE_EDIT_NODE_MIN_HEIGHT, Math.round(height ?? IMAGE_EDIT_NODE_DEFAULT_HEIGHT));
@@ -478,10 +512,32 @@ export const ImageEditNode = memo(({ id, data, selected, width, height }: ImageE
     const runtimeDiagnostics = await getRuntimeDiagnostics();
     setError(null);
 
+    let resolvedRequestAspectRatio = selectedAspectRatio.value;
+    if (resolvedRequestAspectRatio === AUTO_REQUEST_ASPECT_RATIO) {
+      if (incomingImages.length > 0) {
+        try {
+          const sourceAspectRatio = await detectAspectRatio(incomingImages[0]);
+          const sourceAspectRatioValue = parseAspectRatio(sourceAspectRatio);
+          resolvedRequestAspectRatio = pickClosestAspectRatio(
+            sourceAspectRatioValue,
+            supportedAspectRatioValues
+          );
+        } catch {
+          resolvedRequestAspectRatio = pickClosestAspectRatio(1, supportedAspectRatioValues);
+        }
+      } else {
+        resolvedRequestAspectRatio = pickClosestAspectRatio(1, supportedAspectRatioValues);
+      }
+    }
+
+    const predictedResultSize = resolveMinEdgeFittedSize(resolvedRequestAspectRatio, {
+      minWidth: EXPORT_RESULT_NODE_MIN_WIDTH,
+      minHeight: EXPORT_RESULT_NODE_MIN_HEIGHT,
+    });
     const newNodePosition = findNodePosition(
       id,
-      EXPORT_RESULT_NODE_DEFAULT_WIDTH,
-      EXPORT_RESULT_NODE_LAYOUT_HEIGHT
+      predictedResultSize.width,
+      predictedResultSize.height
     );
     const newNodeId = addNode(
       CANVAS_NODE_TYPES.exportImage,
@@ -492,30 +548,14 @@ export const ImageEditNode = memo(({ id, data, selected, width, height }: ImageE
         generationDurationMs,
         resultKind: 'generic',
         displayName: resultNodeTitle,
-      }
+        aspectRatio: resolvedRequestAspectRatio,
+      },
+      { inheritParentFromNodeId: id }
     );
     addEdge(id, newNodeId);
 
     try {
       await canvasAiGateway.setApiKey(selectedModel.providerId, providerApiKey);
-
-      let resolvedRequestAspectRatio = selectedAspectRatio.value;
-      if (resolvedRequestAspectRatio === AUTO_REQUEST_ASPECT_RATIO) {
-        if (incomingImages.length > 0) {
-          try {
-            const sourceAspectRatio = await detectAspectRatio(incomingImages[0]);
-            const sourceAspectRatioValue = parseAspectRatio(sourceAspectRatio);
-            resolvedRequestAspectRatio = pickClosestAspectRatio(
-              sourceAspectRatioValue,
-              supportedAspectRatioValues
-            );
-          } catch {
-            resolvedRequestAspectRatio = pickClosestAspectRatio(1, supportedAspectRatioValues);
-          }
-        } else {
-          resolvedRequestAspectRatio = pickClosestAspectRatio(1, supportedAspectRatioValues);
-        }
-      }
 
       const jobId = await canvasAiGateway.submitGenerateImageJob({
         prompt,
@@ -555,7 +595,7 @@ export const ImageEditNode = memo(({ id, data, selected, width, height }: ImageE
         providerId: selectedModel.providerId,
         requestModel: requestResolution.requestModel,
         requestSize: selectedResolution.value,
-        requestAspectRatio: selectedAspectRatio.value,
+        requestAspectRatio: resolvedRequestAspectRatio,
         prompt,
         extraParams: effectiveExtraParams,
         referenceImageCount: incomingImages.length,
@@ -721,17 +761,25 @@ export const ImageEditNode = memo(({ id, data, selected, width, height }: ImageE
     const nextResolution = resolveImageModelResolution(nextModel, data.size, {
       extraParams: nextExtraParams,
     });
+    const nextRequestAspectRatio =
+      data.requestAspectRatio === AUTO_REQUEST_ASPECT_RATIO
+      || nextModel.aspectRatios.some((aspectRatio) => aspectRatio.value === data.requestAspectRatio)
+        ? data.requestAspectRatio ?? AUTO_REQUEST_ASPECT_RATIO
+        : AUTO_REQUEST_ASPECT_RATIO;
 
     updateNodeData(id, {
       model: nextModel.id,
       size: nextResolution.value as ImageSize,
+      requestAspectRatio: nextRequestAspectRatio,
     });
     setLastImageEditDefaults({
       modelId: nextModel.id,
       size: nextResolution.value as ImageSize,
+      requestAspectRatio: nextRequestAspectRatio,
     });
   }, [
     data.extraParams,
+    data.requestAspectRatio,
     data.size,
     hrsaiNanoBananaProModel,
     id,
@@ -745,8 +793,15 @@ export const ImageEditNode = memo(({ id, data, selected, width, height }: ImageE
     setLastImageEditDefaults({
       modelId: selectedModel.id,
       size: normalizedResolution,
+      requestAspectRatio: selectedAspectRatio.value,
     });
-  }, [id, selectedModel.id, setLastImageEditDefaults, updateNodeData]);
+  }, [
+    id,
+    selectedAspectRatio.value,
+    selectedModel.id,
+    setLastImageEditDefaults,
+    updateNodeData,
+  ]);
 
   return (
     <div
@@ -764,14 +819,7 @@ export const ImageEditNode = memo(({ id, data, selected, width, height }: ImageE
         className={NODE_HEADER_FLOATING_POSITION_CLASS}
         icon={<Sparkles className="h-4 w-4" />}
         titleText={resolvedTitle}
-        rightSlot={
-          resolvedPriceDisplay ? (
-            <NodePriceBadge
-              label={resolvedPriceDisplay.label}
-              title={resolvedPriceTooltip}
-            />
-          ) : undefined
-        }
+        rightSlot={headerRightSlot}
         editable
         onTitleChange={(nextTitle) => updateNodeData(id, { displayName: nextTitle })}
       />
@@ -859,6 +907,11 @@ export const ImageEditNode = memo(({ id, data, selected, width, height }: ImageE
           onResolutionChange={handleResolutionChange}
           onAspectRatioChange={(aspectRatio) => {
             updateNodeData(id, { requestAspectRatio: aspectRatio });
+            setLastImageEditDefaults({
+              modelId: selectedModel.id,
+              size: selectedResolution.value as ImageSize,
+              requestAspectRatio: aspectRatio,
+            });
           }
           }
           extraParams={data.extraParams}
@@ -908,9 +961,6 @@ export const ImageEditNode = memo(({ id, data, selected, width, height }: ImageE
           </UiButton>
         </div>
       </div>
-
-      {error && <div className="mt-1 shrink-0 text-xs text-red-400">{error}</div>}
-
       <Handle
         type="target"
         id="target"

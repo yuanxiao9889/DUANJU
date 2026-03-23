@@ -49,6 +49,8 @@ export interface NodeImageData extends NodeDisplayData {
   imageUrl: string | null;
   previewImageUrl?: string | null;
   aspectRatio: string;
+  imageWidth?: number;
+  imageHeight?: number;
   isSizeManuallyAdjusted?: boolean;
   [key: string]: unknown;
 }
@@ -81,6 +83,7 @@ export interface TextAnnotationNodeData extends NodeDisplayData {
 
 export interface VideoNodeData extends NodeDisplayData {
   videoUrl: string | null;
+  previewImageUrl?: string | null;
   videoFileName?: string | null;
   aspectRatio: string;
   duration?: number;

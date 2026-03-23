@@ -177,6 +177,14 @@ html[data-platform='macos'] #root {
   border-radius: var(--node-radius);
 }
 
+.react-flow__node.canvas-node--layout-animating {
+  transition:
+    transform 220ms cubic-bezier(0.2, 0.8, 0.2, 1),
+    width 220ms ease,
+    height 220ms ease;
+  will-change: transform;
+}
+
 .react-flow__handle {
   width: 10px;
   height: 10px;

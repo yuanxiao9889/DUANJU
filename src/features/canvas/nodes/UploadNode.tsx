@@ -37,11 +37,13 @@ import { canvasEventBus } from '@/features/canvas/application/canvasServices';
 import { NodeHeader, NODE_HEADER_FLOATING_POSITION_CLASS } from '@/features/canvas/ui/NodeHeader';
 import { NodeResizeHandle } from '@/features/canvas/ui/NodeResizeHandle';
 import {
+  detectImageDimensions,
   prepareNodeImageFromFile,
   resolveImageDisplayUrl,
   shouldUseOriginalImageByZoom,
 } from '@/features/canvas/application/imageData';
 import { CanvasNodeImage } from '@/features/canvas/ui/CanvasNodeImage';
+import { ImageResolutionBadge } from '@/features/canvas/ui/ImageResolutionBadge';
 import { useCanvasStore } from '@/stores/canvasStore';
 import { useSettingsStore } from '@/stores/settingsStore';
 
@@ -101,6 +103,14 @@ export const UploadNode = memo(({ id, data, selected, width, height }: UploadNod
   });
   const resizeMinWidth = resizeConstraints.minWidth;
   const resizeMinHeight = resizeConstraints.minHeight;
+  const imageWidth =
+    typeof data.imageWidth === 'number' && Number.isFinite(data.imageWidth) && data.imageWidth > 0
+      ? Math.round(data.imageWidth)
+      : null;
+  const imageHeight =
+    typeof data.imageHeight === 'number' && Number.isFinite(data.imageHeight) && data.imageHeight > 0
+      ? Math.round(data.imageHeight)
+      : null;
   const resolvedTitle = useMemo(() => {
     const sourceFileName = typeof data.sourceFileName === 'string' ? data.sourceFileName.trim() : '';
     if (
@@ -155,6 +165,8 @@ export const UploadNode = memo(({ id, data, selected, width, height }: UploadNod
           imageUrl: prepared.imageUrl,
           previewImageUrl: prepared.previewImageUrl,
           aspectRatio: prepared.aspectRatio || '1:1',
+          imageWidth: undefined,
+          imageHeight: undefined,
           sourceFileName: file.name,
         };
         if (useUploadFilenameAsNodeTitle) {
@@ -303,6 +315,31 @@ export const UploadNode = memo(({ id, data, selected, width, height }: UploadNod
     updateNodeInternals(id);
   }, [id, resolvedHeight, resolvedWidth, updateNodeInternals]);
 
+  useEffect(() => {
+    if (!data.imageUrl || (imageWidth !== null && imageHeight !== null)) {
+      return;
+    }
+
+    let disposed = false;
+
+    void detectImageDimensions(data.imageUrl)
+      .then((dimensions) => {
+        if (disposed) {
+          return;
+        }
+
+        updateNodeData(id, {
+          imageWidth: dimensions.width,
+          imageHeight: dimensions.height,
+        });
+      })
+      .catch(() => {});
+
+    return () => {
+      disposed = true;
+    };
+  }, [data.imageUrl, id, imageHeight, imageWidth, updateNodeData]);
+
   return (
     <div
       className={`
@@ -326,7 +363,7 @@ export const UploadNode = memo(({ id, data, selected, width, height }: UploadNod
 
       {data.imageUrl || transientPreviewUrl ? (
         <div
-          className="block h-full w-full overflow-hidden rounded-[var(--node-radius)] bg-bg-dark"
+          className="relative block h-full w-full overflow-hidden rounded-[var(--node-radius)] bg-bg-dark"
         >
           <CanvasNodeImage
             src={imageSource ?? ''}
@@ -335,6 +372,7 @@ export const UploadNode = memo(({ id, data, selected, width, height }: UploadNod
             className="h-full w-full object-contain"
             onLoad={handleImageLoad}
           />
+          <ImageResolutionBadge width={imageWidth} height={imageHeight} />
         </div>
       ) : (
         <label

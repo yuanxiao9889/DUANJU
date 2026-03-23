@@ -122,11 +122,52 @@ interface DuplicateResult {
 
 const ALT_DRAG_COPY_Z_INDEX = 2000;
 const GENERATION_JOB_POLL_INTERVAL_MS = 1400;
+const GENERATION_JOB_RECOVERY_THRESHOLD_MS = 2 * 60 * 1000;
+const GENERATION_JOB_RECOVERY_SWEEP_INTERVAL_MS = 15 * 1000;
+const GENERATION_JOB_STALE_ACTIVITY_MS = 20 * 1000;
+const GENERATION_JOB_RESULT_RETRY_INTERVAL_MS = 4000;
 
 interface GenerationStoryboardMetadata {
   gridRows: number;
   gridCols: number;
   frameNotes: string[];
+}
+
+interface PendingGenerationNodeState {
+  nodeId: string;
+  jobId: string;
+  generationProviderId: string;
+  data: Record<string, unknown>;
+}
+
+function sleep(delayMs: number): Promise<void> {
+  return new Promise<void>((resolve) => {
+    window.setTimeout(resolve, delayMs);
+  });
+}
+
+function isPendingExportGenerationNode(node: CanvasNode): boolean {
+  if (node.type !== CANVAS_NODE_TYPES.exportImage) {
+    return false;
+  }
+
+  const data = node.data as Record<string, unknown>;
+  return data.isGenerating === true
+    && typeof data.generationJobId === 'string'
+    && data.generationJobId.trim().length > 0;
+}
+
+function hasGenerationStoryboardMetadata(value: unknown): value is GenerationStoryboardMetadata {
+  if (!value || typeof value !== 'object') {
+    return false;
+  }
+
+  const candidate = value as Partial<GenerationStoryboardMetadata>;
+  return typeof candidate.gridRows === 'number'
+    && Number.isFinite(candidate.gridRows)
+    && typeof candidate.gridCols === 'number'
+    && Number.isFinite(candidate.gridCols)
+    && Array.isArray(candidate.frameNotes);
 }
 
 function padTimestampSegment(value: number): string {
@@ -431,6 +472,8 @@ export function Canvas() {
   const pasteIterationRef = useRef(0);
   const pasteImageHandledRef = useRef(false);
   const activeGenerationPollNodeIdsRef = useRef(new Set<string>());
+  const activeGenerationRecoveryNodeIdsRef = useRef(new Set<string>());
+  const generationNodeActivityAtRef = useRef(new Map<string, number>());
   const duplicateNodesRef = useRef<((sourceNodeIds: string[]) => string | null) | null>(null);
   const connectionPointerRef = useRef<{ x: number; y: number } | null>(null);
   const connectionSpacePanActiveRef = useRef(false);
@@ -471,6 +514,7 @@ export function Canvas() {
   const undo = useCanvasStore((state) => state.undo);
   const redo = useCanvasStore((state) => state.redo);
   const reparentNodesToGroup = useCanvasStore((state) => state.reparentNodesToGroup);
+  const detachNodesFromGroup = useCanvasStore((state) => state.detachNodesFromGroup);
   const openToolDialog = useCanvasStore((state) => state.openToolDialog);
   const closeToolDialog = useCanvasStore((state) => state.closeToolDialog);
   const setViewportState = useCanvasStore((state) => state.setViewportState);
@@ -537,6 +581,253 @@ export function Canvas() {
       }, delayMs);
     },
     [persistCanvasSnapshot]
+  );
+
+  const markGenerationNodeActivity = useCallback((nodeId: string) => {
+    generationNodeActivityAtRef.current.set(nodeId, Date.now());
+  }, []);
+
+  const resolvePendingGenerationNodeState = useCallback((nodeId: string): PendingGenerationNodeState | null => {
+    const currentNode = useCanvasStore.getState().nodes.find((node) => node.id === nodeId);
+    if (!currentNode || currentNode.type !== CANVAS_NODE_TYPES.exportImage) {
+      generationNodeActivityAtRef.current.delete(nodeId);
+      return null;
+    }
+
+    const currentData = currentNode.data as Record<string, unknown>;
+    const jobId = typeof currentData.generationJobId === 'string' ? currentData.generationJobId.trim() : '';
+    if (!jobId || currentData.isGenerating !== true) {
+      generationNodeActivityAtRef.current.delete(nodeId);
+      return null;
+    }
+
+    return {
+      nodeId,
+      jobId,
+      generationProviderId:
+        typeof currentData.generationProviderId === 'string'
+          ? currentData.generationProviderId.trim()
+          : '',
+      data: currentData,
+    };
+  }, []);
+
+  const syncGenerationProviderApiKey = useCallback(
+    async (nodeId: string, generationProviderId: string) => {
+      if (!generationProviderId) {
+        return;
+      }
+
+      const providerApiKey = apiKeys[generationProviderId] ?? '';
+      if (!providerApiKey) {
+        return;
+      }
+
+      await canvasAiGateway.setApiKey(generationProviderId, providerApiKey).catch((error) => {
+        console.warn('[GenerationJob] set_api_key failed before poll', {
+          nodeId,
+          generationProviderId,
+          error,
+        });
+      });
+    },
+    [apiKeys]
+  );
+
+  const applyGenerationSuccessResult = useCallback(
+    async (nodeId: string, currentData: Record<string, unknown>, resultSource: string) => {
+      markGenerationNodeActivity(nodeId);
+
+      try {
+        const prepared = await prepareNodeImage(resultSource);
+        const storyboardMetadataRaw = currentData.generationStoryboardMetadata;
+        let imageWithMetadata = prepared.imageUrl;
+
+        if (hasGenerationStoryboardMetadata(storyboardMetadataRaw)) {
+          imageWithMetadata = await embedStoryboardImageMetadata(prepared.imageUrl, {
+            gridRows: Math.max(1, Math.round(storyboardMetadataRaw.gridRows)),
+            gridCols: Math.max(1, Math.round(storyboardMetadataRaw.gridCols)),
+            frameNotes: storyboardMetadataRaw.frameNotes,
+          }).catch((error) => {
+            console.warn('[GenerationJob] embed storyboard metadata failed', {
+              nodeId,
+              error,
+            });
+            return prepared.imageUrl;
+          });
+        }
+
+        const previewWithMetadata = prepared.previewImageUrl === prepared.imageUrl
+          ? imageWithMetadata
+          : prepared.previewImageUrl;
+
+        updateNodeData(nodeId, {
+          imageUrl: imageWithMetadata,
+          previewImageUrl: previewWithMetadata,
+          aspectRatio: prepared.aspectRatio,
+          isGenerating: false,
+          generationStartedAt: null,
+          generationJobId: null,
+          generationProviderId: null,
+          generationClientSessionId: null,
+          generationStoryboardMetadata: undefined,
+          generationError: null,
+          generationErrorDetails: null,
+          generationDebugContext: undefined,
+        });
+        generationNodeActivityAtRef.current.delete(nodeId);
+        return true;
+      } catch (error) {
+        markGenerationNodeActivity(nodeId);
+        console.warn('[GenerationJob] result hydration failed', {
+          nodeId,
+          error,
+        });
+        return false;
+      }
+    },
+    [markGenerationNodeActivity, updateNodeData]
+  );
+
+  const applyGenerationFailureState = useCallback(
+    (
+      nodeId: string,
+      currentData: Record<string, unknown>,
+      status: {
+        status: 'queued' | 'running' | 'succeeded' | 'failed' | 'not_found';
+        error?: string | null;
+      }
+    ) => {
+      const errorMessage =
+        status.error ?? (status.status === 'not_found' ? 'generation job not found' : 'generation failed');
+      const generationClientSessionId =
+        typeof currentData.generationClientSessionId === 'string'
+          ? currentData.generationClientSessionId
+          : '';
+      const shouldShowDialog = generationClientSessionId === CURRENT_RUNTIME_SESSION_ID;
+
+      if (shouldShowDialog) {
+        const reportText = buildGenerationErrorReport({
+          errorMessage,
+          errorDetails: status.error ?? undefined,
+          context: currentData.generationDebugContext,
+        });
+        void showErrorDialog(errorMessage, t('common.error'), status.error ?? undefined, reportText);
+      }
+
+      updateNodeData(nodeId, {
+        isGenerating: false,
+        generationStartedAt: null,
+        generationJobId: null,
+        generationProviderId: null,
+        generationClientSessionId: null,
+        generationStoryboardMetadata: undefined,
+        generationError: errorMessage,
+        generationErrorDetails: status.error ?? null,
+      });
+      generationNodeActivityAtRef.current.delete(nodeId);
+    },
+    [t, updateNodeData]
+  );
+
+  const reconcileGenerationNode = useCallback(
+    async (
+      nodeId: string,
+      options?: {
+        continuous?: boolean;
+        forceRefresh?: boolean;
+        reason?: string;
+      }
+    ) => {
+      const continuous = options?.continuous === true;
+      let preferForceRefresh = options?.forceRefresh === true;
+
+      while (true) {
+        const currentState = resolvePendingGenerationNodeState(nodeId);
+        if (!currentState) {
+          return;
+        }
+
+        try {
+          markGenerationNodeActivity(nodeId);
+          await syncGenerationProviderApiKey(nodeId, currentState.generationProviderId);
+
+          const status = await canvasAiGateway.getGenerateImageJob(
+            currentState.jobId,
+            preferForceRefresh ? { forceRefresh: true } : undefined
+          ).catch((error) => {
+            console.warn('[GenerationJob] poll failed', {
+              nodeId,
+              jobId: currentState.jobId,
+              preferForceRefresh,
+              error,
+            });
+            return null;
+          });
+
+          markGenerationNodeActivity(nodeId);
+
+          if (!status) {
+            if (!continuous) {
+              return;
+            }
+            await sleep(GENERATION_JOB_RESULT_RETRY_INTERVAL_MS);
+            continue;
+          }
+
+          if (status.status === 'queued' || status.status === 'running') {
+            if (!continuous) {
+              return;
+            }
+            await sleep(
+              preferForceRefresh
+                ? GENERATION_JOB_RESULT_RETRY_INTERVAL_MS
+                : GENERATION_JOB_POLL_INTERVAL_MS
+            );
+            continue;
+          }
+
+          if (status.status === 'succeeded' && typeof status.result === 'string' && status.result.trim()) {
+            const applied = await applyGenerationSuccessResult(nodeId, currentState.data, status.result);
+            if (applied) {
+              return;
+            }
+
+            preferForceRefresh = true;
+            if (!continuous) {
+              return;
+            }
+
+            await sleep(GENERATION_JOB_RESULT_RETRY_INTERVAL_MS);
+            continue;
+          }
+
+          applyGenerationFailureState(nodeId, currentState.data, status);
+          return;
+        } catch (error) {
+          markGenerationNodeActivity(nodeId);
+          console.warn('[GenerationJob] reconcile failed', {
+            nodeId,
+            reason: options?.reason ?? 'unknown',
+            preferForceRefresh,
+            error,
+          });
+
+          if (!continuous) {
+            return;
+          }
+
+          await sleep(GENERATION_JOB_RESULT_RETRY_INTERVAL_MS);
+        }
+      }
+    },
+    [
+      applyGenerationFailureState,
+      applyGenerationSuccessResult,
+      markGenerationNodeActivity,
+      resolvePendingGenerationNodeState,
+      syncGenerationProviderApiKey,
+    ]
   );
 
   useEffect(() => {
@@ -610,145 +901,110 @@ export function Canvas() {
   }, [nodes, edges, history, dragHistorySnapshot, scheduleCanvasPersist]);
 
   useEffect(() => {
-    const sleep = (delayMs: number) =>
-      new Promise<void>((resolve) => {
-        window.setTimeout(resolve, delayMs);
-      });
+    const pendingNodeIds = nodes.filter(isPendingExportGenerationNode).map((node) => node.id);
 
-    const pendingExportNodes = nodes.filter((node) => {
-      if (node.type !== CANVAS_NODE_TYPES.exportImage) {
-        return false;
-      }
-      const data = node.data as Record<string, unknown>;
-      return data.isGenerating === true && typeof data.generationJobId === 'string' && data.generationJobId.length > 0;
-    });
-
-    for (const pendingNode of pendingExportNodes) {
-      if (activeGenerationPollNodeIdsRef.current.has(pendingNode.id)) {
+    for (const nodeId of pendingNodeIds) {
+      if (activeGenerationPollNodeIdsRef.current.has(nodeId)) {
         continue;
       }
-      activeGenerationPollNodeIdsRef.current.add(pendingNode.id);
+
+      activeGenerationPollNodeIdsRef.current.add(nodeId);
+      markGenerationNodeActivity(nodeId);
 
       void (async () => {
         try {
-          while (true) {
-            const currentNode = useCanvasStore.getState().nodes.find((node) => node.id === pendingNode.id);
-            if (!currentNode) {
-              break;
-            }
-
-            const currentData = currentNode.data as Record<string, unknown>;
-            const jobId = typeof currentData.generationJobId === 'string' ? currentData.generationJobId : '';
-            const isGenerating = currentData.isGenerating === true;
-            if (!jobId || !isGenerating) {
-              break;
-            }
-
-            const generationProviderId = typeof currentData.generationProviderId === 'string'
-              ? currentData.generationProviderId
-              : '';
-            if (generationProviderId) {
-              const providerApiKey = apiKeys[generationProviderId] ?? '';
-              if (providerApiKey) {
-                await canvasAiGateway.setApiKey(generationProviderId, providerApiKey).catch((error) => {
-                  console.warn('[GenerationJob] set_api_key failed before poll', {
-                    nodeId: pendingNode.id,
-                    generationProviderId,
-                    error,
-                  });
-                });
-              }
-            }
-
-            const status = await canvasAiGateway.getGenerateImageJob(jobId).catch((error) => {
-              console.warn('[GenerationJob] poll failed', { nodeId: pendingNode.id, jobId, error });
-              return null;
-            });
-            if (!status) {
-              await sleep(GENERATION_JOB_POLL_INTERVAL_MS);
-              continue;
-            }
-
-            if (status.status === 'queued' || status.status === 'running') {
-              await sleep(GENERATION_JOB_POLL_INTERVAL_MS);
-              continue;
-            }
-
-            if (status.status === 'succeeded' && typeof status.result === 'string' && status.result.trim()) {
-              const prepared = await prepareNodeImage(status.result);
-              const storyboardMetadataRaw = currentData.generationStoryboardMetadata as GenerationStoryboardMetadata | undefined;
-              const hasStoryboardMetadata = Boolean(
-                storyboardMetadataRaw
-                && Number.isFinite(storyboardMetadataRaw.gridRows)
-                && Number.isFinite(storyboardMetadataRaw.gridCols)
-                && Array.isArray(storyboardMetadataRaw.frameNotes)
-              );
-              let imageWithMetadata = prepared.imageUrl;
-              if (hasStoryboardMetadata && storyboardMetadataRaw) {
-                imageWithMetadata = await embedStoryboardImageMetadata(prepared.imageUrl, {
-                  gridRows: Math.max(1, Math.round(storyboardMetadataRaw.gridRows)),
-                  gridCols: Math.max(1, Math.round(storyboardMetadataRaw.gridCols)),
-                  frameNotes: storyboardMetadataRaw.frameNotes,
-                }).catch((error) => {
-                  console.warn('[GenerationJob] embed storyboard metadata failed', {
-                    nodeId: pendingNode.id,
-                    error,
-                  });
-                  return prepared.imageUrl;
-                });
-              }
-              const previewWithMetadata = prepared.previewImageUrl === prepared.imageUrl
-                ? imageWithMetadata
-                : prepared.previewImageUrl;
-
-              updateNodeData(pendingNode.id, {
-                imageUrl: imageWithMetadata,
-                previewImageUrl: previewWithMetadata,
-                aspectRatio: prepared.aspectRatio,
-                isGenerating: false,
-                generationStartedAt: null,
-                generationJobId: null,
-                generationProviderId: null,
-                generationClientSessionId: null,
-                generationStoryboardMetadata: undefined,
-                generationError: null,
-                generationErrorDetails: null,
-                generationDebugContext: undefined,
-              });
-              break;
-            }
-
-            const errorMessage = status.error ?? (status.status === 'not_found' ? 'generation job not found' : 'generation failed');
-            const generationClientSessionId = typeof currentData.generationClientSessionId === 'string'
-              ? currentData.generationClientSessionId
-              : '';
-            const shouldShowDialog = generationClientSessionId === CURRENT_RUNTIME_SESSION_ID;
-            if (shouldShowDialog) {
-              const reportText = buildGenerationErrorReport({
-                errorMessage,
-                errorDetails: status.error ?? undefined,
-                context: currentData.generationDebugContext,
-              });
-              void showErrorDialog(errorMessage, t('common.error'), status.error ?? undefined, reportText);
-            }
-            updateNodeData(pendingNode.id, {
-              isGenerating: false,
-              generationStartedAt: null,
-              generationJobId: null,
-              generationProviderId: null,
-              generationClientSessionId: null,
-              generationStoryboardMetadata: undefined,
-              generationError: errorMessage,
-              generationErrorDetails: status.error ?? null,
-            });
-            break;
-          }
+          await reconcileGenerationNode(nodeId, {
+            continuous: true,
+            reason: 'poll-loop',
+          });
         } finally {
-          activeGenerationPollNodeIdsRef.current.delete(pendingNode.id);
+          activeGenerationPollNodeIdsRef.current.delete(nodeId);
         }
       })();
     }
-  }, [apiKeys, nodes, updateNodeData]);
+  }, [markGenerationNodeActivity, nodes, reconcileGenerationNode]);
+
+  useEffect(() => {
+    const pendingNodeIds = new Set(nodes.filter(isPendingExportGenerationNode).map((node) => node.id));
+
+    for (const nodeId of Array.from(generationNodeActivityAtRef.current.keys())) {
+      if (!pendingNodeIds.has(nodeId)) {
+        generationNodeActivityAtRef.current.delete(nodeId);
+      }
+    }
+
+    for (const nodeId of Array.from(activeGenerationRecoveryNodeIdsRef.current)) {
+      if (!pendingNodeIds.has(nodeId)) {
+        activeGenerationRecoveryNodeIdsRef.current.delete(nodeId);
+      }
+    }
+  }, [nodes]);
+
+  useEffect(() => {
+    const runRecoverySweep = () => {
+      const now = Date.now();
+      const pendingNodeIds = useCanvasStore.getState().nodes
+        .filter(isPendingExportGenerationNode)
+        .filter((node) => {
+          const data = node.data as Record<string, unknown>;
+          const generationStartedAt =
+            typeof data.generationStartedAt === 'number' ? data.generationStartedAt : null;
+          if (generationStartedAt === null) {
+            return false;
+          }
+
+          if (now - generationStartedAt < GENERATION_JOB_RECOVERY_THRESHOLD_MS) {
+            return false;
+          }
+
+          const lastActivityAt = generationNodeActivityAtRef.current.get(node.id) ?? 0;
+          return now - lastActivityAt >= GENERATION_JOB_STALE_ACTIVITY_MS;
+        })
+        .map((node) => node.id);
+
+      for (const nodeId of pendingNodeIds) {
+        if (activeGenerationRecoveryNodeIdsRef.current.has(nodeId)) {
+          continue;
+        }
+
+        activeGenerationRecoveryNodeIdsRef.current.add(nodeId);
+        markGenerationNodeActivity(nodeId);
+
+        void (async () => {
+          try {
+            await reconcileGenerationNode(nodeId, {
+              continuous: false,
+              forceRefresh: true,
+              reason: 'recovery-sweep',
+            });
+          } finally {
+            activeGenerationRecoveryNodeIdsRef.current.delete(nodeId);
+          }
+        })();
+      }
+    };
+
+    const intervalId = window.setInterval(runRecoverySweep, GENERATION_JOB_RECOVERY_SWEEP_INTERVAL_MS);
+    const handleWindowFocus = () => {
+      runRecoverySweep();
+    };
+    const handleVisibilityChange = () => {
+      if (!document.hidden) {
+        runRecoverySweep();
+      }
+    };
+
+    window.addEventListener('focus', handleWindowFocus);
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+
+    runRecoverySweep();
+
+    return () => {
+      window.clearInterval(intervalId);
+      window.removeEventListener('focus', handleWindowFocus);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
+  }, [markGenerationNodeActivity, reconcileGenerationNode]);
 
   useEffect(() => {
     const element = wrapperRef.current;
@@ -1989,7 +2245,7 @@ export function Canvas() {
           return {
             ...currentNode,
             parentId: copiedParentId,
-            extent: copiedParentId ? 'parent' : undefined,
+            extent: undefined,
           };
         }),
       }));
@@ -2164,15 +2420,62 @@ export function Canvas() {
 
   const handleNodeDrag = useCallback(
     (_event: ReactMouseEvent, node: CanvasNode) => {
-      // 节点对齐检测
-      if (enableNodeAlignment && showAlignmentGuides) {
+      const altCopyState = altDragCopyRef.current;
+
+      if (enableNodeAlignment && !altCopyState) {
         setIsDraggingNode(true);
-        const otherNodes = nodes.filter((n) => n.id !== node.id);
+        const draggedNodeIds = selectedNodeIds.includes(node.id) ? selectedNodeIds : [node.id];
+        const draggedNodeIdSet = new Set(draggedNodeIds);
+        const otherNodes = nodes.filter(
+          (candidate) =>
+            !draggedNodeIdSet.has(candidate.id) && candidate.parentId === node.parentId
+        );
         const alignments = detectAlignments(node, otherNodes, alignmentThreshold);
-        setAlignmentGuides(alignments.map((a) => a.guide));
+        setAlignmentGuides(showAlignmentGuides ? alignments.map((alignment) => alignment.guide) : []);
+
+        const snapOffset = alignments.reduce(
+          (offset, alignment) => ({
+            x: alignment.guide.type === 'vertical' ? alignment.snapOffset.x : offset.x,
+            y: alignment.guide.type === 'horizontal' ? alignment.snapOffset.y : offset.y,
+          }),
+          { x: 0, y: 0 }
+        );
+
+        if (Math.abs(snapOffset.x) > 0.01 || Math.abs(snapOffset.y) > 0.01) {
+          const currentNodes = useCanvasStore.getState().nodes;
+          const snapChanges = draggedNodeIds
+            .map((draggedNodeId) => {
+              const currentNode =
+                draggedNodeId === node.id
+                  ? node
+                  : currentNodes.find((candidate) => candidate.id === draggedNodeId);
+              if (!currentNode) {
+                return null;
+              }
+
+              return {
+                id: draggedNodeId,
+                type: 'position' as const,
+                position: {
+                  x: currentNode.position.x + snapOffset.x,
+                  y: currentNode.position.y + snapOffset.y,
+                },
+                dragging: true,
+              };
+            })
+            .filter((change): change is {
+              id: string;
+              type: 'position';
+              position: { x: number; y: number };
+              dragging: true;
+            } => Boolean(change));
+
+          if (snapChanges.length > 0) {
+            applyNodesChange(snapChanges);
+          }
+        }
       }
 
-      const altCopyState = altDragCopyRef.current;
       if (!altCopyState) {
         return;
       }
@@ -2231,7 +2534,14 @@ export function Canvas() {
         applyNodesChange(allChanges);
       }
     },
-    [applyNodesChange, enableNodeAlignment, showAlignmentGuides, nodes, alignmentThreshold]
+    [
+      alignmentThreshold,
+      applyNodesChange,
+      enableNodeAlignment,
+      nodes,
+      selectedNodeIds,
+      showAlignmentGuides,
+    ]
   );
 
   const handleNodeDragStop = useCallback(
@@ -2243,8 +2553,12 @@ export function Canvas() {
       const altCopyState = altDragCopyRef.current;
       if (!altCopyState) {
         const currentNodes = useCanvasStore.getState().nodes;
+        const currentNodeMap = new globalThis.Map(
+          currentNodes.map((currentNode) => [currentNode.id, currentNode] as const)
+        );
         const draggedNodeIds = selectedNodeIds.includes(node.id) ? selectedNodeIds : [node.id];
         const groupAssignments = new Map<string, string[]>();
+        const detachedNodeIds: string[] = [];
 
         draggedNodeIds.forEach((draggedNodeId) => {
           const draggedNode = currentNodes.find((currentNode) => currentNode.id === draggedNodeId);
@@ -2252,8 +2566,19 @@ export function Canvas() {
             return;
           }
 
+          const currentGroupId =
+            draggedNode.parentId && currentNodeMap.get(draggedNode.parentId)?.type === CANVAS_NODE_TYPES.group
+              ? draggedNode.parentId
+              : null;
           const targetGroupId = findContainingGroupId(draggedNode, currentNodes);
           if (!targetGroupId) {
+            if (currentGroupId) {
+              detachedNodeIds.push(draggedNodeId);
+            }
+            return;
+          }
+
+          if (targetGroupId === currentGroupId) {
             return;
           }
 
@@ -2262,11 +2587,17 @@ export function Canvas() {
           groupAssignments.set(targetGroupId, currentAssignment);
         });
 
+        let didGroupMembershipChange = false;
         groupAssignments.forEach((nodeIds, groupNodeId) => {
-          reparentNodesToGroup(nodeIds, groupNodeId);
+          didGroupMembershipChange = reparentNodesToGroup(nodeIds, groupNodeId) || didGroupMembershipChange;
         });
 
-        if (groupAssignments.size > 0) {
+        if (detachedNodeIds.length > 0) {
+          didGroupMembershipChange =
+            detachNodesFromGroup(detachedNodeIds) || didGroupMembershipChange;
+        }
+
+        if (didGroupMembershipChange) {
           scheduleCanvasPersist(0);
         }
         return;
@@ -2330,15 +2661,30 @@ export function Canvas() {
       }
 
       const currentNodes = useCanvasStore.getState().nodes;
+      const currentNodeMap = new globalThis.Map(
+        currentNodes.map((currentNode) => [currentNode.id, currentNode] as const)
+      );
       const groupAssignments = new Map<string, string[]>();
+      const detachedNodeIds: string[] = [];
       altCopyState.copiedNodeIds.forEach((copiedNodeId) => {
         const copiedNode = currentNodes.find((currentNode) => currentNode.id === copiedNodeId);
         if (!copiedNode || copiedNode.type === CANVAS_NODE_TYPES.group) {
           return;
         }
 
+        const currentGroupId =
+          copiedNode.parentId && currentNodeMap.get(copiedNode.parentId)?.type === CANVAS_NODE_TYPES.group
+            ? copiedNode.parentId
+            : null;
         const targetGroupId = findContainingGroupId(copiedNode, currentNodes);
         if (!targetGroupId) {
+          if (currentGroupId) {
+            detachedNodeIds.push(copiedNodeId);
+          }
+          return;
+        }
+
+        if (targetGroupId === currentGroupId) {
           return;
         }
 
@@ -2350,6 +2696,9 @@ export function Canvas() {
       groupAssignments.forEach((nodeIds, groupNodeId) => {
         reparentNodesToGroup(nodeIds, groupNodeId);
       });
+      if (detachedNodeIds.length > 0) {
+        detachNodesFromGroup(detachedNodeIds);
+      }
 
       if (altCopyState.copiedNodeIds.length > 0) {
         setSelectedNode(altCopyState.copiedNodeIds[0]);
@@ -2358,6 +2707,7 @@ export function Canvas() {
     },
     [
       applyNodesChange,
+      detachNodesFromGroup,
       reparentNodesToGroup,
       scheduleCanvasPersist,
       selectedNodeIds,
@@ -2769,7 +3119,7 @@ export function Canvas() {
             padding: '6px',
             borderRadius: '4px'
           }}
-          title={snapToGrid ? '关闭网格吸附' : '开启网格吸附'}
+          title={snapToGrid ? t('canvas.toolbar.gridSnapOff') : t('canvas.toolbar.gridSnapOn')}
         >
           <Grid3x3 style={{ width: '16px', height: '16px' }} />
         </button>
@@ -2784,7 +3134,11 @@ export function Canvas() {
             padding: '6px',
             borderRadius: '4px'
           }}
-          title={showAlignmentGuides ? '关闭对齐辅助线' : '开启对齐辅助线'}
+          title={
+            showAlignmentGuides
+              ? t('canvas.toolbar.alignmentGuidesOff')
+              : t('canvas.toolbar.alignmentGuidesOn')
+          }
         >
           <AlignCenter style={{ width: '16px', height: '16px' }} />
         </button>
@@ -2799,7 +3153,7 @@ export function Canvas() {
             padding: '6px',
             borderRadius: '4px'
           }}
-          title={showMiniMap ? '关闭小地图' : '开启小地图'}
+          title={showMiniMap ? t('canvas.toolbar.miniMapOff') : t('canvas.toolbar.miniMapOn')}
         >
           <MapIcon style={{ width: '16px', height: '16px' }} />
         </button>

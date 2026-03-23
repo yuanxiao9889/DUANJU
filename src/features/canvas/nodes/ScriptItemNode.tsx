@@ -1,8 +1,20 @@
-import { memo, useState, useCallback } from 'react';
-import { Package, Edit2, Check, X, Trash2 } from 'lucide-react';
+import { memo, useCallback, useState } from 'react';
+import { Check, Package, X } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
+
 import { CANVAS_NODE_TYPES, type ScriptItemNodeData } from '@/features/canvas/domain/canvasNodes';
 import { resolveNodeDisplayName } from '@/features/canvas/domain/nodeDisplay';
 import { useCanvasStore } from '@/stores/canvasStore';
+
+import {
+  SCRIPT_NODE_EMPTY_HINT_CLASS,
+  SCRIPT_NODE_INPUT_CLASS,
+  SCRIPT_NODE_LABEL_CLASS,
+  SCRIPT_NODE_PRIMARY_BUTTON_CLASS,
+  SCRIPT_NODE_SECONDARY_BUTTON_CLASS,
+  SCRIPT_NODE_TEXTAREA_CLASS,
+  ScriptNodeCard,
+} from './ScriptNodeCard';
 
 type ScriptItemNodeProps = {
   id: string;
@@ -10,13 +22,15 @@ type ScriptItemNodeProps = {
   selected?: boolean;
 };
 
-const DEFAULT_WIDTH = 280;
+const DEFAULT_WIDTH = 300;
 
 export const ScriptItemNode = memo(({
   id,
   data,
   selected,
 }: ScriptItemNodeProps) => {
+  const { t } = useTranslation();
+  const setSelectedNode = useCanvasStore((state) => state.setSelectedNode);
   const updateNodeData = useCanvasStore((state) => state.updateNodeData);
   const deleteNode = useCanvasStore((state) => state.deleteNode);
   const [isEditing, setIsEditing] = useState(false);
@@ -27,11 +41,12 @@ export const ScriptItemNode = memo(({
   });
 
   const resolvedTitle = resolveNodeDisplayName(CANVAS_NODE_TYPES.scriptItem, data);
+  const hasContent = Boolean(data.description || data.appearances?.length);
 
   const handleSaveEdit = useCallback(() => {
     updateNodeData(id, editData);
     setIsEditing(false);
-  }, [id, editData, updateNodeData]);
+  }, [editData, id, updateNodeData]);
 
   const handleCancelEdit = useCallback(() => {
     setEditData({
@@ -40,130 +55,95 @@ export const ScriptItemNode = memo(({
       appearances: data.appearances || [],
     });
     setIsEditing(false);
-  }, [data]);
-
-  const hasContent = data.description || (data.appearances && data.appearances.length > 0);
+  }, [data.appearances, data.description, data.name]);
 
   return (
-    <div
-      className={`
-        group relative overflow-visible rounded-[18px] border-2 transition-all duration-200
-        ${selected
-          ? 'border-orange-500/50 shadow-[0_0_0_2px_rgba(249,115,22,0.25)] shadow-orange-500/20'
-          : 'border-orange-500/20 hover:border-orange-500/40'}
-        bg-gradient-to-br from-orange-950/30 via-slate-900/90 to-slate-900/95
-      `}
-      style={{ width: DEFAULT_WIDTH, minHeight: 120 }}
+    <ScriptNodeCard
+      accent="amber"
+      icon={<Package className="h-4 w-4" />}
+      title={data.name || resolvedTitle}
+      selected={selected}
+      width={DEFAULT_WIDTH}
+      minHeight={160}
+      isEditing={isEditing}
+      onToggleEdit={() => setIsEditing((previous) => !previous)}
+      onDelete={() => deleteNode(id)}
+      onClick={() => setSelectedNode(id)}
     >
-      {/* Header */}
-      <div className="flex items-center gap-2 px-3 py-2 border-b border-orange-500/20">
-        <div className="p-1.5 rounded-lg bg-orange-500/20">
-          <Package className="w-4 h-4 text-orange-400" />
-        </div>
-        <span className="flex-1 text-sm font-medium text-orange-100 truncate">
-          {data.name || resolvedTitle}
-        </span>
-        <button
-          onClick={(e) => {
-            e.stopPropagation();
-            setIsEditing(!isEditing);
-          }}
-          className="flex items-center justify-center w-11 h-11 rounded-lg hover:bg-orange-500/20 active:bg-orange-500/30 transition-all duration-150"
-          title="编辑"
-        >
-          <Edit2 className="w-4 h-4 text-orange-400" />
-        </button>
-        <button
-          onClick={(e) => {
-            e.stopPropagation();
-            deleteNode(id);
-          }}
-          className="flex items-center justify-center w-11 h-11 rounded-lg hover:bg-red-500/20 active:bg-red-500/40 transition-all duration-150 group/btn"
-          title="从画布移除"
-        >
-          <Trash2 className="w-4 h-4 text-red-400 group-hover/btn:scale-110 transition-transform" />
-        </button>
-      </div>
-
-      {/* Content */}
-      <div className="p-3">
-        {isEditing ? (
-          <div className="space-y-2">
-            <div>
-              <label className="block text-xs text-orange-300/70 mb-1">道具名称</label>
-              <input
-                type="text"
-                value={editData.name}
-                onChange={(e) => setEditData({ ...editData, name: e.target.value })}
-                className="w-full px-2 py-1 text-sm bg-orange-950/50 border border-orange-500/30 rounded text-orange-100 outline-none focus:border-orange-400"
-                placeholder="输入道具名称..."
-              />
-            </div>
-            <div>
-              <label className="block text-xs text-orange-300/70 mb-1">描述</label>
-              <textarea
-                value={editData.description}
-                onChange={(e) => setEditData({ ...editData, description: e.target.value })}
-                className="w-full px-2 py-1 text-sm bg-orange-950/50 border border-orange-500/30 rounded text-orange-100 outline-none focus:border-orange-400 resize-none"
-                rows={2}
-                placeholder="道具描述..."
-              />
-            </div>
-            <div>
-              <label className="block text-xs text-orange-300/70 mb-1">出现章节</label>
-              <input
-                type="text"
-                value={editData.appearances.join(', ')}
-                onChange={(e) => setEditData({ ...editData, appearances: e.target.value.split(',').map(s => s.trim()).filter(Boolean) })}
-                className="w-full px-2 py-1 text-xs bg-orange-950/50 border border-orange-500/30 rounded text-orange-100 outline-none focus:border-orange-400"
-                placeholder="章节1, 章节2, 章节3"
-              />
-            </div>
-            <div className="flex justify-end gap-2 pt-1">
-              <button
-                onClick={handleCancelEdit}
-                className="px-2 py-1 text-xs rounded bg-slate-700/50 text-slate-300 hover:bg-slate-600/50 transition-colors"
-              >
-                <X className="w-3 h-3 inline mr-1" />
-                取消
-              </button>
-              <button
-                onClick={handleSaveEdit}
-                className="px-2 py-1 text-xs rounded bg-orange-500/30 text-orange-200 hover:bg-orange-500/40 transition-colors"
-              >
-                <Check className="w-3 h-3 inline mr-1" />
-                保存
-              </button>
-            </div>
+      {isEditing ? (
+        <div className="space-y-3">
+          <div>
+            <label className={SCRIPT_NODE_LABEL_CLASS}>{t('scriptNodes.item.name')}</label>
+            <input
+              type="text"
+              value={editData.name}
+              onChange={(event) => setEditData((previous) => ({ ...previous, name: event.target.value }))}
+              className={SCRIPT_NODE_INPUT_CLASS}
+              placeholder={t('scriptNodes.item.namePlaceholder')}
+            />
           </div>
-        ) : (
-          <>
-            {hasContent ? (
-              <div className="space-y-1.5 text-xs">
-                {data.description && (
-                  <p className="text-orange-100/80 leading-relaxed">{data.description}</p>
-                )}
-                {data.appearances && data.appearances.length > 0 && (
-                  <div className="flex gap-1.5 pt-1">
-                    <span className="text-orange-400/60">出现章节:</span>
-                    <span className="text-orange-100/70">{data.appearances.join(', ')}</span>
-                  </div>
-                )}
-              </div>
-            ) : (
-              <div className="text-center py-2 text-orange-300/50 text-xs">
-                点击编辑按钮添加道具信息
-              </div>
-            )}
-          </>
-        )}
-      </div>
-
-      {/* Decorative corner accent */}
-      <div className="absolute top-0 right-0 w-8 h-8 overflow-hidden rounded-tr-[16px]">
-        <div className="absolute -top-4 -right-4 w-8 h-8 bg-orange-500/10 rotate-45" />
-      </div>
-    </div>
+          <div>
+            <label className={SCRIPT_NODE_LABEL_CLASS}>{t('scriptNodes.common.description')}</label>
+            <textarea
+              value={editData.description}
+              onChange={(event) => setEditData((previous) => ({ ...previous, description: event.target.value }))}
+              className={SCRIPT_NODE_TEXTAREA_CLASS}
+              rows={3}
+              placeholder={t('scriptNodes.item.descriptionPlaceholder')}
+            />
+          </div>
+          <div>
+            <label className={SCRIPT_NODE_LABEL_CLASS}>{t('scriptNodes.common.appearances')}</label>
+            <input
+              type="text"
+              value={editData.appearances.join(', ')}
+              onChange={(event) =>
+                setEditData((previous) => ({
+                  ...previous,
+                  appearances: event.target.value.split(',').map((item) => item.trim()).filter(Boolean),
+                }))
+              }
+              className={SCRIPT_NODE_INPUT_CLASS}
+              placeholder={t('scriptNodes.common.appearancesPlaceholder')}
+            />
+          </div>
+          <div className="flex justify-end gap-2 pt-1">
+            <button
+              type="button"
+              onClick={handleCancelEdit}
+              className={SCRIPT_NODE_SECONDARY_BUTTON_CLASS}
+            >
+              <X className="h-3.5 w-3.5" />
+              {t('common.cancel')}
+            </button>
+            <button
+              type="button"
+              onClick={handleSaveEdit}
+              className={SCRIPT_NODE_PRIMARY_BUTTON_CLASS}
+            >
+              <Check className="h-3.5 w-3.5" />
+              {t('common.save')}
+            </button>
+          </div>
+        </div>
+      ) : hasContent ? (
+        <div className="space-y-3 text-sm text-text-dark/88">
+          {data.description ? (
+            <p className="leading-6 text-text-dark/84">{data.description}</p>
+          ) : null}
+          {data.appearances?.length ? (
+            <div className="text-xs text-text-muted">
+              <span className="mr-1.5">{t('scriptNodes.common.appearances')}:</span>
+              <span className="text-text-dark/78">{data.appearances.join(', ')}</span>
+            </div>
+          ) : null}
+        </div>
+      ) : (
+        <div className={SCRIPT_NODE_EMPTY_HINT_CLASS}>
+          {t('scriptNodes.item.emptyHint')}
+        </div>
+      )}
+    </ScriptNodeCard>
   );
 });
 

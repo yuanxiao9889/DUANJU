@@ -39,6 +39,7 @@ export function getDefaultNodeDisplayName(type: CanvasNodeType, data: Partial<Ca
   if (type === CANVAS_NODE_TYPES.exportImage) {
     return resolveExportResultDefault(data);
   }
+
   return DEFAULT_NODE_DISPLAY_NAME[type];
 }
 
@@ -65,5 +66,6 @@ export function isNodeUsingDefaultDisplayName(type: CanvasNodeType, data: Partia
   if (!customTitle) {
     return true;
   }
+
   return customTitle === getDefaultNodeDisplayName(type, data);
 }

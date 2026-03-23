@@ -36,8 +36,18 @@
       "zoomIn": "Zoom In",
       "zoomOut": "Zoom Out",
       "fitView": "Fit View",
+      "gridSnapOn": "Disable grid snap",
+      "gridSnapOff": "Enable grid snap",
+      "alignmentGuidesOn": "Disable alignment snapping",
+      "alignmentGuidesOff": "Enable alignment snapping",
+      "miniMapOn": "Hide mini map",
+      "miniMapOff": "Show mini map",
       "lock": "Lock Canvas",
       "unlock": "Unlock Canvas"
+    },
+    "batchMenu": {
+      "referenceSelected": "Create from {{count}} selected {{type}} node(s)",
+      "node": "node"
     }
   },
   "group": {
@@ -140,7 +150,8 @@
       "promptRequired": "Please enter a prompt",
       "apiKeyRequired": "Please set API key in Settings",
       "resultTitle": "Result Image",
-      "promptPlaceholder": "Describe anything you want to generate or edit"
+      "promptPlaceholder": "Describe anything you want to generate or edit",
+      "referenceImageLabel": "Image {{index}}"
     },
     "sendToPs": "Send to PS",
     "sendToPsSuccess": "Sent to Photoshop",
@@ -171,7 +182,10 @@
       "overallAspectRatio": "Overall ratio",
       "requestAspectRatio": "Request ratio",
       "framePlaceholder": "Frame {{index}} description",
-      "gridPreviewTitle": "Grid Preview"
+      "gridPreviewTitle": "Grid Preview",
+      "promptRequired": "Please enter at least one storyboard description",
+      "apiKeyRequired": "Please set API key in Settings",
+      "referenceImageLabel": "Image {{index}}"
     },
     "textAnnotation": {
       "placeholder": "Write Markdown text. It will render when unselected.",
@@ -180,9 +194,18 @@
     "videoNode": {
       "title": "Video Node",
       "uploadHint": "Drag or click to upload video",
+      "processing": "Preparing video...",
+      "processFailed": "Failed to process video",
+      "loadFailed": "Video failed to load",
+      "loadFailedShort": "Load failed",
+      "retryLoad": "Retry load",
+      "posterAlt": "Video poster frame",
+      "supportedFormats": "Supported: MP4, WebM, OGG, MOV, AVI, MKV",
       "screenshot": "Screenshot",
       "viewScreenshots": "View Screenshots",
       "screenshotSuccess": "Screenshot created",
+      "screenshotMarker": "Screenshot {{index}}",
+      "screenshotName": "{{name}} Screenshot {{index}}",
       "play": "Play",
       "pause": "Pause",
       "unsupportedFormat": "Unsupported video format",
@@ -190,6 +213,63 @@
       "prevFrame": "Previous Frame",
       "nextFrame": "Next Frame",
       "frameByFrameHint": "← → Arrow keys for frame-by-frame / S for screenshot"
+    }
+  },
+  "nodeStatus": {
+    "generating": "Generating",
+    "retryAvailable": "Retry available",
+    "error": "Error"
+  },
+  "scriptNodes": {
+    "common": {
+      "description": "Description",
+      "appearances": "Appearances",
+      "appearancesPlaceholder": "Chapter 1, Chapter 2, Chapter 3"
+    },
+    "character": {
+      "name": "Character Name",
+      "namePlaceholder": "Enter character name",
+      "descriptionPlaceholder": "Briefly describe this character",
+      "personality": "Personality",
+      "personalityPlaceholder": "Key personality traits",
+      "appearance": "Appearance",
+      "appearancePlaceholder": "Visual traits",
+      "emptyHint": "Click edit to add character details"
+    },
+    "location": {
+      "name": "Location Name",
+      "namePlaceholder": "Enter location name",
+      "descriptionPlaceholder": "Describe this scene or place",
+      "emptyHint": "Click edit to add location details"
+    },
+    "item": {
+      "name": "Item Name",
+      "namePlaceholder": "Enter item name",
+      "descriptionPlaceholder": "Describe this prop or item",
+      "emptyHint": "Click edit to add item details"
+    },
+    "plotPoint": {
+      "type": "Type",
+      "setup": "Setup",
+      "payoff": "Payoff",
+      "descriptionPlaceholder": "Describe this {{type}}",
+      "emptyHint": "Click edit to add a {{type}}"
+    },
+    "worldview": {
+      "name": "Worldview Name",
+      "namePlaceholder": "Enter worldview name",
+      "descriptionPlaceholder": "Describe the core setting",
+      "era": "Era",
+      "eraPlaceholder": "For example: medieval, future",
+      "technology": "Technology",
+      "technologyPlaceholder": "For example: steam, cyberpunk",
+      "magic": "Magic",
+      "magicPlaceholder": "For example: elemental magic, none",
+      "society": "Society",
+      "societyPlaceholder": "For example: empire, federation",
+      "geography": "Geography",
+      "geographyPlaceholder": "For example: continent, island, deep space",
+      "emptyHint": "Click edit to add worldview details"
     }
   },
   "viewer": {

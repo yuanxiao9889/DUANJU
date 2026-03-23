@@ -1,6 +1,6 @@
 import { isTauri } from '@tauri-apps/api/core';
 import { persistImageBinary, persistImageSource } from '@/commands/image';
-import { reduceAspectRatio } from './imageData';
+import { prepareNodeImage, reduceAspectRatio } from './imageData';
 
 export interface VideoMetadata {
   width: number;
@@ -10,6 +10,7 @@ export interface VideoMetadata {
 
 export interface PreparedVideo {
   videoUrl: string;
+  previewImageUrl: string | null;
   aspectRatio: string;
   duration: number;
 }
@@ -22,6 +23,7 @@ const SUPPORTED_VIDEO_TYPES = [
   'video/x-msvideo',
   'video/x-matroska',
 ];
+const VIDEO_POSTER_MAX_DIMENSION = 960;
 
 export function isSupportedVideoType(mimeType: string): boolean {
   return SUPPORTED_VIDEO_TYPES.includes(mimeType.toLowerCase());
@@ -46,26 +48,97 @@ function resolveVideoExtension(file: File): string {
 }
 
 export function getVideoMetadata(file: File): Promise<VideoMetadata> {
-  return new Promise((resolve, reject) => {
+  return getVideoMetadataAndPoster(file).then((result) => result.metadata);
+}
+
+async function getVideoMetadataAndPoster(
+  file: File
+): Promise<{ metadata: VideoMetadata; posterDataUrl: string | null }> {
+  return await new Promise((resolve, reject) => {
     const video = document.createElement('video');
-    video.preload = 'metadata';
-    
-    video.onloadedmetadata = () => {
-      resolve({
+    const objectUrl = URL.createObjectURL(file);
+    let settled = false;
+
+    const cleanup = () => {
+      if (video.src) {
+        video.pause();
+        video.removeAttribute('src');
+        video.load();
+      }
+      URL.revokeObjectURL(objectUrl);
+    };
+
+    const finishResolve = (metadata: VideoMetadata, posterDataUrl: string | null) => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      cleanup();
+      resolve({ metadata, posterDataUrl });
+    };
+
+    const finishReject = (error: Error) => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      cleanup();
+      reject(error);
+    };
+
+    const capturePoster = (metadata: VideoMetadata) => {
+      try {
+        const posterDataUrl = captureVideoFrame(video, VIDEO_POSTER_MAX_DIMENSION);
+        finishResolve(metadata, posterDataUrl);
+      } catch {
+        finishResolve(metadata, null);
+      }
+    };
+
+    video.preload = 'auto';
+    video.muted = true;
+    video.playsInline = true;
+
+    video.onloadeddata = () => {
+      const metadata: VideoMetadata = {
         width: video.videoWidth,
         height: video.videoHeight,
         duration: video.duration,
-      });
-      URL.revokeObjectURL(video.src);
+      };
+
+      const targetTime =
+        Number.isFinite(video.duration) && video.duration > 0.18
+          ? Math.min(0.12, Math.max(video.duration / 10, 0.04))
+          : 0;
+
+      if (targetTime <= 0.01 || Math.abs(video.currentTime - targetTime) <= 0.01) {
+        capturePoster(metadata);
+        return;
+      }
+
+      video.onseeked = () => capturePoster(metadata);
+      try {
+        video.currentTime = targetTime;
+      } catch {
+        capturePoster(metadata);
+      }
     };
-    
+
     video.onerror = () => {
-      URL.revokeObjectURL(video.src);
-      reject(new Error('Failed to load video metadata'));
+      finishReject(new Error('Failed to load video metadata'));
     };
-    
-    video.src = URL.createObjectURL(file);
+
+    video.src = objectUrl;
   });
+}
+
+async function prepareVideoPoster(posterDataUrl: string | null): Promise<string | null> {
+  if (!posterDataUrl) {
+    return null;
+  }
+
+  const preparedPoster = await prepareNodeImage(posterDataUrl, 640);
+  return preparedPoster.previewImageUrl ?? preparedPoster.imageUrl;
 }
 
 export async function prepareNodeVideoFromFile(file: File): Promise<PreparedVideo> {
@@ -73,7 +146,8 @@ export async function prepareNodeVideoFromFile(file: File): Promise<PreparedVide
     throw new Error(`Unsupported video type: ${file.type}`);
   }
 
-  const metadata = await getVideoMetadata(file);
+  const { metadata, posterDataUrl } = await getVideoMetadataAndPoster(file);
+  const previewImageUrl = await prepareVideoPoster(posterDataUrl).catch(() => null);
   const aspectRatio = reduceAspectRatio(metadata.width, metadata.height);
 
   const tauriFilePath = (file as File & { path?: string }).path;
@@ -83,6 +157,7 @@ export async function prepareNodeVideoFromFile(file: File): Promise<PreparedVide
     const persistedVideoPath = await persistImageSource(normalizedPath);
     return {
       videoUrl: persistedVideoPath,
+      previewImageUrl,
       aspectRatio,
       duration: metadata.duration,
     };
@@ -93,6 +168,7 @@ export async function prepareNodeVideoFromFile(file: File): Promise<PreparedVide
     const persistedVideoPath = await persistImageBinary(bytes, resolveVideoExtension(file));
     return {
       videoUrl: persistedVideoPath,
+      previewImageUrl,
       aspectRatio,
       duration: metadata.duration,
     };
@@ -102,23 +178,33 @@ export async function prepareNodeVideoFromFile(file: File): Promise<PreparedVide
 
   return {
     videoUrl,
+    previewImageUrl,
     aspectRatio,
     duration: metadata.duration,
   };
 }
 
-export function captureVideoFrame(video: HTMLVideoElement): string {
+export function captureVideoFrame(
+  video: HTMLVideoElement,
+  maxDimension: number = Number.POSITIVE_INFINITY
+): string {
+  const naturalWidth = video.videoWidth;
+  const naturalHeight = video.videoHeight;
+  const scale =
+    Number.isFinite(maxDimension) && maxDimension > 0
+      ? Math.min(1, maxDimension / Math.max(naturalWidth, naturalHeight))
+      : 1;
   const canvas = document.createElement('canvas');
-  canvas.width = video.videoWidth;
-  canvas.height = video.videoHeight;
-  
+  canvas.width = Math.max(1, Math.round(naturalWidth * scale));
+  canvas.height = Math.max(1, Math.round(naturalHeight * scale));
+
   const ctx = canvas.getContext('2d');
   if (!ctx) {
     throw new Error('Failed to get canvas context');
   }
-  
+
   ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-  return canvas.toDataURL('image/png');
+  return canvas.toDataURL('image/jpeg', 0.9);
 }
 
 export function formatVideoTime(seconds: number): string {

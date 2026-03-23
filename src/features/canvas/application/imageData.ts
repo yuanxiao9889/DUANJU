@@ -47,6 +47,11 @@ export interface PreparedNodeImage {
   aspectRatio: string;
 }
 
+export interface ImagePixelDimensions {
+  width: number;
+  height: number;
+}
+
 interface ErrorWithDetails extends Error {
   details?: string;
 }
@@ -295,8 +300,16 @@ export async function prepareNodeImageFromFile(
 }
 
 export async function detectAspectRatio(imageUrl: string): Promise<string> {
+  const { width, height } = await detectImageDimensions(imageUrl);
+  return reduceAspectRatio(width, height);
+}
+
+export async function detectImageDimensions(imageUrl: string): Promise<ImagePixelDimensions> {
   const image = await loadImageElement(imageUrl);
-  return reduceAspectRatio(image.naturalWidth, image.naturalHeight);
+  return {
+    width: Math.max(1, image.naturalWidth),
+    height: Math.max(1, image.naturalHeight),
+  };
 }
 
 export function canvasToDataUrl(canvas: HTMLCanvasElement): string {

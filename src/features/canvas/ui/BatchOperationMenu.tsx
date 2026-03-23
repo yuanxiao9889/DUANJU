@@ -1,10 +1,10 @@
-import { useEffect, useRef, useState, useMemo, useCallback } from 'react';
+import { useEffect, useMemo, useRef, useState, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Image, Upload, Sparkles, LayoutGrid, Type, X, Video } from 'lucide-react';
-import { UI_POPOVER_TRANSITION_MS } from '@/components/ui/motion';
+import { Image, LayoutGrid, Sparkles, Type, Upload, Video, X } from 'lucide-react';
 
-import type { CanvasNodeType } from '@/features/canvas/domain/canvasNodes';
+import { UI_POPOVER_TRANSITION_MS } from '@/components/ui/motion';
 import { nodeCatalog } from '@/features/canvas/application/nodeCatalog';
+import { CANVAS_NODE_TYPES, type CanvasNodeType } from '@/features/canvas/domain/canvasNodes';
 import type { MenuIconKey } from '@/features/canvas/domain/nodeRegistry';
 
 interface BatchOperationMenuProps {
@@ -23,6 +23,15 @@ const iconMap: Record<MenuIconKey, typeof Upload> = {
   video: Video,
 };
 
+const sourceTypeLabelKeyMap: Partial<Record<CanvasNodeType, string>> = {
+  [CANVAS_NODE_TYPES.upload]: 'node.menu.uploadImage',
+  [CANVAS_NODE_TYPES.imageEdit]: 'node.menu.aiImageGeneration',
+  [CANVAS_NODE_TYPES.storyboardGen]: 'node.menu.storyboardGen',
+  [CANVAS_NODE_TYPES.storyboardSplit]: 'node.menu.storyboard',
+  [CANVAS_NODE_TYPES.textAnnotation]: 'node.menu.textAnnotation',
+  [CANVAS_NODE_TYPES.video]: 'node.menu.videoNode',
+};
+
 export function BatchOperationMenu({
   position,
   sourceNodeIds,
@@ -36,22 +45,21 @@ export function BatchOperationMenu({
 
   const menuItems = useMemo(() => {
     const candidates = nodeCatalog.getMenuDefinitions();
-    
     const dedupedByLabel = new Map<string, typeof candidates[number]>();
+
     for (const definition of candidates) {
       const existing = dedupedByLabel.get(definition.menuLabelKey);
-      if (!existing) {
-        dedupedByLabel.set(definition.menuLabelKey, definition);
-        continue;
-      }
-
-      if (!existing.visibleInMenu && definition.visibleInMenu) {
+      if (!existing || (!existing.visibleInMenu && definition.visibleInMenu)) {
         dedupedByLabel.set(definition.menuLabelKey, definition);
       }
     }
 
     return Array.from(dedupedByLabel.values());
   }, []);
+
+  const sourceNodeLabel = t(
+    sourceTypeLabelKeyMap[sourceNodeType as CanvasNodeType] ?? 'canvas.batchMenu.node'
+  );
 
   useEffect(() => {
     requestAnimationFrame(() => {
@@ -65,14 +73,14 @@ export function BatchOperationMenu({
   }, [onClose]);
 
   useEffect(() => {
-    const handleClickOutside = (e: Event) => {
-      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
+    const handleClickOutside = (event: Event) => {
+      if (menuRef.current && !menuRef.current.contains(event.target as Node)) {
         handleClose();
       }
     };
 
-    const handleEscape = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
+    const handleEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
         handleClose();
       }
     };
@@ -86,10 +94,6 @@ export function BatchOperationMenu({
     };
   }, [handleClose]);
 
-  const nodeTypeLabel = sourceNodeType === 'imageNode' ? '图片' 
-    : sourceNodeType === 'textNode' ? '文本' 
-    : '节点';
-
   return (
     <div
       ref={menuRef}
@@ -102,9 +106,13 @@ export function BatchOperationMenu({
     >
       <div className="flex items-center justify-between border-b border-border-dark px-4 py-3">
         <span className="text-xs text-text-muted">
-          引用选中的 {sourceNodeIds.length} 个{nodeTypeLabel}节点生成
+          {t('canvas.batchMenu.referenceSelected', {
+            count: sourceNodeIds.length,
+            type: sourceNodeLabel,
+          })}
         </span>
         <button
+          type="button"
           onClick={handleClose}
           className="rounded p-1 text-text-muted hover:bg-bg-dark"
         >
@@ -115,9 +123,11 @@ export function BatchOperationMenu({
       <div className="py-1">
         {menuItems.map((item, index) => {
           const Icon = iconMap[item.menuIcon] ?? Image;
+
           return (
             <button
               key={item.type}
+              type="button"
               className="flex w-full items-center gap-3 px-4 py-3 text-left transition-colors hover:bg-bg-dark"
               style={{ transitionDelay: isVisible ? `${index * 30}ms` : '0ms' }}
               onClick={() => {

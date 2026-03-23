@@ -13,7 +13,11 @@ import {
   normalizeShortcut,
 } from '@/features/settings/keyboardShortcuts';
 import { DEFAULT_IMAGE_MODEL_ID, getImageModel } from '@/features/canvas/models';
-import { IMAGE_SIZES, type ImageSize } from '@/features/canvas/domain/canvasNodes';
+import {
+  AUTO_REQUEST_ASPECT_RATIO,
+  IMAGE_SIZES,
+  type ImageSize,
+} from '@/features/canvas/domain/canvasNodes';
 
 export type UiRadiusPreset = 'compact' | 'default' | 'large';
 export type ThemeTonePreset = 'neutral' | 'warm' | 'cool';
@@ -36,6 +40,7 @@ interface SettingsState {
   storyboardModelOverrides: Record<string, string>;
   lastImageEditModelId: string;
   lastImageEditSize: ImageSize;
+  lastImageEditRequestAspectRatio: string;
   hrsaiNanoBananaProModel: string;
   alibabaTextModel: string;
   codingModel: string;
@@ -72,7 +77,11 @@ interface SettingsState {
   setScriptProviderEnabled: (providerId: string) => void;
   setScriptModelOverride: (providerId: string, model: string) => void;
   setStoryboardModelOverride: (providerId: string, model: string) => void;
-  setLastImageEditDefaults: (defaults: { modelId?: string; size?: ImageSize | string }) => void;
+  setLastImageEditDefaults: (defaults: {
+    modelId?: string;
+    size?: ImageSize | string;
+    requestAspectRatio?: string;
+  }) => void;
   setGrsaiNanoBananaProModel: (model: string) => void;
   setAlibabaTextModel: (model: string) => void;
   setCodingModel: (model: string) => void;
@@ -171,6 +180,11 @@ function normalizeImageEditSize(input: ImageSize | string | null | undefined): I
   return IMAGE_SIZES.includes(input as ImageSize) ? (input as ImageSize) : '2K';
 }
 
+function normalizeImageEditRequestAspectRatio(input: string | null | undefined): string {
+  const trimmed = (input ?? '').trim();
+  return trimmed.length > 0 ? trimmed : AUTO_REQUEST_ASPECT_RATIO;
+}
+
 function normalizeCanvasEdgeRoutingMode(
   input: CanvasEdgeRoutingMode | string | null | undefined
 ): CanvasEdgeRoutingMode {
@@ -245,6 +259,7 @@ export const useSettingsStore = create<SettingsState>()(
       storyboardModelOverrides: {},
       lastImageEditModelId: DEFAULT_IMAGE_MODEL_ID,
       lastImageEditSize: '2K',
+      lastImageEditRequestAspectRatio: AUTO_REQUEST_ASPECT_RATIO,
       hrsaiNanoBananaProModel: DEFAULT_GRSAI_NANO_BANANA_PRO_MODEL,
       alibabaTextModel: DEFAULT_ALIBABA_TEXT_MODEL,
       codingModel: DEFAULT_CODING_MODEL,
@@ -293,12 +308,15 @@ export const useSettingsStore = create<SettingsState>()(
         set((state) => ({
           storyboardModelOverrides: { ...state.storyboardModelOverrides, [providerId]: model },
         })),
-      setLastImageEditDefaults: ({ modelId, size }) =>
+      setLastImageEditDefaults: ({ modelId, size, requestAspectRatio }) =>
         set((state) => ({
           lastImageEditModelId: normalizeImageEditModelId(
             modelId ?? state.lastImageEditModelId
           ),
           lastImageEditSize: normalizeImageEditSize(size ?? state.lastImageEditSize),
+          lastImageEditRequestAspectRatio: normalizeImageEditRequestAspectRatio(
+            requestAspectRatio ?? state.lastImageEditRequestAspectRatio
+          ),
         })),
       setGrsaiNanoBananaProModel: (model) =>
         set({
@@ -376,7 +394,7 @@ export const useSettingsStore = create<SettingsState>()(
     }),
     {
       name: 'settings-storage',
-      version: 16,
+      version: 17,
       onRehydrateStorage: () => {
         return (state, error) => {
           if (error) {
@@ -396,6 +414,7 @@ export const useSettingsStore = create<SettingsState>()(
           hideProviderGuidePopover?: boolean;
           lastImageEditModelId?: string;
           lastImageEditSize?: ImageSize | string;
+          lastImageEditRequestAspectRatio?: string;
           canvasEdgeRoutingMode?: CanvasEdgeRoutingMode | string;
           autoCheckAppUpdateOnLaunch?: boolean;
           enableUpdateDialog?: boolean;
@@ -434,6 +453,9 @@ export const useSettingsStore = create<SettingsState>()(
           scriptProviderEnabled: normalizedScriptProviderEnabled,
           lastImageEditModelId: normalizeImageEditModelId(state.lastImageEditModelId),
           lastImageEditSize: normalizeImageEditSize(state.lastImageEditSize),
+          lastImageEditRequestAspectRatio: normalizeImageEditRequestAspectRatio(
+            state.lastImageEditRequestAspectRatio
+          ),
           ignoreAtTagWhenCopyingAndGenerating,
           grsaiNanoBananaProModel: normalizeGrsaiNanoBananaProModel(
             state.grsaiNanoBananaProModel

@@ -387,6 +387,7 @@ pub async fn submit_generate_image_job(
 pub async fn get_generate_image_job(
     app: AppHandle,
     job_id: String,
+    force_refresh: Option<bool>,
 ) -> Result<GenerationJobStatusDto, String> {
     let maybe_record = get_generation_job(&app, job_id.as_str())?;
     let Some(mut record) = maybe_record else {
@@ -398,7 +399,11 @@ pub async fn get_generate_image_job(
         });
     };
 
-    if record.status == "succeeded" || record.status == "failed" {
+    let force_refresh = force_refresh.unwrap_or(false);
+    let can_refresh_terminal_record =
+        force_refresh && record.resumable && record.external_task_id.is_some();
+
+    if (record.status == "succeeded" || record.status == "failed") && !can_refresh_terminal_record {
         return Ok(dto_from_record(&record));
     }
 
