@@ -251,6 +251,7 @@ export const ImageEditNode = memo(({ id, data, selected, width, height }: ImageE
   const addEdge = useCanvasStore((state) => state.addEdge);
   const apiKeys = useSettingsStore((state) => state.apiKeys);
   const hrsaiNanoBananaProModel = useSettingsStore((state) => state.hrsaiNanoBananaProModel);
+  const setLastImageEditDefaults = useSettingsStore((state) => state.setLastImageEditDefaults);
   const showNodePrice = useSettingsStore((state) => state.showNodePrice);
   const priceDisplayCurrencyMode = useSettingsStore((state) => state.priceDisplayCurrencyMode);
   const usdToCnyRate = useSettingsStore((state) => state.usdToCnyRate);
@@ -709,6 +710,44 @@ export const ImageEditNode = memo(({ id, data, selected, width, height }: ImageE
     }
   };
 
+  const handleModelChange = useCallback((modelId: string) => {
+    const nextModel = getImageModel(modelId);
+    const nextExtraParams = {
+      ...(data.extraParams ?? {}),
+      ...(nextModel.id === GRSAI_NANO_BANANA_PRO_MODEL_ID
+        ? { grsai_pro_model: hrsaiNanoBananaProModel }
+        : {}),
+    };
+    const nextResolution = resolveImageModelResolution(nextModel, data.size, {
+      extraParams: nextExtraParams,
+    });
+
+    updateNodeData(id, {
+      model: nextModel.id,
+      size: nextResolution.value as ImageSize,
+    });
+    setLastImageEditDefaults({
+      modelId: nextModel.id,
+      size: nextResolution.value as ImageSize,
+    });
+  }, [
+    data.extraParams,
+    data.size,
+    hrsaiNanoBananaProModel,
+    id,
+    setLastImageEditDefaults,
+    updateNodeData,
+  ]);
+
+  const handleResolutionChange = useCallback((resolution: string) => {
+    const normalizedResolution = resolution as ImageSize;
+    updateNodeData(id, { size: normalizedResolution });
+    setLastImageEditDefaults({
+      modelId: selectedModel.id,
+      size: normalizedResolution,
+    });
+  }, [id, selectedModel.id, setLastImageEditDefaults, updateNodeData]);
+
   return (
     <div
       ref={rootRef}
@@ -816,13 +855,8 @@ export const ImageEditNode = memo(({ id, data, selected, width, height }: ImageE
           selectedResolution={selectedResolution}
           selectedAspectRatio={selectedAspectRatio}
           aspectRatioOptions={aspectRatioOptions}
-          onModelChange={(modelId) => {
-            updateNodeData(id, { model: modelId });
-          }}
-          onResolutionChange={(resolution) => {
-            updateNodeData(id, { size: resolution as ImageSize });
-          }
-          }
+          onModelChange={handleModelChange}
+          onResolutionChange={handleResolutionChange}
           onAspectRatioChange={(aspectRatio) => {
             updateNodeData(id, { requestAspectRatio: aspectRatio });
           }

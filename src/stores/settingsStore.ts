@@ -12,6 +12,8 @@ import {
   DEFAULT_GROUP_NODES_SHORTCUT,
   normalizeShortcut,
 } from '@/features/settings/keyboardShortcuts';
+import { DEFAULT_IMAGE_MODEL_ID, getImageModel } from '@/features/canvas/models';
+import { IMAGE_SIZES, type ImageSize } from '@/features/canvas/domain/canvasNodes';
 
 export type UiRadiusPreset = 'compact' | 'default' | 'large';
 export type ThemeTonePreset = 'neutral' | 'warm' | 'cool';
@@ -32,6 +34,8 @@ interface SettingsState {
   scriptProviderEnabled: string;
   scriptModelOverrides: Record<string, string>;
   storyboardModelOverrides: Record<string, string>;
+  lastImageEditModelId: string;
+  lastImageEditSize: ImageSize;
   hrsaiNanoBananaProModel: string;
   alibabaTextModel: string;
   codingModel: string;
@@ -68,6 +72,7 @@ interface SettingsState {
   setScriptProviderEnabled: (providerId: string) => void;
   setScriptModelOverride: (providerId: string, model: string) => void;
   setStoryboardModelOverride: (providerId: string, model: string) => void;
+  setLastImageEditDefaults: (defaults: { modelId?: string; size?: ImageSize | string }) => void;
   setGrsaiNanoBananaProModel: (model: string) => void;
   setAlibabaTextModel: (model: string) => void;
   setCodingModel: (model: string) => void;
@@ -158,6 +163,14 @@ function normalizeGrsaiNanoBananaProModel(input: string | null | undefined): str
   return DEFAULT_GRSAI_NANO_BANANA_PRO_MODEL;
 }
 
+function normalizeImageEditModelId(input: string | null | undefined): string {
+  return getImageModel((input ?? '').trim()).id;
+}
+
+function normalizeImageEditSize(input: ImageSize | string | null | undefined): ImageSize {
+  return IMAGE_SIZES.includes(input as ImageSize) ? (input as ImageSize) : '2K';
+}
+
 function normalizeCanvasEdgeRoutingMode(
   input: CanvasEdgeRoutingMode | string | null | undefined
 ): CanvasEdgeRoutingMode {
@@ -230,6 +243,8 @@ export const useSettingsStore = create<SettingsState>()(
       scriptProviderEnabled: 'alibaba',
       scriptModelOverrides: {},
       storyboardModelOverrides: {},
+      lastImageEditModelId: DEFAULT_IMAGE_MODEL_ID,
+      lastImageEditSize: '2K',
       hrsaiNanoBananaProModel: DEFAULT_GRSAI_NANO_BANANA_PRO_MODEL,
       alibabaTextModel: DEFAULT_ALIBABA_TEXT_MODEL,
       codingModel: DEFAULT_CODING_MODEL,
@@ -277,6 +292,13 @@ export const useSettingsStore = create<SettingsState>()(
       setStoryboardModelOverride: (providerId, model) =>
         set((state) => ({
           storyboardModelOverrides: { ...state.storyboardModelOverrides, [providerId]: model },
+        })),
+      setLastImageEditDefaults: ({ modelId, size }) =>
+        set((state) => ({
+          lastImageEditModelId: normalizeImageEditModelId(
+            modelId ?? state.lastImageEditModelId
+          ),
+          lastImageEditSize: normalizeImageEditSize(size ?? state.lastImageEditSize),
         })),
       setGrsaiNanoBananaProModel: (model) =>
         set({
@@ -354,7 +376,7 @@ export const useSettingsStore = create<SettingsState>()(
     }),
     {
       name: 'settings-storage',
-      version: 15,
+      version: 16,
       onRehydrateStorage: () => {
         return (state, error) => {
           if (error) {
@@ -372,6 +394,8 @@ export const useSettingsStore = create<SettingsState>()(
           ignoreAtTagWhenCopyingAndGenerating?: boolean;
           grsaiNanoBananaProModel?: string;
           hideProviderGuidePopover?: boolean;
+          lastImageEditModelId?: string;
+          lastImageEditSize?: ImageSize | string;
           canvasEdgeRoutingMode?: CanvasEdgeRoutingMode | string;
           autoCheckAppUpdateOnLaunch?: boolean;
           enableUpdateDialog?: boolean;
@@ -408,6 +432,8 @@ export const useSettingsStore = create<SettingsState>()(
           isHydrated: true,
           apiKeys: fallbackApiKeys,
           scriptProviderEnabled: normalizedScriptProviderEnabled,
+          lastImageEditModelId: normalizeImageEditModelId(state.lastImageEditModelId),
+          lastImageEditSize: normalizeImageEditSize(state.lastImageEditSize),
           ignoreAtTagWhenCopyingAndGenerating,
           grsaiNanoBananaProModel: normalizeGrsaiNanoBananaProModel(
             state.grsaiNanoBananaProModel

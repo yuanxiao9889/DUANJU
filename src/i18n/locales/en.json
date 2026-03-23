@@ -48,6 +48,11 @@
     "collapseSidebar": "Collapse groups sidebar",
     "groupSelected": "Group {{count}} nodes"
   },
+  "selection": {
+    "exportSelected": "Export {{count}} images",
+    "exportFolderPickerTitle": "Choose export location",
+    "exportFailed": "Failed to export selected images"
+  },
   "tool": {
     "crop": "Crop",
     "annotate": "Annotate",
@@ -128,7 +133,8 @@
       "waitingResult": "Waiting for output image",
       "waitingResultDelayed": "Already waited {{minutes}} minutes with no result yet. Still waiting...",
       "selectToEdit": "Select this node and enter a prompt below to generate or edit image",
-      "generationFailed": "Generation failed"
+      "generationFailed": "Generation failed",
+      "manualRefresh": "Fetch Again"
     },
     "imageEdit": {
       "promptRequired": "Please enter a prompt",
@@ -395,7 +401,49 @@
     "psPortAutoAdjusted": "Preferred port {{requested}} was occupied, so the app switched to {{actual}} automatically",
     "psServerNotRunning": "Not running",
     "aboutPsPortTitle": "Photoshop Integration Port",
-    "aboutPsPortDesc": "Shows the actual port currently used by the app so you can keep the plugin panel in sync."
+    "aboutPsPortDesc": "Shows the actual port currently used by the app so you can keep the plugin panel in sync.",
+    "releaseNotes": "Release Notes",
+    "releaseNotesDesc": "Review what changed in each version. Starting from 0.1.16, new releases will be tracked here.",
+    "releaseNotesEmpty": "No release notes yet",
+    "releaseDate": "Release date",
+    "releaseSectionAdded": "Added",
+    "releaseSectionOptimized": "Improved",
+    "releaseSectionFixed": "Fixed",
+    "currentVersionBadge": "Current version",
+    "releaseNotesEntries": {
+      "v0_1_17": {
+        "added": {
+          "batchImageExport": "Selected images on the canvas can now be exported in batches into a timestamped folder, both inside and outside groups."
+        },
+        "optimized": {
+          "imageEditDefaults": "AI image nodes now remember the last selected provider and size when creating new nodes.",
+          "generatedNodeSpacing": "Generated AI image result nodes now stack more compactly to reduce empty canvas space.",
+          "groupOverlayExport": "Multi-selection overlays inside groups now position correctly, keeping batch export consistent with selections outside groups."
+        },
+        "fixed": {
+          "parallelImageBranches": "Fixed the issue where consecutive AI image nodes dragged from the same image were chained instead of created as parallel branches.",
+          "manualImageRefresh": "Fixed interrupted AI image result retrieval after long waits or app restarts, and added a manual refresh action.",
+          "videoPersistence": "Fixed the issue where video nodes could not be reopened after restarting the app."
+        }
+      },
+      "v0_1_16": {
+        "added": {
+          "groupShortcut": "Added customizable group shortcut settings in Settings.",
+          "groupSidebar": "Added a groups sidebar for quickly locating groups on the canvas.",
+          "releaseNotes": "Added a release notes section in Settings to keep tracking version changes."
+        },
+        "optimized": {
+          "generatedNodeLayout": "AI image generation nodes and split result nodes now align into cleaner columns.",
+          "groupAutoArrange": "Groups can now be manually auto-arranged from left to right based on flow direction.",
+          "dragIntoGroup": "Nodes can now be dragged directly into a group area and become part of that group.",
+          "spacePanWhileConnecting": "While dragging a connection, holding Space now pans the canvas so you can reach distant nodes."
+        },
+        "fixed": {
+          "groupSidebarReopen": "Fixed the issue where the groups sidebar could not be reopened after collapsing.",
+          "groupAltDuplicate": "Fixed Alt-drag duplication for nodes inside groups."
+        }
+      }
+    }
   },
   "pricing": {
     "nativePrice": "Native: {{value}}",

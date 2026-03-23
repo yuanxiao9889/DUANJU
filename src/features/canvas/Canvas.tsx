@@ -21,6 +21,8 @@ import {
   type OnConnectStartParams,
   type Viewport,
 } from '@xyflow/react';
+import { join } from '@tauri-apps/api/path';
+import { open } from '@tauri-apps/plugin-dialog';
 import { useTranslation } from 'react-i18next';
 import { Upload, Grid3x3, Map as MapIcon, Plus, Minus, AlignCenter } from 'lucide-react';
 import '@xyflow/react/dist/style.css';
@@ -37,6 +39,7 @@ import {
   type CanvasNodeData,
   type ScriptChapterNodeData,
   DEFAULT_NODE_WIDTH,
+  getNodePrimaryImageSource,
 } from '@/features/canvas/domain/canvasNodes';
 import { prepareNodeImage, prepareNodeImageFromFile } from '@/features/canvas/application/imageData';
 import { prepareNodeVideoFromFile } from '@/features/canvas/application/videoData';
@@ -44,7 +47,7 @@ import {
   buildGenerationErrorReport,
   CURRENT_RUNTIME_SESSION_ID,
 } from '@/features/canvas/application/generationErrorReport';
-import { showErrorDialog } from '@/features/canvas/application/errorDialog';
+import { resolveErrorContent, showErrorDialog } from '@/features/canvas/application/errorDialog';
 import {
   getConnectMenuNodeTypes,
   nodeHasSourceHandle,
@@ -55,7 +58,8 @@ import {
   calculateBranchNodePosition,
   DEFAULT_LAYOUT_CONFIG,
 } from '@/features/canvas/application/mindMapLayout';
-import { embedStoryboardImageMetadata } from '@/commands/image';
+import { embedStoryboardImageMetadata, saveImageSourceToDirectory } from '@/commands/image';
+import { resolveNodeDisplayName } from '@/features/canvas/domain/nodeDisplay';
 import { listModelProviders } from '@/features/canvas/models';
 import { nodeTypes } from './nodes';
 import { edgeTypes } from './edges';
@@ -123,6 +127,40 @@ interface GenerationStoryboardMetadata {
   gridRows: number;
   gridCols: number;
   frameNotes: string[];
+}
+
+function padTimestampSegment(value: number): string {
+  return String(value).padStart(2, '0');
+}
+
+function buildTimestampFolderName(date = new Date()): string {
+  return `${date.getFullYear()}${padTimestampSegment(date.getMonth() + 1)}${padTimestampSegment(date.getDate())}-${padTimestampSegment(date.getHours())}${padTimestampSegment(date.getMinutes())}${padTimestampSegment(date.getSeconds())}`;
+}
+
+function normalizeDialogDirectoryPath(value: string | string[] | null): string | null {
+  if (typeof value === 'string' && value.trim().length > 0) {
+    return value;
+  }
+
+  if (Array.isArray(value)) {
+    const [firstValue] = value;
+    return typeof firstValue === 'string' && firstValue.trim().length > 0 ? firstValue : null;
+  }
+
+  return null;
+}
+
+function resolveSelectedImageSuggestedFileName(node: CanvasNode, index: number): string {
+  const sourceFileName =
+    'sourceFileName' in node.data && typeof node.data.sourceFileName === 'string'
+      ? node.data.sourceFileName.trim()
+      : '';
+  if (sourceFileName) {
+    return sourceFileName;
+  }
+
+  const displayName = resolveNodeDisplayName(node.type, node.data).trim();
+  return displayName || `image-${index + 1}`;
 }
 
 function getNodeSize(node: CanvasNode): { width: number; height: number } {
@@ -309,6 +347,11 @@ function canNodeTypeBeManualConnectionSource(type: CanvasNodeType): boolean {
   return nodeHasSourceHandle(type);
 }
 
+function shouldInsertIntoLinearOutgoingFlow(node: CanvasNode | undefined): boolean {
+  return node?.type === CANVAS_NODE_TYPES.scriptRoot
+    || node?.type === CANVAS_NODE_TYPES.scriptChapter;
+}
+
 function canNodeBeManualConnectionSource(nodeId: string | null | undefined, nodes: CanvasNode[]): boolean {
   if (!nodeId) {
     return false;
@@ -368,6 +411,7 @@ export function Canvas() {
   const [branchConnectionSource, setBranchConnectionSource] = useState<CanvasNode[]>([]);
   const [branchConnectionPosition, setBranchConnectionPosition] = useState<{ x: number; y: number } | null>(null);
   const [showBatchMenu, setShowBatchMenu] = useState(false);
+  const [isExportingSelectedImages, setIsExportingSelectedImages] = useState(false);
   const [batchMenuPosition, setBatchMenuPosition] = useState({ x: 0, y: 0 });
   const [menuPosition, setMenuPosition] = useState({ x: 0, y: 0 });
   const [flowPosition, setFlowPosition] = useState({ x: 0, y: 0 });
@@ -1586,29 +1630,40 @@ export function Canvas() {
       const newNodeId = addNode(type, nodePosition, nodeData);
       if (pendingConnectStart) {
         if (pendingConnectStart.handleType === 'source') {
-          const existingOutgoingEdges = edges.filter(
-            (e) => e.source === pendingConnectStart.nodeId && e.sourceHandle === 'source'
-          );
-          
-          existingOutgoingEdges.forEach((edge) => {
-            deleteEdge(edge.id);
-          });
-          
-          connectNodes({
-            source: pendingConnectStart.nodeId,
-            target: newNodeId,
-            sourceHandle: 'source',
-            targetHandle: 'target',
-          });
-          
-          existingOutgoingEdges.forEach((edge) => {
-            connectNodes({
-              source: newNodeId,
-              target: edge.target,
-              sourceHandle: 'source',
-              targetHandle: edge.targetHandle ?? 'target',
+          const sourceNode = nodes.find((node) => node.id === pendingConnectStart.nodeId);
+
+          if (shouldInsertIntoLinearOutgoingFlow(sourceNode)) {
+            const existingOutgoingEdges = edges.filter(
+              (e) => e.source === pendingConnectStart.nodeId && e.sourceHandle === 'source'
+            );
+
+            existingOutgoingEdges.forEach((edge) => {
+              deleteEdge(edge.id);
             });
-          });
+
+            connectNodes({
+              source: pendingConnectStart.nodeId,
+              target: newNodeId,
+              sourceHandle: 'source',
+              targetHandle: 'target',
+            });
+
+            existingOutgoingEdges.forEach((edge) => {
+              connectNodes({
+                source: newNodeId,
+                target: edge.target,
+                sourceHandle: 'source',
+                targetHandle: edge.targetHandle ?? 'target',
+              });
+            });
+          } else {
+            connectNodes({
+              source: pendingConnectStart.nodeId,
+              target: newNodeId,
+              sourceHandle: 'source',
+              targetHandle: 'target',
+            });
+          }
         } else {
           const existingIncomingEdges = edges.filter(
             (e) => e.target === pendingConnectStart.nodeId
@@ -2458,7 +2513,34 @@ export function Canvas() {
     [configuredApiKeyCount, t]
   );
 
-  const selectedNodes = useMemo(() => nodes.filter(n => n.selected), [nodes]);
+  const selectedNodes = useMemo<CanvasNode[]>(
+    () => nodes.filter((node) => node.selected),
+    [nodes]
+  );
+  const selectedNodesForOverlay = useMemo<CanvasNode[]>(() => {
+    const nodeMap = new globalThis.Map(nodes.map((node) => [node.id, node] as const));
+    return selectedNodes.map((node) => ({
+      ...node,
+      position: resolveAbsoluteNodePosition(node, nodeMap),
+    }));
+  }, [nodes, selectedNodes]);
+  const selectedDownloadNodes = useMemo(
+    () =>
+      selectedNodes.flatMap((node, index) => {
+        const source = getNodePrimaryImageSource(node);
+        if (!source) {
+          return [];
+        }
+
+        return [
+          {
+            source,
+            suggestedFileName: resolveSelectedImageSuggestedFileName(node, index),
+          },
+        ];
+      }),
+    [selectedNodes]
+  );
 
   const handleGroupSelectedNodes = useCallback(() => {
     if (selectedNodeIds.length < 2) {
@@ -2470,6 +2552,36 @@ export function Canvas() {
       scheduleCanvasPersist(0);
     }
   }, [groupNodes, scheduleCanvasPersist, selectedNodeIds]);
+
+  const handleExportSelectedImages = useCallback(async () => {
+    if (selectedDownloadNodes.length < 2 || isExportingSelectedImages) {
+      return;
+    }
+
+    setIsExportingSelectedImages(true);
+    try {
+      const baseDirectory = normalizeDialogDirectoryPath(
+        await open({
+          directory: true,
+          multiple: false,
+          title: t('selection.exportFolderPickerTitle'),
+        })
+      );
+      if (!baseDirectory) {
+        return;
+      }
+
+      const targetDirectory = await join(baseDirectory, buildTimestampFolderName());
+      for (const item of selectedDownloadNodes) {
+        await saveImageSourceToDirectory(item.source, targetDirectory, item.suggestedFileName);
+      }
+    } catch (error) {
+      const { message, details } = resolveErrorContent(error, t('selection.exportFailed'));
+      await showErrorDialog(message, t('common.error'), details);
+    } finally {
+      setIsExportingSelectedImages(false);
+    }
+  }, [isExportingSelectedImages, selectedDownloadNodes, t]);
 
   const handleLocateGroup = useCallback((groupId: string) => {
     const groupNode = nodes.find((node) => node.id === groupId && node.type === CANVAS_NODE_TYPES.group);
@@ -2590,9 +2702,12 @@ export function Canvas() {
 
         <SelectedNodeOverlay />
         <SelectionGroupBar
-          selectedNodes={selectedNodes}
+          selectedNodes={selectedNodesForOverlay}
           viewport={currentViewport}
           onGroup={handleGroupSelectedNodes}
+          downloadableCount={selectedDownloadNodes.length}
+          onExportSelected={handleExportSelectedImages}
+          isExportingSelected={isExportingSelectedImages}
         />
 
         {/* 对齐辅助线 */}
@@ -2607,7 +2722,7 @@ export function Canvas() {
       {/* 合并锚点 - 多选时显示 */}
       {selectedNodes.length >= 2 && !isDraggingBranchConnection && (
         <MergedConnectionAnchor
-          selectedNodes={selectedNodes}
+          selectedNodes={selectedNodesForOverlay}
           viewport={currentViewport}
           onMouseDown={handleMergedAnchorMouseDown}
         />

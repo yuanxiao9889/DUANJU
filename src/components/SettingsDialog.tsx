@@ -29,6 +29,11 @@ import {
   formatShortcutForDisplay,
   getShortcutFromKeyboardEvent,
 } from '@/features/settings/keyboardShortcuts';
+import {
+  RELEASE_NOTES,
+  RELEASE_NOTE_SECTION_ORDER,
+  type ReleaseNoteSectionKey,
+} from '@/features/update/releaseNotes';
 
 interface SettingsDialogProps {
   isOpen: boolean;
@@ -42,6 +47,16 @@ interface SettingsCheckboxCardProps {
   description: string;
   checked: boolean;
   onCheckedChange: (checked: boolean) => void;
+}
+
+const RELEASE_NOTE_SECTION_LABEL_KEYS: Record<ReleaseNoteSectionKey, string> = {
+  added: 'settings.releaseSectionAdded',
+  optimized: 'settings.releaseSectionOptimized',
+  fixed: 'settings.releaseSectionFixed',
+};
+
+function normalizeVersion(value: string): string {
+  return value.trim().replace(/^v/i, '');
 }
 
 const PROVIDER_REGISTER_URLS: Record<string, string> = {
@@ -241,6 +256,7 @@ export function SettingsDialog({
   const { shouldRender, isVisible } = useDialogTransition(isOpen, UI_DIALOG_TRANSITION_MS);
   const runtimePsPort = serverStatus.running ? serverStatus.port : null;
   const pluginPsPort = runtimePsPort ?? psServerPort;
+  const normalizedRuntimeVersion = useMemo(() => normalizeVersion(runtimeVersion), [runtimeVersion]);
   const psPortAutoAdjusted =
     serverStatus.running
     && serverStatus.port !== null
@@ -483,6 +499,22 @@ export function SettingsDialog({
     [localGroupNodesShortcut]
   );
 
+  const formatReleaseDate = useCallback(
+    (value: string) => {
+      const date = new Date(`${value}T00:00:00`);
+      if (Number.isNaN(date.getTime())) {
+        return value;
+      }
+
+      return new Intl.DateTimeFormat(i18n.language.startsWith('zh') ? 'zh-CN' : 'en-US', {
+        year: 'numeric',
+        month: 'long',
+        day: 'numeric',
+      }).format(date);
+    },
+    [i18n.language]
+  );
+
   const handleGroupShortcutKeyDown = useCallback(
     (event: ReactKeyboardEvent<HTMLButtonElement>) => {
       event.preventDefault();
@@ -654,6 +686,20 @@ export function SettingsDialog({
               `}
               >
                 <span className="text-sm">{t('settings.experimental')}</span>
+              </button>
+
+              <button
+                onClick={() => setActiveCategory('releaseNotes')}
+                className={`
+                w-full flex items-center gap-3 px-4 py-2.5 text-left
+                transition-colors
+                ${activeCategory === 'releaseNotes'
+                    ? 'bg-accent/10 text-text-dark border-l-2 border-accent'
+                    : 'text-text-muted hover:bg-bg-dark hover:text-text-dark'
+                  }
+              `}
+              >
+                <span className="text-sm">{t('settings.releaseNotes')}</span>
               </button>
 
               <button
@@ -1544,6 +1590,114 @@ export function SettingsDialog({
                   >
                     {t('common.save')}
                   </button>
+                </div>
+              </>
+            )}
+
+            {activeCategory === 'releaseNotes' && (
+              <>
+                <div className="border-b border-border-dark px-6 py-5">
+                  <div className="flex flex-wrap items-start justify-between gap-4">
+                    <div>
+                      <h2 className="text-lg font-semibold text-text-dark">
+                        {t('settings.releaseNotes')}
+                      </h2>
+                      <p className="mt-1 text-sm text-text-muted">
+                        {t('settings.releaseNotesDesc')}
+                      </p>
+                    </div>
+
+                    <div className="rounded-lg border border-border-dark bg-bg-dark px-3 py-2 text-right">
+                      <p className="text-[11px] uppercase tracking-[0.14em] text-text-muted">
+                        {t('settings.aboutVersionLabel')}
+                      </p>
+                      <p className="mt-1 text-sm font-medium text-text-dark">
+                        {runtimeVersion || t('settings.aboutVersionUnknown')}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="ui-scrollbar flex-1 space-y-4 overflow-y-auto p-6">
+                  {RELEASE_NOTES.length > 0 ? (
+                    RELEASE_NOTES.map((note) => {
+                      const noteSections = RELEASE_NOTE_SECTION_ORDER
+                        .map((sectionKey) => ({
+                          sectionKey,
+                          items: note.sections[sectionKey] ?? [],
+                        }))
+                        .filter(({ items }) => items.length > 0);
+                      const isCurrentVersion =
+                        normalizedRuntimeVersion.length > 0
+                        && normalizeVersion(note.version) === normalizedRuntimeVersion;
+
+                      return (
+                        <section
+                          key={note.version}
+                          className="overflow-hidden rounded-xl border border-border-dark bg-bg-dark"
+                        >
+                          <div className="flex flex-wrap items-start justify-between gap-3 border-b border-border-dark px-4 py-4">
+                            <div className="flex flex-wrap items-center gap-2">
+                              <h3 className="text-base font-semibold text-text-dark">
+                                v{note.version}
+                              </h3>
+                              {isCurrentVersion && (
+                                <span className="rounded-full border border-accent/20 bg-accent/10 px-2 py-0.5 text-[11px] font-medium text-accent">
+                                  {t('settings.currentVersionBadge')}
+                                </span>
+                              )}
+                            </div>
+
+                            <p className="text-xs text-text-muted">
+                              {t('settings.releaseDate')}: {formatReleaseDate(note.date)}
+                            </p>
+                          </div>
+
+                          <div className="space-y-4 p-4">
+                            {noteSections.map(({ sectionKey, items }) => (
+                              <div key={sectionKey} className="space-y-2">
+                                <h4 className="text-sm font-medium text-text-dark">
+                                  {t(RELEASE_NOTE_SECTION_LABEL_KEYS[sectionKey])}
+                                </h4>
+                                <ul className="space-y-2">
+                                  {items.map((itemKey) => (
+                                    <li
+                                      key={itemKey}
+                                      className="flex items-start gap-2 text-sm text-text-muted"
+                                    >
+                                      <span className="mt-[0.45rem] h-1.5 w-1.5 shrink-0 rounded-full bg-accent/80" />
+                                      <span>{t(itemKey)}</span>
+                                    </li>
+                                  ))}
+                                </ul>
+                              </div>
+                            ))}
+                          </div>
+                        </section>
+                      );
+                    })
+                  ) : (
+                    <div className="rounded-lg border border-dashed border-border-dark bg-bg-dark p-6 text-sm text-text-muted">
+                      {t('settings.releaseNotesEmpty')}
+                    </div>
+                  )}
+                </div>
+
+                <div className="flex justify-end border-t border-border-dark px-6 py-4">
+                  <div className="flex gap-2">
+                    <button
+                      onClick={onClose}
+                      className="rounded border border-border-dark px-4 py-2 text-sm font-medium text-text-dark transition-colors hover:bg-bg-dark"
+                    >
+                      {t('common.close')}
+                    </button>
+                    <button
+                      onClick={handleSave}
+                      className="rounded bg-accent px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-accent/80"
+                    >
+                      {t('common.save')}
+                    </button>
+                  </div>
                 </div>
               </>
             )}

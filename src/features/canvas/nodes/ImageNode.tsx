@@ -6,7 +6,7 @@ import {
   useViewport,
   type NodeProps,
 } from '@xyflow/react';
-import { AlertTriangle, Image as ImageIcon, Sparkles } from 'lucide-react';
+import { AlertTriangle, Image as ImageIcon, RefreshCw, Sparkles } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 
 import {
@@ -58,8 +58,14 @@ export const ImageNode = memo(({ id, data, selected, type, width, height }: Imag
     typeof (data as { generationError?: unknown }).generationError === 'string'
       ? ((data as { generationError?: string }).generationError ?? '').trim()
       : '';
+  const generationJobId =
+    typeof (data as { generationJobId?: unknown }).generationJobId === 'string'
+      ? ((data as { generationJobId?: string }).generationJobId ?? '').trim()
+      : '';
   const hasGenerationError =
     isExportResultNode && !isGenerating && !data.imageUrl && generationError.length > 0;
+  const canManualRefresh =
+    isExportResultNode && !data.imageUrl && !isGenerating && generationJobId.length > 0;
   const generationStartedAt =
     typeof data.generationStartedAt === 'number' ? data.generationStartedAt : null;
   const generationDurationMs =
@@ -147,6 +153,19 @@ export const ImageNode = memo(({ id, data, selected, type, width, height }: Imag
     return resolveImageDisplayUrl(data.imageUrl);
   }, [data.imageUrl]);
 
+  const handleManualRefresh = () => {
+    if (!canManualRefresh) {
+      return;
+    }
+
+    updateNodeData(id, {
+      isGenerating: true,
+      generationStartedAt: Date.now(),
+      generationError: null,
+      generationErrorDetails: null,
+    });
+  };
+
   return (
     <div
       className={`
@@ -213,6 +232,22 @@ export const ImageNode = memo(({ id, data, selected, type, width, height }: Imag
               className="absolute left-0 top-0 h-full bg-gradient-to-r from-[rgba(255,255,255,0.4)] to-[rgba(255,255,255,0.06)] transition-[width] duration-100 ease-linear"
               style={{ width: `${simulatedProgress * 100}%` }}
             />
+          </div>
+        )}
+
+        {canManualRefresh && (
+          <div className="absolute inset-0 flex items-center justify-center">
+            <button
+              type="button"
+              onClick={(event) => {
+                event.stopPropagation();
+                handleManualRefresh();
+              }}
+              className="inline-flex items-center gap-2 rounded-full border border-[rgba(255,255,255,0.18)] bg-bg-dark/90 px-4 py-2 text-sm font-medium text-text-dark shadow-lg transition-colors hover:border-accent/50 hover:bg-bg-dark"
+            >
+              <RefreshCw className="h-4 w-4" />
+              {t('node.imageNode.manualRefresh')}
+            </button>
           </div>
         )}
       </div>
