@@ -128,6 +128,25 @@ fn mime_type_from_extension(extension: &str) -> &'static str {
     }
 }
 
+fn extract_trimmed_string(payload: &Value, key: &str) -> Option<String> {
+    payload
+        .get(key)
+        .and_then(|value| value.as_str())
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
+}
+
+fn extract_response_error(payload: &Value) -> Option<String> {
+    let error_code = extract_trimmed_string(payload, "errorCode").filter(|code| code != "0");
+    let Some(error_code) = error_code else {
+        return None;
+    };
+
+    let error_message =
+        extract_trimmed_string(payload, "errorMessage").unwrap_or_else(|| "Unknown error".to_string());
+    Some(format!("{} (errorCode {})", error_message, error_code))
+}
+
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct EditRequestBody {
@@ -299,11 +318,23 @@ impl RunningHubProvider {
         }
 
         let response_json = response.json::<Value>().await?;
+        if let Some(error_message) = extract_response_error(&response_json) {
+            return Err(AIError::Provider(format!(
+                "RunningHub edit request error: {}",
+                error_message
+            )));
+        }
         info!("[RunningHub] Task submission response: {:?}", response_json);
         Ok(response_json)
     }
 
     async fn query_task(&self, task_id: &str) -> Result<Value, AIError> {
+        if task_id.trim().is_empty() {
+            return Err(AIError::TaskFailed(
+                "RunningHub task is missing taskId".to_string(),
+            ));
+        }
+
         let api_key = self
             .api_key
             .read()
@@ -335,6 +366,12 @@ impl RunningHubProvider {
         }
 
         let response_json = response.json::<Value>().await?;
+        if let Some(error_message) = extract_response_error(&response_json) {
+            return Err(AIError::TaskFailed(format!(
+                "RunningHub query failed: {}",
+                error_message
+            )));
+        }
         Ok(response_json)
     }
 
@@ -435,13 +472,11 @@ impl AIProvider for RunningHubProvider {
             }
         }
 
-        let task_id = response
-            .get("taskId")
-            .and_then(|v| v.as_str())
+        let task_id = extract_trimmed_string(&response, "taskId")
             .ok_or_else(|| AIError::Provider("RunningHub response missing taskId".to_string()))?;
 
         Ok(ProviderTaskSubmission::Queued(ProviderTaskHandle {
-            task_id: task_id.to_string(),
+            task_id,
             metadata: None,
         }))
     }
@@ -487,11 +522,52 @@ impl AIProvider for RunningHubProvider {
             }
         }
 
-        let task_id = response
-            .get("taskId")
-            .and_then(|v| v.as_str())
+        let task_id = extract_trimmed_string(&response, "taskId")
             .ok_or_else(|| AIError::Provider("RunningHub response missing taskId".to_string()))?;
 
-        self.poll_until_complete(task_id).await
+        self.poll_until_complete(task_id.as_str()).await
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{extract_response_error, extract_trimmed_string};
+    use serde_json::json;
+
+    #[test]
+    fn extract_trimmed_string_rejects_blank_values() {
+        let payload = json!({
+            "taskId": "   ",
+            "status": " SUCCESS ",
+        });
+
+        assert_eq!(extract_trimmed_string(&payload, "taskId"), None);
+        assert_eq!(
+            extract_trimmed_string(&payload, "status"),
+            Some("SUCCESS".to_string())
+        );
+    }
+
+    #[test]
+    fn extract_response_error_ignores_success_code() {
+        let payload = json!({
+            "errorCode": "0",
+            "errorMessage": "ok",
+        });
+
+        assert_eq!(extract_response_error(&payload), None);
+    }
+
+    #[test]
+    fn extract_response_error_formats_non_zero_error_code() {
+        let payload = json!({
+            "errorCode": "1007",
+            "errorMessage": "must not be null",
+        });
+
+        assert_eq!(
+            extract_response_error(&payload),
+            Some("must not be null (errorCode 1007)".to_string())
+        );
     }
 }
