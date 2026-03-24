@@ -23,7 +23,7 @@ const HD_RESOLUTION_OPTIONS: ResolutionOption[] = [
 export const imageModel: ImageModelDefinition = {
   id: ZHENZHEN_NANO_BANANA_HD_MODEL_ID,
   mediaType: 'image',
-  displayName: 'Nano Banana HD',
+  displayName: '香蕉Pro',
   providerId: 'zhenzhen',
   description: 'Nano Banana HD 4K高清图像生成与编辑',
   eta: '45s',

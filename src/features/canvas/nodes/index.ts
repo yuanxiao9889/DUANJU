@@ -5,6 +5,7 @@ import { ImageEditNode } from './ImageEditNode';
 import { ImageNode } from './ImageNode';
 import { StoryboardGenNode } from './StoryboardGenNode';
 import { StoryboardNode } from './StoryboardNode';
+import { StoryboardSplitResultNode } from './StoryboardSplitResultNode';
 import { TextAnnotationNode } from './TextAnnotationNode';
 import { UploadNode } from './UploadNode';
 import { VideoNode } from './VideoNode';
@@ -22,6 +23,7 @@ export const nodeTypes: NodeTypes = {
   imageNode: ImageEditNode,
   storyboardGenNode: StoryboardGenNode,
   storyboardNode: StoryboardNode,
+  storyboardSplitResultNode: StoryboardSplitResultNode,
   textAnnotationNode: TextAnnotationNode,
   uploadNode: UploadNode,
   videoNode: VideoNode,
@@ -40,6 +42,7 @@ export {
   ImageNode, 
   StoryboardGenNode, 
   StoryboardNode, 
+  StoryboardSplitResultNode,
   TextAnnotationNode, 
   UploadNode, 
   VideoNode,

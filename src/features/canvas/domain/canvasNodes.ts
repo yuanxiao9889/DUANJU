@@ -7,6 +7,7 @@ export const CANVAS_NODE_TYPES = {
   textAnnotation: 'textAnnotationNode',
   group: 'groupNode',
   storyboardSplit: 'storyboardNode',
+  storyboardSplitResult: 'storyboardSplitResultNode',
   storyboardGen: 'storyboardGenNode',
   video: 'videoNode',
   scriptRoot: 'scriptRootNode',
@@ -132,6 +133,16 @@ export interface StoryboardSplitNodeData {
   gridCols: number;
   frames: StoryboardFrameItem[];
   exportOptions?: StoryboardExportOptions;
+  [key: string]: unknown;
+}
+
+export interface StoryboardSplitResultNodeData {
+  displayName?: string;
+  aspectRatio: string;
+  frameAspectRatio?: string;
+  gridRows: number;
+  gridCols: number;
+  frames: StoryboardFrameItem[];
   [key: string]: unknown;
 }
 
@@ -270,6 +281,7 @@ export type CanvasNodeData =
   | GroupNodeData
   | ImageEditNodeData
   | StoryboardSplitNodeData
+  | StoryboardSplitResultNodeData
   | StoryboardGenNodeData
   | VideoNodeData
   | ScriptRootNodeData
@@ -349,6 +361,12 @@ export function isStoryboardSplitNode(
   node: CanvasNode | null | undefined
 ): node is Node<StoryboardSplitNodeData, typeof CANVAS_NODE_TYPES.storyboardSplit> {
   return node?.type === CANVAS_NODE_TYPES.storyboardSplit;
+}
+
+export function isStoryboardSplitResultNode(
+  node: CanvasNode | null | undefined
+): node is Node<StoryboardSplitResultNodeData, typeof CANVAS_NODE_TYPES.storyboardSplitResult> {
+  return node?.type === CANVAS_NODE_TYPES.storyboardSplitResult;
 }
 
 export function isStoryboardGenNode(

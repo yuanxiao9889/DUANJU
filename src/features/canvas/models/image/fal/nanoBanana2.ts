@@ -19,7 +19,7 @@ const FAL_NANO_BANANA_2_ASPECT_RATIOS = [
 export const imageModel: ImageModelDefinition = {
   id: FAL_NANO_BANANA_2_MODEL_ID,
   mediaType: 'image',
-  displayName: 'Nano Banana 2 (fal)',
+  displayName: '香蕉2',
   providerId: 'fal',
   description: 'fal · Nano Banana 2 图像生成与编辑',
   eta: '1min',
