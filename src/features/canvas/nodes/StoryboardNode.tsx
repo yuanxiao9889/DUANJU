@@ -37,6 +37,7 @@ import type {
 } from '@/features/canvas/domain/canvasNodes';
 import {
   CANVAS_NODE_TYPES,
+  DEFAULT_ASPECT_RATIO,
   isExportImageNode,
   isImageEditNode,
   isUploadNode,
@@ -153,6 +154,47 @@ function toCssAspectRatio(aspectRatio: string): string {
   }
 
   return `${width} / ${height}`;
+}
+
+function normalizeAspectRatioValue(aspectRatio: unknown): string | null {
+  if (typeof aspectRatio !== 'string') {
+    return null;
+  }
+
+  const trimmed = aspectRatio.trim();
+  return trimmed.length > 0 ? trimmed : null;
+}
+
+function resolveStoryboardGridAspectRatio(
+  frameAspectRatio: unknown,
+  firstFrameAspectRatio?: unknown
+): string {
+  const normalizedFrameAspectRatio = normalizeAspectRatioValue(frameAspectRatio);
+  const normalizedFirstFrameAspectRatio = normalizeAspectRatioValue(firstFrameAspectRatio);
+
+  if (
+    normalizedFrameAspectRatio
+    && normalizedFrameAspectRatio !== DEFAULT_ASPECT_RATIO
+  ) {
+    return normalizedFrameAspectRatio;
+  }
+
+  return (
+    normalizedFirstFrameAspectRatio
+    ?? normalizedFrameAspectRatio
+    ?? DEFAULT_ASPECT_RATIO
+  );
+}
+
+function resolveStoryboardFrameAspectRatio(
+  frameAspectRatio: unknown,
+  fallbackAspectRatio?: unknown
+): string {
+  return (
+    normalizeAspectRatioValue(frameAspectRatio)
+    ?? normalizeAspectRatioValue(fallbackAspectRatio)
+    ?? DEFAULT_ASPECT_RATIO
+  );
 }
 
 function createDefaultExportOptions(): StoryboardExportOptions {
@@ -364,7 +406,7 @@ interface FrameCardProps {
   nodeId: string;
   frame: StoryboardFrameItem;
   index: number;
-  frameAspectRatioCss: string;
+  fallbackFrameAspectRatio: string;
   imageFit: StoryboardExportOptions['imageFit'];
   viewerImageList: string[];
   draggedFrameId: string | null;
@@ -379,6 +421,7 @@ interface FrameCardProps {
 interface IncomingImageItem {
   imageUrl: string;
   previewImageUrl: string | null;
+  aspectRatio?: string;
   displayUrl: string;
   label: string;
 }
@@ -388,12 +431,20 @@ interface PanelAnchor {
   top: number;
 }
 
+function createStoryboardFrameId(): string {
+  if (typeof globalThis.crypto?.randomUUID === 'function') {
+    return globalThis.crypto.randomUUID();
+  }
+
+  return `storyboard-frame-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+}
+
 const FrameCard = memo(
   ({
     nodeId,
     frame,
     index,
-    frameAspectRatioCss,
+    fallbackFrameAspectRatio,
     imageFit,
     viewerImageList,
     draggedFrameId,
@@ -422,6 +473,13 @@ const FrameCard = memo(
       const picked = frame.imageUrl || frame.previewImageUrl;
       return picked ? resolveImageDisplayUrl(picked) : null;
     }, [frame.imageUrl, frame.previewImageUrl, isWhitePlaceholder]);
+    const frameAspectRatioCss = useMemo(
+      () =>
+        toCssAspectRatio(
+          resolveStoryboardFrameAspectRatio(frame.aspectRatio, fallbackFrameAspectRatio)
+        ),
+      [fallbackFrameAspectRatio, frame.aspectRatio]
+    );
 
     const dragging = draggedFrameId === frame.id;
     const asDropTarget = dropTargetFrameId === frame.id && !dragging;
@@ -578,14 +636,16 @@ export const StoryboardNode = memo(({ id, data, selected, width, height }: Story
     () => [...data.frames].sort((a, b) => a.order - b.order),
     [data.frames]
   );
+  const firstFrameAspectRatio = useMemo(
+    () =>
+      orderedFrames.find((frame) => normalizeAspectRatioValue(frame.aspectRatio))
+        ?.aspectRatio ?? null,
+    [orderedFrames]
+  );
 
   const frameAspectRatio = useMemo(() => {
-    return (
-      data.frameAspectRatio ??
-      orderedFrames.find((frame) => typeof frame.aspectRatio === 'string')?.aspectRatio ??
-      '1:1'
-    );
-  }, [data.frameAspectRatio, orderedFrames]);
+    return resolveStoryboardGridAspectRatio(data.frameAspectRatio, firstFrameAspectRatio);
+  }, [data.frameAspectRatio, firstFrameAspectRatio]);
 
   const frameAspectRatioCss = useMemo(
     () => toCssAspectRatio(frameAspectRatio),
@@ -631,7 +691,11 @@ export const StoryboardNode = memo(({ id, data, selected, width, height }: Story
       .filter((edge) => edge.target === id)
       .map((edge) => edge.source);
 
-    const dedupedByImageUrl = new Map<string, { imageUrl: string; previewImageUrl: string | null }>();
+    const dedupedByImageUrl = new Map<string, {
+      imageUrl: string;
+      previewImageUrl: string | null;
+      aspectRatio?: string;
+    }>();
     for (const sourceNodeId of sourceNodeIds) {
       const sourceNode = nodeById.get(sourceNodeId) as CanvasNode | undefined;
       if (!sourceNode) {
@@ -644,13 +708,17 @@ export const StoryboardNode = memo(({ id, data, selected, width, height }: Story
       if (!imageUrl) {
         continue;
       }
-      if (!dedupedByImageUrl.has(imageUrl)) {
-        dedupedByImageUrl.set(imageUrl, {
-          imageUrl,
-          previewImageUrl: sourceNode.data.previewImageUrl ?? null,
-        });
+        if (!dedupedByImageUrl.has(imageUrl)) {
+          dedupedByImageUrl.set(imageUrl, {
+            imageUrl,
+            previewImageUrl: sourceNode.data.previewImageUrl ?? null,
+            aspectRatio:
+              typeof sourceNode.data.aspectRatio === 'string'
+                ? sourceNode.data.aspectRatio
+                : undefined,
+          });
+        }
       }
-    }
 
     return Array.from(dedupedByImageUrl.values());
   }, [edges, id, nodes]);
@@ -660,6 +728,7 @@ export const StoryboardNode = memo(({ id, data, selected, width, height }: Story
       incomingImageRefs.map((item, index) => ({
         imageUrl: item.imageUrl,
         previewImageUrl: item.previewImageUrl,
+        aspectRatio: item.aspectRatio,
         displayUrl: resolveImageDisplayUrl(item.previewImageUrl || item.imageUrl),
         label: `图${index + 1}`,
       })),
@@ -679,6 +748,103 @@ export const StoryboardNode = memo(({ id, data, selected, width, height }: Story
     () => incomingImageItems.map((item) => resolveImageDisplayUrl(item.imageUrl)),
     [incomingImageItems]
   );
+
+  useEffect(() => {
+    if (!firstFrameAspectRatio) {
+      return;
+    }
+
+    const nextFrameAspectRatio = resolveStoryboardGridAspectRatio(
+      data.frameAspectRatio,
+      firstFrameAspectRatio
+    );
+    const normalizedAspectRatio = normalizeAspectRatioValue(data.aspectRatio);
+    const normalizedFrameAspectRatio = normalizeAspectRatioValue(data.frameAspectRatio);
+
+    if (
+      normalizedFrameAspectRatio === nextFrameAspectRatio
+      && normalizedAspectRatio === nextFrameAspectRatio
+    ) {
+      return;
+    }
+
+    updateNodeData(id, {
+      frameAspectRatio: nextFrameAspectRatio,
+      aspectRatio: nextFrameAspectRatio,
+    });
+  }, [
+    data.aspectRatio,
+    data.frameAspectRatio,
+    firstFrameAspectRatio,
+    id,
+    updateNodeData,
+  ]);
+
+  useEffect(() => {
+    if (incomingImageItems.length === 0) {
+      return;
+    }
+
+    const existingImageKeys = new Set(
+      orderedFrames.flatMap((frame) => {
+        const keys: string[] = [];
+        if (typeof frame.imageUrl === 'string' && frame.imageUrl.trim()) {
+          keys.push(frame.imageUrl);
+        }
+        if (typeof frame.previewImageUrl === 'string' && frame.previewImageUrl.trim()) {
+          keys.push(frame.previewImageUrl);
+        }
+        return keys;
+      })
+    );
+
+    const appendedFrames = incomingImageItems
+      .filter((item) => {
+        if (existingImageKeys.has(item.imageUrl)) {
+          return false;
+        }
+        if (item.previewImageUrl && existingImageKeys.has(item.previewImageUrl)) {
+          return false;
+        }
+        return true;
+      })
+      .map((item, index) => ({
+        id: createStoryboardFrameId(),
+        imageUrl: item.imageUrl,
+        previewImageUrl: item.previewImageUrl ?? item.imageUrl,
+        aspectRatio: item.aspectRatio ?? frameAspectRatio,
+        note: '',
+        order: orderedFrames.length + index,
+      }));
+
+    if (appendedFrames.length === 0) {
+      return;
+    }
+
+    const nextFrames = [...orderedFrames, ...appendedFrames];
+    const nextGridCols = Math.max(1, Math.min(Math.max(1, gridCols), nextFrames.length));
+    const nextGridRows = Math.max(1, Math.ceil(nextFrames.length / nextGridCols));
+    const nextFrameAspectRatio = resolveStoryboardGridAspectRatio(
+      data.frameAspectRatio,
+      nextFrames.find((frame) => normalizeAspectRatioValue(frame.aspectRatio))?.aspectRatio
+    );
+
+    updateNodeData(id, {
+      frames: nextFrames,
+      gridRows: nextGridRows,
+      gridCols: nextGridCols,
+      frameAspectRatio: nextFrameAspectRatio,
+      aspectRatio: nextFrameAspectRatio,
+    });
+  }, [
+    data.frameAspectRatio,
+    frameAspectRatio,
+    gridCols,
+    id,
+    incomingImageItems,
+    orderedFrames,
+    updateNodeData,
+  ]);
 
   useEffect(() => {
     const handleOutsidePointerDown = (event: PointerEvent) => {
@@ -1149,10 +1315,11 @@ export const StoryboardNode = memo(({ id, data, selected, width, height }: Story
       updateStoryboardFrame(id, frameId, {
         imageUrl: matched?.imageUrl ?? imageUrl,
         previewImageUrl: matched?.previewImageUrl ?? matched?.imageUrl ?? imageUrl,
+        aspectRatio: matched?.aspectRatio ?? frameAspectRatio,
       });
       setPickerState(null);
     },
-    [id, incomingImageItems, updateStoryboardFrame]
+    [frameAspectRatio, id, incomingImageItems, updateStoryboardFrame]
   );
 
   const handleGridRowsChange = useCallback((delta: number) => {
@@ -1229,7 +1396,7 @@ export const StoryboardNode = memo(({ id, data, selected, width, height }: Story
               nodeId={id}
               frame={frame}
               index={index}
-              frameAspectRatioCss={frameAspectRatioCss}
+              fallbackFrameAspectRatio={frameAspectRatio}
               imageFit={exportOptions.imageFit}
               viewerImageList={frameViewerImageList}
               draggedFrameId={draggedFrameId}

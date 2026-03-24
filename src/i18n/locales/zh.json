@@ -115,7 +115,9 @@
     "menu": {
       "uploadImage": "上传图片",
       "aiImageGeneration": "AI 图片",
-      "storyboard": "分镜节点",
+      "storyboard": "分镜组合",
+      "storyboardCompose": "分镜组合",
+      "storyboardSplitResult": "切割结果",
       "storyboardGen": "分镜生成",
       "textAnnotation": "文本注释",
       "videoNode": "视频节点",
@@ -162,7 +164,7 @@
       "hint": "点击或拖拽上传图片"
     },
     "storyboardNode": {
-      "title": "分镜节点",
+      "title": "分镜组合",
       "frames": "分镜格",
       "rows": "行数",
       "cols": "列数",
@@ -171,6 +173,15 @@
       "frameIndex": "第 {{index}} 格",
       "layoutSummary": "{{rows}} × {{cols}} ｜ {{count}} / {{capacity}} 格",
       "emptySlot": "空位"
+    },
+    "storyboardSplitResult": {
+      "title": "切割结果",
+      "exportFrames": "逐张导出",
+      "exportingFrames": "导出中...",
+      "exportEmpty": "当前没有可导出的切割图片",
+      "exportFailed": "逐张导出失败",
+      "selectExportDir": "选择切割结果导出位置",
+      "defaultProjectName": "未命名项目"
     },
     "storyboardGen": {
       "rowsShort": "行",
@@ -204,15 +215,15 @@
       "prevFrame": "上一帧",
       "nextFrame": "下一帧",
       "frameByFrameHint": "← → 方向键逐帧 / S 键截图",
-      "processing": "???????",
-      "processFailed": "??????",
-      "loadFailed": "??????",
-      "loadFailedShort": "????",
-      "retryLoad": "????",
-      "posterAlt": "?????",
-      "supportedFormats": "?????MP4?WebM?OGG?MOV?AVI?MKV",
-      "screenshotMarker": "?? {{index}}",
-      "screenshotName": "{{name}} ?? {{index}}"
+      "processing": "正在准备视频...",
+      "processFailed": "视频处理失败",
+      "loadFailed": "视频加载失败",
+      "loadFailedShort": "加载失败",
+      "retryLoad": "重新加载",
+      "posterAlt": "视频封面帧",
+      "supportedFormats": "支持格式：MP4、WebM、OGG、MOV、AVI、MKV",
+      "screenshotMarker": "截图 {{index}}",
+      "screenshotName": "{{name}} 截图 {{index}}"
     }
   },
   "viewer": {

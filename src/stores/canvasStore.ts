@@ -361,15 +361,27 @@ function normalizeNodes(rawNodes: CanvasNode[]): CanvasNode[] {
         ...(node.data as Partial<CanvasNodeData>),
       } as CanvasNodeData;
 
-      if (node.type === CANVAS_NODE_TYPES.storyboardSplit) {
+      if (
+        node.type === CANVAS_NODE_TYPES.storyboardSplit
+        || node.type === CANVAS_NODE_TYPES.storyboardSplitResult
+      ) {
         const frames = (mergedData as { frames?: StoryboardFrameItem[] }).frames ?? [];
-        const firstFrameAspectRatio = frames.find((frame) => typeof frame.aspectRatio === 'string')
-          ?.aspectRatio;
+        const firstFrameAspectRatio = frames
+          .map((frame) => (typeof frame.aspectRatio === 'string' ? frame.aspectRatio.trim() : ''))
+          .find((aspectRatio) => aspectRatio.length > 0) ?? null;
+        const rawFrameAspectRatio =
+          typeof (node.data as { frameAspectRatio?: unknown }).frameAspectRatio === 'string'
+            ? (node.data as { frameAspectRatio?: string }).frameAspectRatio?.trim() ?? ''
+            : '';
+        const normalizedRawFrameAspectRatio = rawFrameAspectRatio.length > 0
+          ? rawFrameAspectRatio
+          : null;
         const normalizedFrameAspectRatio =
-          (typeof (mergedData as { frameAspectRatio?: unknown }).frameAspectRatio === 'string'
-            ? (mergedData as { frameAspectRatio?: string }).frameAspectRatio
+          (normalizedRawFrameAspectRatio && normalizedRawFrameAspectRatio !== DEFAULT_ASPECT_RATIO
+            ? normalizedRawFrameAspectRatio
             : null) ??
           firstFrameAspectRatio ??
+          normalizedRawFrameAspectRatio ??
           DEFAULT_ASPECT_RATIO;
 
         (mergedData as { frameAspectRatio: string }).frameAspectRatio = normalizedFrameAspectRatio;
@@ -394,19 +406,21 @@ function normalizeNodes(rawNodes: CanvasNode[]): CanvasNode[] {
         (mergedData as { gridRows: number }).gridRows = normalizedGridLayout.rows;
         (mergedData as { gridCols: number }).gridCols = normalizedGridLayout.cols;
 
-        const rawExportOptions = (mergedData as { exportOptions?: Partial<StoryboardExportOptions> })
-          .exportOptions;
-        const rawFontSize = Number.isFinite(rawExportOptions?.fontSize)
-          ? Number(rawExportOptions?.fontSize)
-          : createDefaultStoryboardExportOptions().fontSize;
-        const normalizedFontSize = rawFontSize > 20
-          ? Math.round(rawFontSize / 6)
-          : rawFontSize;
-        (mergedData as { exportOptions: StoryboardExportOptions }).exportOptions = {
-          ...createDefaultStoryboardExportOptions(),
-          ...(rawExportOptions ?? {}),
-          fontSize: Math.max(1, Math.min(20, Math.round(normalizedFontSize))),
-        };
+        if (node.type === CANVAS_NODE_TYPES.storyboardSplit) {
+          const rawExportOptions = (mergedData as { exportOptions?: Partial<StoryboardExportOptions> })
+            .exportOptions;
+          const rawFontSize = Number.isFinite(rawExportOptions?.fontSize)
+            ? Number(rawExportOptions?.fontSize)
+            : createDefaultStoryboardExportOptions().fontSize;
+          const normalizedFontSize = rawFontSize > 20
+            ? Math.round(rawFontSize / 6)
+            : rawFontSize;
+          (mergedData as { exportOptions: StoryboardExportOptions }).exportOptions = {
+            ...createDefaultStoryboardExportOptions(),
+            ...(rawExportOptions ?? {}),
+            fontSize: Math.max(1, Math.min(20, Math.round(normalizedFontSize))),
+          };
+        }
       }
 
       if ('aspectRatio' in mergedData && !mergedData.aspectRatio) {
@@ -715,7 +729,10 @@ function resolveDerivedAspectRatio(
     return preferred || fallbackAspectRatio;
   }
 
-  if (sourceNode.type === CANVAS_NODE_TYPES.storyboardSplit) {
+  if (
+    sourceNode.type === CANVAS_NODE_TYPES.storyboardSplit
+    || sourceNode.type === CANVAS_NODE_TYPES.storyboardSplitResult
+  ) {
     const data = sourceNode.data as { frameAspectRatio?: string; aspectRatio?: string };
     return data.frameAspectRatio || data.aspectRatio || fallbackAspectRatio;
   }
@@ -1651,13 +1668,12 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
       nodeSize.height
     );
 
-    let node = canvasNodeFactory.createNode(CANVAS_NODE_TYPES.storyboardSplit, position, {
+    let node = canvasNodeFactory.createNode(CANVAS_NODE_TYPES.storyboardSplitResult, position, {
       gridRows: normalizedGridLayout.rows,
       gridCols: normalizedGridLayout.cols,
       frames,
       aspectRatio: resolvedFrameAspectRatio,
       frameAspectRatio: resolvedFrameAspectRatio,
-      exportOptions: createDefaultStoryboardExportOptions(),
     });
     node.width = nodeSize.width;
     node.height = nodeSize.height;

@@ -115,7 +115,9 @@
     "menu": {
       "uploadImage": "Upload Image",
       "aiImageGeneration": "AI Image",
-      "storyboard": "Storyboard Node",
+      "storyboard": "Storyboard Compose",
+      "storyboardCompose": "Storyboard Compose",
+      "storyboardSplitResult": "Split Result",
       "storyboardGen": "Storyboard Generation",
       "textAnnotation": "Text Annotation",
       "videoNode": "Video Node",
@@ -162,7 +164,7 @@
       "hint": "Click or drag to upload image"
     },
     "storyboardNode": {
-      "title": "Storyboard Node",
+      "title": "Storyboard Compose",
       "frames": "Frames",
       "rows": "Rows",
       "cols": "Columns",
@@ -171,6 +173,15 @@
       "frameIndex": "Frame {{index}}",
       "layoutSummary": "{{rows}} × {{cols}} | {{count}} / {{capacity}} slots",
       "emptySlot": "Empty"
+    },
+    "storyboardSplitResult": {
+      "title": "Split Result",
+      "exportFrames": "Export Frames",
+      "exportingFrames": "Exporting...",
+      "exportEmpty": "There are no split images to export",
+      "exportFailed": "Failed to export split images",
+      "selectExportDir": "Choose export folder for split results",
+      "defaultProjectName": "Untitled Project"
     },
     "storyboardGen": {
       "rowsShort": "R",

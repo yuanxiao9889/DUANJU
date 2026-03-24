@@ -9,6 +9,7 @@ import {
   type GroupNodeData,
   type ImageEditNodeData,
   type StoryboardSplitNodeData,
+  type StoryboardSplitResultNodeData,
   type StoryboardGenNodeData,
   type TextAnnotationNodeData,
   type UploadImageNodeData,
@@ -190,9 +191,9 @@ const textAnnotationNodeDefinition: CanvasNodeDefinition<TextAnnotationNodeData>
 
 const storyboardSplitDefinition: CanvasNodeDefinition<StoryboardSplitNodeData> = {
   type: CANVAS_NODE_TYPES.storyboardSplit,
-  menuLabelKey: 'node.menu.storyboard',
+  menuLabelKey: 'node.menu.storyboardCompose',
   menuIcon: 'layout',
-  visibleInMenu: false,
+  visibleInMenu: true,
   capabilities: {
     toolbar: false,
     promptInput: false,
@@ -201,7 +202,7 @@ const storyboardSplitDefinition: CanvasNodeDefinition<StoryboardSplitNodeData> =
     sourceHandle: true,
     targetHandle: true,
     connectMenu: {
-      fromSource: false,
+      fromSource: true,
       fromTarget: false,
     },
   },
@@ -224,6 +225,33 @@ const storyboardSplitDefinition: CanvasNodeDefinition<StoryboardSplitNodeData> =
       backgroundColor: '#0f1115',
       textColor: '#f8fafc',
     },
+  }),
+};
+
+const storyboardSplitResultDefinition: CanvasNodeDefinition<StoryboardSplitResultNodeData> = {
+  type: CANVAS_NODE_TYPES.storyboardSplitResult,
+  menuLabelKey: 'node.menu.storyboardSplitResult',
+  menuIcon: 'layout',
+  visibleInMenu: false,
+  capabilities: {
+    toolbar: false,
+    promptInput: false,
+  },
+  connectivity: {
+    sourceHandle: true,
+    targetHandle: false,
+    connectMenu: {
+      fromSource: false,
+      fromTarget: false,
+    },
+  },
+  createDefaultData: () => ({
+    displayName: DEFAULT_NODE_DISPLAY_NAME[CANVAS_NODE_TYPES.storyboardSplitResult],
+    aspectRatio: DEFAULT_ASPECT_RATIO,
+    frameAspectRatio: DEFAULT_ASPECT_RATIO,
+    gridRows: 2,
+    gridCols: 2,
+    frames: [],
   }),
 };
 
@@ -491,6 +519,7 @@ export const canvasNodeDefinitions: Record<CanvasNodeType, CanvasNodeDefinition>
   [CANVAS_NODE_TYPES.textAnnotation]: textAnnotationNodeDefinition,
   [CANVAS_NODE_TYPES.group]: groupNodeDefinition,
   [CANVAS_NODE_TYPES.storyboardSplit]: storyboardSplitDefinition,
+  [CANVAS_NODE_TYPES.storyboardSplitResult]: storyboardSplitResultDefinition,
   [CANVAS_NODE_TYPES.storyboardGen]: storyboardGenNodeDefinition,
   [CANVAS_NODE_TYPES.video]: videoNodeDefinition,
   [CANVAS_NODE_TYPES.scriptRoot]: scriptRootNodeDefinition,

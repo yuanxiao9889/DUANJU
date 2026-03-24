@@ -6,7 +6,7 @@ export const PPIO_GEMINI_FLASH_MODEL_ID = 'ppio/gemini-3.1-flash';
 export const imageModel: ImageModelDefinition = {
   id: PPIO_GEMINI_FLASH_MODEL_ID,
   mediaType: 'image',
-  displayName: 'Nano Banana 2',
+  displayName: '香蕉2',
   providerId: 'ppio',
   description: '高性价比图像生成与编辑模型',
   eta: '1min',

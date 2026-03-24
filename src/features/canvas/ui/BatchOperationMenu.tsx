@@ -27,7 +27,8 @@ const sourceTypeLabelKeyMap: Partial<Record<CanvasNodeType, string>> = {
   [CANVAS_NODE_TYPES.upload]: 'node.menu.uploadImage',
   [CANVAS_NODE_TYPES.imageEdit]: 'node.menu.aiImageGeneration',
   [CANVAS_NODE_TYPES.storyboardGen]: 'node.menu.storyboardGen',
-  [CANVAS_NODE_TYPES.storyboardSplit]: 'node.menu.storyboard',
+  [CANVAS_NODE_TYPES.storyboardSplit]: 'node.menu.storyboardCompose',
+  [CANVAS_NODE_TYPES.storyboardSplitResult]: 'node.menu.storyboardSplitResult',
   [CANVAS_NODE_TYPES.textAnnotation]: 'node.menu.textAnnotation',
   [CANVAS_NODE_TYPES.video]: 'node.menu.videoNode',
 };
