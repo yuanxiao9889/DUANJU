@@ -435,7 +435,12 @@ pub async fn get_generate_image_job(
         .cloned()
         .ok_or_else(|| format!("Provider not found for job: {}", record.provider_id))?;
 
-    let Some(task_id) = record.external_task_id.clone() else {
+    let Some(task_id) = record
+        .external_task_id
+        .clone()
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
+    else {
         let message = "missing external task id".to_string();
         update_generation_job(
             &app,
