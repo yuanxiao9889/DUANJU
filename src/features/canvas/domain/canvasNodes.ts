@@ -3,6 +3,7 @@ import type { Edge, Node, XYPosition } from '@xyflow/react';
 export const CANVAS_NODE_TYPES = {
   upload: 'uploadNode',
   imageEdit: 'imageNode',
+  jimeng: 'jimengNode',
   exportImage: 'exportImageNode',
   textAnnotation: 'textAnnotationNode',
   group: 'groupNode',
@@ -39,7 +40,53 @@ export const IMAGE_ASPECT_RATIOS = [
   '21:9',
 ] as const;
 
+export const JIMENG_CREATION_TYPES = [
+  'image',
+  'video',
+  'digitalHuman',
+  'voice',
+  'action',
+] as const;
+
+export const JIMENG_MODEL_IDS = [
+  'seedance-2.0-fast',
+  'seedance-2.0',
+  'seedance-1.5-pro',
+  'seedance-1.0',
+  'seedance-1.0-fast',
+  'seedance-1.0-mini',
+] as const;
+
+export const JIMENG_REFERENCE_MODES = [
+  'allAround',
+  'firstLastFrame',
+  'smartFrames',
+  'subject',
+] as const;
+
+export const JIMENG_ASPECT_RATIOS = [
+  '21:9',
+  '16:9',
+  '4:3',
+  '1:1',
+  '3:4',
+  '9:16',
+] as const;
+
+export const JIMENG_DURATION_SECONDS = [4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15] as const;
+
 export type ImageSize = (typeof IMAGE_SIZES)[number];
+export type JimengCreationType = (typeof JIMENG_CREATION_TYPES)[number];
+export type JimengModelId = (typeof JIMENG_MODEL_IDS)[number];
+export type JimengReferenceMode = (typeof JIMENG_REFERENCE_MODES)[number];
+export type JimengAspectRatio = (typeof JIMENG_ASPECT_RATIOS)[number];
+export type JimengDurationSeconds = (typeof JIMENG_DURATION_SECONDS)[number];
+
+export interface JimengExtraControlSelection {
+  controlIndex: number;
+  triggerText: string;
+  optionText: string;
+}
 
 export interface NodeDisplayData {
   displayName?: string;
@@ -101,6 +148,19 @@ export interface ImageEditNodeData extends NodeImageData {
   isGenerating?: boolean;
   generationStartedAt?: number | null;
   generationDurationMs?: number;
+}
+
+export interface JimengNodeData extends NodeDisplayData {
+  prompt: string;
+  creationType?: JimengCreationType;
+  model?: JimengModelId;
+  referenceMode?: JimengReferenceMode;
+  aspectRatio?: JimengAspectRatio;
+  durationSeconds?: JimengDurationSeconds;
+  extraControls?: JimengExtraControlSelection[];
+  isSubmitting?: boolean;
+  lastSubmittedAt?: number | null;
+  lastError?: string | null;
 }
 
 export interface StoryboardFrameItem {
@@ -280,6 +340,7 @@ export type CanvasNodeData =
   | TextAnnotationNodeData
   | GroupNodeData
   | ImageEditNodeData
+  | JimengNodeData
   | StoryboardSplitNodeData
   | StoryboardSplitResultNodeData
   | StoryboardGenNodeData
@@ -331,6 +392,12 @@ export function isImageEditNode(
   node: CanvasNode | null | undefined
 ): node is Node<ImageEditNodeData, typeof CANVAS_NODE_TYPES.imageEdit> {
   return node?.type === CANVAS_NODE_TYPES.imageEdit;
+}
+
+export function isJimengNode(
+  node: CanvasNode | null | undefined
+): node is Node<JimengNodeData, typeof CANVAS_NODE_TYPES.jimeng> {
+  return node?.type === CANVAS_NODE_TYPES.jimeng;
 }
 
 export function isExportImageNode(

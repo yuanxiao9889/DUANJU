@@ -56,10 +56,12 @@ import {
 } from '@/features/canvas/application/referenceTokenEditing';
 import {
   DEFAULT_IMAGE_MODEL_ID,
-  getImageModel,
-  listImageModels,
+  STORYBOARD_COMPATIBLE_MODEL_ID,
+  getStoryboardImageModel,
+  listStoryboardImageModels,
   resolveImageModelResolution,
   resolveImageModelResolutions,
+  toStoryboardCompatibleExtraParamsPayload,
 } from '@/features/canvas/models';
 import { GRSAI_NANO_BANANA_PRO_MODEL_ID } from '@/features/canvas/models/image/grsai/nanoBananaPro';
 import { resolveModelPriceDisplay } from '@/features/canvas/pricing';
@@ -547,6 +549,9 @@ export const StoryboardGenNode = memo(({ id, data, selected, width, height }: St
   const findNodePosition = useCanvasStore((state) => state.findNodePosition);
   const apiKeys = useSettingsStore((state) => state.apiKeys);
   const hrsaiNanoBananaProModel = useSettingsStore((state) => state.hrsaiNanoBananaProModel);
+  const storyboardCompatibleModelConfig = useSettingsStore(
+    (state) => state.storyboardCompatibleModelConfig
+  );
   const storyboardGenKeepStyleConsistent = useSettingsStore(
     (state) => state.storyboardGenKeepStyleConsistent
   );
@@ -611,12 +616,15 @@ export const StoryboardGenNode = memo(({ id, data, selected, width, height }: St
     [incomingImageItems]
   );
 
-  const imageModels = useMemo(() => listImageModels(), []);
+  const imageModels = useMemo(
+    () => listStoryboardImageModels(storyboardCompatibleModelConfig),
+    [storyboardCompatibleModelConfig]
+  );
 
   const selectedModel = useMemo(() => {
     const modelId = nodeData.model ?? DEFAULT_IMAGE_MODEL_ID;
-    return getImageModel(modelId);
-  }, [nodeData.model]);
+    return getStoryboardImageModel(modelId, storyboardCompatibleModelConfig);
+  }, [nodeData.model, storyboardCompatibleModelConfig]);
   const providerApiKey = apiKeys[selectedModel.providerId] ?? '';
   const effectiveExtraParams = useMemo(
     () => ({
@@ -624,8 +632,20 @@ export const StoryboardGenNode = memo(({ id, data, selected, width, height }: St
       ...(selectedModel.id === GRSAI_NANO_BANANA_PRO_MODEL_ID
         ? { grsai_pro_model: hrsaiNanoBananaProModel }
         : {}),
+      ...(selectedModel.id === STORYBOARD_COMPATIBLE_MODEL_ID
+        ? {
+          compatible_config: toStoryboardCompatibleExtraParamsPayload(
+            storyboardCompatibleModelConfig
+          ),
+        }
+        : {}),
     }),
-    [hrsaiNanoBananaProModel, nodeData.extraParams, selectedModel.id]
+    [
+      hrsaiNanoBananaProModel,
+      nodeData.extraParams,
+      selectedModel.id,
+      storyboardCompatibleModelConfig,
+    ]
   );
   const resolutionOptions = useMemo(
     () => resolveImageModelResolutions(selectedModel, { extraParams: effectiveExtraParams }),
@@ -720,6 +740,17 @@ export const StoryboardGenNode = memo(({ id, data, selected, width, height }: St
   const requestResolution = selectedModel.resolveRequest({
     referenceImageCount: incomingImages.length,
   });
+  const debugRequestModel = useMemo(
+    () =>
+      selectedModel.id === STORYBOARD_COMPATIBLE_MODEL_ID
+        ? storyboardCompatibleModelConfig.requestModel
+        : requestResolution.requestModel,
+    [
+      requestResolution.requestModel,
+      selectedModel.id,
+      storyboardCompatibleModelConfig.requestModel,
+    ]
+  );
   const resolvedPriceDisplay = useMemo(
     () =>
       showNodePrice
@@ -1164,7 +1195,7 @@ export const StoryboardGenNode = memo(({ id, data, selected, width, height }: St
       const generationDebugContext: GenerationDebugContext = {
         sourceType: 'storyboardGen',
         providerId: selectedModel.providerId,
-        requestModel: requestResolution.requestModel,
+        requestModel: debugRequestModel,
         requestSize: selectedResolution.value,
         requestAspectRatio: resolvedRequestAspectRatio,
         prompt,
@@ -1194,7 +1225,7 @@ export const StoryboardGenNode = memo(({ id, data, selected, width, height }: St
       const generationDebugContext: GenerationDebugContext = {
         sourceType: 'storyboardGen',
         providerId: selectedModel.providerId,
-        requestModel: requestResolution.requestModel,
+        requestModel: debugRequestModel,
         requestSize: selectedResolution.value,
         requestAspectRatio: resolvedRequestAspectRatio,
         prompt,
@@ -1237,6 +1268,7 @@ export const StoryboardGenNode = memo(({ id, data, selected, width, height }: St
     nodeData,
     incomingImages,
     requestResolution.requestModel,
+    debugRequestModel,
     effectiveExtraParams,
     selectedModel.expectedDurationMs,
     selectedModel.id,

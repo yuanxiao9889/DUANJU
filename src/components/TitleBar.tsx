@@ -4,6 +4,7 @@ import { getCurrentWindow } from '@tauri-apps/api/window';
 import { Minus, X, Maximize2, Settings, ArrowLeft } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { Moon, Sun, Languages } from 'lucide-react';
+import type { JimengPanelMode } from '@/stores/jimengPanelStore';
 import { useThemeStore } from '@/stores/themeStore';
 import { useProjectStore } from '@/stores/projectStore';
 import closeNormalIcon from '@/assets/macos-traffic-lights/1-close-1-normal.svg';
@@ -17,9 +18,21 @@ interface TitleBarProps {
   onSettingsClick: () => void;
   showBackButton?: boolean;
   onBackClick?: () => void;
+  jimengPanelMode: JimengPanelMode;
+  isJimengPanelBusy: boolean;
+  onJimengPanelToggle: () => void;
+  onJimengPanelFullscreenToggle: () => void;
 }
 
-export function TitleBar({ onSettingsClick, showBackButton, onBackClick }: TitleBarProps) {
+export function TitleBar({
+  onSettingsClick,
+  showBackButton,
+  onBackClick,
+  jimengPanelMode,
+  isJimengPanelBusy,
+  onJimengPanelToggle,
+  onJimengPanelFullscreenToggle,
+}: TitleBarProps) {
   const { t, i18n } = useTranslation();
   const { theme, toggleTheme } = useThemeStore();
   const currentProjectName = useProjectStore((state) => state.currentProject?.name);
@@ -90,6 +103,21 @@ export function TitleBar({ onSettingsClick, showBackButton, onBackClick }: Title
     toggleTheme();
   }, [toggleTheme]);
 
+  const isJimengPanelFullscreen = jimengPanelMode === 'fullscreen';
+  const jimengButtonTitle = isJimengPanelBusy
+    ? t('titleBar.jimengLoading')
+    : jimengPanelMode === 'expanded'
+      ? t('titleBar.jimengCollapse')
+      : jimengPanelMode === 'fullscreen'
+        ? t('titleBar.jimengRestore')
+      : t('titleBar.jimengExpand');
+  const isJimengPanelActive = jimengPanelMode !== 'hidden';
+  const jimengFullscreenButtonTitle = isJimengPanelBusy
+    ? t('titleBar.jimengLoading')
+    : isJimengPanelFullscreen
+      ? t('titleBar.jimengRestore')
+      : t('titleBar.jimengFullscreen');
+
   return (
     <div className="h-10 flex items-center justify-between bg-surface-dark border-b border-border-dark select-none z-50 relative">
       {isMac ? (
@@ -159,6 +187,40 @@ export function TitleBar({ onSettingsClick, showBackButton, onBackClick }: Title
 
       {/* 右侧按钮区域 */}
       <div className="flex items-center h-full">
+        <button
+          type="button"
+          onClick={onJimengPanelToggle}
+          disabled={isJimengPanelBusy}
+          className={`h-full px-3 transition-colors ${isJimengPanelBusy ? 'cursor-wait opacity-70' : 'hover:bg-bg-dark'} ${isJimengPanelActive ? 'bg-bg-dark/60' : ''}`}
+          title={jimengButtonTitle}
+          aria-label={jimengButtonTitle}
+          aria-pressed={isJimengPanelActive}
+        >
+          <span className="inline-flex items-center gap-2 text-xs font-medium text-text-muted">
+            <span
+              className={`h-1.5 w-1.5 rounded-full transition-colors ${isJimengPanelActive ? 'bg-[rgb(var(--accent-rgb))]' : 'bg-border-dark'}`}
+              aria-hidden="true"
+            />
+            <span>{t('titleBar.jimengPanel')}</span>
+          </span>
+        </button>
+
+        {isJimengPanelActive ? (
+          <button
+            type="button"
+            onClick={onJimengPanelFullscreenToggle}
+            disabled={isJimengPanelBusy}
+            className={`h-full px-3 transition-colors border-l border-border-dark/80 ${isJimengPanelBusy ? 'cursor-wait opacity-70' : 'hover:bg-bg-dark'} ${isJimengPanelFullscreen ? 'bg-bg-dark/60' : ''}`}
+            title={jimengFullscreenButtonTitle}
+            aria-label={jimengFullscreenButtonTitle}
+            aria-pressed={isJimengPanelFullscreen}
+          >
+            <span className="text-xs font-medium text-text-muted">
+              {isJimengPanelFullscreen ? t('titleBar.jimengRestore') : t('titleBar.jimengFullscreen')}
+            </span>
+          </button>
+        ) : null}
+
         <button
           type="button"
           onClick={handleLanguageClick}

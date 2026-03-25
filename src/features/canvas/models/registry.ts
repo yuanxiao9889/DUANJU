@@ -4,6 +4,11 @@ import type {
   ModelProviderDefinition,
   ResolutionOption,
 } from './types';
+import {
+  createStoryboardCompatibleImageModel,
+  STORYBOARD_COMPATIBLE_MODEL_ID,
+  type StoryboardCompatibleModelConfig,
+} from './storyboardCompatible';
 
 const providerModules = import.meta.glob<{ provider: ModelProviderDefinition }>(
   './providers/*.ts',
@@ -38,17 +43,56 @@ const imageModelAliasMap = new Map<string, string>([
   ['gemini-3.1-flash-edit', 'ppio/gemini-3.1-flash'],
 ]);
 
-export function listImageModels(): ImageModelDefinition[] {
-  return imageModels;
+function resolveCompatibleModelList(
+  compatibleConfig?: StoryboardCompatibleModelConfig | null
+): ImageModelDefinition[] {
+  const compatibleModel = createStoryboardCompatibleImageModel(compatibleConfig);
+  return compatibleModel ? [...imageModels, compatibleModel] : imageModels;
+}
+
+export function listImageModels(
+  compatibleConfig?: StoryboardCompatibleModelConfig | null
+): ImageModelDefinition[] {
+  return resolveCompatibleModelList(compatibleConfig);
+}
+
+export function listStoryboardImageModels(
+  compatibleConfig?: StoryboardCompatibleModelConfig | null
+): ImageModelDefinition[] {
+  return resolveCompatibleModelList(compatibleConfig);
 }
 
 export function listModelProviders(): ModelProviderDefinition[] {
   return providers;
 }
 
-export function getImageModel(modelId: string): ImageModelDefinition {
+function resolveImageModel(
+  modelId: string,
+  compatibleConfig?: StoryboardCompatibleModelConfig | null
+): ImageModelDefinition {
   const resolvedModelId = imageModelAliasMap.get(modelId) ?? modelId;
+  if (resolvedModelId === STORYBOARD_COMPATIBLE_MODEL_ID) {
+    return (
+      createStoryboardCompatibleImageModel(compatibleConfig)
+      ?? imageModelMap.get(DEFAULT_IMAGE_MODEL_ID)!
+    );
+  }
+
   return imageModelMap.get(resolvedModelId) ?? imageModelMap.get(DEFAULT_IMAGE_MODEL_ID)!;
+}
+
+export function getImageModel(
+  modelId: string,
+  compatibleConfig?: StoryboardCompatibleModelConfig | null
+): ImageModelDefinition {
+  return resolveImageModel(modelId, compatibleConfig);
+}
+
+export function getStoryboardImageModel(
+  modelId: string,
+  compatibleConfig?: StoryboardCompatibleModelConfig | null
+): ImageModelDefinition {
+  return resolveImageModel(modelId, compatibleConfig);
 }
 
 export function resolveImageModelResolutions(

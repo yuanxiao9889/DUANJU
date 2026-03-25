@@ -3,6 +3,7 @@ import type { NodeTypes } from '@xyflow/react';
 import { GroupNode } from './GroupNode';
 import { ImageEditNode } from './ImageEditNode';
 import { ImageNode } from './ImageNode';
+import { JimengNode } from './JimengNode';
 import { StoryboardGenNode } from './StoryboardGenNode';
 import { StoryboardNode } from './StoryboardNode';
 import { StoryboardSplitResultNode } from './StoryboardSplitResultNode';
@@ -21,6 +22,7 @@ export const nodeTypes: NodeTypes = {
   exportImageNode: ImageNode,
   groupNode: GroupNode,
   imageNode: ImageEditNode,
+  jimengNode: JimengNode,
   storyboardGenNode: StoryboardGenNode,
   storyboardNode: StoryboardNode,
   storyboardSplitResultNode: StoryboardSplitResultNode,
@@ -40,6 +42,7 @@ export {
   GroupNode, 
   ImageEditNode, 
   ImageNode, 
+  JimengNode,
   StoryboardGenNode, 
   StoryboardNode, 
   StoryboardSplitResultNode,
