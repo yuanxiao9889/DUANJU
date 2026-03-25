@@ -49,10 +49,12 @@ import {
 } from '@/features/canvas/application/referenceTokenEditing';
 import {
   DEFAULT_IMAGE_MODEL_ID,
+  STORYBOARD_COMPATIBLE_MODEL_ID,
   getImageModel,
   listImageModels,
   resolveImageModelResolution,
   resolveImageModelResolutions,
+  toStoryboardCompatibleExtraParamsPayload,
 } from '@/features/canvas/models';
 import { GRSAI_NANO_BANANA_PRO_MODEL_ID } from '@/features/canvas/models/image/grsai/nanoBananaPro';
 
@@ -253,6 +255,9 @@ export const ImageEditNode = memo(({ id, data, selected, width, height }: ImageE
   const addEdge = useCanvasStore((state) => state.addEdge);
   const apiKeys = useSettingsStore((state) => state.apiKeys);
   const hrsaiNanoBananaProModel = useSettingsStore((state) => state.hrsaiNanoBananaProModel);
+  const storyboardCompatibleModelConfig = useSettingsStore(
+    (state) => state.storyboardCompatibleModelConfig
+  );
   const setLastImageEditDefaults = useSettingsStore((state) => state.setLastImageEditDefaults);
   const showNodePrice = useSettingsStore((state) => state.showNodePrice);
   const priceDisplayCurrencyMode = useSettingsStore((state) => state.priceDisplayCurrencyMode);
@@ -279,12 +284,15 @@ export const ImageEditNode = memo(({ id, data, selected, width, height }: ImageE
     [incomingImageItems]
   );
 
-  const imageModels = useMemo(() => listImageModels(), []);
+  const imageModels = useMemo(
+    () => listImageModels(storyboardCompatibleModelConfig),
+    [storyboardCompatibleModelConfig]
+  );
 
   const selectedModel = useMemo(() => {
     const modelId = data.model ?? DEFAULT_IMAGE_MODEL_ID;
-    return getImageModel(modelId);
-  }, [data.model]);
+    return getImageModel(modelId, storyboardCompatibleModelConfig);
+  }, [data.model, storyboardCompatibleModelConfig]);
   const providerApiKey = apiKeys[selectedModel.providerId] ?? '';
   const effectiveExtraParams = useMemo(
     () => ({
@@ -292,8 +300,20 @@ export const ImageEditNode = memo(({ id, data, selected, width, height }: ImageE
       ...(selectedModel.id === GRSAI_NANO_BANANA_PRO_MODEL_ID
         ? { grsai_pro_model: hrsaiNanoBananaProModel }
         : {}),
+      ...(selectedModel.id === STORYBOARD_COMPATIBLE_MODEL_ID
+        ? {
+          compatible_config: toStoryboardCompatibleExtraParamsPayload(
+            storyboardCompatibleModelConfig
+          ),
+        }
+        : {}),
     }),
-    [data.extraParams, hrsaiNanoBananaProModel, selectedModel.id]
+    [
+      data.extraParams,
+      hrsaiNanoBananaProModel,
+      selectedModel.id,
+      storyboardCompatibleModelConfig,
+    ]
   );
   const resolutionOptions = useMemo(
     () => resolveImageModelResolutions(selectedModel, { extraParams: effectiveExtraParams }),
@@ -323,6 +343,17 @@ export const ImageEditNode = memo(({ id, data, selected, width, height }: ImageE
   const requestResolution = selectedModel.resolveRequest({
     referenceImageCount: incomingImages.length,
   });
+  const debugRequestModel = useMemo(
+    () =>
+      selectedModel.id === STORYBOARD_COMPATIBLE_MODEL_ID
+        ? storyboardCompatibleModelConfig.requestModel
+        : requestResolution.requestModel,
+    [
+      requestResolution.requestModel,
+      selectedModel.id,
+      storyboardCompatibleModelConfig.requestModel,
+    ]
+  );
   const resolvedPriceDisplay = useMemo(
     () =>
       showNodePrice
@@ -568,7 +599,7 @@ export const ImageEditNode = memo(({ id, data, selected, width, height }: ImageE
       const generationDebugContext: GenerationDebugContext = {
         sourceType: 'imageEdit',
         providerId: selectedModel.providerId,
-        requestModel: requestResolution.requestModel,
+        requestModel: debugRequestModel,
         requestSize: selectedResolution.value,
         requestAspectRatio: resolvedRequestAspectRatio,
         prompt,
@@ -593,7 +624,7 @@ export const ImageEditNode = memo(({ id, data, selected, width, height }: ImageE
       const generationDebugContext: GenerationDebugContext = {
         sourceType: 'imageEdit',
         providerId: selectedModel.providerId,
-        requestModel: requestResolution.requestModel,
+        requestModel: debugRequestModel,
         requestSize: selectedResolution.value,
         requestAspectRatio: resolvedRequestAspectRatio,
         prompt,
@@ -638,6 +669,7 @@ export const ImageEditNode = memo(({ id, data, selected, width, height }: ImageE
     effectiveExtraParams,
     id,
     incomingImages,
+    debugRequestModel,
     requestResolution.requestModel,
     selectedAspectRatio.value,
     selectedModel.id,
@@ -751,7 +783,7 @@ export const ImageEditNode = memo(({ id, data, selected, width, height }: ImageE
   };
 
   const handleModelChange = useCallback((modelId: string) => {
-    const nextModel = getImageModel(modelId);
+    const nextModel = getImageModel(modelId, storyboardCompatibleModelConfig);
     const nextExtraParams = {
       ...(data.extraParams ?? {}),
       ...(nextModel.id === GRSAI_NANO_BANANA_PRO_MODEL_ID
@@ -784,6 +816,7 @@ export const ImageEditNode = memo(({ id, data, selected, width, height }: ImageE
     hrsaiNanoBananaProModel,
     id,
     setLastImageEditDefaults,
+    storyboardCompatibleModelConfig,
     updateNodeData,
   ]);
 

@@ -58,7 +58,7 @@ interface PanelAnchor {
 const OTHER_PARAMS_PANEL_CLASS_NAME = 'w-[280px] p-3';
 const DEFAULT_MODEL_PANEL_CLASS_NAME = 'inline-block min-w-[320px] max-w-[calc(100vw-32px)] p-2';
 const DEFAULT_PROVIDER_OPTION_CLASS_NAME =
-  'min-w-[92px] px-3 text-center';
+  'w-full min-w-0 px-3 text-center truncate';
 const DEFAULT_MODEL_OPTION_CLASS_NAME =
   'min-h-9 min-w-[128px] max-w-full justify-center px-3 py-2 text-center';
 
@@ -195,7 +195,16 @@ export const ModelParamsControls = memo(({
   );
   const selectedProviderName = selectedProvider.label || selectedProvider.name;
   const providerOptions = useMemo(() => {
-    const providerOrder = ['kie', 'ppio', 'fal', 'grsai'];
+    const providerOrder = [
+      'kie',
+      'ppio',
+      'fal',
+      'grsai',
+      'comfly',
+      'zhenzhen',
+      'runninghub',
+      'compatible',
+    ];
     const providerIndex = new Map(providerOrder.map((id, index) => [id, index]));
     const uniqueProviderIds = Array.from(new Set(imageModels.map((model) => model.providerId)));
     return uniqueProviderIds
@@ -544,12 +553,13 @@ export const ModelParamsControls = memo(({
                 <div className="mb-2 text-xs font-medium text-text-muted">
                   {t('modelParams.provider')}
                 </div>
-                <div className="flex flex-wrap gap-2">
+                <div className="grid grid-cols-4 gap-2">
                   {providerOptions.map((provider) => {
                     const active = provider.id === panelProviderId;
                     return (
                       <button
                         key={provider.id}
+                        title={provider.label || provider.name}
                         className={`h-8 rounded-lg border text-xs transition-colors ${providerOptionClassName} ${active
                           ? 'border-accent/50 bg-accent/15 text-text-dark'
                           : 'border-[rgba(255,255,255,0.12)] bg-bg-dark/65 text-text-muted hover:border-[rgba(255,255,255,0.2)]'

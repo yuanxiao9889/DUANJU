@@ -15,10 +15,14 @@ import {
   formatBytes,
   type StorageInfo 
 } from '@/commands/storage';
-import { UiCheckbox, UiSelect } from '@/components/ui';
+import { UiCheckbox, UiInput, UiSelect } from '@/components/ui';
 import { UI_CONTENT_OVERLAY_INSET_CLASS, UI_DIALOG_TRANSITION_MS } from '@/components/ui/motion';
 import { useDialogTransition } from '@/components/ui/useDialogTransition';
-import { listModelProviders } from '@/features/canvas/models';
+import {
+  STORYBOARD_COMPATIBLE_API_FORMATS,
+  listModelProviders,
+  type StoryboardCompatibleApiFormat,
+} from '@/features/canvas/models';
 import { GRSAI_NANO_BANANA_PRO_MODEL_OPTIONS } from '@/features/canvas/models/providers/grsai';
 import { ALIBABA_TEXT_MODEL_OPTIONS } from '@/features/canvas/models/providers/alibaba';
 import { CODING_MODEL_OPTIONS } from '@/features/canvas/models/providers/coding';
@@ -83,6 +87,26 @@ const PROVIDER_GET_KEY_URLS: Record<string, string> = {
   runninghub: 'https://www.runninghub.cn/?inviteCode=zfoso01c',
 };
 
+const STORYBOARD_COMPATIBLE_FORMAT_LABEL_KEYS: Record<
+  StoryboardCompatibleApiFormat,
+  string
+> = {
+  'openai-generations': 'settings.storyboardCompatibleFormatOpenaiGenerations',
+  'openai-edits': 'settings.storyboardCompatibleFormatOpenaiEdits',
+  'openai-chat': 'settings.storyboardCompatibleFormatOpenaiChat',
+  'gemini-generate-content': 'settings.storyboardCompatibleFormatGeminiGenerateContent',
+};
+
+function resolveCompatibleEndpointPlaceholder(
+  apiFormat: StoryboardCompatibleApiFormat
+): string {
+  if (apiFormat === 'gemini-generate-content') {
+    return 'https://generativelanguage.googleapis.com';
+  }
+
+  return 'https://api.openai.com';
+}
+
 function SettingsCheckboxCard({
   title,
   description,
@@ -130,6 +154,7 @@ export function SettingsDialog({
     hrsaiNanoBananaProModel,
     alibabaTextModel,
     codingModel,
+    storyboardCompatibleModelConfig,
     downloadPresetPaths,
     useUploadFilenameAsNodeTitle,
     storyboardGenKeepStyleConsistent,
@@ -153,6 +178,7 @@ export function SettingsDialog({
     setGrsaiNanoBananaProModel,
     setAlibabaTextModel,
     setCodingModel,
+    setStoryboardCompatibleModelConfig,
     setDownloadPresetPaths,
     setUseUploadFilenameAsNodeTitle,
     setStoryboardGenKeepStyleConsistent,
@@ -186,7 +212,18 @@ export function SettingsDialog({
     stopServer,
   } = usePsIntegrationStore();
   const providers = useMemo(() => {
-    const providerOrder = ['kie', 'ppio', 'fal', 'grsai', 'alibaba', 'coding'];
+    const providerOrder = [
+      'kie',
+      'ppio',
+      'fal',
+      'grsai',
+      'comfly',
+      'zhenzhen',
+      'runninghub',
+      'compatible',
+      'alibaba',
+      'coding',
+    ];
     const providerIndex = new Map(providerOrder.map((id, index) => [id, index]));
     return listModelProviders().slice().sort((left, right) => {
       const leftIndex = providerIndex.get(left.id) ?? Number.MAX_SAFE_INTEGER;
@@ -207,6 +244,8 @@ export function SettingsDialog({
   const [selectedStoryboardProvider, setSelectedStoryboardProvider] = useState(storyboardProviders[0]?.id || '');
   const [localAlibabaTextModel, setLocalAlibabaTextModel] = useState('qwen-plus');
   const [localCodingModel, setLocalCodingModel] = useState('qwen3.5-plus');
+  const [localStoryboardCompatibleModelConfig, setLocalStoryboardCompatibleModelConfig] =
+    useState(storyboardCompatibleModelConfig);
   const [localDownloadPathInput, setLocalDownloadPathInput] = useState('');
   const [localDownloadPresetPaths, setLocalDownloadPresetPaths] = useState(downloadPresetPaths);
   const [localUseUploadFilenameAsNodeTitle, setLocalUseUploadFilenameAsNodeTitle] = useState(
@@ -295,6 +334,7 @@ export function SettingsDialog({
     setSelectedScriptProvider(scriptProviderEnabled || scriptProviders[0]?.id || '');
     setLocalAlibabaTextModel(alibabaTextModel || 'qwen-plus');
     setLocalCodingModel(codingModel || 'qwen3.5-plus');
+    setLocalStoryboardCompatibleModelConfig(storyboardCompatibleModelConfig);
     setLocalUseUploadFilenameAsNodeTitle(useUploadFilenameAsNodeTitle);
     setLocalStoryboardGenKeepStyleConsistent(storyboardGenKeepStyleConsistent);
     setLocalStoryboardGenDisableTextInImage(storyboardGenDisableTextInImage);
@@ -326,6 +366,7 @@ export function SettingsDialog({
     scriptProviderEnabled,
     alibabaTextModel,
     codingModel,
+    storyboardCompatibleModelConfig,
     useUploadFilenameAsNodeTitle,
     storyboardGenKeepStyleConsistent,
     storyboardGenDisableTextInImage,
@@ -415,6 +456,7 @@ export function SettingsDialog({
     setScriptProviderEnabled(localScriptProviderEnabled);
     setAlibabaTextModel(localAlibabaTextModel);
     setCodingModel(localCodingModel);
+    setStoryboardCompatibleModelConfig(localStoryboardCompatibleModelConfig);
     setDownloadPresetPaths(localDownloadPresetPaths);
     setUseUploadFilenameAsNodeTitle(localUseUploadFilenameAsNodeTitle);
     setStoryboardGenKeepStyleConsistent(localStoryboardGenKeepStyleConsistent);
@@ -467,6 +509,7 @@ export function SettingsDialog({
     setScriptProviderEnabled,
     setAlibabaTextModel,
     setCodingModel,
+    setStoryboardCompatibleModelConfig,
     setDownloadPresetPaths,
     setUseUploadFilenameAsNodeTitle,
     setStoryboardGenKeepStyleConsistent,
@@ -492,6 +535,7 @@ export function SettingsDialog({
     localScriptProviderEnabled,
     localAlibabaTextModel,
     localCodingModel,
+    localStoryboardCompatibleModelConfig,
   ]);
 
   const displayedGroupNodesShortcut = useMemo(
@@ -828,7 +872,7 @@ export function SettingsDialog({
                                   {t('settings.keyConfigured')}
                                 </span>
                               )}
-                            </div>
+                              </div>
                             {isScriptTab && (
                               <button
                                 type="button"
@@ -914,35 +958,140 @@ export function SettingsDialog({
                                 )}
                               </button>
                             </div>
-                            <div className="mt-3 flex items-center gap-3">
-                              <button
-                                type="button"
-                                disabled={testingConnection === provider.id || !hasKey}
-                                onClick={async () => {
-                                  setTestingConnection(provider.id);
-                                  const model = provider.id === 'alibaba' ? localAlibabaTextModel 
-                                    : provider.id === 'coding' ? localCodingModel 
-                                    : provider.id === 'grsai' ? localGrsaiNanoBananaProModel 
-                                    : 'gemini-2.0-flash';
-                                  const result = await testProviderConnection({
-                                    provider: provider.id,
-                                    apiKey: localApiKeys[provider.id] || '',
-                                    model,
-                                  });
-                                  setTestResults(prev => ({ ...prev, [provider.id]: result }));
-                                  setTestingConnection(null);
-                                }}
-                                className="rounded px-3 py-1.5 text-xs bg-surface-dark text-text-dark border border-border-dark hover:bg-bg-dark disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-                              >
-                                {testingConnection === provider.id ? t('common.loading') : t('settings.testConnection')}
-                              </button>
-                              {testResults[provider.id] && (
-                                <span className={`text-xs ${testResults[provider.id].success ? 'text-green-500' : 'text-red-500'}`}>
-                                  {testResults[provider.id].success ? '✓' : '✗'} {testResults[provider.id].message}
-                                </span>
-                              )}
-                            </div>
+                            {provider.id === 'compatible' ? (
+                              <div className="mt-3 rounded-md border border-border-dark bg-black/10 px-3 py-2 text-xs leading-5 text-text-muted">
+                                {t('settings.storyboardCompatibleNoConnectionTest')}
+                              </div>
+                            ) : (
+                              <div className="mt-3 flex items-center gap-3">
+                                <button
+                                  type="button"
+                                  disabled={testingConnection === provider.id || !hasKey}
+                                  onClick={async () => {
+                                    setTestingConnection(provider.id);
+                                    const model = provider.id === 'alibaba'
+                                      ? localAlibabaTextModel
+                                      : provider.id === 'coding'
+                                        ? localCodingModel
+                                        : provider.id === 'grsai'
+                                          ? localGrsaiNanoBananaProModel
+                                          : 'gemini-2.0-flash';
+                                    const result = await testProviderConnection({
+                                      provider: provider.id,
+                                      apiKey: localApiKeys[provider.id] || '',
+                                      model,
+                                    });
+                                    setTestResults((prev) => ({ ...prev, [provider.id]: result }));
+                                    setTestingConnection(null);
+                                  }}
+                                  className="rounded px-3 py-1.5 text-xs bg-surface-dark text-text-dark border border-border-dark hover:bg-bg-dark disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                                >
+                                  {testingConnection === provider.id
+                                    ? t('common.loading')
+                                    : t('settings.testConnection')}
+                                </button>
+                                {testResults[provider.id] && (
+                                  <span
+                                    className={`text-xs ${
+                                      testResults[provider.id].success
+                                        ? 'text-green-500'
+                                        : 'text-red-500'
+                                    }`}
+                                  >
+                                    {testResults[provider.id].success ? '✓' : '✗'}{' '}
+                                    {testResults[provider.id].message}
+                                  </span>
+                                )}
+                              </div>
+                            )}
                           </div>
+
+                          {provider.id === 'compatible' && (
+                            <div className="rounded-lg border border-border-dark bg-bg-dark p-4">
+                              <div className="mb-1 text-xs font-medium text-text-dark">
+                                {t('settings.storyboardCompatibleTitle')}
+                              </div>
+                              <p className="mb-3 text-xs leading-5 text-text-muted">
+                                {t('settings.storyboardCompatibleDesc')}
+                              </p>
+                              <div className="space-y-3">
+                                <div>
+                                  <div className="mb-1 text-xs font-medium text-text-dark">
+                                    {t('settings.storyboardCompatibleFormat')}
+                                  </div>
+                                  <UiSelect
+                                    value={localStoryboardCompatibleModelConfig.apiFormat}
+                                    onChange={(event) =>
+                                      setLocalStoryboardCompatibleModelConfig((previous) => ({
+                                        ...previous,
+                                        apiFormat: event.target.value as StoryboardCompatibleApiFormat,
+                                      }))
+                                    }
+                                    className="h-9 text-sm"
+                                  >
+                                    {STORYBOARD_COMPATIBLE_API_FORMATS.map((format) => (
+                                      <option key={format} value={format}>
+                                        {t(STORYBOARD_COMPATIBLE_FORMAT_LABEL_KEYS[format])}
+                                      </option>
+                                    ))}
+                                  </UiSelect>
+                                </div>
+                                <div>
+                                  <div className="mb-1 text-xs font-medium text-text-dark">
+                                    {t('settings.storyboardCompatibleEndpointUrl')}
+                                  </div>
+                                  <UiInput
+                                    value={localStoryboardCompatibleModelConfig.endpointUrl}
+                                    onChange={(event) =>
+                                      setLocalStoryboardCompatibleModelConfig((previous) => ({
+                                        ...previous,
+                                        endpointUrl: event.target.value,
+                                      }))
+                                    }
+                                    placeholder={resolveCompatibleEndpointPlaceholder(
+                                      localStoryboardCompatibleModelConfig.apiFormat
+                                    )}
+                                    className="h-9 text-sm"
+                                  />
+                                </div>
+                                <div>
+                                  <div className="mb-1 text-xs font-medium text-text-dark">
+                                    {t('settings.storyboardCompatibleRequestModel')}
+                                  </div>
+                                  <UiInput
+                                    value={localStoryboardCompatibleModelConfig.requestModel}
+                                    onChange={(event) =>
+                                      setLocalStoryboardCompatibleModelConfig((previous) => ({
+                                        ...previous,
+                                        requestModel: event.target.value,
+                                      }))
+                                    }
+                                    placeholder="gpt-image-1 / gemini-2.5-flash-image-preview"
+                                    className="h-9 text-sm"
+                                  />
+                                </div>
+                                <div>
+                                  <div className="mb-1 text-xs font-medium text-text-dark">
+                                    {t('settings.storyboardCompatibleDisplayName')}
+                                  </div>
+                                  <UiInput
+                                    value={localStoryboardCompatibleModelConfig.displayName}
+                                    onChange={(event) =>
+                                      setLocalStoryboardCompatibleModelConfig((previous) => ({
+                                        ...previous,
+                                        displayName: event.target.value,
+                                      }))
+                                    }
+                                    placeholder={t('settings.storyboardCompatibleDisplayNamePlaceholder')}
+                                    className="h-9 text-sm"
+                                  />
+                                </div>
+                                <div className="rounded-md border border-border-dark bg-black/10 px-3 py-2 text-[11px] leading-5 text-text-muted">
+                                  {t('settings.storyboardCompatibleHint')}
+                                </div>
+                              </div>
+                            </div>
+                          )}
 
                           {provider.id === 'grsai' && (
                             <div className="rounded-lg border border-border-dark bg-bg-dark p-4">

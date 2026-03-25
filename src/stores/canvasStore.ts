@@ -698,8 +698,12 @@ function resolveNodeCreationDefaults(
     lastImageEditModelId,
     lastImageEditSize,
     lastImageEditRequestAspectRatio,
+    storyboardCompatibleModelConfig,
   } = useSettingsStore.getState();
-  const preferredModelId = getImageModel(lastImageEditModelId).id;
+  const preferredModelId = getImageModel(
+    lastImageEditModelId,
+    storyboardCompatibleModelConfig
+  ).id;
   const imageEditData = data as Partial<ImageEditNodeData>;
 
   return {

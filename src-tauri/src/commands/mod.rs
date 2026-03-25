@@ -1,6 +1,7 @@
 pub mod ai;
 pub mod export;
 pub mod image;
+pub mod jimeng_panel;
 pub mod project_state;
 pub mod ps_server;
 pub mod storage;
@@ -11,6 +12,7 @@ pub mod update;
 pub use ai::*;
 pub use export::*;
 pub use image::*;
+pub use jimeng_panel::*;
 pub use project_state::*;
 pub use ps_server::*;
 pub use storage::*;

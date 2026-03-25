@@ -8,7 +8,9 @@ import { UpdateAvailableDialog, type UpdateIgnoreMode } from './components/Updat
 import { GlobalErrorDialog } from './components/GlobalErrorDialog';
 import { PsImageToast } from './components/PsImageToast';
 import { ProjectManager } from './features/project/ProjectManager';
+import { useJimengPanelController } from './features/jimeng/application/useJimengPanelController';
 import { useThemeStore } from './stores/themeStore';
+import { useJimengPanelStore } from './stores/jimengPanelStore';
 import { useProjectStore } from './stores/projectStore';
 import { useSettingsStore } from './stores/settingsStore';
 import {
@@ -38,6 +40,8 @@ function toRgbCssValue(hexColor: string): string {
 }
 
 function App() {
+  useJimengPanelController();
+
   const { theme } = useThemeStore();
   const uiRadiusPreset = useSettingsStore((state) => state.uiRadiusPreset);
   const themeTonePreset = useSettingsStore((state) => state.themeTonePreset);
@@ -57,6 +61,10 @@ function App() {
   const hydrate = useProjectStore((state) => state.hydrate);
   const currentProjectId = useProjectStore((state) => state.currentProjectId);
   const closeProject = useProjectStore((state) => state.closeProject);
+  const jimengPanelMode = useJimengPanelStore((state) => state.mode);
+  const isJimengPanelBusy = useJimengPanelStore((state) => state.isBusy);
+  const toggleJimengPanel = useJimengPanelStore((state) => state.togglePanel);
+  const toggleJimengPanelFullscreen = useJimengPanelStore((state) => state.toggleFullscreen);
 
   useEffect(() => {
     document.documentElement.classList.toggle('dark', theme === 'dark');
@@ -239,6 +247,10 @@ function App() {
           }}
           showBackButton={!!currentProjectId}
           onBackClick={closeProject}
+          jimengPanelMode={jimengPanelMode}
+          isJimengPanelBusy={isJimengPanelBusy}
+          onJimengPanelToggle={toggleJimengPanel}
+          onJimengPanelFullscreenToggle={toggleJimengPanelFullscreen}
         />
 
         <main className="flex-1 relative">

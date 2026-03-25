@@ -4962,6 +4962,8 @@ dependencies = [
  "urlencoding",
  "uuid",
  "warp",
+ "webview2-com",
+ "windows",
 ]
 
 [[package]]

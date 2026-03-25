@@ -2,12 +2,17 @@ import {
   AUTO_REQUEST_ASPECT_RATIO,
   CANVAS_NODE_TYPES,
   DEFAULT_ASPECT_RATIO,
+  JIMENG_ASPECT_RATIOS,
+  JIMENG_DURATION_SECONDS,
   type ImageSize,
+  JIMENG_MODEL_IDS,
+  JIMENG_REFERENCE_MODES,
   type CanvasNodeData,
   type CanvasNodeType,
   type ExportImageNodeData,
   type GroupNodeData,
   type ImageEditNodeData,
+  type JimengNodeData,
   type StoryboardSplitNodeData,
   type StoryboardSplitResultNodeData,
   type StoryboardGenNodeData,
@@ -113,6 +118,38 @@ const imageEditNodeDefinition: CanvasNodeDefinition<ImageEditNodeData> = {
     isGenerating: false,
     generationStartedAt: null,
     generationDurationMs: 60000,
+  }),
+};
+
+const jimengNodeDefinition: CanvasNodeDefinition<JimengNodeData> = {
+  type: CANVAS_NODE_TYPES.jimeng,
+  menuLabelKey: 'node.menu.jimeng',
+  menuIcon: 'sparkles',
+  visibleInMenu: true,
+  capabilities: {
+    toolbar: true,
+    promptInput: false,
+  },
+  connectivity: {
+    sourceHandle: false,
+    targetHandle: true,
+    connectMenu: {
+      fromSource: true,
+      fromTarget: false,
+    },
+  },
+  createDefaultData: () => ({
+    displayName: DEFAULT_NODE_DISPLAY_NAME[CANVAS_NODE_TYPES.jimeng],
+    prompt: '',
+    creationType: 'video',
+    model: JIMENG_MODEL_IDS[1],
+    referenceMode: JIMENG_REFERENCE_MODES[0],
+    aspectRatio: JIMENG_ASPECT_RATIOS[1],
+    durationSeconds: JIMENG_DURATION_SECONDS[1],
+    extraControls: [],
+    isSubmitting: false,
+    lastSubmittedAt: null,
+    lastError: null,
   }),
 };
 
@@ -515,6 +552,7 @@ const scriptWorldviewNodeDefinition: CanvasNodeDefinition<ScriptWorldviewNodeDat
 export const canvasNodeDefinitions: Record<CanvasNodeType, CanvasNodeDefinition> = {
   [CANVAS_NODE_TYPES.upload]: uploadNodeDefinition,
   [CANVAS_NODE_TYPES.imageEdit]: imageEditNodeDefinition,
+  [CANVAS_NODE_TYPES.jimeng]: jimengNodeDefinition,
   [CANVAS_NODE_TYPES.exportImage]: exportImageNodeDefinition,
   [CANVAS_NODE_TYPES.textAnnotation]: textAnnotationNodeDefinition,
   [CANVAS_NODE_TYPES.group]: groupNodeDefinition,

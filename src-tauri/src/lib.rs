@@ -6,6 +6,7 @@ use std::time::Duration;
 
 use commands::ai as ai_commands;
 use commands::image;
+use commands::jimeng_panel;
 use commands::project_state;
 use commands::ps_server;
 use commands::system;
@@ -106,36 +107,10 @@ pub fn run() {
                 .cloned()
                 .ok_or_else(|| "missing main window config".to_string())?;
 
-            #[cfg(not(target_os = "macos"))]
             let main_window = tauri::WebviewWindowBuilder::from_config(app, &window_config)?.build()?;
 
-            #[cfg(not(target_os = "macos"))]
-            {
-                if let Err(err) = main_window.hide() {
-                    warn!("failed to hide main window on startup: {err}");
-                }
-            }
-
-            #[cfg(target_os = "macos")]
-            {
-                let mut mac_window_config = window_config;
-                // Window effects radius only works for transparent windows on macOS.
-                mac_window_config.transparent = true;
-
-                let window = tauri::WebviewWindowBuilder::from_config(app, &mac_window_config)?.build()?;
-
-                if let Err(err) = window.hide() {
-                    warn!("failed to hide main window on startup: {err}");
-                }
-
-                if let Err(err) = window.set_effects(Some(
-                    tauri::window::EffectsBuilder::new()
-                        .effect(tauri::window::Effect::Titlebar)
-                        .radius(10.0)
-                        .build(),
-                )) {
-                    warn!("failed to apply macOS window effects: {err}");
-                }
+            if let Err(err) = main_window.hide() {
+                warn!("failed to hide main window on startup: {err}");
             }
 
             let app_handle = app.handle().clone();
@@ -162,6 +137,10 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .invoke_handler(tauri::generate_handler![
             frontend_ready,
+            jimeng_panel::ensure_jimeng_panel_window,
+            jimeng_panel::submit_jimeng_panel_task,
+            jimeng_panel::inspect_jimeng_panel_options,
+            jimeng_panel::sync_jimeng_panel_draft_options,
             image::split_image,
             image::split_image_source,
             image::prepare_node_image_source,
