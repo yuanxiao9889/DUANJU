@@ -21,7 +21,7 @@ interface OptimizePromptResult {
   usedReferenceImages: boolean;
 }
 
-const REFERENCE_TOKEN_PATTERN = /@\u56FE\u7247\d+/g;
+const REFERENCE_TOKEN_PATTERN = /@\u56fe(?:\u7247)?\d+/g;
 const IMAGE_ANALYSIS_MODEL_HINTS = [
   'vl',
   'vision',

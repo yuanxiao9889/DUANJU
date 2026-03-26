@@ -7,7 +7,7 @@ import {
 import { useJimengPanelStore, type JimengPanelMode } from '@/stores/jimengPanelStore';
 import type { JimengInspectionReport } from '@/features/jimeng/domain/jimengInspection';
 
-const REFERENCE_TOKEN_PATTERN = /@\u56fe\u7247\d+/g;
+const REFERENCE_TOKEN_PATTERN = /@\u56fe(?:\u7247)?\d+/g;
 const JIMENG_REFERENCE_IMAGE_MAX_DIMENSION = 1600;
 
 export interface JimengReferenceImagePayload {

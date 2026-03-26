@@ -49,6 +49,7 @@ import {
   sanitizeStoryboardText,
 } from '@/features/canvas/application/storyboardText';
 import {
+  buildShortReferenceToken,
   findReferenceTokens,
   insertReferenceToken,
   removeTextRange,
@@ -579,6 +580,7 @@ export const StoryboardGenNode = memo(({ id, data, selected, width, height }: St
   const [error, setError] = useState<string | null>(null);
   const rootRef = useRef<HTMLDivElement>(null);
   const activeFrameTextareaRef = useRef<HTMLTextAreaElement | null>(null);
+  const pickerItemRefs = useRef<Array<HTMLButtonElement | null>>([]);
   const [showImagePicker, setShowImagePicker] = useState(false);
   const [pickerFrameIndex, setPickerFrameIndex] = useState<number | null>(null);
   const [pickerCursor, setPickerCursor] = useState<number | null>(null);
@@ -946,6 +948,16 @@ export const StoryboardGenNode = memo(({ id, data, selected, width, height }: St
 
     setPickerActiveIndex((previous) => Math.min(previous, incomingImages.length - 1));
   }, [incomingImages.length]);
+
+  useEffect(() => {
+    if (!showImagePicker) {
+      return;
+    }
+
+    pickerItemRefs.current[pickerActiveIndex]?.scrollIntoView({
+      block: 'nearest',
+    });
+  }, [pickerActiveIndex, showImagePicker]);
 
   useEffect(() => {
     const handleOutsidePointerDown = (event: PointerEvent) => {
@@ -1368,7 +1380,7 @@ export const StoryboardGenNode = memo(({ id, data, selected, width, height }: St
       return;
     }
 
-    const marker = `@图${imageIndex + 1}`;
+    const marker = buildShortReferenceToken(imageIndex);
     const currentDescription = frameDescriptionDraftsRef.current[frame.id] ?? frame.description;
     const cursor = pickerCursor ?? currentDescription.length;
     const { nextText: nextDescription, nextCursor } = insertReferenceToken(

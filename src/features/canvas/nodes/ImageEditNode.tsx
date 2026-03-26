@@ -1,6 +1,7 @@
 import {
   type KeyboardEvent,
   type ReactNode,
+  Fragment,
   memo,
   useMemo,
   useState,
@@ -9,7 +10,7 @@ import {
   useRef,
 } from 'react';
 import { Handle, Position, useUpdateNodeInternals, type NodeProps } from '@xyflow/react';
-import { AlertTriangle, Loader2, Sparkles, Wand2 } from 'lucide-react';
+import { AlertTriangle, Loader2, Sparkles, Undo2, Wand2, X } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 
 import {
@@ -43,6 +44,7 @@ import {
   type GenerationDebugContext,
 } from '@/features/canvas/application/generationErrorReport';
 import {
+  buildShortReferenceToken,
   findReferenceTokens,
   insertReferenceToken,
   removeTextRange,
@@ -92,6 +94,16 @@ interface PickerAnchor {
   top: number;
 }
 
+interface PromptOptimizationMeta {
+  modelLabel: string;
+  referenceImageCount: number;
+}
+
+interface PromptOptimizationUndoState {
+  previousPrompt: string;
+  appliedPrompt: string;
+}
+
 const PICKER_FALLBACK_ANCHOR: PickerAnchor = { left: 8, top: 8 };
 const PICKER_Y_OFFSET_PX = 20;
 const IMAGE_EDIT_NODE_MIN_WIDTH = 480;
@@ -99,7 +111,7 @@ const IMAGE_EDIT_NODE_MIN_HEIGHT = 180;
 const IMAGE_EDIT_NODE_MAX_WIDTH = 1400;
 const IMAGE_EDIT_NODE_MAX_HEIGHT = 1000;
 const IMAGE_EDIT_NODE_DEFAULT_WIDTH = 620;
-const IMAGE_EDIT_NODE_DEFAULT_HEIGHT = 320;
+const IMAGE_EDIT_NODE_DEFAULT_HEIGHT = 340;
 
 function getTextareaCaretOffset(
   textarea: HTMLTextAreaElement,
@@ -200,6 +212,26 @@ function renderPromptWithHighlights(prompt: string, maxImageCount: number): Reac
   return segments;
 }
 
+function resolveOptimizationReferenceImages(prompt: string, imageUrls: string[]): string[] {
+  if (imageUrls.length === 0) {
+    return [];
+  }
+
+  const referencedImageIndexes = [...new Set(
+    findReferenceTokens(prompt, imageUrls.length)
+      .map((token) => token.value - 1)
+      .filter((index) => index >= 0 && index < imageUrls.length)
+  )];
+
+  if (referencedImageIndexes.length === 0) {
+    return [];
+  }
+
+  return referencedImageIndexes
+    .map((index) => imageUrls[index])
+    .filter((imageUrl): imageUrl is string => typeof imageUrl === 'string' && imageUrl.trim().length > 0);
+}
+
 function pickClosestAspectRatio(
   targetRatio: number,
   supportedAspectRatios: string[]
@@ -234,10 +266,16 @@ export const ImageEditNode = memo(({ id, data, selected, width, height }: ImageE
   const updateNodeInternals = useUpdateNodeInternals();
   const [error, setError] = useState<string | null>(null);
   const [isOptimizingPrompt, setIsOptimizingPrompt] = useState(false);
+  const [lastPromptOptimizationMeta, setLastPromptOptimizationMeta] =
+    useState<PromptOptimizationMeta | null>(null);
+  const [isPromptOptimizationNoticeVisible, setIsPromptOptimizationNoticeVisible] = useState(false);
+  const [lastPromptOptimizationUndoState, setLastPromptOptimizationUndoState] =
+    useState<PromptOptimizationUndoState | null>(null);
 
   const rootRef = useRef<HTMLDivElement>(null);
   const promptRef = useRef<HTMLTextAreaElement>(null);
   const promptHighlightRef = useRef<HTMLDivElement>(null);
+  const pickerItemRefs = useRef<Array<HTMLButtonElement | null>>([]);
   const [promptDraft, setPromptDraft] = useState(() => data.prompt ?? '');
   const promptDraftRef = useRef(promptDraft);
   const [selectedStyleTemplateId, setSelectedStyleTemplateId] = useState<string | null>(null);
@@ -277,6 +315,7 @@ export const ImageEditNode = memo(({ id, data, selected, width, height }: ImageE
       incomingImages.map((imageUrl, index) => ({
         imageUrl,
         displayUrl: resolveImageDisplayUrl(imageUrl),
+        tokenLabel: buildShortReferenceToken(index),
         label: t('node.imageEdit.referenceImageLabel', { index: index + 1 }),
       })),
     [incomingImages, t]
@@ -476,6 +515,9 @@ export const ImageEditNode = memo(({ id, data, selected, width, height }: ImageE
     if (externalPrompt !== promptDraftRef.current) {
       promptDraftRef.current = externalPrompt;
       setPromptDraft(externalPrompt);
+      setLastPromptOptimizationMeta(null);
+      setIsPromptOptimizationNoticeVisible(false);
+      setLastPromptOptimizationUndoState(null);
     }
   }, [data.prompt]);
 
@@ -483,6 +525,12 @@ export const ImageEditNode = memo(({ id, data, selected, width, height }: ImageE
     promptDraftRef.current = nextPrompt;
     updateNodeData(id, { prompt: nextPrompt });
   }, [id, updateNodeData]);
+
+  const commitManualPromptDraft = useCallback((nextPrompt: string) => {
+    setPromptDraft(nextPrompt);
+    commitPromptDraft(nextPrompt);
+    setLastPromptOptimizationUndoState(null);
+  }, [commitPromptDraft]);
 
   useEffect(() => {
     if (data.model !== selectedModel.id) {
@@ -519,6 +567,16 @@ export const ImageEditNode = memo(({ id, data, selected, width, height }: ImageE
   }, [incomingImages.length]);
 
   useEffect(() => {
+    if (!showImagePicker) {
+      return;
+    }
+
+    pickerItemRefs.current[pickerActiveIndex]?.scrollIntoView({
+      block: 'nearest',
+    });
+  }, [pickerActiveIndex, showImagePicker]);
+
+  useEffect(() => {
     const handleOutside = (event: MouseEvent) => {
       if (rootRef.current?.contains(event.target as globalThis.Node)) {
         return;
@@ -535,7 +593,8 @@ export const ImageEditNode = memo(({ id, data, selected, width, height }: ImageE
   }, []);
 
   const handleOptimizePrompt = useCallback(async () => {
-    const currentPrompt = promptDraftRef.current.trim();
+    const sourcePrompt = promptDraftRef.current;
+    const currentPrompt = sourcePrompt.trim();
     if (!currentPrompt) {
       const errorMessage = t('node.imageEdit.promptRequired');
       setError(errorMessage);
@@ -547,16 +606,37 @@ export const ImageEditNode = memo(({ id, data, selected, width, height }: ImageE
     setError(null);
 
     try {
+      const optimizationReferenceImages = resolveOptimizationReferenceImages(
+        currentPrompt,
+        incomingImages
+      );
       const result = await optimizeCanvasPrompt({
         mode: 'image',
         prompt: currentPrompt,
-        referenceImages: incomingImages,
+        referenceImages: optimizationReferenceImages,
       });
-      setPromptDraft(result.prompt);
-      commitPromptDraft(result.prompt);
+      if (promptDraftRef.current !== sourcePrompt) {
+        return;
+      }
+      const nextPrompt = result.prompt;
+      setLastPromptOptimizationMeta({
+        modelLabel: [result.context.provider, result.context.model].filter(Boolean).join(' / '),
+        referenceImageCount: result.usedReferenceImages ? optimizationReferenceImages.length : 0,
+      });
+      setIsPromptOptimizationNoticeVisible(true);
+      if (nextPrompt !== sourcePrompt) {
+        setLastPromptOptimizationUndoState({
+          previousPrompt: sourcePrompt,
+          appliedPrompt: nextPrompt,
+        });
+      } else {
+        setLastPromptOptimizationUndoState(null);
+      }
+      setPromptDraft(nextPrompt);
+      commitPromptDraft(nextPrompt);
       requestAnimationFrame(() => {
         promptRef.current?.focus();
-        const nextCursor = result.prompt.length;
+        const nextCursor = nextPrompt.length;
         promptRef.current?.setSelectionRange(nextCursor, nextCursor);
         syncPromptHighlightScroll();
       });
@@ -572,8 +652,30 @@ export const ImageEditNode = memo(({ id, data, selected, width, height }: ImageE
     }
   }, [commitPromptDraft, incomingImages, t]);
 
+  const handleUndoOptimizedPrompt = useCallback(() => {
+    if (!lastPromptOptimizationUndoState) {
+      return;
+    }
+
+    if (promptDraftRef.current !== lastPromptOptimizationUndoState.appliedPrompt) {
+      return;
+    }
+
+    const restoredPrompt = lastPromptOptimizationUndoState.previousPrompt;
+    setLastPromptOptimizationUndoState(null);
+    setIsPromptOptimizationNoticeVisible(false);
+    setPromptDraft(restoredPrompt);
+    commitPromptDraft(restoredPrompt);
+    requestAnimationFrame(() => {
+      promptRef.current?.focus();
+      const nextCursor = restoredPrompt.length;
+      promptRef.current?.setSelectionRange(nextCursor, nextCursor);
+      syncPromptHighlightScroll();
+    });
+  }, [commitPromptDraft, lastPromptOptimizationUndoState]);
+
   const handleGenerate = useCallback(async () => {
-    const prompt = promptDraft.replace(/@(?=图\d+)/g, '').trim();
+    const prompt = promptDraft.replace(/@(?=\u56fe(?:\u7247)?\d+)/g, '').trim();
     if (!prompt) {
       const errorMessage = t('node.imageEdit.promptRequired');
       setError(errorMessage);
@@ -742,13 +844,12 @@ export const ImageEditNode = memo(({ id, data, selected, width, height }: ImageE
   };
 
   const insertImageReference = useCallback((imageIndex: number) => {
-    const marker = `@图${imageIndex + 1}`;
+    const marker = buildShortReferenceToken(imageIndex);
     const currentPrompt = promptDraftRef.current;
     const cursor = pickerCursor ?? currentPrompt.length;
     const { nextText: nextPrompt, nextCursor } = insertReferenceToken(currentPrompt, cursor, marker);
 
-    setPromptDraft(nextPrompt);
-    commitPromptDraft(nextPrompt);
+    commitManualPromptDraft(nextPrompt);
     setShowImagePicker(false);
     setPickerCursor(null);
     setPickerActiveIndex(0);
@@ -758,7 +859,7 @@ export const ImageEditNode = memo(({ id, data, selected, width, height }: ImageE
       promptRef.current?.setSelectionRange(nextCursor, nextCursor);
       syncPromptHighlightScroll();
     });
-  }, [commitPromptDraft, pickerCursor]);
+  }, [commitManualPromptDraft, pickerCursor]);
 
   const handlePromptKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
     if (event.key === 'Backspace' || event.key === 'Delete') {
@@ -776,8 +877,7 @@ export const ImageEditNode = memo(({ id, data, selected, width, height }: ImageE
       if (deleteRange) {
         event.preventDefault();
         const { nextText, nextCursor } = removeTextRange(currentPrompt, deleteRange);
-        setPromptDraft(nextText);
-        commitPromptDraft(nextText);
+        commitManualPromptDraft(nextText);
         requestAnimationFrame(() => {
           promptRef.current?.focus();
           promptRef.current?.setSelectionRange(nextCursor, nextCursor);
@@ -887,6 +987,25 @@ export const ImageEditNode = memo(({ id, data, selected, width, height }: ImageE
     updateNodeData,
   ]);
 
+  const canUndoPromptOptimization = Boolean(
+    lastPromptOptimizationUndoState
+    && promptDraft === lastPromptOptimizationUndoState.appliedPrompt
+  );
+
+  const promptOptimizationNotice =
+    lastPromptOptimizationMeta
+      ? `${t('node.imageEdit.optimizeModelLabel', {
+        model: lastPromptOptimizationMeta.modelLabel,
+      })} · ${t('node.imageEdit.optimizeReferenceImagesLabel', {
+        status:
+          lastPromptOptimizationMeta.referenceImageCount > 0
+            ? t('node.imageEdit.optimizeReferenceImagesUsed', {
+              count: lastPromptOptimizationMeta.referenceImageCount,
+            })
+            : t('node.imageEdit.optimizeReferenceImagesUnused'),
+      })}`
+      : null;
+
   return (
     <div
       ref={rootRef}
@@ -926,8 +1045,7 @@ export const ImageEditNode = memo(({ id, data, selected, width, height }: ImageE
             value={promptDraft}
             onChange={(event) => {
               const nextValue = event.target.value;
-              setPromptDraft(nextValue);
-              commitPromptDraft(nextValue);
+              commitManualPromptDraft(nextValue);
             }}
             onKeyDown={handlePromptKeyDown}
             onScroll={syncPromptHighlightScroll}
@@ -940,7 +1058,7 @@ export const ImageEditNode = memo(({ id, data, selected, width, height }: ImageE
 
         {showImagePicker && incomingImageItems.length > 0 && (
           <div
-            className="nowheel absolute z-30 w-[120px] overflow-hidden rounded-xl border border-[rgba(255,255,255,0.16)] bg-surface-dark shadow-xl"
+            className="nowheel absolute z-30 w-[156px] overflow-hidden rounded-xl border border-[rgba(255,255,255,0.16)] bg-surface-dark shadow-xl"
             style={{ left: pickerAnchor.left, top: pickerAnchor.top }}
             onMouseDown={(event) => event.stopPropagation()}
             onWheelCapture={(event) => event.stopPropagation()}
@@ -948,20 +1066,27 @@ export const ImageEditNode = memo(({ id, data, selected, width, height }: ImageE
             <div
               className="ui-scrollbar nowheel max-h-[180px] overflow-y-auto"
               onWheelCapture={(event) => event.stopPropagation()}
+              role="listbox"
             >
               {incomingImageItems.map((item, index) => (
                 <button
                   key={`${item.imageUrl}-${index}`}
+                  ref={(node) => {
+                    pickerItemRefs.current[index] = node;
+                  }}
                   type="button"
                   onClick={(event) => {
                     event.stopPropagation();
                     insertImageReference(index);
                   }}
                   onMouseEnter={() => setPickerActiveIndex(index)}
-                  className={`flex w-full items-center gap-2 border border-transparent bg-bg-dark/70 px-2 py-2 text-left text-sm text-text-dark transition-colors hover:border-[rgba(255,255,255,0.18)] ${pickerActiveIndex === index
+                  role="option"
+                  aria-selected={pickerActiveIndex === index}
+                  className={`flex w-full items-center gap-2 border border-transparent bg-bg-dark/70 px-2 py-2 text-left text-sm text-text-dark transition-colors hover:border-[rgba(255,255,255,0.18)] ${
+                    pickerActiveIndex === index
                       ? 'border-[rgba(255,255,255,0.24)] bg-bg-dark'
                       : ''
-                    }`}
+                  }`}
                 >
                   <CanvasNodeImage
                     src={item.displayUrl}
@@ -971,9 +1096,19 @@ export const ImageEditNode = memo(({ id, data, selected, width, height }: ImageE
                     className="h-8 w-8 rounded object-cover"
                     draggable={false}
                   />
-                  <span>{item.label}</span>
+                  <div className="min-w-0">
+                    <div className="truncate text-[11px] font-medium text-text-dark">
+                      {item.tokenLabel}
+                    </div>
+                    <div className="truncate text-[11px] text-text-muted">
+                      {item.label}
+                    </div>
+                  </div>
                 </button>
               ))}
+            </div>
+            <div className="border-t border-white/8 px-2 py-1 text-[10px] text-text-muted/80">
+              {t('common.referencePickerHint')}
             </div>
           </div>
         )}
@@ -1018,10 +1153,12 @@ export const ImageEditNode = memo(({ id, data, selected, width, height }: ImageE
                   const newPrompt = basePrompt ? `${basePrompt}, ${prompt}` : prompt;
                   setPromptDraft(newPrompt);
                   promptDraftRef.current = newPrompt;
+                  setLastPromptOptimizationUndoState(null);
                 } else if (styleTemplatePrompt) {
                   const cleanedPrompt = basePrompt.replace(new RegExp(`\\s*,?\\s*${styleTemplatePrompt.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\s*$`), '').trim();
                   setPromptDraft(cleanedPrompt);
                   promptDraftRef.current = cleanedPrompt;
+                  setLastPromptOptimizationUndoState(null);
                 }
               }}
               onOpenStyleTemplateManager={() => setShowStyleTemplateDialog(true)}
@@ -1031,35 +1168,50 @@ export const ImageEditNode = memo(({ id, data, selected, width, height }: ImageE
               paramsChipClassName={NODE_CONTROL_PARAMS_CHIP_CLASS}
               styleTemplateTriggerMode="icon"
               afterStyleTemplateSlot={(
-                <UiChipButton
-                  type="button"
-                  active={isOptimizingPrompt}
-                  disabled={isOptimizingPrompt || promptDraft.trim().length === 0}
-                  className={`${NODE_CONTROL_CHIP_CLASS} !w-6 !px-0 shrink-0 justify-center`}
-                  aria-label={
-                    isOptimizingPrompt
-                      ? t('node.imageEdit.optimizingPrompt')
-                      : t('node.imageEdit.optimizePrompt')
-                  }
-                  title={
-                    isOptimizingPrompt
-                      ? t('node.imageEdit.optimizingPrompt')
-                      : t('node.imageEdit.optimizePrompt')
-                  }
-                  onClick={(event) => {
-                    event.stopPropagation();
-                    void handleOptimizePrompt();
-                  }}
-                >
-                  {isOptimizingPrompt ? (
-                    <Loader2 className="h-4 w-4 origin-center scale-[1.12] animate-spin text-text-dark" />
-                  ) : (
-                    <Wand2
-                      className="h-4 w-4 origin-center scale-[1.18] text-text-dark"
-                      strokeWidth={2.45}
-                    />
-                  )}
-                </UiChipButton>
+                <Fragment>
+                  <UiChipButton
+                    type="button"
+                    active={isOptimizingPrompt}
+                    disabled={isOptimizingPrompt || promptDraft.trim().length === 0}
+                    className={`${NODE_CONTROL_CHIP_CLASS} !w-6 !px-0 shrink-0 justify-center`}
+                    aria-label={
+                      isOptimizingPrompt
+                        ? t('node.imageEdit.optimizingPrompt')
+                        : t('node.imageEdit.optimizePrompt')
+                    }
+                    title={
+                      isOptimizingPrompt
+                        ? t('node.imageEdit.optimizingPrompt')
+                        : t('node.imageEdit.optimizePrompt')
+                    }
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      void handleOptimizePrompt();
+                    }}
+                  >
+                    {isOptimizingPrompt ? (
+                      <Loader2 className="h-4 w-4 origin-center scale-[1.12] animate-spin text-text-dark" />
+                    ) : (
+                      <Wand2
+                        className="h-4 w-4 origin-center scale-[1.18] text-text-dark"
+                        strokeWidth={2.45}
+                      />
+                    )}
+                  </UiChipButton>
+                  <UiChipButton
+                    type="button"
+                    disabled={isOptimizingPrompt || !canUndoPromptOptimization}
+                    className={`${NODE_CONTROL_CHIP_CLASS} !w-6 !px-0 shrink-0 justify-center`}
+                    aria-label={t('node.imageEdit.undoOptimizedPrompt')}
+                    title={t('node.imageEdit.undoOptimizedPrompt')}
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      handleUndoOptimizedPrompt();
+                    }}
+                  >
+                    <Undo2 className="h-4 w-4 origin-center scale-[1.08] text-text-dark" strokeWidth={2.3} />
+                  </UiChipButton>
+                </Fragment>
               )}
             />
           </div>
@@ -1081,6 +1233,30 @@ export const ImageEditNode = memo(({ id, data, selected, width, height }: ImageE
           </div>
         </div>
       </div>
+      {isPromptOptimizationNoticeVisible && promptOptimizationNotice ? (
+        <div className="absolute left-2 right-2 top-full z-20 mt-2">
+          <div className="flex items-start gap-2 rounded-xl border border-white/12 bg-surface-dark/96 px-3 py-2 shadow-[0_10px_24px_rgba(0,0,0,0.24)]">
+            <div
+              className="min-w-0 flex-1 truncate text-[10px] leading-4 text-text-muted"
+              title={promptOptimizationNotice}
+            >
+              {promptOptimizationNotice}
+            </div>
+            <button
+              type="button"
+              className="shrink-0 rounded-full p-1 text-text-muted transition-colors hover:bg-white/8 hover:text-text-dark"
+              onClick={(event) => {
+                event.stopPropagation();
+                setIsPromptOptimizationNoticeVisible(false);
+              }}
+              aria-label={t('common.close')}
+              title={t('common.close')}
+            >
+              <X className="h-3 w-3" />
+            </button>
+          </div>
+        </div>
+      ) : null}
       <Handle
         type="target"
         id="target"

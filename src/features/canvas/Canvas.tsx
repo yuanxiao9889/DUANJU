@@ -733,8 +733,6 @@ export function Canvas() {
           aspectRatio: prepared.aspectRatio,
           isGenerating: false,
           generationStartedAt: null,
-          generationJobId: null,
-          generationProviderId: null,
           generationClientSessionId: null,
           generationStoryboardMetadata: undefined,
           generationError: null,
@@ -784,8 +782,6 @@ export function Canvas() {
       updateNodeData(nodeId, {
         isGenerating: false,
         generationStartedAt: null,
-        generationJobId: null,
-        generationProviderId: null,
         generationClientSessionId: null,
         generationStoryboardMetadata: undefined,
         generationError: errorMessage,
