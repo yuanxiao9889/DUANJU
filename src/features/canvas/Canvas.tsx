@@ -416,6 +416,26 @@ function getClientPosition(event: MouseEvent | TouchEvent): { x: number; y: numb
   return { x: touch.clientX, y: touch.clientY };
 }
 
+function resolveDropNodeElement(
+  eventTarget: EventTarget | null,
+  clientPosition: { x: number; y: number }
+): HTMLElement | null {
+  const elementTarget = eventTarget instanceof Element ? eventTarget : null;
+  const nodeElementFromTarget = elementTarget?.closest?.('.react-flow__node[data-id]') as HTMLElement | null;
+  const nodeElementFromPoint = document
+    .elementFromPoint(clientPosition.x, clientPosition.y)
+    ?.closest?.('.react-flow__node[data-id]') as HTMLElement | null;
+
+  return nodeElementFromTarget ?? nodeElementFromPoint;
+}
+
+function resolveDropNodeId(
+  eventTarget: EventTarget | null,
+  clientPosition: { x: number; y: number }
+): string | null {
+  return resolveDropNodeElement(eventTarget, clientPosition)?.dataset?.id ?? null;
+}
+
 function createPreviewPath(line: PreviewConnectionLine): string {
   const { start, end, handleType } = line;
   const deltaX = end.x - start.x;
@@ -581,6 +601,52 @@ export function Canvas() {
       }, delayMs);
     },
     [persistCanvasSnapshot]
+  );
+
+  const resetBranchConnectionState = useCallback(() => {
+    setShowBatchMenu(false);
+    setBranchConnectionSource([]);
+    setBranchConnectionPosition(null);
+  }, []);
+
+  const connectBranchSourcesToExistingNode = useCallback(
+    (targetNodeId: string | null): boolean => {
+      if (!targetNodeId) {
+        return false;
+      }
+
+      const targetNode = nodes.find((node) => node.id === targetNodeId);
+      if (!targetNode || !nodeHasTargetHandle(targetNode.type)) {
+        return false;
+      }
+
+      let connectedCount = 0;
+
+      for (const sourceNode of branchConnectionSource) {
+        if (
+          sourceNode.id === targetNodeId ||
+          !canNodeTypeBeManualConnectionSource(sourceNode.type)
+        ) {
+          continue;
+        }
+
+        connectNodes({
+          source: sourceNode.id,
+          target: targetNodeId,
+          sourceHandle: 'source',
+          targetHandle: 'target',
+        });
+        connectedCount += 1;
+      }
+
+      if (connectedCount === 0) {
+        return false;
+      }
+
+      scheduleCanvasPersist(0);
+      return true;
+    },
+    [branchConnectionSource, connectNodes, nodes, scheduleCanvasPersist]
   );
 
   const markGenerationNodeActivity = useCallback((nodeId: string) => {
@@ -1308,6 +1374,15 @@ export function Canvas() {
 
     const handleMouseUp = (e: MouseEvent) => {
       setIsDraggingBranchConnection(false);
+
+      const clientPosition = getClientPosition(e);
+      const dropNodeId = clientPosition ? resolveDropNodeId(e.target, clientPosition) : null;
+
+      if (connectBranchSourcesToExistingNode(dropNodeId)) {
+        resetBranchConnectionState();
+        return;
+      }
+
       setBatchMenuPosition({ x: e.clientX, y: e.clientY });
       setShowBatchMenu(true);
     };
@@ -1319,7 +1394,7 @@ export function Canvas() {
       document.removeEventListener('mousemove', handleMouseMove);
       document.removeEventListener('mouseup', handleMouseUp);
     };
-  }, [isDraggingBranchConnection]);
+  }, [connectBranchSourcesToExistingNode, isDraggingBranchConnection, resetBranchConnectionState]);
 
   useEffect(() => {
     const handlePaste = (event: ClipboardEvent) => {
@@ -2731,12 +2806,7 @@ export function Canvas() {
         return;
       }
 
-      const eventTarget = event.target as Element | null;
-      const nodeElementFromTarget = eventTarget?.closest?.('.react-flow__node[data-id]') as HTMLElement | null;
-      const nodeElementFromPoint = document.elementFromPoint(clientPosition.x, clientPosition.y)
-        ?.closest?.('.react-flow__node[data-id]') as HTMLElement | null;
-      const dropNodeElement = nodeElementFromTarget ?? nodeElementFromPoint;
-      const dropNodeId = dropNodeElement?.dataset?.id ?? null;
+      const dropNodeId = resolveDropNodeId(event.target, clientPosition);
 
       const isSupplementConnection = pendingConnectStart.handleId === 'supplement';
       const isBranchConnection = (() => {
@@ -2982,10 +3052,9 @@ export function Canvas() {
       });
     }
 
-    setShowBatchMenu(false);
-    setBranchConnectionSource([]);
-    setBranchConnectionPosition(null);
-  }, [branchConnectionSource, addNode, connectNodes]);
+    scheduleCanvasPersist(0);
+    resetBranchConnectionState();
+  }, [branchConnectionSource, addNode, connectNodes, resetBranchConnectionState, scheduleCanvasPersist]);
 
   return (
     <div ref={wrapperRef} className="relative h-full w-full flex">
@@ -3094,11 +3163,7 @@ export function Canvas() {
           sourceNodeIds={branchConnectionSource.map(n => n.id)}
           sourceNodeType={branchConnectionSource[0]?.type || 'default'}
           onSelectNodeType={handleBatchOperationSelect}
-          onClose={() => {
-            setShowBatchMenu(false);
-            setBranchConnectionSource([]);
-            setBranchConnectionPosition(null);
-          }}
+          onClose={resetBranchConnectionState}
         />
       )}
 

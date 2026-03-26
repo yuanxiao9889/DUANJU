@@ -1,8 +1,8 @@
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use std::time::{Instant, SystemTime, UNIX_EPOCH};
-use tracing::info;
 use tokio::sync::RwLock;
+use tracing::info;
 
 use crate::ai::providers::build_default_providers;
 use crate::ai::{GenerateRequest, ProviderRegistry};
@@ -40,6 +40,7 @@ pub struct TextGenerationRequestDto {
     pub max_tokens: Option<u32>,
     pub provider: Option<String>,
     pub api_key: Option<String>,
+    pub reference_images: Option<Vec<String>>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -112,7 +113,9 @@ pub async fn get_active_text_model_status() -> Result<ActiveTextModelStatusDto, 
 }
 
 #[tauri::command]
-pub async fn generate_text(request: TextGenerationRequestDto) -> Result<TextGenerationResponseDto, String> {
+pub async fn generate_text(
+    request: TextGenerationRequestDto,
+) -> Result<TextGenerationResponseDto, String> {
     let switch_started_at = Instant::now();
     info!("Generating text with model: {}", request.model);
 
@@ -164,7 +167,7 @@ pub async fn generate_text(request: TextGenerationRequestDto) -> Result<TextGene
         model: request.model.clone(),
         size: "".to_string(),
         aspect_ratio: "".to_string(),
-        reference_images: None,
+        reference_images: request.reference_images.filter(|items| !items.is_empty()),
         extra_params: None,
     };
 
@@ -190,19 +193,24 @@ pub struct TestConnectionResponse {
 }
 
 #[tauri::command]
-pub async fn test_provider_connection(request: TestConnectionRequest) -> Result<TestConnectionResponse, String> {
+pub async fn test_provider_connection(
+    request: TestConnectionRequest,
+) -> Result<TestConnectionResponse, String> {
     info!("Testing connection for provider: {}", request.provider);
 
     let registry = get_text_registry();
-    
+
     // Find provider
     let provider = registry
         .get_provider(&request.provider)
         .ok_or_else(|| format!("Provider '{}' not found", request.provider))?;
-    
+
     // Set API key
-    provider.set_api_key(request.api_key.clone()).await.map_err(|e| e.to_string())?;
-    
+    provider
+        .set_api_key(request.api_key.clone())
+        .await
+        .map_err(|e| e.to_string())?;
+
     // Try a simple generation
     let test_req = GenerateRequest {
         prompt: "Hello".to_string(),
@@ -212,7 +220,7 @@ pub async fn test_provider_connection(request: TestConnectionRequest) -> Result<
         reference_images: None,
         extra_params: None,
     };
-    
+
     match provider.generate(test_req).await {
         Ok(_) => Ok(TestConnectionResponse {
             success: true,

@@ -100,7 +100,9 @@ fn jimeng_panel_inspection_snapshot_path() -> PathBuf {
         .join(JIMENG_PANEL_INSPECTION_FILE_NAME)
 }
 
-fn persist_jimeng_panel_inspection_value(json_value: &serde_json::Value) -> Result<PathBuf, String> {
+fn persist_jimeng_panel_inspection_value(
+    json_value: &serde_json::Value,
+) -> Result<PathBuf, String> {
     let pretty_json = serde_json::to_vec_pretty(&json_value)
         .map_err(|error| format!("failed to serialize Jimeng inspection snapshot: {error}"))?;
 
@@ -172,7 +174,8 @@ async fn evaluate_jimeng_panel_script_json(
                 let webview2 = match unsafe { webview.controller().CoreWebView2() } {
                     Ok(webview2) => webview2,
                     Err(error) => {
-                        if let Some(sender) = sender.lock().ok().and_then(|mut guard| guard.take()) {
+                        if let Some(sender) = sender.lock().ok().and_then(|mut guard| guard.take())
+                        {
                             let _ = sender.send(Err(format!(
                                 "failed to access Jimeng WebView2 instance: {error}"
                             )));
@@ -191,13 +194,15 @@ async fn evaluate_jimeng_panel_script_json(
                             move |error_code, result_json| {
                                 let outcome = match error_code {
                                     Ok(()) => Ok(result_json),
-                                    Err(error) => {
-                                        Err(format!("failed to evaluate Jimeng inspection script: {error}"))
-                                    }
+                                    Err(error) => Err(format!(
+                                        "failed to evaluate Jimeng inspection script: {error}"
+                                    )),
                                 };
 
-                                if let Some(sender) =
-                                    callback_sender.lock().ok().and_then(|mut guard| guard.take())
+                                if let Some(sender) = callback_sender
+                                    .lock()
+                                    .ok()
+                                    .and_then(|mut guard| guard.take())
                                 {
                                     let _ = sender.send(outcome);
                                 }
@@ -564,11 +569,9 @@ pub async fn inspect_jimeng_panel_options(app: AppHandle) -> Result<serde_json::
                 return Ok(report);
             }
             Some("error") => {
-                return Err(
-                    inspection_state
-                        .error
-                        .unwrap_or_else(|| "Jimeng inspection failed".to_string()),
-                );
+                return Err(inspection_state
+                    .error
+                    .unwrap_or_else(|| "Jimeng inspection failed".to_string()));
             }
             _ => {}
         }
@@ -606,9 +609,8 @@ pub async fn sync_jimeng_panel_draft_options(
     let payload_json = serde_json::to_string(&sync_payload)
         .map_err(|error| format!("failed to serialize Jimeng draft sync payload: {error}"))?;
 
-    let dispatch_script = format!(
-        "(() => Boolean(window.__STORYBOARD_JIMENG__?.syncDraft?.({payload_json})))()"
-    );
+    let dispatch_script =
+        format!("(() => Boolean(window.__STORYBOARD_JIMENG__?.syncDraft?.({payload_json})))()");
     let dispatch_result = evaluate_jimeng_panel_script_json(&panel_window, dispatch_script).await?;
 
     if !dispatch_result.as_bool().unwrap_or(false) {
@@ -621,11 +623,9 @@ pub async fn sync_jimeng_panel_draft_options(
         match submission_state.status.as_deref() {
             Some("ready") => break,
             Some("error") => {
-                return Err(
-                    submission_state
-                        .error
-                        .unwrap_or_else(|| "Jimeng draft sync failed".to_string()),
-                );
+                return Err(submission_state
+                    .error
+                    .unwrap_or_else(|| "Jimeng draft sync failed".to_string()));
             }
             _ => {}
         }
@@ -642,7 +642,9 @@ pub async fn sync_jimeng_panel_draft_options(
 
     panel_window
         .eval("window.__STORYBOARD_JIMENG__?.requestInspection?.(true);")
-        .map_err(|error| format!("failed to trigger Jimeng inspection after draft sync: {error}"))?;
+        .map_err(|error| {
+            format!("failed to trigger Jimeng inspection after draft sync: {error}")
+        })?;
 
     loop {
         let inspection_state = poll_jimeng_panel_inspection_state(&panel_window).await?;
@@ -668,11 +670,9 @@ pub async fn sync_jimeng_panel_draft_options(
                 return Ok(report);
             }
             Some("error") => {
-                return Err(
-                    inspection_state
-                        .error
-                        .unwrap_or_else(|| "Jimeng inspection failed".to_string()),
-                );
+                return Err(inspection_state
+                    .error
+                    .unwrap_or_else(|| "Jimeng inspection failed".to_string()));
             }
             _ => {}
         }

@@ -2,8 +2,8 @@ use std::collections::HashMap;
 use std::fs;
 use std::io::Cursor;
 use std::net::SocketAddr;
-use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU16, Ordering};
+use std::sync::Arc;
 
 use base64::Engine;
 use serde::{Deserialize, Serialize};
@@ -128,38 +128,51 @@ async fn send_command_to_ps(message: serde_json::Value) -> Result<serde_json::Va
         warn!("send_command_to_ps: No Photoshop client connected");
         return Err("No Photoshop client connected".to_string());
     }
-    
+
     let request_id = uuid::Uuid::new_v4().to_string();
     let mut message_with_id = message.clone();
     if let Some(obj) = message_with_id.as_object_mut() {
         obj.insert("requestId".to_string(), serde_json::json!(request_id));
     }
-    
-    info!("send_command_to_ps: Adding command with requestId={}, type={:?}", request_id, message.get("type"));
-    
+
+    info!(
+        "send_command_to_ps: Adding command with requestId={}, type={:?}",
+        request_id,
+        message.get("type")
+    );
+
     {
         let mut commands = PENDING_COMMANDS.lock().await;
         commands.push(message_with_id);
-        info!("send_command_to_ps: Command queue length: {}", commands.len());
+        info!(
+            "send_command_to_ps: Command queue length: {}",
+            commands.len()
+        );
     }
-    
+
     info!("send_command_to_ps: Waiting for response (timeout 90s)...");
-    
+
     for i in 0..180 {
         tokio::time::sleep(std::time::Duration::from_millis(500)).await;
-        
+
         let responses = PENDING_RESPONSES.lock().await;
         if let Some(response) = responses.get(&request_id) {
-            info!("send_command_to_ps: Got response for requestId={}", request_id);
+            info!(
+                "send_command_to_ps: Got response for requestId={}",
+                request_id
+            );
             return Ok(response.clone());
         }
-        
+
         if i % 10 == 9 {
             info!("send_command_to_ps: Still waiting... ({}/180)", i + 1);
         }
     }
-    
-    warn!("send_command_to_ps: Timeout waiting for response to requestId={}", request_id);
+
+    warn!(
+        "send_command_to_ps: Timeout waiting for response to requestId={}",
+        request_id
+    );
     Err("Request timeout".to_string())
 }
 
@@ -176,7 +189,11 @@ fn create_routes(
                 None
             };
             let ps_connected = *PS_CONNECTED.lock().await;
-            Ok::<_, warp::Rejection>(warp::reply::json(&ApiResponse::success(ServerStatus { running, port, ps_connected })))
+            Ok::<_, warp::Rejection>(warp::reply::json(&ApiResponse::success(ServerStatus {
+                running,
+                port,
+                ps_connected,
+            })))
         });
 
     let app_handle_clone = app_handle.clone();
@@ -187,24 +204,28 @@ fn create_routes(
             let app_handle = app_handle_clone.clone();
             async move {
                 let id = uuid::Uuid::new_v4().to_string();
-                
+
                 let width = payload.width.unwrap_or(0);
                 let height = payload.height.unwrap_or(0);
-                
+
                 let event = ImageReceivedEvent {
                     id: id.clone(),
                     base64: payload.base64,
                     width,
                     height,
                 };
-                
+
                 if let Err(e) = app_handle.emit("ps:image-received", &event) {
                     error!("Failed to emit ps:image-received event: {}", e);
-                    return Ok::<_, warp::Rejection>(warp::reply::json(&ApiResponse::<String>::error("Failed to process image")));
+                    return Ok::<_, warp::Rejection>(warp::reply::json(
+                        &ApiResponse::<String>::error("Failed to process image"),
+                    ));
                 }
-                
+
                 info!("Image received from Photoshop, id: {}", id);
-                Ok(warp::reply::json(&ApiResponse::success(serde_json::json!({ "id": id }))))
+                Ok(warp::reply::json(&ApiResponse::success(
+                    serde_json::json!({ "id": id }),
+                )))
             }
         });
 
@@ -213,10 +234,15 @@ fn create_routes(
         .and_then(|| async {
             let mut pending = PENDING_IMAGE.lock().await;
             if let Some(image) = pending.take() {
-                info!("Pending image retrieved by Photoshop plugin, id: {}", image.id);
+                info!(
+                    "Pending image retrieved by Photoshop plugin, id: {}",
+                    image.id
+                );
                 Ok::<_, warp::Rejection>(warp::reply::json(&ApiResponse::success(image)))
             } else {
-                Ok(warp::reply::json(&ApiResponse::<PendingImage>::error("No pending image")))
+                Ok(warp::reply::json(&ApiResponse::<PendingImage>::error(
+                    "No pending image",
+                )))
             }
         });
 
@@ -225,10 +251,18 @@ fn create_routes(
         .and_then(|| async {
             let mut commands = PENDING_COMMANDS.lock().await;
             if let Some(command) = commands.pop() {
-                info!("Poll: Sending command to PS: {:?}, queue remaining: {}", command.get("type"), commands.len());
-                Ok::<_, warp::Rejection>(warp::reply::json(&ApiResponse::success(serde_json::json!({ "command": command }))))
+                info!(
+                    "Poll: Sending command to PS: {:?}, queue remaining: {}",
+                    command.get("type"),
+                    commands.len()
+                );
+                Ok::<_, warp::Rejection>(warp::reply::json(&ApiResponse::success(
+                    serde_json::json!({ "command": command }),
+                )))
             } else {
-                Ok(warp::reply::json(&ApiResponse::<serde_json::Value>::error("No pending commands")))
+                Ok(warp::reply::json(&ApiResponse::<serde_json::Value>::error(
+                    "No pending commands",
+                )))
             }
         });
 
@@ -238,14 +272,20 @@ fn create_routes(
         .and_then(|response: serde_json::Value| async {
             info!("Response route received: {:?}", response.get("requestId"));
             if let Some(request_id) = response.get("requestId").and_then(|r| r.as_str()) {
-                info!("Received response from PS for request: {}, success: {:?}", request_id, response.get("success"));
+                info!(
+                    "Received response from PS for request: {}, success: {:?}",
+                    request_id,
+                    response.get("success")
+                );
                 let mut responses = PENDING_RESPONSES.lock().await;
                 responses.insert(request_id.to_string(), response);
                 info!("Response stored, total responses: {}", responses.len());
             } else {
                 warn!("Response missing requestId: {:?}", response);
             }
-            Ok::<_, warp::Rejection>(warp::reply::json(&ApiResponse::success(serde_json::json!({ "received": true }))))
+            Ok::<_, warp::Rejection>(warp::reply::json(&ApiResponse::success(
+                serde_json::json!({ "received": true }),
+            )))
         });
 
     let register_route = warp::path!("api" / "ps" / "register")
@@ -254,15 +294,21 @@ fn create_routes(
             let mut connected = PS_CONNECTED.lock().await;
             *connected = true;
             info!("Photoshop client registered");
-            Ok::<_, warp::Rejection>(warp::reply::json(&ApiResponse::success(serde_json::json!({ "registered": true }))))
+            Ok::<_, warp::Rejection>(warp::reply::json(&ApiResponse::success(
+                serde_json::json!({ "registered": true }),
+            )))
         });
 
     let get_selection_route = warp::path!("api" / "ps" / "get-selection")
         .and(warp::get())
         .and_then(|| async {
             match send_command_to_ps(serde_json::json!({ "type": "getSelection" })).await {
-                Ok(response) => Ok::<_, warp::Rejection>(warp::reply::json(&ApiResponse::success(response))),
-                Err(e) => Ok(warp::reply::json(&ApiResponse::<serde_json::Value>::error(&e))),
+                Ok(response) => {
+                    Ok::<_, warp::Rejection>(warp::reply::json(&ApiResponse::success(response)))
+                }
+                Err(e) => Ok(warp::reply::json(&ApiResponse::<serde_json::Value>::error(
+                    &e,
+                ))),
             }
         });
 
@@ -270,8 +316,12 @@ fn create_routes(
         .and(warp::get())
         .and_then(|| async {
             match send_command_to_ps(serde_json::json!({ "type": "getSelectionImage" })).await {
-                Ok(response) => Ok::<_, warp::Rejection>(warp::reply::json(&ApiResponse::success(response))),
-                Err(e) => Ok(warp::reply::json(&ApiResponse::<serde_json::Value>::error(&e))),
+                Ok(response) => {
+                    Ok::<_, warp::Rejection>(warp::reply::json(&ApiResponse::success(response)))
+                }
+                Err(e) => Ok(warp::reply::json(&ApiResponse::<serde_json::Value>::error(
+                    &e,
+                ))),
             }
         });
 
@@ -279,17 +329,23 @@ fn create_routes(
         .and(warp::post())
         .and(warp::body::json::<ImagePayload>())
         .and_then(|payload: ImagePayload| async move {
-            match send_command_to_ps(serde_json::json!({ 
-                "type": "sendImage", 
+            match send_command_to_ps(serde_json::json!({
+                "type": "sendImage",
                 "data": {
                     "base64": payload.base64,
                     "width": payload.width,
                     "height": payload.height,
                     "mimeType": payload.mime_type
                 }
-            })).await {
-                Ok(response) => Ok::<_, warp::Rejection>(warp::reply::json(&ApiResponse::success(response))),
-                Err(e) => Ok(warp::reply::json(&ApiResponse::<serde_json::Value>::error(&e))),
+            }))
+            .await
+            {
+                Ok(response) => {
+                    Ok::<_, warp::Rejection>(warp::reply::json(&ApiResponse::success(response)))
+                }
+                Err(e) => Ok(warp::reply::json(&ApiResponse::<serde_json::Value>::error(
+                    &e,
+                ))),
             }
         });
 
@@ -312,10 +368,7 @@ fn create_routes(
 }
 
 #[tauri::command]
-pub async fn start_ps_server(
-    app: AppHandle,
-    port: Option<u16>,
-) -> Result<u16, String> {
+pub async fn start_ps_server(app: AppHandle, port: Option<u16>) -> Result<u16, String> {
     if SERVER_RUNNING.load(Ordering::SeqCst) {
         let current_port = SERVER_PORT.load(Ordering::SeqCst);
         info!("PS server already running on port {}", current_port);
@@ -325,21 +378,25 @@ pub async fn start_ps_server(
     let requested_port = port.unwrap_or(DEFAULT_PORT);
     let available_port = find_available_port(requested_port, MAX_PORT)
         .await
-        .ok_or_else(|| format!("No available port found between {} and {}", requested_port, MAX_PORT))?;
+        .ok_or_else(|| {
+            format!(
+                "No available port found between {} and {}",
+                requested_port, MAX_PORT
+            )
+        })?;
 
     let addr: SocketAddr = format!("127.0.0.1:{}", available_port)
         .parse()
         .map_err(|e| format!("Invalid address: {}", e))?;
 
     let (shutdown_tx, shutdown_rx) = tokio::sync::oneshot::channel::<()>();
-    
+
     let routes = create_routes(app.clone());
-    
-    let (_, server) = warp::serve(routes)
-        .bind_with_graceful_shutdown(addr, async {
-            shutdown_rx.await.ok();
-            info!("PS server shutdown signal received");
-        });
+
+    let (_, server) = warp::serve(routes).bind_with_graceful_shutdown(addr, async {
+        shutdown_rx.await.ok();
+        info!("PS server shutdown signal received");
+    });
 
     SERVER_RUNNING.store(true, Ordering::SeqCst);
     SERVER_PORT.store(available_port, Ordering::SeqCst);
@@ -350,7 +407,7 @@ pub async fn start_ps_server(
         let mut handle_guard = SERVER_HANDLE.lock().await;
         *handle_guard = Some(server_handle);
     }
-    
+
     {
         let mut tx_guard = SHUTDOWN_TX.lock().await;
         *tx_guard = Some(shutdown_tx);
@@ -385,17 +442,17 @@ pub async fn stop_ps_server() -> Result<(), String> {
             }
         }
     }
-    
+
     {
         let mut connected = PS_CONNECTED.lock().await;
         *connected = false;
     }
-    
+
     {
         let mut commands = PENDING_COMMANDS.lock().await;
         commands.clear();
     }
-    
+
     {
         let mut responses = PENDING_RESPONSES.lock().await;
         responses.clear();
@@ -417,7 +474,11 @@ pub async fn get_ps_server_status() -> ServerStatus {
         None
     };
     let ps_connected = *PS_CONNECTED.lock().await;
-    ServerStatus { running, port, ps_connected }
+    ServerStatus {
+        running,
+        port,
+        ps_connected,
+    }
 }
 
 #[tauri::command]
@@ -429,7 +490,9 @@ pub async fn send_image_to_photoshop(image_path: String) -> Result<(), String> {
 
     let connected = *PS_CONNECTED.lock().await;
     if !connected {
-        return Err("No Photoshop client connected. Please open the plugin in Photoshop.".to_string());
+        return Err(
+            "No Photoshop client connected. Please open the plugin in Photoshop.".to_string(),
+        );
     }
 
     let (image_data, width, height, mime_type) = if image_path.starts_with("data:image") {
@@ -444,60 +507,65 @@ pub async fn send_image_to_photoshop(image_path: String) -> Result<(), String> {
         let decoded = base64::engine::general_purpose::STANDARD
             .decode(base64_str)
             .map_err(|e| format!("Failed to decode base64: {}", e))?;
-        
+
         let img = image::ImageReader::new(Cursor::new(&decoded))
             .with_guessed_format()
             .map_err(|e| format!("Failed to guess image format: {}", e))?
             .decode()
             .map_err(|e| format!("Failed to decode image: {}", e))?;
-        
+
         (decoded, img.width(), img.height(), mime_type)
     } else if image_path.starts_with("file://") {
-        let decoded_url = urlencoding::decode(&image_path)
-            .map_err(|e| format!("Failed to decode URL: {}", e))?;
+        let decoded_url =
+            urlencoding::decode(&image_path).map_err(|e| format!("Failed to decode URL: {}", e))?;
         let local_path = decoded_url
             .strip_prefix("file://")
             .or_else(|| decoded_url.strip_prefix("file:///"))
             .ok_or("Invalid file URL")?;
-        
+
         let normalized_path = if cfg!(windows) {
             local_path.trim_start_matches('/')
         } else {
             local_path
         };
-        
+
         info!("Reading image from file URL: {}", normalized_path);
-        let data = fs::read(normalized_path)
-            .map_err(|e| format!("Failed to read image file: {}", e))?;
-        
+        let data =
+            fs::read(normalized_path).map_err(|e| format!("Failed to read image file: {}", e))?;
+
         let img = image::ImageReader::new(Cursor::new(&data))
             .with_guessed_format()
             .map_err(|e| format!("Failed to guess image format: {}", e))?
             .decode()
             .map_err(|e| format!("Failed to decode image: {}", e))?;
-        
+
         let mime_type = guess_mime_type(&data)?;
-        
+
         (data, img.width(), img.height(), mime_type)
     } else {
         info!("Reading image from path: {}", image_path);
-        let data = fs::read(&image_path)
-            .map_err(|e| format!("Failed to read image file: {}", e))?;
-        
+        let data =
+            fs::read(&image_path).map_err(|e| format!("Failed to read image file: {}", e))?;
+
         let img = image::ImageReader::new(Cursor::new(&data))
             .with_guessed_format()
             .map_err(|e| format!("Failed to guess image format: {}", e))?
             .decode()
             .map_err(|e| format!("Failed to decode image: {}", e))?;
-        
+
         let mime_type = guess_mime_type(&data)?;
-        
+
         (data, img.width(), img.height(), mime_type)
     };
 
     let base64_data = base64::engine::general_purpose::STANDARD.encode(&image_data);
-    
-    info!("Sending image to PS: {}x{}, base64 length: {}", width, height, base64_data.len());
+
+    info!(
+        "Sending image to PS: {}x{}, base64 length: {}",
+        width,
+        height,
+        base64_data.len()
+    );
 
     let result = send_command_to_ps(serde_json::json!({
         "type": "sendImage",
@@ -507,16 +575,24 @@ pub async fn send_image_to_photoshop(image_path: String) -> Result<(), String> {
             "height": height,
             "mimeType": mime_type
         }
-    })).await;
+    }))
+    .await;
 
     match result {
         Ok(response) => {
             info!("PS response: {:?}", response);
-            if response.get("success").and_then(|s| s.as_bool()).unwrap_or(false) {
+            if response
+                .get("success")
+                .and_then(|s| s.as_bool())
+                .unwrap_or(false)
+            {
                 info!("Image sent to Photoshop successfully");
                 Ok(())
             } else {
-                let error = response.get("error").and_then(|e| e.as_str()).unwrap_or("Unknown error");
+                let error = response
+                    .get("error")
+                    .and_then(|e| e.as_str())
+                    .unwrap_or("Unknown error");
                 Err(error.to_string())
             }
         }

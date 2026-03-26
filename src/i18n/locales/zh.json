@@ -21,6 +21,10 @@
   "titleBar": {
     "back": "返回",
     "jimengPanel": "\u5373\u68a6",
+    "jimengOpenChrome": "\u6253\u5f00\u5373\u68a6 Chrome",
+    "jimengOpeningChrome": "\u6b63\u5728\u6253\u5f00\u5373\u68a6 Chrome",
+    "jimengChromeMissing": "\u672a\u68c0\u6d4b\u5230 Chrome \u6216 Chromium\uff0c\u8bf7\u5148\u5b89\u88c5 Google Chrome \u540e\u518d\u8bd5\u3002",
+    "jimengOpenFailed": "\u6253\u5f00\u5373\u68a6\u5931\u8d25",
     "jimengExpand": "\u6253\u5f00\u5373\u68a6\u9762\u677f",
     "jimengCollapse": "\u6536\u8d77\u5373\u68a6\u9762\u677f",
     "jimengFullscreen": "\u653e\u5927\u5373\u68a6\u9762\u677f",
@@ -52,8 +56,8 @@
       "miniMapOff": "?????"
     },
     "batchMenu": {
-      "referenceSelected": "????? {{count}} ?{{type}}????",
-      "node": "??"
+      "referenceSelected": "基于已选中的 {{count}} 个{{type}}创建节点",
+      "node": "节点"
     }
   },
   "group": {
@@ -155,6 +159,9 @@
       "manualRefresh": "手动获取"
     },
     "imageEdit": {
+      "optimizePrompt": "\u4f18\u5316\u63d0\u793a\u8bcd",
+      "optimizingPrompt": "\u6b63\u5728\u4f18\u5316\u63d0\u793a\u8bcd",
+      "optimizePromptFailed": "\u63d0\u793a\u8bcd\u4f18\u5316\u5931\u8d25",
       "promptRequired": "请输入提示词",
       "apiKeyRequired": "请在设置中填写 API Key",
       "resultTitle": "结果图片",
@@ -212,8 +219,11 @@
       "title": "视频节点",
       "uploadHint": "拖拽或点击上传视频",
       "screenshot": "截图",
+      "screenshotPending": "正在截图...",
       "viewScreenshots": "查看截图",
       "screenshotSuccess": "截图已创建",
+      "screenshotFailed": "截图失败，请在视频开始渲染后再试一次",
+      "screenshotNotReady": "视频当前帧还在准备中，请稍后再试",
       "play": "播放",
       "pause": "暂停",
       "unsupportedFormat": "不支持的视频格式",

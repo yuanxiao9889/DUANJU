@@ -1,6 +1,6 @@
-use base64::{engine::general_purpose::STANDARD, Engine};
 use ab_glyph::{FontArc, PxScale};
 use arboard::{Clipboard, ImageData};
+use base64::{engine::general_purpose::STANDARD, Engine};
 use directories::UserDirs;
 use fast_image_resize as fir;
 use fast_image_resize::images::Image as FirImage;
@@ -56,8 +56,10 @@ pub async fn split_image(
 
     let (width, height) = img.dimensions();
     let resolved_line = resolve_line_thickness(width, height, safe_rows, safe_cols, requested_line);
-    let usable_width = width.saturating_sub((safe_cols.saturating_sub(1)).saturating_mul(resolved_line));
-    let usable_height = height.saturating_sub((safe_rows.saturating_sub(1)).saturating_mul(resolved_line));
+    let usable_width =
+        width.saturating_sub((safe_cols.saturating_sub(1)).saturating_mul(resolved_line));
+    let usable_height =
+        height.saturating_sub((safe_rows.saturating_sub(1)).saturating_mul(resolved_line));
 
     if usable_width < safe_cols || usable_height < safe_rows {
         return Err("分割线过粗，无法完成切割".to_string());
@@ -143,8 +145,10 @@ pub async fn split_image_source(
 
     let (width, height) = image.dimensions();
     let resolved_line = resolve_line_thickness(width, height, safe_rows, safe_cols, requested_line);
-    let usable_width = width.saturating_sub((safe_cols.saturating_sub(1)).saturating_mul(resolved_line));
-    let usable_height = height.saturating_sub((safe_rows.saturating_sub(1)).saturating_mul(resolved_line));
+    let usable_width =
+        width.saturating_sub((safe_cols.saturating_sub(1)).saturating_mul(resolved_line));
+    let usable_height =
+        height.saturating_sub((safe_rows.saturating_sub(1)).saturating_mul(resolved_line));
 
     if usable_width < safe_cols || usable_height < safe_rows {
         return Err("分割线过粗，无法完成切割".to_string());
@@ -152,7 +156,10 @@ pub async fn split_image_source(
 
     let column_widths = if let Some(ratios) = col_ratios {
         if ratios.len() == safe_cols as usize {
-            ratios.iter().map(|r| (usable_width as f64 * r / 100.0).max(1.0) as u32).collect()
+            ratios
+                .iter()
+                .map(|r| (usable_width as f64 * r / 100.0).max(1.0) as u32)
+                .collect()
         } else {
             split_sizes(usable_width, safe_cols)
         }
@@ -162,7 +169,10 @@ pub async fn split_image_source(
 
     let row_heights = if let Some(ratios) = row_ratios {
         if ratios.len() == safe_rows as usize {
-            ratios.iter().map(|r| (usable_height as f64 * r / 100.0).max(1.0) as u32).collect()
+            ratios
+                .iter()
+                .map(|r| (usable_height as f64 * r / 100.0).max(1.0) as u32)
+                .collect()
         } else {
             split_sizes(usable_height, safe_rows)
         }
@@ -347,9 +357,8 @@ fn resolve_line_thickness(
 
 fn parse_hex_color(color: &str) -> Rgba<u8> {
     let value = color.trim().trim_start_matches('#');
-    let parse_pair = |start: usize| -> Option<u8> {
-        u8::from_str_radix(value.get(start..start + 2)?, 16).ok()
-    };
+    let parse_pair =
+        |start: usize| -> Option<u8> { u8::from_str_radix(value.get(start..start + 2)?, 16).ok() };
 
     match value.len() {
         6 => {
@@ -359,12 +368,9 @@ fn parse_hex_color(color: &str) -> Rgba<u8> {
             Rgba([r, g, b, 255])
         }
         8 => {
-            let (Some(r), Some(g), Some(b), Some(a)) = (
-                parse_pair(0),
-                parse_pair(2),
-                parse_pair(4),
-                parse_pair(6),
-            ) else {
+            let (Some(r), Some(g), Some(b), Some(a)) =
+                (parse_pair(0), parse_pair(2), parse_pair(4), parse_pair(6))
+            else {
                 return Rgba([15, 17, 21, 255]);
             };
             Rgba([r, g, b, a])
@@ -518,7 +524,14 @@ fn fill_rect_alpha_blend(
     }
 }
 
-fn stroke_right_edge(image: &mut RgbaImage, x: u32, y: u32, width: u32, height: u32, color: Rgba<u8>) {
+fn stroke_right_edge(
+    image: &mut RgbaImage,
+    x: u32,
+    y: u32,
+    width: u32,
+    height: u32,
+    color: Rgba<u8>,
+) {
     if width < 1 || height < 1 {
         return;
     }
@@ -536,7 +549,14 @@ fn stroke_right_edge(image: &mut RgbaImage, x: u32, y: u32, width: u32, height: 
     }
 }
 
-fn stroke_bottom_edge(image: &mut RgbaImage, x: u32, y: u32, width: u32, height: u32, color: Rgba<u8>) {
+fn stroke_bottom_edge(
+    image: &mut RgbaImage,
+    x: u32,
+    y: u32,
+    width: u32,
+    height: u32,
+    color: Rgba<u8>,
+) {
     if width < 1 || height < 1 {
         return;
     }
@@ -554,7 +574,11 @@ fn stroke_bottom_edge(image: &mut RgbaImage, x: u32, y: u32, width: u32, height:
     }
 }
 
-fn resize_image_fast(source: &DynamicImage, target_width: u32, target_height: u32) -> Result<RgbaImage, String> {
+fn resize_image_fast(
+    source: &DynamicImage,
+    target_width: u32,
+    target_height: u32,
+) -> Result<RgbaImage, String> {
     let source_rgba = source.to_rgba8();
     let source_width = source_rgba.width().max(1);
     let source_height = source_rgba.height().max(1);
@@ -567,18 +591,25 @@ fn resize_image_fast(source: &DynamicImage, target_width: u32, target_height: u3
         fir::PixelType::U8x4,
     )
     .map_err(|e| format!("Failed to create source image for fast resize: {}", e))?;
-    let mut target_image =
-        FirImage::new(target_width.max(1), target_height.max(1), fir::PixelType::U8x4);
+    let mut target_image = FirImage::new(
+        target_width.max(1),
+        target_height.max(1),
+        fir::PixelType::U8x4,
+    );
 
     let mut resizer = fir::Resizer::new();
-    let resize_options =
-        fir::ResizeOptions::new().resize_alg(fir::ResizeAlg::Convolution(fir::FilterType::Bilinear));
+    let resize_options = fir::ResizeOptions::new()
+        .resize_alg(fir::ResizeAlg::Convolution(fir::FilterType::Bilinear));
     resizer
         .resize(&source_image, &mut target_image, Some(&resize_options))
         .map_err(|e| format!("Failed to run fast image resize: {}", e))?;
 
-    RgbaImage::from_raw(target_width.max(1), target_height.max(1), target_image.into_vec())
-        .ok_or_else(|| "Failed to build RGBA image from resized buffer".to_string())
+    RgbaImage::from_raw(
+        target_width.max(1),
+        target_height.max(1),
+        target_image.into_vec(),
+    )
+    .ok_or_else(|| "Failed to build RGBA image from resized buffer".to_string())
 }
 
 async fn load_dynamic_image_from_source(source: &str) -> Result<DynamicImage, String> {
@@ -644,10 +675,14 @@ fn prepare_node_image_from_bytes(
     let scale = safe_max_dimension as f64 / longest_side as f64;
     let target_width = ((width as f64) * scale).round().max(1.0) as u32;
     let target_height = ((height as f64) * scale).round().max(1.0) as u32;
-    let resized_rgba = resize_image_fast(&image, target_width, target_height)
-        .unwrap_or_else(|_| {
+    let resized_rgba =
+        resize_image_fast(&image, target_width, target_height).unwrap_or_else(|_| {
             image
-                .resize(target_width, target_height, image::imageops::FilterType::Triangle)
+                .resize(
+                    target_width,
+                    target_height,
+                    image::imageops::FilterType::Triangle,
+                )
                 .to_rgba8()
         });
     let resized = DynamicImage::ImageRgba8(resized_rgba);
@@ -697,13 +732,8 @@ pub async fn prepare_node_image_source(
     let resolve_started = Instant::now();
     let (bytes, extension) = resolve_source_bytes(trimmed).await?;
     let resolve_elapsed = resolve_started.elapsed().as_millis();
-    let result = prepare_node_image_from_bytes(
-        &app,
-        &bytes,
-        &extension,
-        safe_max_dimension,
-        "source",
-    )?;
+    let result =
+        prepare_node_image_from_bytes(&app, &bytes, &extension, safe_max_dimension, "source")?;
     info!(
         "prepare_node_image_source resolved: bytes={}, ext={}, resolve_source={}ms, total={}ms",
         bytes.len(),
@@ -919,7 +949,11 @@ pub async fn merge_storyboard_images(
     );
     let placeholder = Rgba([255, 255, 255, 255]);
     let border = Rgba([255, 255, 255, 56]);
-    let overlay_font = if overlay_requested { load_overlay_font() } else { None };
+    let overlay_font = if overlay_requested {
+        load_overlay_font()
+    } else {
+        None
+    };
     let overlay_scale = PxScale::from(font_size.max(9) as f32);
     let text_overlay_applied = !overlay_requested || overlay_font.is_some();
 
@@ -927,7 +961,8 @@ pub async fn merge_storyboard_images(
         let row = (index as u32) / cols;
         let col = (index as u32) % cols;
         let x = padding + col.saturating_mul(cell_width.saturating_add(gap));
-        let y = padding + row.saturating_mul(cell_height.saturating_add(note_height).saturating_add(gap));
+        let y = padding
+            + row.saturating_mul(cell_height.saturating_add(note_height).saturating_add(gap));
 
         fill_rect(&mut canvas, x, y, cell_width, cell_height, placeholder);
 
@@ -942,7 +977,8 @@ pub async fn merge_storyboard_images(
             let draw_w = (src_w * ratio).round().max(1.0) as u32;
             let draw_h = (src_h * ratio).round().max(1.0) as u32;
 
-            let mut cell_canvas = RgbaImage::from_pixel(cell_width.max(1), cell_height.max(1), placeholder);
+            let mut cell_canvas =
+                RgbaImage::from_pixel(cell_width.max(1), cell_height.max(1), placeholder);
             let draw_x = (cell_width as i64 - draw_w as i64) / 2;
             let draw_y = (cell_height as i64 - draw_h as i64) / 2;
 
@@ -990,7 +1026,15 @@ pub async fn merge_storyboard_images(
                 let text_y = badge_y
                     .saturating_add(badge_height.saturating_sub(label_h) / 2)
                     .max(0) as i32;
-                draw_text_mut(&mut canvas, text_color, text_x, text_y, overlay_scale, font, &label);
+                draw_text_mut(
+                    &mut canvas,
+                    text_color,
+                    text_x,
+                    text_y,
+                    overlay_scale,
+                    font,
+                    &label,
+                );
             }
 
             if show_frame_note {
@@ -999,7 +1043,12 @@ pub async fn merge_storyboard_images(
                     .map(|value| value.trim())
                     .unwrap_or("");
                 if !note_raw.is_empty() {
-                    let note = trim_text_to_width(font, overlay_scale, note_raw, cell_width.saturating_sub(14));
+                    let note = trim_text_to_width(
+                        font,
+                        overlay_scale,
+                        note_raw,
+                        cell_width.saturating_sub(14),
+                    );
                     if !note.is_empty() {
                         let (note_w, note_h) = text_size(overlay_scale, font, &note);
                         if note_placement == "bottom" && note_height > 0 {
@@ -1009,12 +1058,19 @@ pub async fn merge_storyboard_images(
                                 .saturating_add(note_height.saturating_sub(note_h) / 2)
                                 .max(0) as i32;
                             let _ = note_w;
-                            draw_text_mut(&mut canvas, text_color, note_x, note_y, overlay_scale, font, &note);
+                            draw_text_mut(
+                                &mut canvas,
+                                text_color,
+                                note_x,
+                                note_y,
+                                overlay_scale,
+                                font,
+                                &note,
+                            );
                         } else {
                             let overlay_height = (font_size as f32 * 1.35).round().max(18.0) as u32;
-                            let overlay_y = y
-                                .saturating_add(cell_height)
-                                .saturating_sub(overlay_height);
+                            let overlay_y =
+                                y.saturating_add(cell_height).saturating_sub(overlay_height);
                             fill_rect_alpha_blend(
                                 &mut canvas,
                                 x,
@@ -1027,7 +1083,15 @@ pub async fn merge_storyboard_images(
                             let note_y = overlay_y
                                 .saturating_add(overlay_height.saturating_sub(note_h) / 2)
                                 .max(0) as i32;
-                            draw_text_mut(&mut canvas, text_color, note_x, note_y, overlay_scale, font, &note);
+                            draw_text_mut(
+                                &mut canvas,
+                                text_color,
+                                note_x,
+                                note_y,
+                                overlay_scale,
+                                font,
+                                &note,
+                            );
                         }
                     }
                 }
@@ -1162,7 +1226,9 @@ fn parse_data_url(source: &str) -> Result<(Vec<u8>, String), String> {
     Ok((bytes, extension_from_mime(mime)))
 }
 
-fn read_storyboard_metadata_from_png_bytes(bytes: &[u8]) -> Result<Option<StoryboardImageMetadata>, String> {
+fn read_storyboard_metadata_from_png_bytes(
+    bytes: &[u8],
+) -> Result<Option<StoryboardImageMetadata>, String> {
     let decoder = Decoder::new(Cursor::new(bytes));
     let reader = decoder
         .read_info()
@@ -1218,10 +1284,7 @@ fn encode_png_with_storyboard_metadata(
         encoder.set_color(ColorType::Rgba);
         encoder.set_depth(BitDepth::Eight);
         encoder
-            .add_itxt_chunk(
-                STORYBOARD_METADATA_PNG_TEXT_KEY.to_string(),
-                metadata_json,
-            )
+            .add_itxt_chunk(STORYBOARD_METADATA_PNG_TEXT_KEY.to_string(), metadata_json)
             .map_err(|e| format!("Failed to attach storyboard metadata into PNG: {}", e))?;
         let mut writer = encoder
             .write_header()
@@ -1407,12 +1470,18 @@ fn ensure_unique_path(path: PathBuf) -> PathBuf {
         return path;
     }
 
-    let parent = path.parent().map(Path::to_path_buf).unwrap_or_else(|| PathBuf::from("."));
+    let parent = path
+        .parent()
+        .map(Path::to_path_buf)
+        .unwrap_or_else(|| PathBuf::from("."));
     let stem = path
         .file_stem()
         .and_then(|value| value.to_str())
         .unwrap_or("storyboard-image");
-    let ext = path.extension().and_then(|value| value.to_str()).unwrap_or("png");
+    let ext = path
+        .extension()
+        .and_then(|value| value.to_str())
+        .unwrap_or("png");
 
     for index in 1..10_000_u32 {
         let candidate = parent.join(format!("{}-{}.{}", stem, index, ext));
@@ -1477,7 +1546,10 @@ pub async fn save_image_source_to_downloads(
 }
 
 #[tauri::command]
-pub async fn save_image_source_to_path(source: String, target_path: String) -> Result<String, String> {
+pub async fn save_image_source_to_path(
+    source: String,
+    target_path: String,
+) -> Result<String, String> {
     let trimmed_source = source.trim();
     if trimmed_source.is_empty() {
         return Err("Image source is empty".to_string());
@@ -1602,8 +1674,8 @@ pub async fn copy_image_source_to_clipboard(source: String) -> Result<(), String
     let height = image.height() as usize;
     let pixels = image.into_raw();
 
-    let mut clipboard = Clipboard::new()
-        .map_err(|e| format!("Failed to access clipboard: {}", e))?;
+    let mut clipboard =
+        Clipboard::new().map_err(|e| format!("Failed to access clipboard: {}", e))?;
     clipboard
         .set_image(ImageData {
             width,

@@ -31,8 +31,8 @@ const GEMINI_FLASH_IMAGE_PREVIEW_4K_MODEL: &str = "gemini-3.1-flash-image-previe
 const HD_RESOLUTION: &str = "4K";
 
 const SUPPORTED_ASPECT_RATIOS: [&str; 14] = [
-    "1:1", "1:4", "1:8", "2:3", "3:2", "3:4", "4:1", "4:3", "4:5", "5:4", "8:1",
-    "9:16", "16:9", "21:9",
+    "1:1", "1:4", "1:8", "2:3", "3:2", "3:4", "4:1", "4:3", "4:5", "5:4", "8:1", "9:16", "16:9",
+    "21:9",
 ];
 
 #[derive(Debug, Serialize)]
@@ -374,16 +374,14 @@ impl ZhenzhenProvider {
     }
 
     fn extract_task_status(payload: &Value) -> Option<String> {
-        ["/data/status", "/status"]
-            .iter()
-            .find_map(|pointer| {
-                payload
-                    .pointer(pointer)
-                    .and_then(Value::as_str)
-                    .map(str::trim)
-                    .filter(|value| !value.is_empty())
-                    .map(|value| value.to_ascii_uppercase())
-            })
+        ["/data/status", "/status"].iter().find_map(|pointer| {
+            payload
+                .pointer(pointer)
+                .and_then(Value::as_str)
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .map(|value| value.to_ascii_uppercase())
+        })
     }
 
     async fn submit_gemini_preview_task(
@@ -502,8 +500,9 @@ impl ZhenzhenProvider {
                     ));
                 }
                 "FAILURE" | "FAILED" | "ERROR" | "CANCELLED" => {
-                    let message = Self::extract_error_message(&payload)
-                        .unwrap_or_else(|| format!("Zhenzhen task failed with status {}", task_status));
+                    let message = Self::extract_error_message(&payload).unwrap_or_else(|| {
+                        format!("Zhenzhen task failed with status {}", task_status)
+                    });
                     return Err(AIError::TaskFailed(message));
                 }
                 "QUEUED" | "SUBMITTED" | "PENDING" | "RUNNING" | "PROCESSING" | "IN_PROGRESS" => {
@@ -584,10 +583,7 @@ impl ZhenzhenProvider {
 
         info!(
             "[Zhenzhen API] Text2Img URL: {}, model: {}, size: {}, aspect_ratio: {}",
-            endpoint,
-            model,
-            request.size,
-            request.aspect_ratio
+            endpoint, model, request.size, request.aspect_ratio
         );
 
         let response = self
@@ -747,7 +743,11 @@ impl AIProvider for ZhenzhenProvider {
             model,
             request.size,
             request.aspect_ratio,
-            request.reference_images.as_ref().map(|v| v.len()).unwrap_or(0)
+            request
+                .reference_images
+                .as_ref()
+                .map(|v| v.len())
+                .unwrap_or(0)
         );
 
         if Self::is_gemini_preview_model(&model) {
@@ -776,9 +776,9 @@ impl AIProvider for ZhenzhenProvider {
             .data
             .ok_or_else(|| AIError::Provider("Zhenzhen response missing data field".to_string()))?;
 
-        let first_image = data
-            .first()
-            .ok_or_else(|| AIError::Provider("Zhenzhen response has empty data array".to_string()))?;
+        let first_image = data.first().ok_or_else(|| {
+            AIError::Provider("Zhenzhen response has empty data array".to_string())
+        })?;
 
         if let Some(url) = &first_image.url {
             return Ok(url.clone());

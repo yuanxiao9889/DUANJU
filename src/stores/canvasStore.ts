@@ -30,7 +30,10 @@ import {
   type StoryboardExportOptions,
   type StoryboardFrameItem,
   type ScriptChapterNodeData,
+  isExportImageNode,
+  isImageEditNode,
   isStoryboardSplitNode,
+  isUploadNode,
 } from '@/features/canvas/domain/canvasNodes';
 import {
   nodeHasSourceHandle,
@@ -393,6 +396,8 @@ function normalizeNodes(rawNodes: CanvasNode[]): CanvasNode[] {
             typeof frame.aspectRatio === 'string'
               ? frame.aspectRatio
               : normalizedFrameAspectRatio,
+          sourceNodeId: normalizeNonEmptyString(frame.sourceNodeId),
+          sourceEdgeId: normalizeNonEmptyString(frame.sourceEdgeId),
           note: frame.note ?? '',
           order: Number.isFinite(frame.order) ? frame.order : index,
         }));
@@ -488,6 +493,96 @@ function normalizeHistory(history?: CanvasHistoryState): CanvasHistoryState {
 
 function createSnapshot(nodes: CanvasNode[], edges: CanvasEdge[]): CanvasHistorySnapshot {
   return { nodes, edges };
+}
+
+function normalizeNonEmptyString(value: unknown): string | null {
+  if (typeof value !== 'string') {
+    return null;
+  }
+
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : null;
+}
+
+function resolveStoryboardFrameImageKeys(frame: StoryboardFrameItem): string[] {
+  const keys = [
+    normalizeNonEmptyString(frame.imageUrl),
+    normalizeNonEmptyString(frame.previewImageUrl),
+  ].filter((value): value is string => Boolean(value));
+
+  return Array.from(new Set(keys));
+}
+
+function isStoryboardInputSourceNode(node: CanvasNode | undefined): boolean {
+  return Boolean(
+    node
+    && (isUploadNode(node) || isImageEditNode(node) || isExportImageNode(node))
+    && normalizeNonEmptyString(node.data.imageUrl)
+  );
+}
+
+function doesStoryboardFrameReferenceIncomingEdge(
+  frame: StoryboardFrameItem,
+  edge: CanvasEdge,
+  sourceNode: CanvasNode
+): boolean {
+  const normalizedFrameSourceEdgeId = normalizeNonEmptyString(frame.sourceEdgeId);
+  if (normalizedFrameSourceEdgeId && normalizedFrameSourceEdgeId === edge.id) {
+    return true;
+  }
+
+  const normalizedFrameSourceNodeId = normalizeNonEmptyString(frame.sourceNodeId);
+  if (normalizedFrameSourceNodeId && normalizedFrameSourceNodeId === edge.source) {
+    return true;
+  }
+
+  const frameImageKeys = resolveStoryboardFrameImageKeys(frame);
+  if (frameImageKeys.length === 0) {
+    return false;
+  }
+
+  const sourceImageKeys = [
+    normalizeNonEmptyString(sourceNode.data.imageUrl),
+    normalizeNonEmptyString(sourceNode.data.previewImageUrl),
+  ].filter((value): value is string => Boolean(value));
+
+  return sourceImageKeys.some((key) => frameImageKeys.includes(key));
+}
+
+function resolveStoryboardFrameDisconnectedEdgeIds(
+  nodeId: string,
+  removedFrame: StoryboardFrameItem,
+  remainingFrames: StoryboardFrameItem[],
+  nodes: CanvasNode[],
+  edges: CanvasEdge[]
+): Set<string> {
+  const nodeById = new Map(nodes.map((node) => [node.id, node] as const));
+  const disconnectedEdgeIds = new Set<string>();
+
+  for (const edge of edges) {
+    if (edge.target !== nodeId) {
+      continue;
+    }
+
+    const sourceNode = nodeById.get(edge.source);
+    if (!sourceNode || !isStoryboardInputSourceNode(sourceNode)) {
+      continue;
+    }
+
+    if (!doesStoryboardFrameReferenceIncomingEdge(removedFrame, edge, sourceNode)) {
+      continue;
+    }
+
+    const stillReferenced = remainingFrames.some((frame) =>
+      doesStoryboardFrameReferenceIncomingEdge(frame, edge, sourceNode)
+    );
+
+    if (!stillReferenced) {
+      disconnectedEdgeIds.add(edge.id);
+    }
+  }
+
+  return disconnectedEdgeIds;
 }
 
 function collectNodeIdsWithDescendants(nodes: CanvasNode[], seedIds: string[]): Set<string> {
@@ -1975,10 +2070,12 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
         return {};
       }
 
-      const frames = node.data.frames.filter((f) => f.id !== frameId);
-      if (frames.length === node.data.frames.length) {
+      const removedFrame = node.data.frames.find((frame) => frame.id === frameId);
+      if (!removedFrame) {
         return {};
       }
+
+      const frames = node.data.frames.filter((f) => f.id !== frameId);
 
       const reorderedFrames = frames
         .sort((a, b) => a.order - b.order)
@@ -1988,6 +2085,16 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
         'cols',
         node.data.gridCols
       );
+      const disconnectedEdgeIds = resolveStoryboardFrameDisconnectedEdgeIds(
+        nodeId,
+        removedFrame,
+        reorderedFrames,
+        state.nodes,
+        state.edges
+      );
+      const nextEdges = disconnectedEdgeIds.size > 0
+        ? state.edges.filter((edge) => !disconnectedEdgeIds.has(edge.id))
+        : state.edges;
 
       return {
         nodes: state.nodes.map((n) =>
@@ -2003,6 +2110,7 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
               }
             : n
         ),
+        edges: nextEdges,
         history: {
           past: pushSnapshot(state.history.past, createSnapshot(state.nodes, state.edges)),
           future: [],

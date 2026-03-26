@@ -88,11 +88,11 @@
   };
 
   const CONTROL_SEQUENCE = [
-    { key: 'creationType', aliasMap: CREATION_TYPE_ALIASES },
-    { key: 'model', aliasMap: MODEL_ALIASES },
-    { key: 'referenceMode', aliasMap: REFERENCE_MODE_ALIASES },
+    { key: 'creationType', aliasMap: CREATION_TYPE_ALIASES, toolbarComboboxIndex: 0 },
+    { key: 'model', aliasMap: MODEL_ALIASES, toolbarComboboxIndex: 1 },
+    { key: 'referenceMode', aliasMap: REFERENCE_MODE_ALIASES, toolbarComboboxIndex: 2 },
     { key: 'aspectRatio', aliasMap: ASPECT_RATIO_ALIASES },
-    { key: 'durationSeconds', aliasMap: DURATION_ALIASES },
+    { key: 'durationSeconds', aliasMap: DURATION_ALIASES, toolbarComboboxIndex: 3 },
   ];
 
   const state = {
@@ -111,6 +111,8 @@
     submissionStatus: 'idle',
     lastSubmissionError: null,
     lastSubmissionUpdatedAt: null,
+    lastSubmissionStep: null,
+    submissionStepHistory: [],
   };
 
   function collapseWhitespace(value) {
@@ -200,7 +202,7 @@
 
   function getClickableElements() {
     return queryAllDeep(
-      'button, [role="button"], input[type="submit"], input[type="button"]'
+      'button, [role="button"], [role="combobox"], input[type="submit"], input[type="button"]'
     ).filter((element) => isVisible(element) && !('disabled' in element && element.disabled));
   }
 
@@ -209,11 +211,14 @@
       [
         'button',
         '[role="button"]',
+        '[role="combobox"]',
         '[role="option"]',
+        '[role="radio"]',
         '[role="menuitem"]',
         '[aria-selected]',
         '[aria-checked]',
         '[data-state]',
+        'label',
         'li',
       ].join(', ')
     ).filter((element) => {
@@ -277,12 +282,52 @@
   }
 
   function matchesAnyAlias(text, aliases) {
-    const normalizedText = normalizeText(text);
-    return aliases.some((alias) => normalizedText.includes(normalizeText(alias)));
+    return aliases.some((alias) => matchesAliasText(text, alias));
   }
 
   function isExactAliasMatch(text, alias) {
     return normalizeText(text) === normalizeText(alias);
+  }
+
+  function isAsciiTokenCharacter(character) {
+    return /^[a-z0-9]$/i.test(character || '');
+  }
+
+  function matchesAliasText(text, alias) {
+    const normalizedText = normalizeText(text);
+    const normalizedAlias = normalizeText(alias);
+
+    if (!normalizedText || !normalizedAlias) {
+      return false;
+    }
+
+    if (normalizedText === normalizedAlias) {
+      return true;
+    }
+
+    let matchIndex = normalizedText.indexOf(normalizedAlias);
+    while (matchIndex !== -1) {
+      const previousCharacter =
+        matchIndex > 0 ? normalizedText.charAt(matchIndex - 1) : '';
+      const nextCharacter = normalizedText.charAt(matchIndex + normalizedAlias.length);
+      const aliasStartsWithAscii = isAsciiTokenCharacter(normalizedAlias.charAt(0));
+      const aliasEndsWithAscii = isAsciiTokenCharacter(
+        normalizedAlias.charAt(normalizedAlias.length - 1)
+      );
+
+      const hasAsciiPrefixCollision =
+        aliasStartsWithAscii && isAsciiTokenCharacter(previousCharacter);
+      const hasAsciiSuffixCollision =
+        aliasEndsWithAscii && isAsciiTokenCharacter(nextCharacter);
+
+      if (!hasAsciiPrefixCollision && !hasAsciiSuffixCollision) {
+        return true;
+      }
+
+      matchIndex = normalizedText.indexOf(normalizedAlias, matchIndex + 1);
+    }
+
+    return false;
   }
 
   function flattenAliasMap(aliasMap) {
@@ -298,13 +343,13 @@
   }
 
   function resolveMatchedAliasValue(aliasMap, text) {
-    const normalizedText = normalizeText(text);
-    if (!normalizedText) {
+    const rawText = collapseWhitespace(text);
+    if (!rawText) {
       return null;
     }
 
     const matchedEntry = Object.entries(aliasMap).find(([, aliases]) =>
-      aliases.some((alias) => normalizedText.includes(normalizeText(alias)))
+      aliases.some((alias) => matchesAliasText(rawText, alias))
     );
 
     return matchedEntry ? matchedEntry[0] : null;
@@ -370,6 +415,16 @@
     state.submissionStatus = 'error';
     state.lastSubmissionError = collapseWhitespace(message) || 'Jimeng submission sync failed';
     state.lastSubmissionUpdatedAt = Date.now();
+  }
+
+  function recordSubmissionStep(step, detail) {
+    const entry = {
+      step,
+      detail: collapseWhitespace(detail || ''),
+      at: Date.now(),
+    };
+    state.lastSubmissionStep = entry;
+    state.submissionStepHistory = [...state.submissionStepHistory.slice(-19), entry];
   }
 
   function scorePromptSubmitAffinity(promptRect) {
@@ -587,6 +642,14 @@
     }
 
     element.focus();
+    if (typeof element.click === 'function') {
+      try {
+        element.click();
+        return;
+      } catch (_error) {
+        // Fall back to synthetic pointer events below.
+      }
+    }
     ['pointerdown', 'mousedown', 'mouseup', 'click'].forEach((eventName) => {
       element.dispatchEvent(
         new MouseEvent(eventName, {
@@ -826,30 +889,43 @@
     }
 
     if (payload.referenceUploadStatus === 'ready') {
-      return Date.now() >= (payload.referenceUploadReadyAt || 0);
+      const remainingDelay = (payload.referenceUploadReadyAt || 0) - Date.now();
+      if (remainingDelay > 0) {
+        await waitForDelay(remainingDelay);
+      }
+      return true;
     }
 
-    if (payload.referenceUploadStatus === 'pending') {
-      return false;
+    if (payload.referenceUploadStatus !== 'pending') {
+      payload.referenceUploadStatus = 'pending';
+      payload.referenceUploadError = null;
+      payload.referenceUploadReadyAt = null;
+
+      payload.referenceUploadPromise = startReferenceImageUpload(payload, promptInput)
+        .then(() => {
+          payload.referenceUploadStatus = 'ready';
+          payload.referenceUploadReadyAt = Date.now() + REFERENCE_UPLOAD_SETTLE_MS;
+        })
+        .catch((error) => {
+          payload.referenceUploadStatus = 'error';
+          payload.referenceUploadError = String(error && error.message ? error.message : error);
+        });
     }
 
-    payload.referenceUploadStatus = 'pending';
-    payload.referenceUploadError = null;
-    payload.referenceUploadReadyAt = null;
+    if (payload.referenceUploadPromise) {
+      await payload.referenceUploadPromise;
+    }
 
-    payload.referenceUploadPromise = startReferenceImageUpload(payload, promptInput)
-      .then(() => {
-        payload.referenceUploadStatus = 'ready';
-        payload.referenceUploadReadyAt = Date.now() + REFERENCE_UPLOAD_SETTLE_MS;
-        scheduleRetry();
-      })
-      .catch((error) => {
-        payload.referenceUploadStatus = 'error';
-        payload.referenceUploadError = String(error && error.message ? error.message : error);
-        scheduleRetry();
-      });
+    if (payload.referenceUploadStatus === 'error') {
+      throw new Error(payload.referenceUploadError || 'Jimeng reference image upload failed');
+    }
 
-    return false;
+    const remainingDelay = (payload.referenceUploadReadyAt || 0) - Date.now();
+    if (remainingDelay > 0) {
+      await waitForDelay(remainingDelay);
+    }
+
+    return payload.referenceUploadStatus === 'ready';
   }
 
   function scoreTriggerCandidate(element, promptInput, allAliases) {
@@ -872,8 +948,113 @@
     return score;
   }
 
-  function findControlTrigger(aliasMap, promptInput) {
-    const allAliases = flattenAliasMap(aliasMap);
+  function getToolbarBandBounds(promptInput) {
+    const promptRect = promptInput.getBoundingClientRect();
+    const promptRegionRect = getPromptRegionRect(promptInput);
+    const submitButton = findSubmitButton(promptInput);
+    const submitRect = submitButton ? submitButton.getBoundingClientRect() : null;
+
+    return {
+      bandTop: Math.min(
+        Math.round(promptRect.top) - 48,
+        submitRect ? Math.round(submitRect.top) - 48 : Math.round(promptRect.top) - 48
+      ),
+      bandBottom: Math.max(
+        Math.round(promptRect.bottom) + 220,
+        submitRect ? Math.round(submitRect.bottom) + 160 : Math.round(promptRect.bottom) + 220
+      ),
+      leftBound: Math.max(promptRegionRect.left - 32, Math.round(promptRect.left) - 96),
+      rightBound: Math.min(
+        promptRegionRect.right + 32,
+        Math.max(
+          Math.round(promptRect.right) + 96,
+          submitRect ? Math.round(submitRect.right) + 96 : Math.round(promptRect.right) + 96
+        )
+      ),
+    };
+  }
+
+  function isElementWithinToolbarBand(element, promptInput) {
+    if (!(element instanceof HTMLElement) || !isVisible(element)) {
+      return false;
+    }
+
+    const rect = element.getBoundingClientRect();
+    const bounds = getToolbarBandBounds(promptInput);
+    return (
+      rect.top >= bounds.bandTop
+      && rect.bottom <= bounds.bandBottom
+      && rect.left >= bounds.leftBound
+      && rect.right <= bounds.rightBound
+    );
+  }
+
+  function collectVisibleComboboxes() {
+    return queryAllDeep('[role="combobox"]')
+      .filter((element) =>
+        element instanceof HTMLElement
+        && isVisible(element)
+        && element.getBoundingClientRect().width >= 44
+        && element.getBoundingClientRect().height >= 28
+        && !element.closest('header, nav, aside, [role="navigation"]')
+      )
+      .sort((left, right) => {
+        const leftRect = left.getBoundingClientRect();
+        const rightRect = right.getBoundingClientRect();
+        if (Math.abs(leftRect.top - rightRect.top) > 10) {
+          return leftRect.top - rightRect.top;
+        }
+        return leftRect.left - rightRect.left;
+      });
+  }
+
+  function collectToolbarComboboxes(promptInput) {
+    const bandComboboxes = queryAllDeep('[role="combobox"]')
+      .filter((element) =>
+        element instanceof HTMLElement
+        && isElementWithinToolbarBand(element, promptInput)
+        && element.getBoundingClientRect().width >= 44
+        && element.getBoundingClientRect().height >= 28
+      )
+      .sort((left, right) => {
+        const leftRect = left.getBoundingClientRect();
+        const rightRect = right.getBoundingClientRect();
+        if (Math.abs(leftRect.top - rightRect.top) > 10) {
+          return leftRect.top - rightRect.top;
+        }
+        return leftRect.left - rightRect.left;
+      });
+
+    return bandComboboxes.length > 0 ? bandComboboxes : collectVisibleComboboxes();
+  }
+
+  function findToolbarComboboxFallback(control, promptInput) {
+    if (!Number.isInteger(control.toolbarComboboxIndex)) {
+      return null;
+    }
+
+    const comboboxes = collectToolbarComboboxes(promptInput);
+    if (comboboxes.length === 0) {
+      return null;
+    }
+
+    const matchedCombobox = comboboxes.find((combobox) =>
+      matchesAnyAlias(readElementText(combobox), flattenAliasMap(control.aliasMap))
+    );
+    if (matchedCombobox) {
+      return matchedCombobox;
+    }
+
+    return comboboxes[control.toolbarComboboxIndex] || null;
+  }
+
+  function findControlTrigger(control, promptInput) {
+    const fallbackTrigger = findToolbarComboboxFallback(control, promptInput);
+    if (fallbackTrigger) {
+      return fallbackTrigger;
+    }
+
+    const allAliases = flattenAliasMap(control.aliasMap);
     const candidates = getClickableElements();
     let best = null;
     let bestScore = Number.NEGATIVE_INFINITY;
@@ -946,6 +1127,7 @@
 
     candidates.forEach((candidate) => {
       const rect = candidate.getBoundingClientRect();
+      const text = readElementText(candidate);
       const outsideTriggerBand = rect.bottom < triggerRect.top - 4 || rect.top > triggerRect.bottom + 4;
       const centerX = rect.left + rect.width / 2;
       const horizontalDistance = Math.abs(centerX - triggerCenterX);
@@ -953,6 +1135,9 @@
       let score = outsideTriggerBand ? 200 : 40;
       score += 120 - Math.min(horizontalDistance, 120);
       score += Math.min((rect.width * rect.height) / 2000, 40);
+      if (aliases.some((alias) => isExactAliasMatch(text, alias))) {
+        score += 140;
+      }
 
       if (score > bestScore) {
         best = candidate;
@@ -963,12 +1148,449 @@
     return best;
   }
 
-  function ensureControlValue(promptInput, aliasMap, value, options = {}) {
+  function elementTextMatchesAliases(element, aliases) {
+    const text = readElementText(element);
+    return matchesAnyAlias(text, aliases);
+  }
+
+  function hasSelectedInspectableOption(aliases) {
+    return getInspectableOptionElements().some((element) => {
+      const description = describeElement(element);
+      return (
+        description
+        && description.selected
+        && matchesAnyAlias(description.text, aliases)
+      );
+    });
+  }
+
+  async function finalizeTriggerSelection(trigger, aliases) {
+    const matched =
+      elementTextMatchesAliases(trigger, aliases)
+      || hasSelectedInspectableOption(aliases);
+
+    if (matched) {
+      closeOpenOverlay(trigger);
+      await waitForUiSettled(60);
+      return true;
+    }
+
+    return false;
+  }
+
+  function findComboboxPopupOptions(trigger, aliases = null) {
+    if (!(trigger instanceof HTMLElement)) {
+      return [];
+    }
+
+    const triggerRect = trigger.getBoundingClientRect();
+    const triggerCenterX = triggerRect.left + triggerRect.width / 2;
+    const candidates = queryAllDeep('[role="option"]')
+      .filter((element) =>
+        element instanceof HTMLElement
+        && isVisible(element)
+        && (
+          aliases == null
+          || (Array.isArray(aliases) && aliases.length === 0)
+          || matchesAnyAlias(readElementText(element), aliases)
+        )
+      );
+
+    return candidates
+      .map((candidate) => {
+        const rect = candidate.getBoundingClientRect();
+        const text = readElementText(candidate);
+        const outsideToolbarBand =
+          rect.bottom < triggerRect.top - 4 || rect.top > triggerRect.bottom + 4;
+        const centerX = rect.left + rect.width / 2;
+        const horizontalDistance = Math.abs(centerX - triggerCenterX);
+        const verticalDistance = Math.min(
+          Math.abs(rect.top - triggerRect.bottom),
+          Math.abs(triggerRect.top - rect.bottom)
+        );
+
+        let score = outsideToolbarBand ? 220 : 40;
+        score += 120 - Math.min(horizontalDistance, 120);
+        score += 100 - Math.min(verticalDistance, 100);
+        if (Array.isArray(aliases) && aliases.some((alias) => isExactAliasMatch(text, alias))) {
+          score += 240;
+        }
+        if (candidate.getAttribute('aria-selected') === 'true') {
+          score += 60;
+        }
+
+        return {
+          element: candidate,
+          rect,
+          text,
+          score,
+        };
+      })
+      .sort((left, right) => {
+        if (right.score !== left.score) {
+          return right.score - left.score;
+        }
+        if (Math.abs(left.rect.top - right.rect.top) > 8) {
+          return left.rect.top - right.rect.top;
+        }
+        return left.rect.left - right.rect.left;
+      })
+      .map((entry) => entry.element);
+  }
+
+  function findComboboxPopupOption(trigger, aliases) {
+    return findComboboxPopupOptions(trigger, aliases)[0] || null;
+  }
+
+  function isComboboxOptionSelected(element) {
+    return element instanceof HTMLElement && (
+      element.getAttribute('aria-selected') === 'true'
+      || element.getAttribute('aria-checked') === 'true'
+      || element.getAttribute('data-state') === 'checked'
+    );
+  }
+
+  function findComboboxPopupOptionsByVisualOrder(trigger, aliases = null) {
+    if (!(trigger instanceof HTMLElement)) {
+      return [];
+    }
+
+    const triggerRect = trigger.getBoundingClientRect();
+
+    return queryAllDeep('[role="option"]')
+      .filter((element) =>
+        element instanceof HTMLElement
+        && isVisible(element)
+        && isLikelyPopupOption(triggerRect, element.getBoundingClientRect())
+        && (
+          aliases == null
+          || (Array.isArray(aliases) && aliases.length === 0)
+          || matchesAnyAlias(readElementText(element), aliases)
+        )
+      )
+      .sort((left, right) => {
+        const leftRect = left.getBoundingClientRect();
+        const rightRect = right.getBoundingClientRect();
+        if (Math.abs(leftRect.top - rightRect.top) > 8) {
+          return leftRect.top - rightRect.top;
+        }
+        return leftRect.left - rightRect.left;
+      });
+  }
+
+  function hasSelectedComboboxOption(aliases) {
+    return queryAllDeep('[role="option"]').some((element) => {
+      if (!(element instanceof HTMLElement) || !isVisible(element)) {
+        return false;
+      }
+
+      return isComboboxOptionSelected(element) && matchesAnyAlias(readElementText(element), aliases);
+    });
+  }
+
+  function hasSelectedComboboxOptionAtIndex(trigger, optionIndex) {
+    if (!Number.isInteger(optionIndex) || optionIndex < 0) {
+      return false;
+    }
+
+    const options = findComboboxPopupOptionsByVisualOrder(trigger);
+    const selectedOption = options[optionIndex];
+    return isComboboxOptionSelected(selectedOption);
+  }
+
+  function readToolbarComboboxTextByIndex(promptInput, controlIndex, fallbackTrigger = null) {
+    const comboboxes = collectToolbarComboboxes(promptInput);
+    const trigger = comboboxes[controlIndex] || fallbackTrigger;
+    return trigger instanceof HTMLElement ? readElementText(trigger) : '';
+  }
+
+  function closeOpenOverlayIfExpanded(trigger) {
+    if (!(trigger instanceof HTMLElement)) {
+      return;
+    }
+
+    if (trigger.getAttribute('aria-expanded') === 'true') {
+      closeOpenOverlay(trigger);
+    }
+  }
+
+  function dispatchKeyToFocusedElement(fallbackTarget, key, code = key) {
+    const recipient = document.activeElement instanceof HTMLElement
+      ? document.activeElement
+      : fallbackTarget;
+    if (!(recipient instanceof HTMLElement)) {
+      return;
+    }
+
+    recipient.focus();
+    recipient.dispatchEvent(new KeyboardEvent('keydown', {
+      key,
+      code,
+      bubbles: true,
+      cancelable: true,
+    }));
+    recipient.dispatchEvent(new KeyboardEvent('keyup', {
+      key,
+      code,
+      bubbles: true,
+      cancelable: true,
+    }));
+  }
+
+  async function ensureToolbarComboboxVisualOptionByIndex(
+    promptInput,
+    controlIndex,
+    optionIndex,
+    label,
+    options = {}
+  ) {
+    const aliases = Array.isArray(options.aliases) ? options.aliases : [];
+    const assumeSuccessAfterClick = options.assumeSuccessAfterClick === true;
+    const comboboxes = collectToolbarComboboxes(promptInput);
+    const trigger = comboboxes[controlIndex] || null;
+    if (!(trigger instanceof HTMLElement)) {
+      recordSubmissionStep('missing-combobox', `${label}:${controlIndex}`);
+      return false;
+    }
+
+    const triggerText = readElementText(trigger);
+    if (aliases.some((alias) => isExactAliasMatch(triggerText, alias))) {
+      recordSubmissionStep('combobox-already-matched', `${label}:${triggerText}`);
+      return true;
+    }
+
+    closeOpenOverlay(trigger);
+    await waitForUiSettled(60);
+    recordSubmissionStep('combobox-visual-open', `${label}:${triggerText}`);
+    clickElement(trigger);
+    await waitForUiSettled(140);
+
+    const visualOptions = findComboboxPopupOptionsByVisualOrder(trigger);
+    const option = visualOptions[optionIndex] || null;
+    if (!(option instanceof HTMLElement)) {
+      closeOpenOverlay(trigger);
+      await waitForUiSettled(60);
+      recordSubmissionStep('combobox-visual-missing-option', `${label}:${optionIndex}`);
+      return false;
+    }
+
+    if (isComboboxOptionSelected(option)) {
+      recordSubmissionStep('combobox-visual-already-selected', `${label}:${readElementText(option)}`);
+      closeOpenOverlay(trigger);
+      await waitForUiSettled(60);
+      return true;
+    }
+
+    recordSubmissionStep('combobox-visual-click-option', `${label}:${readElementText(option)}`);
+    clickElement(option);
+    await waitForUiSettled(760);
+
+    const refreshedPromptInput = findPromptInput() || promptInput;
+    const refreshedTriggerText = readToolbarComboboxTextByIndex(
+      refreshedPromptInput,
+      controlIndex,
+      trigger
+    );
+
+    const confirmed =
+      aliases.some((alias) => isExactAliasMatch(refreshedTriggerText, alias))
+      || hasSelectedComboboxOptionAtIndex(trigger, optionIndex)
+      || (aliases.length > 0 && hasSelectedComboboxOption(aliases));
+
+    if (confirmed) {
+      closeOpenOverlayIfExpanded(trigger);
+      await waitForUiSettled(60);
+      recordSubmissionStep('combobox-visual-confirmed', `${label}:${optionIndex}`);
+      return true;
+    }
+
+    if (assumeSuccessAfterClick) {
+      closeOpenOverlayIfExpanded(trigger);
+      await waitForUiSettled(60);
+      recordSubmissionStep('combobox-visual-assumed', `${label}:${readElementText(option)}`);
+      return true;
+    }
+
+    closeOpenOverlay(trigger);
+    await waitForUiSettled(60);
+    recordSubmissionStep('combobox-visual-failed', `${label}:${readElementText(trigger)}`);
+    return false;
+  }
+
+  async function ensureFixedVideoReferenceMode(promptInput, payload) {
+    const aliases = resolveAliases(REFERENCE_MODE_ALIASES, payload.referenceMode);
+    const comboboxes = collectToolbarComboboxes(promptInput);
+    const trigger = comboboxes[2] || null;
+    if (!(trigger instanceof HTMLElement)) {
+      throw new Error('Missing Jimeng reference mode combobox');
+    }
+
+    const triggerText = readElementText(trigger);
+    if (aliases.some((alias) => isExactAliasMatch(triggerText, alias))) {
+      payload.fixedVideoReferenceModeApplied = true;
+      recordSubmissionStep('referenceMode-already-matched', triggerText);
+      return true;
+    }
+
+    if (payload.referenceMode === 'allAround') {
+      const visualMatched = await ensureToolbarComboboxVisualOptionByIndex(
+        promptInput,
+        2,
+        0,
+        'referenceMode',
+        { aliases }
+      );
+      if (visualMatched) {
+        payload.fixedVideoReferenceModeApplied = true;
+        recordSubmissionStep('referenceMode-visual-confirmed', aliases[0] || 'allAround');
+        return true;
+      }
+    }
+
+    recordSubmissionStep('referenceMode-direct-start', triggerText);
+    closeOpenOverlay(trigger);
+    await waitForUiSettled(60);
+    clickElement(trigger);
+    await waitForUiSettled(140);
+
+    const aliasOption = findComboboxPopupOptionsByVisualOrder(trigger, aliases)[0]
+      || findComboboxPopupOption(trigger, aliases);
+    if (aliasOption instanceof HTMLElement) {
+      recordSubmissionStep('referenceMode-direct-click', readElementText(aliasOption));
+      clickElement(aliasOption);
+      await waitForUiSettled(820);
+
+      const refreshedPromptInput = findPromptInput() || promptInput;
+      const refreshedTrigger = collectToolbarComboboxes(refreshedPromptInput)[2] || trigger;
+      const refreshedText = readElementText(refreshedTrigger);
+      if (
+        aliases.some((alias) => isExactAliasMatch(refreshedText, alias))
+        || hasSelectedComboboxOption(aliases)
+      ) {
+        closeOpenOverlayIfExpanded(refreshedTrigger);
+        await waitForUiSettled(60);
+        payload.fixedVideoReferenceModeApplied = true;
+        recordSubmissionStep('referenceMode-direct-confirmed', refreshedText || readElementText(aliasOption));
+        return true;
+      }
+    } else {
+      closeOpenOverlay(trigger);
+      await waitForUiSettled(60);
+    }
+
+    const visibleOptions = findComboboxPopupOptionsByVisualOrder(trigger)
+      .map((option) => readElementText(option))
+      .filter(Boolean)
+      .join(' | ');
+    recordSubmissionStep('referenceMode-fatal', visibleOptions || triggerText);
+    throw new Error(`Failed to switch Jimeng reference mode: ${visibleOptions || triggerText || 'unknown options'}`);
+  }
+
+  async function ensureToolbarComboboxValueByIndex(
+    promptInput,
+    controlIndex,
+    aliases,
+    label,
+    options = {}
+  ) {
+    const preferredOptionIndex = Number.isInteger(options.preferredOptionIndex)
+      ? options.preferredOptionIndex
+      : null;
+    const comboboxes = collectToolbarComboboxes(promptInput);
+    const trigger = comboboxes[controlIndex] || null;
+    if (!(trigger instanceof HTMLElement)) {
+      recordSubmissionStep('missing-combobox', `${label}:${controlIndex}`);
+      return false;
+    }
+
+    const triggerText = readElementText(trigger);
+    if (aliases.some((alias) => isExactAliasMatch(triggerText, alias))) {
+      recordSubmissionStep('combobox-already-matched', `${label}:${triggerText}`);
+      return true;
+    }
+
+    closeOpenOverlay(trigger);
+    await waitForUiSettled(60);
+    recordSubmissionStep('combobox-open', `${label}:${triggerText}`);
+    clickElement(trigger);
+    await waitForUiSettled(140);
+
+    let option = preferredOptionIndex == null
+      ? findComboboxPopupOption(trigger, aliases)
+      : (findComboboxPopupOptions(trigger)[preferredOptionIndex] || findComboboxPopupOption(trigger, aliases));
+    if (option) {
+      const optionDescription = describeElement(option);
+      if (
+        optionDescription
+        && optionDescription.selected
+        && (
+          matchesAnyAlias(optionDescription.text, aliases)
+          || (preferredOptionIndex != null && hasSelectedComboboxOptionAtIndex(trigger, preferredOptionIndex))
+        )
+      ) {
+        recordSubmissionStep('combobox-selected-option-visible', `${label}:${optionDescription.text}`);
+        closeOpenOverlay(trigger);
+        await waitForUiSettled(60);
+        return true;
+      }
+
+      recordSubmissionStep('combobox-click-option', `${label}:${readElementText(option)}`);
+      clickElement(option);
+      await waitForUiSettled(760);
+      const refreshedPromptInput = findPromptInput() || promptInput;
+      const refreshedTriggerText = readToolbarComboboxTextByIndex(
+        refreshedPromptInput,
+        controlIndex,
+        trigger
+      );
+      if (
+        aliases.some((alias) => isExactAliasMatch(refreshedTriggerText, alias))
+        || hasSelectedComboboxOption(aliases)
+        || (preferredOptionIndex != null && hasSelectedComboboxOptionAtIndex(trigger, preferredOptionIndex))
+      ) {
+        closeOpenOverlayIfExpanded(trigger);
+        await waitForUiSettled(60);
+        return true;
+      }
+    }
+
+    option = preferredOptionIndex == null
+      ? findComboboxPopupOption(trigger, aliases)
+      : (findComboboxPopupOptions(trigger)[preferredOptionIndex] || findComboboxPopupOption(trigger, aliases));
+    if (option) {
+      recordSubmissionStep('combobox-second-click-option', `${label}:${readElementText(option)}`);
+      clickElement(option);
+      await waitForUiSettled(760);
+      const refreshedPromptInput = findPromptInput() || promptInput;
+      const refreshedTriggerText = readToolbarComboboxTextByIndex(
+        refreshedPromptInput,
+        controlIndex,
+        trigger
+      );
+      if (
+        aliases.some((alias) => isExactAliasMatch(refreshedTriggerText, alias))
+        || hasSelectedComboboxOption(aliases)
+        || (preferredOptionIndex != null && hasSelectedComboboxOptionAtIndex(trigger, preferredOptionIndex))
+      ) {
+        closeOpenOverlayIfExpanded(trigger);
+        await waitForUiSettled(60);
+        return true;
+      }
+    }
+
+    closeOpenOverlay(trigger);
+    await waitForUiSettled(60);
+    recordSubmissionStep('combobox-failed', `${label}:${readElementText(trigger)}`);
+    return false;
+  }
+
+  async function ensureControlValue(promptInput, control, value, options = {}) {
     if (value == null) {
       return true;
     }
 
     const requireTrigger = options.requireTrigger !== false;
+    const aliasMap = control.aliasMap;
     const aliases = resolveAliases(aliasMap, value);
     const primaryAlias = aliases[0];
     const directOption = findDirectAliasOption(promptInput, aliases);
@@ -982,11 +1604,16 @@
       const directText = readElementText(directOption);
       if (aliases.some((alias) => isExactAliasMatch(directText, alias))) {
         clickElement(directOption);
+        await waitForUiSettled(140);
+        const refreshedDirectOption = findDirectAliasOption(promptInput, aliases);
+        if (refreshedDirectOption && describeElement(refreshedDirectOption)?.selected) {
+          return true;
+        }
         return false;
       }
     }
 
-    const trigger = findControlTrigger(aliasMap, promptInput);
+    const trigger = findControlTrigger(control, promptInput);
     if (!trigger) {
       return !requireTrigger;
     }
@@ -997,12 +1624,209 @@
 
     const option = findPopupOption(trigger, aliases);
     if (option) {
+      const optionDescription = describeElement(option);
+      if (
+        optionDescription
+        && optionDescription.selected
+        && matchesAnyAlias(optionDescription.text, aliases)
+      ) {
+        closeOpenOverlay(trigger);
+        await waitForUiSettled(60);
+        return true;
+      }
       clickElement(option);
-      return false;
+      await waitForUiSettled(140);
+      return await finalizeTriggerSelection(trigger, aliases);
     }
 
     clickElement(trigger);
-    return false;
+    await waitForUiSettled(140);
+    const revealedOption = findPopupOption(trigger, aliases);
+    if (revealedOption) {
+      clickElement(revealedOption);
+      await waitForUiSettled(140);
+      return await finalizeTriggerSelection(trigger, aliases);
+    }
+    closeOpenOverlay(trigger);
+    await waitForUiSettled(60);
+    return await finalizeTriggerSelection(trigger, aliases);
+  }
+
+  async function ensureTriggerValue(trigger, aliases) {
+    if (!(trigger instanceof HTMLElement)) {
+      return false;
+    }
+
+    const triggerText = readElementText(trigger);
+    if (aliases.some((alias) => isExactAliasMatch(triggerText, alias))) {
+      return true;
+    }
+
+    let option = findPopupOption(trigger, aliases);
+    if (option) {
+      const optionDescription = describeElement(option);
+      if (
+        optionDescription
+        && optionDescription.selected
+        && matchesAnyAlias(optionDescription.text, aliases)
+      ) {
+        closeOpenOverlay(trigger);
+        await waitForUiSettled(60);
+        return true;
+      }
+      clickElement(option);
+      await waitForUiSettled(140);
+      return await finalizeTriggerSelection(trigger, aliases);
+    }
+
+    clickElement(trigger);
+    await waitForUiSettled(140);
+    option = findPopupOption(trigger, aliases);
+    if (option) {
+      clickElement(option);
+      await waitForUiSettled(140);
+      return await finalizeTriggerSelection(trigger, aliases);
+    }
+
+    closeOpenOverlay(trigger);
+    await waitForUiSettled(60);
+    return await finalizeTriggerSelection(trigger, aliases);
+  }
+
+  function findVideoAspectRatioTrigger(promptInput) {
+    const candidates = queryAllDeep('button, [role="button"]')
+      .filter((element) =>
+        element instanceof HTMLElement
+        && isElementWithinToolbarBand(element, promptInput)
+        && matchesAnyAlias(readElementText(element), flattenAliasMap(ASPECT_RATIO_ALIASES))
+      )
+      .sort((left, right) => {
+        const leftRect = left.getBoundingClientRect();
+        const rightRect = right.getBoundingClientRect();
+        if (Math.abs(leftRect.top - rightRect.top) > 10) {
+          return leftRect.top - rightRect.top;
+        }
+        return leftRect.left - rightRect.left;
+      });
+
+    return candidates[0] || null;
+  }
+
+  function findVideoAspectRatioOption(promptInput, aliases) {
+    const candidates = queryAllDeep('button, [role="button"], [role="radio"], label')
+      .filter((element) =>
+        element instanceof HTMLElement
+        && isElementWithinToolbarBand(element, promptInput)
+        && !element.closest('[role="combobox"]')
+        && matchesAnyAlias(readElementText(element), aliases)
+      )
+      .sort((left, right) => {
+        const leftRect = left.getBoundingClientRect();
+        const rightRect = right.getBoundingClientRect();
+        if (Math.abs(leftRect.top - rightRect.top) > 10) {
+          return leftRect.top - rightRect.top;
+        }
+        return leftRect.left - rightRect.left;
+      });
+
+    const exactMatch = candidates.find((candidate) => elementTextMatchesAliases(candidate, aliases));
+    return exactMatch || candidates[0] || null;
+  }
+
+  async function ensureVideoAspectRatioValue(promptInput, value) {
+    if (value == null) {
+      return true;
+    }
+
+    const aliases = resolveAliases(ASPECT_RATIO_ALIASES, value);
+    const directOption = findVideoAspectRatioOption(promptInput, aliases);
+    if (directOption) {
+      const initialDescription = describeElement(directOption);
+      if (initialDescription && initialDescription.selected) {
+        return true;
+      }
+
+      clickElement(directOption);
+      await waitForUiSettled(140);
+
+      const refreshedOption = findVideoAspectRatioOption(promptInput, aliases);
+      const refreshedDescription = refreshedOption ? describeElement(refreshedOption) : null;
+      if (refreshedDescription && refreshedDescription.selected) {
+        return true;
+      }
+
+      // Some Jimeng ratio buttons do not expose a selected attribute.
+      // For those direct button groups, clicking the exact target button is
+      // the authoritative action and should not trigger endless retries.
+      return Boolean(refreshedOption);
+    }
+
+    const trigger = findVideoAspectRatioTrigger(promptInput);
+    return await ensureTriggerValue(trigger, aliases);
+  }
+
+  async function ensureFixedVideoToolbarControls(promptInput, payload) {
+    promptInput = findPromptInput() || promptInput;
+    if (!(await ensureToolbarComboboxValueByIndex(
+      promptInput,
+      0,
+      resolveAliases(CREATION_TYPE_ALIASES, payload.creationType || 'video'),
+      'creationType'
+    ))) {
+      return false;
+    }
+
+    const hasReferenceImages = Array.isArray(payload.referenceImages) && payload.referenceImages.length > 0;
+    if (hasReferenceImages && payload.referenceMode) {
+      if (payload.fixedVideoReferenceModeApplied) {
+        recordSubmissionStep('referenceMode-skip-repeat', String(payload.referenceMode));
+      } else {
+        promptInput = findPromptInput() || promptInput;
+        await ensureFixedVideoReferenceMode(promptInput, payload);
+        // Jimeng will auto-adjust the model when reference mode changes.
+        // Apply the dependency order that matches the real UI behavior:
+        // 视频生成 -> 参考模式 -> 模型 -> 比例 -> 时长.
+        recordSubmissionStep('referenceMode-settled', String(payload.referenceMode));
+        await waitForUiSettled(260);
+      }
+    }
+
+    if (payload.model) {
+      promptInput = findPromptInput() || promptInput;
+      if (!(await ensureToolbarComboboxValueByIndex(
+        promptInput,
+        1,
+        resolveAliases(MODEL_ALIASES, payload.model),
+        'model',
+        payload.model === 'seedance-2.0'
+          ? { preferredOptionIndex: 1 }
+          : {}
+      ))) {
+        return false;
+      }
+    }
+
+    if (payload.aspectRatio) {
+      promptInput = findPromptInput() || promptInput;
+      recordSubmissionStep('aspect-ratio-start', String(payload.aspectRatio));
+      if (!(await ensureVideoAspectRatioValue(promptInput, payload.aspectRatio))) {
+        return false;
+      }
+    }
+
+    if (payload.durationSeconds != null) {
+      promptInput = findPromptInput() || promptInput;
+      if (!(await ensureToolbarComboboxValueByIndex(
+        promptInput,
+        3,
+        resolveAliases(DURATION_ALIASES, payload.durationSeconds),
+        'duration'
+      ))) {
+        return false;
+      }
+    }
+
+    return true;
   }
 
   function findToolbarTriggerByIndex(promptInput, controlIndex) {
@@ -1014,7 +1838,7 @@
     return toolbarCandidates[controlIndex].element;
   }
 
-  function ensureIndexedToolbarControlValue(promptInput, control) {
+  async function ensureIndexedToolbarControlValue(promptInput, control) {
     if (!control || !control.optionText) {
       return true;
     }
@@ -1030,19 +1854,36 @@
 
     const option = findPopupOption(trigger, [control.optionText]);
     if (option) {
+      const optionDescription = describeElement(option);
+      if (optionDescription && optionDescription.selected) {
+        closeOpenOverlay(trigger);
+        await waitForUiSettled(60);
+        return true;
+      }
       clickElement(option);
-      return false;
+      await waitForUiSettled(140);
+      return isExactAliasMatch(readElementText(trigger), control.optionText);
     }
 
     clickElement(trigger);
-    return false;
+    await waitForUiSettled(140);
+    const revealedOption = findPopupOption(trigger, [control.optionText]);
+    if (revealedOption) {
+      clickElement(revealedOption);
+      await waitForUiSettled(140);
+      return isExactAliasMatch(readElementText(trigger), control.optionText);
+    }
+    return isExactAliasMatch(readElementText(trigger), control.optionText);
   }
 
   function scoreSubmitButton(element, promptInput) {
     const text = readElementText(element);
+    const className = typeof element.className === 'string' ? element.className : '';
     const matchedKeyword = SUBMIT_KEYWORDS.some((keyword) =>
       normalizeText(text).includes(normalizeText(keyword))
     );
+    const isExplicitSubmitButton =
+      className.includes('submit-button') || className.includes('lv-btn-primary');
 
     const rect = element.getBoundingClientRect();
     const promptRect = promptInput.getBoundingClientRect();
@@ -1054,6 +1895,9 @@
     score += 120 - Math.min(horizontalDistance, 120);
     score += Math.min(rect.width / 8, 20);
     score += Math.min(rect.height / 6, 18);
+    if (isExplicitSubmitButton) {
+      score += 320;
+    }
     if (element.closest('header, nav, aside, [role="navigation"]')) {
       score -= 240;
     }
@@ -1063,12 +1907,17 @@
     if (verticalDistance > 280) {
       score -= 160;
     }
+    if (!matchedKeyword && !isExplicitSubmitButton && text.length === 0) {
+      score -= 120;
+    }
 
     return score;
   }
 
   function findSubmitButton(promptInput) {
-    const candidates = getClickableElements();
+    const candidates = queryAllDeep(
+      'button, [role="button"], input[type="submit"], input[type="button"]'
+    ).filter((element) => isVisible(element) && !('disabled' in element && element.disabled));
     let best = null;
     let bestScore = Number.NEGATIVE_INFINITY;
 
@@ -1106,26 +1955,62 @@
     clearRetryTimer();
   }
 
+  function detectRepeatedSubmissionLoop(minRepeats = 5) {
+    const history = state.submissionStepHistory;
+    if (!Array.isArray(history) || history.length < minRepeats) {
+      return null;
+    }
+
+    const recentEntries = history.slice(-minRepeats);
+    const firstEntry = recentEntries[0];
+    if (!firstEntry || !firstEntry.step) {
+      return null;
+    }
+
+    const repeated = recentEntries.every((entry) =>
+      entry
+      && entry.step === firstEntry.step
+      && entry.detail === firstEntry.detail
+    );
+
+    return repeated ? firstEntry : null;
+  }
+
   async function tryApplySubmission(payload) {
-    let promptInput = findPromptInput();
+    const deadline = Number.isFinite(payload && payload.deadline)
+      ? payload.deadline
+      : (Date.now() + MAX_WAIT_MS);
+
+    let promptInput = await waitForPromptInputUntil(deadline);
     if (!promptInput) {
-      return false;
+      throw new Error('Timed out waiting for Jimeng editor controls');
     }
 
     if (!(await ensureReferenceImagesApplied(payload, promptInput))) {
-      return false;
+      throw new Error('Failed to upload Jimeng reference images');
+    }
+
+    promptInput = await waitForPromptInputUntil(deadline);
+    if (!promptInput) {
+      throw new Error('Timed out waiting for Jimeng editor controls after reference image upload');
     }
 
     const promptValue = normalizePrompt(payload.prompt);
     if (promptValue && !setPromptValue(promptInput, promptValue)) {
-      return false;
+      throw new Error('Failed to write Jimeng prompt');
     }
 
-    for (const control of CONTROL_SEQUENCE) {
-      const requireTrigger =
-        control.key === 'aspectRatio' || control.key === 'durationSeconds';
-      if (!ensureControlValue(promptInput, control.aliasMap, payload[control.key], { requireTrigger })) {
-        return false;
+    if (payload.creationType === 'video') {
+      if (!(await ensureFixedVideoToolbarControls(promptInput, payload))) {
+        throw new Error('Failed to apply Jimeng fixed video toolbar controls');
+      }
+    } else {
+      for (const control of CONTROL_SEQUENCE) {
+        const requireTrigger =
+          control.key === 'aspectRatio' || control.key === 'durationSeconds';
+        if (!(await ensureControlValue(promptInput, control, payload[control.key], { requireTrigger }))) {
+          throw new Error(`Failed to apply Jimeng control: ${control.key}`);
+        }
       }
     }
 
@@ -1133,14 +2018,14 @@
       ? [...payload.extraControls].sort((left, right) => left.controlIndex - right.controlIndex)
       : [];
     for (const control of extraControls) {
-      if (!ensureIndexedToolbarControlValue(promptInput, control)) {
-        return false;
+      if (!(await ensureIndexedToolbarControlValue(promptInput, control))) {
+        throw new Error(`Failed to apply Jimeng extra control: ${control.triggerText || control.controlIndex}`);
       }
     }
 
-    promptInput = findPromptInput() || promptInput;
+    promptInput = (await waitForPromptInputUntil(deadline)) || promptInput;
     if (promptValue && !setPromptValue(promptInput, promptValue)) {
-      return false;
+      throw new Error('Failed to restore Jimeng prompt');
     }
 
     if (!payload.autoSubmit) {
@@ -1159,7 +2044,7 @@
 
     const submitButton = findSubmitButton(promptInput);
     if (!submitButton) {
-      return false;
+      throw new Error('Unable to find Jimeng submit button');
     }
 
     clickElement(submitButton);
@@ -1187,7 +2072,8 @@
         return;
       }
 
-      scheduleRetry();
+      setSubmissionError('Jimeng submission did not finish in a single automation pass');
+      markCompleted();
     } catch (error) {
       setSubmissionError(String(error && error.message ? error.message : error));
       markCompleted();
@@ -1198,6 +2084,18 @@
 
   function normalizePrompt(value) {
     return String(value || '').trim();
+  }
+
+  async function waitForPromptInputUntil(deadline) {
+    while (Date.now() <= deadline) {
+      const promptInput = findPromptInput();
+      if (promptInput) {
+        return promptInput;
+      }
+      await waitForDelay(RETRY_DELAY_MS);
+    }
+
+    return null;
   }
 
   function waitForDelay(delayMs) {
@@ -1262,10 +2160,7 @@
   }
 
   function collectToolbarCandidates(promptInput) {
-    const promptRect = promptInput.getBoundingClientRect();
-    const promptRegionRect = getPromptRegionRect(promptInput);
-    const submitButton = findSubmitButton(promptInput);
-    const submitRect = submitButton ? submitButton.getBoundingClientRect() : null;
+    const bounds = getToolbarBandBounds(promptInput);
     const seen = new Set();
 
     return getClickableElements()
@@ -1277,27 +2172,8 @@
       .filter((candidate) => !candidate.element.closest('header, nav, aside, [role="navigation"]'))
       .filter((candidate) => {
         const rect = candidate.rect;
-        const bandTop = Math.min(
-          Math.round(promptRect.top) - 48,
-          submitRect ? Math.round(submitRect.top) - 48 : Math.round(promptRect.top) - 48
-        );
-        const bandBottom = Math.max(
-          Math.round(promptRect.bottom) + 220,
-          submitRect ? Math.round(submitRect.bottom) + 160 : Math.round(promptRect.bottom) + 220
-        );
-        const leftBound = Math.max(
-          promptRegionRect.left - 32,
-          Math.round(promptRect.left) - 96
-        );
-        const rightBound = Math.min(
-          promptRegionRect.right + 32,
-          Math.max(
-            Math.round(promptRect.right) + 96,
-            submitRect ? Math.round(submitRect.right) + 96 : Math.round(promptRect.right) + 96
-          )
-        );
-        const verticalInBand = rect.top >= bandTop && rect.bottom <= bandBottom;
-        const horizontalInBand = rect.left >= leftBound && rect.right <= rightBound;
+        const verticalInBand = rect.top >= bounds.bandTop && rect.bottom <= bounds.bandBottom;
+        const horizontalInBand = rect.left >= bounds.leftBound && rect.right <= bounds.rightBound;
         return verticalInBand && horizontalInBand;
       })
       .filter((candidate) => {
@@ -1431,7 +2307,7 @@
     const knownControls = {};
 
     for (const control of CONTROL_SEQUENCE) {
-      const trigger = findControlTrigger(control.aliasMap, promptInput);
+      const trigger = findControlTrigger(control, promptInput);
       if (!trigger) {
         continue;
       }
@@ -1600,6 +2476,8 @@
       status: state.submissionStatus,
       error: state.lastSubmissionError,
       updatedAt: state.lastSubmissionUpdatedAt,
+      step: state.lastSubmissionStep,
+      stepHistory: state.submissionStepHistory,
     };
   }
 
@@ -1622,11 +2500,14 @@
       referenceUploadError: null,
       referenceUploadReadyAt: null,
       referenceUploadPromise: null,
+      fixedVideoReferenceModeApplied: false,
       extraControls: payload && payload.extraControls,
       autoSubmit,
       deadline: Date.now() + MAX_WAIT_MS,
     };
 
+    state.lastSubmissionStep = null;
+    state.submissionStepHistory = [];
     setSubmissionPending();
     clearRetryTimer();
     attemptPendingSubmission();

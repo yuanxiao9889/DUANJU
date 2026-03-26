@@ -20,19 +20,24 @@ impl CodingModelRegistry {
 
     pub fn supports(&self, model: &str) -> bool {
         self.models.iter().any(|m| {
-            m == model ||
-            model.starts_with("qwen3") ||
-            model.starts_with("glm") ||
-            model.starts_with("kimi") ||
-            model.starts_with("MiniMax") ||
-            model.starts_with("ep-")
+            m == model
+                || model.starts_with("qwen3")
+                || model.starts_with("glm")
+                || model.starts_with("kimi")
+                || model.starts_with("MiniMax")
+                || model.starts_with("ep-")
         })
     }
 
     pub fn resolve(&self, model: &str) -> Option<String> {
         if self.models.contains(&model.to_string()) {
             Some(model.to_string())
-        } else if model.starts_with("qwen3") || model.starts_with("glm") || model.starts_with("kimi") || model.starts_with("MiniMax") || model.starts_with("ep-") {
+        } else if model.starts_with("qwen3")
+            || model.starts_with("glm")
+            || model.starts_with("kimi")
+            || model.starts_with("MiniMax")
+            || model.starts_with("ep-")
+        {
             Some(model.to_string())
         } else {
             None

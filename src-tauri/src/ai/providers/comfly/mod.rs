@@ -31,8 +31,8 @@ const FOUR_K_MODEL: &str = "nano-banana-2-4k";
 const GEMINI_FLASH_IMAGE_PREVIEW_4K_MODEL: &str = "gemini-3.1-flash-image-preview-4k";
 
 const SUPPORTED_ASPECT_RATIOS: [&str; 14] = [
-    "1:1", "1:4", "1:8", "2:3", "3:2", "3:4", "4:1", "4:3", "4:5", "5:4", "8:1",
-    "9:16", "16:9", "21:9",
+    "1:1", "1:4", "1:8", "2:3", "3:2", "3:4", "4:1", "4:3", "4:5", "5:4", "8:1", "9:16", "16:9",
+    "21:9",
 ];
 
 #[derive(Debug, Deserialize)]
@@ -165,7 +165,8 @@ impl ComflyProvider {
             let response = reqwest::get(trimmed)
                 .await
                 .map_err(|err| format!("failed to download image: {}", err))?;
-            let bytes = response.bytes()
+            let bytes = response
+                .bytes()
                 .await
                 .map_err(|err| format!("failed to read image bytes: {}", err))?;
             return Ok(bytes.to_vec());
@@ -191,9 +192,7 @@ impl ComflyProvider {
 
     fn resolve_image_size(model: &str, size: &str) -> Option<String> {
         let normalized_model = model.trim().to_ascii_lowercase();
-        if normalized_model == TWO_K_MODEL
-            || normalized_model == FOUR_K_MODEL
-        {
+        if normalized_model == TWO_K_MODEL || normalized_model == FOUR_K_MODEL {
             return None;
         }
 
@@ -222,7 +221,9 @@ impl ComflyProvider {
             prompt: request.prompt.clone(),
             response_format: Some("url".to_string()),
             image_size: Self::resolve_image_size(&model, &request.size),
-            aspect_ratio: if !request.aspect_ratio.is_empty() && Self::validate_aspect_ratio(&request.aspect_ratio) {
+            aspect_ratio: if !request.aspect_ratio.is_empty()
+                && Self::validate_aspect_ratio(&request.aspect_ratio)
+            {
                 Some(request.aspect_ratio.clone())
             } else {
                 None
@@ -231,10 +232,7 @@ impl ComflyProvider {
 
         info!(
             "[Comfly API] Text2Img URL: {}, model: {}, size: {}, aspect_ratio: {}",
-            endpoint,
-            model,
-            request.size,
-            request.aspect_ratio
+            endpoint, model, request.size, request.aspect_ratio
         );
 
         let response = self
@@ -258,12 +256,13 @@ impl ComflyProvider {
             )));
         }
 
-        let task_response: TaskSubmissionResponse = serde_json::from_str(&response_text).map_err(|e| {
-            AIError::Provider(format!(
-                "Failed to parse Comfly response: {}. Response was: {}",
-                e, response_text
-            ))
-        })?;
+        let task_response: TaskSubmissionResponse =
+            serde_json::from_str(&response_text).map_err(|e| {
+                AIError::Provider(format!(
+                    "Failed to parse Comfly response: {}. Response was: {}",
+                    e, response_text
+                ))
+            })?;
 
         Ok(task_response.task_id)
     }
@@ -308,13 +307,15 @@ impl ComflyProvider {
         }
 
         for (idx, source) in reference_images.iter().enumerate() {
-            let bytes = Self::source_to_bytes(source)
-                .await
-                .map_err(|e| AIError::InvalidRequest(format!("Failed to read image {}: {}", idx, e)))?;
+            let bytes = Self::source_to_bytes(source).await.map_err(|e| {
+                AIError::InvalidRequest(format!("Failed to read image {}: {}", idx, e))
+            })?;
             let part = reqwest::multipart::Part::bytes(bytes)
                 .file_name(format!("image_{}.png", idx))
                 .mime_str("image/png")
-                .map_err(|e| AIError::Provider(format!("Failed to create multipart part: {}", e)))?;
+                .map_err(|e| {
+                    AIError::Provider(format!("Failed to create multipart part: {}", e))
+                })?;
             form = form.part("image", part);
         }
 
@@ -338,12 +339,13 @@ impl ComflyProvider {
             )));
         }
 
-        let task_response: TaskSubmissionResponse = serde_json::from_str(&response_text).map_err(|e| {
-            AIError::Provider(format!(
-                "Failed to parse Comfly response: {}. Response was: {}",
-                e, response_text
-            ))
-        })?;
+        let task_response: TaskSubmissionResponse =
+            serde_json::from_str(&response_text).map_err(|e| {
+                AIError::Provider(format!(
+                    "Failed to parse Comfly response: {}. Response was: {}",
+                    e, response_text
+                ))
+            })?;
 
         Ok(task_response.task_id)
     }
@@ -388,17 +390,22 @@ impl ComflyProvider {
                 let first_image = images.first().ok_or_else(|| {
                     AIError::Provider("Task succeeded but empty image array".to_string())
                 })?;
-                
+
                 if let Some(url) = &first_image.url {
                     return Ok(Some(url.clone()));
                 }
                 if let Some(b64_json) = &first_image.b64_json {
                     return Ok(Some(format!("data:image/png;base64,{}", b64_json)));
                 }
-                Err(AIError::Provider("Task succeeded but no URL or base64 data".to_string()))
+                Err(AIError::Provider(
+                    "Task succeeded but no URL or base64 data".to_string(),
+                ))
             }
             "FAILURE" => {
-                let reason = status_response.data.fail_reason.unwrap_or_else(|| "Unknown error".to_string());
+                let reason = status_response
+                    .data
+                    .fail_reason
+                    .unwrap_or_else(|| "Unknown error".to_string());
                 Err(AIError::Provider(format!("Task failed: {}", reason)))
             }
             _ => Ok(None),
@@ -464,16 +471,15 @@ impl AIProvider for ComflyProvider {
 
     async fn generate(&self, request: GenerateRequest) -> Result<String, AIError> {
         let model = Self::resolve_effective_model(&request.model, &request.size);
-        let has_reference_images = request.reference_images.as_ref()
+        let has_reference_images = request
+            .reference_images
+            .as_ref()
             .map(|imgs| !imgs.is_empty())
             .unwrap_or(false);
 
         info!(
             "[Comfly Request] model: {}, size: {}, aspect_ratio: {}, has_images: {}",
-            model,
-            request.size,
-            request.aspect_ratio,
-            has_reference_images
+            model, request.size, request.aspect_ratio, has_reference_images
         );
 
         let task_id = if has_reference_images {

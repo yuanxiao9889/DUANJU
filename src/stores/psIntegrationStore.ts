@@ -39,14 +39,32 @@ export const usePsIntegrationStore = create<PsIntegrationState>((set) => ({
   isStopping: false,
 
   startServer: async (port) => {
-    set({ isStarting: true });
-    try {
-      const actualPort = await startPsServer(port);
-      set({ serverStatus: { running: true, port: actualPort, ps_connected: false }, isStarting: false });
-    } catch (error) {
-      set({ isStarting: false });
-      throw error;
+    const currentState = usePsIntegrationStore.getState();
+    if (currentState.serverStatus.running) {
+      return;
     }
+
+    if (startServerPromise) {
+      return await startServerPromise;
+    }
+
+    set({ isStarting: true });
+    startServerPromise = (async () => {
+      try {
+        const actualPort = await startPsServer(port);
+        set({
+          serverStatus: { running: true, port: actualPort, ps_connected: false },
+          isStarting: false,
+        });
+      } catch (error) {
+        set({ isStarting: false });
+        throw error;
+      } finally {
+        startServerPromise = null;
+      }
+    })();
+
+    return await startServerPromise;
   },
 
   stopServer: async () => {
@@ -86,6 +104,7 @@ let lastImageId: string | null = null;
 let lastImageTime = 0;
 let listenerCount = 0;
 let statusRefreshInterval: ReturnType<typeof setInterval> | null = null;
+let startServerPromise: Promise<void> | null = null;
 
 export function initializePsIntegration(
   options: InitializePsIntegrationOptions

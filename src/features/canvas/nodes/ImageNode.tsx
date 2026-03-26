@@ -12,8 +12,8 @@ import { useTranslation } from 'react-i18next';
 import {
   CANVAS_NODE_TYPES,
   DEFAULT_ASPECT_RATIO,
-  EXPORT_RESULT_NODE_MIN_WIDTH,
   EXPORT_RESULT_NODE_MIN_HEIGHT,
+  EXPORT_RESULT_NODE_MIN_WIDTH,
   type CanvasNodeType,
   type ExportImageNodeData,
   type ImageEditNodeData,
@@ -57,6 +57,7 @@ export const ImageNode = memo(({ id, data, selected, type, width, height }: Imag
   const [now, setNow] = useState(() => Date.now());
   const isExportResultNode = type === CANVAS_NODE_TYPES.exportImage;
   const isGenerating = typeof data.isGenerating === 'boolean' ? data.isGenerating : false;
+  const hasPersistedImage = Boolean(data.imageUrl || data.previewImageUrl);
   const generationError =
     typeof (data as { generationError?: unknown }).generationError === 'string'
       ? ((data as { generationError?: string }).generationError ?? '').trim()
@@ -66,9 +67,9 @@ export const ImageNode = memo(({ id, data, selected, type, width, height }: Imag
       ? ((data as { generationJobId?: string }).generationJobId ?? '').trim()
       : '';
   const hasGenerationError =
-    isExportResultNode && !isGenerating && !data.imageUrl && generationError.length > 0;
+    isExportResultNode && !isGenerating && !hasPersistedImage && generationError.length > 0;
   const canManualRefresh =
-    isExportResultNode && !data.imageUrl && !isGenerating && generationJobId.length > 0;
+    isExportResultNode && !hasPersistedImage && !isGenerating && generationJobId.length > 0;
   const generationStartedAt =
     typeof data.generationStartedAt === 'number' ? data.generationStartedAt : null;
   const generationDurationMs =
@@ -98,6 +99,7 @@ export const ImageNode = memo(({ id, data, selected, type, width, height }: Imag
     () => resolveNodeDisplayName(type as CanvasNodeType, data),
     [data, type]
   );
+  const dimensionSource = data.imageUrl ?? data.previewImageUrl ?? null;
 
   useEffect(() => {
     updateNodeInternals(id);
@@ -118,13 +120,13 @@ export const ImageNode = memo(({ id, data, selected, type, width, height }: Imag
   }, [isGenerating]);
 
   useEffect(() => {
-    if (!data.imageUrl || (imageWidth !== null && imageHeight !== null)) {
+    if (!dimensionSource || (imageWidth !== null && imageHeight !== null)) {
       return;
     }
 
     let disposed = false;
 
-    void detectImageDimensions(data.imageUrl)
+    void detectImageDimensions(dimensionSource)
       .then((dimensions) => {
         if (disposed) {
           return;
@@ -140,7 +142,7 @@ export const ImageNode = memo(({ id, data, selected, type, width, height }: Imag
     return () => {
       disposed = true;
     };
-  }, [data.imageUrl, id, imageHeight, imageWidth, updateNodeData]);
+  }, [dimensionSource, id, imageHeight, imageWidth, updateNodeData]);
 
   const simulatedProgress = useMemo(() => {
     if (!isGenerating) {
@@ -175,19 +177,42 @@ export const ImageNode = memo(({ id, data, selected, type, width, height }: Imag
     return t('node.imageNode.waitingResultDelayed', { minutes: waitedMinutes });
   }, [isExportResultNode, isGenerating, t, waitedMinutes]);
 
-  const imageSource = useMemo(() => {
-    const preferOriginal = shouldUseOriginalImageByZoom(zoom);
-    const picked = preferOriginal
-      ? data.imageUrl || data.previewImageUrl
-      : data.previewImageUrl || data.imageUrl;
-    return picked ? resolveImageDisplayUrl(picked) : null;
-  }, [data.imageUrl, data.previewImageUrl, zoom]);
-
-  // 获取原图 URL 用于查看器
   const originalImageUrl = useMemo(() => {
-    if (!data.imageUrl) return null;
+    if (!data.imageUrl) {
+      return null;
+    }
+
     return resolveImageDisplayUrl(data.imageUrl);
   }, [data.imageUrl]);
+
+  const previewImageUrl = useMemo(() => {
+    if (!data.previewImageUrl) {
+      return null;
+    }
+
+    return resolveImageDisplayUrl(data.previewImageUrl);
+  }, [data.previewImageUrl]);
+
+  const imageSource = useMemo(() => {
+    const preferOriginal = shouldUseOriginalImageByZoom(zoom);
+    return preferOriginal
+      ? (originalImageUrl ?? previewImageUrl)
+      : (previewImageUrl ?? originalImageUrl);
+  }, [originalImageUrl, previewImageUrl, zoom]);
+
+  const fallbackImageSource = useMemo(() => {
+    if (!imageSource) {
+      return null;
+    }
+
+    if (imageSource === originalImageUrl) {
+      return previewImageUrl && previewImageUrl !== imageSource ? previewImageUrl : null;
+    }
+
+    return originalImageUrl && originalImageUrl !== imageSource ? originalImageUrl : null;
+  }, [imageSource, originalImageUrl, previewImageUrl]);
+
+  const hasRenderableImage = Boolean(imageSource || fallbackImageSource);
 
   const handleManualRefresh = () => {
     if (!canManualRefresh) {
@@ -268,11 +293,12 @@ export const ImageNode = memo(({ id, data, selected, type, width, height }: Imag
       <div
         className={`relative h-full w-full overflow-hidden rounded-[var(--node-radius)] ${hasGenerationError ? 'bg-[rgba(127,29,29,0.2)]' : 'bg-bg-dark'}`}
       >
-        {data.imageUrl ? (
+        {hasRenderableImage ? (
           <CanvasNodeImage
             src={imageSource ?? ''}
             alt={isExportResultNode ? t('node.imageNode.resultAlt') : t('node.imageNode.generatedAlt')}
-            viewerSourceUrl={originalImageUrl}
+            fallbackSrc={fallbackImageSource}
+            viewerSourceUrl={originalImageUrl ?? previewImageUrl}
             className="h-full w-full object-contain"
           />
         ) : hasGenerationError ? (

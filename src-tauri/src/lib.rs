@@ -6,6 +6,7 @@ use std::time::Duration;
 
 use commands::ai as ai_commands;
 use commands::image;
+use commands::jimeng_chrome;
 use commands::jimeng_panel;
 use commands::project_state;
 use commands::ps_server;
@@ -107,7 +108,8 @@ pub fn run() {
                 .cloned()
                 .ok_or_else(|| "missing main window config".to_string())?;
 
-            let main_window = tauri::WebviewWindowBuilder::from_config(app, &window_config)?.build()?;
+            let main_window =
+                tauri::WebviewWindowBuilder::from_config(app, &window_config)?.build()?;
 
             if let Err(err) = main_window.hide() {
                 warn!("failed to hide main window on startup: {err}");
@@ -137,6 +139,11 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .invoke_handler(tauri::generate_handler![
             frontend_ready,
+            jimeng_chrome::ensure_jimeng_chrome_session,
+            jimeng_chrome::focus_jimeng_chrome_workspace,
+            jimeng_chrome::inspect_jimeng_chrome_options,
+            jimeng_chrome::submit_jimeng_chrome_task,
+            jimeng_chrome::sync_jimeng_chrome_draft_options,
             jimeng_panel::ensure_jimeng_panel_window,
             jimeng_panel::submit_jimeng_panel_task,
             jimeng_panel::inspect_jimeng_panel_options,

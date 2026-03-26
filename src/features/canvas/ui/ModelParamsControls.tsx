@@ -1,4 +1,4 @@
-import { memo, useEffect, useMemo, useRef, useState } from 'react';
+import { memo, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { SlidersHorizontal, Zap, Palette, Settings } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
@@ -48,6 +48,8 @@ interface ModelParamsControlsProps {
   paramsPanelClassName?: string;
   providerOptionClassName?: string;
   modelOptionClassName?: string;
+  styleTemplateTriggerMode?: 'label' | 'icon';
+  afterStyleTemplateSlot?: ReactNode;
 }
 
 interface PanelAnchor {
@@ -161,21 +163,26 @@ export const ModelParamsControls = memo(({
   paramsPanelClassName = 'w-[420px] p-3',
   providerOptionClassName = DEFAULT_PROVIDER_OPTION_CLASS_NAME,
   modelOptionClassName = DEFAULT_MODEL_OPTION_CLASS_NAME,
+  styleTemplateTriggerMode = 'label',
+  afterStyleTemplateSlot,
 }: ModelParamsControlsProps) => {
   const { t } = useTranslation();
   const containerRef = useRef<HTMLDivElement>(null);
   const modelTriggerRef = useRef<HTMLDivElement>(null);
   const paramsTriggerRef = useRef<HTMLDivElement>(null);
   const otherParamsTriggerRef = useRef<HTMLDivElement>(null);
+  const styleTemplateTriggerRef = useRef<HTMLDivElement>(null);
   const modelPanelRef = useRef<HTMLDivElement>(null);
   const paramsPanelRef = useRef<HTMLDivElement>(null);
   const otherParamsPanelRef = useRef<HTMLDivElement>(null);
+  const styleTemplatePanelRef = useRef<HTMLDivElement>(null);
   const [openPanel, setOpenPanel] = useState<'model' | 'params' | 'otherParams' | null>(null);
   const [renderPanel, setRenderPanel] = useState<'model' | 'params' | 'otherParams' | null>(null);
   const [isPanelVisible, setIsPanelVisible] = useState(false);
   const [modelPanelAnchor, setModelPanelAnchor] = useState<PanelAnchor | null>(null);
   const [paramsPanelAnchor, setParamsPanelAnchor] = useState<PanelAnchor | null>(null);
   const [otherParamsPanelAnchor, setOtherParamsPanelAnchor] = useState<PanelAnchor | null>(null);
+  const [styleTemplatePanelAnchor, setStyleTemplatePanelAnchor] = useState<PanelAnchor | null>(null);
   const [modelAnchorBaseWidth, setModelAnchorBaseWidth] = useState<number | null>(null);
   const [paramsAnchorBaseWidth, setParamsAnchorBaseWidth] = useState<number | null>(null);
   const [otherParamsAnchorBaseWidth, setOtherParamsAnchorBaseWidth] = useState<number | null>(null);
@@ -194,6 +201,14 @@ export const ModelParamsControls = memo(({
     [selectedModel.displayName]
   );
   const selectedProviderName = selectedProvider.label || selectedProvider.name;
+  const selectedStyleTemplateName = useMemo(
+    () =>
+      selectedStyleTemplateId
+        ? styleTemplates.find((template) => template.id === selectedStyleTemplateId)?.name
+          ?? t('styleTemplate.selectTemplate')
+        : t('styleTemplate.selectTemplate'),
+    [selectedStyleTemplateId, styleTemplates, t]
+  );
   const providerOptions = useMemo(() => {
     const providerOrder = [
       'kie',
@@ -202,6 +217,7 @@ export const ModelParamsControls = memo(({
       'grsai',
       'comfly',
       'zhenzhen',
+      'bltcy',
       'runninghub',
       'compatible',
     ];
@@ -343,7 +359,14 @@ export const ModelParamsControls = memo(({
       if (otherParamsPanelRef.current?.contains(target)) {
         return;
       }
+      if (styleTemplatePanelRef.current?.contains(target)) {
+        return;
+      }
+      if (styleTemplateTriggerRef.current?.contains(target)) {
+        return;
+      }
       setOpenPanel(null);
+      setStyleTemplatePanelOpen(false);
     };
 
     document.addEventListener('mousedown', handleOutside, true);
@@ -351,6 +374,12 @@ export const ModelParamsControls = memo(({
       document.removeEventListener('mousedown', handleOutside, true);
     };
   }, []);
+
+  useEffect(() => {
+    if (openPanel) {
+      setStyleTemplatePanelOpen(false);
+    }
+  }, [openPanel]);
 
   const getPanelAnchor = (
     triggerElement: HTMLDivElement | null,
@@ -440,77 +469,38 @@ export const ModelParamsControls = memo(({
       </div>
 
       {onStyleTemplateChange && (
-        <div className="relative flex">
+        <div ref={styleTemplateTriggerRef} className="relative flex">
           <UiChipButton
             active={styleTemplatePanelOpen}
-            className={`${chipClassName} w-auto shrink-0 justify-center`}
+            className={
+              styleTemplateTriggerMode === 'icon'
+                ? `${chipClassName} !w-6 !px-0 shrink-0 justify-center`
+                : `${chipClassName} w-auto shrink-0 justify-center`
+            }
+            title={selectedStyleTemplateName}
+            aria-label={selectedStyleTemplateName}
             onClick={(event) => {
               event.stopPropagation();
-              setStyleTemplatePanelOpen(!styleTemplatePanelOpen);
+              if (styleTemplatePanelOpen) {
+                setStyleTemplatePanelOpen(false);
+                return;
+              }
+              setOpenPanel(null);
+              setStyleTemplatePanelAnchor(getPanelAnchor(styleTemplateTriggerRef.current, 'center'));
+              setStyleTemplatePanelOpen(true);
             }}
           >
             <Palette className={paramsIconClassName} />
-            <span className={paramsPrimaryTextClassName}>
-              {selectedStyleTemplateId
-                ? styleTemplates.find((t) => t.id === selectedStyleTemplateId)?.name ?? t('styleTemplate.selectTemplate')
-                : t('styleTemplate.selectTemplate')}
-            </span>
+            {styleTemplateTriggerMode === 'label' && (
+              <span className={paramsPrimaryTextClassName}>
+                {selectedStyleTemplateName}
+              </span>
+            )}
           </UiChipButton>
-          
-          {styleTemplatePanelOpen && (
-            <UiPanel
-              className="absolute left-1/2 top-full z-50 mt-1 min-w-[160px] -translate-x-1/2 p-1"
-              onClick={(e) => e.stopPropagation()}
-            >
-              <button
-                className={`w-full rounded-md px-3 py-1.5 text-left text-xs transition-colors ${
-                  !selectedStyleTemplateId ? 'bg-accent/15 text-accent' : 'text-text-muted hover:bg-surface-hover'
-                }`}
-                onClick={() => {
-                  onStyleTemplateChange(null, '');
-                  setStyleTemplatePanelOpen(false);
-                }}
-              >
-                {t('styleTemplate.noTemplate')}
-              </button>
-              
-              {styleTemplates.length > 0 && (
-                <div className="my-1 border-t border-border" />
-              )}
-              
-              {styleTemplates.map((template) => (
-                <button
-                  key={template.id}
-                  className={`w-full rounded-md px-3 py-1.5 text-left text-xs transition-colors ${
-                    selectedStyleTemplateId === template.id
-                      ? 'bg-accent/15 text-accent'
-                      : 'text-text-muted hover:bg-surface-hover'
-                  }`}
-                  onClick={() => {
-                    onStyleTemplateChange(template.id, template.prompt);
-                    setStyleTemplatePanelOpen(false);
-                  }}
-                >
-                  {template.name}
-                </button>
-              ))}
-              
-              <div className="my-1 border-t border-border" />
-              
-              <button
-                className="flex w-full items-center gap-1.5 rounded-md px-3 py-1.5 text-left text-xs text-text-muted transition-colors hover:bg-surface-hover"
-                onClick={() => {
-                  setStyleTemplatePanelOpen(false);
-                  onOpenStyleTemplateManager?.();
-                }}
-              >
-                <Settings className="h-3 w-3" />
-                {t('styleTemplate.manageTemplates')}
-              </button>
-            </UiPanel>
-          )}
         </div>
       )}
+
+      {afterStyleTemplateSlot}
 
       {hasOtherParamsPanel && (
         <div ref={otherParamsTriggerRef} className="relative flex">
@@ -842,6 +832,64 @@ export const ModelParamsControls = memo(({
                 );
               })}
             </div>
+          </UiPanel>
+        </div>,
+        document.body
+      )}
+
+      {typeof document !== 'undefined' && styleTemplatePanelOpen && createPortal(
+        <div
+          ref={styleTemplatePanelRef}
+          className="fixed z-[80]"
+          style={buildPanelStyle(styleTemplatePanelAnchor, 'center')}
+          onClick={(event) => event.stopPropagation()}
+        >
+          <UiPanel className="min-w-[180px] p-1">
+            <button
+              className={`w-full rounded-md px-3 py-1.5 text-left text-xs transition-colors ${
+                !selectedStyleTemplateId ? 'bg-accent/15 text-accent' : 'text-text-muted hover:bg-surface-hover'
+              }`}
+              onClick={() => {
+                onStyleTemplateChange?.(null, '');
+                setStyleTemplatePanelOpen(false);
+              }}
+            >
+              {t('styleTemplate.noTemplate')}
+            </button>
+
+            {styleTemplates.length > 0 && (
+              <div className="my-1 border-t border-border" />
+            )}
+
+            {styleTemplates.map((template) => (
+              <button
+                key={template.id}
+                className={`w-full rounded-md px-3 py-1.5 text-left text-xs transition-colors ${
+                  selectedStyleTemplateId === template.id
+                    ? 'bg-accent/15 text-accent'
+                    : 'text-text-muted hover:bg-surface-hover'
+                }`}
+                onClick={() => {
+                  onStyleTemplateChange?.(template.id, template.prompt);
+                  setStyleTemplatePanelOpen(false);
+                }}
+              >
+                {template.name}
+              </button>
+            ))}
+
+            <div className="my-1 border-t border-border" />
+
+            <button
+              className="flex w-full items-center gap-1.5 rounded-md px-3 py-1.5 text-left text-xs text-text-muted transition-colors hover:bg-surface-hover"
+              onClick={() => {
+                setStyleTemplatePanelOpen(false);
+                onOpenStyleTemplateManager?.();
+              }}
+            >
+              <Settings className="h-3 w-3" />
+              {t('styleTemplate.manageTemplates')}
+            </button>
           </UiPanel>
         </div>,
         document.body

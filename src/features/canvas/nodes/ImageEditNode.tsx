@@ -9,7 +9,7 @@ import {
   useRef,
 } from 'react';
 import { Handle, Position, useUpdateNodeInternals, type NodeProps } from '@xyflow/react';
-import { AlertTriangle, Sparkles } from 'lucide-react';
+import { AlertTriangle, Loader2, Sparkles, Wand2 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 
 import {
@@ -33,6 +33,7 @@ import {
   parseAspectRatio,
   resolveImageDisplayUrl,
 } from '@/features/canvas/application/imageData';
+import { optimizeCanvasPrompt } from '@/features/canvas/application/promptOptimization';
 import { resolveMinEdgeFittedSize } from '@/features/canvas/application/imageNodeSizing';
 import {
   buildGenerationErrorReport,
@@ -71,7 +72,7 @@ import { StyleTemplateDialog } from '@/features/project/StyleTemplateDialog';
 import { CanvasNodeImage } from '@/features/canvas/ui/CanvasNodeImage';
 import { NodePriceBadge } from '@/features/canvas/ui/NodePriceBadge';
 import { NodeStatusBadge } from '@/features/canvas/ui/NodeStatusBadge';
-import { UiButton } from '@/components/ui';
+import { UiButton, UiChipButton } from '@/components/ui';
 import { useCanvasStore } from '@/stores/canvasStore';
 import { useSettingsStore } from '@/stores/settingsStore';
 
@@ -93,11 +94,11 @@ interface PickerAnchor {
 
 const PICKER_FALLBACK_ANCHOR: PickerAnchor = { left: 8, top: 8 };
 const PICKER_Y_OFFSET_PX = 20;
-const IMAGE_EDIT_NODE_MIN_WIDTH = 390;
+const IMAGE_EDIT_NODE_MIN_WIDTH = 480;
 const IMAGE_EDIT_NODE_MIN_HEIGHT = 180;
 const IMAGE_EDIT_NODE_MAX_WIDTH = 1400;
 const IMAGE_EDIT_NODE_MAX_HEIGHT = 1000;
-const IMAGE_EDIT_NODE_DEFAULT_WIDTH = 520;
+const IMAGE_EDIT_NODE_DEFAULT_WIDTH = 620;
 const IMAGE_EDIT_NODE_DEFAULT_HEIGHT = 320;
 
 function getTextareaCaretOffset(
@@ -232,6 +233,7 @@ export const ImageEditNode = memo(({ id, data, selected, width, height }: ImageE
   const { t, i18n } = useTranslation();
   const updateNodeInternals = useUpdateNodeInternals();
   const [error, setError] = useState<string | null>(null);
+  const [isOptimizingPrompt, setIsOptimizingPrompt] = useState(false);
 
   const rootRef = useRef<HTMLDivElement>(null);
   const promptRef = useRef<HTMLTextAreaElement>(null);
@@ -419,6 +421,17 @@ export const ImageEditNode = memo(({ id, data, selected, width, height }: ImageE
     [data]
   );
   const headerStatus = useMemo(() => {
+    if (isOptimizingPrompt) {
+      return (
+        <NodeStatusBadge
+          icon={<Loader2 className="h-3 w-3" />}
+          label={t('node.imageEdit.optimizingPrompt')}
+          tone="processing"
+          animate
+        />
+      );
+    }
+
     if (!error) {
       return null;
     }
@@ -431,7 +444,7 @@ export const ImageEditNode = memo(({ id, data, selected, width, height }: ImageE
         title={error}
       />
     );
-  }, [error, t]);
+  }, [error, isOptimizingPrompt, t]);
   const headerRightSlot = useMemo(() => {
     if (!resolvedPriceDisplay && !headerStatus) {
       return undefined;
@@ -520,6 +533,44 @@ export const ImageEditNode = memo(({ id, data, selected, width, height }: ImageE
       document.removeEventListener('mousedown', handleOutside, true);
     };
   }, []);
+
+  const handleOptimizePrompt = useCallback(async () => {
+    const currentPrompt = promptDraftRef.current.trim();
+    if (!currentPrompt) {
+      const errorMessage = t('node.imageEdit.promptRequired');
+      setError(errorMessage);
+      void showErrorDialog(errorMessage, t('common.error'));
+      return;
+    }
+
+    setIsOptimizingPrompt(true);
+    setError(null);
+
+    try {
+      const result = await optimizeCanvasPrompt({
+        mode: 'image',
+        prompt: currentPrompt,
+        referenceImages: incomingImages,
+      });
+      setPromptDraft(result.prompt);
+      commitPromptDraft(result.prompt);
+      requestAnimationFrame(() => {
+        promptRef.current?.focus();
+        const nextCursor = result.prompt.length;
+        promptRef.current?.setSelectionRange(nextCursor, nextCursor);
+        syncPromptHighlightScroll();
+      });
+    } catch (optimizationError) {
+      const errorMessage =
+        optimizationError instanceof Error && optimizationError.message.trim().length > 0
+          ? optimizationError.message
+          : t('node.imageEdit.optimizePromptFailed');
+      setError(errorMessage);
+      void showErrorDialog(errorMessage, t('common.error'));
+    } finally {
+      setIsOptimizingPrompt(false);
+    }
+  }, [commitPromptDraft, incomingImages, t]);
 
   const handleGenerate = useCallback(async () => {
     const prompt = promptDraft.replace(/@(?=图\d+)/g, '').trim();
@@ -928,70 +979,106 @@ export const ImageEditNode = memo(({ id, data, selected, width, height }: ImageE
         )}
       </div>
 
-      <div className="mt-2 flex shrink-0 items-center gap-1">
-        <ModelParamsControls
-          imageModels={imageModels}
-          selectedModel={selectedModel}
-          resolutionOptions={resolutionOptions}
-          selectedResolution={selectedResolution}
-          selectedAspectRatio={selectedAspectRatio}
-          aspectRatioOptions={aspectRatioOptions}
-          onModelChange={handleModelChange}
-          onResolutionChange={handleResolutionChange}
-          onAspectRatioChange={(aspectRatio) => {
-            updateNodeData(id, { requestAspectRatio: aspectRatio });
-            setLastImageEditDefaults({
-              modelId: selectedModel.id,
-              size: selectedResolution.value as ImageSize,
-              requestAspectRatio: aspectRatio,
-            });
-          }
-          }
-          extraParams={data.extraParams}
-          onExtraParamChange={(key, value) =>
-            updateNodeData(id, {
-              extraParams: {
-                ...(data.extraParams ?? {}),
-                [key]: value,
-              },
-            })
-          }
-          selectedStyleTemplateId={selectedStyleTemplateId}
-          onStyleTemplateChange={(templateId, prompt) => {
-            setSelectedStyleTemplateId(templateId);
-            setStyleTemplatePrompt(prompt);
-            const basePrompt = promptDraftRef.current.replace(/\s*,\s*[^,]*$/, '').trim();
-            if (prompt) {
-              const newPrompt = basePrompt ? `${basePrompt}, ${prompt}` : prompt;
-              setPromptDraft(newPrompt);
-              promptDraftRef.current = newPrompt;
-            } else if (styleTemplatePrompt) {
-              const cleanedPrompt = basePrompt.replace(new RegExp(`\\s*,?\\s*${styleTemplatePrompt.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\s*$`), '').trim();
-              setPromptDraft(cleanedPrompt);
-              promptDraftRef.current = cleanedPrompt;
-            }
-          }}
-          onOpenStyleTemplateManager={() => setShowStyleTemplateDialog(true)}
-          triggerSize="sm"
-          chipClassName={NODE_CONTROL_CHIP_CLASS}
-          modelChipClassName={NODE_CONTROL_MODEL_CHIP_CLASS}
-          paramsChipClassName={NODE_CONTROL_PARAMS_CHIP_CLASS}
-        />
+      <div className="mt-2 flex shrink-0 items-end gap-2">
+        <div className="ui-scrollbar min-w-0 flex-1 overflow-x-auto overflow-y-hidden pb-1">
+          <div className="flex w-max min-w-full items-center gap-1">
+            <ModelParamsControls
+              imageModels={imageModels}
+              selectedModel={selectedModel}
+              resolutionOptions={resolutionOptions}
+              selectedResolution={selectedResolution}
+              selectedAspectRatio={selectedAspectRatio}
+              aspectRatioOptions={aspectRatioOptions}
+              onModelChange={handleModelChange}
+              onResolutionChange={handleResolutionChange}
+              onAspectRatioChange={(aspectRatio) => {
+                updateNodeData(id, { requestAspectRatio: aspectRatio });
+                setLastImageEditDefaults({
+                  modelId: selectedModel.id,
+                  size: selectedResolution.value as ImageSize,
+                  requestAspectRatio: aspectRatio,
+                });
+              }
+              }
+              extraParams={data.extraParams}
+              onExtraParamChange={(key, value) =>
+                updateNodeData(id, {
+                  extraParams: {
+                    ...(data.extraParams ?? {}),
+                    [key]: value,
+                  },
+                })
+              }
+              selectedStyleTemplateId={selectedStyleTemplateId}
+              onStyleTemplateChange={(templateId, prompt) => {
+                setSelectedStyleTemplateId(templateId);
+                setStyleTemplatePrompt(prompt);
+                const basePrompt = promptDraftRef.current.replace(/\s*,\s*[^,]*$/, '').trim();
+                if (prompt) {
+                  const newPrompt = basePrompt ? `${basePrompt}, ${prompt}` : prompt;
+                  setPromptDraft(newPrompt);
+                  promptDraftRef.current = newPrompt;
+                } else if (styleTemplatePrompt) {
+                  const cleanedPrompt = basePrompt.replace(new RegExp(`\\s*,?\\s*${styleTemplatePrompt.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\s*$`), '').trim();
+                  setPromptDraft(cleanedPrompt);
+                  promptDraftRef.current = cleanedPrompt;
+                }
+              }}
+              onOpenStyleTemplateManager={() => setShowStyleTemplateDialog(true)}
+              triggerSize="sm"
+              chipClassName={NODE_CONTROL_CHIP_CLASS}
+              modelChipClassName={NODE_CONTROL_MODEL_CHIP_CLASS}
+              paramsChipClassName={NODE_CONTROL_PARAMS_CHIP_CLASS}
+              styleTemplateTriggerMode="icon"
+              afterStyleTemplateSlot={(
+                <UiChipButton
+                  type="button"
+                  active={isOptimizingPrompt}
+                  disabled={isOptimizingPrompt || promptDraft.trim().length === 0}
+                  className={`${NODE_CONTROL_CHIP_CLASS} !w-6 !px-0 shrink-0 justify-center`}
+                  aria-label={
+                    isOptimizingPrompt
+                      ? t('node.imageEdit.optimizingPrompt')
+                      : t('node.imageEdit.optimizePrompt')
+                  }
+                  title={
+                    isOptimizingPrompt
+                      ? t('node.imageEdit.optimizingPrompt')
+                      : t('node.imageEdit.optimizePrompt')
+                  }
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    void handleOptimizePrompt();
+                  }}
+                >
+                  {isOptimizingPrompt ? (
+                    <Loader2 className="h-4 w-4 origin-center scale-[1.12] animate-spin text-text-dark" />
+                  ) : (
+                    <Wand2
+                      className="h-4 w-4 origin-center scale-[1.18] text-text-dark"
+                      strokeWidth={2.45}
+                    />
+                  )}
+                </UiChipButton>
+              )}
+            />
+          </div>
+        </div>
 
-        <div className="ml-auto" />
-
-        <div className="p-2 -m-2 shrink-0">
-          <UiButton
-            onClick={(event) => {
-              event.stopPropagation();
-              void handleGenerate();
-            }}
-            variant="primary"
-            className={NODE_CONTROL_PRIMARY_BUTTON_CLASS}
-          >
-            <Sparkles className={NODE_CONTROL_GENERATE_ICON_CLASS} strokeWidth={2.5} />
-            {t('canvas.generate')}
-          </UiButton>
+        <div className="flex shrink-0 items-center gap-1">
+          <div className="p-2 -m-2 shrink-0">
+            <UiButton
+              onClick={(event) => {
+                event.stopPropagation();
+                void handleGenerate();
+              }}
+              variant="primary"
+              className={NODE_CONTROL_PRIMARY_BUTTON_CLASS}
+            >
+              <Sparkles className={NODE_CONTROL_GENERATE_ICON_CLASS} strokeWidth={2.5} />
+              {t('canvas.generate')}
+            </UiButton>
+          </div>
         </div>
       </div>
       <Handle

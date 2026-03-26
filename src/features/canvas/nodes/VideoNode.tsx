@@ -53,9 +53,11 @@ import {
 } from '@/features/canvas/ui/nodeToolbarConfig';
 import {
   captureVideoFrame,
+  captureVideoFrameFromSource,
   formatVideoTime,
   isSupportedVideoType,
   prepareNodeVideoFromFile,
+  waitForVideoFrameReady,
 } from '@/features/canvas/application/videoData';
 import {
   prepareNodeImage,
@@ -107,6 +109,7 @@ export const VideoNode = memo(({ id, data, selected, width, height }: VideoNodeP
   const videoRef = useRef<HTMLVideoElement>(null);
   const progressRef = useRef<HTMLDivElement>(null);
   const screenshotCountRef = useRef(0);
+  const screenshotStatusTimeoutRef = useRef<number | null>(null);
   
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
@@ -115,6 +118,11 @@ export const VideoNode = memo(({ id, data, selected, width, height }: VideoNodeP
   const [flashFrame, setFlashFrame] = useState(false);
   const [screenshots, setScreenshots] = useState<Array<{ time: number; nodeId: string }>>([]);
   const [isProcessingFile, setIsProcessingFile] = useState(false);
+  const [isCapturingScreenshot, setIsCapturingScreenshot] = useState(false);
+  const [screenshotStatus, setScreenshotStatus] = useState<{
+    tone: 'info' | 'success' | 'danger';
+    message: string;
+  } | null>(null);
   const [videoError, setVideoError] = useState<string | null>(null);
   const [isVideoReady, setIsVideoReady] = useState(false);
   
@@ -302,6 +310,14 @@ export const VideoNode = memo(({ id, data, selected, width, height }: VideoNodeP
   const handleLoadedMetadata = useCallback(() => {
     if (!videoRef.current) return;
     setDuration(videoRef.current.duration);
+    if (videoRef.current.videoWidth > 0 && videoRef.current.videoHeight > 0 && videoRef.current.readyState >= 2) {
+      setIsVideoReady(true);
+    }
+    setVideoError(null);
+  }, []);
+
+  const handleLoadedData = useCallback(() => {
+    setIsVideoReady(true);
     setVideoError(null);
   }, []);
 
@@ -337,15 +353,84 @@ export const VideoNode = memo(({ id, data, selected, width, height }: VideoNodeP
     setCurrentTime(newTime);
   }, [duration]);
 
+  const showScreenshotStatus = useCallback(
+    (
+      tone: 'info' | 'success' | 'danger',
+      message: string,
+      durationMs: number | null = 2600
+    ) => {
+      if (screenshotStatusTimeoutRef.current !== null) {
+        window.clearTimeout(screenshotStatusTimeoutRef.current);
+        screenshotStatusTimeoutRef.current = null;
+      }
+
+      setScreenshotStatus({ tone, message });
+
+      if (durationMs !== null) {
+        screenshotStatusTimeoutRef.current = window.setTimeout(() => {
+          setScreenshotStatus(null);
+          screenshotStatusTimeoutRef.current = null;
+        }, durationMs);
+      }
+    },
+    []
+  );
+
+  const resolveScreenshotFailureMessage = useCallback(
+    (error: unknown): string => {
+      const rawMessage = error instanceof Error ? error.message : String(error);
+      const normalizedMessage = rawMessage.toLowerCase();
+
+      if (
+        normalizedMessage.includes('video frame is not ready') ||
+        normalizedMessage.includes('timed out waiting for video frame data') ||
+        normalizedMessage.includes('failed to load video frame data') ||
+        normalizedMessage.includes('video dimensions are not available')
+      ) {
+        return t('node.videoNode.screenshotNotReady');
+      }
+
+      return t('node.videoNode.screenshotFailed');
+    },
+    [t]
+  );
+
   const handleScreenshot = useCallback(async () => {
-    if (!videoRef.current || !data.videoUrl) return;
+    if (!videoRef.current || !data.videoUrl || isCapturingScreenshot) return;
     
     try {
-      const dataUrl = captureVideoFrame(videoRef.current);
+      setIsCapturingScreenshot(true);
+      showScreenshotStatus('info', t('node.videoNode.screenshotPending'), null);
+
+      const captureTime = videoRef.current.currentTime;
+      const preferredSource = videoRef.current.currentSrc || videoSource || '';
+      let dataUrl: string;
+
+      try {
+        await waitForVideoFrameReady(videoRef.current, 1200);
+        dataUrl = captureVideoFrame(videoRef.current);
+      } catch (directCaptureError) {
+        if (!preferredSource) {
+          throw directCaptureError;
+        }
+
+        console.warn('[videoNode] direct screenshot capture failed, trying fallback source capture', {
+          error: directCaptureError,
+          id,
+          currentTime: captureTime,
+          source: preferredSource,
+        });
+
+        dataUrl = await captureVideoFrameFromSource(preferredSource, captureTime);
+      }
+
       const prepared = await prepareNodeImage(dataUrl);
       
       const nodePosition = nodes.find(n => n.id === id)?.position;
-      if (!nodePosition) return;
+      if (!nodePosition) {
+        showScreenshotStatus('danger', t('node.videoNode.screenshotFailed'), 4200);
+        return;
+      }
       
       const screenshotIndex = screenshotCountRef.current + 1;
       screenshotCountRef.current = screenshotIndex;
@@ -368,16 +453,41 @@ export const VideoNode = memo(({ id, data, selected, width, height }: VideoNodeP
       addEdge(id, newNodeId);
       
       setScreenshots(prev => [...prev, {
-        time: currentTime,
+        time: captureTime,
         nodeId: newNodeId,
       }]);
       
       setFlashFrame(true);
       setTimeout(() => setFlashFrame(false), 150);
+      showScreenshotStatus('success', t('node.videoNode.screenshotSuccess'));
     } catch (error) {
-      console.error('Failed to capture screenshot:', error);
+      console.error('Failed to capture screenshot:', {
+        error,
+        id,
+        videoSource: videoRef.current?.currentSrc || videoSource || data.videoUrl,
+        readyState: videoRef.current?.readyState,
+        videoWidth: videoRef.current?.videoWidth,
+        videoHeight: videoRef.current?.videoHeight,
+        currentTime: videoRef.current?.currentTime,
+      });
+      showScreenshotStatus('danger', resolveScreenshotFailureMessage(error), 4200);
+    } finally {
+      setIsCapturingScreenshot(false);
     }
-  }, [addEdge, addNode, currentTime, data.videoFileName, data.videoUrl, id, nodes, resolvedWidth, t]);
+  }, [
+    addEdge,
+    addNode,
+    data.videoFileName,
+    data.videoUrl,
+    id,
+    isCapturingScreenshot,
+    nodes,
+    resolveScreenshotFailureMessage,
+    resolvedWidth,
+    showScreenshotStatus,
+    t,
+    videoSource,
+  ]);
 
   useEffect(() => {
     if (!selected) return;
@@ -429,6 +539,14 @@ export const VideoNode = memo(({ id, data, selected, width, height }: VideoNodeP
   }, [isDraggingProgress, duration]);
 
   useEffect(() => {
+    return () => {
+      if (screenshotStatusTimeoutRef.current !== null) {
+        window.clearTimeout(screenshotStatusTimeoutRef.current);
+      }
+    };
+  }, []);
+
+  useEffect(() => {
     updateNodeInternals(id);
   }, [id, resolvedHeight, resolvedWidth, updateNodeInternals]);
 
@@ -445,6 +563,8 @@ export const VideoNode = memo(({ id, data, selected, width, height }: VideoNodeP
   }, [data.videoUrl]);
 
   const progressPercent = duration > 0 ? (currentTime / duration) * 100 : 0;
+  const screenshotButtonDisabled =
+    isProcessingFile || isCapturingScreenshot || Boolean(videoError) || !data.videoUrl;
 
   return (
     <div
@@ -490,6 +610,7 @@ export const VideoNode = memo(({ id, data, selected, width, height }: VideoNodeP
               onPause={handleVideoPause}
               onTimeUpdate={handleTimeUpdate}
               onLoadedMetadata={handleLoadedMetadata}
+              onLoadedData={handleLoadedData}
               onCanPlay={handleCanPlay}
               onError={handleVideoError}
               playsInline
@@ -621,6 +742,21 @@ export const VideoNode = memo(({ id, data, selected, width, height }: VideoNodeP
               <span className="min-w-[70px] text-right text-xs text-text-muted font-mono">
                 {formatVideoTime(currentTime)} / {formatVideoTime(duration)}
               </span>
+
+              {screenshotStatus ? (
+                <span
+                  className={`max-w-[180px] truncate rounded-md px-2 py-1 text-[11px] ${
+                    screenshotStatus.tone === 'success'
+                      ? 'bg-emerald-500/12 text-emerald-200'
+                      : screenshotStatus.tone === 'danger'
+                        ? 'bg-red-500/12 text-red-200'
+                        : 'bg-white/8 text-text-muted'
+                  }`}
+                  title={screenshotStatus.message}
+                >
+                  {screenshotStatus.message}
+                </span>
+              ) : null}
               
               <button
                 type="button"
@@ -628,10 +764,20 @@ export const VideoNode = memo(({ id, data, selected, width, height }: VideoNodeP
                   e.stopPropagation();
                   handleScreenshot();
                 }}
-                className="flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-accent/20 text-accent text-xs font-medium hover:bg-accent/30 transition-colors"
+                disabled={screenshotButtonDisabled}
+                title={!isVideoReady ? t('node.videoNode.screenshotNotReady') : t('node.videoNode.screenshot')}
+                className={`flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition-colors ${
+                  screenshotButtonDisabled
+                    ? 'cursor-not-allowed bg-accent/10 text-accent/45'
+                    : 'bg-accent/20 text-accent hover:bg-accent/30'
+                }`}
               >
-                <Camera className="h-3.5 w-3.5" />
-                {t('node.videoNode.screenshot')}
+                {isCapturingScreenshot ? (
+                  <RefreshCw className="h-3.5 w-3.5 animate-spin" />
+                ) : (
+                  <Camera className="h-3.5 w-3.5" />
+                )}
+                {isCapturingScreenshot ? t('node.videoNode.screenshotPending') : t('node.videoNode.screenshot')}
               </button>
             </div>
           </NodeToolbar>
