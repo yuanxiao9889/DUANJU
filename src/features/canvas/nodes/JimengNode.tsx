@@ -15,6 +15,7 @@ import {
   SendHorizontal,
   Sparkles,
   TriangleAlert,
+  Undo2,
   Wand2,
 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
@@ -32,6 +33,7 @@ import { graphImageResolver } from '@/features/canvas/application/canvasServices
 import { showErrorDialog } from '@/features/canvas/application/errorDialog';
 import { resolveImageDisplayUrl } from '@/features/canvas/application/imageData';
 import {
+  buildShortReferenceToken,
   findReferenceTokens,
   insertReferenceToken,
   removeTextRange,
@@ -54,6 +56,11 @@ type JimengNodeProps = NodeProps & {
 interface PickerAnchor {
   left: number;
   top: number;
+}
+
+interface PromptOptimizationUndoState {
+  previousPrompt: string;
+  appliedPrompt: string;
 }
 
 const PICKER_FALLBACK_ANCHOR: PickerAnchor = { left: 8, top: 8 };
@@ -225,6 +232,7 @@ export const JimengNode = memo(({
   const rootRef = useRef<HTMLDivElement>(null);
   const promptRef = useRef<HTMLTextAreaElement>(null);
   const promptHighlightRef = useRef<HTMLDivElement>(null);
+  const pickerItemRefs = useRef<Array<HTMLButtonElement | null>>([]);
   const [promptDraft, setPromptDraft] = useState(() => data.prompt ?? '');
   const promptDraftRef = useRef(promptDraft);
   const [showImagePicker, setShowImagePicker] = useState(false);
@@ -236,6 +244,8 @@ export const JimengNode = memo(({
   const [dragOverReferenceIndex, setDragOverReferenceIndex] = useState<number | null>(null);
   const [isOptimizingPrompt, setIsOptimizingPrompt] = useState(false);
   const [promptOptimizationError, setPromptOptimizationError] = useState<string | null>(null);
+  const [lastPromptOptimizationUndoState, setLastPromptOptimizationUndoState] =
+    useState<PromptOptimizationUndoState | null>(null);
 
   const nodes = useCanvasStore((state) => state.nodes);
   const edges = useCanvasStore((state) => state.edges);
@@ -255,7 +265,7 @@ export const JimengNode = memo(({
       incomingImages.map((imageUrl, index) => ({
         imageUrl,
         displayUrl: resolveImageDisplayUrl(imageUrl),
-        tokenLabel: `@\u56fe\u7247${index + 1}`,
+        tokenLabel: buildShortReferenceToken(index),
         label: t('node.jimeng.referenceImageLabel', { index: index + 1 }),
       })),
     [incomingImages, t]
@@ -348,6 +358,7 @@ export const JimengNode = memo(({
     if (externalPrompt !== promptDraftRef.current) {
       promptDraftRef.current = externalPrompt;
       setPromptDraft(externalPrompt);
+      setLastPromptOptimizationUndoState(null);
     }
   }, [data.prompt]);
 
@@ -363,6 +374,16 @@ export const JimengNode = memo(({
 
     setPickerActiveIndex((previous) => Math.min(previous, incomingImages.length - 1));
   }, [incomingImages.length]);
+
+  useEffect(() => {
+    if (!showImagePicker) {
+      return;
+    }
+
+    pickerItemRefs.current[pickerActiveIndex]?.scrollIntoView({
+      block: 'nearest',
+    });
+  }, [pickerActiveIndex, showImagePicker]);
 
   useEffect(() => {
     const handleOutside = (event: MouseEvent) => {
@@ -385,6 +406,12 @@ export const JimengNode = memo(({
     updateNodeData(id, { prompt: nextPrompt });
   }, [id, updateNodeData]);
 
+  const commitManualPromptDraft = useCallback((nextPrompt: string) => {
+    setPromptDraft(nextPrompt);
+    commitPromptDraft(nextPrompt);
+    setLastPromptOptimizationUndoState(null);
+  }, [commitPromptDraft]);
+
   const syncPromptHighlightScroll = () => {
     if (!promptRef.current || !promptHighlightRef.current) {
       return;
@@ -406,13 +433,12 @@ export const JimengNode = memo(({
   }, [incomingImages.length]);
 
   const insertImageReference = useCallback((imageIndex: number) => {
-    const marker = `@\u56fe\u7247${imageIndex + 1}`;
+    const marker = buildShortReferenceToken(imageIndex);
     const currentPrompt = promptDraftRef.current;
     const cursor = pickerCursor ?? currentPrompt.length;
     const { nextText, nextCursor } = insertReferenceToken(currentPrompt, cursor, marker);
 
-    setPromptDraft(nextText);
-    commitPromptDraft(nextText);
+    commitManualPromptDraft(nextText);
     setShowImagePicker(false);
     setPickerCursor(null);
     setPickerActiveIndex(0);
@@ -422,7 +448,7 @@ export const JimengNode = memo(({
       promptRef.current?.setSelectionRange(nextCursor, nextCursor);
       syncPromptHighlightScroll();
     });
-  }, [commitPromptDraft, pickerCursor]);
+  }, [commitManualPromptDraft, pickerCursor]);
 
   const resolveSubmissionReferenceImageSources = useCallback((prompt: string) => {
     if (incomingImages.length === 0) {
@@ -574,7 +600,8 @@ export const JimengNode = memo(({
   }, []);
 
   const handleOptimizePrompt = useCallback(async () => {
-    const currentPrompt = promptDraftRef.current.trim();
+    const sourcePrompt = promptDraftRef.current;
+    const currentPrompt = sourcePrompt.trim();
     if (!currentPrompt) {
       const errorMessage = t('node.jimeng.promptRequired');
       setPromptOptimizationError(errorMessage);
@@ -591,11 +618,23 @@ export const JimengNode = memo(({
         prompt: currentPrompt,
         referenceImages: resolveSubmissionReferenceImageSources(currentPrompt),
       });
-      setPromptDraft(result.prompt);
-      commitPromptDraft(result.prompt);
+      if (promptDraftRef.current !== sourcePrompt) {
+        return;
+      }
+      const nextPrompt = result.prompt;
+      if (nextPrompt !== sourcePrompt) {
+        setLastPromptOptimizationUndoState({
+          previousPrompt: sourcePrompt,
+          appliedPrompt: nextPrompt,
+        });
+      } else {
+        setLastPromptOptimizationUndoState(null);
+      }
+      setPromptDraft(nextPrompt);
+      commitPromptDraft(nextPrompt);
       requestAnimationFrame(() => {
         promptRef.current?.focus();
-        const nextCursor = result.prompt.length;
+        const nextCursor = nextPrompt.length;
         promptRef.current?.setSelectionRange(nextCursor, nextCursor);
         syncPromptHighlightScroll();
       });
@@ -610,6 +649,27 @@ export const JimengNode = memo(({
       setIsOptimizingPrompt(false);
     }
   }, [commitPromptDraft, resolveSubmissionReferenceImageSources, t]);
+
+  const handleUndoOptimizedPrompt = useCallback(() => {
+    if (!lastPromptOptimizationUndoState) {
+      return;
+    }
+
+    if (promptDraftRef.current !== lastPromptOptimizationUndoState.appliedPrompt) {
+      return;
+    }
+
+    const restoredPrompt = lastPromptOptimizationUndoState.previousPrompt;
+    setLastPromptOptimizationUndoState(null);
+    setPromptDraft(restoredPrompt);
+    commitPromptDraft(restoredPrompt);
+    requestAnimationFrame(() => {
+      promptRef.current?.focus();
+      const nextCursor = restoredPrompt.length;
+      promptRef.current?.setSelectionRange(nextCursor, nextCursor);
+      syncPromptHighlightScroll();
+    });
+  }, [commitPromptDraft, lastPromptOptimizationUndoState]);
 
   const handlePromptKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
     if (event.key === 'Backspace' || event.key === 'Delete') {
@@ -627,8 +687,7 @@ export const JimengNode = memo(({
       if (deleteRange) {
         event.preventDefault();
         const { nextText, nextCursor } = removeTextRange(currentPrompt, deleteRange);
-        setPromptDraft(nextText);
-        commitPromptDraft(nextText);
+        commitManualPromptDraft(nextText);
         requestAnimationFrame(() => {
           promptRef.current?.focus();
           promptRef.current?.setSelectionRange(nextCursor, nextCursor);
@@ -680,6 +739,11 @@ export const JimengNode = memo(({
       void handleSubmit();
     }
   };
+
+  const canUndoPromptOptimization = Boolean(
+    lastPromptOptimizationUndoState
+    && promptDraft === lastPromptOptimizationUndoState.appliedPrompt
+  );
 
   return (
     <div
@@ -760,8 +824,7 @@ export const JimengNode = memo(({
             value={promptDraft}
             onChange={(event) => {
               const nextValue = event.target.value;
-              setPromptDraft(nextValue);
-              commitPromptDraft(nextValue);
+              commitManualPromptDraft(nextValue);
             }}
             onKeyDown={handlePromptKeyDown}
             onScroll={syncPromptHighlightScroll}
@@ -774,7 +837,7 @@ export const JimengNode = memo(({
 
         {showImagePicker && incomingImageItems.length > 0 && (
           <div
-            className="nowheel absolute z-30 w-[148px] overflow-hidden rounded-xl border border-[rgba(255,255,255,0.16)] bg-surface-dark shadow-xl"
+            className="nowheel absolute z-30 w-[156px] overflow-hidden rounded-xl border border-[rgba(255,255,255,0.16)] bg-surface-dark shadow-xl"
             style={{ left: pickerAnchor.left, top: pickerAnchor.top }}
             onMouseDown={(event) => event.stopPropagation()}
             onWheelCapture={(event) => event.stopPropagation()}
@@ -782,16 +845,22 @@ export const JimengNode = memo(({
             <div
               className="ui-scrollbar nowheel max-h-[200px] overflow-y-auto"
               onWheelCapture={(event) => event.stopPropagation()}
+              role="listbox"
             >
               {incomingImageItems.map((item, index) => (
                 <button
                   key={`${item.imageUrl}-${index}`}
+                  ref={(node) => {
+                    pickerItemRefs.current[index] = node;
+                  }}
                   type="button"
                   onClick={(event) => {
                     event.stopPropagation();
                     insertImageReference(index);
                   }}
                   onMouseEnter={() => setPickerActiveIndex(index)}
+                  role="option"
+                  aria-selected={pickerActiveIndex === index}
                   className={`flex w-full items-center gap-2 border border-transparent bg-bg-dark/70 px-2 py-2 text-left text-sm text-text-dark transition-colors hover:border-[rgba(255,255,255,0.18)] ${
                     pickerActiveIndex === index ? 'border-[rgba(255,255,255,0.24)] bg-bg-dark' : ''
                   }`}
@@ -804,9 +873,19 @@ export const JimengNode = memo(({
                     className="h-8 w-8 rounded object-cover"
                     draggable={false}
                   />
-                  <span>{item.label}</span>
+                  <div className="min-w-0">
+                    <div className="truncate text-[11px] font-medium text-text-dark">
+                      {item.tokenLabel}
+                    </div>
+                    <div className="truncate text-[11px] text-text-muted">
+                      {item.label}
+                    </div>
+                  </div>
                 </button>
               ))}
+            </div>
+            <div className="border-t border-white/8 px-2 py-1 text-[10px] text-text-muted/80">
+              {t('common.referencePickerHint')}
             </div>
           </div>
         )}
@@ -837,6 +916,21 @@ export const JimengNode = memo(({
             ) : (
               <Wand2 className="h-4 w-4" strokeWidth={2.2} />
             )}
+          </UiButton>
+
+          <UiButton
+            type="button"
+            variant="muted"
+            size="sm"
+            disabled={isOptimizingPrompt || !canUndoPromptOptimization}
+            className="h-11 w-11 shrink-0 rounded-full !px-0"
+            onClick={(event) => {
+              event.stopPropagation();
+              handleUndoOptimizedPrompt();
+            }}
+            title={t('node.jimeng.undoOptimizedPrompt')}
+          >
+            <Undo2 className="h-4 w-4" strokeWidth={2.2} />
           </UiButton>
 
           <UiButton

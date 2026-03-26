@@ -15,6 +15,13 @@ interface TokenRange extends TextRange {
   blockEnd: number;
 }
 
+export const SHORT_REFERENCE_TOKEN_PREFIX = '@\u56fe';
+export const LONG_REFERENCE_TOKEN_PREFIX = '@\u56fe\u7247';
+const REFERENCE_TOKEN_PREFIXES = [
+  LONG_REFERENCE_TOKEN_PREFIX,
+  SHORT_REFERENCE_TOKEN_PREFIX,
+] as const;
+
 function clamp(value: number, min: number, max: number): number {
   return Math.max(min, Math.min(max, value));
 }
@@ -31,16 +38,31 @@ function isAsciiDigit(char: string): boolean {
   return char >= '0' && char <= '9';
 }
 
+function resolveReferenceTokenPrefix(text: string, index: number): string | null {
+  for (const prefix of REFERENCE_TOKEN_PREFIXES) {
+    if (text.startsWith(prefix, index)) {
+      return prefix;
+    }
+  }
+
+  return null;
+}
+
+export function buildShortReferenceToken(referenceIndex: number): string {
+  return `${SHORT_REFERENCE_TOKEN_PREFIX}${referenceIndex + 1}`;
+}
+
 export function findReferenceTokens(text: string, maxImageCount?: number): ReferenceTokenMatch[] {
   const tokens: ReferenceTokenMatch[] = [];
   const maxReferenceNumber = resolveMaxReferenceNumber(maxImageCount);
 
   for (let index = 0; index < text.length; index += 1) {
-    if (text[index] !== '@' || text[index + 1] !== '图') {
+    const matchedPrefix = resolveReferenceTokenPrefix(text, index);
+    if (!matchedPrefix) {
       continue;
     }
 
-    const digitsStart = index + 2;
+    const digitsStart = index + matchedPrefix.length;
     if (!isAsciiDigit(text[digitsStart] ?? '')) {
       continue;
     }

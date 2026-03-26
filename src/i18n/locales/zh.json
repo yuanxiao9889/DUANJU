@@ -162,6 +162,13 @@
       "optimizePrompt": "\u4f18\u5316\u63d0\u793a\u8bcd",
       "optimizingPrompt": "\u6b63\u5728\u4f18\u5316\u63d0\u793a\u8bcd",
       "optimizePromptFailed": "\u63d0\u793a\u8bcd\u4f18\u5316\u5931\u8d25",
+      "optimizedPreviewTitle": "\u4f18\u5316\u7ed3\u679c\u9884\u89c8",
+      "applyOptimizedPrompt": "\u5e94\u7528\u4f18\u5316\u7ed3\u679c",
+      "undoOptimizedPrompt": "\u64a4\u9500\u4f18\u5316",
+      "optimizeModelLabel": "\u672c\u6b21\u4f18\u5316\u6a21\u578b\uff1a{{model}}",
+      "optimizeReferenceImagesLabel": "\u53c2\u8003\u56fe\uff1a{{status}}",
+      "optimizeReferenceImagesUsed": "\u5df2\u5e26\u5165 {{count}} \u5f20",
+      "optimizeReferenceImagesUnused": "\u672a\u5e26\u5165",
       "promptRequired": "请输入提示词",
       "apiKeyRequired": "请在设置中填写 API Key",
       "resultTitle": "结果图片",
@@ -172,6 +179,11 @@
     "sendToPsSuccess": "已发送到 Photoshop",
     "sendToPsFailed": "发送失败：{{error}}",
     "psNotConnected": "Photoshop 未连接",
+    "jimeng": {
+      "optimizedPreviewTitle": "\u4f18\u5316\u7ed3\u679c\u9884\u89c8",
+      "applyOptimizedPrompt": "\u5e94\u7528\u4f18\u5316\u7ed3\u679c",
+      "undoOptimizedPrompt": "\u64a4\u9500\u4f18\u5316"
+    },
     "upload": {
       "uploadedAlt": "已上传图片",
       "hint": "点击或拖拽上传图片"

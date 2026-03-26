@@ -74,12 +74,14 @@ export const NodeActionToolbar = memo(({ node }: NodeActionToolbarProps) => {
   const isStoryboardGen = isStoryboardGenNode(node);
   const isStoryboardSplit = isStoryboardSplitNode(node);
   const isStoryboardSplitResult = isStoryboardSplitResultNode(node);
+  const isExportResultImage = isExportImageNode(node);
   const canCopyStoryboardText = isStoryboardGen || isStoryboardSplit || isStoryboardSplitResult;
   const isAssetNode = isScriptAssetNode(node);
   const tools = useMemo(() => getNodeToolPlugins(node), [node]);
   const deleteNode = useCanvasStore((state) => state.deleteNode);
   const layoutGroupNode = useCanvasStore((state) => state.layoutGroupNode);
   const ungroupNode = useCanvasStore((state) => state.ungroupNode);
+  const updateNodeData = useCanvasStore((state) => state.updateNodeData);
   const canReupload = isUploadNode(node) && Boolean(node.data.imageUrl);
   const downloadPresetPaths = useSettingsStore((state) => state.downloadPresetPaths);
   const ignoreAtTagWhenCopyingAndGenerating = useSettingsStore(
@@ -116,6 +118,23 @@ export const NodeActionToolbar = memo(({ node }: NodeActionToolbarProps) => {
       ? ((node.data as { generationErrorDetails?: string }).generationErrorDetails ?? '').trim()
       : '';
   const canCopyGenerationError = isExportImageNode(node) && generationError.length > 0;
+  const generationJobId =
+    isExportResultImage
+    && typeof (node.data as { generationJobId?: unknown }).generationJobId === 'string'
+      ? ((node.data as { generationJobId?: string }).generationJobId ?? '').trim()
+      : '';
+  const generationProviderId =
+    isExportResultImage
+    && typeof (node.data as { generationProviderId?: unknown }).generationProviderId === 'string'
+      ? ((node.data as { generationProviderId?: string }).generationProviderId ?? '').trim()
+      : '';
+  const isGenerationPending =
+    isExportResultImage
+    && typeof (node.data as { isGenerating?: unknown }).isGenerating === 'boolean'
+      ? (node.data as { isGenerating?: boolean }).isGenerating === true
+      : false;
+  const canRefetchGenerationResult =
+    isExportResultImage && generationJobId.length > 0 && generationProviderId.length > 0;
   const generationErrorReport = useMemo(
     () =>
       buildGenerationErrorReport({
@@ -297,6 +316,19 @@ export const NodeActionToolbar = memo(({ node }: NodeActionToolbarProps) => {
     }
   }, [canCopyGenerationError, generationErrorReport]);
 
+  const handleRefetchGenerationResult = useCallback(() => {
+    if (!canRefetchGenerationResult || isGenerationPending) {
+      return;
+    }
+
+    updateNodeData(node.id, {
+      isGenerating: true,
+      generationStartedAt: Date.now(),
+      generationError: null,
+      generationErrorDetails: null,
+    });
+  }, [canRefetchGenerationResult, isGenerationPending, node.id, updateNodeData]);
+
   const handleSendToPs = useCallback(async () => {
     if (!imageSource) {
       console.warn('handleSendToPs: no imageSource');
@@ -454,6 +486,20 @@ export const NodeActionToolbar = memo(({ node }: NodeActionToolbarProps) => {
           >
             <Copy className="h-3.5 w-3.5" />
             {isCopyErrorSuccess ? t('nodeToolbar.copied') : t('nodeToolbar.copyErrorReport')}
+          </UiChipButton>
+        )}
+        {!isImageEdit && canRefetchGenerationResult && (
+          <UiChipButton
+            key="generation-refetch"
+            className={`h-8 w-8 ${TOOLBAR_BUTTON_RADIUS_CLASS} !px-0 ${TOOLBAR_NEUTRAL_BUTTON_CLASS}`}
+            onClick={(event) => {
+              event.stopPropagation();
+              handleRefetchGenerationResult();
+            }}
+            disabled={isGenerationPending}
+            title={t('node.imageNode.manualRefresh')}
+          >
+            <RefreshCw className={`h-3.5 w-3.5 ${isGenerationPending ? 'animate-spin' : ''}`} />
           </UiChipButton>
         )}
         {!isImageEdit && canHandleImage && (
