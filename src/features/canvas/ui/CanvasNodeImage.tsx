@@ -1,4 +1,13 @@
-import { memo, useCallback, type ImgHTMLAttributes, type MouseEvent } from 'react';
+import {
+  memo,
+  useCallback,
+  useEffect,
+  useMemo,
+  useState,
+  type ImgHTMLAttributes,
+  type MouseEvent,
+  type SyntheticEvent,
+} from 'react';
 
 import { useCanvasStore } from '@/stores/canvasStore';
 
@@ -6,6 +15,14 @@ export interface CanvasNodeImageProps extends ImgHTMLAttributes<HTMLImageElement
   viewerSourceUrl?: string | null;
   viewerImageList?: Array<string | null | undefined>;
   disableViewer?: boolean;
+  fallbackSrc?: string | null;
+}
+
+const EMPTY_IMAGE_DATA_URL = 'data:image/gif;base64,R0lGODlhAQABAAD/ACwAAAAAAQABAAACADs=';
+
+function normalizeImageSrc(value: string | null | undefined): string | null {
+  const trimmed = typeof value === 'string' ? value.trim() : '';
+  return trimmed.length > 0 ? trimmed : null;
 }
 
 function normalizeViewerList(
@@ -32,11 +49,77 @@ export const CanvasNodeImage = memo(({
   viewerSourceUrl,
   viewerImageList,
   disableViewer = false,
+  fallbackSrc,
   onDoubleClick,
+  onError,
   src,
   ...props
 }: CanvasNodeImageProps) => {
   const openImageViewer = useCanvasStore((state) => state.openImageViewer);
+  const requestedSrc = useMemo(
+    () => normalizeImageSrc(typeof src === 'string' ? src : null),
+    [src]
+  );
+  const normalizedFallbackSrc = useMemo(() => normalizeImageSrc(fallbackSrc), [fallbackSrc]);
+  const normalizedViewerSource = useMemo(
+    () => normalizeImageSrc(viewerSourceUrl),
+    [viewerSourceUrl]
+  );
+  const resolvedFallbackSrc = useMemo(() => {
+    if (normalizedFallbackSrc && normalizedFallbackSrc !== requestedSrc) {
+      return normalizedFallbackSrc;
+    }
+
+    if (normalizedViewerSource && normalizedViewerSource !== requestedSrc) {
+      return normalizedViewerSource;
+    }
+
+    return null;
+  }, [normalizedFallbackSrc, normalizedViewerSource, requestedSrc]);
+  const [activeSrc, setActiveSrc] = useState<string | null>(() => requestedSrc ?? resolvedFallbackSrc);
+  const [isUsingFallback, setIsUsingFallback] = useState(
+    () => !requestedSrc && Boolean(resolvedFallbackSrc)
+  );
+
+  useEffect(() => {
+    setActiveSrc(requestedSrc ?? resolvedFallbackSrc);
+    setIsUsingFallback(!requestedSrc && Boolean(resolvedFallbackSrc));
+  }, [requestedSrc, resolvedFallbackSrc]);
+
+  const handleLoadError = useCallback((event: SyntheticEvent<HTMLImageElement, Event>) => {
+    onError?.(event);
+
+    if (event.defaultPrevented) {
+      return;
+    }
+
+    if (!isUsingFallback && resolvedFallbackSrc) {
+      console.warn('[CanvasNodeImage] primary image failed, retrying fallback source', {
+        src: requestedSrc,
+        fallbackSrc: resolvedFallbackSrc,
+        viewerSourceUrl: normalizedViewerSource,
+      });
+      setActiveSrc(resolvedFallbackSrc);
+      setIsUsingFallback(true);
+      return;
+    }
+
+    console.warn('[CanvasNodeImage] image failed to load', {
+      src: activeSrc,
+      requestedSrc,
+      fallbackSrc: resolvedFallbackSrc,
+      viewerSourceUrl: normalizedViewerSource,
+    });
+    setActiveSrc(null);
+    setIsUsingFallback(false);
+  }, [
+    activeSrc,
+    isUsingFallback,
+    normalizedViewerSource,
+    onError,
+    requestedSrc,
+    resolvedFallbackSrc,
+  ]);
 
   const handleDoubleClick = useCallback((event: MouseEvent<HTMLImageElement>) => {
     onDoubleClick?.(event);
@@ -45,28 +128,38 @@ export const CanvasNodeImage = memo(({
       return;
     }
 
-    const fallbackSrc = event.currentTarget.currentSrc || (typeof src === 'string' ? src : '');
+    const currentDisplaySrc =
+      event.currentTarget.currentSrc || activeSrc || requestedSrc || resolvedFallbackSrc || '';
     const resolvedSource =
-      typeof viewerSourceUrl === 'string' && viewerSourceUrl.trim().length > 0
-        ? viewerSourceUrl.trim()
-        : fallbackSrc.trim();
+      normalizedViewerSource ?? currentDisplaySrc.trim();
     if (!resolvedSource) {
       return;
     }
 
     event.stopPropagation();
     openImageViewer(resolvedSource, normalizeViewerList(viewerImageList, resolvedSource));
-  }, [disableViewer, onDoubleClick, openImageViewer, src, viewerImageList, viewerSourceUrl]);
+  }, [
+    activeSrc,
+    disableViewer,
+    normalizedViewerSource,
+    onDoubleClick,
+    openImageViewer,
+    requestedSrc,
+    resolvedFallbackSrc,
+    viewerImageList,
+  ]);
 
   return (
     <img
       {...props}
-      src={src}
+      src={activeSrc ?? EMPTY_IMAGE_DATA_URL}
+      data-image-load-state={activeSrc ? (isUsingFallback ? 'fallback' : 'primary') : 'failed'}
       data-viewer-src={
-        typeof viewerSourceUrl === 'string' && viewerSourceUrl.trim().length > 0
-          ? viewerSourceUrl.trim()
+        normalizedViewerSource
+          ? normalizedViewerSource
           : undefined
       }
+      onError={handleLoadError}
       onDoubleClick={handleDoubleClick}
     />
   );

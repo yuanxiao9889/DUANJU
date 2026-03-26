@@ -1,5 +1,5 @@
-use std::path::PathBuf;
 use std::collections::HashSet;
+use std::path::PathBuf;
 use std::time::Duration;
 
 use rusqlite::{params, Connection};
@@ -191,7 +191,10 @@ fn extract_project_image_paths(nodes_json: &str, history_json: &str) -> HashSet<
 
     if let Ok(parsed_history) = serde_json::from_str::<serde_json::Value>(history_json) {
         for timeline_key in ["past", "future"] {
-            let Some(timeline) = parsed_history.get(timeline_key).and_then(|value| value.as_array()) else {
+            let Some(timeline) = parsed_history
+                .get(timeline_key)
+                .and_then(|value| value.as_array())
+            else {
                 continue;
             };
 
@@ -228,8 +231,8 @@ fn prune_unreferenced_images(app: &AppHandle) -> Result<(), String> {
     }
 
     let images_dir = resolve_images_dir(app)?;
-    let entries = std::fs::read_dir(&images_dir)
-        .map_err(|e| format!("Failed to read images dir: {}", e))?;
+    let entries =
+        std::fs::read_dir(&images_dir).map_err(|e| format!("Failed to read images dir: {}", e))?;
 
     for entry_result in entries {
         let entry = entry_result.map_err(|e| format!("Failed to iterate images dir: {}", e))?;

@@ -1,18 +1,9 @@
-import {
-  JIMENG_CREATION_TYPES,
-  type JimengAspectRatio,
-  type JimengCreationType,
-  type JimengDurationSeconds,
-  type JimengExtraControlSelection,
-  type JimengModelId,
-  type JimengReferenceMode,
-} from '@/features/canvas/domain/canvasNodes';
 import { createPreviewDataUrl } from '@/features/canvas/application/imageData';
 import {
-  submitJimengPanelTask,
-  syncJimengPanelDraftOptions,
+  ensureJimengChromeSession,
+  submitJimengChromeTask,
+  syncJimengChromeDraftOptions,
 } from '@/commands/jimengPanel';
-import { syncJimengPanelWindow } from './jimengPanelWindow';
 import { useJimengPanelStore, type JimengPanelMode } from '@/stores/jimengPanelStore';
 import type { JimengInspectionReport } from '@/features/jimeng/domain/jimengInspection';
 
@@ -26,23 +17,11 @@ export interface JimengReferenceImagePayload {
 
 export interface JimengTaskSubmission {
   prompt: string;
-  creationType: JimengCreationType;
-  model?: JimengModelId;
-  referenceMode?: JimengReferenceMode;
-  aspectRatio?: JimengAspectRatio;
-  durationSeconds?: JimengDurationSeconds;
-  extraControls?: JimengExtraControlSelection[];
   referenceImageSources?: string[];
 }
 
 export interface JimengDraftSyncPayload {
   prompt?: string;
-  creationType?: JimengCreationType;
-  model?: JimengModelId;
-  referenceMode?: JimengReferenceMode;
-  aspectRatio?: JimengAspectRatio;
-  durationSeconds?: JimengDurationSeconds;
-  extraControls?: JimengExtraControlSelection[];
 }
 
 function normalizeWhitespace(value: string): string {
@@ -60,12 +39,6 @@ export function buildJimengSubmissionPrompt(prompt: string): string {
 
 function resolveSubmitMode(mode: JimengPanelMode): Exclude<JimengPanelMode, 'hidden'> {
   return mode === 'hidden' ? 'expanded' : mode;
-}
-
-function resolveSupportedCreationType(value: string | undefined): JimengCreationType {
-  return JIMENG_CREATION_TYPES.includes(value as JimengCreationType)
-    ? (value as JimengCreationType)
-    : 'video';
 }
 
 function sanitizeJimengReferenceFileName(rawName: string): string {
@@ -136,23 +109,14 @@ async function prepareJimengReferenceImages(
 }
 
 export async function submitJimengTask(payload: JimengTaskSubmission): Promise<void> {
-  const panelStore = useJimengPanelStore.getState();
-  const targetMode = resolveSubmitMode(panelStore.mode);
+  const chromeSessionPromise = ensureJimengChromeSession();
+  const referenceImagesPromise = prepareJimengReferenceImages(payload.referenceImageSources);
 
-  if (panelStore.mode === 'hidden') {
-    panelStore.setMode(targetMode);
-  }
+  await chromeSessionPromise;
+  const referenceImages = await referenceImagesPromise;
 
-  await syncJimengPanelWindow(targetMode);
-  const referenceImages = await prepareJimengReferenceImages(payload.referenceImageSources);
-  await submitJimengPanelTask({
+  await submitJimengChromeTask({
     prompt: payload.prompt,
-    creationType: resolveSupportedCreationType(payload.creationType),
-    model: payload.model,
-    referenceMode: payload.referenceMode,
-    aspectRatio: payload.aspectRatio,
-    durationSeconds: payload.durationSeconds,
-    extraControls: payload.extraControls,
     referenceImages,
     autoSubmit: true,
   });
@@ -177,19 +141,8 @@ export async function syncJimengDraftControls(
     panelStore.setMode(targetMode);
   }
 
-  await syncJimengPanelWindow(targetMode);
-
-  return await syncJimengPanelDraftOptions<JimengInspectionReport>({
+  return await syncJimengChromeDraftOptions<JimengInspectionReport>({
     prompt: payload.prompt ?? '',
-    creationType:
-      payload.creationType == null
-        ? undefined
-        : resolveSupportedCreationType(payload.creationType),
-    model: payload.model,
-    referenceMode: payload.referenceMode,
-    aspectRatio: payload.aspectRatio,
-    durationSeconds: payload.durationSeconds,
-    extraControls: payload.extraControls,
     autoSubmit: false,
   });
 }

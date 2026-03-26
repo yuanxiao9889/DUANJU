@@ -1,6 +1,6 @@
 import {
+  type DragEvent,
   type KeyboardEvent,
-  type WheelEvent,
   type ReactNode,
   memo,
   useCallback,
@@ -11,16 +11,11 @@ import {
 } from 'react';
 import { Handle, Position, useUpdateNodeInternals, type NodeProps } from '@xyflow/react';
 import {
-  AtSign,
-  Clapperboard,
-  Crop,
-  Film,
-  Images,
   Loader2,
   SendHorizontal,
   Sparkles,
-  Timer,
   TriangleAlert,
+  Wand2,
 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 
@@ -46,13 +41,9 @@ import {
   buildJimengSubmissionPrompt,
   submitJimengTask,
 } from '@/features/jimeng/application/jimengSubmission';
-import {
-  JIMENG_ASPECT_RATIO_OPTIONS,
-  JIMENG_DURATION_OPTIONS,
-} from '@/features/jimeng/domain/jimengOptions';
-import { UiButton, UiChipButton } from '@/components/ui';
+import { optimizeCanvasPrompt } from '@/features/canvas/application/promptOptimization';
+import { UiButton, UiModal } from '@/components/ui';
 import { useCanvasStore } from '@/stores/canvasStore';
-import { JimengToolbarSelect } from './jimeng/JimengToolbarSelect';
 
 type JimengNodeProps = NodeProps & {
   id: string;
@@ -73,10 +64,57 @@ const JIMENG_NODE_MIN_WIDTH = 560;
 const JIMENG_NODE_MIN_HEIGHT = 360;
 const JIMENG_NODE_MAX_WIDTH = 1320;
 const JIMENG_NODE_MAX_HEIGHT = 1040;
-const FIXED_JIMENG_CREATION_TYPE = 'video';
-const FIXED_JIMENG_MODEL = 'seedance-2.0';
-const FIXED_JIMENG_REFERENCE_MODE = 'allAround';
-const FIXED_JIMENG_DEFAULT_DURATION = 5;
+let hasShownJimengManualSetupReminderThisSession = false;
+
+function moveItem<T>(items: T[], fromIndex: number, toIndex: number): T[] {
+  if (
+    fromIndex < 0
+    || toIndex < 0
+    || fromIndex >= items.length
+    || toIndex >= items.length
+    || fromIndex === toIndex
+  ) {
+    return items;
+  }
+
+  const nextItems = [...items];
+  const [movedItem] = nextItems.splice(fromIndex, 1);
+  nextItems.splice(toIndex, 0, movedItem);
+  return nextItems;
+}
+
+function resolveOrderedReferenceImages(
+  imageUrls: string[],
+  preferredOrder: string[] | undefined
+): string[] {
+  if (imageUrls.length === 0) {
+    return [];
+  }
+
+  const availableImages = new Set(imageUrls);
+  const resolvedImages: string[] = [];
+  const seenImages = new Set<string>();
+
+  for (const imageUrl of preferredOrder ?? []) {
+    if (!availableImages.has(imageUrl) || seenImages.has(imageUrl)) {
+      continue;
+    }
+
+    seenImages.add(imageUrl);
+    resolvedImages.push(imageUrl);
+  }
+
+  for (const imageUrl of imageUrls) {
+    if (seenImages.has(imageUrl)) {
+      continue;
+    }
+
+    seenImages.add(imageUrl);
+    resolvedImages.push(imageUrl);
+  }
+
+  return resolvedImages;
+}
 
 function getTextareaCaretOffset(
   textarea: HTMLTextAreaElement,
@@ -174,42 +212,6 @@ function renderPromptWithHighlights(prompt: string, maxImageCount: number): Reac
   return segments;
 }
 
-function resolveAspectRatioGlyphStyle(ratio: string): { width: string; height: string } {
-  const [rawWidth, rawHeight] = ratio.split(':').map((value) => Number(value));
-  if (!Number.isFinite(rawWidth) || !Number.isFinite(rawHeight) || rawWidth <= 0 || rawHeight <= 0) {
-    return { width: '20px', height: '16px' };
-  }
-
-  const maxWidth = 24;
-  const maxHeight = 24;
-  const scale = Math.min(maxWidth / rawWidth, maxHeight / rawHeight);
-
-  return {
-    width: `${Math.max(8, Math.round(rawWidth * scale))}px`,
-    height: `${Math.max(8, Math.round(rawHeight * scale))}px`,
-  };
-}
-
-function renderAspectRatioGlyph(ratio: string, active: boolean): ReactNode {
-  const glyphStyle = resolveAspectRatioGlyphStyle(ratio);
-
-  return (
-    <div className="flex flex-col items-center gap-1.5">
-      <div className="flex h-8 w-8 items-center justify-center">
-        <div
-          style={glyphStyle}
-          className={`rounded-[5px] border-2 transition-colors ${
-            active
-              ? 'border-[rgba(15,23,42,0.72)] dark:border-white/90'
-              : 'border-[rgba(15,23,42,0.42)] dark:border-white/55'
-          }`}
-        />
-      </div>
-      <span className="text-[13px] font-medium leading-none">{ratio}</span>
-    </div>
-  );
-}
-
 export const JimengNode = memo(({
   id,
   data,
@@ -229,20 +231,23 @@ export const JimengNode = memo(({
   const [pickerCursor, setPickerCursor] = useState<number | null>(null);
   const [pickerActiveIndex, setPickerActiveIndex] = useState(0);
   const [pickerAnchor, setPickerAnchor] = useState<PickerAnchor>(PICKER_FALLBACK_ANCHOR);
+  const [isManualSetupReminderOpen, setIsManualSetupReminderOpen] = useState(false);
+  const [draggingReferenceIndex, setDraggingReferenceIndex] = useState<number | null>(null);
+  const [dragOverReferenceIndex, setDragOverReferenceIndex] = useState<number | null>(null);
+  const [isOptimizingPrompt, setIsOptimizingPrompt] = useState(false);
+  const [promptOptimizationError, setPromptOptimizationError] = useState<string | null>(null);
 
   const nodes = useCanvasStore((state) => state.nodes);
   const edges = useCanvasStore((state) => state.edges);
   const setSelectedNode = useCanvasStore((state) => state.setSelectedNode);
   const updateNodeData = useCanvasStore((state) => state.updateNodeData);
-  const resolvedCreationType = FIXED_JIMENG_CREATION_TYPE;
-  const resolvedModel = FIXED_JIMENG_MODEL;
-  const resolvedReferenceMode = FIXED_JIMENG_REFERENCE_MODE;
-  const resolvedAspectRatio = data.aspectRatio ?? '16:9';
-  const resolvedDurationSeconds = data.durationSeconds ?? FIXED_JIMENG_DEFAULT_DURATION;
-
-  const incomingImages = useMemo(
+  const graphIncomingImages = useMemo(
     () => graphImageResolver.collectInputImages(id, nodes, edges),
     [edges, id, nodes]
+  );
+  const incomingImages = useMemo(
+    () => resolveOrderedReferenceImages(graphIncomingImages, data.referenceImageOrder),
+    [data.referenceImageOrder, graphIncomingImages]
   );
 
   const incomingImageItems = useMemo(
@@ -259,24 +264,6 @@ export const JimengNode = memo(({
   const incomingImageViewerList = useMemo(
     () => incomingImageItems.map((item) => resolveImageDisplayUrl(item.imageUrl)),
     [incomingImageItems]
-  );
-
-  const aspectRatioOptions = useMemo(
-    () => JIMENG_ASPECT_RATIO_OPTIONS.map((option) => ({
-      value: option.value,
-      label: option.value,
-      description: option.descriptionKey ? t(option.descriptionKey) : undefined,
-    })),
-    [t]
-  );
-
-  const durationOptions = useMemo(
-    () => JIMENG_DURATION_OPTIONS.map((option) => ({
-      value: option.value,
-      label: t(option.labelKey),
-      description: option.descriptionKey ? t(option.descriptionKey) : undefined,
-    })),
-    [t]
   );
 
   const resolvedTitle = useMemo(
@@ -296,6 +283,28 @@ export const JimengNode = memo(({
       );
     }
 
+    if (isOptimizingPrompt) {
+      return (
+        <NodeStatusBadge
+          icon={<Loader2 className="h-3 w-3" />}
+          label={t('node.jimeng.optimizingPrompt')}
+          tone="processing"
+          animate
+        />
+      );
+    }
+
+    if (promptOptimizationError) {
+      return (
+        <NodeStatusBadge
+          icon={<TriangleAlert className="h-3 w-3" />}
+          label={t('nodeStatus.error')}
+          tone="danger"
+          title={promptOptimizationError}
+        />
+      );
+    }
+
     if (data.lastError) {
       return (
         <NodeStatusBadge
@@ -308,7 +317,7 @@ export const JimengNode = memo(({
     }
 
     return null;
-  }, [data.isSubmitting, data.lastError, t]);
+  }, [data.isSubmitting, data.lastError, isOptimizingPrompt, promptOptimizationError, t]);
 
   const resolvedWidth = Math.max(JIMENG_NODE_MIN_WIDTH, Math.round(width ?? JIMENG_NODE_DEFAULT_WIDTH));
   const resolvedHeight = Math.max(JIMENG_NODE_MIN_HEIGHT, Math.round(height ?? JIMENG_NODE_DEFAULT_HEIGHT));
@@ -330,12 +339,6 @@ export const JimengNode = memo(({
       time: formatter.format(data.lastSubmittedAt),
     });
   }, [data.lastSubmittedAt, i18n.language, t]);
-
-  const fixedModeBadgeLabel = t('node.jimeng.fixedModeBadge');
-  const currentDurationLabel =
-    durationOptions.find((option) => option.value === resolvedDurationSeconds)?.label
-    ?? `${resolvedDurationSeconds}s`;
-
   useEffect(() => {
     updateNodeInternals(id);
   }, [id, resolvedHeight, resolvedWidth, updateNodeInternals]);
@@ -349,48 +352,12 @@ export const JimengNode = memo(({
   }, [data.prompt]);
 
   useEffect(() => {
-    const nextData: Partial<JimengNodeData> = {};
-
-    if (data.creationType !== FIXED_JIMENG_CREATION_TYPE) {
-      nextData.creationType = FIXED_JIMENG_CREATION_TYPE;
-    }
-    if (data.model !== FIXED_JIMENG_MODEL) {
-      nextData.model = FIXED_JIMENG_MODEL;
-    }
-    if (data.referenceMode !== FIXED_JIMENG_REFERENCE_MODE) {
-      nextData.referenceMode = FIXED_JIMENG_REFERENCE_MODE;
-    }
-    if ((data.extraControls?.length ?? 0) > 0) {
-      nextData.extraControls = [];
-    }
-    if (!durationOptions.some((option) => option.value === resolvedDurationSeconds) && durationOptions[0]) {
-      nextData.durationSeconds = durationOptions[0].value;
-    }
-    if (!aspectRatioOptions.some((option) => option.value === resolvedAspectRatio) && aspectRatioOptions[0]) {
-      nextData.aspectRatio = aspectRatioOptions[0].value;
-    }
-
-    if (Object.keys(nextData).length > 0) {
-      updateNodeData(id, nextData);
-    }
-  }, [
-    aspectRatioOptions,
-    data.creationType,
-    data.extraControls,
-    data.model,
-    data.referenceMode,
-    durationOptions,
-    id,
-    resolvedAspectRatio,
-    resolvedDurationSeconds,
-    updateNodeData,
-  ]);
-
-  useEffect(() => {
     if (incomingImages.length === 0) {
       setShowImagePicker(false);
       setPickerCursor(null);
       setPickerActiveIndex(0);
+      setDraggingReferenceIndex(null);
+      setDragOverReferenceIndex(null);
       return;
     }
 
@@ -477,7 +444,38 @@ export const JimengNode = memo(({
       .filter((imageUrl): imageUrl is string => typeof imageUrl === 'string' && imageUrl.trim().length > 0);
   }, [incomingImages]);
 
+  const ensureManualSetupReminderShown = useCallback(() => {
+    if (hasShownJimengManualSetupReminderThisSession) {
+      return true;
+    }
+
+    hasShownJimengManualSetupReminderThisSession = true;
+    setIsManualSetupReminderOpen(true);
+    return false;
+  }, []);
+
+  const persistReferenceImageOrder = useCallback((nextOrder: string[]) => {
+    updateNodeData(id, { referenceImageOrder: nextOrder });
+  }, [id, updateNodeData]);
+
+  const moveReferenceImage = useCallback((fromIndex: number, toIndex: number) => {
+    if (fromIndex === toIndex) {
+      return;
+    }
+
+    const nextOrder = moveItem(incomingImages, fromIndex, toIndex);
+    if (nextOrder === incomingImages) {
+      return;
+    }
+
+    persistReferenceImageOrder(nextOrder);
+  }, [incomingImages, persistReferenceImageOrder]);
+
   const handleSubmit = useCallback(async () => {
+    if (!ensureManualSetupReminderShown()) {
+      return;
+    }
+
     const currentPrompt = promptDraftRef.current;
     const normalizedPrompt = buildJimengSubmissionPrompt(currentPrompt);
     if (!normalizedPrompt) {
@@ -494,16 +492,11 @@ export const JimengNode = memo(({
       isSubmitting: true,
       lastError: null,
     });
+    setPromptOptimizationError(null);
 
     try {
       await submitJimengTask({
         prompt: normalizedPrompt,
-        creationType: resolvedCreationType,
-        model: resolvedModel,
-        referenceMode: resolvedReferenceMode,
-        aspectRatio: resolvedAspectRatio,
-        durationSeconds: resolvedDurationSeconds,
-        extraControls: [],
         referenceImageSources: resolveSubmissionReferenceImageSources(currentPrompt),
       });
       updateNodeData(id, {
@@ -524,16 +517,99 @@ export const JimengNode = memo(({
       void showErrorDialog(message, t('common.error'));
     }
   }, [
+    ensureManualSetupReminderShown,
     id,
-    resolvedAspectRatio,
-    resolvedCreationType,
-    resolvedDurationSeconds,
-    resolvedModel,
-    resolvedReferenceMode,
     resolveSubmissionReferenceImageSources,
     t,
     updateNodeData,
   ]);
+
+  const handleReferenceImageDragStart = useCallback((
+    event: DragEvent<HTMLButtonElement>,
+    index: number
+  ) => {
+    event.stopPropagation();
+    setDraggingReferenceIndex(index);
+    setDragOverReferenceIndex(index);
+    event.dataTransfer.effectAllowed = 'move';
+    event.dataTransfer.setData('text/plain', incomingImages[index] ?? '');
+  }, [incomingImages]);
+
+  const handleReferenceImageDragEnter = useCallback((
+    event: DragEvent<HTMLButtonElement>,
+    index: number
+  ) => {
+    event.preventDefault();
+    event.stopPropagation();
+    if (dragOverReferenceIndex !== index) {
+      setDragOverReferenceIndex(index);
+    }
+  }, [dragOverReferenceIndex]);
+
+  const handleReferenceImageDragOver = useCallback((event: DragEvent<HTMLButtonElement>) => {
+    event.preventDefault();
+    event.stopPropagation();
+    event.dataTransfer.dropEffect = 'move';
+  }, []);
+
+  const handleReferenceImageDrop = useCallback((
+    event: DragEvent<HTMLButtonElement>,
+    index: number
+  ) => {
+    event.preventDefault();
+    event.stopPropagation();
+
+    if (draggingReferenceIndex !== null) {
+      moveReferenceImage(draggingReferenceIndex, index);
+    }
+
+    setDraggingReferenceIndex(null);
+    setDragOverReferenceIndex(null);
+  }, [draggingReferenceIndex, moveReferenceImage]);
+
+  const handleReferenceImageDragEnd = useCallback((event: DragEvent<HTMLButtonElement>) => {
+    event.stopPropagation();
+    setDraggingReferenceIndex(null);
+    setDragOverReferenceIndex(null);
+  }, []);
+
+  const handleOptimizePrompt = useCallback(async () => {
+    const currentPrompt = promptDraftRef.current.trim();
+    if (!currentPrompt) {
+      const errorMessage = t('node.jimeng.promptRequired');
+      setPromptOptimizationError(errorMessage);
+      void showErrorDialog(errorMessage, t('common.error'));
+      return;
+    }
+
+    setIsOptimizingPrompt(true);
+    setPromptOptimizationError(null);
+
+    try {
+      const result = await optimizeCanvasPrompt({
+        mode: 'jimeng',
+        prompt: currentPrompt,
+        referenceImages: resolveSubmissionReferenceImageSources(currentPrompt),
+      });
+      setPromptDraft(result.prompt);
+      commitPromptDraft(result.prompt);
+      requestAnimationFrame(() => {
+        promptRef.current?.focus();
+        const nextCursor = result.prompt.length;
+        promptRef.current?.setSelectionRange(nextCursor, nextCursor);
+        syncPromptHighlightScroll();
+      });
+    } catch (optimizationError) {
+      const errorMessage =
+        optimizationError instanceof Error && optimizationError.message.trim().length > 0
+          ? optimizationError.message
+          : t('node.jimeng.optimizePromptFailed');
+      setPromptOptimizationError(errorMessage);
+      void showErrorDialog(errorMessage, t('common.error'));
+    } finally {
+      setIsOptimizingPrompt(false);
+    }
+  }, [commitPromptDraft, resolveSubmissionReferenceImageSources, t]);
 
   const handlePromptKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
     if (event.key === 'Backspace' || event.key === 'Delete') {
@@ -605,56 +681,6 @@ export const JimengNode = memo(({
     }
   };
 
-  const handleToolbarAtClick = () => {
-    if (incomingImages.length === 0) {
-      return;
-    }
-
-    const cursor = promptRef.current?.selectionStart ?? promptDraftRef.current.length;
-    promptRef.current?.focus();
-    openImagePickerAtCursor(cursor);
-  };
-
-  const handleAspectRatioChange = useCallback((value: typeof resolvedAspectRatio) => {
-    updateNodeData(id, { aspectRatio: value });
-  }, [id, updateNodeData]);
-
-  const stepDuration = useCallback((direction: 1 | -1) => {
-    const currentIndex = durationOptions.findIndex((option) => option.value === resolvedDurationSeconds);
-    if (currentIndex < 0) {
-      const fallbackOption = direction > 0 ? durationOptions[0] : durationOptions[durationOptions.length - 1];
-      if (fallbackOption) {
-        updateNodeData(id, { durationSeconds: fallbackOption.value });
-      }
-      return;
-    }
-
-    const nextIndex = Math.min(
-      durationOptions.length - 1,
-      Math.max(0, currentIndex + direction)
-    );
-    if (nextIndex !== currentIndex) {
-      updateNodeData(id, { durationSeconds: durationOptions[nextIndex].value });
-    }
-  }, [durationOptions, id, resolvedDurationSeconds, updateNodeData]);
-
-  const handleDurationWheel = useCallback((event: WheelEvent<HTMLButtonElement>) => {
-    event.preventDefault();
-    event.stopPropagation();
-
-    const delta = Math.abs(event.deltaY) >= Math.abs(event.deltaX) ? event.deltaY : event.deltaX;
-    if (delta === 0) {
-      return;
-    }
-
-    stepDuration(delta > 0 ? 1 : -1);
-  }, [stepDuration]);
-
-  const toolbarChipClassName =
-    '!h-10 !rounded-xl !border-white/10 !bg-white/[0.04] !px-3 !text-sm !text-text-dark hover:!bg-white/[0.08]';
-  const fixedToolbarChipClassName =
-    'inline-flex h-10 items-center gap-2 rounded-xl border border-white/10 bg-white/[0.04] px-3 text-sm text-text-dark';
-
   return (
     <div
       ref={rootRef}
@@ -683,7 +709,18 @@ export const JimengNode = memo(({
               <button
                 key={`${item.imageUrl}-reference-${index}`}
                 type="button"
-                className="flex shrink-0 items-center gap-2 rounded-xl border border-white/10 bg-white/[0.03] px-2.5 py-2 text-left transition-colors hover:border-accent/35 hover:bg-white/[0.06]"
+                draggable
+                className={`nodrag flex shrink-0 cursor-grab items-center gap-2 rounded-xl border px-2.5 py-2 text-left transition-colors active:cursor-grabbing ${
+                  dragOverReferenceIndex === index
+                    ? 'border-accent/60 bg-white/[0.08]'
+                    : 'border-white/10 bg-white/[0.03] hover:border-accent/35 hover:bg-white/[0.06]'
+                } ${draggingReferenceIndex === index ? 'opacity-60' : ''}`}
+                onMouseDown={(event) => event.stopPropagation()}
+                onDragStart={(event) => handleReferenceImageDragStart(event, index)}
+                onDragEnter={(event) => handleReferenceImageDragEnter(event, index)}
+                onDragOver={handleReferenceImageDragOver}
+                onDrop={(event) => handleReferenceImageDrop(event, index)}
+                onDragEnd={handleReferenceImageDragEnd}
                 onClick={(event) => {
                   event.stopPropagation();
                   insertImageReference(index);
@@ -775,60 +812,32 @@ export const JimengNode = memo(({
         )}
 
         <div className="mt-4 flex shrink-0 flex-wrap items-center gap-2">
-          <div className={fixedToolbarChipClassName}>
-            <Clapperboard className="h-4 w-4 text-accent" />
-            <span>{t('node.jimeng.creationTypes.video')}</span>
-          </div>
-          <div className={fixedToolbarChipClassName}>
-            <Film className="h-4 w-4 text-accent" />
-            <span>{t('node.jimeng.models.seedance-2.0')}</span>
-          </div>
-          <div className={fixedToolbarChipClassName}>
-            <Images className="h-4 w-4 text-accent" />
-            <span>{t('node.jimeng.referenceModes.allAround')}</span>
-          </div>
-          <JimengToolbarSelect
-            value={resolvedAspectRatio}
-            options={aspectRatioOptions}
-            onChange={handleAspectRatioChange}
-            icon={<Crop className="h-4 w-4" />}
-            className={toolbarChipClassName}
-            panelClassName="w-[372px] rounded-[24px] border border-[rgba(15,23,42,0.08)] bg-[rgba(255,255,255,0.98)] p-4 shadow-[0_18px_48px_rgba(15,23,42,0.18)] dark:border-white/10 dark:bg-[#232730]/96 dark:shadow-[0_18px_48px_rgba(0,0,0,0.42)]"
-            layout="grid"
-            columnsClassName="grid-cols-6"
-            showChevron={false}
-            renderGridOption={(option, active) => renderAspectRatioGlyph(option.label, active)}
-          />
-          <JimengToolbarSelect
-            value={resolvedDurationSeconds}
-            options={durationOptions}
-            onChange={(value) => updateNodeData(id, { durationSeconds: value })}
-            icon={<Timer className="h-4 w-4" />}
-            className={toolbarChipClassName}
-            panelClassName="min-w-[132px] rounded-[18px] border border-[rgba(15,23,42,0.08)] bg-[rgba(255,255,255,0.98)] p-1.5 shadow-[0_18px_48px_rgba(15,23,42,0.18)] dark:border-white/10 dark:bg-[#232730]/96 dark:shadow-[0_18px_48px_rgba(0,0,0,0.42)]"
-            showChevron={false}
-            triggerButtonProps={{
-              title: currentDurationLabel,
-              onWheel: handleDurationWheel,
-              onMouseDown: (event) => event.stopPropagation(),
-            }}
-          />
-          <UiChipButton
-            type="button"
-            className={`${toolbarChipClassName} !w-11 !justify-center !px-0`}
-            disabled={incomingImages.length === 0}
-            onClick={(event) => {
-              event.stopPropagation();
-              handleToolbarAtClick();
-            }}
-            title={t('node.jimeng.referenceHelper')}
-          >
-            <AtSign className="h-4 w-4" />
-          </UiChipButton>
-
           <div className="ml-auto min-w-0 text-right text-[11px] text-text-muted">
             {t('node.jimeng.referenceCount', { count: incomingImageItems.length })}
           </div>
+
+          <UiButton
+            type="button"
+            variant="muted"
+            size="sm"
+            disabled={Boolean(data.isSubmitting) || isOptimizingPrompt || promptDraft.trim().length === 0}
+            className="h-11 w-11 shrink-0 rounded-full !px-0"
+            onClick={(event) => {
+              event.stopPropagation();
+              void handleOptimizePrompt();
+            }}
+            title={
+              isOptimizingPrompt
+                ? t('node.jimeng.optimizingPrompt')
+                : t('node.jimeng.optimizePrompt')
+            }
+          >
+            {isOptimizingPrompt ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <Wand2 className="h-4 w-4" strokeWidth={2.2} />
+            )}
+          </UiButton>
 
           <UiButton
             type="button"
@@ -851,18 +860,35 @@ export const JimengNode = memo(({
         </div>
       </div>
 
-      <div className="mt-2 flex min-h-[24px] items-center justify-between gap-3">
-        <div
-          className={`min-w-0 flex-1 text-[11px] ${data.lastError ? 'text-red-200' : 'text-text-muted'}`}
-        >
-          {data.lastError ?? lastSubmittedLabel ?? t('node.jimeng.submitHint')}
-        </div>
-
-        <div className="inline-flex h-7 shrink-0 items-center gap-1.5 rounded-lg border border-white/10 bg-white/[0.04] px-2 text-[11px] text-text-muted">
-          <Sparkles className="h-3.5 w-3.5 text-accent" />
-          <span>{fixedModeBadgeLabel}</span>
-        </div>
+      <div className={`mt-2 min-h-[24px] text-[11px] ${data.lastError || promptOptimizationError ? 'text-red-200' : 'text-text-muted'}`}>
+        {promptOptimizationError
+          ?? (data.isSubmitting ? t('node.jimeng.submitting') : null)
+          ?? (isOptimizingPrompt ? t('node.jimeng.optimizingPrompt') : null)
+          ?? data.lastError
+          ?? lastSubmittedLabel
+          ?? t('node.jimeng.submitHint')}
       </div>
+
+      <UiModal
+        isOpen={isManualSetupReminderOpen}
+        title={t('node.jimeng.manualSetupReminderTitle')}
+        onClose={() => setIsManualSetupReminderOpen(false)}
+        widthClassName="w-[480px]"
+        footer={(
+          <UiButton
+            type="button"
+            variant="primary"
+            onClick={() => setIsManualSetupReminderOpen(false)}
+          >
+            {t('node.jimeng.manualSetupReminderConfirm')}
+          </UiButton>
+        )}
+      >
+        <div className="space-y-3 text-sm leading-6 text-text-dark">
+          <p>{t('node.jimeng.manualSetupReminderBody')}</p>
+          <p className="text-text-muted">{t('node.jimeng.manualSetupReminderFootnote')}</p>
+        </div>
+      </UiModal>
 
       <Handle
         type="target"

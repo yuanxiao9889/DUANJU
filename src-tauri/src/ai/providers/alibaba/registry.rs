@@ -35,10 +35,10 @@ impl AlibabaModelRegistry {
 
     pub fn supports(&self, model: &str) -> bool {
         self.models.iter().any(|m| {
-            m == model ||
-            model.starts_with("qwen") ||
-            model.starts_with("glm") ||
-            model.starts_with("llama")
+            m == model
+                || model.starts_with("qwen")
+                || model.starts_with("glm")
+                || model.starts_with("llama")
         })
     }
 

@@ -166,7 +166,10 @@ impl AIProvider for CodingProvider {
         let endpoint = self.get_endpoint(&model);
 
         info!("[Coding Request] model: {}, url: {}", model, endpoint);
-        info!("[Coding Request] api_key prefix: {}...", &api_key[..std::cmp::min(10, api_key.len())]);
+        info!(
+            "[Coding Request] api_key prefix: {}...",
+            &api_key[..std::cmp::min(10, api_key.len())]
+        );
 
         let response = self
             .client
@@ -193,21 +196,25 @@ impl AIProvider for CodingProvider {
 
         let result: CodingResponse = response.json().await?;
 
-        let text = result.choices
+        let text = result
+            .choices
             .as_ref()
             .and_then(|choices| choices.first())
             .and_then(|c| {
                 // Try message first (non-streaming)
-                c.message.as_ref().and_then(|m| {
-                    if m.role == "assistant" || m.role == "model" {
-                        Some(m.content.clone())
-                    } else {
-                        None
-                    }
-                }).or_else(|| {
-                    // Try delta (streaming format)
-                    c.delta.as_ref().and_then(|d| d.content.clone())
-                })
+                c.message
+                    .as_ref()
+                    .and_then(|m| {
+                        if m.role == "assistant" || m.role == "model" {
+                            Some(m.content.clone())
+                        } else {
+                            None
+                        }
+                    })
+                    .or_else(|| {
+                        // Try delta (streaming format)
+                        c.delta.as_ref().and_then(|d| d.content.clone())
+                    })
             })
             .ok_or_else(|| AIError::Provider("No text in response".to_string()))?;
 
@@ -223,25 +230,25 @@ mod tests {
     #[test]
     fn test_get_endpoint() {
         let provider = CodingProvider::new();
-        
+
         // Qwen
         assert_eq!(
             provider.get_endpoint("qwen-plus"),
             "https://coding.dashscope.aliyuncs.com/v1/chat/completions"
         );
-        
+
         // MiniMax
         assert_eq!(
             provider.get_endpoint("MiniMax-M2.5"),
             "https://api.minimaxi.com/v1/chat/completions"
         );
-        
+
         // Doubao (ep-xxx)
         assert_eq!(
             provider.get_endpoint("ep-123456"),
             "https://ark.cn-beijing.volces.com/api/v3/chat/completions"
         );
-        
+
         // Fallback
         assert_eq!(
             provider.get_endpoint("unknown-model"),

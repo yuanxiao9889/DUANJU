@@ -1,3 +1,4 @@
+use base64::{engine::general_purpose::STANDARD, Engine};
 use reqwest::Client;
 use serde::Serialize;
 use serde_json::Value;
@@ -6,7 +7,6 @@ use std::sync::Arc;
 use tokio::sync::RwLock;
 use tokio::time::{sleep, Duration};
 use tracing::info;
-use base64::{engine::general_purpose::STANDARD, Engine};
 
 use crate::ai::error::AIError;
 use crate::ai::{
@@ -98,7 +98,9 @@ fn file_extension_from_source(source: &str) -> String {
         };
     }
 
-    if trimmed.starts_with("file://") || (!trimmed.starts_with("http://") && !trimmed.starts_with("https://")) {
+    if trimmed.starts_with("file://")
+        || (!trimmed.starts_with("http://") && !trimmed.starts_with("https://"))
+    {
         let path = if trimmed.starts_with("file://") {
             PathBuf::from(decode_file_url_path(trimmed))
         } else {
@@ -142,8 +144,8 @@ fn extract_response_error(payload: &Value) -> Option<String> {
         return None;
     };
 
-    let error_message =
-        extract_trimmed_string(payload, "errorMessage").unwrap_or_else(|| "Unknown error".to_string());
+    let error_message = extract_trimmed_string(payload, "errorMessage")
+        .unwrap_or_else(|| "Unknown error".to_string());
     Some(format!("{} (errorCode {})", error_message, error_code))
 }
 
@@ -179,9 +181,14 @@ impl RunningHubProvider {
     }
 
     async fn upload_image(&self, _api_key: &str, source: &str) -> Result<String, AIError> {
-        info!("[RunningHub] upload_image called, source length: {}, prefix: {:?}", 
-            source.len(), 
-            if source.len() > 50 { &source[..50] } else { source }
+        info!(
+            "[RunningHub] upload_image called, source length: {}, prefix: {:?}",
+            source.len(),
+            if source.len() > 50 {
+                &source[..50]
+            } else {
+                source
+            }
         );
 
         let trimmed = source.trim().trim_matches('`').trim();
@@ -198,8 +205,11 @@ impl RunningHubProvider {
 
         let extension = file_extension_from_source(trimmed);
         let mime_type = mime_type_from_extension(&extension);
-        info!("[RunningHub] Detected extension: {}, mime: {}", extension, mime_type);
-        
+        info!(
+            "[RunningHub] Detected extension: {}, mime: {}",
+            extension, mime_type
+        );
+
         let bytes = match source_to_bytes(trimmed) {
             Ok(b) => {
                 info!("[RunningHub] Successfully read {} bytes", b.len());
@@ -222,7 +232,10 @@ impl RunningHubProvider {
         }
 
         let data_uri = format!("data:{};base64,{}", mime_type, STANDARD.encode(&bytes));
-        info!("[RunningHub] Prepared inline data URI for reference image, bytes: {}", bytes.len());
+        info!(
+            "[RunningHub] Prepared inline data URI for reference image, bytes: {}",
+            bytes.len()
+        );
         Ok(data_uri)
     }
 
@@ -255,7 +268,11 @@ impl RunningHubProvider {
         if let Some(images) = request.reference_images.as_ref() {
             info!("[RunningHub] Processing {} reference images", images.len());
             for (idx, image) in images.iter().take(10).enumerate() {
-                info!("[RunningHub] Preparing image {}: {}...", idx, &image[..image.len().min(100)]);
+                info!(
+                    "[RunningHub] Preparing image {}: {}...",
+                    idx,
+                    &image[..image.len().min(100)]
+                );
                 match self.upload_image(&api_key, image).await {
                     Ok(url) => {
                         info!("[RunningHub] Image {} prepared successfully", idx);
@@ -272,7 +289,10 @@ impl RunningHubProvider {
 
         if image_urls.is_empty() {
             let error_detail = if !upload_errors.is_empty() {
-                format!("RunningHub API requires at least one reference image. Upload errors: {}", upload_errors.join("; "))
+                format!(
+                    "RunningHub API requires at least one reference image. Upload errors: {}",
+                    upload_errors.join("; ")
+                )
             } else {
                 "RunningHub API requires at least one reference image. Please connect an image node to this node's input.".to_string()
             };
@@ -296,7 +316,10 @@ impl RunningHubProvider {
         let (_, endpoint_path) = self.resolve_model_and_endpoint(request);
         let edit_endpoint = format!("{}{}", self.base_url, endpoint_path);
         info!("[RunningHub] Submitting task to: {}", edit_endpoint);
-        info!("[RunningHub] Request body: {:?}", serde_json::to_string(&body).unwrap_or_default());
+        info!(
+            "[RunningHub] Request body: {:?}",
+            serde_json::to_string(&body).unwrap_or_default()
+        );
 
         let response = self
             .client
@@ -389,7 +412,7 @@ impl RunningHubProvider {
     async fn poll_until_complete(&self, task_id: &str) -> Result<String, AIError> {
         loop {
             let query_result = self.query_task(task_id).await?;
-            
+
             let status = query_result
                 .get("status")
                 .and_then(|v| v.as_str())
@@ -402,7 +425,9 @@ impl RunningHubProvider {
                     if let Some(url) = Self::extract_result_url(&query_result) {
                         return Ok(url);
                     }
-                    return Err(AIError::Provider("RunningHub task succeeded but no result URL".to_string()));
+                    return Err(AIError::Provider(
+                        "RunningHub task succeeded but no result URL".to_string(),
+                    ));
                 }
                 "FAILED" => {
                     let error_msg = query_result
@@ -415,7 +440,10 @@ impl RunningHubProvider {
                     sleep(Duration::from_millis(POLL_INTERVAL_MS)).await;
                 }
                 _ => {
-                    return Err(AIError::Provider(format!("RunningHub unknown status: {}", status)));
+                    return Err(AIError::Provider(format!(
+                        "RunningHub unknown status: {}",
+                        status
+                    )));
                 }
             }
         }
@@ -458,7 +486,10 @@ impl AIProvider for RunningHubProvider {
         true
     }
 
-    async fn submit_task(&self, request: GenerateRequest) -> Result<ProviderTaskSubmission, AIError> {
+    async fn submit_task(
+        &self,
+        request: GenerateRequest,
+    ) -> Result<ProviderTaskSubmission, AIError> {
         let response = self.submit_edit_task(&request).await?;
 
         let status = response
@@ -481,9 +512,12 @@ impl AIProvider for RunningHubProvider {
         }))
     }
 
-    async fn poll_task(&self, handle: ProviderTaskHandle) -> Result<ProviderTaskPollResult, AIError> {
+    async fn poll_task(
+        &self,
+        handle: ProviderTaskHandle,
+    ) -> Result<ProviderTaskPollResult, AIError> {
         let query_result = self.query_task(&handle.task_id).await?;
-        
+
         let status = query_result
             .get("status")
             .and_then(|v| v.as_str())
@@ -494,7 +528,9 @@ impl AIProvider for RunningHubProvider {
                 if let Some(url) = Self::extract_result_url(&query_result) {
                     return Ok(ProviderTaskPollResult::Succeeded(url));
                 }
-                Err(AIError::Provider("RunningHub task succeeded but no result URL".to_string()))
+                Err(AIError::Provider(
+                    "RunningHub task succeeded but no result URL".to_string(),
+                ))
             }
             "FAILED" => {
                 let error_msg = query_result
@@ -504,7 +540,10 @@ impl AIProvider for RunningHubProvider {
                 Ok(ProviderTaskPollResult::Failed(error_msg.to_string()))
             }
             "RUNNING" | "QUEUED" => Ok(ProviderTaskPollResult::Running),
-            _ => Err(AIError::Provider(format!("RunningHub unknown status: {}", status))),
+            _ => Err(AIError::Provider(format!(
+                "RunningHub unknown status: {}",
+                status
+            ))),
         }
     }
 

@@ -165,6 +165,24 @@ function normalizeAspectRatioValue(aspectRatio: unknown): string | null {
   return trimmed.length > 0 ? trimmed : null;
 }
 
+function normalizeStoryboardStringValue(value: unknown): string | null {
+  if (typeof value !== 'string') {
+    return null;
+  }
+
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : null;
+}
+
+function resolveStoryboardFrameImageKeys(frame: Pick<StoryboardFrameItem, 'imageUrl' | 'previewImageUrl'>): string[] {
+  const imageKeys = [
+    normalizeStoryboardStringValue(frame.imageUrl),
+    normalizeStoryboardStringValue(frame.previewImageUrl),
+  ].filter((value): value is string => Boolean(value));
+
+  return Array.from(new Set(imageKeys));
+}
+
 function resolveStoryboardGridAspectRatio(
   frameAspectRatio: unknown,
   firstFrameAspectRatio?: unknown
@@ -419,6 +437,8 @@ interface FrameCardProps {
 }
 
 interface IncomingImageItem {
+  sourceNodeId: string;
+  sourceEdgeId: string;
   imageUrl: string;
   previewImageUrl: string | null;
   aspectRatio?: string;
@@ -687,45 +707,41 @@ export const StoryboardNode = memo(({ id, data, selected, width, height }: Story
 
   const incomingImageRefs = useMemo(() => {
     const nodeById = new Map(nodes.map((node) => [node.id, node] as const));
-    const sourceNodeIds = edges
-      .filter((edge) => edge.target === id)
-      .map((edge) => edge.source);
+    return edges.flatMap((edge) => {
+      if (edge.target !== id) {
+        return [];
+      }
 
-    const dedupedByImageUrl = new Map<string, {
-      imageUrl: string;
-      previewImageUrl: string | null;
-      aspectRatio?: string;
-    }>();
-    for (const sourceNodeId of sourceNodeIds) {
-      const sourceNode = nodeById.get(sourceNodeId) as CanvasNode | undefined;
+      const sourceNode = nodeById.get(edge.source) as CanvasNode | undefined;
       if (!sourceNode) {
-        continue;
+        return [];
       }
       if (!isUploadNode(sourceNode) && !isImageEditNode(sourceNode) && !isExportImageNode(sourceNode)) {
-        continue;
+        return [];
       }
       const imageUrl = sourceNode.data.imageUrl;
       if (!imageUrl) {
-        continue;
-      }
-        if (!dedupedByImageUrl.has(imageUrl)) {
-          dedupedByImageUrl.set(imageUrl, {
-            imageUrl,
-            previewImageUrl: sourceNode.data.previewImageUrl ?? null,
-            aspectRatio:
-              typeof sourceNode.data.aspectRatio === 'string'
-                ? sourceNode.data.aspectRatio
-                : undefined,
-          });
-        }
+        return [];
       }
 
-    return Array.from(dedupedByImageUrl.values());
+      return [{
+        sourceNodeId: sourceNode.id,
+        sourceEdgeId: edge.id,
+        imageUrl,
+        previewImageUrl: sourceNode.data.previewImageUrl ?? null,
+        aspectRatio:
+          typeof sourceNode.data.aspectRatio === 'string'
+            ? sourceNode.data.aspectRatio
+            : undefined,
+      }];
+    });
   }, [edges, id, nodes]);
 
   const incomingImageItems = useMemo<IncomingImageItem[]>(
     () =>
       incomingImageRefs.map((item, index) => ({
+        sourceNodeId: item.sourceNodeId,
+        sourceEdgeId: item.sourceEdgeId,
         imageUrl: item.imageUrl,
         previewImageUrl: item.previewImageUrl,
         aspectRatio: item.aspectRatio,
@@ -785,25 +801,36 @@ export const StoryboardNode = memo(({ id, data, selected, width, height }: Story
       return;
     }
 
-    const existingImageKeys = new Set(
+    const existingFrameKeys = new Set(
       orderedFrames.flatMap((frame) => {
         const keys: string[] = [];
-        if (typeof frame.imageUrl === 'string' && frame.imageUrl.trim()) {
-          keys.push(frame.imageUrl);
+        const sourceEdgeId = normalizeStoryboardStringValue(frame.sourceEdgeId);
+        const sourceNodeId = normalizeStoryboardStringValue(frame.sourceNodeId);
+        if (sourceEdgeId) {
+          keys.push(`edge:${sourceEdgeId}`);
         }
-        if (typeof frame.previewImageUrl === 'string' && frame.previewImageUrl.trim()) {
-          keys.push(frame.previewImageUrl);
+        if (sourceNodeId) {
+          keys.push(`node:${sourceNodeId}`);
         }
-        return keys;
+        return [
+          ...keys,
+          ...resolveStoryboardFrameImageKeys(frame).map((value) => `image:${value}`),
+        ];
       })
     );
 
     const appendedFrames = incomingImageItems
       .filter((item) => {
-        if (existingImageKeys.has(item.imageUrl)) {
+        if (existingFrameKeys.has(`edge:${item.sourceEdgeId}`)) {
           return false;
         }
-        if (item.previewImageUrl && existingImageKeys.has(item.previewImageUrl)) {
+        if (existingFrameKeys.has(`node:${item.sourceNodeId}`)) {
+          return false;
+        }
+        if (existingFrameKeys.has(`image:${item.imageUrl}`)) {
+          return false;
+        }
+        if (item.previewImageUrl && existingFrameKeys.has(`image:${item.previewImageUrl}`)) {
           return false;
         }
         return true;
@@ -813,6 +840,8 @@ export const StoryboardNode = memo(({ id, data, selected, width, height }: Story
         imageUrl: item.imageUrl,
         previewImageUrl: item.previewImageUrl ?? item.imageUrl,
         aspectRatio: item.aspectRatio ?? frameAspectRatio,
+        sourceNodeId: item.sourceNodeId,
+        sourceEdgeId: item.sourceEdgeId,
         note: '',
         order: orderedFrames.length + index,
       }));
@@ -1316,6 +1345,8 @@ export const StoryboardNode = memo(({ id, data, selected, width, height }: Story
         imageUrl: matched?.imageUrl ?? imageUrl,
         previewImageUrl: matched?.previewImageUrl ?? matched?.imageUrl ?? imageUrl,
         aspectRatio: matched?.aspectRatio ?? frameAspectRatio,
+        sourceNodeId: matched?.sourceNodeId ?? null,
+        sourceEdgeId: matched?.sourceEdgeId ?? null,
       });
       setPickerState(null);
     },

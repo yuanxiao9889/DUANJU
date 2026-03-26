@@ -39,8 +39,7 @@ fn read_storage_config(app: &AppHandle) -> Result<StorageConfig, String> {
     file.read_to_string(&mut content)
         .map_err(|e| format!("Failed to read storage config: {}", e))?;
 
-    serde_json::from_str(&content)
-        .map_err(|e| format!("Failed to parse storage config: {}", e))
+    serde_json::from_str(&content).map_err(|e| format!("Failed to parse storage config: {}", e))
 }
 
 fn write_storage_config(app: &AppHandle, config: &StorageConfig) -> Result<(), String> {
@@ -87,16 +86,14 @@ pub fn resolve_db_path(app: &AppHandle) -> Result<PathBuf, String> {
 pub fn resolve_images_dir(app: &AppHandle) -> Result<PathBuf, String> {
     let base_path = resolve_storage_base_path(app)?;
     let images_dir = base_path.join("images");
-    fs::create_dir_all(&images_dir)
-        .map_err(|e| format!("Failed to create images dir: {}", e))?;
+    fs::create_dir_all(&images_dir).map_err(|e| format!("Failed to create images dir: {}", e))?;
     Ok(images_dir)
 }
 
 pub fn resolve_debug_dir(app: &AppHandle) -> Result<PathBuf, String> {
     let base_path = resolve_storage_base_path(app)?;
     let debug_dir = base_path.join("debug");
-    fs::create_dir_all(&debug_dir)
-        .map_err(|e| format!("Failed to create debug dir: {}", e))?;
+    fs::create_dir_all(&debug_dir).map_err(|e| format!("Failed to create debug dir: {}", e))?;
     Ok(debug_dir)
 }
 
@@ -149,9 +146,7 @@ pub fn get_storage_info(app: AppHandle) -> Result<StorageInfo, String> {
 
     let db_path = current_path.join("projects.db");
     let db_size = if db_path.exists() {
-        fs::metadata(&db_path)
-            .map(|m| m.len())
-            .unwrap_or(0)
+        fs::metadata(&db_path).map(|m| m.len()).unwrap_or(0)
     } else {
         0
     };
@@ -185,12 +180,9 @@ fn copy_dir_recursive(src: &PathBuf, dst: &PathBuf) -> Result<(), String> {
         return Ok(());
     }
 
-    fs::create_dir_all(dst)
-        .map_err(|e| format!("Failed to create destination dir: {}", e))?;
+    fs::create_dir_all(dst).map_err(|e| format!("Failed to create destination dir: {}", e))?;
 
-    for entry in fs::read_dir(src)
-        .map_err(|e| format!("Failed to read source dir: {}", e))?
-    {
+    for entry in fs::read_dir(src).map_err(|e| format!("Failed to read source dir: {}", e))? {
         let entry = entry.map_err(|e| format!("Failed to read entry: {}", e))?;
         let src_path = entry.path();
         let dst_path = dst.join(entry.file_name());
@@ -198,8 +190,7 @@ fn copy_dir_recursive(src: &PathBuf, dst: &PathBuf) -> Result<(), String> {
         if src_path.is_dir() {
             copy_dir_recursive(&src_path, &dst_path)?;
         } else {
-            fs::copy(&src_path, &dst_path)
-                .map_err(|e| format!("Failed to copy file: {}", e))?;
+            fs::copy(&src_path, &dst_path).map_err(|e| format!("Failed to copy file: {}", e))?;
         }
     }
 
@@ -211,8 +202,7 @@ fn delete_dir_recursive(path: &PathBuf) -> Result<(), String> {
         return Ok(());
     }
 
-    fs::remove_dir_all(path)
-        .map_err(|e| format!("Failed to delete directory: {}", e))?;
+    fs::remove_dir_all(path).map_err(|e| format!("Failed to delete directory: {}", e))?;
 
     Ok(())
 }
@@ -234,16 +224,13 @@ pub fn migrate_storage(
         .map_err(|e| format!("Failed to create target directory: {}", e))?;
 
     let test_file = target_path.join(".write_test");
-    fs::write(&test_file, "test")
-        .map_err(|e| format!("Target path is not writable: {}", e))?;
-    fs::remove_file(&test_file)
-        .map_err(|e| format!("Failed to remove test file: {}", e))?;
+    fs::write(&test_file, "test").map_err(|e| format!("Target path is not writable: {}", e))?;
+    fs::remove_file(&test_file).map_err(|e| format!("Failed to remove test file: {}", e))?;
 
     let db_path = current_path.join("projects.db");
     if db_path.exists() {
         let target_db = target_path.join("projects.db");
-        fs::copy(&db_path, &target_db)
-            .map_err(|e| format!("Failed to copy database: {}", e))?;
+        fs::copy(&db_path, &target_db).map_err(|e| format!("Failed to copy database: {}", e))?;
     }
 
     let images_dir = current_path.join("images");
@@ -294,8 +281,7 @@ pub fn reset_storage_to_default(app: AppHandle, delete_custom: bool) -> Result<S
     let db_path = current_path.join("projects.db");
     if db_path.exists() {
         let target_db = default_path.join("projects.db");
-        fs::copy(&db_path, &target_db)
-            .map_err(|e| format!("Failed to copy database: {}", e))?;
+        fs::copy(&db_path, &target_db).map_err(|e| format!("Failed to copy database: {}", e))?;
     }
 
     let images_dir = current_path.join("images");

@@ -197,7 +197,11 @@ impl CompatibleProvider {
         let extension = Self::file_extension_from_source(trimmed);
         let mime_type = Self::mime_type_from_extension(extension);
         let bytes = Self::source_to_bytes(trimmed).await?;
-        Ok(format!("data:{};base64,{}", mime_type, STANDARD.encode(bytes)))
+        Ok(format!(
+            "data:{};base64,{}",
+            mime_type,
+            STANDARD.encode(bytes)
+        ))
     }
 
     fn extract_config(request: &GenerateRequest) -> Result<CompatibleConfig, AIError> {
@@ -331,8 +335,7 @@ impl CompatibleProvider {
 
     fn resolve_gemini_image_size(request_model: &str, size: &str) -> Option<&'static str> {
         let lower_model = request_model.trim().to_ascii_lowercase();
-        let supports_image_size =
-            lower_model.contains("3.") || lower_model.contains("preview");
+        let supports_image_size = lower_model.contains("3.") || lower_model.contains("preview");
         if !supports_image_size {
             return None;
         }
@@ -558,9 +561,7 @@ impl CompatibleProvider {
     ) -> Result<Value, AIError> {
         let mut request = self.client.post(endpoint);
         request = match api_format {
-            CompatibleApiFormat::GeminiGenerateContent => {
-                request.header("x-goog-api-key", api_key)
-            }
+            CompatibleApiFormat::GeminiGenerateContent => request.header("x-goog-api-key", api_key),
             _ => request.header("Authorization", format!("Bearer {}", api_key)),
         };
 
@@ -717,10 +718,8 @@ impl CompatibleProvider {
         config: &CompatibleConfig,
         api_key: &str,
     ) -> Result<Value, AIError> {
-        let endpoint = Self::resolve_openai_endpoint(
-            &config.endpoint_url,
-            CompatibleApiFormat::OpenAiEdits,
-        );
+        let endpoint =
+            Self::resolve_openai_endpoint(&config.endpoint_url, CompatibleApiFormat::OpenAiEdits);
         self.send_openai_edits_request(
             &endpoint,
             api_key,
@@ -801,9 +800,7 @@ impl CompatibleProvider {
         if !request.aspect_ratio.trim().is_empty() {
             image_config["aspectRatio"] = Value::String(request.aspect_ratio.clone());
         }
-        if let Some(image_size) =
-            Self::resolve_gemini_image_size(&request_model, &request.size)
-        {
+        if let Some(image_size) = Self::resolve_gemini_image_size(&request_model, &request.size) {
             image_config["imageSize"] = Value::String(image_size.to_string());
         }
 
@@ -871,7 +868,8 @@ impl AIProvider for CompatibleProvider {
 
         let payload = match config.api_format {
             CompatibleApiFormat::OpenAiGenerations => {
-                self.run_openai_generations(&request, &config, &api_key).await?
+                self.run_openai_generations(&request, &config, &api_key)
+                    .await?
             }
             CompatibleApiFormat::OpenAiEdits => {
                 self.run_openai_edits(&request, &config, &api_key).await?

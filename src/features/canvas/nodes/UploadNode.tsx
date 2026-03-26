@@ -290,39 +290,80 @@ export const UploadNode = memo(({ id, data, selected, width, height }: UploadNod
 
   const handleNodeClick = useCallback(() => {
     setSelectedNode(id);
-    if (!data.imageUrl && !transientPreviewUrl) {
+    if (!data.imageUrl && !data.previewImageUrl && !transientPreviewUrl) {
       inputRef.current?.click();
     }
-  }, [data.imageUrl, id, setSelectedNode, transientPreviewUrl]);
+  }, [data.imageUrl, data.previewImageUrl, id, setSelectedNode, transientPreviewUrl]);
 
   useEffect(() => () => {
     uploadPerfRef.current = null;
     clearTransientPreview();
   }, [clearTransientPreview]);
 
-  const imageSource = useMemo(() => {
-    if (transientPreviewUrl) {
-      return transientPreviewUrl;
+  const originalImageUrl = useMemo(() => {
+    if (!data.imageUrl) {
+      return null;
     }
+
+    return resolveImageDisplayUrl(data.imageUrl);
+  }, [data.imageUrl]);
+
+  const previewImageUrl = useMemo(() => {
+    if (!data.previewImageUrl) {
+      return null;
+    }
+
+    return resolveImageDisplayUrl(data.previewImageUrl);
+  }, [data.previewImageUrl]);
+
+  const persistedImageSource = useMemo(() => {
     const preferOriginal = shouldUseOriginalImageByZoom(zoom);
-    const picked = preferOriginal
-      ? data.imageUrl || data.previewImageUrl
-      : data.previewImageUrl || data.imageUrl;
-    return picked ? resolveImageDisplayUrl(picked) : null;
-  }, [data.imageUrl, data.previewImageUrl, transientPreviewUrl, zoom]);
+    return preferOriginal
+      ? (originalImageUrl ?? previewImageUrl)
+      : (previewImageUrl ?? originalImageUrl);
+  }, [originalImageUrl, previewImageUrl, zoom]);
+
+  const imageSource = useMemo(
+    () => transientPreviewUrl ?? persistedImageSource,
+    [persistedImageSource, transientPreviewUrl]
+  );
+
+  const fallbackImageSource = useMemo(() => {
+    if (transientPreviewUrl) {
+      return persistedImageSource;
+    }
+
+    if (!imageSource) {
+      return null;
+    }
+
+    if (imageSource === originalImageUrl) {
+      return previewImageUrl && previewImageUrl !== imageSource ? previewImageUrl : null;
+    }
+
+    return originalImageUrl && originalImageUrl !== imageSource ? originalImageUrl : null;
+  }, [
+    imageSource,
+    originalImageUrl,
+    persistedImageSource,
+    previewImageUrl,
+    transientPreviewUrl,
+  ]);
+
+  const dimensionSource = data.imageUrl ?? data.previewImageUrl ?? null;
 
   useEffect(() => {
     updateNodeInternals(id);
   }, [id, resolvedHeight, resolvedWidth, updateNodeInternals]);
 
   useEffect(() => {
-    if (!data.imageUrl || (imageWidth !== null && imageHeight !== null)) {
+    if (!dimensionSource || (imageWidth !== null && imageHeight !== null)) {
       return;
     }
 
     let disposed = false;
 
-    void detectImageDimensions(data.imageUrl)
+    void detectImageDimensions(dimensionSource)
       .then((dimensions) => {
         if (disposed) {
           return;
@@ -338,7 +379,7 @@ export const UploadNode = memo(({ id, data, selected, width, height }: UploadNod
     return () => {
       disposed = true;
     };
-  }, [data.imageUrl, id, imageHeight, imageWidth, updateNodeData]);
+  }, [dimensionSource, id, imageHeight, imageWidth, updateNodeData]);
 
   return (
     <div
@@ -361,13 +402,14 @@ export const UploadNode = memo(({ id, data, selected, width, height }: UploadNod
         onTitleChange={(nextTitle) => updateNodeData(id, { displayName: nextTitle })}
       />
 
-      {data.imageUrl || transientPreviewUrl ? (
+      {data.imageUrl || data.previewImageUrl || transientPreviewUrl ? (
         <div
           className="relative block h-full w-full overflow-hidden rounded-[var(--node-radius)] bg-bg-dark"
         >
           <CanvasNodeImage
             src={imageSource ?? ''}
-            viewerSourceUrl={data.imageUrl ? resolveImageDisplayUrl(data.imageUrl) : null}
+            fallbackSrc={fallbackImageSource}
+            viewerSourceUrl={originalImageUrl ?? previewImageUrl}
             alt={t('node.upload.uploadedAlt')}
             className="h-full w-full object-contain"
             onLoad={handleImageLoad}

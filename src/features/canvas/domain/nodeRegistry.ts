@@ -141,6 +141,7 @@ const jimengNodeDefinition: CanvasNodeDefinition<JimengNodeData> = {
   createDefaultData: () => ({
     displayName: DEFAULT_NODE_DISPLAY_NAME[CANVAS_NODE_TYPES.jimeng],
     prompt: '',
+    referenceImageOrder: [],
     creationType: 'video',
     model: JIMENG_MODEL_IDS[1],
     referenceMode: JIMENG_REFERENCE_MODES[0],

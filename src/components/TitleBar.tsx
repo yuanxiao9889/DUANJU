@@ -4,9 +4,10 @@ import { getCurrentWindow } from '@tauri-apps/api/window';
 import { Minus, X, Maximize2, Settings, ArrowLeft } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { Moon, Sun, Languages } from 'lucide-react';
-import type { JimengPanelMode } from '@/stores/jimengPanelStore';
 import { useThemeStore } from '@/stores/themeStore';
 import { useProjectStore } from '@/stores/projectStore';
+import { resolveErrorContent, showErrorDialog } from '@/features/canvas/application/errorDialog';
+import { focusJimengChromeWorkspace } from '@/features/jimeng/application/jimengChromeWorkspace';
 import closeNormalIcon from '@/assets/macos-traffic-lights/1-close-1-normal.svg';
 import closeHoverIcon from '@/assets/macos-traffic-lights/2-close-2-hover.svg';
 import minimizeNormalIcon from '@/assets/macos-traffic-lights/2-minimize-1-normal.svg';
@@ -18,25 +19,19 @@ interface TitleBarProps {
   onSettingsClick: () => void;
   showBackButton?: boolean;
   onBackClick?: () => void;
-  jimengPanelMode: JimengPanelMode;
-  isJimengPanelBusy: boolean;
-  onJimengPanelToggle: () => void;
-  onJimengPanelFullscreenToggle: () => void;
 }
 
 export function TitleBar({
   onSettingsClick,
   showBackButton,
   onBackClick,
-  jimengPanelMode,
-  isJimengPanelBusy,
-  onJimengPanelToggle,
-  onJimengPanelFullscreenToggle,
 }: TitleBarProps) {
   const { t, i18n } = useTranslation();
   const { theme, toggleTheme } = useThemeStore();
   const currentProjectName = useProjectStore((state) => state.currentProject?.name);
   const [runtimeVersion, setRuntimeVersion] = useState<string>('');
+  const [isJimengBusy, setIsJimengBusy] = useState(false);
+  const [hasOpenedJimengChrome, setHasOpenedJimengChrome] = useState(false);
 
   const appWindow = getCurrentWindow();
   const isZh = i18n.language.startsWith('zh');
@@ -103,20 +98,32 @@ export function TitleBar({
     toggleTheme();
   }, [toggleTheme]);
 
-  const isJimengPanelFullscreen = jimengPanelMode === 'fullscreen';
-  const jimengButtonTitle = isJimengPanelBusy
-    ? t('titleBar.jimengLoading')
-    : jimengPanelMode === 'expanded'
-      ? t('titleBar.jimengCollapse')
-      : jimengPanelMode === 'fullscreen'
-        ? t('titleBar.jimengRestore')
-      : t('titleBar.jimengExpand');
-  const isJimengPanelActive = jimengPanelMode !== 'hidden';
-  const jimengFullscreenButtonTitle = isJimengPanelBusy
-    ? t('titleBar.jimengLoading')
-    : isJimengPanelFullscreen
-      ? t('titleBar.jimengRestore')
-      : t('titleBar.jimengFullscreen');
+  const handleOpenJimengChrome = useCallback(async () => {
+    if (isJimengBusy) {
+      return;
+    }
+
+    setIsJimengBusy(true);
+    try {
+      await focusJimengChromeWorkspace();
+      setHasOpenedJimengChrome(true);
+    } catch (error) {
+      const content = resolveErrorContent(error, t('titleBar.jimengOpenFailed'));
+      const isChromeMissing = content.message.includes('Chrome/Chromium was not found');
+
+      await showErrorDialog(
+        isChromeMissing ? t('titleBar.jimengChromeMissing') : content.message,
+        t('common.error'),
+        isChromeMissing ? content.message : content.details
+      );
+    } finally {
+      setIsJimengBusy(false);
+    }
+  }, [isJimengBusy, t]);
+
+  const jimengButtonTitle = isJimengBusy
+    ? t('titleBar.jimengOpeningChrome')
+    : t('titleBar.jimengOpenChrome');
 
   return (
     <div className="h-10 flex items-center justify-between bg-surface-dark border-b border-border-dark select-none z-50 relative">
@@ -189,37 +196,23 @@ export function TitleBar({
       <div className="flex items-center h-full">
         <button
           type="button"
-          onClick={onJimengPanelToggle}
-          disabled={isJimengPanelBusy}
-          className={`h-full px-3 transition-colors ${isJimengPanelBusy ? 'cursor-wait opacity-70' : 'hover:bg-bg-dark'} ${isJimengPanelActive ? 'bg-bg-dark/60' : ''}`}
+          onClick={() => {
+            void handleOpenJimengChrome();
+          }}
+          disabled={isJimengBusy}
+          className={`h-full px-3 transition-colors ${isJimengBusy ? 'cursor-wait opacity-70' : 'hover:bg-bg-dark'} ${hasOpenedJimengChrome ? 'bg-bg-dark/60' : ''}`}
           title={jimengButtonTitle}
           aria-label={jimengButtonTitle}
-          aria-pressed={isJimengPanelActive}
+          aria-pressed={hasOpenedJimengChrome}
         >
           <span className="inline-flex items-center gap-2 text-xs font-medium text-text-muted">
             <span
-              className={`h-1.5 w-1.5 rounded-full transition-colors ${isJimengPanelActive ? 'bg-[rgb(var(--accent-rgb))]' : 'bg-border-dark'}`}
+              className={`h-1.5 w-1.5 rounded-full transition-colors ${hasOpenedJimengChrome ? 'bg-[rgb(var(--accent-rgb))]' : 'bg-border-dark'}`}
               aria-hidden="true"
             />
             <span>{t('titleBar.jimengPanel')}</span>
           </span>
         </button>
-
-        {isJimengPanelActive ? (
-          <button
-            type="button"
-            onClick={onJimengPanelFullscreenToggle}
-            disabled={isJimengPanelBusy}
-            className={`h-full px-3 transition-colors border-l border-border-dark/80 ${isJimengPanelBusy ? 'cursor-wait opacity-70' : 'hover:bg-bg-dark'} ${isJimengPanelFullscreen ? 'bg-bg-dark/60' : ''}`}
-            title={jimengFullscreenButtonTitle}
-            aria-label={jimengFullscreenButtonTitle}
-            aria-pressed={isJimengPanelFullscreen}
-          >
-            <span className="text-xs font-medium text-text-muted">
-              {isJimengPanelFullscreen ? t('titleBar.jimengRestore') : t('titleBar.jimengFullscreen')}
-            </span>
-          </button>
-        ) : null}
 
         <button
           type="button"

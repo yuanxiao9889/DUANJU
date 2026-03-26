@@ -152,6 +152,7 @@ export interface ImageEditNodeData extends NodeImageData {
 
 export interface JimengNodeData extends NodeDisplayData {
   prompt: string;
+  referenceImageOrder?: string[];
   creationType?: JimengCreationType;
   model?: JimengModelId;
   referenceMode?: JimengReferenceMode;
@@ -168,6 +169,8 @@ export interface StoryboardFrameItem {
   imageUrl: string | null;
   previewImageUrl?: string | null;
   aspectRatio?: string;
+  sourceNodeId?: string | null;
+  sourceEdgeId?: string | null;
   note: string;
   order: number;
 }

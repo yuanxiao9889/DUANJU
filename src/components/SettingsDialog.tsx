@@ -72,6 +72,7 @@ const PROVIDER_REGISTER_URLS: Record<string, string> = {
   coding: 'https://bailian.console.aliyun.com',
   comfly: 'https://ai.comfly.chat/register?aff=25c82943753',
   zhenzhen: 'https://ai.t8star.cn/register?aff=9d51cc44298',
+  bltcy: 'https://api.bltcy.ai/register?aff=z9mi114199',
   runninghub: 'https://www.runninghub.cn/?inviteCode=zfoso01c',
 };
 
@@ -84,7 +85,17 @@ const PROVIDER_GET_KEY_URLS: Record<string, string> = {
   coding: 'https://bailian.console.aliyun.com/cn-beijing/#/api-key',
   comfly: 'https://ai.comfly.chat/register?aff=25c82943753',
   zhenzhen: 'https://ai.t8star.cn/register?aff=9d51cc44298',
+  bltcy: 'https://api.bltcy.ai/register?aff=z9mi114199',
   runninghub: 'https://www.runninghub.cn/?inviteCode=zfoso01c',
+};
+
+const DEFAULT_PROVIDER_TEST_MODELS: Record<string, string> = {
+  ppio: 'ppio/gemini-3.1-flash',
+  kie: 'kie/nano-banana-2',
+  fal: 'fal/nano-banana-2',
+  comfly: 'comfly/gemini-3.1-flash-image-preview-4k',
+  zhenzhen: 'zhenzhen/gemini-3.1-flash-image-preview-4k',
+  bltcy: 'bltcy/gemini-3.1-flash-image-preview-4k',
 };
 
 const STORYBOARD_COMPATIBLE_FORMAT_LABEL_KEYS: Record<
@@ -219,6 +230,7 @@ export function SettingsDialog({
       'grsai',
       'comfly',
       'zhenzhen',
+      'bltcy',
       'runninghub',
       'compatible',
       'alibaba',
@@ -975,7 +987,7 @@ export function SettingsDialog({
                                         ? localCodingModel
                                         : provider.id === 'grsai'
                                           ? localGrsaiNanoBananaProModel
-                                          : 'gemini-2.0-flash';
+                                          : DEFAULT_PROVIDER_TEST_MODELS[provider.id] ?? 'gemini-2.0-flash';
                                     const result = await testProviderConnection({
                                       provider: provider.id,
                                       apiKey: localApiKeys[provider.id] || '',

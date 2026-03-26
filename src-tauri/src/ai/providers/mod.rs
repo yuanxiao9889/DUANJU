@@ -2,27 +2,29 @@ use std::sync::Arc;
 
 use super::AIProvider;
 
-pub mod ppio;
+pub mod alibaba;
+pub mod bltcy;
+pub mod coding;
+pub mod comfly;
+pub mod compatible;
+pub mod fal;
 pub mod grsai;
 pub mod kie;
-pub mod fal;
-pub mod alibaba;
-pub mod compatible;
-pub mod coding;
-pub mod zhenzhen;
-pub mod comfly;
+pub mod ppio;
 pub mod runninghub;
+pub mod zhenzhen;
 
+pub use alibaba::AlibabaProvider;
+pub use bltcy::BltcyProvider;
+pub use coding::CodingProvider;
+pub use comfly::ComflyProvider;
+pub use compatible::CompatibleProvider;
 pub use fal::FalProvider;
 pub use grsai::GrsaiProvider;
 pub use kie::KieProvider;
 pub use ppio::PPIOProvider;
-pub use alibaba::AlibabaProvider;
-pub use compatible::CompatibleProvider;
-pub use coding::CodingProvider;
-pub use zhenzhen::ZhenzhenProvider;
-pub use comfly::ComflyProvider;
 pub use runninghub::RunningHubProvider;
+pub use zhenzhen::ZhenzhenProvider;
 
 pub fn build_default_providers() -> Vec<Arc<dyn AIProvider>> {
     vec![
@@ -31,6 +33,7 @@ pub fn build_default_providers() -> Vec<Arc<dyn AIProvider>> {
         Arc::new(KieProvider::new()),
         Arc::new(FalProvider::new()),
         Arc::new(AlibabaProvider::new()),
+        Arc::new(BltcyProvider::new()),
         Arc::new(CompatibleProvider::new()),
         Arc::new(CodingProvider::new()),
         Arc::new(ZhenzhenProvider::new()),

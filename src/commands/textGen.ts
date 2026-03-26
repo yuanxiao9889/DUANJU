@@ -7,6 +7,7 @@ export interface TextGenerationRequest {
   provider?: string;
   temperature?: number;
   maxTokens?: number;
+  referenceImages?: string[];
 }
 
 export interface TextGenerationResponse {
@@ -61,12 +62,18 @@ export async function generateText(request: TextGenerationRequest): Promise<Text
   const settings = useSettingsStore.getState();
   const { provider, model } = resolveProviderAndModel(request);
   const apiKey = (settings.apiKeys[provider] || '').trim();
+  const referenceImages = Array.isArray(request.referenceImages)
+    ? request.referenceImages
+        .map((item) => (typeof item === 'string' ? item.trim() : ''))
+        .filter((item) => item.length > 0)
+    : [];
   
   console.info('[AI] generate_text request', {
     promptLength: request.prompt.length,
     provider,
     model,
     hasApiKey: !!apiKey,
+    referenceImageCount: referenceImages.length,
     tauri: isTauri(),
     settingsScriptProvider: settings.scriptProviderEnabled,
   });
@@ -93,6 +100,7 @@ export async function generateText(request: TextGenerationRequest): Promise<Text
         api_key: apiKey,
         temperature: request.temperature || 0.7,
         max_tokens: request.maxTokens || 2048,
+        reference_images: referenceImages.length > 0 ? referenceImages : undefined,
       },
     });
 

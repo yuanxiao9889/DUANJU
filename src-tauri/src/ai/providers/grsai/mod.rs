@@ -1,3 +1,4 @@
+use base64::{engine::general_purpose::STANDARD, Engine};
 use reqwest::multipart::{Form, Part};
 use reqwest::Client;
 use serde::Serialize;
@@ -7,7 +8,6 @@ use std::sync::Arc;
 use tokio::sync::RwLock;
 use tokio::time::{sleep, Duration};
 use tracing::info;
-use base64::{engine::general_purpose::STANDARD, Engine};
 
 use crate::ai::error::AIError;
 use crate::ai::{
@@ -81,14 +81,23 @@ fn encode_reference_for_grsai(source: &str) -> Option<String> {
     } else {
         PathBuf::from(trimmed)
     };
-    info!("[GRSAI API] encode_reference_for_grsai: reading file from path: {:?}", path);
+    info!(
+        "[GRSAI API] encode_reference_for_grsai: reading file from path: {:?}",
+        path
+    );
     match std::fs::read(&path) {
         Ok(bytes) => {
-            info!("[GRSAI API] encode_reference_for_grsai: successfully read {} bytes", bytes.len());
+            info!(
+                "[GRSAI API] encode_reference_for_grsai: successfully read {} bytes",
+                bytes.len()
+            );
             Some(STANDARD.encode(bytes))
         }
         Err(e) => {
-            info!("[GRSAI API] encode_reference_for_grsai: failed to read file: {}", e);
+            info!(
+                "[GRSAI API] encode_reference_for_grsai: failed to read file: {}",
+                e
+            );
             None
         }
     }
@@ -147,7 +156,9 @@ fn file_extension_from_source(source: &str) -> String {
         }
     }
 
-    if trimmed.starts_with("file://") || (!trimmed.starts_with("http://") && !trimmed.starts_with("https://")) {
+    if trimmed.starts_with("file://")
+        || (!trimmed.starts_with("http://") && !trimmed.starts_with("https://"))
+    {
         let path = if trimmed.starts_with("file://") {
             PathBuf::from(decode_file_url_path(trimmed))
         } else {
@@ -202,9 +213,15 @@ impl GrsaiProvider {
             .map(|(_, model)| model.to_string())
             .unwrap_or_else(|| request.model.clone());
 
-        info!("[GRSAI] Original model: {}, normalized: {}", request.model, requested);
+        info!(
+            "[GRSAI] Original model: {}, normalized: {}",
+            request.model, requested
+        );
 
-        if requested == "nano-banana-2" || requested == "nano-banana-fast" || requested == "nano-banana" {
+        if requested == "nano-banana-2"
+            || requested == "nano-banana-fast"
+            || requested == "nano-banana"
+        {
             return requested;
         }
 
@@ -236,7 +253,10 @@ impl GrsaiProvider {
                     .get("msg")
                     .and_then(|raw| raw.as_str())
                     .unwrap_or("unknown error");
-                return Err(AIError::Provider(format!("GRSAI API code {}: {}", code, msg)));
+                return Err(AIError::Provider(format!(
+                    "GRSAI API code {}: {}",
+                    code, msg
+                )));
             }
             return value
                 .get("data")
@@ -293,7 +313,11 @@ impl GrsaiProvider {
             .filter(|url| !url.is_empty())
     }
 
-    async fn upload_reference_image_zh(&self, api_key: &str, source: &str) -> Result<String, AIError> {
+    async fn upload_reference_image_zh(
+        &self,
+        api_key: &str,
+        source: &str,
+    ) -> Result<String, AIError> {
         if source.starts_with("http://") || source.starts_with("https://") {
             return Ok(source.to_string());
         }
@@ -377,10 +401,14 @@ impl GrsaiProvider {
         ))
     }
 
-    async fn send_draw_request(&self, endpoint: &str, api_key: &str, body: &DrawRequestBody) -> Result<Value, AIError> {
-        let request_body = serde_json::to_string(body).map_err(|e| {
-            AIError::Provider(format!("Failed to serialize request body: {}", e))
-        })?;
+    async fn send_draw_request(
+        &self,
+        endpoint: &str,
+        api_key: &str,
+        body: &DrawRequestBody,
+    ) -> Result<Value, AIError> {
+        let request_body = serde_json::to_string(body)
+            .map_err(|e| AIError::Provider(format!("Failed to serialize request body: {}", e)))?;
 
         info!("[GRSAI API] Full URL: {}", endpoint);
         info!("[GRSAI API] Request body length: {}", request_body.len());
@@ -411,7 +439,11 @@ impl GrsaiProvider {
         Self::parse_response_value(&response_text)
     }
 
-    async fn request_draw(&self, request: &GenerateRequest, model: String) -> Result<Value, AIError> {
+    async fn request_draw(
+        &self,
+        request: &GenerateRequest,
+        model: String,
+    ) -> Result<Value, AIError> {
         let api_key = self
             .api_key
             .read()
@@ -446,9 +478,12 @@ impl GrsaiProvider {
                     }
                 }
             }
-            info!("[GRSAI API] Prepared reference payload count: {}", urls.len());
+            info!(
+                "[GRSAI API] Prepared reference payload count: {}",
+                urls.len()
+            );
         }
-        
+
         let body = DrawRequestBody {
             model,
             prompt: request.prompt.clone(),
@@ -485,7 +520,9 @@ impl GrsaiProvider {
                 cdn: body.cdn.clone(),
             };
             info!("[GRSAI API] Retrying draw request with minimal optional fields");
-            return self.send_draw_request(&endpoint, &api_key, &fallback_body).await;
+            return self
+                .send_draw_request(&endpoint, &api_key, &fallback_body)
+                .await;
         }
 
         Ok(response)
@@ -537,16 +574,23 @@ impl GrsaiProvider {
                     .unwrap_or("unknown failure");
                 Ok(ProviderTaskPollResult::Failed(reason.to_string()))
             }
-            Some(other) => Err(AIError::Provider(format!("GRSAI unexpected task status: {}", other))),
+            Some(other) => Err(AIError::Provider(format!(
+                "GRSAI unexpected task status: {}",
+                other
+            ))),
         }
     }
 
     async fn poll_result_until_complete(&self, task_id: &str) -> Result<String, AIError> {
         loop {
             match self.poll_result_once(task_id).await? {
-                ProviderTaskPollResult::Running => sleep(Duration::from_millis(POLL_INTERVAL_MS)).await,
+                ProviderTaskPollResult::Running => {
+                    sleep(Duration::from_millis(POLL_INTERVAL_MS)).await
+                }
                 ProviderTaskPollResult::Succeeded(url) => return Ok(url),
-                ProviderTaskPollResult::Failed(message) => return Err(AIError::TaskFailed(message)),
+                ProviderTaskPollResult::Failed(message) => {
+                    return Err(AIError::TaskFailed(message))
+                }
             }
         }
     }
@@ -588,7 +632,10 @@ impl AIProvider for GrsaiProvider {
         true
     }
 
-    async fn submit_task(&self, request: GenerateRequest) -> Result<ProviderTaskSubmission, AIError> {
+    async fn submit_task(
+        &self,
+        request: GenerateRequest,
+    ) -> Result<ProviderTaskSubmission, AIError> {
         let model = self.normalize_requested_model(&request);
         let draw_response = self.request_draw(&request, model).await?;
         let payload = Self::resolve_task_payload(&draw_response)?;
@@ -607,7 +654,10 @@ impl AIProvider for GrsaiProvider {
         }))
     }
 
-    async fn poll_task(&self, handle: ProviderTaskHandle) -> Result<ProviderTaskPollResult, AIError> {
+    async fn poll_task(
+        &self,
+        handle: ProviderTaskHandle,
+    ) -> Result<ProviderTaskPollResult, AIError> {
         self.poll_result_once(handle.task_id.as_str()).await
     }
 
