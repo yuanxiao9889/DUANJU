@@ -19,13 +19,26 @@ import { UiCheckbox, UiInput, UiSelect } from '@/components/ui';
 import { UI_CONTENT_OVERLAY_INSET_CLASS, UI_DIALOG_TRANSITION_MS } from '@/components/ui/motion';
 import { useDialogTransition } from '@/components/ui/useDialogTransition';
 import {
+  getCustomScriptModels,
+  getCustomStoryboardModels,
+  getStoryboardImageModel,
+  isStoryboardCustomModelProviderId,
+  listScriptProviders,
+  resolveConfiguredScriptModel,
+  resolveConfiguredStoryboardModel,
+  resolveScriptModelOptions,
+  resolveStoryboardCompatibleModelConfigForModel,
+  resolveStoryboardModelOptions,
+  toStoryboardProviderModelId,
+  upsertCustomScriptModelEntry,
+  type CustomScriptModelEntry,
+  type CustomStoryboardModelEntry,
   STORYBOARD_COMPATIBLE_API_FORMATS,
   listModelProviders,
   type StoryboardCompatibleApiFormat,
+  upsertCustomStoryboardModelEntry,
 } from '@/features/canvas/models';
 import { GRSAI_NANO_BANANA_PRO_MODEL_OPTIONS } from '@/features/canvas/models/providers/grsai';
-import { ALIBABA_TEXT_MODEL_OPTIONS } from '@/features/canvas/models/providers/alibaba';
-import { CODING_MODEL_OPTIONS } from '@/features/canvas/models/providers/coding';
 import { GRSAI_CREDIT_TIERS } from '@/features/canvas/pricing/types';
 import type { SettingsCategory } from '@/features/settings/settingsEvents';
 import {
@@ -162,9 +175,11 @@ export function SettingsDialog({
   const {
     apiKeys,
     scriptProviderEnabled,
+    scriptModelOverrides,
+    scriptProviderCustomModels,
+    storyboardModelOverrides,
+    storyboardProviderCustomModels,
     hrsaiNanoBananaProModel,
-    alibabaTextModel,
-    codingModel,
     storyboardCompatibleModelConfig,
     downloadPresetPaths,
     useUploadFilenameAsNodeTitle,
@@ -186,9 +201,11 @@ export function SettingsDialog({
     canvasEdgeRoutingMode,
     setProviderApiKey,
     setScriptProviderEnabled,
+    setScriptModelOverride,
+    setScriptProviderCustomModels,
+    setStoryboardModelOverride,
+    setStoryboardProviderCustomModels,
     setGrsaiNanoBananaProModel,
-    setAlibabaTextModel,
-    setCodingModel,
     setStoryboardCompatibleModelConfig,
     setDownloadPresetPaths,
     setUseUploadFilenameAsNodeTitle,
@@ -243,7 +260,7 @@ export function SettingsDialog({
       return leftIndex - rightIndex;
     });
   }, []);
-  const scriptProviders = useMemo(() => providers.filter(p => p.id === 'alibaba' || p.id === 'coding'), [providers]);
+  const scriptProviders = useMemo(() => listScriptProviders(providers), [providers]);
   const storyboardProviders = useMemo(() => providers.filter(p => p.id !== 'alibaba' && p.id !== 'coding'), [providers]);
   const [activeCategory, setActiveCategory] = useState<SettingsCategory>(initialCategory);
   const [localProviderTab, setLocalProviderTab] = useState<'script' | 'storyboard'>('script');
@@ -254,8 +271,22 @@ export function SettingsDialog({
   const [localScriptProviderEnabled, setLocalScriptProviderEnabled] = useState(scriptProviderEnabled);
   const [selectedScriptProvider, setSelectedScriptProvider] = useState(scriptProviderEnabled || scriptProviders[0]?.id || '');
   const [selectedStoryboardProvider, setSelectedStoryboardProvider] = useState(storyboardProviders[0]?.id || '');
-  const [localAlibabaTextModel, setLocalAlibabaTextModel] = useState('qwen-plus');
-  const [localCodingModel, setLocalCodingModel] = useState('qwen3.5-plus');
+  const [localScriptModelOverrides, setLocalScriptModelOverrides] =
+    useState<Record<string, string>>(scriptModelOverrides);
+  const [localScriptProviderCustomModels, setLocalScriptProviderCustomModels] =
+    useState<Record<string, CustomScriptModelEntry[]>>(scriptProviderCustomModels);
+  const [localScriptModelIdInputs, setLocalScriptModelIdInputs] =
+    useState<Record<string, string>>({});
+  const [localScriptModelDisplayNameInputs, setLocalScriptModelDisplayNameInputs] =
+    useState<Record<string, string>>({});
+  const [localStoryboardModelOverrides, setLocalStoryboardModelOverrides] =
+    useState<Record<string, string>>(storyboardModelOverrides);
+  const [localStoryboardProviderCustomModels, setLocalStoryboardProviderCustomModels] =
+    useState<Record<string, CustomStoryboardModelEntry[]>>(storyboardProviderCustomModels);
+  const [localStoryboardModelIdInputs, setLocalStoryboardModelIdInputs] =
+    useState<Record<string, string>>({});
+  const [localStoryboardModelDisplayNameInputs, setLocalStoryboardModelDisplayNameInputs] =
+    useState<Record<string, string>>({});
   const [localStoryboardCompatibleModelConfig, setLocalStoryboardCompatibleModelConfig] =
     useState(storyboardCompatibleModelConfig);
   const [localDownloadPathInput, setLocalDownloadPathInput] = useState('');
@@ -344,8 +375,15 @@ export function SettingsDialog({
     setLocalGrsaiNanoBananaProModel(hrsaiNanoBananaProModel);
     setLocalScriptProviderEnabled(scriptProviderEnabled);
     setSelectedScriptProvider(scriptProviderEnabled || scriptProviders[0]?.id || '');
-    setLocalAlibabaTextModel(alibabaTextModel || 'qwen-plus');
-    setLocalCodingModel(codingModel || 'qwen3.5-plus');
+    setSelectedStoryboardProvider(storyboardProviders[0]?.id || '');
+    setLocalScriptModelOverrides(scriptModelOverrides);
+    setLocalScriptProviderCustomModels(scriptProviderCustomModels);
+    setLocalScriptModelIdInputs({});
+    setLocalScriptModelDisplayNameInputs({});
+    setLocalStoryboardModelOverrides(storyboardModelOverrides);
+    setLocalStoryboardProviderCustomModels(storyboardProviderCustomModels);
+    setLocalStoryboardModelIdInputs({});
+    setLocalStoryboardModelDisplayNameInputs({});
     setLocalStoryboardCompatibleModelConfig(storyboardCompatibleModelConfig);
     setLocalUseUploadFilenameAsNodeTitle(useUploadFilenameAsNodeTitle);
     setLocalStoryboardGenKeepStyleConsistent(storyboardGenKeepStyleConsistent);
@@ -376,8 +414,10 @@ export function SettingsDialog({
     downloadPresetPaths,
     hrsaiNanoBananaProModel,
     scriptProviderEnabled,
-    alibabaTextModel,
-    codingModel,
+    scriptModelOverrides,
+    scriptProviderCustomModels,
+    storyboardModelOverrides,
+    storyboardProviderCustomModels,
     storyboardCompatibleModelConfig,
     useUploadFilenameAsNodeTitle,
     storyboardGenKeepStyleConsistent,
@@ -460,14 +500,225 @@ export function SettingsDialog({
     }
   }, []);
 
+  const resolveLocalScriptModel = useCallback((providerId: string) => {
+    return resolveConfiguredScriptModel(providerId, {
+      scriptModelOverrides: localScriptModelOverrides,
+      scriptProviderCustomModels: localScriptProviderCustomModels,
+    });
+  }, [localScriptModelOverrides, localScriptProviderCustomModels]);
+
+  const handleSelectScriptModel = useCallback((providerId: string, nextModel: string) => {
+    const previousModel = resolveLocalScriptModel(providerId);
+    console.info('[TextModelActivation] switch model', {
+      provider: providerId,
+      from: previousModel,
+      to: nextModel,
+      switchedAt: Date.now(),
+    });
+    setLocalScriptModelOverrides((previous) => ({
+      ...previous,
+      [providerId]: nextModel,
+    }));
+  }, [resolveLocalScriptModel]);
+
+  const handleAddCustomScriptModel = useCallback((providerId: string) => {
+    const nextModelId = (localScriptModelIdInputs[providerId] ?? '').trim();
+    if (!nextModelId) {
+      return;
+    }
+
+    const nextDisplayName = (localScriptModelDisplayNameInputs[providerId] ?? '').trim();
+    setLocalScriptProviderCustomModels((previous) => ({
+      ...previous,
+      [providerId]: upsertCustomScriptModelEntry(
+        providerId,
+        getCustomScriptModels(providerId, previous),
+        nextModelId,
+        nextDisplayName
+      ),
+    }));
+    setLocalScriptModelOverrides((previous) => ({
+      ...previous,
+      [providerId]: nextModelId,
+    }));
+    setLocalScriptModelIdInputs((previous) => ({ ...previous, [providerId]: '' }));
+    setLocalScriptModelDisplayNameInputs((previous) => ({ ...previous, [providerId]: '' }));
+  }, [localScriptModelDisplayNameInputs, localScriptModelIdInputs]);
+
+  const handleRemoveCustomScriptModel = useCallback((
+    providerId: string,
+    model: CustomScriptModelEntry
+  ) => {
+    setLocalScriptProviderCustomModels((previous) => ({
+      ...previous,
+      [providerId]: getCustomScriptModels(providerId, previous).filter(
+        (entry) => entry.id !== model.id
+      ),
+    }));
+    setLocalScriptModelOverrides((previous) => ({
+      ...previous,
+      [providerId]:
+        (previous[providerId] ?? '').trim() === model.modelId
+          ? ''
+          : (previous[providerId] ?? ''),
+    }));
+  }, []);
+
+  const resolveLocalStoryboardModel = useCallback((providerId: string) => {
+    return resolveConfiguredStoryboardModel(providerId, {
+      storyboardModelOverrides: localStoryboardModelOverrides,
+      storyboardProviderCustomModels: localStoryboardProviderCustomModels,
+      storyboardCompatibleModelConfig: localStoryboardCompatibleModelConfig,
+    });
+  }, [
+    localStoryboardCompatibleModelConfig,
+    localStoryboardModelOverrides,
+    localStoryboardProviderCustomModels,
+  ]);
+
+  const handleSelectStoryboardModel = useCallback((providerId: string, nextModel: string) => {
+    setLocalStoryboardModelOverrides((previous) => ({
+      ...previous,
+      [providerId]: nextModel,
+    }));
+
+    if (providerId === 'compatible') {
+      setLocalStoryboardCompatibleModelConfig((previous) =>
+        resolveStoryboardCompatibleModelConfigForModel(
+          nextModel,
+          previous,
+          localStoryboardProviderCustomModels
+        )
+      );
+    }
+  }, [localStoryboardProviderCustomModels]);
+
+  const handleAddCustomStoryboardModel = useCallback((providerId: string) => {
+    const nextModelId = (localStoryboardModelIdInputs[providerId] ?? '').trim();
+    if (!nextModelId) {
+      return;
+    }
+
+    const nextDisplayName = (localStoryboardModelDisplayNameInputs[providerId] ?? '').trim();
+    const nextEntries = upsertCustomStoryboardModelEntry(
+      providerId,
+      getCustomStoryboardModels(providerId, localStoryboardProviderCustomModels),
+      nextModelId,
+      nextDisplayName
+    );
+    const nextResolvedModelId = toStoryboardProviderModelId(providerId, nextModelId);
+
+    setLocalStoryboardProviderCustomModels((previous) => ({
+      ...previous,
+      [providerId]: nextEntries,
+    }));
+    setLocalStoryboardModelOverrides((previous) => ({
+      ...previous,
+      [providerId]: nextResolvedModelId,
+    }));
+    setLocalStoryboardModelIdInputs((previous) => ({ ...previous, [providerId]: '' }));
+    setLocalStoryboardModelDisplayNameInputs((previous) => ({ ...previous, [providerId]: '' }));
+
+    if (providerId === 'compatible') {
+      setLocalStoryboardCompatibleModelConfig((previous) =>
+        resolveStoryboardCompatibleModelConfigForModel(
+          nextResolvedModelId,
+          previous,
+          { ...localStoryboardProviderCustomModels, [providerId]: nextEntries }
+        )
+      );
+    }
+  }, [
+    localStoryboardModelDisplayNameInputs,
+    localStoryboardModelIdInputs,
+    localStoryboardProviderCustomModels,
+  ]);
+
+  const handleRemoveCustomStoryboardModel = useCallback((
+    providerId: string,
+    model: CustomStoryboardModelEntry
+  ) => {
+    const remainingEntries = getCustomStoryboardModels(
+      providerId,
+      localStoryboardProviderCustomModels
+    ).filter((entry) => entry.id !== model.id);
+    const nextCustomModels = {
+      ...localStoryboardProviderCustomModels,
+      [providerId]: remainingEntries,
+    };
+    const removedModelId = toStoryboardProviderModelId(providerId, model.modelId);
+    const nextResolvedModel = resolveConfiguredStoryboardModel(providerId, {
+      storyboardModelOverrides: {
+        ...localStoryboardModelOverrides,
+        [providerId]:
+          (localStoryboardModelOverrides[providerId] ?? '').trim().toLowerCase()
+          === removedModelId.toLowerCase()
+            ? ''
+            : (localStoryboardModelOverrides[providerId] ?? ''),
+      },
+      storyboardProviderCustomModels: nextCustomModels,
+      storyboardCompatibleModelConfig: localStoryboardCompatibleModelConfig,
+    });
+
+    setLocalStoryboardProviderCustomModels(nextCustomModels);
+    setLocalStoryboardModelOverrides((previous) => ({
+      ...previous,
+      [providerId]: nextResolvedModel,
+    }));
+
+    if (providerId === 'compatible') {
+      setLocalStoryboardCompatibleModelConfig((previous) =>
+        resolveStoryboardCompatibleModelConfigForModel(
+          nextResolvedModel,
+          {
+            ...previous,
+            requestModel: remainingEntries[0]?.modelId ?? '',
+            displayName: remainingEntries[0]?.displayName ?? '',
+          },
+          nextCustomModels
+        )
+      );
+    }
+  }, [
+    localStoryboardCompatibleModelConfig,
+    localStoryboardModelOverrides,
+    localStoryboardProviderCustomModels,
+  ]);
+
   const handleSave = useCallback(() => {
     providers.forEach((provider) => {
       setProviderApiKey(provider.id, localApiKeys[provider.id] ?? '');
     });
     setGrsaiNanoBananaProModel(localGrsaiNanoBananaProModel);
     setScriptProviderEnabled(localScriptProviderEnabled);
-    setAlibabaTextModel(localAlibabaTextModel);
-    setCodingModel(localCodingModel);
+    scriptProviders.forEach((provider) => {
+      setScriptModelOverride(provider.id, resolveConfiguredScriptModel(provider.id, {
+        scriptModelOverrides: localScriptModelOverrides,
+        scriptProviderCustomModels: localScriptProviderCustomModels,
+      }));
+      setScriptProviderCustomModels(
+        provider.id,
+        getCustomScriptModels(provider.id, localScriptProviderCustomModels)
+      );
+    });
+    storyboardProviders.forEach((provider) => {
+      if (!isStoryboardCustomModelProviderId(provider.id)) {
+        return;
+      }
+
+      setStoryboardModelOverride(
+        provider.id,
+        resolveConfiguredStoryboardModel(provider.id, {
+          storyboardModelOverrides: localStoryboardModelOverrides,
+          storyboardProviderCustomModels: localStoryboardProviderCustomModels,
+          storyboardCompatibleModelConfig: localStoryboardCompatibleModelConfig,
+        })
+      );
+      setStoryboardProviderCustomModels(
+        provider.id,
+        getCustomStoryboardModels(provider.id, localStoryboardProviderCustomModels)
+      );
+    });
     setStoryboardCompatibleModelConfig(localStoryboardCompatibleModelConfig);
     setDownloadPresetPaths(localDownloadPresetPaths);
     setUseUploadFilenameAsNodeTitle(localUseUploadFilenameAsNodeTitle);
@@ -515,12 +766,21 @@ export function SettingsDialog({
     localPsIntegrationEnabled,
     localPsServerPort,
     localPsAutoStartServer,
+    localScriptModelOverrides,
+    localScriptProviderCustomModels,
+    localStoryboardCompatibleModelConfig,
+    localStoryboardModelOverrides,
+    localStoryboardProviderCustomModels,
     providers,
+    scriptProviders,
+    storyboardProviders,
     setProviderApiKey,
     setGrsaiNanoBananaProModel,
     setScriptProviderEnabled,
-    setAlibabaTextModel,
-    setCodingModel,
+    setScriptModelOverride,
+    setScriptProviderCustomModels,
+    setStoryboardModelOverride,
+    setStoryboardProviderCustomModels,
     setStoryboardCompatibleModelConfig,
     setDownloadPresetPaths,
     setUseUploadFilenameAsNodeTitle,
@@ -545,9 +805,6 @@ export function SettingsDialog({
     setPsAutoStartServer,
     onClose,
     localScriptProviderEnabled,
-    localAlibabaTextModel,
-    localCodingModel,
-    localStoryboardCompatibleModelConfig,
   ]);
 
   const displayedGroupNodesShortcut = useMemo(
@@ -870,6 +1127,49 @@ export function SettingsDialog({
                       const hasKey = Boolean((localApiKeys[provider.id] ?? '').trim());
                       const isScriptTab = localProviderTab === 'script';
                       const isEnabled = isScriptTab && localScriptProviderEnabled === provider.id && hasKey;
+                      const resolvedScriptModel = isScriptTab
+                        ? resolveConfiguredScriptModel(provider.id, {
+                            scriptModelOverrides: localScriptModelOverrides,
+                            scriptProviderCustomModels: localScriptProviderCustomModels,
+                          })
+                        : '';
+                      const scriptModelOptions = isScriptTab
+                        ? resolveScriptModelOptions(provider.id, localScriptProviderCustomModels)
+                        : [];
+                      const customScriptModels = isScriptTab
+                        ? getCustomScriptModels(provider.id, localScriptProviderCustomModels)
+                        : [];
+                      const customScriptModelDisplayNameInput =
+                        localScriptModelDisplayNameInputs[provider.id] ?? '';
+                      const customScriptModelIdInput =
+                        localScriptModelIdInputs[provider.id] ?? '';
+                      const isStoryboardCustomizableProvider =
+                        !isScriptTab && isStoryboardCustomModelProviderId(provider.id);
+                      const resolvedStoryboardModel = isStoryboardCustomizableProvider
+                        ? resolveLocalStoryboardModel(provider.id)
+                        : '';
+                      const storyboardModelOptions = isStoryboardCustomizableProvider
+                        ? resolveStoryboardModelOptions(
+                          provider.id,
+                          localStoryboardProviderCustomModels,
+                          localStoryboardCompatibleModelConfig
+                        )
+                        : [];
+                      const customStoryboardModels = isStoryboardCustomizableProvider
+                        ? getCustomStoryboardModels(provider.id, localStoryboardProviderCustomModels)
+                        : [];
+                      const customStoryboardModelDisplayNameInput =
+                        localStoryboardModelDisplayNameInputs[provider.id] ?? '';
+                      const customStoryboardModelIdInput =
+                        localStoryboardModelIdInputs[provider.id] ?? '';
+                      const selectedStoryboardModelDefinition = isStoryboardCustomizableProvider
+                        && resolvedStoryboardModel
+                        ? getStoryboardImageModel(
+                          resolvedStoryboardModel,
+                          localStoryboardCompatibleModelConfig,
+                          localStoryboardProviderCustomModels
+                        )
+                        : null;
 
                       return (
                         <div className="space-y-4">
@@ -975,19 +1275,21 @@ export function SettingsDialog({
                                 {t('settings.storyboardCompatibleNoConnectionTest')}
                               </div>
                             ) : (
-                              <div className="mt-3 flex items-center gap-3">
+                              <div className="mt-3 space-y-2">
                                 <button
                                   type="button"
                                   disabled={testingConnection === provider.id || !hasKey}
                                   onClick={async () => {
                                     setTestingConnection(provider.id);
-                                    const model = provider.id === 'alibaba'
-                                      ? localAlibabaTextModel
-                                      : provider.id === 'coding'
-                                        ? localCodingModel
-                                        : provider.id === 'grsai'
-                                          ? localGrsaiNanoBananaProModel
-                                          : DEFAULT_PROVIDER_TEST_MODELS[provider.id] ?? 'gemini-2.0-flash';
+                                    const model = isScriptTab
+                                      ? resolvedScriptModel
+                                      : isStoryboardCustomizableProvider && selectedStoryboardModelDefinition
+                                        ? selectedStoryboardModelDefinition.resolveRequest({
+                                          referenceImageCount: 0,
+                                        }).requestModel
+                                      : provider.id === 'grsai'
+                                        ? localGrsaiNanoBananaProModel
+                                        : DEFAULT_PROVIDER_TEST_MODELS[provider.id] ?? 'gemini-2.0-flash';
                                     const result = await testProviderConnection({
                                       provider: provider.id,
                                       apiKey: localApiKeys[provider.id] || '',
@@ -1003,20 +1305,262 @@ export function SettingsDialog({
                                     : t('settings.testConnection')}
                                 </button>
                                 {testResults[provider.id] && (
-                                  <span
-                                    className={`text-xs ${
+                                  <div
+                                    aria-live="polite"
+                                    className={`max-h-28 overflow-y-auto whitespace-pre-wrap break-all rounded-md border px-3 py-2 text-xs leading-5 ${
                                       testResults[provider.id].success
-                                        ? 'text-green-500'
-                                        : 'text-red-500'
+                                        ? 'border-green-500/30 bg-green-500/10 text-green-500'
+                                        : 'border-red-500/30 bg-red-500/10 text-red-500'
                                     }`}
                                   >
                                     {testResults[provider.id].success ? '✓' : '✗'}{' '}
                                     {testResults[provider.id].message}
-                                  </span>
+                                  </div>
                                 )}
                               </div>
                             )}
                           </div>
+
+                          {isScriptTab && (
+                            <div className="rounded-lg border border-border-dark bg-bg-dark p-4">
+                              <div className="mb-1 text-xs font-medium text-text-dark">
+                                {t('settings.scriptModelSelection')}
+                              </div>
+                              <p className="mb-3 text-xs leading-5 text-text-muted">
+                                {t('settings.scriptModelSelectionDesc')}
+                              </p>
+                              <div className="space-y-3">
+                                <UiSelect
+                                  value={resolvedScriptModel}
+                                  onChange={(event) => {
+                                    handleSelectScriptModel(provider.id, event.target.value);
+                                  }}
+                                  className="h-9 text-sm"
+                                >
+                                  {scriptModelOptions.map((option) => (
+                                    <option key={option.modelId} value={option.modelId}>
+                                      {option.label}
+                                    </option>
+                                  ))}
+                                </UiSelect>
+
+                                <div className="space-y-3">
+                                  <div>
+                                    <div className="mb-1 text-[11px] font-medium text-text-muted">
+                                      {t('settings.scriptCustomModelIdLabel')}
+                                    </div>
+                                    <UiInput
+                                      value={customScriptModelIdInput}
+                                      onChange={(event) =>
+                                        setLocalScriptModelIdInputs((previous) => ({
+                                          ...previous,
+                                          [provider.id]: event.target.value,
+                                        }))
+                                      }
+                                      onKeyDown={(event) => {
+                                        if (event.key === 'Enter') {
+                                          event.preventDefault();
+                                          handleAddCustomScriptModel(provider.id);
+                                        }
+                                      }}
+                                      placeholder={t('settings.scriptCustomModelIdPlaceholder')}
+                                      className="h-9 rounded-lg text-sm"
+                                    />
+                                  </div>
+                                  <div>
+                                    <div className="mb-1 text-[11px] font-medium text-text-muted">
+                                      {t('settings.scriptCustomModelDisplayNameLabel')}
+                                    </div>
+                                    <UiInput
+                                      value={customScriptModelDisplayNameInput}
+                                      onChange={(event) =>
+                                        setLocalScriptModelDisplayNameInputs((previous) => ({
+                                          ...previous,
+                                          [provider.id]: event.target.value,
+                                        }))
+                                      }
+                                      onKeyDown={(event) => {
+                                        if (event.key === 'Enter') {
+                                          event.preventDefault();
+                                          handleAddCustomScriptModel(provider.id);
+                                        }
+                                      }}
+                                      placeholder={t('settings.scriptCustomModelDisplayNamePlaceholder')}
+                                      className="h-9 rounded-lg text-sm"
+                                    />
+                                  </div>
+                                  <button
+                                    type="button"
+                                    onClick={() => handleAddCustomScriptModel(provider.id)}
+                                    className="inline-flex h-9 w-full items-center justify-center gap-1 rounded-lg border border-border-dark bg-surface-dark px-3 text-xs text-text-dark transition-colors hover:bg-bg-dark"
+                                  >
+                                    <Plus className="h-3.5 w-3.5" />
+                                    {t('settings.scriptCustomModelAdd')}
+                                  </button>
+                                </div>
+
+                                {customScriptModels.length > 0 ? (
+                                  <div className="space-y-2">
+                                    {customScriptModels.map((model) => (
+                                      <div
+                                        key={model.id}
+                                        className="flex items-center gap-3 rounded-md border border-border-dark bg-surface-dark px-3 py-2"
+                                      >
+                                        <div className="min-w-0 flex-1">
+                                          <div className="truncate text-sm text-text-dark">
+                                            {model.displayName}
+                                          </div>
+                                          <div className="truncate text-[11px] text-text-muted">
+                                            {model.modelId}
+                                          </div>
+                                        </div>
+                                        <button
+                                          type="button"
+                                          onClick={() => handleRemoveCustomScriptModel(provider.id, model)}
+                                          className="rounded p-1 text-text-muted transition-colors hover:bg-bg-dark hover:text-text-dark"
+                                          title={t('settings.scriptCustomModelDelete')}
+                                        >
+                                          <Trash2 className="h-4 w-4" />
+                                        </button>
+                                      </div>
+                                    ))}
+                                  </div>
+                                ) : (
+                                  <div className="rounded-md border border-dashed border-border-dark px-3 py-2 text-[11px] leading-5 text-text-muted">
+                                    {t('settings.scriptCustomModelEmpty')}
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+                          )}
+
+                          {isStoryboardCustomizableProvider && (
+                            <div className="rounded-lg border border-border-dark bg-bg-dark p-4">
+                              <div className="mb-1 text-xs font-medium text-text-dark">
+                                {t('settings.storyboardModelSelection')}
+                              </div>
+                              <p className="mb-3 text-xs leading-5 text-text-muted">
+                                {t(
+                                  provider.id === 'compatible'
+                                    ? 'settings.storyboardCompatibleModelSelectionDesc'
+                                    : 'settings.storyboardModelSelectionDesc'
+                                )}
+                              </p>
+                              <div className="space-y-3">
+                                <UiSelect
+                                  value={resolvedStoryboardModel}
+                                  onChange={(event) => {
+                                    handleSelectStoryboardModel(provider.id, event.target.value);
+                                  }}
+                                  className="h-9 text-sm"
+                                  disabled={storyboardModelOptions.length === 0}
+                                >
+                                  {storyboardModelOptions.length > 0 ? (
+                                    storyboardModelOptions.map((option) => (
+                                      <option key={option.modelId} value={option.modelId}>
+                                        {option.label}
+                                      </option>
+                                    ))
+                                  ) : (
+                                    <option value="">-</option>
+                                  )}
+                                </UiSelect>
+
+                                <div className="space-y-3">
+                                  <div>
+                                    <div className="mb-1 text-[11px] font-medium text-text-muted">
+                                      {t('settings.scriptCustomModelIdLabel')}
+                                    </div>
+                                    <UiInput
+                                      value={customStoryboardModelIdInput}
+                                      onChange={(event) =>
+                                        setLocalStoryboardModelIdInputs((previous) => ({
+                                          ...previous,
+                                          [provider.id]: event.target.value,
+                                        }))
+                                      }
+                                      onKeyDown={(event) => {
+                                        if (event.key === 'Enter') {
+                                          event.preventDefault();
+                                          handleAddCustomStoryboardModel(provider.id);
+                                        }
+                                      }}
+                                      placeholder={
+                                        provider.id === 'compatible'
+                                          ? 'gpt-image-1 / gemini-2.5-flash-image-preview'
+                                          : t('settings.storyboardCustomModelIdPlaceholder')
+                                      }
+                                      className="h-9 rounded-lg text-sm"
+                                    />
+                                  </div>
+                                  <div>
+                                    <div className="mb-1 text-[11px] font-medium text-text-muted">
+                                      {t('settings.scriptCustomModelDisplayNameLabel')}
+                                    </div>
+                                    <UiInput
+                                      value={customStoryboardModelDisplayNameInput}
+                                      onChange={(event) =>
+                                        setLocalStoryboardModelDisplayNameInputs((previous) => ({
+                                          ...previous,
+                                          [provider.id]: event.target.value,
+                                        }))
+                                      }
+                                      onKeyDown={(event) => {
+                                        if (event.key === 'Enter') {
+                                          event.preventDefault();
+                                          handleAddCustomStoryboardModel(provider.id);
+                                        }
+                                      }}
+                                      placeholder={t('settings.storyboardCustomModelDisplayNamePlaceholder')}
+                                      className="h-9 rounded-lg text-sm"
+                                    />
+                                  </div>
+                                  <button
+                                    type="button"
+                                    onClick={() => handleAddCustomStoryboardModel(provider.id)}
+                                    className="inline-flex h-9 w-full items-center justify-center gap-1 rounded-lg border border-border-dark bg-surface-dark px-3 text-xs text-text-dark transition-colors hover:bg-bg-dark"
+                                  >
+                                    <Plus className="h-3.5 w-3.5" />
+                                    {t('settings.scriptCustomModelAdd')}
+                                  </button>
+                                </div>
+
+                                {customStoryboardModels.length > 0 ? (
+                                  <div className="space-y-2">
+                                    {customStoryboardModels.map((model) => (
+                                      <div
+                                        key={model.id}
+                                        className="flex items-center gap-3 rounded-md border border-border-dark bg-surface-dark px-3 py-2"
+                                      >
+                                        <div className="min-w-0 flex-1">
+                                          <div className="truncate text-sm text-text-dark">
+                                            {model.displayName}
+                                          </div>
+                                          <div className="truncate text-[11px] text-text-muted">
+                                            {model.modelId}
+                                          </div>
+                                        </div>
+                                        <button
+                                          type="button"
+                                          onClick={() =>
+                                            handleRemoveCustomStoryboardModel(provider.id, model)
+                                          }
+                                          className="rounded p-1 text-text-muted transition-colors hover:bg-bg-dark hover:text-text-dark"
+                                          title={t('settings.scriptCustomModelDelete')}
+                                        >
+                                          <Trash2 className="h-4 w-4" />
+                                        </button>
+                                      </div>
+                                    ))}
+                                  </div>
+                                ) : (
+                                  <div className="rounded-md border border-dashed border-border-dark px-3 py-2 text-[11px] leading-5 text-text-muted">
+                                    {t('settings.storyboardCustomModelEmpty')}
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+                          )}
 
                           {provider.id === 'compatible' && (
                             <div className="rounded-lg border border-border-dark bg-bg-dark p-4">
@@ -1066,38 +1610,6 @@ export function SettingsDialog({
                                     className="h-9 text-sm"
                                   />
                                 </div>
-                                <div>
-                                  <div className="mb-1 text-xs font-medium text-text-dark">
-                                    {t('settings.storyboardCompatibleRequestModel')}
-                                  </div>
-                                  <UiInput
-                                    value={localStoryboardCompatibleModelConfig.requestModel}
-                                    onChange={(event) =>
-                                      setLocalStoryboardCompatibleModelConfig((previous) => ({
-                                        ...previous,
-                                        requestModel: event.target.value,
-                                      }))
-                                    }
-                                    placeholder="gpt-image-1 / gemini-2.5-flash-image-preview"
-                                    className="h-9 text-sm"
-                                  />
-                                </div>
-                                <div>
-                                  <div className="mb-1 text-xs font-medium text-text-dark">
-                                    {t('settings.storyboardCompatibleDisplayName')}
-                                  </div>
-                                  <UiInput
-                                    value={localStoryboardCompatibleModelConfig.displayName}
-                                    onChange={(event) =>
-                                      setLocalStoryboardCompatibleModelConfig((previous) => ({
-                                        ...previous,
-                                        displayName: event.target.value,
-                                      }))
-                                    }
-                                    placeholder={t('settings.storyboardCompatibleDisplayNamePlaceholder')}
-                                    className="h-9 text-sm"
-                                  />
-                                </div>
                                 <div className="rounded-md border border-border-dark bg-black/10 px-3 py-2 text-[11px] leading-5 text-text-muted">
                                   {t('settings.storyboardCompatibleHint')}
                                 </div>
@@ -1141,83 +1653,6 @@ export function SettingsDialog({
                             </div>
                           )}
 
-                          {provider.id === 'alibaba' && (
-                            <div className="rounded-lg border border-border-dark bg-bg-dark p-4">
-                              <div className="mb-1 text-xs font-medium text-text-dark">
-                                {t('settings.alibabaTextModel')}
-                              </div>
-                              <UiSelect
-                                value={localAlibabaTextModel}
-                                onChange={(event) => {
-                                  const switchedAt = Date.now();
-                                  const nextModel = event.target.value;
-                                  console.info('[TextModelActivation] switch model', {
-                                    provider: 'alibaba',
-                                    from: localAlibabaTextModel,
-                                    to: nextModel,
-                                    switchedAt,
-                                  });
-                                  setLocalAlibabaTextModel(nextModel);
-                                }}
-                                className="h-9 text-sm"
-                              >
-                                {ALIBABA_TEXT_MODEL_OPTIONS.map((option) => (
-                                  <option key={option.value} value={option.value}>
-                                    {option.label}
-                                  </option>
-                                ))}
-                              </UiSelect>
-                            </div>
-                          )}
-
-                          {provider.id === 'coding' && (
-                            <div className="rounded-lg border border-border-dark bg-bg-dark p-4">
-                              <div className="mb-1 text-xs font-medium text-text-dark">
-                                {t('settings.codingModel')}
-                              </div>
-                              <div className="space-y-2">
-                                <UiSelect
-                                  value={CODING_MODEL_OPTIONS.some(o => o.value === localCodingModel) ? localCodingModel : 'custom'}
-                                  onChange={(event) => {
-                                    const val = event.target.value;
-                                    if (val === 'custom') {
-                                      console.info('[TextModelActivation] switch model', {
-                                        provider: 'coding',
-                                        from: localCodingModel,
-                                        to: '',
-                                        switchedAt: Date.now(),
-                                      });
-                                      setLocalCodingModel('');
-                                    } else {
-                                      console.info('[TextModelActivation] switch model', {
-                                        provider: 'coding',
-                                        from: localCodingModel,
-                                        to: val,
-                                        switchedAt: Date.now(),
-                                      });
-                                      setLocalCodingModel(val);
-                                    }
-                                  }}
-                                  className="h-9 text-sm"
-                                >
-                                  {CODING_MODEL_OPTIONS.map((option) => (
-                                    <option key={option.value} value={option.value}>
-                                      {option.label}
-                                    </option>
-                                  ))}
-                                </UiSelect>
-                                {(localCodingModel === '' || !CODING_MODEL_OPTIONS.some(o => o.value === localCodingModel)) && (
-                                  <input
-                                    type="text"
-                                    value={localCodingModel}
-                                    onChange={(e) => setLocalCodingModel(e.target.value)}
-                                    placeholder="Enter custom model ID (e.g. ep-20250204-xyz)"
-                                    className="h-9 w-full rounded border border-border-dark bg-surface-dark px-3 text-sm text-text-dark outline-none placeholder:text-text-muted"
-                                  />
-                                )}
-                              </div>
-                            </div>
-                          )}
                         </div>
                       );
                     })()}

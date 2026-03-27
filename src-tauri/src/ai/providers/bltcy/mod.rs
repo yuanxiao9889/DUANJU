@@ -20,9 +20,11 @@ const MAX_POLL_RETRIES: u32 = 150;
 
 const NANO_BANANA_2_4K_MODEL: &str = "nano-banana-2-4k";
 const GEMINI_FLASH_IMAGE_PREVIEW_4K_MODEL: &str = "gemini-3.1-flash-image-preview-4k";
-const SUPPORTED_MODELS: [&str; 2] = [
+const GPT_5_4_MODEL: &str = "gpt-5.4-2026-03-05";
+const SUPPORTED_MODELS: [&str; 3] = [
     NANO_BANANA_2_4K_MODEL,
     GEMINI_FLASH_IMAGE_PREVIEW_4K_MODEL,
+    GPT_5_4_MODEL,
 ];
 
 const SUPPORTED_ASPECT_RATIOS: [&str; 14] = [
@@ -66,6 +68,10 @@ impl BltcyProvider {
 
     fn is_gemini_preview_model(model: &str) -> bool {
         Self::sanitize_model(model) == GEMINI_FLASH_IMAGE_PREVIEW_4K_MODEL
+    }
+
+    fn uses_edit_endpoint(model: &str) -> bool {
+        Self::sanitize_model(model) == NANO_BANANA_2_4K_MODEL
     }
 
     fn validate_aspect_ratio(aspect_ratio: &str) -> bool {
@@ -424,6 +430,54 @@ impl BltcyProvider {
         })
     }
 
+    fn extract_text(payload: &Value) -> Option<String> {
+        if let Some(content) = payload
+            .pointer("/choices/0/message/content")
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+        {
+            return Some(content.to_string());
+        }
+
+        if let Some(content_parts) = payload
+            .pointer("/choices/0/message/content")
+            .and_then(Value::as_array)
+        {
+            let text_parts = content_parts
+                .iter()
+                .filter_map(|part| {
+                    part.pointer("/text")
+                        .and_then(Value::as_str)
+                        .map(str::trim)
+                        .filter(|value| !value.is_empty())
+                        .map(ToString::to_string)
+                })
+                .collect::<Vec<String>>();
+
+            if !text_parts.is_empty() {
+                return Some(text_parts.join("\n"));
+            }
+        }
+
+        [
+            "/choices/0/text",
+            "/output/text",
+            "/text",
+            "/response/text",
+            "/data/text",
+        ]
+        .iter()
+        .find_map(|pointer| {
+            payload
+                .pointer(pointer)
+                .and_then(Value::as_str)
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .map(ToString::to_string)
+        })
+    }
+
     async fn send_chat_request(
         &self,
         api_key: &str,
@@ -431,14 +485,23 @@ impl BltcyProvider {
         model: &str,
     ) -> Result<Value, AIError> {
         let endpoint = format!("{}{}", self.base_url, CHAT_COMPLETIONS_ENDPOINT_PATH);
+        let mut prompt_text = request.prompt.clone();
+        let mut preference_hints = Vec::new();
+        if !request.size.trim().is_empty() {
+            preference_hints.push(format!("Preferred size: {}.", request.size.trim()));
+        }
+        if !request.aspect_ratio.trim().is_empty() {
+            preference_hints.push(format!(
+                "Preferred aspect ratio: {}.",
+                request.aspect_ratio.trim()
+            ));
+        }
+        if !preference_hints.is_empty() {
+            prompt_text = format!("{}\n\n{}", request.prompt.as_str(), preference_hints.join(" "));
+        }
         let mut content = vec![json!({
             "type": "text",
-            "text": format!(
-                "{}\n\nPreferred size: {}. Preferred aspect ratio: {}.",
-                request.prompt.as_str(),
-                request.size.as_str(),
-                request.aspect_ratio.as_str()
-            ),
+            "text": prompt_text,
         })];
 
         if let Some(reference_images) = request.reference_images.as_ref() {
@@ -459,7 +522,11 @@ impl BltcyProvider {
                 "content": content,
             }],
             "stream": false,
-            "modalities": ["text", "image"],
+            "modalities": if Self::is_gemini_preview_model(model) {
+                json!(["text", "image"])
+            } else {
+                json!(["text"])
+            },
         });
 
         info!(
@@ -678,6 +745,7 @@ impl AIProvider for BltcyProvider {
         vec![
             "bltcy/nano-banana-2-4k".to_string(),
             "bltcy/gemini-3.1-flash-image-preview-4k".to_string(),
+            "bltcy/gpt-5.4-2026-03-05".to_string(),
         ]
     }
 
@@ -709,10 +777,10 @@ impl AIProvider for BltcyProvider {
                 .unwrap_or(0)
         );
 
-        let payload = if Self::is_gemini_preview_model(&model) {
-            self.send_chat_request(&api_key, &request, &model).await?
-        } else {
+        let payload = if Self::uses_edit_endpoint(&model) {
             self.send_edit_request(&api_key, &request, &model).await?
+        } else {
+            self.send_chat_request(&api_key, &request, &model).await?
         };
 
         if let Some(error_message) = Self::extract_error_message(&payload) {
@@ -721,6 +789,10 @@ impl AIProvider for BltcyProvider {
 
         if let Some(image_source) = Self::extract_first_image(&payload) {
             return Ok(image_source);
+        }
+
+        if let Some(text) = Self::extract_text(&payload) {
+            return Ok(text);
         }
 
         if let Some(task_id) = Self::extract_task_id(&payload) {

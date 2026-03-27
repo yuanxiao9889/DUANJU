@@ -6,16 +6,24 @@ import {
   type GrsaiCreditTierId,
   type PriceDisplayCurrencyMode,
 } from '@/features/canvas/pricing/types';
-import { DEFAULT_ALIBABA_TEXT_MODEL } from '@/features/canvas/models/providers/alibaba';
-import { DEFAULT_CODING_MODEL } from '@/features/canvas/models/providers/coding';
 import {
   DEFAULT_GROUP_NODES_SHORTCUT,
   normalizeShortcut,
 } from '@/features/settings/keyboardShortcuts';
+import { DEFAULT_ALIBABA_TEXT_MODEL } from '@/features/canvas/models/providers/alibaba';
+import { DEFAULT_CODING_MODEL } from '@/features/canvas/models/providers/coding';
 import {
+  type CustomScriptModelEntry,
+  type CustomStoryboardModelEntry,
+  DEFAULT_BLTCY_TEXT_MODEL,
   DEFAULT_IMAGE_MODEL_ID,
   getImageModel,
+  normalizeScriptModelOverrides,
+  normalizeScriptProviderCustomModels,
+  normalizeScriptProviderEnabledSelection,
+  normalizeStoryboardModelOverrides,
   normalizeStoryboardCompatibleModelConfig,
+  normalizeStoryboardProviderCustomModels,
   type StoryboardCompatibleModelConfig,
 } from '@/features/canvas/models';
 import {
@@ -42,7 +50,9 @@ interface SettingsState {
   apiKeys: ProviderApiKeys;
   scriptProviderEnabled: string;
   scriptModelOverrides: Record<string, string>;
+  scriptProviderCustomModels: Record<string, CustomScriptModelEntry[]>;
   storyboardModelOverrides: Record<string, string>;
+  storyboardProviderCustomModels: Record<string, CustomStoryboardModelEntry[]>;
   storyboardCompatibleModelConfig: StoryboardCompatibleModelConfig;
   lastImageEditModelId: string;
   lastImageEditSize: ImageSize;
@@ -82,7 +92,15 @@ interface SettingsState {
   setProviderApiKey: (providerId: string, key: string) => void;
   setScriptProviderEnabled: (providerId: string) => void;
   setScriptModelOverride: (providerId: string, model: string) => void;
+  setScriptProviderCustomModels: (
+    providerId: string,
+    models: CustomScriptModelEntry[]
+  ) => void;
   setStoryboardModelOverride: (providerId: string, model: string) => void;
+  setStoryboardProviderCustomModels: (
+    providerId: string,
+    models: CustomStoryboardModelEntry[]
+  ) => void;
   setStoryboardCompatibleModelConfig: (
     config: Partial<StoryboardCompatibleModelConfig>
   ) => void;
@@ -183,9 +201,10 @@ function normalizeGrsaiNanoBananaProModel(input: string | null | undefined): str
 
 function normalizeImageEditModelId(
   input: string | null | undefined,
-  compatibleConfig?: StoryboardCompatibleModelConfig | null
+  compatibleConfig?: StoryboardCompatibleModelConfig | null,
+  customStoryboardModels?: Record<string, CustomStoryboardModelEntry[]> | null
 ): string {
-  return getImageModel((input ?? '').trim(), compatibleConfig).id;
+  return getImageModel((input ?? '').trim(), compatibleConfig, customStoryboardModels).id;
 }
 
 function normalizeImageEditSize(input: ImageSize | string | null | undefined): ImageSize {
@@ -222,28 +241,6 @@ function normalizeApiKeys(input: ProviderApiKeys | null | undefined): ProviderAp
   }, {});
 }
 
-function normalizeScriptProviderEnabled(
-  input: string | null | undefined,
-  apiKeys: ProviderApiKeys
-): string {
-  if ((input === 'alibaba' || input === 'coding') && (apiKeys[input]?.trim().length ?? 0) > 0) {
-    return input;
-  }
-
-  if ((apiKeys.alibaba ?? '').trim().length > 0) {
-    return 'alibaba';
-  }
-  if ((apiKeys.coding ?? '').trim().length > 0) {
-    return 'coding';
-  }
-
-  if (input === 'alibaba' || input === 'coding') {
-    return input;
-  }
-
-  return 'alibaba';
-}
-
 export function hasConfiguredApiKey(apiKeys: ProviderApiKeys): boolean {
   return getConfiguredApiKeyCount(apiKeys) > 0;
 }
@@ -267,8 +264,14 @@ export const useSettingsStore = create<SettingsState>()(
       isHydrated: false,
       apiKeys: {},
       scriptProviderEnabled: 'alibaba',
-      scriptModelOverrides: {},
+      scriptModelOverrides: {
+        alibaba: DEFAULT_ALIBABA_TEXT_MODEL,
+        coding: DEFAULT_CODING_MODEL,
+        bltcy: DEFAULT_BLTCY_TEXT_MODEL,
+      },
+      scriptProviderCustomModels: {},
       storyboardModelOverrides: {},
+      storyboardProviderCustomModels: {},
       storyboardCompatibleModelConfig: normalizeStoryboardCompatibleModelConfig(undefined),
       lastImageEditModelId: DEFAULT_IMAGE_MODEL_ID,
       lastImageEditSize: '2K',
@@ -315,11 +318,38 @@ export const useSettingsStore = create<SettingsState>()(
       setScriptProviderEnabled: (providerId) => set({ scriptProviderEnabled: providerId }),
       setScriptModelOverride: (providerId, model) =>
         set((state) => ({
-          scriptModelOverrides: { ...state.scriptModelOverrides, [providerId]: model },
+          scriptModelOverrides: {
+            ...state.scriptModelOverrides,
+            [providerId]: model.trim(),
+          },
+          ...(providerId === 'alibaba' ? { alibabaTextModel: model.trim() } : {}),
+          ...(providerId === 'coding' ? { codingModel: model.trim() } : {}),
+        })),
+      setScriptProviderCustomModels: (providerId, models) =>
+        set((state) => ({
+          scriptProviderCustomModels: {
+            ...state.scriptProviderCustomModels,
+            [providerId]:
+              normalizeScriptProviderCustomModels({ [providerId]: models })[providerId] ?? [],
+          },
         })),
       setStoryboardModelOverride: (providerId, model) =>
         set((state) => ({
-          storyboardModelOverrides: { ...state.storyboardModelOverrides, [providerId]: model },
+          storyboardModelOverrides: {
+            ...state.storyboardModelOverrides,
+            [providerId]: model.trim(),
+          },
+        })),
+      setStoryboardProviderCustomModels: (providerId, models) =>
+        set((state) => ({
+          storyboardProviderCustomModels: {
+            ...state.storyboardProviderCustomModels,
+            [providerId]:
+              normalizeStoryboardProviderCustomModels(
+                { [providerId]: models },
+                state.storyboardCompatibleModelConfig
+              )[providerId] ?? [],
+          },
         })),
       setStoryboardCompatibleModelConfig: (config) =>
         set((state) => ({
@@ -333,7 +363,8 @@ export const useSettingsStore = create<SettingsState>()(
         set((state) => ({
           lastImageEditModelId: normalizeImageEditModelId(
             modelId ?? state.lastImageEditModelId,
-            state.storyboardCompatibleModelConfig
+            state.storyboardCompatibleModelConfig,
+            state.storyboardProviderCustomModels
           ),
           lastImageEditSize: normalizeImageEditSize(size ?? state.lastImageEditSize),
           lastImageEditRequestAspectRatio: normalizeImageEditRequestAspectRatio(
@@ -416,7 +447,7 @@ export const useSettingsStore = create<SettingsState>()(
     }),
     {
       name: 'settings-storage',
-      version: 18,
+      version: 20,
       onRehydrateStorage: () => {
         return (state, error) => {
           if (error) {
@@ -430,13 +461,19 @@ export const useSettingsStore = create<SettingsState>()(
           apiKey?: string;
           apiKeys?: ProviderApiKeys;
           scriptProviderEnabled?: string;
+          scriptModelOverrides?: Record<string, string>;
+          scriptProviderCustomModels?: Record<string, CustomScriptModelEntry[]>;
           storyboardProviderEnabled?: string;
+          storyboardModelOverrides?: Record<string, string>;
+          storyboardProviderCustomModels?: Record<string, CustomStoryboardModelEntry[]>;
           ignoreAtTagWhenCopyingAndGenerating?: boolean;
           grsaiNanoBananaProModel?: string;
           hideProviderGuidePopover?: boolean;
           lastImageEditModelId?: string;
           lastImageEditSize?: ImageSize | string;
           lastImageEditRequestAspectRatio?: string;
+          alibabaTextModel?: string;
+          codingModel?: string;
           canvasEdgeRoutingMode?: CanvasEdgeRoutingMode | string;
           autoCheckAppUpdateOnLaunch?: boolean;
           enableUpdateDialog?: boolean;
@@ -462,7 +499,7 @@ export const useSettingsStore = create<SettingsState>()(
             : state.apiKey
               ? { ppio: normalizeApiKey(state.apiKey) }
               : {};
-        const normalizedScriptProviderEnabled = normalizeScriptProviderEnabled(
+        const normalizedScriptProviderEnabled = normalizeScriptProviderEnabledSelection(
           state.scriptProviderEnabled,
           fallbackApiKeys
         );
@@ -470,16 +507,42 @@ export const useSettingsStore = create<SettingsState>()(
           state.ignoreAtTagWhenCopyingAndGenerating ?? true;
         const normalizedStoryboardCompatibleModelConfig =
           normalizeStoryboardCompatibleModelConfig(state.storyboardCompatibleModelConfig);
+        const normalizedStoryboardProviderCustomModels = normalizeStoryboardProviderCustomModels(
+          state.storyboardProviderCustomModels,
+          normalizedStoryboardCompatibleModelConfig
+        );
+        const normalizedStoryboardModelOverrides = normalizeStoryboardModelOverrides(
+          state.storyboardModelOverrides,
+          normalizedStoryboardProviderCustomModels,
+          normalizedStoryboardCompatibleModelConfig
+        );
+        const normalizedScriptProviderCustomModels = normalizeScriptProviderCustomModels(
+          state.scriptProviderCustomModels
+        );
+        const normalizedScriptModelOverrides = normalizeScriptModelOverrides(
+          state.scriptModelOverrides,
+          normalizedScriptProviderCustomModels,
+          {
+            alibaba: state.alibabaTextModel,
+            coding: state.codingModel,
+            bltcy: DEFAULT_BLTCY_TEXT_MODEL,
+          }
+        );
 
         return {
           ...(persistedState as object),
           isHydrated: true,
           apiKeys: fallbackApiKeys,
           scriptProviderEnabled: normalizedScriptProviderEnabled,
+          scriptModelOverrides: normalizedScriptModelOverrides,
+          scriptProviderCustomModels: normalizedScriptProviderCustomModels,
+          storyboardModelOverrides: normalizedStoryboardModelOverrides,
+          storyboardProviderCustomModels: normalizedStoryboardProviderCustomModels,
           storyboardCompatibleModelConfig: normalizedStoryboardCompatibleModelConfig,
           lastImageEditModelId: normalizeImageEditModelId(
             state.lastImageEditModelId,
-            normalizedStoryboardCompatibleModelConfig
+            normalizedStoryboardCompatibleModelConfig,
+            normalizedStoryboardProviderCustomModels
           ),
           lastImageEditSize: normalizeImageEditSize(state.lastImageEditSize),
           lastImageEditRequestAspectRatio: normalizeImageEditRequestAspectRatio(
@@ -489,6 +552,10 @@ export const useSettingsStore = create<SettingsState>()(
           grsaiNanoBananaProModel: normalizeGrsaiNanoBananaProModel(
             state.grsaiNanoBananaProModel
           ),
+          alibabaTextModel:
+            normalizedScriptModelOverrides.alibaba || DEFAULT_ALIBABA_TEXT_MODEL,
+          codingModel:
+            normalizedScriptModelOverrides.coding || DEFAULT_CODING_MODEL,
           hideProviderGuidePopover: state.hideProviderGuidePopover ?? false,
           canvasEdgeRoutingMode: normalizeCanvasEdgeRoutingMode(state.canvasEdgeRoutingMode),
           autoCheckAppUpdateOnLaunch: state.autoCheckAppUpdateOnLaunch ?? true,

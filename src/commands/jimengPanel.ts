@@ -26,6 +26,7 @@ export interface SubmitJimengPanelPayload {
   referenceMode?: string;
   aspectRatio?: string;
   durationSeconds?: number;
+  skipToolbarAutomation?: boolean;
   referenceImages?: Array<{
     fileName: string;
     dataUrl: string;

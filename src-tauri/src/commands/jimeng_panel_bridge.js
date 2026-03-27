@@ -22,18 +22,29 @@
   ];
   const UPLOAD_KEYWORDS = [
     '\u4e0a\u4f20',
-    '\u53c2\u8003',
-    '\u56fe\u7247',
-    '\u56fe\u50cf',
     '\u62d6\u62fd',
     '\u672c\u5730',
     '\u6dfb\u52a0',
     'upload',
-    'image',
-    'reference',
     'drag',
     'drop',
     'file',
+  ];
+  const UPLOAD_TRIGGER_KEYWORDS = [
+    '\u4e0a\u4f20',
+    '\u672c\u5730\u4e0a\u4f20',
+    '\u4e0a\u4f20\u56fe\u7247',
+    '\u4e0a\u4f20\u56fe\u50cf',
+    '\u4e0a\u4f20\u53c2\u8003\u56fe',
+    '\u6dfb\u52a0',
+    '\u6dfb\u52a0\u56fe\u7247',
+    '\u9009\u62e9\u56fe\u7247',
+    '\u9009\u62e9\u6587\u4ef6',
+    '\u91cd\u65b0\u4e0a\u4f20',
+    'upload',
+    'add',
+    'choose file',
+    'select file',
   ];
   const INSPECTION_MARKER = '__STORYBOARD_JIMENG_INSPECT__:';
   const MAX_WAIT_MS = 18000;
@@ -706,8 +717,15 @@
       return Number.NEGATIVE_INFINITY;
     }
 
+    if (
+      element.matches('[role="combobox"], [aria-haspopup="listbox"], [aria-haspopup="menu"]')
+      || element.closest('[role="combobox"], [aria-haspopup="listbox"], [aria-haspopup="menu"]')
+    ) {
+      return Number.NEGATIVE_INFINITY;
+    }
+
     const text = getElementContextText(element);
-    if (!matchesAnyAlias(text, UPLOAD_KEYWORDS)) {
+    if (!matchesAnyAlias(text, UPLOAD_TRIGGER_KEYWORDS)) {
       return Number.NEGATIVE_INFINITY;
     }
 
@@ -731,7 +749,6 @@
     const candidates = [
       ...getClickableElements(),
       ...queryAllDeep('label'),
-      ...queryAllDeep('[role="group"], section, article, div'),
     ];
     let best = null;
     let bestScore = Number.NEGATIVE_INFINITY;
@@ -2000,26 +2017,28 @@
       throw new Error('Failed to write Jimeng prompt');
     }
 
-    if (payload.creationType === 'video') {
-      if (!(await ensureFixedVideoToolbarControls(promptInput, payload))) {
-        throw new Error('Failed to apply Jimeng fixed video toolbar controls');
-      }
-    } else {
-      for (const control of CONTROL_SEQUENCE) {
-        const requireTrigger =
-          control.key === 'aspectRatio' || control.key === 'durationSeconds';
-        if (!(await ensureControlValue(promptInput, control, payload[control.key], { requireTrigger }))) {
-          throw new Error(`Failed to apply Jimeng control: ${control.key}`);
+    if (!payload.skipToolbarAutomation) {
+      if (payload.creationType === 'video') {
+        if (!(await ensureFixedVideoToolbarControls(promptInput, payload))) {
+          throw new Error('Failed to apply Jimeng fixed video toolbar controls');
+        }
+      } else {
+        for (const control of CONTROL_SEQUENCE) {
+          const requireTrigger =
+            control.key === 'aspectRatio' || control.key === 'durationSeconds';
+          if (!(await ensureControlValue(promptInput, control, payload[control.key], { requireTrigger }))) {
+            throw new Error(`Failed to apply Jimeng control: ${control.key}`);
+          }
         }
       }
-    }
 
-    const extraControls = Array.isArray(payload.extraControls)
-      ? [...payload.extraControls].sort((left, right) => left.controlIndex - right.controlIndex)
-      : [];
-    for (const control of extraControls) {
-      if (!(await ensureIndexedToolbarControlValue(promptInput, control))) {
-        throw new Error(`Failed to apply Jimeng extra control: ${control.triggerText || control.controlIndex}`);
+      const extraControls = Array.isArray(payload.extraControls)
+        ? [...payload.extraControls].sort((left, right) => left.controlIndex - right.controlIndex)
+        : [];
+      for (const control of extraControls) {
+        if (!(await ensureIndexedToolbarControlValue(promptInput, control))) {
+          throw new Error(`Failed to apply Jimeng extra control: ${control.triggerText || control.controlIndex}`);
+        }
       }
     }
 
@@ -2495,6 +2514,7 @@
       referenceMode: payload && payload.referenceMode,
       aspectRatio: payload && payload.aspectRatio,
       durationSeconds: payload && payload.durationSeconds,
+      skipToolbarAutomation: Boolean(payload && payload.skipToolbarAutomation),
       referenceImages: payload && payload.referenceImages,
       referenceUploadStatus: 'idle',
       referenceUploadError: null,

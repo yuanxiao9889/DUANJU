@@ -158,6 +158,10 @@ export interface JimengNodeData extends NodeDisplayData {
   referenceMode?: JimengReferenceMode;
   aspectRatio?: JimengAspectRatio;
   durationSeconds?: JimengDurationSeconds;
+  suggestedDurationSeconds?: number | null;
+  suggestedDurationEstimatedSeconds?: number | null;
+  suggestedDurationExceedsLimit?: boolean;
+  suggestedDurationReason?: string | null;
   extraControls?: JimengExtraControlSelection[];
   isSubmitting?: boolean;
   lastSubmittedAt?: number | null;

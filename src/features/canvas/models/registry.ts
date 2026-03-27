@@ -9,6 +9,11 @@ import {
   STORYBOARD_COMPATIBLE_MODEL_ID,
   type StoryboardCompatibleModelConfig,
 } from './storyboardCompatible';
+import {
+  createCustomStoryboardImageModels,
+  isStoryboardCompatibleModelId,
+  type CustomStoryboardModelEntry,
+} from './storyboardProviders';
 
 const providerModules = import.meta.glob<{ provider: ModelProviderDefinition }>(
   './providers/*.ts',
@@ -44,22 +49,39 @@ const imageModelAliasMap = new Map<string, string>([
 ]);
 
 function resolveCompatibleModelList(
-  compatibleConfig?: StoryboardCompatibleModelConfig | null
+  compatibleConfig?: StoryboardCompatibleModelConfig | null,
+  customStoryboardModels?: Record<string, CustomStoryboardModelEntry[]> | null
 ): ImageModelDefinition[] {
-  const compatibleModel = createStoryboardCompatibleImageModel(compatibleConfig);
-  return compatibleModel ? [...imageModels, compatibleModel] : imageModels;
+  const customModels = createCustomStoryboardImageModels(
+    customStoryboardModels,
+    compatibleConfig
+  );
+  const hasCompatibleCustomModels = customModels.some(
+    (model) => model.providerId === 'compatible'
+  );
+  const compatibleModel =
+    hasCompatibleCustomModels
+      ? null
+      : createStoryboardCompatibleImageModel(compatibleConfig);
+  return [
+    ...imageModels,
+    ...customModels,
+    ...(compatibleModel ? [compatibleModel] : []),
+  ];
 }
 
 export function listImageModels(
-  compatibleConfig?: StoryboardCompatibleModelConfig | null
+  compatibleConfig?: StoryboardCompatibleModelConfig | null,
+  customStoryboardModels?: Record<string, CustomStoryboardModelEntry[]> | null
 ): ImageModelDefinition[] {
-  return resolveCompatibleModelList(compatibleConfig);
+  return resolveCompatibleModelList(compatibleConfig, customStoryboardModels);
 }
 
 export function listStoryboardImageModels(
-  compatibleConfig?: StoryboardCompatibleModelConfig | null
+  compatibleConfig?: StoryboardCompatibleModelConfig | null,
+  customStoryboardModels?: Record<string, CustomStoryboardModelEntry[]> | null
 ): ImageModelDefinition[] {
-  return resolveCompatibleModelList(compatibleConfig);
+  return resolveCompatibleModelList(compatibleConfig, customStoryboardModels);
 }
 
 export function listModelProviders(): ModelProviderDefinition[] {
@@ -68,10 +90,26 @@ export function listModelProviders(): ModelProviderDefinition[] {
 
 function resolveImageModel(
   modelId: string,
-  compatibleConfig?: StoryboardCompatibleModelConfig | null
+  compatibleConfig?: StoryboardCompatibleModelConfig | null,
+  customStoryboardModels?: Record<string, CustomStoryboardModelEntry[]> | null
 ): ImageModelDefinition {
   const resolvedModelId = imageModelAliasMap.get(modelId) ?? modelId;
   if (resolvedModelId === STORYBOARD_COMPATIBLE_MODEL_ID) {
+    return (
+      createStoryboardCompatibleImageModel(compatibleConfig)
+      ?? imageModelMap.get(DEFAULT_IMAGE_MODEL_ID)!
+    );
+  }
+
+  const dynamicModel = resolveCompatibleModelList(
+    compatibleConfig,
+    customStoryboardModels
+  ).find((model) => model.id === resolvedModelId);
+  if (dynamicModel) {
+    return dynamicModel;
+  }
+
+  if (isStoryboardCompatibleModelId(resolvedModelId)) {
     return (
       createStoryboardCompatibleImageModel(compatibleConfig)
       ?? imageModelMap.get(DEFAULT_IMAGE_MODEL_ID)!
@@ -83,16 +121,18 @@ function resolveImageModel(
 
 export function getImageModel(
   modelId: string,
-  compatibleConfig?: StoryboardCompatibleModelConfig | null
+  compatibleConfig?: StoryboardCompatibleModelConfig | null,
+  customStoryboardModels?: Record<string, CustomStoryboardModelEntry[]> | null
 ): ImageModelDefinition {
-  return resolveImageModel(modelId, compatibleConfig);
+  return resolveImageModel(modelId, compatibleConfig, customStoryboardModels);
 }
 
 export function getStoryboardImageModel(
   modelId: string,
-  compatibleConfig?: StoryboardCompatibleModelConfig | null
+  compatibleConfig?: StoryboardCompatibleModelConfig | null,
+  customStoryboardModels?: Record<string, CustomStoryboardModelEntry[]> | null
 ): ImageModelDefinition {
-  return resolveImageModel(modelId, compatibleConfig);
+  return resolveImageModel(modelId, compatibleConfig, customStoryboardModels);
 }
 
 export function resolveImageModelResolutions(

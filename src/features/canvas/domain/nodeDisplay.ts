@@ -8,7 +8,7 @@ import {
 export const DEFAULT_NODE_DISPLAY_NAME: Record<CanvasNodeType, string> = {
   [CANVAS_NODE_TYPES.upload]: '\u4e0a\u4f20\u56fe\u7247',
   [CANVAS_NODE_TYPES.imageEdit]: 'AI \u56fe\u7247',
-  [CANVAS_NODE_TYPES.jimeng]: '\u5373\u68a6\u8282\u70b9',
+  [CANVAS_NODE_TYPES.jimeng]: '\u53d1\u9001\u5373\u68a6',
   [CANVAS_NODE_TYPES.exportImage]: '\u7ed3\u679c\u56fe\u7247',
   [CANVAS_NODE_TYPES.textAnnotation]: '\u6587\u672c\u6ce8\u91ca',
   [CANVAS_NODE_TYPES.group]: '\u5206\u7ec4',
@@ -23,6 +23,10 @@ export const DEFAULT_NODE_DISPLAY_NAME: Record<CanvasNodeType, string> = {
   [CANVAS_NODE_TYPES.scriptItem]: '\u9053\u5177',
   [CANVAS_NODE_TYPES.scriptPlotPoint]: '\u60c5\u8282\u70b9',
   [CANVAS_NODE_TYPES.scriptWorldview]: '\u4e16\u754c\u89c2',
+};
+
+const LEGACY_DEFAULT_NODE_DISPLAY_NAMES: Partial<Record<CanvasNodeType, string[]>> = {
+  [CANVAS_NODE_TYPES.jimeng]: ['\u5373\u68a6\u8282\u70b9'],
 };
 
 export const EXPORT_RESULT_DISPLAY_NAME: Record<ExportImageNodeResultKind, string> = {
@@ -47,7 +51,13 @@ export function getDefaultNodeDisplayName(type: CanvasNodeType, data: Partial<Ca
 
 export function resolveNodeDisplayName(type: CanvasNodeType, data: Partial<CanvasNodeData>): string {
   const customTitle = typeof data.displayName === 'string' ? data.displayName.trim() : '';
+  const currentDefaultTitle = getDefaultNodeDisplayName(type, data);
+  const legacyDefaultTitles = LEGACY_DEFAULT_NODE_DISPLAY_NAMES[type] ?? [];
   if (customTitle) {
+    if (legacyDefaultTitles.includes(customTitle)) {
+      return currentDefaultTitle;
+    }
+
     return customTitle;
   }
 
@@ -60,14 +70,16 @@ export function resolveNodeDisplayName(type: CanvasNodeType, data: Partial<Canva
     }
   }
 
-  return getDefaultNodeDisplayName(type, data);
+  return currentDefaultTitle;
 }
 
 export function isNodeUsingDefaultDisplayName(type: CanvasNodeType, data: Partial<CanvasNodeData>): boolean {
   const customTitle = typeof data.displayName === 'string' ? data.displayName.trim() : '';
+  const currentDefaultTitle = getDefaultNodeDisplayName(type, data);
+  const legacyDefaultTitles = LEGACY_DEFAULT_NODE_DISPLAY_NAMES[type] ?? [];
   if (!customTitle) {
     return true;
   }
 
-  return customTitle === getDefaultNodeDisplayName(type, data);
+  return customTitle === currentDefaultTitle || legacyDefaultTitles.includes(customTitle);
 }
