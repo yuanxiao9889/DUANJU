@@ -307,12 +307,25 @@ export const ImageNode = memo(({ id, data, selected, type, width, height }: Imag
             <span className="text-center text-[12px] font-medium leading-5 text-red-200">
               {t('node.imageNode.generationFailed')}
             </span>
+            {canManualRefresh && (
+              <button
+                type="button"
+                onClick={(event) => {
+                  event.stopPropagation();
+                  handleManualRefresh();
+                }}
+                className="inline-flex items-center justify-center gap-2 self-center rounded-full border border-[rgba(255,255,255,0.18)] bg-bg-dark/90 px-4 py-2 text-sm font-medium text-text-dark shadow-lg transition-colors hover:border-accent/50 hover:bg-bg-dark"
+              >
+                <RefreshCw className="h-4 w-4" />
+                {t('node.imageNode.manualRefresh')}
+              </button>
+            )}
             <span className="max-h-[88px] overflow-y-auto break-words text-center text-[11px] leading-5 text-red-200/90">
               {generationError}
             </span>
           </div>
         ) : (
-          <div className="flex h-full w-full flex-col items-center justify-center gap-2 text-text-muted/85">
+          <div className="flex h-full w-full flex-col items-center justify-center gap-2 px-4 text-text-muted/85">
             {isExportResultNode ? (
               <ImageIcon className="h-7 w-7 opacity-60" />
             ) : (
@@ -321,6 +334,19 @@ export const ImageNode = memo(({ id, data, selected, type, width, height }: Imag
             <span className="px-4 text-center text-[12px] leading-6">
               {waitingResultText}
             </span>
+            {canManualRefresh && (
+              <button
+                type="button"
+                onClick={(event) => {
+                  event.stopPropagation();
+                  handleManualRefresh();
+                }}
+                className="inline-flex items-center justify-center gap-2 self-center rounded-full border border-[rgba(255,255,255,0.18)] bg-bg-dark/90 px-4 py-2 text-sm font-medium text-text-dark shadow-lg transition-colors hover:border-accent/50 hover:bg-bg-dark"
+              >
+                <RefreshCw className="h-4 w-4" />
+                {t('node.imageNode.manualRefresh')}
+              </button>
+            )}
           </div>
         )}
 
@@ -333,23 +359,6 @@ export const ImageNode = memo(({ id, data, selected, type, width, height }: Imag
             />
           </div>
         )}
-
-        {canManualRefresh && (
-          <div className="absolute inset-0 flex items-center justify-center">
-            <button
-              type="button"
-              onClick={(event) => {
-                event.stopPropagation();
-                handleManualRefresh();
-              }}
-              className="inline-flex items-center gap-2 rounded-full border border-[rgba(255,255,255,0.18)] bg-bg-dark/90 px-4 py-2 text-sm font-medium text-text-dark shadow-lg transition-colors hover:border-accent/50 hover:bg-bg-dark"
-            >
-              <RefreshCw className="h-4 w-4" />
-              {t('node.imageNode.manualRefresh')}
-            </button>
-          </div>
-        )}
-
         <ImageResolutionBadge width={imageWidth} height={imageHeight} />
       </div>
 
