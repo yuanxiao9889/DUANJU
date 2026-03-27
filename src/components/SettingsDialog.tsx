@@ -21,16 +21,19 @@ import { useDialogTransition } from '@/components/ui/useDialogTransition';
 import {
   getCustomScriptModels,
   getCustomStoryboardModels,
+  isScriptCompatibleProviderConfigured,
   isStoryboardCustomModelProviderId,
   listScriptProviders,
   resolveConfiguredScriptModel,
   resolveConfiguredStoryboardModel,
   resolveScriptModelOptions,
+  SCRIPT_COMPATIBLE_PROVIDER_ID,
   resolveStoryboardCompatibleModelConfigForModel,
   toStoryboardProviderModelId,
   upsertCustomScriptModelEntry,
   type CustomScriptModelEntry,
   type CustomStoryboardModelEntry,
+  type ScriptCompatibleProviderConfig,
   STORYBOARD_COMPATIBLE_API_FORMATS,
   listModelProviders,
   type StoryboardCompatibleApiFormat,
@@ -175,6 +178,7 @@ export function SettingsDialog({
     scriptProviderEnabled,
     scriptModelOverrides,
     scriptProviderCustomModels,
+    scriptCompatibleProviderConfig,
     storyboardModelOverrides,
     storyboardProviderCustomModels,
     hrsaiNanoBananaProModel,
@@ -201,6 +205,7 @@ export function SettingsDialog({
     setScriptProviderEnabled,
     setScriptModelOverride,
     setScriptProviderCustomModels,
+    setScriptCompatibleProviderConfig,
     setStoryboardModelOverride,
     setStoryboardProviderCustomModels,
     setGrsaiNanoBananaProModel,
@@ -273,6 +278,8 @@ export function SettingsDialog({
     useState<Record<string, string>>(scriptModelOverrides);
   const [localScriptProviderCustomModels, setLocalScriptProviderCustomModels] =
     useState<Record<string, CustomScriptModelEntry[]>>(scriptProviderCustomModels);
+  const [localScriptCompatibleProviderConfig, setLocalScriptCompatibleProviderConfig] =
+    useState<ScriptCompatibleProviderConfig>(scriptCompatibleProviderConfig);
   const [localScriptModelIdInputs, setLocalScriptModelIdInputs] =
     useState<Record<string, string>>({});
   const [localScriptModelDisplayNameInputs, setLocalScriptModelDisplayNameInputs] =
@@ -376,6 +383,7 @@ export function SettingsDialog({
     setSelectedStoryboardProvider(storyboardProviders[0]?.id || '');
     setLocalScriptModelOverrides(scriptModelOverrides);
     setLocalScriptProviderCustomModels(scriptProviderCustomModels);
+    setLocalScriptCompatibleProviderConfig(scriptCompatibleProviderConfig);
     setLocalScriptModelIdInputs({});
     setLocalScriptModelDisplayNameInputs({});
     setLocalStoryboardModelOverrides(storyboardModelOverrides);
@@ -414,6 +422,7 @@ export function SettingsDialog({
     scriptProviderEnabled,
     scriptModelOverrides,
     scriptProviderCustomModels,
+    scriptCompatibleProviderConfig,
     storyboardModelOverrides,
     storyboardProviderCustomModels,
     storyboardCompatibleModelConfig,
@@ -670,6 +679,7 @@ export function SettingsDialog({
         getCustomScriptModels(provider.id, localScriptProviderCustomModels)
       );
     });
+    setScriptCompatibleProviderConfig(localScriptCompatibleProviderConfig);
     storyboardProviders.forEach((provider) => {
       if (!isStoryboardCustomModelProviderId(provider.id)) {
         return;
@@ -737,6 +747,7 @@ export function SettingsDialog({
     localPsAutoStartServer,
     localScriptModelOverrides,
     localScriptProviderCustomModels,
+    localScriptCompatibleProviderConfig,
     localStoryboardCompatibleModelConfig,
     localStoryboardModelOverrides,
     localStoryboardProviderCustomModels,
@@ -748,6 +759,7 @@ export function SettingsDialog({
     setScriptProviderEnabled,
     setScriptModelOverride,
     setScriptProviderCustomModels,
+    setScriptCompatibleProviderConfig,
     setStoryboardModelOverride,
     setStoryboardProviderCustomModels,
     setStoryboardCompatibleModelConfig,
@@ -1102,6 +1114,15 @@ export function SettingsDialog({
                             scriptProviderCustomModels: localScriptProviderCustomModels,
                           })
                         : '';
+                      const isScriptCompatibleProvider =
+                        isScriptTab && provider.id === SCRIPT_COMPATIBLE_PROVIDER_ID;
+                      const isScriptProviderReady =
+                        isScriptTab
+                        && resolvedScriptModel.trim().length > 0
+                        && (
+                          !isScriptCompatibleProvider
+                          || isScriptCompatibleProviderConfigured(localScriptCompatibleProviderConfig)
+                        );
                       const scriptModelOptions = isScriptTab
                         ? resolveScriptModelOptions(provider.id, localScriptProviderCustomModels)
                         : [];
@@ -1139,7 +1160,7 @@ export function SettingsDialog({
                             {isScriptTab && (
                               <button
                                 type="button"
-                                disabled={!hasKey}
+                                disabled={!hasKey || !isScriptProviderReady}
                                 onClick={(e) => {
                                   e.preventDefault();
                                   e.stopPropagation();
@@ -1221,7 +1242,7 @@ export function SettingsDialog({
                                 )}
                               </button>
                             </div>
-                            {provider.id === 'compatible' ? (
+                            {!isScriptTab && provider.id === 'compatible' ? (
                               <div className="mt-3 rounded-md border border-border-dark bg-black/10 px-3 py-2 text-xs leading-5 text-text-muted">
                                 {t('settings.storyboardCompatibleNoConnectionTest')}
                               </div>
@@ -1229,7 +1250,11 @@ export function SettingsDialog({
                               <div className="mt-3 space-y-2">
                                 <button
                                   type="button"
-                                  disabled={testingConnection === provider.id || !hasKey}
+                                  disabled={
+                                    testingConnection === provider.id
+                                    || !hasKey
+                                    || (isScriptTab && !isScriptProviderReady)
+                                  }
                                   onClick={async () => {
                                     setTestingConnection(provider.id);
                                     const model = isScriptTab
@@ -1241,6 +1266,17 @@ export function SettingsDialog({
                                       provider: provider.id,
                                       apiKey: localApiKeys[provider.id] || '',
                                       model,
+                                      extraParams:
+                                        isScriptCompatibleProvider
+                                          ? {
+                                            compatible_config: {
+                                              api_format: 'openai-chat',
+                                              endpoint_url: localScriptCompatibleProviderConfig.endpointUrl,
+                                              request_model: model,
+                                              display_name: model,
+                                            },
+                                          }
+                                          : undefined,
                                     });
                                     setTestResults((prev) => ({ ...prev, [provider.id]: result }));
                                     setTestingConnection(null);
@@ -1283,12 +1319,17 @@ export function SettingsDialog({
                                     handleSelectScriptModel(provider.id, event.target.value);
                                   }}
                                   className="h-9 text-sm"
+                                  disabled={scriptModelOptions.length === 0}
                                 >
-                                  {scriptModelOptions.map((option) => (
-                                    <option key={option.modelId} value={option.modelId}>
-                                      {option.label}
-                                    </option>
-                                  ))}
+                                  {scriptModelOptions.length > 0 ? (
+                                    scriptModelOptions.map((option) => (
+                                      <option key={option.modelId} value={option.modelId}>
+                                        {option.label}
+                                      </option>
+                                    ))
+                                  ) : (
+                                    <option value="">-</option>
+                                  )}
                                 </UiSelect>
 
                                 <div className="space-y-3">
@@ -1377,6 +1418,38 @@ export function SettingsDialog({
                                     {t('settings.scriptCustomModelEmpty')}
                                   </div>
                                 )}
+                              </div>
+                            </div>
+                          )}
+
+                          {isScriptCompatibleProvider && (
+                            <div className="rounded-lg border border-border-dark bg-bg-dark p-4">
+                              <div className="mb-1 text-xs font-medium text-text-dark">
+                                {t('settings.scriptCompatibleTitle')}
+                              </div>
+                              <p className="mb-3 text-xs leading-5 text-text-muted">
+                                {t('settings.scriptCompatibleDesc')}
+                              </p>
+                              <div className="space-y-3">
+                                <div>
+                                  <div className="mb-1 text-xs font-medium text-text-dark">
+                                    {t('settings.scriptCompatibleEndpointUrl')}
+                                  </div>
+                                  <UiInput
+                                    value={localScriptCompatibleProviderConfig.endpointUrl}
+                                    onChange={(event) =>
+                                      setLocalScriptCompatibleProviderConfig((previous) => ({
+                                        ...previous,
+                                        endpointUrl: event.target.value,
+                                      }))
+                                    }
+                                    placeholder="https://your-api-host/v1/chat/completions"
+                                    className="h-9 text-sm"
+                                  />
+                                </div>
+                                <div className="rounded-md border border-border-dark bg-black/10 px-3 py-2 text-[11px] leading-5 text-text-muted">
+                                  {t('settings.scriptCompatibleHint')}
+                                </div>
                               </div>
                             </div>
                           )}

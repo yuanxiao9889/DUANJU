@@ -18,12 +18,14 @@ import {
   DEFAULT_BLTCY_TEXT_MODEL,
   DEFAULT_IMAGE_MODEL_ID,
   getImageModel,
+  normalizeScriptCompatibleProviderConfig,
   normalizeScriptModelOverrides,
   normalizeScriptProviderCustomModels,
   normalizeScriptProviderEnabledSelection,
   normalizeStoryboardModelOverrides,
   normalizeStoryboardCompatibleModelConfig,
   normalizeStoryboardProviderCustomModels,
+  type ScriptCompatibleProviderConfig,
   type StoryboardCompatibleModelConfig,
 } from '@/features/canvas/models';
 import {
@@ -51,6 +53,7 @@ interface SettingsState {
   scriptProviderEnabled: string;
   scriptModelOverrides: Record<string, string>;
   scriptProviderCustomModels: Record<string, CustomScriptModelEntry[]>;
+  scriptCompatibleProviderConfig: ScriptCompatibleProviderConfig;
   storyboardModelOverrides: Record<string, string>;
   storyboardProviderCustomModels: Record<string, CustomStoryboardModelEntry[]>;
   storyboardCompatibleModelConfig: StoryboardCompatibleModelConfig;
@@ -95,6 +98,9 @@ interface SettingsState {
   setScriptProviderCustomModels: (
     providerId: string,
     models: CustomScriptModelEntry[]
+  ) => void;
+  setScriptCompatibleProviderConfig: (
+    config: Partial<ScriptCompatibleProviderConfig>
   ) => void;
   setStoryboardModelOverride: (providerId: string, model: string) => void;
   setStoryboardProviderCustomModels: (
@@ -270,6 +276,7 @@ export const useSettingsStore = create<SettingsState>()(
         bltcy: DEFAULT_BLTCY_TEXT_MODEL,
       },
       scriptProviderCustomModels: {},
+      scriptCompatibleProviderConfig: normalizeScriptCompatibleProviderConfig(undefined),
       storyboardModelOverrides: {},
       storyboardProviderCustomModels: {},
       storyboardCompatibleModelConfig: normalizeStoryboardCompatibleModelConfig(undefined),
@@ -332,6 +339,13 @@ export const useSettingsStore = create<SettingsState>()(
             [providerId]:
               normalizeScriptProviderCustomModels({ [providerId]: models })[providerId] ?? [],
           },
+        })),
+      setScriptCompatibleProviderConfig: (config) =>
+        set((state) => ({
+          scriptCompatibleProviderConfig: normalizeScriptCompatibleProviderConfig({
+            ...state.scriptCompatibleProviderConfig,
+            ...config,
+          }),
         })),
       setStoryboardModelOverride: (providerId, model) =>
         set((state) => ({
@@ -447,7 +461,7 @@ export const useSettingsStore = create<SettingsState>()(
     }),
     {
       name: 'settings-storage',
-      version: 20,
+      version: 21,
       onRehydrateStorage: () => {
         return (state, error) => {
           if (error) {
@@ -463,6 +477,7 @@ export const useSettingsStore = create<SettingsState>()(
           scriptProviderEnabled?: string;
           scriptModelOverrides?: Record<string, string>;
           scriptProviderCustomModels?: Record<string, CustomScriptModelEntry[]>;
+          scriptCompatibleProviderConfig?: Partial<ScriptCompatibleProviderConfig>;
           storyboardProviderEnabled?: string;
           storyboardModelOverrides?: Record<string, string>;
           storyboardProviderCustomModels?: Record<string, CustomStoryboardModelEntry[]>;
@@ -519,6 +534,9 @@ export const useSettingsStore = create<SettingsState>()(
         const normalizedScriptProviderCustomModels = normalizeScriptProviderCustomModels(
           state.scriptProviderCustomModels
         );
+        const normalizedScriptCompatibleProviderConfig = normalizeScriptCompatibleProviderConfig(
+          state.scriptCompatibleProviderConfig
+        );
         const normalizedScriptModelOverrides = normalizeScriptModelOverrides(
           state.scriptModelOverrides,
           normalizedScriptProviderCustomModels,
@@ -536,6 +554,7 @@ export const useSettingsStore = create<SettingsState>()(
           scriptProviderEnabled: normalizedScriptProviderEnabled,
           scriptModelOverrides: normalizedScriptModelOverrides,
           scriptProviderCustomModels: normalizedScriptProviderCustomModels,
+          scriptCompatibleProviderConfig: normalizedScriptCompatibleProviderConfig,
           storyboardModelOverrides: normalizedStoryboardModelOverrides,
           storyboardProviderCustomModels: normalizedStoryboardProviderCustomModels,
           storyboardCompatibleModelConfig: normalizedStoryboardCompatibleModelConfig,

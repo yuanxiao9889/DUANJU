@@ -7,6 +7,10 @@ import { generateOutline } from '../application/outlineGenerator';
 import { CANVAS_NODE_TYPES } from '../domain/canvasNodes';
 import { UiButton } from '@/components/ui/primitives';
 import { openSettingsDialog } from '@/features/settings/settingsEvents';
+import {
+  resolveActivatedScriptProvider,
+  resolveConfiguredScriptModel,
+} from '@/features/canvas/models';
 import { OutlineConfirmDialog, type OutlineGenerationOptions } from './OutlineConfirmDialog';
 import type { StoryOutline } from '../application/outlineGenerator';
 import { ChapterCountDialog } from './ChapterCountDialog';
@@ -18,7 +22,8 @@ interface ScriptWelcomeDialogProps {
 
 export function ScriptWelcomeDialog({ isOpen, onClose }: ScriptWelcomeDialogProps) {
   const { addNode, addEdge } = useCanvasStore();
-  const { scriptProviderEnabled, apiKeys } = useSettingsStore();
+  const settings = useSettingsStore();
+  const { apiKeys } = settings;
   const closeProject = useProjectStore((state) => state.closeProject);
   const [mode, setMode] = useState<'select' | 'import' | 'create'>('select');
   const [storyOutline, setStoryOutline] = useState('');
@@ -27,7 +32,14 @@ export function ScriptWelcomeDialog({ isOpen, onClose }: ScriptWelcomeDialogProp
   const [isGeneratingOutline, setIsGeneratingOutline] = useState(false);
   const [chapterCount, setChapterCount] = useState(5);
   const [showChapterCountDialog, setShowChapterCountDialog] = useState(false);
-  const hasScriptProvider = scriptProviderEnabled && apiKeys[scriptProviderEnabled];
+  const activeScriptProvider = resolveActivatedScriptProvider(settings);
+  const activeScriptModel = activeScriptProvider
+    ? resolveConfiguredScriptModel(activeScriptProvider, settings).trim()
+    : '';
+  const hasScriptProvider =
+    Boolean(activeScriptProvider)
+    && Boolean(activeScriptModel)
+    && Boolean(activeScriptProvider ? apiKeys[activeScriptProvider]?.trim() : '');
 
   useEffect(() => {
     if (isOpen) {

@@ -1,8 +1,9 @@
 import { generateText } from '@/commands/textGen';
 import {
+  resolveActivatedScriptProvider,
   resolveConfiguredScriptModel,
-  resolveConfiguredScriptProvider,
 } from '@/features/canvas/models';
+import { openSettingsDialog } from '@/features/settings/settingsEvents';
 import { useSettingsStore } from '@/stores/settingsStore';
 
 type PromptOptimizationMode = 'image' | 'jimeng';
@@ -192,8 +193,16 @@ function sanitizeReferenceImages(referenceImages: string[] | undefined): string[
 
 function resolveScriptPromptContext(): ScriptPromptContext {
   const settings = useSettingsStore.getState();
-  const provider = resolveConfiguredScriptProvider(settings);
+  const provider = resolveActivatedScriptProvider(settings);
+  if (!provider) {
+    openSettingsDialog({ category: 'providers' });
+    throw new Error('\u8bf7\u5148\u5728\u8bbe\u7f6e\u4e2d\u6fc0\u6d3b\u4e00\u4e2a\u5267\u672c API \u6a21\u578b\u540e\u518d\u4f7f\u7528');
+  }
   const model = resolveConfiguredScriptModel(provider, settings).trim();
+  if (!model) {
+    openSettingsDialog({ category: 'providers' });
+    throw new Error('\u8bf7\u5148\u5728\u8bbe\u7f6e\u4e2d\u4e3a\u5f53\u524d\u5df2\u6fc0\u6d3b\u7684\u5267\u672c API \u9009\u62e9\u6a21\u578b\u540e\u518d\u4f7f\u7528');
+  }
   const normalizedModel = model.toLowerCase();
   const supportsImageAnalysis = IMAGE_ANALYSIS_MODEL_HINTS.some((hint) =>
     normalizedModel.includes(hint)

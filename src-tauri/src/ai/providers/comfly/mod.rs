@@ -1,6 +1,7 @@
 use base64::{engine::general_purpose::STANDARD, Engine};
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
+use serde_json::{json, Value};
 use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::sync::RwLock;
@@ -11,6 +12,7 @@ use crate::ai::error::AIError;
 use crate::ai::{AIProvider, GenerateRequest};
 
 const DEFAULT_BASE_URL: &str = "https://ai.comfly.chat";
+const CHAT_COMPLETIONS_ENDPOINT_PATH: &str = "/v1/chat/completions";
 const GENERATIONS_ENDPOINT_PATH: &str = "/v1/images/generations";
 const EDITS_ENDPOINT_PATH: &str = "/v1/images/edits";
 const TASKS_ENDPOINT_PATH: &str = "/v1/images/tasks";
@@ -201,6 +203,129 @@ impl ComflyProvider {
             "1K" | "2K" | "4K" => Some(normalized_size),
             _ => None,
         }
+    }
+
+    fn should_use_chat_completion(request: &GenerateRequest) -> bool {
+        request.size.trim().is_empty() && request.aspect_ratio.trim().is_empty()
+    }
+
+    fn extract_error_message(payload: &Value) -> Option<String> {
+        [
+            "/error/message",
+            "/error/status",
+            "/message",
+            "/detail",
+            "/details",
+            "/msg",
+            "/choices/0/message/refusal",
+        ]
+        .iter()
+        .find_map(|pointer| {
+            payload
+                .pointer(pointer)
+                .and_then(Value::as_str)
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .map(ToString::to_string)
+        })
+    }
+
+    fn extract_text(payload: &Value) -> Option<String> {
+        if let Some(content) = payload
+            .pointer("/choices/0/message/content")
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+        {
+            return Some(content.to_string());
+        }
+
+        if let Some(content_parts) = payload
+            .pointer("/choices/0/message/content")
+            .and_then(Value::as_array)
+        {
+            let text_parts = content_parts
+                .iter()
+                .filter_map(|part| {
+                    part.pointer("/text")
+                        .and_then(Value::as_str)
+                        .map(str::trim)
+                        .filter(|value| !value.is_empty())
+                        .map(ToString::to_string)
+                })
+                .collect::<Vec<String>>();
+
+            if !text_parts.is_empty() {
+                return Some(text_parts.join("\n"));
+            }
+        }
+
+        payload
+            .pointer("/output_text")
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(ToString::to_string)
+    }
+
+    async fn request_chat_completion(
+        &self,
+        request: &GenerateRequest,
+        model: &str,
+    ) -> Result<String, AIError> {
+        let endpoint = format!("{}{}", self.base_url, CHAT_COMPLETIONS_ENDPOINT_PATH);
+        let api_key = self
+            .api_key
+            .read()
+            .await
+            .clone()
+            .ok_or_else(|| AIError::InvalidRequest("API key not set".to_string()))?;
+
+        let body = json!({
+            "model": Self::sanitize_model(model),
+            "messages": [{
+                "role": "user",
+                "content": request.prompt.clone(),
+            }],
+            "stream": false,
+        });
+
+        let response = self
+            .client
+            .post(&endpoint)
+            .header("Authorization", format!("Bearer {}", api_key))
+            .header("Content-Type", "application/json")
+            .json(&body)
+            .send()
+            .await?;
+
+        let status = response.status();
+        let response_text = response.text().await.map_err(AIError::from)?;
+        let payload: Value = serde_json::from_str(&response_text).map_err(|error| {
+            AIError::Provider(format!(
+                "Failed to parse Comfly chat response: {}. Response was: {}",
+                error, response_text
+            ))
+        })?;
+
+        if !status.is_success() {
+            return Err(AIError::Provider(
+                Self::extract_error_message(&payload).unwrap_or_else(|| {
+                    format!("Comfly chat request failed {}: {}", status, response_text)
+                }),
+            ));
+        }
+
+        if let Some(error_message) = Self::extract_error_message(&payload) {
+            return Err(AIError::Provider(error_message));
+        }
+
+        Self::extract_text(&payload).ok_or_else(|| {
+            AIError::Provider(format!(
+                "Comfly chat response did not include text data: {}",
+                payload
+            ))
+        })
     }
 
     async fn submit_text2img(
@@ -471,6 +596,10 @@ impl AIProvider for ComflyProvider {
 
     async fn generate(&self, request: GenerateRequest) -> Result<String, AIError> {
         let model = Self::resolve_effective_model(&request.model, &request.size);
+        if Self::should_use_chat_completion(&request) {
+            return self.request_chat_completion(&request, &model).await;
+        }
+
         let has_reference_images = request
             .reference_images
             .as_ref()

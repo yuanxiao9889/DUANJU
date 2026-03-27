@@ -552,6 +552,75 @@ impl CompatibleProvider {
         None
     }
 
+    fn extract_text(payload: &Value) -> Option<String> {
+        if let Some(content) = payload
+            .pointer("/choices/0/message/content")
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+        {
+            return Some(content.to_string());
+        }
+
+        if let Some(content_parts) = payload
+            .pointer("/choices/0/message/content")
+            .and_then(Value::as_array)
+        {
+            let text_parts = content_parts
+                .iter()
+                .filter_map(|part| {
+                    part.pointer("/text")
+                        .and_then(Value::as_str)
+                        .map(str::trim)
+                        .filter(|value| !value.is_empty())
+                        .map(ToString::to_string)
+                })
+                .collect::<Vec<String>>();
+
+            if !text_parts.is_empty() {
+                return Some(text_parts.join("\n"));
+            }
+        }
+
+        if let Some(parts) = payload
+            .pointer("/candidates/0/content/parts")
+            .and_then(Value::as_array)
+        {
+            let text_parts = parts
+                .iter()
+                .filter_map(|part| {
+                    part.pointer("/text")
+                        .and_then(Value::as_str)
+                        .map(str::trim)
+                        .filter(|value| !value.is_empty())
+                        .map(ToString::to_string)
+                })
+                .collect::<Vec<String>>();
+
+            if !text_parts.is_empty() {
+                return Some(text_parts.join("\n"));
+            }
+        }
+
+        [
+            "/choices/0/text",
+            "/output_text",
+            "/output/text",
+            "/text",
+            "/response/text",
+            "/data/text",
+        ]
+        .iter()
+        .find_map(|pointer| {
+            payload
+                .pointer(pointer)
+                .and_then(Value::as_str)
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .map(ToString::to_string)
+        })
+    }
+
     async fn send_json_request(
         &self,
         endpoint: &str,
@@ -891,8 +960,12 @@ impl AIProvider for CompatibleProvider {
             return Ok(image_source);
         }
 
+        if let Some(text) = Self::extract_text(&payload) {
+            return Ok(text);
+        }
+
         Err(AIError::Provider(format!(
-            "Compatible API response did not include image data: {}",
+            "Compatible API response did not include image or text data: {}",
             payload
         )))
     }
