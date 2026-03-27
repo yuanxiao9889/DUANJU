@@ -1066,7 +1066,11 @@ export const ImageEditNode = memo(({ id, data, selected, width, height }: ImageE
   };
 
   const handleModelChange = useCallback((modelId: string) => {
-    const nextModel = getImageModel(modelId, storyboardCompatibleModelConfig);
+    const nextModel = getImageModel(
+      modelId,
+      storyboardCompatibleModelConfig,
+      storyboardProviderCustomModels
+    );
     const nextExtraParams = {
       ...(data.extraParams ?? {}),
       ...(nextModel.id === GRSAI_NANO_BANANA_PRO_MODEL_ID
@@ -1100,6 +1104,7 @@ export const ImageEditNode = memo(({ id, data, selected, width, height }: ImageE
     id,
     setLastImageEditDefaults,
     storyboardCompatibleModelConfig,
+    storyboardProviderCustomModels,
     updateNodeData,
   ]);
 
