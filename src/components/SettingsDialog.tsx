@@ -21,14 +21,12 @@ import { useDialogTransition } from '@/components/ui/useDialogTransition';
 import {
   getCustomScriptModels,
   getCustomStoryboardModels,
-  getStoryboardImageModel,
   isStoryboardCustomModelProviderId,
   listScriptProviders,
   resolveConfiguredScriptModel,
   resolveConfiguredStoryboardModel,
   resolveScriptModelOptions,
   resolveStoryboardCompatibleModelConfigForModel,
-  resolveStoryboardModelOptions,
   toStoryboardProviderModelId,
   upsertCustomScriptModelEntry,
   type CustomScriptModelEntry,
@@ -563,35 +561,6 @@ export function SettingsDialog({
           : (previous[providerId] ?? ''),
     }));
   }, []);
-
-  const resolveLocalStoryboardModel = useCallback((providerId: string) => {
-    return resolveConfiguredStoryboardModel(providerId, {
-      storyboardModelOverrides: localStoryboardModelOverrides,
-      storyboardProviderCustomModels: localStoryboardProviderCustomModels,
-      storyboardCompatibleModelConfig: localStoryboardCompatibleModelConfig,
-    });
-  }, [
-    localStoryboardCompatibleModelConfig,
-    localStoryboardModelOverrides,
-    localStoryboardProviderCustomModels,
-  ]);
-
-  const handleSelectStoryboardModel = useCallback((providerId: string, nextModel: string) => {
-    setLocalStoryboardModelOverrides((previous) => ({
-      ...previous,
-      [providerId]: nextModel,
-    }));
-
-    if (providerId === 'compatible') {
-      setLocalStoryboardCompatibleModelConfig((previous) =>
-        resolveStoryboardCompatibleModelConfigForModel(
-          nextModel,
-          previous,
-          localStoryboardProviderCustomModels
-        )
-      );
-    }
-  }, [localStoryboardProviderCustomModels]);
 
   const handleAddCustomStoryboardModel = useCallback((providerId: string) => {
     const nextModelId = (localStoryboardModelIdInputs[providerId] ?? '').trim();
@@ -1145,16 +1114,6 @@ export function SettingsDialog({
                         localScriptModelIdInputs[provider.id] ?? '';
                       const isStoryboardCustomizableProvider =
                         !isScriptTab && isStoryboardCustomModelProviderId(provider.id);
-                      const resolvedStoryboardModel = isStoryboardCustomizableProvider
-                        ? resolveLocalStoryboardModel(provider.id)
-                        : '';
-                      const storyboardModelOptions = isStoryboardCustomizableProvider
-                        ? resolveStoryboardModelOptions(
-                          provider.id,
-                          localStoryboardProviderCustomModels,
-                          localStoryboardCompatibleModelConfig
-                        )
-                        : [];
                       const customStoryboardModels = isStoryboardCustomizableProvider
                         ? getCustomStoryboardModels(provider.id, localStoryboardProviderCustomModels)
                         : [];
@@ -1162,14 +1121,6 @@ export function SettingsDialog({
                         localStoryboardModelDisplayNameInputs[provider.id] ?? '';
                       const customStoryboardModelIdInput =
                         localStoryboardModelIdInputs[provider.id] ?? '';
-                      const selectedStoryboardModelDefinition = isStoryboardCustomizableProvider
-                        && resolvedStoryboardModel
-                        ? getStoryboardImageModel(
-                          resolvedStoryboardModel,
-                          localStoryboardCompatibleModelConfig,
-                          localStoryboardProviderCustomModels
-                        )
-                        : null;
 
                       return (
                         <div className="space-y-4">
@@ -1283,10 +1234,6 @@ export function SettingsDialog({
                                     setTestingConnection(provider.id);
                                     const model = isScriptTab
                                       ? resolvedScriptModel
-                                      : isStoryboardCustomizableProvider && selectedStoryboardModelDefinition
-                                        ? selectedStoryboardModelDefinition.resolveRequest({
-                                          referenceImageCount: 0,
-                                        }).requestModel
                                       : provider.id === 'grsai'
                                         ? localGrsaiNanoBananaProModel
                                         : DEFAULT_PROVIDER_TEST_MODELS[provider.id] ?? 'gemini-2.0-flash';
@@ -1447,25 +1394,6 @@ export function SettingsDialog({
                                 )}
                               </p>
                               <div className="space-y-3">
-                                <UiSelect
-                                  value={resolvedStoryboardModel}
-                                  onChange={(event) => {
-                                    handleSelectStoryboardModel(provider.id, event.target.value);
-                                  }}
-                                  className="h-9 text-sm"
-                                  disabled={storyboardModelOptions.length === 0}
-                                >
-                                  {storyboardModelOptions.length > 0 ? (
-                                    storyboardModelOptions.map((option) => (
-                                      <option key={option.modelId} value={option.modelId}>
-                                        {option.label}
-                                      </option>
-                                    ))
-                                  ) : (
-                                    <option value="">-</option>
-                                  )}
-                                </UiSelect>
-
                                 <div className="space-y-3">
                                   <div>
                                     <div className="mb-1 text-[11px] font-medium text-text-muted">
