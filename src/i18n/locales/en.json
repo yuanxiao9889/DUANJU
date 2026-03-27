@@ -173,6 +173,7 @@
       "optimizeReferenceImagesLabel": "Reference images: {{status}}",
       "optimizeReferenceImagesUsed": "{{count}} used",
       "optimizeReferenceImagesUnused": "Not used",
+      "statusHint": "Select this node and enter a prompt below to generate or edit image",
       "resultTitle": "Result Image",
       "promptPlaceholder": "Describe anything you want to generate or edit",
       "referenceImageLabel": "Image {{index}}"
@@ -185,6 +186,10 @@
       "optimizedPreviewTitle": "Optimized prompt preview",
       "applyOptimizedPrompt": "Apply optimized result",
       "undoOptimizedPrompt": "Undo optimization",
+      "optimizeModelLabel": "Optimization model: {{model}}",
+      "optimizeReferenceImagesLabel": "Reference images: {{status}}",
+      "optimizeReferenceImagesUsed": "{{count}} used",
+      "optimizeReferenceImagesUnused": "Not used",
       "promptPlaceholder": "Write your Jimeng prompt here. Type @ to reference connected images.",
       "referenceImageLabel": "Image {{index}}",
       "referenceCount": "{{count}} connected reference images",

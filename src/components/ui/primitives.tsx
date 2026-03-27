@@ -107,7 +107,7 @@ export const UiChipButton = forwardRef<HTMLButtonElement, UiChipButtonProps>(
   ({ className = '', active = false, ...props }, ref) => (
     <button
       ref={ref}
-      className={`inline-flex h-10 items-center gap-2 border ui-field px-3 text-sm transition-colors ${active ? 'border-accent/45 bg-accent/15 text-text-dark' : 'text-text-dark hover:bg-[rgba(15,23,42,0.08)] dark:hover:bg-bg-dark'} ${className}`}
+      className={`inline-flex h-10 items-center justify-center gap-2 border ui-field px-3 text-sm transition-colors ${active ? 'border-accent/45 bg-accent/15 text-text-dark' : 'text-text-dark hover:bg-[rgba(15,23,42,0.08)] dark:hover:bg-bg-dark'} ${className}`}
       {...props}
     />
   )

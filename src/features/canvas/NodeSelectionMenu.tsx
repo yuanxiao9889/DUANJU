@@ -5,7 +5,11 @@ import { UI_POPOVER_TRANSITION_MS } from '@/components/ui/motion';
 
 import type { CanvasNodeType } from '@/features/canvas/domain/canvasNodes';
 import { nodeCatalog } from '@/features/canvas/application/nodeCatalog';
-import type { MenuIconKey } from '@/features/canvas/domain/nodeRegistry';
+import {
+  isNodeTypeAvailableInProject,
+  type MenuIconKey,
+  type NodeMenuProjectType,
+} from '@/features/canvas/domain/nodeRegistry';
 
 export interface SpecialMenuItem {
   id: string;
@@ -24,7 +28,7 @@ interface NodeSelectionMenuProps {
   showSupplementOption?: boolean;
   onlySupplementOption?: boolean;
   onClose: () => void;
-  projectType?: 'storyboard' | 'script';
+  projectType?: NodeMenuProjectType;
 }
 
 const iconMap: Record<MenuIconKey, typeof Upload> = {
@@ -72,18 +76,13 @@ export function NodeSelectionMenu({
 
   const menuItems = useMemo(() => {
     const candidates = !allowedTypeSet || !allowedTypes
-      ? nodeCatalog.getMenuDefinitions()
-      : Array.from(new Set(allowedTypes)).map((type) => nodeCatalog.getDefinition(type));
+      ? nodeCatalog.getMenuDefinitions(projectType)
+      : Array.from(new Set(allowedTypes))
+        .filter((type) => isNodeTypeAvailableInProject(type, projectType))
+        .map((type) => nodeCatalog.getDefinition(type));
 
-    const filteredCandidates = candidates.filter((item) => {
-      if (projectType === 'script') {
-        return item.menuLabelKey !== 'node.generateImage';
-      }
-      return true;
-    });
-
-    const dedupedByLabel = new Map<string, typeof filteredCandidates[number]>();
-    for (const definition of filteredCandidates) {
+    const dedupedByLabel = new Map<string, typeof candidates[number]>();
+    for (const definition of candidates) {
       const existing = dedupedByLabel.get(definition.menuLabelKey);
       if (!existing) {
         dedupedByLabel.set(definition.menuLabelKey, definition);

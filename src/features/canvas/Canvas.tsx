@@ -345,10 +345,11 @@ function resolveClipboardImageFile(event: ClipboardEvent): File | null {
 
 function resolveAllowedNodeTypes(
   handleType: HandleType,
+  projectType: 'storyboard' | 'script' = 'storyboard',
   sourceNodeId?: string | null,
   nodes?: CanvasNode[]
 ): CanvasNodeType[] {
-  const baseTypes = getConnectMenuNodeTypes(handleType);
+  const baseTypes = getConnectMenuNodeTypes(handleType, projectType);
   
   if (!sourceNodeId || !nodes) {
     return baseTypes;
@@ -2844,6 +2845,7 @@ export function Canvas() {
 
       const allowedTypes = resolveAllowedNodeTypes(
         pendingConnectStart.handleType,
+        project?.projectType === 'script' ? 'script' : 'storyboard',
         pendingConnectStart.nodeId,
         nodes
       );
@@ -3158,6 +3160,7 @@ export function Canvas() {
           position={batchMenuPosition}
           sourceNodeIds={branchConnectionSource.map(n => n.id)}
           sourceNodeType={branchConnectionSource[0]?.type || 'default'}
+          projectType={project?.projectType === 'script' ? 'script' : 'storyboard'}
           onSelectNodeType={handleBatchOperationSelect}
           onClose={resetBranchConnectionState}
         />

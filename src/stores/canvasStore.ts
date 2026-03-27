@@ -19,6 +19,8 @@ import {
   EXPORT_RESULT_NODE_LAYOUT_HEIGHT,
   EXPORT_RESULT_NODE_MIN_HEIGHT,
   EXPORT_RESULT_NODE_MIN_WIDTH,
+  IMAGE_EDIT_NODE_DEFAULT_HEIGHT,
+  IMAGE_EDIT_NODE_DEFAULT_WIDTH,
   type ActiveToolDialog,
   type CanvasEdge,
   type CanvasNode,
@@ -89,6 +91,8 @@ const IMAGE_EDIT_DERIVED_NODE_STACK_GAP = 12;
 const DERIVED_NODE_MAX_ROWS_PER_COLUMN = 4;
 const DERIVED_NODE_NEXT_COLUMN_GAP = 32;
 const DERIVED_NODE_COLUMN_ALIGNMENT_THRESHOLD = 48;
+const LEGACY_IMAGE_EDIT_NODE_DEFAULT_WIDTHS = new Set([620]);
+const LEGACY_IMAGE_EDIT_NODE_DEFAULT_HEIGHTS = new Set([290, 340, 350]);
 const STORYBOARD_SPLIT_NODE_BASE_WIDTH = 620;
 const STORYBOARD_SPLIT_NODE_MIN_HEIGHT = 360;
 const STORYBOARD_SPLIT_NODE_WIDTH_PADDING = 200;
@@ -446,11 +450,15 @@ function normalizeNodes(rawNodes: CanvasNode[]): CanvasNode[] {
         }
       }
 
-      return {
+      const normalizedNode: CanvasNode = {
         ...node,
         type: node.type as CanvasNodeType,
         data: mergedData,
       };
+
+      return shouldApplyImageEditDefaultSize(normalizedNode, mergedData)
+        ? withImageEditDefaultSize(normalizedNode)
+        : normalizedNode;
     })
     .filter((node): node is CanvasNode => Boolean(node));
 
@@ -620,6 +628,65 @@ function getNodeSize(node: CanvasNode): { width: number; height: number } {
           ? node.height
           : 200,
   };
+}
+
+function resolveNumericNodeDimension(value: unknown): number | null {
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    return Math.round(value);
+  }
+
+  if (typeof value === 'string') {
+    const parsed = Number.parseFloat(value);
+    return Number.isFinite(parsed) ? Math.round(parsed) : null;
+  }
+
+  return null;
+}
+
+function withImageEditDefaultSize(node: CanvasNode): CanvasNode {
+  return {
+    ...node,
+    width: IMAGE_EDIT_NODE_DEFAULT_WIDTH,
+    height: IMAGE_EDIT_NODE_DEFAULT_HEIGHT,
+    style: {
+      ...(node.style ?? {}),
+      width: IMAGE_EDIT_NODE_DEFAULT_WIDTH,
+      height: IMAGE_EDIT_NODE_DEFAULT_HEIGHT,
+    },
+  };
+}
+
+function shouldApplyImageEditDefaultSize(node: CanvasNode, data: CanvasNodeData): boolean {
+  if (node.type !== CANVAS_NODE_TYPES.imageEdit) {
+    return false;
+  }
+
+  const imageEditData = data as ImageEditNodeData;
+  if (imageEditData.isSizeManuallyAdjusted) {
+    return false;
+  }
+
+  if (normalizeNonEmptyString(imageEditData.imageUrl)) {
+    return false;
+  }
+
+  const resolvedWidth =
+    resolveNumericNodeDimension(node.width)
+    ?? resolveNumericNodeDimension(node.style?.width);
+  const resolvedHeight =
+    resolveNumericNodeDimension(node.height)
+    ?? resolveNumericNodeDimension(node.style?.height);
+
+  const widthMatchesLegacyDefault =
+    resolvedWidth === null
+    || resolvedWidth === IMAGE_EDIT_NODE_DEFAULT_WIDTH
+    || LEGACY_IMAGE_EDIT_NODE_DEFAULT_WIDTHS.has(resolvedWidth);
+  const heightMatchesLegacyDefault =
+    resolvedHeight === null
+    || resolvedHeight === IMAGE_EDIT_NODE_DEFAULT_HEIGHT
+    || LEGACY_IMAGE_EDIT_NODE_DEFAULT_HEIGHTS.has(resolvedHeight);
+
+  return widthMatchesLegacyDefault && heightMatchesLegacyDefault;
 }
 
 function collidesWithExistingNodes(
@@ -1180,11 +1247,18 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
       const resizedNodeIds = new Set(
         changes
           .filter(
-            (change): change is NodeChange<CanvasNode> & { id: string } =>
+            (
+              change
+            ): change is NodeChange<CanvasNode> & {
+              id: string;
+              setAttributes?: boolean | 'width' | 'height';
+            } =>
               change.type === 'dimensions'
               && 'resizing' in change
               && change.resizing === false
               && typeof change.id === 'string'
+              && 'setAttributes' in change
+              && Boolean(change.setAttributes)
           )
           .map((change) => change.id)
       );
@@ -1365,21 +1439,24 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
   },
 
   addNode: (type, position, data = {}, options = {}) => {
-    const state = get();
-    const initialData = resolveNodeCreationDefaults(type, data);
-    const sourceNode = options.inheritParentFromNodeId
-      ? state.nodes.find((node) => node.id === options.inheritParentFromNodeId)
-      : undefined;
-    const nodeMap = new Map(state.nodes.map((node) => [node.id, node] as const));
-    const parentGroupId = options.parentId ?? resolveInheritedGroupParentId(sourceNode, nodeMap);
-    const createdNode = canvasNodeFactory.createNode(type, position, initialData);
-    const newNode = attachNodeToGroupParent(
-      createdNode,
-      position,
-      parentGroupId,
-      nodeMap,
-      options.positionSpace ?? 'canvas'
-    );
+      const state = get();
+      const initialData = resolveNodeCreationDefaults(type, data);
+      const sourceNode = options.inheritParentFromNodeId
+        ? state.nodes.find((node) => node.id === options.inheritParentFromNodeId)
+        : undefined;
+      const nodeMap = new Map(state.nodes.map((node) => [node.id, node] as const));
+      const parentGroupId = options.parentId ?? resolveInheritedGroupParentId(sourceNode, nodeMap);
+      const createdNode = canvasNodeFactory.createNode(type, position, initialData);
+      const sizedNode = shouldApplyImageEditDefaultSize(createdNode, createdNode.data)
+        ? withImageEditDefaultSize(createdNode)
+        : createdNode;
+      const newNode = attachNodeToGroupParent(
+        sizedNode,
+        position,
+        parentGroupId,
+        nodeMap,
+        options.positionSpace ?? 'canvas'
+      );
     const nextNodes = parentGroupId
       ? fitGroupNodeToChildren([...state.nodes, newNode], parentGroupId)
       : [...state.nodes, newNode];

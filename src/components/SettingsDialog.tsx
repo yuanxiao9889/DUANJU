@@ -251,6 +251,7 @@ export function SettingsDialog({
       'comfly',
       'zhenzhen',
       'bltcy',
+      'volcengine',
       'runninghub',
       'compatible',
       'alibaba',
@@ -264,7 +265,10 @@ export function SettingsDialog({
     });
   }, []);
   const scriptProviders = useMemo(() => listScriptProviders(providers), [providers]);
-  const storyboardProviders = useMemo(() => providers.filter(p => p.id !== 'alibaba' && p.id !== 'coding'), [providers]);
+  const storyboardProviders = useMemo(
+    () => providers.filter((p) => p.id !== 'alibaba' && p.id !== 'coding' && p.id !== 'volcengine'),
+    [providers]
+  );
   const [activeCategory, setActiveCategory] = useState<SettingsCategory>(initialCategory);
   const [localProviderTab, setLocalProviderTab] = useState<'script' | 'storyboard'>('script');
   const [localApiKeys, setLocalApiKeys] = useState<Record<string, string>>(apiKeys);
