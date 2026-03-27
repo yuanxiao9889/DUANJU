@@ -1,5 +1,6 @@
 import {
   type KeyboardEvent,
+  type MouseEvent as ReactMouseEvent,
   type ReactNode,
   Fragment,
   memo,
@@ -44,19 +45,22 @@ import {
   type GenerationDebugContext,
 } from '@/features/canvas/application/generationErrorReport';
 import {
+  areReferenceImageOrdersEqual,
   buildShortReferenceToken,
   findReferenceTokens,
   insertReferenceToken,
+  remapReferenceTokensByImageOrder,
   removeTextRange,
   resolveReferenceAwareDeleteRange,
 } from '@/features/canvas/application/referenceTokenEditing';
 import {
   DEFAULT_IMAGE_MODEL_ID,
-  STORYBOARD_COMPATIBLE_MODEL_ID,
   getImageModel,
+  isStoryboardCompatibleModelId,
   listImageModels,
   resolveImageModelResolution,
   resolveImageModelResolutions,
+  resolveStoryboardCompatibleModelConfigForModel,
   toStoryboardCompatibleExtraParamsPayload,
 } from '@/features/canvas/models';
 import { GRSAI_NANO_BANANA_PRO_MODEL_ID } from '@/features/canvas/models/image/grsai/nanoBananaPro';
@@ -102,6 +106,14 @@ interface PromptOptimizationMeta {
 interface PromptOptimizationUndoState {
   previousPrompt: string;
   appliedPrompt: string;
+}
+
+interface PromptReferencePreviewState {
+  imageUrl: string;
+  displayUrl: string;
+  alt: string;
+  left: number;
+  top: number;
 }
 
 const PICKER_FALLBACK_ANCHOR: PickerAnchor = { left: 8, top: 8 };
@@ -212,6 +224,58 @@ function renderPromptWithHighlights(prompt: string, maxImageCount: number): Reac
   return segments;
 }
 
+function renderPromptReferenceHoverTargets(
+  prompt: string,
+  maxImageCount: number,
+  onTokenHover: (token: number, event: ReactMouseEvent<HTMLSpanElement>) => void,
+  onTokenLeave: () => void,
+  onTokenMouseDown: (tokenEnd: number, event: ReactMouseEvent<HTMLSpanElement>) => void
+): ReactNode {
+  if (!prompt) {
+    return ' ';
+  }
+
+  const segments: ReactNode[] = [];
+  let lastIndex = 0;
+  const referenceTokens = findReferenceTokens(prompt, maxImageCount);
+  for (const token of referenceTokens) {
+    const matchStart = token.start;
+
+    if (matchStart > lastIndex) {
+      segments.push(
+        <span key={`hover-plain-${lastIndex}`} className="text-transparent">
+          {prompt.slice(lastIndex, matchStart)}
+        </span>
+      );
+    }
+
+    segments.push(
+      <span
+        key={`hover-ref-${matchStart}`}
+        className="pointer-events-auto cursor-help select-none text-transparent"
+        onMouseEnter={(event) => onTokenHover(token.value - 1, event)}
+        onMouseMove={(event) => onTokenHover(token.value - 1, event)}
+        onMouseLeave={onTokenLeave}
+        onMouseDown={(event) => onTokenMouseDown(token.end, event)}
+      >
+        {token.token}
+      </span>
+    );
+
+    lastIndex = token.end;
+  }
+
+  if (lastIndex < prompt.length) {
+    segments.push(
+      <span key={`hover-plain-${lastIndex}`} className="text-transparent">
+        {prompt.slice(lastIndex)}
+      </span>
+    );
+  }
+
+  return segments;
+}
+
 function resolveOptimizationReferenceImages(prompt: string, imageUrls: string[]): string[] {
   if (imageUrls.length === 0) {
     return [];
@@ -273,11 +337,15 @@ export const ImageEditNode = memo(({ id, data, selected, width, height }: ImageE
     useState<PromptOptimizationUndoState | null>(null);
 
   const rootRef = useRef<HTMLDivElement>(null);
+  const promptPanelRef = useRef<HTMLDivElement>(null);
+  const promptPreviewHostRef = useRef<HTMLDivElement>(null);
   const promptRef = useRef<HTMLTextAreaElement>(null);
   const promptHighlightRef = useRef<HTMLDivElement>(null);
+  const promptHoverLayerRef = useRef<HTMLDivElement>(null);
   const pickerItemRefs = useRef<Array<HTMLButtonElement | null>>([]);
   const [promptDraft, setPromptDraft] = useState(() => data.prompt ?? '');
   const promptDraftRef = useRef(promptDraft);
+  const previousIncomingImagesRef = useRef<string[] | null>(null);
   const [selectedStyleTemplateId, setSelectedStyleTemplateId] = useState<string | null>(null);
   const [styleTemplatePrompt, setStyleTemplatePrompt] = useState<string>('');
   const [showStyleTemplateDialog, setShowStyleTemplateDialog] = useState(false);
@@ -285,6 +353,8 @@ export const ImageEditNode = memo(({ id, data, selected, width, height }: ImageE
   const [pickerCursor, setPickerCursor] = useState<number | null>(null);
   const [pickerActiveIndex, setPickerActiveIndex] = useState(0);
   const [pickerAnchor, setPickerAnchor] = useState<PickerAnchor>(PICKER_FALLBACK_ANCHOR);
+  const [promptReferencePreview, setPromptReferencePreview] =
+    useState<PromptReferencePreviewState | null>(null);
 
   const nodes = useCanvasStore((state) => state.nodes);
   const edges = useCanvasStore((state) => state.edges);
@@ -297,6 +367,9 @@ export const ImageEditNode = memo(({ id, data, selected, width, height }: ImageE
   const hrsaiNanoBananaProModel = useSettingsStore((state) => state.hrsaiNanoBananaProModel);
   const storyboardCompatibleModelConfig = useSettingsStore(
     (state) => state.storyboardCompatibleModelConfig
+  );
+  const storyboardProviderCustomModels = useSettingsStore(
+    (state) => state.storyboardProviderCustomModels
   );
   const setLastImageEditDefaults = useSettingsStore((state) => state.setLastImageEditDefaults);
   const showNodePrice = useSettingsStore((state) => state.showNodePrice);
@@ -326,14 +399,33 @@ export const ImageEditNode = memo(({ id, data, selected, width, height }: ImageE
   );
 
   const imageModels = useMemo(
-    () => listImageModels(storyboardCompatibleModelConfig),
-    [storyboardCompatibleModelConfig]
+    () => listImageModels(storyboardCompatibleModelConfig, storyboardProviderCustomModels),
+    [storyboardCompatibleModelConfig, storyboardProviderCustomModels]
   );
 
   const selectedModel = useMemo(() => {
     const modelId = data.model ?? DEFAULT_IMAGE_MODEL_ID;
-    return getImageModel(modelId, storyboardCompatibleModelConfig);
-  }, [data.model, storyboardCompatibleModelConfig]);
+    return getImageModel(
+      modelId,
+      storyboardCompatibleModelConfig,
+      storyboardProviderCustomModels
+    );
+  }, [data.model, storyboardCompatibleModelConfig, storyboardProviderCustomModels]);
+  const resolvedCompatibleModelConfig = useMemo(
+    () =>
+      isStoryboardCompatibleModelId(selectedModel.id)
+        ? resolveStoryboardCompatibleModelConfigForModel(
+          selectedModel.id,
+          storyboardCompatibleModelConfig,
+          storyboardProviderCustomModels
+        )
+        : storyboardCompatibleModelConfig,
+    [
+      selectedModel.id,
+      storyboardCompatibleModelConfig,
+      storyboardProviderCustomModels,
+    ]
+  );
   const providerApiKey = apiKeys[selectedModel.providerId] ?? '';
   const effectiveExtraParams = useMemo(
     () => ({
@@ -341,10 +433,10 @@ export const ImageEditNode = memo(({ id, data, selected, width, height }: ImageE
       ...(selectedModel.id === GRSAI_NANO_BANANA_PRO_MODEL_ID
         ? { grsai_pro_model: hrsaiNanoBananaProModel }
         : {}),
-      ...(selectedModel.id === STORYBOARD_COMPATIBLE_MODEL_ID
+      ...(isStoryboardCompatibleModelId(selectedModel.id)
         ? {
           compatible_config: toStoryboardCompatibleExtraParamsPayload(
-            storyboardCompatibleModelConfig
+            resolvedCompatibleModelConfig
           ),
         }
         : {}),
@@ -352,8 +444,8 @@ export const ImageEditNode = memo(({ id, data, selected, width, height }: ImageE
     [
       data.extraParams,
       hrsaiNanoBananaProModel,
+      resolvedCompatibleModelConfig,
       selectedModel.id,
-      storyboardCompatibleModelConfig,
     ]
   );
   const resolutionOptions = useMemo(
@@ -386,13 +478,13 @@ export const ImageEditNode = memo(({ id, data, selected, width, height }: ImageE
   });
   const debugRequestModel = useMemo(
     () =>
-      selectedModel.id === STORYBOARD_COMPATIBLE_MODEL_ID
-        ? storyboardCompatibleModelConfig.requestModel
+      isStoryboardCompatibleModelId(selectedModel.id)
+        ? resolvedCompatibleModelConfig.requestModel
         : requestResolution.requestModel,
     [
       requestResolution.requestModel,
+      resolvedCompatibleModelConfig.requestModel,
       selectedModel.id,
-      storyboardCompatibleModelConfig.requestModel,
     ]
   );
   const resolvedPriceDisplay = useMemo(
@@ -533,6 +625,31 @@ export const ImageEditNode = memo(({ id, data, selected, width, height }: ImageE
   }, [commitPromptDraft]);
 
   useEffect(() => {
+    const previousIncomingImages = previousIncomingImagesRef.current;
+    if (!previousIncomingImages) {
+      previousIncomingImagesRef.current = incomingImages;
+      return;
+    }
+
+    if (areReferenceImageOrdersEqual(previousIncomingImages, incomingImages)) {
+      return;
+    }
+
+    previousIncomingImagesRef.current = incomingImages;
+    const nextPrompt = remapReferenceTokensByImageOrder(
+      promptDraftRef.current,
+      previousIncomingImages,
+      incomingImages
+    );
+    if (nextPrompt === promptDraftRef.current) {
+      return;
+    }
+
+    setPromptDraft(nextPrompt);
+    commitPromptDraft(nextPrompt);
+  }, [commitPromptDraft, incomingImages]);
+
+  useEffect(() => {
     if (data.model !== selectedModel.id) {
       updateNodeData(id, { model: selectedModel.id });
     }
@@ -560,11 +677,16 @@ export const ImageEditNode = memo(({ id, data, selected, width, height }: ImageE
       setShowImagePicker(false);
       setPickerCursor(null);
       setPickerActiveIndex(0);
+      setPromptReferencePreview(null);
       return;
     }
 
     setPickerActiveIndex((previous) => Math.min(previous, incomingImages.length - 1));
   }, [incomingImages.length]);
+
+  useEffect(() => {
+    setPromptReferencePreview(null);
+  }, [incomingImages, promptDraft]);
 
   useEffect(() => {
     if (!showImagePicker) {
@@ -841,6 +963,10 @@ export const ImageEditNode = memo(({ id, data, selected, width, height }: ImageE
 
     promptHighlightRef.current.scrollTop = promptRef.current.scrollTop;
     promptHighlightRef.current.scrollLeft = promptRef.current.scrollLeft;
+    if (promptHoverLayerRef.current) {
+      promptHoverLayerRef.current.scrollTop = promptRef.current.scrollTop;
+      promptHoverLayerRef.current.scrollLeft = promptRef.current.scrollLeft;
+    }
   };
 
   const insertImageReference = useCallback((imageIndex: number) => {
@@ -890,20 +1016,23 @@ export const ImageEditNode = memo(({ id, data, selected, width, height }: ImageE
     if (showImagePicker && incomingImages.length > 0) {
       if (event.key === 'ArrowDown') {
         event.preventDefault();
+        event.stopPropagation();
         setPickerActiveIndex((previous) => (previous + 1) % incomingImages.length);
         return;
       }
 
       if (event.key === 'ArrowUp') {
         event.preventDefault();
+        event.stopPropagation();
         setPickerActiveIndex((previous) =>
           previous === 0 ? incomingImages.length - 1 : previous - 1
         );
         return;
       }
 
-      if (event.key === 'Enter') {
+      if (event.key === 'Enter' || event.key === 'Tab') {
         event.preventDefault();
+        event.stopPropagation();
         insertImageReference(pickerActiveIndex);
         return;
       }
@@ -911,8 +1040,9 @@ export const ImageEditNode = memo(({ id, data, selected, width, height }: ImageE
 
     if (event.key === '@' && incomingImages.length > 0) {
       event.preventDefault();
+      event.stopPropagation();
       const cursor = event.currentTarget.selectionStart ?? promptDraftRef.current.length;
-      setPickerAnchor(resolvePickerAnchor(rootRef.current, event.currentTarget, cursor));
+      setPickerAnchor(resolvePickerAnchor(promptPanelRef.current, event.currentTarget, cursor));
       setPickerCursor(cursor);
       setShowImagePicker(true);
       setPickerActiveIndex(0);
@@ -921,6 +1051,7 @@ export const ImageEditNode = memo(({ id, data, selected, width, height }: ImageE
 
     if (event.key === 'Escape' && showImagePicker) {
       event.preventDefault();
+      event.stopPropagation();
       setShowImagePicker(false);
       setPickerCursor(null);
       setPickerActiveIndex(0);
@@ -929,6 +1060,7 @@ export const ImageEditNode = memo(({ id, data, selected, width, height }: ImageE
 
     if ((event.ctrlKey || event.metaKey) && event.key === 'Enter') {
       event.preventDefault();
+      event.stopPropagation();
       void handleGenerate();
     }
   };
@@ -1006,6 +1138,60 @@ export const ImageEditNode = memo(({ id, data, selected, width, height }: ImageE
       })}`
       : null;
 
+  const hidePromptReferencePreview = useCallback(() => {
+    setPromptReferencePreview(null);
+  }, []);
+
+  const handlePromptReferenceTokenHover = useCallback((
+    tokenIndex: number,
+    event: ReactMouseEvent<HTMLSpanElement>
+  ) => {
+    const item = incomingImageItems[tokenIndex];
+    const previewHost = promptPreviewHostRef.current;
+    if (!item || !previewHost) {
+      setPromptReferencePreview(null);
+      return;
+    }
+
+    const previewHostRect = previewHost.getBoundingClientRect();
+    const previewMaxWidth = 144;
+    const previewMaxHeight = 132;
+    const horizontalPadding = 12;
+    const horizontalGap = 8;
+    const verticalGap = 8;
+    const maxLeft = Math.max(
+      horizontalPadding,
+      previewHostRect.width - previewMaxWidth - horizontalPadding
+    );
+    const preferredLeft = event.clientX - previewHostRect.left + horizontalGap;
+    const preferredTop = event.clientY - previewHostRect.top + verticalGap;
+    const maxTop = Math.max(
+      horizontalPadding,
+      previewHostRect.height - previewMaxHeight - horizontalPadding
+    );
+
+    setPromptReferencePreview({
+      imageUrl: item.imageUrl,
+      displayUrl: item.displayUrl,
+      alt: item.label,
+      left: Math.max(horizontalPadding, Math.min(preferredLeft, maxLeft)),
+      top: Math.max(horizontalPadding, Math.min(preferredTop, maxTop)),
+    });
+  }, [incomingImageItems]);
+
+  const handlePromptReferenceTokenMouseDown = useCallback((
+    tokenEnd: number,
+    event: ReactMouseEvent<HTMLSpanElement>
+  ) => {
+    event.preventDefault();
+    event.stopPropagation();
+    requestAnimationFrame(() => {
+      promptRef.current?.focus();
+      promptRef.current?.setSelectionRange(tokenEnd, tokenEnd);
+      syncPromptHighlightScroll();
+    });
+  }, []);
+
   return (
     <div
       ref={rootRef}
@@ -1027,8 +1213,11 @@ export const ImageEditNode = memo(({ id, data, selected, width, height }: ImageE
         onTitleChange={(nextTitle) => updateNodeData(id, { displayName: nextTitle })}
       />
 
-      <div className="relative min-h-0 flex-1 rounded-lg border border-[rgba(255,255,255,0.1)] bg-bg-dark/45 p-2">
-        <div className="relative h-full min-h-0">
+      <div
+        ref={promptPanelRef}
+        className="relative min-h-0 flex-1 rounded-lg border border-[rgba(255,255,255,0.1)] bg-bg-dark/45 p-2"
+      >
+        <div ref={promptPreviewHostRef} className="relative h-full min-h-0">
           <div
             ref={promptHighlightRef}
             aria-hidden="true"
@@ -1040,6 +1229,23 @@ export const ImageEditNode = memo(({ id, data, selected, width, height }: ImageE
             </div>
           </div>
 
+          <div
+            ref={promptHoverLayerRef}
+            aria-hidden="true"
+            className="ui-scrollbar pointer-events-none absolute inset-0 z-20 overflow-y-auto overflow-x-hidden text-sm leading-6 text-transparent"
+            style={{ scrollbarGutter: 'stable' }}
+          >
+            <div className="min-h-full whitespace-pre-wrap break-words px-1 py-0.5">
+              {renderPromptReferenceHoverTargets(
+                promptDraft,
+                incomingImages.length,
+                handlePromptReferenceTokenHover,
+                hidePromptReferencePreview,
+                handlePromptReferenceTokenMouseDown
+              )}
+            </div>
+          </div>
+
           <textarea
             ref={promptRef}
             value={promptDraft}
@@ -1047,13 +1253,35 @@ export const ImageEditNode = memo(({ id, data, selected, width, height }: ImageE
               const nextValue = event.target.value;
               commitManualPromptDraft(nextValue);
             }}
-            onKeyDown={handlePromptKeyDown}
+            onKeyDownCapture={handlePromptKeyDown}
             onScroll={syncPromptHighlightScroll}
-            onMouseDown={(event) => event.stopPropagation()}
+            onMouseDown={(event) => {
+              event.stopPropagation();
+              hidePromptReferencePreview();
+            }}
             placeholder={t('node.imageEdit.promptPlaceholder')}
             className="ui-scrollbar nodrag nowheel relative z-10 h-full w-full resize-none overflow-y-auto overflow-x-hidden border-none bg-transparent px-1 py-0.5 text-sm leading-6 text-transparent caret-text-dark outline-none placeholder:text-text-muted/80 focus:border-transparent whitespace-pre-wrap break-words"
             style={{ scrollbarGutter: 'stable' }}
           />
+
+          {promptReferencePreview ? (
+            <div
+              className="pointer-events-none absolute z-30 w-fit overflow-hidden rounded-xl shadow-[0_12px_28px_rgba(0,0,0,0.28)]"
+              style={{
+                left: `${promptReferencePreview.left}px`,
+                top: `${promptReferencePreview.top}px`,
+              }}
+            >
+              <CanvasNodeImage
+                src={promptReferencePreview.displayUrl}
+                alt={promptReferencePreview.alt}
+                viewerSourceUrl={resolveImageDisplayUrl(promptReferencePreview.imageUrl)}
+                viewerImageList={incomingImageViewerList}
+                className="block max-h-[132px] max-w-[144px] rounded-xl object-contain"
+                draggable={false}
+              />
+            </div>
+          ) : null}
         </div>
 
         {showImagePicker && incomingImageItems.length > 0 && (
@@ -1084,7 +1312,7 @@ export const ImageEditNode = memo(({ id, data, selected, width, height }: ImageE
                   aria-selected={pickerActiveIndex === index}
                   className={`flex w-full items-center gap-2 border border-transparent bg-bg-dark/70 px-2 py-2 text-left text-sm text-text-dark transition-colors hover:border-[rgba(255,255,255,0.18)] ${
                     pickerActiveIndex === index
-                      ? 'border-[rgba(255,255,255,0.24)] bg-bg-dark'
+                      ? 'border-accent/55 bg-white/[0.08] shadow-[0_0_0_1px_rgba(59,130,246,0.22)]'
                       : ''
                   }`}
                 >
@@ -1106,9 +1334,6 @@ export const ImageEditNode = memo(({ id, data, selected, width, height }: ImageE
                   </div>
                 </button>
               ))}
-            </div>
-            <div className="border-t border-white/8 px-2 py-1 text-[10px] text-text-muted/80">
-              {t('common.referencePickerHint')}
             </div>
           </div>
         )}

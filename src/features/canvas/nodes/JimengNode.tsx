@@ -1,6 +1,7 @@
 import {
   type DragEvent,
   type KeyboardEvent,
+  type MouseEvent as ReactMouseEvent,
   type ReactNode,
   memo,
   useCallback,
@@ -30,12 +31,14 @@ import { NodeResizeHandle } from '@/features/canvas/ui/NodeResizeHandle';
 import { NodeStatusBadge } from '@/features/canvas/ui/NodeStatusBadge';
 import { CanvasNodeImage } from '@/features/canvas/ui/CanvasNodeImage';
 import { graphImageResolver } from '@/features/canvas/application/canvasServices';
-import { showErrorDialog } from '@/features/canvas/application/errorDialog';
+import { resolveErrorContent, showErrorDialog } from '@/features/canvas/application/errorDialog';
 import { resolveImageDisplayUrl } from '@/features/canvas/application/imageData';
 import {
+  areReferenceImageOrdersEqual,
   buildShortReferenceToken,
   findReferenceTokens,
   insertReferenceToken,
+  remapReferenceTokensByImageOrder,
   removeTextRange,
   resolveReferenceAwareDeleteRange,
 } from '@/features/canvas/application/referenceTokenEditing';
@@ -43,7 +46,11 @@ import {
   buildJimengSubmissionPrompt,
   submitJimengTask,
 } from '@/features/jimeng/application/jimengSubmission';
-import { optimizeCanvasPrompt } from '@/features/canvas/application/promptOptimization';
+import { focusJimengChromeWorkspace } from '@/features/jimeng/application/jimengChromeWorkspace';
+import {
+  optimizeCanvasPrompt,
+  type PromptDurationRecommendation,
+} from '@/features/canvas/application/promptOptimization';
 import { UiButton, UiModal } from '@/components/ui';
 import { useCanvasStore } from '@/stores/canvasStore';
 
@@ -61,6 +68,23 @@ interface PickerAnchor {
 interface PromptOptimizationUndoState {
   previousPrompt: string;
   appliedPrompt: string;
+  previousDurationSuggestion: PromptDurationSuggestionSnapshot;
+  appliedDurationSuggestion: PromptDurationSuggestionSnapshot;
+}
+
+interface PromptReferencePreviewState {
+  imageUrl: string;
+  displayUrl: string;
+  alt: string;
+  left: number;
+  top: number;
+}
+
+interface PromptDurationSuggestionSnapshot {
+  suggestedDurationSeconds: number | null;
+  suggestedDurationEstimatedSeconds: number | null;
+  suggestedDurationExceedsLimit: boolean;
+  suggestedDurationReason: string | null;
 }
 
 const PICKER_FALLBACK_ANCHOR: PickerAnchor = { left: 8, top: 8 };
@@ -72,6 +96,74 @@ const JIMENG_NODE_MIN_HEIGHT = 360;
 const JIMENG_NODE_MAX_WIDTH = 1320;
 const JIMENG_NODE_MAX_HEIGHT = 1040;
 let hasShownJimengManualSetupReminderThisSession = false;
+
+function buildClearedDurationSuggestionSnapshot(): PromptDurationSuggestionSnapshot {
+  return {
+    suggestedDurationSeconds: null,
+    suggestedDurationEstimatedSeconds: null,
+    suggestedDurationExceedsLimit: false,
+    suggestedDurationReason: null,
+  };
+}
+
+function readDurationSuggestionSnapshot(data: JimengNodeData): PromptDurationSuggestionSnapshot {
+  return {
+    suggestedDurationSeconds:
+      typeof data.suggestedDurationSeconds === 'number'
+        ? data.suggestedDurationSeconds
+        : null,
+    suggestedDurationEstimatedSeconds:
+      typeof data.suggestedDurationEstimatedSeconds === 'number'
+        ? data.suggestedDurationEstimatedSeconds
+        : null,
+    suggestedDurationExceedsLimit: data.suggestedDurationExceedsLimit === true,
+    suggestedDurationReason:
+      typeof data.suggestedDurationReason === 'string' && data.suggestedDurationReason.trim().length > 0
+        ? data.suggestedDurationReason.trim()
+        : null,
+  };
+}
+
+function buildDurationSuggestionSnapshot(
+  recommendation: PromptDurationRecommendation | null | undefined
+): PromptDurationSuggestionSnapshot {
+  if (!recommendation) {
+    return buildClearedDurationSuggestionSnapshot();
+  }
+
+  return {
+    suggestedDurationSeconds: recommendation.recommendedDurationSeconds,
+    suggestedDurationEstimatedSeconds: recommendation.estimatedDurationSeconds,
+    suggestedDurationExceedsLimit: recommendation.exceedsMaxDuration,
+    suggestedDurationReason:
+      typeof recommendation.reason === 'string' && recommendation.reason.trim().length > 0
+        ? recommendation.reason.trim()
+        : null,
+  };
+}
+
+function toDurationSuggestionNodeData(
+  snapshot: PromptDurationSuggestionSnapshot
+): Partial<JimengNodeData> {
+  return {
+    suggestedDurationSeconds: snapshot.suggestedDurationSeconds,
+    suggestedDurationEstimatedSeconds: snapshot.suggestedDurationEstimatedSeconds,
+    suggestedDurationExceedsLimit: snapshot.suggestedDurationExceedsLimit,
+    suggestedDurationReason: snapshot.suggestedDurationReason,
+  };
+}
+
+function areDurationSuggestionSnapshotsEqual(
+  left: PromptDurationSuggestionSnapshot,
+  right: PromptDurationSuggestionSnapshot
+): boolean {
+  return (
+    left.suggestedDurationSeconds === right.suggestedDurationSeconds
+    && left.suggestedDurationEstimatedSeconds === right.suggestedDurationEstimatedSeconds
+    && left.suggestedDurationExceedsLimit === right.suggestedDurationExceedsLimit
+    && left.suggestedDurationReason === right.suggestedDurationReason
+  );
+}
 
 function moveItem<T>(items: T[], fromIndex: number, toIndex: number): T[] {
   if (
@@ -219,6 +311,56 @@ function renderPromptWithHighlights(prompt: string, maxImageCount: number): Reac
   return segments;
 }
 
+function renderPromptReferenceHoverTargets(
+  prompt: string,
+  maxImageCount: number,
+  onTokenHover: (token: number, event: ReactMouseEvent<HTMLSpanElement>) => void,
+  onTokenLeave: () => void,
+  onTokenMouseDown: (tokenEnd: number, event: ReactMouseEvent<HTMLSpanElement>) => void
+): ReactNode {
+  if (!prompt) {
+    return ' ';
+  }
+
+  const segments: ReactNode[] = [];
+  let lastIndex = 0;
+  const referenceTokens = findReferenceTokens(prompt, maxImageCount);
+  for (const token of referenceTokens) {
+    if (token.start > lastIndex) {
+      segments.push(
+        <span key={`hover-plain-${lastIndex}`} className="text-transparent">
+          {prompt.slice(lastIndex, token.start)}
+        </span>
+      );
+    }
+
+    segments.push(
+      <span
+        key={`hover-ref-${token.start}`}
+        className="pointer-events-auto cursor-help select-none text-transparent"
+        onMouseEnter={(event) => onTokenHover(token.value - 1, event)}
+        onMouseMove={(event) => onTokenHover(token.value - 1, event)}
+        onMouseLeave={onTokenLeave}
+        onMouseDown={(event) => onTokenMouseDown(token.end, event)}
+      >
+        {token.token}
+      </span>
+    );
+
+    lastIndex = token.end;
+  }
+
+  if (lastIndex < prompt.length) {
+    segments.push(
+      <span key={`hover-plain-${lastIndex}`} className="text-transparent">
+        {prompt.slice(lastIndex)}
+      </span>
+    );
+  }
+
+  return segments;
+}
+
 export const JimengNode = memo(({
   id,
   data,
@@ -230,11 +372,15 @@ export const JimengNode = memo(({
   const updateNodeInternals = useUpdateNodeInternals();
 
   const rootRef = useRef<HTMLDivElement>(null);
+  const promptPanelRef = useRef<HTMLDivElement>(null);
+  const promptPreviewHostRef = useRef<HTMLDivElement>(null);
   const promptRef = useRef<HTMLTextAreaElement>(null);
   const promptHighlightRef = useRef<HTMLDivElement>(null);
+  const promptHoverLayerRef = useRef<HTMLDivElement>(null);
   const pickerItemRefs = useRef<Array<HTMLButtonElement | null>>([]);
   const [promptDraft, setPromptDraft] = useState(() => data.prompt ?? '');
   const promptDraftRef = useRef(promptDraft);
+  const previousIncomingImagesRef = useRef<string[] | null>(null);
   const [showImagePicker, setShowImagePicker] = useState(false);
   const [pickerCursor, setPickerCursor] = useState<number | null>(null);
   const [pickerActiveIndex, setPickerActiveIndex] = useState(0);
@@ -242,10 +388,13 @@ export const JimengNode = memo(({
   const [isManualSetupReminderOpen, setIsManualSetupReminderOpen] = useState(false);
   const [draggingReferenceIndex, setDraggingReferenceIndex] = useState<number | null>(null);
   const [dragOverReferenceIndex, setDragOverReferenceIndex] = useState<number | null>(null);
+  const [isOpeningJimengChrome, setIsOpeningJimengChrome] = useState(false);
   const [isOptimizingPrompt, setIsOptimizingPrompt] = useState(false);
   const [promptOptimizationError, setPromptOptimizationError] = useState<string | null>(null);
   const [lastPromptOptimizationUndoState, setLastPromptOptimizationUndoState] =
     useState<PromptOptimizationUndoState | null>(null);
+  const [promptReferencePreview, setPromptReferencePreview] =
+    useState<PromptReferencePreviewState | null>(null);
 
   const nodes = useCanvasStore((state) => state.nodes);
   const edges = useCanvasStore((state) => state.edges);
@@ -275,6 +424,15 @@ export const JimengNode = memo(({
     () => incomingImageItems.map((item) => resolveImageDisplayUrl(item.imageUrl)),
     [incomingImageItems]
   );
+  const durationSuggestion = useMemo(
+    () => readDurationSuggestionSnapshot(data),
+    [
+      data.suggestedDurationEstimatedSeconds,
+      data.suggestedDurationExceedsLimit,
+      data.suggestedDurationReason,
+      data.suggestedDurationSeconds,
+    ]
+  );
 
   const resolvedTitle = useMemo(
     () => resolveNodeDisplayName(CANVAS_NODE_TYPES.jimeng, data),
@@ -282,6 +440,17 @@ export const JimengNode = memo(({
   );
 
   const headerStatus = useMemo(() => {
+    if (isOpeningJimengChrome) {
+      return (
+        <NodeStatusBadge
+          icon={<Loader2 className="h-3 w-3" />}
+          label={t('titleBar.jimengOpeningChrome')}
+          tone="processing"
+          animate
+        />
+      );
+    }
+
     if (data.isSubmitting) {
       return (
         <NodeStatusBadge
@@ -327,7 +496,7 @@ export const JimengNode = memo(({
     }
 
     return null;
-  }, [data.isSubmitting, data.lastError, isOptimizingPrompt, promptOptimizationError, t]);
+  }, [data.isSubmitting, data.lastError, isOpeningJimengChrome, isOptimizingPrompt, promptOptimizationError, t]);
 
   const resolvedWidth = Math.max(JIMENG_NODE_MIN_WIDTH, Math.round(width ?? JIMENG_NODE_DEFAULT_WIDTH));
   const resolvedHeight = Math.max(JIMENG_NODE_MIN_HEIGHT, Math.round(height ?? JIMENG_NODE_DEFAULT_HEIGHT));
@@ -369,11 +538,16 @@ export const JimengNode = memo(({
       setPickerActiveIndex(0);
       setDraggingReferenceIndex(null);
       setDragOverReferenceIndex(null);
+      setPromptReferencePreview(null);
       return;
     }
 
     setPickerActiveIndex((previous) => Math.min(previous, incomingImages.length - 1));
   }, [incomingImages.length]);
+
+  useEffect(() => {
+    setPromptReferencePreview(null);
+  }, [incomingImages, promptDraft]);
 
   useEffect(() => {
     if (!showImagePicker) {
@@ -401,16 +575,50 @@ export const JimengNode = memo(({
     };
   }, []);
 
-  const commitPromptDraft = useCallback((nextPrompt: string) => {
+  const commitPromptDraft = useCallback((
+    nextPrompt: string,
+    nextData?: Partial<JimengNodeData>
+  ) => {
     promptDraftRef.current = nextPrompt;
-    updateNodeData(id, { prompt: nextPrompt });
+    updateNodeData(id, {
+      prompt: nextPrompt,
+      ...(nextData ?? {}),
+    });
   }, [id, updateNodeData]);
 
   const commitManualPromptDraft = useCallback((nextPrompt: string) => {
     setPromptDraft(nextPrompt);
-    commitPromptDraft(nextPrompt);
+    commitPromptDraft(
+      nextPrompt,
+      toDurationSuggestionNodeData(buildClearedDurationSuggestionSnapshot())
+    );
     setLastPromptOptimizationUndoState(null);
   }, [commitPromptDraft]);
+
+  useEffect(() => {
+    const previousIncomingImages = previousIncomingImagesRef.current;
+    if (!previousIncomingImages) {
+      previousIncomingImagesRef.current = incomingImages;
+      return;
+    }
+
+    if (areReferenceImageOrdersEqual(previousIncomingImages, incomingImages)) {
+      return;
+    }
+
+    previousIncomingImagesRef.current = incomingImages;
+    const nextPrompt = remapReferenceTokensByImageOrder(
+      promptDraftRef.current,
+      previousIncomingImages,
+      incomingImages
+    );
+    if (nextPrompt === promptDraftRef.current) {
+      return;
+    }
+
+    setPromptDraft(nextPrompt);
+    commitPromptDraft(nextPrompt);
+  }, [commitPromptDraft, incomingImages]);
 
   const syncPromptHighlightScroll = () => {
     if (!promptRef.current || !promptHighlightRef.current) {
@@ -419,6 +627,10 @@ export const JimengNode = memo(({
 
     promptHighlightRef.current.scrollTop = promptRef.current.scrollTop;
     promptHighlightRef.current.scrollLeft = promptRef.current.scrollLeft;
+    if (promptHoverLayerRef.current) {
+      promptHoverLayerRef.current.scrollTop = promptRef.current.scrollTop;
+      promptHoverLayerRef.current.scrollLeft = promptRef.current.scrollLeft;
+    }
   };
 
   const openImagePickerAtCursor = useCallback((cursor: number) => {
@@ -426,7 +638,7 @@ export const JimengNode = memo(({
       return;
     }
 
-    setPickerAnchor(resolvePickerAnchor(rootRef.current, promptRef.current, cursor));
+    setPickerAnchor(resolvePickerAnchor(promptPanelRef.current, promptRef.current, cursor));
     setPickerCursor(cursor);
     setShowImagePicker(true);
     setPickerActiveIndex(0);
@@ -470,15 +682,50 @@ export const JimengNode = memo(({
       .filter((imageUrl): imageUrl is string => typeof imageUrl === 'string' && imageUrl.trim().length > 0);
   }, [incomingImages]);
 
-  const ensureManualSetupReminderShown = useCallback(() => {
+  const openJimengChromeForManualSetup = useCallback(async () => {
+    if (isOpeningJimengChrome) {
+      return false;
+    }
+
+    setIsOpeningJimengChrome(true);
+    updateNodeData(id, { lastError: null });
+
+    try {
+      await focusJimengChromeWorkspace();
+      return true;
+    } catch (error) {
+      const content = resolveErrorContent(error, t('titleBar.jimengOpenFailed'));
+      const isChromeMissing = content.message.includes('Chrome/Chromium was not found');
+      const errorMessage = isChromeMissing
+        ? t('titleBar.jimengChromeMissing')
+        : content.message;
+
+      updateNodeData(id, { lastError: errorMessage });
+      await showErrorDialog(
+        errorMessage,
+        t('common.error'),
+        isChromeMissing ? content.message : content.details
+      );
+      return false;
+    } finally {
+      setIsOpeningJimengChrome(false);
+    }
+  }, [id, isOpeningJimengChrome, t, updateNodeData]);
+
+  const ensureManualSetupReminderShown = useCallback(async () => {
     if (hasShownJimengManualSetupReminderThisSession) {
       return true;
+    }
+
+    const opened = await openJimengChromeForManualSetup();
+    if (!opened) {
+      return false;
     }
 
     hasShownJimengManualSetupReminderThisSession = true;
     setIsManualSetupReminderOpen(true);
     return false;
-  }, []);
+  }, [openJimengChromeForManualSetup]);
 
   const persistReferenceImageOrder = useCallback((nextOrder: string[]) => {
     updateNodeData(id, { referenceImageOrder: nextOrder });
@@ -498,7 +745,7 @@ export const JimengNode = memo(({
   }, [incomingImages, persistReferenceImageOrder]);
 
   const handleSubmit = useCallback(async () => {
-    if (!ensureManualSetupReminderShown()) {
+    if (!(await ensureManualSetupReminderShown())) {
       return;
     }
 
@@ -602,6 +849,7 @@ export const JimengNode = memo(({
   const handleOptimizePrompt = useCallback(async () => {
     const sourcePrompt = promptDraftRef.current;
     const currentPrompt = sourcePrompt.trim();
+    const previousDurationSuggestion = durationSuggestion;
     if (!currentPrompt) {
       const errorMessage = t('node.jimeng.promptRequired');
       setPromptOptimizationError(errorMessage);
@@ -622,16 +870,25 @@ export const JimengNode = memo(({
         return;
       }
       const nextPrompt = result.prompt;
-      if (nextPrompt !== sourcePrompt) {
+      const nextDurationSuggestion = buildDurationSuggestionSnapshot(result.durationRecommendation);
+      if (
+        nextPrompt !== sourcePrompt
+        || !areDurationSuggestionSnapshotsEqual(
+          previousDurationSuggestion,
+          nextDurationSuggestion
+        )
+      ) {
         setLastPromptOptimizationUndoState({
           previousPrompt: sourcePrompt,
           appliedPrompt: nextPrompt,
+          previousDurationSuggestion,
+          appliedDurationSuggestion: nextDurationSuggestion,
         });
       } else {
         setLastPromptOptimizationUndoState(null);
       }
       setPromptDraft(nextPrompt);
-      commitPromptDraft(nextPrompt);
+      commitPromptDraft(nextPrompt, toDurationSuggestionNodeData(nextDurationSuggestion));
       requestAnimationFrame(() => {
         promptRef.current?.focus();
         const nextCursor = nextPrompt.length;
@@ -648,7 +905,7 @@ export const JimengNode = memo(({
     } finally {
       setIsOptimizingPrompt(false);
     }
-  }, [commitPromptDraft, resolveSubmissionReferenceImageSources, t]);
+  }, [commitPromptDraft, durationSuggestion, resolveSubmissionReferenceImageSources, t]);
 
   const handleUndoOptimizedPrompt = useCallback(() => {
     if (!lastPromptOptimizationUndoState) {
@@ -659,17 +916,29 @@ export const JimengNode = memo(({
       return;
     }
 
+    if (
+      !areDurationSuggestionSnapshotsEqual(
+        durationSuggestion,
+        lastPromptOptimizationUndoState.appliedDurationSuggestion
+      )
+    ) {
+      return;
+    }
+
     const restoredPrompt = lastPromptOptimizationUndoState.previousPrompt;
     setLastPromptOptimizationUndoState(null);
     setPromptDraft(restoredPrompt);
-    commitPromptDraft(restoredPrompt);
+    commitPromptDraft(
+      restoredPrompt,
+      toDurationSuggestionNodeData(lastPromptOptimizationUndoState.previousDurationSuggestion)
+    );
     requestAnimationFrame(() => {
       promptRef.current?.focus();
       const nextCursor = restoredPrompt.length;
       promptRef.current?.setSelectionRange(nextCursor, nextCursor);
       syncPromptHighlightScroll();
     });
-  }, [commitPromptDraft, lastPromptOptimizationUndoState]);
+  }, [commitPromptDraft, durationSuggestion, lastPromptOptimizationUndoState]);
 
   const handlePromptKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
     if (event.key === 'Backspace' || event.key === 'Delete') {
@@ -700,20 +969,23 @@ export const JimengNode = memo(({
     if (showImagePicker && incomingImages.length > 0) {
       if (event.key === 'ArrowDown') {
         event.preventDefault();
+        event.stopPropagation();
         setPickerActiveIndex((previous) => (previous + 1) % incomingImages.length);
         return;
       }
 
       if (event.key === 'ArrowUp') {
         event.preventDefault();
+        event.stopPropagation();
         setPickerActiveIndex((previous) =>
           previous === 0 ? incomingImages.length - 1 : previous - 1
         );
         return;
       }
 
-      if (event.key === 'Enter') {
+      if (event.key === 'Enter' || event.key === 'Tab') {
         event.preventDefault();
+        event.stopPropagation();
         insertImageReference(pickerActiveIndex);
         return;
       }
@@ -721,6 +993,7 @@ export const JimengNode = memo(({
 
     if (event.key === '@' && incomingImages.length > 0) {
       event.preventDefault();
+      event.stopPropagation();
       const cursor = event.currentTarget.selectionStart ?? promptDraftRef.current.length;
       openImagePickerAtCursor(cursor);
       return;
@@ -728,6 +1001,7 @@ export const JimengNode = memo(({
 
     if (event.key === 'Escape' && showImagePicker) {
       event.preventDefault();
+      event.stopPropagation();
       setShowImagePicker(false);
       setPickerCursor(null);
       setPickerActiveIndex(0);
@@ -736,6 +1010,7 @@ export const JimengNode = memo(({
 
     if ((event.ctrlKey || event.metaKey) && event.key === 'Enter') {
       event.preventDefault();
+      event.stopPropagation();
       void handleSubmit();
     }
   };
@@ -743,7 +1018,105 @@ export const JimengNode = memo(({
   const canUndoPromptOptimization = Boolean(
     lastPromptOptimizationUndoState
     && promptDraft === lastPromptOptimizationUndoState.appliedPrompt
+    && areDurationSuggestionSnapshotsEqual(
+      durationSuggestion,
+      lastPromptOptimizationUndoState.appliedDurationSuggestion
+    )
   );
+
+  const hasDurationSuggestion = typeof durationSuggestion.suggestedDurationSeconds === 'number';
+  const durationSuggestionText = useMemo(() => {
+    if (isOptimizingPrompt) {
+      return t('node.jimeng.durationSuggestionLoading');
+    }
+
+    if (!hasDurationSuggestion) {
+      return t('node.jimeng.durationSuggestionIdle');
+    }
+
+    const suggestedSeconds = durationSuggestion.suggestedDurationSeconds ?? 15;
+    const estimatedSeconds =
+      durationSuggestion.suggestedDurationEstimatedSeconds ?? suggestedSeconds;
+
+    if (durationSuggestion.suggestedDurationExceedsLimit) {
+      return t('node.jimeng.durationSuggestionOverflow', {
+        seconds: suggestedSeconds,
+        estimated: estimatedSeconds,
+      });
+    }
+
+    return t('node.jimeng.durationSuggestionLabel', {
+      seconds: suggestedSeconds,
+    });
+  }, [
+    durationSuggestion.suggestedDurationEstimatedSeconds,
+    durationSuggestion.suggestedDurationExceedsLimit,
+    durationSuggestion.suggestedDurationSeconds,
+    hasDurationSuggestion,
+    isOptimizingPrompt,
+    t,
+  ]);
+  const durationSuggestionTitle = useMemo(() => {
+    if (!durationSuggestion.suggestedDurationReason) {
+      return undefined;
+    }
+
+    return durationSuggestion.suggestedDurationReason;
+  }, [durationSuggestion.suggestedDurationReason]);
+
+  const hidePromptReferencePreview = useCallback(() => {
+    setPromptReferencePreview(null);
+  }, []);
+
+  const handlePromptReferenceTokenHover = useCallback((
+    tokenIndex: number,
+    event: ReactMouseEvent<HTMLSpanElement>
+  ) => {
+    const item = incomingImageItems[tokenIndex];
+    const previewHost = promptPreviewHostRef.current;
+    if (!item || !previewHost) {
+      setPromptReferencePreview(null);
+      return;
+    }
+
+    const previewHostRect = previewHost.getBoundingClientRect();
+    const previewMaxWidth = 144;
+    const previewMaxHeight = 132;
+    const horizontalPadding = 12;
+    const horizontalGap = 8;
+    const verticalGap = 8;
+    const maxLeft = Math.max(
+      horizontalPadding,
+      previewHostRect.width - previewMaxWidth - horizontalPadding
+    );
+    const preferredLeft = event.clientX - previewHostRect.left + horizontalGap;
+    const preferredTop = event.clientY - previewHostRect.top + verticalGap;
+    const maxTop = Math.max(
+      horizontalPadding,
+      previewHostRect.height - previewMaxHeight - horizontalPadding
+    );
+
+    setPromptReferencePreview({
+      imageUrl: item.imageUrl,
+      displayUrl: item.displayUrl,
+      alt: item.label,
+      left: Math.max(horizontalPadding, Math.min(preferredLeft, maxLeft)),
+      top: Math.max(horizontalPadding, Math.min(preferredTop, maxTop)),
+    });
+  }, [incomingImageItems]);
+
+  const handlePromptReferenceTokenMouseDown = useCallback((
+    tokenEnd: number,
+    event: ReactMouseEvent<HTMLSpanElement>
+  ) => {
+    event.preventDefault();
+    event.stopPropagation();
+    requestAnimationFrame(() => {
+      promptRef.current?.focus();
+      promptRef.current?.setSelectionRange(tokenEnd, tokenEnd);
+      syncPromptHighlightScroll();
+    });
+  }, []);
 
   return (
     <div
@@ -766,7 +1139,10 @@ export const JimengNode = memo(({
         onTitleChange={(nextTitle) => updateNodeData(id, { displayName: nextTitle })}
       />
 
-      <div className="relative flex min-h-0 flex-1 flex-col rounded-[22px] border border-white/8 bg-[#17191f] px-4 py-3">
+      <div
+        ref={promptPanelRef}
+        className="relative flex min-h-0 flex-1 flex-col rounded-lg border border-[rgba(255,255,255,0.1)] bg-bg-dark/45 px-4 py-3"
+      >
         {incomingImageItems.length > 0 ? (
           <div className="mb-3 flex shrink-0 items-start gap-3 overflow-x-auto pb-1">
             {incomingImageItems.map((item, index) => (
@@ -807,7 +1183,7 @@ export const JimengNode = memo(({
           </div>
         ) : null}
 
-        <div className="relative min-h-0 flex-1">
+        <div ref={promptPreviewHostRef} className="relative min-h-0 flex-1">
           <div
             ref={promptHighlightRef}
             aria-hidden="true"
@@ -819,6 +1195,23 @@ export const JimengNode = memo(({
             </div>
           </div>
 
+          <div
+            ref={promptHoverLayerRef}
+            aria-hidden="true"
+            className="ui-scrollbar pointer-events-none absolute inset-0 z-20 overflow-y-auto overflow-x-hidden text-[15px] leading-7 text-transparent"
+            style={{ scrollbarGutter: 'stable' }}
+          >
+            <div className="min-h-full whitespace-pre-wrap break-words px-1 py-1">
+              {renderPromptReferenceHoverTargets(
+                promptDraft,
+                incomingImages.length,
+                handlePromptReferenceTokenHover,
+                hidePromptReferencePreview,
+                handlePromptReferenceTokenMouseDown
+              )}
+            </div>
+          </div>
+
           <textarea
             ref={promptRef}
             value={promptDraft}
@@ -826,13 +1219,35 @@ export const JimengNode = memo(({
               const nextValue = event.target.value;
               commitManualPromptDraft(nextValue);
             }}
-            onKeyDown={handlePromptKeyDown}
+            onKeyDownCapture={handlePromptKeyDown}
             onScroll={syncPromptHighlightScroll}
-            onMouseDown={(event) => event.stopPropagation()}
+            onMouseDown={(event) => {
+              event.stopPropagation();
+              hidePromptReferencePreview();
+            }}
             placeholder={t('node.jimeng.promptPlaceholder')}
             className="ui-scrollbar nodrag nowheel relative z-10 h-full w-full resize-none overflow-y-auto overflow-x-hidden border-none bg-transparent px-1 py-1 text-[15px] leading-7 text-transparent caret-text-dark outline-none placeholder:text-text-muted/80 focus:border-transparent whitespace-pre-wrap break-words"
             style={{ scrollbarGutter: 'stable' }}
           />
+
+          {promptReferencePreview ? (
+            <div
+              className="pointer-events-none absolute z-30 w-fit overflow-hidden rounded-xl shadow-[0_12px_28px_rgba(0,0,0,0.28)]"
+              style={{
+                left: `${promptReferencePreview.left}px`,
+                top: `${promptReferencePreview.top}px`,
+              }}
+            >
+              <CanvasNodeImage
+                src={promptReferencePreview.displayUrl}
+                alt={promptReferencePreview.alt}
+                viewerSourceUrl={resolveImageDisplayUrl(promptReferencePreview.imageUrl)}
+                viewerImageList={incomingImageViewerList}
+                className="block max-h-[132px] max-w-[144px] rounded-xl object-contain"
+                draggable={false}
+              />
+            </div>
+          ) : null}
         </div>
 
         {showImagePicker && incomingImageItems.length > 0 && (
@@ -862,7 +1277,9 @@ export const JimengNode = memo(({
                   role="option"
                   aria-selected={pickerActiveIndex === index}
                   className={`flex w-full items-center gap-2 border border-transparent bg-bg-dark/70 px-2 py-2 text-left text-sm text-text-dark transition-colors hover:border-[rgba(255,255,255,0.18)] ${
-                    pickerActiveIndex === index ? 'border-[rgba(255,255,255,0.24)] bg-bg-dark' : ''
+                    pickerActiveIndex === index
+                      ? 'border-accent/55 bg-white/[0.08] shadow-[0_0_0_1px_rgba(59,130,246,0.22)]'
+                      : ''
                   }`}
                 >
                   <CanvasNodeImage
@@ -884,13 +1301,25 @@ export const JimengNode = memo(({
                 </button>
               ))}
             </div>
-            <div className="border-t border-white/8 px-2 py-1 text-[10px] text-text-muted/80">
-              {t('common.referencePickerHint')}
-            </div>
           </div>
         )}
 
         <div className="mt-4 flex shrink-0 flex-wrap items-center gap-2">
+          <div
+            className={`min-h-[28px] max-w-[240px] text-[11px] leading-4 ${
+              isOptimizingPrompt
+                ? 'text-text-muted'
+                : durationSuggestion.suggestedDurationExceedsLimit
+                  ? 'text-red-300'
+                  : hasDurationSuggestion
+                    ? 'text-text-dark'
+                    : 'text-text-muted'
+            }`}
+            title={durationSuggestionTitle}
+          >
+            {durationSuggestionText}
+          </div>
+
           <div className="ml-auto min-w-0 text-right text-[11px] text-text-muted">
             {t('node.jimeng.referenceCount', { count: incomingImageItems.length })}
           </div>
@@ -937,15 +1366,21 @@ export const JimengNode = memo(({
             type="button"
             variant="primary"
             size="sm"
-            disabled={Boolean(data.isSubmitting)}
+            disabled={Boolean(data.isSubmitting) || isOpeningJimengChrome}
             className="h-11 w-11 shrink-0 rounded-full !px-0"
             onClick={(event) => {
               event.stopPropagation();
               void handleSubmit();
             }}
-            title={data.isSubmitting ? t('node.jimeng.submitting') : t('node.jimeng.submit')}
+            title={
+              isOpeningJimengChrome
+                ? t('titleBar.jimengOpeningChrome')
+                : data.isSubmitting
+                  ? t('node.jimeng.submitting')
+                  : t('node.jimeng.submit')
+            }
           >
-            {data.isSubmitting ? (
+            {data.isSubmitting || isOpeningJimengChrome ? (
               <Loader2 className="h-4 w-4 animate-spin" />
             ) : (
               <SendHorizontal className="h-4 w-4" />
@@ -956,6 +1391,7 @@ export const JimengNode = memo(({
 
       <div className={`mt-2 min-h-[24px] text-[11px] ${data.lastError || promptOptimizationError ? 'text-red-200' : 'text-text-muted'}`}>
         {promptOptimizationError
+          ?? (isOpeningJimengChrome ? t('titleBar.jimengOpeningChrome') : null)
           ?? (data.isSubmitting ? t('node.jimeng.submitting') : null)
           ?? (isOptimizingPrompt ? t('node.jimeng.optimizingPrompt') : null)
           ?? data.lastError

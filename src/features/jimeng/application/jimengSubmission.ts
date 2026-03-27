@@ -117,6 +117,7 @@ export async function submitJimengTask(payload: JimengTaskSubmission): Promise<v
 
   await submitJimengChromeTask({
     prompt: payload.prompt,
+    skipToolbarAutomation: true,
     referenceImages,
     autoSubmit: true,
   });

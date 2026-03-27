@@ -120,22 +120,15 @@ pub async fn generate_text(
     info!("Generating text with model: {}", request.model);
 
     let registry = get_text_registry();
-    let provider = if let Some(provider_id) = request.provider.as_ref() {
-        if let Some(explicit_provider) = registry.get_provider(provider_id.as_str()) {
-            if explicit_provider.supports_model(request.model.as_str()) {
-                explicit_provider
-            } else {
-                registry
-                    .resolve_provider_for_model(&request.model)
-                    .or_else(|| registry.get_default_provider())
-                    .ok_or_else(|| "Provider not found".to_string())?
-            }
-        } else {
-            registry
-                .resolve_provider_for_model(&request.model)
-                .or_else(|| registry.get_default_provider())
-                .ok_or_else(|| "Provider not found".to_string())?
-        }
+    let provider = if let Some(provider_id) = request
+        .provider
+        .as_ref()
+        .map(|value| value.trim())
+        .filter(|value| !value.is_empty())
+    {
+        registry
+            .get_provider(provider_id)
+            .ok_or_else(|| format!("Provider '{}' not found", provider_id))?
     } else {
         registry
             .resolve_provider_for_model(&request.model)
@@ -269,7 +262,7 @@ mod tests {
         let status = get_active_text_model_status().await.unwrap();
         assert!(status.active);
         let provider = status.provider.unwrap_or_default();
-        assert!(provider == "alibaba" || provider == "coding");
+        assert!(provider == "alibaba" || provider == "coding" || provider == "bltcy");
         assert!(status.switch_cost_ms.unwrap_or(0) < 10_000);
     }
 }

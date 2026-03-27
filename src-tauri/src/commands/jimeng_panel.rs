@@ -65,6 +65,7 @@ pub struct SubmitJimengPanelPayload {
     pub reference_mode: Option<String>,
     pub aspect_ratio: Option<String>,
     pub duration_seconds: Option<u32>,
+    pub skip_toolbar_automation: Option<bool>,
     pub reference_images: Option<Vec<SubmitJimengPanelReferenceImagePayload>>,
     pub extra_controls: Option<Vec<SubmitJimengPanelExtraControlPayload>>,
     pub auto_submit: Option<bool>,

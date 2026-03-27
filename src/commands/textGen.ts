@@ -1,4 +1,8 @@
 import { invoke, isTauri } from '@tauri-apps/api/core';
+import {
+  resolveConfiguredScriptModel,
+  resolveConfiguredScriptProvider,
+} from '@/features/canvas/models';
 import { useSettingsStore } from '@/stores/settingsStore';
 
 export interface TextGenerationRequest {
@@ -30,31 +34,15 @@ export interface ScriptRewriteRequest {
 
 function resolveProviderAndModel(request: TextGenerationRequest): { provider: string; model: string } {
   const settings = useSettingsStore.getState();
-  
-  // 优先使用请求指定的 provider，其次是设置中的 scriptProviderEnabled，最后兜底 alibaba
-  const candidateProvider = request.provider || settings.scriptProviderEnabled || 'alibaba';
-  
-  // 确保 provider 是合法的（目前主要支持 alibaba 和 coding）
-  // 注意：如果未来支持更多，这里需要更新
-  const provider =
-    candidateProvider === 'alibaba' || candidateProvider === 'coding'
-      ? candidateProvider
-      : 'alibaba';
+  const provider = resolveConfiguredScriptProvider(settings, request.provider);
 
   if (request.model && request.model.trim()) {
     return { provider, model: request.model.trim() };
   }
 
-  if (provider === 'coding') {
-    return {
-      provider,
-      model: settings.codingModel || 'qwen3.5-plus',
-    };
-  }
-
   return {
     provider,
-    model: settings.alibabaTextModel || 'qwen-plus',
+    model: resolveConfiguredScriptModel(provider, settings),
   };
 }
 
@@ -83,7 +71,7 @@ export async function generateText(request: TextGenerationRequest): Promise<Text
   }
 
   if (!apiKey) {
-    throw new Error(`请先在设置中配置${provider === 'alibaba' ? '阿里云百炼' : provider === 'coding' ? 'Coding Plan' : provider}的API Key`);
+    throw new Error(`Please configure the API key for ${provider} in Settings first.`);
   }
 
   if (provider === 'coding' && !apiKey.startsWith('sk-sp-')) {

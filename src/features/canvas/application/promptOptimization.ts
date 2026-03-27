@@ -1,4 +1,8 @@
 import { generateText } from '@/commands/textGen';
+import {
+  resolveConfiguredScriptModel,
+  resolveConfiguredScriptProvider,
+} from '@/features/canvas/models';
 import { useSettingsStore } from '@/stores/settingsStore';
 
 type PromptOptimizationMode = 'image' | 'jimeng';
@@ -15,13 +19,22 @@ interface ScriptPromptContext {
   supportsImageAnalysis: boolean;
 }
 
+export interface PromptDurationRecommendation {
+  recommendedDurationSeconds: number;
+  estimatedDurationSeconds: number;
+  exceedsMaxDuration: boolean;
+  reason: string | null;
+}
+
 interface OptimizePromptResult {
   prompt: string;
   context: ScriptPromptContext;
   usedReferenceImages: boolean;
+  durationRecommendation?: PromptDurationRecommendation | null;
 }
 
 const REFERENCE_TOKEN_PATTERN = /@\u56fe(?:\u7247)?\d+/g;
+const MAX_JIMENG_DURATION_SECONDS = 15;
 const IMAGE_ANALYSIS_MODEL_HINTS = [
   'vl',
   'vision',
@@ -70,6 +83,69 @@ function normalizeOptimizedPrompt(rawText: string): string {
     .trim();
 }
 
+function clampInteger(value: number, min: number, max: number): number {
+  return Math.min(max, Math.max(min, Math.round(value)));
+}
+
+function extractJsonObject(rawText: string): Record<string, unknown> | null {
+  const trimmed = rawText.trim();
+  if (!trimmed) {
+    return null;
+  }
+
+  const candidates = [
+    trimmed,
+    trimmed.match(/```(?:json)?\s*([\s\S]*?)```/i)?.[1]?.trim() ?? '',
+    trimmed.match(/\{[\s\S]*\}/)?.[0]?.trim() ?? '',
+  ].filter((candidate, index, source) => candidate.length > 0 && source.indexOf(candidate) === index);
+
+  for (const candidate of candidates) {
+    try {
+      const parsed = JSON.parse(candidate);
+      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+        return parsed as Record<string, unknown>;
+      }
+    } catch {
+      // Ignore and try the next candidate.
+    }
+  }
+
+  return null;
+}
+
+function parsePositiveInteger(value: unknown): number | null {
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    return Math.max(1, Math.round(value));
+  }
+
+  if (typeof value === 'string' && value.trim().length > 0) {
+    const parsed = Number(value.trim());
+    if (Number.isFinite(parsed)) {
+      return Math.max(1, Math.round(parsed));
+    }
+  }
+
+  return null;
+}
+
+function parseBoolean(value: unknown): boolean | null {
+  if (typeof value === 'boolean') {
+    return value;
+  }
+
+  if (typeof value === 'string') {
+    const normalized = value.trim().toLowerCase();
+    if (normalized === 'true') {
+      return true;
+    }
+    if (normalized === 'false') {
+      return false;
+    }
+  }
+
+  return null;
+}
+
 function restoreReferenceTokens(originalPrompt: string, optimizedPrompt: string): string {
   const originalTokens = dedupeReferenceTokens(originalPrompt);
   if (originalTokens.length === 0) {
@@ -116,10 +192,8 @@ function sanitizeReferenceImages(referenceImages: string[] | undefined): string[
 
 function resolveScriptPromptContext(): ScriptPromptContext {
   const settings = useSettingsStore.getState();
-  const provider = settings.scriptProviderEnabled === 'coding' ? 'coding' : 'alibaba';
-  const model = provider === 'coding'
-    ? (settings.codingModel || 'qwen3.5-plus').trim()
-    : (settings.alibabaTextModel || 'qwen-plus').trim();
+  const provider = resolveConfiguredScriptProvider(settings);
+  const model = resolveConfiguredScriptModel(provider, settings).trim();
   const normalizedModel = model.toLowerCase();
   const supportsImageAnalysis = IMAGE_ANALYSIS_MODEL_HINTS.some((hint) =>
     normalizedModel.includes(hint)
@@ -168,6 +242,102 @@ function buildPromptOptimizationInstruction(
   ].join('\n');
 }
 
+function buildJimengPromptOptimizationInstruction(
+  prompt: string,
+  useReferenceImages: boolean
+): string {
+  const imageInstruction = useReferenceImages
+    ? 'Reference images are attached. Use them only to reinforce subject appearance, composition, lighting, texture, and atmosphere. Do not invent new plot events, props, or actions that are not grounded in the source prompt.'
+    : 'No reference images are attached. Optimize only from the source prompt itself.';
+
+  return [
+    'You are optimizing a Chinese AI video prompt for Jimeng.',
+    'Keep the original meaning, characters, actions, story beats, setting, and all hard constraints intact.',
+    'Upgrade the prompt with stronger cinematic texture, visual style, atmosphere, lighting, lens language, motion rhythm, and scene coherence, but stay grounded in what is already written.',
+    'Do not invent new characters, new props, new locations, new camera events, or extra plot twists.',
+    'If the prompt already has a clear camera move, refine it. If it does not, keep the camera language restrained and natural.',
+    imageInstruction,
+    'If the prompt contains tokens like @图1 or @图片2, preserve them exactly as written.',
+    `Also estimate the suitable video duration. "recommendedDurationSeconds" must be an integer from 1 to ${MAX_JIMENG_DURATION_SECONDS}.`,
+    `If the content clearly needs more than ${MAX_JIMENG_DURATION_SECONDS} seconds, set "recommendedDurationSeconds" to ${MAX_JIMENG_DURATION_SECONDS}, set "estimatedDurationSeconds" to your best real estimate above ${MAX_JIMENG_DURATION_SECONDS}, and set "exceedsMaxDuration" to true.`,
+    'Return strict JSON only. Do not return markdown fences or any explanation.',
+    'JSON schema:',
+    '{',
+    '  "optimizedPrompt": "string",',
+    `  "recommendedDurationSeconds": 1-${MAX_JIMENG_DURATION_SECONDS},`,
+    '  "estimatedDurationSeconds": integer >= 1,',
+    '  "exceedsMaxDuration": boolean,',
+    '  "reason": "one short sentence about pacing and shot density"',
+    '}',
+    '',
+    'Source prompt:',
+    prompt.trim(),
+  ].join('\n');
+}
+
+function parseJimengOptimizationResult(
+  originalPrompt: string,
+  rawText: string
+): {
+  prompt: string;
+  durationRecommendation: PromptDurationRecommendation | null;
+} {
+  const parsed = extractJsonObject(rawText);
+  const rawPrompt =
+    typeof parsed?.optimizedPrompt === 'string'
+      ? parsed.optimizedPrompt
+      : typeof parsed?.prompt === 'string'
+        ? parsed.prompt
+        : rawText;
+  const optimizedPrompt = restoreReferenceTokens(
+    originalPrompt,
+    normalizeOptimizedPrompt(rawPrompt)
+  );
+
+  const parsedRecommendedSeconds = parsePositiveInteger(parsed?.recommendedDurationSeconds);
+  const parsedEstimatedSeconds = parsePositiveInteger(parsed?.estimatedDurationSeconds);
+  const estimatedDurationSeconds = parsedEstimatedSeconds ?? parsedRecommendedSeconds;
+  const exceedsMaxDuration =
+    parseBoolean(parsed?.exceedsMaxDuration)
+    ?? (typeof estimatedDurationSeconds === 'number'
+      ? estimatedDurationSeconds > MAX_JIMENG_DURATION_SECONDS
+      : false);
+
+  const recommendedDurationSeconds =
+    parsedRecommendedSeconds != null
+      ? clampInteger(parsedRecommendedSeconds, 1, MAX_JIMENG_DURATION_SECONDS)
+      : exceedsMaxDuration
+        ? MAX_JIMENG_DURATION_SECONDS
+        : typeof estimatedDurationSeconds === 'number'
+          ? clampInteger(estimatedDurationSeconds, 1, MAX_JIMENG_DURATION_SECONDS)
+          : null;
+
+  if (recommendedDurationSeconds == null) {
+    return {
+      prompt: optimizedPrompt,
+      durationRecommendation: null,
+    };
+  }
+
+  const reason =
+    typeof parsed?.reason === 'string' && parsed.reason.trim().length > 0
+      ? parsed.reason.trim()
+      : null;
+
+  return {
+    prompt: optimizedPrompt,
+    durationRecommendation: {
+      recommendedDurationSeconds,
+      estimatedDurationSeconds: Math.max(
+        recommendedDurationSeconds,
+        estimatedDurationSeconds ?? recommendedDurationSeconds
+      ),
+      exceedsMaxDuration,
+      reason,
+    },
+  };
+}
+
 export async function optimizeCanvasPrompt(
   request: OptimizePromptRequest
 ): Promise<OptimizePromptResult> {
@@ -181,17 +351,37 @@ export async function optimizeCanvasPrompt(
   const referenceImages = context.supportsImageAnalysis ? candidateReferenceImages : [];
 
   const result = await generateText({
-    prompt: buildPromptOptimizationInstruction(
-      request.mode,
-      normalizedPrompt,
-      referenceImages.length > 0
-    ),
+    prompt:
+      request.mode === 'jimeng'
+        ? buildJimengPromptOptimizationInstruction(
+          normalizedPrompt,
+          referenceImages.length > 0
+        )
+        : buildPromptOptimizationInstruction(
+          request.mode,
+          normalizedPrompt,
+          referenceImages.length > 0
+        ),
     provider: context.provider,
     model: context.model,
     temperature: 0.25,
     maxTokens: 900,
     referenceImages,
   });
+
+  if (request.mode === 'jimeng') {
+    const parsedResult = parseJimengOptimizationResult(normalizedPrompt, result.text);
+    if (!parsedResult.prompt) {
+      throw new Error('提示词优化结果为空，请重试');
+    }
+
+    return {
+      prompt: parsedResult.prompt,
+      context,
+      usedReferenceImages: referenceImages.length > 0,
+      durationRecommendation: parsedResult.durationRecommendation,
+    };
+  }
 
   const normalizedResult = restoreReferenceTokens(
     normalizedPrompt,
@@ -205,5 +395,6 @@ export async function optimizeCanvasPrompt(
     prompt: normalizedResult,
     context,
     usedReferenceImages: referenceImages.length > 0,
+    durationRecommendation: null,
   };
 }

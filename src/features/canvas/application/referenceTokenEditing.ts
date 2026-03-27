@@ -49,7 +49,97 @@ function resolveReferenceTokenPrefix(text: string, index: number): string | null
 }
 
 export function buildShortReferenceToken(referenceIndex: number): string {
-  return `${SHORT_REFERENCE_TOKEN_PREFIX}${referenceIndex + 1}`;
+  return buildReferenceTokenWithPrefix(SHORT_REFERENCE_TOKEN_PREFIX, referenceIndex + 1);
+}
+
+function buildReferenceTokenWithPrefix(prefix: string, referenceNumber: number): string {
+  return `${prefix}${referenceNumber}`;
+}
+
+export function areReferenceImageOrdersEqual(
+  previousImageUrls: string[],
+  nextImageUrls: string[]
+): boolean {
+  if (previousImageUrls.length !== nextImageUrls.length) {
+    return false;
+  }
+
+  for (let index = 0; index < previousImageUrls.length; index += 1) {
+    if (previousImageUrls[index] !== nextImageUrls[index]) {
+      return false;
+    }
+  }
+
+  return true;
+}
+
+export function remapReferenceTokensByImageOrder(
+  text: string,
+  previousImageUrls: string[],
+  nextImageUrls: string[]
+): string {
+  if (
+    !text
+    || previousImageUrls.length === 0
+    || nextImageUrls.length === 0
+    || areReferenceImageOrdersEqual(previousImageUrls, nextImageUrls)
+  ) {
+    return text;
+  }
+
+  const nextImagePositionQueues = new Map<string, number[]>();
+  nextImageUrls.forEach((imageUrl, index) => {
+    const existingQueue = nextImagePositionQueues.get(imageUrl);
+    if (existingQueue) {
+      existingQueue.push(index);
+      return;
+    }
+
+    nextImagePositionQueues.set(imageUrl, [index]);
+  });
+
+  const previousToNextImageIndexes = previousImageUrls.map((imageUrl) => {
+    const positionQueue = nextImagePositionQueues.get(imageUrl);
+    if (!positionQueue || positionQueue.length === 0) {
+      return -1;
+    }
+
+    return positionQueue.shift() ?? -1;
+  });
+
+  const referenceTokens = findReferenceTokens(text);
+  if (referenceTokens.length === 0) {
+    return text;
+  }
+
+  let nextText = text;
+  for (let index = referenceTokens.length - 1; index >= 0; index -= 1) {
+    const token = referenceTokens[index];
+    const previousImageIndex = token.value - 1;
+    if (
+      previousImageIndex < 0
+      || previousImageIndex >= previousToNextImageIndexes.length
+    ) {
+      continue;
+    }
+
+    const nextImageIndex = previousToNextImageIndexes[previousImageIndex];
+    if (nextImageIndex < 0) {
+      continue;
+    }
+
+    const tokenPrefix = token.token.startsWith(LONG_REFERENCE_TOKEN_PREFIX)
+      ? LONG_REFERENCE_TOKEN_PREFIX
+      : SHORT_REFERENCE_TOKEN_PREFIX;
+    const nextToken = buildReferenceTokenWithPrefix(tokenPrefix, nextImageIndex + 1);
+    if (nextToken === token.token) {
+      continue;
+    }
+
+    nextText = `${nextText.slice(0, token.start)}${nextToken}${nextText.slice(token.end)}`;
+  }
+
+  return nextText;
 }
 
 export function findReferenceTokens(text: string, maxImageCount?: number): ReferenceTokenMatch[] {
