@@ -31,6 +31,7 @@ import { DEFAULT_NODE_DISPLAY_NAME } from './nodeDisplay';
 import { DEFAULT_IMAGE_MODEL_ID } from '../models';
 
 export type MenuIconKey = 'upload' | 'sparkles' | 'layout' | 'text' | 'video';
+export type NodeMenuProjectType = 'storyboard' | 'script';
 
 export interface CanvasNodeCapabilities {
   toolbar: boolean;
@@ -55,6 +56,7 @@ export interface CanvasNodeDefinition<TData extends CanvasNodeData = CanvasNodeD
   menuLabelKey: string;
   menuIcon: MenuIconKey;
   visibleInMenu: boolean;
+  menuProjectTypes: NodeMenuProjectType[];
   capabilities: CanvasNodeCapabilities;
   connectivity: CanvasNodeConnectivity;
   createDefaultData: () => TData;
@@ -65,6 +67,7 @@ const uploadNodeDefinition: CanvasNodeDefinition<UploadImageNodeData> = {
   menuLabelKey: 'node.menu.uploadImage',
   menuIcon: 'upload',
   visibleInMenu: true,
+  menuProjectTypes: ['storyboard'],
   capabilities: {
     toolbar: true,
     promptInput: false,
@@ -92,6 +95,7 @@ const imageEditNodeDefinition: CanvasNodeDefinition<ImageEditNodeData> = {
   menuLabelKey: 'node.menu.aiImageGeneration',
   menuIcon: 'sparkles',
   visibleInMenu: true,
+  menuProjectTypes: ['storyboard'],
   capabilities: {
     toolbar: true,
     promptInput: false,
@@ -126,6 +130,7 @@ const jimengNodeDefinition: CanvasNodeDefinition<JimengNodeData> = {
   menuLabelKey: 'node.menu.jimeng',
   menuIcon: 'sparkles',
   visibleInMenu: true,
+  menuProjectTypes: ['storyboard'],
   capabilities: {
     toolbar: true,
     promptInput: false,
@@ -163,6 +168,7 @@ const exportImageNodeDefinition: CanvasNodeDefinition<ExportImageNodeData> = {
   menuLabelKey: 'node.menu.uploadImage',
   menuIcon: 'upload',
   visibleInMenu: false,
+  menuProjectTypes: ['storyboard'],
   capabilities: {
     toolbar: true,
     promptInput: false,
@@ -190,6 +196,7 @@ const groupNodeDefinition: CanvasNodeDefinition<GroupNodeData> = {
   menuLabelKey: 'node.menu.storyboard',
   menuIcon: 'layout',
   visibleInMenu: false,
+  menuProjectTypes: ['storyboard'],
   capabilities: {
     toolbar: false,
     promptInput: false,
@@ -213,6 +220,7 @@ const textAnnotationNodeDefinition: CanvasNodeDefinition<TextAnnotationNodeData>
   menuLabelKey: 'node.menu.textAnnotation',
   menuIcon: 'text',
   visibleInMenu: true,
+  menuProjectTypes: ['storyboard'],
   capabilities: {
     toolbar: true,
     promptInput: false,
@@ -236,6 +244,7 @@ const storyboardSplitDefinition: CanvasNodeDefinition<StoryboardSplitNodeData> =
   menuLabelKey: 'node.menu.storyboardCompose',
   menuIcon: 'layout',
   visibleInMenu: true,
+  menuProjectTypes: ['storyboard'],
   capabilities: {
     toolbar: false,
     promptInput: false,
@@ -275,6 +284,7 @@ const storyboardSplitResultDefinition: CanvasNodeDefinition<StoryboardSplitResul
   menuLabelKey: 'node.menu.storyboardSplitResult',
   menuIcon: 'layout',
   visibleInMenu: false,
+  menuProjectTypes: ['storyboard'],
   capabilities: {
     toolbar: false,
     promptInput: false,
@@ -302,6 +312,7 @@ const storyboardGenNodeDefinition: CanvasNodeDefinition<StoryboardGenNodeData> =
   menuLabelKey: 'node.menu.storyboardGen',
   menuIcon: 'sparkles',
   visibleInMenu: true,
+  menuProjectTypes: ['storyboard'],
   capabilities: {
     toolbar: true,
     promptInput: false,
@@ -338,6 +349,7 @@ const videoNodeDefinition: CanvasNodeDefinition<VideoNodeData> = {
   menuLabelKey: 'node.menu.videoNode',
   menuIcon: 'video',
   visibleInMenu: true,
+  menuProjectTypes: ['storyboard'],
   capabilities: {
     toolbar: true,
     promptInput: false,
@@ -365,6 +377,7 @@ const scriptRootNodeDefinition: CanvasNodeDefinition<ScriptRootNodeData> = {
   menuLabelKey: 'node.menu.scriptRoot',
   menuIcon: 'text',
   visibleInMenu: false,
+  menuProjectTypes: ['script'],
   capabilities: {
     toolbar: false,
     promptInput: false,
@@ -390,6 +403,7 @@ const scriptChapterNodeDefinition: CanvasNodeDefinition<ScriptChapterNodeData> =
   menuLabelKey: 'node.menu.scriptChapter',
   menuIcon: 'text',
   visibleInMenu: true,
+  menuProjectTypes: ['script'],
   capabilities: {
     toolbar: true,
     promptInput: false,
@@ -427,6 +441,7 @@ const scriptCharacterNodeDefinition: CanvasNodeDefinition<ScriptCharacterNodeDat
   menuLabelKey: 'node.menu.scriptCharacter',
   menuIcon: 'text',
   visibleInMenu: true,
+  menuProjectTypes: ['script'],
   capabilities: {
     toolbar: false,
     promptInput: false,
@@ -455,6 +470,7 @@ const scriptLocationNodeDefinition: CanvasNodeDefinition<ScriptLocationNodeData>
   menuLabelKey: 'node.menu.scriptLocation',
   menuIcon: 'text',
   visibleInMenu: true,
+  menuProjectTypes: ['script'],
   capabilities: {
     toolbar: false,
     promptInput: false,
@@ -480,6 +496,7 @@ const scriptItemNodeDefinition: CanvasNodeDefinition<ScriptItemNodeData> = {
   menuLabelKey: 'node.menu.scriptItem',
   menuIcon: 'text',
   visibleInMenu: true,
+  menuProjectTypes: ['script'],
   capabilities: {
     toolbar: false,
     promptInput: false,
@@ -505,6 +522,7 @@ const scriptPlotPointNodeDefinition: CanvasNodeDefinition<ScriptPlotPointNodeDat
   menuLabelKey: 'node.menu.scriptPlotPoint',
   menuIcon: 'text',
   visibleInMenu: false,
+  menuProjectTypes: ['script'],
   capabilities: {
     toolbar: false,
     promptInput: false,
@@ -529,6 +547,7 @@ const scriptWorldviewNodeDefinition: CanvasNodeDefinition<ScriptWorldviewNodeDat
   menuLabelKey: 'node.menu.scriptWorldview',
   menuIcon: 'text',
   visibleInMenu: false,
+  menuProjectTypes: ['script'],
   capabilities: {
     toolbar: false,
     promptInput: false,
@@ -578,8 +597,19 @@ export function getNodeDefinition(type: CanvasNodeType): CanvasNodeDefinition {
   return canvasNodeDefinitions[type];
 }
 
-export function getMenuNodeDefinitions(): CanvasNodeDefinition[] {
-  return Object.values(canvasNodeDefinitions).filter((definition) => definition.visibleInMenu);
+export function isNodeTypeAvailableInProject(
+  type: CanvasNodeType,
+  projectType: NodeMenuProjectType = 'storyboard'
+): boolean {
+  return canvasNodeDefinitions[type].menuProjectTypes.includes(projectType);
+}
+
+export function getMenuNodeDefinitions(
+  projectType: NodeMenuProjectType = 'storyboard'
+): CanvasNodeDefinition[] {
+  return Object.values(canvasNodeDefinitions).filter((definition) =>
+    definition.visibleInMenu && definition.menuProjectTypes.includes(projectType)
+  );
 }
 
 export function nodeHasSourceHandle(type: CanvasNodeType): boolean {
@@ -590,9 +620,13 @@ export function nodeHasTargetHandle(type: CanvasNodeType): boolean {
   return canvasNodeDefinitions[type].connectivity.targetHandle;
 }
 
-export function getConnectMenuNodeTypes(handleType: 'source' | 'target'): CanvasNodeType[] {
+export function getConnectMenuNodeTypes(
+  handleType: 'source' | 'target',
+  projectType: NodeMenuProjectType = 'storyboard'
+): CanvasNodeType[] {
   const fromSource = handleType === 'source';
   return Object.values(canvasNodeDefinitions)
+    .filter((definition) => definition.menuProjectTypes.includes(projectType))
     .filter((definition) => (fromSource
       ? definition.connectivity.connectMenu.fromSource
       : definition.connectivity.connectMenu.fromTarget))

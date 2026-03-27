@@ -11,7 +11,7 @@ import {
   useRef,
 } from 'react';
 import { Handle, Position, useUpdateNodeInternals, type NodeProps } from '@xyflow/react';
-import { AlertTriangle, Loader2, Sparkles, Undo2, Wand2, X } from 'lucide-react';
+import { AlertTriangle, Loader2, Sparkles, Undo2, Wand2 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 
 import {
@@ -19,6 +19,8 @@ import {
   CANVAS_NODE_TYPES,
   EXPORT_RESULT_NODE_MIN_HEIGHT,
   EXPORT_RESULT_NODE_MIN_WIDTH,
+  IMAGE_EDIT_NODE_DEFAULT_HEIGHT,
+  IMAGE_EDIT_NODE_DEFAULT_WIDTH,
   type ImageEditNodeData,
   type ImageSize,
 } from '@/features/canvas/domain/canvasNodes';
@@ -122,8 +124,6 @@ const IMAGE_EDIT_NODE_MIN_WIDTH = 480;
 const IMAGE_EDIT_NODE_MIN_HEIGHT = 180;
 const IMAGE_EDIT_NODE_MAX_WIDTH = 1400;
 const IMAGE_EDIT_NODE_MAX_HEIGHT = 1000;
-const IMAGE_EDIT_NODE_DEFAULT_WIDTH = 620;
-const IMAGE_EDIT_NODE_DEFAULT_HEIGHT = 340;
 
 function getTextareaCaretOffset(
   textarea: HTMLTextAreaElement,
@@ -332,7 +332,6 @@ export const ImageEditNode = memo(({ id, data, selected, width, height }: ImageE
   const [isOptimizingPrompt, setIsOptimizingPrompt] = useState(false);
   const [lastPromptOptimizationMeta, setLastPromptOptimizationMeta] =
     useState<PromptOptimizationMeta | null>(null);
-  const [isPromptOptimizationNoticeVisible, setIsPromptOptimizationNoticeVisible] = useState(false);
   const [lastPromptOptimizationUndoState, setLastPromptOptimizationUndoState] =
     useState<PromptOptimizationUndoState | null>(null);
 
@@ -608,7 +607,6 @@ export const ImageEditNode = memo(({ id, data, selected, width, height }: ImageE
       promptDraftRef.current = externalPrompt;
       setPromptDraft(externalPrompt);
       setLastPromptOptimizationMeta(null);
-      setIsPromptOptimizationNoticeVisible(false);
       setLastPromptOptimizationUndoState(null);
     }
   }, [data.prompt]);
@@ -621,6 +619,7 @@ export const ImageEditNode = memo(({ id, data, selected, width, height }: ImageE
   const commitManualPromptDraft = useCallback((nextPrompt: string) => {
     setPromptDraft(nextPrompt);
     commitPromptDraft(nextPrompt);
+    setLastPromptOptimizationMeta(null);
     setLastPromptOptimizationUndoState(null);
   }, [commitPromptDraft]);
 
@@ -745,7 +744,6 @@ export const ImageEditNode = memo(({ id, data, selected, width, height }: ImageE
         modelLabel: [result.context.provider, result.context.model].filter(Boolean).join(' / '),
         referenceImageCount: result.usedReferenceImages ? optimizationReferenceImages.length : 0,
       });
-      setIsPromptOptimizationNoticeVisible(true);
       if (nextPrompt !== sourcePrompt) {
         setLastPromptOptimizationUndoState({
           previousPrompt: sourcePrompt,
@@ -785,7 +783,7 @@ export const ImageEditNode = memo(({ id, data, selected, width, height }: ImageE
 
     const restoredPrompt = lastPromptOptimizationUndoState.previousPrompt;
     setLastPromptOptimizationUndoState(null);
-    setIsPromptOptimizationNoticeVisible(false);
+    setLastPromptOptimizationMeta(null);
     setPromptDraft(restoredPrompt);
     commitPromptDraft(restoredPrompt);
     requestAnimationFrame(() => {
@@ -1142,6 +1140,11 @@ export const ImageEditNode = memo(({ id, data, selected, width, height }: ImageE
             : t('node.imageEdit.optimizeReferenceImagesUnused'),
       })}`
       : null;
+  const statusInfoText =
+    error
+    ?? (isOptimizingPrompt ? t('node.imageEdit.optimizingPrompt') : null)
+    ?? promptOptimizationNotice
+    ?? t('node.imageEdit.statusHint');
 
   const hidePromptReferencePreview = useCallback(() => {
     setPromptReferencePreview(null);
@@ -1344,8 +1347,8 @@ export const ImageEditNode = memo(({ id, data, selected, width, height }: ImageE
         )}
       </div>
 
-      <div className="mt-2 flex shrink-0 items-end gap-2">
-        <div className="ui-scrollbar min-w-0 flex-1 overflow-x-auto overflow-y-hidden pb-1">
+      <div className="mt-2 flex shrink-0 items-center gap-2">
+        <div className="ui-scrollbar min-w-0 flex-1 overflow-x-auto overflow-y-hidden">
           <div className="flex w-max min-w-full items-center gap-1">
             <ModelParamsControls
               imageModels={imageModels}
@@ -1403,7 +1406,7 @@ export const ImageEditNode = memo(({ id, data, selected, width, height }: ImageE
                     type="button"
                     active={isOptimizingPrompt}
                     disabled={isOptimizingPrompt || promptDraft.trim().length === 0}
-                    className={`${NODE_CONTROL_CHIP_CLASS} !w-6 !px-0 shrink-0 justify-center`}
+                    className={`${NODE_CONTROL_CHIP_CLASS} !w-7 !px-0 shrink-0 justify-center`}
                     aria-label={
                       isOptimizingPrompt
                         ? t('node.imageEdit.optimizingPrompt')
@@ -1431,7 +1434,7 @@ export const ImageEditNode = memo(({ id, data, selected, width, height }: ImageE
                   <UiChipButton
                     type="button"
                     disabled={isOptimizingPrompt || !canUndoPromptOptimization}
-                    className={`${NODE_CONTROL_CHIP_CLASS} !w-6 !px-0 shrink-0 justify-center`}
+                    className={`${NODE_CONTROL_CHIP_CLASS} !w-7 !px-0 shrink-0 justify-center`}
                     aria-label={t('node.imageEdit.undoOptimizedPrompt')}
                     title={t('node.imageEdit.undoOptimizedPrompt')}
                     onClick={(event) => {
@@ -1448,7 +1451,7 @@ export const ImageEditNode = memo(({ id, data, selected, width, height }: ImageE
         </div>
 
         <div className="flex shrink-0 items-center gap-1">
-          <div className="p-2 -m-2 shrink-0">
+          <div className="shrink-0">
             <UiButton
               onClick={(event) => {
                 event.stopPropagation();
@@ -1463,30 +1466,14 @@ export const ImageEditNode = memo(({ id, data, selected, width, height }: ImageE
           </div>
         </div>
       </div>
-      {isPromptOptimizationNoticeVisible && promptOptimizationNotice ? (
-        <div className="absolute left-2 right-2 top-full z-20 mt-2">
-          <div className="flex items-start gap-2 rounded-xl border border-white/12 bg-surface-dark/96 px-3 py-2 shadow-[0_10px_24px_rgba(0,0,0,0.24)]">
-            <div
-              className="min-w-0 flex-1 truncate text-[10px] leading-4 text-text-muted"
-              title={promptOptimizationNotice}
-            >
-              {promptOptimizationNotice}
-            </div>
-            <button
-              type="button"
-              className="shrink-0 rounded-full p-1 text-text-muted transition-colors hover:bg-white/8 hover:text-text-dark"
-              onClick={(event) => {
-                event.stopPropagation();
-                setIsPromptOptimizationNoticeVisible(false);
-              }}
-              aria-label={t('common.close')}
-              title={t('common.close')}
-            >
-              <X className="h-3 w-3" />
-            </button>
-          </div>
-        </div>
-      ) : null}
+      <div
+        className={`mt-1 min-h-[18px] text-[10px] leading-4 ${
+          error ? 'text-red-200' : 'text-text-muted'
+        }`}
+        title={statusInfoText}
+      >
+        {statusInfoText}
+      </div>
       <Handle
         type="target"
         id="target"

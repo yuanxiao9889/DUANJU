@@ -5,7 +5,7 @@ import { Image, LayoutGrid, Sparkles, Type, Upload, Video, X } from 'lucide-reac
 import { UI_POPOVER_TRANSITION_MS } from '@/components/ui/motion';
 import { nodeCatalog } from '@/features/canvas/application/nodeCatalog';
 import { CANVAS_NODE_TYPES, type CanvasNodeType } from '@/features/canvas/domain/canvasNodes';
-import type { MenuIconKey } from '@/features/canvas/domain/nodeRegistry';
+import type { MenuIconKey, NodeMenuProjectType } from '@/features/canvas/domain/nodeRegistry';
 
 interface BatchOperationMenuProps {
   position: { x: number; y: number };
@@ -13,6 +13,7 @@ interface BatchOperationMenuProps {
   sourceNodeType: string;
   onSelectNodeType: (nodeType: CanvasNodeType) => void;
   onClose: () => void;
+  projectType?: NodeMenuProjectType;
 }
 
 const iconMap: Record<MenuIconKey, typeof Upload> = {
@@ -39,13 +40,14 @@ export function BatchOperationMenu({
   sourceNodeType,
   onSelectNodeType,
   onClose,
+  projectType = 'storyboard',
 }: BatchOperationMenuProps) {
   const { t } = useTranslation();
   const menuRef = useRef<HTMLDivElement>(null);
   const [isVisible, setIsVisible] = useState(false);
 
   const menuItems = useMemo(() => {
-    const candidates = nodeCatalog.getMenuDefinitions();
+    const candidates = nodeCatalog.getMenuDefinitions(projectType);
     const dedupedByLabel = new Map<string, typeof candidates[number]>();
 
     for (const definition of candidates) {
@@ -56,7 +58,7 @@ export function BatchOperationMenu({
     }
 
     return Array.from(dedupedByLabel.values());
-  }, []);
+  }, [projectType]);
 
   const sourceNodeLabel = t(
     sourceTypeLabelKeyMap[sourceNodeType as CanvasNodeType] ?? 'canvas.batchMenu.node'

@@ -12,6 +12,7 @@ pub mod grsai;
 pub mod kie;
 pub mod ppio;
 pub mod runninghub;
+pub mod volcengine;
 pub mod zhenzhen;
 
 pub use alibaba::AlibabaProvider;
@@ -24,6 +25,7 @@ pub use grsai::GrsaiProvider;
 pub use kie::KieProvider;
 pub use ppio::PPIOProvider;
 pub use runninghub::RunningHubProvider;
+pub use volcengine::VolcengineProvider;
 pub use zhenzhen::ZhenzhenProvider;
 
 pub fn build_default_providers() -> Vec<Arc<dyn AIProvider>> {
@@ -38,6 +40,7 @@ pub fn build_default_providers() -> Vec<Arc<dyn AIProvider>> {
         Arc::new(CodingProvider::new()),
         Arc::new(ZhenzhenProvider::new()),
         Arc::new(ComflyProvider::new()),
+        Arc::new(VolcengineProvider::new()),
         Arc::new(RunningHubProvider::new()),
     ]
 }

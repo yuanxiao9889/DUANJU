@@ -249,16 +249,16 @@ export const ModelParamsControls = memo(({
       .sort((a, b) => a.name.localeCompare(b.name));
   }, [providerModels]);
   const isCompactTrigger = triggerSize === 'sm';
-  const modelIconClassName = isCompactTrigger ? 'h-3 w-3 shrink-0' : 'h-4 w-4 shrink-0';
-  const paramsIconClassName = isCompactTrigger ? 'h-2.5 w-2.5 shrink-0' : 'h-4 w-4 shrink-0';
+  const modelIconClassName = isCompactTrigger ? 'h-3.5 w-3.5 shrink-0' : 'h-4 w-4 shrink-0';
+  const paramsIconClassName = isCompactTrigger ? 'h-3.5 w-3.5 shrink-0' : 'h-4 w-4 shrink-0';
   const modelTextClassName = isCompactTrigger
-    ? 'min-w-0 truncate text-[10px] font-medium leading-none'
+    ? 'min-w-0 truncate text-[11px] font-medium leading-none'
     : 'min-w-0 truncate font-medium';
   const providerTextClassName = isCompactTrigger
     ? 'shrink-0 text-[10px] leading-none text-text-muted/80'
     : 'shrink-0 text-text-muted/80';
   const paramsPrimaryTextClassName = isCompactTrigger
-    ? 'truncate text-[10px] leading-none'
+    ? 'truncate text-[11px] leading-none'
     : 'truncate';
   const paramsSecondaryTextClassName = isCompactTrigger
     ? 'text-[10px] leading-none text-text-muted/80'
@@ -474,7 +474,7 @@ export const ModelParamsControls = memo(({
             active={styleTemplatePanelOpen}
             className={
               styleTemplateTriggerMode === 'icon'
-                ? `${chipClassName} !w-6 !px-0 shrink-0 justify-center`
+                ? `${chipClassName} !w-7 !px-0 shrink-0 justify-center`
                 : `${chipClassName} w-auto shrink-0 justify-center`
             }
             title={selectedStyleTemplateName}

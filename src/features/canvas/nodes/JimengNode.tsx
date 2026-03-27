@@ -72,6 +72,11 @@ interface PromptOptimizationUndoState {
   appliedDurationSuggestion: PromptDurationSuggestionSnapshot;
 }
 
+interface PromptOptimizationMeta {
+  modelLabel: string;
+  referenceImageCount: number;
+}
+
 interface PromptReferencePreviewState {
   imageUrl: string;
   displayUrl: string;
@@ -95,6 +100,7 @@ const JIMENG_NODE_MIN_WIDTH = 560;
 const JIMENG_NODE_MIN_HEIGHT = 360;
 const JIMENG_NODE_MAX_WIDTH = 1320;
 const JIMENG_NODE_MAX_HEIGHT = 1040;
+const STATUS_INFO_SEPARATOR = ' · ';
 let hasShownJimengManualSetupReminderThisSession = false;
 
 function buildClearedDurationSuggestionSnapshot(): PromptDurationSuggestionSnapshot {
@@ -391,6 +397,8 @@ export const JimengNode = memo(({
   const [isOpeningJimengChrome, setIsOpeningJimengChrome] = useState(false);
   const [isOptimizingPrompt, setIsOptimizingPrompt] = useState(false);
   const [promptOptimizationError, setPromptOptimizationError] = useState<string | null>(null);
+  const [lastPromptOptimizationMeta, setLastPromptOptimizationMeta] =
+    useState<PromptOptimizationMeta | null>(null);
   const [lastPromptOptimizationUndoState, setLastPromptOptimizationUndoState] =
     useState<PromptOptimizationUndoState | null>(null);
   const [promptReferencePreview, setPromptReferencePreview] =
@@ -527,6 +535,7 @@ export const JimengNode = memo(({
     if (externalPrompt !== promptDraftRef.current) {
       promptDraftRef.current = externalPrompt;
       setPromptDraft(externalPrompt);
+      setLastPromptOptimizationMeta(null);
       setLastPromptOptimizationUndoState(null);
     }
   }, [data.prompt]);
@@ -592,6 +601,7 @@ export const JimengNode = memo(({
       nextPrompt,
       toDurationSuggestionNodeData(buildClearedDurationSuggestionSnapshot())
     );
+    setLastPromptOptimizationMeta(null);
     setLastPromptOptimizationUndoState(null);
   }, [commitPromptDraft]);
 
@@ -861,16 +871,21 @@ export const JimengNode = memo(({
     setPromptOptimizationError(null);
 
     try {
+      const optimizationReferenceImages = resolveSubmissionReferenceImageSources(currentPrompt);
       const result = await optimizeCanvasPrompt({
         mode: 'jimeng',
         prompt: currentPrompt,
-        referenceImages: resolveSubmissionReferenceImageSources(currentPrompt),
+        referenceImages: optimizationReferenceImages,
       });
       if (promptDraftRef.current !== sourcePrompt) {
         return;
       }
       const nextPrompt = result.prompt;
       const nextDurationSuggestion = buildDurationSuggestionSnapshot(result.durationRecommendation);
+      setLastPromptOptimizationMeta({
+        modelLabel: [result.context.provider, result.context.model].filter(Boolean).join(' / '),
+        referenceImageCount: result.usedReferenceImages ? optimizationReferenceImages.length : 0,
+      });
       if (
         nextPrompt !== sourcePrompt
         || !areDurationSuggestionSnapshotsEqual(
@@ -926,6 +941,7 @@ export const JimengNode = memo(({
     }
 
     const restoredPrompt = lastPromptOptimizationUndoState.previousPrompt;
+    setLastPromptOptimizationMeta(null);
     setLastPromptOptimizationUndoState(null);
     setPromptDraft(restoredPrompt);
     commitPromptDraft(
@@ -1063,6 +1079,21 @@ export const JimengNode = memo(({
 
     return durationSuggestion.suggestedDurationReason;
   }, [durationSuggestion.suggestedDurationReason]);
+  const promptOptimizationStatusText = lastPromptOptimizationMeta
+    ? `${t('node.jimeng.optimizeModelLabel', {
+      model: lastPromptOptimizationMeta.modelLabel,
+    })}${STATUS_INFO_SEPARATOR}${t('node.jimeng.optimizeReferenceImagesLabel', {
+      status:
+        lastPromptOptimizationMeta.referenceImageCount > 0
+          ? t('node.jimeng.optimizeReferenceImagesUsed', {
+            count: lastPromptOptimizationMeta.referenceImageCount,
+          })
+          : t('node.jimeng.optimizeReferenceImagesUnused'),
+    })}`
+    : null;
+  const statusInfoText = promptOptimizationStatusText
+    ? [promptOptimizationStatusText, lastSubmittedLabel].filter(Boolean).join(STATUS_INFO_SEPARATOR)
+    : lastSubmittedLabel;
 
   const hidePromptReferencePreview = useCallback(() => {
     setPromptReferencePreview(null);
@@ -1389,13 +1420,26 @@ export const JimengNode = memo(({
         </div>
       </div>
 
-      <div className={`mt-2 min-h-[24px] text-[11px] ${data.lastError || promptOptimizationError ? 'text-red-200' : 'text-text-muted'}`}>
+      <div
+        className={`mt-1 min-h-[18px] text-[10px] leading-4 ${
+          data.lastError || promptOptimizationError ? 'text-red-200' : 'text-text-muted'
+        }`}
+        title={
+          promptOptimizationError
+          ?? (isOpeningJimengChrome ? t('titleBar.jimengOpeningChrome') : null)
+          ?? (data.isSubmitting ? t('node.jimeng.submitting') : null)
+          ?? (isOptimizingPrompt ? t('node.jimeng.optimizingPrompt') : null)
+          ?? data.lastError
+          ?? statusInfoText
+          ?? t('node.jimeng.submitHint')
+        }
+      >
         {promptOptimizationError
           ?? (isOpeningJimengChrome ? t('titleBar.jimengOpeningChrome') : null)
           ?? (data.isSubmitting ? t('node.jimeng.submitting') : null)
           ?? (isOptimizingPrompt ? t('node.jimeng.optimizingPrompt') : null)
           ?? data.lastError
-          ?? lastSubmittedLabel
+          ?? statusInfoText
           ?? t('node.jimeng.submitHint')}
       </div>
 

@@ -170,6 +170,7 @@
       "optimizeReferenceImagesLabel": "\u53c2\u8003\u56fe\uff1a{{status}}",
       "optimizeReferenceImagesUsed": "\u5df2\u5e26\u5165 {{count}} \u5f20",
       "optimizeReferenceImagesUnused": "\u672a\u5e26\u5165",
+      "statusHint": "\u9009\u4e2d\u540e\u5728\u4e0b\u65b9\u8f93\u5165\u63d0\u793a\u8bcd\u751f\u6210\u6216\u7f16\u8f91\u56fe\u7247",
       "promptRequired": "请输入提示词",
       "apiKeyRequired": "请在设置中填写 API Key",
       "resultTitle": "结果图片",
@@ -183,7 +184,11 @@
     "jimeng": {
       "optimizedPreviewTitle": "\u4f18\u5316\u7ed3\u679c\u9884\u89c8",
       "applyOptimizedPrompt": "\u5e94\u7528\u4f18\u5316\u7ed3\u679c",
-      "undoOptimizedPrompt": "\u64a4\u9500\u4f18\u5316"
+      "undoOptimizedPrompt": "\u64a4\u9500\u4f18\u5316",
+      "optimizeModelLabel": "\u672c\u6b21\u4f18\u5316\u6a21\u578b\uff1a{{model}}",
+      "optimizeReferenceImagesLabel": "\u53c2\u8003\u56fe\uff1a{{status}}",
+      "optimizeReferenceImagesUsed": "\u5df2\u5e26\u5165 {{count}} \u5f20",
+      "optimizeReferenceImagesUnused": "\u672a\u5e26\u5165"
     },
     "upload": {
       "uploadedAlt": "已上传图片",

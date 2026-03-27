@@ -4,5 +4,5 @@ import type { NodeCatalog } from './ports';
 
 export const nodeCatalog: NodeCatalog = {
   getDefinition: (type: CanvasNodeType) => canvasNodeDefinitions[type],
-  getMenuDefinitions: getMenuNodeDefinitions,
+  getMenuDefinitions: (projectType) => getMenuNodeDefinitions(projectType),
 };
