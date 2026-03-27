@@ -1,8 +1,12 @@
 import { invoke, isTauri } from '@tauri-apps/api/core';
 import {
+  isScriptCompatibleProviderConfigured,
+  resolveActivatedScriptProvider,
   resolveConfiguredScriptModel,
-  resolveConfiguredScriptProvider,
+  SCRIPT_COMPATIBLE_PROVIDER_ID,
+  toScriptCompatibleExtraParamsPayload,
 } from '@/features/canvas/models';
+import { openSettingsDialog } from '@/features/settings/settingsEvents';
 import { useSettingsStore } from '@/stores/settingsStore';
 
 export interface TextGenerationRequest {
@@ -12,6 +16,7 @@ export interface TextGenerationRequest {
   temperature?: number;
   maxTokens?: number;
   referenceImages?: string[];
+  extraParams?: Record<string, unknown>;
 }
 
 export interface TextGenerationResponse {
@@ -32,24 +37,76 @@ export interface ScriptRewriteRequest {
   model?: string;
 }
 
+const NO_ACTIVE_SCRIPT_MODEL_MESSAGE =
+  '\u8bf7\u5148\u5728\u8bbe\u7f6e\u4e2d\u6fc0\u6d3b\u4e00\u4e2a\u5267\u672c API \u6a21\u578b\u540e\u518d\u4f7f\u7528';
+const NO_ACTIVE_SCRIPT_PROVIDER_MODEL_MESSAGE =
+  '\u8bf7\u5148\u5728\u8bbe\u7f6e\u4e2d\u4e3a\u5f53\u524d\u5df2\u6fc0\u6d3b\u7684\u5267\u672c API \u9009\u62e9\u6a21\u578b\u540e\u518d\u4f7f\u7528';
+
+function openProviderSettingsAndThrow(message: string): never {
+  openSettingsDialog({ category: 'providers' });
+  throw new Error(message);
+}
+
 function resolveProviderAndModel(request: TextGenerationRequest): { provider: string; model: string } {
   const settings = useSettingsStore.getState();
-  const provider = resolveConfiguredScriptProvider(settings, request.provider);
-
-  if (request.model && request.model.trim()) {
-    return { provider, model: request.model.trim() };
+  const provider = resolveActivatedScriptProvider(settings);
+  if (!provider) {
+    return openProviderSettingsAndThrow(NO_ACTIVE_SCRIPT_MODEL_MESSAGE);
   }
 
-  return {
-    provider,
-    model: resolveConfiguredScriptModel(provider, settings),
-  };
+  if (request.provider && request.provider.trim() && request.provider.trim() !== provider) {
+    console.warn('[AI] ignoring non-active script provider override', {
+      requestedProvider: request.provider,
+      activeProvider: provider,
+    });
+  }
+
+  const model = resolveConfiguredScriptModel(provider, settings).trim();
+  if (!model) {
+    return openProviderSettingsAndThrow(NO_ACTIVE_SCRIPT_PROVIDER_MODEL_MESSAGE);
+  }
+
+  if (request.model && request.model.trim() && request.model.trim() !== model) {
+    console.warn('[AI] ignoring non-active script model override', {
+      requestedModel: request.model,
+      activeModel: model,
+      provider,
+    });
+  }
+
+  return { provider, model };
+}
+
+function resolveTextGenerationExtraParams(
+  provider: string,
+  model: string,
+  request: TextGenerationRequest
+): Record<string, unknown> | undefined {
+  if (request.extraParams && Object.keys(request.extraParams).length > 0) {
+    return request.extraParams;
+  }
+
+  if (provider !== SCRIPT_COMPATIBLE_PROVIDER_ID) {
+    return undefined;
+  }
+
+  const settings = useSettingsStore.getState();
+  if (!isScriptCompatibleProviderConfigured(settings.scriptCompatibleProviderConfig)) {
+    return undefined;
+  }
+
+  return toScriptCompatibleExtraParamsPayload(
+    settings.scriptCompatibleProviderConfig,
+    model,
+    model
+  ) as unknown as Record<string, unknown>;
 }
 
 export async function generateText(request: TextGenerationRequest): Promise<TextGenerationResponse> {
   const settings = useSettingsStore.getState();
   const { provider, model } = resolveProviderAndModel(request);
   const apiKey = (settings.apiKeys[provider] || '').trim();
+  const extraParams = resolveTextGenerationExtraParams(provider, model, request);
   const referenceImages = Array.isArray(request.referenceImages)
     ? request.referenceImages
         .map((item) => (typeof item === 'string' ? item.trim() : ''))
@@ -71,7 +128,24 @@ export async function generateText(request: TextGenerationRequest): Promise<Text
   }
 
   if (!apiKey) {
-    throw new Error(`Please configure the API key for ${provider} in Settings first.`);
+    return openProviderSettingsAndThrow(
+      `Please configure the API key for ${provider} in Settings first.`
+    );
+  }
+
+  if (!model) {
+    return openProviderSettingsAndThrow(
+      `Please add and select a model for ${provider} in Settings first.`
+    );
+  }
+
+  if (
+    provider === SCRIPT_COMPATIBLE_PROVIDER_ID
+    && !isScriptCompatibleProviderConfigured(settings.scriptCompatibleProviderConfig)
+  ) {
+    return openProviderSettingsAndThrow(
+      'Please configure the custom script API endpoint in Settings first.'
+    );
   }
 
   if (provider === 'coding' && !apiKey.startsWith('sk-sp-')) {
@@ -89,6 +163,7 @@ export async function generateText(request: TextGenerationRequest): Promise<Text
         temperature: request.temperature || 0.7,
         max_tokens: request.maxTokens || 2048,
         reference_images: referenceImages.length > 0 ? referenceImages : undefined,
+        extra_params: extraParams,
       },
     });
 
@@ -255,6 +330,7 @@ export interface TestConnectionRequest {
   provider: string;
   apiKey: string;
   model: string;
+  extraParams?: Record<string, unknown>;
 }
 
 export interface TestConnectionResponse {
@@ -289,6 +365,7 @@ export async function testProviderConnection(
         provider: request.provider,
         api_key: request.apiKey,
         model: request.model,
+        extra_params: request.extraParams,
       },
     });
 

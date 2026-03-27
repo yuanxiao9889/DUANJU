@@ -1,4 +1,6 @@
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
+use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::{Instant, SystemTime, UNIX_EPOCH};
 use tokio::sync::RwLock;
@@ -41,6 +43,7 @@ pub struct TextGenerationRequestDto {
     pub provider: Option<String>,
     pub api_key: Option<String>,
     pub reference_images: Option<Vec<String>>,
+    pub extra_params: Option<HashMap<String, Value>>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -151,7 +154,7 @@ pub async fn generate_text(
     update_active_text_model(provider.name(), request.model.as_str(), switch_started_at).await;
 
     let prompt = format!(
-        "你是专业的剧本编剧助手。请直接输出内容，不要添加任何前缀或解释。\n\n{}",
+        "You are a professional screenwriting assistant. Output only the requested content without any prefatory or explanatory text.\n\n{}",
         request.prompt
     );
 
@@ -161,7 +164,7 @@ pub async fn generate_text(
         size: "".to_string(),
         aspect_ratio: "".to_string(),
         reference_images: request.reference_images.filter(|items| !items.is_empty()),
-        extra_params: None,
+        extra_params: request.extra_params.filter(|params| !params.is_empty()),
     };
 
     let text_result = provider.generate(req).await.map_err(|e| e.to_string())?;
@@ -177,6 +180,7 @@ pub struct TestConnectionRequest {
     pub provider: String,
     pub api_key: String,
     pub model: String,
+    pub extra_params: Option<HashMap<String, Value>>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -193,35 +197,32 @@ pub async fn test_provider_connection(
 
     let registry = get_text_registry();
 
-    // Find provider
     let provider = registry
         .get_provider(&request.provider)
         .ok_or_else(|| format!("Provider '{}' not found", request.provider))?;
 
-    // Set API key
     provider
         .set_api_key(request.api_key.clone())
         .await
         .map_err(|e| e.to_string())?;
 
-    // Try a simple generation
     let test_req = GenerateRequest {
         prompt: "Hello".to_string(),
         model: request.model.clone(),
         size: "".to_string(),
         aspect_ratio: "".to_string(),
         reference_images: None,
-        extra_params: None,
+        extra_params: request.extra_params.filter(|params| !params.is_empty()),
     };
 
     match provider.generate(test_req).await {
         Ok(_) => Ok(TestConnectionResponse {
             success: true,
-            message: "连接成功".to_string(),
+            message: "\u{8fde}\u{63a5}\u{6210}\u{529f}".to_string(),
         }),
         Err(e) => Ok(TestConnectionResponse {
             success: false,
-            message: format!("连接失败: {}", e),
+            message: format!("\u{8fde}\u{63a5}\u{5931}\u{8d25}: {}", e),
         }),
     }
 }
@@ -262,7 +263,14 @@ mod tests {
         let status = get_active_text_model_status().await.unwrap();
         assert!(status.active);
         let provider = status.provider.unwrap_or_default();
-        assert!(provider == "alibaba" || provider == "coding" || provider == "bltcy");
+        assert!(
+            provider == "alibaba"
+                || provider == "coding"
+                || provider == "bltcy"
+                || provider == "zhenzhen"
+                || provider == "comfly"
+                || provider == "compatible"
+        );
         assert!(status.switch_cost_ms.unwrap_or(0) < 10_000);
     }
 }

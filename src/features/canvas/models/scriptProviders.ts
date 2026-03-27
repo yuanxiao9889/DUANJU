@@ -10,7 +10,14 @@ import {
 export const DEFAULT_BLTCY_TEXT_MODEL = 'gpt-5.4-2026-03-05';
 export const DEFAULT_SCRIPT_PROVIDER_ID = 'alibaba';
 
-export const SCRIPT_PROVIDER_IDS = ['alibaba', 'coding', 'bltcy'] as const;
+export const SCRIPT_PROVIDER_IDS = [
+  'alibaba',
+  'coding',
+  'bltcy',
+  'zhenzhen',
+  'comfly',
+  'compatible',
+] as const;
 
 export type ScriptProviderId = typeof SCRIPT_PROVIDER_IDS[number];
 
@@ -58,6 +65,9 @@ const BUILT_IN_SCRIPT_MODELS: Record<ScriptProviderId, readonly ScriptModelOptio
       source: 'builtin',
     },
   ],
+  zhenzhen: [],
+  comfly: [],
+  compatible: [],
 };
 
 function normalizeTrimmedString(input: unknown): string {
@@ -89,7 +99,7 @@ export function getDefaultScriptModelId(providerId: string): string {
     return DEFAULT_ALIBABA_TEXT_MODEL;
   }
 
-  return BUILT_IN_SCRIPT_MODELS[providerId][0]?.modelId ?? DEFAULT_ALIBABA_TEXT_MODEL;
+  return BUILT_IN_SCRIPT_MODELS[providerId][0]?.modelId ?? '';
 }
 
 export function normalizeScriptProviderEnabledSelection(
@@ -301,6 +311,13 @@ export function resolveConfiguredScriptProvider(
     settings.scriptProviderEnabled,
     settings.apiKeys ?? {}
   );
+}
+
+export function resolveActivatedScriptProvider(
+  settings: Pick<ScriptModelSettingsLike, 'scriptProviderEnabled'>
+): ScriptProviderId | null {
+  const activeProvider = normalizeTrimmedString(settings.scriptProviderEnabled);
+  return isScriptProviderId(activeProvider) ? activeProvider : null;
 }
 
 export function upsertCustomScriptModelEntry(
