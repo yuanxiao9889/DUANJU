@@ -46,11 +46,67 @@
     'choose file',
     'select file',
   ];
+  const REFERENCE_CONTEXT_KEYWORDS = [
+    '\u53c2\u8003',
+    '\u56fe\u7247',
+    '\u56fe\u50cf',
+    '\u9996\u5e27',
+    '\u5c3e\u5e27',
+    '\u591a\u5e27',
+    '\u4e3b\u4f53',
+    'reference',
+    'image',
+  ];
+  const REFERENCE_REMOVE_KEYWORDS = [
+    '\u5220\u9664',
+    '\u79fb\u9664',
+    '\u6e05\u9664',
+    '\u5173\u95ed',
+    '\u53d6\u6d88',
+    'remove',
+    'delete',
+    'clear',
+    'close',
+    'dismiss',
+    'x',
+    '\u00d7',
+  ];
+  const REFERENCE_CLEAR_ALL_KEYWORDS = [
+    '\u6e05\u7a7a',
+    '\u5168\u90e8\u6e05\u7a7a',
+    '\u5168\u90e8\u5220\u9664',
+    '\u5220\u9664\u5168\u90e8',
+    '\u79fb\u9664\u5168\u90e8',
+    'clear all',
+    'remove all',
+    'delete all',
+  ];
+  const SUBMIT_PROGRESS_KEYWORDS = [
+    '\u751f\u6210\u4e2d',
+    '\u521b\u4f5c\u4e2d',
+    '\u63d0\u4ea4\u4e2d',
+    '\u5904\u7406\u4e2d',
+    '\u6392\u961f\u4e2d',
+    '\u7b49\u5f85\u4e2d',
+    '\u505c\u6b62\u751f\u6210',
+    '\u53d6\u6d88\u751f\u6210',
+    'generating',
+    'processing',
+    'submitting',
+    'queued',
+    'queueing',
+    'waiting',
+    'stop',
+    'cancel',
+  ];
   const INSPECTION_MARKER = '__STORYBOARD_JIMENG_INSPECT__:';
   const MAX_WAIT_MS = 18000;
   const RETRY_DELAY_MS = 350;
   const INSPECTION_DELAY_MS = 800;
   const REFERENCE_UPLOAD_SETTLE_MS = 1200;
+  const SUBMIT_UI_CONFIRMATION_MS = 6000;
+  const SUBMIT_SOFT_ACCEPT_SCORE = 420;
+  const SUBMIT_SOFT_ACCEPT_GAP = 80;
   const CREATION_TYPE_ALIASES = {
     image: ['\u56fe\u7247\u751f\u6210', '\u56fe\u50cf\u751f\u6210', 'image'],
     video: ['\u89c6\u9891\u751f\u6210', 'video'],
@@ -97,6 +153,13 @@
     14: ['14s', '14\u79d2'],
     15: ['15s', '15\u79d2'],
   };
+  const KNOWN_SUBMIT_FALSE_POSITIVE_ALIASES = [
+    ...Object.values(CREATION_TYPE_ALIASES).flat(),
+    ...Object.values(MODEL_ALIASES).flat(),
+    ...Object.values(REFERENCE_MODE_ALIASES).flat(),
+    ...Object.values(ASPECT_RATIO_ALIASES).flat(),
+    ...Object.values(DURATION_ALIASES).flat(),
+  ];
 
   const CONTROL_SEQUENCE = [
     { key: 'creationType', aliasMap: CREATION_TYPE_ALIASES, toolbarComboboxIndex: 0 },
@@ -267,6 +330,18 @@
     );
   }
 
+  function getPromptRegionElement(promptInput) {
+    if (!(promptInput instanceof HTMLElement)) {
+      return null;
+    }
+
+    return (
+      promptInput.closest('form, section, article, [role="dialog"], main')
+      || promptInput.parentElement
+      || promptInput
+    );
+  }
+
   function getEffectiveElementRect(element) {
     if (!(element instanceof HTMLElement)) {
       return {
@@ -290,6 +365,61 @@
     }
 
     return rect;
+  }
+
+  function isElementNearPromptRegion(element, promptInput, margin = {}) {
+    if (!(element instanceof HTMLElement) || !(promptInput instanceof HTMLElement)) {
+      return false;
+    }
+
+    const rect = getEffectiveElementRect(element);
+    const promptRegionRect = getPromptRegionRect(promptInput);
+    const topMargin = Number.isFinite(margin.top) ? margin.top : 120;
+    const rightMargin = Number.isFinite(margin.right) ? margin.right : 180;
+    const bottomMargin = Number.isFinite(margin.bottom) ? margin.bottom : 260;
+    const leftMargin = Number.isFinite(margin.left) ? margin.left : 180;
+
+    return (
+      rect.bottom >= promptRegionRect.top - topMargin
+      && rect.top <= promptRegionRect.bottom + bottomMargin
+      && rect.right >= promptRegionRect.left - leftMargin
+      && rect.left <= promptRegionRect.right + rightMargin
+    );
+  }
+
+  function findAssociatedFileInputs(element) {
+    if (!(element instanceof HTMLElement)) {
+      return [];
+    }
+
+    const results = [];
+    const seen = new Set();
+    const pushInput = (candidate) => {
+      if (
+        candidate instanceof HTMLInputElement
+        && candidate.type === 'file'
+        && !candidate.disabled
+        && !seen.has(candidate)
+      ) {
+        seen.add(candidate);
+        results.push(candidate);
+      }
+    };
+
+    if (element instanceof HTMLLabelElement && element.control) {
+      pushInput(element.control);
+    }
+
+    const forId = element.getAttribute('for');
+    if (forId) {
+      pushInput(document.getElementById(forId));
+    }
+
+    if (typeof element.querySelectorAll === 'function') {
+      element.querySelectorAll('input[type="file"]').forEach(pushInput);
+    }
+
+    return results;
   }
 
   function matchesAnyAlias(text, aliases) {
@@ -571,10 +701,7 @@
   }
 
   function getPromptRegionRect(promptInput) {
-    const region =
-      promptInput.closest('form, section, article, [role="dialog"], main')
-      || promptInput.parentElement
-      || promptInput;
+    const region = getPromptRegionElement(promptInput) || promptInput;
     const rect = region.getBoundingClientRect();
     return {
       left: Math.round(rect.left),
@@ -674,6 +801,8 @@
 
   function scoreReferenceFileInput(input, promptInput) {
     const promptRect = promptInput.getBoundingClientRect();
+    const promptRegion = getPromptRegionElement(promptInput);
+    const promptRegionRect = getPromptRegionRect(promptInput);
     const rect = getEffectiveElementRect(input);
     const text = getElementContextText(input);
     const accept = String(input.accept || '').toLowerCase();
@@ -681,13 +810,34 @@
     const horizontalDistance = Math.abs(
       (rect.left + rect.width / 2) - (promptRect.left + promptRect.width / 2)
     );
+    const sameRegion =
+      promptRegion instanceof HTMLElement
+      && (
+        input.closest('form, section, article, [role="dialog"], main') === promptRegion
+        || promptRegion.contains(input)
+      );
+    const nearPromptRegion = isElementNearPromptRegion(input, promptInput);
+    const acceptsImages = accept.includes('image') || accept.trim().length === 0;
 
-    let score = 160 - Math.min(verticalDistance, 160);
+    let score = 180 - Math.min(verticalDistance, 180);
     score += 120 - Math.min(horizontalDistance, 120);
-    score += accept.includes('image') ? 100 : 20;
+    score += acceptsImages ? 100 : -80;
     score += input.multiple ? 24 : 0;
     if (matchesAnyAlias(text, UPLOAD_KEYWORDS)) {
       score += 90;
+    }
+    if (matchesAnyAlias(text, REFERENCE_CONTEXT_KEYWORDS)) {
+      score += 120;
+    }
+    if (sameRegion) {
+      score += 180;
+    } else if (nearPromptRegion) {
+      score += 80;
+    } else {
+      score -= 220;
+    }
+    if (rect.bottom < promptRegionRect.top - 120 || rect.top > promptRegionRect.bottom + 260) {
+      score -= 160;
     }
     if (input.closest('header, nav, aside, [role="navigation"]')) {
       score -= 260;
@@ -697,19 +847,14 @@
   }
 
   function findReferenceFileInput(promptInput) {
-    const inputs = getFileInputElements();
-    let best = null;
-    let bestScore = Number.NEGATIVE_INFINITY;
+    const bestMatch = getFileInputElements()
+      .map((input) => ({
+        element: input,
+        score: scoreReferenceFileInput(input, promptInput),
+      }))
+      .sort((left, right) => right.score - left.score)[0] || null;
 
-    inputs.forEach((input) => {
-      const score = scoreReferenceFileInput(input, promptInput);
-      if (score > bestScore) {
-        best = input;
-        bestScore = score;
-      }
-    });
-
-    return bestScore > -120 ? best : null;
+    return bestMatch && bestMatch.score > 80 ? bestMatch.element : null;
   }
 
   function scoreUploadTriggerCandidate(element, promptInput) {
@@ -724,8 +869,14 @@
       return Number.NEGATIVE_INFINITY;
     }
 
-    const text = getElementContextText(element);
-    if (!matchesAnyAlias(text, UPLOAD_TRIGGER_KEYWORDS)) {
+    const text = readElementText(element);
+    const contextText = getElementContextText(element);
+    const associatedFileInputs = findAssociatedFileInputs(element)
+      .filter((input) => scoreReferenceFileInput(input, promptInput) > 80);
+    const hasAssociatedFileInput = associatedFileInputs.length > 0;
+    const hasDirectUploadText = matchesAnyAlias(text, UPLOAD_TRIGGER_KEYWORDS);
+
+    if (!hasDirectUploadText && !hasAssociatedFileInput) {
       return Number.NEGATIVE_INFINITY;
     }
 
@@ -735,9 +886,32 @@
     const horizontalDistance = Math.abs(
       (rect.left + rect.width / 2) - (promptRect.left + promptRect.width / 2)
     );
+    const genericAddOnly =
+      isExactAliasMatch(text, '\u6dfb\u52a0')
+      || isExactAliasMatch(text, 'add');
 
     let score = 220 - Math.min(verticalDistance, 220);
     score += 140 - Math.min(horizontalDistance, 140);
+    if (hasDirectUploadText) {
+      score += 120;
+    }
+    if (matchesAnyAlias(contextText, REFERENCE_CONTEXT_KEYWORDS)) {
+      score += 90;
+    }
+    if (hasAssociatedFileInput) {
+      score += 220;
+    }
+    if (isElementNearPromptRegion(element, promptInput, { top: 72, right: 120, bottom: 220, left: 120 })) {
+      score += 100;
+    } else {
+      score -= 140;
+    }
+    if (matchesAnyAlias(text, SUBMIT_KEYWORDS) || matchesAnyAlias(text, KNOWN_SUBMIT_FALSE_POSITIVE_ALIASES)) {
+      score -= 320;
+    }
+    if (!hasAssociatedFileInput && genericAddOnly) {
+      score -= 220;
+    }
     if (element.closest('header, nav, aside, [role="navigation"]')) {
       score -= 260;
     }
@@ -745,38 +919,651 @@
     return score;
   }
 
-  function findReferenceUploadTrigger(promptInput) {
-    const candidates = [
+  function findReferenceUploadTriggers(promptInput) {
+    return [
       ...getClickableElements(),
       ...queryAllDeep('label'),
-    ];
-    let best = null;
-    let bestScore = Number.NEGATIVE_INFINITY;
+    ]
+      .map((element) => ({
+        element,
+        score: scoreUploadTriggerCandidate(element, promptInput),
+      }))
+      .filter((entry) => entry.score > 80)
+      .sort((left, right) => right.score - left.score);
+  }
 
-    candidates.forEach((candidate) => {
-      const score = scoreUploadTriggerCandidate(candidate, promptInput);
-      if (score > bestScore) {
-        best = candidate;
-        bestScore = score;
+  function findReferenceUploadTrigger(promptInput) {
+    return findReferenceUploadTriggers(promptInput)[0]?.element || null;
+  }
+
+  function hasReferenceClassFragment(element, fragment) {
+    if (!(element instanceof Element)) {
+      return false;
+    }
+
+    return String(element.className || '').toLowerCase().includes(String(fragment || '').toLowerCase());
+  }
+
+  function scoreReferenceWorkspaceRoot(element, promptInput) {
+    if (!(element instanceof HTMLElement) || !isVisible(element)) {
+      return Number.NEGATIVE_INFINITY;
+    }
+
+    const rect = element.getBoundingClientRect();
+    if (rect.width < 32 || rect.height < 32) {
+      return Number.NEGATIVE_INFINITY;
+    }
+
+    let score = 0;
+    if (hasReferenceClassFragment(element, 'reference-group-content')) {
+      score += 360;
+    }
+    if (hasReferenceClassFragment(element, 'references-')) {
+      score += 320;
+    }
+    if (hasReferenceClassFragment(element, 'reference-group')) {
+      score += 220;
+    }
+    if (hasReferenceClassFragment(element, 'reference-upload')) {
+      score += 100;
+    }
+    if (element.querySelector('[data-index]')) {
+      score += 180;
+    }
+    if (element.querySelector('input[type="file"]')) {
+      score += 220;
+    }
+    if (matchesAnyAlias(getElementContextText(element), REFERENCE_CONTEXT_KEYWORDS)) {
+      score += 120;
+    }
+    if (isElementNearPromptRegion(element, promptInput, { top: 72, right: 220, bottom: 260, left: 220 })) {
+      score += 140;
+    } else {
+      score -= 240;
+    }
+    if (rect.width > 480 || rect.height > 220) {
+      score -= 140;
+    }
+    if (element.closest('header, nav, aside, [role="navigation"]')) {
+      score -= 260;
+    }
+
+    return score;
+  }
+
+  function findReferenceWorkspaceRoot(promptInput) {
+    const seen = new Set();
+    const candidates = [];
+    const pushCandidate = (candidate) => {
+      if (!(candidate instanceof HTMLElement) || seen.has(candidate)) {
+        return;
       }
-    });
+      seen.add(candidate);
+      candidates.push(candidate);
+    };
 
-    return bestScore > 40 ? best : null;
+    const referenceInput = findReferenceFileInput(promptInput);
+    let current = referenceInput instanceof HTMLElement ? referenceInput : null;
+    let depth = 0;
+    while (current instanceof HTMLElement && depth < 6) {
+      pushCandidate(current);
+      current = current.parentElement;
+      depth += 1;
+    }
+
+    queryAllDeep(
+      '[class*="reference-group-content"], [class*="references-"], [class*="reference-group-"], [class*="reference-upload"]'
+    ).forEach(pushCandidate);
+
+    return candidates
+      .map((element) => ({
+        element,
+        score: scoreReferenceWorkspaceRoot(element, promptInput),
+      }))
+      .filter((entry) => entry.score > 120)
+      .sort((left, right) => right.score - left.score)[0]?.element || null;
+  }
+
+  function isReferencePreviewItemElement(element, promptInput, referenceRoot = null) {
+    if (!(element instanceof HTMLElement) || !isVisible(element)) {
+      return false;
+    }
+
+    if (referenceRoot instanceof HTMLElement && !referenceRoot.contains(element)) {
+      return false;
+    }
+
+    if (
+      element.closest('header, nav, aside, [role="navigation"]')
+      || element.matches('[class*="reference-upload"]')
+      || element.querySelector('input[type="file"]')
+    ) {
+      return false;
+    }
+
+    const rect = element.getBoundingClientRect();
+    if (rect.width < 24 || rect.height < 24) {
+      return false;
+    }
+
+    if (
+      !element.matches('[data-index], [class*="reference-item"]')
+      && !hasReferenceClassFragment(element, 'reference-item')
+    ) {
+      return false;
+    }
+
+    if (!element.querySelector('img, [role="img"], canvas, video')) {
+      return false;
+    }
+
+    return isElementNearPromptRegion(
+      element,
+      promptInput,
+      { top: 72, right: 220, bottom: 260, left: 220 }
+    );
+  }
+
+  function findReferencePreviewItems(promptInput) {
+    const referenceRoot = findReferenceWorkspaceRoot(promptInput);
+    const selectors = '[data-index], [class*="reference-item"]';
+    const rawCandidates = referenceRoot instanceof HTMLElement
+      ? [
+          ...(referenceRoot.matches(selectors) ? [referenceRoot] : []),
+          ...referenceRoot.querySelectorAll(selectors),
+        ]
+      : [];
+
+    const seen = new Set();
+    return rawCandidates.filter((candidate) => {
+      if (!(candidate instanceof HTMLElement) || seen.has(candidate)) {
+        return false;
+      }
+      seen.add(candidate);
+      return isReferencePreviewItemElement(candidate, promptInput, referenceRoot);
+    });
+  }
+
+  function hasReferencePreviewNearby(element) {
+    if (!(element instanceof HTMLElement)) {
+      return false;
+    }
+
+    const previewContainer = element.closest(
+      'li, figure, [role="listitem"], [data-testid*="image"], [class*="thumb"], [class*="Thumb"], [class*="image"], [class*="Image"], [class*="upload"], [class*="Upload"], div'
+    );
+    if (!(previewContainer instanceof HTMLElement)) {
+      return false;
+    }
+
+    return Boolean(
+      previewContainer.querySelector('img, [role="img"], canvas, video, svg')
+    );
+  }
+
+  function isReferencePreviewMediaElement(element, promptInput) {
+    if (!(element instanceof HTMLElement) || !isVisible(element)) {
+      return false;
+    }
+
+    const rect = element.getBoundingClientRect();
+    if (rect.width < 36 || rect.height < 36 || rect.width > 320 || rect.height > 320) {
+      return false;
+    }
+
+    if (element.closest('header, nav, aside, [role="navigation"]')) {
+      return false;
+    }
+
+    const referenceRoot = findReferenceWorkspaceRoot(promptInput);
+    const previewContainer = element.closest('[data-index], [class*="reference-item"]');
+    if (previewContainer instanceof HTMLElement) {
+      if (previewContainer.querySelector('input[type="file"]')) {
+        return false;
+      }
+      if (
+        referenceRoot instanceof HTMLElement
+        && !referenceRoot.contains(previewContainer)
+      ) {
+        return false;
+      }
+    }
+
+    return isElementNearPromptRegion(
+      previewContainer instanceof HTMLElement ? previewContainer : element,
+      promptInput,
+      { top: 56, right: 220, bottom: 300, left: 220 }
+    );
+  }
+
+  function resolveReferencePreviewContainer(media, promptInput) {
+    if (!(media instanceof HTMLElement)) {
+      return null;
+    }
+
+    const directPreviewItem = media.closest('[data-index], [class*="reference-item"]');
+    if (
+      directPreviewItem instanceof HTMLElement
+      && isReferencePreviewItemElement(directPreviewItem, promptInput, findReferenceWorkspaceRoot(promptInput))
+    ) {
+      return directPreviewItem;
+    }
+
+    const referenceRoot = findReferenceWorkspaceRoot(promptInput);
+    if (referenceRoot instanceof HTMLElement && referenceRoot.contains(media)) {
+      let current = media.parentElement;
+      while (current instanceof HTMLElement && current !== referenceRoot) {
+        if (
+          !current.querySelector('input[type="file"]')
+          && current.querySelector('img, [role="img"], canvas, video')
+          && isElementNearPromptRegion(current, promptInput, { top: 56, right: 220, bottom: 300, left: 220 })
+        ) {
+          return current;
+        }
+        current = current.parentElement;
+      }
+    }
+
+    const promptRegion = getPromptRegionElement(promptInput);
+    const mediaRect = media.getBoundingClientRect();
+    let current = media.parentElement;
+    let best = media.parentElement || media;
+    let bestScore = Number.NEGATIVE_INFINITY;
+    let depth = 0;
+
+    while (current instanceof HTMLElement && depth < 6) {
+      if (promptRegion instanceof HTMLElement && !promptRegion.contains(current) && current !== promptRegion) {
+        break;
+      }
+
+      const rect = current.getBoundingClientRect();
+      if (rect.width >= mediaRect.width - 4 && rect.height >= mediaRect.height - 4) {
+        let score = 320 - Math.min((rect.width * rect.height - mediaRect.width * mediaRect.height) / 400, 260);
+        if (matchesAnyAlias(getElementContextText(current), REFERENCE_CONTEXT_KEYWORDS)) {
+          score += 120;
+        }
+        if (current.querySelector('button, [role="button"], label')) {
+          score += 60;
+        }
+        if (rect.width > 520 || rect.height > 420) {
+          score -= 220;
+        }
+        if (isElementNearPromptRegion(current, promptInput, { top: 56, right: 160, bottom: 300, left: 160 })) {
+          score += 80;
+        }
+
+        if (score > bestScore) {
+          bestScore = score;
+          best = current;
+        }
+      }
+
+      if (
+        current.matches('li, figure, [role="listitem"], [data-testid*="image"], [class*="thumb"], [class*="Thumb"], [class*="preview"], [class*="Preview"]')
+      ) {
+        break;
+      }
+
+      current = current.parentElement;
+      depth += 1;
+    }
+
+    return best instanceof HTMLElement ? best : media.parentElement || media;
+  }
+
+  function findReferencePreviewMediaElements(promptInput) {
+    const seen = new Set();
+    return findReferencePreviewItems(promptInput)
+      .map((item) =>
+        [...item.querySelectorAll('img, [role="img"], canvas, video')]
+          .find((element) => isReferencePreviewMediaElement(element, promptInput)) || null
+      )
+      .filter((element) => {
+        if (!(element instanceof HTMLElement)) {
+          return false;
+        }
+
+        const rect = element.getBoundingClientRect();
+        const signature = [
+          element.tagName,
+          Math.round(rect.left),
+          Math.round(rect.top),
+          Math.round(rect.width),
+          Math.round(rect.height),
+        ].join(':');
+        if (seen.has(signature)) {
+          return false;
+        }
+        seen.add(signature);
+        return true;
+      });
+  }
+
+  async function waitForReferencePreviewCountChange(promptInput, previousCount, timeoutMs = 1400) {
+    const deadline = Date.now() + timeoutMs;
+    let latestCount = previousCount;
+
+    while (Date.now() <= deadline) {
+      const activePromptInput = findPromptInput() || promptInput;
+      latestCount = findReferencePreviewMediaElements(activePromptInput).length;
+      if (latestCount !== previousCount) {
+        return latestCount;
+      }
+      await waitForDelay(120);
+    }
+
+    return latestCount;
+  }
+
+  function scoreReferencePreviewRemoveButton(button, media, container) {
+    if (
+      !(button instanceof HTMLElement)
+      || ('disabled' in button && button.disabled)
+      || button.matches('[role="combobox"], [aria-haspopup="listbox"], [aria-haspopup="menu"]')
+      || button.closest('[role="combobox"], [aria-haspopup="listbox"], [aria-haspopup="menu"]')
+    ) {
+      return Number.NEGATIVE_INFINITY;
+    }
+
+    const hasExplicitRemoveClass = hasReferenceClassFragment(button, 'remove-button');
+    if (!hasExplicitRemoveClass && !isVisible(button)) {
+      return Number.NEGATIVE_INFINITY;
+    }
+
+    const text = readElementText(button);
+    if (
+      matchesAnyAlias(text, SUBMIT_KEYWORDS)
+      || matchesAnyAlias(text, UPLOAD_TRIGGER_KEYWORDS)
+      || matchesAnyAlias(text, UPLOAD_KEYWORDS)
+      || matchesAnyAlias(text, KNOWN_SUBMIT_FALSE_POSITIVE_ALIASES)
+    ) {
+      return Number.NEGATIVE_INFINITY;
+    }
+
+    const buttonRect = button.getBoundingClientRect();
+    const mediaRect = media.getBoundingClientRect();
+    const topRightDistance = Math.abs(buttonRect.right - mediaRect.right) + Math.abs(buttonRect.top - mediaRect.top);
+    const isSmallIconButton = buttonRect.width <= 52 && buttonRect.height <= 52;
+    const matchesRemove = matchesAnyAlias(text, REFERENCE_REMOVE_KEYWORDS);
+    const hasReferenceContext = matchesAnyAlias(getElementContextText(button), REFERENCE_CONTEXT_KEYWORDS);
+
+    let score = hasExplicitRemoveClass ? 420 : matchesRemove ? 260 : 80;
+    if (hasReferenceContext) {
+      score += 90;
+    }
+    if (isSmallIconButton) {
+      score += 80;
+    }
+    if (button.closest('li, figure, [role="listitem"], div') === container || container.contains(button)) {
+      score += 60;
+    }
+    if (topRightDistance <= 96) {
+      score += 160 - topRightDistance;
+    } else {
+      score -= Math.min(topRightDistance - 96, 180);
+    }
+    if (
+      buttonRect.left < mediaRect.left - 72
+      || buttonRect.top < mediaRect.top - 72
+      || buttonRect.right > mediaRect.right + 72
+      || buttonRect.bottom > mediaRect.bottom + 72
+    ) {
+      score -= 180;
+    }
+    if (text.length === 0 && !hasExplicitRemoveClass && !(isSmallIconButton && topRightDistance <= 96)) {
+      score -= 160;
+    }
+
+    return score;
+  }
+
+  function findReferencePreviewRemoveActions(promptInput) {
+    const seen = new Set();
+
+    return findReferencePreviewMediaElements(promptInput)
+      .map((media) => {
+        const container = resolveReferencePreviewContainer(media, promptInput);
+        if (!(container instanceof HTMLElement)) {
+          return null;
+        }
+
+        const candidates = [
+          ...container.querySelectorAll('[class*="remove-button"], button, [role="button"], label'),
+          ...queryAllDeep('[class*="remove-button"], button, [role="button"], label')
+            .filter((element) =>
+              element instanceof HTMLElement
+              && container.contains(element)
+            ),
+        ]
+          .filter((element) => element instanceof HTMLElement)
+          .map((element) => ({
+            element,
+            score: scoreReferencePreviewRemoveButton(element, media, container),
+          }))
+          .filter((entry) => entry.score > 100)
+          .sort((left, right) => right.score - left.score);
+
+        return candidates[0] || null;
+      })
+      .filter(Boolean)
+      .filter((entry) => {
+        if (seen.has(entry.element)) {
+          return false;
+        }
+        seen.add(entry.element);
+        return true;
+      })
+      .sort((left, right) => right.score - left.score);
+  }
+
+  function scoreReferenceClearCandidate(element, promptInput) {
+    if (
+      !(element instanceof HTMLElement)
+      || !isVisible(element)
+      || ('disabled' in element && element.disabled)
+      || element.matches('[role="combobox"], [aria-haspopup="listbox"], [aria-haspopup="menu"]')
+      || element.closest('[role="combobox"], [aria-haspopup="listbox"], [aria-haspopup="menu"]')
+    ) {
+      return Number.NEGATIVE_INFINITY;
+    }
+
+    if (!isElementNearPromptRegion(element, promptInput, { top: 72, right: 140, bottom: 260, left: 140 })) {
+      return Number.NEGATIVE_INFINITY;
+    }
+
+    const text = readElementText(element);
+    const contextText = getElementContextText(element);
+    if (
+      matchesAnyAlias(text, SUBMIT_KEYWORDS)
+      || matchesAnyAlias(text, UPLOAD_TRIGGER_KEYWORDS)
+      || matchesAnyAlias(text, UPLOAD_KEYWORDS)
+      || matchesAnyAlias(text, KNOWN_SUBMIT_FALSE_POSITIVE_ALIASES)
+    ) {
+      return Number.NEGATIVE_INFINITY;
+    }
+
+    const matchesClearAll = matchesAnyAlias(text, REFERENCE_CLEAR_ALL_KEYWORDS);
+    const matchesRemove = matchesAnyAlias(text, REFERENCE_REMOVE_KEYWORDS);
+    const hasReferenceContext = matchesAnyAlias(contextText, REFERENCE_CONTEXT_KEYWORDS);
+    const hasPreviewNearby = hasReferencePreviewNearby(element);
+    const rect = element.getBoundingClientRect();
+    const isSmallIconButton = rect.width <= 44 && rect.height <= 44;
+
+    if (!(matchesClearAll || matchesRemove || (hasReferenceContext && hasPreviewNearby && isSmallIconButton))) {
+      return Number.NEGATIVE_INFINITY;
+    }
+
+    let score = matchesClearAll ? 320 : 180;
+    if (matchesRemove) {
+      score += 120;
+    }
+    if (hasReferenceContext) {
+      score += 120;
+    }
+    if (hasPreviewNearby) {
+      score += 80;
+    }
+    if (isSmallIconButton) {
+      score += 24;
+    }
+    if (element.closest('header, nav, aside, [role="navigation"]')) {
+      score -= 260;
+    }
+    if (text.length === 0 && !(hasReferenceContext && hasPreviewNearby && isSmallIconButton)) {
+      score -= 220;
+    }
+
+    return score;
+  }
+
+  function findReferenceClearCandidates(promptInput) {
+    return getClickableElements()
+      .map((element) => ({
+        element,
+        score: scoreReferenceClearCandidate(element, promptInput),
+        isClearAll: matchesAnyAlias(readElementText(element), REFERENCE_CLEAR_ALL_KEYWORDS),
+      }))
+      .filter((entry) => entry.score > 120)
+      .sort((left, right) => right.score - left.score);
+  }
+
+  async function clearReferenceInputSelection(input) {
+    if (!(input instanceof HTMLInputElement)) {
+      return false;
+    }
+
+    let clearedByValue = false;
+    try {
+      input.value = '';
+      clearedByValue = true;
+    } catch (_error) {
+      // Fall through to FileList replacement below.
+    }
+
+    const replacedFiles = assignFilesToInput(input, []);
+    if (!replacedFiles) {
+      input.dispatchEvent(new Event('input', { bubbles: true, cancelable: true }));
+      input.dispatchEvent(new Event('change', { bubbles: true, cancelable: true }));
+    }
+
+    await waitForUiSettled(220);
+    return clearedByValue || replacedFiles;
+  }
+
+  async function clearExistingReferenceImages(promptInput) {
+    recordSubmissionStep('reference-clear-start', '');
+
+    let activePromptInput = findPromptInput() || promptInput;
+    let previousPreviewCount = findReferencePreviewMediaElements(activePromptInput).length;
+    recordSubmissionStep('reference-clear-preview-count', `before:${previousPreviewCount}`);
+
+    const existingInput = findReferenceFileInput(activePromptInput);
+    if (existingInput && (await clearReferenceInputSelection(existingInput))) {
+      recordSubmissionStep('reference-clear-input', getElementContextText(existingInput));
+      activePromptInput = findPromptInput() || activePromptInput;
+      previousPreviewCount = findReferencePreviewMediaElements(activePromptInput).length;
+      recordSubmissionStep('reference-clear-preview-count', `after-input:${previousPreviewCount}`);
+    }
+
+    const clearAllCandidate =
+      findReferenceClearCandidates(activePromptInput).find((entry) => entry.isClearAll) || null;
+    if (clearAllCandidate && previousPreviewCount > 0) {
+      recordSubmissionStep(
+        'reference-clear-all-click',
+        readElementText(clearAllCandidate.element) || getElementContextText(clearAllCandidate.element)
+      );
+      clickElement(clearAllCandidate.element);
+      await waitForUiSettled(260);
+      previousPreviewCount = await waitForReferencePreviewCountChange(
+        activePromptInput,
+        previousPreviewCount
+      );
+      recordSubmissionStep('reference-clear-preview-count', `after-clear-all:${previousPreviewCount}`);
+    }
+
+    if (previousPreviewCount === 0) {
+      recordSubmissionStep('reference-clear-finished', '0');
+      return;
+    }
+
+    const attemptedRemoveElements = new Set();
+
+    for (let attempt = 0; attempt < 12; attempt += 1) {
+      activePromptInput = findPromptInput() || activePromptInput;
+      const removeCandidates = [
+        ...findReferencePreviewRemoveActions(activePromptInput),
+        ...findReferenceClearCandidates(activePromptInput).filter((entry) => !entry.isClearAll),
+      ]
+        .filter((entry) => !attemptedRemoveElements.has(entry.element))
+        .sort((left, right) => right.score - left.score);
+
+      const removeCandidate = removeCandidates[0] || null;
+      if (!removeCandidate) {
+        recordSubmissionStep('reference-clear-no-candidate', String(previousPreviewCount));
+        break;
+      }
+
+      recordSubmissionStep(
+        'reference-clear-item-click',
+        `${attempt + 1}:${readElementText(removeCandidate.element) || getElementContextText(removeCandidate.element)}`
+      );
+      clickElement(removeCandidate.element);
+      await waitForUiSettled(260);
+
+      const nextPreviewCount = await waitForReferencePreviewCountChange(
+        activePromptInput,
+        previousPreviewCount
+      );
+      recordSubmissionStep('reference-clear-preview-count', `${previousPreviewCount}->${nextPreviewCount}`);
+      if (nextPreviewCount !== previousPreviewCount) {
+        previousPreviewCount = nextPreviewCount;
+        attemptedRemoveElements.clear();
+      } else {
+        attemptedRemoveElements.add(removeCandidate.element);
+        recordSubmissionStep(
+          'reference-clear-no-progress',
+          `${attempt + 1}:${readElementText(removeCandidate.element) || getElementContextText(removeCandidate.element)}`
+        );
+      }
+      if (nextPreviewCount === 0) {
+        break;
+      }
+    }
+
+    if (previousPreviewCount > 0) {
+      recordSubmissionStep('reference-clear-verification-failed', String(previousPreviewCount));
+      throw new Error(`提交前未能清空即梦旧参考图，仍检测到 ${previousPreviewCount} 张缩略图`);
+    }
+
+    recordSubmissionStep('reference-clear-finished', String(previousPreviewCount));
   }
 
   async function revealReferenceFileInput(promptInput) {
     const existingInput = findReferenceFileInput(promptInput);
     if (existingInput) {
+      recordSubmissionStep('reference-upload-input-existing', getElementContextText(existingInput));
       return existingInput;
     }
 
-    const trigger = findReferenceUploadTrigger(promptInput);
-    if (trigger) {
+    const triggerCandidates = findReferenceUploadTriggers(promptInput).slice(0, 3);
+    for (const [index, entry] of triggerCandidates.entries()) {
+      const trigger = entry.element;
+      recordSubmissionStep(
+        'reference-upload-trigger-click',
+        `${index + 1}:${readElementText(trigger) || getElementContextText(trigger)}`
+      );
       clickElement(trigger);
-      await waitForUiSettled(180);
+      await waitForUiSettled(220);
+
+      const refreshedPromptInput = findPromptInput() || promptInput;
+      const revealedInput = findReferenceFileInput(refreshedPromptInput);
+      if (revealedInput) {
+        recordSubmissionStep('reference-upload-input-revealed', getElementContextText(revealedInput));
+        return revealedInput;
+      }
     }
 
-    return findReferenceFileInput(promptInput);
+    return null;
   }
 
   function sanitizeReferenceFileName(fileName, fallbackName) {
@@ -812,7 +1599,7 @@
     return 'png';
   }
 
-  async function createReferenceUploadFiles(referenceImages) {
+  async function createReferenceUploadFiles(referenceImages = []) {
     const files = [];
 
     for (const [index, referenceImage] of referenceImages.entries()) {
@@ -874,20 +1661,32 @@
   }
 
   async function startReferenceImageUpload(payload, promptInput) {
+    const shouldResetReferenceImages = payload.autoSubmit !== false;
+    if (shouldResetReferenceImages) {
+      await clearExistingReferenceImages(promptInput);
+      promptInput = findPromptInput() || promptInput;
+    }
+
+    recordSubmissionStep(
+      'reference-upload-start',
+      String(Array.isArray(payload.referenceImages) ? payload.referenceImages.length : 0)
+    );
+    const files = await createReferenceUploadFiles(payload.referenceImages);
+    if (files.length === 0) {
+      recordSubmissionStep('reference-upload-cleared-only', '0');
+      return;
+    }
+
     const fileInput = await revealReferenceFileInput(promptInput);
     if (!fileInput) {
       throw new Error('Unable to find Jimeng reference image upload control');
-    }
-
-    const files = await createReferenceUploadFiles(payload.referenceImages);
-    if (files.length === 0) {
-      return;
     }
 
     const dispatched = await dispatchReferenceFilesToInput(fileInput, files);
     if (!dispatched) {
       throw new Error('Failed to inject reference images into Jimeng upload control');
     }
+    recordSubmissionStep('reference-upload-dispatched', String(files.length));
   }
 
   async function ensureReferenceImagesApplied(payload, promptInput) {
@@ -896,8 +1695,9 @@
           item && typeof item.dataUrl === 'string' && item.dataUrl.startsWith('data:')
         )
       : [];
+    const shouldResetReferenceImages = payload.autoSubmit !== false;
 
-    if (referenceImages.length === 0) {
+    if (referenceImages.length === 0 && !shouldResetReferenceImages) {
       return true;
     }
 
@@ -1894,26 +2694,66 @@
   }
 
   function scoreSubmitButton(element, promptInput) {
+    if (
+      !(element instanceof HTMLElement)
+      || !isVisible(element)
+      || ('disabled' in element && element.disabled)
+      || element.matches('[role="combobox"], [aria-haspopup="listbox"], [aria-haspopup="menu"]')
+      || element.closest('[role="combobox"], [aria-haspopup="listbox"], [aria-haspopup="menu"]')
+    ) {
+      return Number.NEGATIVE_INFINITY;
+    }
+
     const text = readElementText(element);
     const className = typeof element.className === 'string' ? element.className : '';
     const matchedKeyword = SUBMIT_KEYWORDS.some((keyword) =>
       normalizeText(text).includes(normalizeText(keyword))
     );
+    const matchedProgressKeyword = SUBMIT_PROGRESS_KEYWORDS.some((keyword) =>
+      normalizeText(text).includes(normalizeText(keyword))
+    );
     const isExplicitSubmitButton =
-      className.includes('submit-button') || className.includes('lv-btn-primary');
+      className.includes('submit-button')
+      || className.includes('lv-btn-primary')
+      || String(element.getAttribute('type') || '').toLowerCase() === 'submit';
+    const isKnownFalsePositive = matchesAnyAlias(text, KNOWN_SUBMIT_FALSE_POSITIVE_ALIASES);
 
     const rect = element.getBoundingClientRect();
     const promptRect = promptInput.getBoundingClientRect();
+    const promptRegion = getPromptRegionElement(promptInput);
     const verticalDistance = Math.abs(rect.bottom - promptRect.bottom);
     const horizontalDistance = Math.abs(rect.right - promptRect.right);
+    const sameRegion =
+      promptRegion instanceof HTMLElement
+      && (
+        element.closest('form, section, article, [role="dialog"], main') === promptRegion
+        || promptRegion.contains(element)
+      );
 
-    let score = matchedKeyword ? 220 : 40;
+    let score = matchedKeyword ? 220 : 20;
     score += 120 - Math.min(verticalDistance, 120);
     score += 120 - Math.min(horizontalDistance, 120);
     score += Math.min(rect.width / 8, 20);
     score += Math.min(rect.height / 6, 18);
+    if (matchedProgressKeyword) {
+      score += 120;
+    }
     if (isExplicitSubmitButton) {
       score += 320;
+    }
+    if (sameRegion) {
+      score += 100;
+    } else {
+      score -= 180;
+    }
+    if (rect.top < promptRect.top - 120 || rect.top > promptRect.bottom + 280) {
+      score -= 220;
+    }
+    if (matchesAnyAlias(text, UPLOAD_TRIGGER_KEYWORDS) || matchesAnyAlias(text, UPLOAD_KEYWORDS)) {
+      score -= 320;
+    }
+    if (isKnownFalsePositive) {
+      score -= 420;
     }
     if (element.closest('header, nav, aside, [role="navigation"]')) {
       score -= 240;
@@ -1924,29 +2764,235 @@
     if (verticalDistance > 280) {
       score -= 160;
     }
-    if (!matchedKeyword && !isExplicitSubmitButton && text.length === 0) {
+    if (!matchedKeyword && !matchedProgressKeyword && !isExplicitSubmitButton && text.length === 0) {
       score -= 120;
     }
 
     return score;
   }
 
-  function findSubmitButton(promptInput) {
-    const candidates = queryAllDeep(
+  function getSubmitButtonCandidates(promptInput) {
+    return queryAllDeep(
       'button, [role="button"], input[type="submit"], input[type="button"]'
-    ).filter((element) => isVisible(element) && !('disabled' in element && element.disabled));
-    let best = null;
-    let bestScore = Number.NEGATIVE_INFINITY;
+    )
+      .filter((element) => isVisible(element) && !('disabled' in element && element.disabled))
+      .map((element) => ({
+        element,
+        score: scoreSubmitButton(element, promptInput),
+      }))
+      .filter((entry) => entry.score > 80)
+      .sort((left, right) => right.score - left.score);
+  }
 
-    candidates.forEach((candidate) => {
-      const score = scoreSubmitButton(candidate, promptInput);
-      if (score > bestScore) {
-        best = candidate;
-        bestScore = score;
+  function findSubmitButton(promptInput) {
+    return getSubmitButtonCandidates(promptInput)[0]?.element || null;
+  }
+
+  function isElementDisabledLike(element) {
+    return (
+      element instanceof HTMLElement
+      && (
+        ('disabled' in element && Boolean(element.disabled))
+        || element.getAttribute('aria-disabled') === 'true'
+        || element.getAttribute('aria-busy') === 'true'
+        || element.getAttribute('data-disabled') === 'true'
+        || element.getAttribute('data-loading') === 'true'
+        || element.getAttribute('data-state') === 'loading'
+      )
+    );
+  }
+
+  function buildSubmitCandidateSnapshot(element, score = 0) {
+    const description = describeElement(element);
+    if (!description) {
+      return null;
+    }
+
+    return {
+      element,
+      score,
+      signature: description.signature,
+      text: description.text,
+      disabled: isElementDisabledLike(element),
+    };
+  }
+
+  function hasBusyIndicatorWithinRegion(region) {
+    if (!(region instanceof HTMLElement)) {
+      return false;
+    }
+
+    return queryAllDeep(
+      '[aria-busy="true"], [role="progressbar"], [data-state="loading"], [data-loading="true"], .loading, .is-loading, .spinner'
+    ).some((element) =>
+      element instanceof HTMLElement
+      && region.contains(element)
+      && isVisible(element)
+    );
+  }
+
+  function captureSubmissionAttemptState(promptInput) {
+    const promptRegion = getPromptRegionElement(promptInput);
+    const candidateSnapshots = getSubmitButtonCandidates(promptInput)
+      .slice(0, 5)
+      .map((entry) => buildSubmitCandidateSnapshot(entry.element, entry.score))
+      .filter(Boolean);
+
+    return {
+      promptMissing: !(promptInput instanceof HTMLElement) || !promptInput.isConnected || !isVisible(promptInput),
+      regionBusy: hasBusyIndicatorWithinRegion(promptRegion),
+      regionText: promptRegion instanceof HTMLElement ? readElementText(promptRegion) : '',
+      candidates: candidateSnapshots,
+    };
+  }
+
+  function hasSubmitProgressText(text) {
+    return matchesAnyAlias(text, SUBMIT_PROGRESS_KEYWORDS);
+  }
+
+  function hasSubmitIntentText(text) {
+    return matchesAnyAlias(text, SUBMIT_KEYWORDS) || hasSubmitProgressText(text);
+  }
+
+  function isHighConfidenceSubmitCandidate(candidate, nextCandidate = null) {
+    if (!candidate || !(candidate.element instanceof HTMLElement)) {
+      return false;
+    }
+
+    const text = readElementText(candidate.element);
+    const className = typeof candidate.element.className === 'string' ? candidate.element.className : '';
+    const isExplicitSubmitButton =
+      className.includes('submit-button')
+      || className.includes('lv-btn-primary')
+      || String(candidate.element.getAttribute('type') || '').toLowerCase() === 'submit';
+    const nextScore = nextCandidate && Number.isFinite(nextCandidate.score)
+      ? nextCandidate.score
+      : Number.NEGATIVE_INFINITY;
+
+    return (
+      candidate.score >= SUBMIT_SOFT_ACCEPT_SCORE
+      && candidate.score - nextScore >= SUBMIT_SOFT_ACCEPT_GAP
+      && (isExplicitSubmitButton || hasSubmitIntentText(text))
+    );
+  }
+
+  function didSubmissionUiAdvance(beforeState, promptInput) {
+    const activePrompt = findPromptInput() || promptInput;
+    if (!(activePrompt instanceof HTMLElement) || !activePrompt.isConnected || !isVisible(activePrompt)) {
+      return true;
+    }
+
+    const promptRegion = getPromptRegionElement(activePrompt);
+    const regionText = promptRegion instanceof HTMLElement ? readElementText(promptRegion) : '';
+    if (!beforeState.regionBusy && hasBusyIndicatorWithinRegion(promptRegion)) {
+      return true;
+    }
+    if (!hasSubmitProgressText(beforeState.regionText) && hasSubmitProgressText(regionText)) {
+      return true;
+    }
+
+    const afterCandidates = getSubmitButtonCandidates(activePrompt)
+      .slice(0, 5)
+      .map((entry) => buildSubmitCandidateSnapshot(entry.element, entry.score))
+      .filter(Boolean);
+    const beforeHadProgressButton = beforeState.candidates.some((candidate) => hasSubmitProgressText(candidate.text));
+    const afterHadProgressButton = afterCandidates.some((candidate) => hasSubmitProgressText(candidate.text));
+    if (!beforeHadProgressButton && afterHadProgressButton) {
+      return true;
+    }
+
+    for (const beforeCandidate of beforeState.candidates) {
+      let liveCandidate = null;
+      if (beforeCandidate.element instanceof HTMLElement && beforeCandidate.element.isConnected) {
+        liveCandidate = buildSubmitCandidateSnapshot(beforeCandidate.element, beforeCandidate.score);
       }
-    });
+      const afterCandidate =
+        liveCandidate
+        || afterCandidates.find((candidate) => candidate.signature === beforeCandidate.signature)
+        || null;
 
-    return best;
+      if (!afterCandidate) {
+        if (beforeCandidate.score >= 180) {
+          return true;
+        }
+        continue;
+      }
+
+      if (!beforeCandidate.disabled && afterCandidate.disabled) {
+        return true;
+      }
+
+      if (
+        normalizeText(beforeCandidate.text) !== normalizeText(afterCandidate.text)
+        && (
+          hasSubmitProgressText(afterCandidate.text)
+          || beforeCandidate.score >= 180
+        )
+      ) {
+        return true;
+      }
+    }
+
+    return false;
+  }
+
+  async function waitForSubmissionUiAdvance(promptInput, deadline, beforeState) {
+    while (Date.now() <= deadline) {
+      if (didSubmissionUiAdvance(beforeState, promptInput)) {
+        return true;
+      }
+      await waitForDelay(140);
+    }
+
+    return false;
+  }
+
+  async function triggerJimengSubmit(promptInput, deadline) {
+    const candidates = getSubmitButtonCandidates(promptInput).slice(0, 4);
+    if (candidates.length === 0) {
+      throw new Error('Unable to find Jimeng submit button');
+    }
+
+    for (const [index, candidateEntry] of candidates.entries()) {
+      const activePrompt = (await waitForPromptInputUntil(Math.min(deadline, Date.now() + 1200))) || promptInput;
+      const liveCandidates = getSubmitButtonCandidates(activePrompt).slice(0, 4);
+      const liveCandidate = liveCandidates[index] || candidateEntry;
+      const nextCandidate = liveCandidates[index + 1] || candidates[index + 1] || null;
+      const button = liveCandidate.element || candidateEntry.element;
+      if (!(button instanceof HTMLElement) || !button.isConnected || !isVisible(button)) {
+        continue;
+      }
+
+      const beforeState = captureSubmissionAttemptState(activePrompt);
+      recordSubmissionStep('submit-click-start', `${index + 1}:${readElementText(button) || 'button'}`);
+      clickElement(button);
+      await waitForUiSettled(180);
+
+      const advanced = await waitForSubmissionUiAdvance(
+        activePrompt,
+        Math.min(deadline, Date.now() + SUBMIT_UI_CONFIRMATION_MS),
+        beforeState
+      );
+
+      if (advanced) {
+        recordSubmissionStep('submit-click-confirmed', `${index + 1}:${readElementText(button) || 'button'}`);
+        return true;
+      }
+
+      if (isHighConfidenceSubmitCandidate(liveCandidate, nextCandidate)) {
+        recordSubmissionStep(
+          'submit-click-assumed',
+          `${index + 1}:${readElementText(button) || 'button'}`
+        );
+        return true;
+      }
+
+      recordSubmissionStep('submit-click-rejected', `${index + 1}:${readElementText(button) || 'button'}`);
+      closeOpenOverlay(button);
+      await waitForUiSettled(60);
+    }
+
+    return false;
   }
 
   function clearRetryTimer() {
@@ -2051,22 +3097,11 @@
       return true;
     }
 
-    const form = promptInput.closest('form');
-    if (form && typeof form.requestSubmit === 'function') {
-      try {
-        form.requestSubmit();
-        return true;
-      } catch (_error) {
-        // Fall through to manual button click.
-      }
+    const submitAccepted = await triggerJimengSubmit(promptInput, deadline);
+    if (!submitAccepted) {
+      throw new Error('Failed to trigger the Jimeng submit button');
     }
 
-    const submitButton = findSubmitButton(promptInput);
-    if (!submitButton) {
-      throw new Error('Unable to find Jimeng submit button');
-    }
-
-    clickElement(submitButton);
     return true;
   }
 

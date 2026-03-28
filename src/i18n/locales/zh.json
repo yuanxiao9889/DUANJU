@@ -92,6 +92,13 @@
   "nodeToolbar": {
     "reupload": "重新上传",
     "copy": "复制",
+    "addToAssets": "加入资产",
+    "addingToAssets": "加入中...",
+    "addedToAssets": "已加入",
+    "addToAssetsHint": "保存到「{{library}}」后，后续可在资产管理里继续补充信息。",
+    "selectAssetLibraryFirst": "请先选择一个剧集资产库。",
+    "noAssetLibraries": "还没有剧集资产库，请先到资产管理里创建。",
+    "addToAssetsFailed": "加入资产失败，请稍后再试。",
     "copyText": "复制文本",
     "copyErrorReport": "复制报错",
     "copied": "已复制",

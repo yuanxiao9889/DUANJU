@@ -21,7 +21,6 @@ import { getNodeToolPlugins } from '@/features/canvas/tools';
 import type { ToolIconKey } from '@/features/canvas/tools';
 import { UiChipButton, UiPanel } from '@/components/ui';
 import {
-  copyImageSourceToClipboard,
   saveImageSourceToDirectory,
   saveImageSourceToPath,
 } from '@/commands/image';
@@ -38,6 +37,7 @@ import {
   NODE_TOOLBAR_OFFSET,
   NODE_TOOLBAR_POSITION,
 } from './nodeToolbarConfig';
+import { NodeAddToAssetsButton } from './NodeAddToAssetsButton';
 
 interface NodeActionToolbarProps {
   node: CanvasNode;
@@ -90,13 +90,11 @@ export const NodeActionToolbar = memo(({ node }: NodeActionToolbarProps) => {
   const psServerStatus = usePsIntegrationStore((state) => state.serverStatus);
   const [downloadMenu, setDownloadMenu] = useState<{ x: number; y: number } | null>(null);
   const [isDownloadMenuVisible, setIsDownloadMenuVisible] = useState(false);
-  const [isCopySuccess, setIsCopySuccess] = useState(false);
   const [isCopyTextSuccess, setIsCopyTextSuccess] = useState(false);
   const [isCopyErrorSuccess, setIsCopyErrorSuccess] = useState(false);
   const [isSendingToPs, setIsSendingToPs] = useState(false);
   const [isPsSendSuccess, setIsPsSendSuccess] = useState(false);
   const downloadMenuRef = useRef<HTMLDivElement | null>(null);
-  const copyFeedbackTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const copyTextFeedbackTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const copyErrorFeedbackTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const downloadMenuCloseTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -206,9 +204,6 @@ export const NodeActionToolbar = memo(({ node }: NodeActionToolbarProps) => {
 
   useEffect(() => {
     return () => {
-      if (copyFeedbackTimerRef.current) {
-        clearTimeout(copyFeedbackTimerRef.current);
-      }
       if (copyTextFeedbackTimerRef.current) {
         clearTimeout(copyTextFeedbackTimerRef.current);
       }
@@ -220,27 +215,6 @@ export const NodeActionToolbar = memo(({ node }: NodeActionToolbarProps) => {
       }
     };
   }, []);
-
-  const handleCopyImage = useCallback(async () => {
-    if (!imageSource) {
-      return;
-    }
-
-    setIsCopySuccess(true);
-    if (copyFeedbackTimerRef.current) {
-      clearTimeout(copyFeedbackTimerRef.current);
-    }
-    copyFeedbackTimerRef.current = setTimeout(() => {
-      setIsCopySuccess(false);
-      copyFeedbackTimerRef.current = null;
-    }, 1100);
-
-    try {
-      await copyImageSourceToClipboard(imageSource);
-    } catch (error) {
-      console.error('Failed to copy image to clipboard', error);
-    }
-  }, [imageSource]);
 
   const storyboardText = useMemo(() => {
     if (isStoryboardGen) {
@@ -441,20 +415,11 @@ export const NodeActionToolbar = memo(({ node }: NodeActionToolbarProps) => {
           </UiChipButton>
         )}
         {!isImageEdit && canHandleImage && (
-          <UiChipButton
-            key="image-copy"
-            className={`h-8 ${TOOLBAR_BUTTON_RADIUS_CLASS} px-2.5 text-xs ${TOOLBAR_NEUTRAL_BUTTON_CLASS} ${
-              isCopySuccess
-                ? '!border-emerald-400/70 !bg-emerald-500/20 !text-emerald-200 hover:!bg-emerald-500/30'
-                : ''
-            }`}
-            onClick={() => {
-              void handleCopyImage();
-            }}
-          >
-            <Copy className="h-3.5 w-3.5" />
-            {t('nodeToolbar.copy')}
-          </UiChipButton>
+          <NodeAddToAssetsButton
+            node={node}
+            imageSource={imageSource ?? ''}
+            className={`h-8 ${TOOLBAR_BUTTON_RADIUS_CLASS} px-2.5 text-xs ${TOOLBAR_NEUTRAL_BUTTON_CLASS}`}
+          />
         )}
         {!isImageEdit && canCopyStoryboardText && (
           <UiChipButton

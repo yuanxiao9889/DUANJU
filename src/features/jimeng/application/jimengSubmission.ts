@@ -91,10 +91,10 @@ function resolveJimengReferenceFileName(source: string, dataUrl: string, index: 
 
 async function prepareJimengReferenceImages(
   sources: string[] | undefined
-): Promise<JimengReferenceImagePayload[] | undefined> {
+): Promise<JimengReferenceImagePayload[]> {
   const uniqueSources = [...new Set((sources ?? []).map((source) => source.trim()).filter(Boolean))];
   if (uniqueSources.length === 0) {
-    return undefined;
+    return [];
   }
 
   return await Promise.all(

@@ -1,7 +1,7 @@
 use std::env;
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::process::Command;
+use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
 
 use base64::Engine as _;
@@ -390,6 +390,8 @@ fn spawn_chrome_window(
             "--remote-debugging-port={}",
             JIMENG_CHROME_REMOTE_DEBUGGING_PORT
         ))
+        .arg("--disable-logging")
+        .arg("--log-level=3")
         .arg("--no-first-run")
         .arg("--no-default-browser-check")
         .arg("--disable-default-apps")
@@ -398,7 +400,10 @@ fn spawn_chrome_window(
             user_data_dir.to_string_lossy()
         ))
         .arg("--new-window")
-        .arg(target_url);
+        .arg(target_url)
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null());
 
     command
         .spawn()
@@ -671,6 +676,22 @@ fn extract_submission_step_summary(submission_state: &Value) -> Option<String> {
     })
 }
 
+fn extract_submission_step_name<'a>(submission_state: &'a Value) -> Option<&'a str> {
+    submission_state
+        .get("step")?
+        .get("step")?
+        .as_str()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+}
+
+fn is_submission_effectively_confirmed(submission_state: &Value) -> bool {
+    matches!(
+        extract_submission_step_name(submission_state),
+        Some("submit-click-confirmed" | "submit-click-assumed")
+    )
+}
+
 fn decorate_submission_message(
     fallback_message: &str,
     submission_state: &Value,
@@ -911,6 +932,12 @@ pub async fn submit_jimeng_chrome_task(
         match status {
             "ready" => return Ok(()),
             "error" => {
+                if is_submission_effectively_confirmed(&submission_state) {
+                    info!(
+                        "Jimeng Chrome submission reported error after confirmed submit click; treating as success"
+                    );
+                    return Ok(());
+                }
                 let error_message = decorate_submission_message(
                     "Jimeng Chrome automation failed",
                     &submission_state,
@@ -933,6 +960,10 @@ pub async fn submit_jimeng_chrome_task(
         &submission_state,
         false,
     );
+    if is_submission_effectively_confirmed(&submission_state) {
+        info!("Jimeng Chrome submission timed out after confirmed submit click; treating as success");
+        return Ok(());
+    }
     warn!(
         "Jimeng Chrome automation submission timed out: {}",
         error_message
