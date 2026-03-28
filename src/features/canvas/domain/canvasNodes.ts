@@ -11,6 +11,7 @@ export const CANVAS_NODE_TYPES = {
   storyboardSplitResult: 'storyboardSplitResultNode',
   storyboardGen: 'storyboardGenNode',
   video: 'videoNode',
+  audio: 'audioNode',
   scriptRoot: 'scriptRootNode',
   scriptChapter: 'scriptChapterNode',
   scriptCharacter: 'scriptCharacterNode',
@@ -31,6 +32,8 @@ export const EXPORT_RESULT_NODE_DEFAULT_WIDTH = 384;
 export const EXPORT_RESULT_NODE_LAYOUT_HEIGHT = 288;
 export const EXPORT_RESULT_NODE_MIN_WIDTH = 168;
 export const EXPORT_RESULT_NODE_MIN_HEIGHT = 168;
+export const AUDIO_NODE_DEFAULT_WIDTH = 320;
+export const AUDIO_NODE_DEFAULT_HEIGHT = 96;
 
 export const IMAGE_SIZES = ['0.5K', '1K', '2K', '4K'] as const;
 export const IMAGE_ASPECT_RATIOS = [
@@ -142,6 +145,19 @@ export interface VideoNodeData extends NodeDisplayData {
   aspectRatio: string;
   duration?: number;
   isSizeManuallyAdjusted?: boolean;
+  [key: string]: unknown;
+}
+
+export interface AudioNodeData extends NodeDisplayData {
+  audioUrl: string | null;
+  previewImageUrl?: string | null;
+  audioFileName?: string | null;
+  duration?: number;
+  mimeType?: string | null;
+  assetId?: string | null;
+  assetLibraryId?: string | null;
+  assetName?: string | null;
+  assetCategory?: string | null;
   [key: string]: unknown;
 }
 
@@ -358,6 +374,7 @@ export type CanvasNodeData =
   | StoryboardSplitResultNodeData
   | StoryboardGenNodeData
   | VideoNodeData
+  | AudioNodeData
   | ScriptRootNodeData
   | ScriptChapterNodeData
   | ScriptCharacterNodeData
@@ -435,6 +452,12 @@ export function isVideoNode(
   node: CanvasNode | null | undefined
 ): node is Node<VideoNodeData, typeof CANVAS_NODE_TYPES.video> {
   return node?.type === CANVAS_NODE_TYPES.video;
+}
+
+export function isAudioNode(
+  node: CanvasNode | null | undefined
+): node is Node<AudioNodeData, typeof CANVAS_NODE_TYPES.audio> {
+  return node?.type === CANVAS_NODE_TYPES.audio;
 }
 
 export function isStoryboardSplitNode(
@@ -528,6 +551,7 @@ export function nodeHasImage(node: CanvasNode | null | undefined): boolean {
 
   if (
     isVideoNode(node) ||
+    isAudioNode(node) ||
     isScriptRootNode(node) ||
     isScriptChapterNode(node) ||
     isScriptCharacterNode(node) ||

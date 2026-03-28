@@ -129,6 +129,9 @@ function mapNodeImageReferences(
     if ('videoUrl' in nextData) {
       nextData.videoUrl = mapImageUrl(nextData.videoUrl as string | null | undefined) ?? null;
     }
+    if ('audioUrl' in nextData) {
+      nextData.audioUrl = mapImageUrl(nextData.audioUrl as string | null | undefined) ?? null;
+    }
 
     if (Array.isArray(nextData.frames)) {
       nextData.frames = nextData.frames.map((frame) => {

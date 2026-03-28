@@ -90,12 +90,17 @@ fn ensure_projects_table(conn: &Connection) -> Result<(), String> {
           id TEXT PRIMARY KEY,
           library_id TEXT NOT NULL,
           category TEXT NOT NULL,
+          media_type TEXT NOT NULL DEFAULT 'image',
           subcategory_id TEXT,
           name TEXT NOT NULL,
           description TEXT NOT NULL DEFAULT '',
           tags_json TEXT NOT NULL DEFAULT '[]',
-          image_path TEXT NOT NULL,
-          preview_image_path TEXT NOT NULL,
+          source_path TEXT NOT NULL DEFAULT '',
+          preview_path TEXT,
+          mime_type TEXT,
+          duration_ms INTEGER,
+          image_path TEXT NOT NULL DEFAULT '',
+          preview_image_path TEXT NOT NULL DEFAULT '',
           aspect_ratio TEXT NOT NULL DEFAULT '1:1',
           created_at INTEGER NOT NULL,
           updated_at INTEGER NOT NULL
@@ -165,6 +170,126 @@ fn ensure_projects_table(conn: &Connection) -> Result<(), String> {
     )
     .map_err(|e| format!("Failed to initialize project indexes: {}", e))?;
 
+    let mut has_asset_media_type = false;
+    let mut has_asset_source_path = false;
+    let mut has_asset_preview_path = false;
+    let mut has_asset_mime_type = false;
+    let mut has_asset_duration_ms = false;
+    let mut asset_stmt = conn
+        .prepare("PRAGMA table_info(asset_items)")
+        .map_err(|e| format!("Failed to inspect asset_items schema: {}", e))?;
+    let asset_rows = asset_stmt
+        .query_map([], |row| row.get::<_, String>(1))
+        .map_err(|e| format!("Failed to inspect asset_items columns: {}", e))?;
+
+    for name_result in asset_rows {
+        let column_name =
+            name_result.map_err(|e| format!("Failed to read asset_items column name: {}", e))?;
+        if column_name == "media_type" {
+            has_asset_media_type = true;
+        }
+        if column_name == "source_path" {
+            has_asset_source_path = true;
+        }
+        if column_name == "preview_path" {
+            has_asset_preview_path = true;
+        }
+        if column_name == "mime_type" {
+            has_asset_mime_type = true;
+        }
+        if column_name == "duration_ms" {
+            has_asset_duration_ms = true;
+        }
+    }
+
+    if !has_asset_media_type {
+        conn.execute(
+            "ALTER TABLE asset_items ADD COLUMN media_type TEXT NOT NULL DEFAULT 'image'",
+            [],
+        )
+        .map_err(|e| format!("Failed to add asset_items.media_type column: {}", e))?;
+    }
+
+    if !has_asset_source_path {
+        conn.execute(
+            "ALTER TABLE asset_items ADD COLUMN source_path TEXT NOT NULL DEFAULT ''",
+            [],
+        )
+        .map_err(|e| format!("Failed to add asset_items.source_path column: {}", e))?;
+    }
+
+    if !has_asset_preview_path {
+        conn.execute("ALTER TABLE asset_items ADD COLUMN preview_path TEXT", [])
+            .map_err(|e| format!("Failed to add asset_items.preview_path column: {}", e))?;
+    }
+
+    if !has_asset_mime_type {
+        conn.execute("ALTER TABLE asset_items ADD COLUMN mime_type TEXT", [])
+            .map_err(|e| format!("Failed to add asset_items.mime_type column: {}", e))?;
+    }
+
+    if !has_asset_duration_ms {
+        conn.execute("ALTER TABLE asset_items ADD COLUMN duration_ms INTEGER", [])
+            .map_err(|e| format!("Failed to add asset_items.duration_ms column: {}", e))?;
+    }
+
+    conn.execute(
+        r#"
+        UPDATE asset_items
+        SET media_type = CASE
+          WHEN category = 'voice' THEN 'audio'
+          ELSE 'image'
+        END
+        WHERE TRIM(COALESCE(media_type, '')) = ''
+        "#,
+        [],
+    )
+    .map_err(|e| format!("Failed to backfill asset_items.media_type: {}", e))?;
+
+    conn.execute(
+        r#"
+        UPDATE asset_items
+        SET source_path = image_path
+        WHERE TRIM(COALESCE(source_path, '')) = ''
+          AND TRIM(COALESCE(image_path, '')) <> ''
+        "#,
+        [],
+    )
+    .map_err(|e| format!("Failed to backfill asset_items.source_path: {}", e))?;
+
+    conn.execute(
+        r#"
+        UPDATE asset_items
+        SET preview_path = NULLIF(TRIM(preview_image_path), '')
+        WHERE (preview_path IS NULL OR TRIM(COALESCE(preview_path, '')) = '')
+          AND TRIM(COALESCE(preview_image_path, '')) <> ''
+        "#,
+        [],
+    )
+    .map_err(|e| format!("Failed to backfill asset_items.preview_path: {}", e))?;
+
+    conn.execute(
+        r#"
+        UPDATE asset_items
+        SET image_path = source_path
+        WHERE TRIM(COALESCE(image_path, '')) = ''
+          AND TRIM(COALESCE(source_path, '')) <> ''
+        "#,
+        [],
+    )
+    .map_err(|e| format!("Failed to backfill asset_items.image_path: {}", e))?;
+
+    conn.execute(
+        r#"
+        UPDATE asset_items
+        SET preview_image_path = COALESCE(preview_path, '')
+        WHERE TRIM(COALESCE(preview_image_path, '')) = ''
+          AND TRIM(COALESCE(preview_path, '')) <> ''
+        "#,
+        [],
+    )
+    .map_err(|e| format!("Failed to backfill asset_items.preview_image_path: {}", e))?;
+
     Ok(())
 }
 
@@ -212,7 +337,7 @@ fn collect_image_paths_from_nodes(
             Option::None => continue,
         };
 
-        for key in ["imageUrl", "previewImageUrl", "videoUrl"] {
+        for key in ["imageUrl", "previewImageUrl", "videoUrl", "audioUrl"] {
             if let Some(raw_value) = data.get(key).and_then(|value| value.as_str()) {
                 if let Some(path) = resolve_image_ref(raw_value, image_pool) {
                     paths.insert(path);

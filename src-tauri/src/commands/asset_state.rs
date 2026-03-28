@@ -26,12 +26,15 @@ pub struct AssetItemRecord {
     pub id: String,
     pub library_id: String,
     pub category: String,
+    pub media_type: String,
     pub subcategory_id: Option<String>,
     pub name: String,
     pub description: String,
     pub tags: Vec<String>,
-    pub image_path: String,
-    pub preview_image_path: String,
+    pub source_path: String,
+    pub preview_path: Option<String>,
+    pub mime_type: Option<String>,
+    pub duration_ms: Option<i64>,
     pub aspect_ratio: String,
     pub created_at: i64,
     pub updated_at: i64,
@@ -82,12 +85,15 @@ pub struct AssetItemMutationPayload {
     pub id: Option<String>,
     pub library_id: String,
     pub category: String,
+    pub media_type: String,
     pub subcategory_id: Option<String>,
     pub name: String,
     pub description: String,
     pub tags: Vec<String>,
-    pub image_path: String,
-    pub preview_image_path: String,
+    pub source_path: String,
+    pub preview_path: Option<String>,
+    pub mime_type: Option<String>,
+    pub duration_ms: Option<i64>,
     pub aspect_ratio: String,
 }
 
@@ -117,6 +123,21 @@ fn deserialize_tags(value: String) -> Vec<String> {
     serde_json::from_str::<Vec<String>>(&value).unwrap_or_default()
 }
 
+fn normalize_asset_media_type(category: &str, requested_media_type: &str) -> String {
+    let normalized_category = category.trim().to_ascii_lowercase();
+    let normalized_media_type = requested_media_type.trim().to_ascii_lowercase();
+
+    if normalized_category == "voice" {
+        return "audio".to_string();
+    }
+
+    if normalized_media_type == "audio" {
+        return "audio".to_string();
+    }
+
+    "image".to_string()
+}
+
 fn touch_library(tx: &rusqlite::Transaction<'_>, library_id: &str, updated_at: i64) -> Result<(), String> {
     tx.execute(
         "UPDATE asset_libraries SET updated_at = ?1 WHERE id = ?2",
@@ -129,13 +150,16 @@ fn touch_library(tx: &rusqlite::Transaction<'_>, library_id: &str, updated_at: i
 fn replace_asset_image_refs(
     tx: &rusqlite::Transaction<'_>,
     asset_id: &str,
-    image_path: &str,
-    preview_image_path: &str,
+    source_path: &str,
+    preview_path: Option<&str>,
 ) -> Result<(), String> {
     tx.execute("DELETE FROM asset_image_refs WHERE asset_id = ?1", params![asset_id])
         .map_err(|e| format!("Failed to clear asset image refs: {}", e))?;
 
-    for path in [image_path, preview_image_path] {
+    for path in [Some(source_path), preview_path] {
+        let Some(path) = path.map(str::trim).filter(|value| !value.is_empty()) else {
+            continue;
+        };
         tx.execute(
             "INSERT OR IGNORE INTO asset_image_refs (asset_id, path) VALUES (?1, ?2)",
             params![asset_id, path],
@@ -160,6 +184,40 @@ fn set_string_field(
     true
 }
 
+fn set_optional_string_field(
+    object: &mut serde_json::Map<String, Value>,
+    key: &str,
+    next_value: Option<&str>,
+) -> bool {
+    let normalized = next_value.map(str::trim).filter(|value| !value.is_empty());
+    match normalized {
+        Some(value) => set_string_field(object, key, value),
+        None => set_null_field(object, key),
+    }
+}
+
+fn set_optional_f64_field(
+    object: &mut serde_json::Map<String, Value>,
+    key: &str,
+    next_value: Option<f64>,
+) -> bool {
+    let Some(value) = next_value.filter(|value| value.is_finite()) else {
+        return set_null_field(object, key);
+    };
+
+    let current_value = object.get(key).and_then(Value::as_f64);
+    if current_value.is_some_and(|current| (current - value).abs() < f64::EPSILON) {
+        return false;
+    }
+
+    let Some(number) = serde_json::Number::from_f64(value) else {
+        return false;
+    };
+
+    object.insert(key.to_string(), Value::Number(number));
+    true
+}
+
 fn set_null_field(object: &mut serde_json::Map<String, Value>, key: &str) -> bool {
     if object.get(key).is_some_and(Value::is_null) {
         return false;
@@ -180,15 +238,27 @@ fn patch_asset_bound_node(node: &mut Value, item: &AssetItemRecord) -> bool {
 
     let mut changed = false;
     changed |= set_string_field(data, "displayName", &item.name);
-    changed |= set_string_field(data, "imageUrl", &item.image_path);
-    changed |= set_string_field(data, "previewImageUrl", &item.preview_image_path);
-    changed |= set_string_field(data, "aspectRatio", &item.aspect_ratio);
     changed |= set_string_field(data, "assetName", &item.name);
     changed |= set_string_field(data, "assetCategory", &item.category);
     changed |= set_string_field(data, "assetLibraryId", &item.library_id);
-    changed |= set_string_field(data, "sourceFileName", &item.name);
-    changed |= set_null_field(data, "imageWidth");
-    changed |= set_null_field(data, "imageHeight");
+    if item.media_type == "audio" {
+        changed |= set_string_field(data, "audioUrl", &item.source_path);
+        changed |= set_string_field(data, "audioFileName", &item.name);
+        changed |= set_optional_string_field(data, "previewImageUrl", item.preview_path.as_deref());
+        changed |= set_optional_string_field(data, "mimeType", item.mime_type.as_deref());
+        changed |= set_optional_f64_field(
+            data,
+            "duration",
+            item.duration_ms.map(|value| value as f64 / 1000.0),
+        );
+    } else {
+        changed |= set_string_field(data, "imageUrl", &item.source_path);
+        changed |= set_optional_string_field(data, "previewImageUrl", item.preview_path.as_deref());
+        changed |= set_string_field(data, "aspectRatio", &item.aspect_ratio);
+        changed |= set_string_field(data, "sourceFileName", &item.name);
+        changed |= set_null_field(data, "imageWidth");
+        changed |= set_null_field(data, "imageHeight");
+    }
     changed
 }
 
@@ -524,12 +594,15 @@ fn load_library_items(conn: &Connection, library_id: &str) -> Result<Vec<AssetIt
               id,
               library_id,
               category,
+              COALESCE(NULLIF(TRIM(media_type), ''), CASE WHEN category = 'voice' THEN 'audio' ELSE 'image' END) AS media_type,
               subcategory_id,
               name,
               description,
               tags_json,
-              image_path,
-              preview_image_path,
+              COALESCE(NULLIF(TRIM(source_path), ''), image_path) AS source_path,
+              NULLIF(TRIM(COALESCE(preview_path, preview_image_path, '')), '') AS preview_path,
+              NULLIF(TRIM(COALESCE(mime_type, '')), '') AS mime_type,
+              duration_ms,
               aspect_ratio,
               created_at,
               updated_at
@@ -546,15 +619,18 @@ fn load_library_items(conn: &Connection, library_id: &str) -> Result<Vec<AssetIt
                 id: row.get(0)?,
                 library_id: row.get(1)?,
                 category: row.get(2)?,
-                subcategory_id: row.get(3)?,
-                name: row.get(4)?,
-                description: row.get(5)?,
-                tags: deserialize_tags(row.get(6)?),
-                image_path: row.get(7)?,
-                preview_image_path: row.get(8)?,
-                aspect_ratio: row.get(9)?,
-                created_at: row.get(10)?,
-                updated_at: row.get(11)?,
+                media_type: row.get(3)?,
+                subcategory_id: row.get(4)?,
+                name: row.get(5)?,
+                description: row.get(6)?,
+                tags: deserialize_tags(row.get(7)?),
+                source_path: row.get(8)?,
+                preview_path: row.get(9)?,
+                mime_type: row.get(10)?,
+                duration_ms: row.get(11)?,
+                aspect_ratio: row.get(12)?,
+                created_at: row.get(13)?,
+                updated_at: row.get(14)?,
             })
         })
         .map_err(|e| format!("Failed to query asset items: {}", e))?;
@@ -648,12 +724,15 @@ pub fn list_asset_libraries(app: AppHandle) -> Result<Vec<AssetLibraryRecord>, S
               id,
               library_id,
               category,
+              COALESCE(NULLIF(TRIM(media_type), ''), CASE WHEN category = 'voice' THEN 'audio' ELSE 'image' END) AS media_type,
               subcategory_id,
               name,
               description,
               tags_json,
-              image_path,
-              preview_image_path,
+              COALESCE(NULLIF(TRIM(source_path), ''), image_path) AS source_path,
+              NULLIF(TRIM(COALESCE(preview_path, preview_image_path, '')), '') AS preview_path,
+              NULLIF(TRIM(COALESCE(mime_type, '')), '') AS mime_type,
+              duration_ms,
               aspect_ratio,
               created_at,
               updated_at
@@ -668,15 +747,18 @@ pub fn list_asset_libraries(app: AppHandle) -> Result<Vec<AssetLibraryRecord>, S
                 id: row.get(0)?,
                 library_id: row.get(1)?,
                 category: row.get(2)?,
-                subcategory_id: row.get(3)?,
-                name: row.get(4)?,
-                description: row.get(5)?,
-                tags: deserialize_tags(row.get(6)?),
-                image_path: row.get(7)?,
-                preview_image_path: row.get(8)?,
-                aspect_ratio: row.get(9)?,
-                created_at: row.get(10)?,
-                updated_at: row.get(11)?,
+                media_type: row.get(3)?,
+                subcategory_id: row.get(4)?,
+                name: row.get(5)?,
+                description: row.get(6)?,
+                tags: deserialize_tags(row.get(7)?),
+                source_path: row.get(8)?,
+                preview_path: row.get(9)?,
+                mime_type: row.get(10)?,
+                duration_ms: row.get(11)?,
+                aspect_ratio: row.get(12)?,
+                created_at: row.get(13)?,
+                updated_at: row.get(14)?,
             })
         })
         .map_err(|e| format!("Failed to query all asset items: {}", e))?;
@@ -920,9 +1002,27 @@ fn create_or_update_asset_item(
         .clone()
         .unwrap_or_else(|| Uuid::new_v4().to_string());
     let now = current_timestamp_ms();
+    let normalized_library_id = payload.library_id.trim().to_string();
+    let normalized_category = payload.category.trim().to_string();
     let normalized_subcategory_id = normalize_optional_text(payload.subcategory_id.clone());
     let normalized_name = payload.name.trim().to_string();
     let normalized_description = payload.description.trim().to_string();
+    let normalized_media_type =
+        normalize_asset_media_type(&normalized_category, &payload.media_type);
+    let normalized_source_path = payload.source_path.trim().to_string();
+    let normalized_preview_path = normalize_optional_text(payload.preview_path.clone());
+    let normalized_mime_type = normalize_optional_text(payload.mime_type.clone());
+    let normalized_duration_ms = payload.duration_ms.filter(|value| *value >= 0);
+    let normalized_aspect_ratio = if payload.aspect_ratio.trim().is_empty() {
+        "1:1".to_string()
+    } else {
+        payload.aspect_ratio.trim().to_string()
+    };
+
+    if normalized_source_path.is_empty() {
+        return Err("Asset source path is required".to_string());
+    }
+
     let tags_json = serialize_tags(&payload.tags)?;
 
     let previous_library_id = if payload.id.is_some() {
@@ -946,24 +1046,34 @@ fn create_or_update_asset_item(
           id,
           library_id,
           category,
+          media_type,
           subcategory_id,
           name,
           description,
           tags_json,
+          source_path,
+          preview_path,
+          mime_type,
+          duration_ms,
           image_path,
           preview_image_path,
           aspect_ratio,
           created_at,
           updated_at
         )
-        VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)
+        VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17)
         ON CONFLICT(id) DO UPDATE SET
           library_id = excluded.library_id,
           category = excluded.category,
+          media_type = excluded.media_type,
           subcategory_id = excluded.subcategory_id,
           name = excluded.name,
           description = excluded.description,
           tags_json = excluded.tags_json,
+          source_path = excluded.source_path,
+          preview_path = excluded.preview_path,
+          mime_type = excluded.mime_type,
+          duration_ms = excluded.duration_ms,
           image_path = excluded.image_path,
           preview_image_path = excluded.preview_image_path,
           aspect_ratio = excluded.aspect_ratio,
@@ -971,15 +1081,20 @@ fn create_or_update_asset_item(
         "#,
         params![
             item_id,
-            payload.library_id,
-            payload.category,
+            normalized_library_id.clone(),
+            normalized_category,
+            normalized_media_type,
             normalized_subcategory_id,
             normalized_name,
             normalized_description,
             tags_json,
-            payload.image_path,
-            payload.preview_image_path,
-            payload.aspect_ratio,
+            normalized_source_path.clone(),
+            normalized_preview_path.clone(),
+            normalized_mime_type,
+            normalized_duration_ms,
+            normalized_source_path.clone(),
+            normalized_preview_path.clone().unwrap_or_default(),
+            normalized_aspect_ratio,
             now,
             now
         ],
@@ -988,15 +1103,15 @@ fn create_or_update_asset_item(
     replace_asset_image_refs(
         &tx,
         &item_id,
-        &payload.image_path,
-        &payload.preview_image_path,
+        &normalized_source_path,
+        normalized_preview_path.as_deref(),
     )?;
     if let Some(previous_library_id) = previous_library_id.as_ref() {
-        if previous_library_id != &payload.library_id {
+        if previous_library_id != &normalized_library_id {
             touch_library(&tx, previous_library_id, now)?;
         }
     }
-    touch_library(&tx, &payload.library_id, now)?;
+    touch_library(&tx, &normalized_library_id, now)?;
     tx.commit()
         .map_err(|e| format!("Failed to commit asset item upsert transaction: {}", e))?;
 
@@ -1007,12 +1122,15 @@ fn create_or_update_asset_item(
               id,
               library_id,
               category,
+              COALESCE(NULLIF(TRIM(media_type), ''), CASE WHEN category = 'voice' THEN 'audio' ELSE 'image' END) AS media_type,
               subcategory_id,
               name,
               description,
               tags_json,
-              image_path,
-              preview_image_path,
+              COALESCE(NULLIF(TRIM(source_path), ''), image_path) AS source_path,
+              NULLIF(TRIM(COALESCE(preview_path, preview_image_path, '')), '') AS preview_path,
+              NULLIF(TRIM(COALESCE(mime_type, '')), '') AS mime_type,
+              duration_ms,
               aspect_ratio,
               created_at,
               updated_at
@@ -1026,15 +1144,18 @@ fn create_or_update_asset_item(
                     id: row.get(0)?,
                     library_id: row.get(1)?,
                     category: row.get(2)?,
-                    subcategory_id: row.get(3)?,
-                    name: row.get(4)?,
-                    description: row.get(5)?,
-                    tags: deserialize_tags(row.get(6)?),
-                    image_path: row.get(7)?,
-                    preview_image_path: row.get(8)?,
-                    aspect_ratio: row.get(9)?,
-                    created_at: row.get(10)?,
-                    updated_at: row.get(11)?,
+                    media_type: row.get(3)?,
+                    subcategory_id: row.get(4)?,
+                    name: row.get(5)?,
+                    description: row.get(6)?,
+                    tags: deserialize_tags(row.get(7)?),
+                    source_path: row.get(8)?,
+                    preview_path: row.get(9)?,
+                    mime_type: row.get(10)?,
+                    duration_ms: row.get(11)?,
+                    aspect_ratio: row.get(12)?,
+                    created_at: row.get(13)?,
+                    updated_at: row.get(14)?,
                 })
             },
         )
@@ -1072,16 +1193,16 @@ pub fn update_asset_item(
 #[tauri::command]
 pub fn delete_asset_item(app: AppHandle, asset_item_id: String) -> Result<(), String> {
     let mut conn = open_db(&app)?;
-    let existing: (String, String, String) = conn
+    let existing_library_id: String = conn
         .query_row(
             r#"
-            SELECT library_id, image_path, preview_image_path
+            SELECT library_id
             FROM asset_items
             WHERE id = ?1
             LIMIT 1
             "#,
             params![asset_item_id],
-            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+            |row| row.get(0),
         )
         .map_err(|e| format!("Failed to load asset item for delete: {}", e))?;
     let now = current_timestamp_ms();
@@ -1096,7 +1217,7 @@ pub fn delete_asset_item(app: AppHandle, asset_item_id: String) -> Result<(), St
     .map_err(|e| format!("Failed to delete asset image refs: {}", e))?;
     tx.execute("DELETE FROM asset_items WHERE id = ?1", params![asset_item_id])
         .map_err(|e| format!("Failed to delete asset item: {}", e))?;
-    touch_library(&tx, &existing.0, now)?;
+    touch_library(&tx, &existing_library_id, now)?;
     tx.commit()
         .map_err(|e| format!("Failed to commit asset item delete transaction: {}", e))?;
 

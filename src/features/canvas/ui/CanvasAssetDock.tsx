@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { ChevronUp, MapPin, Package, Search, UserRound, X } from 'lucide-react';
+import { AudioLines, ChevronUp, MapPin, Package, Search, UserRound, X } from 'lucide-react';
 
 import { UiButton, UiInput, UiSelect } from '@/components/ui';
 import {
@@ -9,6 +9,7 @@ import {
   type AssetCategory,
   serializeAssetDragPayload,
 } from '@/features/assets/domain/types';
+import { formatAudioDuration } from '@/features/canvas/application/audioData';
 import { resolveImageDisplayUrl } from '@/features/canvas/application/imageData';
 import { useAssetStore } from '@/stores/assetStore';
 import { useProjectStore } from '@/stores/projectStore';
@@ -29,6 +30,8 @@ function resolveCategoryIcon(category: AssetCategory) {
       return <MapPin className="h-4 w-4" />;
     case 'prop':
       return <Package className="h-4 w-4" />;
+    case 'voice':
+      return <AudioLines className="h-4 w-4" />;
   }
 }
 
@@ -416,8 +419,11 @@ export function CanvasAssetDock() {
                                   assetLibraryId: item.libraryId,
                                   assetName: item.name,
                                   assetCategory: item.category,
-                                  imagePath: item.imagePath,
-                                  previewImagePath: item.previewImagePath,
+                                  mediaType: item.mediaType,
+                                  sourcePath: item.sourcePath,
+                                  previewPath: item.previewPath,
+                                  mimeType: item.mimeType,
+                                  durationMs: item.durationMs,
                                   aspectRatio: item.aspectRatio,
                                 })
                               );
@@ -438,11 +444,25 @@ export function CanvasAssetDock() {
                             }}
                             title={t('assets.dragHint')}
                           >
-                            <img
-                              src={resolveImageDisplayUrl(item.previewImagePath || item.imagePath)}
-                              alt={item.name}
-                              className="block h-auto w-full rounded-md transition-transform duration-200 group-hover:scale-[1.02]"
-                            />
+                            {item.mediaType === 'audio' ? (
+                              <div className="flex h-[72px] w-full flex-col justify-between rounded-md border border-[rgba(255,255,255,0.08)] bg-[linear-gradient(160deg,rgba(255,255,255,0.07),rgba(255,255,255,0.02))] px-3 py-2">
+                                <div className="flex items-center gap-2 text-rose-300">
+                                  <AudioLines className="h-4 w-4 shrink-0" />
+                                  <span className="truncate text-xs font-medium text-text-dark">
+                                    {item.name}
+                                  </span>
+                                </div>
+                                <div className="text-[11px] text-text-muted">
+                                  {formatAudioDuration(item.durationMs ? item.durationMs / 1000 : null)}
+                                </div>
+                              </div>
+                            ) : (
+                              <img
+                                src={resolveImageDisplayUrl(item.previewPath || item.sourcePath)}
+                                alt={item.name}
+                                className="block h-auto w-full rounded-md transition-transform duration-200 group-hover:scale-[1.02]"
+                              />
+                            )}
                           </button>
                         ))}
                       </div>

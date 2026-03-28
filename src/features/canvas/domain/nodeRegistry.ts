@@ -18,6 +18,7 @@ import {
   type StoryboardGenNodeData,
   type TextAnnotationNodeData,
   type UploadImageNodeData,
+  type AudioNodeData,
   type VideoNodeData,
   type ScriptRootNodeData,
   type ScriptChapterNodeData,
@@ -30,7 +31,7 @@ import {
 import { DEFAULT_NODE_DISPLAY_NAME } from './nodeDisplay';
 import { DEFAULT_IMAGE_MODEL_ID } from '../models';
 
-export type MenuIconKey = 'upload' | 'sparkles' | 'layout' | 'text' | 'video';
+export type MenuIconKey = 'upload' | 'sparkles' | 'layout' | 'text' | 'video' | 'audio';
 export type NodeMenuProjectType = 'storyboard' | 'script';
 
 export interface CanvasNodeCapabilities {
@@ -372,6 +373,34 @@ const videoNodeDefinition: CanvasNodeDefinition<VideoNodeData> = {
   }),
 };
 
+const audioNodeDefinition: CanvasNodeDefinition<AudioNodeData> = {
+  type: CANVAS_NODE_TYPES.audio,
+  menuLabelKey: 'node.menu.audioNode',
+  menuIcon: 'audio',
+  visibleInMenu: true,
+  menuProjectTypes: ['storyboard'],
+  capabilities: {
+    toolbar: true,
+    promptInput: false,
+  },
+  connectivity: {
+    sourceHandle: true,
+    targetHandle: false,
+    connectMenu: {
+      fromSource: false,
+      fromTarget: true,
+    },
+  },
+  createDefaultData: () => ({
+    displayName: DEFAULT_NODE_DISPLAY_NAME[CANVAS_NODE_TYPES.audio],
+    audioUrl: null,
+    previewImageUrl: null,
+    audioFileName: null,
+    duration: undefined,
+    mimeType: null,
+  }),
+};
+
 const scriptRootNodeDefinition: CanvasNodeDefinition<ScriptRootNodeData> = {
   type: CANVAS_NODE_TYPES.scriptRoot,
   menuLabelKey: 'node.menu.scriptRoot',
@@ -584,6 +613,7 @@ export const canvasNodeDefinitions: Record<CanvasNodeType, CanvasNodeDefinition>
   [CANVAS_NODE_TYPES.storyboardSplitResult]: storyboardSplitResultDefinition,
   [CANVAS_NODE_TYPES.storyboardGen]: storyboardGenNodeDefinition,
   [CANVAS_NODE_TYPES.video]: videoNodeDefinition,
+  [CANVAS_NODE_TYPES.audio]: audioNodeDefinition,
   [CANVAS_NODE_TYPES.scriptRoot]: scriptRootNodeDefinition,
   [CANVAS_NODE_TYPES.scriptChapter]: scriptChapterNodeDefinition,
   [CANVAS_NODE_TYPES.scriptCharacter]: scriptCharacterNodeDefinition,

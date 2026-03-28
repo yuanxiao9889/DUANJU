@@ -1,4 +1,5 @@
 import { createPreviewDataUrl } from '@/features/canvas/application/imageData';
+import { audioUrlToDataUrl } from '@/features/canvas/application/audioData';
 import {
   ensureJimengChromeSession,
   submitJimengChromeTask,
@@ -15,9 +16,15 @@ export interface JimengReferenceImagePayload {
   dataUrl: string;
 }
 
+export interface JimengReferenceAudioPayload {
+  fileName: string;
+  dataUrl: string;
+}
+
 export interface JimengTaskSubmission {
   prompt: string;
   referenceImageSources?: string[];
+  referenceAudioSources?: string[];
 }
 
 export interface JimengDraftSyncPayload {
@@ -72,6 +79,38 @@ function resolveDataUrlExtension(dataUrl: string): string {
   return 'png';
 }
 
+function resolveAudioDataUrlExtension(dataUrl: string): string {
+  const mimeSegment = dataUrl.slice(5, dataUrl.indexOf(';'));
+  const normalizedMime = mimeSegment.toLowerCase();
+  if (normalizedMime === 'audio/mpeg' || normalizedMime === 'audio/mp3') {
+    return 'mp3';
+  }
+  if (
+    normalizedMime === 'audio/wav'
+    || normalizedMime === 'audio/x-wav'
+    || normalizedMime === 'audio/wave'
+    || normalizedMime === 'audio/x-pn-wav'
+  ) {
+    return 'wav';
+  }
+  if (normalizedMime === 'audio/ogg') {
+    return 'ogg';
+  }
+  if (normalizedMime === 'audio/webm') {
+    return 'webm';
+  }
+  if (normalizedMime === 'audio/mp4' || normalizedMime === 'audio/x-m4a') {
+    return 'm4a';
+  }
+  if (normalizedMime === 'audio/aac') {
+    return 'aac';
+  }
+  if (normalizedMime === 'audio/flac' || normalizedMime === 'audio/x-flac') {
+    return 'flac';
+  }
+  return 'mp3';
+}
+
 function resolveJimengReferenceFileName(source: string, dataUrl: string, index: number): string {
   const normalizedSource = source.trim();
   const basename = normalizedSource
@@ -87,6 +126,27 @@ function resolveJimengReferenceFileName(source: string, dataUrl: string, index: 
 
   const extension = resolveDataUrlExtension(dataUrl);
   return sanitizeJimengReferenceFileName(`jimeng-reference-${index + 1}.${extension}`);
+}
+
+function resolveJimengReferenceAudioFileName(
+  source: string,
+  dataUrl: string,
+  index: number
+): string {
+  const normalizedSource = source.trim();
+  const basename = normalizedSource
+    .split(/[\\/]/)
+    .pop()
+    ?.split('?')[0]
+    ?.split('#')[0]
+    ?.trim();
+
+  if (basename && basename.includes('.')) {
+    return sanitizeJimengReferenceFileName(basename);
+  }
+
+  const extension = resolveAudioDataUrlExtension(dataUrl);
+  return sanitizeJimengReferenceFileName(`jimeng-audio-${index + 1}.${extension}`);
 }
 
 async function prepareJimengReferenceImages(
@@ -108,17 +168,39 @@ async function prepareJimengReferenceImages(
   );
 }
 
+async function prepareJimengReferenceAudios(
+  sources: string[] | undefined
+): Promise<JimengReferenceAudioPayload[]> {
+  const uniqueSources = [...new Set((sources ?? []).map((source) => source.trim()).filter(Boolean))];
+  if (uniqueSources.length === 0) {
+    return [];
+  }
+
+  return await Promise.all(
+    uniqueSources.map(async (source, index) => {
+      const dataUrl = await audioUrlToDataUrl(source);
+      return {
+        fileName: resolveJimengReferenceAudioFileName(source, dataUrl, index),
+        dataUrl,
+      };
+    })
+  );
+}
+
 export async function submitJimengTask(payload: JimengTaskSubmission): Promise<void> {
   const chromeSessionPromise = ensureJimengChromeSession();
   const referenceImagesPromise = prepareJimengReferenceImages(payload.referenceImageSources);
+  const referenceAudiosPromise = prepareJimengReferenceAudios(payload.referenceAudioSources);
 
   await chromeSessionPromise;
   const referenceImages = await referenceImagesPromise;
+  const referenceAudios = await referenceAudiosPromise;
 
   await submitJimengChromeTask({
     prompt: payload.prompt,
     skipToolbarAutomation: true,
     referenceImages,
+    referenceAudios,
     autoSubmit: true,
   });
 }

@@ -1,6 +1,7 @@
 import type { NodeTypes } from '@xyflow/react';
 
 import { GroupNode } from './GroupNode';
+import { AudioNode } from './AudioNode';
 import { ImageEditNode } from './ImageEditNode';
 import { ImageNode } from './ImageNode';
 import { JimengNode } from './JimengNode';
@@ -21,6 +22,7 @@ import { ScriptPlotPointNode } from './ScriptPlotPointNode';
 export const nodeTypes: NodeTypes = {
   exportImageNode: ImageNode,
   groupNode: GroupNode,
+  audioNode: AudioNode,
   imageNode: ImageEditNode,
   jimengNode: JimengNode,
   storyboardGenNode: StoryboardGenNode,
@@ -40,6 +42,7 @@ export const nodeTypes: NodeTypes = {
 
 export { 
   GroupNode, 
+  AudioNode,
   ImageEditNode, 
   ImageNode, 
   JimengNode,
