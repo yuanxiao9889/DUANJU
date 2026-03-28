@@ -5,9 +5,11 @@ import { useTranslation } from 'react-i18next';
 
 import { UiButton, UiChipButton, UiInput, UiPanel, UiSelect } from '@/components/ui';
 import {
-  ASSET_CATEGORIES,
+  getAssetCategoriesForMediaType,
   type AssetCategory,
+  type AssetMediaType,
 } from '@/features/assets/domain/types';
+import { prepareNodeAudio } from '@/features/canvas/application/audioData';
 import { prepareNodeImage } from '@/features/canvas/application/imageData';
 import type { CanvasNode } from '@/features/canvas/domain/canvasNodes';
 import { useAssetStore } from '@/stores/assetStore';
@@ -16,7 +18,8 @@ import { useProjectStore } from '@/stores/projectStore';
 
 interface NodeAddToAssetsButtonProps {
   node: CanvasNode;
-  imageSource: string;
+  mediaSource: string;
+  mediaType: AssetMediaType;
   className: string;
 }
 
@@ -39,11 +42,15 @@ function stripFileExtension(value: string): string {
   return value.replace(/\.[^.]+$/, '').trim();
 }
 
-function resolveDefaultCategory(node: CanvasNode): AssetCategory {
+function resolveDefaultCategory(
+  node: CanvasNode,
+  mediaType: AssetMediaType
+): AssetCategory {
   const assetCategory = normalizeText((node.data as { assetCategory?: unknown }).assetCategory);
-  return ASSET_CATEGORIES.includes(assetCategory as AssetCategory)
+  const categories = getAssetCategoriesForMediaType(mediaType);
+  return categories.includes(assetCategory as AssetCategory)
     ? (assetCategory as AssetCategory)
-    : 'character';
+    : (categories[0] ?? (mediaType === 'audio' ? 'voice' : 'character'));
 }
 
 function resolveDefaultAssetName(node: CanvasNode, fallbackName: string): string {
@@ -51,10 +58,14 @@ function resolveDefaultAssetName(node: CanvasNode, fallbackName: string): string
     assetName?: unknown;
     displayName?: unknown;
     sourceFileName?: unknown;
+    audioFileName?: unknown;
+    videoFileName?: unknown;
   };
   const candidates = [
     normalizeText(data.assetName),
     normalizeText(data.displayName),
+    stripFileExtension(normalizeText(data.audioFileName)),
+    stripFileExtension(normalizeText(data.videoFileName)),
     stripFileExtension(normalizeText(data.sourceFileName)),
   ];
 
@@ -70,7 +81,8 @@ function resolveCategoryLabel(
 
 export function NodeAddToAssetsButton({
   node,
-  imageSource,
+  mediaSource,
+  mediaType,
   className,
 }: NodeAddToAssetsButtonProps) {
   const { t } = useTranslation();
@@ -177,11 +189,11 @@ export function NodeAddToAssetsButton({
       return;
     }
 
-    setCategory(resolveDefaultCategory(node));
+    setCategory(resolveDefaultCategory(node, mediaType));
     setName(resolveDefaultAssetName(node, t('assets.untitledAsset')));
     setSubcategoryId('');
     setErrorMessage('');
-  }, [isOpen, node, t]);
+  }, [isOpen, mediaType, node, t]);
 
   useEffect(() => {
     if (!isOpen) {
@@ -270,7 +282,7 @@ export function NodeAddToAssetsButton({
     !isSubmitting
     && Boolean(targetLibrary)
     && name.trim().length > 0
-    && imageSource.trim().length > 0;
+    && mediaSource.trim().length > 0;
 
   const handleSubmit = useCallback(async () => {
     if (!canSubmit || !targetLibrary) {
@@ -281,32 +293,86 @@ export function NodeAddToAssetsButton({
     setErrorMessage('');
 
     try {
-      const prepared = await prepareNodeImage(imageSource);
-      const item = await createItem({
-        libraryId: targetLibrary.id,
-        category,
-        subcategoryId: subcategoryId || null,
-        name: name.trim(),
-        description: '',
-        tags: [],
-        imagePath: prepared.imageUrl,
-        previewImagePath: prepared.previewImageUrl,
-        aspectRatio: prepared.aspectRatio,
-      });
+      const nodeData = node.data as {
+        duration?: unknown;
+        mimeType?: unknown;
+      };
 
-      updateNodeData(node.id, {
-        displayName: item.name,
-        imageUrl: item.imagePath,
-        previewImageUrl: item.previewImagePath,
-        aspectRatio: item.aspectRatio,
-        assetId: item.id,
-        assetLibraryId: item.libraryId,
-        assetName: item.name,
-        assetCategory: item.category,
-        sourceFileName: item.name,
-        imageWidth: null,
-        imageHeight: null,
-      });
+      const item =
+        mediaType === 'audio'
+          ? await (async () => {
+              const prepared = await prepareNodeAudio(mediaSource, {
+                duration:
+                  typeof nodeData.duration === 'number' && Number.isFinite(nodeData.duration)
+                    ? nodeData.duration
+                    : null,
+                mimeType:
+                  typeof nodeData.mimeType === 'string' && nodeData.mimeType.trim().length > 0
+                    ? nodeData.mimeType
+                    : null,
+              });
+
+              return await createItem({
+                libraryId: targetLibrary.id,
+                category,
+                mediaType,
+                subcategoryId: subcategoryId || null,
+                name: name.trim(),
+                description: '',
+                tags: [],
+                sourcePath: prepared.audioUrl,
+                previewPath: prepared.previewImageUrl,
+                mimeType: prepared.mimeType,
+                durationMs: Math.round(prepared.duration * 1000),
+                aspectRatio: '1:1',
+              });
+            })()
+          : await (async () => {
+              const prepared = await prepareNodeImage(mediaSource);
+              return await createItem({
+                libraryId: targetLibrary.id,
+                category,
+                mediaType,
+                subcategoryId: subcategoryId || null,
+                name: name.trim(),
+                description: '',
+                tags: [],
+                sourcePath: prepared.imageUrl,
+                previewPath: prepared.previewImageUrl,
+                mimeType: null,
+                durationMs: null,
+                aspectRatio: prepared.aspectRatio,
+              });
+            })();
+
+      if (mediaType === 'audio') {
+        updateNodeData(node.id, {
+          displayName: item.name,
+          audioUrl: item.sourcePath,
+          previewImageUrl: item.previewPath,
+          audioFileName: item.name,
+          duration: item.durationMs != null ? item.durationMs / 1000 : null,
+          mimeType: item.mimeType,
+          assetId: item.id,
+          assetLibraryId: item.libraryId,
+          assetName: item.name,
+          assetCategory: item.category,
+        });
+      } else {
+        updateNodeData(node.id, {
+          displayName: item.name,
+          imageUrl: item.sourcePath,
+          previewImageUrl: item.previewPath,
+          aspectRatio: item.aspectRatio,
+          assetId: item.id,
+          assetLibraryId: item.libraryId,
+          assetName: item.name,
+          assetCategory: item.category,
+          sourceFileName: item.name,
+          imageWidth: null,
+          imageHeight: null,
+        });
+      }
 
       if (!boundLibrary || currentProjectAssetLibraryId !== item.libraryId) {
         setCurrentProjectAssetLibrary(item.libraryId);
@@ -322,7 +388,7 @@ export function NodeAddToAssetsButton({
         successTimerRef.current = null;
       }, SUCCESS_FEEDBACK_MS);
     } catch (error) {
-      console.error('Failed to add canvas image to asset library', error);
+      console.error('Failed to add canvas media to asset library', error);
       setErrorMessage(t('nodeToolbar.addToAssetsFailed'));
     } finally {
       setIsSubmitting(false);
@@ -333,9 +399,11 @@ export function NodeAddToAssetsButton({
     category,
     createItem,
     currentProjectAssetLibraryId,
-    imageSource,
+    mediaSource,
+    mediaType,
     name,
     node.id,
+    node.data,
     setCurrentProjectAssetLibrary,
     subcategoryId,
     t,
@@ -417,7 +485,7 @@ export function NodeAddToAssetsButton({
                     {t('assets.category')}
                   </label>
                   <div className="grid grid-cols-3 gap-1.5">
-                    {ASSET_CATEGORIES.map((option) => {
+                    {getAssetCategoriesForMediaType(mediaType).map((option) => {
                       const isActive = category === option;
                       return (
                       <UiChipButton

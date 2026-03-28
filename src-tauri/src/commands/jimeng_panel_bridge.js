@@ -57,6 +57,28 @@
     'reference',
     'image',
   ];
+  const AUDIO_CONTEXT_KEYWORDS = [
+    '\u97f3\u9891',
+    '\u97f3\u8272',
+    '\u914d\u97f3',
+    '\u58f0\u97f3',
+    '\u8bed\u97f3',
+    'audio',
+    'voice',
+  ];
+  const AUDIO_UPLOAD_TRIGGER_KEYWORDS = [
+    '\u4e0a\u4f20\u97f3\u9891',
+    '\u4e0a\u4f20\u914d\u97f3',
+    '\u4e0a\u4f20\u97f3\u8272',
+    '\u9009\u62e9\u97f3\u9891',
+    '\u9009\u62e9\u97f3\u9891\u6587\u4ef6',
+    '\u9009\u62e9\u6587\u4ef6',
+    'upload audio',
+    'upload voice',
+    'select audio',
+    'choose audio',
+    'choose file',
+  ];
   const REFERENCE_REMOVE_KEYWORDS = [
     '\u5220\u9664',
     '\u79fb\u9664',
@@ -936,6 +958,150 @@
     return findReferenceUploadTriggers(promptInput)[0]?.element || null;
   }
 
+  function scoreAudioFileInput(input, promptInput) {
+    const promptRect = promptInput.getBoundingClientRect();
+    const promptRegion = getPromptRegionElement(promptInput);
+    const rect = getEffectiveElementRect(input);
+    const text = getElementContextText(input);
+    const accept = String(input.accept || '').toLowerCase();
+    const verticalDistance = Math.abs(rect.top - promptRect.bottom);
+    const horizontalDistance = Math.abs(
+      (rect.left + rect.width / 2) - (promptRect.left + promptRect.width / 2)
+    );
+    const sameRegion =
+      promptRegion instanceof HTMLElement
+      && (
+        input.closest('form, section, article, [role="dialog"], main') === promptRegion
+        || promptRegion.contains(input)
+      );
+    const nearPromptRegion = isElementNearPromptRegion(
+      input,
+      promptInput,
+      { top: 96, right: 160, bottom: 260, left: 160 }
+    );
+    const acceptsAudio =
+      accept.includes('audio')
+      || accept.includes('.mp3')
+      || accept.includes('.wav')
+      || accept.includes('.ogg')
+      || accept.includes('.m4a')
+      || accept.includes('.aac')
+      || accept.includes('.flac')
+      || accept.includes('.webm')
+      || accept.trim().length === 0;
+
+    let score = 180 - Math.min(verticalDistance, 180);
+    score += 120 - Math.min(horizontalDistance, 120);
+    score += acceptsAudio ? 110 : -120;
+    score += input.multiple ? 16 : 0;
+    if (matchesAnyAlias(text, UPLOAD_KEYWORDS)) {
+      score += 80;
+    }
+    if (matchesAnyAlias(text, AUDIO_CONTEXT_KEYWORDS)) {
+      score += 160;
+    }
+    if (sameRegion) {
+      score += 180;
+    } else if (nearPromptRegion) {
+      score += 90;
+    } else {
+      score -= 220;
+    }
+    if (input.closest('header, nav, aside, [role="navigation"]')) {
+      score -= 260;
+    }
+
+    return score;
+  }
+
+  function findAudioFileInput(promptInput) {
+    const bestMatch = getFileInputElements()
+      .map((input) => ({
+        element: input,
+        score: scoreAudioFileInput(input, promptInput),
+      }))
+      .sort((left, right) => right.score - left.score)[0] || null;
+
+    return bestMatch && bestMatch.score > 80 ? bestMatch.element : null;
+  }
+
+  function scoreAudioUploadTriggerCandidate(element, promptInput) {
+    if (!(element instanceof HTMLElement) || !isVisible(element)) {
+      return Number.NEGATIVE_INFINITY;
+    }
+
+    if (
+      element.matches('[role="combobox"], [aria-haspopup="listbox"], [aria-haspopup="menu"]')
+      || element.closest('[role="combobox"], [aria-haspopup="listbox"], [aria-haspopup="menu"]')
+    ) {
+      return Number.NEGATIVE_INFINITY;
+    }
+
+    const text = readElementText(element);
+    const contextText = getElementContextText(element);
+    const associatedFileInputs = findAssociatedFileInputs(element)
+      .filter((input) => scoreAudioFileInput(input, promptInput) > 80);
+    const hasAssociatedFileInput = associatedFileInputs.length > 0;
+    const hasAudioContext =
+      matchesAnyAlias(text, AUDIO_CONTEXT_KEYWORDS)
+      || matchesAnyAlias(contextText, AUDIO_CONTEXT_KEYWORDS);
+    const hasDirectUploadText =
+      matchesAnyAlias(text, AUDIO_UPLOAD_TRIGGER_KEYWORDS)
+      || (
+        matchesAnyAlias(text, UPLOAD_TRIGGER_KEYWORDS)
+        && hasAudioContext
+      );
+
+    if (!hasDirectUploadText && !hasAssociatedFileInput) {
+      return Number.NEGATIVE_INFINITY;
+    }
+
+    const rect = getEffectiveElementRect(element);
+    const promptRect = promptInput.getBoundingClientRect();
+    const verticalDistance = Math.abs(rect.top - promptRect.bottom);
+    const horizontalDistance = Math.abs(
+      (rect.left + rect.width / 2) - (promptRect.left + promptRect.width / 2)
+    );
+
+    let score = 220 - Math.min(verticalDistance, 220);
+    score += 140 - Math.min(horizontalDistance, 140);
+    if (hasDirectUploadText) {
+      score += 120;
+    }
+    if (hasAudioContext) {
+      score += 120;
+    }
+    if (hasAssociatedFileInput) {
+      score += 220;
+    }
+    if (isElementNearPromptRegion(element, promptInput, { top: 96, right: 140, bottom: 240, left: 140 })) {
+      score += 110;
+    } else {
+      score -= 140;
+    }
+    if (matchesAnyAlias(text, SUBMIT_KEYWORDS) || matchesAnyAlias(text, KNOWN_SUBMIT_FALSE_POSITIVE_ALIASES)) {
+      score -= 320;
+    }
+    if (element.closest('header, nav, aside, [role="navigation"]')) {
+      score -= 260;
+    }
+
+    return score;
+  }
+
+  function findAudioUploadTriggers(promptInput) {
+    return [
+      ...getClickableElements(),
+      ...queryAllDeep('label'),
+    ]
+      .map((element) => ({
+        element,
+        score: scoreAudioUploadTriggerCandidate(element, promptInput),
+      }))
+      .filter((entry) => entry.score > 80)
+      .sort((left, right) => right.score - left.score);
+  }
+
   function hasReferenceClassFragment(element, fragment) {
     if (!(element instanceof Element)) {
       return false;
@@ -1566,6 +1732,34 @@
     return null;
   }
 
+  async function revealAudioFileInput(promptInput) {
+    const existingInput = findAudioFileInput(promptInput);
+    if (existingInput) {
+      recordSubmissionStep('audio-upload-input-existing', getElementContextText(existingInput));
+      return existingInput;
+    }
+
+    const triggerCandidates = findAudioUploadTriggers(promptInput).slice(0, 3);
+    for (const [index, entry] of triggerCandidates.entries()) {
+      const trigger = entry.element;
+      recordSubmissionStep(
+        'audio-upload-trigger-click',
+        `${index + 1}:${readElementText(trigger) || getElementContextText(trigger)}`
+      );
+      clickElement(trigger);
+      await waitForUiSettled(220);
+
+      const refreshedPromptInput = findPromptInput() || promptInput;
+      const revealedInput = findAudioFileInput(refreshedPromptInput);
+      if (revealedInput) {
+        recordSubmissionStep('audio-upload-input-revealed', getElementContextText(revealedInput));
+        return revealedInput;
+      }
+    }
+
+    return null;
+  }
+
   function sanitizeReferenceFileName(fileName, fallbackName) {
     const normalized = collapseWhitespace(fileName || '')
       .replace(/[<>:"/\\|?*\u0000-\u001f]/g, '-')
@@ -1599,6 +1793,42 @@
     return 'png';
   }
 
+  function resolveAudioFileExtension(referenceAudio) {
+    const mime = String(referenceAudio && referenceAudio.dataUrl || '')
+      .slice(5)
+      .split(';')[0]
+      .toLowerCase();
+
+    if (mime === 'audio/mpeg' || mime === 'audio/mp3') {
+      return 'mp3';
+    }
+    if (
+      mime === 'audio/wav'
+      || mime === 'audio/x-wav'
+      || mime === 'audio/wave'
+      || mime === 'audio/x-pn-wav'
+    ) {
+      return 'wav';
+    }
+    if (mime === 'audio/ogg') {
+      return 'ogg';
+    }
+    if (mime === 'audio/webm') {
+      return 'webm';
+    }
+    if (mime === 'audio/mp4' || mime === 'audio/x-m4a') {
+      return 'm4a';
+    }
+    if (mime === 'audio/aac') {
+      return 'aac';
+    }
+    if (mime === 'audio/flac' || mime === 'audio/x-flac') {
+      return 'flac';
+    }
+
+    return 'mp3';
+  }
+
   async function createReferenceUploadFiles(referenceImages = []) {
     const files = [];
 
@@ -1616,6 +1846,31 @@
       files.push(
         new File([blob], fileName, {
           type: blob.type || 'image/png',
+          lastModified: Date.now(),
+        })
+      );
+    }
+
+    return files;
+  }
+
+  async function createReferenceAudioUploadFiles(referenceAudios = []) {
+    const files = [];
+
+    for (const [index, referenceAudio] of referenceAudios.entries()) {
+      const response = await fetch(referenceAudio.dataUrl);
+      if (!response.ok) {
+        throw new Error(`Failed to read reference audio ${index + 1}`);
+      }
+
+      const blob = await response.blob();
+      const extension = resolveAudioFileExtension(referenceAudio);
+      const fallbackName = `jimeng-audio-${index + 1}.${extension}`;
+      const requestedFileName = String(referenceAudio.fileName || '').trim();
+      const fileName = sanitizeReferenceFileName(requestedFileName, fallbackName);
+      files.push(
+        new File([blob], fileName, {
+          type: blob.type || 'audio/mpeg',
           lastModified: Date.now(),
         })
       );
@@ -1689,6 +1944,38 @@
     recordSubmissionStep('reference-upload-dispatched', String(files.length));
   }
 
+  async function startReferenceAudioUpload(payload, promptInput) {
+    const shouldResetReferenceAudios = payload.autoSubmit !== false;
+    let activePromptInput = findPromptInput() || promptInput;
+    const existingInput = findAudioFileInput(activePromptInput);
+    if (shouldResetReferenceAudios && existingInput) {
+      await clearReferenceInputSelection(existingInput);
+      recordSubmissionStep('audio-upload-input-cleared', getElementContextText(existingInput));
+      activePromptInput = findPromptInput() || activePromptInput;
+    }
+
+    recordSubmissionStep(
+      'audio-upload-start',
+      String(Array.isArray(payload.referenceAudios) ? payload.referenceAudios.length : 0)
+    );
+    const files = await createReferenceAudioUploadFiles(payload.referenceAudios);
+    if (files.length === 0) {
+      recordSubmissionStep('audio-upload-cleared-only', '0');
+      return;
+    }
+
+    const fileInput = findAudioFileInput(activePromptInput) || await revealAudioFileInput(activePromptInput);
+    if (!fileInput) {
+      throw new Error('Unable to find Jimeng audio upload control. 请先在即梦网页切到配音模式。');
+    }
+
+    const dispatched = await dispatchReferenceFilesToInput(fileInput, files);
+    if (!dispatched) {
+      throw new Error('Failed to inject audio files into Jimeng upload control');
+    }
+    recordSubmissionStep('audio-upload-dispatched', String(files.length));
+  }
+
   async function ensureReferenceImagesApplied(payload, promptInput) {
     const referenceImages = Array.isArray(payload.referenceImages)
       ? payload.referenceImages.filter((item) =>
@@ -1743,6 +2030,62 @@
     }
 
     return payload.referenceUploadStatus === 'ready';
+  }
+
+  async function ensureReferenceAudiosApplied(payload, promptInput) {
+    const referenceAudios = Array.isArray(payload.referenceAudios)
+      ? payload.referenceAudios.filter((item) =>
+          item && typeof item.dataUrl === 'string' && item.dataUrl.startsWith('data:')
+        )
+      : [];
+    const shouldResetReferenceAudios = payload.autoSubmit !== false;
+
+    if (referenceAudios.length === 0 && !shouldResetReferenceAudios) {
+      return true;
+    }
+
+    if (payload.referenceAudioUploadStatus === 'error') {
+      throw new Error(payload.referenceAudioUploadError || 'Jimeng audio upload failed');
+    }
+
+    if (payload.referenceAudioUploadStatus === 'ready') {
+      const remainingDelay = (payload.referenceAudioUploadReadyAt || 0) - Date.now();
+      if (remainingDelay > 0) {
+        await waitForDelay(remainingDelay);
+      }
+      return true;
+    }
+
+    if (payload.referenceAudioUploadStatus !== 'pending') {
+      payload.referenceAudioUploadStatus = 'pending';
+      payload.referenceAudioUploadError = null;
+      payload.referenceAudioUploadReadyAt = null;
+
+      payload.referenceAudioUploadPromise = startReferenceAudioUpload(payload, promptInput)
+        .then(() => {
+          payload.referenceAudioUploadStatus = 'ready';
+          payload.referenceAudioUploadReadyAt = Date.now() + REFERENCE_UPLOAD_SETTLE_MS;
+        })
+        .catch((error) => {
+          payload.referenceAudioUploadStatus = 'error';
+          payload.referenceAudioUploadError = String(error && error.message ? error.message : error);
+        });
+    }
+
+    if (payload.referenceAudioUploadPromise) {
+      await payload.referenceAudioUploadPromise;
+    }
+
+    if (payload.referenceAudioUploadStatus === 'error') {
+      throw new Error(payload.referenceAudioUploadError || 'Jimeng audio upload failed');
+    }
+
+    const remainingDelay = (payload.referenceAudioUploadReadyAt || 0) - Date.now();
+    if (remainingDelay > 0) {
+      await waitForDelay(remainingDelay);
+    }
+
+    return payload.referenceAudioUploadStatus === 'ready';
   }
 
   function scoreTriggerCandidate(element, promptInput, allAliases) {
@@ -3053,9 +3396,13 @@
       throw new Error('Failed to upload Jimeng reference images');
     }
 
+    if (!(await ensureReferenceAudiosApplied(payload, promptInput))) {
+      throw new Error('Failed to upload Jimeng audio files');
+    }
+
     promptInput = await waitForPromptInputUntil(deadline);
     if (!promptInput) {
-      throw new Error('Timed out waiting for Jimeng editor controls after reference image upload');
+      throw new Error('Timed out waiting for Jimeng editor controls after media upload');
     }
 
     const promptValue = normalizePrompt(payload.prompt);
@@ -3555,6 +3902,11 @@
       referenceUploadError: null,
       referenceUploadReadyAt: null,
       referenceUploadPromise: null,
+      referenceAudios: payload && payload.referenceAudios,
+      referenceAudioUploadStatus: 'idle',
+      referenceAudioUploadError: null,
+      referenceAudioUploadReadyAt: null,
+      referenceAudioUploadPromise: null,
       fixedVideoReferenceModeApplied: false,
       extraControls: payload && payload.extraControls,
       autoSubmit,

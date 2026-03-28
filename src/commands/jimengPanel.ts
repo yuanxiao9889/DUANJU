@@ -31,6 +31,10 @@ export interface SubmitJimengPanelPayload {
     fileName: string;
     dataUrl: string;
   }>;
+  referenceAudios?: Array<{
+    fileName: string;
+    dataUrl: string;
+  }>;
   extraControls?: Array<{
     controlIndex: number;
     triggerText: string;

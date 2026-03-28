@@ -67,6 +67,7 @@ pub struct SubmitJimengPanelPayload {
     pub duration_seconds: Option<u32>,
     pub skip_toolbar_automation: Option<bool>,
     pub reference_images: Option<Vec<SubmitJimengPanelReferenceImagePayload>>,
+    pub reference_audios: Option<Vec<SubmitJimengPanelReferenceImagePayload>>,
     pub extra_controls: Option<Vec<SubmitJimengPanelExtraControlPayload>>,
     pub auto_submit: Option<bool>,
 }

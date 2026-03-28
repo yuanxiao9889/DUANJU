@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Image, LayoutGrid, Sparkles, Type, Upload, Video, X } from 'lucide-react';
+import { AudioLines, Image, LayoutGrid, Sparkles, Type, Upload, Video, X } from 'lucide-react';
 
 import { UI_POPOVER_TRANSITION_MS } from '@/components/ui/motion';
 import { nodeCatalog } from '@/features/canvas/application/nodeCatalog';
@@ -22,6 +22,7 @@ const iconMap: Record<MenuIconKey, typeof Upload> = {
   layout: LayoutGrid,
   text: Type,
   video: Video,
+  audio: AudioLines,
 };
 
 const sourceTypeLabelKeyMap: Partial<Record<CanvasNodeType, string>> = {
@@ -32,6 +33,7 @@ const sourceTypeLabelKeyMap: Partial<Record<CanvasNodeType, string>> = {
   [CANVAS_NODE_TYPES.storyboardSplitResult]: 'node.menu.storyboardSplitResult',
   [CANVAS_NODE_TYPES.textAnnotation]: 'node.menu.textAnnotation',
   [CANVAS_NODE_TYPES.video]: 'node.menu.videoNode',
+  [CANVAS_NODE_TYPES.audio]: 'node.menu.audioNode',
 };
 
 export function BatchOperationMenu({

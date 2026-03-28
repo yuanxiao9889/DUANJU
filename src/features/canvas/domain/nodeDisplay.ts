@@ -16,6 +16,7 @@ export const DEFAULT_NODE_DISPLAY_NAME: Record<CanvasNodeType, string> = {
   [CANVAS_NODE_TYPES.storyboardSplitResult]: '\u5207\u5272\u7ed3\u679c',
   [CANVAS_NODE_TYPES.storyboardGen]: '\u5206\u955c\u751f\u6210',
   [CANVAS_NODE_TYPES.video]: '\u89c6\u9891',
+  [CANVAS_NODE_TYPES.audio]: '\u97f3\u9891',
   [CANVAS_NODE_TYPES.scriptRoot]: '\u5267\u672c',
   [CANVAS_NODE_TYPES.scriptChapter]: '\u7ae0\u8282',
   [CANVAS_NODE_TYPES.scriptCharacter]: '\u89d2\u8272',

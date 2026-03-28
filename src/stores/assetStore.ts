@@ -16,6 +16,7 @@ import {
   emitAssetItemDeleted,
   emitAssetItemUpdated,
 } from '@/features/assets/application/assetEvents';
+import { getAssetCategoryOrder } from '@/features/assets/domain/types';
 import type {
   AssetCategory,
   AssetItemRecord,
@@ -32,7 +33,7 @@ function sortLibraries(libraries: AssetLibraryRecord[]): AssetLibraryRecord[] {
 function sortSubcategories(subcategories: AssetSubcategoryRecord[]): AssetSubcategoryRecord[] {
   return [...subcategories].sort((left, right) => {
     if (left.category !== right.category) {
-      return left.category.localeCompare(right.category);
+      return getAssetCategoryOrder(left.category) - getAssetCategoryOrder(right.category);
     }
     return left.name.localeCompare(right.name, 'zh-Hans-CN', { sensitivity: 'base' });
   });
@@ -41,7 +42,7 @@ function sortSubcategories(subcategories: AssetSubcategoryRecord[]): AssetSubcat
 function sortItems(items: AssetItemRecord[]): AssetItemRecord[] {
   return [...items].sort((left, right) => {
     if (left.category !== right.category) {
-      return left.category.localeCompare(right.category);
+      return getAssetCategoryOrder(left.category) - getAssetCategoryOrder(right.category);
     }
     return left.name.localeCompare(right.name, 'zh-Hans-CN', { sensitivity: 'base' });
   });

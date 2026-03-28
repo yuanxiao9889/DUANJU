@@ -49,6 +49,7 @@ import {
   DEFAULT_NODE_WIDTH,
   getNodePrimaryImageSource,
 } from '@/features/canvas/domain/canvasNodes';
+import { isSupportedAudioFile, prepareNodeAudioFromFile } from '@/features/canvas/application/audioData';
 import { prepareNodeImage, prepareNodeImageFromFile } from '@/features/canvas/application/imageData';
 import { prepareNodeVideoFromFile } from '@/features/canvas/application/videoData';
 import {
@@ -1775,17 +1776,30 @@ export function Canvas() {
         y: event.clientY,
       });
 
-      const newNodeId = addNode(CANVAS_NODE_TYPES.upload, position, {
-        displayName: assetPayload.assetName,
-        sourceFileName: assetPayload.assetName,
-        imageUrl: assetPayload.imagePath,
-        previewImageUrl: assetPayload.previewImagePath,
-        aspectRatio: assetPayload.aspectRatio,
-        assetId: assetPayload.assetId,
-        assetLibraryId: assetPayload.assetLibraryId,
-        assetName: assetPayload.assetName,
-        assetCategory: assetPayload.assetCategory,
-      });
+      const newNodeId = assetPayload.mediaType === 'audio'
+        ? addNode(CANVAS_NODE_TYPES.audio, position, {
+            displayName: assetPayload.assetName,
+            audioFileName: assetPayload.assetName,
+            audioUrl: assetPayload.sourcePath,
+            previewImageUrl: assetPayload.previewPath,
+            duration: assetPayload.durationMs != null ? assetPayload.durationMs / 1000 : undefined,
+            mimeType: assetPayload.mimeType,
+            assetId: assetPayload.assetId,
+            assetLibraryId: assetPayload.assetLibraryId,
+            assetName: assetPayload.assetName,
+            assetCategory: assetPayload.assetCategory,
+          })
+        : addNode(CANVAS_NODE_TYPES.upload, position, {
+            displayName: assetPayload.assetName,
+            sourceFileName: assetPayload.assetName,
+            imageUrl: assetPayload.sourcePath,
+            previewImageUrl: assetPayload.previewPath,
+            aspectRatio: assetPayload.aspectRatio,
+            assetId: assetPayload.assetId,
+            assetLibraryId: assetPayload.assetLibraryId,
+            assetName: assetPayload.assetName,
+            assetCategory: assetPayload.assetCategory,
+          });
       setSelectedNode(newNodeId);
       scheduleCanvasPersist(0);
       return;
@@ -1793,6 +1807,7 @@ export function Canvas() {
 
     const imageFiles: File[] = [];
     const videoFiles: File[] = [];
+    const audioFiles: File[] = [];
     
     if (event.dataTransfer.files?.length) {
       Array.from(event.dataTransfer.files).forEach(file => {
@@ -1800,6 +1815,8 @@ export function Canvas() {
           imageFiles.push(file);
         } else if (file.type.startsWith('video/')) {
           videoFiles.push(file);
+        } else if (isSupportedAudioFile(file)) {
+          audioFiles.push(file);
         }
       });
     } else {
@@ -1811,12 +1828,17 @@ export function Canvas() {
           } else if (item.type?.startsWith('video/')) {
             const file = item.getAsFile();
             if (file) videoFiles.push(file);
+          } else {
+            const file = item.getAsFile();
+            if (file && isSupportedAudioFile(file)) {
+              audioFiles.push(file);
+            }
           }
         }
       });
     }
 
-    if (imageFiles.length === 0 && videoFiles.length === 0) {
+    if (imageFiles.length === 0 && videoFiles.length === 0 && audioFiles.length === 0) {
       return;
     }
 
@@ -1864,6 +1886,29 @@ export function Canvas() {
         });
       } catch (err) {
         console.error('Failed to process dropped video:', err);
+      }
+    }
+
+    for (let i = 0; i < audioFiles.length; i++) {
+      const file = audioFiles[i];
+      const offsetIndex = imageFiles.length + videoFiles.length + i;
+      const position = {
+        x: basePosition.x + (offsetIndex % 4) * NODE_OFFSET,
+        y: basePosition.y + Math.floor(offsetIndex / 4) * NODE_OFFSET,
+      };
+
+      try {
+        const audioData = await prepareNodeAudioFromFile(file);
+        addNode(CANVAS_NODE_TYPES.audio, position, {
+          displayName: file.name,
+          audioUrl: audioData.audioUrl,
+          audioFileName: file.name,
+          previewImageUrl: audioData.previewImageUrl,
+          duration: audioData.duration,
+          mimeType: audioData.mimeType,
+        });
+      } catch (err) {
+        console.error('Failed to process dropped audio:', err);
       }
     }
   }, [addNode, clearDragOverlay, reactFlowInstance, scheduleCanvasPersist, setSelectedNode]);

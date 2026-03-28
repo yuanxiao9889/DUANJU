@@ -983,8 +983,12 @@ function syncAssetItemToNode(
   const nodeData = node.data as CanvasNodeData & {
     displayName?: string;
     imageUrl?: string | null;
+    audioUrl?: string | null;
     previewImageUrl?: string | null;
     aspectRatio?: string;
+    audioFileName?: string | null;
+    duration?: number;
+    mimeType?: string | null;
     assetName?: string | null;
     assetCategory?: string | null;
     assetLibraryId?: string | null;
@@ -992,11 +996,6 @@ function syncAssetItemToNode(
     imageWidth?: number;
     imageHeight?: number;
   };
-
-  const resetImageDimensions =
-    nodeData.imageUrl !== item.imagePath
-    || nodeData.previewImageUrl !== item.previewImagePath
-    || nodeData.aspectRatio !== item.aspectRatio;
 
   let changed = false;
   const patch: Partial<CanvasNodeData> = {};
@@ -1010,22 +1009,36 @@ function syncAssetItemToNode(
   };
 
   setField('displayName', item.name);
-  setField('imageUrl', item.imagePath);
-  setField('previewImageUrl', item.previewImagePath);
-  setField('aspectRatio', item.aspectRatio);
   setField('assetName', item.name);
   setField('assetCategory', item.category);
   setField('assetLibraryId', item.libraryId);
-  setField('sourceFileName', item.name);
 
-  if (resetImageDimensions) {
-    if (typeof nodeData.imageWidth === 'number') {
-      changed = true;
-      patch.imageWidth = undefined;
-    }
-    if (typeof nodeData.imageHeight === 'number') {
-      changed = true;
-      patch.imageHeight = undefined;
+  if (item.mediaType === 'audio') {
+    setField('audioUrl', item.sourcePath);
+    setField('previewImageUrl', item.previewPath);
+    setField('audioFileName', item.name);
+    setField('duration', item.durationMs != null ? item.durationMs / 1000 : undefined);
+    setField('mimeType', item.mimeType);
+  } else {
+    const resetImageDimensions =
+      nodeData.imageUrl !== item.sourcePath
+      || nodeData.previewImageUrl !== item.previewPath
+      || nodeData.aspectRatio !== item.aspectRatio;
+
+    setField('imageUrl', item.sourcePath);
+    setField('previewImageUrl', item.previewPath);
+    setField('aspectRatio', item.aspectRatio);
+    setField('sourceFileName', item.name);
+
+    if (resetImageDimensions) {
+      if (typeof nodeData.imageWidth === 'number') {
+        changed = true;
+        patch.imageWidth = undefined;
+      }
+      if (typeof nodeData.imageHeight === 'number') {
+        changed = true;
+        patch.imageHeight = undefined;
+      }
     }
   }
 

@@ -6,6 +6,7 @@ import { useTranslation } from 'react-i18next';
 
 import {
   NODE_TOOL_TYPES,
+  isAudioNode,
   isExportImageNode,
   isGroupNode,
   isImageEditNode,
@@ -104,7 +105,14 @@ export const NodeActionToolbar = memo(({ node }: NodeActionToolbarProps) => {
     }
     return null;
   }, [node]);
+  const audioSource = useMemo(() => {
+    if (isAudioNode(node)) {
+      return node.data.audioUrl || null;
+    }
+    return null;
+  }, [node]);
   const canHandleImage = Boolean(imageSource);
+  const canAddToAssets = Boolean(imageSource || audioSource);
   const generationError =
     isExportImageNode(node)
     && typeof (node.data as { generationError?: unknown }).generationError === 'string'
@@ -414,10 +422,11 @@ export const NodeActionToolbar = memo(({ node }: NodeActionToolbarProps) => {
             {t('nodeToolbar.reupload')}
           </UiChipButton>
         )}
-        {!isImageEdit && canHandleImage && (
+        {!isImageEdit && canAddToAssets && (
           <NodeAddToAssetsButton
             node={node}
-            imageSource={imageSource ?? ''}
+            mediaSource={audioSource ?? imageSource ?? ''}
+            mediaType={audioSource ? 'audio' : 'image'}
             className={`h-8 ${TOOLBAR_BUTTON_RADIUS_CLASS} px-2.5 text-xs ${TOOLBAR_NEUTRAL_BUTTON_CLASS}`}
           />
         )}

@@ -12,6 +12,7 @@ import {
 } from 'react';
 import { Handle, Position, useUpdateNodeInternals, type NodeProps } from '@xyflow/react';
 import {
+  AudioLines,
   Loader2,
   SendHorizontal,
   Sparkles,
@@ -23,6 +24,7 @@ import { useTranslation } from 'react-i18next';
 
 import {
   CANVAS_NODE_TYPES,
+  isAudioNode,
   type JimengNodeData,
 } from '@/features/canvas/domain/canvasNodes';
 import { resolveNodeDisplayName } from '@/features/canvas/domain/nodeDisplay';
@@ -70,6 +72,11 @@ interface PromptOptimizationUndoState {
   appliedPrompt: string;
   previousDurationSuggestion: PromptDurationSuggestionSnapshot;
   appliedDurationSuggestion: PromptDurationSuggestionSnapshot;
+}
+
+interface PromptOptimizationMeta {
+  modelLabel: string;
+  referenceImageCount: number;
 }
 
 interface PromptReferencePreviewState {
@@ -391,6 +398,8 @@ export const JimengNode = memo(({
   const [isOpeningJimengChrome, setIsOpeningJimengChrome] = useState(false);
   const [isOptimizingPrompt, setIsOptimizingPrompt] = useState(false);
   const [promptOptimizationError, setPromptOptimizationError] = useState<string | null>(null);
+  const [lastPromptOptimizationMeta, setLastPromptOptimizationMeta] =
+    useState<PromptOptimizationMeta | null>(null);
   const [lastPromptOptimizationUndoState, setLastPromptOptimizationUndoState] =
     useState<PromptOptimizationUndoState | null>(null);
   const [promptReferencePreview, setPromptReferencePreview] =
@@ -404,6 +413,35 @@ export const JimengNode = memo(({
     () => graphImageResolver.collectInputImages(id, nodes, edges),
     [edges, id, nodes]
   );
+  const incomingAudioItems = useMemo(() => {
+    const nodeById = new Map(nodes.map((node) => [node.id, node]));
+    const seenAudioUrls = new Set<string>();
+
+    return edges
+      .filter((edge) => edge.target === id)
+      .map((edge) => nodeById.get(edge.source))
+      .flatMap((node) => {
+        if (!isAudioNode(node) || typeof node.data.audioUrl !== 'string') {
+          return [];
+        }
+
+        const audioUrl = node.data.audioUrl.trim();
+        if (!audioUrl || seenAudioUrls.has(audioUrl)) {
+          return [];
+        }
+
+        seenAudioUrls.add(audioUrl);
+        const label =
+          node.data.assetName
+          || node.data.audioFileName
+          || resolveNodeDisplayName(CANVAS_NODE_TYPES.audio, node.data);
+
+        return [{
+          audioUrl,
+          label,
+        }];
+      });
+  }, [edges, id, nodes]);
   const incomingImages = useMemo(
     () => resolveOrderedReferenceImages(graphIncomingImages, data.referenceImageOrder),
     [data.referenceImageOrder, graphIncomingImages]
@@ -510,6 +548,8 @@ export const JimengNode = memo(({
     if (externalPrompt !== promptDraftRef.current) {
       promptDraftRef.current = externalPrompt;
       setPromptDraft(externalPrompt);
+      setPromptOptimizationError(null);
+      setLastPromptOptimizationMeta(null);
       setLastPromptOptimizationUndoState(null);
     }
   }, [data.prompt]);
@@ -575,6 +615,8 @@ export const JimengNode = memo(({
       nextPrompt,
       toDurationSuggestionNodeData(buildClearedDurationSuggestionSnapshot())
     );
+    setPromptOptimizationError(null);
+    setLastPromptOptimizationMeta(null);
     setLastPromptOptimizationUndoState(null);
   }, [commitPromptDraft]);
 
@@ -664,6 +706,10 @@ export const JimengNode = memo(({
       .map((index) => incomingImages[index])
       .filter((imageUrl): imageUrl is string => typeof imageUrl === 'string' && imageUrl.trim().length > 0);
   }, [incomingImages]);
+  const submissionReferenceAudioSources = useMemo(
+    () => incomingAudioItems.map((item) => item.audioUrl),
+    [incomingAudioItems]
+  );
 
   const openJimengChromeForManualSetup = useCallback(async () => {
     if (isOpeningJimengChrome) {
@@ -754,6 +800,7 @@ export const JimengNode = memo(({
       await submitJimengTask({
         prompt: normalizedPrompt,
         referenceImageSources: resolveSubmissionReferenceImageSources(currentPrompt),
+        referenceAudioSources: submissionReferenceAudioSources,
       });
       updateNodeData(id, {
         isSubmitting: false,
@@ -775,6 +822,7 @@ export const JimengNode = memo(({
     ensureManualSetupReminderShown,
     id,
     resolveSubmissionReferenceImageSources,
+    submissionReferenceAudioSources,
     t,
     updateNodeData,
   ]);
@@ -841,6 +889,7 @@ export const JimengNode = memo(({
 
     setIsOptimizingPrompt(true);
     setPromptOptimizationError(null);
+    updateNodeData(id, { lastError: null });
 
     try {
       const optimizationReferenceImages = resolveSubmissionReferenceImageSources(currentPrompt);
@@ -854,6 +903,10 @@ export const JimengNode = memo(({
       }
       const nextPrompt = result.prompt;
       const nextDurationSuggestion = buildDurationSuggestionSnapshot(result.durationRecommendation);
+      setLastPromptOptimizationMeta({
+        modelLabel: [result.context.provider, result.context.model].filter(Boolean).join(' / '),
+        referenceImageCount: result.usedReferenceImages ? optimizationReferenceImages.length : 0,
+      });
       if (
         nextPrompt !== sourcePrompt
         || !areDurationSuggestionSnapshotsEqual(
@@ -888,7 +941,14 @@ export const JimengNode = memo(({
     } finally {
       setIsOptimizingPrompt(false);
     }
-  }, [commitPromptDraft, durationSuggestion, resolveSubmissionReferenceImageSources, t]);
+  }, [
+    commitPromptDraft,
+    durationSuggestion,
+    id,
+    resolveSubmissionReferenceImageSources,
+    t,
+    updateNodeData,
+  ]);
 
   const handleUndoOptimizedPrompt = useCallback(() => {
     if (!lastPromptOptimizationUndoState) {
@@ -909,6 +969,7 @@ export const JimengNode = memo(({
     }
 
     const restoredPrompt = lastPromptOptimizationUndoState.previousPrompt;
+    setLastPromptOptimizationMeta(null);
     setLastPromptOptimizationUndoState(null);
     setPromptDraft(restoredPrompt);
     commitPromptDraft(
@@ -1046,6 +1107,22 @@ export const JimengNode = memo(({
 
     return durationSuggestion.suggestedDurationReason;
   }, [durationSuggestion.suggestedDurationReason]);
+  const promptOptimizationNotice = useMemo(() => {
+    if (!lastPromptOptimizationMeta) {
+      return null;
+    }
+
+    return `${t('node.jimeng.optimizeModelLabel', {
+      model: lastPromptOptimizationMeta.modelLabel,
+    })} | ${t('node.jimeng.optimizeReferenceImagesLabel', {
+      status:
+        lastPromptOptimizationMeta.referenceImageCount > 0
+          ? t('node.jimeng.optimizeReferenceImagesUsed', {
+            count: lastPromptOptimizationMeta.referenceImageCount,
+          })
+          : t('node.jimeng.optimizeReferenceImagesUnused'),
+    })}`;
+  }, [lastPromptOptimizationMeta, t]);
   const hidePromptReferencePreview = useCallback(() => {
     setPromptReferencePreview(null);
   }, []);
@@ -1161,6 +1238,20 @@ export const JimengNode = memo(({
                   <div className="truncate text-xs text-text-muted">{item.label}</div>
                 </div>
               </button>
+            ))}
+          </div>
+        ) : null}
+
+        {incomingAudioItems.length > 0 ? (
+          <div className="mb-3 flex shrink-0 flex-wrap gap-2">
+            {incomingAudioItems.map((item) => (
+              <div
+                key={item.audioUrl}
+                className="flex max-w-full items-center gap-2 rounded-full border border-white/10 bg-white/[0.04] px-3 py-1.5 text-xs text-text-dark"
+              >
+                <AudioLines className="h-3.5 w-3.5 shrink-0 text-text-muted" />
+                <span className="truncate">{item.label}</span>
+              </div>
             ))}
           </div>
         ) : null}
@@ -1286,23 +1377,33 @@ export const JimengNode = memo(({
           </div>
         )}
 
-        <div className="mt-4 flex shrink-0 flex-wrap items-center gap-2">
-          <div
-            className={`min-h-[28px] max-w-[240px] text-[11px] leading-4 ${
-              isOptimizingPrompt
-                ? 'text-text-muted'
-                : durationSuggestion.suggestedDurationExceedsLimit
-                  ? 'text-red-300'
-                  : hasDurationSuggestion
-                    ? 'text-text-dark'
-                    : 'text-text-muted'
-            }`}
-            title={durationSuggestionTitle}
-          >
-            {durationSuggestionText}
+        <div className="mt-4 flex shrink-0 flex-wrap items-end gap-2">
+          <div className="min-w-0 flex-1 space-y-1">
+            {promptOptimizationNotice ? (
+              <div
+                className="truncate text-[10px] leading-4 text-text-muted"
+                title={promptOptimizationNotice}
+              >
+                {promptOptimizationNotice}
+              </div>
+            ) : null}
+            <div
+              className={`min-h-[28px] text-[11px] leading-4 ${
+                isOptimizingPrompt
+                  ? 'text-text-muted'
+                  : durationSuggestion.suggestedDurationExceedsLimit
+                    ? 'text-red-300'
+                    : hasDurationSuggestion
+                      ? 'text-text-dark'
+                      : 'text-text-muted'
+              }`}
+              title={durationSuggestionTitle}
+            >
+              {durationSuggestionText}
+            </div>
           </div>
 
-          <div className="ml-auto min-w-0 text-right text-[11px] text-text-muted">
+          <div className="min-w-0 text-right text-[11px] text-text-muted">
             {t('node.jimeng.referenceCount', { count: incomingImageItems.length })}
           </div>
 

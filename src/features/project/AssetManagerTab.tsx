@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type ChangeEvent, type DragEvent as ReactDragEvent } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
+  AudioLines,
   Film,
   ImagePlus,
   MapPin,
@@ -23,9 +24,17 @@ import {
 import {
   ASSET_CATEGORIES,
   type AssetCategory,
+  type AssetMediaType,
   type AssetItemRecord,
   type AssetLibraryRecord,
+  resolveAssetMediaType,
 } from '@/features/assets/domain/types';
+import {
+  formatAudioDuration,
+  isSupportedAudioFile,
+  prepareNodeAudioFromFile,
+  resolveAudioDisplayUrl,
+} from '@/features/canvas/application/audioData';
 import {
   prepareNodeImageFromFile,
   resolveImageDisplayUrl,
@@ -88,15 +97,21 @@ function isImageFile(file: File): boolean {
   return file.type.startsWith('image/') || /\.(png|jpe?g|webp|gif|bmp|svg|avif|heic|heif)$/i.test(file.name);
 }
 
-function resolveDroppedImageFiles(dataTransfer: DataTransfer | null): File[] {
+function isVoiceCategory(category: AssetCategory): boolean {
+  return resolveAssetMediaType(category) === 'audio';
+}
+
+function resolveDroppedFiles(dataTransfer: DataTransfer | null, category: AssetCategory): File[] {
   if (!dataTransfer) {
     return [];
   }
 
-  return Array.from(dataTransfer.files).filter(isImageFile);
+  return Array.from(dataTransfer.files).filter((file) =>
+    isVoiceCategory(category) ? isSupportedAudioFile(file) : isImageFile(file)
+  );
 }
 
-function hasDroppedImageFiles(dataTransfer: DataTransfer | null): boolean {
+function hasDroppedFiles(dataTransfer: DataTransfer | null): boolean {
   if (!dataTransfer) {
     return false;
   }
@@ -112,6 +127,8 @@ function resolveCategoryIcon(category: AssetCategory) {
       return <MapPin className="h-4 w-4 text-emerald-400" />;
     case 'prop':
       return <Package className="h-4 w-4 text-sky-400" />;
+    case 'voice':
+      return <AudioLines className="h-4 w-4 text-rose-400" />;
   }
 }
 
@@ -147,6 +164,7 @@ function AssetCategorySection({
     [subcategories]
   );
   const categoryLabel = resolveCategoryLabel(t, category);
+  const categoryMediaType = resolveAssetMediaType(category);
   const isImporting = importingCount > 0;
   const filteredAssets = useMemo(
     () =>
@@ -172,7 +190,7 @@ function AssetCategorySection({
   };
 
   const handleDragEnter = (event: ReactDragEvent<HTMLDivElement>) => {
-    if (isImporting || !hasDroppedImageFiles(event.dataTransfer)) {
+    if (isImporting || !hasDroppedFiles(event.dataTransfer)) {
       return;
     }
 
@@ -182,7 +200,7 @@ function AssetCategorySection({
   };
 
   const handleDragOver = (event: ReactDragEvent<HTMLDivElement>) => {
-    if (isImporting || !hasDroppedImageFiles(event.dataTransfer)) {
+    if (isImporting || !hasDroppedFiles(event.dataTransfer)) {
       return;
     }
 
@@ -194,7 +212,7 @@ function AssetCategorySection({
   };
 
   const handleDragLeave = (event: ReactDragEvent<HTMLDivElement>) => {
-    if (isImporting || !hasDroppedImageFiles(event.dataTransfer)) {
+    if (isImporting || !hasDroppedFiles(event.dataTransfer)) {
       return;
     }
 
@@ -210,7 +228,7 @@ function AssetCategorySection({
       return;
     }
 
-    const files = resolveDroppedImageFiles(event.dataTransfer);
+    const files = resolveDroppedFiles(event.dataTransfer, category);
     if (files.length === 0) {
       return;
     }
@@ -242,8 +260,18 @@ function AssetCategorySection({
           <div className="rounded-xl border border-accent/30 bg-black/35 px-5 py-3">
             <div className="text-sm font-semibold text-text-dark">
               {isImporting
-                ? t('assets.importingToCategory', { count: importingCount, category: categoryLabel })
-                : t('assets.dropImagesToCategory', { category: categoryLabel })}
+                ? t(
+                    categoryMediaType === 'audio'
+                      ? 'assets.importingAudioToCategory'
+                      : 'assets.importingToCategory',
+                    { count: importingCount, category: categoryLabel }
+                  )
+                : t(
+                    categoryMediaType === 'audio'
+                      ? 'assets.dropAudioToCategory'
+                      : 'assets.dropImagesToCategory',
+                    { category: categoryLabel }
+                  )}
             </div>
             <div className="mt-1 text-xs text-text-muted">
               {t('assets.dropImportAutoFill')}
@@ -287,7 +315,11 @@ function AssetCategorySection({
               className="gap-2"
               onClick={() => onCreateAsset(category)}
             >
-              <ImagePlus className="h-4 w-4" />
+              {categoryMediaType === 'audio' ? (
+                <AudioLines className="h-4 w-4" />
+              ) : (
+                <ImagePlus className="h-4 w-4" />
+              )}
               {t('assets.addAsset')}
             </UiButton>
           </div>
@@ -360,7 +392,12 @@ function AssetCategorySection({
               </div>
               {!selectedSubcategoryId ? (
                 <div className="mt-2 text-xs text-text-muted/80">
-                  {t('assets.dropImagesToCategory', { category: categoryLabel })}
+                  {t(
+                    categoryMediaType === 'audio'
+                      ? 'assets.dropAudioToCategory'
+                      : 'assets.dropImagesToCategory',
+                    { category: categoryLabel }
+                  )}
                 </div>
               ) : null}
             </div>
@@ -373,11 +410,27 @@ function AssetCategorySection({
                   title={asset.name}
                 >
                   <div className="relative aspect-[4/3] overflow-hidden bg-bg-dark/70">
-                    <img
-                      src={resolveImageDisplayUrl(asset.previewImagePath || asset.imagePath)}
-                      alt={asset.name}
-                      className="h-full w-full object-cover transition-transform duration-200 group-hover:scale-[1.03]"
-                    />
+                    {asset.mediaType === 'audio' ? (
+                      <div className="flex h-full flex-col justify-between bg-[linear-gradient(160deg,rgba(255,255,255,0.07),rgba(255,255,255,0.02))] p-3">
+                        <div className="flex h-10 w-10 items-center justify-center rounded-full bg-white/[0.06] text-rose-300">
+                          <AudioLines className="h-5 w-5" />
+                        </div>
+                        <div className="space-y-1">
+                          <div className="truncate text-sm font-medium text-text-dark">
+                            {asset.name}
+                          </div>
+                          <div className="text-xs text-text-muted">
+                            {formatAudioDuration(asset.durationMs ? asset.durationMs / 1000 : null)}
+                          </div>
+                        </div>
+                      </div>
+                    ) : (
+                      <img
+                        src={resolveImageDisplayUrl(asset.previewPath || asset.sourcePath)}
+                        alt={asset.name}
+                        className="h-full w-full object-cover transition-transform duration-200 group-hover:scale-[1.03]"
+                      />
+                    )}
                     <div className="absolute inset-x-0 top-0 flex justify-end gap-1 p-2 opacity-0 transition-opacity duration-150 group-hover:opacity-100">
                       <UiIconButton
                         type="button"
@@ -518,12 +571,15 @@ interface AssetEditorDialogProps {
   onConfirm: (payload: {
     id?: string;
     category: AssetCategory;
+    mediaType: AssetMediaType;
     subcategoryId: string | null;
     name: string;
     description: string;
     tags: string[];
-    imagePath: string;
-    previewImagePath: string;
+    sourcePath: string;
+    previewPath: string | null;
+    mimeType: string | null;
+    durationMs: number | null;
     aspectRatio: string;
   }) => Promise<void>;
 }
@@ -536,10 +592,14 @@ function AssetEditorDialog({ library, state, onClose, onConfirm }: AssetEditorDi
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
   const [tagsText, setTagsText] = useState('');
-  const [imagePath, setImagePath] = useState('');
-  const [previewImagePath, setPreviewImagePath] = useState('');
+  const [sourcePath, setSourcePath] = useState('');
+  const [previewPath, setPreviewPath] = useState<string | null>(null);
+  const [mimeType, setMimeType] = useState<string | null>(null);
+  const [durationMs, setDurationMs] = useState<number | null>(null);
   const [aspectRatio, setAspectRatio] = useState('1:1');
-  const [isPreparingImage, setIsPreparingImage] = useState(false);
+  const [isPreparingSource, setIsPreparingSource] = useState(false);
+
+  const mediaType = resolveAssetMediaType(category);
 
   useEffect(() => {
     if (!state) {
@@ -552,8 +612,10 @@ function AssetEditorDialog({ library, state, onClose, onConfirm }: AssetEditorDi
       setName(state.asset.name);
       setDescription(state.asset.description);
       setTagsText(state.asset.tags.join(', '));
-      setImagePath(state.asset.imagePath);
-      setPreviewImagePath(state.asset.previewImagePath);
+      setSourcePath(state.asset.sourcePath);
+      setPreviewPath(state.asset.previewPath);
+      setMimeType(state.asset.mimeType);
+      setDurationMs(state.asset.durationMs);
       setAspectRatio(state.asset.aspectRatio);
       return;
     }
@@ -563,10 +625,25 @@ function AssetEditorDialog({ library, state, onClose, onConfirm }: AssetEditorDi
     setName('');
     setDescription('');
     setTagsText('');
-    setImagePath('');
-    setPreviewImagePath('');
+    setSourcePath('');
+    setPreviewPath(null);
+    setMimeType(null);
+    setDurationMs(null);
     setAspectRatio('1:1');
   }, [state]);
+
+  const availableCategories = useMemo(() => {
+    if (!state) {
+      return ASSET_CATEGORIES.filter((option) => resolveAssetMediaType(option) === mediaType);
+    }
+
+    const baseMediaType =
+      state.mode === 'edit'
+        ? state.asset.mediaType
+        : resolveAssetMediaType(state.category);
+
+    return ASSET_CATEGORIES.filter((option) => resolveAssetMediaType(option) === baseMediaType);
+  }, [mediaType, state]);
 
   const subcategoryOptions = useMemo(
     () =>
@@ -584,25 +661,36 @@ function AssetEditorDialog({ library, state, onClose, onConfirm }: AssetEditorDi
     }
   }, [subcategoryId, subcategoryOptions]);
 
-  const handleSelectImage = async (event: ChangeEvent<HTMLInputElement>) => {
+  const handleSelectSource = async (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (!file) {
       return;
     }
 
-    setIsPreparingImage(true);
+    setIsPreparingSource(true);
     try {
-      const prepared = await prepareNodeImageFromFile(file);
-      setImagePath(prepared.imageUrl);
-      setPreviewImagePath(prepared.previewImageUrl);
-      setAspectRatio(prepared.aspectRatio);
+      if (mediaType === 'audio') {
+        const prepared = await prepareNodeAudioFromFile(file);
+        setSourcePath(prepared.audioUrl);
+        setPreviewPath(prepared.previewImageUrl);
+        setMimeType(prepared.mimeType);
+        setDurationMs(Math.round(prepared.duration * 1000));
+        setAspectRatio('1:1');
+      } else {
+        const prepared = await prepareNodeImageFromFile(file);
+        setSourcePath(prepared.imageUrl);
+        setPreviewPath(prepared.previewImageUrl);
+        setMimeType(file.type.trim() || null);
+        setDurationMs(null);
+        setAspectRatio(prepared.aspectRatio);
+      }
       if (state?.mode === 'create' && name.trim().length === 0) {
         setName(resolveDefaultAssetName(file.name) || t('assets.untitledAsset'));
       }
     } catch (error) {
-      console.error('Failed to prepare asset image', error);
+      console.error('Failed to prepare asset media', error);
     } finally {
-      setIsPreparingImage(false);
+      setIsPreparingSource(false);
       event.target.value = '';
     }
   };
@@ -610,9 +698,9 @@ function AssetEditorDialog({ library, state, onClose, onConfirm }: AssetEditorDi
   const canSubmit =
     Boolean(library) &&
     name.trim().length > 0 &&
-    imagePath.trim().length > 0 &&
-    previewImagePath.trim().length > 0 &&
-    !isPreparingImage;
+    sourcePath.trim().length > 0 &&
+    (mediaType === 'audio' || Boolean(previewPath?.trim())) &&
+    !isPreparingSource;
 
   return (
     <UiModal
@@ -633,6 +721,7 @@ function AssetEditorDialog({ library, state, onClose, onConfirm }: AssetEditorDi
               void onConfirm({
                 id: state?.mode === 'edit' ? state.asset.id : undefined,
                 category,
+                mediaType,
                 subcategoryId: subcategoryId || null,
                 name: name.trim(),
                 description: description.trim(),
@@ -640,8 +729,10 @@ function AssetEditorDialog({ library, state, onClose, onConfirm }: AssetEditorDi
                   .split(',')
                   .map((item) => item.trim())
                   .filter(Boolean),
-                imagePath,
-                previewImagePath,
+                sourcePath,
+                previewPath,
+                mimeType,
+                durationMs,
                 aspectRatio,
               })
             }
@@ -655,9 +746,34 @@ function AssetEditorDialog({ library, state, onClose, onConfirm }: AssetEditorDi
         <div className="space-y-3">
           <div className="overflow-hidden rounded-xl border border-[rgba(255,255,255,0.12)] bg-bg-dark/70">
             <div className="aspect-[4/3]">
-              {previewImagePath || imagePath ? (
+              {mediaType === 'audio' ? (
+                sourcePath ? (
+                  <div className="flex h-full flex-col justify-between p-4">
+                    <div className="flex h-12 w-12 items-center justify-center rounded-full bg-white/[0.06] text-rose-300">
+                      <AudioLines className="h-6 w-6" />
+                    </div>
+                    <div className="space-y-2">
+                      <div className="truncate text-sm font-medium text-text-dark">
+                        {name || t('assets.previewAlt')}
+                      </div>
+                      <div className="text-xs text-text-muted">
+                        {formatAudioDuration(durationMs ? durationMs / 1000 : null)}
+                      </div>
+                      <audio
+                        controls
+                        src={resolveAudioDisplayUrl(sourcePath)}
+                        className="h-10 w-full"
+                      />
+                    </div>
+                  </div>
+                ) : (
+                  <div className="flex h-full items-center justify-center text-sm text-text-muted">
+                    {t('assets.previewAudioEmpty')}
+                  </div>
+                )
+              ) : previewPath || sourcePath ? (
                 <img
-                  src={resolveImageDisplayUrl(previewImagePath || imagePath)}
+                  src={resolveImageDisplayUrl(previewPath || sourcePath)}
                   alt={name || t('assets.previewAlt')}
                   className="h-full w-full object-cover"
                 />
@@ -671,19 +787,25 @@ function AssetEditorDialog({ library, state, onClose, onConfirm }: AssetEditorDi
           <input
             ref={fileInputRef}
             type="file"
-            accept="image/*"
+            accept={mediaType === 'audio' ? 'audio/*,.mp3,.wav,.ogg,.m4a,.aac,.flac,.webm' : 'image/*'}
             className="hidden"
-            onChange={handleSelectImage}
+            onChange={handleSelectSource}
           />
           <UiButton
             type="button"
             variant="ghost"
             className="w-full gap-2"
             onClick={() => fileInputRef.current?.click()}
-            disabled={isPreparingImage}
+            disabled={isPreparingSource}
           >
-            <ImagePlus className="h-4 w-4" />
-            {isPreparingImage ? t('assets.preparingImage') : t('assets.selectImage')}
+            {mediaType === 'audio' ? (
+              <AudioLines className="h-4 w-4" />
+            ) : (
+              <ImagePlus className="h-4 w-4" />
+            )}
+            {isPreparingSource
+              ? t(mediaType === 'audio' ? 'assets.preparingAudio' : 'assets.preparingImage')
+              : t(mediaType === 'audio' ? 'assets.selectAudio' : 'assets.selectImage')}
           </UiButton>
         </div>
 
@@ -694,7 +816,7 @@ function AssetEditorDialog({ library, state, onClose, onConfirm }: AssetEditorDi
                 {t('assets.category')}
               </label>
               <UiSelect value={category} onChange={(event) => setCategory(event.target.value as AssetCategory)}>
-                {ASSET_CATEGORIES.map((option) => (
+                {availableCategories.map((option) => (
                   <option key={option} value={option}>
                     {resolveCategoryLabel(t, option)}
                   </option>
@@ -823,12 +945,15 @@ export function AssetManagerTab() {
   const handleConfirmAsset = async (payload: {
     id?: string;
     category: AssetCategory;
+    mediaType: AssetMediaType;
     subcategoryId: string | null;
     name: string;
     description: string;
     tags: string[];
-    imagePath: string;
-    previewImagePath: string;
+    sourcePath: string;
+    previewPath: string | null;
+    mimeType: string | null;
+    durationMs: number | null;
     aspectRatio: string;
   }) => {
     if (!selectedLibrary) {
@@ -840,24 +965,30 @@ export function AssetManagerTab() {
         id: payload.id,
         libraryId: selectedLibrary.id,
         category: payload.category,
+        mediaType: payload.mediaType,
         subcategoryId: payload.subcategoryId,
         name: payload.name,
         description: payload.description,
         tags: payload.tags,
-        imagePath: payload.imagePath,
-        previewImagePath: payload.previewImagePath,
+        sourcePath: payload.sourcePath,
+        previewPath: payload.previewPath,
+        mimeType: payload.mimeType,
+        durationMs: payload.durationMs,
         aspectRatio: payload.aspectRatio,
       });
     } else {
       await createItem({
         libraryId: selectedLibrary.id,
         category: payload.category,
+        mediaType: payload.mediaType,
         subcategoryId: payload.subcategoryId,
         name: payload.name,
         description: payload.description,
         tags: payload.tags,
-        imagePath: payload.imagePath,
-        previewImagePath: payload.previewImagePath,
+        sourcePath: payload.sourcePath,
+        previewPath: payload.previewPath,
+        mimeType: payload.mimeType,
+        durationMs: payload.durationMs,
         aspectRatio: payload.aspectRatio,
       });
     }
@@ -872,16 +1003,39 @@ export function AssetManagerTab() {
 
     for (const file of files) {
       try {
+        const mediaType = resolveAssetMediaType(category);
+        if (mediaType === 'audio') {
+          const prepared = await prepareNodeAudioFromFile(file);
+          await createItem({
+            libraryId: selectedLibrary.id,
+            category,
+            mediaType,
+            subcategoryId: null,
+            name: resolveDefaultAssetName(file.name) || t('assets.untitledAsset'),
+            description: '',
+            tags: [],
+            sourcePath: prepared.audioUrl,
+            previewPath: prepared.previewImageUrl,
+            mimeType: prepared.mimeType,
+            durationMs: Math.round(prepared.duration * 1000),
+            aspectRatio: '1:1',
+          });
+          continue;
+        }
+
         const prepared = await prepareNodeImageFromFile(file);
         await createItem({
           libraryId: selectedLibrary.id,
           category,
+          mediaType,
           subcategoryId: null,
           name: resolveDefaultAssetName(file.name) || t('assets.untitledAsset'),
           description: '',
           tags: [],
-          imagePath: prepared.imageUrl,
-          previewImagePath: prepared.previewImageUrl,
+          sourcePath: prepared.imageUrl,
+          previewPath: prepared.previewImageUrl,
+          mimeType: file.type.trim() || null,
+          durationMs: null,
           aspectRatio: prepared.aspectRatio,
         });
       } catch (error) {

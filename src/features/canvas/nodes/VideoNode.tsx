@@ -7,12 +7,10 @@ import {
   useState,
   type ChangeEvent,
   type DragEvent,
-  type MouseEvent as ReactMouseEvent,
 } from 'react';
 import {
   Handle,
   useUpdateNodeInternals,
-  NodeToolbar,
   Position,
   type NodeProps,
 } from '@xyflow/react';
@@ -47,11 +45,6 @@ import {
 import { NodeHeader, NODE_HEADER_FLOATING_POSITION_CLASS } from '@/features/canvas/ui/NodeHeader';
 import { NodeResizeHandle } from '@/features/canvas/ui/NodeResizeHandle';
 import {
-  NODE_TOOLBAR_ALIGN,
-  NODE_TOOLBAR_CLASS,
-  NODE_TOOLBAR_OFFSET,
-} from '@/features/canvas/ui/nodeToolbarConfig';
-import {
   captureVideoFrame,
   captureVideoFrameFromSource,
   formatVideoTime,
@@ -75,6 +68,7 @@ type VideoNodeProps = NodeProps & {
 
 const DEFAULT_FRAME_RATE = 24;
 const FRAME_TIME = 1 / DEFAULT_FRAME_RATE;
+const VIDEO_NODE_CONTROL_BAR_HEIGHT = 54;
 
 function resolveNodeDimension(value: number | undefined, fallback: number): number {
   if (typeof value === 'number' && Number.isFinite(value) && value > 1) {
@@ -107,16 +101,13 @@ export const VideoNode = memo(({ id, data, selected, width, height }: VideoNodeP
   
   const inputRef = useRef<HTMLInputElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
-  const progressRef = useRef<HTMLDivElement>(null);
   const screenshotCountRef = useRef(0);
   const screenshotStatusTimeoutRef = useRef<number | null>(null);
   
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
-  const [isDraggingProgress, setIsDraggingProgress] = useState(false);
   const [flashFrame, setFlashFrame] = useState(false);
-  const [screenshots, setScreenshots] = useState<Array<{ time: number; nodeId: string }>>([]);
   const [isProcessingFile, setIsProcessingFile] = useState(false);
   const [isCapturingScreenshot, setIsCapturingScreenshot] = useState(false);
   const [screenshotStatus, setScreenshotStatus] = useState<{
@@ -131,14 +122,19 @@ export const VideoNode = memo(({ id, data, selected, width, height }: VideoNodeP
     minWidth: EXPORT_RESULT_NODE_MIN_WIDTH,
     minHeight: EXPORT_RESULT_NODE_MIN_HEIGHT,
   });
-  const resolvedWidth = resolveNodeDimension(width, compactSize.width);
-  const resolvedHeight = resolveNodeDimension(height, compactSize.height);
+  const mediaMinWidth = compactSize.width;
+  const mediaMinHeight = compactSize.height;
   const resizeConstraints = resolveResizeMinConstraintsByAspect(resolvedAspectRatio, {
     minWidth: EXPORT_RESULT_NODE_MIN_WIDTH,
     minHeight: EXPORT_RESULT_NODE_MIN_HEIGHT,
   });
-  const resizeMinWidth = resizeConstraints.minWidth;
-  const resizeMinHeight = resizeConstraints.minHeight;
+  const resizeMinWidth = Math.max(resizeConstraints.minWidth, mediaMinWidth);
+  const resizeMinHeight = resizeConstraints.minHeight + VIDEO_NODE_CONTROL_BAR_HEIGHT;
+  const resolvedWidth = Math.max(resolveNodeDimension(width, mediaMinWidth), resizeMinWidth);
+  const resolvedHeight = Math.max(
+    resolveNodeDimension(height, mediaMinHeight + VIDEO_NODE_CONTROL_BAR_HEIGHT),
+    resizeMinHeight
+  );
   
   const resolvedTitle = useMemo(() => {
     const videoFileName = typeof data.videoFileName === 'string' ? data.videoFileName.trim() : '';
@@ -204,6 +200,7 @@ export const VideoNode = memo(({ id, data, selected, width, height }: VideoNodeP
       try {
         setIsProcessingFile(true);
         setVideoError(null);
+        setIsPlaying(false);
         setIsVideoReady(false);
         const prepared = await prepareNodeVideoFromFile(file);
         const nextData: Partial<VideoNodeData> = {
@@ -220,7 +217,6 @@ export const VideoNode = memo(({ id, data, selected, width, height }: VideoNodeP
         setDuration(prepared.duration);
         setCurrentTime(0);
         screenshotCountRef.current = 0;
-        setScreenshots([]);
       } catch (error) {
         console.error('Failed to process video file:', error);
         setVideoError(
@@ -276,7 +272,9 @@ export const VideoNode = memo(({ id, data, selected, width, height }: VideoNodeP
     if (isPlaying) {
       videoRef.current.pause();
     } else {
-      videoRef.current.play();
+      void videoRef.current.play().catch(() => {
+        setIsPlaying(false);
+      });
     }
   }, [isPlaying]);
 
@@ -303,18 +301,22 @@ export const VideoNode = memo(({ id, data, selected, width, height }: VideoNodeP
   }, []);
 
   const handleTimeUpdate = useCallback(() => {
-    if (!videoRef.current || isDraggingProgress) return;
+    if (!videoRef.current) return;
     setCurrentTime(videoRef.current.currentTime);
-  }, [isDraggingProgress]);
+  }, []);
 
   const handleLoadedMetadata = useCallback(() => {
     if (!videoRef.current) return;
-    setDuration(videoRef.current.duration);
+    const nextDuration = Number.isFinite(videoRef.current.duration) ? videoRef.current.duration : 0;
+    setDuration(nextDuration);
+    if (Math.abs((data.duration ?? 0) - nextDuration) > 0.01) {
+      updateNodeData(id, { duration: nextDuration });
+    }
     if (videoRef.current.videoWidth > 0 && videoRef.current.videoHeight > 0 && videoRef.current.readyState >= 2) {
       setIsVideoReady(true);
     }
     setVideoError(null);
-  }, []);
+  }, [data.duration, id, updateNodeData]);
 
   const handleLoadedData = useCallback(() => {
     setIsVideoReady(true);
@@ -341,17 +343,6 @@ export const VideoNode = memo(({ id, data, selected, width, height }: VideoNodeP
     setIsVideoReady(false);
     videoRef.current.load();
   }, []);
-
-  const handleProgressClick = useCallback((event: ReactMouseEvent<HTMLDivElement>) => {
-    if (!videoRef.current || !progressRef.current) return;
-    
-    const rect = progressRef.current.getBoundingClientRect();
-    const pos = (event.clientX - rect.left) / rect.width;
-    const newTime = pos * duration;
-    
-    videoRef.current.currentTime = newTime;
-    setCurrentTime(newTime);
-  }, [duration]);
 
   const showScreenshotStatus = useCallback(
     (
@@ -451,12 +442,7 @@ export const VideoNode = memo(({ id, data, selected, width, height }: VideoNodeP
       }, { inheritParentFromNodeId: id });
       
       addEdge(id, newNodeId);
-      
-      setScreenshots(prev => [...prev, {
-        time: captureTime,
-        nodeId: newNodeId,
-      }]);
-      
+
       setFlashFrame(true);
       setTimeout(() => setFlashFrame(false), 150);
       showScreenshotStatus('success', t('node.videoNode.screenshotSuccess'));
@@ -512,33 +498,6 @@ export const VideoNode = memo(({ id, data, selected, width, height }: VideoNodeP
   }, [selected, handleScreenshot]);
 
   useEffect(() => {
-    if (!isDraggingProgress || !videoRef.current || !progressRef.current) return;
-
-    const handleGlobalPointerMove = (e: PointerEvent) => {
-      const rect = progressRef.current!.getBoundingClientRect();
-      const pos = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
-      const newTime = pos * duration;
-      
-      setCurrentTime(newTime);
-      if (videoRef.current) {
-        videoRef.current.currentTime = newTime;
-      }
-    };
-
-    const handleGlobalPointerUp = () => {
-      setIsDraggingProgress(false);
-    };
-
-    document.addEventListener('pointermove', handleGlobalPointerMove);
-    document.addEventListener('pointerup', handleGlobalPointerUp);
-    
-    return () => {
-      document.removeEventListener('pointermove', handleGlobalPointerMove);
-      document.removeEventListener('pointerup', handleGlobalPointerUp);
-    };
-  }, [isDraggingProgress, duration]);
-
-  useEffect(() => {
     return () => {
       if (screenshotStatusTimeoutRef.current !== null) {
         window.clearTimeout(screenshotStatusTimeoutRef.current);
@@ -562,9 +521,8 @@ export const VideoNode = memo(({ id, data, selected, width, height }: VideoNodeP
     setIsVideoReady(false);
   }, [data.videoUrl]);
 
-  const progressPercent = duration > 0 ? (currentTime / duration) * 100 : 0;
   const screenshotButtonDisabled =
-    isProcessingFile || isCapturingScreenshot || Boolean(videoError) || !data.videoUrl;
+    isProcessingFile || isCapturingScreenshot || Boolean(videoError) || !data.videoUrl || !isVideoReady;
 
   return (
     <div
@@ -590,162 +548,156 @@ export const VideoNode = memo(({ id, data, selected, width, height }: VideoNodeP
 
       {data.videoUrl ? (
         <>
-          <div className={`relative h-full w-full overflow-hidden rounded-[var(--node-radius)] ${flashFrame ? 'animate-pulse bg-white/20' : ''}`}>
-            {posterSource && (!isVideoReady || Boolean(videoError)) ? (
-              <img
-                src={posterSource}
-                alt={t('node.videoNode.posterAlt')}
-                className="absolute inset-0 h-full w-full object-cover"
-              />
-            ) : null}
-            <video
-              ref={videoRef}
-              src={videoSource ?? undefined}
-              poster={posterSource ?? undefined}
-              preload="metadata"
-              className={`h-full w-full object-cover bg-black transition-opacity duration-150 ${
-                videoError ? 'opacity-35' : 'opacity-100'
-              }`}
-              onPlay={handleVideoPlay}
-              onPause={handleVideoPause}
-              onTimeUpdate={handleTimeUpdate}
-              onLoadedMetadata={handleLoadedMetadata}
-              onLoadedData={handleLoadedData}
-              onCanPlay={handleCanPlay}
-              onError={handleVideoError}
-              playsInline
-            />
+          <div className="flex h-full flex-col overflow-hidden rounded-[var(--node-radius)] bg-[linear-gradient(165deg,rgba(255,255,255,0.05),rgba(255,255,255,0.015))]">
+            <div className={`relative min-h-0 flex-1 overflow-hidden bg-black ${flashFrame ? 'animate-pulse bg-white/20' : ''}`}>
+              {posterSource && (!isVideoReady || Boolean(videoError)) ? (
+                <img
+                  src={posterSource}
+                  alt={t('node.videoNode.posterAlt')}
+                  className="absolute inset-0 h-full w-full object-cover"
+                />
+              ) : null}
+              <div
+                className="absolute inset-0"
+                onClick={(event) => event.stopPropagation()}
+                onPointerDown={(event) => event.stopPropagation()}
+              >
+                <video
+                  ref={videoRef}
+                  src={videoSource ?? undefined}
+                  poster={posterSource ?? undefined}
+                  preload="metadata"
+                  controls
+                  className={`nodrag nowheel h-full w-full bg-black object-contain transition-opacity duration-150 ${
+                    videoError ? 'opacity-35' : 'opacity-100'
+                  }`}
+                  onPlay={handleVideoPlay}
+                  onPause={handleVideoPause}
+                  onTimeUpdate={handleTimeUpdate}
+                  onSeeked={handleTimeUpdate}
+                  onLoadedMetadata={handleLoadedMetadata}
+                  onLoadedData={handleLoadedData}
+                  onCanPlay={handleCanPlay}
+                  onError={handleVideoError}
+                  playsInline
+                />
+              </div>
 
-            {videoError ? (
-              <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-[rgba(15,23,42,0.56)] px-5 text-center">
-                <div className="flex h-12 w-12 items-center justify-center rounded-full border border-red-400/25 bg-red-500/12 text-red-200">
-                  <AlertTriangle className="h-5 w-5" />
-                </div>
-                <div className="space-y-1">
-                  <div className="text-sm font-medium text-text-dark">
-                    {t('node.videoNode.loadFailed')}
+              {videoError ? (
+                <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-[rgba(15,23,42,0.56)] px-5 text-center">
+                  <div className="flex h-12 w-12 items-center justify-center rounded-full border border-red-400/25 bg-red-500/12 text-red-200">
+                    <AlertTriangle className="h-5 w-5" />
                   </div>
-                  <div className="text-xs leading-5 text-text-muted">{videoError}</div>
+                  <div className="space-y-1">
+                    <div className="text-sm font-medium text-text-dark">
+                      {t('node.videoNode.loadFailed')}
+                    </div>
+                    <div className="text-xs leading-5 text-text-muted">{videoError}</div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      handleRetryLoad();
+                    }}
+                    className="nodrag inline-flex items-center gap-2 rounded-full border border-border-dark/70 bg-bg-dark/92 px-3 py-2 text-xs font-medium text-text-dark transition-colors hover:border-accent/40 hover:bg-bg-dark"
+                  >
+                    <RefreshCw className="h-3.5 w-3.5" />
+                    {t('node.videoNode.retryLoad')}
+                  </button>
                 </div>
+              ) : null}
+            </div>
+
+            <div
+              className="border-t border-[rgba(255,255,255,0.08)] bg-[linear-gradient(180deg,rgba(8,10,16,0.88),rgba(8,10,16,0.96))] px-3 py-2"
+              onClick={(event) => event.stopPropagation()}
+              onPointerDown={(event) => event.stopPropagation()}
+            >
+              <div className="flex items-center gap-2">
                 <button
                   type="button"
                   onClick={(event) => {
                     event.stopPropagation();
-                    handleRetryLoad();
+                    seekToPrevFrame();
                   }}
-                  className="inline-flex items-center gap-2 rounded-full border border-border-dark/70 bg-bg-dark/92 px-3 py-2 text-xs font-medium text-text-dark transition-colors hover:border-accent/40 hover:bg-bg-dark"
+                  disabled={isPlaying || !isVideoReady}
+                  className={`nodrag inline-flex h-8 w-8 items-center justify-center rounded-full border transition-colors ${
+                    isPlaying || !isVideoReady
+                      ? 'cursor-not-allowed border-white/[0.06] bg-white/[0.02] text-text-muted/40'
+                      : 'border-white/[0.08] bg-white/[0.05] text-text-dark hover:border-accent/35 hover:bg-accent/10 hover:text-accent'
+                  }`}
+                  title={t('node.videoNode.prevFrame')}
                 >
-                  <RefreshCw className="h-3.5 w-3.5" />
-                  {t('node.videoNode.retryLoad')}
+                  <ChevronLeft className="h-4 w-4" />
+                </button>
+
+                <button
+                  type="button"
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    togglePlay();
+                  }}
+                  disabled={!isVideoReady}
+                  className={`nodrag inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full border transition-colors ${
+                    !isVideoReady
+                      ? 'cursor-not-allowed border-white/[0.06] bg-white/[0.02] text-text-muted/40'
+                      : 'border-white/[0.1] bg-white/[0.06] text-text-dark hover:border-accent/40 hover:bg-accent/12 hover:text-accent'
+                  }`}
+                  title={isPlaying ? t('node.videoNode.pause') : t('node.videoNode.play')}
+                >
+                  {isPlaying ? <Pause className="h-4 w-4" /> : <Play className="h-4 w-4" />}
+                </button>
+
+                <button
+                  type="button"
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    seekToNextFrame();
+                  }}
+                  disabled={isPlaying || !isVideoReady}
+                  className={`nodrag inline-flex h-8 w-8 items-center justify-center rounded-full border transition-colors ${
+                    isPlaying || !isVideoReady
+                      ? 'cursor-not-allowed border-white/[0.06] bg-white/[0.02] text-text-muted/40'
+                      : 'border-white/[0.08] bg-white/[0.05] text-text-dark hover:border-accent/35 hover:bg-accent/10 hover:text-accent'
+                  }`}
+                  title={t('node.videoNode.nextFrame')}
+                >
+                  <ChevronRight className="h-4 w-4" />
+                </button>
+
+                <div className="min-w-0 flex-1 px-1">
+                  <div className="truncate text-[11px] text-text-muted">
+                    {formatVideoTime(currentTime)} / {formatVideoTime(duration)}
+                  </div>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    void handleScreenshot();
+                  }}
+                  disabled={screenshotButtonDisabled}
+                  title={!isVideoReady ? t('node.videoNode.screenshotNotReady') : t('node.videoNode.screenshot')}
+                  className={`nodrag inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-medium transition-colors ${
+                    screenshotButtonDisabled
+                      ? 'cursor-not-allowed border-accent/10 bg-accent/8 text-accent/45'
+                      : 'border-accent/18 bg-accent/14 text-accent hover:border-accent/30 hover:bg-accent/20'
+                  }`}
+                >
+                  {isCapturingScreenshot ? (
+                    <RefreshCw className="h-3.5 w-3.5 animate-spin" />
+                  ) : (
+                    <Camera className="h-3.5 w-3.5" />
+                  )}
+                  {isCapturingScreenshot ? t('node.videoNode.screenshotPending') : t('node.videoNode.screenshot')}
                 </button>
               </div>
-            ) : null}
-          </div>
-          
-          <NodeToolbar
-            isVisible={selected}
-            position={Position.Bottom}
-            align={NODE_TOOLBAR_ALIGN}
-            offset={NODE_TOOLBAR_OFFSET}
-            className={NODE_TOOLBAR_CLASS}
-          >
-            <div className="flex items-center gap-2 rounded-lg border border-border-dark/30 bg-bg-dark/95 backdrop-blur-sm px-3 py-2 shadow-lg">
-              <button
-                type="button"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  seekToPrevFrame();
-                }}
-                disabled={isPlaying}
-                className={`flex h-7 w-7 items-center justify-center rounded-md transition-colors ${
-                  isPlaying
-                    ? 'bg-bg-dark/40 text-text-muted/40 cursor-not-allowed'
-                    : 'bg-bg-dark/80 text-text-dark hover:bg-accent/20 hover:text-accent'
-                }`}
-                title={t('node.videoNode.prevFrame')}
-              >
-                <ChevronLeft className="h-4 w-4" />
-              </button>
-              
-              <button
-                type="button"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  togglePlay();
-                }}
-                className="flex h-7 w-7 items-center justify-center rounded-md bg-bg-dark/80 text-text-dark hover:bg-accent/20 hover:text-accent transition-colors"
-              >
-                {isPlaying ? (
-                  <Pause className="h-4 w-4" />
-                ) : (
-                  <Play className="h-4 w-4" />
-                )}
-              </button>
-              
-              <button
-                type="button"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  seekToNextFrame();
-                }}
-                disabled={isPlaying}
-                className={`flex h-7 w-7 items-center justify-center rounded-md transition-colors ${
-                  isPlaying
-                    ? 'bg-bg-dark/40 text-text-muted/40 cursor-not-allowed'
-                    : 'bg-bg-dark/80 text-text-dark hover:bg-accent/20 hover:text-accent'
-                }`}
-                title={t('node.videoNode.nextFrame')}
-              >
-                <ChevronRight className="h-4 w-4" />
-              </button>
-              
-              <div
-                ref={progressRef}
-                className="relative w-48 h-2 cursor-pointer rounded-full bg-bg-dark/80 group/progress"
-                onClick={handleProgressClick}
-                onPointerDown={(e) => {
-                  e.stopPropagation();
-                  (e.target as HTMLElement).setPointerCapture(e.pointerId);
-                  setIsDraggingProgress(true);
-                  const rect = progressRef.current!.getBoundingClientRect();
-                  const pos = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
-                  const newTime = pos * duration;
-                  setCurrentTime(newTime);
-                  if (videoRef.current) {
-                    videoRef.current.currentTime = newTime;
-                  }
-                }}
-              >
-                <div
-                  className="absolute left-0 top-0 h-full rounded-full bg-accent"
-                  style={{ width: `${progressPercent}%` }}
-                />
-                <div
-                  className="absolute top-1/2 w-4 h-4 -translate-y-1/2 -translate-x-1/2 rounded-full bg-accent border-2 border-white shadow-lg cursor-grab active:cursor-grabbing transition-transform hover:scale-125"
-                  style={{ left: `${progressPercent}%` }}
-                  onPointerDown={(e) => {
-                    e.stopPropagation();
-                    (e.target as HTMLElement).setPointerCapture(e.pointerId);
-                    setIsDraggingProgress(true);
-                  }}
-                />
-                {screenshots.map((screenshot, index) => (
-                  <div
-                    key={index}
-                    className="absolute top-1/2 h-3 w-1 -translate-y-1/2 rounded-full bg-yellow-400"
-                    style={{ left: `${(screenshot.time / duration) * 100}%` }}
-                    title={t('node.videoNode.screenshotMarker', { index: index + 1 })}
-                  />
-                ))}
-              </div>
-              
-              <span className="min-w-[70px] text-right text-xs text-text-muted font-mono">
-                {formatVideoTime(currentTime)} / {formatVideoTime(duration)}
-              </span>
 
               {screenshotStatus ? (
-                <span
-                  className={`max-w-[180px] truncate rounded-md px-2 py-1 text-[11px] ${
+                <div
+                  className={`mt-2 truncate rounded-full px-2.5 py-1 text-[11px] ${
                     screenshotStatus.tone === 'success'
                       ? 'bg-emerald-500/12 text-emerald-200'
                       : screenshotStatus.tone === 'danger'
@@ -755,32 +707,10 @@ export const VideoNode = memo(({ id, data, selected, width, height }: VideoNodeP
                   title={screenshotStatus.message}
                 >
                   {screenshotStatus.message}
-                </span>
+                </div>
               ) : null}
-              
-              <button
-                type="button"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  handleScreenshot();
-                }}
-                disabled={screenshotButtonDisabled}
-                title={!isVideoReady ? t('node.videoNode.screenshotNotReady') : t('node.videoNode.screenshot')}
-                className={`flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition-colors ${
-                  screenshotButtonDisabled
-                    ? 'cursor-not-allowed bg-accent/10 text-accent/45'
-                    : 'bg-accent/20 text-accent hover:bg-accent/30'
-                }`}
-              >
-                {isCapturingScreenshot ? (
-                  <RefreshCw className="h-3.5 w-3.5 animate-spin" />
-                ) : (
-                  <Camera className="h-3.5 w-3.5" />
-                )}
-                {isCapturingScreenshot ? t('node.videoNode.screenshotPending') : t('node.videoNode.screenshot')}
-              </button>
             </div>
-          </NodeToolbar>
+          </div>
         </>
       ) : (
         <label className="block h-full w-full overflow-hidden rounded-[var(--node-radius)] bg-bg-dark">

@@ -43,7 +43,7 @@
     "generate": "生成",
     "emptyHintTitle": "双击鼠标添加节点",
     "emptyHintSubtitle": "Double-click to add a node",
-    "dropFilesHint": "释放图片或视频以上传",
+    "dropFilesHint": "释放图片、视频或音频以上传",
     "toolbar": {
       "zoomIn": "放大",
       "zoomOut": "缩小",
@@ -140,6 +140,7 @@
       "storyboardGen": "分镜生成",
       "textAnnotation": "文本注释",
       "videoNode": "视频节点",
+      "audioNode": "音频节点",
       "scriptChapter": "章节节点",
       "scriptCharacter": "角色",
       "scriptLocation": "场景",
@@ -266,6 +267,19 @@
       "supportedFormats": "支持格式：MP4、WebM、OGG、MOV、AVI、MKV",
       "screenshotMarker": "截图 {{index}}",
       "screenshotName": "{{name}} 截图 {{index}}"
+    },
+    "audioNode": {
+      "title": "音频节点",
+      "uploadHint": "拖拽或点击上传音频",
+      "processing": "正在准备音频...",
+      "processFailed": "音频处理失败",
+      "loadFailed": "音频加载失败",
+      "loadFailedShort": "加载失败",
+      "unsupportedFormat": "不支持的音频格式",
+      "supportedFormats": "支持格式：MP3、WAV、OGG、M4A、AAC、FLAC、WebM",
+      "play": "播放",
+      "pause": "暂停",
+      "playFailed": "音频播放失败"
     }
   },
   "viewer": {
@@ -334,7 +348,7 @@
   },
   "assets": {
     "title": "\u8d44\u4ea7\u7ba1\u7406",
-    "subtitle": "\u6309\u5267\u96c6\u7edf\u4e00\u7ba1\u7406\u53ef\u8054\u52a8\u7684\u4eba\u7269\u3001\u573a\u666f\u4e0e\u9053\u5177\u56fe\u7247\u3002",
+    "subtitle": "\u6309\u5267\u96c6\u7edf\u4e00\u7ba1\u7406\u53ef\u8054\u52a8\u7684\u4eba\u7269\u3001\u573a\u666f\u3001\u9053\u5177\u4e0e\u97f3\u8272\u7d20\u6750\u3002",
     "library": "\u5267\u96c6",
     "libraryMeta": "{{count}} \u4e2a\u8d44\u4ea7 \u00b7 \u6700\u540e\u66f4\u65b0 {{updatedAt}}",
     "selectLibrary": "\u9009\u62e9\u5267\u96c6\u8d44\u4ea7\u5e93",
@@ -343,12 +357,13 @@
     "libraryNameHint": "\u5efa\u8bae\u4e00\u96c6\u5bf9\u5e94\u4e00\u4e2a\u8d44\u4ea7\u5e93\uff0c\u4fbf\u4e8e\u5206\u955c\u9879\u76ee\u76f4\u63a5\u7ed1\u5b9a\u3002",
     "libraryNamePlaceholder": "\u4f8b\u5982\uff1a111-\u77ed\u5267\u52a9\u624b \u7b2c1\u96c6",
     "emptyTitle": "\u8fd8\u6ca1\u6709\u8d44\u4ea7\u5e93",
-    "emptyHint": "\u5148\u521b\u5efa\u5267\u96c6\u8d44\u4ea7\u5e93\uff0c\u518d\u5411\u5176\u4e2d\u6dfb\u52a0\u4eba\u7269\u3001\u573a\u666f\u548c\u9053\u5177\u56fe\u7247\u3002",
+    "emptyHint": "\u5148\u521b\u5efa\u5267\u96c6\u8d44\u4ea7\u5e93\uff0c\u518d\u5411\u5176\u4e2d\u6dfb\u52a0\u4eba\u7269\u3001\u573a\u666f\u3001\u9053\u5177\u548c\u97f3\u8272\u7d20\u6750\u3002",
     "deleteLibraryConfirm": "\u786e\u5b9a\u5220\u9664\u8d44\u4ea7\u5e93\u300c{{name}}\u300d\u5417\uff1f\u5df2\u7ed1\u5b9a\u7684\u5206\u955c\u9879\u76ee\u4f1a\u89e3\u9664\u5173\u8054\uff0c\u753b\u5e03\u4e2d\u5df2\u5b58\u5728\u7684\u8282\u70b9\u4f1a\u4fdd\u7559\u6700\u540e\u4e00\u6b21\u540c\u6b65\u7684\u56fe\u50cf\u5feb\u7167\uff0c\u4f46\u4e0d\u518d\u7ee7\u7eed\u8ddf\u968f\u8d44\u4ea7\u66f4\u65b0\u3002",
     "categories": {
       "character": "\u4eba\u7269",
       "scene": "\u573a\u666f",
-      "prop": "\u9053\u5177"
+      "prop": "\u9053\u5177",
+      "voice": "\u97f3\u8272"
     },
     "countSummary": "{{assetCount}} \u4e2a\u8d44\u4ea7 \u00b7 {{subcategoryCount}} \u4e2a\u4e8c\u7ea7\u5206\u7c7b",
     "subcategories": "\u4e8c\u7ea7\u5206\u7c7b",
@@ -374,9 +389,12 @@
     "description": "\u63cf\u8ff0",
     "descriptionPlaceholder": "\u53ef\u8bb0\u5f55\u89d2\u8272\u8bbe\u5b9a\u3001\u5916\u89c2\u7279\u5f81\u6216\u4f7f\u7528\u8bf4\u660e\u3002",
     "preparingImage": "\u6b63\u5728\u51c6\u5907\u56fe\u7247...",
+    "preparingAudio": "\u6b63\u5728\u51c6\u5907\u97f3\u9891...",
     "selectImage": "\u9009\u62e9\u56fe\u7247",
+    "selectAudio": "\u9009\u62e9\u97f3\u9891",
     "previewAlt": "\u8d44\u4ea7\u9884\u89c8",
     "previewEmpty": "\u8bf7\u5148\u9009\u62e9\u56fe\u7247",
+    "previewAudioEmpty": "\u8bf7\u5148\u9009\u62e9\u97f3\u9891",
     "deleteAssetConfirm": "\u786e\u5b9a\u5220\u9664\u8fd9\u4e2a\u8d44\u4ea7\u5417\uff1f\u753b\u5e03\u4e2d\u5df2\u7ecf\u5b58\u5728\u7684\u8282\u70b9\u4f1a\u4fdd\u7559\u6700\u540e\u4e00\u6b21\u540c\u6b65\u7684\u56fe\u50cf\u5feb\u7167\uff0c\u4f46\u4e0d\u518d\u7ee7\u7eed\u8ddf\u968f\u8fd9\u4e2a\u8d44\u4ea7\u3002",
     "searchPlaceholder": "\u641c\u7d22\u8d44\u4ea7\u540d\u79f0\u3001\u63cf\u8ff0\u6216\u6807\u7b7e",
     "clearFilters": "清空筛选",
@@ -387,7 +405,9 @@
     "emptyFilterResult": "\u5f53\u524d\u7b5b\u9009\u6761\u4ef6\u4e0b\u6ca1\u6709\u8d44\u4ea7\u3002",
     "dragHint": "\u62d6\u5230\u753b\u5e03\u4f7f\u7528",
     "dropImagesToCategory": "\u62d6\u5165\u56fe\u7247\u5230\u8fd9\u91cc\uff0c\u76f4\u63a5\u52a0\u5165{{category}}",
+    "dropAudioToCategory": "\u62d6\u5165\u97f3\u9891\u5230\u8fd9\u91cc\uff0c\u76f4\u63a5\u52a0\u5165{{category}}",
     "importingToCategory": "\u6b63\u5728\u5bfc\u5165 {{count}} \u5f20\u56fe\u7247\u5230{{category}}...",
+    "importingAudioToCategory": "\u6b63\u5728\u5bfc\u5165 {{count}} \u4e2a\u97f3\u9891\u5230{{category}}...",
     "dropImportAutoFill": "\u5c06\u81ea\u52a8\u4f7f\u7528\u6587\u4ef6\u540d\u521b\u5efa\u8d44\u4ea7\uff0c\u540e\u7eed\u53ef\u518d\u5355\u72ec\u7f16\u8f91",
     "filterBySubcategory": "\u6309\u4e8c\u7ea7\u5206\u7c7b\u300c{{name}}\u300d\u7b5b\u9009",
     "untitledAsset": "\u672a\u547d\u540d\u8d44\u4ea7",
@@ -709,9 +729,9 @@
     "addToCanvas": "添加到画布"
   },
   "nodeStatus": {
-    "generating": "???",
-    "retryAvailable": "???",
-    "error": "??"
+    "generating": "\u751f\u6210\u4e2d",
+    "retryAvailable": "\u53ef\u91cd\u8bd5",
+    "error": "\u9519\u8bef"
   },
   "scriptNodes": {
     "common": {

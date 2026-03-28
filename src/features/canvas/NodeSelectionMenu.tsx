@@ -1,6 +1,6 @@
 import { useMemo, useCallback, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Image, Upload, Sparkles, LayoutGrid, Type, GitBranch, Video } from 'lucide-react';
+import { AudioLines, Image, Upload, Sparkles, LayoutGrid, Type, GitBranch, Video } from 'lucide-react';
 import { UI_POPOVER_TRANSITION_MS } from '@/components/ui/motion';
 
 import type { CanvasNodeType } from '@/features/canvas/domain/canvasNodes';
@@ -37,6 +37,7 @@ const iconMap: Record<MenuIconKey, typeof Upload> = {
   layout: LayoutGrid,
   text: Type,
   video: Video,
+  audio: AudioLines,
 };
 
 const BRANCH_MENU_ITEM: SpecialMenuItem = {
