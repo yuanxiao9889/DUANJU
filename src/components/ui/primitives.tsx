@@ -407,7 +407,7 @@ export function UiSelect({ className = '', children, ...props }: UiSelectProps) 
               id={listboxIdRef.current}
               role="listbox"
               aria-label={ariaLabel}
-              className={`fixed z-[140] overflow-hidden rounded-[6px] border border-[color:var(--ui-border-soft)] bg-[var(--ui-surface-panel)] p-1 shadow-[var(--ui-shadow-panel)] transition-[opacity,transform] ease-out ${
+              className={`fixed z-[10050] overflow-hidden rounded-[6px] border border-[color:var(--ui-border-soft)] bg-[var(--ui-surface-panel)] p-1 shadow-[var(--ui-shadow-panel)] transition-[opacity,transform] ease-out ${
                 isMenuVisible ? 'opacity-100 translate-y-0' : 'pointer-events-none opacity-0 -translate-y-1'
               }`}
               style={{

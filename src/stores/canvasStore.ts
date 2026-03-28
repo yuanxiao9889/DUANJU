@@ -60,6 +60,7 @@ import {
   GROUP_NODE_TOP_PADDING,
   layoutGroupChildren,
 } from '@/features/canvas/application/groupLayout';
+import type { AssetItemRecord } from '@/features/assets/domain/types';
 import { useSettingsStore } from '@/stores/settingsStore';
 import { getImageModel } from '@/features/canvas/models';
 
@@ -294,6 +295,8 @@ interface CanvasState {
   removeStoryboardFrame: (nodeId: string, frameId: string) => void;
   setStoryboardFrameImage: (nodeId: string, frameId: string, imageUrl: string | null) => void;
   createMergedImageNode: (sourceNodeId: string) => Promise<string | null>;
+  syncAssetItemReferences: (item: AssetItemRecord) => boolean;
+  detachDeletedAssetReferences: (assetItemId: string) => boolean;
 
   deleteNode: (nodeId: string) => void;
   deleteNodes: (nodeIds: string[]) => void;
@@ -965,6 +968,186 @@ function maybeApplyImageAutoResize(node: CanvasNode, patch: Partial<CanvasNodeDa
       width: nextSize.width,
       height: nextSize.height,
     },
+  };
+}
+
+function syncAssetItemToNode(
+  node: CanvasNode,
+  item: AssetItemRecord
+): { node: CanvasNode; changed: boolean } {
+  const assetId = normalizeNonEmptyString((node.data as { assetId?: unknown }).assetId);
+  if (assetId !== item.id) {
+    return { node, changed: false };
+  }
+
+  const nodeData = node.data as CanvasNodeData & {
+    displayName?: string;
+    imageUrl?: string | null;
+    previewImageUrl?: string | null;
+    aspectRatio?: string;
+    assetName?: string | null;
+    assetCategory?: string | null;
+    assetLibraryId?: string | null;
+    sourceFileName?: string | null;
+    imageWidth?: number;
+    imageHeight?: number;
+  };
+
+  const resetImageDimensions =
+    nodeData.imageUrl !== item.imagePath
+    || nodeData.previewImageUrl !== item.previewImagePath
+    || nodeData.aspectRatio !== item.aspectRatio;
+
+  let changed = false;
+  const patch: Partial<CanvasNodeData> = {};
+
+  const setField = <K extends keyof typeof nodeData>(key: K, value: (typeof nodeData)[K]) => {
+    if (nodeData[key] === value) {
+      return;
+    }
+    changed = true;
+    patch[key] = value as CanvasNodeData[K];
+  };
+
+  setField('displayName', item.name);
+  setField('imageUrl', item.imagePath);
+  setField('previewImageUrl', item.previewImagePath);
+  setField('aspectRatio', item.aspectRatio);
+  setField('assetName', item.name);
+  setField('assetCategory', item.category);
+  setField('assetLibraryId', item.libraryId);
+  setField('sourceFileName', item.name);
+
+  if (resetImageDimensions) {
+    if (typeof nodeData.imageWidth === 'number') {
+      changed = true;
+      patch.imageWidth = undefined;
+    }
+    if (typeof nodeData.imageHeight === 'number') {
+      changed = true;
+      patch.imageHeight = undefined;
+    }
+  }
+
+  if (!changed) {
+    return { node, changed: false };
+  }
+
+  const nextNode = maybeApplyImageAutoResize(
+    {
+      ...node,
+      data: {
+        ...node.data,
+        ...patch,
+      } as CanvasNodeData,
+    },
+    patch
+  );
+
+  return { node: nextNode, changed: true };
+}
+
+function detachDeletedAssetReferenceFromNode(
+  node: CanvasNode,
+  assetItemId: string
+): { node: CanvasNode; changed: boolean } {
+  const assetId = normalizeNonEmptyString((node.data as { assetId?: unknown }).assetId);
+  if (assetId !== assetItemId) {
+    return { node, changed: false };
+  }
+
+  const nodeData = node.data as CanvasNodeData & {
+    assetId?: string | null;
+    assetLibraryId?: string | null;
+    assetName?: string | null;
+    assetCategory?: string | null;
+  };
+
+  const changed =
+    nodeData.assetId !== null
+    || nodeData.assetLibraryId !== null
+    || nodeData.assetName !== null
+    || nodeData.assetCategory !== null;
+
+  if (!changed) {
+    return { node, changed: false };
+  }
+
+  return {
+    node: {
+      ...node,
+      data: {
+        ...node.data,
+        assetId: null,
+        assetLibraryId: null,
+        assetName: null,
+        assetCategory: null,
+      } as CanvasNodeData,
+    },
+    changed: true,
+  };
+}
+
+function syncAssetItemAcrossNodes(
+  nodes: CanvasNode[],
+  item: AssetItemRecord
+): { nodes: CanvasNode[]; changed: boolean } {
+  let changed = false;
+  const nextNodes = nodes.map((node) => {
+    const result = syncAssetItemToNode(node, item);
+    changed ||= result.changed;
+    return result.node;
+  });
+
+  return {
+    nodes: changed ? nextNodes : nodes,
+    changed,
+  };
+}
+
+function detachDeletedAssetAcrossNodes(
+  nodes: CanvasNode[],
+  assetItemId: string
+): { nodes: CanvasNode[]; changed: boolean } {
+  let changed = false;
+  const nextNodes = nodes.map((node) => {
+    const result = detachDeletedAssetReferenceFromNode(node, assetItemId);
+    changed ||= result.changed;
+    return result.node;
+  });
+
+  return {
+    nodes: changed ? nextNodes : nodes,
+    changed,
+  };
+}
+
+function mapHistorySnapshots(
+  history: CanvasHistoryState,
+  mapNodes: (nodes: CanvasNode[]) => { nodes: CanvasNode[]; changed: boolean }
+): { history: CanvasHistoryState; changed: boolean } {
+  let changed = false;
+
+  const mapTimeline = (timeline: CanvasHistorySnapshot[]): CanvasHistorySnapshot[] =>
+    timeline.map((snapshot) => {
+      const result = mapNodes(snapshot.nodes);
+      changed ||= result.changed;
+      return result.changed
+        ? {
+            ...snapshot,
+            nodes: result.nodes,
+          }
+        : snapshot;
+    });
+
+  const nextHistory = {
+    past: mapTimeline(history.past),
+    future: mapTimeline(history.future),
+  };
+
+  return {
+    history: changed ? nextHistory : history,
+    changed,
   };
 }
 
@@ -2293,6 +2476,54 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
       console.error('Failed to create merged image node:', error);
       return null;
     }
+  },
+
+  syncAssetItemReferences: (item) => {
+    let didChange = false;
+
+    set((state) => {
+      const nodeResult = syncAssetItemAcrossNodes(state.nodes, item);
+      const historyResult = mapHistorySnapshots(state.history, (nodes) =>
+        syncAssetItemAcrossNodes(nodes, item)
+      );
+
+      didChange = nodeResult.changed || historyResult.changed;
+      if (!didChange) {
+        return {};
+      }
+
+      return {
+        nodes: nodeResult.nodes,
+        history: historyResult.history,
+        dragHistorySnapshot: null,
+      };
+    });
+
+    return didChange;
+  },
+
+  detachDeletedAssetReferences: (assetItemId) => {
+    let didChange = false;
+
+    set((state) => {
+      const nodeResult = detachDeletedAssetAcrossNodes(state.nodes, assetItemId);
+      const historyResult = mapHistorySnapshots(state.history, (nodes) =>
+        detachDeletedAssetAcrossNodes(nodes, assetItemId)
+      );
+
+      didChange = nodeResult.changed || historyResult.changed;
+      if (!didChange) {
+        return {};
+      }
+
+      return {
+        nodes: nodeResult.nodes,
+        history: historyResult.history,
+        dragHistorySnapshot: null,
+      };
+    });
+
+    return didChange;
   },
 
   deleteNode: (nodeId) => {

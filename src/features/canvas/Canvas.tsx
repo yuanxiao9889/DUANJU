@@ -24,9 +24,17 @@ import {
 import { join } from '@tauri-apps/api/path';
 import { open } from '@tauri-apps/plugin-dialog';
 import { useTranslation } from 'react-i18next';
-import { Upload, Grid3x3, Map as MapIcon, Plus, Minus, AlignCenter } from 'lucide-react';
+import { Upload, ImagePlus, Grid3x3, Map as MapIcon, Plus, Minus, AlignCenter } from 'lucide-react';
 import '@xyflow/react/dist/style.css';
 
+import {
+  ASSET_DRAG_MIME_TYPE,
+  parseAssetDragPayload,
+} from '@/features/assets/domain/types';
+import {
+  subscribeAssetItemDeleted,
+  subscribeAssetItemUpdated,
+} from '@/features/assets/application/assetEvents';
 import { useCanvasStore } from '@/stores/canvasStore';
 import { useProjectStore } from '@/stores/projectStore';
 import { getConfiguredApiKeyCount, useSettingsStore } from '@/stores/settingsStore';
@@ -79,6 +87,7 @@ import { BatchOperationMenu } from './ui/BatchOperationMenu';
 import { calculateNodesBounds } from './application/nodeBounds';
 import { GroupSidebar } from './ui/GroupSidebar';
 import { SelectionGroupBar } from './ui/SelectionGroupBar';
+import { CanvasAssetDock } from './ui/CanvasAssetDock';
 
 const DEFAULT_VIEWPORT: Viewport = { x: 0, y: 0, zoom: 1 };
 
@@ -108,6 +117,8 @@ interface ClipboardSnapshot {
   edges: CanvasEdge[];
 }
 
+type CanvasDragOverlayKind = 'files' | 'asset' | null;
+
 interface DuplicateOptions {
   explicitOffset?: { x: number; y: number };
   disableOffsetIteration?: boolean;
@@ -126,6 +137,7 @@ const GENERATION_JOB_RECOVERY_THRESHOLD_MS = 2 * 60 * 1000;
 const GENERATION_JOB_RECOVERY_SWEEP_INTERVAL_MS = 15 * 1000;
 const GENERATION_JOB_STALE_ACTIVITY_MS = 20 * 1000;
 const GENERATION_JOB_RESULT_RETRY_INTERVAL_MS = 4000;
+const DRAG_OVERLAY_IDLE_CLEAR_MS = 420;
 
 interface GenerationStoryboardMetadata {
   gridRows: number;
@@ -485,13 +497,14 @@ export function Canvas() {
   );
   const [previewConnectionVisual, setPreviewConnectionVisual] =
     useState<PreviewConnectionVisual | null>(null);
-  const [isDragOver, setIsDragOver] = useState(false);
+  const [dragOverlayKind, setDragOverlayKind] = useState<CanvasDragOverlayKind>(null);
 
   const isRestoringCanvasRef = useRef(true);
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const copiedSnapshotRef = useRef<ClipboardSnapshot | null>(null);
   const pasteIterationRef = useRef(0);
   const pasteImageHandledRef = useRef(false);
+  const dragOverlayClearTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const activeGenerationPollNodeIdsRef = useRef(new Set<string>());
   const activeGenerationRecoveryNodeIdsRef = useRef(new Set<string>());
   const generationNodeActivityAtRef = useRef(new Map<string, number>());
@@ -532,6 +545,8 @@ export function Canvas() {
   const deleteNode = useCanvasStore((state) => state.deleteNode);
   const deleteNodes = useCanvasStore((state) => state.deleteNodes);
   const groupNodes = useCanvasStore((state) => state.groupNodes);
+  const syncAssetItemReferences = useCanvasStore((state) => state.syncAssetItemReferences);
+  const detachDeletedAssetReferences = useCanvasStore((state) => state.detachDeletedAssetReferences);
   const undo = useCanvasStore((state) => state.undo);
   const redo = useCanvasStore((state) => state.redo);
   const reparentNodesToGroup = useCanvasStore((state) => state.reparentNodesToGroup);
@@ -560,6 +575,31 @@ export function Canvas() {
   const configuredApiKeyCount = useSettingsStore((state) =>
     getConfiguredApiKeyCount(state.apiKeys, providerIds)
   );
+
+  const clearDragOverlay = useCallback(() => {
+    if (dragOverlayClearTimerRef.current) {
+      clearTimeout(dragOverlayClearTimerRef.current);
+      dragOverlayClearTimerRef.current = null;
+    }
+    setDragOverlayKind(null);
+  }, []);
+
+  const refreshDragOverlay = useCallback((kind: CanvasDragOverlayKind) => {
+    if (dragOverlayClearTimerRef.current) {
+      clearTimeout(dragOverlayClearTimerRef.current);
+      dragOverlayClearTimerRef.current = null;
+    }
+
+    setDragOverlayKind(kind);
+    if (!kind) {
+      return;
+    }
+
+    dragOverlayClearTimerRef.current = setTimeout(() => {
+      dragOverlayClearTimerRef.current = null;
+      setDragOverlayKind((current) => (current === kind ? null : current));
+    }, DRAG_OVERLAY_IDLE_CLEAR_MS);
+  }, []);
 
   const getCurrentProject = useProjectStore((state) => state.getCurrentProject);
   const project = getCurrentProject();
@@ -962,6 +1002,58 @@ export function Canvas() {
 
     scheduleCanvasPersist();
   }, [nodes, edges, history, dragHistorySnapshot, scheduleCanvasPersist]);
+
+  useEffect(() => {
+    const unsubscribeAssetItemUpdated = subscribeAssetItemUpdated((item) => {
+      if (!getCurrentProject()) {
+        return;
+      }
+      syncAssetItemReferences(item);
+    });
+
+    const unsubscribeAssetItemDeleted = subscribeAssetItemDeleted((assetItemId) => {
+      if (!getCurrentProject()) {
+        return;
+      }
+      detachDeletedAssetReferences(assetItemId);
+    });
+
+    return () => {
+      unsubscribeAssetItemUpdated();
+      unsubscribeAssetItemDeleted();
+    };
+  }, [detachDeletedAssetReferences, getCurrentProject, syncAssetItemReferences]);
+
+  useEffect(() => {
+    const handleDragSessionEnd = () => {
+      clearDragOverlay();
+    };
+    const handleVisibilityChange = () => {
+      if (document.hidden) {
+        clearDragOverlay();
+      }
+    };
+
+    window.addEventListener('dragend', handleDragSessionEnd, true);
+    window.addEventListener('drop', handleDragSessionEnd, true);
+    window.addEventListener('blur', handleDragSessionEnd);
+    document.addEventListener('dragend', handleDragSessionEnd, true);
+    document.addEventListener('drop', handleDragSessionEnd, true);
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+
+    return () => {
+      window.removeEventListener('dragend', handleDragSessionEnd, true);
+      window.removeEventListener('drop', handleDragSessionEnd, true);
+      window.removeEventListener('blur', handleDragSessionEnd);
+      document.removeEventListener('dragend', handleDragSessionEnd, true);
+      document.removeEventListener('drop', handleDragSessionEnd, true);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      if (dragOverlayClearTimerRef.current) {
+        clearTimeout(dragOverlayClearTimerRef.current);
+        dragOverlayClearTimerRef.current = null;
+      }
+    };
+  }, [clearDragOverlay]);
 
   useEffect(() => {
     const pendingNodeIds = nodes.filter(isPendingExportGenerationNode).map((node) => node.id);
@@ -1648,12 +1740,15 @@ export function Canvas() {
   const handleDragOver = useCallback((event: React.DragEvent) => {
     event.preventDefault();
     event.stopPropagation();
-    const hasFiles = event.dataTransfer.types.includes('Files') || 
+    const hasFiles =
+      event.dataTransfer.types.includes('Files') ||
       event.dataTransfer.types.includes('text/uri-list');
-    if (hasFiles) {
-      setIsDragOver(true);
+    const hasAssetPayload = event.dataTransfer.types.includes(ASSET_DRAG_MIME_TYPE);
+    if (hasFiles || hasAssetPayload) {
+      event.dataTransfer.dropEffect = 'copy';
     }
-  }, []);
+    refreshDragOverlay(hasFiles ? 'files' : hasAssetPayload ? 'asset' : null);
+  }, [refreshDragOverlay]);
 
   const handleDragLeave = useCallback((event: React.DragEvent) => {
     event.preventDefault();
@@ -1662,14 +1757,39 @@ export function Canvas() {
     const x = event.clientX;
     const y = event.clientY;
     if (x < rect.left || x > rect.right || y < rect.top || y > rect.bottom) {
-      setIsDragOver(false);
+      clearDragOverlay();
     }
-  }, []);
+  }, [clearDragOverlay]);
 
   const handleDrop = useCallback(async (event: React.DragEvent) => {
     event.preventDefault();
     event.stopPropagation();
-    setIsDragOver(false);
+    clearDragOverlay();
+
+    const assetPayload = parseAssetDragPayload(
+      event.dataTransfer.getData(ASSET_DRAG_MIME_TYPE)
+    );
+    if (assetPayload) {
+      const position = reactFlowInstance.screenToFlowPosition({
+        x: event.clientX,
+        y: event.clientY,
+      });
+
+      const newNodeId = addNode(CANVAS_NODE_TYPES.upload, position, {
+        displayName: assetPayload.assetName,
+        sourceFileName: assetPayload.assetName,
+        imageUrl: assetPayload.imagePath,
+        previewImageUrl: assetPayload.previewImagePath,
+        aspectRatio: assetPayload.aspectRatio,
+        assetId: assetPayload.assetId,
+        assetLibraryId: assetPayload.assetLibraryId,
+        assetName: assetPayload.assetName,
+        assetCategory: assetPayload.assetCategory,
+      });
+      setSelectedNode(newNodeId);
+      scheduleCanvasPersist(0);
+      return;
+    }
 
     const imageFiles: File[] = [];
     const videoFiles: File[] = [];
@@ -1719,7 +1839,7 @@ export function Canvas() {
         addNode(CANVAS_NODE_TYPES.upload, position, {
           displayName: '上传图片',
           imageUrl: imageData.imageUrl,
-          previewUrl: imageData.previewImageUrl,
+          previewImageUrl: imageData.previewImageUrl,
           aspectRatio: imageData.aspectRatio,
         });
       } catch (err) {
@@ -1746,7 +1866,7 @@ export function Canvas() {
         console.error('Failed to process dropped video:', err);
       }
     }
-  }, [reactFlowInstance, addNode]);
+  }, [addNode, clearDragOverlay, reactFlowInstance, scheduleCanvasPersist, setSelectedNode]);
 
   const handlePaneClick = useCallback((event: ReactMouseEvent) => {
     if (suppressNextPaneClickRef.current) {
@@ -3167,6 +3287,8 @@ export function Canvas() {
       )}
 
       {/* 右下角控制条 */}
+      <CanvasAssetDock />
+
       <div 
         className="absolute flex items-center gap-1 rounded-lg border border-border-dark bg-surface-dark px-2 py-1.5 shadow-lg"
         style={{ 
@@ -3261,13 +3383,37 @@ export function Canvas() {
         </button>
       </div>
 
-      {isDragOver && (
+      {dragOverlayKind && (
         <div className="absolute inset-0 z-50 pointer-events-none">
-          <div className="absolute inset-0 bg-amber-500/10 border-2 border-dashed border-amber-500/50 rounded-lg m-4 flex items-center justify-center">
-            <div className="bg-surface-dark/90 px-6 py-4 rounded-xl border border-amber-500/30 shadow-lg">
-              <div className="flex items-center gap-3 text-amber-400">
-                <Upload className="w-6 h-6" />
-                <span className="text-lg font-medium">释放图片以上传（支持多张）</span>
+          <div
+            className={`absolute inset-0 m-4 flex items-center justify-center rounded-lg border-2 border-dashed ${
+              dragOverlayKind === 'files'
+                ? 'border-amber-500/50 bg-amber-500/10'
+                : 'border-accent/40 bg-accent/10'
+            }`}
+          >
+            <div
+              className={`rounded-xl px-6 py-4 shadow-lg ${
+                dragOverlayKind === 'files'
+                  ? 'border border-amber-500/30 bg-surface-dark/90'
+                  : 'border border-accent/30 bg-surface-dark/92'
+              }`}
+            >
+              <div
+                className={`flex items-center gap-3 ${
+                  dragOverlayKind === 'files' ? 'text-amber-400' : 'text-accent'
+                }`}
+              >
+                {dragOverlayKind === 'files' ? (
+                  <Upload className="h-6 w-6" />
+                ) : (
+                  <ImagePlus className="h-6 w-6" />
+                )}
+                <span className="text-lg font-medium">
+                  {dragOverlayKind === 'files'
+                    ? t('canvas.dropFilesHint')
+                    : t('assets.dropToCanvas')}
+                </span>
               </div>
             </div>
           </div>

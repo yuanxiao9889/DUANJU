@@ -6,6 +6,7 @@ export interface ProjectSummaryRecord {
   id: string;
   name: string;
   projectType: ProjectType;
+  assetLibraryId: string | null;
   createdAt: number;
   updatedAt: number;
   nodeCount: number;
@@ -15,6 +16,7 @@ export interface ProjectRecord {
   id: string;
   name: string;
   projectType: ProjectType;
+  assetLibraryId: string | null;
   createdAt: number;
   updatedAt: number;
   nodeCount: number;

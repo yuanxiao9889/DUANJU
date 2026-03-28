@@ -4,7 +4,7 @@ use std::time::Duration;
 
 use rusqlite::{params, Connection};
 use serde::{Deserialize, Serialize};
-use tauri::{AppHandle, Manager};
+use tauri::AppHandle;
 
 use super::storage;
 
@@ -15,6 +15,8 @@ pub struct ProjectSummaryRecord {
     pub name: String,
     #[serde(default = "default_project_type")]
     pub project_type: String,
+    #[serde(default)]
+    pub asset_library_id: Option<String>,
     pub created_at: i64,
     pub updated_at: i64,
     pub node_count: i64,
@@ -31,6 +33,8 @@ pub struct ProjectRecord {
     pub name: String,
     #[serde(default = "default_project_type")]
     pub project_type: String,
+    #[serde(default)]
+    pub asset_library_id: Option<String>,
     pub created_at: i64,
     pub updated_at: i64,
     pub node_count: i64,
@@ -51,6 +55,7 @@ fn ensure_projects_table(conn: &Connection) -> Result<(), String> {
           id TEXT PRIMARY KEY,
           name TEXT NOT NULL,
           project_type TEXT NOT NULL DEFAULT 'storyboard',
+          asset_library_id TEXT,
           created_at INTEGER NOT NULL,
           updated_at INTEGER NOT NULL,
           node_count INTEGER NOT NULL DEFAULT 0,
@@ -59,19 +64,57 @@ fn ensure_projects_table(conn: &Connection) -> Result<(), String> {
           viewport_json TEXT NOT NULL,
           history_json TEXT NOT NULL
         );
-        CREATE INDEX IF NOT EXISTS idx_projects_updated_at ON projects(updated_at DESC);
         CREATE TABLE IF NOT EXISTS project_image_refs (
           project_id TEXT NOT NULL,
           path TEXT NOT NULL,
           PRIMARY KEY(project_id, path)
         );
         CREATE INDEX IF NOT EXISTS idx_project_image_refs_path ON project_image_refs(path);
+        CREATE TABLE IF NOT EXISTS asset_libraries (
+          id TEXT PRIMARY KEY,
+          name TEXT NOT NULL,
+          created_at INTEGER NOT NULL,
+          updated_at INTEGER NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_asset_libraries_updated_at ON asset_libraries(updated_at DESC);
+        CREATE TABLE IF NOT EXISTS asset_subcategories (
+          id TEXT PRIMARY KEY,
+          library_id TEXT NOT NULL,
+          category TEXT NOT NULL,
+          name TEXT NOT NULL,
+          created_at INTEGER NOT NULL,
+          updated_at INTEGER NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_asset_subcategories_library_id ON asset_subcategories(library_id);
+        CREATE TABLE IF NOT EXISTS asset_items (
+          id TEXT PRIMARY KEY,
+          library_id TEXT NOT NULL,
+          category TEXT NOT NULL,
+          subcategory_id TEXT,
+          name TEXT NOT NULL,
+          description TEXT NOT NULL DEFAULT '',
+          tags_json TEXT NOT NULL DEFAULT '[]',
+          image_path TEXT NOT NULL,
+          preview_image_path TEXT NOT NULL,
+          aspect_ratio TEXT NOT NULL DEFAULT '1:1',
+          created_at INTEGER NOT NULL,
+          updated_at INTEGER NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_asset_items_library_id ON asset_items(library_id);
+        CREATE INDEX IF NOT EXISTS idx_asset_items_subcategory_id ON asset_items(subcategory_id);
+        CREATE TABLE IF NOT EXISTS asset_image_refs (
+          asset_id TEXT NOT NULL,
+          path TEXT NOT NULL,
+          PRIMARY KEY(asset_id, path)
+        );
+        CREATE INDEX IF NOT EXISTS idx_asset_image_refs_path ON asset_image_refs(path);
         "#,
     )
     .map_err(|e| format!("Failed to initialize projects table: {}", e))?;
 
     let mut has_node_count = false;
     let mut has_project_type = false;
+    let mut has_asset_library_id = false;
     let mut stmt = conn
         .prepare("PRAGMA table_info(projects)")
         .map_err(|e| format!("Failed to inspect projects schema: {}", e))?;
@@ -87,6 +130,9 @@ fn ensure_projects_table(conn: &Connection) -> Result<(), String> {
         }
         if column_name == "project_type" {
             has_project_type = true;
+        }
+        if column_name == "asset_library_id" {
+            has_asset_library_id = true;
         }
     }
 
@@ -105,6 +151,19 @@ fn ensure_projects_table(conn: &Connection) -> Result<(), String> {
         )
         .map_err(|e| format!("Failed to add project_type column: {}", e))?;
     }
+
+    if !has_asset_library_id {
+        conn.execute("ALTER TABLE projects ADD COLUMN asset_library_id TEXT", [])
+            .map_err(|e| format!("Failed to add asset_library_id column: {}", e))?;
+    }
+
+    conn.execute_batch(
+        r#"
+        CREATE INDEX IF NOT EXISTS idx_projects_updated_at ON projects(updated_at DESC);
+        CREATE INDEX IF NOT EXISTS idx_projects_asset_library_id ON projects(asset_library_id);
+        "#,
+    )
+    .map_err(|e| format!("Failed to initialize project indexes: {}", e))?;
 
     Ok(())
 }
@@ -214,20 +273,24 @@ fn resolve_images_dir(app: &AppHandle) -> Result<PathBuf, String> {
     storage::resolve_images_dir(app)
 }
 
-fn prune_unreferenced_images(app: &AppHandle) -> Result<(), String> {
+pub(crate) fn prune_unreferenced_images(app: &AppHandle) -> Result<(), String> {
     let conn = open_db(app)?;
-    let mut stmt = conn
-        .prepare("SELECT DISTINCT path FROM project_image_refs")
-        .map_err(|e| format!("Failed to prepare image refs query: {}", e))?;
-
-    let rows = stmt
-        .query_map([], |row| row.get::<_, String>(0))
-        .map_err(|e| format!("Failed to query image refs: {}", e))?;
-
     let mut referenced = HashSet::new();
-    for path_result in rows {
-        let path = path_result.map_err(|e| format!("Failed to decode image ref row: {}", e))?;
-        referenced.insert(path);
+    for table_name in ["project_image_refs", "asset_image_refs"] {
+        let query = format!("SELECT DISTINCT path FROM {}", table_name);
+        let mut stmt = conn
+            .prepare(&query)
+            .map_err(|e| format!("Failed to prepare image refs query: {}", e))?;
+
+        let rows = stmt
+            .query_map([], |row| row.get::<_, String>(0))
+            .map_err(|e| format!("Failed to query image refs: {}", e))?;
+
+        for path_result in rows {
+            let path =
+                path_result.map_err(|e| format!("Failed to decode image ref row: {}", e))?;
+            referenced.insert(path);
+        }
     }
 
     let images_dir = resolve_images_dir(app)?;
@@ -251,7 +314,31 @@ fn prune_unreferenced_images(app: &AppHandle) -> Result<(), String> {
     Ok(())
 }
 
-fn open_db(app: &AppHandle) -> Result<Connection, String> {
+pub(crate) fn replace_project_image_refs(
+    tx: &rusqlite::Transaction<'_>,
+    project_id: &str,
+    nodes_json: &str,
+    history_json: &str,
+) -> Result<(), String> {
+    let image_paths = extract_project_image_paths(nodes_json, history_json);
+    tx.execute(
+        "DELETE FROM project_image_refs WHERE project_id = ?1",
+        params![project_id],
+    )
+    .map_err(|e| format!("Failed to clear project image refs: {}", e))?;
+
+    for path in image_paths {
+        tx.execute(
+            "INSERT OR IGNORE INTO project_image_refs (project_id, path) VALUES (?1, ?2)",
+            params![project_id, path],
+        )
+        .map_err(|e| format!("Failed to upsert project image ref: {}", e))?;
+    }
+
+    Ok(())
+}
+
+pub(crate) fn open_db(app: &AppHandle) -> Result<Connection, String> {
     let db_path = resolve_db_path(app)?;
     let conn = Connection::open(db_path).map_err(|e| format!("Failed to open SQLite DB: {}", e))?;
 
@@ -278,6 +365,7 @@ pub fn list_project_summaries(app: AppHandle) -> Result<Vec<ProjectSummaryRecord
               id,
               name,
               COALESCE(project_type, 'storyboard') as project_type,
+              asset_library_id,
               created_at,
               updated_at,
               node_count
@@ -293,9 +381,10 @@ pub fn list_project_summaries(app: AppHandle) -> Result<Vec<ProjectSummaryRecord
                 id: row.get(0)?,
                 name: row.get(1)?,
                 project_type: row.get(2)?,
-                created_at: row.get(3)?,
-                updated_at: row.get(4)?,
-                node_count: row.get(5)?,
+                asset_library_id: row.get(3)?,
+                created_at: row.get(4)?,
+                updated_at: row.get(5)?,
+                node_count: row.get(6)?,
             })
         })
         .map_err(|e| format!("Failed to query project summaries: {}", e))?;
@@ -320,6 +409,7 @@ pub fn get_project_record(
               id,
               name,
               COALESCE(project_type, 'storyboard') as project_type,
+              asset_library_id,
               created_at,
               updated_at,
               node_count,
@@ -339,13 +429,14 @@ pub fn get_project_record(
             id: row.get(0)?,
             name: row.get(1)?,
             project_type: row.get(2)?,
-            created_at: row.get(3)?,
-            updated_at: row.get(4)?,
-            node_count: row.get(5)?,
-            nodes_json: row.get(6)?,
-            edges_json: row.get(7)?,
-            viewport_json: row.get(8)?,
-            history_json: row.get(9)?,
+            asset_library_id: row.get(3)?,
+            created_at: row.get(4)?,
+            updated_at: row.get(5)?,
+            node_count: row.get(6)?,
+            nodes_json: row.get(7)?,
+            edges_json: row.get(8)?,
+            viewport_json: row.get(9)?,
+            history_json: row.get(10)?,
         })
     });
 
@@ -359,7 +450,6 @@ pub fn get_project_record(
 #[tauri::command]
 pub fn upsert_project_record(app: AppHandle, record: ProjectRecord) -> Result<(), String> {
     let mut conn = open_db(&app)?;
-    let image_paths = extract_project_image_paths(&record.nodes_json, &record.history_json);
     let tx = conn
         .transaction()
         .map_err(|e| format!("Failed to begin transaction: {}", e))?;
@@ -370,6 +460,7 @@ pub fn upsert_project_record(app: AppHandle, record: ProjectRecord) -> Result<()
           id,
           name,
           project_type,
+          asset_library_id,
           created_at,
           updated_at,
           node_count,
@@ -378,10 +469,11 @@ pub fn upsert_project_record(app: AppHandle, record: ProjectRecord) -> Result<()
           viewport_json,
           history_json
         )
-        VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)
+        VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)
         ON CONFLICT(id) DO UPDATE SET
           name = excluded.name,
           project_type = excluded.project_type,
+          asset_library_id = excluded.asset_library_id,
           created_at = excluded.created_at,
           updated_at = excluded.updated_at,
           node_count = excluded.node_count,
@@ -394,6 +486,7 @@ pub fn upsert_project_record(app: AppHandle, record: ProjectRecord) -> Result<()
             record.id,
             record.name,
             record.project_type,
+            record.asset_library_id,
             record.created_at,
             record.updated_at,
             record.node_count,
@@ -405,19 +498,7 @@ pub fn upsert_project_record(app: AppHandle, record: ProjectRecord) -> Result<()
     )
     .map_err(|e| format!("Failed to upsert project: {}", e))?;
 
-    tx.execute(
-        "DELETE FROM project_image_refs WHERE project_id = ?1",
-        params![record.id],
-    )
-    .map_err(|e| format!("Failed to clear project image refs: {}", e))?;
-
-    for path in image_paths {
-        tx.execute(
-            "INSERT OR IGNORE INTO project_image_refs (project_id, path) VALUES (?1, ?2)",
-            params![record.id, path],
-        )
-        .map_err(|e| format!("Failed to upsert project image ref: {}", e))?;
-    }
+    replace_project_image_refs(&tx, &record.id, &record.nodes_json, &record.history_json)?;
 
     tx.commit()
         .map_err(|e| format!("Failed to commit upsert transaction: {}", e))?;
@@ -477,4 +558,74 @@ pub fn delete_project_record(app: AppHandle, project_id: String) -> Result<(), S
 
     prune_unreferenced_images(&app)?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::ensure_projects_table;
+    use rusqlite::Connection;
+
+    #[test]
+    fn ensure_projects_table_migrates_legacy_projects_before_creating_indexes() {
+        let conn = Connection::open_in_memory().expect("failed to open in-memory db");
+        conn.execute_batch(
+            r#"
+            CREATE TABLE projects (
+              id TEXT PRIMARY KEY,
+              name TEXT NOT NULL,
+              created_at INTEGER NOT NULL,
+              updated_at INTEGER NOT NULL,
+              node_count INTEGER NOT NULL DEFAULT 0,
+              nodes_json TEXT NOT NULL,
+              edges_json TEXT NOT NULL,
+              viewport_json TEXT NOT NULL,
+              history_json TEXT NOT NULL,
+              project_type TEXT NOT NULL DEFAULT 'storyboard'
+            );
+            INSERT INTO projects (
+              id,
+              name,
+              created_at,
+              updated_at,
+              node_count,
+              nodes_json,
+              edges_json,
+              viewport_json,
+              history_json,
+              project_type
+            )
+            VALUES (
+              'legacy-project',
+              'Legacy',
+              1,
+              2,
+              0,
+              '[]',
+              '[]',
+              '{}',
+              '{"past":[],"future":[]}',
+              'storyboard'
+            );
+            "#,
+        )
+        .expect("failed to seed legacy schema");
+
+        ensure_projects_table(&conn).expect("legacy schema migration should succeed");
+
+        let has_asset_library_id: bool = conn
+            .prepare("PRAGMA table_info(projects)")
+            .expect("failed to prepare pragma")
+            .query_map([], |row| row.get::<_, String>(1))
+            .expect("failed to read pragma rows")
+            .flatten()
+            .any(|column_name| column_name == "asset_library_id");
+        assert!(has_asset_library_id, "asset_library_id should be added for legacy projects");
+
+        let legacy_project_count: i64 = conn
+            .query_row("SELECT COUNT(*) FROM projects WHERE id = 'legacy-project'", [], |row| {
+                row.get(0)
+            })
+            .expect("failed to count legacy project");
+        assert_eq!(legacy_project_count, 1, "existing projects should remain readable");
+    }
 }

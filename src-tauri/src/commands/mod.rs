@@ -1,4 +1,5 @@
 pub mod ai;
+pub mod asset_state;
 pub mod export;
 pub mod image;
 pub mod jimeng_chrome;
@@ -11,6 +12,7 @@ pub mod text_gen;
 pub mod update;
 
 pub use ai::*;
+pub use asset_state::*;
 pub use export::*;
 pub use image::*;
 pub use jimeng_chrome::*;

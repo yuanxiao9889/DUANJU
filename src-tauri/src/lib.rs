@@ -5,6 +5,7 @@ use std::path::PathBuf;
 use std::time::Duration;
 
 use commands::ai as ai_commands;
+use commands::asset_state;
 use commands::image;
 use commands::jimeng_chrome;
 use commands::jimeng_panel;
@@ -169,6 +170,16 @@ pub fn run() {
             ai_commands::get_generate_image_job,
             ai_commands::generate_image,
             ai_commands::list_models,
+            asset_state::list_asset_libraries,
+            asset_state::create_asset_library,
+            asset_state::update_asset_library,
+            asset_state::delete_asset_library,
+            asset_state::create_asset_subcategory,
+            asset_state::update_asset_subcategory,
+            asset_state::delete_asset_subcategory,
+            asset_state::create_asset_item,
+            asset_state::update_asset_item,
+            asset_state::delete_asset_item,
             project_state::list_project_summaries,
             project_state::get_project_record,
             project_state::upsert_project_record,
@@ -183,6 +194,10 @@ pub fn run() {
             commands::export::save_text_file,
             commands::export::save_binary_file,
             commands::storage::get_storage_info,
+            commands::storage::list_database_backups,
+            commands::storage::create_database_backup,
+            commands::storage::ensure_daily_database_backup,
+            commands::storage::restore_database_backup,
             commands::storage::migrate_storage,
             commands::storage::reset_storage_to_default,
             commands::storage::open_storage_folder,

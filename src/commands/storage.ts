@@ -5,13 +5,48 @@ export interface StorageInfo {
   currentPath: string;
   defaultPath: string;
   isCustom: boolean;
+  dbPath: string;
+  imagesPath: string;
+  backupsPath: string;
   dbSize: number;
   imagesSize: number;
+  backupsSize: number;
   totalSize: number;
+}
+
+export interface DatabaseBackupRecord {
+  id: string;
+  kind: 'auto' | 'manual' | 'pre_restore' | string;
+  path: string;
+  createdAt: number;
+  size: number;
+}
+
+export interface RestoreDatabaseBackupResult {
+  restoredBackupId: string;
+  safetyBackup: DatabaseBackupRecord | null;
 }
 
 export async function getStorageInfo(): Promise<StorageInfo> {
   return invoke<StorageInfo>('get_storage_info');
+}
+
+export async function listDatabaseBackups(): Promise<DatabaseBackupRecord[]> {
+  return invoke<DatabaseBackupRecord[]>('list_database_backups');
+}
+
+export async function createDatabaseBackup(): Promise<DatabaseBackupRecord> {
+  return invoke<DatabaseBackupRecord>('create_database_backup');
+}
+
+export async function ensureDailyDatabaseBackup(): Promise<DatabaseBackupRecord | null> {
+  return invoke<DatabaseBackupRecord | null>('ensure_daily_database_backup');
+}
+
+export async function restoreDatabaseBackup(
+  backupId: string
+): Promise<RestoreDatabaseBackupResult> {
+  return invoke<RestoreDatabaseBackupResult>('restore_database_backup', { backupId });
 }
 
 export async function migrateStorage(
