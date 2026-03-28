@@ -58,6 +58,7 @@ export interface ProjectSummary {
   id: string;
   name: string;
   projectType: ProjectType;
+  assetLibraryId: string | null;
   createdAt: number;
   updatedAt: number;
   nodeCount: number;
@@ -280,6 +281,7 @@ function toProjectSummary(record: ProjectSummaryRecord): ProjectSummary {
     id: record.id,
     name: record.name,
     projectType: (record.projectType as ProjectType) || 'storyboard',
+    assetLibraryId: record.assetLibraryId ?? null,
     createdAt: record.createdAt,
     updatedAt: record.updatedAt,
     nodeCount: record.nodeCount,
@@ -295,6 +297,7 @@ function toProjectRecord(project: Project): ProjectRecord {
     id: encodedProject.id,
     name: encodedProject.name,
     projectType: encodedProject.projectType || 'storyboard',
+    assetLibraryId: encodedProject.assetLibraryId ?? null,
     createdAt: encodedProject.createdAt,
     updatedAt: encodedProject.updatedAt,
     nodeCount: encodedProject.nodeCount,
@@ -337,6 +340,7 @@ function fromProjectRecord(record: ProjectRecord): Project {
     id: record.id,
     name: record.name,
     projectType: (record.projectType as ProjectType) || 'storyboard',
+    assetLibraryId: record.assetLibraryId ?? null,
     createdAt: record.createdAt,
     updatedAt: record.updatedAt,
     nodeCount: record.nodeCount,
@@ -601,6 +605,7 @@ interface ProjectState {
   deleteProject: (id: string) => void;
   deleteProjects: (ids: string[]) => void;
   renameProject: (id: string, name: string) => void;
+  setCurrentProjectAssetLibrary: (assetLibraryId: string | null) => void;
   openProject: (id: string) => void;
   closeProject: () => void;
   getCurrentProject: () => Project | null;
@@ -653,6 +658,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
       id,
       name,
       projectType,
+      assetLibraryId: null,
       createdAt: now,
       updatedAt: now,
       nodeCount: 0,
@@ -758,6 +764,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
             id: project.id,
             name: project.name,
             projectType: project.projectType,
+            assetLibraryId: project.assetLibraryId ?? null,
             createdAt: project.createdAt,
             updatedAt: project.updatedAt,
             nodeCount: project.nodeCount,
@@ -795,6 +802,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
         id: nextProject.id,
         name: nextProject.name,
         projectType: nextProject.projectType,
+        assetLibraryId: nextProject.assetLibraryId ?? null,
         createdAt: nextProject.createdAt,
         updatedAt: nextProject.updatedAt,
         nodeCount: nextProject.nodeCount,
@@ -821,6 +829,39 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
       return null;
     }
     return currentProject;
+  },
+
+  setCurrentProjectAssetLibrary: (assetLibraryId) => {
+    const { currentProjectId, currentProject } = get();
+    if (!currentProjectId || !currentProject || currentProject.id !== currentProjectId) {
+      return;
+    }
+
+    const normalizedAssetLibraryId = assetLibraryId?.trim() ? assetLibraryId : null;
+    if ((currentProject.assetLibraryId ?? null) === normalizedAssetLibraryId) {
+      return;
+    }
+
+    const nextProject: Project = {
+      ...currentProject,
+      assetLibraryId: normalizedAssetLibraryId,
+      updatedAt: Date.now(),
+    };
+
+    set((state) => ({
+      currentProject: nextProject,
+      projects: updateProjectSummary(state.projects, {
+        id: nextProject.id,
+        name: nextProject.name,
+        projectType: nextProject.projectType,
+        assetLibraryId: nextProject.assetLibraryId ?? null,
+        createdAt: nextProject.createdAt,
+        updatedAt: nextProject.updatedAt,
+        nodeCount: nextProject.nodeCount,
+      }),
+    }));
+
+    persistProject(nextProject, { debounceMs: 0 });
   },
 
   saveCurrentProject: (nodes, edges, viewport, history) => {
@@ -864,6 +905,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
         id: nextProject.id,
         name: nextProject.name,
         projectType: nextProject.projectType,
+        assetLibraryId: nextProject.assetLibraryId ?? null,
         createdAt: nextProject.createdAt,
         updatedAt: nextProject.updatedAt,
         nodeCount: nextProject.nodeCount,

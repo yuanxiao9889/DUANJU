@@ -9,13 +9,17 @@ import { usePsIntegrationStore } from '@/stores/psIntegrationStore';
 import { testProviderConnection } from '@/commands/textGen';
 import { 
   getStorageInfo, 
+  listDatabaseBackups,
+  createDatabaseBackup,
+  restoreDatabaseBackup,
   migrateStorage, 
   openStorageFolder, 
   selectStorageFolder, 
   formatBytes,
+  type DatabaseBackupRecord,
   type StorageInfo 
 } from '@/commands/storage';
-import { UiCheckbox, UiInput, UiSelect } from '@/components/ui';
+import { UiCheckbox, UiInput, UiModal, UiSelect } from '@/components/ui';
 import { UI_CONTENT_OVERLAY_INSET_CLASS, UI_DIALOG_TRANSITION_MS } from '@/components/ui/motion';
 import { useDialogTransition } from '@/components/ui/useDialogTransition';
 import {
@@ -130,6 +134,35 @@ function resolveCompatibleEndpointPlaceholder(
   }
 
   return 'https://api.openai.com';
+}
+
+function resolveDatabaseBackupKindLabel(
+  t: (key: string) => string,
+  kind: DatabaseBackupRecord['kind']
+): string {
+  switch (kind) {
+    case 'auto':
+      return t('settings.backupKindAuto');
+    case 'manual':
+      return t('settings.backupKindManual');
+    case 'pre_restore':
+      return t('settings.backupKindPreRestore');
+    default:
+      return kind;
+  }
+}
+
+function resolveDatabaseBackupKindBadgeClass(kind: DatabaseBackupRecord['kind']): string {
+  switch (kind) {
+    case 'auto':
+      return 'border-emerald-500/30 bg-emerald-500/10 text-emerald-300';
+    case 'manual':
+      return 'border-sky-500/30 bg-sky-500/10 text-sky-300';
+    case 'pre_restore':
+      return 'border-amber-500/30 bg-amber-500/10 text-amber-300';
+    default:
+      return 'border-border-dark bg-bg-dark text-text-muted';
+  }
 }
 
 function SettingsCheckboxCard({
@@ -340,6 +373,12 @@ export function SettingsDialog({
   const [isDialogExpanded, setIsDialogExpanded] = useState(false);
   const [storageInfo, setStorageInfo] = useState<StorageInfo | null>(null);
   const [isLoadingStorageInfo, setIsLoadingStorageInfo] = useState(false);
+  const [databaseBackups, setDatabaseBackups] = useState<DatabaseBackupRecord[]>([]);
+  const [isLoadingDatabaseBackups, setIsLoadingDatabaseBackups] = useState(false);
+  const [isCreatingDatabaseBackup, setIsCreatingDatabaseBackup] = useState(false);
+  const [isRestoringDatabaseBackup, setIsRestoringDatabaseBackup] = useState(false);
+  const [databaseBackupError, setDatabaseBackupError] = useState<string | null>(null);
+  const [restoreBackupTarget, setRestoreBackupTarget] = useState<DatabaseBackupRecord | null>(null);
   const [isMigrating, setIsMigrating] = useState(false);
   const [migrationError, setMigrationError] = useState<string | null>(null);
   const [runtimeVersion, setRuntimeVersion] = useState<string>('');
@@ -462,25 +501,40 @@ export function SettingsDialog({
     setActiveCategory(initialCategory);
   }, [initialCategory, isOpen]);
 
+  const loadStorageInfo = useCallback(async () => {
+    setIsLoadingStorageInfo(true);
+    try {
+      const info = await getStorageInfo();
+      setStorageInfo(info);
+    } catch (error) {
+      console.error('Failed to load storage info:', error);
+      setStorageInfo(null);
+    } finally {
+      setIsLoadingStorageInfo(false);
+    }
+  }, []);
+
+  const loadDatabaseBackups = useCallback(async () => {
+    setIsLoadingDatabaseBackups(true);
+    try {
+      const backups = await listDatabaseBackups();
+      setDatabaseBackups(backups);
+    } catch (error) {
+      console.error('Failed to load database backups:', error);
+      setDatabaseBackups([]);
+    } finally {
+      setIsLoadingDatabaseBackups(false);
+    }
+  }, []);
+
   useEffect(() => {
     if (!isOpen || activeCategory !== 'general') {
       return;
     }
 
-    const loadStorageInfo = async () => {
-      setIsLoadingStorageInfo(true);
-      try {
-        const info = await getStorageInfo();
-        setStorageInfo(info);
-      } catch (error) {
-        console.error('Failed to load storage info:', error);
-      } finally {
-        setIsLoadingStorageInfo(false);
-      }
-    };
-
     void loadStorageInfo();
-  }, [isOpen, activeCategory]);
+    void loadDatabaseBackups();
+  }, [activeCategory, isOpen, loadDatabaseBackups, loadStorageInfo]);
 
   const handleChangeStoragePath = useCallback(async () => {
     if (isMigrating) return;
@@ -493,15 +547,13 @@ export function SettingsDialog({
       setIsMigrating(true);
 
       await migrateStorage(newPath, true);
-
-      const info = await getStorageInfo();
-      setStorageInfo(info);
+      await Promise.all([loadStorageInfo(), loadDatabaseBackups()]);
     } catch (error) {
       setMigrationError(error instanceof Error ? error.message : String(error));
     } finally {
       setIsMigrating(false);
     }
-  }, [isMigrating]);
+  }, [isMigrating, loadDatabaseBackups, loadStorageInfo]);
 
   const handleOpenStorageFolder = useCallback(async () => {
     try {
@@ -510,6 +562,45 @@ export function SettingsDialog({
       console.error('Failed to open storage folder:', error);
     }
   }, []);
+
+  const handleCreateDatabaseBackup = useCallback(async () => {
+    if (isCreatingDatabaseBackup || isRestoringDatabaseBackup) {
+      return;
+    }
+
+    try {
+      setDatabaseBackupError(null);
+      setIsCreatingDatabaseBackup(true);
+      await createDatabaseBackup();
+      await Promise.all([loadStorageInfo(), loadDatabaseBackups()]);
+    } catch (error) {
+      setDatabaseBackupError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setIsCreatingDatabaseBackup(false);
+    }
+  }, [
+    isCreatingDatabaseBackup,
+    isRestoringDatabaseBackup,
+    loadDatabaseBackups,
+    loadStorageInfo,
+  ]);
+
+  const handleConfirmRestoreDatabaseBackup = useCallback(async () => {
+    if (!restoreBackupTarget || isRestoringDatabaseBackup || isMigrating) {
+      return;
+    }
+
+    try {
+      setDatabaseBackupError(null);
+      setIsRestoringDatabaseBackup(true);
+      await restoreDatabaseBackup(restoreBackupTarget.id);
+      window.location.reload();
+    } catch (error) {
+      setDatabaseBackupError(error instanceof Error ? error.message : String(error));
+      setIsRestoringDatabaseBackup(false);
+      setRestoreBackupTarget(null);
+    }
+  }, [isMigrating, isRestoringDatabaseBackup, restoreBackupTarget]);
 
   const resolveLocalScriptModel = useCallback((providerId: string) => {
     return resolveConfiguredScriptModel(providerId, {
@@ -2086,12 +2177,49 @@ export function SettingsDialog({
                               </span>
                             )}
                           </div>
-                          <div className="flex items-center gap-4 text-xs text-text-muted">
+                          <div className="mb-3 rounded border border-accent/20 bg-accent/[0.08] px-2.5 py-2 text-xs text-text-muted">
+                            <span className="font-medium text-text-dark">
+                              {t('settings.sharedDatabase')}
+                            </span>
+                            <span className="ml-1">
+                              {t('settings.storageSharedHint')}
+                            </span>
+                          </div>
+                          <div className="mb-3 space-y-2">
+                            <div className="flex items-start gap-2">
+                              <span className="shrink-0 text-xs text-text-muted">
+                                {t('settings.databaseFilePath')}:
+                              </span>
+                              <span className="min-w-0 break-all font-mono text-[11px] text-text-dark">
+                                {storageInfo.dbPath}
+                              </span>
+                            </div>
+                            <div className="flex items-start gap-2">
+                              <span className="shrink-0 text-xs text-text-muted">
+                                {t('settings.assetImagesPath')}:
+                              </span>
+                              <span className="min-w-0 break-all font-mono text-[11px] text-text-dark">
+                                {storageInfo.imagesPath}
+                              </span>
+                            </div>
+                            <div className="flex items-start gap-2">
+                              <span className="shrink-0 text-xs text-text-muted">
+                                {t('settings.backupFolderPath')}:
+                              </span>
+                              <span className="min-w-0 break-all font-mono text-[11px] text-text-dark">
+                                {storageInfo.backupsPath}
+                              </span>
+                            </div>
+                          </div>
+                          <div className="flex flex-wrap items-center gap-4 text-xs text-text-muted">
                             <span>
                               {t('settings.database')}: {formatBytes(storageInfo.dbSize)}
                             </span>
                             <span>
                               {t('settings.images')}: {formatBytes(storageInfo.imagesSize)}
+                            </span>
+                            <span>
+                              {t('settings.backups')}: {formatBytes(storageInfo.backupsSize)}
                             </span>
                             <span>
                               {t('settings.total')}: {formatBytes(storageInfo.totalSize)}
@@ -2102,6 +2230,12 @@ export function SettingsDialog({
                         {migrationError && (
                           <div className="mb-3 rounded border border-red-500/30 bg-red-500/10 p-2 text-xs text-red-400">
                             {migrationError}
+                          </div>
+                        )}
+
+                        {databaseBackupError && (
+                          <div className="mb-3 rounded border border-red-500/30 bg-red-500/10 p-2 text-xs text-red-400">
+                            {databaseBackupError}
                           </div>
                         )}
 
@@ -2131,6 +2265,85 @@ export function SettingsDialog({
                           >
                             {t('settings.openFolder')}
                           </button>
+                          <button
+                            type="button"
+                            disabled={isCreatingDatabaseBackup || isRestoringDatabaseBackup || isMigrating}
+                            onClick={() => void handleCreateDatabaseBackup()}
+                            className="inline-flex h-9 items-center justify-center rounded border border-border-dark bg-surface-dark px-3 text-xs text-text-dark transition-colors hover:bg-bg-dark disabled:opacity-50"
+                          >
+                            {isCreatingDatabaseBackup ? (
+                              <>
+                                <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+                                {t('settings.creatingBackup')}
+                              </>
+                            ) : (
+                              <>
+                                <Plus className="mr-1.5 h-3.5 w-3.5" />
+                                {t('settings.createBackupNow')}
+                              </>
+                            )}
+                          </button>
+                        </div>
+
+                        <div className="mt-4 rounded border border-border-dark bg-surface-dark p-3">
+                          <div className="flex flex-wrap items-start justify-between gap-3">
+                            <div>
+                              <h4 className="text-xs font-medium text-text-dark">
+                                {t('settings.databaseBackupTitle')}
+                              </h4>
+                              <p className="mt-1 text-xs text-text-muted">
+                                {t('settings.databaseBackupDesc')}
+                              </p>
+                            </div>
+                            <div className="rounded bg-accent/[0.08] px-2 py-1 text-[11px] text-text-muted">
+                              {t('settings.backupsRetention')}
+                            </div>
+                          </div>
+
+                          {isLoadingDatabaseBackups ? (
+                            <div className="flex items-center justify-center py-5">
+                              <Loader2 className="h-4 w-4 animate-spin text-text-muted" />
+                            </div>
+                          ) : databaseBackups.length > 0 ? (
+                            <div className="ui-scrollbar mt-3 max-h-[220px] space-y-2 overflow-y-auto pr-1">
+                              {databaseBackups.map((backup) => (
+                                <div
+                                  key={backup.id}
+                                  className="flex items-center gap-3 rounded border border-border-dark bg-bg-dark px-3 py-2.5"
+                                >
+                                  <span
+                                    className={`shrink-0 rounded-full border px-2 py-0.5 text-[10px] ${resolveDatabaseBackupKindBadgeClass(backup.kind)}`}
+                                  >
+                                    {resolveDatabaseBackupKindLabel(t, backup.kind)}
+                                  </span>
+                                  <div className="min-w-0 flex-1">
+                                    <div className="truncate text-xs text-text-dark">
+                                      {new Date(backup.createdAt).toLocaleString()}
+                                    </div>
+                                    <div className="mt-0.5 truncate text-[11px] text-text-muted">
+                                      {formatBytes(backup.size)} · {backup.id}
+                                    </div>
+                                  </div>
+                                  <button
+                                    type="button"
+                                    disabled={isRestoringDatabaseBackup || isMigrating}
+                                    onClick={() => {
+                                      setDatabaseBackupError(null);
+                                      setRestoreBackupTarget(backup);
+                                    }}
+                                    className="inline-flex h-8 items-center justify-center rounded border border-border-dark bg-surface-dark px-2.5 text-[11px] text-text-dark transition-colors hover:bg-bg-dark disabled:opacity-50"
+                                  >
+                                    <RotateCcw className="mr-1 h-3.5 w-3.5" />
+                                    {t('settings.restoreBackup')}
+                                  </button>
+                                </div>
+                              ))}
+                            </div>
+                          ) : (
+                            <div className="mt-3 text-xs text-text-muted">
+                              {t('settings.noDatabaseBackups')}
+                            </div>
+                          )}
                         </div>
                       </>
                     ) : (
@@ -2547,6 +2760,56 @@ export function SettingsDialog({
           </div>
         </div>
       </div>
+      <UiModal
+        isOpen={Boolean(restoreBackupTarget)}
+        title={t('settings.restoreBackupConfirmTitle')}
+        onClose={() => {
+          if (!isRestoringDatabaseBackup) {
+            setRestoreBackupTarget(null);
+          }
+        }}
+        footer={
+          <>
+            <button
+              type="button"
+              disabled={isRestoringDatabaseBackup}
+              onClick={() => setRestoreBackupTarget(null)}
+              className="inline-flex h-10 items-center justify-center rounded border border-border-dark bg-surface-dark px-3.5 text-sm font-medium text-text-dark transition-colors hover:bg-bg-dark disabled:opacity-50"
+            >
+              {t('common.cancel')}
+            </button>
+            <button
+              type="button"
+              disabled={isRestoringDatabaseBackup}
+              onClick={() => void handleConfirmRestoreDatabaseBackup()}
+              className="inline-flex h-10 items-center justify-center rounded bg-accent px-3.5 text-sm font-medium text-white transition-colors hover:bg-accent/80 disabled:opacity-50"
+            >
+              {isRestoringDatabaseBackup ? (
+                <>
+                  <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />
+                  {t('settings.restoringBackup')}
+                </>
+              ) : (
+                t('settings.restoreBackupConfirmAction')
+              )}
+            </button>
+          </>
+        }
+      >
+        <div className="space-y-3">
+          <p className="text-sm text-text-muted">
+            {t('settings.restoreBackupConfirmDesc', {
+              time: restoreBackupTarget
+                ? new Date(restoreBackupTarget.createdAt).toLocaleString()
+                : '',
+            })}
+          </p>
+          <div className="rounded-lg border border-border-dark bg-bg-dark px-3 py-2 text-xs text-text-muted">
+            <div className="text-text-dark">{restoreBackupTarget?.id ?? ''}</div>
+            <div className="mt-1">{t('settings.restoreBackupSafetyNote')}</div>
+          </div>
+        </div>
+      </UiModal>
     </div>
   );
 }

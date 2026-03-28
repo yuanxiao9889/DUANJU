@@ -126,7 +126,7 @@ export function TitleBar({
     : t('titleBar.jimengOpenChrome');
 
   return (
-    <div className="h-10 flex items-center justify-between bg-surface-dark border-b border-border-dark select-none z-50 relative">
+    <div className="relative z-50 flex h-10 shrink-0 items-center justify-between border-b border-border-dark bg-surface-dark select-none">
       {isMac ? (
         <div className="group flex items-center h-full pl-3 pr-2 gap-2" data-no-drag="true">
           <button

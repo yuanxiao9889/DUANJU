@@ -25,6 +25,7 @@ import {
   type SettingsCategory,
 } from './features/settings/settingsEvents';
 import { initializePsIntegration } from './stores/psIntegrationStore';
+import { ensureDailyDatabaseBackup } from './commands/storage';
 
 function toRgbCssValue(hexColor: string): string {
   const hex = hexColor.replace('#', '');
@@ -192,6 +193,16 @@ function App() {
     };
   }, [isHydrated, autoCheckAppUpdateOnLaunch, enableUpdateDialog]);
 
+  useEffect(() => {
+    if (!isHydrated) {
+      return;
+    }
+
+    void ensureDailyDatabaseBackup().catch((error) => {
+      console.warn('failed to ensure daily database backup', error);
+    });
+  }, [isHydrated]);
+
   const handleManualCheckUpdate = async (): Promise<'has-update' | 'up-to-date' | 'failed'> => {
     const result = await checkForUpdate();
     if (!result.hasUpdate) {
@@ -241,7 +252,7 @@ function App() {
           onBackClick={closeProject}
         />
 
-        <main className="flex-1 relative">
+        <main className="relative flex-1 min-h-0 overflow-hidden">
           {currentProjectId ? <Canvas /> : <ProjectManager />}
         </main>
 

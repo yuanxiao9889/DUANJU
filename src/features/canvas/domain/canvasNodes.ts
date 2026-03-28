@@ -102,6 +102,10 @@ export interface NodeImageData extends NodeDisplayData {
   imageWidth?: number;
   imageHeight?: number;
   isSizeManuallyAdjusted?: boolean;
+  assetId?: string | null;
+  assetLibraryId?: string | null;
+  assetName?: string | null;
+  assetCategory?: string | null;
   [key: string]: unknown;
 }
 
