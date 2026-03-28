@@ -112,40 +112,75 @@ export function isLikelyLocalImagePath(imageUrl: string): boolean {
   return LOCAL_PATH_PREFIX_PATTERN.test(imageUrl);
 }
 
-export function resolveImageDisplayUrl(imageUrl: string): string {
-  const lower = imageUrl.toLowerCase();
-  if (lower.startsWith('file://')) {
-    if (!isTauri()) {
-      return imageUrl;
-    }
-
-    try {
-      const parsed = new URL(imageUrl);
-      const decodedPathname = decodeURIComponent(parsed.pathname);
-      const normalizedPath = decodedPathname.replace(/^\/([A-Za-z]:[\\/])/, '$1');
-      if (!normalizedPath) {
-        return imageUrl;
-      }
-      return convertFileSrc(normalizedPath);
-    } catch {
-      return imageUrl;
-    }
+function normalizeLocalFilePath(localPath: string): string {
+  const trimmedPath = localPath.trim();
+  if (!trimmedPath) {
+    return trimmedPath;
   }
 
-  if (!isLikelyLocalImagePath(imageUrl)) {
+  const slashNormalizedPath = trimmedPath.replace(/\\/g, '/');
+  if (/^\/[A-Za-z]:\//.test(slashNormalizedPath)) {
+    return slashNormalizedPath.slice(1);
+  }
+
+  return slashNormalizedPath;
+}
+
+function resolveLocalPathFromUrl(source: string): string | null {
+  try {
+    const parsed = new URL(source);
+    const isFileProtocol = parsed.protocol === 'file:';
+    const isAssetProtocol = parsed.protocol === 'asset:' && parsed.hostname === 'localhost';
+    const isAssetHostProtocol =
+      (parsed.protocol === 'http:' || parsed.protocol === 'https:')
+      && parsed.hostname === 'asset.localhost';
+
+    if (!isFileProtocol && !isAssetProtocol && !isAssetHostProtocol) {
+      return null;
+    }
+
+    const decodedPathname = decodeURIComponent(parsed.pathname);
+    const candidatePath =
+      isFileProtocol && parsed.host && !/^[A-Za-z]:/.test(decodedPathname)
+        ? `//${parsed.host}${decodedPathname}`
+        : decodedPathname;
+    const normalizedPath = normalizeLocalFilePath(candidatePath);
+    return isLikelyLocalImagePath(normalizedPath) ? normalizedPath : null;
+  } catch {
+    return null;
+  }
+}
+
+export function resolveLocalFileSourcePath(source: string): string | null {
+  const trimmedSource = source.trim();
+  if (!trimmedSource) {
+    return null;
+  }
+
+  if (isLikelyLocalImagePath(trimmedSource)) {
+    return normalizeLocalFilePath(trimmedSource);
+  }
+
+  return resolveLocalPathFromUrl(trimmedSource);
+}
+
+export function resolveImageDisplayUrl(imageUrl: string): string {
+  const localFilePath = resolveLocalFileSourcePath(imageUrl);
+  if (!localFilePath) {
     return imageUrl;
   }
 
   if (!isTauri()) {
-    return imageUrl;
+    return imageUrl.toLowerCase().startsWith('file://') ? imageUrl : localFilePath;
   }
 
-  return convertFileSrc(imageUrl);
+  return convertFileSrc(localFilePath);
 }
 
 export async function persistImageLocally(source: string): Promise<string> {
-  if (isLikelyLocalImagePath(source)) {
-    return source;
+  const localFilePath = resolveLocalFileSourcePath(source);
+  if (localFilePath) {
+    return localFilePath;
   }
 
   if (!isTauri()) {
@@ -181,15 +216,16 @@ export async function imageUrlToDataUrl(imageUrl: string): Promise<string> {
     return imageUrl;
   }
 
-  if (isLikelyLocalImagePath(imageUrl)) {
+  const localFilePath = resolveLocalFileSourcePath(imageUrl);
+  if (localFilePath) {
     if (isTauri()) {
       try {
-        return await loadImage(imageUrl);
+        return await loadImage(localFilePath);
       } catch (error) {
         throw createImagePipelineError('无法读取本地图片数据', `source=${imageUrl}`, error);
       }
     }
-    const localResponse = await fetch(resolveImageDisplayUrl(imageUrl));
+    const localResponse = await fetch(resolveImageDisplayUrl(localFilePath));
     if (!localResponse.ok) {
       throw createImagePipelineError(
         '无法读取本地图片数据',
