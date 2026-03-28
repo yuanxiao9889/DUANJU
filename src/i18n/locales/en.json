@@ -92,6 +92,13 @@
   "nodeToolbar": {
     "reupload": "Reupload",
     "copy": "Copy",
+    "addToAssets": "Add to Assets",
+    "addingToAssets": "Adding...",
+    "addedToAssets": "Added",
+    "addToAssetsHint": "Save this image into \"{{library}}\" and keep editing details later in Asset Manager.",
+    "selectAssetLibraryFirst": "Choose an episode asset library first.",
+    "noAssetLibraries": "No asset library yet. Create one in Asset Manager first.",
+    "addToAssetsFailed": "Failed to add this image to assets.",
     "copyText": "Copy Text",
     "copyErrorReport": "Copy Error",
     "copied": "Copied",

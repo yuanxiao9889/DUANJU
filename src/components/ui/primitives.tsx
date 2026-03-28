@@ -405,6 +405,7 @@ export function UiSelect({ className = '', children, ...props }: UiSelectProps) 
         ? createPortal(
             <div
               id={listboxIdRef.current}
+              data-ui-select-listbox="true"
               role="listbox"
               aria-label={ariaLabel}
               className={`fixed z-[10050] overflow-hidden rounded-[6px] border border-[color:var(--ui-border-soft)] bg-[var(--ui-surface-panel)] p-1 shadow-[var(--ui-shadow-panel)] transition-[opacity,transform] ease-out ${
