@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import ReactCrop, {
   centerCrop,
+  convertToPixelCrop,
   makeAspectCrop,
   type Crop,
   type PixelCrop,
@@ -90,18 +91,22 @@ function toRenderedCrop(
   };
 }
 
-function buildDefaultCrop(width: number, height: number, aspect: number | undefined): Crop {
+function buildDefaultCrop(width: number, height: number, aspect: number | undefined): PixelCrop {
   if (!aspect) {
     return { unit: 'px', x: 0, y: 0, width, height };
   }
 
-  return centerCrop(
-    makeAspectCrop(
-      {
-        unit: '%',
-        width: 88,
-      },
-      aspect,
+  return convertToPixelCrop(
+    centerCrop(
+      makeAspectCrop(
+        {
+          unit: '%',
+          width: 88,
+        },
+        aspect,
+        width,
+        height
+      ),
       width,
       height
     ),

@@ -216,6 +216,7 @@ export interface StoryboardExportOptions {
 
 export interface StoryboardSplitNodeData {
   displayName?: string;
+  sourceNodeId?: string | null;
   aspectRatio: string;
   frameAspectRatio?: string;
   gridRows: number;
@@ -227,6 +228,7 @@ export interface StoryboardSplitNodeData {
 
 export interface StoryboardSplitResultNodeData {
   displayName?: string;
+  sourceNodeId?: string | null;
   aspectRatio: string;
   frameAspectRatio?: string;
   gridRows: number;

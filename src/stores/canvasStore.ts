@@ -365,7 +365,11 @@ function normalizeNodes(rawNodes: CanvasNode[]): CanvasNode[] {
         return null;
       }
 
-      const definition = nodeCatalog.getDefinition(node.type as CanvasNodeType);
+      const normalizedNodeType =
+        node.type === CANVAS_NODE_TYPES.storyboardSplitResult
+          ? CANVAS_NODE_TYPES.storyboardSplit
+          : (node.type as CanvasNodeType);
+      const definition = nodeCatalog.getDefinition(normalizedNodeType);
       const mergedData = {
         ...definition.createDefaultData(),
         ...(node.data as Partial<CanvasNodeData>),
@@ -418,7 +422,7 @@ function normalizeNodes(rawNodes: CanvasNode[]): CanvasNode[] {
         (mergedData as { gridRows: number }).gridRows = normalizedGridLayout.rows;
         (mergedData as { gridCols: number }).gridCols = normalizedGridLayout.cols;
 
-        if (node.type === CANVAS_NODE_TYPES.storyboardSplit) {
+        if (normalizedNodeType === CANVAS_NODE_TYPES.storyboardSplit) {
           const rawExportOptions = (mergedData as { exportOptions?: Partial<StoryboardExportOptions> })
             .exportOptions;
           const rawFontSize = Number.isFinite(rawExportOptions?.fontSize)
@@ -455,7 +459,7 @@ function normalizeNodes(rawNodes: CanvasNode[]): CanvasNode[] {
 
       const normalizedNode: CanvasNode = {
         ...node,
-        type: node.type as CanvasNodeType,
+        type: normalizedNodeType,
         data: mergedData,
       };
 
@@ -2042,12 +2046,14 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
       nodeSize.height
     );
 
-    let node = canvasNodeFactory.createNode(CANVAS_NODE_TYPES.storyboardSplitResult, position, {
+    let node = canvasNodeFactory.createNode(CANVAS_NODE_TYPES.storyboardSplit, position, {
+      sourceNodeId,
       gridRows: normalizedGridLayout.rows,
       gridCols: normalizedGridLayout.cols,
       frames,
       aspectRatio: resolvedFrameAspectRatio,
       frameAspectRatio: resolvedFrameAspectRatio,
+      exportOptions: createDefaultStoryboardExportOptions(),
     });
     node.width = nodeSize.width;
     node.height = nodeSize.height;

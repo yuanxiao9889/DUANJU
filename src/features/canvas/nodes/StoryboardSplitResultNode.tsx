@@ -370,6 +370,12 @@ export const StoryboardSplitResultNode = memo(({
       ) : null}
 
       <Handle
+        type="target"
+        id="target"
+        position={Position.Left}
+        className="!h-2 !w-2 !border-surface-dark !bg-accent"
+      />
+      <Handle
         type="source"
         id="source"
         position={Position.Right}

@@ -260,6 +260,7 @@ const storyboardSplitDefinition: CanvasNodeDefinition<StoryboardSplitNodeData> =
   },
   createDefaultData: () => ({
     displayName: DEFAULT_NODE_DISPLAY_NAME[CANVAS_NODE_TYPES.storyboardSplit],
+    sourceNodeId: null,
     aspectRatio: DEFAULT_ASPECT_RATIO,
     frameAspectRatio: DEFAULT_ASPECT_RATIO,
     gridRows: 2,
@@ -292,7 +293,7 @@ const storyboardSplitResultDefinition: CanvasNodeDefinition<StoryboardSplitResul
   },
   connectivity: {
     sourceHandle: true,
-    targetHandle: false,
+    targetHandle: true,
     connectMenu: {
       fromSource: false,
       fromTarget: false,
@@ -300,6 +301,7 @@ const storyboardSplitResultDefinition: CanvasNodeDefinition<StoryboardSplitResul
   },
   createDefaultData: () => ({
     displayName: DEFAULT_NODE_DISPLAY_NAME[CANVAS_NODE_TYPES.storyboardSplitResult],
+    sourceNodeId: null,
     aspectRatio: DEFAULT_ASPECT_RATIO,
     frameAspectRatio: DEFAULT_ASPECT_RATIO,
     gridRows: 2,
