@@ -286,9 +286,9 @@ export function SettingsDialog({
       'bltcy',
       'volcengine',
       'runninghub',
-      'compatible',
       'alibaba',
       'coding',
+      'compatible',
     ];
     const providerIndex = new Map(providerOrder.map((id, index) => [id, index]));
     return listModelProviders().slice().sort((left, right) => {
