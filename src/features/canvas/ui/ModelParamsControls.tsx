@@ -189,7 +189,7 @@ export const ModelParamsControls = memo(({
   const [panelProviderId, setPanelProviderId] = useState(selectedModel.providerId);
   const [missingKeyProviderName, setMissingKeyProviderName] = useState<string | null>(null);
   const [styleTemplatePanelOpen, setStyleTemplatePanelOpen] = useState(false);
-  const apiKeys = useSettingsStore((state) => state.apiKeys);
+  const storyboardApiKeys = useSettingsStore((state) => state.storyboardApiKeys);
   const styleTemplates = useSettingsStore((state) => state.styleTemplates);
 
   const selectedProvider = useMemo(
@@ -556,7 +556,7 @@ export const ModelParamsControls = memo(({
                           }`}
                         onClick={(event) => {
                           event.stopPropagation();
-                          const providerApiKey = (apiKeys[provider.id] ?? '').trim();
+                          const providerApiKey = (storyboardApiKeys[provider.id] ?? '').trim();
                           if (!providerApiKey) {
                             setOpenPanel(null);
                             setMissingKeyProviderName(provider.label || provider.name);

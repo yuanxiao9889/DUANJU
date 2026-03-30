@@ -4,6 +4,7 @@
     "subtitle": "Storyboard Copilot"
   },
   "common": {
+    "back": "返回",
     "save": "保存",
     "cancel": "取消",
     "confirm": "确认",
@@ -428,6 +429,14 @@
     "manageTemplates": "管理风格模板..."
   },
   "settings": {
+    "providerGroupOfficial": "官服组",
+    "providerGroupThirdParty": "第三方",
+    "providerGroupStable": "稳定组",
+    "providerGroupAffordable": "廉价组",
+    "providerGroupPreferred": "优选组",
+    "providerGroupOther": "其他",
+    "providerActive": "已激活",
+    "providerActivate": "激活",
     "title": "设置",
     "providers": "密钥",
     "providersDesc": "配置 AI 服务商的 API 密钥",

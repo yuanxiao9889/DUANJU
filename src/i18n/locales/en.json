@@ -4,6 +4,7 @@
     "subtitle": "AI Storyboard Tool"
   },
   "common": {
+    "back": "Back",
     "save": "Save",
     "cancel": "Cancel",
     "confirm": "Confirm",
@@ -566,6 +567,14 @@
     "providers": "API Key",
     "providersDesc": "Configure AI provider API keys",
     "providerList": "Providers",
+    "providerGroupOfficial": "Official",
+    "providerGroupThirdParty": "Third-party",
+    "providerGroupStable": "Stable",
+    "providerGroupAffordable": "Affordable",
+    "providerGroupPreferred": "Preferred",
+    "providerGroupOther": "Other",
+    "providerActive": "Active",
+    "providerActivate": "Enable",
     "keyConfigured": "Configured",
     "keyNotConfigured": "Not configured",
     "dialogExpand": "Expand",

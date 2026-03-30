@@ -300,7 +300,10 @@ export function ProjectManager() {
   const assetsTabLabel = t('project.tabs.assets');
   const providerIds = useMemo(() => listModelProviders().map((provider) => provider.id), []);
   const configuredApiKeyCount = useSettingsStore((state) =>
-    getConfiguredApiKeyCount(state.apiKeys, providerIds)
+    getConfiguredApiKeyCount(
+      { ...state.scriptApiKeys, ...state.storyboardApiKeys },
+      providerIds
+    )
   );
 
   const [activeTab, setActiveTab] = useState<ProjectManagerTab>('projects');

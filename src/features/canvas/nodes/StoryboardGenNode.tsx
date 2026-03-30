@@ -548,7 +548,7 @@ export const StoryboardGenNode = memo(({ id, data, selected, width, height }: St
   const addNode = useCanvasStore((state) => state.addNode);
   const addEdge = useCanvasStore((state) => state.addEdge);
   const findNodePosition = useCanvasStore((state) => state.findNodePosition);
-  const apiKeys = useSettingsStore((state) => state.apiKeys);
+  const storyboardApiKeys = useSettingsStore((state) => state.storyboardApiKeys);
   const hrsaiNanoBananaProModel = useSettingsStore((state) => state.hrsaiNanoBananaProModel);
   const storyboardCompatibleModelConfig = useSettingsStore(
     (state) => state.storyboardCompatibleModelConfig
@@ -627,7 +627,7 @@ export const StoryboardGenNode = memo(({ id, data, selected, width, height }: St
     const modelId = nodeData.model ?? DEFAULT_IMAGE_MODEL_ID;
     return getStoryboardImageModel(modelId, storyboardCompatibleModelConfig);
   }, [nodeData.model, storyboardCompatibleModelConfig]);
-  const providerApiKey = apiKeys[selectedModel.providerId] ?? '';
+  const providerApiKey = storyboardApiKeys[selectedModel.providerId] ?? '';
   const effectiveExtraParams = useMemo(
     () => ({
       ...(nodeData.extraParams ?? {}),

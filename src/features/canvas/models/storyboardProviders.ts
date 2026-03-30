@@ -12,6 +12,8 @@ import {
   STORYBOARD_COMPATIBLE_PROVIDER_ID,
   type StoryboardCompatibleModelConfig,
 } from './storyboardCompatible';
+import { AZEMM_NANO_BANANA_MODEL_ID } from './image/azemm/nanoBanana';
+import { AZEMM_NANO_BANANA_HD_MODEL_ID } from './image/azemm/nanoBananaHd';
 import { BLTCY_GEMINI_FLASH_IMAGE_PREVIEW_4K_MODEL_ID } from './image/bltcy/nanoBanana';
 import { BLTCY_NANO_BANANA_2_4K_MODEL_ID } from './image/bltcy/nanoBananaHd';
 import { COMFLY_NANO_BANANA_MODEL_ID } from './image/comfly/nanoBanana';
@@ -20,6 +22,7 @@ import { ZHENZHEN_NANO_BANANA_MODEL_ID } from './image/zhenzhen/nanoBanana';
 import { ZHENZHEN_NANO_BANANA_HD_MODEL_ID } from './image/zhenzhen/nanoBananaHd';
 
 export const STORYBOARD_CUSTOM_MODEL_PROVIDER_IDS = [
+  'azemm',
   'comfly',
   'zhenzhen',
   'bltcy',
@@ -112,6 +115,10 @@ const BUILT_IN_STORYBOARD_MODELS: Record<
   StoryboardCustomModelProviderId,
   readonly StoryboardModelOption[]
 > = {
+  azemm: [
+    { modelId: AZEMM_NANO_BANANA_MODEL_ID, label: '\u9999\u85492', source: 'builtin' },
+    { modelId: AZEMM_NANO_BANANA_HD_MODEL_ID, label: '\u9999\u8549pro', source: 'builtin' },
+  ],
   comfly: [
     { modelId: COMFLY_NANO_BANANA_MODEL_ID, label: '香蕉2', source: 'builtin' },
     { modelId: COMFLY_NANO_BANANA_HD_MODEL_ID, label: '香蕉Pro', source: 'builtin' },

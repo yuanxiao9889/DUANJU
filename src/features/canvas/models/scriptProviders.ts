@@ -13,6 +13,7 @@ export const DEFAULT_SCRIPT_PROVIDER_ID = 'alibaba';
 export const SCRIPT_PROVIDER_IDS = [
   'alibaba',
   'coding',
+  'azemm',
   'bltcy',
   'volcengine',
   'zhenzhen',
@@ -37,6 +38,7 @@ export interface ScriptModelOption {
 
 export interface ScriptModelSettingsLike {
   apiKeys?: Record<string, string>;
+  scriptApiKeys?: Record<string, string>;
   scriptProviderEnabled?: string;
   scriptModelOverrides?: Record<string, string>;
   scriptProviderCustomModels?: Record<string, CustomScriptModelEntry[]>;
@@ -59,6 +61,7 @@ const BUILT_IN_SCRIPT_MODELS: Record<ScriptProviderId, readonly ScriptModelOptio
       label: option.label,
       source: 'builtin',
     })),
+  azemm: [],
   bltcy: [
     {
       modelId: DEFAULT_BLTCY_TEXT_MODEL,
@@ -311,7 +314,7 @@ export function resolveConfiguredScriptProvider(
 
   return normalizeScriptProviderEnabledSelection(
     settings.scriptProviderEnabled,
-    settings.apiKeys ?? {}
+    settings.scriptApiKeys ?? settings.apiKeys ?? {}
   );
 }
 

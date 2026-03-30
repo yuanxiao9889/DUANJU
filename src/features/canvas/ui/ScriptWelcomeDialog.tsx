@@ -88,7 +88,7 @@ export function ScriptWelcomeDialog({ isOpen, onClose }: ScriptWelcomeDialogProp
   const hasScriptProvider =
     Boolean(activeScriptProvider)
     && Boolean(activeScriptModel)
-    && Boolean(activeScriptProvider ? settings.apiKeys[activeScriptProvider]?.trim() : '');
+    && Boolean(activeScriptProvider ? settings.scriptApiKeys[activeScriptProvider]?.trim() : '');
 
   const [mode, setMode] = useState<WelcomeMode>('select');
   const [form, setForm] = useState<StoryPlannerInput>(INITIAL_FORM);

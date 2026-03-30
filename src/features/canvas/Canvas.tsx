@@ -580,10 +580,13 @@ export function Canvas() {
   const groupNodesShortcut = useSettingsStore((state) => state.groupNodesShortcut);
   const setShowMiniMap = useSettingsStore((state) => state.setShowMiniMap);
   const setShowAlignmentGuides = useSettingsStore((state) => state.setShowAlignmentGuides);
-  const apiKeys = useSettingsStore((state) => state.apiKeys);
+  const storyboardApiKeys = useSettingsStore((state) => state.storyboardApiKeys);
   const providerIds = useMemo(() => listModelProviders().map((provider) => provider.id), []);
   const configuredApiKeyCount = useSettingsStore((state) =>
-    getConfiguredApiKeyCount(state.apiKeys, providerIds)
+    getConfiguredApiKeyCount(
+      { ...state.scriptApiKeys, ...state.storyboardApiKeys },
+      providerIds
+    )
   );
 
   const clearDragOverlay = useCallback(() => {
@@ -735,7 +738,7 @@ export function Canvas() {
         return;
       }
 
-      const providerApiKey = apiKeys[generationProviderId] ?? '';
+      const providerApiKey = storyboardApiKeys[generationProviderId] ?? '';
       if (!providerApiKey) {
         return;
       }
@@ -748,7 +751,7 @@ export function Canvas() {
         });
       });
     },
-    [apiKeys]
+    [storyboardApiKeys]
   );
 
   const applyGenerationSuccessResult = useCallback(

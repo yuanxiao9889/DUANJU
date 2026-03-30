@@ -105,7 +105,7 @@ function resolveTextGenerationExtraParams(
 export async function generateText(request: TextGenerationRequest): Promise<TextGenerationResponse> {
   const settings = useSettingsStore.getState();
   const { provider, model } = resolveProviderAndModel(request);
-  const apiKey = (settings.apiKeys[provider] || '').trim();
+  const apiKey = (settings.scriptApiKeys[provider] || '').trim();
   const extraParams = resolveTextGenerationExtraParams(provider, model, request);
   const referenceImages = Array.isArray(request.referenceImages)
     ? request.referenceImages

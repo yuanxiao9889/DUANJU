@@ -1,5 +1,5 @@
 import { useState, useCallback, useEffect, useMemo, type KeyboardEvent as ReactKeyboardEvent } from 'react';
-import { X, Eye, EyeOff, FolderOpen, Plus, Trash2, Maximize2, Minimize2, HardDrive, Loader2, Circle, Keyboard, RotateCcw } from 'lucide-react';
+import { X, Eye, EyeOff, FolderOpen, Plus, Trash2, Maximize2, Minimize2, HardDrive, Loader2, Circle, Keyboard, RotateCcw, ChevronDown, ChevronRight } from 'lucide-react';
 import { Trans, useTranslation } from 'react-i18next';
 import { getVersion } from '@tauri-apps/api/app';
 import { open } from '@tauri-apps/plugin-dialog';
@@ -37,6 +37,7 @@ import {
   upsertCustomScriptModelEntry,
   type CustomScriptModelEntry,
   type CustomStoryboardModelEntry,
+  type ModelProviderDefinition,
   type ScriptCompatibleProviderConfig,
   STORYBOARD_COMPATIBLE_API_FORMATS,
   listModelProviders,
@@ -71,6 +72,107 @@ interface SettingsCheckboxCardProps {
   onCheckedChange: (checked: boolean) => void;
 }
 
+type ProviderTab = 'script' | 'storyboard';
+
+interface ProviderGroupConfig {
+  id: string;
+  labelKey: string;
+  providerIds?: readonly string[];
+  includeRemaining?: boolean;
+  defaultCollapsed?: boolean;
+}
+
+interface ResolvedProviderGroup extends ProviderGroupConfig {
+  providers: ModelProviderDefinition[];
+}
+
+const SCRIPT_PROVIDER_GROUP_CONFIGS: ProviderGroupConfig[] = [
+  {
+    id: 'official',
+    labelKey: 'settings.providerGroupOfficial',
+    providerIds: ['alibaba', 'coding', 'volcengine'],
+    defaultCollapsed: false,
+  },
+  {
+    id: 'thirdParty',
+    labelKey: 'settings.providerGroupThirdParty',
+    includeRemaining: true,
+    defaultCollapsed: true,
+  },
+];
+
+const STORYBOARD_PROVIDER_GROUP_CONFIGS: ProviderGroupConfig[] = [
+  {
+    id: 'preferred',
+    labelKey: 'settings.providerGroupPreferred',
+    providerIds: ['grsai'],
+    defaultCollapsed: false,
+  },
+  {
+    id: 'stable',
+    labelKey: 'settings.providerGroupStable',
+    providerIds: ['kie', 'ppio', 'fal'],
+    defaultCollapsed: true,
+  },
+  {
+    id: 'cheap',
+    labelKey: 'settings.providerGroupAffordable',
+    providerIds: ['azemm', 'zhenzhen', 'comfly', 'bltcy', 'runninghub'],
+    defaultCollapsed: true,
+  },
+  {
+    id: 'other',
+    labelKey: 'settings.providerGroupOther',
+    includeRemaining: true,
+    defaultCollapsed: true,
+  },
+];
+
+function resolveProviderGroups(
+  providers: ModelProviderDefinition[],
+  configs: ProviderGroupConfig[]
+): ResolvedProviderGroup[] {
+  const providerMap = new Map(providers.map((provider) => [provider.id, provider]));
+  const usedProviderIds = new Set<string>();
+
+  return configs
+    .map((config) => {
+      const groupedProviders = config.includeRemaining
+        ? providers.filter((provider) => !usedProviderIds.has(provider.id))
+        : (config.providerIds ?? [])
+          .map((providerId) => providerMap.get(providerId))
+          .filter((provider): provider is ModelProviderDefinition => Boolean(provider));
+
+      groupedProviders.forEach((provider) => usedProviderIds.add(provider.id));
+
+      return {
+        ...config,
+        providers: groupedProviders,
+      };
+    })
+    .filter((group) => group.providers.length > 0);
+}
+
+function buildProviderGroupCollapseKey(tab: ProviderTab, groupId: string): string {
+  return `${tab}:${groupId}`;
+}
+
+function buildDefaultProviderGroupCollapseState(): Record<string, boolean> {
+  const nextState: Record<string, boolean> = {};
+
+  for (const config of SCRIPT_PROVIDER_GROUP_CONFIGS) {
+    nextState[buildProviderGroupCollapseKey('script', config.id)] = Boolean(config.defaultCollapsed);
+  }
+
+  for (const config of STORYBOARD_PROVIDER_GROUP_CONFIGS) {
+    nextState[buildProviderGroupCollapseKey('storyboard', config.id)] = Boolean(config.defaultCollapsed);
+  }
+
+  return nextState;
+}
+
+const DEFAULT_PROVIDER_GROUP_COLLAPSE_STATE = buildDefaultProviderGroupCollapseState();
+
 const RELEASE_NOTE_SECTION_LABEL_KEYS: Record<ReleaseNoteSectionKey, string> = {
   added: 'settings.releaseSectionAdded',
   optimized: 'settings.releaseSectionOptimized',
@@ -88,6 +190,7 @@ const PROVIDER_REGISTER_URLS: Record<string, string> = {
   fal: 'https://fal.ai',
   alibaba: 'https://bailian.console.aliyun.com',
   coding: 'https://bailian.console.aliyun.com',
+  azemm: 'https://api.azemm.top',
   comfly: 'https://ai.comfly.chat/register?aff=25c82943753',
   zhenzhen: 'https://ai.t8star.cn/register?aff=9d51cc44298',
   bltcy: 'https://api.bltcy.ai/register?aff=z9mi114199',
@@ -101,6 +204,7 @@ const PROVIDER_GET_KEY_URLS: Record<string, string> = {
   fal: 'https://fal.ai/dashboard/keys',
   alibaba: 'https://bailian.console.aliyun.com/cn-beijing/#/api-key',
   coding: 'https://bailian.console.aliyun.com/cn-beijing/#/api-key',
+  azemm: 'https://api.azemm.top',
   comfly: 'https://ai.comfly.chat/register?aff=25c82943753',
   zhenzhen: 'https://ai.t8star.cn/register?aff=9d51cc44298',
   bltcy: 'https://api.bltcy.ai/register?aff=z9mi114199',
@@ -111,6 +215,7 @@ const DEFAULT_PROVIDER_TEST_MODELS: Record<string, string> = {
   ppio: 'ppio/gemini-3.1-flash',
   kie: 'kie/nano-banana-2',
   fal: 'fal/nano-banana-2',
+  azemm: 'azemm/gemini-3.1-flash-image-preview',
   comfly: 'comfly/gemini-3.1-flash-image-preview-4k',
   zhenzhen: 'zhenzhen/gemini-3.1-flash-image-preview-4k',
   bltcy: 'bltcy/gemini-3.1-flash-image-preview-4k',
@@ -207,7 +312,8 @@ export function SettingsDialog({
 }: SettingsDialogProps) {
   const { t, i18n } = useTranslation();
   const {
-    apiKeys,
+    scriptApiKeys,
+    storyboardApiKeys,
     scriptProviderEnabled,
     scriptModelOverrides,
     scriptProviderCustomModels,
@@ -234,7 +340,8 @@ export function SettingsDialog({
     themeTonePreset,
     accentColor,
     canvasEdgeRoutingMode,
-    setProviderApiKey,
+    setScriptProviderApiKey,
+    setStoryboardProviderApiKey,
     setScriptProviderEnabled,
     setScriptModelOverride,
     setScriptProviderCustomModels,
@@ -281,6 +388,7 @@ export function SettingsDialog({
       'ppio',
       'fal',
       'grsai',
+      'azemm',
       'comfly',
       'zhenzhen',
       'bltcy',
@@ -302,9 +410,18 @@ export function SettingsDialog({
     () => providers.filter((p) => p.id !== 'alibaba' && p.id !== 'coding' && p.id !== 'volcengine'),
     [providers]
   );
+  const scriptProviderGroups = useMemo(
+    () => resolveProviderGroups(scriptProviders, SCRIPT_PROVIDER_GROUP_CONFIGS),
+    [scriptProviders]
+  );
+  const storyboardProviderGroups = useMemo(
+    () => resolveProviderGroups(storyboardProviders, STORYBOARD_PROVIDER_GROUP_CONFIGS),
+    [storyboardProviders]
+  );
   const [activeCategory, setActiveCategory] = useState<SettingsCategory>(initialCategory);
-  const [localProviderTab, setLocalProviderTab] = useState<'script' | 'storyboard'>('script');
-  const [localApiKeys, setLocalApiKeys] = useState<Record<string, string>>(apiKeys);
+  const [localProviderTab, setLocalProviderTab] = useState<ProviderTab>('script');
+  const [localScriptApiKeys, setLocalScriptApiKeys] = useState<Record<string, string>>(scriptApiKeys);
+  const [localStoryboardApiKeys, setLocalStoryboardApiKeys] = useState<Record<string, string>>(storyboardApiKeys);
   const [localGrsaiNanoBananaProModel, setLocalGrsaiNanoBananaProModel] = useState(
    hrsaiNanoBananaProModel
   );
@@ -367,6 +484,9 @@ export function SettingsDialog({
   const [localPsIntegrationEnabled, setLocalPsIntegrationEnabled] = useState(psIntegrationEnabled);
   const [localPsServerPort, setLocalPsServerPort] = useState(psServerPort);
   const [localPsAutoStartServer, setLocalPsAutoStartServer] = useState(psAutoStartServer);
+  const [collapsedProviderGroups, setCollapsedProviderGroups] = useState<Record<string, boolean>>(
+    () => ({ ...DEFAULT_PROVIDER_GROUP_COLLAPSE_STATE })
+  );
   const [revealedApiKeys, setRevealedApiKeys] = useState<Record<string, boolean>>({});
   const [testingConnection, setTestingConnection] = useState<string | null>(null);
   const [testResults, setTestResults] = useState<Record<string, { success: boolean; message: string }>>({});
@@ -418,7 +538,8 @@ export function SettingsDialog({
     if (!isOpen) {
       return;
     }
-    setLocalApiKeys(apiKeys);
+    setLocalScriptApiKeys(scriptApiKeys);
+    setLocalStoryboardApiKeys(storyboardApiKeys);
     setLocalDownloadPresetPaths(downloadPresetPaths);
     setLocalGrsaiNanoBananaProModel(hrsaiNanoBananaProModel);
     setLocalScriptProviderEnabled(scriptProviderEnabled);
@@ -454,12 +575,14 @@ export function SettingsDialog({
     setLocalPsIntegrationEnabled(psIntegrationEnabled);
     setLocalPsServerPort(psServerPort);
     setLocalPsAutoStartServer(psAutoStartServer);
+    setCollapsedProviderGroups({ ...DEFAULT_PROVIDER_GROUP_COLLAPSE_STATE });
     setIsCapturingGroupShortcut(false);
     setRevealedApiKeys({});
     setLocalDownloadPathInput('');
   }, [
     isOpen,
-    apiKeys,
+    scriptApiKeys,
+    storyboardApiKeys,
     downloadPresetPaths,
     hrsaiNanoBananaProModel,
     scriptProviderEnabled,
@@ -500,6 +623,47 @@ export function SettingsDialog({
 
     setActiveCategory(initialCategory);
   }, [initialCategory, isOpen]);
+
+  useEffect(() => {
+    if (!scriptProviders.some((provider) => provider.id === selectedScriptProvider)) {
+      setSelectedScriptProvider(scriptProviders[0]?.id || '');
+    }
+  }, [scriptProviders, selectedScriptProvider]);
+
+  useEffect(() => {
+    if (!storyboardProviders.some((provider) => provider.id === selectedStoryboardProvider)) {
+      setSelectedStoryboardProvider(storyboardProviders[0]?.id || '');
+    }
+  }, [selectedStoryboardProvider, storyboardProviders]);
+
+  useEffect(() => {
+    const selectedProviderId =
+      localProviderTab === 'script' ? selectedScriptProvider : selectedStoryboardProvider;
+    const groups = localProviderTab === 'script' ? scriptProviderGroups : storyboardProviderGroups;
+    const selectedGroup = groups.find((group) =>
+      group.providers.some((provider) => provider.id === selectedProviderId)
+    );
+
+    if (!selectedGroup) {
+      return;
+    }
+
+    const collapseKey = buildProviderGroupCollapseKey(localProviderTab, selectedGroup.id);
+    setCollapsedProviderGroups((previous) => (
+      previous[collapseKey]
+        ? {
+            ...previous,
+            [collapseKey]: false,
+          }
+        : previous
+    ));
+  }, [
+    localProviderTab,
+    scriptProviderGroups,
+    selectedScriptProvider,
+    selectedStoryboardProvider,
+    storyboardProviderGroups,
+  ]);
 
   const loadStorageInfo = useCallback(async () => {
     setIsLoadingStorageInfo(true);
@@ -759,8 +923,11 @@ export function SettingsDialog({
   ]);
 
   const handleSave = useCallback(() => {
-    providers.forEach((provider) => {
-      setProviderApiKey(provider.id, localApiKeys[provider.id] ?? '');
+    scriptProviders.forEach((provider) => {
+      setScriptProviderApiKey(provider.id, localScriptApiKeys[provider.id] ?? '');
+    });
+    storyboardProviders.forEach((provider) => {
+      setStoryboardProviderApiKey(provider.id, localStoryboardApiKeys[provider.id] ?? '');
     });
     setGrsaiNanoBananaProModel(localGrsaiNanoBananaProModel);
     setScriptProviderEnabled(localScriptProviderEnabled);
@@ -817,7 +984,8 @@ export function SettingsDialog({
     setPsAutoStartServer(localPsAutoStartServer);
     onClose();
   }, [
-    localApiKeys,
+    localScriptApiKeys,
+    localStoryboardApiKeys,
     localDownloadPresetPaths,
     localGrsaiNanoBananaProModel,
     localUseUploadFilenameAsNodeTitle,
@@ -846,10 +1014,10 @@ export function SettingsDialog({
     localStoryboardCompatibleModelConfig,
     localStoryboardModelOverrides,
     localStoryboardProviderCustomModels,
-    providers,
     scriptProviders,
     storyboardProviders,
-    setProviderApiKey,
+    setScriptProviderApiKey,
+    setStoryboardProviderApiKey,
     setGrsaiNanoBananaProModel,
     setScriptProviderEnabled,
     setScriptModelOverride,
@@ -1151,13 +1319,113 @@ export function SettingsDialog({
                 </div>
 
                 <div className="flex-1 flex min-h-0">
-                  <div className="w-[140px] border-r border-border-dark bg-bg-dark flex flex-col">
+                  <div className="w-[196px] border-r border-border-dark bg-bg-dark flex flex-col">
                     <div className="px-3 py-3 text-xs font-medium text-text-muted uppercase tracking-wider">
                       {t('settings.providerList')}
                     </div>
                     <nav className="flex-1 overflow-y-auto ui-scrollbar">
-                      {(localProviderTab === 'script' ? scriptProviders : storyboardProviders).map((provider) => {
-                        const hasKey = Boolean((localApiKeys[provider.id] ?? '').trim());
+                      {(localProviderTab === 'script'
+                        ? scriptProviderGroups
+                        : storyboardProviderGroups).map((group) => {
+                          const isCollapsed = Boolean(
+                            collapsedProviderGroups[
+                              buildProviderGroupCollapseKey(localProviderTab, group.id)
+                            ]
+                          );
+
+                          return (
+                            <div
+                              key={`${localProviderTab}-${group.id}`}
+                              className="border-b border-border-dark/70 last:border-b-0"
+                            >
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  setCollapsedProviderGroups((previous) => ({
+                                    ...previous,
+                                    [buildProviderGroupCollapseKey(localProviderTab, group.id)]:
+                                      !isCollapsed,
+                                  }))
+                                }
+                                className="flex w-full items-center gap-2 px-3 py-2 text-left text-[11px] font-medium uppercase tracking-[0.08em] text-text-muted transition-colors hover:bg-surface-dark hover:text-text-dark"
+                              >
+                                {isCollapsed ? (
+                                  <ChevronRight className="h-3.5 w-3.5 shrink-0" />
+                                ) : (
+                                  <ChevronDown className="h-3.5 w-3.5 shrink-0" />
+                                )}
+                                <span className="min-w-0 flex-1 truncate">
+                                  {t(group.labelKey)}
+                                </span>
+                                <span className="text-[10px] text-text-muted/80">
+                                  {group.providers.length}
+                                </span>
+                              </button>
+
+                              {!isCollapsed && (
+                                <div className="pb-1">
+                                  {group.providers.map((provider) => {
+                                    const providerApiKey = (
+                                      localProviderTab === 'script'
+                                        ? localScriptApiKeys[provider.id]
+                                        : localStoryboardApiKeys[provider.id]
+                                    ) ?? '';
+                                    const hasKey = Boolean(providerApiKey.trim());
+                                    const selectedProviderId =
+                                      localProviderTab === 'script'
+                                        ? selectedScriptProvider
+                                        : selectedStoryboardProvider;
+                                    const isSelected = selectedProviderId === provider.id;
+                                    const isEnabled =
+                                      localProviderTab === 'script'
+                                      && localScriptProviderEnabled === provider.id
+                                      && hasKey;
+
+                                    return (
+                                      <button
+                                        key={provider.id}
+                                        onClick={() => {
+                                          if (localProviderTab === 'script') {
+                                            setSelectedScriptProvider(provider.id);
+                                          } else {
+                                            setSelectedStoryboardProvider(provider.id);
+                                          }
+                                        }}
+                                        className={`ml-2 flex w-[calc(100%-8px)] items-center gap-2 rounded-l-md px-3 py-2 text-left transition-colors ${
+                                          isSelected
+                                            ? 'border-l-2 border-accent bg-accent/10 text-text-dark'
+                                            : 'text-text-muted hover:bg-surface-dark hover:text-text-dark'
+                                        }`}
+                                      >
+                                        <span
+                                          className={`h-2 w-2 shrink-0 rounded-full ${hasKey ? 'bg-green-500' : 'bg-border-dark'}`}
+                                          title={hasKey ? t('settings.keyConfigured') : t('settings.keyNotConfigured')}
+                                        />
+                                        <span className="min-w-0 flex-1 truncate text-xs">
+                                          {i18n.language.startsWith('zh') ? provider.label : provider.name}
+                                        </span>
+                                        {isEnabled && (
+                                          <span className="text-[10px] font-medium text-amber-500">
+                                            {t('settings.providerActive')}
+                                          </span>
+                                        )}
+                                      </button>
+                                    );
+                                  })}
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })}
+                    </nav>
+                    <nav className="hidden">
+                      {false && (localProviderTab === 'script' ? scriptProviders : storyboardProviders).map((provider) => {
+                        const providerApiKey = (
+                          localProviderTab === 'script'
+                            ? localScriptApiKeys[provider.id]
+                            : localStoryboardApiKeys[provider.id]
+                        ) ?? '';
+                        const hasKey = Boolean(providerApiKey.trim());
                         const selectedProviderId = localProviderTab === 'script' ? selectedScriptProvider : selectedStoryboardProvider;
                         const isSelected = selectedProviderId === provider.id;
                         const isEnabled = localProviderTab === 'script' && localScriptProviderEnabled === provider.id && hasKey;
@@ -1199,9 +1467,15 @@ export function SettingsDialog({
                       const provider = providers.find(p => p.id === selectedProviderId);
                       if (!provider) return null;
                       const displayName = i18n.language.startsWith('zh') ? provider.label : provider.name;
-                      const isRevealed = Boolean(revealedApiKeys[provider.id]);
-                      const hasKey = Boolean((localApiKeys[provider.id] ?? '').trim());
                       const isScriptTab = localProviderTab === 'script';
+                      const revealKey = `${localProviderTab}:${provider.id}`;
+                      const currentApiKey = (
+                        isScriptTab
+                          ? localScriptApiKeys[provider.id]
+                          : localStoryboardApiKeys[provider.id]
+                      ) ?? '';
+                      const isRevealed = Boolean(revealedApiKeys[revealKey]);
+                      const hasKey = Boolean(currentApiKey.trim());
                       const isEnabled = isScriptTab && localScriptProviderEnabled === provider.id && hasKey;
                       const resolvedScriptModel = isScriptTab
                         ? resolveConfiguredScriptModel(provider.id, {
@@ -1269,12 +1543,19 @@ export function SettingsDialog({
                                   });
                                   setLocalScriptProviderEnabled(isEnabled ? '' : provider.id);
                                 }}
-                                className={`px-4 py-1.5 text-xs font-medium rounded transition-colors ${
+                                className={`relative overflow-hidden px-4 py-1.5 text-xs font-medium text-transparent rounded transition-colors ${
                                   isEnabled
                                     ? 'bg-amber-500 text-white hover:bg-amber-600'
                                     : 'bg-surface-dark text-text-dark border border-border-dark hover:bg-bg-dark disabled:opacity-50 disabled:cursor-not-allowed'
                                 }`}
                               >
+                                <span
+                                  className={`pointer-events-none absolute inset-0 flex items-center justify-center ${
+                                    isEnabled ? 'text-white' : 'text-text-dark'
+                                  }`}
+                                >
+                                  {isEnabled ? t('settings.providerActive') : t('settings.providerActivate')}
+                                </span>
                                 {isEnabled ? '已激活' : '激活'}
                               </button>
                             )}
@@ -1309,13 +1590,20 @@ export function SettingsDialog({
                             <div className="relative">
                               <input
                                 type={isRevealed ? 'text' : 'password'}
-                                value={localApiKeys[provider.id] ?? ''}
+                                value={currentApiKey}
                                 onChange={(event) => {
                                   const nextValue = event.target.value;
-                                  setLocalApiKeys((previous) => ({
-                                    ...previous,
-                                    [provider.id]: nextValue,
-                                  }));
+                                  if (isScriptTab) {
+                                    setLocalScriptApiKeys((previous) => ({
+                                      ...previous,
+                                      [provider.id]: nextValue,
+                                    }));
+                                  } else {
+                                    setLocalStoryboardApiKeys((previous) => ({
+                                      ...previous,
+                                      [provider.id]: nextValue,
+                                    }));
+                                  }
                                 }}
                                 placeholder={t('settings.enterApiKey')}
                                 className="w-full rounded border border-border-dark bg-surface-dark px-3 py-2 pr-10 text-sm text-text-dark placeholder:text-text-muted"
@@ -1325,7 +1613,7 @@ export function SettingsDialog({
                                 onClick={() =>
                                   setRevealedApiKeys((previous) => ({
                                     ...previous,
-                                    [provider.id]: !isRevealed,
+                                    [revealKey]: !isRevealed,
                                   }))
                                 }
                                 className="absolute right-2 top-1/2 -translate-y-1/2 rounded p-1 hover:bg-bg-dark"
@@ -1359,7 +1647,7 @@ export function SettingsDialog({
                                         : DEFAULT_PROVIDER_TEST_MODELS[provider.id] ?? 'gemini-2.0-flash';
                                     const result = await testProviderConnection({
                                       provider: provider.id,
-                                      apiKey: localApiKeys[provider.id] || '',
+                                      apiKey: currentApiKey,
                                       model,
                                       extraParams:
                                         isScriptCompatibleProvider

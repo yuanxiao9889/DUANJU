@@ -362,7 +362,7 @@ export const ImageEditNode = memo(({ id, data, selected, width, height }: ImageE
   const addNode = useCanvasStore((state) => state.addNode);
   const findNodePosition = useCanvasStore((state) => state.findNodePosition);
   const addEdge = useCanvasStore((state) => state.addEdge);
-  const apiKeys = useSettingsStore((state) => state.apiKeys);
+  const storyboardApiKeys = useSettingsStore((state) => state.storyboardApiKeys);
   const hrsaiNanoBananaProModel = useSettingsStore((state) => state.hrsaiNanoBananaProModel);
   const storyboardCompatibleModelConfig = useSettingsStore(
     (state) => state.storyboardCompatibleModelConfig
@@ -425,7 +425,7 @@ export const ImageEditNode = memo(({ id, data, selected, width, height }: ImageE
       storyboardProviderCustomModels,
     ]
   );
-  const providerApiKey = apiKeys[selectedModel.providerId] ?? '';
+  const providerApiKey = storyboardApiKeys[selectedModel.providerId] ?? '';
   const effectiveExtraParams = useMemo(
     () => ({
       ...(data.extraParams ?? {}),

@@ -49,7 +49,8 @@ export interface StyleTemplate {
 
 interface SettingsState {
   isHydrated: boolean;
-  apiKeys: ProviderApiKeys;
+  scriptApiKeys: ProviderApiKeys;
+  storyboardApiKeys: ProviderApiKeys;
   scriptProviderEnabled: string;
   scriptModelOverrides: Record<string, string>;
   scriptProviderCustomModels: Record<string, CustomScriptModelEntry[]>;
@@ -92,7 +93,8 @@ interface SettingsState {
   psServerPort: number;
   psAutoStartServer: boolean;
   setIsHydrated: (isHydrated: boolean) => void;
-  setProviderApiKey: (providerId: string, key: string) => void;
+  setScriptProviderApiKey: (providerId: string, key: string) => void;
+  setStoryboardProviderApiKey: (providerId: string, key: string) => void;
   setScriptProviderEnabled: (providerId: string) => void;
   setScriptModelOverride: (providerId: string, model: string) => void;
   setScriptProviderCustomModels: (
@@ -268,7 +270,8 @@ export const useSettingsStore = create<SettingsState>()(
   persist(
     (set) => ({
       isHydrated: false,
-      apiKeys: {},
+      scriptApiKeys: {},
+      storyboardApiKeys: {},
       scriptProviderEnabled: 'alibaba',
       scriptModelOverrides: {
         alibaba: DEFAULT_ALIBABA_TEXT_MODEL,
@@ -315,10 +318,17 @@ export const useSettingsStore = create<SettingsState>()(
       psServerPort: 9527,
       psAutoStartServer: true,
       setIsHydrated: (isHydrated) => set({ isHydrated }),
-      setProviderApiKey: (providerId, key) =>
+      setScriptProviderApiKey: (providerId, key) =>
         set((state) => ({
-          apiKeys: {
-            ...state.apiKeys,
+          scriptApiKeys: {
+            ...state.scriptApiKeys,
+            [providerId]: normalizeApiKey(key),
+          },
+        })),
+      setStoryboardProviderApiKey: (providerId, key) =>
+        set((state) => ({
+          storyboardApiKeys: {
+            ...state.storyboardApiKeys,
             [providerId]: normalizeApiKey(key),
           },
         })),
@@ -461,7 +471,7 @@ export const useSettingsStore = create<SettingsState>()(
     }),
     {
       name: 'settings-storage',
-      version: 21,
+      version: 22,
       onRehydrateStorage: () => {
         return (state, error) => {
           if (error) {
@@ -474,6 +484,8 @@ export const useSettingsStore = create<SettingsState>()(
         const state = (persistedState ?? {}) as {
           apiKey?: string;
           apiKeys?: ProviderApiKeys;
+          scriptApiKeys?: ProviderApiKeys;
+          storyboardApiKeys?: ProviderApiKeys;
           scriptProviderEnabled?: string;
           scriptModelOverrides?: Record<string, string>;
           scriptProviderCustomModels?: Record<string, CustomScriptModelEntry[]>;
@@ -507,16 +519,26 @@ export const useSettingsStore = create<SettingsState>()(
           showAlignmentGuides?: boolean;
         };
 
-        const migratedApiKeys = normalizeApiKeys(state.apiKeys);
+        const migratedLegacyApiKeys = normalizeApiKeys(state.apiKeys);
+        const migratedScriptApiKeys = normalizeApiKeys(state.scriptApiKeys);
+        const migratedStoryboardApiKeys = normalizeApiKeys(state.storyboardApiKeys);
         const fallbackApiKeys =
-          Object.keys(migratedApiKeys).length > 0
-            ? migratedApiKeys
+          Object.keys(migratedLegacyApiKeys).length > 0
+            ? migratedLegacyApiKeys
             : state.apiKey
               ? { ppio: normalizeApiKey(state.apiKey) }
               : {};
+        const resolvedScriptApiKeys =
+          Object.keys(migratedScriptApiKeys).length > 0
+            ? migratedScriptApiKeys
+            : fallbackApiKeys;
+        const resolvedStoryboardApiKeys =
+          Object.keys(migratedStoryboardApiKeys).length > 0
+            ? migratedStoryboardApiKeys
+            : fallbackApiKeys;
         const normalizedScriptProviderEnabled = normalizeScriptProviderEnabledSelection(
           state.scriptProviderEnabled,
-          fallbackApiKeys
+          resolvedScriptApiKeys
         );
         const ignoreAtTagWhenCopyingAndGenerating =
           state.ignoreAtTagWhenCopyingAndGenerating ?? true;
@@ -550,7 +572,8 @@ export const useSettingsStore = create<SettingsState>()(
         return {
           ...(persistedState as object),
           isHydrated: true,
-          apiKeys: fallbackApiKeys,
+          scriptApiKeys: resolvedScriptApiKeys,
+          storyboardApiKeys: resolvedStoryboardApiKeys,
           scriptProviderEnabled: normalizedScriptProviderEnabled,
           scriptModelOverrides: normalizedScriptModelOverrides,
           scriptProviderCustomModels: normalizedScriptProviderCustomModels,
