@@ -38,6 +38,35 @@ function simpleMarkdownToHtml(text: string): string {
   return html;
 }
 
+function stripHtmlToPlainText(html: string): string {
+  const trimmed = html.trim();
+  if (!trimmed) {
+    return '';
+  }
+
+  if (typeof DOMParser !== 'undefined') {
+    const parser = new DOMParser();
+    const document = parser.parseFromString(trimmed, 'text/html');
+    return (document.body.textContent || '')
+      .replace(/\u00a0/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
+  }
+
+  return trimmed
+    .replace(/<br\s*\/?>/gi, ' ')
+    .replace(/<\/p>\s*<p[^>]*>/gi, ' ')
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/&nbsp;/g, ' ')
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&#39;/g, '\'')
+    .replace(/&quot;/g, '"')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
 type ScriptChapterNodeProps = {
   id: string;
   data: ScriptChapterNodeData;
@@ -166,6 +195,7 @@ export const ScriptChapterNode = memo(({ id, data, selected, width, height }: Sc
   const resolvedWidth = resolveNodeDimension(width, DEFAULT_NODE_WIDTH);
   const resolvedHeight = resolveNodeDimension(height, DEFAULT_NODE_HEIGHT);
   const scenes = useMemo(() => normalizeSceneCards(data.scenes, data.content), [data.content, data.scenes]);
+  const scenePreviewMaxHeight = Math.max(136, Math.min(280, Math.round(resolvedHeight * 0.34)));
 
   const handleTitleChange = useCallback(
     (nextTitle: string) => {
@@ -349,7 +379,7 @@ export const ScriptChapterNode = memo(({ id, data, selected, width, height }: Sc
     <>
       <div
         ref={nodeContainerRef}
-        className={`group relative rounded-[18px] border ${
+        className={`group relative overflow-hidden rounded-[18px] border ${
           selected
             ? 'border-amber-500/50 shadow-[0_0_0_1px_rgba(245,158,11,0.35)]'
             : 'border-[rgba(15,23,42,0.2)] dark:border-[rgba(255,255,255,0.26)]'
@@ -374,7 +404,7 @@ export const ScriptChapterNode = memo(({ id, data, selected, width, height }: Sc
           onTitleChange={handleTitleChange}
         />
 
-        <div className="nodrag p-3 h-full flex flex-col">
+        <div className="nodrag flex h-full flex-col overflow-hidden p-3">
           <div className="flex items-center gap-2 shrink-0">
             <span className={`text-xs px-1.5 py-0.5 rounded ${
               data.branchType === 'branch' 
@@ -416,7 +446,7 @@ export const ScriptChapterNode = memo(({ id, data, selected, width, height }: Sc
             </div>
           )}
 
-          <div className="mt-3 rounded-xl border border-border-dark bg-bg-dark/55 p-3 shrink-0">
+          <div className="mt-3 flex shrink-0 flex-col overflow-hidden rounded-xl border border-border-dark bg-bg-dark/55 p-3">
             <div className="flex items-center justify-between gap-2">
               <div>
                 <div className="text-[11px] uppercase tracking-[0.08em] text-text-muted">
@@ -444,9 +474,15 @@ export const ScriptChapterNode = memo(({ id, data, selected, width, height }: Sc
               </div>
             </div>
 
-            <div className="mt-3 space-y-2">
-              {scenes.slice(0, 3).map((scene) => {
+            <div
+              className="mt-3 min-h-0 space-y-2 overflow-y-auto pr-1"
+              style={{ maxHeight: `${scenePreviewMaxHeight}px` }}
+            >
+              {scenes.map((scene) => {
                 const isActive = activeChapterId === id && activeSceneId === scene.id;
+                const previewText = stripHtmlToPlainText(
+                  scene.summary || scene.visualHook || scene.draftHtml
+                ) || t('script.sceneStudio.sceneCardHint');
                 return (
                   <button
                     key={scene.id}
@@ -462,23 +498,17 @@ export const ScriptChapterNode = memo(({ id, data, selected, width, height }: Sc
                       <span className="truncate text-sm font-medium text-text-dark">
                         {scene.title || t('script.sceneStudio.untitledScene')}
                       </span>
-                      <span className="text-[11px] text-text-muted">
+                      <span className="shrink-0 text-[11px] text-text-muted">
                         {t('script.sceneStudio.sceneLabel', { number: scene.order + 1 })}
                       </span>
                     </div>
-                    <p className="mt-1 line-clamp-2 text-xs text-text-muted">
-                      {scene.summary || scene.visualHook || t('script.sceneStudio.sceneCardHint')}
+                    <p className="mt-1 overflow-hidden break-words text-xs leading-5 text-text-muted [display:-webkit-box] [-webkit-box-orient:vertical] [-webkit-line-clamp:2]">
+                      {previewText}
                     </p>
                   </button>
                 );
               })}
             </div>
-
-            {scenes.length > 3 ? (
-              <p className="mt-2 text-xs text-text-muted">
-                {t('script.sceneStudio.moreScenes', { count: scenes.length - 3 })}
-              </p>
-            ) : null}
           </div>
 
           <div className="flex-1 min-h-0 mt-3 overflow-hidden">

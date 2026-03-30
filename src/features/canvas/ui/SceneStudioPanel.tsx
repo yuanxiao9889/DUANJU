@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   AlertTriangle,
   Check,
+  ChevronLeft,
   ChevronDown,
   ChevronRight,
   Clapperboard,
@@ -50,21 +51,30 @@ import { useScriptEditorStore } from '@/stores/scriptEditorStore';
 
 const AUTOSAVE_DELAY_MS = 1200;
 const SCENE_STUDIO_SECTION_STORAGE_KEY = 'scene-studio-sections';
+const SCENE_STUDIO_PANEL_WIDTH_STORAGE_KEY = 'scene-studio-panel-width';
+const SCENE_STUDIO_PANEL_COLLAPSED_STORAGE_KEY = 'scene-studio-panel-collapsed';
+const SCENE_STUDIO_PANEL_DEFAULT_WIDTH = 620;
+const SCENE_STUDIO_PANEL_MIN_WIDTH = 420;
+const SCENE_STUDIO_PANEL_MAX_WIDTH = 920;
+const SCENE_STUDIO_PANEL_COLLAPSED_WIDTH = 52;
 
 type SceneStudioSectionKey =
   | 'chapterFocus'
   | 'sceneBlueprint'
   | 'importedSource'
+  | 'directorNotes'
   | 'continuity'
   | 'copilot'
   | 'draft';
 
 type SceneStudioSectionState = Record<SceneStudioSectionKey, boolean>;
+type SceneStudioWorkspaceTab = 'overview' | 'draft' | 'director';
 
 const DEFAULT_SCENE_STUDIO_SECTION_STATE: SceneStudioSectionState = {
   chapterFocus: false,
   sceneBlueprint: true,
   importedSource: false,
+  directorNotes: true,
   continuity: false,
   copilot: false,
   draft: true,
@@ -201,6 +211,34 @@ function parseMultilineItems(text: string): string[] {
   return items;
 }
 
+function clampSceneStudioPanelWidth(value: number): number {
+  return Math.min(
+    SCENE_STUDIO_PANEL_MAX_WIDTH,
+    Math.max(SCENE_STUDIO_PANEL_MIN_WIDTH, Math.round(value))
+  );
+}
+
+function readSceneStudioPanelWidth(): number {
+  if (typeof window === 'undefined') {
+    return SCENE_STUDIO_PANEL_DEFAULT_WIDTH;
+  }
+
+  const raw = Number(window.localStorage.getItem(SCENE_STUDIO_PANEL_WIDTH_STORAGE_KEY));
+  if (!Number.isFinite(raw) || raw <= 0) {
+    return SCENE_STUDIO_PANEL_DEFAULT_WIDTH;
+  }
+
+  return clampSceneStudioPanelWidth(raw);
+}
+
+function readSceneStudioPanelCollapsed(): boolean {
+  if (typeof window === 'undefined') {
+    return false;
+  }
+
+  return window.localStorage.getItem(SCENE_STUDIO_PANEL_COLLAPSED_STORAGE_KEY) === 'true';
+}
+
 function buildDraftTextWithContinuation(draftHtml: string, continuationText: string): string {
   const currentDraftText = htmlToPlainText(draftHtml);
   const nextText = continuationText.trim();
@@ -252,6 +290,9 @@ function readSceneStudioSectionState(): SceneStudioSectionState {
       importedSource: typeof parsed.importedSource === 'boolean'
         ? parsed.importedSource
         : DEFAULT_SCENE_STUDIO_SECTION_STATE.importedSource,
+      directorNotes: typeof parsed.directorNotes === 'boolean'
+        ? parsed.directorNotes
+        : DEFAULT_SCENE_STUDIO_SECTION_STATE.directorNotes,
       continuity: typeof parsed.continuity === 'boolean'
         ? parsed.continuity
         : DEFAULT_SCENE_STUDIO_SECTION_STATE.continuity,
@@ -468,6 +509,10 @@ export function SceneStudioPanel() {
   const [sectionState, setSectionState] = useState<SceneStudioSectionState>(() => (
     readSceneStudioSectionState()
   ));
+  const [activeWorkspaceTab, setActiveWorkspaceTab] = useState<SceneStudioWorkspaceTab>('draft');
+  const [panelWidth, setPanelWidth] = useState(() => readSceneStudioPanelWidth());
+  const [isPanelCollapsed, setIsPanelCollapsed] = useState(() => readSceneStudioPanelCollapsed());
+  const [isPanelResizing, setIsPanelResizing] = useState(false);
 
   const currentBindingRef = useRef<{ chapterId: string | null; sceneId: string | null }>({
     chapterId: null,
@@ -480,6 +525,7 @@ export function SceneStudioPanel() {
   });
   const sceneDraftRef = useRef<SceneCard | null>(null);
   const pendingContinuityActionRef = useRef<(() => void) | null>(null);
+  const panelResizeStateRef = useRef<{ startX: number; startWidth: number } | null>(null);
 
   const currentCopilotMessages = useMemo(() => {
     if (!sceneDraft) {
@@ -699,6 +745,60 @@ export function SceneStudioPanel() {
     );
   }, [sectionState]);
 
+  useEffect(() => {
+    if (typeof window === 'undefined') {
+      return;
+    }
+
+    window.localStorage.setItem(SCENE_STUDIO_PANEL_WIDTH_STORAGE_KEY, String(panelWidth));
+  }, [panelWidth]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') {
+      return;
+    }
+
+    window.localStorage.setItem(
+      SCENE_STUDIO_PANEL_COLLAPSED_STORAGE_KEY,
+      isPanelCollapsed ? 'true' : 'false'
+    );
+  }, [isPanelCollapsed]);
+
+  useEffect(() => {
+    if (!isPanelResizing || typeof window === 'undefined') {
+      return;
+    }
+
+    const handlePointerMove = (event: PointerEvent) => {
+      const resizeState = panelResizeStateRef.current;
+      if (!resizeState) {
+        return;
+      }
+
+      const nextWidth = clampSceneStudioPanelWidth(
+        resizeState.startWidth + (resizeState.startX - event.clientX)
+      );
+      setPanelWidth(nextWidth);
+    };
+
+    const stopResizing = () => {
+      panelResizeStateRef.current = null;
+      setIsPanelResizing(false);
+    };
+
+    window.addEventListener('pointermove', handlePointerMove);
+    window.addEventListener('pointerup', stopResizing);
+    document.body.style.cursor = 'col-resize';
+    document.body.style.userSelect = 'none';
+
+    return () => {
+      window.removeEventListener('pointermove', handlePointerMove);
+      window.removeEventListener('pointerup', stopResizing);
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+    };
+  }, [isPanelResizing]);
+
   const handleAddScene = useCallback(() => {
     if (!chapterNode || !chapterData) {
       return;
@@ -713,6 +813,39 @@ export function SceneStudioPanel() {
       content: composeChapterContentFromScenes(nextScenes, chapterData.content),
     });
     focusScene(chapterNode.id, nextScene.id);
+  }, [chapterData, chapterNode, focusScene, updateNodeData]);
+
+  const handleDeleteScene = useCallback((sceneId: string) => {
+    if (!chapterNode || !chapterData) {
+      return;
+    }
+
+    const normalizedScenes = normalizeSceneCards(chapterData.scenes, chapterData.content);
+    const removedIndex = normalizedScenes.findIndex((scene) => scene.id === sceneId);
+    if (removedIndex < 0) {
+      return;
+    }
+
+    const remainingScenes = normalizedScenes
+      .filter((scene) => scene.id !== sceneId)
+      .map((scene, index) => ({
+        ...scene,
+        order: index,
+      }));
+
+    const nextScenes = remainingScenes.length > 0
+      ? remainingScenes
+      : [createDefaultSceneCard(0)];
+    const nextFocusScene = nextScenes[Math.min(removedIndex, nextScenes.length - 1)];
+
+    updateNodeData(chapterNode.id, {
+      scenes: nextScenes,
+      content: composeChapterContentFromScenes(nextScenes, chapterData.content),
+    });
+
+    if (nextFocusScene) {
+      focusScene(chapterNode.id, nextFocusScene.id);
+    }
   }, [chapterData, chapterNode, focusScene, updateNodeData]);
 
   const updateSceneDraft = useCallback((updater: (draft: SceneCard) => SceneCard) => {
@@ -734,6 +867,25 @@ export function SceneStudioPanel() {
         ...(draft.copilotThread?.length ? draft.copilotThread : seedCopilotThread(draft)),
         message,
       ],
+    }));
+  }, [updateSceneDraft]);
+
+  const handleClearCopilotThread = useCallback(() => {
+    pendingContinuityActionRef.current = null;
+    setPendingContinuityGuard(null);
+    setCopilotInput('');
+    setCopilotError('');
+    setSelectionRewriteError('');
+    setSelectionRewriteInput('');
+    setExpandedSelectionComparisons({});
+    setSelectionRewriteTargets({});
+    setCheckingContinuityByMessageId({});
+    setPendingSelectionReplacement(null);
+
+    updateSceneDraft((draft) => ({
+      ...draft,
+      copilotThread: [],
+      copilotSummary: '',
     }));
   }, [updateSceneDraft]);
 
@@ -1101,6 +1253,8 @@ export function SceneStudioPanel() {
       return;
     }
 
+    setActiveWorkspaceTab('draft');
+    setActiveWorkspaceTab('draft');
     openSection('copilot');
 
     const trimmedInput = copilotInput.trim();
@@ -1333,6 +1487,7 @@ export function SceneStudioPanel() {
       return;
     }
 
+    setActiveWorkspaceTab('overview');
     openSection('continuity');
 
     setContinuityError('');
@@ -1382,15 +1537,85 @@ export function SceneStudioPanel() {
     openSection,
   ]);
 
+  const handlePanelResizeStart = useCallback((clientX: number) => {
+    panelResizeStateRef.current = {
+      startX: clientX,
+      startWidth: panelWidth,
+    };
+    setIsPanelCollapsed(false);
+    setIsPanelResizing(true);
+  }, [panelWidth]);
+
+  const handleCollapsePanel = useCallback(() => {
+    panelResizeStateRef.current = null;
+    setIsPanelResizing(false);
+    setIsPanelCollapsed(true);
+  }, []);
+
+  const handleExpandPanel = useCallback(() => {
+    setIsPanelCollapsed(false);
+  }, []);
+
   if (currentProject?.projectType !== 'script') {
     return null;
   }
 
+  if (isPanelCollapsed) {
+    return (
+      <aside
+        className="flex h-full shrink-0 flex-col items-center border-l border-border-dark bg-surface-dark"
+        style={{ width: `${SCENE_STUDIO_PANEL_COLLAPSED_WIDTH}px` }}
+      >
+        <button
+          type="button"
+          onClick={handleExpandPanel}
+          title={t('script.sceneStudio.panelExpand')}
+          className="mt-3 inline-flex h-8 w-8 items-center justify-center rounded-lg border border-border-dark text-text-muted transition-colors hover:bg-bg-dark hover:text-text-dark"
+        >
+          <ChevronLeft className="h-4 w-4" />
+        </button>
+
+        <button
+          type="button"
+          onClick={handleExpandPanel}
+          title={t('script.sceneStudio.panelExpand')}
+          className="flex flex-1 flex-col items-center justify-center gap-3 px-1 text-text-muted transition-colors hover:text-text-dark"
+        >
+          <Clapperboard className="h-4 w-4 text-amber-400" />
+          <span className="text-[11px] tracking-[0.18em] [writing-mode:vertical-rl]">
+            {t('script.sceneStudio.title')}
+          </span>
+        </button>
+
+        <button
+          type="button"
+          onClick={clearSelection}
+          title={t('common.close')}
+          className="mb-3 inline-flex h-8 w-8 items-center justify-center rounded-lg border border-border-dark text-text-muted transition-colors hover:bg-bg-dark hover:text-text-dark"
+        >
+          <X className="h-4 w-4" />
+        </button>
+      </aside>
+    );
+  }
+
   return (
     <aside
-      className="flex h-full shrink-0 flex-col border-l border-border-dark bg-surface-dark"
-      style={{ width: 'clamp(500px, 42vw, 680px)' }}
+      className="relative flex h-full shrink-0 flex-col border-l border-border-dark bg-surface-dark"
+      style={{ width: `${panelWidth}px` }}
     >
+      <button
+        type="button"
+        aria-label={t('script.sceneStudio.panelResize')}
+        title={t('script.sceneStudio.panelResize')}
+        onPointerDown={(event) => {
+          event.preventDefault();
+          handlePanelResizeStart(event.clientX);
+        }}
+        className={`absolute inset-y-0 left-0 z-20 w-2 -translate-x-1/2 cursor-col-resize bg-transparent transition-colors ${
+          isPanelResizing ? 'border-l border-amber-500/45' : 'hover:border-l hover:border-border-dark/80'
+        }`}
+      />
       <div className="flex items-center justify-between border-b border-border-dark px-4 py-3">
         <div className="min-w-0">
           <div className="flex items-center gap-2">
@@ -1403,13 +1628,24 @@ export function SceneStudioPanel() {
             {t('script.sceneStudio.subtitle')}
           </p>
         </div>
-        <button
-          type="button"
-          onClick={clearSelection}
-          className="rounded-lg border border-border-dark px-2 py-1 text-xs text-text-muted transition-colors hover:bg-bg-dark hover:text-text-dark"
-        >
-          {t('common.close')}
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={handleCollapsePanel}
+            title={t('script.sceneStudio.panelCollapse')}
+            className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-border-dark text-text-muted transition-colors hover:bg-bg-dark hover:text-text-dark"
+          >
+            <ChevronRight className="h-4 w-4" />
+          </button>
+          <button
+            type="button"
+            onClick={clearSelection}
+            title={t('common.close')}
+            className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-border-dark text-text-muted transition-colors hover:bg-bg-dark hover:text-text-dark"
+          >
+            <X className="h-4 w-4" />
+          </button>
+        </div>
       </div>
 
       {!chapterNode || !chapterData || !sceneDraft ? (
@@ -1451,23 +1687,45 @@ export function SceneStudioPanel() {
               {scenes.map((scene) => {
                 const isActive = scene.id === sceneDraft.id;
                 return (
-                  <button
-                    key={scene.id}
-                    type="button"
-                    onClick={() => focusScene(chapterNode.id, scene.id)}
-                    className={`rounded-lg border px-2.5 py-1.5 text-left text-xs transition-colors ${
-                      isActive
-                        ? 'border-amber-500/45 bg-amber-500/12 text-amber-200'
-                        : 'border-border-dark bg-bg-dark text-text-muted hover:text-text-dark'
-                    }`}
-                  >
-                    <div className="font-medium">
-                      {scene.title || t('script.sceneStudio.untitledScene')}
-                    </div>
-                    <div className="mt-0.5 text-[11px] opacity-70">
-                      {t('script.sceneStudio.sceneLabel', { number: scene.order + 1 })}
-                    </div>
-                  </button>
+                  <div key={scene.id} className="group/scene relative">
+                    <button
+                      type="button"
+                      onClick={() => focusScene(chapterNode.id, scene.id)}
+                      className={`rounded-lg border px-2.5 py-1.5 pr-7 text-left text-xs transition-colors ${
+                        isActive
+                          ? 'border-amber-500/45 bg-amber-500/12 text-amber-200'
+                          : 'border-border-dark bg-bg-dark text-text-muted hover:text-text-dark'
+                      }`}
+                    >
+                      <div className="flex items-center gap-1.5">
+                        <div className="font-medium">
+                          {scene.title || t('script.sceneStudio.untitledScene')}
+                        </div>
+                        {scene.directorNotes.trim() ? (
+                          <span
+                            className="inline-flex h-4 min-w-4 items-center justify-center rounded-full border border-amber-500/25 bg-amber-500/12 px-1 text-[10px] font-medium text-amber-200"
+                            title={t('script.sceneStudio.directorNotes')}
+                          >
+                            D
+                          </span>
+                        ) : null}
+                      </div>
+                      <div className="mt-0.5 text-[11px] opacity-70">
+                        {t('script.sceneStudio.sceneLabel', { number: scene.order + 1 })}
+                      </div>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        handleDeleteScene(scene.id);
+                      }}
+                      className="absolute right-1.5 top-1.5 inline-flex h-5 w-5 items-center justify-center rounded-full text-text-muted opacity-0 transition-opacity hover:bg-black/20 hover:text-red-300 group-hover/scene:opacity-100 group-focus-within/scene:opacity-100"
+                      title={t('common.delete')}
+                    >
+                      <X className="h-3.5 w-3.5" />
+                    </button>
+                  </div>
                 );
               })}
             </div>
@@ -1475,6 +1733,62 @@ export function SceneStudioPanel() {
 
           <div className="flex-1 overflow-y-auto p-4">
             <div className="space-y-4">
+              <div className="overflow-x-auto pb-1">
+                <div className="flex min-w-max gap-2">
+                  {([
+                    {
+                      id: 'overview',
+                      label: t('script.sceneStudio.workspacePlanning'),
+                      hasSignal: Boolean(
+                        chapterSummary.trim()
+                        || sceneDraft.summary.trim()
+                        || sceneDraft.continuitySummary.trim()
+                        || hasImportedOriginal
+                      ),
+                    },
+                    {
+                      id: 'draft',
+                      label: t('script.sceneStudio.workspaceWriting'),
+                      hasSignal: Boolean(
+                        currentCopilotMessages.length
+                        || selectedDraftText.trim()
+                        || sceneDraft.draftHtml.trim()
+                      ),
+                    },
+                    {
+                      id: 'director',
+                      label: t('script.sceneStudio.workspaceDirector'),
+                      hasSignal: Boolean(sceneDraft.directorNotes.trim()),
+                    },
+                  ] as Array<{
+                    id: SceneStudioWorkspaceTab;
+                    label: string;
+                    hasSignal?: boolean;
+                  }>).map((tab) => {
+                    const isActive = activeWorkspaceTab === tab.id;
+                    return (
+                      <button
+                        key={tab.id}
+                        type="button"
+                        onClick={() => setActiveWorkspaceTab(tab.id)}
+                        className={`inline-flex items-center gap-2 rounded-xl border px-3 py-2 text-xs font-medium transition-colors ${
+                          isActive
+                            ? 'border-amber-500/40 bg-amber-500/12 text-amber-100'
+                            : 'border-border-dark bg-bg-dark/45 text-text-muted hover:text-text-dark'
+                        }`}
+                      >
+                        <span>{tab.label}</span>
+                        {tab.hasSignal ? (
+                          <span className={`h-2 w-2 rounded-full ${isActive ? 'bg-amber-300' : 'bg-cyan-300'}`} />
+                        ) : null}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {activeWorkspaceTab === 'overview' ? (
+                <>
               <SceneStudioSection
                 icon={<FileText className="h-4 w-4 text-sky-300" />}
                 title={t('script.sceneStudio.chapterFocusTitle')}
@@ -1630,16 +1944,6 @@ export function SceneStudioPanel() {
                       placeholder={t('script.sceneStudio.subtextPlaceholder')}
                     />
                   </Field>
-
-                  <Field label={t('script.sceneStudio.directorNotes')}>
-                    <Textarea
-                      value={sceneDraft.directorNotes}
-                      onChange={(value) => {
-                        updateSceneDraft((draft) => ({ ...draft, directorNotes: value }));
-                      }}
-                      placeholder={t('script.sceneStudio.directorNotesPlaceholder')}
-                    />
-                  </Field>
                 </div>
               </SceneStudioSection>
 
@@ -1733,12 +2037,121 @@ export function SceneStudioPanel() {
                 </div>
               </SceneStudioSection>
 
+              {hasImportedOriginal ? (
+                <SceneStudioSection
+                  icon={<FileText className="h-4 w-4 text-amber-300" />}
+                  title={t('script.sceneStudio.importOriginalTitle')}
+                  description={t('script.sceneStudio.importOriginalHint')}
+                  isOpen={sectionState.importedSource}
+                  onToggle={() => toggleSection('importedSource')}
+                >
+                  <div className="space-y-3">
+                    {importedOriginalLabel ? (
+                      <div className="text-[11px] leading-5 text-amber-100/80">
+                        {t('script.sceneStudio.importOriginalSource', {
+                          label: importedOriginalLabel,
+                        })}
+                      </div>
+                    ) : null}
+
+                    {hasRestoredImportedOriginal ? (
+                      <div className="rounded-lg border border-emerald-500/20 bg-emerald-500/10 px-2.5 py-1.5 text-[11px] leading-5 text-emerald-100">
+                        {t('script.sceneStudio.importOriginalRestored')}
+                      </div>
+                    ) : null}
+
+                    <div className="flex flex-wrap justify-end gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setIsImportedComparisonVisible((visible) => !visible)}
+                        className="rounded-lg border border-border-dark px-2.5 py-1.5 text-xs text-text-muted transition-colors hover:bg-bg-dark hover:text-text-dark"
+                      >
+                        {isImportedComparisonVisible
+                          ? t('script.sceneStudio.importOriginalCompareClose')
+                          : t('script.sceneStudio.importOriginalCompareOpen')}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={handleRestoreImportedOriginal}
+                        disabled={!canRestoreImportedOriginal}
+                        className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-2.5 py-1.5 text-xs text-amber-200 transition-colors hover:bg-amber-500/16 disabled:cursor-not-allowed disabled:opacity-50"
+                      >
+                        {t('script.sceneStudio.importOriginalRestore')}
+                      </button>
+                    </div>
+
+                    {isImportedComparisonVisible ? (
+                      <SelectionDiffPreview
+                        originalText={importedOriginalText}
+                        rewrittenText={currentDraftText}
+                        originalLabel={importedOriginalDiffLabel}
+                        rewrittenLabel={t('script.sceneStudio.currentDraftLabel')}
+                        addedLabel={t('script.sceneStudio.selectionDiffAdded')}
+                        removedLabel={t('script.sceneStudio.selectionDiffRemoved')}
+                      />
+                    ) : null}
+                  </div>
+                </SceneStudioSection>
+              ) : null}
+                </>
+              ) : null}
+
+              {activeWorkspaceTab === 'director' ? (
+                <>
               <SceneStudioSection
                 icon={<Sparkles className="h-4 w-4 text-amber-300" />}
+                title={t('script.sceneStudio.directorNotes')}
+                description={t('script.sceneStudio.directorNotesSubtitle')}
+                isOpen={sectionState.directorNotes}
+                onToggle={() => toggleSection('directorNotes')}
+              >
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between gap-3 text-[11px] leading-5 text-amber-100/75">
+                    <span>{t('script.sceneStudio.directorNotesHint')}</span>
+                    <span>{sceneDraft.directorNotes.trim().length}</span>
+                  </div>
+                  <Textarea
+                    value={sceneDraft.directorNotes}
+                    onChange={(value) => {
+                      updateSceneDraft((draft) => ({ ...draft, directorNotes: value }));
+                    }}
+                    placeholder={t('script.sceneStudio.directorNotesPlaceholder')}
+                    rows={16}
+                  />
+                </div>
+              </SceneStudioSection>
+                </>
+              ) : null}
+
+              {activeWorkspaceTab === 'draft' ? (
+                <>
+              <SceneStudioSection
+                icon={<Link2 className="h-4 w-4 text-cyan-300" />}
                 title={t('script.sceneStudio.copilotTitle')}
                 description={t('script.sceneStudio.copilotSubtitle')}
                 isOpen={sectionState.copilot}
                 onToggle={() => toggleSection('copilot')}
+                actions={(
+                  <button
+                    type="button"
+                    onClick={handleClearCopilotThread}
+                    disabled={
+                      isCopilotLoading
+                      || isSelectionRewriteLoading
+                      || (
+                        currentCopilotMessages.length === 0
+                        && !copilotInput.trim()
+                        && !copilotError
+                        && !selectionRewriteError
+                      )
+                    }
+                    title={t('script.sceneStudio.copilotClearHint')}
+                    className="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-border-dark px-2.5 py-1.5 text-xs font-medium text-text-muted transition-colors hover:bg-bg-dark hover:text-text-dark disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    <X className="h-3.5 w-3.5" />
+                    {t('script.sceneStudio.copilotClear')}
+                  </button>
+                )}
               >
                 <div className="space-y-3">
                   <div className="flex flex-wrap gap-2">
@@ -2006,63 +2419,6 @@ export function SceneStudioPanel() {
                 </div>
               </SceneStudioSection>
 
-              {hasImportedOriginal ? (
-                <SceneStudioSection
-                  icon={<FileText className="h-4 w-4 text-amber-300" />}
-                  title={t('script.sceneStudio.importOriginalTitle')}
-                  description={t('script.sceneStudio.importOriginalHint')}
-                  isOpen={sectionState.importedSource}
-                  onToggle={() => toggleSection('importedSource')}
-                >
-                  <div className="space-y-3">
-                    {importedOriginalLabel ? (
-                      <div className="text-[11px] leading-5 text-amber-100/80">
-                        {t('script.sceneStudio.importOriginalSource', {
-                          label: importedOriginalLabel,
-                        })}
-                      </div>
-                    ) : null}
-
-                    {hasRestoredImportedOriginal ? (
-                      <div className="rounded-lg border border-emerald-500/20 bg-emerald-500/10 px-2.5 py-1.5 text-[11px] leading-5 text-emerald-100">
-                        {t('script.sceneStudio.importOriginalRestored')}
-                      </div>
-                    ) : null}
-
-                    <div className="flex flex-wrap justify-end gap-2">
-                      <button
-                        type="button"
-                        onClick={() => setIsImportedComparisonVisible((visible) => !visible)}
-                        className="rounded-lg border border-border-dark px-2.5 py-1.5 text-xs text-text-muted transition-colors hover:bg-bg-dark hover:text-text-dark"
-                      >
-                        {isImportedComparisonVisible
-                          ? t('script.sceneStudio.importOriginalCompareClose')
-                          : t('script.sceneStudio.importOriginalCompareOpen')}
-                      </button>
-                      <button
-                        type="button"
-                        onClick={handleRestoreImportedOriginal}
-                        disabled={!canRestoreImportedOriginal}
-                        className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-2.5 py-1.5 text-xs text-amber-200 transition-colors hover:bg-amber-500/16 disabled:cursor-not-allowed disabled:opacity-50"
-                      >
-                        {t('script.sceneStudio.importOriginalRestore')}
-                      </button>
-                    </div>
-
-                    {isImportedComparisonVisible ? (
-                      <SelectionDiffPreview
-                        originalText={importedOriginalText}
-                        rewrittenText={currentDraftText}
-                        originalLabel={importedOriginalDiffLabel}
-                        rewrittenLabel={t('script.sceneStudio.currentDraftLabel')}
-                        addedLabel={t('script.sceneStudio.selectionDiffAdded')}
-                        removedLabel={t('script.sceneStudio.selectionDiffRemoved')}
-                      />
-                    ) : null}
-                  </div>
-                </SceneStudioSection>
-              ) : null}
-
               <SceneStudioSection
                 icon={<FileText className="h-4 w-4 text-emerald-300" />}
                 title={t('script.sceneStudio.draft')}
@@ -2157,6 +2513,8 @@ export function SceneStudioPanel() {
                   </div>
                 </div>
               </SceneStudioSection>
+                </>
+              ) : null}
             </div>
           </div>
 
