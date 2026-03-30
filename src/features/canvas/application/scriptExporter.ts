@@ -3,6 +3,8 @@ import { save } from '@tauri-apps/plugin-dialog';
 import { invoke } from '@tauri-apps/api/core';
 import {
   CANVAS_NODE_TYPES,
+  normalizeSceneCards,
+  type SceneCard,
   type ScriptRootNodeData,
   type ScriptChapterNodeData,
   type ScriptCharacterNodeData,
@@ -207,6 +209,65 @@ function parseHtmlToDocxParagraphs(html: string): Paragraph[] {
   }
 
   return paragraphs;
+}
+
+function resolveChapterScenes(chapter: ScriptChapterNodeData): SceneCard[] {
+  return normalizeSceneCards(chapter.scenes, chapter.content)
+    .slice()
+    .sort((left, right) => left.order - right.order);
+}
+
+function htmlToPlainText(html: string): string {
+  if (!html.trim()) {
+    return '';
+  }
+
+  return decodeHtmlEntities(
+    html
+      .replace(/<hr\s*\/?>/gi, '\n---\n')
+      .replace(/<br\s*\/?>/gi, '\n')
+      .replace(/<\/p>/gi, '\n\n')
+      .replace(/<\/h[1-6]>/gi, '\n')
+      .replace(/<[^>]+>/g, '')
+  ).trim();
+}
+
+function resolveChapterExportHtml(chapter: ScriptChapterNodeData): string {
+  const sceneDrafts = resolveChapterScenes(chapter)
+    .map((scene) => scene.draftHtml.trim())
+    .filter((value) => value.length > 0);
+
+  if (sceneDrafts.length > 0) {
+    return sceneDrafts.join('<hr />');
+  }
+
+  return chapter.content;
+}
+
+function resolveChapterExportTextBlocks(chapter: ScriptChapterNodeData): string[] {
+  const sceneBlocks = resolveChapterScenes(chapter).flatMap((scene) => {
+    const draftText = htmlToPlainText(scene.draftHtml);
+    if (!draftText && !scene.summary.trim()) {
+      return [];
+    }
+
+    const lines: string[] = [];
+    lines.push(`场景 ${scene.order + 1}: ${scene.title || '未命名场景'}`);
+    if (scene.summary.trim()) {
+      lines.push(scene.summary.trim());
+    }
+    if (draftText) {
+      lines.push(draftText);
+    }
+    return [lines.join('\n')];
+  });
+
+  if (sceneBlocks.length > 0) {
+    return sceneBlocks;
+  }
+
+  const legacyContent = htmlToPlainText(chapter.content);
+  return legacyContent ? [legacyContent] : [];
 }
 
 export function extractScriptData(
@@ -504,9 +565,10 @@ async function exportAsTxt(data: ScriptData, branches: BranchInfo[], filePath: s
           lines.push('');
         });
       }
-      if (chapter.data.content) {
-        lines.push(chapter.data.content);
-      }
+      resolveChapterExportTextBlocks(chapter.data).forEach((block) => {
+        lines.push(block);
+        lines.push('');
+      });
       lines.push('');
     });
   });
@@ -674,8 +736,9 @@ async function exportAsDocx(data: ScriptData, branches: BranchInfo[], filePath: 
         });
       }
 
-      if (chapter.data.content) {
-        const contentParagraphs = parseHtmlToDocxParagraphs(chapter.data.content);
+      const chapterHtmlContent = resolveChapterExportHtml(chapter.data);
+      if (chapterHtmlContent) {
+        const contentParagraphs = parseHtmlToDocxParagraphs(chapterHtmlContent);
         docChildren.push(...contentParagraphs);
       }
 
@@ -715,7 +778,8 @@ async function exportAsJson(data: ScriptData, branches: BranchInfo[], filePath: 
         chapterNumber: c.data.chapterNumber,
         title: c.data.title,
         summary: c.data.summary,
-        content: c.data.content,
+        content: resolveChapterExportHtml(c.data),
+        scenes: resolveChapterScenes(c.data),
         sceneHeadings: c.data.sceneHeadings,
       })),
     })),
@@ -833,10 +897,10 @@ async function exportAsMarkdown(data: ScriptData, branches: BranchInfo[], filePa
         });
       }
 
-      if (chapter.data.content) {
-        lines.push(chapter.data.content);
+      resolveChapterExportTextBlocks(chapter.data).forEach((block) => {
+        lines.push(block);
         lines.push('');
-      }
+      });
 
       if (chapter.data.summary) {
         lines.push(`> 摘要: ${chapter.data.summary}`);

@@ -32,6 +32,9 @@ import {
   type StoryboardExportOptions,
   type StoryboardFrameItem,
   type ScriptChapterNodeData,
+  type ScriptRootNodeData,
+  normalizeScriptChapterNodeData,
+  normalizeScriptRootNodeData,
   isExportImageNode,
   isImageEditNode,
   isStoryboardSplitNode,
@@ -109,6 +112,10 @@ interface AddNodeOptions {
   parentId?: string;
   inheritParentFromNodeId?: string;
   positionSpace?: 'canvas' | 'parent';
+}
+
+interface UpdateNodeDataOptions {
+  historyMode?: 'push' | 'skip';
 }
 
 function appendNodeClassName(existing: string | undefined, className: string): string {
@@ -274,7 +281,11 @@ interface CanvasState {
     frameAspectRatio?: string
   ) => string | null;
 
-  updateNodeData: (nodeId: string, data: Partial<CanvasNodeData>) => void;
+  updateNodeData: (
+    nodeId: string,
+    data: Partial<CanvasNodeData>,
+    options?: UpdateNodeDataOptions
+  ) => void;
   updateNodePosition: (nodeId: string, position: { x: number; y: number }) => void;
   updateStoryboardFrame: (
     nodeId: string,
@@ -437,6 +448,20 @@ function normalizeNodes(rawNodes: CanvasNode[]): CanvasNode[] {
             fontSize: Math.max(1, Math.min(20, Math.round(normalizedFontSize))),
           };
         }
+      }
+
+      if (normalizedNodeType === CANVAS_NODE_TYPES.scriptRoot) {
+        Object.assign(
+          mergedData,
+          normalizeScriptRootNodeData(mergedData as ScriptRootNodeData)
+        );
+      }
+
+      if (normalizedNodeType === CANVAS_NODE_TYPES.scriptChapter) {
+        Object.assign(
+          mergedData,
+          normalizeScriptChapterNodeData(mergedData as ScriptChapterNodeData)
+        );
       }
 
       if ('aspectRatio' in mergedData && !mergedData.aspectRatio) {
@@ -2081,7 +2106,7 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
     return node.id;
   },
 
-  updateNodeData: (nodeId, data) => {
+  updateNodeData: (nodeId, data, options) => {
     set((state) => {
       let changed = false;
       const nextNodes = state.nodes.map((node) => {
@@ -2117,12 +2142,17 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
         return {};
       }
 
+      const nextHistory =
+        options?.historyMode === 'skip'
+          ? state.history
+          : {
+              past: pushSnapshot(state.history.past, createSnapshot(state.nodes, state.edges)),
+              future: [],
+            };
+
       return {
         nodes: nextNodes,
-        history: {
-          past: pushSnapshot(state.history.past, createSnapshot(state.nodes, state.edges)),
-          future: [],
-        },
+        history: nextHistory,
         dragHistorySnapshot: null,
       };
     });

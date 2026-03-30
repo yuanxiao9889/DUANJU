@@ -6,11 +6,13 @@ import { Bold, Italic } from 'lucide-react';
 type RichTextEditorProps = {
   content: string;
   onChange: (content: string) => void;
-  onSelect?: (text: string) => void;
+  onSelect?: (selection: { text: string; range: SelectionRange | null }) => void;
   onContextMenu?: (e: { clientX: number; clientY: number }) => void;
   pendingSelectionReplacement?: {
     requestId: number;
     text: string;
+    range?: SelectionRange | null;
+    mode?: 'replace' | 'insertBelow';
   } | null;
   onSelectionReplacementApplied?: () => void;
   placeholder?: string;
@@ -21,6 +23,31 @@ type SelectionRange = {
   from: number;
   to: number;
 };
+
+function escapeHtml(text: string): string {
+  return text
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+function plainTextToInlineHtml(text: string): string {
+  return escapeHtml(text).replace(/\n/g, '<br />');
+}
+
+function plainTextToBlockHtml(text: string): string {
+  const trimmed = text.trim();
+  if (!trimmed) {
+    return '';
+  }
+
+  return trimmed
+    .split(/\n{2,}/)
+    .map((paragraph) => `<p>${plainTextToInlineHtml(paragraph)}</p>`)
+    .join('');
+}
 
 export function RichTextEditor({
   content,
@@ -75,12 +102,13 @@ export function RichTextEditor({
     const handleSelection = () => {
       const { from, to } = editor.state.selection;
       if (from !== to) {
-        lastSelectionRangeRef.current = { from, to };
+        const nextRange = { from, to };
+        lastSelectionRangeRef.current = nextRange;
         const text = editor.state.doc.textBetween(from, to);
-        onSelect(text);
+        onSelect({ text, range: nextRange });
       } else {
         lastSelectionRangeRef.current = null;
-        onSelect('');
+        onSelect({ text: '', range: null });
       }
     };
 
@@ -92,32 +120,45 @@ export function RichTextEditor({
 
   useEffect(() => {
     if (!editor || !pendingSelectionReplacement) return;
-    
-    const { requestId, text } = pendingSelectionReplacement;
-    
+
+    const { requestId, text, mode = 'replace' } = pendingSelectionReplacement;
+
     if (requestId === lastAppliedReplacementIdRef.current) {
       return;
     }
-    
+
     lastAppliedReplacementIdRef.current = requestId;
-    
-    const range = lastSelectionRangeRef.current;
-    
-    if (range) {
-      editor.chain()
+
+    const range = pendingSelectionReplacement.range ?? lastSelectionRangeRef.current;
+
+    if (mode === 'insertBelow') {
+      const insertionPoint = range?.to ?? editor.state.selection.to;
+      const html = plainTextToBlockHtml(text);
+
+      editor
+        .chain()
         .focus()
-        .setTextSelection({ from: range.from, to: range.to })
-        .insertContent(text)
+        .insertContentAt(insertionPoint, html || `<p>${plainTextToInlineHtml(text)}</p>`)
         .run();
     } else {
-      editor.chain()
-        .focus()
-        .insertContent(text)
-        .run();
+      const replacementHtml = plainTextToInlineHtml(text);
+
+      if (range) {
+        editor.chain()
+          .focus()
+          .setTextSelection({ from: range.from, to: range.to })
+          .insertContent(replacementHtml)
+          .run();
+      } else {
+        editor.chain()
+          .focus()
+          .insertContent(replacementHtml)
+          .run();
+      }
     }
-    
+
     lastSelectionRangeRef.current = null;
-    
+
     onSelectionReplacementApplied?.();
   }, [editor, pendingSelectionReplacement, onSelectionReplacementApplied]);
 

@@ -1,14 +1,21 @@
-import { memo, useState, useCallback, useEffect, useRef, Fragment } from 'react';
+import { memo, useState, useCallback, useEffect, useRef, Fragment, useMemo } from 'react';
 import { Handle, Position } from '@xyflow/react';
 import { FileText, GitBranch, Sparkles, Pencil, PlusCircle, GitFork } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
 import { NodeHeader, NODE_HEADER_FLOATING_POSITION_CLASS } from '@/features/canvas/ui/NodeHeader';
 import { NodeResizeHandle } from '@/features/canvas/ui/NodeResizeHandle';
 import { AiWriterDialog } from '@/features/canvas/ui/AiWriterDialog';
 import { RichTextEditor } from '@/features/canvas/ui/RichTextEditor';
 import { BranchPointDialog } from '@/features/canvas/ui/BranchPointDialog';
-import { CANVAS_NODE_TYPES, type ScriptChapterNodeData } from '@/features/canvas/domain/canvasNodes';
+import {
+  CANVAS_NODE_TYPES,
+  createDefaultSceneCard,
+  normalizeSceneCards,
+  type ScriptChapterNodeData,
+} from '@/features/canvas/domain/canvasNodes';
 import { resolveNodeDisplayName } from '@/features/canvas/domain/nodeDisplay';
 import { useCanvasStore } from '@/stores/canvasStore';
+import { useScriptEditorStore } from '@/stores/scriptEditorStore';
 import type { GeneratedBranch } from '@/commands/textGen';
 
 function simpleMarkdownToHtml(text: string): string {
@@ -137,10 +144,14 @@ function TextContextMenu({
 }
 
 export const ScriptChapterNode = memo(({ id, data, selected, width, height }: ScriptChapterNodeProps) => {
+  const { t } = useTranslation();
   const updateNodeData = useCanvasStore((state) => state.updateNodeData);
   const addNode = useCanvasStore((state) => state.addNode);
   const addEdge = useCanvasStore((state) => state.addEdge);
   const nodes = useCanvasStore((state) => state.nodes);
+  const focusScene = useScriptEditorStore((state) => state.focusScene);
+  const activeChapterId = useScriptEditorStore((state) => state.activeChapterId);
+  const activeSceneId = useScriptEditorStore((state) => state.activeSceneId);
   const resolvedTitle = resolveNodeDisplayName(CANVAS_NODE_TYPES.scriptChapter, data);
   const [aiDialogMode, setAiDialogMode] = useState<'expand' | 'rewrite' | 'expandFromSummary' | 'expandFromMerged' | null>(null);
   const [selectedText, setSelectedText] = useState('');
@@ -154,6 +165,7 @@ export const ScriptChapterNode = memo(({ id, data, selected, width, height }: Sc
 
   const resolvedWidth = resolveNodeDimension(width, DEFAULT_NODE_WIDTH);
   const resolvedHeight = resolveNodeDimension(height, DEFAULT_NODE_HEIGHT);
+  const scenes = useMemo(() => normalizeSceneCards(data.scenes, data.content), [data.content, data.scenes]);
 
   const handleTitleChange = useCallback(
     (nextTitle: string) => {
@@ -169,9 +181,20 @@ export const ScriptChapterNode = memo(({ id, data, selected, width, height }: Sc
     [id, updateNodeData]
   );
 
-  const handleTextSelect = useCallback((text: string) => {
-    setSelectedText(text);
+  const handleTextSelect = useCallback((selection: { text: string }) => {
+    setSelectedText(selection.text);
   }, []);
+
+  const handleOpenSceneStudio = useCallback((sceneId?: string) => {
+    focusScene(id, sceneId ?? scenes[0]?.id ?? createDefaultSceneCard(0).id);
+  }, [focusScene, id, scenes]);
+
+  const handleAddScene = useCallback(() => {
+    const nextScene = createDefaultSceneCard(scenes.length);
+    const nextScenes = [...scenes, nextScene];
+    updateNodeData(id, { scenes: nextScenes });
+    focusScene(id, nextScene.id);
+  }, [focusScene, id, scenes, updateNodeData]);
 
   const handleContextMenu = useCallback((e: { clientX: number; clientY: number }) => {
     if (selectedText.trim()) {
@@ -392,6 +415,71 @@ export const ScriptChapterNode = memo(({ id, data, selected, width, height }: Sc
               ))}
             </div>
           )}
+
+          <div className="mt-3 rounded-xl border border-border-dark bg-bg-dark/55 p-3 shrink-0">
+            <div className="flex items-center justify-between gap-2">
+              <div>
+                <div className="text-[11px] uppercase tracking-[0.08em] text-text-muted">
+                  {t('script.sceneStudio.title')}
+                </div>
+                <div className="mt-1 text-sm font-medium text-text-dark">
+                  {t('script.sceneStudio.sceneCount', { count: scenes.length })}
+                </div>
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => handleOpenSceneStudio()}
+                  className="rounded-lg border border-amber-500/35 bg-amber-500/10 px-2.5 py-1 text-xs text-amber-300 transition-colors hover:bg-amber-500/18"
+                >
+                  {t('script.sceneStudio.open')}
+                </button>
+                <button
+                  type="button"
+                  onClick={handleAddScene}
+                  className="rounded-lg border border-border-dark bg-surface-dark px-2.5 py-1 text-xs text-text-dark transition-colors hover:bg-bg-dark"
+                >
+                  {t('script.sceneStudio.addScene')}
+                </button>
+              </div>
+            </div>
+
+            <div className="mt-3 space-y-2">
+              {scenes.slice(0, 3).map((scene) => {
+                const isActive = activeChapterId === id && activeSceneId === scene.id;
+                return (
+                  <button
+                    key={scene.id}
+                    type="button"
+                    onClick={() => handleOpenSceneStudio(scene.id)}
+                    className={`w-full rounded-lg border px-3 py-2 text-left transition-colors ${
+                      isActive
+                        ? 'border-amber-500/40 bg-amber-500/10'
+                        : 'border-border-dark bg-surface-dark hover:bg-bg-dark'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="truncate text-sm font-medium text-text-dark">
+                        {scene.title || t('script.sceneStudio.untitledScene')}
+                      </span>
+                      <span className="text-[11px] text-text-muted">
+                        {t('script.sceneStudio.sceneLabel', { number: scene.order + 1 })}
+                      </span>
+                    </div>
+                    <p className="mt-1 line-clamp-2 text-xs text-text-muted">
+                      {scene.summary || scene.visualHook || t('script.sceneStudio.sceneCardHint')}
+                    </p>
+                  </button>
+                );
+              })}
+            </div>
+
+            {scenes.length > 3 ? (
+              <p className="mt-2 text-xs text-text-muted">
+                {t('script.sceneStudio.moreScenes', { count: scenes.length - 3 })}
+              </p>
+            ) : null}
+          </div>
 
           <div className="flex-1 min-h-0 mt-3 overflow-hidden">
             <RichTextEditor

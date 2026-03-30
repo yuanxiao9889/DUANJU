@@ -290,14 +290,113 @@ export interface ScriptTableRow {
 export interface ScriptTable {
   id: string;
   type: 'dialogue' | 'scene' | 'custom';
-  columns: string[];
+  columns: string[]; 
   rows: ScriptTableRow[];
+}
+
+export type StoryBeatKey =
+  | 'opening'
+  | 'inciting'
+  | 'lock_in'
+  | 'first_setback'
+  | 'midpoint'
+  | 'all_is_lost'
+  | 'climax'
+  | 'resolution';
+
+export interface StoryBeat {
+  id: string;
+  key: StoryBeatKey;
+  title: string;
+  summary: string;
+  dramaticQuestion: string;
+}
+
+export type SceneCardStatus = 'idea' | 'drafting' | 'reviewed' | 'locked';
+
+export type SceneCopilotMessageMode =
+  | 'analysis'
+  | 'continue'
+  | 'director'
+  | 'custom'
+  | 'selection'
+  | 'seed';
+
+export type SceneCopilotSelectionResolution =
+  | 'pending'
+  | 'replaced'
+  | 'inserted'
+  | 'dismissed';
+
+export type SceneContinuityIssueSeverity = 'low' | 'medium' | 'high';
+
+export interface SceneContinuityIssue {
+  id: string;
+  severity: SceneContinuityIssueSeverity;
+  title: string;
+  detail: string;
+  evidence?: string;
+}
+
+export interface SceneContinuityCheck {
+  status: 'clear' | 'warning';
+  summary: string;
+  issues: SceneContinuityIssue[];
+  checkedAt: number;
+}
+
+export interface SceneCopilotThreadMessage {
+  id: string;
+  role: 'user' | 'assistant';
+  content: string;
+  mode: SceneCopilotMessageMode;
+  createdAt: number;
+  selectionSourceText?: string;
+  selectionVariants?: string[];
+  selectedVariantIndex?: number | null;
+  selectionResolution?: SceneCopilotSelectionResolution | null;
+  continuityCheck?: SceneContinuityCheck | null;
+}
+
+export interface SceneCard {
+  id: string;
+  order: number;
+  title: string;
+  summary: string;
+  purpose: string;
+  povCharacter: string;
+  goal: string;
+  conflict: string;
+  turn: string;
+  emotionalShift: string;
+  visualHook: string;
+  subtext: string;
+  draftHtml: string;
+  sourceDraftHtml?: string;
+  sourceDraftLabel?: string;
+  continuitySummary: string;
+  continuityFacts: string[];
+  continuityOpenLoops: string[];
+  continuityUpdatedAt?: number | null;
+  directorNotes: string;
+  copilotSummary?: string;
+  copilotThread?: SceneCopilotThreadMessage[];
+  status: SceneCardStatus;
 }
 
 export interface ScriptRootNodeData extends NodeDisplayData {
   title: string;
   genre: string;
   totalChapters: number;
+  premise?: string;
+  theme?: string;
+  protagonist?: string;
+  want?: string;
+  need?: string;
+  stakes?: string;
+  tone?: string;
+  directorVision?: string;
+  beats?: StoryBeat[];
   styleProfile?: StyleProfile;
 }
 
@@ -306,7 +405,10 @@ export interface ScriptChapterNodeData extends NodeDisplayData {
   title: string;
   content: string;
   summary: string;
+  chapterPurpose?: string;
+  chapterQuestion?: string;
   sceneHeadings: string[];
+  scenes?: SceneCard[];
   characters: string[];
   locations: string[];
   items: string[];
@@ -412,6 +514,248 @@ export type NodeToolType = (typeof NODE_TOOL_TYPES)[keyof typeof NODE_TOOL_TYPES
 export interface ActiveToolDialog {
   nodeId: string;
   toolType: NodeToolType;
+}
+
+function normalizeString(value: unknown, fallback = ''): string {
+  return typeof value === 'string' ? value : fallback;
+}
+
+function normalizeSceneCardStatus(value: unknown): SceneCardStatus {
+  return value === 'idea' || value === 'reviewed' || value === 'locked'
+    ? value
+    : 'drafting';
+}
+
+function normalizeSceneCopilotMessageMode(value: unknown): SceneCopilotMessageMode {
+  return value === 'analysis'
+    || value === 'continue'
+    || value === 'director'
+    || value === 'custom'
+    || value === 'selection'
+    || value === 'seed'
+    ? value
+    : 'custom';
+}
+
+function normalizeSceneCopilotSelectionResolution(
+  value: unknown
+): SceneCopilotSelectionResolution | null {
+  return value === 'pending'
+    || value === 'replaced'
+    || value === 'inserted'
+    || value === 'dismissed'
+    ? value
+    : null;
+}
+
+function normalizeSceneContinuityIssueSeverity(value: unknown): SceneContinuityIssueSeverity {
+  return value === 'low' || value === 'high' ? value : 'medium';
+}
+
+function normalizeSceneContinuityIssues(value: unknown): SceneContinuityIssue[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value
+    .map((issue, index): SceneContinuityIssue | null => {
+      const record = issue && typeof issue === 'object'
+        ? issue as Partial<SceneContinuityIssue>
+        : {};
+      const title = normalizeString(record.title).trim();
+      const detail = normalizeString(record.detail).trim();
+      if (!title || !detail) {
+        return null;
+      }
+
+      const normalizedIssue: SceneContinuityIssue = {
+        id: normalizeString(record.id, `continuity-issue-${index + 1}`),
+        severity: normalizeSceneContinuityIssueSeverity(record.severity),
+        title,
+        detail,
+        evidence: normalizeString(record.evidence).trim() || undefined,
+      };
+
+      return normalizedIssue;
+    })
+    .filter((issue): issue is SceneContinuityIssue => issue !== null);
+}
+
+function normalizeSceneContinuityCheck(value: unknown): SceneContinuityCheck | null {
+  if (!value || typeof value !== 'object') {
+    return null;
+  }
+
+  const record = value as Partial<SceneContinuityCheck>;
+  const issues = normalizeSceneContinuityIssues(record.issues);
+  const summary = normalizeString(record.summary).trim();
+
+  return {
+    status: record.status === 'warning' ? 'warning' : 'clear',
+    summary,
+    issues,
+    checkedAt: Number.isFinite(record.checkedAt) ? Number(record.checkedAt) : Date.now(),
+  };
+}
+
+function normalizeStringArray(values: unknown): string[] {
+  if (!Array.isArray(values)) {
+    return [];
+  }
+
+  return values
+    .map((value) => normalizeString(value).trim())
+    .filter((value) => value.length > 0);
+}
+
+function normalizeSceneCopilotThread(
+  messages: unknown
+): SceneCopilotThreadMessage[] {
+  if (!Array.isArray(messages)) {
+    return [];
+  }
+
+  return messages
+    .map((message, index) => {
+      const record = message && typeof message === 'object'
+        ? message as Partial<SceneCopilotThreadMessage>
+        : {};
+      const role = record.role === 'assistant' ? 'assistant' : 'user';
+      const content = normalizeString(record.content).trim();
+
+      if (!content) {
+        return null;
+      }
+
+      const selectionVariants = normalizeStringArray(record.selectionVariants);
+      const selectedVariantIndex = Number.isInteger(record.selectedVariantIndex)
+        ? Number(record.selectedVariantIndex)
+        : null;
+
+      const normalizedMessage: SceneCopilotThreadMessage = {
+        id: normalizeString(record.id, `copilot-${role}-${index + 1}`),
+        role,
+        content,
+        mode: normalizeSceneCopilotMessageMode(record.mode),
+        createdAt: Number.isFinite(record.createdAt) ? Number(record.createdAt) : Date.now(),
+        selectionSourceText: normalizeString(record.selectionSourceText).trim() || undefined,
+        selectionVariants: selectionVariants.length > 0 ? selectionVariants : undefined,
+        selectedVariantIndex: selectedVariantIndex !== null
+          && selectedVariantIndex >= 0
+          && selectedVariantIndex < selectionVariants.length
+          ? selectedVariantIndex
+          : null,
+        selectionResolution: normalizeSceneCopilotSelectionResolution(record.selectionResolution),
+        continuityCheck: normalizeSceneContinuityCheck(record.continuityCheck),
+      };
+
+      return normalizedMessage;
+    })
+    .filter((message): message is SceneCopilotThreadMessage => Boolean(message));
+}
+
+export function createDefaultSceneCard(order = 0): SceneCard {
+  const sceneIndex = order + 1;
+  return {
+    id: `scene-${sceneIndex}-${Math.random().toString(36).slice(2, 8)}`,
+    order,
+    title: `场景 ${sceneIndex}`,
+    summary: '',
+    purpose: '',
+    povCharacter: '',
+    goal: '',
+    conflict: '',
+    turn: '',
+    emotionalShift: '',
+    visualHook: '',
+    subtext: '',
+    draftHtml: '',
+    sourceDraftHtml: undefined,
+    sourceDraftLabel: undefined,
+    continuitySummary: '',
+    continuityFacts: [],
+    continuityOpenLoops: [],
+    continuityUpdatedAt: null,
+    directorNotes: '',
+    copilotSummary: '',
+    copilotThread: [],
+    status: 'idea',
+  };
+}
+
+export function normalizeSceneCards(
+  scenes: unknown,
+  legacyContent?: string | null
+): SceneCard[] {
+  if (!Array.isArray(scenes) || scenes.length === 0) {
+    const fallbackScene = createDefaultSceneCard(0);
+    if (legacyContent && legacyContent.trim()) {
+      fallbackScene.draftHtml = legacyContent;
+      fallbackScene.status = 'drafting';
+    }
+    return [fallbackScene];
+  }
+
+  return scenes.map((scene, index) => {
+    const record = scene && typeof scene === 'object'
+      ? scene as Partial<SceneCard>
+      : {};
+    const fallbackScene = createDefaultSceneCard(index);
+
+    return {
+      ...fallbackScene,
+      ...record,
+      id: normalizeString(record.id, fallbackScene.id),
+      order: Number.isFinite(record.order) ? Number(record.order) : index,
+      title: normalizeString(record.title, fallbackScene.title),
+      summary: normalizeString(record.summary),
+      purpose: normalizeString(record.purpose),
+      povCharacter: normalizeString(record.povCharacter),
+      goal: normalizeString(record.goal),
+      conflict: normalizeString(record.conflict),
+      turn: normalizeString(record.turn),
+      emotionalShift: normalizeString(record.emotionalShift),
+      visualHook: normalizeString(record.visualHook),
+      subtext: normalizeString(record.subtext),
+      draftHtml: normalizeString(record.draftHtml),
+      sourceDraftHtml: normalizeString(record.sourceDraftHtml).trim() || undefined,
+      sourceDraftLabel: normalizeString(record.sourceDraftLabel).trim() || undefined,
+      continuitySummary: normalizeString(record.continuitySummary),
+      continuityFacts: normalizeStringArray(record.continuityFacts),
+      continuityOpenLoops: normalizeStringArray(record.continuityOpenLoops),
+      continuityUpdatedAt: Number.isFinite(record.continuityUpdatedAt)
+        ? Number(record.continuityUpdatedAt)
+        : null,
+      directorNotes: normalizeString(record.directorNotes),
+      copilotSummary: normalizeString(record.copilotSummary),
+      copilotThread: normalizeSceneCopilotThread(record.copilotThread),
+      status: normalizeSceneCardStatus(record.status),
+    };
+  });
+}
+
+export function normalizeScriptRootNodeData(data: ScriptRootNodeData): ScriptRootNodeData {
+  return {
+    ...data,
+    premise: normalizeString(data.premise),
+    theme: normalizeString(data.theme),
+    protagonist: normalizeString(data.protagonist),
+    want: normalizeString(data.want),
+    need: normalizeString(data.need),
+    stakes: normalizeString(data.stakes),
+    tone: normalizeString(data.tone),
+    directorVision: normalizeString(data.directorVision),
+    beats: Array.isArray(data.beats) ? data.beats : [],
+  };
+}
+
+export function normalizeScriptChapterNodeData(data: ScriptChapterNodeData): ScriptChapterNodeData {
+  return {
+    ...data,
+    chapterPurpose: normalizeString(data.chapterPurpose),
+    chapterQuestion: normalizeString(data.chapterQuestion),
+    scenes: normalizeSceneCards(data.scenes, data.content),
+  };
 }
 
 export function isUploadNode(

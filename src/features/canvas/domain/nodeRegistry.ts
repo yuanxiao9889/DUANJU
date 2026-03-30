@@ -27,6 +27,7 @@ import {
   type ScriptItemNodeData,
   type ScriptPlotPointNodeData,
   type ScriptWorldviewNodeData,
+  createDefaultSceneCard,
 } from './canvasNodes';
 import { DEFAULT_NODE_DISPLAY_NAME } from './nodeDisplay';
 import { DEFAULT_IMAGE_MODEL_ID } from '../models';
@@ -426,6 +427,15 @@ const scriptRootNodeDefinition: CanvasNodeDefinition<ScriptRootNodeData> = {
     title: '',
     genre: '',
     totalChapters: 0,
+    premise: '',
+    theme: '',
+    protagonist: '',
+    want: '',
+    need: '',
+    stakes: '',
+    tone: '',
+    directorVision: '',
+    beats: [],
   }),
 };
 
@@ -455,7 +465,10 @@ const scriptChapterNodeDefinition: CanvasNodeDefinition<ScriptChapterNodeData> =
     title: '',
     content: '',
     summary: '',
+    chapterPurpose: '',
+    chapterQuestion: '',
     sceneHeadings: [],
+    scenes: [createDefaultSceneCard(0)],
     characters: [],
     locations: [],
     items: [],

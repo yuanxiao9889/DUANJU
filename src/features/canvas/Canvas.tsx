@@ -37,6 +37,7 @@ import {
 } from '@/features/assets/application/assetEvents';
 import { useCanvasStore } from '@/stores/canvasStore';
 import { useProjectStore } from '@/stores/projectStore';
+import { useScriptEditorStore } from '@/stores/scriptEditorStore';
 import { getConfiguredApiKeyCount, useSettingsStore } from '@/stores/settingsStore';
 import { canvasAiGateway, canvasEventBus } from '@/features/canvas/application/canvasServices';
 import {
@@ -48,6 +49,7 @@ import {
   type ScriptChapterNodeData,
   DEFAULT_NODE_WIDTH,
   getNodePrimaryImageSource,
+  normalizeSceneCards,
 } from '@/features/canvas/domain/canvasNodes';
 import { isSupportedAudioFile, prepareNodeAudioFromFile } from '@/features/canvas/application/audioData';
 import { prepareNodeImage, prepareNodeImageFromFile } from '@/features/canvas/application/imageData';
@@ -80,6 +82,7 @@ import { MissingApiKeyHint } from '@/features/settings/MissingApiKeyHint';
 import { eventMatchesShortcut } from '@/features/settings/keyboardShortcuts';
 import { ScriptBiblePanel } from './ui/ScriptBiblePanel';
 import { ScriptWelcomeDialog } from './ui/ScriptWelcomeDialog';
+import { SceneStudioPanel } from './ui/SceneStudioPanel';
 import { AlignmentGuides } from './ui/AlignmentGuides';
 import { detectAlignments, type AlignmentGuide } from './application/nodeAlignment';
 import { MergedConnectionAnchor } from './ui/MergedConnectionAnchor';
@@ -542,6 +545,9 @@ export function Canvas() {
   const addNode = useCanvasStore((state) => state.addNode);
   const setSelectedNode = useCanvasStore((state) => state.setSelectedNode);
   const selectedNodeId = useCanvasStore((state) => state.selectedNodeId);
+  const activeChapterId = useScriptEditorStore((state) => state.activeChapterId);
+  const activeSceneId = useScriptEditorStore((state) => state.activeSceneId);
+  const focusChapter = useScriptEditorStore((state) => state.focusChapter);
   const deleteEdge = useCanvasStore((state) => state.deleteEdge);
   const deleteNode = useCanvasStore((state) => state.deleteNode);
   const deleteNodes = useCanvasStore((state) => state.deleteNodes);
@@ -1441,6 +1447,14 @@ export function Canvas() {
     const selectedNode = nodes.find((node) => node.id === selectedNodeId);
     return selectedNode?.type === CANVAS_NODE_TYPES.group ? selectedNode.id : null;
   }, [nodes, selectedNodeId]);
+  const selectedScriptChapterNode = useMemo(() => {
+    if (selectedNodeIds.length !== 1) {
+      return null;
+    }
+
+    const selectedNode = nodes.find((node) => node.id === selectedNodeIds[0]);
+    return selectedNode?.type === CANVAS_NODE_TYPES.scriptChapter ? selectedNode : null;
+  }, [nodes, selectedNodeIds]);
 
   useEffect(() => {
     if (selectedNodeIds.length === 1) {
@@ -1454,6 +1468,31 @@ export function Canvas() {
       setSelectedNode(null);
     }
   }, [selectedNodeId, selectedNodeIds, setSelectedNode]);
+
+  useEffect(() => {
+    if (project?.projectType !== 'script' || !selectedScriptChapterNode) {
+      return;
+    }
+
+    const selectedChapterData = selectedScriptChapterNode.data as ScriptChapterNodeData;
+    const scenes = normalizeSceneCards(selectedChapterData.scenes, selectedChapterData.content);
+    const fallbackSceneId = scenes[0]?.id ?? null;
+    const nextSceneId = activeChapterId === selectedScriptChapterNode.id
+      ? activeSceneId ?? fallbackSceneId
+      : fallbackSceneId;
+
+    if (activeChapterId === selectedScriptChapterNode.id && activeSceneId === nextSceneId) {
+      return;
+    }
+
+    focusChapter(selectedScriptChapterNode.id, nextSceneId);
+  }, [
+    activeChapterId,
+    activeSceneId,
+    project?.projectType,
+    focusChapter,
+    selectedScriptChapterNode,
+  ]);
 
   useEffect(() => {
     if (!isDraggingBranchConnection) return;
@@ -3223,7 +3262,7 @@ export function Canvas() {
     <div ref={wrapperRef} className="relative h-full w-full flex">
       <ScriptBiblePanel />
       <ScriptWelcomeDialog isOpen={showWelcomeDialog} onClose={() => setShowWelcomeDialog(false)} />
-      <div ref={reactFlowWrapperRef} className="flex-1 relative">
+      <div ref={reactFlowWrapperRef} className="relative min-w-0 flex-1">
       <GroupSidebar
         groups={groupNodesList}
         selectedGroupId={selectedGroupId}
@@ -3542,6 +3581,7 @@ export function Canvas() {
         onNavigate={navigateImageViewer}
       />
       </div>
+      <SceneStudioPanel />
     </div>
   );
 }

@@ -1,6 +1,7 @@
 import { useState, useMemo, useCallback } from 'react';
 import { useReactFlow } from '@xyflow/react';
 import { ChevronDown, ChevronRight, ChevronLeft, ChevronRight as ExpandIcon, Users, MapPin, Package, Link2, FileText, Plus, Pencil, Download, Sparkles, Globe, Eye, FilePlus } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
 import { useProjectStore } from '@/stores/projectStore';
 import { useCanvasStore } from '@/stores/canvasStore';
 import { extractAssetsFromChapters } from '../application/assetExtractor';
@@ -10,6 +11,7 @@ import { PlotTreeView } from './PlotTreeView';
 import { ChapterCountDialog } from './ChapterCountDialog';
 import {
   CANVAS_NODE_TYPES,
+  type ScriptRootNodeData,
   type ScriptChapterNodeData,
   type ScriptCharacterNodeData,
   type ScriptLocationNodeData,
@@ -105,6 +107,7 @@ function AssetItem({ label, description, onClick, onEdit, onShowOnCanvas, showOn
 }
 
 export function ScriptBiblePanel() {
+  const { t } = useTranslation();
   const currentProject = useProjectStore((state) => state.getCurrentProject());
   const { nodes, addNode } = useCanvasStore();
   const { setCenter } = useReactFlow();
@@ -123,6 +126,7 @@ export function ScriptBiblePanel() {
 
   const scriptNodes = useMemo(() => {
     return {
+      roots: nodes.filter((n) => n.type === CANVAS_NODE_TYPES.scriptRoot) as Array<{ id: string; data: ScriptRootNodeData; position: { x: number; y: number } }>,
       chapters: nodes.filter((n) => n.type === CANVAS_NODE_TYPES.scriptChapter) as Array<{ id: string; data: ScriptChapterNodeData; position: { x: number; y: number } }>,
       characters: nodes.filter((n) => n.type === CANVAS_NODE_TYPES.scriptCharacter) as Array<{ id: string; data: ScriptCharacterNodeData; position: { x: number; y: number } }>,
       locations: nodes.filter((n) => n.type === CANVAS_NODE_TYPES.scriptLocation) as Array<{ id: string; data: ScriptLocationNodeData; position: { x: number; y: number } }>,
@@ -131,6 +135,23 @@ export function ScriptBiblePanel() {
       worldviews: nodes.filter((n) => n.type === CANVAS_NODE_TYPES.scriptWorldview) as Array<{ id: string; data: ScriptWorldviewNodeData; position: { x: number; y: number } }>,
     };
   }, [nodes]);
+
+  const rootNode = scriptNodes.roots[0] ?? null;
+
+  const storyProfileItems = useMemo(() => {
+    if (!rootNode) {
+      return [];
+    }
+
+    return [
+      { label: t('script.storyStart.premise'), value: rootNode.data.premise },
+      { label: t('script.storyStart.theme'), value: rootNode.data.theme },
+      { label: t('script.storyStart.protagonist'), value: rootNode.data.protagonist },
+      { label: t('script.storyStart.want'), value: rootNode.data.want },
+      { label: t('script.storyStart.stakes'), value: rootNode.data.stakes },
+      { label: t('script.storyStart.directorVision'), value: rootNode.data.directorVision },
+    ].filter((item) => item.value?.trim().length);
+  }, [rootNode, t]);
 
   const getNextPosition = useCallback((baseX: number, baseY: number, index: number) => {
     const offsetX = (index % 3) * 350;
@@ -367,6 +388,65 @@ export function ScriptBiblePanel() {
       </div>
 
       <div className="flex-1 overflow-y-auto ui-scrollbar">
+        {rootNode ? (
+          <CollapsibleSection
+            title={t('script.storyStart.storyProfile')}
+            icon={<Sparkles className="w-4 h-4 text-amber-400" />}
+            count={storyProfileItems.length || 1}
+          >
+            <button
+              onClick={() => handleNodeClick(rootNode.id)}
+              className="w-full rounded-xl border border-amber-500/20 bg-amber-500/5 px-3 py-3 text-left transition-colors hover:border-amber-500/40 hover:bg-amber-500/10"
+            >
+              <div className="text-sm font-semibold text-text-dark">
+                {rootNode.data.title || rootNode.data.displayName}
+              </div>
+              <div className="mt-2 flex flex-wrap gap-2 text-[11px] text-text-muted">
+                {rootNode.data.genre ? (
+                  <span className="rounded-full border border-amber-500/25 bg-amber-500/10 px-2 py-1 text-amber-300">
+                    {rootNode.data.genre}
+                  </span>
+                ) : null}
+                <span className="rounded-full border border-border-dark bg-bg-dark/60 px-2 py-1">
+                  {t('script.storyStart.chapterCount')}: {rootNode.data.totalChapters || scriptNodes.chapters.length}
+                </span>
+              </div>
+            </button>
+
+            {storyProfileItems.length ? (
+              <div className="mt-3 space-y-2">
+                {storyProfileItems.map((item) => (
+                  <div key={item.label} className="rounded-lg border border-border-dark bg-bg-dark/40 px-3 py-2">
+                    <div className="text-[11px] uppercase tracking-[0.08em] text-text-muted">
+                      {item.label}
+                    </div>
+                    <div className="mt-1 text-sm leading-5 text-text-dark">
+                      {item.value}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : null}
+
+            {rootNode.data.beats?.length ? (
+              <div className="mt-3">
+                <div className="mb-2 text-[11px] uppercase tracking-[0.08em] text-text-muted">
+                  {t('script.storyStart.beats')}
+                </div>
+                <div className="space-y-2">
+                  {rootNode.data.beats.map((beat) => (
+                    <div key={beat.id ?? beat.key} className="rounded-lg border border-border-dark bg-bg-dark/40 px-3 py-2">
+                      <div className="text-sm font-medium text-text-dark">{beat.title}</div>
+                      {beat.summary ? (
+                        <div className="mt-1 text-xs leading-5 text-text-muted">{beat.summary}</div>
+                      ) : null}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ) : null}
+          </CollapsibleSection>
+        ) : null}
         <CollapsibleSection
             title="剧情摘要"
             icon={<FileText className="w-4 h-4 text-text-muted" />}

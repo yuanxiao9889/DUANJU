@@ -1,6 +1,11 @@
 import { useState, useCallback, useMemo } from 'react';
 import { ChevronRight, ChevronDown, FileText, GitBranch, Sparkles, Circle } from 'lucide-react';
-import { type ScriptChapterNodeData } from '@/features/canvas/domain/canvasNodes';
+import { useTranslation } from 'react-i18next';
+import {
+  normalizeSceneCards,
+  type ScriptChapterNodeData,
+} from '@/features/canvas/domain/canvasNodes';
+import { useScriptEditorStore } from '@/stores/scriptEditorStore';
 
 type ChapterNode = { id: string; data: ScriptChapterNodeData };
 
@@ -13,6 +18,8 @@ interface PlotTreeNodeProps {
   onToggle: (nodeId: string) => void;
   onNodeClick: (nodeId: string) => void;
   expandedIds: Set<string>;
+  activeChapterId: string | null;
+  activeSceneId: string | null;
 }
 
 function PlotTreeNode({
@@ -24,11 +31,20 @@ function PlotTreeNode({
   onToggle,
   onNodeClick,
   expandedIds,
+  activeChapterId,
+  activeSceneId,
 }: PlotTreeNodeProps) {
+  const { t } = useTranslation();
+  const focusChapter = useScriptEditorStore((state) => state.focusChapter);
+  const focusScene = useScriptEditorStore((state) => state.focusScene);
   const data = node.data;
   const hasChildren = children.length > 0;
   const isBranchPoint = data.isBranchPoint;
   const branchType = data.branchType || 'main';
+  const scenes = useMemo(
+    () => normalizeSceneCards(data.scenes, data.content),
+    [data.content, data.scenes]
+  );
   
   const getBranchTypeIcon = () => {
     switch (branchType) {
@@ -69,7 +85,10 @@ function PlotTreeNode({
           ${isBranchPoint ? 'bg-purple-500/10' : ''}
         `}
         style={{ paddingLeft: `${level * 12 + 8}px` }}
-        onClick={() => onNodeClick(node.id)}
+        onClick={() => {
+          focusChapter(node.id, scenes[0]?.id ?? null);
+          onNodeClick(node.id);
+        }}
       >
         {hasChildren ? (
           <button
@@ -116,6 +135,40 @@ function PlotTreeNode({
           <Circle className="w-2 h-2 text-purple-400 fill-purple-400" />
         )}
       </div>
+
+      {isExpanded && scenes.length > 0 ? (
+        <div className="space-y-1 py-1">
+          {scenes.map((scene) => {
+            const isActive = activeChapterId === node.id && activeSceneId === scene.id;
+            return (
+              <button
+                key={scene.id}
+                type="button"
+                onClick={() => {
+                  focusScene(node.id, scene.id);
+                  onNodeClick(node.id);
+                }}
+                className={`ml-5 flex w-[calc(100%-20px)] items-center gap-2 rounded-md px-2 py-1.5 text-left transition-colors ${
+                  isActive
+                    ? 'bg-amber-500/12 text-amber-200'
+                    : 'text-text-muted hover:bg-bg-dark hover:text-text-dark'
+                }`}
+                style={{ marginLeft: `${level * 12 + 28}px` }}
+              >
+                <Circle className={`h-2.5 w-2.5 ${isActive ? 'fill-amber-300 text-amber-300' : 'fill-current text-text-muted/60'}`} />
+                <div className="min-w-0 flex-1">
+                  <div className="truncate text-[11px] font-medium">
+                    {scene.title || t('script.sceneStudio.untitledScene')}
+                  </div>
+                  <div className="truncate text-[10px] opacity-70">
+                    {scene.summary || t('script.sceneStudio.sceneLabel', { number: scene.order + 1 })}
+                  </div>
+                </div>
+              </button>
+            );
+          })}
+        </div>
+      ) : null}
       
       {hasChildren && isExpanded && (
         <div className="relative">
@@ -130,6 +183,8 @@ function PlotTreeNode({
               onToggle={onToggle}
               onNodeClick={onNodeClick}
               expandedIds={expandedIds}
+              activeChapterId={activeChapterId}
+              activeSceneId={activeSceneId}
             />
           ))}
         </div>
@@ -144,6 +199,8 @@ interface PlotTreeViewProps {
 }
 
 export function PlotTreeView({ chapters, onNodeClick }: PlotTreeViewProps) {
+  const activeChapterId = useScriptEditorStore((state) => state.activeChapterId);
+  const activeSceneId = useScriptEditorStore((state) => state.activeSceneId);
   const [expandedIds, setExpandedIds] = useState<Set<string>>(() => {
     const initialExpanded = new Set<string>();
     chapters.forEach(chapter => {
@@ -212,6 +269,8 @@ export function PlotTreeView({ chapters, onNodeClick }: PlotTreeViewProps) {
           onToggle={handleToggle}
           onNodeClick={onNodeClick}
           expandedIds={expandedIds}
+          activeChapterId={activeChapterId}
+          activeSceneId={activeSceneId}
         />
       ))}
     </div>
