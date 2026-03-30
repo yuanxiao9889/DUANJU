@@ -35,6 +35,7 @@ import {
   subscribeAssetItemDeleted,
   subscribeAssetItemUpdated,
 } from '@/features/assets/application/assetEvents';
+import { useAssetStore } from '@/stores/assetStore';
 import { useCanvasStore } from '@/stores/canvasStore';
 import { useProjectStore } from '@/stores/projectStore';
 import { useScriptEditorStore } from '@/stores/scriptEditorStore';
@@ -545,6 +546,8 @@ export function Canvas() {
   const addNode = useCanvasStore((state) => state.addNode);
   const setSelectedNode = useCanvasStore((state) => state.setSelectedNode);
   const selectedNodeId = useCanvasStore((state) => state.selectedNodeId);
+  const assetLibraries = useAssetStore((state) => state.libraries);
+  const areAssetLibrariesHydrated = useAssetStore((state) => state.isHydrated);
   const activeChapterId = useScriptEditorStore((state) => state.activeChapterId);
   const activeSceneId = useScriptEditorStore((state) => state.activeSceneId);
   const focusChapter = useScriptEditorStore((state) => state.focusChapter);
@@ -1030,6 +1033,18 @@ export function Canvas() {
       unsubscribeAssetItemDeleted();
     };
   }, [detachDeletedAssetReferences, getCurrentProject, syncAssetItemReferences]);
+
+  useEffect(() => {
+    if (!areAssetLibrariesHydrated || !getCurrentProject()) {
+      return;
+    }
+
+    for (const library of assetLibraries) {
+      for (const item of library.items) {
+        syncAssetItemReferences(item);
+      }
+    }
+  }, [assetLibraries, areAssetLibrariesHydrated, getCurrentProject, syncAssetItemReferences]);
 
   useEffect(() => {
     const handleDragSessionEnd = () => {

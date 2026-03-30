@@ -122,7 +122,8 @@ fn current_timestamp_ms() -> i64 {
 }
 
 fn system_time_to_timestamp_ms(value: SystemTime) -> i64 {
-    value.duration_since(UNIX_EPOCH)
+    value
+        .duration_since(UNIX_EPOCH)
         .map(|duration| duration.as_millis() as i64)
         .unwrap_or_default()
 }
@@ -136,8 +137,7 @@ fn configure_sqlite_connection(conn: &Connection) -> Result<(), String> {
 }
 
 fn open_sqlite_connection(path: &Path) -> Result<Connection, String> {
-    let conn =
-        Connection::open(path).map_err(|e| format!("Failed to open SQLite DB: {}", e))?;
+    let conn = Connection::open(path).map_err(|e| format!("Failed to open SQLite DB: {}", e))?;
     configure_sqlite_connection(&conn)?;
     Ok(conn)
 }
@@ -146,7 +146,11 @@ fn remove_file_if_exists(path: &Path) -> Result<(), String> {
     match fs::remove_file(path) {
         Ok(()) => Ok(()),
         Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(()),
-        Err(error) => Err(format!("Failed to remove file {}: {}", path.display(), error)),
+        Err(error) => Err(format!(
+            "Failed to remove file {}: {}",
+            path.display(),
+            error
+        )),
     }
 }
 
@@ -184,7 +188,10 @@ fn copy_database_safely(source_db_path: &Path, target_db_path: &Path) -> Result<
     Ok(())
 }
 
-fn restore_database_from_backup(backup_db_path: &Path, target_db_path: &Path) -> Result<(), String> {
+fn restore_database_from_backup(
+    backup_db_path: &Path,
+    target_db_path: &Path,
+) -> Result<(), String> {
     if !backup_db_path.exists() {
         return Err(format!(
             "Backup file does not exist: {}",
@@ -318,7 +325,11 @@ fn prune_database_backups_by_kind(
     kind: &str,
     keep: usize,
 ) -> Result<(), String> {
-    for record in records.iter().filter(|record| record.kind == kind).skip(keep) {
+    for record in records
+        .iter()
+        .filter(|record| record.kind == kind)
+        .skip(keep)
+    {
         remove_file_if_exists(Path::new(&record.path))?;
     }
 
@@ -327,7 +338,11 @@ fn prune_database_backups_by_kind(
 
 fn prune_database_backups(app: &AppHandle) -> Result<(), String> {
     let records = list_database_backup_records(app)?;
-    prune_database_backups_by_kind(&records, AUTO_DATABASE_BACKUP_KIND, MAX_AUTO_DATABASE_BACKUPS)?;
+    prune_database_backups_by_kind(
+        &records,
+        AUTO_DATABASE_BACKUP_KIND,
+        MAX_AUTO_DATABASE_BACKUPS,
+    )?;
     prune_database_backups_by_kind(
         &records,
         PRE_RESTORE_DATABASE_BACKUP_KIND,
@@ -385,12 +400,7 @@ fn create_database_backup_internal(
 
 fn resolve_database_backup_file(app: &AppHandle, backup_id: &str) -> Result<PathBuf, String> {
     let normalized_id = backup_id.trim();
-    if normalized_id.is_empty()
-        || Path::new(normalized_id)
-            .components()
-            .count()
-            != 1
-    {
+    if normalized_id.is_empty() || Path::new(normalized_id).components().count() != 1 {
         return Err("Invalid backup id".to_string());
     }
 

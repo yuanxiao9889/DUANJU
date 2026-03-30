@@ -374,8 +374,7 @@ fn resolve_chrome_executable_path() -> Result<PathBuf, String> {
 
 fn resolve_jimeng_chrome_executable_path() -> Result<PathBuf, String> {
     resolve_chrome_executable_path().map_err(|_| {
-        "Chrome/Chromium was not found. Please install Google Chrome and try again."
-            .to_string()
+        "Chrome/Chromium was not found. Please install Google Chrome and try again.".to_string()
     })
 }
 
@@ -961,7 +960,9 @@ pub async fn submit_jimeng_chrome_task(
         false,
     );
     if is_submission_effectively_confirmed(&submission_state) {
-        info!("Jimeng Chrome submission timed out after confirmed submit click; treating as success");
+        info!(
+            "Jimeng Chrome submission timed out after confirmed submit click; treating as success"
+        );
         return Ok(());
     }
     warn!(

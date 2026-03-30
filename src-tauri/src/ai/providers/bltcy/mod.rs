@@ -28,19 +28,7 @@ const SUPPORTED_MODELS: [&str; 3] = [
 ];
 
 const SUPPORTED_ASPECT_RATIOS: [&str; 14] = [
-    "1:1",
-    "1:4",
-    "1:8",
-    "2:3",
-    "3:2",
-    "3:4",
-    "4:1",
-    "4:3",
-    "4:5",
-    "5:4",
-    "8:1",
-    "9:16",
-    "16:9",
+    "1:1", "1:4", "1:8", "2:3", "3:2", "3:4", "4:1", "4:3", "4:5", "5:4", "8:1", "9:16", "16:9",
     "21:9",
 ];
 
@@ -497,7 +485,11 @@ impl BltcyProvider {
             ));
         }
         if !preference_hints.is_empty() {
-            prompt_text = format!("{}\n\n{}", request.prompt.as_str(), preference_hints.join(" "));
+            prompt_text = format!(
+                "{}\n\n{}",
+                request.prompt.as_str(),
+                preference_hints.join(" ")
+            );
         }
         let mut content = vec![json!({
             "type": "text",
@@ -689,8 +681,9 @@ impl BltcyProvider {
                     ));
                 }
                 "FAILURE" | "FAILED" | "ERROR" | "CANCELLED" => {
-                    let message = Self::extract_error_message(&payload)
-                        .unwrap_or_else(|| format!("柏拉图 AI task failed with status {}", task_status));
+                    let message = Self::extract_error_message(&payload).unwrap_or_else(|| {
+                        format!("柏拉图 AI task failed with status {}", task_status)
+                    });
                     return Err(AIError::TaskFailed(message));
                 }
                 "QUEUED" | "SUBMITTED" | "PENDING" | "RUNNING" | "PROCESSING" | "IN_PROGRESS" => {

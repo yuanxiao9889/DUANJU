@@ -412,8 +412,7 @@ pub(crate) fn prune_unreferenced_images(app: &AppHandle) -> Result<(), String> {
             .map_err(|e| format!("Failed to query image refs: {}", e))?;
 
         for path_result in rows {
-            let path =
-                path_result.map_err(|e| format!("Failed to decode image ref row: {}", e))?;
+            let path = path_result.map_err(|e| format!("Failed to decode image ref row: {}", e))?;
             referenced.insert(path);
         }
     }
@@ -744,13 +743,21 @@ mod tests {
             .expect("failed to read pragma rows")
             .flatten()
             .any(|column_name| column_name == "asset_library_id");
-        assert!(has_asset_library_id, "asset_library_id should be added for legacy projects");
+        assert!(
+            has_asset_library_id,
+            "asset_library_id should be added for legacy projects"
+        );
 
         let legacy_project_count: i64 = conn
-            .query_row("SELECT COUNT(*) FROM projects WHERE id = 'legacy-project'", [], |row| {
-                row.get(0)
-            })
+            .query_row(
+                "SELECT COUNT(*) FROM projects WHERE id = 'legacy-project'",
+                [],
+                |row| row.get(0),
+            )
             .expect("failed to count legacy project");
-        assert_eq!(legacy_project_count, 1, "existing projects should remain readable");
+        assert_eq!(
+            legacy_project_count, 1,
+            "existing projects should remain readable"
+        );
     }
 }
