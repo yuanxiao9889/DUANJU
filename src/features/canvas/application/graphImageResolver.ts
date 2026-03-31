@@ -1,6 +1,8 @@
 import {
   isExportImageNode,
   isImageEditNode,
+  isJimengImageNode,
+  isJimengImageResultNode,
   isStoryboardGenNode,
   isUploadNode,
   type CanvasEdge,
@@ -34,6 +36,12 @@ export class DefaultGraphImageResolver implements GraphImageResolver {
       || isStoryboardGenNode(node)
     ) {
       return node.data.imageUrl ? [node.data.imageUrl] : [];
+    }
+
+    if (isJimengImageNode(node) || isJimengImageResultNode(node)) {
+      return (node.data.resultImages ?? [])
+        .map((item) => item.imageUrl ?? item.previewImageUrl ?? item.sourceUrl ?? null)
+        .filter((imageUrl): imageUrl is string => Boolean(imageUrl && imageUrl.trim().length > 0));
     }
 
     return [];

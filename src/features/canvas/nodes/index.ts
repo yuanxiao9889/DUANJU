@@ -3,6 +3,8 @@ import type { NodeTypes } from '@xyflow/react';
 import { GroupNode } from './GroupNode';
 import { AudioNode } from './AudioNode';
 import { ImageEditNode } from './ImageEditNode';
+import { JimengImageNode } from './JimengImageNode';
+import { JimengImageResultNode } from './JimengImageResultNode';
 import { ImageNode } from './ImageNode';
 import { JimengNode } from './JimengNode';
 import { StoryboardGenNode } from './StoryboardGenNode';
@@ -24,6 +26,8 @@ export const nodeTypes: NodeTypes = {
   groupNode: GroupNode,
   audioNode: AudioNode,
   imageNode: ImageEditNode,
+  jimengImageNode: JimengImageNode,
+  jimengImageResultNode: JimengImageResultNode,
   jimengNode: JimengNode,
   storyboardGenNode: StoryboardGenNode,
   storyboardNode: StoryboardNode,
@@ -44,6 +48,8 @@ export {
   GroupNode, 
   AudioNode,
   ImageEditNode, 
+  JimengImageNode,
+  JimengImageResultNode,
   ImageNode, 
   JimengNode,
   StoryboardGenNode, 

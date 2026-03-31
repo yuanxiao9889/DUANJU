@@ -66,12 +66,29 @@ export interface JimengChromeSessionInfo {
   targetUrl: string;
 }
 
-export async function ensureJimengChromeSession(): Promise<JimengChromeSessionInfo> {
-  return await invoke<JimengChromeSessionInfo>('ensure_jimeng_chrome_session');
+export interface JimengChromeWorkspacePayload {
+  creationType?: string;
 }
 
-export async function focusJimengChromeWorkspace(): Promise<JimengChromeSessionInfo> {
-  return await invoke<JimengChromeSessionInfo>('focus_jimeng_chrome_workspace');
+export interface JimengChromeGeneratedImageResult {
+  index: number;
+  sourceUrl: string;
+  signature: string;
+  width?: number | null;
+  height?: number | null;
+  altText?: string | null;
+}
+
+export async function ensureJimengChromeSession(
+  payload?: JimengChromeWorkspacePayload
+): Promise<JimengChromeSessionInfo> {
+  return await invoke<JimengChromeSessionInfo>('ensure_jimeng_chrome_session', { payload });
+}
+
+export async function focusJimengChromeWorkspace(
+  payload?: JimengChromeWorkspacePayload
+): Promise<JimengChromeSessionInfo> {
+  return await invoke<JimengChromeSessionInfo>('focus_jimeng_chrome_workspace', { payload });
 }
 
 export async function submitJimengChromeTask(
@@ -80,8 +97,18 @@ export async function submitJimengChromeTask(
   await invoke('submit_jimeng_chrome_task', { payload });
 }
 
-export async function inspectJimengChromeOptions<T = unknown>(): Promise<T> {
-  return await invoke<T>('inspect_jimeng_chrome_options');
+export async function generateJimengChromeImages(
+  payload: SubmitJimengPanelPayload
+): Promise<JimengChromeGeneratedImageResult[]> {
+  return await invoke<JimengChromeGeneratedImageResult[]>('generate_jimeng_chrome_images', {
+    payload,
+  });
+}
+
+export async function inspectJimengChromeOptions<T = unknown>(
+  payload?: JimengChromeWorkspacePayload
+): Promise<T> {
+  return await invoke<T>('inspect_jimeng_chrome_options', { payload });
 }
 
 export async function syncJimengChromeDraftOptions<T = unknown>(

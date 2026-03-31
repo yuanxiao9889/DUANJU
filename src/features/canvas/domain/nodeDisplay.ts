@@ -9,6 +9,8 @@ export const DEFAULT_NODE_DISPLAY_NAME: Record<CanvasNodeType, string> = {
   [CANVAS_NODE_TYPES.upload]: '\u4e0a\u4f20\u56fe\u7247',
   [CANVAS_NODE_TYPES.imageEdit]: 'AI \u56fe\u7247',
   [CANVAS_NODE_TYPES.jimeng]: '\u53d1\u9001\u5373\u68a6',
+  [CANVAS_NODE_TYPES.jimengImage]: '\u5373\u68a6\u56fe\u7247',
+  [CANVAS_NODE_TYPES.jimengImageResult]: '\u5373\u68a6\u56db\u5bab\u683c',
   [CANVAS_NODE_TYPES.exportImage]: '\u7ed3\u679c\u56fe\u7247',
   [CANVAS_NODE_TYPES.textAnnotation]: '\u6587\u672c\u6ce8\u91ca',
   [CANVAS_NODE_TYPES.group]: '\u5206\u7ec4',

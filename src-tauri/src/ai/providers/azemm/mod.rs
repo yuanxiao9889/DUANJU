@@ -278,9 +278,7 @@ impl AzemmProvider {
             .min()?;
         let tail = &text[start..];
         let end = tail
-            .find(|ch: char| {
-                ch.is_whitespace() || ch == ')' || ch == ']' || ch == '>' || ch == '"'
-            })
+            .find(|ch: char| ch.is_whitespace() || ch == ')' || ch == ']' || ch == '>' || ch == '"')
             .unwrap_or(tail.len());
         let url = tail[..end].trim_end_matches(['.', ','].as_ref()).trim();
         if url.is_empty() {

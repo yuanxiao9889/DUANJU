@@ -103,6 +103,14 @@
     'remove all',
     'delete all',
   ];
+  const RESULT_DOWNLOAD_KEYWORDS = [
+    '\u4e0b\u8f7d',
+    '\u4fdd\u5b58',
+    '\u5bfc\u51fa',
+    'download',
+    'save',
+    'export',
+  ];
   const SUBMIT_PROGRESS_KEYWORDS = [
     '\u751f\u6210\u4e2d',
     '\u521b\u4f5c\u4e2d',
@@ -209,6 +217,10 @@
     lastSubmissionUpdatedAt: null,
     lastSubmissionStep: null,
     submissionStepHistory: [],
+    lastImageResultBaseline: [],
+    lastImageResultReport: null,
+    lastImageResultError: null,
+    lastImageResultUpdatedAt: null,
   };
 
   function collapseWhitespace(value) {
@@ -3392,6 +3404,11 @@
       throw new Error('Timed out waiting for Jimeng editor controls');
     }
 
+    if (payload.creationType === 'image') {
+      state.lastImageResultBaseline = readCurrentImageResultSignatures(promptInput);
+      recordSubmissionStep('image-result-baseline', String(state.lastImageResultBaseline.length));
+    }
+
     if (!(await ensureReferenceImagesApplied(payload, promptInput))) {
       throw new Error('Failed to upload Jimeng reference images');
     }
@@ -3558,6 +3575,324 @@
     }
 
     return left.rect.left - right.rect.left;
+  }
+
+  function extractBackgroundImageSource(element) {
+    if (!(element instanceof HTMLElement)) {
+      return '';
+    }
+
+    const backgroundImage = window.getComputedStyle(element).backgroundImage || '';
+    const match = backgroundImage.match(/url\((['"]?)(.*?)\1\)/i);
+    return collapseWhitespace(match && match[2] ? match[2] : '');
+  }
+
+  function extractGeneratedImageSource(element) {
+    if (element instanceof HTMLImageElement) {
+      return collapseWhitespace(element.currentSrc || element.src || '');
+    }
+
+    if (element instanceof HTMLCanvasElement) {
+      try {
+        return collapseWhitespace(element.toDataURL('image/png'));
+      } catch (_error) {
+        return '';
+      }
+    }
+
+    if (element instanceof HTMLElement) {
+      return extractBackgroundImageSource(element);
+    }
+
+    return '';
+  }
+
+  function isGeneratedImageMediaElement(element, promptInput) {
+    if (!(element instanceof HTMLElement) || !isVisible(element)) {
+      return false;
+    }
+
+    if (element.closest('header, nav, aside, [role="navigation"]')) {
+      return false;
+    }
+
+    const referenceRoot = findReferenceWorkspaceRoot(promptInput);
+    if (referenceRoot instanceof HTMLElement && referenceRoot.contains(element)) {
+      return false;
+    }
+
+    if (element.closest('[data-index], [class*="reference-item"]')) {
+      return false;
+    }
+
+    if (element.closest('[class*="reference-upload"], [class*="upload"]') && hasReferencePreviewNearby(element)) {
+      return false;
+    }
+
+    const rect = element.getBoundingClientRect();
+    if (rect.width < 96 || rect.height < 96 || rect.width > 1600 || rect.height > 1600) {
+      return false;
+    }
+
+    const promptRegionRect = getPromptRegionRect(promptInput);
+    if (rect.bottom < promptRegionRect.top - 40) {
+      return false;
+    }
+
+    const nearPromptRegion = isElementNearPromptRegion(
+      element,
+      promptInput,
+      { top: 160, right: 620, bottom: 1040, left: 220 }
+    );
+    const belowPromptRegion = rect.top >= promptRegionRect.bottom - 48;
+    const besidePromptRegion =
+      rect.left >= promptRegionRect.right + 24 || rect.right <= promptRegionRect.left - 24;
+
+    if (!nearPromptRegion && !belowPromptRegion && !besidePromptRegion) {
+      return false;
+    }
+
+    return Boolean(extractGeneratedImageSource(element));
+  }
+
+  function buildGeneratedImageItemSignature(source, rect, index) {
+    if (source) {
+      return source;
+    }
+
+    return [
+      index,
+      Math.round(rect.left),
+      Math.round(rect.top),
+      Math.round(rect.width),
+      Math.round(rect.height),
+    ].join(':');
+  }
+
+  function collectGeneratedImageMediaElements(promptInput) {
+    const selectors = 'img, canvas, [role="img"], [style*="background-image"]';
+    const seen = new Set();
+    return queryAllDeep(selectors)
+      .filter((element) => isGeneratedImageMediaElement(element, promptInput))
+      .filter((element) => {
+        if (!(element instanceof HTMLElement)) {
+          return false;
+        }
+
+        const source = extractGeneratedImageSource(element);
+        const rect = element.getBoundingClientRect();
+        const signature = buildGeneratedImageItemSignature(source, rect, 0);
+        if (seen.has(signature)) {
+          return false;
+        }
+        seen.add(signature);
+        return true;
+      });
+  }
+
+  function scoreGeneratedImageGroup(container, items, promptInput) {
+    if (!(container instanceof HTMLElement)) {
+      return Number.NEGATIVE_INFINITY;
+    }
+
+    const rect = container.getBoundingClientRect();
+    const promptRegionRect = getPromptRegionRect(promptInput);
+    const text = getElementContextText(container);
+    const itemCount = items.length;
+    const averageArea = items.reduce((sum, item) => {
+      const itemRect = item.getBoundingClientRect();
+      return sum + itemRect.width * itemRect.height;
+    }, 0) / Math.max(1, itemCount);
+
+    let score = 0;
+    if (itemCount === 4) {
+      score += 280;
+    } else if (itemCount > 0 && itemCount <= 6) {
+      score += 180;
+    } else if (itemCount <= 8) {
+      score += 80;
+    } else {
+      score -= 220;
+    }
+
+    if (rect.top >= promptRegionRect.bottom - 60) {
+      score += 160;
+    } else if (rect.bottom < promptRegionRect.top - 60) {
+      score -= 260;
+    } else {
+      score += 40;
+    }
+
+    const horizontalDistance = Math.abs(rect.left - promptRegionRect.left);
+    score += 120 - Math.min(horizontalDistance, 120);
+    score += Math.min(averageArea / 1800, 180);
+
+    if (matchesAnyAlias(text, RESULT_DOWNLOAD_KEYWORDS)) {
+      score += 80;
+    }
+    if (matchesAnyAlias(text, SUBMIT_KEYWORDS)) {
+      score -= 200;
+    }
+    if (container.querySelector('input[type="file"], textarea, [contenteditable="true"]')) {
+      score -= 260;
+    }
+
+    return score;
+  }
+
+  function collectGeneratedImageGroups(promptInput) {
+    const mediaElements = collectGeneratedImageMediaElements(promptInput);
+    const groups = [];
+    const seenContainers = new Set();
+
+    for (const media of mediaElements) {
+      let current = media instanceof HTMLElement ? media.parentElement : null;
+      let depth = 0;
+
+      while (current instanceof HTMLElement && depth < 6) {
+        if (current.contains(promptInput)) {
+          break;
+        }
+
+        if (!seenContainers.has(current)) {
+          const items = mediaElements.filter((candidate) => current.contains(candidate));
+          if (items.length > 0 && items.length <= 8) {
+            seenContainers.add(current);
+            groups.push({
+              container: current,
+              rect: current.getBoundingClientRect(),
+              items,
+              score: scoreGeneratedImageGroup(current, items, promptInput),
+            });
+          }
+        }
+
+        current = current.parentElement;
+        depth += 1;
+      }
+    }
+
+    return groups
+      .filter((group) => Number.isFinite(group.score))
+      .sort((left, right) => {
+        if (right.score !== left.score) {
+          return right.score - left.score;
+        }
+        return sortByVisualOrder(left, right);
+      });
+  }
+
+  function collectGeneratedImageResultReport(promptInput, options = {}) {
+    const minimumCount = Math.max(1, Number(options.minimumCount) || 1);
+    const baselineSignatures = new Set(
+      Array.isArray(options.excludeSignatures)
+        ? options.excludeSignatures.filter((value) => typeof value === 'string' && value.length > 0)
+        : []
+    );
+    const groups = collectGeneratedImageGroups(promptInput)
+      .map((group) => {
+        const items = group.items
+          .map((item, index) => {
+            const sourceUrl = extractGeneratedImageSource(item);
+            if (!sourceUrl) {
+              return null;
+            }
+
+            const rect = item.getBoundingClientRect();
+            return {
+              sourceUrl,
+              width: Math.round(rect.width),
+              height: Math.round(rect.height),
+              altText: collapseWhitespace(item.getAttribute('alt') || readElementText(item) || ''),
+              signature: buildGeneratedImageItemSignature(sourceUrl, rect, index),
+            };
+          })
+          .filter(Boolean);
+
+        const freshItems = baselineSignatures.size > 0
+          ? items.filter((item) => !baselineSignatures.has(item.signature))
+          : items;
+
+        return {
+          ...group,
+          items,
+          freshItems,
+        };
+      })
+      .filter((group) => group.items.length > 0);
+
+    const bestGroup = groups.find((group) =>
+      baselineSignatures.size === 0 || group.freshItems.length > 0
+    ) || groups[0] || null;
+
+    if (!bestGroup) {
+      return {
+        status: 'waiting',
+        items: [],
+        candidateCount: 0,
+        baselineCount: baselineSignatures.size,
+        groupSignature: '',
+      };
+    }
+
+    const resultItems = (baselineSignatures.size > 0 ? bestGroup.freshItems : bestGroup.items)
+      .slice(0, 4);
+
+    return {
+      status: resultItems.length >= minimumCount ? 'ready' : 'waiting',
+      items: resultItems,
+      candidateCount: groups.length,
+      baselineCount: baselineSignatures.size,
+      groupSignature: bestGroup.items.map((item) => item.signature).join('|'),
+    };
+  }
+
+  function readCurrentImageResultSignatures(promptInput) {
+    const report = collectGeneratedImageResultReport(promptInput, { minimumCount: 1 });
+    return Array.isArray(report.items)
+      ? report.items.map((item) => item.signature).filter(Boolean)
+      : [];
+  }
+
+  function getGeneratedImageResults(options = {}) {
+    try {
+      const promptInput = findPromptInput();
+      if (!promptInput) {
+        return {
+          status: 'waiting',
+          items: [],
+          error: null,
+          updatedAt: state.lastImageResultUpdatedAt,
+        };
+      }
+
+      const excludeSignatures = options.excludeBaseline === false
+        ? []
+        : state.lastImageResultBaseline;
+      const report = collectGeneratedImageResultReport(promptInput, {
+        minimumCount: options.minimumCount,
+        excludeSignatures,
+      });
+
+      state.lastImageResultReport = report;
+      state.lastImageResultError = null;
+      state.lastImageResultUpdatedAt = Date.now();
+      return {
+        ...report,
+        error: null,
+        updatedAt: state.lastImageResultUpdatedAt,
+      };
+    } catch (error) {
+      const message = String(error && error.message ? error.message : error);
+      state.lastImageResultError = message;
+      state.lastImageResultUpdatedAt = Date.now();
+      return {
+        status: 'error',
+        items: [],
+        error: message,
+        updatedAt: state.lastImageResultUpdatedAt,
+      };
+    }
   }
 
   function collectToolbarCandidates(promptInput) {
@@ -3915,6 +4250,10 @@
 
     state.lastSubmissionStep = null;
     state.submissionStepHistory = [];
+    state.lastImageResultReport = null;
+    state.lastImageResultError = null;
+    state.lastImageResultUpdatedAt = null;
+    state.lastImageResultBaseline = [];
     setSubmissionPending();
     clearRetryTimer();
     attemptPendingSubmission();
@@ -3958,6 +4297,7 @@
     requestInspection,
     getInspectionState,
     getSubmissionState,
+    getGeneratedImageResults,
     scheduleInspection,
     async inspect() {
       return await inspectWhenReady();

@@ -149,7 +149,7 @@ function resolveJimengReferenceAudioFileName(
   return sanitizeJimengReferenceFileName(`jimeng-audio-${index + 1}.${extension}`);
 }
 
-async function prepareJimengReferenceImages(
+export async function prepareJimengReferenceImages(
   sources: string[] | undefined
 ): Promise<JimengReferenceImagePayload[]> {
   const uniqueSources = [...new Set((sources ?? []).map((source) => source.trim()).filter(Boolean))];
@@ -168,7 +168,7 @@ async function prepareJimengReferenceImages(
   );
 }
 
-async function prepareJimengReferenceAudios(
+export async function prepareJimengReferenceAudios(
   sources: string[] | undefined
 ): Promise<JimengReferenceAudioPayload[]> {
   const uniqueSources = [...new Set((sources ?? []).map((source) => source.trim()).filter(Boolean))];

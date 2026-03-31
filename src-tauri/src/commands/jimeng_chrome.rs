@@ -17,10 +17,14 @@ use uuid::Uuid;
 use super::jimeng_panel::SubmitJimengPanelPayload;
 
 const JIMENG_CHROME_REMOTE_DEBUGGING_PORT: u16 = 9334;
-const JIMENG_CHROME_TARGET_URL: &str =
+const JIMENG_CHROME_VIDEO_TARGET_URL: &str =
     "https://jimeng.jianying.com/ai-tool/generate?type=video&workspace=0";
+const JIMENG_CHROME_IMAGE_TARGET_URL: &str =
+    "https://jimeng.jianying.com/ai-tool/generate?type=image&workspace=0";
 const JIMENG_CHROME_WAIT_TIMEOUT_MS: u64 = 25_000;
 const JIMENG_CHROME_POLL_INTERVAL_MS: u64 = 400;
+const JIMENG_CHROME_IMAGE_RESULT_TIMEOUT_MS: u64 = 6 * 60 * 1000;
+const JIMENG_CHROME_IMAGE_RESULT_POLL_INTERVAL_MS: u64 = 1_500;
 const JIMENG_CHROME_BRIDGE_SCRIPT: &str = include_str!("jimeng_panel_bridge.js");
 
 #[derive(Debug, Clone, Serialize)]
@@ -30,6 +34,23 @@ pub struct JimengChromeSessionInfo {
     pub user_data_dir: String,
     pub remote_debugging_port: u16,
     pub target_url: String,
+}
+
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct JimengChromeWorkspacePayload {
+    pub creation_type: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct JimengChromeGeneratedImageResult {
+    pub index: usize,
+    pub source_url: String,
+    pub signature: String,
+    pub width: Option<u32>,
+    pub height: Option<u32>,
+    pub alt_text: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -316,6 +337,25 @@ fn chrome_debug_base_url() -> String {
     format!("http://127.0.0.1:{}", JIMENG_CHROME_REMOTE_DEBUGGING_PORT)
 }
 
+fn normalize_creation_type(value: Option<&str>) -> &'static str {
+    match value
+        .unwrap_or("video")
+        .trim()
+        .to_ascii_lowercase()
+        .as_str()
+    {
+        "image" => "image",
+        _ => "video",
+    }
+}
+
+fn resolve_target_url(creation_type: Option<&str>) -> &'static str {
+    match normalize_creation_type(creation_type) {
+        "image" => JIMENG_CHROME_IMAGE_TARGET_URL,
+        _ => JIMENG_CHROME_VIDEO_TARGET_URL,
+    }
+}
+
 fn resolve_chrome_profile_dir(app: &AppHandle) -> Result<PathBuf, String> {
     let profile_dir = app
         .path()
@@ -443,7 +483,11 @@ async fn ensure_chrome_debug_session(
         return Ok(());
     }
 
-    spawn_chrome_window(executable_path, user_data_dir, JIMENG_CHROME_TARGET_URL)?;
+    spawn_chrome_window(
+        executable_path,
+        user_data_dir,
+        JIMENG_CHROME_VIDEO_TARGET_URL,
+    )?;
 
     let deadline = Instant::now() + Duration::from_millis(JIMENG_CHROME_WAIT_TIMEOUT_MS);
     while Instant::now() < deadline {
@@ -475,12 +519,26 @@ fn is_jimeng_video_workspace_url(url: &str) -> bool {
     is_jimeng_generate_url(url) && url.contains("type=video")
 }
 
-fn find_best_jimeng_target(targets: &[ChromeTargetInfo]) -> Option<ChromeTargetInfo> {
+fn is_jimeng_image_workspace_url(url: &str) -> bool {
+    is_jimeng_generate_url(url) && url.contains("type=image")
+}
+
+fn is_preferred_workspace_url(url: &str, creation_type: Option<&str>) -> bool {
+    match normalize_creation_type(creation_type) {
+        "image" => is_jimeng_image_workspace_url(url),
+        _ => is_jimeng_video_workspace_url(url),
+    }
+}
+
+fn find_best_jimeng_target(
+    targets: &[ChromeTargetInfo],
+    creation_type: Option<&str>,
+) -> Option<ChromeTargetInfo> {
     targets
         .iter()
         .find(|target| {
             target.target_type.as_deref() == Some("page")
-                && is_jimeng_video_workspace_url(&target.url)
+                && is_preferred_workspace_url(&target.url, creation_type)
                 && target.web_socket_debugger_url.is_some()
         })
         .cloned()
@@ -509,16 +567,22 @@ fn find_best_jimeng_target(targets: &[ChromeTargetInfo]) -> Option<ChromeTargetI
 async fn ensure_jimeng_target(
     executable_path: &Path,
     user_data_dir: &Path,
+    creation_type: Option<&str>,
 ) -> Result<ChromeTargetInfo, String> {
-    if let Some(target) = find_best_jimeng_target(&list_chrome_targets().await?) {
+    if let Some(target) = find_best_jimeng_target(&list_chrome_targets().await?, creation_type) {
         return Ok(target);
     }
 
-    spawn_chrome_window(executable_path, user_data_dir, JIMENG_CHROME_TARGET_URL)?;
+    spawn_chrome_window(
+        executable_path,
+        user_data_dir,
+        resolve_target_url(creation_type),
+    )?;
 
     let deadline = Instant::now() + Duration::from_millis(JIMENG_CHROME_WAIT_TIMEOUT_MS);
     while Instant::now() < deadline {
-        if let Some(target) = find_best_jimeng_target(&list_chrome_targets().await?) {
+        if let Some(target) = find_best_jimeng_target(&list_chrome_targets().await?, creation_type)
+        {
             return Ok(target);
         }
 
@@ -579,17 +643,23 @@ fn format_page_context(context: &JimengChromePageContext) -> String {
     )
 }
 
-async fn wait_for_jimeng_page_ready(client: &mut ChromeCdpClient) -> Result<(), String> {
+async fn wait_for_jimeng_page_ready(
+    client: &mut ChromeCdpClient,
+    creation_type: Option<&str>,
+) -> Result<(), String> {
     let deadline = Instant::now() + Duration::from_millis(JIMENG_CHROME_WAIT_TIMEOUT_MS);
     let mut navigated_to_generate = false;
+    let target_url = resolve_target_url(creation_type);
 
     while Instant::now() < deadline {
         let page_context = read_page_context(client).await?;
 
-        if !is_jimeng_video_workspace_url(page_context.location_href.as_deref().unwrap_or_default())
-        {
+        if !is_preferred_workspace_url(
+            page_context.location_href.as_deref().unwrap_or_default(),
+            creation_type,
+        ) {
             if !navigated_to_generate {
-                client.navigate(JIMENG_CHROME_TARGET_URL).await?;
+                client.navigate(target_url).await?;
                 navigated_to_generate = true;
             }
 
@@ -644,6 +714,28 @@ async fn poll_inspection_state(client: &mut ChromeCdpClient) -> Result<Value, St
 (() => {
   try {
     return window.__STORYBOARD_JIMENG__?.getInspectionState?.() ?? null;
+  } catch (error) {
+    return {
+      status: "error",
+      error: String(error && error.message ? error.message : error),
+    };
+  }
+})()
+"#,
+        )
+        .await
+}
+
+async fn poll_generated_image_results(client: &mut ChromeCdpClient) -> Result<Value, String> {
+    client
+        .evaluate_json(
+            r#"
+(() => {
+  try {
+    return window.__STORYBOARD_JIMENG__?.getGeneratedImageResults?.({
+      minimumCount: 4,
+      excludeBaseline: true,
+    }) ?? null;
   } catch (error) {
     return {
       status: "error",
@@ -763,11 +855,103 @@ async fn wait_for_inspection_report(client: &mut ChromeCdpClient) -> Result<Valu
     Err("timed out waiting for Jimeng Chrome inspection report".to_string())
 }
 
-async fn connect_ready_jimeng_client(app: &AppHandle) -> Result<ChromeCdpClient, String> {
-    let session_info = ensure_session_info(app).await?;
+fn parse_generated_image_results(
+    value: Value,
+) -> Result<Vec<JimengChromeGeneratedImageResult>, String> {
+    let items = value
+        .get("items")
+        .and_then(Value::as_array)
+        .ok_or_else(|| "Jimeng image result payload did not include items".to_string())?;
+
+    let mut results = Vec::new();
+    for (index, item) in items.iter().enumerate() {
+        let Some(item_object) = item.as_object() else {
+            continue;
+        };
+
+        let source_url = item_object
+            .get("sourceUrl")
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .ok_or_else(|| "Jimeng image result item is missing sourceUrl".to_string())?;
+
+        let signature = item_object
+            .get("signature")
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .unwrap_or(source_url);
+
+        results.push(JimengChromeGeneratedImageResult {
+            index,
+            source_url: source_url.to_string(),
+            signature: signature.to_string(),
+            width: item_object
+                .get("width")
+                .and_then(Value::as_u64)
+                .and_then(|value| u32::try_from(value).ok()),
+            height: item_object
+                .get("height")
+                .and_then(Value::as_u64)
+                .and_then(|value| u32::try_from(value).ok()),
+            alt_text: item_object
+                .get("altText")
+                .and_then(Value::as_str)
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .map(ToString::to_string),
+        });
+    }
+
+    if results.is_empty() {
+        return Err("Jimeng image result payload did not include usable images".to_string());
+    }
+
+    Ok(results)
+}
+
+async fn wait_for_generated_image_results(
+    client: &mut ChromeCdpClient,
+) -> Result<Vec<JimengChromeGeneratedImageResult>, String> {
+    let deadline = Instant::now() + Duration::from_millis(JIMENG_CHROME_IMAGE_RESULT_TIMEOUT_MS);
+
+    while Instant::now() < deadline {
+        let result_state = poll_generated_image_results(client).await?;
+        let status = result_state
+            .get("status")
+            .and_then(Value::as_str)
+            .unwrap_or("idle");
+
+        match status {
+            "ready" => return parse_generated_image_results(result_state),
+            "error" => {
+                let error = result_state
+                    .get("error")
+                    .and_then(Value::as_str)
+                    .unwrap_or("Jimeng image result detection failed");
+                return Err(error.to_string());
+            }
+            _ => {}
+        }
+
+        sleep(Duration::from_millis(
+            JIMENG_CHROME_IMAGE_RESULT_POLL_INTERVAL_MS,
+        ))
+        .await;
+    }
+
+    Err("timed out waiting for Jimeng image generation results".to_string())
+}
+
+async fn connect_ready_jimeng_client(
+    app: &AppHandle,
+    creation_type: Option<&str>,
+) -> Result<ChromeCdpClient, String> {
+    let session_info = ensure_session_info(app, creation_type).await?;
     let executable_path = PathBuf::from(&session_info.executable_path);
     let user_data_dir = PathBuf::from(&session_info.user_data_dir);
-    let target = ensure_jimeng_target(&executable_path, &user_data_dir).await?;
+    let target = ensure_jimeng_target(&executable_path, &user_data_dir, creation_type).await?;
 
     info!(
         "Connecting to Jimeng Chrome target {} ({})",
@@ -776,11 +960,14 @@ async fn connect_ready_jimeng_client(app: &AppHandle) -> Result<ChromeCdpClient,
     );
 
     let mut client = connect_target_client(&target).await?;
-    wait_for_jimeng_page_ready(&mut client).await?;
+    wait_for_jimeng_page_ready(&mut client, creation_type).await?;
     Ok(client)
 }
 
-async fn ensure_session_info(app: &AppHandle) -> Result<JimengChromeSessionInfo, String> {
+async fn ensure_session_info(
+    app: &AppHandle,
+    creation_type: Option<&str>,
+) -> Result<JimengChromeSessionInfo, String> {
     let executable_path = resolve_jimeng_chrome_executable_path()?;
     let user_data_dir = resolve_chrome_profile_dir(app)?;
     ensure_chrome_debug_session(&executable_path, &user_data_dir).await?;
@@ -789,15 +976,22 @@ async fn ensure_session_info(app: &AppHandle) -> Result<JimengChromeSessionInfo,
         executable_path: executable_path.to_string_lossy().to_string(),
         user_data_dir: user_data_dir.to_string_lossy().to_string(),
         remote_debugging_port: JIMENG_CHROME_REMOTE_DEBUGGING_PORT,
-        target_url: JIMENG_CHROME_TARGET_URL.to_string(),
+        target_url: resolve_target_url(creation_type).to_string(),
     })
 }
 
 #[tauri::command]
 pub async fn ensure_jimeng_chrome_session(
     app: AppHandle,
+    payload: Option<JimengChromeWorkspacePayload>,
 ) -> Result<JimengChromeSessionInfo, String> {
-    let session_info = ensure_session_info(&app).await?;
+    let session_info = ensure_session_info(
+        &app,
+        payload
+            .as_ref()
+            .and_then(|item| item.creation_type.as_deref()),
+    )
+    .await?;
     info!(
         "Jimeng Chrome automation ready: exe={}, profile={}",
         session_info.executable_path, session_info.user_data_dir
@@ -808,15 +1002,19 @@ pub async fn ensure_jimeng_chrome_session(
 #[tauri::command]
 pub async fn focus_jimeng_chrome_workspace(
     app: AppHandle,
+    payload: Option<JimengChromeWorkspacePayload>,
 ) -> Result<JimengChromeSessionInfo, String> {
-    let session_info = ensure_session_info(&app).await?;
+    let creation_type = payload
+        .as_ref()
+        .and_then(|item| item.creation_type.as_deref());
+    let session_info = ensure_session_info(&app, creation_type).await?;
     let executable_path = PathBuf::from(&session_info.executable_path);
     let user_data_dir = PathBuf::from(&session_info.user_data_dir);
-    let target = ensure_jimeng_target(&executable_path, &user_data_dir).await?;
+    let target = ensure_jimeng_target(&executable_path, &user_data_dir, creation_type).await?;
 
     let mut client = connect_target_client(&target).await?;
-    if !is_jimeng_generate_url(&target.url) {
-        client.navigate(JIMENG_CHROME_TARGET_URL).await?;
+    if !is_preferred_workspace_url(&target.url, creation_type) {
+        client.navigate(resolve_target_url(creation_type)).await?;
     }
     client.bring_to_front().await?;
 
@@ -824,8 +1022,17 @@ pub async fn focus_jimeng_chrome_workspace(
 }
 
 #[tauri::command]
-pub async fn inspect_jimeng_chrome_options(app: AppHandle) -> Result<Value, String> {
-    let mut client = connect_ready_jimeng_client(&app).await?;
+pub async fn inspect_jimeng_chrome_options(
+    app: AppHandle,
+    payload: Option<JimengChromeWorkspacePayload>,
+) -> Result<Value, String> {
+    let mut client = connect_ready_jimeng_client(
+        &app,
+        payload
+            .as_ref()
+            .and_then(|item| item.creation_type.as_deref()),
+    )
+    .await?;
     wait_for_inspection_report(&mut client).await
 }
 
@@ -834,7 +1041,7 @@ pub async fn sync_jimeng_chrome_draft_options(
     app: AppHandle,
     payload: SubmitJimengPanelPayload,
 ) -> Result<Value, String> {
-    let mut client = connect_ready_jimeng_client(&app).await?;
+    let mut client = connect_ready_jimeng_client(&app, payload.creation_type.as_deref()).await?;
 
     let mut sync_payload = payload;
     sync_payload.auto_submit = Some(false);
@@ -894,13 +1101,10 @@ pub async fn sync_jimeng_chrome_draft_options(
     Err(error_message)
 }
 
-#[tauri::command]
-pub async fn submit_jimeng_chrome_task(
-    app: AppHandle,
-    payload: SubmitJimengPanelPayload,
+async fn submit_jimeng_chrome_payload(
+    client: &mut ChromeCdpClient,
+    payload: &SubmitJimengPanelPayload,
 ) -> Result<(), String> {
-    let mut client = connect_ready_jimeng_client(&app).await?;
-
     let payload_json = serde_json::to_string(&payload)
         .map_err(|error| format!("failed to serialize Jimeng Chrome payload: {error}"))?;
 
@@ -908,9 +1112,7 @@ pub async fn submit_jimeng_chrome_task(
         format!("(() => Boolean(window.__STORYBOARD_JIMENG__?.submit?.({payload_json})))()");
     let submit_result = client.evaluate_json(&submit_expression).await?;
     if !submit_result.as_bool().unwrap_or(false) {
-        let submission_state = poll_submission_state(&mut client)
-            .await
-            .unwrap_or(Value::Null);
+        let submission_state = poll_submission_state(client).await.unwrap_or(Value::Null);
         let error_message = decorate_submission_message(
             "Chrome 自动化提交没有成功进入队列。",
             &submission_state,
@@ -922,7 +1124,7 @@ pub async fn submit_jimeng_chrome_task(
 
     let deadline = Instant::now() + Duration::from_millis(JIMENG_CHROME_WAIT_TIMEOUT_MS);
     while Instant::now() < deadline {
-        let submission_state = poll_submission_state(&mut client).await?;
+        let submission_state = poll_submission_state(client).await?;
         let status = submission_state
             .get("status")
             .and_then(Value::as_str)
@@ -951,9 +1153,7 @@ pub async fn submit_jimeng_chrome_task(
         sleep(Duration::from_millis(JIMENG_CHROME_POLL_INTERVAL_MS)).await;
     }
 
-    let submission_state = poll_submission_state(&mut client)
-        .await
-        .unwrap_or(Value::Null);
+    let submission_state = poll_submission_state(client).await.unwrap_or(Value::Null);
     let error_message = decorate_submission_message(
         "Chrome 自动化等待即梦页面完成填写时超时。",
         &submission_state,
@@ -970,4 +1170,28 @@ pub async fn submit_jimeng_chrome_task(
         error_message
     );
     Err(error_message)
+}
+
+#[tauri::command]
+pub async fn submit_jimeng_chrome_task(
+    app: AppHandle,
+    payload: SubmitJimengPanelPayload,
+) -> Result<(), String> {
+    let mut client = connect_ready_jimeng_client(&app, payload.creation_type.as_deref()).await?;
+    submit_jimeng_chrome_payload(&mut client, &payload).await
+}
+
+#[tauri::command]
+pub async fn generate_jimeng_chrome_images(
+    app: AppHandle,
+    mut payload: SubmitJimengPanelPayload,
+) -> Result<Vec<JimengChromeGeneratedImageResult>, String> {
+    if payload.creation_type.is_none() {
+        payload.creation_type = Some("image".to_string());
+    }
+    payload.auto_submit = Some(true);
+
+    let mut client = connect_ready_jimeng_client(&app, payload.creation_type.as_deref()).await?;
+    submit_jimeng_chrome_payload(&mut client, &payload).await?;
+    wait_for_generated_image_results(&mut client).await
 }

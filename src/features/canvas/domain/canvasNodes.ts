@@ -4,6 +4,8 @@ export const CANVAS_NODE_TYPES = {
   upload: 'uploadNode',
   imageEdit: 'imageNode',
   jimeng: 'jimengNode',
+  jimengImage: 'jimengImageNode',
+  jimengImageResult: 'jimengImageResultNode',
   exportImage: 'exportImageNode',
   textAnnotation: 'textAnnotationNode',
   group: 'groupNode',
@@ -32,6 +34,10 @@ export const EXPORT_RESULT_NODE_DEFAULT_WIDTH = 384;
 export const EXPORT_RESULT_NODE_LAYOUT_HEIGHT = 288;
 export const EXPORT_RESULT_NODE_MIN_WIDTH = 168;
 export const EXPORT_RESULT_NODE_MIN_HEIGHT = 168;
+export const JIMENG_IMAGE_RESULT_NODE_DEFAULT_WIDTH = 640;
+export const JIMENG_IMAGE_RESULT_NODE_DEFAULT_HEIGHT = 520;
+export const JIMENG_IMAGE_RESULT_NODE_MIN_WIDTH = 560;
+export const JIMENG_IMAGE_RESULT_NODE_MIN_HEIGHT = 420;
 export const AUDIO_NODE_DEFAULT_WIDTH = 320;
 export const AUDIO_NODE_DEFAULT_HEIGHT = 96;
 
@@ -187,6 +193,60 @@ export interface JimengNodeData extends NodeDisplayData {
   extraControls?: JimengExtraControlSelection[];
   isSubmitting?: boolean;
   lastSubmittedAt?: number | null;
+  lastError?: string | null;
+}
+
+export interface JimengNodeControlOption {
+  text: string;
+  disabled: boolean;
+  selected: boolean;
+  matchedValue?: string | null;
+  matchedKnownControlKey?: string | null;
+}
+
+export interface JimengNodeControlState {
+  controlIndex?: number;
+  triggerText: string;
+  matchedValue?: string | null;
+  matchedKnownControlKey?: string | null;
+  optionText: string;
+  options: JimengNodeControlOption[];
+}
+
+export interface JimengGeneratedImageItem {
+  id: string;
+  sourceUrl?: string | null;
+  imageUrl: string | null;
+  previewImageUrl?: string | null;
+  aspectRatio: string;
+  width?: number;
+  height?: number;
+  fileName?: string | null;
+}
+
+export interface JimengImageNodeData extends NodeDisplayData {
+  prompt: string;
+  controls?: JimengNodeControlState[];
+  controlsSyncedAt?: number | null;
+  isSyncingControls?: boolean;
+  isGenerating?: boolean;
+  generationStartedAt?: number | null;
+  generationDurationMs?: number;
+  lastGeneratedAt?: number | null;
+  lastError?: string | null;
+  resultImages?: JimengGeneratedImageItem[];
+}
+
+export interface JimengImageResultNodeData extends NodeDisplayData {
+  sourceNodeId?: string | null;
+  aspectRatio: string;
+  gridRows: number;
+  gridCols: number;
+  resultImages: JimengGeneratedImageItem[];
+  isGenerating?: boolean;
+  generationStartedAt?: number | null;
+  generationDurationMs?: number;
+  lastGeneratedAt?: number | null;
   lastError?: string | null;
 }
 
@@ -474,6 +534,8 @@ export type CanvasNodeData =
   | GroupNodeData
   | ImageEditNodeData
   | JimengNodeData
+  | JimengImageNodeData
+  | JimengImageResultNodeData
   | StoryboardSplitNodeData
   | StoryboardSplitResultNodeData
   | StoryboardGenNodeData
@@ -776,6 +838,18 @@ export function isJimengNode(
   return node?.type === CANVAS_NODE_TYPES.jimeng;
 }
 
+export function isJimengImageNode(
+  node: CanvasNode | null | undefined
+): node is Node<JimengImageNodeData, typeof CANVAS_NODE_TYPES.jimengImage> {
+  return node?.type === CANVAS_NODE_TYPES.jimengImage;
+}
+
+export function isJimengImageResultNode(
+  node: CanvasNode | null | undefined
+): node is Node<JimengImageResultNodeData, typeof CANVAS_NODE_TYPES.jimengImageResult> {
+  return node?.type === CANVAS_NODE_TYPES.jimengImageResult;
+}
+
 export function isExportImageNode(
   node: CanvasNode | null | undefined
 ): node is Node<ExportImageNodeData, typeof CANVAS_NODE_TYPES.exportImage> {
@@ -869,6 +943,15 @@ export function isScriptWorldviewNode(
 export function getNodePrimaryImageSource(
   node: CanvasNode | null | undefined
 ): string | null {
+  const resolveJimengResultSource = (item: JimengGeneratedImageItem | undefined): string | null => {
+    if (!item) {
+      return null;
+    }
+
+    const source = item.imageUrl ?? item.previewImageUrl ?? item.sourceUrl ?? null;
+    return typeof source === 'string' && source.trim().length > 0 ? source : null;
+  };
+
   if (!node) {
     return null;
   }
@@ -881,6 +964,16 @@ export function getNodePrimaryImageSource(
   ) {
     const imageUrl = node.data.imageUrl;
     return typeof imageUrl === 'string' && imageUrl.trim().length > 0 ? imageUrl : null;
+  }
+
+  if (isJimengImageNode(node)) {
+    const primaryResult = node.data.resultImages?.find((item) => Boolean(resolveJimengResultSource(item)));
+    return resolveJimengResultSource(primaryResult);
+  }
+
+  if (isJimengImageResultNode(node)) {
+    const primaryResult = node.data.resultImages?.find((item) => Boolean(resolveJimengResultSource(item)));
+    return resolveJimengResultSource(primaryResult);
   }
 
   return null;

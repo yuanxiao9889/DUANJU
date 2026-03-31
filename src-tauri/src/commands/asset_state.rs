@@ -10,7 +10,9 @@ use uuid::Uuid;
 
 use super::{
     image::persist_image_source,
-    project_state::{open_db, prune_unreferenced_images, replace_project_image_refs},
+    project_state::{
+        normalize_image_ref_path, open_db, prune_unreferenced_images, replace_project_image_refs,
+    },
     storage,
 };
 
@@ -280,9 +282,12 @@ fn replace_asset_image_refs(
         let Some(path) = path.map(str::trim).filter(|value| !value.is_empty()) else {
             continue;
         };
+        let Some(normalized_path) = normalize_image_ref_path(path) else {
+            continue;
+        };
         tx.execute(
             "INSERT OR IGNORE INTO asset_image_refs (asset_id, path) VALUES (?1, ?2)",
-            params![asset_id, path],
+            params![asset_id, normalized_path],
         )
         .map_err(|e| format!("Failed to upsert asset image ref: {}", e))?;
     }

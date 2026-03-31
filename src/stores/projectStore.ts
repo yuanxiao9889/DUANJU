@@ -153,6 +153,23 @@ function mapNodeImageReferences(
       });
     }
 
+    if (Array.isArray(nextData.resultImages)) {
+      nextData.resultImages = nextData.resultImages.map((item) => {
+        if (!item || typeof item !== 'object') {
+          return item;
+        }
+
+        const itemRecord = item as Record<string, unknown>;
+        return {
+          ...itemRecord,
+          imageUrl: mapImageUrl(itemRecord.imageUrl as string | null | undefined) ?? null,
+          previewImageUrl:
+            mapImageUrl(itemRecord.previewImageUrl as string | null | undefined) ?? null,
+          sourceUrl: mapImageUrl(itemRecord.sourceUrl as string | null | undefined) ?? null,
+        };
+      });
+    }
+
     return {
       ...node,
       data: nextData as CanvasNodeData,

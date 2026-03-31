@@ -311,19 +311,35 @@ fn parse_image_pool(history_json: &str) -> Vec<String> {
         .unwrap_or_default()
 }
 
+pub(crate) fn normalize_image_ref_path(value: &str) -> Option<String> {
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+
+    let normalized = trimmed.replace('\\', "/").trim_end_matches('/').to_string();
+    if normalized.is_empty() {
+        return None;
+    }
+
+    if cfg!(target_os = "windows") {
+        return Some(normalized.to_ascii_lowercase());
+    }
+
+    Some(normalized)
+}
+
 fn resolve_image_ref(value: &str, image_pool: &[String]) -> Option<String> {
     const IMAGE_REF_PREFIX: &str = "__img_ref__:";
 
     if let Some(index_text) = value.strip_prefix(IMAGE_REF_PREFIX) {
         let index = index_text.parse::<usize>().ok()?;
-        return image_pool.get(index).cloned();
+        return image_pool
+            .get(index)
+            .and_then(|item| normalize_image_ref_path(item));
     }
 
-    if value.trim().is_empty() {
-        return None;
-    }
-
-    Some(value.to_string())
+    normalize_image_ref_path(value)
 }
 
 fn collect_image_paths_from_nodes(
@@ -353,6 +369,22 @@ fn collect_image_paths_from_nodes(
                 };
                 for key in ["imageUrl", "previewImageUrl"] {
                     if let Some(raw_value) = frame_obj.get(key).and_then(|value| value.as_str()) {
+                        if let Some(path) = resolve_image_ref(raw_value, image_pool) {
+                            paths.insert(path);
+                        }
+                    }
+                }
+            }
+        }
+
+        if let Some(result_images) = data.get("resultImages").and_then(|value| value.as_array()) {
+            for item in result_images {
+                let item_obj = match item.as_object() {
+                    Some(value) => value,
+                    Option::None => continue,
+                };
+                for key in ["imageUrl", "previewImageUrl", "sourceUrl"] {
+                    if let Some(raw_value) = item_obj.get(key).and_then(|value| value.as_str()) {
                         if let Some(path) = resolve_image_ref(raw_value, image_pool) {
                             paths.insert(path);
                         }
@@ -413,7 +445,9 @@ pub(crate) fn prune_unreferenced_images(app: &AppHandle) -> Result<(), String> {
 
         for path_result in rows {
             let path = path_result.map_err(|e| format!("Failed to decode image ref row: {}", e))?;
-            referenced.insert(path);
+            if let Some(normalized_path) = normalize_image_ref_path(&path) {
+                referenced.insert(normalized_path);
+            }
         }
     }
 
@@ -429,7 +463,9 @@ pub(crate) fn prune_unreferenced_images(app: &AppHandle) -> Result<(), String> {
         }
 
         let path_string = path.to_string_lossy().to_string();
-        if !referenced.contains(&path_string) {
+        let normalized_path =
+            normalize_image_ref_path(&path_string).unwrap_or_else(|| path_string.clone());
+        if !referenced.contains(&normalized_path) {
             std::fs::remove_file(&path)
                 .map_err(|e| format!("Failed to delete unreferenced image: {}", e))?;
         }
@@ -452,9 +488,12 @@ pub(crate) fn replace_project_image_refs(
     .map_err(|e| format!("Failed to clear project image refs: {}", e))?;
 
     for path in image_paths {
+        let Some(normalized_path) = normalize_image_ref_path(&path) else {
+            continue;
+        };
         tx.execute(
             "INSERT OR IGNORE INTO project_image_refs (project_id, path) VALUES (?1, ?2)",
-            params![project_id, path],
+            params![project_id, normalized_path],
         )
         .map_err(|e| format!("Failed to upsert project image ref: {}", e))?;
     }
@@ -686,7 +725,7 @@ pub fn delete_project_record(app: AppHandle, project_id: String) -> Result<(), S
 
 #[cfg(test)]
 mod tests {
-    use super::ensure_projects_table;
+    use super::{ensure_projects_table, extract_project_image_paths, normalize_image_ref_path};
     use rusqlite::Connection;
 
     #[test]
@@ -759,5 +798,59 @@ mod tests {
             legacy_project_count, 1,
             "existing projects should remain readable"
         );
+    }
+
+    #[test]
+    fn normalize_image_ref_path_treats_windows_separator_variants_as_same_path() {
+        let backslash = normalize_image_ref_path(r"C:\Users\Tester\images\frame.png")
+            .expect("backslash path should normalize");
+        let slash = normalize_image_ref_path("C:/Users/Tester/images/frame.png")
+            .expect("slash path should normalize");
+
+        assert_eq!(backslash, slash);
+    }
+
+    #[test]
+    fn extract_project_image_paths_normalizes_frame_paths_from_image_pool() {
+        let nodes_json = r#"
+        [
+          {
+            "id": "split-node",
+            "type": "storyboardNode",
+            "data": {
+              "frames": [
+                {
+                  "id": "frame-1",
+                  "imageUrl": "__img_ref__:0",
+                  "previewImageUrl": "__img_ref__:1"
+                }
+              ]
+            }
+          }
+        ]
+        "#;
+        let history_json = r#"
+        {
+          "past": [],
+          "future": [],
+          "imagePool": [
+            "C:\\Users\\Tester\\images\\frame-1.png",
+            "C:/Users/Tester/images/frame-1-preview.png"
+          ]
+        }
+        "#;
+
+        let paths = extract_project_image_paths(nodes_json, history_json);
+
+        assert!(paths.contains(
+            normalize_image_ref_path(r"C:\Users\Tester\images\frame-1.png")
+                .expect("frame image path should normalize")
+                .as_str()
+        ));
+        assert!(paths.contains(
+            normalize_image_ref_path("C:/Users/Tester/images/frame-1-preview.png")
+                .expect("frame preview path should normalize")
+                .as_str()
+        ));
     }
 }

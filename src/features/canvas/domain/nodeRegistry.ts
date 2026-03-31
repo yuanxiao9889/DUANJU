@@ -12,6 +12,8 @@ import {
   type ExportImageNodeData,
   type GroupNodeData,
   type ImageEditNodeData,
+  type JimengImageNodeData,
+  type JimengImageResultNodeData,
   type JimengNodeData,
   type StoryboardSplitNodeData,
   type StoryboardSplitResultNodeData,
@@ -376,6 +378,72 @@ const videoNodeDefinition: CanvasNodeDefinition<VideoNodeData> = {
   }),
 };
 
+const jimengImageNodeDefinition: CanvasNodeDefinition<JimengImageNodeData> = {
+  type: CANVAS_NODE_TYPES.jimengImage,
+  menuLabelKey: 'node.menu.jimengImage',
+  menuIcon: 'sparkles',
+  visibleInMenu: true,
+  menuProjectTypes: ['storyboard'],
+  capabilities: {
+    toolbar: true,
+    promptInput: false,
+  },
+  connectivity: {
+    sourceHandle: true,
+    targetHandle: true,
+    connectMenu: {
+      fromSource: true,
+      fromTarget: false,
+    },
+  },
+  createDefaultData: () => ({
+    displayName: DEFAULT_NODE_DISPLAY_NAME[CANVAS_NODE_TYPES.jimengImage],
+    prompt: '',
+    controls: [],
+    controlsSyncedAt: null,
+    isSyncingControls: false,
+    isGenerating: false,
+    generationStartedAt: null,
+    generationDurationMs: 90000,
+    lastGeneratedAt: null,
+    lastError: null,
+    resultImages: [],
+  }),
+};
+
+const jimengImageResultNodeDefinition: CanvasNodeDefinition<JimengImageResultNodeData> = {
+  type: CANVAS_NODE_TYPES.jimengImageResult,
+  menuLabelKey: 'node.menu.jimengImageResult',
+  menuIcon: 'layout',
+  visibleInMenu: false,
+  menuProjectTypes: ['storyboard'],
+  capabilities: {
+    toolbar: true,
+    promptInput: false,
+  },
+  connectivity: {
+    sourceHandle: true,
+    targetHandle: true,
+    connectMenu: {
+      fromSource: false,
+      fromTarget: false,
+    },
+  },
+  createDefaultData: () => ({
+    displayName: DEFAULT_NODE_DISPLAY_NAME[CANVAS_NODE_TYPES.jimengImageResult],
+    sourceNodeId: null,
+    aspectRatio: DEFAULT_ASPECT_RATIO,
+    gridRows: 2,
+    gridCols: 2,
+    resultImages: [],
+    isGenerating: false,
+    generationStartedAt: null,
+    generationDurationMs: 90000,
+    lastGeneratedAt: null,
+    lastError: null,
+  }),
+};
+
 const audioNodeDefinition: CanvasNodeDefinition<AudioNodeData> = {
   type: CANVAS_NODE_TYPES.audio,
   menuLabelKey: 'node.menu.audioNode',
@@ -621,6 +689,8 @@ export const canvasNodeDefinitions: Record<CanvasNodeType, CanvasNodeDefinition>
   [CANVAS_NODE_TYPES.upload]: uploadNodeDefinition,
   [CANVAS_NODE_TYPES.imageEdit]: imageEditNodeDefinition,
   [CANVAS_NODE_TYPES.jimeng]: jimengNodeDefinition,
+  [CANVAS_NODE_TYPES.jimengImage]: jimengImageNodeDefinition,
+  [CANVAS_NODE_TYPES.jimengImageResult]: jimengImageResultNodeDefinition,
   [CANVAS_NODE_TYPES.exportImage]: exportImageNodeDefinition,
   [CANVAS_NODE_TYPES.textAnnotation]: textAnnotationNodeDefinition,
   [CANVAS_NODE_TYPES.group]: groupNodeDefinition,

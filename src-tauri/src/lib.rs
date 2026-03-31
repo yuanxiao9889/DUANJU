@@ -142,6 +142,7 @@ pub fn run() {
             frontend_ready,
             jimeng_chrome::ensure_jimeng_chrome_session,
             jimeng_chrome::focus_jimeng_chrome_workspace,
+            jimeng_chrome::generate_jimeng_chrome_images,
             jimeng_chrome::inspect_jimeng_chrome_options,
             jimeng_chrome::submit_jimeng_chrome_task,
             jimeng_chrome::sync_jimeng_chrome_draft_options,
