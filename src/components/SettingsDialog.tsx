@@ -1625,10 +1625,12 @@ export function SettingsDialog({
                                 )}
                               </button>
                             </div>
-                            {!isScriptTab && provider.id === 'compatible' ? (
-                              <div className="mt-3 rounded-md border border-border-dark bg-black/10 px-3 py-2 text-xs leading-5 text-text-muted">
-                                {t('settings.storyboardCompatibleNoConnectionTest')}
-                              </div>
+                            {!isScriptTab ? (
+                              provider.id === 'compatible' ? (
+                                <div className="mt-3 rounded-md border border-border-dark bg-black/10 px-3 py-2 text-xs leading-5 text-text-muted">
+                                  {t('settings.storyboardCompatibleNoConnectionTest')}
+                                </div>
+                              ) : null
                             ) : (
                               <div className="mt-3 space-y-2">
                                 <button
