@@ -1,7 +1,9 @@
 import { audioUrlToDataUrl } from '@/features/canvas/application/audioData';
 import { createPreviewDataUrl } from '@/features/canvas/application/imageData';
+import { videoUrlToDataUrl } from '@/features/canvas/application/videoData';
 
 const REFERENCE_TOKEN_PATTERN = /@\u56fe(?:\u7247)?\d+/g;
+const AUDIO_REFERENCE_TOKEN_PATTERN = /@\u97f3(?:\u9891)?\d+/g;
 const JIMENG_REFERENCE_IMAGE_MAX_DIMENSION = 1600;
 
 export interface JimengReferenceImagePayload {
@@ -10,6 +12,11 @@ export interface JimengReferenceImagePayload {
 }
 
 export interface JimengReferenceAudioPayload {
+  fileName: string;
+  dataUrl: string;
+}
+
+export interface JimengReferenceVideoPayload {
   fileName: string;
   dataUrl: string;
 }
@@ -24,7 +31,11 @@ function normalizeWhitespace(value: string): string {
 }
 
 export function buildJimengSubmissionPrompt(prompt: string): string {
-  return normalizeWhitespace(prompt.replace(REFERENCE_TOKEN_PATTERN, ' '));
+  return normalizeWhitespace(
+    prompt
+      .replace(REFERENCE_TOKEN_PATTERN, ' ')
+      .replace(AUDIO_REFERENCE_TOKEN_PATTERN, ' ')
+  );
 }
 
 function sanitizeJimengReferenceFileName(rawName: string): string {
@@ -90,6 +101,30 @@ function resolveAudioDataUrlExtension(dataUrl: string): string {
   return 'mp3';
 }
 
+function resolveVideoDataUrlExtension(dataUrl: string): string {
+  const mimeSegment = dataUrl.slice(5, dataUrl.indexOf(';'));
+  const normalizedMime = mimeSegment.toLowerCase();
+  if (normalizedMime === 'video/mp4') {
+    return 'mp4';
+  }
+  if (normalizedMime === 'video/webm') {
+    return 'webm';
+  }
+  if (normalizedMime === 'video/ogg') {
+    return 'ogv';
+  }
+  if (normalizedMime === 'video/quicktime') {
+    return 'mov';
+  }
+  if (normalizedMime === 'video/x-msvideo') {
+    return 'avi';
+  }
+  if (normalizedMime === 'video/x-matroska') {
+    return 'mkv';
+  }
+  return 'mp4';
+}
+
 function resolveJimengReferenceFileName(source: string, dataUrl: string, index: number): string {
   const normalizedSource = source.trim();
   const basename = normalizedSource
@@ -128,6 +163,27 @@ function resolveJimengReferenceAudioFileName(
   return sanitizeJimengReferenceFileName(`jimeng-audio-${index + 1}.${extension}`);
 }
 
+function resolveJimengReferenceVideoFileName(
+  source: string,
+  dataUrl: string,
+  index: number
+): string {
+  const normalizedSource = source.trim();
+  const basename = normalizedSource
+    .split(/[\\/]/)
+    .pop()
+    ?.split('?')[0]
+    ?.split('#')[0]
+    ?.trim();
+
+  if (basename && basename.includes('.')) {
+    return sanitizeJimengReferenceFileName(basename);
+  }
+
+  const extension = resolveVideoDataUrlExtension(dataUrl);
+  return sanitizeJimengReferenceFileName(`jimeng-video-${index + 1}.${extension}`);
+}
+
 export async function prepareJimengReferenceImages(
   sources: string[] | undefined
 ): Promise<JimengReferenceImagePayload[]> {
@@ -160,6 +216,25 @@ export async function prepareJimengReferenceAudios(
       const dataUrl = await audioUrlToDataUrl(source);
       return {
         fileName: resolveJimengReferenceAudioFileName(source, dataUrl, index),
+        dataUrl,
+      };
+    })
+  );
+}
+
+export async function prepareJimengReferenceVideos(
+  sources: string[] | undefined
+): Promise<JimengReferenceVideoPayload[]> {
+  const uniqueSources = [...new Set((sources ?? []).map((source) => source.trim()).filter(Boolean))];
+  if (uniqueSources.length === 0) {
+    return [];
+  }
+
+  return await Promise.all(
+    uniqueSources.map(async (source, index) => {
+      const dataUrl = await videoUrlToDataUrl(source);
+      return {
+        fileName: resolveJimengReferenceVideoFileName(source, dataUrl, index),
         dataUrl,
       };
     })

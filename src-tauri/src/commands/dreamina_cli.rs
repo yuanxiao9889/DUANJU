@@ -16,7 +16,7 @@ use uuid::Uuid;
 const IMAGE_TIMEOUT_MS: u64 = 12 * 60 * 1000;
 const VIDEO_TIMEOUT_MS: u64 = 10 * 60 * 1000;
 const POLL_INTERVAL_MS: u64 = 2_500;
-const DEFAULT_IMAGE_COUNT: usize = 4;
+const DEFAULT_IMAGE_COUNT: usize = 1;
 const MAX_IMAGE_COUNT: usize = 4;
 
 #[derive(Debug, Clone, Deserialize)]
@@ -48,6 +48,7 @@ pub struct GenerateJimengDreaminaVideosPayload {
     pub video_resolution: Option<String>,
     pub model_version: Option<String>,
     pub reference_images: Option<Vec<DreaminaReferenceAssetPayload>>,
+    pub reference_videos: Option<Vec<DreaminaReferenceAssetPayload>>,
     pub reference_audios: Option<Vec<DreaminaReferenceAssetPayload>>,
     pub timeout_ms: Option<u64>,
 }
@@ -97,8 +98,20 @@ pub struct JimengDreaminaImageGenerationResponse {
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
+pub struct JimengDreaminaImageSubmitResponse {
+    pub submit_ids: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct JimengDreaminaVideoGenerationResponse {
     pub results: Vec<JimengDreaminaGeneratedVideoResult>,
+    pub submit_id: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct JimengDreaminaVideoSubmitResponse {
     pub submit_id: String,
 }
 
@@ -156,12 +169,20 @@ impl VideoCommand {
 
 fn workspace_root() -> Result<PathBuf, String> {
     let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-    manifest_dir.parent().map(|path| path.to_path_buf()).ok_or_else(|| "failed to resolve workspace root".to_string())
+    manifest_dir
+        .parent()
+        .map(|path| path.to_path_buf())
+        .ok_or_else(|| "failed to resolve workspace root".to_string())
 }
 
 fn runtime_root(app: &AppHandle) -> Result<PathBuf, String> {
-    let path = app.path().app_data_dir().map_err(|error| format!("failed to resolve app data dir: {error}"))?.join("dreamina-cli-runtime");
-    fs::create_dir_all(&path).map_err(|error| format!("failed to create Dreamina runtime dir: {error}"))?;
+    let path = app
+        .path()
+        .app_data_dir()
+        .map_err(|error| format!("failed to resolve app data dir: {error}"))?
+        .join("dreamina-cli-runtime");
+    fs::create_dir_all(&path)
+        .map_err(|error| format!("failed to create Dreamina runtime dir: {error}"))?;
     Ok(path)
 }
 
@@ -196,7 +217,10 @@ fn bash_style_path(path: &Path) -> String {
 }
 
 fn cli_path(path: &Path) -> String {
-    path.canonicalize().unwrap_or_else(|_| path.to_path_buf()).to_string_lossy().replace('\\', "/")
+    path.canonicalize()
+        .unwrap_or_else(|_| path.to_path_buf())
+        .to_string_lossy()
+        .replace('\\', "/")
 }
 
 fn bash_quote(value: &str) -> String {
@@ -252,31 +276,57 @@ async fn run_dreamina_json(workspace: PathBuf, args: Vec<String>) -> Result<Valu
     let mut parts = Vec::with_capacity(args.len() + 1);
     parts.push("dreamina".to_string());
     parts.extend(args.iter().map(|arg| bash_quote(arg)));
-    let script = format!("export PATH={}:$PATH; {}", bash_quote(&dreamina_path_prefix()), parts.join(" "));
+    let script = format!(
+        "export PATH={}:$PATH; {}",
+        bash_quote(&dreamina_path_prefix()),
+        parts.join(" ")
+    );
 
     tokio::task::spawn_blocking(move || {
-        let output = Command::new(bash).current_dir(workspace).arg("-lc").arg(script).output().map_err(|error| format!("failed to launch Git Bash for Dreamina: {error}"))?;
+        let output = Command::new(bash)
+            .current_dir(workspace)
+            .arg("-lc")
+            .arg(script)
+            .output()
+            .map_err(|error| format!("failed to launch Git Bash for Dreamina: {error}"))?;
         let stdout = String::from_utf8_lossy(&output.stdout).to_string();
         let stderr = String::from_utf8_lossy(&output.stderr).to_string();
         if !output.status.success() {
-            let line = stderr.lines().map(str::trim).find(|line| !line.is_empty())
+            let line = stderr
+                .lines()
+                .map(str::trim)
+                .find(|line| !line.is_empty())
                 .or_else(|| stdout.lines().map(str::trim).find(|line| !line.is_empty()))
                 .unwrap_or("Dreamina CLI failed.");
             return Err(normalize_dreamina_cli_error(line));
         }
         let combined = format!("{stdout}\n{stderr}");
-        let json_text = extract_json_text(&stdout).or_else(|| extract_json_text(&combined))
-            .ok_or_else(|| format!("Dreamina CLI did not return parseable JSON. stdout={stdout} stderr={stderr}"))?;
-        serde_json::from_str::<Value>(json_text).map_err(|error| format!("failed to parse Dreamina JSON: {error}"))
-    }).await.map_err(|error| format!("failed to await Dreamina command: {error}"))?
+        let json_text = extract_json_text(&stdout)
+            .or_else(|| extract_json_text(&combined))
+            .ok_or_else(|| {
+                format!(
+                    "Dreamina CLI did not return parseable JSON. stdout={stdout} stderr={stderr}"
+                )
+            })?;
+        serde_json::from_str::<Value>(json_text)
+            .map_err(|error| format!("failed to parse Dreamina JSON: {error}"))
+    })
+    .await
+    .map_err(|error| format!("failed to await Dreamina command: {error}"))?
 }
 
 fn sanitize_file_name(raw_name: &str, fallback_stem: &str, fallback_extension: &str) -> String {
-    let mut sanitized = raw_name.chars().map(|character| match character {
-        '<' | '>' | ':' | '"' | '/' | '\\' | '|' | '?' | '*' => '-',
-        c if c.is_control() => '-',
-        c => c,
-    }).collect::<String>().trim().trim_end_matches('.').to_string();
+    let mut sanitized = raw_name
+        .chars()
+        .map(|character| match character {
+            '<' | '>' | ':' | '"' | '/' | '\\' | '|' | '?' | '*' => '-',
+            c if c.is_control() => '-',
+            c => c,
+        })
+        .collect::<String>()
+        .trim()
+        .trim_end_matches('.')
+        .to_string();
     if sanitized.is_empty() {
         sanitized = format!("{fallback_stem}.{fallback_extension}");
     }
@@ -302,7 +352,11 @@ fn runtime_submit_download_dir(
 }
 
 fn data_url_extension(data_url: &str) -> &'static str {
-    let mime = data_url.strip_prefix("data:").and_then(|value| value.split(';').next()).unwrap_or_default().to_ascii_lowercase();
+    let mime = data_url
+        .strip_prefix("data:")
+        .and_then(|value| value.split(';').next())
+        .unwrap_or_default()
+        .to_ascii_lowercase();
     match mime.as_str() {
         "image/jpeg" | "image/jpg" => "jpg",
         "image/webp" => "webp",
@@ -316,26 +370,48 @@ fn data_url_extension(data_url: &str) -> &'static str {
         "audio/aac" => "aac",
         "audio/flac" | "audio/x-flac" => "flac",
         "audio/mpeg" | "audio/mp3" => "mp3",
+        "video/mp4" => "mp4",
+        "video/webm" => "webm",
+        "video/ogg" => "ogv",
+        "video/quicktime" => "mov",
+        "video/x-msvideo" => "avi",
+        "video/x-matroska" => "mkv",
         _ => "png",
     }
 }
 
 fn decode_data_url(data_url: &str) -> Result<Vec<u8>, String> {
-    let encoded = data_url.split_once(',').map(|(_, payload)| payload).ok_or_else(|| "invalid data URL payload".to_string())?;
-    BASE64_STANDARD.decode(encoded).map_err(|error| format!("failed to decode data URL payload: {error}"))
+    let encoded = data_url
+        .split_once(',')
+        .map(|(_, payload)| payload)
+        .ok_or_else(|| "invalid data URL payload".to_string())?;
+    BASE64_STANDARD
+        .decode(encoded)
+        .map_err(|error| format!("failed to decode data URL payload: {error}"))
 }
 
-fn write_assets(request_dir: &Path, bucket: &str, assets: &[DreaminaReferenceAssetPayload], fallback_prefix: &str) -> Result<Vec<PathBuf>, String> {
+fn write_assets(
+    request_dir: &Path,
+    bucket: &str,
+    assets: &[DreaminaReferenceAssetPayload],
+    fallback_prefix: &str,
+) -> Result<Vec<PathBuf>, String> {
     if assets.is_empty() {
         return Ok(Vec::new());
     }
     let target_dir = request_dir.join("inputs").join(bucket);
-    fs::create_dir_all(&target_dir).map_err(|error| format!("failed to create Dreamina input dir: {error}"))?;
+    fs::create_dir_all(&target_dir)
+        .map_err(|error| format!("failed to create Dreamina input dir: {error}"))?;
     let mut result = Vec::with_capacity(assets.len());
     for (index, asset) in assets.iter().enumerate() {
         let extension = data_url_extension(&asset.data_url);
-        let path = target_dir.join(sanitize_file_name(asset.file_name.trim(), &format!("{fallback_prefix}-{}", index + 1), extension));
-        fs::write(&path, decode_data_url(&asset.data_url)?).map_err(|error| format!("failed to write Dreamina input asset: {error}"))?;
+        let path = target_dir.join(sanitize_file_name(
+            asset.file_name.trim(),
+            &format!("{fallback_prefix}-{}", index + 1),
+            extension,
+        ));
+        fs::write(&path, decode_data_url(&asset.data_url)?)
+            .map_err(|error| format!("failed to write Dreamina input asset: {error}"))?;
         result.push(path.canonicalize().unwrap_or(path));
     }
     Ok(result)
@@ -346,7 +422,10 @@ fn normalize_choice(value: Option<&str>, allowed: &[&str]) -> Option<String> {
     if normalized.is_empty() {
         return None;
     }
-    allowed.iter().find(|candidate| candidate.to_ascii_lowercase() == normalized).map(|candidate| (*candidate).to_string())
+    allowed
+        .iter()
+        .find(|candidate| candidate.to_ascii_lowercase() == normalized)
+        .map(|candidate| (*candidate).to_string())
 }
 
 fn clamp_u32(value: u32, min: u32, max: u32) -> u32 {
@@ -358,16 +437,31 @@ fn push_arg(args: &mut Vec<String>, flag: &str, value: impl Into<String>) {
     args.push(value.into());
 }
 
-fn image_args(payload: &GenerateJimengDreaminaImagesPayload, reference_images: &[PathBuf]) -> Vec<String> {
-    let mut args = vec![if reference_images.is_empty() { "text2image" } else { "image2image" }.to_string()];
+fn image_args(
+    payload: &GenerateJimengDreaminaImagesPayload,
+    reference_images: &[PathBuf],
+) -> Vec<String> {
+    let mut args = vec![if reference_images.is_empty() {
+        "text2image"
+    } else {
+        "image2image"
+    }
+    .to_string()];
     for image in reference_images {
         push_arg(&mut args, "--images", cli_path(image));
     }
     push_arg(&mut args, "--prompt", payload.prompt.trim().to_string());
-    if let Some(ratio) = normalize_choice(payload.aspect_ratio.as_deref(), &["21:9", "16:9", "3:2", "4:3", "1:1", "3:4", "2:3", "9:16"]) {
+    if let Some(ratio) = normalize_choice(
+        payload.aspect_ratio.as_deref(),
+        &["21:9", "16:9", "3:2", "4:3", "1:1", "3:4", "2:3", "9:16"],
+    ) {
         push_arg(&mut args, "--ratio", ratio);
     }
-    let resolution = match payload.resolution_type.as_deref().map(|value| value.trim().to_ascii_lowercase()) {
+    let resolution = match payload
+        .resolution_type
+        .as_deref()
+        .map(|value| value.trim().to_ascii_lowercase())
+    {
         Some(value) if value == "1k" && !reference_images.is_empty() => Some("2k".to_string()),
         Some(value) if value == "1k" || value == "2k" || value == "4k" => Some(value),
         _ => None,
@@ -387,10 +481,19 @@ fn image_args(payload: &GenerateJimengDreaminaImagesPayload, reference_images: &
     args
 }
 
-fn select_video_command(image_count: usize, audio_count: usize, reference_mode: Option<&str>) -> Result<VideoCommand, String> {
+fn select_video_command(
+    image_count: usize,
+    video_count: usize,
+    audio_count: usize,
+    reference_mode: Option<&str>,
+) -> Result<VideoCommand, String> {
+    if video_count > 0 {
+        return Ok(VideoCommand::Multimodal2Video);
+    }
+
     if image_count == 0 {
         if audio_count > 0 {
-            return Err("Dreamina video currently requires at least one reference image when audio references are connected.".to_string());
+            return Err("Dreamina video currently requires at least one reference image or video when audio references are connected.".to_string());
         }
         return Ok(VideoCommand::Text2Video);
     }
@@ -400,7 +503,11 @@ fn select_video_command(image_count: usize, audio_count: usize, reference_mode: 
     if image_count == 1 {
         return Ok(VideoCommand::Image2Video);
     }
-    match reference_mode.map(|value| value.trim().to_ascii_lowercase()).unwrap_or_default().as_str() {
+    match reference_mode
+        .map(|value| value.trim().to_ascii_lowercase())
+        .unwrap_or_default()
+        .as_str()
+    {
         "firstlastframe" => Ok(VideoCommand::Frames2Video),
         "allaround" | "subject" => Ok(VideoCommand::Multimodal2Video),
         _ => Ok(VideoCommand::Multiframe2Video),
@@ -412,25 +519,59 @@ fn multiframe_durations(total_duration: Option<u32>, transition_count: usize) ->
         return Vec::new();
     }
     let fallback_total = (transition_count as f64 * 3.0).max(2.0);
-    let total = total_duration.map(|value| value as f64).unwrap_or(fallback_total);
+    let total = total_duration
+        .map(|value| value as f64)
+        .unwrap_or(fallback_total);
     let per = (total / transition_count as f64).clamp(0.5, 8.0);
     let rounded = (per * 10.0).round() / 10.0;
-    let formatted = if rounded.fract() == 0.0 { format!("{}", rounded as i64) } else { format!("{rounded:.1}") };
+    let formatted = if rounded.fract() == 0.0 {
+        format!("{}", rounded as i64)
+    } else {
+        format!("{rounded:.1}")
+    };
     vec![formatted; transition_count]
 }
 
-fn video_args(payload: &GenerateJimengDreaminaVideosPayload, command: VideoCommand, reference_images: &[PathBuf], reference_audios: &[PathBuf]) -> Vec<String> {
+fn video_args(
+    payload: &GenerateJimengDreaminaVideosPayload,
+    command: VideoCommand,
+    reference_images: &[PathBuf],
+    reference_videos: &[PathBuf],
+    reference_audios: &[PathBuf],
+) -> Vec<String> {
     let mut args = vec![command.as_str().to_string()];
     let prompt = payload.prompt.trim().to_string();
-    let ratio = normalize_choice(payload.aspect_ratio.as_deref(), &["1:1", "3:4", "16:9", "4:3", "9:16", "21:9"]);
-    let text_model = normalize_choice(payload.model_version.as_deref(), &["seedance2.0", "seedance2.0fast"]);
-    let frames_model = normalize_choice(payload.model_version.as_deref(), &["3.0", "3.5pro", "seedance2.0", "seedance2.0fast"]);
-    let image_model = normalize_choice(payload.model_version.as_deref(), &["3.0", "3.0fast", "3.0pro", "3.5pro", "seedance2.0", "seedance2.0fast"]);
+    let ratio = normalize_choice(
+        payload.aspect_ratio.as_deref(),
+        &["1:1", "3:4", "16:9", "4:3", "9:16", "21:9"],
+    );
+    let text_model = normalize_choice(
+        payload.model_version.as_deref(),
+        &["seedance2.0", "seedance2.0fast"],
+    );
+    let frames_model = normalize_choice(
+        payload.model_version.as_deref(),
+        &["3.0", "3.5pro", "seedance2.0", "seedance2.0fast"],
+    );
+    let image_model = normalize_choice(
+        payload.model_version.as_deref(),
+        &[
+            "3.0",
+            "3.0fast",
+            "3.0pro",
+            "3.5pro",
+            "seedance2.0",
+            "seedance2.0fast",
+        ],
+    );
     let resolution = normalize_choice(payload.video_resolution.as_deref(), &["720p", "1080p"]);
     match command {
         VideoCommand::Text2Video => {
             push_arg(&mut args, "--prompt", prompt);
-            if let Some(duration) = payload.duration_seconds.map(|value| clamp_u32(value, 4, 15)) {
+            if let Some(duration) = payload
+                .duration_seconds
+                .map(|value| clamp_u32(value, 4, 15))
+            {
                 push_arg(&mut args, "--duration", duration.to_string());
             }
             if let Some(ratio) = ratio {
@@ -451,9 +592,15 @@ fn video_args(payload: &GenerateJimengDreaminaVideosPayload, command: VideoComma
             if let Some(model) = image_model.clone() {
                 push_arg(&mut args, "--model_version", model.clone());
                 let duration = match model.as_str() {
-                    "3.0" | "3.0fast" | "3.0pro" => payload.duration_seconds.map(|value| clamp_u32(value, 3, 10)),
-                    "3.5pro" => payload.duration_seconds.map(|value| clamp_u32(value, 4, 12)),
-                    _ => payload.duration_seconds.map(|value| clamp_u32(value, 4, 15)),
+                    "3.0" | "3.0fast" | "3.0pro" => payload
+                        .duration_seconds
+                        .map(|value| clamp_u32(value, 3, 10)),
+                    "3.5pro" => payload
+                        .duration_seconds
+                        .map(|value| clamp_u32(value, 4, 12)),
+                    _ => payload
+                        .duration_seconds
+                        .map(|value| clamp_u32(value, 4, 15)),
                 };
                 if let Some(duration) = duration {
                     push_arg(&mut args, "--duration", duration.to_string());
@@ -482,9 +629,15 @@ fn video_args(payload: &GenerateJimengDreaminaVideosPayload, command: VideoComma
             }
             let range_model = frames_model.as_deref().unwrap_or("seedance2.0fast");
             let duration = match range_model {
-                "3.0" => payload.duration_seconds.map(|value| clamp_u32(value, 3, 10)),
-                "3.5pro" => payload.duration_seconds.map(|value| clamp_u32(value, 4, 12)),
-                _ => payload.duration_seconds.map(|value| clamp_u32(value, 4, 15)),
+                "3.0" => payload
+                    .duration_seconds
+                    .map(|value| clamp_u32(value, 3, 10)),
+                "3.5pro" => payload
+                    .duration_seconds
+                    .map(|value| clamp_u32(value, 4, 12)),
+                _ => payload
+                    .duration_seconds
+                    .map(|value| clamp_u32(value, 4, 15)),
             };
             if let Some(duration) = duration {
                 push_arg(&mut args, "--duration", duration.to_string());
@@ -507,7 +660,11 @@ fn video_args(payload: &GenerateJimengDreaminaVideosPayload, command: VideoComma
                 push_arg(&mut args, "--prompt", prompt);
                 if let Some(duration) = payload.duration_seconds {
                     let value = (duration as f64).clamp(2.0, 8.0);
-                    let formatted = if value.fract() == 0.0 { format!("{}", value as i64) } else { format!("{value:.1}") };
+                    let formatted = if value.fract() == 0.0 {
+                        format!("{}", value as i64)
+                    } else {
+                        format!("{value:.1}")
+                    };
                     push_arg(&mut args, "--duration", formatted);
                 }
             } else {
@@ -524,13 +681,19 @@ fn video_args(payload: &GenerateJimengDreaminaVideosPayload, command: VideoComma
             for image in reference_images {
                 push_arg(&mut args, "--image", cli_path(image));
             }
+            for video in reference_videos {
+                push_arg(&mut args, "--video", cli_path(video));
+            }
             for audio in reference_audios {
                 push_arg(&mut args, "--audio", cli_path(audio));
             }
             if !prompt.is_empty() {
                 push_arg(&mut args, "--prompt", prompt);
             }
-            if let Some(duration) = payload.duration_seconds.map(|value| clamp_u32(value, 4, 15)) {
+            if let Some(duration) = payload
+                .duration_seconds
+                .map(|value| clamp_u32(value, 4, 15))
+            {
                 push_arg(&mut args, "--duration", duration.to_string());
             }
             if let Some(ratio) = ratio {
@@ -554,11 +717,22 @@ fn parse_submit_id(value: &Value) -> Result<String, String> {
             return Err(reason.trim().to_string());
         }
     }
-    let submit_id = value.get("submit_id").and_then(Value::as_str).map(str::trim).unwrap_or_default();
+    let submit_id = value
+        .get("submit_id")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .unwrap_or_default();
     if submit_id.is_empty() {
-        return Err(format!("Dreamina generation response did not include submit_id: {value}"));
+        return Err(format!(
+            "Dreamina generation response did not include submit_id: {value}"
+        ));
     }
-    if value.get("gen_status").and_then(Value::as_str).map(|status| status.eq_ignore_ascii_case("fail")).unwrap_or(false) {
+    if value
+        .get("gen_status")
+        .and_then(Value::as_str)
+        .map(|status| status.eq_ignore_ascii_case("fail"))
+        .unwrap_or(false)
+    {
         return Err(format!("Dreamina generation task failed: {value}"));
     }
     Ok(submit_id.to_string())
@@ -568,11 +742,126 @@ async fn submit_dreamina(workspace: PathBuf, args: Vec<String>) -> Result<String
     parse_submit_id(&run_dreamina_json(workspace, args).await?)
 }
 
-async fn query_dreamina(workspace: PathBuf, submit_id: &str, download_dir: &Path) -> Result<Option<Value>, String> {
-    let args = vec!["query_result".to_string(), "--submit_id".to_string(), submit_id.to_string(), "--download_dir".to_string(), cli_path(download_dir)];
+async fn submit_jimeng_dreamina_image_requests(
+    app: &AppHandle,
+    payload: &GenerateJimengDreaminaImagesPayload,
+) -> Result<(PathBuf, Vec<PendingDreaminaSubmit>, Vec<String>), String> {
+    let prompt = payload.prompt.trim();
+    if prompt.is_empty() {
+        return Err("Prompt is required for Dreamina image generation.".to_string());
+    }
+
+    let workspace = workspace_root()?;
+    let request_dir = runtime_root(app)?
+        .join("image")
+        .join(Uuid::new_v4().to_string());
+    fs::create_dir_all(&request_dir)
+        .map_err(|error| format!("failed to create Dreamina image request dir: {error}"))?;
+    let reference_images = payload.reference_images.clone().unwrap_or_default();
+    let reference_paths = write_assets(&request_dir, "images", &reference_images, "jimeng-image")?;
+    let count = payload
+        .image_count
+        .unwrap_or(DEFAULT_IMAGE_COUNT)
+        .clamp(1, MAX_IMAGE_COUNT);
+    let args = image_args(payload, &reference_paths);
+
+    let mut pending = Vec::with_capacity(count);
+    let mut submit_ids = Vec::with_capacity(count);
+    for index in 0..count {
+        let submit_id = submit_dreamina(workspace.clone(), args.clone()).await?;
+        let download_dir = request_dir.join("downloads").join(&submit_id);
+        fs::create_dir_all(&download_dir)
+            .map_err(|error| format!("failed to create Dreamina image download dir: {error}"))?;
+        submit_ids.push(submit_id.clone());
+        pending.push(PendingDreaminaSubmit {
+            request_index: index,
+            submit_id,
+            download_dir,
+        });
+    }
+
+    Ok((workspace, pending, submit_ids))
+}
+
+async fn submit_jimeng_dreamina_video_request(
+    app: &AppHandle,
+    payload: &GenerateJimengDreaminaVideosPayload,
+) -> Result<(PathBuf, PendingDreaminaSubmit), String> {
+    let prompt = payload.prompt.trim();
+    if prompt.is_empty() {
+        return Err("Prompt is required for Dreamina video generation.".to_string());
+    }
+
+    let workspace = workspace_root()?;
+    let request_dir = runtime_root(app)?
+        .join("video")
+        .join(Uuid::new_v4().to_string());
+    fs::create_dir_all(&request_dir)
+        .map_err(|error| format!("failed to create Dreamina video request dir: {error}"))?;
+    let reference_images = payload.reference_images.clone().unwrap_or_default();
+    let reference_videos = payload.reference_videos.clone().unwrap_or_default();
+    let reference_audios = payload.reference_audios.clone().unwrap_or_default();
+    let image_paths = write_assets(
+        &request_dir,
+        "images",
+        &reference_images,
+        "jimeng-video-image",
+    )?;
+    let video_paths = write_assets(
+        &request_dir,
+        "videos",
+        &reference_videos,
+        "jimeng-video-reference",
+    )?;
+    let audio_paths = write_assets(
+        &request_dir,
+        "audios",
+        &reference_audios,
+        "jimeng-video-audio",
+    )?;
+    let command = select_video_command(
+        image_paths.len(),
+        video_paths.len(),
+        audio_paths.len(),
+        payload.reference_mode.as_deref(),
+    )?;
+    let submit_id = submit_dreamina(
+        workspace.clone(),
+        video_args(payload, command, &image_paths, &video_paths, &audio_paths),
+    )
+    .await?;
+    let download_dir = request_dir.join("downloads").join(&submit_id);
+    fs::create_dir_all(&download_dir)
+        .map_err(|error| format!("failed to create Dreamina video download dir: {error}"))?;
+
+    Ok((
+        workspace,
+        PendingDreaminaSubmit {
+            request_index: 0,
+            submit_id,
+            download_dir,
+        },
+    ))
+}
+
+async fn query_dreamina(
+    workspace: PathBuf,
+    submit_id: &str,
+    download_dir: &Path,
+) -> Result<Option<Value>, String> {
+    let args = vec![
+        "query_result".to_string(),
+        "--submit_id".to_string(),
+        submit_id.to_string(),
+        "--download_dir".to_string(),
+        cli_path(download_dir),
+    ];
     match run_dreamina_json(workspace, args).await {
         Ok(value) => {
-            let status = value.get("gen_status").and_then(Value::as_str).unwrap_or_default();
+            let status = value
+                .get("gen_status")
+                .and_then(Value::as_str)
+                .unwrap_or_default();
             if status.eq_ignore_ascii_case("success") {
                 Ok(Some(value))
             } else if status.eq_ignore_ascii_case("fail") {
@@ -587,7 +876,10 @@ async fn query_dreamina(workspace: PathBuf, submit_id: &str, download_dir: &Path
 }
 
 fn file_name_from_path(path: &str) -> Option<String> {
-    Path::new(path).file_name().and_then(|value| value.to_str()).map(ToOwned::to_owned)
+    Path::new(path)
+        .file_name()
+        .and_then(|value| value.to_str())
+        .map(ToOwned::to_owned)
 }
 
 fn value_as_u32(value: &Value) -> Option<u32> {
@@ -627,9 +919,7 @@ fn find_value_by_keys<'a>(value: &'a Value, keys: &[&str]) -> Option<&'a Value> 
 
             None
         }
-        Value::Array(items) => items
-            .iter()
-            .find_map(|item| find_value_by_keys(item, keys)),
+        Value::Array(items) => items.iter().find_map(|item| find_value_by_keys(item, keys)),
         _ => None,
     }
 }
@@ -672,27 +962,62 @@ fn summarize_user_credit(value: &Value) -> Option<String> {
 }
 
 fn image_media(value: &Value) -> Vec<(String, Option<u32>, Option<u32>, Option<String>)> {
-    value.get("result_json").and_then(|result| result.get("images")).and_then(Value::as_array).map(|items| {
-        items.iter().filter_map(|item| {
-            let path = item.get("path").and_then(Value::as_str)?.trim().to_string();
-            if path.is_empty() {
-                return None;
-            }
-            Some((path.clone(), item.get("width").and_then(value_as_u32), item.get("height").and_then(value_as_u32), file_name_from_path(&path)))
-        }).collect()
-    }).unwrap_or_default()
+    value
+        .get("result_json")
+        .and_then(|result| result.get("images"))
+        .and_then(Value::as_array)
+        .map(|items| {
+            items
+                .iter()
+                .filter_map(|item| {
+                    let path = item.get("path").and_then(Value::as_str)?.trim().to_string();
+                    if path.is_empty() {
+                        return None;
+                    }
+                    Some((
+                        path.clone(),
+                        item.get("width").and_then(value_as_u32),
+                        item.get("height").and_then(value_as_u32),
+                        file_name_from_path(&path),
+                    ))
+                })
+                .collect()
+        })
+        .unwrap_or_default()
 }
 
-fn video_media(value: &Value) -> Vec<(String, Option<u32>, Option<u32>, Option<f64>, Option<String>)> {
-    value.get("result_json").and_then(|result| result.get("videos")).and_then(Value::as_array).map(|items| {
-        items.iter().filter_map(|item| {
-            let path = item.get("path").and_then(Value::as_str)?.trim().to_string();
-            if path.is_empty() {
-                return None;
-            }
-            Some((path.clone(), item.get("width").and_then(value_as_u32), item.get("height").and_then(value_as_u32), item.get("duration").and_then(Value::as_f64), file_name_from_path(&path)))
-        }).collect()
-    }).unwrap_or_default()
+fn video_media(
+    value: &Value,
+) -> Vec<(
+    String,
+    Option<u32>,
+    Option<u32>,
+    Option<f64>,
+    Option<String>,
+)> {
+    value
+        .get("result_json")
+        .and_then(|result| result.get("videos"))
+        .and_then(Value::as_array)
+        .map(|items| {
+            items
+                .iter()
+                .filter_map(|item| {
+                    let path = item.get("path").and_then(Value::as_str)?.trim().to_string();
+                    if path.is_empty() {
+                        return None;
+                    }
+                    Some((
+                        path.clone(),
+                        item.get("width").and_then(value_as_u32),
+                        item.get("height").and_then(value_as_u32),
+                        item.get("duration").and_then(Value::as_f64),
+                        file_name_from_path(&path),
+                    ))
+                })
+                .collect()
+        })
+        .unwrap_or_default()
 }
 #[tauri::command]
 pub async fn check_dreamina_cli_status() -> Result<DreaminaCliStatusResponse, String> {
@@ -713,31 +1038,15 @@ pub async fn check_dreamina_cli_status() -> Result<DreaminaCliStatusResponse, St
 }
 
 #[tauri::command]
-pub async fn generate_jimeng_dreamina_images(app: AppHandle, payload: GenerateJimengDreaminaImagesPayload) -> Result<JimengDreaminaImageGenerationResponse, String> {
-    let prompt = payload.prompt.trim();
-    if prompt.is_empty() {
-        return Err("Prompt is required for Dreamina image generation.".to_string());
-    }
+pub async fn generate_jimeng_dreamina_images(
+    app: AppHandle,
+    payload: GenerateJimengDreaminaImagesPayload,
+) -> Result<JimengDreaminaImageGenerationResponse, String> {
+    let (workspace, mut pending, submit_ids) =
+        submit_jimeng_dreamina_image_requests(&app, &payload).await?;
 
-    let workspace = workspace_root()?;
-    let request_dir = runtime_root(&app)?.join("image").join(Uuid::new_v4().to_string());
-    fs::create_dir_all(&request_dir).map_err(|error| format!("failed to create Dreamina image request dir: {error}"))?;
-    let reference_images = payload.reference_images.clone().unwrap_or_default();
-    let reference_paths = write_assets(&request_dir, "images", &reference_images, "jimeng-image")?;
-    let count = payload.image_count.unwrap_or(DEFAULT_IMAGE_COUNT).clamp(1, MAX_IMAGE_COUNT);
-    let args = image_args(&payload, &reference_paths);
-
-    let mut pending = Vec::with_capacity(count);
-    let mut submit_ids = Vec::with_capacity(count);
-    for index in 0..count {
-        let submit_id = submit_dreamina(workspace.clone(), args.clone()).await?;
-        let download_dir = request_dir.join("downloads").join(&submit_id);
-        fs::create_dir_all(&download_dir).map_err(|error| format!("failed to create Dreamina image download dir: {error}"))?;
-        submit_ids.push(submit_id.clone());
-        pending.push(PendingDreaminaSubmit { request_index: index, submit_id, download_dir });
-    }
-
-    let deadline = Instant::now() + Duration::from_millis(payload.timeout_ms.unwrap_or(IMAGE_TIMEOUT_MS));
+    let deadline =
+        Instant::now() + Duration::from_millis(payload.timeout_ms.unwrap_or(IMAGE_TIMEOUT_MS));
     let mut completed = Vec::new();
     let mut failures = Vec::new();
 
@@ -753,7 +1062,10 @@ pub async fn generate_jimeng_dreamina_images(app: AppHandle, payload: GenerateJi
                 }
                 Ok(None) => next_pending.push(submit),
                 Err(error) => {
-                    warn!("Dreamina image submit {} failed: {}", submit.submit_id, error);
+                    warn!(
+                        "Dreamina image submit {} failed: {}",
+                        submit.submit_id, error
+                    );
                     failures.push(format!("{}: {}", submit.submit_id, error));
                 }
             }
@@ -774,9 +1086,19 @@ pub async fn generate_jimeng_dreamina_images(app: AppHandle, payload: GenerateJi
     }
 
     completed.sort_by_key(|(submit_index, media_index, _)| (*submit_index, *media_index));
-    let mut results = completed.into_iter().enumerate().map(|(index, (_, _, (source_url, width, height, file_name)))| {
-        JimengDreaminaGeneratedImageResult { index, source_url, width, height, file_name }
-    }).collect::<Vec<_>>();
+    let mut results = completed
+        .into_iter()
+        .enumerate()
+        .map(|(index, (_, _, (source_url, width, height, file_name)))| {
+            JimengDreaminaGeneratedImageResult {
+                index,
+                source_url,
+                width,
+                height,
+                file_name,
+            }
+        })
+        .collect::<Vec<_>>();
     if results.len() > MAX_IMAGE_COUNT {
         results.truncate(MAX_IMAGE_COUNT);
     }
@@ -788,29 +1110,23 @@ pub async fn generate_jimeng_dreamina_images(app: AppHandle, payload: GenerateJi
             format!("Dreamina image generation did not return any downloadable results. {detail}")
         });
     }
-    Ok(JimengDreaminaImageGenerationResponse { results, submit_ids })
+    Ok(JimengDreaminaImageGenerationResponse {
+        results,
+        submit_ids,
+    })
 }
 
 #[tauri::command]
-pub async fn generate_jimeng_dreamina_videos(app: AppHandle, payload: GenerateJimengDreaminaVideosPayload) -> Result<JimengDreaminaVideoGenerationResponse, String> {
-    let prompt = payload.prompt.trim();
-    if prompt.is_empty() {
-        return Err("Prompt is required for Dreamina video generation.".to_string());
-    }
+pub async fn generate_jimeng_dreamina_videos(
+    app: AppHandle,
+    payload: GenerateJimengDreaminaVideosPayload,
+) -> Result<JimengDreaminaVideoGenerationResponse, String> {
+    let (workspace, pending_submit) = submit_jimeng_dreamina_video_request(&app, &payload).await?;
+    let submit_id = pending_submit.submit_id.clone();
+    let download_dir = pending_submit.download_dir;
 
-    let workspace = workspace_root()?;
-    let request_dir = runtime_root(&app)?.join("video").join(Uuid::new_v4().to_string());
-    fs::create_dir_all(&request_dir).map_err(|error| format!("failed to create Dreamina video request dir: {error}"))?;
-    let reference_images = payload.reference_images.clone().unwrap_or_default();
-    let reference_audios = payload.reference_audios.clone().unwrap_or_default();
-    let image_paths = write_assets(&request_dir, "images", &reference_images, "jimeng-video-image")?;
-    let audio_paths = write_assets(&request_dir, "audios", &reference_audios, "jimeng-video-audio")?;
-    let command = select_video_command(image_paths.len(), audio_paths.len(), payload.reference_mode.as_deref())?;
-    let submit_id = submit_dreamina(workspace.clone(), video_args(&payload, command, &image_paths, &audio_paths)).await?;
-    let download_dir = request_dir.join("downloads").join(&submit_id);
-    fs::create_dir_all(&download_dir).map_err(|error| format!("failed to create Dreamina video download dir: {error}"))?;
-
-    let deadline = Instant::now() + Duration::from_millis(payload.timeout_ms.unwrap_or(VIDEO_TIMEOUT_MS));
+    let deadline =
+        Instant::now() + Duration::from_millis(payload.timeout_ms.unwrap_or(VIDEO_TIMEOUT_MS));
     let final_value = loop {
         if Instant::now() >= deadline {
             return Err(format!(
@@ -825,13 +1141,51 @@ pub async fn generate_jimeng_dreamina_videos(app: AppHandle, payload: GenerateJi
         }
     };
 
-    let results = video_media(&final_value).into_iter().enumerate().map(|(index, (source_url, width, height, duration_seconds, file_name))| {
-        JimengDreaminaGeneratedVideoResult { index, source_url, width, height, duration_seconds, file_name }
-    }).collect::<Vec<_>>();
+    let results = video_media(&final_value)
+        .into_iter()
+        .enumerate()
+        .map(
+            |(index, (source_url, width, height, duration_seconds, file_name))| {
+                JimengDreaminaGeneratedVideoResult {
+                    index,
+                    source_url,
+                    width,
+                    height,
+                    duration_seconds,
+                    file_name,
+                }
+            },
+        )
+        .collect::<Vec<_>>();
     if results.is_empty() {
-        return Err("Dreamina video generation did not return any downloadable results.".to_string());
+        return Err(
+            "Dreamina video generation did not return any downloadable results.".to_string(),
+        );
     }
     Ok(JimengDreaminaVideoGenerationResponse { results, submit_id })
+}
+
+#[tauri::command]
+pub async fn submit_jimeng_dreamina_images(
+    app: AppHandle,
+    payload: GenerateJimengDreaminaImagesPayload,
+) -> Result<JimengDreaminaImageSubmitResponse, String> {
+    let (_workspace, _pending, submit_ids) =
+        submit_jimeng_dreamina_image_requests(&app, &payload).await?;
+
+    Ok(JimengDreaminaImageSubmitResponse { submit_ids })
+}
+
+#[tauri::command]
+pub async fn submit_jimeng_dreamina_videos(
+    app: AppHandle,
+    payload: GenerateJimengDreaminaVideosPayload,
+) -> Result<JimengDreaminaVideoSubmitResponse, String> {
+    let (_workspace, pending_submit) = submit_jimeng_dreamina_video_request(&app, &payload).await?;
+
+    Ok(JimengDreaminaVideoSubmitResponse {
+        submit_id: pending_submit.submit_id,
+    })
 }
 
 #[tauri::command]
@@ -876,12 +1230,14 @@ pub async fn query_jimeng_dreamina_image_results(
     let results = completed
         .into_iter()
         .enumerate()
-        .map(|(index, (_, _, (source_url, width, height, file_name)))| JimengDreaminaGeneratedImageResult {
-            index,
-            source_url,
-            width,
-            height,
-            file_name,
+        .map(|(index, (_, _, (source_url, width, height, file_name)))| {
+            JimengDreaminaGeneratedImageResult {
+                index,
+                source_url,
+                width,
+                height,
+                file_name,
+            }
         })
         .collect::<Vec<_>>();
 
@@ -913,16 +1269,18 @@ pub async fn query_jimeng_dreamina_video_result(
             video_media(&resolved)
                 .into_iter()
                 .enumerate()
-                .map(|(index, (source_url, width, height, duration_seconds, file_name))| {
-                    JimengDreaminaGeneratedVideoResult {
-                        index,
-                        source_url,
-                        width,
-                        height,
-                        duration_seconds,
-                        file_name,
-                    }
-                })
+                .map(
+                    |(index, (source_url, width, height, duration_seconds, file_name))| {
+                        JimengDreaminaGeneratedVideoResult {
+                            index,
+                            source_url,
+                            width,
+                            height,
+                            duration_seconds,
+                            file_name,
+                        }
+                    },
+                )
                 .collect::<Vec<_>>()
         })
         .unwrap_or_default();

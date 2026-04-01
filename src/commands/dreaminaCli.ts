@@ -1,4 +1,4 @@
-import { invoke } from '@tauri-apps/api/core';
+import { invoke } from "@tauri-apps/api/core";
 
 export interface DreaminaReferenceAssetPayload {
   fileName: string;
@@ -23,6 +23,7 @@ export interface GenerateJimengDreaminaVideosPayload {
   videoResolution?: string;
   modelVersion?: string;
   referenceImages?: DreaminaReferenceAssetPayload[];
+  referenceVideos?: DreaminaReferenceAssetPayload[];
   referenceAudios?: DreaminaReferenceAssetPayload[];
   timeoutMs?: number;
 }
@@ -55,8 +56,16 @@ export interface JimengDreaminaImageGenerationResponse {
   submitIds: string[];
 }
 
+export interface JimengDreaminaImageSubmitResponse {
+  submitIds: string[];
+}
+
 export interface JimengDreaminaVideoGenerationResponse {
   results: JimengDreaminaGeneratedVideoResult[];
+  submitId: string;
+}
+
+export interface JimengDreaminaVideoSubmitResponse {
   submitId: string;
 }
 
@@ -84,37 +93,71 @@ export interface JimengDreaminaVideoQueryResponse {
 }
 
 export async function checkDreaminaCliStatus(): Promise<DreaminaCliStatusResponse> {
-  return await invoke<DreaminaCliStatusResponse>('check_dreamina_cli_status');
+  return await invoke<DreaminaCliStatusResponse>("check_dreamina_cli_status");
 }
 
 export async function generateJimengDreaminaImages(
-  payload: GenerateJimengDreaminaImagesPayload
+  payload: GenerateJimengDreaminaImagesPayload,
 ): Promise<JimengDreaminaImageGenerationResponse> {
-  return await invoke<JimengDreaminaImageGenerationResponse>('generate_jimeng_dreamina_images', {
-    payload,
-  });
+  return await invoke<JimengDreaminaImageGenerationResponse>(
+    "generate_jimeng_dreamina_images",
+    {
+      payload,
+    },
+  );
+}
+
+export async function submitJimengDreaminaImages(
+  payload: GenerateJimengDreaminaImagesPayload,
+): Promise<JimengDreaminaImageSubmitResponse> {
+  return await invoke<JimengDreaminaImageSubmitResponse>(
+    "submit_jimeng_dreamina_images",
+    {
+      payload,
+    },
+  );
 }
 
 export async function generateJimengDreaminaVideos(
-  payload: GenerateJimengDreaminaVideosPayload
+  payload: GenerateJimengDreaminaVideosPayload,
 ): Promise<JimengDreaminaVideoGenerationResponse> {
-  return await invoke<JimengDreaminaVideoGenerationResponse>('generate_jimeng_dreamina_videos', {
-    payload,
-  });
+  return await invoke<JimengDreaminaVideoGenerationResponse>(
+    "generate_jimeng_dreamina_videos",
+    {
+      payload,
+    },
+  );
+}
+
+export async function submitJimengDreaminaVideos(
+  payload: GenerateJimengDreaminaVideosPayload,
+): Promise<JimengDreaminaVideoSubmitResponse> {
+  return await invoke<JimengDreaminaVideoSubmitResponse>(
+    "submit_jimeng_dreamina_videos",
+    {
+      payload,
+    },
+  );
 }
 
 export async function queryJimengDreaminaImageResults(
-  payload: QueryJimengDreaminaImageResultsPayload
+  payload: QueryJimengDreaminaImageResultsPayload,
 ): Promise<JimengDreaminaImageQueryResponse> {
-  return await invoke<JimengDreaminaImageQueryResponse>('query_jimeng_dreamina_image_results', {
-    payload,
-  });
+  return await invoke<JimengDreaminaImageQueryResponse>(
+    "query_jimeng_dreamina_image_results",
+    {
+      payload,
+    },
+  );
 }
 
 export async function queryJimengDreaminaVideoResult(
-  payload: QueryJimengDreaminaVideoResultPayload
+  payload: QueryJimengDreaminaVideoResultPayload,
 ): Promise<JimengDreaminaVideoQueryResponse> {
-  return await invoke<JimengDreaminaVideoQueryResponse>('query_jimeng_dreamina_video_result', {
-    payload,
-  });
+  return await invoke<JimengDreaminaVideoQueryResponse>(
+    "query_jimeng_dreamina_video_result",
+    {
+      payload,
+    },
+  );
 }

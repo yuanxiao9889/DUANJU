@@ -43,6 +43,7 @@ const MAX_PERSISTED_HISTORY_STEPS = 12;
 const MAX_HISTORY_RESTORE_JSON_CHARS = 1_500_000;
 const DELETE_RETRY_DELAY_MS = 80;
 const MAX_DELETE_RETRIES = 10;
+const FLUSH_WAIT_INTERVAL_MS = 16;
 
 const queuedProjectUpserts = new Map<string, Project>();
 const projectUpsertTimers = new Map<string, ReturnType<typeof setTimeout>>();
@@ -419,6 +420,12 @@ function normalizeViewport(viewport: Viewport): Viewport {
   };
 }
 
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => {
+    window.setTimeout(resolve, ms);
+  });
+}
+
 function clearQueuedProjectUpsert(projectId: string): void {
   const timer = projectUpsertTimers.get(projectId);
   if (timer) {
@@ -515,6 +522,19 @@ function queueProjectUpsert(project: Project, options?: PersistProjectOptions): 
 function persistProject(project: Project, options?: PersistProjectOptions): void {
   clearQueuedViewportUpsert(project.id);
   queueProjectUpsert(project, options);
+}
+
+async function persistProjectImmediately(project: Project): Promise<void> {
+  const projectId = project.id;
+  deletingProjectIds.delete(projectId);
+  clearQueuedProjectUpsert(projectId);
+  clearQueuedViewportUpsert(projectId);
+
+  while (projectUpsertsInFlight.has(projectId) || viewportUpsertsInFlight.has(projectId)) {
+    await delay(FLUSH_WAIT_INTERVAL_MS);
+  }
+
+  await upsertProjectRecord(toProjectRecord(project));
 }
 
 function flushViewportUpsert(projectId: string): void {
@@ -637,6 +657,7 @@ interface ProjectState {
   ) => void;
   saveCurrentProjectViewport: (viewport: Viewport) => void;
   cancelPendingViewportPersist: () => void;
+  flushCurrentProjectToDisk: () => Promise<void>;
 }
 
 export const useProjectStore = create<ProjectState>((set, get) => ({
@@ -962,5 +983,38 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
       return;
     }
     clearQueuedViewportUpsert(currentProjectId);
+  },
+
+  flushCurrentProjectToDisk: async () => {
+    const { currentProjectId, currentProject } = get();
+    if (!currentProjectId || !currentProject || currentProject.id !== currentProjectId) {
+      return;
+    }
+
+    const canvasState = useCanvasStore.getState();
+    const nextProject: Project = {
+      ...currentProject,
+      nodes: canvasState.nodes,
+      edges: canvasState.edges,
+      viewport: canvasState.currentViewport ?? currentProject.viewport ?? DEFAULT_VIEWPORT,
+      history: canvasState.history ?? currentProject.history ?? createEmptyHistory(),
+      nodeCount: canvasState.nodes.length,
+      updatedAt: Date.now(),
+    };
+
+    set((state) => ({
+      currentProject: nextProject,
+      projects: updateProjectSummary(state.projects, {
+        id: nextProject.id,
+        name: nextProject.name,
+        projectType: nextProject.projectType,
+        assetLibraryId: nextProject.assetLibraryId ?? null,
+        createdAt: nextProject.createdAt,
+        updatedAt: nextProject.updatedAt,
+        nodeCount: nextProject.nodeCount,
+      }),
+    }));
+
+    await persistProjectImmediately(nextProject);
   },
 }));

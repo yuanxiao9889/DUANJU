@@ -195,13 +195,89 @@
                  "sendToPsFailed":  "发送失败：{{error}}",
                  "psNotConnected":  "Photoshop 未连接",
                  "jimeng":  {
+                                "promptRequired":  "请输入即梦视频生成提示词",
+                                "optimizePrompt":  "优化视频提示词",
+                                "optimizingPrompt":  "正在优化视频提示词",
+                                "optimizePromptFailed":  "视频提示词优化失败",
+                                "promptPlaceholder":  "描述场景、动作、运镜和节奏",
+                                "referenceImageLabel":  "参考图 {{index}}",
+                                "referenceCount":  "已连接 {{count}} 张参考图",
+                                "referenceEmpty":  "连接上游图片后，会自动作为 Dreamina CLI 参考图。",
+                                "submit":  "生成",
+                                "submitting":  "生成中",
+                                "submitFailed":  "即梦视频生成失败",
+                                "durationSuggestionLabel":  "建议时长：{{seconds}} 秒",
+                                "durationSuggestionOverflow":  "建议时长：{{seconds}} 秒，当前内容预计约 {{estimated}} 秒，可能超过 15 秒限制。",
+                                "resultReturnedAt":  "{{time}} 已回传到视频结果节点",
+                                "resultEmpty":  "即梦没有返回可用的视频结果",
+                                "resultNodeTitle":  "生成结果",
+                                "audioReferenceLabel":  "音频 {{index}}",
+                                "cliBlockedAudioNeedsImage":  "当前音频参考至少需要 1 张图片参考后才能提交。",
+                                "firstLastFrameRequiresTwoImages":  "首尾帧模式必须正好连接 2 张参考图。",
                                 "optimizedPreviewTitle":  "优化结果预览",
                                 "applyOptimizedPrompt":  "应用优化结果",
                                 "undoOptimizedPrompt":  "撤销优化",
                                 "optimizeModelLabel":  "本次优化模型：{{model}}",
                                 "optimizeReferenceImagesLabel":  "参考图：{{status}}",
                                 "optimizeReferenceImagesUsed":  "已带入 {{count}} 张",
-                                "optimizeReferenceImagesUnused":  "未带入"
+                                "optimizeReferenceImagesUnused":  "未带入",
+                                "cliMode":  {
+                                                "text2video":  "文生视频",
+                                                "image2video":  "图生视频",
+                                                "frames2video":  "首尾帧",
+                                                "multiframe2video":  "多图转场",
+                                                "multimodal2video":  "多模态"
+                                            },
+                                "cliHint":  {
+                                                "text2video":  "CLI：{{command}} | 生效模型 {{model}} | 时长 4-15 秒 | 分辨率 720p",
+                                                "image2video":  "CLI：{{command}} | 时长 {{duration}} | 分辨率 {{resolution}}",
+                                                "frames2video":  "CLI：{{command}} | 只使用首尾两张图 | 生效模型 {{model}} | 时长 {{duration}} | 分辨率 {{resolution}}",
+                                                "multiframeTwo":  "CLI：{{command}} | 2 张参考图 | 时长 2-8 秒 | 模型 / 比例 / 分辨率由 CLI 固定",
+                                                "multiframeMany":  "CLI：{{command}} | {{count}} 张参考图 | 转场时长自动分配 | 模型 / 比例 / 分辨率由 CLI 固定",
+                                                "multimodal2video":  "CLI：{{command}} | 生效模型 {{model}} | 时长 4-15 秒 | 分辨率 720p"
+                                            },
+                                "parameters":  {
+                                                   "model":  "模型",
+                                                   "referenceMode":  "参考",
+                                                   "aspectRatio":  "比例",
+                                                   "duration":  "时长"
+                                               },
+                                "modelOptions":  {
+                                                     "seedance20fast":  "Seedance 2.0 Fast",
+                                                     "seedance20":  "Seedance 2.0",
+                                                     "v3_5pro":  "3.5 Pro",
+                                                     "v3_0pro":  "3.0 Pro",
+                                                     "v3_0fast":  "3.0 Fast",
+                                                     "v3_0":  "3.0 标准"
+                                                 },
+                                "referenceModes":  {
+                                                       "allAround":  "通用参考",
+                                                       "firstLastFrame":  "首尾帧",
+                                                       "smartFrames":  "智能多帧",
+                                                       "subject":  "主体一致"
+                                                   },
+                                "aspectRatios":  {
+                                                     "21:9":  "21:9",
+                                                     "16:9":  "16:9",
+                                                     "4:3":  "4:3",
+                                                     "1:1":  "1:1",
+                                                     "3:4":  "3:4",
+                                                     "9:16":  "9:16"
+                                                 },
+                                "durations":  {
+                                                  "4":  "4秒",
+                                                  "5":  "5秒",
+                                                  "6":  "6秒",
+                                                  "7":  "7秒",
+                                                  "8":  "8秒",
+                                                  "9":  "9秒",
+                                                  "10":  "10秒",
+                                                  "11":  "11秒",
+                                                  "12":  "12秒",
+                                                  "13":  "13秒",
+                                                  "14":  "14秒",
+                                                  "15":  "15秒"
+                                              }
                             },
                  "upload":  {
                                 "uploadedAlt":  "已上传图片",
@@ -220,6 +296,9 @@
                                     },
                  "storyboardSplitResult":  {
                                                "title":  "切割结果",
+                                               "editFrame":  "分离此格",
+                                               "editEmpty":  "这一格当前没有可分离的图片",
+                                               "editFailed":  "分离此格失败",
                                                "exportFrames":  "逐张导出",
                                                "exportingFrames":  "导出中...",
                                                "exportEmpty":  "当前没有可导出的切割图片",
@@ -303,24 +382,67 @@
                                      "notSynced":  "未同步",
                                      "syncedAt":  "已同步 {{time}}",
                                      "referenceCount":  "已连接 {{count}} 张参考图",
-                                     "referenceEmpty":  "连接上游图片后，会自动作为即梦参考图。",
+                                     "referenceImageLabel":  "参考图 {{index}}",
+                                     "referenceEmpty":  "连接上游图片后，输入 @ 可在提示词里插入参考图。",
+                                     "referenceHelperActive":  "已连接 {{count}} 张参考图，输入 @ 可插入到提示词。",
+                                     "referenceUnsupportedModel":  "即梦图片 3.0 和 3.1 模型暂不支持参考图，请移除参考图或切换模型。",
+                                     "resolutionLockedTo2k":  "即梦图片 3.0 和 3.1 模型支持 1K / 2K 分辨率。",
                                      "openWorkspace":  "打开即梦",
                                      "syncControls":  "同步参数",
                                      "generate":  "生成",
                                      "generating":  "生成中",
                                      "generateFailed":  "即梦图片生成失败",
                                      "generatedAt":  "已生成 {{time}}",
-                                     "generatedToNode":  "{{time}} 已生成到新的四宫格节点",
-                                     "resultNodeTitle":  "即梦四宫格结果"
+                                     "generatedToNode":  "{{time}} 已生成到新的结果节点",
+                                     "resultNodeTitle":  "生成结果",
+                                     "parameterHint":  "当前节点使用 Dreamina CLI 固定参数，生成后会新建一个结果节点。",
+                                     "parameters":  {
+                                                        "model":  "模型",
+                                                        "resolution":  "分辨率",
+                                                        "aspectRatio":  "比例"
+                                                    },
+                                     "modelOptions":  {
+                                                          "v3_0":  "3.0",
+                                                          "v3_1":  "3.1",
+                                                          "v4_0":  "4.0",
+                                                          "v4_1":  "4.1",
+                                                          "v4_5":  "4.5",
+                                                          "v4_6":  "4.6",
+                                                          "v5_0":  "5.0",
+                                                          "lab":  "Lab"
+                                                      },
+                                     "resolutionOptions":  {
+                                                               "1k":  "1K",
+                                                               "2k":  "2K",
+                                                               "4k":  "4K"
+                                                           },
+                                     "aspectRatios":  {
+                                                          "21:9":  "21:9",
+                                                          "16:9":  "16:9",
+                                                          "4:3":  "4:3",
+                                                          "1:1":  "1:1",
+                                                          "3:4":  "3:4",
+                                                          "9:16":  "9:16"
+                                                      }
                                  },
                  "jimengImageResult":  {
                                            "empty":  "等待即梦返回结果。",
                                            "pending":  "生成中...",
                                            "slotLabel":  "结果 {{index}}",
+                                           "extractImage":  "分离此图",
+                                           "extractEmpty":  "这一格当前没有可分离的图片",
+                                           "extractFailed":  "分离图片失败",
+                                           "extractSuccess":  "已分离结果 {{index}}",
+                                           "extractedTitle":  "即梦结果 {{index}}",
                                            "generating":  "生成中",
-                                           "statusGenerating":  "即梦正在生成最新一组 4 张图...",
+                                           "statusGenerating":  "即梦正在生成图片结果...",
                                            "generatedAt":  "已生成 {{time}}",
-                                           "readyCount":  "{{count}} 张图片"
+                                           "readyCount":  "{{count}} 张图片",
+                                           "requery":  "重新查询",
+                                           "requeryUnavailable":  "当前结果节点还没有可用的 submit_id，暂时无法重新查询结果。",
+                                           "requeryFailed":  "重新查询即梦图片结果失败",
+                                           "requeryPendingCount":  "还有 {{count}} 个任务仍在处理中",
+                                           "requeryReadyCount":  "已重新获取 {{count}} 张图片"
                                  }
              },
     "viewer":  {

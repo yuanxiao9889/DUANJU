@@ -142,6 +142,8 @@ pub fn run() {
             dreamina_cli::check_dreamina_cli_status,
             dreamina_cli::generate_jimeng_dreamina_images,
             dreamina_cli::generate_jimeng_dreamina_videos,
+            dreamina_cli::submit_jimeng_dreamina_images,
+            dreamina_cli::submit_jimeng_dreamina_videos,
             dreamina_cli::query_jimeng_dreamina_image_results,
             dreamina_cli::query_jimeng_dreamina_video_result,
             image::split_image,

@@ -144,7 +144,7 @@ const jimengNodeDefinition: CanvasNodeDefinition<JimengNodeData> = {
     promptInput: false,
   },
   connectivity: {
-    sourceHandle: false,
+    sourceHandle: true,
     targetHandle: true,
     connectMenu: {
       fromSource: false,

@@ -16,6 +16,9 @@
       "optimizePrompt": "\u89c6\u9891\u4f18\u5316\u63d0\u793a\u8bcd",
       "optimizingPrompt": "\u6b63\u5728\u4f18\u5316\u89c6\u9891\u63d0\u793a\u8bcd",
       "optimizePromptFailed": "\u89c6\u9891\u63d0\u793a\u8bcd\u4f18\u5316\u5931\u8d25",
+      "checkCli": "CLI\u68c0\u6d4b",
+      "checkingCli": "\u68c0\u6d4b CLI",
+      "checkCliFailed": "Dreamina CLI \u68c0\u6d4b\u5931\u8d25",
       "undoOptimizedPrompt": "\u64a4\u9500\u89c6\u9891\u4f18\u5316",
       "optimizeModelLabel": "\u672c\u6b21\u4f18\u5316\u6a21\u578b\uff1a{{model}}",
       "optimizeReferenceImagesLabel": "\u53c2\u8003\u56fe\uff1a{{status}}",
@@ -24,7 +27,7 @@
       "referenceCount": "\u5df2\u8fde\u63a5 {{count}} \u5f20\u53c2\u8003\u56fe",
       "referenceImagesLabel": "\u53c2\u8003\u56fe\u7247",
       "referenceImageLabel": "\u53c2\u8003\u56fe {{index}}",
-      "referenceReorderHint": "\u53ef\u8c03\u6574\u987a\u5e8f",
+      "referenceReorderHint": "\u62d6\u52a8\u8c03\u6574\u987a\u5e8f",
       "referenceEmpty": "\u8fde\u63a5\u4e0a\u6e38\u56fe\u7247\u540e\uff0c\u4f1a\u4f5c\u4e3a Dreamina CLI \u7684\u53c2\u8003\u56fe\u4e00\u5e76\u63d0\u4ea4\u3002",
       "audioReferencesLabel": "{{count}} \u6761\u97f3\u9891\u53c2\u8003",
       "audioReferenceLabel": "\u97f3\u9891 {{index}}",
@@ -109,6 +112,9 @@
       "optimizePrompt": "\u56fe\u7247\u4f18\u5316\u63d0\u793a\u8bcd",
       "optimizingPrompt": "\u6b63\u5728\u4f18\u5316\u56fe\u7247\u63d0\u793a\u8bcd",
       "optimizePromptFailed": "\u56fe\u7247\u63d0\u793a\u8bcd\u4f18\u5316\u5931\u8d25",
+      "checkCli": "CLI\u68c0\u6d4b",
+      "checkingCli": "\u68c0\u6d4b CLI",
+      "checkCliFailed": "Dreamina CLI \u68c0\u6d4b\u5931\u8d25",
       "undoOptimizedPrompt": "\u64a4\u9500\u56fe\u7247\u4f18\u5316",
       "optimizeModelLabel": "\u672c\u6b21\u4f18\u5316\u6a21\u578b\uff1a{{model}}",
       "optimizeReferenceImagesLabel": "\u53c2\u8003\u56fe\uff1a{{status}}",
@@ -148,10 +154,20 @@
       "empty": "\u7b49\u5f85\u5373\u68a6\u8fd4\u56de\u7ed3\u679c\u3002",
       "pending": "\u751f\u6210\u4e2d...",
       "slotLabel": "\u7ed3\u679c {{index}}",
+      "extractImage": "\u5206\u79bb\u6b64\u56fe",
+      "extractEmpty": "\u8fd9\u4e00\u683c\u5f53\u524d\u6ca1\u6709\u53ef\u5206\u79bb\u7684\u56fe\u7247",
+      "extractFailed": "\u5206\u79bb\u56fe\u7247\u5931\u8d25",
+      "extractSuccess": "\u5df2\u5206\u79bb\u7ed3\u679c {{index}}",
+      "extractedTitle": "\u5373\u68a6\u7ed3\u679c {{index}}",
       "generating": "\u751f\u6210\u4e2d",
       "statusGenerating": "\u5373\u68a6\u6b63\u5728\u751f\u6210\u6700\u65b0\u4e00\u7ec4 4 \u5f20\u56fe...",
       "generatedAt": "\u5df2\u751f\u6210 {{time}}",
-      "readyCount": "{{count}} \u5f20\u56fe\u7247"
+      "readyCount": "{{count}} \u5f20\u56fe\u7247",
+      "requery": "\u91cd\u67e5\u7ed3\u679c",
+      "requeryUnavailable": "\u8fd9\u4e2a\u5373\u68a6\u56db\u5bab\u683c\u8282\u70b9\u6ca1\u6709\u53ef\u7528\u7684 submit_id\uff0c\u6682\u65f6\u65e0\u6cd5\u91cd\u67e5\u3002",
+      "requeryFailed": "\u5373\u68a6\u56fe\u7247\u7ed3\u679c\u91cd\u67e5\u5931\u8d25",
+      "requeryPendingCount": "\u4ecd\u6709 {{count}} \u4e2a\u4efb\u52a1\u7b49\u5f85\u56de\u4f20",
+      "requeryReadyCount": "\u5df2\u91cd\u65b0\u62c9\u53d6 {{count}} \u5f20\u56fe\u7247"
     },
     "jimengVideoResult": {
       "empty": "\u7b49\u5f85\u5373\u68a6\u8fd4\u56de\u89c6\u9891\u7ed3\u679c\u3002",
@@ -160,7 +176,11 @@
       "ready": "\u5df2\u56de\u4f20",
       "statusGenerating": "\u5373\u68a6\u6b63\u5728\u751f\u6210\u89c6\u9891\u7ed3\u679c...",
       "generatedAt": "\u5df2\u56de\u4f20 {{time}}",
-      "duration": "\u65f6\u957f {{duration}}"
+      "duration": "\u65f6\u957f {{duration}}",
+      "requery": "\u91cd\u67e5\u7ed3\u679c",
+      "requeryUnavailable": "\u8fd9\u4e2a\u5373\u68a6\u89c6\u9891\u7ed3\u679c\u8282\u70b9\u6ca1\u6709\u53ef\u7528\u7684 submit_id\uff0c\u6682\u65f6\u65e0\u6cd5\u91cd\u67e5\u3002",
+      "requeryFailed": "\u5373\u68a6\u89c6\u9891\u7ed3\u679c\u91cd\u67e5\u5931\u8d25",
+      "requeryPending": "\u4efb\u52a1\u8fd8\u5728\u751f\u6210\u4e2d\uff0c\u7a0d\u540e\u53ef\u518d\u91cd\u67e5"
     }
   }
 }

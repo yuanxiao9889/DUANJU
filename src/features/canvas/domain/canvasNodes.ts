@@ -242,6 +242,7 @@ export interface JimengImageNodeData extends NodeDisplayData {
 export interface JimengImageResultNodeData extends NodeDisplayData {
   sourceNodeId?: string | null;
   submitIds?: string[];
+  modelVersion?: JimengImageModelVersion;
   aspectRatio: string;
   gridRows: number;
   gridCols: number;

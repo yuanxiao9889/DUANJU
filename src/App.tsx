@@ -1,36 +1,40 @@
-import { useEffect, useState } from 'react';
-import { ReactFlowProvider } from '@xyflow/react';
-import { invoke } from '@tauri-apps/api/core';
-import { Canvas } from './features/canvas/Canvas';
-import { TitleBar } from './components/TitleBar';
-import { SettingsDialog } from './components/SettingsDialog';
-import { UpdateAvailableDialog, type UpdateIgnoreMode } from './components/UpdateAvailableDialog';
-import { GlobalErrorDialog } from './components/GlobalErrorDialog';
-import { PsImageToast } from './components/PsImageToast';
-import { ProjectManager } from './features/project/ProjectManager';
-import { useThemeStore } from './stores/themeStore';
-import { useProjectStore } from './stores/projectStore';
-import { useSettingsStore } from './stores/settingsStore';
+import { useEffect, useState } from "react";
+import { ReactFlowProvider } from "@xyflow/react";
+import { invoke } from "@tauri-apps/api/core";
+import { getCurrentWindow } from "@tauri-apps/api/window";
+import { Canvas } from "./features/canvas/Canvas";
+import { TitleBar } from "./components/TitleBar";
+import { SettingsDialog } from "./components/SettingsDialog";
+import {
+  UpdateAvailableDialog,
+  type UpdateIgnoreMode,
+} from "./components/UpdateAvailableDialog";
+import { GlobalErrorDialog } from "./components/GlobalErrorDialog";
+import { PsImageToast } from "./components/PsImageToast";
+import { ProjectManager } from "./features/project/ProjectManager";
+import { useThemeStore } from "./stores/themeStore";
+import { useProjectStore } from "./stores/projectStore";
+import { useSettingsStore } from "./stores/settingsStore";
 import {
   checkForUpdate,
   isUpdateVersionSuppressed,
   suppressUpdateVersion,
-} from './features/update/application/checkForUpdate';
+} from "./features/update/application/checkForUpdate";
 import {
   subscribeOpenGlobalErrorDialog,
   type GlobalErrorDialogDetail,
-} from './features/app/errorDialogEvents';
+} from "./features/app/errorDialogEvents";
 import {
   subscribeOpenSettingsDialog,
   type SettingsCategory,
-} from './features/settings/settingsEvents';
-import { initializePsIntegration } from './stores/psIntegrationStore';
-import { ensureDailyDatabaseBackup } from './commands/storage';
+} from "./features/settings/settingsEvents";
+import { initializePsIntegration } from "./stores/psIntegrationStore";
+import { ensureDailyDatabaseBackup } from "./commands/storage";
 
 function toRgbCssValue(hexColor: string): string {
-  const hex = hexColor.replace('#', '');
+  const hex = hexColor.replace("#", "");
   if (!/^[0-9a-fA-F]{6}$/.test(hex)) {
-    return '59 130 246';
+    return "59 130 246";
   }
   const r = Number.parseInt(hex.slice(0, 2), 16);
   const g = Number.parseInt(hex.slice(2, 4), 16);
@@ -43,24 +47,35 @@ function App() {
   const uiRadiusPreset = useSettingsStore((state) => state.uiRadiusPreset);
   const themeTonePreset = useSettingsStore((state) => state.themeTonePreset);
   const accentColor = useSettingsStore((state) => state.accentColor);
-  const autoCheckAppUpdateOnLaunch = useSettingsStore((state) => state.autoCheckAppUpdateOnLaunch);
-  const enableUpdateDialog = useSettingsStore((state) => state.enableUpdateDialog);
-  const setEnableUpdateDialog = useSettingsStore((state) => state.setEnableUpdateDialog);
+  const autoCheckAppUpdateOnLaunch = useSettingsStore(
+    (state) => state.autoCheckAppUpdateOnLaunch,
+  );
+  const enableUpdateDialog = useSettingsStore(
+    (state) => state.enableUpdateDialog,
+  );
+  const setEnableUpdateDialog = useSettingsStore(
+    (state) => state.setEnableUpdateDialog,
+  );
   const settingsHydrated = useSettingsStore((state) => state.isHydrated);
   const [showSettings, setShowSettings] = useState(false);
-  const [settingsInitialCategory, setSettingsInitialCategory] = useState<SettingsCategory>('general');
+  const [settingsInitialCategory, setSettingsInitialCategory] =
+    useState<SettingsCategory>("general");
   const [showUpdateDialog, setShowUpdateDialog] = useState(false);
-  const [latestVersion, setLatestVersion] = useState<string>('');
-  const [currentVersion, setCurrentVersion] = useState<string>('');
-  const [globalError, setGlobalError] = useState<GlobalErrorDialogDetail | null>(null);
+  const [latestVersion, setLatestVersion] = useState<string>("");
+  const [currentVersion, setCurrentVersion] = useState<string>("");
+  const [globalError, setGlobalError] =
+    useState<GlobalErrorDialogDetail | null>(null);
 
   const isHydrated = useProjectStore((state) => state.isHydrated);
   const hydrate = useProjectStore((state) => state.hydrate);
   const currentProjectId = useProjectStore((state) => state.currentProjectId);
   const closeProject = useProjectStore((state) => state.closeProject);
+  const flushCurrentProjectToDisk = useProjectStore(
+    (state) => state.flushCurrentProjectToDisk,
+  );
 
   useEffect(() => {
-    document.documentElement.classList.toggle('dark', theme === 'dark');
+    document.documentElement.classList.toggle("dark", theme === "dark");
   }, [theme]);
 
   useEffect(() => {
@@ -76,16 +91,20 @@ function App() {
   useEffect(() => {
     const root = document.documentElement;
     const isMac =
-      typeof navigator !== 'undefined'
-      && /(Mac|iPhone|iPad|iPod)/i.test(`${navigator.platform} ${navigator.userAgent}`);
-    root.dataset.platform = isMac ? 'macos' : 'default';
+      typeof navigator !== "undefined" &&
+      /(Mac|iPhone|iPad|iPod)/i.test(
+        `${navigator.platform} ${navigator.userAgent}`,
+      );
+    root.dataset.platform = isMac ? "macos" : "default";
   }, []);
 
   useEffect(() => {
     const root = document.documentElement;
-    const normalized = accentColor.startsWith('#') ? accentColor : `#${accentColor}`;
-    root.style.setProperty('--accent', normalized);
-    root.style.setProperty('--accent-rgb', toRgbCssValue(normalized));
+    const normalized = accentColor.startsWith("#")
+      ? accentColor
+      : `#${accentColor}`;
+    root.style.setProperty("--accent", normalized);
+    root.style.setProperty("--accent-rgb", toRgbCssValue(normalized));
   }, [accentColor]);
 
   useEffect(() => {
@@ -97,11 +116,8 @@ function App() {
       return;
     }
 
-    const {
-      psIntegrationEnabled,
-      psServerPort,
-      psAutoStartServer,
-    } = useSettingsStore.getState();
+    const { psIntegrationEnabled, psServerPort, psAutoStartServer } =
+      useSettingsStore.getState();
 
     const unsubscribe = initializePsIntegration({
       enabled: psIntegrationEnabled,
@@ -121,7 +137,7 @@ function App() {
 
   useEffect(() => {
     const unsubscribe = subscribeOpenSettingsDialog(({ category }) => {
-      setSettingsInitialCategory(category ?? 'general');
+      setSettingsInitialCategory(category ?? "general");
       setShowSettings(true);
     });
     return unsubscribe;
@@ -137,14 +153,14 @@ function App() {
       }
 
       try {
-        await invoke('frontend_ready');
+        await invoke("frontend_ready");
       } catch (error) {
         if (cancelled) {
           return;
         }
 
         if (attempt === 1 || attempt % 10 === 0) {
-          console.warn('failed to notify frontend readiness', error);
+          console.warn("failed to notify frontend readiness", error);
         }
 
         const retryDelayMs = Math.min(500, 80 * attempt);
@@ -177,12 +193,17 @@ function App() {
         return;
       }
       const result = await checkForUpdate();
-      if (!cancelled && result.hasUpdate && result.latestVersion && enableUpdateDialog) {
+      if (
+        !cancelled &&
+        result.hasUpdate &&
+        result.latestVersion &&
+        enableUpdateDialog
+      ) {
         if (isUpdateVersionSuppressed(result.latestVersion)) {
           return;
         }
-        setLatestVersion(result.latestVersion ?? '');
-        setCurrentVersion(result.currentVersion ?? '');
+        setLatestVersion(result.latestVersion ?? "");
+        setCurrentVersion(result.currentVersion ?? "");
         setShowUpdateDialog(true);
       }
     };
@@ -199,28 +220,68 @@ function App() {
     }
 
     void ensureDailyDatabaseBackup().catch((error) => {
-      console.warn('failed to ensure daily database backup', error);
+      console.warn("failed to ensure daily database backup", error);
     });
   }, [isHydrated]);
 
-  const handleManualCheckUpdate = async (): Promise<'has-update' | 'up-to-date' | 'failed'> => {
+  useEffect(() => {
+    const appWindow = getCurrentWindow();
+    let disposed = false;
+    let isClosing = false;
+    let unlistenWindowClose: (() => void) | null = null;
+
+    const registerWindowCloseHandler = async () => {
+      unlistenWindowClose = await appWindow.onCloseRequested(async (event) => {
+        if (isClosing) {
+          return;
+        }
+
+        isClosing = true;
+        event.preventDefault();
+
+        try {
+          await flushCurrentProjectToDisk();
+        } catch (error) {
+          console.error(
+            "Failed to flush current project before window close",
+            error,
+          );
+        } finally {
+          if (!disposed) {
+            await appWindow.destroy();
+          }
+        }
+      });
+    };
+
+    void registerWindowCloseHandler();
+
+    return () => {
+      disposed = true;
+      unlistenWindowClose?.();
+    };
+  }, [flushCurrentProjectToDisk]);
+
+  const handleManualCheckUpdate = async (): Promise<
+    "has-update" | "up-to-date" | "failed"
+  > => {
     const result = await checkForUpdate();
     if (!result.hasUpdate) {
-      return result.error ? 'failed' : 'up-to-date';
+      return result.error ? "failed" : "up-to-date";
     }
 
-    setLatestVersion(result.latestVersion ?? '');
-    setCurrentVersion(result.currentVersion ?? '');
+    setLatestVersion(result.latestVersion ?? "");
+    setCurrentVersion(result.currentVersion ?? "");
 
     if (enableUpdateDialog) {
       setShowUpdateDialog(true);
     }
 
-    return 'has-update';
+    return "has-update";
   };
 
   const handleApplyIgnore = (mode: UpdateIgnoreMode) => {
-    if (mode === 'forever-all') {
+    if (mode === "forever-all") {
       setEnableUpdateDialog(false);
       return;
     }
@@ -229,7 +290,10 @@ function App() {
       return;
     }
 
-    suppressUpdateVersion(latestVersion, mode === 'today-version' ? 'today' : 'forever');
+    suppressUpdateVersion(
+      latestVersion,
+      mode === "today-version" ? "today" : "forever",
+    );
   };
 
   if (!isHydrated) {
@@ -245,7 +309,7 @@ function App() {
       <div className="w-full h-full flex flex-col bg-bg-dark">
         <TitleBar
           onSettingsClick={() => {
-            setSettingsInitialCategory('general');
+            setSettingsInitialCategory("general");
             setShowSettings(true);
           }}
           showBackButton={!!currentProjectId}
@@ -271,8 +335,8 @@ function App() {
         />
         <GlobalErrorDialog
           isOpen={Boolean(globalError)}
-          title={globalError?.title ?? ''}
-          message={globalError?.message ?? ''}
+          title={globalError?.title ?? ""}
+          message={globalError?.message ?? ""}
           details={globalError?.details}
           copyText={globalError?.copyText}
           onClose={() => setGlobalError(null)}

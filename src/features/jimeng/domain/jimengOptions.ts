@@ -91,3 +91,56 @@ export const JIMENG_VIDEO_RESOLUTION_OPTIONS: JimengOptionDefinition<JimengVideo
   { value: '720p', labelKey: 'node.jimeng.videoResolutionOptions.720p' },
   { value: '1080p', labelKey: 'node.jimeng.videoResolutionOptions.1080p' },
 ];
+
+const JIMENG_IMAGE_REFERENCE_UNSUPPORTED_MODELS = new Set<JimengImageModelVersion>(['3.0', '3.1']);
+const JIMENG_IMAGE_UP_TO_TWO_K_MODELS = new Set<JimengImageModelVersion>(['3.0', '3.1']);
+const JIMENG_VIDEO_EXACT_TWO_IMAGE_MODES = new Set<JimengReferenceMode>(['firstLastFrame']);
+
+export function jimengImageModelUsesFourGridDisplay(
+  model: JimengImageModelVersion | null | undefined
+): boolean {
+  return Boolean(model && JIMENG_IMAGE_REFERENCE_UNSUPPORTED_MODELS.has(model));
+}
+
+export function jimengImageModelSupportsReferenceImages(
+  model: JimengImageModelVersion | null | undefined
+): boolean {
+  return !model || !JIMENG_IMAGE_REFERENCE_UNSUPPORTED_MODELS.has(model);
+}
+
+export function resolveJimengImageResolutionOptionsForModel(
+  model: JimengImageModelVersion | null | undefined
+): JimengOptionDefinition<JimengImageResolutionType>[] {
+  if (model && JIMENG_IMAGE_UP_TO_TWO_K_MODELS.has(model)) {
+    return JIMENG_IMAGE_RESOLUTION_OPTIONS.filter((option) =>
+      option.value === '1k' || option.value === '2k'
+    );
+  }
+
+  return JIMENG_IMAGE_RESOLUTION_OPTIONS;
+}
+
+export function normalizeJimengImageResolutionForModel(
+  model: JimengImageModelVersion | null | undefined,
+  resolution: JimengImageResolutionType | null | undefined
+): JimengImageResolutionType {
+  if (model && JIMENG_IMAGE_UP_TO_TWO_K_MODELS.has(model)) {
+    return resolution === '1k' || resolution === '2k' ? resolution : '2k';
+  }
+
+  if (resolution && JIMENG_IMAGE_RESOLUTION_OPTIONS.some((option) => option.value === resolution)) {
+    return resolution;
+  }
+
+  return '2k';
+}
+
+export function resolveJimengVideoRequiredReferenceImageCount(
+  mode: JimengReferenceMode | null | undefined
+): number | null {
+  if (!mode || !JIMENG_VIDEO_EXACT_TWO_IMAGE_MODES.has(mode)) {
+    return null;
+  }
+
+  return 2;
+}

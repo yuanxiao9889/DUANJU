@@ -1,6 +1,6 @@
 import { isTauri } from '@tauri-apps/api/core';
 import { persistImageBinary, persistImageSource } from '@/commands/image';
-import { prepareNodeImage, reduceAspectRatio } from './imageData';
+import { blobToDataUrl, prepareNodeImage, reduceAspectRatio } from './imageData';
 
 export interface VideoMetadata {
   width: number;
@@ -411,6 +411,29 @@ export async function captureVideoFrameFromSource(
     return captureVideoFrame(video, maxDimension);
   } finally {
     cleanupVideoElement(video);
+    revoke?.();
+  }
+}
+
+export async function videoUrlToDataUrl(videoUrl: string): Promise<string> {
+  const trimmedVideoUrl = videoUrl.trim();
+  if (!trimmedVideoUrl) {
+    throw new Error('Video source is empty');
+  }
+
+  if (trimmedVideoUrl.startsWith('data:')) {
+    return trimmedVideoUrl;
+  }
+
+  const { captureSource, revoke } = await createCaptureSourceObjectUrl(trimmedVideoUrl);
+  try {
+    const response = await fetch(captureSource);
+    if (!response.ok) {
+      throw new Error(`Failed to load video data (${response.status})`);
+    }
+
+    return await blobToDataUrl(await response.blob());
+  } finally {
     revoke?.();
   }
 }
