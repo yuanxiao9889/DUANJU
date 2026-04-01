@@ -140,6 +140,8 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             frontend_ready,
             dreamina_cli::check_dreamina_cli_status,
+            dreamina_cli::install_dreamina_cli,
+            dreamina_cli::open_dreamina_login_terminal,
             dreamina_cli::generate_jimeng_dreamina_images,
             dreamina_cli::generate_jimeng_dreamina_videos,
             dreamina_cli::submit_jimeng_dreamina_images,

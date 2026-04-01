@@ -31,8 +31,24 @@ import {
 import {
   AUTO_REQUEST_ASPECT_RATIO,
   IMAGE_SIZES,
+  JIMENG_ASPECT_RATIOS,
+  JIMENG_DURATION_SECONDS,
+  JIMENG_IMAGE_MODEL_VERSIONS,
+  JIMENG_VIDEO_RESOLUTIONS,
   type ImageSize,
+  type JimengAspectRatio,
+  type JimengDurationSeconds,
+  type JimengImageModelVersion,
+  type JimengImageResolutionType,
+  type JimengReferenceMode,
+  type JimengVideoModelId,
+  type JimengVideoResolution,
 } from '@/features/canvas/domain/canvasNodes';
+import {
+  normalizeJimengImageResolutionForModel,
+  normalizeJimengReferenceMode,
+  normalizeJimengVideoModel,
+} from '@/features/jimeng/domain/jimengOptions';
 
 export type UiRadiusPreset = 'compact' | 'default' | 'large';
 export type ThemeTonePreset = 'neutral' | 'warm' | 'cool';
@@ -61,6 +77,14 @@ interface SettingsState {
   lastImageEditModelId: string;
   lastImageEditSize: ImageSize;
   lastImageEditRequestAspectRatio: string;
+  lastJimengImageModelVersion: JimengImageModelVersion;
+  lastJimengImageResolutionType: JimengImageResolutionType;
+  lastJimengImageAspectRatio: JimengAspectRatio;
+  lastJimengVideoModel: JimengVideoModelId;
+  lastJimengVideoReferenceMode: JimengReferenceMode;
+  lastJimengVideoAspectRatio: JimengAspectRatio;
+  lastJimengVideoDurationSeconds: JimengDurationSeconds;
+  lastJimengVideoResolution: JimengVideoResolution;
   hrsaiNanoBananaProModel: string;
   alibabaTextModel: string;
   codingModel: string;
@@ -116,6 +140,18 @@ interface SettingsState {
     modelId?: string;
     size?: ImageSize | string;
     requestAspectRatio?: string;
+  }) => void;
+  setLastJimengImageDefaults: (defaults: {
+    modelVersion?: JimengImageModelVersion | string;
+    resolutionType?: JimengImageResolutionType | string;
+    aspectRatio?: JimengAspectRatio | string;
+  }) => void;
+  setLastJimengVideoDefaults: (defaults: {
+    model?: JimengVideoModelId | string;
+    referenceMode?: JimengReferenceMode | string;
+    aspectRatio?: JimengAspectRatio | string;
+    durationSeconds?: JimengDurationSeconds | number;
+    videoResolution?: JimengVideoResolution | string;
   }) => void;
   setGrsaiNanoBananaProModel: (model: string) => void;
   setAlibabaTextModel: (model: string) => void;
@@ -224,6 +260,49 @@ function normalizeImageEditRequestAspectRatio(input: string | null | undefined):
   return trimmed.length > 0 ? trimmed : AUTO_REQUEST_ASPECT_RATIO;
 }
 
+function normalizeJimengImageModelVersion(
+  input: JimengImageModelVersion | string | null | undefined
+): JimengImageModelVersion {
+  return JIMENG_IMAGE_MODEL_VERSIONS.includes(input as JimengImageModelVersion)
+    ? (input as JimengImageModelVersion)
+    : '5.0';
+}
+
+function normalizeJimengImageResolutionType(
+  model: JimengImageModelVersion | string | null | undefined,
+  resolution: JimengImageResolutionType | string | null | undefined
+): JimengImageResolutionType {
+  return normalizeJimengImageResolutionForModel(
+    normalizeJimengImageModelVersion(model),
+    resolution as JimengImageResolutionType | null | undefined
+  );
+}
+
+function normalizeJimengAspectRatio(
+  input: JimengAspectRatio | string | null | undefined,
+  fallback: JimengAspectRatio
+): JimengAspectRatio {
+  return JIMENG_ASPECT_RATIOS.includes(input as JimengAspectRatio)
+    ? (input as JimengAspectRatio)
+    : fallback;
+}
+
+function normalizeJimengDurationSeconds(
+  input: JimengDurationSeconds | number | null | undefined
+): JimengDurationSeconds {
+  return JIMENG_DURATION_SECONDS.includes(input as JimengDurationSeconds)
+    ? (input as JimengDurationSeconds)
+    : 5;
+}
+
+function normalizeJimengVideoResolution(
+  input: JimengVideoResolution | string | null | undefined
+): JimengVideoResolution {
+  return JIMENG_VIDEO_RESOLUTIONS.includes(input as JimengVideoResolution)
+    ? (input as JimengVideoResolution)
+    : '1080p';
+}
+
 function normalizeCanvasEdgeRoutingMode(
   input: CanvasEdgeRoutingMode | string | null | undefined
 ): CanvasEdgeRoutingMode {
@@ -286,6 +365,14 @@ export const useSettingsStore = create<SettingsState>()(
       lastImageEditModelId: DEFAULT_IMAGE_MODEL_ID,
       lastImageEditSize: '2K',
       lastImageEditRequestAspectRatio: AUTO_REQUEST_ASPECT_RATIO,
+      lastJimengImageModelVersion: '5.0',
+      lastJimengImageResolutionType: '2k',
+      lastJimengImageAspectRatio: '1:1',
+      lastJimengVideoModel: 'seedance2.0',
+      lastJimengVideoReferenceMode: 'allAround',
+      lastJimengVideoAspectRatio: '16:9',
+      lastJimengVideoDurationSeconds: 5,
+      lastJimengVideoResolution: '1080p',
       hrsaiNanoBananaProModel: DEFAULT_GRSAI_NANO_BANANA_PRO_MODEL,
       alibabaTextModel: DEFAULT_ALIBABA_TEXT_MODEL,
       codingModel: DEFAULT_CODING_MODEL,
@@ -395,6 +482,49 @@ export const useSettingsStore = create<SettingsState>()(
             requestAspectRatio ?? state.lastImageEditRequestAspectRatio
           ),
         })),
+      setLastJimengImageDefaults: ({ modelVersion, resolutionType, aspectRatio }) =>
+        set((state) => {
+          const nextModelVersion = normalizeJimengImageModelVersion(
+            modelVersion ?? state.lastJimengImageModelVersion
+          );
+
+          return {
+            lastJimengImageModelVersion: nextModelVersion,
+            lastJimengImageResolutionType: normalizeJimengImageResolutionType(
+              nextModelVersion,
+              resolutionType ?? state.lastJimengImageResolutionType
+            ),
+            lastJimengImageAspectRatio: normalizeJimengAspectRatio(
+              aspectRatio ?? state.lastJimengImageAspectRatio,
+              '1:1'
+            ),
+          };
+        }),
+      setLastJimengVideoDefaults: ({
+        model,
+        referenceMode,
+        aspectRatio,
+        durationSeconds,
+        videoResolution,
+      }) =>
+        set((state) => ({
+          lastJimengVideoModel: normalizeJimengVideoModel(
+            model ?? state.lastJimengVideoModel
+          ),
+          lastJimengVideoReferenceMode: normalizeJimengReferenceMode(
+            referenceMode ?? state.lastJimengVideoReferenceMode
+          ),
+          lastJimengVideoAspectRatio: normalizeJimengAspectRatio(
+            aspectRatio ?? state.lastJimengVideoAspectRatio,
+            '16:9'
+          ),
+          lastJimengVideoDurationSeconds: normalizeJimengDurationSeconds(
+            durationSeconds ?? state.lastJimengVideoDurationSeconds
+          ),
+          lastJimengVideoResolution: normalizeJimengVideoResolution(
+            videoResolution ?? state.lastJimengVideoResolution
+          ),
+        })),
       setGrsaiNanoBananaProModel: (model) =>
         set({
           hrsaiNanoBananaProModel: normalizeGrsaiNanoBananaProModel(model),
@@ -471,7 +601,7 @@ export const useSettingsStore = create<SettingsState>()(
     }),
     {
       name: 'settings-storage',
-      version: 22,
+      version: 23,
       onRehydrateStorage: () => {
         return (state, error) => {
           if (error) {
@@ -499,6 +629,14 @@ export const useSettingsStore = create<SettingsState>()(
           lastImageEditModelId?: string;
           lastImageEditSize?: ImageSize | string;
           lastImageEditRequestAspectRatio?: string;
+          lastJimengImageModelVersion?: JimengImageModelVersion | string;
+          lastJimengImageResolutionType?: JimengImageResolutionType | string;
+          lastJimengImageAspectRatio?: JimengAspectRatio | string;
+          lastJimengVideoModel?: JimengVideoModelId | string;
+          lastJimengVideoReferenceMode?: JimengReferenceMode | string;
+          lastJimengVideoAspectRatio?: JimengAspectRatio | string;
+          lastJimengVideoDurationSeconds?: JimengDurationSeconds | number;
+          lastJimengVideoResolution?: JimengVideoResolution | string;
           alibabaTextModel?: string;
           codingModel?: string;
           canvasEdgeRoutingMode?: CanvasEdgeRoutingMode | string;
@@ -589,6 +727,31 @@ export const useSettingsStore = create<SettingsState>()(
           lastImageEditSize: normalizeImageEditSize(state.lastImageEditSize),
           lastImageEditRequestAspectRatio: normalizeImageEditRequestAspectRatio(
             state.lastImageEditRequestAspectRatio
+          ),
+          lastJimengImageModelVersion: normalizeJimengImageModelVersion(
+            state.lastJimengImageModelVersion
+          ),
+          lastJimengImageResolutionType: normalizeJimengImageResolutionType(
+            state.lastJimengImageModelVersion,
+            state.lastJimengImageResolutionType
+          ),
+          lastJimengImageAspectRatio: normalizeJimengAspectRatio(
+            state.lastJimengImageAspectRatio,
+            '1:1'
+          ),
+          lastJimengVideoModel: normalizeJimengVideoModel(state.lastJimengVideoModel),
+          lastJimengVideoReferenceMode: normalizeJimengReferenceMode(
+            state.lastJimengVideoReferenceMode
+          ),
+          lastJimengVideoAspectRatio: normalizeJimengAspectRatio(
+            state.lastJimengVideoAspectRatio,
+            '16:9'
+          ),
+          lastJimengVideoDurationSeconds: normalizeJimengDurationSeconds(
+            state.lastJimengVideoDurationSeconds
+          ),
+          lastJimengVideoResolution: normalizeJimengVideoResolution(
+            state.lastJimengVideoResolution
           ),
           ignoreAtTagWhenCopyingAndGenerating,
           grsaiNanoBananaProModel: normalizeGrsaiNanoBananaProModel(

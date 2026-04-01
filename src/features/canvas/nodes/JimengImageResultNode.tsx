@@ -39,6 +39,10 @@ import { NodeResizeHandle } from "@/features/canvas/ui/NodeResizeHandle";
 import { NodeStatusBadge } from "@/features/canvas/ui/NodeStatusBadge";
 import { NODE_CONTROL_ACTION_BUTTON_CLASS } from "@/features/canvas/ui/nodeControlStyles";
 import { queryJimengImagesResult } from "@/features/jimeng/application/jimengImageGeneration";
+import {
+  ensureDreaminaCliReady,
+  resolveDreaminaSetupBlockedMessage,
+} from "@/features/jimeng/application/dreaminaSetup";
 import { jimengImageModelUsesFourGridDisplay } from "@/features/jimeng/domain/jimengOptions";
 import { useCanvasStore } from "@/stores/canvasStore";
 
@@ -199,6 +203,20 @@ export const JimengImageResultNode = memo(
         const message = t("node.jimengImageResult.requeryUnavailable");
         setStatusNotice(message);
         await showErrorDialog(message, t("common.error"));
+        return;
+      }
+
+      const dreaminaStatus = await ensureDreaminaCliReady({
+        feature: "image",
+        action: "requery",
+      });
+      if (!dreaminaStatus.ready) {
+        const message = resolveDreaminaSetupBlockedMessage(
+          t,
+          dreaminaStatus.code,
+        );
+        setStatusNotice(message);
+        updateNodeData(id, { lastError: message });
         return;
       }
 

@@ -18,7 +18,6 @@ import {
 } from "@xyflow/react";
 import {
   AudioLines,
-  GripVertical,
   Loader2,
   Sparkles,
   TriangleAlert,
@@ -34,10 +33,12 @@ import {
   JIMENG_VIDEO_RESULT_NODE_DEFAULT_HEIGHT,
   JIMENG_VIDEO_RESULT_NODE_DEFAULT_WIDTH,
   isAudioNode,
+  type JimengAspectRatio,
   type JimengDurationSeconds,
   type JimengNodeData,
   type JimengReferenceMode,
   type JimengVideoModelId,
+  type JimengVideoResolution,
 } from "@/features/canvas/domain/canvasNodes";
 import { resolveNodeDisplayName } from "@/features/canvas/domain/nodeDisplay";
 import { collectConnectedReferenceVisuals } from "@/features/canvas/application/connectedReferenceVisuals";
@@ -65,21 +66,28 @@ import {
 } from "@/features/canvas/ui/nodeControlStyles";
 import { UiButton, UiChipButton, UiSelect } from "@/components/ui";
 import { useCanvasStore } from "@/stores/canvasStore";
+import { useSettingsStore } from "@/stores/settingsStore";
 import { generateJimengVideos } from "@/features/jimeng/application/jimengVideoSubmission";
+import {
+  ensureDreaminaCliReady,
+  resolveDreaminaSetupBlockedMessage,
+} from "@/features/jimeng/application/dreaminaSetup";
 import {
   areReferenceImageOrdersEqual,
   buildShortReferenceToken,
-  findReferenceTokens,
+  LONG_REFERENCE_TOKEN_PREFIX,
+  SHORT_REFERENCE_TOKEN_PREFIX,
   insertReferenceToken,
   remapReferenceTokensByImageOrder,
   removeTextRange,
-  resolveReferenceAwareDeleteRange,
 } from "@/features/canvas/application/referenceTokenEditing";
 import {
   JIMENG_ASPECT_RATIO_OPTIONS,
   JIMENG_DURATION_OPTIONS,
   JIMENG_REFERENCE_MODE_OPTIONS,
   JIMENG_VIDEO_MODEL_OPTIONS,
+  normalizeJimengReferenceMode,
+  normalizeJimengVideoModel,
   resolveJimengVideoRequiredReferenceImageCount,
 } from "@/features/jimeng/domain/jimengOptions";
 
@@ -113,9 +121,33 @@ interface FixedControlOption<T extends string | number> {
   label: string;
 }
 
+interface IncomingReferenceVisualItem {
+  sourceEdgeId: string;
+  sourceNodeId: string;
+  kind: "image" | "video";
+  referenceUrl: string;
+  previewImageUrl: string;
+  displayUrl: string;
+  tokenLabel: string;
+  label: string;
+  durationSeconds: number | null;
+}
+
 interface IncomingAudioItem {
   audioUrl: string;
   label: string;
+  tokenLabel: string;
+}
+
+interface ReferencePickerItem {
+  key: string;
+  kind: "visual" | "audio";
+  tokenLabel: string;
+  label: string;
+  insertToken: string;
+  displayUrl?: string;
+  previewKind?: "image" | "video";
+  durationSeconds?: number | null;
 }
 
 interface PickerAnchor {
@@ -127,8 +159,36 @@ interface PromptReferencePreviewState {
   imageUrl: string;
   displayUrl: string;
   alt: string;
+  kind: "image" | "video";
+  durationSeconds: number | null;
   left: number;
   top: number;
+}
+
+interface DragReferencePreviewState {
+  left: number;
+  top: number;
+  width: number;
+  height: number;
+  offsetX: number;
+  offsetY: number;
+  containerLeft: number;
+  containerTop: number;
+}
+
+interface JimengPromptReferenceToken {
+  start: number;
+  end: number;
+  token: string;
+  value: number;
+  kind: "visual" | "audio";
+}
+
+interface JimengPromptTokenRange {
+  start: number;
+  end: number;
+  blockStart: number;
+  blockEnd: number;
 }
 
 const JIMENG_NODE_DEFAULT_WIDTH = 920;
@@ -137,13 +197,17 @@ const JIMENG_NODE_MIN_WIDTH = 820;
 const JIMENG_NODE_MIN_HEIGHT = 420;
 const JIMENG_NODE_MAX_WIDTH = 1320;
 const JIMENG_NODE_MAX_HEIGHT = 1040;
-const DEFAULT_VIDEO_MODEL: JimengVideoModelId = "seedance2.0";
-const DEFAULT_REFERENCE_MODE: JimengReferenceMode = "allAround";
 const DEFAULT_ASPECT_RATIO = "16:9";
 const DEFAULT_DURATION: JimengDurationSeconds = 5;
 const DEFAULT_VIDEO_RESOLUTION = "1080p";
 const PICKER_FALLBACK_ANCHOR: PickerAnchor = { left: 8, top: 8 };
 const PICKER_Y_OFFSET_PX = 20;
+const AUDIO_SHORT_REFERENCE_TOKEN_PREFIX = "@音";
+const AUDIO_LONG_REFERENCE_TOKEN_PREFIX = "@音频";
+const AUDIO_REFERENCE_TOKEN_PREFIXES = [
+  AUDIO_LONG_REFERENCE_TOKEN_PREFIX,
+  AUDIO_SHORT_REFERENCE_TOKEN_PREFIX,
+] as const;
 
 function formatTimestamp(
   timestamp: number | null | undefined,
@@ -330,9 +394,242 @@ function resolvePickerAnchor(
   };
 }
 
+function clampIndex(value: number, min: number, max: number): number {
+  return Math.max(min, Math.min(max, value));
+}
+
+function resolveMaxReferenceNumber(maxCount?: number): number {
+  if (typeof maxCount !== "number" || !Number.isFinite(maxCount)) {
+    return Number.POSITIVE_INFINITY;
+  }
+
+  return Math.max(0, Math.floor(maxCount));
+}
+
+function isAsciiDigit(char: string): boolean {
+  return char >= "0" && char <= "9";
+}
+
+function resolveReferenceTokenPrefix(
+  text: string,
+  index: number,
+  prefixes: readonly string[],
+): string | null {
+  for (const prefix of prefixes) {
+    if (text.startsWith(prefix, index)) {
+      return prefix;
+    }
+  }
+
+  return null;
+}
+
+function buildShortAudioReferenceToken(referenceIndex: number): string {
+  return `${AUDIO_SHORT_REFERENCE_TOKEN_PREFIX}${referenceIndex + 1}`;
+}
+
+function findPromptReferenceTokensByPrefixes(
+  text: string,
+  maxReferenceCount: number | undefined,
+  prefixes: readonly string[],
+  kind: JimengPromptReferenceToken["kind"],
+): JimengPromptReferenceToken[] {
+  const tokens: JimengPromptReferenceToken[] = [];
+  const maxReferenceNumber = resolveMaxReferenceNumber(maxReferenceCount);
+
+  for (let index = 0; index < text.length; index += 1) {
+    const matchedPrefix = resolveReferenceTokenPrefix(text, index, prefixes);
+    if (!matchedPrefix) {
+      continue;
+    }
+
+    const digitsStart = index + matchedPrefix.length;
+    if (!isAsciiDigit(text[digitsStart] ?? "")) {
+      continue;
+    }
+
+    let digitsEnd = digitsStart;
+    while (isAsciiDigit(text[digitsEnd] ?? "")) {
+      digitsEnd += 1;
+    }
+
+    if (maxReferenceNumber === Number.POSITIVE_INFINITY) {
+      const fullValue = Number(text.slice(digitsStart, digitsEnd));
+      if (Number.isFinite(fullValue) && fullValue >= 1) {
+        tokens.push({
+          start: index,
+          end: digitsEnd,
+          token: text.slice(index, digitsEnd),
+          value: fullValue,
+          kind,
+        });
+        index = digitsEnd - 1;
+      }
+      continue;
+    }
+
+    let bestEnd = -1;
+    let bestValue = 0;
+    let rollingValue = 0;
+    for (let cursor = digitsStart; cursor < digitsEnd; cursor += 1) {
+      rollingValue = rollingValue * 10 + Number(text[cursor]);
+
+      if (rollingValue >= 1 && rollingValue <= maxReferenceNumber) {
+        bestEnd = cursor + 1;
+        bestValue = rollingValue;
+      }
+
+      if (rollingValue > maxReferenceNumber) {
+        break;
+      }
+    }
+
+    if (bestEnd > 0) {
+      tokens.push({
+        start: index,
+        end: bestEnd,
+        token: text.slice(index, bestEnd),
+        value: bestValue,
+        kind,
+      });
+      index = bestEnd - 1;
+    }
+  }
+
+  return tokens;
+}
+
+function findJimengPromptReferenceTokens(
+  prompt: string,
+  maxVisualReferenceCount: number,
+  maxAudioReferenceCount: number,
+): JimengPromptReferenceToken[] {
+  return [
+    ...findPromptReferenceTokensByPrefixes(
+      prompt,
+      maxVisualReferenceCount,
+      [LONG_REFERENCE_TOKEN_PREFIX, SHORT_REFERENCE_TOKEN_PREFIX],
+      "visual",
+    ),
+    ...findPromptReferenceTokensByPrefixes(
+      prompt,
+      maxAudioReferenceCount,
+      AUDIO_REFERENCE_TOKEN_PREFIXES,
+      "audio",
+    ),
+  ].sort((left, right) => left.start - right.start);
+}
+
+function findJimengPromptTokenRanges(
+  prompt: string,
+  maxVisualReferenceCount: number,
+  maxAudioReferenceCount: number,
+): JimengPromptTokenRange[] {
+  return findJimengPromptReferenceTokens(
+    prompt,
+    maxVisualReferenceCount,
+    maxAudioReferenceCount,
+  ).map((token) => ({
+    start: token.start,
+    end: token.end,
+    blockStart:
+      token.start > 0 && prompt[token.start - 1] === " "
+        ? token.start - 1
+        : token.start,
+    blockEnd:
+      token.end < prompt.length && prompt[token.end] === " "
+        ? token.end + 1
+        : token.end,
+  }));
+}
+
+function resolveJimengReferenceAwareDeleteRange(
+  text: string,
+  selectionStart: number,
+  selectionEnd: number,
+  direction: "backward" | "forward",
+  maxVisualReferenceCount: number,
+  maxAudioReferenceCount: number,
+): { start: number; end: number } | null {
+  const safeStart = clampIndex(
+    Math.min(selectionStart, selectionEnd),
+    0,
+    text.length,
+  );
+  const safeEnd = clampIndex(
+    Math.max(selectionStart, selectionEnd),
+    0,
+    text.length,
+  );
+  const tokenRanges = findJimengPromptTokenRanges(
+    text,
+    maxVisualReferenceCount,
+    maxAudioReferenceCount,
+  );
+
+  if (safeStart !== safeEnd) {
+    let expandedStart = safeStart;
+    let expandedEnd = safeEnd;
+    let touchedToken = false;
+
+    for (const tokenRange of tokenRanges) {
+      if (
+        tokenRange.blockEnd <= expandedStart ||
+        tokenRange.blockStart >= expandedEnd
+      ) {
+        continue;
+      }
+
+      touchedToken = true;
+      expandedStart = Math.min(expandedStart, tokenRange.blockStart);
+      expandedEnd = Math.max(expandedEnd, tokenRange.blockEnd);
+    }
+
+    if (!touchedToken) {
+      return null;
+    }
+
+    return {
+      start: expandedStart,
+      end: expandedEnd,
+    };
+  }
+
+  const point =
+    direction === "backward" ? Math.max(0, safeStart - 1) : safeStart;
+
+  for (const tokenRange of tokenRanges) {
+    if (point >= tokenRange.blockStart && point < tokenRange.blockEnd) {
+      return {
+        start: tokenRange.blockStart,
+        end: tokenRange.blockEnd,
+      };
+    }
+  }
+
+  return null;
+}
+
+function formatReferenceDuration(
+  durationSeconds: number | null | undefined,
+): string | null {
+  if (
+    typeof durationSeconds !== "number" ||
+    !Number.isFinite(durationSeconds) ||
+    durationSeconds <= 0
+  ) {
+    return null;
+  }
+
+  return Number.isInteger(durationSeconds)
+    ? `${durationSeconds}s`
+    : `${durationSeconds.toFixed(1)}s`;
+}
+
 function renderPromptWithHighlights(
   prompt: string,
-  maxImageCount: number,
+  maxVisualReferenceCount: number,
+  maxAudioReferenceCount: number,
 ): ReactNode {
   if (!prompt) {
     return " ";
@@ -340,7 +637,11 @@ function renderPromptWithHighlights(
 
   const segments: ReactNode[] = [];
   let lastIndex = 0;
-  const referenceTokens = findReferenceTokens(prompt, maxImageCount);
+  const referenceTokens = findJimengPromptReferenceTokens(
+    prompt,
+    maxVisualReferenceCount,
+    maxAudioReferenceCount,
+  );
   for (const token of referenceTokens) {
     if (token.start > lastIndex) {
       segments.push(
@@ -373,9 +674,10 @@ function renderPromptWithHighlights(
 
 function renderPromptReferenceHoverTargets(
   prompt: string,
-  maxImageCount: number,
+  maxVisualReferenceCount: number,
+  maxAudioReferenceCount: number,
   onTokenHover: (
-    token: number,
+    token: JimengPromptReferenceToken,
     event: ReactMouseEvent<HTMLSpanElement>,
   ) => void,
   onTokenLeave: () => void,
@@ -390,7 +692,11 @@ function renderPromptReferenceHoverTargets(
 
   const segments: ReactNode[] = [];
   let lastIndex = 0;
-  const referenceTokens = findReferenceTokens(prompt, maxImageCount);
+  const referenceTokens = findJimengPromptReferenceTokens(
+    prompt,
+    maxVisualReferenceCount,
+    maxAudioReferenceCount,
+  );
   for (const token of referenceTokens) {
     if (token.start > lastIndex) {
       segments.push(
@@ -402,10 +708,12 @@ function renderPromptReferenceHoverTargets(
 
     segments.push(
       <span
-        key={`hover-ref-${token.start}`}
-        className="pointer-events-auto cursor-help select-none text-transparent"
-        onMouseEnter={(event) => onTokenHover(token.value - 1, event)}
-        onMouseMove={(event) => onTokenHover(token.value - 1, event)}
+        key={`hover-${token.kind}-${token.start}`}
+        className={`pointer-events-auto select-none text-transparent ${
+          token.kind === "visual" ? "cursor-help" : "cursor-text"
+        }`}
+        onMouseEnter={(event) => onTokenHover(token, event)}
+        onMouseMove={(event) => onTokenHover(token, event)}
         onMouseLeave={onTokenLeave}
         onMouseDown={(event) => onTokenMouseDown(token.end, event)}
       >
@@ -629,6 +937,8 @@ export const JimengNode = memo(
     const [dragOverReferenceIndex, setDragOverReferenceIndex] = useState<
       number | null
     >(null);
+    const [dragReferencePreview, setDragReferencePreview] =
+      useState<DragReferencePreviewState | null>(null);
     const nodes = useCanvasStore((state) => state.nodes);
     const edges = useCanvasStore((state) => state.edges);
     const setSelectedNode = useCanvasStore((state) => state.setSelectedNode);
@@ -637,41 +947,41 @@ export const JimengNode = memo(
     const addEdge = useCanvasStore((state) => state.addEdge);
     const deleteEdge = useCanvasStore((state) => state.deleteEdge);
     const findNodePosition = useCanvasStore((state) => state.findNodePosition);
+    const setLastJimengVideoDefaults = useSettingsStore(
+      (state) => state.setLastJimengVideoDefaults,
+    );
 
-    const connectedReferenceImages = useMemo(
-      () => collectConnectedReferenceImages(id, nodes, edges),
+    const connectedReferenceVisuals = useMemo(
+      () => collectConnectedReferenceVisuals(id, nodes, edges),
       [edges, id, nodes],
     );
-    const incomingImages = useMemo(
-      () => connectedReferenceImages.map((item) => item.imageUrl),
-      [connectedReferenceImages],
+    const incomingReferenceVisualUrls = useMemo(
+      () => connectedReferenceVisuals.map((item) => item.referenceUrl),
+      [connectedReferenceVisuals],
     );
-    const orderedReferenceImages = useMemo(
+    const orderedReferenceVisualUrls = useMemo(
       () =>
-        resolveOrderedReferenceImages(incomingImages, data.referenceImageOrder),
-      [data.referenceImageOrder, incomingImages],
+        resolveOrderedReferenceImages(
+          incomingReferenceVisualUrls,
+          data.referenceImageOrder,
+        ),
+      [data.referenceImageOrder, incomingReferenceVisualUrls],
     );
-    const connectedReferenceImageByUrl = useMemo(
+    const connectedReferenceVisualByUrl = useMemo(
       () =>
         new Map(
-          connectedReferenceImages.map(
-            (item) => [item.imageUrl, item] as const,
+          connectedReferenceVisuals.map(
+            (item) => [item.referenceUrl, item] as const,
           ),
         ),
-      [connectedReferenceImages],
+      [connectedReferenceVisuals],
     );
-    const incomingImageDisplayList = useMemo(
+    const incomingVisualItems = useMemo<IncomingReferenceVisualItem[]>(
       () =>
-        orderedReferenceImages.map((imageUrl) =>
-          resolveImageDisplayUrl(imageUrl),
-        ),
-      [orderedReferenceImages],
-    );
-    const incomingImageItems = useMemo(
-      () =>
-        orderedReferenceImages
-          .map((imageUrl, index) => {
-            const connectedItem = connectedReferenceImageByUrl.get(imageUrl);
+        orderedReferenceVisualUrls
+          .map((referenceUrl, index) => {
+            const connectedItem =
+              connectedReferenceVisualByUrl.get(referenceUrl);
             if (!connectedItem) {
               return null;
             }
@@ -679,25 +989,26 @@ export const JimengNode = memo(
             return {
               sourceEdgeId: connectedItem.sourceEdgeId,
               sourceNodeId: connectedItem.sourceNodeId,
-              imageUrl,
-              displayUrl: resolveImageDisplayUrl(imageUrl),
+              kind: connectedItem.kind,
+              referenceUrl,
+              previewImageUrl: connectedItem.previewImageUrl,
+              displayUrl: resolveImageDisplayUrl(connectedItem.previewImageUrl),
               tokenLabel: buildShortReferenceToken(index),
-              label: t("node.jimeng.referenceImageLabel", { index: index + 1 }),
+              label: t(
+                connectedItem.kind === "video"
+                  ? "node.jimeng.referenceVideoLabel"
+                  : "node.jimeng.referenceImageLabel",
+                { index: index + 1 },
+              ),
+              durationSeconds: connectedItem.durationSeconds ?? null,
             };
           })
-          .filter(
-            (
-              item,
-            ): item is {
-              sourceEdgeId: string;
-              sourceNodeId: string;
-              imageUrl: string;
-              displayUrl: string;
-              tokenLabel: string;
-              label: string;
-            } => Boolean(item),
-          ),
-      [connectedReferenceImageByUrl, orderedReferenceImages, t],
+          .filter((item): item is IncomingReferenceVisualItem => Boolean(item)),
+      [connectedReferenceVisualByUrl, orderedReferenceVisualUrls, t],
+    );
+    const incomingVisualDisplayList = useMemo(
+      () => incomingVisualItems.map((item) => item.displayUrl),
+      [incomingVisualItems],
     );
     const incomingAudios = useMemo<IncomingAudioItem[]>(() => {
       const nodeById = new Map(nodes.map((node) => [node.id, node]));
@@ -724,11 +1035,56 @@ export const JimengNode = memo(
             sourceNode.data.displayName?.trim() ||
             sourceNode.data.audioFileName?.trim() ||
             t("node.jimeng.audioReferenceLabel", { index: items.length + 1 }),
+          tokenLabel: buildShortAudioReferenceToken(items.length),
         });
       }
 
       return items;
     }, [edges, id, nodes, t]);
+    const referencePickerItems = useMemo<ReferencePickerItem[]>(
+      () => [
+        ...incomingVisualItems.map((item) => ({
+          key: `${item.referenceUrl}-${item.tokenLabel}`,
+          kind: "visual" as const,
+          tokenLabel: item.tokenLabel,
+          label: item.label,
+          insertToken: item.tokenLabel,
+          displayUrl: item.displayUrl,
+          previewKind: item.kind,
+          durationSeconds: item.durationSeconds,
+        })),
+        ...incomingAudios.map((item) => ({
+          key: `${item.audioUrl}-${item.tokenLabel}`,
+          kind: "audio" as const,
+          tokenLabel: item.tokenLabel,
+          label: item.label,
+          insertToken: item.tokenLabel,
+        })),
+      ],
+      [incomingAudios, incomingVisualItems],
+    );
+    const referenceImageSources = useMemo(
+      () =>
+        incomingVisualItems
+          .filter((item) => item.kind === "image")
+          .map((item) => item.referenceUrl),
+      [incomingVisualItems],
+    );
+    const referenceVideoSources = useMemo(
+      () =>
+        incomingVisualItems
+          .filter((item) => item.kind === "video")
+          .map((item) => item.referenceUrl),
+      [incomingVisualItems],
+    );
+    const draggedReferenceItem = useMemo(
+      () =>
+        draggingReferenceIndex !== null
+          ? (incomingVisualItems[draggingReferenceIndex] ?? null)
+          : null,
+      [draggingReferenceIndex, incomingVisualItems],
+    );
+    const hasReferenceVideos = referenceVideoSources.length > 0;
     const resolvedTitle = useMemo(
       () => resolveNodeDisplayName(CANVAS_NODE_TYPES.jimeng, data),
       [data],
@@ -751,21 +1107,28 @@ export const JimengNode = memo(
       () => formatTimestamp(data.lastSubmittedAt ?? null, i18n.language),
       [data.lastSubmittedAt, i18n.language],
     );
-    const selectedModel = data.model ?? DEFAULT_VIDEO_MODEL;
-    const selectedReferenceMode = data.referenceMode ?? DEFAULT_REFERENCE_MODE;
+    const selectedModel = normalizeJimengVideoModel(data.model);
+    const selectedReferenceMode = normalizeJimengReferenceMode(
+      data.referenceMode,
+    );
     const selectedAspectRatio = data.aspectRatio ?? DEFAULT_ASPECT_RATIO;
     const selectedDuration = data.durationSeconds ?? DEFAULT_DURATION;
+    const selectedVideoResolution =
+      data.videoResolution === "720p" || data.videoResolution === "1080p"
+        ? (data.videoResolution as JimengVideoResolution)
+        : DEFAULT_VIDEO_RESOLUTION;
     const durationSuggestionSnapshot = useMemo(
       () => readDurationSuggestionSnapshot(data),
       [data],
     );
-    const requiredReferenceImageCount =
-      resolveJimengVideoRequiredReferenceImageCount(selectedReferenceMode);
+    const requiredReferenceImageCount = hasReferenceVideos
+      ? null
+      : resolveJimengVideoRequiredReferenceImageCount(selectedReferenceMode);
     const isFirstLastFrameCountInvalid =
       typeof requiredReferenceImageCount === "number" &&
-      orderedReferenceImages.length !== requiredReferenceImageCount;
+      referenceImageSources.length !== requiredReferenceImageCount;
     const isGenerateBlocked =
-      (orderedReferenceImages.length === 0 && incomingAudios.length > 0) ||
+      (incomingVisualItems.length === 0 && incomingAudios.length > 0) ||
       isFirstLastFrameCountInvalid;
 
     const modelOptions = useMemo(
@@ -811,34 +1174,63 @@ export const JimengNode = memo(
     }, [data.prompt]);
 
     useEffect(() => {
-      if (data.videoResolution !== DEFAULT_VIDEO_RESOLUTION) {
+      if (data.videoResolution !== selectedVideoResolution) {
         updateNodeData(
           id,
-          { videoResolution: DEFAULT_VIDEO_RESOLUTION },
+          { videoResolution: selectedVideoResolution },
           { historyMode: "skip" },
         );
       }
-    }, [data.videoResolution, id, updateNodeData]);
+    }, [data.videoResolution, id, selectedVideoResolution, updateNodeData]);
 
     useEffect(() => {
-      if (orderedReferenceImages.length === 0) {
+      const nextPatch: Partial<JimengNodeData> = {};
+
+      if (typeof data.model === "string" && data.model !== selectedModel) {
+        nextPatch.model = selectedModel;
+      }
+
+      if (
+        typeof data.referenceMode === "string" &&
+        data.referenceMode !== selectedReferenceMode
+      ) {
+        nextPatch.referenceMode = selectedReferenceMode;
+      }
+
+      if (Object.keys(nextPatch).length === 0) {
+        return;
+      }
+
+      updateNodeData(id, nextPatch, { historyMode: "skip" });
+    }, [
+      data.model,
+      data.referenceMode,
+      id,
+      selectedModel,
+      selectedReferenceMode,
+      updateNodeData,
+    ]);
+
+    useEffect(() => {
+      if (referencePickerItems.length === 0) {
         setShowImagePicker(false);
         setPickerCursor(null);
         setPickerActiveIndex(0);
         setPromptReferencePreview(null);
         setDraggingReferenceIndex(null);
         setDragOverReferenceIndex(null);
+        setDragReferencePreview(null);
         return;
       }
 
       setPickerActiveIndex((previous) =>
-        Math.min(previous, orderedReferenceImages.length - 1),
+        Math.min(previous, referencePickerItems.length - 1),
       );
-    }, [orderedReferenceImages.length]);
+    }, [referencePickerItems.length]);
 
     useEffect(() => {
       setPromptReferencePreview(null);
-    }, [data.prompt, orderedReferenceImages]);
+    }, [data.prompt, incomingAudios, incomingVisualItems]);
 
     useEffect(() => {
       if (!showImagePicker) {
@@ -859,6 +1251,7 @@ export const JimengNode = memo(
         setShowImagePicker(false);
         setPickerCursor(null);
         setPromptReferencePreview(null);
+        setDragReferencePreview(null);
       };
 
       document.addEventListener("mousedown", handleOutside, true);
@@ -872,7 +1265,7 @@ export const JimengNode = memo(
     }, [
       id,
       incomingAudios.length,
-      orderedReferenceImages.length,
+      incomingVisualItems.length,
       resolvedHeight,
       resolvedWidth,
       updateNodeInternals,
@@ -909,24 +1302,29 @@ export const JimengNode = memo(
       }
     }, []);
 
-    const handleMoveReferenceImage = useCallback(
+    const handleMoveReferenceVisual = useCallback(
       (fromIndex: number, toIndex: number) => {
-        const nextOrder = moveItem(orderedReferenceImages, fromIndex, toIndex);
+        const nextOrder = moveItem(
+          orderedReferenceVisualUrls,
+          fromIndex,
+          toIndex,
+        );
         updateNodeData(id, { referenceImageOrder: nextOrder });
         void flushCurrentProjectToDiskSafely(
-          "saving Jimeng video reference image order",
+          "saving Jimeng video reference order",
         );
       },
-      [id, orderedReferenceImages, updateNodeData],
+      [id, orderedReferenceVisualUrls, updateNodeData],
     );
 
-    const handleRemoveReferenceImage = useCallback(
+    const handleRemoveReferenceVisual = useCallback(
       (sourceEdgeId: string) => {
         setShowImagePicker(false);
         setPickerCursor(null);
         setPromptReferencePreview(null);
         setDraggingReferenceIndex(null);
         setDragOverReferenceIndex(null);
+        setDragReferencePreview(null);
         deleteEdge(sourceEdgeId);
       },
       [deleteEdge],
@@ -936,41 +1334,45 @@ export const JimengNode = memo(
       const previousOrderedReferenceImages =
         previousOrderedReferenceImagesRef.current;
       if (!previousOrderedReferenceImages) {
-        previousOrderedReferenceImagesRef.current = orderedReferenceImages;
+        previousOrderedReferenceImagesRef.current = orderedReferenceVisualUrls;
         return;
       }
 
       if (
         areReferenceImageOrdersEqual(
           previousOrderedReferenceImages,
-          orderedReferenceImages,
+          orderedReferenceVisualUrls,
         )
       ) {
         return;
       }
 
-      previousOrderedReferenceImagesRef.current = orderedReferenceImages;
+      previousOrderedReferenceImagesRef.current = orderedReferenceVisualUrls;
       const nextPrompt = remapReferenceTokensByImageOrder(
         promptValueRef.current,
         previousOrderedReferenceImages,
-        orderedReferenceImages,
+        orderedReferenceVisualUrls,
       );
       if (nextPrompt === promptValueRef.current) {
         return;
       }
 
       updatePrompt(nextPrompt);
-    }, [orderedReferenceImages, updatePrompt]);
+    }, [orderedReferenceVisualUrls, updatePrompt]);
 
-    const insertImageReference = useCallback(
-      (imageIndex: number) => {
-        const marker = buildShortReferenceToken(imageIndex);
+    const insertReferenceItem = useCallback(
+      (pickerIndex: number) => {
+        const pickerItem = referencePickerItems[pickerIndex];
+        if (!pickerItem) {
+          return;
+        }
+
         const currentPrompt = promptValueRef.current;
         const cursor = pickerCursor ?? currentPrompt.length;
         const { nextText, nextCursor } = insertReferenceToken(
           currentPrompt,
           cursor,
-          marker,
+          pickerItem.insertToken,
         );
 
         handlePromptChange(nextText);
@@ -984,7 +1386,12 @@ export const JimengNode = memo(
           syncPromptHighlightScroll();
         });
       },
-      [handlePromptChange, pickerCursor, syncPromptHighlightScroll],
+      [
+        handlePromptChange,
+        pickerCursor,
+        referencePickerItems,
+        syncPromptHighlightScroll,
+      ],
     );
 
     const handleReferenceSortStart = useCallback(
@@ -995,8 +1402,20 @@ export const JimengNode = memo(
 
         event.preventDefault();
         event.stopPropagation();
+        const cardRect = event.currentTarget.getBoundingClientRect();
+        const containerRect = rootRef.current?.getBoundingClientRect();
         setDraggingReferenceIndex(index);
         setDragOverReferenceIndex(index);
+        setDragReferencePreview({
+          left: containerRect ? cardRect.left - containerRect.left : 0,
+          top: containerRect ? cardRect.top - containerRect.top : 0,
+          width: cardRect.width,
+          height: cardRect.height,
+          offsetX: event.clientX - cardRect.left,
+          offsetY: event.clientY - cardRect.top,
+          containerLeft: containerRect?.left ?? 0,
+          containerTop: containerRect?.top ?? 0,
+        });
       },
       [],
     );
@@ -1017,15 +1436,16 @@ export const JimengNode = memo(
       const toIndex = dragOverReferenceIndex;
 
       if (fromIndex !== null && toIndex !== null && fromIndex !== toIndex) {
-        handleMoveReferenceImage(fromIndex, toIndex);
+        handleMoveReferenceVisual(fromIndex, toIndex);
       }
 
       setDraggingReferenceIndex(null);
       setDragOverReferenceIndex(null);
+      setDragReferencePreview(null);
     }, [
       dragOverReferenceIndex,
       draggingReferenceIndex,
-      handleMoveReferenceImage,
+      handleMoveReferenceVisual,
     ]);
 
     useEffect(() => {
@@ -1033,14 +1453,30 @@ export const JimengNode = memo(
         return;
       }
 
+      const handlePointerMove = (event: PointerEvent) => {
+        setDragReferencePreview((previous) => {
+          if (!previous) {
+            return previous;
+          }
+
+          return {
+            ...previous,
+            left: event.clientX - previous.containerLeft - previous.offsetX,
+            top: event.clientY - previous.containerTop - previous.offsetY,
+          };
+        });
+      };
+
       const handlePointerUp = () => {
         finalizeReferenceSort();
       };
 
+      window.addEventListener("pointermove", handlePointerMove);
       window.addEventListener("pointerup", handlePointerUp);
       window.addEventListener("pointercancel", handlePointerUp);
 
       return () => {
+        window.removeEventListener("pointermove", handlePointerMove);
         window.removeEventListener("pointerup", handlePointerUp);
         window.removeEventListener("pointercancel", handlePointerUp);
       };
@@ -1053,6 +1489,7 @@ export const JimengNode = memo(
 
       setDraggingReferenceIndex(null);
       setDragOverReferenceIndex(null);
+      setDragReferencePreview(null);
     }, [draggingReferenceIndex]);
 
     const handleOptimizePrompt = useCallback(async () => {
@@ -1075,7 +1512,9 @@ export const JimengNode = memo(
         const result = await optimizeCanvasPrompt({
           mode: "jimeng",
           prompt: currentPrompt,
-          referenceImages: orderedReferenceImages,
+          referenceImages: incomingVisualItems.map(
+            (item) => item.previewImageUrl,
+          ),
         });
         if (promptValueRef.current !== sourcePrompt) {
           return;
@@ -1090,7 +1529,7 @@ export const JimengNode = memo(
             .filter(Boolean)
             .join(" / "),
           referenceImageCount: result.usedReferenceImages
-            ? orderedReferenceImages.length
+            ? incomingVisualItems.length
             : 0,
         });
 
@@ -1136,7 +1575,7 @@ export const JimengNode = memo(
     }, [
       data,
       id,
-      orderedReferenceImages,
+      incomingVisualItems,
       syncPromptHighlightScroll,
       t,
       updateNodeData,
@@ -1197,6 +1636,17 @@ export const JimengNode = memo(
         return;
       }
 
+      const dreaminaStatus = await ensureDreaminaCliReady({
+        feature: "video",
+        action: "generate",
+      });
+      if (!dreaminaStatus.ready) {
+        updateNodeData(id, {
+          lastError: resolveDreaminaSetupBlockedMessage(t, dreaminaStatus.code),
+        });
+        return;
+      }
+
       setPromptOptimizationError(null);
       updateNodeData(id, { lastError: null });
 
@@ -1244,8 +1694,9 @@ export const JimengNode = memo(
           referenceMode: selectedReferenceMode,
           aspectRatio: selectedAspectRatio,
           durationSeconds: selectedDuration,
-          videoResolution: DEFAULT_VIDEO_RESOLUTION,
-          referenceImageSources: orderedReferenceImages,
+          videoResolution: selectedVideoResolution,
+          referenceImageSources,
+          referenceVideoSources,
           referenceAudioSources: incomingAudios.map((item) => item.audioUrl),
           onSubmitted: async ({ submitId }) => {
             if (!createdResultNodeId) {
@@ -1327,11 +1778,13 @@ export const JimengNode = memo(
       incomingAudios,
       isGenerateBlocked,
       isFirstLastFrameCountInvalid,
-      orderedReferenceImages,
+      referenceImageSources,
+      referenceVideoSources,
       selectedAspectRatio,
       selectedDuration,
       selectedModel,
       selectedReferenceMode,
+      selectedVideoResolution,
       t,
       updateNodeData,
     ]);
@@ -1346,12 +1799,13 @@ export const JimengNode = memo(
             event.currentTarget.selectionEnd ?? selectionStart;
           const deletionDirection =
             event.key === "Backspace" ? "backward" : "forward";
-          const deleteRange = resolveReferenceAwareDeleteRange(
+          const deleteRange = resolveJimengReferenceAwareDeleteRange(
             currentPrompt,
             selectionStart,
             selectionEnd,
             deletionDirection,
-            orderedReferenceImages.length,
+            incomingVisualItems.length,
+            incomingAudios.length,
           );
           if (deleteRange) {
             event.preventDefault();
@@ -1369,12 +1823,12 @@ export const JimengNode = memo(
           }
         }
 
-        if (showImagePicker && orderedReferenceImages.length > 0) {
+        if (showImagePicker && referencePickerItems.length > 0) {
           if (event.key === "ArrowDown") {
             event.preventDefault();
             event.stopPropagation();
             setPickerActiveIndex(
-              (previous) => (previous + 1) % orderedReferenceImages.length,
+              (previous) => (previous + 1) % referencePickerItems.length,
             );
             return;
           }
@@ -1383,7 +1837,7 @@ export const JimengNode = memo(
             event.preventDefault();
             event.stopPropagation();
             setPickerActiveIndex((previous) =>
-              previous === 0 ? orderedReferenceImages.length - 1 : previous - 1,
+              previous === 0 ? referencePickerItems.length - 1 : previous - 1,
             );
             return;
           }
@@ -1391,12 +1845,12 @@ export const JimengNode = memo(
           if (event.key === "Enter" || event.key === "Tab") {
             event.preventDefault();
             event.stopPropagation();
-            insertImageReference(pickerActiveIndex);
+            insertReferenceItem(pickerActiveIndex);
             return;
           }
         }
 
-        if (event.key === "@" && orderedReferenceImages.length > 0) {
+        if (event.key === "@" && referencePickerItems.length > 0) {
           event.preventDefault();
           event.stopPropagation();
           const cursor =
@@ -1432,9 +1886,11 @@ export const JimengNode = memo(
       [
         handleGenerate,
         handlePromptChange,
-        insertImageReference,
-        orderedReferenceImages.length,
+        incomingAudios.length,
+        incomingVisualItems.length,
+        insertReferenceItem,
         pickerActiveIndex,
+        referencePickerItems.length,
         showImagePicker,
         syncPromptHighlightScroll,
       ],
@@ -1445,8 +1901,16 @@ export const JimengNode = memo(
     }, []);
 
     const handlePromptReferenceTokenHover = useCallback(
-      (tokenIndex: number, event: ReactMouseEvent<HTMLSpanElement>) => {
-        const item = incomingImageItems[tokenIndex];
+      (
+        token: JimengPromptReferenceToken,
+        event: ReactMouseEvent<HTMLSpanElement>,
+      ) => {
+        if (token.kind !== "visual") {
+          setPromptReferencePreview(null);
+          return;
+        }
+
+        const item = incomingVisualItems[token.value - 1];
         const previewHost = promptPreviewHostRef.current;
         if (!item || !previewHost) {
           setPromptReferencePreview(null);
@@ -1472,14 +1936,16 @@ export const JimengNode = memo(
         );
 
         setPromptReferencePreview({
-          imageUrl: item.imageUrl,
+          imageUrl: item.previewImageUrl,
           displayUrl: item.displayUrl,
           alt: item.label,
+          kind: item.kind,
+          durationSeconds: item.durationSeconds,
           left: Math.max(horizontalPadding, Math.min(preferredLeft, maxLeft)),
           top: Math.max(horizontalPadding, Math.min(preferredTop, maxTop)),
         });
       },
-      [incomingImageItems],
+      [incomingVisualItems],
     );
 
     const handlePromptReferenceTokenMouseDown = useCallback(
@@ -1525,7 +1991,7 @@ export const JimengNode = memo(
         return t("node.jimeng.cliBlockedAudioNeedsImage");
       }
 
-      if (incomingAudios.length > 0) {
+      if (hasReferenceVideos || incomingAudios.length > 0) {
         const effectiveModel = resolveJimengCliEffectiveVideoModel(
           "multimodal2video",
           selectedModel,
@@ -1540,7 +2006,7 @@ export const JimengNode = memo(
         });
       }
 
-      if (orderedReferenceImages.length === 0) {
+      if (referenceImageSources.length === 0) {
         const effectiveModel = resolveJimengCliEffectiveVideoModel(
           "text2video",
           selectedModel,
@@ -1555,7 +2021,7 @@ export const JimengNode = memo(
         });
       }
 
-      if (orderedReferenceImages.length === 1) {
+      if (referenceImageSources.length === 1) {
         return t("node.jimeng.cliHint.image2video", {
           command: t("node.jimeng.cliMode.image2video"),
           duration: resolveJimengVideoModelDurationRange(selectedModel),
@@ -1585,13 +2051,13 @@ export const JimengNode = memo(
       }
 
       if (selectedReferenceMode === "smartFrames") {
-        return orderedReferenceImages.length <= 2
+        return referenceImageSources.length <= 2
           ? t("node.jimeng.cliHint.multiframeTwo", {
               command: t("node.jimeng.cliMode.multiframe2video"),
             })
           : t("node.jimeng.cliHint.multiframeMany", {
               command: t("node.jimeng.cliMode.multiframe2video"),
-              count: orderedReferenceImages.length,
+              count: referenceImageSources.length,
             });
       }
 
@@ -1608,10 +2074,11 @@ export const JimengNode = memo(
           : "-",
       });
     }, [
+      hasReferenceVideos,
       incomingAudios.length,
       isFirstLastFrameCountInvalid,
       isGenerateBlocked,
-      orderedReferenceImages.length,
+      referenceImageSources.length,
       selectedModel,
       selectedReferenceMode,
       t,
@@ -1650,6 +2117,96 @@ export const JimengNode = memo(
         : [cliModeHint, durationSuggestionText, promptOptimizationNotice]
             .filter(Boolean)
             .join(" | "));
+
+    const handleModelChange = useCallback(
+      (nextValue: JimengVideoModelId) => {
+        updateNodeData(id, { model: nextValue });
+        setLastJimengVideoDefaults({
+          model: nextValue,
+          referenceMode: selectedReferenceMode,
+          aspectRatio: selectedAspectRatio,
+          durationSeconds: selectedDuration,
+          videoResolution: selectedVideoResolution,
+        });
+      },
+      [
+        id,
+        selectedAspectRatio,
+        selectedDuration,
+        selectedReferenceMode,
+        selectedVideoResolution,
+        setLastJimengVideoDefaults,
+        updateNodeData,
+      ],
+    );
+
+    const handleReferenceModeChange = useCallback(
+      (nextValue: JimengReferenceMode) => {
+        updateNodeData(id, { referenceMode: nextValue });
+        setLastJimengVideoDefaults({
+          model: selectedModel,
+          referenceMode: nextValue,
+          aspectRatio: selectedAspectRatio,
+          durationSeconds: selectedDuration,
+          videoResolution: selectedVideoResolution,
+        });
+      },
+      [
+        id,
+        selectedAspectRatio,
+        selectedDuration,
+        selectedModel,
+        selectedVideoResolution,
+        setLastJimengVideoDefaults,
+        updateNodeData,
+      ],
+    );
+
+    const handleAspectRatioChange = useCallback(
+      (nextValue: JimengAspectRatio) => {
+        updateNodeData(id, { aspectRatio: nextValue });
+        setLastJimengVideoDefaults({
+          model: selectedModel,
+          referenceMode: selectedReferenceMode,
+          aspectRatio: nextValue,
+          durationSeconds: selectedDuration,
+          videoResolution: selectedVideoResolution,
+        });
+      },
+      [
+        id,
+        selectedDuration,
+        selectedModel,
+        selectedReferenceMode,
+        selectedVideoResolution,
+        setLastJimengVideoDefaults,
+        updateNodeData,
+      ],
+    );
+
+    const handleDurationChange = useCallback(
+      (nextValue: JimengDurationSeconds) => {
+        updateNodeData(id, {
+          durationSeconds: nextValue,
+        });
+        setLastJimengVideoDefaults({
+          model: selectedModel,
+          referenceMode: selectedReferenceMode,
+          aspectRatio: selectedAspectRatio,
+          durationSeconds: nextValue,
+          videoResolution: selectedVideoResolution,
+        });
+      },
+      [
+        id,
+        selectedAspectRatio,
+        selectedModel,
+        selectedReferenceMode,
+        selectedVideoResolution,
+        setLastJimengVideoDefaults,
+        updateNodeData,
+      ],
+    );
 
     return (
       <div
@@ -1694,7 +2251,8 @@ export const JimengNode = memo(
                 <div className="min-h-full whitespace-pre-wrap break-words px-3 py-2">
                   {renderPromptWithHighlights(
                     data.prompt ?? "",
-                    orderedReferenceImages.length,
+                    incomingVisualItems.length,
+                    incomingAudios.length,
                   )}
                 </div>
               </div>
@@ -1708,7 +2266,8 @@ export const JimengNode = memo(
                 <div className="min-h-full whitespace-pre-wrap break-words px-3 py-2">
                   {renderPromptReferenceHoverTargets(
                     data.prompt ?? "",
-                    orderedReferenceImages.length,
+                    incomingVisualItems.length,
+                    incomingAudios.length,
                     handlePromptReferenceTokenHover,
                     hidePromptReferencePreview,
                     handlePromptReferenceTokenMouseDown,
@@ -1742,31 +2301,47 @@ export const JimengNode = memo(
                   <CanvasNodeImage
                     src={promptReferencePreview.displayUrl}
                     alt={promptReferencePreview.alt}
-                    viewerSourceUrl={resolveImageDisplayUrl(
-                      promptReferencePreview.imageUrl,
-                    )}
-                    viewerImageList={incomingImageDisplayList}
+                    viewerSourceUrl={promptReferencePreview.displayUrl}
+                    viewerImageList={incomingVisualDisplayList}
                     className="block max-h-[132px] max-w-[144px] rounded-xl object-contain"
                     draggable={false}
                   />
+                  {promptReferencePreview.kind === "video" ? (
+                    <div className="absolute inset-x-0 bottom-0 flex items-center justify-between gap-2 bg-black/55 px-2 py-1 text-[10px] text-white">
+                      <span className="inline-flex items-center gap-1">
+                        <Video className="h-3 w-3" strokeWidth={2.2} />
+                        {t("node.jimeng.referenceVideoBadge")}
+                      </span>
+                      {promptReferencePreview.durationSeconds ? (
+                        <span>
+                          {formatReferenceDuration(
+                            promptReferencePreview.durationSeconds,
+                          )}
+                        </span>
+                      ) : null}
+                    </div>
+                  ) : null}
                 </div>
               ) : null}
             </div>
 
             <div className="flex min-h-[44px] flex-wrap items-center gap-2 rounded-xl border border-white/10 bg-black/10 px-2 py-2">
-              {orderedReferenceImages.length > 0 ? (
+              {incomingVisualItems.length > 0 ? (
                 <div className="flex min-w-0 flex-wrap items-center gap-2">
-                  {incomingImageItems.map((item, index) => (
+                  {incomingVisualItems.map((item, index) => (
                     <div
-                      key={`${item.imageUrl}-${index}`}
+                      key={`${item.referenceUrl}-${index}`}
                       className={`nodrag group/reference relative flex select-none items-center gap-1.5 rounded-lg border bg-black/15 px-1.5 py-1.5 transition-[transform,box-shadow,border-color,background-color,opacity] duration-200 ${
                         draggingReferenceIndex === index
-                          ? "z-10 border-accent/55 bg-accent/10 opacity-80 shadow-[0_10px_26px_rgba(59,130,246,0.22)] -translate-y-0.5 scale-[1.02]"
+                          ? "z-10 cursor-grabbing border-accent/35 bg-accent/10 opacity-35 shadow-[0_6px_16px_rgba(59,130,246,0.12)] scale-[0.98]"
                           : dragOverReferenceIndex === index
-                            ? "z-10 border-accent/55 bg-accent/10 shadow-[0_0_0_1px_rgba(59,130,246,0.18)]"
-                            : "border-white/10 motion-safe:hover:-translate-y-0.5 motion-safe:hover:border-white/15 motion-safe:hover:shadow-[0_8px_20px_rgba(0,0,0,0.2)]"
+                            ? "z-10 cursor-grab border-accent/55 bg-accent/10 shadow-[0_0_0_1px_rgba(59,130,246,0.18)]"
+                            : "cursor-grab border-white/10 motion-safe:hover:-translate-y-0.5 motion-safe:hover:border-white/15 motion-safe:hover:shadow-[0_8px_20px_rgba(0,0,0,0.2)]"
                       }`}
                       onMouseDown={(event) => event.stopPropagation()}
+                      onPointerDown={(event) =>
+                        handleReferenceSortStart(index, event)
+                      }
                       onPointerEnter={(event) => {
                         event.stopPropagation();
                         handleReferenceSortHover(index);
@@ -1777,32 +2352,6 @@ export const JimengNode = memo(
                       }}
                       onPointerCancel={handleReferenceSortCancel}
                     >
-                      <button
-                        type="button"
-                        className={`flex h-9 w-6 shrink-0 items-center justify-center rounded-md border border-white/8 bg-white/[0.03] text-text-muted transition-all duration-200 ${
-                          draggingReferenceIndex === index
-                            ? "cursor-grabbing border-accent/30 bg-accent/15 text-accent shadow-[0_8px_18px_rgba(59,130,246,0.18)]"
-                            : "cursor-grab group-hover/reference:border-white/15 group-hover/reference:bg-white/[0.06] group-hover/reference:text-text-dark"
-                        }`}
-                        aria-label={t("node.jimeng.referenceReorderHint")}
-                        title={t("node.jimeng.referenceReorderHint")}
-                        onPointerDown={(event) =>
-                          handleReferenceSortStart(index, event)
-                        }
-                        onMouseDown={(event) => {
-                          event.preventDefault();
-                          event.stopPropagation();
-                        }}
-                      >
-                        <GripVertical
-                          className={`h-3.5 w-3.5 transition-transform duration-200 ${
-                            draggingReferenceIndex === index
-                              ? "scale-110 animate-pulse"
-                              : "group-hover/reference:scale-110 group-hover/reference:-translate-y-0.5"
-                          }`}
-                          strokeWidth={2.1}
-                        />
-                      </button>
                       <button
                         type="button"
                         draggable={false}
@@ -1819,21 +2368,30 @@ export const JimengNode = memo(
                         }}
                         onClick={(event) => {
                           event.stopPropagation();
-                          handleRemoveReferenceImage(item.sourceEdgeId);
+                          handleRemoveReferenceVisual(item.sourceEdgeId);
                         }}
                       >
                         <X className="h-3 w-3" strokeWidth={2.4} />
                       </button>
-                      <CanvasNodeImage
-                        src={item.displayUrl}
-                        alt={t("node.jimeng.referenceImageLabel", {
-                          index: index + 1,
-                        })}
-                        viewerSourceUrl={item.displayUrl}
-                        viewerImageList={incomingImageDisplayList}
-                        className="h-9 w-9 rounded-md object-cover"
-                        draggable={false}
-                      />
+                      <div className="relative h-9 w-9 shrink-0">
+                        <CanvasNodeImage
+                          src={item.displayUrl}
+                          alt={item.label}
+                          viewerSourceUrl={item.displayUrl}
+                          viewerImageList={incomingVisualDisplayList}
+                          className="h-9 w-9 rounded-md object-cover"
+                          draggable={false}
+                        />
+                        {item.kind === "video" ? (
+                          <div className="pointer-events-none absolute inset-x-0 bottom-0 flex items-center justify-center rounded-b-md bg-black/60 px-1 py-0.5 text-[9px] font-medium text-white">
+                            <span className="inline-flex items-center gap-1 truncate">
+                              <Video className="h-2.5 w-2.5 shrink-0" />
+                              {formatReferenceDuration(item.durationSeconds) ??
+                                t("node.jimeng.referenceVideoBadge")}
+                            </span>
+                          </div>
+                        ) : null}
+                      </div>
                       <div className="min-w-0">
                         <div className="truncate text-[11px] font-medium text-text-dark">
                           {item.tokenLabel}
@@ -1842,14 +2400,31 @@ export const JimengNode = memo(
                           {item.label}
                         </div>
                       </div>
+                      <div
+                        className={`pointer-events-none absolute inset-0 rounded-lg ring-inset transition-all duration-200 ${
+                          draggingReferenceIndex === index
+                            ? "ring-1 ring-accent/55"
+                            : dragOverReferenceIndex === index
+                              ? "ring-1 ring-accent/35"
+                              : "ring-0 group-hover/reference:ring-1 group-hover/reference:ring-white/8"
+                        }`}
+                      />
+                      <div
+                        className={`pointer-events-none absolute bottom-1.5 left-1.5 rounded-md bg-black/60 px-1.5 py-0.5 text-[9px] font-medium text-white/82 shadow-[0_4px_12px_rgba(0,0,0,0.2)] transition-all duration-200 ${
+                          draggingReferenceIndex === index
+                            ? "opacity-0"
+                            : "translate-y-1 opacity-0 group-hover/reference:translate-y-0 group-hover/reference:opacity-100"
+                        }`}
+                      >
+                        {t("node.jimeng.referenceReorderHint")}
+                      </div>
                     </div>
                   ))}
                 </div>
               ) : null}
 
-              {orderedReferenceImages.length > 1 ? (
-                <div className="pointer-events-none ml-auto hidden items-center gap-1 rounded-full border border-white/10 bg-white/[0.04] px-2 py-1 text-[10px] text-text-muted md:flex">
-                  <GripVertical className="h-3 w-3" strokeWidth={2.1} />
+              {incomingVisualItems.length > 1 ? (
+                <div className="pointer-events-none ml-auto hidden items-center rounded-full border border-white/10 bg-white/[0.04] px-2 py-1 text-[10px] text-text-muted md:flex">
                   {t("node.jimeng.referenceReorderHint")}
                 </div>
               ) : null}
@@ -1863,6 +2438,9 @@ export const JimengNode = memo(
                       onMouseDown={(event) => event.stopPropagation()}
                     >
                       <AudioLines className="h-3.5 w-3.5 shrink-0 text-text-muted" />
+                      <span className="rounded bg-white/[0.08] px-1 py-0.5 text-[10px] font-medium text-text-muted">
+                        {audio.tokenLabel}
+                      </span>
                       <span className="max-w-[92px] truncate">
                         {audio.label}
                       </span>
@@ -1871,16 +2449,16 @@ export const JimengNode = memo(
                 </div>
               ) : null}
 
-              {orderedReferenceImages.length === 0 &&
+              {incomingVisualItems.length === 0 &&
               incomingAudios.length === 0 ? (
                 <div className="text-[11px] text-text-muted">
-                  {t("node.jimeng.referenceCount", { count: 0 })}
+                  {t("node.jimeng.referenceEmpty")}
                 </div>
               ) : null}
             </div>
           </div>
 
-          {showImagePicker && incomingImageItems.length > 0 && (
+          {showImagePicker && referencePickerItems.length > 0 && (
             <div
               className="nowheel absolute z-30 w-[156px] overflow-hidden rounded-xl border border-[rgba(255,255,255,0.16)] bg-surface-dark shadow-xl"
               style={{ left: pickerAnchor.left, top: pickerAnchor.top }}
@@ -1892,16 +2470,16 @@ export const JimengNode = memo(
                 onWheelCapture={(event) => event.stopPropagation()}
                 role="listbox"
               >
-                {incomingImageItems.map((item, index) => (
+                {referencePickerItems.map((item, index) => (
                   <button
-                    key={`${item.imageUrl}-${index}`}
+                    key={item.key}
                     ref={(node) => {
                       pickerItemRefs.current[index] = node;
                     }}
                     type="button"
                     onClick={(event) => {
                       event.stopPropagation();
-                      insertImageReference(index);
+                      insertReferenceItem(index);
                     }}
                     onMouseEnter={() => setPickerActiveIndex(index)}
                     role="option"
@@ -1912,14 +2490,31 @@ export const JimengNode = memo(
                         : ""
                     }`}
                   >
-                    <CanvasNodeImage
-                      src={item.displayUrl}
-                      alt={item.label}
-                      viewerSourceUrl={item.displayUrl}
-                      viewerImageList={incomingImageDisplayList}
-                      className="h-8 w-8 rounded object-cover"
-                      draggable={false}
-                    />
+                    {item.kind === "visual" && item.displayUrl ? (
+                      <div className="relative h-8 w-8 shrink-0">
+                        <CanvasNodeImage
+                          src={item.displayUrl}
+                          alt={item.label}
+                          viewerSourceUrl={item.displayUrl}
+                          viewerImageList={incomingVisualDisplayList}
+                          className="h-8 w-8 rounded object-cover"
+                          draggable={false}
+                        />
+                        {item.previewKind === "video" ? (
+                          <div className="pointer-events-none absolute inset-x-0 bottom-0 flex items-center justify-center rounded-b bg-black/60 px-1 py-0.5 text-[8px] font-medium text-white">
+                            <span className="inline-flex items-center gap-0.5 truncate">
+                              <Video className="h-2.5 w-2.5 shrink-0" />
+                              {formatReferenceDuration(item.durationSeconds) ??
+                                t("node.jimeng.referenceVideoBadge")}
+                            </span>
+                          </div>
+                        ) : null}
+                      </div>
+                    ) : (
+                      <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded bg-white/[0.06] text-text-muted">
+                        <AudioLines className="h-4 w-4" />
+                      </div>
+                    )}
                     <div className="min-w-0">
                       <div className="truncate text-[11px] font-medium text-text-dark">
                         {item.tokenLabel}
@@ -1935,6 +2530,49 @@ export const JimengNode = memo(
           )}
         </div>
 
+        {draggedReferenceItem && dragReferencePreview ? (
+          <div
+            className="pointer-events-none absolute z-40"
+            style={{
+              left: `${dragReferencePreview.left}px`,
+              top: `${dragReferencePreview.top}px`,
+              width: `${dragReferencePreview.width}px`,
+              minHeight: `${dragReferencePreview.height}px`,
+            }}
+          >
+            <div className="relative flex select-none items-center gap-1.5 rounded-lg border border-accent/55 bg-black/72 px-1.5 py-1.5 opacity-85 shadow-[0_18px_40px_rgba(0,0,0,0.34),0_10px_26px_rgba(59,130,246,0.18)] backdrop-blur-sm">
+              <div className="relative h-9 w-9 shrink-0">
+                <CanvasNodeImage
+                  src={draggedReferenceItem.displayUrl}
+                  alt={draggedReferenceItem.label}
+                  viewerSourceUrl={draggedReferenceItem.displayUrl}
+                  viewerImageList={incomingVisualDisplayList}
+                  className="h-9 w-9 rounded-md object-cover"
+                  draggable={false}
+                />
+                {draggedReferenceItem.kind === "video" ? (
+                  <div className="absolute inset-x-0 bottom-0 flex items-center justify-center rounded-b-md bg-black/60 px-1 py-0.5 text-[9px] font-medium text-white">
+                    <span className="inline-flex items-center gap-1 truncate">
+                      <Video className="h-2.5 w-2.5 shrink-0" />
+                      {formatReferenceDuration(
+                        draggedReferenceItem.durationSeconds,
+                      ) ?? t("node.jimeng.referenceVideoBadge")}
+                    </span>
+                  </div>
+                ) : null}
+              </div>
+              <div className="min-w-0">
+                <div className="truncate text-[11px] font-medium text-white">
+                  {draggedReferenceItem.tokenLabel}
+                </div>
+                <div className="truncate text-[10px] text-white/72">
+                  {draggedReferenceItem.label}
+                </div>
+              </div>
+            </div>
+          </div>
+        ) : null}
+
         <div className="mt-2 flex items-center gap-2">
           <div className="ui-scrollbar min-w-0 flex-1 overflow-x-auto overflow-y-hidden">
             <div className="flex w-max min-w-full items-center gap-1.5 pr-1">
@@ -1942,35 +2580,25 @@ export const JimengNode = memo(
                 label={t("node.jimeng.parameters.model")}
                 value={selectedModel}
                 options={modelOptions}
-                onChange={(nextValue) =>
-                  updateNodeData(id, { model: nextValue })
-                }
+                onChange={handleModelChange}
               />
               <FixedControlChip
                 label={t("node.jimeng.parameters.referenceMode")}
                 value={selectedReferenceMode}
                 options={referenceModeOptions}
-                onChange={(nextValue) =>
-                  updateNodeData(id, { referenceMode: nextValue })
-                }
+                onChange={handleReferenceModeChange}
               />
               <FixedControlChip
                 label={t("node.jimeng.parameters.aspectRatio")}
                 value={selectedAspectRatio}
                 options={aspectRatioOptions}
-                onChange={(nextValue) =>
-                  updateNodeData(id, { aspectRatio: nextValue })
-                }
+                onChange={handleAspectRatioChange}
               />
               <FixedControlChip
                 label={t("node.jimeng.parameters.duration")}
                 value={selectedDuration}
                 options={durationOptions}
-                onChange={(nextValue) =>
-                  updateNodeData(id, {
-                    durationSeconds: nextValue as JimengDurationSeconds,
-                  })
-                }
+                onChange={handleDurationChange}
               />
               <UiChipButton
                 type="button"

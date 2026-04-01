@@ -210,10 +210,12 @@
       "optimizeReferenceImagesUnused": "Not used",
       "promptPlaceholder": "Describe the scene, motion, camera, and pacing for Jimeng video generation",
       "referenceImageLabel": "Reference {{index}}",
+      "referenceVideoLabel": "Video Reference {{index}}",
+      "referenceVideoBadge": "Video",
       "referenceReorderHint": "Drag to reorder",
       "referenceCount": "{{count}} connected reference images",
       "referenceHelper": "Use @ to insert image references",
-      "referenceEmpty": "Connect upstream images and they will be submitted as Dreamina CLI references.",
+      "referenceEmpty": "Connect upstream images, videos, or audio, then use @ to insert reference assets into the prompt.",
       "firstLastFrameRequiresTwoImages": "First / last frame mode requires exactly 2 reference images.",
       "extraControls": "Jimeng Toolbar Extras",
       "submit": "Generate",
@@ -307,7 +309,7 @@
       "audioReferencesLabel": "{{count}} audio references",
       "audioReferenceLabel": "Audio {{index}}",
       "audioReferencesEmpty": "Connect audio nodes and they will be submitted as reference audio.",
-      "cliBlockedAudioNeedsImage": "Audio references currently require at least one image reference before Dreamina CLI can submit the task.",
+      "cliBlockedAudioNeedsImage": "Audio references currently require at least one image or video reference before Dreamina CLI can submit the task.",
       "cliMode": {
         "text2video": "Text to Video",
         "image2video": "Image to Video",
@@ -981,6 +983,75 @@
     "originalPrice": "Original: {{value}}",
     "pointsCost": "Credits: {{count}}",
     "grsaiTier": "Pack: CNY {{price}} / {{credits}} credits"
+  },
+  "dreaminaSetup": {
+    "title": "Dreamina First-Use Setup",
+    "subtitle": "You only need to finish these steps once on each new computer. After that, generation and re-query can stay inside the app.",
+    "context": {
+      "default": "Finish the local Dreamina setup once before using Jimeng on this computer.",
+      "imageGenerate": "Finish the local Dreamina setup once before generating Jimeng images on this computer.",
+      "videoGenerate": "Finish the local Dreamina setup once before generating Jimeng videos on this computer.",
+      "imageRequery": "Before re-querying Jimeng image results, confirm that Dreamina is ready on this computer.",
+      "videoRequery": "Before re-querying Jimeng video results, confirm that Dreamina is ready on this computer."
+    },
+    "status": {
+      "checking": "Checking the current environment...",
+      "readyTitle": "This computer is ready",
+      "readyBody": "Dreamina CLI is available, so you can continue submitting Jimeng tasks or re-querying results.",
+      "gitBashMissingTitle": "Git Bash is required first",
+      "gitBashMissingBody": "Dreamina CLI relies on Git Bash on Windows, so install Git first and then continue.",
+      "cliMissingTitle": "Dreamina CLI is required next",
+      "cliMissingBody": "Git Bash is ready. The next step is installing Dreamina CLI directly from the app.",
+      "loginRequiredTitle": "Dreamina CLI still needs login",
+      "loginRequiredBody": "The CLI is installed, but this computer has not completed the Dreamina login yet. Open the login terminal and scan once.",
+      "unknownTitle": "Dreamina setup still needs attention",
+      "unknownBody": "We could not classify the missing step exactly. Follow the steps below in order and recheck afterward."
+    },
+    "steps": {
+      "git": {
+        "title": "Install Git Bash",
+        "description": "Required to run Dreamina CLI on Windows."
+      },
+      "cli": {
+        "title": "Install Dreamina CLI",
+        "description": "The app can install it for you, and all future generation / re-query actions depend on it."
+      },
+      "login": {
+        "title": "Log In to Dreamina",
+        "description": "Open a dedicated terminal, scan the QR code once, and this computer will be ready afterward."
+      }
+    },
+    "stepState": {
+      "done": "Done",
+      "active": "Current",
+      "pending": "Pending"
+    },
+    "actions": {
+      "downloadGit": "Download Git",
+      "openCliPage": "Open CLI Page",
+      "installCli": "Install CLI",
+      "openLogin": "Open Login Terminal",
+      "recheck": "Recheck",
+      "copyCommand": "Copy Command"
+    },
+    "commands": {
+      "git": "winget install --id Git.Git -e --source winget",
+      "installCli": "curl -fsSL https://jimeng.jianying.com/cli | bash",
+      "login": "dreamina login --headless --debug"
+    },
+    "detailTitle": "Environment Detail",
+    "copied": "Copied",
+    "notice": {
+      "readyAfterInstall": "Dreamina CLI is installed and ready to use. You can return to the canvas and continue now.",
+      "installDone": "Dreamina CLI is installed. The next step is opening the login terminal and finishing the QR-code login.",
+      "loginOpened": "The login terminal is open. Finish the QR-code login there, then come back here and recheck."
+    },
+    "blocked": {
+      "gitBashMissing": "Git Bash is still missing on this computer. Finish the Dreamina setup first.",
+      "cliMissing": "Dreamina CLI is not installed yet. Finish the Dreamina setup first.",
+      "loginRequired": "Dreamina CLI is not logged in yet. Finish the Dreamina setup first.",
+      "unknown": "Dreamina is not fully ready yet. Please finish the setup and login first."
+    }
   },
   "update": {
     "dialogTitle": "Update Available",

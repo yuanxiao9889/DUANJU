@@ -29,6 +29,7 @@ import {
   CANVAS_NODE_TYPES,
   JIMENG_IMAGE_RESULT_NODE_DEFAULT_HEIGHT,
   JIMENG_IMAGE_RESULT_NODE_DEFAULT_WIDTH,
+  type JimengAspectRatio,
   type JimengImageNodeData,
   type JimengImageModelVersion,
   type JimengImageResolutionType,
@@ -64,7 +65,12 @@ import {
 } from "@/features/canvas/ui/nodeControlStyles";
 import { UiButton, UiChipButton, UiSelect } from "@/components/ui";
 import { useCanvasStore } from "@/stores/canvasStore";
+import { useSettingsStore } from "@/stores/settingsStore";
 import { generateJimengImages } from "@/features/jimeng/application/jimengImageGeneration";
+import {
+  ensureDreaminaCliReady,
+  resolveDreaminaSetupBlockedMessage,
+} from "@/features/jimeng/application/dreaminaSetup";
 import {
   JIMENG_ASPECT_RATIO_OPTIONS,
   JIMENG_IMAGE_MODEL_OPTIONS,
@@ -415,6 +421,9 @@ export const JimengImageNode = memo(
     const addEdge = useCanvasStore((state) => state.addEdge);
     const deleteEdge = useCanvasStore((state) => state.deleteEdge);
     const findNodePosition = useCanvasStore((state) => state.findNodePosition);
+    const setLastJimengImageDefaults = useSettingsStore(
+      (state) => state.setLastJimengImageDefaults,
+    );
 
     const connectedReferenceImages = useMemo(
       () => collectConnectedReferenceImages(id, nodes, edges),
@@ -792,6 +801,17 @@ export const JimengImageNode = memo(
         return;
       }
 
+      const dreaminaStatus = await ensureDreaminaCliReady({
+        feature: "image",
+        action: "generate",
+      });
+      if (!dreaminaStatus.ready) {
+        updateNodeData(id, {
+          lastError: resolveDreaminaSetupBlockedMessage(t, dreaminaStatus.code),
+        });
+        return;
+      }
+
       setPromptOptimizationError(null);
       updateNodeData(id, {
         lastError: null,
@@ -921,6 +941,67 @@ export const JimengImageNode = memo(
       t,
       updateNodeData,
     ]);
+
+    const handleModelChange = useCallback(
+      (nextValue: JimengImageModelVersion) => {
+        const nextResolution = normalizeJimengImageResolutionForModel(
+          nextValue,
+          selectedResolution,
+        );
+        updateNodeData(id, {
+          modelVersion: nextValue,
+          resolutionType: nextResolution,
+        });
+        setLastJimengImageDefaults({
+          modelVersion: nextValue,
+          resolutionType: nextResolution,
+          aspectRatio: selectedAspectRatio,
+        });
+      },
+      [
+        id,
+        selectedAspectRatio,
+        selectedResolution,
+        setLastJimengImageDefaults,
+        updateNodeData,
+      ],
+    );
+
+    const handleResolutionChange = useCallback(
+      (nextValue: JimengImageResolutionType) => {
+        updateNodeData(id, { resolutionType: nextValue });
+        setLastJimengImageDefaults({
+          modelVersion: selectedModel,
+          resolutionType: nextValue,
+          aspectRatio: selectedAspectRatio,
+        });
+      },
+      [
+        id,
+        selectedAspectRatio,
+        selectedModel,
+        setLastJimengImageDefaults,
+        updateNodeData,
+      ],
+    );
+
+    const handleAspectRatioChange = useCallback(
+      (nextValue: JimengAspectRatio) => {
+        updateNodeData(id, { aspectRatio: nextValue });
+        setLastJimengImageDefaults({
+          modelVersion: selectedModel,
+          resolutionType: selectedResolution,
+          aspectRatio: nextValue,
+        });
+      },
+      [
+        id,
+        selectedModel,
+        selectedResolution,
+        setLastJimengImageDefaults,
+        updateNodeData,
+      ],
+    );
 
     const hidePromptReferencePreview = useCallback(() => {
       setPromptReferencePreview(null);
@@ -1363,25 +1444,19 @@ export const JimengImageNode = memo(
                 label={t("node.jimengImage.parameters.model")}
                 value={selectedModel}
                 options={modelOptions}
-                onChange={(nextValue) =>
-                  updateNodeData(id, { modelVersion: nextValue })
-                }
+                onChange={handleModelChange}
               />
               <FixedControlChip
                 label={t("node.jimengImage.parameters.resolution")}
                 value={selectedResolution}
                 options={resolutionOptions}
-                onChange={(nextValue) =>
-                  updateNodeData(id, { resolutionType: nextValue })
-                }
+                onChange={handleResolutionChange}
               />
               <FixedControlChip
                 label={t("node.jimengImage.parameters.aspectRatio")}
                 value={selectedAspectRatio}
                 options={aspectRatioOptions}
-                onChange={(nextValue) =>
-                  updateNodeData(id, { aspectRatio: nextValue })
-                }
+                onChange={handleAspectRatioChange}
               />
               <UiChipButton
                 type="button"

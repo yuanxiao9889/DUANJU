@@ -18,6 +18,8 @@ const VIDEO_TIMEOUT_MS: u64 = 10 * 60 * 1000;
 const POLL_INTERVAL_MS: u64 = 2_500;
 const DEFAULT_IMAGE_COUNT: usize = 1;
 const MAX_IMAGE_COUNT: usize = 4;
+const DREAMINA_INSTALL_SCRIPT_URL: &str = "https://jimeng.jianying.com/cli";
+const DREAMINA_LOGIN_TERMINAL_TITLE: &str = "Dreamina Login";
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -83,8 +85,41 @@ struct PendingDreaminaSubmit {
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
+pub enum DreaminaCliStatusCode {
+    Ready,
+    GitBashMissing,
+    CliMissing,
+    LoginRequired,
+    Unknown,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct DreaminaCliStatusResponse {
     pub ready: bool,
+    pub code: DreaminaCliStatusCode,
+    pub message: String,
+    pub detail: Option<String>,
+}
+
+impl DreaminaCliStatusResponse {
+    fn new(
+        code: DreaminaCliStatusCode,
+        message: impl Into<String>,
+        detail: Option<String>,
+    ) -> Self {
+        Self {
+            ready: matches!(code, DreaminaCliStatusCode::Ready),
+            code,
+            message: message.into(),
+            detail,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DreaminaCliActionResponse {
     pub message: String,
     pub detail: Option<String>,
 }
@@ -240,6 +275,71 @@ fn dreamina_path_prefix() -> String {
     parts.join(":")
 }
 
+fn classify_dreamina_status_code(detail: &str) -> DreaminaCliStatusCode {
+    let lowered = detail.trim().to_ascii_lowercase();
+    if lowered.contains("git bash was not found")
+        || lowered.contains("failed to launch git bash for dreamina")
+    {
+        DreaminaCliStatusCode::GitBashMissing
+    } else if lowered.contains("dreamina cli was not found")
+        || lowered.contains("command not found")
+        || lowered.contains("is not recognized")
+    {
+        DreaminaCliStatusCode::CliMissing
+    } else if lowered.contains("dreamina cli is not ready")
+        || lowered.contains("dreamina login")
+        || lowered.contains("credential")
+        || lowered.contains("unauthorized")
+        || lowered.contains("forbidden")
+        || lowered.contains("user_credit")
+    {
+        DreaminaCliStatusCode::LoginRequired
+    } else {
+        DreaminaCliStatusCode::Unknown
+    }
+}
+
+fn dreamina_command_prefix() -> String {
+    format!("export PATH={}:$PATH", bash_quote(&dreamina_path_prefix()))
+}
+
+async fn run_git_bash_script(
+    workspace: PathBuf,
+    script: String,
+) -> Result<(bool, String, String), String> {
+    let bash = git_bash_path()?;
+    tokio::task::spawn_blocking(move || {
+        let output = Command::new(bash)
+            .current_dir(workspace)
+            .arg("-lc")
+            .arg(script)
+            .output()
+            .map_err(|error| format!("failed to launch Git Bash for Dreamina: {error}"))?;
+        Ok((
+            output.status.success(),
+            String::from_utf8_lossy(&output.stdout).to_string(),
+            String::from_utf8_lossy(&output.stderr).to_string(),
+        ))
+    })
+    .await
+    .map_err(|error| format!("failed to await Dreamina command: {error}"))?
+}
+
+fn install_dreamina_script() -> String {
+    format!(
+        "{prefix}; curl -fsSL {url} | bash; {prefix}; command -v dreamina >/dev/null 2>&1",
+        prefix = dreamina_command_prefix(),
+        url = bash_quote(DREAMINA_INSTALL_SCRIPT_URL),
+    )
+}
+
+fn dreamina_login_terminal_script() -> String {
+    format!(
+        "{prefix}; dreamina login --headless --debug; status=$?; printf '\\n\\n'; if [ \"$status\" -eq 0 ]; then printf 'Dreamina login finished. Return to Storyboard Copilot and click recheck.\\n'; else printf 'Dreamina login exited with status %s. Review the output above, then retry if needed.\\n' \"$status\"; fi; read -n 1 -s -r -p 'Press any key to close...'; exit $status",
+        prefix = dreamina_command_prefix(),
+    )
+}
+
 fn extract_json_text(text: &str) -> Option<&str> {
     let trimmed = text.trim();
     let start = trimmed.find('{').or_else(|| trimmed.find('['))?;
@@ -272,47 +372,28 @@ fn normalize_dreamina_cli_error(line: &str) -> String {
 }
 
 async fn run_dreamina_json(workspace: PathBuf, args: Vec<String>) -> Result<Value, String> {
-    let bash = git_bash_path()?;
     let mut parts = Vec::with_capacity(args.len() + 1);
     parts.push("dreamina".to_string());
     parts.extend(args.iter().map(|arg| bash_quote(arg)));
-    let script = format!(
-        "export PATH={}:$PATH; {}",
-        bash_quote(&dreamina_path_prefix()),
-        parts.join(" ")
-    );
-
-    tokio::task::spawn_blocking(move || {
-        let output = Command::new(bash)
-            .current_dir(workspace)
-            .arg("-lc")
-            .arg(script)
-            .output()
-            .map_err(|error| format!("failed to launch Git Bash for Dreamina: {error}"))?;
-        let stdout = String::from_utf8_lossy(&output.stdout).to_string();
-        let stderr = String::from_utf8_lossy(&output.stderr).to_string();
-        if !output.status.success() {
-            let line = stderr
-                .lines()
-                .map(str::trim)
-                .find(|line| !line.is_empty())
-                .or_else(|| stdout.lines().map(str::trim).find(|line| !line.is_empty()))
-                .unwrap_or("Dreamina CLI failed.");
-            return Err(normalize_dreamina_cli_error(line));
-        }
-        let combined = format!("{stdout}\n{stderr}");
-        let json_text = extract_json_text(&stdout)
-            .or_else(|| extract_json_text(&combined))
-            .ok_or_else(|| {
-                format!(
-                    "Dreamina CLI did not return parseable JSON. stdout={stdout} stderr={stderr}"
-                )
-            })?;
-        serde_json::from_str::<Value>(json_text)
-            .map_err(|error| format!("failed to parse Dreamina JSON: {error}"))
-    })
-    .await
-    .map_err(|error| format!("failed to await Dreamina command: {error}"))?
+    let script = format!("{}; {}", dreamina_command_prefix(), parts.join(" "));
+    let (success, stdout, stderr) = run_git_bash_script(workspace, script).await?;
+    if !success {
+        let line = stderr
+            .lines()
+            .map(str::trim)
+            .find(|line| !line.is_empty())
+            .or_else(|| stdout.lines().map(str::trim).find(|line| !line.is_empty()))
+            .unwrap_or("Dreamina CLI failed.");
+        return Err(normalize_dreamina_cli_error(line));
+    }
+    let combined = format!("{stdout}\n{stderr}");
+    let json_text = extract_json_text(&stdout)
+        .or_else(|| extract_json_text(&combined))
+        .ok_or_else(|| {
+            format!("Dreamina CLI did not return parseable JSON. stdout={stdout} stderr={stderr}")
+        })?;
+    serde_json::from_str::<Value>(json_text)
+        .map_err(|error| format!("failed to parse Dreamina JSON: {error}"))
 }
 
 fn sanitize_file_name(raw_name: &str, fallback_stem: &str, fallback_extension: &str) -> String {
@@ -1019,22 +1100,103 @@ fn video_media(
         })
         .unwrap_or_default()
 }
+
+async fn resolve_dreamina_cli_status() -> DreaminaCliStatusResponse {
+    let workspace = match workspace_root() {
+        Ok(workspace) => workspace,
+        Err(error) => {
+            return DreaminaCliStatusResponse::new(
+                DreaminaCliStatusCode::Unknown,
+                "Dreamina CLI is not ready.",
+                Some(error),
+            );
+        }
+    };
+
+    match run_dreamina_json(workspace, vec!["user_credit".to_string()]).await {
+        Ok(value) => DreaminaCliStatusResponse::new(
+            DreaminaCliStatusCode::Ready,
+            "Dreamina CLI is ready.",
+            summarize_user_credit(&value)
+                .or_else(|| Some("`dreamina user_credit` check passed.".to_string())),
+        ),
+        Err(error) => DreaminaCliStatusResponse::new(
+            classify_dreamina_status_code(&error),
+            "Dreamina CLI is not ready.",
+            Some(error),
+        ),
+    }
+}
+
 #[tauri::command]
 pub async fn check_dreamina_cli_status() -> Result<DreaminaCliStatusResponse, String> {
+    Ok(resolve_dreamina_cli_status().await)
+}
+
+#[tauri::command]
+pub async fn install_dreamina_cli() -> Result<DreaminaCliActionResponse, String> {
     let workspace = workspace_root()?;
-    match run_dreamina_json(workspace, vec!["user_credit".to_string()]).await {
-        Ok(value) => Ok(DreaminaCliStatusResponse {
-            ready: true,
-            message: "Dreamina CLI is ready.".to_string(),
-            detail: summarize_user_credit(&value)
-                .or_else(|| Some("`dreamina user_credit` check passed.".to_string())),
-        }),
-        Err(error) => Ok(DreaminaCliStatusResponse {
-            ready: false,
-            message: "Dreamina CLI is not ready.".to_string(),
-            detail: Some(error),
-        }),
+    let (success, stdout, stderr) =
+        run_git_bash_script(workspace, install_dreamina_script()).await?;
+    if !success {
+        let line = stderr
+            .lines()
+            .map(str::trim)
+            .find(|line| !line.is_empty())
+            .or_else(|| stdout.lines().map(str::trim).find(|line| !line.is_empty()))
+            .unwrap_or("Dreamina CLI installation failed.");
+        return Err(normalize_dreamina_cli_error(line));
     }
+
+    Ok(DreaminaCliActionResponse {
+        message:
+            "Dreamina CLI installation completed. Recheck the environment, then continue with login."
+                .to_string(),
+        detail: None,
+    })
+}
+
+#[tauri::command]
+pub async fn open_dreamina_login_terminal() -> Result<DreaminaCliActionResponse, String> {
+    if !cfg!(target_os = "windows") {
+        return Err(
+            "Dreamina login terminal launcher is only available on Windows builds right now."
+                .to_string(),
+        );
+    }
+
+    let workspace = workspace_root()?;
+    let bash = git_bash_path()?;
+    let script = dreamina_login_terminal_script();
+    let bash_path = bash.to_string_lossy().to_string();
+
+    tokio::task::spawn_blocking(move || {
+        Command::new("cmd")
+            .current_dir(workspace)
+            .args([
+                "/C",
+                "start",
+                DREAMINA_LOGIN_TERMINAL_TITLE,
+                &bash_path,
+                "-lc",
+                &script,
+            ])
+            .spawn()
+            .map_err(|error| format!("failed to open Dreamina login terminal: {error}"))?;
+        Ok::<(), String>(())
+    })
+    .await
+    .map_err(|error| format!("failed to await Dreamina login terminal launch: {error}"))??;
+
+    Ok(DreaminaCliActionResponse {
+        message:
+            "Dreamina login terminal opened. Complete the QR-code login there, then come back and recheck."
+                .to_string(),
+        detail: Some(
+            "The login terminal runs `dreamina login --headless --debug` in a separate Git Bash window."
+                .to_string(),
+        ),
+    })
 }
 
 #[tauri::command]

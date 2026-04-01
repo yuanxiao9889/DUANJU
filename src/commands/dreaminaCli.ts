@@ -45,8 +45,21 @@ export interface JimengDreaminaGeneratedVideoResult {
   fileName?: string | null;
 }
 
+export type DreaminaCliStatusCode =
+  | "ready"
+  | "gitBashMissing"
+  | "cliMissing"
+  | "loginRequired"
+  | "unknown";
+
 export interface DreaminaCliStatusResponse {
   ready: boolean;
+  code: DreaminaCliStatusCode;
+  message: string;
+  detail?: string | null;
+}
+
+export interface DreaminaCliActionResponse {
   message: string;
   detail?: string | null;
 }
@@ -94,6 +107,16 @@ export interface JimengDreaminaVideoQueryResponse {
 
 export async function checkDreaminaCliStatus(): Promise<DreaminaCliStatusResponse> {
   return await invoke<DreaminaCliStatusResponse>("check_dreamina_cli_status");
+}
+
+export async function installDreaminaCli(): Promise<DreaminaCliActionResponse> {
+  return await invoke<DreaminaCliActionResponse>("install_dreamina_cli");
+}
+
+export async function openDreaminaLoginTerminal(): Promise<DreaminaCliActionResponse> {
+  return await invoke<DreaminaCliActionResponse>(
+    "open_dreamina_login_terminal",
+  );
 }
 
 export async function generateJimengDreaminaImages(

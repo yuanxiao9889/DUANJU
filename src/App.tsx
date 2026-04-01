@@ -10,6 +10,7 @@ import {
   type UpdateIgnoreMode,
 } from "./components/UpdateAvailableDialog";
 import { GlobalErrorDialog } from "./components/GlobalErrorDialog";
+import { DreaminaSetupDialog } from "./components/DreaminaSetupDialog";
 import { PsImageToast } from "./components/PsImageToast";
 import { ProjectManager } from "./features/project/ProjectManager";
 import { useThemeStore } from "./stores/themeStore";
@@ -28,6 +29,10 @@ import {
   subscribeOpenSettingsDialog,
   type SettingsCategory,
 } from "./features/settings/settingsEvents";
+import {
+  subscribeOpenDreaminaSetupDialog,
+  type DreaminaSetupDialogDetail,
+} from "./features/jimeng/dreaminaSetupDialogEvents";
 import { initializePsIntegration } from "./stores/psIntegrationStore";
 import { ensureDailyDatabaseBackup } from "./commands/storage";
 
@@ -65,6 +70,8 @@ function App() {
   const [currentVersion, setCurrentVersion] = useState<string>("");
   const [globalError, setGlobalError] =
     useState<GlobalErrorDialogDetail | null>(null);
+  const [dreaminaSetupDetail, setDreaminaSetupDetail] =
+    useState<DreaminaSetupDialogDetail | null>(null);
 
   const isHydrated = useProjectStore((state) => state.isHydrated);
   const hydrate = useProjectStore((state) => state.hydrate);
@@ -139,6 +146,13 @@ function App() {
     const unsubscribe = subscribeOpenSettingsDialog(({ category }) => {
       setSettingsInitialCategory(category ?? "general");
       setShowSettings(true);
+    });
+    return unsubscribe;
+  }, []);
+
+  useEffect(() => {
+    const unsubscribe = subscribeOpenDreaminaSetupDialog((detail) => {
+      setDreaminaSetupDetail(detail);
     });
     return unsubscribe;
   }, []);
@@ -340,6 +354,11 @@ function App() {
           details={globalError?.details}
           copyText={globalError?.copyText}
           onClose={() => setGlobalError(null)}
+        />
+        <DreaminaSetupDialog
+          isOpen={Boolean(dreaminaSetupDetail)}
+          detail={dreaminaSetupDetail}
+          onClose={() => setDreaminaSetupDetail(null)}
         />
         <PsImageToast />
       </div>

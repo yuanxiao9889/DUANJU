@@ -23,16 +23,20 @@ import {
   prepareJimengReferenceImages,
   prepareJimengReferenceVideos,
 } from "@/features/jimeng/application/jimengSubmission";
-import { resolveJimengVideoRequiredReferenceImageCount } from "@/features/jimeng/domain/jimengOptions";
+import {
+  normalizeJimengReferenceMode,
+  normalizeJimengVideoModel,
+  resolveJimengVideoRequiredReferenceImageCount,
+} from "@/features/jimeng/domain/jimengOptions";
 import { convertFileSrc, isTauri } from "@tauri-apps/api/core";
 
 const LEGACY_VIDEO_MODEL_MAP: Record<string, JimengVideoModelId> = {
   "seedance-2.0-fast": "seedance2.0fast",
   "seedance-2.0": "seedance2.0",
-  "seedance-1.5-pro": "3.5pro",
-  "seedance-1.0": "3.0",
-  "seedance-1.0-fast": "3.0fast",
-  "seedance-1.0-mini": "3.0fast",
+  "seedance-1.5-pro": "seedance2.0",
+  "seedance-1.0": "seedance2.0",
+  "seedance-1.0-fast": "seedance2.0fast",
+  "seedance-1.0-mini": "seedance2.0fast",
 };
 
 const VIDEO_RESULT_POLL_INTERVAL_MS = 2_500;
@@ -56,28 +60,14 @@ function normalizeVideoModelVersion(
     return LEGACY_VIDEO_MODEL_MAP[normalized];
   }
 
-  const allowed: JimengVideoModelId[] = [
-    "seedance2.0fast",
-    "seedance2.0",
-    "3.0",
-    "3.0fast",
-    "3.0pro",
-    "3.5pro",
-  ];
-  return allowed.find((item) => item === normalized) ?? undefined;
+  return normalizeJimengVideoModel(normalized);
 }
 
 function normalizeReferenceMode(
   value: JimengReferenceMode | string | null | undefined,
 ): JimengReferenceMode | undefined {
   const normalized = value?.trim() ?? "";
-  const allowed: JimengReferenceMode[] = [
-    "allAround",
-    "firstLastFrame",
-    "smartFrames",
-    "subject",
-  ];
-  return allowed.find((item) => item === normalized) ?? undefined;
+  return normalized ? normalizeJimengReferenceMode(normalized) : undefined;
 }
 
 function normalizeAspectRatio(
@@ -254,17 +244,18 @@ export async function generateJimengVideos(
 
   const normalizedReferenceMode = normalizeReferenceMode(payload.referenceMode);
 
-  const [referenceImages, referenceVideos, referenceAudios] = await Promise.all([
-    prepareJimengReferenceImages(payload.referenceImageSources),
-    prepareJimengReferenceVideos(payload.referenceVideoSources),
-    prepareJimengReferenceAudios(payload.referenceAudioSources),
-  ]);
+  const [referenceImages, referenceVideos, referenceAudios] = await Promise.all(
+    [
+      prepareJimengReferenceImages(payload.referenceImageSources),
+      prepareJimengReferenceVideos(payload.referenceVideoSources),
+      prepareJimengReferenceAudios(payload.referenceAudioSources),
+    ],
+  );
 
   const hasReferenceVideos = referenceVideos.length > 0;
-  const requiredReferenceImageCount =
-    hasReferenceVideos
-      ? null
-      : resolveJimengVideoRequiredReferenceImageCount(normalizedReferenceMode);
+  const requiredReferenceImageCount = hasReferenceVideos
+    ? null
+    : resolveJimengVideoRequiredReferenceImageCount(normalizedReferenceMode);
   if (
     typeof requiredReferenceImageCount === "number" &&
     referenceImages.length !== requiredReferenceImageCount

@@ -21,6 +21,8 @@ import {
   EXPORT_RESULT_NODE_MIN_WIDTH,
   IMAGE_EDIT_NODE_DEFAULT_HEIGHT,
   IMAGE_EDIT_NODE_DEFAULT_WIDTH,
+  type JimengImageNodeData,
+  type JimengNodeData,
   type ActiveToolDialog,
   type CanvasEdge,
   type CanvasNode,
@@ -66,6 +68,11 @@ import {
 import type { AssetItemRecord } from '@/features/assets/domain/types';
 import { useSettingsStore } from '@/stores/settingsStore';
 import { getImageModel } from '@/features/canvas/models';
+import {
+  normalizeJimengImageResolutionForModel,
+  normalizeJimengReferenceMode,
+  normalizeJimengVideoModel,
+} from '@/features/jimeng/domain/jimengOptions';
 
 export type {
   ActiveToolDialog,
@@ -888,33 +895,76 @@ function resolveNodeCreationDefaults(
   type: CanvasNodeType,
   data: Partial<CanvasNodeData>
 ): Partial<CanvasNodeData> {
-  if (type !== CANVAS_NODE_TYPES.imageEdit) {
-    return data;
+  if (type === CANVAS_NODE_TYPES.imageEdit) {
+    const {
+      lastImageEditModelId,
+      lastImageEditSize,
+      lastImageEditRequestAspectRatio,
+      storyboardCompatibleModelConfig,
+      storyboardProviderCustomModels,
+    } = useSettingsStore.getState();
+    const preferredModelId = getImageModel(
+      lastImageEditModelId,
+      storyboardCompatibleModelConfig,
+      storyboardProviderCustomModels
+    ).id;
+    const imageEditData = data as Partial<ImageEditNodeData>;
+
+    return {
+      model: imageEditData.model ?? preferredModelId,
+      size: imageEditData.size ?? lastImageEditSize,
+      requestAspectRatio:
+        imageEditData.requestAspectRatio
+        ?? lastImageEditRequestAspectRatio
+        ?? AUTO_REQUEST_ASPECT_RATIO,
+      ...imageEditData,
+    } as Partial<CanvasNodeData>;
   }
 
   const {
-    lastImageEditModelId,
-    lastImageEditSize,
-    lastImageEditRequestAspectRatio,
-    storyboardCompatibleModelConfig,
-    storyboardProviderCustomModels,
+    lastJimengImageModelVersion,
+    lastJimengImageResolutionType,
+    lastJimengImageAspectRatio,
+    lastJimengVideoModel,
+    lastJimengVideoReferenceMode,
+    lastJimengVideoAspectRatio,
+    lastJimengVideoDurationSeconds,
+    lastJimengVideoResolution,
   } = useSettingsStore.getState();
-  const preferredModelId = getImageModel(
-    lastImageEditModelId,
-    storyboardCompatibleModelConfig,
-    storyboardProviderCustomModels
-  ).id;
-  const imageEditData = data as Partial<ImageEditNodeData>;
 
-  return {
-    model: imageEditData.model ?? preferredModelId,
-    size: imageEditData.size ?? lastImageEditSize,
-    requestAspectRatio:
-      imageEditData.requestAspectRatio
-      ?? lastImageEditRequestAspectRatio
-      ?? AUTO_REQUEST_ASPECT_RATIO,
-    ...imageEditData,
-  } as Partial<CanvasNodeData>;
+  if (type === CANVAS_NODE_TYPES.jimengImage) {
+    const jimengImageData = data as Partial<JimengImageNodeData>;
+    const modelVersion = jimengImageData.modelVersion ?? lastJimengImageModelVersion;
+    const resolutionType = normalizeJimengImageResolutionForModel(
+      modelVersion,
+      jimengImageData.resolutionType ?? lastJimengImageResolutionType
+    );
+
+    return {
+      ...jimengImageData,
+      modelVersion,
+      resolutionType,
+      aspectRatio: jimengImageData.aspectRatio ?? lastJimengImageAspectRatio,
+    } as Partial<CanvasNodeData>;
+  }
+
+  if (type === CANVAS_NODE_TYPES.jimeng) {
+    const jimengVideoData = data as Partial<JimengNodeData>;
+
+    return {
+      ...jimengVideoData,
+      model: normalizeJimengVideoModel(jimengVideoData.model ?? lastJimengVideoModel),
+      referenceMode: normalizeJimengReferenceMode(
+        jimengVideoData.referenceMode ?? lastJimengVideoReferenceMode
+      ),
+      aspectRatio: jimengVideoData.aspectRatio ?? lastJimengVideoAspectRatio,
+      durationSeconds:
+        jimengVideoData.durationSeconds ?? lastJimengVideoDurationSeconds,
+      videoResolution: jimengVideoData.videoResolution ?? lastJimengVideoResolution,
+    } as Partial<CanvasNodeData>;
+  }
+
+  return data;
 }
 
 function resolveDerivedAspectRatio(

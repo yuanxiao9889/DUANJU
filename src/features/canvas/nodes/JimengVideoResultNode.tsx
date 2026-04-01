@@ -33,6 +33,10 @@ import { NodeResizeHandle } from "@/features/canvas/ui/NodeResizeHandle";
 import { NodeStatusBadge } from "@/features/canvas/ui/NodeStatusBadge";
 import { NODE_CONTROL_ACTION_BUTTON_CLASS } from "@/features/canvas/ui/nodeControlStyles";
 import { queryJimengVideoResult } from "@/features/jimeng/application/jimengVideoSubmission";
+import {
+  ensureDreaminaCliReady,
+  resolveDreaminaSetupBlockedMessage,
+} from "@/features/jimeng/application/dreaminaSetup";
 import { useCanvasStore } from "@/stores/canvasStore";
 
 type JimengVideoResultNodeProps = NodeProps & {
@@ -174,6 +178,20 @@ export const JimengVideoResultNode = memo(
         const message = t("node.jimengVideoResult.requeryUnavailable");
         setStatusNotice(message);
         await showErrorDialog(message, t("common.error"));
+        return;
+      }
+
+      const dreaminaStatus = await ensureDreaminaCliReady({
+        feature: "video",
+        action: "requery",
+      });
+      if (!dreaminaStatus.ready) {
+        const message = resolveDreaminaSetupBlockedMessage(
+          t,
+          dreaminaStatus.code,
+        );
+        setStatusNotice(message);
+        updateNodeData(id, { lastError: message });
         return;
       }
 
