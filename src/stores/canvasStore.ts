@@ -280,6 +280,13 @@ interface CanvasState {
     frames: StoryboardFrameItem[],
     frameAspectRatio?: string
   ) => string | null;
+  addStoryboardSplitResultNode: (
+    sourceNodeId: string,
+    rows: number,
+    cols: number,
+    frames: StoryboardFrameItem[],
+    frameAspectRatio?: string
+  ) => string | null;
 
   updateNodeData: (
     nodeId: string,
@@ -376,10 +383,7 @@ function normalizeNodes(rawNodes: CanvasNode[]): CanvasNode[] {
         return null;
       }
 
-      const normalizedNodeType =
-        node.type === CANVAS_NODE_TYPES.storyboardSplitResult
-          ? CANVAS_NODE_TYPES.storyboardSplit
-          : (node.type as CanvasNodeType);
+      const normalizedNodeType = node.type as CanvasNodeType;
       const definition = nodeCatalog.getDefinition(normalizedNodeType);
       const mergedData = {
         ...definition.createDefaultData(),
@@ -2079,6 +2083,60 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
       aspectRatio: resolvedFrameAspectRatio,
       frameAspectRatio: resolvedFrameAspectRatio,
       exportOptions: createDefaultStoryboardExportOptions(),
+    });
+    node.width = nodeSize.width;
+    node.height = nodeSize.height;
+    node.style = {
+      ...(node.style ?? {}),
+      width: nodeSize.width,
+      height: nodeSize.height,
+    };
+    node = attachNodeToGroupParent(node, position, parentGroupId, nodeMap);
+    const nextNodes = parentGroupId
+      ? fitGroupNodeToChildren([...state.nodes, node], parentGroupId)
+      : [...state.nodes, node];
+
+    set({
+      nodes: nextNodes,
+      selectedNodeId: node.id,
+      activeToolDialog: null,
+      history: {
+        past: pushSnapshot(state.history.past, createSnapshot(state.nodes, state.edges)),
+        future: [],
+      },
+      dragHistorySnapshot: null,
+    });
+
+    return node.id;
+  },
+
+  addStoryboardSplitResultNode: (sourceNodeId, rows, cols, frames, frameAspectRatio) => {
+    const state = get();
+    const sourceNode = state.nodes.find((node) => node.id === sourceNodeId);
+    const nodeMap = new Map(state.nodes.map((node) => [node.id, node] as const));
+    const parentGroupId = resolveInheritedGroupParentId(sourceNode, nodeMap);
+    const normalizedGridLayout = normalizeStoryboardGridLayout(frames.length, rows, cols);
+    const resolvedFrameAspectRatio =
+      frameAspectRatio ??
+      frames.find((frame) => typeof frame.aspectRatio === 'string')?.aspectRatio ??
+      DEFAULT_ASPECT_RATIO;
+    const nodeSize = resolveStoryboardSplitNodeSize(
+      normalizedGridLayout.rows,
+      normalizedGridLayout.cols
+    );
+    const position = state.findNodePosition(
+      sourceNodeId,
+      nodeSize.width,
+      nodeSize.height
+    );
+
+    let node = canvasNodeFactory.createNode(CANVAS_NODE_TYPES.storyboardSplitResult, position, {
+      sourceNodeId,
+      gridRows: normalizedGridLayout.rows,
+      gridCols: normalizedGridLayout.cols,
+      frames,
+      aspectRatio: resolvedFrameAspectRatio,
+      frameAspectRatio: resolvedFrameAspectRatio,
     });
     node.width = nodeSize.width;
     node.height = nodeSize.height;

@@ -474,7 +474,7 @@ export const ModelParamsControls = memo(({
             active={styleTemplatePanelOpen}
             className={
               styleTemplateTriggerMode === 'icon'
-                ? `${chipClassName} !w-7 !px-0 shrink-0 justify-center`
+                ? `${chipClassName} !w-8 !px-0 shrink-0 justify-center`
                 : `${chipClassName} w-auto shrink-0 justify-center`
             }
             title={selectedStyleTemplateName}

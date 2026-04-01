@@ -6,6 +6,7 @@ export const CANVAS_NODE_TYPES = {
   jimeng: 'jimengNode',
   jimengImage: 'jimengImageNode',
   jimengImageResult: 'jimengImageResultNode',
+  jimengVideoResult: 'jimengVideoResultNode',
   exportImage: 'exportImageNode',
   textAnnotation: 'textAnnotationNode',
   group: 'groupNode',
@@ -38,6 +39,10 @@ export const JIMENG_IMAGE_RESULT_NODE_DEFAULT_WIDTH = 640;
 export const JIMENG_IMAGE_RESULT_NODE_DEFAULT_HEIGHT = 520;
 export const JIMENG_IMAGE_RESULT_NODE_MIN_WIDTH = 560;
 export const JIMENG_IMAGE_RESULT_NODE_MIN_HEIGHT = 420;
+export const JIMENG_VIDEO_RESULT_NODE_DEFAULT_WIDTH = 520;
+export const JIMENG_VIDEO_RESULT_NODE_DEFAULT_HEIGHT = 388;
+export const JIMENG_VIDEO_RESULT_NODE_MIN_WIDTH = 360;
+export const JIMENG_VIDEO_RESULT_NODE_MIN_HEIGHT = 280;
 export const AUDIO_NODE_DEFAULT_WIDTH = 320;
 export const AUDIO_NODE_DEFAULT_HEIGHT = 96;
 
@@ -51,21 +56,26 @@ export const IMAGE_ASPECT_RATIOS = [
   '21:9',
 ] as const;
 
-export const JIMENG_CREATION_TYPES = [
-  'image',
-  'video',
-  'digitalHuman',
-  'voice',
-  'action',
+export const JIMENG_IMAGE_MODEL_VERSIONS = [
+  '3.0',
+  '3.1',
+  '4.0',
+  '4.1',
+  '4.5',
+  '4.6',
+  '5.0',
+  'lab',
 ] as const;
 
-export const JIMENG_MODEL_IDS = [
-  'seedance-2.0-fast',
-  'seedance-2.0',
-  'seedance-1.5-pro',
-  'seedance-1.0',
-  'seedance-1.0-fast',
-  'seedance-1.0-mini',
+export const JIMENG_IMAGE_RESOLUTION_TYPES = ['1k', '2k', '4k'] as const;
+
+export const JIMENG_VIDEO_MODEL_IDS = [
+  'seedance2.0fast',
+  'seedance2.0',
+  '3.0',
+  '3.0fast',
+  '3.0pro',
+  '3.5pro',
 ] as const;
 
 export const JIMENG_REFERENCE_MODES = [
@@ -85,19 +95,16 @@ export const JIMENG_ASPECT_RATIOS = [
 ] as const;
 
 export const JIMENG_DURATION_SECONDS = [4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15] as const;
+export const JIMENG_VIDEO_RESOLUTIONS = ['720p', '1080p'] as const;
 
 export type ImageSize = (typeof IMAGE_SIZES)[number];
-export type JimengCreationType = (typeof JIMENG_CREATION_TYPES)[number];
-export type JimengModelId = (typeof JIMENG_MODEL_IDS)[number];
+export type JimengImageModelVersion = (typeof JIMENG_IMAGE_MODEL_VERSIONS)[number];
+export type JimengImageResolutionType = (typeof JIMENG_IMAGE_RESOLUTION_TYPES)[number];
+export type JimengVideoModelId = (typeof JIMENG_VIDEO_MODEL_IDS)[number];
 export type JimengReferenceMode = (typeof JIMENG_REFERENCE_MODES)[number];
 export type JimengAspectRatio = (typeof JIMENG_ASPECT_RATIOS)[number];
 export type JimengDurationSeconds = (typeof JIMENG_DURATION_SECONDS)[number];
-
-export interface JimengExtraControlSelection {
-  controlIndex: number;
-  triggerText: string;
-  optionText: string;
-}
+export type JimengVideoResolution = (typeof JIMENG_VIDEO_RESOLUTIONS)[number];
 
 export interface NodeDisplayData {
   displayName?: string;
@@ -181,36 +188,18 @@ export interface ImageEditNodeData extends NodeImageData {
 export interface JimengNodeData extends NodeDisplayData {
   prompt: string;
   referenceImageOrder?: string[];
-  creationType?: JimengCreationType;
-  model?: JimengModelId;
+  model?: JimengVideoModelId;
   referenceMode?: JimengReferenceMode;
   aspectRatio?: JimengAspectRatio;
   durationSeconds?: JimengDurationSeconds;
+  videoResolution?: JimengVideoResolution;
   suggestedDurationSeconds?: number | null;
   suggestedDurationEstimatedSeconds?: number | null;
   suggestedDurationExceedsLimit?: boolean;
   suggestedDurationReason?: string | null;
-  extraControls?: JimengExtraControlSelection[];
   isSubmitting?: boolean;
   lastSubmittedAt?: number | null;
   lastError?: string | null;
-}
-
-export interface JimengNodeControlOption {
-  text: string;
-  disabled: boolean;
-  selected: boolean;
-  matchedValue?: string | null;
-  matchedKnownControlKey?: string | null;
-}
-
-export interface JimengNodeControlState {
-  controlIndex?: number;
-  triggerText: string;
-  matchedValue?: string | null;
-  matchedKnownControlKey?: string | null;
-  optionText: string;
-  options: JimengNodeControlOption[];
 }
 
 export interface JimengGeneratedImageItem {
@@ -224,11 +213,24 @@ export interface JimengGeneratedImageItem {
   fileName?: string | null;
 }
 
+export interface JimengGeneratedVideoItem {
+  id: string;
+  sourceUrl?: string | null;
+  posterSourceUrl?: string | null;
+  videoUrl: string | null;
+  previewImageUrl?: string | null;
+  aspectRatio: string;
+  duration?: number;
+  width?: number;
+  height?: number;
+  fileName?: string | null;
+}
+
 export interface JimengImageNodeData extends NodeDisplayData {
   prompt: string;
-  controls?: JimengNodeControlState[];
-  controlsSyncedAt?: number | null;
-  isSyncingControls?: boolean;
+  modelVersion?: JimengImageModelVersion;
+  aspectRatio?: JimengAspectRatio;
+  resolutionType?: JimengImageResolutionType;
   isGenerating?: boolean;
   generationStartedAt?: number | null;
   generationDurationMs?: number;
@@ -239,10 +241,30 @@ export interface JimengImageNodeData extends NodeDisplayData {
 
 export interface JimengImageResultNodeData extends NodeDisplayData {
   sourceNodeId?: string | null;
+  submitIds?: string[];
   aspectRatio: string;
   gridRows: number;
   gridCols: number;
   resultImages: JimengGeneratedImageItem[];
+  isGenerating?: boolean;
+  generationStartedAt?: number | null;
+  generationDurationMs?: number;
+  lastGeneratedAt?: number | null;
+  lastError?: string | null;
+}
+
+export interface JimengVideoResultNodeData extends NodeDisplayData {
+  sourceNodeId?: string | null;
+  submitId?: string | null;
+  sourceUrl?: string | null;
+  posterSourceUrl?: string | null;
+  videoUrl: string | null;
+  previewImageUrl?: string | null;
+  videoFileName?: string | null;
+  aspectRatio: string;
+  duration?: number;
+  width?: number;
+  height?: number;
   isGenerating?: boolean;
   generationStartedAt?: number | null;
   generationDurationMs?: number;
@@ -536,6 +558,7 @@ export type CanvasNodeData =
   | JimengNodeData
   | JimengImageNodeData
   | JimengImageResultNodeData
+  | JimengVideoResultNodeData
   | StoryboardSplitNodeData
   | StoryboardSplitResultNodeData
   | StoryboardGenNodeData
@@ -848,6 +871,12 @@ export function isJimengImageResultNode(
   node: CanvasNode | null | undefined
 ): node is Node<JimengImageResultNodeData, typeof CANVAS_NODE_TYPES.jimengImageResult> {
   return node?.type === CANVAS_NODE_TYPES.jimengImageResult;
+}
+
+export function isJimengVideoResultNode(
+  node: CanvasNode | null | undefined
+): node is Node<JimengVideoResultNodeData, typeof CANVAS_NODE_TYPES.jimengVideoResult> {
+  return node?.type === CANVAS_NODE_TYPES.jimengVideoResult;
 }
 
 export function isExportImageNode(

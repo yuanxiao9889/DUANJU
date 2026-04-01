@@ -44,6 +44,7 @@ i18n
   .init({
     resources,
     fallbackLng: 'zh',
+    nsSeparator: false,
     interpolation: {
       escapeValue: false,
     },

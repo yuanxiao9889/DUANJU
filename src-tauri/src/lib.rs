@@ -1,4 +1,4 @@
-pub mod ai;
+﻿pub mod ai;
 pub mod commands;
 
 use std::path::PathBuf;
@@ -6,9 +6,8 @@ use std::time::Duration;
 
 use commands::ai as ai_commands;
 use commands::asset_state;
+use commands::dreamina_cli;
 use commands::image;
-use commands::jimeng_chrome;
-use commands::jimeng_panel;
 use commands::project_state;
 use commands::ps_server;
 use commands::system;
@@ -140,16 +139,11 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .invoke_handler(tauri::generate_handler![
             frontend_ready,
-            jimeng_chrome::ensure_jimeng_chrome_session,
-            jimeng_chrome::focus_jimeng_chrome_workspace,
-            jimeng_chrome::generate_jimeng_chrome_images,
-            jimeng_chrome::inspect_jimeng_chrome_options,
-            jimeng_chrome::submit_jimeng_chrome_task,
-            jimeng_chrome::sync_jimeng_chrome_draft_options,
-            jimeng_panel::ensure_jimeng_panel_window,
-            jimeng_panel::submit_jimeng_panel_task,
-            jimeng_panel::inspect_jimeng_panel_options,
-            jimeng_panel::sync_jimeng_panel_draft_options,
+            dreamina_cli::check_dreamina_cli_status,
+            dreamina_cli::generate_jimeng_dreamina_images,
+            dreamina_cli::generate_jimeng_dreamina_videos,
+            dreamina_cli::query_jimeng_dreamina_image_results,
+            dreamina_cli::query_jimeng_dreamina_video_result,
             image::split_image,
             image::split_image_source,
             image::prepare_node_image_source,

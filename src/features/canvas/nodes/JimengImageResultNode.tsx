@@ -1,8 +1,9 @@
-import { memo, useEffect, useMemo } from 'react';
+import { memo, useCallback, useEffect, useMemo, useState } from 'react';
 import { Handle, Position, useUpdateNodeInternals, type NodeProps } from '@xyflow/react';
 import { Loader2, Sparkles, TriangleAlert } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 
+import { UiButton } from '@/components/ui';
 import {
   CANVAS_NODE_TYPES,
   JIMENG_IMAGE_RESULT_NODE_DEFAULT_HEIGHT,
@@ -13,11 +14,14 @@ import {
   type JimengImageResultNodeData,
 } from '@/features/canvas/domain/canvasNodes';
 import { resolveNodeDisplayName } from '@/features/canvas/domain/nodeDisplay';
+import { resolveErrorContent, showErrorDialog } from '@/features/canvas/application/errorDialog';
 import { resolveImageDisplayUrl } from '@/features/canvas/application/imageData';
 import { CanvasNodeImage } from '@/features/canvas/ui/CanvasNodeImage';
 import { NodeHeader, NODE_HEADER_FLOATING_POSITION_CLASS } from '@/features/canvas/ui/NodeHeader';
 import { NodeResizeHandle } from '@/features/canvas/ui/NodeResizeHandle';
 import { NodeStatusBadge } from '@/features/canvas/ui/NodeStatusBadge';
+import { NODE_CONTROL_ACTION_BUTTON_CLASS } from '@/features/canvas/ui/nodeControlStyles';
+import { queryJimengImagesResult } from '@/features/jimeng/application/jimengImageGeneration';
 import { useCanvasStore } from '@/stores/canvasStore';
 
 type JimengImageResultNodeProps = NodeProps & {
@@ -69,6 +73,8 @@ export const JimengImageResultNode = memo(({
   const updateNodeInternals = useUpdateNodeInternals();
   const setSelectedNode = useCanvasStore((state) => state.setSelectedNode);
   const updateNodeData = useCanvasStore((state) => state.updateNodeData);
+  const [isRequerying, setIsRequerying] = useState(false);
+  const [statusNotice, setStatusNotice] = useState<string | null>(null);
 
   const resultImages = useMemo(
     () => (Array.isArray(data.resultImages) ? data.resultImages : []),
@@ -107,6 +113,78 @@ export const JimengImageResultNode = memo(({
   useEffect(() => {
     updateNodeInternals(id);
   }, [id, resolvedHeight, resolvedWidth, resultImages.length, updateNodeInternals]);
+
+  const handleRequeryResults = useCallback(async () => {
+    const submitIds = Array.isArray(data.submitIds)
+      ? data.submitIds.map((submitId) => submitId.trim()).filter((submitId) => submitId.length > 0)
+      : [];
+    if (submitIds.length === 0) {
+      const message = t('node.jimengImageResult.requeryUnavailable');
+      setStatusNotice(message);
+      await showErrorDialog(message, t('common.error'));
+      return;
+    }
+
+    setStatusNotice(null);
+    setIsRequerying(true);
+    updateNodeData(id, {
+      isGenerating: true,
+      generationStartedAt: data.generationStartedAt ?? Date.now(),
+      lastError: null,
+    });
+
+    try {
+      const response = await queryJimengImagesResult({
+        submitIds,
+        aspectRatio: data.aspectRatio,
+      });
+      const hasImages = response.images.length > 0;
+      const hasPending = response.pendingSubmitIds.length > 0;
+      const completedAt = hasImages ? Date.now() : data.lastGeneratedAt ?? null;
+      const nextNoticeParts = [
+        hasPending
+          ? t('node.jimengImageResult.requeryPendingCount', {
+              count: response.pendingSubmitIds.length,
+            })
+          : hasImages
+            ? t('node.jimengImageResult.requeryReadyCount', {
+                count: response.images.length,
+              })
+            : null,
+        response.warnings.length > 0 ? response.warnings.join(' | ') : null,
+      ].filter(Boolean);
+      setStatusNotice(nextNoticeParts.length > 0 ? nextNoticeParts.join(' | ') : null);
+
+      updateNodeData(id, {
+        submitIds: response.submitIds,
+        resultImages: hasImages ? response.images : resultImages,
+        isGenerating: hasPending,
+        generationStartedAt: hasPending ? data.generationStartedAt ?? Date.now() : null,
+        lastGeneratedAt: completedAt,
+        lastError: null,
+      });
+    } catch (error) {
+      const content = resolveErrorContent(error, t('node.jimengImageResult.requeryFailed'));
+      setStatusNotice(content.message);
+      updateNodeData(id, {
+        isGenerating: false,
+        generationStartedAt: null,
+        lastError: content.message,
+      });
+      await showErrorDialog(content.message, t('common.error'), content.details);
+    } finally {
+      setIsRequerying(false);
+    }
+  }, [
+    data.aspectRatio,
+    data.generationStartedAt,
+    data.lastGeneratedAt,
+    data.submitIds,
+    id,
+    resultImages,
+    t,
+    updateNodeData,
+  ]);
 
   const headerStatus = useMemo(() => {
     if (data.isGenerating) {
@@ -147,9 +225,10 @@ export const JimengImageResultNode = memo(({
   const statusInfoText = data.lastError
     ?? (data.isGenerating
       ? t('node.jimengImageResult.statusGenerating')
-      : lastGeneratedTime
-        ? t('node.jimengImageResult.generatedAt', { time: lastGeneratedTime })
-        : t('node.jimengImageResult.empty'));
+      : statusNotice
+        ?? (lastGeneratedTime
+          ? t('node.jimengImageResult.generatedAt', { time: lastGeneratedTime })
+          : t('node.jimengImageResult.empty')));
 
   return (
     <div
@@ -215,6 +294,25 @@ export const JimengImageResultNode = memo(({
         title={statusInfoText}
       >
         {statusInfoText}
+      </div>
+
+      <div className="mt-2 flex justify-end">
+        <UiButton
+          type="button"
+          size="sm"
+          variant="muted"
+          disabled={isRequerying}
+          className={NODE_CONTROL_ACTION_BUTTON_CLASS}
+          onClick={(event) => {
+            event.stopPropagation();
+            void handleRequeryResults();
+          }}
+        >
+          {isRequerying ? (
+            <Loader2 className="h-4 w-4 animate-spin" strokeWidth={2.3} />
+          ) : null}
+          {t('node.jimengImageResult.requery')}
+        </UiButton>
       </div>
 
       <Handle

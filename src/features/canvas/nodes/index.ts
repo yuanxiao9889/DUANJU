@@ -5,6 +5,7 @@ import { AudioNode } from './AudioNode';
 import { ImageEditNode } from './ImageEditNode';
 import { JimengImageNode } from './JimengImageNode';
 import { JimengImageResultNode } from './JimengImageResultNode';
+import { JimengVideoResultNode } from './JimengVideoResultNode';
 import { ImageNode } from './ImageNode';
 import { JimengNode } from './JimengNode';
 import { StoryboardGenNode } from './StoryboardGenNode';
@@ -28,6 +29,7 @@ export const nodeTypes: NodeTypes = {
   imageNode: ImageEditNode,
   jimengImageNode: JimengImageNode,
   jimengImageResultNode: JimengImageResultNode,
+  jimengVideoResultNode: JimengVideoResultNode,
   jimengNode: JimengNode,
   storyboardGenNode: StoryboardGenNode,
   storyboardNode: StoryboardNode,
@@ -50,6 +52,7 @@ export {
   ImageEditNode, 
   JimengImageNode,
   JimengImageResultNode,
+  JimengVideoResultNode,
   ImageNode, 
   JimengNode,
   StoryboardGenNode, 

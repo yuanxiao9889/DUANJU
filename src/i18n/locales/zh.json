@@ -51,12 +51,12 @@
                                    "fitView":  "适应视图",
                                    "lock":  "锁定画布",
                                    "unlock":  "解锁画布",
-                                   "gridSnapOn":  "??????",
-                                   "gridSnapOff":  "??????",
-                                   "alignmentGuidesOn":  "??????",
-                                   "alignmentGuidesOff":  "??????",
-                                   "miniMapOn":  "?????",
-                                   "miniMapOff":  "?????"
+                                   "gridSnapOn":  "关闭网格吸附",
+                                   "gridSnapOff":  "开启网格吸附",
+                                   "alignmentGuidesOn":  "关闭对齐吸附",
+                                   "alignmentGuidesOff":  "开启对齐吸附",
+                                   "miniMapOn":  "隐藏小地图",
+                                   "miniMapOff":  "显示小地图"
                                },
                    "batchMenu":  {
                                      "referenceSelected":  "基于已选中的 {{count}} 个{{type}}创建节点",
@@ -238,9 +238,9 @@
                                        "requestAspectRatio":  "请求比例",
                                        "framePlaceholder":  "分镜 {{index}} 描述",
                                        "gridPreviewTitle":  "网格预览",
-                                       "promptRequired":  "???????????",
-                                       "apiKeyRequired":  "???????? API Key",
-                                       "referenceImageLabel":  "?{{index}}"
+                                       "promptRequired":  "请至少输入一条分镜描述",
+                                       "apiKeyRequired":  "请先在设置中填写 API Key",
+                                       "referenceImageLabel":  "图 {{index}}"
                                    },
                  "textAnnotation":  {
                                         "placeholder":  "输入 Markdown 文本，取消选中后会渲染预览",
@@ -306,7 +306,7 @@
                                      "referenceEmpty":  "连接上游图片后，会自动作为即梦参考图。",
                                      "openWorkspace":  "打开即梦",
                                      "syncControls":  "同步参数",
-                                     "generate":  "开始生成",
+                                     "generate":  "生成",
                                      "generating":  "生成中",
                                      "generateFailed":  "即梦图片生成失败",
                                      "generatedAt":  "已生成 {{time}}",
@@ -1005,54 +1005,54 @@
                    },
     "scriptNodes":  {
                         "common":  {
-                                       "description":  "??",
-                                       "appearances":  "????",
-                                       "appearancesPlaceholder":  "??1, ??2, ??3"
+                                       "description":  "描述",
+                                       "appearances":  "出场章节",
+                                       "appearancesPlaceholder":  "第1章, 第2章, 第3章"
                                    },
                         "character":  {
-                                          "name":  "????",
-                                          "namePlaceholder":  "??????",
-                                          "descriptionPlaceholder":  "????????",
-                                          "personality":  "??",
-                                          "personalityPlaceholder":  "??????",
-                                          "appearance":  "??",
-                                          "appearancePlaceholder":  "??????",
-                                          "emptyHint":  "??????????"
+                                          "name":  "角色名称",
+                                          "namePlaceholder":  "输入角色名称",
+                                          "descriptionPlaceholder":  "简要描述这个角色",
+                                          "personality":  "性格",
+                                          "personalityPlaceholder":  "填写关键性格特征",
+                                          "appearance":  "外貌",
+                                          "appearancePlaceholder":  "填写外貌特征",
+                                          "emptyHint":  "点击编辑添加角色详情"
                                       },
                         "location":  {
-                                         "name":  "????",
-                                         "namePlaceholder":  "??????",
-                                         "descriptionPlaceholder":  "?????????",
-                                         "emptyHint":  "??????????"
+                                         "name":  "场景名称",
+                                         "namePlaceholder":  "输入场景名称",
+                                         "descriptionPlaceholder":  "描述这个场景或地点",
+                                         "emptyHint":  "点击编辑添加场景详情"
                                      },
                         "item":  {
-                                     "name":  "????",
-                                     "namePlaceholder":  "??????",
-                                     "descriptionPlaceholder":  "??????",
-                                     "emptyHint":  "??????????"
+                                     "name":  "道具名称",
+                                     "namePlaceholder":  "输入道具名称",
+                                     "descriptionPlaceholder":  "描述这个道具",
+                                     "emptyHint":  "点击编辑添加道具详情"
                                  },
                         "plotPoint":  {
-                                          "type":  "??",
-                                          "setup":  "??",
-                                          "payoff":  "??",
-                                          "descriptionPlaceholder":  "????{{type}}",
-                                          "emptyHint":  "??????{{type}}??"
+                                          "type":  "类型",
+                                          "setup":  "铺垫",
+                                          "payoff":  "回收",
+                                          "descriptionPlaceholder":  "描述这个{{type}}",
+                                          "emptyHint":  "点击编辑添加{{type}}内容"
                                       },
                         "worldview":  {
-                                          "name":  "?????",
-                                          "namePlaceholder":  "???????",
-                                          "descriptionPlaceholder":  "???????????",
-                                          "era":  "??",
-                                          "eraPlaceholder":  "?????????",
-                                          "technology":  "??",
-                                          "technologyPlaceholder":  "???????????",
-                                          "magic":  "??",
-                                          "magicPlaceholder":  "???????????",
-                                          "society":  "??",
-                                          "societyPlaceholder":  "????????",
-                                          "geography":  "??",
-                                          "geographyPlaceholder":  "???????????",
-                                          "emptyHint":  "???????????"
+                                          "name":  "世界观名称",
+                                          "namePlaceholder":  "输入世界观名称",
+                                          "descriptionPlaceholder":  "描述核心设定",
+                                          "era":  "时代",
+                                          "eraPlaceholder":  "例如：古代、未来",
+                                          "technology":  "科技",
+                                          "technologyPlaceholder":  "例如：蒸汽、赛博朋克",
+                                          "magic":  "魔法",
+                                          "magicPlaceholder":  "例如：元素魔法、无魔法",
+                                          "society":  "社会",
+                                          "societyPlaceholder":  "例如：帝国、联邦",
+                                          "geography":  "地理",
+                                          "geographyPlaceholder":  "例如：大陆、群岛、深空",
+                                          "emptyHint":  "点击编辑添加世界观详情"
                                       }
                     }
 }

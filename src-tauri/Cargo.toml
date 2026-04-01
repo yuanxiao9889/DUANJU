@@ -1,7 +1,7 @@
 [package]
 name = "storyboard-copilot"
-version = "0.2.1"
-description = "分镜助手 - AI图像生成与分镜工具"
+version = "0.2.2"
+description = "鍒嗛暅鍔╂墜 - AI鍥惧儚鐢熸垚涓庡垎闀滃伐鍏?"
 authors = ["you"]
 edition = "2021"
 
@@ -41,11 +41,6 @@ png = "0.17"
 urlencoding = "2"
 warp = "0.3"
 lazy_static = "1.4"
-futures-util = "0.3"
-
-[target.'cfg(windows)'.dependencies]
-webview2-com = "0.38.2"
-windows = "0.61.3"
 
 [profile.dev]
 opt-level = 1

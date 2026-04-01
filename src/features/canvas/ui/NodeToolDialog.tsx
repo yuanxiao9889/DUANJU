@@ -29,7 +29,7 @@ export function NodeToolDialog() {
   const activeToolDialog = useCanvasStore((state) => state.activeToolDialog);
   const nodes = useCanvasStore((state) => state.nodes);
   const addDerivedExportNode = useCanvasStore((state) => state.addDerivedExportNode);
-  const addStoryboardSplitNode = useCanvasStore((state) => state.addStoryboardSplitNode);
+  const addStoryboardSplitResultNode = useCanvasStore((state) => state.addStoryboardSplitResultNode);
   const addEdge = useCanvasStore((state) => state.addEdge);
 
   const [isProcessing, setIsProcessing] = useState(false);
@@ -211,7 +211,7 @@ export function NodeToolDialog() {
       });
 
       if (result.storyboardFrames && result.rows && result.cols) {
-        const createdNodeId = addStoryboardSplitNode(
+        const createdNodeId = addStoryboardSplitResultNode(
           sourceNode.id,
           result.rows,
           result.cols,
@@ -252,7 +252,7 @@ export function NodeToolDialog() {
     sourceImageUrl,
     activePlugin,
     options,
-    addStoryboardSplitNode,
+    addStoryboardSplitResultNode,
     addDerivedExportNode,
     addEdge,
     closeDialog,

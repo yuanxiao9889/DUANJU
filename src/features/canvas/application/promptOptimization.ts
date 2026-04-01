@@ -6,7 +6,7 @@ import {
 import { openSettingsDialog } from '@/features/settings/settingsEvents';
 import { useSettingsStore } from '@/stores/settingsStore';
 
-type PromptOptimizationMode = 'image' | 'jimeng';
+type PromptOptimizationMode = 'image' | 'video' | 'jimeng';
 
 interface OptimizePromptRequest {
   mode: PromptOptimizationMode;
@@ -577,7 +577,7 @@ export async function optimizeCanvasPrompt(
 
   const result = await generateText({
     prompt:
-      request.mode === 'jimeng'
+      request.mode === 'jimeng' || request.mode === 'video'
         ? buildJimengPromptOptimizationInstruction(
           normalizedPrompt,
           referenceImages.length > 0
@@ -594,7 +594,7 @@ export async function optimizeCanvasPrompt(
     referenceImages,
   });
 
-  if (request.mode === 'jimeng') {
+  if (request.mode === 'jimeng' || request.mode === 'video') {
     const parsedResult = parseJimengOptimizationResult(normalizedPrompt, result.text);
     if (!parsedResult.prompt) {
       throw new Error('提示词优化结果为空，请重试');

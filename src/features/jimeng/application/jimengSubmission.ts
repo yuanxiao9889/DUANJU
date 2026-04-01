@@ -1,12 +1,5 @@
-import { createPreviewDataUrl } from '@/features/canvas/application/imageData';
 import { audioUrlToDataUrl } from '@/features/canvas/application/audioData';
-import {
-  ensureJimengChromeSession,
-  submitJimengChromeTask,
-  syncJimengChromeDraftOptions,
-} from '@/commands/jimengPanel';
-import { useJimengPanelStore, type JimengPanelMode } from '@/stores/jimengPanelStore';
-import type { JimengInspectionReport } from '@/features/jimeng/domain/jimengInspection';
+import { createPreviewDataUrl } from '@/features/canvas/application/imageData';
 
 const REFERENCE_TOKEN_PATTERN = /@\u56fe(?:\u7247)?\d+/g;
 const JIMENG_REFERENCE_IMAGE_MAX_DIMENSION = 1600;
@@ -21,16 +14,6 @@ export interface JimengReferenceAudioPayload {
   dataUrl: string;
 }
 
-export interface JimengTaskSubmission {
-  prompt: string;
-  referenceImageSources?: string[];
-  referenceAudioSources?: string[];
-}
-
-export interface JimengDraftSyncPayload {
-  prompt?: string;
-}
-
 function normalizeWhitespace(value: string): string {
   return value
     .replace(/[ \t]+\n/g, '\n')
@@ -42,10 +25,6 @@ function normalizeWhitespace(value: string): string {
 
 export function buildJimengSubmissionPrompt(prompt: string): string {
   return normalizeWhitespace(prompt.replace(REFERENCE_TOKEN_PATTERN, ' '));
-}
-
-function resolveSubmitMode(mode: JimengPanelMode): Exclude<JimengPanelMode, 'hidden'> {
-  return mode === 'hidden' ? 'expanded' : mode;
 }
 
 function sanitizeJimengReferenceFileName(rawName: string): string {
@@ -185,47 +164,4 @@ export async function prepareJimengReferenceAudios(
       };
     })
   );
-}
-
-export async function submitJimengTask(payload: JimengTaskSubmission): Promise<void> {
-  const chromeSessionPromise = ensureJimengChromeSession();
-  const referenceImagesPromise = prepareJimengReferenceImages(payload.referenceImageSources);
-  const referenceAudiosPromise = prepareJimengReferenceAudios(payload.referenceAudioSources);
-
-  await chromeSessionPromise;
-  const referenceImages = await referenceImagesPromise;
-  const referenceAudios = await referenceAudiosPromise;
-
-  await submitJimengChromeTask({
-    prompt: payload.prompt,
-    skipToolbarAutomation: true,
-    referenceImages,
-    referenceAudios,
-    autoSubmit: true,
-  });
-}
-
-export async function syncJimengDraftControls(
-  payload: JimengDraftSyncPayload,
-  options: {
-    revealIfHidden?: boolean;
-  } = {}
-): Promise<JimengInspectionReport | null> {
-  const panelStore = useJimengPanelStore.getState();
-  const revealIfHidden = options.revealIfHidden ?? false;
-
-  if (panelStore.mode === 'hidden' && !revealIfHidden) {
-    return null;
-  }
-
-  const targetMode = resolveSubmitMode(panelStore.mode);
-
-  if (panelStore.mode === 'hidden') {
-    panelStore.setMode(targetMode);
-  }
-
-  return await syncJimengChromeDraftOptions<JimengInspectionReport>({
-    prompt: payload.prompt ?? '',
-    autoSubmit: false,
-  });
 }

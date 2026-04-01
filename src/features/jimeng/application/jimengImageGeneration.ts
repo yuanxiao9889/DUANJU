@@ -1,274 +1,88 @@
 import {
-  generateJimengChromeImages,
-  inspectJimengChromeOptions,
-  type SubmitJimengPanelPayload,
-} from '@/commands/jimengPanel';
+  generateJimengDreaminaImages,
+  queryJimengDreaminaImageResults,
+} from '@/commands/dreaminaCli';
 import { prepareNodeImage } from '@/features/canvas/application/imageData';
 import type {
+  JimengAspectRatio,
   JimengGeneratedImageItem,
-  JimengNodeControlOption,
-  JimengNodeControlState,
+  JimengImageModelVersion,
+  JimengImageResolutionType,
 } from '@/features/canvas/domain/canvasNodes';
 import {
   buildJimengSubmissionPrompt,
   prepareJimengReferenceImages,
 } from '@/features/jimeng/application/jimengSubmission';
-import type {
-  JimengInspectionControl,
-  JimengInspectionOption,
-  JimengInspectionReport,
-  JimengKnownControlKey,
-} from '@/features/jimeng/domain/jimengInspection';
 
-const KNOWN_CONTROL_ORDER: JimengKnownControlKey[] = [
-  'creationType',
-  'model',
-  'referenceMode',
-  'aspectRatio',
-  'durationSeconds',
-];
+const LEGACY_IMAGE_MODEL_VERSION_MAP: Record<string, JimengImageModelVersion> = {
+  'seedance-2.0-fast': '5.0',
+  'seedance-2.0': '5.0',
+  'seedance-1.5-pro': '4.6',
+  'seedance-1.0': '4.1',
+  'seedance-1.0-fast': '4.0',
+  'seedance-1.0-mini': '3.1',
+};
 
-function normalizeControlOption(option: JimengInspectionOption): JimengNodeControlOption | null {
-  const text = option.text.trim();
-  if (!text) {
-    return null;
+function normalizeImageModelVersion(
+  value: JimengImageModelVersion | string | null | undefined
+): JimengImageModelVersion | undefined {
+  const normalized = value?.trim().toLowerCase() ?? '';
+  if (!normalized) {
+    return undefined;
   }
 
-  return {
-    text,
-    disabled: option.disabled === true,
-    selected: option.selected === true,
-    matchedValue: option.matchedValue ?? null,
-    matchedKnownControlKey: option.matchedKnownControlKey ?? null,
-  };
+  if (normalized in LEGACY_IMAGE_MODEL_VERSION_MAP) {
+    return LEGACY_IMAGE_MODEL_VERSION_MAP[normalized];
+  }
+
+  const allowed: JimengImageModelVersion[] = ['3.0', '3.1', '4.0', '4.1', '4.5', '4.6', '5.0', 'lab'];
+  return allowed.find((item) => item === normalized) ?? undefined;
 }
 
-function resolveInitialOptionText(
-  options: JimengNodeControlOption[],
-  previousControl: JimengNodeControlState | null | undefined
-): string {
-  const previousOptionText = previousControl?.optionText?.trim() ?? '';
-  if (previousOptionText && options.some((option) => option.text === previousOptionText)) {
-    return previousOptionText;
-  }
-
-  const selectedOption = options.find((option) => option.selected && !option.disabled);
-  if (selectedOption) {
-    return selectedOption.text;
-  }
-
-  const firstEnabledOption = options.find((option) => !option.disabled);
-  if (firstEnabledOption) {
-    return firstEnabledOption.text;
-  }
-
-  return options[0]?.text ?? '';
+function normalizeImageResolutionType(
+  value: JimengImageResolutionType | string | null | undefined
+): JimengImageResolutionType | undefined {
+  const normalized = value?.trim().toLowerCase() ?? '';
+  const allowed: JimengImageResolutionType[] = ['1k', '2k', '4k'];
+  return allowed.find((item) => item === normalized) ?? undefined;
 }
 
-function normalizeInspectionControl(
-  control: JimengInspectionControl,
-  previousControl: JimengNodeControlState | null | undefined,
-  knownControlKey?: JimengKnownControlKey | null
-): JimengNodeControlState | null {
-  const triggerText = control.triggerText.trim();
-  const options = (control.options ?? [])
-    .map(normalizeControlOption)
-    .filter((option): option is JimengNodeControlOption => option !== null);
-
-  if (!triggerText || options.length === 0) {
-    return null;
-  }
-
-  return {
-    controlIndex: control.controlIndex,
-    triggerText,
-    matchedValue: control.matchedValue ?? null,
-    matchedKnownControlKey: knownControlKey ?? control.matchedKnownControlKey ?? null,
-    optionText: resolveInitialOptionText(options, previousControl),
-    options,
-  };
+function normalizeAspectRatio(value: JimengAspectRatio | string | null | undefined): JimengAspectRatio | undefined {
+  const normalized = value?.trim() ?? '';
+  const allowed: JimengAspectRatio[] = ['21:9', '16:9', '4:3', '1:1', '3:4', '9:16'];
+  return allowed.find((item) => item === normalized) ?? undefined;
 }
 
-function buildPreviousControlLookup(controls: JimengNodeControlState[] | undefined) {
-  const byKnownKey = new Map<string, JimengNodeControlState>();
-  const byIndex = new Map<number, JimengNodeControlState>();
-
-  for (const control of controls ?? []) {
-    if (control.matchedKnownControlKey) {
-      byKnownKey.set(control.matchedKnownControlKey, control);
-    }
-    if (typeof control.controlIndex === 'number') {
-      byIndex.set(control.controlIndex, control);
-    }
-  }
-
-  return {
-    byKnownKey,
-    byIndex,
-  };
-}
-
-export function buildJimengControlStatesFromInspection(
-  report: JimengInspectionReport,
-  previousControls?: JimengNodeControlState[]
-): JimengNodeControlState[] {
-  const previousLookup = buildPreviousControlLookup(previousControls);
-  const controls: JimengNodeControlState[] = [];
-
-  for (const key of KNOWN_CONTROL_ORDER) {
-    const inspectionControl = report.knownControls?.[key];
-    if (!inspectionControl) {
-      continue;
-    }
-
-    const normalized = normalizeInspectionControl(
-      inspectionControl,
-      previousLookup.byKnownKey.get(key),
-      key
-    );
-    if (normalized) {
-      controls.push(normalized);
-    }
-  }
-
-  for (const toolbarControl of report.toolbar ?? []) {
-    if (
-      toolbarControl.matchedKnownControlKey
-      || typeof toolbarControl.controlIndex !== 'number'
-    ) {
-      continue;
-    }
-
-    const normalized = normalizeInspectionControl(
-      toolbarControl,
-      previousLookup.byIndex.get(toolbarControl.controlIndex)
-    );
-    if (normalized) {
-      controls.push(normalized);
-    }
-  }
-
-  return controls;
-}
-
-export async function inspectJimengImageControls(
-  previousControls?: JimengNodeControlState[]
-): Promise<JimengNodeControlState[]> {
-  const report = await inspectJimengChromeOptions<JimengInspectionReport>({
-    creationType: 'image',
-  });
-
-  return buildJimengControlStatesFromInspection(report, previousControls);
-}
-
-function parseDurationControlValue(control: JimengNodeControlState): number | null {
-  const matchedValue = control.matchedValue?.trim() ?? '';
-  if (matchedValue) {
-    const parsed = Number(matchedValue);
-    if (Number.isFinite(parsed) && parsed > 0) {
-      return Math.round(parsed);
-    }
-  }
-
-  const text = control.optionText.trim();
-  const match = text.match(/(\d{1,2})/);
-  if (!match) {
-    return null;
-  }
-
-  const parsed = Number(match[1]);
-  return Number.isFinite(parsed) && parsed > 0 ? Math.round(parsed) : null;
-}
-
-function buildJimengImageSubmitPayload(
-  prompt: string,
-  controls: JimengNodeControlState[],
-  referenceImages: Awaited<ReturnType<typeof prepareJimengReferenceImages>>
-): SubmitJimengPanelPayload {
-  const payload: SubmitJimengPanelPayload = {
-    prompt,
-    creationType: 'image',
-    referenceImages,
-    autoSubmit: true,
-    skipToolbarAutomation: false,
-  };
-
-  const extraControls: NonNullable<SubmitJimengPanelPayload['extraControls']> = [];
-
-  for (const control of controls) {
-    const optionText = control.optionText.trim();
-    if (!optionText) {
-      continue;
-    }
-
-    const resolvedValue = control.matchedValue?.trim() || optionText;
-    switch (control.matchedKnownControlKey) {
-      case 'creationType':
-        payload.creationType = resolvedValue;
-        break;
-      case 'model':
-        payload.model = resolvedValue;
-        break;
-      case 'referenceMode':
-        payload.referenceMode = resolvedValue;
-        break;
-      case 'aspectRatio':
-        payload.aspectRatio = resolvedValue;
-        break;
-      case 'durationSeconds': {
-        const parsedDuration = parseDurationControlValue(control);
-        if (parsedDuration !== null) {
-          payload.durationSeconds = parsedDuration;
-        } else if (typeof control.controlIndex === 'number') {
-          extraControls.push({
-            controlIndex: control.controlIndex,
-            triggerText: control.triggerText,
-            optionText,
-          });
-        }
-        break;
-      }
-      default:
-        if (typeof control.controlIndex === 'number') {
-          extraControls.push({
-            controlIndex: control.controlIndex,
-            triggerText: control.triggerText,
-            optionText,
-          });
-        }
-        break;
-    }
-  }
-
-  if (extraControls.length > 0) {
-    payload.extraControls = extraControls;
-  }
-
-  return payload;
-}
-
-export interface GenerateJimengImagePayload {
+export interface GenerateJimengImagesPayload {
   prompt: string;
-  controls?: JimengNodeControlState[];
+  aspectRatio?: JimengAspectRatio | string;
+  resolutionType?: JimengImageResolutionType | string;
+  modelVersion?: JimengImageModelVersion | string;
   referenceImageSources?: string[];
 }
 
-export async function generateJimengImages(
-  payload: GenerateJimengImagePayload
+export interface GeneratedJimengImagesResponse {
+  images: JimengGeneratedImageItem[];
+  submitIds: string[];
+}
+
+export interface QueryJimengImagesResultPayload {
+  submitIds: string[];
+  aspectRatio?: JimengAspectRatio | string;
+}
+
+export interface QueryJimengImagesResultResponse {
+  images: JimengGeneratedImageItem[];
+  submitIds: string[];
+  pendingSubmitIds: string[];
+  failedSubmitIds: string[];
+  warnings: string[];
+}
+
+async function buildGeneratedImageItems(
+  generatedImages: Awaited<ReturnType<typeof generateJimengDreaminaImages>>['results'],
+  aspectRatio: JimengAspectRatio | undefined
 ): Promise<JimengGeneratedImageItem[]> {
-  const normalizedPrompt = buildJimengSubmissionPrompt(payload.prompt);
-  if (!normalizedPrompt) {
-    throw new Error('Prompt is required for Jimeng image generation');
-  }
-
-  const referenceImages = await prepareJimengReferenceImages(payload.referenceImageSources);
-  const submitPayload = buildJimengImageSubmitPayload(
-    normalizedPrompt,
-    payload.controls ?? [],
-    referenceImages
-  );
-
-  const generatedImages = await generateJimengChromeImages(submitPayload);
   return await Promise.all(
     generatedImages.map(async (result, index) => {
       const prepared = await prepareNodeImage(result.sourceUrl);
@@ -277,11 +91,54 @@ export async function generateJimengImages(
         sourceUrl: result.sourceUrl,
         imageUrl: prepared.imageUrl,
         previewImageUrl: prepared.previewImageUrl,
-        aspectRatio: prepared.aspectRatio,
+        aspectRatio: aspectRatio ?? '1:1',
         width: result.width ?? undefined,
         height: result.height ?? undefined,
-        fileName: `jimeng-image-${index + 1}.png`,
+        fileName: result.fileName ?? `jimeng-image-${index + 1}.png`,
       } satisfies JimengGeneratedImageItem;
     })
   );
+}
+
+export async function generateJimengImages(
+  payload: GenerateJimengImagesPayload
+): Promise<GeneratedJimengImagesResponse> {
+  const normalizedPrompt = buildJimengSubmissionPrompt(payload.prompt);
+  if (!normalizedPrompt) {
+    throw new Error('Prompt is required for Jimeng image generation');
+  }
+
+  const referenceImages = await prepareJimengReferenceImages(payload.referenceImageSources);
+  const normalizedAspectRatio = normalizeAspectRatio(payload.aspectRatio);
+  const generationResponse = await generateJimengDreaminaImages({
+    prompt: normalizedPrompt,
+    aspectRatio: normalizedAspectRatio,
+    resolutionType: normalizeImageResolutionType(payload.resolutionType),
+    modelVersion: normalizeImageModelVersion(payload.modelVersion),
+    referenceImages,
+    imageCount: 4,
+    timeoutMs: 12 * 60 * 1000,
+  });
+
+  return {
+    images: await buildGeneratedImageItems(generationResponse.results, normalizedAspectRatio),
+    submitIds: generationResponse.submitIds,
+  };
+}
+
+export async function queryJimengImagesResult(
+  payload: QueryJimengImagesResultPayload
+): Promise<QueryJimengImagesResultResponse> {
+  const normalizedAspectRatio = normalizeAspectRatio(payload.aspectRatio);
+  const response = await queryJimengDreaminaImageResults({
+    submitIds: payload.submitIds,
+  });
+
+  return {
+    images: await buildGeneratedImageItems(response.results, normalizedAspectRatio),
+    submitIds: response.submitIds,
+    pendingSubmitIds: response.pendingSubmitIds,
+    failedSubmitIds: response.failedSubmitIds,
+    warnings: response.warnings,
+  };
 }

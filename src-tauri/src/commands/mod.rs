@@ -1,9 +1,8 @@
-pub mod ai;
+﻿pub mod ai;
 pub mod asset_state;
+pub mod dreamina_cli;
 pub mod export;
 pub mod image;
-pub mod jimeng_chrome;
-pub mod jimeng_panel;
 pub mod project_state;
 pub mod ps_server;
 pub mod storage;
@@ -13,10 +12,9 @@ pub mod update;
 
 pub use ai::*;
 pub use asset_state::*;
+pub use dreamina_cli::*;
 pub use export::*;
 pub use image::*;
-pub use jimeng_chrome::*;
-pub use jimeng_panel::*;
 pub use project_state::*;
 pub use ps_server::*;
 pub use storage::*;

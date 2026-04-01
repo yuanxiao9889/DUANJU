@@ -14,7 +14,8 @@
     "loading": "Loading...",
     "error": "Error",
     "success": "Success",
-    "referencePickerHint": "Use Up/Down to choose, Enter or Tab to insert"
+    "referencePickerHint": "Use Up/Down to choose, Enter or Tab to insert",
+    "next": "Next"
   },
   "theme": {
     "dark": "Dark",
@@ -136,8 +137,10 @@
       "uploadImage": "Upload Image",
       "aiImageGeneration": "AI Image",
       "jimeng": "Send to Jimeng",
+      "jimengVideo": "Jimeng Video",
       "jimengImage": "Jimeng Image",
       "jimengImageResult": "Jimeng 4-Grid",
+      "jimengVideoResult": "Jimeng Video Result",
       "storyboard": "Storyboard Compose",
       "storyboardCompose": "Storyboard Compose",
       "storyboardSplitResult": "Split Result",
@@ -191,30 +194,30 @@
       "referenceImageLabel": "Image {{index}}"
     },
     "jimeng": {
-      "promptRequired": "Please enter a prompt to send to Jimeng",
-      "optimizePrompt": "Optimize Prompt",
-      "optimizingPrompt": "Optimizing prompt",
-      "optimizePromptFailed": "Prompt optimization failed",
+      "promptRequired": "Please enter a prompt for Jimeng video generation",
+      "optimizePrompt": "Optimize Video Prompt",
+      "optimizingPrompt": "Optimizing video prompt",
+      "optimizePromptFailed": "Video prompt optimization failed",
       "optimizedPreviewTitle": "Optimized prompt preview",
       "applyOptimizedPrompt": "Apply optimized result",
-      "undoOptimizedPrompt": "Undo optimization",
+      "undoOptimizedPrompt": "Undo Video Optimization",
       "optimizeModelLabel": "Optimization model: {{model}}",
       "optimizeReferenceImagesLabel": "Reference images: {{status}}",
       "optimizeReferenceImagesUsed": "{{count}} used",
       "optimizeReferenceImagesUnused": "Not used",
-      "promptPlaceholder": "Write your Jimeng prompt here. Type @ to reference connected images.",
-      "referenceImageLabel": "Image {{index}}",
+      "promptPlaceholder": "Describe the scene, motion, camera, and pacing for Jimeng video generation",
+      "referenceImageLabel": "Reference {{index}}",
       "referenceCount": "{{count}} connected reference images",
       "referenceHelper": "Use @ to insert image references",
-      "referenceEmpty": "Connect images upstream to use @image references in this node.",
+      "referenceEmpty": "Connect upstream images and they will be submitted as Dreamina CLI references.",
       "extraControls": "Jimeng Toolbar Extras",
-      "submit": "Send to Jimeng",
-      "submitting": "Sending",
-      "submitFailed": "Failed to send the prompt to Jimeng",
+      "submit": "Generate",
+      "submitting": "Generating",
+      "submitFailed": "Jimeng video generation failed",
       "durationSuggestionIdle": "Suggested duration will appear after prompt optimization",
       "durationSuggestionLoading": "LLM is estimating a suitable duration...",
       "durationSuggestionLabel": "Suggested duration: {{seconds}}s",
-      "durationSuggestionOverflow": "Suggested duration: {{seconds}}s, this content may need about {{estimated}}s and could exceed the 15s limit",
+      "durationSuggestionOverflow": "Suggested duration: {{seconds}}s. This content may need about {{estimated}}s and could exceed the 15s limit.",
       "submitHint": "Automatic send now fills only the prompt and images, then triggers Jimeng send directly. Please confirm ratio, duration, and other parameters on the Jimeng page itself.",
       "manualSetupReminderTitle": "Confirm Jimeng parameters on the web page first",
       "manualSetupReminderBody": "This node now only fills the prompt and reference images automatically. It no longer chooses mode, ratio, duration, model, or other Jimeng parameters for you.",
@@ -231,6 +234,11 @@
       "syncStateReadyAt": "Synced {{time}}",
       "syncStateError": "Sync Failed",
       "lastSubmitted": "Last sent at {{time}}",
+      "resultReturnedAt": "Generated to the video result node at {{time}}",
+      "resultEmpty": "Jimeng did not return any usable video result",
+      "resultNodeTitle": "Jimeng Video Result",
+      "openWorkspace": "Open Jimeng",
+      "syncControls": "Sync Controls",
       "creationTypes": {
         "image": "Image Generation",
         "video": "Video Generation",
@@ -255,10 +263,10 @@
         "seedance-1.0-mini": "Lightweight legacy mode for simple attempts."
       },
       "referenceModes": {
-        "allAround": "All-around Reference",
-        "firstLastFrame": "First/Last Frame",
-        "smartFrames": "Smart Multi-frame",
-        "subject": "Subject Reference"
+        "allAround": "All-around",
+        "firstLastFrame": "First / Last Frame",
+        "smartFrames": "Smart Frames",
+        "subject": "Subject"
       },
       "referenceModeDescriptions": {
         "allAround": "General-purpose reference mode close to the current default.",
@@ -287,16 +295,66 @@
         "13": "13s",
         "14": "14s",
         "15": "15s"
+      },
+      "promptLabel": "Prompt",
+      "referenceImagesLabel": "Reference Images",
+      "referenceReorderHint": "Order matters",
+      "audioReferencesLabel": "{{count}} audio references",
+      "audioReferenceLabel": "Audio {{index}}",
+      "audioReferencesEmpty": "Connect audio nodes and they will be submitted as reference audio.",
+      "cliBlockedAudioNeedsImage": "Audio references currently require at least one image reference before Dreamina CLI can submit the task.",
+      "cliMode": {
+        "text2video": "Text to Video",
+        "image2video": "Image to Video",
+        "frames2video": "First / Last Frame",
+        "multiframe2video": "Multiframe Transition",
+        "multimodal2video": "Multimodal"
+      },
+      "cliHint": {
+        "text2video": "CLI: {{command}} | Effective model {{model}} | Duration 4-15s | Resolution 720p",
+        "image2video": "CLI: {{command}} | Duration {{duration}} | Resolution {{resolution}}",
+        "frames2video": "CLI: {{command}} | Uses only the first and last image | Effective model {{model}} | Duration {{duration}} | Resolution {{resolution}}",
+        "multiframeTwo": "CLI: {{command}} | 2 reference images | Duration 2-8s | Model / ratio / resolution are fixed by the CLI",
+        "multiframeMany": "CLI: {{command}} | {{count}} reference images | Transition durations are auto-distributed | Model / ratio / resolution are fixed by the CLI",
+        "multimodal2video": "CLI: {{command}} | Effective model {{model}} | Duration 4-15s | Resolution 720p"
+      },
+      "parameterHint": "This node now uses fixed Dreamina CLI parameters and creates a video result node after generation.",
+      "parameters": {
+        "model": "Model",
+        "referenceMode": "Reference",
+        "aspectRatio": "Ratio",
+        "duration": "Duration",
+        "videoResolution": "Resolution"
+      },
+      "modelOptions": {
+        "seedance20fast": "Seedance 2.0 Fast",
+        "seedance20": "Seedance 2.0",
+        "v3_5pro": "3.5 Pro",
+        "v3_0pro": "3.0 Pro",
+        "v3_0fast": "3.0 Fast",
+        "v3_0": "3.0 Standard"
+      },
+      "modelOptionDescriptions": {
+        "seedance20fast": "Faster output for quick iteration.",
+        "seedance20": "Balanced default for quality and stability.",
+        "v3_5pro": "Higher quality route for richer detail.",
+        "v3_0pro": "More stable Pro-oriented route.",
+        "v3_0fast": "Faster 3.0 mode for draft passes.",
+        "v3_0": "Base 3.0 mode."
+      },
+      "videoResolutionOptions": {
+        "720p": "720p",
+        "1080p": "1080p"
       }
     },
     "jimengImage": {
       "promptLabel": "Prompt",
       "promptPlaceholder": "Describe the image you want Jimeng to generate",
       "promptRequired": "Please enter a prompt for Jimeng image generation",
-      "optimizePrompt": "Optimize Prompt",
-      "optimizingPrompt": "Optimizing prompt",
-      "optimizePromptFailed": "Prompt optimization failed",
-      "undoOptimizedPrompt": "Undo optimization",
+      "optimizePrompt": "Optimize Image Prompt",
+      "optimizingPrompt": "Optimizing image prompt",
+      "optimizePromptFailed": "Image prompt optimization failed",
+      "undoOptimizedPrompt": "Undo Image Optimization",
       "optimizeModelLabel": "Optimization model: {{model}}",
       "optimizeReferenceImagesLabel": "Reference images: {{status}}",
       "optimizeReferenceImagesUsed": "{{count}} used",
@@ -307,15 +365,36 @@
       "notSynced": "Not synced",
       "syncedAt": "Synced {{time}}",
       "referenceCount": "{{count}} connected reference images",
-      "referenceEmpty": "Connect images upstream to use them as Jimeng references.",
+      "referenceEmpty": "Connect upstream images and they will be submitted as Dreamina CLI references.",
       "openWorkspace": "Open Jimeng",
       "syncControls": "Sync Controls",
       "generate": "Generate",
       "generating": "Generating",
-      "generateFailed": "Failed to generate images from Jimeng",
+      "generateFailed": "Jimeng image generation failed",
       "generatedAt": "Generated {{time}}",
-      "generatedToNode": "Generated into a new 4-grid node at {{time}}",
-      "resultNodeTitle": "Jimeng 4-Grid Result"
+      "generatedToNode": "Generated to a new 4-grid node at {{time}}",
+      "resultNodeTitle": "Jimeng 4-Grid Result",
+      "parameterHint": "This node now uses fixed Dreamina CLI parameters and creates a 4-grid result node after generation.",
+      "parameters": {
+        "model": "Model",
+        "resolution": "Resolution",
+        "aspectRatio": "Ratio"
+      },
+      "modelOptions": {
+        "v3_0": "3.0",
+        "v3_1": "3.1",
+        "v4_0": "4.0",
+        "v4_1": "4.1",
+        "v4_5": "4.5",
+        "v4_6": "4.6",
+        "v5_0": "5.0",
+        "lab": "Lab"
+      },
+      "resolutionOptions": {
+        "1k": "1K",
+        "2k": "2K",
+        "4k": "4K"
+      }
     },
     "jimengImageResult": {
       "empty": "Waiting for Jimeng results.",
@@ -325,6 +404,15 @@
       "statusGenerating": "Jimeng is generating the latest 4-image batch...",
       "generatedAt": "Generated {{time}}",
       "readyCount": "{{count}} images"
+    },
+    "jimengVideoResult": {
+      "empty": "Waiting for Jimeng video results.",
+      "pending": "Generating...",
+      "generating": "Generating",
+      "ready": "Returned",
+      "statusGenerating": "Jimeng is generating the video and waiting for the website callback...",
+      "generatedAt": "Returned {{time}}",
+      "duration": "Duration {{duration}}"
     },
     "sendToPs": "Send to PS",
     "sendToPsSuccess": "Sent to Photoshop",
@@ -347,6 +435,9 @@
     },
     "storyboardSplitResult": {
       "title": "Split Result",
+      "editFrame": "Edit This Frame",
+      "editEmpty": "This frame has no editable image",
+      "editFailed": "Failed to create frame node",
       "exportFrames": "Export Frames",
       "exportingFrames": "Exporting...",
       "exportEmpty": "There are no split images to export",

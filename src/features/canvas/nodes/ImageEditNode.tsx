@@ -1406,7 +1406,7 @@ export const ImageEditNode = memo(({ id, data, selected, width, height }: ImageE
                     type="button"
                     active={isOptimizingPrompt}
                     disabled={isOptimizingPrompt || promptDraft.trim().length === 0}
-                    className={`${NODE_CONTROL_CHIP_CLASS} !w-7 !px-0 shrink-0 justify-center`}
+                    className={`${NODE_CONTROL_CHIP_CLASS} !w-8 !px-0 shrink-0 justify-center`}
                     aria-label={
                       isOptimizingPrompt
                         ? t('node.imageEdit.optimizingPrompt')
@@ -1434,7 +1434,7 @@ export const ImageEditNode = memo(({ id, data, selected, width, height }: ImageE
                   <UiChipButton
                     type="button"
                     disabled={isOptimizingPrompt || !canUndoPromptOptimization}
-                    className={`${NODE_CONTROL_CHIP_CLASS} !w-7 !px-0 shrink-0 justify-center`}
+                    className={`${NODE_CONTROL_CHIP_CLASS} !w-8 !px-0 shrink-0 justify-center`}
                     aria-label={t('node.imageEdit.undoOptimizedPrompt')}
                     title={t('node.imageEdit.undoOptimizedPrompt')}
                     onClick={(event) => {

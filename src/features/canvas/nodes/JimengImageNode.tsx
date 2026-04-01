@@ -1,23 +1,16 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Handle, Position, useUpdateNodeInternals, type NodeProps } from '@xyflow/react';
-import {
-  ExternalLink,
-  Loader2,
-  RefreshCw,
-  Sparkles,
-  TriangleAlert,
-  Undo2,
-  Wand2,
-} from 'lucide-react';
+import { Loader2, Sparkles, TriangleAlert, Undo2, Wand2 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 
+import { checkDreaminaCliStatus } from '@/commands/dreaminaCli';
 import {
   CANVAS_NODE_TYPES,
   JIMENG_IMAGE_RESULT_NODE_DEFAULT_HEIGHT,
   JIMENG_IMAGE_RESULT_NODE_DEFAULT_WIDTH,
   type JimengImageNodeData,
-  type JimengNodeControlOption,
-  type JimengNodeControlState,
+  type JimengImageModelVersion,
+  type JimengImageResolutionType,
 } from '@/features/canvas/domain/canvasNodes';
 import { resolveNodeDisplayName } from '@/features/canvas/domain/nodeDisplay';
 import { graphImageResolver } from '@/features/canvas/application/canvasServices';
@@ -35,22 +28,18 @@ import {
 } from '@/features/canvas/ui/nodeControlStyles';
 import { UiButton, UiChipButton, UiSelect } from '@/components/ui';
 import { useCanvasStore } from '@/stores/canvasStore';
-import { focusJimengChromeWorkspace } from '@/features/jimeng/application/jimengChromeWorkspace';
+import { generateJimengImages } from '@/features/jimeng/application/jimengImageGeneration';
 import {
-  generateJimengImages,
-  inspectJimengImageControls,
-} from '@/features/jimeng/application/jimengImageGeneration';
+  JIMENG_ASPECT_RATIO_OPTIONS,
+  JIMENG_IMAGE_MODEL_OPTIONS,
+  JIMENG_IMAGE_RESOLUTION_OPTIONS,
+} from '@/features/jimeng/domain/jimengOptions';
 
 type JimengImageNodeProps = NodeProps & {
   id: string;
   data: JimengImageNodeData;
   selected?: boolean;
 };
-
-interface VisibleControlEntry {
-  control: JimengNodeControlState;
-  originalIndex: number;
-}
 
 interface PromptOptimizationMeta {
   modelLabel: string;
@@ -62,12 +51,20 @@ interface PromptOptimizationUndoState {
   appliedPrompt: string;
 }
 
-const JIMENG_IMAGE_NODE_DEFAULT_WIDTH = 560;
-const JIMENG_IMAGE_NODE_DEFAULT_HEIGHT = 300;
-const JIMENG_IMAGE_NODE_MIN_WIDTH = 520;
-const JIMENG_IMAGE_NODE_MIN_HEIGHT = 220;
+interface FixedControlOption<T extends string> {
+  value: T;
+  label: string;
+}
+
+const JIMENG_IMAGE_NODE_DEFAULT_WIDTH = 640;
+const JIMENG_IMAGE_NODE_DEFAULT_HEIGHT = 340;
+const JIMENG_IMAGE_NODE_MIN_WIDTH = 620;
+const JIMENG_IMAGE_NODE_MIN_HEIGHT = 300;
 const JIMENG_IMAGE_NODE_MAX_WIDTH = 1400;
 const JIMENG_IMAGE_NODE_MAX_HEIGHT = 1000;
+const DEFAULT_IMAGE_MODEL: JimengImageModelVersion = '5.0';
+const DEFAULT_IMAGE_RESOLUTION: JimengImageResolutionType = '2k';
+const DEFAULT_IMAGE_ASPECT_RATIO = '1:1';
 
 function formatTimestamp(
   timestamp: number | null | undefined,
@@ -83,76 +80,48 @@ function formatTimestamp(
   }).format(new Date(timestamp));
 }
 
-function normalizeAspectRatio(value: string | null | undefined): string | null {
-  if (typeof value !== 'string') {
-    return null;
-  }
-
-  const match = value.trim().match(/(\d{1,2})\s*[:/]\s*(\d{1,2})/);
-  if (!match) {
-    return null;
-  }
-
-  return `${match[1]}:${match[2]}`;
-}
-
-function resolveSelectedJimengAspectRatio(controls: JimengNodeControlState[]): string {
-  for (const control of controls) {
-    if (control.matchedKnownControlKey !== 'aspectRatio') {
-      continue;
-    }
-
-    const normalized = normalizeAspectRatio(control.matchedValue) ?? normalizeAspectRatio(control.optionText);
-    if (normalized) {
-      return normalized;
-    }
-  }
-
-  return '1:1';
-}
-
 function buildJimengResultNodeTitle(prompt: string, fallbackTitle: string): string {
   const normalizedPrompt = prompt.trim();
   return normalizedPrompt || fallbackTitle;
 }
 
-function buildVisibleControls(controls: JimengNodeControlState[]): VisibleControlEntry[] {
-  return controls
-    .map((control, originalIndex) => ({ control, originalIndex }))
-    .filter(({ control }) => control.matchedKnownControlKey !== 'creationType');
-}
-
-function JimengControlChip({
+function FixedControlChip<T extends string>({
   label,
   value,
   options,
   onChange,
 }: {
   label: string;
-  value: string;
-  options: JimengNodeControlOption[];
-  onChange: (nextValue: string) => void;
+  value: T;
+  options: FixedControlOption<T>[];
+  onChange: (nextValue: T) => void;
 }) {
+  const chipRef = useRef<HTMLDivElement>(null);
+
   return (
     <div
-      className="flex h-7 shrink-0 items-center gap-1 rounded-lg border border-[color:var(--ui-border-soft)] bg-[var(--ui-surface-field)] px-2"
+      ref={chipRef}
+      className="flex h-7 min-w-[96px] shrink-0 items-center gap-1 rounded-lg border border-[color:var(--ui-border-soft)] bg-[var(--ui-surface-field)] px-2"
       onMouseDown={(event) => event.stopPropagation()}
     >
-      <span className="max-w-[84px] truncate text-[11px] text-text-muted" title={label}>
+      <span className="shrink-0 text-[10px] text-text-muted/90" title={label}>
         {label}
       </span>
-      <UiSelect
-        value={value}
-        aria-label={label}
-        className="nodrag !h-6 !w-[132px] !rounded-md !border-0 !bg-transparent !px-1.5 !text-[11px] !font-medium hover:!border-0 focus-visible:!border-0 focus-visible:!shadow-none"
-        onChange={(event) => onChange(event.target.value)}
-      >
-        {options.map((option) => (
-          <option key={option.text} value={option.text} disabled={option.disabled}>
-            {option.text}
-          </option>
-        ))}
-      </UiSelect>
+      <div className="min-w-0 flex-1">
+        <UiSelect
+          value={value}
+          aria-label={label}
+          menuAnchorRef={chipRef}
+          className="nodrag !h-6 !w-full !rounded-md !border-0 !bg-transparent !px-0.5 !text-[10.5px] !font-medium hover:!border-0 focus-visible:!border-0 focus-visible:!shadow-none"
+          onChange={(event) => onChange(event.target.value as T)}
+        >
+          {options.map((option) => (
+            <option key={option.value} value={option.value}>
+              {option.label}
+            </option>
+          ))}
+        </UiSelect>
+      </div>
     </div>
   );
 }
@@ -167,6 +136,8 @@ export const JimengImageNode = memo(({
   const { t, i18n } = useTranslation();
   const updateNodeInternals = useUpdateNodeInternals();
   const [isOptimizingPrompt, setIsOptimizingPrompt] = useState(false);
+  const [isCheckingCliStatus, setIsCheckingCliStatus] = useState(false);
+  const [cliStatusMessage, setCliStatusMessage] = useState<string | null>(null);
   const [promptOptimizationError, setPromptOptimizationError] = useState<string | null>(null);
   const [lastPromptOptimizationMeta, setLastPromptOptimizationMeta] =
     useState<PromptOptimizationMeta | null>(null);
@@ -202,15 +173,34 @@ export const JimengImageNode = memo(({
     JIMENG_IMAGE_NODE_MIN_HEIGHT,
     Math.round(height ?? JIMENG_IMAGE_NODE_DEFAULT_HEIGHT)
   );
-  const controls = Array.isArray(data.controls) ? data.controls : [];
-  const visibleControls = useMemo(() => buildVisibleControls(controls), [controls]);
-  const lastSyncTime = useMemo(
-    () => formatTimestamp(data.controlsSyncedAt ?? null, i18n.language),
-    [data.controlsSyncedAt, i18n.language]
-  );
   const lastGeneratedTime = useMemo(
     () => formatTimestamp(data.lastGeneratedAt ?? null, i18n.language),
     [data.lastGeneratedAt, i18n.language]
+  );
+  const selectedModel = data.modelVersion ?? DEFAULT_IMAGE_MODEL;
+  const selectedResolution = data.resolutionType ?? DEFAULT_IMAGE_RESOLUTION;
+  const selectedAspectRatio = data.aspectRatio ?? DEFAULT_IMAGE_ASPECT_RATIO;
+
+  const modelOptions = useMemo(
+    () => JIMENG_IMAGE_MODEL_OPTIONS.map((option) => ({
+      value: option.value,
+      label: t(option.labelKey),
+    })),
+    [t]
+  );
+  const resolutionOptions = useMemo(
+    () => JIMENG_IMAGE_RESOLUTION_OPTIONS.map((option) => ({
+      value: option.value,
+      label: t(option.labelKey),
+    })),
+    [t]
+  );
+  const aspectRatioOptions = useMemo(
+    () => JIMENG_ASPECT_RATIO_OPTIONS.map((option) => ({
+      value: option.value,
+      label: t(option.labelKey),
+    })),
+    [t]
   );
 
   useEffect(() => {
@@ -225,11 +215,7 @@ export const JimengImageNode = memo(({
 
   useEffect(() => {
     updateNodeInternals(id);
-  }, [id, resolvedHeight, resolvedWidth, visibleControls.length, updateNodeInternals]);
-
-  const updateControls = useCallback((nextControls: JimengNodeControlState[]) => {
-    updateNodeData(id, { controls: nextControls });
-  }, [id, updateNodeData]);
+  }, [id, incomingImages.length, resolvedHeight, resolvedWidth, updateNodeInternals]);
 
   const updatePrompt = useCallback((nextPrompt: string) => {
     promptValueRef.current = nextPrompt;
@@ -242,69 +228,6 @@ export const JimengImageNode = memo(({
     setLastPromptOptimizationUndoState(null);
     updatePrompt(nextPrompt);
   }, [updatePrompt]);
-
-  const syncControlsInternal = useCallback(async (): Promise<JimengNodeControlState[]> => {
-    updateNodeData(id, {
-      isSyncingControls: true,
-      lastError: null,
-    });
-
-    try {
-      await focusJimengChromeWorkspace('image');
-      const nextControls = await inspectJimengImageControls(controls);
-      updateNodeData(id, {
-        controls: nextControls,
-        controlsSyncedAt: Date.now(),
-        isSyncingControls: false,
-        lastError: null,
-      });
-      return nextControls;
-    } catch (error) {
-      const content = resolveErrorContent(error, t('node.jimengImage.syncFailed'));
-      updateNodeData(id, {
-        isSyncingControls: false,
-        lastError: content.message,
-      });
-      throw content;
-    }
-  }, [controls, id, t, updateNodeData]);
-
-  const handleOpenWorkspace = useCallback(async () => {
-    setPromptOptimizationError(null);
-    updateNodeData(id, { lastError: null });
-
-    try {
-      await focusJimengChromeWorkspace('image');
-    } catch (error) {
-      const content = resolveErrorContent(error, t('titleBar.jimengOpenFailed'));
-      updateNodeData(id, { lastError: content.message });
-      await showErrorDialog(content.message, t('common.error'), content.details);
-    }
-  }, [id, t, updateNodeData]);
-
-  const handleSyncControls = useCallback(async () => {
-    setPromptOptimizationError(null);
-    try {
-      await syncControlsInternal();
-    } catch (error) {
-      const content = error instanceof Error
-        ? { message: error.message, details: undefined }
-        : resolveErrorContent(error, t('node.jimengImage.syncFailed'));
-      await showErrorDialog(content.message, t('common.error'), content.details);
-    }
-  }, [syncControlsInternal, t]);
-
-  const handleControlChange = useCallback((controlIndex: number, optionText: string) => {
-    const nextControls = controls.map((control, index) =>
-      index === controlIndex
-        ? {
-            ...control,
-            optionText,
-          }
-        : control
-    );
-    updateControls(nextControls);
-  }, [controls, updateControls]);
 
   const handleOptimizePrompt = useCallback(async () => {
     const sourcePrompt = promptValueRef.current;
@@ -363,6 +286,26 @@ export const JimengImageNode = memo(({
     }
   }, [id, incomingImages, t, updateNodeData, updatePrompt]);
 
+  const handleCheckCliStatus = useCallback(async () => {
+    setIsCheckingCliStatus(true);
+
+    try {
+      const status = await checkDreaminaCliStatus();
+      const message = [status.message, status.detail].filter(Boolean).join(' | ');
+      setCliStatusMessage(message || status.message);
+
+      if (!status.ready) {
+        await showErrorDialog(status.detail ?? status.message, t('common.error'));
+      }
+    } catch (error) {
+      const content = resolveErrorContent(error, t('node.jimengImage.checkCliFailed'));
+      setCliStatusMessage(content.message);
+      await showErrorDialog(content.message, t('common.error'), content.details);
+    } finally {
+      setIsCheckingCliStatus(false);
+    }
+  }, [t]);
+
   const handleUndoOptimizedPrompt = useCallback(() => {
     if (!lastPromptOptimizationUndoState) {
       return;
@@ -394,6 +337,7 @@ export const JimengImageNode = memo(({
     }
 
     setPromptOptimizationError(null);
+    setCliStatusMessage(null);
     updateNodeData(id, {
       isGenerating: true,
       generationStartedAt: Date.now(),
@@ -404,12 +348,6 @@ export const JimengImageNode = memo(({
     let createdResultNodeId: string | null = null;
 
     try {
-      let activeControls = controls;
-      if (activeControls.length === 0) {
-        activeControls = await syncControlsInternal();
-      }
-
-      const resolvedAspectRatio = resolveSelectedJimengAspectRatio(activeControls);
       const resultNodePosition = findNodePosition(
         id,
         JIMENG_IMAGE_RESULT_NODE_DEFAULT_WIDTH,
@@ -421,7 +359,8 @@ export const JimengImageNode = memo(({
         {
           sourceNodeId: id,
           displayName: buildJimengResultNodeTitle(prompt, t('node.jimengImage.resultNodeTitle')),
-          aspectRatio: resolvedAspectRatio,
+          submitIds: [],
+          aspectRatio: selectedAspectRatio,
           gridRows: 2,
           gridCols: 2,
           resultImages: [],
@@ -435,16 +374,16 @@ export const JimengImageNode = memo(({
       );
       addEdge(id, createdResultNodeId);
 
-      const generatedResults = await generateJimengImages({
+      const generationResponse = await generateJimengImages({
         prompt,
-        controls: activeControls,
+        aspectRatio: selectedAspectRatio,
+        resolutionType: selectedResolution,
+        modelVersion: selectedModel,
         referenceImageSources: incomingImages,
       });
-      const finalAspectRatio = generatedResults[0]?.aspectRatio ?? resolvedAspectRatio;
       const completedAt = Date.now();
 
       updateNodeData(id, {
-        controls: activeControls,
         isGenerating: false,
         generationStartedAt: null,
         lastGeneratedAt: completedAt,
@@ -454,8 +393,9 @@ export const JimengImageNode = memo(({
 
       if (createdResultNodeId) {
         updateNodeData(createdResultNodeId, {
-          aspectRatio: finalAspectRatio,
-          resultImages: generatedResults,
+          submitIds: generationResponse.submitIds,
+          aspectRatio: selectedAspectRatio,
+          resultImages: generationResponse.images,
           isGenerating: false,
           generationStartedAt: null,
           lastGeneratedAt: completedAt,
@@ -481,13 +421,14 @@ export const JimengImageNode = memo(({
   }, [
     addEdge,
     addNode,
-    controls,
     data.generationDurationMs,
     data.prompt,
     findNodePosition,
     id,
     incomingImages,
-    syncControlsInternal,
+    selectedAspectRatio,
+    selectedModel,
+    selectedResolution,
     t,
     updateNodeData,
   ]);
@@ -522,22 +463,22 @@ export const JimengImageNode = memo(({
       );
     }
 
-    if (data.isSyncingControls) {
+    if (isOptimizingPrompt) {
       return (
         <NodeStatusBadge
           icon={<Loader2 className="h-3 w-3" />}
-          label={t('node.jimengImage.syncing')}
+          label={t('node.jimengImage.optimizingPrompt')}
           tone="processing"
           animate
         />
       );
     }
 
-    if (isOptimizingPrompt) {
+    if (isCheckingCliStatus) {
       return (
         <NodeStatusBadge
           icon={<Loader2 className="h-3 w-3" />}
-          label={t('node.jimengImage.optimizingPrompt')}
+          label={t('node.jimengImage.checkingCli')}
           tone="processing"
           animate
         />
@@ -556,22 +497,15 @@ export const JimengImageNode = memo(({
     }
 
     return null;
-  }, [combinedError, data.isGenerating, data.isSyncingControls, isOptimizingPrompt, t]);
+  }, [combinedError, data.isGenerating, isCheckingCliStatus, isOptimizingPrompt, t]);
 
   const statusInfoText = combinedError
     ?? (data.isGenerating
       ? t('node.jimengImage.generating')
-      : data.isSyncingControls
-        ? t('node.jimengImage.syncing')
-        : isOptimizingPrompt
-          ? t('node.jimengImage.optimizingPrompt')
-          : lastGeneratedTime
-            ? t('node.jimengImage.generatedToNode', { time: lastGeneratedTime })
-            : promptOptimizationNotice
-              ? promptOptimizationNotice
-              : lastSyncTime
-                ? t('node.jimengImage.syncedAt', { time: lastSyncTime })
-                : t('node.jimengImage.panelEmpty'));
+      : cliStatusMessage
+        ?? (lastGeneratedTime
+          ? t('node.jimengImage.generatedToNode', { time: lastGeneratedTime })
+          : promptOptimizationNotice));
 
   return (
     <div
@@ -593,89 +527,72 @@ export const JimengImageNode = memo(({
         onTitleChange={(nextTitle) => updateNodeData(id, { displayName: nextTitle })}
       />
 
-      <div className="relative min-h-0 flex-1 rounded-lg border border-[rgba(255,255,255,0.1)] bg-bg-dark/45 p-2 pt-9">
-        <div className="mb-2 flex items-center justify-between gap-2">
-          <div className="text-sm font-semibold text-text-dark">
-            {t('node.jimengImage.promptLabel')}
-          </div>
-          <div className="text-xs text-text-muted">
-            {t('node.jimengImage.referenceCount', { count: incomingImages.length })}
-          </div>
-        </div>
+      <div className="relative min-h-0 flex-1 rounded-lg border border-[rgba(255,255,255,0.1)] bg-bg-dark/45 p-2">
+        <div className="flex h-full min-h-0 flex-col gap-2">
+          <textarea
+            ref={promptRef}
+            value={data.prompt ?? ''}
+            onChange={(event) => handlePromptChange(event.target.value)}
+            placeholder={t('node.jimengImage.promptPlaceholder')}
+            className="ui-scrollbar nodrag nowheel min-h-[136px] flex-1 w-full resize-none rounded-xl border border-white/10 bg-black/15 px-3 py-2 text-sm leading-6 text-text-dark outline-none placeholder:text-text-muted/70 focus:border-accent/50"
+            onMouseDown={(event) => event.stopPropagation()}
+            onKeyDownCapture={(event) => {
+              if ((event.ctrlKey || event.metaKey) && event.key === 'Enter') {
+                event.preventDefault();
+                event.stopPropagation();
+                void handleGenerate();
+              }
+            }}
+          />
 
-        <textarea
-          ref={promptRef}
-          value={data.prompt ?? ''}
-          onChange={(event) => handlePromptChange(event.target.value)}
-          placeholder={t('node.jimengImage.promptPlaceholder')}
-          className="ui-scrollbar nodrag nowheel min-h-[110px] h-full w-full resize-none rounded-xl border border-white/10 bg-black/15 px-3 py-2 text-sm leading-6 text-text-dark outline-none placeholder:text-text-muted/70 focus:border-accent/50"
-          onMouseDown={(event) => event.stopPropagation()}
-          onKeyDownCapture={(event) => {
-            if ((event.ctrlKey || event.metaKey) && event.key === 'Enter') {
-              event.preventDefault();
-              event.stopPropagation();
-              void handleGenerate();
-            }
-          }}
-        />
-
-        <div className="mt-3 flex min-h-[54px] flex-wrap gap-2 overflow-hidden">
-          {incomingImages.length > 0 ? (
-            incomingImages.map((imageUrl, index) => (
-              <CanvasNodeImage
-                key={`${imageUrl}-${index}`}
-                src={resolveImageDisplayUrl(imageUrl)}
-                alt={t('node.jimeng.referenceImageLabel', { index: index + 1 })}
-                viewerSourceUrl={resolveImageDisplayUrl(imageUrl)}
-                viewerImageList={incomingImageDisplayList}
-                className="h-12 w-12 rounded-lg object-cover"
-                draggable={false}
-              />
-            ))
-          ) : (
-            <div className="flex h-full min-h-[54px] w-full items-center justify-center rounded-xl border border-dashed border-white/10 bg-black/10 px-4 text-xs text-text-muted">
-              {t('node.jimengImage.referenceEmpty')}
-            </div>
-          )}
+          <div className="flex min-h-[44px] flex-wrap items-center gap-2 rounded-xl border border-white/10 bg-black/10 px-2 py-2">
+            {incomingImages.length > 0 ? (
+              incomingImages.map((imageUrl, index) => (
+                <CanvasNodeImage
+                  key={`${imageUrl}-${index}`}
+                  src={resolveImageDisplayUrl(imageUrl)}
+                  alt={t('node.jimeng.referenceImageLabel', { index: index + 1 })}
+                  viewerSourceUrl={resolveImageDisplayUrl(imageUrl)}
+                  viewerImageList={incomingImageDisplayList}
+                  className="h-10 w-10 rounded-lg object-cover"
+                  draggable={false}
+                />
+              ))
+            ) : (
+              <div className="flex min-h-[28px] w-full items-center text-[11px] text-text-muted">
+                {t('node.jimengImage.referenceCount', { count: 0 })}
+              </div>
+            )}
+          </div>
         </div>
       </div>
 
       <div className="mt-2 flex shrink-0 items-center gap-2">
         <div className="ui-scrollbar min-w-0 flex-1 overflow-x-auto overflow-y-hidden">
-          <div className="flex w-max min-w-full items-center gap-1">
-            <UiChipButton
-              type="button"
-              className={`${NODE_CONTROL_CHIP_CLASS} shrink-0`}
-              onClick={(event) => {
-                event.stopPropagation();
-                void handleOpenWorkspace();
-              }}
-            >
-              <ExternalLink className="h-3.5 w-3.5" />
-              {t('node.jimengImage.openWorkspace')}
-            </UiChipButton>
-            <UiChipButton
-              type="button"
-              active={data.isSyncingControls === true}
-              disabled={data.isSyncingControls === true}
-              className={`${NODE_CONTROL_CHIP_CLASS} shrink-0`}
-              onClick={(event) => {
-                event.stopPropagation();
-                void handleSyncControls();
-              }}
-            >
-              {data.isSyncingControls ? (
-                <Loader2 className="h-3.5 w-3.5 animate-spin" />
-              ) : (
-                <RefreshCw className="h-3.5 w-3.5" />
-              )}
-              {t('node.jimengImage.syncControls')}
-            </UiChipButton>
+          <div className="flex w-max min-w-full items-center gap-1.5 pr-1">
+            <FixedControlChip
+              label={t('node.jimengImage.parameters.model')}
+              value={selectedModel}
+              options={modelOptions}
+              onChange={(nextValue) => updateNodeData(id, { modelVersion: nextValue })}
+            />
+            <FixedControlChip
+              label={t('node.jimengImage.parameters.resolution')}
+              value={selectedResolution}
+              options={resolutionOptions}
+              onChange={(nextValue) => updateNodeData(id, { resolutionType: nextValue })}
+            />
+            <FixedControlChip
+              label={t('node.jimengImage.parameters.aspectRatio')}
+              value={selectedAspectRatio}
+              options={aspectRatioOptions}
+              onChange={(nextValue) => updateNodeData(id, { aspectRatio: nextValue })}
+            />
             <UiChipButton
               type="button"
               active={isOptimizingPrompt}
               disabled={isOptimizingPrompt || (data.prompt?.trim().length ?? 0) === 0}
-              className={`${NODE_CONTROL_CHIP_CLASS} !w-7 !px-0 shrink-0 justify-center`}
+              className={`${NODE_CONTROL_CHIP_CLASS} !w-8 !px-0 shrink-0 justify-center`}
               aria-label={
                 isOptimizingPrompt
                   ? t('node.jimengImage.optimizingPrompt')
@@ -703,7 +620,7 @@ export const JimengImageNode = memo(({
             <UiChipButton
               type="button"
               disabled={isOptimizingPrompt || !canUndoPromptOptimization}
-              className={`${NODE_CONTROL_CHIP_CLASS} !w-7 !px-0 shrink-0 justify-center`}
+              className={`${NODE_CONTROL_CHIP_CLASS} !w-8 !px-0 shrink-0 justify-center`}
               aria-label={t('node.jimengImage.undoOptimizedPrompt')}
               title={t('node.jimengImage.undoOptimizedPrompt')}
               onClick={(event) => {
@@ -711,18 +628,27 @@ export const JimengImageNode = memo(({
                 handleUndoOptimizedPrompt();
               }}
             >
-              <Undo2 className="h-4 w-4 origin-center scale-[1.08] text-text-dark" strokeWidth={2.3} />
-            </UiChipButton>
-
-            {visibleControls.map(({ control, originalIndex }) => (
-              <JimengControlChip
-                key={`${control.matchedKnownControlKey ?? 'extra'}-${control.controlIndex ?? originalIndex}`}
-                label={control.triggerText}
-                value={control.optionText}
-                options={control.options}
-                onChange={(nextValue) => handleControlChange(originalIndex, nextValue)}
+              <Undo2
+                className="h-4 w-4 origin-center scale-[1.08] text-text-dark"
+                strokeWidth={2.3}
               />
-            ))}
+            </UiChipButton>
+            <UiChipButton
+              type="button"
+              disabled={isCheckingCliStatus || data.isGenerating === true}
+              className={`${NODE_CONTROL_CHIP_CLASS} shrink-0 !px-2.5`}
+              aria-label={t('node.jimengImage.checkCli')}
+              title={t('node.jimengImage.checkCli')}
+              onClick={(event) => {
+                event.stopPropagation();
+                void handleCheckCliStatus();
+              }}
+            >
+              {isCheckingCliStatus ? (
+                <Loader2 className="h-4 w-4 animate-spin" strokeWidth={2.3} />
+              ) : null}
+              {t('node.jimengImage.checkCli')}
+            </UiChipButton>
           </div>
         </div>
 
@@ -746,25 +672,27 @@ export const JimengImageNode = memo(({
         </div>
       </div>
 
-      <div
-        className={`mt-1 min-h-[18px] text-[10px] leading-4 ${
-          combinedError ? 'text-rose-300' : 'text-text-muted'
-        }`}
-        title={statusInfoText}
-      >
-        {statusInfoText}
-      </div>
+      {statusInfoText ? (
+        <div
+          className={`mt-1 min-h-[16px] truncate text-[10px] leading-4 ${
+            combinedError ? 'text-rose-300' : 'text-text-muted'
+          }`}
+          title={statusInfoText}
+        >
+          {statusInfoText}
+        </div>
+      ) : null}
 
       <Handle
         type="target"
-        id="target"
         position={Position.Left}
+        id="target"
         className="!h-2.5 !w-2.5 !border-2 !border-surface-dark !bg-accent"
       />
       <Handle
         type="source"
-        id="source"
         position={Position.Right}
+        id="source"
         className="!h-2.5 !w-2.5 !border-2 !border-surface-dark !bg-accent"
       />
       <NodeResizeHandle
@@ -772,7 +700,6 @@ export const JimengImageNode = memo(({
         minHeight={JIMENG_IMAGE_NODE_MIN_HEIGHT}
         maxWidth={JIMENG_IMAGE_NODE_MAX_WIDTH}
         maxHeight={JIMENG_IMAGE_NODE_MAX_HEIGHT}
-        isVisible={selected}
       />
     </div>
   );
