@@ -986,7 +986,7 @@
   },
   "dreaminaSetup": {
     "title": "Dreamina First-Use Setup",
-    "subtitle": "You only need to finish these steps once on each new computer. After that, generation and re-query can stay inside the app.",
+    "subtitle": "This flow now prepares the bundled Git runtime, checks the bundled CLI, and shows the official login QR code in place when this computer needs authorization. You only need to scan once.",
     "context": {
       "default": "Finish the local Dreamina setup once before using Jimeng on this computer.",
       "imageGenerate": "Finish the local Dreamina setup once before generating Jimeng images on this computer.",
@@ -996,59 +996,76 @@
     },
     "status": {
       "checking": "Checking the current environment...",
+      "checkingBody": "Checking the Git runtime, Dreamina CLI, and login state on this computer.",
       "readyTitle": "This computer is ready",
       "readyBody": "Dreamina CLI is available, so you can continue submitting Jimeng tasks or re-querying results.",
-      "gitBashMissingTitle": "Git Bash is required first",
-      "gitBashMissingBody": "Dreamina CLI relies on Git Bash on Windows, so install Git first and then continue.",
-      "cliMissingTitle": "Dreamina CLI is required next",
-      "cliMissingBody": "Git Bash is ready. The next step is installing Dreamina CLI directly from the app.",
+      "gitBashMissingTitle": "A Git Bash runtime is still missing",
+      "gitBashMissingBody": "The app could not find a bundled portable Git runtime or an existing system Git Bash, so automatic setup cannot continue yet.",
+      "cliMissingTitle": "The bundled Dreamina CLI is missing",
+      "cliMissingBody": "This install could not find the bundled Dreamina CLI runtime files. Reinstall with the latest installer and try again.",
       "loginRequiredTitle": "Dreamina CLI still needs login",
-      "loginRequiredBody": "The CLI is installed, but this computer has not completed the Dreamina login yet. Open the login terminal and scan once.",
+      "loginRequiredBody": "The bundled CLI is already available, but this computer has not completed Dreamina authorization yet. Automatic setup will show the official Dreamina login QR code directly in this dialog and wait for the scan to finish.",
       "unknownTitle": "Dreamina setup still needs attention",
-      "unknownBody": "We could not classify the missing step exactly. Follow the steps below in order and recheck afterward."
-    },
-    "steps": {
-      "git": {
-        "title": "Install Git Bash",
-        "description": "Required to run Dreamina CLI on Windows."
-      },
-      "cli": {
-        "title": "Install Dreamina CLI",
-        "description": "The app can install it for you, and all future generation / re-query actions depend on it."
-      },
-      "login": {
-        "title": "Log In to Dreamina",
-        "description": "Open a dedicated terminal, scan the QR code once, and this computer will be ready afterward."
-      }
-    },
-    "stepState": {
-      "done": "Done",
-      "active": "Current",
-      "pending": "Pending"
+      "unknownBody": "Automatic setup already covers the common path, but this machine still needs manual attention based on the detail below."
     },
     "actions": {
-      "downloadGit": "Download Git",
-      "openCliPage": "Open CLI Page",
-      "installCli": "Install CLI",
-      "openLogin": "Open Login Terminal",
-      "recheck": "Recheck",
-      "copyCommand": "Copy Command"
+      "startAutoSetup": "Start Auto Setup",
+      "refreshQr": "Refresh QR Code",
+      "recheck": "Recheck"
     },
-    "commands": {
-      "git": "winget install --id Git.Git -e --source winget",
-      "installCli": "curl -fsSL https://jimeng.jianying.com/cli | bash",
-      "login": "dreamina login --headless --debug"
+    "readyBadge": "Ready",
+    "progress": {
+      "idleTitle": "Waiting to start automatic setup",
+      "idleBody": "When this dialog opens, the app will prepare the Git runtime, check the bundled Dreamina CLI, and show the login QR code directly when authorization is needed.",
+      "checkingTitle": "Checking the current environment",
+      "checkingBody": "Confirming the Git runtime, CLI availability, and login state.",
+      "preparingBundledGitTitle": "Preparing the bundled Git Bash runtime",
+      "preparingBundledGitBody": "The app will prefer the portable Git runtime that ships with the installer.",
+      "preparingSystemGitTitle": "Using the existing system Git Bash",
+      "preparingSystemGitBody": "A bundled runtime was not found, so the app is automatically falling back to the Git Bash that is already installed on this machine.",
+      "installingCliTitle": "Preparing the bundled Dreamina CLI",
+      "installingCliBody": "The app will prefer the Dreamina CLI that ships inside the installer, so a separate online install is normally no longer needed.",
+      "openingLoginTitle": "Preparing the login QR code",
+      "openingLoginBody": "The app is using Dreamina's official headless login flow to render the QR code.",
+      "waitingForLoginTitle": "Scan the QR code with Douyin",
+      "waitingForLoginBody": "The QR code will appear directly in this dialog. After you scan it and confirm on your phone, the app will finish automatically.",
+      "verifyingTitle": "Rechecking the Dreamina environment",
+      "verifyingBody": "Confirming that the bundled CLI is available and the account is now logged in.",
+      "completedTitle": "This computer is ready",
+      "completedBody": "You can go back to the canvas and continue generating or re-querying now."
+    },
+    "qr": {
+      "alt": "Dreamina login QR code",
+      "title": "Scan with Douyin to log in",
+      "body": "The app has generated the QR code with Dreamina's official flow. Scan it and confirm on your phone, then the app will detect success and return to the canvas automatically.",
+      "waitingTitle": "Preparing the QR code",
+      "waitingBody": "The first-use login flow starts automatically. The QR code will appear here as soon as Dreamina finishes rendering it.",
+      "step1": "1. Open Douyin and scan the QR code on the left",
+      "step2": "2. Confirm the Dreamina / Jimeng login on your phone",
+      "step3": "3. Keep this dialog open and the app will return automatically after login succeeds"
+    },
+    "automatic": {
+      "title": "Automatically handled",
+      "git": "Prefer the bundled portable Git runtime when it is available",
+      "cli": "Prefer the Dreamina CLI bundled inside the installer",
+      "login": "Generate the official QR code and recheck after the scan"
+    },
+    "runtime": {
+      "bundled": "Currently using the bundled portable Git runtime.",
+      "system": "Currently using the existing system Git Bash as a fallback runtime."
     },
     "detailTitle": "Environment Detail",
-    "copied": "Copied",
+    "noticeTitle": "Current Notice",
     "notice": {
-      "readyAfterInstall": "Dreamina CLI is installed and ready to use. You can return to the canvas and continue now.",
-      "installDone": "Dreamina CLI is installed. The next step is opening the login terminal and finishing the QR-code login.",
-      "loginOpened": "The login terminal is open. Finish the QR-code login there, then come back here and recheck."
+      "autoReady": "Automatic setup is complete. Dreamina CLI is ready to use now.",
+      "autoClosing": "This computer is ready now. Returning to the canvas...",
+      "loginOpened": "The QR code is ready. Scan it directly with Douyin.",
+      "loginStillPending": "The current QR code can still be scanned. If you already confirmed on the phone, click Recheck. If the QR code expired, click Refresh QR Code.",
+      "autoNeedsAttention": "Automatic setup ran, but the environment is still not fully ready. Please continue based on the detail below."
     },
     "blocked": {
-      "gitBashMissing": "Git Bash is still missing on this computer. Finish the Dreamina setup first.",
-      "cliMissing": "Dreamina CLI is not installed yet. Finish the Dreamina setup first.",
+      "gitBashMissing": "A usable Git Bash runtime is still missing on this computer. Finish the Dreamina setup first.",
+      "cliMissing": "The bundled Dreamina CLI is missing on this computer. Install the latest Storyboard Copilot build first.",
       "loginRequired": "Dreamina CLI is not logged in yet. Finish the Dreamina setup first.",
       "unknown": "Dreamina is not fully ready yet. Please finish the setup and login first."
     }

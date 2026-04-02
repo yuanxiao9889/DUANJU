@@ -1,14 +1,16 @@
 use std::env;
 use std::fs;
+use std::fs::OpenOptions;
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::process::Stdio;
 use std::time::{Duration, Instant};
 
 use base64::engine::general_purpose::STANDARD as BASE64_STANDARD;
 use base64::Engine as _;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use tauri::{AppHandle, Manager};
+use tauri::{AppHandle, Emitter, Manager, Runtime};
 use tokio::time::sleep;
 use tracing::warn;
 use uuid::Uuid;
@@ -19,7 +21,13 @@ const POLL_INTERVAL_MS: u64 = 2_500;
 const DEFAULT_IMAGE_COUNT: usize = 1;
 const MAX_IMAGE_COUNT: usize = 4;
 const DREAMINA_INSTALL_SCRIPT_URL: &str = "https://jimeng.jianying.com/cli";
-const DREAMINA_LOGIN_TERMINAL_TITLE: &str = "Dreamina Login";
+const DREAMINA_SETUP_PROGRESS_EVENT: &str = "dreamina://setup-progress";
+const DREAMINA_LOGIN_WAIT_TIMEOUT_MS: u64 = 5 * 60 * 1000;
+const DREAMINA_LOGIN_POLL_INTERVAL_MS: u64 = 1_000;
+const DREAMINA_BUNDLED_DIR_NAME: &str = "dreamina-cli";
+const DREAMINA_BUNDLED_BIN_NAME: &str = "dreamina.exe";
+const DREAMINA_LOGIN_LOG_FILE_NAME: &str = "dreamina-login.log";
+const DREAMINA_LOGIN_QR_FILE_NAME: &str = "dreamina-login-qr.png";
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -83,6 +91,14 @@ struct PendingDreaminaSubmit {
     download_dir: PathBuf,
 }
 
+#[derive(Debug, Clone)]
+struct GitBashRuntime {
+    source: DreaminaGitSource,
+    bash_path: PathBuf,
+    root: Option<PathBuf>,
+    dreamina_bin_dir: Option<PathBuf>,
+}
+
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub enum DreaminaCliStatusCode {
@@ -122,6 +138,44 @@ impl DreaminaCliStatusResponse {
 pub struct DreaminaCliActionResponse {
     pub message: String,
     pub detail: Option<String>,
+}
+
+#[derive(Debug, Clone, Copy, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub enum DreaminaGitSource {
+    Bundled,
+    System,
+}
+
+#[derive(Debug, Clone, Copy, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub enum DreaminaSetupProgressStage {
+    Checking,
+    PreparingGit,
+    InstallingCli,
+    OpeningLogin,
+    WaitingForLogin,
+    Verifying,
+    Completed,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DreaminaSetupProgressEvent {
+    pub stage: DreaminaSetupProgressStage,
+    pub progress: u8,
+    pub git_source: Option<DreaminaGitSource>,
+    pub detail: Option<String>,
+    pub login_qr_data_url: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DreaminaGuidedSetupResponse {
+    pub status: DreaminaCliStatusResponse,
+    pub git_source: Option<DreaminaGitSource>,
+    pub login_terminal_opened: bool,
+    pub login_wait_timed_out: bool,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -210,7 +264,7 @@ fn workspace_root() -> Result<PathBuf, String> {
         .ok_or_else(|| "failed to resolve workspace root".to_string())
 }
 
-fn runtime_root(app: &AppHandle) -> Result<PathBuf, String> {
+fn runtime_root<R: Runtime>(app: &AppHandle<R>) -> Result<PathBuf, String> {
     let path = app
         .path()
         .app_data_dir()
@@ -221,7 +275,97 @@ fn runtime_root(app: &AppHandle) -> Result<PathBuf, String> {
     Ok(path)
 }
 
-fn git_bash_path() -> Result<PathBuf, String> {
+fn dreamina_workspace<R: Runtime>(app: &AppHandle<R>) -> Result<PathBuf, String> {
+    let path = runtime_root(app)?.join("workspace");
+    fs::create_dir_all(&path)
+        .map_err(|error| format!("failed to create Dreamina workspace dir: {error}"))?;
+    Ok(path)
+}
+
+fn git_root_from_bash_path(path: &Path) -> Option<PathBuf> {
+    let file_name = path.file_name()?.to_string_lossy().to_ascii_lowercase();
+    if file_name != "bash.exe" {
+        return None;
+    }
+
+    let bin_dir = path.parent()?;
+    let bin_name = bin_dir.file_name()?.to_string_lossy().to_ascii_lowercase();
+    if bin_name != "bin" {
+        return None;
+    }
+
+    let parent = bin_dir.parent()?;
+    let parent_name = parent.file_name()?.to_string_lossy().to_ascii_lowercase();
+    if parent_name == "usr" {
+        return parent.parent().map(Path::to_path_buf);
+    }
+
+    Some(parent.to_path_buf())
+}
+
+fn bundled_dreamina_cli_bin_dir<R: Runtime>(app: &AppHandle<R>) -> Option<PathBuf> {
+    let mut candidates = Vec::new();
+
+    if let Ok(resource_dir) = app.path().resource_dir() {
+        candidates.push(
+            resource_dir
+                .join("resources")
+                .join(DREAMINA_BUNDLED_DIR_NAME)
+                .join("bin"),
+        );
+        candidates.push(resource_dir.join(DREAMINA_BUNDLED_DIR_NAME).join("bin"));
+    }
+
+    if let Ok(workspace) = workspace_root() {
+        candidates.push(
+            workspace
+                .join("src-tauri")
+                .join("resources")
+                .join(DREAMINA_BUNDLED_DIR_NAME)
+                .join("bin"),
+        );
+    }
+
+    candidates.into_iter().find(|candidate| {
+        candidate.is_dir() && candidate.join(DREAMINA_BUNDLED_BIN_NAME).is_file()
+    })
+}
+
+fn bundled_git_runtime<R: Runtime>(app: &AppHandle<R>) -> Option<GitBashRuntime> {
+    let mut roots = Vec::new();
+
+    if let Ok(resource_dir) = app.path().resource_dir() {
+        roots.push(resource_dir.join("resources").join("portable-git"));
+        roots.push(resource_dir.join("portable-git"));
+    }
+
+    if let Ok(workspace) = workspace_root() {
+        roots.push(
+            workspace
+                .join("src-tauri")
+                .join("resources")
+                .join("portable-git"),
+        );
+    }
+
+    for root in roots {
+        for relative in ["bin/bash.exe", "usr/bin/bash.exe"] {
+            let bash_path = root.join(relative);
+            if bash_path.is_file() {
+                return Some(GitBashRuntime {
+                    source: DreaminaGitSource::Bundled,
+                    bash_path,
+                    root: Some(root.clone()),
+                    dreamina_bin_dir: None,
+                });
+            }
+        }
+    }
+
+    None
+}
+
+fn system_git_runtime() -> Option<GitBashRuntime> {
     let mut candidates = Vec::new();
     if let Ok(program_files) = env::var("ProgramFiles") {
         candidates.push(PathBuf::from(&program_files).join("Git/bin/bash.exe"));
@@ -232,12 +376,32 @@ fn git_bash_path() -> Result<PathBuf, String> {
         candidates.push(PathBuf::from(&program_files_x86).join("Git/usr/bin/bash.exe"));
     }
     candidates.push(PathBuf::from(r"C:\Program Files\Git\bin\bash.exe"));
-    for candidate in candidates {
-        if candidate.is_file() {
-            return Ok(candidate);
+
+    for bash_path in candidates {
+        if bash_path.is_file() {
+            return Some(GitBashRuntime {
+                source: DreaminaGitSource::System,
+                root: git_root_from_bash_path(&bash_path),
+                bash_path,
+                dreamina_bin_dir: None,
+            });
         }
     }
-    Err("Git Bash was not found.".to_string())
+
+    None
+}
+
+fn resolve_git_bash_runtime<R: Runtime>(app: &AppHandle<R>) -> Result<GitBashRuntime, String> {
+    let bundled_dreamina_bin_dir = bundled_dreamina_cli_bin_dir(app);
+    bundled_git_runtime(app)
+        .or_else(system_git_runtime)
+        .map(|mut runtime| {
+            runtime.dreamina_bin_dir = bundled_dreamina_bin_dir;
+            runtime
+        })
+        .ok_or_else(|| {
+            "Git Bash runtime was not found. Bundle a portable Git runtime under `src-tauri/resources/portable-git/` or install Git for Windows on this machine.".to_string()
+        })
 }
 
 fn bash_style_path(path: &Path) -> String {
@@ -262,14 +426,59 @@ fn bash_quote(value: &str) -> String {
     format!("'{}'", value.replace('\'', "'\"'\"'"))
 }
 
-fn dreamina_path_prefix() -> String {
+fn push_path_prefix(parts: &mut Vec<String>, path: &Path) {
+    if path.is_dir() {
+        let next = bash_style_path(path);
+        if !parts.iter().any(|current| current == &next) {
+            parts.push(next);
+        }
+    }
+}
+
+fn bundled_dreamina_binary_path(runtime: &GitBashRuntime) -> Option<PathBuf> {
+    let path = runtime
+        .dreamina_bin_dir
+        .as_ref()
+        .map(|bin_dir| bin_dir.join(DREAMINA_BUNDLED_BIN_NAME))?;
+    if path.is_file() {
+        Some(path)
+    } else {
+        None
+    }
+}
+
+fn dreamina_command_target(runtime: &GitBashRuntime) -> String {
+    bundled_dreamina_binary_path(runtime)
+        .map(|path| bash_quote(&cli_path(&path)))
+        .unwrap_or_else(|| "dreamina".to_string())
+}
+
+fn dreamina_path_prefix(runtime: &GitBashRuntime) -> String {
     let mut parts = Vec::new();
+    if let Some(bin_dir) = runtime.dreamina_bin_dir.as_ref() {
+        push_path_prefix(&mut parts, bin_dir);
+    }
     if let Ok(user_profile) = env::var("USERPROFILE") {
         parts.push(format!("{}/bin", bash_style_path(Path::new(&user_profile))));
     }
+    if let Some(root) = runtime.root.as_ref() {
+        push_path_prefix(&mut parts, &root.join("bin"));
+        push_path_prefix(&mut parts, &root.join("usr").join("bin"));
+        push_path_prefix(&mut parts, &root.join("mingw64").join("bin"));
+    }
     if let Ok(windir) = env::var("WINDIR") {
+        push_path_prefix(&mut parts, &PathBuf::from(&windir).join("System32"));
+        push_path_prefix(
+            &mut parts,
+            &PathBuf::from(&windir)
+                .join("System32")
+                .join("WindowsPowerShell")
+                .join("v1.0"),
+        );
         parts.push(bash_style_path(Path::new(&windir)));
     } else {
+        parts.push("/c/Windows/System32".to_string());
+        parts.push("/c/Windows/System32/WindowsPowerShell/v1.0".to_string());
         parts.push("/c/Windows".to_string());
     }
     parts.join(":")
@@ -299,15 +508,38 @@ fn classify_dreamina_status_code(detail: &str) -> DreaminaCliStatusCode {
     }
 }
 
-fn dreamina_command_prefix() -> String {
-    format!("export PATH={}:$PATH", bash_quote(&dreamina_path_prefix()))
+fn dreamina_command_prefix(runtime: &GitBashRuntime) -> String {
+    let mut exports = vec![format!(
+        "export PATH={}:$PATH",
+        bash_quote(&dreamina_path_prefix(runtime))
+    )];
+
+    if let Ok(user_profile) = env::var("USERPROFILE") {
+        let user_profile_path = PathBuf::from(&user_profile);
+        exports.push(format!("export USERPROFILE={}", bash_quote(&user_profile)));
+        exports.push(format!(
+            "export HOME={}",
+            bash_quote(&bash_style_path(&user_profile_path))
+        ));
+    }
+
+    if let Ok(home_drive) = env::var("HOMEDRIVE") {
+        exports.push(format!("export HOMEDRIVE={}", bash_quote(&home_drive)));
+    }
+
+    if let Ok(home_path) = env::var("HOMEPATH") {
+        exports.push(format!("export HOMEPATH={}", bash_quote(&home_path)));
+    }
+
+    exports.join("; ")
 }
 
 async fn run_git_bash_script(
+    runtime: &GitBashRuntime,
     workspace: PathBuf,
     script: String,
 ) -> Result<(bool, String, String), String> {
-    let bash = git_bash_path()?;
+    let bash = runtime.bash_path.clone();
     tokio::task::spawn_blocking(move || {
         let output = Command::new(bash)
             .current_dir(workspace)
@@ -325,19 +557,86 @@ async fn run_git_bash_script(
     .map_err(|error| format!("failed to await Dreamina command: {error}"))?
 }
 
-fn install_dreamina_script() -> String {
+fn install_dreamina_script(runtime: &GitBashRuntime) -> String {
     format!(
-        "{prefix}; curl -fsSL {url} | bash; {prefix}; command -v dreamina >/dev/null 2>&1",
-        prefix = dreamina_command_prefix(),
+        "{prefix}; installer_script=$(mktemp); curl -fsSL {url} -o \"$installer_script\"; bash \"$installer_script\"; status=$?; rm -f \"$installer_script\"; if [ \"$status\" -ne 0 ]; then exit \"$status\"; fi; {prefix}; command -v dreamina >/dev/null 2>&1",
+        prefix = dreamina_command_prefix(runtime),
         url = bash_quote(DREAMINA_INSTALL_SCRIPT_URL),
     )
 }
 
-fn dreamina_login_terminal_script() -> String {
+fn dreamina_login_headless_script(runtime: &GitBashRuntime) -> String {
     format!(
-        "{prefix}; dreamina login --headless --debug; status=$?; printf '\\n\\n'; if [ \"$status\" -eq 0 ]; then printf 'Dreamina login finished. Return to Storyboard Copilot and click recheck.\\n'; else printf 'Dreamina login exited with status %s. Review the output above, then retry if needed.\\n' \"$status\"; fi; read -n 1 -s -r -p 'Press any key to close...'; exit $status",
-        prefix = dreamina_command_prefix(),
+        "{prefix}; {dreamina} login --headless --debug",
+        prefix = dreamina_command_prefix(runtime),
+        dreamina = dreamina_command_target(runtime),
     )
+}
+
+fn dreamina_login_log_path(workspace: &Path) -> PathBuf {
+    workspace.join(DREAMINA_LOGIN_LOG_FILE_NAME)
+}
+
+fn dreamina_login_qr_path(workspace: &Path) -> PathBuf {
+    workspace.join(DREAMINA_LOGIN_QR_FILE_NAME)
+}
+
+fn encode_file_as_data_url(path: &Path, mime_type: &str) -> Result<String, String> {
+    let bytes = fs::read(path)
+        .map_err(|error| format!("failed to read Dreamina login QR file: {error}"))?;
+    Ok(format!(
+        "data:{mime_type};base64,{}",
+        BASE64_STANDARD.encode(bytes)
+    ))
+}
+
+fn dreamina_login_qr_data_url(workspace: &Path) -> Option<String> {
+    let qr_path = dreamina_login_qr_path(workspace);
+    if !qr_path.is_file() {
+        return None;
+    }
+
+    encode_file_as_data_url(&qr_path, "image/png").ok()
+}
+
+fn powershell_quote(value: &str) -> String {
+    format!("'{}'", value.replace('\'', "''"))
+}
+
+async fn terminate_conflicting_dreamina_processes(
+    runtime: &GitBashRuntime,
+) -> Result<(), String> {
+    if !cfg!(target_os = "windows") {
+        return Ok(());
+    }
+
+    let Some(binary_path) = bundled_dreamina_binary_path(runtime) else {
+        return Ok(());
+    };
+    let binary_path = binary_path
+        .canonicalize()
+        .unwrap_or(binary_path)
+        .to_string_lossy()
+        .to_string();
+
+    tokio::task::spawn_blocking(move || {
+        let script = format!(
+            "$path = {}; Get-Process dreamina -ErrorAction SilentlyContinue | Where-Object {{ $_.Path -eq $path }} | Stop-Process -Force -ErrorAction SilentlyContinue",
+            powershell_quote(&binary_path)
+        );
+        Command::new("powershell")
+            .arg("-NoProfile")
+            .arg("-NonInteractive")
+            .arg("-Command")
+            .arg(script)
+            .status()
+            .map_err(|error| {
+                format!("failed to clean up the previous Dreamina login session: {error}")
+            })?;
+        Ok::<(), String>(())
+    })
+    .await
+    .map_err(|error| format!("failed to await Dreamina login cleanup: {error}"))?
 }
 
 fn extract_json_text(text: &str) -> Option<&str> {
@@ -365,18 +664,22 @@ fn normalize_dreamina_cli_error(line: &str) -> String {
         || lowered.contains("user_credit")
     {
         return format!(
-            "Dreamina CLI is not ready. Run `dreamina login` first. If the browser flow gets stuck, retry with `dreamina login --debug`. After login, verify with `dreamina user_credit`. You can also check `~/.dreamina_cli/config.toml` and `~/.dreamina_cli/credential.json`. Original error: {trimmed}"
+            "Dreamina CLI is not ready. Run `dreamina login` first. If the login flow gets stuck, retry with `dreamina login --headless --debug`. After login, verify with `dreamina user_credit`. You can also check `~/.dreamina_cli/config.toml` and `~/.dreamina_cli/credential.json`. Original error: {trimmed}"
         );
     }
     trimmed.to_string()
 }
 
-async fn run_dreamina_json(workspace: PathBuf, args: Vec<String>) -> Result<Value, String> {
+async fn run_dreamina_json(
+    workspace: PathBuf,
+    runtime: &GitBashRuntime,
+    args: Vec<String>,
+) -> Result<Value, String> {
     let mut parts = Vec::with_capacity(args.len() + 1);
-    parts.push("dreamina".to_string());
+    parts.push(dreamina_command_target(runtime));
     parts.extend(args.iter().map(|arg| bash_quote(arg)));
-    let script = format!("{}; {}", dreamina_command_prefix(), parts.join(" "));
-    let (success, stdout, stderr) = run_git_bash_script(workspace, script).await?;
+    let script = format!("{}; {}", dreamina_command_prefix(runtime), parts.join(" "));
+    let (success, stdout, stderr) = run_git_bash_script(runtime, workspace, script).await?;
     if !success {
         let line = stderr
             .lines()
@@ -819,8 +1122,13 @@ fn parse_submit_id(value: &Value) -> Result<String, String> {
     Ok(submit_id.to_string())
 }
 
-async fn submit_dreamina(workspace: PathBuf, args: Vec<String>) -> Result<String, String> {
-    parse_submit_id(&run_dreamina_json(workspace, args).await?)
+async fn submit_dreamina(
+    app: &AppHandle,
+    workspace: PathBuf,
+    args: Vec<String>,
+) -> Result<String, String> {
+    let runtime = resolve_git_bash_runtime(app)?;
+    parse_submit_id(&run_dreamina_json(workspace, &runtime, args).await?)
 }
 
 async fn submit_jimeng_dreamina_image_requests(
@@ -832,7 +1140,7 @@ async fn submit_jimeng_dreamina_image_requests(
         return Err("Prompt is required for Dreamina image generation.".to_string());
     }
 
-    let workspace = workspace_root()?;
+    let workspace = dreamina_workspace(app)?;
     let request_dir = runtime_root(app)?
         .join("image")
         .join(Uuid::new_v4().to_string());
@@ -849,7 +1157,7 @@ async fn submit_jimeng_dreamina_image_requests(
     let mut pending = Vec::with_capacity(count);
     let mut submit_ids = Vec::with_capacity(count);
     for index in 0..count {
-        let submit_id = submit_dreamina(workspace.clone(), args.clone()).await?;
+        let submit_id = submit_dreamina(app, workspace.clone(), args.clone()).await?;
         let download_dir = request_dir.join("downloads").join(&submit_id);
         fs::create_dir_all(&download_dir)
             .map_err(|error| format!("failed to create Dreamina image download dir: {error}"))?;
@@ -873,7 +1181,7 @@ async fn submit_jimeng_dreamina_video_request(
         return Err("Prompt is required for Dreamina video generation.".to_string());
     }
 
-    let workspace = workspace_root()?;
+    let workspace = dreamina_workspace(app)?;
     let request_dir = runtime_root(app)?
         .join("video")
         .join(Uuid::new_v4().to_string());
@@ -907,6 +1215,7 @@ async fn submit_jimeng_dreamina_video_request(
         payload.reference_mode.as_deref(),
     )?;
     let submit_id = submit_dreamina(
+        app,
         workspace.clone(),
         video_args(payload, command, &image_paths, &video_paths, &audio_paths),
     )
@@ -926,10 +1235,12 @@ async fn submit_jimeng_dreamina_video_request(
 }
 
 async fn query_dreamina(
+    app: &AppHandle,
     workspace: PathBuf,
     submit_id: &str,
     download_dir: &Path,
 ) -> Result<Option<Value>, String> {
+    let runtime = resolve_git_bash_runtime(app)?;
     let args = vec![
         "query_result".to_string(),
         "--submit_id".to_string(),
@@ -937,7 +1248,7 @@ async fn query_dreamina(
         "--download_dir".to_string(),
         cli_path(download_dir),
     ];
-    match run_dreamina_json(workspace, args).await {
+    match run_dreamina_json(workspace, &runtime, args).await {
         Ok(value) => {
             let status = value
                 .get("gen_status")
@@ -1101,19 +1412,31 @@ fn video_media(
         .unwrap_or_default()
 }
 
-async fn resolve_dreamina_cli_status() -> DreaminaCliStatusResponse {
-    let workspace = match workspace_root() {
-        Ok(workspace) => workspace,
-        Err(error) => {
-            return DreaminaCliStatusResponse::new(
-                DreaminaCliStatusCode::Unknown,
-                "Dreamina CLI is not ready.",
-                Some(error),
-            );
-        }
+fn emit_dreamina_setup_progress(
+    app: &AppHandle,
+    stage: DreaminaSetupProgressStage,
+    progress: u8,
+    git_source: Option<DreaminaGitSource>,
+    detail: Option<String>,
+    login_qr_data_url: Option<String>,
+) {
+    let event = DreaminaSetupProgressEvent {
+        stage,
+        progress,
+        git_source,
+        detail,
+        login_qr_data_url,
     };
+    if let Err(error) = app.emit(DREAMINA_SETUP_PROGRESS_EVENT, &event) {
+        warn!("failed to emit Dreamina setup progress: {error}");
+    }
+}
 
-    match run_dreamina_json(workspace, vec!["user_credit".to_string()]).await {
+async fn resolve_dreamina_cli_status_with_runtime(
+    workspace: PathBuf,
+    runtime: &GitBashRuntime,
+) -> DreaminaCliStatusResponse {
+    match run_dreamina_json(workspace, runtime, vec!["user_credit".to_string()]).await {
         Ok(value) => DreaminaCliStatusResponse::new(
             DreaminaCliStatusCode::Ready,
             "Dreamina CLI is ready.",
@@ -1128,16 +1451,52 @@ async fn resolve_dreamina_cli_status() -> DreaminaCliStatusResponse {
     }
 }
 
-#[tauri::command]
-pub async fn check_dreamina_cli_status() -> Result<DreaminaCliStatusResponse, String> {
-    Ok(resolve_dreamina_cli_status().await)
+async fn resolve_dreamina_cli_status(app: &AppHandle) -> DreaminaCliStatusResponse {
+    let workspace = match dreamina_workspace(app) {
+        Ok(workspace) => workspace,
+        Err(error) => {
+            return DreaminaCliStatusResponse::new(
+                DreaminaCliStatusCode::Unknown,
+                "Dreamina CLI is not ready.",
+                Some(error),
+            );
+        }
+    };
+
+    let runtime = match resolve_git_bash_runtime(app) {
+        Ok(runtime) => runtime,
+        Err(error) => {
+            return DreaminaCliStatusResponse::new(
+                DreaminaCliStatusCode::GitBashMissing,
+                "Dreamina CLI is not ready.",
+                Some(error),
+            );
+        }
+    };
+
+    resolve_dreamina_cli_status_with_runtime(workspace, &runtime).await
 }
 
-#[tauri::command]
-pub async fn install_dreamina_cli() -> Result<DreaminaCliActionResponse, String> {
-    let workspace = workspace_root()?;
+async fn install_dreamina_cli_with_runtime(
+    workspace: PathBuf,
+    runtime: &GitBashRuntime,
+) -> Result<DreaminaCliActionResponse, String> {
+    if let Some(bin_dir) = runtime.dreamina_bin_dir.as_ref() {
+        let bundled_binary = bin_dir.join(DREAMINA_BUNDLED_BIN_NAME);
+        if bundled_binary.is_file() {
+            return Ok(DreaminaCliActionResponse {
+                message: "Bundled Dreamina CLI is already available. Continue with login."
+                    .to_string(),
+                detail: Some(format!(
+                    "Using bundled Dreamina CLI at {}",
+                    bundled_binary.display()
+                )),
+            });
+        }
+    }
+
     let (success, stdout, stderr) =
-        run_git_bash_script(workspace, install_dreamina_script()).await?;
+        run_git_bash_script(runtime, workspace, install_dreamina_script(runtime)).await?;
     if !success {
         let line = stderr
             .lines()
@@ -1156,31 +1515,37 @@ pub async fn install_dreamina_cli() -> Result<DreaminaCliActionResponse, String>
     })
 }
 
-#[tauri::command]
-pub async fn open_dreamina_login_terminal() -> Result<DreaminaCliActionResponse, String> {
-    if !cfg!(target_os = "windows") {
-        return Err(
-            "Dreamina login terminal launcher is only available on Windows builds right now."
-                .to_string(),
-        );
-    }
+async fn open_dreamina_login_terminal_with_runtime(
+    workspace: PathBuf,
+    runtime: &GitBashRuntime,
+) -> Result<DreaminaCliActionResponse, String> {
+    terminate_conflicting_dreamina_processes(runtime).await?;
 
-    let workspace = workspace_root()?;
-    let bash = git_bash_path()?;
-    let script = dreamina_login_terminal_script();
-    let bash_path = bash.to_string_lossy().to_string();
+    let script = dreamina_login_headless_script(runtime);
+    let bash_path = runtime.bash_path.clone();
+    let log_path = dreamina_login_log_path(&workspace);
+    let qr_path = dreamina_login_qr_path(&workspace);
+    let spawned_log_path = log_path.clone();
+    let spawned_qr_path = qr_path.clone();
 
     tokio::task::spawn_blocking(move || {
-        Command::new("cmd")
-            .current_dir(workspace)
-            .args([
-                "/C",
-                "start",
-                DREAMINA_LOGIN_TERMINAL_TITLE,
-                &bash_path,
-                "-lc",
-                &script,
-            ])
+        let _ = fs::remove_file(&spawned_qr_path);
+        let log_file = OpenOptions::new()
+            .create(true)
+            .write(true)
+            .truncate(true)
+            .open(&spawned_log_path)
+            .map_err(|error| format!("failed to open Dreamina login log: {error}"))?;
+        let stderr_file = log_file
+            .try_clone()
+            .map_err(|error| format!("failed to clone Dreamina login log handle: {error}"))?;
+
+        Command::new(bash_path)
+            .current_dir(&workspace)
+            .arg("-lc")
+            .arg(script)
+            .stdout(Stdio::from(log_file))
+            .stderr(Stdio::from(stderr_file))
             .spawn()
             .map_err(|error| format!("failed to open Dreamina login terminal: {error}"))?;
         Ok::<(), String>(())
@@ -1190,13 +1555,192 @@ pub async fn open_dreamina_login_terminal() -> Result<DreaminaCliActionResponse,
 
     Ok(DreaminaCliActionResponse {
         message:
-            "Dreamina login terminal opened. Complete the QR-code login there, then come back and recheck."
+            "Dreamina login QR flow started. Scan the QR code in the app with Douyin, then the app will continue polling automatically."
                 .to_string(),
         detail: Some(
-            "The login terminal runs `dreamina login --headless --debug` in a separate Git Bash window."
-                .to_string(),
+            format!(
+                "Dreamina is rendering the official headless login QR code. Debug output is being written to {} and the QR image will be saved to {}",
+                log_path.display(),
+                qr_path.display()
+            ),
         ),
     })
+}
+
+async fn wait_for_dreamina_login(
+    app: &AppHandle,
+    workspace: &Path,
+    runtime: &GitBashRuntime,
+) -> (DreaminaCliStatusResponse, bool) {
+    let started_at = Instant::now();
+    let deadline = started_at + Duration::from_millis(DREAMINA_LOGIN_WAIT_TIMEOUT_MS);
+
+    loop {
+        let login_qr_data_url = dreamina_login_qr_data_url(workspace);
+        let status =
+            resolve_dreamina_cli_status_with_runtime(workspace.to_path_buf(), runtime).await;
+        if status.ready {
+            return (status, false);
+        }
+
+        if Instant::now() >= deadline {
+            return (status, true);
+        }
+
+        let elapsed_ms = started_at.elapsed().as_millis() as u64;
+        let waiting_span = 16_u64;
+        let progress = 78_u64
+            + elapsed_ms
+                .saturating_mul(waiting_span)
+                .checked_div(DREAMINA_LOGIN_WAIT_TIMEOUT_MS)
+                .unwrap_or(0);
+        emit_dreamina_setup_progress(
+            app,
+            DreaminaSetupProgressStage::WaitingForLogin,
+            progress.min(94) as u8,
+            Some(runtime.source),
+            None,
+            login_qr_data_url,
+        );
+        sleep(Duration::from_millis(DREAMINA_LOGIN_POLL_INTERVAL_MS)).await;
+    }
+}
+
+#[tauri::command]
+pub async fn run_dreamina_guided_setup(
+    app: AppHandle,
+) -> Result<DreaminaGuidedSetupResponse, String> {
+    emit_dreamina_setup_progress(
+        &app,
+        DreaminaSetupProgressStage::Checking,
+        8,
+        None,
+        None,
+        None,
+    );
+
+    let workspace = dreamina_workspace(&app)?;
+    let runtime = resolve_git_bash_runtime(&app)?;
+    emit_dreamina_setup_progress(
+        &app,
+        DreaminaSetupProgressStage::PreparingGit,
+        24,
+        Some(runtime.source),
+        None,
+        None,
+    );
+
+    let mut status = resolve_dreamina_cli_status_with_runtime(workspace.clone(), &runtime).await;
+    let mut login_terminal_opened = false;
+    let mut login_wait_timed_out = false;
+
+    if matches!(status.code, DreaminaCliStatusCode::CliMissing) {
+        emit_dreamina_setup_progress(
+            &app,
+            DreaminaSetupProgressStage::InstallingCli,
+            46,
+            Some(runtime.source),
+            None,
+            None,
+        );
+        install_dreamina_cli_with_runtime(workspace.clone(), &runtime).await?;
+        emit_dreamina_setup_progress(
+            &app,
+            DreaminaSetupProgressStage::Verifying,
+            66,
+            Some(runtime.source),
+            None,
+            None,
+        );
+        status = resolve_dreamina_cli_status_with_runtime(workspace.clone(), &runtime).await;
+        if matches!(status.code, DreaminaCliStatusCode::CliMissing) {
+            return Err(
+                "Dreamina CLI installation finished, but the `dreamina` command is still missing."
+                    .to_string(),
+            );
+        }
+    }
+
+    if matches!(status.code, DreaminaCliStatusCode::LoginRequired) {
+        emit_dreamina_setup_progress(
+            &app,
+            DreaminaSetupProgressStage::OpeningLogin,
+            72,
+            Some(runtime.source),
+            Some("Dreamina is preparing the official QR-code login flow.".to_string()),
+            None,
+        );
+        open_dreamina_login_terminal_with_runtime(workspace.clone(), &runtime).await?;
+        login_terminal_opened = true;
+        emit_dreamina_setup_progress(
+            &app,
+            DreaminaSetupProgressStage::WaitingForLogin,
+            78,
+            Some(runtime.source),
+            Some("Scan the QR code below with Douyin, then confirm the login on your phone."
+                .to_string()),
+            dreamina_login_qr_data_url(&workspace),
+        );
+        let (next_status, timed_out) = wait_for_dreamina_login(&app, &workspace, &runtime).await;
+        status = next_status;
+        login_wait_timed_out = timed_out;
+    }
+
+    if status.ready {
+        emit_dreamina_setup_progress(
+            &app,
+            DreaminaSetupProgressStage::Verifying,
+            96,
+            Some(runtime.source),
+            None,
+            None,
+        );
+        emit_dreamina_setup_progress(
+            &app,
+            DreaminaSetupProgressStage::Completed,
+            100,
+            Some(runtime.source),
+            None,
+            None,
+        );
+    }
+
+    Ok(DreaminaGuidedSetupResponse {
+        status,
+        git_source: Some(runtime.source),
+        login_terminal_opened,
+        login_wait_timed_out,
+    })
+}
+
+#[tauri::command]
+pub async fn check_dreamina_cli_status(
+    app: AppHandle,
+) -> Result<DreaminaCliStatusResponse, String> {
+    Ok(resolve_dreamina_cli_status(&app).await)
+}
+
+#[tauri::command]
+pub async fn install_dreamina_cli(app: AppHandle) -> Result<DreaminaCliActionResponse, String> {
+    let workspace = dreamina_workspace(&app)?;
+    let runtime = resolve_git_bash_runtime(&app)?;
+    install_dreamina_cli_with_runtime(workspace, &runtime).await
+}
+
+#[tauri::command]
+pub async fn open_dreamina_login_terminal(
+    app: AppHandle,
+) -> Result<DreaminaCliActionResponse, String> {
+    if !cfg!(target_os = "windows") {
+        return Err(
+            "Dreamina login terminal launcher is only available on Windows builds right now."
+                .to_string(),
+        );
+    }
+
+    let workspace = dreamina_workspace(&app)?;
+    let runtime = resolve_git_bash_runtime(&app)?;
+    open_dreamina_login_terminal_with_runtime(workspace, &runtime).await
 }
 
 #[tauri::command]
@@ -1216,7 +1760,14 @@ pub async fn generate_jimeng_dreamina_images(
         let current_pending = std::mem::take(&mut pending);
         let mut next_pending = Vec::new();
         for submit in current_pending {
-            match query_dreamina(workspace.clone(), &submit.submit_id, &submit.download_dir).await {
+            match query_dreamina(
+                &app,
+                workspace.clone(),
+                &submit.submit_id,
+                &submit.download_dir,
+            )
+            .await
+            {
                 Ok(Some(value)) => {
                     for (media_index, media) in image_media(&value).into_iter().enumerate() {
                         completed.push((submit.request_index, media_index, media));
@@ -1297,7 +1848,7 @@ pub async fn generate_jimeng_dreamina_videos(
                 submit_id
             ));
         }
-        match query_dreamina(workspace.clone(), &submit_id, &download_dir).await? {
+        match query_dreamina(&app, workspace.clone(), &submit_id, &download_dir).await? {
             Some(value) => break value,
             None => sleep(Duration::from_millis(POLL_INTERVAL_MS)).await,
         }
@@ -1355,7 +1906,7 @@ pub async fn query_jimeng_dreamina_image_results(
     app: AppHandle,
     payload: QueryJimengDreaminaImageResultsPayload,
 ) -> Result<JimengDreaminaImageQueryResponse, String> {
-    let workspace = workspace_root()?;
+    let workspace = dreamina_workspace(&app)?;
     let submit_ids = payload
         .submit_ids
         .into_iter()
@@ -1373,7 +1924,7 @@ pub async fn query_jimeng_dreamina_image_results(
 
     for (request_index, submit_id) in submit_ids.iter().enumerate() {
         let download_dir = runtime_submit_download_dir(&app, "image", submit_id)?;
-        match query_dreamina(workspace.clone(), submit_id, &download_dir).await {
+        match query_dreamina(&app, workspace.clone(), submit_id, &download_dir).await {
             Ok(Some(value)) => {
                 for (media_index, media) in image_media(&value).into_iter().enumerate() {
                     completed.push((request_index, media_index, media));
@@ -1417,14 +1968,14 @@ pub async fn query_jimeng_dreamina_video_result(
     app: AppHandle,
     payload: QueryJimengDreaminaVideoResultPayload,
 ) -> Result<JimengDreaminaVideoQueryResponse, String> {
-    let workspace = workspace_root()?;
+    let workspace = dreamina_workspace(&app)?;
     let submit_id = payload.submit_id.trim().to_string();
     if submit_id.is_empty() {
         return Err("Dreamina video submit_id is required.".to_string());
     }
 
     let download_dir = runtime_submit_download_dir(&app, "video", &submit_id)?;
-    let value = query_dreamina(workspace, &submit_id, &download_dir).await?;
+    let value = query_dreamina(&app, workspace, &submit_id, &download_dir).await?;
     let pending = value.is_none();
     let results = value
         .map(|resolved| {

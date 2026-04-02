@@ -1,4 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
+import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 
 export interface DreaminaReferenceAssetPayload {
   fileName: string;
@@ -52,6 +53,17 @@ export type DreaminaCliStatusCode =
   | "loginRequired"
   | "unknown";
 
+export type DreaminaGitSource = "bundled" | "system";
+
+export type DreaminaSetupProgressStage =
+  | "checking"
+  | "preparingGit"
+  | "installingCli"
+  | "openingLogin"
+  | "waitingForLogin"
+  | "verifying"
+  | "completed";
+
 export interface DreaminaCliStatusResponse {
   ready: boolean;
   code: DreaminaCliStatusCode;
@@ -62,6 +74,21 @@ export interface DreaminaCliStatusResponse {
 export interface DreaminaCliActionResponse {
   message: string;
   detail?: string | null;
+}
+
+export interface DreaminaSetupProgressEvent {
+  stage: DreaminaSetupProgressStage;
+  progress: number;
+  gitSource?: DreaminaGitSource | null;
+  detail?: string | null;
+  loginQrDataUrl?: string | null;
+}
+
+export interface DreaminaGuidedSetupResponse {
+  status: DreaminaCliStatusResponse;
+  gitSource?: DreaminaGitSource | null;
+  loginTerminalOpened: boolean;
+  loginWaitTimedOut: boolean;
 }
 
 export interface JimengDreaminaImageGenerationResponse {
@@ -116,6 +143,21 @@ export async function installDreaminaCli(): Promise<DreaminaCliActionResponse> {
 export async function openDreaminaLoginTerminal(): Promise<DreaminaCliActionResponse> {
   return await invoke<DreaminaCliActionResponse>(
     "open_dreamina_login_terminal",
+  );
+}
+
+export async function runDreaminaGuidedSetup(): Promise<DreaminaGuidedSetupResponse> {
+  return await invoke<DreaminaGuidedSetupResponse>("run_dreamina_guided_setup");
+}
+
+export function onDreaminaSetupProgress(
+  callback: (progress: DreaminaSetupProgressEvent) => void,
+): Promise<UnlistenFn> {
+  return listen<DreaminaSetupProgressEvent>(
+    "dreamina://setup-progress",
+    (event) => {
+      callback(event.payload);
+    },
   );
 }
 

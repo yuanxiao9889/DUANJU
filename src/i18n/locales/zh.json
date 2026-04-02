@@ -858,7 +858,7 @@
   },
   "dreaminaSetup": {
     "title": "即梦首次使用准备",
-    "subtitle": "这些步骤在每台新电脑上只需要做一次，完成后就可以直接在软件里继续生成和重查结果。",
+    "subtitle": "这一步现在会自动完成内置 Git 准备、内置 CLI 检测，并在首次需要时直接显示官方登录二维码。你只需要扫码一次。",
     "context": {
       "default": "首次使用即梦前，需要先完成一次本机环境准备。",
       "imageGenerate": "开始即梦图片生成前，需要先完成一次本机环境准备。",
@@ -868,59 +868,76 @@
     },
     "status": {
       "checking": "正在检测当前环境…",
+      "checkingBody": "正在确认这台电脑上的 Git 运行时、Dreamina CLI 和登录状态。",
       "readyTitle": "当前电脑已经准备完成",
       "readyBody": "Dreamina CLI 可直接使用，你现在可以继续提交即梦任务或重新查询结果。",
-      "gitBashMissingTitle": "需要先安装 Git Bash",
-      "gitBashMissingBody": "即梦 CLI 在 Windows 下依赖 Git Bash 运行，先安装 Git 后再继续下一步。",
-      "cliMissingTitle": "需要先安装 Dreamina CLI",
-      "cliMissingBody": "Git Bash 已就绪，下一步直接在软件里一键安装 Dreamina CLI。",
+      "gitBashMissingTitle": "缺少可用的 Git Bash 运行时",
+      "gitBashMissingBody": "软件没有找到内置便携 Git，也没有找到系统里的 Git Bash，自动准备暂时无法继续。",
+      "cliMissingTitle": "缺少内置 Dreamina CLI",
+      "cliMissingBody": "软件没有找到随安装包内置的 Dreamina CLI 运行文件。请使用最新版安装包重新安装后再试。",
       "loginRequiredTitle": "需要先登录 Dreamina CLI",
-      "loginRequiredBody": "CLI 已安装，但这台电脑还没有完成登录授权。打开登录终端扫码一次即可。",
+      "loginRequiredBody": "软件内置的 CLI 已可运行，但这台电脑还没有完成登录授权。开始自动准备后，会直接在当前弹窗里显示 Dreamina 官方登录二维码并等待扫码完成。",
       "unknownTitle": "需要补全即梦环境准备",
-      "unknownBody": "暂时无法准确判断卡在哪一步，你可以按下面的顺序完成准备，然后重新检测。"
-    },
-    "steps": {
-      "git": {
-        "title": "安装 Git Bash",
-        "description": "用于在 Windows 上运行 Dreamina CLI。"
-      },
-      "cli": {
-        "title": "安装 Dreamina CLI",
-        "description": "软件里可以一键安装，后续的生成和重查都依赖它。"
-      },
-      "login": {
-        "title": "登录 Dreamina",
-        "description": "打开独立终端扫码登录一次，这台电脑之后就可以直接使用。"
-      }
-    },
-    "stepState": {
-      "done": "已完成",
-      "active": "当前步骤",
-      "pending": "待完成"
+      "unknownBody": "自动准备已经接管了常见流程，但当前仍需要你根据下方详情进一步确认问题。"
     },
     "actions": {
-      "downloadGit": "下载 Git",
-      "openCliPage": "打开 CLI 页面",
-      "installCli": "一键安装 CLI",
-      "openLogin": "打开登录终端",
-      "recheck": "重新检测",
-      "copyCommand": "复制命令"
+      "startAutoSetup": "开始自动准备",
+      "refreshQr": "重新生成二维码",
+      "recheck": "重新检测"
     },
-    "commands": {
-      "git": "winget install --id Git.Git -e --source winget",
-      "installCli": "curl -fsSL https://jimeng.jianying.com/cli | bash",
-      "login": "dreamina login --headless --debug"
+    "readyBadge": "可直接使用",
+    "progress": {
+      "idleTitle": "等待开始自动准备",
+      "idleBody": "弹窗打开后会自动准备 Git 运行时、检查内置 Dreamina CLI，并在需要时直接显示扫码二维码。",
+      "checkingTitle": "正在检测当前环境",
+      "checkingBody": "正在确认这台电脑上的 Git、CLI 和登录状态。",
+      "preparingBundledGitTitle": "正在准备软件内置 Git Bash",
+      "preparingBundledGitBody": "当前会优先使用软件随包携带的便携 Git 运行时。",
+      "preparingSystemGitTitle": "正在使用本机已有 Git Bash",
+      "preparingSystemGitBody": "当前没有检测到内置 Git，已自动回退到本机现成的 Git Bash。",
+      "installingCliTitle": "正在准备内置 Dreamina CLI",
+      "installingCliBody": "当前会优先直接使用安装包内置的 Dreamina CLI，正常情况下不再需要单独联网安装。",
+      "openingLoginTitle": "正在准备扫码二维码",
+      "openingLoginBody": "软件正在按 Dreamina 官方 headless 登录流程生成二维码。",
+      "waitingForLoginTitle": "请使用抖音扫码登录",
+      "waitingForLoginBody": "二维码生成后会直接显示在当前弹窗里。扫码并在手机上确认后，软件会自动继续完成环境准备。",
+      "verifyingTitle": "正在复检 Dreamina 环境",
+      "verifyingBody": "正在确认内置 CLI 是否可用、账号是否已经登录可用。",
+      "completedTitle": "本机环境准备完成",
+      "completedBody": "现在可以直接回到画布继续即梦生成或结果重查。"
+    },
+    "qr": {
+      "alt": "Dreamina 登录二维码",
+      "title": "请用抖音扫码登录",
+      "body": "软件已按 Dreamina 官方流程生成二维码。扫码并在手机上确认后，软件会自动检测登录成功并返回画布。",
+      "waitingTitle": "正在准备二维码",
+      "waitingBody": "首次使用时软件会自动启动登录流程，二维码生成后会直接显示在这里。",
+      "step1": "1. 打开抖音扫一扫并扫描左侧二维码",
+      "step2": "2. 在手机上确认 Dreamina / 即梦登录授权",
+      "step3": "3. 保持当前窗口打开，软件检测成功后会自动返回"
+    },
+    "automatic": {
+      "title": "自动完成",
+      "git": "自动优先使用软件内置便携 Git 运行时",
+      "cli": "自动优先使用安装包内置的 Dreamina CLI",
+      "login": "自动按官方流程生成二维码并在扫码后复检"
+    },
+    "runtime": {
+      "bundled": "当前使用软件内置的便携 Git 运行时。",
+      "system": "当前使用本机已有的 Git Bash 作为回退运行时。"
     },
     "detailTitle": "环境详情",
-    "copied": "命令已复制",
+    "noticeTitle": "当前提示",
     "notice": {
-      "readyAfterInstall": "Dreamina CLI 已安装并可直接使用，你现在可以回到画布继续操作。",
-      "installDone": "Dreamina CLI 安装完成，下一步请打开登录终端完成扫码登录。",
-      "loginOpened": "登录终端已打开，请在新窗口完成扫码登录，完成后回到这里重新检测。"
+      "autoReady": "自动准备已经完成。Dreamina CLI 现在可直接使用。",
+      "autoClosing": "本机环境已经准备完成，正在返回画布…",
+      "loginOpened": "二维码已准备完成，请直接使用抖音扫码。",
+      "loginStillPending": "当前二维码仍可继续扫码。如果手机上已经确认完成，可以点重新检测；如果二维码失效了，再点重新生成二维码。",
+      "autoNeedsAttention": "自动准备已执行，但环境还没有完全就绪。请结合下方详情继续处理。"
     },
     "blocked": {
-      "gitBashMissing": "这台电脑还没有安装 Git Bash，请先完成即梦环境准备。",
-      "cliMissing": "Dreamina CLI 还没有安装，请先完成即梦环境准备。",
+      "gitBashMissing": "这台电脑还没有可用的 Git Bash 运行时，请先完成即梦环境准备。",
+      "cliMissing": "这台电脑没有检测到软件内置的 Dreamina CLI，请先安装最新版短剧助手。",
       "loginRequired": "Dreamina CLI 还没有登录，请先完成即梦环境准备。",
       "unknown": "即梦环境还没有准备完成，请先完成检测和登录。"
     }
