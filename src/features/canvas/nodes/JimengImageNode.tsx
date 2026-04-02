@@ -35,11 +35,11 @@ import {
   type JimengImageResolutionType,
 } from "@/features/canvas/domain/canvasNodes";
 import { resolveNodeDisplayName } from "@/features/canvas/domain/nodeDisplay";
-import { collectConnectedReferenceImages } from "@/features/canvas/application/connectedReferenceImages";
 import {
   resolveErrorContent,
   showErrorDialog,
 } from "@/features/canvas/application/errorDialog";
+import { useCanvasConnectedReferenceImages } from "@/features/canvas/hooks/useCanvasNodeGraph";
 import { resolveImageDisplayUrl } from "@/features/canvas/application/imageData";
 import { optimizeCanvasPrompt } from "@/features/canvas/application/promptOptimization";
 import { flushCurrentProjectToDiskSafely } from "@/features/canvas/application/projectPersistence";
@@ -413,8 +413,6 @@ export const JimengImageNode = memo(
     );
     const [promptReferencePreview, setPromptReferencePreview] =
       useState<PromptReferencePreviewState | null>(null);
-    const nodes = useCanvasStore((state) => state.nodes);
-    const edges = useCanvasStore((state) => state.edges);
     const setSelectedNode = useCanvasStore((state) => state.setSelectedNode);
     const updateNodeData = useCanvasStore((state) => state.updateNodeData);
     const addNode = useCanvasStore((state) => state.addNode);
@@ -425,10 +423,7 @@ export const JimengImageNode = memo(
       (state) => state.setLastJimengImageDefaults,
     );
 
-    const connectedReferenceImages = useMemo(
-      () => collectConnectedReferenceImages(id, nodes, edges),
-      [edges, id, nodes],
-    );
+    const connectedReferenceImages = useCanvasConnectedReferenceImages(id);
     const incomingImages = useMemo(
       () => connectedReferenceImages.map((item) => item.imageUrl),
       [connectedReferenceImages],

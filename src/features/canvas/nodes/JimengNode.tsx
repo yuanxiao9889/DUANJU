@@ -32,7 +32,6 @@ import {
   CANVAS_NODE_TYPES,
   JIMENG_VIDEO_RESULT_NODE_DEFAULT_HEIGHT,
   JIMENG_VIDEO_RESULT_NODE_DEFAULT_WIDTH,
-  isAudioNode,
   type JimengAspectRatio,
   type JimengDurationSeconds,
   type JimengNodeData,
@@ -41,11 +40,14 @@ import {
   type JimengVideoResolution,
 } from "@/features/canvas/domain/canvasNodes";
 import { resolveNodeDisplayName } from "@/features/canvas/domain/nodeDisplay";
-import { collectConnectedReferenceVisuals } from "@/features/canvas/application/connectedReferenceVisuals";
 import {
   resolveErrorContent,
   showErrorDialog,
 } from "@/features/canvas/application/errorDialog";
+import {
+  useCanvasConnectedAudioReferences,
+  useCanvasConnectedReferenceVisuals,
+} from "@/features/canvas/hooks/useCanvasNodeGraph";
 import { resolveImageDisplayUrl } from "@/features/canvas/application/imageData";
 import { flushCurrentProjectToDiskSafely } from "@/features/canvas/application/projectPersistence";
 import {
@@ -939,8 +941,6 @@ export const JimengNode = memo(
     >(null);
     const [dragReferencePreview, setDragReferencePreview] =
       useState<DragReferencePreviewState | null>(null);
-    const nodes = useCanvasStore((state) => state.nodes);
-    const edges = useCanvasStore((state) => state.edges);
     const setSelectedNode = useCanvasStore((state) => state.setSelectedNode);
     const updateNodeData = useCanvasStore((state) => state.updateNodeData);
     const addNode = useCanvasStore((state) => state.addNode);
@@ -951,10 +951,7 @@ export const JimengNode = memo(
       (state) => state.setLastJimengVideoDefaults,
     );
 
-    const connectedReferenceVisuals = useMemo(
-      () => collectConnectedReferenceVisuals(id, nodes, edges),
-      [edges, id, nodes],
-    );
+    const connectedReferenceVisuals = useCanvasConnectedReferenceVisuals(id);
     const incomingReferenceVisualUrls = useMemo(
       () => connectedReferenceVisuals.map((item) => item.referenceUrl),
       [connectedReferenceVisuals],
@@ -1010,37 +1007,19 @@ export const JimengNode = memo(
       () => incomingVisualItems.map((item) => item.displayUrl),
       [incomingVisualItems],
     );
-    const incomingAudios = useMemo<IncomingAudioItem[]>(() => {
-      const nodeById = new Map(nodes.map((node) => [node.id, node]));
-      const items: IncomingAudioItem[] = [];
-
-      for (const edge of edges) {
-        if (edge.target !== id) {
-          continue;
-        }
-
-        const sourceNode = nodeById.get(edge.source);
-        if (!isAudioNode(sourceNode)) {
-          continue;
-        }
-
-        const audioUrl = sourceNode.data.audioUrl?.trim() ?? "";
-        if (!audioUrl || items.some((item) => item.audioUrl === audioUrl)) {
-          continue;
-        }
-
-        items.push({
-          audioUrl,
+    const connectedAudioReferences = useCanvasConnectedAudioReferences(id);
+    const incomingAudios = useMemo<IncomingAudioItem[]>(
+      () =>
+        connectedAudioReferences.map((item, index) => ({
+          audioUrl: item.audioUrl,
           label:
-            sourceNode.data.displayName?.trim() ||
-            sourceNode.data.audioFileName?.trim() ||
-            t("node.jimeng.audioReferenceLabel", { index: items.length + 1 }),
-          tokenLabel: buildShortAudioReferenceToken(items.length),
-        });
-      }
-
-      return items;
-    }, [edges, id, nodes, t]);
+            item.displayName ||
+            item.audioFileName ||
+            t("node.jimeng.audioReferenceLabel", { index: index + 1 }),
+          tokenLabel: buildShortAudioReferenceToken(index),
+        })),
+      [connectedAudioReferences, t],
+    );
     const referencePickerItems = useMemo<ReferencePickerItem[]>(
       () => [
         ...incomingVisualItems.map((item) => ({

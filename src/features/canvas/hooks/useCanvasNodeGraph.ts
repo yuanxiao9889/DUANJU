@@ -1,0 +1,334 @@
+import { useMemo } from 'react';
+
+import type { ConnectedReferenceImage } from '@/features/canvas/application/connectedReferenceImages';
+import type { ConnectedReferenceVisual } from '@/features/canvas/application/connectedReferenceVisuals';
+import {
+  extractAudioReference,
+  extractReferenceImageUrls,
+  extractReferenceVisuals,
+} from '@/features/canvas/application/nodeReferenceExtraction';
+import { useCanvasStore, type CanvasEdge, type CanvasNode } from '@/stores/canvasStore';
+
+interface CanvasGraphSnapshot {
+  nodes: CanvasNode[];
+  edges: CanvasEdge[];
+}
+
+export interface ConnectedAudioReference {
+  sourceEdgeId: string;
+  sourceNodeId: string;
+  audioUrl: string;
+  displayName: string | null;
+  audioFileName: string | null;
+}
+
+const EMPTY_EDGES: CanvasEdge[] = [];
+const EMPTY_INPUT_IMAGES: string[] = [];
+const EMPTY_CONNECTED_REFERENCE_IMAGES: ConnectedReferenceImage[] = [];
+const EMPTY_CONNECTED_REFERENCE_VISUALS: ConnectedReferenceVisual[] = [];
+const EMPTY_CONNECTED_AUDIO_REFERENCES: ConnectedAudioReference[] = [];
+
+const nodeByIdCache = new WeakMap<CanvasNode[], Map<string, CanvasNode>>();
+const incomingEdgesByTargetCache = new WeakMap<CanvasEdge[], Map<string, CanvasEdge[]>>();
+
+function getNodeByIdMap(nodes: CanvasNode[]): Map<string, CanvasNode> {
+  const cached = nodeByIdCache.get(nodes);
+  if (cached) {
+    return cached;
+  }
+
+  const map = new Map(nodes.map((node) => [node.id, node] as const));
+  nodeByIdCache.set(nodes, map);
+  return map;
+}
+
+function getIncomingEdgesByTarget(edges: CanvasEdge[]): Map<string, CanvasEdge[]> {
+  const cached = incomingEdgesByTargetCache.get(edges);
+  if (cached) {
+    return cached;
+  }
+
+  const map = new Map<string, CanvasEdge[]>();
+  for (const edge of edges) {
+    const existing = map.get(edge.target);
+    if (existing) {
+      existing.push(edge);
+      continue;
+    }
+    map.set(edge.target, [edge]);
+  }
+
+  incomingEdgesByTargetCache.set(edges, map);
+  return map;
+}
+
+function resolveIncomingEdges(state: CanvasGraphSnapshot, nodeId: string): CanvasEdge[] {
+  return getIncomingEdgesByTarget(state.edges).get(nodeId) ?? EMPTY_EDGES;
+}
+
+function resolveSourceNodes(
+  state: CanvasGraphSnapshot,
+  incomingEdges: CanvasEdge[]
+): Array<CanvasNode | undefined> {
+  const nodeById = getNodeByIdMap(state.nodes);
+  return incomingEdges.map((edge) => nodeById.get(edge.source));
+}
+
+function haveRelevantSourcesChanged(
+  previousIncomingEdges: CanvasEdge[] | null,
+  previousSourceNodes: Array<CanvasNode | undefined> | null,
+  nextIncomingEdges: CanvasEdge[],
+  nextSourceNodes: Array<CanvasNode | undefined>
+): boolean {
+  if (!previousIncomingEdges || !previousSourceNodes) {
+    return true;
+  }
+
+  if (
+    previousIncomingEdges.length !== nextIncomingEdges.length
+    || previousSourceNodes.length !== nextSourceNodes.length
+  ) {
+    return true;
+  }
+
+  for (let index = 0; index < nextIncomingEdges.length; index += 1) {
+    const previousEdge = previousIncomingEdges[index];
+    const nextEdge = nextIncomingEdges[index];
+    if (
+      previousEdge.id !== nextEdge.id
+      || previousEdge.source !== nextEdge.source
+      || previousEdge.target !== nextEdge.target
+    ) {
+      return true;
+    }
+
+    if (previousSourceNodes[index] !== nextSourceNodes[index]) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+function createInputImagesSelector(nodeId: string) {
+  let previousIncomingEdges: CanvasEdge[] | null = null;
+  let previousSourceNodes: Array<CanvasNode | undefined> | null = null;
+  let previousResult = EMPTY_INPUT_IMAGES;
+
+  return (state: CanvasGraphSnapshot): string[] => {
+    const incomingEdges = resolveIncomingEdges(state, nodeId);
+    const sourceNodes = resolveSourceNodes(state, incomingEdges);
+    const shouldRecompute = haveRelevantSourcesChanged(
+      previousIncomingEdges,
+      previousSourceNodes,
+      incomingEdges,
+      sourceNodes
+    );
+
+    if (!shouldRecompute) {
+      return previousResult;
+    }
+
+    const nextImages: string[] = [];
+    const seenImages = new Set<string>();
+
+    for (const sourceNode of sourceNodes) {
+      if (!sourceNode) {
+        continue;
+      }
+
+      for (const imageUrl of extractReferenceImageUrls(sourceNode)) {
+        const normalizedImageUrl = imageUrl.trim();
+        if (!normalizedImageUrl || seenImages.has(normalizedImageUrl)) {
+          continue;
+        }
+
+        seenImages.add(normalizedImageUrl);
+        nextImages.push(normalizedImageUrl);
+      }
+    }
+
+    previousIncomingEdges = incomingEdges;
+    previousSourceNodes = sourceNodes;
+    previousResult = nextImages;
+    return previousResult;
+  };
+}
+
+function createConnectedReferenceImagesSelector(nodeId: string) {
+  let previousIncomingEdges: CanvasEdge[] | null = null;
+  let previousSourceNodes: Array<CanvasNode | undefined> | null = null;
+  let previousResult = EMPTY_CONNECTED_REFERENCE_IMAGES;
+
+  return (state: CanvasGraphSnapshot): ConnectedReferenceImage[] => {
+    const incomingEdges = resolveIncomingEdges(state, nodeId);
+    const sourceNodes = resolveSourceNodes(state, incomingEdges);
+    const shouldRecompute = haveRelevantSourcesChanged(
+      previousIncomingEdges,
+      previousSourceNodes,
+      incomingEdges,
+      sourceNodes
+    );
+
+    if (!shouldRecompute) {
+      return previousResult;
+    }
+
+    const nextItems: ConnectedReferenceImage[] = [];
+    const seenImages = new Set<string>();
+
+    incomingEdges.forEach((edge, index) => {
+      const sourceNode = sourceNodes[index];
+      if (!sourceNode) {
+        return;
+      }
+
+      for (const imageUrl of extractReferenceImageUrls(sourceNode)) {
+        const normalizedImageUrl = imageUrl.trim();
+        if (!normalizedImageUrl || seenImages.has(normalizedImageUrl)) {
+          continue;
+        }
+
+        seenImages.add(normalizedImageUrl);
+        nextItems.push({
+          sourceEdgeId: edge.id,
+          sourceNodeId: sourceNode.id,
+          imageUrl: normalizedImageUrl,
+        });
+      }
+    });
+
+    previousIncomingEdges = incomingEdges;
+    previousSourceNodes = sourceNodes;
+    previousResult = nextItems;
+    return previousResult;
+  };
+}
+
+function createConnectedReferenceVisualsSelector(nodeId: string) {
+  let previousIncomingEdges: CanvasEdge[] | null = null;
+  let previousSourceNodes: Array<CanvasNode | undefined> | null = null;
+  let previousResult = EMPTY_CONNECTED_REFERENCE_VISUALS;
+
+  return (state: CanvasGraphSnapshot): ConnectedReferenceVisual[] => {
+    const incomingEdges = resolveIncomingEdges(state, nodeId);
+    const sourceNodes = resolveSourceNodes(state, incomingEdges);
+    const shouldRecompute = haveRelevantSourcesChanged(
+      previousIncomingEdges,
+      previousSourceNodes,
+      incomingEdges,
+      sourceNodes
+    );
+
+    if (!shouldRecompute) {
+      return previousResult;
+    }
+
+    const nextItems: ConnectedReferenceVisual[] = [];
+    const seenReferenceUrls = new Set<string>();
+
+    incomingEdges.forEach((edge, index) => {
+      const sourceNode = sourceNodes[index];
+      if (!sourceNode) {
+        return;
+      }
+
+      for (const item of extractReferenceVisuals(sourceNode)) {
+        const normalizedReferenceUrl = item.referenceUrl.trim();
+        const normalizedPreviewImageUrl = item.previewImageUrl.trim();
+        if (
+          !normalizedReferenceUrl
+          || !normalizedPreviewImageUrl
+          || seenReferenceUrls.has(normalizedReferenceUrl)
+        ) {
+          continue;
+        }
+
+        seenReferenceUrls.add(normalizedReferenceUrl);
+        nextItems.push({
+          sourceEdgeId: edge.id,
+          sourceNodeId: sourceNode.id,
+          kind: item.kind,
+          referenceUrl: normalizedReferenceUrl,
+          previewImageUrl: normalizedPreviewImageUrl,
+          durationSeconds: item.durationSeconds ?? null,
+        });
+      }
+    });
+
+    previousIncomingEdges = incomingEdges;
+    previousSourceNodes = sourceNodes;
+    previousResult = nextItems;
+    return previousResult;
+  };
+}
+
+function createConnectedAudioReferencesSelector(nodeId: string) {
+  let previousIncomingEdges: CanvasEdge[] | null = null;
+  let previousSourceNodes: Array<CanvasNode | undefined> | null = null;
+  let previousResult = EMPTY_CONNECTED_AUDIO_REFERENCES;
+
+  return (state: CanvasGraphSnapshot): ConnectedAudioReference[] => {
+    const incomingEdges = resolveIncomingEdges(state, nodeId);
+    const sourceNodes = resolveSourceNodes(state, incomingEdges);
+    const shouldRecompute = haveRelevantSourcesChanged(
+      previousIncomingEdges,
+      previousSourceNodes,
+      incomingEdges,
+      sourceNodes
+    );
+
+    if (!shouldRecompute) {
+      return previousResult;
+    }
+
+    const nextItems: ConnectedAudioReference[] = [];
+    const seenAudioUrls = new Set<string>();
+
+    incomingEdges.forEach((edge, index) => {
+      const sourceNode = sourceNodes[index];
+      if (!sourceNode) {
+        return;
+      }
+
+      const audioReference = extractAudioReference(sourceNode);
+      if (!audioReference || seenAudioUrls.has(audioReference.audioUrl)) {
+        return;
+      }
+
+      seenAudioUrls.add(audioReference.audioUrl);
+      nextItems.push({
+        sourceEdgeId: edge.id,
+        sourceNodeId: sourceNode.id,
+        audioUrl: audioReference.audioUrl,
+        displayName: audioReference.displayName,
+        audioFileName: audioReference.audioFileName,
+      });
+    });
+
+    previousIncomingEdges = incomingEdges;
+    previousSourceNodes = sourceNodes;
+    previousResult = nextItems;
+    return previousResult;
+  };
+}
+
+export function useCanvasNodeInputImages(nodeId: string): string[] {
+  const selector = useMemo(() => createInputImagesSelector(nodeId), [nodeId]);
+  return useCanvasStore(selector);
+}
+
+export function useCanvasConnectedReferenceImages(nodeId: string): ConnectedReferenceImage[] {
+  const selector = useMemo(() => createConnectedReferenceImagesSelector(nodeId), [nodeId]);
+  return useCanvasStore(selector);
+}
+
+export function useCanvasConnectedReferenceVisuals(nodeId: string): ConnectedReferenceVisual[] {
+  const selector = useMemo(() => createConnectedReferenceVisualsSelector(nodeId), [nodeId]);
+  return useCanvasStore(selector);
+}
+
+export function useCanvasConnectedAudioReferences(nodeId: string): ConnectedAudioReference[] {
+  const selector = useMemo(() => createConnectedAudioReferencesSelector(nodeId), [nodeId]);
+  return useCanvasStore(selector);
+}

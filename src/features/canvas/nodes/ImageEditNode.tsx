@@ -29,7 +29,6 @@ import { NodeHeader, NODE_HEADER_FLOATING_POSITION_CLASS } from '@/features/canv
 import { NodeResizeHandle } from '@/features/canvas/ui/NodeResizeHandle';
 import {
   canvasAiGateway,
-  graphImageResolver,
 } from '@/features/canvas/application/canvasServices';
 import { resolveErrorContent, showErrorDialog } from '@/features/canvas/application/errorDialog';
 import {
@@ -68,6 +67,7 @@ import {
 import { GRSAI_NANO_BANANA_PRO_MODEL_ID } from '@/features/canvas/models/image/grsai/nanoBananaPro';
 
 import { resolveModelPriceDisplay } from '@/features/canvas/pricing';
+import { useCanvasNodeInputImages } from '@/features/canvas/hooks/useCanvasNodeGraph';
 import {
   NODE_CONTROL_CHIP_CLASS,
   NODE_CONTROL_MODEL_CHIP_CLASS,
@@ -355,8 +355,6 @@ export const ImageEditNode = memo(({ id, data, selected, width, height }: ImageE
   const [promptReferencePreview, setPromptReferencePreview] =
     useState<PromptReferencePreviewState | null>(null);
 
-  const nodes = useCanvasStore((state) => state.nodes);
-  const edges = useCanvasStore((state) => state.edges);
   const setSelectedNode = useCanvasStore((state) => state.setSelectedNode);
   const updateNodeData = useCanvasStore((state) => state.updateNodeData);
   const addNode = useCanvasStore((state) => state.addNode);
@@ -377,10 +375,7 @@ export const ImageEditNode = memo(({ id, data, selected, width, height }: ImageE
   const preferDiscountedPrice = useSettingsStore((state) => state.preferDiscountedPrice);
   const grsaiCreditTierId = useSettingsStore((state) => state.grsaiCreditTierId);
 
-  const incomingImages = useMemo(
-    () => graphImageResolver.collectInputImages(id, nodes, edges),
-    [id, nodes, edges]
-  );
+  const incomingImages = useCanvasNodeInputImages(id);
 
   const incomingImageItems = useMemo(
     () =>

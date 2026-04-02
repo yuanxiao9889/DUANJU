@@ -1,13 +1,8 @@
 import {
-  isExportImageNode,
-  isImageEditNode,
-  isJimengImageNode,
-  isJimengImageResultNode,
-  isStoryboardGenNode,
-  isUploadNode,
   type CanvasEdge,
   type CanvasNode,
 } from '../domain/canvasNodes';
+import { extractReferenceImageUrls } from './nodeReferenceExtraction';
 
 export interface ConnectedReferenceImage {
   sourceEdgeId: string;
@@ -50,23 +45,4 @@ export function collectConnectedReferenceImages(
   }
 
   return items;
-}
-
-function extractReferenceImageUrls(node: CanvasNode): string[] {
-  if (
-    isUploadNode(node)
-    || isImageEditNode(node)
-    || isExportImageNode(node)
-    || isStoryboardGenNode(node)
-  ) {
-    return node.data.imageUrl ? [node.data.imageUrl] : [];
-  }
-
-  if (isJimengImageNode(node) || isJimengImageResultNode(node)) {
-    return (node.data.resultImages ?? [])
-      .map((item) => item.imageUrl ?? item.previewImageUrl ?? item.sourceUrl ?? null)
-      .filter((imageUrl): imageUrl is string => Boolean(imageUrl && imageUrl.trim().length > 0));
-  }
-
-  return [];
 }

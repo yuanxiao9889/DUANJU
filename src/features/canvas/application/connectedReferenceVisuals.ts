@@ -1,15 +1,8 @@
 import {
-  isExportImageNode,
-  isImageEditNode,
-  isJimengImageNode,
-  isJimengImageResultNode,
-  isJimengVideoResultNode,
-  isStoryboardGenNode,
-  isUploadNode,
-  isVideoNode,
   type CanvasEdge,
   type CanvasNode,
 } from "../domain/canvasNodes";
+import { extractReferenceVisuals } from "./nodeReferenceExtraction";
 
 export interface ConnectedReferenceVisual {
   sourceEdgeId: string;
@@ -63,100 +56,4 @@ export function collectConnectedReferenceVisuals(
   }
 
   return items;
-}
-
-function extractReferenceVisuals(
-  node: CanvasNode,
-): Array<{
-  kind: "image" | "video";
-  referenceUrl: string;
-  previewImageUrl: string;
-  durationSeconds?: number | null;
-}> {
-  if (
-    isUploadNode(node) ||
-    isImageEditNode(node) ||
-    isExportImageNode(node) ||
-    isStoryboardGenNode(node)
-  ) {
-    const imageUrl = node.data.imageUrl?.trim() ?? "";
-    if (!imageUrl) {
-      return [];
-    }
-
-    return [
-      {
-        kind: "image",
-        referenceUrl: imageUrl,
-        previewImageUrl: imageUrl,
-      },
-    ];
-  }
-
-  if (isJimengImageNode(node) || isJimengImageResultNode(node)) {
-    return (node.data.resultImages ?? [])
-      .map((item) => {
-        const previewImageUrl =
-          item.imageUrl?.trim() ??
-          item.previewImageUrl?.trim() ??
-          item.sourceUrl?.trim() ??
-          "";
-        if (!previewImageUrl) {
-          return null;
-        }
-
-        return {
-          kind: "image" as const,
-          referenceUrl: previewImageUrl,
-          previewImageUrl,
-        };
-      })
-      .filter(
-        (
-          item,
-        ): item is {
-          kind: "image";
-          referenceUrl: string;
-          previewImageUrl: string;
-        } => Boolean(item),
-      );
-  }
-
-  if (isVideoNode(node)) {
-    const referenceUrl = node.data.videoUrl?.trim() ?? "";
-    const previewImageUrl = node.data.previewImageUrl?.trim() ?? "";
-    if (!referenceUrl || !previewImageUrl) {
-      return [];
-    }
-
-    return [
-      {
-        kind: "video",
-        referenceUrl,
-        previewImageUrl,
-        durationSeconds:
-          typeof node.data.duration === "number" ? node.data.duration : null,
-      },
-    ];
-  }
-
-  if (isJimengVideoResultNode(node)) {
-    const referenceUrl = node.data.videoUrl?.trim() ?? "";
-    const previewImageUrl = node.data.previewImageUrl?.trim() ?? "";
-    if (!referenceUrl || !previewImageUrl) {
-      return [];
-    }
-
-    return [
-      {
-        kind: "video",
-        referenceUrl,
-        previewImageUrl,
-        durationSeconds:
-          typeof node.data.duration === "number" ? node.data.duration : null,
-      },
-    ];
-  }
-
-  return [];
 }

@@ -29,7 +29,6 @@ import { useCanvasStore } from '@/stores/canvasStore';
 import { useSettingsStore } from '@/stores/settingsStore';
 import {
   canvasAiGateway,
-  graphImageResolver,
 } from '@/features/canvas/application/canvasServices';
 import { resolveErrorContent, showErrorDialog } from '@/features/canvas/application/errorDialog';
 import {
@@ -66,6 +65,7 @@ import {
 } from '@/features/canvas/models';
 import { GRSAI_NANO_BANANA_PRO_MODEL_ID } from '@/features/canvas/models/image/grsai/nanoBananaPro';
 import { resolveModelPriceDisplay } from '@/features/canvas/pricing';
+import { useCanvasNodeInputImages } from '@/features/canvas/hooks/useCanvasNodeGraph';
 import { ModelParamsControls } from '@/features/canvas/ui/ModelParamsControls';
 import { CanvasNodeImage } from '@/features/canvas/ui/CanvasNodeImage';
 import {
@@ -542,8 +542,6 @@ export const StoryboardGenNode = memo(({ id, data, selected, width, height }: St
   const { zoom } = useViewport();
   const updateNodeInternals = useUpdateNodeInternals();
   const setSelectedNode = useCanvasStore((state) => state.setSelectedNode);
-  const nodes = useCanvasStore((state) => state.nodes);
-  const edges = useCanvasStore((state) => state.edges);
   const updateNodeData = useCanvasStore((state) => state.updateNodeData);
   const addNode = useCanvasStore((state) => state.addNode);
   const addEdge = useCanvasStore((state) => state.addEdge);
@@ -600,10 +598,7 @@ export const StoryboardGenNode = memo(({ id, data, selected, width, height }: St
     [nodeData]
   );
 
-  const incomingImages = useMemo(
-    () => graphImageResolver.collectInputImages(id, nodes, edges),
-    [id, nodes, edges]
-  );
+  const incomingImages = useCanvasNodeInputImages(id);
   const incomingImageItems = useMemo(
     () =>
       incomingImages.map((imageUrl, index) => ({
