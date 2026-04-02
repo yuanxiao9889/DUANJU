@@ -34,9 +34,34 @@
     "jimengRestore": "还原即梦面板",
     "switchToEnglish": "English",
     "switchToChinese": "中文",
+    "extensions": "扩展中心",
     "minimize": "最小化",
     "maximize": "最大化",
     "close": "关闭"
+  },
+  "extensions": {
+    "title": "扩展中心",
+    "centerTitle": "按需加载扩展能力",
+    "centerDescription": "扩展包从文件夹加载，启用后才会把对应功能注册到软件里。Qwen3 TTS 扩展会使用本地离线模型与 Python bridge 运行时，不启用时不会占用这部分能力。",
+    "sampleHint": "仓库里现在可以直接加载 extension-packages/qwen3-tts-complete；如需重新构建完整包，可运行 npm run prepare:qwen3-tts-extension。",
+    "loadFolderTitle": "选择扩展包文件夹",
+    "loadFailed": "加载扩展包失败",
+    "loadingPackage": "读取中...",
+    "loadFolder": "加载文件夹",
+    "emptyTitle": "还没有加载任何扩展包",
+    "emptyDescription": "先选择一个包含 storyboard-extension.json 的文件夹，软件就会把它识别为可启用的扩展包。",
+    "runtime": "运行时",
+    "folder": "位置",
+    "openFolder": "打开文件夹",
+    "enable": "启用扩展",
+    "disable": "停用扩展",
+    "enabling": "启用中...",
+    "statusEnabled": "已启用",
+    "statusStarting": "启动中",
+    "statusError": "启动失败",
+    "statusLoaded": "已加载",
+    "currentStep": "当前步骤",
+    "readyHint": "扩展启用后，对应节点会出现在画布节点菜单中。"
   },
   "canvas": {
     "addImage": "添加图片",
@@ -140,6 +165,8 @@
       "storyboardSplitResult": "切割结果",
       "storyboardGen": "分镜生成",
       "textAnnotation": "文本注释",
+      "ttsText": "配音文本",
+      "ttsVoiceDesign": "声音设计",
       "videoNode": "视频节点",
       "audioNode": "音频节点",
       "scriptChapter": "章节节点",
@@ -326,6 +353,44 @@
     "textAnnotation": {
       "placeholder": "输入 Markdown 文本，取消选中后会渲染预览",
       "empty": "空注释"
+    },
+    "ttsText": {
+      "placeholder": "输入要送入语音生成的文本内容"
+    },
+    "qwenTts": {
+      "connectedText": "输入文本",
+      "voicePrompt": "声音设定",
+      "voicePromptPlaceholder": "例如：年轻女性，情绪克制，像贴近耳边的轻声旁白",
+      "stylePreset": "风格",
+      "language": "语言",
+      "speakingRate": "语速",
+      "pitch": "音高",
+      "generate": "生成语音",
+      "generating": "生成中...",
+      "generateFailed": "语音生成失败",
+      "noInputText": "请先连接一个文本节点",
+      "waitingForText": "等待上游文本输入",
+      "extensionDisabled": "请先在扩展中心启用 Qwen TTS 扩展",
+      "extensionStarting": "扩展运行时仍在启动中，请稍等片刻",
+      "generatedToNode": "已生成新的音频节点",
+      "generatedAt": "{{time}} 已生成",
+      "errorShort": "失败",
+      "readyShort": "就绪",
+      "statusPreparing": "正在整理声音参数...",
+      "statusRendering": "正在生成语音音频...",
+      "statusCreatingNode": "正在创建音频节点...",
+      "styles": {
+        "natural": "自然",
+        "narrator": "旁白",
+        "bright": "明亮",
+        "calm": "沉稳"
+      },
+      "languages": {
+        "auto": "自动识别",
+        "zh": "中文",
+        "en": "英文",
+        "jp": "日语"
+      }
     },
     "videoNode": {
       "title": "视频节点",

@@ -299,6 +299,13 @@ export const AudioNode = memo(({ id, data, selected, width }: AudioNodeProps) =>
       )}
 
       <Handle
+        type="target"
+        position={Position.Left}
+        id="target"
+        className="!h-3 !w-3 !border-2 !border-white !bg-accent"
+      />
+
+      <Handle
         type="source"
         position={Position.Right}
         id="source"

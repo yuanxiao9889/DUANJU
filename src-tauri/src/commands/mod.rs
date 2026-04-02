@@ -1,6 +1,7 @@
 ﻿pub mod ai;
 pub mod asset_state;
 pub mod dreamina_cli;
+pub mod extensions;
 pub mod export;
 pub mod image;
 pub mod project_state;
@@ -13,6 +14,7 @@ pub mod update;
 pub use ai::*;
 pub use asset_state::*;
 pub use dreamina_cli::*;
+pub use extensions::*;
 pub use export::*;
 pub use image::*;
 pub use project_state::*;

@@ -2,7 +2,7 @@
 import { getVersion } from '@tauri-apps/api/app';
 import type { MouseEvent as ReactMouseEvent } from 'react';
 import { getCurrentWindow } from '@tauri-apps/api/window';
-import { Minus, X, Maximize2, Settings, ArrowLeft } from 'lucide-react';
+import { Minus, X, Maximize2, Settings, ArrowLeft, PackageOpen } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { Moon, Sun, Languages } from 'lucide-react';
 import { useThemeStore } from '@/stores/themeStore';
@@ -15,6 +15,7 @@ import maximizeNormalIcon from '@/assets/macos-traffic-lights/3-maximize-1-norma
 import maximizeHoverIcon from '@/assets/macos-traffic-lights/3-maximize-2-hover.svg';
 
 interface TitleBarProps {
+  onExtensionsClick: () => void;
   onSettingsClick: () => void;
   onCloseRequest?: () => Promise<void> | void;
   showBackButton?: boolean;
@@ -22,6 +23,7 @@ interface TitleBarProps {
 }
 
 export function TitleBar({
+  onExtensionsClick,
   onSettingsClick,
   onCloseRequest,
   showBackButton,
@@ -235,6 +237,15 @@ export function TitleBar({
           ) : (
             <Moon className="w-4 h-4 text-text-muted" />
           )}
+        </button>
+
+        <button
+          type="button"
+          onClick={onExtensionsClick}
+          className="h-full px-3 hover:bg-bg-dark transition-colors"
+          title={t('titleBar.extensions')}
+        >
+          <PackageOpen className="w-4 h-4 text-text-muted" />
         </button>
 
         <button

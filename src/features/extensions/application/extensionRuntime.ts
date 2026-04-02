@@ -1,0 +1,361 @@
+import {
+  prepareNodeAudio,
+  prepareNodeAudioFromFile,
+  type PreparedAudio,
+} from '@/features/canvas/application/audioData';
+import type { TtsVoiceDesignNodeData } from '@/features/canvas/domain/canvasNodes';
+import { runExtensionCommand } from '@/commands/extensions';
+
+import { createMockQwenTtsAudioFile } from './mockQwenTts';
+import {
+  QWEN_TTS_COMPLETE_EXTENSION_ID,
+  QWEN_TTS_SIMPLE_EXTENSION_ID,
+  type ExtensionRuntimeState,
+  type ExtensionStartupStep,
+  type LoadedExtensionPackage,
+} from '@/features/extensions/domain/types';
+
+const REAL_STEP_MAX_DELAY_MS = 220;
+const SIMULATED_STEP_DURATION_FALLBACK_MS = 260;
+const QWEN_TTS_EXTENSION_PRIORITY = [
+  QWEN_TTS_COMPLETE_EXTENSION_ID,
+  QWEN_TTS_SIMPLE_EXTENSION_ID,
+] as const;
+
+type QwenTtsVoicePreset = TtsVoiceDesignNodeData['stylePreset'];
+type QwenTtsVoiceLanguage = TtsVoiceDesignNodeData['language'];
+
+interface QwenTtsHealthResponse {
+  ok: boolean;
+  command: 'health';
+  checks: Record<string, boolean>;
+}
+
+interface QwenTtsListedModel {
+  id: string;
+  path: string;
+  exists: boolean;
+}
+
+interface QwenTtsListModelsResponse {
+  ok: boolean;
+  command: 'list_models';
+  models: QwenTtsListedModel[];
+}
+
+interface QwenTtsGeneratedOutput {
+  path: string;
+  name?: string;
+  duration?: number;
+}
+
+interface QwenTtsGenerateVoiceDesignResponse {
+  ok: boolean;
+  command: 'generate_voice_design';
+  outputs?: QwenTtsGeneratedOutput[];
+  files?: string[];
+}
+
+export interface GenerateQwenTtsVoiceDesignRequest {
+  text: string;
+  voicePrompt: string;
+  stylePreset: QwenTtsVoicePreset;
+  language: QwenTtsVoiceLanguage;
+  speakingRate: number;
+  pitch: number;
+}
+
+export interface GeneratedQwenTtsAudioAsset extends PreparedAudio {
+  audioFileName: string | null;
+  sourcePath: string | null;
+}
+
+export interface ResolvedQwenTtsExtensionState {
+  readyPackage: LoadedExtensionPackage | null;
+  pendingPackage: LoadedExtensionPackage | null;
+  runtime: ExtensionRuntimeState | null;
+}
+
+function sleep(durationMs: number): Promise<void> {
+  return new Promise((resolve) => {
+    window.setTimeout(resolve, durationMs);
+  });
+}
+
+async function withMinimumDuration<T>(
+  work: Promise<T>,
+  durationMs: number
+): Promise<T> {
+  const startedAt = Date.now();
+
+  try {
+    const result = await work;
+    const remainingMs = Math.max(0, durationMs - (Date.now() - startedAt));
+    if (remainingMs > 0) {
+      await sleep(remainingMs);
+    }
+    return result;
+  } catch (error) {
+    const remainingMs = Math.max(0, durationMs - (Date.now() - startedAt));
+    if (remainingMs > 0) {
+      await sleep(remainingMs);
+    }
+    throw error;
+  }
+}
+
+function resolveStepDelay(step: ExtensionStartupStep): number {
+  const durationMs = step.durationMs ?? SIMULATED_STEP_DURATION_FALLBACK_MS;
+  return Math.max(80, Math.min(durationMs, REAL_STEP_MAX_DELAY_MS));
+}
+
+function ensurePackageHasPythonEntry(extensionPackage: LoadedExtensionPackage): void {
+  if (extensionPackage.runtime !== 'python-bridge') {
+    return;
+  }
+
+  if (!extensionPackage.entry || extensionPackage.entry.kind !== 'python') {
+    throw new Error('The extension package is missing a valid Python runtime entry.');
+  }
+
+  if (!extensionPackage.entry.python || !extensionPackage.entry.script) {
+    throw new Error('The extension package is missing its Python executable or runner script.');
+  }
+}
+
+async function verifyPythonRuntime(
+  extensionPackage: LoadedExtensionPackage
+): Promise<void> {
+  const response = await runExtensionCommand<QwenTtsHealthResponse>(
+    extensionPackage.folderPath,
+    'health'
+  );
+
+  const failedChecks = Object.entries(response.checks ?? {})
+    .filter(([, passed]) => !passed)
+    .map(([checkName]) => checkName);
+
+  if (failedChecks.length > 0) {
+    throw new Error(`Extension runtime checks failed: ${failedChecks.join(', ')}`);
+  }
+}
+
+async function verifyPythonModels(
+  extensionPackage: LoadedExtensionPackage
+): Promise<void> {
+  const response = await runExtensionCommand<QwenTtsListModelsResponse>(
+    extensionPackage.folderPath,
+    'list_models'
+  );
+
+  const missingModels = (response.models ?? [])
+    .filter((model) => !model.exists)
+    .map((model) => model.id);
+
+  if (missingModels.length > 0) {
+    throw new Error(`Missing Qwen TTS model assets: ${missingModels.join(', ')}`);
+  }
+}
+
+export async function runExtensionStartupStep(
+  extensionPackage: LoadedExtensionPackage,
+  step: ExtensionStartupStep
+): Promise<void> {
+  if (extensionPackage.runtime !== 'python-bridge') {
+    await sleep(step.durationMs ?? SIMULATED_STEP_DURATION_FALLBACK_MS);
+    return;
+  }
+
+  ensurePackageHasPythonEntry(extensionPackage);
+
+  if (step.id === 'validate') {
+    await sleep(resolveStepDelay(step));
+    return;
+  }
+
+  if (step.id === 'verify-runtime') {
+    await withMinimumDuration(
+      verifyPythonRuntime(extensionPackage),
+      resolveStepDelay(step)
+    );
+    return;
+  }
+
+  if (step.id === 'verify-models') {
+    await withMinimumDuration(
+      verifyPythonModels(extensionPackage),
+      resolveStepDelay(step)
+    );
+    return;
+  }
+
+  await sleep(resolveStepDelay(step));
+}
+
+function resolveStyleDescription(stylePreset: QwenTtsVoicePreset): string {
+  switch (stylePreset) {
+    case 'narrator':
+      return 'narration-focused, clear articulation, stronger storytelling tone';
+    case 'bright':
+      return 'brighter tone, lighter and more energetic presence';
+    case 'calm':
+      return 'calm, restrained, stable delivery without exaggerated emotion';
+    case 'natural':
+    default:
+      return 'natural delivery, close to everyday speech';
+  }
+}
+
+function resolveRateDescription(rate: number): string {
+  if (rate >= 1.2) {
+    return 'slightly faster speaking rate';
+  }
+  if (rate >= 1.05) {
+    return 'a bit faster than normal';
+  }
+  if (rate <= 0.8) {
+    return 'slower speaking rate';
+  }
+  if (rate <= 0.95) {
+    return 'a bit slower than normal';
+  }
+  return 'natural speaking rate';
+}
+
+function resolvePitchDescription(pitch: number): string {
+  if (pitch >= 4) {
+    return 'clearly higher pitch';
+  }
+  if (pitch >= 1) {
+    return 'slightly higher pitch';
+  }
+  if (pitch <= -4) {
+    return 'clearly lower pitch';
+  }
+  if (pitch <= -1) {
+    return 'slightly lower pitch';
+  }
+  return 'natural pitch';
+}
+
+function buildVoiceDesignInstruction(
+  request: GenerateQwenTtsVoiceDesignRequest
+): string {
+  const segments = [
+    request.voicePrompt.trim(),
+    resolveStyleDescription(request.stylePreset),
+    resolveRateDescription(request.speakingRate),
+    resolvePitchDescription(request.pitch),
+  ].filter((value) => value.length > 0);
+
+  return segments.join('; ');
+}
+
+function getFileNameFromPath(filePath: string): string | null {
+  const normalized = filePath.trim().replace(/\\/g, '/');
+  if (!normalized) {
+    return null;
+  }
+
+  const parts = normalized.split('/');
+  return parts[parts.length - 1] || null;
+}
+
+async function generateRealVoiceDesignAudio(
+  extensionPackage: LoadedExtensionPackage,
+  request: GenerateQwenTtsVoiceDesignRequest
+): Promise<GeneratedQwenTtsAudioAsset> {
+  const response = await runExtensionCommand<QwenTtsGenerateVoiceDesignResponse>(
+    extensionPackage.folderPath,
+    'generate_voice_design',
+    {
+      text: request.text,
+      language: request.language,
+      voicePrompt: buildVoiceDesignInstruction(request),
+      outputPrefix: `voice-design-${Date.now()}`,
+    }
+  );
+
+  const firstOutput = response.outputs?.[0];
+  const outputPath = firstOutput?.path ?? response.files?.[0] ?? null;
+  if (!outputPath) {
+    throw new Error('The extension runtime did not return an audio file.');
+  }
+
+  const preparedAudio = await prepareNodeAudio(outputPath, {
+    duration: firstOutput?.duration,
+    mimeType: 'audio/wav',
+  });
+
+  return {
+    ...preparedAudio,
+    audioFileName: firstOutput?.name ?? getFileNameFromPath(outputPath),
+    sourcePath: outputPath,
+  };
+}
+
+async function generateMockVoiceDesignAudio(
+  request: GenerateQwenTtsVoiceDesignRequest
+): Promise<GeneratedQwenTtsAudioAsset> {
+  const audioFile = await createMockQwenTtsAudioFile({
+    text: request.text,
+    voicePrompt: request.voicePrompt,
+    stylePreset: request.stylePreset,
+    language: request.language,
+    speakingRate: request.speakingRate,
+    pitch: request.pitch,
+  });
+
+  const preparedAudio = await prepareNodeAudioFromFile(audioFile);
+  return {
+    ...preparedAudio,
+    audioFileName: audioFile.name,
+    sourcePath: null,
+  };
+}
+
+export async function generateQwenTtsVoiceDesignAudio(
+  extensionPackage: LoadedExtensionPackage,
+  request: GenerateQwenTtsVoiceDesignRequest
+): Promise<GeneratedQwenTtsAudioAsset> {
+  if (extensionPackage.id === QWEN_TTS_COMPLETE_EXTENSION_ID) {
+    return await generateRealVoiceDesignAudio(extensionPackage, request);
+  }
+
+  return await generateMockVoiceDesignAudio(request);
+}
+
+export function resolveQwenTtsExtensionState(
+  packages: Record<string, LoadedExtensionPackage>,
+  enabledExtensionIds: string[],
+  runtimeById: Record<string, ExtensionRuntimeState>
+): ResolvedQwenTtsExtensionState {
+  const readyPackage =
+    QWEN_TTS_EXTENSION_PRIORITY
+      .map((extensionId) => (
+        enabledExtensionIds.includes(extensionId) ? packages[extensionId] : null
+      ))
+      .find((extensionPackage) => extensionPackage !== null) ?? null;
+
+  const pendingPackage =
+    readyPackage
+    ?? QWEN_TTS_EXTENSION_PRIORITY
+      .map((extensionId) => {
+        const extensionPackage = packages[extensionId];
+        if (!extensionPackage) {
+          return null;
+        }
+
+        return runtimeById[extensionId]?.status === 'starting'
+          ? extensionPackage
+          : null;
+      })
+      .find((extensionPackage) => extensionPackage !== null)
+    ?? null;
+
+  return {
+    readyPackage,
+    pendingPackage,
+    runtime: pendingPackage ? runtimeById[pendingPackage.id] ?? null : null,
+  };
+}

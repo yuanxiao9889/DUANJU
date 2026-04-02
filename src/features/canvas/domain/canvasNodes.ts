@@ -15,6 +15,8 @@ export const CANVAS_NODE_TYPES = {
   storyboardGen: 'storyboardGenNode',
   video: 'videoNode',
   audio: 'audioNode',
+  ttsText: 'ttsTextNode',
+  ttsVoiceDesign: 'ttsVoiceDesignNode',
   scriptRoot: 'scriptRootNode',
   scriptChapter: 'scriptChapterNode',
   scriptCharacter: 'scriptCharacterNode',
@@ -45,6 +47,10 @@ export const JIMENG_VIDEO_RESULT_NODE_MIN_WIDTH = 360;
 export const JIMENG_VIDEO_RESULT_NODE_MIN_HEIGHT = 280;
 export const AUDIO_NODE_DEFAULT_WIDTH = 320;
 export const AUDIO_NODE_DEFAULT_HEIGHT = 96;
+export const TTS_TEXT_NODE_DEFAULT_WIDTH = 320;
+export const TTS_TEXT_NODE_DEFAULT_HEIGHT = 180;
+export const TTS_VOICE_DESIGN_NODE_DEFAULT_WIDTH = 360;
+export const TTS_VOICE_DESIGN_NODE_DEFAULT_HEIGHT = 300;
 
 export const IMAGE_SIZES = ['0.5K', '1K', '2K', '4K'] as const;
 export const IMAGE_ASPECT_RATIOS = [
@@ -171,6 +177,25 @@ export interface AudioNodeData extends NodeDisplayData {
   assetLibraryId?: string | null;
   assetName?: string | null;
   assetCategory?: string | null;
+  [key: string]: unknown;
+}
+
+export interface TtsTextNodeData extends NodeDisplayData {
+  content: string;
+  [key: string]: unknown;
+}
+
+export interface TtsVoiceDesignNodeData extends NodeDisplayData {
+  voicePrompt: string;
+  stylePreset: 'natural' | 'narrator' | 'bright' | 'calm';
+  language: 'auto' | 'zh' | 'en' | 'jp';
+  speakingRate: number;
+  pitch: number;
+  isGenerating?: boolean;
+  generationProgress?: number;
+  statusText?: string | null;
+  lastError?: string | null;
+  lastGeneratedAt?: number | null;
   [key: string]: unknown;
 }
 
@@ -565,6 +590,8 @@ export type CanvasNodeData =
   | StoryboardGenNodeData
   | VideoNodeData
   | AudioNodeData
+  | TtsTextNodeData
+  | TtsVoiceDesignNodeData
   | ScriptRootNodeData
   | ScriptChapterNodeData
   | ScriptCharacterNodeData
@@ -908,6 +935,18 @@ export function isAudioNode(
   node: CanvasNode | null | undefined
 ): node is Node<AudioNodeData, typeof CANVAS_NODE_TYPES.audio> {
   return node?.type === CANVAS_NODE_TYPES.audio;
+}
+
+export function isTtsTextNode(
+  node: CanvasNode | null | undefined
+): node is Node<TtsTextNodeData, typeof CANVAS_NODE_TYPES.ttsText> {
+  return node?.type === CANVAS_NODE_TYPES.ttsText;
+}
+
+export function isTtsVoiceDesignNode(
+  node: CanvasNode | null | undefined
+): node is Node<TtsVoiceDesignNodeData, typeof CANVAS_NODE_TYPES.ttsVoiceDesign> {
+  return node?.type === CANVAS_NODE_TYPES.ttsVoiceDesign;
 }
 
 export function isStoryboardSplitNode(

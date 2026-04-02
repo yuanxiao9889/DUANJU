@@ -1,0 +1,46 @@
+{
+  "schemaVersion": 1,
+  "id": "qwen3-tts-simple",
+  "name": "Qwen3 TTS Simple",
+  "version": "0.1.0",
+  "description": "A simple extension package that unlocks text-to-speech canvas nodes and a mock Qwen TTS runtime for end-to-end flow testing.",
+  "runtime": "mock-qwen-tts",
+  "features": {
+    "nodes": [
+      "ttsTextNode",
+      "ttsVoiceDesignNode"
+    ],
+    "settingsSections": [
+      "extensions"
+    ],
+    "entryPoints": [
+      "titleBar"
+    ]
+  },
+  "startupSteps": [
+    {
+      "id": "validate",
+      "label": "Validate package",
+      "description": "Check the manifest and required node declarations.",
+      "durationMs": 420
+    },
+    {
+      "id": "prepare-runtime",
+      "label": "Prepare runtime",
+      "description": "Warm up the bundled mock runtime and runtime metadata.",
+      "durationMs": 760
+    },
+    {
+      "id": "register-nodes",
+      "label": "Register nodes",
+      "description": "Expose the voice nodes to the canvas node catalog.",
+      "durationMs": 540
+    },
+    {
+      "id": "ready",
+      "label": "Ready",
+      "description": "The extension is ready to use in the canvas.",
+      "durationMs": 260
+    }
+  ]
+}

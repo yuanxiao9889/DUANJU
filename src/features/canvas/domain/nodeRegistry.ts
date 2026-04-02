@@ -23,6 +23,8 @@ import {
   type StoryboardSplitResultNodeData,
   type StoryboardGenNodeData,
   type TextAnnotationNodeData,
+  type TtsTextNodeData,
+  type TtsVoiceDesignNodeData,
   type UploadImageNodeData,
   type AudioNodeData,
   type VideoNodeData,
@@ -37,6 +39,10 @@ import {
 } from './canvasNodes';
 import { DEFAULT_NODE_DISPLAY_NAME } from './nodeDisplay';
 import { DEFAULT_IMAGE_MODEL_ID } from '../models';
+import {
+  QWEN_TTS_COMPLETE_EXTENSION_ID,
+  QWEN_TTS_SIMPLE_EXTENSION_ID,
+} from '@/features/extensions/domain/types';
 
 export type MenuIconKey = 'upload' | 'sparkles' | 'layout' | 'text' | 'video' | 'audio';
 export type NodeMenuProjectType = 'storyboard' | 'script';
@@ -67,6 +73,8 @@ export interface CanvasNodeDefinition<TData extends CanvasNodeData = CanvasNodeD
   menuProjectTypes: NodeMenuProjectType[];
   capabilities: CanvasNodeCapabilities;
   connectivity: CanvasNodeConnectivity;
+  requiredExtensionId?: string;
+  requiredExtensionIds?: string[];
   createDefaultData: () => TData;
 }
 
@@ -499,7 +507,7 @@ const audioNodeDefinition: CanvasNodeDefinition<AudioNodeData> = {
   },
   connectivity: {
     sourceHandle: true,
-    targetHandle: false,
+    targetHandle: true,
     connectMenu: {
       fromSource: false,
       fromTarget: true,
@@ -512,6 +520,71 @@ const audioNodeDefinition: CanvasNodeDefinition<AudioNodeData> = {
     audioFileName: null,
     duration: undefined,
     mimeType: null,
+  }),
+};
+
+const ttsTextNodeDefinition: CanvasNodeDefinition<TtsTextNodeData> = {
+  type: CANVAS_NODE_TYPES.ttsText,
+  menuLabelKey: 'node.menu.ttsText',
+  menuIcon: 'text',
+  visibleInMenu: true,
+  menuProjectTypes: ['storyboard'],
+  requiredExtensionIds: [
+    QWEN_TTS_SIMPLE_EXTENSION_ID,
+    QWEN_TTS_COMPLETE_EXTENSION_ID,
+  ],
+  capabilities: {
+    toolbar: true,
+    promptInput: false,
+  },
+  connectivity: {
+    sourceHandle: true,
+    targetHandle: false,
+    connectMenu: {
+      fromSource: false,
+      fromTarget: true,
+    },
+  },
+  createDefaultData: () => ({
+    displayName: DEFAULT_NODE_DISPLAY_NAME[CANVAS_NODE_TYPES.ttsText],
+    content: '',
+  }),
+};
+
+const ttsVoiceDesignNodeDefinition: CanvasNodeDefinition<TtsVoiceDesignNodeData> = {
+  type: CANVAS_NODE_TYPES.ttsVoiceDesign,
+  menuLabelKey: 'node.menu.ttsVoiceDesign',
+  menuIcon: 'audio',
+  visibleInMenu: true,
+  menuProjectTypes: ['storyboard'],
+  requiredExtensionIds: [
+    QWEN_TTS_SIMPLE_EXTENSION_ID,
+    QWEN_TTS_COMPLETE_EXTENSION_ID,
+  ],
+  capabilities: {
+    toolbar: true,
+    promptInput: false,
+  },
+  connectivity: {
+    sourceHandle: true,
+    targetHandle: true,
+    connectMenu: {
+      fromSource: true,
+      fromTarget: false,
+    },
+  },
+  createDefaultData: () => ({
+    displayName: DEFAULT_NODE_DISPLAY_NAME[CANVAS_NODE_TYPES.ttsVoiceDesign],
+    voicePrompt: '',
+    stylePreset: 'natural',
+    language: 'auto',
+    speakingRate: 1,
+    pitch: 0,
+    isGenerating: false,
+    generationProgress: 0,
+    statusText: null,
+    lastError: null,
+    lastGeneratedAt: null,
   }),
 };
 
@@ -743,6 +816,8 @@ export const canvasNodeDefinitions: Record<CanvasNodeType, CanvasNodeDefinition>
   [CANVAS_NODE_TYPES.storyboardGen]: storyboardGenNodeDefinition,
   [CANVAS_NODE_TYPES.video]: videoNodeDefinition,
   [CANVAS_NODE_TYPES.audio]: audioNodeDefinition,
+  [CANVAS_NODE_TYPES.ttsText]: ttsTextNodeDefinition,
+  [CANVAS_NODE_TYPES.ttsVoiceDesign]: ttsVoiceDesignNodeDefinition,
   [CANVAS_NODE_TYPES.scriptRoot]: scriptRootNodeDefinition,
   [CANVAS_NODE_TYPES.scriptChapter]: scriptChapterNodeDefinition,
   [CANVAS_NODE_TYPES.scriptCharacter]: scriptCharacterNodeDefinition,

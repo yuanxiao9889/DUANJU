@@ -7,6 +7,7 @@ use std::time::Duration;
 use commands::ai as ai_commands;
 use commands::asset_state;
 use commands::dreamina_cli;
+use commands::extensions;
 use commands::image;
 use commands::project_state;
 use commands::ps_server;
@@ -139,6 +140,8 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .invoke_handler(tauri::generate_handler![
             frontend_ready,
+            extensions::read_extension_package,
+            extensions::run_extension_command,
             dreamina_cli::check_dreamina_cli_status,
             dreamina_cli::install_dreamina_cli,
             dreamina_cli::open_dreamina_login_terminal,

@@ -4,7 +4,10 @@ import { AudioLines, Image, Upload, Sparkles, LayoutGrid, Type, GitBranch, Video
 import { UI_POPOVER_TRANSITION_MS } from '@/components/ui/motion';
 
 import type { CanvasNodeType } from '@/features/canvas/domain/canvasNodes';
-import { nodeCatalog } from '@/features/canvas/application/nodeCatalog';
+import {
+  isCanvasNodeTypeEnabled,
+  nodeCatalog,
+} from '@/features/canvas/application/nodeCatalog';
 import {
   isNodeTypeAvailableInProject,
   type MenuIconKey,
@@ -80,6 +83,7 @@ export function NodeSelectionMenu({
       ? nodeCatalog.getMenuDefinitions(projectType)
       : Array.from(new Set(allowedTypes))
         .filter((type) => isNodeTypeAvailableInProject(type, projectType))
+        .filter((type) => isCanvasNodeTypeEnabled(type))
         .map((type) => nodeCatalog.getDefinition(type));
 
     const dedupedByLabel = new Map<string, typeof candidates[number]>();

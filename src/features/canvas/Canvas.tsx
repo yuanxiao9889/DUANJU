@@ -73,6 +73,7 @@ import {
 import { embedStoryboardImageMetadata, saveImageSourceToDirectory } from '@/commands/image';
 import { resolveNodeDisplayName } from '@/features/canvas/domain/nodeDisplay';
 import { listModelProviders } from '@/features/canvas/models';
+import { isCanvasNodeTypeEnabled } from '@/features/canvas/application/nodeCatalog';
 import { nodeTypes } from './nodes';
 import { edgeTypes } from './edges';
 import { NodeSelectionMenu } from './NodeSelectionMenu';
@@ -366,7 +367,9 @@ function resolveAllowedNodeTypes(
   sourceNodeId?: string | null,
   nodes?: CanvasNode[]
 ): CanvasNodeType[] {
-  const baseTypes = getConnectMenuNodeTypes(handleType, projectType);
+  const baseTypes = getConnectMenuNodeTypes(handleType, projectType).filter(
+    (type) => isCanvasNodeTypeEnabled(type)
+  );
   
   if (!sourceNodeId || !nodes) {
     return baseTypes;

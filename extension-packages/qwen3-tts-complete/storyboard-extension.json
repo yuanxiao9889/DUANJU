@@ -1,0 +1,79 @@
+{
+  "schemaVersion": 2,
+  "id": "qwen3-tts-complete",
+  "name": "Qwen3 TTS Complete",
+  "version": "0.1.0",
+  "description": "Full offline Qwen3 TTS runtime package for Storyboard Copilot. This package is assembled from the local integrated bundle and replaces the mock runtime with the official inference stack.",
+  "runtime": "python-bridge",
+  "entry": {
+    "kind": "python",
+    "python": "runtime/python/python.exe",
+    "script": "runtime/app/storyboard_qwen_runner.py"
+  },
+  "models": [
+    {
+      "id": "base-12hz-1.7b",
+      "path": "runtime/models/Qwen3-TTS-12Hz-1.7B-Base",
+      "role": "voiceClone"
+    },
+    {
+      "id": "voice-design-12hz-1.7b",
+      "path": "runtime/models/Qwen3-TTS-12Hz-1.7B-VoiceDesign",
+      "role": "voiceDesign"
+    },
+    {
+      "id": "custom-voice-12hz-1.7b",
+      "path": "runtime/models/Qwen3-TTS-12Hz-1.7B-CustomVoice",
+      "role": "customVoice"
+    },
+    {
+      "id": "tokenizer-12hz",
+      "path": "runtime/models/Qwen3-TTS-Tokenizer-12Hz",
+      "role": "tokenizer"
+    }
+  ],
+  "features": {
+    "nodes": [
+      "ttsTextNode",
+      "ttsVoiceDesignNode"
+    ],
+    "settingsSections": [
+      "extensions"
+    ],
+    "entryPoints": [
+      "titleBar"
+    ]
+  },
+  "startupSteps": [
+    {
+      "id": "validate",
+      "label": "Validate package",
+      "description": "Check the runtime entry and model asset declarations.",
+      "durationMs": 300
+    },
+    {
+      "id": "verify-runtime",
+      "label": "Verify runtime",
+      "description": "Check Python runtime, qwen_tts package, and SoX availability.",
+      "durationMs": 420
+    },
+    {
+      "id": "verify-models",
+      "label": "Verify models",
+      "description": "Check the Base, VoiceDesign, CustomVoice, and tokenizer directories.",
+      "durationMs": 460
+    },
+    {
+      "id": "warmup",
+      "label": "Warm up runtime",
+      "description": "Run a lightweight health check before exposing the extension.",
+      "durationMs": 700
+    },
+    {
+      "id": "register-nodes",
+      "label": "Register nodes",
+      "description": "Expose Qwen TTS nodes to the canvas.",
+      "durationMs": 280
+    }
+  ]
+}

@@ -35,9 +35,34 @@
     "jimengRestore": "Restore Jimeng panel",
     "switchToEnglish": "English",
     "switchToChinese": "中文",
+    "extensions": "Extensions Center",
     "minimize": "Minimize",
     "maximize": "Maximize",
     "close": "Close"
+  },
+  "extensions": {
+    "title": "Extensions Center",
+    "centerTitle": "Load optional capabilities on demand",
+    "centerDescription": "Extension packages are loaded from folders and only register their features after you enable them. The Qwen3 TTS package uses local offline models and a Python bridge runtime, so it stays inactive until you explicitly turn it on.",
+    "sampleHint": "You can now load extension-packages/qwen3-tts-complete directly. If you need to rebuild the full package, run npm run prepare:qwen3-tts-extension.",
+    "loadFolderTitle": "Choose an extension package folder",
+    "loadFailed": "Failed to load extension package",
+    "loadingPackage": "Reading package...",
+    "loadFolder": "Load Folder",
+    "emptyTitle": "No extension package loaded yet",
+    "emptyDescription": "Choose a folder that contains storyboard-extension.json and the app will recognize it as a loadable extension package.",
+    "runtime": "Runtime",
+    "folder": "Folder",
+    "openFolder": "Open Folder",
+    "enable": "Enable",
+    "disable": "Disable",
+    "enabling": "Starting...",
+    "statusEnabled": "Enabled",
+    "statusStarting": "Starting",
+    "statusError": "Failed",
+    "statusLoaded": "Loaded",
+    "currentStep": "Current step",
+    "readyHint": "Once enabled, the related nodes will appear in the canvas node menu."
   },
   "canvas": {
     "addImage": "Add Image",
@@ -146,6 +171,8 @@
       "storyboardSplitResult": "Split Result",
       "storyboardGen": "Storyboard Generation",
       "textAnnotation": "Text Annotation",
+      "ttsText": "TTS Text",
+      "ttsVoiceDesign": "Voice Design",
       "videoNode": "Video Node",
       "audioNode": "Audio Node",
       "scriptChapter": "Chapter Node",
@@ -491,6 +518,44 @@
     "textAnnotation": {
       "placeholder": "Write Markdown text. It will render when unselected.",
       "empty": "Empty note"
+    },
+    "ttsText": {
+      "placeholder": "Enter the text that should be sent to voice generation"
+    },
+    "qwenTts": {
+      "connectedText": "Input text",
+      "voicePrompt": "Voice prompt",
+      "voicePromptPlaceholder": "Example: young female voice, restrained emotion, intimate close-mic narration",
+      "stylePreset": "Style",
+      "language": "Language",
+      "speakingRate": "Rate",
+      "pitch": "Pitch",
+      "generate": "Generate Voice",
+      "generating": "Generating...",
+      "generateFailed": "Voice generation failed",
+      "noInputText": "Connect a text node first",
+      "waitingForText": "Waiting for upstream text",
+      "extensionDisabled": "Enable the Qwen TTS extension first in Extensions Center",
+      "extensionStarting": "The extension runtime is still starting. Please wait a moment.",
+      "generatedToNode": "Generated a new audio node",
+      "generatedAt": "Generated at {{time}}",
+      "errorShort": "Failed",
+      "readyShort": "Ready",
+      "statusPreparing": "Preparing voice parameters...",
+      "statusRendering": "Generating speech audio...",
+      "statusCreatingNode": "Creating audio node...",
+      "styles": {
+        "natural": "Natural",
+        "narrator": "Narrator",
+        "bright": "Bright",
+        "calm": "Calm"
+      },
+      "languages": {
+        "auto": "Auto",
+        "zh": "Chinese",
+        "en": "English",
+        "jp": "Japanese"
+      }
     },
     "videoNode": {
       "title": "Video Node",

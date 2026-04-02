@@ -4,6 +4,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { Canvas } from "./features/canvas/Canvas";
 import { TitleBar } from "./components/TitleBar";
+import { ExtensionsDialog } from "./components/ExtensionsDialog";
 import { SettingsDialog } from "./components/SettingsDialog";
 import {
   UpdateAvailableDialog,
@@ -93,6 +94,7 @@ function App() {
   );
   const settingsHydrated = useSettingsStore((state) => state.isHydrated);
   const [showSettings, setShowSettings] = useState(false);
+  const [showExtensions, setShowExtensions] = useState(false);
   const [settingsInitialCategory, setSettingsInitialCategory] =
     useState<SettingsCategory>("general");
   const [showUpdateDialog, setShowUpdateDialog] = useState(false);
@@ -380,6 +382,7 @@ function App() {
     <ReactFlowProvider>
       <div className="w-full h-full flex flex-col bg-bg-dark">
         <TitleBar
+          onExtensionsClick={() => setShowExtensions(true)}
           onSettingsClick={() => {
             setSettingsInitialCategory("general");
             setShowSettings(true);
@@ -398,6 +401,10 @@ function App() {
           onClose={() => setShowSettings(false)}
           initialCategory={settingsInitialCategory}
           onCheckUpdate={handleManualCheckUpdate}
+        />
+        <ExtensionsDialog
+          isOpen={showExtensions}
+          onClose={() => setShowExtensions(false)}
         />
         <UpdateAvailableDialog
           isOpen={showUpdateDialog}
