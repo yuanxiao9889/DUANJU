@@ -1,5 +1,6 @@
 use serde::Serialize;
 use std::process::Command;
+use std::time::Duration;
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -137,4 +138,14 @@ pub fn get_runtime_system_info() -> RuntimeSystemInfo {
     {
         resolve_generic_info()
     }
+}
+
+#[tauri::command]
+pub async fn request_app_exit(app: tauri::AppHandle) -> Result<(), String> {
+    tauri::async_runtime::spawn(async move {
+        tokio::time::sleep(Duration::from_millis(40)).await;
+        app.exit(0);
+    });
+
+    Ok(())
 }

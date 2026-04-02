@@ -61,6 +61,7 @@ export type DreaminaSetupProgressStage =
   | "installingCli"
   | "openingLogin"
   | "waitingForLogin"
+  | "failed"
   | "verifying"
   | "completed";
 

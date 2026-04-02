@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { ReactFlowProvider } from "@xyflow/react";
 import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWindow } from "@tauri-apps/api/window";
@@ -110,6 +110,7 @@ function App() {
   const flushCurrentProjectToDisk = useProjectStore(
     (state) => state.flushCurrentProjectToDisk,
   );
+  const isWindowCloseInProgressRef = useRef(false);
 
   useEffect(() => {
     document.documentElement.classList.toggle("dark", theme === "dark");
@@ -268,10 +269,33 @@ function App() {
     });
   }, [isHydrated]);
 
+  const requestWindowClose = useCallback(async () => {
+    if (isWindowCloseInProgressRef.current) {
+      return;
+    }
+
+    isWindowCloseInProgressRef.current = true;
+
+    await settleWithinTimeout(
+      flushCurrentProjectToDisk(),
+      WINDOW_CLOSE_FLUSH_TIMEOUT_MS,
+      "Project flush before window close",
+    );
+
+    const exitRequested = await settleWithinTimeout(
+      invoke<void>("request_app_exit"),
+      WINDOW_CLOSE_REQUEST_TIMEOUT_MS,
+      "App exit request",
+    );
+
+    if (!exitRequested) {
+      isWindowCloseInProgressRef.current = false;
+    }
+  }, [flushCurrentProjectToDisk]);
+
   useEffect(() => {
     const appWindow = getCurrentWindow();
     let disposed = false;
-    let isClosing = false;
     let unlistenWindowClose: (() => void) | null = null;
 
     const detachWindowCloseListener = () => {
@@ -289,43 +313,14 @@ function App() {
       }
     };
 
-    const finalizeWindowClose = async () => {
-      detachWindowCloseListener();
-      if (disposed) {
-        return;
-      }
-
-      const closeSucceeded = await settleWithinTimeout(
-        appWindow.close(),
-        WINDOW_CLOSE_REQUEST_TIMEOUT_MS,
-        "Window close request",
-      );
-      if (closeSucceeded || disposed) {
-        return;
-      }
-
-      try {
-        await appWindow.destroy();
-      } catch (error) {
-        console.error("Failed to force destroy window", error);
-      }
-    };
-
     const registerWindowCloseHandler = async () => {
       unlistenWindowClose = await appWindow.onCloseRequested(async (event) => {
-        if (isClosing) {
+        if (disposed) {
           return;
         }
 
-        isClosing = true;
         event.preventDefault();
-
-        await settleWithinTimeout(
-          flushCurrentProjectToDisk(),
-          WINDOW_CLOSE_FLUSH_TIMEOUT_MS,
-          "Project flush before window close",
-        );
-        await finalizeWindowClose();
+        await requestWindowClose();
       });
     };
 
@@ -337,7 +332,7 @@ function App() {
       disposed = true;
       detachWindowCloseListener();
     };
-  }, [flushCurrentProjectToDisk]);
+  }, [requestWindowClose]);
 
   const handleManualCheckUpdate = async (): Promise<
     "has-update" | "up-to-date" | "failed"
@@ -389,6 +384,7 @@ function App() {
             setSettingsInitialCategory("general");
             setShowSettings(true);
           }}
+          onCloseRequest={requestWindowClose}
           showBackButton={!!currentProjectId}
           onBackClick={closeProject}
         />

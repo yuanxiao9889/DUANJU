@@ -1,5 +1,6 @@
 ﻿import { useCallback, useEffect, useState } from 'react';
 import { getVersion } from '@tauri-apps/api/app';
+import type { MouseEvent as ReactMouseEvent } from 'react';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { Minus, X, Maximize2, Settings, ArrowLeft } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
@@ -15,12 +16,14 @@ import maximizeHoverIcon from '@/assets/macos-traffic-lights/3-maximize-2-hover.
 
 interface TitleBarProps {
   onSettingsClick: () => void;
+  onCloseRequest?: () => Promise<void> | void;
   showBackButton?: boolean;
   onBackClick?: () => void;
 }
 
 export function TitleBar({
   onSettingsClick,
+  onCloseRequest,
   showBackButton,
   onBackClick,
 }: TitleBarProps) {
@@ -74,6 +77,11 @@ export function TitleBar({
   }, [appWindow]);
 
   const handleClose = useCallback(async () => {
+    if (onCloseRequest) {
+      await onCloseRequest();
+      return;
+    }
+
     try {
       await appWindow.close();
     } catch (error) {
@@ -85,7 +93,41 @@ export function TitleBar({
         console.error('Failed to force destroy window from title bar', destroyError);
       }
     }
-  }, [appWindow]);
+  }, [appWindow, onCloseRequest]);
+
+  const handleWindowControlMouseDown = useCallback(
+    (
+      event: ReactMouseEvent<HTMLButtonElement>,
+      action: () => Promise<void>,
+    ) => {
+      if (event.button !== 0) {
+        return;
+      }
+
+      event.preventDefault();
+      event.stopPropagation();
+      void action();
+    },
+    [],
+  );
+
+  const handleWindowControlClick = useCallback(
+    (
+      event: ReactMouseEvent<HTMLButtonElement>,
+      action: () => Promise<void>,
+    ) => {
+      // Mouse interactions are handled on mousedown so the first click on an
+      // inactive undecorated window still works. Keep click for keyboard use.
+      if (event.detail !== 0) {
+        return;
+      }
+
+      event.preventDefault();
+      event.stopPropagation();
+      void action();
+    },
+    [],
+  );
 
   const handleDragStart = useCallback(async (e: React.MouseEvent) => {
     if (e.button !== 0) return;
@@ -210,7 +252,12 @@ export function TitleBar({
 
             <button
               type="button"
-              onClick={handleMinimize}
+              onMouseDown={(event) =>
+                handleWindowControlMouseDown(event, handleMinimize)
+              }
+              onClick={(event) =>
+                handleWindowControlClick(event, handleMinimize)
+              }
               className="h-full px-3 hover:bg-bg-dark transition-colors"
               title={t('titleBar.minimize')}
             >
@@ -219,7 +266,12 @@ export function TitleBar({
 
             <button
               type="button"
-              onClick={handleMaximize}
+              onMouseDown={(event) =>
+                handleWindowControlMouseDown(event, handleMaximize)
+              }
+              onClick={(event) =>
+                handleWindowControlClick(event, handleMaximize)
+              }
               className="h-full px-3 hover:bg-bg-dark transition-colors"
               title={t('titleBar.maximize')}
             >
@@ -228,7 +280,10 @@ export function TitleBar({
 
             <button
               type="button"
-              onClick={handleClose}
+              onMouseDown={(event) =>
+                handleWindowControlMouseDown(event, handleClose)
+              }
+              onClick={(event) => handleWindowControlClick(event, handleClose)}
               className="h-full px-3 hover:bg-red-500 transition-colors group"
               title={t('titleBar.close')}
             >

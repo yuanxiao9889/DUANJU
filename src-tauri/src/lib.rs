@@ -187,6 +187,7 @@ pub fn run() {
             project_state::rename_project_record,
             project_state::delete_project_record,
             system::get_runtime_system_info,
+            system::request_app_exit,
             text_gen::generate_text,
             text_gen::test_provider_connection,
             text_gen::get_active_text_model_status,

@@ -1029,6 +1029,8 @@
       "openingLoginBody": "The app is using Dreamina's official headless login flow to render the QR code.",
       "waitingForLoginTitle": "Scan the QR code with Douyin",
       "waitingForLoginBody": "The QR code will appear directly in this dialog. After you scan it and confirm on your phone, the app will finish automatically.",
+      "failedTitle": "QR setup failed",
+      "failedBody": "This automatic attempt did not produce a usable QR code. Please refresh the QR code or check the Dreamina runtime detail below.",
       "verifyingTitle": "Rechecking the Dreamina environment",
       "verifyingBody": "Confirming that the bundled CLI is available and the account is now logged in.",
       "completedTitle": "This computer is ready",
@@ -1036,12 +1038,13 @@
     },
     "qr": {
       "alt": "Dreamina login QR code",
+      "compactHint": "You only need to scan once on first use. After login succeeds, the app continues automatically.",
       "title": "Scan with Douyin to log in",
-      "body": "The app has generated the QR code with Dreamina's official flow. Scan it and confirm on your phone, then the app will detect success and return to the canvas automatically.",
+      "body": "Just scan with Douyin. After you confirm on the phone, the app continues automatically.",
       "waitingTitle": "Preparing the QR code",
       "waitingBody": "The first-use login flow starts automatically. The QR code will appear here as soon as Dreamina finishes rendering it.",
-      "step1": "1. Open Douyin and scan the QR code on the left",
-      "step2": "2. Confirm the Dreamina / Jimeng login on your phone",
+      "step1": "Scan with Douyin",
+      "step2": "Confirm on phone, then return automatically",
       "step3": "3. Keep this dialog open and the app will return automatically after login succeeds"
     },
     "automatic": {

@@ -901,6 +901,8 @@
       "openingLoginBody": "软件正在按 Dreamina 官方 headless 登录流程生成二维码。",
       "waitingForLoginTitle": "请使用抖音扫码登录",
       "waitingForLoginBody": "二维码生成后会直接显示在当前弹窗里。扫码并在手机上确认后，软件会自动继续完成环境准备。",
+      "failedTitle": "二维码准备失败",
+      "failedBody": "这次自动准备没有成功拿到可用二维码。请根据下方提示重新生成，或检查当前机器上的 Dreamina 运行环境。",
       "verifyingTitle": "正在复检 Dreamina 环境",
       "verifyingBody": "正在确认内置 CLI 是否可用、账号是否已经登录可用。",
       "completedTitle": "本机环境准备完成",
@@ -908,12 +910,13 @@
     },
     "qr": {
       "alt": "Dreamina 登录二维码",
+      "compactHint": "首次使用只需要扫码登录一次，成功后会自动返回继续生成。",
       "title": "请用抖音扫码登录",
-      "body": "软件已按 Dreamina 官方流程生成二维码。扫码并在手机上确认后，软件会自动检测登录成功并返回画布。",
+      "body": "用抖音扫一扫即可。手机确认后，软件会自动继续。",
       "waitingTitle": "正在准备二维码",
       "waitingBody": "首次使用时软件会自动启动登录流程，二维码生成后会直接显示在这里。",
-      "step1": "1. 打开抖音扫一扫并扫描左侧二维码",
-      "step2": "2. 在手机上确认 Dreamina / 即梦登录授权",
+      "step1": "抖音扫码",
+      "step2": "手机确认后自动返回",
       "step3": "3. 保持当前窗口打开，软件检测成功后会自动返回"
     },
     "automatic": {

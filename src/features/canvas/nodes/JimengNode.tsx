@@ -1615,24 +1615,13 @@ export const JimengNode = memo(
         return;
       }
 
-      const dreaminaStatus = await ensureDreaminaCliReady({
-        feature: "video",
-        action: "generate",
-      });
-      if (!dreaminaStatus.ready) {
-        updateNodeData(id, {
-          lastError: resolveDreaminaSetupBlockedMessage(t, dreaminaStatus.code),
-        });
-        return;
-      }
-
       setPromptOptimizationError(null);
       updateNodeData(id, { lastError: null });
 
       let createdResultNodeId: string | null = null;
+      const startedAt = Date.now();
 
       try {
-        const startedAt = Date.now();
         const resultNodePosition = findNodePosition(
           id,
           JIMENG_VIDEO_RESULT_NODE_DEFAULT_WIDTH,
@@ -1666,6 +1655,31 @@ export const JimengNode = memo(
         await flushCurrentProjectToDiskSafely(
           "creating Jimeng video result node",
         );
+
+        const dreaminaStatus = await ensureDreaminaCliReady({
+          feature: "video",
+          action: "generate",
+        });
+        if (!dreaminaStatus.ready) {
+          const message = resolveDreaminaSetupBlockedMessage(
+            t,
+            dreaminaStatus.code,
+          );
+          updateNodeData(id, {
+            lastError: message,
+          });
+          if (createdResultNodeId) {
+            updateNodeData(createdResultNodeId, {
+              isGenerating: false,
+              generationStartedAt: null,
+              lastError: message,
+            });
+          }
+          await flushCurrentProjectToDiskSafely(
+            "saving Jimeng video generation blocked state",
+          );
+          return;
+        }
 
         const generationResponse = await generateJimengVideos({
           prompt,

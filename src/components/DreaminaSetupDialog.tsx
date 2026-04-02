@@ -142,6 +142,11 @@ function resolveProgressCopy(
         title: t("dreaminaSetup.progress.waitingForLoginTitle"),
         body: t("dreaminaSetup.progress.waitingForLoginBody"),
       };
+    case "failed":
+      return {
+        title: t("dreaminaSetup.progress.failedTitle"),
+        body: t("dreaminaSetup.progress.failedBody"),
+      };
     case "verifying":
       return {
         title: t("dreaminaSetup.progress.verifyingTitle"),
@@ -305,9 +310,11 @@ export function DreaminaSetupDialog({
   const loginQrDataUrl = setupProgress?.loginQrDataUrl ?? null;
   const isLoginFlowVisible =
     !status?.ready &&
-    (statusCode === "loginRequired" ||
+    (Boolean(loginQrDataUrl) ||
+      statusCode === "loginRequired" ||
       setupProgress?.stage === "openingLogin" ||
       setupProgress?.stage === "waitingForLogin");
+  const showCompactQrLayout = isLoginFlowVisible;
   const runtimeSourceCopy = useMemo(
     () => resolveRuntimeSourceCopy(setupProgress?.gitSource, t),
     [setupProgress?.gitSource, t],
@@ -349,6 +356,15 @@ export function DreaminaSetupDialog({
         );
         setActionNotice(t("dreaminaSetup.notice.loginStillPending"));
       } else {
+        if (response.status.code === "unknown") {
+          setSetupProgress((previous) => ({
+            stage: "failed",
+            progress: previous?.progress ?? 0,
+            gitSource: response.gitSource ?? previous?.gitSource ?? null,
+            detail: response.status.detail ?? previous?.detail ?? null,
+            loginQrDataUrl: previous?.loginQrDataUrl ?? null,
+          }));
+        }
         setActionNotice(t("dreaminaSetup.notice.autoNeedsAttention"));
       }
     } catch (error) {
@@ -359,6 +375,13 @@ export function DreaminaSetupDialog({
         message: "Dreamina CLI is not ready.",
         detail: message,
       });
+      setSetupProgress((previous) => ({
+        stage: "failed",
+        progress: previous?.progress ?? 0,
+        gitSource: previous?.gitSource ?? null,
+        detail: message,
+        loginQrDataUrl: previous?.loginQrDataUrl ?? null,
+      }));
       setActionNotice(message);
     } finally {
       setIsAutoPreparing(false);
@@ -402,7 +425,7 @@ export function DreaminaSetupDialog({
       isOpen={isOpen}
       title={t("dreaminaSetup.title")}
       onClose={onClose}
-      widthClassName="w-[720px]"
+      widthClassName={showCompactQrLayout ? "w-[620px]" : "w-[720px]"}
       footer={
         <div className="flex w-full flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
           <div className="flex flex-wrap gap-2">
@@ -456,36 +479,40 @@ export function DreaminaSetupDialog({
             {t(resolveContextKey(detail))}
           </p>
           <p className="text-xs text-text-muted">
-            {t("dreaminaSetup.subtitle")}
+            {showCompactQrLayout
+              ? t("dreaminaSetup.qr.compactHint")
+              : t("dreaminaSetup.subtitle")}
           </p>
         </div>
 
-        <UiPanel className="border-[rgba(255,255,255,0.1)] bg-[rgba(15,23,42,0.52)] p-4">
-          <div className="flex items-start justify-between gap-3">
-            <div className="space-y-1">
-              <div className="flex items-center gap-2">
-                {statusCode === "ready" ? (
-                  <CheckCircle2 className="h-4 w-4 text-emerald-300" />
-                ) : isChecking ? (
-                  <Loader2 className="h-4 w-4 animate-spin text-accent" />
-                ) : (
-                  <Sparkles className="h-4 w-4 text-amber-200" />
-                )}
-                <div className="text-sm font-medium text-text-dark">
-                  {statusCopy.title}
+        {!showCompactQrLayout ? (
+          <UiPanel className="border-[rgba(255,255,255,0.1)] bg-[rgba(15,23,42,0.52)] p-4">
+            <div className="flex items-start justify-between gap-3">
+              <div className="space-y-1">
+                <div className="flex items-center gap-2">
+                  {statusCode === "ready" ? (
+                    <CheckCircle2 className="h-4 w-4 text-emerald-300" />
+                  ) : isChecking ? (
+                    <Loader2 className="h-4 w-4 animate-spin text-accent" />
+                  ) : (
+                    <Sparkles className="h-4 w-4 text-amber-200" />
+                  )}
+                  <div className="text-sm font-medium text-text-dark">
+                    {statusCopy.title}
+                  </div>
+                </div>
+                <div className="text-xs leading-5 text-text-muted">
+                  {statusCopy.body}
                 </div>
               </div>
-              <div className="text-xs leading-5 text-text-muted">
-                {statusCopy.body}
-              </div>
+              {statusCode === "ready" ? (
+                <div className="rounded-full border border-emerald-400/25 bg-emerald-500/10 px-2.5 py-1 text-[11px] font-medium text-emerald-200">
+                  {t("dreaminaSetup.readyBadge")}
+                </div>
+              ) : null}
             </div>
-            {statusCode === "ready" ? (
-              <div className="rounded-full border border-emerald-400/25 bg-emerald-500/10 px-2.5 py-1 text-[11px] font-medium text-emerald-200">
-                {t("dreaminaSetup.readyBadge")}
-              </div>
-            ) : null}
-          </div>
-        </UiPanel>
+          </UiPanel>
+        ) : null}
 
         <UiPanel className="border-[rgba(255,255,255,0.1)] bg-[rgba(15,23,42,0.44)] p-4">
           <div className="space-y-3">
@@ -524,8 +551,8 @@ export function DreaminaSetupDialog({
 
         {isLoginFlowVisible ? (
           <UiPanel className="border-[rgba(255,255,255,0.1)] bg-[rgba(15,23,42,0.5)] p-4">
-            <div className="grid gap-4 lg:grid-cols-[220px,minmax(0,1fr)] lg:items-center">
-              <div className="mx-auto w-[220px]">
+            <div className="grid gap-4 lg:grid-cols-[240px,minmax(0,1fr)] lg:items-center">
+              <div className="mx-auto w-[240px]">
                 {loginQrDataUrl ? (
                   <div className="rounded-[28px] bg-white p-3 shadow-[0_18px_60px_rgba(15,23,42,0.28)]">
                     <img
@@ -556,19 +583,17 @@ export function DreaminaSetupDialog({
                 </div>
 
                 {loginQrDataUrl ? (
-                  <div className="grid gap-2">
-                    {[
-                      t("dreaminaSetup.qr.step1"),
-                      t("dreaminaSetup.qr.step2"),
-                      t("dreaminaSetup.qr.step3"),
-                    ].map((step) => (
-                      <div
-                        key={step}
-                        className="rounded-xl border border-[rgba(255,255,255,0.06)] bg-black/10 px-3 py-2 text-sm text-text-dark"
-                      >
-                        {step}
-                      </div>
-                    ))}
+                  <div className="flex flex-wrap gap-2">
+                    {[t("dreaminaSetup.qr.step1"), t("dreaminaSetup.qr.step2")].map(
+                      (step) => (
+                        <div
+                          key={step}
+                          className="rounded-full border border-[rgba(255,255,255,0.08)] bg-black/10 px-3 py-1.5 text-xs text-text-dark"
+                        >
+                          {step}
+                        </div>
+                      ),
+                    )}
                   </div>
                 ) : null}
               </div>
@@ -576,24 +601,26 @@ export function DreaminaSetupDialog({
           </UiPanel>
         ) : null}
 
-        <UiPanel className="border-[rgba(255,255,255,0.08)] bg-[rgba(15,23,42,0.32)] p-4">
-          <div className="space-y-3">
-            <div className="text-xs font-medium uppercase tracking-[0.24em] text-text-muted">
-              {t("dreaminaSetup.automatic.title")}
+        {!showCompactQrLayout ? (
+          <UiPanel className="border-[rgba(255,255,255,0.08)] bg-[rgba(15,23,42,0.32)] p-4">
+            <div className="space-y-3">
+              <div className="text-xs font-medium uppercase tracking-[0.24em] text-text-muted">
+                {t("dreaminaSetup.automatic.title")}
+              </div>
+              <div className="grid gap-2">
+                {automaticTasks.map((task) => (
+                  <div
+                    key={task}
+                    className="flex items-center gap-2 rounded-lg border border-[rgba(255,255,255,0.06)] bg-black/10 px-3 py-2 text-sm text-text-dark"
+                  >
+                    <CheckCircle2 className="h-4 w-4 text-accent" />
+                    <span>{task}</span>
+                  </div>
+                ))}
+              </div>
             </div>
-            <div className="grid gap-2">
-              {automaticTasks.map((task) => (
-                <div
-                  key={task}
-                  className="flex items-center gap-2 rounded-lg border border-[rgba(255,255,255,0.06)] bg-black/10 px-3 py-2 text-sm text-text-dark"
-                >
-                  <CheckCircle2 className="h-4 w-4 text-accent" />
-                  <span>{task}</span>
-                </div>
-              ))}
-            </div>
-          </div>
-        </UiPanel>
+          </UiPanel>
+        ) : null}
 
         {actionNotice ? (
           <UiPanel className="border-[rgba(255,255,255,0.08)] bg-[rgba(15,23,42,0.32)] p-4 text-xs leading-5 text-text-muted">

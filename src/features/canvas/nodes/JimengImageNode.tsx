@@ -796,17 +796,6 @@ export const JimengImageNode = memo(
         return;
       }
 
-      const dreaminaStatus = await ensureDreaminaCliReady({
-        feature: "image",
-        action: "generate",
-      });
-      if (!dreaminaStatus.ready) {
-        updateNodeData(id, {
-          lastError: resolveDreaminaSetupBlockedMessage(t, dreaminaStatus.code),
-        });
-        return;
-      }
-
       setPromptOptimizationError(null);
       updateNodeData(id, {
         lastError: null,
@@ -814,9 +803,9 @@ export const JimengImageNode = memo(
       });
 
       let createdResultNodeId: string | null = null;
+      const startedAt = Date.now();
 
       try {
-        const startedAt = Date.now();
         const resultNodePosition = findNodePosition(
           id,
           JIMENG_IMAGE_RESULT_NODE_DEFAULT_WIDTH,
@@ -848,6 +837,31 @@ export const JimengImageNode = memo(
         await flushCurrentProjectToDiskSafely(
           "creating Jimeng image result node",
         );
+
+        const dreaminaStatus = await ensureDreaminaCliReady({
+          feature: "image",
+          action: "generate",
+        });
+        if (!dreaminaStatus.ready) {
+          const message = resolveDreaminaSetupBlockedMessage(
+            t,
+            dreaminaStatus.code,
+          );
+          updateNodeData(id, {
+            lastError: message,
+          });
+          if (createdResultNodeId) {
+            updateNodeData(createdResultNodeId, {
+              isGenerating: false,
+              generationStartedAt: null,
+              lastError: message,
+            });
+          }
+          await flushCurrentProjectToDiskSafely(
+            "saving Jimeng image generation blocked state",
+          );
+          return;
+        }
 
         const generationResponse = await generateJimengImages({
           prompt,
