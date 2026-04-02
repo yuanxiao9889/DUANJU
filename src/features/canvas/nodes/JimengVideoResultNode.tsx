@@ -37,6 +37,7 @@ import {
   ensureDreaminaCliReady,
   resolveDreaminaSetupBlockedMessage,
 } from "@/features/jimeng/application/dreaminaSetup";
+import { useCanvasNodeById } from "@/features/canvas/hooks/useCanvasNodeGraph";
 import { useCanvasStore } from "@/stores/canvasStore";
 
 type JimengVideoResultNodeProps = NodeProps & {
@@ -84,9 +85,7 @@ export const JimengVideoResultNode = memo(
   ({ id, data, selected, width }: JimengVideoResultNodeProps) => {
     const { t, i18n } = useTranslation();
     const updateNodeInternals = useUpdateNodeInternals();
-    const currentNode = useCanvasStore(
-      (state) => state.nodes.find((node) => node.id === id) ?? null,
-    );
+    const currentNode = useCanvasNodeById(id);
     const setSelectedNode = useCanvasStore((state) => state.setSelectedNode);
     const updateNodeData = useCanvasStore((state) => state.updateNodeData);
     const [playbackError, setPlaybackError] = useState<string | null>(null);

@@ -1,6 +1,7 @@
 [package]
 name = "storyboard-copilot"
 version = "0.2.2"
+default-run = "storyboard-copilot"
 description = "鍒嗛暅鍔╂墜 - AI鍥惧儚鐢熸垚涓庡垎闀滃伐鍏?"
 authors = ["you"]
 edition = "2021"

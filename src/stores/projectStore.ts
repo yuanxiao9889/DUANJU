@@ -4,8 +4,10 @@ import type { Viewport } from '@xyflow/react';
 import {
   useCanvasStore,
   type CanvasEdge,
+  type CanvasHistorySnapshot,
   type CanvasHistoryState,
   type CanvasNode,
+  type CanvasNodePatchHistorySnapshot,
   type CanvasNodeData,
 } from './canvasStore';
 import {
@@ -40,6 +42,7 @@ const VIEWPORT_EPSILON = 0.001;
 const IDLE_PERSIST_TIMEOUT_MS = 1200;
 const FALLBACK_IDLE_DELAY_MS = 64;
 const MAX_PERSISTED_HISTORY_STEPS = 12;
+const MAX_PERSISTED_HISTORY_JSON_CHARS = 900_000;
 const MAX_HISTORY_RESTORE_JSON_CHARS = 1_500_000;
 const DELETE_RETRY_DELAY_MS = 80;
 const MAX_DELETE_RETRIES = 10;
@@ -52,6 +55,7 @@ const queuedViewportUpserts = new Map<string, string>();
 const viewportUpsertTimers = new Map<string, ReturnType<typeof setTimeout>>();
 const viewportUpsertsInFlight = new Set<string>();
 const deletingProjectIds = new Set<string>();
+const historyBudgetWarnedProjectIds = new Set<string>();
 
 export type ProjectType = 'storyboard' | 'script';
 
@@ -75,6 +79,17 @@ export interface Project extends ProjectSummary {
 type PersistedProject = Project & {
   imagePool?: string[];
 };
+
+interface PersistedNodesPayload {
+  nodes: CanvasNode[];
+  imagePool?: string[];
+}
+
+function isCanvasNodePatchHistorySnapshot(
+  snapshot: CanvasHistorySnapshot
+): snapshot is CanvasNodePatchHistorySnapshot {
+  return snapshot.kind === 'nodePatch';
+}
 
 function encodeImageReference(
   imageUrl: string | null | undefined,
@@ -182,15 +197,26 @@ function mapHistoryImageReferences(
   history: CanvasHistoryState,
   mapImageUrl: (imageUrl: string | null | undefined) => string | null | undefined
 ): CanvasHistoryState {
+  const mapSnapshot = (snapshot: CanvasHistorySnapshot): CanvasHistorySnapshot => {
+    if (isCanvasNodePatchHistorySnapshot(snapshot)) {
+      return {
+        kind: 'nodePatch',
+        entries: snapshot.entries.map((entry) => ({
+          nodeId: entry.nodeId,
+          node: entry.node ? mapNodeImageReferences([entry.node], mapImageUrl)[0] : null,
+        })),
+      };
+    }
+
+    return {
+      ...snapshot,
+      nodes: mapNodeImageReferences(snapshot.nodes, mapImageUrl),
+    };
+  };
+
   return {
-    past: history.past.map((snapshot) => ({
-      ...snapshot,
-      nodes: mapNodeImageReferences(snapshot.nodes, mapImageUrl),
-    })),
-    future: history.future.map((snapshot) => ({
-      ...snapshot,
-      nodes: mapNodeImageReferences(snapshot.nodes, mapImageUrl),
-    })),
+    past: history.past.map(mapSnapshot),
+    future: history.future.map(mapSnapshot),
   };
 }
 
@@ -198,6 +224,39 @@ function trimHistoryForPersistence(history: CanvasHistoryState): CanvasHistorySt
   return {
     past: history.past.slice(-MAX_PERSISTED_HISTORY_STEPS),
     future: history.future.slice(-MAX_PERSISTED_HISTORY_STEPS),
+  };
+}
+
+function trimHistoryToJsonBudget(
+  history: CanvasHistoryState,
+  maxChars: number
+): { history: CanvasHistoryState; trimmed: boolean } {
+  let nextPast = history.past;
+  let nextFuture = history.future;
+  let serialized = JSON.stringify({ past: nextPast, future: nextFuture });
+
+  if (serialized.length <= maxChars) {
+    return { history, trimmed: false };
+  }
+
+  while ((nextPast.length > 0 || nextFuture.length > 0) && serialized.length > maxChars) {
+    if (nextPast.length >= nextFuture.length && nextPast.length > 0) {
+      nextPast = nextPast.slice(1);
+    } else if (nextFuture.length > 0) {
+      nextFuture = nextFuture.slice(1);
+    } else {
+      nextPast = nextPast.slice(1);
+    }
+
+    serialized = JSON.stringify({ past: nextPast, future: nextFuture });
+  }
+
+  return {
+    history: {
+      past: nextPast,
+      future: nextFuture,
+    },
+    trimmed: nextPast.length !== history.past.length || nextFuture.length !== history.future.length,
   };
 }
 
@@ -211,6 +270,62 @@ function encodeProject(project: Project): PersistedProject {
     ...project,
     nodes: mapNodeImageReferences(project.nodes, encode),
     history: mapHistoryImageReferences(project.history, encode),
+    imagePool,
+  };
+}
+
+function encodeProjectForPersistence(project: Project): PersistedProject {
+  const historyWithinStepLimit = trimHistoryForPersistence(project.history);
+  const stepLimitedProject: Project = {
+    ...project,
+    history: historyWithinStepLimit,
+  };
+  const encodedProject = encodeProject(stepLimitedProject);
+  const historyWithinBudget = trimHistoryToJsonBudget(
+    encodedProject.history,
+    MAX_PERSISTED_HISTORY_JSON_CHARS
+  );
+
+  if (!historyWithinBudget.trimmed) {
+    historyBudgetWarnedProjectIds.delete(project.id);
+    return encodedProject;
+  }
+
+  if (!historyBudgetWarnedProjectIds.has(project.id)) {
+    historyBudgetWarnedProjectIds.add(project.id);
+    console.info(
+      `Trim persisted history for project ${project.id} to stay within ${MAX_PERSISTED_HISTORY_JSON_CHARS} chars`
+    );
+  }
+
+  const nextProject: Project = {
+    ...stepLimitedProject,
+    history: {
+      past: historyWithinStepLimit.past.slice(-historyWithinBudget.history.past.length),
+      future: historyWithinStepLimit.future.slice(-historyWithinBudget.history.future.length),
+    },
+  };
+
+  return encodeProject(nextProject);
+}
+
+function parsePersistedNodesPayload(value: unknown): PersistedNodesPayload {
+  if (Array.isArray(value)) {
+    return { nodes: value as CanvasNode[] };
+  }
+
+  if (!value || typeof value !== 'object') {
+    return { nodes: [] };
+  }
+
+  const record = value as Record<string, unknown>;
+  const nodes = Array.isArray(record.nodes) ? (record.nodes as CanvasNode[]) : [];
+  const imagePool = Array.isArray(record.imagePool)
+    ? record.imagePool.filter((item): item is string => typeof item === 'string')
+    : undefined;
+
+  return {
+    nodes,
     imagePool,
   };
 }
@@ -310,9 +425,11 @@ function toProjectSummary(record: ProjectSummaryRecord): ProjectSummary {
 }
 
 function toProjectRecord(project: Project): ProjectRecord {
-  const encodedProject = encodeProject(project);
-  const persistedNodes = encodedProject.nodes;
-  const persistedHistory = trimHistoryForPersistence(encodedProject.history);
+  const encodedProject = encodeProjectForPersistence(project);
+  const persistedNodesPayload: PersistedNodesPayload = {
+    nodes: encodedProject.nodes,
+    imagePool: encodedProject.imagePool ?? [],
+  };
 
   return {
     id: encodedProject.id,
@@ -322,22 +439,22 @@ function toProjectRecord(project: Project): ProjectRecord {
     createdAt: encodedProject.createdAt,
     updatedAt: encodedProject.updatedAt,
     nodeCount: encodedProject.nodeCount,
-    nodesJson: JSON.stringify(persistedNodes),
+    nodesJson: JSON.stringify(persistedNodesPayload),
     edgesJson: JSON.stringify(encodedProject.edges),
     viewportJson: JSON.stringify(encodedProject.viewport),
-    historyJson: JSON.stringify({
-      ...persistedHistory,
-      imagePool: encodedProject.imagePool ?? [],
-    }),
+    historyJson: JSON.stringify(encodedProject.history),
   };
 }
 
 function fromProjectRecord(record: ProjectRecord): Project {
-  const parsedNodes = safeParseJson<CanvasNode[]>(record.nodesJson, []);
+  const parsedNodesPayload = parsePersistedNodesPayload(safeParseJson<unknown>(record.nodesJson, []));
+  const parsedNodes = parsedNodesPayload.nodes;
   const parsedEdges = safeParseJson<CanvasEdge[]>(record.edgesJson, []);
   const parsedViewport = safeParseJson<Viewport>(record.viewportJson, DEFAULT_VIEWPORT);
   const shouldRestoreHistory = record.historyJson.length <= MAX_HISTORY_RESTORE_JSON_CHARS;
-  const extractedImagePool = extractImagePoolFromHistoryJson(record.historyJson);
+  const extractedImagePool =
+    parsedNodesPayload.imagePool
+    ?? extractImagePoolFromHistoryJson(record.historyJson);
   const parsedHistoryPayload = shouldRestoreHistory
     ? safeParseJson<{
         past?: CanvasHistoryState['past'];
@@ -369,7 +486,7 @@ function fromProjectRecord(record: ProjectRecord): Project {
     edges: parsedEdges,
     viewport: parsedViewport ?? DEFAULT_VIEWPORT,
     history: parsedHistory,
-    imagePool: parsedHistoryPayload.imagePool ?? extractedImagePool,
+    imagePool: parsedNodesPayload.imagePool ?? parsedHistoryPayload.imagePool ?? extractedImagePool,
   };
 
   const decodedProject = decodeProject(persistedProject);
@@ -596,6 +713,7 @@ function queueViewportUpsert(
 
 function persistProjectDelete(projectId: string): void {
   deletingProjectIds.add(projectId);
+  historyBudgetWarnedProjectIds.delete(projectId);
   clearQueuedProjectUpsert(projectId);
   clearQueuedViewportUpsert(projectId);
 

@@ -30,7 +30,6 @@ import { NodeHeader, NODE_HEADER_FLOATING_POSITION_CLASS } from '@/features/canv
 import { NodeResizeHandle } from '@/features/canvas/ui/NodeResizeHandle';
 import { CanvasNodeImage } from '@/features/canvas/ui/CanvasNodeImage';
 import type {
-  CanvasNode,
   StoryboardExportOptions,
   StoryboardFrameItem,
   StoryboardSplitNodeData,
@@ -58,6 +57,7 @@ import {
   NODE_CONTROL_ICON_CLASS,
   NODE_CONTROL_PRIMARY_BUTTON_CLASS,
 } from '@/features/canvas/ui/nodeControlStyles';
+import { useCanvasIncomingSourceNodes } from '@/features/canvas/hooks/useCanvasNodeGraph';
 import { useCanvasStore } from '@/stores/canvasStore';
 import { useProjectStore } from '@/stores/projectStore';
 import { useSettingsStore } from '@/stores/settingsStore';
@@ -626,8 +626,7 @@ export const StoryboardNode = memo(({ id, data, selected, width, height }: Story
   const exportSettingsTriggerRef = useRef<HTMLDivElement>(null);
   const exportSettingsPanelRef = useRef<HTMLDivElement>(null);
   const setSelectedNode = useCanvasStore((state) => state.setSelectedNode);
-  const nodes = useCanvasStore((state) => state.nodes);
-  const edges = useCanvasStore((state) => state.edges);
+  const incomingSourceNodes = useCanvasIncomingSourceNodes(id);
   const reorderStoryboardFrame = useCanvasStore((state) => state.reorderStoryboardFrame);
   const addDerivedExportNode = useCanvasStore((state) => state.addDerivedExportNode);
   const addEdge = useCanvasStore((state) => state.addEdge);
@@ -706,19 +705,15 @@ export const StoryboardNode = memo(({ id, data, selected, width, height }: Story
   );
 
   const incomingImageRefs = useMemo(() => {
-    const nodeById = new Map(nodes.map((node) => [node.id, node] as const));
-    return edges.flatMap((edge) => {
-      if (edge.target !== id) {
+    return incomingSourceNodes.flatMap(({ edge, node: sourceNode }) => {
+      if (
+        !isUploadNode(sourceNode)
+        && !isImageEditNode(sourceNode)
+        && !isExportImageNode(sourceNode)
+      ) {
         return [];
       }
 
-      const sourceNode = nodeById.get(edge.source) as CanvasNode | undefined;
-      if (!sourceNode) {
-        return [];
-      }
-      if (!isUploadNode(sourceNode) && !isImageEditNode(sourceNode) && !isExportImageNode(sourceNode)) {
-        return [];
-      }
       const imageUrl = sourceNode.data.imageUrl;
       if (!imageUrl) {
         return [];
@@ -735,7 +730,7 @@ export const StoryboardNode = memo(({ id, data, selected, width, height }: Story
             : undefined,
       }];
     });
-  }, [edges, id, nodes]);
+  }, [incomingSourceNodes]);
 
   const incomingImageItems = useMemo<IncomingImageItem[]>(
     () =>

@@ -4,6 +4,7 @@ use std::time::Duration;
 
 use rusqlite::{params, Connection};
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 use tauri::AppHandle;
 
 use super::storage;
@@ -293,15 +294,9 @@ fn ensure_projects_table(conn: &Connection) -> Result<(), String> {
     Ok(())
 }
 
-fn parse_image_pool(history_json: &str) -> Vec<String> {
-    let parsed: serde_json::Value = match serde_json::from_str(history_json) {
-        Ok(value) => value,
-        Err(_) => return Vec::new(),
-    };
-
-    parsed
-        .get("imagePool")
-        .and_then(|value| value.as_array())
+fn collect_string_array(value: Option<&Value>) -> Vec<String> {
+    value
+        .and_then(Value::as_array)
         .map(|array| {
             array
                 .iter()
@@ -309,6 +304,31 @@ fn parse_image_pool(history_json: &str) -> Vec<String> {
                 .collect()
         })
         .unwrap_or_default()
+}
+
+fn extract_image_pool(parsed_nodes: Option<&Value>, parsed_history: Option<&Value>) -> Vec<String> {
+    let image_pool = collect_string_array(parsed_nodes.and_then(|value| value.get("imagePool")));
+    if !image_pool.is_empty() {
+        return image_pool;
+    }
+
+    collect_string_array(parsed_history.and_then(|value| value.get("imagePool")))
+}
+
+pub(crate) fn project_nodes_array(value: &Value) -> Option<&Vec<Value>> {
+    match value {
+        Value::Array(nodes) => Some(nodes),
+        Value::Object(object) => object.get("nodes").and_then(Value::as_array),
+        _ => None,
+    }
+}
+
+pub(crate) fn project_nodes_array_mut(value: &mut Value) -> Option<&mut Vec<Value>> {
+    match value {
+        Value::Array(nodes) => Some(nodes),
+        Value::Object(object) => object.get_mut("nodes").and_then(Value::as_array_mut),
+        _ => None,
+    }
 }
 
 pub(crate) fn normalize_image_ref_path(value: &str) -> Option<String> {
@@ -342,52 +362,52 @@ fn resolve_image_ref(value: &str, image_pool: &[String]) -> Option<String> {
     normalize_image_ref_path(value)
 }
 
-fn collect_image_paths_from_nodes(
-    nodes: &[serde_json::Value],
-    image_pool: &[String],
-    paths: &mut HashSet<String>,
-) {
-    for node in nodes {
-        let data = match node.get("data").and_then(|value| value.as_object()) {
-            Some(value) => value,
-            Option::None => continue,
-        };
+fn collect_image_paths_from_node(node: &Value, image_pool: &[String], paths: &mut HashSet<String>) {
+    let data = match node.get("data").and_then(|value| value.as_object()) {
+        Some(value) => value,
+        Option::None => return,
+    };
 
-        for key in ["imageUrl", "previewImageUrl", "videoUrl", "audioUrl"] {
-            if let Some(raw_value) = data.get(key).and_then(|value| value.as_str()) {
-                if let Some(path) = resolve_image_ref(raw_value, image_pool) {
-                    paths.insert(path);
-                }
+    for key in ["imageUrl", "previewImageUrl", "videoUrl", "audioUrl"] {
+        if let Some(raw_value) = data.get(key).and_then(|value| value.as_str()) {
+            if let Some(path) = resolve_image_ref(raw_value, image_pool) {
+                paths.insert(path);
             }
         }
+    }
 
-        if let Some(frames) = data.get("frames").and_then(|value| value.as_array()) {
-            for frame in frames {
-                let frame_obj = match frame.as_object() {
-                    Some(value) => value,
-                    Option::None => continue,
-                };
-                for key in ["imageUrl", "previewImageUrl"] {
-                    if let Some(raw_value) = frame_obj.get(key).and_then(|value| value.as_str()) {
-                        if let Some(path) = resolve_image_ref(raw_value, image_pool) {
-                            paths.insert(path);
-                        }
+    if let Some(frames) = data.get("frames").and_then(|value| value.as_array()) {
+        for frame in frames {
+            let frame_obj = match frame.as_object() {
+                Some(value) => value,
+                Option::None => continue,
+            };
+            for key in ["imageUrl", "previewImageUrl"] {
+                if let Some(raw_value) = frame_obj.get(key).and_then(|value| value.as_str()) {
+                    if let Some(path) = resolve_image_ref(raw_value, image_pool) {
+                        paths.insert(path);
                     }
                 }
             }
         }
+    }
 
-        if let Some(result_images) = data.get("resultImages").and_then(|value| value.as_array()) {
-            for item in result_images {
-                let item_obj = match item.as_object() {
-                    Some(value) => value,
-                    Option::None => continue,
-                };
-                for key in ["imageUrl", "previewImageUrl", "sourceUrl"] {
-                    if let Some(raw_value) = item_obj.get(key).and_then(|value| value.as_str()) {
-                        if let Some(path) = resolve_image_ref(raw_value, image_pool) {
-                            paths.insert(path);
-                        }
+    if let Some(result_images) = data.get("resultImages").and_then(|value| value.as_array()) {
+        for item in result_images {
+            let item_obj = match item.as_object() {
+                Some(value) => value,
+                Option::None => continue,
+            };
+            for key in [
+                "imageUrl",
+                "previewImageUrl",
+                "sourceUrl",
+                "posterSourceUrl",
+                "videoUrl",
+            ] {
+                if let Some(raw_value) = item_obj.get(key).and_then(|value| value.as_str()) {
+                    if let Some(path) = resolve_image_ref(raw_value, image_pool) {
+                        paths.insert(path);
                     }
                 }
             }
@@ -395,30 +415,62 @@ fn collect_image_paths_from_nodes(
     }
 }
 
-fn extract_project_image_paths(nodes_json: &str, history_json: &str) -> HashSet<String> {
-    let image_pool = parse_image_pool(history_json);
-    let mut paths = HashSet::new();
+fn collect_image_paths_from_nodes(
+    nodes: &[Value],
+    image_pool: &[String],
+    paths: &mut HashSet<String>,
+) {
+    for node in nodes {
+        collect_image_paths_from_node(node, image_pool, paths);
+    }
+}
 
-    if let Ok(parsed_nodes) = serde_json::from_str::<serde_json::Value>(nodes_json) {
-        if let Some(nodes) = parsed_nodes.as_array() {
-            collect_image_paths_from_nodes(nodes, &image_pool, &mut paths);
-        }
+fn collect_image_paths_from_history_snapshot(
+    snapshot: &Value,
+    image_pool: &[String],
+    paths: &mut HashSet<String>,
+) {
+    if let Some(nodes) = snapshot.get("nodes").and_then(Value::as_array) {
+        collect_image_paths_from_nodes(nodes, image_pool, paths);
     }
 
-    if let Ok(parsed_history) = serde_json::from_str::<serde_json::Value>(history_json) {
+    if snapshot.get("kind").and_then(Value::as_str) != Some("nodePatch") {
+        return;
+    }
+
+    let Some(entries) = snapshot.get("entries").and_then(Value::as_array) else {
+        return;
+    };
+
+    for entry in entries {
+        let Some(node) = entry.get("node") else {
+            continue;
+        };
+        if node.is_null() {
+            continue;
+        }
+        collect_image_paths_from_node(node, image_pool, paths);
+    }
+}
+
+fn extract_project_image_paths(nodes_json: &str, history_json: &str) -> HashSet<String> {
+    let parsed_nodes = serde_json::from_str::<Value>(nodes_json).ok();
+    let parsed_history = serde_json::from_str::<Value>(history_json).ok();
+    let image_pool = extract_image_pool(parsed_nodes.as_ref(), parsed_history.as_ref());
+    let mut paths = HashSet::new();
+
+    if let Some(nodes) = parsed_nodes.as_ref().and_then(project_nodes_array) {
+        collect_image_paths_from_nodes(nodes, &image_pool, &mut paths);
+    }
+
+    if let Some(parsed_history) = parsed_history.as_ref() {
         for timeline_key in ["past", "future"] {
-            let Some(timeline) = parsed_history
-                .get(timeline_key)
-                .and_then(|value| value.as_array())
-            else {
+            let Some(timeline) = parsed_history.get(timeline_key).and_then(Value::as_array) else {
                 continue;
             };
 
             for snapshot in timeline {
-                let Some(nodes) = snapshot.get("nodes").and_then(|value| value.as_array()) else {
-                    continue;
-                };
-                collect_image_paths_from_nodes(nodes, &image_pool, &mut paths);
+                collect_image_paths_from_history_snapshot(snapshot, &image_pool, &mut paths);
             }
         }
     }
@@ -449,6 +501,21 @@ pub(crate) fn prune_unreferenced_images(app: &AppHandle) -> Result<(), String> {
                 referenced.insert(normalized_path);
             }
         }
+    }
+
+    let mut stmt = conn
+        .prepare("SELECT nodes_json, history_json FROM projects")
+        .map_err(|e| format!("Failed to prepare project image scan query: {}", e))?;
+    let rows = stmt
+        .query_map([], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+        })
+        .map_err(|e| format!("Failed to query project payloads for image scan: {}", e))?;
+
+    for row in rows {
+        let (nodes_json, history_json) =
+            row.map_err(|e| format!("Failed to read project payload for image scan: {}", e))?;
+        referenced.extend(extract_project_image_paths(&nodes_json, &history_json));
     }
 
     let images_dir = resolve_images_dir(app)?;
@@ -850,6 +917,62 @@ mod tests {
         assert!(paths.contains(
             normalize_image_ref_path("C:/Users/Tester/images/frame-1-preview.png")
                 .expect("frame preview path should normalize")
+                .as_str()
+        ));
+    }
+
+    #[test]
+    fn extract_project_image_paths_supports_nodes_payload_image_pool_and_node_patch_history() {
+        let nodes_json = r#"
+        {
+          "nodes": [
+            {
+              "id": "image-node",
+              "type": "image",
+              "data": {
+                "imageUrl": "__img_ref__:0"
+              }
+            }
+          ],
+          "imagePool": [
+            "C:\\Users\\Tester\\images\\current.png",
+            "C:/Users/Tester/images/undo-preview.png"
+          ]
+        }
+        "#;
+        let history_json = r#"
+        {
+          "past": [
+            {
+              "kind": "nodePatch",
+              "entries": [
+                {
+                  "nodeId": "image-node",
+                  "node": {
+                    "id": "image-node",
+                    "type": "image",
+                    "data": {
+                      "previewImageUrl": "__img_ref__:1"
+                    }
+                  }
+                }
+              ]
+            }
+          ],
+          "future": []
+        }
+        "#;
+
+        let paths = extract_project_image_paths(nodes_json, history_json);
+
+        assert!(paths.contains(
+            normalize_image_ref_path(r"C:\Users\Tester\images\current.png")
+                .expect("current image path should normalize")
+                .as_str()
+        ));
+        assert!(paths.contains(
+            normalize_image_ref_path("C:/Users/Tester/images/undo-preview.png")
+                .expect("patch history image path should normalize")
                 .as_str()
         ));
     }

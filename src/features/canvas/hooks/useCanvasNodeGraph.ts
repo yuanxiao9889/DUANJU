@@ -22,11 +22,19 @@ export interface ConnectedAudioReference {
   audioFileName: string | null;
 }
 
+export interface CanvasIncomingSourceNode {
+  edge: CanvasEdge;
+  node: CanvasNode;
+}
+
 const EMPTY_EDGES: CanvasEdge[] = [];
+const EMPTY_NODES: CanvasNode[] = [];
+const EMPTY_NODE_REFERENCES: Array<CanvasNode | undefined> = [];
 const EMPTY_INPUT_IMAGES: string[] = [];
 const EMPTY_CONNECTED_REFERENCE_IMAGES: ConnectedReferenceImage[] = [];
 const EMPTY_CONNECTED_REFERENCE_VISUALS: ConnectedReferenceVisual[] = [];
 const EMPTY_CONNECTED_AUDIO_REFERENCES: ConnectedAudioReference[] = [];
+const EMPTY_INCOMING_SOURCE_NODES: CanvasIncomingSourceNode[] = [];
 
 const nodeByIdCache = new WeakMap<CanvasNode[], Map<string, CanvasNode>>();
 const incomingEdgesByTargetCache = new WeakMap<CanvasEdge[], Map<string, CanvasEdge[]>>();
@@ -108,6 +116,142 @@ function haveRelevantSourcesChanged(
   }
 
   return false;
+}
+
+function haveRelevantNodeReferencesChanged(
+  previousNodes: Array<CanvasNode | undefined> | null,
+  nextNodes: Array<CanvasNode | undefined>
+): boolean {
+  if (!previousNodes || previousNodes.length !== nextNodes.length) {
+    return true;
+  }
+
+  for (let index = 0; index < nextNodes.length; index += 1) {
+    if (previousNodes[index] !== nextNodes[index]) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+function haveRelevantResolvedNodesChanged(
+  previousNodes: CanvasNode[] | null,
+  nextNodes: CanvasNode[]
+): boolean {
+  if (!previousNodes || previousNodes.length !== nextNodes.length) {
+    return true;
+  }
+
+  for (let index = 0; index < nextNodes.length; index += 1) {
+    if (previousNodes[index] !== nextNodes[index]) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+function createNodeByIdSelector(nodeId: string) {
+  let previousNode: CanvasNode | null = null;
+
+  return (state: CanvasGraphSnapshot): CanvasNode | null => {
+    const nextNode = getNodeByIdMap(state.nodes).get(nodeId) ?? null;
+    if (previousNode === nextNode) {
+      return previousNode;
+    }
+
+    previousNode = nextNode;
+    return previousNode;
+  };
+}
+
+function createNodesByIdsSelector(nodeIds: readonly string[]) {
+  let previousResult: Array<CanvasNode | undefined> | null = null;
+
+  return (state: CanvasGraphSnapshot): Array<CanvasNode | undefined> => {
+    if (nodeIds.length === 0) {
+      return EMPTY_NODE_REFERENCES;
+    }
+
+    const nodeById = getNodeByIdMap(state.nodes);
+    const nextNodes = nodeIds.map((nodeId) => nodeById.get(nodeId));
+    if (!haveRelevantNodeReferencesChanged(previousResult, nextNodes)) {
+      return previousResult ?? EMPTY_NODE_REFERENCES;
+    }
+
+    previousResult = nextNodes;
+    return previousResult;
+  };
+}
+
+function createNodesByTypesSelector(nodeTypes: readonly CanvasNode['type'][]) {
+  let previousResult: CanvasNode[] | null = null;
+  const nodeTypeSet = new Set(nodeTypes);
+
+  return (state: CanvasGraphSnapshot): CanvasNode[] => {
+    if (nodeTypes.length === 0) {
+      return EMPTY_NODES;
+    }
+
+    const nextNodes = state.nodes.filter((node) => nodeTypeSet.has(node.type));
+    if (!haveRelevantResolvedNodesChanged(previousResult, nextNodes)) {
+      return previousResult ?? EMPTY_NODES;
+    }
+
+    previousResult = nextNodes;
+    return previousResult;
+  };
+}
+
+function createFirstNodeByTypeSelector(nodeType: CanvasNode['type']) {
+  let previousNode: CanvasNode | null = null;
+
+  return (state: CanvasGraphSnapshot): CanvasNode | null => {
+    const nextNode = state.nodes.find((node) => node.type === nodeType) ?? null;
+    if (previousNode === nextNode) {
+      return previousNode;
+    }
+
+    previousNode = nextNode;
+    return previousNode;
+  };
+}
+
+function createIncomingSourceNodesSelector(nodeId: string) {
+  let previousIncomingEdges: CanvasEdge[] | null = null;
+  let previousSourceNodes: Array<CanvasNode | undefined> | null = null;
+  let previousResult = EMPTY_INCOMING_SOURCE_NODES;
+
+  return (state: CanvasGraphSnapshot): CanvasIncomingSourceNode[] => {
+    const incomingEdges = resolveIncomingEdges(state, nodeId);
+    const sourceNodes = resolveSourceNodes(state, incomingEdges);
+    const shouldRecompute = haveRelevantSourcesChanged(
+      previousIncomingEdges,
+      previousSourceNodes,
+      incomingEdges,
+      sourceNodes
+    );
+
+    if (!shouldRecompute) {
+      return previousResult;
+    }
+
+    const nextItems: CanvasIncomingSourceNode[] = [];
+    incomingEdges.forEach((edge, index) => {
+      const sourceNode = sourceNodes[index];
+      if (!sourceNode) {
+        return;
+      }
+
+      nextItems.push({ edge, node: sourceNode });
+    });
+
+    previousIncomingEdges = incomingEdges;
+    previousSourceNodes = sourceNodes;
+    previousResult = nextItems.length > 0 ? nextItems : EMPTY_INCOMING_SOURCE_NODES;
+    return previousResult;
+  };
 }
 
 function createInputImagesSelector(nodeId: string) {
@@ -315,6 +459,31 @@ function createConnectedAudioReferencesSelector(nodeId: string) {
 
 export function useCanvasNodeInputImages(nodeId: string): string[] {
   const selector = useMemo(() => createInputImagesSelector(nodeId), [nodeId]);
+  return useCanvasStore(selector);
+}
+
+export function useCanvasNodeById(nodeId: string): CanvasNode | null {
+  const selector = useMemo(() => createNodeByIdSelector(nodeId), [nodeId]);
+  return useCanvasStore(selector);
+}
+
+export function useCanvasNodesByIds(nodeIds: readonly string[]): Array<CanvasNode | undefined> {
+  const selector = useMemo(() => createNodesByIdsSelector(nodeIds), [nodeIds]);
+  return useCanvasStore(selector);
+}
+
+export function useCanvasNodesByTypes(nodeTypes: readonly CanvasNode['type'][]): CanvasNode[] {
+  const selector = useMemo(() => createNodesByTypesSelector(nodeTypes), [nodeTypes]);
+  return useCanvasStore(selector);
+}
+
+export function useCanvasFirstNodeByType(nodeType: CanvasNode['type']): CanvasNode | null {
+  const selector = useMemo(() => createFirstNodeByTypeSelector(nodeType), [nodeType]);
+  return useCanvasStore(selector);
+}
+
+export function useCanvasIncomingSourceNodes(nodeId: string): CanvasIncomingSourceNode[] {
+  const selector = useMemo(() => createIncomingSourceNodesSelector(nodeId), [nodeId]);
   return useCanvasStore(selector);
 }
 

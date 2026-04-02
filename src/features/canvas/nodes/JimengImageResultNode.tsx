@@ -44,6 +44,7 @@ import {
   resolveDreaminaSetupBlockedMessage,
 } from "@/features/jimeng/application/dreaminaSetup";
 import { jimengImageModelUsesFourGridDisplay } from "@/features/jimeng/domain/jimengOptions";
+import { useCanvasNodeById } from "@/features/canvas/hooks/useCanvasNodeGraph";
 import { useCanvasStore } from "@/stores/canvasStore";
 
 type JimengImageResultNodeProps = NodeProps & {
@@ -104,9 +105,7 @@ export const JimengImageResultNode = memo(
   ({ id, data, selected, width }: JimengImageResultNodeProps) => {
     const { t, i18n } = useTranslation();
     const updateNodeInternals = useUpdateNodeInternals();
-    const currentNode = useCanvasStore(
-      (state) => state.nodes.find((node) => node.id === id) ?? null,
-    );
+    const currentNode = useCanvasNodeById(id);
     const setSelectedNode = useCanvasStore((state) => state.setSelectedNode);
     const updateNodeData = useCanvasStore((state) => state.updateNodeData);
     const addDerivedExportNode = useCanvasStore(

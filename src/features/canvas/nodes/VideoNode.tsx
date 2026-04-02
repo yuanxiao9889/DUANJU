@@ -56,6 +56,7 @@ import {
   prepareNodeImage,
   resolveImageDisplayUrl,
 } from '@/features/canvas/application/imageData';
+import { useCanvasNodeById } from '@/features/canvas/hooks/useCanvasNodeGraph';
 import { useCanvasStore } from '@/stores/canvasStore';
 import { useSettingsStore } from '@/stores/settingsStore';
 import { NodeStatusBadge } from '@/features/canvas/ui/NodeStatusBadge';
@@ -96,7 +97,7 @@ export const VideoNode = memo(({ id, data, selected, width, height }: VideoNodeP
   const updateNodeData = useCanvasStore((state) => state.updateNodeData);
   const addNode = useCanvasStore((state) => state.addNode);
   const addEdge = useCanvasStore((state) => state.addEdge);
-  const nodes = useCanvasStore((state) => state.nodes);
+  const currentNode = useCanvasNodeById(id);
   const useUploadFilenameAsNodeTitle = useSettingsStore((state) => state.useUploadFilenameAsNodeTitle);
   
   const inputRef = useRef<HTMLInputElement>(null);
@@ -163,6 +164,7 @@ export const VideoNode = memo(({ id, data, selected, width, height }: VideoNodeP
     }
     return resolveImageDisplayUrl(data.previewImageUrl);
   }, [data.previewImageUrl]);
+  const nodePosition = currentNode?.position ?? null;
 
   const headerStatus = useMemo(() => {
     if (isProcessingFile) {
@@ -417,7 +419,6 @@ export const VideoNode = memo(({ id, data, selected, width, height }: VideoNodeP
 
       const prepared = await prepareNodeImage(dataUrl);
       
-      const nodePosition = nodes.find(n => n.id === id)?.position;
       if (!nodePosition) {
         showScreenshotStatus('danger', t('node.videoNode.screenshotFailed'), 4200);
         return;
@@ -467,7 +468,7 @@ export const VideoNode = memo(({ id, data, selected, width, height }: VideoNodeP
     data.videoUrl,
     id,
     isCapturingScreenshot,
-    nodes,
+    nodePosition,
     resolveScreenshotFailureMessage,
     resolvedWidth,
     showScreenshotStatus,

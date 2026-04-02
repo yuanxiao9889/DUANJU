@@ -13,6 +13,7 @@ import {
   canvasEventBus,
   canvasToolProcessor,
 } from '@/features/canvas/application/canvasServices';
+import { useCanvasNodeById } from '@/features/canvas/hooks/useCanvasNodeGraph';
 import { prepareNodeImage, resolveImageDisplayUrl } from '@/features/canvas/application/imageData';
 import { readStoryboardImageMetadata } from '@/commands/image';
 import { getToolPlugin, type ToolOptions } from '@/features/canvas/tools';
@@ -27,7 +28,6 @@ import { SplitStoryboardToolEditor } from './tool-editors/SplitStoryboardToolEdi
 export function NodeToolDialog() {
   const { t } = useTranslation();
   const activeToolDialog = useCanvasStore((state) => state.activeToolDialog);
-  const nodes = useCanvasStore((state) => state.nodes);
   const addDerivedExportNode = useCanvasStore((state) => state.addDerivedExportNode);
   const addStoryboardSplitResultNode = useCanvasStore((state) => state.addStoryboardSplitResultNode);
   const addEdge = useCanvasStore((state) => state.addEdge);
@@ -53,13 +53,7 @@ export function NodeToolDialog() {
     };
   }, [activeToolDialog]);
 
-  const sourceNode = useMemo(() => {
-    if (!displayToolDialog) {
-      return null;
-    }
-
-    return nodes.find((node) => node.id === displayToolDialog.nodeId) ?? null;
-  }, [displayToolDialog, nodes]);
+  const sourceNode = useCanvasNodeById(displayToolDialog?.nodeId ?? '');
 
   const sourceImageUrl = useMemo(() => {
     if (!sourceNode) {

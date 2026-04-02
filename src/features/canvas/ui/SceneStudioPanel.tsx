@@ -45,6 +45,11 @@ import {
   type ScriptChapterNodeData,
   type ScriptRootNodeData,
 } from '@/features/canvas/domain/canvasNodes';
+import {
+  useCanvasFirstNodeByType,
+  useCanvasNodeById,
+  useCanvasNodesByTypes,
+} from '@/features/canvas/hooks/useCanvasNodeGraph';
 import { useCanvasStore } from '@/stores/canvasStore';
 import { useProjectStore } from '@/stores/projectStore';
 import { useScriptEditorStore } from '@/stores/scriptEditorStore';
@@ -57,6 +62,13 @@ const SCENE_STUDIO_PANEL_DEFAULT_WIDTH = 620;
 const SCENE_STUDIO_PANEL_MIN_WIDTH = 420;
 const SCENE_STUDIO_PANEL_MAX_WIDTH = 920;
 const SCENE_STUDIO_PANEL_COLLAPSED_WIDTH = 52;
+const SCENE_STUDIO_CONTINUITY_NODE_TYPES = [
+  CANVAS_NODE_TYPES.scriptChapter,
+  CANVAS_NODE_TYPES.scriptCharacter,
+  CANVAS_NODE_TYPES.scriptLocation,
+  CANVAS_NODE_TYPES.scriptItem,
+  CANVAS_NODE_TYPES.scriptWorldview,
+] as const;
 
 type SceneStudioSectionKey =
   | 'chapterFocus'
@@ -429,28 +441,20 @@ function SceneStudioSection({
 export function SceneStudioPanel() {
   const { t } = useTranslation();
   const currentProject = useProjectStore((state) => state.currentProject);
-  const nodes = useCanvasStore((state) => state.nodes);
   const updateNodeData = useCanvasStore((state) => state.updateNodeData);
   const activeChapterId = useScriptEditorStore((state) => state.activeChapterId);
   const activeSceneId = useScriptEditorStore((state) => state.activeSceneId);
   const focusScene = useScriptEditorStore((state) => state.focusScene);
   const clearSelection = useScriptEditorStore((state) => state.clearSelection);
-
-  const chapterNode = useMemo(() => {
-    if (!activeChapterId) {
-      return null;
-    }
-
-    return nodes.find(
-      (node) => node.id === activeChapterId && node.type === CANVAS_NODE_TYPES.scriptChapter
-    ) ?? null;
-  }, [activeChapterId, nodes]);
-
-  const chapterData = chapterNode?.data as ScriptChapterNodeData | undefined;
-  const rootNode = useMemo(() => {
-    return nodes.find((node) => node.type === CANVAS_NODE_TYPES.scriptRoot) ?? null;
-  }, [nodes]);
-  const rootData = rootNode?.data as ScriptRootNodeData | undefined;
+  const continuityNodes = useCanvasNodesByTypes(SCENE_STUDIO_CONTINUITY_NODE_TYPES);
+  const chapterNode = useCanvasNodeById(activeChapterId ?? '');
+  const rootNode = useCanvasFirstNodeByType(CANVAS_NODE_TYPES.scriptRoot);
+  const chapterData = chapterNode?.type === CANVAS_NODE_TYPES.scriptChapter
+    ? chapterNode.data as ScriptChapterNodeData
+    : undefined;
+  const rootData = rootNode?.type === CANVAS_NODE_TYPES.scriptRoot
+    ? rootNode.data as ScriptRootNodeData
+    : undefined;
   const scenes = useMemo(
     () => normalizeSceneCards(chapterData?.scenes, chapterData?.content),
     [chapterData?.content, chapterData?.scenes]
@@ -562,13 +566,13 @@ export function SceneStudioPanel() {
     }
 
     return buildSceneContinuityContext({
-      nodes,
+      nodes: continuityNodes,
       currentChapterId: chapterNode.id,
       currentSceneId: sceneDraft.id,
       currentScene: sceneDraft,
       storyRoot: rootData ?? null,
     });
-  }, [chapterNode, nodes, rootData, sceneDraft]);
+  }, [chapterNode, continuityNodes, rootData, sceneDraft]);
 
   const persistSceneDraftSnapshot = useCallback((sceneSnapshot: SceneCard, historyMode: 'push' | 'skip') => {
     const { chapterId, sceneId } = currentBindingRef.current;

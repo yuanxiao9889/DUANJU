@@ -14,6 +14,7 @@ import {
   type ScriptChapterNodeData,
 } from '@/features/canvas/domain/canvasNodes';
 import { resolveNodeDisplayName } from '@/features/canvas/domain/nodeDisplay';
+import { useCanvasNodesByIds } from '@/features/canvas/hooks/useCanvasNodeGraph';
 import { useCanvasStore } from '@/stores/canvasStore';
 import { useScriptEditorStore } from '@/stores/scriptEditorStore';
 import type { GeneratedBranch } from '@/commands/textGen';
@@ -95,6 +96,7 @@ const CONTEXT_MENU_OFFSET_X = 8;
 const CONTEXT_MENU_OFFSET_Y = 8;
 const CONTEXT_MENU_WIDTH = 140;
 const CONTEXT_MENU_HEIGHT = 80;
+const EMPTY_NODE_IDS: string[] = [];
 
 function TextContextMenu({
   position,
@@ -177,7 +179,6 @@ export const ScriptChapterNode = memo(({ id, data, selected, width, height }: Sc
   const updateNodeData = useCanvasStore((state) => state.updateNodeData);
   const addNode = useCanvasStore((state) => state.addNode);
   const addEdge = useCanvasStore((state) => state.addEdge);
-  const nodes = useCanvasStore((state) => state.nodes);
   const focusScene = useScriptEditorStore((state) => state.focusScene);
   const activeChapterId = useScriptEditorStore((state) => state.activeChapterId);
   const activeSceneId = useScriptEditorStore((state) => state.activeSceneId);
@@ -196,6 +197,8 @@ export const ScriptChapterNode = memo(({ id, data, selected, width, height }: Sc
   const resolvedHeight = resolveNodeDimension(height, DEFAULT_NODE_HEIGHT);
   const scenes = useMemo(() => normalizeSceneCards(data.scenes, data.content), [data.content, data.scenes]);
   const scenePreviewMaxHeight = Math.max(136, Math.min(280, Math.round(resolvedHeight * 0.34)));
+  const mergedBranchNodeIds = data.mergedFromBranches ?? EMPTY_NODE_IDS;
+  const mergedBranchNodes = useCanvasNodesByIds(mergedBranchNodeIds);
 
   const handleTitleChange = useCallback(
     (nextTitle: string) => {
@@ -352,28 +355,24 @@ export const ScriptChapterNode = memo(({ id, data, selected, width, height }: Sc
 
   const hasMergedBranches = data.mergedFromBranches && data.mergedFromBranches.length > 0;
   const isMergePoint = data.isMergePoint || (hasMergedBranches && data.mergedFromBranches!.length >= 2);
-
-  console.log('[Debug] hasMergedBranches:', hasMergedBranches, 'mergedFromBranches:', data.mergedFromBranches);
-
-  const collectMergedBranchContents = useCallback(() => {
-    if (!data.mergedFromBranches) return [];
-    console.log('[Debug] collectMergedBranchContents called, mergedFromBranches:', data.mergedFromBranches);
-    return data.mergedFromBranches.map(branchId => {
-      const branchNode = nodes.find(n => n.id === branchId);
-      const branchData = branchNode?.data as ScriptChapterNodeData | undefined;
-      const branchLabel = branchData?.chapterNumber && branchData?.branchIndex
-        ? `${branchData.chapterNumber}-${branchData.branchIndex}`
-        : undefined;
-      return {
-        title: branchData?.title || '',
-        content: branchData?.content || '',
-        summary: branchData?.summary || '',
-        branchIndex: branchData?.branchIndex,
-        chapterNumber: branchData?.chapterNumber,
-        branchLabel,
-      };
-    });
-  }, [data.mergedFromBranches, nodes]);
+  const mergedBranchContents = useMemo(
+    () =>
+      mergedBranchNodes.map((branchNode) => {
+        const branchData = branchNode?.data as ScriptChapterNodeData | undefined;
+        const branchLabel = branchData?.chapterNumber && branchData?.branchIndex
+          ? `${branchData.chapterNumber}-${branchData.branchIndex}`
+          : undefined;
+        return {
+          title: branchData?.title || '',
+          content: branchData?.content || '',
+          summary: branchData?.summary || '',
+          branchIndex: branchData?.branchIndex,
+          chapterNumber: branchData?.chapterNumber,
+          branchLabel,
+        };
+      }),
+    [mergedBranchNodes]
+  );
 
   return (
     <>
@@ -435,7 +434,7 @@ export const ScriptChapterNode = memo(({ id, data, selected, width, height }: Sc
             <div className="flex items-center gap-1 flex-wrap shrink-0 mt-1">
               <GitFork className="w-3 h-3 text-cyan-400" />
               <span className="text-xs text-cyan-400">来自</span>
-              {collectMergedBranchContents().filter(b => b.branchLabel).map((branch, index, arr) => (
+              {mergedBranchContents.filter((branch) => branch.branchLabel).map((branch, index, arr) => (
                 <Fragment key={index}>
                   <span className="px-1.5 py-0.5 rounded bg-cyan-500/20 text-cyan-400 text-xs font-medium">
                     {branch.branchLabel}
@@ -655,7 +654,7 @@ export const ScriptChapterNode = memo(({ id, data, selected, width, height }: Sc
           originalText={aiDialogMode === 'expandFromSummary' || aiDialogMode === 'expandFromMerged' ? (data.summary || '') : selectedText}
           chapterTitle={data.title}
           chapterNumber={data.chapterNumber}
-          mergedBranchContents={hasMergedBranches ? collectMergedBranchContents() : undefined}
+          mergedBranchContents={hasMergedBranches ? mergedBranchContents : undefined}
           onClose={() => setAiDialogMode(null)}
           onConfirm={handleAiConfirm}
           anchorRef={nodeContainerRef}

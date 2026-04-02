@@ -36,6 +36,9 @@ import {
 import { initializePsIntegration } from "./stores/psIntegrationStore";
 import { ensureDailyDatabaseBackup } from "./commands/storage";
 
+const WINDOW_CLOSE_FLUSH_TIMEOUT_MS = 2500;
+const WINDOW_CLOSE_REQUEST_TIMEOUT_MS = 1200;
+
 function toRgbCssValue(hexColor: string): string {
   const hex = hexColor.replace("#", "");
   if (!/^[0-9a-fA-F]{6}$/.test(hex)) {
@@ -45,6 +48,33 @@ function toRgbCssValue(hexColor: string): string {
   const g = Number.parseInt(hex.slice(2, 4), 16);
   const b = Number.parseInt(hex.slice(4, 6), 16);
   return `${r} ${g} ${b}`;
+}
+
+async function settleWithinTimeout(
+  promise: Promise<void>,
+  timeoutMs: number,
+  actionLabel: string,
+): Promise<boolean> {
+  let timeoutId: number | null = null;
+
+  try {
+    return await Promise.race([
+      promise.then(() => true),
+      new Promise<boolean>((resolve) => {
+        timeoutId = window.setTimeout(() => {
+          console.warn(`${actionLabel} timed out after ${timeoutMs}ms`);
+          resolve(false);
+        }, timeoutMs);
+      }),
+    ]);
+  } catch (error) {
+    console.error(`${actionLabel} failed`, error);
+    return false;
+  } finally {
+    if (timeoutId !== null) {
+      window.clearTimeout(timeoutId);
+    }
+  }
 }
 
 function App() {
@@ -244,6 +274,43 @@ function App() {
     let isClosing = false;
     let unlistenWindowClose: (() => void) | null = null;
 
+    const detachWindowCloseListener = () => {
+      if (!unlistenWindowClose) {
+        return;
+      }
+
+      const stopListening = unlistenWindowClose;
+      unlistenWindowClose = null;
+
+      try {
+        stopListening();
+      } catch (error) {
+        console.error("Failed to detach window close listener", error);
+      }
+    };
+
+    const finalizeWindowClose = async () => {
+      detachWindowCloseListener();
+      if (disposed) {
+        return;
+      }
+
+      const closeSucceeded = await settleWithinTimeout(
+        appWindow.close(),
+        WINDOW_CLOSE_REQUEST_TIMEOUT_MS,
+        "Window close request",
+      );
+      if (closeSucceeded || disposed) {
+        return;
+      }
+
+      try {
+        await appWindow.destroy();
+      } catch (error) {
+        console.error("Failed to force destroy window", error);
+      }
+    };
+
     const registerWindowCloseHandler = async () => {
       unlistenWindowClose = await appWindow.onCloseRequested(async (event) => {
         if (isClosing) {
@@ -253,26 +320,22 @@ function App() {
         isClosing = true;
         event.preventDefault();
 
-        try {
-          await flushCurrentProjectToDisk();
-        } catch (error) {
-          console.error(
-            "Failed to flush current project before window close",
-            error,
-          );
-        } finally {
-          if (!disposed) {
-            await appWindow.destroy();
-          }
-        }
+        await settleWithinTimeout(
+          flushCurrentProjectToDisk(),
+          WINDOW_CLOSE_FLUSH_TIMEOUT_MS,
+          "Project flush before window close",
+        );
+        await finalizeWindowClose();
       });
     };
 
-    void registerWindowCloseHandler();
+    void registerWindowCloseHandler().catch((error) => {
+      console.error("Failed to register window close handler", error);
+    });
 
     return () => {
       disposed = true;
-      unlistenWindowClose?.();
+      detachWindowCloseListener();
     };
   }, [flushCurrentProjectToDisk]);
 

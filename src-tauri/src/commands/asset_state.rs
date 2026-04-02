@@ -11,7 +11,8 @@ use uuid::Uuid;
 use super::{
     image::persist_image_source,
     project_state::{
-        normalize_image_ref_path, open_db, prune_unreferenced_images, replace_project_image_refs,
+        normalize_image_ref_path, open_db, project_nodes_array_mut, prune_unreferenced_images,
+        replace_project_image_refs,
     },
     storage,
 };
@@ -419,7 +420,7 @@ fn patch_asset_bound_nodes(
         .map_err(|e| format!("Failed to parse project nodes JSON: {}", e))?;
 
     let mut changed = false;
-    if let Some(nodes) = parsed.as_array_mut() {
+    if let Some(nodes) = project_nodes_array_mut(&mut parsed) {
         for node in nodes {
             changed |= patch_asset_bound_node(node, item);
         }
@@ -455,12 +456,27 @@ fn patch_asset_bound_history(
         };
 
         for snapshot in timeline {
-            let Some(nodes) = snapshot.get_mut("nodes").and_then(Value::as_array_mut) else {
-                continue;
-            };
+            if let Some(nodes) = snapshot.get_mut("nodes").and_then(Value::as_array_mut) {
+                for node in nodes {
+                    changed |= patch_asset_bound_node(node, item);
+                }
+            }
 
-            for node in nodes {
-                changed |= patch_asset_bound_node(node, item);
+            if snapshot.get("kind").and_then(Value::as_str) == Some("nodePatch") {
+                let Some(entries) = snapshot.get_mut("entries").and_then(Value::as_array_mut)
+                else {
+                    continue;
+                };
+
+                for entry in entries {
+                    let Some(node) = entry.get_mut("node") else {
+                        continue;
+                    };
+                    if node.is_null() {
+                        continue;
+                    }
+                    changed |= patch_asset_bound_node(node, item);
+                }
             }
         }
     }
@@ -499,7 +515,7 @@ fn detach_deleted_asset_from_nodes(
         .map_err(|e| format!("Failed to parse project nodes JSON: {}", e))?;
 
     let mut changed = false;
-    if let Some(nodes) = parsed.as_array_mut() {
+    if let Some(nodes) = project_nodes_array_mut(&mut parsed) {
         for node in nodes {
             changed |= detach_deleted_asset_reference(node, asset_item_id);
         }
@@ -535,12 +551,27 @@ fn detach_deleted_asset_from_history(
         };
 
         for snapshot in timeline {
-            let Some(nodes) = snapshot.get_mut("nodes").and_then(Value::as_array_mut) else {
-                continue;
-            };
+            if let Some(nodes) = snapshot.get_mut("nodes").and_then(Value::as_array_mut) {
+                for node in nodes {
+                    changed |= detach_deleted_asset_reference(node, asset_item_id);
+                }
+            }
 
-            for node in nodes {
-                changed |= detach_deleted_asset_reference(node, asset_item_id);
+            if snapshot.get("kind").and_then(Value::as_str) == Some("nodePatch") {
+                let Some(entries) = snapshot.get_mut("entries").and_then(Value::as_array_mut)
+                else {
+                    continue;
+                };
+
+                for entry in entries {
+                    let Some(node) = entry.get_mut("node") else {
+                        continue;
+                    };
+                    if node.is_null() {
+                        continue;
+                    }
+                    changed |= detach_deleted_asset_reference(node, asset_item_id);
+                }
             }
         }
     }
@@ -1468,4 +1499,178 @@ pub fn delete_asset_item(app: AppHandle, asset_item_id: String) -> Result<(), St
     detach_asset_item_from_projects(&mut sync_conn, &asset_item_id)?;
     prune_unreferenced_images(&app)?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{
+        detach_deleted_asset_from_history, patch_asset_bound_history, patch_asset_bound_nodes,
+        AssetItemRecord,
+    };
+    use serde_json::Value;
+
+    fn sample_image_asset() -> AssetItemRecord {
+        AssetItemRecord {
+            id: "asset-1".to_string(),
+            library_id: "library-1".to_string(),
+            category: "character".to_string(),
+            media_type: "image".to_string(),
+            subcategory_id: None,
+            name: "Updated Asset".to_string(),
+            description: String::new(),
+            tags: Vec::new(),
+            source_path: "C:/assets/updated.png".to_string(),
+            preview_path: Some("C:/assets/updated-preview.png".to_string()),
+            mime_type: None,
+            duration_ms: None,
+            aspect_ratio: "16:9".to_string(),
+            created_at: 1,
+            updated_at: 2,
+        }
+    }
+
+    #[test]
+    fn patch_asset_bound_nodes_supports_object_payloads() {
+        let nodes_json = r#"
+        {
+          "nodes": [
+            {
+              "id": "node-1",
+              "type": "upload",
+              "data": {
+                "assetId": "asset-1",
+                "displayName": "Old",
+                "assetName": "Old",
+                "assetCategory": "old-category",
+                "assetLibraryId": "old-library",
+                "imageUrl": "C:/assets/old.png",
+                "previewImageUrl": "C:/assets/old-preview.png",
+                "aspectRatio": "1:1",
+                "sourceFileName": "Old"
+              }
+            }
+          ],
+          "imagePool": [
+            "C:/assets/updated.png",
+            "C:/assets/updated-preview.png"
+          ]
+        }
+        "#;
+
+        let (next_nodes_json, changed) = patch_asset_bound_nodes(nodes_json, &sample_image_asset())
+            .expect("patch should succeed");
+        assert!(changed, "matching asset node should update");
+
+        let parsed: Value =
+            serde_json::from_str(&next_nodes_json).expect("patched nodes json should parse");
+        let data = parsed
+            .get("nodes")
+            .and_then(Value::as_array)
+            .and_then(|nodes| nodes.first())
+            .and_then(|node| node.get("data"))
+            .and_then(Value::as_object)
+            .expect("patched node data should exist");
+
+        assert_eq!(
+            data.get("imageUrl").and_then(Value::as_str),
+            Some("C:/assets/updated.png")
+        );
+        assert_eq!(
+            data.get("previewImageUrl").and_then(Value::as_str),
+            Some("C:/assets/updated-preview.png")
+        );
+        assert_eq!(
+            data.get("displayName").and_then(Value::as_str),
+            Some("Updated Asset")
+        );
+    }
+
+    #[test]
+    fn asset_history_helpers_support_node_patch_snapshots() {
+        let history_json = r#"
+        {
+          "past": [
+            {
+              "kind": "nodePatch",
+              "entries": [
+                {
+                  "nodeId": "node-1",
+                  "node": {
+                    "id": "node-1",
+                    "type": "upload",
+                    "data": {
+                      "assetId": "asset-1",
+                      "displayName": "Old",
+                      "assetName": "Old",
+                      "assetCategory": "old-category",
+                      "assetLibraryId": "old-library",
+                      "imageUrl": "C:/assets/old.png",
+                      "previewImageUrl": "C:/assets/old-preview.png",
+                      "aspectRatio": "1:1",
+                      "sourceFileName": "Old"
+                    }
+                  }
+                }
+              ]
+            }
+          ],
+          "future": []
+        }
+        "#;
+
+        let (patched_history_json, patched_changed) =
+            patch_asset_bound_history(history_json, &sample_image_asset())
+                .expect("patch history should succeed");
+        assert!(patched_changed, "node patch history should update");
+
+        let patched: Value =
+            serde_json::from_str(&patched_history_json).expect("patched history should parse");
+        let patched_data = patched
+            .get("past")
+            .and_then(Value::as_array)
+            .and_then(|past| past.first())
+            .and_then(|snapshot| snapshot.get("entries"))
+            .and_then(Value::as_array)
+            .and_then(|entries| entries.first())
+            .and_then(|entry| entry.get("node"))
+            .and_then(|node| node.get("data"))
+            .and_then(Value::as_object)
+            .expect("patched node patch data should exist");
+
+        assert_eq!(
+            patched_data.get("imageUrl").and_then(Value::as_str),
+            Some("C:/assets/updated.png")
+        );
+
+        let (detached_history_json, detached_changed) =
+            detach_deleted_asset_from_history(&patched_history_json, "asset-1")
+                .expect("detach history should succeed");
+        assert!(
+            detached_changed,
+            "node patch history should detach deleted asset"
+        );
+
+        let detached: Value =
+            serde_json::from_str(&detached_history_json).expect("detached history should parse");
+        let detached_data = detached
+            .get("past")
+            .and_then(Value::as_array)
+            .and_then(|past| past.first())
+            .and_then(|snapshot| snapshot.get("entries"))
+            .and_then(Value::as_array)
+            .and_then(|entries| entries.first())
+            .and_then(|entry| entry.get("node"))
+            .and_then(|node| node.get("data"))
+            .and_then(Value::as_object)
+            .expect("detached node patch data should exist");
+
+        assert!(detached_data.get("assetId").is_some_and(Value::is_null));
+        assert!(detached_data.get("assetName").is_some_and(Value::is_null));
+        assert!(detached_data
+            .get("assetCategory")
+            .is_some_and(Value::is_null));
+        assert!(detached_data
+            .get("assetLibraryId")
+            .is_some_and(Value::is_null));
+    }
 }

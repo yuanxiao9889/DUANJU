@@ -84,10 +84,25 @@ export type {
   StoryboardFrameItem,
 };
 
-export interface CanvasHistorySnapshot {
+export interface CanvasFullHistorySnapshot {
+  kind?: 'full';
   nodes: CanvasNode[];
   edges: CanvasEdge[];
 }
+
+export interface CanvasNodePatchHistoryEntry {
+  nodeId: string;
+  node: CanvasNode | null;
+}
+
+export interface CanvasNodePatchHistorySnapshot {
+  kind: 'nodePatch';
+  entries: CanvasNodePatchHistoryEntry[];
+}
+
+export type CanvasHistorySnapshot =
+  | CanvasFullHistorySnapshot
+  | CanvasNodePatchHistorySnapshot;
 
 export interface CanvasHistoryState {
   past: CanvasHistorySnapshot[];
@@ -95,6 +110,7 @@ export interface CanvasHistoryState {
 }
 
 const MAX_HISTORY_STEPS = 50;
+const MAX_HISTORY_TIMELINE_REFERENCE_BUDGET = 120_000;
 const IMAGE_NODE_VISUAL_MIN_EDGE = 96;
 const DERIVED_NODE_COLUMN_GAP = 28;
 const DERIVED_NODE_STACK_GAP = 20;
@@ -529,6 +545,30 @@ function normalizeHistory(history?: CanvasHistoryState): CanvasHistoryState {
   }
 
   const normalizeSnapshot = (snapshot: CanvasHistorySnapshot): CanvasHistorySnapshot => {
+    if (isCanvasNodePatchHistorySnapshot(snapshot)) {
+      const normalizedPatchNodes = normalizeNodes(
+        snapshot.entries
+          .map((entry) => entry.node)
+          .filter((node): node is CanvasNode => Boolean(node))
+      );
+      let normalizedIndex = 0;
+      return {
+        kind: 'nodePatch',
+        entries: snapshot.entries.map((entry) => {
+          if (!entry.node) {
+            return entry;
+          }
+
+          const normalizedNode = normalizedPatchNodes[normalizedIndex] ?? entry.node;
+          normalizedIndex += 1;
+          return {
+            nodeId: entry.nodeId,
+            node: normalizedNode,
+          };
+        }),
+      };
+    }
+
     const normalizedNodes = normalizeNodes(snapshot.nodes);
     return {
       nodes: normalizedNodes,
@@ -537,13 +577,154 @@ function normalizeHistory(history?: CanvasHistoryState): CanvasHistoryState {
   };
 
   return {
-    past: history.past.slice(-MAX_HISTORY_STEPS).map(normalizeSnapshot),
-    future: history.future.slice(-MAX_HISTORY_STEPS).map(normalizeSnapshot),
+    past: trimSnapshotTimeline(
+      history.past.slice(-MAX_HISTORY_STEPS).map(normalizeSnapshot)
+    ),
+    future: trimSnapshotTimeline(
+      history.future.slice(-MAX_HISTORY_STEPS).map(normalizeSnapshot)
+    ),
   };
 }
 
 function createSnapshot(nodes: CanvasNode[], edges: CanvasEdge[]): CanvasHistorySnapshot {
   return { nodes, edges };
+}
+
+function isCanvasNodePatchHistorySnapshot(
+  snapshot: CanvasHistorySnapshot
+): snapshot is CanvasNodePatchHistorySnapshot {
+  return snapshot.kind === 'nodePatch';
+}
+
+function createNodePatchSnapshot(
+  nodes: CanvasNode[],
+  nodeIds: Iterable<string>,
+  fallbackEdges: CanvasEdge[]
+): CanvasHistorySnapshot {
+  const seenNodeIds = new Set<string>();
+  const previousNodeById = new Map(nodes.map((node) => [node.id, node] as const));
+  const entries: CanvasNodePatchHistoryEntry[] = [];
+
+  for (const nodeId of nodeIds) {
+    if (!nodeId || seenNodeIds.has(nodeId)) {
+      continue;
+    }
+
+    seenNodeIds.add(nodeId);
+    const previousNode = previousNodeById.get(nodeId);
+    if (!previousNode) {
+      continue;
+    }
+
+    entries.push({
+      nodeId,
+      node: previousNode,
+    });
+  }
+
+  return entries.length > 0
+    ? {
+        kind: 'nodePatch',
+        entries,
+      }
+    : createSnapshot(nodes, fallbackEdges);
+}
+
+function createReverseNodePatchSnapshot(
+  snapshot: CanvasNodePatchHistorySnapshot,
+  nodes: CanvasNode[],
+  fallbackEdges: CanvasEdge[]
+): CanvasHistorySnapshot {
+  const currentNodeById = new Map(nodes.map((node) => [node.id, node] as const));
+  const entries = snapshot.entries.map((entry) => ({
+    nodeId: entry.nodeId,
+    node: currentNodeById.get(entry.nodeId) ?? null,
+  }));
+
+  return entries.length > 0
+    ? {
+        kind: 'nodePatch',
+        entries,
+      }
+    : createSnapshot(nodes, fallbackEdges);
+}
+
+function applyNodePatchSnapshot(
+  currentNodes: CanvasNode[],
+  snapshot: CanvasNodePatchHistorySnapshot
+): CanvasNode[] {
+  const patchById = new Map(snapshot.entries.map((entry) => [entry.nodeId, entry.node] as const));
+  const nextNodes: CanvasNode[] = [];
+
+  for (const node of currentNodes) {
+    if (!patchById.has(node.id)) {
+      nextNodes.push(node);
+      continue;
+    }
+
+    const patchedNode = patchById.get(node.id) ?? null;
+    patchById.delete(node.id);
+    if (patchedNode) {
+      nextNodes.push(patchedNode);
+    }
+  }
+
+  for (const patchedNode of patchById.values()) {
+    if (patchedNode) {
+      nextNodes.push(patchedNode);
+    }
+  }
+
+  return nextNodes;
+}
+
+function applyHistorySnapshot(
+  currentNodes: CanvasNode[],
+  currentEdges: CanvasEdge[],
+  snapshot: CanvasHistorySnapshot
+): CanvasFullHistorySnapshot {
+  if (isCanvasNodePatchHistorySnapshot(snapshot)) {
+    return {
+      nodes: applyNodePatchSnapshot(currentNodes, snapshot),
+      edges: currentEdges,
+    };
+  }
+
+  return snapshot;
+}
+
+function estimateSnapshotReferenceFootprint(snapshot: CanvasHistorySnapshot): number {
+  if (isCanvasNodePatchHistorySnapshot(snapshot)) {
+    return snapshot.entries.length;
+  }
+
+  return snapshot.nodes.length + snapshot.edges.length;
+}
+
+function trimSnapshotTimeline(snapshots: CanvasHistorySnapshot[]): CanvasHistorySnapshot[] {
+  if (snapshots.length <= 1) {
+    return snapshots;
+  }
+
+  let totalFootprint = 0;
+  for (const snapshot of snapshots) {
+    totalFootprint += estimateSnapshotReferenceFootprint(snapshot);
+  }
+
+  if (totalFootprint <= MAX_HISTORY_TIMELINE_REFERENCE_BUDGET) {
+    return snapshots;
+  }
+
+  let trimStartIndex = 0;
+  while (
+    trimStartIndex < snapshots.length - 1
+    && totalFootprint > MAX_HISTORY_TIMELINE_REFERENCE_BUDGET
+  ) {
+    totalFootprint -= estimateSnapshotReferenceFootprint(snapshots[trimStartIndex]);
+    trimStartIndex += 1;
+  }
+
+  return trimStartIndex > 0 ? snapshots.slice(trimStartIndex) : snapshots;
 }
 
 function normalizeNonEmptyString(value: unknown): string | null {
@@ -1226,6 +1407,34 @@ function mapHistorySnapshots(
 
   const mapTimeline = (timeline: CanvasHistorySnapshot[]): CanvasHistorySnapshot[] =>
     timeline.map((snapshot) => {
+      if (isCanvasNodePatchHistorySnapshot(snapshot)) {
+        const patchNodes = snapshot.entries
+          .map((entry) => entry.node)
+          .filter((node): node is CanvasNode => Boolean(node));
+        const result = mapNodes(patchNodes);
+        changed ||= result.changed;
+        if (!result.changed) {
+          return snapshot;
+        }
+
+        let nextNodeIndex = 0;
+        return {
+          kind: 'nodePatch',
+          entries: snapshot.entries.map((entry) => {
+            if (!entry.node) {
+              return entry;
+            }
+
+            const nextNode = result.nodes[nextNodeIndex] ?? entry.node;
+            nextNodeIndex += 1;
+            return {
+              nodeId: entry.nodeId,
+              node: nextNode,
+            };
+          }),
+        };
+      }
+
       const result = mapNodes(snapshot.nodes);
       changed ||= result.changed;
       return result.changed
@@ -1454,15 +1663,30 @@ function pushSnapshot(
   snapshot: CanvasHistorySnapshot
 ): CanvasHistorySnapshot[] {
   const last = snapshots[snapshots.length - 1];
-  if (last && last.nodes === snapshot.nodes && last.edges === snapshot.edges) {
-    return snapshots;
+  if (last) {
+    if (
+      !isCanvasNodePatchHistorySnapshot(last)
+      && !isCanvasNodePatchHistorySnapshot(snapshot)
+      && last.nodes === snapshot.nodes
+      && last.edges === snapshot.edges
+    ) {
+      return snapshots;
+    }
+
+    if (
+      isCanvasNodePatchHistorySnapshot(last)
+      && isCanvasNodePatchHistorySnapshot(snapshot)
+      && last.entries === snapshot.entries
+    ) {
+      return snapshots;
+    }
   }
 
   const next = [...snapshots, snapshot];
   if (next.length > MAX_HISTORY_STEPS) {
     next.shift();
   }
-  return next;
+  return trimSnapshotTimeline(next);
 }
 
 function resolveSelectedNodeId(selectedNodeId: string | null, nodes: CanvasNode[]): string | null {
@@ -1576,6 +1800,12 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
           'resizing' in change &&
           change.resizing === false
       );
+      const interactionNodeIds = changes
+        .filter((change): change is NodeChange<CanvasNode> & { id: string } =>
+          (change.type === 'position' || change.type === 'dimensions')
+          && typeof change.id === 'string'
+        )
+        .map((change) => change.id);
       const hasInteractionMove = hasDragMove || hasResizeMove;
       const hasInteractionEnd = hasDragEnd || hasResizeEnd;
 
@@ -1587,7 +1817,15 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
       }
 
       if (hasInteractionEnd) {
-        const snapshot = nextDragHistorySnapshot ?? createSnapshot(state.nodes, state.edges);
+        const snapshot = nextDragHistorySnapshot
+          && !isCanvasNodePatchHistorySnapshot(nextDragHistorySnapshot)
+          && interactionNodeIds.length > 0
+          ? createNodePatchSnapshot(
+              nextDragHistorySnapshot.nodes,
+              interactionNodeIds,
+              nextDragHistorySnapshot.edges
+            )
+          : nextDragHistorySnapshot ?? createSnapshot(state.nodes, state.edges);
         nextHistory = {
           past: pushSnapshot(state.history.past, snapshot),
           future: [],
@@ -3220,14 +3458,17 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
       return false;
     }
 
-    const currentSnapshot = createSnapshot(state.nodes, state.edges);
+    const currentSnapshot = isCanvasNodePatchHistorySnapshot(target)
+      ? createReverseNodePatchSnapshot(target, state.nodes, state.edges)
+      : createSnapshot(state.nodes, state.edges);
+    const appliedSnapshot = applyHistorySnapshot(state.nodes, state.edges, target);
     const nextPast = state.history.past.slice(0, -1);
 
     set({
-      nodes: target.nodes,
-      edges: target.edges,
-      selectedNodeId: resolveSelectedNodeId(state.selectedNodeId, target.nodes),
-      activeToolDialog: resolveActiveToolDialog(state.activeToolDialog, target.nodes),
+      nodes: appliedSnapshot.nodes,
+      edges: appliedSnapshot.edges,
+      selectedNodeId: resolveSelectedNodeId(state.selectedNodeId, appliedSnapshot.nodes),
+      activeToolDialog: resolveActiveToolDialog(state.activeToolDialog, appliedSnapshot.nodes),
       history: {
         past: nextPast,
         future: pushSnapshot(state.history.future, currentSnapshot),
@@ -3244,14 +3485,17 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
       return false;
     }
 
-    const currentSnapshot = createSnapshot(state.nodes, state.edges);
+    const currentSnapshot = isCanvasNodePatchHistorySnapshot(target)
+      ? createReverseNodePatchSnapshot(target, state.nodes, state.edges)
+      : createSnapshot(state.nodes, state.edges);
+    const appliedSnapshot = applyHistorySnapshot(state.nodes, state.edges, target);
     const nextFuture = state.history.future.slice(0, -1);
 
     set({
-      nodes: target.nodes,
-      edges: target.edges,
-      selectedNodeId: resolveSelectedNodeId(state.selectedNodeId, target.nodes),
-      activeToolDialog: resolveActiveToolDialog(state.activeToolDialog, target.nodes),
+      nodes: appliedSnapshot.nodes,
+      edges: appliedSnapshot.edges,
+      selectedNodeId: resolveSelectedNodeId(state.selectedNodeId, appliedSnapshot.nodes),
+      activeToolDialog: resolveActiveToolDialog(state.activeToolDialog, appliedSnapshot.nodes),
       history: {
         past: pushSnapshot(state.history.past, currentSnapshot),
         future: nextFuture,

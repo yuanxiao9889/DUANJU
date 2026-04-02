@@ -74,7 +74,17 @@ export function TitleBar({
   }, [appWindow]);
 
   const handleClose = useCallback(async () => {
-    await appWindow.close();
+    try {
+      await appWindow.close();
+    } catch (error) {
+      console.error('Failed to request window close', error);
+
+      try {
+        await appWindow.destroy();
+      } catch (destroyError) {
+        console.error('Failed to force destroy window from title bar', destroyError);
+      }
+    }
   }, [appWindow]);
 
   const handleDragStart = useCallback(async (e: React.MouseEvent) => {
