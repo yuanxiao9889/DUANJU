@@ -37,7 +37,7 @@ function normalizeDialogDirectoryPath(value: string | string[] | null): string |
 }
 
 const NODE_FEATURE_LABEL_KEYS: Record<string, string> = {
-  ttsTextNode: 'node.menu.ttsText',
+  ttsTextNode: 'node.menu.textAnnotation',
   ttsVoiceDesignNode: 'node.menu.ttsVoiceDesign',
   ttsSavedVoiceNode: 'node.menu.ttsSavedVoice',
 };

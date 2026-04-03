@@ -38,7 +38,7 @@ export const nodeTypes: NodeTypes = {
   storyboardNode: StoryboardNode,
   storyboardSplitResultNode: StoryboardSplitResultNode,
   textAnnotationNode: TextAnnotationNode,
-  ttsTextNode: TtsTextNode,
+  ttsTextNode: TextAnnotationNode,
   ttsVoiceDesignNode: QwenTtsVoiceDesignNode,
   ttsSavedVoiceNode: QwenTtsSavedVoiceNode,
   uploadNode: UploadNode,

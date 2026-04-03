@@ -1,5 +1,10 @@
-import { memo, useCallback } from 'react';
-import { type NodeProps } from '@xyflow/react';
+import { memo, useCallback, useEffect } from 'react';
+import {
+  Handle,
+  Position,
+  useUpdateNodeInternals,
+  type NodeProps,
+} from '@xyflow/react';
 import { FileText } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -7,7 +12,13 @@ import remarkBreaks from 'remark-breaks';
 import { useTranslation } from 'react-i18next';
 import { openUrl } from '@tauri-apps/plugin-opener';
 
-import { CANVAS_NODE_TYPES, type TextAnnotationNodeData } from '@/features/canvas/domain/canvasNodes';
+import {
+  CANVAS_NODE_TYPES,
+  TTS_TEXT_NODE_DEFAULT_HEIGHT,
+  TTS_TEXT_NODE_DEFAULT_WIDTH,
+  type TextAnnotationNodeData,
+  type TtsTextNodeData,
+} from '@/features/canvas/domain/canvasNodes';
 import { resolveNodeDisplayName } from '@/features/canvas/domain/nodeDisplay';
 import { NodeHeader, NODE_HEADER_FLOATING_POSITION_CLASS } from '@/features/canvas/ui/NodeHeader';
 import { NodeResizeHandle } from '@/features/canvas/ui/NodeResizeHandle';
@@ -15,7 +26,8 @@ import { useCanvasStore } from '@/stores/canvasStore';
 
 type TextAnnotationNodeProps = NodeProps & {
   id: string;
-  data: TextAnnotationNodeData;
+  type?: string;
+  data: TextAnnotationNodeData | TtsTextNodeData;
   selected?: boolean;
 };
 
@@ -28,24 +40,39 @@ const MAX_HEIGHT = 900;
 
 export const TextAnnotationNode = memo(({
   id,
+  type,
   data,
   selected,
   width,
   height,
 }: TextAnnotationNodeProps) => {
   const { t } = useTranslation();
+  const updateNodeInternals = useUpdateNodeInternals();
   const setSelectedNode = useCanvasStore((state) => state.setSelectedNode);
   const updateNodeData = useCanvasStore((state) => state.updateNodeData);
   const content = typeof data.content === 'string' ? data.content : '';
-  const resolvedTitle = resolveNodeDisplayName(CANVAS_NODE_TYPES.textAnnotation, data);
-  const resolvedWidth = Math.max(MIN_WIDTH, Math.round(width ?? DEFAULT_WIDTH));
-  const resolvedHeight = Math.max(MIN_HEIGHT, Math.round(height ?? DEFAULT_HEIGHT));
+  const resolvedNodeType = type === CANVAS_NODE_TYPES.ttsText
+    ? CANVAS_NODE_TYPES.ttsText
+    : CANVAS_NODE_TYPES.textAnnotation;
+  const defaultWidth = resolvedNodeType === CANVAS_NODE_TYPES.ttsText
+    ? TTS_TEXT_NODE_DEFAULT_WIDTH
+    : DEFAULT_WIDTH;
+  const defaultHeight = resolvedNodeType === CANVAS_NODE_TYPES.ttsText
+    ? TTS_TEXT_NODE_DEFAULT_HEIGHT
+    : DEFAULT_HEIGHT;
+  const resolvedTitle = resolveNodeDisplayName(resolvedNodeType, data);
+  const resolvedWidth = Math.max(MIN_WIDTH, Math.round(width ?? defaultWidth));
+  const resolvedHeight = Math.max(MIN_HEIGHT, Math.round(height ?? defaultHeight));
   const handleMarkdownLinkClick = useCallback((href?: string) => {
     if (!href) {
       return;
     }
     void openUrl(href);
   }, []);
+
+  useEffect(() => {
+    updateNodeInternals(id);
+  }, [id, resolvedHeight, resolvedWidth, updateNodeInternals]);
 
   return (
     <div
@@ -116,6 +143,13 @@ export const TextAnnotationNode = memo(({
           )}
         </div>
       )}
+
+      <Handle
+        type="source"
+        position={Position.Right}
+        id="source"
+        className="!h-3 !w-3 !border-2 !border-white !bg-accent"
+      />
     </div>
   );
 });

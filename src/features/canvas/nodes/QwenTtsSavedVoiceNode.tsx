@@ -254,6 +254,29 @@ export const QwenTtsSavedVoiceNode = memo(({
       );
     }
 
+    if (!isExtensionReady) {
+      if (isExtensionStarting) {
+        return (
+          <NodeStatusBadge
+            icon={<Loader2 className="h-3 w-3" />}
+            label={t('node.qwenTts.runtimeStartingLabel')}
+            tone="processing"
+            animate
+            title={runtimeHint}
+          />
+        );
+      }
+
+      return (
+        <NodeStatusBadge
+          icon={<LibraryBig className="h-3 w-3" />}
+          label={t('node.qwenTts.runtimeDisabledLabel')}
+          tone="warning"
+          title={runtimeHint}
+        />
+      );
+    }
+
     if (data.lastError) {
       return (
         <NodeStatusBadge
@@ -299,7 +322,10 @@ export const QwenTtsSavedVoiceNode = memo(({
     data.lastGeneratedAt,
     data.lastSavedAt,
     i18n.language,
+    isExtensionReady,
+    isExtensionStarting,
     isSubmitting,
+    runtimeHint,
     t,
   ]);
 

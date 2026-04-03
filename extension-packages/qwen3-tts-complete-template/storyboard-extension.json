@@ -34,7 +34,6 @@
   ],
   "features": {
     "nodes": [
-      "ttsTextNode",
       "ttsVoiceDesignNode",
       "ttsSavedVoiceNode"
     ],

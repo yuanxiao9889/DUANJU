@@ -4,7 +4,7 @@ use std::fs::OpenOptions;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::process::Stdio;
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, SystemTime};
 
 #[cfg(target_os = "windows")]
 use std::os::windows::process::CommandExt;
@@ -26,6 +26,7 @@ const MAX_IMAGE_COUNT: usize = 4;
 const DREAMINA_INSTALL_SCRIPT_URL: &str = "https://jimeng.jianying.com/cli";
 const DREAMINA_SETUP_PROGRESS_EVENT: &str = "dreamina://setup-progress";
 const DREAMINA_LOGIN_WAIT_TIMEOUT_MS: u64 = 5 * 60 * 1000;
+const DREAMINA_LOGIN_VERIFY_TIMEOUT_MS: u64 = 30 * 1000;
 const DREAMINA_LOGIN_POLL_INTERVAL_MS: u64 = 1_000;
 const DREAMINA_QR_READY_TIMEOUT_MS: u64 = 30 * 1000;
 const DREAMINA_BUNDLED_DIR_NAME: &str = "dreamina-cli";
@@ -34,6 +35,8 @@ const DREAMINA_LOGIN_LOG_FILE_NAME: &str = "dreamina-login.log";
 const DREAMINA_LOGIN_QR_FILE_NAME: &str = "dreamina-login-qr.png";
 const DREAMINA_RUNTIME_PROFILE_DIR_NAME: &str = "profile";
 const DREAMINA_QR_READY_MARKER: &str = "[DREAMINA:QR_READY]";
+const DREAMINA_LOGIN_SUCCESS_MARKER: &str = "[DREAMINA:LOGIN_SUCCESS]";
+const DREAMINA_LOGIN_REUSED_MARKER: &str = "[DREAMINA:LOGIN_REUSED]";
 #[cfg(target_os = "windows")]
 const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 
@@ -682,6 +685,33 @@ fn dreamina_login_qr_path(workspace: &Path) -> PathBuf {
     workspace.join(DREAMINA_LOGIN_QR_FILE_NAME)
 }
 
+fn dreamina_credential_path(workspace: &Path) -> Option<PathBuf> {
+    let runtime_root = workspace.parent()?;
+    Some(
+        runtime_root
+            .join(DREAMINA_RUNTIME_PROFILE_DIR_NAME)
+            .join(".dreamina_cli")
+            .join("credential.json"),
+    )
+}
+
+fn clear_dreamina_login_artifacts(workspace: &Path) {
+    for path in [
+        dreamina_login_log_path(workspace),
+        dreamina_login_qr_path(workspace),
+    ] {
+        if let Err(error) = fs::remove_file(&path) {
+            if error.kind() != std::io::ErrorKind::NotFound {
+                warn!(
+                    "failed to remove Dreamina login artifact {}: {}",
+                    path.display(),
+                    error
+                );
+            }
+        }
+    }
+}
+
 fn parse_dreamina_qr_ready_path(line: &str) -> Option<PathBuf> {
     if let Some((_, value)) = line.split_once(DREAMINA_QR_READY_MARKER) {
         let path = value.trim();
@@ -717,6 +747,33 @@ fn dreamina_login_qr_file_path(workspace: &Path) -> Option<PathBuf> {
         .filter(|path| path.is_file())
 }
 
+fn dreamina_login_success_logged(workspace: &Path) -> bool {
+    read_text_file_lossy(&dreamina_login_log_path(workspace))
+        .map(|text| {
+            text.contains(DREAMINA_LOGIN_SUCCESS_MARKER)
+                || text.contains(DREAMINA_LOGIN_REUSED_MARKER)
+        })
+        .unwrap_or(false)
+}
+
+fn dreamina_credential_updated_since(workspace: &Path, started_at: SystemTime) -> bool {
+    dreamina_credential_path(workspace)
+        .and_then(|path| fs::metadata(path).ok())
+        .and_then(|metadata| metadata.modified().ok())
+        .map(|modified_at| {
+            modified_at >= started_at
+                || started_at
+                    .duration_since(modified_at)
+                    .map(|delta| delta <= Duration::from_secs(2))
+                    .unwrap_or(false)
+        })
+        .unwrap_or(false)
+}
+
+fn dreamina_login_confirmed(workspace: &Path, started_at: SystemTime) -> bool {
+    dreamina_login_success_logged(workspace) || dreamina_credential_updated_since(workspace, started_at)
+}
+
 fn tail_lines(text: &str, line_count: usize) -> String {
     let lines = text
         .lines()
@@ -739,6 +796,13 @@ fn dreamina_login_log_tail(workspace: &Path, line_count: usize) -> Option<String
 }
 
 fn dreamina_login_wait_detail(workspace: &Path) -> Option<String> {
+    if dreamina_login_success_logged(workspace) {
+        return Some(
+            "Dreamina confirmed the QR-code login. Verifying the local session with `dreamina user_credit`."
+                .to_string(),
+        );
+    }
+
     if dreamina_login_qr_file_path(workspace).is_some() {
         return Some(
             "The QR code is ready. Scan it with Douyin and confirm the login on your phone."
@@ -871,6 +935,49 @@ async fn run_dreamina_json(
         })?;
     serde_json::from_str::<Value>(json_text)
         .map_err(|error| format!("failed to parse Dreamina JSON: {error}"))
+}
+
+async fn run_dreamina_action(
+    workspace: PathBuf,
+    runtime: &GitBashRuntime,
+    args: Vec<String>,
+    success_message: &str,
+) -> Result<DreaminaCliActionResponse, String> {
+    let command_env = dreamina_process_env(&workspace)?;
+    let mut parts = Vec::with_capacity(args.len() + 1);
+    parts.push(dreamina_command_target(runtime));
+    parts.extend(args.iter().map(|arg| bash_quote(arg)));
+    let script = format!(
+        "{}; {}",
+        dreamina_command_prefix(runtime, &command_env),
+        parts.join(" ")
+    );
+    let (success, stdout, stderr) =
+        run_git_bash_script(runtime, command_env, workspace, script).await?;
+    if !success {
+        let line = stderr
+            .lines()
+            .map(str::trim)
+            .find(|line| !line.is_empty())
+            .or_else(|| stdout.lines().map(str::trim).find(|line| !line.is_empty()))
+            .unwrap_or("Dreamina CLI failed.");
+        return Err(normalize_dreamina_cli_error(line));
+    }
+
+    let detail = [stdout.trim(), stderr.trim()]
+        .into_iter()
+        .filter(|text| !text.is_empty())
+        .collect::<Vec<_>>()
+        .join("\n");
+
+    Ok(DreaminaCliActionResponse {
+        message: success_message.to_string(),
+        detail: if detail.is_empty() {
+            None
+        } else {
+            Some(detail)
+        },
+    })
 }
 
 fn sanitize_file_name(raw_name: &str, fallback_stem: &str, fallback_extension: &str) -> String {
@@ -1780,20 +1887,61 @@ async fn wait_for_dreamina_login(
     runtime: &GitBashRuntime,
 ) -> (DreaminaCliStatusResponse, bool) {
     let started_at = Instant::now();
+    let started_system_at = SystemTime::now();
     let deadline = started_at + Duration::from_millis(DREAMINA_LOGIN_WAIT_TIMEOUT_MS);
     let qr_deadline = started_at + Duration::from_millis(DREAMINA_QR_READY_TIMEOUT_MS);
     let mut qr_seen = false;
+    let mut verify_started_at: Option<Instant> = None;
 
     loop {
+        let now = Instant::now();
         let login_qr_data_url = dreamina_login_qr_data_url(workspace);
         qr_seen |= login_qr_data_url.is_some();
+        if verify_started_at.is_none() && dreamina_login_confirmed(workspace, started_system_at) {
+            verify_started_at = Some(now);
+        }
+
         let status =
             resolve_dreamina_cli_status_with_runtime(workspace.to_path_buf(), runtime).await;
         if status.ready {
             return (status, false);
         }
 
-        if !qr_seen && Instant::now() >= qr_deadline {
+        if let Some(verify_started_at) = verify_started_at {
+            let verify_deadline =
+                verify_started_at + Duration::from_millis(DREAMINA_LOGIN_VERIFY_TIMEOUT_MS);
+            if now >= verify_deadline {
+                let status = DreaminaCliStatusResponse {
+                    detail: status.detail.clone().or_else(|| {
+                        Some(
+                            "Dreamina reported that the QR login already succeeded, but the local session still did not pass `dreamina user_credit`. Please retry once after a short wait."
+                                .to_string(),
+                        )
+                    }),
+                    ..status
+                };
+                return (status, true);
+            }
+
+            let verify_elapsed_ms = verify_started_at.elapsed().as_millis() as u64;
+            let verify_progress = 95_u64
+                + verify_elapsed_ms
+                    .saturating_mul(4)
+                    .checked_div(DREAMINA_LOGIN_VERIFY_TIMEOUT_MS)
+                    .unwrap_or(0);
+            emit_dreamina_setup_progress(
+                app,
+                DreaminaSetupProgressStage::Verifying,
+                verify_progress.min(99) as u8,
+                Some(runtime.source),
+                dreamina_login_wait_detail(workspace),
+                login_qr_data_url,
+            );
+            sleep(Duration::from_millis(DREAMINA_LOGIN_POLL_INTERVAL_MS)).await;
+            continue;
+        }
+
+        if !qr_seen && now >= qr_deadline {
             let detail = dreamina_login_wait_detail(workspace).or_else(|| {
                 Some(
                     "Dreamina did not render a login QR code in time. Please retry to refresh the QR code."
@@ -1810,7 +1958,7 @@ async fn wait_for_dreamina_login(
             );
         }
 
-        if Instant::now() >= deadline {
+        if now >= deadline {
             let status = DreaminaCliStatusResponse {
                 detail: status
                     .detail
@@ -1977,6 +2125,24 @@ pub async fn open_dreamina_login_terminal(
     let workspace = dreamina_workspace(&app)?;
     let runtime = resolve_git_bash_runtime(&app)?;
     open_dreamina_login_terminal_with_runtime(workspace, &runtime).await
+}
+
+#[tauri::command]
+pub async fn logout_dreamina_cli(app: AppHandle) -> Result<DreaminaCliActionResponse, String> {
+    let workspace = dreamina_workspace(&app)?;
+    let runtime = resolve_git_bash_runtime(&app)?;
+    terminate_conflicting_dreamina_processes(&runtime).await?;
+
+    let response = run_dreamina_action(
+        workspace.clone(),
+        &runtime,
+        vec!["logout".to_string()],
+        "Dreamina local login session was cleared.",
+    )
+    .await?;
+
+    clear_dreamina_login_artifacts(&workspace);
+    Ok(response)
 }
 
 #[tauri::command]

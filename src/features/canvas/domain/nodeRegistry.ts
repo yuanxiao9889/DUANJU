@@ -242,11 +242,11 @@ const textAnnotationNodeDefinition: CanvasNodeDefinition<TextAnnotationNodeData>
     promptInput: false,
   },
   connectivity: {
-    sourceHandle: false,
+    sourceHandle: true,
     targetHandle: false,
     connectMenu: {
       fromSource: false,
-      fromTarget: false,
+      fromTarget: true,
     },
   },
   createDefaultData: () => ({
@@ -528,12 +528,8 @@ const ttsTextNodeDefinition: CanvasNodeDefinition<TtsTextNodeData> = {
   type: CANVAS_NODE_TYPES.ttsText,
   menuLabelKey: 'node.menu.ttsText',
   menuIcon: 'text',
-  visibleInMenu: true,
+  visibleInMenu: false,
   menuProjectTypes: ['storyboard'],
-  requiredExtensionIds: [
-    QWEN_TTS_SIMPLE_EXTENSION_ID,
-    QWEN_TTS_COMPLETE_EXTENSION_ID,
-  ],
   capabilities: {
     toolbar: true,
     promptInput: false,
@@ -543,7 +539,7 @@ const ttsTextNodeDefinition: CanvasNodeDefinition<TtsTextNodeData> = {
     targetHandle: false,
     connectMenu: {
       fromSource: false,
-      fromTarget: true,
+      fromTarget: false,
     },
   },
   createDefaultData: () => ({

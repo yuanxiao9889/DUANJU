@@ -147,6 +147,10 @@ export async function openDreaminaLoginTerminal(): Promise<DreaminaCliActionResp
   );
 }
 
+export async function logoutDreaminaCli(): Promise<DreaminaCliActionResponse> {
+  return await invoke<DreaminaCliActionResponse>("logout_dreamina_cli");
+}
+
 export async function runDreaminaGuidedSetup(): Promise<DreaminaGuidedSetupResponse> {
   return await invoke<DreaminaGuidedSetupResponse>("run_dreamina_guided_setup");
 }

@@ -345,16 +345,34 @@ export function DreaminaSetupDialog({
         });
         setActionNotice(t("dreaminaSetup.notice.autoReady"));
       } else if (response.loginWaitTimedOut) {
-        setSetupProgress((previous) =>
-          previous ?? {
-            stage: "waitingForLogin",
-            progress: 94,
+        const refreshedStatus = await checkDreaminaCliStatus().catch(() => null);
+        const effectiveStatus = refreshedStatus ?? response.status;
+        setStatus(effectiveStatus);
+
+        if (effectiveStatus.ready) {
+          setSetupProgress({
+            stage: "completed",
+            progress: 100,
             gitSource: response.gitSource ?? null,
-            detail: response.status.detail ?? null,
+            detail: effectiveStatus.detail ?? null,
             loginQrDataUrl: null,
-          },
-        );
-        setActionNotice(t("dreaminaSetup.notice.loginStillPending"));
+          });
+          setActionNotice(t("dreaminaSetup.notice.autoReady"));
+        } else {
+          setSetupProgress((previous) => {
+            const preserveVerifying = previous?.stage === "verifying";
+            return {
+              stage: preserveVerifying ? "verifying" : "waitingForLogin",
+              progress: preserveVerifying
+                ? Math.max(previous?.progress ?? 96, 96)
+                : 94,
+              gitSource: response.gitSource ?? previous?.gitSource ?? null,
+              detail: effectiveStatus.detail ?? previous?.detail ?? null,
+              loginQrDataUrl: previous?.loginQrDataUrl ?? null,
+            };
+          });
+          setActionNotice(t("dreaminaSetup.notice.loginStillPending"));
+        }
       } else {
         if (response.status.code === "unknown") {
           setSetupProgress((previous) => ({
@@ -419,6 +437,10 @@ export function DreaminaSetupDialog({
       ? t("dreaminaSetup.actions.refreshQr")
       : t("dreaminaSetup.actions.startAutoSetup");
   const isBusy = isChecking || isAutoPreparing;
+  const inlineWaitingNotice =
+    !isAutoPreparing && setupProgress?.stage === "waitingForLogin"
+      ? actionNotice
+      : null;
 
   return (
     <UiModal
@@ -546,6 +568,12 @@ export function DreaminaSetupDialog({
                 {runtimeSourceCopy}
               </div>
             ) : null}
+
+            {inlineWaitingNotice ? (
+              <div className="rounded-lg border border-amber-500/25 bg-amber-500/10 px-3 py-2 text-[11px] leading-5 text-amber-100">
+                {inlineWaitingNotice}
+              </div>
+            ) : null}
           </div>
         </UiPanel>
 
@@ -622,7 +650,7 @@ export function DreaminaSetupDialog({
           </UiPanel>
         ) : null}
 
-        {actionNotice ? (
+        {actionNotice && !inlineWaitingNotice ? (
           <UiPanel className="border-[rgba(255,255,255,0.08)] bg-[rgba(15,23,42,0.32)] p-4 text-xs leading-5 text-text-muted">
             <div className="mb-1 text-sm font-medium text-text-dark">
               {t("dreaminaSetup.noticeTitle")}

@@ -4,6 +4,11 @@ import { Trans, useTranslation } from 'react-i18next';
 import { getVersion } from '@tauri-apps/api/app';
 import { open } from '@tauri-apps/plugin-dialog';
 import { openPath } from '@tauri-apps/plugin-opener';
+import {
+  checkDreaminaCliStatus,
+  logoutDreaminaCli,
+  type DreaminaCliStatusResponse,
+} from '@/commands/dreaminaCli';
 import { useSettingsStore } from '@/stores/settingsStore';
 import { usePsIntegrationStore } from '@/stores/psIntegrationStore';
 import { testProviderConnection } from '@/commands/textGen';
@@ -52,6 +57,7 @@ import {
   formatShortcutForDisplay,
   getShortcutFromKeyboardEvent,
 } from '@/features/settings/keyboardShortcuts';
+import { openDreaminaSetupDialog } from '@/features/jimeng/dreaminaSetupDialogEvents';
 import {
   RELEASE_NOTES,
   RELEASE_NOTE_SECTION_ORDER,
@@ -502,6 +508,13 @@ export function SettingsDialog({
   const [isMigrating, setIsMigrating] = useState(false);
   const [migrationError, setMigrationError] = useState<string | null>(null);
   const [runtimeVersion, setRuntimeVersion] = useState<string>('');
+  const [dreaminaStatus, setDreaminaStatus] = useState<DreaminaCliStatusResponse | null>(null);
+  const [isCheckingDreaminaStatus, setIsCheckingDreaminaStatus] = useState(false);
+  const [isLoggingOutDreamina, setIsLoggingOutDreamina] = useState(false);
+  const [dreaminaActionNotice, setDreaminaActionNotice] = useState<{
+    tone: 'info' | 'success' | 'error';
+    message: string;
+  } | null>(null);
   const [isCapturingGroupShortcut, setIsCapturingGroupShortcut] = useState(false);
   const { shouldRender, isVisible } = useDialogTransition(isOpen, UI_DIALOG_TRANSITION_MS);
   const runtimePsPort = serverStatus.running ? serverStatus.port : null;
@@ -577,6 +590,7 @@ export function SettingsDialog({
     setLocalPsAutoStartServer(psAutoStartServer);
     setCollapsedProviderGroups({ ...DEFAULT_PROVIDER_GROUP_COLLAPSE_STATE });
     setIsCapturingGroupShortcut(false);
+    setDreaminaActionNotice(null);
     setRevealedApiKeys({});
     setLocalDownloadPathInput('');
   }, [
@@ -665,6 +679,77 @@ export function SettingsDialog({
     storyboardProviderGroups,
   ]);
 
+  const refreshDreaminaStatus = useCallback(
+    async (options?: { silent?: boolean }) => {
+      setIsCheckingDreaminaStatus(true);
+      if (!options?.silent) {
+        setDreaminaActionNotice(null);
+      }
+
+      try {
+        const nextStatus = await checkDreaminaCliStatus();
+        setDreaminaStatus(nextStatus);
+        if (!options?.silent) {
+          setDreaminaActionNotice({
+            tone: 'info',
+            message: t('settings.dreaminaStatusRefreshed'),
+          });
+        }
+        return nextStatus;
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        const fallbackStatus: DreaminaCliStatusResponse = {
+          ready: false,
+          code: 'unknown',
+          message: t('settings.dreaminaStatusLoadFailed'),
+          detail: message,
+        };
+        setDreaminaStatus(fallbackStatus);
+        if (!options?.silent) {
+          setDreaminaActionNotice({
+            tone: 'error',
+            message,
+          });
+        }
+        return fallbackStatus;
+      } finally {
+        setIsCheckingDreaminaStatus(false);
+      }
+    },
+    [t]
+  );
+
+  const handleOpenDreaminaSetup = useCallback(() => {
+    onClose();
+    setTimeout(() => {
+      openDreaminaSetupDialog({
+        initialStatus: dreaminaStatus,
+      });
+    }, UI_DIALOG_TRANSITION_MS);
+  }, [dreaminaStatus, onClose]);
+
+  const handleLogoutDreamina = useCallback(async () => {
+    setIsLoggingOutDreamina(true);
+    setDreaminaActionNotice(null);
+
+    try {
+      const response = await logoutDreaminaCli();
+      await refreshDreaminaStatus({ silent: true });
+      setDreaminaActionNotice({
+        tone: 'success',
+        message: response.message,
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      setDreaminaActionNotice({
+        tone: 'error',
+        message,
+      });
+    } finally {
+      setIsLoggingOutDreamina(false);
+    }
+  }, [refreshDreaminaStatus]);
+
   const loadStorageInfo = useCallback(async () => {
     setIsLoadingStorageInfo(true);
     try {
@@ -696,9 +781,10 @@ export function SettingsDialog({
       return;
     }
 
+    void refreshDreaminaStatus({ silent: true });
     void loadStorageInfo();
     void loadDatabaseBackups();
-  }, [activeCategory, isOpen, loadDatabaseBackups, loadStorageInfo]);
+  }, [activeCategory, isOpen, loadDatabaseBackups, loadStorageInfo, refreshDreaminaStatus]);
 
   const handleChangeStoragePath = useCallback(async () => {
     if (isMigrating) return;
@@ -1055,6 +1141,48 @@ export function SettingsDialog({
     () => formatShortcutForDisplay(localGroupNodesShortcut),
     [localGroupNodesShortcut]
   );
+  const dreaminaStatusMeta = useMemo(() => {
+    if (isCheckingDreaminaStatus && !dreaminaStatus) {
+      return {
+        label: t('settings.dreaminaStatusChecking'),
+        className: 'border-border-dark bg-surface-dark text-text-muted',
+      };
+    }
+
+    switch (dreaminaStatus?.code) {
+      case 'ready':
+        return {
+          label: t('settings.dreaminaStatusReady'),
+          className: 'border-green-500/30 bg-green-500/10 text-green-400',
+        };
+      case 'loginRequired':
+        return {
+          label: t('settings.dreaminaStatusLoginRequired'),
+          className: 'border-amber-500/30 bg-amber-500/10 text-amber-300',
+        };
+      case 'cliMissing':
+        return {
+          label: t('settings.dreaminaStatusCliMissing'),
+          className: 'border-red-500/30 bg-red-500/10 text-red-300',
+        };
+      case 'gitBashMissing':
+        return {
+          label: t('settings.dreaminaStatusGitMissing'),
+          className: 'border-red-500/30 bg-red-500/10 text-red-300',
+        };
+      default:
+        return {
+          label: t('settings.dreaminaStatusUnknown'),
+          className: 'border-border-dark bg-surface-dark text-text-muted',
+        };
+    }
+  }, [dreaminaStatus, isCheckingDreaminaStatus, t]);
+  const dreaminaNoticeClassName =
+    dreaminaActionNotice?.tone === 'error'
+      ? 'border-red-500/30 bg-red-500/10 text-red-300'
+      : dreaminaActionNotice?.tone === 'success'
+        ? 'border-green-500/30 bg-green-500/10 text-green-400'
+        : 'border-accent/20 bg-accent/[0.08] text-text-muted';
 
   const formatReleaseDate = useCallback(
     (value: string) => {
@@ -2299,6 +2427,101 @@ export function SettingsDialog({
                 </div>
 
                 <div className="ui-scrollbar flex-1 space-y-4 overflow-y-auto p-6">
+                  <div className="rounded-lg border border-border-dark bg-bg-dark p-4">
+                    <div className="flex flex-wrap items-start justify-between gap-3">
+                      <div>
+                        <h3 className="text-sm font-medium text-text-dark">
+                          {t('settings.dreaminaSectionTitle')}
+                        </h3>
+                        <p className="mt-1 text-xs leading-5 text-text-muted">
+                          {t('settings.dreaminaSectionDesc')}
+                        </p>
+                      </div>
+                      <span
+                        className={`inline-flex items-center rounded-full border px-2.5 py-1 text-[11px] ${dreaminaStatusMeta.className}`}
+                      >
+                        {dreaminaStatusMeta.label}
+                      </span>
+                    </div>
+
+                    <div className="mt-3 rounded border border-border-dark bg-surface-dark p-3">
+                      <div className="text-[11px] uppercase tracking-wide text-text-muted">
+                        {t('settings.dreaminaStatusLabel')}
+                      </div>
+                      <div className="mt-1 flex items-start gap-2">
+                        {isCheckingDreaminaStatus && (
+                          <Loader2 className="mt-0.5 h-4 w-4 shrink-0 animate-spin text-text-muted" />
+                        )}
+                        <div className="min-w-0">
+                          <div className="text-sm text-text-dark">
+                            {dreaminaStatus?.message ?? t('settings.dreaminaStatusChecking')}
+                          </div>
+                          {dreaminaStatus?.detail && dreaminaStatus.code !== 'loginRequired' && (
+                            <div className="mt-1 whitespace-pre-wrap break-all font-mono text-[11px] leading-5 text-text-muted">
+                              {dreaminaStatus.detail}
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+
+                    {dreaminaActionNotice && (
+                      <div
+                        className={`mt-3 rounded border px-3 py-2 text-xs leading-5 ${dreaminaNoticeClassName}`}
+                      >
+                        {dreaminaActionNotice.message}
+                      </div>
+                    )}
+
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      <button
+                        type="button"
+                        disabled={isCheckingDreaminaStatus || isLoggingOutDreamina}
+                        onClick={() => {
+                          void refreshDreaminaStatus();
+                        }}
+                        className="inline-flex h-9 items-center justify-center rounded border border-border-dark bg-surface-dark px-3 text-xs text-text-dark transition-colors hover:bg-bg-dark disabled:cursor-not-allowed disabled:opacity-50"
+                      >
+                        {isCheckingDreaminaStatus ? (
+                          <>
+                            <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+                            {t('settings.dreaminaStatusChecking')}
+                          </>
+                        ) : (
+                          t('settings.dreaminaRefreshStatus')
+                        )}
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={handleOpenDreaminaSetup}
+                        className="inline-flex h-9 items-center justify-center rounded border border-border-dark bg-surface-dark px-3 text-xs text-text-dark transition-colors hover:bg-bg-dark"
+                      >
+                        {t('settings.dreaminaOpenSetup')}
+                      </button>
+
+                      {(isLoggingOutDreamina || dreaminaStatus?.code === 'ready') && (
+                        <button
+                          type="button"
+                          disabled={isCheckingDreaminaStatus || isLoggingOutDreamina}
+                          onClick={() => {
+                            void handleLogoutDreamina();
+                          }}
+                          className="inline-flex h-9 items-center justify-center rounded border border-red-500/30 bg-red-500/10 px-3 text-xs text-red-300 transition-colors hover:bg-red-500/15 disabled:cursor-not-allowed disabled:opacity-50"
+                        >
+                          {isLoggingOutDreamina ? (
+                            <>
+                              <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+                              {t('settings.dreaminaLoggingOut')}
+                            </>
+                          ) : (
+                            t('settings.dreaminaLogout')
+                          )}
+                        </button>
+                      )}
+                    </div>
+                  </div>
+
                   <SettingsCheckboxCard
                     checked={localStoryboardGenKeepStyleConsistent}
                     onCheckedChange={setLocalStoryboardGenKeepStyleConsistent}

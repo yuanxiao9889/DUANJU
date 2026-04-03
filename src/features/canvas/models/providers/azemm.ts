@@ -2,6 +2,6 @@ import type { ModelProviderDefinition } from '../types';
 
 export const provider: ModelProviderDefinition = {
   id: 'azemm',
-  name: 'Azemm',
-  label: 'Azemm',
+  name: '阿泽API',
+  label: '阿泽API',
 };

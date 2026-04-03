@@ -6,7 +6,7 @@ import {
 import { openSettingsDialog } from "@/features/settings/settingsEvents";
 import { useSettingsStore } from "@/stores/settingsStore";
 
-type PromptOptimizationMode = "image" | "video" | "jimeng";
+type PromptOptimizationMode = "image" | "video" | "jimeng" | "ttsVoice";
 
 interface OptimizePromptRequest {
   mode: PromptOptimizationMode;
@@ -304,6 +304,24 @@ function buildPromptOptimizationInstruction(
     "不要输出解释，不要输出分析，不要加标题，不要加引号，只输出最终优化后的提示词正文。",
     "",
     "原始提示词：",
+    prompt.trim(),
+  ].join("\n");
+}
+
+function buildTtsVoicePromptOptimizationInstruction(prompt: string): string {
+  return [
+    "You are optimizing a Chinese voice-design prompt for a TTS model.",
+    "Keep the original intent and any explicit identity traits intact.",
+    'Write the final result in polished Chinese as one compact, production-ready voice description, not as bullets or keyword piles.',
+    "Focus on voice qualities such as age impression, gender presentation if explicitly stated, timbre, softness or brightness, breathiness, resonance, articulation, emotional restraint or intensity, intimacy, speaking posture, and accent or dialect only when the source mentions them.",
+    "Make the description more vivid and usable for voice design, but do not over-expand it.",
+    "Do not invent plot, camera language, scene description, background music, sound effects, or unrelated world-building details.",
+    "Do not add technical generation parameters, pause control markup, or formatting symbols.",
+    "If the source is already clear, only polish it lightly.",
+    "Keep it concise and easy for a TTS voice-design model to follow, usually within 1 to 3 short clauses.",
+    "Output only the final optimized Chinese voice description.",
+    "",
+    "Source prompt:",
     prompt.trim(),
   ].join("\n");
 }
@@ -635,6 +653,8 @@ export async function optimizeCanvasPrompt(
             normalizedPrompt,
             referenceImages.length > 0,
           )
+        : request.mode === "ttsVoice"
+          ? buildTtsVoicePromptOptimizationInstruction(normalizedPrompt)
         : buildPromptOptimizationInstruction(
             request.mode,
             normalizedPrompt,

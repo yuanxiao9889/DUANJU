@@ -145,6 +145,7 @@ pub fn run() {
             dreamina_cli::check_dreamina_cli_status,
             dreamina_cli::install_dreamina_cli,
             dreamina_cli::open_dreamina_login_terminal,
+            dreamina_cli::logout_dreamina_cli,
             dreamina_cli::run_dreamina_guided_setup,
             dreamina_cli::generate_jimeng_dreamina_images,
             dreamina_cli::generate_jimeng_dreamina_videos,

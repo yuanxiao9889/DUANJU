@@ -7,7 +7,6 @@
   "runtime": "mock-qwen-tts",
   "features": {
     "nodes": [
-      "ttsTextNode",
       "ttsVoiceDesignNode"
     ],
     "settingsSections": [
