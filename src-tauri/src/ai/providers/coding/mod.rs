@@ -98,7 +98,10 @@ impl CodingProvider {
     }
 
     pub fn get_endpoint(&self, model: &str) -> String {
-        let default_endpoint = format!("{}/v1/chat/completions", self.base_url.trim_end_matches('/'));
+        let default_endpoint = format!(
+            "{}/v1/chat/completions",
+            self.base_url.trim_end_matches('/')
+        );
         if model.starts_with("qwen") || model.starts_with("glm") || model.starts_with("kimi") {
             // For Coding Plan, use the specific endpoint
             // Documentation: https://help.aliyun.com/zh/model-studio/coding-plan-quickstart

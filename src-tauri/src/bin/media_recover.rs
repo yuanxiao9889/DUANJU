@@ -240,12 +240,22 @@ fn inspect_node(
     }
 }
 
-fn inspect_db(db_path: &Path, images_dir: &Path, targets: &mut HashMap<String, RecoveryTarget>) -> Result<(), String> {
+fn inspect_db(
+    db_path: &Path,
+    images_dir: &Path,
+    targets: &mut HashMap<String, RecoveryTarget>,
+) -> Result<(), String> {
     let conn = Connection::open(db_path)
         .map_err(|error| format!("Failed to open db {}: {}", db_path.display(), error))?;
     let mut stmt = conn
         .prepare("SELECT id, nodes_json, history_json FROM projects")
-        .map_err(|error| format!("Failed to prepare project query for {}: {}", db_path.display(), error))?;
+        .map_err(|error| {
+            format!(
+                "Failed to prepare project query for {}: {}",
+                db_path.display(),
+                error
+            )
+        })?;
 
     let rows = stmt
         .query_map([], |row| {
@@ -255,11 +265,22 @@ fn inspect_db(db_path: &Path, images_dir: &Path, targets: &mut HashMap<String, R
                 row.get::<_, String>(2)?,
             ))
         })
-        .map_err(|error| format!("Failed to query projects for {}: {}", db_path.display(), error))?;
+        .map_err(|error| {
+            format!(
+                "Failed to query projects for {}: {}",
+                db_path.display(),
+                error
+            )
+        })?;
 
     for row in rows {
-        let (project_id, nodes_json, history_json) = row
-            .map_err(|error| format!("Failed to read project row for {}: {}", db_path.display(), error))?;
+        let (project_id, nodes_json, history_json) = row.map_err(|error| {
+            format!(
+                "Failed to read project row for {}: {}",
+                db_path.display(),
+                error
+            )
+        })?;
         let parsed_nodes = serde_json::from_str::<Value>(&nodes_json).ok();
         let parsed_history = serde_json::from_str::<Value>(&history_json).ok();
         let image_pool = extract_image_pool(parsed_nodes.as_ref(), parsed_history.as_ref());
@@ -336,8 +357,13 @@ fn collect_hash_candidates_from_dir(
         return Ok(());
     }
 
-    let entries = fs::read_dir(directory)
-        .map_err(|error| format!("Failed to read directory {}: {}", directory.display(), error))?;
+    let entries = fs::read_dir(directory).map_err(|error| {
+        format!(
+            "Failed to read directory {}: {}",
+            directory.display(),
+            error
+        )
+    })?;
 
     for entry in entries {
         let entry = entry.map_err(|error| {
@@ -361,11 +387,8 @@ fn collect_hash_candidates_from_dir(
             Err(_) => continue,
         };
         let digest = md5::compute(&bytes);
-        let candidate_target = images_dir.join(format!(
-            "{:x}.{}",
-            digest,
-            normalize_extension(extension)
-        ));
+        let candidate_target =
+            images_dir.join(format!("{:x}.{}", digest, normalize_extension(extension)));
         let Some(candidate_target_key) = normalize_path(&candidate_target.to_string_lossy()) else {
             continue;
         };
@@ -373,9 +396,7 @@ fn collect_hash_candidates_from_dir(
         let Some(target) = targets.get_mut(&candidate_target_key) else {
             continue;
         };
-        target
-            .candidates
-            .insert(path.to_string_lossy().to_string());
+        target.candidates.insert(path.to_string_lossy().to_string());
     }
 
     Ok(())
@@ -487,11 +508,7 @@ async fn main() -> Result<(), String> {
         for candidate in &candidate_list {
             match restore_from_candidate(&target_path, candidate).await {
                 Ok(true) => {
-                    println!(
-                        "RESTORED: {} <= {}",
-                        target_path.display(),
-                        candidate
-                    );
+                    println!("RESTORED: {} <= {}", target_path.display(), candidate);
                     restored += 1;
                     target_restored = true;
                     break;
@@ -512,7 +529,10 @@ async fn main() -> Result<(), String> {
         }
     }
 
-    println!("Recoverable targets with at least one candidate: {}", recoverable);
+    println!(
+        "Recoverable targets with at least one candidate: {}",
+        recoverable
+    );
     println!("Successfully restored targets: {}", restored);
     println!("Still missing targets: {}", unrecoverable.len());
 

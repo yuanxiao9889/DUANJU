@@ -1964,15 +1964,16 @@ export function Canvas() {
         y: basePosition.y + Math.floor((imageFiles.length + i) / 4) * NODE_OFFSET,
       };
 
-      try {
-        const videoData = await prepareNodeVideoFromFile(file);
-        addNode(CANVAS_NODE_TYPES.video, position, {
-          videoUrl: videoData.videoUrl,
-          videoFileName: file.name,
-          aspectRatio: videoData.aspectRatio,
-          duration: videoData.duration,
-        });
-      } catch (err) {
+        try {
+          const videoData = await prepareNodeVideoFromFile(file);
+          addNode(CANVAS_NODE_TYPES.video, position, {
+            videoUrl: videoData.videoUrl,
+            previewImageUrl: videoData.previewImageUrl,
+            videoFileName: file.name,
+            aspectRatio: videoData.aspectRatio,
+            duration: videoData.duration,
+          });
+        } catch (err) {
         console.error('Failed to process dropped video:', err);
       }
     }

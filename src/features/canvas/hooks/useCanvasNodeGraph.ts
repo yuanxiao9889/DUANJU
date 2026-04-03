@@ -379,12 +379,8 @@ function createConnectedReferenceVisualsSelector(nodeId: string) {
 
       for (const item of extractReferenceVisuals(sourceNode)) {
         const normalizedReferenceUrl = item.referenceUrl.trim();
-        const normalizedPreviewImageUrl = item.previewImageUrl.trim();
-        if (
-          !normalizedReferenceUrl
-          || !normalizedPreviewImageUrl
-          || seenReferenceUrls.has(normalizedReferenceUrl)
-        ) {
+        const normalizedPreviewImageUrl = item.previewImageUrl?.trim() ?? '';
+        if (!normalizedReferenceUrl || seenReferenceUrls.has(normalizedReferenceUrl)) {
           continue;
         }
 
@@ -394,7 +390,7 @@ function createConnectedReferenceVisualsSelector(nodeId: string) {
           sourceNodeId: sourceNode.id,
           kind: item.kind,
           referenceUrl: normalizedReferenceUrl,
-          previewImageUrl: normalizedPreviewImageUrl,
+          previewImageUrl: normalizedPreviewImageUrl || null,
           durationSeconds: item.durationSeconds ?? null,
         });
       }

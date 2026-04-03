@@ -127,8 +127,8 @@ interface IncomingReferenceVisualItem {
   sourceNodeId: string;
   kind: "image" | "video";
   referenceUrl: string;
-  previewImageUrl: string;
-  displayUrl: string;
+  previewImageUrl: string | null;
+  displayUrl: string | null;
   tokenLabel: string;
   label: string;
   durationSeconds: number | null;
@@ -146,7 +146,7 @@ interface ReferencePickerItem {
   tokenLabel: string;
   label: string;
   insertToken: string;
-  displayUrl?: string;
+  displayUrl?: string | null;
   previewKind?: "image" | "video";
   durationSeconds?: number | null;
 }
@@ -157,13 +157,76 @@ interface PickerAnchor {
 }
 
 interface PromptReferencePreviewState {
-  imageUrl: string;
-  displayUrl: string;
+  imageUrl: string | null;
+  displayUrl: string | null;
   alt: string;
   kind: "image" | "video";
   durationSeconds: number | null;
   left: number;
   top: number;
+}
+
+function ReferenceVisualThumbnail({
+  kind,
+  displayUrl,
+  label,
+  durationSeconds,
+  imageClassName,
+  placeholderClassName,
+  viewerImageList,
+  disableViewer = false,
+  showVideoBadge = true,
+}: {
+  kind: "image" | "video";
+  displayUrl: string | null;
+  label: string;
+  durationSeconds: number | null;
+  imageClassName: string;
+  placeholderClassName: string;
+  viewerImageList?: string[];
+  disableViewer?: boolean;
+  showVideoBadge?: boolean;
+}) {
+  if (displayUrl) {
+    return (
+      <>
+        <CanvasNodeImage
+          src={displayUrl}
+          alt={label}
+          viewerSourceUrl={displayUrl}
+          viewerImageList={viewerImageList}
+          className={imageClassName}
+          draggable={false}
+          disableViewer={disableViewer}
+        />
+        {kind === "video" && showVideoBadge ? (
+          <div className="pointer-events-none absolute inset-x-0 bottom-0 flex items-center justify-center rounded-b-md bg-black/60 px-1 py-0.5 text-[9px] font-medium text-white">
+            <span className="inline-flex items-center gap-1 truncate">
+              <Video className="h-2.5 w-2.5 shrink-0" />
+              {formatReferenceDuration(durationSeconds) ?? "VIDEO"}
+            </span>
+          </div>
+        ) : null}
+      </>
+    );
+  }
+
+  return (
+    <div className={placeholderClassName}>
+      {kind === "video" ? (
+        <>
+          <Video className="h-4 w-4" />
+          <span className="text-[9px] font-medium uppercase tracking-[0.12em]">
+            {formatReferenceDuration(durationSeconds) ?? "VIDEO"}
+          </span>
+        </>
+      ) : (
+        <span className="text-[10px] font-medium uppercase tracking-[0.12em]">
+          IMG
+        </span>
+      )}
+    </div>
+  );
 }
 
 interface DragReferencePreviewState {
@@ -204,6 +267,7 @@ const DEFAULT_VIDEO_RESOLUTION = "1080p";
 const PICKER_FALLBACK_ANCHOR: PickerAnchor = { left: 8, top: 8 };
 const PICKER_Y_OFFSET_PX = 20;
 const MAX_REFERENCE_VIDEO_DURATION_SECONDS = 15;
+const MAX_REFERENCE_VIDEO_COUNT = 3;
 const VIDEO_REFERENCE_TOKEN_PREFIX = "@视频";
 const VISUAL_REFERENCE_TOKEN_PREFIXES = [
   LONG_REFERENCE_TOKEN_PREFIX,
@@ -1092,7 +1156,9 @@ export const JimengNode = memo(
               kind: connectedItem.kind,
               referenceUrl,
               previewImageUrl: connectedItem.previewImageUrl,
-              displayUrl: resolveImageDisplayUrl(connectedItem.previewImageUrl),
+              displayUrl: connectedItem.previewImageUrl
+                ? resolveImageDisplayUrl(connectedItem.previewImageUrl)
+                : null,
               tokenLabel:
                 connectedItem.kind === "video"
                   ? buildVideoReferenceToken(index)
@@ -1110,7 +1176,10 @@ export const JimengNode = memo(
       [connectedReferenceVisualByUrl, orderedReferenceVisualUrls, t],
     );
     const incomingVisualDisplayList = useMemo(
-      () => incomingVisualItems.map((item) => item.displayUrl),
+      () =>
+        incomingVisualItems
+          .map((item) => item.displayUrl)
+          .filter((item): item is string => Boolean(item)),
       [incomingVisualItems],
     );
     const connectedAudioReferences = useCanvasConnectedAudioReferences(id);
@@ -1219,10 +1288,13 @@ export const JimengNode = memo(
         Number.isFinite(item.durationSeconds) &&
         item.durationSeconds >= MAX_REFERENCE_VIDEO_DURATION_SECONDS,
     );
+    const hasTooManyReferenceVideos =
+      referenceVideoSources.length > MAX_REFERENCE_VIDEO_COUNT;
     const isGenerateBlocked =
       (incomingVisualItems.length === 0 && incomingAudios.length > 0) ||
       isFirstLastFrameCountInvalid ||
-      hasReferenceVideoTooLong;
+      hasReferenceVideoTooLong ||
+      hasTooManyReferenceVideos;
 
     const modelOptions = useMemo(
       () =>
@@ -1607,7 +1679,7 @@ export const JimengNode = memo(
           prompt: currentPrompt,
           referenceImages: incomingVisualItems.map(
             (item) => item.previewImageUrl,
-          ),
+          ).filter((item): item is string => Boolean(item)),
         });
         if (promptValueRef.current !== sourcePrompt) {
           return;
@@ -1721,13 +1793,17 @@ export const JimengNode = memo(
       }
 
       if (isGenerateBlocked) {
-        const message = hasReferenceVideoTooLong
-          ? t("node.jimeng.referenceVideoTooLong", {
-              seconds: MAX_REFERENCE_VIDEO_DURATION_SECONDS,
+        const message = hasTooManyReferenceVideos
+          ? t("node.jimeng.referenceVideoTooMany", {
+              count: MAX_REFERENCE_VIDEO_COUNT,
             })
-          : isFirstLastFrameCountInvalid
-            ? t("node.jimeng.firstLastFrameRequiresTwoImages")
-            : t("node.jimeng.cliBlockedAudioNeedsImage");
+          : hasReferenceVideoTooLong
+            ? t("node.jimeng.referenceVideoTooLong", {
+                seconds: MAX_REFERENCE_VIDEO_DURATION_SECONDS,
+              })
+            : isFirstLastFrameCountInvalid
+              ? t("node.jimeng.firstLastFrameRequiresTwoImages")
+              : t("node.jimeng.cliBlockedAudioNeedsImage");
         updateNodeData(id, { lastError: message });
         await showErrorDialog(message, t("common.error"));
         return;
@@ -1885,6 +1961,7 @@ export const JimengNode = memo(
       data.prompt,
       findNodePosition,
       flushCurrentProjectToDiskSafely,
+      hasTooManyReferenceVideos,
       hasReferenceVideoTooLong,
       id,
       incomingAudios,
@@ -2105,6 +2182,12 @@ export const JimengNode = memo(
         });
       }
 
+      if (hasTooManyReferenceVideos) {
+        return t("node.jimeng.referenceVideoTooMany", {
+          count: MAX_REFERENCE_VIDEO_COUNT,
+        });
+      }
+
       if (isGenerateBlocked) {
         return t("node.jimeng.cliBlockedAudioNeedsImage");
       }
@@ -2194,6 +2277,7 @@ export const JimengNode = memo(
     }, [
       hasReferenceVideos,
       hasReferenceVideoTooLong,
+      hasTooManyReferenceVideos,
       incomingAudios.length,
       isFirstLastFrameCountInvalid,
       isGenerateBlocked,
@@ -2417,13 +2501,15 @@ export const JimengNode = memo(
                     top: `${promptReferencePreview.top}px`,
                   }}
                 >
-                  <CanvasNodeImage
-                    src={promptReferencePreview.displayUrl}
-                    alt={promptReferencePreview.alt}
-                    viewerSourceUrl={promptReferencePreview.displayUrl}
+                  <ReferenceVisualThumbnail
+                    kind={promptReferencePreview.kind}
+                    displayUrl={promptReferencePreview.displayUrl}
+                    label={promptReferencePreview.alt}
+                    durationSeconds={promptReferencePreview.durationSeconds}
+                    imageClassName="block max-h-[132px] max-w-[144px] rounded-xl object-contain"
+                    placeholderClassName="flex h-[132px] w-[144px] items-center justify-center rounded-xl border border-white/10 bg-black/70 text-text-dark"
                     viewerImageList={incomingVisualDisplayList}
-                    className="block max-h-[132px] max-w-[144px] rounded-xl object-contain"
-                    draggable={false}
+                    showVideoBadge={false}
                   />
                   {promptReferencePreview.kind === "video" ? (
                     <div className="absolute inset-x-0 bottom-0 flex items-center justify-between gap-2 bg-black/55 px-2 py-1 text-[10px] text-white">
@@ -2493,23 +2579,15 @@ export const JimengNode = memo(
                         <X className="h-3 w-3" strokeWidth={2.4} />
                       </button>
                       <div className="relative h-9 w-9 shrink-0">
-                        <CanvasNodeImage
-                          src={item.displayUrl}
-                          alt={item.label}
-                          viewerSourceUrl={item.displayUrl}
+                        <ReferenceVisualThumbnail
+                          kind={item.kind}
+                          displayUrl={item.displayUrl}
+                          label={item.label}
+                          durationSeconds={item.durationSeconds}
+                          imageClassName="h-9 w-9 rounded-md object-cover"
+                          placeholderClassName="flex h-9 w-9 items-center justify-center rounded-md border border-white/10 bg-white/[0.06] text-text-muted"
                           viewerImageList={incomingVisualDisplayList}
-                          className="h-9 w-9 rounded-md object-cover"
-                          draggable={false}
                         />
-                        {item.kind === "video" ? (
-                          <div className="pointer-events-none absolute inset-x-0 bottom-0 flex items-center justify-center rounded-b-md bg-black/60 px-1 py-0.5 text-[9px] font-medium text-white">
-                            <span className="inline-flex items-center gap-1 truncate">
-                              <Video className="h-2.5 w-2.5 shrink-0" />
-                              {formatReferenceDuration(item.durationSeconds) ??
-                                t("node.jimeng.referenceVideoBadge")}
-                            </span>
-                          </div>
-                        ) : null}
                       </div>
                       <div className="min-w-0">
                         <div className="truncate text-[11px] font-medium text-text-dark">
@@ -2607,27 +2685,19 @@ export const JimengNode = memo(
                       pickerActiveIndex === index
                         ? "border-accent/55 bg-white/[0.08] shadow-[0_0_0_1px_rgba(59,130,246,0.22)]"
                         : ""
-                    }`}
-                  >
-                    {item.kind === "visual" && item.displayUrl ? (
+                      }`}
+                    >
+                    {item.kind === "visual" ? (
                       <div className="relative h-8 w-8 shrink-0">
-                        <CanvasNodeImage
-                          src={item.displayUrl}
-                          alt={item.label}
-                          viewerSourceUrl={item.displayUrl}
+                        <ReferenceVisualThumbnail
+                          kind={item.previewKind ?? "image"}
+                          displayUrl={item.displayUrl ?? null}
+                          label={item.label}
+                          durationSeconds={item.durationSeconds ?? null}
+                          imageClassName="h-8 w-8 rounded object-cover"
+                          placeholderClassName="flex h-8 w-8 items-center justify-center rounded border border-white/10 bg-white/[0.06] text-text-muted"
                           viewerImageList={incomingVisualDisplayList}
-                          className="h-8 w-8 rounded object-cover"
-                          draggable={false}
                         />
-                        {item.previewKind === "video" ? (
-                          <div className="pointer-events-none absolute inset-x-0 bottom-0 flex items-center justify-center rounded-b bg-black/60 px-1 py-0.5 text-[8px] font-medium text-white">
-                            <span className="inline-flex items-center gap-0.5 truncate">
-                              <Video className="h-2.5 w-2.5 shrink-0" />
-                              {formatReferenceDuration(item.durationSeconds) ??
-                                t("node.jimeng.referenceVideoBadge")}
-                            </span>
-                          </div>
-                        ) : null}
                       </div>
                     ) : (
                       <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded bg-white/[0.06] text-text-muted">
@@ -2661,24 +2731,15 @@ export const JimengNode = memo(
           >
             <div className="relative flex select-none items-center gap-1.5 rounded-lg border border-accent/55 bg-black/72 px-1.5 py-1.5 opacity-85 shadow-[0_18px_40px_rgba(0,0,0,0.34),0_10px_26px_rgba(59,130,246,0.18)] backdrop-blur-sm">
               <div className="relative h-9 w-9 shrink-0">
-                <CanvasNodeImage
-                  src={draggedReferenceItem.displayUrl}
-                  alt={draggedReferenceItem.label}
-                  viewerSourceUrl={draggedReferenceItem.displayUrl}
+                <ReferenceVisualThumbnail
+                  kind={draggedReferenceItem.kind}
+                  displayUrl={draggedReferenceItem.displayUrl}
+                  label={draggedReferenceItem.label}
+                  durationSeconds={draggedReferenceItem.durationSeconds}
+                  imageClassName="h-9 w-9 rounded-md object-cover"
+                  placeholderClassName="flex h-9 w-9 items-center justify-center rounded-md border border-white/10 bg-white/[0.06] text-white/72"
                   viewerImageList={incomingVisualDisplayList}
-                  className="h-9 w-9 rounded-md object-cover"
-                  draggable={false}
                 />
-                {draggedReferenceItem.kind === "video" ? (
-                  <div className="absolute inset-x-0 bottom-0 flex items-center justify-center rounded-b-md bg-black/60 px-1 py-0.5 text-[9px] font-medium text-white">
-                    <span className="inline-flex items-center gap-1 truncate">
-                      <Video className="h-2.5 w-2.5 shrink-0" />
-                      {formatReferenceDuration(
-                        draggedReferenceItem.durationSeconds,
-                      ) ?? t("node.jimeng.referenceVideoBadge")}
-                    </span>
-                  </div>
-                ) : null}
               </div>
               <div className="min-w-0">
                 <div className="truncate text-[11px] font-medium text-white">

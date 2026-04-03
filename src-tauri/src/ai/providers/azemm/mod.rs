@@ -4,11 +4,12 @@ use serde_json::{json, Value};
 use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::sync::RwLock;
+use tracing::info;
 
 use crate::ai::error::AIError;
 use crate::ai::{AIProvider, GenerateRequest};
 
-const DEFAULT_BASE_URL: &str = "https://api.azemm.top";
+const DEFAULT_BASE_URL: &str = "http://45.152.65.57:3000";
 const CHAT_COMPLETIONS_ENDPOINT_PATH: &str = "/v1/chat/completions";
 
 const SUPPORTED_MODELS: [&str; 2] = [
@@ -57,11 +58,20 @@ impl AzemmProvider {
                 .unwrap_or(false)
     }
 
-    fn resolve_size(size: &str) -> Option<&'static str> {
+    fn resolve_chat_size(size: &str) -> Option<&'static str> {
         match size.trim().to_ascii_uppercase().as_str() {
             "1K" => Some("1k"),
             "2K" => Some("2k"),
             "4K" => Some("4k"),
+            _ => None,
+        }
+    }
+
+    fn resolve_gemini_image_size(size: &str) -> Option<&'static str> {
+        match size.trim().to_ascii_uppercase().as_str() {
+            "1K" => Some("1K"),
+            "2K" => Some("2K"),
+            "4K" => Some("4K"),
             _ => None,
         }
     }
@@ -85,6 +95,34 @@ impl AzemmProvider {
             .filter(|line| !line.is_empty())
             .collect::<Vec<String>>()
             .join("\n\n")
+    }
+
+    fn build_generate_content_prompt(
+        request: &GenerateRequest,
+        include_preferences: bool,
+    ) -> String {
+        if include_preferences {
+            return Self::build_prompt_text(request);
+        }
+
+        request.prompt.trim().to_string()
+    }
+
+    fn resolve_gemini_endpoint(&self, request_model: &str) -> String {
+        let trimmed = self.base_url.trim().trim_end_matches('/');
+        if trimmed.ends_with(":generateContent") {
+            return trimmed.to_string();
+        }
+        if trimmed.contains("/models/") {
+            return format!("{}:generateContent", trimmed);
+        }
+        if trimmed.ends_with("/v1") || trimmed.ends_with("/v1beta") {
+            return format!("{}/models/{}:generateContent", trimmed, request_model);
+        }
+        format!(
+            "{}/v1beta/models/{}:generateContent",
+            trimmed, request_model
+        )
     }
 
     fn decode_file_url_path(value: &str) -> String {
@@ -385,6 +423,38 @@ impl AzemmProvider {
             }
         }
 
+        if let Some(parts) = payload
+            .pointer("/candidates/0/content/parts")
+            .and_then(Value::as_array)
+        {
+            for part in parts {
+                if let Some(uri) = part
+                    .pointer("/fileData/fileUri")
+                    .or_else(|| part.pointer("/file_data/file_uri"))
+                    .and_then(Value::as_str)
+                    .map(str::trim)
+                    .filter(|value| !value.is_empty())
+                {
+                    return Some(uri.to_string());
+                }
+
+                if let Some(data) = part
+                    .pointer("/inlineData/data")
+                    .or_else(|| part.pointer("/inline_data/data"))
+                    .and_then(Value::as_str)
+                    .map(str::trim)
+                    .filter(|value| !value.is_empty())
+                {
+                    let mime_type = part
+                        .pointer("/inlineData/mimeType")
+                        .or_else(|| part.pointer("/inline_data/mime_type"))
+                        .and_then(Value::as_str)
+                        .unwrap_or("image/png");
+                    return Some(format!("data:{};base64,{}", mime_type, data));
+                }
+            }
+        }
+
         None
     }
 
@@ -418,6 +488,26 @@ impl AzemmProvider {
             }
         }
 
+        if let Some(parts) = payload
+            .pointer("/candidates/0/content/parts")
+            .and_then(Value::as_array)
+        {
+            let text_parts = parts
+                .iter()
+                .filter_map(|part| {
+                    part.pointer("/text")
+                        .and_then(Value::as_str)
+                        .map(str::trim)
+                        .filter(|value| !value.is_empty())
+                        .map(ToString::to_string)
+                })
+                .collect::<Vec<String>>();
+
+            if !text_parts.is_empty() {
+                return Some(text_parts.join("\n"));
+            }
+        }
+
         [
             "/choices/0/text",
             "/output_text",
@@ -434,6 +524,123 @@ impl AzemmProvider {
                 .map(str::trim)
                 .filter(|value| !value.is_empty())
                 .map(ToString::to_string)
+        })
+    }
+
+    fn is_unexpected_end_json_error(message: &str) -> bool {
+        message
+            .trim()
+            .to_ascii_lowercase()
+            .contains("unexpected end of json input")
+    }
+
+    fn should_retry_generate_content_payload(payload: &Value) -> bool {
+        Self::extract_error_message(payload)
+            .map(|message| Self::is_unexpected_end_json_error(&message))
+            .unwrap_or(false)
+    }
+
+    async fn build_generate_content_body(
+        &self,
+        request: &GenerateRequest,
+        include_aspect_ratio: bool,
+        include_prompt_preferences: bool,
+    ) -> Result<Value, AIError> {
+        let mut parts = vec![json!({
+            "text": Self::build_generate_content_prompt(request, include_prompt_preferences),
+        })];
+
+        if let Some(reference_images) = request.reference_images.as_ref() {
+            for source in reference_images {
+                let bytes = Self::source_to_bytes(source).await?;
+                let extension = Self::file_extension_from_source(source);
+                let mime_type = Self::mime_type_from_extension(extension);
+                parts.push(json!({
+                    "inlineData": {
+                        "mimeType": mime_type,
+                        "data": STANDARD.encode(bytes),
+                    }
+                }));
+            }
+        }
+
+        let mut image_config = json!({});
+        if include_aspect_ratio && !request.aspect_ratio.trim().is_empty() {
+            image_config["aspectRatio"] = Value::String(request.aspect_ratio.clone());
+        }
+        if let Some(image_size) = Self::resolve_gemini_image_size(&request.size) {
+            image_config["imageSize"] = Value::String(image_size.to_string());
+        }
+
+        Ok(json!({
+            "contents": [{
+                "role": "user",
+                "parts": parts,
+            }],
+            "generationConfig": {
+                "responseModalities": ["IMAGE"],
+                "imageConfig": image_config,
+            }
+        }))
+    }
+
+    async fn send_json_request(
+        &self,
+        endpoint: &str,
+        api_key: &str,
+        body: Value,
+        request_kind: &str,
+    ) -> Result<Value, AIError> {
+        let request_body = serde_json::to_vec(&body).map_err(|error| {
+            AIError::Provider(format!(
+                "Failed to serialize Azemm {} request body: {}",
+                request_kind, error
+            ))
+        })?;
+
+        info!(
+            "[Azemm] {} request body bytes: {}",
+            request_kind,
+            request_body.len()
+        );
+
+        let response = self
+            .client
+            .post(endpoint)
+            .header("Accept", "application/json")
+            .header("Authorization", format!("Bearer {}", api_key))
+            .header("X-API-Key", api_key)
+            .header("X-Banana-Client", "storyboard-copilot")
+            .header("Content-Type", "application/json; charset=utf-8")
+            .body(request_body)
+            .send()
+            .await?;
+
+        let status = response.status();
+        let response_text = response.text().await?;
+        info!("[Azemm] {} -> {}", endpoint, status);
+        info!("[Azemm] {} response: {}", request_kind, response_text);
+
+        let payload = serde_json::from_str::<Value>(&response_text);
+
+        if !status.is_success() {
+            if let Ok(payload) = &payload {
+                if let Some(message) = Self::extract_error_message(payload) {
+                    return Err(AIError::Provider(message));
+                }
+            }
+
+            return Err(AIError::Provider(format!(
+                "Azemm {} request failed {}: {}",
+                request_kind, status, response_text
+            )));
+        }
+
+        payload.map_err(|error| {
+            AIError::Provider(format!(
+                "Failed to parse Azemm {} response: {}. Response was: {}",
+                request_kind, error, response_text
+            ))
         })
     }
 
@@ -469,38 +676,84 @@ impl AzemmProvider {
 
         if image_intent {
             body["modalities"] = json!(["text", "image"]);
-            if let Some(size) = Self::resolve_size(&request.size) {
+            if let Some(size) = Self::resolve_chat_size(&request.size) {
                 body["size"] = Value::String(size.to_string());
             }
         }
 
-        let response = self
-            .client
-            .post(&endpoint)
-            .header("Authorization", format!("Bearer {}", api_key))
-            .header("Content-Type", "application/json")
-            .json(&body)
-            .send()
+        info!(
+            "[Azemm] chat request model: {}, size: {}, aspect_ratio: {}, refs: {}",
+            Self::sanitize_model(&request.model),
+            request.size,
+            request.aspect_ratio,
+            request
+                .reference_images
+                .as_ref()
+                .map(|images| images.len())
+                .unwrap_or(0)
+        );
+
+        self.send_json_request(&endpoint, &api_key, body, "chat")
+            .await
+    }
+
+    async fn request_generate_content(&self, request: &GenerateRequest) -> Result<Value, AIError> {
+        let request_model = Self::sanitize_model(&request.model);
+        let endpoint = self.resolve_gemini_endpoint(&request_model);
+        let api_key = self.get_api_key().await?;
+        let body = self
+            .build_generate_content_body(request, true, true)
             .await?;
 
-        let status = response.status();
-        let response_text = response.text().await?;
-        let payload = serde_json::from_str::<Value>(&response_text).map_err(|error| {
-            AIError::Provider(format!(
-                "Failed to parse Azemm chat response: {}. Response was: {}",
-                error, response_text
-            ))
-        })?;
+        info!(
+            "[Azemm] generateContent model: {}, endpoint: {}, size: {}, aspect_ratio: {}, refs: {}",
+            request_model,
+            endpoint,
+            request.size,
+            request.aspect_ratio,
+            request
+                .reference_images
+                .as_ref()
+                .map(|images| images.len())
+                .unwrap_or(0)
+        );
 
-        if !status.is_success() {
-            return Err(AIError::Provider(
-                Self::extract_error_message(&payload).unwrap_or_else(|| {
-                    format!("Azemm chat request failed {}: {}", status, response_text)
-                }),
-            ));
+        match self
+            .send_json_request(&endpoint, &api_key, body, "generateContent")
+            .await
+        {
+            Ok(payload) if Self::should_retry_generate_content_payload(&payload) => {
+                info!(
+                    "[Azemm] generateContent returned unexpected-end JSON error, retrying with minimal optional fields"
+                );
+                let fallback_body = self
+                    .build_generate_content_body(request, false, false)
+                    .await?;
+                self.send_json_request(
+                    &endpoint,
+                    &api_key,
+                    fallback_body,
+                    "generateContent-fallback",
+                )
+                .await
+            }
+            Err(AIError::Provider(message)) if Self::is_unexpected_end_json_error(&message) => {
+                info!(
+                    "[Azemm] generateContent provider error matched unexpected-end JSON error, retrying with minimal optional fields"
+                );
+                let fallback_body = self
+                    .build_generate_content_body(request, false, false)
+                    .await?;
+                self.send_json_request(
+                    &endpoint,
+                    &api_key,
+                    fallback_body,
+                    "generateContent-fallback",
+                )
+                .await
+            }
+            other => other,
         }
-
-        Ok(payload)
     }
 }
 
@@ -538,8 +791,12 @@ impl AIProvider for AzemmProvider {
     }
 
     async fn generate(&self, request: GenerateRequest) -> Result<String, AIError> {
-        let payload = self.request_chat_completion(&request).await?;
         let image_intent = Self::has_image_intent(&request);
+        let payload = if image_intent {
+            self.request_generate_content(&request).await?
+        } else {
+            self.request_chat_completion(&request).await?
+        };
 
         if let Some(error_message) = Self::extract_error_message(&payload) {
             return Err(AIError::Provider(error_message));

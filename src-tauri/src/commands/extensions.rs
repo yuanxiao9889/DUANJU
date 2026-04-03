@@ -83,10 +83,7 @@ fn resolve_extension_folder(folder_path: &str) -> Result<PathBuf, String> {
     }
 
     if !folder.is_dir() {
-        return Err(format!(
-            "Extension path is not a folder: {}",
-            trimmed_path
-        ));
+        return Err(format!("Extension path is not a folder: {}", trimmed_path));
     }
 
     Ok(folder)
@@ -102,15 +99,14 @@ fn read_manifest_from_folder(folder: &Path) -> Result<ExtensionPackageManifest, 
         )
     })?;
 
-    let manifest: ExtensionPackageManifest = serde_json::from_str(&manifest_text).map_err(
-        |error| {
+    let manifest: ExtensionPackageManifest =
+        serde_json::from_str(&manifest_text).map_err(|error| {
             format!(
                 "Failed to parse extension manifest at {}: {}",
                 manifest_path.display(),
                 error
             )
-        },
-    )?;
+        })?;
 
     if manifest.id.trim().is_empty() {
         return Err("Extension manifest is missing a valid id.".to_string());
@@ -339,12 +335,7 @@ pub async fn run_extension_command(
     let stdout = String::from_utf8_lossy(&output.stdout).to_string();
     let stderr = String::from_utf8_lossy(&output.stderr).to_string();
 
-    parse_extension_response(
-        &trimmed_command,
-        output.status.success(),
-        &stdout,
-        &stderr,
-    )
+    parse_extension_response(&trimmed_command, output.status.success(), &stdout, &stderr)
 }
 
 #[cfg(test)]

@@ -263,6 +263,7 @@
       "submitting": "生成中",
       "submitFailed": "即梦视频生成失败",
       "referenceVideoTooLong": "视频参考必须小于 {{seconds}} 秒，请裁剪后再连接。",
+      "referenceVideoTooMany": "当前最多只能连接 {{count}} 个视频参考。",
       "durationSuggestionLabel": "建议时长：{{seconds}} 秒",
       "durationSuggestionOverflow": "建议时长：{{seconds}} 秒，当前内容预计约 {{estimated}} 秒，可能超过 15 秒限制。",
       "resultReturnedAt": "{{time}} 已回传到视频结果节点",
@@ -291,7 +292,7 @@
         "frames2video": "CLI：{{command}} | 只使用首尾两张图 | 生效模型 {{model}} | 时长 {{duration}} | 分辨率 {{resolution}}",
         "multiframeTwo": "CLI：{{command}} | 2 张参考图 | 时长 2-8 秒 | 模型 / 比例 / 分辨率由 CLI 固定",
         "multiframeMany": "CLI：{{command}} | {{count}} 张参考图 | 转场时长自动分配 | 模型 / 比例 / 分辨率由 CLI 固定",
-        "multimodal2video": "CLI：{{command}} | 生效模型 {{model}} | 时长 4-15 秒 | 分辨率 720p"
+        "multimodal2video": "CLI：{{command}} | 生效模型 {{model}} | 时长 4-15 秒 | 分辨率 720p | 输入上限：图<=9 / 视频<=3 / 音频<=3"
       },
       "parameters": {
         "model": "模型",

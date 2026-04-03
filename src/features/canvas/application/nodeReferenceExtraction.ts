@@ -14,7 +14,7 @@ import {
 export interface ExtractedReferenceVisual {
   kind: 'image' | 'video';
   referenceUrl: string;
-  previewImageUrl: string;
+  previewImageUrl?: string | null;
   durationSeconds?: number | null;
 }
 
@@ -95,8 +95,15 @@ export function extractReferenceVisuals(node: CanvasNode): ExtractedReferenceVis
 
   if (isVideoNode(node) || isJimengVideoResultNode(node)) {
     const referenceUrl = node.data.videoUrl?.trim() ?? '';
-    const previewImageUrl = node.data.previewImageUrl?.trim() ?? '';
-    if (!referenceUrl || !previewImageUrl) {
+    const posterSourceUrl =
+      typeof node.data.posterSourceUrl === 'string'
+        ? node.data.posterSourceUrl.trim()
+        : '';
+    const previewImageUrl =
+      node.data.previewImageUrl?.trim()
+      ?? posterSourceUrl
+      ?? '';
+    if (!referenceUrl) {
       return [];
     }
 
@@ -104,7 +111,7 @@ export function extractReferenceVisuals(node: CanvasNode): ExtractedReferenceVis
       {
         kind: 'video',
         referenceUrl,
-        previewImageUrl,
+        previewImageUrl: previewImageUrl || null,
         durationSeconds: typeof node.data.duration === 'number' ? node.data.duration : null,
       },
     ];

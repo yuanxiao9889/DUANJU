@@ -153,11 +153,22 @@ async function main() {
   ensureDirectory(dreaminaBinDir);
   ensureDirectory(tempDir);
 
+  const existingManifest = readJsonFile(manifestPath);
+  const hasPreparedDreaminaCli = fs.existsSync(binaryPath) && fs.existsSync(skillPath);
+
+  if (hasPreparedDreaminaCli) {
+    console.log(
+      `Dreamina CLI is already prepared locally${
+        existingManifest?.binaryName ? `: ${existingManifest.binaryName}` : "."
+      }`,
+    );
+    return;
+  }
+
   console.log("Resolving official Dreamina CLI installer metadata...");
   const installerScript = await fetchText(DREAMINA_INSTALLER_URL);
   const artifactInfo = resolveDreaminaArtifactInfo(installerScript);
 
-  const existingManifest = readJsonFile(manifestPath);
   const alreadyPrepared =
     existingManifest?.binaryUrl === artifactInfo.binaryUrl &&
     existingManifest?.skillUrl === artifactInfo.skillUrl &&

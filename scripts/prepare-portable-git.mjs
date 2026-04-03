@@ -159,6 +159,20 @@ async function main() {
   ensureDirectory(portableGitDir);
   ensureDirectory(tempDir);
 
+  const existingManifest = readJsonFile(manifestPath);
+  const hasPreparedPortableGit =
+    fs.existsSync(bashPath) &&
+    fs.existsSync(path.join(portableGitDir, "bin", "git.exe"));
+
+  if (hasPreparedPortableGit) {
+    console.log(
+      `Portable Git is already prepared locally${
+        existingManifest?.assetName ? `: ${existingManifest.assetName}` : "."
+      }`,
+    );
+    return;
+  }
+
   console.log("Resolving latest official Portable Git release...");
   const release = await fetchJson(GIT_FOR_WINDOWS_LATEST_RELEASE_API);
   const asset = Array.isArray(release.assets)
@@ -169,7 +183,6 @@ async function main() {
     fail("Could not find the official PortableGit 64-bit asset in the latest Git for Windows release.");
   }
 
-  const existingManifest = readJsonFile(manifestPath);
   const alreadyPrepared =
     existingManifest?.assetName === asset.name && fs.existsSync(bashPath);
 

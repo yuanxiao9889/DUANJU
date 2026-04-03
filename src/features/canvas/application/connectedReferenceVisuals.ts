@@ -9,7 +9,7 @@ export interface ConnectedReferenceVisual {
   sourceNodeId: string;
   kind: "image" | "video";
   referenceUrl: string;
-  previewImageUrl: string;
+  previewImageUrl?: string | null;
   durationSeconds?: number | null;
 }
 
@@ -34,12 +34,8 @@ export function collectConnectedReferenceVisuals(
 
     for (const item of extractReferenceVisuals(sourceNode)) {
       const normalizedReferenceUrl = item.referenceUrl.trim();
-      const normalizedPreviewImageUrl = item.previewImageUrl.trim();
-      if (
-        !normalizedReferenceUrl ||
-        !normalizedPreviewImageUrl ||
-        seenReferenceUrls.has(normalizedReferenceUrl)
-      ) {
+      const normalizedPreviewImageUrl = item.previewImageUrl?.trim() ?? "";
+      if (!normalizedReferenceUrl || seenReferenceUrls.has(normalizedReferenceUrl)) {
         continue;
       }
 
@@ -49,7 +45,7 @@ export function collectConnectedReferenceVisuals(
         sourceNodeId: sourceNode.id,
         kind: item.kind,
         referenceUrl: normalizedReferenceUrl,
-        previewImageUrl: normalizedPreviewImageUrl,
+        previewImageUrl: normalizedPreviewImageUrl || null,
         durationSeconds: item.durationSeconds ?? null,
       });
     }

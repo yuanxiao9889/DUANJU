@@ -392,9 +392,9 @@ fn bundled_dreamina_cli_bin_dir<R: Runtime>(app: &AppHandle<R>) -> Option<PathBu
         );
     }
 
-    candidates.into_iter().find(|candidate| {
-        candidate.is_dir() && candidate.join(DREAMINA_BUNDLED_BIN_NAME).is_file()
-    })
+    candidates
+        .into_iter()
+        .find(|candidate| candidate.is_dir() && candidate.join(DREAMINA_BUNDLED_BIN_NAME).is_file())
 }
 
 fn bundled_git_runtime<R: Runtime>(app: &AppHandle<R>) -> Option<GitBashRuntime> {
@@ -626,8 +626,14 @@ async fn run_git_bash_script(
             .current_dir(workspace)
             .env("USERPROFILE", &command_env.user_profile)
             .env("HOME", &command_env.user_profile)
-            .env("HOMEDRIVE", home_drive_from_windows_path(&command_env.user_profile))
-            .env("HOMEPATH", home_path_from_windows_path(&command_env.user_profile))
+            .env(
+                "HOMEDRIVE",
+                home_drive_from_windows_path(&command_env.user_profile),
+            )
+            .env(
+                "HOMEPATH",
+                home_path_from_windows_path(&command_env.user_profile),
+            )
             .env("APPDATA", &command_env.app_data_dir)
             .env("LOCALAPPDATA", &command_env.local_app_data_dir)
             .env("TEMP", &command_env.temp_dir)
@@ -725,7 +731,11 @@ fn dreamina_login_log_tail(workspace: &Path, line_count: usize) -> Option<String
     let log_path = dreamina_login_log_path(workspace);
     let log_text = read_text_file_lossy(&log_path)?;
     let tail = tail_lines(&log_text, line_count);
-    if tail.is_empty() { None } else { Some(tail) }
+    if tail.is_empty() {
+        None
+    } else {
+        Some(tail)
+    }
 }
 
 fn dreamina_login_wait_detail(workspace: &Path) -> Option<String> {
@@ -737,9 +747,7 @@ fn dreamina_login_wait_detail(workspace: &Path) -> Option<String> {
     }
 
     dreamina_login_log_tail(workspace, 6).map(|tail| {
-        format!(
-            "Dreamina is still preparing the login QR code. Latest login output:\n{tail}"
-        )
+        format!("Dreamina is still preparing the login QR code. Latest login output:\n{tail}")
     })
 }
 
@@ -761,9 +769,7 @@ fn powershell_quote(value: &str) -> String {
     format!("'{}'", value.replace('\'', "''"))
 }
 
-async fn terminate_conflicting_dreamina_processes(
-    runtime: &GitBashRuntime,
-) -> Result<(), String> {
+async fn terminate_conflicting_dreamina_processes(runtime: &GitBashRuntime) -> Result<(), String> {
     if !cfg!(target_os = "windows") {
         return Ok(());
     }
@@ -1040,6 +1046,12 @@ fn select_video_command(
     reference_mode: Option<&str>,
 ) -> Result<VideoCommand, String> {
     if video_count > 0 {
+        if video_count > 3 {
+            return Err(
+                "Dreamina multimodal2video currently supports at most 3 reference videos."
+                    .to_string(),
+            );
+        }
         return Ok(VideoCommand::Multimodal2Video);
     }
 
@@ -1899,8 +1911,10 @@ pub async fn run_dreamina_guided_setup(
             DreaminaSetupProgressStage::WaitingForLogin,
             78,
             Some(runtime.source),
-            Some("Scan the QR code below with Douyin, then confirm the login on your phone."
-                .to_string()),
+            Some(
+                "Scan the QR code below with Douyin, then confirm the login on your phone."
+                    .to_string(),
+            ),
             dreamina_login_qr_data_url(&workspace),
         );
         let (next_status, timed_out) = wait_for_dreamina_login(&app, &workspace, &runtime).await;

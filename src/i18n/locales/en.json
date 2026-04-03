@@ -276,6 +276,7 @@
       "submitting": "Generating",
       "submitFailed": "Jimeng video generation failed",
       "referenceVideoTooLong": "Video references must be shorter than {{seconds}} seconds. Please trim the clip before connecting it.",
+      "referenceVideoTooMany": "You can connect at most {{count}} video references right now.",
       "durationSuggestionIdle": "Suggested duration will appear after prompt optimization",
       "durationSuggestionLoading": "LLM is estimating a suitable duration...",
       "durationSuggestionLabel": "Suggested duration: {{seconds}}s",
@@ -378,7 +379,7 @@
         "frames2video": "CLI: {{command}} | Uses only the first and last image | Effective model {{model}} | Duration {{duration}} | Resolution {{resolution}}",
         "multiframeTwo": "CLI: {{command}} | 2 reference images | Duration 2-8s | Model / ratio / resolution are fixed by the CLI",
         "multiframeMany": "CLI: {{command}} | {{count}} reference images | Transition durations are auto-distributed | Model / ratio / resolution are fixed by the CLI",
-        "multimodal2video": "CLI: {{command}} | Effective model {{model}} | Duration 4-15s | Resolution 720p"
+        "multimodal2video": "CLI: {{command}} | Effective model {{model}} | Duration 4-15s | Resolution 720p | Input limits: image<=9 / video<=3 / audio<=3"
       },
       "parameterHint": "This node now uses fixed Dreamina CLI parameters and creates a video result node after generation.",
       "parameters": {

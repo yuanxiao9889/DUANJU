@@ -104,6 +104,7 @@ export const VideoNode = memo(({ id, data, selected, width, height }: VideoNodeP
   const videoRef = useRef<HTMLVideoElement>(null);
   const screenshotCountRef = useRef(0);
   const screenshotStatusTimeoutRef = useRef<number | null>(null);
+  const posterBackfillAttemptRef = useRef<string | null>(null);
   
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
@@ -512,6 +513,7 @@ export const VideoNode = memo(({ id, data, selected, width, height }: VideoNodeP
 
   useEffect(() => {
     if (!data.videoUrl) {
+      posterBackfillAttemptRef.current = null;
       setVideoError(null);
       setIsVideoReady(false);
       setCurrentTime(0);
@@ -521,6 +523,91 @@ export const VideoNode = memo(({ id, data, selected, width, height }: VideoNodeP
     setVideoError(null);
     setIsVideoReady(false);
   }, [data.videoUrl]);
+
+  useEffect(() => {
+    const normalizedVideoUrl =
+      typeof data.videoUrl === 'string' ? data.videoUrl.trim() : '';
+    const normalizedPreviewImageUrl =
+      typeof data.previewImageUrl === 'string' ? data.previewImageUrl.trim() : '';
+
+    if (!normalizedVideoUrl) {
+      posterBackfillAttemptRef.current = null;
+      return;
+    }
+
+    if (normalizedPreviewImageUrl) {
+      posterBackfillAttemptRef.current = normalizedVideoUrl;
+      return;
+    }
+
+    const captureSource = videoRef.current?.currentSrc || videoSource || '';
+    if (!captureSource || posterBackfillAttemptRef.current === normalizedVideoUrl) {
+      return;
+    }
+
+    posterBackfillAttemptRef.current = normalizedVideoUrl;
+    let cancelled = false;
+
+    void (async () => {
+      try {
+        const captureTime =
+          typeof data.duration === 'number' &&
+          Number.isFinite(data.duration) &&
+          data.duration > 0.18
+            ? Math.min(0.12, Math.max(data.duration / 10, 0.04))
+            : 0;
+
+        let posterDataUrl: string;
+        const videoElement = videoRef.current;
+        if (
+          videoElement &&
+          videoElement.readyState >= 2 &&
+          videoElement.videoWidth > 0 &&
+          videoElement.videoHeight > 0
+        ) {
+          try {
+            posterDataUrl = captureVideoFrame(videoElement, 960);
+          } catch {
+            posterDataUrl = await captureVideoFrameFromSource(
+              captureSource,
+              captureTime,
+              960
+            );
+          }
+        } else {
+          posterDataUrl = await captureVideoFrameFromSource(
+            captureSource,
+            captureTime,
+            960
+          );
+        }
+
+        const preparedPoster = await prepareNodeImage(posterDataUrl, 640);
+        const nextPreviewImageUrl =
+          preparedPoster.previewImageUrl ?? preparedPoster.imageUrl;
+        if (!cancelled && nextPreviewImageUrl) {
+          updateNodeData(id, { previewImageUrl: nextPreviewImageUrl });
+        }
+      } catch (error) {
+        console.warn('[videoNode] failed to backfill preview image', {
+          error,
+          id,
+          videoUrl: normalizedVideoUrl,
+        });
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    data.duration,
+    data.previewImageUrl,
+    data.videoUrl,
+    id,
+    updateNodeData,
+    videoSource,
+  ]);
 
   const screenshotButtonDisabled =
     isProcessingFile || isCapturingScreenshot || Boolean(videoError) || !data.videoUrl || !isVideoReady;

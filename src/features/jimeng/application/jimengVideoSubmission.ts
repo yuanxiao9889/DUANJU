@@ -41,6 +41,7 @@ const LEGACY_VIDEO_MODEL_MAP: Record<string, JimengVideoModelId> = {
 
 const VIDEO_RESULT_POLL_INTERVAL_MS = 2_500;
 const VIDEO_RESULT_TIMEOUT_MS = 10 * 60 * 1000;
+const DREAMINA_MULTIMODAL_MAX_REFERENCE_VIDEOS = 3;
 
 function sleep(delayMs: number): Promise<void> {
   return new Promise((resolve) => {
@@ -253,6 +254,11 @@ export async function generateJimengVideos(
   );
 
   const hasReferenceVideos = referenceVideos.length > 0;
+  if (referenceVideos.length > DREAMINA_MULTIMODAL_MAX_REFERENCE_VIDEOS) {
+    throw new Error(
+      `Dreamina CLI currently supports at most ${DREAMINA_MULTIMODAL_MAX_REFERENCE_VIDEOS} reference videos in multimodal2video.`,
+    );
+  }
   const requiredReferenceImageCount = hasReferenceVideos
     ? null
     : resolveJimengVideoRequiredReferenceImageCount(normalizedReferenceMode);
