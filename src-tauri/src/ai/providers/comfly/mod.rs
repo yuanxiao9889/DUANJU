@@ -51,8 +51,6 @@ struct TaskStatusResponse {
 struct TaskStatusData {
     status: String,
     #[serde(default)]
-    progress: Option<String>,
-    #[serde(default)]
     data: Option<TaskResultData>,
     #[serde(default)]
     fail_reason: Option<String>,

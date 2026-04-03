@@ -18,6 +18,7 @@ interface ExtensionsState {
   loadExtensionPackage: (folderPath: string) => Promise<LoadedExtensionPackage>;
   enableExtension: (extensionId: string) => Promise<void>;
   disableExtension: (extensionId: string) => void;
+  removeExtensionPackage: (extensionId: string) => void;
 }
 
 const DEFAULT_EXTENSION_RUNTIME_STATE: ExtensionRuntimeState = {
@@ -189,6 +190,28 @@ export const useExtensionsStore = create<ExtensionsState>()(
             },
           },
         }));
+      },
+
+      removeExtensionPackage: (extensionId) => {
+        set((state) => {
+          if (!state.packages[extensionId]) {
+            return {};
+          }
+
+          const nextPackages = { ...state.packages };
+          delete nextPackages[extensionId];
+
+          const nextRuntimeById = { ...state.runtimeById };
+          delete nextRuntimeById[extensionId];
+
+          return {
+            packages: nextPackages,
+            enabledExtensionIds: state.enabledExtensionIds.filter(
+              (id) => id !== extensionId
+            ),
+            runtimeById: nextRuntimeById,
+          };
+        });
       },
     }),
     {

@@ -17,6 +17,7 @@ export const CANVAS_NODE_TYPES = {
   audio: 'audioNode',
   ttsText: 'ttsTextNode',
   ttsVoiceDesign: 'ttsVoiceDesignNode',
+  ttsSavedVoice: 'ttsSavedVoiceNode',
   scriptRoot: 'scriptRootNode',
   scriptChapter: 'scriptChapterNode',
   scriptCharacter: 'scriptCharacterNode',
@@ -51,6 +52,8 @@ export const TTS_TEXT_NODE_DEFAULT_WIDTH = 320;
 export const TTS_TEXT_NODE_DEFAULT_HEIGHT = 180;
 export const TTS_VOICE_DESIGN_NODE_DEFAULT_WIDTH = 360;
 export const TTS_VOICE_DESIGN_NODE_DEFAULT_HEIGHT = 300;
+export const TTS_SAVED_VOICE_NODE_DEFAULT_WIDTH = 360;
+export const TTS_SAVED_VOICE_NODE_DEFAULT_HEIGHT = 320;
 
 export const IMAGE_SIZES = ['0.5K', '1K', '2K', '4K'] as const;
 export const IMAGE_ASPECT_RATIOS = [
@@ -185,21 +188,33 @@ export interface TtsTextNodeData extends NodeDisplayData {
   [key: string]: unknown;
 }
 
-export interface TtsVoiceDesignNodeData extends NodeDisplayData {
+export type TtsVoiceDesignStylePreset = 'natural' | 'narrator' | 'bright' | 'calm';
+
+export type TtsVoiceLanguage =
+  | 'auto'
+  | 'zh'
+  | 'en'
+  | 'jp'
+  | 'kr'
+  | 'fr'
+  | 'de'
+  | 'es'
+  | 'pt'
+  | 'ru'
+  | 'it';
+
+export interface QwenTtsPauseConfig {
+  pauseLinebreak?: number;
+  periodPause?: number;
+  commaPause?: number;
+  questionPause?: number;
+  hyphenPause?: number;
+}
+
+export interface TtsVoiceDesignNodeData extends NodeDisplayData, QwenTtsPauseConfig {
   voicePrompt: string;
-  stylePreset: 'natural' | 'narrator' | 'bright' | 'calm';
-  language:
-    | 'auto'
-    | 'zh'
-    | 'en'
-    | 'jp'
-    | 'kr'
-    | 'fr'
-    | 'de'
-    | 'es'
-    | 'pt'
-    | 'ru'
-    | 'it';
+  stylePreset: TtsVoiceDesignStylePreset;
+  language: TtsVoiceLanguage;
   speakingRate: number;
   pitch: number;
   maxNewTokens?: number;
@@ -211,6 +226,27 @@ export interface TtsVoiceDesignNodeData extends NodeDisplayData {
   generationProgress?: number;
   statusText?: string | null;
   lastError?: string | null;
+  lastGeneratedAt?: number | null;
+  [key: string]: unknown;
+}
+
+export interface TtsSavedVoiceNodeData extends NodeDisplayData, QwenTtsPauseConfig {
+  voiceName: string;
+  referenceTranscript: string;
+  promptFile?: string | null;
+  promptLabel?: string | null;
+  language: TtsVoiceLanguage;
+  maxNewTokens?: number;
+  topP?: number;
+  topK?: number;
+  temperature?: number;
+  repetitionPenalty?: number;
+  isExtracting?: boolean;
+  isGenerating?: boolean;
+  generationProgress?: number;
+  statusText?: string | null;
+  lastError?: string | null;
+  lastSavedAt?: number | null;
   lastGeneratedAt?: number | null;
   [key: string]: unknown;
 }
@@ -608,6 +644,7 @@ export type CanvasNodeData =
   | AudioNodeData
   | TtsTextNodeData
   | TtsVoiceDesignNodeData
+  | TtsSavedVoiceNodeData
   | ScriptRootNodeData
   | ScriptChapterNodeData
   | ScriptCharacterNodeData
@@ -963,6 +1000,12 @@ export function isTtsVoiceDesignNode(
   node: CanvasNode | null | undefined
 ): node is Node<TtsVoiceDesignNodeData, typeof CANVAS_NODE_TYPES.ttsVoiceDesign> {
   return node?.type === CANVAS_NODE_TYPES.ttsVoiceDesign;
+}
+
+export function isTtsSavedVoiceNode(
+  node: CanvasNode | null | undefined
+): node is Node<TtsSavedVoiceNodeData, typeof CANVAS_NODE_TYPES.ttsSavedVoice> {
+  return node?.type === CANVAS_NODE_TYPES.ttsSavedVoice;
 }
 
 export function isStoryboardSplitNode(

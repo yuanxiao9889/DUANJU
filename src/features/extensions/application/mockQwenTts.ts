@@ -116,15 +116,28 @@ function buildSamples(request: MockQwenTtsRequest): Int16Array {
   return samples;
 }
 
+function compactIsoTimestamp(date: Date): string {
+  return date
+    .toISOString()
+    .split("-")
+    .join("")
+    .split(":")
+    .join("")
+    .split(".")
+    .join("")
+    .split("T")
+    .join("")
+    .split("Z")
+    .join("")
+    .slice(0, 14);
+}
+
 export async function createMockQwenTtsAudioFile(
   request: MockQwenTtsRequest
 ): Promise<File> {
   const samples = buildSamples(request);
   const waveBlob = encodeWave(samples, SAMPLE_RATE);
-  const timestamp = new Date()
-    .toISOString()
-    .replace(/[-:.TZ]/g, '')
-    .slice(0, 14);
+  const timestamp = compactIsoTimestamp(new Date());
 
   return new File([waveBlob], `qwen-tts-${timestamp}.wav`, {
     type: 'audio/wav',

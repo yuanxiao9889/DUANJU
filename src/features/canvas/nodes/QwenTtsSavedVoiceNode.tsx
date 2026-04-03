@@ -1,28 +1,34 @@
 import { memo, useEffect, useMemo, useState, type ChangeEvent } from 'react';
 import { Handle, Position, useUpdateNodeInternals, type NodeProps } from '@xyflow/react';
 import {
-  AudioLines,
   ChevronDown,
   Languages,
+  LibraryBig,
   Loader2,
+  Save,
   SlidersHorizontal,
   Sparkles,
   Volume2,
-  WandSparkles,
+  Waves,
 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 
+import { formatAudioDuration } from '@/features/canvas/application/audioData';
 import {
   AUDIO_NODE_DEFAULT_HEIGHT,
   AUDIO_NODE_DEFAULT_WIDTH,
   CANVAS_NODE_TYPES,
-  TTS_VOICE_DESIGN_NODE_DEFAULT_HEIGHT,
-  TTS_VOICE_DESIGN_NODE_DEFAULT_WIDTH,
-  type TtsVoiceDesignNodeData,
+  TTS_SAVED_VOICE_NODE_DEFAULT_HEIGHT,
+  TTS_SAVED_VOICE_NODE_DEFAULT_WIDTH,
+  type AudioNodeData,
+  type CanvasEdge,
+  type CanvasNode,
+  type TtsSavedVoiceNodeData,
 } from '@/features/canvas/domain/canvasNodes';
 import { resolveNodeDisplayName } from '@/features/canvas/domain/nodeDisplay';
 import {
-  generateQwenTtsVoiceDesignAudio,
+  createQwenTtsSavedVoicePrompt,
+  generateQwenTtsSavedVoiceAudio,
   resolveQwenTtsExtensionState,
 } from '@/features/extensions/application/extensionRuntime';
 import { NodeHeader, NODE_HEADER_FLOATING_POSITION_CLASS } from '@/features/canvas/ui/NodeHeader';
@@ -30,37 +36,32 @@ import { NodeStatusBadge } from '@/features/canvas/ui/NodeStatusBadge';
 import { useCanvasStore } from '@/stores/canvasStore';
 import { useExtensionsStore } from '@/stores/extensionsStore';
 import {
-    clamp,
-    DEFAULT_MAX_NEW_TOKENS,
-    DEFAULT_REPETITION_PENALTY,
-    DEFAULT_TEMPERATURE,
-    DEFAULT_TOP_K,
-    DEFAULT_TOP_P,
-    formatGeneratedTime,
-    LANGUAGE_OPTIONS,
-    MAX_NEW_TOKEN_OPTIONS,
-    QWEN_TTS_PAUSE_FIELDS,
-    resolveConnectedTtsText,
-    resolvePauseConfig,
-  resolvePitchDescriptorKey,
+  clamp,
+  DEFAULT_MAX_NEW_TOKENS,
+  DEFAULT_REPETITION_PENALTY,
+  DEFAULT_TEMPERATURE,
+  DEFAULT_TOP_K,
+  DEFAULT_TOP_P,
+  formatGeneratedTime,
+  LANGUAGE_OPTIONS,
+  MAX_NEW_TOKEN_OPTIONS,
+  QWEN_TTS_PAUSE_FIELDS,
+  resolveConnectedTtsText,
+  resolvePauseConfig,
   resolveRuntimeTone,
-  resolveSpeakingRateDescriptorKey,
-  STYLE_OPTIONS,
   type VoiceLanguage,
 } from './qwenTtsShared';
 
-type QwenTtsVoiceDesignNodeProps = NodeProps & {
+type QwenTtsSavedVoiceNodeProps = NodeProps & {
   id: string;
-  data: TtsVoiceDesignNodeData;
+  data: TtsSavedVoiceNodeData;
   selected?: boolean;
 };
 
-type EditableVoiceDesignField =
-  | 'voicePrompt'
+type EditableSavedVoiceField =
+  | 'voiceName'
+  | 'referenceTranscript'
   | 'language'
-  | 'stylePreset'
-  | 'speakingRate'
-  | 'pitch'
   | 'maxNewTokens'
   | 'topP'
   | 'topK'
@@ -72,11 +73,39 @@ type EditableVoiceDesignField =
   | 'questionPause'
   | 'hyphenPause';
 
-export const QwenTtsVoiceDesignNode = memo(({
+function getConnectedAudioNodes(
+  nodeId: string,
+  nodes: CanvasNode[],
+  edges: CanvasEdge[]
+): CanvasNode[] {
+  const incomingEdges = edges.filter((edge) => edge.target === nodeId);
+  if (incomingEdges.length === 0) {
+    return [];
+  }
+
+  const nodeMap = new Map(nodes.map((node) => [node.id, node] as const));
+  return incomingEdges
+    .map((edge) => nodeMap.get(edge.source))
+    .filter(
+      (node): node is CanvasNode =>
+        Boolean(
+          node &&
+          node.type === CANVAS_NODE_TYPES.audio &&
+          typeof (node.data as AudioNodeData).audioUrl === 'string' &&
+          (node.data as AudioNodeData).audioUrl?.trim().length
+        )
+    );
+}
+
+function stripFileExtension(value: string): string {
+  return value.replace(/\.[^.]+$/, '');
+}
+
+export const QwenTtsSavedVoiceNode = memo(({
   id,
   data,
   selected,
-}: QwenTtsVoiceDesignNodeProps) => {
+}: QwenTtsSavedVoiceNodeProps) => {
   const { t, i18n } = useTranslation();
   const updateNodeInternals = useUpdateNodeInternals();
   const setSelectedNode = useCanvasStore((state) => state.setSelectedNode);
@@ -106,9 +135,32 @@ export const QwenTtsVoiceDesignNode = memo(({
     () => resolveConnectedTtsText(id, nodes, edges),
     [edges, id, nodes]
   );
-
-  const speakingRate = typeof data.speakingRate === 'number' ? data.speakingRate : 1;
-  const pitch = typeof data.pitch === 'number' ? data.pitch : 0;
+  const connectedAudioNodes = useMemo(
+    () => getConnectedAudioNodes(id, nodes, edges),
+    [edges, id, nodes]
+  );
+  const referenceAudioNode = connectedAudioNodes[0] ?? null;
+  const referenceAudioData = (referenceAudioNode?.data as AudioNodeData | undefined) ?? null;
+  const referenceAudioPath = referenceAudioData?.audioUrl?.trim() ?? '';
+  const referenceAudioName = referenceAudioData?.audioFileName?.trim() ?? '';
+  const referenceAudioDuration = formatAudioDuration(referenceAudioData?.duration);
+  const referenceTranscript = typeof data.referenceTranscript === 'string'
+    ? data.referenceTranscript
+    : '';
+  const referenceTranscriptTrimmed = referenceTranscript.trim();
+  const suggestedVoiceName = (
+    (typeof data.voiceName === 'string' ? data.voiceName.trim() : '')
+    || (referenceAudioName ? stripFileExtension(referenceAudioName) : '')
+    || t('node.qwenTts.savedVoice.defaultVoiceName')
+  );
+  const connectedTextTrimmed = connectedText.trim();
+  const connectedTextPreview = connectedTextTrimmed.length > 0
+    ? connectedTextTrimmed
+    : t('node.qwenTts.waitingForText');
+  const connectedCharacterCount = connectedTextTrimmed.length;
+  const connectedLineCount = connectedTextTrimmed.length > 0
+    ? connectedTextTrimmed.split(/\n+/).filter((line) => line.trim().length > 0).length
+    : 0;
   const maxNewTokens = typeof data.maxNewTokens === 'number'
     ? data.maxNewTokens
     : DEFAULT_MAX_NEW_TOKENS;
@@ -121,35 +173,6 @@ export const QwenTtsVoiceDesignNode = memo(({
     ? data.repetitionPenalty
     : DEFAULT_REPETITION_PENALTY;
   const pauseConfig = resolvePauseConfig(data);
-  const pauseLinebreak = pauseConfig.pauseLinebreak;
-  const periodPause = pauseConfig.periodPause;
-  const commaPause = pauseConfig.commaPause;
-  const questionPause = pauseConfig.questionPause;
-  const hyphenPause = pauseConfig.hyphenPause;
-  const progressValue = typeof data.generationProgress === 'number'
-    ? Math.max(0, Math.min(100, data.generationProgress))
-    : 0;
-  const connectedTextTrimmed = connectedText.trim();
-  const connectedTextPreview = connectedTextTrimmed.length > 0
-    ? connectedTextTrimmed
-    : t('node.qwenTts.waitingForText');
-  const connectedCharacterCount = connectedTextTrimmed.length;
-  const connectedLineCount = connectedTextTrimmed.length > 0
-    ? connectedTextTrimmed.split(/\n+/).filter((line) => line.trim().length > 0).length
-    : 0;
-  const languageLabel = t(
-    LANGUAGE_OPTIONS.find((option) => option.value === (data.language ?? 'auto'))?.labelKey
-      ?? 'node.qwenTts.languages.auto'
-  );
-  const styleOption = STYLE_OPTIONS.find(
-    (option) => option.value === (data.stylePreset ?? 'natural')
-  ) ?? STYLE_OPTIONS[0];
-  const hasAdvancedOverrides =
-    maxNewTokens !== DEFAULT_MAX_NEW_TOKENS ||
-    topP !== DEFAULT_TOP_P ||
-    topK !== DEFAULT_TOP_K ||
-    temperature !== DEFAULT_TEMPERATURE ||
-    repetitionPenalty !== DEFAULT_REPETITION_PENALTY;
   const runtimeProgress = extensionRuntime?.progress ?? 0;
   const currentRuntimeStep = activeExtensionPackage?.startupSteps.find(
     (step) => step.id === extensionRuntime?.currentStepId
@@ -159,6 +182,15 @@ export const QwenTtsVoiceDesignNode = memo(({
     : isExtensionStarting
       ? currentRuntimeStep?.description ?? t('node.qwenTts.runtimeStateStarting')
       : t('node.qwenTts.runtimeStateDisabled');
+  const progressValue = typeof data.generationProgress === 'number'
+    ? Math.max(0, Math.min(100, data.generationProgress))
+    : 0;
+  const hasAdvancedOverrides =
+    maxNewTokens !== DEFAULT_MAX_NEW_TOKENS ||
+    topP !== DEFAULT_TOP_P ||
+    topK !== DEFAULT_TOP_K ||
+    temperature !== DEFAULT_TEMPERATURE ||
+    repetitionPenalty !== DEFAULT_REPETITION_PENALTY;
   const advancedSummary = t('node.qwenTts.advancedSummary', {
     temperature: temperature.toFixed(2),
     topP: topP.toFixed(2),
@@ -166,6 +198,23 @@ export const QwenTtsVoiceDesignNode = memo(({
     repetitionPenalty: repetitionPenalty.toFixed(2),
     maxNewTokens,
   });
+  const promptFile = typeof data.promptFile === 'string' ? data.promptFile.trim() : '';
+  const promptLabel = typeof data.promptLabel === 'string' ? data.promptLabel.trim() : '';
+  const hasSavedPrompt = promptFile.length > 0;
+  const canExtractPrompt =
+    isExtensionReady &&
+    !isSubmitting &&
+    !data.isExtracting &&
+    !data.isGenerating &&
+    referenceAudioPath.length > 0 &&
+    referenceTranscriptTrimmed.length > 0;
+  const canGenerate =
+    isExtensionReady &&
+    !isSubmitting &&
+    !data.isGenerating &&
+    !data.isExtracting &&
+    connectedTextTrimmed.length > 0 &&
+    (hasSavedPrompt || canExtractPrompt);
 
   useEffect(() => {
     if (hasAdvancedOverrides) {
@@ -177,21 +226,28 @@ export const QwenTtsVoiceDesignNode = memo(({
     updateNodeInternals(id);
   }, [
     currentRuntimeStep?.id,
+    data.isExtracting,
     data.isGenerating,
     data.lastError,
     data.lastGeneratedAt,
+    data.lastSavedAt,
+    hasSavedPrompt,
     id,
     progressValue,
     showAdvancedControls,
     updateNodeInternals,
   ]);
 
-  const generationStatus = useMemo(() => {
-    if (data.isGenerating || isSubmitting) {
+  const headerStatus = useMemo(() => {
+    if (data.isExtracting || data.isGenerating || isSubmitting) {
       return (
         <NodeStatusBadge
           icon={<Loader2 className="h-3 w-3" />}
-          label={t('node.qwenTts.generating')}
+          label={t(
+            data.isExtracting
+              ? 'node.qwenTts.savedVoice.extractingShort'
+              : 'node.qwenTts.generating'
+          )}
           tone="processing"
           animate
         />
@@ -222,57 +278,80 @@ export const QwenTtsVoiceDesignNode = memo(({
       );
     }
 
+    if (data.lastSavedAt) {
+      return (
+        <NodeStatusBadge
+          icon={<Save className="h-3 w-3" />}
+          label={t('node.qwenTts.savedVoice.savedShort')}
+          tone="processing"
+          title={t('node.qwenTts.savedVoice.savedAt', {
+            time: formatGeneratedTime(data.lastSavedAt, i18n.language),
+          })}
+        />
+      );
+    }
+
     return null;
   }, [
+    data.isExtracting,
     data.isGenerating,
     data.lastError,
     data.lastGeneratedAt,
+    data.lastSavedAt,
     i18n.language,
     isSubmitting,
     t,
   ]);
 
-  const handleFieldChange = <TKey extends EditableVoiceDesignField>(
+  const handleFieldChange = <TKey extends EditableSavedVoiceField>(
     key: TKey,
-    value: TtsVoiceDesignNodeData[TKey]
+    value: TtsSavedVoiceNodeData[TKey]
   ) => {
     updateNodeData(
       id,
       {
         [key]: value,
         lastError: null,
-      } as Partial<TtsVoiceDesignNodeData>,
+      } as Partial<TtsSavedVoiceNodeData>,
       { historyMode: 'skip' }
     );
   };
 
-  const handleGenerate = async () => {
-    if (isSubmitting || data.isGenerating) {
-      return;
+  const updateErrorState = (message: string) => {
+    updateNodeData(
+      id,
+      {
+        isExtracting: false,
+        isGenerating: false,
+        generationProgress: 0,
+        statusText: null,
+        lastError: message,
+      },
+      { historyMode: 'skip' }
+    );
+  };
+
+  const handleExtractVoice = async (): Promise<{
+    promptFile: string;
+    promptLabel: string;
+  } | null> => {
+    if (isSubmitting || data.isExtracting || data.isGenerating) {
+      return null;
     }
 
-    if (!isExtensionReady) {
-      updateNodeData(
-        id,
-        {
-          lastError: t('node.qwenTts.extensionDisabled'),
-          statusText: t('node.qwenTts.extensionDisabled'),
-        },
-        { historyMode: 'skip' }
-      );
-      return;
+    if (!isExtensionReady || !readyExtensionPackage) {
+      updateErrorState(t('node.qwenTts.extensionDisabled'));
+      return null;
     }
 
-    if (!connectedTextTrimmed) {
-      updateNodeData(
-        id,
-        {
-          lastError: t('node.qwenTts.noInputText'),
-          statusText: t('node.qwenTts.noInputText'),
-        },
-        { historyMode: 'skip' }
-      );
-      return;
+    if (!referenceAudioPath) {
+      updateErrorState(t('node.qwenTts.savedVoice.noReferenceAudio'));
+      return null;
+    }
+
+    if (!referenceTranscriptTrimmed) {
+      updateErrorState(t('node.qwenTts.savedVoice.noReferenceTranscript'));
+      return null;
     }
 
     setIsSubmitting(true);
@@ -280,13 +359,79 @@ export const QwenTtsVoiceDesignNode = memo(({
       updateNodeData(
         id,
         {
-          isGenerating: true,
-          generationProgress: 12,
-          statusText: t('node.qwenTts.statusPreparing'),
+          isExtracting: true,
+          isGenerating: false,
+          generationProgress: 18,
+          statusText: t('node.qwenTts.savedVoice.statusExtracting'),
           lastError: null,
         },
         { historyMode: 'skip' }
       );
+
+      const savedPrompt = await createQwenTtsSavedVoicePrompt(readyExtensionPackage, {
+        refAudio: referenceAudioPath,
+        refText: referenceTranscriptTrimmed,
+        voiceName: suggestedVoiceName,
+      });
+
+      updateNodeData(
+        id,
+        {
+          voiceName: suggestedVoiceName,
+          promptFile: savedPrompt.promptFile,
+          promptLabel: savedPrompt.promptLabel,
+          isExtracting: false,
+          generationProgress: 100,
+          statusText: t('node.qwenTts.savedVoice.promptReady'),
+          lastError: null,
+          lastSavedAt: Date.now(),
+        },
+        { historyMode: 'skip' }
+      );
+
+      return savedPrompt;
+    } catch (error) {
+      updateErrorState(
+        error instanceof Error && error.message.trim().length > 0
+          ? error.message
+          : t('node.qwenTts.savedVoice.extractFailed')
+      );
+      return null;
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const handleGenerate = async () => {
+    if (isSubmitting || data.isGenerating || data.isExtracting) {
+      return;
+    }
+
+    if (!isExtensionReady) {
+      updateErrorState(t('node.qwenTts.extensionDisabled'));
+      return;
+    }
+
+    if (!connectedTextTrimmed) {
+      updateErrorState(t('node.qwenTts.noInputText'));
+      return;
+    }
+
+    try {
+      let resolvedPromptFile = promptFile;
+      let resolvedPromptLabel = promptLabel;
+
+      if (!resolvedPromptFile) {
+        const extracted = await handleExtractVoice();
+        if (!extracted) {
+          return;
+        }
+
+        resolvedPromptFile = extracted.promptFile;
+        resolvedPromptLabel = extracted.promptLabel;
+      }
+
+      setIsSubmitting(true);
 
       if (!readyExtensionPackage) {
         throw new Error(t('node.qwenTts.extensionDisabled'));
@@ -295,29 +440,33 @@ export const QwenTtsVoiceDesignNode = memo(({
       updateNodeData(
         id,
         {
+          voiceName: suggestedVoiceName,
+          promptFile: resolvedPromptFile,
+          promptLabel: resolvedPromptLabel,
+          isExtracting: false,
+          isGenerating: true,
           generationProgress: 36,
           statusText: t('node.qwenTts.statusRendering'),
+          lastError: null,
         },
         { historyMode: 'skip' }
       );
 
-      const generatedAudio = await generateQwenTtsVoiceDesignAudio(readyExtensionPackage, {
+      const generatedAudio = await generateQwenTtsSavedVoiceAudio(readyExtensionPackage, {
         text: connectedTextTrimmed,
-        voicePrompt: data.voicePrompt ?? '',
-        stylePreset: data.stylePreset ?? 'natural',
         language: data.language ?? 'auto',
-        speakingRate,
-        pitch,
+        voiceName: suggestedVoiceName,
+        promptFile: resolvedPromptFile,
         maxNewTokens,
         topP,
         topK,
         temperature,
         repetitionPenalty,
-        pauseLinebreak,
-        periodPause,
-        commaPause,
-        questionPause,
-        hyphenPause,
+        pauseLinebreak: pauseConfig.pauseLinebreak,
+        periodPause: pauseConfig.periodPause,
+        commaPause: pauseConfig.commaPause,
+        questionPause: pauseConfig.questionPause,
+        hyphenPause: pauseConfig.hyphenPause,
       });
 
       updateNodeData(
@@ -363,19 +512,10 @@ export const QwenTtsVoiceDesignNode = memo(({
         { historyMode: 'skip' }
       );
     } catch (error) {
-      console.error('Failed to generate Qwen TTS audio:', error);
-      updateNodeData(
-        id,
-        {
-          isGenerating: false,
-          generationProgress: 0,
-          statusText: null,
-          lastError:
-            error instanceof Error && error.message.trim().length > 0
-              ? error.message
-              : t('node.qwenTts.generateFailed'),
-        },
-        { historyMode: 'skip' }
+      updateErrorState(
+        error instanceof Error && error.message.trim().length > 0
+          ? error.message
+          : t('node.qwenTts.generateFailed')
       );
     } finally {
       setIsSubmitting(false);
@@ -391,16 +531,16 @@ export const QwenTtsVoiceDesignNode = memo(({
           : 'border-[rgba(15,23,42,0.22)] hover:border-[rgba(15,23,42,0.34)] dark:border-[rgba(255,255,255,0.22)] dark:hover:border-[rgba(255,255,255,0.34)]'}
       `}
       style={{
-        width: TTS_VOICE_DESIGN_NODE_DEFAULT_WIDTH,
-        minHeight: TTS_VOICE_DESIGN_NODE_DEFAULT_HEIGHT,
+        width: TTS_SAVED_VOICE_NODE_DEFAULT_WIDTH,
+        minHeight: TTS_SAVED_VOICE_NODE_DEFAULT_HEIGHT,
       }}
       onClick={() => setSelectedNode(id)}
     >
       <NodeHeader
         className={NODE_HEADER_FLOATING_POSITION_CLASS}
-        icon={<AudioLines className="h-4 w-4" />}
-        titleText={resolveNodeDisplayName(CANVAS_NODE_TYPES.ttsVoiceDesign, data)}
-        rightSlot={generationStatus}
+        icon={<LibraryBig className="h-4 w-4" />}
+        titleText={resolveNodeDisplayName(CANVAS_NODE_TYPES.ttsSavedVoice, data)}
+        rightSlot={headerStatus}
         editable
         onTitleChange={(nextTitle) => updateNodeData(id, { displayName: nextTitle })}
       />
@@ -413,7 +553,7 @@ export const QwenTtsVoiceDesignNode = memo(({
                 {t('node.qwenTts.offlineRuntime')}
               </div>
               <div className="mt-1 text-sm font-semibold text-text-dark">
-                {t('node.qwenTts.modelBadge')}
+                {t('node.qwenTts.savedVoice.modelBadge')}
               </div>
               <p className="mt-1 text-xs leading-5 text-text-muted">
                 {runtimeHint}
@@ -436,6 +576,36 @@ export const QwenTtsVoiceDesignNode = memo(({
           <div className="mt-3 grid grid-cols-3 gap-2">
             <div className="rounded-xl border border-white/10 bg-black/10 px-3 py-2">
               <div className="text-[10px] uppercase tracking-[0.14em] text-text-muted">
+                {t('node.qwenTts.savedVoice.referenceAudio')}
+              </div>
+              <div className="mt-1 text-sm font-semibold text-text-dark">
+                {referenceAudioPath
+                  ? t('node.qwenTts.savedVoice.referenceReady')
+                  : t('node.qwenTts.savedVoice.referenceMissing')}
+              </div>
+              <div className="text-[11px] text-text-muted">
+                {t('node.qwenTts.savedVoice.referenceCount', {
+                  count: connectedAudioNodes.length,
+                })}
+              </div>
+            </div>
+            <div className="rounded-xl border border-white/10 bg-black/10 px-3 py-2">
+              <div className="text-[10px] uppercase tracking-[0.14em] text-text-muted">
+                {t('node.qwenTts.savedVoice.voiceBundle')}
+              </div>
+              <div className="mt-1 text-sm font-semibold text-text-dark">
+                {hasSavedPrompt
+                  ? promptLabel || suggestedVoiceName
+                  : t('node.qwenTts.savedVoice.bundlePending')}
+              </div>
+              <div className="text-[11px] text-text-muted">
+                {hasSavedPrompt
+                  ? t('node.qwenTts.savedVoice.bundleReady')
+                  : t('node.qwenTts.savedVoice.bundleHint')}
+              </div>
+            </div>
+            <div className="rounded-xl border border-white/10 bg-black/10 px-3 py-2">
+              <div className="text-[10px] uppercase tracking-[0.14em] text-text-muted">
                 {t('node.qwenTts.connectedText')}
               </div>
               <div className="mt-1 text-sm font-semibold text-text-dark">
@@ -443,28 +613,6 @@ export const QwenTtsVoiceDesignNode = memo(({
               </div>
               <div className="text-[11px] text-text-muted">
                 {t('node.qwenTts.connectedTextStats', { count: connectedLineCount || 0 })}
-              </div>
-            </div>
-            <div className="rounded-xl border border-white/10 bg-black/10 px-3 py-2">
-              <div className="text-[10px] uppercase tracking-[0.14em] text-text-muted">
-                {t('node.qwenTts.stylePreset')}
-              </div>
-              <div className="mt-1 text-sm font-semibold text-text-dark">
-                {t(styleOption.labelKey)}
-              </div>
-              <div className="text-[11px] text-text-muted">
-                {t(styleOption.descriptionKey)}
-              </div>
-            </div>
-            <div className="rounded-xl border border-white/10 bg-black/10 px-3 py-2">
-              <div className="text-[10px] uppercase tracking-[0.14em] text-text-muted">
-                {t('node.qwenTts.language')}
-              </div>
-              <div className="mt-1 text-sm font-semibold text-text-dark">
-                {languageLabel}
-              </div>
-              <div className="text-[11px] text-text-muted">
-                {t('node.qwenTts.languageHint')}
               </div>
             </div>
           </div>
@@ -490,13 +638,80 @@ export const QwenTtsVoiceDesignNode = memo(({
         </div>
 
         <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-3">
+          <div className="flex items-start gap-3">
+            <div className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-accent/14 text-accent">
+              <Waves className="h-4 w-4" />
+            </div>
+            <div className="min-w-0 flex-1">
+              <div className="text-sm font-semibold text-text-dark">
+                {t('node.qwenTts.savedVoice.referenceTitle')}
+              </div>
+              <p className="mt-1 text-xs leading-5 text-text-muted">
+                {t('node.qwenTts.savedVoice.referenceDescription')}
+              </p>
+            </div>
+          </div>
+
+          <div className="mt-3 grid gap-2 md:grid-cols-2">
+            <div className="rounded-xl border border-white/10 bg-black/10 px-3 py-2.5">
+              <div className="text-xs font-medium text-text-muted">
+                {t('node.qwenTts.savedVoice.referenceAudio')}
+              </div>
+              <div className="mt-1 truncate text-sm font-medium text-text-dark">
+                {referenceAudioName || t('node.qwenTts.savedVoice.referenceMissing')}
+              </div>
+              <div className="mt-1 text-[11px] text-text-muted">
+                {referenceAudioPath
+                  ? t('node.qwenTts.savedVoice.referenceMeta', {
+                    duration: referenceAudioDuration,
+                  })
+                  : t('node.qwenTts.savedVoice.referenceAudioHint')}
+              </div>
+            </div>
+
+            <label className="block rounded-xl border border-white/10 bg-black/10 px-3 py-2.5">
+              <div className="mb-1 text-xs font-medium text-text-muted">
+                {t('node.qwenTts.savedVoice.voiceName')}
+              </div>
+              <input
+                type="text"
+                value={data.voiceName ?? ''}
+                onChange={(event) => handleFieldChange('voiceName', event.target.value)}
+                placeholder={suggestedVoiceName}
+                className="nodrag nowheel h-10 w-full rounded-lg border border-white/10 bg-white/[0.04] px-3 text-sm text-text-dark outline-none transition-colors placeholder:text-text-muted/70 focus:border-accent"
+              />
+            </label>
+          </div>
+
+          <label className="mt-3 block">
+            <div className="mb-1 text-xs font-medium text-text-muted">
+              {t('node.qwenTts.savedVoice.referenceTranscript')}
+            </div>
+            <textarea
+              value={referenceTranscript}
+              onChange={(event) => handleFieldChange('referenceTranscript', event.target.value)}
+              placeholder={t('node.qwenTts.savedVoice.referenceTranscriptPlaceholder')}
+              className="nodrag nowheel h-20 w-full resize-none rounded-xl border border-white/10 bg-black/10 px-3 py-2.5 text-sm text-text-dark outline-none transition-colors placeholder:text-text-muted/70 focus:border-accent"
+            />
+          </label>
+
+          <div className="mt-3 rounded-xl border border-white/10 bg-black/10 px-3 py-2.5 text-xs text-text-muted">
+            {hasSavedPrompt
+              ? t('node.qwenTts.savedVoice.savedBundleMeta', {
+                label: promptLabel || suggestedVoiceName,
+              })
+              : t('node.qwenTts.savedVoice.bundleStorageHint')}
+          </div>
+        </div>
+
+        <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-3">
           <div className="mb-2 flex items-center justify-between gap-3">
             <div>
               <div className="text-[11px] font-medium uppercase tracking-[0.14em] text-text-muted">
                 {t('node.qwenTts.connectedText')}
               </div>
               <div className="mt-1 text-xs text-text-muted">
-                {t('node.qwenTts.connectedTextHint')}
+                {t('node.qwenTts.savedVoice.generationTextHint')}
               </div>
             </div>
             <div className="rounded-full border border-white/10 px-2 py-1 text-[11px] text-text-muted">
@@ -510,81 +725,15 @@ export const QwenTtsVoiceDesignNode = memo(({
 
         <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-3">
           <div className="flex items-start gap-3">
-            <div className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-accent/14 text-accent">
-              <WandSparkles className="h-4 w-4" />
-            </div>
-            <div className="min-w-0 flex-1">
-              <div className="text-sm font-semibold text-text-dark">
-                {t('node.qwenTts.recipeTitle')}
-              </div>
-              <p className="mt-1 text-xs leading-5 text-text-muted">
-                {t('node.qwenTts.recipeDescription')}
-              </p>
-            </div>
-          </div>
-
-          <label className="mt-3 block">
-            <div className="mb-1 text-xs font-medium text-text-muted">
-              {t('node.qwenTts.voicePrompt')}
-            </div>
-            <textarea
-              value={data.voicePrompt ?? ''}
-              onChange={(event) => handleFieldChange('voicePrompt', event.target.value)}
-              placeholder={t('node.qwenTts.voicePromptPlaceholder')}
-              className="nodrag nowheel h-24 w-full resize-none rounded-xl border border-white/10 bg-black/10 px-3 py-2.5 text-sm text-text-dark outline-none transition-colors placeholder:text-text-muted/70 focus:border-accent"
-            />
-          </label>
-
-          <div className="mt-3">
-            <div className="mb-2 flex items-center justify-between gap-2">
-              <div className="text-xs font-medium text-text-muted">
-                {t('node.qwenTts.stylePreset')}
-              </div>
-              <div className="text-[11px] text-text-muted">
-                {t('node.qwenTts.styleHint')}
-              </div>
-            </div>
-            <div className="grid grid-cols-2 gap-2">
-              {STYLE_OPTIONS.map((option) => {
-                const isActive = (data.stylePreset ?? 'natural') === option.value;
-
-                return (
-                  <button
-                    key={option.value}
-                    type="button"
-                    onPointerDown={(event) => event.stopPropagation()}
-                    onClick={(event) => {
-                      event.stopPropagation();
-                      handleFieldChange('stylePreset', option.value);
-                    }}
-                    className={`nodrag rounded-xl border px-3 py-2 text-left transition-colors ${
-                      isActive
-                        ? option.activeClassName
-                        : 'border-white/10 bg-black/10 text-text-dark hover:border-white/20 hover:bg-white/[0.05]'
-                    }`}
-                  >
-                    <div className="text-sm font-medium">{t(option.labelKey)}</div>
-                    <div className="mt-1 text-[11px] leading-4 text-inherit/75">
-                      {t(option.descriptionKey)}
-                    </div>
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-        </div>
-
-        <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-3">
-          <div className="flex items-start gap-3">
             <div className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-white/[0.06] text-text-dark">
               <Languages className="h-4 w-4" />
             </div>
             <div className="min-w-0 flex-1">
               <div className="text-sm font-semibold text-text-dark">
-                {t('node.qwenTts.rhythmTitle')}
+                {t('node.qwenTts.savedVoice.languageTitle')}
               </div>
               <p className="mt-1 text-xs leading-5 text-text-muted">
-                {t('node.qwenTts.rhythmDescription')}
+                {t('node.qwenTts.savedVoice.languageDescription')}
               </p>
             </div>
           </div>
@@ -607,50 +756,6 @@ export const QwenTtsVoiceDesignNode = memo(({
                   </option>
                 ))}
               </select>
-            </label>
-          </div>
-
-          <div className="mt-3 grid grid-cols-2 gap-3">
-            <label className="block rounded-xl border border-white/10 bg-black/10 px-3 py-2.5">
-              <div className="mb-2 flex items-center justify-between text-xs font-medium text-text-muted">
-                <span>{t('node.qwenTts.speakingRate')}</span>
-                <span>{speakingRate.toFixed(2)}x</span>
-              </div>
-              <input
-                type="range"
-                min={0.7}
-                max={1.4}
-                step={0.05}
-                value={speakingRate}
-                onChange={(event) => {
-                  handleFieldChange('speakingRate', Number(event.target.value));
-                }}
-                className="nodrag nowheel w-full accent-[var(--accent)]"
-              />
-              <div className="mt-2 text-[11px] text-text-muted">
-                {t(resolveSpeakingRateDescriptorKey(speakingRate))}
-              </div>
-            </label>
-
-            <label className="block rounded-xl border border-white/10 bg-black/10 px-3 py-2.5">
-              <div className="mb-2 flex items-center justify-between text-xs font-medium text-text-muted">
-                <span>{t('node.qwenTts.pitch')}</span>
-                <span>{pitch > 0 ? `+${pitch}` : pitch}</span>
-              </div>
-              <input
-                type="range"
-                min={-6}
-                max={6}
-                step={1}
-                value={pitch}
-                onChange={(event) => {
-                  handleFieldChange('pitch', Number(event.target.value));
-                }}
-                className="nodrag nowheel w-full accent-[var(--accent)]"
-              />
-              <div className="mt-2 text-[11px] text-text-muted">
-                {t(resolvePitchDescriptorKey(pitch))}
-              </div>
             </label>
           </div>
         </div>
@@ -694,7 +799,7 @@ export const QwenTtsVoiceDesignNode = memo(({
                     value={fieldValue}
                     onChange={(event) => {
                       handleFieldChange(
-                        field.key as EditableVoiceDesignField,
+                        field.key as EditableSavedVoiceField,
                         clamp(Number(event.target.value), 0, 5)
                       );
                     }}
@@ -859,7 +964,7 @@ export const QwenTtsVoiceDesignNode = memo(({
           ) : null}
         </div>
 
-        {data.isGenerating ? (
+        {(data.isExtracting || data.isGenerating) ? (
           <div className="space-y-2 rounded-xl border border-accent/20 bg-accent/10 px-3 py-2.5">
             <div className="h-2 overflow-hidden rounded-full bg-white/10">
               <div
@@ -868,7 +973,12 @@ export const QwenTtsVoiceDesignNode = memo(({
               />
             </div>
             <div className="text-xs text-text-muted">
-              {data.statusText ?? t('node.qwenTts.generating')}
+              {data.statusText
+                ?? t(
+                  data.isExtracting
+                    ? 'node.qwenTts.savedVoice.statusExtracting'
+                    : 'node.qwenTts.generating'
+                )}
             </div>
           </div>
         ) : null}
@@ -887,28 +997,53 @@ export const QwenTtsVoiceDesignNode = memo(({
           </div>
         ) : null}
 
-        <button
-          type="button"
-          disabled={!isExtensionReady || isSubmitting || data.isGenerating}
-          onPointerDown={(event) => event.stopPropagation()}
-          onClick={(event) => {
-            event.stopPropagation();
-            void handleGenerate();
-          }}
-          className="nodrag inline-flex h-11 w-full items-center justify-center gap-2 rounded-xl bg-accent px-4 text-sm font-medium text-white transition-colors hover:bg-accent/85 disabled:cursor-not-allowed disabled:bg-accent/35"
-        >
-          {data.isGenerating || isSubmitting ? (
-            <>
-              <Loader2 className="h-4 w-4 animate-spin" />
-              {t('node.qwenTts.generating')}
-            </>
-          ) : (
-            <>
-              <Sparkles className="h-4 w-4" />
-              {t('node.qwenTts.generate')}
-            </>
-          )}
-        </button>
+        <div className="grid grid-cols-2 gap-2">
+          <button
+            type="button"
+            disabled={!canExtractPrompt}
+            onPointerDown={(event) => event.stopPropagation()}
+            onClick={(event) => {
+              event.stopPropagation();
+              void handleExtractVoice();
+            }}
+            className="nodrag inline-flex h-11 items-center justify-center gap-2 rounded-xl border border-white/10 bg-white/[0.04] px-4 text-sm font-medium text-text-dark transition-colors hover:bg-white/[0.08] disabled:cursor-not-allowed disabled:opacity-40"
+          >
+            {data.isExtracting || isSubmitting ? (
+              <>
+                <Loader2 className="h-4 w-4 animate-spin" />
+                {t('node.qwenTts.savedVoice.savingVoice')}
+              </>
+            ) : (
+              <>
+                <Save className="h-4 w-4" />
+                {t('node.qwenTts.savedVoice.saveVoice')}
+              </>
+            )}
+          </button>
+
+          <button
+            type="button"
+            disabled={!canGenerate}
+            onPointerDown={(event) => event.stopPropagation()}
+            onClick={(event) => {
+              event.stopPropagation();
+              void handleGenerate();
+            }}
+            className="nodrag inline-flex h-11 items-center justify-center gap-2 rounded-xl bg-accent px-4 text-sm font-medium text-white transition-colors hover:bg-accent/85 disabled:cursor-not-allowed disabled:bg-accent/35"
+          >
+            {data.isGenerating || isSubmitting ? (
+              <>
+                <Loader2 className="h-4 w-4 animate-spin" />
+                {t('node.qwenTts.generating')}
+              </>
+            ) : (
+              <>
+                <Sparkles className="h-4 w-4" />
+                {t('node.qwenTts.savedVoice.generateWithSavedVoice')}
+              </>
+            )}
+          </button>
+        </div>
       </div>
 
       <Handle
@@ -927,4 +1062,4 @@ export const QwenTtsVoiceDesignNode = memo(({
   );
 });
 
-QwenTtsVoiceDesignNode.displayName = 'QwenTtsVoiceDesignNode';
+QwenTtsSavedVoiceNode.displayName = 'QwenTtsSavedVoiceNode';

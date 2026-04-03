@@ -35,7 +35,8 @@
   "features": {
     "nodes": [
       "ttsTextNode",
-      "ttsVoiceDesignNode"
+      "ttsVoiceDesignNode",
+      "ttsSavedVoiceNode"
     ],
     "settingsSections": [
       "extensions"

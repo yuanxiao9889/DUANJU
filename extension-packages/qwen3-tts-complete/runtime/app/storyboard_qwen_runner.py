@@ -1,14 +1,17 @@
-#!/usr/bin/env python
+﻿#!/usr/bin/env python
 from __future__ import annotations
 
 import argparse
 import json
 import os
 import re
+import shutil
 import sys
 import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional
+
+import numpy as np
 
 APP_DIR = Path(__file__).resolve().parent
 RUNTIME_DIR = APP_DIR.parent
@@ -144,9 +147,8 @@ def next_output_path(prefix: str, extension: str) -> Path:
 
 
 def next_voice_path(prefix: str) -> Path:
-    timestamp = time.strftime("%Y%m%d-%H%M%S")
     VOICES_DIR.mkdir(parents=True, exist_ok=True)
-    return VOICES_DIR / f"{sanitize_name(prefix)}-{timestamp}.pt"
+    return VOICES_DIR / f"{sanitize_name(prefix)}.qvp"
 
 
 def collect_generation_kwargs(payload: Dict[str, Any]) -> Dict[str, Any]:
@@ -165,6 +167,240 @@ def collect_generation_kwargs(payload: Dict[str, Any]) -> Dict[str, Any]:
         for key in supported_keys
         if key in payload and payload[key] is not None
     }
+
+
+def normalize_pause_value(value: Any, fallback: float) -> float:
+    try:
+        numeric = float(value)
+    except (TypeError, ValueError):
+        return fallback
+    return max(0.0, min(5.0, numeric))
+
+
+def build_pause_config(payload: Dict[str, Any]) -> Dict[str, float]:
+    return {
+        "pause_linebreak": normalize_pause_value(
+            payload.get("pause_linebreak", payload.get("pauseLinebreak")),
+            0.5,
+        ),
+        "period_pause": normalize_pause_value(
+            payload.get("period_pause", payload.get("periodPause")),
+            0.4,
+        ),
+        "comma_pause": normalize_pause_value(
+            payload.get("comma_pause", payload.get("commaPause")),
+            0.2,
+        ),
+        "question_pause": normalize_pause_value(
+            payload.get("question_pause", payload.get("questionPause")),
+            0.6,
+        ),
+        "hyphen_pause": normalize_pause_value(
+            payload.get("hyphen_pause", payload.get("hyphenPause")),
+            0.3,
+        ),
+    }
+
+
+def split_text_by_pauses(text: str, config: Dict[str, float]) -> List[tuple[str, float]]:
+    if not config:
+        return [(text, 0.0)]
+
+    normalized_text = text.replace("\r\n", "\n").replace("\r", "\n")
+    pause_linebreak = config.get("pause_linebreak", 0.5)
+    period_pause = config.get("period_pause", 0.4)
+    comma_pause = config.get("comma_pause", 0.2)
+    question_pause = config.get("question_pause", 0.6)
+    hyphen_pause = config.get("hyphen_pause", 0.3)
+
+    if pause_linebreak > 0:
+        normalized_text = re.sub(r"\n+", rf" [break={pause_linebreak}] ", normalized_text)
+    else:
+        normalized_text = normalized_text.replace("\n", " ")
+
+    if period_pause > 0:
+        normalized_text = re.sub(
+            r"[\.\u3002](?!\d)",
+            rf"\g<0> [break={period_pause}]",
+            normalized_text,
+        )
+    if comma_pause > 0:
+        normalized_text = re.sub(
+            r"[,\uff0c](?!\d)",
+            rf"\g<0> [break={comma_pause}]",
+            normalized_text,
+        )
+    if question_pause > 0:
+        normalized_text = re.sub(
+            r"[\?\uff1f](?!\d)",
+            rf"\g<0> [break={question_pause}]",
+            normalized_text,
+        )
+    if hyphen_pause > 0:
+        normalized_text = re.sub(
+            r"[-\u2014](?!\d)",
+            rf"\g<0> [break={hyphen_pause}]",
+            normalized_text,
+        )
+
+    pause_pattern = r"\[break=([\d\.]+)\]"
+    parts = re.split(pause_pattern, normalized_text)
+    segments: List[tuple[str, float]] = []
+    current_segment_text = ""
+
+    for index, chunk in enumerate(parts):
+        if index % 2 == 0:
+            if chunk.strip():
+                if current_segment_text:
+                    segments.append((current_segment_text.strip(), 0.0))
+                current_segment_text = chunk
+        else:
+            try:
+                pause_val = float(chunk)
+            except ValueError:
+                pause_val = 0.0
+
+            if current_segment_text:
+                segments.append((current_segment_text.strip(), pause_val))
+                current_segment_text = ""
+            elif segments and pause_val > 0:
+                previous_text, previous_pause = segments[-1]
+                segments[-1] = (previous_text, previous_pause + pause_val)
+
+    if current_segment_text.strip():
+        segments.append((current_segment_text.strip(), 0.0))
+
+    return segments or [(normalized_text.strip(), 0.0)]
+
+def normalize_waveform(wav: Any) -> np.ndarray:
+    waveform = np.asarray(wav, dtype=np.float32)
+    waveform = np.squeeze(waveform)
+    if waveform.ndim > 1:
+        waveform = np.mean(waveform, axis=0, dtype=np.float32)
+    return waveform.astype(np.float32)
+
+
+def build_silence(sample_rate: int, duration: float) -> np.ndarray:
+    silence_len = max(0, int(duration * sample_rate))
+    return np.zeros((silence_len,), dtype=np.float32)
+
+
+def clean_segment_text(text: str) -> str:
+    cleaned = re.sub(r"[\.,\uff0c\u3002\u2026\-\u2014]+$", "", text).strip()
+    return cleaned or text.strip()
+
+def save_voice_metadata(
+    metadata_path: Path,
+    voice_name: str,
+    ref_text: Optional[str],
+    ref_audio: Optional[str],
+) -> None:
+    metadata = {
+        "voiceName": voice_name,
+        "refText": (ref_text or "").strip(),
+        "refAudio": ref_audio or "",
+        "createdAt": time.strftime("%Y-%m-%dT%H:%M:%S"),
+        "source": "Storyboard Copilot",
+        "version": "1.0",
+    }
+    with open(metadata_path, "w", encoding="utf-8") as handle:
+        json.dump(metadata, handle, ensure_ascii=False, indent=2)
+
+
+def load_voice_prompt_file(prompt_file: str) -> List[VoiceClonePromptItem]:
+    try:
+        voice_prompt = torch.load(prompt_file, map_location="cpu", weights_only=False)
+    except TypeError:
+        voice_prompt = torch.load(prompt_file, map_location="cpu")
+
+    raw_items = voice_prompt.get("items") if isinstance(voice_prompt, dict) else voice_prompt
+    if not isinstance(raw_items, list):
+        raise ValueError("Prompt file does not contain valid prompt items")
+
+    prompt_items: List[VoiceClonePromptItem] = []
+    for item in raw_items:
+        if isinstance(item, VoiceClonePromptItem):
+            prompt_items.append(item)
+            continue
+
+        if not isinstance(item, dict):
+            raise ValueError("Prompt item is not a valid dictionary")
+
+        prompt_items.append(
+            VoiceClonePromptItem(
+                ref_code=item["ref_code"],
+                ref_spk_embedding=item["ref_spk_embedding"],
+                x_vector_only_mode=bool(item.get("x_vector_only_mode", False)),
+                icl_mode=bool(item.get("icl_mode", False)),
+                ref_text=item.get("ref_text"),
+            )
+        )
+
+    return prompt_items
+
+
+def generate_segmented_voice_design(
+    model: Qwen3TTSModel,
+    text: str,
+    language: str,
+    instruct: str,
+    generation_kwargs: Dict[str, Any],
+    pause_config: Dict[str, float],
+) -> tuple[List[np.ndarray], int]:
+    segments = split_text_by_pauses(text, pause_config)
+    results: List[np.ndarray] = []
+    sample_rate = 24000
+
+    for segment_text, pause_duration in segments:
+        pronounceable = re.sub(r"[^\w\u4e00-\u9fff]", "", segment_text)
+        if pronounceable.strip():
+            wavs, sample_rate = model.generate_voice_design(
+                text=clean_segment_text(segment_text),
+                language=language,
+                instruct=instruct,
+                **generation_kwargs,
+            )
+            for wav in wavs:
+                results.append(normalize_waveform(wav))
+
+        if pause_duration > 0:
+            results.append(build_silence(sample_rate, pause_duration))
+
+    if not results:
+        raise ValueError("No audio was generated from the provided text")
+
+    return [np.concatenate(results)], sample_rate
+
+
+def generate_segmented_voice_clone(
+    model: Qwen3TTSModel,
+    text: str,
+    language: str,
+    generation_kwargs: Dict[str, Any],
+    pause_config: Dict[str, float],
+) -> tuple[List[np.ndarray], int]:
+    segments = split_text_by_pauses(text, pause_config)
+    results: List[np.ndarray] = []
+    sample_rate = 24000
+
+    for segment_text, pause_duration in segments:
+        pronounceable = re.sub(r"[^\w\u4e00-\u9fff]", "", segment_text)
+        if pronounceable.strip():
+            wavs, sample_rate = model.generate_voice_clone(
+                text=clean_segment_text(segment_text),
+                language=language,
+                **generation_kwargs,
+            )
+            for wav in wavs:
+                results.append(normalize_waveform(wav))
+
+        if pause_duration > 0:
+            results.append(build_silence(sample_rate, pause_duration))
+
+    if not results:
+        raise ValueError("No audio was generated from the provided text")
+
+    return [np.concatenate(results)], sample_rate
 
 
 def save_wavs(prefix: str, wavs: List[Any], sample_rate: int) -> List[Dict[str, Any]]:
@@ -236,11 +472,13 @@ def command_generate_voice_design(payload: Dict[str, Any]) -> Dict[str, Any]:
 
     device = resolve_device(payload.get("device"))
     model = get_model("voice_design", device, payload.get("dtype"))
-    wavs, sample_rate = model.generate_voice_design(
+    wavs, sample_rate = generate_segmented_voice_design(
+        model=model,
         text=text,
         language=resolve_language(payload.get("language")),
         instruct=instruct,
-        **collect_generation_kwargs(payload),
+        generation_kwargs=collect_generation_kwargs(payload),
+        pause_config=build_pause_config(payload),
     )
     files = save_wavs(payload.get("outputPrefix") or "voice-design", wavs, sample_rate)
     return {
@@ -293,15 +531,30 @@ def command_create_voice_clone_prompt(payload: Dict[str, Any]) -> Dict[str, Any]
         ref_text=ref_text,
         x_vector_only_mode=x_vector_only_mode,
     )
-    output_path = next_voice_path(payload.get("outputPrefix") or "voice-prompt")
+    voice_name = payload.get("voiceName") or payload.get("outputPrefix") or "voice-prompt"
+    output_path = next_voice_path(voice_name)
     payload_to_save = {
         "items": [item.__dict__ for item in prompt_items],
+        "voiceName": voice_name,
+        "refText": (ref_text or "").strip() if isinstance(ref_text, str) else "",
     }
     torch.save(payload_to_save, str(output_path))
+    metadata_path = output_path.with_suffix(".json")
+    save_voice_metadata(metadata_path, str(voice_name), ref_text, ref_audio)
+    ref_audio_path = Path(str(ref_audio))
+    if ref_audio_path.exists() and ref_audio_path.is_file():
+        try:
+            shutil.copy2(
+                ref_audio_path,
+                output_path.with_suffix(ref_audio_path.suffix or ".wav"),
+            )
+        except OSError:
+            pass
     return {
         "ok": True,
         "command": "create_voice_clone_prompt",
         "promptFile": str(output_path),
+        "promptLabel": output_path.name,
     }
 
 
@@ -316,24 +569,12 @@ def command_generate_voice_clone(payload: Dict[str, Any]) -> Dict[str, Any]:
     model = get_model("base", device, payload.get("dtype"))
 
     generate_kwargs = dict(
-        text=text,
-        language=resolve_language(payload.get("language")),
         **collect_generation_kwargs(payload),
     )
 
     prompt_file = payload.get("promptFile")
     if prompt_file:
-        voice_prompt = torch.load(prompt_file, map_location="cpu", weights_only=True)
-        generate_kwargs["voice_clone_prompt"] = [
-            VoiceClonePromptItem(
-                ref_code=item["ref_code"],
-                ref_spk_embedding=item["ref_spk_embedding"],
-                x_vector_only_mode=bool(item["x_vector_only_mode"]),
-                icl_mode=bool(item["icl_mode"]),
-                ref_text=item.get("ref_text"),
-            )
-            for item in voice_prompt["items"]
-        ]
+        generate_kwargs["voice_clone_prompt"] = load_voice_prompt_file(str(prompt_file))
     else:
         ref_audio = payload.get("refAudio")
         if not ref_audio:
@@ -344,7 +585,13 @@ def command_generate_voice_clone(payload: Dict[str, Any]) -> Dict[str, Any]:
             payload.get("xVectorOnlyMode", False)
         )
 
-    wavs, sample_rate = model.generate_voice_clone(**generate_kwargs)
+    wavs, sample_rate = generate_segmented_voice_clone(
+        model=model,
+        text=text,
+        language=resolve_language(payload.get("language")),
+        generation_kwargs=generate_kwargs,
+        pause_config=build_pause_config(payload),
+    )
     files = save_wavs(payload.get("outputPrefix") or "voice-clone", wavs, sample_rate)
     return {
         "ok": True,
@@ -424,3 +671,4 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
+

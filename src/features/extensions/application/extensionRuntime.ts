@@ -3,7 +3,10 @@ import {
   prepareNodeAudioFromFile,
   type PreparedAudio,
 } from '@/features/canvas/application/audioData';
-import type { TtsVoiceDesignNodeData } from '@/features/canvas/domain/canvasNodes';
+import type {
+  QwenTtsPauseConfig,
+  TtsVoiceDesignNodeData,
+} from '@/features/canvas/domain/canvasNodes';
 import { runExtensionCommand } from '@/commands/extensions';
 
 import { createMockQwenTtsAudioFile } from './mockQwenTts';
@@ -56,13 +59,50 @@ interface QwenTtsGenerateVoiceDesignResponse {
   files?: string[];
 }
 
-export interface GenerateQwenTtsVoiceDesignRequest {
+interface QwenTtsCreateVoiceClonePromptResponse {
+  ok: boolean;
+  command: 'create_voice_clone_prompt';
+  promptFile?: string;
+  promptLabel?: string;
+}
+
+interface QwenTtsGenerateVoiceCloneResponse {
+  ok: boolean;
+  command: 'generate_voice_clone';
+  outputs?: QwenTtsGeneratedOutput[];
+  files?: string[];
+}
+
+export interface GenerateQwenTtsVoiceDesignRequest extends QwenTtsPauseConfig {
   text: string;
   voicePrompt: string;
   stylePreset: QwenTtsVoicePreset;
   language: QwenTtsVoiceLanguage;
   speakingRate: number;
   pitch: number;
+  maxNewTokens: number;
+  topP: number;
+  topK: number;
+  temperature: number;
+  repetitionPenalty: number;
+}
+
+export interface CreateQwenTtsSavedVoicePromptRequest {
+  refAudio: string;
+  refText: string;
+  voiceName: string;
+}
+
+export interface SavedQwenTtsVoicePromptAsset {
+  promptFile: string;
+  promptLabel: string;
+}
+
+export interface GenerateQwenTtsSavedVoiceRequest extends QwenTtsPauseConfig {
+  text: string;
+  language: QwenTtsVoiceLanguage;
+  voiceName: string;
+  promptFile: string;
   maxNewTokens: number;
   topP: number;
   topK: number;
@@ -256,6 +296,17 @@ function buildVoiceDesignInstruction(
   return segments.join('; ');
 }
 
+function buildSavedVoiceInstruction(
+  request: GenerateQwenTtsSavedVoiceRequest
+): string {
+  const segments = [
+    request.voiceName.trim(),
+    request.promptFile.trim() ? 'use the saved reference voice prompt' : '',
+  ].filter((value) => value.length > 0);
+
+  return segments.join('; ');
+}
+
 function getFileNameFromPath(filePath: string): string | null {
   const normalized = filePath.trim().replace(/\\/g, '/');
   if (!normalized) {
@@ -292,6 +343,29 @@ function normalizeFloat(
   return Math.min(max, Math.max(min, value));
 }
 
+function normalizePauseValue(value: number | undefined, fallback: number): number {
+  if (typeof value !== 'number' || !Number.isFinite(value)) {
+    return fallback;
+  }
+
+  return normalizeFloat(value, fallback, 0, 5);
+}
+
+function buildPausePayload(config: QwenTtsPauseConfig): Record<string, number> {
+  return {
+    pause_linebreak: normalizePauseValue(config.pauseLinebreak, 0.5),
+    period_pause: normalizePauseValue(config.periodPause, 0.4),
+    comma_pause: normalizePauseValue(config.commaPause, 0.2),
+    question_pause: normalizePauseValue(config.questionPause, 0.6),
+    hyphen_pause: normalizePauseValue(config.hyphenPause, 0.3),
+  };
+}
+
+function sanitizeOutputPrefix(value: string, fallback: string): string {
+  const sanitized = value.trim().replace(/[^a-zA-Z0-9._-]+/g, '-').replace(/^-+|-+$/g, '');
+  return sanitized || fallback;
+}
+
 async function generateRealVoiceDesignAudio(
   extensionPackage: LoadedExtensionPackage,
   request: GenerateQwenTtsVoiceDesignRequest
@@ -309,6 +383,7 @@ async function generateRealVoiceDesignAudio(
       top_k: normalizePositiveInteger(request.topK, 20, 0, 100),
       top_p: normalizeFloat(request.topP, 0.8, 0, 1),
       repetition_penalty: normalizeFloat(request.repetitionPenalty, 1.05, 1, 2),
+      ...buildPausePayload(request),
     }
   );
 
@@ -359,6 +434,124 @@ export async function generateQwenTtsVoiceDesignAudio(
   }
 
   return await generateMockVoiceDesignAudio(request);
+}
+
+async function createRealSavedVoicePrompt(
+  extensionPackage: LoadedExtensionPackage,
+  request: CreateQwenTtsSavedVoicePromptRequest
+): Promise<SavedQwenTtsVoicePromptAsset> {
+  const fallbackLabel = `${sanitizeOutputPrefix(request.voiceName, 'saved-voice')}.qvp`;
+  const response = await runExtensionCommand<QwenTtsCreateVoiceClonePromptResponse>(
+    extensionPackage.folderPath,
+    'create_voice_clone_prompt',
+    {
+      refAudio: request.refAudio,
+      refText: request.refText,
+      voiceName: request.voiceName,
+      outputPrefix: sanitizeOutputPrefix(request.voiceName, `saved-voice-${Date.now()}`),
+    }
+  );
+
+  const promptFile = response.promptFile?.trim();
+  if (!promptFile) {
+    throw new Error('The extension runtime did not return a saved voice prompt file.');
+  }
+
+  return {
+    promptFile,
+    promptLabel: response.promptLabel?.trim() || getFileNameFromPath(promptFile) || fallbackLabel,
+  };
+}
+
+async function createMockSavedVoicePrompt(
+  request: CreateQwenTtsSavedVoicePromptRequest
+): Promise<SavedQwenTtsVoicePromptAsset> {
+  const normalizedName = sanitizeOutputPrefix(request.voiceName, `saved-voice-${Date.now()}`);
+  return {
+    promptFile: `mock://${normalizedName}`,
+    promptLabel: `${normalizedName}.qvp`,
+  };
+}
+
+export async function createQwenTtsSavedVoicePrompt(
+  extensionPackage: LoadedExtensionPackage,
+  request: CreateQwenTtsSavedVoicePromptRequest
+): Promise<SavedQwenTtsVoicePromptAsset> {
+  if (extensionPackage.id === QWEN_TTS_COMPLETE_EXTENSION_ID) {
+    return await createRealSavedVoicePrompt(extensionPackage, request);
+  }
+
+  return await createMockSavedVoicePrompt(request);
+}
+
+async function generateRealSavedVoiceAudio(
+  extensionPackage: LoadedExtensionPackage,
+  request: GenerateQwenTtsSavedVoiceRequest
+): Promise<GeneratedQwenTtsAudioAsset> {
+  const response = await runExtensionCommand<QwenTtsGenerateVoiceCloneResponse>(
+    extensionPackage.folderPath,
+    'generate_voice_clone',
+    {
+      text: request.text,
+      language: request.language,
+      promptFile: request.promptFile,
+      outputPrefix: sanitizeOutputPrefix(request.voiceName, `saved-voice-${Date.now()}`),
+      max_new_tokens: normalizePositiveInteger(request.maxNewTokens, 2048, 512, 4096),
+      temperature: normalizeFloat(request.temperature, 1, 0.1, 2),
+      top_k: normalizePositiveInteger(request.topK, 20, 0, 100),
+      top_p: normalizeFloat(request.topP, 0.8, 0, 1),
+      repetition_penalty: normalizeFloat(request.repetitionPenalty, 1.05, 1, 2),
+      ...buildPausePayload(request),
+    }
+  );
+
+  const firstOutput = response.outputs?.[0];
+  const outputPath = firstOutput?.path ?? response.files?.[0] ?? null;
+  if (!outputPath) {
+    throw new Error('The extension runtime did not return a generated audio file.');
+  }
+
+  const preparedAudio = await prepareNodeAudio(outputPath, {
+    duration: firstOutput?.duration,
+    mimeType: 'audio/wav',
+  });
+
+  return {
+    ...preparedAudio,
+    audioFileName: firstOutput?.name ?? getFileNameFromPath(outputPath),
+    sourcePath: outputPath,
+  };
+}
+
+async function generateMockSavedVoiceAudio(
+  request: GenerateQwenTtsSavedVoiceRequest
+): Promise<GeneratedQwenTtsAudioAsset> {
+  const audioFile = await createMockQwenTtsAudioFile({
+    text: request.text,
+    voicePrompt: buildSavedVoiceInstruction(request),
+    stylePreset: 'natural',
+    language: request.language,
+    speakingRate: 1,
+    pitch: 0,
+  });
+
+  const preparedAudio = await prepareNodeAudioFromFile(audioFile);
+  return {
+    ...preparedAudio,
+    audioFileName: audioFile.name,
+    sourcePath: null,
+  };
+}
+
+export async function generateQwenTtsSavedVoiceAudio(
+  extensionPackage: LoadedExtensionPackage,
+  request: GenerateQwenTtsSavedVoiceRequest
+): Promise<GeneratedQwenTtsAudioAsset> {
+  if (extensionPackage.id === QWEN_TTS_COMPLETE_EXTENSION_ID) {
+    return await generateRealSavedVoiceAudio(extensionPackage, request);
+  }
+
+  return await generateMockSavedVoiceAudio(request);
 }
 
 export function resolveQwenTtsExtensionState(

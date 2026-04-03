@@ -9,6 +9,7 @@ import {
   Loader2,
   PackageOpen,
   PlugZap,
+  Trash2,
 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 
@@ -38,6 +39,7 @@ function normalizeDialogDirectoryPath(value: string | string[] | null): string |
 const NODE_FEATURE_LABEL_KEYS: Record<string, string> = {
   ttsTextNode: 'node.menu.ttsText',
   ttsVoiceDesignNode: 'node.menu.ttsVoiceDesign',
+  ttsSavedVoiceNode: 'node.menu.ttsSavedVoice',
 };
 
 const SETTINGS_SECTION_LABEL_KEYS: Record<string, string> = {
@@ -64,6 +66,7 @@ export function ExtensionsDialog({ isOpen, onClose }: ExtensionsDialogProps) {
   const loadExtensionPackage = useExtensionsStore((state) => state.loadExtensionPackage);
   const enableExtension = useExtensionsStore((state) => state.enableExtension);
   const disableExtension = useExtensionsStore((state) => state.disableExtension);
+  const removeExtensionPackage = useExtensionsStore((state) => state.removeExtensionPackage);
   const [isLoadingPackage, setIsLoadingPackage] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [collapsedPackageIds, setCollapsedPackageIds] = useState<Record<string, boolean>>({});
@@ -355,6 +358,25 @@ export function ExtensionsDialog({ isOpen, onClose }: ExtensionsDialogProps) {
                         {isCollapsed
                           ? t('extensions.expandDetails')
                           : t('extensions.collapseDetails')}
+                      </UiButton>
+
+                      <UiButton
+                        variant="ghost"
+                        onClick={() => {
+                          const shouldRemove = window.confirm(
+                            t('extensions.deleteConfirm', {
+                              name: extensionPackage.name,
+                            })
+                          );
+                          if (!shouldRemove) {
+                            return;
+                          }
+
+                          removeExtensionPackage(extensionPackage.id);
+                        }}
+                      >
+                        <Trash2 className="mr-2 h-4 w-4" />
+                        {t('extensions.delete')}
                       </UiButton>
 
                       {isEnabled ? (
