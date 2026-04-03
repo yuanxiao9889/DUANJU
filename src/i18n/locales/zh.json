@@ -235,6 +235,7 @@
       "submit": "生成",
       "submitting": "生成中",
       "submitFailed": "即梦视频生成失败",
+      "referenceVideoTooLong": "视频参考必须小于 {{seconds}} 秒，请裁剪后再连接。",
       "durationSuggestionLabel": "建议时长：{{seconds}} 秒",
       "durationSuggestionOverflow": "建议时长：{{seconds}} 秒，当前内容预计约 {{estimated}} 秒，可能超过 15 秒限制。",
       "resultReturnedAt": "{{time}} 已回传到视频结果节点",

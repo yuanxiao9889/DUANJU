@@ -37,10 +37,8 @@ import {
   type ScriptRootNodeData,
   normalizeScriptChapterNodeData,
   normalizeScriptRootNodeData,
-  isExportImageNode,
-  isImageEditNode,
   isStoryboardSplitNode,
-  isUploadNode,
+  resolveSingleImageConnectionSource,
 } from '@/features/canvas/domain/canvasNodes';
 import {
   nodeHasSourceHandle,
@@ -746,11 +744,7 @@ function resolveStoryboardFrameImageKeys(frame: StoryboardFrameItem): string[] {
 }
 
 function isStoryboardInputSourceNode(node: CanvasNode | undefined): boolean {
-  return Boolean(
-    node
-    && (isUploadNode(node) || isImageEditNode(node) || isExportImageNode(node))
-    && normalizeNonEmptyString(node.data.imageUrl)
-  );
+  return Boolean(resolveSingleImageConnectionSource(node));
 }
 
 function doesStoryboardFrameReferenceIncomingEdge(
@@ -758,6 +752,7 @@ function doesStoryboardFrameReferenceIncomingEdge(
   edge: CanvasEdge,
   sourceNode: CanvasNode
 ): boolean {
+  const singleImageSource = resolveSingleImageConnectionSource(sourceNode);
   const normalizedFrameSourceEdgeId = normalizeNonEmptyString(frame.sourceEdgeId);
   if (normalizedFrameSourceEdgeId && normalizedFrameSourceEdgeId === edge.id) {
     return true;
@@ -774,8 +769,8 @@ function doesStoryboardFrameReferenceIncomingEdge(
   }
 
   const sourceImageKeys = [
-    normalizeNonEmptyString(sourceNode.data.imageUrl),
-    normalizeNonEmptyString(sourceNode.data.previewImageUrl),
+    normalizeNonEmptyString(singleImageSource?.imageUrl),
+    normalizeNonEmptyString(singleImageSource?.previewImageUrl),
   ].filter((value): value is string => Boolean(value));
 
   return sourceImageKeys.some((key) => frameImageKeys.includes(key));

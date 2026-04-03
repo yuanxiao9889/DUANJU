@@ -155,7 +155,7 @@ const jimengNodeDefinition: CanvasNodeDefinition<JimengNodeData> = {
     sourceHandle: true,
     targetHandle: true,
     connectMenu: {
-      fromSource: false,
+      fromSource: true,
       fromTarget: false,
     },
   },
@@ -309,7 +309,7 @@ const storyboardSplitResultDefinition: CanvasNodeDefinition<StoryboardSplitResul
     sourceHandle: true,
     targetHandle: true,
     connectMenu: {
-      fromSource: false,
+      fromSource: true,
       fromTarget: false,
     },
   },
@@ -403,7 +403,7 @@ const jimengImageNodeDefinition: CanvasNodeDefinition<JimengImageNodeData> = {
     sourceHandle: true,
     targetHandle: true,
     connectMenu: {
-      fromSource: false,
+      fromSource: true,
       fromTarget: false,
     },
   },

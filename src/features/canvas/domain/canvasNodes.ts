@@ -1009,6 +1009,82 @@ export function isScriptWorldviewNode(
   return node?.type === CANVAS_NODE_TYPES.scriptWorldview;
 }
 
+export interface SingleImageConnectionSource {
+  imageUrl: string;
+  previewImageUrl: string;
+  aspectRatio: string;
+}
+
+function normalizeImageSource(value: string | null | undefined): string | null {
+  if (typeof value !== 'string') {
+    return null;
+  }
+
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : null;
+}
+
+function resolveJimengResultImageSource(
+  item: JimengGeneratedImageItem | undefined
+): string | null {
+  if (!item) {
+    return null;
+  }
+
+  return normalizeImageSource(
+    item.imageUrl ?? item.previewImageUrl ?? item.sourceUrl ?? null
+  );
+}
+
+export function resolveSingleImageConnectionSource(
+  node: CanvasNode | null | undefined
+): SingleImageConnectionSource | null {
+  if (!node) {
+    return null;
+  }
+
+  if (isUploadNode(node) || isImageEditNode(node) || isExportImageNode(node)) {
+    const imageUrl = normalizeImageSource(node.data.imageUrl);
+    if (!imageUrl) {
+      return null;
+    }
+
+    return {
+      imageUrl,
+      previewImageUrl: normalizeImageSource(node.data.previewImageUrl) ?? imageUrl,
+      aspectRatio: normalizeImageSource(node.data.aspectRatio) ?? DEFAULT_ASPECT_RATIO,
+    };
+  }
+
+  if (isJimengImageResultNode(node)) {
+    const resolvedImages = (node.data.resultImages ?? [])
+      .map((item) => {
+        const imageUrl = resolveJimengResultImageSource(item);
+        if (!imageUrl) {
+          return null;
+        }
+
+        return {
+          imageUrl,
+          previewImageUrl:
+            normalizeImageSource(item.previewImageUrl)
+            ?? normalizeImageSource(item.imageUrl)
+            ?? normalizeImageSource(item.sourceUrl)
+            ?? imageUrl,
+          aspectRatio:
+            normalizeImageSource(item.aspectRatio)
+            ?? normalizeImageSource(node.data.aspectRatio)
+            ?? DEFAULT_ASPECT_RATIO,
+        } satisfies SingleImageConnectionSource;
+      })
+      .filter((item): item is SingleImageConnectionSource => Boolean(item));
+
+    return resolvedImages.length === 1 ? resolvedImages[0] : null;
+  }
+
+  return null;
+}
+
 export function getNodePrimaryImageSource(
   node: CanvasNode | null | undefined
 ): string | null {
@@ -1025,10 +1101,12 @@ export function getNodePrimaryImageSource(
     return null;
   }
 
+  const singleImageSource = resolveSingleImageConnectionSource(node);
+  if (singleImageSource) {
+    return singleImageSource.imageUrl;
+  }
+
   if (
-    isUploadNode(node) ||
-    isImageEditNode(node) ||
-    isExportImageNode(node) ||
     isStoryboardGenNode(node)
   ) {
     const imageUrl = node.data.imageUrl;
@@ -1036,11 +1114,6 @@ export function getNodePrimaryImageSource(
   }
 
   if (isJimengImageNode(node)) {
-    const primaryResult = node.data.resultImages?.find((item) => Boolean(resolveJimengResultSource(item)));
-    return resolveJimengResultSource(primaryResult);
-  }
-
-  if (isJimengImageResultNode(node)) {
     const primaryResult = node.data.resultImages?.find((item) => Boolean(resolveJimengResultSource(item)));
     return resolveJimengResultSource(primaryResult);
   }

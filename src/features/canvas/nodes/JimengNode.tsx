@@ -80,7 +80,6 @@ import {
   LONG_REFERENCE_TOKEN_PREFIX,
   SHORT_REFERENCE_TOKEN_PREFIX,
   insertReferenceToken,
-  remapReferenceTokensByImageOrder,
   removeTextRange,
 } from "@/features/canvas/application/referenceTokenEditing";
 import {
@@ -204,6 +203,13 @@ const DEFAULT_DURATION: JimengDurationSeconds = 5;
 const DEFAULT_VIDEO_RESOLUTION = "1080p";
 const PICKER_FALLBACK_ANCHOR: PickerAnchor = { left: 8, top: 8 };
 const PICKER_Y_OFFSET_PX = 20;
+const MAX_REFERENCE_VIDEO_DURATION_SECONDS = 15;
+const VIDEO_REFERENCE_TOKEN_PREFIX = "@视频";
+const VISUAL_REFERENCE_TOKEN_PREFIXES = [
+  LONG_REFERENCE_TOKEN_PREFIX,
+  SHORT_REFERENCE_TOKEN_PREFIX,
+  VIDEO_REFERENCE_TOKEN_PREFIX,
+] as const;
 const AUDIO_SHORT_REFERENCE_TOKEN_PREFIX = "@音";
 const AUDIO_LONG_REFERENCE_TOKEN_PREFIX = "@音频";
 const AUDIO_REFERENCE_TOKEN_PREFIXES = [
@@ -231,6 +237,20 @@ function formatTimestamp(
 
 function buildJimengVideoResultNodeTitle(fallbackTitle: string): string {
   return fallbackTitle;
+}
+
+function buildReferenceTokenWithPrefix(
+  prefix: string,
+  referenceNumber: number,
+): string {
+  return `${prefix}${referenceNumber}`;
+}
+
+function buildVideoReferenceToken(referenceIndex: number): string {
+  return buildReferenceTokenWithPrefix(
+    VIDEO_REFERENCE_TOKEN_PREFIX,
+    referenceIndex + 1,
+  );
 }
 
 function buildClearedDurationSuggestionSnapshot(): PromptDurationSuggestionSnapshot {
@@ -510,7 +530,7 @@ function findJimengPromptReferenceTokens(
     ...findPromptReferenceTokensByPrefixes(
       prompt,
       maxVisualReferenceCount,
-      [LONG_REFERENCE_TOKEN_PREFIX, SHORT_REFERENCE_TOKEN_PREFIX],
+      VISUAL_REFERENCE_TOKEN_PREFIXES,
       "visual",
     ),
     ...findPromptReferenceTokensByPrefixes(
@@ -543,6 +563,89 @@ function findJimengPromptTokenRanges(
         ? token.end + 1
         : token.end,
   }));
+}
+
+function remapJimengVisualReferenceTokensByOrder(
+  text: string,
+  previousReferenceUrls: string[],
+  nextReferenceUrls: string[],
+): string {
+  if (
+    !text ||
+    previousReferenceUrls.length === 0 ||
+    nextReferenceUrls.length === 0 ||
+    areReferenceImageOrdersEqual(previousReferenceUrls, nextReferenceUrls)
+  ) {
+    return text;
+  }
+
+  const nextReferencePositionQueues = new Map<string, number[]>();
+  nextReferenceUrls.forEach((referenceUrl, index) => {
+    const existingQueue = nextReferencePositionQueues.get(referenceUrl);
+    if (existingQueue) {
+      existingQueue.push(index);
+      return;
+    }
+
+    nextReferencePositionQueues.set(referenceUrl, [index]);
+  });
+
+  const previousToNextReferenceIndexes = previousReferenceUrls.map(
+    (referenceUrl) => {
+      const positionQueue = nextReferencePositionQueues.get(referenceUrl);
+      if (!positionQueue || positionQueue.length === 0) {
+        return -1;
+      }
+
+      return positionQueue.shift() ?? -1;
+    },
+  );
+
+  const referenceTokens = findPromptReferenceTokensByPrefixes(
+    text,
+    undefined,
+    VISUAL_REFERENCE_TOKEN_PREFIXES,
+    "visual",
+  );
+  if (referenceTokens.length === 0) {
+    return text;
+  }
+
+  let nextText = text;
+  for (let index = referenceTokens.length - 1; index >= 0; index -= 1) {
+    const token = referenceTokens[index];
+    const previousReferenceIndex = token.value - 1;
+    if (
+      previousReferenceIndex < 0 ||
+      previousReferenceIndex >= previousToNextReferenceIndexes.length
+    ) {
+      continue;
+    }
+
+    const nextReferenceIndex =
+      previousToNextReferenceIndexes[previousReferenceIndex];
+    if (nextReferenceIndex < 0) {
+      continue;
+    }
+
+    const tokenPrefix =
+      resolveReferenceTokenPrefix(
+        token.token,
+        0,
+        VISUAL_REFERENCE_TOKEN_PREFIXES,
+      ) ?? SHORT_REFERENCE_TOKEN_PREFIX;
+    const nextToken = buildReferenceTokenWithPrefix(
+      tokenPrefix,
+      nextReferenceIndex + 1,
+    );
+    if (nextToken === token.token) {
+      continue;
+    }
+
+    nextText = `${nextText.slice(0, token.start)}${nextToken}${nextText.slice(token.end)}`;
+  }
+
+  return nextText;
 }
 
 function resolveJimengReferenceAwareDeleteRange(
@@ -990,7 +1093,10 @@ export const JimengNode = memo(
               referenceUrl,
               previewImageUrl: connectedItem.previewImageUrl,
               displayUrl: resolveImageDisplayUrl(connectedItem.previewImageUrl),
-              tokenLabel: buildShortReferenceToken(index),
+              tokenLabel:
+                connectedItem.kind === "video"
+                  ? buildVideoReferenceToken(index)
+                  : buildShortReferenceToken(index),
               label: t(
                 connectedItem.kind === "video"
                   ? "node.jimeng.referenceVideoLabel"
@@ -1106,9 +1212,17 @@ export const JimengNode = memo(
     const isFirstLastFrameCountInvalid =
       typeof requiredReferenceImageCount === "number" &&
       referenceImageSources.length !== requiredReferenceImageCount;
+    const hasReferenceVideoTooLong = incomingVisualItems.some(
+      (item) =>
+        item.kind === "video" &&
+        typeof item.durationSeconds === "number" &&
+        Number.isFinite(item.durationSeconds) &&
+        item.durationSeconds >= MAX_REFERENCE_VIDEO_DURATION_SECONDS,
+    );
     const isGenerateBlocked =
       (incomingVisualItems.length === 0 && incomingAudios.length > 0) ||
-      isFirstLastFrameCountInvalid;
+      isFirstLastFrameCountInvalid ||
+      hasReferenceVideoTooLong;
 
     const modelOptions = useMemo(
       () =>
@@ -1327,7 +1441,7 @@ export const JimengNode = memo(
       }
 
       previousOrderedReferenceImagesRef.current = orderedReferenceVisualUrls;
-      const nextPrompt = remapReferenceTokensByImageOrder(
+      const nextPrompt = remapJimengVisualReferenceTokensByOrder(
         promptValueRef.current,
         previousOrderedReferenceImages,
         orderedReferenceVisualUrls,
@@ -1607,9 +1721,13 @@ export const JimengNode = memo(
       }
 
       if (isGenerateBlocked) {
-        const message = isFirstLastFrameCountInvalid
-          ? t("node.jimeng.firstLastFrameRequiresTwoImages")
-          : t("node.jimeng.cliBlockedAudioNeedsImage");
+        const message = hasReferenceVideoTooLong
+          ? t("node.jimeng.referenceVideoTooLong", {
+              seconds: MAX_REFERENCE_VIDEO_DURATION_SECONDS,
+            })
+          : isFirstLastFrameCountInvalid
+            ? t("node.jimeng.firstLastFrameRequiresTwoImages")
+            : t("node.jimeng.cliBlockedAudioNeedsImage");
         updateNodeData(id, { lastError: message });
         await showErrorDialog(message, t("common.error"));
         return;
@@ -1767,6 +1885,7 @@ export const JimengNode = memo(
       data.prompt,
       findNodePosition,
       flushCurrentProjectToDiskSafely,
+      hasReferenceVideoTooLong,
       id,
       incomingAudios,
       isGenerateBlocked,
@@ -1980,6 +2099,12 @@ export const JimengNode = memo(
         return t("node.jimeng.firstLastFrameRequiresTwoImages");
       }
 
+      if (hasReferenceVideoTooLong) {
+        return t("node.jimeng.referenceVideoTooLong", {
+          seconds: MAX_REFERENCE_VIDEO_DURATION_SECONDS,
+        });
+      }
+
       if (isGenerateBlocked) {
         return t("node.jimeng.cliBlockedAudioNeedsImage");
       }
@@ -2068,6 +2193,7 @@ export const JimengNode = memo(
       });
     }, [
       hasReferenceVideos,
+      hasReferenceVideoTooLong,
       incomingAudios.length,
       isFirstLastFrameCountInvalid,
       isGenerateBlocked,

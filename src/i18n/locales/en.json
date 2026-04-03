@@ -248,6 +248,7 @@
       "submit": "Generate",
       "submitting": "Generating",
       "submitFailed": "Jimeng video generation failed",
+      "referenceVideoTooLong": "Video references must be shorter than {{seconds}} seconds. Please trim the clip before connecting it.",
       "durationSuggestionIdle": "Suggested duration will appear after prompt optimization",
       "durationSuggestionLoading": "LLM is estimating a suitable duration...",
       "durationSuggestionLabel": "Suggested duration: {{seconds}}s",

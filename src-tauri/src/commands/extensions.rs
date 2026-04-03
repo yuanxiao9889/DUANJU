@@ -346,3 +346,89 @@ pub async fn run_extension_command(
         &stderr,
     )
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    fn resolve_complete_extension_path() -> PathBuf {
+        PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("..")
+            .join("extension-packages")
+            .join("qwen3-tts-complete")
+    }
+
+    #[test]
+    fn complete_extension_manifest_is_readable() {
+        let extension_dir = resolve_complete_extension_path();
+        assert!(
+            extension_dir.exists(),
+            "expected complete extension package at {}",
+            extension_dir.display()
+        );
+
+        let manifest = read_extension_package(extension_dir.to_string_lossy().to_string())
+            .expect("manifest should be readable");
+
+        assert_eq!(manifest.id, "qwen3-tts-complete");
+        assert_eq!(manifest.runtime, "python-bridge");
+        assert!(manifest.entry.is_some(), "python entry should exist");
+    }
+
+    #[tokio::test]
+    #[ignore = "requires the local offline Qwen extension runtime and models"]
+    async fn complete_extension_health_command_succeeds() {
+        let extension_dir = resolve_complete_extension_path();
+        let response = run_extension_command(
+            extension_dir.to_string_lossy().to_string(),
+            "health".to_string(),
+            None,
+        )
+        .await
+        .expect("health command should succeed");
+
+        assert_eq!(response.get("ok").and_then(Value::as_bool), Some(true));
+        assert_eq!(
+            response.get("command").and_then(Value::as_str),
+            Some("health")
+        );
+    }
+
+    #[tokio::test]
+    #[ignore = "requires the local offline Qwen extension runtime, models, and generation time"]
+    async fn complete_extension_voice_design_generation_succeeds() {
+        let extension_dir = resolve_complete_extension_path();
+        let response = run_extension_command(
+            extension_dir.to_string_lossy().to_string(),
+            "generate_voice_design".to_string(),
+            Some(json!({
+                "text": "你好，这是一个从应用后端命令链路发起的扩展包可用性测试。",
+                "language": "zh",
+                "voicePrompt": "young female voice; natural delivery; clear articulation",
+                "outputPrefix": "rust-command-smoke"
+            })),
+        )
+        .await
+        .expect("voice design command should succeed");
+
+        let outputs = response
+            .get("outputs")
+            .and_then(Value::as_array)
+            .expect("outputs should be an array");
+        assert!(
+            !outputs.is_empty(),
+            "voice design generation should produce at least one output"
+        );
+
+        let output_path = outputs[0]
+            .get("path")
+            .and_then(Value::as_str)
+            .expect("first output should include a path");
+        assert!(
+            PathBuf::from(output_path).exists(),
+            "generated output file should exist: {}",
+            output_path
+        );
+    }
+}

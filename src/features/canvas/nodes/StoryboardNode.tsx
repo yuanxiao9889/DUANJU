@@ -37,9 +37,7 @@ import type {
 import {
   CANVAS_NODE_TYPES,
   DEFAULT_ASPECT_RATIO,
-  isExportImageNode,
-  isImageEditNode,
-  isUploadNode,
+  resolveSingleImageConnectionSource,
 } from '@/features/canvas/domain/canvasNodes';
 import { EXPORT_RESULT_DISPLAY_NAME, resolveNodeDisplayName } from '@/features/canvas/domain/nodeDisplay';
 import {
@@ -706,28 +704,17 @@ export const StoryboardNode = memo(({ id, data, selected, width, height }: Story
 
   const incomingImageRefs = useMemo(() => {
     return incomingSourceNodes.flatMap(({ edge, node: sourceNode }) => {
-      if (
-        !isUploadNode(sourceNode)
-        && !isImageEditNode(sourceNode)
-        && !isExportImageNode(sourceNode)
-      ) {
-        return [];
-      }
-
-      const imageUrl = sourceNode.data.imageUrl;
-      if (!imageUrl) {
+      const singleImageSource = resolveSingleImageConnectionSource(sourceNode);
+      if (!singleImageSource) {
         return [];
       }
 
       return [{
         sourceNodeId: sourceNode.id,
         sourceEdgeId: edge.id,
-        imageUrl,
-        previewImageUrl: sourceNode.data.previewImageUrl ?? null,
-        aspectRatio:
-          typeof sourceNode.data.aspectRatio === 'string'
-            ? sourceNode.data.aspectRatio
-            : undefined,
+        imageUrl: singleImageSource.imageUrl,
+        previewImageUrl: singleImageSource.previewImageUrl,
+        aspectRatio: singleImageSource.aspectRatio,
       }];
     });
   }, [incomingSourceNodes]);

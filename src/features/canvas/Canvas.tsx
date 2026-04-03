@@ -51,6 +51,7 @@ import {
   DEFAULT_NODE_WIDTH,
   getNodePrimaryImageSource,
   normalizeSceneCards,
+  resolveSingleImageConnectionSource,
 } from '@/features/canvas/domain/canvasNodes';
 import { isSupportedAudioFile, prepareNodeAudioFromFile } from '@/features/canvas/application/audioData';
 import { prepareNodeImage, prepareNodeImageFromFile } from '@/features/canvas/application/imageData';
@@ -379,6 +380,33 @@ function resolveAllowedNodeTypes(
   if (!sourceNode) {
     return baseTypes;
   }
+
+  let allowedTypes = baseTypes;
+
+  if (handleType === 'source') {
+    const isSingleImageSource = Boolean(resolveSingleImageConnectionSource(sourceNode));
+    const isVideoReferenceSource =
+      sourceNode.type === CANVAS_NODE_TYPES.video
+      || sourceNode.type === CANVAS_NODE_TYPES.jimengVideoResult;
+    const shouldHideVoiceDesign =
+      isSingleImageSource
+      || isVideoReferenceSource
+      || sourceNode.type === CANVAS_NODE_TYPES.jimeng
+      || sourceNode.type === CANVAS_NODE_TYPES.jimengImage
+      || sourceNode.type === CANVAS_NODE_TYPES.jimengImageResult;
+
+    if (!isSingleImageSource) {
+      allowedTypes = allowedTypes.filter(
+        (type) => type !== CANVAS_NODE_TYPES.jimengImage
+      );
+    }
+
+    if (shouldHideVoiceDesign) {
+      allowedTypes = allowedTypes.filter(
+        (type) => type !== CANVAS_NODE_TYPES.ttsVoiceDesign
+      );
+    }
+  }
   
   const isSourceRootNode = sourceNode.type === CANVAS_NODE_TYPES.scriptRoot;
   const isSourceChapterNode = sourceNode.type === CANVAS_NODE_TYPES.scriptChapter;
@@ -389,20 +417,20 @@ function resolveAllowedNodeTypes(
     const isMainChapter = sourceData.branchType === 'main' && sourceDepth === 1;
     
     if (isMainChapter) {
-      return baseTypes.filter(
+      return allowedTypes.filter(
         (type) => type !== CANVAS_NODE_TYPES.scriptChapter || 
         (type === CANVAS_NODE_TYPES.scriptChapter && handleType === 'source')
       );
     }
     
-    return baseTypes.filter((type) => type !== CANVAS_NODE_TYPES.scriptChapter);
+    return allowedTypes.filter((type) => type !== CANVAS_NODE_TYPES.scriptChapter);
   }
   
   if (isSourceRootNode) {
-    return baseTypes;
+    return allowedTypes;
   }
   
-  return baseTypes;
+  return allowedTypes;
 }
 
 function canNodeTypeBeManualConnectionSource(type: CanvasNodeType): boolean {
