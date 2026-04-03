@@ -49,8 +49,8 @@
     "targets": "all",
     "publisher": "Storyboard Copilot Team",
     "copyright": "Copyright © 2024 Storyboard Copilot Team. All rights reserved.",
-    "shortDescription": "AI驱动的短剧分镜创作工具",
-    "longDescription": "短剧助手是一款基于AI技术的分镜创作工具，支持图像生成、视频处理、分镜编排等功能，帮助创作者高效完成短剧分镜设计。",
+    "shortDescription": "AI 驱动的短剧分镜创作工具",
+    "longDescription": "短剧助手是一款基于 AI 技术的分镜创作工具，支持图像生成、视频处理、分镜编排等功能，帮助创作者高效完成短剧分镜设计。",
     "category": "GraphicsDesign",
     "windows": {
       "wix": {

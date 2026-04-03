@@ -188,9 +188,25 @@ export interface TtsTextNodeData extends NodeDisplayData {
 export interface TtsVoiceDesignNodeData extends NodeDisplayData {
   voicePrompt: string;
   stylePreset: 'natural' | 'narrator' | 'bright' | 'calm';
-  language: 'auto' | 'zh' | 'en' | 'jp';
+  language:
+    | 'auto'
+    | 'zh'
+    | 'en'
+    | 'jp'
+    | 'kr'
+    | 'fr'
+    | 'de'
+    | 'es'
+    | 'pt'
+    | 'ru'
+    | 'it';
   speakingRate: number;
   pitch: number;
+  maxNewTokens?: number;
+  topP?: number;
+  topK?: number;
+  temperature?: number;
+  repetitionPenalty?: number;
   isGenerating?: boolean;
   generationProgress?: number;
   statusText?: string | null;

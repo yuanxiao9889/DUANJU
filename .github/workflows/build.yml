@@ -123,9 +123,11 @@ jobs:
           - name: Windows
             platform: windows-latest
             args: --bundles nsis
+            artifact_glob: src-tauri/target/release/bundle/nsis/*.exe
           - name: macOS
             platform: macos-latest
-            args: --bundles dmg
+            args: --target universal-apple-darwin --bundles dmg
+            artifact_glob: src-tauri/target/universal-apple-darwin/release/bundle/dmg/*.dmg
     name: Build ${{ matrix.name }}
     runs-on: ${{ matrix.platform }}
     steps:
@@ -159,17 +161,55 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Build and publish bundles
-        uses: tauri-apps/tauri-action@v0.6.2
+      - name: Validate macOS signing and notarization secrets
+        if: matrix.platform == 'macos-latest'
+        shell: bash
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          missing=()
+          for key in \
+            APPLE_CERTIFICATE \
+            APPLE_CERTIFICATE_PASSWORD \
+            APPLE_SIGNING_IDENTITY \
+            APPLE_ID \
+            APPLE_PASSWORD \
+            APPLE_TEAM_ID; do
+            if [[ -z "${!key}" ]]; then
+              missing+=("$key")
+            fi
+          done
+
+          if (( ${#missing[@]} > 0 )); then
+            echo "Missing required macOS signing/notarization secrets: ${missing[*]}"
+            echo "Refusing to publish an unsigned macOS installer because it will install but fail to open on normal macOS machines."
+            exit 1
+          fi
+
+      - name: Build bundles
+        env:
+          CI: true
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: npx tauri build ${{ matrix.args }}
+
+      - name: Upload bundles to GitHub Release
+        uses: softprops/action-gh-release@v2
         with:
-          tagName: ${{ needs.prepare-release.outputs.tag }}
-          releaseName: 短剧助手 ${{ needs.prepare-release.outputs.tag }}
-          releaseBody: ${{ needs.prepare-release.outputs.body }}
-          releaseCommitish: ${{ github.sha }}
-          releaseDraft: false
+          tag_name: ${{ needs.prepare-release.outputs.tag }}
+          name: 短剧助手 ${{ needs.prepare-release.outputs.tag }}
+          body: ${{ needs.prepare-release.outputs.body }}
+          target_commitish: ${{ github.sha }}
+          draft: false
           prerelease: false
-          tauriScript: npx tauri
-          retryAttempts: 2
-          args: ${{ matrix.args }}
+          files: ${{ matrix.artifact_glob }}
+          fail_on_unmatched_files: true

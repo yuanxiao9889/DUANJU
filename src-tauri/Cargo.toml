@@ -2,7 +2,7 @@
 name = "storyboard-copilot"
 version = "0.2.2"
 default-run = "storyboard-copilot"
-description = "鍒嗛暅鍔╂墜 - AI鍥惧儚鐢熸垚涓庡垎闀滃伐鍏?"
+description = "短剧助手 - AI 驱动的短剧分镜创作工具"
 authors = ["you"]
 edition = "2021"
 

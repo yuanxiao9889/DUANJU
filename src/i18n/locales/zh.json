@@ -61,7 +61,31 @@
     "statusError": "启动失败",
     "statusLoaded": "已加载",
     "currentStep": "当前步骤",
-    "readyHint": "扩展启用后，对应节点会出现在画布节点菜单中。"
+    "readyHint": "扩展启用后，对应节点会出现在画布节点菜单中。",
+    "loadedPackages": "已加载扩展包",
+    "enabledPackages": "已启用扩展包",
+    "modelAssets": "模型资产",
+    "packageId": "扩展 ID",
+    "nodesTitle": "画布节点",
+    "settingsSectionsTitle": "设置栏目",
+    "entryPointsTitle": "入口位置",
+    "modelsTitle": "扩展内模型",
+    "noDeclaredFeatures": "未声明",
+    "noModels": "这个扩展包没有声明模型资产。",
+    "expandDetails": "展开详情",
+    "collapseDetails": "收起详情",
+    "collapsedSummary": "{{nodes}} 个节点 · {{entryPoints}} 个入口 · {{models}} 个模型",
+    "featureLabels": {
+      "extensions": "扩展设置",
+      "titleBar": "标题栏入口"
+    },
+    "modelRoles": {
+      "voiceDesign": "声音设计模型",
+      "voiceClone": "声音克隆模型",
+      "customVoice": "预设音色模型",
+      "tokenizer": "Tokenizer",
+      "unknown": "未分类"
+    }
   },
   "canvas": {
     "addImage": "添加图片",
@@ -360,12 +384,38 @@
     },
     "qwenTts": {
       "connectedText": "输入文本",
+      "connectedTextHint": "自动读取已连接文本节点的内容",
+      "connectedTextStats": "{{count}} 行文本",
+      "connectedCharacterCount": "{{count}} 字",
+      "offlineRuntime": "离线运行时",
+      "modelBadge": "Qwen3 TTS 1.7B VoiceDesign",
+      "runtimeReadyLabel": "已就绪",
+      "runtimeStartingLabel": "启动中",
+      "runtimeDisabledLabel": "未启用",
+      "runtimeStateReady": "本地模型已就绪，可以直接离线生成语音。",
+      "runtimeStateStarting": "扩展正在启动，本地模型检查完成后即可生成。",
+      "runtimeStateDisabled": "启用扩展后，这个节点才会接入本地 Qwen TTS 运行时。",
+      "runtimeProgress": "运行时进度",
+      "recipeTitle": "声音画像",
+      "recipeDescription": "用自然语言描述年龄感、情绪、气质和贴耳感，模型会把这段描述转成声音风格。",
       "voicePrompt": "声音设定",
       "voicePromptPlaceholder": "例如：年轻女性，情绪克制，像贴近耳边的轻声旁白",
       "stylePreset": "风格",
+      "styleHint": "先选一个基调，再用声音设定补充细节",
       "language": "语言",
+      "languageHint": "影响发音与韵律策略",
+      "rhythmTitle": "语言与节奏",
+      "rhythmDescription": "控制发音语言、整体语速和音高走向，让声音更贴近你想要的表演感。",
       "speakingRate": "语速",
       "pitch": "音高",
+      "advancedSettings": "高级生成参数",
+      "advancedSettingsHint": "细调随机性、稳定性和输出长度，适合在试听后做精修。",
+      "advancedSummary": "温度 {{temperature}} · Top P {{topP}} · Top K {{topK}} · 惩罚 {{repetitionPenalty}} · {{maxNewTokens}} tokens",
+      "maxNewTokens": "最大 Tokens",
+      "temperature": "Temperature",
+      "topP": "Top P",
+      "topK": "Top K",
+      "repetitionPenalty": "重复惩罚",
       "generate": "生成语音",
       "generating": "生成中...",
       "generateFailed": "语音生成失败",
@@ -380,17 +430,47 @@
       "statusPreparing": "正在整理声音参数...",
       "statusRendering": "正在生成语音音频...",
       "statusCreatingNode": "正在创建音频节点...",
+      "styleDescriptions": {
+        "natural": "贴近日常说话，适合作为通用底色",
+        "narrator": "更像旁白或讲述者，吐字更稳",
+        "bright": "更轻盈明亮，适合年轻感表达",
+        "calm": "更克制沉稳，情绪起伏较小"
+      },
       "styles": {
         "natural": "自然",
         "narrator": "旁白",
         "bright": "明亮",
         "calm": "沉稳"
       },
+      "rateDescriptors": {
+        "slow": "更舒缓，适合娓娓道来的表达",
+        "natural": "自然节奏，适合大多数场景",
+        "fast": "更利落，适合有推进感的表达"
+      },
+      "pitchDescriptors": {
+        "low": "整体更低沉一点",
+        "neutral": "保持自然音高",
+        "high": "整体更明亮一点"
+      },
+      "parameterDescriptions": {
+        "maxNewTokens": "控制单次生成允许的最大长度，长文本可以适当提高。",
+        "temperature": "越高越自由，越低越稳定。",
+        "topP": "控制候选词覆盖范围，越低越收敛。",
+        "topK": "限制每步采样候选数量，越低越保守。",
+        "repetitionPenalty": "提高后可减少重复，但过高可能让语气变硬。"
+      },
       "languages": {
         "auto": "自动识别",
         "zh": "中文",
         "en": "英文",
-        "jp": "日语"
+        "jp": "日语",
+        "kr": "韩语",
+        "fr": "法语",
+        "de": "德语",
+        "es": "西班牙语",
+        "pt": "葡萄牙语",
+        "ru": "俄语",
+        "it": "意大利语"
       }
     },
     "videoNode": {

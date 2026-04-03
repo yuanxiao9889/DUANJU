@@ -62,6 +62,21 @@ def resolve_language(value: Optional[str]) -> str:
         "jp": "Japanese",
         "ja": "Japanese",
         "japanese": "Japanese",
+        "kr": "Korean",
+        "ko": "Korean",
+        "korean": "Korean",
+        "fr": "French",
+        "french": "French",
+        "de": "German",
+        "german": "German",
+        "es": "Spanish",
+        "spanish": "Spanish",
+        "pt": "Portuguese",
+        "portuguese": "Portuguese",
+        "ru": "Russian",
+        "russian": "Russian",
+        "it": "Italian",
+        "italian": "Italian",
     }
     return mapping.get(normalized, value or "Auto")
 

@@ -63,6 +63,11 @@ export interface GenerateQwenTtsVoiceDesignRequest {
   language: QwenTtsVoiceLanguage;
   speakingRate: number;
   pitch: number;
+  maxNewTokens: number;
+  topP: number;
+  topK: number;
+  temperature: number;
+  repetitionPenalty: number;
 }
 
 export interface GeneratedQwenTtsAudioAsset extends PreparedAudio {
@@ -261,6 +266,32 @@ function getFileNameFromPath(filePath: string): string | null {
   return parts[parts.length - 1] || null;
 }
 
+function normalizePositiveInteger(
+  value: number,
+  fallback: number,
+  min: number,
+  max: number
+): number {
+  if (!Number.isFinite(value)) {
+    return fallback;
+  }
+
+  return Math.min(max, Math.max(min, Math.round(value)));
+}
+
+function normalizeFloat(
+  value: number,
+  fallback: number,
+  min: number,
+  max: number
+): number {
+  if (!Number.isFinite(value)) {
+    return fallback;
+  }
+
+  return Math.min(max, Math.max(min, value));
+}
+
 async function generateRealVoiceDesignAudio(
   extensionPackage: LoadedExtensionPackage,
   request: GenerateQwenTtsVoiceDesignRequest
@@ -273,6 +304,11 @@ async function generateRealVoiceDesignAudio(
       language: request.language,
       voicePrompt: buildVoiceDesignInstruction(request),
       outputPrefix: `voice-design-${Date.now()}`,
+      max_new_tokens: normalizePositiveInteger(request.maxNewTokens, 2048, 512, 4096),
+      temperature: normalizeFloat(request.temperature, 1, 0.1, 2),
+      top_k: normalizePositiveInteger(request.topK, 20, 0, 100),
+      top_p: normalizeFloat(request.topP, 0.8, 0, 1),
+      repetition_penalty: normalizeFloat(request.repetitionPenalty, 1.05, 1, 2),
     }
   );
 

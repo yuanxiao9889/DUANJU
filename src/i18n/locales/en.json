@@ -62,7 +62,31 @@
     "statusError": "Failed",
     "statusLoaded": "Loaded",
     "currentStep": "Current step",
-    "readyHint": "Once enabled, the related nodes will appear in the canvas node menu."
+    "readyHint": "Once enabled, the related nodes will appear in the canvas node menu.",
+    "loadedPackages": "Loaded Packages",
+    "enabledPackages": "Enabled Packages",
+    "modelAssets": "Model Assets",
+    "packageId": "Package ID",
+    "nodesTitle": "Canvas Nodes",
+    "settingsSectionsTitle": "Settings Sections",
+    "entryPointsTitle": "Entry Points",
+    "modelsTitle": "Bundled Models",
+    "noDeclaredFeatures": "Not declared",
+    "noModels": "This extension package does not declare model assets.",
+    "expandDetails": "Expand",
+    "collapseDetails": "Collapse",
+    "collapsedSummary": "{{nodes}} nodes · {{entryPoints}} entry points · {{models}} models",
+    "featureLabels": {
+      "extensions": "Extension settings",
+      "titleBar": "Title bar entry"
+    },
+    "modelRoles": {
+      "voiceDesign": "Voice design model",
+      "voiceClone": "Voice clone model",
+      "customVoice": "Preset voice model",
+      "tokenizer": "Tokenizer",
+      "unknown": "Uncategorized"
+    }
   },
   "canvas": {
     "addImage": "Add Image",
@@ -525,12 +549,38 @@
     },
     "qwenTts": {
       "connectedText": "Input text",
+      "connectedTextHint": "Reads content from connected text nodes automatically",
+      "connectedTextStats": "{{count}} text lines",
+      "connectedCharacterCount": "{{count}} chars",
+      "offlineRuntime": "Offline Runtime",
+      "modelBadge": "Qwen3 TTS 1.7B VoiceDesign",
+      "runtimeReadyLabel": "Ready",
+      "runtimeStartingLabel": "Starting",
+      "runtimeDisabledLabel": "Disabled",
+      "runtimeStateReady": "The local model is ready and can generate speech offline.",
+      "runtimeStateStarting": "The extension is starting. Voice generation will be available once the local runtime checks finish.",
+      "runtimeStateDisabled": "Enable the extension to connect this node to the local Qwen TTS runtime.",
+      "runtimeProgress": "Runtime progress",
+      "recipeTitle": "Voice Recipe",
+      "recipeDescription": "Describe age, emotion, tone, and intimacy in natural language. The model will turn that description into a voice style.",
       "voicePrompt": "Voice prompt",
       "voicePromptPlaceholder": "Example: young female voice, restrained emotion, intimate close-mic narration",
       "stylePreset": "Style",
+      "styleHint": "Choose a base tone first, then refine it with your voice prompt",
       "language": "Language",
+      "languageHint": "Affects pronunciation and prosody",
+      "rhythmTitle": "Language & Rhythm",
+      "rhythmDescription": "Control language, speaking speed, and pitch contour to shape the performance more precisely.",
       "speakingRate": "Rate",
       "pitch": "Pitch",
+      "advancedSettings": "Advanced Sampling",
+      "advancedSettingsHint": "Fine-tune randomness, stability, and output length after previewing your first result.",
+      "advancedSummary": "Temp {{temperature}} · Top P {{topP}} · Top K {{topK}} · Penalty {{repetitionPenalty}} · {{maxNewTokens}} tokens",
+      "maxNewTokens": "Max Tokens",
+      "temperature": "Temperature",
+      "topP": "Top P",
+      "topK": "Top K",
+      "repetitionPenalty": "Repetition Penalty",
       "generate": "Generate Voice",
       "generating": "Generating...",
       "generateFailed": "Voice generation failed",
@@ -545,17 +595,47 @@
       "statusPreparing": "Preparing voice parameters...",
       "statusRendering": "Generating speech audio...",
       "statusCreatingNode": "Creating audio node...",
+      "styleDescriptions": {
+        "natural": "Everyday delivery that works well as a general baseline",
+        "narrator": "More like narration, with steadier articulation",
+        "bright": "Lighter and brighter, good for younger energy",
+        "calm": "Restrained and steady, with less dramatic swing"
+      },
       "styles": {
         "natural": "Natural",
         "narrator": "Narrator",
         "bright": "Bright",
         "calm": "Calm"
       },
+      "rateDescriptors": {
+        "slow": "Slower and more relaxed",
+        "natural": "Balanced for most scenes",
+        "fast": "Faster and more energetic"
+      },
+      "pitchDescriptors": {
+        "low": "Leans lower overall",
+        "neutral": "Keeps a natural pitch",
+        "high": "Leans brighter overall"
+      },
+      "parameterDescriptions": {
+        "maxNewTokens": "Controls the maximum generation length for one request. Raise it for longer text.",
+        "temperature": "Higher feels freer, lower feels more stable.",
+        "topP": "Controls how wide the candidate pool is. Lower values are more conservative.",
+        "topK": "Limits how many candidates can be sampled each step. Lower values are safer.",
+        "repetitionPenalty": "Higher values reduce repetition, but too much can make delivery sound stiff."
+      },
       "languages": {
         "auto": "Auto",
         "zh": "Chinese",
         "en": "English",
-        "jp": "Japanese"
+        "jp": "Japanese",
+        "kr": "Korean",
+        "fr": "French",
+        "de": "German",
+        "es": "Spanish",
+        "pt": "Portuguese",
+        "ru": "Russian",
+        "it": "Italian"
       }
     },
     "videoNode": {
