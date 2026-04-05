@@ -44,6 +44,10 @@ import {
   type GenerationDebugContext,
 } from '@/features/canvas/application/generationErrorReport';
 import {
+  buildReferenceAwareGenerationPrompt,
+  normalizeReferenceImagePrompt,
+} from '@/features/canvas/application/referenceImagePrompting';
+import {
   sanitizeStoryboardPromptText,
   sanitizeStoryboardText,
 } from '@/features/canvas/application/storyboardText';
@@ -1120,8 +1124,9 @@ export const StoryboardGenNode = memo(({ id, data, selected, width, height }: St
       return;
     }
 
-    const prompt = buildPrompt();
-    if (!prompt) {
+    const basePrompt = buildPrompt();
+    const displayPrompt = normalizeReferenceImagePrompt(basePrompt).trim();
+    if (!displayPrompt) {
       const errorMessage = t('node.storyboardGen.promptRequired');
       setError(errorMessage);
       void showErrorDialog(errorMessage, t('common.error'));
@@ -1183,6 +1188,10 @@ export const StoryboardGenNode = memo(({ id, data, selected, width, height }: St
 
       // 将网格图片作为最后一张参考图片
       const allReferenceImages = [...incomingImages, gridImageDataUrl];
+      const submittedPrompt = buildReferenceAwareGenerationPrompt(
+        basePrompt,
+        allReferenceImages.length
+      );
 
       const metadataFrameNotes = nodeData.frames
         .slice(0, safeRows * safeCols)
@@ -1192,7 +1201,7 @@ export const StoryboardGenNode = memo(({ id, data, selected, width, height }: St
         });
 
       const jobId = await canvasAiGateway.submitGenerateImageJob({
-        prompt,
+        prompt: submittedPrompt,
         model: requestResolution.requestModel,
         size: selectedResolution.value,
         aspectRatio: resolvedRequestAspectRatio,
@@ -1205,7 +1214,7 @@ export const StoryboardGenNode = memo(({ id, data, selected, width, height }: St
         requestModel: debugRequestModel,
         requestSize: selectedResolution.value,
         requestAspectRatio: resolvedRequestAspectRatio,
-        prompt,
+        prompt: submittedPrompt,
         extraParams: effectiveExtraParams,
         referenceImageCount: allReferenceImages.length,
         referenceImagePlaceholders: createReferenceImagePlaceholders(allReferenceImages.length),
@@ -1235,7 +1244,7 @@ export const StoryboardGenNode = memo(({ id, data, selected, width, height }: St
         requestModel: debugRequestModel,
         requestSize: selectedResolution.value,
         requestAspectRatio: resolvedRequestAspectRatio,
-        prompt,
+        prompt: buildReferenceAwareGenerationPrompt(basePrompt, incomingImages.length + 1),
         extraParams: effectiveExtraParams,
         referenceImageCount: incomingImages.length + 1,
         referenceImagePlaceholders: createReferenceImagePlaceholders(incomingImages.length + 1),

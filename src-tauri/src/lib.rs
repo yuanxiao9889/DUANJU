@@ -90,7 +90,7 @@ fn frontend_ready(app: tauri::AppHandle) {
 pub fn run() {
     setup_logging();
 
-    tauri::Builder::default()
+    let app = tauri::Builder::default()
         .on_page_load(|window, _payload| {
             if window.label() != MAIN_WINDOW_LABEL {
                 return;
@@ -141,6 +141,9 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             frontend_ready,
             extensions::read_extension_package,
+            extensions::start_extension_runtime,
+            extensions::stop_extension_runtime,
+            extensions::get_extension_runtime_status,
             extensions::run_extension_command,
             dreamina_cli::check_dreamina_cli_status,
             dreamina_cli::install_dreamina_cli,
@@ -213,6 +216,18 @@ pub fn run() {
             ps_server::get_ps_selection,
             ps_server::get_ps_selection_image,
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .build(tauri::generate_context!())
+        .expect("error while building tauri application");
+
+    if let Err(err) = commands::storage::ensure_storage_asset_scope(&app.handle().clone()) {
+        warn!("failed to restore storage asset scope on startup: {err}");
+    }
+
+    app.run(|_app_handle, event| {
+        if let tauri::RunEvent::Exit = event {
+            tauri::async_runtime::block_on(async {
+                extensions::shutdown_all_extension_runtimes().await;
+            });
+        }
+    });
 }

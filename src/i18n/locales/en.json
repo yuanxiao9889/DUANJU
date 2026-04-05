@@ -41,30 +41,31 @@
     "close": "Close"
   },
   "extensions": {
-    "title": "Extensions Center",
-    "centerTitle": "Load optional capabilities on demand",
-    "centerDescription": "Extension packages are loaded from folders and only register their features after you enable them. The Qwen3 TTS package uses local offline models and a Python bridge runtime, so it stays inactive until you explicitly turn it on.",
-    "sampleHint": "You can now load extension-packages/qwen3-tts-complete directly. If you need to rebuild the full package, run npm run prepare:qwen3-tts-extension.",
-    "loadFolderTitle": "Choose an extension package folder",
-    "loadFailed": "Failed to load extension package",
-    "loadingPackage": "Reading package...",
-    "loadFolder": "Load Folder",
+      "title": "Extensions Center",
+      "centerTitle": "Load optional capabilities on demand",
+      "centerDescription": "Extension packages are loaded from folders. Once you start one, its features are registered and the Qwen3 TTS Python runtime stays alive for reuse; after you stop it, close the app, or reboot the computer, you need to start it again.",
+      "sampleHint": "You can now load extension-packages/qwen3-tts-complete directly. If you need to rebuild the full package, run npm run prepare:qwen3-tts-extension.",
+      "loadFolderTitle": "Choose an extension package folder",
+      "loadFailed": "Failed to load extension package",
+      "loadingPackage": "Reading package...",
+      "loadFolder": "Load Folder",
     "emptyTitle": "No extension package loaded yet",
     "emptyDescription": "Choose a folder that contains storyboard-extension.json and the app will recognize it as a loadable extension package.",
-    "runtime": "Runtime",
-    "folder": "Folder",
-    "openFolder": "Open Folder",
-    "enable": "Enable",
-    "disable": "Disable",
-    "enabling": "Starting...",
-    "statusEnabled": "Enabled",
-    "statusStarting": "Starting",
-    "statusError": "Failed",
-    "statusLoaded": "Loaded",
-    "currentStep": "Current step",
-    "readyHint": "Once enabled, the related nodes will appear in the canvas node menu.",
-    "loadedPackages": "Loaded Packages",
-    "enabledPackages": "Enabled Packages",
+      "runtime": "Runtime",
+      "folder": "Folder",
+      "openFolder": "Open Folder",
+      "enable": "Start",
+      "disable": "Stop",
+      "enabling": "Starting...",
+      "statusEnabled": "Started",
+      "statusStarting": "Starting",
+      "statusError": "Failed",
+      "statusLoaded": "Not started",
+      "currentStep": "Current step",
+      "readyHint": "Once started, the related nodes appear in the canvas node menu and reuse the active runtime.",
+      "idleHint": "The extension package is loaded, but the backend is not running yet. The persistent Python runtime starts only after you click Start.",
+      "loadedPackages": "Loaded Packages",
+      "enabledPackages": "Started Packages",
     "modelAssets": "Model Assets",
     "packageId": "Package ID",
     "nodesTitle": "Canvas Nodes",
@@ -199,7 +200,7 @@
       "textAnnotation": "Text",
       "ttsText": "Text",
       "ttsVoiceDesign": "Voice Design",
-      "ttsSavedVoice": "Saved Voice",
+      "ttsSavedVoice": "Voice Clone",
       "videoNode": "Video Node",
       "audioNode": "Audio Node",
       "scriptChapter": "Chapter Node",
@@ -211,6 +212,11 @@
       "generateImage": "Generate Image",
       "createBranch": "Create Branch",
       "createSupplement": "Create Supplement"
+    },
+    "menuGroup": {
+      "jimeng": "Jimeng",
+      "storyboard": "Storyboard",
+      "media": "Media"
     },
     "imageNode": {
       "title": "Image Node",
@@ -546,10 +552,21 @@
     },
     "textAnnotation": {
       "placeholder": "Enter text or Markdown here, then connect it directly to voice nodes if needed",
-      "empty": "Empty text"
+      "empty": "Empty text",
+      "contentRequired": "Please enter the dialogue or text you want to optimize",
+      "optimizePrompt": "Optimize Dialogue",
+      "optimizingPrompt": "Optimizing dialogue",
+      "optimizePromptFailed": "Failed to optimize the dialogue template",
+      "undoOptimizedPrompt": "Undo optimization"
     },
     "ttsText": {
-      "placeholder": "Enter text or Markdown here, then connect it directly to voice nodes if needed"
+      "placeholder": "Enter text or Markdown here, then connect it directly to voice nodes if needed",
+      "empty": "Empty text",
+      "contentRequired": "Please enter the dialogue or text you want to optimize",
+      "optimizePrompt": "Optimize Dialogue",
+      "optimizingPrompt": "Optimizing dialogue",
+      "optimizePromptFailed": "Failed to optimize the dialogue template",
+      "undoOptimizedPrompt": "Undo optimization"
     },
     "qwenTts": {
       "connectedText": "Input text",
@@ -560,10 +577,10 @@
       "modelBadge": "Qwen3 TTS 1.7B VoiceDesign",
       "runtimeReadyLabel": "Ready",
       "runtimeStartingLabel": "Starting",
-      "runtimeDisabledLabel": "Disabled",
+      "runtimeDisabledLabel": "Not started",
       "runtimeStateReady": "The local model is ready and can generate speech offline.",
       "runtimeStateStarting": "The extension is starting. Voice generation will be available once the local runtime checks finish.",
-      "runtimeStateDisabled": "Enable the extension to connect this node to the local Qwen TTS runtime.",
+      "runtimeStateDisabled": "The extension package is loaded, but the local runtime is not started yet. Start the extension before generating speech.",
       "runtimeProgress": "Runtime progress",
       "recipeTitle": "Voice Recipe",
       "recipeDescription": "Describe age, emotion, tone, and intimacy in natural language. The model will turn that description into a voice style.",
@@ -573,6 +590,7 @@
       "optimizePrompt": "Optimize prompt",
       "optimizingPrompt": "Optimizing",
       "optimizePromptFailed": "Failed to optimize the voice design prompt",
+      "undoOptimizedPrompt": "Undo optimization",
       "stylePreset": "Style",
       "styleHint": "Choose a base tone first, then refine it with your voice prompt",
       "language": "Language",
@@ -732,6 +750,16 @@
       "processFailed": "Failed to process audio",
       "loadFailed": "Audio failed to load",
       "loadFailedShort": "Load failed",
+      "queuedShort": "Queued",
+      "generatingShort": "Generating",
+      "generationFailedShort": "Failed",
+      "generationFailedTitle": "Voice generation failed",
+      "generatingTitle": "Generating voice",
+      "queuedTitle": "Waiting to generate",
+      "generatingHint": "Generating speech audio. Please wait...",
+      "queueWaiting": "Queued. {{count}} task(s) ahead.",
+      "queueStarting": "Added to queue. Preparing to start...",
+      "queueBadge": "{{count}} ahead",
       "unsupportedFormat": "Unsupported audio format",
       "supportedFormats": "Supported: MP3, WAV, OGG, M4A, AAC, FLAC, WebM",
       "play": "Play",
@@ -961,6 +989,7 @@
       "dreaminaStatusLabel": "Current status",
       "dreaminaStatusChecking": "Checking",
       "dreaminaStatusReady": "Ready",
+      "dreaminaStatusMembershipRequired": "Premium required",
       "dreaminaStatusLoginRequired": "Login required",
       "dreaminaStatusCliMissing": "CLI missing",
       "dreaminaStatusGitMissing": "Git missing",
@@ -1223,13 +1252,15 @@
       "readyBody": "Dreamina CLI is available, so you can continue submitting Jimeng tasks or re-querying results.",
       "gitBashMissingTitle": "A Git Bash runtime is still missing",
       "gitBashMissingBody": "The app could not find a bundled portable Git runtime or an existing system Git Bash, so automatic setup cannot continue yet.",
-      "cliMissingTitle": "The bundled Dreamina CLI is missing",
-      "cliMissingBody": "This install could not find the bundled Dreamina CLI runtime files. Reinstall with the latest installer and try again.",
-      "loginRequiredTitle": "Dreamina CLI still needs login",
-      "loginRequiredBody": "The bundled CLI is already available, but this computer has not completed Dreamina authorization yet. Automatic setup will show the official Dreamina login QR code directly in this dialog and wait for the scan to finish.",
-      "unknownTitle": "Dreamina setup still needs attention",
-      "unknownBody": "Automatic setup already covers the common path, but this machine still needs manual attention based on the detail below."
-    },
+        "cliMissingTitle": "The bundled Dreamina CLI is missing",
+        "cliMissingBody": "This install could not find the bundled Dreamina CLI runtime files. Reinstall with the latest installer and try again.",
+        "loginRequiredTitle": "Dreamina CLI still needs login",
+        "loginRequiredBody": "The bundled CLI is already available, but this computer has not completed Dreamina authorization yet. Automatic setup will show the official Dreamina login QR code directly in this dialog and wait for the scan to finish.",
+        "membershipRequiredTitle": "This account cannot use Dreamina CLI yet",
+        "membershipRequiredBody": "The account you just scanned is not an eligible Dreamina premium member, so Dreamina CLI cannot save the login session for it yet.",
+        "unknownTitle": "Dreamina setup still needs attention",
+        "unknownBody": "Automatic setup already covers the common path, but this machine still needs manual attention based on the detail below."
+      },
     "actions": {
       "startAutoSetup": "Start Auto Setup",
       "refreshQr": "Refresh QR Code",
@@ -1258,21 +1289,25 @@
       "completedTitle": "This computer is ready",
       "completedBody": "You can go back to the canvas and continue generating or re-querying now."
     },
-    "qr": {
-      "alt": "Dreamina login QR code",
-      "compactHint": "You only need to scan once on first use. After login succeeds, the app continues automatically.",
-      "title": "Scan with Douyin to log in",
+      "qr": {
+        "alt": "Dreamina login QR code",
+        "compactHint": "You only need to scan once on first use. After login succeeds, the app continues automatically.",
+        "title": "Scan with Douyin to log in",
       "body": "Just scan with Douyin. After you confirm on the phone, the app continues automatically.",
       "waitingTitle": "Preparing the QR code",
       "waitingBody": "The first-use login flow starts automatically. The QR code will appear here as soon as Dreamina finishes rendering it.",
       "step1": "Scan with Douyin",
-      "step2": "Confirm on phone, then return automatically",
-      "step3": "3. Keep this dialog open and the app will return automatically after login succeeds"
-    },
-    "automatic": {
-      "title": "Automatically handled",
-      "git": "Prefer the bundled portable Git runtime when it is available",
-      "cli": "Prefer the Dreamina CLI bundled inside the installer",
+        "step2": "Confirm on phone, then return automatically",
+        "step3": "3. Keep this dialog open and the app will return automatically after login succeeds"
+      },
+      "membershipRequired": {
+        "title": "The scanned account is not a Dreamina premium member",
+        "body": "Dreamina CLI currently needs a premium Dreamina membership before it can save the login session. Upgrade the account on the Dreamina web site, or switch to an account that already has premium enabled, then scan again."
+      },
+      "automatic": {
+        "title": "Automatically handled",
+        "git": "Prefer the bundled portable Git runtime when it is available",
+        "cli": "Prefer the Dreamina CLI bundled inside the installer",
       "login": "Generate the official QR code and recheck after the scan"
     },
     "runtime": {
@@ -1282,18 +1317,20 @@
     "detailTitle": "Environment Detail",
     "noticeTitle": "Current Notice",
     "notice": {
-      "autoReady": "Automatic setup is complete. Dreamina CLI is ready to use now.",
-      "autoClosing": "This computer is ready now. Returning to the canvas...",
-      "loginOpened": "The QR code is ready. Scan it directly with Douyin.",
-      "loginStillPending": "The current QR code can still be scanned. If you already confirmed on the phone, click Recheck. If the QR code expired, click Refresh QR Code.",
-      "autoNeedsAttention": "Automatic setup ran, but the environment is still not fully ready. Please continue based on the detail below."
-    },
-    "blocked": {
-      "gitBashMissing": "A usable Git Bash runtime is still missing on this computer. Finish the Dreamina setup first.",
-      "cliMissing": "The bundled Dreamina CLI is missing on this computer. Install the latest Storyboard Copilot build first.",
-      "loginRequired": "Dreamina CLI is not logged in yet. Finish the Dreamina setup first.",
-      "unknown": "Dreamina is not fully ready yet. Please finish the setup and login first."
-    }
+        "autoReady": "Automatic setup is complete. Dreamina CLI is ready to use now.",
+        "autoClosing": "This computer is ready now. Returning to the canvas...",
+        "loginOpened": "The QR code is ready. Scan it directly with Douyin.",
+        "loginStillPending": "The current QR code can still be scanned. If you already confirmed on the phone, click Recheck. If the QR code expired, click Refresh QR Code.",
+        "membershipRequired": "The scanned account is not a Dreamina premium member yet, so Dreamina CLI could not save the login session. Upgrade the account or switch to a premium account, then scan again.",
+        "autoNeedsAttention": "Automatic setup ran, but the environment is still not fully ready. Please continue based on the detail below."
+      },
+      "blocked": {
+        "gitBashMissing": "A usable Git Bash runtime is still missing on this computer. Finish the Dreamina setup first.",
+        "cliMissing": "The bundled Dreamina CLI is missing on this computer. Install the latest Storyboard Copilot build first.",
+        "loginRequired": "Dreamina CLI is not logged in yet. Finish the Dreamina setup first.",
+        "membershipRequired": "The scanned account is not a Dreamina premium member yet. Upgrade the account or switch accounts, then try again.",
+        "unknown": "Dreamina is not fully ready yet. Please finish the setup and login first."
+      }
   },
   "update": {
     "dialogTitle": "Update Available",

@@ -7,6 +7,8 @@ use rusqlite::{Connection, DatabaseName};
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Manager};
 
+use super::project_state;
+
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct StorageConfig {
@@ -87,6 +89,35 @@ pub fn resolve_storage_base_path(app: &AppHandle) -> Result<PathBuf, String> {
     get_default_storage_path(app)
 }
 
+fn allow_asset_scope_directory(app: &AppHandle, path: &Path) -> Result<(), String> {
+    fs::create_dir_all(path)
+        .map_err(|e| format!("Failed to create storage scope directory: {}", e))?;
+
+    app.asset_protocol_scope()
+        .allow_directory(path, true)
+        .map_err(|e| {
+            format!(
+                "Failed to allow storage directory for asset protocol ({}): {}",
+                path.display(),
+                e
+            )
+        })?;
+
+    Ok(())
+}
+
+pub fn ensure_storage_asset_scope(app: &AppHandle) -> Result<(), String> {
+    let current_path = resolve_storage_base_path(app)?;
+    allow_asset_scope_directory(app, &current_path)?;
+
+    let default_path = get_default_storage_path(app)?;
+    if default_path != current_path {
+        allow_asset_scope_directory(app, &default_path)?;
+    }
+
+    Ok(())
+}
+
 pub fn resolve_db_path(app: &AppHandle) -> Result<PathBuf, String> {
     let base_path = resolve_storage_base_path(app)?;
     Ok(base_path.join("projects.db"))
@@ -97,6 +128,86 @@ pub fn resolve_images_dir(app: &AppHandle) -> Result<PathBuf, String> {
     let images_dir = base_path.join("images");
     fs::create_dir_all(&images_dir).map_err(|e| format!("Failed to create images dir: {}", e))?;
     Ok(images_dir)
+}
+
+pub(crate) fn normalize_storage_path_string(value: &str) -> Option<String> {
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+
+    let normalized = trimmed.replace('\\', "/").trim_end_matches('/').to_string();
+    if normalized.is_empty() {
+        return None;
+    }
+
+    Some(normalized)
+}
+
+fn storage_path_compare_key(value: &str) -> String {
+    if cfg!(target_os = "windows") {
+        value.to_ascii_lowercase()
+    } else {
+        value.to_string()
+    }
+}
+
+pub(crate) fn rebase_storage_path_string(
+    value: &str,
+    from_base: &Path,
+    to_base: &Path,
+) -> Option<String> {
+    let normalized_value = normalize_storage_path_string(value)?;
+    let normalized_from_base = normalize_storage_path_string(&from_base.to_string_lossy())?;
+    let normalized_to_base = normalize_storage_path_string(&to_base.to_string_lossy())?;
+    let compare_value = storage_path_compare_key(&normalized_value);
+    let compare_from_base = storage_path_compare_key(&normalized_from_base);
+
+    if compare_value == compare_from_base {
+        return Some(normalized_to_base);
+    }
+
+    let compare_prefix = format!("{}/", compare_from_base);
+    if !compare_value.starts_with(&compare_prefix) {
+        return None;
+    }
+
+    let suffix = &normalized_value[normalized_from_base.len() + 1..];
+    Some(format!("{}/{}", normalized_to_base, suffix))
+}
+
+pub(crate) fn relocate_storage_path_to_images_dir(
+    value: &str,
+    images_dir: &Path,
+) -> Option<String> {
+    let normalized_value = normalize_storage_path_string(value)?;
+    let current_path = PathBuf::from(&normalized_value);
+    if current_path.exists() {
+        return None;
+    }
+
+    let parent_name = current_path
+        .parent()
+        .and_then(|parent| parent.file_name())
+        .and_then(|name| name.to_str())?;
+    if !parent_name.eq_ignore_ascii_case("images") {
+        return None;
+    }
+
+    let file_name = current_path.file_name()?.to_str()?;
+    let candidate_path = images_dir.join(file_name);
+    if !candidate_path.exists() {
+        return None;
+    }
+
+    let normalized_candidate = normalize_storage_path_string(&candidate_path.to_string_lossy())?;
+    if storage_path_compare_key(&normalized_candidate)
+        == storage_path_compare_key(&normalized_value)
+    {
+        return None;
+    }
+
+    Some(normalized_candidate)
 }
 
 pub fn resolve_debug_dir(app: &AppHandle) -> Result<PathBuf, String> {
@@ -622,10 +733,21 @@ pub fn migrate_storage(
         copy_dir_recursive(&backups_dir, &target_backups)?;
     }
 
+    if db_path.exists() {
+        let target_db = target_path.join("projects.db");
+        let mut target_conn = open_sqlite_connection(&target_db)?;
+        project_state::rewrite_storage_media_paths_in_connection(
+            &mut target_conn,
+            &current_path,
+            &target_path,
+        )?;
+    }
+
     let config = StorageConfig {
         custom_path: Some(new_path.clone()),
     };
     write_storage_config(&app, &config)?;
+    ensure_storage_asset_scope(&app)?;
 
     if delete_old {
         if db_path.exists() {
@@ -683,8 +805,19 @@ pub fn reset_storage_to_default(app: AppHandle, delete_custom: bool) -> Result<S
         copy_dir_recursive(&backups_dir, &target_backups)?;
     }
 
+    if db_path.exists() {
+        let target_db = default_path.join("projects.db");
+        let mut target_conn = open_sqlite_connection(&target_db)?;
+        project_state::rewrite_storage_media_paths_in_connection(
+            &mut target_conn,
+            &current_path,
+            &default_path,
+        )?;
+    }
+
     let config = StorageConfig::default();
     write_storage_config(&app, &config)?;
+    ensure_storage_asset_scope(&app)?;
 
     if delete_custom {
         if db_path.exists() {
@@ -738,4 +871,46 @@ pub fn open_storage_folder(app: AppHandle) -> Result<(), String> {
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{rebase_storage_path_string, relocate_storage_path_to_images_dir};
+    use std::fs;
+    use std::path::PathBuf;
+
+    #[test]
+    fn rebase_storage_path_string_moves_paths_between_storage_roots() {
+        let from_base = PathBuf::from(r"C:\Users\Tester\AppData\Roaming\com.storyboard.copilot");
+        let to_base = PathBuf::from(r"D:\StoryboardData");
+        let source = r"C:\Users\Tester\AppData\Roaming\com.storyboard.copilot\images\abc123.png";
+
+        let rebased =
+            rebase_storage_path_string(source, &from_base, &to_base).expect("path should rebase");
+
+        assert_eq!(rebased, "D:/StoryboardData/images/abc123.png");
+    }
+
+    #[test]
+    fn relocate_storage_path_to_images_dir_recovers_missing_legacy_image_paths() {
+        let temp_root =
+            std::env::temp_dir().join(format!("storyboard-storage-test-{}", std::process::id()));
+        let images_dir = temp_root.join("images");
+        fs::create_dir_all(&images_dir).expect("failed to create images dir");
+        let candidate_path = images_dir.join("missing.png");
+        fs::write(&candidate_path, b"ok").expect("failed to seed image");
+
+        let relocated = relocate_storage_path_to_images_dir(
+            r"C:\LegacyStorage\images\missing.png",
+            &images_dir,
+        )
+        .expect("legacy image path should relocate");
+
+        assert_eq!(
+            relocated,
+            candidate_path.to_string_lossy().replace('\\', "/")
+        );
+
+        let _ = fs::remove_dir_all(temp_root);
+    }
 }

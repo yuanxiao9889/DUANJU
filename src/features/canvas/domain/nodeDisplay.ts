@@ -22,7 +22,7 @@ export const DEFAULT_NODE_DISPLAY_NAME: Record<CanvasNodeType, string> = {
   [CANVAS_NODE_TYPES.audio]: '\u97f3\u9891',
   [CANVAS_NODE_TYPES.ttsText]: '\u6587\u672c',
   [CANVAS_NODE_TYPES.ttsVoiceDesign]: '\u58f0\u97f3\u8bbe\u8ba1',
-  [CANVAS_NODE_TYPES.ttsSavedVoice]: '\u4fdd\u5b58\u97f3\u8272',
+  [CANVAS_NODE_TYPES.ttsSavedVoice]: '\u514b\u9686\u58f0\u97f3',
   [CANVAS_NODE_TYPES.scriptRoot]: '\u5267\u672c',
   [CANVAS_NODE_TYPES.scriptChapter]: '\u7ae0\u8282',
   [CANVAS_NODE_TYPES.scriptCharacter]: '\u89d2\u8272',
@@ -36,6 +36,7 @@ const LEGACY_DEFAULT_NODE_DISPLAY_NAMES: Partial<Record<CanvasNodeType, string[]
   [CANVAS_NODE_TYPES.jimeng]: ['\u5373\u68a6\u8282\u70b9', '\u53d1\u9001\u5373\u68a6'],
   [CANVAS_NODE_TYPES.textAnnotation]: ['\u6587\u672c\u6ce8\u91ca'],
   [CANVAS_NODE_TYPES.ttsText]: ['\u914d\u97f3\u6587\u672c'],
+  [CANVAS_NODE_TYPES.ttsSavedVoice]: ['\u4fdd\u5b58\u97f3\u8272'],
 };
 
 export const EXPORT_RESULT_DISPLAY_NAME: Record<ExportImageNodeResultKind, string> = {

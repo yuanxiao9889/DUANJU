@@ -1100,6 +1100,7 @@ export const JimengNode = memo(
     );
     const [promptReferencePreview, setPromptReferencePreview] =
       useState<PromptReferencePreviewState | null>(null);
+    const [, setIsPromptTextSelectionActive] = useState(false);
     const [draggingReferenceIndex, setDraggingReferenceIndex] = useState<
       number | null
     >(null);
@@ -1454,6 +1455,14 @@ export const JimengNode = memo(
       [updatePrompt],
     );
 
+    const syncPromptTextSelectionState = useCallback(
+      (_target?: HTMLTextAreaElement | null) => {
+        setIsPromptTextSelectionActive(false);
+        setPromptReferencePreview(null);
+      },
+      [],
+    );
+
     const syncPromptHighlightScroll = useCallback(() => {
       if (!promptRef.current || !promptHighlightRef.current) {
         return;
@@ -1546,9 +1555,14 @@ export const JimengNode = memo(
         setPickerActiveIndex(0);
 
         requestAnimationFrame(() => {
-          promptRef.current?.focus();
-          promptRef.current?.setSelectionRange(nextCursor, nextCursor);
+          const promptElement = promptRef.current;
+          if (!promptElement) {
+            return;
+          }
+          promptElement.focus();
+          promptElement.setSelectionRange(nextCursor, nextCursor);
           syncPromptHighlightScroll();
+          syncPromptTextSelectionState(promptElement);
         });
       },
       [
@@ -1556,6 +1570,7 @@ export const JimengNode = memo(
         pickerCursor,
         referencePickerItems,
         syncPromptHighlightScroll,
+        syncPromptTextSelectionState,
       ],
     );
 
@@ -1722,10 +1737,15 @@ export const JimengNode = memo(
         );
 
         requestAnimationFrame(() => {
-          promptRef.current?.focus();
+          const promptElement = promptRef.current;
+          if (!promptElement) {
+            return;
+          }
+          promptElement.focus();
           const cursor = nextPrompt.length;
-          promptRef.current?.setSelectionRange(cursor, cursor);
+          promptElement.setSelectionRange(cursor, cursor);
           syncPromptHighlightScroll();
+          syncPromptTextSelectionState(promptElement);
         });
       } catch (error) {
         const message =
@@ -1770,15 +1790,21 @@ export const JimengNode = memo(
         ),
       );
       requestAnimationFrame(() => {
-        promptRef.current?.focus();
+        const promptElement = promptRef.current;
+        if (!promptElement) {
+          return;
+        }
+        promptElement.focus();
         const cursor = restoredPrompt.length;
-        promptRef.current?.setSelectionRange(cursor, cursor);
+        promptElement.setSelectionRange(cursor, cursor);
         syncPromptHighlightScroll();
+        syncPromptTextSelectionState(promptElement);
       });
     }, [
       id,
       lastPromptOptimizationUndoState,
       syncPromptHighlightScroll,
+      syncPromptTextSelectionState,
       updateNodeData,
       updatePrompt,
     ]);
@@ -2004,9 +2030,14 @@ export const JimengNode = memo(
             );
             handlePromptChange(nextText);
             requestAnimationFrame(() => {
-              promptRef.current?.focus();
-              promptRef.current?.setSelectionRange(nextCursor, nextCursor);
+              const promptElement = promptRef.current;
+              if (!promptElement) {
+                return;
+              }
+              promptElement.focus();
+              promptElement.setSelectionRange(nextCursor, nextCursor);
               syncPromptHighlightScroll();
+              syncPromptTextSelectionState(promptElement);
             });
             return;
           }
@@ -2082,6 +2113,7 @@ export const JimengNode = memo(
         referencePickerItems.length,
         showImagePicker,
         syncPromptHighlightScroll,
+        syncPromptTextSelectionState,
       ],
     );
 
@@ -2142,12 +2174,17 @@ export const JimengNode = memo(
         event.preventDefault();
         event.stopPropagation();
         requestAnimationFrame(() => {
-          promptRef.current?.focus();
-          promptRef.current?.setSelectionRange(tokenEnd, tokenEnd);
+          const promptElement = promptRef.current;
+          if (!promptElement) {
+            return;
+          }
+          promptElement.focus();
+          promptElement.setSelectionRange(tokenEnd, tokenEnd);
           syncPromptHighlightScroll();
+          syncPromptTextSelectionState(promptElement);
         });
       },
-      [syncPromptHighlightScroll],
+      [syncPromptHighlightScroll, syncPromptTextSelectionState],
     );
 
     const combinedError = promptOptimizationError ?? data.lastError;
@@ -2481,15 +2518,28 @@ export const JimengNode = memo(
               <textarea
                 ref={promptRef}
                 value={data.prompt ?? ""}
-                onChange={(event) => handlePromptChange(event.target.value)}
+                onChange={(event) => {
+                  handlePromptChange(event.target.value);
+                  syncPromptTextSelectionState(event.currentTarget);
+                }}
                 placeholder={t("node.jimeng.promptPlaceholder")}
-                className="ui-scrollbar nodrag nowheel relative z-10 h-full w-full resize-none rounded-xl border border-white/10 bg-black/15 px-3 py-2 text-sm leading-6 text-transparent caret-text-dark outline-none placeholder:text-text-muted/70 focus:border-accent/50 whitespace-pre-wrap break-words"
+                className="ui-scrollbar nodrag nowheel relative z-10 h-full w-full resize-none rounded-xl border border-white/10 bg-black/15 px-3 py-2 text-sm leading-6 text-transparent caret-text-dark outline-none placeholder:text-text-muted/70 focus:border-accent/50 whitespace-pre-wrap break-words selection:bg-accent/30 selection:text-transparent"
                 style={{ scrollbarGutter: "stable" }}
                 onScroll={syncPromptHighlightScroll}
                 onMouseDown={(event) => {
                   event.stopPropagation();
                   hidePromptReferencePreview();
                 }}
+                onSelect={(event) =>
+                  syncPromptTextSelectionState(event.currentTarget)
+                }
+                onMouseUp={(event) =>
+                  syncPromptTextSelectionState(event.currentTarget)
+                }
+                onKeyUp={(event) =>
+                  syncPromptTextSelectionState(event.currentTarget)
+                }
+                onBlur={() => setIsPromptTextSelectionActive(false)}
                 onKeyDownCapture={handlePromptKeyDown}
               />
 

@@ -39,31 +39,32 @@
     "maximize": "最大化",
     "close": "关闭"
   },
-  "extensions": {
-    "title": "扩展中心",
-    "centerTitle": "按需加载扩展能力",
-    "centerDescription": "扩展包从文件夹加载，启用后才会把对应功能注册到软件里。Qwen3 TTS 扩展会使用本地离线模型与 Python bridge 运行时，不启用时不会占用这部分能力。",
-    "sampleHint": "仓库里现在可以直接加载 extension-packages/qwen3-tts-complete；如需重新构建完整包，可运行 npm run prepare:qwen3-tts-extension。",
-    "loadFolderTitle": "选择扩展包文件夹",
-    "loadFailed": "加载扩展包失败",
-    "loadingPackage": "读取中...",
-    "loadFolder": "加载文件夹",
+    "extensions": {
+      "title": "扩展中心",
+      "centerTitle": "按需加载扩展能力",
+      "centerDescription": "扩展包从文件夹加载。启动扩展后，相关功能会注册到软件里，Qwen3 TTS 的 Python 运行时也会保持常驻；停止扩展、关闭软件或重启电脑后，都需要再次启动。",
+      "sampleHint": "仓库里现在可以直接加载 extension-packages/qwen3-tts-complete；如需重新构建完整包，可运行 npm run prepare:qwen3-tts-extension。",
+      "loadFolderTitle": "选择扩展包文件夹",
+      "loadFailed": "加载扩展包失败",
+      "loadingPackage": "读取中...",
+      "loadFolder": "加载文件夹",
     "emptyTitle": "还没有加载任何扩展包",
     "emptyDescription": "先选择一个包含 storyboard-extension.json 的文件夹，软件就会把它识别为可启用的扩展包。",
-    "runtime": "运行时",
-    "folder": "位置",
-    "openFolder": "打开文件夹",
-    "enable": "启用扩展",
-    "disable": "停用扩展",
-    "enabling": "启用中...",
-    "statusEnabled": "已启用",
-    "statusStarting": "启动中",
-    "statusError": "启动失败",
-    "statusLoaded": "已加载",
-    "currentStep": "当前步骤",
-    "readyHint": "扩展启用后，对应节点会出现在画布节点菜单中。",
-    "loadedPackages": "已加载扩展包",
-    "enabledPackages": "已启用扩展包",
+      "runtime": "运行时",
+      "folder": "位置",
+      "openFolder": "打开文件夹",
+      "enable": "启动扩展",
+      "disable": "停止扩展",
+      "enabling": "启动中...",
+      "statusEnabled": "已启动",
+      "statusStarting": "启动中",
+      "statusError": "启动失败",
+      "statusLoaded": "未启动",
+      "currentStep": "当前步骤",
+      "readyHint": "扩展启动后，对应节点会出现在画布节点菜单中，并复用当前常驻运行时。",
+      "idleHint": "扩展包已加载，但后台还未启动。只有点击“启动扩展”后，才会拉起常驻 Python 运行时。",
+      "loadedPackages": "已加载扩展包",
+      "enabledPackages": "已启动扩展包",
     "modelAssets": "模型资产",
     "packageId": "扩展 ID",
     "nodesTitle": "画布节点",
@@ -193,7 +194,7 @@
       "textAnnotation": "文本",
       "ttsText": "文本",
       "ttsVoiceDesign": "声音设计",
-      "ttsSavedVoice": "保存音色",
+      "ttsSavedVoice": "克隆声音",
       "videoNode": "视频节点",
       "audioNode": "音频节点",
       "scriptChapter": "章节节点",
@@ -208,6 +209,11 @@
       "jimeng": "发送即梦",
       "jimengImage": "即梦图片",
       "jimengImageResult": "即梦四宫格"
+    },
+    "menuGroup": {
+      "jimeng": "即梦",
+      "storyboard": "分镜",
+      "media": "影音"
     },
     "imageNode": {
       "title": "图片节点",
@@ -381,10 +387,21 @@
     },
     "textAnnotation": {
       "placeholder": "输入文本内容，可写 Markdown，也可以直接连接到配音节点",
-      "empty": "空文本"
+      "empty": "空文本",
+      "contentRequired": "请先输入需要优化的对白或文本",
+      "optimizePrompt": "优化对白模板",
+      "optimizingPrompt": "正在优化对白模板",
+      "optimizePromptFailed": "对白模板优化失败",
+      "undoOptimizedPrompt": "撤销优化"
     },
     "ttsText": {
-      "placeholder": "输入文本内容，可写 Markdown，也可以直接连接到配音节点"
+      "placeholder": "输入文本内容，可写 Markdown，也可以直接连接到配音节点",
+      "empty": "空文本",
+      "contentRequired": "请先输入需要优化的对白或文本",
+      "optimizePrompt": "优化对白模板",
+      "optimizingPrompt": "正在优化对白模板",
+      "optimizePromptFailed": "对白模板优化失败",
+      "undoOptimizedPrompt": "撤销优化"
     },
     "qwenTts": {
       "connectedText": "输入文本",
@@ -395,10 +412,10 @@
       "modelBadge": "Qwen3 TTS 1.7B VoiceDesign",
       "runtimeReadyLabel": "已就绪",
       "runtimeStartingLabel": "启动中",
-      "runtimeDisabledLabel": "未启用",
+      "runtimeDisabledLabel": "未启动",
       "runtimeStateReady": "本地模型已就绪，可以直接离线生成语音。",
       "runtimeStateStarting": "扩展正在启动，本地模型检查完成后即可生成。",
-      "runtimeStateDisabled": "启用扩展后，这个节点才会接入本地 Qwen TTS 运行时。",
+      "runtimeStateDisabled": "扩展包当前还没启动本地运行时。点击“启动扩展”后，才可以生成语音。",
       "runtimeProgress": "运行时进度",
       "recipeTitle": "声音画像",
       "recipeDescription": "用自然语言描述年龄感、情绪、气质和贴耳感，模型会把这段描述转成声音风格。",
@@ -408,6 +425,7 @@
       "optimizePrompt": "优化提示词",
       "optimizingPrompt": "优化中",
       "optimizePromptFailed": "声音画像优化失败",
+      "undoOptimizedPrompt": "撤销优化",
       "stylePreset": "风格",
       "styleHint": "先选一个基调，再用声音设定补充细节",
       "language": "语言",
@@ -567,6 +585,16 @@
       "processFailed": "音频处理失败",
       "loadFailed": "音频加载失败",
       "loadFailedShort": "加载失败",
+      "queuedShort": "排队中",
+      "generatingShort": "生成中",
+      "generationFailedShort": "生成失败",
+      "generationFailedTitle": "语音生成失败",
+      "generatingTitle": "正在生成语音",
+      "queuedTitle": "等待生成",
+      "generatingHint": "正在生成语音音频，请稍候...",
+      "queueWaiting": "排队中，前方还有 {{count}} 个任务",
+      "queueStarting": "已加入队列，准备开始生成...",
+      "queueBadge": "前方 {{count}}",
       "unsupportedFormat": "不支持的音频格式",
       "supportedFormats": "支持格式：MP3、WAV、OGG、M4A、AAC、FLAC、WebM",
       "play": "播放",
@@ -833,6 +861,7 @@
       "dreaminaStatusLabel": "当前状态",
       "dreaminaStatusChecking": "检测中",
       "dreaminaStatusReady": "已就绪",
+      "dreaminaStatusMembershipRequired": "需高级会员",
       "dreaminaStatusLoginRequired": "需要登录",
       "dreaminaStatusCliMissing": "CLI 缺失",
       "dreaminaStatusGitMissing": "Git 缺失",
@@ -1095,13 +1124,15 @@
       "readyBody": "Dreamina CLI 可直接使用，你现在可以继续提交即梦任务或重新查询结果。",
       "gitBashMissingTitle": "缺少可用的 Git Bash 运行时",
       "gitBashMissingBody": "软件没有找到内置便携 Git，也没有找到系统里的 Git Bash，自动准备暂时无法继续。",
-      "cliMissingTitle": "缺少内置 Dreamina CLI",
-      "cliMissingBody": "软件没有找到随安装包内置的 Dreamina CLI 运行文件。请使用最新版安装包重新安装后再试。",
-      "loginRequiredTitle": "需要先登录 Dreamina CLI",
-      "loginRequiredBody": "软件内置的 CLI 已可运行，但这台电脑还没有完成登录授权。开始自动准备后，会直接在当前弹窗里显示 Dreamina 官方登录二维码并等待扫码完成。",
-      "unknownTitle": "需要补全即梦环境准备",
-      "unknownBody": "自动准备已经接管了常见流程，但当前仍需要你根据下方详情进一步确认问题。"
-    },
+        "cliMissingTitle": "缺少内置 Dreamina CLI",
+        "cliMissingBody": "软件没有找到随安装包内置的 Dreamina CLI 运行文件。请使用最新版安装包重新安装后再试。",
+        "loginRequiredTitle": "需要先登录 Dreamina CLI",
+        "loginRequiredBody": "软件内置的 CLI 已可运行，但这台电脑还没有完成登录授权。开始自动准备后，会直接在当前弹窗里显示 Dreamina 官方登录二维码并等待扫码完成。",
+        "membershipRequiredTitle": "当前账号还不能使用 Dreamina CLI",
+        "membershipRequiredBody": "你刚刚扫码的账号还不是即梦高级会员，所以 Dreamina CLI 暂时不能为它保存登录状态。",
+        "unknownTitle": "需要补全即梦环境准备",
+        "unknownBody": "自动准备已经接管了常见流程，但当前仍需要你根据下方详情进一步确认问题。"
+      },
     "actions": {
       "startAutoSetup": "开始自动准备",
       "refreshQr": "重新生成二维码",
@@ -1130,21 +1161,25 @@
       "completedTitle": "本机环境准备完成",
       "completedBody": "现在可以直接回到画布继续即梦生成或结果重查。"
     },
-    "qr": {
-      "alt": "Dreamina 登录二维码",
-      "compactHint": "首次使用只需要扫码登录一次，成功后会自动返回继续生成。",
-      "title": "请用抖音扫码登录",
+      "qr": {
+        "alt": "Dreamina 登录二维码",
+        "compactHint": "首次使用只需要扫码登录一次，成功后会自动返回继续生成。",
+        "title": "请用抖音扫码登录",
       "body": "用抖音扫一扫即可。手机确认后，软件会自动继续。",
       "waitingTitle": "正在准备二维码",
       "waitingBody": "首次使用时软件会自动启动登录流程，二维码生成后会直接显示在这里。",
       "step1": "抖音扫码",
-      "step2": "手机确认后自动返回",
-      "step3": "3. 保持当前窗口打开，软件检测成功后会自动返回"
-    },
-    "automatic": {
-      "title": "自动完成",
-      "git": "自动优先使用软件内置便携 Git 运行时",
-      "cli": "自动优先使用安装包内置的 Dreamina CLI",
+        "step2": "手机确认后自动返回",
+        "step3": "3. 保持当前窗口打开，软件检测成功后会自动返回"
+      },
+      "membershipRequired": {
+        "title": "当前扫码账号不是即梦高级会员",
+        "body": "Dreamina CLI 目前只支持即梦高级会员账号保存登录状态。请先到即梦 Web 端升级高级会员，或换一个已开通高级会员的账号重新扫码。"
+      },
+      "automatic": {
+        "title": "自动完成",
+        "git": "自动优先使用软件内置便携 Git 运行时",
+        "cli": "自动优先使用安装包内置的 Dreamina CLI",
       "login": "自动按官方流程生成二维码并在扫码后复检"
     },
     "runtime": {
@@ -1154,18 +1189,20 @@
     "detailTitle": "环境详情",
     "noticeTitle": "当前提示",
     "notice": {
-      "autoReady": "自动准备已经完成。Dreamina CLI 现在可直接使用。",
-      "autoClosing": "本机环境已经准备完成，正在返回画布…",
-      "loginOpened": "二维码已准备完成，请直接使用抖音扫码。",
-      "loginStillPending": "当前二维码仍可继续扫码。如果手机上已经确认完成，可以点重新检测；如果二维码失效了，再点重新生成二维码。",
-      "autoNeedsAttention": "自动准备已执行，但环境还没有完全就绪。请结合下方详情继续处理。"
-    },
-    "blocked": {
-      "gitBashMissing": "这台电脑还没有可用的 Git Bash 运行时，请先完成即梦环境准备。",
-      "cliMissing": "这台电脑没有检测到软件内置的 Dreamina CLI，请先安装最新版短剧助手。",
-      "loginRequired": "Dreamina CLI 还没有登录，请先完成即梦环境准备。",
-      "unknown": "即梦环境还没有准备完成，请先完成检测和登录。"
-    }
+        "autoReady": "自动准备已经完成。Dreamina CLI 现在可直接使用。",
+        "autoClosing": "本机环境已经准备完成，正在返回画布…",
+        "loginOpened": "二维码已准备完成，请直接使用抖音扫码。",
+        "loginStillPending": "当前二维码仍可继续扫码。如果手机上已经确认完成，可以点重新检测；如果二维码失效了，再点重新生成二维码。",
+        "membershipRequired": "当前扫码账号还不是即梦高级会员，因此 Dreamina CLI 无法保存登录状态。请先升级高级会员，或换一个已开通高级会员的账号重新扫码。",
+        "autoNeedsAttention": "自动准备已执行，但环境还没有完全就绪。请结合下方详情继续处理。"
+      },
+      "blocked": {
+        "gitBashMissing": "这台电脑还没有可用的 Git Bash 运行时，请先完成即梦环境准备。",
+        "cliMissing": "这台电脑没有检测到软件内置的 Dreamina CLI，请先安装最新版短剧助手。",
+        "loginRequired": "Dreamina CLI 还没有登录，请先完成即梦环境准备。",
+        "membershipRequired": "当前扫码账号还不是即梦高级会员，请先升级会员或更换账号后再试。",
+        "unknown": "即梦环境还没有准备完成，请先完成检测和登录。"
+      }
   },
   "update": {
     "dialogTitle": "发现新版本",

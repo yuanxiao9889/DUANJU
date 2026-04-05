@@ -1,5 +1,5 @@
 use std::collections::HashSet;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use rusqlite::{params, Connection};
@@ -349,6 +349,209 @@ pub(crate) fn normalize_image_ref_path(value: &str) -> Option<String> {
     Some(normalized)
 }
 
+fn rewrite_json_string_field<F>(
+    object: &mut serde_json::Map<String, Value>,
+    key: &str,
+    rewrite: &F,
+) -> bool
+where
+    F: Fn(&str) -> Option<String>,
+{
+    let Some(current_value) = object.get(key).and_then(Value::as_str) else {
+        return false;
+    };
+    let Some(next_value) = rewrite(current_value) else {
+        return false;
+    };
+    if next_value == current_value {
+        return false;
+    }
+
+    object.insert(key.to_string(), Value::String(next_value));
+    true
+}
+
+fn rewrite_json_string_array<F>(array: &mut [Value], rewrite: &F) -> bool
+where
+    F: Fn(&str) -> Option<String>,
+{
+    let mut changed = false;
+    for item in array {
+        let Some(current_value) = item.as_str() else {
+            continue;
+        };
+        let Some(next_value) = rewrite(current_value) else {
+            continue;
+        };
+        if next_value == current_value {
+            continue;
+        }
+
+        *item = Value::String(next_value);
+        changed = true;
+    }
+
+    changed
+}
+
+fn rewrite_node_media_paths<F>(node: &mut Value, rewrite: &F) -> bool
+where
+    F: Fn(&str) -> Option<String>,
+{
+    let Some(data) = node.get_mut("data").and_then(Value::as_object_mut) else {
+        return false;
+    };
+
+    let mut changed = false;
+    for key in [
+        "imageUrl",
+        "previewImageUrl",
+        "videoUrl",
+        "audioUrl",
+        "sourceUrl",
+        "posterSourceUrl",
+    ] {
+        changed |= rewrite_json_string_field(data, key, rewrite);
+    }
+
+    if let Some(frames) = data.get_mut("frames").and_then(Value::as_array_mut) {
+        for frame in frames {
+            let Some(frame_object) = frame.as_object_mut() else {
+                continue;
+            };
+            for key in ["imageUrl", "previewImageUrl"] {
+                changed |= rewrite_json_string_field(frame_object, key, rewrite);
+            }
+        }
+    }
+
+    if let Some(result_images) = data.get_mut("resultImages").and_then(Value::as_array_mut) {
+        for item in result_images {
+            let Some(item_object) = item.as_object_mut() else {
+                continue;
+            };
+            for key in [
+                "imageUrl",
+                "previewImageUrl",
+                "sourceUrl",
+                "posterSourceUrl",
+                "videoUrl",
+            ] {
+                changed |= rewrite_json_string_field(item_object, key, rewrite);
+            }
+        }
+    }
+
+    changed
+}
+
+fn rewrite_nodes_media_paths<F>(nodes: &mut [Value], rewrite: &F) -> bool
+where
+    F: Fn(&str) -> Option<String>,
+{
+    let mut changed = false;
+    for node in nodes {
+        changed |= rewrite_node_media_paths(node, rewrite);
+    }
+    changed
+}
+
+fn rewrite_history_snapshot_media_paths<F>(snapshot: &mut Value, rewrite: &F) -> bool
+where
+    F: Fn(&str) -> Option<String>,
+{
+    let mut changed = false;
+
+    if let Some(nodes) = snapshot.get_mut("nodes").and_then(Value::as_array_mut) {
+        changed |= rewrite_nodes_media_paths(nodes, rewrite);
+    }
+
+    if snapshot.get("kind").and_then(Value::as_str) != Some("nodePatch") {
+        return changed;
+    }
+
+    let Some(entries) = snapshot.get_mut("entries").and_then(Value::as_array_mut) else {
+        return changed;
+    };
+
+    for entry in entries {
+        let Some(node) = entry.get_mut("node") else {
+            continue;
+        };
+        if node.is_null() {
+            continue;
+        }
+        changed |= rewrite_node_media_paths(node, rewrite);
+    }
+
+    changed
+}
+
+fn rewrite_project_payload_media_paths<F>(
+    nodes_json: &str,
+    history_json: &str,
+    rewrite: &F,
+) -> Result<Option<(String, String)>, String>
+where
+    F: Fn(&str) -> Option<String>,
+{
+    let mut parsed_nodes = serde_json::from_str::<Value>(nodes_json).map_err(|e| {
+        format!(
+            "Failed to parse project nodes json for media rewrite: {}",
+            e
+        )
+    })?;
+    let mut parsed_history = serde_json::from_str::<Value>(history_json).map_err(|e| {
+        format!(
+            "Failed to parse project history json for media rewrite: {}",
+            e
+        )
+    })?;
+
+    let mut changed = false;
+
+    if let Some(image_pool) = parsed_nodes
+        .get_mut("imagePool")
+        .and_then(Value::as_array_mut)
+    {
+        changed |= rewrite_json_string_array(image_pool, rewrite);
+    }
+
+    if let Some(nodes) = project_nodes_array_mut(&mut parsed_nodes) {
+        changed |= rewrite_nodes_media_paths(nodes, rewrite);
+    }
+
+    if let Some(image_pool) = parsed_history
+        .get_mut("imagePool")
+        .and_then(Value::as_array_mut)
+    {
+        changed |= rewrite_json_string_array(image_pool, rewrite);
+    }
+
+    for timeline_key in ["past", "future"] {
+        let Some(timeline) = parsed_history
+            .get_mut(timeline_key)
+            .and_then(Value::as_array_mut)
+        else {
+            continue;
+        };
+
+        for snapshot in timeline {
+            changed |= rewrite_history_snapshot_media_paths(snapshot, rewrite);
+        }
+    }
+
+    if !changed {
+        return Ok(None);
+    }
+
+    let next_nodes_json = serde_json::to_string(&parsed_nodes)
+        .map_err(|e| format!("Failed to serialize rewritten project nodes json: {}", e))?;
+    let next_history_json = serde_json::to_string(&parsed_history)
+        .map_err(|e| format!("Failed to serialize rewritten project history json: {}", e))?;
+    Ok(Some((next_nodes_json, next_history_json)))
+}
+
 fn resolve_image_ref(value: &str, image_pool: &[String]) -> Option<String> {
     const IMAGE_REF_PREFIX: &str = "__img_ref__:";
 
@@ -480,6 +683,209 @@ fn extract_project_image_paths(nodes_json: &str, history_json: &str) -> HashSet<
 
 fn resolve_images_dir(app: &AppHandle) -> Result<PathBuf, String> {
     storage::resolve_images_dir(app)
+}
+
+fn update_project_payload_in_tx(
+    tx: &rusqlite::Transaction<'_>,
+    project_id: &str,
+    nodes_json: &str,
+    history_json: &str,
+) -> Result<(), String> {
+    tx.execute(
+        "UPDATE projects SET nodes_json = ?1, history_json = ?2 WHERE id = ?3",
+        params![nodes_json, history_json, project_id],
+    )
+    .map_err(|e| format!("Failed to update rewritten project payload: {}", e))?;
+
+    replace_project_image_refs(tx, project_id, nodes_json, history_json)?;
+    Ok(())
+}
+
+fn replace_asset_image_refs_in_tx(
+    tx: &rusqlite::Transaction<'_>,
+    asset_id: &str,
+    source_path: &str,
+    preview_path: Option<&str>,
+) -> Result<(), String> {
+    tx.execute(
+        "DELETE FROM asset_image_refs WHERE asset_id = ?1",
+        params![asset_id],
+    )
+    .map_err(|e| {
+        format!(
+            "Failed to clear asset image refs during storage rewrite: {}",
+            e
+        )
+    })?;
+
+    for path in [Some(source_path), preview_path] {
+        let Some(path) = path.map(str::trim).filter(|value| !value.is_empty()) else {
+            continue;
+        };
+        let Some(normalized_path) = normalize_image_ref_path(path) else {
+            continue;
+        };
+        tx.execute(
+            "INSERT OR IGNORE INTO asset_image_refs (asset_id, path) VALUES (?1, ?2)",
+            params![asset_id, normalized_path],
+        )
+        .map_err(|e| {
+            format!(
+                "Failed to upsert asset image ref during storage rewrite: {}",
+                e
+            )
+        })?;
+    }
+
+    Ok(())
+}
+
+fn repair_project_record_storage_aliases_if_needed(
+    conn: &mut Connection,
+    app: &AppHandle,
+    record: &mut ProjectRecord,
+) -> Result<bool, String> {
+    let images_dir = resolve_images_dir(app)?;
+    let Some((next_nodes_json, next_history_json)) =
+        rewrite_project_payload_media_paths(&record.nodes_json, &record.history_json, &|value| {
+            storage::relocate_storage_path_to_images_dir(value, &images_dir)
+        })?
+    else {
+        return Ok(false);
+    };
+
+    let tx = conn.transaction().map_err(|e| {
+        format!(
+            "Failed to begin project storage alias repair transaction: {}",
+            e
+        )
+    })?;
+    update_project_payload_in_tx(&tx, &record.id, &next_nodes_json, &next_history_json)?;
+    tx.commit()
+        .map_err(|e| format!("Failed to commit project storage alias repair: {}", e))?;
+
+    record.nodes_json = next_nodes_json;
+    record.history_json = next_history_json;
+    Ok(true)
+}
+
+pub(crate) fn rewrite_storage_media_paths_in_connection(
+    conn: &mut Connection,
+    from_base: &Path,
+    to_base: &Path,
+) -> Result<bool, String> {
+    ensure_projects_table(conn)?;
+
+    let project_rows: Vec<(String, String, String)> = {
+        let mut stmt = conn
+            .prepare("SELECT id, nodes_json, history_json FROM projects")
+            .map_err(|e| format!("Failed to prepare project storage rewrite query: {}", e))?;
+        let rows = stmt
+            .query_map([], |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, String>(2)?,
+                ))
+            })
+            .map_err(|e| format!("Failed to query projects for storage rewrite: {}", e))?;
+
+        let mut collected = Vec::new();
+        for row in rows {
+            collected.push(
+                row.map_err(|e| format!("Failed to read project storage rewrite row: {}", e))?,
+            );
+        }
+        collected
+    };
+
+    let asset_rows: Vec<(String, String, Option<String>)> = {
+        let mut stmt = conn
+            .prepare(
+                r#"
+                SELECT
+                  id,
+                  COALESCE(NULLIF(TRIM(source_path), ''), image_path) AS source_path,
+                  NULLIF(TRIM(COALESCE(preview_path, preview_image_path, '')), '') AS preview_path
+                FROM asset_items
+                "#,
+            )
+            .map_err(|e| format!("Failed to prepare asset storage rewrite query: {}", e))?;
+        let rows = stmt
+            .query_map([], |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, Option<String>>(2)?,
+                ))
+            })
+            .map_err(|e| format!("Failed to query assets for storage rewrite: {}", e))?;
+
+        let mut collected = Vec::new();
+        for row in rows {
+            collected
+                .push(row.map_err(|e| format!("Failed to read asset storage rewrite row: {}", e))?);
+        }
+        collected
+    };
+
+    let tx = conn
+        .transaction()
+        .map_err(|e| format!("Failed to begin storage media rewrite transaction: {}", e))?;
+    let mut changed_any = false;
+
+    for (project_id, nodes_json, history_json) in project_rows {
+        let Some((next_nodes_json, next_history_json)) =
+            rewrite_project_payload_media_paths(&nodes_json, &history_json, &|value| {
+                storage::rebase_storage_path_string(value, from_base, to_base)
+            })?
+        else {
+            continue;
+        };
+
+        update_project_payload_in_tx(&tx, &project_id, &next_nodes_json, &next_history_json)?;
+        changed_any = true;
+    }
+
+    for (asset_id, source_path, preview_path) in asset_rows {
+        let next_source_path =
+            storage::rebase_storage_path_string(&source_path, from_base, to_base)
+                .unwrap_or_else(|| source_path.clone());
+        let next_preview_path = preview_path
+            .as_deref()
+            .and_then(|value| storage::rebase_storage_path_string(value, from_base, to_base))
+            .or_else(|| preview_path.clone());
+
+        if next_source_path == source_path && next_preview_path == preview_path {
+            continue;
+        }
+
+        tx.execute(
+            r#"
+            UPDATE asset_items
+            SET
+              source_path = ?2,
+              preview_path = ?3,
+              image_path = ?2,
+              preview_image_path = COALESCE(?3, '')
+            WHERE id = ?1
+            "#,
+            params![asset_id, next_source_path, next_preview_path],
+        )
+        .map_err(|e| format!("Failed to update asset storage paths: {}", e))?;
+
+        replace_asset_image_refs_in_tx(
+            &tx,
+            &asset_id,
+            &next_source_path,
+            next_preview_path.as_deref(),
+        )?;
+        changed_any = true;
+    }
+
+    tx.commit()
+        .map_err(|e| format!("Failed to commit storage media rewrite transaction: {}", e))?;
+    Ok(changed_any)
 }
 
 pub(crate) fn prune_unreferenced_images(app: &AppHandle) -> Result<(), String> {
@@ -631,54 +1037,69 @@ pub fn get_project_record(
     app: AppHandle,
     project_id: String,
 ) -> Result<Option<ProjectRecord>, String> {
-    let conn = open_db(&app)?;
-    let mut stmt = conn
-        .prepare(
-            r#"
-            SELECT
-              id,
-              name,
-              COALESCE(project_type, 'storyboard') as project_type,
-              asset_library_id,
-              created_at,
-              updated_at,
-              node_count,
-              nodes_json,
-              edges_json,
-              viewport_json,
-              history_json
-            FROM projects
-            WHERE id = ?1
-            LIMIT 1
-            "#,
-        )
-        .map_err(|e| format!("Failed to prepare get project query: {}", e))?;
+    let mut conn = open_db(&app)?;
+    let result = {
+        let mut stmt = conn
+            .prepare(
+                r#"
+                SELECT
+                  id,
+                  name,
+                  COALESCE(project_type, 'storyboard') as project_type,
+                  asset_library_id,
+                  created_at,
+                  updated_at,
+                  node_count,
+                  nodes_json,
+                  edges_json,
+                  viewport_json,
+                  history_json
+                FROM projects
+                WHERE id = ?1
+                LIMIT 1
+                "#,
+            )
+            .map_err(|e| format!("Failed to prepare get project query: {}", e))?;
 
-    let result = stmt.query_row(params![project_id], |row| {
-        Ok(ProjectRecord {
-            id: row.get(0)?,
-            name: row.get(1)?,
-            project_type: row.get(2)?,
-            asset_library_id: row.get(3)?,
-            created_at: row.get(4)?,
-            updated_at: row.get(5)?,
-            node_count: row.get(6)?,
-            nodes_json: row.get(7)?,
-            edges_json: row.get(8)?,
-            viewport_json: row.get(9)?,
-            history_json: row.get(10)?,
+        stmt.query_row(params![project_id], |row| {
+            Ok(ProjectRecord {
+                id: row.get(0)?,
+                name: row.get(1)?,
+                project_type: row.get(2)?,
+                asset_library_id: row.get(3)?,
+                created_at: row.get(4)?,
+                updated_at: row.get(5)?,
+                node_count: row.get(6)?,
+                nodes_json: row.get(7)?,
+                edges_json: row.get(8)?,
+                viewport_json: row.get(9)?,
+                history_json: row.get(10)?,
+            })
         })
-    });
+    };
 
     match result {
-        Ok(record) => Ok(Some(record)),
+        Ok(mut record) => {
+            repair_project_record_storage_aliases_if_needed(&mut conn, &app, &mut record)?;
+            Ok(Some(record))
+        }
         Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
         Err(error) => Err(format!("Failed to load project: {}", error)),
     }
 }
 
 #[tauri::command]
-pub fn upsert_project_record(app: AppHandle, record: ProjectRecord) -> Result<(), String> {
+pub fn upsert_project_record(app: AppHandle, mut record: ProjectRecord) -> Result<(), String> {
+    let images_dir = resolve_images_dir(&app)?;
+    if let Some((next_nodes_json, next_history_json)) =
+        rewrite_project_payload_media_paths(&record.nodes_json, &record.history_json, &|value| {
+            storage::relocate_storage_path_to_images_dir(value, &images_dir)
+        })?
+    {
+        record.nodes_json = next_nodes_json;
+        record.history_json = next_history_json;
+    }
+
     let mut conn = open_db(&app)?;
     let tx = conn
         .transaction()
@@ -792,8 +1213,13 @@ pub fn delete_project_record(app: AppHandle, project_id: String) -> Result<(), S
 
 #[cfg(test)]
 mod tests {
-    use super::{ensure_projects_table, extract_project_image_paths, normalize_image_ref_path};
+    use super::storage;
+    use super::{
+        ensure_projects_table, extract_project_image_paths, normalize_image_ref_path,
+        rewrite_project_payload_media_paths,
+    };
     use rusqlite::Connection;
+    use std::fs;
 
     #[test]
     fn ensure_projects_table_migrates_legacy_projects_before_creating_indexes() {
@@ -975,5 +1401,57 @@ mod tests {
                 .expect("patch history image path should normalize")
                 .as_str()
         ));
+    }
+
+    #[test]
+    fn rewrite_project_payload_media_paths_updates_image_pool_and_result_media() {
+        let temp_root = std::env::temp_dir().join(format!(
+            "storyboard-project-rewrite-test-{}",
+            std::process::id()
+        ));
+        let images_dir = temp_root.join("images");
+        fs::create_dir_all(&images_dir).expect("failed to create images dir");
+        let relocated_video = images_dir.join("clip.mp4");
+        let relocated_poster = images_dir.join("poster.png");
+        fs::write(&relocated_video, b"video").expect("failed to write video fixture");
+        fs::write(&relocated_poster, b"poster").expect("failed to write poster fixture");
+
+        let nodes_json = r#"
+        {
+          "nodes": [
+            {
+              "id": "video-node",
+              "type": "jimengVideoResult",
+              "data": {
+                "resultImages": [
+                  {
+                    "videoUrl": "C:/legacy-storage/images/clip.mp4",
+                    "posterSourceUrl": "C:/legacy-storage/images/poster.png"
+                  }
+                ]
+              }
+            }
+          ],
+          "imagePool": [
+            "C:/legacy-storage/images/poster.png"
+          ]
+        }
+        "#;
+        let history_json = r#"{"past":[],"future":[]}"#;
+
+        let rewritten = rewrite_project_payload_media_paths(nodes_json, history_json, &|value| {
+            storage::relocate_storage_path_to_images_dir(value, &images_dir)
+        })
+        .expect("rewrite should succeed")
+        .expect("payload should change");
+
+        assert!(rewritten
+            .0
+            .contains(&relocated_video.to_string_lossy().replace('\\', "/")));
+        assert!(rewritten
+            .0
+            .contains(&relocated_poster.to_string_lossy().replace('\\', "/")));
+
+        let _ = fs::remove_dir_all(temp_root);
     }
 }

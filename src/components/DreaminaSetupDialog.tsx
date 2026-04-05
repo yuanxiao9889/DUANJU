@@ -82,6 +82,11 @@ function resolveStatusCopy(
         title: t("dreaminaSetup.status.cliMissingTitle"),
         body: t("dreaminaSetup.status.cliMissingBody"),
       };
+    case "membershipRequired":
+      return {
+        title: t("dreaminaSetup.status.membershipRequiredTitle"),
+        body: t("dreaminaSetup.status.membershipRequiredBody"),
+      };
     case "loginRequired":
       return {
         title: t("dreaminaSetup.status.loginRequiredTitle"),
@@ -308,9 +313,11 @@ export function DreaminaSetupDialog({
   );
   const progressPercent = setupProgress?.progress ?? 0;
   const loginQrDataUrl = setupProgress?.loginQrDataUrl ?? null;
+  const isMembershipRequired = statusCode === "membershipRequired";
   const isLoginFlowVisible =
     !status?.ready &&
     (Boolean(loginQrDataUrl) ||
+      isMembershipRequired ||
       statusCode === "loginRequired" ||
       setupProgress?.stage === "openingLogin" ||
       setupProgress?.stage === "waitingForLogin");
@@ -318,6 +325,16 @@ export function DreaminaSetupDialog({
   const runtimeSourceCopy = useMemo(
     () => resolveRuntimeSourceCopy(setupProgress?.gitSource, t),
     [setupProgress?.gitSource, t],
+  );
+  const membershipHintCopy = useMemo(
+    () =>
+      isMembershipRequired
+        ? {
+            title: t("dreaminaSetup.membershipRequired.title"),
+            body: t("dreaminaSetup.membershipRequired.body"),
+          }
+        : null,
+    [isMembershipRequired, t],
   );
 
   const handleAutoPrepare = useCallback(async () => {
@@ -374,7 +391,10 @@ export function DreaminaSetupDialog({
           setActionNotice(t("dreaminaSetup.notice.loginStillPending"));
         }
       } else {
-        if (response.status.code === "unknown") {
+        if (
+          response.status.code === "unknown"
+          || response.status.code === "membershipRequired"
+        ) {
           setSetupProgress((previous) => ({
             stage: "failed",
             progress: previous?.progress ?? 0,
@@ -383,7 +403,11 @@ export function DreaminaSetupDialog({
             loginQrDataUrl: previous?.loginQrDataUrl ?? null,
           }));
         }
-        setActionNotice(t("dreaminaSetup.notice.autoNeedsAttention"));
+        setActionNotice(
+          response.status.code === "membershipRequired"
+            ? t("dreaminaSetup.notice.membershipRequired")
+            : t("dreaminaSetup.notice.autoNeedsAttention"),
+        );
       }
     } catch (error) {
       const message = toErrorMessage(error);
@@ -609,6 +633,17 @@ export function DreaminaSetupDialog({
                       : t("dreaminaSetup.qr.waitingBody")}
                   </div>
                 </div>
+
+                {membershipHintCopy ? (
+                  <div className="rounded-xl border border-rose-500/30 bg-rose-500/10 px-3 py-3">
+                    <div className="text-sm font-medium text-rose-200">
+                      {membershipHintCopy.title}
+                    </div>
+                    <div className="mt-1 text-xs leading-5 text-rose-100/90">
+                      {membershipHintCopy.body}
+                    </div>
+                  </div>
+                ) : null}
 
                 {loginQrDataUrl ? (
                   <div className="flex flex-wrap gap-2">

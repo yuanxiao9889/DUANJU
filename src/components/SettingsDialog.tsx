@@ -10,6 +10,7 @@ import {
   type DreaminaCliStatusResponse,
 } from '@/commands/dreaminaCli';
 import { useSettingsStore } from '@/stores/settingsStore';
+import { useProjectStore } from '@/stores/projectStore';
 import { usePsIntegrationStore } from '@/stores/psIntegrationStore';
 import { testProviderConnection } from '@/commands/textGen';
 import { 
@@ -796,14 +797,15 @@ export function SettingsDialog({
       setMigrationError(null);
       setIsMigrating(true);
 
+      await useProjectStore.getState().flushCurrentProjectToDisk();
       await migrateStorage(newPath, true);
-      await Promise.all([loadStorageInfo(), loadDatabaseBackups()]);
+      window.location.reload();
     } catch (error) {
       setMigrationError(error instanceof Error ? error.message : String(error));
     } finally {
       setIsMigrating(false);
     }
-  }, [isMigrating, loadDatabaseBackups, loadStorageInfo]);
+  }, [isMigrating]);
 
   const handleOpenStorageFolder = useCallback(async () => {
     try {
@@ -1154,6 +1156,11 @@ export function SettingsDialog({
         return {
           label: t('settings.dreaminaStatusReady'),
           className: 'border-green-500/30 bg-green-500/10 text-green-400',
+        };
+      case 'membershipRequired':
+        return {
+          label: t('settings.dreaminaStatusMembershipRequired'),
+          className: 'border-rose-500/30 bg-rose-500/10 text-rose-300',
         };
       case 'loginRequired':
         return {

@@ -66,7 +66,7 @@
     {
       "id": "warmup",
       "label": "Warm up runtime",
-      "description": "Run a lightweight health check before exposing the extension.",
+      "description": "Preload the VoiceDesign and Base models into memory before exposing the extension.",
       "durationMs": 700
     },
     {

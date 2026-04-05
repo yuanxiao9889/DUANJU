@@ -36,6 +36,33 @@ function homePathFromWindowsPath(inputPath) {
   return suffix ? `\\${suffix.replace(/^\\+/, "")}` : "\\";
 }
 
+function collectWindowsChromeDirs() {
+  const candidates = [];
+  if (process.env.PROGRAMFILES) {
+    candidates.push(
+      path.join(process.env.PROGRAMFILES, "Google", "Chrome", "Application"),
+    );
+  }
+  if (process.env["PROGRAMFILES(X86)"]) {
+    candidates.push(
+      path.join(
+        process.env["PROGRAMFILES(X86)"],
+        "Google",
+        "Chrome",
+        "Application",
+      ),
+    );
+  }
+  if (process.env.LOCALAPPDATA) {
+    candidates.push(
+      path.join(process.env.LOCALAPPDATA, "Google", "Chrome", "Application"),
+    );
+  }
+  candidates.push("C:\\Program Files\\Google\\Chrome\\Application");
+  candidates.push("C:\\Program Files (x86)\\Google\\Chrome\\Application");
+  return [...new Set(candidates)];
+}
+
 function combinedOutput(result) {
   return [result.stdout, result.stderr].filter(Boolean).join("\n").trim();
 }
@@ -150,6 +177,7 @@ async function main() {
   const pathPrefix = [
     toBashPath(path.join(dreaminaRoot, "bin")),
     toBashPath(path.join(userProfile, "bin")),
+    ...collectWindowsChromeDirs().map((item) => toBashPath(item)),
     toBashPath(path.join(gitRoot, "bin")),
     toBashPath(path.join(gitRoot, "usr", "bin")),
     toBashPath(path.join(gitRoot, "mingw64", "bin")),
@@ -229,6 +257,8 @@ async function main() {
   const loginCommand = spawn(
     bashPath,
     [
+      "--noprofile",
+      "--norc",
       "-lc",
       `${bashEnvPrefix}; '${bundledDreaminaBinary.replace(/\\/g, "/")}' login --headless --debug`,
     ],

@@ -51,6 +51,7 @@ export type DreaminaCliStatusCode =
   | "gitBashMissing"
   | "cliMissing"
   | "loginRequired"
+  | "membershipRequired"
   | "unknown";
 
 export type DreaminaGitSource = "bundled" | "system";

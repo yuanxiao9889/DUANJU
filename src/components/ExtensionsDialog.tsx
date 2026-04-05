@@ -80,12 +80,17 @@ export function ExtensionsDialog({ isOpen, onClose }: ExtensionsDialogProps) {
   );
   const summary = useMemo(() => ({
     loadedPackageCount: sortedPackages.length,
-    enabledPackageCount: enabledExtensionIds.length,
+    enabledPackageCount: sortedPackages.filter(
+      (extensionPackage) => (
+        enabledExtensionIds.includes(extensionPackage.id)
+        && runtimeById[extensionPackage.id]?.status === 'ready'
+      )
+    ).length,
     modelAssetCount: sortedPackages.reduce(
       (count, extensionPackage) => count + (extensionPackage.models?.length ?? 0),
       0
     ),
-  }), [enabledExtensionIds.length, sortedPackages]);
+  }), [enabledExtensionIds, runtimeById, sortedPackages]);
 
   useEffect(() => {
     setCollapsedPackageIds((previous) => {
@@ -98,8 +103,10 @@ export function ExtensionsDialog({ isOpen, onClose }: ExtensionsDialogProps) {
         }
 
         const runtime = runtimeById[extensionPackage.id];
+        const isReady = enabledExtensionIds.includes(extensionPackage.id)
+          && runtime?.status === 'ready';
         const shouldExpandByDefault =
-          enabledExtensionIds.includes(extensionPackage.id) ||
+          isReady ||
           runtime?.status === 'starting' ||
           runtime?.status === 'error' ||
           index === 0;
@@ -262,14 +269,31 @@ export function ExtensionsDialog({ isOpen, onClose }: ExtensionsDialogProps) {
           <div className="ui-scrollbar max-h-[min(56vh,620px)] space-y-3 overflow-y-auto pr-1">
             {sortedPackages.map((extensionPackage) => {
               const runtime = runtimeById[extensionPackage.id];
-              const isEnabled = enabledExtensionIds.includes(extensionPackage.id);
+              const isEnabled = enabledExtensionIds.includes(extensionPackage.id)
+                && runtime?.status === 'ready';
               const isStarting = runtime?.status === 'starting';
               const isError = runtime?.status === 'error';
               const isCollapsed = Boolean(collapsedPackageIds[extensionPackage.id]);
               const currentStep = extensionPackage.startupSteps.find(
                 (step) => step.id === runtime?.currentStepId
               );
-              const progress = runtime?.progress ?? (isEnabled ? 100 : 0);
+              const progress = isStarting
+                ? runtime?.progress ?? 0
+                : isEnabled
+                  ? 100
+                  : 0;
+              const runtimeHint = isStarting
+                ? currentStep?.description ?? t('extensions.statusStarting')
+                : isEnabled
+                  ? t('extensions.readyHint')
+                  : isError
+                    ? runtime?.error ?? t('extensions.statusError')
+                    : t('extensions.idleHint');
+              const currentStepLabel = currentStep
+                ? `${t('extensions.currentStep')}: ${currentStep.label}`
+                : isEnabled
+                  ? t('extensions.readyHint')
+                  : t('extensions.statusLoaded');
               const collapsedSummary = t('extensions.collapsedSummary', {
                 nodes: extensionPackage.features.nodes.length,
                 entryPoints: extensionPackage.features.entryPoints.length,
@@ -334,9 +358,7 @@ export function ExtensionsDialog({ isOpen, onClose }: ExtensionsDialogProps) {
                           <span>{collapsedSummary}</span>
                           <span>{progress}%</span>
                           <span>
-                            {currentStep
-                              ? `${t('extensions.currentStep')}: ${currentStep.label}`
-                              : t('extensions.readyHint')}
+                            {currentStepLabel}
                           </span>
                         </div>
                       </div>
@@ -372,7 +394,7 @@ export function ExtensionsDialog({ isOpen, onClose }: ExtensionsDialogProps) {
                             return;
                           }
 
-                          removeExtensionPackage(extensionPackage.id);
+                          void removeExtensionPackage(extensionPackage.id);
                         }}
                       >
                         <Trash2 className="mr-2 h-4 w-4" />
@@ -382,7 +404,9 @@ export function ExtensionsDialog({ isOpen, onClose }: ExtensionsDialogProps) {
                       {isEnabled ? (
                         <UiButton
                           variant="ghost"
-                          onClick={() => disableExtension(extensionPackage.id)}
+                          onClick={() => {
+                            void disableExtension(extensionPackage.id);
+                          }}
                         >
                           {t('extensions.disable')}
                         </UiButton>
@@ -413,9 +437,7 @@ export function ExtensionsDialog({ isOpen, onClose }: ExtensionsDialogProps) {
                   <div className="mt-4 space-y-2">
                     <div className="flex items-center justify-between text-xs text-text-muted">
                       <span>
-                        {currentStep
-                          ? `${t('extensions.currentStep')}: ${currentStep.label}`
-                          : t('extensions.readyHint')}
+                        {currentStepLabel}
                       </span>
                       <span>{progress}%</span>
                     </div>
@@ -430,7 +452,7 @@ export function ExtensionsDialog({ isOpen, onClose }: ExtensionsDialogProps) {
                       />
                     </div>
                     <div className="text-[11px] text-text-muted">
-                      {currentStep?.description ?? t('extensions.readyHint')}
+                      {runtimeHint}
                     </div>
                     {runtime?.error ? (
                       <div className="text-xs text-red-200">{runtime.error}</div>

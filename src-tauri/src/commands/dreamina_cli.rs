@@ -125,6 +125,7 @@ pub enum DreaminaCliStatusCode {
     GitBashMissing,
     CliMissing,
     LoginRequired,
+    MembershipRequired,
     Unknown,
 }
 
@@ -283,6 +284,63 @@ fn workspace_root() -> Result<PathBuf, String> {
         .ok_or_else(|| "failed to resolve workspace root".to_string())
 }
 
+fn push_unique_path(paths: &mut Vec<PathBuf>, candidate: PathBuf) {
+    if !paths.iter().any(|current| current == &candidate) {
+        paths.push(candidate);
+    }
+}
+
+fn bundled_resource_search_roots<R: Runtime>(app: &AppHandle<R>) -> Vec<PathBuf> {
+    let mut roots = Vec::new();
+
+    if let Ok(resource_dir) = app.path().resource_dir() {
+        push_unique_path(&mut roots, resource_dir.clone());
+        push_unique_path(&mut roots, resource_dir.join("resources"));
+        if let Some(parent) = resource_dir.parent() {
+            push_unique_path(&mut roots, parent.to_path_buf());
+            push_unique_path(&mut roots, parent.join("resources"));
+        }
+    }
+
+    if let Ok(current_exe) = env::current_exe() {
+        if let Some(exe_dir) = current_exe.parent() {
+            push_unique_path(&mut roots, exe_dir.to_path_buf());
+            push_unique_path(&mut roots, exe_dir.join("resources"));
+            if let Some(parent) = exe_dir.parent() {
+                push_unique_path(&mut roots, parent.to_path_buf());
+                push_unique_path(&mut roots, parent.join("resources"));
+            }
+        }
+    }
+
+    if let Ok(workspace) = workspace_root() {
+        push_unique_path(
+            &mut roots,
+            workspace
+                .join("src-tauri")
+                .join("resources"),
+        );
+        push_unique_path(
+            &mut roots,
+            workspace
+                .join("src-tauri")
+                .join("target")
+                .join("debug")
+                .join("resources"),
+        );
+        push_unique_path(
+            &mut roots,
+            workspace
+                .join("src-tauri")
+                .join("target")
+                .join("release")
+                .join("resources"),
+        );
+    }
+
+    roots
+}
+
 fn runtime_root<R: Runtime>(app: &AppHandle<R>) -> Result<PathBuf, String> {
     let path = app
         .path()
@@ -373,51 +431,19 @@ fn git_root_from_bash_path(path: &Path) -> Option<PathBuf> {
 }
 
 fn bundled_dreamina_cli_bin_dir<R: Runtime>(app: &AppHandle<R>) -> Option<PathBuf> {
-    let mut candidates = Vec::new();
-
-    if let Ok(resource_dir) = app.path().resource_dir() {
-        candidates.push(
-            resource_dir
-                .join("resources")
-                .join(DREAMINA_BUNDLED_DIR_NAME)
-                .join("bin"),
-        );
-        candidates.push(resource_dir.join(DREAMINA_BUNDLED_DIR_NAME).join("bin"));
-    }
-
-    if let Ok(workspace) = workspace_root() {
-        candidates.push(
-            workspace
-                .join("src-tauri")
-                .join("resources")
-                .join(DREAMINA_BUNDLED_DIR_NAME)
-                .join("bin"),
-        );
-    }
-
-    candidates
+    bundled_resource_search_roots(app)
         .into_iter()
-        .find(|candidate| candidate.is_dir() && candidate.join(DREAMINA_BUNDLED_BIN_NAME).is_file())
+        .map(|root| root.join(DREAMINA_BUNDLED_DIR_NAME).join("bin"))
+        .find(|candidate| {
+            candidate.is_dir() && candidate.join(DREAMINA_BUNDLED_BIN_NAME).is_file()
+        })
 }
 
 fn bundled_git_runtime<R: Runtime>(app: &AppHandle<R>) -> Option<GitBashRuntime> {
-    let mut roots = Vec::new();
-
-    if let Ok(resource_dir) = app.path().resource_dir() {
-        roots.push(resource_dir.join("resources").join("portable-git"));
-        roots.push(resource_dir.join("portable-git"));
-    }
-
-    if let Ok(workspace) = workspace_root() {
-        roots.push(
-            workspace
-                .join("src-tauri")
-                .join("resources")
-                .join("portable-git"),
-        );
-    }
-
-    for root in roots {
+    for root in bundled_resource_search_roots(app)
+        .into_iter()
+        .map(|root| root.join("portable-git"))
+    {
         for relative in ["bin/bash.exe", "usr/bin/bash.exe"] {
             let bash_path = root.join(relative);
             if bash_path.is_file() {
@@ -504,6 +530,42 @@ fn push_path_prefix(parts: &mut Vec<String>, path: &Path) {
     }
 }
 
+fn push_windows_chrome_prefixes(parts: &mut Vec<String>) {
+    let mut candidates = Vec::new();
+    if let Ok(program_files) = env::var("ProgramFiles") {
+        candidates.push(
+            PathBuf::from(&program_files)
+                .join("Google")
+                .join("Chrome")
+                .join("Application"),
+        );
+    }
+    if let Ok(program_files_x86) = env::var("ProgramFiles(x86)") {
+        candidates.push(
+            PathBuf::from(&program_files_x86)
+                .join("Google")
+                .join("Chrome")
+                .join("Application"),
+        );
+    }
+    if let Ok(local_app_data) = env::var("LOCALAPPDATA") {
+        candidates.push(
+            PathBuf::from(&local_app_data)
+                .join("Google")
+                .join("Chrome")
+                .join("Application"),
+        );
+    }
+    candidates.push(PathBuf::from(r"C:\Program Files\Google\Chrome\Application"));
+    candidates.push(PathBuf::from(
+        r"C:\Program Files (x86)\Google\Chrome\Application",
+    ));
+
+    for candidate in candidates {
+        push_path_prefix(parts, &candidate);
+    }
+}
+
 fn bundled_dreamina_binary_path(runtime: &GitBashRuntime) -> Option<PathBuf> {
     let path = runtime
         .dreamina_bin_dir
@@ -528,6 +590,7 @@ fn dreamina_path_prefix(runtime: &GitBashRuntime, command_env: &DreaminaProcessE
         push_path_prefix(&mut parts, bin_dir);
     }
     push_path_prefix(&mut parts, &command_env.user_profile.join("bin"));
+    push_windows_chrome_prefixes(&mut parts);
     if let Some(root) = runtime.root.as_ref() {
         push_path_prefix(&mut parts, &root.join("bin"));
         push_path_prefix(&mut parts, &root.join("usr").join("bin"));
@@ -551,12 +614,26 @@ fn dreamina_path_prefix(runtime: &GitBashRuntime, command_env: &DreaminaProcessE
     parts.join(":")
 }
 
+fn contains_dreamina_membership_required(text: &str) -> bool {
+    text.contains("即梦高级会员")
+        || (text.contains("高级会员") && text.contains("Dreamina CLI"))
+        || (text.to_ascii_lowercase().contains("premium member")
+            && text.to_ascii_lowercase().contains("dreamina cli"))
+}
+
+fn dreamina_membership_required_message() -> String {
+    "The current Dreamina account is not an eligible premium member yet, so Dreamina CLI cannot save the login session. Upgrade the account on the Dreamina web site, then retry the QR login."
+        .to_string()
+}
+
 fn classify_dreamina_status_code(detail: &str) -> DreaminaCliStatusCode {
     let lowered = detail.trim().to_ascii_lowercase();
     if lowered.contains("git bash was not found")
         || lowered.contains("failed to launch git bash for dreamina")
     {
         DreaminaCliStatusCode::GitBashMissing
+    } else if contains_dreamina_membership_required(detail) {
+        DreaminaCliStatusCode::MembershipRequired
     } else if lowered.contains("dreamina cli was not found")
         || lowered.contains("command not found")
         || lowered.contains("is not recognized")
@@ -641,6 +718,8 @@ async fn run_git_bash_script(
             .env("LOCALAPPDATA", &command_env.local_app_data_dir)
             .env("TEMP", &command_env.temp_dir)
             .env("TMP", &command_env.temp_dir)
+            .arg("--noprofile")
+            .arg("--norc")
             .arg("-lc")
             .arg(script);
         #[cfg(target_os = "windows")]
@@ -771,7 +850,8 @@ fn dreamina_credential_updated_since(workspace: &Path, started_at: SystemTime) -
 }
 
 fn dreamina_login_confirmed(workspace: &Path, started_at: SystemTime) -> bool {
-    dreamina_login_success_logged(workspace) || dreamina_credential_updated_since(workspace, started_at)
+    dreamina_login_success_logged(workspace)
+        || dreamina_credential_updated_since(workspace, started_at)
 }
 
 fn tail_lines(text: &str, line_count: usize) -> String {
@@ -795,7 +875,20 @@ fn dreamina_login_log_tail(workspace: &Path, line_count: usize) -> Option<String
     }
 }
 
+fn dreamina_login_membership_required_detail(workspace: &Path) -> Option<String> {
+    let log_text = read_text_file_lossy(&dreamina_login_log_path(workspace))?;
+    if contains_dreamina_membership_required(&log_text) {
+        Some(dreamina_membership_required_message())
+    } else {
+        None
+    }
+}
+
 fn dreamina_login_wait_detail(workspace: &Path) -> Option<String> {
+    if let Some(detail) = dreamina_login_membership_required_detail(workspace) {
+        return Some(detail);
+    }
+
     if dreamina_login_success_logged(workspace) {
         return Some(
             "Dreamina confirmed the QR-code login. Verifying the local session with `dreamina user_credit`."
@@ -883,6 +976,9 @@ fn normalize_dreamina_cli_error(line: &str) -> String {
     let trimmed = line.trim();
     if trimmed.contains("AigcComplianceConfirmationRequired") {
         return "This Dreamina model requires a one-time authorization on the Dreamina web site before retrying.".to_string();
+    }
+    if contains_dreamina_membership_required(trimmed) {
+        return dreamina_membership_required_message();
     }
     let lowered = trimmed.to_ascii_lowercase();
     if lowered.contains("command not found") || lowered.contains("is not recognized") {
@@ -1853,6 +1949,8 @@ async fn open_dreamina_login_terminal_with_runtime(
             .env("TEMP", &spawned_command_env.temp_dir)
             .env("TMP", &spawned_command_env.temp_dir)
             .stdin(Stdio::null())
+            .arg("--noprofile")
+            .arg("--norc")
             .arg("-lc")
             .arg(script)
             .stdout(Stdio::from(log_file))
@@ -1903,6 +2001,16 @@ async fn wait_for_dreamina_login(
 
         let status =
             resolve_dreamina_cli_status_with_runtime(workspace.to_path_buf(), runtime).await;
+        if let Some(detail) = dreamina_login_membership_required_detail(workspace) {
+            return (
+                DreaminaCliStatusResponse::new(
+                    DreaminaCliStatusCode::MembershipRequired,
+                    "Dreamina premium membership is required for CLI login.",
+                    Some(detail),
+                ),
+                false,
+            );
+        }
         if status.ready {
             return (status, false);
         }

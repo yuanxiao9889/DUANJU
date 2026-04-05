@@ -37,6 +37,26 @@ AudioLike = Union[
 MaybeList = Union[Any, List[Any]]
 
 
+def normalize_text_input(value: Any) -> str:
+    if isinstance(value, str):
+        return value
+
+    if value is None:
+        return ""
+
+    if isinstance(value, bytes):
+        return value.decode("utf-8", errors="ignore")
+
+    if isinstance(value, (list, tuple)):
+        parts = [
+            normalize_text_input(item).strip()
+            for item in value
+        ]
+        return "\n".join(part for part in parts if part)
+
+    return str(value)
+
+
 @dataclass
 class VoiceClonePromptItem:
     """
@@ -267,13 +287,16 @@ class Qwen3TTSModel:
         return x if isinstance(x, list) else [x]
 
     def _build_assistant_text(self, text: str) -> str:
-        return f"<|im_start|>assistant\n{text}<|im_end|>\n<|im_start|>assistant\n"
+        normalized_text = normalize_text_input(text)
+        return f"<|im_start|>assistant\n{normalized_text}<|im_end|>\n<|im_start|>assistant\n"
 
     def _build_ref_text(self, text: str) -> str:
-        return f"<|im_start|>assistant\n{text}<|im_end|>\n"
+        normalized_text = normalize_text_input(text)
+        return f"<|im_start|>assistant\n{normalized_text}<|im_end|>\n"
 
     def _build_instruct_text(self, instruct: str) -> str:
-        return f"<|im_start|>user\n{instruct}<|im_end|>\n"
+        normalized_instruct = normalize_text_input(instruct)
+        return f"<|im_start|>user\n{normalized_instruct}<|im_end|>\n"
 
     def _tokenize_texts(self, texts: List[str]) -> List[torch.Tensor]:
         input_ids = []
@@ -553,7 +576,7 @@ class Qwen3TTSModel:
                 "does not support generate_voice_clone, Please check Model Card or Readme for more details."
             )
         
-        texts = self._ensure_list(text)
+        texts = [normalize_text_input(item) for item in self._ensure_list(text)]
         languages = self._ensure_list(language) if isinstance(language, list) else ([language] * len(texts) if language is not None else ["Auto"] * len(texts))
         if len(languages) == 1 and len(texts) > 1:
             languages = languages * len(texts)
@@ -691,9 +714,9 @@ class Qwen3TTSModel:
                 "does not support generate_voice_design, Please check Model Card or Readme for more details."
             )
         
-        texts = self._ensure_list(text)
+        texts = [normalize_text_input(item) for item in self._ensure_list(text)]
         languages = self._ensure_list(language) if isinstance(language, list) else ([language] * len(texts) if language is not None else ["Auto"] * len(texts))
-        instructs = self._ensure_list(instruct)
+        instructs = [normalize_text_input(item) for item in self._ensure_list(instruct)]
 
         if len(languages) == 1 and len(texts) > 1:
             languages = languages * len(texts)
@@ -793,12 +816,16 @@ class Qwen3TTSModel:
                 "does not support generate_custom_voice, Please check Model Card or Readme for more details."
             )
 
-        texts = self._ensure_list(text)
+        texts = [normalize_text_input(item) for item in self._ensure_list(text)]
         languages = self._ensure_list(language) if isinstance(language, list) else ([language] * len(texts) if language is not None else ["Auto"] * len(texts))
         speakers = self._ensure_list(speaker)
         if self.model.tts_model_size in "0b6": # for 0b6 model, instruct is not supported
             instruct = None
-        instructs = self._ensure_list(instruct) if isinstance(instruct, list) else ([instruct] * len(texts) if instruct is not None else [""] * len(texts))
+        instructs = (
+            [normalize_text_input(item) for item in self._ensure_list(instruct)]
+            if isinstance(instruct, list)
+            else ([normalize_text_input(instruct)] * len(texts) if instruct is not None else [""] * len(texts))
+        )
 
         if len(languages) == 1 and len(texts) > 1:
             languages = languages * len(texts)

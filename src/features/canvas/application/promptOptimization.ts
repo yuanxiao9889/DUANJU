@@ -6,7 +6,12 @@ import {
 import { openSettingsDialog } from "@/features/settings/settingsEvents";
 import { useSettingsStore } from "@/stores/settingsStore";
 
-type PromptOptimizationMode = "image" | "video" | "jimeng" | "ttsVoice";
+type PromptOptimizationMode =
+  | "image"
+  | "video"
+  | "jimeng"
+  | "ttsVoice"
+  | "dialogue";
 
 interface OptimizePromptRequest {
   mode: PromptOptimizationMode;
@@ -309,19 +314,62 @@ function buildPromptOptimizationInstruction(
 }
 
 function buildTtsVoicePromptOptimizationInstruction(prompt: string): string {
+  return buildTtsVoicePromptOptimizationInstructionEnhanced(prompt);
+
+  // Legacy fallback kept in place for historical context.
   return [
-    "You are optimizing a Chinese voice-design prompt for a TTS model.",
-    "Keep the original intent and any explicit identity traits intact.",
-    'Write the final result in polished Chinese as one compact, production-ready voice description, not as bullets or keyword piles.',
-    "Focus on voice qualities such as age impression, gender presentation if explicitly stated, timbre, softness or brightness, breathiness, resonance, articulation, emotional restraint or intensity, intimacy, speaking posture, and accent or dialect only when the source mentions them.",
-    "Make the description more vivid and usable for voice design, but do not over-expand it.",
-    "Do not invent plot, camera language, scene description, background music, sound effects, or unrelated world-building details.",
-    "Do not add technical generation parameters, pause control markup, or formatting symbols.",
-    "If the source is already clear, only polish it lightly.",
-    "Keep it concise and easy for a TTS voice-design model to follow, usually within 1 to 3 short clauses.",
-    "Output only the final optimized Chinese voice description.",
+    "你现在要优化一段中文 TTS 声音画像提示词。",
+    "请在不改变原意和已明确身份特征的前提下，把它润色成更成熟、更细腻、更适合直接用于声音设计模型的中文描述。",
+    "保留原文中已经明确写出的年龄感、性别气质、情绪状态、音色方向、语言风格、口音方言、说话速度、亲密度、叙述距离等信息，不要改掉核心设定。",
+    "允许做一层中等强度的丰富化优化，不要只做轻微同义替换；可以适度补足声音质感、气息感、共鸣位置、咬字方式、情绪克制或张力、温度感、贴耳感、陪伴感、清冷感、明亮度、沙哑度、成熟度等对声音有帮助的维度。",
+    "如果原文比较简短或泛泛，可以在不凭空编造剧情和人物设定的前提下，把它整理成更完整、更有可执行性的声音画像。",
+    "优先让结果听起来像专业的声音设定文案，而不是关键词堆砌；既要有画面感，也要让模型容易理解和执行。",
+    "不要添加剧情、镜头、场景、美术、配乐、音效、世界观或无关设定。",
+    "不要添加技术参数、停顿控制符、括号注释、项目符号、标题或解释说明。",
+    "结果可以比原文更丰富一点，但仍然要紧凑、清晰、自然，通常控制在 2 到 4 个短分句内。",
+    "只输出最终优化后的中文声音画像正文。",
     "",
-    "Source prompt:",
+    "原始声音画像：",
+    prompt.trim(),
+  ].join("\n");
+}
+
+function buildTtsVoicePromptOptimizationInstructionEnhanced(
+  prompt: string,
+): string {
+  return [
+    "你现在要优化一段中文 TTS 声音画像提示词。",
+    "请在不改变原意和已明确身份特征的前提下，把它整理成更成熟、更细腻、更适合直接用于声音设计模型的中文描述。",
+    "优先从这些角度提炼和优化：音高、情绪、气势、年龄感、语速、音色质感、语调、性格、自然感。",
+    "如果输入里提供了角色信息、人物设定、身份背景、气质描述或剧情语境，请先从角色信息中提炼出对声音最关键的特征，再转写成可直接用于声音画像的描述。",
+    "保留原文中已经明确写出的年龄感、性别气质、情绪状态、音色方向、语言风格、口音方言、说话速度、亲密度、叙述距离等信息，不要改掉核心设定。",
+    "允许做一层中等强度的丰富化优化，不要只做轻微同义替换；可以适度补足声音的高低位置、明暗冷暖、厚薄虚实、气息松紧、共鸣位置、咬字方式、语调起伏、性格锋利度或亲和度、情绪张力和自然交流感。",
+    "如果原文比较简短、笼统或泛泛，可以在不凭空编造剧情和人物设定的前提下，把它补成更完整、更有执行性的声音画像。",
+    "结果要像专业的声音设定文案，而不是关键词堆砌；既要有画面感，也要让模型容易理解和执行。",
+    "不要添加剧情、镜头、场景、美术、配乐、音效、世界观或无关设定。",
+    "不要添加技术参数、停顿控制符、括号注释、项目符号、标题或解释说明。",
+    "结果可以比原文更丰富一点，但仍然要紧凑、自然、清晰，通常控制在 2 到 4 个短分句内。",
+    "只输出最终优化后的中文声音画像正文。",
+    "",
+    "原始声音画像：",
+    prompt.trim(),
+  ].join("\n");
+}
+
+function buildDialoguePromptOptimizationInstruction(prompt: string): string {
+  return [
+    "你现在要优化一段中文对白模板、台词草稿或旁白文案。",
+    "请在不改变原意、人物关系、关键信息、场景事实和情绪走向的前提下，把文本润色得更自然、更顺口、更有画面感，也更适合直接用于对白创作、旁白文案或配音录制。",
+    "如果原文已经有角色名、分行、段落、对话格式或 Markdown 结构，请尽量保留原有结构，只优化表达、节奏、停顿感和语言质感。",
+    "如果原文是对白模板，可以适度增强人物说话方式、口语节奏、情绪层次、潜台词和张力，但不要凭空增加新人物、新剧情、新设定或额外场景。",
+    "如果原文是旁白、独白或说明性文字，可以适度增强镜头感、情绪递进、叙述流动性和可听感，让文本更像成熟文案，而不是口号或提纲。",
+    "允许做一层中等强度的丰富化优化，不要只是轻微改字词，也不要改写成完全不同的内容。",
+    "优先优化这些维度：口语自然度、表达清晰度、人物语气区分、节奏停顿、情绪递进、潜台词、台词张力、可配音朗读性。",
+    "如果原文偏短，可以在不改变事实的前提下适度补全半句、语气连接、动作感受或情绪承接，让成品更完整一些。",
+    "避免空泛抒情、避免堆砌辞藻、避免模板腔、避免分析说明、避免输出标题、引号、编号或注释。",
+    "只输出最终优化后的正文内容。",
+    "",
+    "原始文本：",
     prompt.trim(),
   ].join("\n");
 }
@@ -653,6 +701,8 @@ export async function optimizeCanvasPrompt(
             normalizedPrompt,
             referenceImages.length > 0,
           )
+        : request.mode === "dialogue"
+          ? buildDialoguePromptOptimizationInstruction(normalizedPrompt)
         : request.mode === "ttsVoice"
           ? buildTtsVoicePromptOptimizationInstruction(normalizedPrompt)
         : buildPromptOptimizationInstruction(

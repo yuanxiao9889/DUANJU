@@ -1,0 +1,17 @@
+﻿{
+  "command": "generate_voice_design",
+  "text": "你好，今天天气真不错，阳光也刚刚好。",
+  "language": "auto",
+  "voicePrompt": "年轻女性声线，音高偏中高，音色清亮柔和，带一点自然的细腻气息与青春感；语气轻盈松弛，语速适中偏轻快，咬字清晰自然，语调有灵动起伏但不过分夸张。整体气质亲和、干净、真实，带温柔而不稚嫩的少女感，情绪表达自然，贴近日常交流。; natural delivery, close to everyday speech; natural speaking rate; natural pitch",
+  "outputPrefix": "codex-db-repro",
+  "max_new_tokens": 2048,
+  "temperature": 1,
+  "top_k": 20,
+  "top_p": 0.8,
+  "repetition_penalty": 1.05,
+  "pause_linebreak": 0.5,
+  "period_pause": 0.4,
+  "comma_pause": 0.2,
+  "question_pause": 0.6,
+  "hyphen_pause": 0.3
+}

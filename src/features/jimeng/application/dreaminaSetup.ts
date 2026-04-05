@@ -66,6 +66,8 @@ export function resolveDreaminaSetupBlockedMessage(
       return t("dreaminaSetup.blocked.cliMissing");
     case "loginRequired":
       return t("dreaminaSetup.blocked.loginRequired");
+    case "membershipRequired":
+      return t("dreaminaSetup.blocked.membershipRequired");
     default:
       return t("dreaminaSetup.blocked.unknown");
   }

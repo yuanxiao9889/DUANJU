@@ -52,7 +52,7 @@ export const TTS_TEXT_NODE_DEFAULT_WIDTH = 320;
 export const TTS_TEXT_NODE_DEFAULT_HEIGHT = 180;
 export const TTS_VOICE_DESIGN_NODE_DEFAULT_WIDTH = 440;
 export const TTS_VOICE_DESIGN_NODE_DEFAULT_HEIGHT = 300;
-export const TTS_SAVED_VOICE_NODE_DEFAULT_WIDTH = 360;
+export const TTS_SAVED_VOICE_NODE_DEFAULT_WIDTH = 440;
 export const TTS_SAVED_VOICE_NODE_DEFAULT_HEIGHT = 320;
 
 export const IMAGE_SIZES = ['0.5K', '1K', '2K', '4K'] as const;
@@ -176,6 +176,14 @@ export interface AudioNodeData extends NodeDisplayData {
   audioFileName?: string | null;
   duration?: number;
   mimeType?: string | null;
+  generationSource?: 'ttsVoiceDesign' | 'ttsSavedVoice' | null;
+  sourceNodeId?: string | null;
+  isGenerating?: boolean;
+  generationProgress?: number;
+  queuePosition?: number | null;
+  statusText?: string | null;
+  lastError?: string | null;
+  lastGeneratedAt?: number | null;
   assetId?: string | null;
   assetLibraryId?: string | null;
   assetName?: string | null;

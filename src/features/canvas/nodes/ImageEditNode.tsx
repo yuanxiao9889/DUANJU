@@ -46,6 +46,10 @@ import {
   type GenerationDebugContext,
 } from '@/features/canvas/application/generationErrorReport';
 import {
+  buildReferenceAwareGenerationPrompt,
+  normalizeReferenceImagePrompt,
+} from '@/features/canvas/application/referenceImagePrompting';
+import {
   areReferenceImageOrdersEqual,
   buildShortReferenceToken,
   findReferenceTokens,
@@ -354,6 +358,7 @@ export const ImageEditNode = memo(({ id, data, selected, width, height }: ImageE
   const [pickerAnchor, setPickerAnchor] = useState<PickerAnchor>(PICKER_FALLBACK_ANCHOR);
   const [promptReferencePreview, setPromptReferencePreview] =
     useState<PromptReferencePreviewState | null>(null);
+  const [, setIsPromptTextSelectionActive] = useState(false);
 
   const setSelectedNode = useCanvasStore((state) => state.setSelectedNode);
   const updateNodeData = useCanvasStore((state) => state.updateNodeData);
@@ -750,10 +755,15 @@ export const ImageEditNode = memo(({ id, data, selected, width, height }: ImageE
       setPromptDraft(nextPrompt);
       commitPromptDraft(nextPrompt);
       requestAnimationFrame(() => {
-        promptRef.current?.focus();
+        const promptElement = promptRef.current;
+        if (!promptElement) {
+          return;
+        }
+        promptElement.focus();
         const nextCursor = nextPrompt.length;
-        promptRef.current?.setSelectionRange(nextCursor, nextCursor);
+        promptElement.setSelectionRange(nextCursor, nextCursor);
         syncPromptHighlightScroll();
+        syncPromptTextSelectionState(promptElement);
       });
     } catch (optimizationError) {
       const errorMessage =
@@ -782,16 +792,21 @@ export const ImageEditNode = memo(({ id, data, selected, width, height }: ImageE
     setPromptDraft(restoredPrompt);
     commitPromptDraft(restoredPrompt);
     requestAnimationFrame(() => {
-      promptRef.current?.focus();
+      const promptElement = promptRef.current;
+      if (!promptElement) {
+        return;
+      }
+      promptElement.focus();
       const nextCursor = restoredPrompt.length;
-      promptRef.current?.setSelectionRange(nextCursor, nextCursor);
+      promptElement.setSelectionRange(nextCursor, nextCursor);
       syncPromptHighlightScroll();
+      syncPromptTextSelectionState(promptElement);
     });
   }, [commitPromptDraft, lastPromptOptimizationUndoState]);
 
   const handleGenerate = useCallback(async () => {
-    const prompt = promptDraft.replace(/@(?=\u56fe(?:\u7247)?\d+)/g, '').trim();
-    if (!prompt) {
+    const displayPrompt = normalizeReferenceImagePrompt(promptDraft).trim();
+    if (!displayPrompt) {
       const errorMessage = t('node.imageEdit.promptRequired');
       setError(errorMessage);
       void showErrorDialog(errorMessage, t('common.error'));
@@ -807,7 +822,10 @@ export const ImageEditNode = memo(({ id, data, selected, width, height }: ImageE
 
     const generationDurationMs = selectedModel.expectedDurationMs ?? 60000;
     const generationStartedAt = Date.now();
-    const resultNodeTitle = buildAiResultNodeTitle(prompt, t('node.imageEdit.resultTitle'));
+    const resultNodeTitle = buildAiResultNodeTitle(
+      displayPrompt,
+      t('node.imageEdit.resultTitle')
+    );
     const runtimeDiagnostics = await getRuntimeDiagnostics();
     setError(null);
 
@@ -856,8 +874,12 @@ export const ImageEditNode = memo(({ id, data, selected, width, height }: ImageE
     try {
       await canvasAiGateway.setApiKey(selectedModel.providerId, providerApiKey);
 
+      const submittedPrompt = buildReferenceAwareGenerationPrompt(
+        promptDraft,
+        incomingImages.length
+      );
       const jobId = await canvasAiGateway.submitGenerateImageJob({
-        prompt,
+        prompt: submittedPrompt,
         model: requestResolution.requestModel,
         size: selectedResolution.value,
         aspectRatio: resolvedRequestAspectRatio,
@@ -870,7 +892,7 @@ export const ImageEditNode = memo(({ id, data, selected, width, height }: ImageE
         requestModel: debugRequestModel,
         requestSize: selectedResolution.value,
         requestAspectRatio: resolvedRequestAspectRatio,
-        prompt,
+        prompt: submittedPrompt,
         extraParams: effectiveExtraParams,
         referenceImageCount: incomingImages.length,
         referenceImagePlaceholders: createReferenceImagePlaceholders(incomingImages.length),
@@ -895,7 +917,7 @@ export const ImageEditNode = memo(({ id, data, selected, width, height }: ImageE
         requestModel: debugRequestModel,
         requestSize: selectedResolution.value,
         requestAspectRatio: resolvedRequestAspectRatio,
-        prompt,
+        prompt: buildReferenceAwareGenerationPrompt(promptDraft, incomingImages.length),
         extraParams: effectiveExtraParams,
         referenceImageCount: incomingImages.length,
         referenceImagePlaceholders: createReferenceImagePlaceholders(incomingImages.length),
@@ -949,7 +971,12 @@ export const ImageEditNode = memo(({ id, data, selected, width, height }: ImageE
     updateNodeData,
   ]);
 
-  const syncPromptHighlightScroll = () => {
+  const syncPromptTextSelectionState = useCallback((_target?: HTMLTextAreaElement | null) => {
+    setIsPromptTextSelectionActive(false);
+    setPromptReferencePreview(null);
+  }, []);
+
+  const syncPromptHighlightScroll = useCallback(() => {
     if (!promptRef.current || !promptHighlightRef.current) {
       return;
     }
@@ -960,7 +987,7 @@ export const ImageEditNode = memo(({ id, data, selected, width, height }: ImageE
       promptHoverLayerRef.current.scrollTop = promptRef.current.scrollTop;
       promptHoverLayerRef.current.scrollLeft = promptRef.current.scrollLeft;
     }
-  };
+  }, []);
 
   const insertImageReference = useCallback((imageIndex: number) => {
     const marker = buildShortReferenceToken(imageIndex);
@@ -974,11 +1001,16 @@ export const ImageEditNode = memo(({ id, data, selected, width, height }: ImageE
     setPickerActiveIndex(0);
 
     requestAnimationFrame(() => {
-      promptRef.current?.focus();
-      promptRef.current?.setSelectionRange(nextCursor, nextCursor);
+      const promptElement = promptRef.current;
+      if (!promptElement) {
+        return;
+      }
+      promptElement.focus();
+      promptElement.setSelectionRange(nextCursor, nextCursor);
       syncPromptHighlightScroll();
+      syncPromptTextSelectionState(promptElement);
     });
-  }, [commitManualPromptDraft, pickerCursor]);
+  }, [commitManualPromptDraft, pickerCursor, syncPromptHighlightScroll, syncPromptTextSelectionState]);
 
   const handlePromptKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
     if (event.key === 'Backspace' || event.key === 'Delete') {
@@ -998,9 +1030,14 @@ export const ImageEditNode = memo(({ id, data, selected, width, height }: ImageE
         const { nextText, nextCursor } = removeTextRange(currentPrompt, deleteRange);
         commitManualPromptDraft(nextText);
         requestAnimationFrame(() => {
-          promptRef.current?.focus();
-          promptRef.current?.setSelectionRange(nextCursor, nextCursor);
+          const promptElement = promptRef.current;
+          if (!promptElement) {
+            return;
+          }
+          promptElement.focus();
+          promptElement.setSelectionRange(nextCursor, nextCursor);
           syncPromptHighlightScroll();
+          syncPromptTextSelectionState(promptElement);
         });
         return;
       }
@@ -1189,11 +1226,16 @@ export const ImageEditNode = memo(({ id, data, selected, width, height }: ImageE
     event.preventDefault();
     event.stopPropagation();
     requestAnimationFrame(() => {
-      promptRef.current?.focus();
-      promptRef.current?.setSelectionRange(tokenEnd, tokenEnd);
+      const promptElement = promptRef.current;
+      if (!promptElement) {
+        return;
+      }
+      promptElement.focus();
+      promptElement.setSelectionRange(tokenEnd, tokenEnd);
       syncPromptHighlightScroll();
+      syncPromptTextSelectionState(promptElement);
     });
-  }, []);
+  }, [syncPromptHighlightScroll, syncPromptTextSelectionState]);
 
   return (
     <div
@@ -1255,6 +1297,7 @@ export const ImageEditNode = memo(({ id, data, selected, width, height }: ImageE
             onChange={(event) => {
               const nextValue = event.target.value;
               commitManualPromptDraft(nextValue);
+              syncPromptTextSelectionState(event.currentTarget);
             }}
             onKeyDownCapture={handlePromptKeyDown}
             onScroll={syncPromptHighlightScroll}
@@ -1262,8 +1305,12 @@ export const ImageEditNode = memo(({ id, data, selected, width, height }: ImageE
               event.stopPropagation();
               hidePromptReferencePreview();
             }}
+            onSelect={(event) => syncPromptTextSelectionState(event.currentTarget)}
+            onMouseUp={(event) => syncPromptTextSelectionState(event.currentTarget)}
+            onKeyUp={(event) => syncPromptTextSelectionState(event.currentTarget)}
+            onBlur={() => setIsPromptTextSelectionActive(false)}
             placeholder={t('node.imageEdit.promptPlaceholder')}
-            className="ui-scrollbar nodrag nowheel relative z-10 h-full w-full resize-none overflow-y-auto overflow-x-hidden border-none bg-transparent px-1 py-0.5 text-sm leading-6 text-transparent caret-text-dark outline-none placeholder:text-text-muted/80 focus:border-transparent whitespace-pre-wrap break-words"
+            className="ui-scrollbar nodrag nowheel relative z-10 h-full w-full resize-none overflow-y-auto overflow-x-hidden border-none bg-transparent px-1 py-0.5 text-sm leading-6 text-transparent caret-text-dark outline-none placeholder:text-text-muted/80 focus:border-transparent whitespace-pre-wrap break-words selection:bg-accent/30 selection:text-transparent"
             style={{ scrollbarGutter: 'stable' }}
           />
 

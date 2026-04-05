@@ -7,7 +7,11 @@ import type {
   QwenTtsPauseConfig,
   TtsVoiceDesignNodeData,
 } from '@/features/canvas/domain/canvasNodes';
-import { runExtensionCommand } from '@/commands/extensions';
+import {
+  getExtensionRuntimeStatus,
+  runExtensionCommand,
+  startExtensionRuntime,
+} from '@/commands/extensions';
 
 import { createMockQwenTtsAudioFile } from './mockQwenTts';
 import {
@@ -71,6 +75,17 @@ interface QwenTtsGenerateVoiceCloneResponse {
   command: 'generate_voice_clone';
   outputs?: QwenTtsGeneratedOutput[];
   files?: string[];
+}
+
+interface QwenTtsWarmupResponse {
+  ok: boolean;
+  command: 'warmup';
+  warmedModels?: Array<{
+    model: string;
+    device: string;
+    elapsedMs: number;
+  }>;
+  cachedModels?: string[];
 }
 
 export interface GenerateQwenTtsVoiceDesignRequest extends QwenTtsPauseConfig {
@@ -168,6 +183,100 @@ function ensurePackageHasPythonEntry(extensionPackage: LoadedExtensionPackage): 
   }
 }
 
+function resolveCommandErrorMessage(error: unknown): string | null {
+  if (error instanceof Error) {
+    const message = error.message.trim();
+    return message.length > 0 ? message : null;
+  }
+
+  if (typeof error === 'string') {
+    const message = error.trim();
+    return message.length > 0 ? message : null;
+  }
+
+  if (error && typeof error === 'object') {
+    const record = error as Record<string, unknown>;
+    const candidate = [
+      record.message,
+      record.error,
+      record.details,
+      record.msg,
+    ].find((value) => typeof value === 'string' && value.trim().length > 0);
+
+    if (typeof candidate === 'string') {
+      return candidate.trim();
+    }
+
+    try {
+      return JSON.stringify(record);
+    } catch {
+      return null;
+    }
+  }
+
+  return null;
+}
+
+function createCommandError(error: unknown, fallbackMessage: string): Error {
+  if (error instanceof Error && error.message.trim().length > 0) {
+    return error;
+  }
+
+  return new Error(resolveCommandErrorMessage(error) ?? fallbackMessage);
+}
+
+function shouldRetryPersistentRuntimeCommand(errorMessage: string | null): boolean {
+  const normalizedMessage = errorMessage?.toLowerCase() ?? '';
+  return normalizedMessage.includes('is not started')
+    || normalizedMessage.includes('start the extension first')
+    || normalizedMessage.includes('exited unexpectedly');
+}
+
+async function runResilientExtensionCommand<TResponse = Record<string, unknown>>(
+  extensionPackage: LoadedExtensionPackage,
+  command: string,
+  payload?: Record<string, unknown>
+): Promise<TResponse> {
+  const executeCommand = async () => await runExtensionCommand<TResponse>(
+    extensionPackage.folderPath,
+    command,
+    payload
+  );
+
+  try {
+    return await executeCommand();
+  } catch (error) {
+    const initialMessage = resolveCommandErrorMessage(error);
+    if (
+      extensionPackage.runtime !== 'python-bridge'
+      || !shouldRetryPersistentRuntimeCommand(initialMessage)
+    ) {
+      throw createCommandError(error, `Extension command '${command}' failed.`);
+    }
+
+    const runtimeStatus = await getExtensionRuntimeStatus(extensionPackage.folderPath)
+      .catch(() => null);
+    if (runtimeStatus?.running) {
+      throw createCommandError(error, `Extension command '${command}' failed.`);
+    }
+
+    console.warn(
+      `Extension runtime '${extensionPackage.id}' stopped before '${command}', restarting once.`
+    );
+
+    await startExtensionRuntime(extensionPackage.folderPath);
+
+    try {
+      return await executeCommand();
+    } catch (retryError) {
+      throw createCommandError(
+        retryError,
+        initialMessage ?? `Extension command '${command}' failed.`
+      );
+    }
+  }
+}
+
 async function verifyPythonRuntime(
   extensionPackage: LoadedExtensionPackage
 ): Promise<void> {
@@ -202,6 +311,18 @@ async function verifyPythonModels(
   }
 }
 
+async function warmupPythonRuntime(
+  extensionPackage: LoadedExtensionPackage
+): Promise<void> {
+  await runResilientExtensionCommand<QwenTtsWarmupResponse>(
+    extensionPackage,
+    'warmup',
+    {
+      models: ['voice_design', 'base'],
+    }
+  );
+}
+
 export async function runExtensionStartupStep(
   extensionPackage: LoadedExtensionPackage,
   step: ExtensionStartupStep
@@ -218,7 +339,7 @@ export async function runExtensionStartupStep(
     return;
   }
 
-  if (step.id === 'verify-runtime') {
+  if (step.id === 'verify-runtime' || step.id === 'prepare-runtime') {
     await withMinimumDuration(
       verifyPythonRuntime(extensionPackage),
       resolveStepDelay(step)
@@ -230,6 +351,14 @@ export async function runExtensionStartupStep(
     await withMinimumDuration(
       verifyPythonModels(extensionPackage),
       resolveStepDelay(step)
+    );
+    return;
+  }
+
+  if (step.id === 'warmup') {
+    await withMinimumDuration(
+      warmupPythonRuntime(extensionPackage),
+      step.durationMs ?? 0
     );
     return;
   }
@@ -370,8 +499,8 @@ async function generateRealVoiceDesignAudio(
   extensionPackage: LoadedExtensionPackage,
   request: GenerateQwenTtsVoiceDesignRequest
 ): Promise<GeneratedQwenTtsAudioAsset> {
-  const response = await runExtensionCommand<QwenTtsGenerateVoiceDesignResponse>(
-    extensionPackage.folderPath,
+  const response = await runResilientExtensionCommand<QwenTtsGenerateVoiceDesignResponse>(
+    extensionPackage,
     'generate_voice_design',
     {
       text: request.text,
@@ -441,8 +570,8 @@ async function createRealSavedVoicePrompt(
   request: CreateQwenTtsSavedVoicePromptRequest
 ): Promise<SavedQwenTtsVoicePromptAsset> {
   const fallbackLabel = `${sanitizeOutputPrefix(request.voiceName, 'saved-voice')}.qvp`;
-  const response = await runExtensionCommand<QwenTtsCreateVoiceClonePromptResponse>(
-    extensionPackage.folderPath,
+  const response = await runResilientExtensionCommand<QwenTtsCreateVoiceClonePromptResponse>(
+    extensionPackage,
     'create_voice_clone_prompt',
     {
       refAudio: request.refAudio,
@@ -488,8 +617,8 @@ async function generateRealSavedVoiceAudio(
   extensionPackage: LoadedExtensionPackage,
   request: GenerateQwenTtsSavedVoiceRequest
 ): Promise<GeneratedQwenTtsAudioAsset> {
-  const response = await runExtensionCommand<QwenTtsGenerateVoiceCloneResponse>(
-    extensionPackage.folderPath,
+  const response = await runResilientExtensionCommand<QwenTtsGenerateVoiceCloneResponse>(
+    extensionPackage,
     'generate_voice_clone',
     {
       text: request.text,
@@ -562,7 +691,9 @@ export function resolveQwenTtsExtensionState(
   const readyPackage =
     QWEN_TTS_EXTENSION_PRIORITY
       .map((extensionId) => (
-        enabledExtensionIds.includes(extensionId) ? packages[extensionId] : null
+        enabledExtensionIds.includes(extensionId) && runtimeById[extensionId]?.status === 'ready'
+          ? packages[extensionId]
+          : null
       ))
       .find((extensionPackage) => extensionPackage !== null) ?? null;
 

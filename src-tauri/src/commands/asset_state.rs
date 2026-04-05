@@ -214,17 +214,28 @@ async fn normalize_asset_media_paths(
     let normalized_source_path = source_path.trim().to_string();
     let normalized_preview_path = normalize_optional_text(preview_path);
 
-    let safe_source_path = if should_persist_asset_path(&images_dir, &normalized_source_path) {
+    let safe_source_path = if let Some(relocated_path) =
+        storage::relocate_storage_path_to_images_dir(&normalized_source_path, &images_dir)
+    {
+        relocated_path
+    } else if should_persist_asset_path(&images_dir, &normalized_source_path) {
         persist_image_source(app.clone(), normalized_source_path.clone()).await?
     } else {
         normalized_source_path
     };
 
     let safe_preview_path = match normalized_preview_path {
-        Some(path) if should_persist_asset_path(&images_dir, &path) => {
-            Some(persist_image_source(app.clone(), path).await?)
+        Some(path) => {
+            if let Some(relocated_path) =
+                storage::relocate_storage_path_to_images_dir(&path, &images_dir)
+            {
+                Some(relocated_path)
+            } else if should_persist_asset_path(&images_dir, &path) {
+                Some(persist_image_source(app.clone(), path).await?)
+            } else {
+                Some(path)
+            }
         }
-        Some(path) => Some(path),
         None => None,
     };
 

@@ -47,6 +47,13 @@ import {
 
 export type MenuIconKey = 'upload' | 'sparkles' | 'layout' | 'text' | 'video' | 'audio';
 export type NodeMenuProjectType = 'storyboard' | 'script';
+export type NodeMenuGroupKey = 'jimeng' | 'storyboard' | 'media';
+
+export interface CanvasNodeMenuGroupDefinition {
+  id: NodeMenuGroupKey;
+  labelKey: string;
+  menuIcon: MenuIconKey;
+}
 
 export interface CanvasNodeCapabilities {
   toolbar: boolean;
@@ -70,6 +77,7 @@ export interface CanvasNodeDefinition<TData extends CanvasNodeData = CanvasNodeD
   type: CanvasNodeType;
   menuLabelKey: string;
   menuIcon: MenuIconKey;
+  menuGroup?: NodeMenuGroupKey;
   visibleInMenu: boolean;
   menuProjectTypes: NodeMenuProjectType[];
   capabilities: CanvasNodeCapabilities;
@@ -78,6 +86,24 @@ export interface CanvasNodeDefinition<TData extends CanvasNodeData = CanvasNodeD
   requiredExtensionIds?: string[];
   createDefaultData: () => TData;
 }
+
+export const canvasNodeMenuGroups: Record<NodeMenuGroupKey, CanvasNodeMenuGroupDefinition> = {
+  jimeng: {
+    id: 'jimeng',
+    labelKey: 'node.menuGroup.jimeng',
+    menuIcon: 'sparkles',
+  },
+  storyboard: {
+    id: 'storyboard',
+    labelKey: 'node.menuGroup.storyboard',
+    menuIcon: 'layout',
+  },
+  media: {
+    id: 'media',
+    labelKey: 'node.menuGroup.media',
+    menuIcon: 'video',
+  },
+};
 
 const uploadNodeDefinition: CanvasNodeDefinition<UploadImageNodeData> = {
   type: CANVAS_NODE_TYPES.upload,
@@ -146,6 +172,7 @@ const jimengNodeDefinition: CanvasNodeDefinition<JimengNodeData> = {
   type: CANVAS_NODE_TYPES.jimeng,
   menuLabelKey: 'node.menu.jimengVideo',
   menuIcon: 'sparkles',
+  menuGroup: 'jimeng',
   visibleInMenu: true,
   menuProjectTypes: ['storyboard'],
   capabilities: {
@@ -259,6 +286,7 @@ const storyboardSplitDefinition: CanvasNodeDefinition<StoryboardSplitNodeData> =
   type: CANVAS_NODE_TYPES.storyboardSplit,
   menuLabelKey: 'node.menu.storyboardCompose',
   menuIcon: 'layout',
+  menuGroup: 'storyboard',
   visibleInMenu: true,
   menuProjectTypes: ['storyboard'],
   capabilities: {
@@ -329,6 +357,7 @@ const storyboardGenNodeDefinition: CanvasNodeDefinition<StoryboardGenNodeData> =
   type: CANVAS_NODE_TYPES.storyboardGen,
   menuLabelKey: 'node.menu.storyboardGen',
   menuIcon: 'sparkles',
+  menuGroup: 'storyboard',
   visibleInMenu: true,
   menuProjectTypes: ['storyboard'],
   capabilities: {
@@ -366,6 +395,7 @@ const videoNodeDefinition: CanvasNodeDefinition<VideoNodeData> = {
   type: CANVAS_NODE_TYPES.video,
   menuLabelKey: 'node.menu.videoNode',
   menuIcon: 'video',
+  menuGroup: 'media',
   visibleInMenu: true,
   menuProjectTypes: ['storyboard'],
   capabilities: {
@@ -394,6 +424,7 @@ const jimengImageNodeDefinition: CanvasNodeDefinition<JimengImageNodeData> = {
   type: CANVAS_NODE_TYPES.jimengImage,
   menuLabelKey: 'node.menu.jimengImage',
   menuIcon: 'sparkles',
+  menuGroup: 'jimeng',
   visibleInMenu: true,
   menuProjectTypes: ['storyboard'],
   capabilities: {
@@ -500,6 +531,7 @@ const audioNodeDefinition: CanvasNodeDefinition<AudioNodeData> = {
   type: CANVAS_NODE_TYPES.audio,
   menuLabelKey: 'node.menu.audioNode',
   menuIcon: 'audio',
+  menuGroup: 'media',
   visibleInMenu: true,
   menuProjectTypes: ['storyboard'],
   capabilities: {
@@ -521,6 +553,14 @@ const audioNodeDefinition: CanvasNodeDefinition<AudioNodeData> = {
     audioFileName: null,
     duration: undefined,
     mimeType: null,
+    generationSource: null,
+    sourceNodeId: null,
+    isGenerating: false,
+    generationProgress: 0,
+    queuePosition: null,
+    statusText: null,
+    lastError: null,
+    lastGeneratedAt: null,
   }),
 };
 
@@ -552,6 +592,7 @@ const ttsVoiceDesignNodeDefinition: CanvasNodeDefinition<TtsVoiceDesignNodeData>
   type: CANVAS_NODE_TYPES.ttsVoiceDesign,
   menuLabelKey: 'node.menu.ttsVoiceDesign',
   menuIcon: 'audio',
+  menuGroup: 'media',
   visibleInMenu: true,
   menuProjectTypes: ['storyboard'],
   requiredExtensionIds: [
@@ -599,6 +640,7 @@ const ttsSavedVoiceNodeDefinition: CanvasNodeDefinition<TtsSavedVoiceNodeData> =
   type: CANVAS_NODE_TYPES.ttsSavedVoice,
   menuLabelKey: 'node.menu.ttsSavedVoice',
   menuIcon: 'audio',
+  menuGroup: 'media',
   visibleInMenu: true,
   menuProjectTypes: ['storyboard'],
   requiredExtensionIds: [

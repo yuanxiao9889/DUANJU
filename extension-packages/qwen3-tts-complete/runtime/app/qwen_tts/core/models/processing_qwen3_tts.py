@@ -12,6 +12,8 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+import sys
+
 from transformers.feature_extraction_utils import BatchFeature
 from transformers.processing_utils import ProcessingKwargs, ProcessorMixin
 
@@ -23,6 +25,24 @@ class Qwen3TTSProcessorKwargs(ProcessingKwargs, total=False):
             "padding_side": "left",
         }
     }
+
+
+def normalize_text_input(value):
+    if isinstance(value, str):
+        return value
+
+    if value is None:
+        return ""
+
+    if isinstance(value, bytes):
+        return value.decode("utf-8", errors="ignore")
+
+    if isinstance(value, (list, tuple)):
+        return "\n".join(
+            part for part in (normalize_text_input(item) for item in value) if part
+        )
+
+    return str(value)
 
 class Qwen3TTSProcessor(ProcessorMixin):
     r"""
@@ -64,10 +84,25 @@ class Qwen3TTSProcessor(ProcessorMixin):
             tokenizer_init_kwargs=self.tokenizer.init_kwargs,
             **kwargs,
         )
-        if not isinstance(text, list):
-            text = [text]
+        if isinstance(text, list):
+            normalized_text = [normalize_text_input(item) for item in text]
+            tokenizer_input = normalized_text[0] if len(normalized_text) == 1 else normalized_text
+        else:
+            tokenizer_input = normalize_text_input(text)
 
-        texts_inputs = self.tokenizer(text, **output_kwargs["text_kwargs"])
+        try:
+            texts_inputs = self.tokenizer(tokenizer_input, **output_kwargs["text_kwargs"])
+        except TypeError as error:
+            print(
+                "[qwen-processor] tokenizer TypeError "
+                f"text_type={type(text).__name__} "
+                f"tokenizer_input_type={type(tokenizer_input).__name__} "
+                f"tokenizer_input_repr={repr(tokenizer_input)[:300]} "
+                f"text_kwargs={output_kwargs['text_kwargs']}",
+                file=sys.stderr,
+                flush=True,
+            )
+            raise error
 
         return BatchFeature(
             data={**texts_inputs},

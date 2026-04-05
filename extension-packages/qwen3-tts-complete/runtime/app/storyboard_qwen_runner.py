@@ -2,14 +2,44 @@
 from __future__ import annotations
 
 import argparse
+import gc
 import json
 import os
 import re
 import shutil
 import sys
 import time
+import traceback
 from pathlib import Path
 from typing import Any, Dict, List, Optional
+
+
+def configure_stdio() -> None:
+    stream_settings = (
+        ("stdin", None),
+        ("stdout", "backslashreplace"),
+        ("stderr", "backslashreplace"),
+    )
+
+    for stream_name, errors in stream_settings:
+        stream = getattr(sys, stream_name, None)
+        reconfigure = getattr(stream, "reconfigure", None)
+        if not callable(reconfigure):
+            continue
+
+        kwargs = {"encoding": "utf-8"}
+        if errors is not None:
+            kwargs["errors"] = errors
+
+        try:
+            reconfigure(**kwargs)
+        except Exception:
+            continue
+
+
+os.environ.setdefault("PYTHONIOENCODING", "utf-8")
+os.environ.setdefault("PYTHONUTF8", "1")
+configure_stdio()
 
 import numpy as np
 
@@ -46,6 +76,11 @@ MODEL_PATHS = {
 }
 
 MODEL_CACHE: Dict[str, Qwen3TTSModel] = {}
+SERVER_RESPONSE_PREFIX = "__SC_EXTENSION_RESPONSE__:"
+
+
+def debug_log(message: str) -> None:
+    print(message, file=sys.stderr, flush=True)
 
 
 def sanitize_name(value: str) -> str:
@@ -117,6 +152,16 @@ def ensure_required_paths() -> Dict[str, bool]:
         "tokenizer": MODEL_PATHS["tokenizer"].exists(),
         "sox": SOX_DIR.exists(),
     }
+
+
+def clear_model_cache() -> None:
+    MODEL_CACHE.clear()
+    gc.collect()
+    if torch.cuda.is_available():
+        try:
+            torch.cuda.empty_cache()
+        except Exception:
+            pass
 
 
 def get_model(model_key: str, device: str, dtype_name: Optional[str]) -> Qwen3TTSModel:
@@ -462,7 +507,61 @@ def command_list_models() -> Dict[str, Any]:
     }
 
 
+def command_shutdown() -> Dict[str, Any]:
+    clear_model_cache()
+    return {
+        "ok": True,
+        "command": "shutdown",
+    }
+
+
+def command_warmup(payload: Dict[str, Any]) -> Dict[str, Any]:
+    ensure_runtime_dirs()
+    requested_models = payload.get("models")
+    if isinstance(requested_models, list):
+        model_keys = [
+            str(model_key).strip()
+            for model_key in requested_models
+            if str(model_key).strip() in MODEL_PATHS
+        ]
+    else:
+        model_keys = ["voice_design", "base"]
+
+    if not model_keys:
+        model_keys = ["voice_design", "base"]
+
+    device = resolve_device(payload.get("device"))
+    dtype_name = payload.get("dtype")
+    warmed_models: List[Dict[str, Any]] = []
+
+    for model_key in model_keys:
+        started_at = time.time()
+        model = get_model(model_key, device, dtype_name)
+        warmed_models.append(
+            {
+                "model": model_key,
+                "device": str(model.device),
+                "elapsedMs": int((time.time() - started_at) * 1000),
+            }
+        )
+
+    return {
+        "ok": True,
+        "command": "warmup",
+        "warmedModels": warmed_models,
+        "cachedModels": sorted(MODEL_CACHE.keys()),
+    }
+
+
 def command_generate_voice_design(payload: Dict[str, Any]) -> Dict[str, Any]:
+    debug_log(
+        "[qwen-runner] generate_voice_design payload "
+        f"text_type={type(payload.get('text')).__name__} "
+        f"voicePrompt_type={type(payload.get('voicePrompt')).__name__} "
+        f"language_type={type(payload.get('language')).__name__} "
+        f"text_preview={repr(str(payload.get('text', ''))[:120])} "
+        f"voicePrompt_preview={repr(str(payload.get('voicePrompt', ''))[:160])}"
+    )
     text = (payload.get("text") or "").strip()
     instruct = (payload.get("instruct") or payload.get("voicePrompt") or "").strip()
     if not text:
@@ -611,6 +710,10 @@ def dispatch(payload: Dict[str, Any]) -> Dict[str, Any]:
         return command_health()
     if command == "list_models":
         return command_list_models()
+    if command == "warmup":
+        return command_warmup(payload)
+    if command == "shutdown":
+        return command_shutdown()
     if command == "generate_voice_design":
         return command_generate_voice_design(payload)
     if command == "generate_custom_voice":
@@ -626,6 +729,11 @@ def dispatch(payload: Dict[str, Any]) -> Dict[str, Any]:
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Storyboard Copilot bridge runner for the offline Qwen3 TTS runtime."
+    )
+    parser.add_argument(
+        "--server",
+        action="store_true",
+        help="Run as a persistent JSON-line server over stdin/stdout.",
     )
     parser.add_argument(
         "--request-file",
@@ -651,14 +759,65 @@ def load_payload(args: argparse.Namespace) -> Dict[str, Any]:
     return {"command": "health"}
 
 
+def emit_server_response(response: Dict[str, Any]) -> None:
+    print(
+        f"{SERVER_RESPONSE_PREFIX}{json.dumps(response, ensure_ascii=False)}",
+        flush=True,
+    )
+
+
+def run_server() -> int:
+    ensure_runtime_dirs()
+
+    for raw_line in sys.stdin:
+        line = raw_line.strip()
+        if not line:
+            continue
+
+        payload: Dict[str, Any] = {}
+        request_id: Optional[str] = None
+
+        try:
+            decoded = json.loads(line)
+            if not isinstance(decoded, dict):
+                raise ValueError("server request must be a JSON object")
+
+            payload = decoded
+            raw_request_id = payload.get("requestId")
+            request_id = str(raw_request_id) if raw_request_id is not None else None
+            response = dispatch(payload)
+        except Exception as error:  # noqa: BLE001
+            traceback.print_exc(file=sys.stderr)
+            response = {
+                "ok": False,
+                "command": payload.get("command"),
+                "error": f"{type(error).__name__}: {error}",
+            }
+
+        if request_id:
+            response["requestId"] = request_id
+
+        emit_server_response(response)
+
+        if response.get("ok") and response.get("command") == "shutdown":
+            break
+
+    clear_model_cache()
+    return 0
+
+
 def main() -> int:
     ensure_runtime_dirs()
     args = parse_args()
+    if args.server:
+        return run_server()
+
     payload = load_payload(args)
 
     try:
         response = dispatch(payload)
     except Exception as error:  # noqa: BLE001
+        traceback.print_exc(file=sys.stderr)
         response = {
             "ok": False,
             "command": payload.get("command"),
