@@ -5,6 +5,7 @@ import {
   isJimengImageNode,
   isJimengImageResultNode,
   isJimengVideoResultNode,
+  isSeedanceVideoResultNode,
   isStoryboardGenNode,
   isUploadNode,
   isVideoNode,
@@ -22,6 +23,7 @@ export interface ExtractedAudioReference {
   audioUrl: string;
   displayName: string | null;
   audioFileName: string | null;
+  durationSeconds?: number | null;
 }
 
 export function extractReferenceImageUrls(node: CanvasNode): string[] {
@@ -93,7 +95,7 @@ export function extractReferenceVisuals(node: CanvasNode): ExtractedReferenceVis
       );
   }
 
-  if (isVideoNode(node) || isJimengVideoResultNode(node)) {
+  if (isVideoNode(node) || isJimengVideoResultNode(node) || isSeedanceVideoResultNode(node)) {
     const referenceUrl = node.data.videoUrl?.trim() ?? '';
     const posterSourceUrl =
       typeof node.data.posterSourceUrl === 'string'
@@ -137,5 +139,6 @@ export function extractAudioReference(node: CanvasNode): ExtractedAudioReference
     audioUrl,
     displayName,
     audioFileName,
+    durationSeconds: typeof node.data.duration === 'number' ? node.data.duration : null,
   };
 }

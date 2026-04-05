@@ -43,17 +43,18 @@
   "extensions": {
       "title": "Extensions Center",
       "centerTitle": "Load optional capabilities on demand",
-      "centerDescription": "Extension packages are loaded from folders. Once you start one, its features are registered and the Qwen3 TTS Python runtime stays alive for reuse; after you stop it, close the app, or reboot the computer, you need to start it again.",
+      "centerDescription": "Load extension packages from folders and start them when needed. If you stop one or close the app, start it again before using it.",
       "sampleHint": "You can now load extension-packages/qwen3-tts-complete directly. If you need to rebuild the full package, run npm run prepare:qwen3-tts-extension.",
       "loadFolderTitle": "Choose an extension package folder",
       "loadFailed": "Failed to load extension package",
       "loadingPackage": "Reading package...",
       "loadFolder": "Load Folder",
     "emptyTitle": "No extension package loaded yet",
-    "emptyDescription": "Choose a folder that contains storyboard-extension.json and the app will recognize it as a loadable extension package.",
+    "emptyDescription": "Choose a folder that contains storyboard-extension.json to load an extension package.",
       "runtime": "Runtime",
       "folder": "Folder",
       "openFolder": "Open Folder",
+      "openFolderFailed": "Failed to open the extension folder",
       "enable": "Start",
       "disable": "Stop",
       "enabling": "Starting...",
@@ -72,13 +73,16 @@
     "settingsSectionsTitle": "Settings Sections",
     "entryPointsTitle": "Entry Points",
     "modelsTitle": "Bundled Models",
+    "hardwareTitle": "Hardware Notes",
+    "hardwareRecommendations": "Recommendations",
+    "hardwareNotes": "Things To Know",
     "noDeclaredFeatures": "Not declared",
     "noModels": "This extension package does not declare model assets.",
     "expandDetails": "Expand",
     "collapseDetails": "Collapse",
     "delete": "Remove",
     "deleteConfirm": "Remove \"{{name}}\" from Extensions Center? This will not delete the extension folder from disk.",
-    "collapsedSummary": "{{nodes}} nodes · {{entryPoints}} entry points · {{models}} models",
+    "collapsedSummary": "{{nodes}} nodes · {{models}} models",
     "featureLabels": {
       "extensions": "Extension settings",
       "titleBar": "Title bar entry"
@@ -193,6 +197,8 @@
       "jimengImage": "Jimeng Image",
       "jimengImageResult": "Jimeng 4-Grid",
       "jimengVideoResult": "Jimeng Video Result",
+      "seedanceVideo": "Official Seedance 2.0 Video",
+      "seedanceVideoResult": "Seedance Video Result",
       "storyboard": "Storyboard Compose",
       "storyboardCompose": "Storyboard Compose",
       "storyboardSplitResult": "Split Result",
@@ -200,6 +206,7 @@
       "textAnnotation": "Text",
       "ttsText": "Text",
       "ttsVoiceDesign": "Voice Design",
+      "ttsPresetVoice": "Preset Voice",
       "ttsSavedVoice": "Voice Clone",
       "videoNode": "Video Node",
       "audioNode": "Audio Node",
@@ -416,6 +423,93 @@
         "1080p": "1080p"
       }
     },
+    "seedance": {
+      "promptLabel": "Prompt",
+      "promptPlaceholder": "Describe the scene, motion, framing, and timing for Seedance 2.0 video generation",
+      "promptRequired": "Please enter a prompt for Seedance video generation",
+      "apiKeyRequired": "Please set the Volcengine API key in Settings",
+      "optimizePrompt": "Optimize Video Prompt",
+      "optimizingPrompt": "Optimizing video prompt",
+      "optimizePromptFailed": "Video prompt optimization failed",
+      "undoOptimizedPrompt": "Undo optimization",
+      "optimizeModelLabel": "Optimization model: {{model}}",
+      "optimizeReferenceImagesLabel": "Reference images: {{status}}",
+      "optimizeReferenceImagesUsed": "{{count}} used",
+      "optimizeReferenceImagesUnused": "Not used",
+      "submit": "Generate",
+      "submitting": "Generating",
+      "submitFailed": "Seedance video generation failed",
+      "lastSubmitted": "Last submitted at {{time}}",
+      "resultNodeTitle": "Generated Result",
+      "inputModeLabel": "Input",
+      "modelLabel": "Model",
+      "aspectRatioLabel": "Ratio",
+      "durationLabel": "Duration",
+      "resolutionLabel": "Resolution",
+      "generateAudio": "Generate audio",
+      "returnLastFrame": "Return last frame",
+      "referenceImageLabel": "Image {{index}}",
+      "referenceVideoLabel": "Video {{index}}",
+      "audioReferenceLabel": "Audio {{index}}",
+      "connectedVisuals": "{{count}} visual refs",
+      "connectedAudios": "{{count}} audio refs",
+      "noReferences": "Connect upstream images, videos, or audio to build Seedance inputs.",
+      "modeHints": {
+        "textToVideo": "Text to video uses the prompt only. Disconnect any references before submitting.",
+        "firstFrame": "First frame mode requires exactly 1 connected image reference.",
+        "firstLastFrame": "First / last frame mode requires exactly 2 connected image references.",
+        "reference": "Reference mode accepts images, videos, and optional audio. At least one visual reference is required."
+      },
+      "textToVideoNoReferences": "Text to video mode does not accept reference images, videos, or audio.",
+      "firstFrameRequiresOneImage": "First frame mode requires exactly 1 image reference.",
+      "firstFrameOnlySupportsImages": "First frame mode supports image references only.",
+      "firstLastFrameRequiresTwoImages": "First / last frame mode requires exactly 2 image references.",
+      "firstLastFrameOnlySupportsImages": "First / last frame mode supports image references only.",
+      "referenceRequiresVisual": "Reference mode requires at least 1 image or video reference.",
+      "referenceImageLimit": "Reference mode supports at most {{count}} images.",
+      "referenceVideoLimit": "Reference mode supports at most {{count}} videos.",
+      "referenceAudioLimit": "Reference mode supports at most {{count}} audio clips.",
+      "referenceVideoDurationLimit": "The combined video reference duration must stay within {{seconds}} seconds.",
+      "referenceAudioDurationLimit": "The combined audio reference duration must stay within {{seconds}} seconds.",
+      "referenceAudioNeedsVisual": "Audio references cannot be submitted alone. Add at least 1 image or video reference.",
+      "inputModes": {
+        "textToVideo": "Text to Video",
+        "firstFrame": "First Frame",
+        "firstLastFrame": "First / Last Frame",
+        "reference": "Reference"
+      },
+      "modelOptions": {
+        "seedance20": "Official Seedance 2.0"
+      },
+      "aspectRatios": {
+        "adaptive": "Adaptive",
+        "21:9": "21:9",
+        "16:9": "16:9",
+        "4:3": "4:3",
+        "1:1": "1:1",
+        "3:4": "3:4",
+        "9:16": "9:16"
+      },
+      "durations": {
+        "auto": "Auto",
+        "4": "4s",
+        "5": "5s",
+        "6": "6s",
+        "7": "7s",
+        "8": "8s",
+        "9": "9s",
+        "10": "10s",
+        "11": "11s",
+        "12": "12s",
+        "13": "13s",
+        "14": "14s",
+        "15": "15s"
+      },
+      "resolutionOptions": {
+        "480p": "480p",
+        "720p": "720p"
+      }
+    },
     "jimengImage": {
       "promptLabel": "Prompt",
       "promptPlaceholder": "Describe the image you want Jimeng to generate",
@@ -502,6 +596,19 @@
       "requery": "Re-query Result",
       "requeryUnavailable": "This Jimeng video result node does not have a usable submit_id yet, so the result cannot be re-queried.",
       "requeryFailed": "Failed to re-query the Jimeng video result",
+      "requeryPending": "The task is still running. Try re-querying again shortly."
+    },
+    "seedanceVideoResult": {
+      "empty": "Waiting for Seedance video results.",
+      "pending": "Generating...",
+      "generating": "Generating",
+      "ready": "Returned",
+      "statusGenerating": "Seedance is still generating the video...",
+      "generatedAt": "Returned {{time}}",
+      "duration": "Duration {{duration}}",
+      "requery": "Re-query Result",
+      "requeryUnavailable": "This Seedance result node does not have a usable task ID yet, so the result cannot be re-queried.",
+      "requeryFailed": "Failed to re-query the Seedance video result",
       "requeryPending": "The task is still running. Try re-querying again shortly."
     },
     "sendToPs": "Send to PS",
@@ -668,6 +775,54 @@
         "question": "Silence inserted after question marks.",
         "hyphen": "Silence inserted after hyphens or em dashes."
       },
+      "presetVoice": {
+        "modelBadge": "Qwen3 TTS 1.7B CustomVoice",
+        "libraryTitle": "Preset Voices",
+        "speaker": "Voice",
+        "speakerHint": "Use the official Qwen3 CustomVoice preset speakers for quick auditions and reusable voice output.",
+        "currentVoice": "Current voice",
+        "instruction": "Extra instruction",
+        "instructionPlaceholder": "Example: lean more toward ad narration, sound more confident, and land sentence endings more cleanly",
+        "instructionHint": "Optional. Use it to fine-tune emotion, phrasing, and delivery without replacing the preset voice itself.",
+        "speakers": {
+          "Vivian": {
+            "label": "Vivian",
+            "description": "Bright young female voice with a slight edge, best suited for Chinese delivery."
+          },
+          "Serena": {
+            "label": "Serena",
+            "description": "Warm and gentle young female voice, well suited for softer scenes."
+          },
+          "Uncle_Fu": {
+            "label": "Uncle_Fu",
+            "description": "Seasoned male voice with a low, mellow timbre for narration-heavy reads."
+          },
+          "Dylan": {
+            "label": "Dylan",
+            "description": "Youthful Beijing male voice with a clear, natural, conversational feel."
+          },
+          "Eric": {
+            "label": "Eric",
+            "description": "Lively Chengdu male voice with slightly husky brightness and energy."
+          },
+          "Ryan": {
+            "label": "Ryan",
+            "description": "Dynamic English male voice with strong rhythmic drive."
+          },
+          "Aiden": {
+            "label": "Aiden",
+            "description": "Sunny American English male voice with a clear, steady midrange."
+          },
+          "Ono_Anna": {
+            "label": "Ono_Anna",
+            "description": "Playful Japanese female voice with a light and nimble timbre."
+          },
+          "Sohee": {
+            "label": "Sohee",
+            "description": "Warm Korean female voice with richer emotional color."
+          }
+        }
+      },
       "savedVoice": {
         "modelBadge": "Qwen3 TTS 1.7B Voice Clone",
         "defaultVoiceName": "My Voice",
@@ -771,6 +926,20 @@
     "generating": "Generating",
     "retryAvailable": "Retry available",
     "error": "Error"
+  },
+  "styleTemplate": {
+    "title": "Style Templates",
+    "newTemplate": "New Template",
+    "editTemplate": "Edit Template",
+    "templateName": "Template Name",
+    "templateNamePlaceholder": "Enter a template name",
+    "templatePrompt": "Prompt Content",
+    "templatePromptPlaceholder": "Enter the style prompt appended to the end after selection",
+    "deleteConfirm": "Delete this template?",
+    "emptyHint": "No style templates yet. Create one above.",
+    "noTemplate": "None",
+    "selectTemplate": "Select Style",
+    "manageTemplates": "Manage style templates..."
   },
   "scriptNodes": {
     "common": {

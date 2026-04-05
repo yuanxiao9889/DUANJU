@@ -42,17 +42,18 @@
     "extensions": {
       "title": "扩展中心",
       "centerTitle": "按需加载扩展能力",
-      "centerDescription": "扩展包从文件夹加载。启动扩展后，相关功能会注册到软件里，Qwen3 TTS 的 Python 运行时也会保持常驻；停止扩展、关闭软件或重启电脑后，都需要再次启动。",
+      "centerDescription": "从文件夹加载扩展包，启动后即可使用对应能力。停止扩展或关闭软件后，如需继续使用请重新启动。",
       "sampleHint": "仓库里现在可以直接加载 extension-packages/qwen3-tts-complete；如需重新构建完整包，可运行 npm run prepare:qwen3-tts-extension。",
       "loadFolderTitle": "选择扩展包文件夹",
       "loadFailed": "加载扩展包失败",
       "loadingPackage": "读取中...",
       "loadFolder": "加载文件夹",
     "emptyTitle": "还没有加载任何扩展包",
-    "emptyDescription": "先选择一个包含 storyboard-extension.json 的文件夹，软件就会把它识别为可启用的扩展包。",
+    "emptyDescription": "选择包含 storyboard-extension.json 的文件夹即可加载扩展包。",
       "runtime": "运行时",
       "folder": "位置",
       "openFolder": "打开文件夹",
+      "openFolderFailed": "打开扩展文件夹失败",
       "enable": "启动扩展",
       "disable": "停止扩展",
       "enabling": "启动中...",
@@ -71,13 +72,16 @@
     "settingsSectionsTitle": "设置栏目",
     "entryPointsTitle": "入口位置",
     "modelsTitle": "扩展内模型",
+    "hardwareTitle": "硬件建议",
+    "hardwareRecommendations": "建议配置",
+    "hardwareNotes": "注意事项",
     "noDeclaredFeatures": "未声明",
     "noModels": "这个扩展包没有声明模型资产。",
     "expandDetails": "展开详情",
     "collapseDetails": "收起详情",
     "delete": "删除扩展",
     "deleteConfirm": "要从扩展中心移除“{{name}}”吗？这不会删除磁盘中的扩展文件夹。",
-    "collapsedSummary": "{{nodes}} 个节点 · {{entryPoints}} 个入口 · {{models}} 个模型",
+    "collapsedSummary": "{{nodes}} 个节点 · {{models}} 个模型",
     "featureLabels": {
       "extensions": "扩展设置",
       "titleBar": "标题栏入口"
@@ -194,6 +198,7 @@
       "textAnnotation": "文本",
       "ttsText": "文本",
       "ttsVoiceDesign": "声音设计",
+      "ttsPresetVoice": "预设音色",
       "ttsSavedVoice": "克隆声音",
       "videoNode": "视频节点",
       "audioNode": "音频节点",
@@ -208,7 +213,9 @@
       "createSupplement": "生成补充",
       "jimeng": "发送即梦",
       "jimengImage": "即梦图片",
-      "jimengImageResult": "即梦四宫格"
+      "jimengImageResult": "即梦四宫格",
+      "seedanceVideo": "官方 Seedance 2.0 视频",
+      "seedanceVideoResult": "Seedance 视频结果"
     },
     "menuGroup": {
       "jimeng": "即梦",
@@ -503,6 +510,54 @@
         "question": "问号和中文问号后的停顿时长。",
         "hyphen": "短横线或破折号后的停顿时长。"
       },
+      "presetVoice": {
+        "modelBadge": "Qwen3 TTS 1.7B CustomVoice",
+        "libraryTitle": "预设音色",
+        "speaker": "音色",
+        "speakerHint": "使用 Qwen3 CustomVoice 的官方预设说话人，适合快速试音和批量复用。",
+        "currentVoice": "当前音色",
+        "instruction": "附加指令",
+        "instructionPlaceholder": "例如：更像广告旁白，语气更自信，句尾更干净利落",
+        "instructionHint": "可选。用于微调情绪、语气和说话方式，但不会覆盖预设音色本身。",
+        "speakers": {
+          "Vivian": {
+            "label": "Vivian",
+            "description": "明亮、略带棱角的年轻女声，适合中文场景。"
+          },
+          "Serena": {
+            "label": "Serena",
+            "description": "温暖柔和的年轻女声，适合细腻或治愈向表达。"
+          },
+          "Uncle_Fu": {
+            "label": "Uncle_Fu",
+            "description": "成熟低沉、温润稳定的男声，适合长旁白或叙述。"
+          },
+          "Dylan": {
+            "label": "Dylan",
+            "description": "自然清晰的北京青年男声，带一点口语感和生活气。"
+          },
+          "Eric": {
+            "label": "Eric",
+            "description": "活泼的成都青年男声，略带沙哑和明亮感。"
+          },
+          "Ryan": {
+            "label": "Ryan",
+            "description": "节奏推进感很强的英文男声，适合更有动势的英文台词。"
+          },
+          "Aiden": {
+            "label": "Aiden",
+            "description": "阳光清晰的美式英文男声，中频扎实，听感干净。"
+          },
+          "Ono_Anna": {
+            "label": "Ono_Anna",
+            "description": "轻巧灵动的日语年轻女声，适合更活泼的日语表达。"
+          },
+          "Sohee": {
+            "label": "Sohee",
+            "description": "温暖且情感丰富的韩语女声，适合更有情绪起伏的台词。"
+          }
+        }
+      },
       "savedVoice": {
         "modelBadge": "Qwen3 TTS 1.7B Voice Clone",
         "defaultVoiceName": "我的音色",
@@ -662,6 +717,93 @@
         "9:16": "9:16"
       }
     },
+    "seedance": {
+      "promptLabel": "提示词",
+      "promptPlaceholder": "描述场景、动作、构图和节奏，用于 Seedance 2.0 视频生成",
+      "promptRequired": "请输入 Seedance 视频生成提示词",
+      "apiKeyRequired": "请先在设置中填写火山引擎 API Key",
+      "optimizePrompt": "优化视频提示词",
+      "optimizingPrompt": "正在优化视频提示词",
+      "optimizePromptFailed": "视频提示词优化失败",
+      "undoOptimizedPrompt": "撤销优化",
+      "optimizeModelLabel": "本次优化模型：{{model}}",
+      "optimizeReferenceImagesLabel": "参考图：{{status}}",
+      "optimizeReferenceImagesUsed": "已带入 {{count}} 张",
+      "optimizeReferenceImagesUnused": "未带入",
+      "submit": "生成",
+      "submitting": "生成中",
+      "submitFailed": "Seedance 视频生成失败",
+      "lastSubmitted": "上次提交于 {{time}}",
+      "resultNodeTitle": "生成结果",
+      "inputModeLabel": "输入模式",
+      "modelLabel": "模型",
+      "aspectRatioLabel": "比例",
+      "durationLabel": "时长",
+      "resolutionLabel": "分辨率",
+      "generateAudio": "生成音频",
+      "returnLastFrame": "返回尾帧",
+      "referenceImageLabel": "图片 {{index}}",
+      "referenceVideoLabel": "视频 {{index}}",
+      "audioReferenceLabel": "音频 {{index}}",
+      "connectedVisuals": "{{count}} 个视觉参考",
+      "connectedAudios": "{{count}} 个音频参考",
+      "noReferences": "连接上游图片、视频或音频后，可以按 Seedance 官方输入模式提交。",
+      "modeHints": {
+        "textToVideo": "文生视频只使用提示词，提交前请断开所有参考素材。",
+        "firstFrame": "首帧模式要求恰好连接 1 张图片参考。",
+        "firstLastFrame": "首尾帧模式要求恰好连接 2 张图片参考。",
+        "reference": "参考模式支持图片、视频和可选音频，但至少需要 1 个视觉参考。"
+      },
+      "textToVideoNoReferences": "文生视频模式不接受图片、视频或音频参考。",
+      "firstFrameRequiresOneImage": "首帧模式必须恰好连接 1 张图片参考。",
+      "firstFrameOnlySupportsImages": "首帧模式只支持图片参考。",
+      "firstLastFrameRequiresTwoImages": "首尾帧模式必须恰好连接 2 张图片参考。",
+      "firstLastFrameOnlySupportsImages": "首尾帧模式只支持图片参考。",
+      "referenceRequiresVisual": "参考模式至少需要 1 个图片或视频参考。",
+      "referenceImageLimit": "参考模式最多支持 {{count}} 张图片。",
+      "referenceVideoLimit": "参考模式最多支持 {{count}} 个视频。",
+      "referenceAudioLimit": "参考模式最多支持 {{count}} 段音频。",
+      "referenceVideoDurationLimit": "视频参考总时长必须控制在 {{seconds}} 秒以内。",
+      "referenceAudioDurationLimit": "音频参考总时长必须控制在 {{seconds}} 秒以内。",
+      "referenceAudioNeedsVisual": "音频参考不能单独提交，请至少再连接 1 个图片或视频参考。",
+      "inputModes": {
+        "textToVideo": "文生视频",
+        "firstFrame": "首帧",
+        "firstLastFrame": "首尾帧",
+        "reference": "参考模式"
+      },
+      "modelOptions": {
+        "seedance20": "官方 Seedance 2.0"
+      },
+      "aspectRatios": {
+        "adaptive": "自适应",
+        "21:9": "21:9",
+        "16:9": "16:9",
+        "4:3": "4:3",
+        "1:1": "1:1",
+        "3:4": "3:4",
+        "9:16": "9:16"
+      },
+      "durations": {
+        "auto": "自动",
+        "4": "4秒",
+        "5": "5秒",
+        "6": "6秒",
+        "7": "7秒",
+        "8": "8秒",
+        "9": "9秒",
+        "10": "10秒",
+        "11": "11秒",
+        "12": "12秒",
+        "13": "13秒",
+        "14": "14秒",
+        "15": "15秒"
+      },
+      "resolutionOptions": {
+        "480p": "480p",
+        "720p": "720p"
+      }
+    },
     "jimengImageResult": {
       "empty": "等待即梦返回结果。",
       "pending": "生成中...",
@@ -680,6 +822,19 @@
       "requeryFailed": "重新查询即梦图片结果失败",
       "requeryPendingCount": "还有 {{count}} 个任务仍在处理中",
       "requeryReadyCount": "已重新获取 {{count}} 张图片"
+    },
+    "seedanceVideoResult": {
+      "empty": "等待 Seedance 返回视频结果。",
+      "pending": "生成中...",
+      "generating": "生成中",
+      "ready": "已回传",
+      "statusGenerating": "Seedance 仍在生成视频，请稍后再查询。",
+      "generatedAt": "{{time}} 已回传",
+      "duration": "时长 {{duration}}",
+      "requery": "重新查询",
+      "requeryUnavailable": "当前 Seedance 结果节点还没有可用的 task_id，暂时无法重新查询结果。",
+      "requeryFailed": "重新查询 Seedance 视频结果失败",
+      "requeryPending": "任务仍在处理中，请稍后再试。"
     }
   },
   "viewer": {

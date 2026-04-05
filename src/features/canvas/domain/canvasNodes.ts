@@ -7,6 +7,8 @@ export const CANVAS_NODE_TYPES = {
   jimengImage: 'jimengImageNode',
   jimengImageResult: 'jimengImageResultNode',
   jimengVideoResult: 'jimengVideoResultNode',
+  seedance: 'seedanceNode',
+  seedanceVideoResult: 'seedanceVideoResultNode',
   exportImage: 'exportImageNode',
   textAnnotation: 'textAnnotationNode',
   group: 'groupNode',
@@ -17,6 +19,7 @@ export const CANVAS_NODE_TYPES = {
   audio: 'audioNode',
   ttsText: 'ttsTextNode',
   ttsVoiceDesign: 'ttsVoiceDesignNode',
+  ttsPresetVoice: 'ttsPresetVoiceNode',
   ttsSavedVoice: 'ttsSavedVoiceNode',
   scriptRoot: 'scriptRootNode',
   scriptChapter: 'scriptChapterNode',
@@ -46,12 +49,22 @@ export const JIMENG_VIDEO_RESULT_NODE_DEFAULT_WIDTH = 520;
 export const JIMENG_VIDEO_RESULT_NODE_DEFAULT_HEIGHT = 388;
 export const JIMENG_VIDEO_RESULT_NODE_MIN_WIDTH = 360;
 export const JIMENG_VIDEO_RESULT_NODE_MIN_HEIGHT = 280;
+export const SEEDANCE_NODE_DEFAULT_WIDTH = 780;
+export const SEEDANCE_NODE_DEFAULT_HEIGHT = 560;
+export const SEEDANCE_NODE_MIN_WIDTH = 680;
+export const SEEDANCE_NODE_MIN_HEIGHT = 440;
+export const SEEDANCE_VIDEO_RESULT_NODE_DEFAULT_WIDTH = 520;
+export const SEEDANCE_VIDEO_RESULT_NODE_DEFAULT_HEIGHT = 388;
+export const SEEDANCE_VIDEO_RESULT_NODE_MIN_WIDTH = 360;
+export const SEEDANCE_VIDEO_RESULT_NODE_MIN_HEIGHT = 280;
 export const AUDIO_NODE_DEFAULT_WIDTH = 320;
 export const AUDIO_NODE_DEFAULT_HEIGHT = 96;
 export const TTS_TEXT_NODE_DEFAULT_WIDTH = 320;
 export const TTS_TEXT_NODE_DEFAULT_HEIGHT = 180;
 export const TTS_VOICE_DESIGN_NODE_DEFAULT_WIDTH = 440;
 export const TTS_VOICE_DESIGN_NODE_DEFAULT_HEIGHT = 300;
+export const TTS_PRESET_VOICE_NODE_DEFAULT_WIDTH = 440;
+export const TTS_PRESET_VOICE_NODE_DEFAULT_HEIGHT = 300;
 export const TTS_SAVED_VOICE_NODE_DEFAULT_WIDTH = 440;
 export const TTS_SAVED_VOICE_NODE_DEFAULT_HEIGHT = 320;
 
@@ -105,6 +118,24 @@ export const JIMENG_ASPECT_RATIOS = [
 
 export const JIMENG_DURATION_SECONDS = [4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15] as const;
 export const JIMENG_VIDEO_RESOLUTIONS = ['720p', '1080p'] as const;
+export const SEEDANCE_MODEL_IDS = ['doubao-seedance-2-0-260128'] as const;
+export const SEEDANCE_INPUT_MODES = [
+  'textToVideo',
+  'firstFrame',
+  'firstLastFrame',
+  'reference',
+] as const;
+export const SEEDANCE_ASPECT_RATIOS = [
+  'adaptive',
+  '21:9',
+  '16:9',
+  '4:3',
+  '1:1',
+  '3:4',
+  '9:16',
+] as const;
+export const SEEDANCE_DURATION_SECONDS = [-1, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15] as const;
+export const SEEDANCE_RESOLUTIONS = ['480p', '720p'] as const;
 
 export type ImageSize = (typeof IMAGE_SIZES)[number];
 export type JimengImageModelVersion = (typeof JIMENG_IMAGE_MODEL_VERSIONS)[number];
@@ -114,6 +145,11 @@ export type JimengReferenceMode = (typeof JIMENG_REFERENCE_MODES)[number];
 export type JimengAspectRatio = (typeof JIMENG_ASPECT_RATIOS)[number];
 export type JimengDurationSeconds = (typeof JIMENG_DURATION_SECONDS)[number];
 export type JimengVideoResolution = (typeof JIMENG_VIDEO_RESOLUTIONS)[number];
+export type SeedanceModelId = (typeof SEEDANCE_MODEL_IDS)[number];
+export type SeedanceInputMode = (typeof SEEDANCE_INPUT_MODES)[number];
+export type SeedanceAspectRatio = (typeof SEEDANCE_ASPECT_RATIOS)[number];
+export type SeedanceDurationSeconds = (typeof SEEDANCE_DURATION_SECONDS)[number];
+export type SeedanceResolution = (typeof SEEDANCE_RESOLUTIONS)[number];
 
 export interface NodeDisplayData {
   displayName?: string;
@@ -176,7 +212,7 @@ export interface AudioNodeData extends NodeDisplayData {
   audioFileName?: string | null;
   duration?: number;
   mimeType?: string | null;
-  generationSource?: 'ttsVoiceDesign' | 'ttsSavedVoice' | null;
+  generationSource?: 'ttsVoiceDesign' | 'ttsPresetVoice' | 'ttsSavedVoice' | null;
   sourceNodeId?: string | null;
   isGenerating?: boolean;
   generationProgress?: number;
@@ -197,6 +233,17 @@ export interface TtsTextNodeData extends NodeDisplayData {
 }
 
 export type TtsVoiceDesignStylePreset = 'natural' | 'narrator' | 'bright' | 'calm';
+
+export type TtsPresetVoiceSpeaker =
+  | 'Vivian'
+  | 'Serena'
+  | 'Uncle_Fu'
+  | 'Dylan'
+  | 'Eric'
+  | 'Ryan'
+  | 'Aiden'
+  | 'Ono_Anna'
+  | 'Sohee';
 
 export type TtsVoiceLanguage =
   | 'auto'
@@ -225,6 +272,23 @@ export interface TtsVoiceDesignNodeData extends NodeDisplayData, QwenTtsPauseCon
   language: TtsVoiceLanguage;
   speakingRate: number;
   pitch: number;
+  maxNewTokens?: number;
+  topP?: number;
+  topK?: number;
+  temperature?: number;
+  repetitionPenalty?: number;
+  isGenerating?: boolean;
+  generationProgress?: number;
+  statusText?: string | null;
+  lastError?: string | null;
+  lastGeneratedAt?: number | null;
+  [key: string]: unknown;
+}
+
+export interface TtsPresetVoiceNodeData extends NodeDisplayData {
+  speaker: TtsPresetVoiceSpeaker;
+  language: TtsVoiceLanguage;
+  instruct: string;
   maxNewTokens?: number;
   topP?: number;
   topK?: number;
@@ -351,6 +415,40 @@ export interface JimengVideoResultNodeData extends NodeDisplayData {
   duration?: number;
   width?: number;
   height?: number;
+  isGenerating?: boolean;
+  generationStartedAt?: number | null;
+  generationDurationMs?: number;
+  lastGeneratedAt?: number | null;
+  lastError?: string | null;
+}
+
+export interface SeedanceNodeData extends NodeDisplayData {
+  prompt: string;
+  inputMode?: SeedanceInputMode;
+  modelId?: SeedanceModelId;
+  aspectRatio?: SeedanceAspectRatio;
+  durationSeconds?: SeedanceDurationSeconds;
+  resolution?: SeedanceResolution;
+  generateAudio?: boolean;
+  returnLastFrame?: boolean;
+  isSubmitting?: boolean;
+  lastSubmittedAt?: number | null;
+  lastError?: string | null;
+}
+
+export interface SeedanceVideoResultNodeData extends NodeDisplayData {
+  sourceNodeId?: string | null;
+  taskId?: string | null;
+  modelId?: SeedanceModelId | string | null;
+  inputMode?: SeedanceInputMode | null;
+  videoUrl: string | null;
+  previewImageUrl?: string | null;
+  videoFileName?: string | null;
+  aspectRatio: string;
+  resolution?: SeedanceResolution | string | null;
+  duration?: number;
+  generateAudio?: boolean;
+  returnLastFrame?: boolean;
   isGenerating?: boolean;
   generationStartedAt?: number | null;
   generationDurationMs?: number;
@@ -645,6 +743,8 @@ export type CanvasNodeData =
   | JimengImageNodeData
   | JimengImageResultNodeData
   | JimengVideoResultNodeData
+  | SeedanceNodeData
+  | SeedanceVideoResultNodeData
   | StoryboardSplitNodeData
   | StoryboardSplitResultNodeData
   | StoryboardGenNodeData
@@ -652,6 +752,7 @@ export type CanvasNodeData =
   | AudioNodeData
   | TtsTextNodeData
   | TtsVoiceDesignNodeData
+  | TtsPresetVoiceNodeData
   | TtsSavedVoiceNodeData
   | ScriptRootNodeData
   | ScriptChapterNodeData
@@ -968,6 +1069,18 @@ export function isJimengVideoResultNode(
   return node?.type === CANVAS_NODE_TYPES.jimengVideoResult;
 }
 
+export function isSeedanceNode(
+  node: CanvasNode | null | undefined
+): node is Node<SeedanceNodeData, typeof CANVAS_NODE_TYPES.seedance> {
+  return node?.type === CANVAS_NODE_TYPES.seedance;
+}
+
+export function isSeedanceVideoResultNode(
+  node: CanvasNode | null | undefined
+): node is Node<SeedanceVideoResultNodeData, typeof CANVAS_NODE_TYPES.seedanceVideoResult> {
+  return node?.type === CANVAS_NODE_TYPES.seedanceVideoResult;
+}
+
 export function isExportImageNode(
   node: CanvasNode | null | undefined
 ): node is Node<ExportImageNodeData, typeof CANVAS_NODE_TYPES.exportImage> {
@@ -1008,6 +1121,12 @@ export function isTtsVoiceDesignNode(
   node: CanvasNode | null | undefined
 ): node is Node<TtsVoiceDesignNodeData, typeof CANVAS_NODE_TYPES.ttsVoiceDesign> {
   return node?.type === CANVAS_NODE_TYPES.ttsVoiceDesign;
+}
+
+export function isTtsPresetVoiceNode(
+  node: CanvasNode | null | undefined
+): node is Node<TtsPresetVoiceNodeData, typeof CANVAS_NODE_TYPES.ttsPresetVoice> {
+  return node?.type === CANVAS_NODE_TYPES.ttsPresetVoice;
 }
 
 export function isTtsSavedVoiceNode(

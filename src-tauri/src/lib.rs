@@ -11,6 +11,7 @@ use commands::extensions;
 use commands::image;
 use commands::project_state;
 use commands::ps_server;
+use commands::seedance;
 use commands::system;
 use commands::text_gen;
 use commands::update;
@@ -209,6 +210,8 @@ pub fn run() {
             commands::storage::migrate_storage,
             commands::storage::reset_storage_to_default,
             commands::storage::open_storage_folder,
+            seedance::create_seedance_video_task,
+            seedance::get_seedance_video_task,
             ps_server::start_ps_server,
             ps_server::stop_ps_server,
             ps_server::get_ps_server_status,

@@ -78,6 +78,8 @@ import {
   normalizeJimengImageResolutionForModel,
   resolveJimengImageResolutionOptionsForModel,
 } from "@/features/jimeng/domain/jimengOptions";
+import { StyleTemplatePicker } from "@/features/project/StyleTemplatePicker";
+import { applyStyleTemplatePrompt } from "@/features/project/styleTemplatePrompt";
 
 type JimengImageNodeProps = NodeProps & {
   id: string;
@@ -392,7 +394,8 @@ export const JimengImageNode = memo(
     const promptRef = useRef<HTMLTextAreaElement>(null);
     const promptHighlightRef = useRef<HTMLDivElement>(null);
     const promptHoverLayerRef = useRef<HTMLDivElement>(null);
-    const promptValueRef = useRef(data.prompt ?? "");
+    const [promptDraft, setPromptDraft] = useState(() => data.prompt ?? "");
+    const promptValueRef = useRef(promptDraft);
     const previousIncomingImagesRef = useRef<string[] | null>(null);
     const pickerItemRefs = useRef<Array<HTMLButtonElement | null>>([]);
     const [isOptimizingPrompt, setIsOptimizingPrompt] = useState(false);
@@ -405,6 +408,10 @@ export const JimengImageNode = memo(
       lastPromptOptimizationUndoState,
       setLastPromptOptimizationUndoState,
     ] = useState<PromptOptimizationUndoState | null>(null);
+    const [selectedStyleTemplateId, setSelectedStyleTemplateId] = useState<
+      string | null
+    >(null);
+    const [styleTemplatePrompt, setStyleTemplatePrompt] = useState("");
     const [showImagePicker, setShowImagePicker] = useState(false);
     const [pickerCursor, setPickerCursor] = useState<number | null>(null);
     const [pickerActiveIndex, setPickerActiveIndex] = useState(0);
@@ -511,6 +518,7 @@ export const JimengImageNode = memo(
       const externalPrompt = data.prompt ?? "";
       if (externalPrompt !== promptValueRef.current) {
         promptValueRef.current = externalPrompt;
+        setPromptDraft(externalPrompt);
         setPromptOptimizationError(null);
         setLastPromptOptimizationMeta(null);
         setLastPromptOptimizationUndoState(null);
@@ -563,6 +571,7 @@ export const JimengImageNode = memo(
         return;
       }
 
+      setPromptDraft(nextPrompt);
       promptValueRef.current = nextPrompt;
       updateNodeData(id, { prompt: nextPrompt });
     }, [id, incomingImages, updateNodeData]);
@@ -583,7 +592,7 @@ export const JimengImageNode = memo(
 
     useEffect(() => {
       setPromptReferencePreview(null);
-    }, [incomingImages, data.prompt]);
+    }, [incomingImages, promptDraft]);
 
     useEffect(() => {
       if (!showImagePicker) {
@@ -614,6 +623,7 @@ export const JimengImageNode = memo(
 
     const updatePrompt = useCallback(
       (nextPrompt: string) => {
+        setPromptDraft(nextPrompt);
         promptValueRef.current = nextPrompt;
         updateNodeData(id, { prompt: nextPrompt });
       },
@@ -811,7 +821,7 @@ export const JimengImageNode = memo(
     ]);
 
     const handleGenerate = useCallback(async () => {
-      const prompt = data.prompt?.trim() ?? "";
+      const prompt = promptDraft.trim();
       if (!prompt) {
         const message = t("node.jimengImage.promptRequired");
         updateNodeData(id, { lastError: message });
@@ -967,13 +977,13 @@ export const JimengImageNode = memo(
       addEdge,
       addNode,
       data.generationDurationMs,
-      data.prompt,
       findNodePosition,
       flushCurrentProjectToDiskSafely,
       id,
       incomingImages,
       isGenerateBlocked,
       modelSupportsReferenceImages,
+      promptDraft,
       selectedAspectRatio,
       selectedModel,
       selectedResolution,
@@ -1220,7 +1230,7 @@ export const JimengImageNode = memo(
     const combinedError = promptOptimizationError ?? data.lastError;
     const canUndoPromptOptimization = Boolean(
       lastPromptOptimizationUndoState &&
-      (data.prompt ?? "") === lastPromptOptimizationUndoState.appliedPrompt,
+      promptDraft === lastPromptOptimizationUndoState.appliedPrompt,
     );
     const promptOptimizationNotice = lastPromptOptimizationMeta
       ? `${t("node.jimengImage.optimizeModelLabel", {
@@ -1320,7 +1330,7 @@ export const JimengImageNode = memo(
               >
                 <div className="min-h-full whitespace-pre-wrap break-words px-3 py-2">
                   {renderPromptWithHighlights(
-                    data.prompt ?? "",
+                    promptDraft,
                     incomingImages.length,
                   )}
                 </div>
@@ -1334,7 +1344,7 @@ export const JimengImageNode = memo(
               >
                 <div className="min-h-full whitespace-pre-wrap break-words px-3 py-2">
                   {renderPromptReferenceHoverTargets(
-                    data.prompt ?? "",
+                    promptDraft,
                     incomingImages.length,
                     handlePromptReferenceTokenHover,
                     hidePromptReferencePreview,
@@ -1345,7 +1355,7 @@ export const JimengImageNode = memo(
 
               <textarea
                 ref={promptRef}
-                value={data.prompt ?? ""}
+                value={promptDraft}
                 onChange={(event) => {
                   handlePromptChange(event.target.value);
                   syncPromptTextSelectionState(event.currentTarget);
@@ -1521,11 +1531,25 @@ export const JimengImageNode = memo(
                 options={aspectRatioOptions}
                 onChange={handleAspectRatioChange}
               />
+              <StyleTemplatePicker
+                selectedTemplateId={selectedStyleTemplateId}
+                className={`${NODE_CONTROL_CHIP_CLASS} !w-8 !px-0 shrink-0 justify-center`}
+                onTemplateChange={(templateId, prompt) => {
+                  setSelectedStyleTemplateId(templateId);
+                  setStyleTemplatePrompt(prompt);
+                  const nextPrompt = applyStyleTemplatePrompt(
+                    promptValueRef.current,
+                    styleTemplatePrompt,
+                    prompt,
+                  );
+                  handlePromptChange(nextPrompt);
+                }}
+              />
               <UiChipButton
                 type="button"
                 active={isOptimizingPrompt}
                 disabled={
-                  isOptimizingPrompt || (data.prompt?.trim().length ?? 0) === 0
+                  isOptimizingPrompt || promptDraft.trim().length === 0
                 }
                 className={`${NODE_CONTROL_CHIP_CLASS} !w-8 !px-0 shrink-0 justify-center`}
                 aria-label={

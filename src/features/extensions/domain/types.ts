@@ -27,6 +27,12 @@ export interface ExtensionStartupStep {
   durationMs?: number;
 }
 
+export interface ExtensionHardwareRequirements {
+  summary?: string;
+  recommendations?: string[];
+  notes?: string[];
+}
+
 export interface ExtensionPackageManifest {
   schemaVersion: number;
   id: string;
@@ -38,6 +44,7 @@ export interface ExtensionPackageManifest {
   startupSteps: ExtensionStartupStep[];
   entry?: ExtensionRuntimeEntry;
   models?: ExtensionModelAsset[];
+  hardwareRequirements?: ExtensionHardwareRequirements;
 }
 
 export interface LoadedExtensionPackage extends ExtensionPackageManifest {

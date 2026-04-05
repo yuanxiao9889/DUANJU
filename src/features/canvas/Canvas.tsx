@@ -387,11 +387,13 @@ function resolveAllowedNodeTypes(
     const isSingleImageSource = Boolean(resolveSingleImageConnectionSource(sourceNode));
     const isVideoReferenceSource =
       sourceNode.type === CANVAS_NODE_TYPES.video
-      || sourceNode.type === CANVAS_NODE_TYPES.jimengVideoResult;
-    const shouldHideVoiceDesign =
+      || sourceNode.type === CANVAS_NODE_TYPES.jimengVideoResult
+      || sourceNode.type === CANVAS_NODE_TYPES.seedanceVideoResult;
+    const shouldHideTextDrivenTtsNodes =
       isSingleImageSource
       || isVideoReferenceSource
       || sourceNode.type === CANVAS_NODE_TYPES.jimeng
+      || sourceNode.type === CANVAS_NODE_TYPES.seedance
       || sourceNode.type === CANVAS_NODE_TYPES.jimengImage
       || sourceNode.type === CANVAS_NODE_TYPES.jimengImageResult;
 
@@ -401,9 +403,11 @@ function resolveAllowedNodeTypes(
       );
     }
 
-    if (shouldHideVoiceDesign) {
+    if (shouldHideTextDrivenTtsNodes) {
       allowedTypes = allowedTypes.filter(
-        (type) => type !== CANVAS_NODE_TYPES.ttsVoiceDesign
+        (type) =>
+          type !== CANVAS_NODE_TYPES.ttsVoiceDesign
+          && type !== CANVAS_NODE_TYPES.ttsPresetVoice
       );
     }
   }

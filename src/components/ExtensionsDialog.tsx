@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { open } from '@tauri-apps/plugin-dialog';
-import { openPath } from '@tauri-apps/plugin-opener';
+import { openPath, revealItemInDir } from '@tauri-apps/plugin-opener';
 import {
   AlertCircle,
   CheckCircle2,
@@ -39,15 +39,8 @@ function normalizeDialogDirectoryPath(value: string | string[] | null): string |
 const NODE_FEATURE_LABEL_KEYS: Record<string, string> = {
   ttsTextNode: 'node.menu.textAnnotation',
   ttsVoiceDesignNode: 'node.menu.ttsVoiceDesign',
+  ttsPresetVoiceNode: 'node.menu.ttsPresetVoice',
   ttsSavedVoiceNode: 'node.menu.ttsSavedVoice',
-};
-
-const SETTINGS_SECTION_LABEL_KEYS: Record<string, string> = {
-  extensions: 'extensions.featureLabels.extensions',
-};
-
-const ENTRY_POINT_LABEL_KEYS: Record<string, string> = {
-  titleBar: 'extensions.featureLabels.titleBar',
 };
 
 const MODEL_ROLE_LABEL_KEYS: Record<string, string> = {
@@ -97,21 +90,12 @@ export function ExtensionsDialog({ isOpen, onClose }: ExtensionsDialogProps) {
       let hasChanged = false;
       const nextState = { ...previous };
 
-      sortedPackages.forEach((extensionPackage, index) => {
+      sortedPackages.forEach((extensionPackage) => {
         if (nextState[extensionPackage.id] !== undefined) {
           return;
         }
 
-        const runtime = runtimeById[extensionPackage.id];
-        const isReady = enabledExtensionIds.includes(extensionPackage.id)
-          && runtime?.status === 'ready';
-        const shouldExpandByDefault =
-          isReady ||
-          runtime?.status === 'starting' ||
-          runtime?.status === 'error' ||
-          index === 0;
-
-        nextState[extensionPackage.id] = !shouldExpandByDefault;
+        nextState[extensionPackage.id] = true;
         hasChanged = true;
       });
 
@@ -126,7 +110,7 @@ export function ExtensionsDialog({ isOpen, onClose }: ExtensionsDialogProps) {
 
       return hasChanged ? nextState : previous;
     });
-  }, [enabledExtensionIds, runtimeById, sortedPackages]);
+  }, [sortedPackages]);
 
   const handleLoadFolder = async () => {
     setLoadError(null);
@@ -162,11 +146,35 @@ export function ExtensionsDialog({ isOpen, onClose }: ExtensionsDialogProps) {
     labelKeys: Record<string, string>
   ): string => t(labelKeys[value] ?? value, { defaultValue: value });
 
+  const hasHardwareRequirements = (extensionId: string): boolean => {
+    const hardwareRequirements = extensionPackages[extensionId]?.hardwareRequirements;
+    return Boolean(
+      hardwareRequirements?.summary?.trim()
+      || hardwareRequirements?.recommendations?.length
+      || hardwareRequirements?.notes?.length
+    );
+  };
+
   const togglePackageCollapsed = (extensionId: string) => {
     setCollapsedPackageIds((previous) => ({
       ...previous,
       [extensionId]: !previous[extensionId],
     }));
+  };
+
+  const handleOpenFolder = async (folderPath: string) => {
+    setLoadError(null);
+
+    try {
+      await revealItemInDir(folderPath);
+    } catch (revealError) {
+      try {
+        await openPath(folderPath);
+      } catch (openError) {
+        console.error('Failed to open extension folder:', revealError, openError);
+        setLoadError(t('extensions.openFolderFailed'));
+      }
+    }
   };
 
   return (
@@ -195,9 +203,6 @@ export function ExtensionsDialog({ isOpen, onClose }: ExtensionsDialogProps) {
               </div>
               <p className="mt-2 text-sm leading-6 text-text-muted">
                 {t('extensions.centerDescription')}
-              </p>
-              <p className="mt-2 text-xs text-text-muted">
-                {t('extensions.sampleHint')}
               </p>
             </div>
 
@@ -282,21 +287,17 @@ export function ExtensionsDialog({ isOpen, onClose }: ExtensionsDialogProps) {
                 : isEnabled
                   ? 100
                   : 0;
+              const showRuntimeProgress = isStarting || isError;
               const runtimeHint = isStarting
                 ? currentStep?.description ?? t('extensions.statusStarting')
-                : isEnabled
-                  ? t('extensions.readyHint')
-                  : isError
-                    ? runtime?.error ?? t('extensions.statusError')
-                    : t('extensions.idleHint');
+                : null;
               const currentStepLabel = currentStep
                 ? `${t('extensions.currentStep')}: ${currentStep.label}`
-                : isEnabled
-                  ? t('extensions.readyHint')
-                  : t('extensions.statusLoaded');
+                : isStarting
+                  ? t('extensions.statusStarting')
+                  : t('extensions.statusError');
               const collapsedSummary = t('extensions.collapsedSummary', {
                 nodes: extensionPackage.features.nodes.length,
-                entryPoints: extensionPackage.features.entryPoints.length,
                 models: extensionPackage.models?.length ?? 0,
               });
 
@@ -350,24 +351,19 @@ export function ExtensionsDialog({ isOpen, onClose }: ExtensionsDialogProps) {
                           </div>
                         </div>
 
-                        <p className="mt-2 text-sm leading-6 text-text-muted">
-                          {extensionPackage.description}
-                        </p>
-
                         <div className="mt-2 flex flex-wrap items-center gap-3 text-[11px] text-text-muted">
                           <span>{collapsedSummary}</span>
-                          <span>{progress}%</span>
-                          <span>
-                            {currentStepLabel}
-                          </span>
+                          {isStarting ? <span>{progress}%</span> : null}
                         </div>
                       </div>
                     </button>
 
                     <div className="flex shrink-0 flex-wrap items-center gap-2">
                       <UiButton
-                        variant="muted"
-                        onClick={() => void openPath(extensionPackage.folderPath)}
+                        variant="ghost"
+                        onClick={() => {
+                          void handleOpenFolder(extensionPackage.folderPath);
+                        }}
                       >
                         <FolderOpen className="mr-2 h-4 w-4" />
                         {t('extensions.openFolder')}
@@ -413,10 +409,6 @@ export function ExtensionsDialog({ isOpen, onClose }: ExtensionsDialogProps) {
                       ) : (
                         <UiButton
                           onClick={() => {
-                            setCollapsedPackageIds((previous) => ({
-                              ...previous,
-                              [extensionPackage.id]: false,
-                            }));
                             void enableExtension(extensionPackage.id);
                           }}
                           disabled={isStarting}
@@ -434,30 +426,34 @@ export function ExtensionsDialog({ isOpen, onClose }: ExtensionsDialogProps) {
                     </div>
                   </div>
 
-                  <div className="mt-4 space-y-2">
-                    <div className="flex items-center justify-between text-xs text-text-muted">
-                      <span>
-                        {currentStepLabel}
-                      </span>
-                      <span>{progress}%</span>
+                  {showRuntimeProgress ? (
+                    <div className="mt-4 space-y-2">
+                      <div className="flex items-center justify-between text-xs text-text-muted">
+                        <span>
+                          {currentStepLabel}
+                        </span>
+                        <span>{progress}%</span>
+                      </div>
+                      <div className="h-2 overflow-hidden rounded-full bg-white/10">
+                        <div
+                          className={`h-full rounded-full transition-[width] duration-300 ${
+                            isError ? 'bg-red-400' : 'bg-accent'
+                          }`}
+                          style={{
+                            width: `${progress}%`,
+                          }}
+                        />
+                      </div>
+                      {runtimeHint ? (
+                        <div className="text-[11px] text-text-muted">
+                          {runtimeHint}
+                        </div>
+                      ) : null}
+                      {runtime?.error ? (
+                        <div className="text-xs text-red-200">{runtime.error}</div>
+                      ) : null}
                     </div>
-                    <div className="h-2 overflow-hidden rounded-full bg-white/10">
-                      <div
-                        className={`h-full rounded-full transition-[width] duration-300 ${
-                          isError ? 'bg-red-400' : 'bg-accent'
-                        }`}
-                        style={{
-                          width: `${progress}%`,
-                        }}
-                      />
-                    </div>
-                    <div className="text-[11px] text-text-muted">
-                      {runtimeHint}
-                    </div>
-                    {runtime?.error ? (
-                      <div className="text-xs text-red-200">{runtime.error}</div>
-                    ) : null}
-                  </div>
+                  ) : null}
 
                   {!isCollapsed ? (
                     <div className="mt-4 space-y-3">
@@ -488,7 +484,7 @@ export function ExtensionsDialog({ isOpen, onClose }: ExtensionsDialogProps) {
                         </div>
                       </div>
 
-                      <div className="grid gap-3 md:grid-cols-3">
+                      <div className="grid gap-3 md:grid-cols-1">
                         <div className="rounded-lg border border-white/10 bg-white/[0.03] p-3">
                           <div className="text-xs font-medium text-text-dark">
                             {t('extensions.nodesTitle')}
@@ -507,49 +503,7 @@ export function ExtensionsDialog({ isOpen, onClose }: ExtensionsDialogProps) {
                                   <span className="text-[11px] text-text-muted">
                                     {t('extensions.noDeclaredFeatures')}
                                   </span>
-                                )}
-                          </div>
-                        </div>
-                        <div className="rounded-lg border border-white/10 bg-white/[0.03] p-3">
-                          <div className="text-xs font-medium text-text-dark">
-                            {t('extensions.settingsSectionsTitle')}
-                          </div>
-                          <div className="mt-2 flex flex-wrap gap-2">
-                            {extensionPackage.features.settingsSections.length > 0
-                              ? extensionPackage.features.settingsSections.map((section) => (
-                                  <span
-                                    key={section}
-                                    className="rounded-full border border-white/10 bg-white/[0.04] px-2 py-1 text-[11px] text-text-muted"
-                                  >
-                                    {resolveFeatureLabel(section, SETTINGS_SECTION_LABEL_KEYS)}
-                                  </span>
-                                ))
-                              : (
-                                  <span className="text-[11px] text-text-muted">
-                                    {t('extensions.noDeclaredFeatures')}
-                                  </span>
-                                )}
-                          </div>
-                        </div>
-                        <div className="rounded-lg border border-white/10 bg-white/[0.03] p-3">
-                          <div className="text-xs font-medium text-text-dark">
-                            {t('extensions.entryPointsTitle')}
-                          </div>
-                          <div className="mt-2 flex flex-wrap gap-2">
-                            {extensionPackage.features.entryPoints.length > 0
-                              ? extensionPackage.features.entryPoints.map((entryPoint) => (
-                                  <span
-                                    key={entryPoint}
-                                    className="rounded-full border border-white/10 bg-white/[0.04] px-2 py-1 text-[11px] text-text-muted"
-                                  >
-                                    {resolveFeatureLabel(entryPoint, ENTRY_POINT_LABEL_KEYS)}
-                                  </span>
-                                ))
-                              : (
-                                  <span className="text-[11px] text-text-muted">
-                                    {t('extensions.noDeclaredFeatures')}
-                                  </span>
-                                )}
+                              )}
                           </div>
                         </div>
                       </div>
@@ -583,6 +537,46 @@ export function ExtensionsDialog({ isOpen, onClose }: ExtensionsDialogProps) {
                           </div>
                         )}
                       </div>
+
+                      {hasHardwareRequirements(extensionPackage.id) ? (
+                        <div className="rounded-lg border border-amber-400/18 bg-amber-400/[0.06] p-3">
+                          <div className="text-xs font-medium text-text-dark">
+                            {t('extensions.hardwareTitle')}
+                          </div>
+
+                          {extensionPackage.hardwareRequirements?.summary ? (
+                            <div className="mt-2 text-sm leading-6 text-text-muted">
+                              {extensionPackage.hardwareRequirements.summary}
+                            </div>
+                          ) : null}
+
+                          {extensionPackage.hardwareRequirements?.recommendations?.length ? (
+                            <div className="mt-3">
+                              <div className="text-[11px] font-medium uppercase tracking-[0.14em] text-text-muted">
+                                {t('extensions.hardwareRecommendations')}
+                              </div>
+                              <ul className="mt-2 list-disc space-y-1 pl-5 text-sm leading-6 text-text-muted">
+                                {extensionPackage.hardwareRequirements.recommendations.map((item, index) => (
+                                  <li key={`${extensionPackage.id}-hardware-rec-${index}`}>{item}</li>
+                                ))}
+                              </ul>
+                            </div>
+                          ) : null}
+
+                          {extensionPackage.hardwareRequirements?.notes?.length ? (
+                            <div className="mt-3">
+                              <div className="text-[11px] font-medium uppercase tracking-[0.14em] text-text-muted">
+                                {t('extensions.hardwareNotes')}
+                              </div>
+                              <ul className="mt-2 list-disc space-y-1 pl-5 text-sm leading-6 text-text-muted">
+                                {extensionPackage.hardwareRequirements.notes.map((item, index) => (
+                                  <li key={`${extensionPackage.id}-hardware-note-${index}`}>{item}</li>
+                                ))}
+                              </ul>
+                            </div>
+                          ) : null}
+                        </div>
+                      ) : null}
                     </div>
                   ) : null}
                 </div>

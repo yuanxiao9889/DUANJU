@@ -8,12 +8,15 @@ import { JimengImageResultNode } from './JimengImageResultNode';
 import { JimengVideoResultNode } from './JimengVideoResultNode';
 import { ImageNode } from './ImageNode';
 import { JimengNode } from './JimengNode';
+import { SeedanceNode } from './SeedanceNode';
+import { SeedanceVideoResultNode } from './SeedanceVideoResultNode';
 import { StoryboardGenNode } from './StoryboardGenNode';
 import { StoryboardNode } from './StoryboardNode';
 import { StoryboardSplitResultNode } from './StoryboardSplitResultNode';
 import { TextAnnotationNode } from './TextAnnotationNode';
 import { TtsTextNode } from './TtsTextNode';
 import { QwenTtsVoiceDesignNode } from './QwenTtsVoiceDesignNode';
+import { QwenTtsPresetVoiceNode } from './QwenTtsPresetVoiceNode';
 import { QwenTtsSavedVoiceNode } from './QwenTtsSavedVoiceNode';
 import { UploadNode } from './UploadNode';
 import { VideoNode } from './VideoNode';
@@ -34,12 +37,15 @@ export const nodeTypes: NodeTypes = {
   jimengImageResultNode: JimengImageResultNode,
   jimengVideoResultNode: JimengVideoResultNode,
   jimengNode: JimengNode,
+  seedanceNode: SeedanceNode,
+  seedanceVideoResultNode: SeedanceVideoResultNode,
   storyboardGenNode: StoryboardGenNode,
   storyboardNode: StoryboardNode,
   storyboardSplitResultNode: StoryboardSplitResultNode,
   textAnnotationNode: TextAnnotationNode,
   ttsTextNode: TextAnnotationNode,
   ttsVoiceDesignNode: QwenTtsVoiceDesignNode,
+  ttsPresetVoiceNode: QwenTtsPresetVoiceNode,
   ttsSavedVoiceNode: QwenTtsSavedVoiceNode,
   uploadNode: UploadNode,
   videoNode: VideoNode,
@@ -61,12 +67,15 @@ export {
   JimengVideoResultNode,
   ImageNode, 
   JimengNode,
+  SeedanceNode,
+  SeedanceVideoResultNode,
   StoryboardGenNode, 
   StoryboardNode, 
   StoryboardSplitResultNode,
   TextAnnotationNode, 
   TtsTextNode,
   QwenTtsVoiceDesignNode,
+  QwenTtsPresetVoiceNode,
   QwenTtsSavedVoiceNode,
   UploadNode, 
   VideoNode,

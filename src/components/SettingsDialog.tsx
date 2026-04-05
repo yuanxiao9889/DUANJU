@@ -118,7 +118,7 @@ const STORYBOARD_PROVIDER_GROUP_CONFIGS: ProviderGroupConfig[] = [
   {
     id: 'stable',
     labelKey: 'settings.providerGroupStable',
-    providerIds: ['kie', 'ppio', 'fal'],
+    providerIds: ['kie', 'ppio', 'fal', 'volcengine'],
     defaultCollapsed: true,
   },
   {
@@ -414,7 +414,7 @@ export function SettingsDialog({
   }, []);
   const scriptProviders = useMemo(() => listScriptProviders(providers), [providers]);
   const storyboardProviders = useMemo(
-    () => providers.filter((p) => p.id !== 'alibaba' && p.id !== 'coding' && p.id !== 'volcengine'),
+    () => providers.filter((p) => p.id !== 'alibaba' && p.id !== 'coding'),
     [providers]
   );
   const scriptProviderGroups = useMemo(

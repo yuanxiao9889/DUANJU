@@ -91,6 +91,8 @@ import {
   normalizeJimengVideoModel,
   resolveJimengVideoRequiredReferenceImageCount,
 } from "@/features/jimeng/domain/jimengOptions";
+import { StyleTemplatePicker } from "@/features/project/StyleTemplatePicker";
+import { applyStyleTemplatePrompt } from "@/features/project/styleTemplatePrompt";
 
 type JimengNodeProps = NodeProps & {
   id: string;
@@ -1086,10 +1088,15 @@ export const JimengNode = memo(
       lastPromptOptimizationUndoState,
       setLastPromptOptimizationUndoState,
     ] = useState<PromptOptimizationUndoState | null>(null);
+    const [selectedStyleTemplateId, setSelectedStyleTemplateId] = useState<
+      string | null
+    >(null);
+    const [styleTemplatePrompt, setStyleTemplatePrompt] = useState("");
     const promptRef = useRef<HTMLTextAreaElement>(null);
     const promptHighlightRef = useRef<HTMLDivElement>(null);
     const promptHoverLayerRef = useRef<HTMLDivElement>(null);
-    const promptValueRef = useRef(data.prompt ?? "");
+    const [promptDraft, setPromptDraft] = useState(() => data.prompt ?? "");
+    const promptValueRef = useRef(promptDraft);
     const previousOrderedReferenceImagesRef = useRef<string[] | null>(null);
     const pickerItemRefs = useRef<Array<HTMLButtonElement | null>>([]);
     const [showImagePicker, setShowImagePicker] = useState(false);
@@ -1333,6 +1340,7 @@ export const JimengNode = memo(
       const externalPrompt = data.prompt ?? "";
       if (externalPrompt !== promptValueRef.current) {
         promptValueRef.current = externalPrompt;
+        setPromptDraft(externalPrompt);
         setPromptOptimizationError(null);
         setLastPromptOptimizationMeta(null);
         setLastPromptOptimizationUndoState(null);
@@ -1396,7 +1404,7 @@ export const JimengNode = memo(
 
     useEffect(() => {
       setPromptReferencePreview(null);
-    }, [data.prompt, incomingAudios, incomingVisualItems]);
+    }, [incomingAudios, incomingVisualItems, promptDraft]);
 
     useEffect(() => {
       if (!showImagePicker) {
@@ -1439,6 +1447,7 @@ export const JimengNode = memo(
 
     const updatePrompt = useCallback(
       (nextPrompt: string) => {
+        setPromptDraft(nextPrompt);
         promptValueRef.current = nextPrompt;
         updateNodeData(id, { prompt: nextPrompt });
       },
@@ -1810,7 +1819,7 @@ export const JimengNode = memo(
     ]);
 
     const handleGenerate = useCallback(async () => {
-      const prompt = data.prompt?.trim() ?? "";
+      const prompt = promptDraft.trim();
       if (!prompt) {
         const message = t("node.jimeng.promptRequired");
         updateNodeData(id, { lastError: message });
@@ -1984,7 +1993,6 @@ export const JimengNode = memo(
     }, [
       addEdge,
       addNode,
-      data.prompt,
       findNodePosition,
       flushCurrentProjectToDiskSafely,
       hasTooManyReferenceVideos,
@@ -1993,6 +2001,7 @@ export const JimengNode = memo(
       incomingAudios,
       isGenerateBlocked,
       isFirstLastFrameCountInvalid,
+      promptDraft,
       referenceImageSources,
       referenceVideoSources,
       selectedAspectRatio,
@@ -2190,7 +2199,7 @@ export const JimengNode = memo(
     const combinedError = promptOptimizationError ?? data.lastError;
     const canUndoPromptOptimization = Boolean(
       lastPromptOptimizationUndoState &&
-      (data.prompt ?? "") === lastPromptOptimizationUndoState.appliedPrompt,
+      promptDraft === lastPromptOptimizationUndoState.appliedPrompt,
     );
     const promptOptimizationNotice = lastPromptOptimizationMeta
       ? `${t("node.jimeng.optimizeModelLabel", {
@@ -2490,7 +2499,7 @@ export const JimengNode = memo(
               >
                 <div className="min-h-full whitespace-pre-wrap break-words px-3 py-2">
                   {renderPromptWithHighlights(
-                    data.prompt ?? "",
+                    promptDraft,
                     incomingVisualItems.length,
                     incomingAudios.length,
                   )}
@@ -2504,11 +2513,11 @@ export const JimengNode = memo(
                 style={{ scrollbarGutter: "stable" }}
               >
                 <div className="min-h-full whitespace-pre-wrap break-words px-3 py-2">
-                  {renderPromptReferenceHoverTargets(
-                    data.prompt ?? "",
-                    incomingVisualItems.length,
-                    incomingAudios.length,
-                    handlePromptReferenceTokenHover,
+                    {renderPromptReferenceHoverTargets(
+                      promptDraft,
+                      incomingVisualItems.length,
+                      incomingAudios.length,
+                      handlePromptReferenceTokenHover,
                     hidePromptReferencePreview,
                     handlePromptReferenceTokenMouseDown,
                   )}
@@ -2517,7 +2526,7 @@ export const JimengNode = memo(
 
               <textarea
                 ref={promptRef}
-                value={data.prompt ?? ""}
+                value={promptDraft}
                 onChange={(event) => {
                   handlePromptChange(event.target.value);
                   syncPromptTextSelectionState(event.currentTarget);
@@ -2829,6 +2838,22 @@ export const JimengNode = memo(
                 value={selectedDuration}
                 options={durationOptions}
                 onChange={handleDurationChange}
+              />
+              <StyleTemplatePicker
+                selectedTemplateId={selectedStyleTemplateId}
+                className={`${NODE_CONTROL_CHIP_CLASS} shrink-0 !w-8 !px-0 justify-center`}
+                onTemplateChange={(templateId, prompt) => {
+                  setSelectedStyleTemplateId(templateId);
+                  setStyleTemplatePrompt(prompt);
+                  const nextPrompt = applyStyleTemplatePrompt(
+                    promptValueRef.current,
+                    styleTemplatePrompt,
+                    prompt,
+                  );
+                  updatePrompt(nextPrompt);
+                  setLastPromptOptimizationMeta(null);
+                  setLastPromptOptimizationUndoState(null);
+                }}
               />
               <UiChipButton
                 type="button"

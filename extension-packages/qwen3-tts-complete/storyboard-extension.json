@@ -10,6 +10,19 @@
     "python": "runtime/python/python.exe",
     "script": "runtime/app/storyboard_qwen_runner.py"
   },
+  "hardwareRequirements": {
+    "summary": "这是完整离线包，内置本地 Python 运行时、3 套 1.7B 语音模型和 tokenizer，首次启动、模型校验和预热都明显重于普通扩展。",
+    "recommendations": [
+      "推荐使用支持 CUDA 的 NVIDIA GPU。Qwen3-TTS 官方 README 明确推荐 FlashAttention 2 来降低 GPU 显存占用。",
+      "如果希望走官方推荐的 FlashAttention 2 路线，可参考其官方说明：CUDA 版当前主要支持 NVIDIA Ampere / Ada / Hopper；fp16 可用，bf16 也要求 Ampere / Ada / Hopper。",
+      "这个扩展会调用本地的 VoiceDesign、CustomVoice 和 Base 模型；长文本、连续生成和多次重试都会比单次试玩更吃机器。"
+    ],
+    "notes": [
+      "Qwen3-TTS 官方 README 没有给出固定“最低显存”数字，所以这里不写死具体门槛；实际是否顺畅会受显卡架构、显存、采样参数和文本长度影响。",
+      "当前扩展保留了 CPU 回退路径，但没有兼容 CUDA GPU 时，离线 1.7B 语音生成通常会明显变慢，更适合功能验证，不适合高频使用。",
+      "除了算力，也请预留足够磁盘空间和系统内存，因为完整包本身就包含本地运行时和多套模型文件。"
+    ]
+  },
   "models": [
     {
       "id": "base-12hz-1.7b",
@@ -35,6 +48,7 @@
   "features": {
     "nodes": [
       "ttsVoiceDesignNode",
+      "ttsPresetVoiceNode",
       "ttsSavedVoiceNode"
     ],
     "settingsSections": [

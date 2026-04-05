@@ -63,6 +63,17 @@ pub struct ExtensionStartupStep {
     pub duration_ms: Option<u64>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct ExtensionHardwareRequirements {
+    #[serde(default)]
+    pub summary: Option<String>,
+    #[serde(default)]
+    pub recommendations: Vec<String>,
+    #[serde(default)]
+    pub notes: Vec<String>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ExtensionPackageManifest {
@@ -80,6 +91,8 @@ pub struct ExtensionPackageManifest {
     pub entry: Option<ExtensionRuntimeEntry>,
     #[serde(default)]
     pub models: Vec<ExtensionModelAsset>,
+    #[serde(default)]
+    pub hardware_requirements: Option<ExtensionHardwareRequirements>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

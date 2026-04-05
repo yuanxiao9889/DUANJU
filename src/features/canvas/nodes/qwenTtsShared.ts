@@ -3,11 +3,13 @@ import {
   type CanvasEdge,
   type CanvasNode,
   type QwenTtsPauseConfig,
+  type TtsPresetVoiceNodeData,
   type TtsVoiceDesignNodeData,
 } from '@/features/canvas/domain/canvasNodes';
 
 export type VoiceStylePreset = TtsVoiceDesignNodeData['stylePreset'];
 export type VoiceLanguage = TtsVoiceDesignNodeData['language'];
+export type PresetVoiceSpeaker = TtsPresetVoiceNodeData['speaker'];
 
 export const DEFAULT_MAX_NEW_TOKENS = 2048;
 export const DEFAULT_TOP_P = 0.8;
@@ -52,6 +54,58 @@ export const STYLE_OPTIONS: Array<{
     labelKey: 'node.qwenTts.styles.calm',
     descriptionKey: 'node.qwenTts.styleDescriptions.calm',
     activeClassName: 'border-emerald-300/45 bg-emerald-400/12 text-emerald-100',
+  },
+];
+
+export const PRESET_VOICE_OPTIONS: Array<{
+  value: PresetVoiceSpeaker;
+  labelKey: string;
+  descriptionKey: string;
+}> = [
+  {
+    value: 'Vivian',
+    labelKey: 'node.qwenTts.presetVoice.speakers.Vivian.label',
+    descriptionKey: 'node.qwenTts.presetVoice.speakers.Vivian.description',
+  },
+  {
+    value: 'Serena',
+    labelKey: 'node.qwenTts.presetVoice.speakers.Serena.label',
+    descriptionKey: 'node.qwenTts.presetVoice.speakers.Serena.description',
+  },
+  {
+    value: 'Uncle_Fu',
+    labelKey: 'node.qwenTts.presetVoice.speakers.Uncle_Fu.label',
+    descriptionKey: 'node.qwenTts.presetVoice.speakers.Uncle_Fu.description',
+  },
+  {
+    value: 'Dylan',
+    labelKey: 'node.qwenTts.presetVoice.speakers.Dylan.label',
+    descriptionKey: 'node.qwenTts.presetVoice.speakers.Dylan.description',
+  },
+  {
+    value: 'Eric',
+    labelKey: 'node.qwenTts.presetVoice.speakers.Eric.label',
+    descriptionKey: 'node.qwenTts.presetVoice.speakers.Eric.description',
+  },
+  {
+    value: 'Ryan',
+    labelKey: 'node.qwenTts.presetVoice.speakers.Ryan.label',
+    descriptionKey: 'node.qwenTts.presetVoice.speakers.Ryan.description',
+  },
+  {
+    value: 'Aiden',
+    labelKey: 'node.qwenTts.presetVoice.speakers.Aiden.label',
+    descriptionKey: 'node.qwenTts.presetVoice.speakers.Aiden.description',
+  },
+  {
+    value: 'Ono_Anna',
+    labelKey: 'node.qwenTts.presetVoice.speakers.Ono_Anna.label',
+    descriptionKey: 'node.qwenTts.presetVoice.speakers.Ono_Anna.description',
+  },
+  {
+    value: 'Sohee',
+    labelKey: 'node.qwenTts.presetVoice.speakers.Sohee.label',
+    descriptionKey: 'node.qwenTts.presetVoice.speakers.Sohee.description',
   },
 ];
 
