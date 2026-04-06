@@ -49,7 +49,7 @@ import {
   type CanvasNodeData,
   type ScriptChapterNodeData,
   DEFAULT_NODE_WIDTH,
-  getNodePrimaryImageSource,
+  getNodePrimaryDownloadSource,
   normalizeSceneCards,
   resolveSingleImageConnectionSource,
 } from '@/features/canvas/domain/canvasNodes';
@@ -210,17 +210,18 @@ function normalizeDialogDirectoryPath(value: string | string[] | null): string |
   return null;
 }
 
-function resolveSelectedImageSuggestedFileName(node: CanvasNode, index: number): string {
-  const sourceFileName =
-    'sourceFileName' in node.data && typeof node.data.sourceFileName === 'string'
-      ? node.data.sourceFileName.trim()
-      : '';
-  if (sourceFileName) {
-    return sourceFileName;
+function resolveSelectedDownloadSuggestedFileName(
+  node: CanvasNode,
+  index: number,
+  fileName?: string | null
+): string {
+  const normalizedFileName = typeof fileName === 'string' ? fileName.trim() : '';
+  if (normalizedFileName) {
+    return normalizedFileName;
   }
 
   const displayName = resolveNodeDisplayName(node.type, node.data).trim();
-  return displayName || `image-${index + 1}`;
+  return displayName || `asset-${index + 1}`;
 }
 
 function getNodeSize(node: CanvasNode): { width: number; height: number } {
@@ -3201,15 +3202,19 @@ export function Canvas() {
   const selectedDownloadNodes = useMemo(
     () =>
       selectedNodes.flatMap((node, index) => {
-        const source = getNodePrimaryImageSource(node);
-        if (!source) {
+        const downloadSource = getNodePrimaryDownloadSource(node);
+        if (!downloadSource) {
           return [];
         }
 
         return [
           {
-            source,
-            suggestedFileName: resolveSelectedImageSuggestedFileName(node, index),
+            source: downloadSource.source,
+            suggestedFileName: resolveSelectedDownloadSuggestedFileName(
+              node,
+              index,
+              downloadSource.fileName
+            ),
           },
         ];
       }),
@@ -3227,7 +3232,7 @@ export function Canvas() {
     }
   }, [groupNodes, scheduleCanvasPersist, selectedNodeIds]);
 
-  const handleExportSelectedImages = useCallback(async () => {
+  const handleExportSelectedMedia = useCallback(async () => {
     if (selectedDownloadNodes.length < 2 || isExportingSelectedImages) {
       return;
     }
@@ -3379,7 +3384,7 @@ export function Canvas() {
           viewport={currentViewport}
           onGroup={handleGroupSelectedNodes}
           downloadableCount={selectedDownloadNodes.length}
-          onExportSelected={handleExportSelectedImages}
+          onExportSelected={handleExportSelectedMedia}
           isExportingSelected={isExportingSelectedImages}
         />
 

@@ -10,6 +10,11 @@ export interface VisualToolEditorProps extends ToolEditorBaseProps {
   sourceImageUrl: string;
 }
 
+export interface MediaTrimToolEditorProps extends ToolEditorBaseProps {
+  sourceMediaUrl: string;
+  mediaType: 'video' | 'audio';
+}
+
 export interface FormToolEditorProps extends ToolEditorBaseProps {
   fields: ToolFieldSchema[];
 }

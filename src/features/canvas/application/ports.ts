@@ -65,6 +65,13 @@ export interface ImageSplitGateway {
 
 export interface ToolProcessorResult {
   outputImageUrl?: string;
+  outputVideoUrl?: string;
+  outputAudioUrl?: string;
+  previewImageUrl?: string | null;
+  aspectRatio?: string;
+  duration?: number;
+  mimeType?: string | null;
+  outputFileName?: string | null;
   storyboardFrames?: StoryboardFrameItem[];
   rows?: number;
   cols?: number;

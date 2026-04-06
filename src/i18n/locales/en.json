@@ -130,9 +130,9 @@
     "groupSelected": "Group {{count}} nodes"
   },
   "selection": {
-    "exportSelected": "Export {{count}} images",
+    "exportSelected": "Export {{count}} files",
     "exportFolderPickerTitle": "Choose export location",
-    "exportFailed": "Failed to export selected images"
+    "exportFailed": "Failed to export selected files"
   },
   "tool": {
     "crop": "Crop",
@@ -141,12 +141,27 @@
   },
   "toolDialog": {
     "suffix": " Tool",
-    "noProcessableImage": "No processable image for current node",
+    "noProcessableImage": "No processable content for current node",
     "processFailed": "Processing failed",
     "processing": "Processing...",
     "apply": "Apply",
     "cropResultTitle": "Crop Result",
-    "annotateResultTitle": "Annotation Result"
+    "annotateResultTitle": "Annotation Result",
+    "trimResultTitle": "Trim Result",
+    "mediaTrim": {
+      "preview": "Media Preview",
+      "currentTime": "Current Time",
+      "rangeLabel": "Trim Range",
+      "totalDuration": "Source Duration",
+      "outputDuration": "Output Duration",
+      "startTime": "Start Time",
+      "endTime": "End Time",
+      "useCurrentAsStart": "Use as Start",
+      "useCurrentAsEnd": "Use as End",
+      "quickSeek": "Quick Seek",
+      "previewStart": "Preview Start",
+      "previewEnd": "Preview End"
+    }
   },
   "nodeToolbar": {
     "reupload": "Reupload",

@@ -129,9 +129,9 @@
     "groupSelected": "编组 {{count}} 个节点"
   },
   "selection": {
-    "exportSelected": "导出 {{count}} 张图",
+    "exportSelected": "导出 {{count}} 个文件",
     "exportFolderPickerTitle": "选择批量导出位置",
-    "exportFailed": "批量导出图片失败，请重试"
+    "exportFailed": "批量导出文件失败，请重试"
   },
   "tool": {
     "crop": "裁剪",
@@ -140,12 +140,27 @@
   },
   "toolDialog": {
     "suffix": "工具",
-    "noProcessableImage": "当前节点没有可处理的图片",
+    "noProcessableImage": "当前节点没有可处理的内容",
     "processFailed": "处理失败",
     "processing": "处理中...",
     "apply": "应用",
     "cropResultTitle": "裁剪结果",
-    "annotateResultTitle": "标注结果"
+    "annotateResultTitle": "标注结果",
+    "trimResultTitle": "截取结果",
+    "mediaTrim": {
+      "preview": "媒体预览",
+      "currentTime": "当前位置",
+      "rangeLabel": "裁剪范围",
+      "totalDuration": "原始时长",
+      "outputDuration": "输出时长",
+      "startTime": "开始时间",
+      "endTime": "结束时间",
+      "useCurrentAsStart": "设为开始",
+      "useCurrentAsEnd": "设为结束",
+      "quickSeek": "快速定位",
+      "previewStart": "预览开始",
+      "previewEnd": "预览结束"
+    }
   },
   "nodeToolbar": {
     "reupload": "重新上传",

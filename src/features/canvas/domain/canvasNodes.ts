@@ -1281,6 +1281,58 @@ export function getNodePrimaryImageSource(
   return null;
 }
 
+export interface NodePrimaryDownloadSource {
+  source: string;
+  mediaType: 'image' | 'video' | 'audio';
+  fileName?: string | null;
+}
+
+export function getNodePrimaryDownloadSource(
+  node: CanvasNode | null | undefined
+): NodePrimaryDownloadSource | null {
+  const imageSource = getNodePrimaryImageSource(node);
+  if (imageSource) {
+    const fileName =
+      node && 'sourceFileName' in node.data && typeof node.data.sourceFileName === 'string'
+        ? node.data.sourceFileName
+        : null;
+
+    return {
+      source: imageSource,
+      mediaType: 'image',
+      fileName,
+    };
+  }
+
+  if (isVideoNode(node) || isJimengVideoResultNode(node) || isSeedanceVideoResultNode(node)) {
+    const source = typeof node.data.videoUrl === 'string' ? node.data.videoUrl.trim() : '';
+    if (!source) {
+      return null;
+    }
+
+    return {
+      source,
+      mediaType: 'video',
+      fileName: typeof node.data.videoFileName === 'string' ? node.data.videoFileName : null,
+    };
+  }
+
+  if (isAudioNode(node)) {
+    const source = typeof node.data.audioUrl === 'string' ? node.data.audioUrl.trim() : '';
+    if (!source) {
+      return null;
+    }
+
+    return {
+      source,
+      mediaType: 'audio',
+      fileName: typeof node.data.audioFileName === 'string' ? node.data.audioFileName : null,
+    };
+  }
+
+  return null;
+}
+
 export function nodeHasImage(node: CanvasNode | null | undefined): boolean {
   if (getNodePrimaryImageSource(node)) {
     return true;
