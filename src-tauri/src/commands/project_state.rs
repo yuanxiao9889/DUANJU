@@ -100,6 +100,7 @@ fn ensure_projects_table(conn: &Connection) -> Result<(), String> {
           preview_path TEXT,
           mime_type TEXT,
           duration_ms INTEGER,
+          metadata_json TEXT NOT NULL DEFAULT '{}',
           image_path TEXT NOT NULL DEFAULT '',
           preview_image_path TEXT NOT NULL DEFAULT '',
           aspect_ratio TEXT NOT NULL DEFAULT '1:1',
@@ -176,6 +177,7 @@ fn ensure_projects_table(conn: &Connection) -> Result<(), String> {
     let mut has_asset_preview_path = false;
     let mut has_asset_mime_type = false;
     let mut has_asset_duration_ms = false;
+    let mut has_asset_metadata_json = false;
     let mut asset_stmt = conn
         .prepare("PRAGMA table_info(asset_items)")
         .map_err(|e| format!("Failed to inspect asset_items schema: {}", e))?;
@@ -200,6 +202,9 @@ fn ensure_projects_table(conn: &Connection) -> Result<(), String> {
         }
         if column_name == "duration_ms" {
             has_asset_duration_ms = true;
+        }
+        if column_name == "metadata_json" {
+            has_asset_metadata_json = true;
         }
     }
 
@@ -232,6 +237,14 @@ fn ensure_projects_table(conn: &Connection) -> Result<(), String> {
     if !has_asset_duration_ms {
         conn.execute("ALTER TABLE asset_items ADD COLUMN duration_ms INTEGER", [])
             .map_err(|e| format!("Failed to add asset_items.duration_ms column: {}", e))?;
+    }
+
+    if !has_asset_metadata_json {
+        conn.execute(
+            "ALTER TABLE asset_items ADD COLUMN metadata_json TEXT NOT NULL DEFAULT '{}'",
+            [],
+        )
+        .map_err(|e| format!("Failed to add asset_items.metadata_json column: {}", e))?;
     }
 
     conn.execute(
@@ -290,6 +303,16 @@ fn ensure_projects_table(conn: &Connection) -> Result<(), String> {
         [],
     )
     .map_err(|e| format!("Failed to backfill asset_items.preview_image_path: {}", e))?;
+
+    conn.execute(
+        r#"
+        UPDATE asset_items
+        SET metadata_json = '{}'
+        WHERE TRIM(COALESCE(metadata_json, '')) = ''
+        "#,
+        [],
+    )
+    .map_err(|e| format!("Failed to backfill asset_items.metadata_json: {}", e))?;
 
     Ok(())
 }

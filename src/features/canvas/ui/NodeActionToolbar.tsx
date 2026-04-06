@@ -1,6 +1,6 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { NodeToolbar as ReactFlowNodeToolbar } from '@xyflow/react';
-import { Copy, Crop, Download, FolderOpen, PenLine, RefreshCw, Scissors, Trash2, Unlink2, Table, Upload, Sparkles, Send, Check, LayoutTemplate } from 'lucide-react';
+import { Copy, Crop, Download, FolderOpen, PenLine, RefreshCw, Save, Scissors, Trash2, Unlink2, Table, Upload, Sparkles, Send, Check, LayoutTemplate } from 'lucide-react';
 import { save } from '@tauri-apps/plugin-dialog';
 import { useTranslation } from 'react-i18next';
 
@@ -32,6 +32,7 @@ import { usePsIntegrationStore } from '@/stores/psIntegrationStore';
 import { UI_POPOVER_TRANSITION_MS } from '@/components/ui/motion';
 import { sanitizeStoryboardText } from '@/features/canvas/application/storyboardText';
 import { buildGenerationErrorReport } from '@/features/canvas/application/generationErrorReport';
+import { resolveConnectedTtsText } from '@/features/canvas/nodes/qwenTtsShared';
 import {
   NODE_TOOLBAR_ALIGN,
   NODE_TOOLBAR_CLASS,
@@ -83,6 +84,8 @@ export const NodeActionToolbar = memo(({ node }: NodeActionToolbarProps) => {
   const layoutGroupNode = useCanvasStore((state) => state.layoutGroupNode);
   const ungroupNode = useCanvasStore((state) => state.ungroupNode);
   const updateNodeData = useCanvasStore((state) => state.updateNodeData);
+  const nodes = useCanvasStore((state) => state.nodes);
+  const edges = useCanvasStore((state) => state.edges);
   const canReupload = isUploadNode(node) && Boolean(node.data.imageUrl);
   const downloadPresetPaths = useSettingsStore((state) => state.downloadPresetPaths);
   const ignoreAtTagWhenCopyingAndGenerating = useSettingsStore(
@@ -111,6 +114,27 @@ export const NodeActionToolbar = memo(({ node }: NodeActionToolbarProps) => {
     }
     return null;
   }, [node]);
+  const canSaveVoicePreset = useMemo(() => {
+    if (!isAudioNode(node)) {
+      return false;
+    }
+
+    const audioUrl = typeof node.data.audioUrl === 'string' ? node.data.audioUrl.trim() : '';
+    if (node.data.generationSource !== 'ttsVoiceDesign' || audioUrl.length === 0) {
+      return false;
+    }
+
+    const storedReferenceText =
+      typeof node.data.ttsPresetSource?.referenceText === 'string'
+        ? node.data.ttsPresetSource.referenceText.trim()
+        : '';
+    if (storedReferenceText.length > 0) {
+      return true;
+    }
+
+    const sourceNodeId = typeof node.data.sourceNodeId === 'string' ? node.data.sourceNodeId.trim() : '';
+    return sourceNodeId.length > 0 && resolveConnectedTtsText(sourceNodeId, nodes, edges).trim().length > 0;
+  }, [edges, node, nodes]);
   const canHandleImage = Boolean(imageSource);
   const canAddToAssets = Boolean(imageSource || audioSource);
   const generationError =
@@ -420,6 +444,21 @@ export const NodeActionToolbar = memo(({ node }: NodeActionToolbarProps) => {
           >
             <RefreshCw className="h-3.5 w-3.5" />
             {t('nodeToolbar.reupload')}
+          </UiChipButton>
+        )}
+        {!isImageEdit && canSaveVoicePreset && (
+          <UiChipButton
+            key="audio-save-preset"
+            className={`h-8 ${TOOLBAR_BUTTON_RADIUS_CLASS} px-2.5 text-xs ${TOOLBAR_NEUTRAL_BUTTON_CLASS}`}
+            onClick={(event) => {
+              event.stopPropagation();
+              canvasEventBus.publish('audio-node/open-save-preset', {
+                nodeId: node.id,
+              });
+            }}
+          >
+            <Save className="h-3.5 w-3.5" />
+            {t('node.audioNode.saveAsPreset')}
           </UiChipButton>
         )}
         {!isImageEdit && canAddToAssets && (

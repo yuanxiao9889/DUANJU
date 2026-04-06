@@ -71,7 +71,6 @@ from qwen_tts import Qwen3TTSModel, VoiceClonePromptItem  # noqa: E402
 MODEL_PATHS = {
     "base": MODELS_DIR / "Qwen3-TTS-12Hz-1.7B-Base",
     "voice_design": MODELS_DIR / "Qwen3-TTS-12Hz-1.7B-VoiceDesign",
-    "custom_voice": MODELS_DIR / "Qwen3-TTS-12Hz-1.7B-CustomVoice",
     "tokenizer": MODELS_DIR / "Qwen3-TTS-Tokenizer-12Hz",
 }
 
@@ -148,7 +147,6 @@ def ensure_required_paths() -> Dict[str, bool]:
         "qwen_tts": QWEN_PACKAGE_DIR.exists(),
         "base": MODEL_PATHS["base"].exists(),
         "voiceDesign": MODEL_PATHS["voice_design"].exists(),
-        "customVoice": MODEL_PATHS["custom_voice"].exists(),
         "tokenizer": MODEL_PATHS["tokenizer"].exists(),
         "sox": SOX_DIR.exists(),
     }
@@ -448,18 +446,41 @@ def generate_segmented_voice_clone(
     return [np.concatenate(results)], sample_rate
 
 
-def save_wavs(prefix: str, wavs: List[Any], sample_rate: int) -> List[Dict[str, Any]]:
+def resolve_output_format(value: Any) -> str:
+    normalized = str(value or "wav").strip().lower()
+    return normalized if normalized in {"wav", "mp3"} else "wav"
+
+
+def save_audio_outputs(
+    prefix: str,
+    wavs: List[Any],
+    sample_rate: int,
+    output_format: str = "wav",
+) -> List[Dict[str, Any]]:
+    normalized_output_format = resolve_output_format(output_format)
     saved_files: List[Dict[str, Any]] = []
     for index, wav in enumerate(wavs):
         suffix = f"{prefix}-{index + 1}" if len(wavs) > 1 else prefix
-        output_path = next_output_path(suffix, "wav")
-        sf.write(str(output_path), wav, sample_rate)
+        output_path = next_output_path(suffix, normalized_output_format)
+        if normalized_output_format == "mp3":
+            sf.write(
+                str(output_path),
+                wav,
+                sample_rate,
+                format="MP3",
+                subtype="MPEG_LAYER_III",
+            )
+            mime_type = "audio/mpeg"
+        else:
+            sf.write(str(output_path), wav, sample_rate)
+            mime_type = "audio/wav"
         duration = float(len(wav) / sample_rate) if sample_rate > 0 else 0.0
         saved_files.append(
             {
                 "path": str(output_path),
                 "name": output_path.name,
                 "duration": duration,
+                "mimeType": mime_type,
             }
         )
     return saved_files
@@ -487,11 +508,6 @@ def command_list_models() -> Dict[str, Any]:
                 "id": "voice_design",
                 "path": str(MODEL_PATHS["voice_design"]),
                 "exists": MODEL_PATHS["voice_design"].exists(),
-            },
-            {
-                "id": "custom_voice",
-                "path": str(MODEL_PATHS["custom_voice"]),
-                "exists": MODEL_PATHS["custom_voice"].exists(),
             },
             {
                 "id": "base",
@@ -579,37 +595,15 @@ def command_generate_voice_design(payload: Dict[str, Any]) -> Dict[str, Any]:
         generation_kwargs=collect_generation_kwargs(payload),
         pause_config=build_pause_config(payload),
     )
-    files = save_wavs(payload.get("outputPrefix") or "voice-design", wavs, sample_rate)
+    files = save_audio_outputs(
+        payload.get("outputPrefix") or "voice-design",
+        wavs,
+        sample_rate,
+        payload.get("outputFormat") or "wav",
+    )
     return {
         "ok": True,
         "command": "generate_voice_design",
-        "files": [item["path"] for item in files],
-        "outputs": files,
-        "sampleRate": sample_rate,
-    }
-
-
-def command_generate_custom_voice(payload: Dict[str, Any]) -> Dict[str, Any]:
-    text = (payload.get("text") or "").strip()
-    speaker = (payload.get("speaker") or "").strip()
-    if not text:
-        raise ValueError("text is required")
-    if not speaker:
-        raise ValueError("speaker is required")
-
-    device = resolve_device(payload.get("device"))
-    model = get_model("custom_voice", device, payload.get("dtype"))
-    wavs, sample_rate = model.generate_custom_voice(
-        text=text,
-        language=resolve_language(payload.get("language")),
-        speaker=speaker,
-        instruct=(payload.get("instruct") or "").strip() or None,
-        **collect_generation_kwargs(payload),
-    )
-    files = save_wavs(payload.get("outputPrefix") or "custom-voice", wavs, sample_rate)
-    return {
-        "ok": True,
-        "command": "generate_custom_voice",
         "files": [item["path"] for item in files],
         "outputs": files,
         "sampleRate": sample_rate,
@@ -691,7 +685,12 @@ def command_generate_voice_clone(payload: Dict[str, Any]) -> Dict[str, Any]:
         generation_kwargs=generate_kwargs,
         pause_config=build_pause_config(payload),
     )
-    files = save_wavs(payload.get("outputPrefix") or "voice-clone", wavs, sample_rate)
+    files = save_audio_outputs(
+        payload.get("outputPrefix") or "voice-clone",
+        wavs,
+        sample_rate,
+        payload.get("outputFormat") or "wav",
+    )
     return {
         "ok": True,
         "command": "generate_voice_clone",
@@ -716,8 +715,6 @@ def dispatch(payload: Dict[str, Any]) -> Dict[str, Any]:
         return command_shutdown()
     if command == "generate_voice_design":
         return command_generate_voice_design(payload)
-    if command == "generate_custom_voice":
-        return command_generate_custom_voice(payload)
     if command == "create_voice_clone_prompt":
         return command_create_voice_clone_prompt(payload)
     if command == "generate_voice_clone":

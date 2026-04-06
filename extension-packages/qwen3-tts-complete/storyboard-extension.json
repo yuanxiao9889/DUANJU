@@ -11,11 +11,11 @@
     "script": "runtime/app/storyboard_qwen_runner.py"
   },
   "hardwareRequirements": {
-    "summary": "这是完整离线包，内置本地 Python 运行时、3 套 1.7B 语音模型和 tokenizer，首次启动、模型校验和预热都明显重于普通扩展。",
+    "summary": "这是完整离线包，内置本地 Python 运行时、2 套 1.7B 语音模型和 tokenizer，首次启动、模型校验和预热都明显重于普通扩展。",
     "recommendations": [
       "推荐使用支持 CUDA 的 NVIDIA GPU。Qwen3-TTS 官方 README 明确推荐 FlashAttention 2 来降低 GPU 显存占用。",
       "如果希望走官方推荐的 FlashAttention 2 路线，可参考其官方说明：CUDA 版当前主要支持 NVIDIA Ampere / Ada / Hopper；fp16 可用，bf16 也要求 Ampere / Ada / Hopper。",
-      "这个扩展会调用本地的 VoiceDesign、CustomVoice 和 Base 模型；长文本、连续生成和多次重试都会比单次试玩更吃机器。"
+      "这个扩展会调用本地的 VoiceDesign 和 Base 模型；长文本、连续生成和多次重试都会比单次试玩更吃机器。"
     ],
     "notes": [
       "Qwen3-TTS 官方 README 没有给出固定“最低显存”数字，所以这里不写死具体门槛；实际是否顺畅会受显卡架构、显存、采样参数和文本长度影响。",
@@ -35,11 +35,6 @@
       "role": "voiceDesign"
     },
     {
-      "id": "custom-voice-12hz-1.7b",
-      "path": "runtime/models/Qwen3-TTS-12Hz-1.7B-CustomVoice",
-      "role": "customVoice"
-    },
-    {
       "id": "tokenizer-12hz",
       "path": "runtime/models/Qwen3-TTS-Tokenizer-12Hz",
       "role": "tokenizer"
@@ -48,7 +43,6 @@
   "features": {
     "nodes": [
       "ttsVoiceDesignNode",
-      "ttsPresetVoiceNode",
       "ttsSavedVoiceNode"
     ],
     "settingsSections": [
@@ -74,7 +68,7 @@
     {
       "id": "verify-models",
       "label": "Verify models",
-      "description": "Check the Base, VoiceDesign, CustomVoice, and tokenizer directories.",
+      "description": "Check the Base, VoiceDesign, and tokenizer directories.",
       "durationMs": 460
     },
     {

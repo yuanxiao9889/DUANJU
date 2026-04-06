@@ -9,7 +9,6 @@ It already includes:
 - `runtime/app/storyboard_qwen_runner.py`
 - `runtime/models/Qwen3-TTS-12Hz-1.7B-Base`
 - `runtime/models/Qwen3-TTS-12Hz-1.7B-VoiceDesign`
-- `runtime/models/Qwen3-TTS-12Hz-1.7B-CustomVoice`
 - `runtime/models/Qwen3-TTS-Tokenizer-12Hz`
 
 ## Direct use
@@ -22,7 +21,6 @@ After the extension is enabled, the current app build unlocks:
 
 - `ttsTextNode`
 - `ttsVoiceDesignNode`
-- `ttsPresetVoiceNode`
 - `ttsSavedVoiceNode`
 
 ## Notes

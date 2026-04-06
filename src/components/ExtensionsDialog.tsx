@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { open } from '@tauri-apps/plugin-dialog';
 import { openPath, revealItemInDir } from '@tauri-apps/plugin-opener';
 import {
@@ -39,7 +39,6 @@ function normalizeDialogDirectoryPath(value: string | string[] | null): string |
 const NODE_FEATURE_LABEL_KEYS: Record<string, string> = {
   ttsTextNode: 'node.menu.textAnnotation',
   ttsVoiceDesignNode: 'node.menu.ttsVoiceDesign',
-  ttsPresetVoiceNode: 'node.menu.ttsPresetVoice',
   ttsSavedVoiceNode: 'node.menu.ttsSavedVoice',
 };
 
@@ -63,6 +62,7 @@ export function ExtensionsDialog({ isOpen, onClose }: ExtensionsDialogProps) {
   const [isLoadingPackage, setIsLoadingPackage] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [collapsedPackageIds, setCollapsedPackageIds] = useState<Record<string, boolean>>({});
+  const lastOpenedFolderSignatureRef = useRef<string | null>(null);
 
   const sortedPackages = useMemo(
     () =>
@@ -70,6 +70,14 @@ export function ExtensionsDialog({ isOpen, onClose }: ExtensionsDialogProps) {
         (left, right) => right.loadedAt - left.loadedAt
       ),
     [extensionPackages]
+  );
+  const packageFolderPaths = useMemo(
+    () => Object.values(extensionPackages).map((extensionPackage) => extensionPackage.folderPath).sort(),
+    [extensionPackages]
+  );
+  const packageFolderSignature = useMemo(
+    () => packageFolderPaths.join('\n'),
+    [packageFolderPaths]
   );
   const summary = useMemo(() => ({
     loadedPackageCount: sortedPackages.length,
@@ -111,6 +119,45 @@ export function ExtensionsDialog({ isOpen, onClose }: ExtensionsDialogProps) {
       return hasChanged ? nextState : previous;
     });
   }, [sortedPackages]);
+
+  useEffect(() => {
+    if (!isOpen) {
+      lastOpenedFolderSignatureRef.current = null;
+      return;
+    }
+
+    if (packageFolderPaths.length === 0) {
+      return;
+    }
+
+    if (lastOpenedFolderSignatureRef.current === packageFolderSignature) {
+      return;
+    }
+    lastOpenedFolderSignatureRef.current = packageFolderSignature;
+
+    let cancelled = false;
+
+    void Promise.all(
+      packageFolderPaths.map(async (folderPath) => {
+        try {
+          await loadExtensionPackage(folderPath);
+        } catch (error) {
+          if (cancelled) {
+            return;
+          }
+
+          console.warn(
+            `failed to refresh extension package while opening Extensions Center: ${folderPath}`,
+            error
+          );
+        }
+      })
+    );
+
+    return () => {
+      cancelled = true;
+    };
+  }, [isOpen, loadExtensionPackage, packageFolderPaths, packageFolderSignature]);
 
   const handleLoadFolder = async () => {
     setLoadError(null);

@@ -19,7 +19,6 @@ export const CANVAS_NODE_TYPES = {
   audio: 'audioNode',
   ttsText: 'ttsTextNode',
   ttsVoiceDesign: 'ttsVoiceDesignNode',
-  ttsPresetVoice: 'ttsPresetVoiceNode',
   ttsSavedVoice: 'ttsSavedVoiceNode',
   scriptRoot: 'scriptRootNode',
   scriptChapter: 'scriptChapterNode',
@@ -59,12 +58,10 @@ export const SEEDANCE_VIDEO_RESULT_NODE_MIN_WIDTH = 360;
 export const SEEDANCE_VIDEO_RESULT_NODE_MIN_HEIGHT = 280;
 export const AUDIO_NODE_DEFAULT_WIDTH = 320;
 export const AUDIO_NODE_DEFAULT_HEIGHT = 96;
-export const TTS_TEXT_NODE_DEFAULT_WIDTH = 320;
-export const TTS_TEXT_NODE_DEFAULT_HEIGHT = 180;
+export const TTS_TEXT_NODE_DEFAULT_WIDTH = 420;
+export const TTS_TEXT_NODE_DEFAULT_HEIGHT = 240;
 export const TTS_VOICE_DESIGN_NODE_DEFAULT_WIDTH = 440;
 export const TTS_VOICE_DESIGN_NODE_DEFAULT_HEIGHT = 300;
-export const TTS_PRESET_VOICE_NODE_DEFAULT_WIDTH = 440;
-export const TTS_PRESET_VOICE_NODE_DEFAULT_HEIGHT = 300;
 export const TTS_SAVED_VOICE_NODE_DEFAULT_WIDTH = 440;
 export const TTS_SAVED_VOICE_NODE_DEFAULT_HEIGHT = 320;
 
@@ -212,7 +209,7 @@ export interface AudioNodeData extends NodeDisplayData {
   audioFileName?: string | null;
   duration?: number;
   mimeType?: string | null;
-  generationSource?: 'ttsVoiceDesign' | 'ttsPresetVoice' | 'ttsSavedVoice' | null;
+  generationSource?: 'ttsVoiceDesign' | 'ttsSavedVoice' | null;
   sourceNodeId?: string | null;
   isGenerating?: boolean;
   generationProgress?: number;
@@ -224,6 +221,14 @@ export interface AudioNodeData extends NodeDisplayData {
   assetLibraryId?: string | null;
   assetName?: string | null;
   assetCategory?: string | null;
+  ttsPresetSource?: {
+    referenceText?: string | null;
+    voicePrompt?: string | null;
+    stylePreset?: TtsVoiceDesignStylePreset | null;
+    language?: TtsVoiceLanguage | null;
+    speakingRate?: number | null;
+    pitch?: number | null;
+  } | null;
   [key: string]: unknown;
 }
 
@@ -233,17 +238,7 @@ export interface TtsTextNodeData extends NodeDisplayData {
 }
 
 export type TtsVoiceDesignStylePreset = 'natural' | 'narrator' | 'bright' | 'calm';
-
-export type TtsPresetVoiceSpeaker =
-  | 'Vivian'
-  | 'Serena'
-  | 'Uncle_Fu'
-  | 'Dylan'
-  | 'Eric'
-  | 'Ryan'
-  | 'Aiden'
-  | 'Ono_Anna'
-  | 'Sohee';
+export type QwenTtsOutputFormat = 'wav' | 'mp3';
 
 export type TtsVoiceLanguage =
   | 'auto'
@@ -270,6 +265,7 @@ export interface TtsVoiceDesignNodeData extends NodeDisplayData, QwenTtsPauseCon
   voicePrompt: string;
   stylePreset: TtsVoiceDesignStylePreset;
   language: TtsVoiceLanguage;
+  outputFormat?: QwenTtsOutputFormat;
   speakingRate: number;
   pitch: number;
   maxNewTokens?: number;
@@ -285,29 +281,14 @@ export interface TtsVoiceDesignNodeData extends NodeDisplayData, QwenTtsPauseCon
   [key: string]: unknown;
 }
 
-export interface TtsPresetVoiceNodeData extends NodeDisplayData {
-  speaker: TtsPresetVoiceSpeaker;
-  language: TtsVoiceLanguage;
-  instruct: string;
-  maxNewTokens?: number;
-  topP?: number;
-  topK?: number;
-  temperature?: number;
-  repetitionPenalty?: number;
-  isGenerating?: boolean;
-  generationProgress?: number;
-  statusText?: string | null;
-  lastError?: string | null;
-  lastGeneratedAt?: number | null;
-  [key: string]: unknown;
-}
-
 export interface TtsSavedVoiceNodeData extends NodeDisplayData, QwenTtsPauseConfig {
+  presetAssetId?: string | null;
   voiceName: string;
   referenceTranscript: string;
   promptFile?: string | null;
   promptLabel?: string | null;
   language: TtsVoiceLanguage;
+  outputFormat?: QwenTtsOutputFormat;
   maxNewTokens?: number;
   topP?: number;
   topK?: number;
@@ -752,7 +733,6 @@ export type CanvasNodeData =
   | AudioNodeData
   | TtsTextNodeData
   | TtsVoiceDesignNodeData
-  | TtsPresetVoiceNodeData
   | TtsSavedVoiceNodeData
   | ScriptRootNodeData
   | ScriptChapterNodeData
@@ -1121,12 +1101,6 @@ export function isTtsVoiceDesignNode(
   node: CanvasNode | null | undefined
 ): node is Node<TtsVoiceDesignNodeData, typeof CANVAS_NODE_TYPES.ttsVoiceDesign> {
   return node?.type === CANVAS_NODE_TYPES.ttsVoiceDesign;
-}
-
-export function isTtsPresetVoiceNode(
-  node: CanvasNode | null | undefined
-): node is Node<TtsPresetVoiceNodeData, typeof CANVAS_NODE_TYPES.ttsPresetVoice> {
-  return node?.type === CANVAS_NODE_TYPES.ttsPresetVoice;
 }
 
 export function isTtsSavedVoiceNode(

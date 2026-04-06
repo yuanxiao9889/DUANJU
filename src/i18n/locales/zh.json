@@ -6,6 +6,7 @@
   "common": {
     "back": "返回",
     "save": "保存",
+    "saving": "保存中...",
     "cancel": "取消",
     "confirm": "确认",
     "delete": "删除",
@@ -198,7 +199,6 @@
       "textAnnotation": "文本",
       "ttsText": "文本",
       "ttsVoiceDesign": "声音设计",
-      "ttsPresetVoice": "预设音色",
       "ttsSavedVoice": "克隆声音",
       "videoNode": "视频节点",
       "audioNode": "音频节点",
@@ -496,6 +496,12 @@
         "topK": "限制每步采样候选数量，越低越保守。",
         "repetitionPenalty": "提高后可减少重复，但过高可能让语气变硬。"
       },
+      "outputFormat": "输出格式",
+      "outputFormatHint": "当前扩展支持直接导出 WAV 和 MP3。WAV 更适合后续编辑，MP3 更省空间。",
+      "outputFormats": {
+        "wav": "WAV",
+        "mp3": "MP3"
+      },
       "pauseControls": {
         "linebreak": "换行停顿",
         "period": "句号停顿",
@@ -510,61 +516,26 @@
         "question": "问号和中文问号后的停顿时长。",
         "hyphen": "短横线或破折号后的停顿时长。"
       },
-      "presetVoice": {
-        "modelBadge": "Qwen3 TTS 1.7B CustomVoice",
-        "libraryTitle": "预设音色",
-        "speaker": "音色",
-        "speakerHint": "使用 Qwen3 CustomVoice 的官方预设说话人，适合快速试音和批量复用。",
-        "currentVoice": "当前音色",
-        "instruction": "附加指令",
-        "instructionPlaceholder": "例如：更像广告旁白，语气更自信，句尾更干净利落",
-        "instructionHint": "可选。用于微调情绪、语气和说话方式，但不会覆盖预设音色本身。",
-        "speakers": {
-          "Vivian": {
-            "label": "Vivian",
-            "description": "明亮、略带棱角的年轻女声，适合中文场景。"
-          },
-          "Serena": {
-            "label": "Serena",
-            "description": "温暖柔和的年轻女声，适合细腻或治愈向表达。"
-          },
-          "Uncle_Fu": {
-            "label": "Uncle_Fu",
-            "description": "成熟低沉、温润稳定的男声，适合长旁白或叙述。"
-          },
-          "Dylan": {
-            "label": "Dylan",
-            "description": "自然清晰的北京青年男声，带一点口语感和生活气。"
-          },
-          "Eric": {
-            "label": "Eric",
-            "description": "活泼的成都青年男声，略带沙哑和明亮感。"
-          },
-          "Ryan": {
-            "label": "Ryan",
-            "description": "节奏推进感很强的英文男声，适合更有动势的英文台词。"
-          },
-          "Aiden": {
-            "label": "Aiden",
-            "description": "阳光清晰的美式英文男声，中频扎实，听感干净。"
-          },
-          "Ono_Anna": {
-            "label": "Ono_Anna",
-            "description": "轻巧灵动的日语年轻女声，适合更活泼的日语表达。"
-          },
-          "Sohee": {
-            "label": "Sohee",
-            "description": "温暖且情感丰富的韩语女声，适合更有情绪起伏的台词。"
-          }
-        }
-      },
       "savedVoice": {
         "modelBadge": "Qwen3 TTS 1.7B Voice Clone",
         "defaultVoiceName": "我的音色",
         "referenceTitle": "参考音色",
         "referenceDescription": "连接一个参考音频节点，填写对应文本，然后把音色特征保存成可复用 bundle。",
+        "presetTitle": "预设音色",
+        "presetSelectLabel": "预设列表",
+        "presetOptionalLabel": "预设音色（可选）",
+        "selectPresetPlaceholder": "选择一个预设音色",
+        "selectedPreset": "当前预设",
+        "noPresetSelectedShort": "未选择",
+        "selectPresetHint": "从下拉框选择一个已保存预设",
+        "presetOverridesManualHint": "选择预设后会自动断开手工参考音频连线，并改用预设里的音频和参考文本。",
+        "noPresetAssets": "还没有可复用的音色预设。先在声音设计里生成音频，再到音频节点里存储为预设。",
+        "presetCount": "预设数量",
+        "presetCountHint": "资产库内可复用的音色预设",
         "referenceAudio": "参考音频",
         "referenceAudioHint": "把一个音频节点连到这个节点左侧，作为声音样本。",
+        "referenceSourceManual": "手工参考",
+        "referenceSourcePreset": "预设参考",
         "referenceReady": "已连接",
         "referenceMissing": "未连接",
         "referenceCount": "{{count}} 条参考音频",
@@ -572,6 +543,8 @@
         "referenceTranscript": "参考文本",
         "referenceTranscriptPlaceholder": "输入参考音频里真实说出的内容，越准确越稳定。",
         "voiceName": "音色名称",
+        "previewPreset": "试听预设",
+        "stopPreview": "停止试听",
         "voiceBundle": "音色 bundle",
         "bundlePending": "尚未保存",
         "bundleReady": "已保存",
@@ -590,6 +563,8 @@
         "promptReady": "音色 bundle 已保存",
         "statusExtracting": "正在提取并保存音色特征...",
         "extractFailed": "保存音色失败",
+        "bundlePendingHint": "首次使用时会自动提取并缓存音色特征，后续复用会更快。",
+        "noPresetSelected": "请先选择一个预设音色",
         "noReferenceAudio": "请先连接一个参考音频节点",
         "noReferenceTranscript": "请先填写参考音频文本"
       },
@@ -654,7 +629,17 @@
       "supportedFormats": "支持格式：MP3、WAV、OGG、M4A、AAC、FLAC、WebM",
       "play": "播放",
       "pause": "暂停",
-      "playFailed": "音频播放失败"
+      "playFailed": "音频播放失败",
+      "saveAsPreset": "存储为预设",
+      "savePresetHintTitle": "保存为可复用音色",
+      "savePresetHint": "会把这条音频和对应参考文本一起保存进资产库，后续可在克隆声音节点里直接选择复用。",
+      "savePresetDescriptionPlaceholder": "例如：适合温柔旁白、节奏舒缓、少女感明显",
+      "savePresetSelectLibrary": "选择一个资产库",
+      "savePresetMissingAudio": "当前音频还没准备好，暂时无法保存为预设。",
+      "savePresetMissingReferenceText": "缺少参考文本，暂时无法保存为预设。",
+      "savePresetNoLibrary": "还没有可用资产库，请先到资产管理里创建一个。",
+      "savePresetTitleRequired": "请先填写预设标题。",
+      "savePresetFailed": "保存预设失败，请稍后再试。"
     },
     "jimengImage": {
       "promptLabel": "提示词",

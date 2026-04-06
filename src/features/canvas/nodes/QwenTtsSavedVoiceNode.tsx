@@ -1,9 +1,11 @@
-import { memo, useCallback, useEffect, useMemo, useState, type ChangeEvent, type ReactNode } from 'react';
+import { memo, useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent, type ReactNode } from 'react';
 import { Handle, Position, useUpdateNodeInternals, type NodeProps } from '@xyflow/react';
 import {
   Languages,
   LibraryBig,
   Loader2,
+  Pause,
+  Play,
   Save,
   SlidersHorizontal,
   Sparkles,
@@ -13,7 +15,11 @@ import {
 import { useTranslation } from 'react-i18next';
 
 import { UiButton, UiModal, UiSelect } from '@/components/ui';
-import { formatAudioDuration } from '@/features/canvas/application/audioData';
+import {
+  isReusableVoicePresetAsset,
+  resolveVoicePresetAssetMetadata,
+} from '@/features/assets/domain/types';
+import { formatAudioDuration, resolveAudioDisplayUrl } from '@/features/canvas/application/audioData';
 import { resolveErrorContent } from '@/features/canvas/application/errorDialog';
 import { enqueueQwenTtsAudioGeneration } from '@/features/canvas/application/qwenTtsAudioQueue';
 import {
@@ -23,8 +29,6 @@ import {
   TTS_SAVED_VOICE_NODE_DEFAULT_HEIGHT,
   TTS_SAVED_VOICE_NODE_DEFAULT_WIDTH,
   type AudioNodeData,
-  type CanvasEdge,
-  type CanvasNode,
   type TtsSavedVoiceNodeData,
 } from '@/features/canvas/domain/canvasNodes';
 import { resolveNodeDisplayName } from '@/features/canvas/domain/nodeDisplay';
@@ -33,8 +37,10 @@ import {
   generateQwenTtsSavedVoiceAudio,
   resolveQwenTtsExtensionState,
 } from '@/features/extensions/application/extensionRuntime';
+import { QWEN_TTS_COMPLETE_EXTENSION_ID } from '@/features/extensions/domain/types';
 import { NodeHeader, NODE_HEADER_FLOATING_POSITION_CLASS } from '@/features/canvas/ui/NodeHeader';
 import { NodeStatusBadge } from '@/features/canvas/ui/NodeStatusBadge';
+import { useAssetStore } from '@/stores/assetStore';
 import { useCanvasStore } from '@/stores/canvasStore';
 import { useExtensionsStore } from '@/stores/extensionsStore';
 import {
@@ -48,6 +54,7 @@ import {
   formatGeneratedTime,
   LANGUAGE_OPTIONS,
   MAX_NEW_TOKEN_OPTIONS,
+  OUTPUT_FORMAT_OPTIONS,
   QWEN_TTS_PAUSE_FIELDS,
   resolveConnectedTtsText,
   resolvePauseConfig,
@@ -65,6 +72,7 @@ type EditableSavedVoiceField =
   | 'voiceName'
   | 'referenceTranscript'
   | 'language'
+  | 'outputFormat'
   | 'maxNewTokens'
   | 'topP'
   | 'topK'
@@ -179,28 +187,55 @@ function SliderField({
   );
 }
 
-function getConnectedAudioNodes(nodeId: string, nodes: CanvasNode[], edges: CanvasEdge[]): CanvasNode[] {
-  const incomingEdges = edges.filter((edge) => edge.target === nodeId);
-  if (incomingEdges.length === 0) {
-    return [];
-  }
-
-  const nodeMap = new Map(nodes.map((node) => [node.id, node] as const));
-  return incomingEdges
-    .map((edge) => nodeMap.get(edge.source))
-    .filter(
-      (node): node is CanvasNode =>
-        Boolean(
-          node &&
-          node.type === CANVAS_NODE_TYPES.audio &&
-          typeof (node.data as AudioNodeData).audioUrl === 'string' &&
-          (node.data as AudioNodeData).audioUrl?.trim().length
-        )
-    );
-}
-
 function stripFileExtension(value: string): string {
   return value.replace(/\.[^.]+$/, '');
+}
+
+function resolveRuntimeErrorMessage(error: unknown): string {
+  if (error instanceof Error) {
+    return error.message.trim();
+  }
+
+  if (typeof error === 'string') {
+    return error.trim();
+  }
+
+  if (error && typeof error === 'object') {
+    const record = error as Record<string, unknown>;
+    const candidate = [
+      record.message,
+      record.error,
+      record.details,
+      record.msg,
+    ].find((value) => typeof value === 'string' && value.trim().length > 0);
+
+    return typeof candidate === 'string' ? candidate.trim() : '';
+  }
+
+  return '';
+}
+
+function shouldRefreshSavedVoiceBundle(error: unknown): boolean {
+  const message = resolveRuntimeErrorMessage(error).toLowerCase();
+  if (!message) {
+    return false;
+  }
+
+  return (
+    (message.includes('prompt') && (
+      message.includes('no such file')
+      || message.includes('cannot find the file')
+      || message.includes('system cannot find the file')
+      || message.includes('does not contain valid prompt items')
+      || message.includes('prompt item is not a valid dictionary')
+      || message.includes('pytorchstreamreader')
+      || message.includes('failed finding central directory')
+      || message.includes('pickle data')
+      || message.includes('invalid load key')
+    ))
+    || message.includes('voice_clone_prompt')
+    || message.includes('.qvp')
+  );
 }
 
 export const QwenTtsSavedVoiceNode = memo(({ id, data, selected }: QwenTtsSavedVoiceNodeProps) => {
@@ -211,15 +246,23 @@ export const QwenTtsSavedVoiceNode = memo(({ id, data, selected }: QwenTtsSavedV
   const addNode = useCanvasStore((state) => state.addNode);
   const addEdge = useCanvasStore((state) => state.addEdge);
   const findNodePosition = useCanvasStore((state) => state.findNodePosition);
+  const deleteEdge = useCanvasStore((state) => state.deleteEdge);
   const nodes = useCanvasStore((state) => state.nodes);
   const edges = useCanvasStore((state) => state.edges);
+  const assetLibraries = useAssetStore((state) => state.libraries);
+  const hydrateAssets = useAssetStore((state) => state.hydrate);
+  const isAssetStoreHydrated = useAssetStore((state) => state.isHydrated);
+  const updateAssetItem = useAssetStore((state) => state.updateItem);
   const extensionPackages = useExtensionsStore((state) => state.packages);
   const enabledExtensionIds = useExtensionsStore((state) => state.enabledExtensionIds);
   const runtimeById = useExtensionsStore((state) => state.runtimeById);
+  const presetPreviewAudioRef = useRef<HTMLAudioElement | null>(null);
   const [isSavingVoice, setIsSavingVoice] = useState(false);
   const [isReuseModalOpen, setIsReuseModalOpen] = useState(false);
   const [isPauseModalOpen, setIsPauseModalOpen] = useState(false);
   const [isAdvancedModalOpen, setIsAdvancedModalOpen] = useState(false);
+  const [isPresetPreviewPlaying, setIsPresetPreviewPlaying] = useState(false);
+  const [presetPreviewError, setPresetPreviewError] = useState<string | null>(null);
 
   const qwenTtsExtensionState = useMemo(
     () => resolveQwenTtsExtensionState(extensionPackages, enabledExtensionIds, runtimeById),
@@ -230,18 +273,86 @@ export const QwenTtsSavedVoiceNode = memo(({ id, data, selected }: QwenTtsSavedV
   const extensionRuntime = qwenTtsExtensionState.runtime;
   const isExtensionReady = Boolean(readyExtensionPackage);
   const isExtensionStarting = extensionRuntime?.status === 'starting';
+  const supportsMp3Output = activeExtensionPackage?.id === QWEN_TTS_COMPLETE_EXTENSION_ID;
 
   const connectedText = useMemo(() => resolveConnectedTtsText(id, nodes, edges), [edges, id, nodes]);
-  const connectedAudioNodes = useMemo(() => getConnectedAudioNodes(id, nodes, edges), [edges, id, nodes]);
-  const referenceAudioNode = connectedAudioNodes[0] ?? null;
-  const referenceAudioData = (referenceAudioNode?.data as AudioNodeData | undefined) ?? null;
-  const referenceAudioPath = referenceAudioData?.audioUrl?.trim() ?? '';
-  const referenceAudioName = referenceAudioData?.audioFileName?.trim() ?? '';
-  const referenceAudioDuration = formatAudioDuration(referenceAudioData?.duration);
-  const referenceTranscript = typeof data.referenceTranscript === 'string' ? data.referenceTranscript : '';
+  const availablePresetGroups = useMemo(
+    () =>
+      assetLibraries
+        .map((library) => ({
+          ...library,
+          items: library.items.filter(isReusableVoicePresetAsset),
+        }))
+        .filter((library) => library.items.length > 0),
+    [assetLibraries]
+  );
+  const selectedPresetAsset = useMemo(() => {
+    const presetAssetId = typeof data.presetAssetId === 'string' ? data.presetAssetId.trim() : '';
+    if (!presetAssetId) {
+      return null;
+    }
+
+    return (
+      assetLibraries
+        .flatMap((library) => library.items)
+        .find((item) => item.id === presetAssetId) ?? null
+    );
+  }, [assetLibraries, data.presetAssetId]);
+  const incomingReferenceAudioEdges = useMemo(() => {
+    const nodeMap = new Map(nodes.map((node) => [node.id, node] as const));
+    return edges.filter((edge) => {
+      if (edge.target !== id) {
+        return false;
+      }
+
+      const sourceNode = nodeMap.get(edge.source);
+      return Boolean(
+        sourceNode
+        && sourceNode.type === CANVAS_NODE_TYPES.audio
+        && typeof (sourceNode.data as AudioNodeData).audioUrl === 'string'
+        && (sourceNode.data as AudioNodeData).audioUrl?.trim().length
+      );
+    });
+  }, [edges, id, nodes]);
+  const legacyReferenceAudioData = useMemo(() => {
+    const firstIncomingAudioEdge = incomingReferenceAudioEdges[0];
+    if (!firstIncomingAudioEdge) {
+      return null;
+    }
+
+    const sourceAudioNode = nodes.find(
+      (node) => node.id === firstIncomingAudioEdge.source && node.type === CANVAS_NODE_TYPES.audio
+    );
+    return sourceAudioNode ? (sourceAudioNode.data as AudioNodeData) : null;
+  }, [incomingReferenceAudioEdges, nodes]);
+  const selectedPresetMetadata = useMemo(
+    () => resolveVoicePresetAssetMetadata(selectedPresetAsset),
+    [selectedPresetAsset]
+  );
+  const manualReferenceAudioPath = legacyReferenceAudioData?.audioUrl?.trim() ?? '';
+  const manualReferenceAudioName = legacyReferenceAudioData?.audioFileName?.trim() ?? '';
+  const manualReferenceAudioDuration = formatAudioDuration(legacyReferenceAudioData?.duration);
+  const isUsingPreset = Boolean(selectedPresetAsset);
+  const referenceAudioPath =
+    selectedPresetAsset?.sourcePath?.trim()
+    ?? manualReferenceAudioPath
+    ?? '';
+  const referenceAudioName =
+    selectedPresetAsset?.name?.trim()
+    ?? manualReferenceAudioName
+    ?? '';
+  const referenceAudioDuration = formatAudioDuration(
+    selectedPresetAsset?.durationMs != null
+      ? selectedPresetAsset.durationMs / 1000
+      : legacyReferenceAudioData?.duration
+  );
+  const referenceTranscript =
+    selectedPresetMetadata?.referenceTranscript
+    ?? (typeof data.referenceTranscript === 'string' ? data.referenceTranscript : '');
   const referenceTranscriptTrimmed = referenceTranscript.trim();
   const suggestedVoiceName = (
-    (typeof data.voiceName === 'string' ? data.voiceName.trim() : '')
+    (selectedPresetAsset?.name?.trim() ?? '')
+    || (typeof data.voiceName === 'string' ? data.voiceName.trim() : '')
     || (referenceAudioName ? stripFileExtension(referenceAudioName) : '')
     || t('node.qwenTts.savedVoice.defaultVoiceName')
   );
@@ -256,6 +367,10 @@ export const QwenTtsSavedVoiceNode = memo(({ id, data, selected }: QwenTtsSavedV
   const maxNewTokens = typeof data.maxNewTokens === 'number' ? data.maxNewTokens : DEFAULT_MAX_NEW_TOKENS;
   const topP = typeof data.topP === 'number' ? data.topP : DEFAULT_TOP_P;
   const topK = typeof data.topK === 'number' ? data.topK : DEFAULT_TOP_K;
+  const outputFormat = supportsMp3Output && data.outputFormat === 'mp3' ? 'mp3' : 'wav';
+  const availableOutputFormatOptions = supportsMp3Output
+    ? OUTPUT_FORMAT_OPTIONS
+    : OUTPUT_FORMAT_OPTIONS.filter((option) => option.value === 'wav');
   const temperature = typeof data.temperature === 'number' ? data.temperature : DEFAULT_TEMPERATURE;
   const repetitionPenalty = typeof data.repetitionPenalty === 'number'
     ? data.repetitionPenalty
@@ -273,10 +388,31 @@ export const QwenTtsSavedVoiceNode = memo(({ id, data, selected }: QwenTtsSavedV
     : isExtensionStarting
       ? currentRuntimeStep?.description ?? t('node.qwenTts.runtimeStateStarting')
       : t('node.qwenTts.runtimeStateDisabled');
-  const promptFile = typeof data.promptFile === 'string' ? data.promptFile.trim() : '';
-  const promptLabel = typeof data.promptLabel === 'string' ? data.promptLabel.trim() : '';
+  const promptFile =
+    selectedPresetMetadata?.promptFile?.trim()
+    || (typeof data.promptFile === 'string' ? data.promptFile.trim() : '');
+  const promptLabel =
+    selectedPresetMetadata?.promptLabel?.trim()
+    || (typeof data.promptLabel === 'string' ? data.promptLabel.trim() : '');
   const hasSavedPrompt = promptFile.length > 0;
   const hasLanguageOverride = (data.language ?? 'auto') !== 'auto';
+  const hasReuseOverrides = hasLanguageOverride || outputFormat !== 'wav';
+  const selectedPresetDescription = selectedPresetAsset?.description?.trim() ?? '';
+  const selectedPresetLibraryName = useMemo(
+    () =>
+      selectedPresetAsset
+        ? assetLibraries.find((library) => library.id === selectedPresetAsset.libraryId)?.name ?? ''
+        : '',
+    [assetLibraries, selectedPresetAsset]
+  );
+  const selectedPresetAudioSource = useMemo(() => {
+    const sourcePath = selectedPresetAsset?.sourcePath?.trim() ?? '';
+    return sourcePath ? resolveAudioDisplayUrl(sourcePath) : null;
+  }, [selectedPresetAsset?.sourcePath]);
+  const availablePresetCount = useMemo(
+    () => availablePresetGroups.reduce((count, library) => count + library.items.length, 0),
+    [availablePresetGroups]
+  );
   const hasAdvancedOverrides =
     maxNewTokens !== DEFAULT_MAX_NEW_TOKENS ||
     topP !== DEFAULT_TOP_P ||
@@ -339,6 +475,27 @@ export const QwenTtsSavedVoiceNode = memo(({ id, data, selected }: QwenTtsSavedV
     progressValue,
     updateNodeInternals,
   ]);
+
+  useEffect(() => {
+    if (!isAssetStoreHydrated) {
+      void hydrateAssets();
+    }
+  }, [hydrateAssets, isAssetStoreHydrated]);
+
+  useEffect(() => {
+    const previewAudio = presetPreviewAudioRef.current;
+    if (previewAudio) {
+      previewAudio.pause();
+      previewAudio.currentTime = 0;
+    }
+
+    setIsPresetPreviewPlaying(false);
+    setPresetPreviewError(null);
+  }, [selectedPresetAudioSource, selectedPresetAsset?.id]);
+
+  useEffect(() => () => {
+    presetPreviewAudioRef.current?.pause();
+  }, []);
 
   const headerStatus = useMemo(() => {
     if (data.isExtracting || isSavingVoice) {
@@ -452,6 +609,76 @@ export const QwenTtsSavedVoiceNode = memo(({ id, data, selected }: QwenTtsSavedV
     );
   };
 
+  const handleTogglePresetPreview = useCallback(async () => {
+    const previewAudio = presetPreviewAudioRef.current;
+    if (!previewAudio || !selectedPresetAudioSource) {
+      return;
+    }
+
+    try {
+      setPresetPreviewError(null);
+      if (previewAudio.paused) {
+        previewAudio.currentTime = 0;
+        await previewAudio.play();
+      } else {
+        previewAudio.pause();
+      }
+    } catch (error) {
+      console.error('Failed to preview preset voice', error);
+      setIsPresetPreviewPlaying(false);
+      setPresetPreviewError(t('node.audioNode.playFailed'));
+    }
+  }, [selectedPresetAudioSource, t]);
+
+  const handlePresetChange = useCallback((assetId: string) => {
+    const nextPreset = assetLibraries
+      .flatMap((library) => library.items)
+      .find((item) => item.id === assetId);
+
+    if (!nextPreset) {
+      const fallbackVoiceName = manualReferenceAudioName
+        ? stripFileExtension(manualReferenceAudioName)
+        : '';
+      updateNodeData(
+        id,
+        {
+          presetAssetId: null,
+          voiceName: fallbackVoiceName,
+          promptFile: null,
+          promptLabel: null,
+          lastError: null,
+        },
+        { historyMode: 'skip' }
+      );
+      return;
+    }
+
+    incomingReferenceAudioEdges.forEach((edge) => {
+      deleteEdge(edge.id);
+    });
+
+    const presetMetadata = resolveVoicePresetAssetMetadata(nextPreset);
+    updateNodeData(
+      id,
+      {
+        presetAssetId: nextPreset.id,
+        voiceName: nextPreset.name,
+        referenceTranscript: presetMetadata?.referenceTranscript ?? '',
+        promptFile: presetMetadata?.promptFile ?? null,
+        promptLabel: presetMetadata?.promptLabel ?? null,
+        lastError: null,
+      },
+      { historyMode: 'skip' }
+    );
+  }, [
+    assetLibraries,
+    deleteEdge,
+    id,
+    incomingReferenceAudioEdges,
+    manualReferenceAudioName,
+    updateNodeData,
+  ]);
+
   const updateErrorState = useCallback((message: string) => {
     updateNodeData(
       id,
@@ -507,9 +734,44 @@ export const QwenTtsSavedVoiceNode = memo(({ id, data, selected }: QwenTtsSavedV
         voiceName: suggestedVoiceName,
       });
 
+      if (selectedPresetAsset) {
+        await updateAssetItem({
+          id: selectedPresetAsset.id,
+          libraryId: selectedPresetAsset.libraryId,
+          category: selectedPresetAsset.category,
+          mediaType: selectedPresetAsset.mediaType,
+          subcategoryId: selectedPresetAsset.subcategoryId,
+          name: selectedPresetAsset.name,
+          description: selectedPresetAsset.description,
+          tags: selectedPresetAsset.tags,
+          sourcePath: selectedPresetAsset.sourcePath,
+          previewPath: selectedPresetAsset.previewPath,
+          mimeType: selectedPresetAsset.mimeType,
+          durationMs: selectedPresetAsset.durationMs,
+          aspectRatio: selectedPresetAsset.aspectRatio,
+          metadata: {
+            ...(selectedPresetAsset.metadata ?? {}),
+            voicePreset: {
+              type: 'qwen_tts_voice_preset',
+              referenceTranscript: referenceTranscriptTrimmed,
+              promptFile: savedPrompt.promptFile,
+              promptLabel: savedPrompt.promptLabel,
+              voicePrompt: selectedPresetMetadata?.voicePrompt ?? null,
+              stylePreset: selectedPresetMetadata?.stylePreset ?? null,
+              language: selectedPresetMetadata?.language ?? null,
+              speakingRate: selectedPresetMetadata?.speakingRate ?? null,
+              pitch: selectedPresetMetadata?.pitch ?? null,
+              sourceGeneration: selectedPresetMetadata?.sourceGeneration ?? 'ttsVoiceDesign',
+              savedAt: selectedPresetMetadata?.savedAt ?? Date.now(),
+            },
+          },
+        });
+      }
+
       updateNodeData(
         id,
         {
+          presetAssetId: selectedPresetAsset?.id ?? data.presetAssetId ?? null,
           voiceName: suggestedVoiceName,
           promptFile: savedPrompt.promptFile,
           promptLabel: savedPrompt.promptLabel,
@@ -532,6 +794,7 @@ export const QwenTtsSavedVoiceNode = memo(({ id, data, selected }: QwenTtsSavedV
       setIsSavingVoice(false);
     }
   }, [
+    data.presetAssetId,
     data.isExtracting,
     id,
     isExtensionReady,
@@ -539,8 +802,17 @@ export const QwenTtsSavedVoiceNode = memo(({ id, data, selected }: QwenTtsSavedV
     readyExtensionPackage,
     referenceAudioPath,
     referenceTranscriptTrimmed,
+    selectedPresetAsset,
+    selectedPresetMetadata?.language,
+    selectedPresetMetadata?.pitch,
+    selectedPresetMetadata?.savedAt,
+    selectedPresetMetadata?.sourceGeneration,
+    selectedPresetMetadata?.speakingRate,
+    selectedPresetMetadata?.stylePreset,
+    selectedPresetMetadata?.voicePrompt,
     suggestedVoiceName,
     t,
+    updateAssetItem,
     updateErrorState,
     updateNodeData,
   ]);
@@ -621,22 +893,58 @@ export const QwenTtsSavedVoiceNode = memo(({ id, data, selected }: QwenTtsSavedV
     enqueueQwenTtsAudioGeneration({
       audioNodeId,
       sourceNodeId: id,
-      run: () => generateQwenTtsSavedVoiceAudio(readyExtensionPackage, {
-        text: connectedTextTrimmed,
-        language: data.language ?? 'auto',
-        voiceName: suggestedVoiceName,
-        promptFile: resolvedPromptFile,
-        maxNewTokens,
-        topP,
-        topK,
-        temperature,
-        repetitionPenalty,
-        pauseLinebreak: pauseConfig.pauseLinebreak,
-        periodPause: pauseConfig.periodPause,
-        commaPause: pauseConfig.commaPause,
-        questionPause: pauseConfig.questionPause,
-        hyphenPause: pauseConfig.hyphenPause,
-      }),
+      run: async () => {
+        const generateWithPrompt = async (activePromptFile: string) =>
+          await generateQwenTtsSavedVoiceAudio(readyExtensionPackage, {
+            text: connectedTextTrimmed,
+            language: data.language ?? 'auto',
+            outputFormat,
+            voiceName: suggestedVoiceName,
+            promptFile: activePromptFile,
+            maxNewTokens,
+            topP,
+            topK,
+            temperature,
+            repetitionPenalty,
+            pauseLinebreak: pauseConfig.pauseLinebreak,
+            periodPause: pauseConfig.periodPause,
+            commaPause: pauseConfig.commaPause,
+            questionPause: pauseConfig.questionPause,
+            hyphenPause: pauseConfig.hyphenPause,
+          });
+
+        try {
+          return await generateWithPrompt(resolvedPromptFile);
+        } catch (error) {
+          if (
+            !shouldRefreshSavedVoiceBundle(error)
+            || !referenceAudioPath
+            || !referenceTranscriptTrimmed
+          ) {
+            throw error;
+          }
+
+          const refreshedPrompt = await handleExtractVoice();
+          if (!refreshedPrompt?.promptFile) {
+            throw error;
+          }
+
+          resolvedPromptFile = refreshedPrompt.promptFile;
+          resolvedPromptLabel = refreshedPrompt.promptLabel;
+          updateNodeData(
+            id,
+            {
+              promptFile: resolvedPromptFile,
+              promptLabel: resolvedPromptLabel,
+              lastError: null,
+              statusText: null,
+            },
+            { historyMode: 'skip' }
+          );
+
+          return await generateWithPrompt(resolvedPromptFile);
+        }
+      },
     });
   }, [
     addEdge,
@@ -650,6 +958,7 @@ export const QwenTtsSavedVoiceNode = memo(({ id, data, selected }: QwenTtsSavedV
     id,
     isExtensionReady,
     maxNewTokens,
+    outputFormat,
     pauseConfig.commaPause,
     pauseConfig.hyphenPause,
     pauseConfig.pauseLinebreak,
@@ -661,6 +970,7 @@ export const QwenTtsSavedVoiceNode = memo(({ id, data, selected }: QwenTtsSavedV
     referenceAudioPath,
     referenceTranscriptTrimmed,
     repetitionPenalty,
+    selectedPresetAsset,
     suggestedVoiceName,
     t,
     temperature,
@@ -672,6 +982,20 @@ export const QwenTtsSavedVoiceNode = memo(({ id, data, selected }: QwenTtsSavedV
 
   return (
     <>
+      <audio
+        ref={presetPreviewAudioRef}
+        src={selectedPresetAudioSource ?? undefined}
+        preload="metadata"
+        className="hidden"
+        onPlay={() => setIsPresetPreviewPlaying(true)}
+        onPause={() => setIsPresetPreviewPlaying(false)}
+        onEnded={() => setIsPresetPreviewPlaying(false)}
+        onError={() => {
+          setIsPresetPreviewPlaying(false);
+          setPresetPreviewError(t('node.audioNode.playFailed'));
+        }}
+      />
+
       <div
         className={`
           group relative overflow-visible rounded-[var(--node-radius)] border bg-surface-dark/90 p-3 transition-colors duration-150
@@ -719,32 +1043,28 @@ export const QwenTtsSavedVoiceNode = memo(({ id, data, selected }: QwenTtsSavedV
             <div className="mt-3 grid grid-cols-3 gap-2">
               <div className="rounded-xl border border-white/10 bg-black/10 px-3 py-2">
                 <div className="text-[10px] uppercase tracking-[0.14em] text-text-muted">
-                  {t('node.qwenTts.savedVoice.referenceAudio')}
+                  {t('node.qwenTts.savedVoice.presetCount')}
                 </div>
                 <div className="mt-1 text-sm font-semibold text-text-dark">
-                  {referenceAudioPath
-                    ? t('node.qwenTts.savedVoice.referenceReady')
-                    : t('node.qwenTts.savedVoice.referenceMissing')}
+                  {availablePresetCount}
                 </div>
                 <div className="text-[11px] text-text-muted">
-                  {t('node.qwenTts.savedVoice.referenceCount', {
-                    count: connectedAudioNodes.length,
-                  })}
+                  {t('node.qwenTts.savedVoice.presetCountHint')}
                 </div>
               </div>
               <div className="rounded-xl border border-white/10 bg-black/10 px-3 py-2">
                 <div className="text-[10px] uppercase tracking-[0.14em] text-text-muted">
-                  {t('node.qwenTts.savedVoice.voiceBundle')}
+                  {t('node.qwenTts.savedVoice.referenceTitle')}
                 </div>
                 <div className="mt-1 truncate text-sm font-semibold text-text-dark">
-                  {hasSavedPrompt
-                    ? promptLabel || suggestedVoiceName
-                    : t('node.qwenTts.savedVoice.bundlePending')}
+                  {referenceAudioName || t('node.qwenTts.savedVoice.referenceMissing')}
                 </div>
                 <div className="text-[11px] text-text-muted">
-                  {hasSavedPrompt
-                    ? t('node.qwenTts.savedVoice.bundleReady')
-                    : t('node.qwenTts.savedVoice.bundleHint')}
+                  {isUsingPreset
+                    ? (selectedPresetLibraryName || t('node.qwenTts.savedVoice.referenceSourcePreset'))
+                    : manualReferenceAudioPath
+                      ? t('node.qwenTts.savedVoice.referenceSourceManual')
+                      : t('node.qwenTts.savedVoice.referenceAudioHint')}
                 </div>
               </div>
               <div className="rounded-xl border border-white/10 bg-black/10 px-3 py-2">
@@ -761,7 +1081,7 @@ export const QwenTtsSavedVoiceNode = memo(({ id, data, selected }: QwenTtsSavedV
             </div>
 
             <div className="mt-3 rounded-xl border border-white/10 bg-black/10 px-3 py-2.5">
-              <div className="mb-2 flex items-center justify-between gap-3">
+              <div className="mb-2">
                 <div>
                   <div className="text-[11px] font-medium uppercase tracking-[0.14em] text-text-muted">
                     {t('node.qwenTts.connectedText')}
@@ -769,9 +1089,6 @@ export const QwenTtsSavedVoiceNode = memo(({ id, data, selected }: QwenTtsSavedV
                   <div className="mt-1 text-xs text-text-muted">
                     {t('node.qwenTts.savedVoice.generationTextHint')}
                   </div>
-                </div>
-                <div className="rounded-full border border-white/10 px-2 py-1 text-[11px] text-text-muted">
-                  {t('node.qwenTts.connectedCharacterCount', { count: connectedCharacterCount })}
                 </div>
               </div>
               <div className="max-h-20 overflow-auto whitespace-pre-wrap text-sm leading-5 text-text-dark">
@@ -809,74 +1126,202 @@ export const QwenTtsSavedVoiceNode = memo(({ id, data, selected }: QwenTtsSavedV
                   {t('node.qwenTts.savedVoice.referenceTitle')}
                 </div>
               </div>
-              <button
-                type="button"
-                disabled={!canExtractPrompt}
-                onPointerDown={(event) => event.stopPropagation()}
-                onClick={(event) => {
-                  event.stopPropagation();
-                  void handleExtractVoice();
-                }}
-                className="nodrag inline-flex h-8 items-center justify-center gap-1.5 rounded-lg border border-white/10 bg-white/[0.04] px-3 text-xs font-medium text-text-dark transition-colors hover:border-white/20 hover:bg-white/[0.06] disabled:cursor-not-allowed disabled:border-white/8 disabled:bg-white/[0.02] disabled:text-text-muted/45"
-              >
-                {data.isExtracting || isSavingVoice ? (
-                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              {hasSavedPrompt ? (
+                <div className="rounded-full border border-emerald-400/20 bg-emerald-400/10 px-2.5 py-1 text-[11px] text-emerald-200">
+                  {t('node.qwenTts.savedVoice.bundleReady')}
+                </div>
+              ) : null}
+            </div>
+
+            <div className="space-y-3">
+              <div className="grid gap-2 md:grid-cols-2">
+                <div className="rounded-xl border border-white/10 bg-black/10 px-3 py-2.5">
+                  <div className="mb-1 flex items-center justify-between gap-2">
+                    <div className="text-xs font-medium text-text-muted">
+                      {t('node.qwenTts.savedVoice.referenceAudio')}
+                    </div>
+                    <span
+                      className={`rounded-full border px-2 py-0.5 text-[10px] ${
+                        isUsingPreset
+                          ? 'border-accent/35 bg-accent/12 text-accent'
+                          : manualReferenceAudioPath
+                            ? 'border-emerald-400/20 bg-emerald-400/10 text-emerald-200'
+                            : 'border-white/10 bg-white/[0.04] text-text-muted'
+                      }`}
+                    >
+                      {isUsingPreset
+                        ? t('node.qwenTts.savedVoice.referenceSourcePreset')
+                        : manualReferenceAudioPath
+                          ? t('node.qwenTts.savedVoice.referenceSourceManual')
+                          : t('node.qwenTts.savedVoice.referenceMissing')}
+                    </span>
+                  </div>
+                  <div className="mt-1 truncate text-sm font-medium text-text-dark">
+                    {referenceAudioName || t('node.qwenTts.savedVoice.referenceMissing')}
+                  </div>
+                  <div className="mt-1 text-[11px] text-text-muted">
+                    {isUsingPreset
+                      ? t('node.qwenTts.savedVoice.referenceMeta', {
+                        duration: referenceAudioDuration,
+                      })
+                      : manualReferenceAudioPath
+                        ? t('node.qwenTts.savedVoice.referenceMeta', {
+                          duration: manualReferenceAudioDuration,
+                        })
+                        : t('node.qwenTts.savedVoice.referenceAudioHint')}
+                  </div>
+                </div>
+
+                <div className="rounded-xl border border-white/10 bg-black/10 px-3 py-2.5">
+                  <div className="text-xs font-medium text-text-muted">
+                    {t('node.qwenTts.savedVoice.voiceName')}
+                  </div>
+                  <div className="mt-1 truncate text-sm font-medium text-text-dark">
+                    {suggestedVoiceName}
+                  </div>
+                  <div className="mt-1 text-[11px] text-text-muted">
+                    {isUsingPreset
+                      ? (selectedPresetLibraryName || t('node.qwenTts.savedVoice.referenceSourcePreset'))
+                      : manualReferenceAudioPath
+                        ? t('node.qwenTts.savedVoice.referenceSourceManual')
+                        : t('node.qwenTts.savedVoice.defaultVoiceName')}
+                  </div>
+                </div>
+              </div>
+
+              <label className="block">
+                <div className="mb-1 flex items-center justify-between gap-2 text-xs font-medium text-text-muted">
+                  <span>{t('node.qwenTts.savedVoice.referenceTranscript')}</span>
+                  <span
+                    className={`rounded-full border px-2 py-0.5 text-[10px] ${
+                      isUsingPreset
+                        ? 'border-accent/35 bg-accent/12 text-accent'
+                        : manualReferenceAudioPath
+                          ? 'border-emerald-400/20 bg-emerald-400/10 text-emerald-200'
+                          : 'border-white/10 bg-white/[0.04] text-text-muted'
+                    }`}
+                  >
+                    {isUsingPreset
+                      ? t('node.qwenTts.savedVoice.referenceSourcePreset')
+                      : manualReferenceAudioPath
+                        ? t('node.qwenTts.savedVoice.referenceSourceManual')
+                        : t('node.qwenTts.savedVoice.referenceMissing')}
+                  </span>
+                </div>
+                {isUsingPreset ? (
+                  <div className="max-h-32 overflow-auto whitespace-pre-wrap rounded-xl border border-white/10 bg-black/10 px-3 py-2.5 text-sm leading-5 text-text-dark">
+                    {referenceTranscriptTrimmed || t('node.qwenTts.savedVoice.noReferenceTranscript')}
+                  </div>
                 ) : (
-                  <Save className="h-3.5 w-3.5" />
+                  <textarea
+                    value={typeof data.referenceTranscript === 'string' ? data.referenceTranscript : ''}
+                    onChange={(event) => handleFieldChange('referenceTranscript', event.target.value)}
+                    placeholder={t('node.qwenTts.savedVoice.referenceTranscriptPlaceholder')}
+                    className="nodrag nowheel min-h-[116px] w-full resize-y rounded-xl border border-white/10 bg-black/10 px-3 py-2.5 text-sm text-text-dark outline-none transition-colors placeholder:text-text-muted/70 focus:border-accent"
+                  />
                 )}
-                {t('node.qwenTts.savedVoice.saveVoice')}
-              </button>
-            </div>
-
-            <div className="grid gap-2 md:grid-cols-2">
-              <div className="rounded-xl border border-white/10 bg-black/10 px-3 py-2.5">
-                <div className="text-xs font-medium text-text-muted">
-                  {t('node.qwenTts.savedVoice.referenceAudio')}
-                </div>
-                <div className="mt-1 truncate text-sm font-medium text-text-dark">
-                  {referenceAudioName || t('node.qwenTts.savedVoice.referenceMissing')}
-                </div>
-                <div className="mt-1 text-[11px] text-text-muted">
-                  {referenceAudioPath
-                    ? t('node.qwenTts.savedVoice.referenceMeta', {
-                      duration: referenceAudioDuration,
-                    })
-                    : t('node.qwenTts.savedVoice.referenceAudioHint')}
-                </div>
-              </div>
-
-              <label className="block rounded-xl border border-white/10 bg-black/10 px-3 py-2.5">
-                <div className="mb-1 text-xs font-medium text-text-muted">
-                  {t('node.qwenTts.savedVoice.voiceName')}
-                </div>
-                <input
-                  type="text"
-                  value={data.voiceName ?? ''}
-                  onChange={(event) => handleFieldChange('voiceName', event.target.value)}
-                  placeholder={suggestedVoiceName}
-                  className="nodrag nowheel h-10 w-full rounded-lg border border-white/10 bg-white/[0.04] px-3 text-sm text-text-dark outline-none transition-colors placeholder:text-text-muted/70 focus:border-accent"
-                />
               </label>
-            </div>
 
-            <label className="mt-3 block">
-              <div className="mb-1 text-xs font-medium text-text-muted">
-                {t('node.qwenTts.savedVoice.referenceTranscript')}
+              <div className="rounded-xl border border-white/10 bg-black/10 px-3 py-3">
+                <div className="mb-2 flex items-start justify-between gap-3">
+                  <div>
+                    <div className="text-xs font-medium text-text-muted">
+                      {t('node.qwenTts.savedVoice.presetOptionalLabel')}
+                    </div>
+                    <div className="mt-1 text-[11px] leading-4 text-text-muted">
+                      {t('node.qwenTts.savedVoice.presetOverridesManualHint')}
+                    </div>
+                  </div>
+                  {selectedPresetAsset ? (
+                    <div className="rounded-full border border-accent/35 bg-accent/12 px-2 py-0.5 text-[10px] text-accent">
+                      {t('node.qwenTts.savedVoice.selectedPreset')}
+                    </div>
+                  ) : null}
+                </div>
+
+                <UiSelect
+                  value={selectedPresetAsset?.id ?? ''}
+                  onChange={(event: ChangeEvent<HTMLSelectElement>) => handlePresetChange(event.target.value)}
+                  className="!h-10 !rounded-xl !border-white/10 !bg-black/10 !px-3 !text-sm"
+                >
+                  <option value="">{t('node.qwenTts.savedVoice.selectPresetPlaceholder')}</option>
+                  {availablePresetGroups.map((library) => (
+                    <optgroup key={library.id} label={library.name}>
+                      {library.items.map((item) => (
+                        <option key={item.id} value={item.id}>
+                          {item.name}
+                        </option>
+                      ))}
+                    </optgroup>
+                  ))}
+                </UiSelect>
+
+                {selectedPresetAsset ? (
+                  <div className="mt-3 space-y-2">
+                    <div className="rounded-xl border border-white/10 bg-white/[0.03] px-3 py-2.5">
+                      <div className="flex items-center justify-between gap-3">
+                        <div className="min-w-0 flex-1">
+                          <div className="text-xs font-medium text-text-muted">
+                            {t('node.qwenTts.savedVoice.voiceName')}
+                          </div>
+                          <div className="mt-1 truncate text-sm font-medium text-text-dark">
+                            {selectedPresetAsset.name}
+                          </div>
+                          <div className="mt-1 text-[11px] text-text-muted">
+                            {selectedPresetLibraryName || t('node.qwenTts.savedVoice.selectPresetHint')}
+                          </div>
+                        </div>
+                        <UiButton
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          className="shrink-0 gap-1.5 rounded-lg border border-white/10 bg-white/[0.04] px-3 text-xs hover:border-white/20 hover:bg-white/[0.06]"
+                          onClick={() => void handleTogglePresetPreview()}
+                          disabled={!selectedPresetAudioSource}
+                        >
+                          {isPresetPreviewPlaying ? (
+                            <Pause className="h-3.5 w-3.5" />
+                          ) : (
+                            <Play className="h-3.5 w-3.5" />
+                          )}
+                          {isPresetPreviewPlaying
+                            ? t('node.qwenTts.savedVoice.stopPreview')
+                            : t('node.qwenTts.savedVoice.previewPreset')}
+                        </UiButton>
+                      </div>
+                    </div>
+
+                    {selectedPresetDescription ? (
+                      <div className="rounded-xl border border-white/10 bg-white/[0.03] px-3 py-2.5">
+                        <div className="text-xs font-medium text-text-muted">
+                          {t('assets.description')}
+                        </div>
+                        <div className="mt-1 whitespace-pre-wrap text-sm leading-5 text-text-dark">
+                          {selectedPresetDescription}
+                        </div>
+                      </div>
+                    ) : null}
+
+                    {!hasSavedPrompt && canExtractPrompt ? (
+                      <div className="rounded-xl border border-white/10 bg-white/[0.03] px-3 py-2.5 text-xs text-text-muted">
+                        {t('node.qwenTts.savedVoice.bundlePendingHint')}
+                      </div>
+                    ) : null}
+
+                    {presetPreviewError ? (
+                      <div className="rounded-xl border border-red-400/25 bg-red-400/10 px-3 py-2 text-xs text-red-200">
+                        {presetPreviewError}
+                      </div>
+                    ) : null}
+                  </div>
+                ) : (
+                  <div className="mt-2 text-[11px] leading-5 text-text-muted">
+                    {availablePresetCount > 0
+                      ? t('node.qwenTts.savedVoice.selectPresetHint')
+                      : t('node.qwenTts.savedVoice.noPresetAssets')}
+                  </div>
+                )}
               </div>
-              <textarea
-                value={referenceTranscript}
-                onChange={(event) => handleFieldChange('referenceTranscript', event.target.value)}
-                placeholder={t('node.qwenTts.savedVoice.referenceTranscriptPlaceholder')}
-                className="nodrag nowheel h-24 w-full resize-none rounded-xl border border-white/10 bg-black/10 px-3 py-2.5 text-sm text-text-dark outline-none transition-colors placeholder:text-text-muted/70 focus:border-accent"
-              />
-            </label>
-
-            <div className="mt-3 rounded-xl border border-white/10 bg-black/10 px-3 py-2.5 text-xs text-text-muted">
-              {hasSavedPrompt
-                ? t('node.qwenTts.savedVoice.savedBundleMeta', {
-                  label: promptLabel || suggestedVoiceName,
-                })
-                : t('node.qwenTts.savedVoice.bundleStorageHint')}
             </div>
           </div>
 
@@ -885,8 +1330,8 @@ export const QwenTtsSavedVoiceNode = memo(({ id, data, selected }: QwenTtsSavedV
               icon={<Languages className="h-4 w-4" />}
               title={t('node.qwenTts.savedVoice.languageTitle')}
               actionLabel={t('node.qwenTts.openSettingsShort')}
-              statusLabel={hasLanguageOverride ? t('node.qwenTts.customizedShort') : null}
-              active={hasLanguageOverride}
+              statusLabel={hasReuseOverrides ? t('node.qwenTts.customizedShort') : null}
+              active={hasReuseOverrides}
               onClick={() => setIsReuseModalOpen(true)}
             />
             <SummaryActionCard
@@ -995,6 +1440,31 @@ export const QwenTtsSavedVoiceNode = memo(({ id, data, selected }: QwenTtsSavedV
             </UiSelect>
             <div className="mt-2 text-[11px] leading-4 text-text-muted">
               {t('node.qwenTts.savedVoice.languageDescription')}
+            </div>
+          </label>
+
+          <label className="block rounded-xl border border-white/10 bg-black/10 px-3 py-2.5">
+            <div className="mb-1 text-xs font-medium text-text-muted">
+              {t('node.qwenTts.outputFormat')}
+            </div>
+            <UiSelect
+              value={outputFormat}
+              onChange={(event: ChangeEvent<HTMLSelectElement>) => {
+                handleFieldChange(
+                  'outputFormat',
+                  event.target.value as TtsSavedVoiceNodeData['outputFormat']
+                );
+              }}
+              className="!h-10 !rounded-xl !border-white/10 !bg-white/[0.04] !px-3 !text-sm"
+            >
+              {availableOutputFormatOptions.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {t(option.labelKey)}
+                </option>
+              ))}
+            </UiSelect>
+            <div className="mt-2 text-[11px] leading-4 text-text-muted">
+              {t('node.qwenTts.outputFormatHint')}
             </div>
           </label>
         </div>

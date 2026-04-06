@@ -33,8 +33,8 @@ type TextAnnotationNodeProps = NodeProps & {
   selected?: boolean;
 };
 
-const DEFAULT_WIDTH = 300;
-const DEFAULT_HEIGHT = 180;
+const DEFAULT_WIDTH = 420;
+const DEFAULT_HEIGHT = 240;
 const MIN_WIDTH = 180;
 const MIN_HEIGHT = 100;
 const MAX_WIDTH = 900;

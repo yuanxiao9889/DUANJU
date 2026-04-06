@@ -34,6 +34,7 @@ import {
   generateQwenTtsVoiceDesignAudio,
   resolveQwenTtsExtensionState,
 } from '@/features/extensions/application/extensionRuntime';
+import { QWEN_TTS_COMPLETE_EXTENSION_ID } from '@/features/extensions/domain/types';
 import { useCanvasStore } from '@/stores/canvasStore';
 import { useExtensionsStore } from '@/stores/extensionsStore';
 import {
@@ -47,6 +48,7 @@ import {
   formatGeneratedTime,
   LANGUAGE_OPTIONS,
   MAX_NEW_TOKEN_OPTIONS,
+  OUTPUT_FORMAT_OPTIONS,
   QWEN_TTS_PAUSE_FIELDS,
   resolveConnectedTtsText,
   resolvePauseConfig,
@@ -66,6 +68,7 @@ type QwenTtsVoiceDesignNodeProps = NodeProps & {
 type EditableVoiceDesignField =
   | 'voicePrompt'
   | 'language'
+  | 'outputFormat'
   | 'stylePreset'
   | 'speakingRate'
   | 'pitch'
@@ -228,6 +231,7 @@ export const QwenTtsVoiceDesignNode = memo(({
   const extensionRuntime = qwenTtsExtensionState.runtime;
   const isExtensionReady = Boolean(readyExtensionPackage);
   const isExtensionStarting = extensionRuntime?.status === 'starting';
+  const supportsMp3Output = activeExtensionPackage?.id === QWEN_TTS_COMPLETE_EXTENSION_ID;
 
   const connectedText = useMemo(
     () => resolveConnectedTtsText(id, nodes, edges),
@@ -241,6 +245,10 @@ export const QwenTtsVoiceDesignNode = memo(({
     : DEFAULT_MAX_NEW_TOKENS;
   const topP = typeof data.topP === 'number' ? data.topP : DEFAULT_TOP_P;
   const topK = typeof data.topK === 'number' ? data.topK : DEFAULT_TOP_K;
+  const outputFormat = supportsMp3Output && data.outputFormat === 'mp3' ? 'mp3' : 'wav';
+  const availableOutputFormatOptions = supportsMp3Output
+    ? OUTPUT_FORMAT_OPTIONS
+    : OUTPUT_FORMAT_OPTIONS.filter((option) => option.value === 'wav');
   const temperature = typeof data.temperature === 'number'
     ? data.temperature
     : DEFAULT_TEMPERATURE;
@@ -564,6 +572,14 @@ export const QwenTtsVoiceDesignNode = memo(({
         queuePosition: 0,
         statusText: t('node.audioNode.queueStarting'),
         lastError: null,
+        ttsPresetSource: {
+          referenceText: connectedTextTrimmed,
+          voicePrompt: data.voicePrompt ?? '',
+          stylePreset: data.stylePreset ?? 'natural',
+          language: data.language ?? 'auto',
+          speakingRate,
+          pitch,
+        },
       },
       {
         inheritParentFromNodeId: id,
@@ -589,6 +605,7 @@ export const QwenTtsVoiceDesignNode = memo(({
         voicePrompt: data.voicePrompt ?? '',
         stylePreset: data.stylePreset ?? 'natural',
         language: data.language ?? 'auto',
+        outputFormat,
         speakingRate,
         pitch,
         maxNewTokens,
@@ -895,6 +912,31 @@ export const QwenTtsVoiceDesignNode = memo(({
             </UiSelect>
             <div className="mt-2 text-[11px] leading-4 text-text-muted">
               {t('node.qwenTts.languageHint')}
+            </div>
+          </label>
+
+          <label className="block rounded-xl border border-white/10 bg-black/10 px-3 py-2.5">
+            <div className="mb-1 text-xs font-medium text-text-muted">
+              {t('node.qwenTts.outputFormat')}
+            </div>
+            <UiSelect
+              value={outputFormat}
+              onChange={(event: ChangeEvent<HTMLSelectElement>) => {
+                handleFieldChange(
+                  'outputFormat',
+                  event.target.value as TtsVoiceDesignNodeData['outputFormat']
+                );
+              }}
+              className="!h-10 !rounded-xl !border-white/10 !bg-white/[0.04] !px-3 !text-sm"
+            >
+              {availableOutputFormatOptions.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {t(option.labelKey)}
+                </option>
+              ))}
+            </UiSelect>
+            <div className="mt-2 text-[11px] leading-4 text-text-muted">
+              {t('node.qwenTts.outputFormatHint')}
             </div>
           </label>
         </div>

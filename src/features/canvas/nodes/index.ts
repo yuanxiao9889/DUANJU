@@ -16,7 +16,6 @@ import { StoryboardSplitResultNode } from './StoryboardSplitResultNode';
 import { TextAnnotationNode } from './TextAnnotationNode';
 import { TtsTextNode } from './TtsTextNode';
 import { QwenTtsVoiceDesignNode } from './QwenTtsVoiceDesignNode';
-import { QwenTtsPresetVoiceNode } from './QwenTtsPresetVoiceNode';
 import { QwenTtsSavedVoiceNode } from './QwenTtsSavedVoiceNode';
 import { UploadNode } from './UploadNode';
 import { VideoNode } from './VideoNode';
@@ -45,7 +44,6 @@ export const nodeTypes: NodeTypes = {
   textAnnotationNode: TextAnnotationNode,
   ttsTextNode: TextAnnotationNode,
   ttsVoiceDesignNode: QwenTtsVoiceDesignNode,
-  ttsPresetVoiceNode: QwenTtsPresetVoiceNode,
   ttsSavedVoiceNode: QwenTtsSavedVoiceNode,
   uploadNode: UploadNode,
   videoNode: VideoNode,
@@ -75,7 +73,6 @@ export {
   TextAnnotationNode, 
   TtsTextNode,
   QwenTtsVoiceDesignNode,
-  QwenTtsPresetVoiceNode,
   QwenTtsSavedVoiceNode,
   UploadNode, 
   VideoNode,

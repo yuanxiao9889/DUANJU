@@ -44,6 +44,7 @@ pub struct AssetItemRecord {
     pub mime_type: Option<String>,
     pub duration_ms: Option<i64>,
     pub aspect_ratio: String,
+    pub metadata: Option<Value>,
     pub created_at: i64,
     pub updated_at: i64,
 }
@@ -103,6 +104,7 @@ pub struct AssetItemMutationPayload {
     pub mime_type: Option<String>,
     pub duration_ms: Option<i64>,
     pub aspect_ratio: String,
+    pub metadata: Option<Value>,
 }
 
 fn current_timestamp_ms() -> i64 {
@@ -248,6 +250,25 @@ fn serialize_tags(tags: &[String]) -> Result<String, String> {
 
 fn deserialize_tags(value: String) -> Vec<String> {
     serde_json::from_str::<Vec<String>>(&value).unwrap_or_default()
+}
+
+fn serialize_metadata(value: Option<&Value>) -> Result<String, String> {
+    match value {
+        Some(metadata) if !metadata.is_null() => serde_json::to_string(metadata)
+            .map_err(|e| format!("Failed to encode asset metadata: {}", e)),
+        _ => Ok("{}".to_string()),
+    }
+}
+
+fn deserialize_metadata(value: String) -> Option<Value> {
+    let trimmed = value.trim();
+    if trimmed.is_empty() || trimmed == "{}" || trimmed.eq_ignore_ascii_case("null") {
+        return None;
+    }
+
+    serde_json::from_str::<Value>(trimmed)
+        .ok()
+        .filter(|metadata| !metadata.is_null())
 }
 
 fn normalize_asset_media_type(category: &str, requested_media_type: &str) -> String {
@@ -835,6 +856,7 @@ fn load_library_items(conn: &Connection, library_id: &str) -> Result<Vec<AssetIt
               NULLIF(TRIM(COALESCE(mime_type, '')), '') AS mime_type,
               duration_ms,
               aspect_ratio,
+              COALESCE(NULLIF(TRIM(metadata_json), ''), '{}') AS metadata_json,
               created_at,
               updated_at
             FROM asset_items
@@ -860,8 +882,9 @@ fn load_library_items(conn: &Connection, library_id: &str) -> Result<Vec<AssetIt
                 mime_type: row.get(10)?,
                 duration_ms: row.get(11)?,
                 aspect_ratio: row.get(12)?,
-                created_at: row.get(13)?,
-                updated_at: row.get(14)?,
+                metadata: deserialize_metadata(row.get(13)?),
+                created_at: row.get(14)?,
+                updated_at: row.get(15)?,
             })
         })
         .map_err(|e| format!("Failed to query asset items: {}", e))?;
@@ -972,6 +995,7 @@ pub async fn list_asset_libraries(app: AppHandle) -> Result<Vec<AssetLibraryReco
                   NULLIF(TRIM(COALESCE(mime_type, '')), '') AS mime_type,
                   duration_ms,
                   aspect_ratio,
+                  COALESCE(NULLIF(TRIM(metadata_json), ''), '{}') AS metadata_json,
                   created_at,
                   updated_at
                 FROM asset_items
@@ -995,8 +1019,9 @@ pub async fn list_asset_libraries(app: AppHandle) -> Result<Vec<AssetLibraryReco
                     mime_type: row.get(10)?,
                     duration_ms: row.get(11)?,
                     aspect_ratio: row.get(12)?,
-                    created_at: row.get(13)?,
-                    updated_at: row.get(14)?,
+                    metadata: deserialize_metadata(row.get(13)?),
+                    created_at: row.get(14)?,
+                    updated_at: row.get(15)?,
                 })
             })
             .map_err(|e| format!("Failed to query all asset items: {}", e))?;
@@ -1287,6 +1312,7 @@ async fn create_or_update_asset_item(
     } else {
         payload.aspect_ratio.trim().to_string()
     };
+    let metadata_json = serialize_metadata(payload.metadata.as_ref())?;
     let (normalized_source_path, normalized_preview_path) = normalize_asset_media_paths(
         app,
         payload.source_path.clone(),
@@ -1330,13 +1356,14 @@ async fn create_or_update_asset_item(
           preview_path,
           mime_type,
           duration_ms,
+          metadata_json,
           image_path,
           preview_image_path,
           aspect_ratio,
           created_at,
           updated_at
         )
-        VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17)
+        VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18)
         ON CONFLICT(id) DO UPDATE SET
           library_id = excluded.library_id,
           category = excluded.category,
@@ -1349,6 +1376,7 @@ async fn create_or_update_asset_item(
           preview_path = excluded.preview_path,
           mime_type = excluded.mime_type,
           duration_ms = excluded.duration_ms,
+          metadata_json = excluded.metadata_json,
           image_path = excluded.image_path,
           preview_image_path = excluded.preview_image_path,
           aspect_ratio = excluded.aspect_ratio,
@@ -1367,6 +1395,7 @@ async fn create_or_update_asset_item(
             normalized_preview_path.clone(),
             normalized_mime_type,
             normalized_duration_ms,
+            metadata_json,
             normalized_source_path.clone(),
             normalized_preview_path.clone().unwrap_or_default(),
             normalized_aspect_ratio,
@@ -1407,6 +1436,7 @@ async fn create_or_update_asset_item(
               NULLIF(TRIM(COALESCE(mime_type, '')), '') AS mime_type,
               duration_ms,
               aspect_ratio,
+              COALESCE(NULLIF(TRIM(metadata_json), ''), '{}') AS metadata_json,
               created_at,
               updated_at
             FROM asset_items
@@ -1429,8 +1459,9 @@ async fn create_or_update_asset_item(
                     mime_type: row.get(10)?,
                     duration_ms: row.get(11)?,
                     aspect_ratio: row.get(12)?,
-                    created_at: row.get(13)?,
-                    updated_at: row.get(14)?,
+                    metadata: deserialize_metadata(row.get(13)?),
+                    created_at: row.get(14)?,
+                    updated_at: row.get(15)?,
                 })
             },
         )
@@ -1535,6 +1566,7 @@ mod tests {
             mime_type: None,
             duration_ms: None,
             aspect_ratio: "16:9".to_string(),
+            metadata: None,
             created_at: 1,
             updated_at: 2,
         }

@@ -4,8 +4,8 @@ import {
   type PreparedAudio,
 } from '@/features/canvas/application/audioData';
 import type {
+  QwenTtsOutputFormat,
   QwenTtsPauseConfig,
-  TtsPresetVoiceNodeData,
   TtsVoiceDesignNodeData,
 } from '@/features/canvas/domain/canvasNodes';
 import {
@@ -32,7 +32,6 @@ const QWEN_TTS_EXTENSION_PRIORITY = [
 
 type QwenTtsVoicePreset = TtsVoiceDesignNodeData['stylePreset'];
 type QwenTtsVoiceLanguage = TtsVoiceDesignNodeData['language'];
-type QwenTtsPresetSpeaker = TtsPresetVoiceNodeData['speaker'];
 
 interface QwenTtsHealthResponse {
   ok: boolean;
@@ -56,18 +55,12 @@ interface QwenTtsGeneratedOutput {
   path: string;
   name?: string;
   duration?: number;
+  mimeType?: string;
 }
 
 interface QwenTtsGenerateVoiceDesignResponse {
   ok: boolean;
   command: 'generate_voice_design';
-  outputs?: QwenTtsGeneratedOutput[];
-  files?: string[];
-}
-
-interface QwenTtsGenerateCustomVoiceResponse {
-  ok: boolean;
-  command: 'generate_custom_voice';
   outputs?: QwenTtsGeneratedOutput[];
   files?: string[];
 }
@@ -102,20 +95,9 @@ export interface GenerateQwenTtsVoiceDesignRequest extends QwenTtsPauseConfig {
   voicePrompt: string;
   stylePreset: QwenTtsVoicePreset;
   language: QwenTtsVoiceLanguage;
+  outputFormat?: QwenTtsOutputFormat;
   speakingRate: number;
   pitch: number;
-  maxNewTokens: number;
-  topP: number;
-  topK: number;
-  temperature: number;
-  repetitionPenalty: number;
-}
-
-export interface GenerateQwenTtsPresetVoiceRequest {
-  text: string;
-  speaker: QwenTtsPresetSpeaker;
-  language: QwenTtsVoiceLanguage;
-  instruct: string;
   maxNewTokens: number;
   topP: number;
   topK: number;
@@ -137,6 +119,7 @@ export interface SavedQwenTtsVoicePromptAsset {
 export interface GenerateQwenTtsSavedVoiceRequest extends QwenTtsPauseConfig {
   text: string;
   language: QwenTtsVoiceLanguage;
+  outputFormat?: QwenTtsOutputFormat;
   voiceName: string;
   promptFile: string;
   maxNewTokens: number;
@@ -511,6 +494,24 @@ function buildPausePayload(config: QwenTtsPauseConfig): Record<string, number> {
   };
 }
 
+function resolveOutputFormat(outputFormat: QwenTtsOutputFormat | undefined): QwenTtsOutputFormat {
+  return outputFormat === 'mp3' ? 'mp3' : 'wav';
+}
+
+function resolveAudioMimeType(
+  outputPath: string | null,
+  fallbackFormat: QwenTtsOutputFormat
+): string {
+  const normalizedPath = outputPath?.trim().toLowerCase() ?? '';
+  if (normalizedPath.endsWith('.mp3')) {
+    return 'audio/mpeg';
+  }
+  if (normalizedPath.endsWith('.wav')) {
+    return 'audio/wav';
+  }
+  return fallbackFormat === 'mp3' ? 'audio/mpeg' : 'audio/wav';
+}
+
 function sanitizeOutputPrefix(value: string, fallback: string): string {
   const sanitized = value.trim().replace(/[^a-zA-Z0-9._-]+/g, '-').replace(/^-+|-+$/g, '');
   return sanitized || fallback;
@@ -520,12 +521,14 @@ async function generateRealVoiceDesignAudio(
   extensionPackage: LoadedExtensionPackage,
   request: GenerateQwenTtsVoiceDesignRequest
 ): Promise<GeneratedQwenTtsAudioAsset> {
+  const outputFormat = resolveOutputFormat(request.outputFormat);
   const response = await runResilientExtensionCommand<QwenTtsGenerateVoiceDesignResponse>(
     extensionPackage,
     'generate_voice_design',
     {
       text: request.text,
       language: request.language,
+      outputFormat,
       voicePrompt: buildVoiceDesignInstruction(request),
       outputPrefix: `voice-design-${Date.now()}`,
       max_new_tokens: normalizePositiveInteger(request.maxNewTokens, 2048, 512, 4096),
@@ -545,7 +548,7 @@ async function generateRealVoiceDesignAudio(
 
   const preparedAudio = await prepareNodeAudio(outputPath, {
     duration: firstOutput?.duration,
-    mimeType: 'audio/wav',
+    mimeType: firstOutput?.mimeType ?? resolveAudioMimeType(outputPath, outputFormat),
   });
 
   return {
@@ -584,79 +587,6 @@ export async function generateQwenTtsVoiceDesignAudio(
   }
 
   return await generateMockVoiceDesignAudio(request);
-}
-
-async function generateRealPresetVoiceAudio(
-  extensionPackage: LoadedExtensionPackage,
-  request: GenerateQwenTtsPresetVoiceRequest
-): Promise<GeneratedQwenTtsAudioAsset> {
-  const response = await runResilientExtensionCommand<QwenTtsGenerateCustomVoiceResponse>(
-    extensionPackage,
-    'generate_custom_voice',
-    {
-      text: request.text,
-      language: request.language,
-      speaker: request.speaker,
-      instruct: request.instruct.trim() || undefined,
-      outputPrefix: sanitizeOutputPrefix(
-        request.speaker,
-        `custom-voice-${Date.now()}`
-      ),
-      max_new_tokens: normalizePositiveInteger(request.maxNewTokens, 2048, 512, 4096),
-      temperature: normalizeFloat(request.temperature, 1, 0.1, 2),
-      top_k: normalizePositiveInteger(request.topK, 20, 0, 100),
-      top_p: normalizeFloat(request.topP, 0.8, 0, 1),
-      repetition_penalty: normalizeFloat(request.repetitionPenalty, 1.05, 1, 2),
-    }
-  );
-
-  const firstOutput = response.outputs?.[0];
-  const outputPath = firstOutput?.path ?? response.files?.[0] ?? null;
-  if (!outputPath) {
-    throw new Error('The extension runtime did not return an audio file.');
-  }
-
-  const preparedAudio = await prepareNodeAudio(outputPath, {
-    duration: firstOutput?.duration,
-    mimeType: 'audio/wav',
-  });
-
-  return {
-    ...preparedAudio,
-    audioFileName: firstOutput?.name ?? getFileNameFromPath(outputPath),
-    sourcePath: outputPath,
-  };
-}
-
-async function generateMockPresetVoiceAudio(
-  request: GenerateQwenTtsPresetVoiceRequest
-): Promise<GeneratedQwenTtsAudioAsset> {
-  const audioFile = await createMockQwenTtsAudioFile({
-    text: request.text,
-    voicePrompt: request.instruct,
-    stylePreset: request.speaker,
-    language: request.language,
-    speakingRate: 1,
-    pitch: 0,
-  });
-
-  const preparedAudio = await prepareNodeAudioFromFile(audioFile);
-  return {
-    ...preparedAudio,
-    audioFileName: audioFile.name,
-    sourcePath: null,
-  };
-}
-
-export async function generateQwenTtsPresetVoiceAudio(
-  extensionPackage: LoadedExtensionPackage,
-  request: GenerateQwenTtsPresetVoiceRequest
-): Promise<GeneratedQwenTtsAudioAsset> {
-  if (extensionPackage.id === QWEN_TTS_COMPLETE_EXTENSION_ID) {
-    return await generateRealPresetVoiceAudio(extensionPackage, request);
-  }
-
-  return await generateMockPresetVoiceAudio(request);
 }
 
 async function createRealSavedVoicePrompt(
@@ -711,12 +641,14 @@ async function generateRealSavedVoiceAudio(
   extensionPackage: LoadedExtensionPackage,
   request: GenerateQwenTtsSavedVoiceRequest
 ): Promise<GeneratedQwenTtsAudioAsset> {
+  const outputFormat = resolveOutputFormat(request.outputFormat);
   const response = await runResilientExtensionCommand<QwenTtsGenerateVoiceCloneResponse>(
     extensionPackage,
     'generate_voice_clone',
     {
       text: request.text,
       language: request.language,
+      outputFormat,
       promptFile: request.promptFile,
       outputPrefix: sanitizeOutputPrefix(request.voiceName, `saved-voice-${Date.now()}`),
       max_new_tokens: normalizePositiveInteger(request.maxNewTokens, 2048, 512, 4096),
@@ -736,7 +668,7 @@ async function generateRealSavedVoiceAudio(
 
   const preparedAudio = await prepareNodeAudio(outputPath, {
     duration: firstOutput?.duration,
-    mimeType: 'audio/wav',
+    mimeType: firstOutput?.mimeType ?? resolveAudioMimeType(outputPath, outputFormat),
   });
 
   return {

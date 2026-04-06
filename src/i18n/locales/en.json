@@ -6,6 +6,7 @@
   "common": {
     "back": "Back",
     "save": "Save",
+    "saving": "Saving...",
     "cancel": "Cancel",
     "confirm": "Confirm",
     "delete": "Delete",
@@ -206,7 +207,6 @@
       "textAnnotation": "Text",
       "ttsText": "Text",
       "ttsVoiceDesign": "Voice Design",
-      "ttsPresetVoice": "Preset Voice",
       "ttsSavedVoice": "Voice Clone",
       "videoNode": "Video Node",
       "audioNode": "Audio Node",
@@ -761,6 +761,12 @@
         "topK": "Limits how many candidates can be sampled each step. Lower values are safer.",
         "repetitionPenalty": "Higher values reduce repetition, but too much can make delivery sound stiff."
       },
+      "outputFormat": "Output Format",
+      "outputFormatHint": "This extension can export both WAV and MP3 directly. WAV is better for editing, MP3 saves space.",
+      "outputFormats": {
+        "wav": "WAV",
+        "mp3": "MP3"
+      },
       "pauseControls": {
         "linebreak": "Linebreak Pause",
         "period": "Period Pause",
@@ -775,61 +781,26 @@
         "question": "Silence inserted after question marks.",
         "hyphen": "Silence inserted after hyphens or em dashes."
       },
-      "presetVoice": {
-        "modelBadge": "Qwen3 TTS 1.7B CustomVoice",
-        "libraryTitle": "Preset Voices",
-        "speaker": "Voice",
-        "speakerHint": "Use the official Qwen3 CustomVoice preset speakers for quick auditions and reusable voice output.",
-        "currentVoice": "Current voice",
-        "instruction": "Extra instruction",
-        "instructionPlaceholder": "Example: lean more toward ad narration, sound more confident, and land sentence endings more cleanly",
-        "instructionHint": "Optional. Use it to fine-tune emotion, phrasing, and delivery without replacing the preset voice itself.",
-        "speakers": {
-          "Vivian": {
-            "label": "Vivian",
-            "description": "Bright young female voice with a slight edge, best suited for Chinese delivery."
-          },
-          "Serena": {
-            "label": "Serena",
-            "description": "Warm and gentle young female voice, well suited for softer scenes."
-          },
-          "Uncle_Fu": {
-            "label": "Uncle_Fu",
-            "description": "Seasoned male voice with a low, mellow timbre for narration-heavy reads."
-          },
-          "Dylan": {
-            "label": "Dylan",
-            "description": "Youthful Beijing male voice with a clear, natural, conversational feel."
-          },
-          "Eric": {
-            "label": "Eric",
-            "description": "Lively Chengdu male voice with slightly husky brightness and energy."
-          },
-          "Ryan": {
-            "label": "Ryan",
-            "description": "Dynamic English male voice with strong rhythmic drive."
-          },
-          "Aiden": {
-            "label": "Aiden",
-            "description": "Sunny American English male voice with a clear, steady midrange."
-          },
-          "Ono_Anna": {
-            "label": "Ono_Anna",
-            "description": "Playful Japanese female voice with a light and nimble timbre."
-          },
-          "Sohee": {
-            "label": "Sohee",
-            "description": "Warm Korean female voice with richer emotional color."
-          }
-        }
-      },
       "savedVoice": {
         "modelBadge": "Qwen3 TTS 1.7B Voice Clone",
         "defaultVoiceName": "My Voice",
         "referenceTitle": "Reference Voice",
         "referenceDescription": "Connect a reference audio node, enter its transcript, then save the extracted voice features as a reusable bundle.",
+        "presetTitle": "Preset Voice",
+        "presetSelectLabel": "Preset List",
+        "presetOptionalLabel": "Preset Voice (Optional)",
+        "selectPresetPlaceholder": "Select a preset voice",
+        "selectedPreset": "Selected Preset",
+        "noPresetSelectedShort": "None selected",
+        "selectPresetHint": "Choose a saved preset from the dropdown",
+        "presetOverridesManualHint": "Selecting a preset disconnects the manual reference-audio link and switches to the preset audio plus its saved transcript.",
+        "noPresetAssets": "No reusable voice presets yet. Generate audio in Voice Design first, then save it as a preset from the audio node.",
+        "presetCount": "Preset Count",
+        "presetCountHint": "Reusable voice presets in assets",
         "referenceAudio": "Reference Audio",
         "referenceAudioHint": "Connect an audio node to the left side of this node as the speaker sample.",
+        "referenceSourceManual": "Manual Reference",
+        "referenceSourcePreset": "Preset Reference",
         "referenceReady": "Connected",
         "referenceMissing": "Missing",
         "referenceCount": "{{count}} reference audio clip(s)",
@@ -837,6 +808,8 @@
         "referenceTranscript": "Reference Transcript",
         "referenceTranscriptPlaceholder": "Enter the exact words spoken in the reference clip for more stable cloning.",
         "voiceName": "Voice Name",
+        "previewPreset": "Preview Preset",
+        "stopPreview": "Stop Preview",
         "voiceBundle": "Voice Bundle",
         "bundlePending": "Not saved yet",
         "bundleReady": "Bundle ready",
@@ -855,6 +828,8 @@
         "promptReady": "Voice bundle saved",
         "statusExtracting": "Extracting and saving voice features...",
         "extractFailed": "Failed to save voice",
+        "bundlePendingHint": "The node will extract and cache the voice bundle on first use for faster reuse later.",
+        "noPresetSelected": "Select a preset voice first",
         "noReferenceAudio": "Connect a reference audio node first",
         "noReferenceTranscript": "Enter the reference transcript first"
       },
@@ -919,7 +894,17 @@
       "supportedFormats": "Supported: MP3, WAV, OGG, M4A, AAC, FLAC, WebM",
       "play": "Play",
       "pause": "Pause",
-      "playFailed": "Failed to play audio"
+      "playFailed": "Failed to play audio",
+      "saveAsPreset": "Save as Preset",
+      "savePresetHintTitle": "Save as a reusable voice",
+      "savePresetHint": "This stores the audio together with its reference transcript into the asset library, so the Voice Clone node can reuse it directly later.",
+      "savePresetDescriptionPlaceholder": "For example: soft narration, gentle pacing, youthful tone",
+      "savePresetSelectLibrary": "Select an asset library",
+      "savePresetMissingAudio": "This audio is not ready yet, so it cannot be saved as a preset.",
+      "savePresetMissingReferenceText": "Missing reference transcript. This audio cannot be saved as a preset yet.",
+      "savePresetNoLibrary": "No asset library available yet. Create one in Asset Manager first.",
+      "savePresetTitleRequired": "Enter a preset title first.",
+      "savePresetFailed": "Failed to save the preset. Please try again."
     }
   },
   "nodeStatus": {

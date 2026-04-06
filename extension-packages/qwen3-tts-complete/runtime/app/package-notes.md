@@ -7,5 +7,5 @@ Key rules:
 - Do not start the official Gradio demo from the app runtime.
 - Use `storyboard_qwen_runner.py` as the only process entrypoint.
 - Keep `qwen_tts` importable from the same runtime package folder.
-- Save generated wav files into `../outputs`.
+- Save generated audio files into `../outputs`.
 - Save reusable clone prompt files into `../voices`.

@@ -389,7 +389,7 @@ function resolveAllowedNodeTypes(
       sourceNode.type === CANVAS_NODE_TYPES.video
       || sourceNode.type === CANVAS_NODE_TYPES.jimengVideoResult
       || sourceNode.type === CANVAS_NODE_TYPES.seedanceVideoResult;
-    const shouldHideTextDrivenTtsNodes =
+    const shouldHideVoiceDesign =
       isSingleImageSource
       || isVideoReferenceSource
       || sourceNode.type === CANVAS_NODE_TYPES.jimeng
@@ -403,11 +403,9 @@ function resolveAllowedNodeTypes(
       );
     }
 
-    if (shouldHideTextDrivenTtsNodes) {
+    if (shouldHideVoiceDesign) {
       allowedTypes = allowedTypes.filter(
-        (type) =>
-          type !== CANVAS_NODE_TYPES.ttsVoiceDesign
-          && type !== CANVAS_NODE_TYPES.ttsPresetVoice
+        (type) => type !== CANVAS_NODE_TYPES.ttsVoiceDesign
       );
     }
   }

@@ -325,6 +325,7 @@ export function NodeAddToAssetsButton({
                 mimeType: prepared.mimeType,
                 durationMs: Math.round(prepared.duration * 1000),
                 aspectRatio: '1:1',
+                metadata: null,
               });
             })()
           : await (async () => {
@@ -342,6 +343,7 @@ export function NodeAddToAssetsButton({
                 mimeType: null,
                 durationMs: null,
                 aspectRatio: prepared.aspectRatio,
+                metadata: null,
               });
             })();
 

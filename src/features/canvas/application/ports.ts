@@ -85,6 +85,9 @@ export interface CanvasEventMap {
     toolType: NodeToolType;
   };
   'tool-dialog/close': undefined;
+  'audio-node/open-save-preset': {
+    nodeId: string;
+  };
   'upload-node/reupload': {
     nodeId: string;
   };

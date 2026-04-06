@@ -51,11 +51,20 @@ interface UiSelectProps extends SelectHTMLAttributes<HTMLSelectElement> {
   menuAnchorRef?: RefObject<HTMLElement | null>;
 }
 
-interface UiSelectOption {
+interface UiSelectOptionItem {
+  kind: 'option';
   value: string;
   label: ReactNode;
   disabled: boolean;
 }
+
+interface UiSelectGroupItem {
+  kind: 'group';
+  label: ReactNode;
+  key: string;
+}
+
+type UiSelectItem = UiSelectOptionItem | UiSelectGroupItem;
 
 interface UiModalProps {
   isOpen: boolean;
@@ -87,6 +96,50 @@ function extractTextContent(node: ReactNode): string {
 
 function hasTextContent(node: ReactNode): boolean {
   return extractTextContent(node).trim().length > 0;
+}
+
+function parseUiSelectItems(children: ReactNode): UiSelectItem[] {
+  const items: UiSelectItem[] = [];
+
+  Children.toArray(children).forEach((child, index) => {
+    if (!isValidElement(child)) {
+      return;
+    }
+
+    if (child.type === 'option') {
+      const optionValue = child.props.value ?? child.props.children;
+      items.push({
+        kind: 'option',
+        value: String(optionValue ?? ''),
+        label: child.props.children,
+        disabled: Boolean(child.props.disabled),
+      });
+      return;
+    }
+
+    if (child.type === 'optgroup') {
+      const groupLabel = child.props.label ?? '';
+      const groupKey = String(child.key ?? `group-${index}-${extractTextContent(groupLabel)}`);
+      const nestedItems = parseUiSelectItems(child.props.children);
+      const optionItems = nestedItems.filter(
+        (item): item is UiSelectOptionItem => item.kind === 'option'
+      );
+
+      if (optionItems.length === 0) {
+        return;
+      }
+
+      items.push({
+        kind: 'group',
+        label: groupLabel,
+        key: groupKey,
+      });
+      items.push(...optionItems);
+      return;
+    }
+  });
+
+  return items;
 }
 
 function resolveButtonVariant(variant: ButtonVariant): string {
@@ -244,22 +297,13 @@ export function UiSelect({ className = '', children, ...props }: UiSelectProps) 
     isOpen,
     UI_POPOVER_TRANSITION_MS
   );
-  const parsedOptions = useMemo<UiSelectOption[]>(() => {
-    return Children.toArray(children).flatMap((child) => {
-      if (!isValidElement(child) || child.type !== 'option') {
-        return [];
-      }
-
-      const optionValue = child.props.value ?? child.props.children;
-      return [
-        {
-          value: String(optionValue ?? ''),
-          label: child.props.children,
-          disabled: Boolean(child.props.disabled),
-        },
-      ];
-    });
+  const parsedItems = useMemo<UiSelectItem[]>(() => {
+    return parseUiSelectItems(children);
   }, [children]);
+  const parsedOptions = useMemo<UiSelectOptionItem[]>(
+    () => parsedItems.filter((item): item is UiSelectOptionItem => item.kind === 'option'),
+    [parsedItems]
+  );
   const initialValue = useMemo(() => {
     if (value != null) {
       return String(value);
@@ -300,10 +344,10 @@ export function UiSelect({ className = '', children, ...props }: UiSelectProps) 
       const anchorRect = menuAnchorRef?.current?.getBoundingClientRect() ?? rect;
       const viewportWidth = window.innerWidth;
       const viewportHeight = window.innerHeight;
-      const estimatedMenuHeight = Math.min(Math.max(parsedOptions.length * 38 + 12, 60), 240);
-      const longestOptionTextLength = parsedOptions.reduce((maxLength, option) => {
-        const optionTextLength = extractTextContent(option.label).trim().length;
-        return Math.max(maxLength, optionTextLength);
+      const estimatedMenuHeight = Math.min(Math.max(parsedItems.length * 38 + 12, 60), 240);
+      const longestOptionTextLength = parsedItems.reduce((maxLength, item) => {
+        const itemTextLength = extractTextContent(item.label).trim().length;
+        return Math.max(maxLength, itemTextLength);
       }, 0);
       const estimatedMenuWidth = Math.max(
         anchorRect.width,
@@ -333,7 +377,7 @@ export function UiSelect({ className = '', children, ...props }: UiSelectProps) 
       window.removeEventListener('resize', updatePosition);
       window.removeEventListener('scroll', updatePosition, true);
     };
-  }, [isOpen, parsedOptions]);
+  }, [isOpen, menuAnchorRef, parsedItems]);
 
   useEffect(() => {
     const handleAnotherSelectOpen = (event: Event) => {
@@ -516,32 +560,43 @@ export function UiSelect({ className = '', children, ...props }: UiSelectProps) 
               }}
             >
               <div className="ui-scrollbar max-h-[228px] overflow-y-auto">
-                {parsedOptions.map((option) => {
-                  const isSelected = option.value === selectedValue;
+                {parsedItems.map((item) => {
+                  if (item.kind === 'group') {
+                    return (
+                      <div
+                        key={item.key}
+                        className="px-3 pb-1 pt-2 text-[11px] font-semibold uppercase tracking-[0.12em] text-text-muted/80 first:pt-1"
+                      >
+                        {item.label}
+                      </div>
+                    );
+                  }
+
+                  const isSelected = item.value === selectedValue;
                   return (
                     <button
-                      key={option.value}
+                      key={item.value}
                       type="button"
                       role="option"
                       aria-selected={isSelected}
-                      disabled={option.disabled}
+                      disabled={item.disabled}
                       className={`flex w-full items-center justify-between rounded-[4px] px-3 py-2 text-sm transition-colors ${
-                        option.disabled
+                        item.disabled
                           ? 'cursor-not-allowed opacity-40'
                           : isSelected
                             ? 'bg-accent text-white'
                             : 'text-text-dark hover:bg-[rgba(255,255,255,0.08)] dark:hover:bg-white/[0.06]'
                       }`}
                       onClick={() => {
-                        if (option.disabled) {
+                        if (item.disabled) {
                           return;
                         }
-                        commitValue(option.value);
+                        commitValue(item.value);
                         closeMenu();
                         triggerRef.current?.focus();
                       }}
                     >
-                      <span className="min-w-0 whitespace-nowrap text-left">{option.label}</span>
+                      <span className="min-w-0 whitespace-nowrap text-left">{item.label}</span>
                       {isSelected ? <Check className="ml-3 h-3.5 w-3.5 shrink-0 text-white" /> : null}
                     </button>
                   );
@@ -570,8 +625,12 @@ export function UiModal({
     return null;
   }
 
-  return (
-    <div className={`fixed ${UI_CONTENT_OVERLAY_INSET_CLASS} z-50 flex items-center justify-center ${containerClassName}`}>
+  if (typeof document === 'undefined') {
+    return null;
+  }
+
+  return createPortal(
+    <div className={`fixed ${UI_CONTENT_OVERLAY_INSET_CLASS} z-[10040] flex items-center justify-center ${containerClassName}`}>
       <div
         className={`absolute inset-0 bg-black/55 transition-opacity duration-200 ${isVisible ? 'opacity-100' : 'opacity-0'}`}
         onClick={onClose}
@@ -594,6 +653,7 @@ export function UiModal({
           </div>
         )}
       </UiPanel>
-    </div>
+    </div>,
+    document.body
   );
 }
