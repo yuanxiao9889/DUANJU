@@ -37,6 +37,25 @@ export interface ScriptRewriteRequest {
   model?: string;
 }
 
+export interface StoryboardScriptGenerationRequest {
+  content: string;
+  maxScripts?: number;
+}
+
+export interface GeneratedStoryboardScript {
+  title: string;
+  summary: string;
+  content: string;
+  sceneHeading: string;
+  characters: string[];
+  location: string;
+  props: string[];
+  visualFocus: string;
+  soundCue: string;
+}
+
+const STORYBOARD_SCRIPT_OUTPUT_LIMIT = 6;
+
 const NO_ACTIVE_SCRIPT_MODEL_MESSAGE =
   '\u8bf7\u5148\u5728\u8bbe\u7f6e\u4e2d\u6fc0\u6d3b\u4e00\u4e2a\u5267\u672c API \u6a21\u578b\u540e\u518d\u4f7f\u7528';
 const NO_ACTIVE_SCRIPT_PROVIDER_MODEL_MESSAGE =
@@ -45,6 +64,132 @@ const NO_ACTIVE_SCRIPT_PROVIDER_MODEL_MESSAGE =
 function openProviderSettingsAndThrow(message: string): never {
   openSettingsDialog({ category: 'providers' });
   throw new Error(message);
+}
+
+function normalizeNonEmptyString(value: unknown): string {
+  return typeof value === 'string' ? value.trim() : '';
+}
+
+function normalizeStringArray(value: unknown): string[] {
+  if (Array.isArray(value)) {
+    return Array.from(
+      new Set(
+        value
+          .map((item) => normalizeNonEmptyString(item))
+          .filter((item) => item.length > 0)
+      )
+    );
+  }
+
+  if (typeof value === 'string') {
+    return Array.from(
+      new Set(
+        value
+          .split(/[\n,，、;；]/)
+          .map((item) => item.trim())
+          .filter((item) => item.length > 0)
+      )
+    );
+  }
+
+  return [];
+}
+
+function readStringValue(record: Record<string, unknown>, keys: string[]): string {
+  for (const key of keys) {
+    const value = normalizeNonEmptyString(record[key]);
+    if (value.length > 0) {
+      return value;
+    }
+  }
+  return '';
+}
+
+function readStringArrayValue(record: Record<string, unknown>, keys: string[]): string[] {
+  for (const key of keys) {
+    const value = normalizeStringArray(record[key]);
+    if (value.length > 0) {
+      return value;
+    }
+  }
+  return [];
+}
+
+function clampStoryboardScriptCount(value: number | undefined): number {
+  if (!Number.isFinite(value)) {
+    return STORYBOARD_SCRIPT_OUTPUT_LIMIT;
+  }
+
+  return Math.max(1, Math.min(STORYBOARD_SCRIPT_OUTPUT_LIMIT, Math.floor(value as number)));
+}
+
+function stripMarkdownCodeFence(value: string): string {
+  const trimmed = value.trim();
+  const codeFenceMatch = trimmed.match(/^```(?:json)?\s*([\s\S]*?)\s*```$/i);
+  return codeFenceMatch ? codeFenceMatch[1].trim() : trimmed;
+}
+
+function tryParseJson<T>(value: string): T | null {
+  try {
+    return JSON.parse(value) as T;
+  } catch {
+    return null;
+  }
+}
+
+function extractJsonValue(text: string): unknown {
+  const stripped = stripMarkdownCodeFence(text);
+  const directValue = tryParseJson<unknown>(stripped);
+  if (directValue !== null) {
+    return directValue;
+  }
+
+  const objectMatch = stripped.match(/\{[\s\S]*\}/);
+  if (objectMatch) {
+    const objectValue = tryParseJson<unknown>(objectMatch[0]);
+    if (objectValue !== null) {
+      return objectValue;
+    }
+  }
+
+  const arrayMatch = stripped.match(/\[[\s\S]*\]/);
+  if (arrayMatch) {
+    const arrayValue = tryParseJson<unknown>(arrayMatch[0]);
+    if (arrayValue !== null) {
+      return arrayValue;
+    }
+  }
+
+  return null;
+}
+
+function normalizeGeneratedStoryboardScript(
+  value: unknown,
+  index: number
+): GeneratedStoryboardScript | null {
+  if (!value || typeof value !== 'object') {
+    return null;
+  }
+
+  const record = value as Record<string, unknown>;
+  const summary = readStringValue(record, ['summary', 'description', 'logline']);
+  const content = readStringValue(record, ['content', 'script', 'draft', 'body']) || summary;
+
+  if (!content) {
+    return null;
+  }
+
+  return {
+    title: readStringValue(record, ['title', 'name', 'sceneTitle']) || `Script ${index + 1}`,
+    summary,
+    content,
+    sceneHeading: readStringValue(record, ['sceneHeading', 'scene_heading', 'heading']),
+    characters: readStringArrayValue(record, ['characters', 'characterList', 'roles']),
+    location: readStringValue(record, ['location', 'sceneLocation', 'setting']),
+    props: readStringArrayValue(record, ['props', 'items', 'objects']),
+    visualFocus: readStringValue(record, ['visualFocus', 'visual_focus', 'visual']),
+    soundCue: readStringValue(record, ['soundCue', 'sound', 'sfx']),
+  };
 }
 
 function resolveProviderAndModel(request: TextGenerationRequest): { provider: string; model: string } {
@@ -233,6 +378,78 @@ ${request.requirement}
   });
 
   return result.text;
+}
+
+export async function generateStoryboardScriptsFromText(
+  request: StoryboardScriptGenerationRequest
+): Promise<GeneratedStoryboardScript[]> {
+  const content = request.content.trim();
+  if (!content) {
+    throw new Error('Please enter script text first.');
+  }
+
+  const maxScripts = clampStoryboardScriptCount(request.maxScripts);
+  const prompt = [
+    'You are a professional storyboard writer.',
+    `Break the user input into at most ${maxScripts} sequential storyboard script drafts.`,
+    'Each output item must represent one usable script node for downstream processing.',
+    'Preserve story order. If the source material is longer than the limit, merge adjacent beats instead of exceeding the count.',
+    'Keep the output language consistent with the user input.',
+    'Return JSON only. Do not wrap it in Markdown fences. Do not add commentary.',
+    '',
+    'Return exactly this JSON shape:',
+    '{',
+    '  "scripts": [',
+    '    {',
+    '      "title": "short scene title",',
+    '      "summary": "1-2 sentence summary",',
+    '      "content": "plain text script draft, can contain line breaks",',
+    '      "sceneHeading": "optional scene heading",',
+    '      "characters": ["name"],',
+    '      "location": "optional location",',
+    '      "props": ["important prop"],',
+    '      "visualFocus": "optional visual focus",',
+    '      "soundCue": "optional sound cue"',
+    '    }',
+    '  ]',
+    '}',
+    '',
+    'Constraints:',
+    `- scripts.length must be between 1 and ${maxScripts}`,
+    '- content must stay concise, concrete, and production-usable',
+    '- Use empty strings or empty arrays for missing optional fields',
+    '',
+    'User input:',
+    content,
+  ].join('\n');
+
+  const result = await generateText({
+    prompt,
+    temperature: 0.4,
+    maxTokens: 4096,
+  });
+
+  const parsed = extractJsonValue(result.text);
+  if (!parsed) {
+    throw new Error('Failed to parse storyboard script JSON.');
+  }
+
+  const rawScripts = Array.isArray(parsed)
+    ? parsed
+    : parsed && typeof parsed === 'object' && Array.isArray((parsed as { scripts?: unknown }).scripts)
+      ? (parsed as { scripts: unknown[] }).scripts
+      : [];
+
+  const scripts = rawScripts
+    .map((item, index) => normalizeGeneratedStoryboardScript(item, index))
+    .filter((item): item is GeneratedStoryboardScript => Boolean(item))
+    .slice(0, maxScripts);
+
+  if (scripts.length === 0) {
+    throw new Error('No storyboard scripts were generated.');
+  }
+
+  return scripts;
 }
 
 export interface SummaryExpandRequest {

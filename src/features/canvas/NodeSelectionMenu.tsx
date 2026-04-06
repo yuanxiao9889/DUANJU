@@ -134,7 +134,16 @@ function buildMenuEntries(definitions: CanvasNodeDefinition[]): MenuEntry[] {
     groupEntry.items.push(definition);
   }
 
-  return entries;
+  return entries.flatMap((entry) => {
+    if (entry.kind === 'group' && entry.items.length === 1) {
+      return [{
+        kind: 'item' as const,
+        definition: entry.items[0],
+      }];
+    }
+
+    return [entry];
+  });
 }
 
 export function NodeSelectionMenu({

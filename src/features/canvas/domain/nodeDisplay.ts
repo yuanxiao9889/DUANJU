@@ -15,14 +15,15 @@ export const DEFAULT_NODE_DISPLAY_NAME: Record<CanvasNodeType, string> = {
   [CANVAS_NODE_TYPES.seedance]: 'Seedance \u89c6\u9891',
   [CANVAS_NODE_TYPES.seedanceVideoResult]: '\u751f\u6210\u7ed3\u679c',
   [CANVAS_NODE_TYPES.exportImage]: '\u7ed3\u679c\u56fe\u7247',
-  [CANVAS_NODE_TYPES.textAnnotation]: '\u6587\u672c',
+  [CANVAS_NODE_TYPES.textAnnotation]: '\u97f3\u9891\u6587\u672c',
   [CANVAS_NODE_TYPES.group]: '\u5206\u7ec4',
   [CANVAS_NODE_TYPES.storyboardSplit]: '\u5206\u955c\u7ec4\u5408',
   [CANVAS_NODE_TYPES.storyboardSplitResult]: '\u5207\u5272\u7ed3\u679c',
   [CANVAS_NODE_TYPES.storyboardGen]: '\u5206\u955c\u751f\u6210',
   [CANVAS_NODE_TYPES.video]: '\u89c6\u9891',
   [CANVAS_NODE_TYPES.audio]: '\u97f3\u9891',
-  [CANVAS_NODE_TYPES.ttsText]: '\u6587\u672c',
+  [CANVAS_NODE_TYPES.ttsText]: '\u97f3\u9891\u6587\u672c',
+  [CANVAS_NODE_TYPES.scriptText]: '\u5267\u672c\u6587\u672c',
   [CANVAS_NODE_TYPES.ttsVoiceDesign]: '\u58f0\u97f3\u8bbe\u8ba1',
   [CANVAS_NODE_TYPES.ttsSavedVoice]: '\u514b\u9686\u58f0\u97f3',
   [CANVAS_NODE_TYPES.scriptRoot]: '\u5267\u672c',
@@ -36,8 +37,8 @@ export const DEFAULT_NODE_DISPLAY_NAME: Record<CanvasNodeType, string> = {
 
 const LEGACY_DEFAULT_NODE_DISPLAY_NAMES: Partial<Record<CanvasNodeType, string[]>> = {
   [CANVAS_NODE_TYPES.jimeng]: ['\u5373\u68a6\u8282\u70b9', '\u53d1\u9001\u5373\u68a6'],
-  [CANVAS_NODE_TYPES.textAnnotation]: ['\u6587\u672c\u6ce8\u91ca'],
-  [CANVAS_NODE_TYPES.ttsText]: ['\u914d\u97f3\u6587\u672c'],
+  [CANVAS_NODE_TYPES.textAnnotation]: ['\u6587\u672c', '\u6587\u672c\u6ce8\u91ca'],
+  [CANVAS_NODE_TYPES.ttsText]: ['\u6587\u672c', '\u914d\u97f3\u6587\u672c'],
   [CANVAS_NODE_TYPES.ttsSavedVoice]: ['\u4fdd\u5b58\u97f3\u8272'],
 };
 

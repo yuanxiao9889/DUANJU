@@ -21,6 +21,8 @@ import {
   EXPORT_RESULT_NODE_MIN_WIDTH,
   IMAGE_EDIT_NODE_DEFAULT_HEIGHT,
   IMAGE_EDIT_NODE_DEFAULT_WIDTH,
+  SCRIPT_CHAPTER_NODE_DEFAULT_HEIGHT,
+  SCRIPT_CHAPTER_NODE_DEFAULT_WIDTH,
   type JimengImageNodeData,
   type JimengNodeData,
   type ActiveToolDialog,
@@ -35,6 +37,7 @@ import {
   type StoryboardFrameItem,
   type ScriptChapterNodeData,
   type ScriptRootNodeData,
+  createDefaultSceneCard,
   normalizeScriptChapterNodeData,
   normalizeScriptRootNodeData,
   isStoryboardSplitNode,
@@ -107,6 +110,21 @@ export interface CanvasHistoryState {
   future: CanvasHistorySnapshot[];
 }
 
+export interface GeneratedScriptChapterInput {
+  title: string;
+  summary: string;
+  contentHtml: string;
+  sceneTitle?: string;
+  sceneSummary?: string;
+  sceneHeading?: string;
+  characters?: string[];
+  location?: string;
+  items?: string[];
+  visualHook?: string;
+  directorNotes?: string;
+  sourceDraftLabel?: string;
+}
+
 const MAX_HISTORY_STEPS = 50;
 const MAX_HISTORY_TIMELINE_REFERENCE_BUDGET = 120_000;
 const IMAGE_NODE_VISUAL_MIN_EDGE = 96;
@@ -137,6 +155,11 @@ interface AddNodeOptions {
 
 interface UpdateNodeDataOptions {
   historyMode?: 'push' | 'skip';
+}
+
+interface AddGeneratedScriptChaptersOptions {
+  nodeWidth?: number;
+  nodeHeight?: number;
 }
 
 function appendNodeClassName(existing: string | undefined, className: string): string {
@@ -308,6 +331,11 @@ interface CanvasState {
     frames: StoryboardFrameItem[],
     frameAspectRatio?: string
   ) => string | null;
+  addGeneratedScriptChapters: (
+    sourceNodeId: string,
+    chapters: GeneratedScriptChapterInput[],
+    options?: AddGeneratedScriptChaptersOptions
+  ) => string[];
 
   updateNodeData: (
     nodeId: string,
@@ -1015,6 +1043,62 @@ function resolvePreferredDerivedColumnPosition(
   }
 
   return null;
+}
+
+function resolveBatchDerivedNodePosition(
+  nodes: CanvasNode[],
+  edges: CanvasEdge[],
+  sourceNode: CanvasNode,
+  newNodeWidth: number,
+  newNodeHeight: number
+): { x: number; y: number } {
+  const nodeMap = new Map(nodes.map((node) => [node.id, node] as const));
+  const ignoredCollisionNodeIds = collectAncestorGroupNodeIds(sourceNode, nodeMap);
+  const preferredPosition = resolvePreferredDerivedColumnPosition(
+    nodes,
+    edges,
+    sourceNode,
+    newNodeWidth,
+    newNodeHeight,
+    nodeMap,
+    ignoredCollisionNodeIds
+  );
+
+  if (preferredPosition) {
+    return preferredPosition;
+  }
+
+  const sourcePosition = resolveAbsolutePosition(sourceNode, nodeMap);
+  const sourceSize = getNodeSize(sourceNode);
+  const anchorX = sourcePosition.x + sourceSize.width + DERIVED_NODE_COLUMN_GAP;
+  const anchorY = sourcePosition.y;
+  const stepX = newNodeWidth + DERIVED_NODE_NEXT_COLUMN_GAP;
+  const stepY = newNodeHeight + resolveDerivedNodeStackGap(sourceNode);
+
+  for (let columnIndex = 0; columnIndex < 12; columnIndex += 1) {
+    for (let rowIndex = 0; rowIndex < DERIVED_NODE_MAX_ROWS_PER_COLUMN; rowIndex += 1) {
+      const candidateX = anchorX + columnIndex * stepX;
+      const candidateY = anchorY + rowIndex * stepY;
+      if (
+        !collidesWithExistingNodes(
+          nodes,
+          nodeMap,
+          candidateX,
+          candidateY,
+          newNodeWidth,
+          newNodeHeight,
+          ignoredCollisionNodeIds
+        )
+      ) {
+        return { x: candidateX, y: candidateY };
+      }
+    }
+  }
+
+  return {
+    x: anchorX + stepX,
+    y: anchorY,
+  };
 }
 
 function isImageAutoResizableType(type: CanvasNodeType): boolean {
@@ -2445,6 +2529,145 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
     });
 
     return node.id;
+  },
+
+  addGeneratedScriptChapters: (sourceNodeId, chapters, options) => {
+    const safeChapters = chapters
+      .filter((chapter) => chapter.contentHtml.trim().length > 0)
+      .slice(0, 6);
+    if (safeChapters.length === 0) {
+      return [];
+    }
+
+    const state = get();
+    const sourceNode = state.nodes.find((node) => node.id === sourceNodeId);
+    if (!sourceNode || !nodeHasSourceHandle(sourceNode.type)) {
+      return [];
+    }
+
+    const nodeWidth = Math.max(
+      240,
+      Math.round(options?.nodeWidth ?? SCRIPT_CHAPTER_NODE_DEFAULT_WIDTH)
+    );
+    const nodeHeight = Math.max(
+      220,
+      Math.round(options?.nodeHeight ?? SCRIPT_CHAPTER_NODE_DEFAULT_HEIGHT)
+    );
+    const rootNodeMap = new Map(state.nodes.map((node) => [node.id, node] as const));
+    const parentGroupId = resolveInheritedGroupParentId(sourceNode, rootNodeMap);
+    let nextChapterNumber = state.nodes.reduce((maxNumber, node) => {
+      if (node.type !== CANVAS_NODE_TYPES.scriptChapter) {
+        return maxNumber;
+      }
+
+      const value = Number((node.data as ScriptChapterNodeData).chapterNumber);
+      return Number.isFinite(value) ? Math.max(maxNumber, Math.floor(value)) : maxNumber;
+    }, 0) + 1;
+
+    const nextNodes = [...state.nodes];
+    const nextEdges = [...state.edges];
+    const createdNodeIds: string[] = [];
+
+    for (const chapter of safeChapters) {
+      const position = resolveBatchDerivedNodePosition(
+        nextNodes,
+        nextEdges,
+        sourceNode,
+        nodeWidth,
+        nodeHeight
+      );
+      const title = chapter.title.trim() || `章节 ${nextChapterNumber}`;
+      const summary = chapter.summary.trim();
+      const contentHtml = chapter.contentHtml.trim();
+      const sceneHeading = chapter.sceneHeading?.trim() ?? '';
+      const location = chapter.location?.trim() ?? '';
+      const characters = Array.from(
+        new Set(
+          (chapter.characters ?? [])
+            .map((item) => item.trim())
+            .filter((item) => item.length > 0)
+        )
+      );
+      const items = Array.from(
+        new Set(
+          (chapter.items ?? [])
+            .map((item) => item.trim())
+            .filter((item) => item.length > 0)
+        )
+      );
+      const scene = createDefaultSceneCard(0);
+      scene.title = chapter.sceneTitle?.trim() || title || scene.title;
+      scene.summary = chapter.sceneSummary?.trim() || summary || sceneHeading;
+      scene.draftHtml = contentHtml;
+      scene.sourceDraftHtml = contentHtml || undefined;
+      scene.sourceDraftLabel = chapter.sourceDraftLabel?.trim() || undefined;
+      scene.visualHook = chapter.visualHook?.trim() ?? '';
+      scene.directorNotes = chapter.directorNotes?.trim() ?? '';
+      scene.status = contentHtml ? 'drafting' : 'idea';
+
+      let node = canvasNodeFactory.createNode(
+        CANVAS_NODE_TYPES.scriptChapter,
+        position,
+        normalizeScriptChapterNodeData({
+          displayName: title,
+          chapterNumber: nextChapterNumber,
+          title,
+          content: contentHtml,
+          summary,
+          chapterPurpose: '',
+          chapterQuestion: '',
+          sceneHeadings: sceneHeading ? [sceneHeading] : [],
+          scenes: [scene],
+          characters,
+          locations: location ? [location] : [],
+          items,
+          emotionalShift: '',
+          isBranchPoint: false,
+          branchType: 'main',
+          tables: [],
+          plotPoints: [],
+        })
+      );
+      node.width = nodeWidth;
+      node.height = nodeHeight;
+      node.style = {
+        ...(node.style ?? {}),
+        width: nodeWidth,
+        height: nodeHeight,
+      };
+
+      const stagedNodeMap = new Map(nextNodes.map((currentNode) => [currentNode.id, currentNode] as const));
+      node = attachNodeToGroupParent(node, position, parentGroupId, stagedNodeMap);
+      nextNodes.push(node);
+      nextEdges.push({
+        id: `e-${sourceNodeId}-${node.id}`,
+        source: sourceNodeId,
+        target: node.id,
+        sourceHandle: 'source',
+        targetHandle: 'target',
+        type: 'disconnectableEdge',
+      });
+      createdNodeIds.push(node.id);
+      nextChapterNumber += 1;
+    }
+
+    const normalizedNodes = parentGroupId
+      ? fitGroupNodeToChildren(nextNodes, parentGroupId)
+      : nextNodes;
+
+    set({
+      nodes: normalizedNodes,
+      edges: nextEdges,
+      selectedNodeId: createdNodeIds[0] ?? state.selectedNodeId,
+      activeToolDialog: null,
+      history: {
+        past: pushSnapshot(state.history.past, createSnapshot(state.nodes, state.edges)),
+        future: [],
+      },
+      dragHistorySnapshot: null,
+    });
+
+    return createdNodeIds;
   },
 
   updateNodeData: (nodeId, data, options) => {

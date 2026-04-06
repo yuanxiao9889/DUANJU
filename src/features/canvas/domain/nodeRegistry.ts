@@ -31,6 +31,7 @@ import {
   type StoryboardGenNodeData,
   type TextAnnotationNodeData,
   type TtsTextNodeData,
+  type ScriptTextNodeData,
   type TtsSavedVoiceNodeData,
   type TtsVoiceDesignNodeData,
   type UploadImageNodeData,
@@ -54,7 +55,7 @@ import {
 
 export type MenuIconKey = 'upload' | 'sparkles' | 'layout' | 'text' | 'video' | 'audio';
 export type NodeMenuProjectType = 'storyboard' | 'script';
-export type NodeMenuGroupKey = 'jimeng' | 'storyboard' | 'media';
+export type NodeMenuGroupKey = 'jimeng' | 'storyboard' | 'media' | 'text';
 
 export interface CanvasNodeMenuGroupDefinition {
   id: NodeMenuGroupKey;
@@ -109,6 +110,11 @@ export const canvasNodeMenuGroups: Record<NodeMenuGroupKey, CanvasNodeMenuGroupD
     id: 'media',
     labelKey: 'node.menuGroup.media',
     menuIcon: 'video',
+  },
+  text: {
+    id: 'text',
+    labelKey: 'node.menuGroup.text',
+    menuIcon: 'text',
   },
 };
 
@@ -269,6 +275,7 @@ const textAnnotationNodeDefinition: CanvasNodeDefinition<TextAnnotationNodeData>
   type: CANVAS_NODE_TYPES.textAnnotation,
   menuLabelKey: 'node.menu.textAnnotation',
   menuIcon: 'text',
+  menuGroup: 'text',
   visibleInMenu: true,
   menuProjectTypes: ['storyboard'],
   capabilities: {
@@ -431,7 +438,7 @@ const seedanceNodeDefinition: CanvasNodeDefinition<SeedanceNodeData> = {
   type: CANVAS_NODE_TYPES.seedance,
   menuLabelKey: 'node.menu.seedanceVideo',
   menuIcon: 'sparkles',
-  menuGroup: 'media',
+  menuGroup: 'jimeng',
   visibleInMenu: true,
   menuProjectTypes: ['storyboard'],
   capabilities: {
@@ -651,6 +658,7 @@ const ttsTextNodeDefinition: CanvasNodeDefinition<TtsTextNodeData> = {
   type: CANVAS_NODE_TYPES.ttsText,
   menuLabelKey: 'node.menu.ttsText',
   menuIcon: 'text',
+  menuGroup: 'text',
   visibleInMenu: false,
   menuProjectTypes: ['storyboard'],
   capabilities: {
@@ -668,6 +676,35 @@ const ttsTextNodeDefinition: CanvasNodeDefinition<TtsTextNodeData> = {
   createDefaultData: () => ({
     displayName: DEFAULT_NODE_DISPLAY_NAME[CANVAS_NODE_TYPES.ttsText],
     content: '',
+  }),
+};
+
+const scriptTextNodeDefinition: CanvasNodeDefinition<ScriptTextNodeData> = {
+  type: CANVAS_NODE_TYPES.scriptText,
+  menuLabelKey: 'node.menu.scriptText',
+  menuIcon: 'text',
+  menuGroup: 'text',
+  visibleInMenu: true,
+  menuProjectTypes: ['storyboard', 'script'],
+  capabilities: {
+    toolbar: true,
+    promptInput: false,
+  },
+  connectivity: {
+    sourceHandle: true,
+    targetHandle: false,
+    connectMenu: {
+      fromSource: false,
+      fromTarget: true,
+    },
+  },
+  createDefaultData: () => ({
+    displayName: DEFAULT_NODE_DISPLAY_NAME[CANVAS_NODE_TYPES.scriptText],
+    content: '',
+    isGenerating: false,
+    lastError: null,
+    lastGeneratedAt: null,
+    lastGeneratedCount: 0,
   }),
 };
 
@@ -1003,6 +1040,7 @@ export const canvasNodeDefinitions: Record<CanvasNodeType, CanvasNodeDefinition>
   [CANVAS_NODE_TYPES.video]: videoNodeDefinition,
   [CANVAS_NODE_TYPES.audio]: audioNodeDefinition,
   [CANVAS_NODE_TYPES.ttsText]: ttsTextNodeDefinition,
+  [CANVAS_NODE_TYPES.scriptText]: scriptTextNodeDefinition,
   [CANVAS_NODE_TYPES.ttsVoiceDesign]: ttsVoiceDesignNodeDefinition,
   [CANVAS_NODE_TYPES.ttsSavedVoice]: ttsSavedVoiceNodeDefinition,
   [CANVAS_NODE_TYPES.scriptRoot]: scriptRootNodeDefinition,

@@ -9,6 +9,8 @@ import { RichTextEditor } from '@/features/canvas/ui/RichTextEditor';
 import { BranchPointDialog } from '@/features/canvas/ui/BranchPointDialog';
 import {
   CANVAS_NODE_TYPES,
+  SCRIPT_CHAPTER_NODE_DEFAULT_HEIGHT,
+  SCRIPT_CHAPTER_NODE_DEFAULT_WIDTH,
   createDefaultSceneCard,
   normalizeSceneCards,
   type ScriptChapterNodeData,
@@ -76,8 +78,8 @@ type ScriptChapterNodeProps = {
   height?: number;
 };
 
-const DEFAULT_NODE_WIDTH = 420;
-const DEFAULT_NODE_HEIGHT = 380;
+const DEFAULT_NODE_WIDTH = SCRIPT_CHAPTER_NODE_DEFAULT_WIDTH;
+const DEFAULT_NODE_HEIGHT = SCRIPT_CHAPTER_NODE_DEFAULT_HEIGHT;
 const MIN_NODE_WIDTH = 320;
 const MIN_NODE_HEIGHT = 280;
 const MAX_NODE_WIDTH = 800;

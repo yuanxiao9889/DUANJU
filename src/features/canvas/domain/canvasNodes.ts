@@ -18,6 +18,7 @@ export const CANVAS_NODE_TYPES = {
   video: 'videoNode',
   audio: 'audioNode',
   ttsText: 'ttsTextNode',
+  scriptText: 'scriptTextNode',
   ttsVoiceDesign: 'ttsVoiceDesignNode',
   ttsSavedVoice: 'ttsSavedVoiceNode',
   scriptRoot: 'scriptRootNode',
@@ -60,6 +61,10 @@ export const AUDIO_NODE_DEFAULT_WIDTH = 320;
 export const AUDIO_NODE_DEFAULT_HEIGHT = 96;
 export const TTS_TEXT_NODE_DEFAULT_WIDTH = 420;
 export const TTS_TEXT_NODE_DEFAULT_HEIGHT = 240;
+export const SCRIPT_TEXT_NODE_DEFAULT_WIDTH = 480;
+export const SCRIPT_TEXT_NODE_DEFAULT_HEIGHT = 320;
+export const SCRIPT_CHAPTER_NODE_DEFAULT_WIDTH = 420;
+export const SCRIPT_CHAPTER_NODE_DEFAULT_HEIGHT = 380;
 export const TTS_VOICE_DESIGN_NODE_DEFAULT_WIDTH = 440;
 export const TTS_VOICE_DESIGN_NODE_DEFAULT_HEIGHT = 300;
 export const TTS_SAVED_VOICE_NODE_DEFAULT_WIDTH = 440;
@@ -234,6 +239,15 @@ export interface AudioNodeData extends NodeDisplayData {
 
 export interface TtsTextNodeData extends NodeDisplayData {
   content: string;
+  [key: string]: unknown;
+}
+
+export interface ScriptTextNodeData extends NodeDisplayData {
+  content: string;
+  isGenerating?: boolean;
+  lastError?: string | null;
+  lastGeneratedAt?: number | null;
+  lastGeneratedCount?: number;
   [key: string]: unknown;
 }
 
@@ -732,6 +746,7 @@ export type CanvasNodeData =
   | VideoNodeData
   | AudioNodeData
   | TtsTextNodeData
+  | ScriptTextNodeData
   | TtsVoiceDesignNodeData
   | TtsSavedVoiceNodeData
   | ScriptRootNodeData
@@ -1095,6 +1110,12 @@ export function isTtsTextNode(
   node: CanvasNode | null | undefined
 ): node is Node<TtsTextNodeData, typeof CANVAS_NODE_TYPES.ttsText> {
   return node?.type === CANVAS_NODE_TYPES.ttsText;
+}
+
+export function isScriptTextNode(
+  node: CanvasNode | null | undefined
+): node is Node<ScriptTextNodeData, typeof CANVAS_NODE_TYPES.scriptText> {
+  return node?.type === CANVAS_NODE_TYPES.scriptText;
 }
 
 export function isTtsVoiceDesignNode(
