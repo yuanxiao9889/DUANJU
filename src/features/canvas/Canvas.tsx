@@ -359,6 +359,22 @@ function resolveClipboardImageFile(event: ClipboardEvent): File | null {
   return null;
 }
 
+function isCanvasPasteTarget(
+  target: EventTarget | null,
+  container: HTMLElement | null
+): boolean {
+  if (!container) {
+    return false;
+  }
+
+  const element = target as HTMLElement | null;
+  if (!element || element === document.body || element === document.documentElement) {
+    return true;
+  }
+
+  return container.contains(element);
+}
+
 function resolveAllowedNodeTypes(
   handleType: HandleType,
   projectType: 'storyboard' | 'script' = 'storyboard',
@@ -1515,6 +1531,9 @@ export function Canvas() {
     }
     return selectedNode.id;
   }, [nodes, selectedNodeIds]);
+  const useUploadFilenameAsNodeTitle = useSettingsStore(
+    (state) => state.useUploadFilenameAsNodeTitle
+  );
   const groupNodesList = useMemo(
     () => nodes.filter((node) => node.type === CANVAS_NODE_TYPES.group),
     [nodes]
@@ -1606,9 +1625,40 @@ export function Canvas() {
   }, [connectBranchSourcesToExistingNode, isDraggingBranchConnection, resetBranchConnectionState]);
 
   useEffect(() => {
+    const createUploadNodeFromClipboardImage = async (file: File) => {
+      const containerRect = reactFlowWrapperRef.current?.getBoundingClientRect();
+      const position = containerRect
+        ? reactFlowInstance.screenToFlowPosition({
+            x: containerRect.left + containerRect.width / 2,
+            y: containerRect.top + containerRect.height / 2,
+          })
+        : (() => {
+            const viewport = reactFlowInstance.getViewport();
+            const { canvasViewportSize } = useCanvasStore.getState();
+            return {
+              x: (canvasViewportSize.width / 2 - viewport.x) / viewport.zoom,
+              y: (canvasViewportSize.height / 2 - viewport.y) / viewport.zoom,
+            };
+          })();
+
+      try {
+        const imageData = await prepareNodeImageFromFile(file);
+        const newNodeId = addNode(CANVAS_NODE_TYPES.upload, position, {
+          imageUrl: imageData.imageUrl,
+          previewImageUrl: imageData.previewImageUrl,
+          aspectRatio: imageData.aspectRatio,
+          sourceFileName: file.name,
+          ...(useUploadFilenameAsNodeTitle && file.name ? { displayName: file.name } : {}),
+        });
+        setSelectedNode(newNodeId);
+      } catch (error) {
+        console.error('Failed to process pasted image:', error);
+      }
+    };
+
     const handlePaste = (event: ClipboardEvent) => {
       pasteImageHandledRef.current = false;
-      if (!selectedUploadNodeId || isTypingTarget(event.target)) {
+      if (isTypingTarget(event.target)) {
         return;
       }
 
@@ -1617,19 +1667,38 @@ export function Canvas() {
         return;
       }
 
+      const isPasteInsideCanvas = isCanvasPasteTarget(
+        event.target,
+        reactFlowWrapperRef.current
+      );
+      if (!selectedUploadNodeId && !isPasteInsideCanvas) {
+        return;
+      }
+
       event.preventDefault();
       pasteImageHandledRef.current = true;
-      canvasEventBus.publish('upload-node/paste-image', {
-        nodeId: selectedUploadNodeId,
-        file: imageFile,
-      });
+      if (selectedUploadNodeId) {
+        canvasEventBus.publish('upload-node/paste-image', {
+          nodeId: selectedUploadNodeId,
+          file: imageFile,
+        });
+        return;
+      }
+
+      void createUploadNodeFromClipboardImage(imageFile);
     };
 
     document.addEventListener('paste', handlePaste);
     return () => {
       document.removeEventListener('paste', handlePaste);
     };
-  }, [selectedUploadNodeId]);
+  }, [
+    addNode,
+    reactFlowInstance,
+    selectedUploadNodeId,
+    setSelectedNode,
+    useUploadFilenameAsNodeTitle,
+  ]);
 
   useEffect(() => {
     const handlePointerMove = (event: PointerEvent) => {
@@ -1738,28 +1807,19 @@ export function Canvas() {
       }
 
       if (isPaste) {
-        if (selectedUploadNodeId) {
-          pasteImageHandledRef.current = false;
-          window.setTimeout(() => {
-            if (pasteImageHandledRef.current) {
-              pasteImageHandledRef.current = false;
-              return;
-            }
+        pasteImageHandledRef.current = false;
+        window.setTimeout(() => {
+          if (pasteImageHandledRef.current) {
+            pasteImageHandledRef.current = false;
+            return;
+          }
 
-            if (!copiedSnapshotRef.current || copiedSnapshotRef.current.nodes.length === 0) {
-              return;
-            }
+          if (!copiedSnapshotRef.current || copiedSnapshotRef.current.nodes.length === 0) {
+            return;
+          }
 
-            void duplicateNodesRef.current?.(copiedSnapshotRef.current.nodes.map((node) => node.id));
-          }, 0);
-          return;
-        }
-
-        if (!copiedSnapshotRef.current || copiedSnapshotRef.current.nodes.length === 0) {
-          return;
-        }
-        event.preventDefault();
-        void duplicateNodesRef.current?.(copiedSnapshotRef.current.nodes.map((node) => node.id));
+          void duplicateNodesRef.current?.(copiedSnapshotRef.current.nodes.map((node) => node.id));
+        }, 0);
         return;
       }
 

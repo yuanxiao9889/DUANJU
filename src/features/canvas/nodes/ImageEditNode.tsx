@@ -81,6 +81,7 @@ import {
 } from '@/features/canvas/ui/nodeControlStyles';
 import { ModelParamsControls } from '@/features/canvas/ui/ModelParamsControls';
 import { StyleTemplateDialog } from '@/features/project/StyleTemplateDialog';
+import { applyStyleTemplatePrompt } from '@/features/project/styleTemplatePrompt';
 import { CanvasNodeImage } from '@/features/canvas/ui/CanvasNodeImage';
 import { NodePriceBadge } from '@/features/canvas/ui/NodePriceBadge';
 import { NodeStatusBadge } from '@/features/canvas/ui/NodeStatusBadge';
@@ -1423,18 +1424,14 @@ export const ImageEditNode = memo(({ id, data, selected, width, height }: ImageE
               onStyleTemplateChange={(templateId, prompt) => {
                 setSelectedStyleTemplateId(templateId);
                 setStyleTemplatePrompt(prompt);
-                const basePrompt = promptDraftRef.current.replace(/\s*,\s*[^,]*$/, '').trim();
-                if (prompt) {
-                  const newPrompt = basePrompt ? `${basePrompt}, ${prompt}` : prompt;
-                  setPromptDraft(newPrompt);
-                  promptDraftRef.current = newPrompt;
-                  setLastPromptOptimizationUndoState(null);
-                } else if (styleTemplatePrompt) {
-                  const cleanedPrompt = basePrompt.replace(new RegExp(`\\s*,?\\s*${styleTemplatePrompt.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\s*$`), '').trim();
-                  setPromptDraft(cleanedPrompt);
-                  promptDraftRef.current = cleanedPrompt;
-                  setLastPromptOptimizationUndoState(null);
-                }
+                const nextPrompt = applyStyleTemplatePrompt(
+                  promptDraftRef.current,
+                  styleTemplatePrompt,
+                  prompt
+                );
+                setPromptDraft(nextPrompt);
+                promptDraftRef.current = nextPrompt;
+                setLastPromptOptimizationUndoState(null);
               }}
               onOpenStyleTemplateManager={() => setShowStyleTemplateDialog(true)}
               triggerSize="sm"

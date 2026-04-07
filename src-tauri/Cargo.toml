@@ -1,6 +1,6 @@
 [package]
 name = "storyboard-copilot"
-version = "0.2.3"
+version = "0.2.4"
 default-run = "storyboard-copilot"
 description = "短剧助手 - AI 驱动的短剧分镜创作工具"
 authors = ["you"]

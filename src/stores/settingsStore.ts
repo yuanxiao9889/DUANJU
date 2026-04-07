@@ -49,19 +49,22 @@ import {
   normalizeJimengReferenceMode,
   normalizeJimengVideoModel,
 } from '@/features/jimeng/domain/jimengOptions';
+import {
+  type StyleTemplate,
+  type StyleTemplateCategory,
+  normalizeStyleTemplateCategories,
+  normalizeStyleTemplates,
+  sortStyleTemplateCategories,
+  sortStyleTemplates,
+} from '@/features/project/styleTemplateUtils';
+
+export type { StyleTemplate, StyleTemplateCategory };
 
 export type UiRadiusPreset = 'compact' | 'default' | 'large';
 export type ThemeTonePreset = 'neutral' | 'warm' | 'cool';
 export type CanvasEdgeRoutingMode = 'spline' | 'orthogonal' | 'smartOrthogonal';
 export type ProviderApiKeys = Record<string, string>;
 export const DEFAULT_GRSAI_NANO_BANANA_PRO_MODEL = 'nano-banana-pro';
-
-export interface StyleTemplate {
-  id: string;
-  name: string;
-  prompt: string;
-  createdAt: number;
-}
 
 interface SettingsState {
   isHydrated: boolean;
@@ -113,6 +116,7 @@ interface SettingsState {
   showMiniMap: boolean;
   showGrid: boolean;
   showAlignmentGuides: boolean;
+  styleTemplateCategories: StyleTemplateCategory[];
   styleTemplates: StyleTemplate[];
   psIntegrationEnabled: boolean;
   psServerPort: number;
@@ -182,9 +186,21 @@ interface SettingsState {
   setShowMiniMap: (show: boolean) => void;
   setShowGrid: (show: boolean) => void;
   setShowAlignmentGuides: (show: boolean) => void;
-  addStyleTemplate: (template: Omit<StyleTemplate, 'id' | 'createdAt'>) => void;
-  updateStyleTemplate: (id: string, updates: Partial<Pick<StyleTemplate, 'name' | 'prompt'>>) => void;
+  addStyleTemplateCategory: (category: { name: string }) => string;
+  updateStyleTemplateCategory: (
+    id: string,
+    updates: Partial<Pick<StyleTemplateCategory, 'name'>>
+  ) => void;
+  deleteStyleTemplateCategory: (id: string) => void;
+  addStyleTemplate: (
+    template: Pick<StyleTemplate, 'name' | 'prompt' | 'categoryId'>
+  ) => string;
+  updateStyleTemplate: (
+    id: string,
+    updates: Partial<Pick<StyleTemplate, 'name' | 'prompt' | 'categoryId'>>
+  ) => void;
   deleteStyleTemplate: (id: string) => void;
+  markStyleTemplateUsed: (id: string) => void;
   setPsIntegrationEnabled: (enabled: boolean) => void;
   setPsServerPort: (port: number) => void;
   setPsAutoStartServer: (enabled: boolean) => void;
@@ -403,6 +419,7 @@ export const useSettingsStore = create<SettingsState>()(
       showMiniMap: true,
       showGrid: true,
       showAlignmentGuides: true,
+      styleTemplateCategories: [],
       styleTemplates: [],
       psIntegrationEnabled: true,
       psServerPort: 9527,
@@ -579,26 +596,167 @@ export const useSettingsStore = create<SettingsState>()(
       setShowMiniMap: (show) => set({ showMiniMap: show }),
       setShowGrid: (show) => set({ showGrid: show }),
       setShowAlignmentGuides: (show) => set({ showAlignmentGuides: show }),
-      addStyleTemplate: (template) =>
+      addStyleTemplateCategory: ({ name }) => {
+        const trimmedName = name.trim();
+        if (!trimmedName) {
+          return '';
+        }
+
+        const id = crypto.randomUUID();
+        set((state) => {
+          const now = Date.now();
+          const nextSortOrder =
+            state.styleTemplateCategories.reduce(
+              (maxOrder, category) => Math.max(maxOrder, category.sortOrder),
+              -1
+            ) + 1;
+
+          return {
+            styleTemplateCategories: sortStyleTemplateCategories([
+              ...state.styleTemplateCategories,
+              {
+                id,
+                name: trimmedName,
+                sortOrder: nextSortOrder,
+                createdAt: now,
+                updatedAt: now,
+              },
+            ]),
+          };
+        });
+        return id;
+      },
+      updateStyleTemplateCategory: (id, updates) =>
         set((state) => ({
-          styleTemplates: [
-            ...state.styleTemplates,
-            {
-              ...template,
-              id: crypto.randomUUID(),
-              createdAt: Date.now(),
-            },
-          ],
+          styleTemplateCategories: sortStyleTemplateCategories(
+            state.styleTemplateCategories.map((category) =>
+              category.id === id
+                ? {
+                    ...category,
+                    ...updates,
+                    name:
+                      typeof updates.name === 'string'
+                        ? updates.name.trim() || category.name
+                        : category.name,
+                    updatedAt: Date.now(),
+                  }
+                : category
+            )
+          ),
         })),
+      deleteStyleTemplateCategory: (id) =>
+        set((state) => ({
+          styleTemplateCategories: state.styleTemplateCategories.filter(
+            (category) => category.id !== id
+          ),
+          styleTemplates: sortStyleTemplates(
+            state.styleTemplates.map((template) =>
+              template.categoryId === id
+                ? {
+                    ...template,
+                    categoryId: null,
+                    updatedAt: Date.now(),
+                  }
+                : template
+            )
+          ),
+        })),
+      addStyleTemplate: (template) => {
+        const trimmedName = template.name.trim();
+        const trimmedPrompt = template.prompt.trim();
+        if (!trimmedName || !trimmedPrompt) {
+          return '';
+        }
+
+        const id = crypto.randomUUID();
+        set((state) => {
+          const now = Date.now();
+          const nextSortOrder =
+            state.styleTemplates.reduce(
+              (maxOrder, currentTemplate) =>
+                Math.max(maxOrder, currentTemplate.sortOrder),
+              -1
+            ) + 1;
+          const validCategoryIds = new Set(
+            state.styleTemplateCategories.map((category) => category.id)
+          );
+          const categoryId =
+            template.categoryId && validCategoryIds.has(template.categoryId)
+              ? template.categoryId
+              : null;
+
+          return {
+            styleTemplates: sortStyleTemplates([
+              ...state.styleTemplates,
+              {
+                id,
+                name: trimmedName,
+                prompt: trimmedPrompt,
+                categoryId,
+                sortOrder: nextSortOrder,
+                createdAt: now,
+                updatedAt: now,
+                lastUsedAt: null,
+              },
+            ]),
+          };
+        });
+        return id;
+      },
       updateStyleTemplate: (id, updates) =>
         set((state) => ({
-          styleTemplates: state.styleTemplates.map((t) =>
-            t.id === id ? { ...t, ...updates } : t
+          styleTemplates: sortStyleTemplates(
+            state.styleTemplates.map((template) => {
+              if (template.id !== id) {
+                return template;
+              }
+
+              const validCategoryIds = new Set(
+                state.styleTemplateCategories.map((category) => category.id)
+              );
+              const nextCategoryId =
+                typeof updates.categoryId === 'string'
+                  ? validCategoryIds.has(updates.categoryId)
+                    ? updates.categoryId
+                    : null
+                  : updates.categoryId === null
+                    ? null
+                    : template.categoryId;
+
+              return {
+                ...template,
+                ...updates,
+                name:
+                  typeof updates.name === 'string'
+                    ? updates.name.trim() || template.name
+                    : template.name,
+                prompt:
+                  typeof updates.prompt === 'string'
+                    ? updates.prompt.trim() || template.prompt
+                    : template.prompt,
+                categoryId: nextCategoryId,
+                updatedAt: Date.now(),
+              };
+            })
           ),
         })),
       deleteStyleTemplate: (id) =>
         set((state) => ({
           styleTemplates: state.styleTemplates.filter((t) => t.id !== id),
+        })),
+      markStyleTemplateUsed: (id) =>
+        set((state) => ({
+          styleTemplates: sortStyleTemplates(
+            state.styleTemplates.map((template) =>
+              template.id === id
+                ? {
+                    ...template,
+                    lastUsedAt: Date.now(),
+                    updatedAt: Date.now(),
+                  }
+                : template
+            )
+          ),
         })),
       setPsIntegrationEnabled: (enabled) => set({ psIntegrationEnabled: enabled }),
       setPsServerPort: (port) => set({ psServerPort: port }),
@@ -606,7 +764,7 @@ export const useSettingsStore = create<SettingsState>()(
     }),
     {
       name: 'settings-storage',
-      version: 24,
+      version: 25,
       onRehydrateStorage: () => {
         return (state, error) => {
           if (error) {
@@ -661,6 +819,8 @@ export const useSettingsStore = create<SettingsState>()(
           showMiniMap?: boolean;
           showGrid?: boolean;
           showAlignmentGuides?: boolean;
+          styleTemplateCategories?: unknown;
+          styleTemplates?: unknown;
         };
 
         const migratedLegacyApiKeys = normalizeApiKeys(state.apiKeys);
@@ -711,6 +871,16 @@ export const useSettingsStore = create<SettingsState>()(
             coding: state.codingModel,
             bltcy: DEFAULT_BLTCY_TEXT_MODEL,
           }
+        );
+        const normalizedStyleTemplateCategories = normalizeStyleTemplateCategories(
+          state.styleTemplateCategories
+        );
+        const normalizedStyleTemplateCategoryIds = new Set(
+          normalizedStyleTemplateCategories.map((category) => category.id)
+        );
+        const normalizedStyleTemplates = normalizeStyleTemplates(
+          state.styleTemplates,
+          normalizedStyleTemplateCategoryIds
         );
 
         return {
@@ -788,7 +958,8 @@ export const useSettingsStore = create<SettingsState>()(
           showMiniMap: state.showMiniMap ?? true,
           showGrid: state.showGrid ?? true,
           showAlignmentGuides: state.showAlignmentGuides ?? true,
-          styleTemplates: [],
+          styleTemplateCategories: normalizedStyleTemplateCategories,
+          styleTemplates: normalizedStyleTemplates,
           psIntegrationEnabled: true,
           psServerPort: 9527,
           psAutoStartServer: true,

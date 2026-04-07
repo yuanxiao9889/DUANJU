@@ -8,11 +8,12 @@ import {
   useRef,
   useState,
 } from "react";
-import { Palette, Settings } from "lucide-react";
+import { Palette } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
-import { UiChipButton, UiPanel } from "@/components/ui";
+import { UiChipButton } from "@/components/ui";
 import { StyleTemplateDialog } from "@/features/project/StyleTemplateDialog";
+import { StyleTemplateMenuPanel } from "@/features/project/StyleTemplateMenuPanel";
 import { useSettingsStore } from "@/stores/settingsStore";
 
 interface StyleTemplatePickerProps {
@@ -140,58 +141,12 @@ export const StyleTemplatePicker = memo(
                 }}
                 onClick={(event) => event.stopPropagation()}
               >
-                <UiPanel className="min-w-[180px] p-1">
-                  <button
-                    type="button"
-                    className={`w-full rounded-md px-3 py-1.5 text-left text-xs transition-colors ${
-                      !selectedTemplateId
-                        ? "bg-accent/15 text-accent"
-                        : "text-text-muted hover:bg-surface-hover"
-                    }`}
-                    onClick={() => {
-                      onTemplateChange(null, "");
-                      setPanelOpen(false);
-                    }}
-                  >
-                    {t("styleTemplate.noTemplate")}
-                  </button>
-
-                  {styleTemplates.length > 0 ? (
-                    <div className="my-1 border-t border-border" />
-                  ) : null}
-
-                  {styleTemplates.map((template) => (
-                    <button
-                      key={template.id}
-                      type="button"
-                      className={`w-full rounded-md px-3 py-1.5 text-left text-xs transition-colors ${
-                        selectedTemplateId === template.id
-                          ? "bg-accent/15 text-accent"
-                          : "text-text-muted hover:bg-surface-hover"
-                      }`}
-                      onClick={() => {
-                        onTemplateChange(template.id, template.prompt);
-                        setPanelOpen(false);
-                      }}
-                    >
-                      {template.name}
-                    </button>
-                  ))}
-
-                  <div className="my-1 border-t border-border" />
-
-                  <button
-                    type="button"
-                    className="flex w-full items-center gap-1.5 rounded-md px-3 py-1.5 text-left text-xs text-text-muted transition-colors hover:bg-surface-hover"
-                    onClick={() => {
-                      setPanelOpen(false);
-                      setShowManager(true);
-                    }}
-                  >
-                    <Settings className="h-3 w-3" />
-                    {t("styleTemplate.manageTemplates")}
-                  </button>
-                </UiPanel>
+                <StyleTemplateMenuPanel
+                  selectedTemplateId={selectedTemplateId}
+                  onTemplateChange={onTemplateChange}
+                  onRequestClose={() => setPanelOpen(false)}
+                  onManage={() => setShowManager(true)}
+                />
               </div>,
               document.body,
             )
