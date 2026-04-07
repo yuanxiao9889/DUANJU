@@ -46,6 +46,16 @@ export const JIMENG_VIDEO_MODEL_OPTIONS: JimengOptionDefinition<JimengVideoModel
       labelKey: "node.jimeng.modelOptions.seedance20",
       descriptionKey: "node.jimeng.modelOptionDescriptions.seedance20",
     },
+    {
+      value: "seedance2.0fast_vip",
+      labelKey: "node.jimeng.modelOptions.seedance20fastVip",
+      descriptionKey: "node.jimeng.modelOptionDescriptions.seedance20fastVip",
+    },
+    {
+      value: "seedance2.0_vip",
+      labelKey: "node.jimeng.modelOptions.seedance20Vip",
+      descriptionKey: "node.jimeng.modelOptionDescriptions.seedance20Vip",
+    },
   ];
 
 export const JIMENG_REFERENCE_MODE_OPTIONS: JimengOptionDefinition<JimengReferenceMode>[] =

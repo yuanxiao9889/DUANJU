@@ -96,6 +96,8 @@ export const JIMENG_IMAGE_RESOLUTION_TYPES = ['1k', '2k', '4k'] as const;
 export const JIMENG_VIDEO_MODEL_IDS = [
   'seedance2.0fast',
   'seedance2.0',
+  'seedance2.0fast_vip',
+  'seedance2.0_vip',
   '3.0',
   '3.0fast',
   '3.0pro',

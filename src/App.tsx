@@ -31,6 +31,10 @@ import {
 } from "./features/jimeng/dreaminaSetupDialogEvents";
 import { initializePsIntegration } from "./stores/psIntegrationStore";
 import { ensureDailyDatabaseBackup } from "./commands/storage";
+import {
+  checkDreaminaCliUpdate,
+  updateDreaminaCli,
+} from "./commands/dreaminaCli";
 
 const WINDOW_CLOSE_FLUSH_TIMEOUT_MS = 2500;
 const WINDOW_CLOSE_REQUEST_TIMEOUT_MS = 1200;
@@ -115,6 +119,9 @@ function App() {
   const enableUpdateDialog = useSettingsStore(
     (state) => state.enableUpdateDialog,
   );
+  const autoUpdateDreaminaCliOnLaunch = useSettingsStore(
+    (state) => state.autoUpdateDreaminaCliOnLaunch,
+  );
   const setEnableUpdateDialog = useSettingsStore(
     (state) => state.setEnableUpdateDialog,
   );
@@ -143,6 +150,7 @@ function App() {
     (state) => state.flushCurrentProjectToDisk,
   );
   const isWindowCloseInProgressRef = useRef(false);
+  const hasAttemptedDreaminaAutoUpdateRef = useRef(false);
 
   useEffect(() => {
     document.documentElement.classList.toggle("dark", theme === "dark");
@@ -316,6 +324,40 @@ function App() {
       cancelled = true;
     };
   }, [isHydrated, autoCheckAppUpdateOnLaunch, enableUpdateDialog]);
+
+  useEffect(() => {
+    if (!settingsHydrated || !autoUpdateDreaminaCliOnLaunch) {
+      return;
+    }
+
+    if (hasAttemptedDreaminaAutoUpdateRef.current) {
+      return;
+    }
+    hasAttemptedDreaminaAutoUpdateRef.current = true;
+
+    let cancelled = false;
+
+    const runDreaminaAutoUpdate = async () => {
+      try {
+        const info = await checkDreaminaCliUpdate();
+        if (cancelled || info.checkError || !info.hasUpdate) {
+          return;
+        }
+
+        await updateDreaminaCli();
+      } catch (error) {
+        if (!cancelled) {
+          console.warn("failed to auto update Dreamina CLI", error);
+        }
+      }
+    };
+
+    void runDreaminaAutoUpdate();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [settingsHydrated, autoUpdateDreaminaCliOnLaunch]);
 
   useEffect(() => {
     if (!isHydrated) {

@@ -55,6 +55,7 @@ export type DreaminaCliStatusCode =
   | "unknown";
 
 export type DreaminaGitSource = "bundled" | "system";
+export type DreaminaCliBinarySource = "bundled" | "userInstalled" | "systemPath";
 
 export type DreaminaSetupProgressStage =
   | "checking"
@@ -76,6 +77,17 @@ export interface DreaminaCliStatusResponse {
 export interface DreaminaCliActionResponse {
   message: string;
   detail?: string | null;
+}
+
+export interface DreaminaCliUpdateInfoResponse {
+  activeSource: DreaminaCliBinarySource;
+  currentVersion?: string | null;
+  bundledVersion?: string | null;
+  latestVersion?: string | null;
+  releaseDate?: string | null;
+  releaseNotes?: string | null;
+  hasUpdate: boolean;
+  checkError?: string | null;
 }
 
 export interface DreaminaSetupProgressEvent {
@@ -138,8 +150,16 @@ export async function checkDreaminaCliStatus(): Promise<DreaminaCliStatusRespons
   return await invoke<DreaminaCliStatusResponse>("check_dreamina_cli_status");
 }
 
+export async function checkDreaminaCliUpdate(): Promise<DreaminaCliUpdateInfoResponse> {
+  return await invoke<DreaminaCliUpdateInfoResponse>("check_dreamina_cli_update");
+}
+
 export async function installDreaminaCli(): Promise<DreaminaCliActionResponse> {
   return await invoke<DreaminaCliActionResponse>("install_dreamina_cli");
+}
+
+export async function updateDreaminaCli(): Promise<DreaminaCliActionResponse> {
+  return await invoke<DreaminaCliActionResponse>("update_dreamina_cli");
 }
 
 export async function openDreaminaLoginTerminal(): Promise<DreaminaCliActionResponse> {

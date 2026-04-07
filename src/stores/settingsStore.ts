@@ -109,6 +109,7 @@ interface SettingsState {
   canvasEdgeRoutingMode: CanvasEdgeRoutingMode;
   autoCheckAppUpdateOnLaunch: boolean;
   enableUpdateDialog: boolean;
+  autoUpdateDreaminaCliOnLaunch: boolean;
   showMiniMap: boolean;
   showGrid: boolean;
   showAlignmentGuides: boolean;
@@ -177,6 +178,7 @@ interface SettingsState {
   setCanvasEdgeRoutingMode: (mode: CanvasEdgeRoutingMode) => void;
   setAutoCheckAppUpdateOnLaunch: (enabled: boolean) => void;
   setEnableUpdateDialog: (enabled: boolean) => void;
+  setAutoUpdateDreaminaCliOnLaunch: (enabled: boolean) => void;
   setShowMiniMap: (show: boolean) => void;
   setShowGrid: (show: boolean) => void;
   setShowAlignmentGuides: (show: boolean) => void;
@@ -397,6 +399,7 @@ export const useSettingsStore = create<SettingsState>()(
       canvasEdgeRoutingMode: 'spline',
       autoCheckAppUpdateOnLaunch: true,
       enableUpdateDialog: true,
+      autoUpdateDreaminaCliOnLaunch: false,
       showMiniMap: true,
       showGrid: true,
       showAlignmentGuides: true,
@@ -571,6 +574,8 @@ export const useSettingsStore = create<SettingsState>()(
         set({ canvasEdgeRoutingMode: normalizeCanvasEdgeRoutingMode(canvasEdgeRoutingMode) }),
       setAutoCheckAppUpdateOnLaunch: (enabled) => set({ autoCheckAppUpdateOnLaunch: enabled }),
       setEnableUpdateDialog: (enabled) => set({ enableUpdateDialog: enabled }),
+      setAutoUpdateDreaminaCliOnLaunch: (enabled) =>
+        set({ autoUpdateDreaminaCliOnLaunch: enabled }),
       setShowMiniMap: (show) => set({ showMiniMap: show }),
       setShowGrid: (show) => set({ showGrid: show }),
       setShowAlignmentGuides: (show) => set({ showAlignmentGuides: show }),
@@ -601,7 +606,7 @@ export const useSettingsStore = create<SettingsState>()(
     }),
     {
       name: 'settings-storage',
-      version: 23,
+      version: 24,
       onRehydrateStorage: () => {
         return (state, error) => {
           if (error) {
@@ -642,6 +647,7 @@ export const useSettingsStore = create<SettingsState>()(
           canvasEdgeRoutingMode?: CanvasEdgeRoutingMode | string;
           autoCheckAppUpdateOnLaunch?: boolean;
           enableUpdateDialog?: boolean;
+          autoUpdateDreaminaCliOnLaunch?: boolean;
           storyboardCompatibleModelConfig?: Partial<StoryboardCompatibleModelConfig>;
           enableStoryboardGenGridPreviewShortcut?: boolean;
           groupNodesShortcut?: string;
@@ -765,6 +771,7 @@ export const useSettingsStore = create<SettingsState>()(
           canvasEdgeRoutingMode: normalizeCanvasEdgeRoutingMode(state.canvasEdgeRoutingMode),
           autoCheckAppUpdateOnLaunch: state.autoCheckAppUpdateOnLaunch ?? true,
           enableUpdateDialog: state.enableUpdateDialog ?? true,
+          autoUpdateDreaminaCliOnLaunch: state.autoUpdateDreaminaCliOnLaunch ?? false,
           enableStoryboardGenGridPreviewShortcut:
             state.enableStoryboardGenGridPreviewShortcut ?? false,
           groupNodesShortcut: normalizeShortcut(state.groupNodesShortcut),

@@ -33,6 +33,8 @@ import { convertFileSrc, isTauri } from "@tauri-apps/api/core";
 const LEGACY_VIDEO_MODEL_MAP: Record<string, JimengVideoModelId> = {
   "seedance-2.0-fast": "seedance2.0fast",
   "seedance-2.0": "seedance2.0",
+  "seedance-2.0-fast-vip": "seedance2.0fast_vip",
+  "seedance-2.0-vip": "seedance2.0_vip",
   "seedance-1.5-pro": "seedance2.0",
   "seedance-1.0": "seedance2.0",
   "seedance-1.0-fast": "seedance2.0fast",

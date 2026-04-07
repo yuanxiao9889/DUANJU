@@ -1015,6 +1015,10 @@ function resolveJimengVideoModelOptionKey(model: JimengVideoModelId): string {
       return "seedance20fast";
     case "seedance2.0":
       return "seedance20";
+    case "seedance2.0fast_vip":
+      return "seedance20fastVip";
+    case "seedance2.0_vip":
+      return "seedance20Vip";
     case "3.5pro":
       return "v3_5pro";
     case "3.0pro":
@@ -1039,6 +1043,15 @@ function resolveJimengVideoModelDurationRange(
   return "4-15s";
 }
 
+function isJimengSeedanceTwoFamilyModel(model: JimengVideoModelId): boolean {
+  return (
+    model === "seedance2.0" ||
+    model === "seedance2.0fast" ||
+    model === "seedance2.0_vip" ||
+    model === "seedance2.0fast_vip"
+  );
+}
+
 function resolveJimengCliEffectiveVideoModel(
   command:
     | "text2video"
@@ -1049,8 +1062,7 @@ function resolveJimengCliEffectiveVideoModel(
   selectedModel: JimengVideoModelId,
 ): JimengVideoModelId | null {
   if (command === "text2video" || command === "multimodal2video") {
-    return selectedModel === "seedance2.0" ||
-      selectedModel === "seedance2.0fast"
+    return isJimengSeedanceTwoFamilyModel(selectedModel)
       ? selectedModel
       : "seedance2.0fast";
   }
@@ -1058,8 +1070,7 @@ function resolveJimengCliEffectiveVideoModel(
   if (command === "frames2video") {
     return selectedModel === "3.0" ||
       selectedModel === "3.5pro" ||
-      selectedModel === "seedance2.0" ||
-      selectedModel === "seedance2.0fast"
+      isJimengSeedanceTwoFamilyModel(selectedModel)
       ? selectedModel
       : "seedance2.0fast";
   }
@@ -2272,11 +2283,9 @@ export const JimengNode = memo(
         return t("node.jimeng.cliHint.image2video", {
           command: t("node.jimeng.cliMode.image2video"),
           duration: resolveJimengVideoModelDurationRange(selectedModel),
-          resolution:
-            selectedModel === "seedance2.0" ||
-            selectedModel === "seedance2.0fast"
-              ? "720p"
-              : "720p / 1080p",
+          resolution: isJimengSeedanceTwoFamilyModel(selectedModel)
+            ? "720p"
+            : "720p / 1080p",
         });
       }
 

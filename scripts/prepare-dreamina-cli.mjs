@@ -108,6 +108,7 @@ function resolveDreaminaArtifactInfo(installerScript) {
   const windowsFileMatch = installerScript.match(
     /PLATFORM="windows_amd64"[\s\S]*?DOWNLOAD_FILE="([^"]+)"/,
   );
+  const versionUrlMatch = installerScript.match(/^VERSION_URL="([^"]+)"$/m);
 
   if (!downloadBaseMatch?.[1]) {
     fail("Could not parse DOWNLOAD_BASE from the official Dreamina installer script.");
@@ -117,14 +118,20 @@ function resolveDreaminaArtifactInfo(installerScript) {
     fail("Could not parse the Windows Dreamina CLI asset name from the installer script.");
   }
 
+  if (!versionUrlMatch?.[1]) {
+    fail("Could not parse VERSION_URL from the official Dreamina installer script.");
+  }
+
   const downloadBase = downloadBaseMatch[1];
   const binaryName = windowsFileMatch[1];
+  const versionUrl = versionUrlMatch[1];
 
   return {
     downloadBase,
     binaryName,
     binaryUrl: `${downloadBase}/${binaryName}`,
     skillUrl: `${downloadBase}/SKILL.md`,
+    versionUrl,
   };
 }
 
@@ -154,24 +161,17 @@ async function main() {
   ensureDirectory(tempDir);
 
   const existingManifest = readJsonFile(manifestPath);
-  const hasPreparedDreaminaCli = fs.existsSync(binaryPath) && fs.existsSync(skillPath);
-
-  if (hasPreparedDreaminaCli) {
-    console.log(
-      `Dreamina CLI is already prepared locally${
-        existingManifest?.binaryName ? `: ${existingManifest.binaryName}` : "."
-      }`,
-    );
-    return;
-  }
 
   console.log("Resolving official Dreamina CLI installer metadata...");
   const installerScript = await fetchText(DREAMINA_INSTALLER_URL);
   const artifactInfo = resolveDreaminaArtifactInfo(installerScript);
+  const versionInfo = JSON.parse(await fetchText(artifactInfo.versionUrl));
 
   const alreadyPrepared =
     existingManifest?.binaryUrl === artifactInfo.binaryUrl &&
     existingManifest?.skillUrl === artifactInfo.skillUrl &&
+    existingManifest?.versionUrl === artifactInfo.versionUrl &&
+    existingManifest?.version === versionInfo?.version &&
     fs.existsSync(binaryPath) &&
     fs.existsSync(skillPath);
 
@@ -200,6 +200,10 @@ async function main() {
         binaryName: artifactInfo.binaryName,
         binaryUrl: artifactInfo.binaryUrl,
         skillUrl: artifactInfo.skillUrl,
+        versionUrl: artifactInfo.versionUrl,
+        version: versionInfo?.version ?? null,
+        releaseDate: versionInfo?.release_date ?? null,
+        releaseNotes: versionInfo?.release_notes ?? null,
         preparedAt: new Date().toISOString(),
       },
       null,

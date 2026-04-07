@@ -11,6 +11,7 @@ use std::os::windows::process::CommandExt;
 
 use base64::engine::general_purpose::STANDARD as BASE64_STANDARD;
 use base64::Engine as _;
+use reqwest::{header, Client};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use tauri::{AppHandle, Emitter, Manager, Runtime};
@@ -24,6 +25,8 @@ const POLL_INTERVAL_MS: u64 = 2_500;
 const DEFAULT_IMAGE_COUNT: usize = 1;
 const MAX_IMAGE_COUNT: usize = 4;
 const DREAMINA_INSTALL_SCRIPT_URL: &str = "https://jimeng.jianying.com/cli";
+const DREAMINA_NETWORK_TIMEOUT_SECS: u64 = 8;
+const DREAMINA_UPDATE_USER_AGENT: &str = "Storyboard-Copilot-Dreamina-Updater";
 const DREAMINA_SETUP_PROGRESS_EVENT: &str = "dreamina://setup-progress";
 const DREAMINA_LOGIN_WAIT_TIMEOUT_MS: u64 = 5 * 60 * 1000;
 const DREAMINA_LOGIN_VERIFY_TIMEOUT_MS: u64 = 30 * 1000;
@@ -31,6 +34,7 @@ const DREAMINA_LOGIN_POLL_INTERVAL_MS: u64 = 1_000;
 const DREAMINA_QR_READY_TIMEOUT_MS: u64 = 30 * 1000;
 const DREAMINA_BUNDLED_DIR_NAME: &str = "dreamina-cli";
 const DREAMINA_BUNDLED_BIN_NAME: &str = "dreamina.exe";
+const DREAMINA_VERSION_RECORD_FILE_NAME: &str = "version.json";
 const DREAMINA_LOGIN_LOG_FILE_NAME: &str = "dreamina-login.log";
 const DREAMINA_LOGIN_QR_FILE_NAME: &str = "dreamina-login-qr.png";
 const DREAMINA_RUNTIME_PROFILE_DIR_NAME: &str = "profile";
@@ -162,6 +166,27 @@ pub struct DreaminaCliActionResponse {
 
 #[derive(Debug, Clone, Copy, Serialize)]
 #[serde(rename_all = "camelCase")]
+pub enum DreaminaCliBinarySource {
+    Bundled,
+    UserInstalled,
+    SystemPath,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DreaminaCliUpdateInfoResponse {
+    pub active_source: DreaminaCliBinarySource,
+    pub current_version: Option<String>,
+    pub bundled_version: Option<String>,
+    pub latest_version: Option<String>,
+    pub release_date: Option<String>,
+    pub release_notes: Option<String>,
+    pub has_update: bool,
+    pub check_error: Option<String>,
+}
+
+#[derive(Debug, Clone, Copy, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub enum DreaminaGitSource {
     Bundled,
     System,
@@ -255,6 +280,32 @@ pub struct JimengDreaminaVideoQueryResponse {
     pub warnings: Vec<String>,
 }
 
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct DreaminaCliManifest {
+    installer_url: Option<String>,
+    download_base: Option<String>,
+    version_url: Option<String>,
+    version: Option<String>,
+    release_date: Option<String>,
+    release_notes: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+struct DreaminaCliVersionRecord {
+    version: Option<String>,
+    release_date: Option<String>,
+    release_notes: Option<String>,
+}
+
+#[derive(Debug, Clone)]
+struct DreaminaCliResolvedBinary {
+    source: DreaminaCliBinarySource,
+    binary_path: Option<PathBuf>,
+    current_version: Option<String>,
+    bundled_version: Option<String>,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum VideoCommand {
     Text2Video,
@@ -282,6 +333,43 @@ fn workspace_root() -> Result<PathBuf, String> {
         .parent()
         .map(|path| path.to_path_buf())
         .ok_or_else(|| "failed to resolve workspace root".to_string())
+}
+
+fn normalize_version(value: &str) -> String {
+    value.trim().trim_start_matches(['v', 'V']).to_string()
+}
+
+fn compare_versions(left: &str, right: &str) -> std::cmp::Ordering {
+    let parse_parts = |value: &str| {
+        normalize_version(value)
+            .split('-')
+            .next()
+            .unwrap_or_default()
+            .split('.')
+            .map(|part| part.parse::<u32>().unwrap_or(0))
+            .collect::<Vec<_>>()
+    };
+
+    let left_parts = parse_parts(left);
+    let right_parts = parse_parts(right);
+    let max_len = left_parts.len().max(right_parts.len());
+
+    for index in 0..max_len {
+        let left_value = left_parts.get(index).copied().unwrap_or(0);
+        let right_value = right_parts.get(index).copied().unwrap_or(0);
+        match left_value.cmp(&right_value) {
+            std::cmp::Ordering::Equal => continue,
+            order => return order,
+        }
+    }
+
+    std::cmp::Ordering::Equal
+}
+
+fn normalize_version_option(value: Option<&str>) -> Option<String> {
+    value
+        .map(normalize_version)
+        .filter(|version| !version.is_empty())
 }
 
 fn push_unique_path(paths: &mut Vec<PathBuf>, candidate: PathBuf) {
@@ -407,6 +495,195 @@ fn dreamina_process_env(workspace: &Path) -> Result<DreaminaProcessEnv, String> 
         local_app_data_dir,
         temp_dir,
     })
+}
+
+fn dreamina_installed_binary_path(command_env: &DreaminaProcessEnv) -> PathBuf {
+    command_env
+        .user_profile
+        .join("bin")
+        .join(DREAMINA_BUNDLED_BIN_NAME)
+}
+
+fn dreamina_installed_version_path(command_env: &DreaminaProcessEnv) -> PathBuf {
+    command_env
+        .user_profile
+        .join(".dreamina_cli")
+        .join(DREAMINA_VERSION_RECORD_FILE_NAME)
+}
+
+fn dreamina_manifest_path_from_bin_dir(bin_dir: &Path) -> PathBuf {
+    bin_dir
+        .parent()
+        .unwrap_or(bin_dir)
+        .join(".dreamina-cli-manifest.json")
+}
+
+fn read_dreamina_manifest(path: &Path) -> Option<DreaminaCliManifest> {
+    let text = read_text_file_lossy(path)?;
+    serde_json::from_str::<DreaminaCliManifest>(&text).ok()
+}
+
+fn read_dreamina_version_record(path: &Path) -> Option<DreaminaCliVersionRecord> {
+    let text = read_text_file_lossy(path)?;
+    serde_json::from_str::<DreaminaCliVersionRecord>(&text).ok()
+}
+
+fn bundled_dreamina_manifest(runtime: &GitBashRuntime) -> Option<DreaminaCliManifest> {
+    let bin_dir = runtime.dreamina_bin_dir.as_ref()?;
+    read_dreamina_manifest(&dreamina_manifest_path_from_bin_dir(bin_dir))
+}
+
+fn bundled_dreamina_version(runtime: &GitBashRuntime) -> Option<String> {
+    normalize_version_option(
+        bundled_dreamina_manifest(runtime)?
+            .version
+            .as_deref(),
+    )
+}
+
+fn installed_dreamina_version(command_env: &DreaminaProcessEnv) -> Option<String> {
+    normalize_version_option(
+        read_dreamina_version_record(&dreamina_installed_version_path(command_env))?
+            .version
+            .as_deref(),
+    )
+}
+
+fn resolve_active_dreamina_binary(
+    runtime: &GitBashRuntime,
+    command_env: &DreaminaProcessEnv,
+) -> DreaminaCliResolvedBinary {
+    let bundled_binary = bundled_dreamina_binary_path(runtime);
+    let bundled_version = bundled_dreamina_version(runtime);
+    let installed_binary = dreamina_installed_binary_path(command_env);
+    let installed_exists = installed_binary.is_file();
+    let installed_version = installed_dreamina_version(command_env);
+
+    if installed_exists {
+        let prefer_installed = bundled_binary.is_none()
+            || bundled_version.is_none()
+            || installed_version
+                .as_deref()
+                .map(|installed| {
+                    bundled_version
+                        .as_deref()
+                        .map(|bundled| compare_versions(installed, bundled))
+                        .unwrap_or(std::cmp::Ordering::Greater)
+                        != std::cmp::Ordering::Less
+                })
+                .unwrap_or(false);
+
+        if prefer_installed {
+            return DreaminaCliResolvedBinary {
+                source: DreaminaCliBinarySource::UserInstalled,
+                binary_path: Some(installed_binary),
+                current_version: installed_version,
+                bundled_version,
+            };
+        }
+    }
+
+    if let Some(path) = bundled_binary {
+        return DreaminaCliResolvedBinary {
+            source: DreaminaCliBinarySource::Bundled,
+            binary_path: Some(path),
+            current_version: bundled_version.clone(),
+            bundled_version,
+        };
+    }
+
+    DreaminaCliResolvedBinary {
+        source: DreaminaCliBinarySource::SystemPath,
+        binary_path: None,
+        current_version: installed_version,
+        bundled_version,
+    }
+}
+
+fn dreamina_version_url(manifest: Option<&DreaminaCliManifest>) -> Option<String> {
+    if let Some(url) = manifest
+        .and_then(|value| value.version_url.as_deref())
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        return Some(url.to_string());
+    }
+
+    manifest
+        .and_then(|value| value.download_base.as_deref())
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(|base| format!("{}/{}", base.trim_end_matches('/'), DREAMINA_VERSION_RECORD_FILE_NAME))
+}
+
+fn dreamina_installer_url(manifest: Option<&DreaminaCliManifest>) -> &str {
+    manifest
+        .and_then(|value| value.installer_url.as_deref())
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .unwrap_or(DREAMINA_INSTALL_SCRIPT_URL)
+}
+
+fn build_dreamina_http_client() -> Result<Client, String> {
+    Client::builder()
+        .timeout(Duration::from_secs(DREAMINA_NETWORK_TIMEOUT_SECS))
+        .build()
+        .map_err(|error| format!("failed to build Dreamina http client: {error}"))
+}
+
+fn parse_dreamina_script_variable(script: &str, key: &str) -> Option<String> {
+    let prefix = format!("{key}=");
+    script.lines().find_map(|line| {
+        let trimmed = line.trim();
+        let value = trimmed.strip_prefix(&prefix)?;
+        let value = value.trim().trim_matches('"').trim_matches('\'').trim();
+        if value.is_empty() {
+            None
+        } else {
+            Some(value.to_string())
+        }
+    })
+}
+
+async fn fetch_dreamina_latest_version_record(
+    manifest: Option<&DreaminaCliManifest>,
+) -> Result<DreaminaCliVersionRecord, String> {
+    let client = build_dreamina_http_client()?;
+    let mut version_url = dreamina_version_url(manifest);
+
+    if version_url.is_none() {
+        let installer_script = client
+            .get(dreamina_installer_url(manifest))
+            .header(header::ACCEPT, "text/plain,*/*")
+            .header(header::USER_AGENT, DREAMINA_UPDATE_USER_AGENT)
+            .send()
+            .await
+            .map_err(|error| format!("failed to fetch Dreamina installer script: {error}"))?
+            .text()
+            .await
+            .map_err(|error| format!("failed to read Dreamina installer script: {error}"))?;
+        version_url = parse_dreamina_script_variable(&installer_script, "VERSION_URL");
+    }
+
+    let version_url =
+        version_url.ok_or_else(|| "failed to resolve Dreamina version metadata url".to_string())?;
+
+    let response = client
+        .get(&version_url)
+        .header(header::ACCEPT, "application/json")
+        .header(header::USER_AGENT, DREAMINA_UPDATE_USER_AGENT)
+        .send()
+        .await
+        .map_err(|error| format!("failed to fetch Dreamina version metadata: {error}"))?;
+
+    let response = response
+        .error_for_status()
+        .map_err(|error| format!("Dreamina version metadata request failed: {error}"))?;
+
+    response
+        .json::<DreaminaCliVersionRecord>()
+        .await
+        .map_err(|error| format!("failed to decode Dreamina version metadata: {error}"))
 }
 
 fn git_root_from_bash_path(path: &Path) -> Option<PathBuf> {
@@ -578,18 +855,19 @@ fn bundled_dreamina_binary_path(runtime: &GitBashRuntime) -> Option<PathBuf> {
     }
 }
 
-fn dreamina_command_target(runtime: &GitBashRuntime) -> String {
-    bundled_dreamina_binary_path(runtime)
+fn dreamina_command_target(runtime: &GitBashRuntime, command_env: &DreaminaProcessEnv) -> String {
+    resolve_active_dreamina_binary(runtime, command_env)
+        .binary_path
         .map(|path| bash_quote(&cli_path(&path)))
         .unwrap_or_else(|| "dreamina".to_string())
 }
 
 fn dreamina_path_prefix(runtime: &GitBashRuntime, command_env: &DreaminaProcessEnv) -> String {
     let mut parts = Vec::new();
+    push_path_prefix(&mut parts, &command_env.user_profile.join("bin"));
     if let Some(bin_dir) = runtime.dreamina_bin_dir.as_ref() {
         push_path_prefix(&mut parts, bin_dir);
     }
-    push_path_prefix(&mut parts, &command_env.user_profile.join("bin"));
     push_windows_chrome_prefixes(&mut parts);
     if let Some(root) = runtime.root.as_ref() {
         push_path_prefix(&mut parts, &root.join("bin"));
@@ -738,10 +1016,22 @@ async fn run_git_bash_script(
 }
 
 fn install_dreamina_script(runtime: &GitBashRuntime, command_env: &DreaminaProcessEnv) -> String {
+    let manifest = bundled_dreamina_manifest(runtime);
     format!(
         "{prefix}; installer_script=$(mktemp); curl -fsSL {url} -o \"$installer_script\"; bash \"$installer_script\"; status=$?; rm -f \"$installer_script\"; if [ \"$status\" -ne 0 ]; then exit \"$status\"; fi; {prefix}; command -v dreamina >/dev/null 2>&1",
         prefix = dreamina_command_prefix(runtime, command_env),
-        url = bash_quote(DREAMINA_INSTALL_SCRIPT_URL),
+        url = bash_quote(dreamina_installer_url(manifest.as_ref())),
+    )
+}
+
+fn update_dreamina_script(runtime: &GitBashRuntime, command_env: &DreaminaProcessEnv) -> String {
+    let manifest = bundled_dreamina_manifest(runtime);
+    format!(
+        "{prefix}; installer_script=$(mktemp); curl -fsSL {url} -o \"$installer_script\"; bash \"$installer_script\"; status=$?; rm -f \"$installer_script\"; if [ \"$status\" -ne 0 ]; then exit \"$status\"; fi; test -f \"$HOME/bin/{binary}\" && test -f \"$HOME/.dreamina_cli/{version_file}\"",
+        prefix = dreamina_command_prefix(runtime, command_env),
+        url = bash_quote(dreamina_installer_url(manifest.as_ref())),
+        binary = DREAMINA_BUNDLED_BIN_NAME,
+        version_file = DREAMINA_VERSION_RECORD_FILE_NAME,
     )
 }
 
@@ -752,7 +1042,7 @@ fn dreamina_login_headless_script(
     format!(
         "{prefix}; {dreamina} login --headless --debug < /dev/null",
         prefix = dreamina_command_prefix(runtime, command_env),
-        dreamina = dreamina_command_target(runtime),
+        dreamina = dreamina_command_target(runtime, command_env),
     )
 }
 
@@ -926,24 +1216,40 @@ fn powershell_quote(value: &str) -> String {
     format!("'{}'", value.replace('\'', "''"))
 }
 
-async fn terminate_conflicting_dreamina_processes(runtime: &GitBashRuntime) -> Result<(), String> {
+async fn terminate_conflicting_dreamina_processes(
+    runtime: &GitBashRuntime,
+    command_env: &DreaminaProcessEnv,
+) -> Result<(), String> {
     if !cfg!(target_os = "windows") {
         return Ok(());
     }
 
-    let Some(binary_path) = bundled_dreamina_binary_path(runtime) else {
+    let mut binary_paths = Vec::new();
+    if let Some(path) = bundled_dreamina_binary_path(runtime) {
+        binary_paths.push(path);
+    }
+    let installed_binary = dreamina_installed_binary_path(command_env);
+    if installed_binary.is_file() {
+        binary_paths.push(installed_binary);
+    }
+
+    if binary_paths.is_empty() {
         return Ok(());
-    };
-    let binary_path = binary_path
-        .canonicalize()
-        .unwrap_or(binary_path)
-        .to_string_lossy()
-        .to_string();
+    }
+
+    let binary_paths = binary_paths
+        .into_iter()
+        .map(|path| path.canonicalize().unwrap_or(path).to_string_lossy().to_string())
+        .collect::<Vec<_>>();
 
     tokio::task::spawn_blocking(move || {
+        let powershell_paths = binary_paths
+            .iter()
+            .map(|path| powershell_quote(path))
+            .collect::<Vec<_>>()
+            .join(", ");
         let script = format!(
-            "$path = {}; Get-Process dreamina -ErrorAction SilentlyContinue | Where-Object {{ $_.Path -eq $path }} | Stop-Process -Force -ErrorAction SilentlyContinue",
-            powershell_quote(&binary_path)
+            "$paths = @({powershell_paths}); Get-Process dreamina -ErrorAction SilentlyContinue | Where-Object {{ $_.Path -and ($paths -contains $_.Path) }} | Stop-Process -Force -ErrorAction SilentlyContinue"
         );
         let mut command = Command::new("powershell");
         command
@@ -1005,7 +1311,7 @@ async fn run_dreamina_json(
 ) -> Result<Value, String> {
     let command_env = dreamina_process_env(&workspace)?;
     let mut parts = Vec::with_capacity(args.len() + 1);
-    parts.push(dreamina_command_target(runtime));
+    parts.push(dreamina_command_target(runtime, &command_env));
     parts.extend(args.iter().map(|arg| bash_quote(arg)));
     let script = format!(
         "{}; {}",
@@ -1041,7 +1347,7 @@ async fn run_dreamina_action(
 ) -> Result<DreaminaCliActionResponse, String> {
     let command_env = dreamina_process_env(&workspace)?;
     let mut parts = Vec::with_capacity(args.len() + 1);
-    parts.push(dreamina_command_target(runtime));
+    parts.push(dreamina_command_target(runtime, &command_env));
     parts.extend(args.iter().map(|arg| bash_quote(arg)));
     let script = format!(
         "{}; {}",
@@ -1314,11 +1620,23 @@ fn video_args(
     );
     let text_model = normalize_choice(
         payload.model_version.as_deref(),
-        &["seedance2.0", "seedance2.0fast"],
+        &[
+            "seedance2.0",
+            "seedance2.0fast",
+            "seedance2.0_vip",
+            "seedance2.0fast_vip",
+        ],
     );
     let frames_model = normalize_choice(
         payload.model_version.as_deref(),
-        &["3.0", "3.5pro", "seedance2.0", "seedance2.0fast"],
+        &[
+            "3.0",
+            "3.5pro",
+            "seedance2.0",
+            "seedance2.0fast",
+            "seedance2.0_vip",
+            "seedance2.0fast_vip",
+        ],
     );
     let image_model = normalize_choice(
         payload.model_version.as_deref(),
@@ -1329,6 +1647,8 @@ fn video_args(
             "3.5pro",
             "seedance2.0",
             "seedance2.0fast",
+            "seedance2.0_vip",
+            "seedance2.0fast_vip",
         ],
     );
     let resolution = normalize_choice(payload.video_resolution.as_deref(), &["720p", "1080p"]);
@@ -1860,6 +2180,51 @@ async fn resolve_dreamina_cli_status(app: &AppHandle) -> DreaminaCliStatusRespon
     resolve_dreamina_cli_status_with_runtime(workspace, &runtime).await
 }
 
+async fn resolve_dreamina_cli_update_info(
+    app: &AppHandle,
+) -> Result<DreaminaCliUpdateInfoResponse, String> {
+    let workspace = dreamina_workspace(app)?;
+    let runtime = resolve_git_bash_runtime(app)?;
+    let command_env = dreamina_process_env(&workspace)?;
+    let active_binary = resolve_active_dreamina_binary(&runtime, &command_env);
+    let manifest = bundled_dreamina_manifest(&runtime);
+
+    let latest_record = fetch_dreamina_latest_version_record(manifest.as_ref()).await;
+    let latest_version = latest_record
+        .as_ref()
+        .ok()
+        .and_then(|record| normalize_version_option(record.version.as_deref()));
+    let release_date = latest_record
+        .as_ref()
+        .ok()
+        .and_then(|record| record.release_date.clone())
+        .or_else(|| manifest.as_ref().and_then(|value| value.release_date.clone()));
+    let release_notes = latest_record
+        .as_ref()
+        .ok()
+        .and_then(|record| record.release_notes.clone())
+        .or_else(|| manifest.as_ref().and_then(|value| value.release_notes.clone()));
+    let has_update = match (
+        active_binary.current_version.as_deref(),
+        latest_version.as_deref(),
+    ) {
+        (Some(current), Some(latest)) => compare_versions(latest, current) == std::cmp::Ordering::Greater,
+        _ => false,
+    };
+    let check_error = latest_record.err();
+
+    Ok(DreaminaCliUpdateInfoResponse {
+        active_source: active_binary.source,
+        current_version: active_binary.current_version,
+        bundled_version: active_binary.bundled_version,
+        latest_version,
+        release_date,
+        release_notes,
+        has_update,
+        check_error,
+    })
+}
+
 async fn install_dreamina_cli_with_runtime(
     workspace: PathBuf,
     runtime: &GitBashRuntime,
@@ -1904,13 +2269,55 @@ async fn install_dreamina_cli_with_runtime(
     })
 }
 
+async fn update_dreamina_cli_with_runtime(
+    workspace: PathBuf,
+    runtime: &GitBashRuntime,
+) -> Result<DreaminaCliActionResponse, String> {
+    let command_env = dreamina_process_env(&workspace)?;
+    terminate_conflicting_dreamina_processes(runtime, &command_env).await?;
+
+    let before_version = installed_dreamina_version(&command_env)
+        .or_else(|| bundled_dreamina_version(runtime));
+    let (success, stdout, stderr) = run_git_bash_script(
+        runtime,
+        command_env.clone(),
+        workspace.clone(),
+        update_dreamina_script(runtime, &command_env),
+    )
+    .await?;
+    if !success {
+        let line = stderr
+            .lines()
+            .map(str::trim)
+            .find(|line| !line.is_empty())
+            .or_else(|| stdout.lines().map(str::trim).find(|line| !line.is_empty()))
+            .unwrap_or("Dreamina CLI update failed.");
+        return Err(normalize_dreamina_cli_error(line));
+    }
+
+    let after_version = installed_dreamina_version(&command_env)
+        .or_else(|| bundled_dreamina_version(runtime));
+    let detail = match (before_version.as_deref(), after_version.as_deref()) {
+        (Some(before), Some(after)) if before != after => {
+            Some(format!("Dreamina CLI updated from v{before} to v{after}."))
+        }
+        (None, Some(after)) => Some(format!("Dreamina CLI is now available at v{after}.")),
+        (Some(version), Some(_)) => Some(format!("Dreamina CLI is already on v{version}.")),
+        _ => None,
+    };
+
+    Ok(DreaminaCliActionResponse {
+        message: "Dreamina CLI update completed.".to_string(),
+        detail,
+    })
+}
+
 async fn open_dreamina_login_terminal_with_runtime(
     workspace: PathBuf,
     runtime: &GitBashRuntime,
 ) -> Result<DreaminaCliActionResponse, String> {
-    terminate_conflicting_dreamina_processes(runtime).await?;
-
     let command_env = dreamina_process_env(&workspace)?;
+    terminate_conflicting_dreamina_processes(runtime, &command_env).await?;
     let script = dreamina_login_headless_script(runtime, &command_env);
     let bash_path = runtime.bash_path.clone();
     let log_path = dreamina_login_log_path(&workspace);
@@ -2213,10 +2620,24 @@ pub async fn check_dreamina_cli_status(
 }
 
 #[tauri::command]
+pub async fn check_dreamina_cli_update(
+    app: AppHandle,
+) -> Result<DreaminaCliUpdateInfoResponse, String> {
+    resolve_dreamina_cli_update_info(&app).await
+}
+
+#[tauri::command]
 pub async fn install_dreamina_cli(app: AppHandle) -> Result<DreaminaCliActionResponse, String> {
     let workspace = dreamina_workspace(&app)?;
     let runtime = resolve_git_bash_runtime(&app)?;
     install_dreamina_cli_with_runtime(workspace, &runtime).await
+}
+
+#[tauri::command]
+pub async fn update_dreamina_cli(app: AppHandle) -> Result<DreaminaCliActionResponse, String> {
+    let workspace = dreamina_workspace(&app)?;
+    let runtime = resolve_git_bash_runtime(&app)?;
+    update_dreamina_cli_with_runtime(workspace, &runtime).await
 }
 
 #[tauri::command]
@@ -2239,7 +2660,8 @@ pub async fn open_dreamina_login_terminal(
 pub async fn logout_dreamina_cli(app: AppHandle) -> Result<DreaminaCliActionResponse, String> {
     let workspace = dreamina_workspace(&app)?;
     let runtime = resolve_git_bash_runtime(&app)?;
-    terminate_conflicting_dreamina_processes(&runtime).await?;
+    let command_env = dreamina_process_env(&workspace)?;
+    terminate_conflicting_dreamina_processes(&runtime, &command_env).await?;
 
     let response = run_dreamina_action(
         workspace.clone(),

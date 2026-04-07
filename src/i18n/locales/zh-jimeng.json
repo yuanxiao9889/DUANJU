@@ -69,6 +69,8 @@
       "modelOptions": {
         "seedance20fast": "Seedance 2.0 Fast",
         "seedance20": "Seedance 2.0",
+        "seedance20fastVip": "Seedance 2.0 Fast VIP",
+        "seedance20Vip": "Seedance 2.0 VIP",
         "v3_5pro": "3.5 Pro",
         "v3_0pro": "3.0 Pro",
         "v3_0fast": "3.0 Fast",
