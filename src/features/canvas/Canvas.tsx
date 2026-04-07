@@ -26,7 +26,7 @@ import {
 import { join } from '@tauri-apps/api/path';
 import { open } from '@tauri-apps/plugin-dialog';
 import { useTranslation } from 'react-i18next';
-import { Upload, ImagePlus, Grid3x3, Map as MapIcon, Plus, Minus, AlignCenter } from 'lucide-react';
+import { Upload, ImagePlus, Grid3x3, Map as MapIcon, Plus, Minus, AlignCenter, ListOrdered } from 'lucide-react';
 import '@xyflow/react/dist/style.css';
 
 import {
@@ -73,6 +73,10 @@ import {
   calculateBranchNodePosition,
   DEFAULT_LAYOUT_CONFIG,
 } from '@/features/canvas/application/mindMapLayout';
+import {
+  getCanvasNodeSize as getNodeSize,
+  resolveAbsoluteCanvasNodePosition as resolveAbsoluteNodePosition,
+} from '@/features/canvas/application/nodeGeometry';
 import { embedStoryboardImageMetadata, saveImageSourceToDirectory } from '@/commands/image';
 import { resolveNodeDisplayName } from '@/features/canvas/domain/nodeDisplay';
 import { listModelProviders } from '@/features/canvas/models';
@@ -92,6 +96,8 @@ import { calculateNodesBounds } from './application/nodeBounds';
 import { GroupSidebar } from './ui/GroupSidebar';
 import { SelectionGroupBar } from './ui/SelectionGroupBar';
 import { CanvasAssetDock } from './ui/CanvasAssetDock';
+import { JimengVideoQueuePanel } from '@/features/jimeng/ui/JimengVideoQueuePanel';
+import { useJimengVideoQueueStore } from '@/stores/jimengVideoQueueStore';
 
 const ScriptBiblePanel = lazy(async () => {
   const module = await import('./ui/ScriptBiblePanel');
@@ -244,38 +250,6 @@ function resolveSelectedDownloadSuggestedFileName(
 
   const displayName = resolveNodeDisplayName(node.type, node.data).trim();
   return displayName || `asset-${index + 1}`;
-}
-
-function getNodeSize(node: CanvasNode): { width: number; height: number } {
-  const styleWidth = typeof node.style?.width === 'number' ? node.style.width : null;
-  const styleHeight = typeof node.style?.height === 'number' ? node.style.height : null;
-  return {
-    width: node.measured?.width ?? styleWidth ?? DEFAULT_NODE_WIDTH,
-    height: node.measured?.height ?? styleHeight ?? 200,
-  };
-}
-
-function resolveAbsoluteNodePosition(
-  node: CanvasNode,
-  nodeMap: globalThis.Map<string, CanvasNode>
-): { x: number; y: number } {
-  let x = node.position.x;
-  let y = node.position.y;
-  let currentParentId = node.parentId;
-  const visited = new Set<string>();
-
-  while (currentParentId && !visited.has(currentParentId)) {
-    visited.add(currentParentId);
-    const parentNode = nodeMap.get(currentParentId);
-    if (!parentNode) {
-      break;
-    }
-    x += parentNode.position.x;
-    y += parentNode.position.y;
-    currentParentId = parentNode.parentId;
-  }
-
-  return { x, y };
 }
 
 function findContainingGroupId(
@@ -558,6 +532,7 @@ export function Canvas() {
   const [branchConnectionSource, setBranchConnectionSource] = useState<CanvasNode[]>([]);
   const [branchConnectionPosition, setBranchConnectionPosition] = useState<{ x: number; y: number } | null>(null);
   const [showBatchMenu, setShowBatchMenu] = useState(false);
+  const [showJimengQueuePanel, setShowJimengQueuePanel] = useState(false);
   const [isExportingSelectedImages, setIsExportingSelectedImages] = useState(false);
   const [batchMenuPosition, setBatchMenuPosition] = useState({ x: 0, y: 0 });
   const [menuPosition, setMenuPosition] = useState({ x: 0, y: 0 });
@@ -656,6 +631,11 @@ export function Canvas() {
       { ...state.scriptApiKeys, ...state.storyboardApiKeys },
       providerIds
     )
+  );
+  const jimengQueueJobs = useJimengVideoQueueStore((state) => state.jobs);
+  const jimengQueuePendingCount = useMemo(
+    () => jimengQueueJobs.filter((job) => job.status !== 'completed' && job.status !== 'failed' && job.status !== 'cancelled').length,
+    [jimengQueueJobs]
   );
 
   const clearDragOverlay = useCallback(() => {
@@ -3531,6 +3511,28 @@ export function Canvas() {
 
         <div style={{ width: '1px', height: '16px', backgroundColor: '#374151' }} />
 
+        <button
+          onClick={() => setShowJimengQueuePanel((value) => !value)}
+          style={{
+            color: showJimengQueuePanel ? '#3b82f6' : '#6b7280',
+            padding: '6px',
+            borderRadius: '4px',
+            position: 'relative',
+          }}
+          title={t('jimengQueue.panel.toggle')}
+        >
+          <ListOrdered style={{ width: '16px', height: '16px' }} />
+          {jimengQueuePendingCount > 0 ? (
+            <span
+              className="absolute -right-1 -top-1 inline-flex min-w-[16px] items-center justify-center rounded-full bg-accent px-1 text-[10px] font-semibold text-white"
+            >
+              {jimengQueuePendingCount > 99 ? '99+' : jimengQueuePendingCount}
+            </span>
+          ) : null}
+        </button>
+
+        <div style={{ width: '1px', height: '16px', backgroundColor: '#374151' }} />
+
         {/* 小地图开关 */}
         <button
           onClick={() => setShowMiniMap(!showMiniMap)}
@@ -3582,6 +3584,11 @@ export function Canvas() {
           <Plus style={{ width: '16px', height: '16px' }} />
         </button>
       </div>
+
+      <JimengVideoQueuePanel
+        isOpen={showJimengQueuePanel}
+        onClose={() => setShowJimengQueuePanel(false)}
+      />
 
       {dragOverlayKind && (
         <div className="absolute inset-0 z-50 pointer-events-none">

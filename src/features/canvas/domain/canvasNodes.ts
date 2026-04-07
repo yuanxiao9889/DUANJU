@@ -402,6 +402,11 @@ export interface JimengImageResultNodeData extends NodeDisplayData {
 
 export interface JimengVideoResultNodeData extends NodeDisplayData {
   sourceNodeId?: string | null;
+  queueJobId?: string | null;
+  queueStatus?: string | null;
+  queueScheduledAt?: number | null;
+  queueAttemptCount?: number;
+  queueMaxAttempts?: number;
   submitId?: string | null;
   sourceUrl?: string | null;
   posterSourceUrl?: string | null;

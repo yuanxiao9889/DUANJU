@@ -69,11 +69,6 @@ import {
 import { UiButton, UiChipButton, UiSelect } from "@/components/ui";
 import { useCanvasStore } from "@/stores/canvasStore";
 import { useSettingsStore } from "@/stores/settingsStore";
-import { generateJimengVideos } from "@/features/jimeng/application/jimengVideoSubmission";
-import {
-  ensureDreaminaCliReady,
-  resolveDreaminaSetupBlockedMessage,
-} from "@/features/jimeng/application/dreaminaSetup";
 import {
   areReferenceImageOrdersEqual,
   buildShortReferenceToken,
@@ -93,6 +88,9 @@ import {
 } from "@/features/jimeng/domain/jimengOptions";
 import { StyleTemplatePicker } from "@/features/project/StyleTemplatePicker";
 import { applyStyleTemplatePrompt } from "@/features/project/styleTemplatePrompt";
+import { JimengVideoQueueScheduleModal } from "@/features/jimeng/ui/JimengVideoQueueScheduleModal";
+import { useProjectStore } from "@/stores/projectStore";
+import { useJimengVideoQueueStore } from "@/stores/jimengVideoQueueStore";
 
 type JimengNodeProps = NodeProps & {
   id: string;
@@ -1127,6 +1125,7 @@ export const JimengNode = memo(
     >(null);
     const [dragReferencePreview, setDragReferencePreview] =
       useState<DragReferencePreviewState | null>(null);
+    const [showQueueScheduleModal, setShowQueueScheduleModal] = useState(false);
     const setSelectedNode = useCanvasStore((state) => state.setSelectedNode);
     const updateNodeData = useCanvasStore((state) => state.updateNodeData);
     const addNode = useCanvasStore((state) => state.addNode);
@@ -1135,6 +1134,10 @@ export const JimengNode = memo(
     const findNodePosition = useCanvasStore((state) => state.findNodePosition);
     const setLastJimengVideoDefaults = useSettingsStore(
       (state) => state.setLastJimengVideoDefaults,
+    );
+    const currentProjectId = useProjectStore((state) => state.currentProjectId);
+    const enqueueJimengQueueJob = useJimengVideoQueueStore(
+      (state) => state.enqueueJob,
     );
 
     const connectedReferenceVisuals = useCanvasConnectedReferenceVisuals(id);
@@ -1829,7 +1832,7 @@ export const JimengNode = memo(
       updatePrompt,
     ]);
 
-    const handleGenerate = useCallback(async () => {
+    const enqueueJimengVideoJob = useCallback(async (scheduledAt: number | null) => {
       const prompt = promptDraft.trim();
       if (!prompt) {
         const message = t("node.jimeng.promptRequired");
@@ -1855,11 +1858,20 @@ export const JimengNode = memo(
         return;
       }
 
+      if (!currentProjectId) {
+        const message = t("node.jimeng.queueProjectUnavailable");
+        updateNodeData(id, { lastError: message });
+        await showErrorDialog(message, t("common.error"));
+        return;
+      }
+
       setPromptOptimizationError(null);
       updateNodeData(id, { lastError: null });
 
       let createdResultNodeId: string | null = null;
-      const startedAt = Date.now();
+      const resultNodeTitle = buildJimengVideoResultNodeTitle(
+        t("node.jimeng.resultNodeTitle"),
+      );
 
       try {
         const resultNodePosition = findNodePosition(
@@ -1872,9 +1884,12 @@ export const JimengNode = memo(
           resultNodePosition,
           {
             sourceNodeId: id,
-            displayName: buildJimengVideoResultNodeTitle(
-              t("node.jimeng.resultNodeTitle"),
-            ),
+            displayName: resultNodeTitle,
+            queueJobId: null,
+            queueStatus: "waiting",
+            queueScheduledAt: scheduledAt,
+            queueAttemptCount: 0,
+            queueMaxAttempts: 3,
             submitId: null,
             sourceUrl: null,
             posterSourceUrl: null,
@@ -1883,8 +1898,8 @@ export const JimengNode = memo(
             videoFileName: null,
             aspectRatio: selectedAspectRatio,
             duration: selectedDuration,
-            isGenerating: true,
-            generationStartedAt: startedAt,
+            isGenerating: false,
+            generationStartedAt: null,
             generationDurationMs: 180000,
             lastGeneratedAt: null,
             lastError: null,
@@ -1896,104 +1911,48 @@ export const JimengNode = memo(
           "creating Jimeng video result node",
         );
 
-        const dreaminaStatus = await ensureDreaminaCliReady({
-          feature: "video",
-          action: "generate",
-        });
-        if (!dreaminaStatus.ready) {
-          const message = resolveDreaminaSetupBlockedMessage(
-            t,
-            dreaminaStatus.code,
-          );
-          updateNodeData(id, {
-            lastError: message,
-          });
-          if (createdResultNodeId) {
-            updateNodeData(createdResultNodeId, {
-              isGenerating: false,
-              generationStartedAt: null,
-              lastError: message,
-            });
-          }
-          await flushCurrentProjectToDiskSafely(
-            "saving Jimeng video generation blocked state",
-          );
-          return;
+        if (!createdResultNodeId) {
+          throw new Error(t("node.jimeng.queueResultNodeMissing"));
         }
 
-        const generationResponse = await generateJimengVideos({
-          prompt,
-          modelVersion: selectedModel,
-          referenceMode: selectedReferenceMode,
-          aspectRatio: selectedAspectRatio,
-          durationSeconds: selectedDuration,
-          videoResolution: selectedVideoResolution,
-          referenceImageSources,
-          referenceVideoSources,
-          referenceAudioSources: incomingAudios.map((item) => item.audioUrl),
-          onSubmitted: async ({ submitId }) => {
-            if (!createdResultNodeId) {
-              return;
-            }
-
-            updateNodeData(createdResultNodeId, {
-              submitId,
-              isGenerating: true,
-              generationStartedAt: startedAt,
-              lastError: null,
-            });
-            await flushCurrentProjectToDiskSafely(
-              "saving Jimeng video submit id",
-            );
+        await enqueueJimengQueueJob({
+          projectId: currentProjectId,
+          sourceNodeId: id,
+          resultNodeId: createdResultNodeId,
+          title: resultNodeTitle,
+          scheduledAt,
+          payload: {
+            prompt,
+            modelVersion: selectedModel,
+            referenceMode: selectedReferenceMode,
+            aspectRatio: selectedAspectRatio,
+            durationSeconds: selectedDuration,
+            videoResolution: selectedVideoResolution,
+            referenceImageSources,
+            referenceVideoSources,
+            referenceAudioSources: incomingAudios.map((item) => item.audioUrl),
           },
         });
-        const primaryResult = generationResponse.videos[0];
-        if (!primaryResult) {
-          throw new Error(t("node.jimeng.resultEmpty"));
-        }
 
-        const completedAt = Date.now();
         updateNodeData(id, {
-          lastSubmittedAt: completedAt,
           lastError: null,
         });
-
-        if (createdResultNodeId) {
-          updateNodeData(createdResultNodeId, {
-            submitId: generationResponse.submitId,
-            sourceUrl: primaryResult.sourceUrl ?? null,
-            posterSourceUrl: primaryResult.posterSourceUrl ?? null,
-            videoUrl: primaryResult.videoUrl ?? null,
-            previewImageUrl: primaryResult.previewImageUrl ?? null,
-            videoFileName: primaryResult.fileName ?? null,
-            aspectRatio: primaryResult.aspectRatio ?? selectedAspectRatio,
-            duration: primaryResult.duration ?? selectedDuration,
-            width: primaryResult.width ?? undefined,
-            height: primaryResult.height ?? undefined,
-            isGenerating: false,
-            generationStartedAt: null,
-            lastGeneratedAt: completedAt,
-            lastError: null,
-          });
-        }
-        await flushCurrentProjectToDiskSafely(
-          "saving Jimeng video generation result",
-        );
       } catch (error) {
         const content = resolveErrorContent(
           error,
-          t("node.jimeng.submitFailed"),
+          t("node.jimeng.queueEnqueueFailed"),
         );
         updateNodeData(id, { lastError: content.message });
         if (createdResultNodeId) {
           updateNodeData(createdResultNodeId, {
             isGenerating: false,
             generationStartedAt: null,
+            queueStatus: "failed",
             lastError: content.message,
           });
         }
         await flushCurrentProjectToDiskSafely(
-          "saving Jimeng video generation error",
+          "saving Jimeng video queue error",
         );
         await showErrorDialog(
           content.message,
@@ -2004,6 +1963,8 @@ export const JimengNode = memo(
     }, [
       addEdge,
       addNode,
+      currentProjectId,
+      enqueueJimengQueueJob,
       findNodePosition,
       flushCurrentProjectToDiskSafely,
       hasTooManyReferenceVideos,
@@ -2023,6 +1984,10 @@ export const JimengNode = memo(
       t,
       updateNodeData,
     ]);
+
+    const handleGenerate = useCallback(async () => {
+      await enqueueJimengVideoJob(null);
+    }, [enqueueJimengVideoJob]);
 
     const handlePromptKeyDown = useCallback(
       (event: KeyboardEvent<HTMLTextAreaElement>) => {
@@ -2896,19 +2861,30 @@ export const JimengNode = memo(
               </UiChipButton>
             </div>
           </div>
-          <UiButton
-            type="button"
-            variant="primary"
-            className={NODE_CONTROL_PRIMARY_BUTTON_CLASS}
-            disabled={isOptimizingPrompt || isGenerateBlocked}
-            onClick={() => void handleGenerate()}
-          >
-            <Sparkles
-              className={NODE_CONTROL_GENERATE_ICON_CLASS}
-              strokeWidth={2.5}
-            />
-            {t("node.jimeng.submit")}
-          </UiButton>
+          <div className="flex items-center gap-2">
+            <UiButton
+              type="button"
+              variant="muted"
+              className={NODE_CONTROL_PRIMARY_BUTTON_CLASS}
+              disabled={isOptimizingPrompt || isGenerateBlocked}
+              onClick={() => setShowQueueScheduleModal(true)}
+            >
+              {t("node.jimeng.addToQueue")}
+            </UiButton>
+            <UiButton
+              type="button"
+              variant="primary"
+              className={NODE_CONTROL_PRIMARY_BUTTON_CLASS}
+              disabled={isOptimizingPrompt || isGenerateBlocked}
+              onClick={() => void handleGenerate()}
+            >
+              <Sparkles
+                className={NODE_CONTROL_GENERATE_ICON_CLASS}
+                strokeWidth={2.5}
+              />
+              {t("node.jimeng.submit")}
+            </UiButton>
+          </div>
         </div>
 
         {statusInfoText ? (
@@ -2937,6 +2913,17 @@ export const JimengNode = memo(
         <NodeResizeHandle
           minWidth={JIMENG_NODE_MIN_WIDTH}
           minHeight={JIMENG_NODE_MIN_HEIGHT}
+        />
+        <JimengVideoQueueScheduleModal
+          isOpen={showQueueScheduleModal}
+          title={t("jimengQueue.schedule.createTitle")}
+          initialScheduledAt={null}
+          confirmLabel={t("node.jimeng.addToQueue")}
+          onClose={() => setShowQueueScheduleModal(false)}
+          onConfirm={(scheduledAt) => {
+            setShowQueueScheduleModal(false);
+            void enqueueJimengVideoJob(scheduledAt);
+          }}
         />
       </div>
     );

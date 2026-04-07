@@ -31,6 +31,7 @@ import {
 } from "./features/jimeng/dreaminaSetupDialogEvents";
 import { initializePsIntegration } from "./stores/psIntegrationStore";
 import { ensureDailyDatabaseBackup } from "./commands/storage";
+import { useJimengVideoQueueStore } from "./stores/jimengVideoQueueStore";
 import {
   checkDreaminaCliUpdate,
   updateDreaminaCli,
@@ -149,6 +150,12 @@ function App() {
   const flushCurrentProjectToDisk = useProjectStore(
     (state) => state.flushCurrentProjectToDisk,
   );
+  const openJimengVideoQueueProject = useJimengVideoQueueStore(
+    (state) => state.openProject,
+  );
+  const closeJimengVideoQueueProject = useJimengVideoQueueStore(
+    (state) => state.closeProject,
+  );
   const isWindowCloseInProgressRef = useRef(false);
   const hasAttemptedDreaminaAutoUpdateRef = useRef(false);
 
@@ -205,6 +212,19 @@ function App() {
 
     return unsubscribe;
   }, [settingsHydrated]);
+
+  useEffect(() => {
+    if (!currentProjectId) {
+      closeJimengVideoQueueProject();
+      return;
+    }
+
+    void openJimengVideoQueueProject(currentProjectId);
+  }, [
+    closeJimengVideoQueueProject,
+    currentProjectId,
+    openJimengVideoQueueProject,
+  ]);
 
   useEffect(() => {
     const unsubscribe = subscribeOpenGlobalErrorDialog((detail) => {

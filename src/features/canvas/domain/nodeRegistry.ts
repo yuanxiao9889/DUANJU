@@ -601,6 +601,11 @@ const jimengVideoResultNodeDefinition: CanvasNodeDefinition<JimengVideoResultNod
   createDefaultData: () => ({
     displayName: DEFAULT_NODE_DISPLAY_NAME[CANVAS_NODE_TYPES.jimengVideoResult],
     sourceNodeId: null,
+    queueJobId: null,
+    queueStatus: null,
+    queueScheduledAt: null,
+    queueAttemptCount: 0,
+    queueMaxAttempts: 3,
     submitId: null,
     sourceUrl: null,
     posterSourceUrl: null,

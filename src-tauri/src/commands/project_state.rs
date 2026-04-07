@@ -115,6 +115,30 @@ fn ensure_projects_table(conn: &Connection) -> Result<(), String> {
           PRIMARY KEY(asset_id, path)
         );
         CREATE INDEX IF NOT EXISTS idx_asset_image_refs_path ON asset_image_refs(path);
+        CREATE TABLE IF NOT EXISTS jimeng_video_queue_jobs (
+          job_id TEXT PRIMARY KEY,
+          project_id TEXT NOT NULL,
+          source_node_id TEXT NOT NULL,
+          result_node_id TEXT NOT NULL,
+          title TEXT NOT NULL,
+          status TEXT NOT NULL,
+          scheduled_at INTEGER,
+          submit_id TEXT,
+          payload_json TEXT NOT NULL,
+          attempt_count INTEGER NOT NULL DEFAULT 0,
+          max_attempts INTEGER NOT NULL DEFAULT 3,
+          last_error TEXT,
+          warnings_json TEXT NOT NULL DEFAULT '[]',
+          started_at INTEGER,
+          next_retry_at INTEGER,
+          completed_at INTEGER,
+          created_at INTEGER NOT NULL,
+          updated_at INTEGER NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_jimeng_video_queue_jobs_project_id
+          ON jimeng_video_queue_jobs(project_id);
+        CREATE INDEX IF NOT EXISTS idx_jimeng_video_queue_jobs_project_status
+          ON jimeng_video_queue_jobs(project_id, status, scheduled_at, updated_at DESC);
         "#,
     )
     .map_err(|e| format!("Failed to initialize projects table: {}", e))?;
@@ -1226,6 +1250,11 @@ pub fn delete_project_record(app: AppHandle, project_id: String) -> Result<(), S
         params![project_id],
     )
     .map_err(|e| format!("Failed to delete project image refs: {}", e))?;
+    tx.execute(
+        "DELETE FROM jimeng_video_queue_jobs WHERE project_id = ?1",
+        params![project_id],
+    )
+    .map_err(|e| format!("Failed to delete Jimeng queue jobs: {}", e))?;
 
     tx.commit()
         .map_err(|e| format!("Failed to commit delete transaction: {}", e))?;

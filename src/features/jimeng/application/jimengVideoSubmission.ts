@@ -1,4 +1,5 @@
 import {
+  type GenerateJimengDreaminaVideosPayload,
   type JimengDreaminaGeneratedVideoResult,
   submitJimengDreaminaVideos,
   queryJimengDreaminaVideoResult,
@@ -135,6 +136,67 @@ export interface QueryJimengVideoResultResponse {
   warnings: string[];
 }
 
+async function prepareJimengVideoSubmitPayload(
+  payload: GenerateJimengVideosPayload,
+): Promise<GenerateJimengDreaminaVideosPayload> {
+  const normalizedPrompt = buildJimengSubmissionPrompt(payload.prompt);
+  if (!normalizedPrompt) {
+    throw new Error("Prompt is required for Jimeng video submission");
+  }
+
+  const normalizedReferenceMode = normalizeReferenceMode(payload.referenceMode);
+
+  const [referenceImages, referenceVideos, referenceAudios] = await Promise.all(
+    [
+      prepareJimengReferenceImages(payload.referenceImageSources),
+      prepareJimengReferenceVideos(payload.referenceVideoSources),
+      prepareJimengReferenceAudios(payload.referenceAudioSources),
+    ],
+  );
+
+  const hasReferenceVideos = referenceVideos.length > 0;
+  if (referenceVideos.length > DREAMINA_MULTIMODAL_MAX_REFERENCE_VIDEOS) {
+    throw new Error(
+      `Dreamina CLI currently supports at most ${DREAMINA_MULTIMODAL_MAX_REFERENCE_VIDEOS} reference videos in multimodal2video.`,
+    );
+  }
+  const requiredReferenceImageCount = hasReferenceVideos
+    ? null
+    : resolveJimengVideoRequiredReferenceImageCount(normalizedReferenceMode);
+  if (
+    typeof requiredReferenceImageCount === "number" &&
+    referenceImages.length !== requiredReferenceImageCount
+  ) {
+    throw new Error(
+      `Jimeng video mode ${normalizedReferenceMode} requires exactly ${requiredReferenceImageCount} reference images`,
+    );
+  }
+
+  return {
+    prompt: normalizedPrompt,
+    referenceMode: normalizedReferenceMode,
+    aspectRatio: normalizeAspectRatio(payload.aspectRatio),
+    durationSeconds: normalizeDuration(payload.durationSeconds),
+    videoResolution: normalizeVideoResolution(payload.videoResolution),
+    modelVersion: normalizeVideoModelVersion(payload.modelVersion),
+    referenceImages,
+    referenceVideos,
+    referenceAudios,
+    timeoutMs: VIDEO_RESULT_TIMEOUT_MS,
+  };
+}
+
+export async function submitJimengVideoJob(
+  payload: GenerateJimengVideosPayload,
+): Promise<{ submitId: string }> {
+  const submitPayload = await prepareJimengVideoSubmitPayload(payload);
+  const submitResponse = await submitJimengDreaminaVideos(submitPayload);
+
+  return {
+    submitId: submitResponse.submitId,
+  };
+}
+
 function resolveVideoCaptureSource(source: string): string {
   const trimmedSource = source.trim();
   if (!trimmedSource) {
@@ -240,51 +302,7 @@ async function buildGeneratedVideoItem(
 export async function generateJimengVideos(
   payload: GenerateJimengVideosPayload,
 ): Promise<GeneratedJimengVideosResponse> {
-  const normalizedPrompt = buildJimengSubmissionPrompt(payload.prompt);
-  if (!normalizedPrompt) {
-    throw new Error("Prompt is required for Jimeng video submission");
-  }
-
-  const normalizedReferenceMode = normalizeReferenceMode(payload.referenceMode);
-
-  const [referenceImages, referenceVideos, referenceAudios] = await Promise.all(
-    [
-      prepareJimengReferenceImages(payload.referenceImageSources),
-      prepareJimengReferenceVideos(payload.referenceVideoSources),
-      prepareJimengReferenceAudios(payload.referenceAudioSources),
-    ],
-  );
-
-  const hasReferenceVideos = referenceVideos.length > 0;
-  if (referenceVideos.length > DREAMINA_MULTIMODAL_MAX_REFERENCE_VIDEOS) {
-    throw new Error(
-      `Dreamina CLI currently supports at most ${DREAMINA_MULTIMODAL_MAX_REFERENCE_VIDEOS} reference videos in multimodal2video.`,
-    );
-  }
-  const requiredReferenceImageCount = hasReferenceVideos
-    ? null
-    : resolveJimengVideoRequiredReferenceImageCount(normalizedReferenceMode);
-  if (
-    typeof requiredReferenceImageCount === "number" &&
-    referenceImages.length !== requiredReferenceImageCount
-  ) {
-    throw new Error(
-      `Jimeng video mode ${normalizedReferenceMode} requires exactly ${requiredReferenceImageCount} reference images`,
-    );
-  }
-
-  const submitResponse = await submitJimengDreaminaVideos({
-    prompt: normalizedPrompt,
-    referenceMode: normalizedReferenceMode,
-    aspectRatio: normalizeAspectRatio(payload.aspectRatio),
-    durationSeconds: normalizeDuration(payload.durationSeconds),
-    videoResolution: normalizeVideoResolution(payload.videoResolution),
-    modelVersion: normalizeVideoModelVersion(payload.modelVersion),
-    referenceImages,
-    referenceVideos,
-    referenceAudios,
-    timeoutMs: VIDEO_RESULT_TIMEOUT_MS,
-  });
+  const submitResponse = await submitJimengVideoJob(payload);
 
   await payload.onSubmitted?.({ submitId: submitResponse.submitId });
 

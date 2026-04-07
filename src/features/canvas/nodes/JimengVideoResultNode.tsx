@@ -6,7 +6,7 @@ import {
   type NodeProps,
 } from "@xyflow/react";
 import { convertFileSrc, isTauri } from "@tauri-apps/api/core";
-import { Loader2, Sparkles, TriangleAlert, Video } from "lucide-react";
+import { Clock3, Loader2, Sparkles, TriangleAlert, Video } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
 import { UiButton } from "@/components/ui";
@@ -33,6 +33,10 @@ import { NodeResizeHandle } from "@/features/canvas/ui/NodeResizeHandle";
 import { NodeStatusBadge } from "@/features/canvas/ui/NodeStatusBadge";
 import { NODE_CONTROL_ACTION_BUTTON_CLASS } from "@/features/canvas/ui/nodeControlStyles";
 import { queryJimengVideoResult } from "@/features/jimeng/application/jimengVideoSubmission";
+import {
+  type JimengVideoQueueJobStatus,
+  isJimengVideoQueueTerminalStatus,
+} from "@/features/jimeng/domain/jimengVideoQueue";
 import {
   ensureDreaminaCliReady,
   resolveDreaminaSetupBlockedMessage,
@@ -159,6 +163,24 @@ export const JimengVideoResultNode = memo(
       }
       return `${data.width} x ${data.height}`;
     }, [data.height, data.width]);
+    const queueStatus = (data.queueStatus ?? null) as
+      | JimengVideoQueueJobStatus
+      | null;
+    const queueScheduledTime = useMemo(
+      () => formatTimestamp(data.queueScheduledAt ?? null, i18n.language),
+      [data.queueScheduledAt, i18n.language],
+    );
+    const queueAttemptCount =
+      typeof data.queueAttemptCount === "number" &&
+      Number.isFinite(data.queueAttemptCount)
+        ? data.queueAttemptCount
+        : 0;
+    const queueMaxAttempts =
+      typeof data.queueMaxAttempts === "number" &&
+      Number.isFinite(data.queueMaxAttempts) &&
+      data.queueMaxAttempts > 0
+        ? data.queueMaxAttempts
+        : 3;
 
     useEffect(() => {
       updateNodeInternals(id);
@@ -267,13 +289,47 @@ export const JimengVideoResultNode = memo(
 
     const combinedError = playbackError ?? data.lastError ?? null;
     const headerStatus = useMemo(() => {
-      if (data.isGenerating) {
+      if (
+        queueStatus === "waiting" ||
+        queueStatus === "waitingConcurrency" ||
+        queueStatus === "retrying"
+      ) {
+        return (
+          <NodeStatusBadge
+            icon={<Clock3 className="h-3 w-3" />}
+            label={t(`jimengQueue.status.${queueStatus}`)}
+            tone="warning"
+          />
+        );
+      }
+
+      if (
+        queueStatus === "submitting" ||
+        queueStatus === "submitted" ||
+        queueStatus === "generating" ||
+        data.isGenerating
+      ) {
         return (
           <NodeStatusBadge
             icon={<Loader2 className="h-3 w-3" />}
-            label={t("node.jimengVideoResult.generating")}
+            label={
+              queueStatus
+                ? t(`jimengQueue.status.${queueStatus}`)
+                : t("node.jimengVideoResult.generating")
+            }
             tone="processing"
             animate
+          />
+        );
+      }
+
+      if (queueStatus === "failed" || queueStatus === "cancelled") {
+        return (
+          <NodeStatusBadge
+            icon={<TriangleAlert className="h-3 w-3" />}
+            label={t(`jimengQueue.status.${queueStatus}`)}
+            tone="danger"
+            title={combinedError ?? undefined}
           />
         );
       }
@@ -300,18 +356,98 @@ export const JimengVideoResultNode = memo(
       }
 
       return null;
-    }, [combinedError, data.isGenerating, t, videoSource]);
+    }, [combinedError, data.isGenerating, queueStatus, t, videoSource]);
 
-    const statusInfoText =
-      combinedError ??
-      (data.isGenerating
-        ? t("node.jimengVideoResult.statusGenerating")
-        : (statusNotice ??
-          (lastGeneratedTime
-            ? t("node.jimengVideoResult.generatedAt", {
-                time: lastGeneratedTime,
-              })
-            : t("node.jimengVideoResult.empty"))));
+    const statusInfoText = useMemo(() => {
+      if (queueStatus === "waiting") {
+        return queueScheduledTime
+          ? t("jimengQueue.result.waitingUntil", {
+              time: queueScheduledTime,
+            })
+          : t("jimengQueue.result.waiting");
+      }
+
+      if (queueStatus === "waitingConcurrency") {
+        return t("jimengQueue.result.waitingConcurrency");
+      }
+
+      if (queueStatus === "retrying") {
+        return combinedError
+          ? t("jimengQueue.result.retryingWithReason", {
+              current: queueAttemptCount,
+              max: queueMaxAttempts,
+              reason: combinedError,
+            })
+          : t("jimengQueue.result.retrying", {
+              current: queueAttemptCount,
+              max: queueMaxAttempts,
+            });
+      }
+
+      if (queueStatus === "submitting") {
+        return t("jimengQueue.result.submitting");
+      }
+
+      if (queueStatus === "submitted") {
+        return t("jimengQueue.result.submitted");
+      }
+
+      if (queueStatus === "generating" || data.isGenerating) {
+        return t("node.jimengVideoResult.statusGenerating");
+      }
+
+      if (queueStatus === "failed") {
+        return combinedError
+          ? t("jimengQueue.result.failedWithReason", {
+              current: queueAttemptCount,
+              max: queueMaxAttempts,
+              reason: combinedError,
+            })
+          : t("jimengQueue.result.failed", {
+              current: queueAttemptCount,
+              max: queueMaxAttempts,
+            });
+      }
+
+      if (queueStatus === "cancelled") {
+        return t("jimengQueue.result.cancelled");
+      }
+
+      return (
+        combinedError ??
+        statusNotice ??
+        (lastGeneratedTime
+          ? t("node.jimengVideoResult.generatedAt", {
+              time: lastGeneratedTime,
+            })
+          : t("node.jimengVideoResult.empty"))
+      );
+    }, [
+      combinedError,
+      data.isGenerating,
+      lastGeneratedTime,
+      queueAttemptCount,
+      queueMaxAttempts,
+      queueScheduledTime,
+      queueStatus,
+      statusNotice,
+      t,
+    ]);
+    const placeholderText = useMemo(() => {
+      if (queueStatus) {
+        return t(`jimengQueue.status.${queueStatus}`);
+      }
+
+      return data.isGenerating
+        ? t("node.jimengVideoResult.pending")
+        : t("node.jimengVideoResult.empty");
+    }, [data.isGenerating, queueStatus, t]);
+    const canRequery =
+      Boolean(data.submitId?.trim()) &&
+      queueStatus !== "waiting" &&
+      queueStatus !== "waitingConcurrency" &&
+      queueStatus !== "retrying" &&
+      queueStatus !== "submitting";
 
     return (
       <div
@@ -363,15 +499,30 @@ export const JimengVideoResultNode = memo(
                 />
               ) : (
                 <div className="flex h-full w-full items-center justify-center bg-[radial-gradient(circle_at_top,#1f2937_0%,#0f172a_72%)] text-sm text-text-muted">
-                  {data.isGenerating
-                    ? t("node.jimengVideoResult.pending")
-                    : t("node.jimengVideoResult.empty")}
+                  {placeholderText}
                 </div>
               )}
             </div>
           </div>
 
           <div className="mt-2 flex flex-wrap gap-1.5 text-[10px] leading-4 text-text-muted">
+            {queueStatus ? (
+              <span className="rounded-full border border-white/10 bg-white/[0.04] px-2 py-0.5">
+                {t("jimengQueue.result.attemptCount", {
+                  current: queueAttemptCount,
+                  max: queueMaxAttempts,
+                })}
+              </span>
+            ) : null}
+            {queueScheduledTime &&
+            queueStatus &&
+            !isJimengVideoQueueTerminalStatus(queueStatus) ? (
+              <span className="rounded-full border border-white/10 bg-white/[0.04] px-2 py-0.5">
+                {t("jimengQueue.result.scheduledAt", {
+                  time: queueScheduledTime,
+                })}
+              </span>
+            ) : null}
             {durationLabel ? (
               <span className="rounded-full border border-white/10 bg-white/[0.04] px-2 py-0.5">
                 {t("node.jimengVideoResult.duration", {
@@ -404,7 +555,7 @@ export const JimengVideoResultNode = memo(
             type="button"
             size="sm"
             variant="muted"
-            disabled={isRequerying}
+            disabled={isRequerying || !canRequery}
             className={`${NODE_CONTROL_ACTION_BUTTON_CLASS} shrink-0`}
             onClick={(event) => {
               event.stopPropagation();

@@ -9,6 +9,7 @@ use commands::asset_state;
 use commands::dreamina_cli;
 use commands::extensions;
 use commands::image;
+use commands::jimeng_video_queue;
 use commands::project_state;
 use commands::ps_server;
 use commands::seedance;
@@ -175,6 +176,9 @@ pub fn run() {
             image::save_image_source_to_directory,
             image::save_image_source_to_app_debug_dir,
             image::copy_image_source_to_clipboard,
+            jimeng_video_queue::list_jimeng_video_queue_jobs,
+            jimeng_video_queue::upsert_jimeng_video_queue_job,
+            jimeng_video_queue::delete_jimeng_video_queue_job,
             ai_commands::set_api_key,
             ai_commands::submit_generate_image_job,
             ai_commands::get_generate_image_job,
