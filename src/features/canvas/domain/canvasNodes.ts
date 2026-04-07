@@ -434,6 +434,8 @@ export interface SeedanceNodeData extends NodeDisplayData {
 export interface SeedanceVideoResultNodeData extends NodeDisplayData {
   sourceNodeId?: string | null;
   taskId?: string | null;
+  taskStatus?: string | null;
+  taskUpdatedAt?: number | null;
   modelId?: SeedanceModelId | string | null;
   inputMode?: SeedanceInputMode | null;
   videoUrl: string | null;

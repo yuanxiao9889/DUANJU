@@ -134,7 +134,7 @@ function buildMenuEntries(definitions: CanvasNodeDefinition[]): MenuEntry[] {
     groupEntry.items.push(definition);
   }
 
-  return entries.flatMap((entry) => {
+  const normalizedEntries = entries.flatMap((entry) => {
     if (entry.kind === 'group' && entry.items.length === 1) {
       return [{
         kind: 'item' as const,
@@ -144,6 +144,18 @@ function buildMenuEntries(definitions: CanvasNodeDefinition[]): MenuEntry[] {
 
     return [entry];
   });
+
+  if (
+    normalizedEntries.length === 1
+    && normalizedEntries[0].kind === 'group'
+  ) {
+    return normalizedEntries[0].items.map((definition) => ({
+      kind: 'item' as const,
+      definition,
+    }));
+  }
+
+  return normalizedEntries;
 }
 
 export function NodeSelectionMenu({

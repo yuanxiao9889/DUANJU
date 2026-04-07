@@ -19,7 +19,7 @@ import {
 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 
-import { RichTextEditor } from './RichTextEditor';
+import { LazyRichTextEditor } from './LazyRichTextEditor';
 import { SelectionDiffPreview } from './SelectionDiffPreview';
 import {
   runSceneCopilot,
@@ -2497,7 +2497,7 @@ export function SceneStudioPanel() {
                   )}
 
                   <div className="min-h-0 flex-1">
-                    <RichTextEditor
+                    <LazyRichTextEditor
                       content={sceneDraft.draftHtml}
                       onChange={(value) => {
                         updateSceneDraft((draft) => ({ ...draft, draftHtml: value }));

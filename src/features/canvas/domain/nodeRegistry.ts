@@ -284,7 +284,7 @@ const textAnnotationNodeDefinition: CanvasNodeDefinition<TextAnnotationNodeData>
   },
   connectivity: {
     sourceHandle: true,
-    targetHandle: false,
+    targetHandle: true,
     connectMenu: {
       fromSource: false,
       fromTarget: true,
@@ -352,7 +352,7 @@ const storyboardSplitResultDefinition: CanvasNodeDefinition<StoryboardSplitResul
     sourceHandle: true,
     targetHandle: true,
     connectMenu: {
-      fromSource: true,
+      fromSource: false,
       fromTarget: false,
     },
   },
@@ -418,7 +418,7 @@ const videoNodeDefinition: CanvasNodeDefinition<VideoNodeData> = {
   },
   connectivity: {
     sourceHandle: true,
-    targetHandle: false,
+    targetHandle: true,
     connectMenu: {
       fromSource: false,
       fromTarget: true,
@@ -484,7 +484,7 @@ const seedanceVideoResultNodeDefinition: CanvasNodeDefinition<SeedanceVideoResul
     sourceHandle: true,
     targetHandle: true,
     connectMenu: {
-      fromSource: true,
+      fromSource: false,
       fromTarget: false,
     },
   },
@@ -492,6 +492,8 @@ const seedanceVideoResultNodeDefinition: CanvasNodeDefinition<SeedanceVideoResul
     displayName: DEFAULT_NODE_DISPLAY_NAME[CANVAS_NODE_TYPES.seedanceVideoResult],
     sourceNodeId: null,
     taskId: null,
+    taskStatus: null,
+    taskUpdatedAt: null,
     modelId: SEEDANCE_MODEL_IDS[0],
     inputMode: SEEDANCE_INPUT_MODES[0],
     videoUrl: null,
@@ -692,7 +694,7 @@ const scriptTextNodeDefinition: CanvasNodeDefinition<ScriptTextNodeData> = {
   },
   connectivity: {
     sourceHandle: true,
-    targetHandle: false,
+    targetHandle: true,
     connectMenu: {
       fromSource: false,
       fromTarget: true,
@@ -1086,6 +1088,7 @@ export function getConnectMenuNodeTypes(
   const fromSource = handleType === 'source';
   return Object.values(canvasNodeDefinitions)
     .filter((definition) => definition.menuProjectTypes.includes(projectType))
+    .filter((definition) => definition.visibleInMenu)
     .filter((definition) => (fromSource
       ? definition.connectivity.connectMenu.fromSource
       : definition.connectivity.connectMenu.fromTarget))

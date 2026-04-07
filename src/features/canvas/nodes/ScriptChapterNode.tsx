@@ -5,7 +5,7 @@ import { useTranslation } from 'react-i18next';
 import { NodeHeader, NODE_HEADER_FLOATING_POSITION_CLASS } from '@/features/canvas/ui/NodeHeader';
 import { NodeResizeHandle } from '@/features/canvas/ui/NodeResizeHandle';
 import { AiWriterDialog } from '@/features/canvas/ui/AiWriterDialog';
-import { RichTextEditor } from '@/features/canvas/ui/RichTextEditor';
+import { LazyRichTextEditor } from '@/features/canvas/ui/LazyRichTextEditor';
 import { BranchPointDialog } from '@/features/canvas/ui/BranchPointDialog';
 import {
   CANVAS_NODE_TYPES,
@@ -513,7 +513,7 @@ export const ScriptChapterNode = memo(({ id, data, selected, width, height }: Sc
           </div>
 
           <div className="flex-1 min-h-0 mt-3 overflow-hidden">
-            <RichTextEditor
+            <LazyRichTextEditor
               content={data.content || ''}
               onChange={handleContentChange}
               onSelect={handleTextSelect}

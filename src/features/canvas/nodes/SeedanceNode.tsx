@@ -76,7 +76,7 @@ import {
   NODE_CONTROL_CHIP_CLASS,
   NODE_CONTROL_PRIMARY_BUTTON_CLASS,
 } from "@/features/canvas/ui/nodeControlStyles";
-import { generateSeedanceVideo } from "@/features/seedance/application/seedanceVideoSubmission";
+import { submitSeedanceVideoTask } from "@/features/seedance/application/seedanceVideoSubmission";
 import {
   SEEDANCE_ASPECT_RATIO_OPTIONS,
   SEEDANCE_DURATION_OPTIONS,
@@ -113,6 +113,7 @@ interface ReferenceAudioItem {
   sourceEdgeId: string;
   sourceNodeId: string;
   audioUrl: string;
+  mimeType: string | null;
   label: string;
   tokenLabel: string;
   durationSeconds: number | null;
@@ -907,6 +908,7 @@ export const SeedanceNode = memo(
           sourceEdgeId: item.sourceEdgeId,
           sourceNodeId: item.sourceNodeId,
           audioUrl: item.audioUrl,
+          mimeType: item.mimeType,
           label:
             item.displayName?.trim() ||
             item.audioFileName?.trim() ||
@@ -1552,6 +1554,8 @@ export const SeedanceNode = memo(
               t("node.seedance.resultNodeTitle"),
             ),
             taskId: null,
+            taskStatus: null,
+            taskUpdatedAt: null,
             modelId: selectedModelId,
             inputMode: selectedInputMode,
             videoUrl: null,
@@ -1575,7 +1579,7 @@ export const SeedanceNode = memo(
           "creating Seedance video result node",
         );
 
-        const generationResponse = await generateSeedanceVideo({
+        const submitResponse = await submitSeedanceVideoTask({
           apiKey,
           prompt,
           inputMode: selectedInputMode,
@@ -1587,57 +1591,54 @@ export const SeedanceNode = memo(
           returnLastFrame: resolvedReturnLastFrame,
           referenceImageSources: imageReferences.map((item) => item.referenceUrl),
           referenceVideoSources: videoReferences.map((item) => item.referenceUrl),
-          referenceAudioSources: referenceAudioItems.map((item) => item.audioUrl),
+          referenceAudioSources: referenceAudioItems.map((item) => ({
+            source: item.audioUrl,
+            mimeType: item.mimeType,
+          })),
           onSubmitted: async ({ taskId }) => {
             if (!createdResultNodeId) {
               return;
             }
 
+            const submittedAt = Date.now();
+            updateSeedanceNodeData({
+              isSubmitting: false,
+              lastSubmittedAt: submittedAt,
+              lastError: null,
+            });
             updateNodeData(createdResultNodeId, {
               taskId,
+              taskStatus: "queued",
+              taskUpdatedAt: submittedAt,
               isGenerating: true,
               generationStartedAt: startedAt,
               lastError: null,
             });
-            await flushCurrentProjectToDiskSafely(
+            void flushCurrentProjectToDiskSafely(
               "saving Seedance video task id",
             );
           },
         });
 
         const completedAt = Date.now();
-        updateSeedanceNodeData({
-          isSubmitting: false,
-          lastSubmittedAt: completedAt,
-          lastError: null,
-        });
 
         if (createdResultNodeId) {
           updateNodeData(createdResultNodeId, {
-            taskId: generationResponse.taskId,
-            modelId: generationResponse.video.modelId ?? selectedModelId,
+            taskId: submitResponse.taskId,
+            taskStatus: submitResponse.status,
+            taskUpdatedAt: completedAt,
+            modelId: selectedModelId,
             inputMode: selectedInputMode,
-            videoUrl: generationResponse.video.videoUrl,
-            previewImageUrl: generationResponse.video.previewImageUrl ?? null,
-            videoFileName: generationResponse.video.fileName ?? null,
-            aspectRatio: normalizeSeedanceAspectRatio(
-              generationResponse.video.aspectRatio,
-            ),
-            resolution:
-              generationResponse.video.resolution ?? selectedResolution,
-            duration: generationResponse.video.duration ?? undefined,
-            generateAudio:
-              generationResponse.video.generateAudio ?? resolvedGenerateAudio,
+            generateAudio: resolvedGenerateAudio,
             returnLastFrame: resolvedReturnLastFrame,
-            isGenerating: false,
-            generationStartedAt: null,
-            lastGeneratedAt: completedAt,
+            isGenerating: true,
+            generationStartedAt: startedAt,
             lastError: null,
           });
         }
 
         await flushCurrentProjectToDiskSafely(
-          "saving Seedance video generation result",
+          "saving Seedance video task submission",
         );
       } catch (error) {
         const content = resolveErrorContent(

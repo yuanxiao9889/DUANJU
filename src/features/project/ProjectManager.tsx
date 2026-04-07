@@ -1,4 +1,11 @@
-import { useMemo, useState, type MouseEvent as ReactMouseEvent } from 'react';
+import {
+  Suspense,
+  lazy,
+  useEffect,
+  useMemo,
+  useState,
+  type MouseEvent as ReactMouseEvent,
+} from 'react';
 import { useTranslation } from 'react-i18next';
 import {
   CheckSquare,
@@ -15,11 +22,9 @@ import {
 
 import { UI_CONTENT_OVERLAY_INSET_CLASS } from '@/components/ui/motion';
 import { UiButton, UiSelect } from '@/components/ui/primitives';
-import { listModelProviders } from '@/features/canvas/models';
 import { MissingApiKeyHint } from '@/features/settings/MissingApiKeyHint';
 import { getConfiguredApiKeyCount, useSettingsStore } from '@/stores/settingsStore';
 import { useProjectStore, type ProjectType } from '@/stores/projectStore';
-import { AssetManagerTab } from './AssetManagerTab';
 import { DeleteConfirmDialog } from './DeleteConfirmDialog';
 import { ProjectTypeSelector, CreateProjectDialog } from './ProjectTypeSelector';
 import { RenameDialog } from './RenameDialog';
@@ -28,6 +33,12 @@ import { StyleTemplateDialog } from './StyleTemplateDialog';
 type ProjectSortField = 'name' | 'createdAt' | 'updatedAt';
 type SortDirection = 'asc' | 'desc';
 type ProjectManagerTab = 'projects' | 'assets';
+
+const AssetManagerTab = lazy(() =>
+  import('./AssetManagerTab').then((module) => ({
+    default: module.AssetManagerTab,
+  }))
+);
 
 function ProjectListView({
   sortField,
@@ -298,15 +309,12 @@ export function ProjectManager() {
   const { t } = useTranslation();
   const projectsTabLabel = t('project.tabs.projects');
   const assetsTabLabel = t('project.tabs.assets');
-  const providerIds = useMemo(() => listModelProviders().map((provider) => provider.id), []);
   const configuredApiKeyCount = useSettingsStore((state) =>
-    getConfiguredApiKeyCount(
-      { ...state.scriptApiKeys, ...state.storyboardApiKeys },
-      providerIds
-    )
+    getConfiguredApiKeyCount({ ...state.scriptApiKeys, ...state.storyboardApiKeys })
   );
 
   const [activeTab, setActiveTab] = useState<ProjectManagerTab>('projects');
+  const [assetTabLoaded, setAssetTabLoaded] = useState(false);
   const [showRenameDialog, setShowRenameDialog] = useState(false);
   const [editingProjectId, setEditingProjectId] = useState<string | null>(null);
   const [editingProjectName, setEditingProjectName] = useState('');
@@ -347,6 +355,12 @@ export function ProjectManager() {
         .filter((name): name is string => name !== undefined),
     [pendingDeleteIds, projects]
   );
+
+  useEffect(() => {
+    if (activeTab === 'assets') {
+      setAssetTabLoaded(true);
+    }
+  }, [activeTab]);
 
   const handleCreateProject = () => {
     setEditingProjectId(null);
@@ -466,7 +480,10 @@ export function ProjectManager() {
               type="button"
               size="sm"
               variant={activeTab === 'assets' ? 'primary' : 'ghost'}
-              onClick={() => setActiveTab('assets')}
+              onClick={() => {
+                setAssetTabLoaded(true);
+                setActiveTab('assets');
+              }}
             >
               {assetsTabLabel}
             </UiButton>
@@ -496,7 +513,15 @@ export function ProjectManager() {
             setShowStyleTemplateDialog={setShowStyleTemplateDialog}
           />
         ) : (
-          <AssetManagerTab />
+          <Suspense
+            fallback={
+              <div className="rounded-xl border border-border-dark bg-surface-dark/70 p-6 text-sm text-text-muted">
+                {t('common.loading')}
+              </div>
+            }
+          >
+            {assetTabLoaded ? <AssetManagerTab /> : null}
+          </Suspense>
         )}
       </div>
 

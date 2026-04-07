@@ -406,7 +406,7 @@ export function MediaTrimToolEditor({
               src={displaySourceUrl}
               controls
               playsInline
-              className="max-h-[min(420px,48vh)] w-full rounded-lg bg-black/30"
+              className="mx-auto max-h-[min(300px,34vh)] w-full max-w-[640px] rounded-lg bg-black/30"
               onLoadedMetadata={handleLoadedMetadata}
               onDurationChange={handleLoadedMetadata}
               onTimeUpdate={handleTimeUpdate}

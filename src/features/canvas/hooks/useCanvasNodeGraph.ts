@@ -20,6 +20,7 @@ export interface ConnectedAudioReference {
   audioUrl: string;
   displayName: string | null;
   audioFileName: string | null;
+  mimeType: string | null;
   durationSeconds: number | null;
 }
 
@@ -444,6 +445,7 @@ function createConnectedAudioReferencesSelector(nodeId: string) {
         audioUrl: audioReference.audioUrl,
         displayName: audioReference.displayName,
         audioFileName: audioReference.audioFileName,
+        mimeType: audioReference.mimeType,
         durationSeconds: audioReference.durationSeconds ?? null,
       });
     });

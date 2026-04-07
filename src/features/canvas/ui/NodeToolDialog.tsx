@@ -1,4 +1,4 @@
-import { useMemo, useState, useEffect, useCallback } from 'react';
+import { lazy, Suspense, useMemo, useState, useEffect, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import {
@@ -28,11 +28,30 @@ import { getToolPlugin, type ToolOptions } from '@/features/canvas/tools';
 import { useCanvasStore } from '@/stores/canvasStore';
 import { UiButton, UiModal } from '@/components/ui';
 import { UI_DIALOG_TRANSITION_MS } from '@/components/ui/motion';
-import { FormToolEditor } from './tool-editors/FormToolEditor';
-import { CropToolEditor } from './tool-editors/CropToolEditor';
-import { MediaTrimToolEditor } from './tool-editors/MediaTrimToolEditor';
-import { AnnotateToolEditor } from './tool-editors/AnnotateToolEditor';
-import { SplitStoryboardToolEditor } from './tool-editors/SplitStoryboardToolEditor';
+const FormToolEditor = lazy(async () => {
+  const module = await import('./tool-editors/FormToolEditor');
+  return { default: module.FormToolEditor };
+});
+
+const CropToolEditor = lazy(async () => {
+  const module = await import('./tool-editors/CropToolEditor');
+  return { default: module.CropToolEditor };
+});
+
+const MediaTrimToolEditor = lazy(async () => {
+  const module = await import('./tool-editors/MediaTrimToolEditor');
+  return { default: module.MediaTrimToolEditor };
+});
+
+const AnnotateToolEditor = lazy(async () => {
+  const module = await import('./tool-editors/AnnotateToolEditor');
+  return { default: module.AnnotateToolEditor };
+});
+
+const SplitStoryboardToolEditor = lazy(async () => {
+  const module = await import('./tool-editors/SplitStoryboardToolEditor');
+  return { default: module.SplitStoryboardToolEditor };
+});
 
 export function NodeToolDialog() {
   const { t } = useTranslation();
@@ -354,10 +373,13 @@ export function NodeToolDialog() {
       return 'w-[min(460px,calc(100vw-40px))]';
     }
     if (activePlugin.editor === 'crop') {
-      if (sourceTrimMediaType === 'audio') {
-        return 'w-[min(760px,calc(100vw-40px))]';
+      if (sourceTrimMediaType === 'video') {
+        return 'w-[min(860px,calc(100vw-40px))]';
       }
-      return 'w-[min(980px,calc(100vw-40px))]';
+      if (sourceTrimMediaType === 'audio') {
+        return 'w-[min(700px,calc(100vw-40px))]';
+      }
+      return 'w-[min(920px,calc(100vw-40px))]';
     }
     if (activePlugin.editor === 'annotate') {
       return 'w-[min(1120px,calc(100vw-40px))]';
@@ -430,6 +452,11 @@ export function NodeToolDialog() {
 
   const isOpen = Boolean(activeToolDialog && isSplitImageReady);
   const isApplyDisabled = isProcessing || !sourceMediaUrl || isTrimRangeInvalid;
+  const loadingEditorFallback = (
+    <div className="flex h-[280px] items-center justify-center rounded-2xl border border-border-dark bg-bg-dark/35 text-sm text-text-muted">
+      {t('common.loading')}
+    </div>
+  );
 
   return (
     <UiModal
@@ -450,7 +477,9 @@ export function NodeToolDialog() {
       }
     >
       <div className="space-y-3 max-h-[82vh] overflow-y-auto pr-1">
-        {editorContent}
+        <Suspense fallback={loadingEditorFallback}>
+          {editorContent}
+        </Suspense>
         {error && <div className="text-xs text-red-400">{error}</div>}
       </div>
     </UiModal>

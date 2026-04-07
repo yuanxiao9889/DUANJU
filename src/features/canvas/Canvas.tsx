@@ -1,4 +1,6 @@
 import {
+  lazy,
+  Suspense,
   useState,
   useCallback,
   useEffect,
@@ -79,13 +81,8 @@ import { nodeTypes } from './nodes';
 import { edgeTypes } from './edges';
 import { NodeSelectionMenu } from './NodeSelectionMenu';
 import { SelectedNodeOverlay } from './ui/SelectedNodeOverlay';
-import { NodeToolDialog } from './ui/NodeToolDialog';
-import { ImageViewerModal } from './ui/ImageViewerModal';
 import { MissingApiKeyHint } from '@/features/settings/MissingApiKeyHint';
 import { eventMatchesShortcut } from '@/features/settings/keyboardShortcuts';
-import { ScriptBiblePanel } from './ui/ScriptBiblePanel';
-import { ScriptWelcomeDialog } from './ui/ScriptWelcomeDialog';
-import { SceneStudioPanel } from './ui/SceneStudioPanel';
 import { AlignmentGuides } from './ui/AlignmentGuides';
 import { detectAlignments, type AlignmentGuide } from './application/nodeAlignment';
 import { MergedConnectionAnchor } from './ui/MergedConnectionAnchor';
@@ -95,6 +92,31 @@ import { calculateNodesBounds } from './application/nodeBounds';
 import { GroupSidebar } from './ui/GroupSidebar';
 import { SelectionGroupBar } from './ui/SelectionGroupBar';
 import { CanvasAssetDock } from './ui/CanvasAssetDock';
+
+const ScriptBiblePanel = lazy(async () => {
+  const module = await import('./ui/ScriptBiblePanel');
+  return { default: module.ScriptBiblePanel };
+});
+
+const ScriptWelcomeDialog = lazy(async () => {
+  const module = await import('./ui/ScriptWelcomeDialog');
+  return { default: module.ScriptWelcomeDialog };
+});
+
+const SceneStudioPanel = lazy(async () => {
+  const module = await import('./ui/SceneStudioPanel');
+  return { default: module.SceneStudioPanel };
+});
+
+const NodeToolDialog = lazy(async () => {
+  const module = await import('./ui/NodeToolDialog');
+  return { default: module.NodeToolDialog };
+});
+
+const ImageViewerModal = lazy(async () => {
+  const module = await import('./ui/ImageViewerModal');
+  return { default: module.ImageViewerModal };
+});
 
 const DEFAULT_VIEWPORT: Viewport = { x: 0, y: 0, zoom: 1 };
 
@@ -386,10 +408,20 @@ function resolveAllowedNodeTypes(
 
   if (handleType === 'source') {
     const isSingleImageSource = Boolean(resolveSingleImageConnectionSource(sourceNode));
+    const isAudioReferenceSource = sourceNode.type === CANVAS_NODE_TYPES.audio;
     const isVideoReferenceSource =
       sourceNode.type === CANVAS_NODE_TYPES.video
       || sourceNode.type === CANVAS_NODE_TYPES.jimengVideoResult
       || sourceNode.type === CANVAS_NODE_TYPES.seedanceVideoResult;
+
+    if (isAudioReferenceSource || isVideoReferenceSource) {
+      return allowedTypes.filter(
+        (type) =>
+          type === CANVAS_NODE_TYPES.jimeng
+          || type === CANVAS_NODE_TYPES.seedance
+      );
+    }
+
     const shouldHideVoiceDesign =
       isSingleImageSource
       || isVideoReferenceSource
@@ -518,6 +550,8 @@ export function Canvas() {
 
   const [showNodeMenu, setShowNodeMenu] = useState(false);
   const [showWelcomeDialog, setShowWelcomeDialog] = useState(false);
+  const [hasMountedToolDialog, setHasMountedToolDialog] = useState(false);
+  const [hasMountedImageViewer, setHasMountedImageViewer] = useState(false);
   const [alignmentGuides, setAlignmentGuides] = useState<AlignmentGuide[]>([]);
   const [isDraggingNode, setIsDraggingNode] = useState(false);
   const [isDraggingBranchConnection, setIsDraggingBranchConnection] = useState(false);
@@ -597,6 +631,7 @@ export function Canvas() {
   const detachNodesFromGroup = useCanvasStore((state) => state.detachNodesFromGroup);
   const openToolDialog = useCanvasStore((state) => state.openToolDialog);
   const closeToolDialog = useCanvasStore((state) => state.closeToolDialog);
+  const activeToolDialog = useCanvasStore((state) => state.activeToolDialog);
   const setViewportState = useCanvasStore((state) => state.setViewportState);
   const setCanvasViewportSize = useCanvasStore((state) => state.setCanvasViewportSize);
   const currentViewport = useCanvasStore((state) => state.currentViewport);
@@ -650,11 +685,24 @@ export function Canvas() {
 
   const getCurrentProject = useProjectStore((state) => state.getCurrentProject);
   const project = getCurrentProject();
+  const isScriptProject = project?.projectType === 'script';
   const saveCurrentProject = useProjectStore((state) => state.saveCurrentProject);
   const saveCurrentProjectViewport = useProjectStore((state) => state.saveCurrentProjectViewport);
   const cancelPendingViewportPersist = useProjectStore(
     (state) => state.cancelPendingViewportPersist
   );
+
+  useEffect(() => {
+    if (activeToolDialog) {
+      setHasMountedToolDialog(true);
+    }
+  }, [activeToolDialog]);
+
+  useEffect(() => {
+    if (imageViewer.isOpen) {
+      setHasMountedImageViewer(true);
+    }
+  }, [imageViewer.isOpen]);
 
   const persistCanvasSnapshot = useCallback(() => {
     if (isRestoringCanvasRef.current) {
@@ -3317,8 +3365,19 @@ export function Canvas() {
 
   return (
     <div ref={wrapperRef} className="relative h-full w-full flex">
-      <ScriptBiblePanel />
-      <ScriptWelcomeDialog isOpen={showWelcomeDialog} onClose={() => setShowWelcomeDialog(false)} />
+      {isScriptProject && (
+        <Suspense fallback={null}>
+          <ScriptBiblePanel />
+        </Suspense>
+      )}
+      {isScriptProject && showWelcomeDialog && (
+        <Suspense fallback={null}>
+          <ScriptWelcomeDialog
+            isOpen={showWelcomeDialog}
+            onClose={() => setShowWelcomeDialog(false)}
+          />
+        </Suspense>
+      )}
       <div ref={reactFlowWrapperRef} className="relative min-w-0 flex-1">
       <GroupSidebar
         groups={groupNodesList}
@@ -3627,18 +3686,30 @@ export function Canvas() {
         />
       )}
 
-      <NodeToolDialog />
+      {hasMountedToolDialog && (
+        <Suspense fallback={null}>
+          <NodeToolDialog />
+        </Suspense>
+      )}
 
-      <ImageViewerModal
-        open={imageViewer.isOpen}
-        imageUrl={imageViewer.currentImageUrl || ''}
-        imageList={imageViewer.imageList}
-        currentIndex={imageViewer.currentIndex}
-        onClose={closeImageViewer}
-        onNavigate={navigateImageViewer}
-      />
+      {hasMountedImageViewer && (
+        <Suspense fallback={null}>
+          <ImageViewerModal
+            open={imageViewer.isOpen}
+            imageUrl={imageViewer.currentImageUrl || ''}
+            imageList={imageViewer.imageList}
+            currentIndex={imageViewer.currentIndex}
+            onClose={closeImageViewer}
+            onNavigate={navigateImageViewer}
+          />
+        </Suspense>
+      )}
       </div>
-      <SceneStudioPanel />
+      {isScriptProject && (
+        <Suspense fallback={null}>
+          <SceneStudioPanel />
+        </Suspense>
+      )}
     </div>
   );
 }

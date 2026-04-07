@@ -26,14 +26,24 @@ const SUPPORTED_VIDEO_TYPES = [
   'video/x-msvideo',
   'video/x-matroska',
 ];
+const SUPPORTED_VIDEO_EXTENSION_PATTERN =
+  /\.(mp4|webm|ogv|mov|avi|mkv)$/i;
 const VIDEO_POSTER_MAX_DIMENSION = 960;
 
+function normalizeVideoMimeType(mimeType: string): string {
+  return mimeType.split(';', 1)[0]?.trim().toLowerCase() ?? '';
+}
+
 export function isSupportedVideoType(mimeType: string): boolean {
-  return SUPPORTED_VIDEO_TYPES.includes(mimeType.toLowerCase());
+  return SUPPORTED_VIDEO_TYPES.includes(normalizeVideoMimeType(mimeType));
+}
+
+export function isSupportedVideoFile(file: File): boolean {
+  return isSupportedVideoType(file.type) || SUPPORTED_VIDEO_EXTENSION_PATTERN.test(file.name);
 }
 
 function resolveVideoExtension(file: File): string {
-  const mime = file.type.toLowerCase();
+  const mime = normalizeVideoMimeType(file.type);
   if (mime === 'video/mp4') return 'mp4';
   if (mime === 'video/webm') return 'webm';
   if (mime === 'video/ogg') return 'ogv';
@@ -145,8 +155,8 @@ async function prepareVideoPoster(posterDataUrl: string | null): Promise<string 
 }
 
 export async function prepareNodeVideoFromFile(file: File): Promise<PreparedVideo> {
-  if (!isSupportedVideoType(file.type)) {
-    throw new Error(`Unsupported video type: ${file.type}`);
+  if (!isSupportedVideoFile(file)) {
+    throw new Error(`Unsupported video type: ${file.type || file.name}`);
   }
 
   const { metadata, posterDataUrl } = await getVideoMetadataAndPoster(file);

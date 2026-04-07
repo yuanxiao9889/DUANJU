@@ -1,4 +1,3 @@
-import { Document, Packer, Paragraph, TextRun, HeadingLevel, AlignmentType, BorderStyle } from 'docx';
 import { save } from '@tauri-apps/plugin-dialog';
 import { invoke } from '@tauri-apps/api/core';
 import {
@@ -13,6 +12,8 @@ import {
   type ScriptPlotPointNodeData,
 } from '../domain/canvasNodes';
 import type { Edge } from '@xyflow/react';
+
+type DocxModule = typeof import('docx');
 
 export type ExportFormat = 'txt' | 'docx' | 'json' | 'markdown';
 
@@ -59,23 +60,23 @@ function decodeHtmlEntities(text: string): string {
   return text.replace(/&[^;]+;/g, (match) => entities[match] || match);
 }
 
-function parseHtmlToDocxParagraphs(html: string): Paragraph[] {
+function parseHtmlToDocxParagraphs(html: string, docx: DocxModule): any[] {
   if (!html || !html.trim()) {
     return [];
   }
 
-  const paragraphs: Paragraph[] = [];
+  const paragraphs: any[] = [];
   
   try {
     const parser = new DOMParser();
     const doc = parser.parseFromString(html, 'text/html');
     const body = doc.body;
 
-    function processInlineNodes(node: Node, textRuns: TextRun[], isBold: boolean = false, isItalic: boolean = false): void {
+    function processInlineNodes(node: Node, textRuns: any[], isBold: boolean = false, isItalic: boolean = false): void {
       if (node.nodeType === Node.TEXT_NODE) {
         const text = node.textContent || '';
         if (text.trim()) {
-          textRuns.push(new TextRun({
+          textRuns.push(new docx.TextRun({
             text: decodeHtmlEntities(text),
             bold: isBold,
             italics: isItalic,
@@ -99,7 +100,7 @@ function parseHtmlToDocxParagraphs(html: string): Paragraph[] {
             }
             break;
           case 'br':
-            textRuns.push(new TextRun({ text: '', break: 1 }));
+            textRuns.push(new docx.TextRun({ text: '', break: 1 }));
             break;
           default:
             for (const child of element.childNodes) {
@@ -113,7 +114,7 @@ function parseHtmlToDocxParagraphs(html: string): Paragraph[] {
       if (node.nodeType === Node.TEXT_NODE) {
         const text = node.textContent || '';
         if (text.trim()) {
-          paragraphs.push(new Paragraph({ text: decodeHtmlEntities(text) }));
+          paragraphs.push(new docx.Paragraph({ text: decodeHtmlEntities(text) }));
         }
       } else if (node.nodeType === Node.ELEMENT_NODE) {
         const element = node as Element;
@@ -122,14 +123,14 @@ function parseHtmlToDocxParagraphs(html: string): Paragraph[] {
         switch (tagName) {
           case 'h1':
           case 'h2': {
-            const textRuns: TextRun[] = [];
+            const textRuns: any[] = [];
             for (const child of element.childNodes) {
               processInlineNodes(child, textRuns);
             }
             if (textRuns.length > 0) {
-              paragraphs.push(new Paragraph({
+              paragraphs.push(new docx.Paragraph({
                 children: textRuns,
-                heading: HeadingLevel.HEADING_2,
+                heading: docx.HeadingLevel.HEADING_2,
               }));
             }
             break;
@@ -138,38 +139,38 @@ function parseHtmlToDocxParagraphs(html: string): Paragraph[] {
           case 'h4':
           case 'h5':
           case 'h6': {
-            const textRuns: TextRun[] = [];
+            const textRuns: any[] = [];
             for (const child of element.childNodes) {
               processInlineNodes(child, textRuns);
             }
             if (textRuns.length > 0) {
-              paragraphs.push(new Paragraph({
+              paragraphs.push(new docx.Paragraph({
                 children: textRuns,
-                heading: HeadingLevel.HEADING_3,
+                heading: docx.HeadingLevel.HEADING_3,
               }));
             }
             break;
           }
           case 'p': {
-            const textRuns: TextRun[] = [];
+            const textRuns: any[] = [];
             for (const child of element.childNodes) {
               processInlineNodes(child, textRuns);
             }
             if (textRuns.length > 0) {
-              paragraphs.push(new Paragraph({ children: textRuns }));
+              paragraphs.push(new docx.Paragraph({ children: textRuns }));
             } else {
-              paragraphs.push(new Paragraph({ text: '' }));
+              paragraphs.push(new docx.Paragraph({ text: '' }));
             }
             break;
           }
           case 'hr': {
-            paragraphs.push(new Paragraph({
+            paragraphs.push(new docx.Paragraph({
               text: '',
               border: {
                 bottom: {
                   color: 'auto',
                   space: 1,
-                  style: BorderStyle.SINGLE,
+                  style: docx.BorderStyle.SINGLE,
                   size: 6,
                 },
               },
@@ -184,12 +185,12 @@ function parseHtmlToDocxParagraphs(html: string): Paragraph[] {
             }
             break;
           default: {
-            const textRuns: TextRun[] = [];
+            const textRuns: any[] = [];
             for (const child of element.childNodes) {
               processInlineNodes(child, textRuns);
             }
             if (textRuns.length > 0) {
-              paragraphs.push(new Paragraph({ children: textRuns }));
+              paragraphs.push(new docx.Paragraph({ children: textRuns }));
             }
           }
         }
@@ -201,11 +202,11 @@ function parseHtmlToDocxParagraphs(html: string): Paragraph[] {
     }
 
     if (paragraphs.length === 0) {
-      paragraphs.push(new Paragraph({ text: decodeHtmlEntities(html) }));
+      paragraphs.push(new docx.Paragraph({ text: decodeHtmlEntities(html) }));
     }
   } catch (error) {
     console.error('Failed to parse HTML for DOCX export:', error);
-    paragraphs.push(new Paragraph({ text: decodeHtmlEntities(html) }));
+    paragraphs.push(new docx.Paragraph({ text: decodeHtmlEntities(html) }));
   }
 
   return paragraphs;
@@ -610,101 +611,102 @@ async function exportAsTxt(data: ScriptData, branches: BranchInfo[], filePath: s
 }
 
 async function exportAsDocx(data: ScriptData, branches: BranchInfo[], filePath: string): Promise<boolean> {
+  const docx = await import('docx');
   const title = data.root?.title || '未命名剧本';
   const docChildren: any[] = [];
 
   docChildren.push(
-    new Paragraph({
+    new docx.Paragraph({
       text: title,
-      heading: HeadingLevel.TITLE,
-      alignment: AlignmentType.CENTER,
+      heading: docx.HeadingLevel.TITLE,
+      alignment: docx.AlignmentType.CENTER,
     })
   );
 
   if (data.root?.genre) {
     docChildren.push(
-      new Paragraph({
+      new docx.Paragraph({
         text: `类型: ${data.root.genre}`,
-        alignment: AlignmentType.CENTER,
+        alignment: docx.AlignmentType.CENTER,
       })
     );
   }
 
-  docChildren.push(new Paragraph({ text: '' }));
+  docChildren.push(new docx.Paragraph({ text: '' }));
 
   if (data.characters.length > 0) {
     docChildren.push(
-      new Paragraph({
+      new docx.Paragraph({
         text: '角色档案',
-        heading: HeadingLevel.HEADING_1,
+        heading: docx.HeadingLevel.HEADING_1,
       })
     );
 
     data.characters.forEach((char) => {
       docChildren.push(
-        new Paragraph({
-          children: [new TextRun({ text: char.name, bold: true })],
+        new docx.Paragraph({
+          children: [new docx.TextRun({ text: char.name, bold: true })],
         })
       );
       if (char.description) {
-        docChildren.push(new Paragraph({ text: char.description }));
+        docChildren.push(new docx.Paragraph({ text: char.description }));
       }
       if (char.personality) {
-        docChildren.push(new Paragraph({ text: `性格: ${char.personality}` }));
+        docChildren.push(new docx.Paragraph({ text: `性格: ${char.personality}` }));
       }
       if (char.appearance) {
-        docChildren.push(new Paragraph({ text: `外貌: ${char.appearance}` }));
+        docChildren.push(new docx.Paragraph({ text: `外貌: ${char.appearance}` }));
       }
-      docChildren.push(new Paragraph({ text: '' }));
+      docChildren.push(new docx.Paragraph({ text: '' }));
     });
   }
 
   if (data.locations.length > 0) {
     docChildren.push(
-      new Paragraph({
+      new docx.Paragraph({
         text: '场景地点',
-        heading: HeadingLevel.HEADING_1,
+        heading: docx.HeadingLevel.HEADING_1,
       })
     );
 
     data.locations.forEach((loc) => {
       docChildren.push(
-        new Paragraph({
-          children: [new TextRun({ text: loc.name, bold: true })],
+        new docx.Paragraph({
+          children: [new docx.TextRun({ text: loc.name, bold: true })],
         })
       );
       if (loc.description) {
-        docChildren.push(new Paragraph({ text: loc.description }));
+        docChildren.push(new docx.Paragraph({ text: loc.description }));
       }
-      docChildren.push(new Paragraph({ text: '' }));
+      docChildren.push(new docx.Paragraph({ text: '' }));
     });
   }
 
   if (data.items.length > 0) {
     docChildren.push(
-      new Paragraph({
+      new docx.Paragraph({
         text: '关键道具',
-        heading: HeadingLevel.HEADING_1,
+        heading: docx.HeadingLevel.HEADING_1,
       })
     );
 
     data.items.forEach((item) => {
       docChildren.push(
-        new Paragraph({
-          children: [new TextRun({ text: item.name, bold: true })],
+        new docx.Paragraph({
+          children: [new docx.TextRun({ text: item.name, bold: true })],
         })
       );
       if (item.description) {
-        docChildren.push(new Paragraph({ text: item.description }));
+        docChildren.push(new docx.Paragraph({ text: item.description }));
       }
-      docChildren.push(new Paragraph({ text: '' }));
+      docChildren.push(new docx.Paragraph({ text: '' }));
     });
   }
 
   docChildren.push(
-    new Paragraph({
+    new docx.Paragraph({
       text: '正文',
-      heading: HeadingLevel.HEADING_1,
+      heading: docx.HeadingLevel.HEADING_1,
     })
   );
 
@@ -715,38 +717,38 @@ async function exportAsDocx(data: ScriptData, branches: BranchInfo[], filePath: 
 
     if (!branch.isMainBranch) {
       docChildren.push(
-        new Paragraph({
+        new docx.Paragraph({
           text: branch.name,
-          heading: HeadingLevel.HEADING_2,
+          heading: docx.HeadingLevel.HEADING_2,
         })
       );
     }
 
     branchChapters.forEach((chapter) => {
       docChildren.push(
-        new Paragraph({
+        new docx.Paragraph({
           text: `第${chapter.data.chapterNumber}章 ${chapter.data.title || '未命名'}`,
-          heading: HeadingLevel.HEADING_3,
+          heading: docx.HeadingLevel.HEADING_3,
         })
       );
 
       if (chapter.data.sceneHeadings?.length) {
         chapter.data.sceneHeadings.forEach((heading) => {
-          docChildren.push(new Paragraph({ text: heading }));
+          docChildren.push(new docx.Paragraph({ text: heading }));
         });
       }
 
       const chapterHtmlContent = resolveChapterExportHtml(chapter.data);
       if (chapterHtmlContent) {
-        const contentParagraphs = parseHtmlToDocxParagraphs(chapterHtmlContent);
+        const contentParagraphs = parseHtmlToDocxParagraphs(chapterHtmlContent, docx);
         docChildren.push(...contentParagraphs);
       }
 
-      docChildren.push(new Paragraph({ text: '' }));
+      docChildren.push(new docx.Paragraph({ text: '' }));
     });
   });
 
-  const doc = new Document({
+  const doc = new docx.Document({
     sections: [{
       properties: {},
       children: docChildren,
@@ -754,7 +756,7 @@ async function exportAsDocx(data: ScriptData, branches: BranchInfo[], filePath: 
   });
 
   try {
-    const blob = await Packer.toBlob(doc);
+    const blob = await docx.Packer.toBlob(doc);
     const buffer = await blob.arrayBuffer();
     await invoke('save_binary_file', { path: filePath, content: Array.from(new Uint8Array(buffer)) });
     return true;

@@ -1,12 +1,9 @@
 import { create } from 'zustand';
-import {
+import type {
   Connection,
   EdgeChange,
   NodeChange,
-  type Viewport,
-  addEdge,
-  applyEdgeChanges,
-  applyNodeChanges,
+  Viewport,
 } from '@xyflow/react';
 import { v4 as uuidv4 } from 'uuid';
 
@@ -84,6 +81,149 @@ export type {
   NodeToolType,
   StoryboardFrameItem,
 };
+
+function applyNodeChangesLocal(
+  changes: NodeChange<CanvasNode>[],
+  nodes: CanvasNode[]
+): CanvasNode[] {
+  let nextNodes = [...nodes];
+
+  for (const change of changes) {
+    switch (change.type) {
+      case 'add': {
+        const index = typeof change.index === 'number' ? change.index : nextNodes.length;
+        nextNodes = [
+          ...nextNodes.slice(0, index),
+          change.item,
+          ...nextNodes.slice(index),
+        ];
+        break;
+      }
+      case 'remove':
+        nextNodes = nextNodes.filter((node) => node.id !== change.id);
+        break;
+      case 'replace':
+        nextNodes = nextNodes.map((node) => (node.id === change.id ? change.item : node));
+        break;
+      case 'select':
+        nextNodes = nextNodes.map((node) => (
+          node.id === change.id ? { ...node, selected: change.selected } : node
+        ));
+        break;
+      case 'position':
+        nextNodes = nextNodes.map((node) => {
+          if (node.id !== change.id) {
+            return node;
+          }
+
+          return {
+            ...node,
+            position: change.position ?? node.position,
+            dragging:
+              'dragging' in change
+                ? change.dragging
+                : node.dragging,
+          };
+        });
+        break;
+      case 'dimensions':
+        nextNodes = nextNodes.map((node) => {
+          if (node.id !== change.id) {
+            return node;
+          }
+
+          const width = change.dimensions?.width;
+          const height = change.dimensions?.height;
+          const shouldSetWidth =
+            change.setAttributes === true || change.setAttributes === 'width';
+          const shouldSetHeight =
+            change.setAttributes === true || change.setAttributes === 'height';
+
+          return {
+            ...node,
+            width: shouldSetWidth && typeof width === 'number' ? width : node.width,
+            height: shouldSetHeight && typeof height === 'number' ? height : node.height,
+            measured: {
+              ...(node.measured ?? {}),
+              width: typeof width === 'number' ? width : node.measured?.width,
+              height: typeof height === 'number' ? height : node.measured?.height,
+            },
+            resizing:
+              'resizing' in change ? change.resizing : node.resizing,
+          };
+        });
+        break;
+      default:
+        break;
+    }
+  }
+
+  return nextNodes;
+}
+
+function applyEdgeChangesLocal(
+  changes: EdgeChange<CanvasEdge>[],
+  edges: CanvasEdge[]
+): CanvasEdge[] {
+  let nextEdges = [...edges];
+
+  for (const change of changes) {
+    switch (change.type) {
+      case 'add': {
+        const index = typeof change.index === 'number' ? change.index : nextEdges.length;
+        nextEdges = [
+          ...nextEdges.slice(0, index),
+          change.item,
+          ...nextEdges.slice(index),
+        ];
+        break;
+      }
+      case 'remove':
+        nextEdges = nextEdges.filter((edge) => edge.id !== change.id);
+        break;
+      case 'replace':
+        nextEdges = nextEdges.map((edge) => (edge.id === change.id ? change.item : edge));
+        break;
+      case 'select':
+        nextEdges = nextEdges.map((edge) => (
+          edge.id === change.id ? { ...edge, selected: change.selected } : edge
+        ));
+        break;
+      default:
+        break;
+    }
+  }
+
+  return nextEdges;
+}
+
+function addEdgeLocal(
+  connection: Connection | CanvasEdge,
+  edges: CanvasEdge[]
+): CanvasEdge[] {
+  const sourceHandle = connection.sourceHandle ?? null;
+  const targetHandle = connection.targetHandle ?? null;
+  const alreadyExists = edges.some((edge) =>
+    edge.source === connection.source &&
+    edge.target === connection.target &&
+    (edge.sourceHandle ?? null) === sourceHandle &&
+    (edge.targetHandle ?? null) === targetHandle
+  );
+
+  if (alreadyExists) {
+    return edges;
+  }
+
+  const nextEdge = {
+    ...connection,
+    id:
+      ('id' in connection && typeof connection.id === 'string' && connection.id.trim().length > 0)
+        ? connection.id
+        : `xy-edge__${connection.source}-${sourceHandle ?? 'null'}-${connection.target}-${targetHandle ?? 'null'}`,
+  } as CanvasEdge;
+
+  return [...edges, nextEdge];
+}
 
 export interface CanvasFullHistorySnapshot {
   kind?: 'full';
@@ -1845,7 +1985,7 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
           .map((change) => change.id)
       );
 
-      let nextNodes = applyNodeChanges<CanvasNode>(changes, state.nodes);
+      let nextNodes = applyNodeChangesLocal(changes, state.nodes);
       if (resizedNodeIds.size > 0) {
         nextNodes = nextNodes.map((node) => {
           if (!resizedNodeIds.has(node.id) || !isImageAutoResizableType(node.type)) {
@@ -1930,7 +2070,7 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
 
   onEdgesChange: (changes) => {
     set((state) => {
-      const nextEdges = applyEdgeChanges<CanvasEdge>(changes, state.edges);
+      const nextEdges = applyEdgeChangesLocal(changes, state.edges);
       const hasMeaningfulChange = changes.some((change) => change.type !== 'select');
 
       if (!hasMeaningfulChange) {
@@ -1952,7 +2092,7 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
     const sourceHandle = normalizeHandleId(connection.sourceHandle) ?? 'source';
     const targetHandle = normalizeHandleId(connection.targetHandle) ?? 'target';
     set((state) => ({
-      edges: addEdge<CanvasEdge>(
+      edges: addEdgeLocal(
         { ...connection, sourceHandle, targetHandle, type: 'disconnectableEdge' },
         state.edges
       ),

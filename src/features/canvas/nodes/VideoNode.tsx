@@ -48,7 +48,7 @@ import {
   captureVideoFrame,
   captureVideoFrameFromSource,
   formatVideoTime,
-  isSupportedVideoType,
+  isSupportedVideoFile,
   prepareNodeVideoFromFile,
   waitForVideoFrameReady,
 } from '@/features/canvas/application/videoData';
@@ -195,7 +195,7 @@ export const VideoNode = memo(({ id, data, selected, width, height }: VideoNodeP
 
   const processFile = useCallback(
     async (file: File) => {
-      if (!isSupportedVideoType(file.type)) {
+      if (!isSupportedVideoFile(file)) {
         setVideoError(t('node.videoNode.unsupportedFormat'));
         return;
       }
@@ -831,10 +831,17 @@ export const VideoNode = memo(({ id, data, selected, width, height }: VideoNodeP
       />
 
       <Handle
+        type="target"
+        id="target"
+        position={Position.Left}
+        className="!h-3 !w-3 !border-2 !border-white !bg-accent"
+      />
+
+      <Handle
         type="source"
         id="source"
         position={Position.Right}
-        className="!h-2.5 !w-2.5 !border-2 !border-surface-dark !bg-accent"
+        className="!h-3 !w-3 !border-2 !border-white !bg-accent"
       />
       <NodeResizeHandle
         minWidth={resizeMinWidth}

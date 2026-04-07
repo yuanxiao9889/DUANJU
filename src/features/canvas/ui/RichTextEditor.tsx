@@ -3,7 +3,7 @@ import { useEditor, EditorContent } from '@tiptap/react';
 import StarterKit from '@tiptap/starter-kit';
 import { Bold, Italic } from 'lucide-react';
 
-type RichTextEditorProps = {
+export type RichTextEditorProps = {
   content: string;
   onChange: (content: string) => void;
   onSelect?: (selection: { text: string; range: SelectionRange | null }) => void;
@@ -19,7 +19,7 @@ type RichTextEditorProps = {
   className?: string;
 };
 
-type SelectionRange = {
+export type SelectionRange = {
   from: number;
   to: number;
 };

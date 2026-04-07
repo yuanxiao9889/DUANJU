@@ -1,19 +1,14 @@
-import { useCallback, useEffect, useRef, useState } from "react";
-import { ReactFlowProvider } from "@xyflow/react";
+import { Suspense, lazy, useCallback, useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { Canvas } from "./features/canvas/Canvas";
-import { TitleBar } from "./components/TitleBar";
-import { ExtensionsDialog } from "./components/ExtensionsDialog";
-import { SettingsDialog } from "./components/SettingsDialog";
 import {
-  UpdateAvailableDialog,
-  type UpdateIgnoreMode,
-} from "./components/UpdateAvailableDialog";
+  AppBootScreen,
+  AppContentLoader,
+} from "./components/AppBootScreen";
+import { TitleBar } from "./components/TitleBar";
+import type { UpdateIgnoreMode } from "./components/UpdateAvailableDialog";
 import { GlobalErrorDialog } from "./components/GlobalErrorDialog";
-import { DreaminaSetupDialog } from "./components/DreaminaSetupDialog";
 import { PsImageToast } from "./components/PsImageToast";
-import { ProjectManager } from "./features/project/ProjectManager";
 import { useThemeStore } from "./stores/themeStore";
 import { useProjectStore } from "./stores/projectStore";
 import { useSettingsStore } from "./stores/settingsStore";
@@ -39,6 +34,37 @@ import { ensureDailyDatabaseBackup } from "./commands/storage";
 
 const WINDOW_CLOSE_FLUSH_TIMEOUT_MS = 2500;
 const WINDOW_CLOSE_REQUEST_TIMEOUT_MS = 1200;
+
+const CanvasScreen = lazy(() =>
+  import("./features/canvas/CanvasScreen").then((module) => ({
+    default: module.CanvasScreen,
+  })),
+);
+const ProjectManager = lazy(() =>
+  import("./features/project/ProjectManager").then((module) => ({
+    default: module.ProjectManager,
+  })),
+);
+const SettingsDialog = lazy(() =>
+  import("./components/SettingsDialog").then((module) => ({
+    default: module.SettingsDialog,
+  })),
+);
+const ExtensionsDialog = lazy(() =>
+  import("./components/ExtensionsDialog").then((module) => ({
+    default: module.ExtensionsDialog,
+  })),
+);
+const UpdateAvailableDialog = lazy(() =>
+  import("./components/UpdateAvailableDialog").then((module) => ({
+    default: module.UpdateAvailableDialog,
+  })),
+);
+const DreaminaSetupDialog = lazy(() =>
+  import("./components/DreaminaSetupDialog").then((module) => ({
+    default: module.DreaminaSetupDialog,
+  })),
+);
 
 function toRgbCssValue(hexColor: string): string {
   const hex = hexColor.replace("#", "");
@@ -95,6 +121,10 @@ function App() {
   const settingsHydrated = useSettingsStore((state) => state.isHydrated);
   const [showSettings, setShowSettings] = useState(false);
   const [showExtensions, setShowExtensions] = useState(false);
+  const [settingsDialogLoaded, setSettingsDialogLoaded] = useState(false);
+  const [extensionsDialogLoaded, setExtensionsDialogLoaded] = useState(false);
+  const [updateDialogLoaded, setUpdateDialogLoaded] = useState(false);
+  const [dreaminaDialogLoaded, setDreaminaDialogLoaded] = useState(false);
   const [settingsInitialCategory, setSettingsInitialCategory] =
     useState<SettingsCategory>("general");
   const [showUpdateDialog, setShowUpdateDialog] = useState(false);
@@ -178,6 +208,7 @@ function App() {
   useEffect(() => {
     const unsubscribe = subscribeOpenSettingsDialog(({ category }) => {
       setSettingsInitialCategory(category ?? "general");
+      setSettingsDialogLoaded(true);
       setShowSettings(true);
     });
     return unsubscribe;
@@ -185,10 +216,35 @@ function App() {
 
   useEffect(() => {
     const unsubscribe = subscribeOpenDreaminaSetupDialog((detail) => {
+      setDreaminaDialogLoaded(true);
       setDreaminaSetupDetail(detail);
     });
     return unsubscribe;
   }, []);
+
+  useEffect(() => {
+    if (showSettings) {
+      setSettingsDialogLoaded(true);
+    }
+  }, [showSettings]);
+
+  useEffect(() => {
+    if (showExtensions) {
+      setExtensionsDialogLoaded(true);
+    }
+  }, [showExtensions]);
+
+  useEffect(() => {
+    if (showUpdateDialog) {
+      setUpdateDialogLoaded(true);
+    }
+  }, [showUpdateDialog]);
+
+  useEffect(() => {
+    if (dreaminaSetupDetail) {
+      setDreaminaDialogLoaded(true);
+    }
+  }, [dreaminaSetupDetail]);
 
   useEffect(() => {
     let cancelled = false;
@@ -370,65 +426,81 @@ function App() {
     );
   };
 
-  if (!isHydrated) {
-    return (
-      <ReactFlowProvider>
-        <div className="w-full h-full bg-bg-dark" />
-      </ReactFlowProvider>
-    );
-  }
-
   return (
-    <ReactFlowProvider>
-      <div className="w-full h-full flex flex-col bg-bg-dark">
-        <TitleBar
-          onExtensionsClick={() => setShowExtensions(true)}
-          onSettingsClick={() => {
-            setSettingsInitialCategory("general");
-            setShowSettings(true);
-          }}
-          onCloseRequest={requestWindowClose}
-          showBackButton={!!currentProjectId}
-          onBackClick={closeProject}
-        />
+    <div className="w-full h-full flex flex-col bg-bg-dark">
+      <TitleBar
+        onExtensionsClick={() => {
+          setExtensionsDialogLoaded(true);
+          setShowExtensions(true);
+        }}
+        onSettingsClick={() => {
+          setSettingsInitialCategory("general");
+          setSettingsDialogLoaded(true);
+          setShowSettings(true);
+        }}
+        onCloseRequest={requestWindowClose}
+        showBackButton={!!currentProjectId}
+        onBackClick={closeProject}
+      />
 
-        <main className="relative flex-1 min-h-0 overflow-hidden">
-          {currentProjectId ? <Canvas /> : <ProjectManager />}
-        </main>
+      <main className="relative flex-1 min-h-0 overflow-hidden">
+        {isHydrated ? (
+          <Suspense fallback={<AppContentLoader />}>
+            {currentProjectId ? <CanvasScreen /> : <ProjectManager />}
+          </Suspense>
+        ) : (
+          <AppBootScreen />
+        )}
+      </main>
 
-        <SettingsDialog
-          isOpen={showSettings}
-          onClose={() => setShowSettings(false)}
-          initialCategory={settingsInitialCategory}
-          onCheckUpdate={handleManualCheckUpdate}
-        />
-        <ExtensionsDialog
-          isOpen={showExtensions}
-          onClose={() => setShowExtensions(false)}
-        />
-        <UpdateAvailableDialog
-          isOpen={showUpdateDialog}
-          onClose={() => setShowUpdateDialog(false)}
-          latestVersion={latestVersion}
-          currentVersion={currentVersion}
-          onApplyIgnore={handleApplyIgnore}
-        />
-        <GlobalErrorDialog
-          isOpen={Boolean(globalError)}
-          title={globalError?.title ?? ""}
-          message={globalError?.message ?? ""}
-          details={globalError?.details}
-          copyText={globalError?.copyText}
-          onClose={() => setGlobalError(null)}
-        />
-        <DreaminaSetupDialog
-          isOpen={Boolean(dreaminaSetupDetail)}
-          detail={dreaminaSetupDetail}
-          onClose={() => setDreaminaSetupDetail(null)}
-        />
-        <PsImageToast />
-      </div>
-    </ReactFlowProvider>
+      {settingsDialogLoaded ? (
+        <Suspense fallback={null}>
+          <SettingsDialog
+            isOpen={showSettings}
+            onClose={() => setShowSettings(false)}
+            initialCategory={settingsInitialCategory}
+            onCheckUpdate={handleManualCheckUpdate}
+          />
+        </Suspense>
+      ) : null}
+      {extensionsDialogLoaded ? (
+        <Suspense fallback={null}>
+          <ExtensionsDialog
+            isOpen={showExtensions}
+            onClose={() => setShowExtensions(false)}
+          />
+        </Suspense>
+      ) : null}
+      {updateDialogLoaded ? (
+        <Suspense fallback={null}>
+          <UpdateAvailableDialog
+            isOpen={showUpdateDialog}
+            onClose={() => setShowUpdateDialog(false)}
+            latestVersion={latestVersion}
+            currentVersion={currentVersion}
+            onApplyIgnore={handleApplyIgnore}
+          />
+        </Suspense>
+      ) : null}
+      <GlobalErrorDialog
+        isOpen={Boolean(globalError)}
+        title={globalError?.title ?? ""}
+        message={globalError?.message ?? ""}
+        details={globalError?.details}
+        copyText={globalError?.copyText}
+        onClose={() => setGlobalError(null)}
+      />
+      {dreaminaDialogLoaded ? (
+        <Suspense fallback={null}>
+          <DreaminaSetupDialog
+            isOpen={Boolean(dreaminaSetupDetail)}
+            detail={dreaminaSetupDetail}
+            onClose={() => setDreaminaSetupDetail(null)}
+          />
+        </Suspense>
+      ) : null}
+      <PsImageToast />
+    </div>
   );
 }
 

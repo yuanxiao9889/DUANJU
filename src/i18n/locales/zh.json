@@ -1,7 +1,9 @@
 ﻿{
   "app": {
     "title": "短剧助手",
-    "subtitle": "Storyboard Copilot"
+    "subtitle": "Storyboard Copilot",
+    "bootTitle": "正在准备工作台",
+    "bootDescription": "正在加载项目列表、画布状态和本地配置，你可以马上看到应用框架，不再等待整页空白。"
   },
   "common": {
     "back": "返回",
@@ -846,12 +848,23 @@
       "generating": "生成中",
       "ready": "已回传",
       "statusGenerating": "Seedance 仍在生成视频，请稍后再查询。",
+      "statusQueued": "任务排队中，等待 Seedance 开始处理。",
+      "statusRunning": "Seedance 正在生成视频。",
       "generatedAt": "{{time}} 已回传",
       "duration": "时长 {{duration}}",
       "requery": "重新查询",
       "requeryUnavailable": "当前 Seedance 结果节点还没有可用的 task_id，暂时无法重新查询结果。",
       "requeryFailed": "重新查询 Seedance 视频结果失败",
-      "requeryPending": "任务仍在处理中，请稍后再试。"
+      "requeryPending": "任务仍在处理中，请稍后再试。",
+      "taskStatuses": {
+        "queued": "排队中",
+        "running": "生成中",
+        "succeeded": "已完成",
+        "failed": "失败",
+        "cancelled": "已取消",
+        "expired": "已过期",
+        "unknown": "状态未知"
+      }
     }
   },
   "viewer": {

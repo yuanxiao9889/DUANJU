@@ -1,7 +1,9 @@
 {
   "app": {
     "title": "Storyboard Copilot",
-    "subtitle": "AI Storyboard Tool"
+    "subtitle": "AI Storyboard Tool",
+    "bootTitle": "Preparing your workspace",
+    "bootDescription": "Loading project summaries, canvas state, and local settings so the app frame appears immediately instead of waiting on a blank screen."
   },
   "common": {
     "back": "Back",
@@ -621,12 +623,23 @@
       "generating": "Generating",
       "ready": "Returned",
       "statusGenerating": "Seedance is still generating the video...",
+      "statusQueued": "The task is queued and waiting for Seedance to start.",
+      "statusRunning": "Seedance is generating the video.",
       "generatedAt": "Returned {{time}}",
       "duration": "Duration {{duration}}",
       "requery": "Re-query Result",
       "requeryUnavailable": "This Seedance result node does not have a usable task ID yet, so the result cannot be re-queried.",
       "requeryFailed": "Failed to re-query the Seedance video result",
-      "requeryPending": "The task is still running. Try re-querying again shortly."
+      "requeryPending": "The task is still running. Try re-querying again shortly.",
+      "taskStatuses": {
+        "queued": "Queued",
+        "running": "Generating",
+        "succeeded": "Completed",
+        "failed": "Failed",
+        "cancelled": "Cancelled",
+        "expired": "Expired",
+        "unknown": "Unknown"
+      }
     },
     "sendToPs": "Send to PS",
     "sendToPsSuccess": "Sent to Photoshop",

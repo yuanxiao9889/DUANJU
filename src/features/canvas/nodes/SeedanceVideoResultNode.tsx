@@ -33,7 +33,10 @@ import {
 import { NodeResizeHandle } from "@/features/canvas/ui/NodeResizeHandle";
 import { NodeStatusBadge } from "@/features/canvas/ui/NodeStatusBadge";
 import { NODE_CONTROL_ACTION_BUTTON_CLASS } from "@/features/canvas/ui/nodeControlStyles";
-import { querySeedanceVideoResult } from "@/features/seedance/application/seedanceVideoSubmission";
+import {
+  SEEDANCE_RESULT_POLL_INTERVAL_MS,
+  querySeedanceVideoResult,
+} from "@/features/seedance/application/seedanceVideoSubmission";
 import { useCanvasStore } from "@/stores/canvasStore";
 import { useSettingsStore } from "@/stores/settingsStore";
 
@@ -78,6 +81,24 @@ function toCssAspectRatio(aspectRatio: string): string {
   return `${width} / ${height}`;
 }
 
+function normalizeSeedanceTaskStatus(
+  status: string | null | undefined,
+): "queued" | "running" | "succeeded" | "failed" | "cancelled" | "expired" | "unknown" {
+  const normalized = status?.trim().toLowerCase() ?? "";
+
+  switch (normalized) {
+    case "queued":
+    case "running":
+    case "succeeded":
+    case "failed":
+    case "cancelled":
+    case "expired":
+      return normalized;
+    default:
+      return "unknown";
+  }
+}
+
 export const SeedanceVideoResultNode = memo(
   ({ id, data, selected, width }: SeedanceVideoResultNodeProps) => {
     const { t, i18n } = useTranslation();
@@ -89,7 +110,8 @@ export const SeedanceVideoResultNode = memo(
     const [playbackError, setPlaybackError] = useState<string | null>(null);
     const [isRequerying, setIsRequerying] = useState(false);
     const [statusNotice, setStatusNotice] = useState<string | null>(null);
-    const lastAutoRequeryTaskIdRef = useRef<string | null>(null);
+    const pollTimerRef = useRef<number | null>(null);
+    const isPollingRef = useRef(false);
 
     const apiKey = storyboardApiKeys.volcengine?.trim() ?? "";
     const resolvedTitle = useMemo(
@@ -154,6 +176,25 @@ export const SeedanceVideoResultNode = memo(
       }
       return formatVideoTime(data.duration);
     }, [data.duration]);
+    const normalizedTaskStatus = useMemo(
+      () => normalizeSeedanceTaskStatus(data.taskStatus),
+      [data.taskStatus],
+    );
+    const taskStatusLabel = useMemo(
+      () => t(`node.seedanceVideoResult.taskStatuses.${normalizedTaskStatus}`),
+      [normalizedTaskStatus, t],
+    );
+    const taskStatusNotice = useMemo(() => {
+      if (normalizedTaskStatus === "queued") {
+        return t("node.seedanceVideoResult.statusQueued");
+      }
+
+      if (normalizedTaskStatus === "running") {
+        return t("node.seedanceVideoResult.statusRunning");
+      }
+
+      return null;
+    }, [normalizedTaskStatus, t]);
 
     useEffect(() => {
       updateNodeInternals(id);
@@ -166,8 +207,18 @@ export const SeedanceVideoResultNode = memo(
       videoSource,
     ]);
 
+    const clearScheduledPoll = useCallback(() => {
+      if (pollTimerRef.current !== null) {
+        window.clearTimeout(pollTimerRef.current);
+        pollTimerRef.current = null;
+      }
+    }, []);
+
     const handleRequeryResult = useCallback(
-      async (options?: { suppressErrorDialog?: boolean }) => {
+      async (options?: {
+        suppressErrorDialog?: boolean;
+        scheduleNextPoll?: boolean;
+      }) => {
         const taskId = data.taskId?.trim() ?? "";
         if (!taskId) {
           const message = t("node.seedanceVideoResult.requeryUnavailable");
@@ -188,33 +239,54 @@ export const SeedanceVideoResultNode = memo(
           return;
         }
 
+        if (isPollingRef.current) {
+          return;
+        }
+
+        clearScheduledPoll();
         setStatusNotice(null);
+        isPollingRef.current = true;
         setIsRequerying(true);
         updateNodeData(id, {
           isGenerating: true,
           generationStartedAt: data.generationStartedAt ?? Date.now(),
+          taskStatus: data.taskStatus ?? null,
           lastError: null,
         });
-        await flushCurrentProjectToDiskSafely("starting Seedance video requery");
+        if (!options?.suppressErrorDialog) {
+          await flushCurrentProjectToDiskSafely("starting Seedance video requery");
+        }
 
         try {
           const response = await querySeedanceVideoResult({
             apiKey,
             taskId,
           });
+          const normalizedStatus = normalizeSeedanceTaskStatus(response.status);
+          const nextTaskUpdatedAt = response.updatedAt ?? Date.now();
 
           if (response.pending) {
-            const pendingMessage = t("node.seedanceVideoResult.requeryPending");
+            const pendingMessage =
+              normalizedStatus === "queued"
+                ? t("node.seedanceVideoResult.statusQueued")
+                : t("node.seedanceVideoResult.statusRunning");
             setStatusNotice(pendingMessage);
             updateNodeData(id, {
               taskId: response.taskId,
               isGenerating: true,
               generationStartedAt: data.generationStartedAt ?? Date.now(),
+              taskStatus: normalizedStatus,
+              taskUpdatedAt: nextTaskUpdatedAt,
               lastError: null,
             });
-            await flushCurrentProjectToDiskSafely(
-              "saving Seedance video pending requery result",
-            );
+            if (options?.scheduleNextPoll) {
+              pollTimerRef.current = window.setTimeout(() => {
+                void handleRequeryResult({
+                  suppressErrorDialog: true,
+                  scheduleNextPoll: true,
+                });
+              }, SEEDANCE_RESULT_POLL_INTERVAL_MS);
+            }
             return;
           }
 
@@ -227,6 +299,8 @@ export const SeedanceVideoResultNode = memo(
               taskId: response.taskId,
               isGenerating: false,
               generationStartedAt: null,
+              taskStatus: normalizedStatus,
+              taskUpdatedAt: nextTaskUpdatedAt,
               lastError: errorMessage,
             });
             await flushCurrentProjectToDiskSafely(
@@ -242,6 +316,8 @@ export const SeedanceVideoResultNode = memo(
           setStatusNotice(null);
           updateNodeData(id, {
             taskId: response.taskId,
+            taskStatus: normalizedStatus,
+            taskUpdatedAt: response.updatedAt ?? completedAt,
             modelId: response.video.modelId ?? data.modelId ?? null,
             videoUrl: response.video.videoUrl,
             previewImageUrl: response.video.previewImageUrl ?? null,
@@ -266,14 +342,30 @@ export const SeedanceVideoResultNode = memo(
           );
           setStatusNotice(content.message);
           updateNodeData(id, {
-            isGenerating: false,
-            generationStartedAt: null,
-            lastError: content.message,
+            ...(options?.scheduleNextPoll
+              ? {
+                  isGenerating: true,
+                  generationStartedAt: data.generationStartedAt ?? Date.now(),
+                }
+              : {
+                  isGenerating: false,
+                  generationStartedAt: null,
+                }),
+            lastError: options?.scheduleNextPoll ? null : content.message,
           });
-          await flushCurrentProjectToDiskSafely(
-            "saving Seedance video requery error",
-          );
-          if (!options?.suppressErrorDialog) {
+          if (options?.scheduleNextPoll) {
+            pollTimerRef.current = window.setTimeout(() => {
+              void handleRequeryResult({
+                suppressErrorDialog: true,
+                scheduleNextPoll: true,
+              });
+            }, SEEDANCE_RESULT_POLL_INTERVAL_MS * 2);
+          } else {
+            await flushCurrentProjectToDiskSafely(
+              "saving Seedance video requery error",
+            );
+          }
+          if (!options?.suppressErrorDialog && !options?.scheduleNextPoll) {
             await showErrorDialog(
               content.message,
               t("common.error"),
@@ -281,6 +373,7 @@ export const SeedanceVideoResultNode = memo(
             );
           }
         } finally {
+          isPollingRef.current = false;
           setIsRequerying(false);
         }
       },
@@ -292,7 +385,9 @@ export const SeedanceVideoResultNode = memo(
         data.generateAudio,
         data.modelId,
         data.resolution,
+        data.taskStatus,
         data.taskId,
+        clearScheduledPoll,
         id,
         t,
         updateNodeData,
@@ -302,16 +397,22 @@ export const SeedanceVideoResultNode = memo(
     useEffect(() => {
       const taskId = data.taskId?.trim() ?? "";
       if (!data.isGenerating || !taskId || !apiKey) {
+        clearScheduledPoll();
         return;
       }
 
-      if (lastAutoRequeryTaskIdRef.current === taskId) {
-        return;
-      }
+      void handleRequeryResult({
+        suppressErrorDialog: true,
+        scheduleNextPoll: true,
+      });
+      return () => {
+        clearScheduledPoll();
+      };
+    }, [apiKey, clearScheduledPoll, data.isGenerating, data.taskId, handleRequeryResult]);
 
-      lastAutoRequeryTaskIdRef.current = taskId;
-      void handleRequeryResult({ suppressErrorDialog: true });
-    }, [apiKey, data.isGenerating, data.taskId, handleRequeryResult]);
+    useEffect(() => () => {
+      clearScheduledPoll();
+    }, [clearScheduledPoll]);
 
     const combinedError = playbackError ?? data.lastError ?? null;
     const headerStatus = useMemo(() => {
@@ -319,7 +420,7 @@ export const SeedanceVideoResultNode = memo(
         return (
           <NodeStatusBadge
             icon={<Loader2 className="h-3 w-3" />}
-            label={t("node.seedanceVideoResult.generating")}
+            label={taskStatusLabel}
             tone="processing"
             animate
           />
@@ -348,18 +449,19 @@ export const SeedanceVideoResultNode = memo(
       }
 
       return null;
-    }, [combinedError, data.isGenerating, t, videoSource]);
+    }, [combinedError, data.isGenerating, t, taskStatusLabel, videoSource]);
 
     const statusInfoText =
       combinedError ??
-      (data.isGenerating
-        ? t("node.seedanceVideoResult.statusGenerating")
-        : (statusNotice ??
+      (statusNotice ??
+        (data.isGenerating
+          ? taskStatusNotice ?? t("node.seedanceVideoResult.statusGenerating")
+          : (
           (lastGeneratedTime
             ? t("node.seedanceVideoResult.generatedAt", {
                 time: lastGeneratedTime,
               })
-            : t("node.seedanceVideoResult.empty"))));
+            : t("node.seedanceVideoResult.empty")))));
 
     return (
       <div
@@ -412,7 +514,7 @@ export const SeedanceVideoResultNode = memo(
               ) : (
                 <div className="flex h-full w-full items-center justify-center bg-[radial-gradient(circle_at_top,#1f2937_0%,#0f172a_72%)] text-sm text-text-muted">
                   {data.isGenerating
-                    ? t("node.seedanceVideoResult.pending")
+                    ? taskStatusLabel
                     : t("node.seedanceVideoResult.empty")}
                 </div>
               )}

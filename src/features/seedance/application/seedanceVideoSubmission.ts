@@ -31,9 +31,13 @@ import {
   normalizeSeedanceResolution,
 } from '@/features/seedance/domain/seedanceOptions';
 
-const SEEDANCE_RESULT_POLL_INTERVAL_MS = 2_500;
-const SEEDANCE_RESULT_TIMEOUT_MS = 15 * 60 * 1000;
+export const SEEDANCE_RESULT_POLL_INTERVAL_MS = 2_500;
 const SEEDANCE_REFERENCE_IMAGE_MAX_DIMENSION = 1600;
+
+export interface SeedanceReferenceAudioSource {
+  source: string;
+  mimeType?: string | null;
+}
 
 export interface GenerateSeedanceVideoPayload {
   apiKey: string;
@@ -47,7 +51,7 @@ export interface GenerateSeedanceVideoPayload {
   returnLastFrame?: boolean;
   referenceImageSources?: string[];
   referenceVideoSources?: string[];
-  referenceAudioSources?: string[];
+  referenceAudioSources?: SeedanceReferenceAudioSource[];
   onSubmitted?: (payload: { taskId: string }) => void | Promise<void>;
 }
 
@@ -63,9 +67,9 @@ export interface SeedanceGeneratedVideoItem {
   fileName?: string | null;
 }
 
-export interface GeneratedSeedanceVideoResponse {
+export interface SubmittedSeedanceVideoTaskResponse {
   taskId: string;
-  video: SeedanceGeneratedVideoItem;
+  status: 'queued';
 }
 
 export interface QuerySeedanceVideoResultPayload {
@@ -77,14 +81,10 @@ export interface QuerySeedanceVideoResultResponse {
   taskId: string;
   pending: boolean;
   status: string;
+  createdAt?: number | null;
+  updatedAt?: number | null;
   video?: SeedanceGeneratedVideoItem;
   errorMessage?: string | null;
-}
-
-function sleep(delayMs: number): Promise<void> {
-  return new Promise((resolve) => {
-    window.setTimeout(resolve, delayMs);
-  });
 }
 
 function normalizeWhitespace(value: string): string {
@@ -98,6 +98,26 @@ function normalizeWhitespace(value: string): string {
 
 function normalizeUniqueSources(sources: string[] | undefined): string[] {
   return [...new Set((sources ?? []).map((source) => source.trim()).filter(Boolean))];
+}
+
+function normalizeUniqueAudioSources(
+  sources: SeedanceReferenceAudioSource[] | undefined
+): SeedanceReferenceAudioSource[] {
+  const normalizedBySource = new Map<string, SeedanceReferenceAudioSource>();
+
+  for (const item of sources ?? []) {
+    const source = item.source.trim();
+    if (!source || normalizedBySource.has(source)) {
+      continue;
+    }
+
+    normalizedBySource.set(source, {
+      source,
+      mimeType: item.mimeType?.trim() || null,
+    });
+  }
+
+  return [...normalizedBySource.values()];
 }
 
 async function prepareReferenceImages(sources: string[] | undefined): Promise<string[]> {
@@ -122,13 +142,21 @@ async function prepareReferenceVideos(sources: string[] | undefined): Promise<st
   return await Promise.all(uniqueSources.map((source) => videoUrlToDataUrl(source)));
 }
 
-async function prepareReferenceAudios(sources: string[] | undefined): Promise<string[]> {
-  const uniqueSources = normalizeUniqueSources(sources);
+async function prepareReferenceAudios(
+  sources: SeedanceReferenceAudioSource[] | undefined
+): Promise<string[]> {
+  const uniqueSources = normalizeUniqueAudioSources(sources);
   if (uniqueSources.length === 0) {
     return [];
   }
 
-  return await Promise.all(uniqueSources.map((source) => audioUrlToDataUrl(source)));
+  return await Promise.all(
+    uniqueSources.map((item) =>
+      audioUrlToDataUrl(item.source, {
+        mimeType: item.mimeType,
+      })
+    )
+  );
 }
 
 function buildSeedanceContentPayload(input: {
@@ -298,6 +326,8 @@ export async function querySeedanceVideoResult(
       taskId: task.task_id,
       pending: true,
       status: normalizedStatus,
+      createdAt: task.created_at ?? null,
+      updatedAt: task.updated_at ?? null,
       errorMessage: null,
     };
   }
@@ -307,6 +337,8 @@ export async function querySeedanceVideoResult(
       taskId: task.task_id,
       pending: false,
       status: normalizedStatus || 'unknown',
+      createdAt: task.created_at ?? null,
+      updatedAt: task.updated_at ?? null,
       errorMessage: task.error_message ?? 'Seedance task did not complete successfully',
     };
   }
@@ -315,14 +347,16 @@ export async function querySeedanceVideoResult(
     taskId: task.task_id,
     pending: false,
     status: normalizedStatus,
+    createdAt: task.created_at ?? null,
+    updatedAt: task.updated_at ?? null,
     video: await buildGeneratedVideoItem(task),
     errorMessage: null,
   };
 }
 
-export async function generateSeedanceVideo(
+export async function submitSeedanceVideoTask(
   payload: GenerateSeedanceVideoPayload
-): Promise<GeneratedSeedanceVideoResponse> {
+): Promise<SubmittedSeedanceVideoTaskResponse> {
   const normalizedApiKey = payload.apiKey.trim();
   if (!normalizedApiKey) {
     throw new Error('Volcengine API key is required for Seedance');
@@ -361,36 +395,8 @@ export async function generateSeedanceVideo(
   const submitResponse = await createSeedanceVideoTask(createPayload);
   await payload.onSubmitted?.({ taskId: submitResponse.task_id });
 
-  const deadlineAt = Date.now() + SEEDANCE_RESULT_TIMEOUT_MS;
-  let lastResponse: QuerySeedanceVideoResultResponse | null = null;
-
-  while (Date.now() < deadlineAt) {
-    lastResponse = await querySeedanceVideoResult({
-      apiKey: normalizedApiKey,
-      taskId: submitResponse.task_id,
-    });
-
-    if (!lastResponse.pending) {
-      break;
-    }
-
-    await sleep(SEEDANCE_RESULT_POLL_INTERVAL_MS);
-  }
-
-  if (!lastResponse) {
-    throw new Error('Seedance task polling returned no response');
-  }
-
-  if (lastResponse.pending) {
-    throw new Error('Timed out while waiting for Seedance video generation');
-  }
-
-  if (!lastResponse.video) {
-    throw new Error(lastResponse.errorMessage ?? 'Seedance did not return a usable video result');
-  }
-
   return {
-    taskId: lastResponse.taskId,
-    video: lastResponse.video,
+    taskId: submitResponse.task_id,
+    status: 'queued',
   };
 }

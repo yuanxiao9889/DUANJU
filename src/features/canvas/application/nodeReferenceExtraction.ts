@@ -23,6 +23,7 @@ export interface ExtractedAudioReference {
   audioUrl: string;
   displayName: string | null;
   audioFileName: string | null;
+  mimeType: string | null;
   durationSeconds?: number | null;
 }
 
@@ -134,11 +135,13 @@ export function extractAudioReference(node: CanvasNode): ExtractedAudioReference
 
   const displayName = node.data.displayName?.trim() || null;
   const audioFileName = node.data.audioFileName?.trim() || null;
+  const mimeType = node.data.mimeType?.trim() || null;
 
   return {
     audioUrl,
     displayName,
     audioFileName,
+    mimeType,
     durationSeconds: typeof node.data.duration === 'number' ? node.data.duration : null,
   };
 }

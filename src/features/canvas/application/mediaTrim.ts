@@ -55,6 +55,49 @@ function resolveMediaDisplayUrl(source: string, mediaType: TrimmableMediaType): 
     : resolveAudioDisplayUrl(source);
 }
 
+async function createTrimMediaSource(
+  source: string,
+  mediaType: TrimmableMediaType
+): Promise<{
+  mediaSource: string;
+  revoke?: () => void;
+}> {
+  const displaySource = resolveMediaDisplayUrl(source, mediaType).trim();
+  if (!displaySource) {
+    throw new Error('Media source is empty');
+  }
+
+  const normalizedSource = displaySource.toLowerCase();
+  if (normalizedSource.startsWith('blob:') || normalizedSource.startsWith('data:')) {
+    return {
+      mediaSource: displaySource,
+    };
+  }
+
+  if (
+    normalizedSource.startsWith('http://')
+    || normalizedSource.startsWith('https://')
+    || normalizedSource.startsWith('asset:')
+    || normalizedSource.startsWith('tauri:')
+  ) {
+    const response = await fetch(displaySource);
+    if (!response.ok) {
+      throw new Error(`Failed to fetch media source (${response.status})`);
+    }
+
+    const mediaBlob = await response.blob();
+    const objectUrl = URL.createObjectURL(mediaBlob);
+    return {
+      mediaSource: objectUrl,
+      revoke: () => URL.revokeObjectURL(objectUrl),
+    };
+  }
+
+  return {
+    mediaSource: displaySource,
+  };
+}
+
 function normalizeTrimRange(
   startTime: number,
   endTime: number,
@@ -211,14 +254,19 @@ export async function trimMediaSource(
   ];
 
   try {
+    const { mediaSource, revoke } = await createTrimMediaSource(trimmedSource, mediaType);
+    if (revoke) {
+      cleanupTasks.push(revoke);
+    }
+
     mediaElement.preload = 'auto';
-    mediaElement.muted = true;
-    mediaElement.volume = 0;
+    mediaElement.muted = false;
+    mediaElement.volume = 1;
     if (mediaElement instanceof HTMLVideoElement) {
       mediaElement.playsInline = true;
     }
 
-    mediaElement.src = resolveMediaDisplayUrl(trimmedSource, mediaType);
+    mediaElement.src = mediaSource;
     await waitForMediaMetadata(mediaElement);
 
     const resolvedRange = normalizeTrimRange(startTime, endTime, mediaElement.duration);
@@ -227,13 +275,34 @@ export async function trimMediaSource(
 
     const sourceNode = audioContext.createMediaElementSource(mediaElement);
     const destination = audioContext.createMediaStreamDestination();
-    sourceNode.connect(destination);
+    const gainNode = audioContext.createGain();
+    gainNode.gain.value = 1;
+    sourceNode.connect(gainNode);
+    gainNode.connect(destination);
+    cleanupTasks.push(() => {
+      try {
+        sourceNode.disconnect();
+      } catch {
+        // ignore disconnect cleanup error
+      }
+      try {
+        gainNode.disconnect();
+      } catch {
+        // ignore disconnect cleanup error
+      }
+    });
 
     const streamTracks = mediaType === 'video'
-      ? [
-          ...getVideoCaptureStream(mediaElement).getVideoTracks(),
-          ...destination.stream.getAudioTracks(),
-        ]
+      ? (() => {
+          const captureStream = getVideoCaptureStream(mediaElement);
+          const captureAudioTracks = captureStream.getAudioTracks();
+          return [
+            ...captureStream.getVideoTracks(),
+            ...(captureAudioTracks.length > 0
+              ? captureAudioTracks
+              : destination.stream.getAudioTracks()),
+          ];
+        })()
       : destination.stream.getAudioTracks();
     const recordingStream = new MediaStream(streamTracks);
     cleanupTasks.push(() => {
