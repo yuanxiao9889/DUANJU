@@ -32,6 +32,11 @@ import {
 import { NodeResizeHandle } from "@/features/canvas/ui/NodeResizeHandle";
 import { NodeStatusBadge } from "@/features/canvas/ui/NodeStatusBadge";
 import { NODE_CONTROL_ACTION_BUTTON_CLASS } from "@/features/canvas/ui/nodeControlStyles";
+import {
+  NodeDescriptionPanel,
+  NODE_DESCRIPTION_PANEL_EXPANDED_TOTAL_HEIGHT,
+} from "@/features/canvas/ui/NodeDescriptionPanel";
+import { resolveNodeStyleDimension } from "@/features/canvas/ui/nodeDimensionUtils";
 import { queryJimengVideoResult } from "@/features/jimeng/application/jimengVideoSubmission";
 import {
   type JimengVideoQueueJobStatus,
@@ -117,6 +122,12 @@ export const JimengVideoResultNode = memo(
     const currentNode = useCanvasNodeById(id);
     const setSelectedNode = useCanvasStore((state) => state.setSelectedNode);
     const updateNodeData = useCanvasStore((state) => state.updateNodeData);
+    const isDescriptionPanelOpen = useCanvasStore(
+      (state) => Boolean(state.nodeDescriptionPanelOpenById[id]),
+    );
+    const isReferenceSourceHighlighted = useCanvasStore(
+      (state) => state.highlightedReferenceSourceNodeId === id,
+    );
     const [playbackError, setPlaybackError] = useState<string | null>(null);
     const [isRequerying, setIsRequerying] = useState(false);
     const [statusNotice, setStatusNotice] = useState<string | null>(null);
@@ -138,20 +149,18 @@ export const JimengVideoResultNode = memo(
       JIMENG_VIDEO_RESULT_NODE_MIN_WIDTH,
       Math.round(width ?? JIMENG_VIDEO_RESULT_NODE_DEFAULT_WIDTH),
     );
-    const explicitHeight =
-      typeof currentNode?.height === "number" &&
-      Number.isFinite(currentNode.height)
-        ? currentNode.height
-        : typeof currentNode?.style?.height === "number" &&
-            Number.isFinite(currentNode.style.height)
-          ? currentNode.style.height
-          : null;
+    const explicitHeight = resolveNodeStyleDimension(currentNode?.style?.height);
     const hasExplicitHeight = typeof explicitHeight === "number";
+    const descriptionPanelHeight = isDescriptionPanelOpen
+      ? NODE_DESCRIPTION_PANEL_EXPANDED_TOTAL_HEIGHT
+      : 0;
+    const collapsedHeight = Math.max(
+      explicitHeight ?? JIMENG_VIDEO_RESULT_NODE_MIN_HEIGHT,
+      JIMENG_VIDEO_RESULT_NODE_MIN_HEIGHT,
+    );
+    const resolvedMinHeight = JIMENG_VIDEO_RESULT_NODE_MIN_HEIGHT + descriptionPanelHeight;
     const resolvedHeight = hasExplicitHeight
-      ? Math.max(
-          JIMENG_VIDEO_RESULT_NODE_MIN_HEIGHT,
-          Math.round(explicitHeight),
-        )
+      ? collapsedHeight + descriptionPanelHeight
       : null;
     const resolvedAspectRatio = useMemo(
       () => toCssAspectRatio(data.aspectRatio ?? "16:9"),
@@ -233,6 +242,7 @@ export const JimengVideoResultNode = memo(
     }, [
       hasExplicitHeight,
       id,
+      isDescriptionPanelOpen,
       resolvedHeight,
       resolvedWidth,
       updateNodeInternals,
@@ -617,6 +627,8 @@ export const JimengVideoResultNode = memo(
         ? t("node.jimengVideoResult.pending")
         : t("node.jimengVideoResult.empty");
     }, [data.isGenerating, queueStatus, t]);
+    const nodeDescription =
+      typeof data.nodeDescription === "string" ? data.nodeDescription : "";
 
     return (
       <div
@@ -626,6 +638,8 @@ export const JimengVideoResultNode = memo(
         ${
           selected
             ? "border-accent shadow-[0_0_0_1px_rgba(59,130,246,0.32)]"
+            : isReferenceSourceHighlighted
+              ? "border-accent/80 shadow-[0_0_0_2px_rgba(59,130,246,0.24),0_4px_18px_rgba(59,130,246,0.1)]"
             : "border-[rgba(15,23,42,0.22)] hover:border-[rgba(15,23,42,0.34)] dark:border-[rgba(255,255,255,0.22)] dark:hover:border-[rgba(255,255,255,0.34)]"
         }
       `}
@@ -789,6 +803,13 @@ export const JimengVideoResultNode = memo(
           </div>
         </div>
 
+        <NodeDescriptionPanel
+          isOpen={isDescriptionPanelOpen}
+          value={nodeDescription}
+          placeholder={t("nodeToolbar.descriptionPlaceholder")}
+          onChange={(value) => updateNodeData(id, { nodeDescription: value })}
+        />
+
         <Handle
           type="target"
           id="target"
@@ -803,7 +824,7 @@ export const JimengVideoResultNode = memo(
         />
         <NodeResizeHandle
           minWidth={JIMENG_VIDEO_RESULT_NODE_MIN_WIDTH}
-          minHeight={JIMENG_VIDEO_RESULT_NODE_MIN_HEIGHT}
+          minHeight={resolvedMinHeight}
         />
       </div>
     );

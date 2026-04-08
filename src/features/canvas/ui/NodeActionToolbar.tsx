@@ -1,6 +1,6 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { NodeToolbar as ReactFlowNodeToolbar } from '@xyflow/react';
-import { Copy, Crop, Download, FolderOpen, PenLine, RefreshCw, Save, Scissors, Trash2, Unlink2, Table, Upload, Sparkles, Send, Check, LayoutTemplate } from 'lucide-react';
+import { Copy, Crop, Download, FileText, FolderOpen, PenLine, RefreshCw, Save, Scissors, Trash2, Unlink2, Table, Upload, Sparkles, Send, Check, LayoutTemplate } from 'lucide-react';
 import { save } from '@tauri-apps/plugin-dialog';
 import { useTranslation } from 'react-i18next';
 
@@ -14,6 +14,7 @@ import {
   isStoryboardSplitNode,
   isStoryboardSplitResultNode,
   isUploadNode,
+  nodeSupportsDescriptionPanel,
   type CanvasNode,
   type NodeToolType,
 } from '@/features/canvas/domain/canvasNodes';
@@ -84,6 +85,12 @@ export const NodeActionToolbar = memo(({ node }: NodeActionToolbarProps) => {
   const layoutGroupNode = useCanvasStore((state) => state.layoutGroupNode);
   const ungroupNode = useCanvasStore((state) => state.ungroupNode);
   const updateNodeData = useCanvasStore((state) => state.updateNodeData);
+  const isDescriptionPanelOpen = useCanvasStore(
+    (state) => Boolean(state.nodeDescriptionPanelOpenById[node.id])
+  );
+  const toggleNodeDescriptionPanel = useCanvasStore(
+    (state) => state.toggleNodeDescriptionPanel
+  );
   const nodes = useCanvasStore((state) => state.nodes);
   const edges = useCanvasStore((state) => state.edges);
   const downloadPresetPaths = useSettingsStore((state) => state.downloadPresetPaths);
@@ -134,6 +141,10 @@ export const NodeActionToolbar = memo(({ node }: NodeActionToolbarProps) => {
     const sourceNodeId = typeof node.data.sourceNodeId === 'string' ? node.data.sourceNodeId.trim() : '';
     return sourceNodeId.length > 0 && resolveConnectedTtsText(sourceNodeId, nodes, edges).trim().length > 0;
   }, [edges, node, nodes]);
+  const supportsDescriptionPanel = nodeSupportsDescriptionPanel(node);
+  const hasNodeDescription =
+    typeof node.data.nodeDescription === 'string'
+    && node.data.nodeDescription.trim().length > 0;
   const canHandleImage = Boolean(imageSource);
   const canAddToAssets = Boolean(imageSource || audioSource);
   const generationError =
@@ -431,6 +442,29 @@ export const NodeActionToolbar = memo(({ node }: NodeActionToolbarProps) => {
             </UiChipButton>
           );
         })}
+        {!isImageEdit && supportsDescriptionPanel && (
+          <UiChipButton
+            key="node-description-toggle"
+            className={`h-8 ${TOOLBAR_BUTTON_RADIUS_CLASS} px-2.5 text-xs ${
+              isDescriptionPanelOpen || hasNodeDescription
+                ? '!border-accent/45 !bg-accent/15 !text-text-dark hover:!bg-accent/20'
+                : TOOLBAR_NEUTRAL_BUTTON_CLASS
+            }`}
+            title={
+              isDescriptionPanelOpen
+                ? t('nodeToolbar.collapseDescription')
+                : t('nodeToolbar.expandDescription')
+            }
+            onClick={(event) => {
+              event.stopPropagation();
+              closeDownloadMenu();
+              toggleNodeDescriptionPanel(node.id);
+            }}
+          >
+            <FileText className="h-3.5 w-3.5" />
+            {t('nodeToolbar.description')}
+          </UiChipButton>
+        )}
         {!isImageEdit && canSaveVoicePreset && (
           <UiChipButton
             key="audio-save-preset"

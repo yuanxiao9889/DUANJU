@@ -44,6 +44,12 @@ import {
 } from '@/features/canvas/application/imageData';
 import { CanvasNodeImage } from '@/features/canvas/ui/CanvasNodeImage';
 import { ImageResolutionBadge } from '@/features/canvas/ui/ImageResolutionBadge';
+import {
+  NodeDescriptionPanel,
+  NODE_DESCRIPTION_PANEL_EXPANDED_TOTAL_HEIGHT,
+} from '@/features/canvas/ui/NodeDescriptionPanel';
+import { resolveNodeStyleDimension } from '@/features/canvas/ui/nodeDimensionUtils';
+import { useCanvasNodeById } from '@/features/canvas/hooks/useCanvasNodeGraph';
 import { useCanvasStore } from '@/stores/canvasStore';
 import { useSettingsStore } from '@/stores/settingsStore';
 
@@ -72,11 +78,18 @@ function resolveDroppedImageFile(event: DragEvent<HTMLElement>): File | null {
   return item?.getAsFile() ?? null;
 }
 
-export const UploadNode = memo(({ id, data, selected, width, height }: UploadNodeProps) => {
+export const UploadNode = memo(({ id, data, selected, width }: UploadNodeProps) => {
   const { t } = useTranslation();
   const updateNodeInternals = useUpdateNodeInternals();
+  const currentNode = useCanvasNodeById(id);
   const setSelectedNode = useCanvasStore((state) => state.setSelectedNode);
   const updateNodeData = useCanvasStore((state) => state.updateNodeData);
+  const isDescriptionPanelOpen = useCanvasStore(
+    (state) => Boolean(state.nodeDescriptionPanelOpenById[id])
+  );
+  const isReferenceSourceHighlighted = useCanvasStore(
+    (state) => state.highlightedReferenceSourceNodeId === id
+  );
   const useUploadFilenameAsNodeTitle = useSettingsStore((state) => state.useUploadFilenameAsNodeTitle);
   const { zoom } = useViewport();
   const inputRef = useRef<HTMLInputElement>(null);
@@ -96,13 +109,17 @@ export const UploadNode = memo(({ id, data, selected, width, height }: UploadNod
     minHeight: EXPORT_RESULT_NODE_MIN_HEIGHT,
   });
   const resolvedWidth = resolveNodeDimension(width, compactSize.width);
-  const resolvedHeight = resolveNodeDimension(height, compactSize.height);
   const resizeConstraints = resolveResizeMinConstraintsByAspect(resolvedAspectRatio, {
     minWidth: EXPORT_RESULT_NODE_MIN_WIDTH,
     minHeight: EXPORT_RESULT_NODE_MIN_HEIGHT,
   });
   const resizeMinWidth = resizeConstraints.minWidth;
-  const resizeMinHeight = resizeConstraints.minHeight;
+  const explicitHeight = resolveNodeStyleDimension(currentNode?.style?.height);
+  const collapsedHeight = Math.max(explicitHeight ?? compactSize.height, resizeConstraints.minHeight);
+  const resizeMinHeight = resizeConstraints.minHeight
+    + (isDescriptionPanelOpen ? NODE_DESCRIPTION_PANEL_EXPANDED_TOTAL_HEIGHT : 0);
+  const resolvedHeight = collapsedHeight
+    + (isDescriptionPanelOpen ? NODE_DESCRIPTION_PANEL_EXPANDED_TOTAL_HEIGHT : 0);
   const imageWidth =
     typeof data.imageWidth === 'number' && Number.isFinite(data.imageWidth) && data.imageWidth > 0
       ? Math.round(data.imageWidth)
@@ -349,6 +366,8 @@ export const UploadNode = memo(({ id, data, selected, width, height }: UploadNod
     previewImageUrl,
     transientPreviewUrl,
   ]);
+  const nodeDescription =
+    typeof data.nodeDescription === 'string' ? data.nodeDescription : '';
 
   const dimensionSource = data.imageUrl ?? data.previewImageUrl ?? null;
 
@@ -382,11 +401,13 @@ export const UploadNode = memo(({ id, data, selected, width, height }: UploadNod
   }, [dimensionSource, id, imageHeight, imageWidth, updateNodeData]);
 
   return (
-    <div
-      className={`
-        group relative overflow-visible rounded-[var(--node-radius)] border bg-surface-dark/85 p-0 transition-all duration-150
+      <div
+        className={`
+        group relative flex flex-col overflow-visible rounded-[var(--node-radius)] border bg-surface-dark/85 p-0 transition-all duration-150
         ${selected
           ? 'border-accent shadow-[0_0_0_2px_rgba(59,130,246,0.5),0_4px_20px_rgba(59,130,246,0.2)]'
+          : isReferenceSourceHighlighted
+            ? 'border-accent/80 shadow-[0_0_0_2px_rgba(59,130,246,0.28),0_4px_18px_rgba(59,130,246,0.12)]'
           : 'border-[rgba(15,23,42,0.22)] hover:border-[rgba(15,23,42,0.34)] hover:shadow-[0_4px_16px_rgba(0,0,0,0.12)] dark:border-[rgba(255,255,255,0.22)] dark:hover:border-[rgba(255,255,255,0.34)] dark:hover:shadow-[0_4px_16px_rgba(0,0,0,0.25)]'}
       `}
       style={{ width: resolvedWidth, height: resolvedHeight }}
@@ -404,7 +425,7 @@ export const UploadNode = memo(({ id, data, selected, width, height }: UploadNod
 
       {data.imageUrl || data.previewImageUrl || transientPreviewUrl ? (
         <div
-          className="relative block h-full w-full overflow-hidden rounded-[var(--node-radius)] bg-bg-dark"
+          className="relative block min-h-0 flex-1 overflow-hidden rounded-[var(--node-radius)] bg-bg-dark"
         >
           <CanvasNodeImage
             src={imageSource ?? ''}
@@ -418,7 +439,7 @@ export const UploadNode = memo(({ id, data, selected, width, height }: UploadNod
         </div>
       ) : (
         <label
-          className="block h-full w-full overflow-hidden rounded-[var(--node-radius)] bg-bg-dark"
+          className="block min-h-0 flex-1 overflow-hidden rounded-[var(--node-radius)] bg-bg-dark"
         >
           <div className="flex h-full w-full cursor-pointer flex-col items-center justify-center gap-2 text-text-muted/85">
             <Upload className="h-7 w-7 opacity-60" />
@@ -426,6 +447,12 @@ export const UploadNode = memo(({ id, data, selected, width, height }: UploadNod
           </div>
         </label>
       )}
+      <NodeDescriptionPanel
+        isOpen={isDescriptionPanelOpen}
+        value={nodeDescription}
+        placeholder={t('nodeToolbar.descriptionPlaceholder')}
+        onChange={(value) => updateNodeData(id, { nodeDescription: value })}
+      />
       <input
         ref={inputRef}
         type="file"

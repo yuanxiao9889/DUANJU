@@ -402,7 +402,9 @@ interface CanvasState {
   nodes: CanvasNode[];
   edges: CanvasEdge[];
   selectedNodeId: string | null;
+  highlightedReferenceSourceNodeId: string | null;
   activeToolDialog: ActiveToolDialog | null;
+  nodeDescriptionPanelOpenById: Record<string, boolean>;
   history: CanvasHistoryState;
   dragHistorySnapshot: CanvasHistorySnapshot | null;
   currentViewport: Viewport;
@@ -515,6 +517,9 @@ interface CanvasState {
   ungroupNode: (groupNodeId: string) => boolean;
   deleteEdge: (edgeId: string) => void;
   setSelectedNode: (nodeId: string | null) => void;
+  setHighlightedReferenceSourceNode: (nodeId: string | null) => void;
+  toggleNodeDescriptionPanel: (nodeId: string) => void;
+  setNodeDescriptionPanelOpen: (nodeId: string, isOpen: boolean) => void;
 
   openToolDialog: (dialog: ActiveToolDialog) => void;
   closeToolDialog: () => void;
@@ -1945,7 +1950,9 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
   nodes: [],
   edges: [],
   selectedNodeId: null,
+  highlightedReferenceSourceNodeId: null,
   activeToolDialog: null,
+  nodeDescriptionPanelOpenById: {},
   history: { past: [], future: [] },
   dragHistorySnapshot: null,
   currentViewport: { x: 0, y: 0, zoom: 1 },
@@ -2113,7 +2120,9 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
       nodes: normalizedNodes,
       edges: normalizedEdges,
       selectedNodeId: null,
+      highlightedReferenceSourceNodeId: null,
       activeToolDialog: null,
+      nodeDescriptionPanelOpenById: {},
       history: normalizeHistory(history),
       dragHistorySnapshot: null,
     });
@@ -3809,6 +3818,28 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
     set({ selectedNodeId: nodeId });
   },
 
+  setHighlightedReferenceSourceNode: (nodeId) => {
+    set({ highlightedReferenceSourceNodeId: nodeId });
+  },
+
+  toggleNodeDescriptionPanel: (nodeId) => {
+    set((state) => ({
+      nodeDescriptionPanelOpenById: {
+        ...state.nodeDescriptionPanelOpenById,
+        [nodeId]: !state.nodeDescriptionPanelOpenById[nodeId],
+      },
+    }));
+  },
+
+  setNodeDescriptionPanelOpen: (nodeId, isOpen) => {
+    set((state) => ({
+      nodeDescriptionPanelOpenById: {
+        ...state.nodeDescriptionPanelOpenById,
+        [nodeId]: isOpen,
+      },
+    }));
+  },
+
   openToolDialog: (dialog) => {
     set({ activeToolDialog: dialog });
   },
@@ -3881,7 +3912,9 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
         nodes: [],
         edges: [],
         selectedNodeId: null,
+        highlightedReferenceSourceNodeId: null,
         activeToolDialog: null,
+        nodeDescriptionPanelOpenById: {},
         history: {
           past: pushSnapshot(state.history.past, createSnapshot(state.nodes, state.edges)),
           future: [],

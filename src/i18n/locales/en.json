@@ -167,6 +167,10 @@
   },
   "nodeToolbar": {
     "reupload": "Reupload",
+    "description": "Description",
+    "expandDescription": "Expand description panel",
+    "collapseDescription": "Collapse description panel",
+    "descriptionPlaceholder": "Enter a node description...",
     "copy": "Copy",
     "addToAssets": "Add to Assets",
     "addingToAssets": "Adding...",

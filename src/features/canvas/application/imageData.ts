@@ -40,6 +40,7 @@ function greatestCommonDivisor(a: number, b: number): number {
 
 const DEFAULT_PREVIEW_MAX_DIMENSION = 512;
 const LOCAL_PATH_PREFIX_PATTERN = /^(?:[A-Za-z]:[\\/]|\\\\|\/)/;
+const URL_SCHEME_PREFIX_PATTERN = /^[a-z][a-z0-9+\-.]*:\/\//i;
 
 export interface PreparedNodeImage {
   imageUrl: string;
@@ -126,26 +127,66 @@ function normalizeLocalFilePath(localPath: string): string {
   return slashNormalizedPath;
 }
 
-function resolveLocalPathFromUrl(source: string): string | null {
+function parseKnownLocalPathUrl(source: string): URL | null {
   try {
-    const parsed = new URL(source);
-    const isFileProtocol = parsed.protocol === 'file:';
-    const isAssetProtocol = parsed.protocol === 'asset:' && parsed.hostname === 'localhost';
-    const isAssetHostProtocol =
-      (parsed.protocol === 'http:' || parsed.protocol === 'https:')
-      && parsed.hostname === 'asset.localhost';
-
-    if (!isFileProtocol && !isAssetProtocol && !isAssetHostProtocol) {
-      return null;
+    return new URL(source);
+  } catch {
+    if (source.startsWith('//asset.localhost/')) {
+      try {
+        return new URL(`https:${source}`);
+      } catch {
+        return null;
+      }
     }
 
-    const decodedPathname = decodeURIComponent(parsed.pathname);
-    const candidatePath =
-      isFileProtocol && parsed.host && !/^[A-Za-z]:/.test(decodedPathname)
-        ? `//${parsed.host}${decodedPathname}`
-        : decodedPathname;
-    const normalizedPath = normalizeLocalFilePath(candidatePath);
-    return isLikelyLocalImagePath(normalizedPath) ? normalizedPath : null;
+    if (source.startsWith('asset.localhost/')) {
+      try {
+        return new URL(`https://${source}`);
+      } catch {
+        return null;
+      }
+    }
+
+    return null;
+  }
+}
+
+function resolveLocalPathFromUrl(source: string): string | null {
+  const parsed = parseKnownLocalPathUrl(source);
+  if (!parsed) {
+    return null;
+  }
+
+  const isFileProtocol = parsed.protocol === 'file:';
+  const isAssetProtocol = parsed.protocol === 'asset:' && parsed.hostname === 'localhost';
+  const isAssetHostProtocol =
+    (parsed.protocol === 'http:' || parsed.protocol === 'https:')
+    && parsed.hostname === 'asset.localhost';
+
+  if (!isFileProtocol && !isAssetProtocol && !isAssetHostProtocol) {
+    return null;
+  }
+
+  const decodedPathname = decodeURIComponent(parsed.pathname);
+  const candidatePath =
+    isFileProtocol && parsed.host && !/^[A-Za-z]:/.test(decodedPathname)
+      ? `//${parsed.host}${decodedPathname}`
+      : decodedPathname;
+  const normalizedPath = normalizeLocalFilePath(candidatePath);
+  return isLikelyLocalImagePath(normalizedPath) ? normalizedPath : null;
+}
+
+function decodePercentEncodedPathLike(source: string): string | null {
+  if (!source.includes('%') || URL_SCHEME_PREFIX_PATTERN.test(source)) {
+    return null;
+  }
+
+  try {
+    const decoded = decodeURIComponent(source);
+    if (!decoded || decoded === source) {
+      return null;
+    }
+    return decoded;
   } catch {
     return null;
   }
@@ -161,7 +202,48 @@ export function resolveLocalFileSourcePath(source: string): string | null {
     return normalizeLocalFilePath(trimmedSource);
   }
 
-  return resolveLocalPathFromUrl(trimmedSource);
+  const encodedPathCandidate = decodePercentEncodedPathLike(trimmedSource);
+  if (encodedPathCandidate && isLikelyLocalImagePath(encodedPathCandidate)) {
+    return normalizeLocalFilePath(encodedPathCandidate);
+  }
+
+  const resolvedFromUrl = resolveLocalPathFromUrl(trimmedSource);
+  if (resolvedFromUrl) {
+    return resolvedFromUrl;
+  }
+
+  if (encodedPathCandidate) {
+    return resolveLocalPathFromUrl(encodedPathCandidate);
+  }
+
+  return null;
+}
+
+function hasTauriInternalsBridge(): boolean {
+  const maybeGlobal = globalThis as typeof globalThis & {
+    __TAURI_INTERNALS__?: unknown;
+  };
+  return typeof maybeGlobal.__TAURI_INTERNALS__ === 'object' && maybeGlobal.__TAURI_INTERNALS__ !== null;
+}
+
+function isLikelyTauriRuntime(): boolean {
+  if (isTauri() || hasTauriInternalsBridge()) {
+    return true;
+  }
+
+  if (typeof window === 'undefined') {
+    return false;
+  }
+
+  const host = window.location.hostname.toLowerCase();
+  return host === 'tauri.localhost' || host === 'asset.localhost';
+}
+
+function encodeLocalPathForAssetHost(localFilePath: string): string {
+  return localFilePath
+    .split('/')
+    .map((segment) => encodeURIComponent(segment))
+    .join('/');
 }
 
 export function resolveImageDisplayUrl(imageUrl: string): string {
@@ -170,11 +252,15 @@ export function resolveImageDisplayUrl(imageUrl: string): string {
     return imageUrl;
   }
 
-  if (!isTauri()) {
+  try {
+    return convertFileSrc(localFilePath);
+  } catch {
+    if (isLikelyTauriRuntime()) {
+      return `https://asset.localhost/${encodeLocalPathForAssetHost(localFilePath)}`;
+    }
+
     return imageUrl.toLowerCase().startsWith('file://') ? imageUrl : localFilePath;
   }
-
-  return convertFileSrc(localFilePath);
 }
 
 export async function persistImageLocally(source: string): Promise<string> {

@@ -49,9 +49,9 @@ export const JIMENG_VIDEO_RESULT_NODE_DEFAULT_WIDTH = 520;
 export const JIMENG_VIDEO_RESULT_NODE_DEFAULT_HEIGHT = 388;
 export const JIMENG_VIDEO_RESULT_NODE_MIN_WIDTH = 360;
 export const JIMENG_VIDEO_RESULT_NODE_MIN_HEIGHT = 280;
-export const SEEDANCE_NODE_DEFAULT_WIDTH = 780;
+export const SEEDANCE_NODE_DEFAULT_WIDTH = 920;
 export const SEEDANCE_NODE_DEFAULT_HEIGHT = 560;
-export const SEEDANCE_NODE_MIN_WIDTH = 680;
+export const SEEDANCE_NODE_MIN_WIDTH = 760;
 export const SEEDANCE_NODE_MIN_HEIGHT = 440;
 export const SEEDANCE_VIDEO_RESULT_NODE_DEFAULT_WIDTH = 520;
 export const SEEDANCE_VIDEO_RESULT_NODE_DEFAULT_HEIGHT = 388;
@@ -157,6 +157,7 @@ export type SeedanceResolution = (typeof SEEDANCE_RESOLUTIONS)[number];
 
 export interface NodeDisplayData {
   displayName?: string;
+  nodeDescription?: string | null;
   [key: string]: unknown;
 }
 
@@ -1115,6 +1116,20 @@ export function isAudioNode(
   node: CanvasNode | null | undefined
 ): node is Node<AudioNodeData, typeof CANVAS_NODE_TYPES.audio> {
   return node?.type === CANVAS_NODE_TYPES.audio;
+}
+
+export function nodeSupportsDescriptionPanel(
+  node: CanvasNode | null | undefined
+): boolean {
+  return (
+    isUploadNode(node)
+    || isExportImageNode(node)
+    || isJimengImageResultNode(node)
+    || isVideoNode(node)
+    || isJimengVideoResultNode(node)
+    || isSeedanceVideoResultNode(node)
+    || isAudioNode(node)
+  );
 }
 
 export function isTtsTextNode(

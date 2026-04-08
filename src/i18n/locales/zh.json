@@ -166,6 +166,10 @@
   },
   "nodeToolbar": {
     "reupload": "重新上传",
+    "description": "描述",
+    "expandDescription": "展开描述面板",
+    "collapseDescription": "收起描述面板",
+    "descriptionPlaceholder": "输入节点描述...",
     "copy": "复制",
     "addToAssets": "加入资产",
     "addingToAssets": "加入中...",

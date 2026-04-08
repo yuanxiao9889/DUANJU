@@ -39,6 +39,10 @@ import {
 import { resolveConnectedTtsText } from '@/features/canvas/nodes/qwenTtsShared';
 import { NodeHeader, NODE_HEADER_FLOATING_POSITION_CLASS } from '@/features/canvas/ui/NodeHeader';
 import { NodeStatusBadge } from '@/features/canvas/ui/NodeStatusBadge';
+import {
+  NodeDescriptionPanel,
+  NODE_DESCRIPTION_PANEL_EXPANDED_TOTAL_HEIGHT,
+} from '@/features/canvas/ui/NodeDescriptionPanel';
 import { useAssetStore } from '@/stores/assetStore';
 import { useCanvasStore } from '@/stores/canvasStore';
 import { useProjectStore } from '@/stores/projectStore';
@@ -96,6 +100,9 @@ export const AudioNode = memo(({ id, data, selected, width }: AudioNodeProps) =>
   const updateNodeInternals = useUpdateNodeInternals();
   const setSelectedNode = useCanvasStore((state) => state.setSelectedNode);
   const updateNodeData = useCanvasStore((state) => state.updateNodeData);
+  const isDescriptionPanelOpen = useCanvasStore(
+    (state) => Boolean(state.nodeDescriptionPanelOpenById[id])
+  );
   const nodes = useCanvasStore((state) => state.nodes);
   const edges = useCanvasStore((state) => state.edges);
   const useUploadFilenameAsNodeTitle = useSettingsStore((state) => state.useUploadFilenameAsNodeTitle);
@@ -131,7 +138,10 @@ export const AudioNode = memo(({ id, data, selected, width }: AudioNodeProps) =>
     resolveNodeDimension(width, AUDIO_NODE_DEFAULT_WIDTH),
     AUDIO_NODE_DEFAULT_WIDTH
   );
-  const resolvedHeight = AUDIO_NODE_DEFAULT_HEIGHT;
+  const resolvedHeight = AUDIO_NODE_DEFAULT_HEIGHT
+    + (isDescriptionPanelOpen ? NODE_DESCRIPTION_PANEL_EXPANDED_TOTAL_HEIGHT : 0);
+  const nodeDescription =
+    typeof data.nodeDescription === 'string' ? data.nodeDescription : '';
 
   const resolvedTitle = useMemo(() => {
     const audioFileName = typeof data.audioFileName === 'string' ? data.audioFileName.trim() : '';
@@ -622,7 +632,7 @@ export const AudioNode = memo(({ id, data, selected, width }: AudioNodeProps) =>
     <>
       <div
         className={`
-          group relative overflow-visible rounded-[var(--node-radius)] border bg-surface-dark/85 p-0 transition-all duration-150
+          group relative flex flex-col overflow-visible rounded-[var(--node-radius)] border bg-surface-dark/85 p-0 transition-all duration-150
           ${selected
             ? 'border-accent shadow-[0_0_0_2px_rgba(59,130,246,0.5),0_4px_20px_rgba(59,130,246,0.2)]'
             : 'border-[rgba(15,23,42,0.22)] hover:border-[rgba(15,23,42,0.34)] hover:shadow-[0_4px_16px_rgba(0,0,0,0.12)] dark:border-[rgba(255,255,255,0.22)] dark:hover:border-[rgba(255,255,255,0.34)] dark:hover:shadow-[0_4px_16px_rgba(0,0,0,0.25)]'}
@@ -649,12 +659,13 @@ export const AudioNode = memo(({ id, data, selected, width }: AudioNodeProps) =>
           onChange={handleFileChange}
         />
 
-        {data.audioUrl ? (
-          <div
-            className="flex h-full min-h-0 flex-col justify-center overflow-hidden rounded-[var(--node-radius)] bg-[linear-gradient(165deg,rgba(255,255,255,0.08),rgba(255,255,255,0.02))] px-3 py-3"
-            onClick={(event) => event.stopPropagation()}
-            onPointerDown={(event) => event.stopPropagation()}
-          >
+        <div className="min-h-0 flex-1">
+          {data.audioUrl ? (
+            <div
+              className="flex h-full min-h-0 flex-col justify-center overflow-hidden rounded-[var(--node-radius)] bg-[linear-gradient(165deg,rgba(255,255,255,0.08),rgba(255,255,255,0.02))] px-3 py-3"
+              onClick={(event) => event.stopPropagation()}
+              onPointerDown={(event) => event.stopPropagation()}
+            >
           <audio
             ref={audioRef}
             src={audioSource ?? undefined}
@@ -731,15 +742,15 @@ export const AudioNode = memo(({ id, data, selected, width }: AudioNodeProps) =>
               {audioError}
             </div>
           ) : null}
-          </div>
-        ) : shouldRenderTaskState ? (
-          <div
-            className={`flex h-full w-full flex-col justify-center rounded-[var(--node-radius)] px-3 py-3 ${
-              isTaskFailed
-                ? 'bg-[linear-gradient(165deg,rgba(248,113,113,0.12),rgba(127,29,29,0.08))]'
-                : 'bg-[linear-gradient(165deg,rgba(96,165,250,0.14),rgba(15,23,42,0.08))]'
-            }`}
-          >
+            </div>
+          ) : shouldRenderTaskState ? (
+            <div
+              className={`flex h-full w-full flex-col justify-center rounded-[var(--node-radius)] px-3 py-3 ${
+                isTaskFailed
+                  ? 'bg-[linear-gradient(165deg,rgba(248,113,113,0.12),rgba(127,29,29,0.08))]'
+                  : 'bg-[linear-gradient(165deg,rgba(96,165,250,0.14),rgba(15,23,42,0.08))]'
+              }`}
+            >
           {isTaskFailed ? (
             <>
               <div className="flex items-center gap-2 text-sm font-medium text-red-100">
@@ -781,16 +792,16 @@ export const AudioNode = memo(({ id, data, selected, width }: AudioNodeProps) =>
               </div>
             </>
           )}
-          </div>
-        ) : (
-          <button
-            type="button"
-            className="flex h-full w-full flex-col items-center justify-center gap-3 rounded-[var(--node-radius)] border border-dashed border-[rgba(255,255,255,0.14)] bg-white/[0.03] text-text-muted transition-colors hover:border-accent/35 hover:bg-accent/10 hover:text-text-dark"
-            onClick={(event) => {
-              event.stopPropagation();
-              inputRef.current?.click();
-            }}
-          >
+            </div>
+          ) : (
+            <button
+              type="button"
+              className="flex h-full w-full flex-col items-center justify-center gap-3 rounded-[var(--node-radius)] border border-dashed border-[rgba(255,255,255,0.14)] bg-white/[0.03] text-text-muted transition-colors hover:border-accent/35 hover:bg-accent/10 hover:text-text-dark"
+              onClick={(event) => {
+                event.stopPropagation();
+                inputRef.current?.click();
+              }}
+            >
           <div className="flex h-12 w-12 items-center justify-center rounded-full bg-white/[0.06] text-text-dark">
             <Upload className="h-5 w-5" />
           </div>
@@ -802,8 +813,15 @@ export const AudioNode = memo(({ id, data, selected, width }: AudioNodeProps) =>
               {t('node.audioNode.supportedFormats')}
             </div>
           </div>
-          </button>
-        )}
+            </button>
+          )}
+        </div>
+        <NodeDescriptionPanel
+          isOpen={isDescriptionPanelOpen}
+          value={nodeDescription}
+          placeholder={t('nodeToolbar.descriptionPlaceholder')}
+          onChange={(value) => updateNodeData(id, { nodeDescription: value })}
+        />
 
         <Handle
           type="target"

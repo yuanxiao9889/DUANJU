@@ -71,6 +71,7 @@ import {
   NODE_HEADER_FLOATING_POSITION_CLASS,
 } from "@/features/canvas/ui/NodeHeader";
 import { NodeResizeHandle } from "@/features/canvas/ui/NodeResizeHandle";
+import { ReferenceVisualChip } from "@/features/canvas/ui/ReferenceVisualChip";
 import { NodeStatusBadge } from "@/features/canvas/ui/NodeStatusBadge";
 import {
   NODE_CONTROL_CHIP_CLASS,
@@ -769,14 +770,17 @@ function ReferenceVisualCard({ item }: { item: ReferenceVisualItem }) {
 
 function ReferenceAudioChip({ item }: { item: ReferenceAudioItem }) {
   return (
-    <div className="inline-flex max-w-full items-center gap-2 rounded-full border border-white/10 bg-white/[0.04] px-2.5 py-1 text-[11px] text-text-dark">
+    <div
+      className="flex max-w-full items-center gap-1.5 rounded-lg border border-white/10 bg-white/[0.04] px-2 py-1.5 text-[11px] text-text-dark"
+      onMouseDown={(event) => event.stopPropagation()}
+    >
       <Music4 className="h-3.5 w-3.5 shrink-0 text-text-muted" />
       <span className="rounded bg-white/[0.08] px-1 py-0.5 text-[10px] font-medium text-text-muted">
         {item.tokenLabel}
       </span>
-      <span className="truncate">{item.label}</span>
+      <span className="max-w-[104px] truncate">{item.label}</span>
       {item.durationSeconds ? (
-        <span className="shrink-0 text-text-muted">
+        <span className="shrink-0 text-[10px] text-text-muted">
           {formatVideoTime(item.durationSeconds)}
         </span>
       ) : null}
@@ -793,6 +797,12 @@ export const SeedanceNode = memo(
     const connectedAudios = useCanvasConnectedAudioReferences(id);
     const storyboardApiKeys = useSettingsStore((state) => state.storyboardApiKeys);
     const setSelectedNode = useCanvasStore((state) => state.setSelectedNode);
+    const highlightedReferenceSourceNodeId = useCanvasStore(
+      (state) => state.highlightedReferenceSourceNodeId,
+    );
+    const setHighlightedReferenceSourceNode = useCanvasStore(
+      (state) => state.setHighlightedReferenceSourceNode,
+    );
     const addEdge = useCanvasStore((state) => state.addEdge);
     const addNode = useCanvasStore((state) => state.addNode);
     const findNodePosition = useCanvasStore((state) => state.findNodePosition);
@@ -1737,6 +1747,14 @@ export const SeedanceNode = memo(
           (lastSubmittedTime
             ? t("node.seedance.lastSubmitted", { time: lastSubmittedTime })
             : t(modeHintKey)));
+    const handleReferenceSourceHighlight = useCallback(
+      (sourceNodeId: string) => {
+        setHighlightedReferenceSourceNode(
+          highlightedReferenceSourceNodeId === sourceNodeId ? null : sourceNodeId,
+        );
+      },
+      [highlightedReferenceSourceNodeId, setHighlightedReferenceSourceNode],
+    );
 
     return (
       <div
@@ -1767,99 +1785,155 @@ export const SeedanceNode = memo(
         />
 
         <div className="flex min-h-0 flex-1 flex-col gap-3 pt-5">
-          <Field label={t("node.seedance.promptLabel")}>
+          <Field
+            label={t("node.seedance.promptLabel")}
+            className="min-h-0 flex-1"
+          >
             <div
               ref={promptPanelRef}
-              className="relative rounded-xl border border-white/10 bg-black/12"
+              className="relative min-h-0 flex-1 rounded-xl border border-white/10 bg-black/12 p-2"
             >
-              <div
-                ref={promptPreviewHostRef}
-                className="relative min-h-[148px] overflow-hidden rounded-xl"
-              >
+              <div className="flex h-full min-h-0 flex-col gap-2">
                 <div
-                  ref={promptHighlightRef}
-                  aria-hidden="true"
-                  className="ui-scrollbar pointer-events-none absolute inset-0 overflow-y-auto overflow-x-hidden text-sm leading-6 text-text-dark"
-                  style={{ scrollbarGutter: "stable" }}
+                  ref={promptPreviewHostRef}
+                  className="relative min-h-[148px] flex-1 overflow-hidden rounded-xl"
                 >
-                  <div className="min-h-full whitespace-pre-wrap break-words px-3 py-2">
-                    {renderPromptWithHighlights(
-                      promptDraft,
-                      referenceVisualItems.length,
-                      referenceAudioItems.length,
-                    )}
-                  </div>
-                </div>
-
-                <div
-                  ref={promptHoverLayerRef}
-                  aria-hidden="true"
-                  className="ui-scrollbar pointer-events-none absolute inset-0 z-20 overflow-y-auto overflow-x-hidden text-sm leading-6 text-transparent"
-                  style={{ scrollbarGutter: "stable" }}
-                >
-                  <div className="min-h-full whitespace-pre-wrap break-words px-3 py-2">
-                    {renderPromptReferenceHoverTargets(
-                      promptDraft,
-                      referenceVisualItems.length,
-                      referenceAudioItems.length,
-                      handlePromptReferenceTokenHover,
-                      hidePromptReferencePreview,
-                      handlePromptReferenceTokenMouseDown,
-                    )}
-                  </div>
-                </div>
-
-                <textarea
-                  ref={promptRef}
-                  value={promptDraft}
-                  onChange={(event) => {
-                    handlePromptChange(event.target.value);
-                    syncPromptTextSelectionState(event.currentTarget);
-                  }}
-                  placeholder={t("node.seedance.promptPlaceholder")}
-                  className="ui-scrollbar nodrag nowheel relative z-10 min-h-[148px] w-full resize-none rounded-xl border border-transparent bg-transparent px-3 py-2 text-sm leading-6 text-transparent caret-text-dark outline-none placeholder:text-text-muted/70 focus:border-accent/50 whitespace-pre-wrap break-words selection:bg-accent/30 selection:text-transparent"
-                  style={{ scrollbarGutter: "stable" }}
-                  onScroll={syncPromptHighlightScroll}
-                  onMouseDown={(event) => {
-                    event.stopPropagation();
-                    hidePromptReferencePreview();
-                  }}
-                  onSelect={(event) =>
-                    syncPromptTextSelectionState(event.currentTarget)
-                  }
-                  onMouseUp={(event) =>
-                    syncPromptTextSelectionState(event.currentTarget)
-                  }
-                  onKeyUp={(event) =>
-                    syncPromptTextSelectionState(event.currentTarget)
-                  }
-                  onBlur={() => setIsPromptTextSelectionActive(false)}
-                  onKeyDownCapture={handlePromptKeyDown}
-                />
-
-                {promptReferencePreview ? (
                   <div
-                    className="pointer-events-none absolute z-30 w-fit overflow-hidden rounded-xl shadow-[0_12px_28px_rgba(0,0,0,0.28)]"
-                    style={{
-                      left: `${promptReferencePreview.left}px`,
-                      top: `${promptReferencePreview.top}px`,
-                    }}
+                    ref={promptHighlightRef}
+                    aria-hidden="true"
+                    className="ui-scrollbar pointer-events-none absolute inset-0 overflow-y-auto overflow-x-hidden text-sm leading-6 text-text-dark"
+                    style={{ scrollbarGutter: "stable" }}
                   >
-                    <ReferenceVisualCard
-                      item={{
-                        sourceEdgeId: "",
-                        sourceNodeId: "",
-                        kind: promptReferencePreview.kind,
-                        referenceUrl: promptReferencePreview.imageUrl ?? "",
-                        previewImageUrl: promptReferencePreview.imageUrl,
-                        displayUrl: promptReferencePreview.displayUrl,
-                        label: promptReferencePreview.alt,
-                        durationSeconds: promptReferencePreview.durationSeconds,
-                        tokenLabel: "",
-                      }}
-                    />
+                    <div className="min-h-full whitespace-pre-wrap break-words px-3 py-2">
+                      {renderPromptWithHighlights(
+                        promptDraft,
+                        referenceVisualItems.length,
+                        referenceAudioItems.length,
+                      )}
+                    </div>
                   </div>
-                ) : null}
+
+                  <div
+                    ref={promptHoverLayerRef}
+                    aria-hidden="true"
+                    className="ui-scrollbar pointer-events-none absolute inset-0 z-20 overflow-y-auto overflow-x-hidden text-sm leading-6 text-transparent"
+                    style={{ scrollbarGutter: "stable" }}
+                  >
+                    <div className="min-h-full whitespace-pre-wrap break-words px-3 py-2">
+                      {renderPromptReferenceHoverTargets(
+                        promptDraft,
+                        referenceVisualItems.length,
+                        referenceAudioItems.length,
+                        handlePromptReferenceTokenHover,
+                        hidePromptReferencePreview,
+                        handlePromptReferenceTokenMouseDown,
+                      )}
+                    </div>
+                  </div>
+
+                  <textarea
+                    ref={promptRef}
+                    value={promptDraft}
+                    onChange={(event) => {
+                      handlePromptChange(event.target.value);
+                      syncPromptTextSelectionState(event.currentTarget);
+                    }}
+                    placeholder={t("node.seedance.promptPlaceholder")}
+                    className="ui-scrollbar nodrag nowheel relative z-10 h-full min-h-[148px] w-full resize-none rounded-xl border border-transparent bg-transparent px-3 py-2 text-sm leading-6 text-transparent caret-text-dark outline-none placeholder:text-text-muted/70 focus:border-accent/50 whitespace-pre-wrap break-words selection:bg-accent/30 selection:text-transparent"
+                    style={{ scrollbarGutter: "stable" }}
+                    onScroll={syncPromptHighlightScroll}
+                    onMouseDown={(event) => {
+                      event.stopPropagation();
+                      hidePromptReferencePreview();
+                    }}
+                    onSelect={(event) =>
+                      syncPromptTextSelectionState(event.currentTarget)
+                    }
+                    onMouseUp={(event) =>
+                      syncPromptTextSelectionState(event.currentTarget)
+                    }
+                    onKeyUp={(event) =>
+                      syncPromptTextSelectionState(event.currentTarget)
+                    }
+                    onBlur={() => setIsPromptTextSelectionActive(false)}
+                    onKeyDownCapture={handlePromptKeyDown}
+                  />
+
+                  {promptReferencePreview ? (
+                    <div
+                      className="pointer-events-none absolute z-30 w-fit overflow-hidden rounded-xl shadow-[0_12px_28px_rgba(0,0,0,0.28)]"
+                      style={{
+                        left: `${promptReferencePreview.left}px`,
+                        top: `${promptReferencePreview.top}px`,
+                      }}
+                    >
+                      <ReferenceVisualCard
+                        item={{
+                          sourceEdgeId: "",
+                          sourceNodeId: "",
+                          kind: promptReferencePreview.kind,
+                          referenceUrl: promptReferencePreview.imageUrl ?? "",
+                          previewImageUrl: promptReferencePreview.imageUrl,
+                          displayUrl: promptReferencePreview.displayUrl,
+                          label: promptReferencePreview.alt,
+                          durationSeconds: promptReferencePreview.durationSeconds,
+                          tokenLabel: "",
+                        }}
+                      />
+                    </div>
+                  ) : null}
+                </div>
+
+                <div className="flex min-h-[44px] flex-wrap items-center gap-2 rounded-xl border border-white/10 bg-black/10 px-2 py-2">
+                  {referenceVisualItems.length > 0 ? (
+                    <div className="flex min-w-0 flex-wrap items-center gap-2">
+                      {referenceVisualItems.map((item) => (
+                        <ReferenceVisualChip
+                          key={`${item.sourceEdgeId}-${item.referenceUrl}`}
+                          kind={item.kind}
+                          displayUrl={item.displayUrl}
+                          label={item.label}
+                          tokenLabel={item.tokenLabel}
+                          metaLabel={
+                            item.kind === "video"
+                              ? (item.durationSeconds
+                                  ? formatVideoTime(item.durationSeconds)
+                                  : "VIDEO")
+                              : null
+                          }
+                          isActive={
+                            highlightedReferenceSourceNodeId === item.sourceNodeId
+                          }
+                          onMouseDown={(event) => {
+                            event.stopPropagation();
+                            if (event.button !== 0) {
+                              return;
+                            }
+                            handleReferenceSourceHighlight(item.sourceNodeId);
+                          }}
+                        />
+                      ))}
+                    </div>
+                  ) : null}
+
+                  {referenceAudioItems.length > 0 ? (
+                    <div className="flex min-w-0 flex-wrap items-center gap-2">
+                      {referenceAudioItems.map((item) => (
+                        <ReferenceAudioChip
+                          key={`${item.sourceEdgeId}-${item.audioUrl}`}
+                          item={item}
+                        />
+                      ))}
+                    </div>
+                  ) : null}
+
+                  {referenceVisualItems.length === 0 &&
+                  referenceAudioItems.length === 0 ? (
+                    <div className="text-[11px] text-text-muted">
+                      {t("node.seedance.noReferences")}
+                    </div>
+                  ) : null}
+                </div>
               </div>
 
               {showImagePicker && referencePickerItems.length > 0 ? (
@@ -1936,8 +2010,9 @@ export const SeedanceNode = memo(
             </div>
           </Field>
 
-          <div className="ui-scrollbar overflow-x-auto overflow-y-hidden">
-            <div className="flex w-max min-w-full items-center gap-1.5 pr-1">
+          <div className="flex items-center gap-2">
+            <div className="ui-scrollbar min-w-0 flex-1 overflow-x-auto overflow-y-hidden">
+              <div className="flex w-max min-w-full items-center gap-1.5 pr-1">
               <FixedControlChip
                 label={t("node.seedance.inputModeLabel")}
                 value={selectedInputMode}
@@ -2053,84 +2128,38 @@ export const SeedanceNode = memo(
                 />
               </UiChipButton>
             </div>
-          </div>
-
-          <div className="flex min-h-0 flex-1 flex-col gap-1.5 rounded-xl border border-white/10 bg-black/20 p-3">
-            <div className="flex flex-wrap items-center gap-2">
-              <span className="rounded-full border border-white/10 bg-white/[0.04] px-2 py-0.5 text-[10px] font-medium text-text-muted">
-                {t("node.seedance.connectedVisuals", {
-                  count: referenceVisualItems.length,
-                })}
-              </span>
-              <span className="rounded-full border border-white/10 bg-white/[0.04] px-2 py-0.5 text-[10px] font-medium text-text-muted">
-                {t("node.seedance.connectedAudios", {
-                  count: referenceAudioItems.length,
-                })}
-              </span>
             </div>
 
-            <div className="text-[11px] leading-4 text-text-muted">
-              {t(modeHintKey)}
-            </div>
-
-            {referenceVisualItems.length > 0 ? (
-              <div className="ui-scrollbar flex flex-wrap items-start gap-2 overflow-y-auto">
-                {referenceVisualItems.map((item) => (
-                  <ReferenceVisualCard
-                    key={`${item.sourceEdgeId}-${item.referenceUrl}`}
-                    item={item}
-                  />
-                ))}
-              </div>
-            ) : (
-              <div className="rounded-lg border border-dashed border-white/10 px-3 py-3 text-[11px] text-text-muted">
-                {t("node.seedance.noReferences")}
-              </div>
-            )}
-
-            {referenceAudioItems.length > 0 ? (
-              <div className="flex flex-wrap gap-2">
-                {referenceAudioItems.map((item) => (
-                  <ReferenceAudioChip
-                    key={`${item.sourceEdgeId}-${item.audioUrl}`}
-                    item={item}
-                  />
-                ))}
-              </div>
-            ) : null}
+            <UiButton
+              type="button"
+              size="sm"
+              variant="primary"
+              disabled={Boolean(data.isSubmitting)}
+              className={`${NODE_CONTROL_PRIMARY_BUTTON_CLASS} shrink-0`}
+              onClick={(event) => {
+                event.stopPropagation();
+                void handleGenerate();
+              }}
+            >
+              {data.isSubmitting ? (
+                <Loader2 className="h-4 w-4 animate-spin" strokeWidth={2.3} />
+              ) : (
+                <Sparkles className="h-4 w-4" strokeWidth={2.3} />
+              )}
+              {data.isSubmitting
+                ? t("node.seedance.submitting")
+                : t("node.seedance.submit")}
+            </UiButton>
           </div>
-        </div>
 
-        <div className="mt-3 flex min-h-[28px] items-center justify-between gap-2">
           <div
-            className={`min-w-0 flex-1 truncate text-[10px] leading-4 ${
+            className={`min-h-[16px] truncate text-[10px] leading-4 ${
               combinedError ? "text-rose-300" : "text-text-muted"
             }`}
             title={statusInfoText}
           >
             {statusInfoText}
           </div>
-
-          <UiButton
-            type="button"
-            size="sm"
-            variant="primary"
-            disabled={Boolean(data.isSubmitting)}
-            className={`${NODE_CONTROL_PRIMARY_BUTTON_CLASS} shrink-0`}
-            onClick={(event) => {
-              event.stopPropagation();
-              void handleGenerate();
-            }}
-          >
-            {data.isSubmitting ? (
-              <Loader2 className="h-4 w-4 animate-spin" strokeWidth={2.3} />
-            ) : (
-              <Sparkles className="h-4 w-4" strokeWidth={2.3} />
-            )}
-            {data.isSubmitting
-              ? t("node.seedance.submitting")
-              : t("node.seedance.submit")}
-          </UiButton>
         </div>
 
         <Handle

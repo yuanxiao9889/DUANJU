@@ -21,7 +21,6 @@ import {
   TriangleAlert,
   Undo2,
   Wand2,
-  X,
 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
@@ -58,6 +57,7 @@ import {
 import { NodeResizeHandle } from "@/features/canvas/ui/NodeResizeHandle";
 import { CanvasNodeImage } from "@/features/canvas/ui/CanvasNodeImage";
 import { NodeStatusBadge } from "@/features/canvas/ui/NodeStatusBadge";
+import { ReferenceVisualChip } from "@/features/canvas/ui/ReferenceVisualChip";
 import {
   NODE_CONTROL_CHIP_CLASS,
   NODE_CONTROL_GENERATE_ICON_CLASS,
@@ -422,6 +422,12 @@ export const JimengImageNode = memo(
       useState<PromptReferencePreviewState | null>(null);
     const [, setIsPromptTextSelectionActive] = useState(false);
     const setSelectedNode = useCanvasStore((state) => state.setSelectedNode);
+    const highlightedReferenceSourceNodeId = useCanvasStore(
+      (state) => state.highlightedReferenceSourceNodeId,
+    );
+    const setHighlightedReferenceSourceNode = useCanvasStore(
+      (state) => state.setHighlightedReferenceSourceNode,
+    );
     const updateNodeData = useCanvasStore((state) => state.updateNodeData);
     const addNode = useCanvasStore((state) => state.addNode);
     const addEdge = useCanvasStore((state) => state.addEdge);
@@ -1287,6 +1293,14 @@ export const JimengImageNode = memo(
         : (promptOptimizationNotice ??
           referenceStatusText ??
           t("node.jimengImage.parameterHint")));
+    const handleReferenceSourceHighlight = useCallback(
+      (sourceNodeId: string) => {
+        setHighlightedReferenceSourceNode(
+          highlightedReferenceSourceNodeId === sourceNodeId ? null : sourceNodeId,
+        );
+      },
+      [highlightedReferenceSourceNodeId, setHighlightedReferenceSourceNode],
+    );
 
     return (
       <div
@@ -1407,44 +1421,24 @@ export const JimengImageNode = memo(
               {incomingImageItems.length > 0 ? (
                 <div className="flex min-w-0 flex-wrap items-center gap-2">
                   {incomingImageItems.map((item, index) => (
-                    <div
+                    <ReferenceVisualChip
                       key={`${item.imageUrl}-${index}`}
-                      className="group/reference relative flex items-center gap-1.5 rounded-lg border border-white/10 bg-black/15 px-1.5 py-1.5"
-                      onMouseDown={(event) => event.stopPropagation()}
-                    >
-                      <button
-                        type="button"
-                        className="absolute -right-1 -top-1 z-10 flex h-5 w-5 items-center justify-center rounded-full border border-white/15 bg-black/75 text-text-dark opacity-0 shadow-[0_6px_18px_rgba(0,0,0,0.28)] transition-opacity hover:bg-rose-500 hover:text-white group-hover/reference:opacity-100"
-                        aria-label={t("common.delete")}
-                        title={t("common.delete")}
-                        onMouseDown={(event) => {
-                          event.preventDefault();
-                          event.stopPropagation();
-                        }}
-                        onClick={(event) => {
-                          event.stopPropagation();
-                          handleRemoveReferenceImage(item.sourceEdgeId);
-                        }}
-                      >
-                        <X className="h-3 w-3" strokeWidth={2.4} />
-                      </button>
-                      <CanvasNodeImage
-                        src={item.displayUrl}
-                        alt={item.label}
-                        viewerSourceUrl={item.displayUrl}
-                        viewerImageList={incomingImageDisplayList}
-                        className="h-9 w-9 rounded-md object-cover"
-                        draggable={false}
-                      />
-                      <div className="min-w-0">
-                        <div className="truncate text-[11px] font-medium text-text-dark">
-                          {item.tokenLabel}
-                        </div>
-                        <div className="truncate text-[10px] text-text-muted">
-                          {item.label}
-                        </div>
-                      </div>
-                    </div>
+                      kind="image"
+                      displayUrl={item.displayUrl}
+                      label={item.label}
+                      tokenLabel={item.tokenLabel}
+                      viewerImageList={incomingImageDisplayList}
+                      isActive={highlightedReferenceSourceNodeId === item.sourceNodeId}
+                      removeLabel={t("common.delete")}
+                      onMouseDown={(event) => {
+                        event.stopPropagation();
+                        if (event.button !== 0) {
+                          return;
+                        }
+                        handleReferenceSourceHighlight(item.sourceNodeId);
+                      }}
+                      onRemove={() => handleRemoveReferenceImage(item.sourceEdgeId)}
+                    />
                   ))}
                 </div>
               ) : (

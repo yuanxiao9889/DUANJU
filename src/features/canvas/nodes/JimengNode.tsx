@@ -24,7 +24,6 @@ import {
   Undo2,
   Video,
   Wand2,
-  X,
 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
@@ -60,6 +59,7 @@ import {
 } from "@/features/canvas/ui/NodeHeader";
 import { NodeResizeHandle } from "@/features/canvas/ui/NodeResizeHandle";
 import { CanvasNodeImage } from "@/features/canvas/ui/CanvasNodeImage";
+import { ReferenceVisualChip } from "@/features/canvas/ui/ReferenceVisualChip";
 import { NodeStatusBadge } from "@/features/canvas/ui/NodeStatusBadge";
 import {
   NODE_CONTROL_CHIP_CLASS,
@@ -1132,6 +1132,12 @@ export const JimengNode = memo(
       useState<DragReferencePreviewState | null>(null);
     const [showQueueScheduleModal, setShowQueueScheduleModal] = useState(false);
     const setSelectedNode = useCanvasStore((state) => state.setSelectedNode);
+    const highlightedReferenceSourceNodeId = useCanvasStore(
+      (state) => state.highlightedReferenceSourceNodeId,
+    );
+    const setHighlightedReferenceSourceNode = useCanvasStore(
+      (state) => state.setHighlightedReferenceSourceNode,
+    );
     const updateNodeData = useCanvasStore((state) => state.updateNodeData);
     const addNode = useCanvasStore((state) => state.addNode);
     const addEdge = useCanvasStore((state) => state.addEdge);
@@ -1610,6 +1616,14 @@ export const JimengNode = memo(
 
         event.preventDefault();
         event.stopPropagation();
+        const sourceNodeId = incomingVisualItems[index]?.sourceNodeId;
+        if (sourceNodeId) {
+          setHighlightedReferenceSourceNode(
+            highlightedReferenceSourceNodeId === sourceNodeId
+              ? null
+              : sourceNodeId,
+          );
+        }
         const cardRect = event.currentTarget.getBoundingClientRect();
         const containerRect = rootRef.current?.getBoundingClientRect();
         setDraggingReferenceIndex(index);
@@ -1625,7 +1639,11 @@ export const JimengNode = memo(
           containerTop: containerRect?.top ?? 0,
         });
       },
-      [],
+      [
+        highlightedReferenceSourceNodeId,
+        incomingVisualItems,
+        setHighlightedReferenceSourceNode,
+      ],
     );
 
     const handleReferenceSortHover = useCallback(
@@ -2764,15 +2782,24 @@ export const JimengNode = memo(
               {incomingVisualItems.length > 0 ? (
                 <div className="flex min-w-0 flex-wrap items-center gap-2">
                   {incomingVisualItems.map((item, index) => (
-                    <div
+                    <ReferenceVisualChip
                       key={`${item.referenceUrl}-${index}`}
-                      className={`nodrag group/reference relative flex select-none items-center gap-1.5 rounded-lg border bg-black/15 px-1.5 py-1.5 transition-[transform,box-shadow,border-color,background-color,opacity] duration-200 ${
-                        draggingReferenceIndex === index
-                          ? "z-10 cursor-grabbing border-accent/35 bg-accent/10 opacity-35 shadow-[0_6px_16px_rgba(59,130,246,0.12)] scale-[0.98]"
-                          : dragOverReferenceIndex === index
-                            ? "z-10 cursor-grab border-accent/55 bg-accent/10 shadow-[0_0_0_1px_rgba(59,130,246,0.18)]"
-                            : "cursor-grab border-white/10 motion-safe:hover:-translate-y-0.5 motion-safe:hover:border-white/15 motion-safe:hover:shadow-[0_8px_20px_rgba(0,0,0,0.2)]"
-                      }`}
+                      kind={item.kind}
+                      displayUrl={item.displayUrl}
+                      label={item.label}
+                      tokenLabel={item.tokenLabel}
+                      metaLabel={
+                        item.kind === "video"
+                          ? (formatReferenceDuration(item.durationSeconds) ?? "VIDEO")
+                          : null
+                      }
+                      viewerImageList={incomingVisualDisplayList}
+                      isActive={highlightedReferenceSourceNodeId === item.sourceNodeId}
+                      isDragging={draggingReferenceIndex === index}
+                      isDragTarget={dragOverReferenceIndex === index}
+                      cursorClassName="cursor-grab"
+                      reorderHint={t("node.jimeng.referenceReorderHint")}
+                      removeLabel={t("common.delete")}
                       onMouseDown={(event) => event.stopPropagation()}
                       onPointerDown={(event) =>
                         handleReferenceSortStart(index, event)
@@ -2786,66 +2813,8 @@ export const JimengNode = memo(
                         handleReferenceSortHover(index);
                       }}
                       onPointerCancel={handleReferenceSortCancel}
-                    >
-                      <button
-                        type="button"
-                        draggable={false}
-                        className="absolute -right-1 -top-1 z-10 flex h-5 w-5 items-center justify-center rounded-full border border-white/15 bg-black/75 text-text-dark opacity-0 shadow-[0_6px_18px_rgba(0,0,0,0.28)] transition-opacity hover:bg-rose-500 hover:text-white group-hover/reference:opacity-100"
-                        aria-label={t("common.delete")}
-                        title={t("common.delete")}
-                        onPointerDown={(event) => {
-                          event.preventDefault();
-                          event.stopPropagation();
-                        }}
-                        onMouseDown={(event) => {
-                          event.preventDefault();
-                          event.stopPropagation();
-                        }}
-                        onClick={(event) => {
-                          event.stopPropagation();
-                          handleRemoveReferenceVisual(item.sourceEdgeId);
-                        }}
-                      >
-                        <X className="h-3 w-3" strokeWidth={2.4} />
-                      </button>
-                      <div className="relative h-9 w-9 shrink-0">
-                        <ReferenceVisualThumbnail
-                          kind={item.kind}
-                          displayUrl={item.displayUrl}
-                          label={item.label}
-                          durationSeconds={item.durationSeconds}
-                          imageClassName="h-9 w-9 rounded-md object-cover"
-                          placeholderClassName="flex h-9 w-9 items-center justify-center rounded-md border border-white/10 bg-white/[0.06] text-text-muted"
-                          viewerImageList={incomingVisualDisplayList}
-                        />
-                      </div>
-                      <div className="min-w-0">
-                        <div className="truncate text-[11px] font-medium text-text-dark">
-                          {item.tokenLabel}
-                        </div>
-                        <div className="truncate text-[10px] text-text-muted">
-                          {item.label}
-                        </div>
-                      </div>
-                      <div
-                        className={`pointer-events-none absolute inset-0 rounded-lg ring-inset transition-all duration-200 ${
-                          draggingReferenceIndex === index
-                            ? "ring-1 ring-accent/55"
-                            : dragOverReferenceIndex === index
-                              ? "ring-1 ring-accent/35"
-                              : "ring-0 group-hover/reference:ring-1 group-hover/reference:ring-white/8"
-                        }`}
-                      />
-                      <div
-                        className={`pointer-events-none absolute bottom-1.5 left-1.5 rounded-md bg-black/60 px-1.5 py-0.5 text-[9px] font-medium text-white/82 shadow-[0_4px_12px_rgba(0,0,0,0.2)] transition-all duration-200 ${
-                          draggingReferenceIndex === index
-                            ? "opacity-0"
-                            : "translate-y-1 opacity-0 group-hover/reference:translate-y-0 group-hover/reference:opacity-100"
-                        }`}
-                      >
-                        {t("node.jimeng.referenceReorderHint")}
-                      </div>
-                    </div>
+                      onRemove={() => handleRemoveReferenceVisual(item.sourceEdgeId)}
+                    />
                   ))}
                 </div>
               ) : null}
