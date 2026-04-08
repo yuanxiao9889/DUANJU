@@ -23,6 +23,7 @@ import {
   type OnConnectStartParams,
   type Viewport,
 } from '@xyflow/react';
+import { getCurrentWindow } from '@tauri-apps/api/window';
 import { join } from '@tauri-apps/api/path';
 import { open } from '@tauri-apps/plugin-dialog';
 import { useTranslation } from 'react-i18next';
@@ -31,8 +32,10 @@ import '@xyflow/react/dist/style.css';
 
 import {
   ASSET_DRAG_MIME_TYPE,
+  type CanvasAssetDragPayload,
   parseAssetDragPayload,
 } from '@/features/assets/domain/types';
+import { ASSET_PANEL_INSERT_EVENT } from '@/features/assets/application/assetPanelBridge';
 import {
   subscribeAssetItemDeleted,
   subscribeAssetItemUpdated,
@@ -1941,21 +1944,9 @@ export function Canvas() {
     }
   }, [clearDragOverlay]);
 
-  const handleDrop = useCallback(async (event: React.DragEvent) => {
-    event.preventDefault();
-    event.stopPropagation();
-    clearDragOverlay();
-
-    const assetPayload = parseAssetDragPayload(
-      event.dataTransfer.getData(ASSET_DRAG_MIME_TYPE)
-    );
-    if (assetPayload) {
-      const position = reactFlowInstance.screenToFlowPosition({
-        x: event.clientX,
-        y: event.clientY,
-      });
-
-      const newNodeId = assetPayload.mediaType === 'audio'
+  const insertAssetPayloadNode = useCallback(
+    (assetPayload: CanvasAssetDragPayload, position: { x: number; y: number }) => {
+      return assetPayload.mediaType === 'audio'
         ? addNode(CANVAS_NODE_TYPES.audio, position, {
             displayName: assetPayload.assetName,
             audioFileName: assetPayload.assetName,
@@ -1979,6 +1970,72 @@ export function Canvas() {
             assetName: assetPayload.assetName,
             assetCategory: assetPayload.assetCategory,
           });
+    },
+    [addNode]
+  );
+
+  const insertAssetPayloadAtViewportCenter = useCallback(
+    (assetPayload: CanvasAssetDragPayload) => {
+      const containerRect = reactFlowWrapperRef.current?.getBoundingClientRect();
+      if (!containerRect) {
+        return;
+      }
+
+      const position = reactFlowInstance.screenToFlowPosition({
+        x: containerRect.left + containerRect.width / 2,
+        y: containerRect.top + containerRect.height / 2,
+      });
+
+      const newNodeId = insertAssetPayloadNode(assetPayload, position);
+      setSelectedNode(newNodeId);
+      scheduleCanvasPersist(0);
+    },
+    [insertAssetPayloadNode, reactFlowInstance, scheduleCanvasPersist, setSelectedNode]
+  );
+
+  useEffect(() => {
+    const currentWindow = getCurrentWindow();
+    let unlistenInsertAsset: (() => void) | null = null;
+    let disposed = false;
+
+    const registerInsertAssetListener = async () => {
+      const nextUnlistenInsertAsset = await currentWindow.listen<CanvasAssetDragPayload>(
+        ASSET_PANEL_INSERT_EVENT,
+        (event) => {
+          insertAssetPayloadAtViewportCenter(event.payload);
+        }
+      );
+      if (disposed) {
+        nextUnlistenInsertAsset();
+        return;
+      }
+      unlistenInsertAsset = nextUnlistenInsertAsset;
+    };
+
+    void registerInsertAssetListener().catch((error) => {
+      console.error('Failed to register detached asset insert listener', error);
+    });
+
+    return () => {
+      disposed = true;
+      unlistenInsertAsset?.();
+    };
+  }, [insertAssetPayloadAtViewportCenter]);
+
+  const handleDrop = useCallback(async (event: React.DragEvent) => {
+    event.preventDefault();
+    event.stopPropagation();
+    clearDragOverlay();
+
+    const assetPayload = parseAssetDragPayload(
+      event.dataTransfer.getData(ASSET_DRAG_MIME_TYPE)
+    );
+    if (assetPayload) {
+      const position = reactFlowInstance.screenToFlowPosition({
+        x: event.clientX,
+        y: event.clientY,
+      });
+      const newNodeId = insertAssetPayloadNode(assetPayload, position);
       setSelectedNode(newNodeId);
       scheduleCanvasPersist(0);
       return;
@@ -2091,7 +2148,14 @@ export function Canvas() {
         console.error('Failed to process dropped audio:', err);
       }
     }
-  }, [addNode, clearDragOverlay, reactFlowInstance, scheduleCanvasPersist, setSelectedNode]);
+  }, [
+    addNode,
+    clearDragOverlay,
+    insertAssetPayloadNode,
+    reactFlowInstance,
+    scheduleCanvasPersist,
+    setSelectedNode,
+  ]);
 
   const handlePaneClick = useCallback((event: ReactMouseEvent) => {
     if (suppressNextPaneClickRef.current) {

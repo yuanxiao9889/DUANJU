@@ -1,6 +1,16 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { AudioLines, ChevronUp, MapPin, Package, Search, UserRound, X } from 'lucide-react';
+import { getCurrentWindow } from '@tauri-apps/api/window';
+import {
+  AudioLines,
+  ChevronUp,
+  ExternalLink,
+  MapPin,
+  Package,
+  Search,
+  UserRound,
+  X,
+} from 'lucide-react';
 
 import { UiButton, UiInput, UiSelect } from '@/components/ui';
 import {
@@ -8,7 +18,14 @@ import {
   ASSET_DRAG_MIME_TYPE,
   type AssetCategory,
   serializeAssetDragPayload,
+  toCanvasAssetDragPayload,
 } from '@/features/assets/domain/types';
+import {
+  ASSET_PANEL_CLOSED_EVENT,
+  focusAssetPanelWindow,
+  getAssetPanelWindow,
+  openAssetPanelWindow,
+} from '@/features/assets/application/assetPanelBridge';
 import { formatAudioDuration } from '@/features/canvas/application/audioData';
 import { resolveImageDisplayUrl } from '@/features/canvas/application/imageData';
 import { useAssetStore } from '@/stores/assetStore';
@@ -53,6 +70,7 @@ export function CanvasAssetDock() {
   const [renderedCategory, setRenderedCategory] = useState<AssetCategory | null>(null);
   const [isPanelMounted, setIsPanelMounted] = useState(false);
   const [isPanelVisible, setIsPanelVisible] = useState(false);
+  const [isDetachedPanelOpen, setIsDetachedPanelOpen] = useState(false);
 
   useEffect(() => {
     void hydrate();
@@ -89,6 +107,40 @@ export function CanvasAssetDock() {
   useEffect(() => {
     setActiveCategory(null);
   }, [assetLibraryId]);
+
+  useEffect(() => {
+    let unlistenDetachedClosed: (() => void) | null = null;
+    let disposed = false;
+
+    const syncDetachedWindowState = async () => {
+      const assetPanelWindow = await getAssetPanelWindow();
+      const isWindowVisible = assetPanelWindow ? await assetPanelWindow.isVisible() : false;
+      if (!disposed) {
+        setIsDetachedPanelOpen(isWindowVisible);
+      }
+    };
+
+    const registerDetachedCloseListener = async () => {
+      const nextUnlistenDetachedClosed = await getCurrentWindow().listen(ASSET_PANEL_CLOSED_EVENT, () => {
+        setIsDetachedPanelOpen(false);
+      });
+      if (disposed) {
+        nextUnlistenDetachedClosed();
+        return;
+      }
+      unlistenDetachedClosed = nextUnlistenDetachedClosed;
+    };
+
+    void syncDetachedWindowState();
+    void registerDetachedCloseListener().catch((error) => {
+      console.error('Failed to listen for detached asset panel close events', error);
+    });
+
+    return () => {
+      disposed = true;
+      unlistenDetachedClosed?.();
+    };
+  }, []);
 
   const isExpanded = Boolean(activeCategory && selectedLibrary);
   const visibleCategory = activeCategory ?? renderedCategory;
@@ -191,7 +243,27 @@ export function CanvasAssetDock() {
       + Number(selectedTag.length > 0),
     [searchQuery, selectedSubcategoryId, selectedTag]
   );
+
+  const handleOpenDetachedPanel = async () => {
+    if (isDetachedPanelOpen) {
+      await focusAssetPanelWindow();
+      return;
+    }
+
+    const assetPanelWindow = await openAssetPanelWindow(t('assets.detachedTitle'));
+    setIsDetachedPanelOpen(true);
+
+    void assetPanelWindow.once('tauri://error', (event) => {
+      console.error('Failed to create detached asset panel window', event.payload);
+      setIsDetachedPanelOpen(false);
+    });
+  };
+
   if (projectType !== 'storyboard') {
+    return null;
+  }
+
+  if (isDetachedPanelOpen) {
     return null;
   }
 
@@ -274,6 +346,19 @@ export function CanvasAssetDock() {
                   </UiButton>
                 );
               })}
+
+              {isDetachedPanelOpen ? (
+                <UiButton
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  className="gap-1.5 rounded-xl px-2.5"
+                  onClick={() => void handleOpenDetachedPanel()}
+                >
+                  <ExternalLink className="h-3.5 w-3.5" />
+                  <span>{t('assets.focusDetachedPanel')}</span>
+                </UiButton>
+              ) : null}
             </div>
           </div>
 
@@ -316,6 +401,22 @@ export function CanvasAssetDock() {
                         {t('assets.clearFilters')}
                       </button>
                     ) : null}
+                    <UiButton
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      className="gap-1.5"
+                      onClick={() => void handleOpenDetachedPanel()}
+                    >
+                      <ExternalLink className="h-3.5 w-3.5" />
+                      <span>
+                        {t(
+                          isDetachedPanelOpen
+                            ? 'assets.focusDetachedPanel'
+                            : 'assets.detachPanel'
+                        )}
+                      </span>
+                    </UiButton>
                   </div>
 
                   <div className="space-y-2">
@@ -414,18 +515,7 @@ export function CanvasAssetDock() {
                               event.dataTransfer.effectAllowed = 'copy';
                               event.dataTransfer.setData(
                                 ASSET_DRAG_MIME_TYPE,
-                                serializeAssetDragPayload({
-                                  assetId: item.id,
-                                  assetLibraryId: item.libraryId,
-                                  assetName: item.name,
-                                  assetCategory: item.category,
-                                  mediaType: item.mediaType,
-                                  sourcePath: item.sourcePath,
-                                  previewPath: item.previewPath,
-                                  mimeType: item.mimeType,
-                                  durationMs: item.durationMs,
-                                  aspectRatio: item.aspectRatio,
-                                })
+                                serializeAssetDragPayload(toCanvasAssetDragPayload(item))
                               );
                               event.dataTransfer.setData('text/plain', item.name);
                             }}

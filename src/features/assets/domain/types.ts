@@ -116,6 +116,21 @@ export interface CanvasAssetDragPayload {
   aspectRatio: string;
 }
 
+export function toCanvasAssetDragPayload(item: AssetItemRecord): CanvasAssetDragPayload {
+  return {
+    assetId: item.id,
+    assetLibraryId: item.libraryId,
+    assetName: item.name,
+    assetCategory: item.category,
+    mediaType: item.mediaType,
+    sourcePath: item.sourcePath,
+    previewPath: item.previewPath,
+    mimeType: item.mimeType,
+    durationMs: item.durationMs,
+    aspectRatio: item.aspectRatio,
+  };
+}
+
 export function resolveAssetMediaType(category: AssetCategory): AssetMediaType {
   return category === 'voice' ? 'audio' : 'image';
 }
