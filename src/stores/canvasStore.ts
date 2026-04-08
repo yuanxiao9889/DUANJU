@@ -47,6 +47,7 @@ import {
 import { EXPORT_RESULT_DISPLAY_NAME } from '@/features/canvas/domain/nodeDisplay';
 import { nodeCatalog } from '@/features/canvas/application/nodeCatalog';
 import { canvasNodeFactory } from '@/features/canvas/application/canvasServices';
+import { emitCanvasNodesDeleted } from '@/features/canvas/application/nodeDeletionEvents';
 import {
   ensureAtLeastOneMinEdge,
   resolveMinEdgeFittedSize,
@@ -3289,6 +3290,8 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
       return;
     }
 
+    let deletedNodeIds: string[] = [];
+
     set((state) => {
       const existingIds = uniqueIds.filter((nodeId) => state.nodes.some((node) => node.id === nodeId));
       if (existingIds.length === 0) {
@@ -3296,6 +3299,7 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
       }
 
       const deleteSet = collectNodeIdsWithDescendants(state.nodes, existingIds);
+      deletedNodeIds = Array.from(deleteSet);
       const nextNodes = state.nodes.filter((node) => !deleteSet.has(node.id));
       const nextEdges = state.edges.filter(
         (edge) => !deleteSet.has(edge.source) && !deleteSet.has(edge.target)
@@ -3317,6 +3321,10 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
         dragHistorySnapshot: null,
       };
     });
+
+    if (deletedNodeIds.length > 0) {
+      emitCanvasNodesDeleted(deletedNodeIds);
+    }
   },
 
   groupNodes: (nodeIds) => {

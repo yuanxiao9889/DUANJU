@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { type UnlistenFn } from "@tauri-apps/api/event";
-import { CheckCircle2, Loader2, RefreshCw, Sparkles } from "lucide-react";
+import { CheckCircle2, Loader2, RefreshCw, Sparkles, TriangleAlert } from "lucide-react";
 import type { TFunction } from "i18next";
 import { useTranslation } from "react-i18next";
 
@@ -185,6 +185,66 @@ function resolveRuntimeSourceCopy(
   return null;
 }
 
+function resolveDiagnosticSummary(detail: string, t: TFunction): string[] {
+  const lowered = detail.toLowerCase();
+  const summaries: string[] = [];
+
+  if (
+    lowered.includes("credential.json does not contain a usable login session")
+    || lowered.includes("credential.json is missing")
+    || lowered.includes("credential.json exists but is still empty")
+  ) {
+    summaries.push(t("dreaminaSetup.detailSummary.loginSessionMissing"));
+  }
+
+  if (
+    lowered.includes("get_qrcode")
+    || lowered.includes("empty response body")
+    || lowered.includes("login qr code")
+  ) {
+    summaries.push(t("dreaminaSetup.detailSummary.qrNotReturned"));
+  }
+
+  if (
+    lowered.includes("callback server")
+    || lowered.includes("listen tcp")
+    || lowered.includes("port is already in use")
+    || lowered.includes("bind:")
+  ) {
+    summaries.push(t("dreaminaSetup.detailSummary.callbackPortBusy"));
+  }
+
+  if (lowered.includes("premium member")) {
+    summaries.push(t("dreaminaSetup.detailSummary.membershipRequired"));
+  }
+
+  if (lowered.includes("dreamina user_credit") || lowered.includes("require usable credential")) {
+    summaries.push(t("dreaminaSetup.detailSummary.recheckPending"));
+  }
+
+  if (summaries.length > 0) {
+    return Array.from(new Set(summaries)).slice(0, 3);
+  }
+
+  const fallbackLine = detail
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .find((line) => {
+      const normalized = line.toLowerCase();
+      return (
+        !normalized.startsWith("error ")
+        && !normalized.startsWith("info ")
+        && !normalized.includes("original error:")
+        && !normalized.includes(":\\users\\")
+        && !normalized.includes(".dreamina_cli\\logs\\")
+        && normalized !== "dreamina cli failed."
+      );
+    });
+
+  return [fallbackLine ?? t("dreaminaSetup.detailSummary.fallback")];
+}
+
 export function DreaminaSetupDialog({
   isOpen,
   detail,
@@ -198,6 +258,7 @@ export function DreaminaSetupDialog({
   const [isChecking, setIsChecking] = useState(false);
   const [isAutoPreparing, setIsAutoPreparing] = useState(false);
   const [actionNotice, setActionNotice] = useState<string | null>(null);
+  const [isRawDetailVisible, setIsRawDetailVisible] = useState(false);
 
   const refreshStatus =
     useCallback(async (): Promise<DreaminaCliStatusResponse> => {
@@ -288,6 +349,12 @@ export function DreaminaSetupDialog({
   }, [detail?.initialStatus, isOpen, refreshStatus]);
 
   useEffect(() => {
+    if (!isOpen) {
+      setIsRawDetailVisible(false);
+    }
+  }, [isOpen]);
+
+  useEffect(() => {
     if (!isOpen || !status?.ready || detail?.initialStatus?.ready) {
       return;
     }
@@ -314,18 +381,51 @@ export function DreaminaSetupDialog({
   const progressPercent = setupProgress?.progress ?? 0;
   const loginQrDataUrl = setupProgress?.loginQrDataUrl ?? null;
   const isMembershipRequired = statusCode === "membershipRequired";
+  const isLoginFlowFailed =
+    setupProgress?.stage === "failed" &&
+    !status?.ready &&
+    (Boolean(loginQrDataUrl) ||
+      isMembershipRequired ||
+      statusCode === "loginRequired" ||
+      progressPercent >= 72);
   const isLoginFlowVisible =
     !status?.ready &&
     (Boolean(loginQrDataUrl) ||
       isMembershipRequired ||
       statusCode === "loginRequired" ||
+      isLoginFlowFailed ||
       setupProgress?.stage === "openingLogin" ||
       setupProgress?.stage === "waitingForLogin");
   const showCompactQrLayout = isLoginFlowVisible;
+  const showQrFailureState = isLoginFlowVisible && !loginQrDataUrl && isLoginFlowFailed;
   const runtimeSourceCopy = useMemo(
     () => resolveRuntimeSourceCopy(setupProgress?.gitSource, t),
     [setupProgress?.gitSource, t],
   );
+  const diagnosticSummary = useMemo(
+    () => (status?.detail ? resolveDiagnosticSummary(status.detail, t) : []),
+    [status?.detail, t],
+  );
+  const qrCopy = useMemo(() => {
+    if (showQrFailureState) {
+      return {
+        title: t("dreaminaSetup.qr.failedTitle"),
+        body: t("dreaminaSetup.qr.failedBody"),
+      };
+    }
+
+    if (loginQrDataUrl) {
+      return {
+        title: t("dreaminaSetup.qr.title"),
+        body: t("dreaminaSetup.qr.body"),
+      };
+    }
+
+    return {
+      title: t("dreaminaSetup.qr.waitingTitle"),
+      body: t("dreaminaSetup.qr.waitingBody"),
+    };
+  }, [loginQrDataUrl, showQrFailureState, t]);
   const membershipHintCopy = useMemo(
     () =>
       isMembershipRequired
@@ -392,12 +492,13 @@ export function DreaminaSetupDialog({
         }
       } else {
         if (
-          response.status.code === "unknown"
+          response.status.code === "loginRequired"
+          || response.status.code === "unknown"
           || response.status.code === "membershipRequired"
         ) {
           setSetupProgress((previous) => ({
             stage: "failed",
-            progress: previous?.progress ?? 0,
+            progress: Math.max(previous?.progress ?? 0, 78),
             gitSource: response.gitSource ?? previous?.gitSource ?? null,
             detail: response.status.detail ?? previous?.detail ?? null,
             loginQrDataUrl: previous?.loginQrDataUrl ?? null,
@@ -613,6 +714,13 @@ export function DreaminaSetupDialog({
                       className="w-full rounded-[20px]"
                     />
                   </div>
+                ) : showQrFailureState ? (
+                  <div className="flex aspect-square w-[220px] flex-col items-center justify-center gap-3 rounded-[28px] border border-amber-400/25 bg-amber-500/10 px-4 text-center">
+                    <TriangleAlert className="h-10 w-10 text-amber-200" />
+                    <div className="text-xs leading-5 text-amber-50/90">
+                      {t("dreaminaSetup.qr.failedBody")}
+                    </div>
+                  </div>
                 ) : (
                   <div className="flex aspect-square w-[220px] items-center justify-center rounded-[28px] border border-[rgba(255,255,255,0.08)] bg-black/20 text-text-muted">
                     <Loader2 className="h-8 w-8 animate-spin" />
@@ -623,14 +731,10 @@ export function DreaminaSetupDialog({
               <div className="space-y-3">
                 <div className="space-y-1">
                   <div className="text-sm font-medium text-text-dark">
-                    {loginQrDataUrl
-                      ? t("dreaminaSetup.qr.title")
-                      : t("dreaminaSetup.qr.waitingTitle")}
+                    {qrCopy.title}
                   </div>
                   <div className="text-xs leading-5 text-text-muted">
-                    {loginQrDataUrl
-                      ? t("dreaminaSetup.qr.body")
-                      : t("dreaminaSetup.qr.waitingBody")}
+                    {qrCopy.body}
                   </div>
                 </div>
 
@@ -696,11 +800,38 @@ export function DreaminaSetupDialog({
 
         {status?.detail ? (
           <UiPanel className="border-[rgba(255,255,255,0.08)] bg-black/20 p-4 text-xs leading-5 text-text-muted">
-            <div className="mb-1 text-sm font-medium text-text-dark">
-              {t("dreaminaSetup.detailTitle")}
-            </div>
-            <div className="whitespace-pre-wrap break-words">
-              {status.detail}
+            <div className="space-y-3">
+              <div className="text-sm font-medium text-text-dark">
+                {t("dreaminaSetup.detailTitle")}
+              </div>
+              <div className="space-y-2">
+                {diagnosticSummary.map((line) => (
+                  <div
+                    key={line}
+                    className="rounded-lg border border-[rgba(255,255,255,0.06)] bg-white/5 px-3 py-2 text-xs leading-5 text-text-dark"
+                  >
+                    {line}
+                  </div>
+                ))}
+              </div>
+              <div className="border-t border-[rgba(255,255,255,0.06)] pt-3">
+                <button
+                  type="button"
+                  className="text-xs text-text-muted transition-colors hover:text-text-dark"
+                  onClick={() => {
+                    setIsRawDetailVisible((previous) => !previous);
+                  }}
+                >
+                  {isRawDetailVisible
+                    ? t("dreaminaSetup.hideRawDetail")
+                    : t("dreaminaSetup.showRawDetail")}
+                </button>
+                {isRawDetailVisible ? (
+                  <div className="mt-2 whitespace-pre-wrap break-words text-[11px] leading-5 text-text-muted">
+                    {status.detail}
+                  </div>
+                ) : null}
+              </div>
             </div>
           </UiPanel>
         ) : null}

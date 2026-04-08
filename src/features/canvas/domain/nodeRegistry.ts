@@ -616,6 +616,8 @@ const jimengVideoResultNodeDefinition: CanvasNodeDefinition<JimengVideoResultNod
     duration: undefined,
     width: undefined,
     height: undefined,
+    autoRequeryEnabled: false,
+    autoRequeryIntervalSeconds: 900,
     isGenerating: false,
     generationStartedAt: null,
     generationDurationMs: 90000,

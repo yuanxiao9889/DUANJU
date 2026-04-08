@@ -858,6 +858,22 @@
       "requeryPendingCount": "还有 {{count}} 个任务仍在处理中",
       "requeryReadyCount": "已重新获取 {{count}} 张图片"
     },
+    "jimengVideoResult": {
+      "empty": "等待即梦返回视频结果。",
+      "pending": "生成中...",
+      "generating": "生成中",
+      "ready": "已回传",
+      "statusGenerating": "即梦正在生成视频结果，请稍后自动重查或手动查询。",
+      "generatedAt": "{{time}} 已回传",
+      "duration": "时长 {{duration}}",
+      "autoRequery": "自动重查",
+      "autoRequeryInterval": "重查间隔",
+      "autoRequeryIntervalOption": "{{minutes}} 分钟",
+      "requery": "重新查询",
+      "requeryUnavailable": "当前即梦视频结果节点还没有可用的 submit_id，暂时无法重新查询结果。",
+      "requeryFailed": "重新查询即梦视频结果失败",
+      "requeryPending": "任务仍在处理中，请稍后再试。"
+    },
     "seedanceVideoResult": {
       "empty": "等待 Seedance 返回视频结果。",
       "pending": "生成中...",
@@ -1400,13 +1416,15 @@
       "qr": {
         "alt": "Dreamina 登录二维码",
         "compactHint": "首次使用只需要扫码登录一次，成功后会自动返回继续生成。",
-        "title": "请用抖音扫码登录",
+      "title": "请用抖音扫码登录",
       "body": "用抖音扫一扫即可。手机确认后，软件会自动继续。",
       "waitingTitle": "正在准备二维码",
       "waitingBody": "首次使用时软件会自动启动登录流程，二维码生成后会直接显示在这里。",
+      "failedTitle": "二维码暂时没有生成出来",
+      "failedBody": "这次还没有拿到可扫描的二维码。请点击右下角重新生成二维码，并保持当前窗口打开。",
       "step1": "抖音扫码",
-        "step2": "手机确认后自动返回",
-        "step3": "3. 保持当前窗口打开，软件检测成功后会自动返回"
+      "step2": "手机确认后自动返回",
+      "step3": "3. 保持当前窗口打开，软件检测成功后会自动返回"
       },
       "membershipRequired": {
         "title": "当前扫码账号不是即梦高级会员",
@@ -1423,6 +1441,16 @@
       "system": "当前使用本机已有的 Git Bash 作为回退运行时。"
     },
     "detailTitle": "环境详情",
+    "showRawDetail": "展开诊断详情",
+    "hideRawDetail": "收起诊断详情",
+    "detailSummary": {
+      "loginSessionMissing": "本机还没有拿到可用的即梦登录态，需要重新完成扫码。",
+      "qrNotReturned": "即梦这次没有成功返回二维码，请重新生成一次。",
+      "callbackPortBusy": "本地登录回调端口正被占用，清理旧登录进程后再试。",
+      "membershipRequired": "当前扫码账号还不是即梦高级会员，CLI 还不能保存登录态。",
+      "recheckPending": "即梦正在等待本地登录态通过复检。",
+      "fallback": "环境还没有完全就绪，请重新生成二维码或重新检测。"
+    },
     "noticeTitle": "当前提示",
     "notice": {
         "autoReady": "自动准备已经完成。Dreamina CLI 现在可直接使用。",

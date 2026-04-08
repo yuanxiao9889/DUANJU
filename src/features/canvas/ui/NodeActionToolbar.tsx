@@ -86,7 +86,6 @@ export const NodeActionToolbar = memo(({ node }: NodeActionToolbarProps) => {
   const updateNodeData = useCanvasStore((state) => state.updateNodeData);
   const nodes = useCanvasStore((state) => state.nodes);
   const edges = useCanvasStore((state) => state.edges);
-  const canReupload = isUploadNode(node) && Boolean(node.data.imageUrl);
   const downloadPresetPaths = useSettingsStore((state) => state.downloadPresetPaths);
   const ignoreAtTagWhenCopyingAndGenerating = useSettingsStore(
     (state) => state.ignoreAtTagWhenCopyingAndGenerating
@@ -432,20 +431,6 @@ export const NodeActionToolbar = memo(({ node }: NodeActionToolbarProps) => {
             </UiChipButton>
           );
         })}
-        {!isImageEdit && canReupload && (
-          <UiChipButton
-            key="upload-reupload"
-            className={`h-8 ${TOOLBAR_BUTTON_RADIUS_CLASS} px-2.5 text-xs ${TOOLBAR_NEUTRAL_BUTTON_CLASS}`}
-            onClick={() =>
-              canvasEventBus.publish('upload-node/reupload', {
-                nodeId: node.id,
-              })
-            }
-          >
-            <RefreshCw className="h-3.5 w-3.5" />
-            {t('nodeToolbar.reupload')}
-          </UiChipButton>
-        )}
         {!isImageEdit && canSaveVoicePreset && (
           <UiChipButton
             key="audio-save-preset"

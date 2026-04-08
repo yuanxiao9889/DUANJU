@@ -620,6 +620,9 @@
       "statusGenerating": "Jimeng is generating the video and waiting for the website callback...",
       "generatedAt": "Returned {{time}}",
       "duration": "Duration {{duration}}",
+      "autoRequery": "Auto Poll",
+      "autoRequeryInterval": "Poll Interval",
+      "autoRequeryIntervalOption": "{{minutes}} min",
       "requery": "Re-query Result",
       "requeryUnavailable": "This Jimeng video result node does not have a usable submit_id yet, so the result cannot be re-queried.",
       "requeryFailed": "Failed to re-query the Jimeng video result",
@@ -1534,13 +1537,15 @@
       "qr": {
         "alt": "Dreamina login QR code",
         "compactHint": "You only need to scan once on first use. After login succeeds, the app continues automatically.",
-        "title": "Scan with Douyin to log in",
+      "title": "Scan with Douyin to log in",
       "body": "Just scan with Douyin. After you confirm on the phone, the app continues automatically.",
       "waitingTitle": "Preparing the QR code",
       "waitingBody": "The first-use login flow starts automatically. The QR code will appear here as soon as Dreamina finishes rendering it.",
+      "failedTitle": "The QR code did not render this time",
+      "failedBody": "A scannable QR code is still not available. Click Refresh QR Code and keep this dialog open while the app retries.",
       "step1": "Scan with Douyin",
-        "step2": "Confirm on phone, then return automatically",
-        "step3": "3. Keep this dialog open and the app will return automatically after login succeeds"
+      "step2": "Confirm on phone, then return automatically",
+      "step3": "3. Keep this dialog open and the app will return automatically after login succeeds"
       },
       "membershipRequired": {
         "title": "The scanned account is not a Dreamina premium member",
@@ -1557,6 +1562,16 @@
       "system": "Currently using the existing system Git Bash as a fallback runtime."
     },
     "detailTitle": "Environment Detail",
+    "showRawDetail": "Show Diagnostic Detail",
+    "hideRawDetail": "Hide Diagnostic Detail",
+    "detailSummary": {
+      "loginSessionMissing": "This computer still does not have a usable Dreamina login session.",
+      "qrNotReturned": "Dreamina did not return a usable login QR code this time.",
+      "callbackPortBusy": "The local login callback port is still busy. Close old login processes and retry.",
+      "membershipRequired": "The scanned account is not a Dreamina premium member yet, so the CLI cannot save the login session.",
+      "recheckPending": "Dreamina is still waiting for the local login session to pass recheck.",
+      "fallback": "The environment is still not fully ready. Refresh the QR code or run another recheck."
+    },
     "noticeTitle": "Current Notice",
     "notice": {
         "autoReady": "Automatic setup is complete. Dreamina CLI is ready to use now.",

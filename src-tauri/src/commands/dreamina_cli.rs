@@ -32,6 +32,7 @@ const DREAMINA_LOGIN_WAIT_TIMEOUT_MS: u64 = 5 * 60 * 1000;
 const DREAMINA_LOGIN_VERIFY_TIMEOUT_MS: u64 = 30 * 1000;
 const DREAMINA_LOGIN_POLL_INTERVAL_MS: u64 = 1_000;
 const DREAMINA_QR_READY_TIMEOUT_MS: u64 = 30 * 1000;
+const DREAMINA_LOGIN_CALLBACK_PORT: u16 = 60713;
 const DREAMINA_BUNDLED_DIR_NAME: &str = "dreamina-cli";
 const DREAMINA_BUNDLED_BIN_NAME: &str = "dreamina.exe";
 const DREAMINA_VERSION_RECORD_FILE_NAME: &str = "version.json";
@@ -116,6 +117,14 @@ struct GitBashRuntime {
 
 #[derive(Debug, Clone)]
 struct DreaminaProcessEnv {
+    user_profile: PathBuf,
+    app_data_dir: PathBuf,
+    local_app_data_dir: PathBuf,
+    temp_dir: PathBuf,
+}
+
+#[derive(Debug, Clone)]
+struct DreaminaWorkspaceLayout {
     user_profile: PathBuf,
     app_data_dir: PathBuf,
     local_app_data_dir: PathBuf,
@@ -440,10 +449,71 @@ fn runtime_root<R: Runtime>(app: &AppHandle<R>) -> Result<PathBuf, String> {
     Ok(path)
 }
 
+fn dreamina_profile_root<R: Runtime>(app: &AppHandle<R>) -> Result<PathBuf, String> {
+    let path = runtime_root(app)?.join(DREAMINA_RUNTIME_PROFILE_DIR_NAME);
+    fs::create_dir_all(&path)
+        .map_err(|error| format!("failed to create Dreamina profile dir: {error}"))?;
+    Ok(path)
+}
+
+fn legacy_dreamina_workspace_path<R: Runtime>(app: &AppHandle<R>) -> Result<PathBuf, String> {
+    Ok(runtime_root(app)?.join("workspace"))
+}
+
+fn migrate_legacy_dreamina_workspace(legacy_path: &Path, new_path: &Path) {
+    if legacy_path == new_path || !legacy_path.is_dir() {
+        return;
+    }
+
+    let entries = match fs::read_dir(legacy_path) {
+        Ok(entries) => entries,
+        Err(error) => {
+            warn!(
+                "failed to inspect Dreamina legacy workspace {}: {}",
+                legacy_path.display(),
+                error
+            );
+            return;
+        }
+    };
+
+    for entry in entries.flatten() {
+        let source = entry.path();
+        let target = new_path.join(entry.file_name());
+        if target.exists() {
+            continue;
+        }
+
+        if let Err(error) = fs::rename(&source, &target) {
+            warn!(
+                "failed to migrate Dreamina workspace item {} -> {}: {}",
+                source.display(),
+                target.display(),
+                error
+            );
+        }
+    }
+}
+
 fn dreamina_workspace<R: Runtime>(app: &AppHandle<R>) -> Result<PathBuf, String> {
-    let path = runtime_root(app)?.join("workspace");
+    let host_app_data_dir = app
+        .path()
+        .app_data_dir()
+        .map_err(|error| format!("failed to resolve app data dir: {error}"))?;
+    let app_scope = host_app_data_dir
+        .file_name()
+        .ok_or_else(|| "failed to resolve Dreamina app-data scope".to_string())?;
+    let path = dreamina_profile_root(app)?
+        .join("AppData")
+        .join("Roaming")
+        .join(app_scope)
+        .join("dreamina-cli-runtime")
+        .join("workspace");
     fs::create_dir_all(&path)
         .map_err(|error| format!("failed to create Dreamina workspace dir: {error}"))?;
+    if let Ok(legacy_path) = legacy_dreamina_workspace_path(app) {
+        migrate_legacy_dreamina_workspace(&legacy_path, &path);
+    }
     Ok(path)
 }
 
@@ -470,30 +540,57 @@ fn home_path_from_windows_path(path: &Path) -> String {
     }
 }
 
+fn resolve_dreamina_workspace_layout(workspace: &Path) -> Option<DreaminaWorkspaceLayout> {
+    let runtime_root = workspace.parent()?;
+    let app_scope_dir = runtime_root.parent()?;
+    let roaming_dir = app_scope_dir.parent()?;
+    let app_data_root = roaming_dir.parent()?;
+    let user_profile = app_data_root.parent()?;
+
+    if workspace.file_name()?.to_str() == Some("workspace")
+        && runtime_root.file_name()?.to_str() == Some("dreamina-cli-runtime")
+        && roaming_dir.file_name()?.to_str() == Some("Roaming")
+        && app_data_root.file_name()?.to_str() == Some("AppData")
+    {
+        return Some(DreaminaWorkspaceLayout {
+            user_profile: user_profile.to_path_buf(),
+            app_data_dir: roaming_dir.to_path_buf(),
+            local_app_data_dir: app_data_root.join("Local"),
+            temp_dir: app_data_root.join("Local").join("Temp"),
+        });
+    }
+
+    let legacy_runtime_root = runtime_root;
+    let legacy_user_profile = legacy_runtime_root.join(DREAMINA_RUNTIME_PROFILE_DIR_NAME);
+    let legacy_app_data_dir = legacy_user_profile.join("AppData").join("Roaming");
+    let legacy_local_app_data_dir = legacy_user_profile.join("AppData").join("Local");
+    Some(DreaminaWorkspaceLayout {
+        user_profile: legacy_user_profile,
+        app_data_dir: legacy_app_data_dir,
+        local_app_data_dir: legacy_local_app_data_dir.clone(),
+        temp_dir: legacy_local_app_data_dir.join("Temp"),
+    })
+}
+
 fn dreamina_process_env(workspace: &Path) -> Result<DreaminaProcessEnv, String> {
-    let runtime_root = workspace
-        .parent()
-        .ok_or_else(|| "failed to resolve Dreamina runtime root".to_string())?;
-    let user_profile = runtime_root.join(DREAMINA_RUNTIME_PROFILE_DIR_NAME);
-    let app_data_dir = user_profile.join("AppData").join("Roaming");
-    let local_app_data_dir = user_profile.join("AppData").join("Local");
-    let temp_dir = local_app_data_dir.join("Temp");
-    let user_bin_dir = user_profile.join("bin");
+    let layout = resolve_dreamina_workspace_layout(workspace)
+        .ok_or_else(|| "failed to resolve Dreamina workspace layout".to_string())?;
+    let user_bin_dir = layout.user_profile.join("bin");
     for dir in [
-        &user_profile,
-        &app_data_dir,
-        &local_app_data_dir,
-        &temp_dir,
+        &layout.user_profile,
+        &layout.app_data_dir,
+        &layout.local_app_data_dir,
+        &layout.temp_dir,
         &user_bin_dir,
     ] {
         fs::create_dir_all(dir)
             .map_err(|error| format!("failed to prepare Dreamina runtime dir: {error}"))?;
     }
     Ok(DreaminaProcessEnv {
-        user_profile,
-        app_data_dir,
-        local_app_data_dir,
-        temp_dir,
+        user_profile: layout.user_profile,
+        app_data_dir: layout.app_data_dir,
+        local_app_data_dir: layout.local_app_data_dir,
+        temp_dir: layout.temp_dir,
     })
 }
 
@@ -923,6 +1020,12 @@ fn classify_dreamina_status_code(detail: &str) -> DreaminaCliStatusCode {
         || lowered.contains("unauthorized")
         || lowered.contains("forbidden")
         || lowered.contains("user_credit")
+        || lowered.contains("get_qrcode")
+        || lowered.contains("empty response body")
+        || lowered.contains("login qr code")
+        || lowered.contains("callback server")
+        || lowered.contains("listen tcp")
+        || lowered.contains("port is already in use")
     {
         DreaminaCliStatusCode::LoginRequired
     } else {
@@ -1055,13 +1158,72 @@ fn dreamina_login_qr_path(workspace: &Path) -> PathBuf {
 }
 
 fn dreamina_credential_path(workspace: &Path) -> Option<PathBuf> {
-    let runtime_root = workspace.parent()?;
-    Some(
-        runtime_root
-            .join(DREAMINA_RUNTIME_PROFILE_DIR_NAME)
-            .join(".dreamina_cli")
-            .join("credential.json"),
-    )
+    let layout = resolve_dreamina_workspace_layout(workspace)?;
+    Some(layout.user_profile.join(".dreamina_cli").join("credential.json"))
+}
+
+fn dreamina_cli_home_path(workspace: &Path) -> Option<PathBuf> {
+    let layout = resolve_dreamina_workspace_layout(workspace)?;
+    Some(layout.user_profile.join(".dreamina_cli"))
+}
+
+fn is_empty_dreamina_credential_value(value: &Value) -> bool {
+    match value {
+        Value::Null => true,
+        Value::Bool(value) => !*value,
+        Value::Number(_) => false,
+        Value::String(value) => value.trim().is_empty(),
+        Value::Array(values) => values.is_empty() || values.iter().all(is_empty_dreamina_credential_value),
+        Value::Object(entries) => {
+            entries.is_empty()
+                || entries.iter().all(|(key, value)| {
+                    key == "random_secret_key" || is_empty_dreamina_credential_value(value)
+                })
+        }
+    }
+}
+
+fn dreamina_credential_session_detail(workspace: &Path) -> Option<String> {
+    let credential_path = dreamina_credential_path(workspace)?;
+    let bytes = match fs::read(&credential_path) {
+        Ok(bytes) => bytes,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            return Some(format!(
+                "Dreamina credential.json is missing, so this computer still needs login. Expected path: {}",
+                credential_path.display()
+            ));
+        }
+        Err(_) => return None,
+    };
+
+    let text = String::from_utf8_lossy(&bytes).into_owned();
+    if text.trim().is_empty() {
+        return Some(format!(
+            "Dreamina credential.json exists but is still empty, so this computer still needs login. Path: {}",
+            credential_path.display()
+        ));
+    }
+
+    match serde_json::from_str::<Value>(&text) {
+        Ok(Value::Object(entries)) => {
+            let has_login_session = entries
+                .iter()
+                .any(|(key, value)| key != "random_secret_key" && !is_empty_dreamina_credential_value(value));
+            if has_login_session {
+                None
+            } else {
+                Some(format!(
+                    "Dreamina credential.json does not contain a usable login session yet. Path: {}",
+                    credential_path.display()
+                ))
+            }
+        }
+        Ok(_) => None,
+        Err(error) => Some(format!(
+            "Dreamina credential.json is present but could not be parsed yet ({error}). Path: {}",
+            credential_path.display()
+        )),
+    }
 }
 
 fn clear_dreamina_login_artifacts(workspace: &Path) {
@@ -1165,6 +1327,83 @@ fn dreamina_login_log_tail(workspace: &Path, line_count: usize) -> Option<String
     }
 }
 
+fn latest_dreamina_internal_log_path(workspace: &Path) -> Option<PathBuf> {
+    let logs_root = dreamina_cli_home_path(workspace)?.join("logs");
+    let date_dirs = fs::read_dir(logs_root).ok()?;
+    let mut latest: Option<(SystemTime, PathBuf)> = None;
+
+    for date_dir in date_dirs.flatten() {
+        let day_path = date_dir.path();
+        if !day_path.is_dir() {
+            continue;
+        }
+
+        let log_files = match fs::read_dir(&day_path) {
+            Ok(entries) => entries,
+            Err(_) => continue,
+        };
+        for entry in log_files.flatten() {
+            let path = entry.path();
+            let is_log_file = path
+                .extension()
+                .and_then(|extension| extension.to_str())
+                .map(|extension| extension.eq_ignore_ascii_case("log"))
+                .unwrap_or(false);
+            if !path.is_file() || !is_log_file {
+                continue;
+            }
+
+            let modified_at = fs::metadata(&path)
+                .and_then(|metadata| metadata.modified())
+                .unwrap_or(SystemTime::UNIX_EPOCH);
+            let replace = latest
+                .as_ref()
+                .map(|(current, _)| modified_at >= *current)
+                .unwrap_or(true);
+            if replace {
+                latest = Some((modified_at, path));
+            }
+        }
+    }
+
+    latest.map(|(_, path)| path)
+}
+
+fn dreamina_internal_log_tail(workspace: &Path, line_count: usize) -> Option<String> {
+    let log_path = latest_dreamina_internal_log_path(workspace)?;
+    let log_text = read_text_file_lossy(&log_path)?;
+    let tail = tail_lines(&log_text, line_count);
+    if tail.is_empty() {
+        None
+    } else {
+        Some(format!("{}:\n{tail}", log_path.display()))
+    }
+}
+
+fn dreamina_login_internal_failure_detail(workspace: &Path, line_count: usize) -> Option<String> {
+    let internal_tail = dreamina_internal_log_tail(workspace, line_count)?;
+    let lowered = internal_tail.to_ascii_lowercase();
+    let headline = if lowered.contains("get_qrcode") || lowered.contains("empty response body") {
+        "Dreamina could not fetch the official login QR code yet."
+    } else if lowered.contains("callback server")
+        || lowered.contains("listen tcp")
+        || lowered.contains("bind:")
+    {
+        "Dreamina could not start the local login callback server because the port is still in use."
+    } else if lowered.contains("require usable credential")
+        || lowered.contains("parse auth token failed")
+        || lowered.contains("credential.json")
+        || lowered.contains("command=dreamina user_credit")
+    {
+        "Dreamina still needs a usable local login session."
+    } else {
+        "Dreamina is still preparing the login QR code."
+    };
+    Some(format!(
+        "{headline}\nLatest Dreamina internal log:\n{internal_tail}"
+    ))
+}
+
 fn dreamina_login_membership_required_detail(workspace: &Path) -> Option<String> {
     let log_text = read_text_file_lossy(&dreamina_login_log_path(workspace))?;
     if contains_dreamina_membership_required(&log_text) {
@@ -1191,6 +1430,14 @@ fn dreamina_login_wait_detail(workspace: &Path) -> Option<String> {
             "The QR code is ready. Scan it with Douyin and confirm the login on your phone."
                 .to_string(),
         );
+    }
+
+    if let Some(detail) = dreamina_login_internal_failure_detail(workspace, 6) {
+        return Some(detail);
+    }
+
+    if let Some(detail) = dreamina_credential_session_detail(workspace) {
+        return Some(detail);
     }
 
     dreamina_login_log_tail(workspace, 6).map(|tail| {
@@ -1233,14 +1480,31 @@ async fn terminate_conflicting_dreamina_processes(
         binary_paths.push(installed_binary);
     }
 
-    if binary_paths.is_empty() {
-        return Ok(());
-    }
-
     let binary_paths = binary_paths
         .into_iter()
         .map(|path| path.canonicalize().unwrap_or(path).to_string_lossy().to_string())
         .collect::<Vec<_>>();
+    let runtime_root = command_env
+        .user_profile
+        .parent()
+        .map(Path::to_path_buf)
+        .unwrap_or_else(|| command_env.user_profile.clone())
+        .canonicalize()
+        .unwrap_or_else(|_| {
+            command_env
+                .user_profile
+                .parent()
+                .map(Path::to_path_buf)
+                .unwrap_or_else(|| command_env.user_profile.clone())
+        })
+        .to_string_lossy()
+        .to_string();
+    let temp_dir = command_env
+        .temp_dir
+        .canonicalize()
+        .unwrap_or_else(|_| command_env.temp_dir.clone())
+        .to_string_lossy()
+        .to_string();
 
     tokio::task::spawn_blocking(move || {
         let powershell_paths = binary_paths
@@ -1248,8 +1512,12 @@ async fn terminate_conflicting_dreamina_processes(
             .map(|path| powershell_quote(path))
             .collect::<Vec<_>>()
             .join(", ");
+        let runtime_root = powershell_quote(&runtime_root);
+        let temp_dir = powershell_quote(&temp_dir);
         let script = format!(
-            "$paths = @({powershell_paths}); Get-Process dreamina -ErrorAction SilentlyContinue | Where-Object {{ $_.Path -and ($paths -contains $_.Path) }} | Stop-Process -Force -ErrorAction SilentlyContinue"
+            "$paths = @({powershell_paths}); $runtimeRoot = {runtime_root}; $tempDir = {temp_dir}; $callbackPort = {callback_port}; if ($paths.Count -gt 0) {{ Get-Process dreamina -ErrorAction SilentlyContinue | Where-Object {{ $_.Path -and ($paths -contains $_.Path) }} | Stop-Process -Force -ErrorAction SilentlyContinue; }}; Get-CimInstance Win32_Process -ErrorAction SilentlyContinue | Where-Object {{ $cmd = $_.CommandLine; if (-not $cmd) {{ return $false }}; $isRuntimeChrome = $_.Name -eq 'chrome.exe' -and (($cmd -like \"*$tempDir*\") -or ($cmd -like \"*$runtimeRoot*\") -or (($cmd -like '*chromedp-runner*') -and ($cmd -like '*dreamina-cli-runtime*')) -or (($cmd -like '*chromedp-runner*') -and ($cmd -like '*dreamina-cli-runtime-userprofile-test*'))); $isLoginShell = (($_.Name -eq 'powershell.exe') -or ($_.Name -eq 'bash.exe') -or ($_.Name -eq 'sh.exe')) -and (($cmd -like '*dreamina login*') -and (($cmd -like '*dreamina-cli-runtime*') -or ($cmd -like '*com.storyboard.copilot*'))); $isRuntimeChrome -or $isLoginShell }} | ForEach-Object {{ Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue; }}; Get-NetTCPConnection -State Listen -LocalPort $callbackPort -ErrorAction SilentlyContinue | Select-Object -ExpandProperty OwningProcess -Unique | ForEach-Object {{ $owner = Get-CimInstance Win32_Process -Filter (\"ProcessId = \" + $_) -ErrorAction SilentlyContinue; if ($owner) {{ $cmd = $owner.CommandLine; if (($owner.Name -in @('dreamina.exe','chrome.exe','powershell.exe','bash.exe','sh.exe')) -or ($cmd -and (($cmd -like '*dreamina*') -or ($cmd -like '*chromedp-runner*') -or ($cmd -like '*com.storyboard.copilot*')))) {{ Stop-Process -Id $owner.ProcessId -Force -ErrorAction SilentlyContinue; }} }} }}; if (Test-Path -LiteralPath $tempDir) {{ Get-ChildItem -LiteralPath $tempDir -Force -ErrorAction SilentlyContinue | Where-Object {{ $_.Name -like 'chromedp-runner*' -or $_.Name -like '*.tmp' }} | ForEach-Object {{ Remove-Item -LiteralPath $_.FullName -Recurse -Force -ErrorAction SilentlyContinue; }}; }}"
+            ,
+            callback_port = DREAMINA_LOGIN_CALLBACK_PORT
         );
         let mut command = Command::new("powershell");
         command
@@ -1278,6 +1546,51 @@ fn extract_json_text(text: &str) -> Option<&str> {
     Some(&candidate[..=end])
 }
 
+fn first_non_empty_dreamina_output<'a>(stdout: &'a str, stderr: &'a str) -> Option<&'a str> {
+    stderr
+        .lines()
+        .map(str::trim)
+        .find(|line| !line.is_empty())
+        .or_else(|| stdout.lines().map(str::trim).find(|line| !line.is_empty()))
+}
+
+fn is_generic_dreamina_failure(detail: &str) -> bool {
+    let lowered = detail.trim().to_ascii_lowercase();
+    lowered.is_empty() || lowered == "dreamina cli failed." || lowered == "error"
+}
+
+fn looks_like_dreamina_login_failure(detail: &str) -> bool {
+    let lowered = detail.trim().to_ascii_lowercase();
+    lowered.contains("dreamina login")
+        || lowered.contains("login qr code")
+        || lowered.contains("credential")
+        || lowered.contains("unauthorized")
+        || lowered.contains("forbidden")
+        || lowered.contains("user_credit")
+        || lowered.contains("get_qrcode")
+        || lowered.contains("empty response body")
+        || lowered.contains("callback server")
+        || lowered.contains("listen tcp")
+}
+
+fn compose_dreamina_login_failure_detail(workspace: &Path, primary_detail: &str) -> String {
+    let mut sections = Vec::new();
+    if let Some(detail) = dreamina_credential_session_detail(workspace) {
+        sections.push(detail);
+    }
+    if let Some(detail) = dreamina_login_internal_failure_detail(workspace, 8) {
+        sections.push(detail);
+    } else if let Some(detail) = dreamina_login_log_tail(workspace, 8) {
+        sections.push(format!("Latest Dreamina login output:\n{detail}"));
+    }
+
+    if sections.is_empty() {
+        primary_detail.to_string()
+    } else {
+        format!("{}\n\n{}", primary_detail.trim(), sections.join("\n\n"))
+    }
+}
+
 fn normalize_dreamina_cli_error(line: &str) -> String {
     let trimmed = line.trim();
     if trimmed.contains("AigcComplianceConfirmationRequired") {
@@ -1287,6 +1600,23 @@ fn normalize_dreamina_cli_error(line: &str) -> String {
         return dreamina_membership_required_message();
     }
     let lowered = trimmed.to_ascii_lowercase();
+    if lowered.contains("get_qrcode")
+        || lowered.contains("empty response body")
+        || lowered.contains("login qr code")
+    {
+        return format!(
+            "Dreamina could not fetch the official login QR code. Retry the QR login after a short wait. Original error: {trimmed}"
+        );
+    }
+    if lowered.contains("callback server")
+        || lowered.contains("listen tcp")
+        || lowered.contains("port is already in use")
+        || lowered.contains("bind:")
+    {
+        return format!(
+            "Dreamina could not start the local login callback server because the port is already in use. Retry the QR login after old Dreamina or Chrome login processes are closed. Original error: {trimmed}"
+        );
+    }
     if lowered.contains("command not found") || lowered.contains("is not recognized") {
         return "Dreamina CLI was not found. Install it first with `curl -fsSL https://jimeng.jianying.com/cli | bash`, then run `dreamina login` and verify with `dreamina user_credit`.".to_string();
     }
@@ -1319,15 +1649,20 @@ async fn run_dreamina_json(
         parts.join(" ")
     );
     let (success, stdout, stderr) =
-        run_git_bash_script(runtime, command_env, workspace, script).await?;
+        run_git_bash_script(runtime, command_env, workspace.clone(), script).await?;
     if !success {
-        let line = stderr
-            .lines()
-            .map(str::trim)
-            .find(|line| !line.is_empty())
-            .or_else(|| stdout.lines().map(str::trim).find(|line| !line.is_empty()))
+        let line = first_non_empty_dreamina_output(&stdout, &stderr)
             .unwrap_or("Dreamina CLI failed.");
-        return Err(normalize_dreamina_cli_error(line));
+        let command_name = args.first().map(String::as_str).unwrap_or_default();
+        let detail = if command_name.eq_ignore_ascii_case("user_credit")
+            || is_generic_dreamina_failure(line)
+            || looks_like_dreamina_login_failure(line)
+        {
+            compose_dreamina_login_failure_detail(&workspace, line)
+        } else {
+            line.to_string()
+        };
+        return Err(normalize_dreamina_cli_error(&detail));
     }
     let combined = format!("{stdout}\n{stderr}");
     let json_text = extract_json_text(&stdout)
@@ -1355,15 +1690,20 @@ async fn run_dreamina_action(
         parts.join(" ")
     );
     let (success, stdout, stderr) =
-        run_git_bash_script(runtime, command_env, workspace, script).await?;
+        run_git_bash_script(runtime, command_env, workspace.clone(), script).await?;
     if !success {
-        let line = stderr
-            .lines()
-            .map(str::trim)
-            .find(|line| !line.is_empty())
-            .or_else(|| stdout.lines().map(str::trim).find(|line| !line.is_empty()))
+        let line = first_non_empty_dreamina_output(&stdout, &stderr)
             .unwrap_or("Dreamina CLI failed.");
-        return Err(normalize_dreamina_cli_error(line));
+        let command_name = args.first().map(String::as_str).unwrap_or_default();
+        let detail = if command_name.eq_ignore_ascii_case("user_credit")
+            || is_generic_dreamina_failure(line)
+            || looks_like_dreamina_login_failure(line)
+        {
+            compose_dreamina_login_failure_detail(&workspace, line)
+        } else {
+            line.to_string()
+        };
+        return Err(normalize_dreamina_cli_error(&detail));
     }
 
     let detail = [stdout.trim(), stderr.trim()]
@@ -2139,18 +2479,41 @@ async fn resolve_dreamina_cli_status_with_runtime(
     workspace: PathBuf,
     runtime: &GitBashRuntime,
 ) -> DreaminaCliStatusResponse {
-    match run_dreamina_json(workspace, runtime, vec!["user_credit".to_string()]).await {
+    match run_dreamina_json(workspace.clone(), runtime, vec!["user_credit".to_string()]).await {
         Ok(value) => DreaminaCliStatusResponse::new(
             DreaminaCliStatusCode::Ready,
             "Dreamina CLI is ready.",
             summarize_user_credit(&value)
                 .or_else(|| Some("`dreamina user_credit` check passed.".to_string())),
         ),
-        Err(error) => DreaminaCliStatusResponse::new(
-            classify_dreamina_status_code(&error),
-            "Dreamina CLI is not ready.",
-            Some(error),
-        ),
+        Err(error) => {
+            let mut code = classify_dreamina_status_code(&error);
+            let mut detail = error;
+
+            if let Some(session_detail) = dreamina_credential_session_detail(&workspace) {
+                if matches!(code, DreaminaCliStatusCode::Unknown) {
+                    code = DreaminaCliStatusCode::LoginRequired;
+                }
+                if !detail.contains(&session_detail) {
+                    detail.push_str("\n\n");
+                    detail.push_str(&session_detail);
+                }
+            }
+
+            if matches!(code, DreaminaCliStatusCode::Unknown)
+                || is_generic_dreamina_failure(&detail)
+            {
+                if let Some(internal_detail) = dreamina_login_internal_failure_detail(&workspace, 8) {
+                    code = DreaminaCliStatusCode::LoginRequired;
+                    if !detail.contains(&internal_detail) {
+                        detail.push_str("\n\n");
+                        detail.push_str(&internal_detail);
+                    }
+                }
+            }
+
+            DreaminaCliStatusResponse::new(code, "Dreamina CLI is not ready.", Some(detail))
+        }
     }
 }
 
@@ -2465,8 +2828,8 @@ async fn wait_for_dreamina_login(
             });
             return (
                 DreaminaCliStatusResponse::new(
-                    DreaminaCliStatusCode::Unknown,
-                    "Dreamina QR code did not appear.",
+                    DreaminaCliStatusCode::LoginRequired,
+                    "Dreamina login QR code did not appear.",
                     detail,
                 ),
                 false,

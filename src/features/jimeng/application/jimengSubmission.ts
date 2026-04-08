@@ -2,8 +2,8 @@ import { audioUrlToDataUrl } from '@/features/canvas/application/audioData';
 import { createPreviewDataUrl } from '@/features/canvas/application/imageData';
 import { videoUrlToDataUrl } from '@/features/canvas/application/videoData';
 
-const REFERENCE_TOKEN_PATTERN = /@\u56fe(?:\u7247)?\d+/g;
-const AUDIO_REFERENCE_TOKEN_PATTERN = /@\u97f3(?:\u9891)?\d+/g;
+const DREAMINA_REFERENCE_TOKEN_AT_PREFIX_PATTERN =
+  /@(?=(?:\u56fe(?:\u7247)?|\u89c6\u9891|\u97f3(?:\u9891)?)\d+)/g;
 const JIMENG_REFERENCE_IMAGE_MAX_DIMENSION = 1600;
 
 export interface JimengReferenceImagePayload {
@@ -32,9 +32,7 @@ function normalizeWhitespace(value: string): string {
 
 export function buildJimengSubmissionPrompt(prompt: string): string {
   return normalizeWhitespace(
-    prompt
-      .replace(REFERENCE_TOKEN_PATTERN, ' ')
-      .replace(AUDIO_REFERENCE_TOKEN_PATTERN, ' ')
+    prompt.replace(DREAMINA_REFERENCE_TOKEN_AT_PREFIX_PATTERN, '')
   );
 }
 

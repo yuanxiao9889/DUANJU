@@ -69,6 +69,11 @@ import {
 import { UiButton, UiChipButton, UiSelect } from "@/components/ui";
 import { useCanvasStore } from "@/stores/canvasStore";
 import { useSettingsStore } from "@/stores/settingsStore";
+import { generateJimengVideos } from "@/features/jimeng/application/jimengVideoSubmission";
+import {
+  ensureDreaminaCliReady,
+  resolveDreaminaSetupBlockedMessage,
+} from "@/features/jimeng/application/dreaminaSetup";
 import {
   areReferenceImageOrdersEqual,
   buildShortReferenceToken,
@@ -1986,8 +1991,200 @@ export const JimengNode = memo(
     ]);
 
     const handleGenerate = useCallback(async () => {
-      await enqueueJimengVideoJob(null);
-    }, [enqueueJimengVideoJob]);
+      const prompt = promptDraft.trim();
+      if (!prompt) {
+        const message = t("node.jimeng.promptRequired");
+        updateNodeData(id, { lastError: message });
+        await showErrorDialog(message, t("common.error"));
+        return;
+      }
+
+      if (isGenerateBlocked) {
+        const message = hasTooManyReferenceVideos
+          ? t("node.jimeng.referenceVideoTooMany", {
+              count: MAX_REFERENCE_VIDEO_COUNT,
+            })
+          : hasReferenceVideoTooLong
+            ? t("node.jimeng.referenceVideoTooLong", {
+                seconds: MAX_REFERENCE_VIDEO_DURATION_SECONDS,
+              })
+            : isFirstLastFrameCountInvalid
+              ? t("node.jimeng.firstLastFrameRequiresTwoImages")
+              : t("node.jimeng.cliBlockedAudioNeedsImage");
+        updateNodeData(id, { lastError: message });
+        await showErrorDialog(message, t("common.error"));
+        return;
+      }
+
+      setPromptOptimizationError(null);
+      updateNodeData(id, { lastError: null });
+
+      const startedAt = Date.now();
+      let createdResultNodeId: string | null = null;
+      const resultNodeTitle = buildJimengVideoResultNodeTitle(
+        t("node.jimeng.resultNodeTitle"),
+      );
+
+      try {
+        const resultNodePosition = findNodePosition(
+          id,
+          JIMENG_VIDEO_RESULT_NODE_DEFAULT_WIDTH,
+          JIMENG_VIDEO_RESULT_NODE_DEFAULT_HEIGHT,
+        );
+        createdResultNodeId = addNode(
+          CANVAS_NODE_TYPES.jimengVideoResult,
+          resultNodePosition,
+          {
+            sourceNodeId: id,
+            displayName: resultNodeTitle,
+            queueJobId: null,
+            queueStatus: null,
+            queueScheduledAt: null,
+            queueAttemptCount: 0,
+            queueMaxAttempts: 3,
+            submitId: null,
+            sourceUrl: null,
+            posterSourceUrl: null,
+            videoUrl: null,
+            previewImageUrl: null,
+            videoFileName: null,
+            aspectRatio: selectedAspectRatio,
+            duration: selectedDuration,
+            isGenerating: true,
+            generationStartedAt: startedAt,
+            generationDurationMs: 180000,
+            lastGeneratedAt: null,
+            lastError: null,
+          },
+          { inheritParentFromNodeId: id },
+        );
+        addEdge(id, createdResultNodeId);
+        await flushCurrentProjectToDiskSafely(
+          "creating Jimeng video result node",
+        );
+
+        const dreaminaStatus = await ensureDreaminaCliReady({
+          feature: "video",
+          action: "generate",
+        });
+        if (!dreaminaStatus.ready) {
+          const message = resolveDreaminaSetupBlockedMessage(
+            t,
+            dreaminaStatus.code,
+          );
+          updateNodeData(id, { lastError: message });
+          if (createdResultNodeId) {
+            updateNodeData(createdResultNodeId, {
+              isGenerating: false,
+              generationStartedAt: null,
+              lastError: message,
+            });
+          }
+          await flushCurrentProjectToDiskSafely(
+            "saving Jimeng video generation blocked state",
+          );
+          return;
+        }
+
+        const generationResponse = await generateJimengVideos({
+          prompt,
+          modelVersion: selectedModel,
+          referenceMode: selectedReferenceMode,
+          aspectRatio: selectedAspectRatio,
+          durationSeconds: selectedDuration,
+          videoResolution: selectedVideoResolution,
+          referenceImageSources,
+          referenceVideoSources,
+          referenceAudioSources: incomingAudios.map((item) => item.audioUrl),
+          onSubmitted: async ({ submitId }) => {
+            if (!createdResultNodeId) {
+              return;
+            }
+
+            updateNodeData(createdResultNodeId, {
+              submitId,
+              isGenerating: true,
+              generationStartedAt: startedAt,
+              lastError: null,
+            });
+            await flushCurrentProjectToDiskSafely(
+              "saving Jimeng video submit id",
+            );
+          },
+        });
+        const completedAt = Date.now();
+        const primaryResult = generationResponse.videos[0] ?? null;
+
+        updateNodeData(id, {
+          lastSubmittedAt: completedAt,
+          lastError: null,
+        });
+
+        if (createdResultNodeId && primaryResult) {
+          updateNodeData(createdResultNodeId, {
+            submitId: generationResponse.submitId,
+            sourceUrl: primaryResult.sourceUrl ?? null,
+            posterSourceUrl: primaryResult.posterSourceUrl ?? null,
+            videoUrl: primaryResult.videoUrl ?? null,
+            previewImageUrl: primaryResult.previewImageUrl ?? null,
+            videoFileName: primaryResult.fileName ?? null,
+            aspectRatio: primaryResult.aspectRatio ?? selectedAspectRatio,
+            duration: primaryResult.duration ?? selectedDuration,
+            width: primaryResult.width ?? undefined,
+            height: primaryResult.height ?? undefined,
+            isGenerating: false,
+            generationStartedAt: null,
+            lastGeneratedAt: completedAt,
+            lastError: null,
+          });
+        }
+        await flushCurrentProjectToDiskSafely(
+          "saving Jimeng video generation result",
+        );
+      } catch (error) {
+        const content = resolveErrorContent(
+          error,
+          t("node.jimeng.submitFailed"),
+        );
+        updateNodeData(id, { lastError: content.message });
+        if (createdResultNodeId) {
+          updateNodeData(createdResultNodeId, {
+            isGenerating: false,
+            generationStartedAt: null,
+            lastError: content.message,
+          });
+        }
+        await flushCurrentProjectToDiskSafely(
+          "saving Jimeng video generation error",
+        );
+        await showErrorDialog(
+          content.message,
+          t("common.error"),
+          content.details,
+        );
+      }
+    }, [
+      addEdge,
+      addNode,
+      findNodePosition,
+      flushCurrentProjectToDiskSafely,
+      hasReferenceVideoTooLong,
+      hasTooManyReferenceVideos,
+      id,
+      incomingAudios,
+      isFirstLastFrameCountInvalid,
+      isGenerateBlocked,
+      promptDraft,
+      referenceImageSources,
+      referenceVideoSources,
+      selectedAspectRatio,
+      selectedDuration,
+      selectedModel,
+      selectedReferenceMode,
+      selectedVideoResolution,
+      t,
+      updateNodeData,
+    ]);
 
     const handlePromptKeyDown = useCallback(
       (event: KeyboardEvent<HTMLTextAreaElement>) => {

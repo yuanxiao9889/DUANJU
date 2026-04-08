@@ -1,4 +1,4 @@
-import { memo, useEffect, useMemo, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useState } from "react";
 import {
   Handle,
   Position,
@@ -9,7 +9,7 @@ import { convertFileSrc, isTauri } from "@tauri-apps/api/core";
 import { Clock3, Loader2, Sparkles, TriangleAlert, Video } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
-import { UiButton } from "@/components/ui";
+import { UiButton, UiCheckbox, UiSelect } from "@/components/ui";
 import {
   CANVAS_NODE_TYPES,
   JIMENG_VIDEO_RESULT_NODE_DEFAULT_WIDTH,
@@ -50,6 +50,15 @@ type JimengVideoResultNodeProps = NodeProps & {
   selected?: boolean;
 };
 
+const AUTO_REQUERY_INTERVAL_OPTIONS = [900, 1800, 2700] as const;
+const DEFAULT_AUTO_REQUERY_INTERVAL_SECONDS = 900;
+
+type RequeryOptions = {
+  suppressErrorDialog?: boolean;
+  keepPollingOnFailure?: boolean;
+  suppressStartFlush?: boolean;
+};
+
 function formatTimestamp(
   timestamp: number | null | undefined,
   locale: string,
@@ -85,6 +94,22 @@ function toCssAspectRatio(aspectRatio: string): string {
   return `${width} / ${height}`;
 }
 
+function resolveAutoRequeryIntervalSeconds(
+  value: number | null | undefined,
+): number {
+  if (
+    typeof value === "number" &&
+    Number.isFinite(value) &&
+    AUTO_REQUERY_INTERVAL_OPTIONS.includes(
+      value as (typeof AUTO_REQUERY_INTERVAL_OPTIONS)[number],
+    )
+  ) {
+    return value;
+  }
+
+  return DEFAULT_AUTO_REQUERY_INTERVAL_SECONDS;
+}
+
 export const JimengVideoResultNode = memo(
   ({ id, data, selected, width }: JimengVideoResultNodeProps) => {
     const { t, i18n } = useTranslation();
@@ -95,6 +120,15 @@ export const JimengVideoResultNode = memo(
     const [playbackError, setPlaybackError] = useState<string | null>(null);
     const [isRequerying, setIsRequerying] = useState(false);
     const [statusNotice, setStatusNotice] = useState<string | null>(null);
+    const autoRequeryEnabled = Boolean(data.autoRequeryEnabled);
+    const autoRequeryIntervalSeconds = useMemo(
+      () => resolveAutoRequeryIntervalSeconds(data.autoRequeryIntervalSeconds),
+      [data.autoRequeryIntervalSeconds],
+    );
+    const normalizedSubmitId = useMemo(
+      () => data.submitId?.trim() ?? "",
+      [data.submitId],
+    );
 
     const resolvedTitle = useMemo(
       () => resolveNodeDisplayName(CANVAS_NODE_TYPES.jimengVideoResult, data),
@@ -181,6 +215,18 @@ export const JimengVideoResultNode = memo(
       data.queueMaxAttempts > 0
         ? data.queueMaxAttempts
         : 3;
+    const canRequery =
+      Boolean(normalizedSubmitId) &&
+      queueStatus !== "waiting" &&
+      queueStatus !== "waitingConcurrency" &&
+      queueStatus !== "retrying" &&
+      queueStatus !== "submitting";
+    const hasPendingResult =
+      Boolean(data.isGenerating) ||
+      queueStatus === "submitted" ||
+      queueStatus === "generating";
+    const shouldAutoRequery =
+      autoRequeryEnabled && canRequery && hasPendingResult;
 
     useEffect(() => {
       updateNodeInternals(id);
@@ -193,12 +239,29 @@ export const JimengVideoResultNode = memo(
       videoSource,
     ]);
 
-    const handleRequeryResult = async () => {
-      const submitId = data.submitId?.trim() ?? "";
+    const handleRequeryResult = useCallback(async (options?: RequeryOptions) => {
+      const submitId = normalizedSubmitId;
+      const historyOptions = options?.suppressErrorDialog
+        ? { historyMode: "skip" as const }
+        : undefined;
       if (!submitId) {
         const message = t("node.jimengVideoResult.requeryUnavailable");
         setStatusNotice(message);
-        await showErrorDialog(message, t("common.error"));
+        if (options?.keepPollingOnFailure) {
+          updateNodeData(
+            id,
+            {
+              autoRequeryEnabled: false,
+              isGenerating: false,
+              generationStartedAt: null,
+              lastError: message,
+            },
+            historyOptions,
+          );
+        }
+        if (!options?.suppressErrorDialog) {
+          await showErrorDialog(message, t("common.error"));
+        }
         return;
       }
 
@@ -212,18 +275,39 @@ export const JimengVideoResultNode = memo(
           dreaminaStatus.code,
         );
         setStatusNotice(message);
-        updateNodeData(id, { lastError: message });
+        updateNodeData(
+          id,
+          {
+            autoRequeryEnabled: options?.keepPollingOnFailure
+              ? false
+              : autoRequeryEnabled,
+            isGenerating: options?.keepPollingOnFailure
+              ? false
+              : data.isGenerating,
+            generationStartedAt: options?.keepPollingOnFailure
+              ? null
+              : data.generationStartedAt,
+            lastError: message,
+          },
+          historyOptions,
+        );
         return;
       }
 
       setStatusNotice(null);
       setIsRequerying(true);
-      updateNodeData(id, {
-        isGenerating: true,
-        generationStartedAt: data.generationStartedAt ?? Date.now(),
-        lastError: null,
-      });
-      await flushCurrentProjectToDiskSafely("starting Jimeng video requery");
+      updateNodeData(
+        id,
+        {
+          isGenerating: true,
+          generationStartedAt: data.generationStartedAt ?? Date.now(),
+          lastError: null,
+        },
+        historyOptions,
+      );
+      if (!options?.suppressStartFlush) {
+        await flushCurrentProjectToDiskSafely("starting Jimeng video requery");
+      }
 
       try {
         const response = await queryJimengVideoResult({ submitId });
@@ -240,26 +324,30 @@ export const JimengVideoResultNode = memo(
           nextNoticeParts.length > 0 ? nextNoticeParts.join(" | ") : null,
         );
 
-        updateNodeData(id, {
-          submitId: response.submitId,
-          sourceUrl: primaryResult?.sourceUrl ?? data.sourceUrl ?? null,
-          posterSourceUrl:
-            primaryResult?.posterSourceUrl ?? data.posterSourceUrl ?? null,
-          videoUrl: primaryResult?.videoUrl ?? data.videoUrl ?? null,
-          previewImageUrl:
-            primaryResult?.previewImageUrl ?? data.previewImageUrl ?? null,
-          videoFileName: primaryResult?.fileName ?? data.videoFileName ?? null,
-          aspectRatio: primaryResult?.aspectRatio ?? data.aspectRatio,
-          duration: primaryResult?.duration ?? data.duration,
-          width: primaryResult?.width ?? data.width,
-          height: primaryResult?.height ?? data.height,
-          isGenerating: response.pending,
-          generationStartedAt: response.pending
-            ? (data.generationStartedAt ?? Date.now())
-            : null,
-          lastGeneratedAt: completedAt,
-          lastError: null,
-        });
+        updateNodeData(
+          id,
+          {
+            submitId: response.submitId,
+            sourceUrl: primaryResult?.sourceUrl ?? data.sourceUrl ?? null,
+            posterSourceUrl:
+              primaryResult?.posterSourceUrl ?? data.posterSourceUrl ?? null,
+            videoUrl: primaryResult?.videoUrl ?? data.videoUrl ?? null,
+            previewImageUrl:
+              primaryResult?.previewImageUrl ?? data.previewImageUrl ?? null,
+            videoFileName: primaryResult?.fileName ?? data.videoFileName ?? null,
+            aspectRatio: primaryResult?.aspectRatio ?? data.aspectRatio,
+            duration: primaryResult?.duration ?? data.duration,
+            width: primaryResult?.width ?? data.width,
+            height: primaryResult?.height ?? data.height,
+            isGenerating: response.pending,
+            generationStartedAt: response.pending
+              ? (data.generationStartedAt ?? Date.now())
+              : null,
+            lastGeneratedAt: completedAt,
+            lastError: null,
+          },
+          historyOptions,
+        );
         await flushCurrentProjectToDiskSafely(
           "saving Jimeng video requery result",
         );
@@ -269,23 +357,110 @@ export const JimengVideoResultNode = memo(
           t("node.jimengVideoResult.requeryFailed"),
         );
         setStatusNotice(content.message);
-        updateNodeData(id, {
-          isGenerating: false,
-          generationStartedAt: null,
-          lastError: content.message,
-        });
-        await flushCurrentProjectToDiskSafely(
-          "saving Jimeng video requery error",
+        updateNodeData(
+          id,
+          {
+            isGenerating: Boolean(options?.keepPollingOnFailure),
+            generationStartedAt: options?.keepPollingOnFailure
+              ? (data.generationStartedAt ?? Date.now())
+              : null,
+            lastError: content.message,
+          },
+          historyOptions,
         );
-        await showErrorDialog(
-          content.message,
-          t("common.error"),
-          content.details,
-        );
+        if (!options?.keepPollingOnFailure) {
+          await flushCurrentProjectToDiskSafely(
+            "saving Jimeng video requery error",
+          );
+        }
+        if (!options?.suppressErrorDialog) {
+          await showErrorDialog(
+            content.message,
+            t("common.error"),
+            content.details,
+          );
+        }
       } finally {
         setIsRequerying(false);
       }
-    };
+    }, [
+      autoRequeryEnabled,
+      data.aspectRatio,
+      data.duration,
+      data.generationStartedAt,
+      data.height,
+      data.isGenerating,
+      data.lastGeneratedAt,
+      data.posterSourceUrl,
+      data.previewImageUrl,
+      data.sourceUrl,
+      data.videoFileName,
+      data.videoUrl,
+      data.width,
+      flushCurrentProjectToDiskSafely,
+      id,
+      normalizedSubmitId,
+      t,
+      updateNodeData,
+    ]);
+
+    useEffect(() => {
+      if (!shouldAutoRequery || isRequerying) {
+        return;
+      }
+
+      const timer = window.setTimeout(() => {
+        void handleRequeryResult({
+          suppressErrorDialog: true,
+          keepPollingOnFailure: true,
+          suppressStartFlush: true,
+        });
+      }, autoRequeryIntervalSeconds * 1000);
+
+      return () => {
+        window.clearTimeout(timer);
+      };
+    }, [
+      autoRequeryIntervalSeconds,
+      handleRequeryResult,
+      isRequerying,
+      shouldAutoRequery,
+    ]);
+
+    const handleAutoRequeryToggle = useCallback(
+      (enabled: boolean) => {
+        updateNodeData(id, {
+          autoRequeryEnabled: enabled,
+          autoRequeryIntervalSeconds,
+          ...(enabled && canRequery && !videoSource
+            ? {
+                isGenerating: true,
+                generationStartedAt: data.generationStartedAt ?? Date.now(),
+                lastError: null,
+              }
+            : {}),
+        });
+      },
+      [
+        autoRequeryIntervalSeconds,
+        canRequery,
+        data.generationStartedAt,
+        id,
+        updateNodeData,
+        videoSource,
+      ],
+    );
+
+    const handleAutoRequeryIntervalChange = useCallback(
+      (value: string) => {
+        updateNodeData(id, {
+          autoRequeryIntervalSeconds: resolveAutoRequeryIntervalSeconds(
+            Number(value),
+          ),
+        });
+      },
+      [id, updateNodeData],
+    );
 
     const combinedError = playbackError ?? data.lastError ?? null;
     const headerStatus = useMemo(() => {
@@ -442,12 +617,6 @@ export const JimengVideoResultNode = memo(
         ? t("node.jimengVideoResult.pending")
         : t("node.jimengVideoResult.empty");
     }, [data.isGenerating, queueStatus, t]);
-    const canRequery =
-      Boolean(data.submitId?.trim()) &&
-      queueStatus !== "waiting" &&
-      queueStatus !== "waitingConcurrency" &&
-      queueStatus !== "retrying" &&
-      queueStatus !== "submitting";
 
     return (
       <div
@@ -551,22 +720,73 @@ export const JimengVideoResultNode = memo(
             {statusInfoText}
           </div>
 
-          <UiButton
-            type="button"
-            size="sm"
-            variant="muted"
-            disabled={isRequerying || !canRequery}
-            className={`${NODE_CONTROL_ACTION_BUTTON_CLASS} shrink-0`}
-            onClick={(event) => {
-              event.stopPropagation();
-              void handleRequeryResult();
-            }}
-          >
-            {isRequerying ? (
-              <Loader2 className="h-4 w-4 animate-spin" strokeWidth={2.3} />
-            ) : null}
-            {t("node.jimengVideoResult.requery")}
-          </UiButton>
+          <div className="flex shrink-0 items-center gap-1.5">
+            <div
+              className="flex items-center gap-1.5 text-[10px] text-text-muted"
+              onPointerDown={(event) => event.stopPropagation()}
+              onClick={(event) => event.stopPropagation()}
+            >
+              <UiCheckbox
+                checked={autoRequeryEnabled}
+                className="h-4 w-4 rounded-[5px]"
+                aria-label={t("node.jimengVideoResult.autoRequery")}
+                onClick={(event) => event.stopPropagation()}
+                onCheckedChange={(checked) =>
+                  handleAutoRequeryToggle(Boolean(checked))
+                }
+              />
+              <span
+                className="cursor-pointer whitespace-nowrap"
+                onClick={(event) => {
+                  event.stopPropagation();
+                  handleAutoRequeryToggle(!autoRequeryEnabled);
+                }}
+              >
+                {t("node.jimengVideoResult.autoRequery")}
+              </span>
+            </div>
+
+            <div
+              className="w-[66px] shrink-0"
+              onPointerDown={(event) => event.stopPropagation()}
+              onClick={(event) => event.stopPropagation()}
+            >
+              <UiSelect
+                value={String(autoRequeryIntervalSeconds)}
+                disabled={!autoRequeryEnabled}
+                className="w-full"
+                aria-label={t("node.jimengVideoResult.autoRequeryInterval")}
+                onChange={(event) =>
+                  handleAutoRequeryIntervalChange(event.target.value)
+                }
+              >
+                {AUTO_REQUERY_INTERVAL_OPTIONS.map((seconds) => (
+                  <option key={seconds} value={seconds}>
+                    {t("node.jimengVideoResult.autoRequeryIntervalOption", {
+                      minutes: Math.round(seconds / 60),
+                    })}
+                  </option>
+                ))}
+              </UiSelect>
+            </div>
+
+            <UiButton
+              type="button"
+              size="sm"
+              variant="muted"
+              disabled={isRequerying || !canRequery}
+              className={`${NODE_CONTROL_ACTION_BUTTON_CLASS} shrink-0`}
+              onClick={(event) => {
+                event.stopPropagation();
+                void handleRequeryResult();
+              }}
+            >
+              {isRequerying ? (
+                <Loader2 className="h-4 w-4 animate-spin" strokeWidth={2.3} />
+              ) : null}
+              {t("node.jimengVideoResult.requery")}
+            </UiButton>
+          </div>
         </div>
 
         <Handle

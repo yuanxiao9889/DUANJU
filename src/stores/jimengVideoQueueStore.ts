@@ -12,6 +12,7 @@ import {
   type DreaminaCliStatusCode,
 } from "@/commands/dreaminaCli";
 import { resolveErrorContent } from "@/features/canvas/application/errorDialog";
+import { subscribeCanvasNodesDeleted } from "@/features/canvas/application/nodeDeletionEvents";
 import { flushCurrentProjectToDiskSafely } from "@/features/canvas/application/projectPersistence";
 import {
   CANVAS_NODE_TYPES,
@@ -91,6 +92,7 @@ const projectLoadedAtById = new Map<string, number>();
 
 const inflightJobIds = new Set<string>();
 const nextPollAtByJobId = new Map<string, number>();
+const discardedJobIds = new Set<string>();
 
 function sortJobs(jobs: JimengVideoQueueJob[]): JimengVideoQueueJob[] {
   return [...jobs].sort((left, right) => {
@@ -200,6 +202,10 @@ function resolveQueueStatusIsGenerating(status: JimengVideoQueueJobStatus): bool
   );
 }
 
+function isJobDiscarded(jobId: string): boolean {
+  return discardedJobIds.has(jobId);
+}
+
 function buildResultNodePatch(
   job: JimengVideoQueueJob,
 ): Partial<JimengVideoResultNodeData> {
@@ -221,6 +227,10 @@ function buildResultNodePatch(
 async function ensureResultNodeExists(
   job: JimengVideoQueueJob,
 ): Promise<JimengVideoQueueJob> {
+  if (isJobDiscarded(job.jobId)) {
+    return job;
+  }
+
   if (!isCurrentProjectOpen(job.projectId)) {
     return job;
   }
@@ -352,6 +362,10 @@ async function commitJob(
   job: JimengVideoQueueJob,
   options: { flushProject?: boolean; syncNodes?: boolean } = {},
 ): Promise<void> {
+  if (isJobDiscarded(job.jobId)) {
+    return;
+  }
+
   upsertOpenProjectJob(job);
   await persistJob(job);
 
@@ -407,6 +421,56 @@ function canJobStartNow(job: JimengVideoQueueJob, now: number): boolean {
   return !job.scheduledAt || job.scheduledAt <= now;
 }
 
+async function discardJobsForDeletedResultNodes(
+  nodeIds: readonly string[],
+): Promise<void> {
+  const currentProjectId = useJimengVideoQueueStore.getState().currentProjectId;
+  if (!currentProjectId || nodeIds.length === 0) {
+    return;
+  }
+
+  const deletedNodeIdSet = new Set(
+    nodeIds.map((nodeId) => nodeId.trim()).filter((nodeId) => nodeId.length > 0),
+  );
+  if (deletedNodeIdSet.size === 0) {
+    return;
+  }
+
+  const jobsToDiscard = useJimengVideoQueueStore
+    .getState()
+    .jobs.filter(
+      (job) =>
+        job.projectId === currentProjectId &&
+        deletedNodeIdSet.has(job.resultNodeId),
+    );
+  if (jobsToDiscard.length === 0) {
+    return;
+  }
+
+  jobsToDiscard.forEach((job) => {
+    discardedJobIds.add(job.jobId);
+    inflightJobIds.delete(job.jobId);
+    nextPollAtByJobId.delete(job.jobId);
+    removeOpenProjectJob(currentProjectId, job.jobId);
+  });
+
+  await Promise.all(
+    jobsToDiscard.map(async (job) => {
+      try {
+        await deleteJimengVideoQueueJob(job.jobId);
+      } catch (error) {
+        console.error("[jimengQueue] failed to delete discarded job", error);
+      }
+    }),
+  );
+
+  if (isCurrentProjectOpen(currentProjectId)) {
+    await flushCurrentProjectToDiskSafely(
+      "removing Jimeng queue jobs for deleted result nodes",
+    );
+  }
+}
+
 function resolveWaitingJobStatus(
   job: JimengVideoQueueJob,
   activeCount: number,
@@ -446,6 +510,10 @@ async function markJobStatusForCapacity(
 }
 
 async function startJobAttempt(job: JimengVideoQueueJob): Promise<void> {
+  if (isJobDiscarded(job.jobId)) {
+    return;
+  }
+
   if (inflightJobIds.has(job.jobId)) {
     return;
   }
@@ -491,9 +559,15 @@ async function startJobAttempt(job: JimengVideoQueueJob): Promise<void> {
       updatedAt: Date.now(),
       lastError: null,
     };
+    if (isJobDiscarded(currentJob.jobId)) {
+      return;
+    }
     nextPollAtByJobId.set(currentJob.jobId, Date.now());
     await commitJob(currentJob, { flushProject: true });
   } catch (error) {
+    if (isJobDiscarded(currentJob.jobId)) {
+      return;
+    }
     currentJob = buildRetryingJob(currentJob, resolveJobErrorMessage(error));
     await commitJob(currentJob, { flushProject: true });
   } finally {
@@ -502,6 +576,11 @@ async function startJobAttempt(job: JimengVideoQueueJob): Promise<void> {
 }
 
 async function pollJob(job: JimengVideoQueueJob): Promise<void> {
+  if (isJobDiscarded(job.jobId)) {
+    nextPollAtByJobId.delete(job.jobId);
+    return;
+  }
+
   if (inflightJobIds.has(job.jobId) || !job.submitId) {
     return;
   }
@@ -525,6 +604,10 @@ async function pollJob(job: JimengVideoQueueJob): Promise<void> {
 
     const response = await queryJimengVideoResult({ submitId });
     const now = Date.now();
+    if (isJobDiscarded(workingJob.jobId)) {
+      nextPollAtByJobId.delete(workingJob.jobId);
+      return;
+    }
     const primaryResult = response.videos[0] ?? null;
 
     if (primaryResult) {
@@ -601,6 +684,10 @@ async function pollJob(job: JimengVideoQueueJob): Promise<void> {
     nextPollAtByJobId.delete(workingJob.jobId);
     await commitJob(failedJob, { flushProject: true });
   } catch (error) {
+    if (isJobDiscarded(workingJob.jobId)) {
+      nextPollAtByJobId.delete(workingJob.jobId);
+      return;
+    }
     nextPollAtByJobId.set(workingJob.jobId, Date.now() + JIMENG_VIDEO_QUEUE_POLL_INTERVAL_MS);
 
     if (
@@ -626,6 +713,10 @@ async function pollJob(job: JimengVideoQueueJob): Promise<void> {
     inflightJobIds.delete(job.jobId);
   }
 }
+
+subscribeCanvasNodesDeleted((nodeIds) => {
+  void discardJobsForDeletedResultNodes(nodeIds);
+});
 
 async function schedulerTick(): Promise<void> {
   if (isSchedulerTickRunning) {

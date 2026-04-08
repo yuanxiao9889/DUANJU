@@ -417,6 +417,8 @@ export interface JimengVideoResultNodeData extends NodeDisplayData {
   duration?: number;
   width?: number;
   height?: number;
+  autoRequeryEnabled?: boolean;
+  autoRequeryIntervalSeconds?: number;
   isGenerating?: boolean;
   generationStartedAt?: number | null;
   generationDurationMs?: number;
