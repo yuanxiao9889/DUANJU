@@ -66,7 +66,7 @@ fn setup_logging() {
             .init();
     }
 
-    info!("Storyboard Copilot starting...");
+    info!("OOpii Infinite Canvas starting...");
 }
 
 fn show_main_window(app: &tauri::AppHandle) {

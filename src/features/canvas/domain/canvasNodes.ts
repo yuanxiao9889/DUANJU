@@ -21,6 +21,9 @@ export const CANVAS_NODE_TYPES = {
   scriptText: 'scriptTextNode',
   ttsVoiceDesign: 'ttsVoiceDesignNode',
   ttsSavedVoice: 'ttsSavedVoiceNode',
+  voxCpmVoiceDesign: 'voxCpmVoiceDesignNode',
+  voxCpmVoiceClone: 'voxCpmVoiceCloneNode',
+  voxCpmUltimateClone: 'voxCpmUltimateCloneNode',
   scriptRoot: 'scriptRootNode',
   scriptChapter: 'scriptChapterNode',
   scriptCharacter: 'scriptCharacterNode',
@@ -69,6 +72,12 @@ export const TTS_VOICE_DESIGN_NODE_DEFAULT_WIDTH = 440;
 export const TTS_VOICE_DESIGN_NODE_DEFAULT_HEIGHT = 300;
 export const TTS_SAVED_VOICE_NODE_DEFAULT_WIDTH = 440;
 export const TTS_SAVED_VOICE_NODE_DEFAULT_HEIGHT = 320;
+export const VOXCPM_VOICE_DESIGN_NODE_DEFAULT_WIDTH = 440;
+export const VOXCPM_VOICE_DESIGN_NODE_DEFAULT_HEIGHT = 300;
+export const VOXCPM_VOICE_CLONE_NODE_DEFAULT_WIDTH = 460;
+export const VOXCPM_VOICE_CLONE_NODE_DEFAULT_HEIGHT = 320;
+export const VOXCPM_ULTIMATE_CLONE_NODE_DEFAULT_WIDTH = 460;
+export const VOXCPM_ULTIMATE_CLONE_NODE_DEFAULT_HEIGHT = 360;
 
 export const IMAGE_SIZES = ['0.5K', '1K', '2K', '4K'] as const;
 export const IMAGE_ASPECT_RATIOS = [
@@ -217,7 +226,13 @@ export interface AudioNodeData extends NodeDisplayData {
   audioFileName?: string | null;
   duration?: number;
   mimeType?: string | null;
-  generationSource?: 'ttsVoiceDesign' | 'ttsSavedVoice' | null;
+  generationSource?:
+    | 'ttsVoiceDesign'
+    | 'ttsSavedVoice'
+    | 'voxCpmVoiceDesign'
+    | 'voxCpmVoiceClone'
+    | 'voxCpmUltimateClone'
+    | null;
   sourceNodeId?: string | null;
   isGenerating?: boolean;
   generationProgress?: number;
@@ -317,6 +332,45 @@ export interface TtsSavedVoiceNodeData extends NodeDisplayData, QwenTtsPauseConf
   statusText?: string | null;
   lastError?: string | null;
   lastSavedAt?: number | null;
+  lastGeneratedAt?: number | null;
+  [key: string]: unknown;
+}
+
+export interface VoxCpmVoiceDesignNodeData extends NodeDisplayData {
+  voicePrompt: string;
+  cfgValue?: number;
+  inferenceTimesteps?: number;
+  isGenerating?: boolean;
+  generationProgress?: number;
+  statusText?: string | null;
+  lastError?: string | null;
+  lastGeneratedAt?: number | null;
+  [key: string]: unknown;
+}
+
+export interface VoxCpmVoiceCloneNodeData extends NodeDisplayData {
+  referenceAssetId?: string | null;
+  controlText: string;
+  cfgValue?: number;
+  inferenceTimesteps?: number;
+  isGenerating?: boolean;
+  generationProgress?: number;
+  statusText?: string | null;
+  lastError?: string | null;
+  lastGeneratedAt?: number | null;
+  [key: string]: unknown;
+}
+
+export interface VoxCpmUltimateCloneNodeData extends NodeDisplayData {
+  referenceAssetId?: string | null;
+  promptText: string;
+  useReferenceAsReference?: boolean;
+  cfgValue?: number;
+  inferenceTimesteps?: number;
+  isGenerating?: boolean;
+  generationProgress?: number;
+  statusText?: string | null;
+  lastError?: string | null;
   lastGeneratedAt?: number | null;
   [key: string]: unknown;
 }
@@ -761,6 +815,9 @@ export type CanvasNodeData =
   | ScriptTextNodeData
   | TtsVoiceDesignNodeData
   | TtsSavedVoiceNodeData
+  | VoxCpmVoiceDesignNodeData
+  | VoxCpmVoiceCloneNodeData
+  | VoxCpmUltimateCloneNodeData
   | ScriptRootNodeData
   | ScriptChapterNodeData
   | ScriptCharacterNodeData
@@ -1154,6 +1211,24 @@ export function isTtsSavedVoiceNode(
   node: CanvasNode | null | undefined
 ): node is Node<TtsSavedVoiceNodeData, typeof CANVAS_NODE_TYPES.ttsSavedVoice> {
   return node?.type === CANVAS_NODE_TYPES.ttsSavedVoice;
+}
+
+export function isVoxCpmVoiceDesignNode(
+  node: CanvasNode | null | undefined
+): node is Node<VoxCpmVoiceDesignNodeData, typeof CANVAS_NODE_TYPES.voxCpmVoiceDesign> {
+  return node?.type === CANVAS_NODE_TYPES.voxCpmVoiceDesign;
+}
+
+export function isVoxCpmVoiceCloneNode(
+  node: CanvasNode | null | undefined
+): node is Node<VoxCpmVoiceCloneNodeData, typeof CANVAS_NODE_TYPES.voxCpmVoiceClone> {
+  return node?.type === CANVAS_NODE_TYPES.voxCpmVoiceClone;
+}
+
+export function isVoxCpmUltimateCloneNode(
+  node: CanvasNode | null | undefined
+): node is Node<VoxCpmUltimateCloneNodeData, typeof CANVAS_NODE_TYPES.voxCpmUltimateClone> {
+  return node?.type === CANVAS_NODE_TYPES.voxCpmUltimateClone;
 }
 
 export function isStoryboardSplitNode(

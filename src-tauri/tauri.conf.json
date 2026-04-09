@@ -1,6 +1,6 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "短剧助手",
+  "productName": "OOpii无限画布",
   "version": "0.2.5",
   "identifier": "com.storyboard.copilot",
   "build": {
@@ -16,7 +16,7 @@
       {
         "label": "main",
         "create": false,
-        "title": "短剧助手",
+        "title": "OOpii无限画布",
         "dragDropEnabled": false,
         "width": 1800,
         "height": 980,
@@ -50,7 +50,7 @@
     "publisher": "Storyboard Copilot Team",
     "copyright": "Copyright © 2024 Storyboard Copilot Team. All rights reserved.",
     "shortDescription": "AI 驱动的短剧分镜创作工具",
-    "longDescription": "短剧助手是一款基于 AI 技术的分镜创作工具，支持图像生成、视频处理、分镜编排等功能，帮助创作者高效完成短剧分镜设计。",
+    "longDescription": "OOpii无限画布是一款基于 AI 技术的无限画布分镜创作工具，支持图像生成、视频处理、分镜编排等功能，帮助创作者高效完成分镜设计。",
     "category": "GraphicsDesign",
     "windows": {
       "wix": {

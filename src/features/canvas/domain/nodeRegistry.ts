@@ -34,6 +34,9 @@ import {
   type ScriptTextNodeData,
   type TtsSavedVoiceNodeData,
   type TtsVoiceDesignNodeData,
+  type VoxCpmVoiceDesignNodeData,
+  type VoxCpmVoiceCloneNodeData,
+  type VoxCpmUltimateCloneNodeData,
   type UploadImageNodeData,
   type AudioNodeData,
   type VideoNodeData,
@@ -51,6 +54,7 @@ import { DEFAULT_IMAGE_MODEL_ID } from '../models';
 import {
   QWEN_TTS_COMPLETE_EXTENSION_ID,
   QWEN_TTS_SIMPLE_EXTENSION_ID,
+  VOXCPM2_COMPLETE_EXTENSION_ID,
 } from '@/features/extensions/domain/types';
 
 export type MenuIconKey = 'upload' | 'sparkles' | 'layout' | 'text' | 'video' | 'audio';
@@ -818,6 +822,108 @@ const ttsSavedVoiceNodeDefinition: CanvasNodeDefinition<TtsSavedVoiceNodeData> =
   }),
 };
 
+const voxCpmVoiceDesignNodeDefinition: CanvasNodeDefinition<VoxCpmVoiceDesignNodeData> = {
+  type: CANVAS_NODE_TYPES.voxCpmVoiceDesign,
+  menuLabelKey: 'node.menu.voxCpmVoiceDesign',
+  menuIcon: 'audio',
+  menuGroup: 'media',
+  visibleInMenu: true,
+  menuProjectTypes: ['storyboard'],
+  requiredExtensionId: VOXCPM2_COMPLETE_EXTENSION_ID,
+  capabilities: {
+    toolbar: true,
+    promptInput: false,
+  },
+  connectivity: {
+    sourceHandle: true,
+    targetHandle: true,
+    connectMenu: {
+      fromSource: true,
+      fromTarget: false,
+    },
+  },
+  createDefaultData: () => ({
+    displayName: DEFAULT_NODE_DISPLAY_NAME[CANVAS_NODE_TYPES.voxCpmVoiceDesign],
+    voicePrompt: '',
+    cfgValue: 1.3,
+    inferenceTimesteps: 10,
+    isGenerating: false,
+    generationProgress: 0,
+    statusText: null,
+    lastError: null,
+    lastGeneratedAt: null,
+  }),
+};
+
+const voxCpmVoiceCloneNodeDefinition: CanvasNodeDefinition<VoxCpmVoiceCloneNodeData> = {
+  type: CANVAS_NODE_TYPES.voxCpmVoiceClone,
+  menuLabelKey: 'node.menu.voxCpmVoiceClone',
+  menuIcon: 'audio',
+  menuGroup: 'media',
+  visibleInMenu: true,
+  menuProjectTypes: ['storyboard'],
+  requiredExtensionId: VOXCPM2_COMPLETE_EXTENSION_ID,
+  capabilities: {
+    toolbar: true,
+    promptInput: false,
+  },
+  connectivity: {
+    sourceHandle: true,
+    targetHandle: true,
+    connectMenu: {
+      fromSource: true,
+      fromTarget: false,
+    },
+  },
+  createDefaultData: () => ({
+    displayName: DEFAULT_NODE_DISPLAY_NAME[CANVAS_NODE_TYPES.voxCpmVoiceClone],
+    referenceAssetId: null,
+    controlText: '',
+    cfgValue: 1.3,
+    inferenceTimesteps: 10,
+    isGenerating: false,
+    generationProgress: 0,
+    statusText: null,
+    lastError: null,
+    lastGeneratedAt: null,
+  }),
+};
+
+const voxCpmUltimateCloneNodeDefinition: CanvasNodeDefinition<VoxCpmUltimateCloneNodeData> = {
+  type: CANVAS_NODE_TYPES.voxCpmUltimateClone,
+  menuLabelKey: 'node.menu.voxCpmUltimateClone',
+  menuIcon: 'audio',
+  menuGroup: 'media',
+  visibleInMenu: true,
+  menuProjectTypes: ['storyboard'],
+  requiredExtensionId: VOXCPM2_COMPLETE_EXTENSION_ID,
+  capabilities: {
+    toolbar: true,
+    promptInput: false,
+  },
+  connectivity: {
+    sourceHandle: true,
+    targetHandle: true,
+    connectMenu: {
+      fromSource: true,
+      fromTarget: false,
+    },
+  },
+  createDefaultData: () => ({
+    displayName: DEFAULT_NODE_DISPLAY_NAME[CANVAS_NODE_TYPES.voxCpmUltimateClone],
+    referenceAssetId: null,
+    promptText: '',
+    useReferenceAsReference: true,
+    cfgValue: 1.3,
+    inferenceTimesteps: 10,
+    isGenerating: false,
+    generationProgress: 0,
+    statusText: null,
+    lastError: null,
+    lastGeneratedAt: null,
+  }),
+};
+
 const scriptRootNodeDefinition: CanvasNodeDefinition<ScriptRootNodeData> = {
   type: CANVAS_NODE_TYPES.scriptRoot,
   menuLabelKey: 'node.menu.scriptRoot',
@@ -1052,6 +1158,9 @@ export const canvasNodeDefinitions: Record<CanvasNodeType, CanvasNodeDefinition>
   [CANVAS_NODE_TYPES.scriptText]: scriptTextNodeDefinition,
   [CANVAS_NODE_TYPES.ttsVoiceDesign]: ttsVoiceDesignNodeDefinition,
   [CANVAS_NODE_TYPES.ttsSavedVoice]: ttsSavedVoiceNodeDefinition,
+  [CANVAS_NODE_TYPES.voxCpmVoiceDesign]: voxCpmVoiceDesignNodeDefinition,
+  [CANVAS_NODE_TYPES.voxCpmVoiceClone]: voxCpmVoiceCloneNodeDefinition,
+  [CANVAS_NODE_TYPES.voxCpmUltimateClone]: voxCpmUltimateCloneNodeDefinition,
   [CANVAS_NODE_TYPES.scriptRoot]: scriptRootNodeDefinition,
   [CANVAS_NODE_TYPES.scriptChapter]: scriptChapterNodeDefinition,
   [CANVAS_NODE_TYPES.scriptCharacter]: scriptCharacterNodeDefinition,

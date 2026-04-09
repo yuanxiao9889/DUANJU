@@ -2,7 +2,7 @@
 name = "storyboard-copilot"
 version = "0.2.5"
 default-run = "storyboard-copilot"
-description = "短剧助手 - AI 驱动的短剧分镜创作工具"
+description = "OOpii无限画布 - AI 驱动的无限画布分镜创作工具"
 authors = ["you"]
 edition = "2021"
 

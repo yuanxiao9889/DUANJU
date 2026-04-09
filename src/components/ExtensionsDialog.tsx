@@ -40,6 +40,9 @@ const NODE_FEATURE_LABEL_KEYS: Record<string, string> = {
   ttsTextNode: 'node.menu.textAnnotation',
   ttsVoiceDesignNode: 'node.menu.ttsVoiceDesign',
   ttsSavedVoiceNode: 'node.menu.ttsSavedVoice',
+  voxCpmVoiceDesignNode: 'node.menu.voxCpmVoiceDesign',
+  voxCpmVoiceCloneNode: 'node.menu.voxCpmVoiceClone',
+  voxCpmUltimateCloneNode: 'node.menu.voxCpmUltimateClone',
 };
 
 const MODEL_ROLE_LABEL_KEYS: Record<string, string> = {

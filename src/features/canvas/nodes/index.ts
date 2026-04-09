@@ -18,6 +18,9 @@ import { TtsTextNode } from './TtsTextNode';
 import { ScriptTextNode } from './ScriptTextNode';
 import { QwenTtsVoiceDesignNode } from './QwenTtsVoiceDesignNode';
 import { QwenTtsSavedVoiceNode } from './QwenTtsSavedVoiceNode';
+import { VoxCpmVoiceDesignNode } from './VoxCpmVoiceDesignNode';
+import { VoxCpmVoiceCloneNode } from './VoxCpmVoiceCloneNode';
+import { VoxCpmUltimateCloneNode } from './VoxCpmUltimateCloneNode';
 import { UploadNode } from './UploadNode';
 import { VideoNode } from './VideoNode';
 import { ScriptRootNode } from './ScriptRootNode';
@@ -47,6 +50,9 @@ export const nodeTypes: NodeTypes = {
   scriptTextNode: ScriptTextNode,
   ttsVoiceDesignNode: QwenTtsVoiceDesignNode,
   ttsSavedVoiceNode: QwenTtsSavedVoiceNode,
+  voxCpmVoiceDesignNode: VoxCpmVoiceDesignNode,
+  voxCpmVoiceCloneNode: VoxCpmVoiceCloneNode,
+  voxCpmUltimateCloneNode: VoxCpmUltimateCloneNode,
   uploadNode: UploadNode,
   videoNode: VideoNode,
   scriptRootNode: ScriptRootNode,
@@ -77,6 +83,9 @@ export {
   ScriptTextNode,
   QwenTtsVoiceDesignNode,
   QwenTtsSavedVoiceNode,
+  VoxCpmVoiceDesignNode,
+  VoxCpmVoiceCloneNode,
+  VoxCpmUltimateCloneNode,
   UploadNode, 
   VideoNode,
   ScriptRootNode, 
