@@ -512,9 +512,14 @@
         "firstLastFrame": "First / Last Frame",
         "reference": "Reference"
       },
-      "modelOptions": {
-        "seedance20": "Official Seedance 2.0"
-      },
+        "modelOptions": {
+          "seedance20": "Official Seedance 2.0",
+          "seedance20Fast": "Official Seedance 2.0 Fast"
+        },
+        "modelOptionDescriptions": {
+          "seedance20": "Standard quality profile for steadier output.",
+          "seedance20Fast": "Faster turnaround for quick iteration."
+        },
       "aspectRatios": {
         "adaptive": "Adaptive",
         "21:9": "21:9",

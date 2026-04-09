@@ -131,7 +131,10 @@ export const JIMENG_ASPECT_RATIOS = [
 
 export const JIMENG_DURATION_SECONDS = [4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15] as const;
 export const JIMENG_VIDEO_RESOLUTIONS = ['720p', '1080p'] as const;
-export const SEEDANCE_MODEL_IDS = ['doubao-seedance-2-0-260128'] as const;
+export const SEEDANCE_MODEL_IDS = [
+  'doubao-seedance-2-0-260128',
+  'doubao-seedance-2-0-fast-260128',
+] as const;
 export const SEEDANCE_INPUT_MODES = [
   'textToVideo',
   'firstFrame',

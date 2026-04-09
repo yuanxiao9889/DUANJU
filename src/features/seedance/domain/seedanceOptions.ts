@@ -25,6 +25,11 @@ export const SEEDANCE_MODEL_OPTIONS: SeedanceOptionDefinition<SeedanceModelId>[]
     labelKey: 'node.seedance.modelOptions.seedance20',
     descriptionKey: 'node.seedance.modelOptionDescriptions.seedance20',
   },
+  {
+    value: 'doubao-seedance-2-0-fast-260128',
+    labelKey: 'node.seedance.modelOptions.seedance20Fast',
+    descriptionKey: 'node.seedance.modelOptionDescriptions.seedance20Fast',
+  },
 ];
 
 export const SEEDANCE_INPUT_MODE_OPTIONS: SeedanceOptionDefinition<SeedanceInputMode>[] = [

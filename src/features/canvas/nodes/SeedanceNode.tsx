@@ -29,7 +29,6 @@ import { useTranslation } from "react-i18next";
 
 import {
   UiButton,
-  UiCheckbox,
   UiChipButton,
   UiSelect,
 } from "@/components/ui";
@@ -57,6 +56,7 @@ import {
   type SeedanceAspectRatio,
   type SeedanceDurationSeconds,
   type SeedanceInputMode,
+  type SeedanceModelId,
   type SeedanceNodeData,
 } from "@/features/canvas/domain/canvasNodes";
 import { resolveNodeDisplayName } from "@/features/canvas/domain/nodeDisplay";
@@ -82,6 +82,7 @@ import {
   SEEDANCE_ASPECT_RATIO_OPTIONS,
   SEEDANCE_DURATION_OPTIONS,
   SEEDANCE_INPUT_MODE_OPTIONS,
+  SEEDANCE_MODEL_OPTIONS,
   normalizeSeedanceAspectRatio,
   normalizeSeedanceDurationSeconds,
   normalizeSeedanceInputMode,
@@ -700,26 +701,6 @@ function FixedControlChip<T extends string | number>({
         </UiSelect>
       </div>
     </div>
-  );
-}
-
-function FixedToggleChip({
-  label,
-  checked,
-  onCheckedChange,
-}: {
-  label: string;
-  checked: boolean;
-  onCheckedChange: (checked: boolean) => void;
-}) {
-  return (
-    <label
-      className="flex h-7 shrink-0 select-none items-center gap-1.5 rounded-lg border border-[color:var(--ui-border-soft)] bg-[var(--ui-surface-field)] px-2 text-[10.5px] font-medium text-text-dark"
-      onMouseDown={(event) => event.stopPropagation()}
-    >
-      <UiCheckbox checked={checked} onCheckedChange={onCheckedChange} />
-      <span className="whitespace-nowrap">{label}</span>
-    </label>
   );
 }
 
@@ -1706,6 +1687,14 @@ export const SeedanceNode = memo(
         })),
       [t],
     );
+    const translatedModelOptions = useMemo(
+      () =>
+        SEEDANCE_MODEL_OPTIONS.map((option) => ({
+          value: option.value,
+          label: t(option.labelKey),
+        })),
+      [t],
+    );
     const translatedAspectRatioOptions = useMemo(
       () =>
         SEEDANCE_ASPECT_RATIO_OPTIONS.map((option) => ({
@@ -2013,121 +2002,114 @@ export const SeedanceNode = memo(
           <div className="flex items-center gap-2">
             <div className="ui-scrollbar min-w-0 flex-1 overflow-x-auto overflow-y-hidden">
               <div className="flex w-max min-w-full items-center gap-1.5 pr-1">
-              <FixedControlChip
-                label={t("node.seedance.inputModeLabel")}
-                value={selectedInputMode}
-                options={translatedInputModeOptions}
-                onChange={(nextValue) =>
-                  updateSeedanceNodeData({
-                    inputMode: nextValue as SeedanceInputMode,
-                    lastError: null,
-                  })
-                }
-              />
-              <FixedControlChip
-                label={t("node.seedance.aspectRatioLabel")}
-                value={selectedAspectRatio}
-                options={translatedAspectRatioOptions}
-                onChange={(nextValue) =>
-                  updateSeedanceNodeData({
-                    aspectRatio: nextValue as SeedanceAspectRatio,
-                  })
-                }
-              />
-              <FixedControlChip
-                label={t("node.seedance.durationLabel")}
-                value={selectedDuration}
-                options={translatedDurationOptions}
-                onChange={(nextValue) =>
-                  updateSeedanceNodeData({
-                    durationSeconds: nextValue as SeedanceDurationSeconds,
-                  })
-                }
-              />
-              <FixedToggleChip
-                label={t("node.seedance.generateAudio")}
-                checked={resolvedGenerateAudio}
-                onCheckedChange={(checked) =>
-                  updateSeedanceNodeData({
-                    generateAudio: checked,
-                  })
-                }
-              />
-              <FixedToggleChip
-                label={t("node.seedance.returnLastFrame")}
-                checked={resolvedReturnLastFrame}
-                onCheckedChange={(checked) =>
-                  updateSeedanceNodeData({
-                    returnLastFrame: checked,
-                  })
-                }
-              />
-              <StyleTemplatePicker
-                selectedTemplateId={selectedStyleTemplateId}
-                className={`${NODE_CONTROL_CHIP_CLASS} shrink-0 !w-8 !px-0 justify-center`}
-                onTemplateChange={(templateId, prompt) => {
-                  setSelectedStyleTemplateId(templateId);
-                  setStyleTemplatePrompt(prompt);
-                  const nextPrompt = applyStyleTemplatePrompt(
-                    promptValueRef.current,
-                    styleTemplatePrompt,
-                    prompt,
-                  );
-                  handlePromptChange(nextPrompt);
-                  setLastPromptOptimizationMeta(null);
-                  setLastPromptOptimizationUndoState(null);
-                }}
-              />
-              <UiChipButton
-                type="button"
-                active={isOptimizingPrompt}
-                disabled={
-                  isOptimizingPrompt || promptDraft.trim().length === 0
-                }
-                className={`${NODE_CONTROL_CHIP_CLASS} shrink-0 !w-8 !px-0 justify-center`}
-                aria-label={
-                  isOptimizingPrompt
-                    ? t("node.seedance.optimizingPrompt")
-                    : t("node.seedance.optimizePrompt")
-                }
-                title={
-                  isOptimizingPrompt
-                    ? t("node.seedance.optimizingPrompt")
-                    : t("node.seedance.optimizePrompt")
-                }
-                onClick={(event) => {
-                  event.stopPropagation();
-                  void handleOptimizePrompt();
-                }}
-              >
-                {isOptimizingPrompt ? (
-                  <Loader2
-                    className="h-4 w-4 origin-center scale-[1.12] animate-spin"
-                  />
-                ) : (
-                  <Wand2
-                    className="h-4 w-4 origin-center scale-[1.18]"
-                    strokeWidth={2.45}
-                  />
-                )}
-              </UiChipButton>
-              <UiChipButton
-                type="button"
-                disabled={isOptimizingPrompt || !canUndoPromptOptimization}
-                className={`${NODE_CONTROL_CHIP_CLASS} shrink-0 !w-8 !px-0 justify-center`}
-                aria-label={t("node.seedance.undoOptimizedPrompt")}
-                title={t("node.seedance.undoOptimizedPrompt")}
-                onClick={(event) => {
-                  event.stopPropagation();
-                  handleUndoOptimizedPrompt();
-                }}
-              >
-                <Undo2
-                  className="h-4 w-4 origin-center scale-[1.08]"
-                  strokeWidth={2.3}
+                <FixedControlChip
+                  label={t("node.seedance.modelLabel")}
+                  value={selectedModelId}
+                  options={translatedModelOptions}
+                  onChange={(nextValue) =>
+                    updateSeedanceNodeData({
+                      modelId: nextValue as SeedanceModelId,
+                      lastError: null,
+                    })
+                  }
                 />
-              </UiChipButton>
-            </div>
+                <FixedControlChip
+                  label={t("node.seedance.inputModeLabel")}
+                  value={selectedInputMode}
+                  options={translatedInputModeOptions}
+                  onChange={(nextValue) =>
+                    updateSeedanceNodeData({
+                      inputMode: nextValue as SeedanceInputMode,
+                      lastError: null,
+                    })
+                  }
+                />
+                <FixedControlChip
+                  label={t("node.seedance.aspectRatioLabel")}
+                  value={selectedAspectRatio}
+                  options={translatedAspectRatioOptions}
+                  onChange={(nextValue) =>
+                    updateSeedanceNodeData({
+                      aspectRatio: nextValue as SeedanceAspectRatio,
+                    })
+                  }
+                />
+                <FixedControlChip
+                  label={t("node.seedance.durationLabel")}
+                  value={selectedDuration}
+                  options={translatedDurationOptions}
+                  onChange={(nextValue) =>
+                    updateSeedanceNodeData({
+                      durationSeconds: nextValue as SeedanceDurationSeconds,
+                    })
+                  }
+                />
+                <StyleTemplatePicker
+                  selectedTemplateId={selectedStyleTemplateId}
+                  className={`${NODE_CONTROL_CHIP_CLASS} shrink-0 !w-8 !px-0 justify-center`}
+                  onTemplateChange={(templateId, prompt) => {
+                    setSelectedStyleTemplateId(templateId);
+                    setStyleTemplatePrompt(prompt);
+                    const nextPrompt = applyStyleTemplatePrompt(
+                      promptValueRef.current,
+                      styleTemplatePrompt,
+                      prompt,
+                    );
+                    handlePromptChange(nextPrompt);
+                    setLastPromptOptimizationMeta(null);
+                    setLastPromptOptimizationUndoState(null);
+                  }}
+                />
+                <UiChipButton
+                  type="button"
+                  active={isOptimizingPrompt}
+                  disabled={
+                    isOptimizingPrompt || promptDraft.trim().length === 0
+                  }
+                  className={`${NODE_CONTROL_CHIP_CLASS} shrink-0 !w-8 !px-0 justify-center`}
+                  aria-label={
+                    isOptimizingPrompt
+                      ? t("node.seedance.optimizingPrompt")
+                      : t("node.seedance.optimizePrompt")
+                  }
+                  title={
+                    isOptimizingPrompt
+                      ? t("node.seedance.optimizingPrompt")
+                      : t("node.seedance.optimizePrompt")
+                  }
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    void handleOptimizePrompt();
+                  }}
+                >
+                  {isOptimizingPrompt ? (
+                    <Loader2
+                      className="h-4 w-4 origin-center scale-[1.12] animate-spin"
+                    />
+                  ) : (
+                    <Wand2
+                      className="h-4 w-4 origin-center scale-[1.18]"
+                      strokeWidth={2.45}
+                    />
+                  )}
+                </UiChipButton>
+                <UiChipButton
+                  type="button"
+                  disabled={isOptimizingPrompt || !canUndoPromptOptimization}
+                  className={`${NODE_CONTROL_CHIP_CLASS} shrink-0 !w-8 !px-0 justify-center`}
+                  aria-label={t("node.seedance.undoOptimizedPrompt")}
+                  title={t("node.seedance.undoOptimizedPrompt")}
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    handleUndoOptimizedPrompt();
+                  }}
+                >
+                  <Undo2
+                    className="h-4 w-4 origin-center scale-[1.08]"
+                    strokeWidth={2.3}
+                  />
+                </UiChipButton>
+              </div>
             </div>
 
             <UiButton

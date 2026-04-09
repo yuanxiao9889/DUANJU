@@ -877,9 +877,14 @@
         "firstLastFrame": "首尾帧",
         "reference": "参考模式"
       },
-      "modelOptions": {
-        "seedance20": "官方 Seedance 2.0"
-      },
+        "modelOptions": {
+          "seedance20": "官方 Seedance 2.0",
+          "seedance20Fast": "官方 Seedance 2.0 Fast"
+        },
+        "modelOptionDescriptions": {
+          "seedance20": "标准质量版本，适合稳定出片。",
+          "seedance20Fast": "更快返回结果，适合快速迭代。"
+        },
       "aspectRatios": {
         "adaptive": "自适应",
         "21:9": "21:9",
