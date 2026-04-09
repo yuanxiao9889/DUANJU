@@ -142,8 +142,10 @@ export interface JimengDreaminaImageQueryResponse {
 export interface JimengDreaminaVideoQueryResponse {
   submitId: string;
   pending: boolean;
+  status: "pending" | "success" | "failed";
   results: JimengDreaminaGeneratedVideoResult[];
   warnings: string[];
+  failureMessage?: string | null;
 }
 
 export async function checkDreaminaCliStatus(): Promise<DreaminaCliStatusResponse> {

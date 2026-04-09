@@ -20,8 +20,8 @@ type TtsTextNodeProps = NodeProps & {
   selected?: boolean;
 };
 
-const MIN_WIDTH = 220;
-const MIN_HEIGHT = 120;
+const MIN_WIDTH = 280;
+const MIN_HEIGHT = 160;
 const MAX_WIDTH = 900;
 const MAX_HEIGHT = 900;
 

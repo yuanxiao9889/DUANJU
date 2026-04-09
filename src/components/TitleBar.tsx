@@ -6,13 +6,13 @@ import { Minus, X, Maximize2, Settings, ArrowLeft, PackageOpen } from 'lucide-re
 import { useTranslation } from 'react-i18next';
 import { Moon, Sun, Languages } from 'lucide-react';
 import { useThemeStore } from '@/stores/themeStore';
-import { useProjectStore } from '@/stores/projectStore';
 import closeNormalIcon from '@/assets/macos-traffic-lights/1-close-1-normal.svg';
 import closeHoverIcon from '@/assets/macos-traffic-lights/2-close-2-hover.svg';
 import minimizeNormalIcon from '@/assets/macos-traffic-lights/2-minimize-1-normal.svg';
 import minimizeHoverIcon from '@/assets/macos-traffic-lights/2-minimize-2-hover.svg';
 import maximizeNormalIcon from '@/assets/macos-traffic-lights/3-maximize-1-normal.svg';
 import maximizeHoverIcon from '@/assets/macos-traffic-lights/3-maximize-2-hover.svg';
+import titlebarLogo from '@/assets/titlebar-logo.png';
 
 interface TitleBarProps {
   onExtensionsClick: () => void;
@@ -31,11 +31,9 @@ export function TitleBar({
 }: TitleBarProps) {
   const { t, i18n } = useTranslation();
   const { theme, toggleTheme } = useThemeStore();
-  const currentProjectName = useProjectStore((state) => state.currentProject?.name);
   const [runtimeVersion, setRuntimeVersion] = useState<string>('');
 
   const appWindow = getCurrentWindow();
-  const isZh = i18n.language.startsWith('zh');
   const isMac =
     typeof navigator !== 'undefined'
     && /(Mac|iPhone|iPad|iPod)/i.test(`${navigator.platform} ${navigator.userAgent}`);
@@ -61,9 +59,6 @@ export function TitleBar({
       mounted = false;
     };
   }, []);
-
-  const appTitle = runtimeVersion ? `${t('app.title')} v${runtimeVersion}` : t('app.title');
-  const titleText = currentProjectName ? `${currentProjectName} - ${appTitle}` : appTitle;
 
   const handleMinimize = useCallback(async () => {
     await appWindow.minimize();
@@ -208,12 +203,19 @@ export function TitleBar({
             <ArrowLeft className="w-4 h-4 text-text-muted hover:text-text-dark" />
           </button>
         )}
-        <span className="text-sm font-semibold text-text-dark">
-          {titleText}
-        </span>
-        {!isZh && !currentProjectName ? (
-          <span className="text-xs text-text-muted ml-2">{t('app.subtitle')}</span>
-        ) : null}
+        <div className="flex items-center gap-2 min-w-0">
+          <img
+            src={titlebarLogo}
+            alt=""
+            className="h-5 w-auto shrink-0 object-contain select-none"
+            draggable={false}
+          />
+          {runtimeVersion ? (
+            <span className="text-xs font-medium text-text-muted">
+              v{runtimeVersion}
+            </span>
+          ) : null}
+        </div>
       </div>
 
       <div className="flex items-center h-full">

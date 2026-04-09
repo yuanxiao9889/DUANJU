@@ -4,16 +4,23 @@ export const ASSET_MEDIA_TYPES = ['image', 'audio'] as const;
 export type AssetCategory = (typeof ASSET_CATEGORIES)[number];
 export type AssetMediaType = (typeof ASSET_MEDIA_TYPES)[number];
 
+export type VoicePresetAssetType =
+  | 'qwen_tts_voice_preset'
+  | 'vox_voice_preset';
+
 export interface VoicePresetAssetMetadata {
-  type: 'qwen_tts_voice_preset';
+  type: VoicePresetAssetType;
   referenceTranscript: string;
   promptFile?: string | null;
   promptLabel?: string | null;
   voicePrompt?: string | null;
+  controlText?: string | null;
+  promptText?: string | null;
   stylePreset?: string | null;
   language?: string | null;
   speakingRate?: number | null;
   pitch?: number | null;
+  useReferenceAsReference?: boolean | null;
   sourceGeneration?: string | null;
   savedAt?: number | null;
 }
@@ -163,14 +170,20 @@ export function resolveVoicePresetAssetMetadata(
     return null;
   }
 
-  const type = normalizeText(voicePreset.type) || 'qwen_tts_voice_preset';
+  const normalizedType = normalizeText(voicePreset.type);
+  const type: VoicePresetAssetType =
+    normalizedType === 'vox_voice_preset'
+      ? 'vox_voice_preset'
+      : 'qwen_tts_voice_preset';
 
   return {
-    type: 'qwen_tts_voice_preset',
+    type,
     referenceTranscript,
     promptFile: normalizeText(voicePreset.promptFile) || null,
     promptLabel: normalizeText(voicePreset.promptLabel) || null,
     voicePrompt: normalizeText(voicePreset.voicePrompt) || null,
+    controlText: normalizeText(voicePreset.controlText) || null,
+    promptText: normalizeText(voicePreset.promptText) || null,
     stylePreset: normalizeText(voicePreset.stylePreset) || null,
     language: normalizeText(voicePreset.language) || null,
     speakingRate:
@@ -180,6 +193,10 @@ export function resolveVoicePresetAssetMetadata(
     pitch:
       typeof voicePreset.pitch === 'number' && Number.isFinite(voicePreset.pitch)
         ? voicePreset.pitch
+        : null,
+    useReferenceAsReference:
+      typeof voicePreset.useReferenceAsReference === 'boolean'
+        ? voicePreset.useReferenceAsReference
         : null,
     sourceGeneration: normalizeText(voicePreset.sourceGeneration || type) || null,
     savedAt:

@@ -62,8 +62,8 @@ export const SEEDANCE_VIDEO_RESULT_NODE_MIN_WIDTH = 360;
 export const SEEDANCE_VIDEO_RESULT_NODE_MIN_HEIGHT = 280;
 export const AUDIO_NODE_DEFAULT_WIDTH = 320;
 export const AUDIO_NODE_DEFAULT_HEIGHT = 96;
-export const TTS_TEXT_NODE_DEFAULT_WIDTH = 420;
-export const TTS_TEXT_NODE_DEFAULT_HEIGHT = 240;
+export const TTS_TEXT_NODE_DEFAULT_WIDTH = 500;
+export const TTS_TEXT_NODE_DEFAULT_HEIGHT = 300;
 export const SCRIPT_TEXT_NODE_DEFAULT_WIDTH = 480;
 export const SCRIPT_TEXT_NODE_DEFAULT_HEIGHT = 320;
 export const SCRIPT_CHAPTER_NODE_DEFAULT_WIDTH = 420;
@@ -170,6 +170,26 @@ export interface NodeDisplayData {
   [key: string]: unknown;
 }
 
+export type VoiceGenerationSource =
+  | 'ttsVoiceDesign'
+  | 'ttsSavedVoice'
+  | 'voxCpmVoiceDesign'
+  | 'voxCpmVoiceClone'
+  | 'voxCpmUltimateClone';
+
+export interface VoicePresetSourceData {
+  referenceText?: string | null;
+  voicePrompt?: string | null;
+  controlText?: string | null;
+  promptText?: string | null;
+  stylePreset?: string | null;
+  language?: string | null;
+  speakingRate?: number | null;
+  pitch?: number | null;
+  useReferenceAsReference?: boolean | null;
+  sourceGeneration?: VoiceGenerationSource | null;
+}
+
 export interface NodeImageData extends NodeDisplayData {
   imageUrl: string | null;
   previewImageUrl?: string | null;
@@ -226,13 +246,7 @@ export interface AudioNodeData extends NodeDisplayData {
   audioFileName?: string | null;
   duration?: number;
   mimeType?: string | null;
-  generationSource?:
-    | 'ttsVoiceDesign'
-    | 'ttsSavedVoice'
-    | 'voxCpmVoiceDesign'
-    | 'voxCpmVoiceClone'
-    | 'voxCpmUltimateClone'
-    | null;
+  generationSource?: VoiceGenerationSource | null;
   sourceNodeId?: string | null;
   isGenerating?: boolean;
   generationProgress?: number;
@@ -252,6 +266,7 @@ export interface AudioNodeData extends NodeDisplayData {
     speakingRate?: number | null;
     pitch?: number | null;
   } | null;
+  voicePresetSource?: VoicePresetSourceData | null;
   [key: string]: unknown;
 }
 
@@ -349,6 +364,7 @@ export interface VoxCpmVoiceDesignNodeData extends NodeDisplayData {
 }
 
 export interface VoxCpmVoiceCloneNodeData extends NodeDisplayData {
+  presetAssetId?: string | null;
   referenceAssetId?: string | null;
   controlText: string;
   cfgValue?: number;
@@ -362,6 +378,7 @@ export interface VoxCpmVoiceCloneNodeData extends NodeDisplayData {
 }
 
 export interface VoxCpmUltimateCloneNodeData extends NodeDisplayData {
+  presetAssetId?: string | null;
   referenceAssetId?: string | null;
   promptText: string;
   useReferenceAsReference?: boolean;

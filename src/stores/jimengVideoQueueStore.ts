@@ -409,6 +409,23 @@ function buildRetryingJob(
   };
 }
 
+function buildFailedJob(
+  job: JimengVideoQueueJob,
+  errorMessage: string,
+): JimengVideoQueueJob {
+  const now = Date.now();
+
+  return {
+    ...job,
+    status: "failed",
+    lastError: errorMessage,
+    updatedAt: now,
+    startedAt: null,
+    nextRetryAt: null,
+    completedAt: now,
+  };
+}
+
 function canJobStartNow(job: JimengVideoQueueJob, now: number): boolean {
   if (job.status === "retrying") {
     return Boolean(job.nextRetryAt && job.nextRetryAt <= now);
@@ -568,7 +585,7 @@ async function startJobAttempt(job: JimengVideoQueueJob): Promise<void> {
     if (isJobDiscarded(currentJob.jobId)) {
       return;
     }
-    currentJob = buildRetryingJob(currentJob, resolveJobErrorMessage(error));
+    currentJob = buildFailedJob(currentJob, resolveJobErrorMessage(error));
     await commitJob(currentJob, { flushProject: true });
   } finally {
     inflightJobIds.delete(job.jobId);
@@ -594,10 +611,11 @@ async function pollJob(job: JimengVideoQueueJob): Promise<void> {
       workingJob.startedAt &&
       Date.now() - workingJob.startedAt > JIMENG_VIDEO_QUEUE_ATTEMPT_TIMEOUT_MS
     ) {
-      const timedOutJob = buildRetryingJob(
-        { ...workingJob, submitId: null },
+      const timedOutJob = buildFailedJob(
+        workingJob,
         i18n.t("jimengQueue.errors.timeout"),
       );
+      nextPollAtByJobId.delete(workingJob.jobId);
       await commitJob(timedOutJob, { flushProject: true });
       return;
     }
@@ -677,9 +695,23 @@ async function pollJob(job: JimengVideoQueueJob): Promise<void> {
       return;
     }
 
-    const failedJob = buildRetryingJob(
-      { ...workingJob, submitId: null },
-      i18n.t("jimengQueue.errors.resultEmpty"),
+    if (response.status === "failed") {
+      const failureMessage =
+        response.failureMessage?.trim() ||
+        response.warnings.find((warning) => warning.trim().length > 0) ||
+        i18n.t("jimengQueue.errors.submitFailed");
+      const failedJob = buildRetryingJob(
+        { ...workingJob, submitId: null },
+        failureMessage,
+      );
+      nextPollAtByJobId.delete(workingJob.jobId);
+      await commitJob(failedJob, { flushProject: true });
+      return;
+    }
+
+    const failedJob = buildFailedJob(
+      workingJob,
+      response.failureMessage?.trim() || i18n.t("jimengQueue.errors.resultEmpty"),
     );
     nextPollAtByJobId.delete(workingJob.jobId);
     await commitJob(failedJob, { flushProject: true });
@@ -694,10 +726,11 @@ async function pollJob(job: JimengVideoQueueJob): Promise<void> {
       workingJob.startedAt &&
       Date.now() - workingJob.startedAt > JIMENG_VIDEO_QUEUE_ATTEMPT_TIMEOUT_MS
     ) {
-      const failedJob = buildRetryingJob(
-        { ...workingJob, submitId: null },
+      const failedJob = buildFailedJob(
+        workingJob,
         resolveJobErrorMessage(error),
       );
+      nextPollAtByJobId.delete(workingJob.jobId);
       await commitJob(failedJob, { flushProject: true });
       return;
     }

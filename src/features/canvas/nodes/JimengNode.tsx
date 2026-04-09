@@ -1328,7 +1328,6 @@ export const JimengNode = memo(
       isFirstLastFrameCountInvalid ||
       hasReferenceVideoTooLong ||
       hasTooManyReferenceVideos;
-
     const modelOptions = useMemo(
       () =>
         JIMENG_VIDEO_MODEL_OPTIONS.map((option) => ({
@@ -1857,46 +1856,45 @@ export const JimengNode = memo(
 
     const enqueueJimengVideoJob = useCallback(async (scheduledAt: number | null) => {
       const prompt = promptDraft.trim();
-      if (!prompt) {
-        const message = t("node.jimeng.promptRequired");
-        updateNodeData(id, { lastError: message });
-        await showErrorDialog(message, t("common.error"));
-        return;
-      }
-
-      if (isGenerateBlocked) {
-        const message = hasTooManyReferenceVideos
-          ? t("node.jimeng.referenceVideoTooMany", {
-              count: MAX_REFERENCE_VIDEO_COUNT,
-            })
-          : hasReferenceVideoTooLong
-            ? t("node.jimeng.referenceVideoTooLong", {
-                seconds: MAX_REFERENCE_VIDEO_DURATION_SECONDS,
-              })
-            : isFirstLastFrameCountInvalid
-              ? t("node.jimeng.firstLastFrameRequiresTwoImages")
-              : t("node.jimeng.cliBlockedAudioNeedsImage");
-        updateNodeData(id, { lastError: message });
-        await showErrorDialog(message, t("common.error"));
-        return;
-      }
-
-      if (!currentProjectId) {
-        const message = t("node.jimeng.queueProjectUnavailable");
-        updateNodeData(id, { lastError: message });
-        await showErrorDialog(message, t("common.error"));
-        return;
-      }
-
-      setPromptOptimizationError(null);
-      updateNodeData(id, { lastError: null });
-
       let createdResultNodeId: string | null = null;
       const resultNodeTitle = buildJimengVideoResultNodeTitle(
         t("node.jimeng.resultNodeTitle"),
       );
-
       try {
+        if (!prompt) {
+          const message = t("node.jimeng.promptRequired");
+          updateNodeData(id, { lastError: message });
+          await showErrorDialog(message, t("common.error"));
+          return;
+        }
+
+        if (isGenerateBlocked) {
+          const message = hasTooManyReferenceVideos
+            ? t("node.jimeng.referenceVideoTooMany", {
+                count: MAX_REFERENCE_VIDEO_COUNT,
+              })
+            : hasReferenceVideoTooLong
+              ? t("node.jimeng.referenceVideoTooLong", {
+                  seconds: MAX_REFERENCE_VIDEO_DURATION_SECONDS,
+                })
+              : isFirstLastFrameCountInvalid
+                ? t("node.jimeng.firstLastFrameRequiresTwoImages")
+                : t("node.jimeng.cliBlockedAudioNeedsImage");
+          updateNodeData(id, { lastError: message });
+          await showErrorDialog(message, t("common.error"));
+          return;
+        }
+
+        if (!currentProjectId) {
+          const message = t("node.jimeng.queueProjectUnavailable");
+          updateNodeData(id, { lastError: message });
+          await showErrorDialog(message, t("common.error"));
+          return;
+        }
+
+        setPromptOptimizationError(null);
+        updateNodeData(id, { lastError: null });
+
         const resultNodePosition = findNodePosition(
           id,
           JIMENG_VIDEO_RESULT_NODE_DEFAULT_WIDTH,
@@ -2010,40 +2008,39 @@ export const JimengNode = memo(
 
     const handleGenerate = useCallback(async () => {
       const prompt = promptDraft.trim();
-      if (!prompt) {
-        const message = t("node.jimeng.promptRequired");
-        updateNodeData(id, { lastError: message });
-        await showErrorDialog(message, t("common.error"));
-        return;
-      }
-
-      if (isGenerateBlocked) {
-        const message = hasTooManyReferenceVideos
-          ? t("node.jimeng.referenceVideoTooMany", {
-              count: MAX_REFERENCE_VIDEO_COUNT,
-            })
-          : hasReferenceVideoTooLong
-            ? t("node.jimeng.referenceVideoTooLong", {
-                seconds: MAX_REFERENCE_VIDEO_DURATION_SECONDS,
-              })
-            : isFirstLastFrameCountInvalid
-              ? t("node.jimeng.firstLastFrameRequiresTwoImages")
-              : t("node.jimeng.cliBlockedAudioNeedsImage");
-        updateNodeData(id, { lastError: message });
-        await showErrorDialog(message, t("common.error"));
-        return;
-      }
-
-      setPromptOptimizationError(null);
-      updateNodeData(id, { lastError: null });
-
       const startedAt = Date.now();
       let createdResultNodeId: string | null = null;
       const resultNodeTitle = buildJimengVideoResultNodeTitle(
         t("node.jimeng.resultNodeTitle"),
       );
-
       try {
+        if (!prompt) {
+          const message = t("node.jimeng.promptRequired");
+          updateNodeData(id, { lastError: message });
+          await showErrorDialog(message, t("common.error"));
+          return;
+        }
+
+        if (isGenerateBlocked) {
+          const message = hasTooManyReferenceVideos
+            ? t("node.jimeng.referenceVideoTooMany", {
+                count: MAX_REFERENCE_VIDEO_COUNT,
+              })
+            : hasReferenceVideoTooLong
+              ? t("node.jimeng.referenceVideoTooLong", {
+                  seconds: MAX_REFERENCE_VIDEO_DURATION_SECONDS,
+                })
+              : isFirstLastFrameCountInvalid
+                ? t("node.jimeng.firstLastFrameRequiresTwoImages")
+                : t("node.jimeng.cliBlockedAudioNeedsImage");
+          updateNodeData(id, { lastError: message });
+          await showErrorDialog(message, t("common.error"));
+          return;
+        }
+
+        setPromptOptimizationError(null);
+        updateNodeData(id, { lastError: null });
+
         const resultNodePosition = findNodePosition(
           id,
           JIMENG_VIDEO_RESULT_NODE_DEFAULT_WIDTH,

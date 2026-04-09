@@ -133,7 +133,9 @@ export interface QueryJimengVideoResultResponse {
   videos: JimengGeneratedVideoItem[];
   submitId: string;
   pending: boolean;
+  status: "pending" | "success" | "failed";
   warnings: string[];
+  failureMessage: string | null;
 }
 
 async function prepareJimengVideoSubmitPayload(
@@ -325,6 +327,13 @@ export async function generateJimengVideos(
     throw new Error("Jimeng video generation did not return any query result");
   }
 
+  if (lastResponse.status === "failed") {
+    throw new Error(
+      lastResponse.failureMessage ??
+        "Dreamina video generation failed without a detailed error message",
+    );
+  }
+
   if (lastResponse.videos.length === 0) {
     if (lastResponse.pending) {
       throw new Error(
@@ -358,6 +367,8 @@ export async function queryJimengVideoResult(
     ),
     submitId: response.submitId,
     pending: response.pending,
+    status: response.status,
     warnings: response.warnings,
+    failureMessage: response.failureMessage ?? null,
   };
 }

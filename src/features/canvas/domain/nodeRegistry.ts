@@ -877,6 +877,7 @@ const voxCpmVoiceCloneNodeDefinition: CanvasNodeDefinition<VoxCpmVoiceCloneNodeD
   },
   createDefaultData: () => ({
     displayName: DEFAULT_NODE_DISPLAY_NAME[CANVAS_NODE_TYPES.voxCpmVoiceClone],
+    presetAssetId: null,
     referenceAssetId: null,
     controlText: '',
     cfgValue: 1.3,
@@ -911,6 +912,7 @@ const voxCpmUltimateCloneNodeDefinition: CanvasNodeDefinition<VoxCpmUltimateClon
   },
   createDefaultData: () => ({
     displayName: DEFAULT_NODE_DISPLAY_NAME[CANVAS_NODE_TYPES.voxCpmUltimateClone],
+    presetAssetId: null,
     referenceAssetId: null,
     promptText: '',
     useReferenceAsReference: true,

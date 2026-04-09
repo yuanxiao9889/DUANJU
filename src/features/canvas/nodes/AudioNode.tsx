@@ -37,6 +37,7 @@ import {
   resolveNodeDisplayName,
 } from '@/features/canvas/domain/nodeDisplay';
 import { resolveConnectedTtsText } from '@/features/canvas/nodes/qwenTtsShared';
+import { resolveConnectedVoxText } from '@/features/canvas/nodes/voxCpmShared';
 import { NodeHeader, NODE_HEADER_FLOATING_POSITION_CLASS } from '@/features/canvas/ui/NodeHeader';
 import { NodeStatusBadge } from '@/features/canvas/ui/NodeStatusBadge';
 import {
@@ -93,6 +94,14 @@ function normalizeText(value: unknown): string {
 
 function stripFileExtension(value: string): string {
   return value.replace(/\.[^.]+$/, '').trim();
+}
+
+function isVoicePresetGenerationSource(value: unknown): boolean {
+  return value === 'ttsVoiceDesign'
+    || value === 'ttsSavedVoice'
+    || value === 'voxCpmVoiceDesign'
+    || value === 'voxCpmVoiceClone'
+    || value === 'voxCpmUltimateClone';
 }
 
 export const AudioNode = memo(({ id, data, selected, width }: AudioNodeProps) => {
@@ -154,20 +163,60 @@ export const AudioNode = memo(({ id, data, selected, width }: AudioNodeProps) =>
     }
     return resolveNodeDisplayName(CANVAS_NODE_TYPES.audio, data);
   }, [data, useUploadFilenameAsNodeTitle]);
-  const sourceVoiceDesignNode = useMemo(() => {
+  const sourceNode = useMemo(() => {
     const sourceNodeId = normalizeText(data.sourceNodeId);
     if (!sourceNodeId) {
       return null;
     }
 
-    return nodes.find(
-      (node) => node.id === sourceNodeId && node.type === CANVAS_NODE_TYPES.ttsVoiceDesign
-    ) ?? null;
+    return nodes.find((node) => node.id === sourceNodeId) ?? null;
   }, [data.sourceNodeId, nodes]);
   const fallbackPresetReferenceText = useMemo(
-    () => (sourceVoiceDesignNode ? resolveConnectedTtsText(sourceVoiceDesignNode.id, nodes, edges) : ''),
-    [edges, nodes, sourceVoiceDesignNode]
+    () => {
+      if (!sourceNode) {
+        return '';
+      }
+
+      if (
+        sourceNode.type === CANVAS_NODE_TYPES.ttsVoiceDesign
+        || sourceNode.type === CANVAS_NODE_TYPES.ttsSavedVoice
+      ) {
+        return resolveConnectedTtsText(sourceNode.id, nodes, edges);
+      }
+
+      if (
+        sourceNode.type === CANVAS_NODE_TYPES.voxCpmVoiceDesign
+        || sourceNode.type === CANVAS_NODE_TYPES.voxCpmVoiceClone
+        || sourceNode.type === CANVAS_NODE_TYPES.voxCpmUltimateClone
+      ) {
+        return resolveConnectedVoxText(sourceNode.id, nodes, edges);
+      }
+
+      return '';
+    },
+    [edges, nodes, sourceNode]
   );
+  const voicePresetSource = useMemo(() => {
+    const source = data.voicePresetSource;
+    if (typeof source === 'object' && source !== null) {
+      return source;
+    }
+
+    const legacySource = data.ttsPresetSource;
+    if (typeof legacySource === 'object' && legacySource !== null) {
+      return {
+        referenceText: legacySource.referenceText ?? null,
+        voicePrompt: legacySource.voicePrompt ?? null,
+        stylePreset: legacySource.stylePreset ?? null,
+        language: legacySource.language ?? null,
+        speakingRate: legacySource.speakingRate ?? null,
+        pitch: legacySource.pitch ?? null,
+        sourceGeneration: 'ttsVoiceDesign' as const,
+      };
+    }
+
+    return null;
+  }, [data.ttsPresetSource, data.voicePresetSource]);
   const ttsPresetSource = useMemo(() => {
     const source = data.ttsPresetSource;
     if (typeof source !== 'object' || source === null) {
@@ -176,22 +225,25 @@ export const AudioNode = memo(({ id, data, selected, width }: AudioNodeProps) =>
 
     return source as NonNullable<AudioNodeData['ttsPresetSource']>;
   }, [data.ttsPresetSource]);
-  const presetReferenceText = normalizeText(ttsPresetSource?.referenceText) || fallbackPresetReferenceText.trim();
-  const presetVoicePrompt = normalizeText(ttsPresetSource?.voicePrompt);
+  const presetReferenceText = normalizeText(voicePresetSource?.referenceText) || fallbackPresetReferenceText.trim();
+  const presetDescriptionSeed =
+    normalizeText(voicePresetSource?.controlText)
+    || normalizeText(voicePresetSource?.voicePrompt)
+    || normalizeText(ttsPresetSource?.voicePrompt);
   const defaultPresetTitle = useMemo(() => {
-    const sourceNodeTitle = sourceVoiceDesignNode
-      ? resolveNodeDisplayName(CANVAS_NODE_TYPES.ttsVoiceDesign, sourceVoiceDesignNode.data)
+    const sourceNodeTitle = sourceNode
+      ? resolveNodeDisplayName(sourceNode.type, sourceNode.data)
       : '';
 
     return (
       stripFileExtension(normalizeText(data.assetName))
       || stripFileExtension(normalizeText(data.audioFileName))
       || normalizeText(sourceNodeTitle)
-      || t('node.qwenTts.savedVoice.defaultVoiceName')
+      || t('node.audioNode.defaultVoiceName')
     );
-  }, [data.assetName, data.audioFileName, sourceVoiceDesignNode, t]);
+  }, [data.assetName, data.audioFileName, sourceNode, t]);
   const canSaveAsPreset =
-    data.generationSource === 'ttsVoiceDesign'
+    isVoicePresetGenerationSource(data.generationSource)
     && normalizeText(data.audioUrl).length > 0
     && presetReferenceText.length > 0;
   const targetPresetLibrary = assetLibraries.find((library) => library.id === presetLibraryId) ?? null;
@@ -333,9 +385,9 @@ export const AudioNode = memo(({ id, data, selected, width }: AudioNodeProps) =>
 
     setPresetTitle(defaultPresetTitle);
     setPresetTagsText('');
-    setPresetDescription(presetVoicePrompt);
+    setPresetDescription(presetDescriptionSeed);
     setPresetError('');
-  }, [defaultPresetTitle, isPresetModalOpen, presetVoicePrompt]);
+  }, [defaultPresetTitle, isPresetModalOpen, presetDescriptionSeed]);
 
   useEffect(() => {
     if (!isPresetModalOpen) {
@@ -543,26 +595,52 @@ export const AudioNode = memo(({ id, data, selected, width }: AudioNodeProps) =>
     setPresetError('');
 
     try {
+      const sourceGeneration = normalizeText(voicePresetSource?.sourceGeneration)
+        || normalizeText(data.generationSource);
       const metadata: AssetMetadata = {
         voicePreset: {
-          type: 'qwen_tts_voice_preset',
+          type: sourceGeneration.startsWith('voxCpm')
+            ? 'vox_voice_preset'
+            : 'qwen_tts_voice_preset',
           referenceTranscript: presetReferenceText,
           promptFile: null,
           promptLabel: null,
-          voicePrompt: presetVoicePrompt || null,
-          stylePreset: normalizeText(ttsPresetSource?.stylePreset) || null,
-          language: normalizeText(ttsPresetSource?.language) || null,
+          voicePrompt: normalizeText(voicePresetSource?.voicePrompt) || null,
+          controlText: normalizeText(voicePresetSource?.controlText) || null,
+          promptText: normalizeText(voicePresetSource?.promptText) || null,
+          stylePreset:
+            normalizeText(voicePresetSource?.stylePreset)
+            || normalizeText(ttsPresetSource?.stylePreset)
+            || null,
+          language:
+            normalizeText(voicePresetSource?.language)
+            || normalizeText(ttsPresetSource?.language)
+            || null,
           speakingRate:
+            typeof voicePresetSource?.speakingRate === 'number'
+            && Number.isFinite(voicePresetSource.speakingRate)
+              ? voicePresetSource.speakingRate
+              : (
             typeof ttsPresetSource?.speakingRate === 'number'
             && Number.isFinite(ttsPresetSource.speakingRate)
               ? ttsPresetSource.speakingRate
-              : null,
+              : null
+              ),
           pitch:
+            typeof voicePresetSource?.pitch === 'number'
+            && Number.isFinite(voicePresetSource.pitch)
+              ? voicePresetSource.pitch
+              : (
             typeof ttsPresetSource?.pitch === 'number'
             && Number.isFinite(ttsPresetSource.pitch)
               ? ttsPresetSource.pitch
+              : null
+              ),
+          useReferenceAsReference:
+            typeof voicePresetSource?.useReferenceAsReference === 'boolean'
+              ? voicePresetSource.useReferenceAsReference
               : null,
-          sourceGeneration: 'ttsVoiceDesign',
+          sourceGeneration: sourceGeneration || null,
           savedAt: Date.now(),
         },
       };
@@ -617,7 +695,6 @@ export const AudioNode = memo(({ id, data, selected, width }: AudioNodeProps) =>
     presetTagsText,
     presetReferenceText,
     presetTitle,
-    presetVoicePrompt,
     setCurrentProjectAssetLibrary,
     t,
     targetPresetLibrary,
@@ -626,6 +703,7 @@ export const AudioNode = memo(({ id, data, selected, width }: AudioNodeProps) =>
     ttsPresetSource?.speakingRate,
     ttsPresetSource?.stylePreset,
     updateNodeData,
+    voicePresetSource,
   ]);
 
   return (
@@ -949,7 +1027,7 @@ export const AudioNode = memo(({ id, data, selected, width }: AudioNodeProps) =>
 
           <div className="rounded-xl border border-white/10 bg-black/10 px-3 py-2.5">
             <div className="mb-1 text-xs font-medium uppercase tracking-[0.14em] text-text-muted/80">
-              {t('node.qwenTts.savedVoice.referenceTranscript')}
+              {t('node.audioNode.referenceTranscript')}
             </div>
             <div className="max-h-28 overflow-auto whitespace-pre-wrap text-sm leading-5 text-text-dark">
               {presetReferenceText || t('node.audioNode.savePresetMissingReferenceText')}

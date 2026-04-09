@@ -33,10 +33,10 @@ type TextAnnotationNodeProps = NodeProps & {
   selected?: boolean;
 };
 
-const DEFAULT_WIDTH = 420;
-const DEFAULT_HEIGHT = 240;
-const MIN_WIDTH = 180;
-const MIN_HEIGHT = 100;
+const DEFAULT_WIDTH = TTS_TEXT_NODE_DEFAULT_WIDTH;
+const DEFAULT_HEIGHT = TTS_TEXT_NODE_DEFAULT_HEIGHT;
+const MIN_WIDTH = 280;
+const MIN_HEIGHT = 160;
 const MAX_WIDTH = 900;
 const MAX_HEIGHT = 900;
 

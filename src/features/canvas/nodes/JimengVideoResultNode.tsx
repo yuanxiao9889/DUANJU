@@ -321,6 +321,31 @@ export const JimengVideoResultNode = memo(
 
       try {
         const response = await queryJimengVideoResult({ submitId });
+        if (response.status === "failed") {
+          const message =
+            response.failureMessage?.trim() ||
+            response.warnings.find((warning) => warning.trim().length > 0) ||
+            t("node.jimengVideoResult.requeryFailed");
+          setStatusNotice(message);
+          updateNodeData(
+            id,
+            {
+              autoRequeryEnabled: false,
+              isGenerating: false,
+              generationStartedAt: null,
+              lastError: message,
+            },
+            historyOptions,
+          );
+          await flushCurrentProjectToDiskSafely(
+            "saving Jimeng video requery failure",
+          );
+          if (!options?.suppressErrorDialog) {
+            await showErrorDialog(message, t("common.error"));
+          }
+          return;
+        }
+
         const primaryResult = response.videos[0] ?? null;
         const hasResult = primaryResult !== null;
         const completedAt = hasResult

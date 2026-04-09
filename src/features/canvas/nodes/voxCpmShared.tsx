@@ -1,9 +1,15 @@
-import type { ReactNode } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { Loader2, Undo2, Wand2 } from 'lucide-react';
 
-import type {
-  AssetItemRecord,
-  AssetLibraryRecord,
+import {
+  isReusableVoicePresetAsset,
+  resolveVoicePresetAssetMetadata,
+  type AssetItemRecord,
+  type AssetLibraryRecord,
+  type VoicePresetAssetMetadata,
 } from '@/features/assets/domain/types';
+import { showErrorDialog } from '@/features/canvas/application/errorDialog';
+import { optimizeCanvasPrompt } from '@/features/canvas/application/promptOptimization';
 import {
   CANVAS_NODE_TYPES,
   type AudioNodeData,
@@ -14,6 +20,11 @@ import { resolveConnectedTtsText } from './qwenTtsShared';
 
 export const DEFAULT_VOXCPM_CFG_VALUE = 1.3;
 export const DEFAULT_VOXCPM_INFERENCE_TIMESTEPS = 10;
+
+interface PromptOptimizationUndoState {
+  previousPrompt: string;
+  appliedPrompt: string;
+}
 
 export interface AudioAssetGroup {
   id: string;
@@ -30,6 +41,21 @@ export interface SliderFieldProps {
   step: number;
   value: number;
   onChange: (value: number) => void;
+}
+
+interface OptimizableTextAreaFieldProps {
+  label: string;
+  value: string;
+  placeholder: string;
+  helperText: string;
+  emptyMessage: string;
+  optimizeFailedMessage: string;
+  dialogTitle: string;
+  optimizeTitle: string;
+  optimizingTitle: string;
+  undoTitle: string;
+  onChange: (value: string) => void;
+  minHeightClassName?: string;
 }
 
 export function clamp(value: number, min: number, max: number): number {
@@ -62,6 +88,16 @@ export function collectAudioAssetGroups(libraries: AssetLibraryRecord[]): AudioA
       id: library.id,
       name: library.name,
       items: library.items.filter((item) => item.mediaType === 'audio'),
+    }))
+    .filter((library) => library.items.length > 0);
+}
+
+export function collectVoicePresetGroups(libraries: AssetLibraryRecord[]): AudioAssetGroup[] {
+  return libraries
+    .map((library) => ({
+      id: library.id,
+      name: library.name,
+      items: library.items.filter(isReusableVoicePresetAsset),
     }))
     .filter((library) => library.items.length > 0);
 }
@@ -118,6 +154,202 @@ export function resolveConnectedVoxText(
   return resolveConnectedTtsText(nodeId, nodes, edges);
 }
 
+export function resolveVoicePresetHint(
+  metadata: VoicePresetAssetMetadata | null,
+  assetDescription: string | null | undefined
+): string {
+  return metadata?.controlText?.trim()
+    || metadata?.voicePrompt?.trim()
+    || (typeof assetDescription === 'string' ? assetDescription.trim() : '')
+    || '';
+}
+
+export function resolveReferenceAudioPath(
+  selectedPresetAsset: AssetItemRecord | null,
+  selectedReferenceAsset: AssetItemRecord | null,
+  connectedReferenceAudio: AudioNodeData | null
+): string {
+  return selectedPresetAsset?.sourcePath?.trim()
+    ?? selectedReferenceAsset?.sourcePath?.trim()
+    ?? connectedReferenceAudio?.audioUrl?.trim()
+    ?? '';
+}
+
+export function resolveReferenceAudioName(
+  selectedPresetAsset: AssetItemRecord | null,
+  selectedReferenceAsset: AssetItemRecord | null,
+  connectedReferenceAudio: AudioNodeData | null
+): string {
+  return selectedPresetAsset?.name?.trim()
+    ?? selectedReferenceAsset?.name?.trim()
+    ?? connectedReferenceAudio?.audioFileName?.trim()
+    ?? '';
+}
+
+export function resolveReferenceSourceLabel(
+  hasPreset: boolean,
+  hasReferenceAsset: boolean,
+  hasConnectedReferenceAudio: boolean,
+  labels: {
+    preset: string;
+    asset: string;
+    connected: string;
+    missing: string;
+  }
+): string {
+  if (hasPreset) {
+    return labels.preset;
+  }
+  if (hasReferenceAsset) {
+    return labels.asset;
+  }
+  if (hasConnectedReferenceAudio) {
+    return labels.connected;
+  }
+  return labels.missing;
+}
+
+export function OptimizableTextAreaField({
+  label,
+  value,
+  placeholder,
+  helperText,
+  emptyMessage,
+  optimizeFailedMessage,
+  dialogTitle,
+  optimizeTitle,
+  optimizingTitle,
+  undoTitle,
+  onChange,
+  minHeightClassName = 'min-h-[88px]',
+}: OptimizableTextAreaFieldProps) {
+  const promptValueRef = useRef(value);
+  const [isOptimizing, setIsOptimizing] = useState(false);
+  const [optimizationError, setOptimizationError] = useState<string | null>(null);
+  const [lastUndoState, setLastUndoState] = useState<PromptOptimizationUndoState | null>(null);
+
+  useEffect(() => {
+    promptValueRef.current = value;
+  }, [value]);
+
+  const handleOptimize = async () => {
+    const sourcePrompt = promptValueRef.current;
+    const trimmedPrompt = sourcePrompt.trim();
+    if (!trimmedPrompt) {
+      setOptimizationError(emptyMessage);
+      await showErrorDialog(emptyMessage, dialogTitle);
+      return;
+    }
+
+    setIsOptimizing(true);
+    setOptimizationError(null);
+
+    try {
+      const result = await optimizeCanvasPrompt({
+        mode: 'ttsVoice',
+        prompt: trimmedPrompt,
+      });
+
+      if (promptValueRef.current !== sourcePrompt) {
+        return;
+      }
+
+      setLastUndoState(
+        result.prompt === sourcePrompt
+          ? null
+          : {
+              previousPrompt: sourcePrompt,
+              appliedPrompt: result.prompt,
+            }
+      );
+      onChange(result.prompt);
+    } catch (error) {
+      const errorMessage =
+        error instanceof Error && error.message.trim().length > 0
+          ? error.message
+          : optimizeFailedMessage;
+      setOptimizationError(errorMessage);
+      await showErrorDialog(errorMessage, dialogTitle);
+    } finally {
+      setIsOptimizing(false);
+    }
+  };
+
+  const handleUndo = () => {
+    if (!lastUndoState) {
+      return;
+    }
+
+    if (promptValueRef.current !== lastUndoState.appliedPrompt) {
+      return;
+    }
+
+    setOptimizationError(null);
+    setLastUndoState(null);
+    onChange(lastUndoState.previousPrompt);
+  };
+
+  const canUndo = Boolean(
+    lastUndoState && promptValueRef.current === lastUndoState.appliedPrompt
+  );
+
+  return (
+    <label className="block rounded-xl border border-white/10 bg-black/10 px-3 py-2.5">
+      <div className="mb-2 flex items-center justify-between gap-3">
+        <div className="text-xs font-medium text-text-muted">{label}</div>
+        <div className="flex items-center gap-1">
+          <button
+            type="button"
+            disabled={isOptimizing}
+            title={isOptimizing ? optimizingTitle : optimizeTitle}
+            onPointerDown={(event) => event.stopPropagation()}
+            onClick={(event) => {
+              event.stopPropagation();
+              void handleOptimize();
+            }}
+            className="nodrag inline-flex h-7 w-7 items-center justify-center rounded-lg border border-white/10 bg-white/[0.04] text-text-muted transition-colors hover:border-accent/45 hover:bg-accent/14 hover:text-text-dark disabled:cursor-not-allowed disabled:border-white/8 disabled:bg-white/[0.02] disabled:text-text-muted/45"
+          >
+            {isOptimizing ? (
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            ) : (
+              <Wand2 className="h-3.5 w-3.5" strokeWidth={2.25} />
+            )}
+          </button>
+          {canUndo ? (
+            <button
+              type="button"
+              title={undoTitle}
+              onPointerDown={(event) => event.stopPropagation()}
+              onClick={(event) => {
+                event.stopPropagation();
+                handleUndo();
+              }}
+              className="nodrag inline-flex h-7 w-7 items-center justify-center rounded-lg border border-white/10 bg-white/[0.04] text-text-muted transition-colors hover:border-white/20 hover:bg-white/[0.06] hover:text-text-dark"
+            >
+              <Undo2 className="h-3.5 w-3.5" strokeWidth={2.2} />
+            </button>
+          ) : null}
+        </div>
+      </div>
+      <textarea
+        value={value}
+        onChange={(event) => {
+          setOptimizationError(null);
+          onChange(event.target.value);
+        }}
+        placeholder={placeholder}
+        className={`nodrag nowheel ${minHeightClassName} w-full resize-y rounded-lg border border-white/10 bg-black/10 px-3 py-2 text-sm text-text-dark outline-none transition-colors placeholder:text-text-muted/70 focus:border-accent`}
+      />
+      <div className="mt-2 text-[11px] leading-4 text-text-muted">{helperText}</div>
+      {optimizationError ? (
+        <div className="mt-2 rounded-lg border border-red-400/25 bg-red-400/10 px-3 py-2 text-[11px] leading-4 text-red-100">
+          {optimizationError}
+        </div>
+      ) : null}
+    </label>
+  );
+}
+
 export function SliderField({
   label,
   valueLabel,
@@ -170,4 +402,46 @@ export function SummaryCard({
       </div>
     </div>
   );
+}
+
+export function PresetDetailCard({
+  title,
+  value,
+  actionLabel,
+  onAction,
+}: {
+  title: string;
+  value: string;
+  actionLabel?: string;
+  onAction?: () => void;
+}) {
+  return (
+    <div className="rounded-xl border border-white/10 bg-white/[0.03] px-3 py-2.5 text-sm text-text-dark">
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0 flex-1">
+          <div className="text-xs font-medium text-text-muted">{title}</div>
+          <div className="mt-1 whitespace-pre-wrap break-words">{value}</div>
+        </div>
+        {actionLabel && onAction ? (
+          <button
+            type="button"
+            onPointerDown={(event) => event.stopPropagation()}
+            onClick={(event) => {
+              event.stopPropagation();
+              onAction();
+            }}
+            className="nodrag shrink-0 rounded-lg border border-white/10 bg-white/[0.04] px-3 py-1.5 text-[11px] text-text-muted transition-colors hover:border-white/20 hover:bg-white/[0.06] hover:text-text-dark"
+          >
+            {actionLabel}
+          </button>
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
+export function resolveSelectedPresetMetadata(
+  selectedPresetAsset: AssetItemRecord | null
+): VoicePresetAssetMetadata | null {
+  return resolveVoicePresetAssetMetadata(selectedPresetAsset);
 }

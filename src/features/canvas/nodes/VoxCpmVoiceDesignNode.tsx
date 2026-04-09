@@ -29,6 +29,7 @@ import {
   DEFAULT_VOXCPM_CFG_VALUE,
   DEFAULT_VOXCPM_INFERENCE_TIMESTEPS,
   formatGeneratedTime,
+  OptimizableTextAreaField,
   resolveConnectedVoxText,
   resolveRuntimeTone,
   SliderField,
@@ -152,6 +153,12 @@ export const VoxCpmVoiceDesignNode = memo(({
         queuePosition: 0,
         statusText: t('node.audioNode.queueStarting'),
         lastError: null,
+        voicePresetSource: {
+          referenceText: connectedTextTrimmed,
+          voicePrompt: data.voicePrompt ?? '',
+          promptText: connectedTextTrimmed,
+          sourceGeneration: 'voxCpmVoiceDesign',
+        },
       } satisfies Partial<AudioNodeData>,
       {
         inheritParentFromNodeId: id,
@@ -253,20 +260,19 @@ export const VoxCpmVoiceDesignNode = memo(({
           subtitle={connectedTextPreview}
         />
 
-        <label className="block rounded-xl border border-white/10 bg-black/10 px-3 py-2.5">
-          <div className="mb-2 text-xs font-medium text-text-muted">
-            {t('node.voxCpm.voicePrompt')}
-          </div>
-          <textarea
-            value={typeof data.voicePrompt === 'string' ? data.voicePrompt : ''}
-            onChange={(event) => handleFieldChange('voicePrompt', event.target.value)}
-            placeholder={t('node.voxCpm.voicePromptPlaceholder')}
-            className="nodrag nowheel min-h-[88px] w-full resize-y rounded-lg border border-white/10 bg-black/10 px-3 py-2 text-sm text-text-dark outline-none transition-colors placeholder:text-text-muted/70 focus:border-accent"
-          />
-          <div className="mt-2 text-[11px] leading-4 text-text-muted">
-            {t('node.voxCpm.voicePromptHint')}
-          </div>
-        </label>
+        <OptimizableTextAreaField
+          label={t('node.voxCpm.voicePrompt')}
+          value={typeof data.voicePrompt === 'string' ? data.voicePrompt : ''}
+          placeholder={t('node.voxCpm.voicePromptPlaceholder')}
+          helperText={t('node.voxCpm.voicePromptHint')}
+          emptyMessage={t('node.voxCpm.voicePromptRequired')}
+          optimizeFailedMessage={t('node.voxCpm.optimizeVoicePromptFailed')}
+          dialogTitle={t('node.voxCpm.optimizationDialogTitle')}
+          optimizeTitle={t('node.voxCpm.optimizePrompt')}
+          optimizingTitle={t('node.voxCpm.optimizingPrompt')}
+          undoTitle={t('node.voxCpm.undoOptimizedPrompt')}
+          onChange={(value) => handleFieldChange('voicePrompt', value)}
+        />
 
         <div className="grid gap-3 md:grid-cols-2">
           <SliderField

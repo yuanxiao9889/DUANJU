@@ -285,8 +285,10 @@ pub struct JimengDreaminaImageQueryResponse {
 pub struct JimengDreaminaVideoQueryResponse {
     pub submit_id: String,
     pub pending: bool,
+    pub status: String,
     pub results: Vec<JimengDreaminaGeneratedVideoResult>,
     pub warnings: Vec<String>,
+    pub failure_message: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -3270,11 +3272,9 @@ pub async fn query_jimeng_dreamina_video_result(
     }
 
     let download_dir = runtime_submit_download_dir(&app, "video", &submit_id)?;
-    let value = query_dreamina(&app, workspace, &submit_id, &download_dir).await?;
-    let pending = value.is_none();
-    let results = value
-        .map(|resolved| {
-            video_media(&resolved)
+    match query_dreamina(&app, workspace, &submit_id, &download_dir).await {
+        Ok(Some(resolved)) => {
+            let results = video_media(&resolved)
                 .into_iter()
                 .enumerate()
                 .map(
@@ -3289,14 +3289,35 @@ pub async fn query_jimeng_dreamina_video_result(
                         }
                     },
                 )
-                .collect::<Vec<_>>()
-        })
-        .unwrap_or_default();
+                .collect::<Vec<_>>();
 
-    Ok(JimengDreaminaVideoQueryResponse {
-        submit_id,
-        pending,
-        results,
-        warnings: Vec::new(),
-    })
+            Ok(JimengDreaminaVideoQueryResponse {
+                submit_id,
+                pending: false,
+                status: "success".to_string(),
+                results,
+                warnings: Vec::new(),
+                failure_message: None,
+            })
+        }
+        Ok(None) => Ok(JimengDreaminaVideoQueryResponse {
+            submit_id,
+            pending: true,
+            status: "pending".to_string(),
+            results: Vec::new(),
+            warnings: Vec::new(),
+            failure_message: None,
+        }),
+        Err(error) if error.starts_with(&format!("Dreamina task {submit_id} failed:")) => {
+            Ok(JimengDreaminaVideoQueryResponse {
+                submit_id,
+                pending: false,
+                status: "failed".to_string(),
+                results: Vec::new(),
+                warnings: vec![error.clone()],
+                failure_message: Some(error),
+            })
+        }
+        Err(error) => Err(error),
+    }
 }
