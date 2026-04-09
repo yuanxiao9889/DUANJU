@@ -232,6 +232,14 @@ pub struct DreaminaGuidedSetupResponse {
     pub login_wait_timed_out: bool,
 }
 
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "PascalCase")]
+struct WindowsPortOwnerRecord {
+    process_id: Option<u32>,
+    name: Option<String>,
+    command_line: Option<String>,
+}
+
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct JimengDreaminaImageGenerationResponse {
@@ -1289,23 +1297,12 @@ fn dreamina_login_success_logged(workspace: &Path) -> bool {
         .unwrap_or(false)
 }
 
-fn dreamina_credential_updated_since(workspace: &Path, started_at: SystemTime) -> bool {
-    dreamina_credential_path(workspace)
-        .and_then(|path| fs::metadata(path).ok())
-        .and_then(|metadata| metadata.modified().ok())
-        .map(|modified_at| {
-            modified_at >= started_at
-                || started_at
-                    .duration_since(modified_at)
-                    .map(|delta| delta <= Duration::from_secs(2))
-                    .unwrap_or(false)
-        })
-        .unwrap_or(false)
+fn dreamina_credential_has_usable_session(workspace: &Path) -> bool {
+    dreamina_credential_session_detail(workspace).is_none()
 }
 
-fn dreamina_login_confirmed(workspace: &Path, started_at: SystemTime) -> bool {
-    dreamina_login_success_logged(workspace)
-        || dreamina_credential_updated_since(workspace, started_at)
+fn dreamina_login_confirmed(workspace: &Path) -> bool {
+    dreamina_login_success_logged(workspace) || dreamina_credential_has_usable_session(workspace)
 }
 
 fn tail_lines(text: &str, line_count: usize) -> String {
@@ -1415,6 +1412,23 @@ fn dreamina_login_membership_required_detail(workspace: &Path) -> Option<String>
     }
 }
 
+fn detail_indicates_dreamina_callback_port_busy(detail: &str) -> bool {
+    let lowered = detail.to_ascii_lowercase();
+    lowered.contains("callback server")
+        || lowered.contains("listen tcp")
+        || lowered.contains("bind:")
+        || lowered.contains("port is already in use")
+}
+
+fn dreamina_login_callback_port_busy(workspace: &Path) -> bool {
+    dreamina_login_internal_failure_detail(workspace, 8)
+        .map(|detail| detail_indicates_dreamina_callback_port_busy(&detail))
+        .unwrap_or(false)
+        || dreamina_login_log_tail(workspace, 8)
+            .map(|detail| detail_indicates_dreamina_callback_port_busy(&detail))
+            .unwrap_or(false)
+}
+
 fn dreamina_login_wait_detail(workspace: &Path) -> Option<String> {
     if let Some(detail) = dreamina_login_membership_required_detail(workspace) {
         return Some(detail);
@@ -1479,6 +1493,112 @@ fn dreamina_login_qr_data_url(workspace: &Path) -> Option<String> {
 
 fn powershell_quote(value: &str) -> String {
     format!("'{}'", value.replace('\'', "''"))
+}
+
+fn truncate_command_line_for_detail(input: &str, max_chars: usize) -> String {
+    let trimmed = input.trim();
+    if trimmed.chars().count() <= max_chars {
+        return trimmed.to_string();
+    }
+
+    let truncated = trimmed.chars().take(max_chars).collect::<String>();
+    format!("{truncated}...")
+}
+
+fn format_dreamina_callback_port_owner_detail(owners: &[WindowsPortOwnerRecord]) -> String {
+    let mut lines = vec![format!(
+        "Dreamina uses local callback port {} for QR login, but it is still occupied after cleanup.",
+        DREAMINA_LOGIN_CALLBACK_PORT
+    )];
+
+    for owner in owners {
+        let pid = owner
+            .process_id
+            .map(|value| value.to_string())
+            .unwrap_or_else(|| "unknown".to_string());
+        let name = owner
+            .name
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .unwrap_or("unknown");
+        let mut line = format!("- PID {pid} | {name}");
+        if let Some(command_line) = owner
+            .command_line
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+        {
+            line.push_str(" | ");
+            line.push_str(&truncate_command_line_for_detail(command_line, 220));
+        }
+        lines.push(line);
+    }
+
+    lines.push(
+        "Please close the process above or free port 60713, then retry QR login.".to_string(),
+    );
+    lines.join("\n")
+}
+
+async fn query_dreamina_callback_port_owners() -> Result<Vec<WindowsPortOwnerRecord>, String> {
+    if !cfg!(target_os = "windows") {
+        return Ok(Vec::new());
+    }
+
+    tokio::task::spawn_blocking(move || {
+        let script = format!(
+            "$connections = Get-NetTCPConnection -State Listen -LocalPort {port} -ErrorAction SilentlyContinue; \
+if (-not $connections) {{ '[]'; exit 0 }}; \
+$owners = foreach ($connection in $connections) {{ \
+  $process = Get-CimInstance Win32_Process -Filter (\"ProcessId = \" + $connection.OwningProcess) -ErrorAction SilentlyContinue; \
+  [PSCustomObject]@{{ \
+    ProcessId = $connection.OwningProcess; \
+    Name = if ($process) {{ $process.Name }} else {{ $null }}; \
+    CommandLine = if ($process) {{ $process.CommandLine }} else {{ $null }} \
+  }} \
+}}; \
+$owners | Sort-Object ProcessId -Unique | ConvertTo-Json -Compress",
+            port = DREAMINA_LOGIN_CALLBACK_PORT
+        );
+
+        let mut command = Command::new("powershell");
+        command
+            .arg("-NoProfile")
+            .arg("-NonInteractive")
+            .arg("-Command")
+            .arg(script);
+        #[cfg(target_os = "windows")]
+        command.creation_flags(CREATE_NO_WINDOW);
+
+        let output = command
+            .output()
+            .map_err(|error| format!("failed to inspect Dreamina callback port owner: {error}"))?;
+        if !output.status.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+            return Err(if stderr.is_empty() {
+                "failed to inspect Dreamina callback port owner".to_string()
+            } else {
+                format!("failed to inspect Dreamina callback port owner: {stderr}")
+            });
+        }
+
+        let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
+        if stdout.is_empty() || stdout == "null" || stdout == "[]" {
+            return Ok(Vec::new());
+        }
+
+        if stdout.starts_with('[') {
+            serde_json::from_str::<Vec<WindowsPortOwnerRecord>>(&stdout)
+                .map_err(|error| format!("failed to parse Dreamina callback port owners: {error}"))
+        } else {
+            serde_json::from_str::<WindowsPortOwnerRecord>(&stdout)
+                .map(|record| vec![record])
+                .map_err(|error| format!("failed to parse Dreamina callback port owner: {error}"))
+        }
+    })
+    .await
+    .map_err(|error| format!("failed to await Dreamina callback port owner inspection: {error}"))?
 }
 
 async fn terminate_conflicting_dreamina_processes(
@@ -2699,6 +2819,12 @@ async fn open_dreamina_login_terminal_with_runtime(
 ) -> Result<DreaminaCliActionResponse, String> {
     let command_env = dreamina_process_env(&workspace)?;
     terminate_conflicting_dreamina_processes(runtime, &command_env).await?;
+    let remaining_port_owners = query_dreamina_callback_port_owners().await?;
+    if !remaining_port_owners.is_empty() {
+        return Err(format_dreamina_callback_port_owner_detail(
+            &remaining_port_owners,
+        ));
+    }
     let script = dreamina_login_headless_script(runtime, &command_env);
     let bash_path = runtime.bash_path.clone();
     let log_path = dreamina_login_log_path(&workspace);
@@ -2773,18 +2899,18 @@ async fn wait_for_dreamina_login(
     runtime: &GitBashRuntime,
 ) -> (DreaminaCliStatusResponse, bool) {
     let started_at = Instant::now();
-    let started_system_at = SystemTime::now();
     let deadline = started_at + Duration::from_millis(DREAMINA_LOGIN_WAIT_TIMEOUT_MS);
-    let qr_deadline = started_at + Duration::from_millis(DREAMINA_QR_READY_TIMEOUT_MS);
+    let mut qr_deadline = started_at + Duration::from_millis(DREAMINA_QR_READY_TIMEOUT_MS);
     let mut qr_seen = false;
     let mut verify_started_at: Option<Instant> = None;
+    let mut auto_relaunch_count = 0u8;
 
     loop {
         let now = Instant::now();
         let qr_file_ready = dreamina_login_qr_file_path(workspace).is_some();
         let login_qr_data_url = dreamina_login_qr_data_url(workspace);
         qr_seen |= qr_file_ready || login_qr_data_url.is_some();
-        if verify_started_at.is_none() && dreamina_login_confirmed(workspace, started_system_at) {
+        if verify_started_at.is_none() && dreamina_login_confirmed(workspace) {
             verify_started_at = Some(now);
         }
 
@@ -2802,6 +2928,46 @@ async fn wait_for_dreamina_login(
         }
         if status.ready {
             return (status, false);
+        }
+
+        if !qr_seen
+            && verify_started_at.is_none()
+            && auto_relaunch_count < 2
+            && dreamina_login_callback_port_busy(workspace)
+        {
+            auto_relaunch_count += 1;
+            emit_dreamina_setup_progress(
+                app,
+                DreaminaSetupProgressStage::OpeningLogin,
+                74,
+                Some(runtime.source),
+                Some(format!(
+                    "Dreamina's local callback port was still occupied. Retrying QR login ({}/2)...",
+                    auto_relaunch_count
+                )),
+                None,
+            );
+
+            if let Err(error) =
+                open_dreamina_login_terminal_with_runtime(workspace.to_path_buf(), runtime).await
+            {
+                let detail = format!(
+                    "Dreamina could not restart the QR login flow after a callback-port conflict: {error}"
+                );
+                return (
+                    DreaminaCliStatusResponse::new(
+                        DreaminaCliStatusCode::LoginRequired,
+                        "Dreamina login QR code did not appear.",
+                        Some(detail),
+                    ),
+                    false,
+                );
+            }
+
+            qr_deadline = Instant::now() + Duration::from_millis(DREAMINA_QR_READY_TIMEOUT_MS);
+            qr_seen = false;
+            sleep(Duration::from_millis(1200)).await;
+            continue;
         }
 
         if let Some(verify_started_at) = verify_started_at {
