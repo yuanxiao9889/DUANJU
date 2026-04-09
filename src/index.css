@@ -186,11 +186,30 @@ html[data-platform='macos'] #root {
 }
 
 .react-flow__handle {
+  width: 20px !important;
+  height: 20px !important;
+  border-radius: 9999px;
+  border: 0 !important;
+  background: transparent !important;
+  transition: box-shadow 0.15s ease;
+  position: relative;
+}
+
+.react-flow__handle::after {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: 50%;
   width: 10px;
   height: 10px;
-  border-radius: 50%;
+  border-radius: 9999px;
   border: 2px solid var(--surface);
-  transition: transform 0.15s ease, box-shadow 0.15s ease, background-color 0.15s ease;
+  background: rgb(var(--accent-rgb));
+  transform: translate(-50%, -50%);
+  transition:
+    transform 0.15s ease,
+    box-shadow 0.15s ease,
+    background-color 0.15s ease;
 }
 
 .react-flow__handle-left {
@@ -210,55 +229,52 @@ html[data-platform='macos'] #root {
 }
 
 .react-flow__handle:hover {
-  transform: scale(1.25);
-  box-shadow: 0 0 0 4px rgba(var(--accent-rgb), 0.25);
+  box-shadow: 0 0 0 5px rgba(var(--accent-rgb), 0.14);
 }
 
-.react-flow__handle-left:hover {
-  transform: translateX(-50%) scale(1.25);
-}
-
-.react-flow__handle-right:hover {
-  transform: translateX(50%) scale(1.25);
-}
-
-.react-flow__handle-top:hover {
-  transform: translateY(-50%) scale(1.25);
-}
-
-.react-flow__handle-bottom:hover {
-  transform: translateY(50%) scale(1.25);
+.react-flow__handle:hover::after,
+.react-flow__node:hover .react-flow__handle::after {
+  transform: translate(-50%, -50%) scale(1.7);
+  box-shadow: 0 0 0 5px rgba(var(--accent-rgb), 0.24);
 }
 
 .react-flow__handle.connecting {
-  transform: scale(1.35);
-  box-shadow: 0 0 0 6px rgba(var(--accent-rgb), 0.35);
+  box-shadow: 0 0 0 8px rgba(var(--accent-rgb), 0.24);
   animation: handle-pulse 1s ease-in-out infinite;
 }
 
 .react-flow__handle-left.connecting {
-  transform: translateX(-50%) scale(1.35);
+  transform: translateX(-50%);
 }
 
 .react-flow__handle-right.connecting {
-  transform: translateX(50%) scale(1.35);
+  transform: translateX(50%);
 }
 
 .react-flow__handle-top.connecting {
-  transform: translateY(-50%) scale(1.35);
+  transform: translateY(-50%);
 }
 
 .react-flow__handle-bottom.connecting {
-  transform: translateY(50%) scale(1.35);
+  transform: translateY(50%);
 }
 
 .react-flow__handle.valid {
-  box-shadow: 0 0 0 6px rgba(var(--accent-rgb), 0.4);
+  box-shadow: 0 0 0 8px rgba(var(--accent-rgb), 0.28);
+}
+
+.react-flow__handle.connecting::after,
+.react-flow__handle.valid::after {
+  transform: translate(-50%, -50%) scale(1.8);
+}
+
+.react-flow__handle.valid::after {
+  box-shadow: 0 0 0 6px rgba(var(--accent-rgb), 0.26);
 }
 
 @keyframes handle-pulse {
-  0%, 100% { box-shadow: 0 0 0 4px rgba(var(--accent-rgb), 0.25); }
-  50% { box-shadow: 0 0 0 8px rgba(var(--accent-rgb), 0.45); }
+  0%, 100% { box-shadow: 0 0 0 5px rgba(var(--accent-rgb), 0.16); }
+  50% { box-shadow: 0 0 0 10px rgba(var(--accent-rgb), 0.3); }
 }
 
 .react-flow__edge-path {
