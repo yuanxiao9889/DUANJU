@@ -1448,12 +1448,28 @@ fn dreamina_login_wait_detail(workspace: &Path) -> Option<String> {
 }
 
 fn encode_file_as_data_url(path: &Path, mime_type: &str) -> Result<String, String> {
-    let bytes = fs::read(path)
-        .map_err(|error| format!("failed to read Dreamina login QR file: {error}"))?;
-    Ok(format!(
-        "data:{mime_type};base64,{}",
-        BASE64_STANDARD.encode(bytes)
-    ))
+    let mut last_error: Option<std::io::Error> = None;
+    for attempt in 0..5 {
+        match fs::read(path) {
+            Ok(bytes) => {
+                return Ok(format!(
+                    "data:{mime_type};base64,{}",
+                    BASE64_STANDARD.encode(bytes)
+                ));
+            }
+            Err(error) => {
+                last_error = Some(error);
+                if attempt < 4 {
+                    std::thread::sleep(Duration::from_millis(150));
+                }
+            }
+        }
+    }
+
+    let error = last_error
+        .map(|error| error.to_string())
+        .unwrap_or_else(|| "unknown error".to_string());
+    Err(format!("failed to read Dreamina login QR file: {error}"))
 }
 
 fn dreamina_login_qr_data_url(workspace: &Path) -> Option<String> {
@@ -2765,8 +2781,9 @@ async fn wait_for_dreamina_login(
 
     loop {
         let now = Instant::now();
+        let qr_file_ready = dreamina_login_qr_file_path(workspace).is_some();
         let login_qr_data_url = dreamina_login_qr_data_url(workspace);
-        qr_seen |= login_qr_data_url.is_some();
+        qr_seen |= qr_file_ready || login_qr_data_url.is_some();
         if verify_started_at.is_none() && dreamina_login_confirmed(workspace, started_system_at) {
             verify_started_at = Some(now);
         }
