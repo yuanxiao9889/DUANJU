@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { type UnlistenFn } from "@tauri-apps/api/event";
+import { openUrl } from "@tauri-apps/plugin-opener";
 import { CheckCircle2, Loader2, RefreshCw, Sparkles, TriangleAlert } from "lucide-react";
 import type { TFunction } from "i18next";
 import { useTranslation } from "react-i18next";
@@ -252,6 +253,7 @@ export function DreaminaSetupDialog({
 }: DreaminaSetupDialogProps) {
   const { t } = useTranslation();
   const autoPrepareTriggeredRef = useRef(false);
+  const autoOpenedLoginUrlRef = useRef<string | null>(null);
   const [status, setStatus] = useState<DreaminaCliStatusResponse | null>(null);
   const [setupProgress, setSetupProgress] =
     useState<DreaminaSetupProgressEvent | null>(null);
@@ -259,6 +261,7 @@ export function DreaminaSetupDialog({
   const [isAutoPreparing, setIsAutoPreparing] = useState(false);
   const [actionNotice, setActionNotice] = useState<string | null>(null);
   const [isRawDetailVisible, setIsRawDetailVisible] = useState(false);
+  const [diagnosticCopied, setDiagnosticCopied] = useState(false);
 
   const refreshStatus =
     useCallback(async (): Promise<DreaminaCliStatusResponse> => {
@@ -268,13 +271,14 @@ export function DreaminaSetupDialog({
         const nextStatus = await checkDreaminaCliStatus();
         setStatus(nextStatus);
         if (nextStatus.ready) {
-          setSetupProgress({
-            stage: "completed",
-            progress: 100,
-            detail: nextStatus.detail ?? null,
-          });
-        }
-        return nextStatus;
+        setSetupProgress({
+          stage: "completed",
+          progress: 100,
+          detail: nextStatus.detail ?? null,
+          loginPageUrl: null,
+        });
+      }
+      return nextStatus;
       } catch (error) {
         const fallbackStatus = {
           ready: false,
@@ -306,6 +310,7 @@ export function DreaminaSetupDialog({
           detail: event.detail ?? previous?.detail ?? null,
           loginQrDataUrl:
             event.loginQrDataUrl ?? previous?.loginQrDataUrl ?? null,
+          loginPageUrl: event.loginPageUrl ?? previous?.loginPageUrl ?? null,
         }));
       }
     }).then((nextUnlisten) => {
@@ -330,6 +335,7 @@ export function DreaminaSetupDialog({
     }
 
     autoPrepareTriggeredRef.current = false;
+    autoOpenedLoginUrlRef.current = null;
     setActionNotice(null);
     setStatus(detail?.initialStatus ?? null);
     setSetupProgress(
@@ -339,6 +345,7 @@ export function DreaminaSetupDialog({
             progress: 100,
             detail: detail.initialStatus.detail ?? null,
             loginQrDataUrl: null,
+            loginPageUrl: null,
           }
         : null,
     );
@@ -351,6 +358,8 @@ export function DreaminaSetupDialog({
   useEffect(() => {
     if (!isOpen) {
       setIsRawDetailVisible(false);
+      setDiagnosticCopied(false);
+      autoOpenedLoginUrlRef.current = null;
     }
   }, [isOpen]);
 
@@ -380,6 +389,14 @@ export function DreaminaSetupDialog({
   );
   const progressPercent = setupProgress?.progress ?? 0;
   const loginQrDataUrl = setupProgress?.loginQrDataUrl ?? null;
+  const loginPageUrl = setupProgress?.loginPageUrl ?? null;
+  const diagnosticDetail = useMemo(() => {
+    if (setupProgress?.detail && !status?.ready) {
+      return setupProgress.detail;
+    }
+
+    return status?.detail ?? setupProgress?.detail ?? null;
+  }, [setupProgress?.detail, status?.detail, status?.ready]);
   const isMembershipRequired = statusCode === "membershipRequired";
   const isLoginFlowFailed =
     setupProgress?.stage === "failed" &&
@@ -391,6 +408,7 @@ export function DreaminaSetupDialog({
   const isLoginFlowVisible =
     !status?.ready &&
     (Boolean(loginQrDataUrl) ||
+      Boolean(loginPageUrl) ||
       isMembershipRequired ||
       statusCode === "loginRequired" ||
       isLoginFlowFailed ||
@@ -398,15 +416,23 @@ export function DreaminaSetupDialog({
       setupProgress?.stage === "waitingForLogin");
   const showCompactQrLayout = isLoginFlowVisible;
   const showQrFailureState = isLoginFlowVisible && !loginQrDataUrl && isLoginFlowFailed;
+  const hasManualLoginFallback = Boolean(loginPageUrl) && !loginQrDataUrl;
   const runtimeSourceCopy = useMemo(
     () => resolveRuntimeSourceCopy(setupProgress?.gitSource, t),
     [setupProgress?.gitSource, t],
   );
   const diagnosticSummary = useMemo(
-    () => (status?.detail ? resolveDiagnosticSummary(status.detail, t) : []),
-    [status?.detail, t],
+    () => (diagnosticDetail ? resolveDiagnosticSummary(diagnosticDetail, t) : []),
+    [diagnosticDetail, t],
   );
   const qrCopy = useMemo(() => {
+    if (hasManualLoginFallback) {
+      return {
+        title: t("dreaminaSetup.manualLogin.title"),
+        body: t("dreaminaSetup.manualLogin.body"),
+      };
+    }
+
     if (showQrFailureState) {
       return {
         title: t("dreaminaSetup.qr.failedTitle"),
@@ -425,7 +451,7 @@ export function DreaminaSetupDialog({
       title: t("dreaminaSetup.qr.waitingTitle"),
       body: t("dreaminaSetup.qr.waitingBody"),
     };
-  }, [loginQrDataUrl, showQrFailureState, t]);
+  }, [hasManualLoginFallback, loginQrDataUrl, showQrFailureState, t]);
   const membershipHintCopy = useMemo(
     () =>
       isMembershipRequired
@@ -436,9 +462,75 @@ export function DreaminaSetupDialog({
         : null,
     [isMembershipRequired, t],
   );
+  const diagnosticCopyText = useMemo(() => {
+    if (!diagnosticDetail) {
+      return "";
+    }
+
+    const sections = [
+      "Dreamina Setup Diagnostic",
+      `Status Code: ${statusCode}`,
+      `Status: ${status?.message ?? statusCopy.title}`,
+      setupProgress?.stage ? `Progress Stage: ${setupProgress.stage}` : null,
+      setupProgress?.progress != null
+        ? `Progress: ${setupProgress.progress}%`
+        : null,
+      runtimeSourceCopy ? `Runtime: ${runtimeSourceCopy}` : null,
+      loginQrDataUrl ? "QR Visible: yes" : "QR Visible: no",
+      loginPageUrl ? `Login Page: ${loginPageUrl}` : null,
+      diagnosticSummary.length > 0
+        ? `Summary:\n${diagnosticSummary.map((line) => `- ${line}`).join("\n")}`
+        : null,
+      `Detail:\n${diagnosticDetail}`,
+    ].filter(Boolean);
+
+    return sections.join("\n\n");
+  }, [
+    diagnosticDetail,
+      diagnosticSummary,
+      loginPageUrl,
+      loginQrDataUrl,
+      runtimeSourceCopy,
+      setupProgress?.progress,
+    setupProgress?.stage,
+    status?.message,
+    statusCode,
+    statusCopy.title,
+  ]);
+
+  const handleCopyDiagnostic = useCallback(async () => {
+    if (!diagnosticCopyText) {
+      return;
+    }
+
+    try {
+      await navigator.clipboard.writeText(diagnosticCopyText);
+      setDiagnosticCopied(true);
+      window.setTimeout(() => {
+        setDiagnosticCopied(false);
+      }, 1200);
+    } catch (error) {
+      console.error("Failed to copy Dreamina diagnostic", error);
+    }
+  }, [diagnosticCopyText]);
+
+  const handleOpenManualLogin = useCallback(async () => {
+    if (!loginPageUrl) {
+      return;
+    }
+
+    try {
+      autoOpenedLoginUrlRef.current = loginPageUrl;
+      await openUrl(loginPageUrl);
+    } catch (error) {
+      console.error("Failed to open Dreamina manual login page", error);
+      setActionNotice(toErrorMessage(error));
+    }
+  }, [loginPageUrl]);
 
   const handleAutoPrepare = useCallback(async () => {
     autoPrepareTriggeredRef.current = true;
+    autoOpenedLoginUrlRef.current = null;
     setIsAutoPreparing(true);
     setActionNotice(null);
     setSetupProgress({
@@ -446,6 +538,7 @@ export function DreaminaSetupDialog({
       progress: 8,
       detail: null,
       loginQrDataUrl: null,
+      loginPageUrl: null,
     });
 
     try {
@@ -459,6 +552,7 @@ export function DreaminaSetupDialog({
           gitSource: response.gitSource ?? null,
           detail: response.status.detail ?? null,
           loginQrDataUrl: null,
+          loginPageUrl: null,
         });
         setActionNotice(t("dreaminaSetup.notice.autoReady"));
       } else if (response.loginWaitTimedOut) {
@@ -473,6 +567,7 @@ export function DreaminaSetupDialog({
             gitSource: response.gitSource ?? null,
             detail: effectiveStatus.detail ?? null,
             loginQrDataUrl: null,
+            loginPageUrl: null,
           });
           setActionNotice(t("dreaminaSetup.notice.autoReady"));
         } else {
@@ -486,6 +581,7 @@ export function DreaminaSetupDialog({
               gitSource: response.gitSource ?? previous?.gitSource ?? null,
               detail: effectiveStatus.detail ?? previous?.detail ?? null,
               loginQrDataUrl: previous?.loginQrDataUrl ?? null,
+              loginPageUrl: previous?.loginPageUrl ?? null,
             };
           });
           setActionNotice(t("dreaminaSetup.notice.loginStillPending"));
@@ -502,6 +598,7 @@ export function DreaminaSetupDialog({
             gitSource: response.gitSource ?? previous?.gitSource ?? null,
             detail: response.status.detail ?? previous?.detail ?? null,
             loginQrDataUrl: previous?.loginQrDataUrl ?? null,
+            loginPageUrl: previous?.loginPageUrl ?? null,
           }));
         }
         setActionNotice(
@@ -524,12 +621,29 @@ export function DreaminaSetupDialog({
         gitSource: previous?.gitSource ?? null,
         detail: message,
         loginQrDataUrl: previous?.loginQrDataUrl ?? null,
+        loginPageUrl: previous?.loginPageUrl ?? null,
       }));
       setActionNotice(message);
     } finally {
       setIsAutoPreparing(false);
     }
   }, [t]);
+
+  useEffect(() => {
+    if (
+      !isOpen ||
+      !loginPageUrl ||
+      Boolean(loginQrDataUrl) ||
+      autoOpenedLoginUrlRef.current === loginPageUrl
+    ) {
+      return;
+    }
+
+    autoOpenedLoginUrlRef.current = loginPageUrl;
+    void openUrl(loginPageUrl).catch((error) => {
+      console.error("Failed to auto-open Dreamina login page", error);
+    });
+  }, [isOpen, loginPageUrl, loginQrDataUrl]);
 
   useEffect(() => {
     if (
@@ -749,6 +863,28 @@ export function DreaminaSetupDialog({
                   </div>
                 ) : null}
 
+                {hasManualLoginFallback ? (
+                  <div className="rounded-xl border border-[rgba(255,255,255,0.08)] bg-black/10 px-3 py-3">
+                    <div className="text-sm font-medium text-text-dark">
+                      {t("dreaminaSetup.manualLogin.title")}
+                    </div>
+                    <div className="mt-1 text-xs leading-5 text-text-muted">
+                      {t("dreaminaSetup.manualLogin.body")}
+                    </div>
+                    <div className="mt-3">
+                      <UiButton
+                        variant="primary"
+                        size="sm"
+                        onClick={() => {
+                          void handleOpenManualLogin();
+                        }}
+                      >
+                        {t("dreaminaSetup.manualLogin.open")}
+                      </UiButton>
+                    </div>
+                  </div>
+                ) : null}
+
                 {loginQrDataUrl ? (
                   <div className="flex flex-wrap gap-2">
                     {[t("dreaminaSetup.qr.step1"), t("dreaminaSetup.qr.step2")].map(
@@ -798,11 +934,24 @@ export function DreaminaSetupDialog({
           </UiPanel>
         ) : null}
 
-        {status?.detail ? (
+        {diagnosticDetail ? (
           <UiPanel className="border-[rgba(255,255,255,0.08)] bg-black/20 p-4 text-xs leading-5 text-text-muted">
             <div className="space-y-3">
-              <div className="text-sm font-medium text-text-dark">
-                {t("dreaminaSetup.detailTitle")}
+              <div className="flex items-center justify-between gap-3">
+                <div className="text-sm font-medium text-text-dark">
+                  {t("dreaminaSetup.detailTitle")}
+                </div>
+                <UiButton
+                  variant="muted"
+                  size="sm"
+                  onClick={() => {
+                    void handleCopyDiagnostic();
+                  }}
+                >
+                  {diagnosticCopied
+                    ? t("dreaminaSetup.actions.copied")
+                    : t("dreaminaSetup.actions.copyDiagnostic")}
+                </UiButton>
               </div>
               <div className="space-y-2">
                 {diagnosticSummary.map((line) => (
@@ -828,7 +977,7 @@ export function DreaminaSetupDialog({
                 </button>
                 {isRawDetailVisible ? (
                   <div className="mt-2 whitespace-pre-wrap break-words text-[11px] leading-5 text-text-muted">
-                    {status.detail}
+                    {diagnosticDetail}
                   </div>
                 ) : null}
               </div>

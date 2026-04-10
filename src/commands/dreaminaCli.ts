@@ -96,6 +96,7 @@ export interface DreaminaSetupProgressEvent {
   gitSource?: DreaminaGitSource | null;
   detail?: string | null;
   loginQrDataUrl?: string | null;
+  loginPageUrl?: string | null;
 }
 
 export interface DreaminaGuidedSetupResponse {

@@ -47,6 +47,7 @@
       "title": "Extensions Center",
       "centerTitle": "Load optional capabilities on demand",
       "centerDescription": "Load extension packages from folders and start them when needed. If you stop one or close the app, start it again before using it.",
+      "bridgeHint": "Note: `hunyuanworld-panorama-hq` is currently a bridge package. It does not include the HunyuanWorld source tree or model weights, so the small folder size is expected.",
       "sampleHint": "You can now load extension-packages/qwen3-tts-complete directly. If you need to rebuild the full package, run npm run prepare:qwen3-tts-extension.",
       "loadFolderTitle": "Choose an extension package folder",
       "loadFailed": "Failed to load extension package",
@@ -217,6 +218,8 @@
       "jimeng": "Send to Jimeng",
       "jimengVideo": "Jimeng Video",
       "jimengImage": "Jimeng Image",
+      "panorama": "360 Panorama",
+      "panoramaResult": "Panorama Result",
       "jimengImageResult": "Jimeng 4-Grid",
       "jimengVideoResult": "Jimeng Video Result",
       "seedanceVideo": "Official Seedance 2.0 Video",
@@ -604,6 +607,63 @@
         "2k": "2K",
         "4k": "4K"
       }
+    },
+    "panorama": {
+      "runtimeTitle": "High-Quality Panorama Runtime",
+      "runtimeReady": "The HunyuanWorld panorama extension is ready to generate 2:1 equirectangular panoramas.",
+      "runtimeDisabled": "Load and start the high-quality panorama extension in Extensions Center first.",
+      "extensionDisabled": "High-quality panorama extension is not started",
+      "extensionStarting": "High-quality panorama extension is starting",
+      "referenceTitle": "Input Image",
+      "referenceCount": "{{count}} upstream image(s) connected",
+      "referenceHint": "Connect an upload, generated result, or other image node to the left input handle before generating.",
+      "referencePreviewAlt": "Panorama reference image",
+      "referenceFirstOnly": "The current version uses the first connected image as the starting view and keeps the rest reserved for later expansion.",
+      "referenceSingle": "This image will be expanded into a full high-quality 360 panorama.",
+      "referenceRequired": "Connect an input image first",
+      "prompt": "Panorama Prompt",
+      "promptPlaceholder": "Add spatial layout, environment mood, materials, lighting, and camera placement so the model can expand one image into a full 360 panorama.",
+      "sceneClass": "Scene Class",
+      "outputResolution": "Output Resolution",
+      "useCache": "Use cache",
+      "useFp8Attention": "FP8 Attention",
+      "useFp8Gemm": "FP8 GEMM",
+      "generate": "Generate HQ Panorama",
+      "generating": "Generating high-quality panorama...",
+      "generateFailed": "High-quality panorama generation failed",
+      "resultNodeTitle": "Panorama Result",
+      "errorShort": "Error",
+      "generatingShort": "Running",
+      "readyShort": "Ready",
+      "generatedAt": "Generated {{time}}",
+      "sceneClassOptions": {
+        "auto": "Auto",
+        "indoor": "Indoor",
+        "outdoor": "Outdoor"
+      }
+    },
+    "panoramaResult": {
+      "readyShort": "Ready",
+      "processingShort": "Working",
+      "errorShort": "Error",
+      "generatedAt": "Generated {{time}}",
+      "previewAlt": "360 panorama result",
+      "generatingHint": "Generating the 360 panorama...",
+      "emptyHint": "Waiting for panorama output.",
+      "dragHint": "Drag to look around",
+      "openFull": "Open Full",
+      "yaw": "Yaw",
+      "pitch": "Pitch",
+      "fov": "FOV",
+      "viewWidth": "View Width",
+      "viewHeight": "View Height",
+      "extractPerspective": "Extract Perspective",
+      "exportPanorama": "Export Panorama",
+      "extractFailed": "Failed to extract the perspective view",
+      "perspectiveNodeTitle": "Panorama Perspective",
+      "exportNodeTitle": "Panorama Export",
+      "extensionDisabled": "High-quality panorama extension is not started",
+      "imageRequired": "This result node does not have a panorama image yet"
     },
     "jimengImageResult": {
       "empty": "Waiting for Jimeng results.",
@@ -1606,7 +1666,9 @@
     "actions": {
       "startAutoSetup": "Start Auto Setup",
       "refreshQr": "Refresh QR Code",
-      "recheck": "Recheck"
+      "recheck": "Recheck",
+      "copyDiagnostic": "Copy Diagnostic",
+      "copied": "Copied"
     },
     "readyBadge": "Ready",
     "progress": {
@@ -1643,6 +1705,11 @@
       "step1": "Scan with Douyin",
       "step2": "Confirm on phone, then return automatically",
       "step3": "3. Keep this dialog open and the app will return automatically after login succeeds"
+      },
+      "manualLogin": {
+        "title": "Dreamina switched to browser login",
+        "body": "Dreamina CLI could not auto-open a browser inside this runtime, so it has fallen back to manual web authorization. Open the login page below, finish the authorization in the browser, and keep this dialog open while the app continues automatically.",
+        "open": "Open Login Page"
       },
       "membershipRequired": {
         "title": "The scanned account is not a Dreamina premium member",

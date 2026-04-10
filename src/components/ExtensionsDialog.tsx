@@ -37,6 +37,8 @@ function normalizeDialogDirectoryPath(value: string | string[] | null): string |
 }
 
 const NODE_FEATURE_LABEL_KEYS: Record<string, string> = {
+  panoramaNode: 'node.menu.panorama',
+  panoramaResultNode: 'node.menu.panoramaResult',
   ttsTextNode: 'node.menu.textAnnotation',
   ttsVoiceDesignNode: 'node.menu.ttsVoiceDesign',
   ttsSavedVoiceNode: 'node.menu.ttsSavedVoice',
@@ -191,6 +193,21 @@ export function ExtensionsDialog({ isOpen, onClose }: ExtensionsDialogProps) {
     }
   };
 
+  const handleOpenFolder = async (folderPath: string) => {
+    setLoadError(null);
+
+    try {
+      await revealItemInDir(folderPath);
+    } catch (revealError) {
+      try {
+        await openPath(folderPath);
+      } catch (openError) {
+        console.error('Failed to open extension folder:', revealError, openError);
+        setLoadError(t('extensions.openFolderFailed'));
+      }
+    }
+  };
+
   const resolveFeatureLabel = (
     value: string,
     labelKeys: Record<string, string>
@@ -210,21 +227,6 @@ export function ExtensionsDialog({ isOpen, onClose }: ExtensionsDialogProps) {
       ...previous,
       [extensionId]: !previous[extensionId],
     }));
-  };
-
-  const handleOpenFolder = async (folderPath: string) => {
-    setLoadError(null);
-
-    try {
-      await revealItemInDir(folderPath);
-    } catch (revealError) {
-      try {
-        await openPath(folderPath);
-      } catch (openError) {
-        console.error('Failed to open extension folder:', revealError, openError);
-        setLoadError(t('extensions.openFolderFailed'));
-      }
-    }
   };
 
   return (
@@ -253,6 +255,9 @@ export function ExtensionsDialog({ isOpen, onClose }: ExtensionsDialogProps) {
               </div>
               <p className="mt-2 text-sm leading-6 text-text-muted">
                 {t('extensions.centerDescription')}
+              </p>
+              <p className="mt-2 text-xs leading-5 text-text-muted">
+                {t('extensions.bridgeHint')}
               </p>
             </div>
 

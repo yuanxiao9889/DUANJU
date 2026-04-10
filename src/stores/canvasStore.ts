@@ -18,6 +18,10 @@ import {
   EXPORT_RESULT_NODE_MIN_WIDTH,
   IMAGE_EDIT_NODE_DEFAULT_HEIGHT,
   IMAGE_EDIT_NODE_DEFAULT_WIDTH,
+  PANORAMA_NODE_DEFAULT_HEIGHT,
+  PANORAMA_NODE_DEFAULT_WIDTH,
+  PANORAMA_RESULT_NODE_DEFAULT_HEIGHT,
+  PANORAMA_RESULT_NODE_DEFAULT_WIDTH,
   SCRIPT_CHAPTER_NODE_DEFAULT_HEIGHT,
   SCRIPT_CHAPTER_NODE_DEFAULT_WIDTH,
   type JimengImageNodeData,
@@ -1049,7 +1053,28 @@ function withImageEditDefaultSize(node: CanvasNode): CanvasNode {
   };
 }
 
+function withNodeDefaultSize(node: CanvasNode, width: number, height: number): CanvasNode {
+  return {
+    ...node,
+    width,
+    height,
+    style: {
+      ...(node.style ?? {}),
+      width,
+      height,
+    },
+  };
+}
+
 function shouldApplyImageEditDefaultSize(node: CanvasNode, data: CanvasNodeData): boolean {
+  if (node.type === CANVAS_NODE_TYPES.panorama) {
+    return true;
+  }
+
+  if (node.type === CANVAS_NODE_TYPES.panoramaResult) {
+    return true;
+  }
+
   if (node.type !== CANVAS_NODE_TYPES.imageEdit) {
     return false;
   }
@@ -1307,11 +1332,13 @@ function resolveNodeCreationDefaults(
       lastImageEditSize,
       lastImageEditRequestAspectRatio,
       storyboardCompatibleModelConfig,
+      storyboardNewApiModelConfig,
       storyboardProviderCustomModels,
     } = useSettingsStore.getState();
     const preferredModelId = getImageModel(
       lastImageEditModelId,
       storyboardCompatibleModelConfig,
+      storyboardNewApiModelConfig,
       storyboardProviderCustomModels
     ).id;
     const imageEditData = data as Partial<ImageEditNodeData>;
@@ -2194,7 +2221,21 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
       const parentGroupId = options.parentId ?? resolveInheritedGroupParentId(sourceNode, nodeMap);
       const createdNode = canvasNodeFactory.createNode(type, position, initialData);
       const sizedNode = shouldApplyImageEditDefaultSize(createdNode, createdNode.data)
-        ? withImageEditDefaultSize(createdNode)
+        ? (
+          createdNode.type === CANVAS_NODE_TYPES.panorama
+            ? withNodeDefaultSize(
+              createdNode,
+              PANORAMA_NODE_DEFAULT_WIDTH,
+              PANORAMA_NODE_DEFAULT_HEIGHT
+            )
+            : createdNode.type === CANVAS_NODE_TYPES.panoramaResult
+              ? withNodeDefaultSize(
+                createdNode,
+                PANORAMA_RESULT_NODE_DEFAULT_WIDTH,
+                PANORAMA_RESULT_NODE_DEFAULT_HEIGHT
+              )
+              : withImageEditDefaultSize(createdNode)
+        )
         : createdNode;
       const newNode = attachNodeToGroupParent(
         sizedNode,

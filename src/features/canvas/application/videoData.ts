@@ -1,6 +1,11 @@
 import { isTauri } from '@tauri-apps/api/core';
 import { persistImageBinary, persistImageSource } from '@/commands/image';
-import { blobToDataUrl, prepareNodeImage, reduceAspectRatio } from './imageData';
+import {
+  blobToDataUrl,
+  prepareNodeImage,
+  reduceAspectRatio,
+  resolveImageDisplayUrl,
+} from './imageData';
 
 export interface VideoMetadata {
   width: number;
@@ -62,6 +67,10 @@ function resolveVideoExtension(file: File): string {
 
 export function getVideoMetadata(file: File): Promise<VideoMetadata> {
   return getVideoMetadataAndPoster(file).then((result) => result.metadata);
+}
+
+export function resolveVideoDisplayUrl(videoUrl: string): string {
+  return resolveImageDisplayUrl(videoUrl);
 }
 
 async function getVideoMetadataAndPoster(
@@ -374,18 +383,22 @@ async function createCaptureSourceObjectUrl(source: string): Promise<{
     throw new Error('Video source is empty');
   }
 
-  const normalizedSource = trimmedSource.toLowerCase();
-  if (normalizedSource.startsWith('blob:') || normalizedSource.startsWith('data:')) {
+  const displaySource = resolveVideoDisplayUrl(trimmedSource);
+  const normalizedDisplaySource = displaySource.toLowerCase();
+  if (
+    normalizedDisplaySource.startsWith('blob:')
+    || normalizedDisplaySource.startsWith('data:')
+  ) {
     return { captureSource: trimmedSource };
   }
 
   if (
-    normalizedSource.startsWith('http://') ||
-    normalizedSource.startsWith('https://') ||
-    normalizedSource.startsWith('asset:') ||
-    normalizedSource.startsWith('tauri:')
+    normalizedDisplaySource.startsWith('http://')
+    || normalizedDisplaySource.startsWith('https://')
+    || normalizedDisplaySource.startsWith('asset:')
+    || normalizedDisplaySource.startsWith('tauri:')
   ) {
-    const response = await fetch(trimmedSource);
+    const response = await fetch(displaySource);
     if (!response.ok) {
       throw new Error(`Failed to fetch video source (${response.status})`);
     }
@@ -398,7 +411,7 @@ async function createCaptureSourceObjectUrl(source: string): Promise<{
     };
   }
 
-  return { captureSource: trimmedSource };
+  return { captureSource: displaySource };
 }
 
 export async function captureVideoFrameFromSource(

@@ -5,7 +5,6 @@ import {
   useUpdateNodeInternals,
   type NodeProps,
 } from "@xyflow/react";
-import { convertFileSrc, isTauri } from "@tauri-apps/api/core";
 import { Loader2, Sparkles, TriangleAlert, Video } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
@@ -16,7 +15,10 @@ import {
 } from "@/features/canvas/application/errorDialog";
 import { resolveImageDisplayUrl } from "@/features/canvas/application/imageData";
 import { flushCurrentProjectToDiskSafely } from "@/features/canvas/application/projectPersistence";
-import { formatVideoTime } from "@/features/canvas/application/videoData";
+import {
+  formatVideoTime,
+  resolveVideoDisplayUrl,
+} from "@/features/canvas/application/videoData";
 import {
   CANVAS_NODE_TYPES,
   SEEDANCE_VIDEO_RESULT_NODE_DEFAULT_WIDTH,
@@ -156,16 +158,7 @@ export const SeedanceVideoResultNode = memo(
       if (!source) {
         return null;
       }
-      if (
-        source.startsWith("blob:") ||
-        source.startsWith("data:") ||
-        source.startsWith("asset:") ||
-        source.startsWith("http://") ||
-        source.startsWith("https://")
-      ) {
-        return source;
-      }
-      return isTauri() ? convertFileSrc(source) : source;
+      return resolveVideoDisplayUrl(source);
     }, [data.videoUrl]);
     const posterSource = useMemo(() => {
       const source = data.previewImageUrl?.trim() ?? "";

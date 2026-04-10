@@ -11,6 +11,7 @@ pub mod compatible;
 pub mod fal;
 pub mod grsai;
 pub mod kie;
+pub mod newapi;
 pub mod ppio;
 pub mod runninghub;
 pub mod volcengine;
@@ -25,6 +26,7 @@ pub use compatible::CompatibleProvider;
 pub use fal::FalProvider;
 pub use grsai::GrsaiProvider;
 pub use kie::KieProvider;
+pub use newapi::NewApiProvider;
 pub use ppio::PPIOProvider;
 pub use runninghub::RunningHubProvider;
 pub use volcengine::VolcengineProvider;
@@ -41,6 +43,7 @@ pub fn build_default_providers() -> Vec<Arc<dyn AIProvider>> {
         Arc::new(BltcyProvider::new()),
         Arc::new(CompatibleProvider::new()),
         Arc::new(CodingProvider::new()),
+        Arc::new(NewApiProvider::new()),
         Arc::new(ZhenzhenProvider::new()),
         Arc::new(ComflyProvider::new()),
         Arc::new(VolcengineProvider::new()),

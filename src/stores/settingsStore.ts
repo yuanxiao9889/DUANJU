@@ -24,9 +24,11 @@ import {
   normalizeScriptProviderEnabledSelection,
   normalizeStoryboardModelOverrides,
   normalizeStoryboardCompatibleModelConfig,
+  normalizeStoryboardNewApiModelConfig,
   normalizeStoryboardProviderCustomModels,
   type ScriptCompatibleProviderConfig,
   type StoryboardCompatibleModelConfig,
+  type StoryboardNewApiModelConfig,
 } from '@/features/canvas/models';
 import {
   AUTO_REQUEST_ASPECT_RATIO,
@@ -77,6 +79,7 @@ interface SettingsState {
   storyboardModelOverrides: Record<string, string>;
   storyboardProviderCustomModels: Record<string, CustomStoryboardModelEntry[]>;
   storyboardCompatibleModelConfig: StoryboardCompatibleModelConfig;
+  storyboardNewApiModelConfig: StoryboardNewApiModelConfig;
   lastImageEditModelId: string;
   lastImageEditSize: ImageSize;
   lastImageEditRequestAspectRatio: string;
@@ -140,6 +143,9 @@ interface SettingsState {
   ) => void;
   setStoryboardCompatibleModelConfig: (
     config: Partial<StoryboardCompatibleModelConfig>
+  ) => void;
+  setStoryboardNewApiModelConfig: (
+    config: Partial<StoryboardNewApiModelConfig>
   ) => void;
   setLastImageEditDefaults: (defaults: {
     modelId?: string;
@@ -264,9 +270,15 @@ function normalizeGrsaiNanoBananaProModel(input: string | null | undefined): str
 function normalizeImageEditModelId(
   input: string | null | undefined,
   compatibleConfig?: StoryboardCompatibleModelConfig | null,
+  newApiConfig?: StoryboardNewApiModelConfig | null,
   customStoryboardModels?: Record<string, CustomStoryboardModelEntry[]> | null
 ): string {
-  return getImageModel((input ?? '').trim(), compatibleConfig, customStoryboardModels).id;
+  return getImageModel(
+    (input ?? '').trim(),
+    compatibleConfig,
+    newApiConfig,
+    customStoryboardModels
+  ).id;
 }
 
 function normalizeImageEditSize(input: ImageSize | string | null | undefined): ImageSize {
@@ -380,6 +392,7 @@ export const useSettingsStore = create<SettingsState>()(
       storyboardModelOverrides: {},
       storyboardProviderCustomModels: {},
       storyboardCompatibleModelConfig: normalizeStoryboardCompatibleModelConfig(undefined),
+      storyboardNewApiModelConfig: normalizeStoryboardNewApiModelConfig(undefined),
       lastImageEditModelId: DEFAULT_IMAGE_MODEL_ID,
       lastImageEditSize: '2K',
       lastImageEditRequestAspectRatio: AUTO_REQUEST_ASPECT_RATIO,
@@ -478,7 +491,8 @@ export const useSettingsStore = create<SettingsState>()(
             [providerId]:
               normalizeStoryboardProviderCustomModels(
                 { [providerId]: models },
-                state.storyboardCompatibleModelConfig
+                state.storyboardCompatibleModelConfig,
+                state.storyboardNewApiModelConfig
               )[providerId] ?? [],
           },
         })),
@@ -490,11 +504,20 @@ export const useSettingsStore = create<SettingsState>()(
               ...config,
             }),
         })),
+      setStoryboardNewApiModelConfig: (config) =>
+        set((state) => ({
+          storyboardNewApiModelConfig:
+            normalizeStoryboardNewApiModelConfig({
+              ...state.storyboardNewApiModelConfig,
+              ...config,
+            }),
+        })),
       setLastImageEditDefaults: ({ modelId, size, requestAspectRatio }) =>
         set((state) => ({
           lastImageEditModelId: normalizeImageEditModelId(
             modelId ?? state.lastImageEditModelId,
             state.storyboardCompatibleModelConfig,
+            state.storyboardNewApiModelConfig,
             state.storyboardProviderCustomModels
           ),
           lastImageEditSize: normalizeImageEditSize(size ?? state.lastImageEditSize),
@@ -764,7 +787,7 @@ export const useSettingsStore = create<SettingsState>()(
     }),
     {
       name: 'settings-storage',
-      version: 25,
+      version: 26,
       onRehydrateStorage: () => {
         return (state, error) => {
           if (error) {
@@ -807,6 +830,7 @@ export const useSettingsStore = create<SettingsState>()(
           enableUpdateDialog?: boolean;
           autoUpdateDreaminaCliOnLaunch?: boolean;
           storyboardCompatibleModelConfig?: Partial<StoryboardCompatibleModelConfig>;
+          storyboardNewApiModelConfig?: Partial<StoryboardNewApiModelConfig>;
           enableStoryboardGenGridPreviewShortcut?: boolean;
           groupNodesShortcut?: string;
           showStoryboardGenAdvancedRatioControls?: boolean;
@@ -848,14 +872,18 @@ export const useSettingsStore = create<SettingsState>()(
           state.ignoreAtTagWhenCopyingAndGenerating ?? true;
         const normalizedStoryboardCompatibleModelConfig =
           normalizeStoryboardCompatibleModelConfig(state.storyboardCompatibleModelConfig);
+        const normalizedStoryboardNewApiModelConfig =
+          normalizeStoryboardNewApiModelConfig(state.storyboardNewApiModelConfig);
         const normalizedStoryboardProviderCustomModels = normalizeStoryboardProviderCustomModels(
           state.storyboardProviderCustomModels,
-          normalizedStoryboardCompatibleModelConfig
+          normalizedStoryboardCompatibleModelConfig,
+          normalizedStoryboardNewApiModelConfig
         );
         const normalizedStoryboardModelOverrides = normalizeStoryboardModelOverrides(
           state.storyboardModelOverrides,
           normalizedStoryboardProviderCustomModels,
-          normalizedStoryboardCompatibleModelConfig
+          normalizedStoryboardCompatibleModelConfig,
+          normalizedStoryboardNewApiModelConfig
         );
         const normalizedScriptProviderCustomModels = normalizeScriptProviderCustomModels(
           state.scriptProviderCustomModels
@@ -895,9 +923,11 @@ export const useSettingsStore = create<SettingsState>()(
           storyboardModelOverrides: normalizedStoryboardModelOverrides,
           storyboardProviderCustomModels: normalizedStoryboardProviderCustomModels,
           storyboardCompatibleModelConfig: normalizedStoryboardCompatibleModelConfig,
+          storyboardNewApiModelConfig: normalizedStoryboardNewApiModelConfig,
           lastImageEditModelId: normalizeImageEditModelId(
             state.lastImageEditModelId,
             normalizedStoryboardCompatibleModelConfig,
+            normalizedStoryboardNewApiModelConfig,
             normalizedStoryboardProviderCustomModels
           ),
           lastImageEditSize: normalizeImageEditSize(state.lastImageEditSize),

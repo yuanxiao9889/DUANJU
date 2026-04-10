@@ -1,4 +1,4 @@
-import { convertFileSrc, isTauri } from '@tauri-apps/api/core';
+import { isTauri } from '@tauri-apps/api/core';
 
 import {
   createSeedanceVideoTask,
@@ -14,6 +14,7 @@ import {
 } from '@/features/canvas/application/imageData';
 import {
   captureVideoFrameFromSource,
+  resolveVideoDisplayUrl,
   videoUrlToDataUrl,
 } from '@/features/canvas/application/videoData';
 import type {
@@ -226,18 +227,7 @@ function resolveVideoCaptureSource(source: string): string {
   if (!trimmedSource) {
     return trimmedSource;
   }
-
-  if (
-    trimmedSource.startsWith('blob:') ||
-    trimmedSource.startsWith('data:') ||
-    trimmedSource.startsWith('asset:') ||
-    trimmedSource.startsWith('http://') ||
-    trimmedSource.startsWith('https://')
-  ) {
-    return trimmedSource;
-  }
-
-  return isTauri() ? convertFileSrc(trimmedSource) : trimmedSource;
+  return resolveVideoDisplayUrl(trimmedSource);
 }
 
 function resolvePosterCaptureTime(durationSeconds?: number | null): number {

@@ -1,0 +1,71 @@
+{
+  "schemaVersion": 2,
+  "id": "hunyuanworld-panorama-hq",
+  "name": "HunyuanWorld Panorama HQ",
+  "version": "0.1.0",
+  "description": "High-quality offline image-to-360 panorama runtime for Storyboard Copilot. It bridges a local HunyuanWorld-1.0 checkout and adds 360 panorama generation plus perspective extraction tools.",
+  "runtime": "python-bridge",
+  "entry": {
+    "kind": "python",
+    "python": "runtime/python/python.cmd",
+    "script": "runtime/app/storyboard_panorama_runner.py"
+  },
+  "hardwareRequirements": {
+    "summary": "Designed for the HunyuanWorld-1.0 high-quality image-to-panorama pipeline. A CUDA NVIDIA GPU is strongly recommended for practical generation speed.",
+    "recommendations": [
+      "Use a dedicated Python environment that can run HunyuanWorld-1.0 and point HUNYUANWORLD_PYTHON to that interpreter before starting the extension.",
+      "Clone HunyuanWorld-1.0 locally and point HUNYUANWORLD_REPO to the repo root so the extension can call demo_panogen.py directly.",
+      "Use the 4096x2048 preset for final output and keep 2048x1024 for faster iteration."
+    ],
+    "notes": [
+      "This package does not bundle the HunyuanWorld source tree or model weights. It is a bridge package that starts quickly and calls your local checkout.",
+      "Perspective extraction can run from the generated panorama itself, but it still depends on a Python environment with Pillow and NumPy available.",
+      "If you want to use a different launcher script inside the repo, set HUNYUANWORLD_SCRIPT to the relative or absolute path of that file."
+    ]
+  },
+  "models": [
+    {
+      "id": "hunyuanworld-1.0-panogen",
+      "path": "runtime/vendor/HunyuanWorld-1.0",
+      "role": "unknown"
+    }
+  ],
+  "features": {
+    "nodes": [
+      "panoramaNode",
+      "panoramaResultNode"
+    ],
+    "settingsSections": [
+      "extensions"
+    ],
+    "entryPoints": [
+      "titleBar"
+    ]
+  },
+  "startupSteps": [
+    {
+      "id": "validate",
+      "label": "Validate bridge package",
+      "description": "Check the runner script, Python launcher, and local environment variables.",
+      "durationMs": 280
+    },
+    {
+      "id": "verify-runtime",
+      "label": "Verify runtime",
+      "description": "Start the Python bridge and check the HunyuanWorld integration points.",
+      "durationMs": 460
+    },
+    {
+      "id": "verify-models",
+      "label": "Verify local checkout",
+      "description": "Confirm the repo path and panorama script are reachable.",
+      "durationMs": 420
+    },
+    {
+      "id": "register-nodes",
+      "label": "Register panorama nodes",
+      "description": "Expose the panorama generation and result nodes in the canvas menu.",
+      "durationMs": 240
+    }
+  ]
+}

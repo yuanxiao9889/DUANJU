@@ -5,7 +5,6 @@ import {
   useUpdateNodeInternals,
   type NodeProps,
 } from "@xyflow/react";
-import { convertFileSrc, isTauri } from "@tauri-apps/api/core";
 import { Clock3, Loader2, Sparkles, TriangleAlert, Video } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
@@ -23,7 +22,10 @@ import {
 } from "@/features/canvas/application/errorDialog";
 import { resolveImageDisplayUrl } from "@/features/canvas/application/imageData";
 import { flushCurrentProjectToDiskSafely } from "@/features/canvas/application/projectPersistence";
-import { formatVideoTime } from "@/features/canvas/application/videoData";
+import {
+  formatVideoTime,
+  resolveVideoDisplayUrl,
+} from "@/features/canvas/application/videoData";
 import { resolveNodeDisplayName } from "@/features/canvas/domain/nodeDisplay";
 import {
   NodeHeader,
@@ -171,16 +173,7 @@ export const JimengVideoResultNode = memo(
       if (!source) {
         return null;
       }
-      if (
-        source.startsWith("blob:") ||
-        source.startsWith("data:") ||
-        source.startsWith("asset:") ||
-        source.startsWith("http://") ||
-        source.startsWith("https://")
-      ) {
-        return source;
-      }
-      return isTauri() ? convertFileSrc(source) : source;
+      return resolveVideoDisplayUrl(source);
     }, [data.videoUrl]);
     const posterSource = useMemo(() => {
       const source = data.previewImageUrl?.trim() ?? "";

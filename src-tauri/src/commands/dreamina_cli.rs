@@ -42,6 +42,7 @@ const DREAMINA_RUNTIME_PROFILE_DIR_NAME: &str = "profile";
 const DREAMINA_QR_READY_MARKER: &str = "[DREAMINA:QR_READY]";
 const DREAMINA_LOGIN_SUCCESS_MARKER: &str = "[DREAMINA:LOGIN_SUCCESS]";
 const DREAMINA_LOGIN_REUSED_MARKER: &str = "[DREAMINA:LOGIN_REUSED]";
+const DREAMINA_LOGIN_EXIT_MARKER: &str = "[DREAMINA:LOGIN_EXIT]";
 #[cfg(target_os = "windows")]
 const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 
@@ -221,6 +222,7 @@ pub struct DreaminaSetupProgressEvent {
     pub git_source: Option<DreaminaGitSource>,
     pub detail: Option<String>,
     pub login_qr_data_url: Option<String>,
+    pub login_page_url: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -1153,9 +1155,10 @@ fn dreamina_login_headless_script(
     command_env: &DreaminaProcessEnv,
 ) -> String {
     format!(
-        "{prefix}; {dreamina} login --headless --debug < /dev/null",
+        "{prefix}; {dreamina} login --headless --debug < /dev/null; status=$?; echo '{exit_marker} '$status; exit \"$status\"",
         prefix = dreamina_command_prefix(runtime, command_env),
         dreamina = dreamina_command_target(runtime, command_env),
+        exit_marker = DREAMINA_LOGIN_EXIT_MARKER,
     )
 }
 
@@ -1288,6 +1291,47 @@ fn dreamina_login_qr_file_path(workspace: &Path) -> Option<PathBuf> {
         .filter(|path| path.is_file())
 }
 
+fn extract_first_https_url(text: &str) -> Option<String> {
+    for line in text.lines() {
+        if let Some(start) = line.find("https://") {
+            let candidate = &line[start..];
+            let end = candidate
+                .find(char::is_whitespace)
+                .unwrap_or(candidate.len());
+            let url = candidate[..end]
+                .trim()
+                .trim_end_matches(['，', '。', ',', ';'])
+                .to_string();
+            if !url.is_empty() {
+                return Some(url);
+            }
+        }
+    }
+
+    None
+}
+
+fn dreamina_login_page_url(workspace: &Path) -> Option<String> {
+    let log_text = read_text_file_lossy(&dreamina_login_log_path(workspace))?;
+    let mut fallback = None;
+
+    for line in log_text.lines() {
+        let Some(url) = extract_first_https_url(line) else {
+            continue;
+        };
+
+        if url.contains("/passport/web/web_login") {
+            return Some(url);
+        }
+
+        if fallback.is_none() {
+            fallback = Some(url);
+        }
+    }
+
+    fallback
+}
+
 fn dreamina_login_success_logged(workspace: &Path) -> bool {
     read_text_file_lossy(&dreamina_login_log_path(workspace))
         .map(|text| {
@@ -1295,6 +1339,14 @@ fn dreamina_login_success_logged(workspace: &Path) -> bool {
                 || text.contains(DREAMINA_LOGIN_REUSED_MARKER)
         })
         .unwrap_or(false)
+}
+
+fn dreamina_login_exit_code(workspace: &Path) -> Option<i32> {
+    let log_text = read_text_file_lossy(&dreamina_login_log_path(workspace))?;
+    log_text.lines().rev().find_map(|line| {
+        let (_, value) = line.split_once(DREAMINA_LOGIN_EXIT_MARKER)?;
+        value.trim().parse::<i32>().ok()
+    })
 }
 
 fn dreamina_credential_has_usable_session(workspace: &Path) -> bool {
@@ -1379,6 +1431,22 @@ fn dreamina_internal_log_tail(workspace: &Path, line_count: usize) -> Option<Str
     }
 }
 
+fn dreamina_login_debug_hint(workspace: &Path) -> String {
+    format!(
+        "This app already retried the QR login with `dreamina login --headless --debug`.\nDebug log: {}\nExpected QR file: {}",
+        dreamina_login_log_path(workspace).display(),
+        dreamina_login_qr_path(workspace).display()
+    )
+}
+
+fn append_dreamina_login_debug_hint(workspace: &Path, detail: String) -> String {
+    if detail.contains("dreamina login --headless --debug") {
+        detail
+    } else {
+        format!("{detail}\n\n{}", dreamina_login_debug_hint(workspace))
+    }
+}
+
 fn dreamina_login_internal_failure_detail(workspace: &Path, line_count: usize) -> Option<String> {
     let internal_tail = dreamina_internal_log_tail(workspace, line_count)?;
     let lowered = internal_tail.to_ascii_lowercase();
@@ -1398,8 +1466,9 @@ fn dreamina_login_internal_failure_detail(workspace: &Path, line_count: usize) -
     } else {
         "Dreamina is still preparing the login QR code."
     };
-    Some(format!(
-        "{headline}\nLatest Dreamina internal log:\n{internal_tail}"
+    Some(append_dreamina_login_debug_hint(
+        workspace,
+        format!("{headline}\nLatest Dreamina internal log:\n{internal_tail}"),
     ))
 }
 
@@ -1448,16 +1517,70 @@ fn dreamina_login_wait_detail(workspace: &Path) -> Option<String> {
         );
     }
 
+    if let Some(exit_code) = dreamina_login_exit_code(workspace) {
+        let login_tail = dreamina_login_log_tail(workspace, 20)
+            .unwrap_or_else(|| "Dreamina login log is still empty.".to_string());
+        return Some(append_dreamina_login_debug_hint(
+            workspace,
+            format!(
+                "Dreamina login exited before producing a QR code (exit code: {exit_code}). Latest login output:\n{login_tail}"
+            ),
+        ));
+    }
+
+    if let Some(login_tail) = dreamina_login_log_tail(workspace, 20) {
+        let lowered = login_tail.to_ascii_lowercase();
+        if lowered.contains("google-chrome")
+            && lowered.contains("executable file not found")
+        {
+            let manual_url = dreamina_login_page_url(workspace)
+                .map(|url| format!("Manual login page:\n{url}"))
+                .unwrap_or_else(|| {
+                    "Manual login page URL was not parsed from the current log yet."
+                        .to_string()
+                });
+            return Some(append_dreamina_login_debug_hint(
+                workspace,
+                format!(
+                    "Dreamina CLI could not auto-open a browser inside the bundled runtime, so it is waiting for manual web authorization instead.\n{manual_url}\n\nLatest Dreamina login output:\n{login_tail}"
+                ),
+            ));
+        }
+    }
+
+    if let Some(detail) = dreamina_login_log_tail(workspace, 12).and_then(|tail| {
+        let lowered = tail.to_ascii_lowercase();
+        if lowered.contains("get_qrcode")
+            || lowered.contains("empty response body")
+            || lowered.contains("callback server")
+            || lowered.contains("listen tcp")
+            || lowered.contains("bind:")
+            || lowered.contains("error")
+        {
+            Some(append_dreamina_login_debug_hint(
+                workspace,
+                format!("Latest Dreamina login output:\n{tail}"),
+            ))
+        } else {
+            None
+        }
+    }) {
+        return Some(detail);
+    }
+
     if let Some(detail) = dreamina_login_internal_failure_detail(workspace, 6) {
         return Some(detail);
     }
 
     if let Some(detail) = dreamina_credential_session_detail(workspace) {
-        return Some(detail);
+        return Some(append_dreamina_login_debug_hint(workspace, detail));
     }
 
     dreamina_login_log_tail(workspace, 6).map(|tail| {
-        format!("Dreamina is still preparing the login QR code. Latest login output:\n{tail}")
+        append_dreamina_login_debug_hint(
+            workspace,
+            format!("Dreamina is still preparing the login QR code. Latest login output:\n{tail}"),
+        )
     })
 }
 
@@ -1723,9 +1846,12 @@ fn compose_dreamina_login_failure_detail(workspace: &Path, primary_detail: &str)
     }
 
     if sections.is_empty() {
-        primary_detail.to_string()
+        append_dreamina_login_debug_hint(workspace, primary_detail.to_string())
     } else {
-        format!("{}\n\n{}", primary_detail.trim(), sections.join("\n\n"))
+        append_dreamina_login_debug_hint(
+            workspace,
+            format!("{}\n\n{}", primary_detail.trim(), sections.join("\n\n")),
+        )
     }
 }
 
@@ -2600,6 +2726,7 @@ fn emit_dreamina_setup_progress(
     git_source: Option<DreaminaGitSource>,
     detail: Option<String>,
     login_qr_data_url: Option<String>,
+    login_page_url: Option<String>,
 ) {
     let event = DreaminaSetupProgressEvent {
         stage,
@@ -2607,6 +2734,7 @@ fn emit_dreamina_setup_progress(
         git_source,
         detail,
         login_qr_data_url,
+        login_page_url,
     };
     if let Err(error) = app.emit(DREAMINA_SETUP_PROGRESS_EVENT, &event) {
         warn!("failed to emit Dreamina setup progress: {error}");
@@ -2946,6 +3074,7 @@ async fn wait_for_dreamina_login(
                     auto_relaunch_count
                 )),
                 None,
+                dreamina_login_page_url(workspace),
             );
 
             if let Err(error) =
@@ -2999,6 +3128,7 @@ async fn wait_for_dreamina_login(
                 Some(runtime.source),
                 dreamina_login_wait_detail(workspace),
                 login_qr_data_url,
+                dreamina_login_page_url(workspace),
             );
             sleep(Duration::from_millis(DREAMINA_LOGIN_POLL_INTERVAL_MS)).await;
             continue;
@@ -3046,6 +3176,7 @@ async fn wait_for_dreamina_login(
             Some(runtime.source),
             dreamina_login_wait_detail(workspace),
             login_qr_data_url,
+            dreamina_login_page_url(workspace),
         );
         sleep(Duration::from_millis(DREAMINA_LOGIN_POLL_INTERVAL_MS)).await;
     }
@@ -3062,6 +3193,7 @@ pub async fn run_dreamina_guided_setup(
         None,
         None,
         None,
+        None,
     );
 
     let workspace = dreamina_workspace(&app)?;
@@ -3071,6 +3203,7 @@ pub async fn run_dreamina_guided_setup(
         DreaminaSetupProgressStage::PreparingGit,
         24,
         Some(runtime.source),
+        None,
         None,
         None,
     );
@@ -3087,6 +3220,7 @@ pub async fn run_dreamina_guided_setup(
             Some(runtime.source),
             None,
             None,
+            None,
         );
         install_dreamina_cli_with_runtime(workspace.clone(), &runtime).await?;
         emit_dreamina_setup_progress(
@@ -3094,6 +3228,7 @@ pub async fn run_dreamina_guided_setup(
             DreaminaSetupProgressStage::Verifying,
             66,
             Some(runtime.source),
+            None,
             None,
             None,
         );
@@ -3114,6 +3249,7 @@ pub async fn run_dreamina_guided_setup(
             Some(runtime.source),
             Some("Dreamina is preparing the official QR-code login flow.".to_string()),
             None,
+            None,
         );
         open_dreamina_login_terminal_with_runtime(workspace.clone(), &runtime).await?;
         login_terminal_opened = true;
@@ -3127,6 +3263,7 @@ pub async fn run_dreamina_guided_setup(
                     .to_string(),
             ),
             dreamina_login_qr_data_url(&workspace),
+            dreamina_login_page_url(&workspace),
         );
         let (next_status, timed_out) = wait_for_dreamina_login(&app, &workspace, &runtime).await;
         status = next_status;
@@ -3141,12 +3278,14 @@ pub async fn run_dreamina_guided_setup(
             Some(runtime.source),
             None,
             None,
+            None,
         );
         emit_dreamina_setup_progress(
             &app,
             DreaminaSetupProgressStage::Completed,
             100,
             Some(runtime.source),
+            None,
             None,
             None,
         );

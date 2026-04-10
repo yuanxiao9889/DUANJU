@@ -46,6 +46,7 @@
       "title": "扩展中心",
       "centerTitle": "按需加载扩展能力",
       "centerDescription": "从文件夹加载扩展包，启动后即可使用对应能力。停止扩展或关闭软件后，如需继续使用请重新启动。",
+      "bridgeHint": "提示：`hunyuanworld-panorama-hq` 当前是桥接包，里面不带 HunyuanWorld 源码和权重，所以体积很小是正常的。",
       "sampleHint": "仓库里现在可以直接加载 extension-packages/qwen3-tts-complete；如需重新构建完整包，可运行 npm run prepare:qwen3-tts-extension。",
       "loadFolderTitle": "选择扩展包文件夹",
       "loadFailed": "加载扩展包失败",
@@ -238,6 +239,8 @@
       "createSupplement": "生成补充",
       "jimeng": "发送即梦",
       "jimengImage": "即梦图片",
+      "panorama": "360 全景",
+      "panoramaResult": "全景结果",
       "jimengImageResult": "即梦四宫格",
       "seedanceVideo": "官方 Seedance 2.0 视频",
       "seedanceVideoResult": "Seedance 视频结果"
@@ -821,6 +824,63 @@
         "3:4": "3:4",
         "9:16": "9:16"
       }
+    },
+    "panorama": {
+      "runtimeTitle": "高质量全景运行时",
+      "runtimeReady": "HunyuanWorld 全景扩展已就绪，可直接生成 2:1 equirectangular 全景。",
+      "runtimeDisabled": "请先在扩展中心加载并启动高质量全景扩展。",
+      "extensionDisabled": "高质量全景扩展未启动",
+      "extensionStarting": "高质量全景扩展启动中",
+      "referenceTitle": "输入图片",
+      "referenceCount": "已连接 {{count}} 张上游图片",
+      "referenceHint": "把上传图、结果图或其他图片节点连到左侧输入端后，再开始生成。",
+      "referencePreviewAlt": "全景参考图",
+      "referenceFirstOnly": "当前版本默认使用第一张输入图作为全景起始视角，其余连接会保留给后续扩展。",
+      "referenceSingle": "会以这张图为起点做高质量 360 全景扩展。",
+      "referenceRequired": "请先连接一张输入图片",
+      "prompt": "全景提示词",
+      "promptPlaceholder": "补充空间结构、环境氛围、材质、光照和镜头站位，帮助模型把单图扩展成完整 360 全景。",
+      "sceneClass": "场景类型",
+      "outputResolution": "输出分辨率",
+      "useCache": "启用缓存",
+      "useFp8Attention": "FP8 Attention",
+      "useFp8Gemm": "FP8 GEMM",
+      "generate": "生成高质量全景",
+      "generating": "正在生成高质量全景...",
+      "generateFailed": "高质量全景生成失败",
+      "resultNodeTitle": "全景结果",
+      "errorShort": "失败",
+      "generatingShort": "生成中",
+      "readyShort": "已完成",
+      "generatedAt": "已生成 {{time}}",
+      "sceneClassOptions": {
+        "auto": "自动判断",
+        "indoor": "室内",
+        "outdoor": "室外"
+      }
+    },
+    "panoramaResult": {
+      "readyShort": "就绪",
+      "processingShort": "处理中",
+      "errorShort": "失败",
+      "generatedAt": "已生成 {{time}}",
+      "previewAlt": "360 全景结果",
+      "generatingHint": "正在生成 360 全景，请稍候...",
+      "emptyHint": "等待全景生成结果。",
+      "dragHint": "拖动画面预览视角",
+      "openFull": "查看全图",
+      "yaw": "水平角度",
+      "pitch": "俯仰角度",
+      "fov": "视角 FOV",
+      "viewWidth": "透视宽度",
+      "viewHeight": "透视高度",
+      "extractPerspective": "提取透视视图",
+      "exportPanorama": "导出全景图",
+      "extractFailed": "提取透视视图失败",
+      "perspectiveNodeTitle": "全景透视图",
+      "exportNodeTitle": "全景导出",
+      "extensionDisabled": "高质量全景扩展未启动",
+      "imageRequired": "当前结果节点还没有可用全景图"
     },
     "seedance": {
       "promptLabel": "提示词",
@@ -1485,7 +1545,9 @@
     "actions": {
       "startAutoSetup": "开始自动准备",
       "refreshQr": "重新生成二维码",
-      "recheck": "重新检测"
+      "recheck": "重新检测",
+      "copyDiagnostic": "复制诊断信息",
+      "copied": "已复制"
     },
     "readyBadge": "可直接使用",
     "progress": {
@@ -1522,6 +1584,11 @@
       "step1": "抖音扫码",
       "step2": "手机确认后自动返回",
       "step3": "3. 保持当前窗口打开，软件检测成功后会自动返回"
+      },
+      "manualLogin": {
+        "title": "当前改为浏览器网页登录",
+        "body": "这次运行环境里 Dreamina CLI 没能自动拉起浏览器，所以已经回退成网页登录授权。点击下方按钮打开登录页，登录并授权后，保持当前弹窗打开即可自动继续。",
+        "open": "打开登录页"
       },
       "membershipRequired": {
         "title": "当前扫码账号不是即梦高级会员",

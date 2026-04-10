@@ -16,6 +16,7 @@ import {
 
 import { createMockQwenTtsAudioFile } from './mockQwenTts';
 import {
+  HUNYUANWORLD_PANORAMA_EXTENSION_ID,
   QWEN_TTS_COMPLETE_EXTENSION_ID,
   QWEN_TTS_SIMPLE_EXTENSION_ID,
   type ExtensionRuntimeState,
@@ -33,22 +34,22 @@ const QWEN_TTS_EXTENSION_PRIORITY = [
 type QwenTtsVoicePreset = TtsVoiceDesignNodeData['stylePreset'];
 type QwenTtsVoiceLanguage = TtsVoiceDesignNodeData['language'];
 
-interface QwenTtsHealthResponse {
+interface ExtensionHealthResponse {
   ok: boolean;
   command: 'health';
   checks: Record<string, boolean>;
 }
 
-interface QwenTtsListedModel {
+interface ExtensionListedModel {
   id: string;
   path: string;
   exists: boolean;
 }
 
-interface QwenTtsListModelsResponse {
+interface ExtensionListModelsResponse {
   ok: boolean;
   command: 'list_models';
-  models: QwenTtsListedModel[];
+  models: ExtensionListedModel[];
 }
 
 interface QwenTtsGeneratedOutput {
@@ -187,6 +188,120 @@ function ensurePackageHasPythonEntry(extensionPackage: LoadedExtensionPackage): 
   }
 }
 
+function formatHealthCheckLabel(
+  extensionPackage: LoadedExtensionPackage,
+  checkName: string
+): string {
+  if (extensionPackage.id === HUNYUANWORLD_PANORAMA_EXTENSION_ID) {
+    switch (checkName) {
+      case 'repo':
+        return 'local HunyuanWorld repo';
+      case 'script':
+        return 'panorama entry script';
+      case 'outputsDir':
+        return 'outputs folder';
+      case 'numpy':
+        return 'NumPy';
+      case 'pillow':
+        return 'Pillow';
+      default:
+        break;
+    }
+  }
+
+  switch (checkName) {
+    case 'python':
+      return 'embedded Python runtime';
+    case 'qwen_tts':
+      return 'qwen_tts package';
+    case 'base':
+      return 'Base model';
+    case 'voiceDesign':
+      return 'VoiceDesign model';
+    case 'tokenizer':
+      return 'Tokenizer model';
+    case 'sox':
+      return 'SoX tools';
+    default:
+      return checkName;
+  }
+}
+
+function formatListedModelLabel(
+  extensionPackage: LoadedExtensionPackage,
+  modelId: string
+): string {
+  if (extensionPackage.id === HUNYUANWORLD_PANORAMA_EXTENSION_ID) {
+    if (modelId === 'hunyuanworld-panogen') {
+      return 'HunyuanWorld panorama script';
+    }
+
+    return modelId;
+  }
+
+  switch (modelId) {
+    case 'voice_design':
+      return 'VoiceDesign model';
+    case 'base':
+      return 'Base model';
+    case 'tokenizer':
+      return 'Tokenizer model';
+    default:
+      return modelId;
+  }
+}
+
+function describeFailedHealthChecks(
+  extensionPackage: LoadedExtensionPackage,
+  failedChecks: string[]
+): string {
+  if (extensionPackage.id === HUNYUANWORLD_PANORAMA_EXTENSION_ID) {
+    const hints: string[] = [];
+
+    if (failedChecks.includes('repo')) {
+      hints.push('set HUNYUANWORLD_REPO to your local HunyuanWorld-1.0 checkout');
+    }
+
+    if (failedChecks.includes('script')) {
+      hints.push('make sure demo_panogen.py exists, or set HUNYUANWORLD_SCRIPT to the correct entry file');
+    }
+
+    if (failedChecks.includes('numpy') || failedChecks.includes('pillow')) {
+      hints.push('use a Python environment with NumPy and Pillow available via HUNYUANWORLD_PYTHON or your system python');
+    }
+
+    const remainingChecks = failedChecks.filter(
+      (checkName) => !['repo', 'script', 'numpy', 'pillow'].includes(checkName)
+    );
+    if (remainingChecks.length > 0) {
+      hints.push(
+        `check ${remainingChecks.map((checkName) => formatHealthCheckLabel(extensionPackage, checkName)).join(', ')}`
+      );
+    }
+
+    return hints.length > 0
+      ? `${extensionPackage.name} setup is incomplete: ${hints.join('; ')}.`
+      : `${extensionPackage.name} runtime checks failed.`;
+  }
+
+  return `${extensionPackage.name} runtime checks failed: ${failedChecks
+    .map((checkName) => formatHealthCheckLabel(extensionPackage, checkName))
+    .join(', ')}.`;
+}
+
+function describeMissingModels(
+  extensionPackage: LoadedExtensionPackage,
+  missingModels: string[]
+): string {
+  if (extensionPackage.id === HUNYUANWORLD_PANORAMA_EXTENSION_ID) {
+    return `${extensionPackage.name} could not find the local panorama script. Check HUNYUANWORLD_REPO, and set HUNYUANWORLD_SCRIPT if your entry file is not demo_panogen.py.`;
+  }
+
+  return `${extensionPackage.name} is missing required assets: ${missingModels
+    .map((modelId) => formatListedModelLabel(extensionPackage, modelId))
+    .join(', ')}.`;
+}
+
 function resolveCommandErrorMessage(error: unknown): string | null {
   if (error instanceof Error) {
     const message = error.message.trim();
@@ -284,7 +399,7 @@ async function runResilientExtensionCommand<TResponse = Record<string, unknown>>
 async function verifyPythonRuntime(
   extensionPackage: LoadedExtensionPackage
 ): Promise<void> {
-  const response = await runExtensionCommand<QwenTtsHealthResponse>(
+  const response = await runExtensionCommand<ExtensionHealthResponse>(
     extensionPackage.folderPath,
     'health'
   );
@@ -294,14 +409,14 @@ async function verifyPythonRuntime(
     .map(([checkName]) => checkName);
 
   if (failedChecks.length > 0) {
-    throw new Error(`Extension runtime checks failed: ${failedChecks.join(', ')}`);
+    throw new Error(describeFailedHealthChecks(extensionPackage, failedChecks));
   }
 }
 
 async function verifyPythonModels(
   extensionPackage: LoadedExtensionPackage
 ): Promise<void> {
-  const response = await runExtensionCommand<QwenTtsListModelsResponse>(
+  const response = await runExtensionCommand<ExtensionListModelsResponse>(
     extensionPackage.folderPath,
     'list_models'
   );
@@ -311,7 +426,7 @@ async function verifyPythonModels(
     .map((model) => model.id);
 
   if (missingModels.length > 0) {
-    throw new Error(`Missing Qwen TTS model assets: ${missingModels.join(', ')}`);
+    throw new Error(describeMissingModels(extensionPackage, missingModels));
   }
 }
 

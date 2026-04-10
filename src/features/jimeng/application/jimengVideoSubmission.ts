@@ -5,7 +5,10 @@ import {
   queryJimengDreaminaVideoResult,
 } from "@/commands/dreaminaCli";
 import { persistImageSource } from "@/commands/image";
-import { captureVideoFrameFromSource } from "@/features/canvas/application/videoData";
+import {
+  captureVideoFrameFromSource,
+  resolveVideoDisplayUrl,
+} from "@/features/canvas/application/videoData";
 import {
   prepareNodeImage,
   reduceAspectRatio,
@@ -29,7 +32,7 @@ import {
   normalizeJimengVideoModel,
   resolveJimengVideoRequiredReferenceImageCount,
 } from "@/features/jimeng/domain/jimengOptions";
-import { convertFileSrc, isTauri } from "@tauri-apps/api/core";
+import { isTauri } from "@tauri-apps/api/core";
 
 const LEGACY_VIDEO_MODEL_MAP: Record<string, JimengVideoModelId> = {
   "seedance-2.0-fast": "seedance2.0fast",
@@ -204,18 +207,7 @@ function resolveVideoCaptureSource(source: string): string {
   if (!trimmedSource) {
     return trimmedSource;
   }
-
-  if (
-    trimmedSource.startsWith("blob:") ||
-    trimmedSource.startsWith("data:") ||
-    trimmedSource.startsWith("asset:") ||
-    trimmedSource.startsWith("http://") ||
-    trimmedSource.startsWith("https://")
-  ) {
-    return trimmedSource;
-  }
-
-  return isTauri() ? convertFileSrc(trimmedSource) : trimmedSource;
+  return resolveVideoDisplayUrl(trimmedSource);
 }
 
 function resolvePosterCaptureTime(durationSeconds?: number | null): number {

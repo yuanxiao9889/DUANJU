@@ -42,6 +42,7 @@ import {
   resolveScriptModelOptions,
   SCRIPT_COMPATIBLE_PROVIDER_ID,
   resolveStoryboardCompatibleModelConfigForModel,
+  STORYBOARD_NEWAPI_API_FORMATS,
   toStoryboardProviderModelId,
   upsertCustomScriptModelEntry,
   type CustomScriptModelEntry,
@@ -51,6 +52,9 @@ import {
   STORYBOARD_COMPATIBLE_API_FORMATS,
   listModelProviders,
   type StoryboardCompatibleApiFormat,
+  normalizeStoryboardNewApiModelConfig,
+  type StoryboardNewApiApiFormat,
+  type StoryboardNewApiModelConfig,
   upsertCustomStoryboardModelEntry,
 } from '@/features/canvas/models';
 import { GRSAI_NANO_BANANA_PRO_MODEL_OPTIONS } from '@/features/canvas/models/providers/grsai';
@@ -332,6 +336,7 @@ export function SettingsDialog({
     storyboardProviderCustomModels,
     hrsaiNanoBananaProModel,
     storyboardCompatibleModelConfig,
+    storyboardNewApiModelConfig,
     downloadPresetPaths,
     useUploadFilenameAsNodeTitle,
     storyboardGenKeepStyleConsistent,
@@ -361,6 +366,7 @@ export function SettingsDialog({
     setStoryboardProviderCustomModels,
     setGrsaiNanoBananaProModel,
     setStoryboardCompatibleModelConfig,
+    setStoryboardNewApiModelConfig,
     setDownloadPresetPaths,
     setUseUploadFilenameAsNodeTitle,
     setStoryboardGenKeepStyleConsistent,
@@ -409,6 +415,7 @@ export function SettingsDialog({
       'alibaba',
       'coding',
       'compatible',
+      'newapi',
     ];
     const providerIndex = new Map(providerOrder.map((id, index) => [id, index]));
     return listModelProviders().slice().sort((left, right) => {
@@ -460,6 +467,10 @@ export function SettingsDialog({
     useState<Record<string, string>>({});
   const [localStoryboardCompatibleModelConfig, setLocalStoryboardCompatibleModelConfig] =
     useState(storyboardCompatibleModelConfig);
+  const [localStoryboardNewApiModelConfig, setLocalStoryboardNewApiModelConfig] =
+    useState<StoryboardNewApiModelConfig>(normalizeStoryboardNewApiModelConfig(
+      storyboardNewApiModelConfig
+    ));
   const [localDownloadPathInput, setLocalDownloadPathInput] = useState('');
   const [localDownloadPresetPaths, setLocalDownloadPresetPaths] = useState(downloadPresetPaths);
   const [localUseUploadFilenameAsNodeTitle, setLocalUseUploadFilenameAsNodeTitle] = useState(
@@ -580,6 +591,9 @@ export function SettingsDialog({
     setLocalStoryboardModelIdInputs({});
     setLocalStoryboardModelDisplayNameInputs({});
     setLocalStoryboardCompatibleModelConfig(storyboardCompatibleModelConfig);
+    setLocalStoryboardNewApiModelConfig(
+      normalizeStoryboardNewApiModelConfig(storyboardNewApiModelConfig)
+    );
     setLocalUseUploadFilenameAsNodeTitle(useUploadFilenameAsNodeTitle);
     setLocalStoryboardGenKeepStyleConsistent(storyboardGenKeepStyleConsistent);
     setLocalStoryboardGenDisableTextInImage(storyboardGenDisableTextInImage);
@@ -619,6 +633,7 @@ export function SettingsDialog({
     storyboardModelOverrides,
     storyboardProviderCustomModels,
     storyboardCompatibleModelConfig,
+    storyboardNewApiModelConfig,
     useUploadFilenameAsNodeTitle,
     storyboardGenKeepStyleConsistent,
     storyboardGenDisableTextInImage,
@@ -1144,6 +1159,7 @@ export function SettingsDialog({
       );
     });
     setStoryboardCompatibleModelConfig(localStoryboardCompatibleModelConfig);
+    setStoryboardNewApiModelConfig(localStoryboardNewApiModelConfig);
     setDownloadPresetPaths(localDownloadPresetPaths);
     setUseUploadFilenameAsNodeTitle(localUseUploadFilenameAsNodeTitle);
     setStoryboardGenKeepStyleConsistent(localStoryboardGenKeepStyleConsistent);
@@ -1197,6 +1213,7 @@ export function SettingsDialog({
     localScriptProviderCustomModels,
     localScriptCompatibleProviderConfig,
     localStoryboardCompatibleModelConfig,
+    localStoryboardNewApiModelConfig,
     localStoryboardModelOverrides,
     localStoryboardProviderCustomModels,
     scriptProviders,
@@ -1211,6 +1228,7 @@ export function SettingsDialog({
     setStoryboardModelOverride,
     setStoryboardProviderCustomModels,
     setStoryboardCompatibleModelConfig,
+    setStoryboardNewApiModelConfig,
     setDownloadPresetPaths,
     setUseUploadFilenameAsNodeTitle,
     setStoryboardGenKeepStyleConsistent,
@@ -1697,7 +1715,7 @@ export function SettingsDialog({
                               {i18n.language.startsWith('zh') ? provider.label : provider.name}
                             </span>
                             {isEnabled && (
-                              <span className="ml-auto text-[10px] text-amber-500 font-medium">已激活</span>
+                              <span className="ml-auto text-[10px] text-amber-500 font-medium">{t('settings.providerActive')}</span>
                             )}
                           </button>
                         );
@@ -1800,7 +1818,7 @@ export function SettingsDialog({
                                 >
                                   {isEnabled ? t('settings.providerActive') : t('settings.providerActivate')}
                                 </span>
-                                {isEnabled ? '已激活' : '激活'}
+                                {isEnabled ? t('settings.providerActive') : t('settings.providerActivate')}
                               </button>
                             )}
                           </div>
@@ -1873,6 +1891,10 @@ export function SettingsDialog({
                               provider.id === 'compatible' ? (
                                 <div className="mt-3 rounded-md border border-border-dark bg-black/10 px-3 py-2 text-xs leading-5 text-text-muted">
                                   {t('settings.storyboardCompatibleNoConnectionTest')}
+                                </div>
+                              ) : provider.id === 'newapi' ? (
+                                <div className="mt-3 rounded-md border border-border-dark bg-black/10 px-3 py-2 text-xs leading-5 text-text-muted">
+                                  {'\u76EE\u524D\u4E0D\u63D0\u4F9B\u8FDE\u901A\u6027\u6D4B\u8BD5\uFF0C\u5B9E\u9645\u751F\u6210\u65F6\u4F1A\u6309\u4F60\u9009\u62E9\u7684\u8BF7\u6C42\u683C\u5F0F\u8C03\u7528 NewAPI\u3002'}
                                 </div>
                               ) : null
                             ) : (
@@ -2118,6 +2140,8 @@ export function SettingsDialog({
                                       placeholder={
                                         provider.id === 'compatible'
                                           ? 'gpt-image-1 / gemini-2.5-flash-image-preview'
+                                          : provider.id === 'newapi'
+                                            ? 'flow/gemini-3.1-flash-image-preview / gpt-image-1'
                                           : t('settings.storyboardCustomModelIdPlaceholder')
                                       }
                                       className="h-9 rounded-lg text-sm"
@@ -2242,6 +2266,72 @@ export function SettingsDialog({
                                 </div>
                                 <div className="rounded-md border border-border-dark bg-black/10 px-3 py-2 text-[11px] leading-5 text-text-muted">
                                   {t('settings.storyboardCompatibleHint')}
+                                </div>
+                              </div>
+                            </div>
+                          )}
+                          {provider.id === 'newapi' && (
+                            <div className="rounded-lg border border-border-dark bg-bg-dark p-4">
+                              <div className="mb-1 text-xs font-medium text-text-dark">
+                                {'NewAPI \u56FE\u7247\u63A5\u53E3'}
+                              </div>
+                              <p className="mb-3 text-xs leading-5 text-text-muted">
+                                {'\u8FD9\u91CC\u53EA\u914D\u7F6E\u63A5\u53E3\u5730\u5740\u548C\u8BF7\u6C42\u683C\u5F0F\u3002\u5177\u4F53\u6A21\u578B\u7EDF\u4E00\u5728\u4E0A\u65B9\u201C\u6A21\u578B\u9009\u62E9\u201D\u91CC\u6DFB\u52A0\u548C\u5207\u6362\u3002'}
+                              </p>
+                              <div className="space-y-3">
+                                <div>
+                                  <div className="mb-1 text-xs font-medium text-text-dark">
+                                    {'\u8BF7\u6C42\u683C\u5F0F'}
+                                  </div>
+                                  <UiSelect
+                                    value={localStoryboardNewApiModelConfig.apiFormat}
+                                    onChange={(event) =>
+                                      setLocalStoryboardNewApiModelConfig((previous) => ({
+                                        ...previous,
+                                        apiFormat: event.target.value as StoryboardNewApiApiFormat,
+                                      }))
+                                    }
+                                    className="h-9 text-sm"
+                                  >
+                                    {STORYBOARD_NEWAPI_API_FORMATS.map((format) => (
+                                      <option key={format} value={format}>
+                                        {format === 'openai-chat'
+                                          ? 'OpenAI \u804A\u5929\u683C\u5F0F'
+                                          : format === 'openai-edits'
+                                            ? 'OpenAI \u7F16\u8F91\u63A5\u53E3'
+                                            : 'Gemini generateContent'}
+                                      </option>
+                                    ))}
+                                  </UiSelect>
+                                </div>
+                                <div>
+                                  <div className="mb-1 text-xs font-medium text-text-dark">
+                                    {'\u63A5\u53E3\u5730\u5740'}
+                                  </div>
+                                  <UiInput
+                                    value={localStoryboardNewApiModelConfig.endpointUrl}
+                                    onChange={(event) =>
+                                      setLocalStoryboardNewApiModelConfig((previous) => ({
+                                        ...previous,
+                                        endpointUrl: event.target.value,
+                                      }))
+                                    }
+                                    placeholder={
+                                      localStoryboardNewApiModelConfig.apiFormat === 'openai-chat'
+                                        ? 'https://your-newapi-host/v1/chat/completions'
+                                        : localStoryboardNewApiModelConfig.apiFormat === 'openai-edits'
+                                          ? 'https://your-newapi-host/v1/images/edits'
+                                          : 'https://your-newapi-host'
+                                    }
+                                    className="h-9 text-sm"
+                                  />
+                                </div>
+                                <div className="rounded-md border border-border-dark bg-black/10 px-3 py-2 text-[11px] leading-5 text-text-muted">
+                                  {localStoryboardNewApiModelConfig.apiFormat === 'openai-chat'
+                                    ? '\u6309 OpenAI \u517C\u5BB9\u804A\u5929\u63A5\u53E3\u53D1\u9001\uFF0C\u8BF7\u6C42\u4F1A\u5E26 Bearer \u9274\u6743\uFF0C\u5E76\u8865\u5145 Gemini \u6240\u9700\u7684 extra_body \u914D\u7F6E\u3002'
+                                    : localStoryboardNewApiModelConfig.apiFormat === 'openai-edits'
+                                      ? '\u6309 /v1/images/edits \u53D1\u9001 multipart/form-data\uFF0C\u53C2\u8003\u56FE\u4F1A\u4F5C\u4E3A\u6587\u4EF6\u76F4\u63A5\u4E0A\u4F20\u3002'
+                                      : '\u6309 Gemini \u539F\u751F generateContent \u63A5\u53E3\u53D1\u9001\uFF0C\u53C2\u8003\u56FE\u4F1A\u8F6C\u6210 inlineData\uFF0C\u5E76\u4F7F\u7528 Bearer \u9274\u6743\u3002'}
                                 </div>
                               </div>
                             </div>
@@ -2577,6 +2667,7 @@ export function SettingsDialog({
                               {dreaminaStatus.detail}
                             </div>
                           )}
+
                         </div>
                       </div>
                     </div>
@@ -3056,7 +3147,7 @@ export function SettingsDialog({
                                       {new Date(backup.createdAt).toLocaleString()}
                                     </div>
                                     <div className="mt-0.5 truncate text-[11px] text-text-muted">
-                                      {formatBytes(backup.size)} · {backup.id}
+                                      {formatBytes(backup.size)} - {backup.id}
                                     </div>
                                   </div>
                                   <button

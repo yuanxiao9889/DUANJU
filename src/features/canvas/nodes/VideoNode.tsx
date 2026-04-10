@@ -26,8 +26,6 @@ import {
   Video,
 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
-import { convertFileSrc, isTauri } from '@tauri-apps/api/core';
-
 import {
   CANVAS_NODE_TYPES,
   EXPORT_RESULT_NODE_MIN_HEIGHT,
@@ -50,6 +48,7 @@ import {
   formatVideoTime,
   isSupportedVideoFile,
   prepareNodeVideoFromFile,
+  resolveVideoDisplayUrl,
   waitForVideoFrameReady,
 } from '@/features/canvas/application/videoData';
 import {
@@ -170,11 +169,7 @@ export const VideoNode = memo(({ id, data, selected, width }: VideoNodeProps) =>
 
   const videoSource = useMemo(() => {
     if (!data.videoUrl) return null;
-    if (data.videoUrl.startsWith('blob:')) return data.videoUrl;
-    if (isTauri()) {
-      return convertFileSrc(data.videoUrl);
-    }
-    return data.videoUrl;
+    return resolveVideoDisplayUrl(data.videoUrl);
   }, [data.videoUrl]);
 
   const posterSource = useMemo(() => {
