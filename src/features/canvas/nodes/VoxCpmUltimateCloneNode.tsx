@@ -45,6 +45,7 @@ import {
   resolveVoicePresetHint,
   SliderField,
   SummaryCard,
+  useCompositionSafeTextareaDraft,
 } from './voxCpmShared';
 
 type VoxCpmUltimateCloneNodeProps = NodeProps & {
@@ -123,6 +124,17 @@ export const VoxCpmUltimateCloneNode = memo(({
     : t('node.voxCpm.waitingForText');
   const promptText = typeof data.promptText === 'string' ? data.promptText : '';
   const promptTextTrimmed = promptText.trim();
+  const {
+    draftValue: promptTextDraft,
+    handleBlur: handlePromptTextBlur,
+    handleChange: handlePromptTextChange,
+    handleCompositionEnd: handlePromptTextCompositionEnd,
+    handleCompositionStart: handlePromptTextCompositionStart,
+    handlePointerDown: handlePromptTextPointerDown,
+  } = useCompositionSafeTextareaDraft({
+    value: promptText,
+    onCommit: (nextValue) => handleFieldChange('promptText', nextValue),
+  });
   const presetHint = resolveVoicePresetHint(
     selectedPresetMetadata,
     selectedPresetAsset?.description
@@ -551,8 +563,13 @@ export const VoxCpmUltimateCloneNode = memo(({
             {t('node.voxCpm.promptText')}
           </div>
           <textarea
-            value={promptText}
-            onChange={(event) => handleFieldChange('promptText', event.target.value)}
+            value={promptTextDraft}
+            onChange={(event) => handlePromptTextChange(event.target.value)}
+            onBlur={handlePromptTextBlur}
+            onCompositionStart={handlePromptTextCompositionStart}
+            onCompositionEnd={handlePromptTextCompositionEnd}
+            onMouseDown={handlePromptTextPointerDown}
+            onPointerDown={handlePromptTextPointerDown}
             placeholder={t('node.voxCpm.promptTextPlaceholder')}
             className="nodrag nowheel min-h-[96px] w-full resize-y rounded-lg border border-white/10 bg-black/10 px-3 py-2 text-sm text-text-dark outline-none transition-colors placeholder:text-text-muted/70 focus:border-accent"
           />

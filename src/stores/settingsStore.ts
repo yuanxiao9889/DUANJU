@@ -21,6 +21,7 @@ import {
   normalizeScriptCompatibleProviderConfig,
   normalizeScriptModelOverrides,
   normalizeScriptProviderCustomModels,
+  seedDefaultScriptProviderCustomModels,
   normalizeScriptProviderEnabledSelection,
   normalizeStoryboardModelOverrides,
   normalizeStoryboardCompatibleModelConfig,
@@ -387,7 +388,7 @@ export const useSettingsStore = create<SettingsState>()(
         coding: DEFAULT_CODING_MODEL,
         bltcy: DEFAULT_BLTCY_TEXT_MODEL,
       },
-      scriptProviderCustomModels: {},
+      scriptProviderCustomModels: seedDefaultScriptProviderCustomModels({}),
       scriptCompatibleProviderConfig: normalizeScriptCompatibleProviderConfig(undefined),
       storyboardModelOverrides: {},
       storyboardProviderCustomModels: {},
@@ -787,7 +788,7 @@ export const useSettingsStore = create<SettingsState>()(
     }),
     {
       name: 'settings-storage',
-      version: 26,
+      version: 27,
       onRehydrateStorage: () => {
         return (state, error) => {
           if (error) {
@@ -885,8 +886,8 @@ export const useSettingsStore = create<SettingsState>()(
           normalizedStoryboardCompatibleModelConfig,
           normalizedStoryboardNewApiModelConfig
         );
-        const normalizedScriptProviderCustomModels = normalizeScriptProviderCustomModels(
-          state.scriptProviderCustomModels
+        const normalizedScriptProviderCustomModels = seedDefaultScriptProviderCustomModels(
+          normalizeScriptProviderCustomModels(state.scriptProviderCustomModels)
         );
         const normalizedScriptCompatibleProviderConfig = normalizeScriptCompatibleProviderConfig(
           state.scriptCompatibleProviderConfig

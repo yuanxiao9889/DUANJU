@@ -21,17 +21,21 @@ const defaultOutputDir = path.join(
   "extensions",
   "voxcpm2-complete",
 );
-const defaultModelRepoId = "OpenBMB/VoxCPM2";
+const defaultModelRepoIds = {
+  modelscope: "OpenBMB/VoxCPM2",
+  huggingface: "openbmb/VoxCPM2",
+};
 
 function parseArgs(argv) {
   const options = {
     runtimeSource: defaultRuntimeSourceDir,
     output: defaultOutputDir,
     modelSource: null,
-    modelRepoId: defaultModelRepoId,
+    modelRepoId: defaultModelRepoIds.modelscope,
     downloadSource: "modelscope",
     skipInstall: false,
   };
+  let didOverrideModelRepoId = false;
 
   for (let index = 0; index < argv.length; index += 1) {
     const arg = argv[index];
@@ -52,6 +56,7 @@ function parseArgs(argv) {
     }
     if (arg === "--model-repo" && argv[index + 1]) {
       options.modelRepoId = argv[index + 1];
+      didOverrideModelRepoId = true;
       index += 1;
       continue;
     }
@@ -67,6 +72,10 @@ function parseArgs(argv) {
 
   if (!["modelscope", "huggingface"].includes(options.downloadSource)) {
     throw new Error(`Unsupported download source: ${options.downloadSource}`);
+  }
+
+  if (!didOverrideModelRepoId) {
+    options.modelRepoId = defaultModelRepoIds[options.downloadSource];
   }
 
   return options;

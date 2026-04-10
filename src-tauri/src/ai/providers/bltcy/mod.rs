@@ -54,10 +54,6 @@ impl BltcyProvider {
             .unwrap_or_else(|| model.to_string())
     }
 
-    fn is_gemini_preview_model(model: &str) -> bool {
-        Self::sanitize_model(model) == GEMINI_FLASH_IMAGE_PREVIEW_4K_MODEL
-    }
-
     fn uses_edit_endpoint(model: &str) -> bool {
         Self::sanitize_model(model) == NANO_BANANA_2_4K_MODEL
     }
@@ -514,11 +510,6 @@ impl BltcyProvider {
                 "content": content,
             }],
             "stream": false,
-            "modalities": if Self::is_gemini_preview_model(model) {
-                json!(["text", "image"])
-            } else {
-                json!(["text"])
-            },
         });
 
         info!(

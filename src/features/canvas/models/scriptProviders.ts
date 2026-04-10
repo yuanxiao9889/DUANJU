@@ -48,6 +48,16 @@ export interface ScriptModelSettingsLike {
 
 const SCRIPT_PROVIDER_ID_SET = new Set<string>(SCRIPT_PROVIDER_IDS);
 
+const DEFAULT_SCRIPT_CUSTOM_MODELS: Partial<Record<ScriptProviderId, readonly CustomScriptModelEntry[]>> = {
+  bltcy: [
+    {
+      id: buildCustomScriptModelId('bltcy', DEFAULT_BLTCY_TEXT_MODEL),
+      modelId: DEFAULT_BLTCY_TEXT_MODEL,
+      displayName: 'gpt-5.4',
+    },
+  ],
+};
+
 const BUILT_IN_SCRIPT_MODELS: Record<ScriptProviderId, readonly ScriptModelOption[]> = {
   alibaba: ALIBABA_TEXT_MODEL_OPTIONS.map((option) => ({
     modelId: option.value,
@@ -62,13 +72,7 @@ const BUILT_IN_SCRIPT_MODELS: Record<ScriptProviderId, readonly ScriptModelOptio
       source: 'builtin',
     })),
   azemm: [],
-  bltcy: [
-    {
-      modelId: DEFAULT_BLTCY_TEXT_MODEL,
-      label: 'gpt-5.4',
-      source: 'builtin',
-    },
-  ],
+  bltcy: [],
   volcengine: [],
   zhenzhen: [],
   comfly: [],
@@ -99,12 +103,15 @@ export function listScriptProviders(
   return providers.filter((provider) => isScriptProviderId(provider.id));
 }
 
-export function getDefaultScriptModelId(providerId: string): string {
+export function getDefaultScriptModelId(
+  providerId: string,
+  customModels?: Record<string, CustomScriptModelEntry[]> | null
+): string {
   if (!isScriptProviderId(providerId)) {
     return DEFAULT_ALIBABA_TEXT_MODEL;
   }
 
-  return BUILT_IN_SCRIPT_MODELS[providerId][0]?.modelId ?? '';
+  return resolveScriptModelOptions(providerId, customModels)[0]?.modelId ?? '';
 }
 
 export function normalizeScriptProviderEnabledSelection(
@@ -197,6 +204,30 @@ export function normalizeScriptProviderCustomModels(
   return result;
 }
 
+export function seedDefaultScriptProviderCustomModels(
+  input: Record<string, CustomScriptModelEntry[]> | null | undefined
+): Record<string, CustomScriptModelEntry[]> {
+  const normalizedInput = normalizeScriptProviderCustomModels(input);
+  const result: Record<string, CustomScriptModelEntry[]> = { ...normalizedInput };
+
+  for (const providerId of SCRIPT_PROVIDER_IDS) {
+    const seededEntries = DEFAULT_SCRIPT_CUSTOM_MODELS[providerId];
+    if (!seededEntries || seededEntries.length === 0) {
+      continue;
+    }
+
+    result[providerId] = normalizeCustomScriptModelEntries([
+      ...seededEntries,
+      ...(result[providerId] ?? []),
+    ]).map((entry) => ({
+      ...entry,
+      id: normalizeTrimmedString(entry.id) || buildCustomScriptModelId(providerId, entry.modelId),
+    }));
+  }
+
+  return result;
+}
+
 export function getCustomScriptModels(
   providerId: string,
   customModels: Record<string, CustomScriptModelEntry[]> | null | undefined
@@ -253,7 +284,7 @@ export function resolveConfiguredScriptModel(
   settings: ScriptModelSettingsLike
 ): string {
   if (!isScriptProviderId(providerId)) {
-    return getDefaultScriptModelId(DEFAULT_SCRIPT_PROVIDER_ID);
+    return getDefaultScriptModelId(DEFAULT_SCRIPT_PROVIDER_ID, settings.scriptProviderCustomModels);
   }
 
   const explicitModel = normalizeTrimmedString(settings.scriptModelOverrides?.[providerId]);
@@ -275,7 +306,7 @@ export function resolveConfiguredScriptModel(
     }
   }
 
-  return getDefaultScriptModelId(providerId);
+  return getDefaultScriptModelId(providerId, settings.scriptProviderCustomModels);
 }
 
 export function normalizeScriptModelOverrides(

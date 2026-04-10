@@ -200,8 +200,10 @@ export const useExtensionsStore = create<ExtensionsState>()(
         const persistentRuntimeStartupStepId = extensionPackage.runtime === 'python-bridge'
           ? (steps.find((step) => step.id === 'verify-runtime')?.id ?? steps[0]?.id ?? null)
           : null;
-        let runtimeStartedAt = Date.now();
-        let hasStartedPersistentRuntime = false;
+        let runtimeStartedAt = existingRuntimeStatus?.startedAt ?? Date.now();
+        let hasStartedPersistentRuntime = Boolean(
+          extensionPackage.runtime === 'python-bridge' && existingRuntimeStatus?.running
+        );
 
         set((state) => ({
           runtimeById: {
@@ -218,14 +220,6 @@ export const useExtensionsStore = create<ExtensionsState>()(
         }));
 
         try {
-          if (extensionPackage.runtime === 'python-bridge' && existingRuntimeStatus?.running) {
-            const stoppedRuntimeStatus = await stopExtensionRuntime(extensionPackage.folderPath);
-            if (stoppedRuntimeStatus.running) {
-              throw new Error('Failed to stop the previous extension runtime before startup.');
-            }
-            existingRuntimeStatus = null;
-          }
-
           for (let index = 0; index < steps.length; index += 1) {
             const step = steps[index];
             set((state) => ({
@@ -398,31 +392,43 @@ export const useExtensionsStore = create<ExtensionsState>()(
           const nextRuntimeById = { ...state.runtimeById };
           const nextRuntimeObservedAtById = { ...state.runtimeObservedAtById };
 
-          syncedStates.forEach((syncedState) => {
-            if (!syncedState) {
-              return;
-            }
+            syncedStates.forEach((syncedState) => {
+              if (!syncedState) {
+                return;
+              }
 
-            const wasEnabledInSession = state.enabledExtensionIds.includes(syncedState.extensionId);
+              const wasEnabledInSession = state.enabledExtensionIds.includes(syncedState.extensionId);
+              const currentRuntimeState =
+                state.runtimeById[syncedState.extensionId] ?? DEFAULT_EXTENSION_RUNTIME_STATE;
 
-            if (
-              !shouldApplyRuntimeObservation(
-                state.runtimeObservedAtById,
-                syncedState.extensionId,
+              if (
+                !shouldApplyRuntimeObservation(
+                  state.runtimeObservedAtById,
+                  syncedState.extensionId,
                 syncedState.requestedAt
               )
             ) {
               if (wasEnabledInSession) {
                 nextEnabledIds.push(syncedState.extensionId);
+                }
+                return;
               }
-              return;
-            }
 
-            nextRuntimeById[syncedState.extensionId] = syncedState.runtimeState;
-            nextRuntimeObservedAtById[syncedState.extensionId] = syncedState.requestedAt;
-            if (syncedState.isRunning && wasEnabledInSession) {
-              nextEnabledIds.push(syncedState.extensionId);
-            }
+              // Keep an active startup session authoritative. Background probes can briefly
+              // observe a stopped or not-yet-ready runtime and would otherwise overwrite the
+              // in-flight startup result, leaving the extension stuck in idle/error.
+              if (currentRuntimeState.status === 'starting') {
+                if (wasEnabledInSession) {
+                  nextEnabledIds.push(syncedState.extensionId);
+                }
+                return;
+              }
+
+              nextRuntimeById[syncedState.extensionId] = syncedState.runtimeState;
+              nextRuntimeObservedAtById[syncedState.extensionId] = syncedState.requestedAt;
+              if (syncedState.isRunning && wasEnabledInSession) {
+                nextEnabledIds.push(syncedState.extensionId);
+              }
           });
 
           return {

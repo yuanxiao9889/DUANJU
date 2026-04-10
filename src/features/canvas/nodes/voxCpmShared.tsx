@@ -1,4 +1,11 @@
-import { useEffect, useRef, useState, type ReactNode } from 'react';
+import {
+  useEffect,
+  useRef,
+  useState,
+  type CompositionEvent,
+  type FocusEvent,
+  type ReactNode,
+} from 'react';
 import { Loader2, Undo2, Wand2 } from 'lucide-react';
 
 import {
@@ -56,6 +63,11 @@ interface OptimizableTextAreaFieldProps {
   undoTitle: string;
   onChange: (value: string) => void;
   minHeightClassName?: string;
+}
+
+interface CompositionSafeTextareaOptions {
+  value: string;
+  onCommit: (value: string) => void;
 }
 
 export function clamp(value: number, min: number, max: number): number {
@@ -209,6 +221,69 @@ export function resolveReferenceSourceLabel(
   return labels.missing;
 }
 
+export function useCompositionSafeTextareaDraft({
+  value,
+  onCommit,
+}: CompositionSafeTextareaOptions) {
+  const [draftValue, setDraftValue] = useState(value);
+  const isComposingRef = useRef(false);
+
+  useEffect(() => {
+    if (!isComposingRef.current) {
+      setDraftValue(value);
+    }
+  }, [value]);
+
+  const commitDraftValue = (nextValue: string) => {
+    if (nextValue !== value) {
+      onCommit(nextValue);
+    }
+  };
+
+  const handleCompositionStart = () => {
+    isComposingRef.current = true;
+  };
+
+  const handleCompositionEnd = (
+    event: CompositionEvent<HTMLTextAreaElement>
+  ) => {
+    isComposingRef.current = false;
+    const nextValue = event.currentTarget.value;
+    setDraftValue(nextValue);
+    commitDraftValue(nextValue);
+  };
+
+  const handleBlur = (
+    event: FocusEvent<HTMLTextAreaElement>
+  ) => {
+    const nextValue = event.currentTarget.value;
+    setDraftValue(nextValue);
+    commitDraftValue(nextValue);
+  };
+
+  const handlePointerDown = (
+    event: { stopPropagation: () => void }
+  ) => {
+    event.stopPropagation();
+  };
+
+  const handleChange = (nextValue: string) => {
+    setDraftValue(nextValue);
+    if (!isComposingRef.current) {
+      commitDraftValue(nextValue);
+    }
+  };
+
+  return {
+    draftValue,
+    handleChange,
+    handleBlur,
+    handleCompositionStart,
+    handleCompositionEnd,
+    handlePointerDown,
+  };
+}
+
 export function OptimizableTextAreaField({
   label,
   value,
@@ -227,6 +302,20 @@ export function OptimizableTextAreaField({
   const [isOptimizing, setIsOptimizing] = useState(false);
   const [optimizationError, setOptimizationError] = useState<string | null>(null);
   const [lastUndoState, setLastUndoState] = useState<PromptOptimizationUndoState | null>(null);
+  const {
+    draftValue,
+    handleBlur,
+    handleChange,
+    handleCompositionEnd,
+    handleCompositionStart,
+    handlePointerDown,
+  } = useCompositionSafeTextareaDraft({
+    value,
+    onCommit: (nextValue) => {
+      setOptimizationError(null);
+      onChange(nextValue);
+    },
+  });
 
   useEffect(() => {
     promptValueRef.current = value;
@@ -332,11 +421,13 @@ export function OptimizableTextAreaField({
         </div>
       </div>
       <textarea
-        value={value}
-        onChange={(event) => {
-          setOptimizationError(null);
-          onChange(event.target.value);
-        }}
+        value={draftValue}
+        onChange={(event) => handleChange(event.target.value)}
+        onBlur={handleBlur}
+        onCompositionStart={handleCompositionStart}
+        onCompositionEnd={handleCompositionEnd}
+        onMouseDown={handlePointerDown}
+        onPointerDown={handlePointerDown}
         placeholder={placeholder}
         className={`nodrag nowheel ${minHeightClassName} w-full resize-y rounded-lg border border-white/10 bg-black/10 px-3 py-2 text-sm text-text-dark outline-none transition-colors placeholder:text-text-muted/70 focus:border-accent`}
       />

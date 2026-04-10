@@ -1,8 +1,10 @@
 use base64::{engine::general_purpose::STANDARD, Engine};
+use image::ImageFormat;
 use reqwest::multipart::{Form, Part};
 use reqwest::Client;
 use serde::Deserialize;
 use serde_json::{json, Value};
+use std::io::Cursor;
 use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::sync::RwLock;
@@ -158,6 +160,26 @@ impl NewApiProvider {
         Ok(std::fs::read(path)?)
     }
 
+    async fn source_to_png_bytes(source: &str) -> Result<Vec<u8>, AIError> {
+        let original_bytes = Self::source_to_bytes(source).await?;
+        let image = image::load_from_memory(&original_bytes).map_err(|error| {
+            AIError::InvalidRequest(format!(
+                "Failed to decode reference image for NewAPI generateContent: {}",
+                error
+            ))
+        })?;
+        let mut buffer = Cursor::new(Vec::new());
+        image
+            .write_to(&mut buffer, ImageFormat::Png)
+            .map_err(|error| {
+                AIError::Provider(format!(
+                    "Failed to re-encode reference image as PNG for NewAPI generateContent: {}",
+                    error
+                ))
+            })?;
+        Ok(buffer.into_inner())
+    }
+
     fn file_extension_from_source(source: &str) -> &'static str {
         let trimmed = source.trim();
         let lower = trimmed.to_ascii_lowercase();
@@ -216,7 +238,6 @@ impl NewApiProvider {
 
     fn resolve_endpoint(endpoint_url: &str, request_model: &str) -> String {
         let trimmed = endpoint_url.trim().trim_end_matches('/');
-        let encoded_model = urlencoding::encode(request_model).into_owned();
         let trimmed = trimmed
             .strip_suffix("/chat/completions")
             .or_else(|| trimmed.strip_suffix("/images/generations"))
@@ -230,11 +251,11 @@ impl NewApiProvider {
             return format!("{}:generateContent", trimmed);
         }
         if trimmed.ends_with("/v1") || trimmed.ends_with("/v1beta") {
-            return format!("{}/models/{}:generateContent", trimmed, encoded_model);
+            return format!("{}/models/{}:generateContent", trimmed, request_model);
         }
         format!(
             "{}/v1beta/models/{}:generateContent",
-            trimmed, encoded_model
+            trimmed, request_model
         )
     }
 
@@ -383,6 +404,30 @@ impl NewApiProvider {
                 .filter(|value| !value.is_empty())
                 .map(ToString::to_string)
         })
+    }
+
+    fn is_unexpected_end_json_error(message: &str) -> bool {
+        message
+            .trim()
+            .to_ascii_lowercase()
+            .contains("unexpected end of json input")
+    }
+
+    fn should_retry_openai_chat_with_generate_content(
+        request: &GenerateRequest,
+        config: &NewApiConfig,
+    ) -> bool {
+        let normalized_model = config.request_model.trim().to_ascii_lowercase();
+        let has_reference_images = request
+            .reference_images
+            .as_ref()
+            .map(|images| !images.is_empty())
+            .unwrap_or(false);
+
+        normalized_model.contains("gemini")
+            && (has_reference_images
+                || !request.size.trim().is_empty()
+                || !request.aspect_ratio.trim().is_empty())
     }
 
     fn extract_markdown_link(text: &str, image_only: bool) -> Option<String> {
@@ -643,12 +688,18 @@ impl NewApiProvider {
         api_key: &str,
         body: Value,
     ) -> Result<Value, AIError> {
+        let payload = serde_json::to_vec(&body).map_err(|error| {
+            AIError::Provider(format!("Failed to serialize NewAPI request body: {}", error))
+        })?;
         let response = self
             .client
             .post(endpoint)
+            .version(reqwest::Version::HTTP_11)
+            .header("Accept", "application/json")
             .header("Authorization", format!("Bearer {}", api_key))
+            .header("X-API-Key", api_key)
             .header("Content-Type", "application/json")
-            .json(&body)
+            .body(payload)
             .send()
             .await?;
 
@@ -680,7 +731,10 @@ impl NewApiProvider {
         let response = self
             .client
             .post(endpoint)
+            .version(reqwest::Version::HTTP_11)
+            .header("Accept", "application/json")
             .header("Authorization", format!("Bearer {}", api_key))
+            .header("X-API-Key", api_key)
             .multipart(form)
             .send()
             .await?;
@@ -718,12 +772,10 @@ impl NewApiProvider {
 
         if let Some(reference_images) = request.reference_images.as_ref() {
             for source in reference_images {
-                let bytes = Self::source_to_bytes(source).await?;
-                let extension = Self::file_extension_from_source(source);
-                let mime_type = Self::mime_type_from_extension(extension);
+                let bytes = Self::source_to_png_bytes(source).await?;
                 parts.push(json!({
                     "inlineData": {
-                        "mimeType": mime_type,
+                        "mimeType": "image/png",
                         "data": STANDARD.encode(bytes),
                     }
                 }));
@@ -744,6 +796,7 @@ impl NewApiProvider {
                 "parts": parts,
             }],
             "generationConfig": {
+                "topP": 0.95,
                 "responseModalities": ["IMAGE"],
                 "imageConfig": image_config,
             }
@@ -778,21 +831,7 @@ impl NewApiProvider {
             }
         }
 
-        let mut image_config = serde_json::Map::new();
-        if !request.aspect_ratio.trim().is_empty() {
-            image_config.insert(
-                "aspect_ratio".to_string(),
-                Value::String(request.aspect_ratio.clone()),
-            );
-        }
-        if let Some(image_size) = Self::resolve_gemini_image_size(&request_model, &request.size) {
-            image_config.insert(
-                "image_size".to_string(),
-                Value::String(image_size.to_string()),
-            );
-        }
-
-        let mut body = json!({
+        let body = json!({
             "model": request_model,
             "messages": [{
                 "role": "user",
@@ -800,14 +839,6 @@ impl NewApiProvider {
             }],
             "stream": false,
         });
-
-        if !image_config.is_empty() {
-            body["extra_body"] = json!({
-                "google": {
-                    "image_config": Value::Object(image_config),
-                }
-            });
-        }
 
         self.send_json_request(&endpoint, api_key, body).await
     }
@@ -901,7 +932,36 @@ impl AIProvider for NewApiProvider {
             NewApiFormat::GeminiGenerateContent => {
                 self.run_generate_content(&request, &config, &api_key).await?
             }
-            NewApiFormat::OpenAiChat => self.run_openai_chat(&request, &config, &api_key).await?,
+            NewApiFormat::OpenAiChat => {
+                match self.run_openai_chat(&request, &config, &api_key).await {
+                    Ok(payload)
+                        if Self::extract_error_message(&payload)
+                            .map(|message| Self::is_unexpected_end_json_error(&message))
+                            .unwrap_or(false)
+                            && Self::should_retry_openai_chat_with_generate_content(
+                                &request, &config
+                            ) =>
+                    {
+                        info!(
+                            "[NewAPI] openai-chat returned unexpected-end JSON error, retrying with Gemini generateContent"
+                        );
+                        self.run_generate_content(&request, &config, &api_key).await?
+                    }
+                    Err(AIError::Provider(message))
+                        if Self::is_unexpected_end_json_error(&message)
+                            && Self::should_retry_openai_chat_with_generate_content(
+                                &request, &config
+                            ) =>
+                    {
+                        info!(
+                            "[NewAPI] openai-chat provider error matched unexpected-end JSON error, retrying with Gemini generateContent"
+                        );
+                        self.run_generate_content(&request, &config, &api_key).await?
+                    }
+                    Ok(payload) => payload,
+                    Err(error) => return Err(error),
+                }
+            }
             NewApiFormat::OpenAiEdits => self.run_openai_edits(&request, &config, &api_key).await?,
         };
 

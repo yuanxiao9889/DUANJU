@@ -1,6 +1,6 @@
 import { useState, useCallback, useEffect, useMemo, type KeyboardEvent as ReactKeyboardEvent } from 'react';
 import { X, Eye, EyeOff, FolderOpen, Plus, Trash2, Maximize2, Minimize2, HardDrive, Loader2, Circle, Keyboard, RotateCcw, ChevronDown, ChevronRight } from 'lucide-react';
-import { Trans, useTranslation } from 'react-i18next';
+import { useTranslation } from 'react-i18next';
 import { getVersion } from '@tauri-apps/api/app';
 import { open } from '@tauri-apps/plugin-dialog';
 import { openPath } from '@tauri-apps/plugin-opener';
@@ -28,9 +28,10 @@ import {
   type DatabaseBackupRecord,
   type StorageInfo 
 } from '@/commands/storage';
-import { UiCheckbox, UiInput, UiModal, UiSelect } from '@/components/ui';
+import { UiCheckbox, UiModal, UiSelect } from '@/components/ui';
 import { UI_CONTENT_OVERLAY_INSET_CLASS, UI_DIALOG_TRANSITION_MS } from '@/components/ui/motion';
 import { useDialogTransition } from '@/components/ui/useDialogTransition';
+import { ProviderModelSettingsSection } from '@/components/settings/ProviderModelSettingsSection';
 import {
   getCustomScriptModels,
   getCustomStoryboardModels,
@@ -42,22 +43,17 @@ import {
   resolveScriptModelOptions,
   SCRIPT_COMPATIBLE_PROVIDER_ID,
   resolveStoryboardCompatibleModelConfigForModel,
-  STORYBOARD_NEWAPI_API_FORMATS,
   toStoryboardProviderModelId,
   upsertCustomScriptModelEntry,
   type CustomScriptModelEntry,
   type CustomStoryboardModelEntry,
   type ModelProviderDefinition,
   type ScriptCompatibleProviderConfig,
-  STORYBOARD_COMPATIBLE_API_FORMATS,
   listModelProviders,
-  type StoryboardCompatibleApiFormat,
   normalizeStoryboardNewApiModelConfig,
-  type StoryboardNewApiApiFormat,
   type StoryboardNewApiModelConfig,
   upsertCustomStoryboardModelEntry,
 } from '@/features/canvas/models';
-import { GRSAI_NANO_BANANA_PRO_MODEL_OPTIONS } from '@/features/canvas/models/providers/grsai';
 import { GRSAI_CREDIT_TIERS } from '@/features/canvas/pricing/types';
 import type { SettingsCategory } from '@/features/settings/settingsEvents';
 import {
@@ -234,26 +230,6 @@ const DEFAULT_PROVIDER_TEST_MODELS: Record<string, string> = {
   zhenzhen: 'zhenzhen/gemini-3.1-flash-image-preview-4k',
   bltcy: 'bltcy/gemini-3.1-flash-image-preview-4k',
 };
-
-const STORYBOARD_COMPATIBLE_FORMAT_LABEL_KEYS: Record<
-  StoryboardCompatibleApiFormat,
-  string
-> = {
-  'openai-generations': 'settings.storyboardCompatibleFormatOpenaiGenerations',
-  'openai-edits': 'settings.storyboardCompatibleFormatOpenaiEdits',
-  'openai-chat': 'settings.storyboardCompatibleFormatOpenaiChat',
-  'gemini-generate-content': 'settings.storyboardCompatibleFormatGeminiGenerateContent',
-};
-
-function resolveCompatibleEndpointPlaceholder(
-  apiFormat: StoryboardCompatibleApiFormat
-): string {
-  if (apiFormat === 'gemini-generate-content') {
-    return 'https://generativelanguage.googleapis.com';
-  }
-
-  return 'https://api.openai.com';
-}
 
 function resolveDatabaseBackupKindLabel(
   t: (key: string) => string,
@@ -1894,7 +1870,7 @@ export function SettingsDialog({
                                 </div>
                               ) : provider.id === 'newapi' ? (
                                 <div className="mt-3 rounded-md border border-border-dark bg-black/10 px-3 py-2 text-xs leading-5 text-text-muted">
-                                  {'\u76EE\u524D\u4E0D\u63D0\u4F9B\u8FDE\u901A\u6027\u6D4B\u8BD5\uFF0C\u5B9E\u9645\u751F\u6210\u65F6\u4F1A\u6309\u4F60\u9009\u62E9\u7684\u8BF7\u6C42\u683C\u5F0F\u8C03\u7528 NewAPI\u3002'}
+                                  {t('settings.storyboardNewApiNoConnectionTest')}
                                 </div>
                               ) : null
                             ) : (
@@ -1955,423 +1931,96 @@ export function SettingsDialog({
                             )}
                           </div>
 
-                          {isScriptTab && (
-                            <div className="rounded-lg border border-border-dark bg-bg-dark p-4">
-                              <div className="mb-1 text-xs font-medium text-text-dark">
-                                {t('settings.scriptModelSelection')}
-                              </div>
-                              <p className="mb-3 text-xs leading-5 text-text-muted">
-                                {t('settings.scriptModelSelectionDesc')}
-                              </p>
-                              <div className="space-y-3">
-                                <UiSelect
-                                  value={resolvedScriptModel}
-                                  onChange={(event) => {
-                                    handleSelectScriptModel(provider.id, event.target.value);
-                                  }}
-                                  className="h-9 text-sm"
-                                  disabled={scriptModelOptions.length === 0}
-                                >
-                                  {scriptModelOptions.length > 0 ? (
-                                    scriptModelOptions.map((option) => (
-                                      <option key={option.modelId} value={option.modelId}>
-                                        {option.label}
-                                      </option>
-                                    ))
-                                  ) : (
-                                    <option value="">-</option>
-                                  )}
-                                </UiSelect>
-
-                                <div className="space-y-3">
-                                  <div>
-                                    <div className="mb-1 text-[11px] font-medium text-text-muted">
-                                      {t('settings.scriptCustomModelIdLabel')}
-                                    </div>
-                                    <UiInput
-                                      value={customScriptModelIdInput}
-                                      onChange={(event) =>
-                                        setLocalScriptModelIdInputs((previous) => ({
-                                          ...previous,
-                                          [provider.id]: event.target.value,
-                                        }))
-                                      }
-                                      onKeyDown={(event) => {
-                                        if (event.key === 'Enter') {
-                                          event.preventDefault();
-                                          handleAddCustomScriptModel(provider.id);
-                                        }
-                                      }}
-                                      placeholder={t('settings.scriptCustomModelIdPlaceholder')}
-                                      className="h-9 rounded-lg text-sm"
-                                    />
-                                  </div>
-                                  <div>
-                                    <div className="mb-1 text-[11px] font-medium text-text-muted">
-                                      {t('settings.scriptCustomModelDisplayNameLabel')}
-                                    </div>
-                                    <UiInput
-                                      value={customScriptModelDisplayNameInput}
-                                      onChange={(event) =>
-                                        setLocalScriptModelDisplayNameInputs((previous) => ({
-                                          ...previous,
-                                          [provider.id]: event.target.value,
-                                        }))
-                                      }
-                                      onKeyDown={(event) => {
-                                        if (event.key === 'Enter') {
-                                          event.preventDefault();
-                                          handleAddCustomScriptModel(provider.id);
-                                        }
-                                      }}
-                                      placeholder={t('settings.scriptCustomModelDisplayNamePlaceholder')}
-                                      className="h-9 rounded-lg text-sm"
-                                    />
-                                  </div>
-                                  <button
-                                    type="button"
-                                    onClick={() => handleAddCustomScriptModel(provider.id)}
-                                    className="inline-flex h-9 w-full items-center justify-center gap-1 rounded-lg border border-border-dark bg-surface-dark px-3 text-xs text-text-dark transition-colors hover:bg-bg-dark"
-                                  >
-                                    <Plus className="h-3.5 w-3.5" />
-                                    {t('settings.scriptCustomModelAdd')}
-                                  </button>
-                                </div>
-
-                                {customScriptModels.length > 0 ? (
-                                  <div className="space-y-2">
-                                    {customScriptModels.map((model) => (
-                                      <div
-                                        key={model.id}
-                                        className="flex items-center gap-3 rounded-md border border-border-dark bg-surface-dark px-3 py-2"
-                                      >
-                                        <div className="min-w-0 flex-1">
-                                          <div className="truncate text-sm text-text-dark">
-                                            {model.displayName}
-                                          </div>
-                                          <div className="truncate text-[11px] text-text-muted">
-                                            {model.modelId}
-                                          </div>
-                                        </div>
-                                        <button
-                                          type="button"
-                                          onClick={() => handleRemoveCustomScriptModel(provider.id, model)}
-                                          className="rounded p-1 text-text-muted transition-colors hover:bg-bg-dark hover:text-text-dark"
-                                          title={t('settings.scriptCustomModelDelete')}
-                                        >
-                                          <Trash2 className="h-4 w-4" />
-                                        </button>
-                                      </div>
-                                    ))}
-                                  </div>
-                                ) : (
-                                  <div className="rounded-md border border-dashed border-border-dark px-3 py-2 text-[11px] leading-5 text-text-muted">
-                                    {t('settings.scriptCustomModelEmpty')}
-                                  </div>
-                                )}
-                              </div>
-                            </div>
-                          )}
-
-                          {isScriptCompatibleProvider && (
-                            <div className="rounded-lg border border-border-dark bg-bg-dark p-4">
-                              <div className="mb-1 text-xs font-medium text-text-dark">
-                                {t('settings.scriptCompatibleTitle')}
-                              </div>
-                              <p className="mb-3 text-xs leading-5 text-text-muted">
-                                {t('settings.scriptCompatibleDesc')}
-                              </p>
-                              <div className="space-y-3">
-                                <div>
-                                  <div className="mb-1 text-xs font-medium text-text-dark">
-                                    {t('settings.scriptCompatibleEndpointUrl')}
-                                  </div>
-                                  <UiInput
-                                    value={localScriptCompatibleProviderConfig.endpointUrl}
-                                    onChange={(event) =>
-                                      setLocalScriptCompatibleProviderConfig((previous) => ({
-                                        ...previous,
-                                        endpointUrl: event.target.value,
-                                      }))
-                                    }
-                                    placeholder="https://your-api-host/v1/chat/completions"
-                                    className="h-9 text-sm"
-                                  />
-                                </div>
-                                <div className="rounded-md border border-border-dark bg-black/10 px-3 py-2 text-[11px] leading-5 text-text-muted">
-                                  {t('settings.scriptCompatibleHint')}
-                                </div>
-                              </div>
-                            </div>
-                          )}
-
-                          {isStoryboardCustomizableProvider && (
-                            <div className="rounded-lg border border-border-dark bg-bg-dark p-4">
-                              <div className="mb-1 text-xs font-medium text-text-dark">
-                                {t('settings.storyboardModelSelection')}
-                              </div>
-                              <p className="mb-3 text-xs leading-5 text-text-muted">
-                                {t(
-                                  provider.id === 'compatible'
-                                    ? 'settings.storyboardCompatibleModelSelectionDesc'
-                                    : 'settings.storyboardModelSelectionDesc'
-                                )}
-                              </p>
-                              <div className="space-y-3">
-                                <div className="space-y-3">
-                                  <div>
-                                    <div className="mb-1 text-[11px] font-medium text-text-muted">
-                                      {t('settings.scriptCustomModelIdLabel')}
-                                    </div>
-                                    <UiInput
-                                      value={customStoryboardModelIdInput}
-                                      onChange={(event) =>
-                                        setLocalStoryboardModelIdInputs((previous) => ({
-                                          ...previous,
-                                          [provider.id]: event.target.value,
-                                        }))
-                                      }
-                                      onKeyDown={(event) => {
-                                        if (event.key === 'Enter') {
-                                          event.preventDefault();
-                                          handleAddCustomStoryboardModel(provider.id);
-                                        }
-                                      }}
-                                      placeholder={
-                                        provider.id === 'compatible'
-                                          ? 'gpt-image-1 / gemini-2.5-flash-image-preview'
-                                          : provider.id === 'newapi'
-                                            ? 'flow/gemini-3.1-flash-image-preview / gpt-image-1'
-                                          : t('settings.storyboardCustomModelIdPlaceholder')
-                                      }
-                                      className="h-9 rounded-lg text-sm"
-                                    />
-                                  </div>
-                                  <div>
-                                    <div className="mb-1 text-[11px] font-medium text-text-muted">
-                                      {t('settings.scriptCustomModelDisplayNameLabel')}
-                                    </div>
-                                    <UiInput
-                                      value={customStoryboardModelDisplayNameInput}
-                                      onChange={(event) =>
-                                        setLocalStoryboardModelDisplayNameInputs((previous) => ({
-                                          ...previous,
-                                          [provider.id]: event.target.value,
-                                        }))
-                                      }
-                                      onKeyDown={(event) => {
-                                        if (event.key === 'Enter') {
-                                          event.preventDefault();
-                                          handleAddCustomStoryboardModel(provider.id);
-                                        }
-                                      }}
-                                      placeholder={t('settings.storyboardCustomModelDisplayNamePlaceholder')}
-                                      className="h-9 rounded-lg text-sm"
-                                    />
-                                  </div>
-                                  <button
-                                    type="button"
-                                    onClick={() => handleAddCustomStoryboardModel(provider.id)}
-                                    className="inline-flex h-9 w-full items-center justify-center gap-1 rounded-lg border border-border-dark bg-surface-dark px-3 text-xs text-text-dark transition-colors hover:bg-bg-dark"
-                                  >
-                                    <Plus className="h-3.5 w-3.5" />
-                                    {t('settings.scriptCustomModelAdd')}
-                                  </button>
-                                </div>
-
-                                {customStoryboardModels.length > 0 ? (
-                                  <div className="space-y-2">
-                                    {customStoryboardModels.map((model) => (
-                                      <div
-                                        key={model.id}
-                                        className="flex items-center gap-3 rounded-md border border-border-dark bg-surface-dark px-3 py-2"
-                                      >
-                                        <div className="min-w-0 flex-1">
-                                          <div className="truncate text-sm text-text-dark">
-                                            {model.displayName}
-                                          </div>
-                                          <div className="truncate text-[11px] text-text-muted">
-                                            {model.modelId}
-                                          </div>
-                                        </div>
-                                        <button
-                                          type="button"
-                                          onClick={() =>
-                                            handleRemoveCustomStoryboardModel(provider.id, model)
-                                          }
-                                          className="rounded p-1 text-text-muted transition-colors hover:bg-bg-dark hover:text-text-dark"
-                                          title={t('settings.scriptCustomModelDelete')}
-                                        >
-                                          <Trash2 className="h-4 w-4" />
-                                        </button>
-                                      </div>
-                                    ))}
-                                  </div>
-                                ) : (
-                                  <div className="rounded-md border border-dashed border-border-dark px-3 py-2 text-[11px] leading-5 text-text-muted">
-                                    {t('settings.storyboardCustomModelEmpty')}
-                                  </div>
-                                )}
-                              </div>
-                            </div>
-                          )}
-
-                          {provider.id === 'compatible' && (
-                            <div className="rounded-lg border border-border-dark bg-bg-dark p-4">
-                              <div className="mb-1 text-xs font-medium text-text-dark">
-                                {t('settings.storyboardCompatibleTitle')}
-                              </div>
-                              <p className="mb-3 text-xs leading-5 text-text-muted">
-                                {t('settings.storyboardCompatibleDesc')}
-                              </p>
-                              <div className="space-y-3">
-                                <div>
-                                  <div className="mb-1 text-xs font-medium text-text-dark">
-                                    {t('settings.storyboardCompatibleFormat')}
-                                  </div>
-                                  <UiSelect
-                                    value={localStoryboardCompatibleModelConfig.apiFormat}
-                                    onChange={(event) =>
-                                      setLocalStoryboardCompatibleModelConfig((previous) => ({
-                                        ...previous,
-                                        apiFormat: event.target.value as StoryboardCompatibleApiFormat,
-                                      }))
-                                    }
-                                    className="h-9 text-sm"
-                                  >
-                                    {STORYBOARD_COMPATIBLE_API_FORMATS.map((format) => (
-                                      <option key={format} value={format}>
-                                        {t(STORYBOARD_COMPATIBLE_FORMAT_LABEL_KEYS[format])}
-                                      </option>
-                                    ))}
-                                  </UiSelect>
-                                </div>
-                                <div>
-                                  <div className="mb-1 text-xs font-medium text-text-dark">
-                                    {t('settings.storyboardCompatibleEndpointUrl')}
-                                  </div>
-                                  <UiInput
-                                    value={localStoryboardCompatibleModelConfig.endpointUrl}
-                                    onChange={(event) =>
-                                      setLocalStoryboardCompatibleModelConfig((previous) => ({
-                                        ...previous,
-                                        endpointUrl: event.target.value,
-                                      }))
-                                    }
-                                    placeholder={resolveCompatibleEndpointPlaceholder(
-                                      localStoryboardCompatibleModelConfig.apiFormat
-                                    )}
-                                    className="h-9 text-sm"
-                                  />
-                                </div>
-                                <div className="rounded-md border border-border-dark bg-black/10 px-3 py-2 text-[11px] leading-5 text-text-muted">
-                                  {t('settings.storyboardCompatibleHint')}
-                                </div>
-                              </div>
-                            </div>
-                          )}
-                          {provider.id === 'newapi' && (
-                            <div className="rounded-lg border border-border-dark bg-bg-dark p-4">
-                              <div className="mb-1 text-xs font-medium text-text-dark">
-                                {'NewAPI \u56FE\u7247\u63A5\u53E3'}
-                              </div>
-                              <p className="mb-3 text-xs leading-5 text-text-muted">
-                                {'\u8FD9\u91CC\u53EA\u914D\u7F6E\u63A5\u53E3\u5730\u5740\u548C\u8BF7\u6C42\u683C\u5F0F\u3002\u5177\u4F53\u6A21\u578B\u7EDF\u4E00\u5728\u4E0A\u65B9\u201C\u6A21\u578B\u9009\u62E9\u201D\u91CC\u6DFB\u52A0\u548C\u5207\u6362\u3002'}
-                              </p>
-                              <div className="space-y-3">
-                                <div>
-                                  <div className="mb-1 text-xs font-medium text-text-dark">
-                                    {'\u8BF7\u6C42\u683C\u5F0F'}
-                                  </div>
-                                  <UiSelect
-                                    value={localStoryboardNewApiModelConfig.apiFormat}
-                                    onChange={(event) =>
-                                      setLocalStoryboardNewApiModelConfig((previous) => ({
-                                        ...previous,
-                                        apiFormat: event.target.value as StoryboardNewApiApiFormat,
-                                      }))
-                                    }
-                                    className="h-9 text-sm"
-                                  >
-                                    {STORYBOARD_NEWAPI_API_FORMATS.map((format) => (
-                                      <option key={format} value={format}>
-                                        {format === 'openai-chat'
-                                          ? 'OpenAI \u804A\u5929\u683C\u5F0F'
-                                          : format === 'openai-edits'
-                                            ? 'OpenAI \u7F16\u8F91\u63A5\u53E3'
-                                            : 'Gemini generateContent'}
-                                      </option>
-                                    ))}
-                                  </UiSelect>
-                                </div>
-                                <div>
-                                  <div className="mb-1 text-xs font-medium text-text-dark">
-                                    {'\u63A5\u53E3\u5730\u5740'}
-                                  </div>
-                                  <UiInput
-                                    value={localStoryboardNewApiModelConfig.endpointUrl}
-                                    onChange={(event) =>
-                                      setLocalStoryboardNewApiModelConfig((previous) => ({
-                                        ...previous,
-                                        endpointUrl: event.target.value,
-                                      }))
-                                    }
-                                    placeholder={
-                                      localStoryboardNewApiModelConfig.apiFormat === 'openai-chat'
-                                        ? 'https://your-newapi-host/v1/chat/completions'
-                                        : localStoryboardNewApiModelConfig.apiFormat === 'openai-edits'
-                                          ? 'https://your-newapi-host/v1/images/edits'
-                                          : 'https://your-newapi-host'
-                                    }
-                                    className="h-9 text-sm"
-                                  />
-                                </div>
-                                <div className="rounded-md border border-border-dark bg-black/10 px-3 py-2 text-[11px] leading-5 text-text-muted">
-                                  {localStoryboardNewApiModelConfig.apiFormat === 'openai-chat'
-                                    ? '\u6309 OpenAI \u517C\u5BB9\u804A\u5929\u63A5\u53E3\u53D1\u9001\uFF0C\u8BF7\u6C42\u4F1A\u5E26 Bearer \u9274\u6743\uFF0C\u5E76\u8865\u5145 Gemini \u6240\u9700\u7684 extra_body \u914D\u7F6E\u3002'
-                                    : localStoryboardNewApiModelConfig.apiFormat === 'openai-edits'
-                                      ? '\u6309 /v1/images/edits \u53D1\u9001 multipart/form-data\uFF0C\u53C2\u8003\u56FE\u4F1A\u4F5C\u4E3A\u6587\u4EF6\u76F4\u63A5\u4E0A\u4F20\u3002'
-                                      : '\u6309 Gemini \u539F\u751F generateContent \u63A5\u53E3\u53D1\u9001\uFF0C\u53C2\u8003\u56FE\u4F1A\u8F6C\u6210 inlineData\uFF0C\u5E76\u4F7F\u7528 Bearer \u9274\u6743\u3002'}
-                                </div>
-                              </div>
-                            </div>
-                          )}
-
-                          {provider.id === 'grsai' && (
-                            <div className="rounded-lg border border-border-dark bg-bg-dark p-4">
-                              <div className="mb-1 text-xs font-medium text-text-dark">
-                                {t('settings.nanoBananaProModel')}
-                              </div>
-                              <p className="mb-2 text-xs text-text-muted">
-                                <Trans
-                                  i18nKey="settings.nanoBananaProModelDesc"
-                                  components={{
-                                    modelListLink: (
-                                      <a
-                                        href="https://grsai.com/zh/dashboard/models"
-                                        target="_blank"
-                                        rel="noreferrer"
-                                        className="text-accent hover:underline"
-                                      />
-                                    ),
-                                  }}
-                                />
-                              </p>
-                              <UiSelect
-                                value={localGrsaiNanoBananaProModel}
-                                onChange={(event) =>
-                                  setLocalGrsaiNanoBananaProModel(event.target.value)
-                                }
-                                className="h-9 text-sm"
-                              >
-                                {GRSAI_NANO_BANANA_PRO_MODEL_OPTIONS.map((option) => (
-                                  <option key={option} value={option}>
-                                    {option}
-                                  </option>
-                                ))}
-                              </UiSelect>
-                            </div>
-                          )}
+                          <ProviderModelSettingsSection
+                            provider={provider}
+                            isScriptTab={isScriptTab}
+                            isScriptCompatibleProvider={isScriptCompatibleProvider}
+                            isStoryboardCustomizableProvider={isStoryboardCustomizableProvider}
+                            resolvedScriptModel={resolvedScriptModel}
+                            scriptModelOptions={scriptModelOptions}
+                            customScriptModels={customScriptModels}
+                            customScriptModelIdInput={customScriptModelIdInput}
+                            customScriptModelDisplayNameInput={customScriptModelDisplayNameInput}
+                            onSelectScriptModel={(modelId) =>
+                              handleSelectScriptModel(provider.id, modelId)
+                            }
+                            onScriptModelIdInputChange={(value) =>
+                              setLocalScriptModelIdInputs((previous) => ({
+                                ...previous,
+                                [provider.id]: value,
+                              }))
+                            }
+                            onScriptModelDisplayNameInputChange={(value) =>
+                              setLocalScriptModelDisplayNameInputs((previous) => ({
+                                ...previous,
+                                [provider.id]: value,
+                              }))
+                            }
+                            onAddCustomScriptModel={() => handleAddCustomScriptModel(provider.id)}
+                            onRemoveCustomScriptModel={(model) =>
+                              handleRemoveCustomScriptModel(provider.id, model)
+                            }
+                            scriptCompatibleProviderConfig={localScriptCompatibleProviderConfig}
+                            onScriptCompatibleEndpointUrlChange={(value) =>
+                              setLocalScriptCompatibleProviderConfig((previous) => ({
+                                ...previous,
+                                endpointUrl: value,
+                              }))
+                            }
+                            customStoryboardModels={customStoryboardModels}
+                            customStoryboardModelIdInput={customStoryboardModelIdInput}
+                            customStoryboardModelDisplayNameInput={
+                              customStoryboardModelDisplayNameInput
+                            }
+                            onStoryboardModelIdInputChange={(value) =>
+                              setLocalStoryboardModelIdInputs((previous) => ({
+                                ...previous,
+                                [provider.id]: value,
+                              }))
+                            }
+                            onStoryboardModelDisplayNameInputChange={(value) =>
+                              setLocalStoryboardModelDisplayNameInputs((previous) => ({
+                                ...previous,
+                                [provider.id]: value,
+                              }))
+                            }
+                            onAddCustomStoryboardModel={() =>
+                              handleAddCustomStoryboardModel(provider.id)
+                            }
+                            onRemoveCustomStoryboardModel={(model) =>
+                              handleRemoveCustomStoryboardModel(provider.id, model)
+                            }
+                            storyboardCompatibleModelConfig={localStoryboardCompatibleModelConfig}
+                            onStoryboardCompatibleFormatChange={(format) =>
+                              setLocalStoryboardCompatibleModelConfig((previous) => ({
+                                ...previous,
+                                apiFormat: format,
+                              }))
+                            }
+                            onStoryboardCompatibleEndpointUrlChange={(value) =>
+                              setLocalStoryboardCompatibleModelConfig((previous) => ({
+                                ...previous,
+                                endpointUrl: value,
+                              }))
+                            }
+                            storyboardNewApiModelConfig={localStoryboardNewApiModelConfig}
+                            onStoryboardNewApiFormatChange={(format) =>
+                              setLocalStoryboardNewApiModelConfig((previous) => ({
+                                ...previous,
+                                apiFormat: format,
+                              }))
+                            }
+                            onStoryboardNewApiEndpointUrlChange={(value) =>
+                              setLocalStoryboardNewApiModelConfig((previous) => ({
+                                ...previous,
+                                endpointUrl: value,
+                              }))
+                            }
+                            grsaiNanoBananaProModel={localGrsaiNanoBananaProModel}
+                            onGrsaiNanoBananaProModelChange={(value) =>
+                              setLocalGrsaiNanoBananaProModel(value)
+                            }
+                          />
 
                         </div>
                       );
