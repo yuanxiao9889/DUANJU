@@ -1305,7 +1305,7 @@
     "storyboardModelSelectionDesc": "这里只管理当前分镜供应商可用的模型，真正使用时请在画布节点中直接选择。",
     "storyboardCompatibleModelSelectionDesc": "这里只管理这个兼容接口的模型列表，真正使用时请在画布节点中直接选择。",
     "storyboardCustomModelEmpty": "当前供应商还没有添加自定义分镜模型。",
-    "storyboardCustomModelIdPlaceholder": "模型 ID，例如 nano-banana-2-4k",
+    "storyboardCustomModelIdPlaceholder": "模型 ID，例如 nano-banana-pro",
     "storyboardCustomModelDisplayNamePlaceholder": "显示名称，例如 香蕉2",
     "addProvider": "添加供应商",
     "providerPpioName": "派欧云",

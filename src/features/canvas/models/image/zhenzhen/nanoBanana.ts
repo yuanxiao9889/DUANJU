@@ -1,10 +1,9 @@
 import type { ImageModelDefinition, ResolutionOption } from '../../types';
 
-export const ZHENZHEN_NANO_BANANA_MODEL_ID = 'zhenzhen/nano-banana';
-export const ZHENZHEN_GEMINI_FLASH_IMAGE_PREVIEW_4K_REQUEST_MODEL_ID =
-  'zhenzhen/gemini-3.1-flash-image-preview-4k';
+export const ZHENZHEN_NANO_BANANA_MODEL_ID = 'zhenzhen/nano-banana-pro';
+export const ZHENZHEN_NANO_BANANA_REQUEST_MODEL_ID = 'zhenzhen/nano-banana-pro';
 
-const GEMINI_FLASH_IMAGE_PREVIEW_4K_ASPECT_RATIOS = [
+const NANO_BANANA_ASPECT_RATIOS = [
   '1:1',
   '1:4',
   '1:8',
@@ -30,20 +29,21 @@ const RESOLUTION_OPTIONS: ResolutionOption[] = [
 export const imageModel: ImageModelDefinition = {
   id: ZHENZHEN_NANO_BANANA_MODEL_ID,
   mediaType: 'image',
-  displayName: '香蕉2',
+  displayName: 'Nano Banana Pro',
   providerId: 'zhenzhen',
-  description: 'Google fast image model with up to 4K output and stronger reference consistency.',
+  description:
+    'Recommended Zhenzhen Nano Banana Pro model with 1K/2K/4K output controlled by image_size.',
   eta: '30s',
   expectedDurationMs: 30000,
   defaultAspectRatio: '1:1',
   defaultResolution: '1K',
-  aspectRatios: GEMINI_FLASH_IMAGE_PREVIEW_4K_ASPECT_RATIOS.map((value) => ({
+  aspectRatios: NANO_BANANA_ASPECT_RATIOS.map((value) => ({
     value,
     label: value,
   })),
   resolutions: RESOLUTION_OPTIONS,
   resolveRequest: ({ referenceImageCount }) => ({
-    requestModel: ZHENZHEN_GEMINI_FLASH_IMAGE_PREVIEW_4K_REQUEST_MODEL_ID,
-    modeLabel: referenceImageCount > 0 ? '缂栬緫妯″紡' : '鐢熸垚妯″紡',
+    requestModel: ZHENZHEN_NANO_BANANA_REQUEST_MODEL_ID,
+    modeLabel: referenceImageCount > 0 ? 'Edit' : 'Generate',
   }),
 };

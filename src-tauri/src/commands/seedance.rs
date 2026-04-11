@@ -3,7 +3,8 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 use tracing::info;
 
-const ARK_TASKS_ENDPOINT: &str = "https://ark.cn-beijing.volces.com/api/v3/contents/generations/tasks";
+const ARK_TASKS_ENDPOINT: &str =
+    "https://ark.cn-beijing.volces.com/api/v3/contents/generations/tasks";
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SeedanceContentUrlPayload {
@@ -98,12 +99,11 @@ struct ArkGetTaskResponse {
     error: Option<Value>,
 }
 
-fn insert_optional_string(
-    body: &mut Map<String, Value>,
-    key: &str,
-    value: Option<String>,
-) {
-    if let Some(normalized) = value.map(|item| item.trim().to_string()).filter(|item| !item.is_empty()) {
+fn insert_optional_string(body: &mut Map<String, Value>, key: &str, value: Option<String>) {
+    if let Some(normalized) = value
+        .map(|item| item.trim().to_string())
+        .filter(|item| !item.is_empty())
+    {
         body.insert(key.to_string(), Value::String(normalized));
     }
 }
@@ -140,7 +140,9 @@ fn extract_error_message(payload: &Value) -> Option<String> {
     })
 }
 
-async fn parse_response_json(response: reqwest::Response) -> Result<(reqwest::StatusCode, Value), String> {
+async fn parse_response_json(
+    response: reqwest::Response,
+) -> Result<(reqwest::StatusCode, Value), String> {
     let status = response.status();
     let response_text = response
         .text()
@@ -207,14 +209,12 @@ pub async fn create_seedance_video_task(
 
     let (status, response_payload) = parse_response_json(response).await?;
     if !status.is_success() {
-        return Err(
-            extract_error_message(&response_payload).unwrap_or_else(|| {
-                format!(
-                    "Seedance create task API returned {}: {}",
-                    status, response_payload
-                )
-            }),
-        );
+        return Err(extract_error_message(&response_payload).unwrap_or_else(|| {
+            format!(
+                "Seedance create task API returned {}: {}",
+                status, response_payload
+            )
+        }));
     }
 
     let parsed: ArkCreateTaskResponse = serde_json::from_value(response_payload.clone())
@@ -261,14 +261,12 @@ pub async fn get_seedance_video_task(
 
     let (status, response_payload) = parse_response_json(response).await?;
     if !status.is_success() {
-        return Err(
-            extract_error_message(&response_payload).unwrap_or_else(|| {
-                format!(
-                    "Seedance query task API returned {}: {}",
-                    status, response_payload
-                )
-            }),
-        );
+        return Err(extract_error_message(&response_payload).unwrap_or_else(|| {
+            format!(
+                "Seedance query task API returned {}: {}",
+                status, response_payload
+            )
+        }));
     }
 
     let parsed: ArkGetTaskResponse = serde_json::from_value(response_payload.clone())

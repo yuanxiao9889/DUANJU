@@ -1426,7 +1426,7 @@
     "storyboardModelSelectionDesc": "Manage the available models for this storyboard provider here. When you actually use them, choose the model directly on the canvas node.",
     "storyboardCompatibleModelSelectionDesc": "Manage one or more models for this compatible endpoint here. When you actually use them, choose the model directly on the canvas node.",
     "storyboardCustomModelEmpty": "No custom storyboard models added for this provider yet.",
-    "storyboardCustomModelIdPlaceholder": "Model ID, for example nano-banana-2-4k",
+    "storyboardCustomModelIdPlaceholder": "Model ID, for example nano-banana-pro",
     "storyboardCustomModelDisplayNamePlaceholder": "Display name, for example Banana Pro",
     "addProvider": "Add Provider",
     "providerPpioName": "PPIO",

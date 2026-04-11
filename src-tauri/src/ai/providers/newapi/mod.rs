@@ -1,4 +1,5 @@
 use base64::{engine::general_purpose::STANDARD, Engine};
+use image::imageops::FilterType;
 use image::ImageFormat;
 use reqwest::multipart::{Form, Part};
 use reqwest::Client;
@@ -7,13 +8,18 @@ use serde_json::{json, Value};
 use std::io::Cursor;
 use std::path::PathBuf;
 use std::sync::Arc;
+use std::time::Duration;
 use tokio::sync::RwLock;
-use tracing::info;
+use tokio::time::sleep;
+use tracing::{info, warn};
 
 use crate::ai::error::AIError;
 use crate::ai::{AIProvider, GenerateRequest};
 
 const STORYBOARD_MODEL_ID: &str = "newapi/storyboard-experimental";
+const BANANA_CLIENT_HEADER_VALUE: &str = "comfyui-banana-li";
+const JSON_REQUEST_MAX_ATTEMPTS: usize = 2;
+const JSON_REQUEST_RETRY_DELAY_MS: u64 = 2_000;
 
 #[derive(Debug, Clone, Deserialize)]
 struct NewApiConfigPayload {
@@ -40,6 +46,17 @@ struct NewApiConfig {
     display_name: String,
 }
 
+#[derive(Debug, Clone, Copy)]
+struct GenerateContentAttempt {
+    request_kind: &'static str,
+    include_aspect_ratio: bool,
+    include_prompt_preferences: bool,
+    include_top_p: bool,
+    force_png_reference_images: bool,
+    resize_reference_images_to_max_dimension: Option<u32>,
+    image_size_override: Option<&'static str>,
+}
+
 pub struct NewApiProvider {
     client: Client,
     api_key: Arc<RwLock<Option<String>>>,
@@ -47,8 +64,12 @@ pub struct NewApiProvider {
 
 impl NewApiProvider {
     pub fn new() -> Self {
+        let client = Client::builder()
+            .http1_only()
+            .build()
+            .unwrap_or_else(|_| Client::new());
         Self {
-            client: Client::new(),
+            client,
             api_key: Arc::new(RwLock::new(None)),
         }
     }
@@ -168,12 +189,42 @@ impl NewApiProvider {
                 error
             ))
         })?;
+        let rgb_image = image.to_rgb8();
         let mut buffer = Cursor::new(Vec::new());
-        image
+        image::DynamicImage::ImageRgb8(rgb_image)
             .write_to(&mut buffer, ImageFormat::Png)
             .map_err(|error| {
                 AIError::Provider(format!(
                     "Failed to re-encode reference image as PNG for NewAPI generateContent: {}",
+                    error
+                ))
+            })?;
+        Ok(buffer.into_inner())
+    }
+
+    async fn source_to_resized_png_bytes(
+        source: &str,
+        max_dimension: u32,
+    ) -> Result<Vec<u8>, AIError> {
+        let original_bytes = Self::source_to_bytes(source).await?;
+        let image = image::load_from_memory(&original_bytes).map_err(|error| {
+            AIError::InvalidRequest(format!(
+                "Failed to decode reference image for NewAPI generateContent: {}",
+                error
+            ))
+        })?;
+        let resized = if image.width() > max_dimension || image.height() > max_dimension {
+            image.resize(max_dimension, max_dimension, FilterType::Lanczos3)
+        } else {
+            image
+        };
+        let rgb_image = resized.to_rgb8();
+        let mut buffer = Cursor::new(Vec::new());
+        image::DynamicImage::ImageRgb8(rgb_image)
+            .write_to(&mut buffer, ImageFormat::Png)
+            .map_err(|error| {
+                AIError::Provider(format!(
+                    "Failed to re-encode resized reference image as PNG for NewAPI generateContent: {}",
                     error
                 ))
             })?;
@@ -345,6 +396,14 @@ impl NewApiProvider {
         Some(resolved.to_string())
     }
 
+    fn has_reference_images(request: &GenerateRequest) -> bool {
+        request
+            .reference_images
+            .as_ref()
+            .map(|images| !images.is_empty())
+            .unwrap_or(false)
+    }
+
     fn build_prompt_text(request: &GenerateRequest) -> String {
         let mut lines = vec![request.prompt.trim().to_string()];
 
@@ -364,6 +423,33 @@ impl NewApiProvider {
             .filter(|line| !line.is_empty())
             .collect::<Vec<String>>()
             .join("\n\n")
+    }
+
+    fn build_generate_content_prompt(
+        request: &GenerateRequest,
+        include_preferences: bool,
+    ) -> String {
+        let prompt = request.prompt.trim();
+        if !include_preferences {
+            return prompt.to_string();
+        }
+
+        let mut suffix_parts = Vec::new();
+        if !request.size.trim().is_empty() {
+            suffix_parts.push(format!("size: {}", request.size.trim()));
+        }
+        if !request.aspect_ratio.trim().is_empty() {
+            suffix_parts.push(format!("aspect ratio: {}", request.aspect_ratio.trim()));
+        }
+
+        if suffix_parts.is_empty() {
+            return prompt.to_string();
+        }
+        if prompt.is_empty() {
+            return format!("[{}]", suffix_parts.join(", "));
+        }
+
+        format!("{} [{}]", prompt, suffix_parts.join(", "))
     }
 
     async fn source_to_data_url(source: &str) -> Result<String, AIError> {
@@ -413,16 +499,34 @@ impl NewApiProvider {
             .contains("unexpected end of json input")
     }
 
+    fn should_continue_generate_content_attempt(message: &str) -> bool {
+        let normalized = message.trim().to_ascii_lowercase();
+        Self::is_unexpected_end_json_error(message)
+            || normalized.contains("failed to extract image from upstream response")
+            || normalized.contains("upstream_error")
+            || (normalized.contains("400 bad request")
+                && (normalized.contains("<html>") || normalized.contains("nginx")))
+    }
+
+    fn should_retry_generate_content_payload(payload: &Value) -> bool {
+        Self::extract_error_message(payload)
+            .map(|message| Self::should_continue_generate_content_attempt(&message))
+            .unwrap_or(false)
+    }
+
+    fn is_retryable_http_status(status: reqwest::StatusCode) -> bool {
+        matches!(
+            status.as_u16(),
+            408 | 409 | 425 | 429 | 500 | 502 | 503 | 504
+        )
+    }
+
     fn should_retry_openai_chat_with_generate_content(
         request: &GenerateRequest,
         config: &NewApiConfig,
     ) -> bool {
         let normalized_model = config.request_model.trim().to_ascii_lowercase();
-        let has_reference_images = request
-            .reference_images
-            .as_ref()
-            .map(|images| !images.is_empty())
-            .unwrap_or(false);
+        let has_reference_images = Self::has_reference_images(request);
 
         normalized_model.contains("gemini")
             && (has_reference_images
@@ -607,6 +711,17 @@ impl NewApiProvider {
                         .unwrap_or("image/png");
                     return Some(format!("data:{};base64,{}", mime_type, data));
                 }
+
+                if let Some(text) = part
+                    .pointer("/text")
+                    .and_then(Value::as_str)
+                    .map(str::trim)
+                    .filter(|value| !value.is_empty())
+                {
+                    if let Some(image_source) = Self::extract_image_source_from_text(text) {
+                        return Some(image_source);
+                    }
+                }
             }
         }
 
@@ -687,39 +802,95 @@ impl NewApiProvider {
         endpoint: &str,
         api_key: &str,
         body: Value,
+        request_kind: &str,
     ) -> Result<Value, AIError> {
         let payload = serde_json::to_vec(&body).map_err(|error| {
-            AIError::Provider(format!("Failed to serialize NewAPI request body: {}", error))
+            AIError::Provider(format!(
+                "Failed to serialize NewAPI {} request body: {}",
+                request_kind, error
+            ))
         })?;
-        let response = self
-            .client
-            .post(endpoint)
-            .version(reqwest::Version::HTTP_11)
-            .header("Accept", "application/json")
-            .header("Authorization", format!("Bearer {}", api_key))
-            .header("X-API-Key", api_key)
-            .header("Content-Type", "application/json")
-            .body(payload)
-            .send()
-            .await?;
+        info!(
+            "[NewAPI] {} request body bytes: {}",
+            request_kind,
+            payload.len()
+        );
+        for attempt in 1..=JSON_REQUEST_MAX_ATTEMPTS {
+            let response = self
+                .client
+                .post(endpoint)
+                .version(reqwest::Version::HTTP_11)
+                .header("Accept", "application/json")
+                .header("Authorization", format!("Bearer {}", api_key))
+                .header("X-API-Key", api_key)
+                .header("X-Banana-Client", BANANA_CLIENT_HEADER_VALUE)
+                .header("Content-Type", "application/json")
+                .body(payload.clone())
+                .send()
+                .await;
 
-        let status = response.status();
-        let response_text = response.text().await?;
-        info!("[NewAPI] {} -> {}", endpoint, status);
-        info!("[NewAPI] response: {}", response_text);
-        if !status.is_success() {
-            return Err(AIError::Provider(format!(
-                "NewAPI request failed {}: {}",
-                status, response_text
-            )));
+            match response {
+                Ok(response) => {
+                    let status = response.status();
+                    let response_text = response.text().await?;
+                    info!(
+                        "[NewAPI] {} attempt {}/{} {} -> {}",
+                        request_kind, attempt, JSON_REQUEST_MAX_ATTEMPTS, endpoint, status
+                    );
+                    info!(
+                        "[NewAPI] {} attempt {}/{} response: {}",
+                        request_kind, attempt, JSON_REQUEST_MAX_ATTEMPTS, response_text
+                    );
+                    if !status.is_success() {
+                        if attempt < JSON_REQUEST_MAX_ATTEMPTS
+                            && Self::is_retryable_http_status(status)
+                        {
+                            warn!(
+                                "[NewAPI] {} attempt {}/{} hit retryable status {}. Retrying after {}ms.",
+                                request_kind,
+                                attempt,
+                                JSON_REQUEST_MAX_ATTEMPTS,
+                                status,
+                                JSON_REQUEST_RETRY_DELAY_MS
+                            );
+                            sleep(Duration::from_millis(JSON_REQUEST_RETRY_DELAY_MS)).await;
+                            continue;
+                        }
+                        return Err(AIError::Provider(format!(
+                            "NewAPI {} request failed {}: {}",
+                            request_kind, status, response_text
+                        )));
+                    }
+
+                    return serde_json::from_str(&response_text).map_err(|error| {
+                        AIError::Provider(format!(
+                            "Failed to parse NewAPI {} response: {}. Response was: {}",
+                            request_kind, error, response_text
+                        ))
+                    });
+                }
+                Err(error)
+                    if attempt < JSON_REQUEST_MAX_ATTEMPTS
+                        && (error.is_timeout() || error.is_connect()) =>
+                {
+                    warn!(
+                        "[NewAPI] {} attempt {}/{} hit retryable transport error: {}. Retrying after {}ms.",
+                        request_kind,
+                        attempt,
+                        JSON_REQUEST_MAX_ATTEMPTS,
+                        error,
+                        JSON_REQUEST_RETRY_DELAY_MS
+                    );
+                    sleep(Duration::from_millis(JSON_REQUEST_RETRY_DELAY_MS)).await;
+                }
+                Err(error) => return Err(error.into()),
+            }
         }
 
-        Ok(serde_json::from_str(&response_text).map_err(|error| {
-            AIError::Provider(format!(
-                "Failed to parse NewAPI response: {}. Response was: {}",
-                error, response_text
-            ))
-        })?)
+        Err(AIError::Provider(format!(
+            "NewAPI {} request exhausted {} attempts without a response",
+            request_kind, JSON_REQUEST_MAX_ATTEMPTS
+        )))
     }
 
     async fn send_multipart_request(
@@ -735,6 +906,7 @@ impl NewApiProvider {
             .header("Accept", "application/json")
             .header("Authorization", format!("Bearer {}", api_key))
             .header("X-API-Key", api_key)
+            .header("X-Banana-Client", BANANA_CLIENT_HEADER_VALUE)
             .multipart(form)
             .send()
             .await?;
@@ -758,6 +930,98 @@ impl NewApiProvider {
         })?)
     }
 
+    async fn build_generate_content_image_part(
+        source: &str,
+        force_png_reference_images: bool,
+        resize_reference_images_to_max_dimension: Option<u32>,
+    ) -> Result<Value, AIError> {
+        let (bytes, mime_type) =
+            if let Some(max_dimension) = resize_reference_images_to_max_dimension {
+                (
+                    Self::source_to_resized_png_bytes(source, max_dimension).await?,
+                    "image/png",
+                )
+            } else if force_png_reference_images {
+                (Self::source_to_png_bytes(source).await?, "image/png")
+            } else {
+                let extension = Self::file_extension_from_source(source);
+                (
+                    Self::source_to_bytes(source).await?,
+                    Self::mime_type_from_extension(extension),
+                )
+            };
+
+        Ok(json!({
+            "inlineData": {
+                "mimeType": mime_type,
+                "data": STANDARD.encode(bytes),
+            }
+        }))
+    }
+
+    async fn build_generate_content_body(
+        &self,
+        request: &GenerateRequest,
+        request_model: &str,
+        attempt: GenerateContentAttempt,
+    ) -> Result<Value, AIError> {
+        let mut parts = Vec::new();
+        let prompt_text =
+            Self::build_generate_content_prompt(request, attempt.include_prompt_preferences);
+        if !prompt_text.is_empty() {
+            parts.push(json!({
+                "text": prompt_text,
+            }));
+        }
+
+        if let Some(reference_images) = request.reference_images.as_ref() {
+            for source in reference_images {
+                parts.push(
+                    Self::build_generate_content_image_part(
+                        source,
+                        attempt.force_png_reference_images,
+                        attempt.resize_reference_images_to_max_dimension,
+                    )
+                    .await?,
+                );
+            }
+        }
+
+        let mut image_config = serde_json::Map::new();
+        if attempt.include_aspect_ratio && !request.aspect_ratio.trim().is_empty() {
+            image_config.insert(
+                "aspectRatio".to_string(),
+                Value::String(request.aspect_ratio.clone()),
+            );
+        }
+        let resolved_image_size = attempt
+            .image_size_override
+            .or_else(|| Self::resolve_gemini_image_size(request_model, &request.size));
+        if let Some(image_size) = resolved_image_size {
+            image_config.insert(
+                "imageSize".to_string(),
+                Value::String(image_size.to_string()),
+            );
+        }
+
+        let mut generation_config = serde_json::Map::new();
+        if attempt.include_top_p {
+            generation_config.insert("topP".to_string(), json!(0.95));
+        }
+        generation_config.insert("responseModalities".to_string(), json!(["IMAGE"]));
+        if !image_config.is_empty() {
+            generation_config.insert("imageConfig".to_string(), Value::Object(image_config));
+        }
+
+        Ok(json!({
+            "contents": [{
+                "role": "user",
+                "parts": parts,
+            }],
+            "generationConfig": Value::Object(generation_config),
+        }))
+    }
+
     async fn run_generate_content(
         &self,
         request: &GenerateRequest,
@@ -766,42 +1030,102 @@ impl NewApiProvider {
     ) -> Result<Value, AIError> {
         let request_model = config.request_model.trim().to_string();
         let endpoint = Self::resolve_endpoint(&config.endpoint_url, &request_model);
-        let mut parts = vec![json!({
-            "text": request.prompt.clone(),
-        })];
+        let mut attempts = vec![
+            GenerateContentAttempt {
+                request_kind: "generateContent-banana",
+                include_aspect_ratio: true,
+                include_prompt_preferences: true,
+                include_top_p: true,
+                force_png_reference_images: true,
+                resize_reference_images_to_max_dimension: None,
+                image_size_override: None,
+            },
+            GenerateContentAttempt {
+                request_kind: "generateContent-banana-no-aspect",
+                include_aspect_ratio: false,
+                include_prompt_preferences: false,
+                include_top_p: true,
+                force_png_reference_images: true,
+                resize_reference_images_to_max_dimension: None,
+                image_size_override: None,
+            },
+        ];
+        if Self::has_reference_images(request) {
+            attempts.push(GenerateContentAttempt {
+                request_kind: "generateContent-resized-image-fallback",
+                include_aspect_ratio: false,
+                include_prompt_preferences: false,
+                include_top_p: true,
+                force_png_reference_images: true,
+                resize_reference_images_to_max_dimension: Some(1536),
+                image_size_override: None,
+            });
+            attempts.push(GenerateContentAttempt {
+                request_kind: "generateContent-resized-2k-fallback",
+                include_aspect_ratio: false,
+                include_prompt_preferences: false,
+                include_top_p: true,
+                force_png_reference_images: true,
+                resize_reference_images_to_max_dimension: Some(1536),
+                image_size_override: Some("2K"),
+            });
+            attempts.push(GenerateContentAttempt {
+                request_kind: "generateContent-resized-1k-fallback",
+                include_aspect_ratio: false,
+                include_prompt_preferences: false,
+                include_top_p: true,
+                force_png_reference_images: true,
+                resize_reference_images_to_max_dimension: Some(1024),
+                image_size_override: Some("1K"),
+            });
+            attempts.push(GenerateContentAttempt {
+                request_kind: "generateContent-image-fallback",
+                include_aspect_ratio: false,
+                include_prompt_preferences: false,
+                include_top_p: true,
+                force_png_reference_images: false,
+                resize_reference_images_to_max_dimension: None,
+                image_size_override: None,
+            });
+        }
 
-        if let Some(reference_images) = request.reference_images.as_ref() {
-            for source in reference_images {
-                let bytes = Self::source_to_png_bytes(source).await?;
-                parts.push(json!({
-                    "inlineData": {
-                        "mimeType": "image/png",
-                        "data": STANDARD.encode(bytes),
-                    }
-                }));
+        for (index, attempt) in attempts.iter().copied().enumerate() {
+            let body = self
+                .build_generate_content_body(request, &request_model, attempt)
+                .await?;
+            let has_more_attempts = index + 1 < attempts.len();
+            match self
+                .send_json_request(&endpoint, api_key, body, attempt.request_kind)
+                .await
+            {
+                Ok(payload)
+                    if has_more_attempts
+                        && Self::should_retry_generate_content_payload(&payload) =>
+                {
+                    info!(
+                        "[NewAPI] {} returned a retryable generateContent error, retrying with {}",
+                        attempt.request_kind,
+                        attempts[index + 1].request_kind
+                    );
+                }
+                Err(AIError::Provider(message))
+                    if has_more_attempts
+                        && Self::should_continue_generate_content_attempt(&message) =>
+                {
+                    info!(
+                        "[NewAPI] {} provider error matched fallback criteria, retrying with {}",
+                        attempt.request_kind,
+                        attempts[index + 1].request_kind
+                    );
+                }
+                Ok(payload) => return Ok(payload),
+                Err(error) => return Err(error),
             }
         }
 
-        let mut image_config = json!({});
-        if !request.aspect_ratio.trim().is_empty() {
-            image_config["aspectRatio"] = Value::String(request.aspect_ratio.clone());
-        }
-        if let Some(image_size) = Self::resolve_gemini_image_size(&request_model, &request.size) {
-            image_config["imageSize"] = Value::String(image_size.to_string());
-        }
-
-        let body = json!({
-            "contents": [{
-                "role": "user",
-                "parts": parts,
-            }],
-            "generationConfig": {
-                "topP": 0.95,
-                "responseModalities": ["IMAGE"],
-                "imageConfig": image_config,
-            }
-        });
-        self.send_json_request(&endpoint, api_key, body).await
+        Err(AIError::Provider(
+            "NewAPI generateContent attempts exhausted without a result".to_string(),
+        ))
     }
 
     async fn run_openai_chat(
@@ -840,7 +1164,8 @@ impl NewApiProvider {
             "stream": false,
         });
 
-        self.send_json_request(&endpoint, api_key, body).await
+        self.send_json_request(&endpoint, api_key, body, "openai-chat")
+            .await
     }
 
     async fn run_openai_edits(
@@ -874,7 +1199,11 @@ impl NewApiProvider {
                     AIError::Provider(format!("Failed to create multipart image part: {}", error))
                 })?;
 
-            let field_name = if sources.len() > 1 { "image[]" } else { "image" };
+            let field_name = if sources.len() > 1 {
+                "image[]"
+            } else {
+                "image"
+            };
             form = form.part(field_name.to_string(), image_part);
         }
 
@@ -883,6 +1212,73 @@ impl NewApiProvider {
         }
 
         self.send_multipart_request(&endpoint, api_key, form).await
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::NewApiProvider;
+    use serde_json::json;
+
+    #[test]
+    fn resolve_endpoint_keeps_slash_model_names() {
+        let endpoint = NewApiProvider::resolve_endpoint(
+            "https://api.rensumo.top/",
+            "flow/gemini-3-pro-image-preview",
+        );
+
+        assert_eq!(
+            endpoint,
+            "https://api.rensumo.top/v1beta/models/flow/gemini-3-pro-image-preview:generateContent"
+        );
+    }
+
+    #[test]
+    fn should_retry_generate_content_payload_detects_unexpected_end_error() {
+        let payload = json!({
+            "error": {
+                "message": "unexpected end of JSON input"
+            }
+        });
+
+        assert!(NewApiProvider::should_retry_generate_content_payload(
+            &payload
+        ));
+    }
+
+    #[test]
+    fn should_retry_generate_content_payload_detects_upstream_extract_error() {
+        let payload = json!({
+            "error": {
+                "message": "Failed to extract image from upstream response."
+            }
+        });
+
+        assert!(NewApiProvider::should_retry_generate_content_payload(
+            &payload
+        ));
+    }
+
+    #[test]
+    fn should_continue_generate_content_attempt_detects_nginx_html_400() {
+        let message = "NewAPI generateContent request failed 400 Bad Request: <html><body><center><h1>400 Bad Request</h1></center><hr><center>nginx</center></body></html>";
+
+        assert!(NewApiProvider::should_continue_generate_content_attempt(
+            message
+        ));
+    }
+
+    #[test]
+    fn should_retry_generate_content_payload_ignores_other_errors() {
+        let payload = json!({
+            "error": {
+                "message": "model not found"
+            }
+        });
+
+        assert!(!NewApiProvider::should_retry_generate_content_payload(
+            &payload
+        ));
     }
 }
 
@@ -930,7 +1326,8 @@ impl AIProvider for NewApiProvider {
 
         let payload = match config.api_format {
             NewApiFormat::GeminiGenerateContent => {
-                self.run_generate_content(&request, &config, &api_key).await?
+                self.run_generate_content(&request, &config, &api_key)
+                    .await?
             }
             NewApiFormat::OpenAiChat => {
                 match self.run_openai_chat(&request, &config, &api_key).await {
@@ -939,24 +1336,26 @@ impl AIProvider for NewApiProvider {
                             .map(|message| Self::is_unexpected_end_json_error(&message))
                             .unwrap_or(false)
                             && Self::should_retry_openai_chat_with_generate_content(
-                                &request, &config
+                                &request, &config,
                             ) =>
                     {
                         info!(
                             "[NewAPI] openai-chat returned unexpected-end JSON error, retrying with Gemini generateContent"
                         );
-                        self.run_generate_content(&request, &config, &api_key).await?
+                        self.run_generate_content(&request, &config, &api_key)
+                            .await?
                     }
                     Err(AIError::Provider(message))
                         if Self::is_unexpected_end_json_error(&message)
                             && Self::should_retry_openai_chat_with_generate_content(
-                                &request, &config
+                                &request, &config,
                             ) =>
                     {
                         info!(
                             "[NewAPI] openai-chat provider error matched unexpected-end JSON error, retrying with Gemini generateContent"
                         );
-                        self.run_generate_content(&request, &config, &api_key).await?
+                        self.run_generate_content(&request, &config, &api_key)
+                            .await?
                     }
                     Ok(payload) => payload,
                     Err(error) => return Err(error),

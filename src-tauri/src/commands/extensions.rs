@@ -576,7 +576,11 @@ fn summarize_json_value(value: Option<&Value>, max_len: usize) -> String {
             if trimmed.chars().count() > max_len {
                 snippet.push('…');
             }
-            format!("string(len={}, value=\"{}\")", trimmed.chars().count(), snippet)
+            format!(
+                "string(len={}, value=\"{}\")",
+                trimmed.chars().count(),
+                snippet
+            )
         }
         Some(Value::Array(items)) => format!("array(len={})", items.len()),
         Some(Value::Object(map)) => format!("object(keys={})", map.len()),
@@ -751,7 +755,7 @@ async fn run_one_shot_extension_command(
     let stdout = String::from_utf8_lossy(&output.stdout).to_string();
     let stderr = String::from_utf8_lossy(&output.stderr).to_string();
 
-parse_extension_response(command, output.status.success(), &stdout, &stderr)
+    parse_extension_response(command, output.status.success(), &stdout, &stderr)
 }
 
 fn apply_python_stdio_env(command: &mut Command) -> &mut Command {

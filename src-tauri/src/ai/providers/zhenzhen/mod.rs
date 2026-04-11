@@ -1,5 +1,4 @@
 use base64::{engine::general_purpose::STANDARD, Engine};
-use reqwest::multipart::Part;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
@@ -15,21 +14,28 @@ use crate::ai::{AIProvider, GenerateRequest};
 const DEFAULT_BASE_URL: &str = "https://ai.t8star.cn";
 const CHAT_COMPLETIONS_ENDPOINT_PATH: &str = "/v1/chat/completions";
 const GENERATIONS_ENDPOINT_PATH: &str = "/v1/images/generations";
-const EDITS_ENDPOINT_PATH: &str = "/v1/images/edits";
 const TASKS_ENDPOINT_PATH: &str = "/v1/images/tasks";
 const POLL_INTERVAL_MS: u64 = 2000;
 const MAX_POLL_RETRIES: u32 = 150;
 
-const SUPPORTED_MODELS: [&str; 4] = [
+const SUPPORTED_MODELS: [&str; 9] = [
+    "nano-banana-pro",
     "nano-banana",
     "nano-banana-hd",
+    "nano-banana-2",
+    "nano-banana-2-2k",
     "nano-banana-2-4k",
+    "nano-banana-pro-2k",
+    "nano-banana-pro-4k",
     "gemini-3.1-flash-image-preview-4k",
 ];
+const LEGACY_DEFAULT_MODELS: [&str; 2] = ["nano-banana", "nano-banana-2"];
+const LEGACY_TWO_K_MODEL: &str = "nano-banana-2-2k";
 const LEGACY_HD_MODEL: &str = "nano-banana-hd";
-const FOUR_K_MODEL: &str = "nano-banana-2-4k";
+const LEGACY_FOUR_K_MODEL: &str = "nano-banana-2-4k";
+const DEFAULT_MODEL: &str = "nano-banana-pro";
+const LEGACY_NEW_VARIANTS: [&str; 2] = ["nano-banana-pro-2k", "nano-banana-pro-4k"];
 const GEMINI_FLASH_IMAGE_PREVIEW_4K_MODEL: &str = "gemini-3.1-flash-image-preview-4k";
-const HD_RESOLUTION: &str = "4K";
 
 const SUPPORTED_ASPECT_RATIOS: [&str; 14] = [
     "1:1", "1:4", "1:8", "2:3", "3:2", "3:4", "4:1", "4:3", "4:5", "5:4", "8:1", "9:16", "16:9",
@@ -105,11 +111,21 @@ impl ZhenzhenProvider {
         if sanitized_model == GEMINI_FLASH_IMAGE_PREVIEW_4K_MODEL {
             return sanitized_model;
         }
-        if requested_size.trim().eq_ignore_ascii_case(HD_RESOLUTION) {
-            return FOUR_K_MODEL.to_string();
+        if LEGACY_DEFAULT_MODELS.contains(&sanitized_model.as_str()) {
+            return DEFAULT_MODEL.to_string();
         }
-        if sanitized_model == LEGACY_HD_MODEL {
-            return FOUR_K_MODEL.to_string();
+        if sanitized_model == LEGACY_TWO_K_MODEL {
+            return DEFAULT_MODEL.to_string();
+        }
+        if sanitized_model == LEGACY_HD_MODEL
+            || sanitized_model == LEGACY_FOUR_K_MODEL
+            || LEGACY_NEW_VARIANTS.contains(&sanitized_model.as_str())
+        {
+            return DEFAULT_MODEL.to_string();
+        }
+        if sanitized_model.is_empty() {
+            let _ = requested_size;
+            return DEFAULT_MODEL.to_string();
         }
         sanitized_model
     }
@@ -668,7 +684,7 @@ impl ZhenzhenProvider {
         )))
     }
 
-    async fn request_text_to_image(
+    async fn request_generation(
         &self,
         request: &GenerateRequest,
         model: String,
@@ -680,6 +696,10 @@ impl ZhenzhenProvider {
             .await
             .clone()
             .ok_or_else(|| AIError::InvalidRequest("API key not set".to_string()))?;
+
+        let reference_images = request.reference_images.as_deref().unwrap_or(&[]);
+        let normalized_reference_images =
+            Self::normalize_gemini_reference_images(reference_images).await?;
 
         let body = GenerationsRequestBody {
             model: model.clone(),
@@ -693,94 +713,15 @@ impl ZhenzhenProvider {
             } else {
                 None
             },
-            image: None,
+            image: if normalized_reference_images.is_empty() {
+                None
+            } else {
+                Some(normalized_reference_images)
+            },
         };
 
         info!(
-            "[Zhenzhen API] Text2Img URL: {}, model: {}, size: {}, aspect_ratio: {}",
-            endpoint, model, request.size, request.aspect_ratio
-        );
-
-        let response = self
-            .client
-            .post(&endpoint)
-            .header("Authorization", format!("Bearer {}", api_key))
-            .header("Content-Type", "application/json")
-            .json(&body)
-            .send()
-            .await?;
-
-        let status = response.status();
-        let response_text = response.text().await.map_err(AIError::from)?;
-        info!("[Zhenzhen API] Response status: {}", status);
-        info!("[Zhenzhen API] Response: {}", response_text);
-
-        if !status.is_success() {
-            return Err(AIError::Provider(format!(
-                "Zhenzhen request failed {}: {}",
-                status, response_text
-            )));
-        }
-
-        serde_json::from_str(&response_text).map_err(|error| {
-            AIError::Provider(format!(
-                "Failed to parse Zhenzhen response: {}. Response was: {}",
-                error, response_text
-            ))
-        })
-    }
-
-    async fn request_image_to_image(
-        &self,
-        request: &GenerateRequest,
-        model: String,
-    ) -> Result<GenerationsResponse, AIError> {
-        let endpoint = format!("{}{}", self.base_url, EDITS_ENDPOINT_PATH);
-        let api_key = self
-            .api_key
-            .read()
-            .await
-            .clone()
-            .ok_or_else(|| AIError::InvalidRequest("API key not set".to_string()))?;
-
-        let reference_images = request.reference_images.as_ref().ok_or_else(|| {
-            AIError::InvalidRequest("Reference images required for img2img".to_string())
-        })?;
-
-        let mut form = reqwest::multipart::Form::new()
-            .text("prompt", request.prompt.clone())
-            .text("model", model.clone())
-            .text("response_format", "url".to_string());
-
-        if let Some(image_size) = Self::resolve_image_size(&model, &request.size) {
-            form = form.text("image_size", image_size);
-        }
-
-        if !request.aspect_ratio.is_empty() && Self::validate_aspect_ratio(&request.aspect_ratio) {
-            form = form.text("aspect_ratio", request.aspect_ratio.clone());
-        }
-
-        for (index, source) in reference_images.iter().enumerate() {
-            let bytes = Self::source_to_bytes(source).await.map_err(|error| {
-                AIError::InvalidRequest(format!(
-                    "Failed to read reference image {}: {}",
-                    index + 1,
-                    error
-                ))
-            })?;
-            let extension = Self::file_extension_from_source(source);
-            let file_name = format!("image_{}.{}", index + 1, extension);
-            let part = Part::bytes(bytes)
-                .file_name(file_name)
-                .mime_str(Self::mime_type_from_extension(extension))
-                .map_err(|error| {
-                    AIError::Provider(format!("Failed to create multipart part: {}", error))
-                })?;
-            form = form.part("image", part);
-        }
-
-        info!(
-            "[Zhenzhen API] Img2Img URL: {}, model: {}, size: {}, aspect_ratio: {}, refs: {}",
+            "[Zhenzhen API] Generations URL: {}, model: {}, size: {}, aspect_ratio: {}, refs: {}",
             endpoint,
             model,
             request.size,
@@ -792,7 +733,8 @@ impl ZhenzhenProvider {
             .client
             .post(&endpoint)
             .header("Authorization", format!("Bearer {}", api_key))
-            .multipart(form)
+            .header("Content-Type", "application/json")
+            .json(&body)
             .send()
             .await?;
 
@@ -838,9 +780,7 @@ impl AIProvider for ZhenzhenProvider {
 
     fn list_models(&self) -> Vec<String> {
         vec![
-            "zhenzhen/nano-banana".to_string(),
-            "zhenzhen/nano-banana-hd".to_string(),
-            "zhenzhen/nano-banana-2-4k".to_string(),
+            "zhenzhen/nano-banana-pro".to_string(),
             "zhenzhen/gemini-3.1-flash-image-preview-4k".to_string(),
         ]
     }
@@ -873,16 +813,7 @@ impl AIProvider for ZhenzhenProvider {
             return self.generate_with_gemini_preview(&request, &model).await;
         }
 
-        let response = if request
-            .reference_images
-            .as_ref()
-            .map(|images| !images.is_empty())
-            .unwrap_or(false)
-        {
-            self.request_image_to_image(&request, model).await?
-        } else {
-            self.request_text_to_image(&request, model).await?
-        };
+        let response = self.request_generation(&request, model).await?;
 
         if let Some(error) = response.error {
             return Err(AIError::Provider(format!(

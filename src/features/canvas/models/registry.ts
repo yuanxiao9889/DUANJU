@@ -52,6 +52,13 @@ export const DEFAULT_IMAGE_MODEL_ID = 'kie/nano-banana-2';
 const imageModelAliasMap = new Map<string, string>([
   ['gemini-3.1-flash', 'ppio/gemini-3.1-flash'],
   ['gemini-3.1-flash-edit', 'ppio/gemini-3.1-flash'],
+  ['zhenzhen/nano-banana', 'zhenzhen/nano-banana-pro'],
+  ['zhenzhen/nano-banana-2', 'zhenzhen/nano-banana-pro'],
+  ['zhenzhen/nano-banana-2-2k', 'zhenzhen/nano-banana-pro'],
+  ['zhenzhen/nano-banana-hd', 'zhenzhen/nano-banana-pro'],
+  ['zhenzhen/nano-banana-2-4k', 'zhenzhen/nano-banana-pro'],
+  ['zhenzhen/nano-banana-pro-2k', 'zhenzhen/nano-banana-pro'],
+  ['zhenzhen/nano-banana-pro-4k', 'zhenzhen/nano-banana-pro'],
 ]);
 
 function resolveCompatibleModelList(

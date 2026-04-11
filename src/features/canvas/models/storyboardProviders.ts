@@ -26,7 +26,6 @@ import { BLTCY_NANO_BANANA_2_4K_MODEL_ID } from './image/bltcy/nanoBananaHd';
 import { COMFLY_NANO_BANANA_MODEL_ID } from './image/comfly/nanoBanana';
 import { COMFLY_NANO_BANANA_HD_MODEL_ID } from './image/comfly/nanoBananaHd';
 import { ZHENZHEN_NANO_BANANA_MODEL_ID } from './image/zhenzhen/nanoBanana';
-import { ZHENZHEN_NANO_BANANA_HD_MODEL_ID } from './image/zhenzhen/nanoBananaHd';
 
 export const STORYBOARD_CUSTOM_MODEL_PROVIDER_IDS = [
   'azemm',
@@ -133,8 +132,7 @@ const BUILT_IN_STORYBOARD_MODELS: Record<
     { modelId: COMFLY_NANO_BANANA_HD_MODEL_ID, label: '香蕉Pro', source: 'builtin' },
   ],
   zhenzhen: [
-    { modelId: ZHENZHEN_NANO_BANANA_MODEL_ID, label: '香蕉2', source: 'builtin' },
-    { modelId: ZHENZHEN_NANO_BANANA_HD_MODEL_ID, label: '香蕉Pro', source: 'builtin' },
+    { modelId: ZHENZHEN_NANO_BANANA_MODEL_ID, label: 'Nano Banana Pro', source: 'builtin' },
   ],
   bltcy: [
     { modelId: BLTCY_GEMINI_FLASH_IMAGE_PREVIEW_4K_MODEL_ID, label: '香蕉2', source: 'builtin' },
@@ -616,9 +614,18 @@ function resolveStoryboardCustomModelProfile(
     };
   }
 
+  if (normalizedModelId.includes('2k') && !normalizedModelId.includes('4k')) {
+    return {
+      aspectRatios: COMPATIBLE_ASPECT_RATIO_OPTIONS,
+      resolutions: FULL_RESOLUTIONS.filter((item) => item.value === '2K'),
+      defaultResolution: '2K',
+      eta: '45s',
+      expectedDurationMs: 45000,
+    };
+  }
+
   if (providerId === 'comfly' && (
     normalizedModelId.includes('hd')
-    || normalizedModelId.includes('pro')
     || normalizedModelId.includes('4k')
   )) {
     return {
@@ -634,7 +641,6 @@ function resolveStoryboardCustomModelProfile(
     providerId !== 'comfly'
     && (
       normalizedModelId.includes('hd')
-      || normalizedModelId.includes('pro')
       || normalizedModelId.includes('4k')
     )
   ) {
@@ -789,3 +795,4 @@ export function createCustomStoryboardImageModels(
 
   return result;
 }
+

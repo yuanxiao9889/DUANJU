@@ -56,16 +56,18 @@ export function extractReferenceVisuals(node: CanvasNode): ExtractedReferenceVis
     || isPanoramaResultNode(node)
     || isStoryboardGenNode(node)
   ) {
-    const imageUrl = node.data.imageUrl?.trim() ?? '';
-    if (!imageUrl) {
+    const referenceUrl = node.data.imageUrl?.trim() ?? '';
+    if (!referenceUrl) {
       return [];
     }
+
+    const previewImageUrl = node.data.previewImageUrl?.trim() ?? referenceUrl;
 
     return [
       {
         kind: 'image',
-        referenceUrl: imageUrl,
-        previewImageUrl: imageUrl,
+        referenceUrl,
+        previewImageUrl,
       },
     ];
   }

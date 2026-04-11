@@ -74,7 +74,7 @@ import {
 import { GRSAI_NANO_BANANA_PRO_MODEL_ID } from '@/features/canvas/models/image/grsai/nanoBananaPro';
 
 import { resolveModelPriceDisplay } from '@/features/canvas/pricing';
-import { useCanvasNodeInputImages } from '@/features/canvas/hooks/useCanvasNodeGraph';
+import { useCanvasConnectedReferenceVisuals } from '@/features/canvas/hooks/useCanvasNodeGraph';
 import {
   NODE_CONTROL_CHIP_CLASS,
   NODE_CONTROL_MODEL_CHIP_CLASS,
@@ -124,6 +124,14 @@ interface PromptReferencePreviewState {
   alt: string;
   left: number;
   top: number;
+}
+
+interface IncomingReferenceImageItem {
+  referenceUrl: string;
+  requestImageUrl: string;
+  displayUrl: string;
+  tokenLabel: string;
+  label: string;
 }
 
 const PICKER_FALLBACK_ANCHOR: PickerAnchor = { left: 8, top: 8 };
@@ -387,22 +395,7 @@ export const ImageEditNode = memo(({ id, data, selected, width, height }: ImageE
   const preferDiscountedPrice = useSettingsStore((state) => state.preferDiscountedPrice);
   const grsaiCreditTierId = useSettingsStore((state) => state.grsaiCreditTierId);
 
-  const incomingImages = useCanvasNodeInputImages(id);
-
-  const incomingImageItems = useMemo(
-    () =>
-      incomingImages.map((imageUrl, index) => ({
-        imageUrl,
-        displayUrl: resolveImageDisplayUrl(imageUrl),
-        tokenLabel: buildShortReferenceToken(index),
-        label: t('node.imageEdit.referenceImageLabel', { index: index + 1 }),
-      })),
-    [incomingImages, t]
-  );
-  const incomingImageViewerList = useMemo(
-    () => incomingImageItems.map((item) => resolveImageDisplayUrl(item.imageUrl)),
-    [incomingImageItems]
-  );
+  const connectedReferenceVisuals = useCanvasConnectedReferenceVisuals(id);
 
   const imageModels = useMemo(
     () => listImageModels(
@@ -456,6 +449,40 @@ export const ImageEditNode = memo(({ id, data, selected, width, height }: ImageE
       storyboardNewApiModelConfig,
       storyboardProviderCustomModels,
     ]
+  );
+  const incomingImageItems = useMemo<IncomingReferenceImageItem[]>(
+    () =>
+      connectedReferenceVisuals
+        .filter((item) => item.kind === 'image')
+        .map((item, index) => {
+          const referenceUrl = item.referenceUrl.trim();
+          if (!referenceUrl) {
+            return null;
+          }
+
+          const previewImageUrl = item.previewImageUrl?.trim() || referenceUrl;
+          return {
+            referenceUrl,
+            requestImageUrl: referenceUrl,
+            displayUrl: resolveImageDisplayUrl(previewImageUrl),
+            tokenLabel: buildShortReferenceToken(index),
+            label: t('node.imageEdit.referenceImageLabel', { index: index + 1 }),
+          };
+        })
+        .filter((item): item is IncomingReferenceImageItem => Boolean(item)),
+    [connectedReferenceVisuals, t]
+  );
+  const incomingImages = useMemo(
+    () => incomingImageItems.map((item) => item.referenceUrl),
+    [incomingImageItems]
+  );
+  const requestReferenceImages = useMemo(
+    () => incomingImageItems.map((item) => item.requestImageUrl),
+    [incomingImageItems]
+  );
+  const incomingImageViewerList = useMemo(
+    () => incomingImageItems.map((item) => resolveImageDisplayUrl(item.referenceUrl)),
+    [incomingImageItems]
   );
   const providerApiKey = storyboardApiKeys[selectedModel.providerId] ?? '';
   const effectiveExtraParams = useMemo(
@@ -771,7 +798,7 @@ export const ImageEditNode = memo(({ id, data, selected, width, height }: ImageE
     try {
       const optimizationReferenceImages = resolveOptimizationReferenceImages(
         currentPrompt,
-        incomingImages
+        requestReferenceImages
       );
       const result = await optimizeCanvasPrompt({
         mode: 'image',
@@ -817,7 +844,7 @@ export const ImageEditNode = memo(({ id, data, selected, width, height }: ImageE
     } finally {
       setIsOptimizingPrompt(false);
     }
-  }, [commitPromptDraft, incomingImages, t]);
+  }, [commitPromptDraft, requestReferenceImages, t]);
 
   const handleUndoOptimizedPrompt = useCallback(() => {
     if (!lastPromptOptimizationUndoState) {
@@ -873,9 +900,9 @@ export const ImageEditNode = memo(({ id, data, selected, width, height }: ImageE
 
     let resolvedRequestAspectRatio = selectedAspectRatio.value;
     if (resolvedRequestAspectRatio === AUTO_REQUEST_ASPECT_RATIO) {
-      if (incomingImages.length > 0) {
+      if (requestReferenceImages.length > 0) {
         try {
-          const sourceAspectRatio = await detectAspectRatio(incomingImages[0]);
+          const sourceAspectRatio = await detectAspectRatio(requestReferenceImages[0]);
           const sourceAspectRatioValue = parseAspectRatio(sourceAspectRatio);
           resolvedRequestAspectRatio = pickClosestAspectRatio(
             sourceAspectRatioValue,
@@ -925,7 +952,7 @@ export const ImageEditNode = memo(({ id, data, selected, width, height }: ImageE
         model: requestResolution.requestModel,
         size: selectedResolution.value,
         aspectRatio: resolvedRequestAspectRatio,
-        referenceImages: incomingImages,
+        referenceImages: requestReferenceImages,
         extraParams: effectiveExtraParams,
       });
       const generationDebugContext: GenerationDebugContext = {
@@ -1001,6 +1028,7 @@ export const ImageEditNode = memo(({ id, data, selected, width, height }: ImageE
     effectiveExtraParams,
     id,
     incomingImages,
+    requestReferenceImages,
     debugRequestModel,
     requestResolution.requestModel,
     selectedAspectRatio.value,
@@ -1255,7 +1283,7 @@ export const ImageEditNode = memo(({ id, data, selected, width, height }: ImageE
     );
 
     setPromptReferencePreview({
-      imageUrl: item.imageUrl,
+      imageUrl: item.referenceUrl,
       displayUrl: item.displayUrl,
       alt: item.label,
       left: Math.max(horizontalPadding, Math.min(preferredLeft, maxLeft)),
@@ -1392,7 +1420,7 @@ export const ImageEditNode = memo(({ id, data, selected, width, height }: ImageE
             >
               {incomingImageItems.map((item, index) => (
                 <button
-                  key={`${item.imageUrl}-${index}`}
+                  key={`${item.referenceUrl}-${index}`}
                   ref={(node) => {
                     pickerItemRefs.current[index] = node;
                   }}
@@ -1413,7 +1441,7 @@ export const ImageEditNode = memo(({ id, data, selected, width, height }: ImageE
                   <CanvasNodeImage
                     src={item.displayUrl}
                     alt={item.label}
-                    viewerSourceUrl={resolveImageDisplayUrl(item.imageUrl)}
+                    viewerSourceUrl={resolveImageDisplayUrl(item.referenceUrl)}
                     viewerImageList={incomingImageViewerList}
                     className="h-8 w-8 rounded object-cover"
                     draggable={false}
