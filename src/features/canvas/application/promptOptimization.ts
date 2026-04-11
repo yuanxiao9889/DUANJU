@@ -75,6 +75,14 @@ const JIMENG_CINEMATIC_TERM_EXAMPLES = [
   "cool-warm color contrast",
   "natural motion blur",
 ] as const;
+const JIMENG_STRUCTURAL_CONTENT_PRESERVATION_INSTRUCTIONS = [
+  "If the source prompt contains spoken dialogue, character lines, narration, voice-over, inner thoughts, psychological activity, or other explicit verbal content, preserve them in the optimized prompt instead of omitting them or flattening them into generic visual description.",
+  'Do not delete, summarize away, or rewrite out segments labeled or implied as dialogue, lines, 台词, 对白, 旁白, 独白, 内心独白, 心理活动, OS, or VO unless the source itself marks them as optional.',
+  "Keep the original speaker relationship, line order, and dramatic function whenever possible. You may polish wording for fluency and cinematic cohesion, but retain the substantive verbal content, emotional intent, and information value.",
+  "If the source prompt includes speaker labels, role names, or dialogue prefixes such as `角色名：`, preserve those names and prefixes explicitly instead of removing them, merging them away, or replacing them with generic narration.",
+  "If any dialogue appears inside quotation marks or other explicit quote delimiters, keep it as direct quoted speech. Do not convert quoted lines into third-person narration, paraphrase them as scene description, or dissolve them into action prose.",
+  "Treat dialogue, narration, and inner thoughts as first-class content that should coexist with the cinematic description, not as expendable notes.",
+] as const;
 const IMAGE_ANALYSIS_MODEL_HINTS = [
   "vl",
   "vision",
@@ -588,6 +596,7 @@ function buildJimengCinemaPromptOptimizationInstructionRuntime(
     "If the prompt already has a clear camera move, refine it. If it does not, keep the camera language restrained and natural. Do not force montage, multi-shot editing, or flashy camera choreography unless the source already implies it.",
     imageInstruction,
     "The added detail should mainly enrich lighting, texture, atmosphere, composition, motion quality, and a small amount of scene detail. It must not change the narrative facts.",
+    ...JIMENG_STRUCTURAL_CONTENT_PRESERVATION_INSTRUCTIONS,
     "If the prompt contains reference tokens like @图1, @图片2, @音1, or @音频2, preserve them exactly as written.",
     `Also estimate the suitable video duration. "recommendedDurationSeconds" must be an integer from 1 to ${MAX_JIMENG_DURATION_SECONDS}.`,
     `If the content clearly needs more than ${MAX_JIMENG_DURATION_SECONDS} seconds, set "recommendedDurationSeconds" to ${MAX_JIMENG_DURATION_SECONDS}, set "estimatedDurationSeconds" to your best real estimate above ${MAX_JIMENG_DURATION_SECONDS}, and set "exceedsMaxDuration" to true.`,
