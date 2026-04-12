@@ -44,6 +44,7 @@ import {
   resolveScriptModelOptions,
   SCRIPT_COMPATIBLE_PROVIDER_ID,
   resolveStoryboardCompatibleModelConfigForModel,
+  resolveStoryboardNewApiModelConfigForModel,
   toStoryboardProviderModelId,
   upsertCustomScriptModelEntry,
   type CustomScriptModelEntry,
@@ -1051,6 +1052,16 @@ export function SettingsDialog({
         )
       );
     }
+
+    if (providerId === 'newapi') {
+      setLocalStoryboardNewApiModelConfig((previous) =>
+        resolveStoryboardNewApiModelConfigForModel(
+          nextResolvedModelId,
+          previous,
+          { ...localStoryboardProviderCustomModels, [providerId]: nextEntries }
+        )
+      );
+    }
   }, [
     localStoryboardModelDisplayNameInputs,
     localStoryboardModelIdInputs,
@@ -1081,6 +1092,7 @@ export function SettingsDialog({
       },
       storyboardProviderCustomModels: nextCustomModels,
       storyboardCompatibleModelConfig: localStoryboardCompatibleModelConfig,
+      storyboardNewApiModelConfig: localStoryboardNewApiModelConfig,
     });
 
     setLocalStoryboardProviderCustomModels(nextCustomModels);
@@ -1102,9 +1114,24 @@ export function SettingsDialog({
         )
       );
     }
+
+    if (providerId === 'newapi') {
+      setLocalStoryboardNewApiModelConfig((previous) =>
+        resolveStoryboardNewApiModelConfigForModel(
+          nextResolvedModel,
+          {
+            ...previous,
+            requestModel: remainingEntries[0]?.modelId ?? '',
+            displayName: remainingEntries[0]?.displayName ?? '',
+          },
+          nextCustomModels
+        )
+      );
+    }
   }, [
     localStoryboardCompatibleModelConfig,
     localStoryboardModelOverrides,
+    localStoryboardNewApiModelConfig,
     localStoryboardProviderCustomModels,
   ]);
 
@@ -1128,6 +1155,8 @@ export function SettingsDialog({
       );
     });
     setScriptCompatibleProviderConfig(localScriptCompatibleProviderConfig);
+    setStoryboardCompatibleModelConfig(localStoryboardCompatibleModelConfig);
+    setStoryboardNewApiModelConfig(localStoryboardNewApiModelConfig);
     storyboardProviders.forEach((provider) => {
       if (!isStoryboardCustomModelProviderId(provider.id)) {
         return;
@@ -1139,6 +1168,7 @@ export function SettingsDialog({
           storyboardModelOverrides: localStoryboardModelOverrides,
           storyboardProviderCustomModels: localStoryboardProviderCustomModels,
           storyboardCompatibleModelConfig: localStoryboardCompatibleModelConfig,
+          storyboardNewApiModelConfig: localStoryboardNewApiModelConfig,
         })
       );
       setStoryboardProviderCustomModels(
@@ -1146,8 +1176,6 @@ export function SettingsDialog({
         getCustomStoryboardModels(provider.id, localStoryboardProviderCustomModels)
       );
     });
-    setStoryboardCompatibleModelConfig(localStoryboardCompatibleModelConfig);
-    setStoryboardNewApiModelConfig(localStoryboardNewApiModelConfig);
     setDownloadPresetPaths(localDownloadPresetPaths);
     setUseUploadFilenameAsNodeTitle(localUseUploadFilenameAsNodeTitle);
     setStoryboardGenKeepStyleConsistent(localStoryboardGenKeepStyleConsistent);

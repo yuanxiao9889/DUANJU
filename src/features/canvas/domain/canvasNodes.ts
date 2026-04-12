@@ -1,10 +1,9 @@
 import type { Edge, Node, XYPosition } from '@xyflow/react';
+import type { CanvasSemanticColor } from './semanticColors';
 
 export const CANVAS_NODE_TYPES = {
   upload: 'uploadNode',
   imageEdit: 'imageNode',
-  panorama: 'panoramaNode',
-  panoramaResult: 'panoramaResultNode',
   jimeng: 'jimengNode',
   jimengImage: 'jimengImageNode',
   jimengImageResult: 'jimengImageResultNode',
@@ -42,12 +41,6 @@ export const AUTO_REQUEST_ASPECT_RATIO = 'auto';
 export const DEFAULT_NODE_WIDTH = 220;
 export const IMAGE_EDIT_NODE_DEFAULT_WIDTH = 500;
 export const IMAGE_EDIT_NODE_DEFAULT_HEIGHT = 280;
-export const PANORAMA_NODE_DEFAULT_WIDTH = 540;
-export const PANORAMA_NODE_DEFAULT_HEIGHT = 360;
-export const PANORAMA_RESULT_NODE_DEFAULT_WIDTH = 680;
-export const PANORAMA_RESULT_NODE_DEFAULT_HEIGHT = 440;
-export const PANORAMA_RESULT_NODE_MIN_WIDTH = 560;
-export const PANORAMA_RESULT_NODE_MIN_HEIGHT = 320;
 export const EXPORT_RESULT_NODE_DEFAULT_WIDTH = 384;
 export const EXPORT_RESULT_NODE_LAYOUT_HEIGHT = 288;
 export const EXPORT_RESULT_NODE_MIN_WIDTH = 168;
@@ -88,8 +81,6 @@ export const VOXCPM_ULTIMATE_CLONE_NODE_DEFAULT_WIDTH = 460;
 export const VOXCPM_ULTIMATE_CLONE_NODE_DEFAULT_HEIGHT = 360;
 
 export const IMAGE_SIZES = ['0.5K', '1K', '2K', '4K'] as const;
-export const PANORAMA_OUTPUT_RESOLUTIONS = ['2048x1024', '4096x2048'] as const;
-export const PANORAMA_SCENE_CLASSES = ['auto', 'indoor', 'outdoor'] as const;
 export const IMAGE_ASPECT_RATIOS = [
   '1:1',
   '16:9',
@@ -164,8 +155,6 @@ export const SEEDANCE_DURATION_SECONDS = [-1, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 
 export const SEEDANCE_RESOLUTIONS = ['480p', '720p'] as const;
 
 export type ImageSize = (typeof IMAGE_SIZES)[number];
-export type PanoramaOutputResolution = (typeof PANORAMA_OUTPUT_RESOLUTIONS)[number];
-export type PanoramaSceneClass = (typeof PANORAMA_SCENE_CLASSES)[number];
 export type JimengImageModelVersion = (typeof JIMENG_IMAGE_MODEL_VERSIONS)[number];
 export type JimengImageResolutionType = (typeof JIMENG_IMAGE_RESOLUTION_TYPES)[number];
 export type JimengVideoModelId = (typeof JIMENG_VIDEO_MODEL_IDS)[number];
@@ -182,6 +171,7 @@ export type SeedanceResolution = (typeof SEEDANCE_RESOLUTIONS)[number];
 export interface NodeDisplayData {
   displayName?: string;
   nodeDescription?: string | null;
+  semanticColor?: CanvasSemanticColor | null;
   [key: string]: unknown;
 }
 
@@ -231,39 +221,6 @@ export type ExportImageNodeResultKind =
 
 export interface ExportImageNodeData extends NodeImageData {
   resultKind?: ExportImageNodeResultKind;
-}
-
-export interface PanoramaNodeData extends NodeDisplayData {
-  prompt: string;
-  sceneClass?: PanoramaSceneClass;
-  outputResolution?: PanoramaOutputResolution;
-  useCache?: boolean;
-  useFp8Attention?: boolean;
-  useFp8Gemm?: boolean;
-  isGenerating?: boolean;
-  generationStartedAt?: number | null;
-  generationDurationMs?: number;
-  lastGeneratedAt?: number | null;
-  lastError?: string | null;
-}
-
-export interface PanoramaResultNodeData extends NodeImageData {
-  sourceNodeId?: string | null;
-  sourceImageUrl?: string | null;
-  prompt?: string;
-  sceneClass?: PanoramaSceneClass;
-  outputResolution?: PanoramaOutputResolution;
-  projection?: 'equirectangular';
-  perspectiveYaw?: number;
-  perspectivePitch?: number;
-  perspectiveFov?: number;
-  perspectiveWidth?: number;
-  perspectiveHeight?: number;
-  isGenerating?: boolean;
-  generationStartedAt?: number | null;
-  generationDurationMs?: number;
-  lastGeneratedAt?: number | null;
-  lastError?: string | null;
 }
 
 export interface GroupNodeData extends NodeDisplayData {
@@ -862,8 +819,6 @@ export interface ScriptWorldviewNodeData extends NodeDisplayData {
 export type CanvasNodeData =
   | UploadImageNodeData
   | ExportImageNodeData
-  | PanoramaNodeData
-  | PanoramaResultNodeData
   | TextAnnotationNodeData
   | GroupNodeData
   | ImageEditNodeData
@@ -1176,18 +1131,6 @@ export function isImageEditNode(
   return node?.type === CANVAS_NODE_TYPES.imageEdit;
 }
 
-export function isPanoramaNode(
-  node: CanvasNode | null | undefined
-): node is Node<PanoramaNodeData, typeof CANVAS_NODE_TYPES.panorama> {
-  return node?.type === CANVAS_NODE_TYPES.panorama;
-}
-
-export function isPanoramaResultNode(
-  node: CanvasNode | null | undefined
-): node is Node<PanoramaResultNodeData, typeof CANVAS_NODE_TYPES.panoramaResult> {
-  return node?.type === CANVAS_NODE_TYPES.panoramaResult;
-}
-
 export function isJimengNode(
   node: CanvasNode | null | undefined
 ): node is Node<JimengNodeData, typeof CANVAS_NODE_TYPES.jimeng> {
@@ -1260,7 +1203,6 @@ export function nodeSupportsDescriptionPanel(
   return (
     isUploadNode(node)
     || isExportImageNode(node)
-    || isPanoramaResultNode(node)
     || isJimengImageResultNode(node)
     || isVideoNode(node)
     || isJimengVideoResultNode(node)
@@ -1409,7 +1351,6 @@ export function resolveSingleImageConnectionSource(
     isUploadNode(node)
     || isImageEditNode(node)
     || isExportImageNode(node)
-    || isPanoramaResultNode(node)
   ) {
     const imageUrl = normalizeImageSource(node.data.imageUrl);
     if (!imageUrl) {

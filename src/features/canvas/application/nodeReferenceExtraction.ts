@@ -5,7 +5,6 @@ import {
   isJimengImageNode,
   isJimengImageResultNode,
   isJimengVideoResultNode,
-  isPanoramaResultNode,
   isSeedanceVideoResultNode,
   isStoryboardGenNode,
   isUploadNode,
@@ -33,7 +32,6 @@ export function extractReferenceImageUrls(node: CanvasNode): string[] {
     isUploadNode(node)
     || isImageEditNode(node)
     || isExportImageNode(node)
-    || isPanoramaResultNode(node)
     || isStoryboardGenNode(node)
   ) {
     return node.data.imageUrl ? [node.data.imageUrl] : [];
@@ -53,7 +51,6 @@ export function extractReferenceVisuals(node: CanvasNode): ExtractedReferenceVis
     isUploadNode(node)
     || isImageEditNode(node)
     || isExportImageNode(node)
-    || isPanoramaResultNode(node)
     || isStoryboardGenNode(node)
   ) {
     const referenceUrl = node.data.imageUrl?.trim() ?? '';

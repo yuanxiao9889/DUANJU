@@ -20,6 +20,11 @@ import {
   type ProjectRecord,
   type ProjectSummaryRecord,
 } from '@/commands/projectState';
+import {
+  createDefaultCanvasColorLabelMap,
+  normalizeCanvasColorLabelMap,
+  type CanvasColorLabelMap,
+} from '@/features/canvas/domain/semanticColors';
 
 const DEFAULT_VIEWPORT: Viewport = {
   x: 0,
@@ -74,6 +79,7 @@ export interface Project extends ProjectSummary {
   edges: CanvasEdge[];
   viewport?: Viewport;
   history: CanvasHistoryState;
+  colorLabels: CanvasColorLabelMap;
 }
 
 type PersistedProject = Project & {
@@ -443,6 +449,7 @@ function toProjectRecord(project: Project): ProjectRecord {
     edgesJson: JSON.stringify(encodedProject.edges),
     viewportJson: JSON.stringify(encodedProject.viewport),
     historyJson: JSON.stringify(encodedProject.history),
+    colorLabelsJson: JSON.stringify(encodedProject.colorLabels),
   };
 }
 
@@ -486,6 +493,9 @@ function fromProjectRecord(record: ProjectRecord): Project {
     edges: parsedEdges,
     viewport: parsedViewport ?? DEFAULT_VIEWPORT,
     history: parsedHistory,
+    colorLabels: normalizeCanvasColorLabelMap(
+      safeParseJson<unknown>(record.colorLabelsJson, createDefaultCanvasColorLabelMap())
+    ),
     imagePool: parsedNodesPayload.imagePool ?? parsedHistoryPayload.imagePool ?? extractedImagePool,
   };
 
@@ -495,6 +505,7 @@ function fromProjectRecord(record: ProjectRecord): Project {
     nodeCount: parsedNodes.length,
     viewport: decodedProject.viewport ?? DEFAULT_VIEWPORT,
     history: decodedProject.history ?? createEmptyHistory(),
+    colorLabels: normalizeCanvasColorLabelMap(decodedProject.colorLabels),
   };
 }
 
@@ -764,6 +775,7 @@ interface ProjectState {
   deleteProjects: (ids: string[]) => void;
   renameProject: (id: string, name: string) => void;
   setCurrentProjectAssetLibrary: (assetLibraryId: string | null) => void;
+  setCurrentProjectColorLabels: (colorLabels: CanvasColorLabelMap) => void;
   openProject: (id: string) => void;
   closeProject: () => void;
   getCurrentProject: () => Project | null;
@@ -825,6 +837,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
       edges: [],
       viewport: DEFAULT_VIEWPORT,
       history: createEmptyHistory(),
+      colorLabels: createDefaultCanvasColorLabelMap(),
     };
 
     set((state) => ({
@@ -1004,6 +1017,45 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
     const nextProject: Project = {
       ...currentProject,
       assetLibraryId: normalizedAssetLibraryId,
+      updatedAt: Date.now(),
+    };
+
+    set((state) => ({
+      currentProject: nextProject,
+      projects: updateProjectSummary(state.projects, {
+        id: nextProject.id,
+        name: nextProject.name,
+        projectType: nextProject.projectType,
+        assetLibraryId: nextProject.assetLibraryId ?? null,
+        createdAt: nextProject.createdAt,
+        updatedAt: nextProject.updatedAt,
+        nodeCount: nextProject.nodeCount,
+      }),
+    }));
+
+    persistProject(nextProject, { debounceMs: 0 });
+  },
+
+  setCurrentProjectColorLabels: (colorLabels) => {
+    const { currentProjectId, currentProject } = get();
+    if (!currentProjectId || !currentProject || currentProject.id !== currentProjectId) {
+      return;
+    }
+
+    const nextColorLabels = normalizeCanvasColorLabelMap(colorLabels);
+    const hasChanged = (
+      currentProject.colorLabels.red !== nextColorLabels.red ||
+      currentProject.colorLabels.purple !== nextColorLabels.purple ||
+      currentProject.colorLabels.yellow !== nextColorLabels.yellow ||
+      currentProject.colorLabels.green !== nextColorLabels.green
+    );
+    if (!hasChanged) {
+      return;
+    }
+
+    const nextProject: Project = {
+      ...currentProject,
+      colorLabels: nextColorLabels,
       updatedAt: Date.now(),
     };
 

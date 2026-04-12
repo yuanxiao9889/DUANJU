@@ -20,8 +20,6 @@ import {
   type ExportImageNodeData,
   type GroupNodeData,
   type ImageEditNodeData,
-  type PanoramaNodeData,
-  type PanoramaResultNodeData,
   type JimengImageNodeData,
   type JimengImageResultNodeData,
   type JimengNodeData,
@@ -54,7 +52,6 @@ import {
 import { DEFAULT_NODE_DISPLAY_NAME } from './nodeDisplay';
 import { DEFAULT_IMAGE_MODEL_ID } from '../models';
 import {
-  HUNYUANWORLD_PANORAMA_EXTENSION_ID,
   QWEN_TTS_COMPLETE_EXTENSION_ID,
   QWEN_TTS_SIMPLE_EXTENSION_ID,
   VOXCPM2_COMPLETE_EXTENSION_ID,
@@ -185,86 +182,6 @@ const imageEditNodeDefinition: CanvasNodeDefinition<ImageEditNodeData> = {
     isGenerating: false,
     generationStartedAt: null,
     generationDurationMs: 60000,
-  }),
-};
-
-const panoramaNodeDefinition: CanvasNodeDefinition<PanoramaNodeData> = {
-  type: CANVAS_NODE_TYPES.panorama,
-  menuLabelKey: 'node.menu.panorama',
-  menuIcon: 'sparkles',
-  menuGroup: 'media',
-  visibleInMenu: true,
-  menuProjectTypes: ['storyboard'],
-  requiredExtensionId: HUNYUANWORLD_PANORAMA_EXTENSION_ID,
-  capabilities: {
-    toolbar: true,
-    promptInput: false,
-  },
-  connectivity: {
-    sourceHandle: true,
-    targetHandle: true,
-    connectMenu: {
-      fromSource: true,
-      fromTarget: false,
-    },
-  },
-  createDefaultData: () => ({
-    displayName: DEFAULT_NODE_DISPLAY_NAME[CANVAS_NODE_TYPES.panorama],
-    prompt: '',
-    sceneClass: 'auto',
-    outputResolution: '4096x2048',
-    useCache: true,
-    useFp8Attention: true,
-    useFp8Gemm: true,
-    isGenerating: false,
-    generationStartedAt: null,
-    generationDurationMs: 240000,
-    lastGeneratedAt: null,
-    lastError: null,
-  }),
-};
-
-const panoramaResultNodeDefinition: CanvasNodeDefinition<PanoramaResultNodeData> = {
-  type: CANVAS_NODE_TYPES.panoramaResult,
-  menuLabelKey: 'node.menu.panoramaResult',
-  menuIcon: 'layout',
-  menuGroup: 'media',
-  visibleInMenu: false,
-  menuProjectTypes: ['storyboard'],
-  requiredExtensionId: HUNYUANWORLD_PANORAMA_EXTENSION_ID,
-  capabilities: {
-    toolbar: true,
-    promptInput: false,
-  },
-  connectivity: {
-    sourceHandle: true,
-    targetHandle: true,
-    connectMenu: {
-      fromSource: false,
-      fromTarget: false,
-    },
-  },
-  createDefaultData: () => ({
-    displayName: DEFAULT_NODE_DISPLAY_NAME[CANVAS_NODE_TYPES.panoramaResult],
-    imageUrl: null,
-    previewImageUrl: null,
-    aspectRatio: '2:1',
-    projection: 'equirectangular',
-    sourceNodeId: null,
-    sourceImageUrl: null,
-    prompt: '',
-    sceneClass: 'auto',
-    outputResolution: '4096x2048',
-    perspectiveYaw: 0,
-    perspectivePitch: 0,
-    perspectiveFov: 90,
-    perspectiveWidth: 1280,
-    perspectiveHeight: 720,
-    isGenerating: false,
-    generationStartedAt: null,
-    generationDurationMs: 240000,
-    lastGeneratedAt: null,
-    lastError: null,
   }),
 };
 
@@ -1225,8 +1142,6 @@ const scriptWorldviewNodeDefinition: CanvasNodeDefinition<ScriptWorldviewNodeDat
 export const canvasNodeDefinitions: Record<CanvasNodeType, CanvasNodeDefinition> = {
   [CANVAS_NODE_TYPES.upload]: uploadNodeDefinition,
   [CANVAS_NODE_TYPES.imageEdit]: imageEditNodeDefinition,
-  [CANVAS_NODE_TYPES.panorama]: panoramaNodeDefinition,
-  [CANVAS_NODE_TYPES.panoramaResult]: panoramaResultNodeDefinition,
   [CANVAS_NODE_TYPES.jimeng]: jimengNodeDefinition,
   [CANVAS_NODE_TYPES.jimengImage]: jimengImageNodeDefinition,
   [CANVAS_NODE_TYPES.jimengImageResult]: jimengImageResultNodeDefinition,

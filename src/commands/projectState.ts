@@ -24,6 +24,7 @@ export interface ProjectRecord {
   edgesJson: string;
   viewportJson: string;
   historyJson: string;
+  colorLabelsJson: string;
 }
 
 export async function listProjectSummaries(): Promise<ProjectSummaryRecord[]> {

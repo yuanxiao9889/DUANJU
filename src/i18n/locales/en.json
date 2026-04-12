@@ -119,6 +119,23 @@
       "lock": "Lock Canvas",
       "unlock": "Unlock Canvas"
     },
+    "semanticColor": {
+      "title": "TAGS",
+      "applyDisabled": "Select colorable nodes first",
+      "applyLabel": "Mark selected nodes as \"{{label}}\"",
+      "selectionEmpty": "Select nodes first",
+      "selectionUnsupported": "Current selection cannot be colored",
+      "selectionCount": "{{count}} node(s) selected",
+      "editLabel": "Edit label",
+      "editPlaceholder": "Label description",
+      "labelLength": "{{count}} / {{max}}",
+      "colorNames": {
+        "red": "Red",
+        "purple": "Purple",
+        "yellow": "Yellow",
+        "green": "Green"
+      }
+    },
     "batchMenu": {
       "referenceSelected": "Create from {{count}} selected {{type}} node(s)",
       "node": "node"

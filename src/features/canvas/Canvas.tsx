@@ -101,6 +101,12 @@ import { SelectionGroupBar } from './ui/SelectionGroupBar';
 import { CanvasAssetDock } from './ui/CanvasAssetDock';
 import { JimengVideoQueuePanel } from '@/features/jimeng/ui/JimengVideoQueuePanel';
 import { useJimengVideoQueueStore } from '@/stores/jimengVideoQueueStore';
+import { CanvasColorLegend } from './ui/CanvasColorLegend';
+import { withSemanticNodePresentation } from './ui/nodeSemanticStyles';
+import {
+  createDefaultCanvasColorLabelMap,
+  type CanvasSemanticColor,
+} from './domain/semanticColors';
 
 const ScriptBiblePanel = lazy(async () => {
   const module = await import('./ui/ScriptBiblePanel');
@@ -457,7 +463,7 @@ function resolveAllowedNodeTypes(
   if (isSourceRootNode) {
     return allowedTypes;
   }
-  
+
   return allowedTypes;
 }
 
@@ -605,6 +611,9 @@ export function Canvas() {
   const connectNodes = useCanvasStore((state) => state.onConnect);
   const setCanvasData = useCanvasStore((state) => state.setCanvasData);
   const updateNodeData = useCanvasStore((state) => state.updateNodeData);
+  const applySemanticColorToSelected = useCanvasStore(
+    (state) => state.applySemanticColorToSelected
+  );
   const addNode = useCanvasStore((state) => state.addNode);
   const setSelectedNode = useCanvasStore((state) => state.setSelectedNode);
   const selectedNodeId = useCanvasStore((state) => state.selectedNodeId);
@@ -687,6 +696,9 @@ export function Canvas() {
   const isScriptProject = project?.projectType === 'script';
   const saveCurrentProject = useProjectStore((state) => state.saveCurrentProject);
   const saveCurrentProjectViewport = useProjectStore((state) => state.saveCurrentProjectViewport);
+  const setCurrentProjectColorLabels = useProjectStore(
+    (state) => state.setCurrentProjectColorLabels
+  );
   const cancelPendingViewportPersist = useProjectStore(
     (state) => state.cancelPendingViewportPersist
   );
@@ -3344,6 +3356,32 @@ export function Canvas() {
     () => nodes.filter((node) => node.selected),
     [nodes]
   );
+  const flowNodes = useMemo<CanvasNode[]>(
+    () => nodes.map((node) => withSemanticNodePresentation(node)),
+    [nodes]
+  );
+  const colorLegendLabels = project?.colorLabels ?? createDefaultCanvasColorLabelMap();
+  const selectedColorableNodes = useMemo<CanvasNode[]>(
+    () => selectedNodes.filter((node) => node.type !== CANVAS_NODE_TYPES.group),
+    [selectedNodes]
+  );
+  const activeSelectedSemanticColor = useMemo<CanvasSemanticColor | null>(() => {
+    if (selectedColorableNodes.length === 0) {
+      return null;
+    }
+
+    const [firstNode] = selectedColorableNodes;
+    const firstColor = (firstNode.data as { semanticColor?: CanvasSemanticColor | null }).semanticColor;
+    if (!firstColor) {
+      return null;
+    }
+
+    return selectedColorableNodes.every((node) => (
+      (node.data as { semanticColor?: CanvasSemanticColor | null }).semanticColor === firstColor
+    ))
+      ? firstColor
+      : null;
+  }, [selectedColorableNodes]);
   const selectedNodesForOverlay = useMemo<CanvasNode[]>(() => {
     const nodeMap = new globalThis.Map(nodes.map((node) => [node.id, node] as const));
     return selectedNodes.map((node) => ({
@@ -3372,6 +3410,22 @@ export function Canvas() {
       }),
     [selectedNodes]
   );
+  const handleApplySemanticColor = useCallback((color: CanvasSemanticColor) => {
+    applySemanticColorToSelected(color);
+  }, [applySemanticColorToSelected]);
+  const handleUpdateColorLabel = useCallback((
+    color: CanvasSemanticColor,
+    label: string
+  ) => {
+    if (!project) {
+      return;
+    }
+
+    setCurrentProjectColorLabels({
+      ...colorLegendLabels,
+      [color]: label,
+    });
+  }, [colorLegendLabels, project, setCurrentProjectColorLabels]);
 
   const handleGroupSelectedNodes = useCallback(() => {
     if (selectedNodeIds.length < 2) {
@@ -3483,6 +3537,13 @@ export function Canvas() {
         </Suspense>
       )}
       <div ref={reactFlowWrapperRef} className="relative min-w-0 flex-1">
+      <CanvasColorLegend
+        colorLabels={colorLegendLabels}
+        eligibleSelectedCount={selectedColorableNodes.length}
+        activeColor={activeSelectedSemanticColor}
+        onApplyColor={handleApplySemanticColor}
+        onUpdateLabel={handleUpdateColorLabel}
+      />
       <GroupSidebar
         groups={groupNodesList}
         selectedGroupId={selectedGroupId}
@@ -3490,7 +3551,7 @@ export function Canvas() {
         onSelectGroup={handleLocateGroup}
       />
       <ReactFlow
-        nodes={nodes}
+        nodes={flowNodes}
         edges={edges}
         onNodesChange={handleNodesChange}
         onEdgesChange={handleEdgesChange}

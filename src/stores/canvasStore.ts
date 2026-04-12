@@ -76,6 +76,7 @@ import {
   normalizeJimengReferenceMode,
   normalizeJimengVideoModel,
 } from '@/features/jimeng/domain/jimengOptions';
+import type { CanvasSemanticColor } from '@/features/canvas/domain/semanticColors';
 
 export type {
   ActiveToolDialog,
@@ -489,6 +490,12 @@ interface CanvasState {
     data: Partial<CanvasNodeData>,
     options?: UpdateNodeDataOptions
   ) => void;
+  updateNodesData: (
+    nodeIds: Iterable<string>,
+    data: Partial<CanvasNodeData>,
+    options?: UpdateNodeDataOptions
+  ) => void;
+  applySemanticColorToSelected: (color: CanvasSemanticColor) => void;
   updateNodePosition: (nodeId: string, position: { x: number; y: number }) => void;
   updateStoryboardFrame: (
     nodeId: string,
@@ -691,9 +698,7 @@ function normalizeNodes(rawNodes: CanvasNode[]): CanvasNode[] {
         data: mergedData,
       };
 
-      return shouldApplyImageEditDefaultSize(normalizedNode, mergedData)
-        ? withImageEditDefaultSize(normalizedNode)
-        : normalizedNode;
+      return applyDefaultNodeSize(normalizedNode, mergedData);
     })
     .filter((node): node is CanvasNode => Boolean(node));
 
@@ -1064,6 +1069,26 @@ function withNodeDefaultSize(node: CanvasNode, width: number, height: number): C
       height,
     },
   };
+}
+
+function applyDefaultNodeSize(node: CanvasNode, data: CanvasNodeData): CanvasNode {
+  if (!shouldApplyImageEditDefaultSize(node, data)) {
+    return node;
+  }
+
+  if (node.type === CANVAS_NODE_TYPES.panorama) {
+    return withNodeDefaultSize(node, PANORAMA_NODE_DEFAULT_WIDTH, PANORAMA_NODE_DEFAULT_HEIGHT);
+  }
+
+  if (node.type === CANVAS_NODE_TYPES.panoramaResult) {
+    return withNodeDefaultSize(
+      node,
+      PANORAMA_RESULT_NODE_DEFAULT_WIDTH,
+      PANORAMA_RESULT_NODE_DEFAULT_HEIGHT
+    );
+  }
+
+  return withImageEditDefaultSize(node);
 }
 
 function shouldApplyImageEditDefaultSize(node: CanvasNode, data: CanvasNodeData): boolean {
@@ -2220,23 +2245,7 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
       const nodeMap = new Map(state.nodes.map((node) => [node.id, node] as const));
       const parentGroupId = options.parentId ?? resolveInheritedGroupParentId(sourceNode, nodeMap);
       const createdNode = canvasNodeFactory.createNode(type, position, initialData);
-      const sizedNode = shouldApplyImageEditDefaultSize(createdNode, createdNode.data)
-        ? (
-          createdNode.type === CANVAS_NODE_TYPES.panorama
-            ? withNodeDefaultSize(
-              createdNode,
-              PANORAMA_NODE_DEFAULT_WIDTH,
-              PANORAMA_NODE_DEFAULT_HEIGHT
-            )
-            : createdNode.type === CANVAS_NODE_TYPES.panoramaResult
-              ? withNodeDefaultSize(
-                createdNode,
-                PANORAMA_RESULT_NODE_DEFAULT_WIDTH,
-                PANORAMA_RESULT_NODE_DEFAULT_HEIGHT
-              )
-              : withImageEditDefaultSize(createdNode)
-        )
-        : createdNode;
+      const sizedNode = applyDefaultNodeSize(createdNode, createdNode.data);
       const newNode = attachNodeToGroupParent(
         sizedNode,
         position,
@@ -2911,6 +2920,87 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
         dragHistorySnapshot: null,
       };
     });
+  },
+
+  updateNodesData: (nodeIds, data, options) => {
+    const normalizedNodeIds = Array.from(
+      new Set(
+        Array.from(nodeIds).filter((nodeId): nodeId is string => (
+          typeof nodeId === 'string' && nodeId.trim().length > 0
+        ))
+      )
+    );
+
+    if (normalizedNodeIds.length === 0) {
+      return;
+    }
+
+    set((state) => {
+      const targetNodeIds = new Set(normalizedNodeIds);
+      let changed = false;
+      const nextNodes = state.nodes.map((node) => {
+        if (!targetNodeIds.has(node.id)) {
+          return node;
+        }
+
+        const hasDataChange = Object.entries(data).some(([key, nextValue]) => {
+          const previousValue = (node.data as Record<string, unknown>)[key];
+          return !Object.is(previousValue, nextValue);
+        });
+        if (!hasDataChange) {
+          return node;
+        }
+
+        const mergedData = {
+          ...node.data,
+          ...data,
+        } as CanvasNodeData;
+        const resizedNode = maybeApplyImageAutoResize(
+          {
+            ...node,
+            data: mergedData,
+          },
+          data
+        );
+
+        changed = true;
+        return resizedNode;
+      });
+
+      if (!changed) {
+        return {};
+      }
+
+      const nextHistory =
+        options?.historyMode === 'skip'
+          ? state.history
+          : {
+              past: pushSnapshot(
+                state.history.past,
+                createNodePatchSnapshot(state.nodes, normalizedNodeIds, state.edges)
+              ),
+              future: [],
+            };
+
+      return {
+        nodes: nextNodes,
+        history: nextHistory,
+        dragHistorySnapshot: null,
+      };
+    });
+  },
+
+  applySemanticColorToSelected: (color) => {
+    const targetNodeIds = get()
+      .nodes
+      .filter((node) => node.selected && node.type !== CANVAS_NODE_TYPES.group)
+      .map((node) => node.id);
+
+    if (targetNodeIds.length === 0) {
+      return;
+    }
+
+    get().updateNodesData(targetNodeIds, { semanticColor: color });
   },
 
   updateNodePosition: (nodeId, position) => {

@@ -407,6 +407,19 @@ html[data-platform='macos'] #root {
   cursor: grabbing;
 }
 
+.react-flow__node.canvas-semantic-node {
+  overflow: visible;
+}
+
+.react-flow__node.canvas-semantic-node > :first-child {
+  border-color: var(--canvas-semantic-border-color, currentColor) !important;
+  box-shadow:
+    var(--canvas-semantic-selected-shadow, 0 0 0 0 transparent),
+    0 0 0 1px var(--canvas-semantic-border-color, transparent),
+    var(--canvas-semantic-glow-shadow, 0 0 0 0 transparent) !important;
+  transition: border-color 160ms ease, box-shadow 180ms ease;
+}
+
 @keyframes canvas-edge-flow {
   from {
     stroke-dashoffset: 0;

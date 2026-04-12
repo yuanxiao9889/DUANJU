@@ -8,8 +8,6 @@ import {
 export const DEFAULT_NODE_DISPLAY_NAME: Record<CanvasNodeType, string> = {
   [CANVAS_NODE_TYPES.upload]: '\u4e0a\u4f20\u56fe\u7247',
   [CANVAS_NODE_TYPES.imageEdit]: 'AI \u56fe\u7247',
-  [CANVAS_NODE_TYPES.panorama]: '360 \u5168\u666f',
-  [CANVAS_NODE_TYPES.panoramaResult]: '\u5168\u666f\u7ed3\u679c',
   [CANVAS_NODE_TYPES.jimeng]: '\u5373\u68a6\u89c6\u9891',
   [CANVAS_NODE_TYPES.jimengImage]: '\u5373\u68a6\u56fe\u7247',
   [CANVAS_NODE_TYPES.jimengImageResult]: '\u751f\u6210\u7ed3\u679c',

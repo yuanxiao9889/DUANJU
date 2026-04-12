@@ -43,6 +43,7 @@ pub struct ProjectRecord {
     pub edges_json: String,
     pub viewport_json: String,
     pub history_json: String,
+    pub color_labels_json: String,
 }
 
 fn resolve_db_path(app: &AppHandle) -> Result<PathBuf, String> {
@@ -63,7 +64,8 @@ fn ensure_projects_table(conn: &Connection) -> Result<(), String> {
           nodes_json TEXT NOT NULL,
           edges_json TEXT NOT NULL,
           viewport_json TEXT NOT NULL,
-          history_json TEXT NOT NULL
+          history_json TEXT NOT NULL,
+          color_labels_json TEXT NOT NULL DEFAULT '{}'
         );
         CREATE TABLE IF NOT EXISTS project_image_refs (
           project_id TEXT NOT NULL,
@@ -146,6 +148,7 @@ fn ensure_projects_table(conn: &Connection) -> Result<(), String> {
     let mut has_node_count = false;
     let mut has_project_type = false;
     let mut has_asset_library_id = false;
+    let mut has_color_labels_json = false;
     let mut stmt = conn
         .prepare("PRAGMA table_info(projects)")
         .map_err(|e| format!("Failed to inspect projects schema: {}", e))?;
@@ -164,6 +167,9 @@ fn ensure_projects_table(conn: &Connection) -> Result<(), String> {
         }
         if column_name == "asset_library_id" {
             has_asset_library_id = true;
+        }
+        if column_name == "color_labels_json" {
+            has_color_labels_json = true;
         }
     }
 
@@ -186,6 +192,14 @@ fn ensure_projects_table(conn: &Connection) -> Result<(), String> {
     if !has_asset_library_id {
         conn.execute("ALTER TABLE projects ADD COLUMN asset_library_id TEXT", [])
             .map_err(|e| format!("Failed to add asset_library_id column: {}", e))?;
+    }
+
+    if !has_color_labels_json {
+        conn.execute(
+            "ALTER TABLE projects ADD COLUMN color_labels_json TEXT NOT NULL DEFAULT '{}'",
+            [],
+        )
+        .map_err(|e| format!("Failed to add color_labels_json column: {}", e))?;
     }
 
     conn.execute_batch(
@@ -1100,7 +1114,8 @@ pub fn get_project_record(
                   nodes_json,
                   edges_json,
                   viewport_json,
-                  history_json
+                  history_json,
+                  color_labels_json
                 FROM projects
                 WHERE id = ?1
                 LIMIT 1
@@ -1121,6 +1136,7 @@ pub fn get_project_record(
                 edges_json: row.get(8)?,
                 viewport_json: row.get(9)?,
                 history_json: row.get(10)?,
+                color_labels_json: row.get(11)?,
             })
         })
     };
@@ -1165,9 +1181,10 @@ pub fn upsert_project_record(app: AppHandle, mut record: ProjectRecord) -> Resul
           nodes_json,
           edges_json,
           viewport_json,
-          history_json
+          history_json,
+          color_labels_json
         )
-        VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)
+        VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)
         ON CONFLICT(id) DO UPDATE SET
           name = excluded.name,
           project_type = excluded.project_type,
@@ -1178,7 +1195,8 @@ pub fn upsert_project_record(app: AppHandle, mut record: ProjectRecord) -> Resul
           nodes_json = excluded.nodes_json,
           edges_json = excluded.edges_json,
           viewport_json = excluded.viewport_json,
-          history_json = excluded.history_json
+          history_json = excluded.history_json,
+          color_labels_json = excluded.color_labels_json
         "#,
         params![
             record.id,
@@ -1192,6 +1210,7 @@ pub fn upsert_project_record(app: AppHandle, mut record: ProjectRecord) -> Resul
             record.edges_json,
             record.viewport_json,
             record.history_json,
+            record.color_labels_json,
         ],
     )
     .map_err(|e| format!("Failed to upsert project: {}", e))?;
@@ -1327,9 +1346,20 @@ mod tests {
             .expect("failed to read pragma rows")
             .flatten()
             .any(|column_name| column_name == "asset_library_id");
+        let has_color_labels_json: bool = conn
+            .prepare("PRAGMA table_info(projects)")
+            .expect("failed to prepare pragma")
+            .query_map([], |row| row.get::<_, String>(1))
+            .expect("failed to read pragma rows")
+            .flatten()
+            .any(|column_name| column_name == "color_labels_json");
         assert!(
             has_asset_library_id,
             "asset_library_id should be added for legacy projects"
+        );
+        assert!(
+            has_color_labels_json,
+            "color_labels_json should be added for legacy projects"
         );
 
         let legacy_project_count: i64 = conn

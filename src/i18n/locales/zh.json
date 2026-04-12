@@ -118,6 +118,23 @@
       "miniMapOn": "隐藏小地图",
       "miniMapOff": "显示小地图"
     },
+    "semanticColor": {
+      "title": "语义",
+      "applyDisabled": "请先选中可染色的节点",
+      "applyLabel": "将选中节点标记为「{{label}}」",
+      "selectionEmpty": "先选中节点",
+      "selectionUnsupported": "当前选中节点不可染色",
+      "selectionCount": "已选 {{count}} 个节点",
+      "editLabel": "编辑标签描述",
+      "editPlaceholder": "填写颜色描述",
+      "labelLength": "{{count}} / {{max}}",
+      "colorNames": {
+        "red": "红色",
+        "purple": "紫色",
+        "yellow": "黄色",
+        "green": "绿色"
+      }
+    },
     "batchMenu": {
       "referenceSelected": "基于已选中的 {{count}} 个{{type}}创建节点",
       "node": "节点"

@@ -5,8 +5,11 @@ use reqwest::multipart::{Form, Part};
 use reqwest::Client;
 use serde::Deserialize;
 use serde_json::{json, Value};
+use std::fs;
 use std::io::Cursor;
+use std::net::IpAddr;
 use std::path::PathBuf;
+use std::process::Command;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::RwLock;
@@ -20,6 +23,21 @@ const STORYBOARD_MODEL_ID: &str = "newapi/storyboard-experimental";
 const BANANA_CLIENT_HEADER_VALUE: &str = "comfyui-banana-li";
 const JSON_REQUEST_MAX_ATTEMPTS: usize = 2;
 const JSON_REQUEST_RETRY_DELAY_MS: u64 = 2_000;
+const CURL_JSON_TRANSPORT_MIN_BYTES: usize = 64 * 1024;
+const CURL_JSON_TRANSPORT_TIMEOUT_SECONDS: u64 = 240;
+const FLOW2API_IMAGE_BASE_MODELS: [&str; 4] = [
+    "gemini-2.5-flash-image",
+    "gemini-3.0-pro-image",
+    "gemini-3.1-flash-image",
+    "imagen-4.0-generate-preview",
+];
+const FLOW2API_IMAGE_ASPECT_SUFFIXES: [&str; 5] = [
+    "-landscape",
+    "-portrait",
+    "-square",
+    "-four-three",
+    "-three-four",
+];
 
 #[derive(Debug, Clone, Deserialize)]
 struct NewApiConfigPayload {
@@ -338,21 +356,78 @@ impl NewApiProvider {
         format!("{}/v1/images/edits", trimmed)
     }
 
-    fn normalize_flow2api_image_request_model(request_model: &str) -> String {
-        const FLOW2API_IMAGE_BASE_MODELS: [&str; 4] = [
-            "gemini-2.5-flash-image",
-            "gemini-3.0-pro-image",
-            "gemini-3.1-flash-image",
-            "imagen-4.0-generate-preview",
-        ];
-        const FLOW2API_IMAGE_ASPECT_SUFFIXES: [&str; 5] = [
-            "-landscape",
-            "-portrait",
-            "-square",
-            "-four-three",
-            "-three-four",
-        ];
+    fn is_internal_result_host(host: &str) -> bool {
+        let trimmed = host.trim().trim_matches(['[', ']']);
+        if trimmed.is_empty() {
+            return false;
+        }
 
+        if trimmed.eq_ignore_ascii_case("localhost") {
+            return true;
+        }
+
+        if let Ok(address) = trimmed.parse::<IpAddr>() {
+            return match address {
+                IpAddr::V4(ipv4) => {
+                    ipv4.is_private()
+                        || ipv4.is_loopback()
+                        || ipv4.is_link_local()
+                        || ipv4.is_unspecified()
+                }
+                IpAddr::V6(ipv6) => {
+                    ipv6.is_loopback()
+                        || ipv6.is_unspecified()
+                        || ipv6.is_unicast_link_local()
+                        || ipv6.is_unique_local()
+                }
+            };
+        }
+
+        trimmed.ends_with(".local")
+            || trimmed.ends_with(".internal")
+            || !trimmed.contains('.')
+    }
+
+    fn normalize_image_source(image_source: String, endpoint_url: &str) -> String {
+        let trimmed = image_source.trim();
+        if trimmed.is_empty()
+            || trimmed.starts_with("data:")
+            || !(trimmed.starts_with("http://") || trimmed.starts_with("https://"))
+        {
+            return image_source;
+        }
+
+        let source_url = match reqwest::Url::parse(trimmed) {
+            Ok(url) => url,
+            Err(_) => return image_source,
+        };
+        let host = match source_url.host_str() {
+            Some(host) if Self::is_internal_result_host(host) => host,
+            _ => return image_source,
+        };
+
+        let mut endpoint_origin = match reqwest::Url::parse(endpoint_url.trim()) {
+            Ok(url) => url,
+            Err(_) => return image_source,
+        };
+        endpoint_origin.set_path("/");
+        endpoint_origin.set_query(None);
+        endpoint_origin.set_fragment(None);
+
+        let mut rewritten = endpoint_origin;
+        rewritten.set_path(source_url.path());
+        rewritten.set_query(source_url.query());
+        rewritten.set_fragment(source_url.fragment());
+
+        let normalized = rewritten.to_string();
+        info!(
+            "[NewAPI Result] rewrote internal image host {} -> {}",
+            host, normalized
+        );
+        normalized
+    }
+
+    fn normalize_flow2api_image_request_model(request_model: &str) -> String {
         let trimmed = request_model.trim();
         if trimmed.is_empty() {
             return String::new();
@@ -442,6 +517,39 @@ impl NewApiProvider {
         };
 
         Some(resolved.to_string())
+    }
+
+    fn build_flow2api_openai_extra_body(
+        request: &GenerateRequest,
+        request_model: &str,
+    ) -> Option<Value> {
+        if !Self::is_flow2api_image_request_model(request_model) {
+            return None;
+        }
+
+        let mut image_config = serde_json::Map::new();
+        if !request.aspect_ratio.trim().is_empty() {
+            image_config.insert(
+                "aspectRatio".to_string(),
+                Value::String(request.aspect_ratio.trim().to_string()),
+            );
+        }
+        if let Some(image_size) = Self::resolve_gemini_image_size(request_model, &request.size) {
+            image_config.insert(
+                "imageSize".to_string(),
+                Value::String(image_size.to_string()),
+            );
+        }
+
+        if image_config.is_empty() {
+            return None;
+        }
+
+        Some(json!({
+            "generationConfig": {
+                "imageConfig": Value::Object(image_config),
+            }
+        }))
     }
 
     fn has_reference_images(request: &GenerateRequest) -> bool {
@@ -565,6 +673,13 @@ impl NewApiProvider {
             || (normalized.contains("invalid") && normalized.contains("image"))
     }
 
+    fn is_flow2api_image_request_model(request_model: &str) -> bool {
+        let normalized = Self::normalize_flow2api_image_request_model(request_model);
+        FLOW2API_IMAGE_BASE_MODELS
+            .iter()
+            .any(|base| normalized.eq_ignore_ascii_case(base))
+    }
+
     fn should_retry_generate_content_payload(payload: &Value) -> bool {
         Self::extract_error_message(payload)
             .map(|message| Self::should_continue_generate_content_attempt(&message))
@@ -648,6 +763,9 @@ impl NewApiProvider {
 
     fn extract_first_image(payload: &Value) -> Option<String> {
         let direct_url_pointers = [
+            "/generated_assets/upscaled_image/local_url",
+            "/generated_assets/upscaled_image/url",
+            "/generated_assets/final_image_url",
             "/url",
             "/result/url",
             "/data/0/url",
@@ -843,6 +961,122 @@ impl NewApiProvider {
         })
     }
 
+    fn should_use_curl_json_transport(request_kind: &str, payload_len: usize) -> bool {
+        payload_len >= CURL_JSON_TRANSPORT_MIN_BYTES
+            && (request_kind.starts_with("openai-chat")
+                || request_kind.starts_with("generateContent"))
+    }
+
+    async fn send_json_request_with_curl(
+        endpoint: String,
+        api_key: String,
+        payload: Vec<u8>,
+        request_kind: String,
+    ) -> Result<(reqwest::StatusCode, String), AIError> {
+        let request_kind_for_join = request_kind.clone();
+        tokio::task::spawn_blocking(move || {
+            let request_file_path = std::env::temp_dir().join(format!(
+                "storyboard-copilot-newapi-request-{}.json",
+                uuid::Uuid::new_v4()
+            ));
+            let response_file_path = std::env::temp_dir().join(format!(
+                "storyboard-copilot-newapi-response-{}.txt",
+                uuid::Uuid::new_v4()
+            ));
+
+            let result = (|| {
+                fs::write(&request_file_path, &payload).map_err(|error| {
+                    AIError::Provider(format!(
+                        "Failed to persist NewAPI {} curl payload: {}",
+                        request_kind, error
+                    ))
+                })?;
+
+                let curl_binary = if cfg!(target_os = "windows") {
+                    "curl.exe"
+                } else {
+                    "curl"
+                };
+                let output = Command::new(curl_binary)
+                    .arg("-sS")
+                    .arg("--http1.1")
+                    .arg("--connect-timeout")
+                    .arg("30")
+                    .arg("--max-time")
+                    .arg(CURL_JSON_TRANSPORT_TIMEOUT_SECONDS.to_string())
+                    .arg("-X")
+                    .arg("POST")
+                    .arg(&endpoint)
+                    .arg("-H")
+                    .arg(format!("Authorization: Bearer {}", api_key))
+                    .arg("-H")
+                    .arg("Content-Type: application/json")
+                    .arg("--data-binary")
+                    .arg(format!("@{}", request_file_path.display()))
+                    .arg("-o")
+                    .arg(&response_file_path)
+                    .arg("-w")
+                    .arg("%{http_code}")
+                    .output()
+                    .map_err(|error| {
+                        AIError::Provider(format!(
+                            "Failed to execute curl for NewAPI {} request: {}",
+                            request_kind, error
+                        ))
+                    })?;
+
+                if !output.status.success() {
+                    let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+                    return Err(AIError::Provider(format!(
+                        "curl transport failed for NewAPI {} request: {}",
+                        request_kind,
+                        if stderr.is_empty() {
+                            format!("exit status {}", output.status)
+                        } else {
+                            stderr
+                        }
+                    )));
+                }
+
+                let status_code = String::from_utf8_lossy(&output.stdout)
+                    .trim()
+                    .parse::<u16>()
+                    .map_err(|error| {
+                        AIError::Provider(format!(
+                            "Failed to parse curl HTTP status for NewAPI {} request: {}",
+                            request_kind, error
+                        ))
+                    })?;
+                let response_bytes = fs::read(&response_file_path).map_err(|error| {
+                    AIError::Provider(format!(
+                        "Failed to read curl response for NewAPI {} request: {}",
+                        request_kind, error
+                    ))
+                })?;
+                let response_text = String::from_utf8_lossy(&response_bytes).into_owned();
+                let status = reqwest::StatusCode::from_u16(status_code).map_err(|error| {
+                    AIError::Provider(format!(
+                        "Invalid curl HTTP status for NewAPI {} request: {}",
+                        request_kind, error
+                    ))
+                })?;
+
+                Ok((status, response_text))
+            })();
+
+            let _ = fs::remove_file(&request_file_path);
+            let _ = fs::remove_file(&response_file_path);
+            result
+        })
+        .await
+        .map_err(|error| {
+            AIError::Provider(format!(
+                "curl transport join error for NewAPI {} request: {}",
+                request_kind_for_join, error
+            ))
+        })?
+    }
+
     async fn send_json_request(
         &self,
         endpoint: &str,
@@ -861,7 +1095,70 @@ impl NewApiProvider {
             request_kind,
             payload.len()
         );
+        let use_curl_transport =
+            Self::should_use_curl_json_transport(request_kind, payload.len());
+        if use_curl_transport {
+            info!(
+                "[NewAPI] {} request body exceeded {} bytes, preferring curl transport",
+                request_kind, CURL_JSON_TRANSPORT_MIN_BYTES
+            );
+        }
         for attempt in 1..=JSON_REQUEST_MAX_ATTEMPTS {
+            if use_curl_transport {
+                match Self::send_json_request_with_curl(
+                    endpoint.to_string(),
+                    api_key.to_string(),
+                    payload.clone(),
+                    request_kind.to_string(),
+                )
+                .await
+                {
+                    Ok((status, response_text)) => {
+                        info!(
+                            "[NewAPI] {} attempt {}/{} {} -> {} (curl)",
+                            request_kind, attempt, JSON_REQUEST_MAX_ATTEMPTS, endpoint, status
+                        );
+                        info!(
+                            "[NewAPI] {} attempt {}/{} response (curl): {}",
+                            request_kind, attempt, JSON_REQUEST_MAX_ATTEMPTS, response_text
+                        );
+                        if !status.is_success() {
+                            if attempt < JSON_REQUEST_MAX_ATTEMPTS
+                                && Self::is_retryable_http_status(status)
+                            {
+                                warn!(
+                                    "[NewAPI] {} attempt {}/{} hit retryable status {} via curl. Retrying after {}ms.",
+                                    request_kind,
+                                    attempt,
+                                    JSON_REQUEST_MAX_ATTEMPTS,
+                                    status,
+                                    JSON_REQUEST_RETRY_DELAY_MS
+                                );
+                                sleep(Duration::from_millis(JSON_REQUEST_RETRY_DELAY_MS)).await;
+                                continue;
+                            }
+                            return Err(AIError::Provider(format!(
+                                "NewAPI {} request failed {}: {}",
+                                request_kind, status, response_text
+                            )));
+                        }
+
+                        return serde_json::from_str(&response_text).map_err(|error| {
+                            AIError::Provider(format!(
+                                "Failed to parse NewAPI {} response: {}. Response was: {}",
+                                request_kind, error, response_text
+                            ))
+                        });
+                    }
+                    Err(error) => {
+                        warn!(
+                            "[NewAPI] {} attempt {}/{} curl transport unavailable, falling back to reqwest: {}",
+                            request_kind, attempt, JSON_REQUEST_MAX_ATTEMPTS, error
+                        );
+                    }
+                }
+            }
+
             let response = self
                 .client
                 .post(endpoint)
@@ -1231,6 +1528,11 @@ impl NewApiProvider {
         if let Some(image_size) = Self::resolve_gemini_image_size(&request_model, &request.size) {
             body.insert("image_size".to_string(), Value::String(image_size.to_string()));
         }
+        if let Some(extra_body) =
+            Self::build_flow2api_openai_extra_body(request, &request_model)
+        {
+            body.insert("extra_body".to_string(), extra_body);
+        }
 
         self.send_json_request(&endpoint, api_key, Value::Object(body), "openai-chat")
             .await
@@ -1290,6 +1592,8 @@ impl NewApiProvider {
         api_key: &str,
     ) -> Result<Value, AIError> {
         let has_reference_images = Self::has_reference_images(request);
+        let prefers_generate_content_fallback =
+            has_reference_images && Self::is_flow2api_image_request_model(&config.request_model);
 
         match self.run_openai_chat(request, config, api_key).await {
             Ok(payload)
@@ -1300,24 +1604,39 @@ impl NewApiProvider {
                         })
                         .unwrap_or(false) =>
             {
-                info!(
-                    "[NewAPI] openai-compatible returned an image compatibility error payload, retrying with OpenAI edits"
-                );
-                self.run_openai_edits(request, config, api_key).await
+                if prefers_generate_content_fallback {
+                    info!(
+                        "[NewAPI] openai-compatible returned an image compatibility error payload for a Flow2API image model, retrying with generateContent"
+                    );
+                    self.run_generate_content(request, config, api_key).await
+                } else {
+                    info!(
+                        "[NewAPI] openai-compatible returned an image compatibility error payload, retrying with OpenAI edits"
+                    );
+                    self.run_openai_edits(request, config, api_key).await
+                }
             }
             Ok(payload) => Ok(payload),
             Err(AIError::Provider(message))
                 if has_reference_images
                     && Self::should_retry_openai_chat_with_openai_edits(&message) =>
             {
-                info!(
-                    "[NewAPI] openai-compatible provider error matched image compatibility fallback criteria, retrying with OpenAI edits"
-                );
-                self.run_openai_edits(request, config, api_key).await
+                if prefers_generate_content_fallback {
+                    info!(
+                        "[NewAPI] openai-compatible provider error matched image compatibility fallback criteria for a Flow2API image model, retrying with generateContent"
+                    );
+                    self.run_generate_content(request, config, api_key).await
+                } else {
+                    info!(
+                        "[NewAPI] openai-compatible provider error matched image compatibility fallback criteria, retrying with OpenAI edits"
+                    );
+                    self.run_openai_edits(request, config, api_key).await
+                }
             }
             Err(error) => Err(error),
         }
     }
+
 }
 
 #[cfg(test)]
@@ -1352,6 +1671,32 @@ mod tests {
     }
 
     #[test]
+    fn normalize_image_source_rewrites_internal_flow2api_url_to_endpoint_origin() {
+        let image_source = NewApiProvider::normalize_image_source(
+            "http://flow2api:8000/tmp/example_4K.jpg".to_string(),
+            "https://www.oopii.cn/v1",
+        );
+
+        assert_eq!(
+            image_source,
+            "https://www.oopii.cn/tmp/example_4K.jpg".to_string()
+        );
+    }
+
+    #[test]
+    fn normalize_image_source_keeps_public_urls_unchanged() {
+        let image_source = NewApiProvider::normalize_image_source(
+            "https://storage.googleapis.com/example/image.png?token=abc".to_string(),
+            "https://www.oopii.cn/v1",
+        );
+
+        assert_eq!(
+            image_source,
+            "https://storage.googleapis.com/example/image.png?token=abc".to_string()
+        );
+    }
+
+    #[test]
     fn normalize_flow2api_image_request_model_strips_aspect_and_size_suffixes() {
         assert_eq!(
             NewApiProvider::normalize_flow2api_image_request_model(
@@ -1378,6 +1723,90 @@ mod tests {
         assert_eq!(
             NewApiProvider::normalize_flow2api_image_request_model("custom-provider/my-model-4k"),
             "custom-provider/my-model-4k".to_string()
+        );
+    }
+
+    #[test]
+    fn is_flow2api_image_request_model_detects_supported_base_and_variant_models() {
+        assert!(NewApiProvider::is_flow2api_image_request_model(
+            "gemini-3.0-pro-image"
+        ));
+        assert!(NewApiProvider::is_flow2api_image_request_model(
+            "gemini-3.0-pro-image-landscape-4k"
+        ));
+        assert!(NewApiProvider::is_flow2api_image_request_model(
+            "imagen-4.0-generate-preview-square"
+        ));
+    }
+
+    #[test]
+    fn is_flow2api_image_request_model_rejects_unknown_models() {
+        assert!(!NewApiProvider::is_flow2api_image_request_model(
+            "custom-provider/my-model"
+        ));
+        assert!(!NewApiProvider::is_flow2api_image_request_model(""));
+    }
+
+    #[test]
+    fn build_flow2api_openai_extra_body_includes_aspect_ratio_and_image_size() {
+        let request = crate::ai::GenerateRequest {
+            prompt: "make it night".to_string(),
+            model: "newapi/gemini".to_string(),
+            size: "4K".to_string(),
+            aspect_ratio: "16:9".to_string(),
+            reference_images: None,
+            extra_params: None,
+        };
+
+        let extra_body = NewApiProvider::build_flow2api_openai_extra_body(
+            &request,
+            "gemini-3.0-pro-image",
+        )
+        .expect("expected extra_body for flow2api image model");
+
+        assert_eq!(
+            extra_body,
+            json!({
+                "generationConfig": {
+                    "imageConfig": {
+                        "aspectRatio": "16:9",
+                        "imageSize": "4K",
+                    }
+                }
+            })
+        );
+    }
+
+    #[test]
+    fn build_flow2api_openai_extra_body_skips_non_flow2api_models() {
+        let request = crate::ai::GenerateRequest {
+            prompt: "make it night".to_string(),
+            model: "newapi/gemini".to_string(),
+            size: "4K".to_string(),
+            aspect_ratio: "16:9".to_string(),
+            reference_images: None,
+            extra_params: None,
+        };
+
+        assert!(NewApiProvider::build_flow2api_openai_extra_body(&request, "gpt-image-1")
+            .is_none());
+    }
+
+    #[test]
+    fn extract_first_image_prefers_flow2api_upscaled_asset() {
+        let payload = json!({
+            "url": "https://storage.googleapis.com/example/original.jpg",
+            "generated_assets": {
+                "origin_image_url": "https://storage.googleapis.com/example/original.jpg",
+                "upscaled_image": {
+                    "local_url": "http://flow2api:8000/tmp/example_4K.jpg"
+                }
+            }
+        });
+
+        assert_eq!(
+            NewApiProvider::extract_first_image(&payload),
+            Some("http://flow2api:8000/tmp/example_4K.jpg".to_string())
         );
     }
 
@@ -1577,7 +2006,10 @@ impl AIProvider for NewApiProvider {
         }
 
         if let Some(image_source) = Self::extract_first_image(&payload) {
-            return Ok(image_source);
+            return Ok(Self::normalize_image_source(
+                image_source,
+                &config.endpoint_url,
+            ));
         }
 
         if let Some(text) = Self::extract_text(&payload) {
