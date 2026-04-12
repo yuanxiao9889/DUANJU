@@ -9,6 +9,7 @@ import { useTranslation } from 'react-i18next';
 import {
   CANVAS_SEMANTIC_COLORS,
   CANVAS_SEMANTIC_COLOR_VISUALS,
+  MAX_CANVAS_COLOR_LABEL_LENGTH,
   normalizeCanvasColorLabel,
   type CanvasColorLabelMap,
   type CanvasSemanticColor,

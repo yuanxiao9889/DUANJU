@@ -16,7 +16,6 @@ import {
 
 import { createMockQwenTtsAudioFile } from './mockQwenTts';
 import {
-  HUNYUANWORLD_PANORAMA_EXTENSION_ID,
   QWEN_TTS_COMPLETE_EXTENSION_ID,
   QWEN_TTS_SIMPLE_EXTENSION_ID,
   type ExtensionRuntimeState,
@@ -189,26 +188,9 @@ function ensurePackageHasPythonEntry(extensionPackage: LoadedExtensionPackage): 
 }
 
 function formatHealthCheckLabel(
-  extensionPackage: LoadedExtensionPackage,
+  _extensionPackage: LoadedExtensionPackage,
   checkName: string
 ): string {
-  if (extensionPackage.id === HUNYUANWORLD_PANORAMA_EXTENSION_ID) {
-    switch (checkName) {
-      case 'repo':
-        return 'local HunyuanWorld repo';
-      case 'script':
-        return 'panorama entry script';
-      case 'outputsDir':
-        return 'outputs folder';
-      case 'numpy':
-        return 'NumPy';
-      case 'pillow':
-        return 'Pillow';
-      default:
-        break;
-    }
-  }
-
   switch (checkName) {
     case 'python':
       return 'embedded Python runtime';
@@ -228,17 +210,9 @@ function formatHealthCheckLabel(
 }
 
 function formatListedModelLabel(
-  extensionPackage: LoadedExtensionPackage,
+  _extensionPackage: LoadedExtensionPackage,
   modelId: string
 ): string {
-  if (extensionPackage.id === HUNYUANWORLD_PANORAMA_EXTENSION_ID) {
-    if (modelId === 'hunyuanworld-panogen') {
-      return 'HunyuanWorld panorama script';
-    }
-
-    return modelId;
-  }
-
   switch (modelId) {
     case 'voice_design':
       return 'VoiceDesign model';
@@ -255,35 +229,6 @@ function describeFailedHealthChecks(
   extensionPackage: LoadedExtensionPackage,
   failedChecks: string[]
 ): string {
-  if (extensionPackage.id === HUNYUANWORLD_PANORAMA_EXTENSION_ID) {
-    const hints: string[] = [];
-
-    if (failedChecks.includes('repo')) {
-      hints.push('set HUNYUANWORLD_REPO to your local HunyuanWorld-1.0 checkout');
-    }
-
-    if (failedChecks.includes('script')) {
-      hints.push('make sure demo_panogen.py exists, or set HUNYUANWORLD_SCRIPT to the correct entry file');
-    }
-
-    if (failedChecks.includes('numpy') || failedChecks.includes('pillow')) {
-      hints.push('use a Python environment with NumPy and Pillow available via HUNYUANWORLD_PYTHON or your system python');
-    }
-
-    const remainingChecks = failedChecks.filter(
-      (checkName) => !['repo', 'script', 'numpy', 'pillow'].includes(checkName)
-    );
-    if (remainingChecks.length > 0) {
-      hints.push(
-        `check ${remainingChecks.map((checkName) => formatHealthCheckLabel(extensionPackage, checkName)).join(', ')}`
-      );
-    }
-
-    return hints.length > 0
-      ? `${extensionPackage.name} setup is incomplete: ${hints.join('; ')}.`
-      : `${extensionPackage.name} runtime checks failed.`;
-  }
-
   return `${extensionPackage.name} runtime checks failed: ${failedChecks
     .map((checkName) => formatHealthCheckLabel(extensionPackage, checkName))
     .join(', ')}.`;
@@ -293,10 +238,6 @@ function describeMissingModels(
   extensionPackage: LoadedExtensionPackage,
   missingModels: string[]
 ): string {
-  if (extensionPackage.id === HUNYUANWORLD_PANORAMA_EXTENSION_ID) {
-    return `${extensionPackage.name} could not find the local panorama script. Check HUNYUANWORLD_REPO, and set HUNYUANWORLD_SCRIPT if your entry file is not demo_panogen.py.`;
-  }
-
   return `${extensionPackage.name} is missing required assets: ${missingModels
     .map((modelId) => formatListedModelLabel(extensionPackage, modelId))
     .join(', ')}.`;

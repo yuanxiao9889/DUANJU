@@ -18,10 +18,6 @@ import {
   EXPORT_RESULT_NODE_MIN_WIDTH,
   IMAGE_EDIT_NODE_DEFAULT_HEIGHT,
   IMAGE_EDIT_NODE_DEFAULT_WIDTH,
-  PANORAMA_NODE_DEFAULT_HEIGHT,
-  PANORAMA_NODE_DEFAULT_WIDTH,
-  PANORAMA_RESULT_NODE_DEFAULT_HEIGHT,
-  PANORAMA_RESULT_NODE_DEFAULT_WIDTH,
   SCRIPT_CHAPTER_NODE_DEFAULT_HEIGHT,
   SCRIPT_CHAPTER_NODE_DEFAULT_WIDTH,
   type JimengImageNodeData,
@@ -1058,48 +1054,15 @@ function withImageEditDefaultSize(node: CanvasNode): CanvasNode {
   };
 }
 
-function withNodeDefaultSize(node: CanvasNode, width: number, height: number): CanvasNode {
-  return {
-    ...node,
-    width,
-    height,
-    style: {
-      ...(node.style ?? {}),
-      width,
-      height,
-    },
-  };
-}
-
 function applyDefaultNodeSize(node: CanvasNode, data: CanvasNodeData): CanvasNode {
   if (!shouldApplyImageEditDefaultSize(node, data)) {
     return node;
-  }
-
-  if (node.type === CANVAS_NODE_TYPES.panorama) {
-    return withNodeDefaultSize(node, PANORAMA_NODE_DEFAULT_WIDTH, PANORAMA_NODE_DEFAULT_HEIGHT);
-  }
-
-  if (node.type === CANVAS_NODE_TYPES.panoramaResult) {
-    return withNodeDefaultSize(
-      node,
-      PANORAMA_RESULT_NODE_DEFAULT_WIDTH,
-      PANORAMA_RESULT_NODE_DEFAULT_HEIGHT
-    );
   }
 
   return withImageEditDefaultSize(node);
 }
 
 function shouldApplyImageEditDefaultSize(node: CanvasNode, data: CanvasNodeData): boolean {
-  if (node.type === CANVAS_NODE_TYPES.panorama) {
-    return true;
-  }
-
-  if (node.type === CANVAS_NODE_TYPES.panoramaResult) {
-    return true;
-  }
-
   if (node.type !== CANVAS_NODE_TYPES.imageEdit) {
     return false;
   }
