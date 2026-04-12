@@ -34,8 +34,7 @@ struct NewApiConfigPayload {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum NewApiFormat {
     GeminiGenerateContent,
-    OpenAiChat,
-    OpenAiEdits,
+    OpenAiCompatible,
 }
 
 #[derive(Debug, Clone)]
@@ -76,10 +75,12 @@ impl NewApiProvider {
 
     fn parse_api_format(input: &str) -> Result<NewApiFormat, AIError> {
         match input.trim() {
-            "" => Ok(NewApiFormat::GeminiGenerateContent),
+            "" => Ok(NewApiFormat::OpenAiCompatible),
+            "openai" => Ok(NewApiFormat::OpenAiCompatible),
+            "gemini" => Ok(NewApiFormat::GeminiGenerateContent),
             "gemini-generate-content" => Ok(NewApiFormat::GeminiGenerateContent),
-            "openai-chat" => Ok(NewApiFormat::OpenAiChat),
-            "openai-edits" => Ok(NewApiFormat::OpenAiEdits),
+            "openai-chat" => Ok(NewApiFormat::OpenAiCompatible),
+            "openai-edits" => Ok(NewApiFormat::OpenAiCompatible),
             other => Err(AIError::InvalidRequest(format!(
                 "Unsupported NewAPI format: {}",
                 other
@@ -295,19 +296,24 @@ impl NewApiProvider {
             .or_else(|| trimmed.strip_suffix("/images/edits"))
             .unwrap_or(trimmed)
             .trim_end_matches('/');
+        let encoded_model = urlencoding::encode(request_model.trim()).into_owned();
         if trimmed.ends_with(":generateContent") {
             return trimmed.to_string();
         }
         if trimmed.contains("/models/") {
             return format!("{}:generateContent", trimmed);
         }
-        if trimmed.ends_with("/v1") || trimmed.ends_with("/v1beta") {
-            return format!("{}/models/{}:generateContent", trimmed, request_model);
+        if trimmed.ends_with("/v1beta") {
+            return format!("{}/models/{}:generateContent", trimmed, encoded_model);
         }
-        format!(
-            "{}/v1beta/models/{}:generateContent",
-            trimmed, request_model
-        )
+        if let Some(base_url) = trimmed.strip_suffix("/v1") {
+            return format!(
+                "{}/v1beta/models/{}:generateContent",
+                base_url.trim_end_matches('/'),
+                encoded_model
+            );
+        }
+        format!("{}/v1beta/models/{}:generateContent", trimmed, encoded_model)
     }
 
     fn resolve_openai_endpoint(endpoint_url: &str) -> String {
@@ -330,6 +336,48 @@ impl NewApiProvider {
             return format!("{}/images/edits", trimmed);
         }
         format!("{}/v1/images/edits", trimmed)
+    }
+
+    fn normalize_flow2api_image_request_model(request_model: &str) -> String {
+        const FLOW2API_IMAGE_BASE_MODELS: [&str; 4] = [
+            "gemini-2.5-flash-image",
+            "gemini-3.0-pro-image",
+            "gemini-3.1-flash-image",
+            "imagen-4.0-generate-preview",
+        ];
+        const FLOW2API_IMAGE_ASPECT_SUFFIXES: [&str; 5] = [
+            "-landscape",
+            "-portrait",
+            "-square",
+            "-four-three",
+            "-three-four",
+        ];
+
+        let trimmed = request_model.trim();
+        if trimmed.is_empty() {
+            return String::new();
+        }
+
+        let lower = trimmed.to_ascii_lowercase();
+        let without_size = lower
+            .strip_suffix("-1k")
+            .or_else(|| lower.strip_suffix("-2k"))
+            .or_else(|| lower.strip_suffix("-4k"))
+            .unwrap_or(lower.as_str());
+
+        for base in FLOW2API_IMAGE_BASE_MODELS {
+            if without_size == base {
+                return base.to_string();
+            }
+            for suffix in FLOW2API_IMAGE_ASPECT_SUFFIXES {
+                let expected = format!("{}{}", base, suffix);
+                if without_size == expected {
+                    return base.to_string();
+                }
+            }
+        }
+
+        trimmed.to_string()
     }
 
     fn resolve_gemini_image_size(request_model: &str, size: &str) -> Option<&'static str> {
@@ -492,20 +540,29 @@ impl NewApiProvider {
         })
     }
 
-    fn is_unexpected_end_json_error(message: &str) -> bool {
-        message
-            .trim()
-            .to_ascii_lowercase()
-            .contains("unexpected end of json input")
+    fn is_json_parse_error(message: &str) -> bool {
+        let normalized = message.trim().to_ascii_lowercase();
+        normalized.contains("unexpected end of json input")
+            || normalized.contains("unterminated string starting at")
+            || normalized.contains("json decode error")
+            || normalized.contains("json_invalid")
     }
 
     fn should_continue_generate_content_attempt(message: &str) -> bool {
         let normalized = message.trim().to_ascii_lowercase();
-        Self::is_unexpected_end_json_error(message)
+        Self::is_json_parse_error(message)
             || normalized.contains("failed to extract image from upstream response")
             || normalized.contains("upstream_error")
             || (normalized.contains("400 bad request")
                 && (normalized.contains("<html>") || normalized.contains("nginx")))
+    }
+
+    fn should_retry_openai_chat_with_openai_edits(message: &str) -> bool {
+        let normalized = message.trim().to_ascii_lowercase();
+        Self::is_json_parse_error(message)
+            || (normalized.contains("image_url") && normalized.contains("invalid"))
+            || (normalized.contains("unsupported") && normalized.contains("image"))
+            || (normalized.contains("invalid") && normalized.contains("image"))
     }
 
     fn should_retry_generate_content_payload(payload: &Value) -> bool {
@@ -519,19 +576,6 @@ impl NewApiProvider {
             status.as_u16(),
             408 | 409 | 425 | 429 | 500 | 502 | 503 | 504
         )
-    }
-
-    fn should_retry_openai_chat_with_generate_content(
-        request: &GenerateRequest,
-        config: &NewApiConfig,
-    ) -> bool {
-        let normalized_model = config.request_model.trim().to_ascii_lowercase();
-        let has_reference_images = Self::has_reference_images(request);
-
-        normalized_model.contains("gemini")
-            && (has_reference_images
-                || !request.size.trim().is_empty()
-                || !request.aspect_ratio.trim().is_empty())
     }
 
     fn extract_markdown_link(text: &str, image_only: bool) -> Option<String> {
@@ -604,6 +648,8 @@ impl NewApiProvider {
 
     fn extract_first_image(payload: &Value) -> Option<String> {
         let direct_url_pointers = [
+            "/url",
+            "/result/url",
             "/data/0/url",
             "/choices/0/message/images/0/url",
             "/choices/0/message/image/url",
@@ -1028,7 +1074,8 @@ impl NewApiProvider {
         config: &NewApiConfig,
         api_key: &str,
     ) -> Result<Value, AIError> {
-        let request_model = config.request_model.trim().to_string();
+        let request_model =
+            Self::normalize_flow2api_image_request_model(&config.request_model);
         let endpoint = Self::resolve_endpoint(&config.endpoint_url, &request_model);
         let mut attempts = vec![
             GenerateContentAttempt {
@@ -1134,37 +1181,58 @@ impl NewApiProvider {
         config: &NewApiConfig,
         api_key: &str,
     ) -> Result<Value, AIError> {
-        let request_model = config.request_model.trim().to_string();
+        let request_model =
+            Self::normalize_flow2api_image_request_model(&config.request_model);
         let endpoint = Self::resolve_openai_endpoint(&config.endpoint_url);
         let prompt_text = Self::build_prompt_text(request);
+        let message_content = if let Some(reference_images) =
+            request.reference_images.as_ref().filter(|images| !images.is_empty())
+        {
+            let mut content_parts = vec![json!({
+                "type": "text",
+                "text": prompt_text,
+            })];
 
-        let mut message_content = vec![json!({
-            "type": "text",
-            "text": prompt_text,
-        })];
-
-        if let Some(reference_images) = request.reference_images.as_ref() {
             for source in reference_images {
                 let data_url = Self::source_to_data_url(source).await?;
-                message_content.push(json!({
+                content_parts.push(json!({
                     "type": "image_url",
                     "image_url": {
                         "url": data_url,
                     }
                 }));
             }
-        }
 
-        let body = json!({
-            "model": request_model,
-            "messages": [{
+            Value::Array(content_parts)
+        } else {
+            Value::String(prompt_text)
+        };
+
+        let mut body = serde_json::Map::new();
+        body.insert("model".to_string(), Value::String(request_model.clone()));
+        body.insert(
+            "messages".to_string(),
+            json!([{
                 "role": "user",
                 "content": message_content,
-            }],
-            "stream": false,
-        });
+            }]),
+        );
+        body.insert("stream".to_string(), Value::Bool(false));
 
-        self.send_json_request(&endpoint, api_key, body, "openai-chat")
+        if let Some(size) = Self::resolve_openai_size(&request.size, &request.aspect_ratio) {
+            body.insert("size".to_string(), Value::String(size));
+        }
+        if !request.aspect_ratio.trim().is_empty() {
+            body.insert(
+                "aspect_ratio".to_string(),
+                Value::String(request.aspect_ratio.trim().to_string()),
+            );
+        }
+        if let Some(image_size) = Self::resolve_gemini_image_size(&request_model, &request.size) {
+            body.insert("image_size".to_string(), Value::String(image_size.to_string()));
+        }
+
+        self.send_json_request(&endpoint, api_key, Value::Object(body), "openai-chat")
             .await
     }
 
@@ -1175,7 +1243,8 @@ impl NewApiProvider {
         api_key: &str,
     ) -> Result<Value, AIError> {
         let endpoint = Self::resolve_openai_edits_endpoint(&config.endpoint_url);
-        let request_model = config.request_model.trim().to_string();
+        let request_model =
+            Self::normalize_flow2api_image_request_model(&config.request_model);
         let sources = request
             .reference_images
             .as_ref()
@@ -1213,6 +1282,42 @@ impl NewApiProvider {
 
         self.send_multipart_request(&endpoint, api_key, form).await
     }
+
+    async fn run_openai_compatible(
+        &self,
+        request: &GenerateRequest,
+        config: &NewApiConfig,
+        api_key: &str,
+    ) -> Result<Value, AIError> {
+        let has_reference_images = Self::has_reference_images(request);
+
+        match self.run_openai_chat(request, config, api_key).await {
+            Ok(payload)
+                if has_reference_images
+                    && Self::extract_error_message(&payload)
+                        .map(|message| {
+                            Self::should_retry_openai_chat_with_openai_edits(&message)
+                        })
+                        .unwrap_or(false) =>
+            {
+                info!(
+                    "[NewAPI] openai-compatible returned an image compatibility error payload, retrying with OpenAI edits"
+                );
+                self.run_openai_edits(request, config, api_key).await
+            }
+            Ok(payload) => Ok(payload),
+            Err(AIError::Provider(message))
+                if has_reference_images
+                    && Self::should_retry_openai_chat_with_openai_edits(&message) =>
+            {
+                info!(
+                    "[NewAPI] openai-compatible provider error matched image compatibility fallback criteria, retrying with OpenAI edits"
+                );
+                self.run_openai_edits(request, config, api_key).await
+            }
+            Err(error) => Err(error),
+        }
+    }
 }
 
 #[cfg(test)]
@@ -1221,7 +1326,7 @@ mod tests {
     use serde_json::json;
 
     #[test]
-    fn resolve_endpoint_keeps_slash_model_names() {
+    fn resolve_endpoint_encodes_slash_model_names() {
         let endpoint = NewApiProvider::resolve_endpoint(
             "https://api.rensumo.top/",
             "flow/gemini-3-pro-image-preview",
@@ -1229,7 +1334,80 @@ mod tests {
 
         assert_eq!(
             endpoint,
-            "https://api.rensumo.top/v1beta/models/flow/gemini-3-pro-image-preview:generateContent"
+            "https://api.rensumo.top/v1beta/models/flow%2Fgemini-3-pro-image-preview:generateContent"
+        );
+    }
+
+    #[test]
+    fn resolve_endpoint_rewrites_openai_v1_base_for_generate_content() {
+        let endpoint = NewApiProvider::resolve_endpoint(
+            "https://nano.oopii.cn/v1",
+            "gemini-3.1-flash-image-landscape-4k",
+        );
+
+        assert_eq!(
+            endpoint,
+            "https://nano.oopii.cn/v1beta/models/gemini-3.1-flash-image-landscape-4k:generateContent"
+        );
+    }
+
+    #[test]
+    fn normalize_flow2api_image_request_model_strips_aspect_and_size_suffixes() {
+        assert_eq!(
+            NewApiProvider::normalize_flow2api_image_request_model(
+                "gemini-3.1-flash-image-landscape-4k"
+            ),
+            "gemini-3.1-flash-image".to_string()
+        );
+        assert_eq!(
+            NewApiProvider::normalize_flow2api_image_request_model(
+                "gemini-3.0-pro-image-portrait-2k"
+            ),
+            "gemini-3.0-pro-image".to_string()
+        );
+        assert_eq!(
+            NewApiProvider::normalize_flow2api_image_request_model(
+                "imagen-4.0-generate-preview-square"
+            ),
+            "imagen-4.0-generate-preview".to_string()
+        );
+    }
+
+    #[test]
+    fn normalize_flow2api_image_request_model_keeps_unknown_models() {
+        assert_eq!(
+            NewApiProvider::normalize_flow2api_image_request_model("custom-provider/my-model-4k"),
+            "custom-provider/my-model-4k".to_string()
+        );
+    }
+
+    #[test]
+    fn resolve_endpoint_works_with_normalized_flow2api_model() {
+        let model = NewApiProvider::normalize_flow2api_image_request_model(
+            "gemini-3.1-flash-image-landscape-4k",
+        );
+        let endpoint = NewApiProvider::resolve_endpoint("https://nano.oopii.cn/v1", &model);
+
+        assert_eq!(
+            endpoint,
+            "https://nano.oopii.cn/v1beta/models/gemini-3.1-flash-image:generateContent"
+        );
+    }
+
+    #[test]
+    fn extract_first_image_prefers_top_level_url() {
+        let payload = json!({
+            "url": "https://nano.oopii.cn/tmp/example_4K.jpg",
+            "choices": [{
+                "message": {
+                    "content": "![Generated Image](https://nano.oopii.cn/tmp/fallback.jpg)"
+                }
+            }]
+        });
+
+        assert_eq!(
+            NewApiProvider::extract_first_image(&payload),
+            Some("https://nano.oopii.cn/tmp/example_4K.jpg".to_string())
         );
     }
 
@@ -1238,6 +1416,19 @@ mod tests {
         let payload = json!({
             "error": {
                 "message": "unexpected end of JSON input"
+            }
+        });
+
+        assert!(NewApiProvider::should_retry_generate_content_payload(
+            &payload
+        ));
+    }
+
+    #[test]
+    fn should_retry_generate_content_payload_detects_json_invalid_error() {
+        let payload = json!({
+            "error": {
+                "message": "NewAPI openai-chat request failed 422 Unprocessable Entity: {\"detail\":[{\"type\":\"json_invalid\",\"msg\":\"JSON decode error\",\"ctx\":{\"error\":\"Unterminated string starting at\"}}]}"
             }
         });
 
@@ -1269,6 +1460,15 @@ mod tests {
     }
 
     #[test]
+    fn should_continue_generate_content_attempt_detects_unterminated_string_error() {
+        let message = "Provider error: NewAPI openai-chat request failed 422 Unprocessable Entity: {\"detail\":[{\"type\":\"json_invalid\",\"loc\":[\"body\",176],\"msg\":\"JSON decode error\",\"ctx\":{\"error\":\"Unterminated string starting at\"}}]}";
+
+        assert!(NewApiProvider::should_continue_generate_content_attempt(
+            message
+        ));
+    }
+
+    #[test]
     fn should_retry_generate_content_payload_ignores_other_errors() {
         let payload = json!({
             "error": {
@@ -1278,6 +1478,43 @@ mod tests {
 
         assert!(!NewApiProvider::should_retry_generate_content_payload(
             &payload
+        ));
+    }
+
+    #[test]
+    fn parse_api_format_accepts_simplified_and_legacy_values() {
+        assert_eq!(
+            NewApiProvider::parse_api_format("openai").unwrap(),
+            super::NewApiFormat::OpenAiCompatible
+        );
+        assert_eq!(
+            NewApiProvider::parse_api_format("openai-chat").unwrap(),
+            super::NewApiFormat::OpenAiCompatible
+        );
+        assert_eq!(
+            NewApiProvider::parse_api_format("openai-edits").unwrap(),
+            super::NewApiFormat::OpenAiCompatible
+        );
+        assert_eq!(
+            NewApiProvider::parse_api_format("gemini").unwrap(),
+            super::NewApiFormat::GeminiGenerateContent
+        );
+        assert_eq!(
+            NewApiProvider::parse_api_format("gemini-generate-content").unwrap(),
+            super::NewApiFormat::GeminiGenerateContent
+        );
+    }
+
+    #[test]
+    fn should_retry_openai_chat_with_openai_edits_only_for_image_compatibility_errors() {
+        assert!(NewApiProvider::should_retry_openai_chat_with_openai_edits(
+            "invalid image_url payload"
+        ));
+        assert!(NewApiProvider::should_retry_openai_chat_with_openai_edits(
+            "json_invalid"
+        ));
+        assert!(!NewApiProvider::should_retry_openai_chat_with_openai_edits(
+            "PUBLIC_ERROR_UNUSUAL_ACTIVITY_TOO_MUCH_TRAFFIC"
         ));
     }
 }
@@ -1329,39 +1566,10 @@ impl AIProvider for NewApiProvider {
                 self.run_generate_content(&request, &config, &api_key)
                     .await?
             }
-            NewApiFormat::OpenAiChat => {
-                match self.run_openai_chat(&request, &config, &api_key).await {
-                    Ok(payload)
-                        if Self::extract_error_message(&payload)
-                            .map(|message| Self::is_unexpected_end_json_error(&message))
-                            .unwrap_or(false)
-                            && Self::should_retry_openai_chat_with_generate_content(
-                                &request, &config,
-                            ) =>
-                    {
-                        info!(
-                            "[NewAPI] openai-chat returned unexpected-end JSON error, retrying with Gemini generateContent"
-                        );
-                        self.run_generate_content(&request, &config, &api_key)
-                            .await?
-                    }
-                    Err(AIError::Provider(message))
-                        if Self::is_unexpected_end_json_error(&message)
-                            && Self::should_retry_openai_chat_with_generate_content(
-                                &request, &config,
-                            ) =>
-                    {
-                        info!(
-                            "[NewAPI] openai-chat provider error matched unexpected-end JSON error, retrying with Gemini generateContent"
-                        );
-                        self.run_generate_content(&request, &config, &api_key)
-                            .await?
-                    }
-                    Ok(payload) => payload,
-                    Err(error) => return Err(error),
-                }
+            NewApiFormat::OpenAiCompatible => {
+                self.run_openai_compatible(&request, &config, &api_key)
+                    .await?
             }
-            NewApiFormat::OpenAiEdits => self.run_openai_edits(&request, &config, &api_key).await?,
         };
 
         if let Some(error_message) = Self::extract_error_message(&payload) {

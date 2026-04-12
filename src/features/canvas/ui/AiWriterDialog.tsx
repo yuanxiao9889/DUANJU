@@ -1,9 +1,10 @@
-import { useState, useCallback, useEffect, useRef } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import { createPortal } from 'react-dom';
 import { Sparkles, X, Loader2, ArrowRight, GitFork } from 'lucide-react';
 import { expandScript, rewriteScript, expandFromSummary, expandFromMergedBranches } from '@/commands/textGen';
 import type { MergedBranchContent } from '@/commands/textGen';
 import { UiButton } from '@/components/ui/primitives';
+import { useDraggableDialog } from '@/components/ui/useDraggableDialog';
 
 function simpleMarkdownToHtml(text: string): string {
   let html = text
@@ -55,7 +56,24 @@ export function AiWriterDialog({
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
   const [dialogPosition, setDialogPosition] = useState<{ left?: number; right?: number; top?: number } | null>(null);
-  const dialogRef = useRef<HTMLDivElement>(null);
+  const initialDialogPosition =
+    dialogPosition?.left != null && dialogPosition?.top != null
+      ? {
+          x: dialogPosition.left,
+          y: dialogPosition.top,
+        }
+      : null;
+  const {
+    panelRef,
+    overlayLayoutClassName,
+    panelPositionClassName,
+    panelStyle,
+    dragHandleClassName,
+    handleDragStart,
+  } = useDraggableDialog({
+    isOpen,
+    initialPosition: initialDialogPosition,
+  });
 
   const handleGenerate = useCallback(async () => {
     if (!instruction.trim() && mode === 'rewrite') {
@@ -208,175 +226,175 @@ export function AiWriterDialog({
 
   if (!isOpen) return null;
 
-  const isPositioned = dialogPosition !== null && anchorRef?.current;
-  
   // 如果锚点模式但位置还未计算好，显示透明遮罩等待定位
-  const isPositioning = anchorRef?.current && dialogPosition === null;
+  const isPositioning = Boolean(anchorRef?.current && dialogPosition === null);
+  const isAnchoredMode = Boolean(anchorRef?.current);
 
   return createPortal(
-    <div className={`fixed inset-0 z-50 ${isPositioned ? '' : 'flex items-center justify-center'}`}>
+    <div className={`fixed inset-0 z-50 ${overlayLayoutClassName}`}>
       <div className="absolute inset-0 bg-black/60" onClick={handleClose} />
       {isPositioning ? (
         // 位置计算中，显示加载指示器
-        <div className="flex items-center justify-center">
+        <div className="absolute left-1/2 top-1/2 flex -translate-x-1/2 -translate-y-1/2 items-center justify-center">
           <div className="w-8 h-8 border-2 border-amber-400 border-t-transparent rounded-full animate-spin" />
         </div>
       ) : (
-      <div
-        ref={dialogRef}
-        className={`bg-surface-dark border border-border-dark rounded-xl w-full shadow-2xl max-h-[80vh] flex flex-col ${isPositioned ? '' : 'max-w-2xl mx-4'}`}
-        style={isPositioned ? {
-          position: 'fixed',
-          left: dialogPosition.left,
-          top: dialogPosition.top,
-          width: '400px',
-          maxWidth: '400px',
-        } : {}}
-      >
-        <div className="flex items-center justify-between p-4 border-b border-border-dark">
-          <div className="flex items-center gap-2">
-            {mode === 'expandFromMerged' ? (
-              <GitFork className="w-5 h-5 text-cyan-400" />
-            ) : (
-              <Sparkles className="w-5 h-5 text-amber-400" />
-            )}
-            <h2 className="text-lg font-semibold text-text-dark">
-              {mode === 'expandFromMerged' ? '基于分支融合扩写' :
-               mode === 'expandFromSummary' ? '基于摘要扩写' :
-               mode === 'expand' ? 'AI 扩写' : 'AI 改写'}
-            </h2>
-          </div>
-          <button
-            onClick={handleClose}
-            className="p-1 hover:bg-bg-dark rounded text-text-muted hover:text-text-dark"
+        <div
+          ref={panelRef}
+          className={`bg-surface-dark border border-border-dark rounded-xl shadow-2xl max-h-[80vh] flex flex-col ${panelPositionClassName} ${
+            isAnchoredMode
+              ? 'w-[400px] max-w-[calc(100vw-16px)]'
+              : 'w-[min(calc(100vw-2rem),42rem)] max-w-2xl'
+          }`}
+          style={panelStyle}
+        >
+          <div
+            className={`flex items-center justify-between p-4 border-b border-border-dark ${dragHandleClassName}`}
+            onPointerDown={handleDragStart}
           >
-            <X className="w-5 h-5" />
-          </button>
-        </div>
-
-        <div className="flex-1 overflow-y-auto p-4 space-y-4">
-          <div>
-            <label className="block text-sm font-medium text-text-dark mb-2">
-              原文
-            </label>
-            <div className="p-3 bg-bg-dark rounded-lg text-sm text-text-dark font-mono whitespace-pre-wrap max-h-32 overflow-y-auto">
-              {originalText}
+            <div className="flex items-center gap-2">
+              {mode === 'expandFromMerged' ? (
+                <GitFork className="w-5 h-5 text-cyan-400" />
+              ) : (
+                <Sparkles className="w-5 h-5 text-amber-400" />
+              )}
+              <h2 className="text-lg font-semibold text-text-dark">
+                {mode === 'expandFromMerged' ? '基于分支融合扩写' :
+                 mode === 'expandFromSummary' ? '基于摘要扩写' :
+                 mode === 'expand' ? 'AI 扩写' : 'AI 改写'}
+              </h2>
             </div>
+            <button
+              onClick={handleClose}
+              className="p-1 hover:bg-bg-dark rounded text-text-muted hover:text-text-dark"
+            >
+              <X className="w-5 h-5" />
+            </button>
           </div>
 
-          {mode === 'rewrite' && (
+          <div className="flex-1 overflow-y-auto p-4 space-y-4">
             <div>
               <label className="block text-sm font-medium text-text-dark mb-2">
-                改写要求
+                原文
               </label>
-              <input
-                type="text"
-                value={instruction}
-                onChange={(e) => setInstruction(e.target.value)}
-                placeholder="例如：让语气更紧张、增加动作描写..."
-                className="w-full px-3 py-2 bg-bg-dark border border-border-dark rounded-lg text-text-dark placeholder:text-text-muted focus:outline-none focus:border-amber-500"
-              />
-            </div>
-          )}
-
-          {(mode === 'expand' || mode === 'expandFromSummary' || mode === 'expandFromMerged') && (
-            <div>
-              <label className="block text-sm font-medium text-text-dark mb-2">
-                扩写要求（可选）
-              </label>
-              <input
-                type="text"
-                value={instruction}
-                onChange={(e) => setInstruction(e.target.value)}
-                placeholder={mode === 'expandFromMerged' ? '例如：融合所有分支、选择主线发展...' :
-                            mode === 'expandFromSummary' ? '例如：增加对白、强化冲突...' :
-                            '例如：增加细节描写、丰富人物心理...'}
-                className="w-full px-3 py-2 bg-bg-dark border border-border-dark rounded-lg text-text-dark placeholder:text-text-muted focus:outline-none focus:border-amber-500"
-              />
-            </div>
-          )}
-
-          {mergedBranchContents && mergedBranchContents.length > 0 && (
-            <div className="border border-cyan-500/30 rounded-lg p-3 bg-cyan-500/5">
-              <label className="block text-sm font-medium text-cyan-400 mb-2 flex items-center gap-2">
-                <GitFork className="w-4 h-4" />
-                已接入的分支内容 ({mergedBranchContents.length}个)
-              </label>
-              <div className="space-y-2 max-h-40 overflow-y-auto">
-                {mergedBranchContents.map((branch, index) => (
-                  <div key={index} className="p-2 bg-bg-dark rounded-lg text-xs border border-cyan-500/20">
-                    <div className="flex items-center gap-2 mb-1">
-                      <span className="px-1.5 py-0.5 rounded bg-cyan-500/20 text-cyan-400 font-medium">
-                        {branch.branchLabel || `分支${String.fromCharCode(65 + index)}`}
-                      </span>
-                      <span className="font-medium text-text-dark">
-                        {branch.title}
-                      </span>
-                    </div>
-                    <div className="text-text-muted line-clamp-2">
-                      {branch.content || branch.summary}
-                    </div>
-                  </div>
-                ))}
+              <div className="p-3 bg-bg-dark rounded-lg text-sm text-text-dark font-mono whitespace-pre-wrap max-h-32 overflow-y-auto">
+                {originalText}
               </div>
             </div>
-          )}
 
-          {error && (
-            <div className="p-3 bg-red-500/10 border border-red-500/30 rounded-lg text-sm text-red-400">
-              {error}
-            </div>
-          )}
-
-          {result && (
-            <div>
-              <label className="block text-sm font-medium text-text-dark mb-2 flex items-center gap-2">
-                生成结果
-                <ArrowRight className="w-4 h-4 text-text-muted" />
-              </label>
-              <div className="p-3 bg-bg-dark rounded-lg text-sm text-text-dark font-mono whitespace-pre-wrap max-h-48 overflow-y-auto border border-amber-500/30">
-                {result}
+            {mode === 'rewrite' && (
+              <div>
+                <label className="block text-sm font-medium text-text-dark mb-2">
+                  改写要求
+                </label>
+                <input
+                  type="text"
+                  value={instruction}
+                  onChange={(e) => setInstruction(e.target.value)}
+                  placeholder="例如：让语气更紧张、增加动作描写..."
+                  className="w-full px-3 py-2 bg-bg-dark border border-border-dark rounded-lg text-text-dark placeholder:text-text-muted focus:outline-none focus:border-amber-500"
+                />
               </div>
-            </div>
-          )}
-        </div>
+            )}
 
-        <div className="flex items-center justify-end gap-3 p-4 border-t border-border-dark">
-          <UiButton variant="ghost" onClick={handleClose}>
-            取消
-          </UiButton>
-          {!result ? (
-            <UiButton
-              variant="primary"
-              onClick={handleGenerate}
-              disabled={isLoading}
-              className="flex items-center gap-2"
-            >
-              {isLoading ? (
-                <>
-                  <Loader2 className="w-4 h-4 animate-spin" />
-                  生成中...
-                </>
-              ) : (
-                <>
-                  {mode === 'expandFromMerged' ? <GitFork className="w-4 h-4" /> : <Sparkles className="w-4 h-4" />}
-                  {mode === 'expandFromMerged' ? '开始融合扩写' :
-                   mode === 'expandFromSummary' ? '开始扩写' :
-                   mode === 'expand' ? '开始扩写' : '开始改写'}
-                </>
-              )}
+            {(mode === 'expand' || mode === 'expandFromSummary' || mode === 'expandFromMerged') && (
+              <div>
+                <label className="block text-sm font-medium text-text-dark mb-2">
+                  扩写要求（可选）
+                </label>
+                <input
+                  type="text"
+                  value={instruction}
+                  onChange={(e) => setInstruction(e.target.value)}
+                  placeholder={mode === 'expandFromMerged' ? '例如：融合所有分支、选择主线发展...' :
+                              mode === 'expandFromSummary' ? '例如：增加对白、强化冲突...' :
+                              '例如：增加细节描写、丰富人物心理...'}
+                  className="w-full px-3 py-2 bg-bg-dark border border-border-dark rounded-lg text-text-dark placeholder:text-text-muted focus:outline-none focus:border-amber-500"
+                />
+              </div>
+            )}
+
+            {mergedBranchContents && mergedBranchContents.length > 0 && (
+              <div className="border border-cyan-500/30 rounded-lg p-3 bg-cyan-500/5">
+                <label className="block text-sm font-medium text-cyan-400 mb-2 flex items-center gap-2">
+                  <GitFork className="w-4 h-4" />
+                  已接入的分支内容 ({mergedBranchContents.length}个)
+                </label>
+                <div className="space-y-2 max-h-40 overflow-y-auto">
+                  {mergedBranchContents.map((branch, index) => (
+                    <div key={index} className="p-2 bg-bg-dark rounded-lg text-xs border border-cyan-500/20">
+                      <div className="flex items-center gap-2 mb-1">
+                        <span className="px-1.5 py-0.5 rounded bg-cyan-500/20 text-cyan-400 font-medium">
+                          {branch.branchLabel || `分支${String.fromCharCode(65 + index)}`}
+                        </span>
+                        <span className="font-medium text-text-dark">
+                          {branch.title}
+                        </span>
+                      </div>
+                      <div className="text-text-muted line-clamp-2">
+                        {branch.content || branch.summary}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {error && (
+              <div className="p-3 bg-red-500/10 border border-red-500/30 rounded-lg text-sm text-red-400">
+                {error}
+              </div>
+            )}
+
+            {result && (
+              <div>
+                <label className="block text-sm font-medium text-text-dark mb-2 flex items-center gap-2">
+                  生成结果
+                  <ArrowRight className="w-4 h-4 text-text-muted" />
+                </label>
+                <div className="p-3 bg-bg-dark rounded-lg text-sm text-text-dark font-mono whitespace-pre-wrap max-h-48 overflow-y-auto border border-amber-500/30">
+                  {result}
+                </div>
+              </div>
+            )}
+          </div>
+
+          <div className="flex items-center justify-end gap-3 p-4 border-t border-border-dark">
+            <UiButton variant="ghost" onClick={handleClose}>
+              取消
             </UiButton>
-          ) : (
-            <UiButton
-              variant="primary"
-              onClick={handleConfirm}
-              className="flex items-center gap-2"
-            >
-              确认替换
-            </UiButton>
-          )}
+            {!result ? (
+              <UiButton
+                variant="primary"
+                onClick={handleGenerate}
+                disabled={isLoading}
+                className="flex items-center gap-2"
+              >
+                {isLoading ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    生成中...
+                  </>
+                ) : (
+                  <>
+                    {mode === 'expandFromMerged' ? <GitFork className="w-4 h-4" /> : <Sparkles className="w-4 h-4" />}
+                    {mode === 'expandFromMerged' ? '开始融合扩写' :
+                     mode === 'expandFromSummary' ? '开始扩写' :
+                     mode === 'expand' ? '开始扩写' : '开始改写'}
+                  </>
+                )}
+              </UiButton>
+            ) : (
+              <UiButton
+                variant="primary"
+                onClick={handleConfirm}
+                className="flex items-center gap-2"
+              >
+                确认替换
+              </UiButton>
+            )}
+          </div>
         </div>
-      </div>
       )}
     </div>,
     document.body

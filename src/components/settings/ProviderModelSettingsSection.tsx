@@ -86,7 +86,7 @@ function resolveStoryboardCustomModelIdPlaceholder(providerId: string, fallback:
   }
 
   if (providerId === 'newapi') {
-    return 'flow/gemini-3.1-flash-image-preview / gpt-image-1';
+    return 'gemini-3.1-flash-image / gemini-3.0-pro-image';
   }
 
   return fallback;
@@ -433,11 +433,9 @@ export function ProviderModelSettingsSection({
                 {STORYBOARD_NEWAPI_API_FORMATS.map((format) => (
                   <option key={format} value={format}>
                     {t(
-                      format === 'openai-chat'
-                        ? 'settings.storyboardNewApiFormatOpenaiChat'
-                        : format === 'openai-edits'
-                          ? 'settings.storyboardNewApiFormatOpenaiEdits'
-                          : 'settings.storyboardNewApiFormatGemini'
+                      format === 'openai'
+                        ? 'settings.storyboardNewApiFormatOpenai'
+                        : 'settings.storyboardNewApiFormatGemini'
                     )}
                   </option>
                 ))}
@@ -451,22 +449,18 @@ export function ProviderModelSettingsSection({
                 value={storyboardNewApiModelConfig.endpointUrl}
                 onChange={(event) => onStoryboardNewApiEndpointUrlChange(event.target.value)}
                 placeholder={
-                  storyboardNewApiModelConfig.apiFormat === 'openai-chat'
-                    ? 'https://your-newapi-host/v1/chat/completions'
-                    : storyboardNewApiModelConfig.apiFormat === 'openai-edits'
-                      ? 'https://your-newapi-host/v1/images/edits'
-                      : 'https://your-newapi-host'
+                  storyboardNewApiModelConfig.apiFormat === 'openai'
+                    ? 'https://your-newapi-host/v1'
+                    : 'https://your-newapi-host'
                 }
                 className="h-9 text-sm"
               />
             </div>
             <div className="rounded-md border border-border-dark bg-black/10 px-3 py-2 text-[11px] leading-5 text-text-muted">
               {t(
-                storyboardNewApiModelConfig.apiFormat === 'openai-chat'
-                  ? 'settings.storyboardNewApiHintOpenaiChat'
-                  : storyboardNewApiModelConfig.apiFormat === 'openai-edits'
-                    ? 'settings.storyboardNewApiHintOpenaiEdits'
-                    : 'settings.storyboardNewApiHintGemini'
+                storyboardNewApiModelConfig.apiFormat === 'openai'
+                  ? 'settings.storyboardNewApiHintOpenai'
+                  : 'settings.storyboardNewApiHintGemini'
               )}
             </div>
           </div>

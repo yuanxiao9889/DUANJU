@@ -2,7 +2,6 @@ import {
   Children,
   forwardRef,
   isValidElement,
-  useCallback,
   useEffect,
   useMemo,
   useRef,
@@ -13,7 +12,6 @@ import {
   type HTMLAttributes,
   type InputHTMLAttributes,
   type KeyboardEvent as ReactKeyboardEvent,
-  type MouseEvent as ReactMouseEvent,
   type ReactNode,
   type SelectHTMLAttributes,
   type TextareaHTMLAttributes,
@@ -26,6 +24,7 @@ import {
   UI_POPOVER_TRANSITION_MS,
 } from './motion';
 import { useDialogTransition } from './useDialogTransition';
+import { useDraggableDialog } from './useDraggableDialog';
 
 type ButtonVariant = 'primary' | 'muted' | 'ghost';
 
@@ -80,7 +79,6 @@ interface UiModalProps {
 }
 
 const UI_SELECT_OPEN_EVENT = 'codex-ui-select-open';
-const UI_MODAL_EDGE_GAP = 20;
 
 function extractTextContent(node: ReactNode): string {
   if (typeof node === 'string' || typeof node === 'number') {
@@ -625,128 +623,20 @@ export function UiModal({
   footer,
   widthClassName = 'w-[460px]',
   containerClassName = '',
-  draggable = false,
+  draggable = true,
 }: UiModalProps) {
   const { shouldRender, isVisible } = useDialogTransition(isOpen, UI_DIALOG_TRANSITION_MS);
-  const panelRef = useRef<HTMLDivElement | null>(null);
-  const dragOffsetRef = useRef<{ x: number; y: number } | null>(null);
-  const [position, setPosition] = useState<{ x: number; y: number } | null>(null);
-  const [isDragging, setIsDragging] = useState(false);
-
-  const clampPosition = useCallback((left: number, top: number) => {
-    if (typeof window === 'undefined') {
-      return { x: left, y: top };
-    }
-
-    const panelRect = panelRef.current?.getBoundingClientRect();
-    const panelWidth = panelRect?.width ?? 0;
-    const panelHeight = panelRect?.height ?? 0;
-    const maxLeft = Math.max(UI_MODAL_EDGE_GAP, window.innerWidth - panelWidth - UI_MODAL_EDGE_GAP);
-    const maxTop = Math.max(UI_MODAL_EDGE_GAP, window.innerHeight - panelHeight - UI_MODAL_EDGE_GAP);
-
-    return {
-      x: Math.min(Math.max(UI_MODAL_EDGE_GAP, left), maxLeft),
-      y: Math.min(Math.max(UI_MODAL_EDGE_GAP, top), maxTop),
-    };
-  }, []);
-
-  useEffect(() => {
-    if (!draggable || !isOpen || typeof window === 'undefined') {
-      if (!isOpen) {
-        dragOffsetRef.current = null;
-        setPosition(null);
-        setIsDragging(false);
-      }
-      return;
-    }
-
-    const frameId = window.requestAnimationFrame(() => {
-      const panelRect = panelRef.current?.getBoundingClientRect();
-      if (!panelRect) {
-        return;
-      }
-
-      const centeredLeft = (window.innerWidth - panelRect.width) / 2;
-      const centeredTop = (window.innerHeight - panelRect.height) / 2;
-      setPosition(clampPosition(centeredLeft, centeredTop));
-    });
-
-    return () => {
-      window.cancelAnimationFrame(frameId);
-    };
-  }, [clampPosition, draggable, isOpen]);
-
-  useEffect(() => {
-    if (!draggable || !isOpen || typeof window === 'undefined') {
-      return;
-    }
-
-    const handleWindowResize = () => {
-      setPosition((currentPosition) => {
-        if (!currentPosition) {
-          return currentPosition;
-        }
-        return clampPosition(currentPosition.x, currentPosition.y);
-      });
-    };
-
-    window.addEventListener('resize', handleWindowResize);
-    return () => {
-      window.removeEventListener('resize', handleWindowResize);
-    };
-  }, [clampPosition, draggable, isOpen]);
-
-  useEffect(() => {
-    if (!draggable || !isDragging || typeof window === 'undefined') {
-      return;
-    }
-
-    const handleMouseMove = (event: MouseEvent) => {
-      const dragOffset = dragOffsetRef.current;
-      if (!dragOffset) {
-        return;
-      }
-
-      setPosition(clampPosition(event.clientX - dragOffset.x, event.clientY - dragOffset.y));
-    };
-
-    const handleMouseUp = () => {
-      dragOffsetRef.current = null;
-      setIsDragging(false);
-    };
-
-    window.addEventListener('mousemove', handleMouseMove);
-    window.addEventListener('mouseup', handleMouseUp);
-
-    return () => {
-      window.removeEventListener('mousemove', handleMouseMove);
-      window.removeEventListener('mouseup', handleMouseUp);
-    };
-  }, [clampPosition, draggable, isDragging]);
-
-  const handleHeaderMouseDown = useCallback((event: ReactMouseEvent<HTMLDivElement>) => {
-    if (!draggable || event.button !== 0) {
-      return;
-    }
-
-    const target = event.target;
-    if (target instanceof Element && target.closest('button, input, textarea, select, a, [data-ui-modal-drag-ignore="true"]')) {
-      return;
-    }
-
-    const panelRect = panelRef.current?.getBoundingClientRect();
-    if (!panelRect) {
-      return;
-    }
-
-    dragOffsetRef.current = {
-      x: event.clientX - panelRect.left,
-      y: event.clientY - panelRect.top,
-    };
-    setPosition(clampPosition(panelRect.left, panelRect.top));
-    setIsDragging(true);
-    event.preventDefault();
-  }, [clampPosition, draggable]);
+  const {
+    panelRef,
+    overlayLayoutClassName,
+    panelPositionClassName,
+    panelStyle,
+    dragHandleClassName,
+    handleDragStart,
+  } = useDraggableDialog({
+    enabled: draggable,
+    isOpen,
+  });
 
   if (!shouldRender) {
     return null;
@@ -757,42 +647,34 @@ export function UiModal({
   }
 
   return createPortal(
-    <div className={`fixed ${UI_CONTENT_OVERLAY_INSET_CLASS} z-[10040] ${draggable ? '' : 'flex items-center justify-center'} ${containerClassName}`}>
+    <div className={`fixed ${UI_CONTENT_OVERLAY_INSET_CLASS} z-[10040] ${overlayLayoutClassName} ${containerClassName}`}>
       <div
         className={`absolute inset-0 bg-black/55 transition-opacity duration-200 ${isVisible ? 'opacity-100' : 'opacity-0'}`}
         onClick={onClose}
       />
-      <UiPanel
-        ref={panelRef}
-        className={`relative transition-opacity duration-200 ${isVisible ? 'opacity-100' : 'opacity-0'} ${widthClassName} ${
-          draggable
-            ? position
-              ? 'absolute max-h-[calc(100vh-40px)] overflow-hidden'
-              : 'absolute left-1/2 top-1/2 max-h-[calc(100vh-40px)] -translate-x-1/2 -translate-y-1/2 overflow-hidden'
-            : ''
-        }`}
-        style={draggable && position ? { left: `${position.x}px`, top: `${position.y}px` } : undefined}
-      >
-        <div
-          className={`flex items-center justify-between border-b border-[rgba(255,255,255,0.1)] px-4 py-3 ${
-            draggable ? `select-none ${isDragging ? 'cursor-grabbing' : 'cursor-move'}` : ''
-          }`}
-          onMouseDown={draggable ? handleHeaderMouseDown : undefined}
+      <div ref={panelRef} className={panelPositionClassName} style={panelStyle}>
+        <UiPanel
+          className={`relative max-h-[calc(100vh-40px)] overflow-hidden transition-opacity duration-200 ${isVisible ? 'opacity-100' : 'opacity-0'} ${widthClassName}`}
         >
-          <h2 className="text-sm font-medium text-text-dark">{title}</h2>
-          <UiIconButton className="h-8 w-8" onClick={onClose}>
-            <X className="h-4 w-4" />
-          </UiIconButton>
-        </div>
-
-        <div className="px-4 py-4">{children}</div>
-
-        {footer && (
-          <div className="flex justify-end gap-2 border-t border-[rgba(255,255,255,0.1)] px-4 py-3">
-            {footer}
+          <div
+            className={`flex items-center justify-between border-b border-[rgba(255,255,255,0.1)] px-4 py-3 ${dragHandleClassName}`}
+            onPointerDown={draggable ? handleDragStart : undefined}
+          >
+            <h2 className="text-sm font-medium text-text-dark">{title}</h2>
+            <UiIconButton className="h-8 w-8" onClick={onClose}>
+              <X className="h-4 w-4" />
+            </UiIconButton>
           </div>
-        )}
-      </UiPanel>
+
+          <div className="px-4 py-4">{children}</div>
+
+          {footer && (
+            <div className="flex justify-end gap-2 border-t border-[rgba(255,255,255,0.1)] px-4 py-3">
+              {footer}
+            </div>
+          )}
+        </UiPanel>
+      </div>
     </div>,
     document.body
   );

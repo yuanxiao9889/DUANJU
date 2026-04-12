@@ -31,6 +31,7 @@ import {
 import { UiCheckbox, UiModal, UiSelect } from '@/components/ui';
 import { UI_CONTENT_OVERLAY_INSET_CLASS, UI_DIALOG_TRANSITION_MS } from '@/components/ui/motion';
 import { useDialogTransition } from '@/components/ui/useDialogTransition';
+import { useDraggableDialog } from '@/components/ui/useDraggableDialog';
 import { ProviderModelSettingsSection } from '@/components/settings/ProviderModelSettingsSection';
 import {
   getCustomScriptModels,
@@ -516,6 +517,17 @@ export function SettingsDialog({
   } | null>(null);
   const [isCapturingGroupShortcut, setIsCapturingGroupShortcut] = useState(false);
   const { shouldRender, isVisible } = useDialogTransition(isOpen, UI_DIALOG_TRANSITION_MS);
+  const {
+    panelRef,
+    overlayLayoutClassName,
+    panelPositionClassName,
+    panelStyle,
+    dragHandleClassName,
+    isDragging,
+    handleDragStart,
+  } = useDraggableDialog({
+    isOpen,
+  });
   const runtimePsPort = serverStatus.running ? serverStatus.port : null;
   const pluginPsPort = runtimePsPort ?? psServerPort;
   const normalizedRuntimeVersion = useMemo(() => normalizeVersion(runtimeVersion), [runtimeVersion]);
@@ -1375,35 +1387,42 @@ export function SettingsDialog({
   if (!shouldRender) return null;
 
   return (
-    <div className={`fixed ${UI_CONTENT_OVERLAY_INSET_CLASS} z-50 flex items-center justify-center`}>
+    <div className={`fixed ${UI_CONTENT_OVERLAY_INSET_CLASS} z-50 ${overlayLayoutClassName}`}>
       <div
         className={`absolute inset-0 bg-black/90 transition-opacity duration-200 ${isVisible ? 'opacity-100' : 'opacity-0'}`}
         onClick={onClose}
       />
-      <div className="relative w-[min(96vw,1120px)]">
+      <div ref={panelRef} className={panelPositionClassName} style={panelStyle}>
         <div
-          className={`relative mx-auto overflow-hidden rounded-lg border border-border-dark bg-surface-dark shadow-xl transition-all duration-200 ${isVisible ? 'opacity-100' : 'opacity-0'} flex ${isDialogExpanded ? 'w-[min(94vw,1000px)] h-[min(90vh,700px)]' : 'w-[700px] h-[500px]'}`}
+          className={`relative overflow-hidden rounded-lg border border-border-dark bg-surface-dark shadow-xl ${isDragging ? 'transition-none' : 'transition-opacity duration-200'} ${isVisible ? 'opacity-100' : 'opacity-0'} flex flex-col ${isDialogExpanded ? 'w-[min(94vw,1000px)] h-[min(90vh,700px)]' : 'w-[700px] h-[500px]'}`}
         >
-          <div className="absolute top-3 right-3 flex items-center gap-1 z-10">
-            <button
-              onClick={() => setIsDialogExpanded(!isDialogExpanded)}
-              className="p-1 hover:bg-bg-dark rounded transition-colors"
-              title={isDialogExpanded ? t('settings.dialogCollapse') : t('settings.dialogExpand')}
-            >
-              {isDialogExpanded ? (
-                <Minimize2 className="w-5 h-5 text-text-muted" />
-              ) : (
-                <Maximize2 className="w-5 h-5 text-text-muted" />
-              )}
-            </button>
-            <button
-              onClick={onClose}
-              className="p-1 hover:bg-bg-dark rounded transition-colors"
-            >
-              <X className="w-5 h-5 text-text-muted" />
-            </button>
+          <div
+            className={`flex items-center justify-between border-b border-border-dark px-4 py-3 ${dragHandleClassName}`}
+            onPointerDown={handleDragStart}
+          >
+            <div className="text-sm font-medium text-text-dark">{t('settings.title')}</div>
+            <div className="flex items-center gap-1" data-ui-modal-drag-ignore="true">
+              <button
+                onClick={() => setIsDialogExpanded(!isDialogExpanded)}
+                className="p-1 hover:bg-bg-dark rounded transition-colors"
+                title={isDialogExpanded ? t('settings.dialogCollapse') : t('settings.dialogExpand')}
+              >
+                {isDialogExpanded ? (
+                  <Minimize2 className="w-5 h-5 text-text-muted" />
+                ) : (
+                  <Maximize2 className="w-5 h-5 text-text-muted" />
+                )}
+              </button>
+              <button
+                onClick={onClose}
+                className="p-1 hover:bg-bg-dark rounded transition-colors"
+              >
+                <X className="w-5 h-5 text-text-muted" />
+              </button>
+            </div>
           </div>
 
+          <div className="flex min-h-0 flex-1">
           {/* Sidebar */}
           <div className="w-[180px] bg-bg-dark border-r border-border-dark flex flex-col">
             <div className="px-4 py-4">
@@ -1714,7 +1733,37 @@ export function SettingsDialog({
                       ) ?? '';
                       const isRevealed = Boolean(revealedApiKeys[revealKey]);
                       const hasKey = Boolean(currentApiKey.trim());
+                      const isKeyInputEmpty = currentApiKey.length === 0;
+                      const clearApiKeyButtonTitle = `${t('common.delete')} ${t('settings.apiKey')}`;
                       const isEnabled = isScriptTab && localScriptProviderEnabled === provider.id && hasKey;
+                      const updateCurrentApiKey = (nextValue: string) => {
+                        if (isScriptTab) {
+                          setLocalScriptApiKeys((previous) => ({
+                            ...previous,
+                            [provider.id]: nextValue,
+                          }));
+                          if (!nextValue.trim() && localScriptProviderEnabled === provider.id) {
+                            setLocalScriptProviderEnabled('');
+                          }
+                          return;
+                        }
+
+                        setLocalStoryboardApiKeys((previous) => ({
+                          ...previous,
+                          [provider.id]: nextValue,
+                        }));
+                      };
+                      const clearCurrentApiKey = () => {
+                        updateCurrentApiKey('');
+                        setRevealedApiKeys((previous) =>
+                          previous[revealKey]
+                            ? {
+                                ...previous,
+                                [revealKey]: false,
+                              }
+                            : previous
+                        );
+                      };
                       const resolvedScriptModel = isScriptTab
                         ? resolveConfiguredScriptModel(provider.id, {
                             scriptModelOverrides: localScriptModelOverrides,
@@ -1830,38 +1879,39 @@ export function SettingsDialog({
                                 type={isRevealed ? 'text' : 'password'}
                                 value={currentApiKey}
                                 onChange={(event) => {
-                                  const nextValue = event.target.value;
-                                  if (isScriptTab) {
-                                    setLocalScriptApiKeys((previous) => ({
-                                      ...previous,
-                                      [provider.id]: nextValue,
-                                    }));
-                                  } else {
-                                    setLocalStoryboardApiKeys((previous) => ({
-                                      ...previous,
-                                      [provider.id]: nextValue,
-                                    }));
-                                  }
+                                  updateCurrentApiKey(event.target.value);
                                 }}
                                 placeholder={t('settings.enterApiKey')}
-                                className="w-full rounded border border-border-dark bg-surface-dark px-3 py-2 pr-10 text-sm text-text-dark placeholder:text-text-muted"
+                                className="w-full rounded border border-border-dark bg-surface-dark px-3 py-2 pr-20 text-sm text-text-dark placeholder:text-text-muted"
                               />
-                              <button
-                                type="button"
-                                onClick={() =>
-                                  setRevealedApiKeys((previous) => ({
-                                    ...previous,
-                                    [revealKey]: !isRevealed,
-                                  }))
-                                }
-                                className="absolute right-2 top-1/2 -translate-y-1/2 rounded p-1 hover:bg-bg-dark"
-                              >
-                                {isRevealed ? (
-                                  <EyeOff className="h-4 w-4 text-text-muted" />
-                                ) : (
-                                  <Eye className="h-4 w-4 text-text-muted" />
-                                )}
-                              </button>
+                              <div className="absolute right-2 top-1/2 flex -translate-y-1/2 items-center gap-1">
+                                <button
+                                  type="button"
+                                  onClick={clearCurrentApiKey}
+                                  disabled={isKeyInputEmpty}
+                                  title={clearApiKeyButtonTitle}
+                                  aria-label={clearApiKeyButtonTitle}
+                                  className="rounded p-1 hover:bg-bg-dark disabled:cursor-not-allowed disabled:opacity-40"
+                                >
+                                  <X className="h-4 w-4 text-text-muted" />
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    setRevealedApiKeys((previous) => ({
+                                      ...previous,
+                                      [revealKey]: !isRevealed,
+                                    }))
+                                  }
+                                  className="rounded p-1 hover:bg-bg-dark"
+                                >
+                                  {isRevealed ? (
+                                    <EyeOff className="h-4 w-4 text-text-muted" />
+                                  ) : (
+                                    <Eye className="h-4 w-4 text-text-muted" />
+                                  )}
+                                </button>
+                              </div>
                             </div>
                             {!isScriptTab ? (
                               provider.id === 'compatible' ? (
@@ -3232,6 +3282,7 @@ export function SettingsDialog({
                 </div>
               </>
             )}
+          </div>
           </div>
         </div>
       </div>

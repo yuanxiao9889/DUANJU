@@ -5,9 +5,8 @@ export const STORYBOARD_NEWAPI_MODEL_ID =
   `${STORYBOARD_NEWAPI_PROVIDER_ID}/storyboard-experimental`;
 
 export const STORYBOARD_NEWAPI_API_FORMATS = [
-  'gemini-generate-content',
-  'openai-chat',
-  'openai-edits',
+  'openai',
+  'gemini',
 ] as const;
 
 export type StoryboardNewApiApiFormat =
@@ -28,14 +27,28 @@ export interface StoryboardNewApiExtraParamsPayload {
 }
 
 export const DEFAULT_STORYBOARD_NEWAPI_API_FORMAT: StoryboardNewApiApiFormat =
-  'gemini-generate-content';
+  'openai';
 
 export function normalizeStoryboardNewApiApiFormat(
   input: string | null | undefined
 ): StoryboardNewApiApiFormat {
-  return STORYBOARD_NEWAPI_API_FORMATS.includes(input as StoryboardNewApiApiFormat)
-    ? (input as StoryboardNewApiApiFormat)
-    : DEFAULT_STORYBOARD_NEWAPI_API_FORMAT;
+  const normalizedInput = (input ?? '').trim();
+  if (
+    normalizedInput === 'openai'
+    || normalizedInput === 'openai-chat'
+    || normalizedInput === 'openai-edits'
+  ) {
+    return 'openai';
+  }
+
+  if (
+    normalizedInput === 'gemini'
+    || normalizedInput === 'gemini-generate-content'
+  ) {
+    return 'gemini';
+  }
+
+  return DEFAULT_STORYBOARD_NEWAPI_API_FORMAT;
 }
 
 export function normalizeStoryboardNewApiModelConfig(
@@ -85,11 +98,9 @@ export function resolveStoryboardNewApiModeLabel(
   referenceImageCount: number
 ): string {
   const suffix = referenceImageCount > 0 ? '（图生图）' : '';
-  return apiFormat === 'openai-chat'
-    ? `OpenAI 聊天格式${suffix}`
-    : apiFormat === 'openai-edits'
-      ? `OpenAI 编辑接口${suffix}`
-      : `Gemini 原生格式${suffix}`;
+  return apiFormat === 'openai'
+    ? `OpenAI 兼容格式${suffix}`
+    : `Gemini 原生格式${suffix}`;
 }
 
 export function createStoryboardNewApiImageModel(
