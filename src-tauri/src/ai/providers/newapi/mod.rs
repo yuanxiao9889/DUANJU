@@ -331,7 +331,10 @@ impl NewApiProvider {
                 encoded_model
             );
         }
-        format!("{}/v1beta/models/{}:generateContent", trimmed, encoded_model)
+        format!(
+            "{}/v1beta/models/{}:generateContent",
+            trimmed, encoded_model
+        )
     }
 
     fn resolve_openai_endpoint(endpoint_url: &str) -> String {
@@ -383,9 +386,7 @@ impl NewApiProvider {
             };
         }
 
-        trimmed.ends_with(".local")
-            || trimmed.ends_with(".internal")
-            || !trimmed.contains('.')
+        trimmed.ends_with(".local") || trimmed.ends_with(".internal") || !trimmed.contains('.')
     }
 
     fn normalize_image_source(image_source: String, endpoint_url: &str) -> String {
@@ -1097,8 +1098,7 @@ impl NewApiProvider {
             request_kind,
             payload.len()
         );
-        let use_curl_transport =
-            Self::should_use_curl_json_transport(request_kind, payload.len());
+        let use_curl_transport = Self::should_use_curl_json_transport(request_kind, payload.len());
         if use_curl_transport {
             info!(
                 "[NewAPI] {} request body exceeded {} bytes, preferring curl transport",
@@ -1373,8 +1373,7 @@ impl NewApiProvider {
         config: &NewApiConfig,
         api_key: &str,
     ) -> Result<Value, AIError> {
-        let request_model =
-            Self::normalize_flow2api_image_request_model(&config.request_model);
+        let request_model = Self::normalize_flow2api_image_request_model(&config.request_model);
         let endpoint = Self::resolve_endpoint(&config.endpoint_url, &request_model);
         let mut attempts = vec![
             GenerateContentAttempt {
@@ -1480,12 +1479,13 @@ impl NewApiProvider {
         config: &NewApiConfig,
         api_key: &str,
     ) -> Result<Value, AIError> {
-        let request_model =
-            Self::normalize_flow2api_image_request_model(&config.request_model);
+        let request_model = Self::normalize_flow2api_image_request_model(&config.request_model);
         let endpoint = Self::resolve_openai_endpoint(&config.endpoint_url);
         let prompt_text = Self::build_prompt_text(request);
-        let message_content = if let Some(reference_images) =
-            request.reference_images.as_ref().filter(|images| !images.is_empty())
+        let message_content = if let Some(reference_images) = request
+            .reference_images
+            .as_ref()
+            .filter(|images| !images.is_empty())
         {
             let mut content_parts = vec![json!({
                 "type": "text",
@@ -1528,11 +1528,12 @@ impl NewApiProvider {
             );
         }
         if let Some(image_size) = Self::resolve_gemini_image_size(&request_model, &request.size) {
-            body.insert("image_size".to_string(), Value::String(image_size.to_string()));
+            body.insert(
+                "image_size".to_string(),
+                Value::String(image_size.to_string()),
+            );
         }
-        if let Some(extra_body) =
-            Self::build_flow2api_openai_extra_body(request, &request_model)
-        {
+        if let Some(extra_body) = Self::build_flow2api_openai_extra_body(request, &request_model) {
             body.insert("extra_body".to_string(), extra_body);
         }
 
@@ -1547,8 +1548,7 @@ impl NewApiProvider {
         api_key: &str,
     ) -> Result<Value, AIError> {
         let endpoint = Self::resolve_openai_edits_endpoint(&config.endpoint_url);
-        let request_model =
-            Self::normalize_flow2api_image_request_model(&config.request_model);
+        let request_model = Self::normalize_flow2api_image_request_model(&config.request_model);
         let sources = request
             .reference_images
             .as_ref()
@@ -1607,9 +1607,7 @@ impl NewApiProvider {
             Ok(payload)
                 if has_reference_images
                     && Self::extract_error_message(&payload)
-                        .map(|message| {
-                            Self::should_retry_openai_chat_with_openai_edits(&message)
-                        })
+                        .map(|message| Self::should_retry_openai_chat_with_openai_edits(&message))
                         .unwrap_or(false) =>
             {
                 if prefers_generate_content_fallback {
@@ -1644,7 +1642,6 @@ impl NewApiProvider {
             Err(error) => Err(error),
         }
     }
-
 }
 
 #[cfg(test)]
@@ -1766,11 +1763,9 @@ mod tests {
             extra_params: None,
         };
 
-        let extra_body = NewApiProvider::build_flow2api_openai_extra_body(
-            &request,
-            "gemini-3.0-pro-image",
-        )
-        .expect("expected extra_body for flow2api image model");
+        let extra_body =
+            NewApiProvider::build_flow2api_openai_extra_body(&request, "gemini-3.0-pro-image")
+                .expect("expected extra_body for flow2api image model");
 
         assert_eq!(
             extra_body,
@@ -1796,8 +1791,9 @@ mod tests {
             extra_params: None,
         };
 
-        assert!(NewApiProvider::build_flow2api_openai_extra_body(&request, "gpt-image-1")
-            .is_none());
+        assert!(
+            NewApiProvider::build_flow2api_openai_extra_body(&request, "gpt-image-1").is_none()
+        );
     }
 
     #[test]

@@ -1819,6 +1819,65 @@ fn first_non_empty_dreamina_output<'a>(stdout: &'a str, stderr: &'a str) -> Opti
         .or_else(|| stdout.lines().map(str::trim).find(|line| !line.is_empty()))
 }
 
+fn last_non_empty_dreamina_line(text: &str) -> Option<&str> {
+    text.lines()
+        .rev()
+        .map(str::trim)
+        .find(|line| !line.is_empty())
+}
+
+fn tail_non_empty_dreamina_lines(text: &str, max_lines: usize) -> Vec<&str> {
+    let mut lines = text
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty())
+        .collect::<Vec<_>>();
+    if lines.len() > max_lines {
+        lines = lines.split_off(lines.len() - max_lines);
+    }
+    lines
+}
+
+fn format_dreamina_script_failure(
+    action_label: &str,
+    stdout: &str,
+    stderr: &str,
+    fallback: &str,
+) -> String {
+    let primary = last_non_empty_dreamina_line(stderr)
+        .or_else(|| last_non_empty_dreamina_line(stdout))
+        .or_else(|| first_non_empty_dreamina_output(stdout, stderr))
+        .unwrap_or(fallback);
+    let normalized = normalize_dreamina_cli_error(primary);
+    let stderr_tail = tail_non_empty_dreamina_lines(stderr, 4);
+    let stdout_tail = tail_non_empty_dreamina_lines(stdout, 4);
+    let mut sections = Vec::new();
+
+    if !stderr_tail.is_empty() {
+        sections.push(format!(
+            "{action_label} stderr:\n{}",
+            stderr_tail.join("\n")
+        ));
+    }
+    if !stdout_tail.is_empty() {
+        sections.push(format!(
+            "{action_label} stdout:\n{}",
+            stdout_tail.join("\n")
+        ));
+    }
+
+    if sections.is_empty() {
+        normalized
+    } else {
+        format!("{normalized}\n\n{}", sections.join("\n\n"))
+    }
+}
+
+fn dreamina_cli_install_artifacts_ready(command_env: &DreaminaProcessEnv) -> bool {
+    dreamina_installed_binary_path(command_env).is_file()
+        && dreamina_installed_version_path(command_env).is_file()
+}
+
 fn is_generic_dreamina_failure(detail: &str) -> bool {
     let lowered = detail.trim().to_ascii_lowercase();
     lowered.is_empty() || lowered == "dreamina cli failed." || lowered == "error"
@@ -2888,6 +2947,7 @@ async fn install_dreamina_cli_with_runtime(
     }
 
     let command_env = dreamina_process_env(&workspace)?;
+    let had_install_artifacts = dreamina_cli_install_artifacts_ready(&command_env);
     let (success, stdout, stderr) = run_git_bash_script(
         runtime,
         command_env.clone(),
@@ -2896,13 +2956,27 @@ async fn install_dreamina_cli_with_runtime(
     )
     .await?;
     if !success {
-        let line = stderr
-            .lines()
-            .map(str::trim)
-            .find(|line| !line.is_empty())
-            .or_else(|| stdout.lines().map(str::trim).find(|line| !line.is_empty()))
-            .unwrap_or("Dreamina CLI installation failed.");
-        return Err(normalize_dreamina_cli_error(line));
+        let install_artifacts_ready = dreamina_cli_install_artifacts_ready(&command_env);
+        if !had_install_artifacts && install_artifacts_ready {
+            let detail = format_dreamina_script_failure(
+                "Dreamina install",
+                &stdout,
+                &stderr,
+                "Dreamina CLI installation completed with a non-fatal warning.",
+            );
+            return Ok(DreaminaCliActionResponse {
+                message:
+                    "Dreamina CLI installation completed. Recheck the environment, then continue with login."
+                        .to_string(),
+                detail: Some(detail),
+            });
+        }
+        return Err(format_dreamina_script_failure(
+            "Dreamina install",
+            &stdout,
+            &stderr,
+            "Dreamina CLI installation failed.",
+        ));
     }
 
     Ok(DreaminaCliActionResponse {
@@ -2929,18 +3003,27 @@ async fn update_dreamina_cli_with_runtime(
         update_dreamina_script(runtime, &command_env),
     )
     .await?;
-    if !success {
-        let line = stderr
-            .lines()
-            .map(str::trim)
-            .find(|line| !line.is_empty())
-            .or_else(|| stdout.lines().map(str::trim).find(|line| !line.is_empty()))
-            .unwrap_or("Dreamina CLI update failed.");
-        return Err(normalize_dreamina_cli_error(line));
-    }
-
     let after_version =
         installed_dreamina_version(&command_env).or_else(|| bundled_dreamina_version(runtime));
+    if !success {
+        let update_effective = match (before_version.as_deref(), after_version.as_deref()) {
+            (Some(before), Some(after)) => {
+                compare_versions(after, before) == std::cmp::Ordering::Greater
+            }
+            (None, Some(_)) => true,
+            _ => false,
+        };
+
+        if !update_effective {
+            return Err(format_dreamina_script_failure(
+                "Dreamina update",
+                &stdout,
+                &stderr,
+                "Dreamina CLI update failed.",
+            ));
+        }
+    }
+
     let detail = match (before_version.as_deref(), after_version.as_deref()) {
         (Some(before), Some(after)) if before != after => {
             Some(format!("Dreamina CLI updated from v{before} to v{after}."))
@@ -2948,6 +3031,21 @@ async fn update_dreamina_cli_with_runtime(
         (None, Some(after)) => Some(format!("Dreamina CLI is now available at v{after}.")),
         (Some(version), Some(_)) => Some(format!("Dreamina CLI is already on v{version}.")),
         _ => None,
+    };
+
+    let detail = if success {
+        detail
+    } else {
+        let warning = format_dreamina_script_failure(
+            "Dreamina update",
+            &stdout,
+            &stderr,
+            "Dreamina CLI update completed with a non-fatal warning.",
+        );
+        Some(match detail {
+            Some(detail) => format!("{detail}\n\n{warning}"),
+            None => warning,
+        })
     };
 
     Ok(DreaminaCliActionResponse {

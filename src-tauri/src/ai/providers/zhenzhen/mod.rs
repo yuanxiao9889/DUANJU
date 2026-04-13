@@ -422,10 +422,7 @@ impl ZhenzhenProvider {
 
         info!(
             "[Zhenzhen API] Generations URL: {}, model: {}, size: {}, aspect_ratio: {}",
-            endpoint,
-            model,
-            request.size,
-            request.aspect_ratio
+            endpoint, model, request.size, request.aspect_ratio
         );
 
         let response = self

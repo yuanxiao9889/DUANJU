@@ -19,10 +19,7 @@ const TASKS_ENDPOINT_PATH: &str = "/v1/images/tasks";
 const POLL_INTERVAL_MS: u64 = 2000;
 const MAX_POLL_RETRIES: u32 = 150;
 
-const SUPPORTED_MODELS: [&str; 2] = [
-    "nano-banana-pro",
-    "gemini-3.1-flash-image-preview",
-];
+const SUPPORTED_MODELS: [&str; 2] = ["nano-banana-pro", "gemini-3.1-flash-image-preview"];
 const DEFAULT_MODEL: &str = "nano-banana-pro";
 const GEMINI_FLASH_IMAGE_PREVIEW_MODEL: &str = "gemini-3.1-flash-image-preview";
 

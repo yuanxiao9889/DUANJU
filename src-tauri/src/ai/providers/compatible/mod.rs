@@ -706,9 +706,7 @@ impl CompatibleProvider {
         if let Some(size) = size {
             form = form.text("size", size);
         }
-        if let Some(image_size) =
-            Self::resolve_gemini_image_size(request_model, &request.size)
-        {
+        if let Some(image_size) = Self::resolve_gemini_image_size(request_model, &request.size) {
             form = form.text("image_size", image_size.to_string());
             if !request.aspect_ratio.trim().is_empty() {
                 form = form.text("aspect_ratio", request.aspect_ratio.trim().to_string());
