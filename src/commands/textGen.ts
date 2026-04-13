@@ -597,6 +597,41 @@ export interface SummaryExpandRequest {
   model?: string;
 }
 
+export interface SceneEpisodeGenerationRequest {
+  chapterNumber?: number;
+  chapterTitle?: string;
+  chapterSummary?: string;
+  sceneTitle: string;
+  sceneSummary?: string;
+  purpose?: string;
+  povCharacter?: string;
+  goal?: string;
+  conflict?: string;
+  turn?: string;
+  emotionalShift?: string;
+  visualHook?: string;
+  subtext?: string;
+  sceneDraft?: string;
+  episodeCount?: number;
+}
+
+export interface GeneratedSceneEpisode {
+  title: string;
+  summary: string;
+  purpose: string;
+  povCharacter: string;
+  goal: string;
+  conflict: string;
+  turn: string;
+  emotionalShift: string;
+  visualHook: string;
+  subtext: string;
+  plot: string;
+  coreConflict: string;
+  emotionProgression: string;
+  endingHook: string;
+}
+
 export async function expandFromSummary(request: SummaryExpandRequest): Promise<string> {
   const prompt = `你是一位专业的剧本编剧助手。请根据以下章节摘要，扩写成完整的剧本内容。
 
@@ -642,6 +677,143 @@ ${request.instruction ? `扩写要求：${request.instruction}` : ''}
   });
 
   return result.text;
+}
+
+function clampSceneEpisodeCount(value: number | undefined): number {
+  if (!Number.isFinite(value)) {
+    return 3;
+  }
+
+  return Math.max(1, Math.min(12, Math.floor(value as number)));
+}
+
+function normalizeGeneratedSceneEpisode(
+  value: unknown,
+  index: number
+): GeneratedSceneEpisode | null {
+  if (!value || typeof value !== 'object') {
+    return null;
+  }
+
+  const record = value as Record<string, unknown>;
+  const plot = readStringValue(record, ['plot', 'body', 'content', 'story', 'episodePlot']);
+  const summary = readStringValue(record, ['summary', 'description', 'logline']) || plot;
+
+  if (!summary && !plot) {
+    return null;
+  }
+
+  return {
+    title: readStringValue(record, ['title', 'name']) || `分集 ${index + 1}`,
+    summary,
+    purpose: readStringValue(record, ['purpose']),
+    povCharacter: readStringValue(record, ['povCharacter', 'pov', 'pointOfView']),
+    goal: readStringValue(record, ['goal']),
+    conflict: readStringValue(record, ['conflict']),
+    turn: readStringValue(record, ['turn', 'twist']),
+    emotionalShift: readStringValue(record, ['emotionalShift', 'emotion', 'emotionShift']),
+    visualHook: readStringValue(record, ['visualHook', 'visual']),
+    subtext: readStringValue(record, ['subtext']),
+    plot,
+    coreConflict: readStringValue(record, ['coreConflict', 'conflictCore']) || readStringValue(record, ['conflict']),
+    emotionProgression: readStringValue(record, ['emotionProgression', 'emotionalProgression', 'emotionArc']),
+    endingHook: readStringValue(record, ['endingHook', 'hook', 'cliffhanger']),
+  };
+}
+
+export async function generateSceneEpisodes(
+  request: SceneEpisodeGenerationRequest
+): Promise<GeneratedSceneEpisode[]> {
+  const sceneTitle = request.sceneTitle.trim();
+  if (!sceneTitle) {
+    throw new Error('Scene title is required before generating episodes.');
+  }
+
+  const episodeCount = clampSceneEpisodeCount(request.episodeCount);
+  const prompt = [
+    '你是一位专业的剧集编剧统筹，负责把单个场景改造成更适合连载呈现的多个分集条目。',
+    '请基于给定的章节与场景信息，生成连续推进的分集列表。',
+    '每一集都要有明确推进、核心冲突、情绪变化，并且在结尾保留钩子或断章感。',
+    '允许你在不违背场景核心意图的前提下，适度调整细节、节奏与信息揭示顺序，让分集更好看。',
+    '输出语言必须与输入内容保持一致。',
+    '只返回 JSON，不要使用 Markdown 代码块，不要添加解释。',
+    '',
+    '请严格返回如下结构：',
+    '{',
+    '  "episodes": [',
+    '    {',
+    '      "title": "分集标题",',
+    '      "summary": "该集一句话摘要",',
+    '      "purpose": "该集承担的叙事功能",',
+    '      "povCharacter": "主要视角角色，没有则空字符串",',
+    '      "goal": "该集人物目标",',
+    '      "conflict": "该集核心冲突",',
+    '      "turn": "该集转折",',
+    '      "emotionalShift": "该集情绪推进",',
+    '      "visualHook": "该集视觉钩子",',
+    '      "subtext": "该集潜台词",',
+    '      "plot": "本集剧情的完整正文",',
+    '      "coreConflict": "可直接放入“核心冲突”小节的内容",',
+    '      "emotionProgression": "可直接放入“情绪推进”小节的内容",',
+    '      "endingHook": "可直接放入“结尾钩子”小节的内容"',
+    '    }',
+    '  ]',
+    '}',
+    '',
+    `约束：episodes.length 必须等于 ${episodeCount}`,
+    '- 分集之间必须连续递进，不要相互重复。',
+    '- 每一集都要像正式创作条目，避免空泛概述。',
+    '- 如果原场景信息较少，可以谨慎补足戏剧推进，但不要引入脱离上下文的新主线。',
+    '- 字段缺失时返回空字符串，不要省略 key。',
+    '',
+    '章节上下文：',
+    `- 章节序号：${request.chapterNumber ?? 1}`,
+    `- 章节标题：${request.chapterTitle?.trim() || '未命名章节'}`,
+    `- 章节摘要：${request.chapterSummary?.trim() || '无'}`,
+    '',
+    '场景上下文：',
+    `- 场景标题：${sceneTitle}`,
+    `- 场景摘要：${request.sceneSummary?.trim() || '无'}`,
+    `- 场景作用：${request.purpose?.trim() || '无'}`,
+    `- POV 角色：${request.povCharacter?.trim() || '无'}`,
+    `- 人物目标：${request.goal?.trim() || '无'}`,
+    `- 核心冲突：${request.conflict?.trim() || '无'}`,
+    `- 转折：${request.turn?.trim() || '无'}`,
+    `- 情绪变化：${request.emotionalShift?.trim() || '无'}`,
+    `- 视觉钩子：${request.visualHook?.trim() || '无'}`,
+    `- 潜台词：${request.subtext?.trim() || '无'}`,
+    '',
+    '场景正文/素材：',
+    request.sceneDraft?.trim() || '无',
+  ].join('\n');
+
+  const result = await generateText({
+    prompt,
+    temperature: 0.65,
+    maxTokens: 4096,
+  });
+
+  const parsed = extractJsonValue(result.text);
+  if (!parsed) {
+    throw new Error('Failed to parse generated scene episodes.');
+  }
+
+  const rawEpisodes = Array.isArray(parsed)
+    ? parsed
+    : parsed && typeof parsed === 'object' && Array.isArray((parsed as { episodes?: unknown }).episodes)
+      ? (parsed as { episodes: unknown[] }).episodes
+      : [];
+
+  const episodes = rawEpisodes
+    .map((item, index) => normalizeGeneratedSceneEpisode(item, index))
+    .filter((item): item is GeneratedSceneEpisode => Boolean(item))
+    .slice(0, episodeCount);
+
+  if (episodes.length === 0) {
+    throw new Error('No episodes were generated for the scene.');
+  }
+
+  return episodes;
 }
 
 export async function analyzeScriptStructure(content: string): Promise<{

@@ -5,13 +5,14 @@ import {
   useUpdateNodeInternals,
   type NodeProps,
 } from '@xyflow/react';
-import { FileText, Loader2, Undo2, Wand2 } from 'lucide-react';
+import { FileText, Undo2, Wand2 } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import remarkBreaks from 'remark-breaks';
 import { useTranslation } from 'react-i18next';
 import { openUrl } from '@tauri-apps/plugin-opener';
 
+import { UiLoadingAnimation } from '@/components/ui';
 import {
   CANVAS_NODE_TYPES,
   TTS_TEXT_NODE_DEFAULT_HEIGHT,
@@ -261,7 +262,7 @@ export const TextAnnotationNode = memo(({
             className="nodrag pointer-events-auto inline-flex h-7 w-7 items-center justify-center rounded-lg border border-white/12 bg-black/55 text-text-dark shadow-[0_8px_18px_rgba(0,0,0,0.28)] backdrop-blur-sm transition-colors hover:border-accent/45 hover:bg-accent/14 disabled:cursor-not-allowed disabled:border-white/8 disabled:bg-black/28 disabled:text-text-muted/45"
           >
             {isOptimizingContent ? (
-              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              <UiLoadingAnimation size="xs" />
             ) : (
               <Wand2 className="h-3.5 w-3.5" strokeWidth={2.25} />
             )}

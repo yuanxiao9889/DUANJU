@@ -53,6 +53,7 @@ import {
   type CanvasNodeType,
   type CanvasNodeData,
   type ScriptChapterNodeData,
+  type ScriptSceneNodeData,
   DEFAULT_NODE_WIDTH,
   getNodePrimaryDownloadSource,
   normalizeSceneCards,
@@ -87,6 +88,7 @@ import { isCanvasNodeTypeEnabled } from '@/features/canvas/application/nodeCatal
 import { nodeTypes } from './nodes';
 import { edgeTypes } from './edges';
 import { NodeSelectionMenu } from './NodeSelectionMenu';
+import { SceneCatalogMenu } from './SceneCatalogMenu';
 import { SelectedNodeOverlay } from './ui/SelectedNodeOverlay';
 import { MissingApiKeyHint } from '@/features/settings/MissingApiKeyHint';
 import { eventMatchesShortcut } from '@/features/settings/keyboardShortcuts';
@@ -573,6 +575,7 @@ export function Canvas() {
   const suppressNextEdgeClickRef = useRef(false);
 
   const [showNodeMenu, setShowNodeMenu] = useState(false);
+  const [showSceneCatalogMenu, setShowSceneCatalogMenu] = useState(false);
   const [showWelcomeDialog, setShowWelcomeDialog] = useState(false);
   const [hasMountedToolDialog, setHasMountedToolDialog] = useState(false);
   const [hasMountedImageViewer, setHasMountedImageViewer] = useState(false);
@@ -593,6 +596,7 @@ export function Canvas() {
   const [pendingConnectStart, setPendingConnectStart] = useState<PendingConnectStart | null>(
     null
   );
+  const [sceneCatalogChapterNodeId, setSceneCatalogChapterNodeId] = useState<string | null>(null);
   const [previewConnectionVisual, setPreviewConnectionVisual] =
     useState<PreviewConnectionVisual | null>(null);
   const [dragOverlayKind, setDragOverlayKind] = useState<CanvasDragOverlayKind>(null);
@@ -644,9 +648,12 @@ export function Canvas() {
   const selectedNodeId = useCanvasStore((state) => state.selectedNodeId);
   const assetLibraries = useAssetStore((state) => state.libraries);
   const areAssetLibrariesHydrated = useAssetStore((state) => state.isHydrated);
-  const activeChapterId = useScriptEditorStore((state) => state.activeChapterId);
-  const activeSceneId = useScriptEditorStore((state) => state.activeSceneId);
-  const focusChapter = useScriptEditorStore((state) => state.focusChapter);
+  const activeSceneNodeId = useScriptEditorStore((state) => state.activeSceneNodeId);
+  const activeEpisodeId = useScriptEditorStore((state) => state.activeEpisodeId);
+  const focusSceneNode = useScriptEditorStore((state) => state.focusSceneNode);
+  const createScriptSceneNodeFromChapterScene = useCanvasStore(
+    (state) => state.createScriptSceneNodeFromChapterScene
+  );
   const deleteEdge = useCanvasStore((state) => state.deleteEdge);
   const deleteNode = useCanvasStore((state) => state.deleteNode);
   const deleteNodes = useCanvasStore((state) => state.deleteNodes);
@@ -1638,14 +1645,57 @@ export function Canvas() {
     const selectedNode = nodes.find((node) => node.id === selectedNodeId);
     return selectedNode?.type === CANVAS_NODE_TYPES.group ? selectedNode.id : null;
   }, [nodes, selectedNodeId]);
-  const selectedScriptChapterNode = useMemo(() => {
+  const selectedScriptSceneNode = useMemo(() => {
     if (selectedNodeIds.length !== 1) {
       return null;
     }
 
     const selectedNode = nodes.find((node) => node.id === selectedNodeIds[0]);
-    return selectedNode?.type === CANVAS_NODE_TYPES.scriptChapter ? selectedNode : null;
+    return selectedNode?.type === CANVAS_NODE_TYPES.scriptScene ? selectedNode : null;
   }, [nodes, selectedNodeIds]);
+  const sceneCatalogItems = useMemo(() => {
+    if (!sceneCatalogChapterNodeId) {
+      return [];
+    }
+
+    const chapterNode = nodes.find(
+      (node) => node.id === sceneCatalogChapterNodeId && node.type === CANVAS_NODE_TYPES.scriptChapter
+    );
+    if (!chapterNode) {
+      return [];
+    }
+
+    const chapterData = chapterNode.data as ScriptChapterNodeData;
+    const createdSceneKeys = new Set(
+      nodes
+        .filter((node) => node.type === CANVAS_NODE_TYPES.scriptScene)
+        .map((node) => {
+          const sceneNodeData = node.data as ScriptSceneNodeData;
+          return `${sceneNodeData.sourceChapterId}::${sceneNodeData.sourceSceneId}`;
+        })
+    );
+
+    return normalizeSceneCards(chapterData.scenes, chapterData.content)
+      .slice()
+      .sort((left, right) => left.order - right.order)
+      .map((scene) => ({
+        id: scene.id,
+        order: scene.order,
+        title: scene.title,
+        summary: scene.summary || scene.purpose || scene.visualHook || scene.draftHtml,
+        created: createdSceneKeys.has(`${sceneCatalogChapterNodeId}::${scene.id}`),
+      }));
+  }, [nodes, sceneCatalogChapterNodeId]);
+  const sceneCatalogChapterNode = useMemo(() => {
+    if (!sceneCatalogChapterNodeId) {
+      return null;
+    }
+
+    const chapterNode = nodes.find(
+      (node) => node.id === sceneCatalogChapterNodeId && node.type === CANVAS_NODE_TYPES.scriptChapter
+    );
+    return chapterNode ?? null;
+  }, [nodes, sceneCatalogChapterNodeId]);
 
   useEffect(() => {
     if (selectedNodeIds.length === 1) {
@@ -1661,28 +1711,27 @@ export function Canvas() {
   }, [selectedNodeId, selectedNodeIds, setSelectedNode]);
 
   useEffect(() => {
-    if (project?.projectType !== 'script' || !selectedScriptChapterNode) {
+    if (project?.projectType !== 'script' || !selectedScriptSceneNode) {
       return;
     }
 
-    const selectedChapterData = selectedScriptChapterNode.data as ScriptChapterNodeData;
-    const scenes = normalizeSceneCards(selectedChapterData.scenes, selectedChapterData.content);
-    const fallbackSceneId = scenes[0]?.id ?? null;
-    const nextSceneId = activeChapterId === selectedScriptChapterNode.id
-      ? activeSceneId ?? fallbackSceneId
-      : fallbackSceneId;
+    const selectedSceneData = selectedScriptSceneNode.data as ScriptSceneNodeData;
+    const fallbackEpisodeId = selectedSceneData.episodes[0]?.id ?? null;
+    const nextEpisodeId = activeSceneNodeId === selectedScriptSceneNode.id
+      ? activeEpisodeId ?? fallbackEpisodeId
+      : fallbackEpisodeId;
 
-    if (activeChapterId === selectedScriptChapterNode.id && activeSceneId === nextSceneId) {
+    if (activeSceneNodeId === selectedScriptSceneNode.id && activeEpisodeId === nextEpisodeId) {
       return;
     }
 
-    focusChapter(selectedScriptChapterNode.id, nextSceneId);
+    focusSceneNode(selectedScriptSceneNode.id, nextEpisodeId);
   }, [
-    activeChapterId,
-    activeSceneId,
+    activeEpisodeId,
+    activeSceneNodeId,
+    focusSceneNode,
     project?.projectType,
-    focusChapter,
-    selectedScriptChapterNode,
+    selectedScriptSceneNode,
   ]);
 
   useEffect(() => {
@@ -1889,10 +1938,16 @@ export function Canvas() {
         }
         event.preventDefault();
         const selectedIdSet = new Set(selectedNodeIds);
+        const copiedNodes = nodes.filter(
+          (node) =>
+            selectedIdSet.has(node.id)
+            && node.type !== CANVAS_NODE_TYPES.scriptScene
+        );
+        const copiedNodeIdSet = new Set(copiedNodes.map((node) => node.id));
         copiedSnapshotRef.current = {
-          nodes: nodes.filter((node) => selectedIdSet.has(node.id)),
+          nodes: copiedNodes,
           edges: edges.filter(
-            (edge) => selectedIdSet.has(edge.source) && selectedIdSet.has(edge.target)
+            (edge) => copiedNodeIdSet.has(edge.source) && copiedNodeIdSet.has(edge.target)
           ),
         };
         return;
@@ -1987,6 +2042,15 @@ export function Canvas() {
     selectedUploadNodeId,
   ]);
 
+  const closeConnectMenus = useCallback(() => {
+    setShowNodeMenu(false);
+    setShowSceneCatalogMenu(false);
+    setSceneCatalogChapterNodeId(null);
+    setMenuAllowedTypes(undefined);
+    setPendingConnectStart(null);
+    setPreviewConnectionVisual(null);
+  }, []);
+
   const openNodeMenuAtClientPosition = useCallback((clientX: number, clientY: number) => {
     const containerRect = reactFlowWrapperRef.current?.getBoundingClientRect();
     if (!containerRect) {
@@ -2003,11 +2067,62 @@ export function Canvas() {
       x: clientX - containerRect.left,
       y: clientY - containerRect.top,
     });
+    setShowSceneCatalogMenu(false);
+    setSceneCatalogChapterNodeId(null);
     setMenuAllowedTypes(undefined);
     setPendingConnectStart(null);
     setPreviewConnectionVisual(null);
     setShowNodeMenu(true);
   }, [reactFlowInstance]);
+
+  const openSceneCatalogAtClientPosition = useCallback((
+    chapterNodeId: string,
+    clientX: number,
+    clientY: number
+  ) => {
+    const containerRect = reactFlowWrapperRef.current?.getBoundingClientRect();
+    if (!containerRect) {
+      return;
+    }
+
+    setMenuPosition({
+      x: clientX - containerRect.left,
+      y: clientY - containerRect.top,
+    });
+    setShowNodeMenu(false);
+    setMenuAllowedTypes(undefined);
+    setSceneCatalogChapterNodeId(chapterNodeId);
+    setShowSceneCatalogMenu(true);
+  }, []);
+
+  const handleSceneCatalogSelect = useCallback((sceneId: string) => {
+    if (!sceneCatalogChapterNodeId) {
+      return;
+    }
+
+    const nextSceneNodeId = createScriptSceneNodeFromChapterScene(sceneCatalogChapterNodeId, sceneId);
+    if (!nextSceneNodeId) {
+      return;
+    }
+
+    const nextSceneNode = useCanvasStore.getState().nodes.find(
+      (node) => node.id === nextSceneNodeId && node.type === CANVAS_NODE_TYPES.scriptScene
+    );
+    const nextSceneData = nextSceneNode?.data as ScriptSceneNodeData | undefined;
+    const firstEpisodeId = nextSceneData?.episodes[0]?.id ?? null;
+
+    setSelectedNode(nextSceneNodeId);
+    focusSceneNode(nextSceneNodeId, firstEpisodeId);
+    closeConnectMenus();
+    scheduleCanvasPersist(0);
+  }, [
+    closeConnectMenus,
+    createScriptSceneNodeFromChapterScene,
+    focusSceneNode,
+    sceneCatalogChapterNodeId,
+    scheduleCanvasPersist,
+    setSelectedNode,
+  ]);
 
   const handleDragOver = useCallback((event: React.DragEvent) => {
     event.preventDefault();
@@ -2258,11 +2373,8 @@ export function Canvas() {
     }
 
     setSelectedNode(null);
-    setShowNodeMenu(false);
-    setMenuAllowedTypes(undefined);
-    setPendingConnectStart(null);
-    setPreviewConnectionVisual(null);
-  }, [openNodeMenuAtClientPosition, setSelectedNode]);
+    closeConnectMenus();
+  }, [closeConnectMenus, openNodeMenuAtClientPosition, setSelectedNode]);
 
   const handlePaneContextMenu = useCallback((event: MouseEvent | React.MouseEvent) => {
     event.preventDefault();
@@ -2518,13 +2630,11 @@ export function Canvas() {
       }
 
       scheduleCanvasPersist(0);
-      setShowNodeMenu(false);
-      setMenuAllowedTypes(undefined);
-      setPendingConnectStart(null);
-      setPreviewConnectionVisual(null);
+      closeConnectMenus();
     },
     [
       addNode,
+      closeConnectMenus,
       connectNodesWithBusinessRules,
       deleteEdge,
       edges,
@@ -2572,10 +2682,7 @@ export function Canvas() {
     }, { schedulePersist: false });
     
     scheduleCanvasPersist(0);
-    setShowNodeMenu(false);
-    setMenuAllowedTypes(undefined);
-    setPendingConnectStart(null);
-    setPreviewConnectionVisual(null);
+    closeConnectMenus();
     return;
   }
   
@@ -2621,10 +2728,7 @@ export function Canvas() {
     }, { schedulePersist: false });
     
     scheduleCanvasPersist(0);
-    setShowNodeMenu(false);
-    setMenuAllowedTypes(undefined);
-    setPendingConnectStart(null);
-    setPreviewConnectionVisual(null);
+    closeConnectMenus();
     return;
   }
   
@@ -2670,12 +2774,10 @@ export function Canvas() {
   }, { schedulePersist: false });
   
   scheduleCanvasPersist(0);
-  setShowNodeMenu(false);
-  setMenuAllowedTypes(undefined);
-  setPendingConnectStart(null);
-  setPreviewConnectionVisual(null);
+  closeConnectMenus();
 }, [
   addNode,
+  closeConnectMenus,
   connectNodesWithBusinessRules,
   nodes,
   pendingConnectStart,
@@ -2689,7 +2791,11 @@ export function Canvas() {
         return null as DuplicateResult | null;
       }
 
-      const sourceNodes = nodes.filter((node) => dedupedIds.includes(node.id));
+      const sourceNodes = nodes.filter(
+        (node) =>
+          dedupedIds.includes(node.id)
+          && node.type !== CANVAS_NODE_TYPES.scriptScene
+      );
       if (sourceNodes.length === 0) {
         return null as DuplicateResult | null;
       }
@@ -2856,6 +2962,8 @@ export function Canvas() {
   const handleConnectStart = useCallback(
     (event: MouseEvent | TouchEvent, params: OnConnectStartParams) => {
       setShowNodeMenu(false);
+      setShowSceneCatalogMenu(false);
+      setSceneCatalogChapterNodeId(null);
       setMenuAllowedTypes(undefined);
       setPreviewConnectionVisual(null);
 
@@ -3304,11 +3412,16 @@ export function Canvas() {
       const dropNodeId = resolveDropNodeId(event.target, clientPosition);
 
       const isSupplementConnection = pendingConnectStart.handleId === 'supplement';
-      const isBranchConnection = (() => {
+      const sourceConnectNode = nodes.find((node) => node.id === pendingConnectStart.nodeId);
+      const isSceneCatalogConnection =
+        project?.projectType === 'script'
+        && pendingConnectStart.handleType === 'source'
+        && !isSupplementConnection
+        && sourceConnectNode?.type === CANVAS_NODE_TYPES.scriptChapter;
+      const isBranchConnection = !isSceneCatalogConnection && (() => {
         if (!pendingConnectStart?.nodeId) return false;
         if (isSupplementConnection) return false;
-        const sourceNode = nodes.find(n => n.id === pendingConnectStart.nodeId);
-        return sourceNode?.type === CANVAS_NODE_TYPES.scriptChapter;
+        return sourceConnectNode?.type === CANVAS_NODE_TYPES.scriptChapter;
       })();
 
       if (dropNodeId && dropNodeId !== pendingConnectStart.nodeId) {
@@ -3338,18 +3451,6 @@ export function Canvas() {
           setPreviewConnectionVisual(null);
           return;
         }
-      }
-
-      const allowedTypes = resolveAllowedNodeTypes(
-        pendingConnectStart.handleType,
-        project?.projectType === 'script' ? 'script' : 'storyboard',
-        pendingConnectStart.nodeId,
-        nodes
-      );
-      if (allowedTypes.length === 0) {
-        setPendingConnectStart(null);
-        setPreviewConnectionVisual(null);
-        return;
       }
 
       const endX = clientPosition.x - containerRect.left;
@@ -3390,7 +3491,11 @@ export function Canvas() {
             end: { x: endX, y: endY },
             handleType: pendingConnectStart.handleType,
           }),
-          stroke: isBranchConnection ? 'rgba(168, 85, 247, 0.9)' : 'rgba(255,255,255,0.9)',
+          stroke: isSceneCatalogConnection
+            ? 'rgba(20, 184, 166, 0.92)'
+            : isBranchConnection
+              ? 'rgba(168, 85, 247, 0.9)'
+              : 'rgba(255,255,255,0.9)',
           strokeWidth: 1,
           strokeLinecap: 'round',
           left: 0,
@@ -3406,11 +3511,36 @@ export function Canvas() {
         x: clientPosition.x - containerRect.left,
         y: clientPosition.y - containerRect.top,
       });
+      if (isSceneCatalogConnection && sourceConnectNode) {
+        suppressNextPaneClickRef.current = true;
+        openSceneCatalogAtClientPosition(sourceConnectNode.id, clientPosition.x, clientPosition.y);
+        return;
+      }
+
+      const allowedTypes = resolveAllowedNodeTypes(
+        pendingConnectStart.handleType,
+        project?.projectType === 'script' ? 'script' : 'storyboard',
+        pendingConnectStart.nodeId,
+        nodes
+      );
+      if (allowedTypes.length === 0) {
+        setPendingConnectStart(null);
+        setPreviewConnectionVisual(null);
+        return;
+      }
+
       setMenuAllowedTypes(allowedTypes);
       suppressNextPaneClickRef.current = true;
       setShowNodeMenu(true);
     },
-    [connectNodesWithBusinessRules, nodes, pendingConnectStart, project?.projectType, reactFlowInstance]
+    [
+      connectNodesWithBusinessRules,
+      nodes,
+      openSceneCatalogAtClientPosition,
+      pendingConnectStart,
+      project?.projectType,
+      reactFlowInstance,
+    ]
   );
 
   const emptyHint = useMemo(
@@ -3906,7 +4036,7 @@ export function Canvas() {
         </div>
       )}
 
-      {showNodeMenu && previewConnectionVisual && (
+      {(showNodeMenu || showSceneCatalogMenu) && previewConnectionVisual && (
         <svg
           className="pointer-events-none absolute z-40 overflow-visible"
           style={{
@@ -3956,12 +4086,18 @@ export function Canvas() {
           })()}
           onSelect={handleNodeSelect}
           onSpecialAction={handleCreateBranch}
-          onClose={() => {
-            setShowNodeMenu(false);
-            setMenuAllowedTypes(undefined);
-            setPendingConnectStart(null);
-            setPreviewConnectionVisual(null);
-          }}
+          onClose={closeConnectMenus}
+        />
+      )}
+
+      {showSceneCatalogMenu && sceneCatalogChapterNode && (
+        <SceneCatalogMenu
+          position={menuPosition}
+          chapterNumber={(sceneCatalogChapterNode.data as ScriptChapterNodeData).chapterNumber || 1}
+          chapterTitle={(sceneCatalogChapterNode.data as ScriptChapterNodeData).title || ''}
+          scenes={sceneCatalogItems}
+          onSelect={handleSceneCatalogSelect}
+          onClose={closeConnectMenus}
         />
       )}
 

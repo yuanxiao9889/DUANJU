@@ -1,8 +1,8 @@
 import { useState, useCallback, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Sparkles, X, Loader2, Check, Pencil, CheckCircle } from 'lucide-react';
+import { Sparkles, X, Check, Pencil, CheckCircle } from 'lucide-react';
 import { generateBranches, type GeneratedBranch } from '@/commands/textGen';
-import { UiButton } from '@/components/ui/primitives';
+import { UiButton, UiLoadingAnimation } from '@/components/ui';
 import type { ScriptChapterNodeData } from '@/features/canvas/domain/canvasNodes';
 
 interface BranchPointDialogProps {
@@ -164,7 +164,7 @@ export function BranchPointDialog({
           >
             {isGenerating ? (
               <>
-                <Loader2 className="w-4 h-4 animate-spin" />
+                <UiLoadingAnimation size="sm" />
                 {t('branch.generating')}
               </>
             ) : (

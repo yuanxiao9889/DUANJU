@@ -20,6 +20,7 @@ import {
   X,
 } from 'lucide-react';
 
+import { UiLoadingBanner } from '@/components/ui';
 import { UI_CONTENT_OVERLAY_INSET_CLASS } from '@/components/ui/motion';
 import { UiButton, UiSelect } from '@/components/ui/primitives';
 import { MissingApiKeyHint } from '@/features/settings/MissingApiKeyHint';
@@ -515,8 +516,8 @@ export function ProjectManager() {
         ) : (
           <Suspense
             fallback={
-              <div className="rounded-xl border border-border-dark bg-surface-dark/70 p-6 text-sm text-text-muted">
-                {t('common.loading')}
+              <div className="rounded-xl border border-border-dark bg-surface-dark/70 p-6">
+                <UiLoadingBanner />
               </div>
             }
           >
@@ -526,7 +527,9 @@ export function ProjectManager() {
       </div>
 
       {isOpeningProject ? (
-        <div className={`pointer-events-none fixed ${UI_CONTENT_OVERLAY_INSET_CLASS} bg-black/10`} />
+        <div className={`pointer-events-none fixed ${UI_CONTENT_OVERLAY_INSET_CLASS} flex items-center justify-center bg-black/18 backdrop-blur-[2px]`}>
+          <UiLoadingBanner />
+        </div>
       ) : null}
 
       <RenameDialog

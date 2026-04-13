@@ -28,6 +28,7 @@ export const CANVAS_NODE_TYPES = {
   voxCpmUltimateClone: 'voxCpmUltimateCloneNode',
   scriptRoot: 'scriptRootNode',
   scriptChapter: 'scriptChapterNode',
+  scriptScene: 'scriptSceneNode',
   scriptCharacter: 'scriptCharacterNode',
   scriptLocation: 'scriptLocationNode',
   scriptItem: 'scriptItemNode',
@@ -74,6 +75,8 @@ export const SCRIPT_TEXT_NODE_DEFAULT_WIDTH = 480;
 export const SCRIPT_TEXT_NODE_DEFAULT_HEIGHT = 320;
 export const SCRIPT_CHAPTER_NODE_DEFAULT_WIDTH = 420;
 export const SCRIPT_CHAPTER_NODE_DEFAULT_HEIGHT = 380;
+export const SCRIPT_SCENE_NODE_DEFAULT_WIDTH = 460;
+export const SCRIPT_SCENE_NODE_DEFAULT_HEIGHT = 420;
 export const TTS_VOICE_DESIGN_NODE_DEFAULT_WIDTH = 440;
 export const TTS_VOICE_DESIGN_NODE_DEFAULT_HEIGHT = 300;
 export const TTS_SAVED_VOICE_NODE_DEFAULT_WIDTH = 440;
@@ -788,6 +791,30 @@ export interface ScriptChapterNodeData extends NodeDisplayData {
   mergedFromBranches?: string[];
 }
 
+export interface EpisodeCard extends SceneCard {
+  episodeNumber: number;
+}
+
+export interface ScriptSceneNodeData extends NodeDisplayData {
+  sourceChapterId: string;
+  sourceSceneId: string;
+  sourceSceneOrder: number;
+  chapterNumber: number;
+  title: string;
+  summary: string;
+  purpose: string;
+  povCharacter: string;
+  goal: string;
+  conflict: string;
+  turn: string;
+  emotionalShift: string;
+  visualHook: string;
+  subtext: string;
+  sourceDraftHtml?: string;
+  draftHtml: string;
+  episodes: EpisodeCard[];
+}
+
 export interface ScriptCharacterNodeData extends NodeDisplayData {
   name: string;
   description: string;
@@ -854,6 +881,7 @@ export type CanvasNodeData =
   | VoxCpmUltimateCloneNodeData
   | ScriptRootNodeData
   | ScriptChapterNodeData
+  | ScriptSceneNodeData
   | ScriptCharacterNodeData
   | ScriptLocationNodeData
   | ScriptItemNodeData
@@ -1056,6 +1084,17 @@ export function createDefaultSceneCard(order = 0): SceneCard {
   };
 }
 
+export function createDefaultEpisodeCard(order = 0): EpisodeCard {
+  const episodeIndex = order + 1;
+  const baseCard = createDefaultSceneCard(order);
+  return {
+    ...baseCard,
+    id: `episode-${episodeIndex}-${Math.random().toString(36).slice(2, 8)}`,
+    title: `分集 ${episodeIndex}`,
+    episodeNumber: episodeIndex,
+  };
+}
+
 export function normalizeSceneCards(
   scenes: unknown,
   legacyContent?: string | null
@@ -1107,6 +1146,52 @@ export function normalizeSceneCards(
   });
 }
 
+export function normalizeEpisodeCards(episodes: unknown): EpisodeCard[] {
+  if (!Array.isArray(episodes) || episodes.length === 0) {
+    return [];
+  }
+
+  return episodes.map((episode, index) => {
+    const record = episode && typeof episode === 'object'
+      ? episode as Partial<EpisodeCard>
+      : {};
+    const fallbackEpisode = createDefaultEpisodeCard(index);
+
+    return {
+      ...fallbackEpisode,
+      ...record,
+      id: normalizeString(record.id, fallbackEpisode.id),
+      order: Number.isFinite(record.order) ? Number(record.order) : index,
+      episodeNumber: Number.isFinite(record.episodeNumber)
+        ? Math.max(1, Math.floor(Number(record.episodeNumber)))
+        : fallbackEpisode.episodeNumber,
+      title: normalizeString(record.title, fallbackEpisode.title),
+      summary: normalizeString(record.summary),
+      purpose: normalizeString(record.purpose),
+      povCharacter: normalizeString(record.povCharacter),
+      goal: normalizeString(record.goal),
+      conflict: normalizeString(record.conflict),
+      turn: normalizeString(record.turn),
+      emotionalShift: normalizeString(record.emotionalShift),
+      visualHook: normalizeString(record.visualHook),
+      subtext: normalizeString(record.subtext),
+      draftHtml: normalizeString(record.draftHtml),
+      sourceDraftHtml: normalizeString(record.sourceDraftHtml).trim() || undefined,
+      sourceDraftLabel: normalizeString(record.sourceDraftLabel).trim() || undefined,
+      continuitySummary: normalizeString(record.continuitySummary),
+      continuityFacts: normalizeStringArray(record.continuityFacts),
+      continuityOpenLoops: normalizeStringArray(record.continuityOpenLoops),
+      continuityUpdatedAt: Number.isFinite(record.continuityUpdatedAt)
+        ? Number(record.continuityUpdatedAt)
+        : null,
+      directorNotes: normalizeString(record.directorNotes),
+      copilotSummary: normalizeString(record.copilotSummary),
+      copilotThread: normalizeSceneCopilotThread(record.copilotThread),
+      status: normalizeSceneCardStatus(record.status),
+    };
+  });
+}
+
 export function normalizeScriptRootNodeData(data: ScriptRootNodeData): ScriptRootNodeData {
   return {
     ...data,
@@ -1128,6 +1213,33 @@ export function normalizeScriptChapterNodeData(data: ScriptChapterNodeData): Scr
     chapterPurpose: normalizeString(data.chapterPurpose),
     chapterQuestion: normalizeString(data.chapterQuestion),
     scenes: normalizeSceneCards(data.scenes, data.content),
+  };
+}
+
+export function normalizeScriptSceneNodeData(data: ScriptSceneNodeData): ScriptSceneNodeData {
+  return {
+    ...data,
+    sourceChapterId: normalizeString(data.sourceChapterId),
+    sourceSceneId: normalizeString(data.sourceSceneId),
+    sourceSceneOrder: Number.isFinite(data.sourceSceneOrder)
+      ? Math.max(0, Math.floor(Number(data.sourceSceneOrder)))
+      : 0,
+    chapterNumber: Number.isFinite(data.chapterNumber)
+      ? Math.max(1, Math.floor(Number(data.chapterNumber)))
+      : 1,
+    title: normalizeString(data.title),
+    summary: normalizeString(data.summary),
+    purpose: normalizeString(data.purpose),
+    povCharacter: normalizeString(data.povCharacter),
+    goal: normalizeString(data.goal),
+    conflict: normalizeString(data.conflict),
+    turn: normalizeString(data.turn),
+    emotionalShift: normalizeString(data.emotionalShift),
+    visualHook: normalizeString(data.visualHook),
+    subtext: normalizeString(data.subtext),
+    sourceDraftHtml: normalizeString(data.sourceDraftHtml).trim() || undefined,
+    draftHtml: normalizeString(data.draftHtml),
+    episodes: normalizeEpisodeCards(data.episodes),
   };
 }
 
@@ -1300,6 +1412,12 @@ export function isScriptChapterNode(
   node: CanvasNode | null | undefined
 ): node is Node<ScriptChapterNodeData, typeof CANVAS_NODE_TYPES.scriptChapter> {
   return node?.type === CANVAS_NODE_TYPES.scriptChapter;
+}
+
+export function isScriptSceneNode(
+  node: CanvasNode | null | undefined
+): node is Node<ScriptSceneNodeData, typeof CANVAS_NODE_TYPES.scriptScene> {
+  return node?.type === CANVAS_NODE_TYPES.scriptScene;
 }
 
 export function isScriptCharacterNode(
@@ -1515,6 +1633,7 @@ export function nodeHasImage(node: CanvasNode | null | undefined): boolean {
     isAudioNode(node) ||
     isScriptRootNode(node) ||
     isScriptChapterNode(node) ||
+    isScriptSceneNode(node) ||
     isScriptCharacterNode(node) ||
     isScriptLocationNode(node) ||
     isScriptItemNode(node) ||

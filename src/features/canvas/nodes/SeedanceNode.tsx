@@ -30,6 +30,7 @@ import { useTranslation } from "react-i18next";
 import {
   UiButton,
   UiChipButton,
+  UiLoadingAnimation,
   UiSelect,
 } from "@/components/ui";
 import {
@@ -2083,9 +2084,7 @@ export const SeedanceNode = memo(
                   }}
                 >
                   {isOptimizingPrompt ? (
-                    <Loader2
-                      className="h-4 w-4 origin-center scale-[1.12] animate-spin"
-                    />
+                    <UiLoadingAnimation size="sm" />
                   ) : (
                     <Wand2
                       className="h-4 w-4 origin-center scale-[1.18]"
@@ -2124,7 +2123,7 @@ export const SeedanceNode = memo(
               }}
             >
               {data.isSubmitting ? (
-                <Loader2 className="h-4 w-4 animate-spin" strokeWidth={2.3} />
+                <UiLoadingAnimation size="sm" />
               ) : (
                 <Sparkles className="h-4 w-4" strokeWidth={2.3} />
               )}

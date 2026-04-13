@@ -13,8 +13,8 @@ import {
   SCRIPT_CHAPTER_NODE_DEFAULT_WIDTH,
   createDefaultSceneCard,
   normalizeSceneCards,
-  type SceneCard,
   type ScriptChapterNodeData,
+  type ScriptSceneNodeData,
 } from '@/features/canvas/domain/canvasNodes';
 import { resolveNodeDisplayName } from '@/features/canvas/domain/nodeDisplay';
 import { useCanvasNodesByIds } from '@/features/canvas/hooks/useCanvasNodeGraph';
@@ -69,18 +69,6 @@ function stripHtmlToPlainText(html: string): string {
     .replace(/&quot;/g, '"')
     .replace(/\s+/g, ' ')
     .trim();
-}
-
-function composeChapterContentFromScenes(scenes: SceneCard[], fallbackContent: string): string {
-  const parts = scenes
-    .map((scene) => scene.draftHtml.trim())
-    .filter((value) => value.length > 0);
-
-  if (parts.length === 0) {
-    return fallbackContent;
-  }
-
-  return parts.join('<hr />');
 }
 
 type ScriptChapterNodeProps = {
@@ -195,9 +183,13 @@ export const ScriptChapterNode = memo(({ id, data, selected, width, height }: Sc
   const updateNodeData = useCanvasStore((state) => state.updateNodeData);
   const addNode = useCanvasStore((state) => state.addNode);
   const addEdge = useCanvasStore((state) => state.addEdge);
-  const focusScene = useScriptEditorStore((state) => state.focusScene);
-  const activeChapterId = useScriptEditorStore((state) => state.activeChapterId);
-  const activeSceneId = useScriptEditorStore((state) => state.activeSceneId);
+  const nodes = useCanvasStore((state) => state.nodes);
+  const setSelectedNode = useCanvasStore((state) => state.setSelectedNode);
+  const createScriptSceneNodeFromChapterScene = useCanvasStore(
+    (state) => state.createScriptSceneNodeFromChapterScene
+  );
+  const focusSceneNode = useScriptEditorStore((state) => state.focusSceneNode);
+  const activeSceneNodeId = useScriptEditorStore((state) => state.activeSceneNodeId);
   const resolvedTitle = resolveNodeDisplayName(CANVAS_NODE_TYPES.scriptChapter, data);
   const [aiDialogMode, setAiDialogMode] = useState<'expand' | 'rewrite' | 'expandFromSummary' | 'expandFromMerged' | null>(null);
   const [selectedText, setSelectedText] = useState('');
@@ -215,6 +207,25 @@ export const ScriptChapterNode = memo(({ id, data, selected, width, height }: Sc
   const scenePreviewMaxHeight = Math.max(136, Math.min(280, Math.round(resolvedHeight * 0.34)));
   const mergedBranchNodeIds = data.mergedFromBranches ?? EMPTY_NODE_IDS;
   const mergedBranchNodes = useCanvasNodesByIds(mergedBranchNodeIds);
+  const sceneNodeBySceneId = useMemo(() => {
+    const nextMap = new Map<string, { id: string; data: ScriptSceneNodeData }>();
+    nodes.forEach((node) => {
+      if (node.type !== CANVAS_NODE_TYPES.scriptScene) {
+        return;
+      }
+
+      const sceneNodeData = node.data as ScriptSceneNodeData;
+      if (sceneNodeData.sourceChapterId !== id) {
+        return;
+      }
+
+      nextMap.set(sceneNodeData.sourceSceneId, {
+        id: node.id,
+        data: sceneNodeData,
+      });
+    });
+    return nextMap;
+  }, [id, nodes]);
 
   const handleTitleChange = useCallback(
     (nextTitle: string) => {
@@ -234,16 +245,45 @@ export const ScriptChapterNode = memo(({ id, data, selected, width, height }: Sc
     setSelectedText(selection.text);
   }, []);
 
-  const handleOpenSceneStudio = useCallback((sceneId?: string) => {
-    focusScene(id, sceneId ?? scenes[0]?.id ?? createDefaultSceneCard(0).id);
-  }, [focusScene, id, scenes]);
+  const handleOpenSceneNode = useCallback((sceneId?: string) => {
+    const resolvedSceneId = sceneId ?? scenes[0]?.id ?? createDefaultSceneCard(0).id;
+    const sceneNodeId = createScriptSceneNodeFromChapterScene(id, resolvedSceneId);
+    if (!sceneNodeId) {
+      return;
+    }
+
+    const sceneNodeFromStore = useCanvasStore.getState().nodes.find(
+      (node) => node.id === sceneNodeId && node.type === CANVAS_NODE_TYPES.scriptScene
+    );
+    const sceneNode = sceneNodeBySceneId.get(resolvedSceneId)
+      ?? (sceneNodeFromStore
+        ? {
+            id: sceneNodeFromStore.id,
+            data: sceneNodeFromStore.data as ScriptSceneNodeData,
+          }
+        : undefined);
+
+    setSelectedNode(sceneNodeId);
+    focusSceneNode(sceneNodeId, sceneNode?.data.episodes[0]?.id ?? null);
+  }, [
+    createScriptSceneNodeFromChapterScene,
+    focusSceneNode,
+    id,
+    sceneNodeBySceneId,
+    scenes,
+    setSelectedNode,
+  ]);
 
   const handleAddScene = useCallback(() => {
     const nextScene = createDefaultSceneCard(scenes.length);
     const nextScenes = [...scenes, nextScene];
-    updateNodeData(id, { scenes: nextScenes });
-    focusScene(id, nextScene.id);
-  }, [focusScene, id, scenes, updateNodeData]);
+    updateNodeData(id, {
+      scenes: nextScenes,
+      sceneHeadings: nextScenes
+        .map((scene) => scene.title.trim())
+        .filter((value) => value.length > 0),
+    });
+  }, [id, scenes, updateNodeData]);
 
   const handleContextMenu = useCallback((e: { clientX: number; clientY: number }) => {
     if (selectedText.trim()) {
@@ -264,39 +304,14 @@ export const ScriptChapterNode = memo(({ id, data, selected, width, height }: Sc
           text: result,
         });
       } else if (aiDialogMode === 'expandFromSummary' || aiDialogMode === 'expandFromMerged') {
-        const normalizedScenes = normalizeSceneCards(data.scenes, data.content);
-        const targetSceneId = activeChapterId === id && activeSceneId
-          ? normalizedScenes.find((scene) => scene.id === activeSceneId)?.id
-          : undefined;
-        const resolvedTargetSceneId = targetSceneId ?? normalizedScenes[0]?.id ?? createDefaultSceneCard(0).id;
-
-        const nextScenes: SceneCard[] = normalizedScenes.map((scene) => {
-          if (scene.id !== resolvedTargetSceneId) {
-            return scene;
-          }
-
-          const previousDraftHtml = scene.draftHtml.trim();
-
-          return {
-            ...scene,
-            draftHtml: result,
-            sourceDraftHtml: scene.sourceDraftHtml?.trim() || previousDraftHtml || undefined,
-            sourceDraftLabel: scene.sourceDraftLabel?.trim() || undefined,
-            status: result.trim() ? 'drafting' : 'idea',
-          };
-        });
-
-        updateNodeData(id, {
-          scenes: nextScenes,
-          content: composeChapterContentFromScenes(nextScenes, data.content),
-        });
+        updateNodeData(id, { content: result });
       } else {
         updateNodeData(id, { content: result });
       }
       setAiDialogMode(null);
       setSelectedText('');
     },
-    [activeChapterId, activeSceneId, aiDialogMode, data.content, data.scenes, id, selectedText, updateNodeData]
+    [aiDialogMode, id, selectedText, updateNodeData]
   );
 
   const handleReplacementApplied = useCallback(() => {
@@ -506,7 +521,7 @@ export const ScriptChapterNode = memo(({ id, data, selected, width, height }: Sc
             <div className="flex items-center justify-between gap-2">
               <div>
                 <div className="text-[11px] uppercase tracking-[0.08em] text-text-muted">
-                  {t('script.sceneStudio.title')}
+                  {t('script.chapterCatalog.title')}
                 </div>
                 <div className="mt-1 text-sm font-medium text-text-dark">
                   {t('script.sceneStudio.sceneCount', { count: scenes.length })}
@@ -515,17 +530,10 @@ export const ScriptChapterNode = memo(({ id, data, selected, width, height }: Sc
               <div className="flex items-center gap-2">
                 <button
                   type="button"
-                  onClick={() => handleOpenSceneStudio()}
-                  className="rounded-lg border border-amber-500/35 bg-amber-500/10 px-2.5 py-1 text-xs text-amber-300 transition-colors hover:bg-amber-500/18"
-                >
-                  {t('script.sceneStudio.open')}
-                </button>
-                <button
-                  type="button"
                   onClick={handleAddScene}
                   className="rounded-lg border border-border-dark bg-surface-dark px-2.5 py-1 text-xs text-text-dark transition-colors hover:bg-bg-dark"
                 >
-                  {t('script.sceneStudio.addScene')}
+                  {t('script.chapterCatalog.addScene')}
                 </button>
               </div>
             </div>
@@ -535,33 +543,59 @@ export const ScriptChapterNode = memo(({ id, data, selected, width, height }: Sc
               style={{ maxHeight: `${scenePreviewMaxHeight}px` }}
             >
               {scenes.map((scene) => {
-                const isActive = activeChapterId === id && activeSceneId === scene.id;
+                const sceneNode = sceneNodeBySceneId.get(scene.id);
+                const isActive = activeSceneNodeId === sceneNode?.id;
                 const previewText = stripHtmlToPlainText(
                   scene.summary || scene.visualHook || scene.draftHtml
                 ) || t('script.sceneStudio.sceneCardHint');
                 return (
-                  <button
+                  <div
                     key={scene.id}
-                    type="button"
-                    onClick={() => handleOpenSceneStudio(scene.id)}
                     className={`w-full rounded-lg border px-3 py-2 text-left transition-colors ${
                       isActive
-                        ? 'border-amber-500/40 bg-amber-500/10'
-                        : 'border-border-dark bg-surface-dark hover:bg-bg-dark'
+                        ? 'border-cyan-500/35 bg-cyan-500/10'
+                        : sceneNode
+                          ? 'border-cyan-500/20 bg-cyan-500/5'
+                          : 'border-border-dark bg-surface-dark hover:bg-bg-dark'
                     }`}
                   >
                     <div className="flex items-center justify-between gap-2">
-                      <span className="truncate text-sm font-medium text-text-dark">
-                        {scene.title || t('script.sceneStudio.untitledScene')}
-                      </span>
-                      <span className="shrink-0 text-[11px] text-text-muted">
-                        {t('script.sceneStudio.sceneLabel', { number: scene.order + 1 })}
-                      </span>
+                      <div className="min-w-0">
+                        <div className="truncate text-sm font-medium text-text-dark">
+                          {scene.title || t('script.sceneStudio.untitledScene')}
+                        </div>
+                        <div className="mt-1 text-[11px] text-text-muted">
+                          {t('script.sceneStudio.sceneLabel', { number: scene.order + 1 })}
+                        </div>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => handleOpenSceneNode(scene.id)}
+                        className={`shrink-0 rounded-lg border px-2.5 py-1 text-[11px] font-medium transition-colors ${
+                          sceneNode
+                            ? 'border-cyan-500/35 bg-cyan-500/10 text-cyan-200 hover:bg-cyan-500/18'
+                            : 'border-amber-500/35 bg-amber-500/10 text-amber-300 hover:bg-amber-500/18'
+                        }`}
+                      >
+                        {sceneNode
+                          ? t('script.chapterCatalog.openEpisodes')
+                          : t('script.chapterCatalog.generateNode')}
+                      </button>
                     </div>
                     <p className="mt-1 overflow-hidden break-words text-xs leading-5 text-text-muted [display:-webkit-box] [-webkit-box-orient:vertical] [-webkit-line-clamp:2]">
                       {previewText}
                     </p>
-                  </button>
+                    {sceneNode ? (
+                      <div className="mt-2 flex items-center justify-between gap-2 text-[11px] text-cyan-200/80">
+                        <span>{t('script.chapterCatalog.created')}</span>
+                        <span>
+                          {t('script.sceneWorkbench.episodeCount', {
+                            count: sceneNode.data.episodes.length,
+                          })}
+                        </span>
+                      </div>
+                    ) : null}
+                  </div>
                 );
               })}
             </div>

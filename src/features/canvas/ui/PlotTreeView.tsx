@@ -1,10 +1,14 @@
 import { useState, useCallback, useMemo } from 'react';
-import { ChevronRight, ChevronDown, FileText, GitBranch, Sparkles, Circle } from 'lucide-react';
+import { ChevronRight, ChevronDown, FileText, GitBranch, Sparkles, Circle, Clapperboard } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
+
 import {
+  CANVAS_NODE_TYPES,
   normalizeSceneCards,
   type ScriptChapterNodeData,
+  type ScriptSceneNodeData,
 } from '@/features/canvas/domain/canvasNodes';
+import { useCanvasStore } from '@/stores/canvasStore';
 import { useScriptEditorStore } from '@/stores/scriptEditorStore';
 
 type ChapterNode = { id: string; data: ScriptChapterNodeData };
@@ -18,8 +22,11 @@ interface PlotTreeNodeProps {
   onToggle: (nodeId: string) => void;
   onNodeClick: (nodeId: string) => void;
   expandedIds: Set<string>;
-  activeChapterId: string | null;
-  activeSceneId: string | null;
+  sceneNodeBySourceKey: Map<string, { id: string; data: ScriptSceneNodeData }>;
+}
+
+function buildSceneSourceKey(chapterId: string, sceneId: string): string {
+  return `${chapterId}::${sceneId}`;
 }
 
 function PlotTreeNode({
@@ -31,12 +38,15 @@ function PlotTreeNode({
   onToggle,
   onNodeClick,
   expandedIds,
-  activeChapterId,
-  activeSceneId,
+  sceneNodeBySourceKey,
 }: PlotTreeNodeProps) {
   const { t } = useTranslation();
-  const focusChapter = useScriptEditorStore((state) => state.focusChapter);
-  const focusScene = useScriptEditorStore((state) => state.focusScene);
+  const setSelectedNode = useCanvasStore((state) => state.setSelectedNode);
+  const createScriptSceneNodeFromChapterScene = useCanvasStore(
+    (state) => state.createScriptSceneNodeFromChapterScene
+  );
+  const focusSceneNode = useScriptEditorStore((state) => state.focusSceneNode);
+
   const data = node.data;
   const hasChildren = children.length > 0;
   const isBranchPoint = data.isBranchPoint;
@@ -45,18 +55,25 @@ function PlotTreeNode({
     () => normalizeSceneCards(data.scenes, data.content),
     [data.content, data.scenes]
   );
-  
+
+  const childNodes = useMemo(() => {
+    return children.map((child) => ({
+      node: child,
+      children: allNodes.filter((candidate) => candidate.data.parentId === child.id),
+    }));
+  }, [allNodes, children]);
+
   const getBranchTypeIcon = () => {
     switch (branchType) {
       case 'branch':
-        return <GitBranch className="w-3 h-3 text-purple-400" />;
+        return <GitBranch className="h-3 w-3 text-purple-400" />;
       case 'supplement':
-        return <Sparkles className="w-3 h-3 text-green-400" />;
+        return <Sparkles className="h-3 w-3 text-green-400" />;
       default:
-        return <FileText className="w-3 h-3 text-amber-400" />;
+        return <FileText className="h-3 w-3 text-amber-400" />;
     }
   };
-  
+
   const getBranchTypeColor = () => {
     switch (branchType) {
       case 'branch':
@@ -68,109 +85,136 @@ function PlotTreeNode({
     }
   };
 
-  const childNodes = useMemo(() => {
-    return children.map(child => ({
-      node: child,
-      children: allNodes.filter(n => n.data.parentId === child.id),
-    }));
-  }, [children, allNodes]);
+  const handleOpenSceneNode = useCallback((sceneId: string) => {
+    const sceneKey = buildSceneSourceKey(node.id, sceneId);
+    let sceneNode = sceneNodeBySourceKey.get(sceneKey);
+    const sceneNodeId = sceneNode?.id ?? createScriptSceneNodeFromChapterScene(node.id, sceneId);
+    if (!sceneNodeId) {
+      return;
+    }
+
+    const sceneNodeFromStore = useCanvasStore.getState().nodes.find(
+      (candidate) => candidate.id === sceneNodeId && candidate.type === CANVAS_NODE_TYPES.scriptScene
+    );
+    sceneNode = sceneNodeBySourceKey.get(sceneKey)
+      ?? (sceneNodeFromStore
+        ? {
+            id: sceneNodeFromStore.id,
+            data: sceneNodeFromStore.data as ScriptSceneNodeData,
+          }
+        : undefined);
+
+    setSelectedNode(sceneNodeId);
+    focusSceneNode(sceneNodeId, sceneNode?.data.episodes[0]?.id ?? null);
+    onNodeClick(sceneNodeId);
+  }, [
+    createScriptSceneNodeFromChapterScene,
+    focusSceneNode,
+    node.id,
+    onNodeClick,
+    sceneNodeBySourceKey,
+    setSelectedNode,
+  ]);
 
   return (
     <div className="select-none">
       <div
         className={`
-          group flex items-center gap-1.5 py-1.5 px-2 rounded-md cursor-pointer
-          hover:bg-bg-dark transition-colors duration-150
-          border-l-2 ${getBranchTypeColor()}
+          group flex items-center gap-1.5 rounded-md border-l-2 px-2 py-1.5 transition-colors duration-150
+          hover:bg-bg-dark
+          ${getBranchTypeColor()}
           ${isBranchPoint ? 'bg-purple-500/10' : ''}
         `}
         style={{ paddingLeft: `${level * 12 + 8}px` }}
-        onClick={() => {
-          focusChapter(node.id, scenes[0]?.id ?? null);
-          onNodeClick(node.id);
-        }}
+        onClick={() => onNodeClick(node.id)}
       >
         {hasChildren ? (
           <button
-            onClick={(e) => {
-              e.stopPropagation();
+            type="button"
+            onClick={(event) => {
+              event.stopPropagation();
               onToggle(node.id);
             }}
-            className="p-0.5 hover:bg-surface-dark rounded transition-colors"
+            className="rounded p-0.5 transition-colors hover:bg-surface-dark"
           >
             {isExpanded ? (
-              <ChevronDown className="w-3.5 h-3.5 text-text-muted" />
+              <ChevronDown className="h-3.5 w-3.5 text-text-muted" />
             ) : (
-              <ChevronRight className="w-3.5 h-3.5 text-text-muted" />
+              <ChevronRight className="h-3.5 w-3.5 text-text-muted" />
             )}
           </button>
         ) : (
           <span className="w-4.5" />
         )}
-        
+
         {getBranchTypeIcon()}
-        
-        <div className="flex-1 min-w-0">
+
+        <div className="min-w-0 flex-1">
           <div className="flex items-center gap-1.5">
-            <span className="text-xs font-medium text-text-dark truncate">
-              {branchType === 'main' 
-                ? `第${data.chapterNumber || 1}章` 
-                : data.displayName || `${data.chapterNumber || 1}-${data.branchIndex || 1}`
-              }
+            <span className="truncate text-xs font-medium text-text-dark">
+              {branchType === 'main'
+                ? t('script.sceneStudio.chapterLabel', { number: data.chapterNumber || 1 })
+                : data.displayName || `${data.chapterNumber || 1}-${data.branchIndex || 1}`}
             </span>
-            {data.title && (
-              <span className="text-xs text-text-muted truncate">
-                {data.title}
-              </span>
-            )}
+            {data.title ? (
+              <span className="truncate text-xs text-text-muted">{data.title}</span>
+            ) : null}
           </div>
-          {data.summary && (
-            <p className="text-[10px] text-text-muted/70 line-clamp-1 mt-0.5">
+          {data.summary ? (
+            <p className="mt-0.5 line-clamp-1 text-[10px] text-text-muted/70">
               {data.summary}
             </p>
-          )}
+          ) : null}
         </div>
-        
-        {isBranchPoint && (
-          <Circle className="w-2 h-2 text-purple-400 fill-purple-400" />
-        )}
+
+        {isBranchPoint ? (
+          <Circle className="h-2 w-2 fill-purple-400 text-purple-400" />
+        ) : null}
       </div>
 
       {isExpanded && scenes.length > 0 ? (
         <div className="space-y-1 py-1">
           {scenes.map((scene) => {
-            const isActive = activeChapterId === node.id && activeSceneId === scene.id;
+            const sceneNode = sceneNodeBySourceKey.get(buildSceneSourceKey(node.id, scene.id));
+            const isActive = Boolean(sceneNode);
+
             return (
               <button
                 key={scene.id}
                 type="button"
-                onClick={() => {
-                  focusScene(node.id, scene.id);
-                  onNodeClick(node.id);
-                }}
+                onClick={() => handleOpenSceneNode(scene.id)}
                 className={`ml-5 flex w-[calc(100%-20px)] items-center gap-2 rounded-md px-2 py-1.5 text-left transition-colors ${
                   isActive
-                    ? 'bg-amber-500/12 text-amber-200'
+                    ? 'bg-cyan-500/12 text-cyan-200'
                     : 'text-text-muted hover:bg-bg-dark hover:text-text-dark'
                 }`}
                 style={{ marginLeft: `${level * 12 + 28}px` }}
               >
-                <Circle className={`h-2.5 w-2.5 ${isActive ? 'fill-amber-300 text-amber-300' : 'fill-current text-text-muted/60'}`} />
+                <Clapperboard className={`h-3.5 w-3.5 ${isActive ? 'text-cyan-300' : 'text-text-muted/70'}`} />
                 <div className="min-w-0 flex-1">
                   <div className="truncate text-[11px] font-medium">
-                    {scene.title || t('script.sceneStudio.untitledScene')}
+                    {scene.title || t('script.sceneCatalog.untitledScene')}
                   </div>
                   <div className="truncate text-[10px] opacity-70">
-                    {scene.summary || t('script.sceneStudio.sceneLabel', { number: scene.order + 1 })}
+                    {scene.summary || t('script.sceneCatalog.sceneLabel', { number: scene.order + 1 })}
                   </div>
                 </div>
+                <span className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-medium ${
+                  isActive
+                    ? 'bg-cyan-500/12 text-cyan-200'
+                    : 'bg-bg-dark text-text-muted'
+                }`}>
+                  {isActive
+                    ? t('script.chapterCatalog.openEpisodes')
+                    : t('script.chapterCatalog.generateNode')}
+                </span>
               </button>
             );
           })}
         </div>
       ) : null}
-      
-      {hasChildren && isExpanded && (
+
+      {hasChildren && isExpanded ? (
         <div className="relative">
           {childNodes.map(({ node: childNode, children: grandChildren }) => (
             <PlotTreeNode
@@ -183,12 +227,11 @@ function PlotTreeNode({
               onToggle={onToggle}
               onNodeClick={onNodeClick}
               expandedIds={expandedIds}
-              activeChapterId={activeChapterId}
-              activeSceneId={activeSceneId}
+              sceneNodeBySourceKey={sceneNodeBySourceKey}
             />
           ))}
         </div>
-      )}
+      ) : null}
     </div>
   );
 }
@@ -199,11 +242,11 @@ interface PlotTreeViewProps {
 }
 
 export function PlotTreeView({ chapters, onNodeClick }: PlotTreeViewProps) {
-  const activeChapterId = useScriptEditorStore((state) => state.activeChapterId);
-  const activeSceneId = useScriptEditorStore((state) => state.activeSceneId);
+  const { t } = useTranslation();
+  const canvasNodes = useCanvasStore((state) => state.nodes);
   const [expandedIds, setExpandedIds] = useState<Set<string>>(() => {
     const initialExpanded = new Set<string>();
-    chapters.forEach(chapter => {
+    chapters.forEach((chapter) => {
       if (chapter.data.branchType === 'main' || !chapter.data.branchType) {
         initialExpanded.add(chapter.id);
       }
@@ -211,9 +254,25 @@ export function PlotTreeView({ chapters, onNodeClick }: PlotTreeViewProps) {
     return initialExpanded;
   });
 
+  const sceneNodeBySourceKey = useMemo(() => {
+    const nextMap = new Map<string, { id: string; data: ScriptSceneNodeData }>();
+    canvasNodes.forEach((node) => {
+      if (node.type !== CANVAS_NODE_TYPES.scriptScene) {
+        return;
+      }
+
+      const sceneNodeData = node.data as ScriptSceneNodeData;
+      nextMap.set(
+        buildSceneSourceKey(sceneNodeData.sourceChapterId, sceneNodeData.sourceSceneId),
+        { id: node.id, data: sceneNodeData }
+      );
+    });
+    return nextMap;
+  }, [canvasNodes]);
+
   const handleToggle = useCallback((nodeId: string) => {
-    setExpandedIds(prev => {
-      const next = new Set(prev);
+    setExpandedIds((previous) => {
+      const next = new Set(previous);
       if (next.has(nodeId)) {
         next.delete(nodeId);
       } else {
@@ -225,20 +284,21 @@ export function PlotTreeView({ chapters, onNodeClick }: PlotTreeViewProps) {
 
   const treeData = useMemo(() => {
     const rootNodes = chapters.filter(
-      chapter => !chapter.data.parentId || chapter.data.branchType === 'main'
+      (chapter) => !chapter.data.parentId || chapter.data.branchType === 'main'
     );
-    
     const mainLineNodes = rootNodes.filter(
-      chapter => !chapter.data.parentId || chapter.data.parentId === ''
+      (chapter) => !chapter.data.parentId || chapter.data.parentId === ''
     );
-    
+
     const childrenMap = new Map<string, ChapterNode[]>();
-    chapters.forEach(chapter => {
-      if (chapter.data.parentId) {
-        const children = childrenMap.get(chapter.data.parentId) || [];
-        children.push(chapter);
-        childrenMap.set(chapter.data.parentId, children);
+    chapters.forEach((chapter) => {
+      if (!chapter.data.parentId) {
+        return;
       }
+
+      const children = childrenMap.get(chapter.data.parentId) || [];
+      children.push(chapter);
+      childrenMap.set(chapter.data.parentId, children);
     });
 
     return {
@@ -253,12 +313,12 @@ export function PlotTreeView({ chapters, onNodeClick }: PlotTreeViewProps) {
   );
 
   if (chapters.length === 0) {
-    return <p className="text-xs text-text-muted py-2 px-2">暂无章节</p>;
+    return <p className="px-2 py-2 text-xs text-text-muted">{t('script.chapterCatalog.empty')}</p>;
   }
 
   return (
     <div className="space-y-0.5 py-1">
-      {treeData.rootNodes.map(rootNode => (
+      {treeData.rootNodes.map((rootNode) => (
         <PlotTreeNode
           key={rootNode.id}
           node={rootNode}
@@ -269,8 +329,7 @@ export function PlotTreeView({ chapters, onNodeClick }: PlotTreeViewProps) {
           onToggle={handleToggle}
           onNodeClick={onNodeClick}
           expandedIds={expandedIds}
-          activeChapterId={activeChapterId}
-          activeSceneId={activeSceneId}
+          sceneNodeBySourceKey={sceneNodeBySourceKey}
         />
       ))}
     </div>

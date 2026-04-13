@@ -1,32 +1,25 @@
 import { create } from 'zustand';
 
 interface ScriptEditorState {
-  activeChapterId: string | null;
-  activeSceneId: string | null;
-  focusChapter: (chapterId: string, sceneId?: string | null) => void;
-  focusScene: (chapterId: string, sceneId: string) => void;
+  activeSceneNodeId: string | null;
+  activeEpisodeId: string | null;
+  focusSceneNode: (sceneNodeId: string, episodeId?: string | null) => void;
   clearSelection: () => void;
 }
 
 export const useScriptEditorStore = create<ScriptEditorState>((set) => ({
-  activeChapterId: null,
-  activeSceneId: null,
-  focusChapter: (chapterId, sceneId) => {
+  activeSceneNodeId: null,
+  activeEpisodeId: null,
+  focusSceneNode: (sceneNodeId, episodeId) => {
     set({
-      activeChapterId: chapterId,
-      activeSceneId: sceneId ?? null,
-    });
-  },
-  focusScene: (chapterId, sceneId) => {
-    set({
-      activeChapterId: chapterId,
-      activeSceneId: sceneId,
+      activeSceneNodeId: sceneNodeId,
+      activeEpisodeId: episodeId ?? null,
     });
   },
   clearSelection: () => {
     set({
-      activeChapterId: null,
-      activeSceneId: null,
+      activeSceneNodeId: null,
+      activeEpisodeId: null,
     });
   },
 }));

@@ -27,6 +27,7 @@ import {
 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
+import { UiLoadingAnimation } from "@/components/ui";
 import {
   CANVAS_NODE_TYPES,
   JIMENG_VIDEO_RESULT_NODE_DEFAULT_HEIGHT,
@@ -3001,7 +3002,7 @@ export const JimengNode = memo(
                 onClick={() => void handleOptimizePrompt()}
               >
                 {isOptimizingPrompt ? (
-                  <Loader2 className="h-4 w-4 origin-center scale-[1.12] animate-spin" />
+                  <UiLoadingAnimation size="sm" />
                 ) : (
                   <Wand2
                     className="h-4 w-4 origin-center scale-[1.18]"

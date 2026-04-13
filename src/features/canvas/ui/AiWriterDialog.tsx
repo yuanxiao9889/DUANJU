@@ -1,9 +1,9 @@
 import { useState, useCallback, useEffect } from 'react';
 import { createPortal } from 'react-dom';
-import { Sparkles, X, Loader2, ArrowRight, GitFork } from 'lucide-react';
+import { Sparkles, X, ArrowRight, GitFork } from 'lucide-react';
 import { expandScript, rewriteScript, expandFromSummary, expandFromMergedBranches } from '@/commands/textGen';
 import type { MergedBranchContent } from '@/commands/textGen';
-import { UiButton } from '@/components/ui/primitives';
+import { UiButton, UiLoadingAnimation, UiLoadingBanner } from '@/components/ui';
 import { useDraggableDialog } from '@/components/ui/useDraggableDialog';
 
 function simpleMarkdownToHtml(text: string): string {
@@ -236,7 +236,7 @@ export function AiWriterDialog({
       {isPositioning ? (
         // 位置计算中，显示加载指示器
         <div className="absolute left-1/2 top-1/2 flex -translate-x-1/2 -translate-y-1/2 items-center justify-center">
-          <div className="w-8 h-8 border-2 border-amber-400 border-t-transparent rounded-full animate-spin" />
+          <UiLoadingBanner />
         </div>
       ) : (
         <div
@@ -372,7 +372,7 @@ export function AiWriterDialog({
               >
                 {isLoading ? (
                   <>
-                    <Loader2 className="w-4 h-4 animate-spin" />
+                    <UiLoadingAnimation size="sm" />
                     生成中...
                   </>
                 ) : (

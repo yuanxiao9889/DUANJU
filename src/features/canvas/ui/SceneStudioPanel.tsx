@@ -1,29 +1,23 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   AlertTriangle,
-  Check,
   ChevronLeft,
-  ChevronDown,
   ChevronRight,
   Clapperboard,
-  CornerDownLeft,
   FileText,
-  Link2,
-  Loader2,
   Plus,
   RefreshCcw,
-  Save,
   SendHorizonal,
   Sparkles,
-  X,
+  Trash2,
+  Wand2,
 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 
+import { UiLoadingAnimation } from '@/components/ui';
 import { LazyRichTextEditor } from './LazyRichTextEditor';
-import { SelectionDiffPreview } from './SelectionDiffPreview';
 import {
   runSceneCopilot,
-  runSceneSelectionRewriteVariants,
   type SceneCopilotMode,
 } from '@/features/canvas/application/sceneCopilot';
 import {
@@ -33,17 +27,22 @@ import {
 } from '@/features/canvas/application/sceneContinuity';
 import { runSceneContinuityCheck } from '@/features/canvas/application/sceneContinuityCheck';
 import {
+  buildEpisodeTemplateHtml,
+  createManualEpisodeCard,
+  generateEpisodesFromSceneNode,
+  htmlToPlainText,
+} from '@/features/canvas/application/sceneEpisodeGenerator';
+import {
   CANVAS_NODE_TYPES,
   createDefaultSceneCard,
   normalizeSceneCards,
-  type SceneCard,
+  type EpisodeCard,
   type SceneContinuityCheck,
-  type SceneContinuityIssue,
   type SceneCopilotMessageMode,
-  type SceneCopilotSelectionResolution,
   type SceneCopilotThreadMessage,
   type ScriptChapterNodeData,
   type ScriptRootNodeData,
+  type ScriptSceneNodeData,
 } from '@/features/canvas/domain/canvasNodes';
 import {
   useCanvasFirstNodeByType,
@@ -51,117 +50,67 @@ import {
   useCanvasNodesByTypes,
 } from '@/features/canvas/hooks/useCanvasNodeGraph';
 import { useCanvasStore } from '@/stores/canvasStore';
-import { useProjectStore } from '@/stores/projectStore';
 import { useScriptEditorStore } from '@/stores/scriptEditorStore';
 
-const AUTOSAVE_DELAY_MS = 1200;
-const SCENE_STUDIO_SECTION_STORAGE_KEY = 'scene-studio-sections';
 const SCENE_STUDIO_PANEL_WIDTH_STORAGE_KEY = 'scene-studio-panel-width';
 const SCENE_STUDIO_PANEL_COLLAPSED_STORAGE_KEY = 'scene-studio-panel-collapsed';
-const SCENE_STUDIO_PANEL_DEFAULT_WIDTH = 620;
-const SCENE_STUDIO_PANEL_MIN_WIDTH = 420;
-const SCENE_STUDIO_PANEL_MAX_WIDTH = 920;
+const SCENE_STUDIO_PANEL_DEFAULT_WIDTH = 640;
+const SCENE_STUDIO_PANEL_MIN_WIDTH = 440;
+const SCENE_STUDIO_PANEL_MAX_WIDTH = 980;
 const SCENE_STUDIO_PANEL_COLLAPSED_WIDTH = 52;
+const SCENE_STUDIO_SCENE_NODE_TYPES = [CANVAS_NODE_TYPES.scriptScene] as const;
 const SCENE_STUDIO_CONTINUITY_NODE_TYPES = [
   CANVAS_NODE_TYPES.scriptChapter,
+  CANVAS_NODE_TYPES.scriptScene,
   CANVAS_NODE_TYPES.scriptCharacter,
   CANVAS_NODE_TYPES.scriptLocation,
   CANVAS_NODE_TYPES.scriptItem,
   CANVAS_NODE_TYPES.scriptWorldview,
 ] as const;
 
-type SceneStudioSectionKey =
-  | 'chapterFocus'
-  | 'sceneBlueprint'
-  | 'importedSource'
-  | 'directorNotes'
-  | 'continuity'
-  | 'copilot'
-  | 'draft';
-
-type SceneStudioSectionState = Record<SceneStudioSectionKey, boolean>;
-type SceneStudioWorkspaceTab = 'overview' | 'draft' | 'director';
-
-const DEFAULT_SCENE_STUDIO_SECTION_STATE: SceneStudioSectionState = {
-  chapterFocus: false,
-  sceneBlueprint: true,
-  importedSource: false,
-  directorNotes: true,
-  continuity: false,
-  copilot: false,
-  draft: true,
-};
-
-type SelectionRange = {
-  from: number;
-  to: number;
-};
-
-function cloneScene(scene: SceneCard): SceneCard {
-  return JSON.parse(JSON.stringify(scene)) as SceneCard;
+function clampPanelWidth(value: number): number {
+  return Math.min(
+    SCENE_STUDIO_PANEL_MAX_WIDTH,
+    Math.max(SCENE_STUDIO_PANEL_MIN_WIDTH, Math.round(value))
+  );
 }
 
-function composeChapterContentFromScenes(scenes: SceneCard[], fallbackContent: string): string {
-  const parts = scenes
-    .map((scene) => scene.draftHtml.trim())
-    .filter((value) => value.length > 0);
-
-  if (parts.length === 0) {
-    return fallbackContent;
+function readPanelWidth(): number {
+  if (typeof window === 'undefined') {
+    return SCENE_STUDIO_PANEL_DEFAULT_WIDTH;
   }
 
-  return parts.join('<hr />');
-}
-
-function createCopilotMessage(
-  role: 'user' | 'assistant',
-  content: string,
-  mode: SceneCopilotMessageMode,
-  extras: Partial<
-    Pick<
-      SceneCopilotThreadMessage,
-      | 'selectionSourceText'
-      | 'selectionVariants'
-      | 'selectedVariantIndex'
-      | 'selectionResolution'
-      | 'continuityCheck'
-    >
-  > = {}
-): SceneCopilotThreadMessage {
-  return {
-    id: `${role}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-    role,
-    content,
-    mode,
-    createdAt: Date.now(),
-    ...extras,
-  };
-}
-
-function seedCopilotThread(scene: SceneCard): SceneCopilotThreadMessage[] {
-  const summary = scene.copilotSummary?.trim() ?? '';
-  if (!summary) {
-    return [];
+  const raw = Number(window.localStorage.getItem(SCENE_STUDIO_PANEL_WIDTH_STORAGE_KEY));
+  if (!Number.isFinite(raw) || raw <= 0) {
+    return SCENE_STUDIO_PANEL_DEFAULT_WIDTH;
   }
 
-  return [
-    {
-      id: `seed-${scene.id}`,
-      role: 'assistant',
-      content: summary,
-      mode: 'seed',
-      createdAt: 0,
-    },
-  ];
+  return clampPanelWidth(raw);
 }
 
-function escapeHtml(text: string): string {
-  return text
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#39;');
+function readPanelCollapsed(): boolean {
+  if (typeof window === 'undefined') {
+    return false;
+  }
+
+  return window.localStorage.getItem(SCENE_STUDIO_PANEL_COLLAPSED_STORAGE_KEY) === 'true';
+}
+
+function parseMultilineItems(text: string): string[] {
+  const items: string[] = [];
+  const seen = new Set<string>();
+
+  text.split(/\n+/g).forEach((line) => {
+    const trimmed = line.trim();
+    if (!trimmed || seen.has(trimmed)) {
+      return;
+    }
+
+    seen.add(trimmed);
+    items.push(trimmed);
+  });
+
+  return items;
 }
 
 function plainTextToHtml(text: string): string {
@@ -172,582 +121,307 @@ function plainTextToHtml(text: string): string {
 
   return trimmed
     .split(/\n{2,}/)
-    .map((paragraph) => `<p>${escapeHtml(paragraph).replace(/\n/g, '<br />')}</p>`)
+    .map((paragraph) => `<p>${paragraph
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;')
+      .replace(/\n/g, '<br />')}</p>`)
     .join('');
 }
 
-function htmlToPlainText(html: string): string {
-  const trimmed = html.trim();
-  if (!trimmed) {
-    return '';
+function seedCopilotThread(episode: EpisodeCard): SceneCopilotThreadMessage[] {
+  const summary = episode.copilotSummary?.trim() ?? '';
+  if (!summary) {
+    return [];
   }
 
-  if (typeof DOMParser === 'undefined') {
-    return trimmed
-      .replace(/<br\s*\/?>/gi, '\n')
-      .replace(/<\/p>\s*<p[^>]*>/gi, '\n\n')
-      .replace(/<[^>]+>/g, ' ')
-      .replace(/&nbsp;/g, ' ')
-      .replace(/&amp;/g, '&')
-      .replace(/&lt;/g, '<')
-      .replace(/&gt;/g, '>')
-      .replace(/&#39;/g, '\'')
-      .replace(/&quot;/g, '"')
-      .replace(/\n{3,}/g, '\n\n')
-      .trim();
-  }
-
-  const parser = new DOMParser();
-  const document = parser.parseFromString(trimmed, 'text/html');
-  const text = document.body.innerText || document.body.textContent || '';
-  return text
-    .replace(/\u00a0/g, ' ')
-    .replace(/\n{3,}/g, '\n\n')
-    .trim();
+  return [
+    {
+      id: `seed-${episode.id}`,
+      role: 'assistant',
+      content: summary,
+      mode: 'seed',
+      createdAt: 0,
+    },
+  ];
 }
 
-function parseMultilineItems(text: string): string[] {
-  const seen = new Set<string>();
-  const items: string[] = [];
-
-  for (const line of text.split(/\n+/g)) {
-    const trimmed = line.trim();
-    if (!trimmed || seen.has(trimmed)) {
-      continue;
-    }
-
-    seen.add(trimmed);
-    items.push(trimmed);
-  }
-
-  return items;
+function createCopilotMessage(
+  role: 'user' | 'assistant',
+  content: string,
+  mode: SceneCopilotMessageMode
+): SceneCopilotThreadMessage {
+  return {
+    id: `${role}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+    role,
+    content,
+    mode,
+    createdAt: Date.now(),
+  };
 }
 
-function clampSceneStudioPanelWidth(value: number): number {
-  return Math.min(
-    SCENE_STUDIO_PANEL_MAX_WIDTH,
-    Math.max(SCENE_STUDIO_PANEL_MIN_WIDTH, Math.round(value))
-  );
+function buildDefaultChapterContext(sceneNode: ScriptSceneNodeData): ScriptChapterNodeData {
+  return {
+    displayName: '',
+    chapterNumber: sceneNode.chapterNumber,
+    title: '',
+    content: '',
+    summary: '',
+    chapterPurpose: '',
+    chapterQuestion: '',
+    sceneHeadings: [],
+    scenes: [],
+    characters: [],
+    locations: [],
+    items: [],
+    emotionalShift: '',
+    isBranchPoint: false,
+    branchType: 'main',
+    tables: [],
+    plotPoints: [],
+    depth: 1,
+  };
 }
 
-function readSceneStudioPanelWidth(): number {
-  if (typeof window === 'undefined') {
-    return SCENE_STUDIO_PANEL_DEFAULT_WIDTH;
-  }
-
-  const raw = Number(window.localStorage.getItem(SCENE_STUDIO_PANEL_WIDTH_STORAGE_KEY));
-  if (!Number.isFinite(raw) || raw <= 0) {
-    return SCENE_STUDIO_PANEL_DEFAULT_WIDTH;
-  }
-
-  return clampSceneStudioPanelWidth(raw);
+function updateEpisodeList(
+  episodes: EpisodeCard[],
+  targetEpisodeId: string,
+  updater: (episode: EpisodeCard) => EpisodeCard
+): EpisodeCard[] {
+  return episodes.map((episode) => (
+    episode.id === targetEpisodeId ? updater(episode) : episode
+  ));
 }
 
-function readSceneStudioPanelCollapsed(): boolean {
-  if (typeof window === 'undefined') {
-    return false;
-  }
-
-  return window.localStorage.getItem(SCENE_STUDIO_PANEL_COLLAPSED_STORAGE_KEY) === 'true';
-}
-
-function buildDraftTextWithContinuation(draftHtml: string, continuationText: string): string {
-  const currentDraftText = htmlToPlainText(draftHtml);
-  const nextText = continuationText.trim();
-  return [currentDraftText, nextText].filter((value) => value.length > 0).join('\n\n');
-}
-
-function buildDraftTextWithSelectionChange(
-  draftHtml: string,
-  range: SelectionRange,
-  replacementText: string,
-  mode: 'replace' | 'insertBelow'
-): string {
-  const sourceText = htmlToPlainText(draftHtml);
-  if (!sourceText) {
-    return replacementText.trim();
-  }
-
-  const safeFrom = Math.max(0, Math.min(range.from, sourceText.length));
-  const safeTo = Math.max(safeFrom, Math.min(range.to, sourceText.length));
-  const nextText = replacementText.trim();
-
-  if (mode === 'insertBelow') {
-    const insertSuffix = nextText ? `\n\n${nextText}` : '';
-    return `${sourceText.slice(0, safeTo)}${insertSuffix}${sourceText.slice(safeTo)}`.trim();
-  }
-
-  return `${sourceText.slice(0, safeFrom)}${nextText}${sourceText.slice(safeTo)}`.trim();
-}
-
-function readSceneStudioSectionState(): SceneStudioSectionState {
-  if (typeof window === 'undefined') {
-    return DEFAULT_SCENE_STUDIO_SECTION_STATE;
-  }
-
-  try {
-    const raw = window.localStorage.getItem(SCENE_STUDIO_SECTION_STORAGE_KEY);
-    if (!raw) {
-      return DEFAULT_SCENE_STUDIO_SECTION_STATE;
-    }
-
-    const parsed = JSON.parse(raw) as Partial<Record<SceneStudioSectionKey, unknown>>;
-    return {
-      chapterFocus: typeof parsed.chapterFocus === 'boolean'
-        ? parsed.chapterFocus
-        : DEFAULT_SCENE_STUDIO_SECTION_STATE.chapterFocus,
-      sceneBlueprint: typeof parsed.sceneBlueprint === 'boolean'
-        ? parsed.sceneBlueprint
-        : DEFAULT_SCENE_STUDIO_SECTION_STATE.sceneBlueprint,
-      importedSource: typeof parsed.importedSource === 'boolean'
-        ? parsed.importedSource
-        : DEFAULT_SCENE_STUDIO_SECTION_STATE.importedSource,
-      directorNotes: typeof parsed.directorNotes === 'boolean'
-        ? parsed.directorNotes
-        : DEFAULT_SCENE_STUDIO_SECTION_STATE.directorNotes,
-      continuity: typeof parsed.continuity === 'boolean'
-        ? parsed.continuity
-        : DEFAULT_SCENE_STUDIO_SECTION_STATE.continuity,
-      copilot: typeof parsed.copilot === 'boolean'
-        ? parsed.copilot
-        : DEFAULT_SCENE_STUDIO_SECTION_STATE.copilot,
-      draft: typeof parsed.draft === 'boolean'
-        ? parsed.draft
-        : DEFAULT_SCENE_STUDIO_SECTION_STATE.draft,
-    };
-  } catch {
-    return DEFAULT_SCENE_STUDIO_SECTION_STATE;
+function normalizeEpisodeStatus(value: string): EpisodeCard['status'] {
+  switch (value) {
+    case 'drafting':
+    case 'reviewed':
+    case 'locked':
+      return value;
+    case 'idea':
+    default:
+      return 'idea';
   }
 }
 
-function Field({
-  label,
-  children,
-}: {
-  label: string;
-  children: React.ReactNode;
-}) {
-  return (
-    <label className="flex flex-col gap-1.5">
-      <span className="text-[11px] font-medium uppercase tracking-[0.08em] text-text-muted">
-        {label}
-      </span>
-      {children}
-    </label>
-  );
-}
-
-function Input({
-  value,
-  onChange,
-  placeholder,
-}: {
-  value: string;
-  onChange: (value: string) => void;
-  placeholder: string;
-}) {
-  return (
-    <input
-      type="text"
-      value={value}
-      onChange={(event) => onChange(event.target.value)}
-      className="rounded-lg border border-border-dark bg-bg-dark px-3 py-2 text-sm text-text-dark outline-none transition-colors placeholder:text-text-muted/60 focus:border-accent/50"
-      placeholder={placeholder}
-    />
-  );
-}
-
-function Textarea({
-  value,
-  onChange,
-  placeholder,
-  rows = 3,
-}: {
-  value: string;
-  onChange: (value: string) => void;
-  placeholder: string;
-  rows?: number;
-}) {
-  return (
-    <textarea
-      value={value}
-      rows={rows}
-      onChange={(event) => onChange(event.target.value)}
-      className="resize-none rounded-lg border border-border-dark bg-bg-dark px-3 py-2 text-sm text-text-dark outline-none transition-colors placeholder:text-text-muted/60 focus:border-accent/50"
-      placeholder={placeholder}
-    />
-  );
-}
-
-function SceneStudioSection({
-  icon,
+function Section({
   title,
   description,
-  isOpen,
-  onToggle,
   actions,
   children,
 }: {
-  icon: React.ReactNode;
   title: string;
-  description: string;
-  isOpen: boolean;
-  onToggle: () => void;
+  description?: string;
   actions?: React.ReactNode;
   children: React.ReactNode;
 }) {
   return (
-    <section className="overflow-hidden rounded-2xl border border-border-dark bg-bg-dark/25">
-      <div className="flex items-start justify-between gap-3 px-3 py-3">
-        <button
-          type="button"
-          onClick={onToggle}
-          className="flex min-w-0 flex-1 items-start gap-3 text-left"
-        >
-          <div className="rounded-xl bg-surface-dark/65 p-2">
-            {icon}
-          </div>
-          <div className="min-w-0 flex-1">
-            <div className="text-sm font-semibold text-text-dark">
-              {title}
-            </div>
-            <p className="mt-1 text-xs leading-5 text-text-muted">
-              {description}
-            </p>
-          </div>
-        </button>
-
-        <div className="flex shrink-0 items-center gap-2">
-          {actions}
-          <button
-            type="button"
-            onClick={onToggle}
-            className="rounded-lg border border-border-dark px-2 py-1.5 text-text-muted transition-colors hover:bg-bg-dark hover:text-text-dark"
-          >
-            {isOpen ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
-          </button>
+    <section className="rounded-2xl border border-border-dark bg-surface-dark/80">
+      <div className="flex items-start justify-between gap-3 border-b border-border-dark/80 px-4 py-3">
+        <div>
+          <div className="text-sm font-semibold text-text-dark">{title}</div>
+          {description ? <p className="mt-1 text-xs leading-5 text-text-muted">{description}</p> : null}
         </div>
+        {actions ? <div className="shrink-0">{actions}</div> : null}
       </div>
-
-      {isOpen ? (
-        <div className="border-t border-border-dark/80 px-3 py-3">
-          {children}
-        </div>
-      ) : null}
+      <div className="px-4 py-4">{children}</div>
     </section>
+  );
+}
+
+function Field({
+  label,
+  value,
+  onChange,
+  placeholder,
+  multiline = false,
+  rows = 3,
+  readOnly = false,
+}: {
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+  placeholder: string;
+  multiline?: boolean;
+  rows?: number;
+  readOnly?: boolean;
+}) {
+  const className =
+    'w-full rounded-xl border border-border-dark bg-bg-dark/60 px-3 py-2 text-sm text-text-dark outline-none transition-colors placeholder:text-text-muted/60 focus:border-cyan-500/35';
+
+  return (
+    <label className="block">
+      <div className="mb-1.5 text-[11px] font-medium uppercase tracking-[0.08em] text-text-muted">
+        {label}
+      </div>
+      {multiline ? (
+        <textarea
+          value={value}
+          onChange={(event) => onChange(event.target.value)}
+          className={`${className} resize-none`}
+          rows={rows}
+          placeholder={placeholder}
+          readOnly={readOnly}
+        />
+      ) : (
+        <input
+          type="text"
+          value={value}
+          onChange={(event) => onChange(event.target.value)}
+          className={className}
+          placeholder={placeholder}
+          readOnly={readOnly}
+        />
+      )}
+    </label>
   );
 }
 
 export function SceneStudioPanel() {
   const { t } = useTranslation();
-  const currentProject = useProjectStore((state) => state.currentProject);
   const updateNodeData = useCanvasStore((state) => state.updateNodeData);
-  const activeChapterId = useScriptEditorStore((state) => state.activeChapterId);
-  const activeSceneId = useScriptEditorStore((state) => state.activeSceneId);
-  const focusScene = useScriptEditorStore((state) => state.focusScene);
-  const clearSelection = useScriptEditorStore((state) => state.clearSelection);
-  const continuityNodes = useCanvasNodesByTypes(SCENE_STUDIO_CONTINUITY_NODE_TYPES);
-  const chapterNode = useCanvasNodeById(activeChapterId ?? '');
-  const rootNode = useCanvasFirstNodeByType(CANVAS_NODE_TYPES.scriptRoot);
-  const chapterData = chapterNode?.type === CANVAS_NODE_TYPES.scriptChapter
-    ? chapterNode.data as ScriptChapterNodeData
-    : undefined;
-  const rootData = rootNode?.type === CANVAS_NODE_TYPES.scriptRoot
-    ? rootNode.data as ScriptRootNodeData
-    : undefined;
-  const scenes = useMemo(
-    () => normalizeSceneCards(chapterData?.scenes, chapterData?.content),
-    [chapterData?.content, chapterData?.scenes]
+  const selectedNodeId = useCanvasStore((state) => state.selectedNodeId);
+  const setSelectedNode = useCanvasStore((state) => state.setSelectedNode);
+  const createScriptSceneNodeFromChapterScene = useCanvasStore(
+    (state) => state.createScriptSceneNodeFromChapterScene
   );
-
-  const resolvedScene = useMemo(() => {
-    if (scenes.length === 0) {
-      return null;
-    }
-
-    if (activeSceneId) {
-      const matchingScene = scenes.find((scene) => scene.id === activeSceneId);
-      if (matchingScene) {
-        return matchingScene;
-      }
-    }
-
-    return scenes[0] ?? null;
-  }, [activeSceneId, scenes]);
-
-  const [chapterSummary, setChapterSummary] = useState('');
-  const [chapterPurpose, setChapterPurpose] = useState('');
-  const [chapterQuestion, setChapterQuestion] = useState('');
-  const [sceneDraft, setSceneDraft] = useState<SceneCard | null>(null);
-  const [isDirty, setIsDirty] = useState(false);
-  const [lastSavedAt, setLastSavedAt] = useState<number | null>(null);
+  const activeSceneNodeId = useScriptEditorStore((state) => state.activeSceneNodeId);
+  const activeEpisodeId = useScriptEditorStore((state) => state.activeEpisodeId);
+  const focusSceneNode = useScriptEditorStore((state) => state.focusSceneNode);
+  const continuityNodes = useCanvasNodesByTypes(SCENE_STUDIO_CONTINUITY_NODE_TYPES);
+  const scriptSceneNodes = useCanvasNodesByTypes(SCENE_STUDIO_SCENE_NODE_TYPES);
+  const selectedWorkbenchNode = useCanvasNodeById(selectedNodeId ?? '');
+  const rootNode = useCanvasFirstNodeByType(CANVAS_NODE_TYPES.scriptRoot);
+  const [panelWidth, setPanelWidth] = useState(() => readPanelWidth());
+  const [isPanelCollapsed, setIsPanelCollapsed] = useState(() => readPanelCollapsed());
+  const [isPanelResizing, setIsPanelResizing] = useState(false);
   const [copilotInput, setCopilotInput] = useState('');
   const [copilotError, setCopilotError] = useState('');
   const [isCopilotLoading, setIsCopilotLoading] = useState(false);
-  const [selectedDraftText, setSelectedDraftText] = useState('');
-  const [selectedDraftRange, setSelectedDraftRange] = useState<SelectionRange | null>(null);
-  const [selectionRewriteInput, setSelectionRewriteInput] = useState('');
-  const [selectionRewriteError, setSelectionRewriteError] = useState('');
-  const [isSelectionRewriteLoading, setIsSelectionRewriteLoading] = useState(false);
+  const [isContinuityLoading, setIsContinuityLoading] = useState(false);
   const [continuityError, setContinuityError] = useState('');
-  const [isContinuityRefreshing, setIsContinuityRefreshing] = useState(false);
-  const [checkingContinuityByMessageId, setCheckingContinuityByMessageId] = useState<
-    Record<string, boolean>
-  >({});
-  const [pendingContinuityGuard, setPendingContinuityGuard] = useState<{
-    requestId: number;
-    title: string;
-    actionLabel: string;
-    check: SceneContinuityCheck;
-  } | null>(null);
-  const [pendingSelectionReplacement, setPendingSelectionReplacement] = useState<{
-    requestId: number;
-    text: string;
-    range: SelectionRange | null;
-    mode: 'replace' | 'insertBelow';
-  } | null>(null);
-  const [selectionRewriteTargets, setSelectionRewriteTargets] = useState<Record<string, SelectionRange>>({});
-  const [expandedSelectionComparisons, setExpandedSelectionComparisons] = useState<Record<string, boolean>>({});
-  const [isImportedComparisonVisible, setIsImportedComparisonVisible] = useState(false);
-  const [hasRestoredImportedOriginal, setHasRestoredImportedOriginal] = useState(false);
-  const [sectionState, setSectionState] = useState<SceneStudioSectionState>(() => (
-    readSceneStudioSectionState()
-  ));
-  const [activeWorkspaceTab, setActiveWorkspaceTab] = useState<SceneStudioWorkspaceTab>('draft');
-  const [panelWidth, setPanelWidth] = useState(() => readSceneStudioPanelWidth());
-  const [isPanelCollapsed, setIsPanelCollapsed] = useState(() => readSceneStudioPanelCollapsed());
-  const [isPanelResizing, setIsPanelResizing] = useState(false);
-
-  const currentBindingRef = useRef<{ chapterId: string | null; sceneId: string | null }>({
-    chapterId: null,
-    sceneId: null,
-  });
-  const chapterDraftRef = useRef({
-    chapterSummary: '',
-    chapterPurpose: '',
-    chapterQuestion: '',
-  });
-  const sceneDraftRef = useRef<SceneCard | null>(null);
-  const pendingContinuityActionRef = useRef<(() => void) | null>(null);
+  const [latestContinuityCheck, setLatestContinuityCheck] = useState<SceneContinuityCheck | null>(null);
+  const [isEpisodeGenerating, setIsEpisodeGenerating] = useState(false);
+  const [episodeGenerationError, setEpisodeGenerationError] = useState('');
   const panelResizeStateRef = useRef<{ startX: number; startWidth: number } | null>(null);
 
-  const currentCopilotMessages = useMemo(() => {
-    if (!sceneDraft) {
+  const sceneNodeRecord = selectedWorkbenchNode?.type === CANVAS_NODE_TYPES.scriptScene
+    ? selectedWorkbenchNode
+    : null;
+  const sceneNodeData = sceneNodeRecord
+    ? sceneNodeRecord.data as ScriptSceneNodeData
+    : null;
+  const sceneNodeId = sceneNodeRecord?.id ?? null;
+  const chapterNodeRecord = selectedWorkbenchNode?.type === CANVAS_NODE_TYPES.scriptChapter
+    ? selectedWorkbenchNode
+    : null;
+  const chapterNodeData = chapterNodeRecord
+    ? chapterNodeRecord.data as ScriptChapterNodeData
+    : null;
+  const chapterNodeId = chapterNodeRecord?.id ?? null;
+  const sourceChapterNode = useCanvasNodeById(sceneNodeData?.sourceChapterId ?? '');
+  const sourceChapterData = sourceChapterNode?.type === CANVAS_NODE_TYPES.scriptChapter
+    ? sourceChapterNode.data as ScriptChapterNodeData
+    : null;
+  const rootData = rootNode?.type === CANVAS_NODE_TYPES.scriptRoot
+    ? rootNode.data as ScriptRootNodeData
+    : null;
+  const chapterScenes = useMemo(() => {
+    if (!chapterNodeData) {
       return [];
     }
 
-    if (sceneDraft.copilotThread?.length) {
-      return sceneDraft.copilotThread;
+    return normalizeSceneCards(chapterNodeData.scenes, chapterNodeData.content)
+      .slice()
+      .sort((left, right) => left.order - right.order);
+  }, [chapterNodeData?.content, chapterNodeData?.scenes]);
+  const chapterSceneNodeBySceneId = useMemo(() => {
+    if (!chapterNodeId) {
+      return new Map<string, { id: string; data: ScriptSceneNodeData }>();
     }
 
-    return seedCopilotThread(sceneDraft);
-  }, [sceneDraft]);
+    const nextMap = new Map<string, { id: string; data: ScriptSceneNodeData }>();
+    scriptSceneNodes.forEach((node) => {
+      if (node.type !== CANVAS_NODE_TYPES.scriptScene) {
+        return;
+      }
 
-  const importedOriginalHtml = sceneDraft?.sourceDraftHtml?.trim() ?? '';
-  const importedOriginalLabel = sceneDraft?.sourceDraftLabel?.trim() ?? '';
-  const importedOriginalText = useMemo(
-    () => htmlToPlainText(importedOriginalHtml),
-    [importedOriginalHtml]
+      const nodeData = node.data as ScriptSceneNodeData;
+      if (nodeData.sourceChapterId !== chapterNodeId) {
+        return;
+      }
+
+      nextMap.set(nodeData.sourceSceneId, {
+        id: node.id,
+        data: nodeData,
+      });
+    });
+    return nextMap;
+  }, [chapterNodeId, scriptSceneNodes]);
+  const isChapterMode = chapterNodeData !== null;
+  const isSceneMode = sceneNodeData !== null;
+
+  const selectedEpisode = useMemo(() => {
+    if (!sceneNodeData) {
+      return null;
+    }
+
+    if (activeEpisodeId) {
+      const matchedEpisode = sceneNodeData.episodes.find((episode) => episode.id === activeEpisodeId);
+      if (matchedEpisode) {
+        return matchedEpisode;
+      }
+    }
+
+    return sceneNodeData.episodes[0] ?? null;
+  }, [activeEpisodeId, sceneNodeData]);
+
+  const chapterContext = useMemo(
+    () => sourceChapterData ?? (sceneNodeData ? buildDefaultChapterContext(sceneNodeData) : null),
+    [sceneNodeData, sourceChapterData]
   );
-  const currentDraftText = useMemo(
-    () => htmlToPlainText(sceneDraft?.draftHtml ?? ''),
-    [sceneDraft?.draftHtml]
-  );
-  const hasImportedOriginal = importedOriginalHtml.length > 0;
-  const canRestoreImportedOriginal = hasImportedOriginal
-    && importedOriginalText.length > 0
-    && importedOriginalText !== currentDraftText;
-  const importedOriginalDiffLabel = importedOriginalLabel
-    ? t('script.sceneStudio.importOriginalLabelWithSource', { label: importedOriginalLabel })
-    : t('script.sceneStudio.importOriginalLabel');
-  const continuityContext = useMemo(() => {
-    if (!chapterNode || !sceneDraft) {
+
+  const currentCopilotMessages = useMemo(() => {
+    if (!selectedEpisode) {
+      return [];
+    }
+
+    if (selectedEpisode.copilotThread?.length) {
+      return selectedEpisode.copilotThread;
+    }
+
+    return seedCopilotThread(selectedEpisode);
+  }, [selectedEpisode]);
+
+  const continuityContext = useMemo<SceneContinuityContext | null>(() => {
+    if (!sceneNodeData || !selectedEpisode) {
       return null;
     }
 
     return buildSceneContinuityContext({
       nodes: continuityNodes,
-      currentChapterId: chapterNode.id,
-      currentSceneId: sceneDraft.id,
-      currentScene: sceneDraft,
+      currentChapterId: sceneNodeData.sourceChapterId,
+      currentSceneId: selectedEpisode.id,
+      currentScene: selectedEpisode,
       storyRoot: rootData ?? null,
     });
-  }, [chapterNode, continuityNodes, rootData, sceneDraft]);
-
-  const persistSceneDraftSnapshot = useCallback((sceneSnapshot: SceneCard, historyMode: 'push' | 'skip') => {
-    const { chapterId, sceneId } = currentBindingRef.current;
-    if (!chapterId || !sceneId) {
-      return;
-    }
-
-    const currentChapterNode = useCanvasStore
-      .getState()
-      .nodes.find(
-        (node) => node.id === chapterId && node.type === CANVAS_NODE_TYPES.scriptChapter
-      );
-    if (!currentChapterNode) {
-      return;
-    }
-
-    const currentChapterData = currentChapterNode.data as ScriptChapterNodeData;
-    const normalizedScenes = normalizeSceneCards(
-      currentChapterData.scenes,
-      currentChapterData.content
-    );
-    const nextScenes = normalizedScenes.map((scene) =>
-      scene.id === sceneId ? cloneScene(sceneSnapshot) : scene
-    );
-
-    updateNodeData(
-      chapterId,
-      {
-        summary: chapterDraftRef.current.chapterSummary,
-        chapterPurpose: chapterDraftRef.current.chapterPurpose,
-        chapterQuestion: chapterDraftRef.current.chapterQuestion,
-        scenes: nextScenes,
-        content: composeChapterContentFromScenes(nextScenes, currentChapterData.content),
-      },
-      { historyMode }
-    );
-
-    setIsDirty(false);
-    setLastSavedAt(Date.now());
-  }, [updateNodeData]);
-
-  const persistDraft = useCallback((historyMode: 'push' | 'skip') => {
-    const currentSceneDraft = sceneDraftRef.current;
-    if (!currentSceneDraft) {
-      return;
-    }
-
-    persistSceneDraftSnapshot(currentSceneDraft, historyMode);
-  }, [persistSceneDraftSnapshot]);
-
-  const toggleSection = useCallback((sectionKey: SceneStudioSectionKey) => {
-    setSectionState((currentState) => ({
-      ...currentState,
-      [sectionKey]: !currentState[sectionKey],
-    }));
-  }, []);
-
-  const openSection = useCallback((sectionKey: SceneStudioSectionKey) => {
-    setSectionState((currentState) => (
-      currentState[sectionKey]
-        ? currentState
-        : { ...currentState, [sectionKey]: true }
-    ));
-  }, []);
+  }, [continuityNodes, rootData, sceneNodeData, selectedEpisode]);
 
   useEffect(() => {
-    chapterDraftRef.current = {
-      chapterSummary,
-      chapterPurpose,
-      chapterQuestion,
-    };
-  }, [chapterPurpose, chapterQuestion, chapterSummary]);
-
-  useEffect(() => {
-    sceneDraftRef.current = sceneDraft ? cloneScene(sceneDraft) : null;
-  }, [sceneDraft]);
-
-  useEffect(() => {
-    if (currentProject?.projectType !== 'script') {
+    if (!sceneNodeData || !sceneNodeId) {
       return;
     }
 
-    if (!chapterNode) {
-      setSceneDraft(null);
-      setIsDirty(false);
-      currentBindingRef.current = { chapterId: null, sceneId: null };
+    const fallbackEpisodeId = selectedEpisode?.id ?? null;
+    if (activeSceneNodeId === sceneNodeId && activeEpisodeId === fallbackEpisodeId) {
       return;
     }
 
-    if (!resolvedScene) {
-      return;
-    }
-
-    if (!activeSceneId || activeSceneId !== resolvedScene.id) {
-      focusScene(chapterNode.id, resolvedScene.id);
-      return;
-    }
-
-    const bindingChanged =
-      currentBindingRef.current.chapterId !== chapterNode.id
-      || currentBindingRef.current.sceneId !== resolvedScene.id;
-
-    if (bindingChanged && isDirty) {
-      persistDraft('skip');
-    }
-
-    if (bindingChanged || !sceneDraft) {
-      currentBindingRef.current = {
-        chapterId: chapterNode.id,
-        sceneId: resolvedScene.id,
-      };
-      setChapterSummary(chapterData?.summary ?? '');
-      setChapterPurpose(chapterData?.chapterPurpose ?? '');
-      setChapterQuestion(chapterData?.chapterQuestion ?? '');
-      setSceneDraft(cloneScene(resolvedScene));
-      setIsDirty(false);
-    }
-  }, [
-    activeSceneId,
-    chapterData?.chapterPurpose,
-    chapterData?.chapterQuestion,
-    chapterData?.summary,
-    chapterNode,
-    currentProject?.projectType,
-    focusScene,
-    isDirty,
-    persistDraft,
-    resolvedScene,
-    sceneDraft,
-  ]);
-
-  useEffect(() => {
-    if (!isDirty || !sceneDraft) {
-      return;
-    }
-
-    const timer = window.setTimeout(() => {
-      persistDraft('skip');
-    }, AUTOSAVE_DELAY_MS);
-
-    return () => {
-      window.clearTimeout(timer);
-    };
-  }, [isDirty, persistDraft, sceneDraft]);
-
-  useEffect(() => {
-    setCopilotInput('');
-    setCopilotError('');
-    setSelectedDraftText('');
-    setSelectedDraftRange(null);
-    setSelectionRewriteInput('');
-    setSelectionRewriteError('');
-    setContinuityError('');
-    setIsSelectionRewriteLoading(false);
-    setIsContinuityRefreshing(false);
-    setCheckingContinuityByMessageId({});
-    setPendingContinuityGuard(null);
-    setPendingSelectionReplacement(null);
-    setSelectionRewriteTargets({});
-    setExpandedSelectionComparisons({});
-    setIsImportedComparisonVisible(false);
-    setHasRestoredImportedOriginal(false);
-    pendingContinuityActionRef.current = null;
-  }, [sceneDraft?.id]);
-
-  useEffect(() => {
-    if (typeof window === 'undefined') {
-      return;
-    }
-
-    window.localStorage.setItem(
-      SCENE_STUDIO_SECTION_STORAGE_KEY,
-      JSON.stringify(sectionState)
-    );
-  }, [sectionState]);
+    focusSceneNode(sceneNodeId, fallbackEpisodeId);
+  }, [activeEpisodeId, activeSceneNodeId, focusSceneNode, sceneNodeData, sceneNodeId, selectedEpisode]);
 
   useEffect(() => {
     if (typeof window === 'undefined') {
@@ -769,7 +443,7 @@ export function SceneStudioPanel() {
   }, [isPanelCollapsed]);
 
   useEffect(() => {
-    if (!isPanelResizing || typeof window === 'undefined') {
+    if (!isPanelResizing) {
       return;
     }
 
@@ -779,1840 +453,1072 @@ export function SceneStudioPanel() {
         return;
       }
 
-      const nextWidth = clampSceneStudioPanelWidth(
-        resizeState.startWidth + (resizeState.startX - event.clientX)
-      );
+      const nextWidth = clampPanelWidth(resizeState.startWidth + (resizeState.startX - event.clientX));
       setPanelWidth(nextWidth);
     };
 
-    const stopResizing = () => {
+    const handlePointerUp = () => {
       panelResizeStateRef.current = null;
       setIsPanelResizing(false);
     };
 
     window.addEventListener('pointermove', handlePointerMove);
-    window.addEventListener('pointerup', stopResizing);
-    document.body.style.cursor = 'col-resize';
-    document.body.style.userSelect = 'none';
-
+    window.addEventListener('pointerup', handlePointerUp);
     return () => {
       window.removeEventListener('pointermove', handlePointerMove);
-      window.removeEventListener('pointerup', stopResizing);
-      document.body.style.cursor = '';
-      document.body.style.userSelect = '';
+      window.removeEventListener('pointerup', handlePointerUp);
     };
   }, [isPanelResizing]);
 
-  const handleAddScene = useCallback(() => {
-    if (!chapterNode || !chapterData) {
+  const updateScenePatch = useCallback((patch: Partial<ScriptSceneNodeData>) => {
+    if (!sceneNodeData || !sceneNodeId) {
       return;
     }
 
-    const normalizedScenes = normalizeSceneCards(chapterData.scenes, chapterData.content);
-    const nextScene = createDefaultSceneCard(normalizedScenes.length);
-    const nextScenes = [...normalizedScenes, nextScene];
+    updateNodeData(sceneNodeId, patch, { historyMode: 'skip' });
+  }, [sceneNodeData, sceneNodeId, updateNodeData]);
 
-    updateNodeData(chapterNode.id, {
+  const updateChapterPatch = useCallback((patch: Partial<ScriptChapterNodeData>) => {
+    if (!chapterNodeData || !chapterNodeId) {
+      return;
+    }
+
+    updateNodeData(chapterNodeId, patch, { historyMode: 'skip' });
+  }, [chapterNodeData, chapterNodeId, updateNodeData]);
+
+  const handleAddChapterScene = useCallback(() => {
+    if (!chapterNodeId || !chapterNodeData) {
+      return;
+    }
+
+    const nextScene = createDefaultSceneCard(chapterScenes.length);
+    const nextScenes = [...chapterScenes, nextScene];
+    updateNodeData(chapterNodeId, {
       scenes: nextScenes,
-      content: composeChapterContentFromScenes(nextScenes, chapterData.content),
-    });
-    focusScene(chapterNode.id, nextScene.id);
-  }, [chapterData, chapterNode, focusScene, updateNodeData]);
+      sceneHeadings: nextScenes
+        .map((scene) => scene.title.trim())
+        .filter((value) => value.length > 0),
+    }, { historyMode: 'skip' });
+  }, [chapterNodeData, chapterNodeId, chapterScenes, updateNodeData]);
 
-  const handleDeleteScene = useCallback((sceneId: string) => {
-    if (!chapterNode || !chapterData) {
+  const handleOpenChapterSceneNode = useCallback((sceneId: string) => {
+    if (!chapterNodeId) {
       return;
     }
 
-    const normalizedScenes = normalizeSceneCards(chapterData.scenes, chapterData.content);
-    const removedIndex = normalizedScenes.findIndex((scene) => scene.id === sceneId);
-    if (removedIndex < 0) {
+    const nextSceneNodeId = createScriptSceneNodeFromChapterScene(chapterNodeId, sceneId);
+    if (!nextSceneNodeId) {
       return;
     }
 
-    const remainingScenes = normalizedScenes
-      .filter((scene) => scene.id !== sceneId)
-      .map((scene, index) => ({
-        ...scene,
-        order: index,
+    const storeState = useCanvasStore.getState();
+    const selectionChanges = storeState.nodes
+      .filter((node) => node.selected || node.id === nextSceneNodeId)
+      .map((node) => ({
+        id: node.id,
+        type: 'select' as const,
+        selected: node.id === nextSceneNodeId,
       }));
-
-    const nextScenes = remainingScenes.length > 0
-      ? remainingScenes
-      : [createDefaultSceneCard(0)];
-    const nextFocusScene = nextScenes[Math.min(removedIndex, nextScenes.length - 1)];
-
-    updateNodeData(chapterNode.id, {
-      scenes: nextScenes,
-      content: composeChapterContentFromScenes(nextScenes, chapterData.content),
-    });
-
-    if (nextFocusScene) {
-      focusScene(chapterNode.id, nextFocusScene.id);
+    if (selectionChanges.length > 0) {
+      storeState.onNodesChange(selectionChanges);
+    } else {
+      setSelectedNode(nextSceneNodeId);
     }
-  }, [chapterData, chapterNode, focusScene, updateNodeData]);
 
-  const updateSceneDraft = useCallback((updater: (draft: SceneCard) => SceneCard) => {
-    setSceneDraft((currentDraft) => {
-      if (!currentDraft) {
-        return currentDraft;
-      }
+    const createdSceneNode = storeState.nodes.find(
+      (node) => node.id === nextSceneNodeId && node.type === CANVAS_NODE_TYPES.scriptScene
+    );
+    const createdSceneData = createdSceneNode?.data as ScriptSceneNodeData | undefined;
 
-      const nextDraft = updater(currentDraft);
-      setIsDirty(true);
-      return nextDraft;
-    });
-  }, []);
+    focusSceneNode(nextSceneNodeId, createdSceneData?.episodes[0]?.id ?? null);
+  }, [
+    chapterNodeId,
+    createScriptSceneNodeFromChapterScene,
+    focusSceneNode,
+    setSelectedNode,
+  ]);
 
-  const appendCopilotThreadMessage = useCallback((message: SceneCopilotThreadMessage) => {
-    updateSceneDraft((draft) => ({
-      ...draft,
-      copilotThread: [
-        ...(draft.copilotThread?.length ? draft.copilotThread : seedCopilotThread(draft)),
-        message,
-      ],
+  const updateSelectedEpisode = useCallback((patch: Partial<EpisodeCard>) => {
+    if (!sceneNodeData || !sceneNodeId || !selectedEpisode) {
+      return;
+    }
+
+    const nextEpisodes = updateEpisodeList(sceneNodeData.episodes, selectedEpisode.id, (episode) => ({
+      ...episode,
+      ...patch,
     }));
-  }, [updateSceneDraft]);
+    updateNodeData(sceneNodeId, { episodes: nextEpisodes }, { historyMode: 'skip' });
+  }, [sceneNodeData, sceneNodeId, selectedEpisode, updateNodeData]);
 
-  const handleClearCopilotThread = useCallback(() => {
-    pendingContinuityActionRef.current = null;
-    setPendingContinuityGuard(null);
-    setCopilotInput('');
-    setCopilotError('');
-    setSelectionRewriteError('');
-    setSelectionRewriteInput('');
-    setExpandedSelectionComparisons({});
-    setSelectionRewriteTargets({});
-    setCheckingContinuityByMessageId({});
-    setPendingSelectionReplacement(null);
+  const handleAddEpisode = useCallback(() => {
+    if (!sceneNodeData || !sceneNodeId) {
+      return;
+    }
 
-    updateSceneDraft((draft) => ({
-      ...draft,
-      copilotThread: [],
-      copilotSummary: '',
-    }));
-  }, [updateSceneDraft]);
+    const nextEpisode = createManualEpisodeCard(sceneNodeData.episodes.length);
+    const nextEpisodes = [...sceneNodeData.episodes, nextEpisode];
+    updateNodeData(sceneNodeId, { episodes: nextEpisodes }, { historyMode: 'skip' });
+    focusSceneNode(sceneNodeId, nextEpisode.id);
+  }, [focusSceneNode, sceneNodeData, sceneNodeId, updateNodeData]);
 
-  const updateCopilotThreadMessage = useCallback((
-    messageId: string,
-    updater: (message: SceneCopilotThreadMessage) => SceneCopilotThreadMessage
-  ) => {
-    updateSceneDraft((draft) => ({
-      ...draft,
-      copilotThread: (draft.copilotThread?.length ? draft.copilotThread : seedCopilotThread(draft))
-        .map((message) => (message.id === messageId ? updater(message) : message)),
-    }));
-  }, [updateSceneDraft]);
+  const handleDeleteEpisode = useCallback((episodeId: string) => {
+    if (!sceneNodeData || !sceneNodeId) {
+      return;
+    }
 
-  const setContinuityChecking = useCallback((messageId: string, isChecking: boolean) => {
-    setCheckingContinuityByMessageId((currentState) => {
-      if (isChecking) {
-        if (currentState[messageId]) {
-          return currentState;
-        }
+    const nextEpisodes = sceneNodeData.episodes.filter((episode) => episode.id !== episodeId);
+    updateNodeData(sceneNodeId, { episodes: nextEpisodes }, { historyMode: 'skip' });
+    focusSceneNode(sceneNodeId, nextEpisodes[0]?.id ?? null);
+  }, [focusSceneNode, sceneNodeData, sceneNodeId, updateNodeData]);
 
-        return {
-          ...currentState,
-          [messageId]: true,
-        };
-      }
+  const handleGenerateEpisodes = useCallback(async (mode: 'initial' | 'regenerate') => {
+    if (!sceneNodeData || !sceneNodeId || !chapterContext) {
+      return;
+    }
 
-      if (!currentState[messageId]) {
-        return currentState;
-      }
-
-      const nextState = { ...currentState };
-      delete nextState[messageId];
-      return nextState;
-    });
-  }, []);
-
-  const closeContinuityGuard = useCallback(() => {
-    pendingContinuityActionRef.current = null;
-    setPendingContinuityGuard(null);
-  }, []);
-
-  const openContinuityGuard = useCallback((options: {
-    title: string;
-    actionLabel: string;
-    check: SceneContinuityCheck;
-    onConfirm: () => void;
-  }) => {
-    pendingContinuityActionRef.current = options.onConfirm;
-    setPendingContinuityGuard({
-      requestId: Date.now(),
-      title: options.title,
-      actionLabel: options.actionLabel,
-      check: options.check,
-    });
-  }, []);
-
-  const confirmContinuityGuard = useCallback(() => {
-    const pendingAction = pendingContinuityActionRef.current;
-    closeContinuityGuard();
-    pendingAction?.();
-  }, [closeContinuityGuard]);
-
-  const runCandidateContinuityCheck = useCallback(async (options: {
-    messageId: string;
-    candidateText: string;
-    candidateLabel: string;
-    scene: SceneCard;
-    chapter: ScriptChapterNodeData;
-    continuityContextSnapshot?: SceneContinuityContext | null;
-    storyRootSnapshot?: ScriptRootNodeData | null;
-    persistToMessage?: boolean;
-  }): Promise<SceneContinuityCheck | null> => {
-    setContinuityChecking(options.messageId, true);
-
+    setEpisodeGenerationError('');
+    setIsEpisodeGenerating(true);
     try {
-      const check = await runSceneContinuityCheck({
-        candidateText: options.candidateText,
-        candidateLabel: options.candidateLabel,
-        scene: options.scene,
-        chapter: options.chapter,
-        storyRoot: options.storyRootSnapshot ?? rootData ?? null,
-        continuityContext: options.continuityContextSnapshot ?? continuityContext,
+      const defaultCount = mode === 'regenerate'
+        ? Math.max(1, sceneNodeData.episodes.length || 3)
+        : Math.max(3, sceneNodeData.episodes.length);
+      const nextEpisodes = await generateEpisodesFromSceneNode(sceneNodeData, chapterContext, {
+        episodeCount: defaultCount,
+        sourceDraftLabel: t('script.sceneWorkbench.generatedSourceLabel'),
       });
-
-      if (options.persistToMessage) {
-        updateCopilotThreadMessage(options.messageId, (currentMessage) => ({
-          ...currentMessage,
-          continuityCheck: check,
-        }));
-      }
-
-      return check;
+      updateNodeData(sceneNodeId, { episodes: nextEpisodes }, { historyMode: 'skip' });
+      focusSceneNode(sceneNodeId, nextEpisodes[0]?.id ?? null);
     } catch (error) {
-      console.warn('Failed to run scene continuity check', error);
-      return null;
+      setEpisodeGenerationError(error instanceof Error ? error.message : String(error));
     } finally {
-      setContinuityChecking(options.messageId, false);
+      setIsEpisodeGenerating(false);
     }
-  }, [
-    continuityContext,
-    rootData,
-    setContinuityChecking,
-    updateCopilotThreadMessage,
-  ]);
+  }, [chapterContext, focusSceneNode, sceneNodeData, sceneNodeId, t, updateNodeData]);
 
-  const getCopilotModeLabel = useCallback((mode: SceneCopilotMessageMode) => {
-    switch (mode) {
-      case 'analysis':
-        return t('script.sceneStudio.copilotActionAnalysis');
-      case 'continue':
-        return t('script.sceneStudio.copilotActionContinue');
-      case 'director':
-        return t('script.sceneStudio.copilotActionDirector');
-      case 'selection':
-        return t('script.sceneStudio.copilotActionSelection');
-      case 'custom':
-        return t('script.sceneStudio.copilotActionCustom');
-      case 'seed':
-      default:
-        return t('script.sceneStudio.copilotLatestInsight');
-    }
-  }, [t]);
-
-  const appendCopilotToDraft = useCallback((content: string) => {
-    const nextHtml = plainTextToHtml(content);
-    if (!nextHtml) {
-      return;
-    }
-
-    updateSceneDraft((draft) => ({
-      ...draft,
-      draftHtml: draft.draftHtml.trim()
-        ? `${draft.draftHtml}<p><br /></p>${nextHtml}`
-        : nextHtml,
-      status: 'drafting',
-    }));
-  }, [updateSceneDraft]);
-
-  const appendCopilotToDirectorNotes = useCallback((content: string) => {
-    const nextText = content.trim();
-    if (!nextText) {
-      return;
-    }
-
-    updateSceneDraft((draft) => ({
-      ...draft,
-      directorNotes: draft.directorNotes.trim()
-        ? `${draft.directorNotes}\n\n${nextText}`
-        : nextText,
-    }));
-  }, [updateSceneDraft]);
-
-  const applySelectionVariant = useCallback((
-    messageId: string,
-    variant: string,
-    variantIndex: number,
-    range: SelectionRange,
-    mode: 'replace' | 'insertBelow'
+  const handleRunCopilot = useCallback(async (
+    mode: SceneCopilotMode,
+    userPrompt?: string
   ) => {
-    setPendingSelectionReplacement({
-      requestId: Date.now(),
-      text: variant,
-      range,
-      mode,
-    });
-    updateCopilotThreadMessage(messageId, (currentMessage) => ({
-      ...currentMessage,
-      selectedVariantIndex: variantIndex,
-      selectionResolution: mode === 'replace' ? 'replaced' : 'inserted',
-    }));
-  }, [updateCopilotThreadMessage]);
-
-  const handleCopilotApply = useCallback(async (message: SceneCopilotThreadMessage) => {
-    if (message.mode === 'selection') {
-      const targetRange = selectionRewriteTargets[message.id] ?? selectedDraftRange;
-      if (!targetRange) {
-        return;
-      }
-
-      setPendingSelectionReplacement({
-        requestId: Date.now(),
-        text: message.content,
-        range: targetRange,
-        mode: 'replace',
-      });
+    if (!selectedEpisode || !chapterContext) {
       return;
     }
 
-    if (message.mode === 'continue') {
-      if (!chapterData || !sceneDraft || checkingContinuityByMessageId[message.id]) {
-        return;
-      }
-
-      const applyContinuation = () => {
-        appendCopilotToDraft(message.content);
-      };
-
-      const continuityCheck = message.continuityCheck ?? await runCandidateContinuityCheck({
-        messageId: message.id,
-        candidateText: buildDraftTextWithContinuation(sceneDraft.draftHtml, message.content),
-        candidateLabel: t('script.sceneStudio.continuityCheckContinueLabel'),
-        scene: cloneScene(sceneDraft),
-        chapter: {
-          ...chapterData,
-          summary: chapterSummary,
-          chapterPurpose,
-          chapterQuestion,
-        },
-        continuityContextSnapshot: continuityContext,
-        storyRootSnapshot: rootData ?? null,
-        persistToMessage: true,
-      });
-
-      if (continuityCheck?.status === 'warning') {
-        openContinuityGuard({
-          title: t('script.sceneStudio.continuityCheckReviewTitle', {
-            label: t('script.sceneStudio.continuityCheckContinueLabel'),
-          }),
-          actionLabel: t('script.sceneStudio.continuityCheckApplyAnyway'),
-          check: continuityCheck,
-          onConfirm: applyContinuation,
-        });
-        return;
-      }
-
-      applyContinuation();
-      return;
-    }
-
-    appendCopilotToDirectorNotes(message.content);
-  }, [
-    appendCopilotToDirectorNotes,
-    appendCopilotToDraft,
-    chapterData,
-    chapterPurpose,
-    chapterQuestion,
-    chapterSummary,
-    checkingContinuityByMessageId,
-    continuityContext,
-    openContinuityGuard,
-    rootData,
-    runCandidateContinuityCheck,
-    sceneDraft,
-    selectedDraftRange,
-    selectionRewriteTargets,
-    t,
-  ]);
-
-  const resolveSelectionTargetRange = useCallback((messageId: string): SelectionRange | null => {
-    return selectionRewriteTargets[messageId] ?? selectedDraftRange ?? null;
-  }, [selectedDraftRange, selectionRewriteTargets]);
-
-  const hasSelectionTarget = useCallback((messageId: string): boolean => {
-    return Boolean(resolveSelectionTargetRange(messageId));
-  }, [resolveSelectionTargetRange]);
-
-  const getSelectionResolutionLabel = useCallback((
-    resolution: SceneCopilotSelectionResolution | null | undefined,
-    selectedVariantIndex?: number | null
-  ): string => {
-    const number = (selectedVariantIndex ?? 0) + 1;
-
-    switch (resolution) {
-      case 'replaced':
-        return t('script.sceneStudio.selectionStatusReplaced', { number });
-      case 'inserted':
-        return t('script.sceneStudio.selectionStatusInserted', { number });
-      case 'dismissed':
-        return t('script.sceneStudio.selectionStatusDismissed');
-      case 'pending':
-      default:
-        return t('script.sceneStudio.selectionVariantsHint');
-    }
-  }, [t]);
-
-  const handleApplySelectionVariant = useCallback(async (
-    message: SceneCopilotThreadMessage,
-    variant: string,
-    variantIndex: number,
-    mode: 'replace' | 'insertBelow'
-  ) => {
-    const targetRange = resolveSelectionTargetRange(message.id);
-    if (
-      !targetRange
-      || !chapterData
-      || !sceneDraft
-      || checkingContinuityByMessageId[message.id]
-    ) {
-      return;
-    }
-
-    const applyVariant = () => {
-      applySelectionVariant(message.id, variant, variantIndex, targetRange, mode);
-    };
-
-    const continuityCheck = await runCandidateContinuityCheck({
-      messageId: message.id,
-      candidateText: buildDraftTextWithSelectionChange(
-        sceneDraft.draftHtml,
-        targetRange,
-        variant,
-        mode
-      ),
-      candidateLabel: t('script.sceneStudio.continuityCheckSelectionLabel'),
-      scene: cloneScene(sceneDraft),
-      chapter: {
-        ...chapterData,
-        summary: chapterSummary,
-        chapterPurpose,
-        chapterQuestion,
-      },
-      continuityContextSnapshot: continuityContext,
-      storyRootSnapshot: rootData ?? null,
-      persistToMessage: false,
-    });
-
-    if (continuityCheck?.status === 'warning') {
-      openContinuityGuard({
-        title: t('script.sceneStudio.continuityCheckReviewTitle', {
-          label: t('script.sceneStudio.continuityCheckSelectionLabel'),
-        }),
-        actionLabel: t('script.sceneStudio.continuityCheckApplyAnyway'),
-        check: continuityCheck,
-        onConfirm: applyVariant,
-      });
-      return;
-    }
-
-    applyVariant();
-  }, [
-    applySelectionVariant,
-    chapterData,
-    chapterPurpose,
-    chapterQuestion,
-    chapterSummary,
-    checkingContinuityByMessageId,
-    continuityContext,
-    openContinuityGuard,
-    resolveSelectionTargetRange,
-    rootData,
-    runCandidateContinuityCheck,
-    sceneDraft,
-    t,
-  ]);
-
-  const handleDismissSelectionVariants = useCallback((messageId: string) => {
-    updateCopilotThreadMessage(messageId, (currentMessage) => ({
-      ...currentMessage,
-      selectedVariantIndex: null,
-      selectionResolution: 'dismissed',
-    }));
-  }, [updateCopilotThreadMessage]);
-
-  const toggleSelectionComparison = useCallback((messageId: string, variantIndex: number) => {
-    const comparisonKey = `${messageId}-${variantIndex}`;
-    setExpandedSelectionComparisons((currentState) => ({
-      ...currentState,
-      [comparisonKey]: !currentState[comparisonKey],
-    }));
-  }, []);
-
-  const handleRunCopilot = useCallback(async (mode: SceneCopilotMode) => {
-    if (!chapterData || !sceneDraft || isCopilotLoading) {
-      return;
-    }
-
-    setActiveWorkspaceTab('draft');
-    setActiveWorkspaceTab('draft');
-    openSection('copilot');
-
-    const trimmedInput = copilotInput.trim();
-    if (mode === 'custom' && !trimmedInput) {
-      return;
-    }
-
-    const sceneForRequest = cloneScene(sceneDraft);
-    const sceneId = sceneForRequest.id;
-    const seededThread = sceneForRequest.copilotThread?.length
-      ? sceneForRequest.copilotThread
-      : seedCopilotThread(sceneForRequest);
-    const userContent = mode === 'custom' ? trimmedInput : getCopilotModeLabel(mode);
-    const userMessage = createCopilotMessage('user', userContent, mode);
-    const nextThread = [...seededThread, userMessage];
-
-    appendCopilotThreadMessage(userMessage);
     setCopilotError('');
     setIsCopilotLoading(true);
-    if (mode === 'custom') {
-      setCopilotInput('');
-    }
-
     try {
-      const chapterForRequest: ScriptChapterNodeData = {
-        ...chapterData,
-        summary: chapterSummary,
-        chapterPurpose,
-        chapterQuestion,
-      };
-      const history = nextThread.map((message) => ({
-        role: message.role,
-        content: message.content,
-        selectionVariants: message.selectionVariants,
-      }));
-      const reply = await runSceneCopilot({
+      const response = await runSceneCopilot({
         mode,
-        userPrompt: trimmedInput,
-        scene: sceneForRequest,
-        chapter: chapterForRequest,
+        userPrompt,
+        scene: selectedEpisode,
+        chapter: chapterContext,
         storyRoot: rootData ?? null,
-        history,
+        history: currentCopilotMessages,
         continuityContext,
       });
-      const assistantMessage = createCopilotMessage('assistant', reply, mode);
 
-      appendCopilotThreadMessage(assistantMessage);
+      const nextMessages = [
+        ...currentCopilotMessages,
+        ...(userPrompt?.trim()
+          ? [createCopilotMessage('user', userPrompt.trim(), mode)]
+          : []),
+        createCopilotMessage('assistant', response, mode),
+      ];
 
       if (mode === 'continue') {
-        void runCandidateContinuityCheck({
-          messageId: assistantMessage.id,
-          candidateText: buildDraftTextWithContinuation(sceneForRequest.draftHtml, reply),
-          candidateLabel: t('script.sceneStudio.continuityCheckContinueLabel'),
-          scene: sceneForRequest,
-          chapter: chapterForRequest,
-          continuityContextSnapshot: continuityContext,
-          storyRootSnapshot: rootData ?? null,
-          persistToMessage: true,
+        const currentText = htmlToPlainText(selectedEpisode.draftHtml);
+        const nextDraft = plainTextToHtml(
+          [currentText, response].filter((value) => value.length > 0).join('\n\n')
+        );
+        updateSelectedEpisode({
+          draftHtml: nextDraft,
+          status: nextDraft.trim() ? 'drafting' : selectedEpisode.status,
+          copilotThread: nextMessages,
+          copilotSummary: response,
+        });
+      } else {
+        updateSelectedEpisode({
+          copilotThread: nextMessages,
+          copilotSummary: response,
         });
       }
-
-      setSceneDraft((currentDraft) => {
-        if (!currentDraft || currentDraft.id !== sceneId) {
-          return currentDraft;
-        }
-
-        setIsDirty(true);
-        return {
-          ...currentDraft,
-          copilotSummary: reply,
-        };
-      });
     } catch (error) {
-      setCopilotError(
-        error instanceof Error ? error.message : t('script.sceneStudio.copilotUnknownError')
-      );
+      setCopilotError(error instanceof Error ? error.message : String(error));
     } finally {
       setIsCopilotLoading(false);
     }
   }, [
-    appendCopilotThreadMessage,
-    chapterData,
-    chapterPurpose,
-    chapterQuestion,
-    chapterSummary,
-    copilotInput,
-    getCopilotModeLabel,
-    isCopilotLoading,
-    rootData,
-    runCandidateContinuityCheck,
-    sceneDraft,
-    t,
+    chapterContext,
     continuityContext,
-    openSection,
+    currentCopilotMessages,
+    rootData,
+    selectedEpisode,
+    updateSelectedEpisode,
   ]);
 
-  const handleRewriteSelection = useCallback(async (instruction: string) => {
-    if (
-      !chapterData
-      || !sceneDraft
-      || !selectedDraftText.trim()
-      || !selectedDraftRange
-      || isSelectionRewriteLoading
-    ) {
+  const handleRewriteEpisode = useCallback(async () => {
+    if (!selectedEpisode || !chapterContext) {
       return;
     }
 
-    const trimmedInstruction = instruction.trim();
-    if (!trimmedInstruction) {
-      return;
-    }
-
-    openSection('copilot');
-    openSection('draft');
-
-    const sceneForRequest = cloneScene(sceneDraft);
-    const threadBase = sceneForRequest.copilotThread?.length
-      ? sceneForRequest.copilotThread
-      : seedCopilotThread(sceneForRequest);
-    const userMessage = createCopilotMessage('user', trimmedInstruction, 'selection');
-    const nextThread = [...threadBase, userMessage];
-
-    appendCopilotThreadMessage(userMessage);
-    setSelectionRewriteError('');
-    setIsSelectionRewriteLoading(true);
-    setSelectionRewriteInput('');
-
+    setCopilotError('');
+    setIsCopilotLoading(true);
     try {
-      const chapterForRequest: ScriptChapterNodeData = {
-        ...chapterData,
-        summary: chapterSummary,
-        chapterPurpose,
-        chapterQuestion,
-      };
-      const history = nextThread.map((message) => ({
-        role: message.role,
-        content: message.content,
-        selectionVariants: message.selectionVariants,
-      }));
-      const variants = await runSceneSelectionRewriteVariants({
+      const rewrittenText = await runSceneCopilot({
         mode: 'selection',
-        userPrompt: trimmedInstruction,
-        selectionText: selectedDraftText,
-        scene: sceneForRequest,
-        chapter: chapterForRequest,
+        userPrompt: t('script.sceneWorkbench.defaultRewritePrompt'),
+        selectionText: htmlToPlainText(selectedEpisode.draftHtml),
+        scene: selectedEpisode,
+        chapter: chapterContext,
         storyRoot: rootData ?? null,
-        history,
+        history: currentCopilotMessages,
         continuityContext,
       });
-      const resolvedVariants = variants.filter((variant) => variant.trim().length > 0);
-      if (resolvedVariants.length === 0) {
-        throw new Error(t('script.sceneStudio.copilotUnknownError'));
-      }
 
-      const assistantMessage = createCopilotMessage(
-        'assistant',
-        t('script.sceneStudio.selectionVariantsReady', { count: resolvedVariants.length }),
-        'selection',
-        {
-          selectionSourceText: selectedDraftText,
-          selectionVariants: resolvedVariants,
-          selectedVariantIndex: null,
-          selectionResolution: 'pending',
-        }
-      );
+      const nextDraftHtml = plainTextToHtml(rewrittenText);
+      const nextMessages = [
+        ...currentCopilotMessages,
+        createCopilotMessage('user', t('script.sceneWorkbench.defaultRewritePrompt'), 'selection'),
+        createCopilotMessage('assistant', rewrittenText, 'selection'),
+      ];
 
-      appendCopilotThreadMessage(assistantMessage);
-      setSelectionRewriteTargets((currentTargets) => ({
-        ...currentTargets,
-        [assistantMessage.id]: selectedDraftRange,
-      }));
-      setSceneDraft((currentDraft) => {
-        if (!currentDraft || currentDraft.id !== sceneForRequest.id) {
-          return currentDraft;
-        }
-
-        setIsDirty(true);
-        return {
-          ...currentDraft,
-          copilotSummary: resolvedVariants[0] ?? '',
-        };
+      updateSelectedEpisode({
+        draftHtml: nextDraftHtml || buildEpisodeTemplateHtml({ plot: rewrittenText }),
+        status: rewrittenText.trim() ? 'drafting' : selectedEpisode.status,
+        copilotThread: nextMessages,
+        copilotSummary: rewrittenText,
       });
     } catch (error) {
-      setSelectionRewriteError(
-        error instanceof Error ? error.message : t('script.sceneStudio.copilotUnknownError')
-      );
+      setCopilotError(error instanceof Error ? error.message : String(error));
     } finally {
-      setIsSelectionRewriteLoading(false);
+      setIsCopilotLoading(false);
     }
   }, [
-    appendCopilotThreadMessage,
-    chapterData,
-    chapterPurpose,
-    chapterQuestion,
-    chapterSummary,
-    isSelectionRewriteLoading,
-    rootData,
-    sceneDraft,
-    selectedDraftRange,
-    selectedDraftText,
-    t,
+    chapterContext,
     continuityContext,
-    openSection,
+    currentCopilotMessages,
+    rootData,
+    selectedEpisode,
+    t,
+    updateSelectedEpisode,
   ]);
 
-  const handleRestoreImportedOriginal = useCallback(() => {
-    if (!sceneDraft || !sceneDraft.sourceDraftHtml?.trim()) {
+  const handleSendCopilotInput = useCallback(async () => {
+    const prompt = copilotInput.trim();
+    if (!prompt) {
       return;
     }
 
-    const restoredScene: SceneCard = {
-      ...sceneDraft,
-      draftHtml: sceneDraft.sourceDraftHtml,
-      status: 'drafting',
-    };
-
-    setSceneDraft(restoredScene);
-    sceneDraftRef.current = cloneScene(restoredScene);
-    setSelectedDraftText('');
-    setSelectedDraftRange(null);
-    setSelectionRewriteError('');
-    setPendingSelectionReplacement(null);
-    setIsImportedComparisonVisible(false);
-    setHasRestoredImportedOriginal(true);
-    persistSceneDraftSnapshot(restoredScene, 'push');
-  }, [persistSceneDraftSnapshot, sceneDraft]);
+    await handleRunCopilot('custom', prompt);
+    setCopilotInput('');
+  }, [copilotInput, handleRunCopilot]);
 
   const handleRefreshContinuityMemory = useCallback(async () => {
-    if (!chapterData || !sceneDraft || isContinuityRefreshing) {
+    if (!selectedEpisode || !chapterContext) {
       return;
     }
 
-    setActiveWorkspaceTab('overview');
-    openSection('continuity');
-
     setContinuityError('');
-    setIsContinuityRefreshing(true);
-
+    setIsContinuityLoading(true);
     try {
-      const chapterForRequest: ScriptChapterNodeData = {
-        ...chapterData,
-        summary: chapterSummary,
-        chapterPurpose,
-        chapterQuestion,
-      };
       const memory = await generateSceneContinuityMemory({
-        scene: cloneScene(sceneDraft),
-        chapter: chapterForRequest,
+        scene: selectedEpisode,
+        chapter: chapterContext,
         storyRoot: rootData ?? null,
         continuityContext,
       });
-
-      updateSceneDraft((draft) => ({
-        ...draft,
+      updateSelectedEpisode({
         continuitySummary: memory.summary,
         continuityFacts: memory.facts,
         continuityOpenLoops: memory.openLoops,
         continuityUpdatedAt: memory.updatedAt,
-      }));
+      });
     } catch (error) {
-      setContinuityError(
-        error instanceof Error
-          ? error.message
-          : t('script.sceneStudio.continuityRefreshError')
-      );
+      setContinuityError(error instanceof Error ? error.message : String(error));
     } finally {
-      setIsContinuityRefreshing(false);
+      setIsContinuityLoading(false);
     }
   }, [
-    chapterData,
-    chapterPurpose,
-    chapterQuestion,
-    chapterSummary,
+    chapterContext,
     continuityContext,
-    isContinuityRefreshing,
     rootData,
-    sceneDraft,
-    t,
-    updateSceneDraft,
-    openSection,
+    selectedEpisode,
+    updateSelectedEpisode,
   ]);
 
-  const handlePanelResizeStart = useCallback((clientX: number) => {
-    panelResizeStateRef.current = {
-      startX: clientX,
-      startWidth: panelWidth,
-    };
-    setIsPanelCollapsed(false);
-    setIsPanelResizing(true);
-  }, [panelWidth]);
+  const handleRunContinuityCheck = useCallback(async () => {
+    if (!selectedEpisode || !chapterContext) {
+      return;
+    }
 
-  const handleCollapsePanel = useCallback(() => {
-    panelResizeStateRef.current = null;
-    setIsPanelResizing(false);
-    setIsPanelCollapsed(true);
-  }, []);
+    setContinuityError('');
+    setIsContinuityLoading(true);
+    try {
+      const check = await runSceneContinuityCheck({
+        candidateText: htmlToPlainText(selectedEpisode.draftHtml),
+        candidateLabel: t('script.sceneWorkbench.currentDraftLabel'),
+        scene: selectedEpisode,
+        chapter: chapterContext,
+        storyRoot: rootData ?? null,
+        continuityContext,
+      });
+      setLatestContinuityCheck(check);
+    } catch (error) {
+      setContinuityError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setIsContinuityLoading(false);
+    }
+  }, [
+    chapterContext,
+    continuityContext,
+    rootData,
+    selectedEpisode,
+    t,
+  ]);
 
-  const handleExpandPanel = useCallback(() => {
-    setIsPanelCollapsed(false);
-  }, []);
-
-  if (currentProject?.projectType !== 'script') {
-    return null;
-  }
-
-  if (isPanelCollapsed) {
-    return (
-      <aside
-        className="flex h-full shrink-0 flex-col items-center border-l border-border-dark bg-surface-dark"
-        style={{ width: `${SCENE_STUDIO_PANEL_COLLAPSED_WIDTH}px` }}
-      >
-        <button
-          type="button"
-          onClick={handleExpandPanel}
-          title={t('script.sceneStudio.panelExpand')}
-          className="mt-3 inline-flex h-8 w-8 items-center justify-center rounded-lg border border-border-dark text-text-muted transition-colors hover:bg-bg-dark hover:text-text-dark"
-        >
-          <ChevronLeft className="h-4 w-4" />
-        </button>
-
-        <button
-          type="button"
-          onClick={handleExpandPanel}
-          title={t('script.sceneStudio.panelExpand')}
-          className="flex flex-1 flex-col items-center justify-center gap-3 px-1 text-text-muted transition-colors hover:text-text-dark"
-        >
-          <Clapperboard className="h-4 w-4 text-amber-400" />
-          <span className="text-[11px] tracking-[0.18em] [writing-mode:vertical-rl]">
-            {t('script.sceneStudio.title')}
-          </span>
-        </button>
-
-        <button
-          type="button"
-          onClick={clearSelection}
-          title={t('common.close')}
-          className="mb-3 inline-flex h-8 w-8 items-center justify-center rounded-lg border border-border-dark text-text-muted transition-colors hover:bg-bg-dark hover:text-text-dark"
-        >
-          <X className="h-4 w-4" />
-        </button>
-      </aside>
-    );
-  }
+  const panelWidthStyle = isPanelCollapsed ? SCENE_STUDIO_PANEL_COLLAPSED_WIDTH : panelWidth;
 
   return (
     <aside
-      className="relative flex h-full shrink-0 flex-col border-l border-border-dark bg-surface-dark"
-      style={{ width: `${panelWidth}px` }}
+      className="relative z-20 h-full shrink-0 border-l border-border-dark bg-bg-dark/92 backdrop-blur"
+      style={{ width: panelWidthStyle }}
     >
-      <button
-        type="button"
-        aria-label={t('script.sceneStudio.panelResize')}
-        title={t('script.sceneStudio.panelResize')}
-        onPointerDown={(event) => {
-          event.preventDefault();
-          handlePanelResizeStart(event.clientX);
-        }}
-        className={`absolute inset-y-0 left-0 z-20 w-2 -translate-x-1/2 cursor-col-resize bg-transparent transition-colors ${
-          isPanelResizing ? 'border-l border-amber-500/45' : 'hover:border-l hover:border-border-dark/80'
+      <div
+        className={`absolute left-0 top-0 h-full w-1 cursor-col-resize transition-colors ${
+          isPanelCollapsed ? 'pointer-events-none opacity-0' : 'hover:bg-cyan-500/25'
         }`}
-      />
-      <div className="flex items-center justify-between border-b border-border-dark px-4 py-3">
-        <div className="min-w-0">
-          <div className="flex items-center gap-2">
-            <Clapperboard className="h-4 w-4 text-amber-400" />
-            <span className="text-sm font-semibold text-text-dark">
-              {t('script.sceneStudio.title')}
-            </span>
-          </div>
-          <p className="mt-1 text-xs text-text-muted">
-            {t('script.sceneStudio.subtitle')}
-          </p>
-        </div>
-        <div className="flex items-center gap-2">
-          <button
-            type="button"
-            onClick={handleCollapsePanel}
-            title={t('script.sceneStudio.panelCollapse')}
-            className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-border-dark text-text-muted transition-colors hover:bg-bg-dark hover:text-text-dark"
-          >
-            <ChevronRight className="h-4 w-4" />
-          </button>
-          <button
-            type="button"
-            onClick={clearSelection}
-            title={t('common.close')}
-            className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-border-dark text-text-muted transition-colors hover:bg-bg-dark hover:text-text-dark"
-          >
-            <X className="h-4 w-4" />
-          </button>
-        </div>
-      </div>
+        onPointerDown={(event) => {
+          if (isPanelCollapsed) {
+            return;
+          }
 
-      {!chapterNode || !chapterData || !sceneDraft ? (
-        <div className="flex flex-1 items-center justify-center p-6">
-          <div className="max-w-[280px] rounded-2xl border border-dashed border-border-dark bg-bg-dark/45 p-5 text-center">
-            <FileText className="mx-auto h-9 w-9 text-text-muted" />
-            <h3 className="mt-3 text-sm font-semibold text-text-dark">
-              {t('script.sceneStudio.emptyTitle')}
-            </h3>
-            <p className="mt-2 text-sm leading-6 text-text-muted">
-              {t('script.sceneStudio.emptyHint')}
-            </p>
-          </div>
-        </div>
-      ) : (
-        <>
-          <div className="border-b border-border-dark px-4 py-3">
-            <div className="flex items-center justify-between gap-3">
+          panelResizeStateRef.current = {
+            startX: event.clientX,
+            startWidth: panelWidth,
+          };
+          setIsPanelResizing(true);
+        }}
+      />
+
+      <div className="flex h-full flex-col">
+        <div className="flex items-center justify-between gap-3 border-b border-border-dark px-3 py-3">
+          {isPanelCollapsed ? (
+            <button
+              type="button"
+              onClick={() => setIsPanelCollapsed(false)}
+              className="flex h-9 w-9 items-center justify-center rounded-xl border border-border-dark bg-surface-dark text-text-dark transition-colors hover:bg-bg-dark"
+              title={t('script.sceneStudio.panelExpand')}
+            >
+              <ChevronLeft className="h-4 w-4" />
+            </button>
+          ) : (
+            <>
               <div className="min-w-0">
-                <div className="text-xs text-text-muted">
-                  {t('script.sceneStudio.chapterLabel', {
-                    number: chapterData.chapterNumber || 1,
-                  })}
+                <div className="text-sm font-semibold text-text-dark">
+                  {isSceneMode ? t('script.sceneWorkbench.title') : t('script.sceneStudio.title')}
                 </div>
-                <div className="truncate text-sm font-semibold text-text-dark">
-                  {chapterData.title || t('script.sceneStudio.untitledChapter')}
-                </div>
+                <p className="mt-1 text-xs leading-5 text-text-muted">
+                  {isSceneMode
+                    ? t('script.sceneWorkbench.subtitle')
+                    : isChapterMode
+                      ? t('script.sceneStudio.subtitle')
+                      : t('script.sceneStudio.emptyHint')}
+                </p>
               </div>
               <button
                 type="button"
-                onClick={handleAddScene}
-                className="inline-flex items-center gap-1.5 rounded-lg border border-border-dark bg-bg-dark px-2.5 py-1.5 text-xs font-medium text-text-dark transition-colors hover:border-border-dark/80 hover:bg-bg-dark/80"
+                onClick={() => setIsPanelCollapsed(true)}
+                className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-border-dark bg-surface-dark text-text-dark transition-colors hover:bg-bg-dark"
+                title={t('script.sceneStudio.panelCollapse')}
               >
-                <Plus className="h-3.5 w-3.5" />
-                {t('script.sceneStudio.addScene')}
+                <ChevronRight className="h-4 w-4" />
               </button>
-            </div>
-            <div className="mt-3 flex flex-wrap gap-2">
-              {scenes.map((scene) => {
-                const isActive = scene.id === sceneDraft.id;
-                return (
-                  <div key={scene.id} className="group/scene relative">
-                    <button
-                      type="button"
-                      onClick={() => focusScene(chapterNode.id, scene.id)}
-                      className={`rounded-lg border px-2.5 py-1.5 pr-7 text-left text-xs transition-colors ${
-                        isActive
-                          ? 'border-amber-500/45 bg-amber-500/12 text-amber-200'
-                          : 'border-border-dark bg-bg-dark text-text-muted hover:text-text-dark'
-                      }`}
-                    >
-                      <div className="flex items-center gap-1.5">
-                        <div className="font-medium">
-                          {scene.title || t('script.sceneStudio.untitledScene')}
-                        </div>
-                        {scene.directorNotes.trim() ? (
-                          <span
-                            className="inline-flex h-4 min-w-4 items-center justify-center rounded-full border border-amber-500/25 bg-amber-500/12 px-1 text-[10px] font-medium text-amber-200"
-                            title={t('script.sceneStudio.directorNotes')}
-                          >
-                            D
-                          </span>
-                        ) : null}
-                      </div>
-                      <div className="mt-0.5 text-[11px] opacity-70">
-                        {t('script.sceneStudio.sceneLabel', { number: scene.order + 1 })}
-                      </div>
-                    </button>
-                    <button
-                      type="button"
-                      onClick={(event) => {
-                        event.stopPropagation();
-                        handleDeleteScene(scene.id);
-                      }}
-                      className="absolute right-1.5 top-1.5 inline-flex h-5 w-5 items-center justify-center rounded-full text-text-muted opacity-0 transition-opacity hover:bg-black/20 hover:text-red-300 group-hover/scene:opacity-100 group-focus-within/scene:opacity-100"
-                      title={t('common.delete')}
-                    >
-                      <X className="h-3.5 w-3.5" />
-                    </button>
-                  </div>
-                );
-              })}
-            </div>
-          </div>
+            </>
+          )}
+        </div>
 
-          <div className="flex-1 overflow-y-auto p-4">
-            <div className="space-y-4">
-              <div className="overflow-x-auto pb-1">
-                <div className="flex min-w-max gap-2">
-                  {([
-                    {
-                      id: 'overview',
-                      label: t('script.sceneStudio.workspacePlanning'),
-                      hasSignal: Boolean(
-                        chapterSummary.trim()
-                        || sceneDraft.summary.trim()
-                        || sceneDraft.continuitySummary.trim()
-                        || hasImportedOriginal
-                      ),
-                    },
-                    {
-                      id: 'draft',
-                      label: t('script.sceneStudio.workspaceWriting'),
-                      hasSignal: Boolean(
-                        currentCopilotMessages.length
-                        || selectedDraftText.trim()
-                        || sceneDraft.draftHtml.trim()
-                      ),
-                    },
-                    {
-                      id: 'director',
-                      label: t('script.sceneStudio.workspaceDirector'),
-                      hasSignal: Boolean(sceneDraft.directorNotes.trim()),
-                    },
-                  ] as Array<{
-                    id: SceneStudioWorkspaceTab;
-                    label: string;
-                    hasSignal?: boolean;
-                  }>).map((tab) => {
-                    const isActive = activeWorkspaceTab === tab.id;
-                    return (
-                      <button
-                        key={tab.id}
-                        type="button"
-                        onClick={() => setActiveWorkspaceTab(tab.id)}
-                        className={`inline-flex items-center gap-2 rounded-xl border px-3 py-2 text-xs font-medium transition-colors ${
-                          isActive
-                            ? 'border-amber-500/40 bg-amber-500/12 text-amber-100'
-                            : 'border-border-dark bg-bg-dark/45 text-text-muted hover:text-text-dark'
-                        }`}
-                      >
-                        <span>{tab.label}</span>
-                        {tab.hasSignal ? (
-                          <span className={`h-2 w-2 rounded-full ${isActive ? 'bg-amber-300' : 'bg-cyan-300'}`} />
-                        ) : null}
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-
-              {activeWorkspaceTab === 'overview' ? (
-                <>
-              <SceneStudioSection
-                icon={<FileText className="h-4 w-4 text-sky-300" />}
+        {isPanelCollapsed ? null : chapterNodeData ? (
+          <div className="ui-scrollbar flex-1 overflow-y-auto px-3 py-3">
+            <div className="space-y-3">
+              <Section
                 title={t('script.sceneStudio.chapterFocusTitle')}
                 description={t('script.sceneStudio.chapterFocusSubtitle')}
-                isOpen={sectionState.chapterFocus}
-                onToggle={() => toggleSection('chapterFocus')}
               >
                 <div className="space-y-3">
-                  <Field label={t('script.sceneStudio.chapterSummary')}>
-                    <Textarea
-                      value={chapterSummary}
-                      onChange={(value) => {
-                        setChapterSummary(value);
-                        setIsDirty(true);
-                      }}
+                  <div className="grid grid-cols-2 gap-3">
+                    <Field
+                      label={t('script.sceneStudio.chapterLabel', { number: chapterNodeData.chapterNumber || 1 })}
+                      value={chapterNodeData.title || chapterNodeData.displayName || ''}
+                      onChange={(value) => updateChapterPatch({ title: value, displayName: value })}
+                      placeholder={t('script.sceneStudio.untitledChapter')}
+                    />
+                    <Field
+                      label={t('script.sceneStudio.chapterQuestion')}
+                      value={chapterNodeData.chapterQuestion ?? ''}
+                      onChange={(value) => updateChapterPatch({ chapterQuestion: value })}
+                      placeholder={t('script.sceneStudio.chapterQuestionPlaceholder')}
+                    />
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-3">
+                    <Field
+                      label={t('script.sceneStudio.chapterSummary')}
+                      value={chapterNodeData.summary}
+                      onChange={(value) => updateChapterPatch({ summary: value })}
                       placeholder={t('script.sceneStudio.chapterSummaryPlaceholder')}
-                    />
-                  </Field>
-
-                  <div className="grid grid-cols-2 gap-3">
-                    <Field label={t('script.sceneStudio.chapterPurpose')}>
-                      <Input
-                        value={chapterPurpose}
-                        onChange={(value) => {
-                          setChapterPurpose(value);
-                          setIsDirty(true);
-                        }}
-                        placeholder={t('script.sceneStudio.chapterPurposePlaceholder')}
-                      />
-                    </Field>
-                    <Field label={t('script.sceneStudio.chapterQuestion')}>
-                      <Input
-                        value={chapterQuestion}
-                        onChange={(value) => {
-                          setChapterQuestion(value);
-                          setIsDirty(true);
-                        }}
-                        placeholder={t('script.sceneStudio.chapterQuestionPlaceholder')}
-                      />
-                    </Field>
-                  </div>
-                </div>
-              </SceneStudioSection>
-
-              <SceneStudioSection
-                icon={<Clapperboard className="h-4 w-4 text-amber-300" />}
-                title={t('script.sceneStudio.sceneBlueprintTitle')}
-                description={t('script.sceneStudio.sceneBlueprintSubtitle')}
-                isOpen={sectionState.sceneBlueprint}
-                onToggle={() => toggleSection('sceneBlueprint')}
-              >
-                <div className="space-y-3">
-                  <div className="grid grid-cols-2 gap-3">
-                    <Field label={t('script.sceneStudio.sceneTitle')}>
-                      <Input
-                        value={sceneDraft.title}
-                        onChange={(value) => {
-                          updateSceneDraft((draft) => ({ ...draft, title: value }));
-                        }}
-                        placeholder={t('script.sceneStudio.sceneTitlePlaceholder')}
-                      />
-                    </Field>
-                    <Field label={t('script.sceneStudio.povCharacter')}>
-                      <Input
-                        value={sceneDraft.povCharacter}
-                        onChange={(value) => {
-                          updateSceneDraft((draft) => ({ ...draft, povCharacter: value }));
-                        }}
-                        placeholder={t('script.sceneStudio.povCharacterPlaceholder')}
-                      />
-                    </Field>
-                  </div>
-
-                  <Field label={t('script.sceneStudio.sceneSummary')}>
-                    <Textarea
-                      value={sceneDraft.summary}
-                      onChange={(value) => {
-                        updateSceneDraft((draft) => ({ ...draft, summary: value }));
-                      }}
-                      placeholder={t('script.sceneStudio.sceneSummaryPlaceholder')}
-                    />
-                  </Field>
-
-                  <div className="grid grid-cols-2 gap-3">
-                    <Field label={t('script.sceneStudio.scenePurpose')}>
-                      <Input
-                        value={sceneDraft.purpose}
-                        onChange={(value) => {
-                          updateSceneDraft((draft) => ({ ...draft, purpose: value }));
-                        }}
-                        placeholder={t('script.sceneStudio.scenePurposePlaceholder')}
-                      />
-                    </Field>
-                    <Field label={t('script.sceneStudio.emotionalShift')}>
-                      <Input
-                        value={sceneDraft.emotionalShift}
-                        onChange={(value) => {
-                          updateSceneDraft((draft) => ({ ...draft, emotionalShift: value }));
-                        }}
-                        placeholder={t('script.sceneStudio.emotionalShiftPlaceholder')}
-                      />
-                    </Field>
-                  </div>
-
-                  <div className="grid grid-cols-2 gap-3">
-                    <Field label={t('script.sceneStudio.goal')}>
-                      <Input
-                        value={sceneDraft.goal}
-                        onChange={(value) => {
-                          updateSceneDraft((draft) => ({ ...draft, goal: value }));
-                        }}
-                        placeholder={t('script.sceneStudio.goalPlaceholder')}
-                      />
-                    </Field>
-                    <Field label={t('script.sceneStudio.conflict')}>
-                      <Input
-                        value={sceneDraft.conflict}
-                        onChange={(value) => {
-                          updateSceneDraft((draft) => ({ ...draft, conflict: value }));
-                        }}
-                        placeholder={t('script.sceneStudio.conflictPlaceholder')}
-                      />
-                    </Field>
-                  </div>
-
-                  <div className="grid grid-cols-2 gap-3">
-                    <Field label={t('script.sceneStudio.turn')}>
-                      <Input
-                        value={sceneDraft.turn}
-                        onChange={(value) => {
-                          updateSceneDraft((draft) => ({ ...draft, turn: value }));
-                        }}
-                        placeholder={t('script.sceneStudio.turnPlaceholder')}
-                      />
-                    </Field>
-                    <Field label={t('script.sceneStudio.visualHook')}>
-                      <Input
-                        value={sceneDraft.visualHook}
-                        onChange={(value) => {
-                          updateSceneDraft((draft) => ({ ...draft, visualHook: value }));
-                        }}
-                        placeholder={t('script.sceneStudio.visualHookPlaceholder')}
-                      />
-                    </Field>
-                  </div>
-
-                  <Field label={t('script.sceneStudio.subtext')}>
-                    <Textarea
-                      value={sceneDraft.subtext}
-                      onChange={(value) => {
-                        updateSceneDraft((draft) => ({ ...draft, subtext: value }));
-                      }}
-                      placeholder={t('script.sceneStudio.subtextPlaceholder')}
-                    />
-                  </Field>
-                </div>
-              </SceneStudioSection>
-
-              <SceneStudioSection
-                icon={<Link2 className="h-4 w-4 text-cyan-300" />}
-                title={t('script.sceneStudio.continuityTitle')}
-                description={t('script.sceneStudio.continuitySubtitle')}
-                isOpen={sectionState.continuity}
-                onToggle={() => toggleSection('continuity')}
-                actions={(
-                  <button
-                    type="button"
-                    onClick={() => void handleRefreshContinuityMemory()}
-                    disabled={isContinuityRefreshing}
-                    className="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-cyan-500/25 bg-cyan-500/10 px-2.5 py-1.5 text-xs font-medium text-cyan-200 transition-colors hover:bg-cyan-500/18 disabled:cursor-not-allowed disabled:opacity-60"
-                  >
-                    {isContinuityRefreshing ? (
-                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                    ) : (
-                      <RefreshCcw className="h-3.5 w-3.5" />
-                    )}
-                    {isContinuityRefreshing
-                      ? t('script.sceneStudio.continuityRefreshing')
-                      : t('script.sceneStudio.continuityRefresh')}
-                  </button>
-                )}
-              >
-                <div className="space-y-3">
-                  <div className="rounded-xl border border-cyan-500/15 bg-cyan-500/8 px-3 py-2 text-[11px] leading-5 text-cyan-100">
-                    {t('script.sceneStudio.continuityHint')}
-                  </div>
-
-                  {continuityError ? (
-                    <div className="rounded-xl border border-red-500/20 bg-red-500/8 px-3 py-2 text-xs leading-5 text-red-200">
-                      {continuityError}
-                    </div>
-                  ) : null}
-
-                  <Field label={t('script.sceneStudio.continuitySummary')}>
-                    <Textarea
-                      value={sceneDraft.continuitySummary}
-                      onChange={(value) => {
-                        updateSceneDraft((draft) => ({
-                          ...draft,
-                          continuitySummary: value,
-                          continuityUpdatedAt: Date.now(),
-                        }));
-                      }}
-                      placeholder={t('script.sceneStudio.continuitySummaryPlaceholder')}
+                      multiline
                       rows={3}
                     />
-                  </Field>
-
-                  <Field label={t('script.sceneStudio.continuityFacts')}>
-                    <Textarea
-                      value={sceneDraft.continuityFacts.join('\n')}
-                      onChange={(value) => {
-                        updateSceneDraft((draft) => ({
-                          ...draft,
-                          continuityFacts: parseMultilineItems(value),
-                          continuityUpdatedAt: Date.now(),
-                        }));
-                      }}
-                      placeholder={t('script.sceneStudio.continuityFactsPlaceholder')}
-                      rows={4}
+                    <Field
+                      label={t('script.sceneStudio.chapterPurpose')}
+                      value={chapterNodeData.chapterPurpose ?? ''}
+                      onChange={(value) => updateChapterPatch({ chapterPurpose: value })}
+                      placeholder={t('script.sceneStudio.chapterPurposePlaceholder')}
+                      multiline
+                      rows={3}
                     />
-                  </Field>
-
-                  <Field label={t('script.sceneStudio.continuityOpenLoops')}>
-                    <Textarea
-                      value={sceneDraft.continuityOpenLoops.join('\n')}
-                      onChange={(value) => {
-                        updateSceneDraft((draft) => ({
-                          ...draft,
-                          continuityOpenLoops: parseMultilineItems(value),
-                          continuityUpdatedAt: Date.now(),
-                        }));
-                      }}
-                      placeholder={t('script.sceneStudio.continuityOpenLoopsPlaceholder')}
-                      rows={4}
-                    />
-                  </Field>
-
-                  <div className="text-[11px] leading-5 text-text-muted">
-                    {sceneDraft.continuityUpdatedAt
-                      ? t('script.sceneStudio.continuityUpdatedAt', {
-                          time: new Date(sceneDraft.continuityUpdatedAt).toLocaleTimeString(),
-                        })
-                      : t('script.sceneStudio.continuityNotGenerated')}
                   </div>
-                </div>
-              </SceneStudioSection>
 
-              {hasImportedOriginal ? (
-                <SceneStudioSection
-                  icon={<FileText className="h-4 w-4 text-amber-300" />}
-                  title={t('script.sceneStudio.importOriginalTitle')}
-                  description={t('script.sceneStudio.importOriginalHint')}
-                  isOpen={sectionState.importedSource}
-                  onToggle={() => toggleSection('importedSource')}
-                >
-                  <div className="space-y-3">
-                    {importedOriginalLabel ? (
-                      <div className="text-[11px] leading-5 text-amber-100/80">
-                        {t('script.sceneStudio.importOriginalSource', {
-                          label: importedOriginalLabel,
-                        })}
-                      </div>
-                    ) : null}
-
-                    {hasRestoredImportedOriginal ? (
-                      <div className="rounded-lg border border-emerald-500/20 bg-emerald-500/10 px-2.5 py-1.5 text-[11px] leading-5 text-emerald-100">
-                        {t('script.sceneStudio.importOriginalRestored')}
-                      </div>
-                    ) : null}
-
-                    <div className="flex flex-wrap justify-end gap-2">
-                      <button
-                        type="button"
-                        onClick={() => setIsImportedComparisonVisible((visible) => !visible)}
-                        className="rounded-lg border border-border-dark px-2.5 py-1.5 text-xs text-text-muted transition-colors hover:bg-bg-dark hover:text-text-dark"
-                      >
-                        {isImportedComparisonVisible
-                          ? t('script.sceneStudio.importOriginalCompareClose')
-                          : t('script.sceneStudio.importOriginalCompareOpen')}
-                      </button>
-                      <button
-                        type="button"
-                        onClick={handleRestoreImportedOriginal}
-                        disabled={!canRestoreImportedOriginal}
-                        className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-2.5 py-1.5 text-xs text-amber-200 transition-colors hover:bg-amber-500/16 disabled:cursor-not-allowed disabled:opacity-50"
-                      >
-                        {t('script.sceneStudio.importOriginalRestore')}
-                      </button>
-                    </div>
-
-                    {isImportedComparisonVisible ? (
-                      <SelectionDiffPreview
-                        originalText={importedOriginalText}
-                        rewrittenText={currentDraftText}
-                        originalLabel={importedOriginalDiffLabel}
-                        rewrittenLabel={t('script.sceneStudio.currentDraftLabel')}
-                        addedLabel={t('script.sceneStudio.selectionDiffAdded')}
-                        removedLabel={t('script.sceneStudio.selectionDiffRemoved')}
-                      />
-                    ) : null}
-                  </div>
-                </SceneStudioSection>
-              ) : null}
-                </>
-              ) : null}
-
-              {activeWorkspaceTab === 'director' ? (
-                <>
-              <SceneStudioSection
-                icon={<Sparkles className="h-4 w-4 text-amber-300" />}
-                title={t('script.sceneStudio.directorNotes')}
-                description={t('script.sceneStudio.directorNotesSubtitle')}
-                isOpen={sectionState.directorNotes}
-                onToggle={() => toggleSection('directorNotes')}
-              >
-                <div className="space-y-3">
-                  <div className="flex items-center justify-between gap-3 text-[11px] leading-5 text-amber-100/75">
-                    <span>{t('script.sceneStudio.directorNotesHint')}</span>
-                    <span>{sceneDraft.directorNotes.trim().length}</span>
-                  </div>
-                  <Textarea
-                    value={sceneDraft.directorNotes}
-                    onChange={(value) => {
-                      updateSceneDraft((draft) => ({ ...draft, directorNotes: value }));
-                    }}
-                    placeholder={t('script.sceneStudio.directorNotesPlaceholder')}
-                    rows={16}
+                  <Field
+                    label={t('script.sceneStudio.emotionalShift')}
+                    value={chapterNodeData.emotionalShift}
+                    onChange={(value) => updateChapterPatch({ emotionalShift: value })}
+                    placeholder={t('script.sceneStudio.emotionalShiftPlaceholder')}
+                    multiline
+                    rows={2}
                   />
-                </div>
-              </SceneStudioSection>
-                </>
-              ) : null}
 
-              {activeWorkspaceTab === 'draft' ? (
-                <>
-              <SceneStudioSection
-                icon={<Link2 className="h-4 w-4 text-cyan-300" />}
-                title={t('script.sceneStudio.copilotTitle')}
-                description={t('script.sceneStudio.copilotSubtitle')}
-                isOpen={sectionState.copilot}
-                onToggle={() => toggleSection('copilot')}
+                  <div>
+                    <div className="mb-2 text-[11px] font-medium uppercase tracking-[0.08em] text-text-muted">
+                      {t('script.sceneStudio.chapterDraft')}
+                    </div>
+                    <div className="h-[260px] rounded-2xl border border-border-dark bg-bg-dark/40 p-2">
+                      <LazyRichTextEditor
+                        content={chapterNodeData.content}
+                        onChange={(content) => updateChapterPatch({ content })}
+                        placeholder={t('script.sceneStudio.chapterDraftPlaceholder')}
+                        className="h-full"
+                      />
+                    </div>
+                  </div>
+                </div>
+              </Section>
+
+              <Section
+                title={t('script.chapterCatalog.title')}
                 actions={(
                   <button
                     type="button"
-                    onClick={handleClearCopilotThread}
-                    disabled={
-                      isCopilotLoading
-                      || isSelectionRewriteLoading
-                      || (
-                        currentCopilotMessages.length === 0
-                        && !copilotInput.trim()
-                        && !copilotError
-                        && !selectionRewriteError
-                      )
-                    }
-                    title={t('script.sceneStudio.copilotClearHint')}
-                    className="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-border-dark px-2.5 py-1.5 text-xs font-medium text-text-muted transition-colors hover:bg-bg-dark hover:text-text-dark disabled:cursor-not-allowed disabled:opacity-50"
+                    onClick={handleAddChapterScene}
+                    className="inline-flex items-center gap-1.5 rounded-lg border border-border-dark bg-bg-dark px-3 py-1.5 text-xs font-medium text-text-dark transition-colors hover:bg-bg-dark/80"
                   >
-                    <X className="h-3.5 w-3.5" />
-                    {t('script.sceneStudio.copilotClear')}
+                    <Plus className="h-3.5 w-3.5" />
+                    {t('script.chapterCatalog.addScene')}
                   </button>
                 )}
               >
-                <div className="space-y-3">
-                  <div className="flex flex-wrap gap-2">
-                  {(['analysis', 'continue', 'director'] as SceneCopilotMode[]).map((mode) => (
-                    <button
-                      key={mode}
-                      type="button"
-                      onClick={() => void handleRunCopilot(mode)}
-                      disabled={isCopilotLoading}
-                      className="rounded-lg border border-border-dark bg-surface-dark px-2.5 py-1.5 text-xs text-text-dark transition-colors hover:border-amber-500/30 hover:bg-amber-500/8 disabled:cursor-not-allowed disabled:opacity-60"
-                    >
-                      {getCopilotModeLabel(mode)}
-                    </button>
-                  ))}
-                  </div>
+                <div className="space-y-2">
+                  {chapterScenes.map((scene) => {
+                    const sceneNode = chapterSceneNodeBySceneId.get(scene.id);
+                    const isActive = activeSceneNodeId === sceneNode?.id;
+                    const previewText = htmlToPlainText(
+                      scene.summary || scene.visualHook || scene.draftHtml
+                    ) || t('script.sceneCatalog.emptySummary');
 
-                  <div className="max-h-[220px] space-y-3 overflow-y-auto pr-1">
-                  {currentCopilotMessages.length === 0 ? (
-                    <div className="rounded-xl border border-dashed border-border-dark px-3 py-4 text-sm text-text-muted">
-                      {t('script.sceneStudio.copilotEmpty')}
-                    </div>
-                  ) : (
-                    currentCopilotMessages.map((message) => (
+                    return (
                       <div
-                        key={message.id}
-                        className={`flex ${message.role === 'user' ? 'justify-end' : 'justify-start'}`}
+                        key={scene.id}
+                        className={`rounded-xl border px-3 py-3 transition-colors ${
+                          isActive
+                            ? 'border-cyan-400/35 bg-cyan-500/10'
+                            : sceneNode
+                              ? 'border-cyan-500/20 bg-cyan-500/5'
+                              : 'border-border-dark bg-bg-dark/35'
+                        }`}
                       >
-                        <div
-                          className={`max-w-[92%] rounded-2xl px-3 py-2 ${
-                            message.role === 'user'
-                              ? 'border border-amber-500/30 bg-amber-500/10 text-amber-100'
-                              : 'border border-border-dark bg-surface-dark text-text-dark'
-                          }`}
-                        >
-                          <div className="flex items-center gap-2">
-                            <span className="text-[11px] font-medium uppercase tracking-[0.08em] text-text-muted">
-                              {message.role === 'user'
-                                ? t('script.sceneStudio.copilotUserLabel')
-                                : t('script.sceneStudio.copilotAssistantLabel')}
-                            </span>
-                            <span className="rounded-full border border-border-dark px-2 py-0.5 text-[10px] text-text-muted">
-                              {getCopilotModeLabel(message.mode)}
-                            </span>
-                          </div>
-                          {message.mode === 'selection' && message.selectionVariants?.length ? (
-                            <div className="mt-2 space-y-3">
-                              <div className="text-sm leading-6 text-text-muted">
-                                {message.content}
-                              </div>
-                              <div className="rounded-xl border border-cyan-500/15 bg-cyan-500/8 px-3 py-2 text-[11px] leading-5 text-cyan-100">
-                                {getSelectionResolutionLabel(
-                                  message.selectionResolution,
-                                  message.selectedVariantIndex
-                                )}
-                              </div>
-                              {message.selectionVariants.map((variant, index) => (
-                                <div
-                                  key={`${message.id}-${index}`}
-                                  className="rounded-xl border border-border-dark/80 bg-bg-dark/45 p-3"
-                                >
-                                  {(() => {
-                                    const comparisonKey = `${message.id}-${index}`;
-                                    const isComparisonOpen = Boolean(
-                                      expandedSelectionComparisons[comparisonKey]
-                                    );
-                                    const sourceText = message.selectionSourceText?.trim() ?? '';
-
-                                    return (
-                                      <>
-                                  <div className="flex items-center justify-between gap-2">
-                                    <span className="text-[11px] font-medium uppercase tracking-[0.08em] text-text-muted">
-                                      {t('script.sceneStudio.selectionVariantLabel', {
-                                        number: index + 1,
-                                      })}
-                                    </span>
-                                    {message.selectedVariantIndex === index
-                                    && message.selectionResolution
-                                    && message.selectionResolution !== 'pending'
-                                    && message.selectionResolution !== 'dismissed' ? (
-                                      <span className="rounded-full border border-cyan-500/25 bg-cyan-500/12 px-2 py-0.5 text-[10px] text-cyan-100">
-                                        {t('script.sceneStudio.selectionChosen')}
-                                      </span>
-                                    ) : null}
-                                  </div>
-                                  <div className="mt-2 whitespace-pre-wrap text-sm leading-6">
-                                    {variant}
-                                  </div>
-                                  {sourceText ? (
-                                    <div className="mt-3 flex justify-start">
-                                      <button
-                                        type="button"
-                                        onClick={() => toggleSelectionComparison(message.id, index)}
-                                        className="rounded-lg border border-border-dark px-2 py-1 text-[11px] text-text-muted transition-colors hover:bg-bg-dark hover:text-text-dark"
-                                      >
-                                        {isComparisonOpen
-                                          ? t('script.sceneStudio.selectionCompareClose')
-                                          : t('script.sceneStudio.selectionCompareOpen')}
-                                      </button>
-                                    </div>
-                                  ) : null}
-                                  {sourceText && isComparisonOpen ? (
-                                    <SelectionDiffPreview
-                                      originalText={sourceText}
-                                      rewrittenText={variant}
-                                      originalLabel={t('script.sceneStudio.selectionOriginalLabel')}
-                                      rewrittenLabel={t('script.sceneStudio.selectionRewriteLabel')}
-                                      addedLabel={t('script.sceneStudio.selectionDiffAdded')}
-                                      removedLabel={t('script.sceneStudio.selectionDiffRemoved')}
-                                    />
-                                  ) : null}
-                                  {message.selectionResolution === 'pending' ? (
-                                    <div className="mt-3 flex flex-wrap justify-end gap-2">
-                                      <button
-                                        type="button"
-                                        onClick={() => handleApplySelectionVariant(
-                                          message,
-                                          variant,
-                                          index,
-                                          'replace'
-                                        )}
-                                        disabled={
-                                          !hasSelectionTarget(message.id)
-                                          || Boolean(checkingContinuityByMessageId[message.id])
-                                        }
-                                        className="inline-flex items-center gap-1 rounded-lg border border-cyan-500/25 px-2 py-1 text-[11px] text-cyan-100 transition-colors hover:bg-cyan-500/12 disabled:cursor-not-allowed disabled:opacity-50"
-                                      >
-                                        <Check className="h-3.5 w-3.5" />
-                                        {t('script.sceneStudio.selectionApplyReplace')}
-                                      </button>
-                                      <button
-                                        type="button"
-                                        onClick={() => handleApplySelectionVariant(
-                                          message,
-                                          variant,
-                                          index,
-                                          'insertBelow'
-                                        )}
-                                        disabled={
-                                          !hasSelectionTarget(message.id)
-                                          || Boolean(checkingContinuityByMessageId[message.id])
-                                        }
-                                        className="inline-flex items-center gap-1 rounded-lg border border-border-dark px-2 py-1 text-[11px] text-text-muted transition-colors hover:bg-bg-dark hover:text-text-dark disabled:cursor-not-allowed disabled:opacity-50"
-                                      >
-                                        <CornerDownLeft className="h-3.5 w-3.5" />
-                                        {t('script.sceneStudio.selectionApplyInsertBelow')}
-                                      </button>
-                                    </div>
-                                  ) : null}
-                                      </>
-                                    );
-                                  })()}
-                                </div>
-                              ))}
-                              {message.selectionResolution === 'pending' ? (
-                                <div className="flex flex-wrap items-center justify-between gap-2">
-                                  <div className="text-[11px] leading-5 text-text-muted">
-                                    {checkingContinuityByMessageId[message.id]
-                                      ? t('script.sceneStudio.continuityCheckRunning')
-                                      : hasSelectionTarget(message.id)
-                                      ? t('script.sceneStudio.selectionVariantsHint')
-                                      : t('script.sceneStudio.selectionNeedTarget')}
-                                  </div>
-                                  <button
-                                    type="button"
-                                    onClick={() => handleDismissSelectionVariants(message.id)}
-                                    className="inline-flex items-center gap-1 rounded-lg border border-border-dark px-2 py-1 text-[11px] text-text-muted transition-colors hover:bg-bg-dark hover:text-text-dark"
-                                  >
-                                    <X className="h-3.5 w-3.5" />
-                                    {t('script.sceneStudio.selectionDismiss')}
-                                  </button>
-                                </div>
-                              ) : null}
-                            </div>
-                          ) : (
-                            <>
-                            <div className="mt-2 whitespace-pre-wrap text-sm leading-6">
-                                {message.content}
-                              </div>
-                              {message.role === 'assistant' && message.mode === 'continue' ? (
-                                Boolean(checkingContinuityByMessageId[message.id]) ? (
-                                  <div className="mt-3 inline-flex items-center gap-2 rounded-xl border border-border-dark bg-bg-dark/45 px-3 py-2 text-[11px] text-text-muted">
-                                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                                    {t('script.sceneStudio.continuityCheckRunning')}
-                                  </div>
-                                ) : message.continuityCheck?.status === 'warning' ? (
-                                  <div className="mt-3 rounded-xl border border-amber-500/25 bg-amber-500/10 px-3 py-2">
-                                    <div className="flex items-center gap-2 text-[11px] font-medium uppercase tracking-[0.08em] text-amber-100">
-                                      <AlertTriangle className="h-3.5 w-3.5" />
-                                      {t('script.sceneStudio.continuityCheckWarning')}
-                                    </div>
-                                    <div className="mt-1 text-xs leading-5 text-amber-100/90">
-                                      {message.continuityCheck.summary}
-                                    </div>
-                                    <div className="mt-2 text-[11px] leading-5 text-amber-100/75">
-                                      {message.continuityCheck.issues.length > 0
-                                        ? t('script.sceneStudio.continuityCheckIssues', {
-                                            count: message.continuityCheck.issues.length,
-                                          })
-                                        : t('script.sceneStudio.continuityCheckNoIssues')}
-                                    </div>
-                                  </div>
-                                ) : null
-                              ) : null}
-                              {message.role === 'assistant'
-                              && message.mode !== 'seed'
-                              && (message.mode !== 'selection' || Boolean(selectionRewriteTargets[message.id] ?? selectedDraftRange)) ? (
-                                <div className="mt-3 flex justify-end">
-                                  <button
-                                    type="button"
-                                    onClick={() => handleCopilotApply(message)}
-                                    disabled={Boolean(
-                                      message.mode === 'continue'
-                                      && checkingContinuityByMessageId[message.id]
-                                    )}
-                                    className="rounded-lg border border-border-dark px-2 py-1 text-[11px] text-text-muted transition-colors hover:bg-bg-dark hover:text-text-dark disabled:cursor-not-allowed disabled:opacity-50"
-                                  >
-                                    {message.mode === 'continue'
-                                      ? t('script.sceneStudio.copilotApplyDraft')
-                                      : message.mode === 'selection'
-                                        ? t('script.sceneStudio.copilotApplySelection')
-                                        : t('script.sceneStudio.copilotApplyNotes')}
-                                  </button>
-                                </div>
-                              ) : null}
-                            </>
-                          )}
-                        </div>
-                      </div>
-                    ))
-                  )}
-                  </div>
-
-                  {copilotError || selectionRewriteError ? (
-                  <div className="rounded-xl border border-red-500/20 bg-red-500/8 px-3 py-2 text-xs leading-5 text-red-200">
-                    {copilotError || selectionRewriteError}
-                  </div>
-                ) : null}
-
-                <Field label={t('script.sceneStudio.copilotInputLabel')}>
-                  <Textarea
-                    value={copilotInput}
-                    onChange={setCopilotInput}
-                    rows={3}
-                    placeholder={t('script.sceneStudio.copilotInputPlaceholder')}
-                  />
-                </Field>
-
-                  <div className="flex justify-end">
-                  <button
-                    type="button"
-                    onClick={() => void handleRunCopilot('custom')}
-                    disabled={isCopilotLoading || copilotInput.trim().length === 0}
-                    className="inline-flex items-center gap-1.5 rounded-lg border border-amber-500/35 bg-amber-500/10 px-3 py-1.5 text-xs font-medium text-amber-300 transition-colors hover:bg-amber-500/18 disabled:cursor-not-allowed disabled:opacity-60"
-                  >
-                    {isCopilotLoading ? (
-                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                    ) : (
-                      <SendHorizonal className="h-3.5 w-3.5" />
-                    )}
-                    {isCopilotLoading
-                      ? t('script.sceneStudio.copilotThinking')
-                      : t('script.sceneStudio.copilotAsk')}
-                  </button>
-                  </div>
-                </div>
-              </SceneStudioSection>
-
-              <SceneStudioSection
-                icon={<FileText className="h-4 w-4 text-emerald-300" />}
-                title={t('script.sceneStudio.draft')}
-                description={t('script.sceneStudio.draftSubtitle')}
-                isOpen={sectionState.draft}
-                onToggle={() => toggleSection('draft')}
-              >
-                <div className="flex min-h-[620px] flex-col">
-                  {selectedDraftText.trim() ? (
-                    <div className="mb-3 rounded-xl border border-cyan-500/20 bg-cyan-500/8 p-3">
-                      <div className="text-[11px] font-medium uppercase tracking-[0.08em] text-cyan-200">
-                        {t('script.sceneStudio.selectionTitle')}
-                      </div>
-                      <div className="mt-2 line-clamp-3 whitespace-pre-wrap text-sm leading-6 text-text-dark">
-                        {selectedDraftText}
-                      </div>
-                      <div className="mt-3 flex flex-wrap gap-2">
-                        <button
-                          type="button"
-                          onClick={() => void handleRewriteSelection(t('script.sceneStudio.selectionActionTightenPrompt'))}
-                          disabled={isSelectionRewriteLoading}
-                          className="rounded-lg border border-border-dark bg-surface-dark px-2.5 py-1.5 text-xs text-text-dark transition-colors hover:border-cyan-500/30 hover:bg-cyan-500/8 disabled:cursor-not-allowed disabled:opacity-60"
-                        >
-                          {t('script.sceneStudio.selectionActionTighten')}
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => void handleRewriteSelection(t('script.sceneStudio.selectionActionSubtextPrompt'))}
-                          disabled={isSelectionRewriteLoading}
-                          className="rounded-lg border border-border-dark bg-surface-dark px-2.5 py-1.5 text-xs text-text-dark transition-colors hover:border-cyan-500/30 hover:bg-cyan-500/8 disabled:cursor-not-allowed disabled:opacity-60"
-                        >
-                          {t('script.sceneStudio.selectionActionSubtext')}
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => void handleRewriteSelection(t('script.sceneStudio.selectionActionDialoguePrompt'))}
-                          disabled={isSelectionRewriteLoading}
-                          className="rounded-lg border border-border-dark bg-surface-dark px-2.5 py-1.5 text-xs text-text-dark transition-colors hover:border-cyan-500/30 hover:bg-cyan-500/8 disabled:cursor-not-allowed disabled:opacity-60"
-                        >
-                          {t('script.sceneStudio.selectionActionDialogue')}
-                        </button>
-                      </div>
-                      <div className="mt-3 flex gap-2">
-                        <input
-                          type="text"
-                          value={selectionRewriteInput}
-                          onChange={(event) => setSelectionRewriteInput(event.target.value)}
-                          placeholder={t('script.sceneStudio.selectionInputPlaceholder')}
-                          className="flex-1 rounded-lg border border-border-dark bg-bg-dark px-3 py-2 text-sm text-text-dark outline-none transition-colors placeholder:text-text-muted/60 focus:border-cyan-500/35"
-                        />
-                        <button
-                          type="button"
-                          onClick={() => void handleRewriteSelection(selectionRewriteInput)}
-                          disabled={isSelectionRewriteLoading || selectionRewriteInput.trim().length === 0}
-                          className="inline-flex items-center gap-1.5 rounded-lg border border-cyan-500/35 bg-cyan-500/10 px-3 py-1.5 text-xs font-medium text-cyan-200 transition-colors hover:bg-cyan-500/18 disabled:cursor-not-allowed disabled:opacity-60"
-                        >
-                          {isSelectionRewriteLoading ? (
-                            <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                          ) : (
-                            <Sparkles className="h-3.5 w-3.5" />
-                          )}
-                          {isSelectionRewriteLoading
-                            ? t('script.sceneStudio.selectionActionBusy')
-                            : t('script.sceneStudio.selectionActionCustom')}
-                        </button>
-                      </div>
-                    </div>
-                  ) : (
-                    <div className="mb-3 rounded-xl border border-dashed border-border-dark bg-bg-dark/25 px-3 py-2 text-xs leading-5 text-text-muted">
-                      {t('script.sceneStudio.selectionEmpty')}
-                    </div>
-                  )}
-
-                  <div className="min-h-0 flex-1">
-                    <LazyRichTextEditor
-                      content={sceneDraft.draftHtml}
-                      onChange={(value) => {
-                        updateSceneDraft((draft) => ({ ...draft, draftHtml: value }));
-                      }}
-                      onSelect={({ text, range }) => {
-                        setSelectedDraftText(text);
-                        setSelectedDraftRange(range);
-                        setSelectionRewriteError('');
-                      }}
-                      pendingSelectionReplacement={pendingSelectionReplacement}
-                      onSelectionReplacementApplied={() => {
-                        setPendingSelectionReplacement(null);
-                      }}
-                      placeholder={t('script.sceneStudio.draftPlaceholder')}
-                      className="h-full"
-                    />
-                  </div>
-                </div>
-              </SceneStudioSection>
-                </>
-              ) : null}
-            </div>
-          </div>
-
-          {pendingContinuityGuard ? (
-            <div className="border-t border-border-dark px-4 py-3">
-              <div className="rounded-2xl border border-amber-500/25 bg-amber-500/10 p-4">
-                <div className="flex items-start gap-3">
-                  <div className="rounded-xl bg-amber-500/12 p-2 text-amber-200">
-                    <AlertTriangle className="h-4 w-4" />
-                  </div>
-                  <div className="min-w-0 flex-1">
-                    <div className="text-sm font-semibold text-amber-100">
-                      {pendingContinuityGuard.title}
-                    </div>
-                    <p className="mt-1 text-xs leading-5 text-amber-100/90">
-                      {pendingContinuityGuard.check.summary}
-                    </p>
-                    <div className="mt-3 text-[11px] font-medium uppercase tracking-[0.08em] text-amber-100/80">
-                      {pendingContinuityGuard.check.issues.length > 0
-                        ? t('script.sceneStudio.continuityCheckIssues', {
-                            count: pendingContinuityGuard.check.issues.length,
-                          })
-                        : t('script.sceneStudio.continuityCheckNoIssues')}
-                    </div>
-                    {pendingContinuityGuard.check.issues.length > 0 ? (
-                      <div className="mt-2 space-y-2">
-                        {pendingContinuityGuard.check.issues.map((issue: SceneContinuityIssue) => (
-                          <div
-                            key={issue.id}
-                            className="rounded-xl border border-amber-500/15 bg-black/10 px-3 py-2"
-                          >
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="min-w-0 flex-1">
                             <div className="flex items-center gap-2">
-                              <span className="rounded-full border border-amber-500/20 px-2 py-0.5 text-[10px] uppercase tracking-[0.08em] text-amber-100/75">
-                                {issue.severity}
+                              <span className="rounded-full bg-amber-500/10 px-2 py-0.5 text-[11px] text-amber-200">
+                                {t('script.sceneCatalog.sceneLabel', { number: scene.order + 1 })}
                               </span>
-                              <span className="text-xs font-medium text-amber-100">
-                                {issue.title}
+                              <span className="truncate text-sm font-medium text-text-dark">
+                                {scene.title || t('script.sceneStudio.untitledScene')}
                               </span>
                             </div>
-                            <div className="mt-1 text-xs leading-5 text-amber-100/85">
-                              {issue.detail}
-                            </div>
-                            {issue.evidence ? (
-                              <div className="mt-1 text-[11px] leading-5 text-amber-100/70">
-                                {issue.evidence}
+                            <p className="mt-1 line-clamp-2 text-xs leading-5 text-text-muted">
+                              {previewText}
+                            </p>
+                            {sceneNode ? (
+                              <div className="mt-2 text-[11px] text-cyan-200/80">
+                                {t('script.sceneWorkbench.episodeCount', {
+                                  count: sceneNode.data.episodes.length,
+                                })}
                               </div>
                             ) : null}
                           </div>
-                        ))}
+                          <button
+                            type="button"
+                            onClick={() => handleOpenChapterSceneNode(scene.id)}
+                            className={`shrink-0 rounded-lg border px-2.5 py-1 text-[11px] font-medium transition-colors ${
+                              sceneNode
+                                ? 'border-cyan-500/35 bg-cyan-500/10 text-cyan-200 hover:bg-cyan-500/18'
+                                : 'border-amber-500/35 bg-amber-500/10 text-amber-300 hover:bg-amber-500/18'
+                            }`}
+                          >
+                            {sceneNode
+                              ? t('script.chapterCatalog.openEpisodes')
+                              : t('script.chapterCatalog.generateNode')}
+                          </button>
+                        </div>
                       </div>
-                    ) : null}
-                    <div className="mt-4 flex flex-wrap justify-end gap-2">
-                      <button
-                        type="button"
-                        onClick={closeContinuityGuard}
-                        className="rounded-lg border border-border-dark px-3 py-1.5 text-xs text-text-muted transition-colors hover:bg-bg-dark hover:text-text-dark"
-                      >
-                        {t('script.sceneStudio.continuityCheckCancel')}
-                      </button>
-                      <button
-                        type="button"
-                        onClick={confirmContinuityGuard}
-                        className="rounded-lg border border-amber-500/35 bg-amber-500/12 px-3 py-1.5 text-xs font-medium text-amber-100 transition-colors hover:bg-amber-500/18"
-                      >
-                        {pendingContinuityGuard.actionLabel}
-                      </button>
+                    );
+                  })}
+                </div>
+              </Section>
+            </div>
+          </div>
+        ) : !sceneNodeData ? (
+          <div className="flex flex-1 items-center justify-center px-6 text-center">
+            <div>
+              <div className="text-base font-semibold text-text-dark">
+                {t('script.sceneStudio.emptyTitle')}
+              </div>
+              <p className="mt-2 text-sm leading-6 text-text-muted">
+                {t('script.sceneStudio.emptyHint')}
+              </p>
+            </div>
+          </div>
+        ) : (
+          <div className="ui-scrollbar flex-1 overflow-y-auto px-3 py-3">
+            <div className="space-y-3">
+              <Section
+                title={t('script.sceneWorkbench.sceneCardTitle')}
+                description={t('script.sceneWorkbench.sceneCardSubtitle')}
+                actions={(
+                  <button
+                    type="button"
+                    onClick={() => void handleGenerateEpisodes(sceneNodeData.episodes.length > 0 ? 'regenerate' : 'initial')}
+                    disabled={isEpisodeGenerating || !chapterContext}
+                    className="inline-flex items-center gap-1.5 rounded-lg border border-teal-500/30 bg-teal-500/10 px-3 py-1.5 text-xs font-medium text-teal-200 transition-colors hover:bg-teal-500/18 disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    {sceneNodeData.episodes.length > 0 ? (
+                      <RefreshCcw className="h-3.5 w-3.5" />
+                    ) : (
+                      <Sparkles className="h-3.5 w-3.5" />
+                    )}
+                    {sceneNodeData.episodes.length > 0
+                      ? t('script.sceneWorkbench.regenerateEpisodes')
+                      : t('script.sceneWorkbench.generateEpisodes')}
+                  </button>
+                )}
+              >
+                <div className="space-y-3">
+                  <div className="grid grid-cols-2 gap-3">
+                    <Field
+                      label={t('script.sceneStudio.chapterLabel', { number: sceneNodeData.chapterNumber || 1 })}
+                      value={sourceChapterData?.title || sourceChapterData?.displayName || ''}
+                      onChange={() => {}}
+                      placeholder=""
+                      readOnly
+                    />
+                    <Field
+                      label={t('script.sceneCatalog.sceneLabel', { number: sceneNodeData.sourceSceneOrder + 1 })}
+                      value={sceneNodeData.title}
+                      onChange={(value) => updateScenePatch({ title: value, displayName: value })}
+                      placeholder={t('script.sceneStudio.untitledScene')}
+                    />
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-3">
+                    <Field
+                      label={t('script.sceneStudio.chapterSummary')}
+                      value={sceneNodeData.summary}
+                      onChange={(value) => updateScenePatch({ summary: value })}
+                      placeholder={t('script.sceneWorkbench.sceneSummaryPlaceholder')}
+                      multiline
+                      rows={3}
+                    />
+                    <Field
+                      label={t('script.sceneStudio.chapterPurpose')}
+                      value={sceneNodeData.purpose}
+                      onChange={(value) => updateScenePatch({ purpose: value })}
+                      placeholder={t('script.sceneWorkbench.scenePurposePlaceholder')}
+                      multiline
+                      rows={3}
+                    />
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-3">
+                    <Field
+                      label={t('script.sceneWorkbench.pov')}
+                      value={sceneNodeData.povCharacter}
+                      onChange={(value) => updateScenePatch({ povCharacter: value })}
+                      placeholder={t('script.sceneWorkbench.povPlaceholder')}
+                    />
+                    <Field
+                      label={t('script.sceneStudio.sceneGoal')}
+                      value={sceneNodeData.goal}
+                      onChange={(value) => updateScenePatch({ goal: value })}
+                      placeholder={t('script.sceneWorkbench.goalPlaceholder')}
+                    />
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-3">
+                    <Field
+                      label={t('script.sceneStudio.sceneConflict')}
+                      value={sceneNodeData.conflict}
+                      onChange={(value) => updateScenePatch({ conflict: value })}
+                      placeholder={t('script.sceneWorkbench.conflictPlaceholder')}
+                    />
+                    <Field
+                      label={t('script.sceneStudio.sceneTurn')}
+                      value={sceneNodeData.turn}
+                      onChange={(value) => updateScenePatch({ turn: value })}
+                      placeholder={t('script.sceneWorkbench.turnPlaceholder')}
+                    />
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-3">
+                    <Field
+                      label={t('script.sceneStudio.sceneEmotionalShift')}
+                      value={sceneNodeData.emotionalShift}
+                      onChange={(value) => updateScenePatch({ emotionalShift: value })}
+                      placeholder={t('script.sceneWorkbench.emotionPlaceholder')}
+                    />
+                    <Field
+                      label={t('script.sceneStudio.sceneVisualHook')}
+                      value={sceneNodeData.visualHook}
+                      onChange={(value) => updateScenePatch({ visualHook: value })}
+                      placeholder={t('script.sceneWorkbench.visualHookPlaceholder')}
+                    />
+                  </div>
+
+                  <Field
+                    label={t('script.sceneStudio.sceneSubtext')}
+                    value={sceneNodeData.subtext}
+                    onChange={(value) => updateScenePatch({ subtext: value })}
+                    placeholder={t('script.sceneWorkbench.subtextPlaceholder')}
+                    multiline
+                    rows={2}
+                  />
+
+                  <div>
+                    <div className="mb-2 text-[11px] font-medium uppercase tracking-[0.08em] text-text-muted">
+                      {t('script.sceneWorkbench.sceneSourceTitle')}
+                    </div>
+                    <div className="h-[220px] rounded-2xl border border-border-dark bg-bg-dark/40 p-2">
+                      <LazyRichTextEditor
+                        content={sceneNodeData.draftHtml}
+                        onChange={(content) => updateScenePatch({ draftHtml: content })}
+                        placeholder={t('script.sceneWorkbench.sceneSourcePlaceholder')}
+                        className="h-full"
+                      />
                     </div>
                   </div>
-                </div>
-              </div>
-            </div>
-          ) : null}
 
-          <div className="flex items-center justify-between border-t border-border-dark px-4 py-3">
-            <div className="text-xs text-text-muted">
-              {isDirty
-                ? t('script.sceneStudio.autosavePending')
-                : lastSavedAt
-                  ? t('script.sceneStudio.savedAt', {
-                      time: new Date(lastSavedAt).toLocaleTimeString(),
+                  {episodeGenerationError ? (
+                    <div className="rounded-xl border border-red-400/20 bg-red-500/8 px-3 py-2 text-xs leading-5 text-red-200">
+                      {episodeGenerationError}
+                    </div>
+                  ) : null}
+                </div>
+              </Section>
+
+              <Section
+                title={t('script.sceneWorkbench.episodeWorkbench')}
+                description={t('script.sceneWorkbench.episodeWorkbenchSubtitle')}
+                actions={(
+                  <button
+                    type="button"
+                    onClick={handleAddEpisode}
+                    className="inline-flex items-center gap-1.5 rounded-lg border border-border-dark bg-bg-dark px-3 py-1.5 text-xs font-medium text-text-dark transition-colors hover:bg-bg-dark/80"
+                  >
+                    <Plus className="h-3.5 w-3.5" />
+                    {t('script.sceneWorkbench.addEpisode')}
+                  </button>
+                )}
+              >
+                <div className="space-y-2">
+                  {sceneNodeData.episodes.length > 0 ? (
+                    sceneNodeData.episodes.map((episode) => {
+                      const isActive = selectedEpisode?.id === episode.id;
+                      const previewText = htmlToPlainText(episode.draftHtml || episode.summary);
+
+                      return (
+                        <div
+                          key={episode.id}
+                          className={`rounded-xl border px-3 py-3 transition-colors ${
+                            isActive
+                              ? 'border-cyan-400/35 bg-cyan-500/10'
+                              : 'border-border-dark bg-bg-dark/35'
+                          }`}
+                        >
+                          <div className="flex items-start justify-between gap-3">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                if (!sceneNodeId) {
+                                  return;
+                                }
+                                focusSceneNode(sceneNodeId, episode.id);
+                              }}
+                              className="min-w-0 flex-1 text-left"
+                            >
+                              <div className="flex items-center gap-2">
+                                <span className="rounded-full bg-cyan-500/10 px-2 py-0.5 text-[11px] text-cyan-200">
+                                  {`${sceneNodeData.chapterNumber || 1}-${episode.episodeNumber}`}
+                                </span>
+                                <span className="truncate text-sm font-medium text-text-dark">
+                                  {episode.title || t('script.sceneWorkbench.untitledEpisode')}
+                                </span>
+                              </div>
+                              <p className="mt-1 line-clamp-2 text-xs leading-5 text-text-muted">
+                                {previewText || t('script.sceneWorkbench.emptyEpisodePreview')}
+                              </p>
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleDeleteEpisode(episode.id)}
+                              className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-transparent text-text-muted transition-colors hover:border-red-400/25 hover:bg-red-500/10 hover:text-red-200"
+                              title={t('common.delete')}
+                            >
+                              <Trash2 className="h-4 w-4" />
+                            </button>
+                          </div>
+                        </div>
+                      );
                     })
-                  : t('script.sceneStudio.autosaveIdle')}
+                  ) : (
+                    <div className="rounded-xl border border-dashed border-border-dark/70 bg-bg-dark/35 px-3 py-5 text-center text-xs text-text-muted">
+                      {isEpisodeGenerating ? (
+                        <div className="flex items-center justify-center gap-2">
+                          <UiLoadingAnimation size="sm" />
+                          <span>{t('script.sceneWorkbench.generating')}</span>
+                        </div>
+                      ) : (
+                        t('script.sceneWorkbench.emptyEpisodes')
+                      )}
+                    </div>
+                  )}
+                </div>
+              </Section>
+              {selectedEpisode ? (
+                <>
+                  <Section
+                    title={t('script.sceneWorkbench.episodeBlueprint')}
+                    description={t('script.sceneWorkbench.episodeBlueprintSubtitle')}
+                  >
+                    <div className="space-y-3">
+                      <div className="grid grid-cols-2 gap-3">
+                        <Field
+                          label={t('script.sceneWorkbench.episodeTitle')}
+                          value={selectedEpisode.title}
+                          onChange={(value) => updateSelectedEpisode({ title: value })}
+                          placeholder={t('script.sceneWorkbench.untitledEpisode')}
+                        />
+                        <Field
+                          label={t('script.sceneWorkbench.status')}
+                          value={selectedEpisode.status}
+                          onChange={(value) => updateSelectedEpisode({ status: normalizeEpisodeStatus(value) })}
+                          placeholder="idea / drafting / reviewed / locked"
+                        />
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-3">
+                        <Field
+                          label={t('script.sceneStudio.chapterSummary')}
+                          value={selectedEpisode.summary}
+                          onChange={(value) => updateSelectedEpisode({ summary: value })}
+                          placeholder={t('script.sceneWorkbench.episodeSummaryPlaceholder')}
+                          multiline
+                          rows={3}
+                        />
+                        <Field
+                          label={t('script.sceneStudio.chapterPurpose')}
+                          value={selectedEpisode.purpose}
+                          onChange={(value) => updateSelectedEpisode({ purpose: value })}
+                          placeholder={t('script.sceneWorkbench.episodePurposePlaceholder')}
+                          multiline
+                          rows={3}
+                        />
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-3">
+                        <Field
+                          label={t('script.sceneStudio.sceneGoal')}
+                          value={selectedEpisode.goal}
+                          onChange={(value) => updateSelectedEpisode({ goal: value })}
+                          placeholder={t('script.sceneWorkbench.goalPlaceholder')}
+                        />
+                        <Field
+                          label={t('script.sceneStudio.sceneConflict')}
+                          value={selectedEpisode.conflict}
+                          onChange={(value) => updateSelectedEpisode({ conflict: value })}
+                          placeholder={t('script.sceneWorkbench.conflictPlaceholder')}
+                        />
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-3">
+                        <Field
+                          label={t('script.sceneStudio.sceneTurn')}
+                          value={selectedEpisode.turn}
+                          onChange={(value) => updateSelectedEpisode({ turn: value })}
+                          placeholder={t('script.sceneWorkbench.turnPlaceholder')}
+                        />
+                        <Field
+                          label={t('script.sceneStudio.sceneEmotionalShift')}
+                          value={selectedEpisode.emotionalShift}
+                          onChange={(value) => updateSelectedEpisode({ emotionalShift: value })}
+                          placeholder={t('script.sceneWorkbench.emotionPlaceholder')}
+                        />
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-3">
+                        <Field
+                          label={t('script.sceneStudio.sceneVisualHook')}
+                          value={selectedEpisode.visualHook}
+                          onChange={(value) => updateSelectedEpisode({ visualHook: value })}
+                          placeholder={t('script.sceneWorkbench.visualHookPlaceholder')}
+                        />
+                        <Field
+                          label={t('script.sceneWorkbench.pov')}
+                          value={selectedEpisode.povCharacter}
+                          onChange={(value) => updateSelectedEpisode({ povCharacter: value })}
+                          placeholder={t('script.sceneWorkbench.povPlaceholder')}
+                        />
+                      </div>
+
+                      <Field
+                        label={t('script.sceneStudio.sceneSubtext')}
+                        value={selectedEpisode.subtext}
+                        onChange={(value) => updateSelectedEpisode({ subtext: value })}
+                        placeholder={t('script.sceneWorkbench.subtextPlaceholder')}
+                        multiline
+                        rows={2}
+                      />
+                    </div>
+                  </Section>
+
+                  <Section
+                    title={t('script.sceneWorkbench.episodeDraft')}
+                    description={t('script.sceneWorkbench.episodeDraftSubtitle')}
+                    actions={(
+                      <div className="flex items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => void handleRunCopilot('continue')}
+                          disabled={isCopilotLoading}
+                          className="inline-flex items-center gap-1.5 rounded-lg border border-cyan-500/30 bg-cyan-500/10 px-3 py-1.5 text-xs font-medium text-cyan-200 transition-colors hover:bg-cyan-500/18 disabled:opacity-60"
+                        >
+                          <Sparkles className="h-3.5 w-3.5" />
+                          {t('script.sceneWorkbench.continueDraft')}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => void handleRewriteEpisode()}
+                          disabled={isCopilotLoading}
+                          className="inline-flex items-center gap-1.5 rounded-lg border border-border-dark bg-bg-dark px-3 py-1.5 text-xs font-medium text-text-dark transition-colors hover:bg-bg-dark/80 disabled:opacity-60"
+                        >
+                          <Wand2 className="h-3.5 w-3.5" />
+                          {t('script.sceneWorkbench.rewriteDraft')}
+                        </button>
+                      </div>
+                    )}
+                  >
+                    <div className="h-[320px] rounded-2xl border border-border-dark bg-bg-dark/40 p-2">
+                      <LazyRichTextEditor
+                        content={selectedEpisode.draftHtml}
+                        onChange={(content) => updateSelectedEpisode({ draftHtml: content })}
+                        placeholder={t('script.sceneWorkbench.episodeDraftPlaceholder')}
+                        className="h-full"
+                      />
+                    </div>
+                  </Section>
+
+                  <div className="grid grid-cols-2 gap-3">
+                    <Section
+                      title={t('script.sceneWorkbench.directorNotes')}
+                      description={t('script.sceneWorkbench.directorNotesSubtitle')}
+                    >
+                      <Field
+                        label={t('script.sceneWorkbench.directorNotes')}
+                        value={selectedEpisode.directorNotes}
+                        onChange={(value) => updateSelectedEpisode({ directorNotes: value })}
+                        placeholder={t('script.sceneWorkbench.directorNotesPlaceholder')}
+                        multiline
+                        rows={8}
+                      />
+                    </Section>
+
+                    <Section
+                      title={t('script.sceneWorkbench.continuity')}
+                      description={t('script.sceneWorkbench.continuitySubtitle')}
+                      actions={(
+                        <div className="flex items-center gap-2">
+                          <button
+                            type="button"
+                            onClick={() => void handleRefreshContinuityMemory()}
+                            disabled={isContinuityLoading}
+                            className="inline-flex items-center gap-1.5 rounded-lg border border-border-dark bg-bg-dark px-3 py-1.5 text-xs font-medium text-text-dark transition-colors hover:bg-bg-dark/80 disabled:opacity-60"
+                          >
+                            <RefreshCcw className="h-3.5 w-3.5" />
+                            {t('script.sceneWorkbench.refreshMemory')}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => void handleRunContinuityCheck()}
+                            disabled={isContinuityLoading}
+                            className="inline-flex items-center gap-1.5 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-1.5 text-xs font-medium text-amber-200 transition-colors hover:bg-amber-500/18 disabled:opacity-60"
+                          >
+                            <AlertTriangle className="h-3.5 w-3.5" />
+                            {t('script.sceneWorkbench.checkContinuity')}
+                          </button>
+                        </div>
+                      )}
+                    >
+                      <div className="space-y-3">
+                        <Field
+                          label={t('script.sceneWorkbench.continuitySummary')}
+                          value={selectedEpisode.continuitySummary}
+                          onChange={(value) => updateSelectedEpisode({ continuitySummary: value })}
+                          placeholder={t('script.sceneWorkbench.continuitySummaryPlaceholder')}
+                          multiline
+                          rows={3}
+                        />
+                        <Field
+                          label={t('script.sceneWorkbench.continuityFacts')}
+                          value={selectedEpisode.continuityFacts.join('\n')}
+                          onChange={(value) => updateSelectedEpisode({ continuityFacts: parseMultilineItems(value) })}
+                          placeholder={t('script.sceneWorkbench.continuityFactsPlaceholder')}
+                          multiline
+                          rows={4}
+                        />
+                        <Field
+                          label={t('script.sceneWorkbench.continuityLoops')}
+                          value={selectedEpisode.continuityOpenLoops.join('\n')}
+                          onChange={(value) => updateSelectedEpisode({ continuityOpenLoops: parseMultilineItems(value) })}
+                          placeholder={t('script.sceneWorkbench.continuityLoopsPlaceholder')}
+                          multiline
+                          rows={4}
+                        />
+
+                        {latestContinuityCheck ? (
+                          <div className={`rounded-xl border px-3 py-2 text-xs leading-5 ${
+                            latestContinuityCheck.status === 'warning'
+                              ? 'border-amber-500/25 bg-amber-500/10 text-amber-100'
+                              : 'border-emerald-500/20 bg-emerald-500/8 text-emerald-100'
+                          }`}>
+                            <div className="font-medium">{latestContinuityCheck.summary}</div>
+                            {latestContinuityCheck.issues.length > 0 ? (
+                              <div className="mt-2 space-y-2">
+                                {latestContinuityCheck.issues.map((issue) => (
+                                  <div key={issue.id}>
+                                    <div className="font-medium">{issue.title}</div>
+                                    <div>{issue.detail}</div>
+                                  </div>
+                                ))}
+                              </div>
+                            ) : null}
+                          </div>
+                        ) : null}
+
+                        {continuityError ? (
+                          <div className="rounded-xl border border-red-400/20 bg-red-500/8 px-3 py-2 text-xs leading-5 text-red-200">
+                            {continuityError}
+                          </div>
+                        ) : null}
+                      </div>
+                    </Section>
+                  </div>
+
+                  <Section
+                    title={t('script.sceneWorkbench.copilot')}
+                    description={t('script.sceneWorkbench.copilotSubtitle')}
+                    actions={(
+                      <div className="flex items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => void handleRunCopilot('analysis')}
+                          disabled={isCopilotLoading}
+                          className="inline-flex items-center gap-1.5 rounded-lg border border-border-dark bg-bg-dark px-3 py-1.5 text-xs font-medium text-text-dark transition-colors hover:bg-bg-dark/80 disabled:opacity-60"
+                        >
+                          <FileText className="h-3.5 w-3.5" />
+                          {t('script.sceneWorkbench.analysis')}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => void handleRunCopilot('director')}
+                          disabled={isCopilotLoading}
+                          className="inline-flex items-center gap-1.5 rounded-lg border border-border-dark bg-bg-dark px-3 py-1.5 text-xs font-medium text-text-dark transition-colors hover:bg-bg-dark/80 disabled:opacity-60"
+                        >
+                          <Clapperboard className="h-3.5 w-3.5" />
+                          {t('script.sceneWorkbench.directorPass')}
+                        </button>
+                      </div>
+                    )}
+                  >
+                    <div className="space-y-3">
+                      <div className="max-h-[260px] space-y-2 overflow-y-auto rounded-2xl border border-border-dark bg-bg-dark/35 p-3">
+                        {currentCopilotMessages.length > 0 ? (
+                          currentCopilotMessages.map((message) => (
+                            <div
+                              key={message.id}
+                              className={`rounded-xl px-3 py-2 text-sm leading-6 ${
+                                message.role === 'assistant'
+                                  ? 'bg-cyan-500/10 text-text-dark'
+                                  : 'bg-surface-dark text-text-dark'
+                              }`}
+                            >
+                              <div className="mb-1 text-[11px] uppercase tracking-[0.08em] text-text-muted">
+                                {message.role === 'assistant'
+                                  ? t('script.sceneWorkbench.copilotAssistant')
+                                  : t('script.sceneWorkbench.copilotYou')}
+                              </div>
+                              <div className="whitespace-pre-wrap">{message.content}</div>
+                            </div>
+                          ))
+                        ) : (
+                          <div className="rounded-xl border border-dashed border-border-dark/70 bg-bg-dark/35 px-3 py-5 text-center text-xs text-text-muted">
+                            {t('script.sceneWorkbench.copilotEmpty')}
+                          </div>
+                        )}
+                      </div>
+
+                      <div className="rounded-2xl border border-border-dark bg-bg-dark/35 p-3">
+                        <textarea
+                          value={copilotInput}
+                          onChange={(event) => setCopilotInput(event.target.value)}
+                          rows={4}
+                          className="w-full resize-none bg-transparent text-sm leading-6 text-text-dark outline-none placeholder:text-text-muted/60"
+                          placeholder={t('script.sceneWorkbench.copilotInputPlaceholder')}
+                        />
+                        <div className="mt-3 flex items-center justify-between gap-3">
+                          {copilotError ? (
+                            <div className="text-xs text-red-200">{copilotError}</div>
+                          ) : (
+                            <div className="text-xs text-text-muted">
+                              {t('script.sceneWorkbench.copilotHint')}
+                            </div>
+                          )}
+                          <button
+                            type="button"
+                            onClick={() => void handleSendCopilotInput()}
+                            disabled={isCopilotLoading || copilotInput.trim().length === 0}
+                            className="inline-flex items-center gap-1.5 rounded-lg border border-cyan-500/30 bg-cyan-500/10 px-3 py-1.5 text-xs font-medium text-cyan-200 transition-colors hover:bg-cyan-500/18 disabled:cursor-not-allowed disabled:opacity-60"
+                          >
+                            {isCopilotLoading ? <UiLoadingAnimation size="sm" /> : <SendHorizonal className="h-3.5 w-3.5" />}
+                            {t('script.sceneWorkbench.sendCopilot')}
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  </Section>
+                </>
+              ) : null}
             </div>
-            <button
-              type="button"
-              onClick={() => persistDraft('push')}
-              className="inline-flex items-center gap-1.5 rounded-lg border border-amber-500/35 bg-amber-500/10 px-3 py-1.5 text-xs font-medium text-amber-300 transition-colors hover:bg-amber-500/18"
-            >
-              <Save className="h-3.5 w-3.5" />
-              {t('common.save')}
-            </button>
           </div>
-        </>
-      )}
+        )}
+      </div>
     </aside>
   );
 }

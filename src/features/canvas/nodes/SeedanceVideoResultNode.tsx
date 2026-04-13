@@ -8,7 +8,7 @@ import {
 import { Loader2, Sparkles, TriangleAlert, Video } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
-import { UiButton } from "@/components/ui";
+import { UiButton, UiLoadingAnimation } from "@/components/ui";
 import {
   resolveErrorContent,
   showErrorDialog,
@@ -569,7 +569,7 @@ export const SeedanceVideoResultNode = memo(
             }}
           >
             {isRequerying ? (
-              <Loader2 className="h-4 w-4 animate-spin" strokeWidth={2.3} />
+              <UiLoadingAnimation size="sm" />
             ) : null}
             {t("node.seedanceVideoResult.requery")}
           </UiButton>

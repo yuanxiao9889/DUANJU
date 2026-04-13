@@ -27,7 +27,7 @@ import { resolveMinEdgeFittedSize } from '@/features/canvas/application/imageNod
 import { readStoryboardImageMetadata } from '@/commands/image';
 import { getToolPlugin, type ToolOptions } from '@/features/canvas/tools';
 import { useCanvasStore } from '@/stores/canvasStore';
-import { UiButton, UiModal } from '@/components/ui';
+import { UiButton, UiLoadingAnimation, UiLoadingBanner, UiModal } from '@/components/ui';
 import { UI_DIALOG_TRANSITION_MS } from '@/components/ui/motion';
 const FormToolEditor = lazy(async () => {
   const module = await import('./tool-editors/FormToolEditor');
@@ -459,8 +459,8 @@ export function NodeToolDialog() {
   const isOpen = Boolean(activeToolDialog && isSplitImageReady);
   const isApplyDisabled = isProcessing || !sourceMediaUrl || isTrimRangeInvalid;
   const loadingEditorFallback = (
-    <div className="flex h-[280px] items-center justify-center rounded-2xl border border-border-dark bg-bg-dark/35 text-sm text-text-muted">
-      {t('common.loading')}
+    <div className="flex h-[280px] items-center justify-center rounded-2xl border border-border-dark bg-bg-dark/35">
+      <UiLoadingBanner />
     </div>
   );
 
@@ -477,7 +477,14 @@ export function NodeToolDialog() {
             {t('common.cancel')}
           </UiButton>
           <UiButton size="sm" variant="primary" onClick={handleApply} disabled={isApplyDisabled}>
-            {isProcessing ? t('toolDialog.processing') : t('toolDialog.apply')}
+            {isProcessing ? (
+              <>
+                <UiLoadingAnimation size="xs" className="mr-2" />
+                {t('toolDialog.processing')}
+              </>
+            ) : (
+              t('toolDialog.apply')
+            )}
           </UiButton>
         </>
       }

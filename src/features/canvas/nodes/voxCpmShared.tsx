@@ -6,8 +6,9 @@ import {
   type FocusEvent,
   type ReactNode,
 } from 'react';
-import { Loader2, Undo2, Wand2 } from 'lucide-react';
+import { Undo2, Wand2 } from 'lucide-react';
 
+import { UiLoadingAnimation } from '@/components/ui';
 import {
   isReusableVoicePresetAsset,
   resolveVoicePresetAssetMetadata,
@@ -399,7 +400,7 @@ export function OptimizableTextAreaField({
             className="nodrag inline-flex h-7 w-7 items-center justify-center rounded-lg border border-white/10 bg-white/[0.04] text-text-muted transition-colors hover:border-accent/45 hover:bg-accent/14 hover:text-text-dark disabled:cursor-not-allowed disabled:border-white/8 disabled:bg-white/[0.02] disabled:text-text-muted/45"
           >
             {isOptimizing ? (
-              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              <UiLoadingAnimation size="xs" />
             ) : (
               <Wand2 className="h-3.5 w-3.5" strokeWidth={2.25} />
             )}

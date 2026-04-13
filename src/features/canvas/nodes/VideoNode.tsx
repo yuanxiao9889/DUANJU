@@ -26,6 +26,7 @@ import {
   Video,
 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
+import { UiLoadingAnimation } from '@/components/ui';
 import {
   CANVAS_NODE_TYPES,
   EXPORT_RESULT_NODE_MIN_HEIGHT,
@@ -791,7 +792,7 @@ export const VideoNode = memo(({ id, data, selected, width }: VideoNodeProps) =>
                   }`}
                 >
                   {isCapturingScreenshot ? (
-                    <RefreshCw className="h-3.5 w-3.5 animate-spin" />
+                    <UiLoadingAnimation size="xs" />
                   ) : (
                     <Camera className="h-3.5 w-3.5" />
                   )}
@@ -821,7 +822,7 @@ export const VideoNode = memo(({ id, data, selected, width }: VideoNodeProps) =>
             <div className="flex h-full w-full cursor-pointer flex-col items-center justify-center gap-3 text-text-muted/85">
             <div className="flex h-14 w-14 items-center justify-center rounded-xl bg-accent/10">
               {isProcessingFile ? (
-                <RefreshCw className="h-7 w-7 animate-spin text-accent/75" />
+                <UiLoadingAnimation size="xl" />
               ) : videoError ? (
                 <AlertTriangle className="h-7 w-7 text-red-300/80" />
               ) : (

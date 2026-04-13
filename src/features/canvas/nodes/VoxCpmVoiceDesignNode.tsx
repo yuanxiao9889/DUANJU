@@ -1,9 +1,9 @@
 import { memo, useEffect, useMemo } from 'react';
 import { Handle, Position, useUpdateNodeInternals, type NodeProps } from '@xyflow/react';
-import { AudioLines, Loader2, Sparkles, WandSparkles } from 'lucide-react';
+import { AudioLines, Sparkles, WandSparkles } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 
-import { UiButton } from '@/components/ui';
+import { UiButton, UiLoadingAnimation } from '@/components/ui';
 import { enqueueTtsAudioGeneration } from '@/features/canvas/application/ttsAudioQueue';
 import {
   AUDIO_NODE_DEFAULT_HEIGHT,
@@ -242,7 +242,7 @@ export const VoxCpmVoiceDesignNode = memo(({
                     : t('node.voxCpm.runtimeDisabled')}
               </div>
             </div>
-            {isExtensionStarting ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+            {isExtensionStarting ? <UiLoadingAnimation size="sm" /> : null}
           </div>
           {isExtensionStarting ? (
             <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-black/20">

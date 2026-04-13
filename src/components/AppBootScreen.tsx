@@ -1,5 +1,7 @@
 import { useTranslation } from "react-i18next";
 
+import { UiLoadingBanner } from "@/components/ui";
+
 function SkeletonBar({ className }: { className: string }) {
   return <div className={`animate-pulse rounded-full bg-white/8 ${className}`} />;
 }
@@ -32,10 +34,7 @@ export function AppBootScreen() {
       <div className="relative ui-scrollbar h-full overflow-y-auto px-8 py-10">
         <div className="mx-auto max-w-6xl">
           <div className="max-w-2xl">
-            <div className="inline-flex items-center gap-2 rounded-full border border-accent/20 bg-accent/10 px-3 py-1 text-xs font-medium text-accent">
-              <span className="h-2 w-2 animate-pulse rounded-full bg-accent" />
-              {t("common.loading")}
-            </div>
+            <UiLoadingBanner className="justify-start" panelClassName="shadow-none" />
             <h1 className="mt-5 text-3xl font-semibold tracking-tight text-text-dark">
               {t("app.bootTitle")}
             </h1>
@@ -88,25 +87,11 @@ export function AppBootScreen() {
 }
 
 export function AppContentLoader() {
-  const { t } = useTranslation();
-
   return (
     <div className="relative h-full overflow-hidden bg-bg-dark">
       <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_left,rgba(var(--accent-rgb),0.14),transparent_32%)]" />
       <div className="relative flex h-full items-center justify-center px-6">
-        <div className="w-full max-w-lg rounded-[28px] border border-border-dark/60 bg-surface-dark/84 p-6 shadow-[0_18px_60px_rgba(0,0,0,0.2)] backdrop-blur-sm">
-          <div className="flex items-center gap-3">
-            <span className="h-2.5 w-2.5 animate-pulse rounded-full bg-accent" />
-            <span className="text-sm font-medium text-text-dark">
-              {t("common.loading")}
-            </span>
-          </div>
-          <div className="mt-5 space-y-3">
-            <SkeletonBar className="h-4 w-1/2" />
-            <SkeletonBar className="h-3 w-full" />
-            <SkeletonBar className="h-3 w-4/5" />
-          </div>
-        </div>
+        <UiLoadingBanner />
       </div>
     </div>
   );

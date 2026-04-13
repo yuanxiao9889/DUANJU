@@ -20,6 +20,8 @@ import {
   IMAGE_EDIT_NODE_DEFAULT_WIDTH,
   SCRIPT_CHAPTER_NODE_DEFAULT_HEIGHT,
   SCRIPT_CHAPTER_NODE_DEFAULT_WIDTH,
+  SCRIPT_SCENE_NODE_DEFAULT_HEIGHT,
+  SCRIPT_SCENE_NODE_DEFAULT_WIDTH,
   type JimengImageNodeData,
   type JimengNodeData,
   type ActiveToolDialog,
@@ -27,6 +29,7 @@ import {
   type CanvasNode,
   type CanvasNodeData,
   type CanvasNodeType,
+  type EpisodeCard,
   type ExportImageNodeResultKind,
   type ImageEditNodeData,
   type NodeToolType,
@@ -34,9 +37,11 @@ import {
   type StoryboardFrameItem,
   type ScriptChapterNodeData,
   type ScriptRootNodeData,
+  type ScriptSceneNodeData,
   createDefaultSceneCard,
   normalizeScriptChapterNodeData,
   normalizeScriptRootNodeData,
+  normalizeScriptSceneNodeData,
   isStoryboardSplitNode,
   resolveSingleImageConnectionSource,
 } from '@/features/canvas/domain/canvasNodes';
@@ -73,6 +78,7 @@ import {
   normalizeJimengVideoModel,
 } from '@/features/jimeng/domain/jimengOptions';
 import type { CanvasSemanticColor } from '@/features/canvas/domain/semanticColors';
+import { useScriptEditorStore } from '@/stores/scriptEditorStore';
 
 export type {
   ActiveToolDialog,
@@ -492,6 +498,11 @@ interface CanvasState {
     chapters: GeneratedScriptChapterInput[],
     options?: AddGeneratedScriptChaptersOptions
   ) => string[];
+  createScriptSceneNodeFromChapterScene: (
+    chapterNodeId: string,
+    sceneId: string
+  ) => string | null;
+  reindexScriptSceneEpisodes: (sourceChapterId: string) => void;
 
   updateNodeData: (
     nodeId: string,
@@ -682,6 +693,13 @@ function normalizeNodes(rawNodes: CanvasNode[]): CanvasNode[] {
         );
       }
 
+      if (normalizedNodeType === CANVAS_NODE_TYPES.scriptScene) {
+        Object.assign(
+          mergedData,
+          normalizeScriptSceneNodeData(mergedData as ScriptSceneNodeData)
+        );
+      }
+
       if ('aspectRatio' in mergedData && !mergedData.aspectRatio) {
         mergedData.aspectRatio = DEFAULT_ASPECT_RATIO;
       }
@@ -710,8 +728,9 @@ function normalizeNodes(rawNodes: CanvasNode[]): CanvasNode[] {
     })
     .filter((node): node is CanvasNode => Boolean(node));
 
-  const nodeMap = new Map(normalizedNodes.map((node) => [node.id, node] as const));
-  return normalizedNodes.map((node) => {
+  const reindexedNodes = reindexScriptSceneNodesByChapter(normalizedNodes).nodes;
+  const nodeMap = new Map(reindexedNodes.map((node) => [node.id, node] as const));
+  return reindexedNodes.map((node) => {
     if (!node.parentId || typeof node.extent === 'undefined') {
       return node;
     }
@@ -726,6 +745,151 @@ function normalizeNodes(rawNodes: CanvasNode[]): CanvasNode[] {
       extent: undefined,
     };
   });
+}
+
+function buildScriptSceneSourceKey(sourceChapterId: string, sourceSceneId: string): string {
+  return `${sourceChapterId}::${sourceSceneId}`;
+}
+
+function isScriptSceneNodeType(node: CanvasNode): node is CanvasNode & {
+  data: ScriptSceneNodeData;
+  type: typeof CANVAS_NODE_TYPES.scriptScene;
+} {
+  return node.type === CANVAS_NODE_TYPES.scriptScene;
+}
+
+function sortEpisodeCardsForChapterReindex(episodes: EpisodeCard[]): EpisodeCard[] {
+  return [...episodes].sort((left, right) => {
+    const orderDelta = left.order - right.order;
+    if (orderDelta !== 0) {
+      return orderDelta;
+    }
+    return left.id.localeCompare(right.id);
+  });
+}
+
+function reindexScriptSceneNodesByChapter(
+  nodes: CanvasNode[],
+  sourceChapterId?: string
+): { nodes: CanvasNode[]; changed: boolean } {
+  const chapterNumberById = new Map<string, number>();
+  for (const node of nodes) {
+    if (node.type !== CANVAS_NODE_TYPES.scriptChapter) {
+      continue;
+    }
+
+    const chapterData = node.data as ScriptChapterNodeData;
+    chapterNumberById.set(node.id, chapterData.chapterNumber || 1);
+  }
+
+  const sceneNodesByChapter = new Map<string, Array<CanvasNode & {
+    data: ScriptSceneNodeData;
+    type: typeof CANVAS_NODE_TYPES.scriptScene;
+  }>>();
+
+  for (const node of nodes) {
+    if (!isScriptSceneNodeType(node)) {
+      continue;
+    }
+
+    const chapterId = node.data.sourceChapterId;
+    if (!chapterId) {
+      continue;
+    }
+    if (sourceChapterId && chapterId !== sourceChapterId) {
+      continue;
+    }
+
+    const list = sceneNodesByChapter.get(chapterId) ?? [];
+    list.push(node);
+    sceneNodesByChapter.set(chapterId, list);
+  }
+
+  if (sceneNodesByChapter.size === 0) {
+    return { nodes, changed: false };
+  }
+
+  let changed = false;
+  const nextNodeById = new Map<string, CanvasNode>();
+
+  sceneNodesByChapter.forEach((sceneNodes, chapterId) => {
+    const sortedSceneNodes = [...sceneNodes].sort((left, right) => {
+      const sceneOrderDelta = left.data.sourceSceneOrder - right.data.sourceSceneOrder;
+      if (sceneOrderDelta !== 0) {
+        return sceneOrderDelta;
+      }
+
+      return left.data.sourceSceneId.localeCompare(right.data.sourceSceneId);
+    });
+
+    const chapterNumber = chapterNumberById.get(chapterId) ?? sortedSceneNodes[0]?.data.chapterNumber ?? 1;
+    let nextEpisodeNumber = 1;
+
+    for (const sceneNode of sortedSceneNodes) {
+      const sortedEpisodes = sortEpisodeCardsForChapterReindex(sceneNode.data.episodes ?? []);
+      const nextEpisodes = sortedEpisodes.map((episode, index) => {
+        const normalizedEpisodeNumber = nextEpisodeNumber;
+        nextEpisodeNumber += 1;
+        return {
+          ...episode,
+          order: index,
+          episodeNumber: normalizedEpisodeNumber,
+        };
+      });
+
+      const hasEpisodeChange =
+        nextEpisodes.length !== sceneNode.data.episodes.length
+        || nextEpisodes.some((episode, index) => {
+          const previousEpisode = sceneNode.data.episodes[index];
+          return !previousEpisode
+            || previousEpisode.id !== episode.id
+            || previousEpisode.order !== episode.order
+            || previousEpisode.episodeNumber !== episode.episodeNumber;
+        });
+
+      if (!hasEpisodeChange && sceneNode.data.chapterNumber === chapterNumber) {
+        continue;
+      }
+
+      changed = true;
+      nextNodeById.set(sceneNode.id, {
+        ...sceneNode,
+        data: {
+          ...sceneNode.data,
+          chapterNumber,
+          episodes: nextEpisodes,
+        },
+      });
+    }
+  });
+
+  if (!changed) {
+    return { nodes, changed: false };
+  }
+
+  return {
+    nodes: nodes.map((node) => nextNodeById.get(node.id) ?? node),
+    changed: true,
+  };
+}
+
+function findScriptSceneNodeBySource(
+  nodes: CanvasNode[],
+  sourceChapterId: string,
+  sourceSceneId: string
+): (CanvasNode & {
+  data: ScriptSceneNodeData;
+  type: typeof CANVAS_NODE_TYPES.scriptScene;
+}) | null {
+  const sourceKey = buildScriptSceneSourceKey(sourceChapterId, sourceSceneId);
+
+  return nodes.find((node): node is CanvasNode & {
+    data: ScriptSceneNodeData;
+    type: typeof CANVAS_NODE_TYPES.scriptScene;
+  } => (
+    isScriptSceneNodeType(node)
+    && buildScriptSceneSourceKey(node.data.sourceChapterId, node.data.sourceSceneId) === sourceKey
+  )) ?? null;
 }
 
 function normalizeHistory(history?: CanvasHistoryState): CanvasHistoryState {
@@ -1066,12 +1230,37 @@ function withImageEditDefaultSize(node: CanvasNode): CanvasNode {
   };
 }
 
+function withScriptSceneDefaultSize(node: CanvasNode): CanvasNode {
+  return {
+    ...node,
+    width: SCRIPT_SCENE_NODE_DEFAULT_WIDTH,
+    height: SCRIPT_SCENE_NODE_DEFAULT_HEIGHT,
+    style: {
+      ...(node.style ?? {}),
+      width: SCRIPT_SCENE_NODE_DEFAULT_WIDTH,
+      height: SCRIPT_SCENE_NODE_DEFAULT_HEIGHT,
+    },
+  };
+}
+
 function applyDefaultNodeSize(node: CanvasNode, data: CanvasNodeData): CanvasNode {
-  if (!shouldApplyImageEditDefaultSize(node, data)) {
-    return node;
+  if (shouldApplyImageEditDefaultSize(node, data)) {
+    return withImageEditDefaultSize(node);
   }
 
-  return withImageEditDefaultSize(node);
+  if (node.type === CANVAS_NODE_TYPES.scriptScene) {
+    const resolvedWidth =
+      resolveNumericNodeDimension(node.width)
+      ?? resolveNumericNodeDimension(node.style?.width);
+    const resolvedHeight =
+      resolveNumericNodeDimension(node.height)
+      ?? resolveNumericNodeDimension(node.style?.height);
+    if (resolvedWidth === null || resolvedHeight === null) {
+      return withScriptSceneDefaultSize(node);
+    }
+  }
+
+  return node;
 }
 
 function shouldApplyImageEditDefaultSize(node: CanvasNode, data: CanvasNodeData): boolean {
@@ -2936,9 +3125,124 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
     return createdNodeIds;
   },
 
+  createScriptSceneNodeFromChapterScene: (chapterNodeId, sceneId) => {
+    const state = get();
+    const chapterNode = state.nodes.find(
+      (node) => node.id === chapterNodeId && node.type === CANVAS_NODE_TYPES.scriptChapter
+    );
+    if (!chapterNode) {
+      return null;
+    }
+
+    const existingSceneNode = findScriptSceneNodeBySource(state.nodes, chapterNodeId, sceneId);
+    if (existingSceneNode) {
+      return existingSceneNode.id;
+    }
+
+    const chapterData = chapterNode.data as ScriptChapterNodeData;
+    const sourceScene = (chapterData.scenes ?? []).find((scene) => scene.id === sceneId);
+    if (!sourceScene) {
+      return null;
+    }
+
+    const position = get().findNodePosition(
+      chapterNodeId,
+      SCRIPT_SCENE_NODE_DEFAULT_WIDTH,
+      SCRIPT_SCENE_NODE_DEFAULT_HEIGHT
+    );
+    const initialData = normalizeScriptSceneNodeData({
+      displayName: sourceScene.title || `场景 ${sourceScene.order + 1}`,
+      sourceChapterId: chapterNodeId,
+      sourceSceneId: sourceScene.id,
+      sourceSceneOrder: sourceScene.order,
+      chapterNumber: chapterData.chapterNumber || 1,
+      title: sourceScene.title,
+      summary: sourceScene.summary,
+      purpose: sourceScene.purpose,
+      povCharacter: sourceScene.povCharacter,
+      goal: sourceScene.goal,
+      conflict: sourceScene.conflict,
+      turn: sourceScene.turn,
+      emotionalShift: sourceScene.emotionalShift,
+      visualHook: sourceScene.visualHook,
+      subtext: sourceScene.subtext,
+      sourceDraftHtml: sourceScene.sourceDraftHtml?.trim() || sourceScene.draftHtml || undefined,
+      draftHtml: sourceScene.draftHtml,
+      episodes: [],
+    });
+
+    const rootNodeMap = new Map(state.nodes.map((node) => [node.id, node] as const));
+    const parentGroupId = resolveInheritedGroupParentId(chapterNode, rootNodeMap);
+    let createdNode = canvasNodeFactory.createNode(
+      CANVAS_NODE_TYPES.scriptScene,
+      position,
+      initialData
+    );
+    createdNode = applyDefaultNodeSize(createdNode, createdNode.data);
+
+    const stagedNodeMap = new Map(state.nodes.map((node) => [node.id, node] as const));
+    createdNode = attachNodeToGroupParent(
+      createdNode,
+      position,
+      parentGroupId,
+      stagedNodeMap
+    );
+
+    const edgeId = `e-${chapterNodeId}-${createdNode.id}`;
+    const nextNodes = parentGroupId
+      ? fitGroupNodeToChildren([...state.nodes, createdNode], parentGroupId)
+      : [...state.nodes, createdNode];
+    const reindexedResult = reindexScriptSceneNodesByChapter(nextNodes, chapterNodeId);
+    const nextEdges = state.edges.some((edge) => edge.id === edgeId)
+      ? state.edges
+      : [
+          ...state.edges,
+          {
+            id: edgeId,
+            source: chapterNodeId,
+            target: createdNode.id,
+            sourceHandle: 'source',
+            targetHandle: 'target',
+            type: 'disconnectableEdge',
+          },
+        ];
+
+    set({
+      nodes: reindexedResult.nodes,
+      edges: nextEdges,
+      selectedNodeId: createdNode.id,
+      activeToolDialog: null,
+      history: {
+        past: pushSnapshot(state.history.past, createSnapshot(state.nodes, state.edges)),
+        future: [],
+      },
+      dragHistorySnapshot: null,
+    });
+
+    return createdNode.id;
+  },
+
+  reindexScriptSceneEpisodes: (sourceChapterId) => {
+    if (!sourceChapterId.trim()) {
+      return;
+    }
+
+    set((state) => {
+      const reindexedResult = reindexScriptSceneNodesByChapter(state.nodes, sourceChapterId);
+      if (!reindexedResult.changed) {
+        return {};
+      }
+
+      return {
+        nodes: reindexedResult.nodes,
+      };
+    });
+  },
+
   updateNodeData: (nodeId, data, options) => {
     set((state) => {
       let changed = false;
+      const affectedChapterIds = new Set<string>();
       const nextNodes = state.nodes.map((node) => {
         if (node.id !== nodeId) {
           return node;
@@ -2956,6 +3260,26 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
           ...node.data,
           ...data,
         } as CanvasNodeData;
+        if (node.type === CANVAS_NODE_TYPES.scriptChapter) {
+          Object.assign(
+            mergedData,
+            normalizeScriptChapterNodeData(mergedData as ScriptChapterNodeData)
+          );
+          if ('chapterNumber' in data) {
+            affectedChapterIds.add(node.id);
+          }
+        }
+        if (node.type === CANVAS_NODE_TYPES.scriptScene) {
+          const previousData = node.data as ScriptSceneNodeData;
+          const normalizedSceneData = normalizeScriptSceneNodeData(mergedData as ScriptSceneNodeData);
+          Object.assign(mergedData, normalizedSceneData);
+          if (previousData.sourceChapterId) {
+            affectedChapterIds.add(previousData.sourceChapterId);
+          }
+          if (normalizedSceneData.sourceChapterId) {
+            affectedChapterIds.add(normalizedSceneData.sourceChapterId);
+          }
+        }
         const resizedNode = maybeApplyImageAutoResize(
           {
             ...node,
@@ -2972,6 +3296,11 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
         return {};
       }
 
+      let normalizedNextNodes = nextNodes;
+      affectedChapterIds.forEach((chapterId) => {
+        normalizedNextNodes = reindexScriptSceneNodesByChapter(normalizedNextNodes, chapterId).nodes;
+      });
+
       const nextHistory =
         options?.historyMode === 'skip'
           ? state.history
@@ -2981,7 +3310,7 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
             };
 
       return {
-        nodes: nextNodes,
+        nodes: normalizedNextNodes,
         history: nextHistory,
         dragHistorySnapshot: null,
       };
@@ -3004,6 +3333,7 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
     set((state) => {
       const targetNodeIds = new Set(normalizedNodeIds);
       let changed = false;
+      const affectedChapterIds = new Set<string>();
       const nextNodes = state.nodes.map((node) => {
         if (!targetNodeIds.has(node.id)) {
           return node;
@@ -3021,6 +3351,26 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
           ...node.data,
           ...data,
         } as CanvasNodeData;
+        if (node.type === CANVAS_NODE_TYPES.scriptChapter) {
+          Object.assign(
+            mergedData,
+            normalizeScriptChapterNodeData(mergedData as ScriptChapterNodeData)
+          );
+          if ('chapterNumber' in data) {
+            affectedChapterIds.add(node.id);
+          }
+        }
+        if (node.type === CANVAS_NODE_TYPES.scriptScene) {
+          const previousData = node.data as ScriptSceneNodeData;
+          const normalizedSceneData = normalizeScriptSceneNodeData(mergedData as ScriptSceneNodeData);
+          Object.assign(mergedData, normalizedSceneData);
+          if (previousData.sourceChapterId) {
+            affectedChapterIds.add(previousData.sourceChapterId);
+          }
+          if (normalizedSceneData.sourceChapterId) {
+            affectedChapterIds.add(normalizedSceneData.sourceChapterId);
+          }
+        }
         const resizedNode = maybeApplyImageAutoResize(
           {
             ...node,
@@ -3037,6 +3387,11 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
         return {};
       }
 
+      let normalizedNextNodes = nextNodes;
+      affectedChapterIds.forEach((chapterId) => {
+        normalizedNextNodes = reindexScriptSceneNodesByChapter(normalizedNextNodes, chapterId).nodes;
+      });
+
       const nextHistory =
         options?.historyMode === 'skip'
           ? state.history
@@ -3049,7 +3404,7 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
             };
 
       return {
-        nodes: nextNodes,
+        nodes: normalizedNextNodes,
         history: nextHistory,
         dragHistorySnapshot: null,
       };
@@ -3503,6 +3858,7 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
     }
 
     let deletedNodeIds: string[] = [];
+    const affectedChapterIds = new Set<string>();
 
     set((state) => {
       const existingIds = uniqueIds.filter((nodeId) => state.nodes.some((node) => node.id === nodeId));
@@ -3512,13 +3868,27 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
 
       const deleteSet = collectNodeIdsWithDescendants(state.nodes, existingIds);
       deletedNodeIds = Array.from(deleteSet);
+      state.nodes.forEach((node) => {
+        if (!deleteSet.has(node.id) || node.type !== CANVAS_NODE_TYPES.scriptScene) {
+          return;
+        }
+
+        const sceneData = node.data as ScriptSceneNodeData;
+        if (sceneData.sourceChapterId) {
+          affectedChapterIds.add(sceneData.sourceChapterId);
+        }
+      });
       const nextNodes = state.nodes.filter((node) => !deleteSet.has(node.id));
       const nextEdges = state.edges.filter(
         (edge) => !deleteSet.has(edge.source) && !deleteSet.has(edge.target)
       );
+      let normalizedNextNodes = nextNodes;
+      affectedChapterIds.forEach((chapterId) => {
+        normalizedNextNodes = reindexScriptSceneNodesByChapter(normalizedNextNodes, chapterId).nodes;
+      });
 
       return {
-        nodes: nextNodes,
+        nodes: normalizedNextNodes,
         edges: nextEdges,
         selectedNodeId:
           state.selectedNodeId && deleteSet.has(state.selectedNodeId) ? null : state.selectedNodeId,
@@ -3533,6 +3903,13 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
         dragHistorySnapshot: null,
       };
     });
+
+    if (deletedNodeIds.length > 0) {
+      const { activeSceneNodeId } = useScriptEditorStore.getState();
+      if (activeSceneNodeId && deletedNodeIds.includes(activeSceneNodeId)) {
+        useScriptEditorStore.getState().clearSelection();
+      }
+    }
 
     if (deletedNodeIds.length > 0) {
       emitCanvasNodesDeleted(deletedNodeIds);

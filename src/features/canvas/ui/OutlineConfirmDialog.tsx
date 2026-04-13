@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { Sparkles, RefreshCw, Check, X, ChevronDown, ChevronUp, Settings2 } from 'lucide-react';
-import { UiButton } from '@/components/ui/primitives';
+import { UiButton, UiLoadingAnimation } from '@/components/ui';
 import type { StoryOutline } from '../application/outlineGenerator';
 
 export interface OutlineGenerationOptions {
@@ -224,7 +224,7 @@ export function OutlineConfirmDialog({
                 disabled={isGenerating}
                 className="w-full border border-amber-500/30 hover:border-amber-500/50 text-amber-400"
               >
-                <RefreshCw className={`w-4 h-4 ${isGenerating ? 'animate-spin' : ''}`} />
+                {isGenerating ? <UiLoadingAnimation size="sm" /> : <RefreshCw className="w-4 h-4" />}
                 <span>{isGenerating ? '生成中...' : '重新生成'}</span>
               </UiButton>
             </div>
@@ -290,7 +290,7 @@ export function OutlineConfirmDialog({
         {isGenerating && (
           <div className="absolute inset-0 bg-surface-dark/80 flex items-center justify-center rounded-xl">
             <div className="text-center">
-              <div className="animate-spin w-8 h-8 border-2 border-amber-500 border-t-transparent rounded-full mx-auto mb-2" />
+              <UiLoadingAnimation size="lg" className="mx-auto mb-2" />
               <div className="text-sm text-text-muted">AI 正在生成大纲...</div>
             </div>
           </div>

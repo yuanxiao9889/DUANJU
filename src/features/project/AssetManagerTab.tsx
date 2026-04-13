@@ -16,6 +16,7 @@ import {
   UiButton,
   UiIconButton,
   UiInput,
+  UiLoadingAnimation,
   UiModal,
   UiPanel,
   UiSelect,
@@ -1225,9 +1226,7 @@ export function AssetManagerTab() {
         </>
       )}
 
-      {isLoading ? (
-        <div className="text-sm text-text-muted">{t('common.loading')}</div>
-      ) : null}
+      {isLoading ? <UiLoadingAnimation size="md" /> : null}
 
       <LibraryNameDialog
         state={libraryDialogState}

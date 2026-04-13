@@ -12,7 +12,7 @@ import {
   UserRound,
 } from 'lucide-react';
 
-import { UiButton, UiInput, UiPanel, UiSelect } from '@/components/ui';
+import { UiButton, UiInput, UiLoadingAnimation, UiLoadingBanner, UiPanel, UiSelect } from '@/components/ui';
 import type { AssetPanelProjectContext } from '@/features/assets/application/assetPanelBridge';
 import {
   ASSET_CATEGORIES,
@@ -506,18 +506,22 @@ export function AssetSearchPanel({
     <UiPanel className={`flex h-full min-h-0 flex-col !rounded-2xl p-4 ${isCompactLayout ? 'flex-1' : ''}`}>
       <div className="mb-3 flex flex-wrap items-center justify-between gap-3 max-[859px]:items-stretch">
         <div>
-          <div className="text-sm font-semibold text-text-dark">
-            {selectedLibrary
-              ? t('assets.filteredCount', {
-                  shown: filteredItems.length,
-                  total: categoryItems.length,
-                })
-              : isLoading
-                ? t('common.loading')
-                : libraries.length === 0
-                  ? t('assets.emptyTitle')
-                  : t('assets.selectLibraryToBrowse')}
-          </div>
+          {selectedLibrary ? (
+            <div className="text-sm font-semibold text-text-dark">
+              {t('assets.filteredCount', {
+                shown: filteredItems.length,
+                total: categoryItems.length,
+              })}
+            </div>
+          ) : isLoading ? (
+            <UiLoadingAnimation size="sm" />
+          ) : (
+            <div className="text-sm font-semibold text-text-dark">
+              {libraries.length === 0
+                ? t('assets.emptyTitle')
+                : t('assets.selectLibraryToBrowse')}
+            </div>
+          )}
           <div className="text-xs text-text-muted">
             {selectedLibrary
               ? t('assets.doubleClickToInsert')
@@ -587,26 +591,26 @@ export function AssetSearchPanel({
 
       {!selectedLibrary ? (
         <div className="flex flex-1 items-center justify-center rounded-2xl border border-dashed border-[rgba(255,255,255,0.12)] px-6 py-10 text-center">
-          <div className="max-w-md space-y-2">
-            <div className="text-lg font-semibold text-text-dark">
-              {isLoading
-                ? t('common.loading')
-                : libraries.length === 0
+          {isLoading ? (
+            <UiLoadingBanner />
+          ) : (
+            <div className="max-w-md space-y-2">
+              <div className="text-lg font-semibold text-text-dark">
+                {libraries.length === 0
                   ? t('assets.emptyTitle')
                   : t('assets.selectLibraryToBrowse')}
-            </div>
-            <p className="text-sm text-text-muted">
-              {isLoading
-                ? t('assets.detachedSubtitle')
-                : libraries.length === 0
+              </div>
+              <p className="text-sm text-text-muted">
+                {libraries.length === 0
                   ? t('assets.emptyHint')
                   : t('assets.selectLibraryToBrowseHint')}
-            </p>
-          </div>
+              </p>
+            </div>
+          )}
         </div>
       ) : isLoading && selectedLibrary.items.length === 0 ? (
-        <div className="flex flex-1 items-center justify-center text-sm text-text-muted">
-          {t('common.loading')}
+        <div className="flex flex-1 items-center justify-center">
+          <UiLoadingBanner />
         </div>
       ) : filteredItems.length === 0 ? (
         <div className="flex flex-1 items-center justify-center rounded-2xl border border-dashed border-[rgba(255,255,255,0.12)] text-sm text-text-muted">

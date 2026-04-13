@@ -13,7 +13,7 @@ import {
 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
-import { UiButton } from "@/components/ui";
+import { UiButton, UiLoadingAnimation } from "@/components/ui";
 import { flushCurrentProjectToDiskSafely } from "@/features/canvas/application/projectPersistence";
 import { prepareNodeImage } from "@/features/canvas/application/imageData";
 import {
@@ -534,7 +534,7 @@ export const JimengImageResultNode = memo(
             }}
           >
             {isRequerying ? (
-              <Loader2 className="h-4 w-4 animate-spin" strokeWidth={2.3} />
+              <UiLoadingAnimation size="sm" />
             ) : null}
             {t("node.jimengImageResult.requery")}
           </UiButton>

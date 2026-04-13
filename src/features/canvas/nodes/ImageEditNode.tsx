@@ -14,6 +14,7 @@ import { Handle, Position, useUpdateNodeInternals, type NodeProps } from '@xyflo
 import { AlertTriangle, Loader2, Sparkles, Undo2, Wand2 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 
+import { UiLoadingAnimation } from '@/components/ui';
 import {
   AUTO_REQUEST_ASPECT_RATIO,
   CANVAS_NODE_TYPES,
@@ -1533,7 +1534,7 @@ export const ImageEditNode = memo(({ id, data, selected, width, height }: ImageE
                     }}
                   >
                     {isOptimizingPrompt ? (
-                      <Loader2 className="h-4 w-4 origin-center scale-[1.12] animate-spin text-text-dark" />
+                      <UiLoadingAnimation size="sm" />
                     ) : (
                       <Wand2
                         className="h-4 w-4 origin-center scale-[1.18] text-text-dark"

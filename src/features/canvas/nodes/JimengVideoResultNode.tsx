@@ -8,7 +8,7 @@ import {
 import { Clock3, Loader2, Sparkles, TriangleAlert, Video } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
-import { UiButton, UiCheckbox, UiSelect } from "@/components/ui";
+import { UiButton, UiCheckbox, UiLoadingAnimation, UiSelect } from "@/components/ui";
 import {
   CANVAS_NODE_TYPES,
   JIMENG_VIDEO_RESULT_NODE_DEFAULT_WIDTH,
@@ -814,7 +814,7 @@ export const JimengVideoResultNode = memo(
               }}
             >
               {isRequerying ? (
-                <Loader2 className="h-4 w-4 animate-spin" strokeWidth={2.3} />
+                <UiLoadingAnimation size="sm" />
               ) : null}
               {t("node.jimengVideoResult.requery")}
             </UiButton>

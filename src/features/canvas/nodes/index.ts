@@ -17,6 +17,7 @@ import { StoryboardSplitResultNode } from './StoryboardSplitResultNode';
 import { TextAnnotationNode } from './TextAnnotationNode';
 import { TtsTextNode } from './TtsTextNode';
 import { ScriptTextNode } from './ScriptTextNode';
+import { ScriptSceneNode } from './ScriptSceneNode';
 import { QwenTtsVoiceDesignNode } from './QwenTtsVoiceDesignNode';
 import { QwenTtsSavedVoiceNode } from './QwenTtsSavedVoiceNode';
 import { VoxCpmVoiceDesignNode } from './VoxCpmVoiceDesignNode';
@@ -59,6 +60,7 @@ export const nodeTypes: NodeTypes = {
   videoNode: VideoNode,
   scriptRootNode: ScriptRootNode,
   scriptChapterNode: ScriptChapterNode,
+  scriptSceneNode: ScriptSceneNode,
   scriptWorldviewNode: ScriptWorldviewNode,
   scriptCharacterNode: ScriptCharacterNode,
   scriptLocationNode: ScriptLocationNode,
@@ -93,6 +95,7 @@ export {
   VideoNode,
   ScriptRootNode, 
   ScriptChapterNode, 
+  ScriptSceneNode,
   ScriptWorldviewNode,
   ScriptCharacterNode,
   ScriptLocationNode,

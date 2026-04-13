@@ -1,7 +1,6 @@
 import { useMemo, useState } from "react";
 import {
   ListOrdered,
-  Loader2,
   LocateFixed,
   Send,
   Settings2,
@@ -11,7 +10,7 @@ import type { TFunction } from "i18next";
 import { useTranslation } from "react-i18next";
 import { useReactFlow } from "@xyflow/react";
 
-import { UiButton, UiPanel } from "@/components/ui";
+import { UiButton, UiLoadingAnimation, UiPanel } from "@/components/ui";
 import { resolveImageDisplayUrl } from "@/features/canvas/application/imageData";
 import {
   getCanvasNodeSize,
@@ -290,7 +289,7 @@ export function JimengVideoQueuePanel({
 
         {isHydrating ? (
           <div className="flex min-h-[220px] items-center justify-center gap-2 px-6 text-center text-sm text-text-muted">
-            <Loader2 className="h-4 w-4 animate-spin" />
+            <UiLoadingAnimation size="sm" />
             {t("jimengQueue.panel.loading")}
           </div>
         ) : jobs.length === 0 ? (

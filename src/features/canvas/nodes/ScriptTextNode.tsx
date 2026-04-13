@@ -1,10 +1,10 @@
 import { memo, useCallback, useEffect, useMemo, useRef } from 'react';
 import { Handle, Position, useUpdateNodeInternals, type NodeProps } from '@xyflow/react';
-import { FileText, Loader2, Sparkles } from 'lucide-react';
+import { FileText, Sparkles } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 
 import { generateStoryboardScriptsFromText } from '@/commands/textGen';
-import { UiButton } from '@/components/ui/primitives';
+import { UiButton, UiLoadingAnimation } from '@/components/ui';
 import {
   CANVAS_NODE_TYPES,
   SCRIPT_CHAPTER_NODE_DEFAULT_HEIGHT,
@@ -320,7 +320,7 @@ export const ScriptTextNode = memo(({
             }}
           >
             {isGenerating ? (
-              <Loader2 className="h-4 w-4 animate-spin" />
+              <UiLoadingAnimation size="sm" />
             ) : (
               <Sparkles className="h-4 w-4" />
             )}

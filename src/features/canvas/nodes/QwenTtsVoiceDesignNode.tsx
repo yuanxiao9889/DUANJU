@@ -14,7 +14,7 @@ import {
 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 
-import { UiButton, UiModal, UiSelect } from '@/components/ui';
+import { UiButton, UiLoadingAnimation, UiModal, UiSelect } from '@/components/ui';
 import { optimizeCanvasPrompt } from '@/features/canvas/application/promptOptimization';
 import { enqueueQwenTtsAudioGeneration } from '@/features/canvas/application/qwenTtsAudioQueue';
 import { showErrorDialog } from '@/features/canvas/application/errorDialog';
@@ -739,7 +739,7 @@ export const QwenTtsVoiceDesignNode = memo(({
                   className="nodrag inline-flex h-7 w-7 items-center justify-center rounded-lg border border-white/10 bg-white/[0.04] text-text-muted transition-colors hover:border-accent/45 hover:bg-accent/14 hover:text-text-dark disabled:cursor-not-allowed disabled:border-white/8 disabled:bg-white/[0.02] disabled:text-text-muted/45"
                 >
                   {isOptimizingVoicePrompt ? (
-                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    <UiLoadingAnimation size="xs" />
                   ) : (
                     <Wand2 className="h-3.5 w-3.5" strokeWidth={2.25} />
                   )}

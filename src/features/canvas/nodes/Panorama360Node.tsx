@@ -20,6 +20,7 @@ import { useTranslation } from 'react-i18next';
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 
+import { UiLoadingAnimation } from '@/components/ui';
 import {
   CANVAS_NODE_TYPES,
   DEFAULT_ASPECT_RATIO,
@@ -798,7 +799,7 @@ export const Panorama360Node = memo(({ id, data, selected, width }: Panorama360N
             >
               <span className="inline-flex h-5 w-5 shrink-0 items-center justify-center">
                 {isCapturingScreenshot ? (
-                  <RefreshCw className={`${NODE_CONTROL_ICON_CLASS} animate-spin`} />
+                  <UiLoadingAnimation size="sm" />
                 ) : (
                   <Camera className={NODE_CONTROL_ICON_CLASS} />
                 )}

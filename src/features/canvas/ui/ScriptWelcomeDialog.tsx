@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ArrowLeft, FileText, Loader2, Sparkles, Upload, Wand2 } from 'lucide-react';
+import { ArrowLeft, FileText, Sparkles, Upload, Wand2 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 
-import { UiButton } from '@/components/ui/primitives';
+import { UiButton, UiLoadingAnimation, UiLoadingBanner } from '@/components/ui';
 import { CANVAS_NODE_TYPES, createDefaultSceneCard } from '../domain/canvasNodes';
 import { planStory, type StoryPlan, type StoryPlannerInput } from '../application/storyPlanner';
 import {
@@ -14,7 +14,6 @@ import {
 import { useCanvasStore } from '@/stores/canvasStore';
 import { useProjectStore } from '@/stores/projectStore';
 import { useSettingsStore } from '@/stores/settingsStore';
-import { useScriptEditorStore } from '@/stores/scriptEditorStore';
 import { ChapterCountDialog } from './ChapterCountDialog';
 import { ScriptImportPreview } from './ScriptImportPreview';
 import { openSettingsDialog } from '@/features/settings/settingsEvents';
@@ -74,9 +73,8 @@ function mapImportedScenes(document: ImportedScriptDocument, chapterIndex: numbe
 
 export function ScriptWelcomeDialog({ isOpen, onClose }: ScriptWelcomeDialogProps) {
   const { t } = useTranslation();
-  const { addNode, addEdge } = useCanvasStore();
+  const { addNode, addEdge, setSelectedNode } = useCanvasStore();
   const closeProject = useProjectStore((state) => state.closeProject);
-  const focusScene = useScriptEditorStore((state) => state.focusScene);
   const settings = useSettingsStore();
   const activeScriptProvider = resolveActivatedScriptProvider(settings);
   const activeScriptModel = activeScriptProvider
@@ -228,7 +226,6 @@ export function ScriptWelcomeDialog({ isOpen, onClose }: ScriptWelcomeDialogProp
     });
 
     let firstChapterId: string | null = null;
-    let firstSceneId: string | null = null;
 
     plan.chapters.forEach((chapter, index) => {
       const scenes = mapScenesForChapter(plan, index);
@@ -259,7 +256,6 @@ export function ScriptWelcomeDialog({ isOpen, onClose }: ScriptWelcomeDialogProp
 
       if (!firstChapterId) {
         firstChapterId = chapterId;
-        firstSceneId = scenes[0]?.id ?? null;
       }
 
       if (rootId && chapterId) {
@@ -281,12 +277,12 @@ export function ScriptWelcomeDialog({ isOpen, onClose }: ScriptWelcomeDialogProp
       });
     }
 
-    if (firstChapterId && firstSceneId) {
-      focusScene(firstChapterId, firstSceneId);
+    if (firstChapterId) {
+      setSelectedNode(firstChapterId);
     }
 
     onClose();
-  }, [addEdge, addNode, focusScene, onClose, t]);
+  }, [addEdge, addNode, onClose, setSelectedNode, t]);
 
   const createGraphFromImportedScript = useCallback((document: ImportedScriptDocument) => {
     const CHAPTER_NODE_HEIGHT = 380;
@@ -319,7 +315,6 @@ export function ScriptWelcomeDialog({ isOpen, onClose }: ScriptWelcomeDialogProp
     });
 
     let firstChapterId: string | null = null;
-    let firstSceneId: string | null = null;
 
     document.chapters.forEach((chapter, index) => {
       const scenes = mapImportedScenes(document, index);
@@ -350,7 +345,6 @@ export function ScriptWelcomeDialog({ isOpen, onClose }: ScriptWelcomeDialogProp
 
       if (!firstChapterId) {
         firstChapterId = chapterId;
-        firstSceneId = scenes[0]?.id ?? null;
       }
 
       if (rootId && chapterId) {
@@ -358,12 +352,12 @@ export function ScriptWelcomeDialog({ isOpen, onClose }: ScriptWelcomeDialogProp
       }
     });
 
-    if (firstChapterId && firstSceneId) {
-      focusScene(firstChapterId, firstSceneId);
+    if (firstChapterId) {
+      setSelectedNode(firstChapterId);
     }
 
     onClose();
-  }, [addEdge, addNode, focusScene, onClose, t]);
+  }, [addEdge, addNode, onClose, setSelectedNode, t]);
 
   const handleCreateBlankScript = useCallback((count: number) => {
     const blankPlan: StoryPlan = {
@@ -524,7 +518,7 @@ export function ScriptWelcomeDialog({ isOpen, onClose }: ScriptWelcomeDialogProp
                     >
                       {isParsingImport ? (
                         <>
-                          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                          <UiLoadingAnimation size="sm" className="mr-2" />
                           {t('script.storyStart.importParsing')}
                         </>
                       ) : importedScript ? (
@@ -768,11 +762,16 @@ export function ScriptWelcomeDialog({ isOpen, onClose }: ScriptWelcomeDialogProp
                   disabled={!canGenerateStory || isPlanning}
                   className="flex-1"
                 >
-                  {isPlanning
-                    ? t('script.storyStart.generating')
-                    : plannedStory
-                      ? t('script.storyStart.regenerate')
-                      : t('script.storyStart.generate')}
+                  {isPlanning ? (
+                    <>
+                      <UiLoadingAnimation size="sm" className="mr-2" />
+                      {t('script.storyStart.generating')}
+                    </>
+                  ) : plannedStory ? (
+                    t('script.storyStart.regenerate')
+                  ) : (
+                    t('script.storyStart.generate')
+                  )}
                 </UiButton>
               </div>
             </div>
@@ -904,10 +903,7 @@ export function ScriptWelcomeDialog({ isOpen, onClose }: ScriptWelcomeDialogProp
 
         {isPlanning ? (
           <div className="absolute inset-0 flex items-center justify-center bg-surface-dark/70 backdrop-blur-sm">
-            <div className="flex flex-col items-center gap-3 rounded-2xl border border-border-dark bg-surface-dark px-6 py-5">
-              <div className="h-8 w-8 animate-spin rounded-full border-2 border-amber-500 border-t-transparent" />
-              <div className="text-sm text-text-muted">{t('script.storyStart.generating')}</div>
-            </div>
+            <UiLoadingBanner />
           </div>
         ) : null}
       </div>

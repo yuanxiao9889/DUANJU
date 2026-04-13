@@ -1,5 +1,5 @@
 import { useState, useCallback, useEffect, useMemo, type KeyboardEvent as ReactKeyboardEvent } from 'react';
-import { X, Eye, EyeOff, FolderOpen, Plus, Trash2, Maximize2, Minimize2, HardDrive, Loader2, Circle, Keyboard, RotateCcw, ChevronDown, ChevronRight } from 'lucide-react';
+import { X, Eye, EyeOff, FolderOpen, Plus, Trash2, Maximize2, Minimize2, HardDrive, Circle, Keyboard, RotateCcw, ChevronDown, ChevronRight } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { getVersion } from '@tauri-apps/api/app';
 import { open } from '@tauri-apps/plugin-dialog';
@@ -28,7 +28,7 @@ import {
   type DatabaseBackupRecord,
   type StorageInfo 
 } from '@/commands/storage';
-import { UiCheckbox, UiModal, UiSelect } from '@/components/ui';
+import { UiCheckbox, UiLoadingAnimation, UiModal, UiSelect } from '@/components/ui';
 import { UI_CONTENT_OVERLAY_INSET_CLASS, UI_DIALOG_TRANSITION_MS } from '@/components/ui/motion';
 import { useDialogTransition } from '@/components/ui/useDialogTransition';
 import { useDraggableDialog } from '@/components/ui/useDraggableDialog';
@@ -2383,7 +2383,7 @@ export function SettingsDialog({
                       </div>
                       <div className="mt-1 flex items-start gap-2">
                         {isCheckingDreaminaStatus && (
-                          <Loader2 className="mt-0.5 h-4 w-4 shrink-0 animate-spin text-text-muted" />
+                          <UiLoadingAnimation size="sm" className="mt-0.5 shrink-0" />
                         )}
                         <div className="min-w-0">
                           <div className="text-sm text-text-dark">
@@ -2421,7 +2421,7 @@ export function SettingsDialog({
                         <div className="mt-1 flex items-center gap-2 text-sm font-medium text-text-dark">
                           {isCheckingDreaminaUpdate && !dreaminaUpdateInfo ? (
                             <>
-                              <Loader2 className="h-3.5 w-3.5 animate-spin text-text-muted" />
+                              <UiLoadingAnimation size="xs" />
                               {t('settings.dreaminaCheckingUpdate')}
                             </>
                           ) : dreaminaUpdateInfo?.latestVersion ? (
@@ -2475,7 +2475,7 @@ export function SettingsDialog({
                       >
                         {isCheckingDreaminaStatus ? (
                           <>
-                            <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+                            <UiLoadingAnimation size="xs" className="mr-1.5" />
                             {t('settings.dreaminaStatusChecking')}
                           </>
                         ) : (
@@ -2493,7 +2493,7 @@ export function SettingsDialog({
                       >
                         {isCheckingDreaminaUpdate ? (
                           <>
-                            <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+                            <UiLoadingAnimation size="xs" className="mr-1.5" />
                             {t('settings.dreaminaCheckingUpdate')}
                           </>
                         ) : (
@@ -2515,7 +2515,7 @@ export function SettingsDialog({
                       >
                         {isUpdatingDreamina ? (
                           <>
-                            <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+                            <UiLoadingAnimation size="xs" className="mr-1.5" />
                             {t('settings.dreaminaUpdating')}
                           </>
                         ) : (
@@ -2544,7 +2544,7 @@ export function SettingsDialog({
                         >
                           {isLoggingOutDreamina ? (
                             <>
-                              <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+                              <UiLoadingAnimation size="xs" className="mr-1.5" />
                               {t('settings.dreaminaLoggingOut')}
                             </>
                           ) : (
@@ -2714,7 +2714,7 @@ export function SettingsDialog({
 
                     {isLoadingStorageInfo ? (
                       <div className="flex items-center justify-center py-4">
-                        <Loader2 className="h-5 w-5 animate-spin text-text-muted" />
+                        <UiLoadingAnimation size="md" />
                       </div>
                     ) : storageInfo ? (
                       <>
@@ -2801,7 +2801,7 @@ export function SettingsDialog({
                           >
                             {isMigrating ? (
                               <>
-                                <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+                                <UiLoadingAnimation size="xs" className="mr-1.5" />
                                 {t('settings.migrating')}
                               </>
                             ) : (
@@ -2826,7 +2826,7 @@ export function SettingsDialog({
                           >
                             {isCreatingDatabaseBackup ? (
                               <>
-                                <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+                                <UiLoadingAnimation size="xs" className="mr-1.5" />
                                 {t('settings.creatingBackup')}
                               </>
                             ) : (
@@ -2855,7 +2855,7 @@ export function SettingsDialog({
 
                           {isLoadingDatabaseBackups ? (
                             <div className="flex items-center justify-center py-5">
-                              <Loader2 className="h-4 w-4 animate-spin text-text-muted" />
+                              <UiLoadingAnimation size="sm" />
                             </div>
                           ) : databaseBackups.length > 0 ? (
                             <div className="ui-scrollbar mt-3 max-h-[220px] space-y-2 overflow-y-auto pr-1">
@@ -3171,7 +3171,7 @@ export function SettingsDialog({
                       >
                         {isStarting ? (
                           <>
-                            <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+                            <UiLoadingAnimation size="xs" className="mr-1.5" />
                             {t('common.loading')}
                           </>
                         ) : (
@@ -3186,7 +3186,7 @@ export function SettingsDialog({
                       >
                         {isStopping ? (
                           <>
-                            <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+                            <UiLoadingAnimation size="xs" className="mr-1.5" />
                             {t('common.loading')}
                           </>
                         ) : (
@@ -3340,7 +3340,7 @@ export function SettingsDialog({
             >
               {isRestoringDatabaseBackup ? (
                 <>
-                  <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />
+                  <UiLoadingAnimation size="sm" className="mr-1.5" />
                   {t('settings.restoringBackup')}
                 </>
               ) : (

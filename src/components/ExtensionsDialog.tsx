@@ -6,14 +6,13 @@ import {
   CheckCircle2,
   ChevronDown,
   FolderOpen,
-  Loader2,
   PackageOpen,
   PlugZap,
   Trash2,
 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 
-import { UiButton, UiModal } from '@/components/ui';
+import { UiButton, UiLoadingAnimation, UiModal } from '@/components/ui';
 import { useExtensionsStore } from '@/stores/extensionsStore';
 
 interface ExtensionsDialogProps {
@@ -262,7 +261,7 @@ export function ExtensionsDialog({ isOpen, onClose }: ExtensionsDialogProps) {
             >
               {isLoadingPackage ? (
                 <>
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  <UiLoadingAnimation size="sm" className="mr-2" />
                   {t('extensions.loadingPackage')}
                 </>
               ) : (
@@ -465,7 +464,7 @@ export function ExtensionsDialog({ isOpen, onClose }: ExtensionsDialogProps) {
                         >
                           {isStarting ? (
                             <>
-                              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                              <UiLoadingAnimation size="sm" className="mr-2" />
                               {t('extensions.enabling')}
                             </>
                           ) : (

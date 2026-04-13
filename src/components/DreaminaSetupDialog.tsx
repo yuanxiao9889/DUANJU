@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { type UnlistenFn } from "@tauri-apps/api/event";
 import { openUrl } from "@tauri-apps/plugin-opener";
-import { CheckCircle2, Loader2, RefreshCw, Sparkles, TriangleAlert } from "lucide-react";
+import { CheckCircle2, RefreshCw, Sparkles, TriangleAlert } from "lucide-react";
 import type { TFunction } from "i18next";
 import { useTranslation } from "react-i18next";
 
@@ -14,7 +14,7 @@ import {
   type DreaminaGitSource,
   type DreaminaSetupProgressEvent,
 } from "@/commands/dreaminaCli";
-import { UiButton, UiModal, UiPanel } from "@/components/ui";
+import { UiButton, UiLoadingAnimation, UiModal, UiPanel } from "@/components/ui";
 import type { DreaminaSetupDialogDetail } from "@/features/jimeng/dreaminaSetupDialogEvents";
 
 const READY_AUTO_CLOSE_DELAY_MS = 1200;
@@ -700,7 +700,7 @@ export function DreaminaSetupDialog({
               disabled={isBusy}
             >
               {isChecking ? (
-                <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />
+                <UiLoadingAnimation size="sm" className="mr-1.5" />
               ) : (
                 <RefreshCw className="mr-1.5 h-4 w-4" />
               )}
@@ -723,7 +723,7 @@ export function DreaminaSetupDialog({
                 disabled={isBusy}
               >
                 {isAutoPreparing ? (
-                  <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />
+                  <UiLoadingAnimation size="sm" className="mr-1.5" />
                 ) : (
                   <Sparkles className="mr-1.5 h-4 w-4" />
                 )}
@@ -754,7 +754,7 @@ export function DreaminaSetupDialog({
                   {statusCode === "ready" ? (
                     <CheckCircle2 className="h-4 w-4 text-emerald-300" />
                   ) : isChecking ? (
-                    <Loader2 className="h-4 w-4 animate-spin text-accent" />
+                    <UiLoadingAnimation size="sm" />
                   ) : (
                     <Sparkles className="h-4 w-4 text-amber-200" />
                   )}
@@ -837,7 +837,7 @@ export function DreaminaSetupDialog({
                   </div>
                 ) : (
                   <div className="flex aspect-square w-[220px] items-center justify-center rounded-[28px] border border-[rgba(255,255,255,0.08)] bg-black/20 text-text-muted">
-                    <Loader2 className="h-8 w-8 animate-spin" />
+                    <UiLoadingAnimation size="xl" />
                   </div>
                 )}
               </div>

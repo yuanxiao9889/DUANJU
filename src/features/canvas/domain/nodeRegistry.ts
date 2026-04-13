@@ -43,6 +43,7 @@ import {
   type VideoNodeData,
   type ScriptRootNodeData,
   type ScriptChapterNodeData,
+  type ScriptSceneNodeData,
   type ScriptCharacterNodeData,
   type ScriptLocationNodeData,
   type ScriptItemNodeData,
@@ -1034,6 +1035,46 @@ const scriptChapterNodeDefinition: CanvasNodeDefinition<ScriptChapterNodeData> =
   }),
 };
 
+const scriptSceneNodeDefinition: CanvasNodeDefinition<ScriptSceneNodeData> = {
+  type: CANVAS_NODE_TYPES.scriptScene,
+  menuLabelKey: 'node.menu.scriptScene',
+  menuIcon: 'text',
+  visibleInMenu: false,
+  menuProjectTypes: ['script'],
+  capabilities: {
+    toolbar: true,
+    promptInput: false,
+  },
+  connectivity: {
+    sourceHandle: true,
+    targetHandle: true,
+    connectMenu: {
+      fromSource: false,
+      fromTarget: false,
+    },
+  },
+  createDefaultData: () => ({
+    displayName: DEFAULT_NODE_DISPLAY_NAME[CANVAS_NODE_TYPES.scriptScene] || '分集工作台',
+    sourceChapterId: '',
+    sourceSceneId: '',
+    sourceSceneOrder: 0,
+    chapterNumber: 1,
+    title: '',
+    summary: '',
+    purpose: '',
+    povCharacter: '',
+    goal: '',
+    conflict: '',
+    turn: '',
+    emotionalShift: '',
+    visualHook: '',
+    subtext: '',
+    sourceDraftHtml: '',
+    draftHtml: '',
+    episodes: [],
+  }),
+};
+
 const scriptCharacterNodeDefinition: CanvasNodeDefinition<ScriptCharacterNodeData> = {
   type: CANVAS_NODE_TYPES.scriptCharacter,
   menuLabelKey: 'node.menu.scriptCharacter',
@@ -1198,6 +1239,7 @@ export const canvasNodeDefinitions: Record<CanvasNodeType, CanvasNodeDefinition>
   [CANVAS_NODE_TYPES.voxCpmUltimateClone]: voxCpmUltimateCloneNodeDefinition,
   [CANVAS_NODE_TYPES.scriptRoot]: scriptRootNodeDefinition,
   [CANVAS_NODE_TYPES.scriptChapter]: scriptChapterNodeDefinition,
+  [CANVAS_NODE_TYPES.scriptScene]: scriptSceneNodeDefinition,
   [CANVAS_NODE_TYPES.scriptCharacter]: scriptCharacterNodeDefinition,
   [CANVAS_NODE_TYPES.scriptLocation]: scriptLocationNodeDefinition,
   [CANVAS_NODE_TYPES.scriptItem]: scriptItemNodeDefinition,

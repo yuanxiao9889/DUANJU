@@ -1,6 +1,6 @@
-import { AlertTriangle, CheckCircle2, Loader2, Sparkles } from 'lucide-react';
+import { AlertTriangle, CheckCircle2, Sparkles } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
-import { UiButton, UiModal } from '@/components/ui';
+import { UiButton, UiLoadingAnimation, UiModal } from '@/components/ui';
 
 export type AssetExtractionBatchStatus = 'pending' | 'running' | 'completed' | 'failed';
 
@@ -59,7 +59,7 @@ export function AssetExtractionProgressDialog({
           <div className="flex items-start gap-3">
             <div className="rounded-xl bg-amber-500/12 p-2 text-amber-300">
               {progress.isRunning ? (
-                <Loader2 className="h-5 w-5 animate-spin" />
+                <UiLoadingAnimation size="md" />
               ) : progress.error ? (
                 <AlertTriangle className="h-5 w-5" />
               ) : (
@@ -139,7 +139,7 @@ export function AssetExtractionProgressDialog({
                 >
                   <div className="pt-0.5">
                     {log.status === 'running' ? (
-                      <Loader2 className="h-4 w-4 animate-spin text-amber-300" />
+                      <UiLoadingAnimation size="sm" />
                     ) : log.status === 'completed' ? (
                       <CheckCircle2 className="h-4 w-4 text-emerald-300" />
                     ) : log.status === 'failed' ? (

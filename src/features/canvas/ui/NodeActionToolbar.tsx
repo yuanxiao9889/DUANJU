@@ -4,6 +4,7 @@ import { Copy, Crop, Download, FileText, FolderOpen, PenLine, RefreshCw, Save, S
 import { save } from '@tauri-apps/plugin-dialog';
 import { useTranslation } from 'react-i18next';
 
+import { UiLoadingAnimation } from '@/components/ui';
 import {
   NODE_TOOL_TYPES,
   isAudioNode,
@@ -537,7 +538,11 @@ export const NodeActionToolbar = memo(({ node }: NodeActionToolbarProps) => {
             disabled={isGenerationPending}
             title={t('node.imageNode.manualRefresh')}
           >
-            <RefreshCw className={`h-3.5 w-3.5 ${isGenerationPending ? 'animate-spin' : ''}`} />
+            {isGenerationPending ? (
+              <UiLoadingAnimation size="xs" />
+            ) : (
+              <RefreshCw className="h-3.5 w-3.5" />
+            )}
           </UiChipButton>
         )}
         {!isImageEdit && canHandleImage && (
@@ -581,7 +586,7 @@ export const NodeActionToolbar = memo(({ node }: NodeActionToolbarProps) => {
             title={psServerStatus.ps_connected ? t('nodeToolbar.sendToPs') : t('nodeToolbar.psNotConnected')}
           >
             {isSendingToPs ? (
-              <RefreshCw className="h-3.5 w-3.5 animate-spin" />
+              <UiLoadingAnimation size="xs" />
             ) : isPsSendSuccess ? (
               <Check className="h-3.5 w-3.5" />
             ) : (

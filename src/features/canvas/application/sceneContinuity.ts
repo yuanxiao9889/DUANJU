@@ -9,6 +9,7 @@ import {
   type ScriptItemNodeData,
   type ScriptLocationNodeData,
   type ScriptRootNodeData,
+  type ScriptSceneNodeData,
   type ScriptWorldviewNodeData,
 } from '../domain/canvasNodes';
 
@@ -54,6 +55,7 @@ interface TimelineSceneEntry {
   depth: number;
   scene: SceneCard;
   sequence: number;
+  referenceLabel: string;
 }
 
 function decodeHtmlEntities(text: string): string {
@@ -260,7 +262,7 @@ function formatSceneReference(entry: TimelineSceneEntry): SceneContinuityReferen
 
   return {
     ...memory,
-    label: `第 ${entry.chapterNumber} 章 / 场景 ${entry.scene.order + 1} · ${entry.scene.title || memory.label}`,
+    label: entry.referenceLabel,
   };
 }
 
@@ -270,9 +272,57 @@ function buildTimelineEntries(nodes: CanvasNode[]): TimelineSceneEntry[] {
     .sort(sortTimelineChapters);
 
   const timeline: TimelineSceneEntry[] = [];
+  const sceneNodesByChapterId = new Map<string, Array<{ id: string; data: ScriptSceneNodeData }>>();
+
+  nodes.forEach((node) => {
+    if (node.type !== CANVAS_NODE_TYPES.scriptScene) {
+      return;
+    }
+
+    const sceneNodeData = node.data as ScriptSceneNodeData;
+    const list = sceneNodesByChapterId.get(sceneNodeData.sourceChapterId) ?? [];
+    list.push({
+      id: node.id,
+      data: sceneNodeData,
+    });
+    sceneNodesByChapterId.set(sceneNodeData.sourceChapterId, list);
+  });
 
   chapters.forEach((chapterNode) => {
     const chapterData = chapterNode.data as ScriptChapterNodeData;
+    const sceneNodes = (sceneNodesByChapterId.get(chapterNode.id) ?? [])
+      .slice()
+      .sort((left, right) => {
+        const orderDelta = left.data.sourceSceneOrder - right.data.sourceSceneOrder;
+        if (orderDelta !== 0) {
+          return orderDelta;
+        }
+
+        return left.data.sourceSceneId.localeCompare(right.data.sourceSceneId);
+      });
+
+    if (sceneNodes.length > 0) {
+      sceneNodes.forEach((sceneNode) => {
+        const episodes = sceneNode.data.episodes
+          .slice()
+          .sort((left, right) => left.order - right.order);
+
+        episodes.forEach((episode) => {
+          timeline.push({
+            chapterId: chapterNode.id,
+            chapterTitle: chapterData.title || chapterData.displayName || 'Untitled Chapter',
+            chapterNumber: chapterData.chapterNumber || 1,
+            branchType: chapterData.branchType || 'main',
+            depth: chapterData.depth || 1,
+            scene: episode,
+            sequence: timeline.length,
+            referenceLabel: `第 ${chapterData.chapterNumber || 1} 章 / ${chapterData.chapterNumber || 1}-${episode.episodeNumber} · ${episode.title || sceneNode.data.title || `分集 ${episode.episodeNumber}`}`,
+          });
+        });
+      });
+      return;
+    }
+
     const scenes = normalizeSceneCards(chapterData.scenes, chapterData.content)
       .slice()
       .sort((left, right) => left.order - right.order);
@@ -286,6 +336,7 @@ function buildTimelineEntries(nodes: CanvasNode[]): TimelineSceneEntry[] {
         depth: chapterData.depth || 1,
         scene,
         sequence: timeline.length,
+        referenceLabel: `第 ${chapterData.chapterNumber || 1} 章 / 场景 ${scene.order + 1} · ${scene.title || `场景 ${scene.order + 1}`}`,
       });
     });
   });

@@ -1,9 +1,9 @@
 import { memo, useEffect, useMemo, useRef, useState, type ChangeEvent } from 'react';
 import { Handle, Position, useUpdateNodeInternals, type NodeProps } from '@xyflow/react';
-import { AudioLines, Copy, Link2, Loader2, Pause, Play, Sparkles } from 'lucide-react';
+import { AudioLines, Copy, Link2, Pause, Play, Sparkles } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 
-import { UiButton, UiSelect } from '@/components/ui';
+import { UiButton, UiLoadingAnimation, UiSelect } from '@/components/ui';
 import { resolveAudioDisplayUrl } from '@/features/canvas/application/audioData';
 import { useAssetStore } from '@/stores/assetStore';
 import { useCanvasStore } from '@/stores/canvasStore';
@@ -387,7 +387,7 @@ export const VoxCpmVoiceCloneNode = memo(({
                     : t('node.voxCpm.runtimeDisabled')}
               </div>
             </div>
-            {isExtensionStarting ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+            {isExtensionStarting ? <UiLoadingAnimation size="sm" /> : null}
           </div>
           {isExtensionStarting ? (
             <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-black/20">

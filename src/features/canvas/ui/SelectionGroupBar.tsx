@@ -1,7 +1,9 @@
 import { useMemo } from 'react';
 import type { Node } from '@xyflow/react';
-import { Download, FolderPlus, Loader2 } from 'lucide-react';
+import { Download, FolderPlus } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
+
+import { UiLoadingAnimation } from '@/components/ui';
 
 import { calculateNodesBounds } from '@/features/canvas/application/nodeBounds';
 
@@ -65,7 +67,7 @@ export function SelectionGroupBar({
             className="flex items-center gap-2 rounded-full border border-border-dark/70 bg-surface-dark/95 px-3 py-2 text-sm font-medium text-text-dark shadow-[0_10px_24px_rgba(0,0,0,0.28)] transition-colors hover:border-accent/40 hover:bg-surface-dark disabled:cursor-not-allowed disabled:opacity-60"
           >
             {isExportingSelected ? (
-              <Loader2 className="h-4 w-4 animate-spin text-accent" />
+              <UiLoadingAnimation size="sm" />
             ) : (
               <Download className="h-4 w-4 text-accent" />
             )}
