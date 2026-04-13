@@ -20,6 +20,7 @@ import {
   type ExportImageNodeData,
   type GroupNodeData,
   type ImageEditNodeData,
+  type Panorama360NodeData,
   type JimengImageNodeData,
   type JimengImageResultNodeData,
   type JimengNodeData,
@@ -134,7 +135,7 @@ const uploadNodeDefinition: CanvasNodeDefinition<UploadImageNodeData> = {
   },
   connectivity: {
     sourceHandle: true,
-    targetHandle: false,
+    targetHandle: true,
     connectMenu: {
       fromSource: false,
       fromTarget: true,
@@ -182,6 +183,37 @@ const imageEditNodeDefinition: CanvasNodeDefinition<ImageEditNodeData> = {
     isGenerating: false,
     generationStartedAt: null,
     generationDurationMs: 60000,
+  }),
+};
+
+const panorama360NodeDefinition: CanvasNodeDefinition<Panorama360NodeData> = {
+  type: CANVAS_NODE_TYPES.panorama360,
+  menuLabelKey: 'node.menu.panorama360',
+  menuIcon: 'video',
+  menuGroup: 'media',
+  visibleInMenu: true,
+  menuProjectTypes: ['storyboard'],
+  capabilities: {
+    toolbar: true,
+    promptInput: false,
+  },
+  connectivity: {
+    sourceHandle: true,
+    targetHandle: true,
+    connectMenu: {
+      fromSource: true,
+      fromTarget: false,
+    },
+  },
+  createDefaultData: () => ({
+    displayName: DEFAULT_NODE_DISPLAY_NAME[CANVAS_NODE_TYPES.panorama360],
+    imageUrl: null,
+    previewImageUrl: null,
+    aspectRatio: DEFAULT_ASPECT_RATIO,
+    isSizeManuallyAdjusted: false,
+    viewerYaw: 0,
+    viewerPitch: 0,
+    viewerFov: 75,
   }),
 };
 
@@ -1142,6 +1174,7 @@ const scriptWorldviewNodeDefinition: CanvasNodeDefinition<ScriptWorldviewNodeDat
 export const canvasNodeDefinitions: Record<CanvasNodeType, CanvasNodeDefinition> = {
   [CANVAS_NODE_TYPES.upload]: uploadNodeDefinition,
   [CANVAS_NODE_TYPES.imageEdit]: imageEditNodeDefinition,
+  [CANVAS_NODE_TYPES.panorama360]: panorama360NodeDefinition,
   [CANVAS_NODE_TYPES.jimeng]: jimengNodeDefinition,
   [CANVAS_NODE_TYPES.jimengImage]: jimengImageNodeDefinition,
   [CANVAS_NODE_TYPES.jimengImageResult]: jimengImageResultNodeDefinition,

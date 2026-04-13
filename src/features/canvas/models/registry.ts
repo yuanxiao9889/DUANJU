@@ -59,6 +59,7 @@ const imageModelAliasMap = new Map<string, string>([
   ['zhenzhen/nano-banana-2-4k', 'zhenzhen/nano-banana-pro'],
   ['zhenzhen/nano-banana-pro-2k', 'zhenzhen/nano-banana-pro'],
   ['zhenzhen/nano-banana-pro-4k', 'zhenzhen/nano-banana-pro'],
+  ['zhenzhen/gemini-3.1-flash-image-preview-4k', 'zhenzhen/gemini-3.1-flash-image-preview'],
 ]);
 
 function resolveCompatibleModelList(

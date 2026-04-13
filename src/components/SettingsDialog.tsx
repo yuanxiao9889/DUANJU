@@ -229,7 +229,7 @@ const DEFAULT_PROVIDER_TEST_MODELS: Record<string, string> = {
   fal: 'fal/nano-banana-2',
   azemm: 'azemm/gemini-3.1-flash-image-preview',
   comfly: 'comfly/gemini-3.1-flash-image-preview',
-  zhenzhen: 'zhenzhen/gemini-3.1-flash-image-preview-4k',
+  zhenzhen: 'zhenzhen/gemini-3.1-flash-image-preview',
   bltcy: 'bltcy/gemini-3.1-flash-image-preview-4k',
 };
 

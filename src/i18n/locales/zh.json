@@ -231,6 +231,7 @@
     "menu": {
       "uploadImage": "上传图片",
       "aiImageGeneration": "AI 图片",
+      "panorama360": "360 全景",
       "storyboard": "分镜组合",
       "storyboardCompose": "分镜组合",
       "storyboardSplitResult": "切割结果",
@@ -300,6 +301,20 @@
       "resultTitle": "结果图片",
       "promptPlaceholder": "描述任何你想要生成或编辑的内容",
       "referenceImageLabel": "图片 {{index}}"
+    },
+    "panorama360": {
+      "title": "360 全景",
+      "emptyTitle": "全景浏览器",
+      "emptyHint": "该节点用于浏览等距柱状投影全景图，可先使用预置的 360 全景扩图风格模板生成全景图。",
+      "loading": "正在加载全景...",
+      "loadingShort": "加载中",
+      "loadFailed": "全景加载失败",
+      "screenshot": "截图当前视角",
+      "screenshotPending": "正在截图...",
+      "screenshotSuccess": "截图成功",
+      "screenshotFailed": "截图失败",
+      "resetView": "重置视角",
+      "screenshotName": "{{name}}/全景截图 {{index}}"
     },
     "sendToPs": "发送到 PS",
     "sendToPsSuccess": "已发送到 Photoshop",

@@ -4,6 +4,7 @@ import type { CanvasSemanticColor } from './semanticColors';
 export const CANVAS_NODE_TYPES = {
   upload: 'uploadNode',
   imageEdit: 'imageNode',
+  panorama360: 'panorama360Node',
   jimeng: 'jimengNode',
   jimengImage: 'jimengImageNode',
   jimengImageResult: 'jimengImageResultNode',
@@ -41,6 +42,10 @@ export const AUTO_REQUEST_ASPECT_RATIO = 'auto';
 export const DEFAULT_NODE_WIDTH = 220;
 export const IMAGE_EDIT_NODE_DEFAULT_WIDTH = 500;
 export const IMAGE_EDIT_NODE_DEFAULT_HEIGHT = 280;
+export const PANORAMA360_NODE_DEFAULT_WIDTH = 520;
+export const PANORAMA360_NODE_DEFAULT_HEIGHT = 380;
+export const PANORAMA360_NODE_MIN_WIDTH = 420;
+export const PANORAMA360_NODE_MIN_HEIGHT = 300;
 export const EXPORT_RESULT_NODE_DEFAULT_WIDTH = 384;
 export const EXPORT_RESULT_NODE_LAYOUT_HEIGHT = 288;
 export const EXPORT_RESULT_NODE_MIN_WIDTH = 168;
@@ -406,6 +411,12 @@ export interface ImageEditNodeData extends NodeImageData {
   isGenerating?: boolean;
   generationStartedAt?: number | null;
   generationDurationMs?: number;
+}
+
+export interface Panorama360NodeData extends NodeImageData {
+  viewerYaw?: number;
+  viewerPitch?: number;
+  viewerFov?: number;
 }
 
 export interface JimengNodeData extends NodeDisplayData {
@@ -819,6 +830,7 @@ export interface ScriptWorldviewNodeData extends NodeDisplayData {
 export type CanvasNodeData =
   | UploadImageNodeData
   | ExportImageNodeData
+  | Panorama360NodeData
   | TextAnnotationNodeData
   | GroupNodeData
   | ImageEditNodeData
@@ -1131,6 +1143,12 @@ export function isImageEditNode(
   return node?.type === CANVAS_NODE_TYPES.imageEdit;
 }
 
+export function isPanorama360Node(
+  node: CanvasNode | null | undefined
+): node is Node<Panorama360NodeData, typeof CANVAS_NODE_TYPES.panorama360> {
+  return node?.type === CANVAS_NODE_TYPES.panorama360;
+}
+
 export function isJimengNode(
   node: CanvasNode | null | undefined
 ): node is Node<JimengNodeData, typeof CANVAS_NODE_TYPES.jimeng> {
@@ -1202,6 +1220,7 @@ export function nodeSupportsDescriptionPanel(
 ): boolean {
   return (
     isUploadNode(node)
+    || isPanorama360Node(node)
     || isExportImageNode(node)
     || isJimengImageResultNode(node)
     || isVideoNode(node)
@@ -1350,6 +1369,7 @@ export function resolveSingleImageConnectionSource(
   if (
     isUploadNode(node)
     || isImageEditNode(node)
+    || isPanorama360Node(node)
     || isExportImageNode(node)
   ) {
     const imageUrl = normalizeImageSource(node.data.imageUrl);

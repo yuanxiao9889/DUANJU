@@ -3,6 +3,7 @@ import {
   isAudioNode,
   isExportImageNode,
   isImageEditNode,
+  isPanorama360Node,
   isUploadNode,
   isVideoNode,
   type CanvasNode,
@@ -11,7 +12,10 @@ import { stringifyAnnotationItems } from './annotation';
 import type { CanvasToolPlugin, ToolOptions } from './types';
 
 function supportsImageSourceNode(node: CanvasNode): boolean {
-  return isUploadNode(node) || isImageEditNode(node) || isExportImageNode(node);
+  return isUploadNode(node)
+    || isImageEditNode(node)
+    || isPanorama360Node(node)
+    || isExportImageNode(node);
 }
 
 export const cropToolPlugin: CanvasToolPlugin = {

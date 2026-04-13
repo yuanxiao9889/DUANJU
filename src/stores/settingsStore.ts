@@ -60,6 +60,7 @@ import {
   sortStyleTemplateCategories,
   sortStyleTemplates,
 } from '@/features/project/styleTemplateUtils';
+import { seedPanoramaStyleTemplate } from '@/features/project/defaultStyleTemplates';
 
 export type { StyleTemplate, StyleTemplateCategory };
 
@@ -122,6 +123,7 @@ interface SettingsState {
   showAlignmentGuides: boolean;
   styleTemplateCategories: StyleTemplateCategory[];
   styleTemplates: StyleTemplate[];
+  hasInjectedPanoramaStyleTemplate: boolean;
   psIntegrationEnabled: boolean;
   psServerPort: number;
   psAutoStartServer: boolean;
@@ -434,7 +436,11 @@ export const useSettingsStore = create<SettingsState>()(
       showGrid: true,
       showAlignmentGuides: true,
       styleTemplateCategories: [],
-      styleTemplates: [],
+      styleTemplates: seedPanoramaStyleTemplate({
+        styleTemplates: [],
+        hasInjectedPanoramaStyleTemplate: false,
+      }).styleTemplates,
+      hasInjectedPanoramaStyleTemplate: true,
       psIntegrationEnabled: true,
       psServerPort: 9527,
       psAutoStartServer: true,
@@ -788,7 +794,7 @@ export const useSettingsStore = create<SettingsState>()(
     }),
     {
       name: 'settings-storage',
-      version: 27,
+      version: 28,
       onRehydrateStorage: () => {
         return (state, error) => {
           if (error) {
@@ -846,6 +852,7 @@ export const useSettingsStore = create<SettingsState>()(
           showAlignmentGuides?: boolean;
           styleTemplateCategories?: unknown;
           styleTemplates?: unknown;
+          hasInjectedPanoramaStyleTemplate?: boolean;
         };
 
         const migratedLegacyApiKeys = normalizeApiKeys(state.apiKeys);
@@ -911,6 +918,10 @@ export const useSettingsStore = create<SettingsState>()(
           state.styleTemplates,
           normalizedStyleTemplateCategoryIds
         );
+        const seededPanoramaStyleTemplateState = seedPanoramaStyleTemplate({
+          styleTemplates: normalizedStyleTemplates,
+          hasInjectedPanoramaStyleTemplate: state.hasInjectedPanoramaStyleTemplate ?? false,
+        });
 
         return {
           ...(persistedState as object),
@@ -990,7 +1001,9 @@ export const useSettingsStore = create<SettingsState>()(
           showGrid: state.showGrid ?? true,
           showAlignmentGuides: state.showAlignmentGuides ?? true,
           styleTemplateCategories: normalizedStyleTemplateCategories,
-          styleTemplates: normalizedStyleTemplates,
+          styleTemplates: seededPanoramaStyleTemplateState.styleTemplates,
+          hasInjectedPanoramaStyleTemplate:
+            seededPanoramaStyleTemplateState.hasInjectedPanoramaStyleTemplate,
           psIntegrationEnabled: true,
           psServerPort: 9527,
           psAutoStartServer: true,

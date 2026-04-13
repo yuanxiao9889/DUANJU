@@ -11,6 +11,7 @@ import {
   isAudioNode,
   isExportImageNode,
   isImageEditNode,
+  isPanorama360Node,
   isUploadNode,
   isVideoNode,
   type NodeToolType,
@@ -90,7 +91,12 @@ export function NodeToolDialog() {
       return null;
     }
 
-    if (isUploadNode(sourceNode) || isImageEditNode(sourceNode) || isExportImageNode(sourceNode)) {
+    if (
+      isUploadNode(sourceNode)
+      || isImageEditNode(sourceNode)
+      || isPanorama360Node(sourceNode)
+      || isExportImageNode(sourceNode)
+    ) {
       return {
         mediaType: 'image' as const,
         sourceUrl: sourceNode.data.imageUrl,

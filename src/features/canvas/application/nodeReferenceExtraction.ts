@@ -2,6 +2,7 @@ import {
   isAudioNode,
   isExportImageNode,
   isImageEditNode,
+  isPanorama360Node,
   isJimengImageNode,
   isJimengImageResultNode,
   isJimengVideoResultNode,
@@ -31,6 +32,7 @@ export function extractReferenceImageUrls(node: CanvasNode): string[] {
   if (
     isUploadNode(node)
     || isImageEditNode(node)
+    || isPanorama360Node(node)
     || isExportImageNode(node)
     || isStoryboardGenNode(node)
   ) {
@@ -50,6 +52,7 @@ export function extractReferenceVisuals(node: CanvasNode): ExtractedReferenceVis
   if (
     isUploadNode(node)
     || isImageEditNode(node)
+    || isPanorama360Node(node)
     || isExportImageNode(node)
     || isStoryboardGenNode(node)
   ) {

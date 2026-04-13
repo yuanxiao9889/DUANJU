@@ -3,6 +3,7 @@ import type { NodeTypes } from '@xyflow/react';
 import { GroupNode } from './GroupNode';
 import { AudioNode } from './AudioNode';
 import { ImageEditNode } from './ImageEditNode';
+import { Panorama360Node } from './Panorama360Node';
 import { JimengImageNode } from './JimengImageNode';
 import { JimengImageResultNode } from './JimengImageResultNode';
 import { JimengVideoResultNode } from './JimengVideoResultNode';
@@ -36,6 +37,7 @@ export const nodeTypes: NodeTypes = {
   groupNode: GroupNode,
   audioNode: AudioNode,
   imageNode: ImageEditNode,
+  panorama360Node: Panorama360Node,
   jimengImageNode: JimengImageNode,
   jimengImageResultNode: JimengImageResultNode,
   jimengVideoResultNode: JimengVideoResultNode,
@@ -68,6 +70,7 @@ export {
   GroupNode, 
   AudioNode,
   ImageEditNode, 
+  Panorama360Node,
   JimengImageNode,
   JimengImageResultNode,
   JimengVideoResultNode,

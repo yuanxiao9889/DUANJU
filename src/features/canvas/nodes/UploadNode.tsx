@@ -462,6 +462,13 @@ export const UploadNode = memo(({ id, data, selected, width }: UploadNodeProps) 
       />
 
       <Handle
+        type="target"
+        id="target"
+        position={Position.Left}
+        className="!h-2.5 !w-2.5 !border-2 !border-surface-dark !bg-accent"
+      />
+
+      <Handle
         type="source"
         id="source"
         position={Position.Right}

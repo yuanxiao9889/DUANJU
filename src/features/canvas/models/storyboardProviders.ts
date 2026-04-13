@@ -26,6 +26,7 @@ import { BLTCY_NANO_BANANA_2_4K_MODEL_ID } from './image/bltcy/nanoBananaHd';
 import { COMFLY_NANO_BANANA_PRO_MODEL_ID } from './image/comfly/nanoBanana';
 import { COMFLY_GEMINI_FLASH_IMAGE_PREVIEW_MODEL_ID } from './image/comfly/geminiFlashImagePreview';
 import { ZHENZHEN_NANO_BANANA_MODEL_ID } from './image/zhenzhen/nanoBanana';
+import { ZHENZHEN_GEMINI_FLASH_IMAGE_PREVIEW_MODEL_ID } from './image/zhenzhen/geminiFlashImagePreview';
 
 export const STORYBOARD_CUSTOM_MODEL_PROVIDER_IDS = [
   'azemm',
@@ -128,6 +129,11 @@ const BUILT_IN_STORYBOARD_MODELS: Record<
   ],
   zhenzhen: [
     { modelId: ZHENZHEN_NANO_BANANA_MODEL_ID, label: 'Nano Banana Pro', source: 'builtin' },
+    {
+      modelId: ZHENZHEN_GEMINI_FLASH_IMAGE_PREVIEW_MODEL_ID,
+      label: '\u9999\u85492',
+      source: 'builtin',
+    },
   ],
   bltcy: [
     { modelId: BLTCY_GEMINI_FLASH_IMAGE_PREVIEW_4K_MODEL_ID, label: '\u9999\u85492', source: 'builtin' },

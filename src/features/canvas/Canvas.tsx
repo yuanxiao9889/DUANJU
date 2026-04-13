@@ -432,7 +432,9 @@ function resolveAllowedNodeTypes(
 
     if (!isSingleImageSource) {
       allowedTypes = allowedTypes.filter(
-        (type) => type !== CANVAS_NODE_TYPES.jimengImage
+        (type) =>
+          type !== CANVAS_NODE_TYPES.jimengImage
+          && type !== CANVAS_NODE_TYPES.panorama360
       );
     }
 
@@ -441,6 +443,8 @@ function resolveAllowedNodeTypes(
         (type) => type !== CANVAS_NODE_TYPES.ttsVoiceDesign
       );
     }
+  } else if (sourceNode.type === CANVAS_NODE_TYPES.panorama360) {
+    allowedTypes = allowedTypes.filter((type) => canNodeTypeServeAsPanoramaInputSource(type));
   }
   
   const isSourceRootNode = sourceNode.type === CANVAS_NODE_TYPES.scriptRoot;
@@ -470,6 +474,22 @@ function resolveAllowedNodeTypes(
 
 function canNodeTypeBeManualConnectionSource(type: CanvasNodeType): boolean {
   return nodeHasSourceHandle(type);
+}
+
+function canNodeTypeServeAsPanoramaInputSource(type: CanvasNodeType): boolean {
+  return type === CANVAS_NODE_TYPES.upload
+    || type === CANVAS_NODE_TYPES.imageEdit
+    || type === CANVAS_NODE_TYPES.exportImage
+    || type === CANVAS_NODE_TYPES.panorama360;
+}
+
+function canNodeServeAsPanoramaInputSource(node: CanvasNode | undefined): boolean {
+  if (!node) {
+    return false;
+  }
+
+  return Boolean(resolveSingleImageConnectionSource(node))
+    || canNodeTypeServeAsPanoramaInputSource(node.type);
 }
 
 function shouldInsertIntoLinearOutgoingFlow(node: CanvasNode | undefined): boolean {
@@ -537,6 +557,10 @@ interface PreviewConnectionLine {
   start: { x: number; y: number };
   end: { x: number; y: number };
   handleType: HandleType;
+}
+
+interface ConnectNodeBusinessRuleOptions {
+  schedulePersist?: boolean;
 }
 
 export function Canvas() {
@@ -757,6 +781,60 @@ export function Canvas() {
     setBranchConnectionPosition(null);
   }, []);
 
+  const connectNodesWithBusinessRules = useCallback(
+    (
+      connection: Connection,
+      options?: ConnectNodeBusinessRuleOptions
+    ): boolean => {
+      const sourceId = connection.source ?? null;
+      const targetId = connection.target ?? null;
+      if (!sourceId || !targetId) {
+        return false;
+      }
+
+      const currentState = useCanvasStore.getState();
+      const sourceNode = currentState.nodes.find((node) => node.id === sourceId);
+      const targetNode = currentState.nodes.find((node) => node.id === targetId);
+      if (!sourceNode || !targetNode) {
+        return false;
+      }
+
+      const sourceHandle = connection.sourceHandle ?? 'source';
+      const targetHandle = connection.targetHandle ?? 'target';
+      if (
+        (sourceHandle === 'source' && !canNodeTypeBeManualConnectionSource(sourceNode.type))
+        || !nodeHasSourceHandle(sourceNode.type)
+        || !nodeHasTargetHandle(targetNode.type)
+      ) {
+        return false;
+      }
+
+      if (targetNode.type === CANVAS_NODE_TYPES.panorama360) {
+        if (!canNodeServeAsPanoramaInputSource(sourceNode)) {
+          return false;
+        }
+
+        const incomingPanoramaEdges = currentState.edges.filter((edge) => edge.target === targetNode.id);
+        incomingPanoramaEdges.forEach((edge) => {
+          deleteEdge(edge.id);
+        });
+      }
+
+      connectNodes({
+        ...connection,
+        sourceHandle,
+        targetHandle,
+      });
+
+      if (options?.schedulePersist !== false) {
+        scheduleCanvasPersist(0);
+      }
+
+      return true;
+    },
+    [connectNodes, deleteEdge, scheduleCanvasPersist]
+  );
+
   const connectBranchSourcesToExistingNode = useCallback(
     (targetNodeId: string | null): boolean => {
       if (!targetNodeId) {
@@ -778,12 +856,14 @@ export function Canvas() {
           continue;
         }
 
-        connectNodes({
+        if (!connectNodesWithBusinessRules({
           source: sourceNode.id,
           target: targetNodeId,
           sourceHandle: 'source',
           targetHandle: 'target',
-        });
+        }, { schedulePersist: false })) {
+          continue;
+        }
         connectedCount += 1;
       }
 
@@ -794,7 +874,7 @@ export function Canvas() {
       scheduleCanvasPersist(0);
       return true;
     },
-    [branchConnectionSource, connectNodes, nodes, scheduleCanvasPersist]
+    [branchConnectionSource, connectNodesWithBusinessRules, nodes, scheduleCanvasPersist]
   );
 
   const markGenerationNodeActivity = useCallback((nodeId: string) => {
@@ -1377,13 +1457,9 @@ export function Canvas() {
 
   const handleConnect = useCallback(
     (connection: Connection) => {
-      if (!canNodeBeManualConnectionSource(connection.source, nodes)) {
-        return;
-      }
-      connectNodes(connection);
-      scheduleCanvasPersist(0);
+      connectNodesWithBusinessRules(connection);
     },
-    [connectNodes, nodes, scheduleCanvasPersist]
+    [connectNodesWithBusinessRules]
   );
 
   const handleMoveEnd = useCallback(
@@ -2391,28 +2467,28 @@ export function Canvas() {
               deleteEdge(edge.id);
             });
 
-            connectNodes({
+            connectNodesWithBusinessRules({
               source: pendingConnectStart.nodeId,
               target: newNodeId,
               sourceHandle: 'source',
               targetHandle: 'target',
-            });
+            }, { schedulePersist: false });
 
             existingOutgoingEdges.forEach((edge) => {
-              connectNodes({
+              connectNodesWithBusinessRules({
                 source: newNodeId,
                 target: edge.target,
                 sourceHandle: 'source',
                 targetHandle: edge.targetHandle ?? 'target',
-              });
+              }, { schedulePersist: false });
             });
           } else {
-            connectNodes({
+            connectNodesWithBusinessRules({
               source: pendingConnectStart.nodeId,
               target: newNodeId,
               sourceHandle: 'source',
               targetHandle: 'target',
-            });
+            }, { schedulePersist: false });
           }
         } else {
           const existingIncomingEdges = edges.filter(
@@ -2423,20 +2499,20 @@ export function Canvas() {
             deleteEdge(edge.id);
           });
           
-          connectNodes({
+          connectNodesWithBusinessRules({
             source: newNodeId,
             target: pendingConnectStart.nodeId,
             sourceHandle: 'source',
             targetHandle: 'target',
-          });
+          }, { schedulePersist: false });
           
           existingIncomingEdges.forEach((edge) => {
-            connectNodes({
+            connectNodesWithBusinessRules({
               source: edge.source,
               target: newNodeId,
               sourceHandle: edge.sourceHandle ?? 'source',
               targetHandle: 'target',
-            });
+            }, { schedulePersist: false });
           });
         }
       }
@@ -2449,7 +2525,7 @@ export function Canvas() {
     },
     [
       addNode,
-      connectNodes,
+      connectNodesWithBusinessRules,
       deleteEdge,
       edges,
       flowPosition,
@@ -2488,12 +2564,12 @@ export function Canvas() {
     
     const newNodeId = addNode(CANVAS_NODE_TYPES.scriptChapter, nodePosition, nodeData);
     
-    connectNodes({
+    connectNodesWithBusinessRules({
       source: pendingConnectStart.nodeId,
       target: newNodeId,
       sourceHandle: 'supplement',
       targetHandle: 'target',
-    });
+    }, { schedulePersist: false });
     
     scheduleCanvasPersist(0);
     setShowNodeMenu(false);
@@ -2537,12 +2613,12 @@ export function Canvas() {
     
     const newNodeId = addNode(CANVAS_NODE_TYPES.scriptChapter, nodePosition, nodeData);
     
-    connectNodes({
+    connectNodesWithBusinessRules({
       source: pendingConnectStart.nodeId,
       target: newNodeId,
       sourceHandle: 'source',
       targetHandle: 'target',
-    });
+    }, { schedulePersist: false });
     
     scheduleCanvasPersist(0);
     setShowNodeMenu(false);
@@ -2586,12 +2662,12 @@ export function Canvas() {
   
   const newNodeId = addNode(CANVAS_NODE_TYPES.scriptChapter, nodePosition, nodeData);
   
-  connectNodes({
+  connectNodesWithBusinessRules({
     source: pendingConnectStart.nodeId,
     target: newNodeId,
     sourceHandle: 'source',
     targetHandle: 'target',
-  });
+  }, { schedulePersist: false });
   
   scheduleCanvasPersist(0);
   setShowNodeMenu(false);
@@ -2600,7 +2676,7 @@ export function Canvas() {
   setPreviewConnectionVisual(null);
 }, [
   addNode,
-  connectNodes,
+  connectNodesWithBusinessRules,
   nodes,
   pendingConnectStart,
   scheduleCanvasPersist,
@@ -3252,13 +3328,12 @@ export function Canvas() {
           nodeHasSourceHandle(sourceNode.type) &&
           nodeHasTargetHandle(targetNode.type)
         ) {
-          connectNodes({
+          connectNodesWithBusinessRules({
             source: sourceNode.id,
             target: targetNode.id,
             sourceHandle: 'source',
             targetHandle: 'target',
           });
-          scheduleCanvasPersist(0);
           setPendingConnectStart(null);
           setPreviewConnectionVisual(null);
           return;
@@ -3335,7 +3410,7 @@ export function Canvas() {
       suppressNextPaneClickRef.current = true;
       setShowNodeMenu(true);
     },
-    [connectNodes, nodes, pendingConnectStart, reactFlowInstance, scheduleCanvasPersist]
+    [connectNodesWithBusinessRules, nodes, pendingConnectStart, project?.projectType, reactFlowInstance]
   );
 
   const emptyHint = useMemo(
@@ -3521,17 +3596,17 @@ export function Canvas() {
 
     // 自动连接所有源节点到新节点
     for (const sourceNode of branchConnectionSource) {
-      connectNodes({
+      connectNodesWithBusinessRules({
         source: sourceNode.id,
         target: newNodeId,
         sourceHandle: 'source',
         targetHandle: 'target',
-      });
+      }, { schedulePersist: false });
     }
 
     scheduleCanvasPersist(0);
     resetBranchConnectionState();
-  }, [branchConnectionSource, addNode, connectNodes, resetBranchConnectionState, scheduleCanvasPersist]);
+  }, [branchConnectionSource, addNode, connectNodesWithBusinessRules, resetBranchConnectionState, scheduleCanvasPersist]);
 
   return (
     <div ref={wrapperRef} className="relative h-full w-full flex">

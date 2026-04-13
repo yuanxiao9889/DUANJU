@@ -232,6 +232,7 @@
     "menu": {
       "uploadImage": "Upload Image",
       "aiImageGeneration": "AI Image",
+      "panorama360": "360 Panorama",
       "jimeng": "Send to Jimeng",
       "jimengVideo": "Jimeng Video",
       "jimengImage": "Jimeng Image",
@@ -303,6 +304,20 @@
       "resultTitle": "Result Image",
       "promptPlaceholder": "Describe anything you want to generate or edit",
       "referenceImageLabel": "Image {{index}}"
+    },
+    "panorama360": {
+      "title": "360 Panorama",
+      "emptyTitle": "Panorama Viewer",
+      "emptyHint": "This node is for browsing equirectangular panorama images. Use the built-in 360 panorama style template to generate one first.",
+      "loading": "Loading panorama...",
+      "loadingShort": "Loading",
+      "loadFailed": "Failed to load panorama",
+      "screenshot": "Capture View",
+      "screenshotPending": "Capturing...",
+      "screenshotSuccess": "View captured",
+      "screenshotFailed": "Capture failed",
+      "resetView": "Reset View",
+      "screenshotName": "{{name}}/Panorama Shot {{index}}"
     },
     "jimeng": {
       "promptRequired": "Please enter a prompt for Jimeng video generation",
