@@ -54,6 +54,46 @@ export interface GeneratedStoryboardScript {
   soundCue: string;
 }
 
+export interface ExtractedScriptCharacter {
+  name: string;
+  description: string;
+  personality: string;
+  appearance: string;
+}
+
+export interface ExtractedScriptLocation {
+  name: string;
+  description: string;
+}
+
+export interface ExtractedScriptItem {
+  name: string;
+  description: string;
+}
+
+export interface ExtractedScriptWorldview {
+  worldviewName: string;
+  description: string;
+  era: string;
+  technology: string;
+  magic: string;
+  society: string;
+  geography: string;
+  rules: string[];
+}
+
+export interface ExtractedScriptAssets {
+  characters: ExtractedScriptCharacter[];
+  locations: ExtractedScriptLocation[];
+  items: ExtractedScriptItem[];
+  worldviews: ExtractedScriptWorldview[];
+}
+
+export interface ScriptAssetExtractionRequest {
+  content: string;
+  batchLabel?: string;
+}
+
 const STORYBOARD_SCRIPT_OUTPUT_LIMIT = 6;
 
 const NO_ACTIVE_SCRIPT_MODEL_MESSAGE =
@@ -189,6 +229,103 @@ function normalizeGeneratedStoryboardScript(
     props: readStringArrayValue(record, ['props', 'items', 'objects']),
     visualFocus: readStringValue(record, ['visualFocus', 'visual_focus', 'visual']),
     soundCue: readStringValue(record, ['soundCue', 'sound', 'sfx']),
+  };
+}
+
+function normalizeExtractedScriptCharacter(value: unknown): ExtractedScriptCharacter | null {
+  if (!value || typeof value !== 'object') {
+    return null;
+  }
+
+  const record = value as Record<string, unknown>;
+  const name = readStringValue(record, ['name', 'characterName', 'label']);
+  if (!name) {
+    return null;
+  }
+
+  return {
+    name,
+    description: readStringValue(record, ['description', 'summary', 'role']),
+    personality: readStringValue(record, ['personality', 'temperament', 'traits']),
+    appearance: readStringValue(record, ['appearance', 'look', 'visual']),
+  };
+}
+
+function normalizeExtractedScriptLocation(value: unknown): ExtractedScriptLocation | null {
+  if (!value || typeof value !== 'object') {
+    return null;
+  }
+
+  const record = value as Record<string, unknown>;
+  const name = readStringValue(record, ['name', 'locationName', 'label']);
+  if (!name) {
+    return null;
+  }
+
+  return {
+    name,
+    description: readStringValue(record, ['description', 'summary', 'function']),
+  };
+}
+
+function normalizeExtractedScriptItem(value: unknown): ExtractedScriptItem | null {
+  if (!value || typeof value !== 'object') {
+    return null;
+  }
+
+  const record = value as Record<string, unknown>;
+  const name = readStringValue(record, ['name', 'itemName', 'propName', 'label']);
+  if (!name) {
+    return null;
+  }
+
+  return {
+    name,
+    description: readStringValue(record, ['description', 'summary', 'function']),
+  };
+}
+
+function normalizeExtractedScriptWorldview(value: unknown): ExtractedScriptWorldview | null {
+  if (!value || typeof value !== 'object') {
+    return null;
+  }
+
+  const record = value as Record<string, unknown>;
+  const worldviewName = readStringValue(record, ['worldviewName', 'name', 'label']);
+  if (!worldviewName) {
+    return null;
+  }
+
+  return {
+    worldviewName,
+    description: readStringValue(record, ['description', 'summary']),
+    era: readStringValue(record, ['era', 'timePeriod']),
+    technology: readStringValue(record, ['technology', 'tech']),
+    magic: readStringValue(record, ['magic', 'supernatural']),
+    society: readStringValue(record, ['society', 'socialOrder']),
+    geography: readStringValue(record, ['geography', 'setting']),
+    rules: readStringArrayValue(record, ['rules', 'laws', 'constraints']),
+  };
+}
+
+function normalizeExtractedScriptAssets(value: unknown): ExtractedScriptAssets {
+  const record = value && typeof value === 'object'
+    ? value as Record<string, unknown>
+    : {};
+
+  return {
+    characters: (Array.isArray(record.characters) ? record.characters : [])
+      .map((item) => normalizeExtractedScriptCharacter(item))
+      .filter((item): item is ExtractedScriptCharacter => Boolean(item)),
+    locations: (Array.isArray(record.locations) ? record.locations : [])
+      .map((item) => normalizeExtractedScriptLocation(item))
+      .filter((item): item is ExtractedScriptLocation => Boolean(item)),
+    items: (Array.isArray(record.items) ? record.items : [])
+      .map((item) => normalizeExtractedScriptItem(item))
+      .filter((item): item is ExtractedScriptItem => Boolean(item)),
+    worldviews: (Array.isArray(record.worldviews) ? record.worldviews : [])
+      .map((item) => normalizeExtractedScriptWorldview(item))
+      .filter((item): item is ExtractedScriptWorldview => Boolean(item)),
   };
 }
 
@@ -541,6 +678,94 @@ ${content}
   }
 
   return { chapters: [], characters: [], locations: [] };
+}
+
+export async function extractScriptAssets(
+  request: ScriptAssetExtractionRequest
+): Promise<ExtractedScriptAssets> {
+  const content = request.content.trim();
+  if (!content) {
+    return {
+      characters: [],
+      locations: [],
+      items: [],
+      worldviews: [],
+    };
+  }
+
+  const prompt = [
+    '你是一名专业的编剧开发顾问，负责从剧本片段中提炼结构化资产。',
+    '请只提取文本中已经明确出现、或被强烈明确暗示且足够稳定的资产，不要脑补，不要补全未出现设定。',
+    '输出语言必须与输入内容保持一致。',
+    '返回 JSON，不要使用 Markdown 代码块，不要添加解释。',
+    '',
+    '请提取四类资产：',
+    '1. characters：角色，优先提取具名角色，或剧情中反复承担明确功能的无名角色。',
+    '2. locations：场景地点，提取对剧情推进有意义的 distinct 地点。',
+    '3. items：关键道具，提取推动剧情、塑造视觉、或反复出现的重要物件。',
+    '4. worldviews：世界观设定，只提取文本中有较明确证据的时代、社会规则、科技/魔法体系、地理格局等。',
+    '',
+    'JSON 结构必须严格如下：',
+    '{',
+    '  "characters": [',
+    '    {',
+    '      "name": "角色名",',
+    '      "description": "角色在这一批文本中的功能或简介",',
+    '      "personality": "性格特征，没有就空字符串",',
+    '      "appearance": "外形/辨识特征，没有就空字符串"',
+    '    }',
+    '  ],',
+    '  "locations": [',
+    '    {',
+    '      "name": "地点名",',
+    '      "description": "地点的功能、氛围或剧情作用，没有就空字符串"',
+    '    }',
+    '  ],',
+    '  "items": [',
+    '    {',
+    '      "name": "道具名",',
+    '      "description": "道具的剧情作用、视觉特征或用途，没有就空字符串"',
+    '    }',
+    '  ],',
+    '  "worldviews": [',
+    '    {',
+    '      "worldviewName": "世界观条目名",',
+    '      "description": "一句话说明",',
+    '      "era": "时代背景，没有就空字符串",',
+    '      "technology": "科技设定，没有就空字符串",',
+    '      "magic": "超自然/魔法设定，没有就空字符串",',
+    '      "society": "社会结构/势力格局，没有就空字符串",',
+    '      "geography": "地理格局，没有就空字符串",',
+    '      "rules": ["明确规则或约束，缺失则返回空数组"]',
+    '    }',
+    '  ]',
+    '}',
+    '',
+    '约束：',
+    '- 去重后再输出，不同字段不要重复换说法。',
+    '- 如果某类没有结果，返回空数组。',
+    '- description 尽量简短，适合直接落成资产节点。',
+    '- 不要输出剧情摘要，不要输出章节列表。',
+    '',
+    request.batchLabel ? `当前批次：${request.batchLabel}` : '',
+    '待提取文本：',
+    content,
+  ]
+    .filter((line) => line.length > 0)
+    .join('\n');
+
+  const result = await generateText({
+    prompt,
+    temperature: 0.2,
+    maxTokens: 4096,
+  });
+
+  const parsed = extractJsonValue(result.text);
+  if (!parsed) {
+    throw new Error('Failed to parse extracted script assets JSON.');
+  }
+
+  return normalizeExtractedScriptAssets(parsed);
 }
 
 export interface TestConnectionRequest {

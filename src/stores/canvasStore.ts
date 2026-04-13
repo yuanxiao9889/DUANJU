@@ -461,6 +461,18 @@ interface CanvasState {
       matchSourceNodeSize?: boolean;
     }
   ) => string | null;
+  addStoryboardSplitFrameExportNodes: (
+    sourceNodeId: string,
+    frames: Array<{
+      imageUrl: string;
+      previewImageUrl?: string | null;
+      aspectRatio?: string | null;
+      title?: string | null;
+    }>,
+    options?: {
+      gridCols?: number;
+    }
+  ) => string[];
   addStoryboardSplitNode: (
     sourceNodeId: string,
     rows: number,
@@ -2585,6 +2597,97 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
     return node.id;
   },
 
+  addStoryboardSplitFrameExportNodes: (sourceNodeId, frames, options) => {
+    const state = get();
+    const sourceNode = state.nodes.find((node) => node.id === sourceNodeId);
+    if (!sourceNode) {
+      return [];
+    }
+
+    const frameEntries = frames.filter((frame) => typeof frame.imageUrl === 'string' && frame.imageUrl.trim().length > 0);
+    if (frameEntries.length === 0) {
+      return [];
+    }
+
+    const nodeMap = new Map(state.nodes.map((node) => [node.id, node] as const));
+    const parentGroupId = resolveInheritedGroupParentId(sourceNode, nodeMap);
+    const sourcePosition = resolveAbsolutePosition(sourceNode, nodeMap);
+    const sourceSize = getNodeSize(sourceNode);
+    const safeGridCols = Math.max(1, Math.floor(options?.gridCols ?? 3));
+    const createdNodeIds: string[] = [];
+    const createdNodes: CanvasNode[] = [];
+    const nextEdges = [...state.edges];
+    const baseX = sourcePosition.x + sourceSize.width + DERIVED_NODE_COLUMN_GAP;
+    const baseY = sourcePosition.y;
+
+    frameEntries.forEach((frame, index) => {
+      const resolvedAspectRatio =
+        (typeof frame.aspectRatio === 'string' && frame.aspectRatio.trim().length > 0)
+          ? frame.aspectRatio
+          : DEFAULT_ASPECT_RATIO;
+      const derivedSize = resolveGeneratedImageNodeDimensions(resolvedAspectRatio, {
+        minWidth: EXPORT_RESULT_NODE_MIN_WIDTH,
+        minHeight: EXPORT_RESULT_NODE_MIN_HEIGHT,
+      });
+      const columnIndex = index % safeGridCols;
+      const rowIndex = Math.floor(index / safeGridCols);
+      const absolutePosition = {
+        x: baseX + columnIndex * (derivedSize.width + DERIVED_NODE_COLUMN_GAP),
+        y: baseY + rowIndex * (derivedSize.height + DERIVED_NODE_STACK_GAP),
+      };
+      const nodeData: Partial<CanvasNodeData> = {
+        imageUrl: frame.imageUrl,
+        previewImageUrl: frame.previewImageUrl ?? null,
+        aspectRatio: resolvedAspectRatio,
+        resultKind: 'storyboardFrameEdit',
+        displayName: frame.title?.trim() || EXPORT_RESULT_DISPLAY_NAME.storyboardFrameEdit,
+      };
+      let node = canvasNodeFactory.createNode(
+        CANVAS_NODE_TYPES.exportImage,
+        absolutePosition,
+        nodeData
+      );
+      node.width = derivedSize.width;
+      node.height = derivedSize.height;
+      node.style = {
+        ...(node.style ?? {}),
+        width: derivedSize.width,
+        height: derivedSize.height,
+      };
+      node = attachNodeToGroupParent(node, absolutePosition, parentGroupId, nodeMap);
+      createdNodes.push(node);
+      createdNodeIds.push(node.id);
+      nodeMap.set(node.id, node);
+      nextEdges.push({
+        id: `e-${sourceNodeId}-${node.id}`,
+        source: sourceNodeId,
+        target: node.id,
+        sourceHandle: 'source',
+        targetHandle: 'target',
+        type: 'disconnectableEdge',
+      });
+    });
+
+    const nextNodesBase = [...state.nodes, ...createdNodes];
+    const nextNodes = parentGroupId
+      ? fitGroupNodeToChildren(nextNodesBase, parentGroupId)
+      : nextNodesBase;
+
+    set({
+      nodes: nextNodes,
+      edges: nextEdges,
+      selectedNodeId: createdNodeIds[0] ?? state.selectedNodeId,
+      activeToolDialog: null,
+      history: {
+        past: pushSnapshot(state.history.past, createSnapshot(state.nodes, state.edges)),
+        future: [],
+      },
+      dragHistorySnapshot: null,
+    });
+
+    return createdNodeIds;
+  },
+
   addStoryboardSplitNode: (sourceNodeId, rows, cols, frames, frameAspectRatio) => {
     const state = get();
     const sourceNode = state.nodes.find((node) => node.id === sourceNodeId);
@@ -2954,16 +3057,22 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
   },
 
   applySemanticColorToSelected: (color) => {
-    const targetNodeIds = get()
+    const selectedColorableNodes = get()
       .nodes
-      .filter((node) => node.selected && node.type !== CANVAS_NODE_TYPES.group)
-      .map((node) => node.id);
+      .filter((node) => node.selected && node.type !== CANVAS_NODE_TYPES.group);
+    const targetNodeIds = selectedColorableNodes.map((node) => node.id);
 
     if (targetNodeIds.length === 0) {
       return;
     }
 
-    get().updateNodesData(targetNodeIds, { semanticColor: color });
+    const shouldClearColor = selectedColorableNodes.every((node) => (
+      (node.data as { semanticColor?: CanvasSemanticColor | null }).semanticColor === color
+    ));
+
+    get().updateNodesData(targetNodeIds, {
+      semanticColor: shouldClearColor ? null : color,
+    });
   },
 
   updateNodePosition: (nodeId, position) => {

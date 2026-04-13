@@ -14,7 +14,7 @@ export function ChapterCountDialog({ isOpen, onClose, onConfirm }: ChapterCountD
   if (!isOpen) return null;
 
   const handleConfirm = () => {
-    if (count >= 1 && count <= 100) {
+    if (count >= 1) {
       onConfirm(count);
       setCount(10);
     }
@@ -44,10 +44,12 @@ export function ChapterCountDialog({ isOpen, onClose, onConfirm }: ChapterCountD
         <input
           type="number"
           value={count}
-          onChange={(e) => setCount(Math.max(1, Math.min(100, Number(e.target.value))))}
+          onChange={(e) => {
+            const nextCount = Math.floor(Number(e.target.value));
+            setCount(Number.isFinite(nextCount) && nextCount > 0 ? nextCount : 1);
+          }}
           onKeyDown={handleKeyDown}
           min={1}
-          max={100}
           className="w-full px-4 py-2.5 bg-bg-dark/80 border border-border-dark/50 rounded-xl text-text-dark placeholder:text-text-muted focus:outline-none focus:border-accent/50 focus:ring-2 focus:ring-accent/20 transition-all"
           autoFocus
         />

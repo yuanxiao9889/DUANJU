@@ -1,4 +1,4 @@
-﻿{
+{
   "app": {
     "title": "OOpii无限画布",
     "subtitle": "Infinite Canvas",
@@ -15,6 +15,7 @@
     "edit": "编辑",
     "close": "关闭",
     "loading": "加载中...",
+    "retry": "重试",
     "error": "错误",
     "success": "成功",
     "referencePickerHint": "上下方向键选择，Enter 或 Tab 插入"
@@ -427,8 +428,11 @@
     "storyboardSplitResult": {
       "title": "切割结果",
       "editFrame": "分离此格",
+      "separateAll": "全部分离",
+      "separatingAll": "分离中...",
       "editEmpty": "这一格当前没有可分离的图片",
       "editFailed": "分离此格失败",
+      "separateAllFailed": "批量分离全部分镜失败",
       "exportFrames": "逐张导出",
       "exportingFrames": "导出中...",
       "exportEmpty": "当前没有可导出的切割图片",
@@ -1720,6 +1724,32 @@
     "importChapterCountDesc": "请输入章节数量，将创建对应数量的空章节节点",
     "expandFromSummary": "基于摘要扩写",
     "expandFromSummaryDesc": "根据章节摘要生成完整的剧本内容",
+    "richTextEditor": {
+      "loadFailedTitle": "富文本编辑器加载失败",
+      "loadFailedDescription": "已切换为纯文本兜底模式，页面不会再空白。"
+    },
+    "assetExtraction": {
+      "dialogTitle": "LLM 提炼资产",
+      "progress": "进度",
+      "running": "提炼中...",
+      "preparing": "正在整理剧情内容并准备分批提交...",
+      "noContent": "当前没有可提炼的章节内容，请先生成或填写剧本。",
+      "currentBatch": "正在处理第 {{current}} / {{total}} 批",
+      "submittingBatch": "正在提交第 {{current}} / {{total}} 批：{{label}}",
+      "waitingNextBatch": "当前批次已完成，准备继续下一批...",
+      "completedTitle": "资产提炼完成",
+      "completedHint": "所有批次已完成，新增资产已经同步到画布。",
+      "failedTitle": "资产提炼中断",
+      "unknownError": "LLM 资产提炼失败，请稍后再试。",
+      "batchLog": "批次记录",
+      "batchPending": "等待提交，当前批次文本约 {{chars}} 字。",
+      "batchRunning": "已提交给模型，正在提炼这一批的角色、地点、道具和世界观。",
+      "batchCompleted": "新增：世界观 {{worldviews}}，角色 {{characters}}，地点 {{locations}}，道具 {{items}}。",
+      "summaryWorldviews": "世界观",
+      "summaryCharacters": "角色",
+      "summaryLocations": "地点",
+      "summaryItems": "道具"
+    },
     "sceneStudio": {
       "title": "场景工作台",
       "subtitle": "按场景推进剧情、角色目标和导演感。",

@@ -344,7 +344,9 @@ impl CompatibleProvider {
 
     fn resolve_gemini_image_size(request_model: &str, size: &str) -> Option<&'static str> {
         let lower_model = request_model.trim().to_ascii_lowercase();
-        let supports_image_size = lower_model.contains("3.") || lower_model.contains("preview");
+        let supports_image_size = lower_model.contains("nano-banana-pro")
+            || lower_model.contains("3.")
+            || lower_model.contains("preview");
         if !supports_image_size {
             return None;
         }
@@ -704,6 +706,14 @@ impl CompatibleProvider {
         if let Some(size) = size {
             form = form.text("size", size);
         }
+        if let Some(image_size) =
+            Self::resolve_gemini_image_size(request_model, &request.size)
+        {
+            form = form.text("image_size", image_size.to_string());
+            if !request.aspect_ratio.trim().is_empty() {
+                form = form.text("aspect_ratio", request.aspect_ratio.trim().to_string());
+            }
+        }
 
         let reference_images = request.reference_images.as_ref().ok_or_else(|| {
             AIError::InvalidRequest(
@@ -790,6 +800,14 @@ impl CompatibleProvider {
         if let Some(size) = size {
             body["size"] = Value::String(size);
         }
+        if let Some(image_size) =
+            Self::resolve_gemini_image_size(&config.request_model, &request.size)
+        {
+            body["image_size"] = Value::String(image_size.to_string());
+            if !request.aspect_ratio.trim().is_empty() {
+                body["aspect_ratio"] = Value::String(request.aspect_ratio.trim().to_string());
+            }
+        }
         if let Some(image_inputs) = image_inputs {
             body["image"] = if image_inputs.len() == 1 {
                 Value::String(image_inputs[0].clone())
@@ -862,6 +880,14 @@ impl CompatibleProvider {
         });
         if let Some(size) = Self::resolve_chat_size(&request.size) {
             body["size"] = Value::String(size.to_string());
+        }
+        if let Some(image_size) =
+            Self::resolve_gemini_image_size(&config.request_model, &request.size)
+        {
+            body["image_size"] = Value::String(image_size.to_string());
+            if !request.aspect_ratio.trim().is_empty() {
+                body["aspect_ratio"] = Value::String(request.aspect_ratio.trim().to_string());
+            }
         }
         self.send_json_request(&endpoint, api_key, body, CompatibleApiFormat::OpenAiChat)
             .await

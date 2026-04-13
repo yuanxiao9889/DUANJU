@@ -1,6 +1,7 @@
 import type { ImageModelDefinition, ResolutionOption } from '../../types';
 
-export const COMFLY_NANO_BANANA_PRO_MODEL_ID = 'comfly/nano-banana-pro';
+export const COMFLY_GEMINI_FLASH_IMAGE_PREVIEW_MODEL_ID =
+  'comfly/gemini-3.1-flash-image-preview';
 
 const ASPECT_RATIOS = [
   '1:1',
@@ -26,11 +27,12 @@ const RESOLUTION_OPTIONS: ResolutionOption[] = [
 ];
 
 export const imageModel: ImageModelDefinition = {
-  id: COMFLY_NANO_BANANA_PRO_MODEL_ID,
+  id: COMFLY_GEMINI_FLASH_IMAGE_PREVIEW_MODEL_ID,
   mediaType: 'image',
-  displayName: '\u9999\u8549Pro',
+  displayName: 'Gemini 3.1 Flash',
   providerId: 'comfly',
-  description: 'Comfly Nano Banana Pro with 1K/2K/4K output controlled by image_size.',
+  description:
+    'Comfly Gemini 3.1 Flash Image Preview with up to 4K output, stronger reference consistency, long-image ratios, better text rendering, search grounding, and built-in thinking.',
   eta: '30s',
   expectedDurationMs: 30000,
   defaultAspectRatio: '1:1',
@@ -41,7 +43,7 @@ export const imageModel: ImageModelDefinition = {
   })),
   resolutions: RESOLUTION_OPTIONS,
   resolveRequest: ({ referenceImageCount }) => ({
-    requestModel: COMFLY_NANO_BANANA_PRO_MODEL_ID,
+    requestModel: COMFLY_GEMINI_FLASH_IMAGE_PREVIEW_MODEL_ID,
     modeLabel: referenceImageCount > 0 ? 'Edit' : 'Generate',
   }),
 };

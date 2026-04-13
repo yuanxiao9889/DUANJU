@@ -457,7 +457,9 @@ impl NewApiProvider {
 
     fn resolve_gemini_image_size(request_model: &str, size: &str) -> Option<&'static str> {
         let lower_model = request_model.trim().to_ascii_lowercase();
-        let supports_image_size = lower_model.contains("3.") || lower_model.contains("preview");
+        let supports_image_size = lower_model.contains("nano-banana-pro")
+            || lower_model.contains("3.")
+            || lower_model.contains("preview");
         if !supports_image_size {
             return None;
         }
@@ -1556,7 +1558,7 @@ impl NewApiProvider {
             })?;
 
         let mut form = Form::new()
-            .text("model", request_model)
+            .text("model", request_model.clone())
             .text("prompt", request.prompt.clone())
             .text("response_format", "url".to_string());
 
@@ -1580,6 +1582,12 @@ impl NewApiProvider {
 
         if let Some(size) = Self::resolve_openai_size(&request.size, &request.aspect_ratio) {
             form = form.text("size", size);
+        }
+        if let Some(image_size) = Self::resolve_gemini_image_size(&request_model, &request.size) {
+            form = form.text("image_size", image_size.to_string());
+            if !request.aspect_ratio.trim().is_empty() {
+                form = form.text("aspect_ratio", request.aspect_ratio.trim().to_string());
+            }
         }
 
         self.send_multipart_request(&endpoint, api_key, form).await

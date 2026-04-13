@@ -176,6 +176,7 @@ interface DuplicateResult {
 }
 
 const ALT_DRAG_COPY_Z_INDEX = 2000;
+const SCRIPT_CHAPTER_NODE_DRAG_HANDLE_SELECTOR = '.script-chapter-node__drag-handle';
 const GENERATION_JOB_POLL_INTERVAL_MS = 1400;
 const GENERATION_JOB_RECOVERY_THRESHOLD_MS = 2 * 60 * 1000;
 const GENERATION_JOB_RECOVERY_SWEEP_INTERVAL_MS = 15 * 1000;
@@ -3357,7 +3358,18 @@ export function Canvas() {
     [nodes]
   );
   const flowNodes = useMemo<CanvasNode[]>(
-    () => nodes.map((node) => withSemanticNodePresentation(node)),
+    () => nodes.map((node) => {
+      const presentedNode = withSemanticNodePresentation(node);
+
+      if (node.type !== CANVAS_NODE_TYPES.scriptChapter) {
+        return presentedNode;
+      }
+
+      return {
+        ...presentedNode,
+        dragHandle: SCRIPT_CHAPTER_NODE_DRAG_HANDLE_SELECTOR,
+      };
+    }),
     [nodes]
   );
   const colorLegendLabels = project?.colorLabels ?? createDefaultCanvasColorLabelMap();

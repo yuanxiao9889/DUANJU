@@ -196,7 +196,22 @@ export function RichTextEditor({
   );
 
   if (!editor) {
-    return null;
+    return (
+      <div className={`flex flex-col h-full min-h-0 ${className}`}>
+        <div className="mb-2 flex items-center justify-between border-b border-border-dark pb-2 shrink-0">
+          <div className="h-4 w-24 animate-pulse rounded bg-white/8" />
+          <div className="h-4 w-12 animate-pulse rounded bg-white/6" />
+        </div>
+        <div className="flex-1 min-h-0 rounded-xl border border-border-dark bg-bg-dark/35 px-3 py-3">
+          <div className="space-y-2">
+            <div className="h-4 w-11/12 animate-pulse rounded bg-white/6" />
+            <div className="h-4 w-4/5 animate-pulse rounded bg-white/6" />
+            <div className="h-4 w-5/6 animate-pulse rounded bg-white/6" />
+            <div className="h-4 w-3/5 animate-pulse rounded bg-white/6" />
+          </div>
+        </div>
+      </div>
+    );
   }
 
   return (

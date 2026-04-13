@@ -10,9 +10,19 @@ export default defineConfig(async () => ({
   plugins: [react()],
 
   resolve: {
-    alias: {
-      "@": path.resolve(__dirname, "./src"),
-    },
+    alias: [
+      {
+        find: "use-sync-external-store/shim",
+        replacement: path.resolve(
+          __dirname,
+          "./src/shims/use-sync-external-store/shim"
+        ),
+      },
+      {
+        find: "@",
+        replacement: path.resolve(__dirname, "./src"),
+      },
+    ],
   },
 
   // Vite options tailored for Tauri development and only applied in `tauri dev` or `tauri build`
@@ -76,6 +86,14 @@ export default defineConfig(async () => ({
         },
       },
     },
+  },
+  optimizeDeps: {
+    exclude: [
+      "@tiptap/react",
+      "@tiptap/starter-kit",
+      "@tiptap/pm",
+      "@tiptap/extension-text-style",
+    ],
   },
   // 2. tauri expects a fixed port, fail if that port is not available
   server: {

@@ -4,8 +4,16 @@ import { ChevronDown, ChevronRight, ChevronLeft, ChevronRight as ExpandIcon, Use
 import { useTranslation } from 'react-i18next';
 import { useProjectStore } from '@/stores/projectStore';
 import { useCanvasStore } from '@/stores/canvasStore';
-import { extractAssetsFromChapters } from '../application/assetExtractor';
+import {
+  applyExtractedAssetsToCanvas,
+  buildAssetExtractionChunks,
+  extractAssetsFromChunk,
+} from '../application/assetExtractor';
 import { AssetEditDialog, type AssetType } from './AssetEditDialog';
+import {
+  AssetExtractionProgressDialog,
+  type AssetExtractionProgressState,
+} from './AssetExtractionProgressDialog';
 import { BranchSelectionDialog } from './BranchSelectionDialog';
 import { PlotTreeView } from './PlotTreeView';
 import { ChapterCountDialog } from './ChapterCountDialog';
@@ -27,6 +35,22 @@ interface CollapsibleSectionProps {
   onAdd?: () => void;
   children: React.ReactNode;
 }
+
+const EMPTY_ASSET_EXTRACTION_PROGRESS: AssetExtractionProgressState = {
+  isOpen: false,
+  isRunning: false,
+  totalBatches: 0,
+  completedBatches: 0,
+  currentLabel: '',
+  summary: {
+    characters: 0,
+    locations: 0,
+    items: 0,
+    worldviews: 0,
+  },
+  logs: [],
+  error: '',
+};
 
 function CollapsibleSection({ title, icon, count, onAdd, children }: CollapsibleSectionProps) {
   const [isExpanded, setIsExpanded] = useState(true);
@@ -115,6 +139,9 @@ export function ScriptBiblePanel() {
   const [showExportDialog, setShowExportDialog] = useState(false);
   const [isPanelCollapsed, setIsPanelCollapsed] = useState(false);
   const [isExtracting, setIsExtracting] = useState(false);
+  const [assetExtractionProgress, setAssetExtractionProgress] = useState<AssetExtractionProgressState>(
+    EMPTY_ASSET_EXTRACTION_PROGRESS
+  );
   const [editDialogState, setEditDialogState] = useState<{
     isOpen: boolean;
     assetType: AssetType;
@@ -221,11 +248,143 @@ export function ScriptBiblePanel() {
   }, [nodes, addNode, getNextPosition, setCenter]);
 
   const handleExtractAssets = useCallback(() => {
+    const initialNodes = useCanvasStore.getState().nodes;
+    const chunks = buildAssetExtractionChunks(initialNodes);
+
+    if (chunks.length === 0) {
+      setAssetExtractionProgress({
+        ...EMPTY_ASSET_EXTRACTION_PROGRESS,
+        isOpen: true,
+        error: t('script.assetExtraction.noContent'),
+        currentLabel: t('script.assetExtraction.noContent'),
+      });
+      return;
+    }
+
     setIsExtracting(true);
-    setTimeout(() => {
-      extractAssetsFromChapters();
-      setIsExtracting(false);
-    }, 100);
+    setAssetExtractionProgress({
+      ...EMPTY_ASSET_EXTRACTION_PROGRESS,
+      isOpen: true,
+      isRunning: true,
+      totalBatches: chunks.length,
+      currentLabel: t('script.assetExtraction.preparing'),
+      logs: chunks.map((chunk) => ({
+        id: chunk.id,
+        label: chunk.label,
+        detail: t('script.assetExtraction.batchPending', { chars: chunk.charCount }),
+        status: 'pending',
+      })),
+    });
+
+    void (async () => {
+      const totalSummary = {
+        characters: 0,
+        locations: 0,
+        items: 0,
+        worldviews: 0,
+      };
+      let activeChunkId = '';
+
+      try {
+        for (let index = 0; index < chunks.length; index += 1) {
+          const chunk = chunks[index];
+          activeChunkId = chunk.id;
+
+          setAssetExtractionProgress((current) => ({
+            ...current,
+            currentLabel: t('script.assetExtraction.submittingBatch', {
+              current: index + 1,
+              total: chunks.length,
+              label: chunk.label,
+            }),
+            logs: current.logs.map((log) => (
+              log.id === chunk.id
+                ? {
+                    ...log,
+                    status: 'running',
+                    detail: t('script.assetExtraction.batchRunning', {
+                      chars: chunk.charCount,
+                    }),
+                  }
+                : log
+            )),
+          }));
+
+          const extractedAssets = await extractAssetsFromChunk(chunk);
+          const store = useCanvasStore.getState();
+          const applied = applyExtractedAssetsToCanvas({
+            extractedAssets,
+            nodes: store.nodes,
+            addNode: store.addNode,
+          });
+
+          totalSummary.characters += applied.characters;
+          totalSummary.locations += applied.locations;
+          totalSummary.items += applied.items;
+          totalSummary.worldviews += applied.worldviews;
+
+          setAssetExtractionProgress((current) => ({
+            ...current,
+            completedBatches: index + 1,
+            summary: { ...totalSummary },
+            currentLabel: index + 1 < chunks.length
+              ? t('script.assetExtraction.waitingNextBatch')
+              : t('script.assetExtraction.completedHint'),
+            logs: current.logs.map((log) => (
+              log.id === chunk.id
+                ? {
+                    ...log,
+                    status: 'completed',
+                    detail: t('script.assetExtraction.batchCompleted', {
+                      characters: applied.characters,
+                      locations: applied.locations,
+                      items: applied.items,
+                      worldviews: applied.worldviews,
+                    }),
+                  }
+                : log
+            )),
+          }));
+        }
+
+        setAssetExtractionProgress((current) => ({
+          ...current,
+          isRunning: false,
+          currentLabel: t('script.assetExtraction.completedHint'),
+          summary: { ...totalSummary },
+        }));
+      } catch (error) {
+        const message = error instanceof Error
+          ? error.message
+          : t('script.assetExtraction.unknownError');
+
+        setAssetExtractionProgress((current) => ({
+          ...current,
+          isRunning: false,
+          error: message,
+          currentLabel: t('script.assetExtraction.failedTitle'),
+          logs: current.logs.map((log) => (
+            log.id === activeChunkId
+              ? {
+                  ...log,
+                  status: 'failed',
+                  detail: message,
+                }
+              : log
+          )),
+        }));
+      } finally {
+        setIsExtracting(false);
+      }
+    })();
+  }, [t]);
+
+  const handleCloseAssetExtractionProgress = useCallback(() => {
+    setAssetExtractionProgress((current) => (
+      current.isRunning
+        ? current
+        : EMPTY_ASSET_EXTRACTION_PROGRESS
+    ));
   }, []);
 
   const handlePanelCollapse = useCallback(() => {
@@ -591,6 +750,11 @@ export function ScriptBiblePanel() {
       <BranchSelectionDialog
         isOpen={showExportDialog}
         onClose={() => setShowExportDialog(false)}
+      />
+
+      <AssetExtractionProgressDialog
+        progress={assetExtractionProgress}
+        onClose={handleCloseAssetExtractionProgress}
       />
     </div>
   );

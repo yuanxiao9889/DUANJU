@@ -1,6 +1,6 @@
 import { memo, useCallback, useEffect, useMemo, useState } from 'react';
 import { Handle, Position, useUpdateNodeInternals, type NodeProps } from '@xyflow/react';
-import { Download, SquareArrowOutUpRight } from 'lucide-react';
+import { Download, Scissors, SquareArrowOutUpRight } from 'lucide-react';
 import { open } from '@tauri-apps/plugin-dialog';
 import { openPath, revealItemInDir } from '@tauri-apps/plugin-opener';
 import { join } from '@tauri-apps/api/path';
@@ -179,11 +179,15 @@ export const StoryboardSplitResultNode = memo(({
   const setSelectedNode = useCanvasStore((state) => state.setSelectedNode);
   const updateNodeData = useCanvasStore((state) => state.updateNodeData);
   const addDerivedExportNode = useCanvasStore((state) => state.addDerivedExportNode);
+  const addStoryboardSplitFrameExportNodes = useCanvasStore(
+    (state) => state.addStoryboardSplitFrameExportNodes
+  );
   const addEdge = useCanvasStore((state) => state.addEdge);
   const currentProjectName = useProjectStore((state) => state.currentProject?.name);
   const downloadPresetPaths = useSettingsStore((state) => state.downloadPresetPaths);
 
   const [isExportingFrames, setIsExportingFrames] = useState(false);
+  const [isSeparatingFrames, setIsSeparatingFrames] = useState(false);
   const [exportError, setExportError] = useState<string | null>(null);
 
   const orderedFrames = useMemo(
@@ -342,6 +346,52 @@ export const StoryboardSplitResultNode = memo(({
     }
   }, [addDerivedExportNode, addEdge, id, t]);
 
+  const handleSeparateAllFrames = useCallback(async () => {
+    if (isSeparatingFrames) {
+      return;
+    }
+
+    const frameEntries = orderedFrames
+      .map((frame, index) => ({
+        sourceImage: frame.imageUrl ?? frame.previewImageUrl ?? '',
+        title: t('node.storyboardNode.frameIndex', { index: index + 1 }),
+      }))
+      .filter((frame): frame is { sourceImage: string; title: string } => frame.sourceImage.length > 0);
+
+    if (frameEntries.length === 0) {
+      setExportError(t('node.storyboardSplitResult.editEmpty'));
+      return;
+    }
+
+    setExportError(null);
+    setIsSeparatingFrames(true);
+    try {
+      const preparedFrames = await Promise.all(
+        frameEntries.map(async (frame) => {
+          const prepared = await prepareNodeImage(frame.sourceImage);
+          return {
+            imageUrl: prepared.imageUrl,
+            previewImageUrl: prepared.previewImageUrl,
+            aspectRatio: prepared.aspectRatio,
+            title: frame.title,
+          };
+        })
+      );
+
+      addStoryboardSplitFrameExportNodes(id, preparedFrames, {
+        gridCols,
+      });
+    } catch (error) {
+      setExportError(
+        error instanceof Error && error.message.trim()
+          ? error.message
+          : t('node.storyboardSplitResult.separateAllFailed')
+      );
+    } finally {
+      setIsSeparatingFrames(false);
+    }
+  }, [addStoryboardSplitFrameExportNodes, gridCols, id, isSeparatingFrames, orderedFrames, t]);
+
   return (
     <div
       className={`
@@ -404,21 +454,38 @@ export const StoryboardSplitResultNode = memo(({
             capacity: totalGridSlots,
           })}
         </div>
-        <UiButton
-          size="sm"
-          variant="primary"
-          className={`nodrag ${NODE_CONTROL_PRIMARY_BUTTON_CLASS}`}
-          onClick={(event) => {
-            event.stopPropagation();
-            void handleExportFrames();
-          }}
-          disabled={isExportingFrames}
-        >
-          <Download className={NODE_CONTROL_ICON_CLASS} />
-          {isExportingFrames
-            ? t('node.storyboardSplitResult.exportingFrames')
-            : t('node.storyboardSplitResult.exportFrames')}
-        </UiButton>
+        <div className="flex items-center gap-2">
+          <UiButton
+            size="sm"
+            variant="ghost"
+            className={`nodrag ${NODE_CONTROL_PRIMARY_BUTTON_CLASS}`}
+            onClick={(event) => {
+              event.stopPropagation();
+              void handleSeparateAllFrames();
+            }}
+            disabled={isSeparatingFrames}
+          >
+            <Scissors className={NODE_CONTROL_ICON_CLASS} />
+            {isSeparatingFrames
+              ? t('node.storyboardSplitResult.separatingAll')
+              : t('node.storyboardSplitResult.separateAll')}
+          </UiButton>
+          <UiButton
+            size="sm"
+            variant="primary"
+            className={`nodrag ${NODE_CONTROL_PRIMARY_BUTTON_CLASS}`}
+            onClick={(event) => {
+              event.stopPropagation();
+              void handleExportFrames();
+            }}
+            disabled={isExportingFrames}
+          >
+            <Download className={NODE_CONTROL_ICON_CLASS} />
+            {isExportingFrames
+              ? t('node.storyboardSplitResult.exportingFrames')
+              : t('node.storyboardSplitResult.exportFrames')}
+          </UiButton>
+        </div>
       </div>
 
       {exportError ? (

@@ -30,9 +30,6 @@ interface ScriptWelcomeDialogProps {
 
 type WelcomeMode = 'select' | 'import' | 'create';
 
-const MIN_CHAPTERS = 3;
-const MAX_CHAPTERS = 12;
-
 const INITIAL_FORM: StoryPlannerInput = {
   premise: '',
   protagonist: '',
@@ -121,6 +118,11 @@ export function ScriptWelcomeDialog({ isOpen, onClose }: ScriptWelcomeDialogProp
   ) => {
     setForm((current) => ({ ...current, [key]: value }));
   }, []);
+
+  const handleChapterCountChange = useCallback((value: string) => {
+    const nextCount = Math.floor(Number(value));
+    updateForm('chapterCount', Number.isFinite(nextCount) && nextCount > 0 ? nextCount : 1);
+  }, [updateForm]);
 
   const canGenerateStory = useMemo(() => {
     return form.premise.trim().length > 0;
@@ -397,7 +399,7 @@ export function ScriptWelcomeDialog({ isOpen, onClose }: ScriptWelcomeDialogProp
     <div className="fixed inset-0 z-50 flex items-center justify-center">
       <div className="absolute inset-0 bg-black/80" />
 
-      <div className="relative flex max-h-[88vh] w-[920px] max-w-[calc(100vw-2rem)] flex-col overflow-hidden rounded-2xl border border-border-dark bg-surface-dark shadow-2xl">
+      <div className="relative flex max-h-[92vh] w-[1180px] max-w-[calc(100vw-1.5rem)] flex-col overflow-hidden rounded-2xl border border-border-dark bg-surface-dark shadow-2xl">
         <div className="flex items-center justify-between border-b border-border-dark px-5 py-4">
           <div className="flex items-center gap-2">
             <Sparkles className="h-5 w-5 text-amber-400" />
@@ -716,18 +718,15 @@ export function ScriptWelcomeDialog({ isOpen, onClose }: ScriptWelcomeDialogProp
                     <span className="mb-1.5 block text-sm font-medium text-text-dark">
                       {t('script.storyStart.chapterCount')}
                     </span>
-                    <div className="flex items-center gap-3 rounded-xl border border-border-dark bg-bg-dark px-3 py-2">
+                    <div className="rounded-xl border border-border-dark bg-bg-dark px-3 py-2">
                       <input
-                        type="range"
-                        min={MIN_CHAPTERS}
-                        max={MAX_CHAPTERS}
+                        type="number"
+                        min={1}
+                        step={1}
                         value={form.chapterCount}
-                        onChange={(event) => updateForm('chapterCount', Number(event.target.value))}
-                        className="flex-1 accent-amber-500"
+                        onChange={(event) => handleChapterCountChange(event.target.value)}
+                        className="w-full bg-transparent text-sm font-medium text-amber-300 outline-none [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
                       />
-                      <span className="w-10 text-right text-sm font-medium text-amber-300">
-                        {form.chapterCount}
-                      </span>
                     </div>
                   </label>
                 </div>
@@ -803,63 +802,78 @@ export function ScriptWelcomeDialog({ isOpen, onClose }: ScriptWelcomeDialogProp
                     </div>
                   </div>
 
-                  <div className="grid min-h-0 flex-1 gap-0 lg:grid-cols-[320px_minmax(0,1fr)]">
-                    <div className="overflow-y-auto border-r border-border-dark px-5 py-4">
-                      <div className="space-y-4">
-                        <div>
+                  <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4">
+                    <div className="mx-auto flex max-w-5xl flex-col gap-4">
+                      <div className="grid gap-4 xl:grid-cols-[320px_minmax(0,1fr)]">
+                        <div className="rounded-2xl border border-border-dark bg-bg-dark/28 p-4">
                           <div className="text-xs uppercase tracking-[0.08em] text-text-muted">
                             {t('script.storyStart.storyProfile')}
                           </div>
-                          <div className="mt-2 space-y-2 text-sm text-text-muted">
-                            <p><span className="text-text-dark">{t('script.storyStart.genre')}:</span> {plannedStory.genre || '-'}</p>
-                            <p><span className="text-text-dark">{t('script.storyStart.theme')}:</span> {plannedStory.theme || '-'}</p>
-                            <p><span className="text-text-dark">{t('script.storyStart.protagonist')}:</span> {plannedStory.protagonist || '-'}</p>
-                            <p><span className="text-text-dark">{t('script.storyStart.want')}:</span> {plannedStory.want || '-'}</p>
-                            <p><span className="text-text-dark">{t('script.storyStart.stakes')}:</span> {plannedStory.stakes || '-'}</p>
+                          <div className="mt-3 grid gap-3 sm:grid-cols-2 xl:grid-cols-1">
+                            <div className="rounded-xl border border-border-dark bg-surface-dark/70 px-3 py-2">
+                              <div className="text-[11px] text-text-muted">{t('script.storyStart.genre')}</div>
+                              <div className="mt-1 text-sm font-medium text-text-dark">{plannedStory.genre || '-'}</div>
+                            </div>
+                            <div className="rounded-xl border border-border-dark bg-surface-dark/70 px-3 py-2">
+                              <div className="text-[11px] text-text-muted">{t('script.storyStart.theme')}</div>
+                              <div className="mt-1 text-sm font-medium text-text-dark">{plannedStory.theme || '-'}</div>
+                            </div>
+                            <div className="rounded-xl border border-border-dark bg-surface-dark/70 px-3 py-2">
+                              <div className="text-[11px] text-text-muted">{t('script.storyStart.protagonist')}</div>
+                              <div className="mt-1 text-sm font-medium text-text-dark">{plannedStory.protagonist || '-'}</div>
+                            </div>
+                            <div className="rounded-xl border border-border-dark bg-surface-dark/70 px-3 py-2">
+                              <div className="text-[11px] text-text-muted">{t('script.storyStart.want')}</div>
+                              <div className="mt-1 text-sm font-medium text-text-dark">{plannedStory.want || '-'}</div>
+                            </div>
+                            <div className="rounded-xl border border-border-dark bg-surface-dark/70 px-3 py-2 sm:col-span-2 xl:col-span-1">
+                              <div className="text-[11px] text-text-muted">{t('script.storyStart.stakes')}</div>
+                              <div className="mt-1 text-sm leading-6 text-text-dark">{plannedStory.stakes || '-'}</div>
+                            </div>
                           </div>
                         </div>
 
-                        <div>
+                        <div className="rounded-2xl border border-border-dark bg-bg-dark/28 p-4">
                           <div className="text-xs uppercase tracking-[0.08em] text-text-muted">
                             {t('script.storyStart.beats')}
                           </div>
-                          <div className="mt-3 space-y-2">
+                          <div className="mt-3 grid gap-2 lg:grid-cols-2">
                             {plannedStory.beats.map((beat) => (
-                              <div key={beat.key} className="rounded-xl border border-border-dark bg-bg-dark/45 px-3 py-2">
+                              <div key={beat.key} className="rounded-xl border border-border-dark bg-surface-dark/70 px-3 py-3">
                                 <div className="text-sm font-medium text-text-dark">{beat.title}</div>
-                                <div className="mt-1 text-xs leading-5 text-text-muted">{beat.summary}</div>
+                                <div className="mt-1 text-xs leading-6 text-text-muted">
+                                  {beat.summary || beat.dramaticQuestion}
+                                </div>
                               </div>
                             ))}
                           </div>
                         </div>
                       </div>
-                    </div>
 
-                    <div className="overflow-y-auto px-5 py-4">
-                      <div className="space-y-3">
+                      <div className="space-y-4">
                         {plannedStory.chapters.map((chapter) => (
                           <div key={chapter.number} className="rounded-2xl border border-border-dark bg-bg-dark/35 p-4">
-                            <div className="flex items-start justify-between gap-3">
-                              <div>
-                                <div className="text-sm font-semibold text-text-dark">
+                            <div className="flex flex-wrap items-start justify-between gap-3">
+                              <div className="min-w-0 flex-1">
+                                <div className="text-base font-semibold text-text-dark">
                                   {t('script.storyStart.chapterLabel', { number: chapter.number })} {chapter.title}
                                 </div>
-                                <p className="mt-1 text-sm leading-6 text-text-muted">
+                                <p className="mt-2 break-words text-sm leading-7 text-text-muted">
                                   {chapter.summary}
                                 </p>
                               </div>
-                              <span className="rounded-full border border-amber-500/25 bg-amber-500/10 px-2 py-1 text-[11px] text-amber-300">
+                              <span className="shrink-0 rounded-full border border-amber-500/25 bg-amber-500/10 px-2 py-1 text-[11px] text-amber-300">
                                 {t('script.storyStart.sceneCount', { count: chapter.scenes.length })}
                               </span>
                             </div>
-                            <div className="mt-3 grid gap-2 md:grid-cols-2">
+                            <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
                               {chapter.scenes.map((scene, sceneIndex) => (
-                                <div key={`${chapter.number}-${sceneIndex}`} className="rounded-xl border border-border-dark bg-surface-dark/80 px-3 py-2">
+                                <div key={`${chapter.number}-${sceneIndex}`} className="rounded-xl border border-border-dark bg-surface-dark/80 px-3 py-3">
                                   <div className="text-sm font-medium text-text-dark">{scene.title}</div>
-                                  <div className="mt-1 text-xs leading-5 text-text-muted">
+                                  <div className="mt-2 text-xs leading-6 text-text-muted">
                                     {scene.summary || scene.purpose}
                                   </div>
-                                  <div className="mt-2 text-[11px] text-amber-300">
+                                  <div className="mt-3 text-[11px] leading-5 text-amber-300">
                                     {scene.visualHook || scene.goal}
                                   </div>
                                 </div>

@@ -1,6 +1,6 @@
 import { memo, useState, useCallback, useEffect, useRef, Fragment, useMemo } from 'react';
 import { Handle, Position } from '@xyflow/react';
-import { FileText, GitBranch, Sparkles, Pencil, PlusCircle, GitFork } from 'lucide-react';
+import { FileText, GitBranch, Sparkles, Pencil, PlusCircle, GitFork, GripHorizontal } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { NodeHeader, NODE_HEADER_FLOATING_POSITION_CLASS } from '@/features/canvas/ui/NodeHeader';
 import { NodeResizeHandle } from '@/features/canvas/ui/NodeResizeHandle';
@@ -13,6 +13,7 @@ import {
   SCRIPT_CHAPTER_NODE_DEFAULT_WIDTH,
   createDefaultSceneCard,
   normalizeSceneCards,
+  type SceneCard,
   type ScriptChapterNodeData,
 } from '@/features/canvas/domain/canvasNodes';
 import { resolveNodeDisplayName } from '@/features/canvas/domain/nodeDisplay';
@@ -70,6 +71,18 @@ function stripHtmlToPlainText(html: string): string {
     .trim();
 }
 
+function composeChapterContentFromScenes(scenes: SceneCard[], fallbackContent: string): string {
+  const parts = scenes
+    .map((scene) => scene.draftHtml.trim())
+    .filter((value) => value.length > 0);
+
+  if (parts.length === 0) {
+    return fallbackContent;
+  }
+
+  return parts.join('<hr />');
+}
+
 type ScriptChapterNodeProps = {
   id: string;
   data: ScriptChapterNodeData;
@@ -99,6 +112,7 @@ const CONTEXT_MENU_OFFSET_Y = 8;
 const CONTEXT_MENU_WIDTH = 140;
 const CONTEXT_MENU_HEIGHT = 80;
 const EMPTY_NODE_IDS: string[] = [];
+export const SCRIPT_CHAPTER_NODE_DRAG_HANDLE_CLASS = 'script-chapter-node__drag-handle';
 
 function TextContextMenu({
   position,
@@ -249,13 +263,40 @@ export const ScriptChapterNode = memo(({ id, data, selected, width, height }: Sc
           requestId: replacementRequestIdRef.current,
           text: result,
         });
+      } else if (aiDialogMode === 'expandFromSummary' || aiDialogMode === 'expandFromMerged') {
+        const normalizedScenes = normalizeSceneCards(data.scenes, data.content);
+        const targetSceneId = activeChapterId === id && activeSceneId
+          ? normalizedScenes.find((scene) => scene.id === activeSceneId)?.id
+          : undefined;
+        const resolvedTargetSceneId = targetSceneId ?? normalizedScenes[0]?.id ?? createDefaultSceneCard(0).id;
+
+        const nextScenes: SceneCard[] = normalizedScenes.map((scene) => {
+          if (scene.id !== resolvedTargetSceneId) {
+            return scene;
+          }
+
+          const previousDraftHtml = scene.draftHtml.trim();
+
+          return {
+            ...scene,
+            draftHtml: result,
+            sourceDraftHtml: scene.sourceDraftHtml?.trim() || previousDraftHtml || undefined,
+            sourceDraftLabel: scene.sourceDraftLabel?.trim() || undefined,
+            status: result.trim() ? 'drafting' : 'idea',
+          };
+        });
+
+        updateNodeData(id, {
+          scenes: nextScenes,
+          content: composeChapterContentFromScenes(nextScenes, data.content),
+        });
       } else {
         updateNodeData(id, { content: result });
       }
       setAiDialogMode(null);
       setSelectedText('');
     },
-    [id, updateNodeData, selectedText]
+    [activeChapterId, activeSceneId, aiDialogMode, data.content, data.scenes, id, selectedText, updateNodeData]
   );
 
   const handleReplacementApplied = useCallback(() => {
@@ -380,7 +421,7 @@ export const ScriptChapterNode = memo(({ id, data, selected, width, height }: Sc
     <>
       <div
         ref={nodeContainerRef}
-        className={`group relative overflow-hidden rounded-[18px] border ${
+        className={`group relative overflow-visible rounded-[18px] border ${
           selected
             ? 'border-amber-500/50 shadow-[0_0_0_1px_rgba(245,158,11,0.35)]'
             : 'border-[rgba(15,23,42,0.2)] dark:border-[rgba(255,255,255,0.26)]'
@@ -405,8 +446,22 @@ export const ScriptChapterNode = memo(({ id, data, selected, width, height }: Sc
           onTitleChange={handleTitleChange}
         />
 
-        <div className="nodrag flex h-full flex-col overflow-hidden p-3">
-          <div className="flex items-center gap-2 shrink-0">
+        <div className="flex h-full flex-col overflow-hidden">
+          <div className="shrink-0 px-3 pt-3">
+            <div
+              className={`${SCRIPT_CHAPTER_NODE_DRAG_HANDLE_CLASS} flex h-7 items-center justify-center gap-2 rounded-xl border border-amber-500/12 bg-amber-500/[0.06] text-[11px] text-amber-200/75 transition-colors cursor-grab active:cursor-grabbing hover:border-amber-500/24 hover:bg-amber-500/[0.1]`}
+            >
+              <GripHorizontal className="h-3.5 w-3.5" />
+              <div className="flex items-center gap-1">
+                <span className="h-1 w-1 rounded-full bg-current/80" />
+                <span className="h-1 w-1 rounded-full bg-current/80" />
+                <span className="h-1 w-1 rounded-full bg-current/80" />
+              </div>
+            </div>
+          </div>
+
+          <div className="nodrag flex min-h-0 flex-1 flex-col overflow-hidden px-3 pb-3 pt-2">
+            <div className="flex items-center gap-2 shrink-0">
             <span className={`text-xs px-1.5 py-0.5 rounded ${
               data.branchType === 'branch' 
                 ? 'bg-purple-500/20 text-purple-400' 
@@ -621,6 +676,7 @@ export const ScriptChapterNode = memo(({ id, data, selected, width, height }: Sc
               创建分支
             </button>
           ) : null}
+        </div>
         </div>
         <Handle
           type="source"
