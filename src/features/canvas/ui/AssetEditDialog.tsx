@@ -2,9 +2,12 @@ import { useState, useCallback, useEffect } from 'react';
 import { X, Users, MapPin, Package, Trash2, Globe } from 'lucide-react';
 import {
   CANVAS_NODE_TYPES,
+  type ScriptCharacterAsset,
   type ScriptCharacterNodeData,
-  type ScriptLocationNodeData,
+  type ScriptItemAsset,
   type ScriptItemNodeData,
+  type ScriptLocationAsset,
+  type ScriptLocationNodeData,
   type ScriptWorldviewNodeData,
 } from '@/features/canvas/domain/canvasNodes';
 import { useCanvasStore } from '@/stores/canvasStore';
@@ -12,11 +15,34 @@ import { UiButton } from '@/components/ui/primitives';
 
 export type AssetType = 'character' | 'location' | 'item' | 'worldview';
 
+export interface AssetEditFormData {
+  name: string;
+  description: string;
+  personality?: string;
+  appearance?: string;
+  appearances?: string[];
+  era?: string;
+  technology?: string;
+  magic?: string;
+  society?: string;
+  geography?: string;
+}
+
 interface AssetEditDialogProps {
   isOpen: boolean;
   assetType: AssetType;
-  editData?: ScriptCharacterNodeData | ScriptLocationNodeData | ScriptItemNodeData | ScriptWorldviewNodeData;
+  editData?:
+    | ScriptCharacterNodeData
+    | ScriptLocationNodeData
+    | ScriptItemNodeData
+    | ScriptWorldviewNodeData
+    | ScriptCharacterAsset
+    | ScriptLocationAsset
+    | ScriptItemAsset;
   nodeId?: string;
+  mode?: 'create' | 'edit';
+  onSaveAsset?: (formData: AssetEditFormData) => void;
+  onDeleteAsset?: () => void;
   onClose: () => void;
 }
 
@@ -25,22 +51,14 @@ export function AssetEditDialog({
   assetType,
   editData,
   nodeId,
+  mode = nodeId ? 'edit' : 'create',
+  onSaveAsset,
+  onDeleteAsset,
   onClose,
 }: AssetEditDialogProps) {
   const { addNode, updateNodeData, deleteNode } = useCanvasStore();
 
-  const [formData, setFormData] = useState<{
-    name: string;
-    description: string;
-    personality?: string;
-    appearance?: string;
-    appearances?: string[];
-    era?: string;
-    technology?: string;
-    magic?: string;
-    society?: string;
-    geography?: string;
-  }>({
+  const [formData, setFormData] = useState<AssetEditFormData>({
     name: '',
     description: '',
     personality: '',
@@ -87,6 +105,12 @@ export function AssetEditDialog({
   const handleSave = useCallback(() => {
     if (!formData.name.trim()) return;
 
+    if (onSaveAsset) {
+      onSaveAsset(formData);
+      onClose();
+      return;
+    }
+
     const nodeType = {
       character: CANVAS_NODE_TYPES.scriptCharacter,
       location: CANVAS_NODE_TYPES.scriptLocation,
@@ -106,7 +130,9 @@ export function AssetEditDialog({
           geography: formData.geography,
         });
       } else {
-        updateNodeData(nodeId, formData);
+        updateNodeData(nodeId, {
+          ...formData,
+        } as Record<string, unknown>);
       }
     } else {
       const x = 100 + Math.random() * 200;
@@ -135,25 +161,33 @@ export function AssetEditDialog({
       addNode(nodeType, { x, y }, nodeData);
     }
     onClose();
-  }, [formData, assetType, nodeId, editData, addNode, updateNodeData, onClose]);
+  }, [formData, assetType, nodeId, editData, addNode, updateNodeData, onClose, onSaveAsset]);
 
   const handleDelete = useCallback(() => {
+    if (onDeleteAsset) {
+      onDeleteAsset();
+      onClose();
+      return;
+    }
+
     if (nodeId) {
       deleteNode(nodeId);
       onClose();
     }
-  }, [nodeId, deleteNode, onClose]);
+  }, [nodeId, deleteNode, onClose, onDeleteAsset]);
+
+  const isEditing = mode === 'edit';
 
   const getTitle = () => {
     switch (assetType) {
       case 'character':
-        return nodeId ? '编辑角色' : '新建角色';
+        return isEditing ? '编辑角色' : '新建角色';
       case 'location':
-        return nodeId ? '编辑场景' : '新建场景';
+        return isEditing ? '编辑场景' : '新建场景';
       case 'item':
-        return nodeId ? '编辑道具' : '新建道具';
+        return isEditing ? '编辑道具' : '新建道具';
       case 'worldview':
-        return nodeId ? '编辑世界观' : '新建世界观';
+        return isEditing ? '编辑世界观' : '新建世界观';
     }
   };
 
@@ -342,7 +376,7 @@ export function AssetEditDialog({
         </div>
 
         <div className="flex items-center justify-between p-4 border-t border-border-dark sticky bottom-0 bg-surface-dark">
-          {nodeId ? (
+          {nodeId || onDeleteAsset ? (
             <button
               onClick={handleDelete}
               className="flex items-center gap-1 px-3 py-2 text-sm text-red-400 hover:bg-red-500/10 rounded"
@@ -362,7 +396,7 @@ export function AssetEditDialog({
               onClick={handleSave}
               disabled={!formData.name.trim()}
             >
-              {nodeId ? '保存' : '创建'}
+              {isEditing ? '保存' : '创建'}
             </UiButton>
           </div>
         </div>

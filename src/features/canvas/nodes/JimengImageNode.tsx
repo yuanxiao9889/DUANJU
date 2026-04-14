@@ -24,7 +24,7 @@ import {
 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
-import { UiLoadingAnimation } from "@/components/ui";
+import { UiLoadingOverlay } from "@/components/ui";
 import {
   CANVAS_NODE_TYPES,
   JIMENG_IMAGE_RESULT_NODE_DEFAULT_HEIGHT,
@@ -1294,6 +1294,7 @@ export const JimengImageNode = memo(
         : (promptOptimizationNotice ??
           referenceStatusText ??
           t("node.jimengImage.parameterHint")));
+    const showBlockingOverlay = Boolean(data.isGenerating || isOptimizingPrompt);
     const handleReferenceSourceHighlight = useCallback(
       (sourceNodeId: string) => {
         setHighlightedReferenceSourceNode(
@@ -1562,14 +1563,10 @@ export const JimengImageNode = memo(
                   void handleOptimizePrompt();
                 }}
               >
-                {isOptimizingPrompt ? (
-                  <UiLoadingAnimation size="sm" />
-                ) : (
-                  <Wand2
-                    className="h-4 w-4 origin-center scale-[1.18] text-text-dark"
-                    strokeWidth={2.45}
-                  />
-                )}
+                <Wand2
+                  className="h-4 w-4 origin-center scale-[1.18] text-text-dark"
+                  strokeWidth={2.45}
+                />
               </UiChipButton>
               <UiChipButton
                 type="button"
@@ -1638,6 +1635,7 @@ export const JimengImageNode = memo(
           maxWidth={JIMENG_IMAGE_NODE_MAX_WIDTH}
           maxHeight={JIMENG_IMAGE_NODE_MAX_HEIGHT}
         />
+        <UiLoadingOverlay visible={showBlockingOverlay} insetClassName="inset-3" />
       </div>
     );
   },

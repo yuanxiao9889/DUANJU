@@ -13,7 +13,7 @@ import {
 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
-import { UiButton, UiLoadingAnimation } from "@/components/ui";
+import { UiButton, UiLoadingOverlay } from "@/components/ui";
 import { flushCurrentProjectToDiskSafely } from "@/features/canvas/application/projectPersistence";
 import { prepareNodeImage } from "@/features/canvas/application/imageData";
 import {
@@ -401,6 +401,7 @@ export const JimengImageResultNode = memo(
             : t("node.jimengImageResult.empty"))));
     const nodeDescription =
       typeof data.nodeDescription === "string" ? data.nodeDescription : "";
+    const showBlockingOverlay = Boolean(data.isGenerating || isRequerying);
 
     return (
       <div
@@ -421,6 +422,7 @@ export const JimengImageResultNode = memo(
         }}
         onClick={() => setSelectedNode(id)}
       >
+        <UiLoadingOverlay visible={showBlockingOverlay} insetClassName="inset-3" />
         <NodeHeader
           className={NODE_HEADER_FLOATING_POSITION_CLASS}
           icon={<Sparkles className="h-3.5 w-3.5" />}
@@ -533,9 +535,6 @@ export const JimengImageResultNode = memo(
               void handleRequeryResults();
             }}
           >
-            {isRequerying ? (
-              <UiLoadingAnimation size="sm" />
-            ) : null}
             {t("node.jimengImageResult.requery")}
           </UiButton>
         </div>

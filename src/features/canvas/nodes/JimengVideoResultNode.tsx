@@ -8,7 +8,7 @@ import {
 import { Clock3, Loader2, Sparkles, TriangleAlert, Video } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
-import { UiButton, UiCheckbox, UiLoadingAnimation, UiSelect } from "@/components/ui";
+import { UiButton, UiCheckbox, UiLoadingOverlay, UiSelect } from "@/components/ui";
 import {
   CANVAS_NODE_TYPES,
   JIMENG_VIDEO_RESULT_NODE_DEFAULT_WIDTH,
@@ -647,6 +647,7 @@ export const JimengVideoResultNode = memo(
     }, [data.isGenerating, queueStatus, t]);
     const nodeDescription =
       typeof data.nodeDescription === "string" ? data.nodeDescription : "";
+    const showBlockingOverlay = Boolean(data.isGenerating || isRequerying);
 
     return (
       <div
@@ -667,6 +668,7 @@ export const JimengVideoResultNode = memo(
         }}
         onClick={() => setSelectedNode(id)}
       >
+        <UiLoadingOverlay visible={showBlockingOverlay} insetClassName="inset-3" />
         <NodeHeader
           className={NODE_HEADER_FLOATING_POSITION_CLASS}
           icon={<Video className="h-3.5 w-3.5" />}
@@ -813,9 +815,6 @@ export const JimengVideoResultNode = memo(
                 void handleRequeryResult();
               }}
             >
-              {isRequerying ? (
-                <UiLoadingAnimation size="sm" />
-              ) : null}
               {t("node.jimengVideoResult.requery")}
             </UiButton>
           </div>

@@ -26,6 +26,15 @@ interface UiLoadingBannerProps {
   panelClassName?: string;
 }
 
+interface UiLoadingOverlayProps {
+  visible: boolean;
+  className?: string;
+  panelClassName?: string;
+  insetClassName?: string;
+  backdropClassName?: string;
+  blockInteractions?: boolean;
+}
+
 const SIZE_CLASS_MAP: Record<UiLoadingSize, string> = {
   xs: 'h-6 w-6',
   sm: 'h-7 w-7',
@@ -142,6 +151,27 @@ export function UiLoadingBanner({
         />
         <span className="sr-only">{t('common.loading')}</span>
       </div>
+    </div>
+  );
+}
+
+export function UiLoadingOverlay({
+  visible,
+  className = '',
+  panelClassName = '',
+  insetClassName = 'inset-0',
+  backdropClassName = 'bg-black/28 backdrop-blur-[2px]',
+  blockInteractions = false,
+}: UiLoadingOverlayProps) {
+  if (!visible) {
+    return null;
+  }
+
+  return (
+    <div
+      className={`absolute ${insetClassName} z-20 flex items-center justify-center rounded-[inherit] ${blockInteractions ? 'pointer-events-auto' : 'pointer-events-none'} ${backdropClassName} ${className}`.trim()}
+    >
+      <UiLoadingBanner panelClassName={panelClassName} />
     </div>
   );
 }

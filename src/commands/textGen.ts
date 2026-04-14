@@ -71,22 +71,10 @@ export interface ExtractedScriptItem {
   description: string;
 }
 
-export interface ExtractedScriptWorldview {
-  worldviewName: string;
-  description: string;
-  era: string;
-  technology: string;
-  magic: string;
-  society: string;
-  geography: string;
-  rules: string[];
-}
-
 export interface ExtractedScriptAssets {
   characters: ExtractedScriptCharacter[];
   locations: ExtractedScriptLocation[];
   items: ExtractedScriptItem[];
-  worldviews: ExtractedScriptWorldview[];
 }
 
 export interface ScriptAssetExtractionRequest {
@@ -285,29 +273,6 @@ function normalizeExtractedScriptItem(value: unknown): ExtractedScriptItem | nul
   };
 }
 
-function normalizeExtractedScriptWorldview(value: unknown): ExtractedScriptWorldview | null {
-  if (!value || typeof value !== 'object') {
-    return null;
-  }
-
-  const record = value as Record<string, unknown>;
-  const worldviewName = readStringValue(record, ['worldviewName', 'name', 'label']);
-  if (!worldviewName) {
-    return null;
-  }
-
-  return {
-    worldviewName,
-    description: readStringValue(record, ['description', 'summary']),
-    era: readStringValue(record, ['era', 'timePeriod']),
-    technology: readStringValue(record, ['technology', 'tech']),
-    magic: readStringValue(record, ['magic', 'supernatural']),
-    society: readStringValue(record, ['society', 'socialOrder']),
-    geography: readStringValue(record, ['geography', 'setting']),
-    rules: readStringArrayValue(record, ['rules', 'laws', 'constraints']),
-  };
-}
-
 function normalizeExtractedScriptAssets(value: unknown): ExtractedScriptAssets {
   const record = value && typeof value === 'object'
     ? value as Record<string, unknown>
@@ -323,9 +288,6 @@ function normalizeExtractedScriptAssets(value: unknown): ExtractedScriptAssets {
     items: (Array.isArray(record.items) ? record.items : [])
       .map((item) => normalizeExtractedScriptItem(item))
       .filter((item): item is ExtractedScriptItem => Boolean(item)),
-    worldviews: (Array.isArray(record.worldviews) ? record.worldviews : [])
-      .map((item) => normalizeExtractedScriptWorldview(item))
-      .filter((item): item is ExtractedScriptWorldview => Boolean(item)),
   };
 }
 
@@ -861,62 +823,58 @@ export async function extractScriptAssets(
       characters: [],
       locations: [],
       items: [],
-      worldviews: [],
     };
   }
 
   const prompt = [
     '你是一名专业的编剧开发顾问，负责从剧本片段中提炼结构化资产。',
+    '目标是只保留后续做分镜和美术最需要的核心资产：人物、场景、道具。',
     '请只提取文本中已经明确出现、或被强烈明确暗示且足够稳定的资产，不要脑补，不要补全未出现设定。',
     '输出语言必须与输入内容保持一致。',
     '返回 JSON，不要使用 Markdown 代码块，不要添加解释。',
     '',
-    '请提取四类资产：',
-    '1. characters：角色，优先提取具名角色，或剧情中反复承担明确功能的无名角色。',
-    '2. locations：场景地点，提取对剧情推进有意义的 distinct 地点。',
-    '3. items：关键道具，提取推动剧情、塑造视觉、或反复出现的重要物件。',
-    '4. worldviews：世界观设定，只提取文本中有较明确证据的时代、社会规则、科技/魔法体系、地理格局等。',
+    '请严格只提取三类资产：',
+    '1. characters：核心人物。只保留具名主角、关键配角、关键反派，或反复承担明确剧情功能的无名角色；一次性路人、背景人群、泛称身份不要提取。',
+    '2. locations：核心场景。只保留对剧情推进、视觉设计或反复出场有意义的具体空间；同一物理空间的不同叫法或局部区域要合并成一个稳定名称；抽象地点、过场背景不要提取。',
+    '3. items：关键道具。只保留推动冲突、承载线索、体现身份、或反复使用的物件；普通家具、普通武器、普通日用品如果不是关键物，不要提取。',
+    '',
+    '提炼流程：',
+    '1. 先判断这一批文本里真正值得沉淀成资产卡的核心对象，宁缺毋滥。',
+    '2. 再把同一人物的不同代称、同一场景的不同叫法合并，统一为最稳定、最常用的名称。',
+    '3. 最后只保留便于直接落成节点的关键信息，描述要短、准、可视觉化。',
     '',
     'JSON 结构必须严格如下：',
     '{',
     '  "characters": [',
     '    {',
     '      "name": "角色名",',
-    '      "description": "角色在这一批文本中的功能或简介",',
-    '      "personality": "性格特征，没有就空字符串",',
-    '      "appearance": "外形/辨识特征，没有就空字符串"',
+    '      "description": "角色的核心身份、剧情作用或关系定位，一句话以内",',
+    '      "personality": "稳定且有证据的性格特征，2-4 个短词或短语；没有就空字符串",',
+    '      "appearance": "最关键的辨识特征，例如年龄段、性别、发型、服装或显著外观；没有就空字符串"',
     '    }',
     '  ],',
     '  "locations": [',
     '    {',
-    '      "name": "地点名",',
-    '      "description": "地点的功能、氛围或剧情作用，没有就空字符串"',
+    '      "name": "场景主名称",',
+    '      "description": "空镜头式的场景描述，只保留空间类型、时间/光线、2-3 个关键陈设或氛围；不要出现人物"',
     '    }',
     '  ],',
     '  "items": [',
     '    {',
     '      "name": "道具名",',
-    '      "description": "道具的剧情作用、视觉特征或用途，没有就空字符串"',
-    '    }',
-    '  ],',
-    '  "worldviews": [',
-    '    {',
-    '      "worldviewName": "世界观条目名",',
-    '      "description": "一句话说明",',
-    '      "era": "时代背景，没有就空字符串",',
-    '      "technology": "科技设定，没有就空字符串",',
-    '      "magic": "超自然/魔法设定，没有就空字符串",',
-    '      "society": "社会结构/势力格局，没有就空字符串",',
-    '      "geography": "地理格局，没有就空字符串",',
-    '      "rules": ["明确规则或约束，缺失则返回空数组"]',
+    '      "description": "道具的关键用途、归属或最醒目的视觉特征，没有就空字符串"',
     '    }',
     '  ]',
     '}',
     '',
     '约束：',
+    '- 只输出核心和关键的，不要追求全量覆盖。',
     '- 去重后再输出，不同字段不要重复换说法。',
     '- 如果某类没有结果，返回空数组。',
-    '- description 尽量简短，适合直接落成资产节点。',
+    '- name 必须稳定、简洁、便于跨批次去重，不要为了文艺化改名。',
+    '- description / personality / appearance 尽量简短，适合直接落成资产节点。',
+    '- 人物外形只写文本中明确出现或强烈支撑的辨识点，不要擅自补完整套服装设定。',
+    '- 场景描述默认采用空镜头视角，不出现人物姓名、代词或动作主体。',
     '- 不要输出剧情摘要，不要输出章节列表。',
     '',
     request.batchLabel ? `当前批次：${request.batchLabel}` : '',

@@ -991,6 +991,9 @@ const scriptRootNodeDefinition: CanvasNodeDefinition<ScriptRootNodeData> = {
     tone: '',
     directorVision: '',
     beats: [],
+    assetLibraryCharacters: [],
+    assetLibraryLocations: [],
+    assetLibraryItems: [],
   }),
 };
 

@@ -14,7 +14,7 @@ import { Handle, Position, useUpdateNodeInternals, type NodeProps } from '@xyflo
 import { AlertTriangle, Loader2, Sparkles, Undo2, Wand2 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 
-import { UiLoadingAnimation } from '@/components/ui';
+import { UiLoadingOverlay } from '@/components/ui';
 import {
   AUTO_REQUEST_ASPECT_RATIO,
   CANVAS_NODE_TYPES,
@@ -1250,6 +1250,7 @@ export const ImageEditNode = memo(({ id, data, selected, width, height }: ImageE
     ?? (isOptimizingPrompt ? t('node.imageEdit.optimizingPrompt') : null)
     ?? promptOptimizationNotice
     ?? t('node.imageEdit.statusHint');
+  const showBlockingOverlay = Boolean(data.isGenerating || isOptimizingPrompt);
 
   const hidePromptReferencePreview = useCallback(() => {
     setPromptReferencePreview(null);
@@ -1533,14 +1534,10 @@ export const ImageEditNode = memo(({ id, data, selected, width, height }: ImageE
                       void handleOptimizePrompt();
                     }}
                   >
-                    {isOptimizingPrompt ? (
-                      <UiLoadingAnimation size="sm" />
-                    ) : (
-                      <Wand2
-                        className="h-4 w-4 origin-center scale-[1.18] text-text-dark"
-                        strokeWidth={2.45}
-                      />
-                    )}
+                    <Wand2
+                      className="h-4 w-4 origin-center scale-[1.18] text-text-dark"
+                      strokeWidth={2.45}
+                    />
                   </UiChipButton>
                   <UiChipButton
                     type="button"
@@ -1604,6 +1601,7 @@ export const ImageEditNode = memo(({ id, data, selected, width, height }: ImageE
         maxHeight={IMAGE_EDIT_NODE_MAX_HEIGHT}
         isVisible={selected}
       />
+      <UiLoadingOverlay visible={showBlockingOverlay} insetClassName="inset-3" />
       
       <StyleTemplateDialog
         isOpen={showStyleTemplateDialog}

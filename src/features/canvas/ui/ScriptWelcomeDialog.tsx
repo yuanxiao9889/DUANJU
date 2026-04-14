@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ArrowLeft, FileText, Sparkles, Upload, Wand2 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 
-import { UiButton, UiLoadingAnimation, UiLoadingBanner } from '@/components/ui';
+import { UiButton, UiLoadingOverlay } from '@/components/ui';
 import { CANVAS_NODE_TYPES, createDefaultSceneCard } from '../domain/canvasNodes';
 import { planStory, type StoryPlan, type StoryPlannerInput } from '../application/storyPlanner';
 import {
@@ -516,12 +516,7 @@ export function ScriptWelcomeDialog({ isOpen, onClose }: ScriptWelcomeDialogProp
                       onClick={handlePickImportFile}
                       disabled={isParsingImport}
                     >
-                      {isParsingImport ? (
-                        <>
-                          <UiLoadingAnimation size="sm" className="mr-2" />
-                          {t('script.storyStart.importParsing')}
-                        </>
-                      ) : importedScript ? (
+                      {isParsingImport ? t('script.storyStart.importParsing') : importedScript ? (
                         t('script.storyStart.importChooseAnother')
                       ) : (
                         t('script.storyStart.importChooseFile')
@@ -762,12 +757,7 @@ export function ScriptWelcomeDialog({ isOpen, onClose }: ScriptWelcomeDialogProp
                   disabled={!canGenerateStory || isPlanning}
                   className="flex-1"
                 >
-                  {isPlanning ? (
-                    <>
-                      <UiLoadingAnimation size="sm" className="mr-2" />
-                      {t('script.storyStart.generating')}
-                    </>
-                  ) : plannedStory ? (
+                  {isPlanning ? t('script.storyStart.generating') : plannedStory ? (
                     t('script.storyStart.regenerate')
                   ) : (
                     t('script.storyStart.generate')
@@ -901,11 +891,7 @@ export function ScriptWelcomeDialog({ isOpen, onClose }: ScriptWelcomeDialogProp
           </div>
         ) : null}
 
-        {isPlanning ? (
-          <div className="absolute inset-0 flex items-center justify-center bg-surface-dark/70 backdrop-blur-sm">
-            <UiLoadingBanner />
-          </div>
-        ) : null}
+        <UiLoadingOverlay visible={isPlanning || isParsingImport} insetClassName="inset-0" />
       </div>
     </div>
   );

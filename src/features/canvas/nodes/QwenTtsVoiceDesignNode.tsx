@@ -14,7 +14,8 @@ import {
 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 
-import { UiButton, UiLoadingAnimation, UiModal, UiSelect } from '@/components/ui';
+import { UiButton, UiLoadingOverlay, UiModal, UiSelect } from '@/components/ui';
+import { createUiRangeStyle } from '@/components/ui/rangeStyle';
 import { optimizeCanvasPrompt } from '@/features/canvas/application/promptOptimization';
 import { enqueueQwenTtsAudioGeneration } from '@/features/canvas/application/qwenTtsAudioQueue';
 import { showErrorDialog } from '@/features/canvas/application/errorDialog';
@@ -174,6 +175,8 @@ function SliderField({
   value,
   onChange,
 }: SliderFieldProps) {
+  const sliderStyle = createUiRangeStyle(value, min, max);
+
   return (
     <label className="block rounded-xl border border-white/10 bg-black/10 px-3 py-2.5">
       <div className="mb-2 flex items-center justify-between gap-3 text-xs font-medium text-text-muted">
@@ -188,7 +191,8 @@ function SliderField({
         step={step}
         value={value}
         onChange={(event) => onChange(Number(event.target.value))}
-        className="nodrag nowheel mt-2 w-full accent-[var(--accent)]"
+        className="ui-range nodrag nowheel mt-1.5 w-full"
+        style={sliderStyle}
       />
     </label>
   );
@@ -312,6 +316,7 @@ export const QwenTtsVoiceDesignNode = memo(({
       .length;
   }, [edges, id, nodes]);
   const combinedError = voicePromptOptimizationError ?? data.lastError;
+  const showBlockingOverlay = Boolean(pendingAudioTaskCount > 0 || isOptimizingVoicePrompt);
 
   useEffect(() => {
     voicePromptValueRef.current = data.voicePrompt ?? '';
@@ -738,11 +743,7 @@ export const QwenTtsVoiceDesignNode = memo(({
                   }}
                   className="nodrag inline-flex h-7 w-7 items-center justify-center rounded-lg border border-white/10 bg-white/[0.04] text-text-muted transition-colors hover:border-accent/45 hover:bg-accent/14 hover:text-text-dark disabled:cursor-not-allowed disabled:border-white/8 disabled:bg-white/[0.02] disabled:text-text-muted/45"
                 >
-                  {isOptimizingVoicePrompt ? (
-                    <UiLoadingAnimation size="xs" />
-                  ) : (
-                    <Wand2 className="h-3.5 w-3.5" strokeWidth={2.25} />
-                  )}
+                  <Wand2 className="h-3.5 w-3.5" strokeWidth={2.25} />
                 </button>
                 {canUndoOptimizedVoicePrompt ? (
                   <button
@@ -879,6 +880,7 @@ export const QwenTtsVoiceDesignNode = memo(({
           id="source"
           className="!h-3 !w-3 !border-2 !border-white !bg-accent"
         />
+        <UiLoadingOverlay visible={showBlockingOverlay} insetClassName="inset-3" />
       </div>
 
       <UiModal

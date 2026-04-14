@@ -42,10 +42,7 @@ function PlotTreeNode({
 }: PlotTreeNodeProps) {
   const { t } = useTranslation();
   const setSelectedNode = useCanvasStore((state) => state.setSelectedNode);
-  const createScriptSceneNodeFromChapterScene = useCanvasStore(
-    (state) => state.createScriptSceneNodeFromChapterScene
-  );
-  const focusSceneNode = useScriptEditorStore((state) => state.focusSceneNode);
+  const focusChapterScene = useScriptEditorStore((state) => state.focusChapterScene);
 
   const data = node.data;
   const hasChildren = children.length > 0;
@@ -85,36 +82,11 @@ function PlotTreeNode({
     }
   };
 
-  const handleOpenSceneNode = useCallback((sceneId: string) => {
-    const sceneKey = buildSceneSourceKey(node.id, sceneId);
-    let sceneNode = sceneNodeBySourceKey.get(sceneKey);
-    const sceneNodeId = sceneNode?.id ?? createScriptSceneNodeFromChapterScene(node.id, sceneId);
-    if (!sceneNodeId) {
-      return;
-    }
-
-    const sceneNodeFromStore = useCanvasStore.getState().nodes.find(
-      (candidate) => candidate.id === sceneNodeId && candidate.type === CANVAS_NODE_TYPES.scriptScene
-    );
-    sceneNode = sceneNodeBySourceKey.get(sceneKey)
-      ?? (sceneNodeFromStore
-        ? {
-            id: sceneNodeFromStore.id,
-            data: sceneNodeFromStore.data as ScriptSceneNodeData,
-          }
-        : undefined);
-
-    setSelectedNode(sceneNodeId);
-    focusSceneNode(sceneNodeId, sceneNode?.data.episodes[0]?.id ?? null);
-    onNodeClick(sceneNodeId);
-  }, [
-    createScriptSceneNodeFromChapterScene,
-    focusSceneNode,
-    node.id,
-    onNodeClick,
-    sceneNodeBySourceKey,
-    setSelectedNode,
-  ]);
+  const handleFocusSourceScene = useCallback((sceneId: string) => {
+    setSelectedNode(node.id);
+    focusChapterScene(node.id, sceneId);
+    onNodeClick(node.id);
+  }, [focusChapterScene, node.id, onNodeClick, setSelectedNode]);
 
   return (
     <div className="select-none">
@@ -179,36 +151,36 @@ function PlotTreeNode({
             const isActive = Boolean(sceneNode);
 
             return (
-              <button
+              <div
                 key={scene.id}
-                type="button"
-                onClick={() => handleOpenSceneNode(scene.id)}
-                className={`ml-5 flex w-[calc(100%-20px)] items-center gap-2 rounded-md px-2 py-1.5 text-left transition-colors ${
+                className={`ml-5 flex w-[calc(100%-20px)] items-center gap-2 rounded-md px-2 py-1.5 transition-colors ${
                   isActive
                     ? 'bg-cyan-500/12 text-cyan-200'
                     : 'text-text-muted hover:bg-bg-dark hover:text-text-dark'
                 }`}
                 style={{ marginLeft: `${level * 12 + 28}px` }}
               >
-                <Clapperboard className={`h-3.5 w-3.5 ${isActive ? 'text-cyan-300' : 'text-text-muted/70'}`} />
-                <div className="min-w-0 flex-1">
-                  <div className="truncate text-[11px] font-medium">
-                    {scene.title || t('script.sceneCatalog.untitledScene')}
+                <button
+                  type="button"
+                  onClick={() => handleFocusSourceScene(scene.id)}
+                  className="flex min-w-0 flex-1 items-center gap-2 text-left"
+                >
+                  <Clapperboard className={`h-3.5 w-3.5 ${isActive ? 'text-cyan-300' : 'text-text-muted/70'}`} />
+                  <div className="min-w-0 flex-1">
+                    <div className="truncate text-[11px] font-medium">
+                      {scene.title || t('script.sceneCatalog.untitledScene')}
+                    </div>
+                    <div className="truncate text-[10px] opacity-70">
+                      {scene.summary || t('script.sceneCatalog.sceneLabel', { number: scene.order + 1 })}
+                    </div>
                   </div>
-                  <div className="truncate text-[10px] opacity-70">
-                    {scene.summary || t('script.sceneCatalog.sceneLabel', { number: scene.order + 1 })}
-                  </div>
-                </div>
-                <span className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-medium ${
-                  isActive
-                    ? 'bg-cyan-500/12 text-cyan-200'
-                    : 'bg-bg-dark text-text-muted'
-                }`}>
-                  {isActive
-                    ? t('script.chapterCatalog.openEpisodes')
-                    : t('script.chapterCatalog.generateNode')}
-                </span>
-              </button>
+                </button>
+                {isActive ? (
+                  <span className="shrink-0 rounded-full bg-cyan-500/12 px-2 py-0.5 text-[10px] font-medium text-cyan-200">
+                    {t('script.chapterCatalog.created')}
+                  </span>
+                ) : null}
+              </div>
             );
           })}
         </div>

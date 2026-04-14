@@ -3,7 +3,7 @@ import { createPortal } from 'react-dom';
 import { Sparkles, X, ArrowRight, GitFork } from 'lucide-react';
 import { expandScript, rewriteScript, expandFromSummary, expandFromMergedBranches } from '@/commands/textGen';
 import type { MergedBranchContent } from '@/commands/textGen';
-import { UiButton, UiLoadingAnimation, UiLoadingBanner } from '@/components/ui';
+import { UiButton, UiLoadingBanner, UiLoadingOverlay } from '@/components/ui';
 import { useDraggableDialog } from '@/components/ui/useDraggableDialog';
 
 function simpleMarkdownToHtml(text: string): string {
@@ -248,6 +248,7 @@ export function AiWriterDialog({
           }`}
           style={panelStyle}
         >
+          <UiLoadingOverlay visible={isLoading} insetClassName="inset-0" />
           <div
             className={`flex items-center justify-between p-4 border-b border-border-dark ${dragHandleClassName}`}
             onPointerDown={handleDragStart}
@@ -372,7 +373,6 @@ export function AiWriterDialog({
               >
                 {isLoading ? (
                   <>
-                    <UiLoadingAnimation size="sm" />
                     生成中...
                   </>
                 ) : (

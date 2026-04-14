@@ -82,7 +82,7 @@ export const ImageNode = memo(({ id, data, selected, type, width }: ImageNodePro
   const hasGenerationError =
     isExportResultNode && !isGenerating && !hasPersistedImage && generationError.length > 0;
   const canManualRefresh =
-    isExportResultNode && !hasPersistedImage && !isGenerating && generationJobId.length > 0;
+    isExportResultNode && !hasPersistedImage && generationJobId.length > 0;
   const generationStartedAt =
     typeof data.generationStartedAt === 'number' ? data.generationStartedAt : null;
   const generationDurationMs =
@@ -238,9 +238,11 @@ export const ImageNode = memo(({ id, data, selected, type, width }: ImageNodePro
       return;
     }
 
+    const refreshRequestedAt = Date.now();
     updateNodeData(id, {
       isGenerating: true,
-      generationStartedAt: Date.now(),
+      generationStartedAt: generationStartedAt ?? refreshRequestedAt,
+      generationForceRefreshRequestedAt: refreshRequestedAt,
       generationError: null,
       generationErrorDetails: null,
     });

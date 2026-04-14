@@ -1,15 +1,15 @@
-import { useState, useMemo, useCallback } from 'react';
+import { useState, useMemo, useCallback, useEffect, useRef } from 'react';
 import { useReactFlow } from '@xyflow/react';
 import { ChevronDown, ChevronRight, ChevronLeft, ChevronRight as ExpandIcon, Users, MapPin, Package, Link2, FileText, Plus, Pencil, Download, Sparkles, Globe, Eye, FilePlus } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
+import { UiScrollArea } from '@/components/ui';
 import { useProjectStore } from '@/stores/projectStore';
 import { useCanvasStore } from '@/stores/canvasStore';
 import {
-  applyExtractedAssetsToCanvas,
   buildAssetExtractionChunks,
   extractAssetsFromChunk,
 } from '../application/assetExtractor';
-import { AssetEditDialog, type AssetType } from './AssetEditDialog';
+import { AssetEditDialog, type AssetEditFormData, type AssetType } from './AssetEditDialog';
 import {
   AssetExtractionProgressDialog,
   type AssetExtractionProgressState,
@@ -19,14 +19,224 @@ import { PlotTreeView } from './PlotTreeView';
 import { ChapterCountDialog } from './ChapterCountDialog';
 import {
   CANVAS_NODE_TYPES,
+  type ScriptCharacterAsset,
   type ScriptRootNodeData,
   type ScriptChapterNodeData,
   type ScriptCharacterNodeData,
+  type ScriptItemAsset,
   type ScriptLocationNodeData,
+  type ScriptLocationAsset,
   type ScriptItemNodeData,
   type ScriptPlotPointNodeData,
   type ScriptWorldviewNodeData,
 } from '../domain/canvasNodes';
+
+interface PanelAssetEntry<TAsset> {
+  key: string;
+  data: TAsset;
+  nodeId?: string;
+}
+
+const SCRIPT_BIBLE_PANEL_WIDTH_STORAGE_KEY = 'script-bible-panel-width';
+const SCRIPT_BIBLE_PANEL_COLLAPSED_STORAGE_KEY = 'script-bible-panel-collapsed';
+const SCRIPT_BIBLE_PANEL_DEFAULT_WIDTH = 272;
+const SCRIPT_BIBLE_PANEL_MIN_WIDTH = 220;
+const SCRIPT_BIBLE_PANEL_MAX_WIDTH = 520;
+const SCRIPT_BIBLE_PANEL_COLLAPSED_WIDTH = 52;
+
+function clampPanelWidth(value: number): number {
+  return Math.min(
+    SCRIPT_BIBLE_PANEL_MAX_WIDTH,
+    Math.max(SCRIPT_BIBLE_PANEL_MIN_WIDTH, Math.round(value))
+  );
+}
+
+function readPanelWidth(): number {
+  if (typeof window === 'undefined') {
+    return SCRIPT_BIBLE_PANEL_DEFAULT_WIDTH;
+  }
+
+  const raw = Number(window.localStorage.getItem(SCRIPT_BIBLE_PANEL_WIDTH_STORAGE_KEY));
+  if (!Number.isFinite(raw) || raw <= 0) {
+    return SCRIPT_BIBLE_PANEL_DEFAULT_WIDTH;
+  }
+
+  return clampPanelWidth(raw);
+}
+
+function readPanelCollapsed(): boolean {
+  if (typeof window === 'undefined') {
+    return false;
+  }
+
+  return window.localStorage.getItem(SCRIPT_BIBLE_PANEL_COLLAPSED_STORAGE_KEY) === 'true';
+}
+
+function normalizeAssetName(value: string): string {
+  return value.trim().replace(/\s+/g, ' ');
+}
+
+function getAssetLookupKey(value: string): string {
+  return normalizeAssetName(value).toLowerCase();
+}
+
+function pickLongerText(primary: string, secondary: string): string {
+  return primary.length >= secondary.length ? primary : secondary;
+}
+
+function mergeStringArray(primary: string[], secondary: string[]): string[] {
+  return Array.from(
+    new Set(
+      [...primary, ...secondary]
+        .map((item) => normalizeAssetName(item))
+        .filter((item) => item.length > 0)
+    )
+  );
+}
+
+function mergeCharacterAssetData(
+  primary: ScriptCharacterAsset,
+  secondary: ScriptCharacterAsset
+): ScriptCharacterAsset {
+  return {
+    name: primary.name,
+    description: pickLongerText(primary.description, secondary.description),
+    personality: pickLongerText(primary.personality, secondary.personality),
+    appearance: pickLongerText(primary.appearance, secondary.appearance),
+  };
+}
+
+function mergeLocationAssetData(
+  primary: ScriptLocationAsset,
+  secondary: ScriptLocationAsset
+): ScriptLocationAsset {
+  return {
+    name: primary.name,
+    description: pickLongerText(primary.description, secondary.description),
+    appearances: mergeStringArray(primary.appearances, secondary.appearances),
+  };
+}
+
+function mergeItemAssetData(
+  primary: ScriptItemAsset,
+  secondary: ScriptItemAsset
+): ScriptItemAsset {
+  return {
+    name: primary.name,
+    description: pickLongerText(primary.description, secondary.description),
+    appearances: mergeStringArray(primary.appearances, secondary.appearances),
+  };
+}
+
+function mergeNamedAssets<TAsset extends { name: string }>(
+  items: TAsset[],
+  mergeFn: (primary: TAsset, secondary: TAsset) => TAsset
+): TAsset[] {
+  const map = new Map<string, TAsset>();
+
+  items.forEach((item) => {
+    const name = normalizeAssetName(item.name);
+    const key = getAssetLookupKey(name);
+    if (!key) {
+      return;
+    }
+
+    const normalizedItem = {
+      ...item,
+      name,
+    };
+    const existing = map.get(key);
+    map.set(key, existing ? mergeFn(existing, normalizedItem) : normalizedItem);
+  });
+
+  return Array.from(map.values());
+}
+
+function countNewAssets<TAsset extends { name: string }>(items: TAsset[], existingNames: Set<string>): number {
+  return mergeNamedAssets(items, (primary) => primary)
+    .filter((item) => !existingNames.has(getAssetLookupKey(item.name)))
+    .length;
+}
+
+function removeAssetByName<TAsset extends { name: string }>(items: TAsset[], name: string): TAsset[] {
+  const targetKey = getAssetLookupKey(name);
+  return items.filter((item) => getAssetLookupKey(item.name) !== targetKey);
+}
+
+function upsertAssetByName<TAsset extends { name: string }>(
+  items: TAsset[],
+  nextItem: TAsset,
+  mergeFn: (primary: TAsset, secondary: TAsset) => TAsset,
+  originalName?: string
+): TAsset[] {
+  const filteredItems = originalName
+    ? removeAssetByName(items, originalName)
+    : items;
+  return mergeNamedAssets([...filteredItems, nextItem], mergeFn);
+}
+
+function toCharacterAsset(data: Pick<ScriptCharacterNodeData, 'name' | 'description' | 'personality' | 'appearance'>): ScriptCharacterAsset {
+  return {
+    name: normalizeAssetName(data.name || ''),
+    description: data.description || '',
+    personality: data.personality || '',
+    appearance: data.appearance || '',
+  };
+}
+
+function toLocationAsset(data: Pick<ScriptLocationNodeData, 'name' | 'description' | 'appearances'>): ScriptLocationAsset {
+  return {
+    name: normalizeAssetName(data.name || ''),
+    description: data.description || '',
+    appearances: Array.isArray(data.appearances) ? data.appearances : [],
+  };
+}
+
+function toItemAsset(data: Pick<ScriptItemNodeData, 'name' | 'description' | 'appearances'>): ScriptItemAsset {
+  return {
+    name: normalizeAssetName(data.name || ''),
+    description: data.description || '',
+    appearances: Array.isArray(data.appearances) ? data.appearances : [],
+  };
+}
+
+function buildPanelAssetEntries<TAsset extends { name: string }>(
+  libraryAssets: TAsset[],
+  nodeAssets: Array<{ id: string; data: TAsset }>,
+  mergeFn: (primary: TAsset, secondary: TAsset) => TAsset
+): Array<PanelAssetEntry<TAsset>> {
+  const map = new Map<string, PanelAssetEntry<TAsset>>();
+
+  libraryAssets.forEach((asset) => {
+    const key = getAssetLookupKey(asset.name);
+    if (!key) {
+      return;
+    }
+
+    const existing = map.get(key);
+    map.set(key, {
+      key,
+      nodeId: existing?.nodeId,
+      data: existing ? mergeFn(existing.data, asset) : asset,
+    });
+  });
+
+  nodeAssets.forEach((node) => {
+    const key = getAssetLookupKey(node.data.name);
+    if (!key) {
+      return;
+    }
+
+    const existing = map.get(key);
+    map.set(key, {
+      key,
+      nodeId: node.id,
+      data: existing ? mergeFn(existing.data, node.data) : node.data,
+    });
+  });
+
+  return Array.from(map.values()).sort((left, right) => left.data.name.localeCompare(right.data.name, 'zh-Hans-CN'));
+}
 
 interface CollapsibleSectionProps {
   title: string;
@@ -46,7 +256,6 @@ const EMPTY_ASSET_EXTRACTION_PROGRESS: AssetExtractionProgressState = {
     characters: 0,
     locations: 0,
     items: 0,
-    worldviews: 0,
   },
   logs: [],
   error: '',
@@ -133,21 +342,28 @@ function AssetItem({ label, description, onClick, onEdit, onShowOnCanvas, showOn
 export function ScriptBiblePanel() {
   const { t } = useTranslation();
   const currentProject = useProjectStore((state) => state.getCurrentProject());
-  const { nodes, addNode } = useCanvasStore();
+  const { nodes, addNode, updateNodeData, deleteNode, setSelectedNode } = useCanvasStore();
   const { setCenter } = useReactFlow();
   const [showChapterCountDialog, setShowChapterCountDialog] = useState(false);
   const [showExportDialog, setShowExportDialog] = useState(false);
-  const [isPanelCollapsed, setIsPanelCollapsed] = useState(false);
+  const [panelWidth, setPanelWidth] = useState(() => readPanelWidth());
+  const [isPanelCollapsed, setIsPanelCollapsed] = useState(() => readPanelCollapsed());
+  const [isPanelResizing, setIsPanelResizing] = useState(false);
   const [isExtracting, setIsExtracting] = useState(false);
   const [assetExtractionProgress, setAssetExtractionProgress] = useState<AssetExtractionProgressState>(
     EMPTY_ASSET_EXTRACTION_PROGRESS
   );
+  const panelResizeStateRef = useRef<{ startX: number; startWidth: number } | null>(null);
   const [editDialogState, setEditDialogState] = useState<{
     isOpen: boolean;
     assetType: AssetType;
+    target: 'node' | 'library';
+    mode: 'create' | 'edit';
     nodeId?: string;
+    linkedNodeId?: string;
+    originalName?: string;
     editData?: any;
-  }>({ isOpen: false, assetType: 'character' });
+  }>({ isOpen: false, assetType: 'character', target: 'library', mode: 'create' });
 
   const projectType = currentProject?.projectType;
 
@@ -164,6 +380,38 @@ export function ScriptBiblePanel() {
   }, [nodes]);
 
   const rootNode = scriptNodes.roots[0] ?? null;
+  const panelAssets = useMemo(() => {
+    const characterNodes = scriptNodes.characters.map((node) => ({
+      id: node.id,
+      data: toCharacterAsset(node.data),
+    }));
+    const locationNodes = scriptNodes.locations.map((node) => ({
+      id: node.id,
+      data: toLocationAsset(node.data),
+    }));
+    const itemNodes = scriptNodes.items.map((node) => ({
+      id: node.id,
+      data: toItemAsset(node.data),
+    }));
+
+    return {
+      characters: buildPanelAssetEntries(
+        rootNode?.data.assetLibraryCharacters ?? [],
+        characterNodes,
+        mergeCharacterAssetData
+      ),
+      locations: buildPanelAssetEntries(
+        rootNode?.data.assetLibraryLocations ?? [],
+        locationNodes,
+        mergeLocationAssetData
+      ),
+      items: buildPanelAssetEntries(
+        rootNode?.data.assetLibraryItems ?? [],
+        itemNodes,
+        mergeItemAssetData
+      ),
+    };
+  }, [rootNode, scriptNodes.characters, scriptNodes.locations, scriptNodes.items]);
 
   const storyProfileItems = useMemo(() => {
     if (!rootNode) {
@@ -187,9 +435,33 @@ export function ScriptBiblePanel() {
   }, []);
 
   const handleShowOnCanvas = useCallback((type: AssetType, data: any, existingNodeId?: string) => {
-    if (existingNodeId) {
-      const node = nodes.find(n => n.id === existingNodeId);
+    const normalizedName = normalizeAssetName(
+      type === 'worldview' ? data.worldviewName || data.name || '' : data.name || ''
+    );
+    const resolvedNodeId = existingNodeId ?? nodes.find((node) => {
+      if (type === 'worldview') {
+        return node.type === CANVAS_NODE_TYPES.scriptWorldview
+          && getAssetLookupKey((node.data as ScriptWorldviewNodeData).worldviewName || '') === getAssetLookupKey(normalizedName);
+      }
+
+      if (type === 'character') {
+        return node.type === CANVAS_NODE_TYPES.scriptCharacter
+          && getAssetLookupKey((node.data as ScriptCharacterNodeData).name || '') === getAssetLookupKey(normalizedName);
+      }
+
+      if (type === 'location') {
+        return node.type === CANVAS_NODE_TYPES.scriptLocation
+          && getAssetLookupKey((node.data as ScriptLocationNodeData).name || '') === getAssetLookupKey(normalizedName);
+      }
+
+      return node.type === CANVAS_NODE_TYPES.scriptItem
+        && getAssetLookupKey((node.data as ScriptItemNodeData).name || '') === getAssetLookupKey(normalizedName);
+    })?.id;
+
+    if (resolvedNodeId) {
+      const node = nodes.find(n => n.id === resolvedNodeId);
       if (node) {
+        setSelectedNode(node.id);
         const nodeWidth = node.measured?.width ?? 200;
         const nodeHeight = node.measured?.height ?? 150;
         setCenter(
@@ -208,31 +480,36 @@ export function ScriptBiblePanel() {
       n.type === CANVAS_NODE_TYPES.scriptWorldview
     );
     const position = getNextPosition(900, 100, existingNodes.length);
+    let createdNodeId: string | undefined;
 
     switch (type) {
       case 'character':
-        addNode(CANVAS_NODE_TYPES.scriptCharacter, position, {
+        createdNodeId = addNode(CANVAS_NODE_TYPES.scriptCharacter, position, {
           displayName: data.name || '新角色',
           name: data.name || '',
           description: data.description || '',
+          personality: data.personality || '',
+          appearance: data.appearance || '',
         });
         break;
       case 'location':
-        addNode(CANVAS_NODE_TYPES.scriptLocation, position, {
+        createdNodeId = addNode(CANVAS_NODE_TYPES.scriptLocation, position, {
           displayName: data.name || '新场景',
           name: data.name || '',
           description: data.description || '',
+          appearances: data.appearances || [],
         });
         break;
       case 'item':
-        addNode(CANVAS_NODE_TYPES.scriptItem, position, {
+        createdNodeId = addNode(CANVAS_NODE_TYPES.scriptItem, position, {
           displayName: data.name || '新道具',
           name: data.name || '',
           description: data.description || '',
+          appearances: data.appearances || [],
         });
         break;
       case 'worldview':
-        addNode(CANVAS_NODE_TYPES.scriptWorldview, position, {
+        createdNodeId = addNode(CANVAS_NODE_TYPES.scriptWorldview, position, {
           displayName: data.worldviewName || '世界观',
           worldviewName: data.worldviewName || '',
           description: data.description || '',
@@ -245,7 +522,136 @@ export function ScriptBiblePanel() {
         });
         break;
     }
-  }, [nodes, addNode, getNextPosition, setCenter]);
+
+    if (createdNodeId) {
+      setSelectedNode(createdNodeId);
+      setCenter(position.x + 150, position.y + 90, { zoom: 1, duration: 300 });
+    }
+  }, [nodes, addNode, getNextPosition, setCenter, setSelectedNode]);
+
+  const handleSaveLibraryAsset = useCallback((formData: AssetEditFormData) => {
+    if (!rootNode) {
+      return;
+    }
+
+    const normalizedName = normalizeAssetName(formData.name);
+    const originalName = editDialogState.originalName || normalizedName;
+
+    switch (editDialogState.assetType) {
+      case 'character': {
+        const nextAsset: ScriptCharacterAsset = {
+          name: normalizedName,
+          description: formData.description || '',
+          personality: formData.personality || '',
+          appearance: formData.appearance || '',
+        };
+        updateNodeData(rootNode.id, {
+          assetLibraryCharacters: upsertAssetByName(
+            rootNode.data.assetLibraryCharacters,
+            nextAsset,
+            mergeCharacterAssetData,
+            originalName
+          ),
+        });
+
+        if (editDialogState.linkedNodeId) {
+          updateNodeData(editDialogState.linkedNodeId, {
+            displayName: nextAsset.name,
+            name: nextAsset.name,
+            description: nextAsset.description,
+            personality: nextAsset.personality,
+            appearance: nextAsset.appearance,
+          });
+        }
+        break;
+      }
+      case 'location': {
+        const nextAsset: ScriptLocationAsset = {
+          name: normalizedName,
+          description: formData.description || '',
+          appearances: Array.isArray(formData.appearances) ? formData.appearances : [],
+        };
+        updateNodeData(rootNode.id, {
+          assetLibraryLocations: upsertAssetByName(
+            rootNode.data.assetLibraryLocations,
+            nextAsset,
+            mergeLocationAssetData,
+            originalName
+          ),
+        });
+
+        if (editDialogState.linkedNodeId) {
+          updateNodeData(editDialogState.linkedNodeId, {
+            displayName: nextAsset.name,
+            name: nextAsset.name,
+            description: nextAsset.description,
+            appearances: nextAsset.appearances,
+          });
+        }
+        break;
+      }
+      case 'item': {
+        const nextAsset: ScriptItemAsset = {
+          name: normalizedName,
+          description: formData.description || '',
+          appearances: Array.isArray(formData.appearances) ? formData.appearances : [],
+        };
+        updateNodeData(rootNode.id, {
+          assetLibraryItems: upsertAssetByName(
+            rootNode.data.assetLibraryItems,
+            nextAsset,
+            mergeItemAssetData,
+            originalName
+          ),
+        });
+
+        if (editDialogState.linkedNodeId) {
+          updateNodeData(editDialogState.linkedNodeId, {
+            displayName: nextAsset.name,
+            name: nextAsset.name,
+            description: nextAsset.description,
+            appearances: nextAsset.appearances,
+          });
+        }
+        break;
+      }
+      default:
+        break;
+    }
+  }, [editDialogState, rootNode, updateNodeData]);
+
+  const handleDeleteLibraryAsset = useCallback(() => {
+    if (!rootNode || !editDialogState.originalName) {
+      if (editDialogState.linkedNodeId) {
+        deleteNode(editDialogState.linkedNodeId);
+      }
+      return;
+    }
+
+    switch (editDialogState.assetType) {
+      case 'character':
+        updateNodeData(rootNode.id, {
+          assetLibraryCharacters: removeAssetByName(rootNode.data.assetLibraryCharacters, editDialogState.originalName),
+        });
+        break;
+      case 'location':
+        updateNodeData(rootNode.id, {
+          assetLibraryLocations: removeAssetByName(rootNode.data.assetLibraryLocations, editDialogState.originalName),
+        });
+        break;
+      case 'item':
+        updateNodeData(rootNode.id, {
+          assetLibraryItems: removeAssetByName(rootNode.data.assetLibraryItems, editDialogState.originalName),
+        });
+        break;
+      default:
+        break;
+    }
+
+    if (editDialogState.linkedNodeId) {
+      deleteNode(editDialogState.linkedNodeId);
+    }
+  }, [deleteNode, editDialogState, rootNode, updateNodeData]);
 
   const handleExtractAssets = useCallback(() => {
     const initialNodes = useCanvasStore.getState().nodes;
@@ -281,7 +687,6 @@ export function ScriptBiblePanel() {
         characters: 0,
         locations: 0,
         items: 0,
-        worldviews: 0,
       };
       let activeChunkId = '';
 
@@ -312,16 +717,80 @@ export function ScriptBiblePanel() {
 
           const extractedAssets = await extractAssetsFromChunk(chunk);
           const store = useCanvasStore.getState();
-          const applied = applyExtractedAssetsToCanvas({
-            extractedAssets,
-            nodes: store.nodes,
-            addNode: store.addNode,
+          const currentRoot = store.nodes.find((node) => node.type === CANVAS_NODE_TYPES.scriptRoot) as
+            | { id: string; data: ScriptRootNodeData }
+            | undefined;
+          if (!currentRoot) {
+            throw new Error('请先保留剧本根节点，才能把提取结果写入左侧资产面板。');
+          }
+
+          const existingCharacterNames = new Set(
+            [
+              ...(currentRoot.data.assetLibraryCharacters ?? []).map((item) => item.name),
+              ...store.nodes
+                .filter((node) => node.type === CANVAS_NODE_TYPES.scriptCharacter)
+                .map((node) => (node.data as ScriptCharacterNodeData).name || ''),
+            ]
+              .map((item) => getAssetLookupKey(item))
+              .filter((item) => item.length > 0)
+          );
+          const existingLocationNames = new Set(
+            [
+              ...(currentRoot.data.assetLibraryLocations ?? []).map((item) => item.name),
+              ...store.nodes
+                .filter((node) => node.type === CANVAS_NODE_TYPES.scriptLocation)
+                .map((node) => (node.data as ScriptLocationNodeData).name || ''),
+            ]
+              .map((item) => getAssetLookupKey(item))
+              .filter((item) => item.length > 0)
+          );
+          const existingItemNames = new Set(
+            [
+              ...(currentRoot.data.assetLibraryItems ?? []).map((item) => item.name),
+              ...store.nodes
+                .filter((node) => node.type === CANVAS_NODE_TYPES.scriptItem)
+                .map((node) => (node.data as ScriptItemNodeData).name || ''),
+            ]
+              .map((item) => getAssetLookupKey(item))
+              .filter((item) => item.length > 0)
+          );
+
+          const nextCharacterAssets = extractedAssets.characters.map((item) => toCharacterAsset(item));
+          const nextLocationAssets = extractedAssets.locations.map((item) => ({
+            name: normalizeAssetName(item.name),
+            description: item.description || '',
+            appearances: [],
+          }));
+          const nextItemAssets = extractedAssets.items.map((item) => ({
+            name: normalizeAssetName(item.name),
+            description: item.description || '',
+            appearances: [],
+          }));
+
+          store.updateNodeData(currentRoot.id, {
+            assetLibraryCharacters: mergeNamedAssets(
+              [...(currentRoot.data.assetLibraryCharacters ?? []), ...nextCharacterAssets],
+              mergeCharacterAssetData
+            ),
+            assetLibraryLocations: mergeNamedAssets(
+              [...(currentRoot.data.assetLibraryLocations ?? []), ...nextLocationAssets],
+              mergeLocationAssetData
+            ),
+            assetLibraryItems: mergeNamedAssets(
+              [...(currentRoot.data.assetLibraryItems ?? []), ...nextItemAssets],
+              mergeItemAssetData
+            ),
           });
+
+          const applied = {
+            characters: countNewAssets(nextCharacterAssets, existingCharacterNames),
+            locations: countNewAssets(nextLocationAssets, existingLocationNames),
+            items: countNewAssets(nextItemAssets, existingItemNames),
+          };
 
           totalSummary.characters += applied.characters;
           totalSummary.locations += applied.locations;
           totalSummary.items += applied.items;
-          totalSummary.worldviews += applied.worldviews;
 
           setAssetExtractionProgress((current) => ({
             ...current,
@@ -339,7 +808,6 @@ export function ScriptBiblePanel() {
                       characters: applied.characters,
                       locations: applied.locations,
                       items: applied.items,
-                      worldviews: applied.worldviews,
                     }),
                   }
                 : log
@@ -395,9 +863,75 @@ export function ScriptBiblePanel() {
     setIsPanelCollapsed(false);
   }, []);
 
+  useEffect(() => {
+    if (typeof window === 'undefined') {
+      return;
+    }
+
+    window.localStorage.setItem(SCRIPT_BIBLE_PANEL_WIDTH_STORAGE_KEY, String(panelWidth));
+  }, [panelWidth]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') {
+      return;
+    }
+
+    window.localStorage.setItem(
+      SCRIPT_BIBLE_PANEL_COLLAPSED_STORAGE_KEY,
+      isPanelCollapsed ? 'true' : 'false'
+    );
+  }, [isPanelCollapsed]);
+
+  useEffect(() => {
+    if (!isPanelResizing) {
+      return;
+    }
+
+    if (typeof document !== 'undefined') {
+      document.body.style.cursor = 'col-resize';
+      document.body.style.userSelect = 'none';
+      window.getSelection()?.removeAllRanges();
+    }
+
+    const handlePointerMove = (event: PointerEvent) => {
+      const resizeState = panelResizeStateRef.current;
+      if (!resizeState) {
+        return;
+      }
+
+      const nextWidth = clampPanelWidth(
+        resizeState.startWidth + (event.clientX - resizeState.startX)
+      );
+      setPanelWidth(nextWidth);
+    };
+
+    const handlePointerUp = () => {
+      panelResizeStateRef.current = null;
+      setIsPanelResizing(false);
+    };
+
+    const handleSelectStart = (event: Event) => {
+      event.preventDefault();
+    };
+
+    window.addEventListener('pointermove', handlePointerMove);
+    window.addEventListener('pointerup', handlePointerUp);
+    window.addEventListener('selectstart', handleSelectStart);
+    return () => {
+      if (typeof document !== 'undefined') {
+        document.body.style.cursor = '';
+        document.body.style.userSelect = '';
+      }
+      window.removeEventListener('pointermove', handlePointerMove);
+      window.removeEventListener('pointerup', handlePointerUp);
+      window.removeEventListener('selectstart', handleSelectStart);
+    };
+  }, [isPanelResizing]);
+
   const handleNodeClick = useCallback((nodeId: string) => {
     const node = nodes.find(n => n.id === nodeId);
     if (node) {
+      setSelectedNode(nodeId);
       const nodeWidth = node.measured?.width ?? 200;
       const nodeHeight = node.measured?.height ?? 150;
       setCenter(
@@ -406,7 +940,7 @@ export function ScriptBiblePanel() {
         { zoom: 1, duration: 300 }
       );
     }
-  }, [nodes, setCenter]);
+  }, [nodes, setCenter, setSelectedNode]);
 
   const handleImportScript = useCallback(() => {
     setShowChapterCountDialog(true);
@@ -470,15 +1004,48 @@ export function ScriptBiblePanel() {
   }, [addNode]);
 
   const handleAddAsset = useCallback((type: AssetType) => {
-    setEditDialogState({ isOpen: true, assetType: type });
+    setEditDialogState({
+      isOpen: true,
+      assetType: type,
+      target: type === 'worldview' ? 'node' : 'library',
+      mode: 'create',
+    });
   }, []);
 
-  const handleEditAsset = useCallback((type: AssetType, nodeId: string, data: any) => {
-    setEditDialogState({ isOpen: true, assetType: type, nodeId, editData: data });
+  const handleEditNodeAsset = useCallback((type: AssetType, nodeId: string, data: any) => {
+    setEditDialogState({
+      isOpen: true,
+      assetType: type,
+      target: 'node',
+      mode: 'edit',
+      nodeId,
+      editData: data,
+    });
+  }, []);
+
+  const handleEditLibraryAsset = useCallback((
+    type: Extract<AssetType, 'character' | 'location' | 'item'>,
+    data: ScriptCharacterAsset | ScriptLocationAsset | ScriptItemAsset,
+    linkedNodeId?: string
+  ) => {
+    setEditDialogState({
+      isOpen: true,
+      assetType: type,
+      target: 'library',
+      mode: 'edit',
+      linkedNodeId,
+      originalName: data.name,
+      editData: data,
+    });
   }, []);
 
   const handleCloseEditDialog = useCallback(() => {
-    setEditDialogState({ isOpen: false, assetType: 'character' });
+    setEditDialogState({
+      isOpen: false,
+      assetType: 'character',
+      target: 'library',
+      mode: 'create',
+    });
   }, []);
 
   if (projectType !== 'script') {
@@ -487,7 +1054,10 @@ export function ScriptBiblePanel() {
 
   if (isPanelCollapsed) {
     return (
-      <div className="flex flex-col h-full bg-surface-dark border-r border-border-dark transition-all duration-300">
+      <div
+        className="flex h-full shrink-0 flex-col bg-surface-dark border-r border-border-dark transition-all duration-300"
+        style={{ width: SCRIPT_BIBLE_PANEL_COLLAPSED_WIDTH }}
+      >
         <button
           onClick={handlePanelExpand}
           className="flex flex-col items-center justify-center py-4 px-1 hover:bg-bg-dark transition-colors group"
@@ -501,8 +1071,27 @@ export function ScriptBiblePanel() {
     );
   }
 
+  const panelWidthStyle = panelWidth;
+
   return (
-    <div className="w-64 h-full bg-surface-dark border-r border-border-dark overflow-hidden flex flex-col transition-all duration-300">
+    <aside
+      className={`relative h-full shrink-0 border-r border-border-dark bg-surface-dark ${
+        isPanelResizing ? 'transition-none' : 'transition-[width] duration-300'
+      }`}
+      style={{ width: panelWidthStyle }}
+    >
+      <div
+        className="absolute right-0 top-0 z-10 h-full w-[4px] translate-x-full cursor-col-resize touch-none transition-colors hover:bg-amber-400/25"
+        onPointerDown={(event) => {
+          event.preventDefault();
+          panelResizeStateRef.current = {
+            startX: event.clientX,
+            startWidth: panelWidth,
+          };
+          setIsPanelResizing(true);
+        }}
+      />
+      <div className="h-full overflow-hidden flex flex-col">
       <ChapterCountDialog
         isOpen={showChapterCountDialog}
         onClose={() => setShowChapterCountDialog(false)}
@@ -546,7 +1135,11 @@ export function ScriptBiblePanel() {
         </div>
       </div>
 
-      <div className="flex-1 overflow-y-auto ui-scrollbar">
+      <UiScrollArea
+        className="flex-1"
+        viewportClassName="h-full"
+        contentClassName="pb-3"
+      >
         {rootNode ? (
           <CollapsibleSection
             title={t('script.storyStart.storyProfile')}
@@ -633,7 +1226,7 @@ export function ScriptBiblePanel() {
                     label={node.data.worldviewName || node.data.displayName || '未命名'}
                     description={node.data.description}
                     onClick={() => handleNodeClick(node.id)}
-                    onEdit={() => handleEditAsset('worldview', node.id, node.data)}
+                    onEdit={() => handleEditNodeAsset('worldview', node.id, node.data)}
                     onShowOnCanvas={() => handleShowOnCanvas('worldview', node.data, node.id)}
                     showOnCanvasDisabled={true}
                   />
@@ -645,22 +1238,21 @@ export function ScriptBiblePanel() {
           <CollapsibleSection
             title="角色档案"
             icon={<Users className="w-4 h-4 text-text-muted" />}
-            count={scriptNodes.characters.length}
+            count={panelAssets.characters.length}
             onAdd={() => handleAddAsset('character')}
           >
-            {scriptNodes.characters.length === 0 ? (
+            {panelAssets.characters.length === 0 ? (
               <p className="text-xs text-text-muted py-2">暂无角色</p>
             ) : (
               <div className="space-y-1">
-                {scriptNodes.characters.map((node) => (
+                {panelAssets.characters.map((asset) => (
                   <AssetItem
-                    key={node.id}
-                    label={node.data.name || '未命名'}
-                    description={node.data.description}
-                    onClick={() => handleNodeClick(node.id)}
-                    onEdit={() => handleEditAsset('character', node.id, node.data)}
-                    onShowOnCanvas={() => handleShowOnCanvas('character', node.data, node.id)}
-                    showOnCanvasDisabled={true}
+                    key={asset.key}
+                    label={asset.data.name || '未命名'}
+                    description={asset.data.description}
+                    onClick={asset.nodeId ? () => handleNodeClick(asset.nodeId as string) : undefined}
+                    onEdit={() => handleEditLibraryAsset('character', asset.data, asset.nodeId)}
+                    onShowOnCanvas={() => handleShowOnCanvas('character', asset.data, asset.nodeId)}
                   />
                 ))}
               </div>
@@ -670,22 +1262,21 @@ export function ScriptBiblePanel() {
           <CollapsibleSection
             title="场景地点"
             icon={<MapPin className="w-4 h-4 text-text-muted" />}
-            count={scriptNodes.locations.length}
+            count={panelAssets.locations.length}
             onAdd={() => handleAddAsset('location')}
           >
-            {scriptNodes.locations.length === 0 ? (
+            {panelAssets.locations.length === 0 ? (
               <p className="text-xs text-text-muted py-2">暂无场景</p>
             ) : (
               <div className="space-y-1">
-                {scriptNodes.locations.map((node) => (
+                {panelAssets.locations.map((asset) => (
                   <AssetItem
-                    key={node.id}
-                    label={node.data.name || '未命名'}
-                    description={node.data.description}
-                    onClick={() => handleNodeClick(node.id)}
-                    onEdit={() => handleEditAsset('location', node.id, node.data)}
-                    onShowOnCanvas={() => handleShowOnCanvas('location', node.data, node.id)}
-                    showOnCanvasDisabled={true}
+                    key={asset.key}
+                    label={asset.data.name || '未命名'}
+                    description={asset.data.description}
+                    onClick={asset.nodeId ? () => handleNodeClick(asset.nodeId as string) : undefined}
+                    onEdit={() => handleEditLibraryAsset('location', asset.data, asset.nodeId)}
+                    onShowOnCanvas={() => handleShowOnCanvas('location', asset.data, asset.nodeId)}
                   />
                 ))}
               </div>
@@ -695,22 +1286,21 @@ export function ScriptBiblePanel() {
           <CollapsibleSection
             title="关键道具"
             icon={<Package className="w-4 h-4 text-text-muted" />}
-            count={scriptNodes.items.length}
+            count={panelAssets.items.length}
             onAdd={() => handleAddAsset('item')}
           >
-            {scriptNodes.items.length === 0 ? (
+            {panelAssets.items.length === 0 ? (
               <p className="text-xs text-text-muted py-2">暂无道具</p>
             ) : (
               <div className="space-y-1">
-                {scriptNodes.items.map((node) => (
+                {panelAssets.items.map((asset) => (
                   <AssetItem
-                    key={node.id}
-                    label={node.data.name || '未命名'}
-                    description={node.data.description}
-                    onClick={() => handleNodeClick(node.id)}
-                    onEdit={() => handleEditAsset('item', node.id, node.data)}
-                    onShowOnCanvas={() => handleShowOnCanvas('item', node.data, node.id)}
-                    showOnCanvasDisabled={true}
+                    key={asset.key}
+                    label={asset.data.name || '未命名'}
+                    description={asset.data.description}
+                    onClick={asset.nodeId ? () => handleNodeClick(asset.nodeId as string) : undefined}
+                    onEdit={() => handleEditLibraryAsset('item', asset.data, asset.nodeId)}
+                    onShowOnCanvas={() => handleShowOnCanvas('item', asset.data, asset.nodeId)}
                   />
                 ))}
               </div>
@@ -737,13 +1327,20 @@ export function ScriptBiblePanel() {
               </div>
             )}
           </CollapsibleSection>
-        </div>
+      </UiScrollArea>
 
       <AssetEditDialog
         isOpen={editDialogState.isOpen}
         assetType={editDialogState.assetType}
         editData={editDialogState.editData}
-        nodeId={editDialogState.nodeId}
+        nodeId={editDialogState.target === 'node' ? editDialogState.nodeId : undefined}
+        mode={editDialogState.mode}
+        onSaveAsset={editDialogState.target === 'library' ? handleSaveLibraryAsset : undefined}
+        onDeleteAsset={
+          editDialogState.target === 'library' && editDialogState.mode === 'edit'
+            ? handleDeleteLibraryAsset
+            : undefined
+        }
         onClose={handleCloseEditDialog}
       />
 
@@ -756,6 +1353,7 @@ export function ScriptBiblePanel() {
         progress={assetExtractionProgress}
         onClose={handleCloseAssetExtractionProgress}
       />
-    </div>
+      </div>
+    </aside>
   );
 }

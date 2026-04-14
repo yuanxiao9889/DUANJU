@@ -175,11 +175,11 @@ export const NodeActionToolbar = memo(({ node }: NodeActionToolbarProps) => {
     && typeof (node.data as { generationProviderId?: unknown }).generationProviderId === 'string'
       ? ((node.data as { generationProviderId?: string }).generationProviderId ?? '').trim()
       : '';
-  const isGenerationPending =
+  const generationStartedAt =
     isExportResultImage
-    && typeof (node.data as { isGenerating?: unknown }).isGenerating === 'boolean'
-      ? (node.data as { isGenerating?: boolean }).isGenerating === true
-      : false;
+    && typeof (node.data as { generationStartedAt?: unknown }).generationStartedAt === 'number'
+      ? (node.data as { generationStartedAt?: number }).generationStartedAt ?? null
+      : null;
   const canRefetchGenerationResult =
     isExportResultImage && generationJobId.length > 0 && generationProviderId.length > 0;
   const generationErrorReport = useMemo(
@@ -340,17 +340,19 @@ export const NodeActionToolbar = memo(({ node }: NodeActionToolbarProps) => {
   }, [canCopyGenerationError, generationErrorReport]);
 
   const handleRefetchGenerationResult = useCallback(() => {
-    if (!canRefetchGenerationResult || isGenerationPending) {
+    if (!canRefetchGenerationResult) {
       return;
     }
 
+    const refreshRequestedAt = Date.now();
     updateNodeData(node.id, {
       isGenerating: true,
-      generationStartedAt: Date.now(),
+      generationStartedAt: generationStartedAt ?? refreshRequestedAt,
+      generationForceRefreshRequestedAt: refreshRequestedAt,
       generationError: null,
       generationErrorDetails: null,
     });
-  }, [canRefetchGenerationResult, isGenerationPending, node.id, updateNodeData]);
+  }, [canRefetchGenerationResult, generationStartedAt, node.id, updateNodeData]);
 
   const handleSendToPs = useCallback(async () => {
     if (!imageSource) {
@@ -535,14 +537,9 @@ export const NodeActionToolbar = memo(({ node }: NodeActionToolbarProps) => {
               event.stopPropagation();
               handleRefetchGenerationResult();
             }}
-            disabled={isGenerationPending}
             title={t('node.imageNode.manualRefresh')}
           >
-            {isGenerationPending ? (
-              <UiLoadingAnimation size="xs" />
-            ) : (
-              <RefreshCw className="h-3.5 w-3.5" />
-            )}
+            <RefreshCw className="h-3.5 w-3.5" />
           </UiChipButton>
         )}
         {!isImageEdit && canHandleImage && (

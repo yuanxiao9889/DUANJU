@@ -84,6 +84,7 @@ function PlainTextEditorRescue({
   onSelectionReplacementApplied,
   placeholder,
   className = '',
+  readOnly = false,
   onRetry,
 }: RichTextEditorProps & {
   onRetry: () => void;
@@ -210,6 +211,7 @@ function PlainTextEditorRescue({
         }}
         className="ui-scrollbar min-h-0 flex-1 resize-none rounded-xl border border-border-dark bg-bg-dark/35 px-3 py-2 text-sm leading-6 text-text-dark outline-none transition-colors placeholder:text-text-muted/60 focus:border-accent/50"
         placeholder={placeholder}
+        readOnly={readOnly}
       />
     </div>
   );

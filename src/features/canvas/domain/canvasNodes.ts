@@ -747,6 +747,25 @@ export interface SceneCard {
   status: SceneCardStatus;
 }
 
+export interface ScriptCharacterAsset {
+  name: string;
+  description: string;
+  personality: string;
+  appearance: string;
+}
+
+export interface ScriptLocationAsset {
+  name: string;
+  description: string;
+  appearances: string[];
+}
+
+export interface ScriptItemAsset {
+  name: string;
+  description: string;
+  appearances: string[];
+}
+
 export interface ScriptRootNodeData extends NodeDisplayData {
   title: string;
   genre: string;
@@ -761,6 +780,9 @@ export interface ScriptRootNodeData extends NodeDisplayData {
   directorVision?: string;
   beats?: StoryBeat[];
   styleProfile?: StyleProfile;
+  assetLibraryCharacters: ScriptCharacterAsset[];
+  assetLibraryLocations: ScriptLocationAsset[];
+  assetLibraryItems: ScriptItemAsset[];
 }
 
 export interface ScriptChapterNodeData extends NodeDisplayData {
@@ -1193,6 +1215,79 @@ export function normalizeEpisodeCards(episodes: unknown): EpisodeCard[] {
 }
 
 export function normalizeScriptRootNodeData(data: ScriptRootNodeData): ScriptRootNodeData {
+  const normalizeCharacterAssets = (items: unknown): ScriptCharacterAsset[] => (
+    Array.isArray(items)
+      ? items
+          .map((item) => {
+            if (!item || typeof item !== 'object') {
+              return null;
+            }
+
+            const record = item as Record<string, unknown>;
+            const name = normalizeString(record.name).trim();
+            if (!name) {
+              return null;
+            }
+
+            return {
+              name,
+              description: normalizeString(record.description),
+              personality: normalizeString(record.personality),
+              appearance: normalizeString(record.appearance),
+            };
+          })
+          .filter((item): item is ScriptCharacterAsset => Boolean(item))
+      : []
+  );
+
+  const normalizeLocationAssets = (items: unknown): ScriptLocationAsset[] => (
+    Array.isArray(items)
+      ? items
+          .map((item) => {
+            if (!item || typeof item !== 'object') {
+              return null;
+            }
+
+            const record = item as Record<string, unknown>;
+            const name = normalizeString(record.name).trim();
+            if (!name) {
+              return null;
+            }
+
+            return {
+              name,
+              description: normalizeString(record.description),
+              appearances: normalizeStringArray(record.appearances),
+            };
+          })
+          .filter((item): item is ScriptLocationAsset => Boolean(item))
+      : []
+  );
+
+  const normalizeItemAssets = (items: unknown): ScriptItemAsset[] => (
+    Array.isArray(items)
+      ? items
+          .map((item) => {
+            if (!item || typeof item !== 'object') {
+              return null;
+            }
+
+            const record = item as Record<string, unknown>;
+            const name = normalizeString(record.name).trim();
+            if (!name) {
+              return null;
+            }
+
+            return {
+              name,
+              description: normalizeString(record.description),
+              appearances: normalizeStringArray(record.appearances),
+            };
+          })
+          .filter((item): item is ScriptItemAsset => Boolean(item))
+      : []
+  );
+
   return {
     ...data,
     premise: normalizeString(data.premise),
@@ -1204,6 +1299,9 @@ export function normalizeScriptRootNodeData(data: ScriptRootNodeData): ScriptRoo
     tone: normalizeString(data.tone),
     directorVision: normalizeString(data.directorVision),
     beats: Array.isArray(data.beats) ? data.beats : [],
+    assetLibraryCharacters: normalizeCharacterAssets(data.assetLibraryCharacters),
+    assetLibraryLocations: normalizeLocationAssets(data.assetLibraryLocations),
+    assetLibraryItems: normalizeItemAssets(data.assetLibraryItems),
   };
 }
 

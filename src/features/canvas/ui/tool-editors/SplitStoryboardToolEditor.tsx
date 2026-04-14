@@ -3,6 +3,7 @@ import { ZoomIn, ZoomOut } from 'lucide-react';
 
 import { resolveImageDisplayUrl } from '@/features/canvas/application/imageData';
 import { UiInput, UiButton } from '@/components/ui';
+import { createUiRangeStyle } from '@/components/ui/rangeStyle';
 import type { VisualToolEditorProps } from './types';
 
 const MIN_GRID_SIZE = 1;
@@ -773,7 +774,8 @@ export function SplitStoryboardToolEditor({ sourceImageUrl, options, onOptionsCh
             step={0.1}
             value={lineThicknessPercent}
             onChange={(event) => updateOptions({ lineThicknessPercent: Number(event.target.value) })}
-            className="h-2 w-full cursor-pointer appearance-none rounded-full bg-white/15"
+            className="ui-range"
+            style={createUiRangeStyle(lineThicknessPercent, 0, Math.max(0, maxLineThicknessPercent))}
           />
           <UiInput
             type="number"

@@ -30,7 +30,7 @@ import { useTranslation } from "react-i18next";
 import {
   UiButton,
   UiChipButton,
-  UiLoadingAnimation,
+  UiLoadingOverlay,
   UiSelect,
 } from "@/components/ui";
 import {
@@ -1737,6 +1737,9 @@ export const SeedanceNode = memo(
           (lastSubmittedTime
             ? t("node.seedance.lastSubmitted", { time: lastSubmittedTime })
             : t(modeHintKey)));
+    const showBlockingOverlay = Boolean(
+      data.isSubmitting || data.isGenerating || isOptimizingPrompt,
+    );
     const handleReferenceSourceHighlight = useCallback(
       (sourceNodeId: string) => {
         setHighlightedReferenceSourceNode(
@@ -2083,14 +2086,10 @@ export const SeedanceNode = memo(
                     void handleOptimizePrompt();
                   }}
                 >
-                  {isOptimizingPrompt ? (
-                    <UiLoadingAnimation size="sm" />
-                  ) : (
-                    <Wand2
-                      className="h-4 w-4 origin-center scale-[1.18]"
-                      strokeWidth={2.45}
-                    />
-                  )}
+                  <Wand2
+                    className="h-4 w-4 origin-center scale-[1.18]"
+                    strokeWidth={2.45}
+                  />
                 </UiChipButton>
                 <UiChipButton
                   type="button"
@@ -2122,11 +2121,7 @@ export const SeedanceNode = memo(
                 void handleGenerate();
               }}
             >
-              {data.isSubmitting ? (
-                <UiLoadingAnimation size="sm" />
-              ) : (
-                <Sparkles className="h-4 w-4" strokeWidth={2.3} />
-              )}
+              <Sparkles className="h-4 w-4" strokeWidth={2.3} />
               {data.isSubmitting
                 ? t("node.seedance.submitting")
                 : t("node.seedance.submit")}
@@ -2159,6 +2154,7 @@ export const SeedanceNode = memo(
           minWidth={SEEDANCE_NODE_MIN_WIDTH}
           minHeight={SEEDANCE_NODE_MIN_HEIGHT}
         />
+        <UiLoadingOverlay visible={showBlockingOverlay} insetClassName="inset-3" />
       </div>
     );
   },

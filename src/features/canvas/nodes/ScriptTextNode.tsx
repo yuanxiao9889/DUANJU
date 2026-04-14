@@ -4,7 +4,7 @@ import { FileText, Sparkles } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 
 import { generateStoryboardScriptsFromText } from '@/commands/textGen';
-import { UiButton, UiLoadingAnimation } from '@/components/ui';
+import { UiButton, UiLoadingOverlay } from '@/components/ui';
 import {
   CANVAS_NODE_TYPES,
   SCRIPT_CHAPTER_NODE_DEFAULT_HEIGHT,
@@ -93,6 +93,7 @@ export const ScriptTextNode = memo(({
     ? Math.max(0, Math.floor(data.lastGeneratedCount))
     : 0;
   const remainingCharacters = SCRIPT_TEXT_INPUT_MAX_LENGTH - content.length;
+  const showBlockingOverlay = isGenerating;
   const resolvedWidth = Math.max(
     MIN_WIDTH,
     Math.round(width ?? SCRIPT_TEXT_NODE_DEFAULT_WIDTH)
@@ -319,15 +320,12 @@ export const ScriptTextNode = memo(({
               void handleGenerate();
             }}
           >
-            {isGenerating ? (
-              <UiLoadingAnimation size="sm" />
-            ) : (
-              <Sparkles className="h-4 w-4" />
-            )}
+            <Sparkles className="h-4 w-4" />
             {isGenerating ? t('node.scriptText.generating') : t('node.scriptText.generate')}
           </UiButton>
         </div>
       </div>
+      <UiLoadingOverlay visible={showBlockingOverlay} insetClassName="inset-3" />
 
       <Handle
         type="source"

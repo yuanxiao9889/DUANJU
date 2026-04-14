@@ -9,6 +9,7 @@ import {
 import { Undo2, Wand2 } from 'lucide-react';
 
 import { UiLoadingAnimation } from '@/components/ui';
+import { createUiRangeStyle } from '@/components/ui/rangeStyle';
 import {
   isReusableVoicePresetAsset,
   resolveVoicePresetAssetMetadata,
@@ -452,6 +453,8 @@ export function SliderField({
   value,
   onChange,
 }: SliderFieldProps) {
+  const sliderStyle = createUiRangeStyle(value, min, max);
+
   return (
     <label className="block rounded-xl border border-white/10 bg-black/10 px-3 py-2.5">
       <div className="mb-2 flex items-center justify-between gap-3 text-xs font-medium text-text-muted">
@@ -466,7 +469,8 @@ export function SliderField({
         step={step}
         value={value}
         onChange={(event) => onChange(Number(event.target.value))}
-        className="nodrag nowheel mt-2 w-full accent-[var(--accent)]"
+        className="ui-range nodrag nowheel mt-1.5 w-full"
+        style={sliderStyle}
       />
     </label>
   );

@@ -17,6 +17,7 @@ export type RichTextEditorProps = {
   onSelectionReplacementApplied?: () => void;
   placeholder?: string;
   className?: string;
+  readOnly?: boolean;
 };
 
 export type SelectionRange = {
@@ -58,6 +59,7 @@ export function RichTextEditor({
   onSelectionReplacementApplied,
   placeholder = '开始编写内容...',
   className = '',
+  readOnly = false,
 }: RichTextEditorProps) {
   const lastSelectionRangeRef = useRef<SelectionRange | null>(null);
   const lastAppliedReplacementIdRef = useRef<number | null>(null);
@@ -70,6 +72,7 @@ export function RichTextEditor({
       }),
     ],
     content: content || '',
+    editable: !readOnly,
     editorProps: {
       attributes: {
         class: 'prose prose-invert max-w-none focus:outline-none min-h-full p-2 text-sm leading-relaxed',
@@ -95,6 +98,14 @@ export function RichTextEditor({
       editor.commands.setContent(content || '');
     }
   }, [content, editor]);
+
+  useEffect(() => {
+    if (!editor) {
+      return;
+    }
+
+    editor.setEditable(!readOnly);
+  }, [editor, readOnly]);
 
   useEffect(() => {
     if (!editor || !onSelect) return;
@@ -163,27 +174,27 @@ export function RichTextEditor({
   }, [editor, pendingSelectionReplacement, onSelectionReplacementApplied]);
 
   const toggleBold = useCallback(() => {
-    if (!editor) return;
+    if (!editor || readOnly) return;
     editor.chain().focus().toggleBold().run();
-  }, [editor]);
+  }, [editor, readOnly]);
 
   const toggleItalic = useCallback(() => {
-    if (!editor) return;
+    if (!editor || readOnly) return;
     editor.chain().focus().toggleItalic().run();
-  }, [editor]);
+  }, [editor, readOnly]);
 
   const toggleHeading = useCallback(
     (level: 1 | 2 | 3 | 4 | 5) => {
-      if (!editor) return;
+      if (!editor || readOnly) return;
       editor.chain().focus().toggleHeading({ level }).run();
     },
-    [editor]
+    [editor, readOnly]
   );
 
   const setParagraph = useCallback(() => {
-    if (!editor) return;
+    if (!editor || readOnly) return;
     editor.chain().focus().setParagraph().run();
-  }, [editor]);
+  }, [editor, readOnly]);
 
   const handleWrapperContextMenu = useCallback(
     (e: React.MouseEvent) => {
@@ -220,6 +231,7 @@ export function RichTextEditor({
         <button
           type="button"
           onClick={() => toggleHeading(1)}
+          disabled={readOnly}
           className={`px-1.5 py-0.5 text-xs font-bold hover:bg-bg-dark rounded ${
             editor.isActive('heading', { level: 1 }) ? 'text-amber-400 bg-amber-500/20' : 'text-text-muted hover:text-text-dark'
           }`}
@@ -230,6 +242,7 @@ export function RichTextEditor({
         <button
           type="button"
           onClick={() => toggleHeading(2)}
+          disabled={readOnly}
           className={`px-1.5 py-0.5 text-xs font-bold hover:bg-bg-dark rounded ${
             editor.isActive('heading', { level: 2 }) ? 'text-amber-400 bg-amber-500/20' : 'text-text-muted hover:text-text-dark'
           }`}
@@ -240,6 +253,7 @@ export function RichTextEditor({
         <button
           type="button"
           onClick={() => toggleHeading(3)}
+          disabled={readOnly}
           className={`px-1.5 py-0.5 text-xs font-bold hover:bg-bg-dark rounded ${
             editor.isActive('heading', { level: 3 }) ? 'text-amber-400 bg-amber-500/20' : 'text-text-muted hover:text-text-dark'
           }`}
@@ -250,6 +264,7 @@ export function RichTextEditor({
         <button
           type="button"
           onClick={() => toggleHeading(4)}
+          disabled={readOnly}
           className={`px-1.5 py-0.5 text-xs font-bold hover:bg-bg-dark rounded ${
             editor.isActive('heading', { level: 4 }) ? 'text-amber-400 bg-amber-500/20' : 'text-text-muted hover:text-text-dark'
           }`}
@@ -260,6 +275,7 @@ export function RichTextEditor({
         <button
           type="button"
           onClick={setParagraph}
+          disabled={readOnly}
           className={`px-1.5 py-0.5 text-xs font-bold hover:bg-bg-dark rounded ${
             editor.isActive('paragraph') && !editor.isActive('heading') ? 'text-amber-400 bg-amber-500/20' : 'text-text-muted hover:text-text-dark'
           }`}
@@ -271,6 +287,7 @@ export function RichTextEditor({
         <button
           type="button"
           onClick={toggleBold}
+          disabled={readOnly}
           className={`p-1.5 hover:bg-bg-dark rounded ${
             editor.isActive('bold') ? 'text-amber-400 bg-amber-500/20' : 'text-text-muted hover:text-text-dark'
           }`}
@@ -281,6 +298,7 @@ export function RichTextEditor({
         <button
           type="button"
           onClick={toggleItalic}
+          disabled={readOnly}
           className={`p-1.5 hover:bg-bg-dark rounded ${
             editor.isActive('italic') ? 'text-amber-400 bg-amber-500/20' : 'text-text-muted hover:text-text-dark'
           }`}
@@ -291,7 +309,7 @@ export function RichTextEditor({
       </div>
 
       <div
-        className="flex-1 min-h-0 overflow-auto ui-scrollbar nodrag relative"
+        className={`flex-1 min-h-0 overflow-auto ui-scrollbar nodrag relative ${readOnly ? 'opacity-85' : ''}`}
         onContextMenu={handleWrapperContextMenu}
       >
         <EditorContent

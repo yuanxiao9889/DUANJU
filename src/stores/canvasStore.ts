@@ -3859,6 +3859,9 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
 
     let deletedNodeIds: string[] = [];
     const affectedChapterIds = new Set<string>();
+    let fallbackChapterId: string | null = null;
+    let fallbackSceneId: string | null = null;
+    const { activeSceneNodeId } = useScriptEditorStore.getState();
 
     set((state) => {
       const existingIds = uniqueIds.filter((nodeId) => state.nodes.some((node) => node.id === nodeId));
@@ -3868,6 +3871,21 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
 
       const deleteSet = collectNodeIdsWithDescendants(state.nodes, existingIds);
       deletedNodeIds = Array.from(deleteSet);
+      if (activeSceneNodeId && deleteSet.has(activeSceneNodeId)) {
+        const activeSceneNode = state.nodes.find(
+          (node) => node.id === activeSceneNodeId && node.type === CANVAS_NODE_TYPES.scriptScene
+        );
+        if (activeSceneNode) {
+          const activeSceneData = activeSceneNode.data as ScriptSceneNodeData;
+          const sourceChapterSurvives = state.nodes.some(
+            (node) => node.id === activeSceneData.sourceChapterId && !deleteSet.has(node.id)
+          );
+          if (sourceChapterSurvives) {
+            fallbackChapterId = activeSceneData.sourceChapterId;
+            fallbackSceneId = activeSceneData.sourceSceneId;
+          }
+        }
+      }
       state.nodes.forEach((node) => {
         if (!deleteSet.has(node.id) || node.type !== CANVAS_NODE_TYPES.scriptScene) {
           return;
@@ -3891,7 +3909,9 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
         nodes: normalizedNextNodes,
         edges: nextEdges,
         selectedNodeId:
-          state.selectedNodeId && deleteSet.has(state.selectedNodeId) ? null : state.selectedNodeId,
+          state.selectedNodeId && deleteSet.has(state.selectedNodeId)
+            ? fallbackChapterId ?? null
+            : state.selectedNodeId,
         activeToolDialog:
           state.activeToolDialog && deleteSet.has(state.activeToolDialog.nodeId)
             ? null
@@ -3905,9 +3925,15 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
     });
 
     if (deletedNodeIds.length > 0) {
-      const { activeSceneNodeId } = useScriptEditorStore.getState();
       if (activeSceneNodeId && deletedNodeIds.includes(activeSceneNodeId)) {
-        useScriptEditorStore.getState().clearSelection();
+        if (fallbackChapterId && fallbackSceneId) {
+          useScriptEditorStore.getState().focusChapterScene(
+            fallbackChapterId,
+            fallbackSceneId
+          );
+        } else {
+          useScriptEditorStore.getState().clearSelection();
+        }
       }
     }
 

@@ -4,8 +4,10 @@ import {
   CANVAS_NODE_TYPES,
   normalizeSceneCards,
   type SceneCard,
+  type EpisodeCard,
   type ScriptRootNodeData,
   type ScriptChapterNodeData,
+  type ScriptSceneNodeData,
   type ScriptCharacterNodeData,
   type ScriptLocationNodeData,
   type ScriptItemNodeData,
@@ -37,9 +39,24 @@ interface ChapterWithId {
   data: ScriptChapterNodeData;
 }
 
+interface SceneNodeWithId {
+  id: string;
+  data: ScriptSceneNodeData;
+}
+
+interface ChapterExportUnit {
+  id: string;
+  sourceType: 'chapterScene' | 'sceneNode' | 'episode' | 'chapterContent';
+  label: string;
+  title: string;
+  summary: string;
+  html: string;
+}
+
 interface ScriptData {
   root: ScriptRootNodeData | null;
   chapters: ChapterWithId[];
+  sceneNodes: SceneNodeWithId[];
   characters: ScriptCharacterNodeData[];
   locations: ScriptLocationNodeData[];
   items: ScriptItemNodeData[];
@@ -218,6 +235,15 @@ function resolveChapterScenes(chapter: ScriptChapterNodeData): SceneCard[] {
     .sort((left, right) => left.order - right.order);
 }
 
+function escapeHtmlText(text: string): string {
+  return text
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
 function htmlToPlainText(html: string): string {
   if (!html.trim()) {
     return '';
@@ -271,6 +297,194 @@ function resolveChapterExportTextBlocks(chapter: ScriptChapterNodeData): string[
   return legacyContent ? [legacyContent] : [];
 }
 
+function sortEpisodes(episodes: EpisodeCard[]): EpisodeCard[] {
+  return episodes
+    .slice()
+    .sort((left, right) => {
+      if (left.order !== right.order) {
+        return left.order - right.order;
+      }
+
+      if (left.episodeNumber !== right.episodeNumber) {
+        return left.episodeNumber - right.episodeNumber;
+      }
+
+      return left.id.localeCompare(right.id);
+    });
+}
+
+function buildChapterExportUnitsFromSceneNodes(
+  chapterId: string,
+  chapter: ScriptChapterNodeData,
+  sceneNodes: SceneNodeWithId[]
+): ChapterExportUnit[] {
+  const sceneNodeBySceneId = new Map<string, ScriptSceneNodeData>();
+  sceneNodes.forEach((sceneNode) => {
+    if (sceneNode.data.sourceChapterId !== chapterId) {
+      return;
+    }
+
+    if (!sceneNodeBySceneId.has(sceneNode.data.sourceSceneId)) {
+      sceneNodeBySceneId.set(sceneNode.data.sourceSceneId, sceneNode.data);
+    }
+  });
+
+  const units: ChapterExportUnit[] = [];
+  resolveChapterScenes(chapter).forEach((scene) => {
+    const sceneNode = sceneNodeBySceneId.get(scene.id);
+    if (!sceneNode) {
+      const html = scene.draftHtml.trim();
+      const summary = scene.summary.trim();
+      if (!html && !summary) {
+        return;
+      }
+
+      units.push({
+        id: scene.id,
+        sourceType: 'chapterScene' as const,
+        label: `场景 ${scene.order + 1}`,
+        title: scene.title || '未命名场景',
+        summary,
+        html,
+      });
+      return;
+    }
+
+    const episodes = sortEpisodes(sceneNode.episodes);
+    if (episodes.length > 0) {
+      const episodeUnits: ChapterExportUnit[] = [];
+      episodes.forEach((episode) => {
+        const html = episode.draftHtml.trim();
+        const summary = episode.summary.trim();
+        if (!html && !summary) {
+          return;
+        }
+
+        episodeUnits.push({
+          id: episode.id,
+          sourceType: 'episode' as const,
+          label: `${chapter.chapterNumber || sceneNode.chapterNumber}-${episode.episodeNumber} 集`,
+          title: episode.title || '未命名分集',
+          summary,
+          html,
+        });
+      });
+      if (episodeUnits.length > 0) {
+        units.push(...episodeUnits);
+        return;
+      }
+    }
+
+    const html = sceneNode.draftHtml.trim();
+    const summary = sceneNode.summary.trim();
+    if (!html && !summary) {
+      return;
+    }
+
+    units.push({
+      id: sceneNode.sourceSceneId,
+      sourceType: 'sceneNode' as const,
+      label: `场景 ${sceneNode.sourceSceneOrder + 1}`,
+      title: sceneNode.title || scene.title || '未命名场景',
+      summary,
+      html,
+    });
+  });
+
+  if (units.length > 0) {
+    return units;
+  }
+
+  const legacyHtml = chapter.content.trim();
+  const legacySummary = chapter.summary.trim();
+  if (!legacyHtml && !legacySummary) {
+    return [];
+  }
+
+  return [{
+    id: `${chapterId}::chapter-content`,
+    sourceType: 'chapterContent',
+    label: '章节正文',
+    title: chapter.title || '',
+    summary: legacySummary,
+    html: legacyHtml,
+  }];
+}
+
+function formatChapterExportUnitHeading(unit: ChapterExportUnit): string {
+  const label = unit.label.trim();
+  const title = unit.title.trim();
+  if (label && title) {
+    return `${label}: ${title}`;
+  }
+  if (label) {
+    return label;
+  }
+  if (title) {
+    return title;
+  }
+  return '章节正文';
+}
+
+function renderChapterExportUnitHtml(unit: ChapterExportUnit): string {
+  const parts: string[] = [];
+  const heading = formatChapterExportUnitHeading(unit);
+  if (heading) {
+    parts.push(`<h3>${escapeHtmlText(heading)}</h3>`);
+  }
+  if (unit.summary.trim()) {
+    parts.push(`<p>${escapeHtmlText(unit.summary.trim())}</p>`);
+  }
+  if (unit.html.trim()) {
+    parts.push(unit.html.trim());
+  }
+  return parts.join('');
+}
+
+function resolveChapterExportHtmlFromSceneNodes(
+  chapterId: string,
+  chapter: ScriptChapterNodeData,
+  sceneNodes: SceneNodeWithId[]
+): string {
+  const exportHtmlBlocks = buildChapterExportUnitsFromSceneNodes(chapterId, chapter, sceneNodes)
+    .map((unit) => renderChapterExportUnitHtml(unit))
+    .filter((value) => value.length > 0);
+
+  if (exportHtmlBlocks.length > 0) {
+    return exportHtmlBlocks.join('<hr />');
+  }
+
+  return resolveChapterExportHtml(chapter);
+}
+
+function resolveChapterExportTextBlocksFromSceneNodes(
+  chapterId: string,
+  chapter: ScriptChapterNodeData,
+  sceneNodes: SceneNodeWithId[]
+): string[] {
+  const blocks = buildChapterExportUnitsFromSceneNodes(chapterId, chapter, sceneNodes).flatMap((unit) => {
+    const draftText = htmlToPlainText(unit.html);
+    if (!draftText && !unit.summary.trim()) {
+      return [];
+    }
+
+    const lines: string[] = [formatChapterExportUnitHeading(unit)];
+    if (unit.summary.trim()) {
+      lines.push(unit.summary.trim());
+    }
+    if (draftText) {
+      lines.push(draftText);
+    }
+    return [lines.join('\n')];
+  });
+
+  if (blocks.length > 0) {
+    return blocks;
+  }
+
+  return resolveChapterExportTextBlocks(chapter);
+}
+
 export function extractScriptData(
   nodes: any[],
   _edges: unknown
@@ -280,6 +494,9 @@ export function extractScriptData(
     .filter((n) => n.type === CANVAS_NODE_TYPES.scriptChapter)
     .sort((a, b) => (a.data.chapterNumber || 0) - (b.data.chapterNumber || 0))
     .map((n) => ({ id: n.id, data: n.data }));
+  const sceneNodes = nodes
+    .filter((n) => n.type === CANVAS_NODE_TYPES.scriptScene)
+    .map((n) => ({ id: n.id, data: n.data }));
   const characters = nodes.filter((n) => n.type === CANVAS_NODE_TYPES.scriptCharacter).map((n) => n.data);
   const locations = nodes.filter((n) => n.type === CANVAS_NODE_TYPES.scriptLocation).map((n) => n.data);
   const items = nodes.filter((n) => n.type === CANVAS_NODE_TYPES.scriptItem).map((n) => n.data);
@@ -288,6 +505,7 @@ export function extractScriptData(
   return {
     root: root?.data || null,
     chapters,
+    sceneNodes,
     characters,
     locations,
     items,
@@ -566,7 +784,7 @@ async function exportAsTxt(data: ScriptData, branches: BranchInfo[], filePath: s
           lines.push('');
         });
       }
-      resolveChapterExportTextBlocks(chapter.data).forEach((block) => {
+      resolveChapterExportTextBlocksFromSceneNodes(chapter.id, chapter.data, data.sceneNodes).forEach((block) => {
         lines.push(block);
         lines.push('');
       });
@@ -738,7 +956,7 @@ async function exportAsDocx(data: ScriptData, branches: BranchInfo[], filePath: 
         });
       }
 
-      const chapterHtmlContent = resolveChapterExportHtml(chapter.data);
+      const chapterHtmlContent = resolveChapterExportHtmlFromSceneNodes(chapter.id, chapter.data, data.sceneNodes);
       if (chapterHtmlContent) {
         const contentParagraphs = parseHtmlToDocxParagraphs(chapterHtmlContent, docx);
         docChildren.push(...contentParagraphs);
@@ -780,8 +998,16 @@ async function exportAsJson(data: ScriptData, branches: BranchInfo[], filePath: 
         chapterNumber: c.data.chapterNumber,
         title: c.data.title,
         summary: c.data.summary,
-        content: resolveChapterExportHtml(c.data),
+        content: resolveChapterExportHtmlFromSceneNodes(c.id, c.data, data.sceneNodes),
         scenes: resolveChapterScenes(c.data),
+        exportUnits: buildChapterExportUnitsFromSceneNodes(c.id, c.data, data.sceneNodes).map((unit) => ({
+          id: unit.id,
+          sourceType: unit.sourceType,
+          label: unit.label,
+          title: unit.title,
+          summary: unit.summary,
+          content: unit.html,
+        })),
         sceneHeadings: c.data.sceneHeadings,
       })),
     })),
@@ -899,7 +1125,7 @@ async function exportAsMarkdown(data: ScriptData, branches: BranchInfo[], filePa
         });
       }
 
-      resolveChapterExportTextBlocks(chapter.data).forEach((block) => {
+      resolveChapterExportTextBlocksFromSceneNodes(chapter.id, chapter.data, data.sceneNodes).forEach((block) => {
         lines.push(block);
         lines.push('');
       });

@@ -27,7 +27,7 @@ import {
 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
-import { UiLoadingAnimation } from "@/components/ui";
+import { UiLoadingOverlay } from "@/components/ui";
 import {
   CANVAS_NODE_TYPES,
   JIMENG_VIDEO_RESULT_NODE_DEFAULT_HEIGHT,
@@ -2553,6 +2553,7 @@ export const JimengNode = memo(
         : [cliModeHint, durationSuggestionText, promptOptimizationNotice]
             .filter(Boolean)
             .join(" | "));
+    const showBlockingOverlay = Boolean(data.isGenerating || isOptimizingPrompt);
 
     const handleModelChange = useCallback(
       (nextValue: JimengVideoModelId) => {
@@ -3001,14 +3002,10 @@ export const JimengNode = memo(
                 title={t("node.jimeng.optimizePrompt")}
                 onClick={() => void handleOptimizePrompt()}
               >
-                {isOptimizingPrompt ? (
-                  <UiLoadingAnimation size="sm" />
-                ) : (
-                  <Wand2
-                    className="h-4 w-4 origin-center scale-[1.18]"
-                    strokeWidth={2.45}
-                  />
-                )}
+                <Wand2
+                  className="h-4 w-4 origin-center scale-[1.18]"
+                  strokeWidth={2.45}
+                />
               </UiChipButton>
               <UiChipButton
                 type="button"
@@ -3078,6 +3075,7 @@ export const JimengNode = memo(
           minWidth={JIMENG_NODE_MIN_WIDTH}
           minHeight={JIMENG_NODE_MIN_HEIGHT}
         />
+        <UiLoadingOverlay visible={showBlockingOverlay} insetClassName="inset-3" />
         <JimengVideoQueueScheduleModal
           isOpen={showQueueScheduleModal}
           title={t("jimengQueue.schedule.createTitle")}

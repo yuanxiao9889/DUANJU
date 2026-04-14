@@ -400,6 +400,7 @@ function buildRetryingJob(
 
   return {
     ...job,
+    submitId: null,
     status: shouldRetry ? "retrying" : "failed",
     lastError: errorMessage,
     updatedAt: now,
@@ -407,6 +408,13 @@ function buildRetryingJob(
     nextRetryAt: shouldRetry ? now + JIMENG_VIDEO_QUEUE_RETRY_DELAY_MS : null,
     completedAt: shouldRetry ? null : now,
   };
+}
+
+function buildAttemptFailureJob(
+  job: JimengVideoQueueJob,
+  errorMessage: string,
+): JimengVideoQueueJob {
+  return buildRetryingJob(job, errorMessage);
 }
 
 function buildFailedJob(
@@ -526,6 +534,24 @@ async function markJobStatusForCapacity(
   );
 }
 
+function findRetryBarrierJob(
+  jobs: readonly JimengVideoQueueJob[],
+): JimengVideoQueueJob | null {
+  const retryingJobs = jobs
+    .filter((job) => job.status === "retrying")
+    .sort((left, right) => {
+      const leftRetryAt = left.nextRetryAt ?? Number.MAX_SAFE_INTEGER;
+      const rightRetryAt = right.nextRetryAt ?? Number.MAX_SAFE_INTEGER;
+      if (leftRetryAt !== rightRetryAt) {
+        return leftRetryAt - rightRetryAt;
+      }
+
+      return left.createdAt - right.createdAt;
+    });
+
+  return retryingJobs[0] ?? null;
+}
+
 async function startJobAttempt(job: JimengVideoQueueJob): Promise<void> {
   if (isJobDiscarded(job.jobId)) {
     return;
@@ -611,7 +637,7 @@ async function pollJob(job: JimengVideoQueueJob): Promise<void> {
       workingJob.startedAt &&
       Date.now() - workingJob.startedAt > JIMENG_VIDEO_QUEUE_ATTEMPT_TIMEOUT_MS
     ) {
-      const timedOutJob = buildFailedJob(
+      const timedOutJob = buildAttemptFailureJob(
         workingJob,
         i18n.t("jimengQueue.errors.timeout"),
       );
@@ -700,8 +726,8 @@ async function pollJob(job: JimengVideoQueueJob): Promise<void> {
         response.failureMessage?.trim() ||
         response.warnings.find((warning) => warning.trim().length > 0) ||
         i18n.t("jimengQueue.errors.submitFailed");
-      const failedJob = buildRetryingJob(
-        { ...workingJob, submitId: null },
+      const failedJob = buildAttemptFailureJob(
+        workingJob,
         failureMessage,
       );
       nextPollAtByJobId.delete(workingJob.jobId);
@@ -709,7 +735,7 @@ async function pollJob(job: JimengVideoQueueJob): Promise<void> {
       return;
     }
 
-    const failedJob = buildFailedJob(
+    const failedJob = buildAttemptFailureJob(
       workingJob,
       response.failureMessage?.trim() || i18n.t("jimengQueue.errors.resultEmpty"),
     );
@@ -726,7 +752,7 @@ async function pollJob(job: JimengVideoQueueJob): Promise<void> {
       workingJob.startedAt &&
       Date.now() - workingJob.startedAt > JIMENG_VIDEO_QUEUE_ATTEMPT_TIMEOUT_MS
     ) {
-      const failedJob = buildFailedJob(
+      const failedJob = buildAttemptFailureJob(
         workingJob,
         resolveJobErrorMessage(error),
       );
@@ -796,33 +822,41 @@ async function schedulerTick(): Promise<void> {
       }
     }
 
-    const freshJobs = sortJobs(useJimengVideoQueueStore.getState().jobs);
+    let freshJobs = sortJobs(useJimengVideoQueueStore.getState().jobs);
     const activeJobs = freshJobs.filter((job) =>
       isJimengVideoQueueActiveStatus(job.status),
     );
-    let activeCount = activeJobs.length;
+    const retryBarrierJob = findRetryBarrierJob(freshJobs);
+    const capacityBlockCount =
+      activeJobs.length > 0 ? activeJobs.length : retryBarrierJob ? 1 : 0;
 
     for (const job of freshJobs) {
-      if (
-        job.status === "waiting" ||
-        job.status === "waitingConcurrency" ||
-        job.status === "retrying"
-      ) {
-        await markJobStatusForCapacity(job, activeCount, now);
+      if (job.status === "waiting" || job.status === "waitingConcurrency") {
+        await markJobStatusForCapacity(job, capacityBlockCount, now);
       }
     }
 
-    const runnableJobs = sortJobs(useJimengVideoQueueStore.getState().jobs).filter(
-      (job) => canJobStartNow(job, now),
+    freshJobs = sortJobs(useJimengVideoQueueStore.getState().jobs);
+    const refreshedActiveJobs = freshJobs.filter((job) =>
+      isJimengVideoQueueActiveStatus(job.status),
     );
-    for (const job of runnableJobs) {
-      if (activeCount >= JIMENG_VIDEO_QUEUE_MAX_ACTIVE_JOBS) {
-        await markJobStatusForCapacity(job, activeCount, now);
-        continue;
-      }
+    const refreshedRetryBarrierJob = findRetryBarrierJob(freshJobs);
 
-      activeCount += 1;
-      void startJobAttempt(job);
+    if (refreshedActiveJobs.length < JIMENG_VIDEO_QUEUE_MAX_ACTIVE_JOBS) {
+      if (refreshedRetryBarrierJob) {
+        if (canJobStartNow(refreshedRetryBarrierJob, now)) {
+          void startJobAttempt(refreshedRetryBarrierJob);
+        }
+      } else {
+        const nextRunnableJob = freshJobs.find(
+          (job) =>
+            (job.status === "waiting" || job.status === "waitingConcurrency") &&
+            canJobStartNow(job, now),
+        );
+        if (nextRunnableJob) {
+          void startJobAttempt(nextRunnableJob);
+        }
+      }
     }
 
     const jobsToPoll = useJimengVideoQueueStore

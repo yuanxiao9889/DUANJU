@@ -184,6 +184,8 @@ const GENERATION_JOB_RECOVERY_THRESHOLD_MS = 2 * 60 * 1000;
 const GENERATION_JOB_RECOVERY_SWEEP_INTERVAL_MS = 15 * 1000;
 const GENERATION_JOB_STALE_ACTIVITY_MS = 20 * 1000;
 const GENERATION_JOB_RESULT_RETRY_INTERVAL_MS = 4000;
+const GENERATION_JOB_FORCE_REFRESH_MIN_MS = 75 * 1000;
+const GENERATION_JOB_FORCE_REFRESH_MAX_MS = 3 * 60 * 1000;
 const DRAG_OVERLAY_IDLE_CLEAR_MS = 420;
 
 interface GenerationStoryboardMetadata {
@@ -227,6 +229,36 @@ function hasGenerationStoryboardMetadata(value: unknown): value is GenerationSto
     && typeof candidate.gridCols === 'number'
     && Number.isFinite(candidate.gridCols)
     && Array.isArray(candidate.frameNotes);
+}
+
+function shouldPreferForceRefreshForPendingGeneration(data: Record<string, unknown>): boolean {
+  const manualRequestAt =
+    typeof data.generationForceRefreshRequestedAt === 'number'
+      ? data.generationForceRefreshRequestedAt
+      : null;
+  if (manualRequestAt !== null && Number.isFinite(manualRequestAt) && manualRequestAt > 0) {
+    return true;
+  }
+
+  const generationStartedAt =
+    typeof data.generationStartedAt === 'number' ? data.generationStartedAt : null;
+  if (generationStartedAt === null) {
+    return false;
+  }
+
+  const expectedDurationMs =
+    typeof data.generationDurationMs === 'number' && Number.isFinite(data.generationDurationMs)
+      ? data.generationDurationMs
+      : 60000;
+  const forceRefreshThresholdMs = Math.min(
+    GENERATION_JOB_FORCE_REFRESH_MAX_MS,
+    Math.max(
+      GENERATION_JOB_FORCE_REFRESH_MIN_MS,
+      Math.round(Math.max(30000, expectedDurationMs) * 1.35)
+    )
+  );
+
+  return Date.now() - generationStartedAt >= forceRefreshThresholdMs;
 }
 
 function padTimestampSegment(value: number): string {
@@ -648,6 +680,9 @@ export function Canvas() {
   const selectedNodeId = useCanvasStore((state) => state.selectedNodeId);
   const assetLibraries = useAssetStore((state) => state.libraries);
   const areAssetLibrariesHydrated = useAssetStore((state) => state.isHydrated);
+  const activeChapterId = useScriptEditorStore((state) => state.activeChapterId);
+  const activeChapterSceneId = useScriptEditorStore((state) => state.activeChapterSceneId);
+  const focusChapter = useScriptEditorStore((state) => state.focusChapter);
   const activeSceneNodeId = useScriptEditorStore((state) => state.activeSceneNodeId);
   const activeEpisodeId = useScriptEditorStore((state) => state.activeEpisodeId);
   const focusSceneNode = useScriptEditorStore((state) => state.focusSceneNode);
@@ -968,6 +1003,7 @@ export function Canvas() {
           aspectRatio: prepared.aspectRatio,
           isGenerating: false,
           generationStartedAt: null,
+          generationForceRefreshRequestedAt: null,
           generationClientSessionId: null,
           generationStoryboardMetadata: undefined,
           generationError: null,
@@ -1017,6 +1053,7 @@ export function Canvas() {
       updateNodeData(nodeId, {
         isGenerating: false,
         generationStartedAt: null,
+        generationForceRefreshRequestedAt: null,
         generationClientSessionId: null,
         generationStoryboardMetadata: undefined,
         generationError: errorMessage,
@@ -1045,6 +1082,10 @@ export function Canvas() {
           return;
         }
 
+        preferForceRefresh =
+          preferForceRefresh
+          || shouldPreferForceRefreshForPendingGeneration(currentState.data);
+
         try {
           markGenerationNodeActivity(nodeId);
           await syncGenerationProviderApiKey(nodeId, currentState.generationProviderId);
@@ -1072,6 +1113,14 @@ export function Canvas() {
             continue;
           }
 
+          if (
+            (status.status === 'queued' || status.status === 'running')
+            && typeof status.error === 'string'
+            && status.error.trim().length > 0
+          ) {
+            preferForceRefresh = true;
+          }
+
           if (status.status === 'queued' || status.status === 'running') {
             if (!continuous) {
               return;
@@ -1084,10 +1133,12 @@ export function Canvas() {
             continue;
           }
 
-          if (status.status === 'succeeded' && typeof status.result === 'string' && status.result.trim()) {
-            const applied = await applyGenerationSuccessResult(nodeId, currentState.data, status.result);
-            if (applied) {
-              return;
+          if (status.status === 'succeeded') {
+            if (typeof status.result === 'string' && status.result.trim()) {
+              const applied = await applyGenerationSuccessResult(nodeId, currentState.data, status.result);
+              if (applied) {
+                return;
+              }
             }
 
             preferForceRefresh = true;
@@ -1653,6 +1704,14 @@ export function Canvas() {
     const selectedNode = nodes.find((node) => node.id === selectedNodeIds[0]);
     return selectedNode?.type === CANVAS_NODE_TYPES.scriptScene ? selectedNode : null;
   }, [nodes, selectedNodeIds]);
+  const selectedScriptChapterNode = useMemo(() => {
+    if (selectedNodeIds.length !== 1) {
+      return null;
+    }
+
+    const selectedNode = nodes.find((node) => node.id === selectedNodeIds[0]);
+    return selectedNode?.type === CANVAS_NODE_TYPES.scriptChapter ? selectedNode : null;
+  }, [nodes, selectedNodeIds]);
   const sceneCatalogItems = useMemo(() => {
     if (!sceneCatalogChapterNodeId) {
       return [];
@@ -1709,6 +1768,31 @@ export function Canvas() {
       setSelectedNode(null);
     }
   }, [selectedNodeId, selectedNodeIds, setSelectedNode]);
+
+  useEffect(() => {
+    if (project?.projectType !== 'script' || !selectedScriptChapterNode) {
+      return;
+    }
+
+    const selectedChapterData = selectedScriptChapterNode.data as ScriptChapterNodeData;
+    const chapterScenes = normalizeSceneCards(selectedChapterData.scenes, selectedChapterData.content);
+    const fallbackSceneId = chapterScenes[0]?.id ?? null;
+    const nextSceneId = activeChapterId === selectedScriptChapterNode.id
+      ? activeChapterSceneId ?? fallbackSceneId
+      : fallbackSceneId;
+
+    if (activeChapterId === selectedScriptChapterNode.id && activeChapterSceneId === nextSceneId) {
+      return;
+    }
+
+    focusChapter(selectedScriptChapterNode.id, nextSceneId);
+  }, [
+    activeChapterId,
+    activeChapterSceneId,
+    focusChapter,
+    project?.projectType,
+    selectedScriptChapterNode,
+  ]);
 
   useEffect(() => {
     if (project?.projectType !== 'script' || !selectedScriptSceneNode) {

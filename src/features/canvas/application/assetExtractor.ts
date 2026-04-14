@@ -4,7 +4,6 @@ import {
   type ExtractedScriptCharacter,
   type ExtractedScriptItem,
   type ExtractedScriptLocation,
-  type ExtractedScriptWorldview,
 } from '@/commands/textGen';
 import {
   CANVAS_NODE_TYPES,
@@ -15,7 +14,6 @@ import {
 } from '../domain/canvasNodes';
 
 const MAX_CHARS_PER_EXTRACTION_CHUNK = 2600;
-const WORLDVIEW_NODE_X = 350;
 const CHARACTER_NODE_X = 600;
 const LOCATION_NODE_X = 850;
 const ITEM_NODE_X = 1100;
@@ -35,7 +33,6 @@ export interface AssetExtractionApplyResult {
   characters: number;
   locations: number;
   items: number;
-  worldviews: number;
 }
 
 interface AddNodeFn {
@@ -251,16 +248,6 @@ export function buildAssetExtractionChunks(nodes: CanvasNode[]): AssetExtraction
   return chunks;
 }
 
-function mergeStringLists(primary: string[], secondary: string[]): string[] {
-  return Array.from(
-    new Set(
-      [...primary, ...secondary]
-        .map((item) => normalizeName(item))
-        .filter((item) => item.length > 0)
-    )
-  );
-}
-
 function dedupeCharacters(items: ExtractedScriptCharacter[]): ExtractedScriptCharacter[] {
   const map = new Map<string, ExtractedScriptCharacter>();
 
@@ -338,46 +325,6 @@ function dedupeItems(items: ExtractedScriptItem[]): ExtractedScriptItem[] {
   return Array.from(map.values());
 }
 
-function dedupeWorldviews(items: ExtractedScriptWorldview[]): ExtractedScriptWorldview[] {
-  const map = new Map<string, ExtractedScriptWorldview>();
-
-  items.forEach((item) => {
-    const key = normalizeName(item.worldviewName).toLowerCase();
-    if (!key) {
-      return;
-    }
-
-    const existing = map.get(key);
-    if (!existing) {
-      map.set(key, {
-        ...item,
-        worldviewName: normalizeName(item.worldviewName),
-        rules: mergeStringLists(item.rules, []),
-      });
-      return;
-    }
-
-    map.set(key, {
-      worldviewName: existing.worldviewName,
-      description: existing.description.length >= item.description.length
-        ? existing.description
-        : item.description,
-      era: existing.era.length >= item.era.length ? existing.era : item.era,
-      technology: existing.technology.length >= item.technology.length
-        ? existing.technology
-        : item.technology,
-      magic: existing.magic.length >= item.magic.length ? existing.magic : item.magic,
-      society: existing.society.length >= item.society.length ? existing.society : item.society,
-      geography: existing.geography.length >= item.geography.length
-        ? existing.geography
-        : item.geography,
-      rules: mergeStringLists(existing.rules, item.rules),
-    });
-  });
-
-  return Array.from(map.values());
-}
-
 export async function extractAssetsFromChunk(chunk: AssetExtractionChunk): Promise<ExtractedScriptAssets> {
   const result = await extractScriptAssets({
     content: chunk.content,
@@ -388,7 +335,6 @@ export async function extractAssetsFromChunk(chunk: AssetExtractionChunk): Promi
     characters: dedupeCharacters(result.characters),
     locations: dedupeLocations(result.locations),
     items: dedupeItems(result.items),
-    worldviews: dedupeWorldviews(result.worldviews),
   };
 }
 
@@ -422,27 +368,13 @@ export function applyExtractedAssetsToCanvas({
       .filter((value) => value.length > 0)
       .map((value) => value.toLowerCase())
   );
-  const existingWorldviewNames = new Set(
-    nodes
-      .filter((node) => node.type === CANVAS_NODE_TYPES.scriptWorldview)
-      .map((node) => (
-        'worldviewName' in node.data && typeof node.data.worldviewName === 'string'
-          ? normalizeName(node.data.worldviewName)
-          : ''
-      ))
-      .filter((value) => value.length > 0)
-      .map((value) => value.toLowerCase())
-  );
-
   let nextCharacterIndex = countNodesByType(nodes, CANVAS_NODE_TYPES.scriptCharacter);
   let nextLocationIndex = countNodesByType(nodes, CANVAS_NODE_TYPES.scriptLocation);
   let nextItemIndex = countNodesByType(nodes, CANVAS_NODE_TYPES.scriptItem);
-  let nextWorldviewIndex = countNodesByType(nodes, CANVAS_NODE_TYPES.scriptWorldview);
 
   let characterCount = 0;
   let locationCount = 0;
   let itemCount = 0;
-  let worldviewCount = 0;
 
   dedupeCharacters(extractedAssets.characters).forEach((character) => {
     const key = normalizeName(character.name).toLowerCase();
@@ -508,36 +440,9 @@ export function applyExtractedAssetsToCanvas({
     itemCount += 1;
   });
 
-  dedupeWorldviews(extractedAssets.worldviews).forEach((worldview) => {
-    const key = normalizeName(worldview.worldviewName).toLowerCase();
-    if (!key || existingWorldviewNames.has(key)) {
-      return;
-    }
-
-    addNode(CANVAS_NODE_TYPES.scriptWorldview, {
-      x: WORLDVIEW_NODE_X,
-      y: NODE_START_Y + nextWorldviewIndex * NODE_GAP_Y,
-    }, {
-      displayName: worldview.worldviewName,
-      worldviewName: worldview.worldviewName,
-      description: worldview.description,
-      era: worldview.era,
-      technology: worldview.technology,
-      magic: worldview.magic,
-      society: worldview.society,
-      geography: worldview.geography,
-      rules: worldview.rules,
-    });
-
-    existingWorldviewNames.add(key);
-    nextWorldviewIndex += 1;
-    worldviewCount += 1;
-  });
-
   return {
     characters: characterCount,
     locations: locationCount,
     items: itemCount,
-    worldviews: worldviewCount,
   };
 }

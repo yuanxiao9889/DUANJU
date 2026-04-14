@@ -6,7 +6,7 @@ import type {
   JimengVideoResolution,
 } from "@/features/canvas/domain/canvasNodes";
 
-export const JIMENG_VIDEO_QUEUE_MAX_ACTIVE_JOBS = 10;
+export const JIMENG_VIDEO_QUEUE_MAX_ACTIVE_JOBS = 1;
 export const JIMENG_VIDEO_QUEUE_MAX_ATTEMPTS = 3;
 export const JIMENG_VIDEO_QUEUE_RETRY_DELAY_MS = 15_000;
 export const JIMENG_VIDEO_QUEUE_POLL_INTERVAL_MS = 2_500;

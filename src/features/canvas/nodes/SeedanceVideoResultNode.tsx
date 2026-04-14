@@ -8,7 +8,7 @@ import {
 import { Loader2, Sparkles, TriangleAlert, Video } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
-import { UiButton, UiLoadingAnimation } from "@/components/ui";
+import { UiButton, UiLoadingOverlay } from "@/components/ui";
 import {
   resolveErrorContent,
   showErrorDialog,
@@ -463,10 +463,11 @@ export const SeedanceVideoResultNode = memo(
           (lastGeneratedTime
             ? t("node.seedanceVideoResult.generatedAt", {
                 time: lastGeneratedTime,
-              })
-            : t("node.seedanceVideoResult.empty")))));
+            })
+          : t("node.seedanceVideoResult.empty")))));
     const nodeDescription =
       typeof data.nodeDescription === "string" ? data.nodeDescription : "";
+    const showBlockingOverlay = Boolean(data.isGenerating || isRequerying);
 
     return (
       <div
@@ -487,6 +488,7 @@ export const SeedanceVideoResultNode = memo(
         }}
         onClick={() => setSelectedNode(id)}
       >
+        <UiLoadingOverlay visible={showBlockingOverlay} insetClassName="inset-3" />
         <NodeHeader
           className={NODE_HEADER_FLOATING_POSITION_CLASS}
           icon={<Video className="h-3.5 w-3.5" />}
@@ -568,9 +570,6 @@ export const SeedanceVideoResultNode = memo(
               void handleRequeryResult();
             }}
           >
-            {isRequerying ? (
-              <UiLoadingAnimation size="sm" />
-            ) : null}
             {t("node.seedanceVideoResult.requery")}
           </UiButton>
         </div>

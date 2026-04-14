@@ -10,6 +10,7 @@ import {
 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 
+import { UiLoadingOverlay, UiScrollArea } from '@/components/ui';
 import { NodeResizeHandle } from '@/features/canvas/ui/NodeResizeHandle';
 import {
   CANVAS_NODE_TYPES,
@@ -22,7 +23,6 @@ import { resolveNodeDisplayName } from '@/features/canvas/domain/nodeDisplay';
 import {
   createManualEpisodeCard,
   generateEpisodesFromSceneNode,
-  htmlToPlainText,
 } from '@/features/canvas/application/sceneEpisodeGenerator';
 import { useCanvasStore } from '@/stores/canvasStore';
 import { useScriptEditorStore } from '@/stores/scriptEditorStore';
@@ -92,7 +92,6 @@ export const ScriptSceneNode = memo(({
       .sort((left, right) => left.order - right.order)
       .slice(0, 6);
   }, [data.episodes]);
-  const previewListHeight = Math.max(148, Math.min(280, Math.round(resolvedHeight * 0.42)));
 
   const openWorkbench = useCallback((episodeId?: string | null) => {
     setSelectedNode(id);
@@ -188,15 +187,6 @@ export const ScriptSceneNode = memo(({
           </button>
         </div>
 
-        <div className="mt-3 rounded-2xl border border-cyan-500/12 bg-cyan-500/[0.04] px-3 py-2.5">
-          <div className="text-[11px] uppercase tracking-[0.08em] text-cyan-200/75">
-            {t('script.sceneWorkbench.sceneBlueprint')}
-          </div>
-          <p className="mt-2 line-clamp-2 text-sm leading-6 text-text-dark/84">
-            {data.summary || data.purpose || data.visualHook || t('script.sceneWorkbench.sceneSummaryHint')}
-          </p>
-        </div>
-
         <div className="mt-3 flex flex-wrap gap-2">
           <button
             type="button"
@@ -250,13 +240,13 @@ export const ScriptSceneNode = memo(({
           ) : null}
         </div>
 
-        <div
-          className="ui-scrollbar mt-3 flex-1 space-y-2 overflow-y-auto pr-1"
-          style={{ maxHeight: previewListHeight }}
+        <UiScrollArea
+          className="mt-3 min-h-0 flex-1"
+          viewportClassName="h-full"
+          contentClassName="space-y-2 pr-3"
         >
           {previewEpisodes.length > 0 ? (
             previewEpisodes.map((episode) => {
-              const previewText = htmlToPlainText(episode.draftHtml || episode.summary);
               const isActive = activeSceneNodeId === id && activeEpisodeId === episode.id;
 
               return (
@@ -281,9 +271,6 @@ export const ScriptSceneNode = memo(({
                       {`${data.chapterNumber || 1}-${episode.episodeNumber}`}
                     </span>
                   </div>
-                  <p className="mt-1 line-clamp-2 text-xs leading-5 text-text-muted">
-                    {previewText || t('script.sceneWorkbench.emptyEpisodePreview')}
-                  </p>
                 </button>
               );
             })
@@ -292,7 +279,7 @@ export const ScriptSceneNode = memo(({
               {t('script.sceneWorkbench.emptyEpisodes')}
             </div>
           )}
-        </div>
+        </UiScrollArea>
 
         {generationError ? (
           <div className="mt-3 rounded-xl border border-red-400/20 bg-red-500/8 px-3 py-2 text-xs leading-5 text-red-200">
@@ -308,6 +295,7 @@ export const ScriptSceneNode = memo(({
         maxHeight={MAX_NODE_HEIGHT}
         isVisible={selected}
       />
+      <UiLoadingOverlay visible={isGenerating} insetClassName="inset-3" />
     </div>
   );
 });

@@ -27,7 +27,7 @@ import { resolveMinEdgeFittedSize } from '@/features/canvas/application/imageNod
 import { readStoryboardImageMetadata } from '@/commands/image';
 import { getToolPlugin, type ToolOptions } from '@/features/canvas/tools';
 import { useCanvasStore } from '@/stores/canvasStore';
-import { UiButton, UiLoadingAnimation, UiLoadingBanner, UiModal } from '@/components/ui';
+import { UiButton, UiLoadingBanner, UiLoadingOverlay, UiModal } from '@/components/ui';
 import { UI_DIALOG_TRANSITION_MS } from '@/components/ui/motion';
 const FormToolEditor = lazy(async () => {
   const module = await import('./tool-editors/FormToolEditor');
@@ -477,19 +477,13 @@ export function NodeToolDialog() {
             {t('common.cancel')}
           </UiButton>
           <UiButton size="sm" variant="primary" onClick={handleApply} disabled={isApplyDisabled}>
-            {isProcessing ? (
-              <>
-                <UiLoadingAnimation size="xs" className="mr-2" />
-                {t('toolDialog.processing')}
-              </>
-            ) : (
-              t('toolDialog.apply')
-            )}
+            {isProcessing ? t('toolDialog.processing') : t('toolDialog.apply')}
           </UiButton>
         </>
       }
     >
-      <div className="space-y-3 max-h-[82vh] overflow-y-auto pr-1">
+      <div className="relative space-y-3 max-h-[82vh] overflow-y-auto pr-1">
+        <UiLoadingOverlay visible={isProcessing} insetClassName="inset-0" />
         <Suspense fallback={loadingEditorFallback}>
           {editorContent}
         </Suspense>
