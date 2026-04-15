@@ -26,23 +26,22 @@ import {
   type NodeMenuGroupKey,
   type NodeMenuProjectType,
 } from '@/features/canvas/domain/nodeRegistry';
+import { useProjectStore } from '@/stores/projectStore';
 
 export interface SpecialMenuItem {
   id: string;
   icon: typeof Upload;
   labelKey: string;
-  action: 'createBranch' | 'createSupplement';
+  action: 'createBranch';
 }
 
 interface NodeSelectionMenuProps {
   position: { x: number; y: number };
   allowedTypes?: CanvasNodeType[];
   onSelect: (type: CanvasNodeType) => void;
-  onSpecialAction?: (action: 'createBranch' | 'createSupplement') => void;
+  onSpecialAction?: (action: 'createBranch') => void;
   showBranchOption?: boolean;
   onlyBranchOption?: boolean;
-  showSupplementOption?: boolean;
-  onlySupplementOption?: boolean;
   onClose: () => void;
   projectType?: NodeMenuProjectType;
 }
@@ -74,13 +73,6 @@ const BRANCH_MENU_ITEM: SpecialMenuItem = {
   icon: GitBranch,
   labelKey: 'node.menu.createBranch',
   action: 'createBranch',
-};
-
-const SUPPLEMENT_MENU_ITEM: SpecialMenuItem = {
-  id: 'create-supplement',
-  icon: Sparkles,
-  labelKey: 'node.menu.createSupplement',
-  action: 'createSupplement',
 };
 
 function renderIcon(iconKey: MenuIconKey) {
@@ -165,17 +157,22 @@ export function NodeSelectionMenu({
   onSpecialAction,
   showBranchOption = false,
   onlyBranchOption = false,
-  showSupplementOption = false,
-  onlySupplementOption = false,
   onClose,
   projectType = 'storyboard',
 }: NodeSelectionMenuProps) {
   const { t } = useTranslation();
+  const currentProject = useProjectStore((state) => state.currentProject);
   const menuRef = useRef<HTMLDivElement>(null);
   const groupButtonRefs = useRef(new Map<NodeMenuGroupKey, HTMLButtonElement>());
   const [isVisible, setIsVisible] = useState(false);
   const [hoveredGroupId, setHoveredGroupId] = useState<NodeMenuGroupKey | null>(null);
   const [submenuTop, setSubmenuTop] = useState(0);
+  const menuAvailabilityOptions = useMemo(
+    () => ({
+      linkedScriptProjectId: currentProject?.linkedScriptProjectId ?? null,
+    }),
+    [currentProject?.linkedScriptProjectId]
+  );
 
   const allowedTypeSet = useMemo(
     () => (allowedTypes ? new Set(allowedTypes) : null),
@@ -184,14 +181,14 @@ export function NodeSelectionMenu({
 
   const menuEntries = useMemo(() => {
     const candidates = !allowedTypeSet || !allowedTypes
-      ? nodeCatalog.getMenuDefinitions(projectType)
+      ? nodeCatalog.getMenuDefinitions(projectType, menuAvailabilityOptions)
       : Array.from(new Set(allowedTypes))
-        .filter((type) => isNodeTypeAvailableInProject(type, projectType))
+        .filter((type) => isNodeTypeAvailableInProject(type, projectType, menuAvailabilityOptions))
         .filter((type) => isCanvasNodeTypeEnabled(type))
         .map((type) => nodeCatalog.getDefinition(type));
 
     return buildMenuEntries(dedupeMenuDefinitions(candidates));
-  }, [allowedTypeSet, allowedTypes, projectType]);
+  }, [allowedTypeSet, allowedTypes, menuAvailabilityOptions, projectType]);
 
   const hoveredGroupEntry = useMemo(
     () => menuEntries.find((entry): entry is MenuGroupEntry => (
@@ -333,7 +330,7 @@ export function NodeSelectionMenu({
     );
   }, [hoveredGroupId, isVisible, openSubmenu, t]);
 
-  const specialItemCount = (showBranchOption ? 1 : 0) + (showSupplementOption ? 1 : 0);
+  const specialItemCount = showBranchOption ? 1 : 0;
 
   return (
     <div
@@ -360,14 +357,8 @@ export function NodeSelectionMenu({
         'bg-purple-500/20 text-purple-400',
         0
       )}
-      {(showSupplementOption || onlySupplementOption) && renderSpecialButton(
-        SUPPLEMENT_MENU_ITEM,
-        `flex w-full items-center gap-2.5 px-3 py-2.5 text-left transition-colors hover:bg-bg-dark ${!onlySupplementOption ? 'border-b border-border-dark' : ''}`,
-        'bg-green-500/20 text-green-400',
-        showBranchOption ? 30 : 0
-      )}
 
-      {!onlyBranchOption && !onlySupplementOption && menuEntries.map((entry, index) => {
+      {!onlyBranchOption && menuEntries.map((entry, index) => {
         const delayMs = (specialItemCount + index) * 30;
         return entry.kind === 'group'
           ? renderGroupButton(entry, delayMs)
@@ -375,7 +366,7 @@ export function NodeSelectionMenu({
       })}
         </div>
 
-        {!onlyBranchOption && !onlySupplementOption && hoveredGroupEntry && (
+        {!onlyBranchOption && hoveredGroupEntry && (
           <div
             className="absolute left-[calc(100%-1px)] w-[196px] overflow-hidden rounded-lg border border-border-dark bg-surface-dark shadow-xl"
             style={{ top: submenuTop }}

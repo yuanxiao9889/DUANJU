@@ -69,6 +69,7 @@ export interface ProjectSummary {
   name: string;
   projectType: ProjectType;
   assetLibraryId: string | null;
+  linkedScriptProjectId: string | null;
   createdAt: number;
   updatedAt: number;
   nodeCount: number;
@@ -424,6 +425,7 @@ function toProjectSummary(record: ProjectSummaryRecord): ProjectSummary {
     name: record.name,
     projectType: (record.projectType as ProjectType) || 'storyboard',
     assetLibraryId: record.assetLibraryId ?? null,
+    linkedScriptProjectId: record.linkedScriptProjectId ?? null,
     createdAt: record.createdAt,
     updatedAt: record.updatedAt,
     nodeCount: record.nodeCount,
@@ -442,6 +444,7 @@ function toProjectRecord(project: Project): ProjectRecord {
     name: encodedProject.name,
     projectType: encodedProject.projectType || 'storyboard',
     assetLibraryId: encodedProject.assetLibraryId ?? null,
+    linkedScriptProjectId: encodedProject.linkedScriptProjectId ?? null,
     createdAt: encodedProject.createdAt,
     updatedAt: encodedProject.updatedAt,
     nodeCount: encodedProject.nodeCount,
@@ -486,6 +489,7 @@ function fromProjectRecord(record: ProjectRecord): Project {
     name: record.name,
     projectType: (record.projectType as ProjectType) || 'storyboard',
     assetLibraryId: record.assetLibraryId ?? null,
+    linkedScriptProjectId: record.linkedScriptProjectId ?? null,
     createdAt: record.createdAt,
     updatedAt: record.updatedAt,
     nodeCount: record.nodeCount,
@@ -774,6 +778,10 @@ interface ProjectState {
   deleteProject: (id: string) => void;
   deleteProjects: (ids: string[]) => void;
   renameProject: (id: string, name: string) => void;
+  setProjectLinkedScriptProject: (
+    projectId: string,
+    linkedScriptProjectId: string | null
+  ) => Promise<void>;
   setCurrentProjectAssetLibrary: (assetLibraryId: string | null) => void;
   setCurrentProjectColorLabels: (colorLabels: CanvasColorLabelMap) => void;
   openProject: (id: string) => void;
@@ -830,6 +838,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
       name,
       projectType,
       assetLibraryId: null,
+      linkedScriptProjectId: null,
       createdAt: now,
       updatedAt: now,
       nodeCount: 0,
@@ -911,6 +920,66 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
     });
   },
 
+  setProjectLinkedScriptProject: async (projectId, linkedScriptProjectId) => {
+    const normalizedLinkedScriptProjectId = linkedScriptProjectId?.trim() || null;
+    const updatedAt = Date.now();
+    const updateSummary = (project: Project): ProjectSummary => ({
+      id: project.id,
+      name: project.name,
+      projectType: project.projectType,
+      assetLibraryId: project.assetLibraryId ?? null,
+      linkedScriptProjectId: project.linkedScriptProjectId ?? null,
+      createdAt: project.createdAt,
+      updatedAt: project.updatedAt,
+      nodeCount: project.nodeCount,
+    });
+
+    const { currentProjectId, currentProject } = get();
+    if (currentProjectId === projectId && currentProject?.id === projectId) {
+      if ((currentProject.linkedScriptProjectId ?? null) === normalizedLinkedScriptProjectId) {
+        return;
+      }
+
+      const nextProject: Project = {
+        ...currentProject,
+        linkedScriptProjectId: normalizedLinkedScriptProjectId,
+        updatedAt,
+      };
+
+      set((state) => ({
+        currentProject: nextProject,
+        projects: updateProjectSummary(state.projects, updateSummary(nextProject)),
+      }));
+      persistProject(nextProject, { debounceMs: 0 });
+      return;
+    }
+
+    try {
+      const record = await getProjectRecord(projectId);
+      if (!record) {
+        return;
+      }
+
+      const existingProject = fromProjectRecord(record);
+      if ((existingProject.linkedScriptProjectId ?? null) === normalizedLinkedScriptProjectId) {
+        return;
+      }
+
+      const nextProject: Project = {
+        ...existingProject,
+        linkedScriptProjectId: normalizedLinkedScriptProjectId,
+        updatedAt,
+      };
+
+      set((state) => ({
+        projects: updateProjectSummary(state.projects, updateSummary(nextProject)),
+      }));
+      await persistProjectImmediately(nextProject);
+    } catch (error) {
+      console.error('Failed to update linked script project', error);
+    }
+  },
+
   openProject: (id) => {
     const reqSeq = ++openProjectRequestSeq;
     useCanvasStore.getState().closeImageViewer();
@@ -937,6 +1006,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
             name: project.name,
             projectType: project.projectType,
             assetLibraryId: project.assetLibraryId ?? null,
+            linkedScriptProjectId: project.linkedScriptProjectId ?? null,
             createdAt: project.createdAt,
             updatedAt: project.updatedAt,
             nodeCount: project.nodeCount,
@@ -975,6 +1045,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
         name: nextProject.name,
         projectType: nextProject.projectType,
         assetLibraryId: nextProject.assetLibraryId ?? null,
+        linkedScriptProjectId: nextProject.linkedScriptProjectId ?? null,
         createdAt: nextProject.createdAt,
         updatedAt: nextProject.updatedAt,
         nodeCount: nextProject.nodeCount,
@@ -1022,15 +1093,16 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
 
     set((state) => ({
       currentProject: nextProject,
-      projects: updateProjectSummary(state.projects, {
-        id: nextProject.id,
-        name: nextProject.name,
-        projectType: nextProject.projectType,
-        assetLibraryId: nextProject.assetLibraryId ?? null,
-        createdAt: nextProject.createdAt,
-        updatedAt: nextProject.updatedAt,
-        nodeCount: nextProject.nodeCount,
-      }),
+        projects: updateProjectSummary(state.projects, {
+          id: nextProject.id,
+          name: nextProject.name,
+          projectType: nextProject.projectType,
+          assetLibraryId: nextProject.assetLibraryId ?? null,
+          linkedScriptProjectId: nextProject.linkedScriptProjectId ?? null,
+          createdAt: nextProject.createdAt,
+          updatedAt: nextProject.updatedAt,
+          nodeCount: nextProject.nodeCount,
+        }),
     }));
 
     persistProject(nextProject, { debounceMs: 0 });
@@ -1061,15 +1133,16 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
 
     set((state) => ({
       currentProject: nextProject,
-      projects: updateProjectSummary(state.projects, {
-        id: nextProject.id,
-        name: nextProject.name,
-        projectType: nextProject.projectType,
-        assetLibraryId: nextProject.assetLibraryId ?? null,
-        createdAt: nextProject.createdAt,
-        updatedAt: nextProject.updatedAt,
-        nodeCount: nextProject.nodeCount,
-      }),
+        projects: updateProjectSummary(state.projects, {
+          id: nextProject.id,
+          name: nextProject.name,
+          projectType: nextProject.projectType,
+          assetLibraryId: nextProject.assetLibraryId ?? null,
+          linkedScriptProjectId: nextProject.linkedScriptProjectId ?? null,
+          createdAt: nextProject.createdAt,
+          updatedAt: nextProject.updatedAt,
+          nodeCount: nextProject.nodeCount,
+        }),
     }));
 
     persistProject(nextProject, { debounceMs: 0 });
@@ -1112,15 +1185,16 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
 
     set((state) => ({
       currentProject: nextProject,
-      projects: updateProjectSummary(state.projects, {
-        id: nextProject.id,
-        name: nextProject.name,
-        projectType: nextProject.projectType,
-        assetLibraryId: nextProject.assetLibraryId ?? null,
-        createdAt: nextProject.createdAt,
-        updatedAt: nextProject.updatedAt,
-        nodeCount: nextProject.nodeCount,
-      }),
+        projects: updateProjectSummary(state.projects, {
+          id: nextProject.id,
+          name: nextProject.name,
+          projectType: nextProject.projectType,
+          assetLibraryId: nextProject.assetLibraryId ?? null,
+          linkedScriptProjectId: nextProject.linkedScriptProjectId ?? null,
+          createdAt: nextProject.createdAt,
+          updatedAt: nextProject.updatedAt,
+          nodeCount: nextProject.nodeCount,
+        }),
     }));
     persistProject(nextProject);
   },
@@ -1174,15 +1248,16 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
 
     set((state) => ({
       currentProject: nextProject,
-      projects: updateProjectSummary(state.projects, {
-        id: nextProject.id,
-        name: nextProject.name,
-        projectType: nextProject.projectType,
-        assetLibraryId: nextProject.assetLibraryId ?? null,
-        createdAt: nextProject.createdAt,
-        updatedAt: nextProject.updatedAt,
-        nodeCount: nextProject.nodeCount,
-      }),
+        projects: updateProjectSummary(state.projects, {
+          id: nextProject.id,
+          name: nextProject.name,
+          projectType: nextProject.projectType,
+          assetLibraryId: nextProject.assetLibraryId ?? null,
+          linkedScriptProjectId: nextProject.linkedScriptProjectId ?? null,
+          createdAt: nextProject.createdAt,
+          updatedAt: nextProject.updatedAt,
+          nodeCount: nextProject.nodeCount,
+        }),
     }));
 
     await persistProjectImmediately(nextProject);

@@ -1,6 +1,6 @@
-import { Fragment, memo, useCallback, useMemo, useRef, useState } from 'react';
+﻿import { Fragment, memo, useCallback, useMemo, useRef, useState } from 'react';
 import { Handle, Position } from '@xyflow/react';
-import { FileText, GitBranch, GitFork, GripHorizontal, PlusCircle, Sparkles } from 'lucide-react';
+import { FileText, GitBranch, GitFork, GripHorizontal, Sparkles } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 
 import { UiScrollArea } from '@/components/ui';
@@ -313,7 +313,7 @@ export const ScriptChapterNode = memo(({ id, data, selected, width, height }: Sc
         <div className="flex h-full flex-col overflow-hidden">
           <div className="shrink-0 px-3 pt-3">
             <div
-              className={`${SCRIPT_CHAPTER_NODE_DRAG_HANDLE_CLASS} flex h-7 items-center justify-center gap-2 rounded-xl border border-amber-500/12 bg-amber-500/[0.06] text-[11px] text-amber-200/75 transition-colors cursor-grab active:cursor-grabbing hover:border-amber-500/24 hover:bg-amber-500/[0.1]`}
+                className={`${SCRIPT_CHAPTER_NODE_DRAG_HANDLE_CLASS} flex h-7 items-center justify-center gap-2 rounded-xl border border-amber-500/18 bg-bg-dark text-[11px] text-amber-200/75 transition-colors cursor-grab active:cursor-grabbing hover:border-amber-500/28 hover:bg-surface-dark`}
             >
               <GripHorizontal className="h-3.5 w-3.5" />
               <div className="flex items-center gap-1">
@@ -354,7 +354,7 @@ export const ScriptChapterNode = memo(({ id, data, selected, width, height }: Sc
               {hasMergedBranches ? (
                 <div className="mt-1 flex flex-wrap items-center gap-1">
                   <GitFork className="h-3 w-3 text-cyan-400" />
-                  <span className="text-xs text-cyan-400">来自</span>
+                  <span className="text-xs text-cyan-400">鏉ヨ嚜</span>
                   {mergedBranchContents.filter((branch) => branch.branchLabel).map((branch, index, branches) => (
                     <Fragment key={branch.branchLabel ?? index}>
                       <span className="rounded bg-cyan-500/20 px-1.5 py-0.5 text-xs font-medium text-cyan-400">
@@ -367,7 +367,7 @@ export const ScriptChapterNode = memo(({ id, data, selected, width, height }: Sc
               ) : null}
             </div>
 
-            <div className="mt-3 flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl border border-border-dark bg-bg-dark/55 p-3">
+            <div className="mt-3 flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl border border-border-dark bg-bg-dark p-3">
               <div className="flex items-start justify-between gap-2">
                 <div>
                   <div className="text-[11px] uppercase tracking-[0.08em] text-text-muted">
@@ -496,18 +496,6 @@ export const ScriptChapterNode = memo(({ id, data, selected, width, height }: Sc
           position={Position.Right}
           className="!h-3 !w-3 !-right-1.5 !top-1/2 !rounded-full !border-surface-dark !bg-purple-400"
         />
-        <Handle
-          type="source"
-          id="supplement"
-          position={Position.Bottom}
-          className="!h-3 !w-3 !rounded-full !border-surface-dark !bg-green-400"
-        />
-        <div className="pointer-events-none absolute bottom-0 left-1/2 -translate-x-1/2 translate-y-6 opacity-0 transition-opacity group-hover:opacity-100">
-          <div className="flex items-center gap-1 rounded border border-green-400/30 bg-surface-dark px-1.5 py-0.5 text-xs text-green-400">
-            <PlusCircle className="h-3 w-3" />
-            <span>补充</span>
-          </div>
-        </div>
         <NodeResizeHandle
           minWidth={MIN_NODE_WIDTH}
           minHeight={MIN_NODE_HEIGHT}

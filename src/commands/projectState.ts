@@ -7,6 +7,7 @@ export interface ProjectSummaryRecord {
   name: string;
   projectType: ProjectType;
   assetLibraryId: string | null;
+  linkedScriptProjectId: string | null;
   createdAt: number;
   updatedAt: number;
   nodeCount: number;
@@ -17,6 +18,7 @@ export interface ProjectRecord {
   name: string;
   projectType: ProjectType;
   assetLibraryId: string | null;
+  linkedScriptProjectId: string | null;
   createdAt: number;
   updatedAt: number;
   nodeCount: number;

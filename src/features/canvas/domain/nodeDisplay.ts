@@ -33,6 +33,8 @@ export const DEFAULT_NODE_DISPLAY_NAME: Record<CanvasNodeType, string> = {
   [CANVAS_NODE_TYPES.scriptRoot]: '\u5267\u672c',
   [CANVAS_NODE_TYPES.scriptChapter]: '\u7ae0\u8282',
   [CANVAS_NODE_TYPES.scriptScene]: '\u5206\u96c6\u5de5\u4f5c\u53f0',
+  [CANVAS_NODE_TYPES.shootingScript]: '\u62cd\u6444\u811a\u672c',
+  [CANVAS_NODE_TYPES.scriptReference]: '\u811a\u672c\u5f15\u7528',
   [CANVAS_NODE_TYPES.scriptCharacter]: '\u89d2\u8272',
   [CANVAS_NODE_TYPES.scriptLocation]: '\u573a\u666f',
   [CANVAS_NODE_TYPES.scriptItem]: '\u9053\u5177',

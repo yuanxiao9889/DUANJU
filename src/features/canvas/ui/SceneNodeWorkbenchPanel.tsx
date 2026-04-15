@@ -120,7 +120,7 @@ function Field({
         <textarea
           value={value}
           onChange={(event) => onChange(event.target.value)}
-          className={`${className} resize-none`}
+          className={`ui-scrollbar ${className} resize-none`}
           rows={rows}
           placeholder={placeholder}
           readOnly={readOnly}
@@ -826,6 +826,7 @@ export function SceneNodeWorkbenchPanel({
             </div>
           )
         ) : null}
+
       </UiScrollArea>
     </div>
   );

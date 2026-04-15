@@ -29,6 +29,8 @@ export const CANVAS_NODE_TYPES = {
   scriptRoot: 'scriptRootNode',
   scriptChapter: 'scriptChapterNode',
   scriptScene: 'scriptSceneNode',
+  shootingScript: 'shootingScriptNode',
+  scriptReference: 'scriptReferenceNode',
   scriptCharacter: 'scriptCharacterNode',
   scriptLocation: 'scriptLocationNode',
   scriptItem: 'scriptItemNode',
@@ -77,6 +79,10 @@ export const SCRIPT_CHAPTER_NODE_DEFAULT_WIDTH = 420;
 export const SCRIPT_CHAPTER_NODE_DEFAULT_HEIGHT = 380;
 export const SCRIPT_SCENE_NODE_DEFAULT_WIDTH = 460;
 export const SCRIPT_SCENE_NODE_DEFAULT_HEIGHT = 420;
+export const SHOOTING_SCRIPT_NODE_DEFAULT_WIDTH = 1680;
+export const SHOOTING_SCRIPT_NODE_DEFAULT_HEIGHT = 760;
+export const SCRIPT_REFERENCE_NODE_DEFAULT_WIDTH = 620;
+export const SCRIPT_REFERENCE_NODE_DEFAULT_HEIGHT = 620;
 export const TTS_VOICE_DESIGN_NODE_DEFAULT_WIDTH = 440;
 export const TTS_VOICE_DESIGN_NODE_DEFAULT_HEIGHT = 300;
 export const TTS_SAVED_VOICE_NODE_DEFAULT_WIDTH = 440;
@@ -627,6 +633,106 @@ export interface StoryboardGenNodeData {
   [key: string]: unknown;
 }
 
+export type ShotRowGenTarget = 'image' | 'video' | 'storyboard';
+export type ShotRowStatus = 'draft' | 'ready' | 'locked';
+export type ShotScriptStatus = 'empty' | 'drafting' | 'ready';
+export type ShootingScriptStatus = 'empty' | 'drafting' | 'ready';
+export type ShootingScriptColumnKey =
+  | 'shotNumber'
+  | 'beat'
+  | 'action'
+  | 'composition'
+  | 'camera'
+  | 'duration'
+  | 'audio'
+  | 'genTarget'
+  | 'genPrompt'
+  | 'blocking'
+  | 'artLighting'
+  | 'continuityNote'
+  | 'directorIntent'
+  | 'status';
+
+export interface ShotRow {
+  id: string;
+  shotNumber: string;
+  beat: string;
+  action: string;
+  dialogueCue: string;
+  shotSize: string;
+  framingAngle: string;
+  cameraMove: string;
+  blocking: string;
+  rhythmDuration: string;
+  audioCue: string;
+  artLighting: string;
+  continuityNote: string;
+  genTarget: ShotRowGenTarget;
+  genPrompt: string;
+  status: ShotRowStatus;
+}
+
+export interface ShootingScriptRow {
+  id: string;
+  shotNumber: string;
+  beat: string;
+  action: string;
+  composition: string;
+  camera: string;
+  duration: string;
+  audio: string;
+  blocking: string;
+  artLighting: string;
+  continuityNote: string;
+  directorIntent: string;
+  genTarget: ShotRowGenTarget;
+  genPrompt: string;
+  status: ShotRowStatus;
+}
+
+export interface ShootingScriptSourceSnapshot {
+  chapterTitle: string;
+  sceneTitle: string;
+  sceneSummary: string;
+  episodeTitle: string;
+  episodeSummary: string;
+  episodeDraft: string;
+  episodeDirectorNotes: string;
+  continuitySummary: string;
+  continuityFacts: string[];
+  continuityOpenLoops: string[];
+}
+
+export type ScriptReferenceSyncStatus =
+  | 'idle'
+  | 'ready'
+  | 'missingProject'
+  | 'missingScript'
+  | 'missingEpisode'
+  | 'missingRows'
+  | 'stale';
+
+export interface ScriptReferenceShotRowSnapshot {
+  id: string;
+  shotNumber: string;
+  beat: string;
+  genTarget: ShotRowGenTarget;
+  genPrompt: string;
+  status: ShotRowStatus;
+}
+
+export interface ScriptReferenceScriptSnapshot {
+  scriptNodeId: string | null;
+  chapterId: string | null;
+  chapterTitle: string;
+  sceneNodeId: string | null;
+  sceneTitle: string;
+  episodeId: string;
+  episodeTitle: string;
+  episodeLabel: string;
+  rows: ScriptReferenceShotRowSnapshot[];
+}
+
 export interface StyleProfile {
   dialogueRatio: number;
   actionDetailLevel: string;
@@ -815,6 +921,9 @@ export interface ScriptChapterNodeData extends NodeDisplayData {
 
 export interface EpisodeCard extends SceneCard {
   episodeNumber: number;
+  shotRows: ShotRow[];
+  shotScriptStatus: ShotScriptStatus;
+  shotScriptUpdatedAt?: number | null;
 }
 
 export interface ScriptSceneNodeData extends NodeDisplayData {
@@ -835,6 +944,37 @@ export interface ScriptSceneNodeData extends NodeDisplayData {
   sourceDraftHtml?: string;
   draftHtml: string;
   episodes: EpisodeCard[];
+}
+
+export interface ShootingScriptNodeData extends NodeDisplayData {
+  sourceChapterId: string;
+  sourceSceneNodeId: string;
+  sourceEpisodeId: string;
+  chapterNumber: number;
+  sceneNumber: number;
+  sceneTitle: string;
+  episodeNumber: number;
+  episodeTitle: string;
+  rows: ShootingScriptRow[];
+  status: ShootingScriptStatus;
+  lastGeneratedAt?: number | null;
+  lastError?: string | null;
+  sourceSnapshot: ShootingScriptSourceSnapshot | null;
+}
+
+export interface ScriptReferenceNodeData extends NodeDisplayData {
+  linkedScriptProjectId: string | null;
+  referencedChapterId: string | null;
+  referencedSceneNodeId: string | null;
+  referencedEpisodeId: string | null;
+  referencedScriptNodeId: string | null;
+  selectedRowIds: string[];
+  selectedShotRowIds?: string[];
+  scriptSnapshot: ScriptReferenceScriptSnapshot | null;
+  episodeSnapshot?: ScriptReferenceScriptSnapshot | null;
+  syncStatus: ScriptReferenceSyncStatus;
+  syncMessage?: string | null;
+  lastSyncedAt?: number | null;
 }
 
 export interface ScriptCharacterNodeData extends NodeDisplayData {
@@ -904,6 +1044,8 @@ export type CanvasNodeData =
   | ScriptRootNodeData
   | ScriptChapterNodeData
   | ScriptSceneNodeData
+  | ShootingScriptNodeData
+  | ScriptReferenceNodeData
   | ScriptCharacterNodeData
   | ScriptLocationNodeData
   | ScriptItemNodeData
@@ -947,6 +1089,22 @@ function normalizeSceneCardStatus(value: unknown): SceneCardStatus {
   return value === 'idea' || value === 'reviewed' || value === 'locked'
     ? value
     : 'drafting';
+}
+
+function normalizeShotRowGenTarget(value: unknown): ShotRowGenTarget {
+  return value === 'video' || value === 'storyboard' ? value : 'image';
+}
+
+function normalizeShotRowStatus(value: unknown): ShotRowStatus {
+  return value === 'ready' || value === 'locked' ? value : 'draft';
+}
+
+function normalizeShotScriptStatus(value: unknown): ShotScriptStatus {
+  return value === 'drafting' || value === 'ready' ? value : 'empty';
+}
+
+function normalizeShootingScriptStatus(value: unknown): ShootingScriptStatus {
+  return value === 'drafting' || value === 'ready' ? value : 'empty';
 }
 
 function normalizeSceneCopilotMessageMode(value: unknown): SceneCopilotMessageMode {
@@ -1106,6 +1264,90 @@ export function createDefaultSceneCard(order = 0): SceneCard {
   };
 }
 
+export function createDefaultShotRow(order = 0): ShotRow {
+  const shotIndex = order + 1;
+  return {
+    id: `shot-${shotIndex}-${Math.random().toString(36).slice(2, 8)}`,
+    shotNumber: String(shotIndex),
+    beat: '',
+    action: '',
+    dialogueCue: '',
+    shotSize: '',
+    framingAngle: '',
+    cameraMove: '',
+    blocking: '',
+    rhythmDuration: '',
+    audioCue: '',
+    artLighting: '',
+    continuityNote: '',
+    genTarget: 'image',
+    genPrompt: '',
+    status: 'draft',
+  };
+}
+
+export interface ShootingScriptNumberingContext {
+  chapterNumber: number;
+  sceneNumber: number;
+  episodeNumber: number;
+}
+
+function normalizeShootingScriptIndex(value: unknown, fallback = 1): number {
+  return Number.isFinite(value)
+    ? Math.max(1, Math.floor(Number(value)))
+    : fallback;
+}
+
+export function normalizeShootingScriptNumberingContext(
+  context?: Partial<ShootingScriptNumberingContext> | null
+): ShootingScriptNumberingContext {
+  return {
+    chapterNumber: normalizeShootingScriptIndex(context?.chapterNumber),
+    sceneNumber: normalizeShootingScriptIndex(context?.sceneNumber),
+    episodeNumber: normalizeShootingScriptIndex(context?.episodeNumber),
+  };
+}
+
+export function formatShootingScriptNodeLabel(
+  context?: Partial<ShootingScriptNumberingContext> | null
+): string {
+  const normalizedContext = normalizeShootingScriptNumberingContext(context);
+  return `${normalizedContext.chapterNumber}-${normalizedContext.sceneNumber}-${normalizedContext.episodeNumber}`;
+}
+
+export function formatShootingScriptShotNumber(
+  context: Partial<ShootingScriptNumberingContext> | null | undefined,
+  order: number
+): string {
+  const normalizedContext = normalizeShootingScriptNumberingContext(context);
+  const shotNumber = normalizeShootingScriptIndex(order + 1);
+  return `${normalizedContext.chapterNumber}-${normalizedContext.sceneNumber}-${normalizedContext.episodeNumber}-${shotNumber}`;
+}
+
+export function createDefaultShootingScriptRow(
+  order = 0,
+  context?: Partial<ShootingScriptNumberingContext> | null
+): ShootingScriptRow {
+  const shotIndex = order + 1;
+  return {
+    id: `shooting-script-row-${shotIndex}-${Math.random().toString(36).slice(2, 8)}`,
+    shotNumber: formatShootingScriptShotNumber(context, order),
+    beat: '',
+    action: '',
+    composition: '',
+    camera: '',
+    duration: '',
+    audio: '',
+    blocking: '',
+    artLighting: '',
+    continuityNote: '',
+    directorIntent: '',
+    genTarget: 'image',
+    genPrompt: '',
+    status: 'draft',
+  };
+}
+
 export function createDefaultEpisodeCard(order = 0): EpisodeCard {
   const episodeIndex = order + 1;
   const baseCard = createDefaultSceneCard(order);
@@ -1114,6 +1356,9 @@ export function createDefaultEpisodeCard(order = 0): EpisodeCard {
     id: `episode-${episodeIndex}-${Math.random().toString(36).slice(2, 8)}`,
     title: `分集 ${episodeIndex}`,
     episodeNumber: episodeIndex,
+    shotRows: [],
+    shotScriptStatus: 'empty',
+    shotScriptUpdatedAt: null,
   };
 }
 
@@ -1168,6 +1413,76 @@ export function normalizeSceneCards(
   });
 }
 
+export function normalizeShotRows(shotRows: unknown): ShotRow[] {
+  if (!Array.isArray(shotRows) || shotRows.length === 0) {
+    return [];
+  }
+
+  return shotRows.map((shotRow, index) => {
+    const record = shotRow && typeof shotRow === 'object'
+      ? shotRow as Partial<ShotRow>
+      : {};
+    const fallbackShotRow = createDefaultShotRow(index);
+
+    return {
+      ...fallbackShotRow,
+      ...record,
+      id: normalizeString(record.id, fallbackShotRow.id),
+      shotNumber: normalizeString(record.shotNumber, fallbackShotRow.shotNumber),
+      beat: normalizeString(record.beat),
+      action: normalizeString(record.action),
+      dialogueCue: normalizeString(record.dialogueCue),
+      shotSize: normalizeString(record.shotSize),
+      framingAngle: normalizeString(record.framingAngle),
+      cameraMove: normalizeString(record.cameraMove),
+      blocking: normalizeString(record.blocking),
+      rhythmDuration: normalizeString(record.rhythmDuration),
+      audioCue: normalizeString(record.audioCue),
+      artLighting: normalizeString(record.artLighting),
+      continuityNote: normalizeString(record.continuityNote),
+      genTarget: normalizeShotRowGenTarget(record.genTarget),
+      genPrompt: normalizeString(record.genPrompt),
+      status: normalizeShotRowStatus(record.status),
+    };
+  });
+}
+
+export function normalizeShootingScriptRows(
+  rows: unknown,
+  context?: Partial<ShootingScriptNumberingContext> | null
+): ShootingScriptRow[] {
+  if (!Array.isArray(rows) || rows.length === 0) {
+    return [];
+  }
+
+  return rows.map((row, index) => {
+    const record = row && typeof row === 'object'
+      ? row as Partial<ShootingScriptRow>
+      : {};
+    const fallbackRow = createDefaultShootingScriptRow(index, context);
+
+    return {
+      ...fallbackRow,
+      ...record,
+      id: normalizeString(record.id, fallbackRow.id),
+      shotNumber: fallbackRow.shotNumber,
+      beat: normalizeString(record.beat),
+      action: normalizeString(record.action),
+      composition: normalizeString(record.composition),
+      camera: normalizeString(record.camera),
+      duration: normalizeString(record.duration),
+      audio: normalizeString(record.audio),
+      blocking: normalizeString(record.blocking),
+      artLighting: normalizeString(record.artLighting),
+      continuityNote: normalizeString(record.continuityNote),
+      directorIntent: normalizeString(record.directorIntent),
+      genTarget: normalizeShotRowGenTarget(record.genTarget),
+      genPrompt: normalizeString(record.genPrompt),
+      status: normalizeShotRowStatus(record.status),
+    };
+  });
+}
+
 export function normalizeEpisodeCards(episodes: unknown): EpisodeCard[] {
   if (!Array.isArray(episodes) || episodes.length === 0) {
     return [];
@@ -1210,8 +1525,93 @@ export function normalizeEpisodeCards(episodes: unknown): EpisodeCard[] {
       copilotSummary: normalizeString(record.copilotSummary),
       copilotThread: normalizeSceneCopilotThread(record.copilotThread),
       status: normalizeSceneCardStatus(record.status),
+      shotRows: normalizeShotRows(record.shotRows),
+      shotScriptStatus: normalizeShotScriptStatus(record.shotScriptStatus),
+      shotScriptUpdatedAt: Number.isFinite(record.shotScriptUpdatedAt)
+        ? Number(record.shotScriptUpdatedAt)
+        : null,
     };
   });
+}
+
+function normalizeScriptReferenceShotRowSnapshots(
+  value: unknown
+): ScriptReferenceShotRowSnapshot[] {
+  if (!Array.isArray(value) || value.length === 0) {
+    return [];
+  }
+
+  return value
+    .map((item, index): ScriptReferenceShotRowSnapshot | null => {
+      const record = item && typeof item === 'object'
+        ? item as Partial<ScriptReferenceShotRowSnapshot>
+        : {};
+      const id = normalizeString(record.id, `script-reference-shot-${index + 1}`).trim();
+      if (!id) {
+        return null;
+      }
+
+      return {
+        id,
+        shotNumber: normalizeString(record.shotNumber, String(index + 1)),
+        beat: normalizeString(record.beat),
+        genTarget: normalizeShotRowGenTarget(record.genTarget),
+        genPrompt: normalizeString(record.genPrompt),
+        status: normalizeShotRowStatus(record.status),
+      };
+    })
+    .filter((item): item is ScriptReferenceShotRowSnapshot => Boolean(item));
+}
+
+function normalizeShootingScriptSourceSnapshot(
+  value: unknown
+): ShootingScriptSourceSnapshot | null {
+  if (!value || typeof value !== 'object') {
+    return null;
+  }
+
+  const record = value as Partial<ShootingScriptSourceSnapshot>;
+
+  return {
+    chapterTitle: normalizeString(record.chapterTitle),
+    sceneTitle: normalizeString(record.sceneTitle),
+    sceneSummary: normalizeString(record.sceneSummary),
+    episodeTitle: normalizeString(record.episodeTitle),
+    episodeSummary: normalizeString(record.episodeSummary),
+    episodeDraft: normalizeString(record.episodeDraft),
+    episodeDirectorNotes: normalizeString(record.episodeDirectorNotes),
+    continuitySummary: normalizeString(record.continuitySummary),
+    continuityFacts: normalizeStringArray(record.continuityFacts),
+    continuityOpenLoops: normalizeStringArray(record.continuityOpenLoops),
+  };
+}
+
+function normalizeScriptReferenceScriptSnapshot(
+  value: unknown
+): ScriptReferenceScriptSnapshot | null {
+  if (!value || typeof value !== 'object') {
+    return null;
+  }
+
+  const record = value as Partial<ScriptReferenceScriptSnapshot> & {
+    shotRows?: ScriptReferenceShotRowSnapshot[];
+  };
+  const episodeId = normalizeString(record.episodeId).trim();
+  if (!episodeId) {
+    return null;
+  }
+
+  return {
+    scriptNodeId: normalizeString(record.scriptNodeId).trim() || null,
+    chapterId: normalizeString(record.chapterId).trim() || null,
+    chapterTitle: normalizeString(record.chapterTitle),
+    sceneNodeId: normalizeString(record.sceneNodeId).trim() || null,
+    sceneTitle: normalizeString(record.sceneTitle),
+    episodeId,
+    episodeTitle: normalizeString(record.episodeTitle),
+    episodeLabel: normalizeString(record.episodeLabel),
+    rows: normalizeScriptReferenceShotRowSnapshots(record.rows ?? record.shotRows),
+  };
 }
 
 export function normalizeScriptRootNodeData(data: ScriptRootNodeData): ScriptRootNodeData {
@@ -1338,6 +1738,71 @@ export function normalizeScriptSceneNodeData(data: ScriptSceneNodeData): ScriptS
     sourceDraftHtml: normalizeString(data.sourceDraftHtml).trim() || undefined,
     draftHtml: normalizeString(data.draftHtml),
     episodes: normalizeEpisodeCards(data.episodes),
+  };
+}
+
+export function normalizeShootingScriptNodeData(
+  data: ShootingScriptNodeData
+): ShootingScriptNodeData {
+  const chapterNumber = Number.isFinite(data.chapterNumber)
+    ? Math.max(1, Math.floor(Number(data.chapterNumber)))
+    : 1;
+  const sceneNumber = Number.isFinite(data.sceneNumber)
+    ? Math.max(1, Math.floor(Number(data.sceneNumber)))
+    : 1;
+  const episodeNumber = Number.isFinite(data.episodeNumber)
+    ? Math.max(1, Math.floor(Number(data.episodeNumber)))
+    : 1;
+
+  return {
+    ...data,
+    sourceChapterId: normalizeString(data.sourceChapterId),
+    sourceSceneNodeId: normalizeString(data.sourceSceneNodeId),
+    sourceEpisodeId: normalizeString(data.sourceEpisodeId),
+    chapterNumber,
+    sceneNumber,
+    sceneTitle: normalizeString(data.sceneTitle),
+    episodeNumber,
+    episodeTitle: normalizeString(data.episodeTitle),
+    rows: normalizeShootingScriptRows(data.rows, {
+      chapterNumber,
+      sceneNumber,
+      episodeNumber,
+    }),
+    status: normalizeShootingScriptStatus(data.status),
+    lastGeneratedAt: Number.isFinite(data.lastGeneratedAt)
+      ? Number(data.lastGeneratedAt)
+      : null,
+    lastError: normalizeString(data.lastError).trim() || null,
+    sourceSnapshot: normalizeShootingScriptSourceSnapshot(data.sourceSnapshot),
+  };
+}
+
+export function normalizeScriptReferenceNodeData(
+  data: ScriptReferenceNodeData
+): ScriptReferenceNodeData {
+  return {
+    ...data,
+    linkedScriptProjectId: normalizeString(data.linkedScriptProjectId).trim() || null,
+    referencedChapterId: normalizeString(data.referencedChapterId).trim() || null,
+    referencedSceneNodeId: normalizeString(data.referencedSceneNodeId).trim() || null,
+    referencedEpisodeId: normalizeString(data.referencedEpisodeId).trim() || null,
+    referencedScriptNodeId: normalizeString(data.referencedScriptNodeId).trim() || null,
+    selectedRowIds: normalizeStringArray(data.selectedRowIds ?? data.selectedShotRowIds),
+    selectedShotRowIds: undefined,
+    scriptSnapshot: normalizeScriptReferenceScriptSnapshot(data.scriptSnapshot ?? data.episodeSnapshot),
+    episodeSnapshot: undefined,
+    syncStatus:
+      data.syncStatus === 'ready'
+      || data.syncStatus === 'missingScript'
+      || data.syncStatus === 'missingProject'
+      || data.syncStatus === 'missingEpisode'
+      || data.syncStatus === 'missingRows'
+      || data.syncStatus === 'stale'
+        ? data.syncStatus
+        : 'idle',
+    syncMessage: normalizeString(data.syncMessage).trim() || null,
+    lastSyncedAt: Number.isFinite(data.lastSyncedAt) ? Number(data.lastSyncedAt) : null,
   };
 }
 
@@ -1516,6 +1981,18 @@ export function isScriptSceneNode(
   node: CanvasNode | null | undefined
 ): node is Node<ScriptSceneNodeData, typeof CANVAS_NODE_TYPES.scriptScene> {
   return node?.type === CANVAS_NODE_TYPES.scriptScene;
+}
+
+export function isShootingScriptNode(
+  node: CanvasNode | null | undefined
+): node is Node<ShootingScriptNodeData, typeof CANVAS_NODE_TYPES.shootingScript> {
+  return node?.type === CANVAS_NODE_TYPES.shootingScript;
+}
+
+export function isScriptReferenceNode(
+  node: CanvasNode | null | undefined
+): node is Node<ScriptReferenceNodeData, typeof CANVAS_NODE_TYPES.scriptReference> {
+  return node?.type === CANVAS_NODE_TYPES.scriptReference;
 }
 
 export function isScriptCharacterNode(

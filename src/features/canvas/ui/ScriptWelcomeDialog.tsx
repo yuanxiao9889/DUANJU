@@ -15,6 +15,7 @@ import { useCanvasStore } from '@/stores/canvasStore';
 import { useProjectStore } from '@/stores/projectStore';
 import { useSettingsStore } from '@/stores/settingsStore';
 import { ChapterCountDialog } from './ChapterCountDialog';
+import { ScriptImportDialog } from './ScriptImportDialog';
 import { ScriptImportPreview } from './ScriptImportPreview';
 import { openSettingsDialog } from '@/features/settings/settingsEvents';
 import {
@@ -88,6 +89,7 @@ export function ScriptWelcomeDialog({ isOpen, onClose }: ScriptWelcomeDialogProp
   const [mode, setMode] = useState<WelcomeMode>('select');
   const [form, setForm] = useState<StoryPlannerInput>(INITIAL_FORM);
   const [isPlanning, setIsPlanning] = useState(false);
+  const [showImportDialog, setShowImportDialog] = useState(false);
   const [plannedStory, setPlannedStory] = useState<StoryPlan | null>(null);
   const [showChapterCountDialog, setShowChapterCountDialog] = useState(false);
   const [importedScript, setImportedScript] = useState<ImportedScriptDocument | null>(null);
@@ -102,6 +104,7 @@ export function ScriptWelcomeDialog({ isOpen, onClose }: ScriptWelcomeDialogProp
 
     setMode('select');
     setForm({ ...INITIAL_FORM });
+    setShowImportDialog(false);
     setPlannedStory(null);
     setShowChapterCountDialog(false);
     setImportedScript(null);
@@ -438,7 +441,7 @@ export function ScriptWelcomeDialog({ isOpen, onClose }: ScriptWelcomeDialogProp
 
             <button
               type="button"
-              onClick={() => setMode('import')}
+              onClick={() => setShowImportDialog(true)}
               className="rounded-2xl border border-border-dark bg-bg-dark/35 p-5 text-left transition-colors hover:border-border-dark/80 hover:bg-bg-dark/55"
             >
               <div className="flex items-start gap-3">
@@ -889,6 +892,14 @@ export function ScriptWelcomeDialog({ isOpen, onClose }: ScriptWelcomeDialogProp
               )}
             </div>
           </div>
+        ) : null}
+
+        {showImportDialog ? (
+          <ScriptImportDialog
+            isOpen={showImportDialog}
+            onClose={() => setShowImportDialog(false)}
+            onImported={onClose}
+          />
         ) : null}
 
         <UiLoadingOverlay visible={isPlanning || isParsingImport} insetClassName="inset-0" />

@@ -20,8 +20,12 @@ import {
   IMAGE_EDIT_NODE_DEFAULT_WIDTH,
   SCRIPT_CHAPTER_NODE_DEFAULT_HEIGHT,
   SCRIPT_CHAPTER_NODE_DEFAULT_WIDTH,
+  SCRIPT_REFERENCE_NODE_DEFAULT_HEIGHT,
+  SCRIPT_REFERENCE_NODE_DEFAULT_WIDTH,
   SCRIPT_SCENE_NODE_DEFAULT_HEIGHT,
   SCRIPT_SCENE_NODE_DEFAULT_WIDTH,
+  SHOOTING_SCRIPT_NODE_DEFAULT_HEIGHT,
+  SHOOTING_SCRIPT_NODE_DEFAULT_WIDTH,
   type JimengImageNodeData,
   type JimengNodeData,
   type ActiveToolDialog,
@@ -38,8 +42,12 @@ import {
   type ScriptChapterNodeData,
   type ScriptRootNodeData,
   type ScriptSceneNodeData,
+  type ShootingScriptNodeData,
+  type ScriptReferenceNodeData,
   createDefaultSceneCard,
+  normalizeShootingScriptNodeData,
   normalizeScriptChapterNodeData,
+  normalizeScriptReferenceNodeData,
   normalizeScriptRootNodeData,
   normalizeScriptSceneNodeData,
   isStoryboardSplitNode,
@@ -502,6 +510,13 @@ interface CanvasState {
     chapterNodeId: string,
     sceneId: string
   ) => string | null;
+  ensureShootingScriptNodeFromSceneEpisode: (
+    sceneNodeId: string,
+    episodeId: string
+  ) => {
+    nodeId: string | null;
+    created: boolean;
+  };
   reindexScriptSceneEpisodes: (sourceChapterId: string) => void;
 
   updateNodeData: (
@@ -700,6 +715,20 @@ function normalizeNodes(rawNodes: CanvasNode[]): CanvasNode[] {
         );
       }
 
+      if (normalizedNodeType === CANVAS_NODE_TYPES.shootingScript) {
+        Object.assign(
+          mergedData,
+          normalizeShootingScriptNodeData(mergedData as ShootingScriptNodeData)
+        );
+      }
+
+      if (normalizedNodeType === CANVAS_NODE_TYPES.scriptReference) {
+        Object.assign(
+          mergedData,
+          normalizeScriptReferenceNodeData(mergedData as ScriptReferenceNodeData)
+        );
+      }
+
       if ('aspectRatio' in mergedData && !mergedData.aspectRatio) {
         mergedData.aspectRatio = DEFAULT_ASPECT_RATIO;
       }
@@ -751,11 +780,22 @@ function buildScriptSceneSourceKey(sourceChapterId: string, sourceSceneId: strin
   return `${sourceChapterId}::${sourceSceneId}`;
 }
 
+function buildShootingScriptSourceKey(sourceSceneNodeId: string, sourceEpisodeId: string): string {
+  return `${sourceSceneNodeId}::${sourceEpisodeId}`;
+}
+
 function isScriptSceneNodeType(node: CanvasNode): node is CanvasNode & {
   data: ScriptSceneNodeData;
   type: typeof CANVAS_NODE_TYPES.scriptScene;
 } {
   return node.type === CANVAS_NODE_TYPES.scriptScene;
+}
+
+function isShootingScriptNodeType(node: CanvasNode): node is CanvasNode & {
+  data: ShootingScriptNodeData;
+  type: typeof CANVAS_NODE_TYPES.shootingScript;
+} {
+  return node.type === CANVAS_NODE_TYPES.shootingScript;
 }
 
 function sortEpisodeCardsForChapterReindex(episodes: EpisodeCard[]): EpisodeCard[] {
@@ -811,6 +851,13 @@ function reindexScriptSceneNodesByChapter(
 
   let changed = false;
   const nextNodeById = new Map<string, CanvasNode>();
+  const shootingScriptContextBySourceKey = new Map<string, {
+    chapterNumber: number;
+    sceneNumber: number;
+    sceneTitle: string;
+    episodeNumber: number;
+    episodeTitle: string;
+  }>();
 
   sceneNodesByChapter.forEach((sceneNodes, chapterId) => {
     const sortedSceneNodes = [...sceneNodes].sort((left, right) => {
@@ -825,7 +872,8 @@ function reindexScriptSceneNodesByChapter(
     const chapterNumber = chapterNumberById.get(chapterId) ?? sortedSceneNodes[0]?.data.chapterNumber ?? 1;
     let nextEpisodeNumber = 1;
 
-    for (const sceneNode of sortedSceneNodes) {
+    for (const [sceneIndex, sceneNode] of sortedSceneNodes.entries()) {
+      const sceneNumber = sceneIndex + 1;
       const sortedEpisodes = sortEpisodeCardsForChapterReindex(sceneNode.data.episodes ?? []);
       const nextEpisodes = sortedEpisodes.map((episode, index) => {
         const normalizedEpisodeNumber = nextEpisodeNumber;
@@ -835,6 +883,19 @@ function reindexScriptSceneNodesByChapter(
           order: index,
           episodeNumber: normalizedEpisodeNumber,
         };
+      });
+
+      nextEpisodes.forEach((episode) => {
+        shootingScriptContextBySourceKey.set(
+          buildShootingScriptSourceKey(sceneNode.id, episode.id),
+          {
+            chapterNumber,
+            sceneNumber,
+            sceneTitle: sceneNode.data.title,
+            episodeNumber: episode.episodeNumber,
+            episodeTitle: episode.title,
+          }
+        );
       });
 
       const hasEpisodeChange =
@@ -863,6 +924,52 @@ function reindexScriptSceneNodesByChapter(
     }
   });
 
+  for (const node of nodes) {
+    if (!isShootingScriptNodeType(node)) {
+      continue;
+    }
+
+    const nextContext = shootingScriptContextBySourceKey.get(
+      buildShootingScriptSourceKey(node.data.sourceSceneNodeId, node.data.sourceEpisodeId)
+    );
+    if (!nextContext) {
+      continue;
+    }
+
+    const normalizedData = normalizeShootingScriptNodeData({
+      ...node.data,
+      chapterNumber: nextContext.chapterNumber,
+      sceneNumber: nextContext.sceneNumber,
+      sceneTitle: nextContext.sceneTitle,
+      episodeNumber: nextContext.episodeNumber,
+      episodeTitle: nextContext.episodeTitle,
+    });
+
+    const hasScriptChange =
+      node.data.chapterNumber !== normalizedData.chapterNumber
+      || node.data.sceneNumber !== normalizedData.sceneNumber
+      || node.data.sceneTitle !== normalizedData.sceneTitle
+      || node.data.episodeNumber !== normalizedData.episodeNumber
+      || node.data.episodeTitle !== normalizedData.episodeTitle
+      || normalizedData.rows.length !== node.data.rows.length
+      || normalizedData.rows.some((row, index) => {
+        const previousRow = node.data.rows[index];
+        return !previousRow
+          || previousRow.id !== row.id
+          || previousRow.shotNumber !== row.shotNumber;
+      });
+
+    if (!hasScriptChange) {
+      continue;
+    }
+
+    changed = true;
+    nextNodeById.set(node.id, {
+      ...node,
+      data: normalizedData,
+    });
+  }
+
   if (!changed) {
     return { nodes, changed: false };
   }
@@ -889,6 +996,25 @@ function findScriptSceneNodeBySource(
   } => (
     isScriptSceneNodeType(node)
     && buildScriptSceneSourceKey(node.data.sourceChapterId, node.data.sourceSceneId) === sourceKey
+  )) ?? null;
+}
+
+function findShootingScriptNodeBySource(
+  nodes: CanvasNode[],
+  sourceSceneNodeId: string,
+  sourceEpisodeId: string
+): (CanvasNode & {
+  data: ShootingScriptNodeData;
+  type: typeof CANVAS_NODE_TYPES.shootingScript;
+}) | null {
+  const sourceKey = buildShootingScriptSourceKey(sourceSceneNodeId, sourceEpisodeId);
+
+  return nodes.find((node): node is CanvasNode & {
+    data: ShootingScriptNodeData;
+    type: typeof CANVAS_NODE_TYPES.shootingScript;
+  } => (
+    isShootingScriptNodeType(node)
+    && buildShootingScriptSourceKey(node.data.sourceSceneNodeId, node.data.sourceEpisodeId) === sourceKey
   )) ?? null;
 }
 
@@ -1243,6 +1369,32 @@ function withScriptSceneDefaultSize(node: CanvasNode): CanvasNode {
   };
 }
 
+function withShootingScriptDefaultSize(node: CanvasNode): CanvasNode {
+  return {
+    ...node,
+    width: SHOOTING_SCRIPT_NODE_DEFAULT_WIDTH,
+    height: SHOOTING_SCRIPT_NODE_DEFAULT_HEIGHT,
+    style: {
+      ...(node.style ?? {}),
+      width: SHOOTING_SCRIPT_NODE_DEFAULT_WIDTH,
+      height: SHOOTING_SCRIPT_NODE_DEFAULT_HEIGHT,
+    },
+  };
+}
+
+function withScriptReferenceDefaultSize(node: CanvasNode): CanvasNode {
+  return {
+    ...node,
+    width: SCRIPT_REFERENCE_NODE_DEFAULT_WIDTH,
+    height: SCRIPT_REFERENCE_NODE_DEFAULT_HEIGHT,
+    style: {
+      ...(node.style ?? {}),
+      width: SCRIPT_REFERENCE_NODE_DEFAULT_WIDTH,
+      height: SCRIPT_REFERENCE_NODE_DEFAULT_HEIGHT,
+    },
+  };
+}
+
 function applyDefaultNodeSize(node: CanvasNode, data: CanvasNodeData): CanvasNode {
   if (shouldApplyImageEditDefaultSize(node, data)) {
     return withImageEditDefaultSize(node);
@@ -1257,6 +1409,30 @@ function applyDefaultNodeSize(node: CanvasNode, data: CanvasNodeData): CanvasNod
       ?? resolveNumericNodeDimension(node.style?.height);
     if (resolvedWidth === null || resolvedHeight === null) {
       return withScriptSceneDefaultSize(node);
+    }
+  }
+
+  if (node.type === CANVAS_NODE_TYPES.scriptReference) {
+    const resolvedWidth =
+      resolveNumericNodeDimension(node.width)
+      ?? resolveNumericNodeDimension(node.style?.width);
+    const resolvedHeight =
+      resolveNumericNodeDimension(node.height)
+      ?? resolveNumericNodeDimension(node.style?.height);
+    if (resolvedWidth === null || resolvedHeight === null) {
+      return withScriptReferenceDefaultSize(node);
+    }
+  }
+
+  if (node.type === CANVAS_NODE_TYPES.shootingScript) {
+    const resolvedWidth =
+      resolveNumericNodeDimension(node.width)
+      ?? resolveNumericNodeDimension(node.style?.width);
+    const resolvedHeight =
+      resolveNumericNodeDimension(node.height)
+      ?? resolveNumericNodeDimension(node.style?.height);
+    if (resolvedWidth === null || resolvedHeight === null) {
+      return withShootingScriptDefaultSize(node);
     }
   }
 
@@ -3222,6 +3398,133 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
     return createdNode.id;
   },
 
+  ensureShootingScriptNodeFromSceneEpisode: (sceneNodeId, episodeId) => {
+    const state = get();
+    const sceneNode = state.nodes.find(
+      (node) => node.id === sceneNodeId && node.type === CANVAS_NODE_TYPES.scriptScene
+    );
+    if (!sceneNode) {
+      return { nodeId: null, created: false };
+    }
+
+    const existingScriptNode = findShootingScriptNodeBySource(state.nodes, sceneNodeId, episodeId);
+    if (existingScriptNode) {
+      return { nodeId: existingScriptNode.id, created: false };
+    }
+
+    const sceneData = sceneNode.data as ScriptSceneNodeData;
+    const episode = sceneData.episodes.find((item) => item.id === episodeId);
+    if (!episode) {
+      return { nodeId: null, created: false };
+    }
+
+    const chapterNode = state.nodes.find(
+      (node) => node.id === sceneData.sourceChapterId && node.type === CANVAS_NODE_TYPES.scriptChapter
+    );
+    const chapterData = chapterNode?.data as ScriptChapterNodeData | undefined;
+    const migratedRows = (episode.shotRows ?? []).map((row, index) => ({
+      id: row.id,
+      shotNumber: row.shotNumber || String(index + 1),
+      beat: row.beat,
+      action: row.action,
+      composition: [row.shotSize, row.framingAngle].filter(Boolean).join(' / '),
+      camera: row.cameraMove,
+      duration: row.rhythmDuration,
+      audio: [row.dialogueCue, row.audioCue].filter(Boolean).join(' / '),
+      blocking: row.blocking,
+      artLighting: row.artLighting,
+      continuityNote: row.continuityNote,
+      directorIntent: '',
+      genTarget: row.genTarget,
+      genPrompt: row.genPrompt,
+      status: row.status,
+    }));
+
+    const position = get().findNodePosition(
+      sceneNodeId,
+      SHOOTING_SCRIPT_NODE_DEFAULT_WIDTH,
+      SHOOTING_SCRIPT_NODE_DEFAULT_HEIGHT
+    );
+    const initialData = normalizeShootingScriptNodeData({
+      displayName: episode.title?.trim() || `拍摄脚本 ${sceneData.chapterNumber || 1}-${episode.episodeNumber}`,
+      sourceChapterId: sceneData.sourceChapterId,
+      sourceSceneNodeId: sceneNodeId,
+      sourceEpisodeId: episode.id,
+      chapterNumber: sceneData.chapterNumber || 1,
+      sceneNumber: sceneData.sourceSceneOrder + 1,
+      sceneTitle: sceneData.title,
+      episodeNumber: episode.episodeNumber,
+      episodeTitle: episode.title,
+      rows: migratedRows,
+      status: migratedRows.length > 0 ? 'ready' : 'drafting',
+      lastGeneratedAt: migratedRows.length > 0
+        ? (episode.shotScriptUpdatedAt ?? Date.now())
+        : null,
+      lastError: null,
+      sourceSnapshot: {
+        chapterTitle: chapterData?.title || chapterData?.displayName || '',
+        sceneTitle: sceneData.title,
+        sceneSummary: sceneData.summary,
+        episodeTitle: episode.title,
+        episodeSummary: episode.summary,
+        episodeDraft: episode.draftHtml,
+        episodeDirectorNotes: episode.directorNotes,
+        continuitySummary: episode.continuitySummary,
+        continuityFacts: episode.continuityFacts,
+        continuityOpenLoops: episode.continuityOpenLoops,
+      },
+    });
+
+    const rootNodeMap = new Map(state.nodes.map((node) => [node.id, node] as const));
+    const parentGroupId = resolveInheritedGroupParentId(sceneNode, rootNodeMap);
+    let createdNode = canvasNodeFactory.createNode(
+      CANVAS_NODE_TYPES.shootingScript,
+      position,
+      initialData
+    );
+    createdNode = applyDefaultNodeSize(createdNode, createdNode.data);
+
+    const stagedNodeMap = new Map(state.nodes.map((node) => [node.id, node] as const));
+    createdNode = attachNodeToGroupParent(
+      createdNode,
+      position,
+      parentGroupId,
+      stagedNodeMap
+    );
+
+    const edgeId = `e-${sceneNodeId}-${createdNode.id}`;
+    const nextNodes = parentGroupId
+      ? fitGroupNodeToChildren([...state.nodes, createdNode], parentGroupId)
+      : [...state.nodes, createdNode];
+    const nextEdges = state.edges.some((edge) => edge.id === edgeId)
+      ? state.edges
+      : [
+          ...state.edges,
+          {
+            id: edgeId,
+            source: sceneNodeId,
+            target: createdNode.id,
+            sourceHandle: 'source',
+            targetHandle: 'target',
+            type: 'disconnectableEdge',
+          },
+        ];
+
+    set({
+      nodes: nextNodes,
+      edges: nextEdges,
+      selectedNodeId: createdNode.id,
+      activeToolDialog: null,
+      history: {
+        past: pushSnapshot(state.history.past, createSnapshot(state.nodes, state.edges)),
+        future: [],
+      },
+      dragHistorySnapshot: null,
+    });
+
+    return { nodeId: createdNode.id, created: true };
+  },
+
   reindexScriptSceneEpisodes: (sourceChapterId) => {
     if (!sourceChapterId.trim()) {
       return;
@@ -3279,6 +3582,18 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
           if (normalizedSceneData.sourceChapterId) {
             affectedChapterIds.add(normalizedSceneData.sourceChapterId);
           }
+        }
+        if (node.type === CANVAS_NODE_TYPES.shootingScript) {
+          Object.assign(
+            mergedData,
+            normalizeShootingScriptNodeData(mergedData as ShootingScriptNodeData)
+          );
+        }
+        if (node.type === CANVAS_NODE_TYPES.scriptReference) {
+          Object.assign(
+            mergedData,
+            normalizeScriptReferenceNodeData(mergedData as ScriptReferenceNodeData)
+          );
         }
         const resizedNode = maybeApplyImageAutoResize(
           {
@@ -3370,6 +3685,12 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
           if (normalizedSceneData.sourceChapterId) {
             affectedChapterIds.add(normalizedSceneData.sourceChapterId);
           }
+        }
+        if (node.type === CANVAS_NODE_TYPES.shootingScript) {
+          Object.assign(
+            mergedData,
+            normalizeShootingScriptNodeData(mergedData as ShootingScriptNodeData)
+          );
         }
         const resizedNode = maybeApplyImageAutoResize(
           {
@@ -3861,7 +4182,8 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
     const affectedChapterIds = new Set<string>();
     let fallbackChapterId: string | null = null;
     let fallbackSceneId: string | null = null;
-    const { activeSceneNodeId } = useScriptEditorStore.getState();
+    let fallbackEpisodeId: string | null = null;
+    const { activeSceneNodeId, activeScriptNodeId } = useScriptEditorStore.getState();
 
     set((state) => {
       const existingIds = uniqueIds.filter((nodeId) => state.nodes.some((node) => node.id === nodeId));
@@ -3883,6 +4205,21 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
           if (sourceChapterSurvives) {
             fallbackChapterId = activeSceneData.sourceChapterId;
             fallbackSceneId = activeSceneData.sourceSceneId;
+          }
+        }
+      }
+      if (activeScriptNodeId && deleteSet.has(activeScriptNodeId)) {
+        const activeScriptNode = state.nodes.find(
+          (node) => node.id === activeScriptNodeId && node.type === CANVAS_NODE_TYPES.shootingScript
+        );
+        if (activeScriptNode) {
+          const activeScriptData = activeScriptNode.data as ShootingScriptNodeData;
+          const sourceSceneSurvives = state.nodes.some(
+            (node) => node.id === activeScriptData.sourceSceneNodeId && !deleteSet.has(node.id)
+          );
+          if (sourceSceneSurvives) {
+            fallbackSceneId = activeScriptData.sourceSceneNodeId;
+            fallbackEpisodeId = activeScriptData.sourceEpisodeId;
           }
         }
       }
@@ -3925,7 +4262,16 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
     });
 
     if (deletedNodeIds.length > 0) {
-      if (activeSceneNodeId && deletedNodeIds.includes(activeSceneNodeId)) {
+      if (activeScriptNodeId && deletedNodeIds.includes(activeScriptNodeId)) {
+        if (fallbackSceneId) {
+          useScriptEditorStore.getState().focusSceneNode(
+            fallbackSceneId,
+            fallbackEpisodeId
+          );
+        } else {
+          useScriptEditorStore.getState().clearSelection();
+        }
+      } else if (activeSceneNodeId && deletedNodeIds.includes(activeSceneNodeId)) {
         if (fallbackChapterId && fallbackSceneId) {
           useScriptEditorStore.getState().focusChapterScene(
             fallbackChapterId,

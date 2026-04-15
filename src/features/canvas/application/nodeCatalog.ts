@@ -12,8 +12,8 @@ export function isCanvasNodeTypeEnabled(type: CanvasNodeType): boolean {
 
 export const nodeCatalog: NodeCatalog = {
   getDefinition: (type: CanvasNodeType) => canvasNodeDefinitions[type],
-  getMenuDefinitions: (projectType) =>
-    getMenuNodeDefinitions(projectType).filter((definition) =>
+  getMenuDefinitions: (projectType, options) =>
+    getMenuNodeDefinitions(projectType, options).filter((definition) =>
       isExtensionRequirementSatisfied(
         definition.requiredExtensionId,
         definition.requiredExtensionIds

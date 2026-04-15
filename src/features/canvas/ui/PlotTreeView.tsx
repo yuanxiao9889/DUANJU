@@ -1,5 +1,5 @@
-import { useState, useCallback, useMemo } from 'react';
-import { ChevronRight, ChevronDown, FileText, GitBranch, Sparkles, Circle, Clapperboard } from 'lucide-react';
+import { useState, useCallback, useEffect, useMemo, useRef } from 'react';
+import { ChevronRight, ChevronDown, FileText, GitBranch, Circle, Clapperboard } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 
 import {
@@ -52,6 +52,7 @@ function PlotTreeNode({
     () => normalizeSceneCards(data.scenes, data.content),
     [data.content, data.scenes]
   );
+  const hasExpandableContent = hasChildren || scenes.length > 0;
 
   const childNodes = useMemo(() => {
     return children.map((child) => ({
@@ -64,8 +65,6 @@ function PlotTreeNode({
     switch (branchType) {
       case 'branch':
         return <GitBranch className="h-3 w-3 text-purple-400" />;
-      case 'supplement':
-        return <Sparkles className="h-3 w-3 text-green-400" />;
       default:
         return <FileText className="h-3 w-3 text-amber-400" />;
     }
@@ -75,8 +74,6 @@ function PlotTreeNode({
     switch (branchType) {
       case 'branch':
         return 'border-l-purple-400';
-      case 'supplement':
-        return 'border-l-green-400';
       default:
         return 'border-l-amber-400';
     }
@@ -100,7 +97,7 @@ function PlotTreeNode({
         style={{ paddingLeft: `${level * 12 + 8}px` }}
         onClick={() => onNodeClick(node.id)}
       >
-        {hasChildren ? (
+        {hasExpandableContent ? (
           <button
             type="button"
             onClick={(event) => {
@@ -216,6 +213,7 @@ interface PlotTreeViewProps {
 export function PlotTreeView({ chapters, onNodeClick }: PlotTreeViewProps) {
   const { t } = useTranslation();
   const canvasNodes = useCanvasStore((state) => state.nodes);
+  const knownChapterIdsRef = useRef<Set<string>>(new Set(chapters.map((chapter) => chapter.id)));
   const [expandedIds, setExpandedIds] = useState<Set<string>>(() => {
     const initialExpanded = new Set<string>();
     chapters.forEach((chapter) => {
@@ -225,6 +223,39 @@ export function PlotTreeView({ chapters, onNodeClick }: PlotTreeViewProps) {
     });
     return initialExpanded;
   });
+
+  const normalizedChapterIds = useMemo(
+    () => new Set(chapters.map((chapter) => chapter.id)),
+    [chapters]
+  );
+
+  useEffect(() => {
+    setExpandedIds((previous) => {
+      const knownIds = knownChapterIdsRef.current;
+      const next = new Set<string>();
+
+      previous.forEach((id) => {
+        if (normalizedChapterIds.has(id)) {
+          next.add(id);
+        }
+      });
+
+      chapters.forEach((chapter) => {
+        const isMainChapter = chapter.data.branchType === 'main' || !chapter.data.branchType;
+        const isNewChapter = !knownIds.has(chapter.id);
+        if (isMainChapter && isNewChapter) {
+          next.add(chapter.id);
+        }
+      });
+
+      knownChapterIdsRef.current = new Set(normalizedChapterIds);
+
+      const hasChanged = next.size !== previous.size
+        || Array.from(next).some((id) => !previous.has(id));
+
+      return hasChanged ? next : previous;
+    });
+  }, [chapters, normalizedChapterIds]);
 
   const sceneNodeBySourceKey = useMemo(() => {
     const nextMap = new Map<string, { id: string; data: ScriptSceneNodeData }>();

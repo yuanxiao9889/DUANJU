@@ -9,6 +9,9 @@ import {
 } from 'react';
 
 const UI_DIALOG_EDGE_GAP = 20;
+const UI_DIALOG_MIN_VISIBLE_WIDTH = 180;
+const UI_DIALOG_MIN_VISIBLE_HEIGHT = 72;
+const UI_DIALOG_MIN_TRAVEL_RANGE = 48;
 const UI_DIALOG_X_VAR = '--ui-dialog-x';
 const UI_DIALOG_Y_VAR = '--ui-dialog-y';
 
@@ -27,6 +30,38 @@ interface DialogContainerBounds {
   top: number;
   width: number;
   height: number;
+}
+
+interface DialogAxisBounds {
+  min: number;
+  max: number;
+}
+
+function resolveDialogAxisBounds(
+  containerSize: number,
+  panelSize: number,
+  minVisibleSize: number,
+): DialogAxisBounds {
+  const normalMin = UI_DIALOG_EDGE_GAP;
+  const normalMax = Math.max(UI_DIALOG_EDGE_GAP, containerSize - panelSize - UI_DIALOG_EDGE_GAP);
+
+  if (normalMax - normalMin >= UI_DIALOG_MIN_TRAVEL_RANGE) {
+    return {
+      min: normalMin,
+      max: normalMax,
+    };
+  }
+
+  const visibleSize = Math.min(
+    panelSize,
+    Math.max(minVisibleSize, UI_DIALOG_EDGE_GAP),
+  );
+  const overflowMax = Math.max(normalMin, containerSize - visibleSize);
+
+  return {
+    min: normalMin,
+    max: overflowMax,
+  };
 }
 
 interface UseDraggableDialogOptions {
@@ -113,12 +148,20 @@ export function useDraggableDialog({
 
     const containerBounds = getContainerBounds();
     const { width, height } = measurePanelSize();
-    const maxLeft = Math.max(UI_DIALOG_EDGE_GAP, containerBounds.width - width - UI_DIALOG_EDGE_GAP);
-    const maxTop = Math.max(UI_DIALOG_EDGE_GAP, containerBounds.height - height - UI_DIALOG_EDGE_GAP);
+    const horizontalBounds = resolveDialogAxisBounds(
+      containerBounds.width,
+      width,
+      UI_DIALOG_MIN_VISIBLE_WIDTH,
+    );
+    const verticalBounds = resolveDialogAxisBounds(
+      containerBounds.height,
+      height,
+      UI_DIALOG_MIN_VISIBLE_HEIGHT,
+    );
 
     return {
-      x: Math.min(Math.max(UI_DIALOG_EDGE_GAP, left), maxLeft),
-      y: Math.min(Math.max(UI_DIALOG_EDGE_GAP, top), maxTop),
+      x: Math.min(Math.max(horizontalBounds.min, left), horizontalBounds.max),
+      y: Math.min(Math.max(verticalBounds.min, top), verticalBounds.max),
     };
   }, [getContainerBounds, measurePanelSize]);
 

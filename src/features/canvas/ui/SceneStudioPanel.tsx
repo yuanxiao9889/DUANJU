@@ -25,8 +25,18 @@ import {
   htmlToPlainText,
 } from '@/features/canvas/application/sceneEpisodeGenerator';
 import {
+  buildShootingScriptSourceSnapshot,
+  createManualShootingScriptRow,
+  generateShootingScriptRows,
+  regenerateShootingScriptRow,
+  reindexShootingScriptRows,
+  rewriteShootingScriptCell,
+} from '@/features/canvas/application/shootingScriptGenerator';
+import { ShootingScriptWorkbenchPanel } from './ShootingScriptWorkbenchPanel';
+import {
   CANVAS_NODE_TYPES,
   createDefaultSceneCard,
+  normalizeShootingScriptNumberingContext,
   normalizeSceneCards,
   type EpisodeCard,
   type SceneCard,
@@ -36,6 +46,9 @@ import {
   type ScriptChapterNodeData,
   type ScriptRootNodeData,
   type ScriptSceneNodeData,
+  type ShootingScriptColumnKey,
+  type ShootingScriptNodeData,
+  type ShootingScriptRow,
 } from '@/features/canvas/domain/canvasNodes';
 import {
   useCanvasFirstNodeByType,
@@ -194,18 +207,24 @@ export function SceneStudioPanel() {
   const { t } = useTranslation();
   const updateNodeData = useCanvasStore((state) => state.updateNodeData);
   const selectedNodeId = useCanvasStore((state) => state.selectedNodeId);
+  const activeWorkbenchKind = useScriptEditorStore((state) => state.activeWorkbenchKind);
   const activeChapterId = useScriptEditorStore((state) => state.activeChapterId);
   const activeChapterSceneId = useScriptEditorStore((state) => state.activeChapterSceneId);
   const focusChapter = useScriptEditorStore((state) => state.focusChapter);
   const focusChapterScene = useScriptEditorStore((state) => state.focusChapterScene);
   const activeSceneNodeId = useScriptEditorStore((state) => state.activeSceneNodeId);
   const activeEpisodeId = useScriptEditorStore((state) => state.activeEpisodeId);
+  const activeScriptNodeId = useScriptEditorStore((state) => state.activeScriptNodeId);
+  const activeScriptCell = useScriptEditorStore((state) => state.activeScriptCell);
   const focusSceneNode = useScriptEditorStore((state) => state.focusSceneNode);
+  const focusShootingScript = useScriptEditorStore((state) => state.focusShootingScript);
+  const focusShootingScriptCell = useScriptEditorStore((state) => state.focusShootingScriptCell);
   const continuityNodes = useCanvasNodesByTypes(SCENE_STUDIO_CONTINUITY_NODE_TYPES);
   const scriptSceneNodes = useCanvasNodesByTypes(SCENE_STUDIO_SCENE_NODE_TYPES);
   const selectedWorkbenchNode = useCanvasNodeById(selectedNodeId ?? '');
   const activeChapterWorkbenchNode = useCanvasNodeById(activeChapterId ?? '');
   const activeSceneWorkbenchNode = useCanvasNodeById(activeSceneNodeId ?? '');
+  const activeScriptWorkbenchNode = useCanvasNodeById(activeScriptNodeId ?? '');
   const rootNode = useCanvasFirstNodeByType(CANVAS_NODE_TYPES.scriptRoot);
   const [panelWidth, setPanelWidth] = useState(() => readPanelWidth());
   const [isPanelCollapsed, setIsPanelCollapsed] = useState(() => readPanelCollapsed());
@@ -232,10 +251,23 @@ export function SceneStudioPanel() {
   const [isEpisodeGenerating, setIsEpisodeGenerating] = useState(false);
   const [episodeGenerationError, setEpisodeGenerationError] = useState('');
   const [activeChapterTab, setActiveChapterTab] = useState<'overview' | 'draft' | 'director'>('overview');
+  const [isShootingScriptGenerating, setIsShootingScriptGenerating] = useState(false);
+  const [shootingScriptError, setShootingScriptError] = useState('');
+  const [rewriteInput, setRewriteInput] = useState('');
+  const [rewriteError, setRewriteError] = useState('');
+  const [rewriteVariants, setRewriteVariants] = useState<string[]>([]);
+  const [isRewriteLoading, setIsRewriteLoading] = useState(false);
   const [activeSceneTab, setActiveSceneTab] = useState<'overview' | 'draft' | 'director'>('overview');
   const panelResizeStateRef = useRef<{ startX: number; startWidth: number } | null>(null);
 
   const resolvedWorkbenchNode = useMemo(() => {
+    if (
+      activeWorkbenchKind === 'shootingScript'
+      && activeScriptWorkbenchNode?.type === CANVAS_NODE_TYPES.shootingScript
+    ) {
+      return activeScriptWorkbenchNode;
+    }
+
     if (activeSceneWorkbenchNode?.type === CANVAS_NODE_TYPES.scriptScene) {
       return activeSceneWorkbenchNode;
     }
@@ -247,12 +279,19 @@ export function SceneStudioPanel() {
     if (
       selectedWorkbenchNode?.type === CANVAS_NODE_TYPES.scriptScene
       || selectedWorkbenchNode?.type === CANVAS_NODE_TYPES.scriptChapter
+      || selectedWorkbenchNode?.type === CANVAS_NODE_TYPES.shootingScript
     ) {
       return selectedWorkbenchNode;
     }
 
     return null;
-  }, [activeChapterWorkbenchNode, activeSceneWorkbenchNode, selectedWorkbenchNode]);
+  }, [
+    activeChapterWorkbenchNode,
+    activeSceneWorkbenchNode,
+    activeScriptWorkbenchNode,
+    activeWorkbenchKind,
+    selectedWorkbenchNode,
+  ]);
 
   const sceneNodeRecord = resolvedWorkbenchNode?.type === CANVAS_NODE_TYPES.scriptScene
     ? resolvedWorkbenchNode
@@ -268,10 +307,26 @@ export function SceneStudioPanel() {
     ? chapterNodeRecord.data as ScriptChapterNodeData
     : null;
   const chapterNodeId = chapterNodeRecord?.id ?? null;
-  const sourceChapterNode = useCanvasNodeById(sceneNodeData?.sourceChapterId ?? '');
+  const shootingScriptNodeRecord = resolvedWorkbenchNode?.type === CANVAS_NODE_TYPES.shootingScript
+    ? resolvedWorkbenchNode
+    : null;
+  const shootingScriptNodeData = shootingScriptNodeRecord
+    ? shootingScriptNodeRecord.data as ShootingScriptNodeData
+    : null;
+  const shootingScriptNodeId = shootingScriptNodeRecord?.id ?? null;
+  const sourceChapterNode = useCanvasNodeById(
+    sceneNodeData?.sourceChapterId ?? shootingScriptNodeData?.sourceChapterId ?? ''
+  );
   const sourceChapterData = sourceChapterNode?.type === CANVAS_NODE_TYPES.scriptChapter
     ? sourceChapterNode.data as ScriptChapterNodeData
     : null;
+  const sourceSceneNode = useCanvasNodeById(shootingScriptNodeData?.sourceSceneNodeId ?? '');
+  const sourceSceneData = sourceSceneNode?.type === CANVAS_NODE_TYPES.scriptScene
+    ? sourceSceneNode.data as ScriptSceneNodeData
+    : null;
+  const sourceSceneNodeId = sourceSceneNode?.type === CANVAS_NODE_TYPES.scriptScene
+    ? sourceSceneNode.id
+    : (shootingScriptNodeData?.sourceSceneNodeId ?? null);
   const rootData = rootNode?.type === CANVAS_NODE_TYPES.scriptRoot
     ? rootNode.data as ScriptRootNodeData
     : null;
@@ -329,25 +384,31 @@ export function SceneStudioPanel() {
   }, [chapterNodeId, scriptSceneNodes]);
   const isChapterMode = chapterNodeData !== null;
   const isSceneMode = sceneNodeData !== null;
+  const isShootingScriptMode = shootingScriptNodeData !== null;
 
   const selectedEpisode = useMemo(() => {
-    if (!sceneNodeData) {
+    const resolvedSceneNodeData = sceneNodeData ?? sourceSceneData;
+    if (!resolvedSceneNodeData) {
       return null;
     }
 
-    if (activeEpisodeId) {
-      const matchedEpisode = sceneNodeData.episodes.find((episode) => episode.id === activeEpisodeId);
+    const targetEpisodeId = shootingScriptNodeData?.sourceEpisodeId ?? activeEpisodeId;
+    if (targetEpisodeId) {
+      const matchedEpisode = resolvedSceneNodeData.episodes.find((episode) => episode.id === targetEpisodeId);
       if (matchedEpisode) {
         return matchedEpisode;
       }
     }
 
-    return sceneNodeData.episodes[0] ?? null;
-  }, [activeEpisodeId, sceneNodeData]);
+    return resolvedSceneNodeData.episodes[0] ?? null;
+  }, [activeEpisodeId, sceneNodeData, shootingScriptNodeData?.sourceEpisodeId, sourceSceneData]);
 
   const chapterContext = useMemo(
-    () => chapterNodeData ?? sourceChapterData ?? (sceneNodeData ? buildDefaultChapterContext(sceneNodeData) : null),
-    [chapterNodeData, sceneNodeData, sourceChapterData]
+    () => {
+      const fallbackSceneNode = sceneNodeData ?? sourceSceneData;
+      return chapterNodeData ?? sourceChapterData ?? (fallbackSceneNode ? buildDefaultChapterContext(fallbackSceneNode) : null);
+    },
+    [chapterNodeData, sceneNodeData, sourceChapterData, sourceSceneData]
   );
   const selectedSceneDraft = isChapterMode ? selectedChapterScene : selectedEpisode;
 
@@ -440,7 +501,11 @@ export function SceneStudioPanel() {
     setExpandedSelectionComparisons({});
     setContinuityError('');
     setLatestContinuityCheck(null);
-  }, [isChapterMode, selectedSceneDraft?.id]);
+    setShootingScriptError('');
+    setRewriteInput('');
+    setRewriteError('');
+    setRewriteVariants([]);
+  }, [isChapterMode, selectedSceneDraft?.id, shootingScriptNodeId]);
 
   useEffect(() => {
     if (typeof window === 'undefined') {
@@ -624,6 +689,277 @@ export function SceneStudioPanel() {
       setIsEpisodeGenerating(false);
     }
   }, [chapterContext, focusSceneNode, sceneNodeData, sceneNodeId, t, updateNodeData]);
+
+  const selectedShootingScriptRow = useMemo(() => {
+    if (!shootingScriptNodeData) {
+      return null;
+    }
+
+    if (activeScriptCell?.rowId) {
+      const matchedRow = shootingScriptNodeData.rows.find((row) => row.id === activeScriptCell.rowId);
+      if (matchedRow) {
+        return matchedRow;
+      }
+    }
+
+    return shootingScriptNodeData.rows[0] ?? null;
+  }, [activeScriptCell?.rowId, shootingScriptNodeData]);
+
+  const updateShootingScriptPatch = useCallback((patch: Partial<ShootingScriptNodeData>) => {
+    if (!shootingScriptNodeId) {
+      return;
+    }
+
+    updateNodeData(shootingScriptNodeId, patch, { historyMode: 'skip' });
+  }, [shootingScriptNodeId, updateNodeData]);
+
+  const handleSelectShootingScriptCell = useCallback((rowId: string, columnKey: ShootingScriptColumnKey) => {
+    if (!shootingScriptNodeId || !sourceSceneNodeId || !selectedEpisode) {
+      return;
+    }
+
+    focusShootingScriptCell(shootingScriptNodeId, {
+      rowId,
+      columnKey,
+    }, {
+      sceneNodeId: sourceSceneNodeId,
+      episodeId: selectedEpisode.id,
+    });
+  }, [focusShootingScriptCell, selectedEpisode, shootingScriptNodeId, sourceSceneNodeId]);
+
+  const handleGenerateShootingScript = useCallback(async (mode: 'initial' | 'regenerate') => {
+    const generationSceneNode = sourceSceneData ?? sceneNodeData;
+    if (!shootingScriptNodeData || !shootingScriptNodeId || !generationSceneNode || !chapterContext || !selectedEpisode) {
+      return;
+    }
+
+    setShootingScriptError('');
+    setIsShootingScriptGenerating(true);
+    try {
+      const nextRows = await generateShootingScriptRows({
+        storyRoot: rootData ?? null,
+        chapter: chapterContext,
+        sceneNode: generationSceneNode,
+        episode: selectedEpisode,
+        shotCount: mode === 'regenerate'
+          ? Math.max(1, shootingScriptNodeData.rows.length || 8)
+          : Math.max(6, shootingScriptNodeData.rows.length || 8),
+      });
+
+      updateShootingScriptPatch({
+        rows: nextRows,
+        status: nextRows.length > 0 ? 'ready' : 'empty',
+        lastGeneratedAt: Date.now(),
+        lastError: null,
+        sourceSnapshot: buildShootingScriptSourceSnapshot(chapterContext, generationSceneNode, selectedEpisode),
+      });
+
+      if (nextRows[0]) {
+        handleSelectShootingScriptCell(nextRows[0].id, activeScriptCell?.columnKey ?? 'beat');
+      }
+    } catch (error) {
+      updateShootingScriptPatch({
+        status: 'empty',
+        lastError: error instanceof Error ? error.message : String(error),
+      });
+      setShootingScriptError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setIsShootingScriptGenerating(false);
+    }
+  }, [
+    activeScriptCell?.columnKey,
+    chapterContext,
+    handleSelectShootingScriptCell,
+    rootData,
+    sceneNodeData,
+    selectedEpisode,
+    shootingScriptNodeData,
+    shootingScriptNodeId,
+    sourceSceneData,
+    updateShootingScriptPatch,
+  ]);
+
+  const handleAddShootingScriptRow = useCallback(() => {
+    if (!shootingScriptNodeData) {
+      return;
+    }
+
+    const numberingContext = normalizeShootingScriptNumberingContext({
+      chapterNumber: shootingScriptNodeData.chapterNumber,
+      sceneNumber: shootingScriptNodeData.sceneNumber,
+      episodeNumber: shootingScriptNodeData.episodeNumber,
+    });
+    const nextRows = reindexShootingScriptRows([
+      ...shootingScriptNodeData.rows,
+      createManualShootingScriptRow(shootingScriptNodeData.rows.length, numberingContext),
+    ], numberingContext);
+    updateShootingScriptPatch({
+      rows: nextRows,
+      status: nextRows.length > 0 ? 'drafting' : 'empty',
+    });
+
+    const newRow = nextRows[nextRows.length - 1];
+    if (newRow) {
+      handleSelectShootingScriptCell(newRow.id, 'beat');
+    }
+  }, [handleSelectShootingScriptCell, shootingScriptNodeData, updateShootingScriptPatch]);
+
+  const handleUpdateShootingScriptRow = useCallback((rowId: string, patch: Partial<ShootingScriptRow>) => {
+    if (!shootingScriptNodeData) {
+      return;
+    }
+
+    const nextRows = shootingScriptNodeData.rows.map((row) => (
+      row.id === rowId ? { ...row, ...patch } : row
+    ));
+    updateShootingScriptPatch({
+      rows: nextRows,
+      status: nextRows.length > 0 ? 'drafting' : 'empty',
+    });
+  }, [shootingScriptNodeData, updateShootingScriptPatch]);
+
+  const handleRegenerateShootingScriptRow = useCallback(async (rowId: string) => {
+    const generationSceneNode = sourceSceneData ?? sceneNodeData;
+    if (!shootingScriptNodeData || !generationSceneNode || !chapterContext || !selectedEpisode) {
+      return;
+    }
+
+    setShootingScriptError('');
+    setIsShootingScriptGenerating(true);
+    try {
+      const regeneratedRow = await regenerateShootingScriptRow({
+        storyRoot: rootData ?? null,
+        chapter: chapterContext,
+        sceneNode: generationSceneNode,
+        episode: selectedEpisode,
+        rowId,
+        rows: shootingScriptNodeData.rows,
+      });
+      const nextRows = shootingScriptNodeData.rows.map((row) => (
+        row.id === rowId ? regeneratedRow : row
+      ));
+      updateShootingScriptPatch({
+        rows: nextRows,
+        status: nextRows.length > 0 ? 'drafting' : 'empty',
+        lastGeneratedAt: Date.now(),
+        lastError: null,
+      });
+    } catch (error) {
+      setShootingScriptError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setIsShootingScriptGenerating(false);
+    }
+  }, [chapterContext, rootData, sceneNodeData, selectedEpisode, shootingScriptNodeData, sourceSceneData, updateShootingScriptPatch]);
+
+  const handleDeleteShootingScriptRow = useCallback((rowId: string) => {
+    if (!shootingScriptNodeData) {
+      return;
+    }
+
+    const numberingContext = normalizeShootingScriptNumberingContext({
+      chapterNumber: shootingScriptNodeData.chapterNumber,
+      sceneNumber: shootingScriptNodeData.sceneNumber,
+      episodeNumber: shootingScriptNodeData.episodeNumber,
+    });
+    const nextRows = reindexShootingScriptRows(
+      shootingScriptNodeData.rows.filter((row) => row.id !== rowId),
+      numberingContext
+    );
+    updateShootingScriptPatch({
+      rows: nextRows,
+      status: nextRows.length > 0 ? 'drafting' : 'empty',
+    });
+  }, [shootingScriptNodeData, updateShootingScriptPatch]);
+
+  const handleMoveShootingScriptRow = useCallback((rowId: string, direction: 'up' | 'down') => {
+    if (!shootingScriptNodeData) {
+      return;
+    }
+
+    const currentIndex = shootingScriptNodeData.rows.findIndex((row) => row.id === rowId);
+    if (currentIndex < 0) {
+      return;
+    }
+
+    const targetIndex = direction === 'up' ? currentIndex - 1 : currentIndex + 1;
+    if (targetIndex < 0 || targetIndex >= shootingScriptNodeData.rows.length) {
+      return;
+    }
+
+    const nextRows = [...shootingScriptNodeData.rows];
+    const [movedRow] = nextRows.splice(currentIndex, 1);
+    nextRows.splice(targetIndex, 0, movedRow);
+    const numberingContext = normalizeShootingScriptNumberingContext({
+      chapterNumber: shootingScriptNodeData.chapterNumber,
+      sceneNumber: shootingScriptNodeData.sceneNumber,
+      episodeNumber: shootingScriptNodeData.episodeNumber,
+    });
+    updateShootingScriptPatch({
+      rows: reindexShootingScriptRows(nextRows, numberingContext),
+      status: nextRows.length > 0 ? 'drafting' : 'empty',
+    });
+  }, [shootingScriptNodeData, updateShootingScriptPatch]);
+
+  const handleRunShootingScriptRewrite = useCallback(async () => {
+    const generationSceneNode = sourceSceneData ?? sceneNodeData;
+    if (!selectedShootingScriptRow || !activeScriptCell || !generationSceneNode || !chapterContext || !selectedEpisode) {
+      return;
+    }
+
+    setRewriteError('');
+    setIsRewriteLoading(true);
+    try {
+      const variants = await rewriteShootingScriptCell({
+        storyRoot: rootData ?? null,
+        chapter: chapterContext,
+        sceneNode: generationSceneNode,
+        episode: selectedEpisode,
+        row: selectedShootingScriptRow,
+        columnKey: activeScriptCell.columnKey,
+        currentValue: String(selectedShootingScriptRow[activeScriptCell.columnKey] ?? ''),
+        instruction: rewriteInput,
+      });
+      setRewriteVariants(variants);
+    } catch (error) {
+      setRewriteError(error instanceof Error ? error.message : String(error));
+      setRewriteVariants([]);
+    } finally {
+      setIsRewriteLoading(false);
+    }
+  }, [
+    activeScriptCell,
+    chapterContext,
+    rewriteInput,
+    rootData,
+    sceneNodeData,
+    selectedEpisode,
+    selectedShootingScriptRow,
+    sourceSceneData,
+  ]);
+
+  const handleApplyShootingScriptRewriteVariant = useCallback((variant: string) => {
+    if (!selectedShootingScriptRow || !activeScriptCell) {
+      return;
+    }
+
+    handleUpdateShootingScriptRow(selectedShootingScriptRow.id, {
+      [activeScriptCell.columnKey]: variant,
+    } as Partial<ShootingScriptRow>);
+    setRewriteVariants([]);
+  }, [activeScriptCell, handleUpdateShootingScriptRow, selectedShootingScriptRow]);
+
+  const handleOpenSourceEpisode = useCallback(() => {
+    if (!sourceSceneNodeId) {
+      return;
+    }
+
+    focusSceneNode(sourceSceneNodeId, shootingScriptNodeData?.sourceEpisodeId ?? selectedEpisode?.id ?? null);
+  }, [
+    focusSceneNode,
+    selectedEpisode?.id,
+    shootingScriptNodeData?.sourceEpisodeId,
+    sourceSceneNodeId,
+  ]);
 
   const applySelectedScenePatch = useCallback((patch: Partial<SceneCard>) => {
     if (isChapterMode) {
@@ -991,6 +1327,88 @@ export function SceneStudioPanel() {
 
   const panelWidthStyle = isPanelCollapsed ? SCENE_STUDIO_PANEL_COLLAPSED_WIDTH : panelWidth;
 
+  useEffect(() => {
+    if (!isShootingScriptMode || !shootingScriptNodeId) {
+      return;
+    }
+
+    const nextSceneNodeId = sourceSceneNodeId;
+    const nextEpisodeId = shootingScriptNodeData?.sourceEpisodeId ?? selectedEpisode?.id ?? null;
+    if (
+      activeWorkbenchKind === 'shootingScript'
+      && activeScriptNodeId === shootingScriptNodeId
+      && activeSceneNodeId === nextSceneNodeId
+      && activeEpisodeId === nextEpisodeId
+    ) {
+      return;
+    }
+
+    focusShootingScript(shootingScriptNodeId, {
+      sceneNodeId: nextSceneNodeId,
+      episodeId: nextEpisodeId,
+      cell: activeScriptCell,
+    });
+  }, [
+    activeEpisodeId,
+    activeSceneNodeId,
+    activeScriptCell,
+    activeScriptNodeId,
+    activeWorkbenchKind,
+    focusShootingScript,
+    isShootingScriptMode,
+    selectedEpisode?.id,
+    shootingScriptNodeData?.sourceEpisodeId,
+    shootingScriptNodeId,
+    sourceSceneNodeId,
+  ]);
+
+  useEffect(() => {
+    if (!shootingScriptNodeData || !shootingScriptNodeId || shootingScriptNodeData.rows.length === 0) {
+      return;
+    }
+
+    const rowId = activeScriptCell?.rowId;
+    const hasActiveRow = rowId
+      ? shootingScriptNodeData.rows.some((row) => row.id === rowId)
+      : false;
+
+    if (hasActiveRow) {
+      return;
+    }
+
+    const firstRow = shootingScriptNodeData.rows[0];
+    if (!firstRow) {
+      return;
+    }
+
+    handleSelectShootingScriptCell(firstRow.id, activeScriptCell?.columnKey ?? 'beat');
+  }, [
+    activeScriptCell?.columnKey,
+    activeScriptCell?.rowId,
+    handleSelectShootingScriptCell,
+    shootingScriptNodeData,
+    shootingScriptNodeId,
+  ]);
+
+  useEffect(() => {
+    if (
+      !shootingScriptNodeData
+      || !shootingScriptNodeId
+      || isShootingScriptGenerating
+      || shootingScriptNodeData.rows.length > 0
+      || shootingScriptNodeData.status !== 'drafting'
+    ) {
+      return;
+    }
+
+    void handleGenerateShootingScript('initial');
+  }, [
+    handleGenerateShootingScript,
+    isShootingScriptGenerating,
+    shootingScriptNodeData,
+    shootingScriptNodeId,
+  ]);
+
   return (
     <aside
       className={`relative z-20 h-full shrink-0 border-l border-border-dark bg-bg-dark/92 backdrop-blur ${
@@ -1031,10 +1449,16 @@ export function SceneStudioPanel() {
             <>
               <div className="min-w-0">
                 <div className="text-sm font-semibold text-text-dark">
-                  {isSceneMode ? t('script.sceneWorkbench.title') : t('script.sceneStudio.title')}
+                  {isShootingScriptMode
+                    ? t('script.shootingScript.workbenchTitle')
+                    : isSceneMode
+                      ? t('script.sceneWorkbench.title')
+                      : t('script.sceneStudio.title')}
                 </div>
                 <p className="mt-1 text-xs leading-5 text-text-muted">
-                  {isSceneMode
+                  {isShootingScriptMode
+                    ? t('script.shootingScript.workbenchSubtitle')
+                    : isSceneMode
                     ? t('script.sceneWorkbench.subtitle')
                     : isChapterMode
                       ? t('script.sceneStudio.subtitle')
@@ -1097,6 +1521,29 @@ export function SceneStudioPanel() {
             onRunContinuityCheck={handleRunContinuityCheck}
             continuityError={continuityError}
             latestContinuityCheck={latestContinuityCheck}
+          />
+        ) : isShootingScriptMode && shootingScriptNodeData ? (
+          <ShootingScriptWorkbenchPanel
+            nodeData={shootingScriptNodeData}
+            selectedRow={selectedShootingScriptRow}
+            activeCell={activeScriptCell}
+            isGenerating={isShootingScriptGenerating}
+            generationError={shootingScriptError}
+            rewriteInput={rewriteInput}
+            rewriteError={rewriteError}
+            rewriteVariants={rewriteVariants}
+            isRewriteLoading={isRewriteLoading}
+            onRewriteInputChange={setRewriteInput}
+            onGenerate={handleGenerateShootingScript}
+            onAddRow={handleAddShootingScriptRow}
+            onUpdateRow={handleUpdateShootingScriptRow}
+            onRegenerateRow={handleRegenerateShootingScriptRow}
+            onDeleteRow={handleDeleteShootingScriptRow}
+            onMoveRow={handleMoveShootingScriptRow}
+            onSelectCell={handleSelectShootingScriptCell}
+            onApplyRewriteVariant={handleApplyShootingScriptRewriteVariant}
+            onRunRewrite={handleRunShootingScriptRewrite}
+            onOpenSourceEpisode={handleOpenSourceEpisode}
           />
         ) : !sceneNodeData ? (
           <div className="flex flex-1 items-center justify-center px-6 text-center">

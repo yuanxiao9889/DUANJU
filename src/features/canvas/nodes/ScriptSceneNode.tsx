@@ -6,7 +6,6 @@ import {
   Plus,
   RotateCcw,
   Sparkles,
-  Trash2,
 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 
@@ -69,7 +68,6 @@ export const ScriptSceneNode = memo(({
   const { t } = useTranslation();
   const nodes = useCanvasStore((state) => state.nodes);
   const updateNodeData = useCanvasStore((state) => state.updateNodeData);
-  const deleteNode = useCanvasStore((state) => state.deleteNode);
   const setSelectedNode = useCanvasStore((state) => state.setSelectedNode);
   const focusSceneNode = useScriptEditorStore((state) => state.focusSceneNode);
   const activeSceneNodeId = useScriptEditorStore((state) => state.activeSceneNodeId);
@@ -131,7 +129,7 @@ export const ScriptSceneNode = memo(({
 
   return (
     <div
-      className={`group relative overflow-hidden rounded-[20px] border bg-surface-dark/96 shadow-[0_20px_40px_rgba(2,6,23,0.22)] transition-[border-color,box-shadow] duration-200 ${
+      className={`group relative overflow-visible rounded-[20px] border bg-surface-dark shadow-[0_20px_40px_rgba(2,6,23,0.22)] transition-[border-color,box-shadow] duration-200 ${
         selected
           ? 'border-cyan-300/55 shadow-[0_0_0_1px_rgba(103,232,249,0.4),0_22px_42px_rgba(6,78,110,0.25)]'
           : 'border-cyan-300/18 hover:border-cyan-300/32'
@@ -139,9 +137,6 @@ export const ScriptSceneNode = memo(({
       style={{ width: resolvedWidth, height: resolvedHeight }}
       onClick={() => openWorkbench(activeSceneNodeId === id ? activeEpisodeId : undefined)}
     >
-      <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_top_right,rgba(45,212,191,0.14),transparent_42%)]" />
-      <div className="absolute inset-x-0 top-0 h-[2px] bg-cyan-300/70" />
-
       <Handle
         type="target"
         id="target"
@@ -155,8 +150,12 @@ export const ScriptSceneNode = memo(({
         className="!h-3 !w-3 !-right-1.5 !rounded-full !border-surface-dark !bg-teal-400"
       />
 
-      <div className="relative flex h-full flex-col p-3">
-        <div className="flex items-start justify-between gap-3">
+      <div className="relative flex h-full flex-col overflow-hidden rounded-[20px] p-3">
+        <div className="pointer-events-none absolute inset-0 overflow-hidden rounded-[20px]">
+          <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_right,rgba(45,212,191,0.14),transparent_42%)]" />
+          <div className="absolute inset-x-0 top-0 h-[2px] bg-cyan-300/70" />
+        </div>
+        <div className="flex items-start gap-3">
           <div className="min-w-0">
             <div className="flex flex-wrap items-center gap-2 text-[11px] text-cyan-200/85">
               <span className="rounded-full bg-amber-500/12 px-2 py-0.5 text-amber-200">
@@ -173,18 +172,6 @@ export const ScriptSceneNode = memo(({
               {sourceChapterTitle || t('script.sceneCatalog.untitledChapter')}
             </div>
           </div>
-
-          <button
-            type="button"
-            onClick={(event) => {
-              event.stopPropagation();
-              deleteNode(id);
-            }}
-            className="flex h-8 w-8 items-center justify-center rounded-lg border border-transparent text-text-muted transition-colors hover:border-red-400/25 hover:bg-red-500/10 hover:text-red-200"
-            title={t('common.delete')}
-          >
-            <Trash2 className="h-4 w-4" />
-          </button>
         </div>
 
         <div className="mt-3 flex flex-wrap gap-2">

@@ -219,7 +219,7 @@ UiPanel.displayName = 'UiPanel';
 export function UiTextArea({ className = '', ...props }: TextareaHTMLAttributes<HTMLTextAreaElement>) {
   return (
     <textarea
-      className={`w-full resize-none border ui-field px-3 py-2.5 text-sm text-text-dark outline-none transition-colors placeholder:text-text-muted/70 focus:border-accent ${className}`}
+      className={`ui-scrollbar w-full resize-none border ui-field px-3 py-2.5 text-sm text-text-dark outline-none transition-colors placeholder:text-text-muted/70 focus:border-accent ${className}`}
       {...props}
     />
   );
@@ -229,7 +229,7 @@ export const UiTextAreaField = forwardRef<HTMLTextAreaElement, TextareaHTMLAttri
   ({ className = '', ...props }, ref) => (
     <textarea
       ref={ref}
-      className={`w-full resize-none border ui-field px-3 py-2.5 text-sm text-text-dark outline-none transition-colors placeholder:text-text-muted/70 focus:border-accent ${className}`}
+      className={`ui-scrollbar w-full resize-none border ui-field px-3 py-2.5 text-sm text-text-dark outline-none transition-colors placeholder:text-text-muted/70 focus:border-accent ${className}`}
       {...props}
     />
   )

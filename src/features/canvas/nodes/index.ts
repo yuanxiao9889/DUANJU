@@ -18,6 +18,8 @@ import { TextAnnotationNode } from './TextAnnotationNode';
 import { TtsTextNode } from './TtsTextNode';
 import { ScriptTextNode } from './ScriptTextNode';
 import { ScriptSceneNode } from './ScriptSceneNode';
+import { ShootingScriptNode } from './ShootingScriptNode';
+import { ScriptReferenceNode } from './ScriptReferenceNode';
 import { QwenTtsVoiceDesignNode } from './QwenTtsVoiceDesignNode';
 import { QwenTtsSavedVoiceNode } from './QwenTtsSavedVoiceNode';
 import { VoxCpmVoiceDesignNode } from './VoxCpmVoiceDesignNode';
@@ -61,6 +63,8 @@ export const nodeTypes: NodeTypes = {
   scriptRootNode: ScriptRootNode,
   scriptChapterNode: ScriptChapterNode,
   scriptSceneNode: ScriptSceneNode,
+  shootingScriptNode: ShootingScriptNode,
+  scriptReferenceNode: ScriptReferenceNode,
   scriptWorldviewNode: ScriptWorldviewNode,
   scriptCharacterNode: ScriptCharacterNode,
   scriptLocationNode: ScriptLocationNode,
@@ -96,6 +100,8 @@ export {
   ScriptRootNode, 
   ScriptChapterNode, 
   ScriptSceneNode,
+  ShootingScriptNode,
+  ScriptReferenceNode,
   ScriptWorldviewNode,
   ScriptCharacterNode,
   ScriptLocationNode,

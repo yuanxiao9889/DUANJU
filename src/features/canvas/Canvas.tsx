@@ -77,6 +77,7 @@ import {
   calculateBranchNodePosition,
   DEFAULT_LAYOUT_CONFIG,
 } from '@/features/canvas/application/mindMapLayout';
+import { htmlToPlainText } from '@/features/canvas/application/sceneEpisodeGenerator';
 import {
   getCanvasNodeSize as getNodeSize,
   resolveAbsoluteCanvasNodePosition as resolveAbsoluteNodePosition,
@@ -89,6 +90,7 @@ import { nodeTypes } from './nodes';
 import { edgeTypes } from './edges';
 import { NodeSelectionMenu } from './NodeSelectionMenu';
 import { SceneCatalogMenu } from './SceneCatalogMenu';
+import { EpisodeCatalogMenu } from './EpisodeCatalogMenu';
 import { SelectedNodeOverlay } from './ui/SelectedNodeOverlay';
 import { MissingApiKeyHint } from '@/features/settings/MissingApiKeyHint';
 import { eventMatchesShortcut } from '@/features/settings/keyboardShortcuts';
@@ -422,10 +424,13 @@ function isCanvasPasteTarget(
 function resolveAllowedNodeTypes(
   handleType: HandleType,
   projectType: 'storyboard' | 'script' = 'storyboard',
+  linkedScriptProjectId?: string | null,
   sourceNodeId?: string | null,
   nodes?: CanvasNode[]
 ): CanvasNodeType[] {
-  const baseTypes = getConnectMenuNodeTypes(handleType, projectType).filter(
+  const baseTypes = getConnectMenuNodeTypes(handleType, projectType, {
+    linkedScriptProjectId,
+  }).filter(
     (type) => isCanvasNodeTypeEnabled(type)
   );
   
@@ -608,6 +613,7 @@ export function Canvas() {
 
   const [showNodeMenu, setShowNodeMenu] = useState(false);
   const [showSceneCatalogMenu, setShowSceneCatalogMenu] = useState(false);
+  const [showEpisodeCatalogMenu, setShowEpisodeCatalogMenu] = useState(false);
   const [showWelcomeDialog, setShowWelcomeDialog] = useState(false);
   const [hasMountedToolDialog, setHasMountedToolDialog] = useState(false);
   const [hasMountedImageViewer, setHasMountedImageViewer] = useState(false);
@@ -629,6 +635,7 @@ export function Canvas() {
     null
   );
   const [sceneCatalogChapterNodeId, setSceneCatalogChapterNodeId] = useState<string | null>(null);
+  const [episodeCatalogSceneNodeId, setEpisodeCatalogSceneNodeId] = useState<string | null>(null);
   const [previewConnectionVisual, setPreviewConnectionVisual] =
     useState<PreviewConnectionVisual | null>(null);
   const [dragOverlayKind, setDragOverlayKind] = useState<CanvasDragOverlayKind>(null);
@@ -685,9 +692,14 @@ export function Canvas() {
   const focusChapter = useScriptEditorStore((state) => state.focusChapter);
   const activeSceneNodeId = useScriptEditorStore((state) => state.activeSceneNodeId);
   const activeEpisodeId = useScriptEditorStore((state) => state.activeEpisodeId);
+  const activeScriptNodeId = useScriptEditorStore((state) => state.activeScriptNodeId);
   const focusSceneNode = useScriptEditorStore((state) => state.focusSceneNode);
+  const focusShootingScript = useScriptEditorStore((state) => state.focusShootingScript);
   const createScriptSceneNodeFromChapterScene = useCanvasStore(
     (state) => state.createScriptSceneNodeFromChapterScene
+  );
+  const ensureShootingScriptNodeFromSceneEpisode = useCanvasStore(
+    (state) => state.ensureShootingScriptNodeFromSceneEpisode
   );
   const deleteEdge = useCanvasStore((state) => state.deleteEdge);
   const deleteNode = useCanvasStore((state) => state.deleteNode);
@@ -1704,6 +1716,14 @@ export function Canvas() {
     const selectedNode = nodes.find((node) => node.id === selectedNodeIds[0]);
     return selectedNode?.type === CANVAS_NODE_TYPES.scriptScene ? selectedNode : null;
   }, [nodes, selectedNodeIds]);
+  const selectedShootingScriptNode = useMemo(() => {
+    if (selectedNodeIds.length !== 1) {
+      return null;
+    }
+
+    const selectedNode = nodes.find((node) => node.id === selectedNodeIds[0]);
+    return selectedNode?.type === CANVAS_NODE_TYPES.shootingScript ? selectedNode : null;
+  }, [nodes, selectedNodeIds]);
   const selectedScriptChapterNode = useMemo(() => {
     if (selectedNodeIds.length !== 1) {
       return null;
@@ -1755,6 +1775,46 @@ export function Canvas() {
     );
     return chapterNode ?? null;
   }, [nodes, sceneCatalogChapterNodeId]);
+  const episodeCatalogItems = useMemo(() => {
+    if (!episodeCatalogSceneNodeId) {
+      return [];
+    }
+
+    const sceneNode = nodes.find(
+      (node) => node.id === episodeCatalogSceneNodeId && node.type === CANVAS_NODE_TYPES.scriptScene
+    );
+    if (!sceneNode) {
+      return [];
+    }
+
+    const sceneData = sceneNode.data as ScriptSceneNodeData;
+    const createdEpisodeIds = new Set(
+      nodes
+        .filter((node) => node.type === CANVAS_NODE_TYPES.shootingScript)
+        .map((node) => (node.data as { sourceEpisodeId?: string }).sourceEpisodeId)
+        .filter((value): value is string => typeof value === 'string' && value.trim().length > 0)
+    );
+
+    return [...sceneData.episodes]
+      .sort((left, right) => left.order - right.order)
+      .map((episode) => ({
+        id: episode.id,
+        episodeNumber: episode.episodeNumber,
+        title: episode.title,
+        summary: episode.summary || episode.purpose || htmlToPlainText(episode.draftHtml || ''),
+        created: createdEpisodeIds.has(episode.id),
+      }));
+  }, [episodeCatalogSceneNodeId, nodes]);
+  const episodeCatalogSceneNode = useMemo(() => {
+    if (!episodeCatalogSceneNodeId) {
+      return null;
+    }
+
+    const sceneNode = nodes.find(
+      (node) => node.id === episodeCatalogSceneNodeId && node.type === CANVAS_NODE_TYPES.scriptScene
+    );
+    return sceneNode ?? null;
+  }, [episodeCatalogSceneNodeId, nodes]);
 
   useEffect(() => {
     if (selectedNodeIds.length === 1) {
@@ -1816,6 +1876,31 @@ export function Canvas() {
     focusSceneNode,
     project?.projectType,
     selectedScriptSceneNode,
+  ]);
+
+  useEffect(() => {
+    if (project?.projectType !== 'script' || !selectedShootingScriptNode) {
+      return;
+    }
+
+    const selectedScriptData = selectedShootingScriptNode.data as {
+      sourceSceneNodeId?: string;
+      sourceEpisodeId?: string;
+    };
+    if (activeScriptNodeId === selectedShootingScriptNode.id) {
+      return;
+    }
+
+    focusShootingScript(selectedShootingScriptNode.id, {
+      sceneNodeId: selectedScriptData.sourceSceneNodeId ?? null,
+      episodeId: selectedScriptData.sourceEpisodeId ?? null,
+      cell: null,
+    });
+  }, [
+    activeScriptNodeId,
+    focusShootingScript,
+    project?.projectType,
+    selectedShootingScriptNode,
   ]);
 
   useEffect(() => {
@@ -2026,6 +2111,7 @@ export function Canvas() {
           (node) =>
             selectedIdSet.has(node.id)
             && node.type !== CANVAS_NODE_TYPES.scriptScene
+            && node.type !== CANVAS_NODE_TYPES.shootingScript
         );
         const copiedNodeIdSet = new Set(copiedNodes.map((node) => node.id));
         copiedSnapshotRef.current = {
@@ -2129,7 +2215,9 @@ export function Canvas() {
   const closeConnectMenus = useCallback(() => {
     setShowNodeMenu(false);
     setShowSceneCatalogMenu(false);
+    setShowEpisodeCatalogMenu(false);
     setSceneCatalogChapterNodeId(null);
+    setEpisodeCatalogSceneNodeId(null);
     setMenuAllowedTypes(undefined);
     setPendingConnectStart(null);
     setPreviewConnectionVisual(null);
@@ -2152,7 +2240,9 @@ export function Canvas() {
       y: clientY - containerRect.top,
     });
     setShowSceneCatalogMenu(false);
+    setShowEpisodeCatalogMenu(false);
     setSceneCatalogChapterNodeId(null);
+    setEpisodeCatalogSceneNodeId(null);
     setMenuAllowedTypes(undefined);
     setPendingConnectStart(null);
     setPreviewConnectionVisual(null);
@@ -2174,9 +2264,33 @@ export function Canvas() {
       y: clientY - containerRect.top,
     });
     setShowNodeMenu(false);
+    setShowEpisodeCatalogMenu(false);
     setMenuAllowedTypes(undefined);
     setSceneCatalogChapterNodeId(chapterNodeId);
+    setEpisodeCatalogSceneNodeId(null);
     setShowSceneCatalogMenu(true);
+  }, []);
+
+  const openEpisodeCatalogAtClientPosition = useCallback((
+    sceneNodeId: string,
+    clientX: number,
+    clientY: number
+  ) => {
+    const containerRect = reactFlowWrapperRef.current?.getBoundingClientRect();
+    if (!containerRect) {
+      return;
+    }
+
+    setMenuPosition({
+      x: clientX - containerRect.left,
+      y: clientY - containerRect.top,
+    });
+    setShowNodeMenu(false);
+    setShowSceneCatalogMenu(false);
+    setMenuAllowedTypes(undefined);
+    setSceneCatalogChapterNodeId(null);
+    setEpisodeCatalogSceneNodeId(sceneNodeId);
+    setShowEpisodeCatalogMenu(true);
   }, []);
 
   const handleSceneCatalogSelect = useCallback((sceneId: string) => {
@@ -2204,6 +2318,35 @@ export function Canvas() {
     createScriptSceneNodeFromChapterScene,
     focusSceneNode,
     sceneCatalogChapterNodeId,
+    scheduleCanvasPersist,
+    setSelectedNode,
+  ]);
+
+  const handleEpisodeCatalogSelect = useCallback((episodeId: string) => {
+    if (!episodeCatalogSceneNodeId) {
+      return;
+    }
+
+    const result = ensureShootingScriptNodeFromSceneEpisode(episodeCatalogSceneNodeId, episodeId);
+    if (!result.nodeId) {
+      return;
+    }
+
+    setSelectedNode(result.nodeId);
+    focusShootingScript(result.nodeId, {
+      sceneNodeId: episodeCatalogSceneNodeId,
+      episodeId,
+      cell: null,
+    });
+    closeConnectMenus();
+    if (result.created) {
+      scheduleCanvasPersist(0);
+    }
+  }, [
+    closeConnectMenus,
+    ensureShootingScriptNodeFromSceneEpisode,
+    episodeCatalogSceneNodeId,
+    focusShootingScript,
     scheduleCanvasPersist,
     setSelectedNode,
   ]);
@@ -2469,10 +2612,8 @@ export function Canvas() {
 
   const handleNodeSelect = useCallback(
   (type: CanvasNodeType) => {
-    const isSupplementConnection = pendingConnectStart?.handleId === 'supplement';
     const isBranchConnection = (() => {
       if (!pendingConnectStart?.nodeId) return false;
-      if (isSupplementConnection) return false;
       const sourceNode = nodes.find(n => n.id === pendingConnectStart.nodeId);
       return sourceNode?.type === CANVAS_NODE_TYPES.scriptChapter;
     })();
@@ -2480,27 +2621,7 @@ export function Canvas() {
     let nodeData: Partial<CanvasNodeData> = {};
     let nodePosition = flowPosition;
       
-      if (type === CANVAS_NODE_TYPES.scriptChapter && isSupplementConnection) {
-      const sourceNode = nodes.find(n => n.id === pendingConnectStart?.nodeId);
-      const sourceData = sourceNode?.data as ScriptChapterNodeData | undefined;
-      const sourceDepth = sourceData?.depth || 1;
-      
-      nodeData = {
-        branchType: 'supplement',
-        parentId: pendingConnectStart?.nodeId,
-        chapterNumber: sourceData?.chapterNumber || 1,
-        displayName: `补充`,
-        depth: sourceDepth + 1,
-      };
-        
-        if (sourceNode) {
-          const sourceNodeHeight = sourceNode.measured?.height ?? DEFAULT_LAYOUT_CONFIG.nodeHeight;
-          nodePosition = {
-            x: sourceNode.position.x,
-            y: sourceNode.position.y + sourceNodeHeight + 40,
-          };
-        }
-      } else if (type === CANVAS_NODE_TYPES.scriptChapter && isBranchConnection) {
+      if (type === CANVAS_NODE_TYPES.scriptChapter && isBranchConnection) {
         const sourceNode = nodes.find(n => n.id === pendingConnectStart?.nodeId);
         const isSourceRootNode = sourceNode?.type === CANVAS_NODE_TYPES.scriptRoot;
         
@@ -2730,45 +2851,11 @@ export function Canvas() {
     ]
   );
 
-  const handleCreateBranch = useCallback((action?: 'createBranch' | 'createSupplement') => {
+  const handleCreateBranch = useCallback(() => {
   if (!pendingConnectStart) return;
   
   const sourceNode = nodes.find(n => n.id === pendingConnectStart.nodeId);
   if (!sourceNode) return;
-  
-  const isSupplementConnection = action === 'createSupplement' || pendingConnectStart.handleId === 'supplement';
-  
-  if (isSupplementConnection) {
-    const sourceData = sourceNode.data as ScriptChapterNodeData;
-    const sourceDepth = sourceData?.depth || 1;
-    const sourceNodeHeight = sourceNode.measured?.height ?? DEFAULT_LAYOUT_CONFIG.nodeHeight;
-    
-    const nodeData: Partial<ScriptChapterNodeData> = {
-      branchType: 'supplement',
-      parentId: pendingConnectStart.nodeId,
-      chapterNumber: sourceData?.chapterNumber || 1,
-      displayName: `补充`,
-      depth: sourceDepth + 1,
-    };
-    
-    const nodePosition = {
-      x: sourceNode.position.x,
-      y: sourceNode.position.y + sourceNodeHeight + 40,
-    };
-    
-    const newNodeId = addNode(CANVAS_NODE_TYPES.scriptChapter, nodePosition, nodeData);
-    
-    connectNodesWithBusinessRules({
-      source: pendingConnectStart.nodeId,
-      target: newNodeId,
-      sourceHandle: 'supplement',
-      targetHandle: 'target',
-    }, { schedulePersist: false });
-    
-    scheduleCanvasPersist(0);
-    closeConnectMenus();
-    return;
-  }
   
   const isSourceRootNode = sourceNode.type === CANVAS_NODE_TYPES.scriptRoot;
   
@@ -2879,6 +2966,7 @@ export function Canvas() {
         (node) =>
           dedupedIds.includes(node.id)
           && node.type !== CANVAS_NODE_TYPES.scriptScene
+          && node.type !== CANVAS_NODE_TYPES.shootingScript
       );
       if (sourceNodes.length === 0) {
         return null as DuplicateResult | null;
@@ -3047,7 +3135,9 @@ export function Canvas() {
     (event: MouseEvent | TouchEvent, params: OnConnectStartParams) => {
       setShowNodeMenu(false);
       setShowSceneCatalogMenu(false);
+      setShowEpisodeCatalogMenu(false);
       setSceneCatalogChapterNodeId(null);
+      setEpisodeCatalogSceneNodeId(null);
       setMenuAllowedTypes(undefined);
       setPreviewConnectionVisual(null);
 
@@ -3495,16 +3585,17 @@ export function Canvas() {
 
       const dropNodeId = resolveDropNodeId(event.target, clientPosition);
 
-      const isSupplementConnection = pendingConnectStart.handleId === 'supplement';
       const sourceConnectNode = nodes.find((node) => node.id === pendingConnectStart.nodeId);
       const isSceneCatalogConnection =
         project?.projectType === 'script'
         && pendingConnectStart.handleType === 'source'
-        && !isSupplementConnection
         && sourceConnectNode?.type === CANVAS_NODE_TYPES.scriptChapter;
-      const isBranchConnection = !isSceneCatalogConnection && (() => {
+      const isEpisodeCatalogConnection =
+        project?.projectType === 'script'
+        && pendingConnectStart.handleType === 'source'
+        && sourceConnectNode?.type === CANVAS_NODE_TYPES.scriptScene;
+      const isBranchConnection = !isSceneCatalogConnection && !isEpisodeCatalogConnection && (() => {
         if (!pendingConnectStart?.nodeId) return false;
-        if (isSupplementConnection) return false;
         return sourceConnectNode?.type === CANVAS_NODE_TYPES.scriptChapter;
       })();
 
@@ -3577,6 +3668,8 @@ export function Canvas() {
           }),
           stroke: isSceneCatalogConnection
             ? 'rgba(20, 184, 166, 0.92)'
+            : isEpisodeCatalogConnection
+              ? 'rgba(34, 211, 238, 0.92)'
             : isBranchConnection
               ? 'rgba(168, 85, 247, 0.9)'
               : 'rgba(255,255,255,0.9)',
@@ -3601,9 +3694,16 @@ export function Canvas() {
         return;
       }
 
+      if (isEpisodeCatalogConnection && sourceConnectNode) {
+        suppressNextPaneClickRef.current = true;
+        openEpisodeCatalogAtClientPosition(sourceConnectNode.id, clientPosition.x, clientPosition.y);
+        return;
+      }
+
       const allowedTypes = resolveAllowedNodeTypes(
         pendingConnectStart.handleType,
         project?.projectType === 'script' ? 'script' : 'storyboard',
+        project?.linkedScriptProjectId ?? null,
         pendingConnectStart.nodeId,
         nodes
       );
@@ -3621,6 +3721,7 @@ export function Canvas() {
       connectNodesWithBusinessRules,
       nodes,
       openSceneCatalogAtClientPosition,
+      openEpisodeCatalogAtClientPosition,
       pendingConnectStart,
       project?.projectType,
       reactFlowInstance,
@@ -4120,7 +4221,7 @@ export function Canvas() {
         </div>
       )}
 
-      {(showNodeMenu || showSceneCatalogMenu) && previewConnectionVisual && (
+      {(showNodeMenu || showSceneCatalogMenu || showEpisodeCatalogMenu) && previewConnectionVisual && (
         <svg
           className="pointer-events-none absolute z-40 overflow-visible"
           style={{
@@ -4150,23 +4251,13 @@ export function Canvas() {
           projectType={project?.projectType as 'storyboard' | 'script' | undefined}
           showBranchOption={(() => {
             if (project?.projectType !== 'script' || !pendingConnectStart?.nodeId) return false;
-            if (pendingConnectStart.handleId === 'supplement') return false;
             const sourceNode = nodes.find(n => n.id === pendingConnectStart.nodeId);
             return sourceNode?.type === CANVAS_NODE_TYPES.scriptChapter || sourceNode?.type === CANVAS_NODE_TYPES.scriptRoot;
           })()}
           onlyBranchOption={(() => {
             if (project?.projectType !== 'script' || !pendingConnectStart?.nodeId) return false;
-            if (pendingConnectStart.handleId === 'supplement') return false;
             const sourceNode = nodes.find(n => n.id === pendingConnectStart.nodeId);
             return sourceNode?.type === CANVAS_NODE_TYPES.scriptChapter || sourceNode?.type === CANVAS_NODE_TYPES.scriptRoot;
-          })()}
-          showSupplementOption={(() => {
-            if (project?.projectType !== 'script' || !pendingConnectStart?.nodeId) return false;
-            return pendingConnectStart.handleId === 'supplement';
-          })()}
-          onlySupplementOption={(() => {
-            if (project?.projectType !== 'script' || !pendingConnectStart?.nodeId) return false;
-            return pendingConnectStart.handleId === 'supplement';
           })()}
           onSelect={handleNodeSelect}
           onSpecialAction={handleCreateBranch}
@@ -4181,6 +4272,18 @@ export function Canvas() {
           chapterTitle={(sceneCatalogChapterNode.data as ScriptChapterNodeData).title || ''}
           scenes={sceneCatalogItems}
           onSelect={handleSceneCatalogSelect}
+          onClose={closeConnectMenus}
+        />
+      )}
+
+      {showEpisodeCatalogMenu && episodeCatalogSceneNode && (
+        <EpisodeCatalogMenu
+          position={menuPosition}
+          chapterNumber={(episodeCatalogSceneNode.data as ScriptSceneNodeData).chapterNumber || 1}
+          sceneOrder={(episodeCatalogSceneNode.data as ScriptSceneNodeData).sourceSceneOrder}
+          sceneTitle={(episodeCatalogSceneNode.data as ScriptSceneNodeData).title || ''}
+          episodes={episodeCatalogItems}
+          onSelect={handleEpisodeCatalogSelect}
           onClose={closeConnectMenus}
         />
       )}

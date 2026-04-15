@@ -12,6 +12,7 @@ import {
   FileText,
   Film,
   FolderOpen,
+  Link2,
   Palette,
   Pencil,
   Plus,
@@ -55,12 +56,15 @@ function ProjectListView({
   handleToggleSelect,
   handleRenameClick,
   handleDeleteClick,
+  handleLinkClick,
   isSelectMode,
   projects,
   selectedProjectIds,
   sortedProjects,
   configuredApiKeyCount,
   setShowStyleTemplateDialog,
+  linkedStoryboardCountByScriptId,
+  scriptProjects,
 }: {
   sortField: ProjectSortField;
   sortDirection: SortDirection;
@@ -75,12 +79,15 @@ function ProjectListView({
   handleToggleSelect: (id: string, e: ReactMouseEvent) => void;
   handleRenameClick: (id: string, name: string, e: ReactMouseEvent) => void;
   handleDeleteClick: (id: string, e: ReactMouseEvent) => void;
+  handleLinkClick: (id: string, currentLinkedScriptProjectId: string | null, e: ReactMouseEvent) => void;
   isSelectMode: boolean;
   projects: ReturnType<typeof useProjectStore.getState>['projects'];
   selectedProjectIds: Set<string>;
   sortedProjects: ReturnType<typeof useProjectStore.getState>['projects'];
   configuredApiKeyCount: number;
   setShowStyleTemplateDialog: (open: boolean) => void;
+  linkedStoryboardCountByScriptId: Map<string, number>;
+  scriptProjects: ReturnType<typeof useProjectStore.getState>['projects'];
 }) {
   const { t } = useTranslation();
 
@@ -207,6 +214,10 @@ function ProjectListView({
         <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-3">
           {sortedProjects.map((project) => {
             const isSelected = selectedProjectIds.has(project.id);
+            const linkedScriptProject = project.linkedScriptProjectId
+              ? scriptProjects.find((candidate) => candidate.id === project.linkedScriptProjectId) ?? null
+              : null;
+            const linkedStoryboardCount = linkedStoryboardCountByScriptId.get(project.id) ?? 0;
             return (
               <div
                 key={project.id}
@@ -255,6 +266,19 @@ function ProjectListView({
                     <div className="flex items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100">
                       <button
                         type="button"
+                        onClick={(event) => handleLinkClick(project.id, project.linkedScriptProjectId ?? null, event)}
+                        className={`rounded-lg p-1.5 transition-colors ${
+                          project.projectType === 'storyboard'
+                            ? 'hover:bg-cyan-500/10'
+                            : 'cursor-default opacity-40'
+                        }`}
+                        title={t('project.linkScript')}
+                        disabled={project.projectType !== 'storyboard'}
+                      >
+                        <Link2 className="h-4 w-4 text-text-muted hover:text-cyan-300" />
+                      </button>
+                      <button
+                        type="button"
                         onClick={(event) => handleRenameClick(project.id, project.name, event)}
                         className="rounded-lg p-1.5 transition-colors hover:bg-bg-dark"
                         title={t('project.rename')}
@@ -288,6 +312,19 @@ function ProjectListView({
                 </div>
 
                 <div className="space-y-1 text-xs text-text-muted">
+                  {project.projectType === 'storyboard' ? (
+                    <p className="flex items-center gap-1.5">
+                      <span className="opacity-60">{t('project.linkedScriptLabel')}:</span>
+                      <span className={linkedScriptProject ? 'text-cyan-200' : ''}>
+                        {linkedScriptProject?.name || t('project.linkedScriptEmpty')}
+                      </span>
+                    </p>
+                  ) : (
+                    <p className="flex items-center gap-1.5">
+                      <span className="opacity-60">{t('project.linkedStoryboardCountLabel')}:</span>
+                      <span>{t('project.linkedStoryboardCountValue', { count: linkedStoryboardCount })}</span>
+                    </p>
+                  )}
                   <p className="flex items-center gap-1.5">
                     <span className="opacity-60">{t('project.modified')}:</span>
                     <span>{formatDate(project.updatedAt)}</span>
@@ -303,6 +340,90 @@ function ProjectListView({
         </div>
       )}
     </>
+  );
+}
+
+function LinkScriptProjectDialog({
+  isOpen,
+  storyboardProject,
+  scriptProjects,
+  initialLinkedScriptProjectId,
+  onClose,
+  onConfirm,
+}: {
+  isOpen: boolean;
+  storyboardProject: ReturnType<typeof useProjectStore.getState>['projects'][number] | null;
+  scriptProjects: ReturnType<typeof useProjectStore.getState>['projects'];
+  initialLinkedScriptProjectId: string | null;
+  onClose: () => void;
+  onConfirm: (linkedScriptProjectId: string | null) => void;
+}) {
+  const { t } = useTranslation();
+  const [selectedScriptProjectId, setSelectedScriptProjectId] = useState(initialLinkedScriptProjectId ?? '');
+
+  useEffect(() => {
+    if (!isOpen) {
+      return;
+    }
+    setSelectedScriptProjectId(initialLinkedScriptProjectId ?? '');
+  }, [initialLinkedScriptProjectId, isOpen]);
+
+  if (!isOpen || !storyboardProject) {
+    return null;
+  }
+
+  return (
+    <div className={`fixed ${UI_CONTENT_OVERLAY_INSET_CLASS} z-50 flex items-center justify-center`}>
+      <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={onClose} />
+      <div className="relative z-10 w-[calc(100vw-2rem)] max-w-lg rounded-2xl border border-border-dark/50 bg-surface-dark/95 p-6 shadow-[0_24px_48px_rgba(0,0,0,0.25)] backdrop-blur-md">
+        <div className="mb-5">
+          <h2 className="text-xl font-semibold text-text-dark">{t('project.linkScriptTitle')}</h2>
+          <p className="mt-2 text-sm text-text-muted">
+            {t('project.linkScriptDescription', { name: storyboardProject.name })}
+          </p>
+        </div>
+
+        <label className="block">
+          <div className="mb-2 text-sm font-medium text-text-dark">{t('project.linkScript')}</div>
+          <UiSelect
+            value={selectedScriptProjectId}
+            onChange={(event) => setSelectedScriptProjectId(event.target.value)}
+            className="h-11 w-full rounded-xl text-sm"
+          >
+            <option value="">{t('project.linkedScriptEmpty')}</option>
+            {scriptProjects.map((project) => (
+              <option key={project.id} value={project.id}>
+                {project.name}
+              </option>
+            ))}
+          </UiSelect>
+        </label>
+
+        {scriptProjects.length === 0 ? (
+          <p className="mt-3 text-sm text-amber-200">{t('project.linkScriptNoScripts')}</p>
+        ) : null}
+
+        <div className="mt-6 flex gap-3">
+          <UiButton variant="ghost" onClick={onClose} className="flex-1">
+            {t('common.cancel')}
+          </UiButton>
+          <UiButton
+            variant="ghost"
+            onClick={() => onConfirm(null)}
+            className="flex-1"
+          >
+            {t('project.unlinkScript')}
+          </UiButton>
+          <UiButton
+            variant="primary"
+            onClick={() => onConfirm(selectedScriptProjectId.trim() || null)}
+            className="flex-1"
+          >
+            {t('common.confirm')}
+          </UiButton>
+        </div>
+      </div>
+    </div>
   );
 }
 
@@ -328,8 +449,18 @@ export function ProjectManager() {
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [pendingDeleteIds, setPendingDeleteIds] = useState<string[]>([]);
   const [showStyleTemplateDialog, setShowStyleTemplateDialog] = useState(false);
+  const [linkDialogProjectId, setLinkDialogProjectId] = useState<string | null>(null);
+  const [linkDialogLinkedScriptProjectId, setLinkDialogLinkedScriptProjectId] = useState<string | null>(null);
 
-  const { projects, isOpeningProject, deleteProject, deleteProjects, renameProject, openProject } =
+  const {
+    projects,
+    isOpeningProject,
+    deleteProject,
+    deleteProjects,
+    renameProject,
+    setProjectLinkedScriptProject,
+    openProject,
+  } =
     useProjectStore();
 
   const sortedProjects = useMemo(() => {
@@ -356,6 +487,26 @@ export function ProjectManager() {
         .filter((name): name is string => name !== undefined),
     [pendingDeleteIds, projects]
   );
+  const scriptProjects = useMemo(
+    () => projects.filter((project) => project.projectType === 'script'),
+    [projects]
+  );
+  const linkedStoryboardCountByScriptId = useMemo(() => {
+    const nextMap = new Map<string, number>();
+    projects.forEach((project) => {
+      if (project.projectType !== 'storyboard' || !project.linkedScriptProjectId) {
+        return;
+      }
+      nextMap.set(
+        project.linkedScriptProjectId,
+        (nextMap.get(project.linkedScriptProjectId) ?? 0) + 1
+      );
+    });
+    return nextMap;
+  }, [projects]);
+  const linkDialogProject = linkDialogProjectId
+    ? projects.find((project) => project.id === linkDialogProjectId) ?? null
+    : null;
 
   useEffect(() => {
     if (activeTab === 'assets') {
@@ -464,6 +615,16 @@ export function ProjectManager() {
     }
   };
 
+  const handleLinkClick = (
+    id: string,
+    currentLinkedScriptProjectId: string | null,
+    event: ReactMouseEvent,
+  ) => {
+    event.stopPropagation();
+    setLinkDialogProjectId(id);
+    setLinkDialogLinkedScriptProjectId(currentLinkedScriptProjectId);
+  };
+
   return (
     <div className="ui-scrollbar h-full min-h-0 w-full overflow-y-auto overflow-x-hidden p-8">
       <div className="mx-auto max-w-6xl pb-8">
@@ -506,12 +667,15 @@ export function ProjectManager() {
             handleToggleSelect={handleToggleSelect}
             handleRenameClick={handleRenameClick}
             handleDeleteClick={handleDeleteClick}
+            handleLinkClick={handleLinkClick}
             isSelectMode={isSelectMode}
             projects={projects}
             selectedProjectIds={selectedProjectIds}
             sortedProjects={sortedProjects}
             configuredApiKeyCount={configuredApiKeyCount}
             setShowStyleTemplateDialog={setShowStyleTemplateDialog}
+            linkedStoryboardCountByScriptId={linkedStoryboardCountByScriptId}
+            scriptProjects={scriptProjects}
           />
         ) : (
           <Suspense
@@ -568,6 +732,25 @@ export function ProjectManager() {
       <StyleTemplateDialog
         isOpen={showStyleTemplateDialog}
         onClose={() => setShowStyleTemplateDialog(false)}
+      />
+
+      <LinkScriptProjectDialog
+        isOpen={Boolean(linkDialogProjectId)}
+        storyboardProject={linkDialogProject}
+        scriptProjects={scriptProjects}
+        initialLinkedScriptProjectId={linkDialogLinkedScriptProjectId}
+        onClose={() => {
+          setLinkDialogProjectId(null);
+          setLinkDialogLinkedScriptProjectId(null);
+        }}
+        onConfirm={(linkedScriptProjectId) => {
+          if (!linkDialogProjectId) {
+            return;
+          }
+          void setProjectLinkedScriptProject(linkDialogProjectId, linkedScriptProjectId);
+          setLinkDialogProjectId(null);
+          setLinkDialogLinkedScriptProjectId(null);
+        }}
       />
     </div>
   );

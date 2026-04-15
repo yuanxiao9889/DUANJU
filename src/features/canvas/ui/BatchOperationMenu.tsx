@@ -22,6 +22,7 @@ import {
   type NodeMenuGroupKey,
   type NodeMenuProjectType,
 } from '@/features/canvas/domain/nodeRegistry';
+import { useProjectStore } from '@/stores/projectStore';
 
 interface BatchOperationMenuProps {
   position: { x: number; y: number };
@@ -130,16 +131,23 @@ export function BatchOperationMenu({
   projectType = 'storyboard',
 }: BatchOperationMenuProps) {
   const { t } = useTranslation();
+  const currentProject = useProjectStore((state) => state.currentProject);
   const menuRef = useRef<HTMLDivElement>(null);
   const groupButtonRefs = useRef(new Map<NodeMenuGroupKey, HTMLButtonElement>());
   const [isVisible, setIsVisible] = useState(false);
   const [hoveredGroupId, setHoveredGroupId] = useState<NodeMenuGroupKey | null>(null);
   const [submenuTop, setSubmenuTop] = useState(0);
+  const menuAvailabilityOptions = useMemo(
+    () => ({
+      linkedScriptProjectId: currentProject?.linkedScriptProjectId ?? null,
+    }),
+    [currentProject?.linkedScriptProjectId]
+  );
 
   const menuEntries = useMemo(() => {
-    const candidates = nodeCatalog.getMenuDefinitions(projectType);
+    const candidates = nodeCatalog.getMenuDefinitions(projectType, menuAvailabilityOptions);
     return buildMenuEntries(dedupeMenuDefinitions(candidates));
-  }, [projectType]);
+  }, [menuAvailabilityOptions, projectType]);
 
   const hoveredGroupEntry = useMemo(
     () => menuEntries.find((entry): entry is MenuGroupEntry => (

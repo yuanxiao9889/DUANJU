@@ -8,7 +8,11 @@ import type {
   NodeToolType,
   StoryboardFrameItem,
 } from '../domain/canvasNodes';
-import type { CanvasNodeDefinition, NodeMenuProjectType } from '../domain/nodeRegistry';
+import type {
+  CanvasNodeDefinition,
+  NodeMenuAvailabilityOptions,
+  NodeMenuProjectType,
+} from '../domain/nodeRegistry';
 
 export interface IdGenerator {
   next: () => string;
@@ -16,7 +20,10 @@ export interface IdGenerator {
 
 export interface NodeCatalog {
   getDefinition: (type: CanvasNodeType) => CanvasNodeDefinition;
-  getMenuDefinitions: (projectType?: NodeMenuProjectType) => CanvasNodeDefinition[];
+  getMenuDefinitions: (
+    projectType?: NodeMenuProjectType,
+    options?: NodeMenuAvailabilityOptions
+  ) => CanvasNodeDefinition[];
 }
 
 export interface NodeFactory {

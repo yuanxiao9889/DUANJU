@@ -1,4 +1,5 @@
 import { useState, useMemo, useCallback, useEffect, useRef } from 'react';
+import { save } from '@tauri-apps/plugin-dialog';
 import { useReactFlow } from '@xyflow/react';
 import { ChevronDown, ChevronRight, ChevronLeft, ChevronRight as ExpandIcon, Users, MapPin, Package, Link2, FileText, Plus, Pencil, Download, Sparkles, Globe, Eye, FilePlus } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
@@ -16,7 +17,11 @@ import {
 } from './AssetExtractionProgressDialog';
 import { BranchSelectionDialog } from './BranchSelectionDialog';
 import { PlotTreeView } from './PlotTreeView';
-import { ChapterCountDialog } from './ChapterCountDialog';
+import { ScriptImportDialog } from './ScriptImportDialog';
+import {
+  buildDefaultNativePackageFileName,
+  exportNativeScriptPackage,
+} from '../application/scriptExporter';
 import {
   CANVAS_NODE_TYPES,
   type ScriptCharacterAsset,
@@ -78,6 +83,22 @@ function normalizeAssetName(value: string): string {
 
 function getAssetLookupKey(value: string): string {
   return normalizeAssetName(value).toLowerCase();
+}
+
+function summarizeAssetDescription(value?: string, maxLength = 84): string {
+  const normalized = typeof value === 'string'
+    ? value.replace(/\s+/g, ' ').trim()
+    : '';
+
+  if (!normalized) {
+    return '';
+  }
+
+  if (normalized.length <= maxLength) {
+    return normalized;
+  }
+
+  return `${normalized.slice(0, maxLength).trim()}...`;
 }
 
 function pickLongerText(primary: string, secondary: string): string {
@@ -301,14 +322,23 @@ interface AssetItemProps {
 }
 
 function AssetItem({ label, description, onClick, onEdit, onShowOnCanvas, showOnCanvasDisabled }: AssetItemProps) {
+  const summarizedDescription = summarizeAssetDescription(description);
+
   return (
-    <div className="group flex items-center gap-1">
+    <div className="group flex min-w-0 items-start gap-1">
       <button
         onClick={onClick}
-        className="flex-1 text-left p-2 rounded hover:bg-bg-dark transition-colors"
+        className="min-w-0 flex-1 rounded p-2 text-left transition-colors hover:bg-bg-dark"
+        title={description || label}
       >
-        <div className="text-sm text-text-dark truncate">{label}</div>
-        {description && <div className="text-xs text-text-muted truncate">{description}</div>}
+        <div className="break-words text-sm font-medium leading-5 text-text-dark whitespace-pre-wrap">
+          {label}
+        </div>
+        {summarizedDescription ? (
+          <div className="mt-1 break-words text-xs leading-5 text-text-muted">
+            {summarizedDescription}
+          </div>
+        ) : null}
       </button>
       {onShowOnCanvas && (
         <button
@@ -317,7 +347,7 @@ function AssetItem({ label, description, onClick, onEdit, onShowOnCanvas, showOn
             onShowOnCanvas();
           }}
           disabled={showOnCanvasDisabled}
-          className="p-1 rounded opacity-0 group-hover:opacity-100 hover:bg-cyan-500/20 text-cyan-400 disabled:opacity-50"
+          className="mt-2 shrink-0 rounded p-1 text-cyan-400 opacity-0 hover:bg-cyan-500/20 group-hover:opacity-100 disabled:opacity-50"
           title="显示到画布"
         >
           <Eye className="w-3 h-3" />
@@ -329,7 +359,7 @@ function AssetItem({ label, description, onClick, onEdit, onShowOnCanvas, showOn
             e.stopPropagation();
             onEdit();
           }}
-          className="p-1 rounded opacity-0 group-hover:opacity-100 hover:bg-border-dark text-text-muted hover:text-text-dark"
+          className="mt-2 shrink-0 rounded p-1 text-text-muted opacity-0 hover:bg-border-dark hover:text-text-dark group-hover:opacity-100"
           title="编辑"
         >
           <Pencil className="w-3 h-3" />
@@ -342,9 +372,9 @@ function AssetItem({ label, description, onClick, onEdit, onShowOnCanvas, showOn
 export function ScriptBiblePanel() {
   const { t } = useTranslation();
   const currentProject = useProjectStore((state) => state.getCurrentProject());
-  const { nodes, addNode, updateNodeData, deleteNode, setSelectedNode } = useCanvasStore();
+  const { nodes, edges, addNode, updateNodeData, deleteNode, setSelectedNode } = useCanvasStore();
   const { setCenter } = useReactFlow();
-  const [showChapterCountDialog, setShowChapterCountDialog] = useState(false);
+  const [showImportDialog, setShowImportDialog] = useState(false);
   const [showExportDialog, setShowExportDialog] = useState(false);
   const [panelWidth, setPanelWidth] = useState(() => readPanelWidth());
   const [isPanelCollapsed, setIsPanelCollapsed] = useState(() => readPanelCollapsed());
@@ -943,65 +973,22 @@ export function ScriptBiblePanel() {
   }, [nodes, setCenter, setSelectedNode]);
 
   const handleImportScript = useCallback(() => {
-    setShowChapterCountDialog(true);
+    setShowImportDialog(true);
   }, []);
 
-  const handleChapterCountConfirm = useCallback((count: number) => {
-    const CHAPTER_NODE_HEIGHT = 380;
-    const ROOT_NODE_WIDTH = 320;
-    const ROOT_NODE_HEIGHT = 120;
-    const GAP = 60;
-    const HORIZONTAL_GAP = 150;
-
-    // 计算章节列表的总高度
-    const totalChaptersHeight = count * CHAPTER_NODE_HEIGHT + (count - 1) * GAP;
-    
-    // 章节起始Y坐标（从100开始）
-    const chapterStartY = 100;
-    
-    // 根节点垂直居中：章节列表中心 - 根节点高度/2
-    const rootY = chapterStartY + totalChaptersHeight / 2 - ROOT_NODE_HEIGHT / 2;
-    // 根节点在章节左侧，保持横向间距
-    const rootX = 100;
-    
-    // 章节节点在根节点右侧
-    const chapterX = rootX + ROOT_NODE_WIDTH + HORIZONTAL_GAP;
-
-    addNode(CANVAS_NODE_TYPES.scriptRoot, { x: rootX, y: rootY }, {
-      displayName: '剧本',
-      title: '新剧本',
-      genre: '',
-      totalChapters: count,
+  const handleExportNativePackage = useCallback(async () => {
+    const rootTitle = rootNode?.data.title?.trim() || 'Untitled Script';
+    const selectedPath = await save({
+      defaultPath: buildDefaultNativePackageFileName(rootTitle),
+      filters: [{ name: 'Script Package', extensions: ['json'] }],
     });
 
-    for (let i = 1; i <= count; i++) {
-      const position = {
-        x: chapterX,
-        y: chapterStartY + (i - 1) * (CHAPTER_NODE_HEIGHT + GAP),
-      };
-      
-      addNode(CANVAS_NODE_TYPES.scriptChapter, position, {
-        displayName: `第${i}章`,
-        chapterNumber: i,
-        title: `第${i}章`,
-        content: '',
-        summary: '',
-        sceneHeadings: [],
-        characters: [],
-        locations: [],
-        items: [],
-        emotionalShift: '',
-        isBranchPoint: false,
-        branchType: 'main',
-        depth: 1,
-        tables: [],
-        plotPoints: [],
-      } as ScriptChapterNodeData);
+    if (typeof selectedPath !== 'string') {
+      return;
     }
 
-    setShowChapterCountDialog(false);
-    console.log(`[ScriptImport] 创建了 ${count} 个章节节点`);
-  }, [addNode]);
+    await exportNativeScriptPackage(nodes as any, edges as any, selectedPath);
+  }, [edges, nodes, rootNode]);
 
   const handleAddAsset = useCallback((type: AssetType) => {
     setEditDialogState({
@@ -1092,11 +1079,6 @@ export function ScriptBiblePanel() {
         }}
       />
       <div className="h-full overflow-hidden flex flex-col">
-      <ChapterCountDialog
-        isOpen={showChapterCountDialog}
-        onClose={() => setShowChapterCountDialog(false)}
-        onConfirm={handleChapterCountConfirm}
-      />
       <div className="sticky top-0 bg-surface-dark border-b border-border-dark px-3 py-2 flex items-center justify-between z-10">
         <div className="flex items-center gap-2 flex-1">
           <FileText className="w-4 h-4 text-amber-400" />
@@ -1117,6 +1099,13 @@ export function ScriptBiblePanel() {
             title="导出剧本"
           >
             <Download className="w-4 h-4" />
+          </button>
+          <button
+            onClick={handleExportNativePackage}
+            className="p-1 rounded hover:bg-bg-dark text-cyan-300 hover:text-cyan-200"
+            title={t('scriptExportDialog.exportPackage')}
+          >
+            <Package className="w-4 h-4" />
           </button>
           <button
                 onClick={handleImportScript}
@@ -1344,10 +1333,19 @@ export function ScriptBiblePanel() {
         onClose={handleCloseEditDialog}
       />
 
-      <BranchSelectionDialog
-        isOpen={showExportDialog}
-        onClose={() => setShowExportDialog(false)}
-      />
+      {showImportDialog ? (
+        <ScriptImportDialog
+          isOpen={showImportDialog}
+          onClose={() => setShowImportDialog(false)}
+        />
+      ) : null}
+
+      {showExportDialog ? (
+        <BranchSelectionDialog
+          isOpen={showExportDialog}
+          onClose={() => setShowExportDialog(false)}
+        />
+      ) : null}
 
       <AssetExtractionProgressDialog
         progress={assetExtractionProgress}

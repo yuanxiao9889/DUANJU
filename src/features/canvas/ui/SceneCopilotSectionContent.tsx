@@ -303,7 +303,7 @@ export function SceneCopilotSectionContent({
           onChange={(event) => onCopilotInputChange(event.target.value)}
           rows={4}
           disabled={inputDisabled}
-          className="w-full resize-none bg-transparent text-sm leading-6 text-text-dark outline-none placeholder:text-text-muted/60 disabled:cursor-not-allowed disabled:opacity-60"
+          className="ui-scrollbar w-full resize-none bg-transparent text-sm leading-6 text-text-dark outline-none placeholder:text-text-muted/60 disabled:cursor-not-allowed disabled:opacity-60"
           placeholder={inputPlaceholder}
         />
         <div className="mt-3 flex items-center justify-between gap-3">

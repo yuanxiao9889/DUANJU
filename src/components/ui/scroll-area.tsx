@@ -251,10 +251,11 @@ export function UiScrollArea({
     top: TRACK_PADDING,
     bottom: TRACK_PADDING,
     right: 2,
-    width: 8,
-    background: 'var(--ui-scrollbar-track)',
-    border: '1px solid rgba(var(--border-rgb), 0.18)',
+    width: 12,
+    background: 'var(--ui-scrollbar-track-gradient)',
+    border: '1px solid var(--ui-scrollbar-track-border)',
     borderRadius: '9999px',
+    boxShadow: 'inset 0 0 0 1px rgba(255, 255, 255, 0.05)',
     opacity: metrics.isOverflowing ? 1 : 0,
     transition: 'opacity 160ms ease, background-color 160ms ease',
   }), [metrics.isOverflowing]);
@@ -262,12 +263,13 @@ export function UiScrollArea({
   const thumbStyle = useMemo<CSSProperties>(() => ({
     top: metrics.thumbOffset,
     height: metrics.thumbHeight,
-    background: 'linear-gradient(180deg, rgba(var(--accent-rgb), 0.18), var(--ui-scrollbar-thumb))',
+    background: isDragging ? 'var(--ui-scrollbar-thumb-gradient-active)' : 'var(--ui-scrollbar-thumb-gradient)',
     border: '1px solid var(--ui-scrollbar-thumb-border)',
     borderRadius: '9999px',
-    boxShadow: '0 4px 10px rgba(0, 0, 0, 0.18)',
-    cursor: 'default',
-  }), [metrics.thumbHeight, metrics.thumbOffset]);
+    boxShadow: 'var(--ui-scrollbar-thumb-shadow), inset 0 1px 0 rgba(255, 255, 255, 0.14)',
+    cursor: isDragging ? 'grabbing' : 'grab',
+    transition: 'background 140ms ease, box-shadow 140ms ease',
+  }), [isDragging, metrics.thumbHeight, metrics.thumbOffset]);
 
   return (
     <div

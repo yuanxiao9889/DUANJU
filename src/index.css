@@ -26,14 +26,20 @@
   --ui-radius-lg: 12px;
   --ui-radius-xl: 16px;
   --ui-radius-2xl: 20px;
-  --ui-scrollbar-size: 10px;
+  --ui-scrollbar-size: 12px;
   --ui-scrollbar-radius: 9999px;
-  --ui-scrollbar-track: rgba(var(--text-rgb), 0.04);
-  --ui-scrollbar-track-hover: rgba(var(--text-rgb), 0.06);
-  --ui-scrollbar-thumb: rgba(var(--text-rgb), 0.18);
-  --ui-scrollbar-thumb-hover: rgba(var(--accent-rgb), 0.3);
-  --ui-scrollbar-thumb-active: rgba(var(--accent-rgb), 0.42);
-  --ui-scrollbar-thumb-border: rgba(var(--bg-rgb), 0.22);
+  --ui-scrollbar-track: rgba(18, 30, 44, 0.08);
+  --ui-scrollbar-track-hover: rgba(18, 30, 44, 0.12);
+  --ui-scrollbar-track-border: rgba(15, 23, 42, 0.08);
+  --ui-scrollbar-track-gradient: linear-gradient(180deg, rgba(15, 23, 42, 0.04) 0%, rgba(15, 23, 42, 0.1) 100%);
+  --ui-scrollbar-thumb: rgba(102, 126, 150, 0.8);
+  --ui-scrollbar-thumb-hover: rgba(69, 176, 184, 0.88);
+  --ui-scrollbar-thumb-active: rgba(41, 193, 188, 0.96);
+  --ui-scrollbar-thumb-border: rgba(255, 255, 255, 0.42);
+  --ui-scrollbar-thumb-gradient: linear-gradient(180deg, rgba(182, 194, 209, 0.92) 0%, rgba(112, 132, 154, 0.88) 100%);
+  --ui-scrollbar-thumb-gradient-hover: linear-gradient(180deg, rgba(151, 225, 220, 0.96) 0%, rgba(73, 177, 186, 0.92) 100%);
+  --ui-scrollbar-thumb-gradient-active: linear-gradient(180deg, rgba(178, 241, 225, 0.98) 0%, rgba(47, 196, 188, 0.96) 100%);
+  --ui-scrollbar-thumb-shadow: 0 2px 10px rgba(15, 23, 42, 0.2);
   --ui-scrollbar-button: rgba(var(--surface-rgb), 0.92);
   --ui-scrollbar-button-hover: rgba(var(--surface-rgb), 0.98);
   --ui-range-track-size: 6px;
@@ -70,12 +76,18 @@
   --ui-radius-lg: 12px;
   --ui-radius-xl: 16px;
   --ui-radius-2xl: 20px;
-  --ui-scrollbar-track: rgba(255, 255, 255, 0.03);
-  --ui-scrollbar-track-hover: rgba(255, 255, 255, 0.05);
-  --ui-scrollbar-thumb: rgba(208, 221, 234, 0.26);
-  --ui-scrollbar-thumb-hover: rgba(90, 209, 196, 0.52);
-  --ui-scrollbar-thumb-active: rgba(90, 209, 196, 0.68);
-  --ui-scrollbar-thumb-border: rgba(8, 12, 18, 0.52);
+  --ui-scrollbar-track: rgba(255, 255, 255, 0.1);
+  --ui-scrollbar-track-hover: rgba(255, 255, 255, 0.15);
+  --ui-scrollbar-track-border: rgba(255, 255, 255, 0.08);
+  --ui-scrollbar-track-gradient: linear-gradient(180deg, rgba(255, 255, 255, 0.11) 0%, rgba(255, 255, 255, 0.06) 100%);
+  --ui-scrollbar-thumb: rgba(192, 212, 232, 0.82);
+  --ui-scrollbar-thumb-hover: rgba(130, 236, 221, 0.92);
+  --ui-scrollbar-thumb-active: rgba(142, 248, 226, 0.98);
+  --ui-scrollbar-thumb-border: rgba(7, 11, 16, 0.84);
+  --ui-scrollbar-thumb-gradient: linear-gradient(180deg, rgba(224, 233, 244, 0.95) 0%, rgba(154, 180, 206, 0.88) 100%);
+  --ui-scrollbar-thumb-gradient-hover: linear-gradient(180deg, rgba(184, 244, 232, 0.98) 0%, rgba(88, 205, 194, 0.94) 100%);
+  --ui-scrollbar-thumb-gradient-active: linear-gradient(180deg, rgba(207, 251, 239, 1) 0%, rgba(61, 216, 201, 0.98) 100%);
+  --ui-scrollbar-thumb-shadow: 0 4px 14px rgba(0, 0, 0, 0.34);
   --ui-scrollbar-button: rgba(18, 22, 28, 0.94);
   --ui-scrollbar-button-hover: rgba(24, 30, 38, 0.98);
   --ui-range-track: rgba(255, 255, 255, 0.11);
@@ -172,89 +184,66 @@ html[data-platform='macos'] #root {
   overflow: hidden;
 }
 
-.ui-scrollbar,
-.ui-scrollbar * {
-  scrollbar-width: thin;
+* {
+  scrollbar-width: auto;
   scrollbar-color: var(--ui-scrollbar-thumb) var(--ui-scrollbar-track);
 }
 
-.ui-scrollbar::-webkit-scrollbar,
-.ui-scrollbar *::-webkit-scrollbar {
+*::-webkit-scrollbar {
   width: var(--ui-scrollbar-size);
   height: var(--ui-scrollbar-size);
 }
 
-.ui-scrollbar::-webkit-scrollbar-track,
-.ui-scrollbar *::-webkit-scrollbar-track,
-.ui-scrollbar::-webkit-scrollbar-track-piece,
-.ui-scrollbar *::-webkit-scrollbar-track-piece {
-  background: var(--ui-scrollbar-track);
+*::-webkit-scrollbar-track,
+*::-webkit-scrollbar-track-piece {
+  background: var(--ui-scrollbar-track-gradient);
   border-radius: var(--ui-scrollbar-radius);
   border: 2px solid transparent;
   background-clip: padding-box;
+  box-shadow: inset 0 0 0 1px var(--ui-scrollbar-track-border);
 }
 
-.ui-scrollbar::-webkit-scrollbar-thumb,
-.ui-scrollbar *::-webkit-scrollbar-thumb {
+*::-webkit-scrollbar-thumb {
   background-color: var(--ui-scrollbar-thumb);
   border-radius: var(--ui-scrollbar-radius);
   border: 2px solid transparent;
-  background:
-    linear-gradient(
-      180deg,
-      color-mix(in srgb, var(--ui-scrollbar-thumb) 86%, rgba(var(--accent-rgb), 0.22)),
-      var(--ui-scrollbar-thumb)
-    );
+  background: var(--ui-scrollbar-thumb-gradient);
   background-clip: padding-box;
-  box-shadow: inset 0 0 0 1px var(--ui-scrollbar-thumb-border);
-  min-height: 32px;
+  box-shadow:
+    inset 0 0 0 1px var(--ui-scrollbar-thumb-border),
+    var(--ui-scrollbar-thumb-shadow);
+  min-height: 36px;
 }
 
-.ui-scrollbar::-webkit-scrollbar-button,
-.ui-scrollbar *::-webkit-scrollbar-button {
+*::-webkit-scrollbar-thumb:hover {
+  background-color: var(--ui-scrollbar-thumb-hover);
+  background: var(--ui-scrollbar-thumb-gradient-hover);
+  background-clip: padding-box;
+}
+
+*::-webkit-scrollbar-thumb:active {
+  background-color: var(--ui-scrollbar-thumb-active);
+  background: var(--ui-scrollbar-thumb-gradient-active);
+  background-clip: padding-box;
+}
+
+*:hover::-webkit-scrollbar-track,
+*:hover::-webkit-scrollbar-track-piece {
+  background: var(--ui-scrollbar-track-hover);
+  background-clip: padding-box;
+}
+
+*::-webkit-scrollbar-button {
   width: var(--ui-scrollbar-size);
-  height: 10px;
+  height: 8px;
   background: var(--ui-scrollbar-button);
 }
 
-.ui-scrollbar:hover::-webkit-scrollbar-button,
-.ui-scrollbar *:hover::-webkit-scrollbar-button {
+*:hover::-webkit-scrollbar-button {
   background: var(--ui-scrollbar-button-hover);
 }
 
-.ui-scrollbar:hover::-webkit-scrollbar-track,
-.ui-scrollbar *:hover::-webkit-scrollbar-track,
-.ui-scrollbar:hover::-webkit-scrollbar-track-piece,
-.ui-scrollbar *:hover::-webkit-scrollbar-track-piece {
-  background: var(--ui-scrollbar-track-hover);
-}
-
-.ui-scrollbar:hover::-webkit-scrollbar-thumb,
-.ui-scrollbar *:hover::-webkit-scrollbar-thumb {
-  background-color: var(--ui-scrollbar-thumb-hover);
-  background:
-    linear-gradient(
-      180deg,
-      color-mix(in srgb, var(--ui-scrollbar-thumb-hover) 84%, rgba(var(--accent-rgb), 0.3)),
-      var(--ui-scrollbar-thumb-hover)
-    );
-  background-clip: padding-box;
-}
-
-.ui-scrollbar::-webkit-scrollbar-thumb:active,
-.ui-scrollbar *::-webkit-scrollbar-thumb:active {
-  background-color: var(--ui-scrollbar-thumb-active);
-  background:
-    linear-gradient(
-      180deg,
-      color-mix(in srgb, var(--ui-scrollbar-thumb-active) 82%, rgba(var(--accent-rgb), 0.38)),
-      var(--ui-scrollbar-thumb-active)
-    );
-  background-clip: padding-box;
-}
-
-.ui-scrollbar::-webkit-scrollbar-corner,
-.ui-scrollbar *::-webkit-scrollbar-corner {
+*::-webkit-scrollbar-corner {
   background: transparent;
 }
 

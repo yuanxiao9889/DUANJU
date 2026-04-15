@@ -44,6 +44,8 @@ import {
   type ScriptRootNodeData,
   type ScriptChapterNodeData,
   type ScriptSceneNodeData,
+  type ShootingScriptNodeData,
+  type ScriptReferenceNodeData,
   type ScriptCharacterNodeData,
   type ScriptLocationNodeData,
   type ScriptItemNodeData,
@@ -78,12 +80,10 @@ export interface CanvasNodeConnectivity {
   sourceHandle: boolean;
   targetHandle: boolean;
   branchHandle?: boolean;
-  supplementHandle?: boolean;
   connectMenu: {
     fromSource: boolean;
     fromTarget: boolean;
     fromBranch?: boolean;
-    fromSupplement?: boolean;
   };
 }
 
@@ -99,6 +99,10 @@ export interface CanvasNodeDefinition<TData extends CanvasNodeData = CanvasNodeD
   requiredExtensionId?: string;
   requiredExtensionIds?: string[];
   createDefaultData: () => TData;
+}
+
+export interface NodeMenuAvailabilityOptions {
+  linkedScriptProjectId?: string | null;
 }
 
 export const canvasNodeMenuGroups: Record<NodeMenuGroupKey, CanvasNodeMenuGroupDefinition> = {
@@ -1010,11 +1014,9 @@ const scriptChapterNodeDefinition: CanvasNodeDefinition<ScriptChapterNodeData> =
   connectivity: {
     sourceHandle: true,
     targetHandle: true,
-    supplementHandle: true,
     connectMenu: {
       fromSource: true,
       fromTarget: true,
-      fromSupplement: true,
     },
   },
   createDefaultData: () => ({
@@ -1075,6 +1077,75 @@ const scriptSceneNodeDefinition: CanvasNodeDefinition<ScriptSceneNodeData> = {
     sourceDraftHtml: '',
     draftHtml: '',
     episodes: [],
+  }),
+};
+
+const shootingScriptNodeDefinition: CanvasNodeDefinition<ShootingScriptNodeData> = {
+  type: CANVAS_NODE_TYPES.shootingScript,
+  menuLabelKey: 'node.menu.shootingScript',
+  menuIcon: 'layout',
+  visibleInMenu: false,
+  menuProjectTypes: ['script'],
+  capabilities: {
+    toolbar: true,
+    promptInput: false,
+  },
+  connectivity: {
+    sourceHandle: false,
+    targetHandle: true,
+    connectMenu: {
+      fromSource: false,
+      fromTarget: false,
+    },
+  },
+  createDefaultData: () => ({
+    displayName: DEFAULT_NODE_DISPLAY_NAME[CANVAS_NODE_TYPES.shootingScript] || '拍摄脚本',
+    sourceChapterId: '',
+    sourceSceneNodeId: '',
+    sourceEpisodeId: '',
+    chapterNumber: 1,
+    sceneNumber: 1,
+    sceneTitle: '',
+    episodeNumber: 1,
+    episodeTitle: '',
+    rows: [],
+    status: 'empty',
+    lastGeneratedAt: null,
+    lastError: null,
+    sourceSnapshot: null,
+  }),
+};
+
+const scriptReferenceNodeDefinition: CanvasNodeDefinition<ScriptReferenceNodeData> = {
+  type: CANVAS_NODE_TYPES.scriptReference,
+  menuLabelKey: 'node.menu.scriptReference',
+  menuIcon: 'layout',
+  visibleInMenu: true,
+  menuProjectTypes: ['storyboard'],
+  capabilities: {
+    toolbar: true,
+    promptInput: false,
+  },
+  connectivity: {
+    sourceHandle: true,
+    targetHandle: true,
+    connectMenu: {
+      fromSource: true,
+      fromTarget: false,
+    },
+  },
+  createDefaultData: () => ({
+    displayName: DEFAULT_NODE_DISPLAY_NAME[CANVAS_NODE_TYPES.scriptReference] || 'Script Reference',
+    linkedScriptProjectId: null,
+    referencedChapterId: null,
+    referencedSceneNodeId: null,
+    referencedEpisodeId: null,
+    referencedScriptNodeId: null,
+    selectedRowIds: [],
+    scriptSnapshot: null,
+    syncStatus: 'idle',
+    syncMessage: null,
+    lastSyncedAt: null,
   }),
 };
 
@@ -1243,6 +1314,8 @@ export const canvasNodeDefinitions: Record<CanvasNodeType, CanvasNodeDefinition>
   [CANVAS_NODE_TYPES.scriptRoot]: scriptRootNodeDefinition,
   [CANVAS_NODE_TYPES.scriptChapter]: scriptChapterNodeDefinition,
   [CANVAS_NODE_TYPES.scriptScene]: scriptSceneNodeDefinition,
+  [CANVAS_NODE_TYPES.shootingScript]: shootingScriptNodeDefinition,
+  [CANVAS_NODE_TYPES.scriptReference]: scriptReferenceNodeDefinition,
   [CANVAS_NODE_TYPES.scriptCharacter]: scriptCharacterNodeDefinition,
   [CANVAS_NODE_TYPES.scriptLocation]: scriptLocationNodeDefinition,
   [CANVAS_NODE_TYPES.scriptItem]: scriptItemNodeDefinition,
@@ -1254,18 +1327,36 @@ export function getNodeDefinition(type: CanvasNodeType): CanvasNodeDefinition {
   return canvasNodeDefinitions[type];
 }
 
+function isDefinitionVisibleInMenu(
+  definition: CanvasNodeDefinition,
+  projectType: NodeMenuProjectType,
+  options: NodeMenuAvailabilityOptions = {}
+): boolean {
+  if (!definition.visibleInMenu || !definition.menuProjectTypes.includes(projectType)) {
+    return false;
+  }
+
+  if (definition.type === CANVAS_NODE_TYPES.scriptReference && projectType === 'storyboard') {
+    return Boolean(options.linkedScriptProjectId?.trim());
+  }
+
+  return true;
+}
+
 export function isNodeTypeAvailableInProject(
   type: CanvasNodeType,
-  projectType: NodeMenuProjectType = 'storyboard'
+  projectType: NodeMenuProjectType = 'storyboard',
+  options: NodeMenuAvailabilityOptions = {}
 ): boolean {
-  return canvasNodeDefinitions[type].menuProjectTypes.includes(projectType);
+  return isDefinitionVisibleInMenu(canvasNodeDefinitions[type], projectType, options);
 }
 
 export function getMenuNodeDefinitions(
-  projectType: NodeMenuProjectType = 'storyboard'
+  projectType: NodeMenuProjectType = 'storyboard',
+  options: NodeMenuAvailabilityOptions = {}
 ): CanvasNodeDefinition[] {
   return Object.values(canvasNodeDefinitions).filter((definition) =>
-    definition.visibleInMenu && definition.menuProjectTypes.includes(projectType)
+    isDefinitionVisibleInMenu(definition, projectType, options)
   );
 }
 
@@ -1279,12 +1370,12 @@ export function nodeHasTargetHandle(type: CanvasNodeType): boolean {
 
 export function getConnectMenuNodeTypes(
   handleType: 'source' | 'target',
-  projectType: NodeMenuProjectType = 'storyboard'
+  projectType: NodeMenuProjectType = 'storyboard',
+  options: NodeMenuAvailabilityOptions = {}
 ): CanvasNodeType[] {
   const fromSource = handleType === 'source';
   return Object.values(canvasNodeDefinitions)
-    .filter((definition) => definition.menuProjectTypes.includes(projectType))
-    .filter((definition) => definition.visibleInMenu)
+    .filter((definition) => isDefinitionVisibleInMenu(definition, projectType, options))
     .filter((definition) => (fromSource
       ? definition.connectivity.connectMenu.fromSource
       : definition.connectivity.connectMenu.fromTarget))

@@ -778,6 +778,303 @@ export async function generateSceneEpisodes(
   return episodes;
 }
 
+export interface EpisodeShotListSeedRow {
+  shotNumber?: string;
+  beat?: string;
+  action?: string;
+  dialogueCue?: string;
+  shotSize?: string;
+  framingAngle?: string;
+  cameraMove?: string;
+  blocking?: string;
+  rhythmDuration?: string;
+  audioCue?: string;
+  artLighting?: string;
+  continuityNote?: string;
+  genTarget?: string;
+  genPrompt?: string;
+  status?: string;
+}
+
+export interface EpisodeShotListGenerationRequest {
+  directorVision?: string;
+  chapterNumber?: number;
+  chapterTitle?: string;
+  chapterSummary?: string;
+  sceneTitle?: string;
+  sceneSummary?: string;
+  scenePurpose?: string;
+  scenePovCharacter?: string;
+  sceneGoal?: string;
+  sceneConflict?: string;
+  sceneTurn?: string;
+  sceneVisualHook?: string;
+  sceneSubtext?: string;
+  sceneDraft?: string;
+  episodeNumber?: number;
+  episodeTitle: string;
+  episodeSummary?: string;
+  episodePurpose?: string;
+  episodeDraft?: string;
+  episodeDirectorNotes?: string;
+  continuitySummary?: string;
+  continuityFacts?: string[];
+  continuityOpenLoops?: string[];
+  shotCount?: number;
+  existingRows?: EpisodeShotListSeedRow[];
+  regenerateRowIndex?: number;
+}
+
+export interface GeneratedEpisodeShotRow {
+  shotNumber: string;
+  beat: string;
+  action: string;
+  dialogueCue: string;
+  shotSize: string;
+  framingAngle: string;
+  cameraMove: string;
+  blocking: string;
+  rhythmDuration: string;
+  audioCue: string;
+  artLighting: string;
+  continuityNote: string;
+  genTarget: 'image' | 'video' | 'storyboard';
+  genPrompt: string;
+  status: 'draft' | 'ready' | 'locked';
+}
+
+function clampEpisodeShotCount(value: number | undefined): number {
+  if (!Number.isFinite(value)) {
+    return 8;
+  }
+
+  return Math.max(1, Math.min(24, Math.floor(value as number)));
+}
+
+function normalizeGeneratedEpisodeShotRow(
+  value: unknown,
+  index: number
+): GeneratedEpisodeShotRow | null {
+  if (!value || typeof value !== 'object') {
+    return null;
+  }
+
+  const record = value as Record<string, unknown>;
+  const beat = readStringValue(record, ['beat', 'storyBeat', 'plotBeat']);
+  const action = readStringValue(record, ['action', 'performance', 'blockingAction']);
+  const genPrompt = readStringValue(record, ['genPrompt', 'prompt', 'generationPrompt', 'visualPrompt']);
+
+  if (!beat && !action && !genPrompt) {
+    return null;
+  }
+
+  const rawGenTarget = readStringValue(record, ['genTarget', 'target', 'generateTarget']).toLowerCase();
+  const genTarget =
+    rawGenTarget === 'video' || rawGenTarget === 'storyboard'
+      ? rawGenTarget
+      : 'image';
+  const rawStatus = readStringValue(record, ['status', 'shotStatus']).toLowerCase();
+  const status =
+    rawStatus === 'ready' || rawStatus === 'locked'
+      ? rawStatus
+      : 'draft';
+
+  return {
+    shotNumber: readStringValue(record, ['shotNumber', 'shot', 'number']) || String(index + 1),
+    beat,
+    action,
+    dialogueCue: readStringValue(record, ['dialogueCue', 'dialogue', 'voiceLine', 'speech']),
+    shotSize: readStringValue(record, ['shotSize', 'size']),
+    framingAngle: readStringValue(record, ['framingAngle', 'angle', 'framing']),
+    cameraMove: readStringValue(record, ['cameraMove', 'move', 'cameraMovement']),
+    blocking: readStringValue(record, ['blocking', 'staging']),
+    rhythmDuration: readStringValue(record, ['rhythmDuration', 'duration', 'rhythm']),
+    audioCue: readStringValue(record, ['audioCue', 'sound', 'soundCue', 'sfx']),
+    artLighting: readStringValue(record, ['artLighting', 'lighting', 'artDirection']),
+    continuityNote: readStringValue(record, ['continuityNote', 'continuity', 'continuityReminder']),
+    genTarget,
+    genPrompt,
+    status,
+  };
+}
+
+function formatShotRowSeed(row: EpisodeShotListSeedRow, index: number): string {
+  return JSON.stringify({
+    shotNumber: row.shotNumber?.trim() || String(index + 1),
+    beat: row.beat?.trim() || '',
+    action: row.action?.trim() || '',
+    dialogueCue: row.dialogueCue?.trim() || '',
+    shotSize: row.shotSize?.trim() || '',
+    framingAngle: row.framingAngle?.trim() || '',
+    cameraMove: row.cameraMove?.trim() || '',
+    blocking: row.blocking?.trim() || '',
+    rhythmDuration: row.rhythmDuration?.trim() || '',
+    audioCue: row.audioCue?.trim() || '',
+    artLighting: row.artLighting?.trim() || '',
+    continuityNote: row.continuityNote?.trim() || '',
+    genTarget: row.genTarget?.trim() || 'image',
+    genPrompt: row.genPrompt?.trim() || '',
+    status: row.status?.trim() || 'draft',
+  });
+}
+
+export async function generateEpisodeShotList(
+  request: EpisodeShotListGenerationRequest
+): Promise<GeneratedEpisodeShotRow[]> {
+  const episodeTitle = request.episodeTitle.trim();
+  if (!episodeTitle) {
+    throw new Error('Episode title is required before generating a shot list.');
+  }
+
+  const isRegeneratingSingleRow =
+    Number.isInteger(request.regenerateRowIndex)
+    && (request.regenerateRowIndex as number) >= 0;
+  const shotCount = clampEpisodeShotCount(request.shotCount);
+  const existingRows = Array.isArray(request.existingRows) ? request.existingRows : [];
+  const regenerateRowIndex = isRegeneratingSingleRow
+    ? Math.min(existingRows.length - 1, Number(request.regenerateRowIndex))
+    : -1;
+  const regenerateTargetRow = regenerateRowIndex >= 0
+    ? existingRows[regenerateRowIndex] ?? null
+    : null;
+
+  const prompt = [
+    'You are a production-minded film director and shooting-script designer.',
+    'Turn the provided story context into a practical shooting script shot list.',
+    'Each row must represent exactly one shot unit that can directly drive image generation, short video generation, or storyboard assembly.',
+    'Keep the output language consistent with the input context.',
+    'Return strict JSON only. Do not wrap it in Markdown fences. Do not add commentary.',
+    '',
+    isRegeneratingSingleRow
+      ? 'You are regenerating exactly one target shot row while preserving the surrounding shot order and continuity intent.'
+      : `Generate exactly ${shotCount} sequential shot rows for this episode.`,
+    'Every row must contain all keys, even when some values are empty strings.',
+    'Allowed genTarget values: "image", "video", "storyboard".',
+    'Allowed status values: "draft", "ready", "locked".',
+    'Use concise but direct production language, including camera grammar, blocking, and generation intent.',
+    '',
+    'JSON schema:',
+    isRegeneratingSingleRow
+      ? '{ "row": { "shotNumber": "1", "beat": "", "action": "", "dialogueCue": "", "shotSize": "", "framingAngle": "", "cameraMove": "", "blocking": "", "rhythmDuration": "", "audioCue": "", "artLighting": "", "continuityNote": "", "genTarget": "image", "genPrompt": "", "status": "draft" } }'
+      : '{ "rows": [{ "shotNumber": "1", "beat": "", "action": "", "dialogueCue": "", "shotSize": "", "framingAngle": "", "cameraMove": "", "blocking": "", "rhythmDuration": "", "audioCue": "", "artLighting": "", "continuityNote": "", "genTarget": "image", "genPrompt": "", "status": "draft" }] }',
+    '',
+    'Quality bar:',
+    '- Beat: one clear dramatic unit',
+    '- Action: playable actor movement and behavior',
+    '- Dialogue cue: only the spoken cue or voice emphasis needed for the shot',
+    '- Shot grammar: shot size + framing angle + camera move should read like a director-shotlist line',
+    '- Blocking: concrete staging, eyelines, entrances, exits, or choreography',
+    '- Rhythm duration: concise pacing guidance such as "2-3s hard cut" or "slow 6s drift"',
+    '- Audio cue: dialogue emphasis, ambient cue, SFX, or music trigger',
+    '- Art lighting: production design / lighting cue that matters to visuals',
+    '- Continuity note: continuity constraint, props, costume, or story-state reminder',
+    '- Gen prompt: directly usable visual/video generation prompt, grounded in the shot and style',
+    '',
+    'Global director vision:',
+    request.directorVision?.trim() || 'None',
+    '',
+    'Chapter context:',
+    `- Chapter number: ${request.chapterNumber ?? 1}`,
+    `- Chapter title: ${request.chapterTitle?.trim() || 'Untitled chapter'}`,
+    `- Chapter summary: ${request.chapterSummary?.trim() || 'None'}`,
+    '',
+    'Scene context:',
+    `- Scene title: ${request.sceneTitle?.trim() || 'Untitled scene'}`,
+    `- Scene summary: ${request.sceneSummary?.trim() || 'None'}`,
+    `- Scene purpose: ${request.scenePurpose?.trim() || 'None'}`,
+    `- POV character: ${request.scenePovCharacter?.trim() || 'None'}`,
+    `- Scene goal: ${request.sceneGoal?.trim() || 'None'}`,
+    `- Scene conflict: ${request.sceneConflict?.trim() || 'None'}`,
+    `- Scene turn: ${request.sceneTurn?.trim() || 'None'}`,
+    `- Scene visual hook: ${request.sceneVisualHook?.trim() || 'None'}`,
+    `- Scene subtext: ${request.sceneSubtext?.trim() || 'None'}`,
+    '',
+    'Episode context:',
+    `- Episode number: ${request.episodeNumber ?? 1}`,
+    `- Episode title: ${episodeTitle}`,
+    `- Episode summary: ${request.episodeSummary?.trim() || 'None'}`,
+    `- Episode purpose: ${request.episodePurpose?.trim() || 'None'}`,
+    `- Episode director notes: ${request.episodeDirectorNotes?.trim() || 'None'}`,
+    '',
+    'Continuity memory:',
+    `- Summary: ${request.continuitySummary?.trim() || 'None'}`,
+    `- Facts: ${(request.continuityFacts ?? []).map((item) => item.trim()).filter(Boolean).join(' | ') || 'None'}`,
+    `- Open loops: ${(request.continuityOpenLoops ?? []).map((item) => item.trim()).filter(Boolean).join(' | ') || 'None'}`,
+    '',
+    'Source drafts:',
+    'Scene draft:',
+    request.sceneDraft?.trim() || 'None',
+    '',
+    'Episode draft:',
+    request.episodeDraft?.trim() || 'None',
+  ];
+
+  if (existingRows.length > 0) {
+    prompt.push(
+      '',
+      'Existing shot rows for reference:',
+      ...existingRows.map((row, index) => `- ${index + 1}: ${formatShotRowSeed(row, index)}`)
+    );
+  }
+
+  if (isRegeneratingSingleRow && regenerateTargetRow) {
+    prompt.push(
+      '',
+      `Target row index to regenerate: ${regenerateRowIndex + 1}`,
+      `Target row current content: ${formatShotRowSeed(regenerateTargetRow, regenerateRowIndex)}`,
+      'Only regenerate this row. Keep its shotNumber aligned with the target row.',
+    );
+  } else {
+    prompt.push(
+      '',
+      `Hard requirement: rows.length must equal ${shotCount}.`,
+      'The rows must be sequential, non-overlapping, and build clear visual progression.',
+    );
+  }
+
+  const result = await generateText({
+    prompt: prompt.join('\n'),
+    temperature: isRegeneratingSingleRow ? 0.5 : 0.65,
+    maxTokens: 4096,
+  });
+
+  const parsed = extractJsonValue(result.text);
+  if (!parsed) {
+    throw new Error('Failed to parse generated episode shot list.');
+  }
+
+  const rawRows = isRegeneratingSingleRow
+    ? (
+        parsed && typeof parsed === 'object' && !Array.isArray(parsed)
+          ? [
+              (parsed as { row?: unknown }).row
+              ?? (parsed as { rows?: unknown[] }).rows?.[0]
+              ?? parsed,
+            ]
+          : Array.isArray(parsed)
+            ? [parsed[0]]
+            : []
+      )
+    : Array.isArray(parsed)
+      ? parsed
+      : parsed && typeof parsed === 'object' && Array.isArray((parsed as { rows?: unknown[] }).rows)
+        ? (parsed as { rows: unknown[] }).rows
+        : [];
+
+  const rows = rawRows
+    .map((item, index) => normalizeGeneratedEpisodeShotRow(
+      item,
+      isRegeneratingSingleRow ? regenerateRowIndex : index
+    ))
+    .filter((item): item is GeneratedEpisodeShotRow => Boolean(item));
+
+  if (rows.length === 0) {
+    throw new Error('No shot rows were generated for the episode.');
+  }
+
+  return isRegeneratingSingleRow ? rows.slice(0, 1) : rows.slice(0, shotCount);
+}
+
 export async function analyzeScriptStructure(content: string): Promise<{
   chapters: { title: string; summary: string }[];
   characters: { name: string; description: string }[];

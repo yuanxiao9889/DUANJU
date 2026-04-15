@@ -18,6 +18,8 @@ pub struct ProjectSummaryRecord {
     pub project_type: String,
     #[serde(default)]
     pub asset_library_id: Option<String>,
+    #[serde(default)]
+    pub linked_script_project_id: Option<String>,
     pub created_at: i64,
     pub updated_at: i64,
     pub node_count: i64,
@@ -36,6 +38,8 @@ pub struct ProjectRecord {
     pub project_type: String,
     #[serde(default)]
     pub asset_library_id: Option<String>,
+    #[serde(default)]
+    pub linked_script_project_id: Option<String>,
     pub created_at: i64,
     pub updated_at: i64,
     pub node_count: i64,
@@ -58,6 +62,7 @@ fn ensure_projects_table(conn: &Connection) -> Result<(), String> {
           name TEXT NOT NULL,
           project_type TEXT NOT NULL DEFAULT 'storyboard',
           asset_library_id TEXT,
+          linked_script_project_id TEXT,
           created_at INTEGER NOT NULL,
           updated_at INTEGER NOT NULL,
           node_count INTEGER NOT NULL DEFAULT 0,
@@ -148,6 +153,7 @@ fn ensure_projects_table(conn: &Connection) -> Result<(), String> {
     let mut has_node_count = false;
     let mut has_project_type = false;
     let mut has_asset_library_id = false;
+    let mut has_linked_script_project_id = false;
     let mut has_color_labels_json = false;
     let mut stmt = conn
         .prepare("PRAGMA table_info(projects)")
@@ -167,6 +173,9 @@ fn ensure_projects_table(conn: &Connection) -> Result<(), String> {
         }
         if column_name == "asset_library_id" {
             has_asset_library_id = true;
+        }
+        if column_name == "linked_script_project_id" {
+            has_linked_script_project_id = true;
         }
         if column_name == "color_labels_json" {
             has_color_labels_json = true;
@@ -194,6 +203,14 @@ fn ensure_projects_table(conn: &Connection) -> Result<(), String> {
             .map_err(|e| format!("Failed to add asset_library_id column: {}", e))?;
     }
 
+    if !has_linked_script_project_id {
+        conn.execute(
+            "ALTER TABLE projects ADD COLUMN linked_script_project_id TEXT",
+            [],
+        )
+        .map_err(|e| format!("Failed to add linked_script_project_id column: {}", e))?;
+    }
+
     if !has_color_labels_json {
         conn.execute(
             "ALTER TABLE projects ADD COLUMN color_labels_json TEXT NOT NULL DEFAULT '{}'",
@@ -206,6 +223,8 @@ fn ensure_projects_table(conn: &Connection) -> Result<(), String> {
         r#"
         CREATE INDEX IF NOT EXISTS idx_projects_updated_at ON projects(updated_at DESC);
         CREATE INDEX IF NOT EXISTS idx_projects_asset_library_id ON projects(asset_library_id);
+        CREATE INDEX IF NOT EXISTS idx_projects_linked_script_project_id
+          ON projects(linked_script_project_id);
         "#,
     )
     .map_err(|e| format!("Failed to initialize project indexes: {}", e))?;
@@ -1059,13 +1078,14 @@ pub fn list_project_summaries(app: AppHandle) -> Result<Vec<ProjectSummaryRecord
         .prepare(
             r#"
             SELECT
-              id,
-              name,
-              COALESCE(project_type, 'storyboard') as project_type,
-              asset_library_id,
-              created_at,
-              updated_at,
-              node_count
+                id,
+                name,
+                COALESCE(project_type, 'storyboard') as project_type,
+                asset_library_id,
+                linked_script_project_id,
+                created_at,
+                updated_at,
+                node_count
             FROM projects
             ORDER BY updated_at DESC
             "#,
@@ -1079,9 +1099,10 @@ pub fn list_project_summaries(app: AppHandle) -> Result<Vec<ProjectSummaryRecord
                 name: row.get(1)?,
                 project_type: row.get(2)?,
                 asset_library_id: row.get(3)?,
-                created_at: row.get(4)?,
-                updated_at: row.get(5)?,
-                node_count: row.get(6)?,
+                linked_script_project_id: row.get(4)?,
+                created_at: row.get(5)?,
+                updated_at: row.get(6)?,
+                node_count: row.get(7)?,
             })
         })
         .map_err(|e| format!("Failed to query project summaries: {}", e))?;
@@ -1104,15 +1125,16 @@ pub fn get_project_record(
             .prepare(
                 r#"
                 SELECT
-                  id,
-                  name,
-                  COALESCE(project_type, 'storyboard') as project_type,
-                  asset_library_id,
-                  created_at,
-                  updated_at,
-                  node_count,
-                  nodes_json,
-                  edges_json,
+                    id,
+                    name,
+                    COALESCE(project_type, 'storyboard') as project_type,
+                    asset_library_id,
+                    linked_script_project_id,
+                    created_at,
+                    updated_at,
+                    node_count,
+                    nodes_json,
+                    edges_json,
                   viewport_json,
                   history_json,
                   color_labels_json
@@ -1129,14 +1151,15 @@ pub fn get_project_record(
                 name: row.get(1)?,
                 project_type: row.get(2)?,
                 asset_library_id: row.get(3)?,
-                created_at: row.get(4)?,
-                updated_at: row.get(5)?,
-                node_count: row.get(6)?,
-                nodes_json: row.get(7)?,
-                edges_json: row.get(8)?,
-                viewport_json: row.get(9)?,
-                history_json: row.get(10)?,
-                color_labels_json: row.get(11)?,
+                linked_script_project_id: row.get(4)?,
+                created_at: row.get(5)?,
+                updated_at: row.get(6)?,
+                node_count: row.get(7)?,
+                nodes_json: row.get(8)?,
+                edges_json: row.get(9)?,
+                viewport_json: row.get(10)?,
+                history_json: row.get(11)?,
+                color_labels_json: row.get(12)?,
             })
         })
     };
@@ -1171,29 +1194,31 @@ pub fn upsert_project_record(app: AppHandle, mut record: ProjectRecord) -> Resul
     tx.execute(
         r#"
         INSERT INTO projects (
-          id,
-          name,
-          project_type,
-          asset_library_id,
-          created_at,
-          updated_at,
-          node_count,
-          nodes_json,
-          edges_json,
-          viewport_json,
-          history_json,
-          color_labels_json
+            id,
+            name,
+            project_type,
+            asset_library_id,
+            linked_script_project_id,
+            created_at,
+            updated_at,
+            node_count,
+            nodes_json,
+            edges_json,
+            viewport_json,
+            history_json,
+            color_labels_json
         )
-        VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)
+        VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)
         ON CONFLICT(id) DO UPDATE SET
-          name = excluded.name,
-          project_type = excluded.project_type,
-          asset_library_id = excluded.asset_library_id,
-          created_at = excluded.created_at,
-          updated_at = excluded.updated_at,
-          node_count = excluded.node_count,
-          nodes_json = excluded.nodes_json,
-          edges_json = excluded.edges_json,
+            name = excluded.name,
+            project_type = excluded.project_type,
+            asset_library_id = excluded.asset_library_id,
+            linked_script_project_id = excluded.linked_script_project_id,
+            created_at = excluded.created_at,
+            updated_at = excluded.updated_at,
+            node_count = excluded.node_count,
+            nodes_json = excluded.nodes_json,
+            edges_json = excluded.edges_json,
           viewport_json = excluded.viewport_json,
           history_json = excluded.history_json,
           color_labels_json = excluded.color_labels_json
@@ -1203,6 +1228,7 @@ pub fn upsert_project_record(app: AppHandle, mut record: ProjectRecord) -> Resul
             record.name,
             record.project_type,
             record.asset_library_id,
+            record.linked_script_project_id,
             record.created_at,
             record.updated_at,
             record.node_count,
@@ -1346,6 +1372,13 @@ mod tests {
             .expect("failed to read pragma rows")
             .flatten()
             .any(|column_name| column_name == "asset_library_id");
+        let has_linked_script_project_id: bool = conn
+            .prepare("PRAGMA table_info(projects)")
+            .expect("failed to prepare pragma")
+            .query_map([], |row| row.get::<_, String>(1))
+            .expect("failed to read pragma rows")
+            .flatten()
+            .any(|column_name| column_name == "linked_script_project_id");
         let has_color_labels_json: bool = conn
             .prepare("PRAGMA table_info(projects)")
             .expect("failed to prepare pragma")
@@ -1356,6 +1389,10 @@ mod tests {
         assert!(
             has_asset_library_id,
             "asset_library_id should be added for legacy projects"
+        );
+        assert!(
+            has_linked_script_project_id,
+            "linked_script_project_id should be added for legacy projects"
         );
         assert!(
             has_color_labels_json,
