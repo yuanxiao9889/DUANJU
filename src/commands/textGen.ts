@@ -37,23 +37,6 @@ export interface ScriptRewriteRequest {
   model?: string;
 }
 
-export interface StoryboardScriptGenerationRequest {
-  content: string;
-  maxScripts?: number;
-}
-
-export interface GeneratedStoryboardScript {
-  title: string;
-  summary: string;
-  content: string;
-  sceneHeading: string;
-  characters: string[];
-  location: string;
-  props: string[];
-  visualFocus: string;
-  soundCue: string;
-}
-
 export interface ExtractedScriptCharacter {
   name: string;
   description: string;
@@ -71,18 +54,28 @@ export interface ExtractedScriptItem {
   description: string;
 }
 
+export interface ExtractedScriptWorldview {
+  name: string;
+  description: string;
+  era: string;
+  technology: string;
+  magic: string;
+  society: string;
+  geography: string;
+  rules: string[];
+}
+
 export interface ExtractedScriptAssets {
   characters: ExtractedScriptCharacter[];
   locations: ExtractedScriptLocation[];
   items: ExtractedScriptItem[];
+  worldview: ExtractedScriptWorldview | null;
 }
 
 export interface ScriptAssetExtractionRequest {
   content: string;
   batchLabel?: string;
 }
-
-const STORYBOARD_SCRIPT_OUTPUT_LIMIT = 6;
 
 const NO_ACTIVE_SCRIPT_MODEL_MESSAGE =
   '\u8bf7\u5148\u5728\u8bbe\u7f6e\u4e2d\u6fc0\u6d3b\u4e00\u4e2a\u5267\u672c API \u6a21\u578b\u540e\u518d\u4f7f\u7528';
@@ -98,7 +91,7 @@ function normalizeNonEmptyString(value: unknown): string {
   return typeof value === 'string' ? value.trim() : '';
 }
 
-function normalizeStringArray(value: unknown): string[] {
+export function normalizeStringArray(value: unknown): string[] {
   if (Array.isArray(value)) {
     return Array.from(
       new Set(
@@ -131,24 +124,6 @@ function readStringValue(record: Record<string, unknown>, keys: string[]): strin
     }
   }
   return '';
-}
-
-function readStringArrayValue(record: Record<string, unknown>, keys: string[]): string[] {
-  for (const key of keys) {
-    const value = normalizeStringArray(record[key]);
-    if (value.length > 0) {
-      return value;
-    }
-  }
-  return [];
-}
-
-function clampStoryboardScriptCount(value: number | undefined): number {
-  if (!Number.isFinite(value)) {
-    return STORYBOARD_SCRIPT_OUTPUT_LIMIT;
-  }
-
-  return Math.max(1, Math.min(STORYBOARD_SCRIPT_OUTPUT_LIMIT, Math.floor(value as number)));
 }
 
 function stripMarkdownCodeFence(value: string): string {
@@ -189,35 +164,6 @@ function extractJsonValue(text: string): unknown {
   }
 
   return null;
-}
-
-function normalizeGeneratedStoryboardScript(
-  value: unknown,
-  index: number
-): GeneratedStoryboardScript | null {
-  if (!value || typeof value !== 'object') {
-    return null;
-  }
-
-  const record = value as Record<string, unknown>;
-  const summary = readStringValue(record, ['summary', 'description', 'logline']);
-  const content = readStringValue(record, ['content', 'script', 'draft', 'body']) || summary;
-
-  if (!content) {
-    return null;
-  }
-
-  return {
-    title: readStringValue(record, ['title', 'name', 'sceneTitle']) || `Script ${index + 1}`,
-    summary,
-    content,
-    sceneHeading: readStringValue(record, ['sceneHeading', 'scene_heading', 'heading']),
-    characters: readStringArrayValue(record, ['characters', 'characterList', 'roles']),
-    location: readStringValue(record, ['location', 'sceneLocation', 'setting']),
-    props: readStringArrayValue(record, ['props', 'items', 'objects']),
-    visualFocus: readStringValue(record, ['visualFocus', 'visual_focus', 'visual']),
-    soundCue: readStringValue(record, ['soundCue', 'sound', 'sfx']),
-  };
 }
 
 function normalizeExtractedScriptCharacter(value: unknown): ExtractedScriptCharacter | null {
@@ -273,6 +219,36 @@ function normalizeExtractedScriptItem(value: unknown): ExtractedScriptItem | nul
   };
 }
 
+function normalizeExtractedScriptWorldview(value: unknown): ExtractedScriptWorldview | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return null;
+  }
+
+  const record = value as Record<string, unknown>;
+  const worldview = {
+    name: readStringValue(record, ['name', 'worldviewName', 'settingName', 'title', 'label']),
+    description: readStringValue(record, ['description', 'summary', 'overview']),
+    era: readStringValue(record, ['era', 'period', 'timePeriod', 'timeframe']),
+    technology: readStringValue(record, ['technology', 'tech', 'techLevel']),
+    magic: readStringValue(record, ['magic', 'supernatural', 'powerSystem']),
+    society: readStringValue(record, ['society', 'socialStructure', 'order']),
+    geography: readStringValue(record, ['geography', 'environment', 'region']),
+    rules: normalizeStringArray(record.rules ?? record.ruleSet ?? record.principles ?? record.laws),
+  };
+
+  const hasContent = [
+    worldview.name,
+    worldview.description,
+    worldview.era,
+    worldview.technology,
+    worldview.magic,
+    worldview.society,
+    worldview.geography,
+  ].some((item) => item.length > 0) || worldview.rules.length > 0;
+
+  return hasContent ? worldview : null;
+}
+
 function normalizeExtractedScriptAssets(value: unknown): ExtractedScriptAssets {
   const record = value && typeof value === 'object'
     ? value as Record<string, unknown>
@@ -288,6 +264,7 @@ function normalizeExtractedScriptAssets(value: unknown): ExtractedScriptAssets {
     items: (Array.isArray(record.items) ? record.items : [])
       .map((item) => normalizeExtractedScriptItem(item))
       .filter((item): item is ExtractedScriptItem => Boolean(item)),
+    worldview: normalizeExtractedScriptWorldview(record.worldview),
   };
 }
 
@@ -477,78 +454,6 @@ ${request.requirement}
   });
 
   return result.text;
-}
-
-export async function generateStoryboardScriptsFromText(
-  request: StoryboardScriptGenerationRequest
-): Promise<GeneratedStoryboardScript[]> {
-  const content = request.content.trim();
-  if (!content) {
-    throw new Error('Please enter script text first.');
-  }
-
-  const maxScripts = clampStoryboardScriptCount(request.maxScripts);
-  const prompt = [
-    'You are a professional storyboard writer.',
-    `Break the user input into at most ${maxScripts} sequential storyboard script drafts.`,
-    'Each output item must represent one usable script node for downstream processing.',
-    'Preserve story order. If the source material is longer than the limit, merge adjacent beats instead of exceeding the count.',
-    'Keep the output language consistent with the user input.',
-    'Return JSON only. Do not wrap it in Markdown fences. Do not add commentary.',
-    '',
-    'Return exactly this JSON shape:',
-    '{',
-    '  "scripts": [',
-    '    {',
-    '      "title": "short scene title",',
-    '      "summary": "1-2 sentence summary",',
-    '      "content": "plain text script draft, can contain line breaks",',
-    '      "sceneHeading": "optional scene heading",',
-    '      "characters": ["name"],',
-    '      "location": "optional location",',
-    '      "props": ["important prop"],',
-    '      "visualFocus": "optional visual focus",',
-    '      "soundCue": "optional sound cue"',
-    '    }',
-    '  ]',
-    '}',
-    '',
-    'Constraints:',
-    `- scripts.length must be between 1 and ${maxScripts}`,
-    '- content must stay concise, concrete, and production-usable',
-    '- Use empty strings or empty arrays for missing optional fields',
-    '',
-    'User input:',
-    content,
-  ].join('\n');
-
-  const result = await generateText({
-    prompt,
-    temperature: 0.4,
-    maxTokens: 4096,
-  });
-
-  const parsed = extractJsonValue(result.text);
-  if (!parsed) {
-    throw new Error('Failed to parse storyboard script JSON.');
-  }
-
-  const rawScripts = Array.isArray(parsed)
-    ? parsed
-    : parsed && typeof parsed === 'object' && Array.isArray((parsed as { scripts?: unknown }).scripts)
-      ? (parsed as { scripts: unknown[] }).scripts
-      : [];
-
-  const scripts = rawScripts
-    .map((item, index) => normalizeGeneratedStoryboardScript(item, index))
-    .filter((item): item is GeneratedStoryboardScript => Boolean(item))
-    .slice(0, maxScripts);
-
-  if (scripts.length === 0) {
-    throw new Error('No storyboard scripts were generated.');
-  }
-
-  return scripts;
 }
 
 export interface SummaryExpandRequest {
@@ -1120,25 +1025,28 @@ export async function extractScriptAssets(
       characters: [],
       locations: [],
       items: [],
+      worldview: null,
     };
   }
 
   const prompt = [
     '你是一名专业的编剧开发顾问，负责从剧本片段中提炼结构化资产。',
-    '目标是只保留后续做分镜和美术最需要的核心资产：人物、场景、道具。',
-    '请只提取文本中已经明确出现、或被强烈明确暗示且足够稳定的资产，不要脑补，不要补全未出现设定。',
+    '目标是保留后续做分镜、美术设计和设定整理最需要的核心资产。',
+    '只提取文本中已经明确出现、或被强烈暗示且足够稳定的信息，不要脑补，不要补全未出现设定。',
     '输出语言必须与输入内容保持一致。',
     '返回 JSON，不要使用 Markdown 代码块，不要添加解释。',
     '',
-    '请严格只提取三类资产：',
+    '请严格提取四类内容：',
     '1. characters：核心人物。只保留具名主角、关键配角、关键反派，或反复承担明确剧情功能的无名角色；一次性路人、背景人群、泛称身份不要提取。',
     '2. locations：核心场景。只保留对剧情推进、视觉设计或反复出场有意义的具体空间；同一物理空间的不同叫法或局部区域要合并成一个稳定名称；抽象地点、过场背景不要提取。',
     '3. items：关键道具。只保留推动冲突、承载线索、体现身份、或反复使用的物件；普通家具、普通武器、普通日用品如果不是关键物，不要提取。',
+    '4. worldview：世界观 / 设定。只保留跨场景稳定成立、会影响人物行为、剧情规则或视觉设计的世界设定。',
     '',
-    '提炼流程：',
-    '1. 先判断这一批文本里真正值得沉淀成资产卡的核心对象，宁缺毋滥。',
-    '2. 再把同一人物的不同代称、同一场景的不同叫法合并，统一为最稳定、最常用的名称。',
-    '3. 最后只保留便于直接落成节点的关键信息，描述要短、准、可视觉化。',
+    '世界观提取规则：',
+    '- 只有当这一批文本中存在足够明确、稳定、可复用的设定信息时，才返回 worldview。',
+    '- 如果只是一次性背景描写、局部场景细节、或证据不足，请返回 null。',
+    '- worldview.description 只写世界设定核心概括，不要写剧情摘要。',
+    '- era / technology / magic / society / geography / rules 只填写有文本证据支持的内容，没有就留空字符串或空数组。',
     '',
     'JSON 结构必须严格如下：',
     '{',
@@ -1161,13 +1069,24 @@ export async function extractScriptAssets(
     '      "name": "道具名",',
     '      "description": "道具的关键用途、归属或最醒目的视觉特征，没有就空字符串"',
     '    }',
-    '  ]',
+    '  ],',
+    '  "worldview": {',
+    '    "name": "世界观名称，没有就空字符串",',
+    '    "description": "世界设定核心概括，没有就空字符串",',
+    '    "era": "时代背景，没有就空字符串",',
+    '    "technology": "科技水平，没有就空字符串",',
+    '    "magic": "魔法/超自然/异能设定，没有就空字符串",',
+    '    "society": "社会结构或秩序，没有就空字符串",',
+    '    "geography": "地理环境或空间格局，没有就空字符串",',
+    '    "rules": ["关键世界规则 1", "关键世界规则 2"]',
+    '  }',
     '}',
     '',
+    '如果没有足够明确的世界观信息，请把 "worldview" 设为 null。',
+    '',
     '约束：',
-    '- 只输出核心和关键的，不要追求全量覆盖。',
+    '- 先判断是否真的值得沉淀成资产卡，宁缺毋滥。',
     '- 去重后再输出，不同字段不要重复换说法。',
-    '- 如果某类没有结果，返回空数组。',
     '- name 必须稳定、简洁、便于跨批次去重，不要为了文艺化改名。',
     '- description / personality / appearance 尽量简短，适合直接落成资产节点。',
     '- 人物外形只写文本中明确出现或强烈支撑的辨识点，不要擅自补完整套服装设定。',

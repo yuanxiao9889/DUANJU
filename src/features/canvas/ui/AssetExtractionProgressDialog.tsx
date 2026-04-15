@@ -21,6 +21,7 @@ export interface AssetExtractionProgressState {
     characters: number;
     locations: number;
     items: number;
+    worldviews: number;
   };
   logs: AssetExtractionBatchProgressItem[];
   error: string;
@@ -95,7 +96,7 @@ export function AssetExtractionProgressDialog({
             />
           </div>
 
-          <div className="mt-3 grid grid-cols-3 gap-2 text-center">
+          <div className="mt-3 grid grid-cols-2 gap-2 text-center">
             <div className="rounded-xl border border-border-dark bg-bg-dark/40 px-2 py-2">
               <div className="text-lg font-semibold text-text-dark">{progress.summary.characters}</div>
               <div className="text-[11px] text-text-muted">{t('script.assetExtraction.summaryCharacters')}</div>
@@ -107,6 +108,10 @@ export function AssetExtractionProgressDialog({
             <div className="rounded-xl border border-border-dark bg-bg-dark/40 px-2 py-2">
               <div className="text-lg font-semibold text-text-dark">{progress.summary.items}</div>
               <div className="text-[11px] text-text-muted">{t('script.assetExtraction.summaryItems')}</div>
+            </div>
+            <div className="rounded-xl border border-border-dark bg-bg-dark/40 px-2 py-2">
+              <div className="text-lg font-semibold text-text-dark">{progress.summary.worldviews}</div>
+              <div className="text-[11px] text-text-muted">{t('script.assetExtraction.summaryWorldviews')}</div>
             </div>
           </div>
         </div>

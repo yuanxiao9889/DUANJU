@@ -6,6 +6,7 @@ import {
   Plus,
   RefreshCcw,
   Sparkles,
+  Trash2,
 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 
@@ -119,6 +120,7 @@ interface ChapterWorkbenchPanelProps {
   onUpdateChapterPatch: (patch: Partial<ScriptChapterNodeData>) => void;
   onSelectScene: (sceneId: string) => void;
   onAddScene: () => void;
+  onDeleteScene: (sceneId: string) => void;
   onUpdateSelectedScene: (patch: Partial<SceneCard>) => void;
   currentCopilotMessages: SceneCopilotThreadMessage[];
   selectedDraftText: string;
@@ -179,6 +181,7 @@ export function ChapterWorkbenchPanel({
   onUpdateChapterPatch,
   onSelectScene,
   onAddScene,
+  onDeleteScene,
   onUpdateSelectedScene,
   currentCopilotMessages,
   selectedDraftText,
@@ -311,16 +314,38 @@ export function ChapterWorkbenchPanel({
                       </p>
                     ) : null}
                   </div>
-                  {selectedSceneNode ? (
-                    <div className="shrink-0 rounded-xl border border-cyan-500/25 bg-cyan-500/10 px-3 py-2 text-right text-[11px] leading-5 text-cyan-100">
-                      <div>{t('script.chapterCatalog.created')}</div>
-                      <div>
-                        {t('script.sceneWorkbench.episodeCount', {
-                          count: selectedSceneNode.data.episodes.length,
-                        })}
+                  <div className="flex shrink-0 items-start gap-2">
+                    {selectedSceneNode ? (
+                      <div className="rounded-xl border border-cyan-500/25 bg-cyan-500/10 px-3 py-2 text-right text-[11px] leading-5 text-cyan-100">
+                        <div>{t('script.chapterCatalog.created')}</div>
+                        <div>
+                          {t('script.sceneWorkbench.episodeCount', {
+                            count: selectedSceneNode.data.episodes.length,
+                          })}
+                        </div>
                       </div>
-                    </div>
-                  ) : null}
+                    ) : null}
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (isSelectedSceneLocked) {
+                          return;
+                        }
+                        onDeleteScene(selectedChapterScene.id);
+                      }}
+                      aria-disabled={isSelectedSceneLocked}
+                      className={`flex h-9 w-9 items-center justify-center rounded-xl border transition-colors ${
+                        isSelectedSceneLocked
+                          ? 'cursor-not-allowed border-border-dark/70 bg-bg-dark/30 text-text-muted/45'
+                          : 'border-transparent text-text-muted hover:border-red-400/25 hover:bg-red-500/10 hover:text-red-200'
+                      }`}
+                      title={isSelectedSceneLocked
+                        ? t('script.chapterCatalog.deleteLockedHint')
+                        : t('common.delete')}
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </button>
+                  </div>
                 </div>
               </div>
             ) : null}

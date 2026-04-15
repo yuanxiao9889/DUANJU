@@ -20,6 +20,7 @@ import {
   type ExportImageNodeData,
   type GroupNodeData,
   type ImageEditNodeData,
+  type ImageCollageNodeData,
   type Panorama360NodeData,
   type JimengImageNodeData,
   type JimengImageResultNodeData,
@@ -32,7 +33,6 @@ import {
   type StoryboardGenNodeData,
   type TextAnnotationNodeData,
   type TtsTextNodeData,
-  type ScriptTextNodeData,
   type TtsSavedVoiceNodeData,
   type TtsVoiceDesignNodeData,
   type VoxCpmVoiceDesignNodeData,
@@ -192,6 +192,7 @@ const imageEditNodeDefinition: CanvasNodeDefinition<ImageEditNodeData> = {
     prompt: '',
     model: DEFAULT_IMAGE_MODEL_ID,
     size: '2K' as ImageSize,
+    cameraParams: null,
     extraParams: {},
     isGenerating: false,
     generationStartedAt: null,
@@ -384,6 +385,35 @@ const storyboardSplitDefinition: CanvasNodeDefinition<StoryboardSplitNodeData> =
       backgroundColor: '#0f1115',
       textColor: '#f8fafc',
     },
+  }),
+};
+
+const imageCollageNodeDefinition: CanvasNodeDefinition<ImageCollageNodeData> = {
+  type: CANVAS_NODE_TYPES.imageCollage,
+  menuLabelKey: 'node.menu.imageCollage',
+  menuIcon: 'layout',
+  menuGroup: 'storyboard',
+  visibleInMenu: true,
+  menuProjectTypes: ['storyboard'],
+  capabilities: {
+    toolbar: false,
+    promptInput: false,
+  },
+  connectivity: {
+    sourceHandle: true,
+    targetHandle: true,
+    connectMenu: {
+      fromSource: true,
+      fromTarget: false,
+    },
+  },
+  createDefaultData: () => ({
+    displayName: DEFAULT_NODE_DISPLAY_NAME[CANVAS_NODE_TYPES.imageCollage],
+    aspectRatio: DEFAULT_ASPECT_RATIO,
+    size: '1K' as ImageSize,
+    layers: [],
+    selectedLayerId: null,
+    backgroundMode: 'transparent',
   }),
 };
 
@@ -586,6 +616,7 @@ const jimengImageNodeDefinition: CanvasNodeDefinition<JimengImageNodeData> = {
     modelVersion: JIMENG_IMAGE_MODEL_VERSIONS[6],
     aspectRatio: JIMENG_ASPECT_RATIOS[3],
     resolutionType: JIMENG_IMAGE_RESOLUTION_TYPES[1],
+    cameraParams: null,
     isGenerating: false,
     generationStartedAt: null,
     generationDurationMs: 90000,
@@ -734,35 +765,6 @@ const ttsTextNodeDefinition: CanvasNodeDefinition<TtsTextNodeData> = {
   createDefaultData: () => ({
     displayName: DEFAULT_NODE_DISPLAY_NAME[CANVAS_NODE_TYPES.ttsText],
     content: '',
-  }),
-};
-
-const scriptTextNodeDefinition: CanvasNodeDefinition<ScriptTextNodeData> = {
-  type: CANVAS_NODE_TYPES.scriptText,
-  menuLabelKey: 'node.menu.scriptText',
-  menuIcon: 'text',
-  menuGroup: 'text',
-  visibleInMenu: true,
-  menuProjectTypes: ['storyboard', 'script'],
-  capabilities: {
-    toolbar: true,
-    promptInput: false,
-  },
-  connectivity: {
-    sourceHandle: true,
-    targetHandle: true,
-    connectMenu: {
-      fromSource: false,
-      fromTarget: true,
-    },
-  },
-  createDefaultData: () => ({
-    displayName: DEFAULT_NODE_DISPLAY_NAME[CANVAS_NODE_TYPES.scriptText],
-    content: '',
-    isGenerating: false,
-    lastError: null,
-    lastGeneratedAt: null,
-    lastGeneratedCount: 0,
   }),
 };
 
@@ -1399,12 +1401,12 @@ export const canvasNodeDefinitions: Record<CanvasNodeType, CanvasNodeDefinition>
   [CANVAS_NODE_TYPES.textAnnotation]: textAnnotationNodeDefinition,
   [CANVAS_NODE_TYPES.group]: groupNodeDefinition,
   [CANVAS_NODE_TYPES.storyboardSplit]: storyboardSplitDefinition,
+  [CANVAS_NODE_TYPES.imageCollage]: imageCollageNodeDefinition,
   [CANVAS_NODE_TYPES.storyboardSplitResult]: storyboardSplitResultDefinition,
   [CANVAS_NODE_TYPES.storyboardGen]: storyboardGenNodeDefinition,
   [CANVAS_NODE_TYPES.video]: videoNodeDefinition,
   [CANVAS_NODE_TYPES.audio]: audioNodeDefinition,
   [CANVAS_NODE_TYPES.ttsText]: ttsTextNodeDefinition,
-  [CANVAS_NODE_TYPES.scriptText]: scriptTextNodeDefinition,
   [CANVAS_NODE_TYPES.ttsVoiceDesign]: ttsVoiceDesignNodeDefinition,
   [CANVAS_NODE_TYPES.ttsSavedVoice]: ttsSavedVoiceNodeDefinition,
   [CANVAS_NODE_TYPES.voxCpmVoiceDesign]: voxCpmVoiceDesignNodeDefinition,

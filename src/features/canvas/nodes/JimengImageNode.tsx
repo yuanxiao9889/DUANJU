@@ -16,6 +16,7 @@ import {
   type NodeProps,
 } from "@xyflow/react";
 import {
+  Camera,
   Loader2,
   Sparkles,
   TriangleAlert,
@@ -39,7 +40,17 @@ import {
   resolveErrorContent,
   showErrorDialog,
 } from "@/features/canvas/application/errorDialog";
-import { useCanvasConnectedReferenceImages } from "@/features/canvas/hooks/useCanvasNodeGraph";
+import { resolveScriptAssetOptimizedPromptMaxLength } from "@/features/canvas/application/scriptAssetReferencePromptLimit";
+import { appendCameraParamsToPrompt } from "@/features/canvas/camera/cameraPrompt";
+import {
+  hasCameraParamsSelection,
+  normalizeCameraParamsSelection,
+  resolveCameraParamsSummary,
+} from "@/features/canvas/camera/cameraPresets";
+import {
+  useCanvasConnectedReferenceImages,
+  useCanvasIncomingSourceNodes,
+} from "@/features/canvas/hooks/useCanvasNodeGraph";
 import { resolveImageDisplayUrl } from "@/features/canvas/application/imageData";
 import { optimizeCanvasPrompt } from "@/features/canvas/application/promptOptimization";
 import { flushCurrentProjectToDiskSafely } from "@/features/canvas/application/projectPersistence";
@@ -57,6 +68,7 @@ import {
 } from "@/features/canvas/ui/NodeHeader";
 import { NodeResizeHandle } from "@/features/canvas/ui/NodeResizeHandle";
 import { CanvasNodeImage } from "@/features/canvas/ui/CanvasNodeImage";
+import { CameraParamsDialog } from "@/features/canvas/ui/CameraParamsDialog";
 import { NodeStatusBadge } from "@/features/canvas/ui/NodeStatusBadge";
 import { ReferenceVisualChip } from "@/features/canvas/ui/ReferenceVisualChip";
 import {
@@ -413,6 +425,7 @@ export const JimengImageNode = memo(
       string | null
     >(null);
     const [styleTemplatePrompt, setStyleTemplatePrompt] = useState("");
+    const [showCameraParamsDialog, setShowCameraParamsDialog] = useState(false);
     const [showImagePicker, setShowImagePicker] = useState(false);
     const [pickerCursor, setPickerCursor] = useState<number | null>(null);
     const [pickerActiveIndex, setPickerActiveIndex] = useState(0);
@@ -439,6 +452,7 @@ export const JimengImageNode = memo(
     );
 
     const connectedReferenceImages = useCanvasConnectedReferenceImages(id);
+    const incomingSourceNodes = useCanvasIncomingSourceNodes(id);
     const incomingImages = useMemo(
       () => connectedReferenceImages.map((item) => item.imageUrl),
       [connectedReferenceImages],
@@ -460,6 +474,13 @@ export const JimengImageNode = memo(
           }),
         })),
       [connectedReferenceImages, t],
+    );
+    const optimizedPromptMaxLength = useMemo(
+      () =>
+        resolveScriptAssetOptimizedPromptMaxLength(
+          incomingSourceNodes.map((item) => item.node),
+        ),
+      [incomingSourceNodes],
     );
     const resolvedTitle = useMemo(
       () => resolveNodeDisplayName(CANVAS_NODE_TYPES.jimengImage, data),
@@ -491,6 +512,14 @@ export const JimengImageNode = memo(
       data.resolutionType ?? DEFAULT_IMAGE_RESOLUTION,
     );
     const selectedAspectRatio = data.aspectRatio ?? DEFAULT_IMAGE_ASPECT_RATIO;
+    const resolvedCameraParams = useMemo(
+      () => normalizeCameraParamsSelection(data.cameraParams),
+      [data.cameraParams],
+    );
+    const isCameraParamsApplied = hasCameraParamsSelection(resolvedCameraParams);
+    const cameraParamsButtonTitle = isCameraParamsApplied
+      ? resolveCameraParamsSummary(resolvedCameraParams)
+      : t("cameraParams.trigger");
     const isGenerateBlocked =
       !modelSupportsReferenceImages && incomingImages.length > 0;
 
@@ -738,6 +767,7 @@ export const JimengImageNode = memo(
           mode: "image",
           prompt: currentPrompt,
           referenceImages: optimizationReferenceImages,
+          maxPromptLength: optimizedPromptMaxLength,
         });
         if (promptValueRef.current !== sourcePrompt) {
           return;
@@ -786,6 +816,7 @@ export const JimengImageNode = memo(
     }, [
       id,
       incomingImages,
+      optimizedPromptMaxLength,
       modelSupportsReferenceImages,
       syncPromptHighlightScroll,
       t,

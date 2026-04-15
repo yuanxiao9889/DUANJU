@@ -474,6 +474,7 @@ function resolveAllowedNodeTypes(
         (type) =>
           type !== CANVAS_NODE_TYPES.jimengImage
           && type !== CANVAS_NODE_TYPES.panorama360
+          && type !== CANVAS_NODE_TYPES.imageCollage
       );
     }
 

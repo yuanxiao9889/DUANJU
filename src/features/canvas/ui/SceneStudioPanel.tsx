@@ -203,6 +203,13 @@ function updateEpisodeList(
   ));
 }
 
+function reindexChapterScenes(scenes: SceneCard[]): SceneCard[] {
+  return scenes.map((scene, index) => ({
+    ...scene,
+    order: index,
+  }));
+}
+
 export function SceneStudioPanel() {
   const { t } = useTranslation();
   const updateNodeData = useCanvasStore((state) => state.updateNodeData);
@@ -592,7 +599,7 @@ export function SceneStudioPanel() {
     }
 
     const nextScene = createDefaultSceneCard(chapterScenes.length);
-    const nextScenes = [...chapterScenes, nextScene];
+    const nextScenes = reindexChapterScenes([...chapterScenes, nextScene]);
     updateNodeData(chapterNodeId, {
       scenes: nextScenes,
       sceneHeadings: nextScenes
@@ -602,6 +609,48 @@ export function SceneStudioPanel() {
     }, { historyMode: 'skip' });
     focusChapterScene(chapterNodeId, nextScene.id);
   }, [chapterNodeData, chapterNodeId, chapterScenes, focusChapterScene, updateNodeData]);
+
+  const handleDeleteChapterScene = useCallback((sceneId: string) => {
+    if (!chapterNodeId || !chapterNodeData) {
+      return;
+    }
+
+    if (chapterSceneNodeBySceneId.has(sceneId)) {
+      return;
+    }
+
+    const deletedSceneIndex = chapterScenes.findIndex((scene) => scene.id === sceneId);
+    if (deletedSceneIndex < 0) {
+      return;
+    }
+
+    const nextScenes = reindexChapterScenes(
+      chapterScenes.filter((scene) => scene.id !== sceneId)
+    );
+
+    updateNodeData(chapterNodeId, {
+      scenes: nextScenes,
+      sceneHeadings: nextScenes
+        .map((scene) => scene.title.trim())
+        .filter((value) => value.length > 0),
+      content: composeChapterContentFromScenes(nextScenes, chapterNodeData.content),
+    }, { historyMode: 'skip' });
+
+    const nextFocusedScene = nextScenes[Math.min(deletedSceneIndex, nextScenes.length - 1)];
+    if (nextFocusedScene) {
+      focusChapterScene(chapterNodeId, nextFocusedScene.id);
+    } else {
+      focusChapter(chapterNodeId);
+    }
+  }, [
+    chapterNodeData,
+    chapterNodeId,
+    chapterSceneNodeBySceneId,
+    chapterScenes,
+    focusChapter,
+    focusChapterScene,
+    updateNodeData,
+  ]);
 
   const updateSelectedChapterScene = useCallback((patch: Partial<SceneCard>) => {
     if (!chapterNodeData || !chapterNodeId || !selectedChapterScene) {
@@ -1493,6 +1542,7 @@ export function SceneStudioPanel() {
               focusChapterScene(chapterNodeId, sceneId);
             }}
             onAddScene={handleAddChapterScene}
+            onDeleteScene={handleDeleteChapterScene}
             onUpdateSelectedScene={updateSelectedChapterScene}
             currentCopilotMessages={currentCopilotMessages}
             selectedDraftText={selectedDraftText}

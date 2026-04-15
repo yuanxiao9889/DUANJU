@@ -16,14 +16,12 @@ import {
 } from '@/features/canvas/application/scriptImporter';
 import { generateText } from '@/commands/textGen';
 import {
-  NATIVE_SCRIPT_PACKAGE_SCHEMA,
-  NATIVE_SCRIPT_PACKAGE_VERSION,
   type ExternalScriptChapterSegment,
   type ExternalScriptSceneSegment,
   type ExternalScriptStructureAnalysis,
-  type NativeScriptPackageV1,
   type ScriptImportPreviewModel,
   type ScriptImportPreviewNotice,
+  type ScriptProjectPackagePreviewRecord,
 } from '@/features/canvas/application/scriptImportExportTypes';
 
 const IMPORT_ROOT_X = 100;
@@ -665,19 +663,6 @@ function formatDateTime(value: string): string {
   return date.toLocaleString();
 }
 
-function isNativeScriptPackage(value: unknown): value is NativeScriptPackageV1 {
-  if (!value || typeof value !== 'object') {
-    return false;
-  }
-
-  const record = value as Record<string, unknown>;
-  return record.schema === NATIVE_SCRIPT_PACKAGE_SCHEMA
-    && record.version === NATIVE_SCRIPT_PACKAGE_VERSION
-    && record.projectType === 'script'
-    && Array.isArray(record.nodes)
-    && Array.isArray(record.edges);
-}
-
 function filterNativePackageNodes(nodes: CanvasNode[]): CanvasNode[] {
   return nodes.filter((node) => NATIVE_PACKAGE_NODE_TYPES.has(node.type));
 }
@@ -688,7 +673,7 @@ function filterNativePackageEdges(edges: CanvasEdge[], nodes: CanvasNode[]): Can
 }
 
 function buildNativePackagePreviewDocument(
-  nativePackage: NativeScriptPackageV1,
+  project: ScriptProjectPackagePreviewRecord['project'],
   nodes: CanvasNode[]
 ): ScriptImportPreviewModel['document'] {
   const rootNode = nodes.find((node) => node.type === CANVAS_NODE_TYPES.scriptRoot);
@@ -722,7 +707,7 @@ function buildNativePackagePreviewDocument(
       };
     });
 
-  const title = nativePackage.title
+  const title = project.title
     || (rootNode?.data as { title?: string } | undefined)?.title?.trim()
     || 'Imported Script';
 
@@ -740,13 +725,12 @@ function buildNativePackagePreviewDocument(
   };
 }
 
-function buildNativePackagePreview(
-  nativePackage: NativeScriptPackageV1,
-  sourceName: string
+export function buildScriptProjectPackageImportPreview(
+  previewRecord: ScriptProjectPackagePreviewRecord
 ): ScriptImportPreviewModel {
-  const nodes = filterNativePackageNodes(nativePackage.nodes);
-  const edges = filterNativePackageEdges(nativePackage.edges, nodes);
-  const document = buildNativePackagePreviewDocument(nativePackage, nodes);
+  const nodes = filterNativePackageNodes(previewRecord.project.nodes);
+  const edges = filterNativePackageEdges(previewRecord.project.edges, nodes);
+  const document = buildNativePackagePreviewDocument(previewRecord.project, nodes);
   const assetNodeCount = nodes.filter((node) => (
     node.type === CANVAS_NODE_TYPES.scriptWorldview
     || node.type === CANVAS_NODE_TYPES.scriptCharacter
@@ -754,8 +738,8 @@ function buildNativePackagePreview(
     || node.type === CANVAS_NODE_TYPES.scriptItem
     || node.type === CANVAS_NODE_TYPES.scriptPlotPoint
   )).length;
-  const selectedNodeId =
-    nodes.find((node) => node.type === CANVAS_NODE_TYPES.scriptRoot)?.id
+  const selectedNodeId = previewRecord.project.selectedNodeId
+    ?? nodes.find((node) => node.type === CANVAS_NODE_TYPES.scriptRoot)?.id
     ?? nodes.find((node) => node.type === CANVAS_NODE_TYPES.scriptChapter)?.id
     ?? nodes[0]?.id
     ?? null;
@@ -763,8 +747,8 @@ function buildNativePackagePreview(
   return {
     kind: 'nativePackage',
     title: document.title,
-    sourceName,
-    description: 'This native package will fully restore script nodes, shooting scripts, assets, edges, and layout.',
+    sourceName: previewRecord.sourceName,
+    description: 'This project package restores the full script graph, viewport, history, color labels, and bundled local media files.',
     format: 'nativePackage',
     document,
     notices: [
@@ -780,47 +764,34 @@ function buildNativePackagePreview(
       edgeCount: edges.length,
     },
     details: [
-      { label: 'Schema', value: nativePackage.schema },
-      { label: 'Version', value: String(nativePackage.version) },
-      { label: 'Exported At', value: formatDateTime(nativePackage.exportedAt) },
+      { label: 'Schema', value: previewRecord.manifest.schema },
+      { label: 'Version', value: String(previewRecord.manifest.version) },
+      { label: 'Exported At', value: formatDateTime(previewRecord.manifest.exportedAt) },
+      { label: 'Project Name', value: previewRecord.manifest.projectName },
+      { label: 'Bundled Files', value: String(previewRecord.manifest.assetCount) },
       { label: 'Nodes', value: String(nodes.length) },
       { label: 'Edges', value: String(edges.length) },
     ],
     nativePackage: {
-      schema: nativePackage.schema,
-      version: nativePackage.version,
-      exportedAt: nativePackage.exportedAt,
-      appVersion: nativePackage.appVersion,
-      projectType: nativePackage.projectType,
+      schema: previewRecord.manifest.schema,
+      version: previewRecord.manifest.version,
+      exportedAt: previewRecord.manifest.exportedAt,
+      appVersion: previewRecord.manifest.appVersion,
+      projectType: previewRecord.manifest.projectType,
+      packagePath: previewRecord.packagePath,
+      projectName: previewRecord.manifest.projectName,
+      assetCount: previewRecord.manifest.assetCount,
     },
     usedFallback: false,
     applyPayload: {
       nodes,
       edges,
       selectedNodeId,
+      history: previewRecord.project.history,
+      viewport: previewRecord.project.viewport,
+      colorLabels: previewRecord.project.colorLabels,
     },
   };
-}
-
-async function readNativePackage(file: File): Promise<NativeScriptPackageV1 | null> {
-  const extension = file.name.split('.').pop()?.toLowerCase() ?? '';
-  if (extension !== 'json') {
-    return null;
-  }
-
-  const text = await file.text();
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(text);
-  } catch {
-    throw new Error('The selected JSON file is not a valid native script package.');
-  }
-
-  if (!isNativeScriptPackage(parsed)) {
-    throw new Error('Unsupported native package schema or version.');
-  }
-
-  return parsed;
 }
 
 async function buildExternalImportPreview(
@@ -907,18 +878,6 @@ export async function prepareScriptImportPreview(
     llm?: ExternalImportLlmOptions | null;
   }
 ): Promise<ScriptImportPreviewModel> {
-  const nativePackage = await readNativePackage(file).catch((error) => {
-    const extension = file.name.split('.').pop()?.toLowerCase() ?? '';
-    if (extension === 'json') {
-      throw error;
-    }
-    return null;
-  });
-
-  if (nativePackage) {
-    return buildNativePackagePreview(nativePackage, file.name);
-  }
-
   return buildExternalImportPreview(file, options?.llm ?? null);
 }
 

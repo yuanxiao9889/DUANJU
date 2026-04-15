@@ -17,6 +17,7 @@ interface OptimizePromptRequest {
   mode: PromptOptimizationMode;
   prompt: string;
   referenceImages?: string[];
+  maxPromptLength?: number;
 }
 
 interface ScriptPromptContext {
@@ -135,6 +136,54 @@ function clampInteger(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, Math.round(value)));
 }
 
+function normalizeMaxPromptLength(value: unknown): number | null {
+  if (typeof value !== "number" || !Number.isFinite(value)) {
+    return null;
+  }
+
+  return Math.max(1, Math.floor(value));
+}
+
+function truncatePromptAtBoundary(text: string, maxLength: number): string {
+  const normalizedText = text.trim();
+  if (normalizedText.length <= maxLength) {
+    return normalizedText;
+  }
+
+  const sliced = normalizedText.slice(0, maxLength).trimEnd();
+  const boundarySearchStart = Math.max(0, maxLength - 80);
+  const boundaryCharacters = [
+    "\n",
+    "。",
+    "！",
+    "？",
+    "；",
+    "，",
+    "、",
+    ".",
+    "!",
+    "?",
+    ";",
+    ",",
+    ":",
+    " ",
+  ];
+
+  let bestBoundaryIndex = -1;
+  for (const boundaryCharacter of boundaryCharacters) {
+    const index = sliced.lastIndexOf(boundaryCharacter);
+    if (index > bestBoundaryIndex) {
+      bestBoundaryIndex = index;
+    }
+  }
+
+  if (bestBoundaryIndex >= boundarySearchStart) {
+    return sliced.slice(0, bestBoundaryIndex).trimEnd();
+  }
+
+  return sliced;
+}
+
 function extractJsonObject(rawText: string): Record<string, unknown> | null {
   const trimmed = rawText.trim();
   if (!trimmed) {
@@ -228,6 +277,54 @@ function restoreReferenceTokens(
   }
 
   return `${nextPrompt}${nextPrompt ? "\n" : ""}${missingTokens.join(" ")}`.trim();
+}
+
+function applyOptimizedPromptLengthLimit(
+  originalPrompt: string,
+  optimizedPrompt: string,
+  maxPromptLength: number | undefined,
+): string {
+  const normalizedMaxPromptLength = normalizeMaxPromptLength(maxPromptLength);
+  const normalizedPrompt = optimizedPrompt.trim();
+
+  if (
+    normalizedMaxPromptLength == null
+    || normalizedPrompt.length <= normalizedMaxPromptLength
+  ) {
+    return normalizedPrompt;
+  }
+
+  const requiredTokens = dedupeReferenceTokens(originalPrompt);
+  if (requiredTokens.length === 0) {
+    return truncatePromptAtBoundary(normalizedPrompt, normalizedMaxPromptLength);
+  }
+
+  const tokenSuffix = requiredTokens.join(" ");
+  if (tokenSuffix.length >= normalizedMaxPromptLength) {
+    return tokenSuffix.slice(0, normalizedMaxPromptLength).trim();
+  }
+
+  const contentBudget = normalizedMaxPromptLength - tokenSuffix.length - 1;
+  const promptWithoutTokens = normalizedPrompt
+    .replace(ALL_REFERENCE_TOKEN_PATTERN, "")
+    .replace(/[ \t]{2,}/g, " ")
+    .replace(/\s+\n/g, "\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+
+  const truncatedContent =
+    contentBudget > 0
+      ? truncatePromptAtBoundary(promptWithoutTokens, contentBudget)
+      : "";
+  const nextPrompt = truncatedContent
+    ? `${truncatedContent}\n${tokenSuffix}`
+    : tokenSuffix;
+
+  if (nextPrompt.length <= normalizedMaxPromptLength) {
+    return nextPrompt.trim();
+  }
+
+  return truncatePromptAtBoundary(nextPrompt, normalizedMaxPromptLength);
 }
 
 function sanitizeReferenceImages(
@@ -736,16 +833,24 @@ export async function optimizeCanvasPrompt(
     }
 
     return {
-      prompt: parsedResult.prompt,
+      prompt: applyOptimizedPromptLengthLimit(
+        normalizedPrompt,
+        parsedResult.prompt,
+        request.maxPromptLength,
+      ),
       context,
       usedReferenceImages: referenceImages.length > 0,
       durationRecommendation: parsedResult.durationRecommendation,
     };
   }
 
-  const normalizedResult = restoreReferenceTokens(
+  const normalizedResult = applyOptimizedPromptLengthLimit(
     normalizedPrompt,
-    normalizeOptimizedPrompt(result.text),
+    restoreReferenceTokens(
+      normalizedPrompt,
+      normalizeOptimizedPrompt(result.text),
+    ),
+    request.maxPromptLength,
   );
   if (!normalizedResult) {
     throw new Error("提示词优化结果为空，请重试");

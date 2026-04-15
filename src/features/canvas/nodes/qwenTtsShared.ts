@@ -243,8 +243,7 @@ export function resolveConnectedTtsText(
 
       if (
         node.type === CANVAS_NODE_TYPES.ttsText ||
-        node.type === CANVAS_NODE_TYPES.textAnnotation ||
-        node.type === CANVAS_NODE_TYPES.scriptText
+        node.type === CANVAS_NODE_TYPES.textAnnotation
       ) {
         return typeof node.data.content === 'string' ? node.data.content.trim() : '';
       }

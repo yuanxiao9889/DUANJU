@@ -19,12 +19,12 @@ export const DEFAULT_NODE_DISPLAY_NAME: Record<CanvasNodeType, string> = {
   [CANVAS_NODE_TYPES.textAnnotation]: '\u97f3\u9891\u6587\u672c',
   [CANVAS_NODE_TYPES.group]: '\u5206\u7ec4',
   [CANVAS_NODE_TYPES.storyboardSplit]: '\u5206\u955c\u7ec4\u5408',
+  [CANVAS_NODE_TYPES.imageCollage]: '\u56fe\u7247\u62fc\u63a5',
   [CANVAS_NODE_TYPES.storyboardSplitResult]: '\u5207\u5272\u7ed3\u679c',
   [CANVAS_NODE_TYPES.storyboardGen]: '\u5206\u955c\u751f\u6210',
   [CANVAS_NODE_TYPES.video]: '\u89c6\u9891',
   [CANVAS_NODE_TYPES.audio]: '\u97f3\u9891',
   [CANVAS_NODE_TYPES.ttsText]: '\u97f3\u9891\u6587\u672c',
-  [CANVAS_NODE_TYPES.scriptText]: '\u5267\u672c\u6587\u672c',
   [CANVAS_NODE_TYPES.ttsVoiceDesign]: '\u58f0\u97f3\u8bbe\u8ba1',
   [CANVAS_NODE_TYPES.ttsSavedVoice]: '\u514b\u9686\u58f0\u97f3',
   [CANVAS_NODE_TYPES.voxCpmVoiceDesign]: 'VoxCPM \u58f0\u97f3\u8bbe\u8ba1',
@@ -57,6 +57,7 @@ export const EXPORT_RESULT_DISPLAY_NAME: Record<ExportImageNodeResultKind, strin
   storyboardGenOutput: '\u5206\u955c\u8f93\u51fa',
   storyboardSplitExport: '\u5207\u5272\u5bfc\u51fa',
   storyboardFrameEdit: '\u5206\u955c\u5e27',
+  imageCollageExport: '\u62fc\u63a5\u7ed3\u679c',
 };
 
 function resolveExportResultDefault(data: Partial<CanvasNodeData>): string {

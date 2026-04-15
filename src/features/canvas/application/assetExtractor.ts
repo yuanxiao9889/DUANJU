@@ -4,6 +4,7 @@ import {
   type ExtractedScriptCharacter,
   type ExtractedScriptItem,
   type ExtractedScriptLocation,
+  type ExtractedScriptWorldview,
 } from '@/commands/textGen';
 import {
   CANVAS_NODE_TYPES,
@@ -11,14 +12,26 @@ import {
   type CanvasNode,
   type CanvasNodeType,
   type ScriptChapterNodeData,
+  type ScriptWorldviewNodeData,
 } from '../domain/canvasNodes';
 
 const MAX_CHARS_PER_EXTRACTION_CHUNK = 2600;
 const CHARACTER_NODE_X = 600;
 const LOCATION_NODE_X = 850;
 const ITEM_NODE_X = 1100;
+const WORLDVIEW_NODE_X = 1350;
 const NODE_START_Y = 100;
 const NODE_GAP_Y = 120;
+const DEFAULT_WORLDVIEW_NAME = '世界观';
+const GENERIC_WORLDVIEW_NAMES = new Set([
+  '世界观',
+  '设定',
+  '世界/设定',
+  '世界 / 设定',
+  'worldview',
+  'setting',
+  'world setting',
+]);
 
 export interface AssetExtractionChunk {
   id: string;
@@ -33,6 +46,7 @@ export interface AssetExtractionApplyResult {
   characters: number;
   locations: number;
   items: number;
+  worldviews: number;
 }
 
 interface AddNodeFn {
@@ -86,6 +100,194 @@ function stripHtmlToPlainText(html: string): string {
 
 function normalizeName(value: string): string {
   return value.trim().replace(/\s+/g, ' ');
+}
+
+function pickLongerText(primary: string, secondary: string): string {
+  return primary.length >= secondary.length ? primary : secondary;
+}
+
+function mergeStringLists(primary: string[], secondary: string[]): string[] {
+  return Array.from(
+    new Set(
+      [...primary, ...secondary]
+        .map((item) => normalizeName(item))
+        .filter((item) => item.length > 0)
+    )
+  );
+}
+
+function isGenericWorldviewName(value: string): boolean {
+  return GENERIC_WORLDVIEW_NAMES.has(normalizeName(value).toLowerCase());
+}
+
+function pickWorldviewName(primary: string, secondary: string): string {
+  const normalizedPrimary = normalizeName(primary);
+  const normalizedSecondary = normalizeName(secondary);
+
+  if (!normalizedPrimary) {
+    return normalizedSecondary;
+  }
+
+  if (!normalizedSecondary) {
+    return normalizedPrimary;
+  }
+
+  if (isGenericWorldviewName(normalizedPrimary) && !isGenericWorldviewName(normalizedSecondary)) {
+    return normalizedSecondary;
+  }
+
+  if (!isGenericWorldviewName(normalizedPrimary) && isGenericWorldviewName(normalizedSecondary)) {
+    return normalizedPrimary;
+  }
+
+  return normalizedPrimary.length >= normalizedSecondary.length
+    ? normalizedPrimary
+    : normalizedSecondary;
+}
+
+function normalizeWorldview(worldview: ExtractedScriptWorldview): ExtractedScriptWorldview {
+  return {
+    name: normalizeName(worldview.name),
+    description: worldview.description.trim(),
+    era: worldview.era.trim(),
+    technology: worldview.technology.trim(),
+    magic: worldview.magic.trim(),
+    society: worldview.society.trim(),
+    geography: worldview.geography.trim(),
+    rules: mergeStringLists([], worldview.rules),
+  };
+}
+
+export function hasExtractedWorldviewContent(
+  worldview: ExtractedScriptWorldview | null | undefined
+): worldview is ExtractedScriptWorldview {
+  if (!worldview) {
+    return false;
+  }
+
+  const normalized = normalizeWorldview(worldview);
+  return Boolean(
+    normalized.name
+    || normalized.description
+    || normalized.era
+    || normalized.technology
+    || normalized.magic
+    || normalized.society
+    || normalized.geography
+    || normalized.rules.length > 0
+  );
+}
+
+export function mergeExtractedWorldviews(
+  primary: ExtractedScriptWorldview | null | undefined,
+  secondary: ExtractedScriptWorldview | null | undefined
+): ExtractedScriptWorldview | null {
+  const normalizedPrimary = hasExtractedWorldviewContent(primary)
+    ? normalizeWorldview(primary)
+    : null;
+  const normalizedSecondary = hasExtractedWorldviewContent(secondary)
+    ? normalizeWorldview(secondary)
+    : null;
+
+  if (!normalizedPrimary) {
+    return normalizedSecondary;
+  }
+
+  if (!normalizedSecondary) {
+    return normalizedPrimary;
+  }
+
+  return {
+    name: pickWorldviewName(normalizedPrimary.name, normalizedSecondary.name),
+    description: pickLongerText(normalizedPrimary.description, normalizedSecondary.description),
+    era: pickLongerText(normalizedPrimary.era, normalizedSecondary.era),
+    technology: pickLongerText(normalizedPrimary.technology, normalizedSecondary.technology),
+    magic: pickLongerText(normalizedPrimary.magic, normalizedSecondary.magic),
+    society: pickLongerText(normalizedPrimary.society, normalizedSecondary.society),
+    geography: pickLongerText(normalizedPrimary.geography, normalizedSecondary.geography),
+    rules: mergeStringLists(normalizedPrimary.rules, normalizedSecondary.rules),
+  };
+}
+
+function toExtractedWorldview(data: ScriptWorldviewNodeData): ExtractedScriptWorldview {
+  return {
+    name: data.worldviewName || '',
+    description: data.description || '',
+    era: data.era || '',
+    technology: data.technology || '',
+    magic: data.magic || '',
+    society: data.society || '',
+    geography: data.geography || '',
+    rules: Array.isArray(data.rules) ? data.rules : [],
+  };
+}
+
+export function toWorldviewNodeData(worldview: ExtractedScriptWorldview): ScriptWorldviewNodeData {
+  const normalized = mergeExtractedWorldviews(null, worldview);
+  const worldviewName = normalized?.name ?? '';
+
+  return {
+    displayName: worldviewName || DEFAULT_WORLDVIEW_NAME,
+    worldviewName,
+    description: normalized?.description ?? '',
+    era: normalized?.era ?? '',
+    technology: normalized?.technology ?? '',
+    magic: normalized?.magic ?? '',
+    society: normalized?.society ?? '',
+    geography: normalized?.geography ?? '',
+    rules: normalized?.rules ?? [],
+  };
+}
+
+export function mergeWorldviewNodeData(
+  existingData: ScriptWorldviewNodeData | null | undefined,
+  worldview: ExtractedScriptWorldview
+): ScriptWorldviewNodeData {
+  const merged = mergeExtractedWorldviews(
+    existingData ? toExtractedWorldview(existingData) : null,
+    worldview
+  );
+
+  if (!merged) {
+    return existingData ?? toWorldviewNodeData(worldview);
+  }
+
+  return {
+    ...(existingData ?? {}),
+    displayName: pickWorldviewName(existingData?.displayName ?? existingData?.worldviewName ?? '', merged.name)
+      || DEFAULT_WORLDVIEW_NAME,
+    worldviewName: merged.name,
+    description: merged.description,
+    era: merged.era,
+    technology: merged.technology,
+    magic: merged.magic,
+    society: merged.society,
+    geography: merged.geography,
+    rules: merged.rules,
+  };
+}
+
+export function hasWorldviewNodeDataChanged(
+  previous: ScriptWorldviewNodeData,
+  next: ScriptWorldviewNodeData
+): boolean {
+  if (
+    (previous.displayName ?? '') !== (next.displayName ?? '')
+    || previous.worldviewName !== next.worldviewName
+    || previous.description !== next.description
+    || previous.era !== next.era
+    || previous.technology !== next.technology
+    || previous.magic !== next.magic
+    || previous.society !== next.society
+    || previous.geography !== next.geography
+  ) {
+    return true;
+  }
+
+  const previousRules = Array.isArray(previous.rules) ? previous.rules : [];
+  const nextRules = Array.isArray(next.rules) ? next.rules : [];
+  return previousRules.length !== nextRules.length
+    || previousRules.some((rule, index) => rule !== nextRules[index]);
 }
 
 function splitLongTextBlock(text: string, maxChars: number): string[] {
@@ -335,6 +537,7 @@ export async function extractAssetsFromChunk(chunk: AssetExtractionChunk): Promi
     characters: dedupeCharacters(result.characters),
     locations: dedupeLocations(result.locations),
     items: dedupeItems(result.items),
+    worldview: mergeExtractedWorldviews(null, result.worldview),
   };
 }
 
@@ -371,10 +574,12 @@ export function applyExtractedAssetsToCanvas({
   let nextCharacterIndex = countNodesByType(nodes, CANVAS_NODE_TYPES.scriptCharacter);
   let nextLocationIndex = countNodesByType(nodes, CANVAS_NODE_TYPES.scriptLocation);
   let nextItemIndex = countNodesByType(nodes, CANVAS_NODE_TYPES.scriptItem);
+  const hasWorldviewNode = nodes.some((node) => node.type === CANVAS_NODE_TYPES.scriptWorldview);
 
   let characterCount = 0;
   let locationCount = 0;
   let itemCount = 0;
+  let worldviewCount = 0;
 
   dedupeCharacters(extractedAssets.characters).forEach((character) => {
     const key = normalizeName(character.name).toLowerCase();
@@ -440,9 +645,18 @@ export function applyExtractedAssetsToCanvas({
     itemCount += 1;
   });
 
+  if (!hasWorldviewNode && hasExtractedWorldviewContent(extractedAssets.worldview)) {
+    addNode(CANVAS_NODE_TYPES.scriptWorldview, {
+      x: WORLDVIEW_NODE_X,
+      y: NODE_START_Y,
+    }, toWorldviewNodeData(extractedAssets.worldview));
+    worldviewCount = 1;
+  }
+
   return {
     characters: characterCount,
     locations: locationCount,
     items: itemCount,
+    worldviews: worldviewCount,
   };
 }

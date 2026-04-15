@@ -15,12 +15,12 @@ export const CANVAS_NODE_TYPES = {
   textAnnotation: 'textAnnotationNode',
   group: 'groupNode',
   storyboardSplit: 'storyboardNode',
+  imageCollage: 'imageCollageNode',
   storyboardSplitResult: 'storyboardSplitResultNode',
   storyboardGen: 'storyboardGenNode',
   video: 'videoNode',
   audio: 'audioNode',
   ttsText: 'ttsTextNode',
-  scriptText: 'scriptTextNode',
   ttsVoiceDesign: 'ttsVoiceDesignNode',
   ttsSavedVoice: 'ttsSavedVoiceNode',
   voxCpmVoiceDesign: 'voxCpmVoiceDesignNode',
@@ -68,6 +68,10 @@ export const SEEDANCE_NODE_DEFAULT_WIDTH = 920;
 export const SEEDANCE_NODE_DEFAULT_HEIGHT = 560;
 export const SEEDANCE_NODE_MIN_WIDTH = 760;
 export const SEEDANCE_NODE_MIN_HEIGHT = 440;
+export const IMAGE_COLLAGE_NODE_DEFAULT_WIDTH = 920;
+export const IMAGE_COLLAGE_NODE_DEFAULT_HEIGHT = 560;
+export const IMAGE_COLLAGE_NODE_MIN_WIDTH = 760;
+export const IMAGE_COLLAGE_NODE_MIN_HEIGHT = 420;
 export const SEEDANCE_VIDEO_RESULT_NODE_DEFAULT_WIDTH = 520;
 export const SEEDANCE_VIDEO_RESULT_NODE_DEFAULT_HEIGHT = 388;
 export const SEEDANCE_VIDEO_RESULT_NODE_MIN_WIDTH = 360;
@@ -76,8 +80,6 @@ export const AUDIO_NODE_DEFAULT_WIDTH = 320;
 export const AUDIO_NODE_DEFAULT_HEIGHT = 96;
 export const TTS_TEXT_NODE_DEFAULT_WIDTH = 500;
 export const TTS_TEXT_NODE_DEFAULT_HEIGHT = 300;
-export const SCRIPT_TEXT_NODE_DEFAULT_WIDTH = 480;
-export const SCRIPT_TEXT_NODE_DEFAULT_HEIGHT = 320;
 export const SCRIPT_CHAPTER_NODE_DEFAULT_WIDTH = 420;
 export const SCRIPT_CHAPTER_NODE_DEFAULT_HEIGHT = 380;
 export const SCRIPT_SCENE_NODE_DEFAULT_WIDTH = 460;
@@ -226,6 +228,13 @@ export interface NodeImageData extends NodeDisplayData {
   [key: string]: unknown;
 }
 
+export interface CameraParamsSelection {
+  cameraBodyId: string | null;
+  lensId: string | null;
+  focalLengthMm: number | null;
+  aperture: string | null;
+}
+
 export interface UploadImageNodeData extends NodeImageData {
   sourceFileName?: string | null;
 }
@@ -234,7 +243,8 @@ export type ExportImageNodeResultKind =
   | 'generic'
   | 'storyboardGenOutput'
   | 'storyboardSplitExport'
-  | 'storyboardFrameEdit';
+  | 'storyboardFrameEdit'
+  | 'imageCollageExport';
 
 export interface ExportImageNodeData extends NodeImageData {
   resultKind?: ExportImageNodeResultKind;
@@ -294,15 +304,6 @@ export interface AudioNodeData extends NodeDisplayData {
 
 export interface TtsTextNodeData extends NodeDisplayData {
   content: string;
-  [key: string]: unknown;
-}
-
-export interface ScriptTextNodeData extends NodeDisplayData {
-  content: string;
-  isGenerating?: boolean;
-  lastError?: string | null;
-  lastGeneratedAt?: number | null;
-  lastGeneratedCount?: number;
   [key: string]: unknown;
 }
 
@@ -419,6 +420,7 @@ export interface ImageEditNodeData extends NodeImageData {
   model: string;
   size: ImageSize;
   requestAspectRatio?: string;
+  cameraParams?: CameraParamsSelection | null;
   extraParams?: Record<string, unknown>;
   isGenerating?: boolean;
   generationStartedAt?: number | null;
@@ -429,6 +431,31 @@ export interface Panorama360NodeData extends NodeImageData {
   viewerYaw?: number;
   viewerPitch?: number;
   viewerFov?: number;
+}
+
+export interface ImageCollageLayerItem {
+  sourceNodeId: string;
+  sourceEdgeId: string;
+  imageUrl: string;
+  previewImageUrl?: string | null;
+  placed: boolean;
+  order: number;
+  centerX: number;
+  centerY: number;
+  scale: number;
+  rotationDeg: number;
+  flipX: boolean;
+  flipY: boolean;
+}
+
+export type ImageCollageBackgroundMode = 'transparent' | 'white';
+
+export interface ImageCollageNodeData extends NodeDisplayData {
+  aspectRatio: string;
+  size: ImageSize;
+  layers: ImageCollageLayerItem[];
+  selectedLayerId: string | null;
+  backgroundMode: ImageCollageBackgroundMode;
 }
 
 export interface JimengNodeData extends NodeDisplayData {
@@ -477,6 +504,7 @@ export interface JimengImageNodeData extends NodeDisplayData {
   modelVersion?: JimengImageModelVersion;
   aspectRatio?: JimengAspectRatio;
   resolutionType?: JimengImageResolutionType;
+  cameraParams?: CameraParamsSelection | null;
   isGenerating?: boolean;
   generationStartedAt?: number | null;
   generationDurationMs?: number;
@@ -634,6 +662,99 @@ export interface StoryboardGenNodeData {
   generationStartedAt?: number | null;
   generationDurationMs?: number;
   [key: string]: unknown;
+}
+
+function normalizeImageAspectRatioValue(value: unknown): string {
+  return typeof value === 'string' && IMAGE_ASPECT_RATIOS.includes(value as (typeof IMAGE_ASPECT_RATIOS)[number])
+    ? value
+    : DEFAULT_ASPECT_RATIO;
+}
+
+function normalizeImageSizeValue(value: unknown): ImageSize {
+  return typeof value === 'string' && IMAGE_SIZES.includes(value as ImageSize)
+    ? value as ImageSize
+    : '1K';
+}
+
+function normalizeFiniteNumber(value: unknown, fallback: number): number {
+  return typeof value === 'number' && Number.isFinite(value) ? value : fallback;
+}
+
+function normalizeBooleanValue(value: unknown, fallback = false): boolean {
+  return typeof value === 'boolean' ? value : fallback;
+}
+
+function normalizeImageCollageLayerItems(value: unknown): ImageCollageLayerItem[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  const layers = value
+    .map((item, index): ImageCollageLayerItem | null => {
+      if (!item || typeof item !== 'object') {
+        return null;
+      }
+
+      const record = item as Partial<ImageCollageLayerItem>;
+      const sourceEdgeId = normalizeString(record.sourceEdgeId).trim();
+      const sourceNodeId = normalizeString(record.sourceNodeId).trim();
+      const imageUrl = normalizeString(record.imageUrl).trim();
+      if (!sourceEdgeId || !sourceNodeId || !imageUrl) {
+        return null;
+      }
+
+      const previewImageUrl = normalizeString(record.previewImageUrl).trim() || imageUrl;
+
+      return {
+        sourceNodeId,
+        sourceEdgeId,
+        imageUrl,
+        previewImageUrl,
+        placed: normalizeBooleanValue(record.placed),
+        order: Math.round(normalizeFiniteNumber(record.order, index)),
+        centerX: normalizeFiniteNumber(record.centerX, 0.5),
+        centerY: normalizeFiniteNumber(record.centerY, 0.5),
+        scale: Math.max(0.05, normalizeFiniteNumber(record.scale, 1)),
+        rotationDeg: normalizeFiniteNumber(record.rotationDeg, 0),
+        flipX: normalizeBooleanValue(record.flipX),
+        flipY: normalizeBooleanValue(record.flipY),
+      };
+    })
+    .filter((item): item is ImageCollageLayerItem => item !== null)
+    .sort((left, right) => {
+      const orderDelta = left.order - right.order;
+      if (orderDelta !== 0) {
+        return orderDelta;
+      }
+      return left.sourceEdgeId.localeCompare(right.sourceEdgeId);
+    });
+
+  return layers.map((layer, index) => ({
+    ...layer,
+    order: index,
+  }));
+}
+
+function normalizeImageCollageBackgroundMode(value: unknown): ImageCollageBackgroundMode {
+  return value === 'white' ? 'white' : 'transparent';
+}
+
+export function normalizeImageCollageNodeData(
+  data: Partial<ImageCollageNodeData> | null | undefined
+): ImageCollageNodeData {
+  const layers = normalizeImageCollageLayerItems(data?.layers);
+  const selectedLayerId = normalizeString(data?.selectedLayerId).trim();
+
+  return {
+    displayName: normalizeString(data?.displayName).trim() || undefined,
+    aspectRatio: normalizeImageAspectRatioValue(data?.aspectRatio),
+    size: normalizeImageSizeValue(data?.size),
+    layers,
+    selectedLayerId: layers.some((layer) => layer.sourceEdgeId === selectedLayerId)
+      ? selectedLayerId
+      : null,
+    backgroundMode: normalizeImageCollageBackgroundMode(data?.backgroundMode),
+  };
 }
 
 export type ShotRowGenTarget = 'image' | 'video' | 'storyboard';
@@ -1067,6 +1188,7 @@ export type CanvasNodeData =
   | UploadImageNodeData
   | ExportImageNodeData
   | Panorama360NodeData
+  | ImageCollageNodeData
   | TextAnnotationNodeData
   | GroupNodeData
   | ImageEditNodeData
@@ -1082,7 +1204,6 @@ export type CanvasNodeData =
   | VideoNodeData
   | AudioNodeData
   | TtsTextNodeData
-  | ScriptTextNodeData
   | TtsVoiceDesignNodeData
   | TtsSavedVoiceNodeData
   | VoxCpmVoiceDesignNodeData
@@ -1995,6 +2116,12 @@ export function isPanorama360Node(
   return node?.type === CANVAS_NODE_TYPES.panorama360;
 }
 
+export function isImageCollageNode(
+  node: CanvasNode | null | undefined
+): node is Node<ImageCollageNodeData, typeof CANVAS_NODE_TYPES.imageCollage> {
+  return node?.type === CANVAS_NODE_TYPES.imageCollage;
+}
+
 export function isJimengNode(
   node: CanvasNode | null | undefined
 ): node is Node<JimengNodeData, typeof CANVAS_NODE_TYPES.jimeng> {
@@ -2080,12 +2207,6 @@ export function isTtsTextNode(
   node: CanvasNode | null | undefined
 ): node is Node<TtsTextNodeData, typeof CANVAS_NODE_TYPES.ttsText> {
   return node?.type === CANVAS_NODE_TYPES.ttsText;
-}
-
-export function isScriptTextNode(
-  node: CanvasNode | null | undefined
-): node is Node<ScriptTextNodeData, typeof CANVAS_NODE_TYPES.scriptText> {
-  return node?.type === CANVAS_NODE_TYPES.scriptText;
 }
 
 export function isTtsVoiceDesignNode(

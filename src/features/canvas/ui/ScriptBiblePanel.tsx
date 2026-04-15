@@ -9,6 +9,9 @@ import { useCanvasStore } from '@/stores/canvasStore';
 import {
   buildAssetExtractionChunks,
   extractAssetsFromChunk,
+  hasExtractedWorldviewContent,
+  hasWorldviewNodeDataChanged,
+  mergeWorldviewNodeData,
 } from '../application/assetExtractor';
 import { AssetEditDialog, type AssetEditFormData, type AssetType } from './AssetEditDialog';
 import {
@@ -19,9 +22,9 @@ import { BranchSelectionDialog } from './BranchSelectionDialog';
 import { PlotTreeView } from './PlotTreeView';
 import { ScriptImportDialog } from './ScriptImportDialog';
 import {
-  buildDefaultNativePackageFileName,
-  exportNativeScriptPackage,
-} from '../application/scriptExporter';
+  buildDefaultScriptProjectPackageFileName,
+  exportScriptProjectPackageBundle,
+} from '../application/scriptProjectPackage';
 import {
   CANVAS_NODE_TYPES,
   type ScriptCharacterAsset,
@@ -277,6 +280,7 @@ const EMPTY_ASSET_EXTRACTION_PROGRESS: AssetExtractionProgressState = {
     characters: 0,
     locations: 0,
     items: 0,
+    worldviews: 0,
   },
   logs: [],
   error: '',
@@ -372,7 +376,17 @@ function AssetItem({ label, description, onClick, onEdit, onShowOnCanvas, showOn
 export function ScriptBiblePanel() {
   const { t } = useTranslation();
   const currentProject = useProjectStore((state) => state.getCurrentProject());
-  const { nodes, edges, addNode, updateNodeData, deleteNode, setSelectedNode } = useCanvasStore();
+  const {
+    nodes,
+    edges,
+    addNode,
+    updateNodeData,
+    deleteNode,
+    setSelectedNode,
+    currentViewport,
+    history,
+    selectedNodeId,
+  } = useCanvasStore();
   const { setCenter } = useReactFlow();
   const [showImportDialog, setShowImportDialog] = useState(false);
   const [showExportDialog, setShowExportDialog] = useState(false);
@@ -717,6 +731,7 @@ export function ScriptBiblePanel() {
         characters: 0,
         locations: 0,
         items: 0,
+        worldviews: 0,
       };
       let activeChunkId = '';
 
@@ -784,6 +799,9 @@ export function ScriptBiblePanel() {
               .map((item) => getAssetLookupKey(item))
               .filter((item) => item.length > 0)
           );
+          const currentWorldviewNode = store.nodes.find((node) => node.type === CANVAS_NODE_TYPES.scriptWorldview) as
+            | { id: string; data: ScriptWorldviewNodeData }
+            | undefined;
 
           const nextCharacterAssets = extractedAssets.characters.map((item) => toCharacterAsset(item));
           const nextLocationAssets = extractedAssets.locations.map((item) => ({
@@ -812,6 +830,35 @@ export function ScriptBiblePanel() {
             ),
           });
 
+          let worldviewTouchedThisBatch = false;
+          if (hasExtractedWorldviewContent(extractedAssets.worldview)) {
+            const nextWorldviewData = mergeWorldviewNodeData(
+              currentWorldviewNode?.data,
+              extractedAssets.worldview
+            );
+
+            if (currentWorldviewNode) {
+              if (hasWorldviewNodeDataChanged(currentWorldviewNode.data, nextWorldviewData)) {
+                store.updateNodeData(currentWorldviewNode.id, nextWorldviewData);
+                worldviewTouchedThisBatch = true;
+              }
+            } else {
+              const worldviewIndex = store.nodes.filter((node) => (
+                node.type === CANVAS_NODE_TYPES.scriptCharacter
+                || node.type === CANVAS_NODE_TYPES.scriptLocation
+                || node.type === CANVAS_NODE_TYPES.scriptItem
+                || node.type === CANVAS_NODE_TYPES.scriptWorldview
+              )).length;
+
+              store.addNode(
+                CANVAS_NODE_TYPES.scriptWorldview,
+                getNextPosition(900, 100, worldviewIndex),
+                nextWorldviewData
+              );
+              worldviewTouchedThisBatch = true;
+            }
+          }
+
           const applied = {
             characters: countNewAssets(nextCharacterAssets, existingCharacterNames),
             locations: countNewAssets(nextLocationAssets, existingLocationNames),
@@ -821,6 +868,7 @@ export function ScriptBiblePanel() {
           totalSummary.characters += applied.characters;
           totalSummary.locations += applied.locations;
           totalSummary.items += applied.items;
+          totalSummary.worldviews = worldviewTouchedThisBatch ? 1 : totalSummary.worldviews;
 
           setAssetExtractionProgress((current) => ({
             ...current,
@@ -834,11 +882,17 @@ export function ScriptBiblePanel() {
                 ? {
                     ...log,
                     status: 'completed',
-                    detail: t('script.assetExtraction.batchCompleted', {
-                      characters: applied.characters,
-                      locations: applied.locations,
-                      items: applied.items,
-                    }),
+                    detail: worldviewTouchedThisBatch
+                      ? t('script.assetExtraction.batchCompletedWithWorldview', {
+                          characters: applied.characters,
+                          locations: applied.locations,
+                          items: applied.items,
+                        })
+                      : t('script.assetExtraction.batchCompleted', {
+                          characters: applied.characters,
+                          locations: applied.locations,
+                          items: applied.items,
+                        }),
                   }
                 : log
             )),
@@ -875,7 +929,7 @@ export function ScriptBiblePanel() {
         setIsExtracting(false);
       }
     })();
-  }, [t]);
+  }, [getNextPosition, t]);
 
   const handleCloseAssetExtractionProgress = useCallback(() => {
     setAssetExtractionProgress((current) => (
@@ -979,16 +1033,23 @@ export function ScriptBiblePanel() {
   const handleExportNativePackage = useCallback(async () => {
     const rootTitle = rootNode?.data.title?.trim() || 'Untitled Script';
     const selectedPath = await save({
-      defaultPath: buildDefaultNativePackageFileName(rootTitle),
-      filters: [{ name: 'Script Package', extensions: ['json'] }],
+      defaultPath: buildDefaultScriptProjectPackageFileName(rootTitle),
+      filters: [{ name: 'Script Project Package', extensions: ['scpkg'] }],
     });
 
     if (typeof selectedPath !== 'string') {
       return;
     }
 
-    await exportNativeScriptPackage(nodes as any, edges as any, selectedPath);
-  }, [edges, nodes, rootNode]);
+    await exportScriptProjectPackageBundle(selectedPath, {
+      currentProject,
+      nodes: nodes as any,
+      edges: edges as any,
+      viewport: currentViewport,
+      history,
+      selectedNodeId,
+    });
+  }, [currentProject, currentViewport, edges, history, nodes, rootNode, selectedNodeId]);
 
   const handleAddAsset = useCallback((type: AssetType) => {
     setEditDialogState({
@@ -1110,7 +1171,7 @@ export function ScriptBiblePanel() {
           <button
                 onClick={handleImportScript}
                 className="p-1 rounded hover:bg-bg-dark cursor-pointer"
-                title="导入剧本"
+                title={t('scriptImportDialog.title')}
               >
                 <FilePlus className="w-4 h-4 text-text-muted" />
               </button>

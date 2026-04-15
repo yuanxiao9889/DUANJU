@@ -5,10 +5,21 @@ import {
   useUpdateNodeInternals,
   type NodeProps,
 } from "@xyflow/react";
-import { Clock3, Loader2, Sparkles, TriangleAlert, Video } from "lucide-react";
+import {
+  Camera,
+  ChevronLeft,
+  ChevronRight,
+  Clock3,
+  Loader2,
+  Pause,
+  Play,
+  Sparkles,
+  TriangleAlert,
+  Video,
+} from "lucide-react";
 import { useTranslation } from "react-i18next";
 
-import { UiButton, UiCheckbox, UiLoadingOverlay, UiSelect } from "@/components/ui";
+import { UiButton, UiCheckbox, UiLoadingAnimation, UiSelect } from "@/components/ui";
 import {
   CANVAS_NODE_TYPES,
   JIMENG_VIDEO_RESULT_NODE_DEFAULT_WIDTH,
@@ -27,6 +38,7 @@ import {
   resolveVideoDisplayUrl,
 } from "@/features/canvas/application/videoData";
 import { resolveNodeDisplayName } from "@/features/canvas/domain/nodeDisplay";
+import { useNodeVideoPlaybackControls } from "@/features/canvas/hooks/useNodeVideoPlaybackControls";
 import {
   NodeHeader,
   NODE_HEADER_FLOATING_POSITION_CLASS,
@@ -42,7 +54,6 @@ import { resolveNodeStyleDimension } from "@/features/canvas/ui/nodeDimensionUti
 import { queryJimengVideoResult } from "@/features/jimeng/application/jimengVideoSubmission";
 import {
   type JimengVideoQueueJobStatus,
-  isJimengVideoQueueTerminalStatus,
 } from "@/features/jimeng/domain/jimengVideoQueue";
 import {
   ensureDreaminaCliReady,
@@ -65,24 +76,6 @@ type RequeryOptions = {
   keepPollingOnFailure?: boolean;
   suppressStartFlush?: boolean;
 };
-
-function formatTimestamp(
-  timestamp: number | null | undefined,
-  locale: string,
-): string | null {
-  if (
-    typeof timestamp !== "number" ||
-    !Number.isFinite(timestamp) ||
-    timestamp <= 0
-  ) {
-    return null;
-  }
-
-  return new Intl.DateTimeFormat(locale, {
-    hour: "2-digit",
-    minute: "2-digit",
-  }).format(new Date(timestamp));
-}
 
 function toCssAspectRatio(aspectRatio: string): string {
   const [rawWidth = "16", rawHeight = "9"] = aspectRatio.split(":");
@@ -119,18 +112,19 @@ function resolveAutoRequeryIntervalSeconds(
 
 export const JimengVideoResultNode = memo(
   ({ id, data, selected, width }: JimengVideoResultNodeProps) => {
-    const { t, i18n } = useTranslation();
+    const { t } = useTranslation();
     const updateNodeInternals = useUpdateNodeInternals();
     const currentNode = useCanvasNodeById(id);
     const setSelectedNode = useCanvasStore((state) => state.setSelectedNode);
     const updateNodeData = useCanvasStore((state) => state.updateNodeData);
+    const addNode = useCanvasStore((state) => state.addNode);
+    const addEdge = useCanvasStore((state) => state.addEdge);
     const isDescriptionPanelOpen = useCanvasStore(
       (state) => Boolean(state.nodeDescriptionPanelOpenById[id]),
     );
     const isReferenceSourceHighlighted = useCanvasStore(
       (state) => state.highlightedReferenceSourceNodeId === id,
     );
-    const [playbackError, setPlaybackError] = useState<string | null>(null);
     const [isRequerying, setIsRequerying] = useState(false);
     const [statusNotice, setStatusNotice] = useState<string | null>(null);
     const autoRequeryEnabled = Boolean(data.autoRequeryEnabled);
@@ -179,44 +173,9 @@ export const JimengVideoResultNode = memo(
       const source = data.previewImageUrl?.trim() ?? "";
       return source ? resolveImageDisplayUrl(source) : null;
     }, [data.previewImageUrl]);
-    const lastGeneratedTime = useMemo(
-      () => formatTimestamp(data.lastGeneratedAt ?? null, i18n.language),
-      [data.lastGeneratedAt, i18n.language],
-    );
-    const durationLabel = useMemo(() => {
-      if (
-        typeof data.duration !== "number" ||
-        !Number.isFinite(data.duration) ||
-        data.duration <= 0
-      ) {
-        return null;
-      }
-      return formatVideoTime(data.duration);
-    }, [data.duration]);
-    const resolutionLabel = useMemo(() => {
-      if (!data.width || !data.height) {
-        return null;
-      }
-      return `${data.width} x ${data.height}`;
-    }, [data.height, data.width]);
     const queueStatus = (data.queueStatus ?? null) as
       | JimengVideoQueueJobStatus
       | null;
-    const queueScheduledTime = useMemo(
-      () => formatTimestamp(data.queueScheduledAt ?? null, i18n.language),
-      [data.queueScheduledAt, i18n.language],
-    );
-    const queueAttemptCount =
-      typeof data.queueAttemptCount === "number" &&
-      Number.isFinite(data.queueAttemptCount)
-        ? data.queueAttemptCount
-        : 0;
-    const queueMaxAttempts =
-      typeof data.queueMaxAttempts === "number" &&
-      Number.isFinite(data.queueMaxAttempts) &&
-      data.queueMaxAttempts > 0
-        ? data.queueMaxAttempts
-        : 3;
     const canRequery =
       Boolean(normalizedSubmitId) &&
       queueStatus !== "waiting" &&
@@ -236,6 +195,7 @@ export const JimengVideoResultNode = memo(
       hasExplicitHeight,
       id,
       isDescriptionPanelOpen,
+      resolvedAspectRatio,
       resolvedHeight,
       resolvedWidth,
       updateNodeInternals,
@@ -490,7 +450,137 @@ export const JimengVideoResultNode = memo(
       [id, updateNodeData],
     );
 
-    const combinedError = playbackError ?? data.lastError ?? null;
+    const placeholderText = useMemo(() => {
+      if (queueStatus) {
+        return t(`jimengQueue.status.${queueStatus}`);
+      }
+
+      return data.isGenerating
+        ? t("node.jimengVideoResult.pending")
+        : t("node.jimengVideoResult.empty");
+    }, [data.isGenerating, queueStatus, t]);
+    const queueStatusMessage = useMemo(() => {
+      if (queueStatus === "waiting") {
+        return t("jimengQueue.result.waiting");
+      }
+
+      if (queueStatus === "waitingConcurrency") {
+        return t("jimengQueue.result.waitingConcurrency");
+      }
+
+      if (queueStatus === "retrying") {
+        const current =
+          typeof data.queueAttemptCount === "number" &&
+          Number.isFinite(data.queueAttemptCount)
+            ? data.queueAttemptCount
+            : 0;
+        const max =
+          typeof data.queueMaxAttempts === "number" &&
+          Number.isFinite(data.queueMaxAttempts) &&
+          data.queueMaxAttempts > 0
+            ? data.queueMaxAttempts
+            : 3;
+        return t("jimengQueue.result.retrying", {
+          current,
+          max,
+        });
+      }
+
+      if (queueStatus === "submitting") {
+        return t("jimengQueue.result.submitting");
+      }
+
+      if (queueStatus === "submitted") {
+        return t("jimengQueue.result.submitted");
+      }
+
+      if (queueStatus === "failed") {
+        return t("jimengQueue.result.failed", {
+          current:
+            typeof data.queueAttemptCount === "number" &&
+            Number.isFinite(data.queueAttemptCount)
+              ? data.queueAttemptCount
+              : 0,
+          max:
+            typeof data.queueMaxAttempts === "number" &&
+            Number.isFinite(data.queueMaxAttempts) &&
+            data.queueMaxAttempts > 0
+              ? data.queueMaxAttempts
+              : 3,
+        });
+      }
+
+      if (queueStatus === "cancelled") {
+        return t("jimengQueue.result.cancelled");
+      }
+
+      return statusNotice;
+    }, [
+      data.queueAttemptCount,
+      data.queueMaxAttempts,
+      queueStatus,
+      statusNotice,
+      t,
+    ]);
+    const resolutionText = useMemo(() => {
+      if (
+        typeof data.width === "number" &&
+        Number.isFinite(data.width) &&
+        data.width > 0 &&
+        typeof data.height === "number" &&
+        Number.isFinite(data.height) &&
+        data.height > 0
+      ) {
+        return `${Math.round(data.width)} × ${Math.round(data.height)}`;
+      }
+
+      return null;
+    }, [data.height, data.width]);
+    const nodeDescription =
+      typeof data.nodeDescription === "string" ? data.nodeDescription : "";
+    const showBlockingOverlay = Boolean(data.isGenerating || isRequerying);
+    const {
+      videoRef,
+      isPlaying,
+      currentTime,
+      duration,
+      flashFrame,
+      isCapturingScreenshot,
+      screenshotStatus,
+      videoError,
+      isVideoReady,
+      screenshotButtonDisabled,
+      togglePlay,
+      seekToPrevFrame,
+      seekToNextFrame,
+      handleVideoPlay,
+      handleVideoPause,
+      handleTimeUpdate,
+      handleLoadedMetadata,
+      handleLoadedData,
+      handleCanPlay,
+      handleVideoError,
+      handleRetryLoad,
+      handleScreenshot,
+    } = useNodeVideoPlaybackControls({
+      nodeId: id,
+      videoUrl: data.videoUrl,
+      videoSource,
+      videoFileName: data.videoFileName,
+      fallbackTitle: resolvedTitle,
+      nodePosition: currentNode?.position ?? null,
+      nodeWidth: resolvedWidth,
+      initialDuration: data.duration,
+      t,
+      addNode,
+      addEdge,
+      onDurationChange: (nextDuration) => {
+        if (Math.abs((data.duration ?? 0) - nextDuration) > 0.01) {
+          updateNodeData(id, { duration: nextDuration });
+        }
+      },
+    });
+    const combinedError = videoError ?? data.lastError ?? null;
     const headerStatus = useMemo(() => {
       if (
         queueStatus === "waiting" ||
@@ -513,16 +603,21 @@ export const JimengVideoResultNode = memo(
         data.isGenerating
       ) {
         return (
-          <NodeStatusBadge
-            icon={<Loader2 className="h-3 w-3" />}
-            label={
+          <span
+            title={
               queueStatus
                 ? t(`jimengQueue.status.${queueStatus}`)
                 : t("node.jimengVideoResult.generating")
             }
-            tone="processing"
-            animate
-          />
+            className="inline-flex h-7 w-7 items-center justify-center rounded-full border border-accent/30 bg-accent/12 shadow-[0_8px_16px_rgba(var(--accent-rgb),0.12)]"
+          >
+            <UiLoadingAnimation
+              width={18}
+              height={18}
+              fit="cover"
+              className="overflow-hidden rounded-full"
+            />
+          </span>
         );
       }
 
@@ -561,94 +656,6 @@ export const JimengVideoResultNode = memo(
       return null;
     }, [combinedError, data.isGenerating, queueStatus, t, videoSource]);
 
-    const statusInfoText = useMemo(() => {
-      if (queueStatus === "waiting") {
-        return queueScheduledTime
-          ? t("jimengQueue.result.waitingUntil", {
-              time: queueScheduledTime,
-            })
-          : t("jimengQueue.result.waiting");
-      }
-
-      if (queueStatus === "waitingConcurrency") {
-        return t("jimengQueue.result.waitingConcurrency");
-      }
-
-      if (queueStatus === "retrying") {
-        return combinedError
-          ? t("jimengQueue.result.retryingWithReason", {
-              current: queueAttemptCount,
-              max: queueMaxAttempts,
-              reason: combinedError,
-            })
-          : t("jimengQueue.result.retrying", {
-              current: queueAttemptCount,
-              max: queueMaxAttempts,
-            });
-      }
-
-      if (queueStatus === "submitting") {
-        return t("jimengQueue.result.submitting");
-      }
-
-      if (queueStatus === "submitted") {
-        return t("jimengQueue.result.submitted");
-      }
-
-      if (queueStatus === "generating" || data.isGenerating) {
-        return t("node.jimengVideoResult.statusGenerating");
-      }
-
-      if (queueStatus === "failed") {
-        return combinedError
-          ? t("jimengQueue.result.failedWithReason", {
-              current: queueAttemptCount,
-              max: queueMaxAttempts,
-              reason: combinedError,
-            })
-          : t("jimengQueue.result.failed", {
-              current: queueAttemptCount,
-              max: queueMaxAttempts,
-            });
-      }
-
-      if (queueStatus === "cancelled") {
-        return t("jimengQueue.result.cancelled");
-      }
-
-      return (
-        combinedError ??
-        statusNotice ??
-        (lastGeneratedTime
-          ? t("node.jimengVideoResult.generatedAt", {
-              time: lastGeneratedTime,
-            })
-          : t("node.jimengVideoResult.empty"))
-      );
-    }, [
-      combinedError,
-      data.isGenerating,
-      lastGeneratedTime,
-      queueAttemptCount,
-      queueMaxAttempts,
-      queueScheduledTime,
-      queueStatus,
-      statusNotice,
-      t,
-    ]);
-    const placeholderText = useMemo(() => {
-      if (queueStatus) {
-        return t(`jimengQueue.status.${queueStatus}`);
-      }
-
-      return data.isGenerating
-        ? t("node.jimengVideoResult.pending")
-        : t("node.jimengVideoResult.empty");
-    }, [data.isGenerating, queueStatus, t]);
-    const nodeDescription =
-      typeof data.nodeDescription === "string" ? data.nodeDescription : "";
-    const showBlockingOverlay = Boolean(data.isGenerating || isRequerying);
-
     return (
       <div
         className={`
@@ -668,7 +675,6 @@ export const JimengVideoResultNode = memo(
         }}
         onClick={() => setSelectedNode(id)}
       >
-        <UiLoadingOverlay visible={showBlockingOverlay} insetClassName="inset-3" />
         <NodeHeader
           className={NODE_HEADER_FLOATING_POSITION_CLASS}
           icon={<Video className="h-3.5 w-3.5" />}
@@ -680,80 +686,201 @@ export const JimengVideoResultNode = memo(
           }
         />
 
-        <div className="flex min-h-0 flex-1 flex-col pt-5">
-          <div className="relative overflow-hidden rounded-xl border border-white/10 bg-black/30">
+        <div className={`flex flex-col pt-5 ${hasExplicitHeight ? "min-h-0 flex-1" : ""}`}>
+          <div
+            className={`flex flex-col overflow-hidden rounded-[var(--node-radius)] bg-[linear-gradient(165deg,rgba(255,255,255,0.05),rgba(255,255,255,0.015))] ${hasExplicitHeight ? "min-h-0 flex-1" : ""}`}
+          >
             <div
-              className="overflow-hidden bg-black"
-              style={{ aspectRatio: resolvedAspectRatio }}
+              className={`relative overflow-hidden bg-black ${flashFrame ? "animate-pulse bg-white/20" : ""} ${hasExplicitHeight ? "min-h-0 flex-1" : ""}`}
+              style={hasExplicitHeight ? undefined : { aspectRatio: resolvedAspectRatio }}
             >
-              {videoSource ? (
-                <video
-                  src={videoSource}
-                  controls
-                  preload="metadata"
-                  playsInline
-                  poster={posterSource ?? undefined}
-                  className="h-full w-full bg-black object-contain"
-                  onLoadedData={() => setPlaybackError(null)}
-                  onError={() =>
-                    setPlaybackError(t("node.videoNode.loadFailed"))
-                  }
-                  onMouseDown={(event) => event.stopPropagation()}
+              {posterSource && (!isVideoReady || Boolean(videoError)) ? (
+                <img
+                  src={posterSource}
+                  alt={t("node.videoNode.posterAlt")}
+                  className="absolute inset-0 h-full w-full object-cover"
                 />
-              ) : (
-                <div className="flex h-full w-full items-center justify-center bg-[radial-gradient(circle_at_top,#1f2937_0%,#0f172a_72%)] text-sm text-text-muted">
-                  {placeholderText}
+              ) : null}
+              <div
+                className="absolute inset-0"
+                onClick={(event) => event.stopPropagation()}
+                onPointerDown={(event) => event.stopPropagation()}
+              >
+                {videoSource ? (
+                  <video
+                    ref={videoRef}
+                    src={videoSource}
+                    controls
+                    preload="metadata"
+                    playsInline
+                    poster={posterSource ?? undefined}
+                    className={`h-full w-full bg-black object-contain transition-opacity duration-150 ${
+                      videoError ? "opacity-35" : "opacity-100"
+                    }`}
+                    onPlay={handleVideoPlay}
+                    onPause={handleVideoPause}
+                    onTimeUpdate={handleTimeUpdate}
+                    onSeeked={handleTimeUpdate}
+                    onLoadedMetadata={handleLoadedMetadata}
+                    onLoadedData={handleLoadedData}
+                    onCanPlay={handleCanPlay}
+                    onError={handleVideoError}
+                  />
+                ) : (
+                  <div className="flex h-full w-full items-center justify-center bg-[radial-gradient(circle_at_top,#1f2937_0%,#0f172a_72%)] text-sm text-text-muted">
+                    {showBlockingOverlay ? null : placeholderText}
+                  </div>
+                )}
+              </div>
+              {showBlockingOverlay ? (
+                <div className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center bg-black/12">
+                  <div className="overflow-hidden rounded-[22px]">
+                    <UiLoadingAnimation
+                      className="drop-shadow-[0_16px_36px_rgba(0,0,0,0.32)]"
+                      width="min(220px, calc(100% - 2rem))"
+                      height="96px"
+                      fit="cover"
+                    />
+                  </div>
+                  <span className="sr-only">{t("common.loading")}</span>
                 </div>
-              )}
+              ) : null}
+              {videoError ? (
+                <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-[rgba(15,23,42,0.56)] px-5 text-center">
+                  <div className="flex h-12 w-12 items-center justify-center rounded-full border border-red-400/25 bg-red-500/12 text-red-200">
+                    <TriangleAlert className="h-5 w-5" />
+                  </div>
+                  <div className="space-y-1">
+                    <div className="text-sm font-medium text-text-dark">
+                      {t("node.videoNode.loadFailed")}
+                    </div>
+                    <div className="text-xs leading-5 text-text-muted">{videoError}</div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      handleRetryLoad();
+                    }}
+                    className="inline-flex items-center gap-2 rounded-full border border-border-dark/70 bg-bg-dark/92 px-3 py-2 text-xs font-medium text-text-dark transition-colors hover:border-accent/40 hover:bg-bg-dark"
+                  >
+                    <Loader2 className="h-3.5 w-3.5" />
+                    {t("node.videoNode.retryLoad")}
+                  </button>
+                </div>
+              ) : null}
             </div>
-          </div>
 
-          <div className="mt-2 flex flex-wrap gap-1.5 text-[10px] leading-4 text-text-muted">
-            {queueStatus ? (
-              <span className="rounded-full border border-white/10 bg-white/[0.04] px-2 py-0.5">
-                {t("jimengQueue.result.attemptCount", {
-                  current: queueAttemptCount,
-                  max: queueMaxAttempts,
-                })}
-              </span>
-            ) : null}
-            {queueScheduledTime &&
-            queueStatus &&
-            !isJimengVideoQueueTerminalStatus(queueStatus) ? (
-              <span className="rounded-full border border-white/10 bg-white/[0.04] px-2 py-0.5">
-                {t("jimengQueue.result.scheduledAt", {
-                  time: queueScheduledTime,
-                })}
-              </span>
-            ) : null}
-            {durationLabel ? (
-              <span className="rounded-full border border-white/10 bg-white/[0.04] px-2 py-0.5">
-                {t("node.jimengVideoResult.duration", {
-                  duration: durationLabel,
-                })}
-              </span>
-            ) : null}
-            {resolutionLabel ? (
-              <span className="rounded-full border border-white/10 bg-white/[0.04] px-2 py-0.5">
-                {resolutionLabel}
-              </span>
-            ) : null}
-            <span className="rounded-full border border-white/10 bg-white/[0.04] px-2 py-0.5">
-              {data.aspectRatio ?? "16:9"}
-            </span>
+            <div
+              className="border-t border-[rgba(255,255,255,0.08)] bg-[linear-gradient(180deg,rgba(8,10,16,0.88),rgba(8,10,16,0.96))] px-3 py-2"
+              onClick={(event) => event.stopPropagation()}
+              onPointerDown={(event) => event.stopPropagation()}
+            >
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => seekToPrevFrame()}
+                  disabled={isPlaying || !isVideoReady}
+                  className={`inline-flex h-8 w-8 items-center justify-center rounded-full border transition-colors ${
+                    isPlaying || !isVideoReady
+                      ? "cursor-not-allowed border-white/[0.06] bg-white/[0.02] text-text-muted/40"
+                      : "border-white/[0.08] bg-white/[0.05] text-text-dark hover:border-accent/35 hover:bg-accent/10 hover:text-accent"
+                  }`}
+                  title={t("node.videoNode.prevFrame")}
+                >
+                  <ChevronLeft className="h-4 w-4" />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => togglePlay()}
+                  disabled={!isVideoReady}
+                  className={`inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full border transition-colors ${
+                    !isVideoReady
+                      ? "cursor-not-allowed border-white/[0.06] bg-white/[0.02] text-text-muted/40"
+                      : "border-white/[0.1] bg-white/[0.06] text-text-dark hover:border-accent/40 hover:bg-accent/12 hover:text-accent"
+                  }`}
+                  title={isPlaying ? t("node.videoNode.pause") : t("node.videoNode.play")}
+                >
+                  {isPlaying ? <Pause className="h-4 w-4" /> : <Play className="h-4 w-4" />}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => seekToNextFrame()}
+                  disabled={isPlaying || !isVideoReady}
+                  className={`inline-flex h-8 w-8 items-center justify-center rounded-full border transition-colors ${
+                    isPlaying || !isVideoReady
+                      ? "cursor-not-allowed border-white/[0.06] bg-white/[0.02] text-text-muted/40"
+                      : "border-white/[0.08] bg-white/[0.05] text-text-dark hover:border-accent/35 hover:bg-accent/10 hover:text-accent"
+                  }`}
+                  title={t("node.videoNode.nextFrame")}
+                >
+                  <ChevronRight className="h-4 w-4" />
+                </button>
+                <div className="min-w-0 flex-1 px-1">
+                  <div className="truncate text-[11px] text-text-muted">
+                    {formatVideoTime(currentTime)} / {formatVideoTime(duration)}
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => void handleScreenshot()}
+                  disabled={screenshotButtonDisabled || showBlockingOverlay}
+                  title={!isVideoReady ? t("node.videoNode.screenshotNotReady") : t("node.videoNode.screenshot")}
+                  className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-medium transition-colors ${
+                    screenshotButtonDisabled || showBlockingOverlay
+                      ? "cursor-not-allowed border-accent/10 bg-accent/8 text-accent/45"
+                      : "border-accent/18 bg-accent/14 text-accent hover:border-accent/30 hover:bg-accent/20"
+                  }`}
+                >
+                  {isCapturingScreenshot ? (
+                    <UiLoadingAnimation size="xs" />
+                  ) : (
+                    <Camera className="h-3.5 w-3.5" />
+                  )}
+                  {isCapturingScreenshot ? t("node.videoNode.screenshotPending") : t("node.videoNode.screenshot")}
+                </button>
+              </div>
+
+              {screenshotStatus ? (
+                <div
+                  className={`mt-2 truncate rounded-full px-2.5 py-1 text-[11px] ${
+                    screenshotStatus.tone === "success"
+                      ? "bg-emerald-500/12 text-emerald-200"
+                      : screenshotStatus.tone === "danger"
+                        ? "bg-red-500/12 text-red-200"
+                        : "bg-white/8 text-text-muted"
+                  }`}
+                  title={screenshotStatus.message}
+                >
+                  {screenshotStatus.message}
+                </div>
+              ) : combinedError || queueStatusMessage ? (
+                <div
+                  className={`mt-2 truncate rounded-full px-2.5 py-1 text-[11px] ${
+                    combinedError
+                      ? "bg-red-500/12 text-red-200"
+                      : "bg-white/8 text-text-muted"
+                  }`}
+                  title={combinedError ?? queueStatusMessage ?? undefined}
+                >
+                  {combinedError ?? queueStatusMessage}
+                </div>
+              ) : null}
+            </div>
           </div>
         </div>
 
         <div className="mt-2 flex min-h-[28px] items-center justify-between gap-2">
-          <div
-            className={`min-w-0 flex-1 truncate text-[10px] leading-4 ${
-              combinedError ? "text-rose-300" : "text-text-muted"
-            }`}
-            title={statusInfoText}
-          >
-            {statusInfoText}
+          <div className="min-w-0 flex-1">
+            {resolutionText ? (
+              <div
+                className="inline-flex max-w-full items-center rounded-full border border-white/10 bg-white/[0.04] px-2.5 py-1 text-[10px] leading-4 text-text-muted"
+                title={resolutionText}
+              >
+                <span className="truncate">{resolutionText}</span>
+              </div>
+            ) : null}
           </div>
-
           <div className="flex shrink-0 items-center gap-1.5">
             <div
               className="flex items-center gap-1.5 text-[10px] text-text-muted"

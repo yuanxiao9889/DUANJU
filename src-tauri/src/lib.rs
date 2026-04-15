@@ -13,6 +13,7 @@ use commands::jimeng_video_queue;
 use commands::project_state;
 use commands::ps_server;
 use commands::seedance;
+use commands::script_project_package;
 use commands::system;
 use commands::text_gen;
 use commands::update;
@@ -208,6 +209,9 @@ pub fn run() {
             update::check_latest_release_tag,
             commands::export::save_text_file,
             commands::export::save_binary_file,
+            script_project_package::export_script_project_package,
+            script_project_package::preview_script_project_package,
+            script_project_package::import_script_project_package,
             commands::storage::get_storage_info,
             commands::storage::list_database_backups,
             commands::storage::create_database_backup,

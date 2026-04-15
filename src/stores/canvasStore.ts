@@ -16,6 +16,8 @@ import {
   EXPORT_RESULT_NODE_LAYOUT_HEIGHT,
   EXPORT_RESULT_NODE_MIN_HEIGHT,
   EXPORT_RESULT_NODE_MIN_WIDTH,
+  IMAGE_COLLAGE_NODE_DEFAULT_HEIGHT,
+  IMAGE_COLLAGE_NODE_DEFAULT_WIDTH,
   IMAGE_EDIT_NODE_DEFAULT_HEIGHT,
   IMAGE_EDIT_NODE_DEFAULT_WIDTH,
   SCRIPT_CHAPTER_NODE_DEFAULT_HEIGHT,
@@ -36,6 +38,7 @@ import {
   type EpisodeCard,
   type ExportImageNodeResultKind,
   type ImageEditNodeData,
+  type ImageCollageNodeData,
   type NodeToolType,
   type StoryboardExportOptions,
   type StoryboardFrameItem,
@@ -49,6 +52,7 @@ import {
   type ScriptItemReferenceNodeData,
   createDefaultSceneCard,
   normalizeShootingScriptNodeData,
+  normalizeImageCollageNodeData,
   normalizeScriptChapterNodeData,
   normalizeScriptCharacterReferenceNodeData,
   normalizeScriptItemReferenceNodeData,
@@ -57,6 +61,7 @@ import {
   normalizeScriptRootNodeData,
   normalizeScriptSceneNodeData,
   isStoryboardSplitNode,
+  isImageCollageNode,
   resolveSingleImageConnectionSource,
 } from '@/features/canvas/domain/canvasNodes';
 import {
@@ -479,6 +484,7 @@ interface CanvasState {
       aspectRatioStrategy?: 'provided' | 'derivedFromSource';
       sizeStrategy?: 'generated' | 'autoMinEdge' | 'matchSource';
       matchSourceNodeSize?: boolean;
+      connectToSource?: boolean;
     }
   ) => string | null;
   addStoryboardSplitFrameExportNodes: (
@@ -753,6 +759,13 @@ function normalizeNodes(rawNodes: CanvasNode[]): CanvasNode[] {
         Object.assign(
           mergedData,
           normalizeScriptItemReferenceNodeData(mergedData as ScriptItemReferenceNodeData)
+        );
+      }
+
+      if (normalizedNodeType === CANVAS_NODE_TYPES.imageCollage) {
+        Object.assign(
+          mergedData,
+          normalizeImageCollageNodeData(mergedData as ImageCollageNodeData)
         );
       }
 
@@ -1422,6 +1435,19 @@ function withScriptReferenceDefaultSize(node: CanvasNode): CanvasNode {
   };
 }
 
+function withImageCollageDefaultSize(node: CanvasNode): CanvasNode {
+  return {
+    ...node,
+    width: IMAGE_COLLAGE_NODE_DEFAULT_WIDTH,
+    height: IMAGE_COLLAGE_NODE_DEFAULT_HEIGHT,
+    style: {
+      ...(node.style ?? {}),
+      width: IMAGE_COLLAGE_NODE_DEFAULT_WIDTH,
+      height: IMAGE_COLLAGE_NODE_DEFAULT_HEIGHT,
+    },
+  };
+}
+
 function isScriptAssetReferenceNodeType(type: CanvasNodeType): boolean {
   return type === CANVAS_NODE_TYPES.scriptCharacterReference
     || type === CANVAS_NODE_TYPES.scriptLocationReference
@@ -1431,6 +1457,18 @@ function isScriptAssetReferenceNodeType(type: CanvasNodeType): boolean {
 function applyDefaultNodeSize(node: CanvasNode, data: CanvasNodeData): CanvasNode {
   if (shouldApplyImageEditDefaultSize(node, data)) {
     return withImageEditDefaultSize(node);
+  }
+
+  if (node.type === CANVAS_NODE_TYPES.imageCollage) {
+    const resolvedWidth =
+      resolveNumericNodeDimension(node.width)
+      ?? resolveNumericNodeDimension(node.style?.width);
+    const resolvedHeight =
+      resolveNumericNodeDimension(node.height)
+      ?? resolveNumericNodeDimension(node.style?.height);
+    if (resolvedWidth === null || resolvedHeight === null) {
+      return withImageCollageDefaultSize(node);
+    }
   }
 
   if (node.type === CANVAS_NODE_TYPES.scriptScene) {
@@ -1470,6 +1508,65 @@ function applyDefaultNodeSize(node: CanvasNode, data: CanvasNodeData): CanvasNod
   }
 
   return node;
+}
+
+function cleanupImageCollageNodesForRemovedEdges(
+  nodes: CanvasNode[],
+  previousEdges: CanvasEdge[],
+  nextEdges: CanvasEdge[]
+): CanvasNode[] {
+  const nextEdgeById = new Map(nextEdges.map((edge) => [edge.id, edge] as const));
+  const removedEdgeIds = previousEdges
+    .filter((edge) => {
+      const nextEdge = nextEdgeById.get(edge.id);
+      return !nextEdge
+        || nextEdge.source !== edge.source
+        || nextEdge.target !== edge.target
+        || (nextEdge.sourceHandle ?? null) !== (edge.sourceHandle ?? null)
+        || (nextEdge.targetHandle ?? null) !== (edge.targetHandle ?? null);
+    })
+    .map((edge) => edge.id);
+
+  if (removedEdgeIds.length === 0) {
+    return nodes;
+  }
+
+  const removedEdgeIdSet = new Set(removedEdgeIds);
+  let changed = false;
+  const nextNodes = nodes.map((node) => {
+    if (!isImageCollageNode(node)) {
+      return node;
+    }
+
+    const normalizedData = normalizeImageCollageNodeData(node.data as ImageCollageNodeData);
+    const remainingLayers = normalizedData.layers.filter(
+      (layer) => !removedEdgeIdSet.has(layer.sourceEdgeId)
+    );
+    const nextSelectedLayerId = remainingLayers.some(
+      (layer) => layer.sourceEdgeId === normalizedData.selectedLayerId
+    )
+      ? normalizedData.selectedLayerId
+      : null;
+
+    if (
+      remainingLayers.length === normalizedData.layers.length
+      && nextSelectedLayerId === normalizedData.selectedLayerId
+    ) {
+      return node;
+    }
+
+    changed = true;
+    return {
+      ...node,
+      data: normalizeImageCollageNodeData({
+        ...normalizedData,
+        layers: remainingLayers,
+        selectedLayerId: nextSelectedLayerId,
+      }),
+    };
+  });
+
+  return changed ? nextNodes : nodes;
 }
 
 function shouldApplyImageEditDefaultSize(node: CanvasNode, data: CanvasNodeData): boolean {
@@ -2504,6 +2601,7 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
   onEdgesChange: (changes) => {
     set((state) => {
       const nextEdges = applyEdgeChangesLocal(changes, state.edges);
+      const nextNodes = cleanupImageCollageNodesForRemovedEdges(state.nodes, state.edges, nextEdges);
       const hasMeaningfulChange = changes.some((change) => change.type !== 'select');
 
       if (!hasMeaningfulChange) {
@@ -2511,6 +2609,7 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
       }
 
       return {
+        nodes: nextNodes,
         edges: nextEdges,
         history: {
           past: pushSnapshot(state.history.past, createSnapshot(state.nodes, state.edges)),
@@ -2980,9 +3079,20 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
     const nextNodes = parentGroupId
       ? fitGroupNodeToChildren([...state.nodes, node], parentGroupId)
       : [...state.nodes, node];
+    const nextEdges = options?.connectToSource && sourceNode && nodeHasSourceHandle(sourceNode.type)
+      ? addEdgeLocal({
+        id: `e-${sourceNodeId}-${node.id}`,
+        source: sourceNodeId,
+        target: node.id,
+        sourceHandle: 'source',
+        targetHandle: 'target',
+        type: 'disconnectableEdge',
+      }, state.edges)
+      : state.edges;
 
     set({
       nodes: nextNodes,
+      edges: nextEdges,
       selectedNodeId: node.id,
       activeToolDialog: null,
       history: {
@@ -3646,6 +3756,12 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
             normalizeScriptItemReferenceNodeData(mergedData as ScriptItemReferenceNodeData)
           );
         }
+        if (node.type === CANVAS_NODE_TYPES.imageCollage) {
+          Object.assign(
+            mergedData,
+            normalizeImageCollageNodeData(mergedData as ImageCollageNodeData)
+          );
+        }
         const resizedNode = maybeApplyImageAutoResize(
           {
             ...node,
@@ -3741,6 +3857,12 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
           Object.assign(
             mergedData,
             normalizeShootingScriptNodeData(mergedData as ShootingScriptNodeData)
+          );
+        }
+        if (node.type === CANVAS_NODE_TYPES.imageCollage) {
+          Object.assign(
+            mergedData,
+            normalizeImageCollageNodeData(mergedData as ImageCollageNodeData)
           );
         }
         const resizedNode = maybeApplyImageAutoResize(
@@ -4806,8 +4928,12 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
         return {};
       }
 
+      const nextEdges = state.edges.filter((edge) => edge.id !== edgeId);
+      const nextNodes = cleanupImageCollageNodesForRemovedEdges(state.nodes, state.edges, nextEdges);
+
       return {
-        edges: state.edges.filter((edge) => edge.id !== edgeId),
+        nodes: nextNodes,
+        edges: nextEdges,
         history: {
           past: pushSnapshot(state.history.past, createSnapshot(state.nodes, state.edges)),
           future: [],

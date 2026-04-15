@@ -12,6 +12,7 @@ interface UiLoadingAnimationProps {
   height?: CSSProperties['height'];
   title?: string;
   style?: CSSProperties;
+  fit?: 'contain' | 'cover' | 'fill';
 }
 
 interface UiLoadingIndicatorProps extends UiLoadingAnimationProps {
@@ -51,6 +52,12 @@ const LABEL_SIZE_CLASS_MAP: Record<UiLoadingSize, string> = {
   xl: 'text-base',
 };
 
+const FIT_CLASS_MAP: Record<NonNullable<UiLoadingAnimationProps['fit']>, string> = {
+  contain: 'object-contain',
+  cover: 'object-cover',
+  fill: 'object-fill',
+};
+
 export function UiLoadingAnimation({
   size = 'md',
   className = '',
@@ -58,15 +65,17 @@ export function UiLoadingAnimation({
   height,
   title,
   style,
+  fit = 'contain',
 }: UiLoadingAnimationProps) {
   const resolvedStyle: CSSProperties | undefined =
     width || height || style
       ? {
+          display: 'block',
           width,
           height,
           ...style,
         }
-      : style;
+      : { display: 'block', ...(style ?? {}) };
 
   return (
     <span
@@ -84,7 +93,7 @@ export function UiLoadingAnimation({
         tabIndex={-1}
         disablePictureInPicture
         disableRemotePlayback
-        className={`${!width && !height ? SIZE_CLASS_MAP[size] : ''} pointer-events-none select-none object-contain`}
+        className={`${!width && !height ? SIZE_CLASS_MAP[size] : ''} pointer-events-none select-none ${FIT_CLASS_MAP[fit]}`}
         style={resolvedStyle}
       />
     </span>

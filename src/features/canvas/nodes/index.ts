@@ -12,11 +12,11 @@ import { JimengNode } from './JimengNode';
 import { SeedanceNode } from './SeedanceNode';
 import { SeedanceVideoResultNode } from './SeedanceVideoResultNode';
 import { StoryboardGenNode } from './StoryboardGenNode';
+import { ImageCollageNode } from './ImageCollageNode';
 import { StoryboardNode } from './StoryboardNode';
 import { StoryboardSplitResultNode } from './StoryboardSplitResultNode';
 import { TextAnnotationNode } from './TextAnnotationNode';
 import { TtsTextNode } from './TtsTextNode';
-import { ScriptTextNode } from './ScriptTextNode';
 import { ScriptSceneNode } from './ScriptSceneNode';
 import { ShootingScriptNode } from './ShootingScriptNode';
 import { ScriptReferenceNode } from './ScriptReferenceNode';
@@ -53,11 +53,11 @@ export const nodeTypes: NodeTypes = {
   seedanceNode: SeedanceNode,
   seedanceVideoResultNode: SeedanceVideoResultNode,
   storyboardGenNode: StoryboardGenNode,
+  imageCollageNode: ImageCollageNode,
   storyboardNode: StoryboardNode,
   storyboardSplitResultNode: StoryboardSplitResultNode,
   textAnnotationNode: TextAnnotationNode,
   ttsTextNode: TextAnnotationNode,
-  scriptTextNode: ScriptTextNode,
   ttsVoiceDesignNode: QwenTtsVoiceDesignNode,
   ttsSavedVoiceNode: QwenTtsSavedVoiceNode,
   voxCpmVoiceDesignNode: VoxCpmVoiceDesignNode,
@@ -93,11 +93,11 @@ export {
   SeedanceNode,
   SeedanceVideoResultNode,
   StoryboardGenNode, 
+  ImageCollageNode,
   StoryboardNode, 
   StoryboardSplitResultNode,
   TextAnnotationNode, 
   TtsTextNode,
-  ScriptTextNode,
   QwenTtsVoiceDesignNode,
   QwenTtsSavedVoiceNode,
   VoxCpmVoiceDesignNode,

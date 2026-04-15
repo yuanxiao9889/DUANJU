@@ -17,9 +17,9 @@ import { useReactFlow } from '@xyflow/react';
 
 import { CANVAS_NODE_TYPES } from '@/features/canvas/domain/canvasNodes';
 import {
-  buildDefaultNativePackageFileName,
-  exportNativeScriptPackage,
-} from '@/features/canvas/application/scriptExporter';
+  buildDefaultScriptProjectPackageFileName,
+  exportScriptProjectPackageBundle,
+} from '@/features/canvas/application/scriptProjectPackage';
 import { BranchSelectionDialog } from '@/features/canvas/ui/BranchSelectionDialog';
 import { useCanvasStore } from '@/stores/canvasStore';
 import { useProjectStore } from '@/stores/projectStore';
@@ -36,6 +36,9 @@ export const CanvasToolbar = memo(({ isLocked, onToggleLock }: CanvasToolbarProp
   const clearCanvas = useCanvasStore((state) => state.clearCanvas);
   const nodes = useCanvasStore((state) => state.nodes);
   const edges = useCanvasStore((state) => state.edges);
+  const currentViewport = useCanvasStore((state) => state.currentViewport);
+  const history = useCanvasStore((state) => state.history);
+  const selectedNodeId = useCanvasStore((state) => state.selectedNodeId);
   const currentProject = useProjectStore((state) => state.getCurrentProject());
   const [showExportDialog, setShowExportDialog] = useState(false);
 
@@ -64,16 +67,23 @@ export const CanvasToolbar = memo(({ isLocked, onToggleLock }: CanvasToolbarProp
       title?: string;
     } | undefined)?.title?.trim() || 'Untitled Script';
     const selectedPath = await save({
-      defaultPath: buildDefaultNativePackageFileName(rootTitle),
-      filters: [{ name: 'Script Package', extensions: ['json'] }],
+      defaultPath: buildDefaultScriptProjectPackageFileName(rootTitle),
+      filters: [{ name: 'Script Project Package', extensions: ['scpkg'] }],
     });
 
     if (typeof selectedPath !== 'string') {
       return;
     }
 
-    await exportNativeScriptPackage(nodes as any, edges as any, selectedPath);
-  }, [edges, nodes]);
+    await exportScriptProjectPackageBundle(selectedPath, {
+      currentProject,
+      nodes: nodes as any,
+      edges: edges as any,
+      viewport: currentViewport,
+      history,
+      selectedNodeId,
+    });
+  }, [currentProject, currentViewport, edges, history, nodes, selectedNodeId]);
 
   return (
     <div className="absolute left-1/2 top-4 z-10 flex -translate-x-1/2 items-center gap-2 rounded-lg border border-border-dark bg-surface-dark px-2 py-1.5 shadow-lg">

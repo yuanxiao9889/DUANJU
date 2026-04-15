@@ -386,7 +386,7 @@ export const ScriptChapterNode = memo(({ id, data, selected, width, height }: Sc
                           onClick={() => setAiDialogMode('expandFromMerged')}
                           disabled={hasMaterializedSceneNodes}
                           className="flex h-8 w-8 items-center justify-center rounded-lg border border-cyan-500/18 bg-cyan-500/8 text-cyan-300 transition-colors hover:bg-cyan-500/16 disabled:cursor-not-allowed disabled:opacity-45"
-                          title="Expand from merged branches"
+                          title={t('script.chapterCatalog.expandFromMerged')}
                         >
                           <GitFork className="h-4 w-4" />
                         </button>
@@ -396,7 +396,7 @@ export const ScriptChapterNode = memo(({ id, data, selected, width, height }: Sc
                         onClick={() => setAiDialogMode('expandFromSummary')}
                         disabled={hasMaterializedSceneNodes}
                         className="flex h-8 w-8 items-center justify-center rounded-lg border border-amber-500/20 bg-amber-500/8 text-amber-300 transition-colors hover:bg-amber-500/16 disabled:cursor-not-allowed disabled:opacity-45"
-                        title="Expand from summary"
+                        title={t('script.chapterCatalog.expandFromSummary')}
                       >
                         <Sparkles className="h-4 w-4" />
                       </button>

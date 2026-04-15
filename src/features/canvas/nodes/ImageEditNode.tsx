@@ -11,7 +11,7 @@ import {
   useRef,
 } from 'react';
 import { Handle, Position, useUpdateNodeInternals, type NodeProps } from '@xyflow/react';
-import { AlertTriangle, Loader2, Sparkles, Undo2, Wand2 } from 'lucide-react';
+import { AlertTriangle, Camera, Loader2, Sparkles, Undo2, Wand2 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 
 import { UiLoadingOverlay } from '@/components/ui';
@@ -39,6 +39,12 @@ import {
 } from '@/features/canvas/application/imageData';
 import { optimizeCanvasPrompt } from '@/features/canvas/application/promptOptimization';
 import { resolveMinEdgeFittedSize } from '@/features/canvas/application/imageNodeSizing';
+import { appendCameraParamsToPrompt } from '@/features/canvas/camera/cameraPrompt';
+import {
+  hasCameraParamsSelection,
+  normalizeCameraParamsSelection,
+  resolveCameraParamsSummary,
+} from '@/features/canvas/camera/cameraPresets';
 import {
   buildGenerationErrorReport,
   CURRENT_RUNTIME_SESSION_ID,
@@ -75,7 +81,11 @@ import {
 import { GRSAI_NANO_BANANA_PRO_MODEL_ID } from '@/features/canvas/models/image/grsai/nanoBananaPro';
 
 import { resolveModelPriceDisplay } from '@/features/canvas/pricing';
-import { useCanvasConnectedReferenceVisuals } from '@/features/canvas/hooks/useCanvasNodeGraph';
+import { resolveScriptAssetOptimizedPromptMaxLength } from '@/features/canvas/application/scriptAssetReferencePromptLimit';
+import {
+  useCanvasConnectedReferenceVisuals,
+  useCanvasIncomingSourceNodes,
+} from '@/features/canvas/hooks/useCanvasNodeGraph';
 import {
   NODE_CONTROL_CHIP_CLASS,
   NODE_CONTROL_MODEL_CHIP_CLASS,
@@ -83,6 +93,7 @@ import {
   NODE_CONTROL_PRIMARY_BUTTON_CLASS,
   NODE_CONTROL_GENERATE_ICON_CLASS,
 } from '@/features/canvas/ui/nodeControlStyles';
+import { CameraParamsDialog } from '@/features/canvas/ui/CameraParamsDialog';
 import { ModelParamsControls } from '@/features/canvas/ui/ModelParamsControls';
 import { StyleTemplateDialog } from '@/features/project/StyleTemplateDialog';
 import { applyStyleTemplatePrompt } from '@/features/project/styleTemplatePrompt';
@@ -365,6 +376,7 @@ export const ImageEditNode = memo(({ id, data, selected, width, height }: ImageE
   const [selectedStyleTemplateId, setSelectedStyleTemplateId] = useState<string | null>(null);
   const [styleTemplatePrompt, setStyleTemplatePrompt] = useState<string>('');
   const [showStyleTemplateDialog, setShowStyleTemplateDialog] = useState(false);
+  const [showCameraParamsDialog, setShowCameraParamsDialog] = useState(false);
   const [showImagePicker, setShowImagePicker] = useState(false);
   const [pickerCursor, setPickerCursor] = useState<number | null>(null);
   const [pickerActiveIndex, setPickerActiveIndex] = useState(0);
@@ -397,6 +409,7 @@ export const ImageEditNode = memo(({ id, data, selected, width, height }: ImageE
   const grsaiCreditTierId = useSettingsStore((state) => state.grsaiCreditTierId);
 
   const connectedReferenceVisuals = useCanvasConnectedReferenceVisuals(id);
+  const incomingSourceNodes = useCanvasIncomingSourceNodes(id);
 
   const imageModels = useMemo(
     () => listImageModels(
@@ -484,6 +497,12 @@ export const ImageEditNode = memo(({ id, data, selected, width, height }: ImageE
   const incomingImageViewerList = useMemo(
     () => incomingImageItems.map((item) => resolveImageDisplayUrl(item.referenceUrl)),
     [incomingImageItems]
+  );
+  const optimizedPromptMaxLength = useMemo(
+    () => resolveScriptAssetOptimizedPromptMaxLength(
+      incomingSourceNodes.map((item) => item.node)
+    ),
+    [incomingSourceNodes]
   );
   const providerApiKey = storyboardApiKeys[selectedModel.providerId] ?? '';
   const effectiveExtraParams = useMemo(
@@ -620,6 +639,14 @@ export const ImageEditNode = memo(({ id, data, selected, width, height }: ImageE
     () => resolveNodeDisplayName(CANVAS_NODE_TYPES.imageEdit, data),
     [data]
   );
+  const resolvedCameraParams = useMemo(
+    () => normalizeCameraParamsSelection(data.cameraParams),
+    [data.cameraParams]
+  );
+  const isCameraParamsApplied = hasCameraParamsSelection(resolvedCameraParams);
+  const cameraParamsButtonTitle = isCameraParamsApplied
+    ? resolveCameraParamsSummary(resolvedCameraParams)
+    : t('cameraParams.trigger');
   const headerStatus = useMemo(() => {
     if (isOptimizingPrompt) {
       return (
@@ -805,6 +832,7 @@ export const ImageEditNode = memo(({ id, data, selected, width, height }: ImageE
         mode: 'image',
         prompt: currentPrompt,
         referenceImages: optimizationReferenceImages,
+        maxPromptLength: optimizedPromptMaxLength,
       });
       if (promptDraftRef.current !== sourcePrompt) {
         return;
@@ -845,7 +873,7 @@ export const ImageEditNode = memo(({ id, data, selected, width, height }: ImageE
     } finally {
       setIsOptimizingPrompt(false);
     }
-  }, [commitPromptDraft, requestReferenceImages, t]);
+  }, [commitPromptDraft, optimizedPromptMaxLength, requestReferenceImages, t]);
 
   const handleUndoOptimizedPrompt = useCallback(() => {
     if (!lastPromptOptimizationUndoState) {
@@ -944,9 +972,12 @@ export const ImageEditNode = memo(({ id, data, selected, width, height }: ImageE
     try {
       await canvasAiGateway.setApiKey(selectedModel.providerId, providerApiKey);
 
-      const submittedPrompt = buildReferenceAwareGenerationPrompt(
-        promptDraft,
-        incomingImages.length
+      const submittedPrompt = appendCameraParamsToPrompt(
+        buildReferenceAwareGenerationPrompt(
+          promptDraft,
+          incomingImages.length
+        ),
+        resolvedCameraParams
       );
       const jobId = await canvasAiGateway.submitGenerateImageJob({
         prompt: submittedPrompt,
@@ -987,7 +1018,10 @@ export const ImageEditNode = memo(({ id, data, selected, width, height }: ImageE
         requestModel: debugRequestModel,
         requestSize: selectedResolution.value,
         requestAspectRatio: resolvedRequestAspectRatio,
-        prompt: buildReferenceAwareGenerationPrompt(promptDraft, incomingImages.length),
+        prompt: appendCameraParamsToPrompt(
+          buildReferenceAwareGenerationPrompt(promptDraft, incomingImages.length),
+          resolvedCameraParams
+        ),
         extraParams: effectiveExtraParams,
         referenceImageCount: incomingImages.length,
         referenceImagePlaceholders: createReferenceImagePlaceholders(incomingImages.length),
@@ -1026,6 +1060,7 @@ export const ImageEditNode = memo(({ id, data, selected, width, height }: ImageE
     providerApiKey,
     findNodePosition,
     promptDraft,
+    resolvedCameraParams,
     effectiveExtraParams,
     id,
     incomingImages,
@@ -1516,6 +1551,22 @@ export const ImageEditNode = memo(({ id, data, selected, width, height }: ImageE
                 <Fragment>
                   <UiChipButton
                     type="button"
+                    active={showCameraParamsDialog || isCameraParamsApplied}
+                    className={`${NODE_CONTROL_CHIP_CLASS} !w-8 !px-0 shrink-0 justify-center`}
+                    aria-label={t('cameraParams.trigger')}
+                    title={cameraParamsButtonTitle}
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      setShowCameraParamsDialog(true);
+                    }}
+                  >
+                    <Camera
+                      className="h-4 w-4 origin-center scale-[1.05] text-text-dark"
+                      strokeWidth={2.35}
+                    />
+                  </UiChipButton>
+                  <UiChipButton
+                    type="button"
                     active={isOptimizingPrompt}
                     disabled={isOptimizingPrompt || promptDraft.trim().length === 0}
                     className={`${NODE_CONTROL_CHIP_CLASS} !w-8 !px-0 shrink-0 justify-center`}
@@ -1606,6 +1657,12 @@ export const ImageEditNode = memo(({ id, data, selected, width, height }: ImageE
       <StyleTemplateDialog
         isOpen={showStyleTemplateDialog}
         onClose={() => setShowStyleTemplateDialog(false)}
+      />
+      <CameraParamsDialog
+        isOpen={showCameraParamsDialog}
+        value={resolvedCameraParams}
+        onApply={(nextValue) => updateNodeData(id, { cameraParams: nextValue })}
+        onClose={() => setShowCameraParamsDialog(false)}
       />
     </div>
   );

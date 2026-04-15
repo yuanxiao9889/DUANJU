@@ -392,8 +392,18 @@ export function ScriptWelcomeDialog({ isOpen, onClose }: ScriptWelcomeDialogProp
     return null;
   }
 
+  if (showImportDialog) {
+    return (
+      <ScriptImportDialog
+        isOpen
+        onClose={() => setShowImportDialog(false)}
+        onImported={onClose}
+      />
+    );
+  }
+
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center">
+    <div className="fixed inset-0 z-[10100] flex items-center justify-center">
       <div className="absolute inset-0 bg-black/80" />
 
       <div className="relative flex max-h-[92vh] w-[1180px] max-w-[calc(100vw-1.5rem)] flex-col overflow-hidden rounded-2xl border border-border-dark bg-surface-dark shadow-2xl">
@@ -892,14 +902,6 @@ export function ScriptWelcomeDialog({ isOpen, onClose }: ScriptWelcomeDialogProp
               )}
             </div>
           </div>
-        ) : null}
-
-        {showImportDialog ? (
-          <ScriptImportDialog
-            isOpen={showImportDialog}
-            onClose={() => setShowImportDialog(false)}
-            onImported={onClose}
-          />
         ) : null}
 
         <UiLoadingOverlay visible={isPlanning || isParsingImport} insetClassName="inset-0" />

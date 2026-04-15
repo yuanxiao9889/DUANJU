@@ -3,10 +3,13 @@ import type {
   CanvasNode,
   ShootingScriptRow,
 } from '@/features/canvas/domain/canvasNodes';
+import type { Viewport } from '@xyflow/react';
 import type {
   ImportedScriptDocument,
   ScriptImportFormat,
 } from '@/features/canvas/application/scriptImporter';
+import type { CanvasColorLabelMap } from '@/features/canvas/domain/semanticColors';
+import type { CanvasHistoryState } from '@/stores/canvasStore';
 
 export const NATIVE_SCRIPT_PACKAGE_SCHEMA = 'storyboard-copilot/native-script-package';
 export const NATIVE_SCRIPT_PACKAGE_VERSION = 1;
@@ -69,6 +72,71 @@ export interface ScriptImportApplyPayload {
   nodes: CanvasNode[];
   edges: CanvasEdge[];
   selectedNodeId: string | null;
+  history?: CanvasHistoryState;
+  viewport?: Viewport;
+  colorLabels?: CanvasColorLabelMap;
+}
+
+export interface ScriptProjectPackageAssetEntry {
+  id: string;
+  archivePath: string;
+  originalFileName: string;
+  byteSize: number;
+}
+
+export interface ScriptProjectPackageManifest {
+  schema: string;
+  version: number;
+  exportedAt: string;
+  appVersion?: string;
+  projectType: 'script';
+  projectId?: string | null;
+  projectName: string;
+  title: string;
+  entry: string;
+  assetCount: number;
+  nodeCount: number;
+  edgeCount: number;
+  assets: ScriptProjectPackageAssetEntry[];
+}
+
+export interface ScriptProjectPackageSnapshot {
+  projectId?: string | null;
+  projectName: string;
+  projectType: 'script';
+  title: string;
+  assetLibraryId?: string | null;
+  linkedScriptProjectId?: string | null;
+  nodes: CanvasNode[];
+  edges: CanvasEdge[];
+  viewport?: Viewport;
+  history?: CanvasHistoryState;
+  colorLabels?: CanvasColorLabelMap;
+  selectedNodeId?: string | null;
+}
+
+export interface ScriptProjectPackagePreviewRecord {
+  packagePath: string;
+  sourceName: string;
+  manifest: ScriptProjectPackageManifest;
+  project: ScriptProjectPackageSnapshot;
+}
+
+export interface ScriptProjectPackageImportRecord {
+  packagePath: string;
+  manifest: ScriptProjectPackageManifest;
+  project: ScriptProjectPackageSnapshot;
+}
+
+export interface ScriptImportNativePackageMeta {
+  schema: string;
+  version: number;
+  exportedAt: string;
+  appVersion?: string;
+  projectType: 'script';
+  packagePath?: string;
+  projectName?: string;
+  assetCount?: number;
 }
 
 export interface ScriptImportPreviewModel {
@@ -83,10 +151,7 @@ export interface ScriptImportPreviewModel {
   notices: ScriptImportPreviewNotice[];
   stats: ScriptImportPreviewStats;
   details: ScriptImportPreviewDetail[];
-  nativePackage?: Pick<
-    NativeScriptPackageV1,
-    'schema' | 'version' | 'exportedAt' | 'appVersion' | 'projectType'
-  >;
+  nativePackage?: ScriptImportNativePackageMeta;
   usedFallback: boolean;
   applyPayload: ScriptImportApplyPayload;
 }
