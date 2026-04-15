@@ -46,6 +46,9 @@ import {
   type ScriptSceneNodeData,
   type ShootingScriptNodeData,
   type ScriptReferenceNodeData,
+  type ScriptCharacterReferenceNodeData,
+  type ScriptLocationReferenceNodeData,
+  type ScriptItemReferenceNodeData,
   type ScriptCharacterNodeData,
   type ScriptLocationNodeData,
   type ScriptItemNodeData,
@@ -61,9 +64,9 @@ import {
   VOXCPM2_COMPLETE_EXTENSION_ID,
 } from '@/features/extensions/domain/types';
 
-export type MenuIconKey = 'upload' | 'sparkles' | 'layout' | 'text' | 'video' | 'audio';
+export type MenuIconKey = 'upload' | 'sparkles' | 'layout' | 'text' | 'video' | 'audio' | 'link';
 export type NodeMenuProjectType = 'storyboard' | 'script';
-export type NodeMenuGroupKey = 'jimeng' | 'storyboard' | 'media' | 'text';
+export type NodeMenuGroupKey = 'jimeng' | 'storyboard' | 'media' | 'text' | 'scriptReference';
 
 export interface CanvasNodeMenuGroupDefinition {
   id: NodeMenuGroupKey;
@@ -125,6 +128,11 @@ export const canvasNodeMenuGroups: Record<NodeMenuGroupKey, CanvasNodeMenuGroupD
     id: 'text',
     labelKey: 'node.menuGroup.text',
     menuIcon: 'text',
+  },
+  scriptReference: {
+    id: 'scriptReference',
+    labelKey: 'node.menuGroup.scriptReference',
+    menuIcon: 'link',
   },
 };
 
@@ -1119,7 +1127,8 @@ const shootingScriptNodeDefinition: CanvasNodeDefinition<ShootingScriptNodeData>
 const scriptReferenceNodeDefinition: CanvasNodeDefinition<ScriptReferenceNodeData> = {
   type: CANVAS_NODE_TYPES.scriptReference,
   menuLabelKey: 'node.menu.scriptReference',
-  menuIcon: 'layout',
+  menuIcon: 'link',
+  menuGroup: 'scriptReference',
   visibleInMenu: true,
   menuProjectTypes: ['storyboard'],
   capabilities: {
@@ -1143,6 +1152,96 @@ const scriptReferenceNodeDefinition: CanvasNodeDefinition<ScriptReferenceNodeDat
     referencedScriptNodeId: null,
     selectedRowIds: [],
     scriptSnapshot: null,
+    syncStatus: 'idle',
+    syncMessage: null,
+    lastSyncedAt: null,
+  }),
+};
+
+const scriptCharacterReferenceNodeDefinition: CanvasNodeDefinition<ScriptCharacterReferenceNodeData> = {
+  type: CANVAS_NODE_TYPES.scriptCharacterReference,
+  menuLabelKey: 'node.menu.scriptCharacterReference',
+  menuIcon: 'link',
+  menuGroup: 'scriptReference',
+  visibleInMenu: true,
+  menuProjectTypes: ['storyboard'],
+  capabilities: {
+    toolbar: true,
+    promptInput: false,
+  },
+  connectivity: {
+    sourceHandle: true,
+    targetHandle: true,
+    connectMenu: {
+      fromSource: true,
+      fromTarget: false,
+    },
+  },
+  createDefaultData: () => ({
+    displayName: DEFAULT_NODE_DISPLAY_NAME[CANVAS_NODE_TYPES.scriptCharacterReference] || '角色引用',
+    linkedScriptProjectId: null,
+    referencedAssetName: null,
+    assetSnapshot: null,
+    syncStatus: 'idle',
+    syncMessage: null,
+    lastSyncedAt: null,
+  }),
+};
+
+const scriptLocationReferenceNodeDefinition: CanvasNodeDefinition<ScriptLocationReferenceNodeData> = {
+  type: CANVAS_NODE_TYPES.scriptLocationReference,
+  menuLabelKey: 'node.menu.scriptLocationReference',
+  menuIcon: 'link',
+  menuGroup: 'scriptReference',
+  visibleInMenu: true,
+  menuProjectTypes: ['storyboard'],
+  capabilities: {
+    toolbar: true,
+    promptInput: false,
+  },
+  connectivity: {
+    sourceHandle: true,
+    targetHandle: true,
+    connectMenu: {
+      fromSource: true,
+      fromTarget: false,
+    },
+  },
+  createDefaultData: () => ({
+    displayName: DEFAULT_NODE_DISPLAY_NAME[CANVAS_NODE_TYPES.scriptLocationReference] || '场景引用',
+    linkedScriptProjectId: null,
+    referencedAssetName: null,
+    assetSnapshot: null,
+    syncStatus: 'idle',
+    syncMessage: null,
+    lastSyncedAt: null,
+  }),
+};
+
+const scriptItemReferenceNodeDefinition: CanvasNodeDefinition<ScriptItemReferenceNodeData> = {
+  type: CANVAS_NODE_TYPES.scriptItemReference,
+  menuLabelKey: 'node.menu.scriptItemReference',
+  menuIcon: 'link',
+  menuGroup: 'scriptReference',
+  visibleInMenu: true,
+  menuProjectTypes: ['storyboard'],
+  capabilities: {
+    toolbar: true,
+    promptInput: false,
+  },
+  connectivity: {
+    sourceHandle: true,
+    targetHandle: true,
+    connectMenu: {
+      fromSource: true,
+      fromTarget: false,
+    },
+  },
+  createDefaultData: () => ({
+    displayName: DEFAULT_NODE_DISPLAY_NAME[CANVAS_NODE_TYPES.scriptItemReference] || '道具引用',
+    linkedScriptProjectId: null,
+    referencedAssetName: null,
+    assetSnapshot: null,
     syncStatus: 'idle',
     syncMessage: null,
     lastSyncedAt: null,
@@ -1316,6 +1415,9 @@ export const canvasNodeDefinitions: Record<CanvasNodeType, CanvasNodeDefinition>
   [CANVAS_NODE_TYPES.scriptScene]: scriptSceneNodeDefinition,
   [CANVAS_NODE_TYPES.shootingScript]: shootingScriptNodeDefinition,
   [CANVAS_NODE_TYPES.scriptReference]: scriptReferenceNodeDefinition,
+  [CANVAS_NODE_TYPES.scriptCharacterReference]: scriptCharacterReferenceNodeDefinition,
+  [CANVAS_NODE_TYPES.scriptLocationReference]: scriptLocationReferenceNodeDefinition,
+  [CANVAS_NODE_TYPES.scriptItemReference]: scriptItemReferenceNodeDefinition,
   [CANVAS_NODE_TYPES.scriptCharacter]: scriptCharacterNodeDefinition,
   [CANVAS_NODE_TYPES.scriptLocation]: scriptLocationNodeDefinition,
   [CANVAS_NODE_TYPES.scriptItem]: scriptItemNodeDefinition,
@@ -1336,7 +1438,15 @@ function isDefinitionVisibleInMenu(
     return false;
   }
 
-  if (definition.type === CANVAS_NODE_TYPES.scriptReference && projectType === 'storyboard') {
+  if (
+    projectType === 'storyboard'
+    && (
+      definition.type === CANVAS_NODE_TYPES.scriptReference
+      || definition.type === CANVAS_NODE_TYPES.scriptCharacterReference
+      || definition.type === CANVAS_NODE_TYPES.scriptLocationReference
+      || definition.type === CANVAS_NODE_TYPES.scriptItemReference
+    )
+  ) {
     return Boolean(options.linkedScriptProjectId?.trim());
   }
 

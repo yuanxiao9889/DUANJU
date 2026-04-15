@@ -20,6 +20,11 @@ import { ScriptTextNode } from './ScriptTextNode';
 import { ScriptSceneNode } from './ScriptSceneNode';
 import { ShootingScriptNode } from './ShootingScriptNode';
 import { ScriptReferenceNode } from './ScriptReferenceNode';
+import {
+  ScriptCharacterReferenceNode,
+  ScriptItemReferenceNode,
+  ScriptLocationReferenceNode,
+} from './ScriptAssetReferenceNode';
 import { QwenTtsVoiceDesignNode } from './QwenTtsVoiceDesignNode';
 import { QwenTtsSavedVoiceNode } from './QwenTtsSavedVoiceNode';
 import { VoxCpmVoiceDesignNode } from './VoxCpmVoiceDesignNode';
@@ -65,6 +70,9 @@ export const nodeTypes: NodeTypes = {
   scriptSceneNode: ScriptSceneNode,
   shootingScriptNode: ShootingScriptNode,
   scriptReferenceNode: ScriptReferenceNode,
+  scriptCharacterReferenceNode: ScriptCharacterReferenceNode,
+  scriptLocationReferenceNode: ScriptLocationReferenceNode,
+  scriptItemReferenceNode: ScriptItemReferenceNode,
   scriptWorldviewNode: ScriptWorldviewNode,
   scriptCharacterNode: ScriptCharacterNode,
   scriptLocationNode: ScriptLocationNode,
@@ -102,6 +110,9 @@ export {
   ScriptSceneNode,
   ShootingScriptNode,
   ScriptReferenceNode,
+  ScriptCharacterReferenceNode,
+  ScriptLocationReferenceNode,
+  ScriptItemReferenceNode,
   ScriptWorldviewNode,
   ScriptCharacterNode,
   ScriptLocationNode,

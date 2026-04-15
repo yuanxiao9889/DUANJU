@@ -266,13 +266,17 @@
       "jimengImageResult": "即梦四宫格",
       "seedanceVideo": "官方 Seedance 2.0 视频",
       "seedanceVideoResult": "Seedance 视频结果",
-      "scriptReference": "脚本引用"
+      "scriptReference": "脚本引用",
+      "scriptCharacterReference": "角色引用",
+      "scriptLocationReference": "场景引用",
+      "scriptItemReference": "道具引用"
     },
     "menuGroup": {
       "jimeng": "即梦",
       "storyboard": "分镜",
       "media": "影音",
-      "text": "文本"
+      "text": "文本",
+      "scriptReference": "剧本引用"
     },
     "imageNode": {
       "title": "图片节点",
@@ -1061,6 +1065,55 @@
         "artLighting": "灯光美术",
         "continuity": "连贯性提醒",
         "rhythm": "时长节奏"
+      }
+    },
+    "scriptAssetReference": {
+      "missingProject": "关联的剧本项目不存在或无法读取。",
+      "missingProjectLink": "当前分镜项目还没有关联剧本项目。",
+      "missingAsset": "引用的{{assetType}}已不存在，请重新选择。",
+      "staleSnapshot": "源{{assetType}}已更新，请刷新当前引用快照。",
+      "ready": "引用已就绪，可直接生成 AI 图片或即梦图片设定图。",
+      "selectAssetHint": "从{{assetType}}目录中选择一项继续。",
+      "emptyOptions": "当前剧本还没有可用的{{assetType}}目录。",
+      "refreshLibrary": "刷新目录",
+      "refreshSelection": "刷新引用",
+      "warning": "需处理",
+      "generateImage": "AI 图片",
+      "generateJimengImage": "即梦图片",
+      "selectLabel": "选择{{assetType}}",
+      "promptPreview": "设定图提示词预览",
+      "designImageSuffix": "设定图",
+      "emptyValue": "未提供",
+      "unselected": "未选择",
+      "types": {
+        "character": "角色引用",
+        "location": "场景引用",
+        "item": "道具引用"
+      },
+      "assetTypes": {
+        "character": "角色",
+        "location": "场景",
+        "item": "道具"
+      },
+      "fields": {
+        "name": "名称",
+        "description": "描述",
+        "personality": "性格特征",
+        "appearance": "外观特征",
+        "appearances": "出现语境"
+      },
+      "prompt": {
+        "requirementLabel": "设定图要求",
+        "requirementValue": "输出概念设定图，突出主体设计，细节完整，风格统一，背景尽量简洁，不加入额外剧情动作。",
+        "character": {
+          "intro": "请基于以下角色性格与外貌描述生成一张角色概念设定图："
+        },
+        "location": {
+          "intro": "请基于以下场景信息生成一张场景概念设定图："
+        },
+        "item": {
+          "intro": "请基于以下道具信息生成一张道具概念设定图："
+        }
       }
     }
   },

@@ -31,6 +31,9 @@ export const CANVAS_NODE_TYPES = {
   scriptScene: 'scriptSceneNode',
   shootingScript: 'shootingScriptNode',
   scriptReference: 'scriptReferenceNode',
+  scriptCharacterReference: 'scriptCharacterReferenceNode',
+  scriptLocationReference: 'scriptLocationReferenceNode',
+  scriptItemReference: 'scriptItemReferenceNode',
   scriptCharacter: 'scriptCharacterNode',
   scriptLocation: 'scriptLocationNode',
   scriptItem: 'scriptItemNode',
@@ -712,6 +715,13 @@ export type ScriptReferenceSyncStatus =
   | 'missingRows'
   | 'stale';
 
+export type ScriptAssetReferenceSyncStatus =
+  | 'idle'
+  | 'ready'
+  | 'missingProject'
+  | 'missingAsset'
+  | 'stale';
+
 export interface ScriptReferenceShotRowSnapshot {
   id: string;
   shotNumber: string;
@@ -731,6 +741,25 @@ export interface ScriptReferenceScriptSnapshot {
   episodeTitle: string;
   episodeLabel: string;
   rows: ScriptReferenceShotRowSnapshot[];
+}
+
+export interface ScriptCharacterReferenceSnapshot {
+  name: string;
+  description: string;
+  personality: string;
+  appearance: string;
+}
+
+export interface ScriptLocationReferenceSnapshot {
+  name: string;
+  description: string;
+  appearances: string[];
+}
+
+export interface ScriptItemReferenceSnapshot {
+  name: string;
+  description: string;
+  appearances: string[];
 }
 
 export interface StyleProfile {
@@ -977,6 +1006,24 @@ export interface ScriptReferenceNodeData extends NodeDisplayData {
   lastSyncedAt?: number | null;
 }
 
+interface ScriptAssetReferenceBaseNodeData<TSnapshot> extends NodeDisplayData {
+  linkedScriptProjectId: string | null;
+  referencedAssetName: string | null;
+  assetSnapshot: TSnapshot | null;
+  syncStatus: ScriptAssetReferenceSyncStatus;
+  syncMessage?: string | null;
+  lastSyncedAt?: number | null;
+}
+
+export interface ScriptCharacterReferenceNodeData
+  extends ScriptAssetReferenceBaseNodeData<ScriptCharacterReferenceSnapshot> {}
+
+export interface ScriptLocationReferenceNodeData
+  extends ScriptAssetReferenceBaseNodeData<ScriptLocationReferenceSnapshot> {}
+
+export interface ScriptItemReferenceNodeData
+  extends ScriptAssetReferenceBaseNodeData<ScriptItemReferenceSnapshot> {}
+
 export interface ScriptCharacterNodeData extends NodeDisplayData {
   name: string;
   description: string;
@@ -1046,6 +1093,9 @@ export type CanvasNodeData =
   | ScriptSceneNodeData
   | ShootingScriptNodeData
   | ScriptReferenceNodeData
+  | ScriptCharacterReferenceNodeData
+  | ScriptLocationReferenceNodeData
+  | ScriptItemReferenceNodeData
   | ScriptCharacterNodeData
   | ScriptLocationNodeData
   | ScriptItemNodeData
@@ -1614,6 +1664,67 @@ function normalizeScriptReferenceScriptSnapshot(
   };
 }
 
+function normalizeScriptCharacterReferenceSnapshot(
+  value: unknown
+): ScriptCharacterReferenceSnapshot | null {
+  if (!value || typeof value !== 'object') {
+    return null;
+  }
+
+  const record = value as Partial<ScriptCharacterReferenceSnapshot>;
+  const name = normalizeString(record.name).trim();
+  if (!name) {
+    return null;
+  }
+
+  return {
+    name,
+    description: normalizeString(record.description),
+    personality: normalizeString(record.personality),
+    appearance: normalizeString(record.appearance),
+  };
+}
+
+function normalizeScriptLocationReferenceSnapshot(
+  value: unknown
+): ScriptLocationReferenceSnapshot | null {
+  if (!value || typeof value !== 'object') {
+    return null;
+  }
+
+  const record = value as Partial<ScriptLocationReferenceSnapshot>;
+  const name = normalizeString(record.name).trim();
+  if (!name) {
+    return null;
+  }
+
+  return {
+    name,
+    description: normalizeString(record.description),
+    appearances: normalizeStringArray(record.appearances),
+  };
+}
+
+function normalizeScriptItemReferenceSnapshot(
+  value: unknown
+): ScriptItemReferenceSnapshot | null {
+  if (!value || typeof value !== 'object') {
+    return null;
+  }
+
+  const record = value as Partial<ScriptItemReferenceSnapshot>;
+  const name = normalizeString(record.name).trim();
+  if (!name) {
+    return null;
+  }
+
+  return {
+    name,
+    description: normalizeString(record.description),
+    appearances: normalizeStringArray(record.appearances),
+  };
+}
+
 export function normalizeScriptRootNodeData(data: ScriptRootNodeData): ScriptRootNodeData {
   const normalizeCharacterAssets = (items: unknown): ScriptCharacterAsset[] => (
     Array.isArray(items)
@@ -1798,6 +1909,66 @@ export function normalizeScriptReferenceNodeData(
       || data.syncStatus === 'missingProject'
       || data.syncStatus === 'missingEpisode'
       || data.syncStatus === 'missingRows'
+      || data.syncStatus === 'stale'
+        ? data.syncStatus
+        : 'idle',
+    syncMessage: normalizeString(data.syncMessage).trim() || null,
+    lastSyncedAt: Number.isFinite(data.lastSyncedAt) ? Number(data.lastSyncedAt) : null,
+  };
+}
+
+export function normalizeScriptCharacterReferenceNodeData(
+  data: ScriptCharacterReferenceNodeData
+): ScriptCharacterReferenceNodeData {
+  return {
+    ...data,
+    linkedScriptProjectId: normalizeString(data.linkedScriptProjectId).trim() || null,
+    referencedAssetName: normalizeString(data.referencedAssetName).trim() || null,
+    assetSnapshot: normalizeScriptCharacterReferenceSnapshot(data.assetSnapshot),
+    syncStatus:
+      data.syncStatus === 'ready'
+      || data.syncStatus === 'missingProject'
+      || data.syncStatus === 'missingAsset'
+      || data.syncStatus === 'stale'
+        ? data.syncStatus
+        : 'idle',
+    syncMessage: normalizeString(data.syncMessage).trim() || null,
+    lastSyncedAt: Number.isFinite(data.lastSyncedAt) ? Number(data.lastSyncedAt) : null,
+  };
+}
+
+export function normalizeScriptLocationReferenceNodeData(
+  data: ScriptLocationReferenceNodeData
+): ScriptLocationReferenceNodeData {
+  return {
+    ...data,
+    linkedScriptProjectId: normalizeString(data.linkedScriptProjectId).trim() || null,
+    referencedAssetName: normalizeString(data.referencedAssetName).trim() || null,
+    assetSnapshot: normalizeScriptLocationReferenceSnapshot(data.assetSnapshot),
+    syncStatus:
+      data.syncStatus === 'ready'
+      || data.syncStatus === 'missingProject'
+      || data.syncStatus === 'missingAsset'
+      || data.syncStatus === 'stale'
+        ? data.syncStatus
+        : 'idle',
+    syncMessage: normalizeString(data.syncMessage).trim() || null,
+    lastSyncedAt: Number.isFinite(data.lastSyncedAt) ? Number(data.lastSyncedAt) : null,
+  };
+}
+
+export function normalizeScriptItemReferenceNodeData(
+  data: ScriptItemReferenceNodeData
+): ScriptItemReferenceNodeData {
+  return {
+    ...data,
+    linkedScriptProjectId: normalizeString(data.linkedScriptProjectId).trim() || null,
+    referencedAssetName: normalizeString(data.referencedAssetName).trim() || null,
+    assetSnapshot: normalizeScriptItemReferenceSnapshot(data.assetSnapshot),
+    syncStatus:
+      data.syncStatus === 'ready'
+      || data.syncStatus === 'missingProject'
+      || data.syncStatus === 'missingAsset'
       || data.syncStatus === 'stale'
         ? data.syncStatus
         : 'idle',
@@ -1993,6 +2164,24 @@ export function isScriptReferenceNode(
   node: CanvasNode | null | undefined
 ): node is Node<ScriptReferenceNodeData, typeof CANVAS_NODE_TYPES.scriptReference> {
   return node?.type === CANVAS_NODE_TYPES.scriptReference;
+}
+
+export function isScriptCharacterReferenceNode(
+  node: CanvasNode | null | undefined
+): node is Node<ScriptCharacterReferenceNodeData, typeof CANVAS_NODE_TYPES.scriptCharacterReference> {
+  return node?.type === CANVAS_NODE_TYPES.scriptCharacterReference;
+}
+
+export function isScriptLocationReferenceNode(
+  node: CanvasNode | null | undefined
+): node is Node<ScriptLocationReferenceNodeData, typeof CANVAS_NODE_TYPES.scriptLocationReference> {
+  return node?.type === CANVAS_NODE_TYPES.scriptLocationReference;
+}
+
+export function isScriptItemReferenceNode(
+  node: CanvasNode | null | undefined
+): node is Node<ScriptItemReferenceNodeData, typeof CANVAS_NODE_TYPES.scriptItemReference> {
+  return node?.type === CANVAS_NODE_TYPES.scriptItemReference;
 }
 
 export function isScriptCharacterNode(

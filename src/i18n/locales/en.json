@@ -268,13 +268,17 @@
       "generateImage": "Generate Image",
       "createBranch": "Create Branch",
       "createSupplement": "Create Supplement",
-      "scriptReference": "Script Reference"
+      "scriptReference": "Script Reference",
+      "scriptCharacterReference": "Character Reference",
+      "scriptLocationReference": "Scene Reference",
+      "scriptItemReference": "Prop Reference"
     },
     "menuGroup": {
       "jimeng": "Jimeng",
       "storyboard": "Storyboard",
       "media": "Media",
-      "text": "Text"
+      "text": "Text",
+      "scriptReference": "Script References"
     },
     "imageNode": {
       "title": "Image Node",
@@ -1123,6 +1127,55 @@
         "artLighting": "Art / Lighting",
         "continuity": "Continuity",
         "rhythm": "Rhythm / Duration"
+      }
+    },
+    "scriptAssetReference": {
+      "missingProject": "The linked script project is missing or unreadable.",
+      "missingProjectLink": "This storyboard project is not linked to a script project yet.",
+      "missingAsset": "The referenced {{assetType}} is missing. Please reselect it.",
+      "staleSnapshot": "The source {{assetType}} changed. Refresh this reference snapshot.",
+      "ready": "Reference is ready for AI image or Jimeng image concept art generation.",
+      "selectAssetHint": "Choose one item from the {{assetType}} catalog to continue.",
+      "emptyOptions": "No {{assetType}} catalog entries are available in the linked script yet.",
+      "refreshLibrary": "Refresh catalog",
+      "refreshSelection": "Refresh reference",
+      "warning": "Attention",
+      "generateImage": "AI Image",
+      "generateJimengImage": "Jimeng Image",
+      "selectLabel": "Select {{assetType}}",
+      "promptPreview": "Concept art prompt preview",
+      "designImageSuffix": " Concept Art",
+      "emptyValue": "Not provided",
+      "unselected": "Nothing selected",
+      "types": {
+        "character": "character reference",
+        "location": "scene reference",
+        "item": "prop reference"
+      },
+      "assetTypes": {
+        "character": "character",
+        "location": "scene",
+        "item": "prop"
+      },
+      "fields": {
+        "name": "Name",
+        "description": "Description",
+        "personality": "Personality",
+        "appearance": "Appearance",
+        "appearances": "Usage Context"
+      },
+      "prompt": {
+        "requirementLabel": "Concept Art Requirement",
+        "requirementValue": "Create a concept design image that highlights the main subject, keeps the design details complete, maintains a unified style, uses a simple background, and avoids adding extra plot actions.",
+        "character": {
+          "intro": "Generate a character concept art image from the following personality and appearance details:"
+        },
+        "location": {
+          "intro": "Generate a scene concept art image from the following scene information:"
+        },
+        "item": {
+          "intro": "Generate a prop concept art image from the following prop information:"
+        }
       }
     }
   },

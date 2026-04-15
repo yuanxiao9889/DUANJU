@@ -44,9 +44,15 @@ import {
   type ScriptSceneNodeData,
   type ShootingScriptNodeData,
   type ScriptReferenceNodeData,
+  type ScriptCharacterReferenceNodeData,
+  type ScriptLocationReferenceNodeData,
+  type ScriptItemReferenceNodeData,
   createDefaultSceneCard,
   normalizeShootingScriptNodeData,
   normalizeScriptChapterNodeData,
+  normalizeScriptCharacterReferenceNodeData,
+  normalizeScriptItemReferenceNodeData,
+  normalizeScriptLocationReferenceNodeData,
   normalizeScriptReferenceNodeData,
   normalizeScriptRootNodeData,
   normalizeScriptSceneNodeData,
@@ -729,6 +735,27 @@ function normalizeNodes(rawNodes: CanvasNode[]): CanvasNode[] {
         );
       }
 
+      if (normalizedNodeType === CANVAS_NODE_TYPES.scriptCharacterReference) {
+        Object.assign(
+          mergedData,
+          normalizeScriptCharacterReferenceNodeData(mergedData as ScriptCharacterReferenceNodeData)
+        );
+      }
+
+      if (normalizedNodeType === CANVAS_NODE_TYPES.scriptLocationReference) {
+        Object.assign(
+          mergedData,
+          normalizeScriptLocationReferenceNodeData(mergedData as ScriptLocationReferenceNodeData)
+        );
+      }
+
+      if (normalizedNodeType === CANVAS_NODE_TYPES.scriptItemReference) {
+        Object.assign(
+          mergedData,
+          normalizeScriptItemReferenceNodeData(mergedData as ScriptItemReferenceNodeData)
+        );
+      }
+
       if ('aspectRatio' in mergedData && !mergedData.aspectRatio) {
         mergedData.aspectRatio = DEFAULT_ASPECT_RATIO;
       }
@@ -1395,6 +1422,12 @@ function withScriptReferenceDefaultSize(node: CanvasNode): CanvasNode {
   };
 }
 
+function isScriptAssetReferenceNodeType(type: CanvasNodeType): boolean {
+  return type === CANVAS_NODE_TYPES.scriptCharacterReference
+    || type === CANVAS_NODE_TYPES.scriptLocationReference
+    || type === CANVAS_NODE_TYPES.scriptItemReference;
+}
+
 function applyDefaultNodeSize(node: CanvasNode, data: CanvasNodeData): CanvasNode {
   if (shouldApplyImageEditDefaultSize(node, data)) {
     return withImageEditDefaultSize(node);
@@ -1412,7 +1445,7 @@ function applyDefaultNodeSize(node: CanvasNode, data: CanvasNodeData): CanvasNod
     }
   }
 
-  if (node.type === CANVAS_NODE_TYPES.scriptReference) {
+  if (node.type === CANVAS_NODE_TYPES.scriptReference || isScriptAssetReferenceNodeType(node.type)) {
     const resolvedWidth =
       resolveNumericNodeDimension(node.width)
       ?? resolveNumericNodeDimension(node.style?.width);
@@ -3593,6 +3626,24 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
           Object.assign(
             mergedData,
             normalizeScriptReferenceNodeData(mergedData as ScriptReferenceNodeData)
+          );
+        }
+        if (node.type === CANVAS_NODE_TYPES.scriptCharacterReference) {
+          Object.assign(
+            mergedData,
+            normalizeScriptCharacterReferenceNodeData(mergedData as ScriptCharacterReferenceNodeData)
+          );
+        }
+        if (node.type === CANVAS_NODE_TYPES.scriptLocationReference) {
+          Object.assign(
+            mergedData,
+            normalizeScriptLocationReferenceNodeData(mergedData as ScriptLocationReferenceNodeData)
+          );
+        }
+        if (node.type === CANVAS_NODE_TYPES.scriptItemReference) {
+          Object.assign(
+            mergedData,
+            normalizeScriptItemReferenceNodeData(mergedData as ScriptItemReferenceNodeData)
           );
         }
         const resizedNode = maybeApplyImageAutoResize(
