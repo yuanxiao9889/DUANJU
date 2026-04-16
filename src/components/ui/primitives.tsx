@@ -75,6 +75,7 @@ interface UiModalProps {
   footer?: ReactNode;
   widthClassName?: string;
   containerClassName?: string;
+  headerClassName?: string;
   draggable?: boolean;
 }
 
@@ -623,6 +624,7 @@ export function UiModal({
   footer,
   widthClassName = 'w-[460px]',
   containerClassName = '',
+  headerClassName = '',
   draggable = true,
 }: UiModalProps) {
   const { shouldRender, isVisible } = useDialogTransition(isOpen, UI_DIALOG_TRANSITION_MS);
@@ -657,7 +659,7 @@ export function UiModal({
           className={`relative max-h-[calc(100vh-40px)] overflow-hidden transition-opacity duration-200 ${isVisible ? 'opacity-100' : 'opacity-0'} ${widthClassName}`}
         >
           <div
-            className={`flex items-center justify-between border-b border-[rgba(255,255,255,0.1)] px-4 py-3 ${dragHandleClassName}`}
+            className={`flex items-center justify-between border-b border-[rgba(255,255,255,0.1)] px-4 py-3 ${dragHandleClassName} ${headerClassName}`}
             onPointerDown={draggable ? handleDragStart : undefined}
           >
             <h2 className="text-sm font-medium text-text-dark">{title}</h2>

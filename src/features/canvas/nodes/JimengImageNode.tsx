@@ -16,7 +16,6 @@ import {
   type NodeProps,
 } from "@xyflow/react";
 import {
-  Camera,
   Loader2,
   Sparkles,
   TriangleAlert,
@@ -69,6 +68,7 @@ import {
 import { NodeResizeHandle } from "@/features/canvas/ui/NodeResizeHandle";
 import { CanvasNodeImage } from "@/features/canvas/ui/CanvasNodeImage";
 import { CameraParamsDialog } from "@/features/canvas/ui/CameraParamsDialog";
+import { CameraTriggerIcon } from "@/features/canvas/ui/CameraTriggerIcon";
 import { NodeStatusBadge } from "@/features/canvas/ui/NodeStatusBadge";
 import { ReferenceVisualChip } from "@/features/canvas/ui/ReferenceVisualChip";
 import {
@@ -518,8 +518,11 @@ export const JimengImageNode = memo(
     );
     const isCameraParamsApplied = hasCameraParamsSelection(resolvedCameraParams);
     const cameraParamsButtonTitle = isCameraParamsApplied
-      ? resolveCameraParamsSummary(resolvedCameraParams)
-      : t("cameraParams.trigger");
+    ? resolveCameraParamsSummary(resolvedCameraParams)
+    : t("cameraParams.trigger");
+    const cameraParamsButtonClassName = isCameraParamsApplied
+      ? `${NODE_CONTROL_CHIP_CLASS} !w-8 !border-emerald-400/55 !bg-emerald-500/14 !px-0 !text-emerald-300 shadow-[0_0_0_1px_rgba(52,211,153,0.12)] hover:!bg-emerald-500/20 shrink-0 justify-center`
+      : `${NODE_CONTROL_CHIP_CLASS} !w-8 !px-0 shrink-0 justify-center`;
     const isGenerateBlocked =
       !modelSupportsReferenceImages && incomingImages.length > 0;
 
@@ -867,6 +870,11 @@ export const JimengImageNode = memo(
         return;
       }
 
+      const submittedPrompt = appendCameraParamsToPrompt(
+        prompt,
+        resolvedCameraParams,
+      );
+
       if (isGenerateBlocked) {
         const message = t("node.jimengImage.referenceUnsupportedModel");
         updateNodeData(id, { lastError: message });
@@ -942,7 +950,7 @@ export const JimengImageNode = memo(
         }
 
         const generationResponse = await generateJimengImages({
-          prompt,
+          prompt: submittedPrompt,
           aspectRatio: selectedAspectRatio,
           resolutionType: selectedResolution,
           modelVersion: selectedModel,
@@ -1022,6 +1030,7 @@ export const JimengImageNode = memo(
       isGenerateBlocked,
       modelSupportsReferenceImages,
       promptDraft,
+      resolvedCameraParams,
       selectedAspectRatio,
       selectedModel,
       selectedResolution,
@@ -1574,6 +1583,24 @@ export const JimengImageNode = memo(
               />
               <UiChipButton
                 type="button"
+                active={showCameraParamsDialog || isCameraParamsApplied}
+                className={cameraParamsButtonClassName}
+                aria-label={t("cameraParams.trigger")}
+                title={cameraParamsButtonTitle}
+                onClick={(event) => {
+                  event.stopPropagation();
+                  setShowCameraParamsDialog(true);
+                }}
+              >
+                <CameraTriggerIcon
+                  active={isCameraParamsApplied}
+                  className={`h-4 w-4 origin-center scale-[1.24] ${
+                    isCameraParamsApplied ? "text-emerald-300" : "text-text-dark"
+                  }`}
+                />
+              </UiChipButton>
+              <UiChipButton
+                type="button"
                 active={isOptimizingPrompt}
                 disabled={
                   isOptimizingPrompt || promptDraft.trim().length === 0
@@ -1667,6 +1694,12 @@ export const JimengImageNode = memo(
           maxHeight={JIMENG_IMAGE_NODE_MAX_HEIGHT}
         />
         <UiLoadingOverlay visible={showBlockingOverlay} insetClassName="inset-3" />
+        <CameraParamsDialog
+          isOpen={showCameraParamsDialog}
+          value={resolvedCameraParams}
+          onApply={(nextValue) => updateNodeData(id, { cameraParams: nextValue })}
+          onClose={() => setShowCameraParamsDialog(false)}
+        />
       </div>
     );
   },

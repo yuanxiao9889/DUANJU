@@ -11,7 +11,7 @@ import {
   useRef,
 } from 'react';
 import { Handle, Position, useUpdateNodeInternals, type NodeProps } from '@xyflow/react';
-import { AlertTriangle, Camera, Loader2, Sparkles, Undo2, Wand2 } from 'lucide-react';
+import { AlertTriangle, Loader2, Sparkles, Undo2, Wand2 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 
 import { UiLoadingOverlay } from '@/components/ui';
@@ -94,6 +94,7 @@ import {
   NODE_CONTROL_GENERATE_ICON_CLASS,
 } from '@/features/canvas/ui/nodeControlStyles';
 import { CameraParamsDialog } from '@/features/canvas/ui/CameraParamsDialog';
+import { CameraTriggerIcon } from '@/features/canvas/ui/CameraTriggerIcon';
 import { ModelParamsControls } from '@/features/canvas/ui/ModelParamsControls';
 import { StyleTemplateDialog } from '@/features/project/StyleTemplateDialog';
 import { applyStyleTemplatePrompt } from '@/features/project/styleTemplatePrompt';
@@ -647,6 +648,9 @@ export const ImageEditNode = memo(({ id, data, selected, width, height }: ImageE
   const cameraParamsButtonTitle = isCameraParamsApplied
     ? resolveCameraParamsSummary(resolvedCameraParams)
     : t('cameraParams.trigger');
+  const cameraParamsButtonClassName = isCameraParamsApplied
+    ? `${NODE_CONTROL_CHIP_CLASS} !w-8 !border-emerald-400/55 !bg-emerald-500/14 !px-0 !text-emerald-300 shadow-[0_0_0_1px_rgba(52,211,153,0.12)] hover:!bg-emerald-500/20 shrink-0 justify-center`
+    : `${NODE_CONTROL_CHIP_CLASS} !w-8 !px-0 shrink-0 justify-center`;
   const headerStatus = useMemo(() => {
     if (isOptimizingPrompt) {
       return (
@@ -1552,7 +1556,7 @@ export const ImageEditNode = memo(({ id, data, selected, width, height }: ImageE
                   <UiChipButton
                     type="button"
                     active={showCameraParamsDialog || isCameraParamsApplied}
-                    className={`${NODE_CONTROL_CHIP_CLASS} !w-8 !px-0 shrink-0 justify-center`}
+                    className={cameraParamsButtonClassName}
                     aria-label={t('cameraParams.trigger')}
                     title={cameraParamsButtonTitle}
                     onClick={(event) => {
@@ -1560,9 +1564,11 @@ export const ImageEditNode = memo(({ id, data, selected, width, height }: ImageE
                       setShowCameraParamsDialog(true);
                     }}
                   >
-                    <Camera
-                      className="h-4 w-4 origin-center scale-[1.05] text-text-dark"
-                      strokeWidth={2.35}
+                    <CameraTriggerIcon
+                      active={isCameraParamsApplied}
+                      className={`h-4 w-4 origin-center scale-[1.24] ${
+                        isCameraParamsApplied ? 'text-emerald-300' : 'text-text-dark'
+                      }`}
                     />
                   </UiChipButton>
                   <UiChipButton

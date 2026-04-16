@@ -25,6 +25,160 @@
     "moveUp": "上移",
     "moveDown": "下移"
   },
+  "cameraParams": {
+    "title": "相机参数",
+    "trigger": "相机参数",
+    "helpLink": "参数说明",
+    "dialogHint": "可用鼠标滚轮或上下切换控件来选择相机机身、镜头、焦距和光圈。这些参数不会显示在可见提示词里，只会在提交生成时作为隐藏参数附加进去。",
+    "clear": "清空",
+    "use": "使用",
+    "notSet": "未设置",
+    "fields": {
+      "cameraBody": "相机机身",
+      "lens": "镜头系列",
+      "focalLength": "焦距",
+      "aperture": "光圈"
+    },
+    "quickPresets": {
+      "title": "快捷预设",
+      "hint": "点击后自动带入下方参数",
+      "entries": {
+        "portraitCloseup": {
+          "title": "人物人像",
+          "summary": "85mm · 浅景深"
+        },
+        "environmentWide": {
+          "title": "环境广角",
+          "summary": "24mm · 空间纵深"
+        },
+        "cinematicMedium": {
+          "title": "电影中景",
+          "summary": "50mm · 平衡构图"
+        },
+        "dialogueNatural": {
+          "title": "自然对话",
+          "summary": "35mm · 自然视角"
+        },
+        "groupScene": {
+          "title": "群像场景",
+          "summary": "35mm · 更宽取景"
+        },
+        "longShot": {
+          "title": "远景压缩",
+          "summary": "135mm · 强压缩"
+        },
+        "establishingWide": {
+          "title": "大场建立",
+          "summary": "18mm · 超广空间"
+        },
+        "closeupDetail": {
+          "title": "近景特写",
+          "summary": "100mm · 细节压近"
+        },
+        "fullBody": {
+          "title": "全身构图",
+          "summary": "50mm · 全身比例"
+        },
+        "twoShot": {
+          "title": "双人对话",
+          "summary": "75mm · 双人构图"
+        }
+      }
+    },
+    "presets": {
+      "cameraBodies": {
+        "arriAlexaMiniLf": "ARRI ALEXA Mini LF",
+        "arriAlexa35": "ARRI ALEXA 35",
+        "sonyVenice2": "Sony VENICE 2",
+        "canonC500MarkIi": "Canon EOS C500 Mark II",
+        "panavisionDxl2": "Panavision DXL2"
+      },
+      "lenses": {
+        "arriSignaturePrime": "ARRI Signature Prime",
+        "zeissSupremePrime": "ZEISS Supreme Prime",
+        "cookeS4iPrime": "Cooke S4/i Prime",
+        "canonCnePrime": "Canon CN-E Prime",
+        "panavisionPrimo70": "Panavision Primo 70"
+      }
+    }
+  },
+  "cameraHelp": {
+    "title": "参数说明",
+    "subtitle": "这里先提供常用焦段的画面效果说明，后续可继续补充相机、镜头和光圈的图文示意，不需要重做弹窗结构。",
+    "tabs": {
+      "focalLength": "焦距",
+      "lens": "镜头",
+      "aperture": "光圈",
+      "cameraBody": "相机"
+    },
+    "items": {
+      "focalOverview": "焦距参数总览",
+      "18mm": "18mm 超广角",
+      "24mm": "24mm 广角",
+      "35mm": "35mm 自然广角",
+      "50mm": "50mm 标准视角",
+      "85mm": "85mm 人像长焦",
+      "135mm": "135mm 长焦压缩",
+      "lensOverview": "镜头参数说明",
+      "apertureOverview": "光圈参数说明",
+      "cameraBodyOverview": "相机机身参数说明"
+    },
+    "entries": {
+      "18mm": {
+        "title": "18毫米超广角",
+        "body": "广阔空间，强烈透视，深度对焦。",
+        "tags": {
+          "space": "广阔空间",
+          "perspective": "强烈透视",
+          "focus": "深度对焦"
+        }
+      },
+      "24mm": {
+        "title": "24mm广角镜头",
+        "body": "环境叙事，纵深感，景深清晰。",
+        "tags": {
+          "storytelling": "环境叙事",
+          "depth": "纵深感",
+          "focus": "景深清晰"
+        }
+      },
+      "35mm": {
+        "title": "35毫米自然广角",
+        "body": "电影感，中景镜头，平衡视角。",
+        "tags": {
+          "cinematic": "电影感",
+          "medium": "中景镜头",
+          "balance": "平衡视角"
+        }
+      },
+      "50mm": {
+        "title": "50mm正常视角",
+        "body": "自然比例，平衡构图。",
+        "tags": {
+          "proportion": "自然比例",
+          "balance": "平衡构图"
+        }
+      },
+      "85mm": {
+        "title": "85毫米长焦人像风格",
+        "body": "特写镜头，背景压缩，浅景深，奶油状散景。",
+        "tags": {
+          "closeup": "特写镜头",
+          "compression": "背景压缩",
+          "bokeh": "奶油状散景"
+        }
+      },
+      "135mm": {
+        "title": "135mm长焦镜头",
+        "body": "强压缩效果，远距离拍摄，紧凑构图，浅景深。",
+        "tags": {
+          "compression": "强压缩效果",
+          "distance": "远距离拍摄",
+          "depth": "浅景深"
+        }
+      }
+    }
+  },
   "theme": {
     "dark": "深色",
     "light": "浅色"

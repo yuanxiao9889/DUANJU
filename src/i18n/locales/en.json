@@ -26,6 +26,160 @@
     "moveUp": "Move Up",
     "moveDown": "Move Down"
   },
+  "cameraParams": {
+    "title": "Camera Params",
+    "trigger": "Camera Params",
+    "helpLink": "Parameter Guide",
+    "dialogHint": "Use the mouse wheel or the up/down controls to audition camera body, lens, focal length, and aperture. These values stay hidden from the visible prompt and are only appended when you submit generation.",
+    "clear": "Clear",
+    "use": "Use",
+    "notSet": "Not Set",
+    "fields": {
+      "cameraBody": "Camera Body",
+      "lens": "Lens",
+      "focalLength": "Focal Length",
+      "aperture": "Aperture"
+    },
+    "quickPresets": {
+      "title": "Quick Looks",
+      "hint": "Tap to auto-fill the setup",
+      "entries": {
+        "portraitCloseup": {
+          "title": "Portrait",
+          "summary": "85mm · shallow depth"
+        },
+        "environmentWide": {
+          "title": "Environment",
+          "summary": "24mm · spatial depth"
+        },
+        "cinematicMedium": {
+          "title": "Medium Shot",
+          "summary": "50mm · balanced frame"
+        },
+        "dialogueNatural": {
+          "title": "Dialogue",
+          "summary": "35mm · natural view"
+        },
+        "groupScene": {
+          "title": "Group Scene",
+          "summary": "35mm · wider coverage"
+        },
+        "longShot": {
+          "title": "Long Shot",
+          "summary": "135mm · strong compression"
+        },
+        "establishingWide": {
+          "title": "Establishing",
+          "summary": "18mm · ultra wide"
+        },
+        "closeupDetail": {
+          "title": "Close-up",
+          "summary": "100mm · tighter detail"
+        },
+        "fullBody": {
+          "title": "Full Body",
+          "summary": "50mm · full figure"
+        },
+        "twoShot": {
+          "title": "Two Shot",
+          "summary": "75mm · paired framing"
+        }
+      }
+    },
+    "presets": {
+      "cameraBodies": {
+        "arriAlexaMiniLf": "ARRI ALEXA Mini LF",
+        "arriAlexa35": "ARRI ALEXA 35",
+        "sonyVenice2": "Sony VENICE 2",
+        "canonC500MarkIi": "Canon EOS C500 Mark II",
+        "panavisionDxl2": "Panavision DXL2"
+      },
+      "lenses": {
+        "arriSignaturePrime": "ARRI Signature Prime",
+        "zeissSupremePrime": "ZEISS Supreme Prime",
+        "cookeS4iPrime": "Cooke S4/i Prime",
+        "canonCnePrime": "Canon CN-E Prime",
+        "panavisionPrimo70": "Panavision Primo 70"
+      }
+    }
+  },
+  "cameraHelp": {
+    "title": "Parameter Guide",
+    "subtitle": "Use these focal length notes as a quick visual-language guide. The structure is ready for future image and diagram references.",
+    "tabs": {
+      "focalLength": "Focal Length",
+      "lens": "Lens",
+      "aperture": "Aperture",
+      "cameraBody": "Camera"
+    },
+    "items": {
+      "focalOverview": "Focal Length Overview",
+      "18mm": "18mm Ultra Wide",
+      "24mm": "24mm Wide Angle",
+      "35mm": "35mm Natural Wide",
+      "50mm": "50mm Standard View",
+      "85mm": "85mm Portrait Telephoto",
+      "135mm": "135mm Long Telephoto",
+      "lensOverview": "Lens Guide",
+      "apertureOverview": "Aperture Guide",
+      "cameraBodyOverview": "Camera Body Guide"
+    },
+    "entries": {
+      "18mm": {
+        "title": "18mm Ultra Wide",
+        "body": "Broad space, strong perspective, and deep focus.",
+        "tags": {
+          "space": "Broad space",
+          "perspective": "Strong perspective",
+          "focus": "Deep focus"
+        }
+      },
+      "24mm": {
+        "title": "24mm Wide Angle",
+        "body": "Environmental storytelling, depth, and clearer depth of field.",
+        "tags": {
+          "storytelling": "Environmental storytelling",
+          "depth": "Depth",
+          "focus": "Clearer depth of field"
+        }
+      },
+      "35mm": {
+        "title": "35mm Natural Wide",
+        "body": "Cinematic balance for medium shots and a natural field of view.",
+        "tags": {
+          "cinematic": "Cinematic feel",
+          "medium": "Medium shot",
+          "balance": "Balanced view"
+        }
+      },
+      "50mm": {
+        "title": "50mm Normal View",
+        "body": "Natural proportions and balanced framing.",
+        "tags": {
+          "proportion": "Natural proportions",
+          "balance": "Balanced composition"
+        }
+      },
+      "85mm": {
+        "title": "85mm Portrait Telephoto",
+        "body": "Close-up portraits, compressed backgrounds, shallow depth, and creamy bokeh.",
+        "tags": {
+          "closeup": "Close-up",
+          "compression": "Background compression",
+          "bokeh": "Creamy bokeh"
+        }
+      },
+      "135mm": {
+        "title": "135mm Long Telephoto",
+        "body": "Strong compression, distant shooting, compact framing, and shallow depth.",
+        "tags": {
+          "compression": "Strong compression",
+          "distance": "Long-distance shooting",
+          "depth": "Shallow depth of field"
+        }
+      }
+    }
+  },
   "theme": {
     "dark": "Dark",
     "light": "Light"
