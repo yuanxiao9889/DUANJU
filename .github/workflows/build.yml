@@ -89,10 +89,10 @@ jobs:
           if [[ "$MAC_MODE" == "unsigned-test" ]]; then
             BODY="${BODY}
 
-            ## macOS unsigned test build
+            ## macOS internal test build
 
-            - This DMG is unsigned and intended for internal testing only.
-            - On a standard macOS system, testers may need to manually bypass Gatekeeper to open it."
+            - This DMG is built for internal testing without an Apple Developer certificate.
+            - The app uses ad-hoc signing, so testers may still need to manually bypass Gatekeeper to open it."
           fi
 
           echo "tag=$TAG" >> "$GITHUB_OUTPUT"
@@ -228,7 +228,14 @@ jobs:
             src-tauri/target/x86_64-apple-darwin/release/media_recover \
             -output src-tauri/target/universal-apple-darwin/release/media_recover
 
-      - name: Build bundles
+      - name: Build bundles (Windows)
+        if: matrix.platform == 'windows-latest'
+        env:
+          CI: true
+        run: npx tauri build ${{ matrix.args }}
+
+      - name: Build bundles (macOS signed)
+        if: matrix.platform == 'macos-latest' && steps.mac_mode.outputs.mode == 'signed'
         env:
           CI: true
           APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
@@ -237,6 +244,13 @@ jobs:
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: npx tauri build ${{ matrix.args }}
+
+      - name: Build bundles (macOS unsigned-test)
+        if: matrix.platform == 'macos-latest' && steps.mac_mode.outputs.mode == 'unsigned-test'
+        env:
+          CI: true
+          APPLE_SIGNING_IDENTITY: "-"
         run: npx tauri build ${{ matrix.args }}
 
       - name: Rename unsigned macOS DMG
