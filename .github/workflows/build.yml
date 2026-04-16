@@ -212,6 +212,22 @@ jobs:
             echo "Using unsigned macOS test packaging because Apple signing secrets are not configured."
           fi
 
+      - name: Build media_recover sidecar (Windows)
+        if: matrix.platform == 'windows-latest'
+        run: cargo build --manifest-path src-tauri/Cargo.toml --release --bin media_recover
+
+      - name: Build media_recover sidecar (macOS universal)
+        if: matrix.platform == 'macos-latest'
+        shell: bash
+        run: |
+          cargo build --manifest-path src-tauri/Cargo.toml --release --bin media_recover --target aarch64-apple-darwin
+          cargo build --manifest-path src-tauri/Cargo.toml --release --bin media_recover --target x86_64-apple-darwin
+          mkdir -p src-tauri/target/universal-apple-darwin/release
+          lipo -create \
+            src-tauri/target/aarch64-apple-darwin/release/media_recover \
+            src-tauri/target/x86_64-apple-darwin/release/media_recover \
+            -output src-tauri/target/universal-apple-darwin/release/media_recover
+
       - name: Build bundles
         env:
           CI: true
