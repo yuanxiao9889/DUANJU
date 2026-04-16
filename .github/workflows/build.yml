@@ -89,10 +89,10 @@ jobs:
           if [[ "$MAC_MODE" == "unsigned-test" ]]; then
             BODY="${BODY}
 
-## macOS unsigned test build
+            ## macOS unsigned test build
 
-- This DMG is unsigned and intended for internal testing only.
-- On a standard macOS system, testers may need to manually bypass Gatekeeper to open it."
+            - This DMG is unsigned and intended for internal testing only.
+            - On a standard macOS system, testers may need to manually bypass Gatekeeper to open it."
           fi
 
           echo "tag=$TAG" >> "$GITHUB_OUTPUT"
