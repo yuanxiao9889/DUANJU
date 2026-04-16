@@ -29,6 +29,7 @@ jobs:
       tag: ${{ steps.resolve.outputs.tag }}
       version: ${{ steps.resolve.outputs.version }}
       body: ${{ steps.resolve.outputs.body }}
+      mac_mode: ${{ steps.resolve.outputs.mac_mode }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -42,6 +43,12 @@ jobs:
         env:
           INPUT_TAG: ${{ github.event.inputs.release_tag }}
           INPUT_NOTES: ${{ github.event.inputs.release_notes }}
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         run: |
           if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
             TAG="${GITHUB_REF#refs/tags/}"
@@ -65,8 +72,32 @@ jobs:
             BODY="Release ${TAG}"
           fi
 
+          MAC_MODE="signed"
+          for key in \
+            APPLE_CERTIFICATE \
+            APPLE_CERTIFICATE_PASSWORD \
+            APPLE_SIGNING_IDENTITY \
+            APPLE_ID \
+            APPLE_PASSWORD \
+            APPLE_TEAM_ID; do
+            if [[ -z "${!key}" ]]; then
+              MAC_MODE="unsigned-test"
+              break
+            fi
+          done
+
+          if [[ "$MAC_MODE" == "unsigned-test" ]]; then
+            BODY="${BODY}
+
+## macOS 测试包说明
+
+- macOS 安装包为未签名内部测试 DMG，仅供内部测试
+- 普通 macOS 环境可能需要手动绕过 Gatekeeper 后打开"
+          fi
+
           echo "tag=$TAG" >> "$GITHUB_OUTPUT"
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "mac_mode=$MAC_MODE" >> "$GITHUB_OUTPUT"
           {
             echo "body<<EOF"
             printf '%s\n' "$BODY"
@@ -161,8 +192,9 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Validate macOS signing and notarization secrets
+      - name: Resolve macOS packaging mode
         if: matrix.platform == 'macos-latest'
+        id: mac-mode
         shell: bash
         env:
           APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
@@ -172,23 +204,12 @@ jobs:
           APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         run: |
-          missing=()
-          for key in \
-            APPLE_CERTIFICATE \
-            APPLE_CERTIFICATE_PASSWORD \
-            APPLE_SIGNING_IDENTITY \
-            APPLE_ID \
-            APPLE_PASSWORD \
-            APPLE_TEAM_ID; do
-            if [[ -z "${!key}" ]]; then
-              missing+=("$key")
-            fi
-          done
-
-          if (( ${#missing[@]} > 0 )); then
-            echo "Missing required macOS signing/notarization secrets: ${missing[*]}"
-            echo "Refusing to publish an unsigned macOS installer because it will install but fail to open on normal macOS machines."
-            exit 1
+          if [[ "${{ needs.prepare-release.outputs.mac_mode }}" == "signed" ]]; then
+            echo "mode=signed" >> "$GITHUB_OUTPUT"
+            echo "Using signed macOS release packaging."
+          else
+            echo "mode=unsigned-test" >> "$GITHUB_OUTPUT"
+            echo "Using unsigned macOS test packaging because Apple signing secrets are not configured."
           fi
 
       - name: Build bundles
@@ -201,6 +222,23 @@ jobs:
           APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         run: npx tauri build ${{ matrix.args }}
+
+      - name: Rename unsigned macOS DMG
+        if: matrix.platform == 'macos-latest' && steps.mac-mode.outputs.mode == 'unsigned-test'
+        shell: bash
+        run: |
+          dmg="$(find src-tauri/target/universal-apple-darwin/release/bundle/dmg -maxdepth 1 -name '*.dmg' | head -n 1)"
+          if [[ -z "$dmg" ]]; then
+            echo "No DMG artifact found to rename."
+            exit 1
+          fi
+
+          dir="$(dirname "$dmg")"
+          file="$(basename "$dmg")"
+          stem="${file%.dmg}"
+          renamed="${dir}/${stem}-unsigned-test.dmg"
+          mv "$dmg" "$renamed"
+          echo "Renamed macOS test artifact to $(basename "$renamed")"
 
       - name: Upload bundles to GitHub Release
         uses: softprops/action-gh-release@v2
