@@ -29,6 +29,7 @@ jobs:
       tag: ${{ steps.resolve.outputs.tag }}
       version: ${{ steps.resolve.outputs.version }}
       body: ${{ steps.resolve.outputs.body }}
+      mac_mode: ${{ steps.resolve.outputs.mac_mode }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -42,6 +43,12 @@ jobs:
         env:
           INPUT_TAG: ${{ github.event.inputs.release_tag }}
           INPUT_NOTES: ${{ github.event.inputs.release_notes }}
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         run: |
           if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
             TAG="${GITHUB_REF#refs/tags/}"
@@ -65,8 +72,32 @@ jobs:
             BODY="Release ${TAG}"
           fi
 
+          MAC_MODE="signed"
+          for key in \
+            APPLE_CERTIFICATE \
+            APPLE_CERTIFICATE_PASSWORD \
+            APPLE_SIGNING_IDENTITY \
+            APPLE_ID \
+            APPLE_PASSWORD \
+            APPLE_TEAM_ID; do
+            if [[ -z "${!key}" ]]; then
+              MAC_MODE="unsigned-test"
+              break
+            fi
+          done
+
+          if [[ "$MAC_MODE" == "unsigned-test" ]]; then
+            BODY="${BODY}
+
+## macOS 测试包说明
+
+- macOS 安装包为未签名内部测试 DMG，仅供内部测试
+- 普通 macOS 环境可能需要手动绕过 Gatekeeper 后打开"
+          fi
+
           echo "tag=$TAG" >> "$GITHUB_OUTPUT"
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "mac_mode=$MAC_MODE" >> "$GITHUB_OUTPUT"
           {
             echo "body<<EOF"
             printf '%s\n' "$BODY"
@@ -123,9 +154,11 @@ jobs:
           - name: Windows
             platform: windows-latest
             args: --bundles nsis
+            artifact_glob: src-tauri/target/release/bundle/nsis/*.exe
           - name: macOS
             platform: macos-latest
-            args: --bundles dmg
+            args: --target universal-apple-darwin --bundles dmg
+            artifact_glob: src-tauri/target/universal-apple-darwin/release/bundle/dmg/*.dmg
     name: Build ${{ matrix.name }}
     runs-on: ${{ matrix.platform }}
     steps:
@@ -159,17 +192,62 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Build and publish bundles
-        uses: tauri-apps/tauri-action@v0.6.2
+      - name: Resolve macOS packaging mode
+        if: matrix.platform == 'macos-latest'
+        id: mac-mode
+        shell: bash
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          if [[ "${{ needs.prepare-release.outputs.mac_mode }}" == "signed" ]]; then
+            echo "mode=signed" >> "$GITHUB_OUTPUT"
+            echo "Using signed macOS release packaging."
+          else
+            echo "mode=unsigned-test" >> "$GITHUB_OUTPUT"
+            echo "Using unsigned macOS test packaging because Apple signing secrets are not configured."
+          fi
+
+      - name: Build bundles
+        env:
+          CI: true
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: npx tauri build ${{ matrix.args }}
+
+      - name: Rename unsigned macOS DMG
+        if: matrix.platform == 'macos-latest' && steps.mac-mode.outputs.mode == 'unsigned-test'
+        shell: bash
+        run: |
+          dmg="$(find src-tauri/target/universal-apple-darwin/release/bundle/dmg -maxdepth 1 -name '*.dmg' | head -n 1)"
+          if [[ -z "$dmg" ]]; then
+            echo "No DMG artifact found to rename."
+            exit 1
+          fi
+
+          dir="$(dirname "$dmg")"
+          file="$(basename "$dmg")"
+          stem="${file%.dmg}"
+          renamed="${dir}/${stem}-unsigned-test.dmg"
+          mv "$dmg" "$renamed"
+          echo "Renamed macOS test artifact to $(basename "$renamed")"
+
+      - name: Upload bundles to GitHub Release
+        uses: softprops/action-gh-release@v2
         with:
-          tagName: ${{ needs.prepare-release.outputs.tag }}
-          releaseName: 短剧助手 ${{ needs.prepare-release.outputs.tag }}
-          releaseBody: ${{ needs.prepare-release.outputs.body }}
-          releaseCommitish: ${{ github.sha }}
-          releaseDraft: false
+          tag_name: ${{ needs.prepare-release.outputs.tag }}
+          name: 短剧助手 ${{ needs.prepare-release.outputs.tag }}
+          body: ${{ needs.prepare-release.outputs.body }}
+          target_commitish: ${{ github.sha }}
+          draft: false
           prerelease: false
-          tauriScript: npx tauri
-          retryAttempts: 2
-          args: ${{ matrix.args }}
+          files: ${{ matrix.artifact_glob }}
+          fail_on_unmatched_files: true

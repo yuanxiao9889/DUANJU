@@ -11,6 +11,7 @@ node_modules
 dist
 dist-ssr
 *.local
+build/extensions/
 
 # Editor directories and files
 .vscode/*
@@ -26,3 +27,4 @@ dist-ssr
 ComfyUI/
 ComfyUI_frontend/
 Henji-AI/
+.codex/

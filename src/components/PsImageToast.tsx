@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useTranslation } from 'react-i18next';
 import { X, Plus, Check } from 'lucide-react';
+import { UiLoadingAnimation } from '@/components/ui';
 import { usePsIntegrationStore } from '@/stores/psIntegrationStore';
 import { useCanvasStore } from '@/stores/canvasStore';
 import { useProjectStore } from '@/stores/projectStore';
@@ -98,7 +99,10 @@ export function PsImageToast() {
                       {t('common.success')}
                     </>
                   ) : isAdding ? (
-                    t('common.loading')
+                    <>
+                      <UiLoadingAnimation size="xs" />
+                      {t('common.loading')}
+                    </>
                   ) : (
                     <>
                       <Plus className="h-3.5 w-3.5" />

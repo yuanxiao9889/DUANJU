@@ -12,18 +12,29 @@ import {
   STORYBOARD_COMPATIBLE_PROVIDER_ID,
   type StoryboardCompatibleModelConfig,
 } from './storyboardCompatible';
+import {
+  createStoryboardNewApiImageModel,
+  normalizeStoryboardNewApiModelConfig,
+  resolveStoryboardNewApiModeLabel,
+  STORYBOARD_NEWAPI_PROVIDER_ID,
+  type StoryboardNewApiModelConfig,
+} from './storyboardNewApi';
+import { AZEMM_NANO_BANANA_MODEL_ID } from './image/azemm/nanoBanana';
+import { AZEMM_NANO_BANANA_HD_MODEL_ID } from './image/azemm/nanoBananaHd';
 import { BLTCY_GEMINI_FLASH_IMAGE_PREVIEW_4K_MODEL_ID } from './image/bltcy/nanoBanana';
 import { BLTCY_NANO_BANANA_2_4K_MODEL_ID } from './image/bltcy/nanoBananaHd';
-import { COMFLY_NANO_BANANA_MODEL_ID } from './image/comfly/nanoBanana';
-import { COMFLY_NANO_BANANA_HD_MODEL_ID } from './image/comfly/nanoBananaHd';
+import { COMFLY_NANO_BANANA_PRO_MODEL_ID } from './image/comfly/nanoBanana';
+import { COMFLY_GEMINI_FLASH_IMAGE_PREVIEW_MODEL_ID } from './image/comfly/geminiFlashImagePreview';
 import { ZHENZHEN_NANO_BANANA_MODEL_ID } from './image/zhenzhen/nanoBanana';
-import { ZHENZHEN_NANO_BANANA_HD_MODEL_ID } from './image/zhenzhen/nanoBananaHd';
+import { ZHENZHEN_GEMINI_FLASH_IMAGE_PREVIEW_MODEL_ID } from './image/zhenzhen/geminiFlashImagePreview';
 
 export const STORYBOARD_CUSTOM_MODEL_PROVIDER_IDS = [
+  'azemm',
   'comfly',
   'zhenzhen',
   'bltcy',
   STORYBOARD_COMPATIBLE_PROVIDER_ID,
+  STORYBOARD_NEWAPI_PROVIDER_ID,
 ] as const;
 
 export type StoryboardCustomModelProviderId =
@@ -46,6 +57,7 @@ export interface StoryboardModelSettingsLike {
   storyboardModelOverrides?: Record<string, string>;
   storyboardProviderCustomModels?: Record<string, CustomStoryboardModelEntry[]>;
   storyboardCompatibleModelConfig?: StoryboardCompatibleModelConfig | null;
+  storyboardNewApiModelConfig?: StoryboardNewApiModelConfig | null;
 }
 
 const STORYBOARD_CUSTOM_MODEL_PROVIDER_ID_SET = new Set<string>(
@@ -88,11 +100,6 @@ const FULL_RESOLUTIONS: ResolutionOption[] = [
   { value: '4K', label: '4K' },
 ];
 
-const COMFLY_HD_RESOLUTIONS: ResolutionOption[] = [
-  { value: '2K', label: '2K' },
-  { value: '4K', label: '4K' },
-];
-
 const FOUR_K_RESOLUTIONS: ResolutionOption[] = [
   { value: '4K', label: '4K' },
 ];
@@ -112,19 +119,28 @@ const BUILT_IN_STORYBOARD_MODELS: Record<
   StoryboardCustomModelProviderId,
   readonly StoryboardModelOption[]
 > = {
+  azemm: [
+    { modelId: AZEMM_NANO_BANANA_MODEL_ID, label: '\u9999\u85492', source: 'builtin' },
+    { modelId: AZEMM_NANO_BANANA_HD_MODEL_ID, label: '\u9999\u8549pro', source: 'builtin' },
+  ],
   comfly: [
-    { modelId: COMFLY_NANO_BANANA_MODEL_ID, label: '香蕉2', source: 'builtin' },
-    { modelId: COMFLY_NANO_BANANA_HD_MODEL_ID, label: '香蕉Pro', source: 'builtin' },
+    { modelId: COMFLY_NANO_BANANA_PRO_MODEL_ID, label: '\u9999\u8549Pro', source: 'builtin' },
+    { modelId: COMFLY_GEMINI_FLASH_IMAGE_PREVIEW_MODEL_ID, label: 'Gemini 3.1 Flash', source: 'builtin' },
   ],
   zhenzhen: [
-    { modelId: ZHENZHEN_NANO_BANANA_MODEL_ID, label: '香蕉2', source: 'builtin' },
-    { modelId: ZHENZHEN_NANO_BANANA_HD_MODEL_ID, label: '香蕉Pro', source: 'builtin' },
+    { modelId: ZHENZHEN_NANO_BANANA_MODEL_ID, label: 'Nano Banana Pro', source: 'builtin' },
+    {
+      modelId: ZHENZHEN_GEMINI_FLASH_IMAGE_PREVIEW_MODEL_ID,
+      label: '\u9999\u85492',
+      source: 'builtin',
+    },
   ],
   bltcy: [
-    { modelId: BLTCY_GEMINI_FLASH_IMAGE_PREVIEW_4K_MODEL_ID, label: '香蕉2', source: 'builtin' },
-    { modelId: BLTCY_NANO_BANANA_2_4K_MODEL_ID, label: '香蕉Pro', source: 'builtin' },
+    { modelId: BLTCY_GEMINI_FLASH_IMAGE_PREVIEW_4K_MODEL_ID, label: '\u9999\u85492', source: 'builtin' },
+    { modelId: BLTCY_NANO_BANANA_2_4K_MODEL_ID, label: '\u9999\u8549Pro', source: 'builtin' },
   ],
   compatible: [],
+  newapi: [],
 };
 
 function normalizeTrimmedString(input: unknown): string {
@@ -271,9 +287,31 @@ function createLegacyCompatibleModelEntry(
   };
 }
 
+function createLegacyNewApiModelEntry(
+  newApiConfig: StoryboardNewApiModelConfig | null | undefined
+): CustomStoryboardModelEntry | null {
+  const normalizedConfig = normalizeStoryboardNewApiModelConfig(newApiConfig);
+  if (!normalizedConfig.requestModel || !normalizedConfig.displayName) {
+    return null;
+  }
+
+  return {
+    id: buildCustomStoryboardModelEntryId(
+      STORYBOARD_NEWAPI_PROVIDER_ID,
+      normalizedConfig.requestModel
+    ),
+    modelId: normalizeStoryboardRequestModelId(
+      STORYBOARD_NEWAPI_PROVIDER_ID,
+      normalizedConfig.requestModel
+    ),
+    displayName: normalizedConfig.displayName,
+  };
+}
+
 export function normalizeStoryboardProviderCustomModels(
   input: unknown,
-  compatibleConfig?: StoryboardCompatibleModelConfig | null
+  compatibleConfig?: StoryboardCompatibleModelConfig | null,
+  newApiConfig?: StoryboardNewApiModelConfig | null
 ): Record<string, CustomStoryboardModelEntry[]> {
   const record =
     input && typeof input === 'object' && !Array.isArray(input)
@@ -292,6 +330,19 @@ export function normalizeStoryboardProviderCustomModels(
 
     if (providerId === STORYBOARD_COMPATIBLE_PROVIDER_ID) {
       const legacyEntry = createLegacyCompatibleModelEntry(compatibleConfig);
+      if (
+        legacyEntry
+        && !normalizedEntries.some((entry) =>
+          toStoryboardProviderModelId(providerId, entry.modelId).toLowerCase()
+          === toStoryboardProviderModelId(providerId, legacyEntry.modelId).toLowerCase()
+        )
+      ) {
+        normalizedEntries.unshift(legacyEntry);
+      }
+    }
+
+    if (providerId === STORYBOARD_NEWAPI_PROVIDER_ID) {
+      const legacyEntry = createLegacyNewApiModelEntry(newApiConfig);
       if (
         legacyEntry
         && !normalizedEntries.some((entry) =>
@@ -330,7 +381,8 @@ export function getCustomStoryboardModels(
 export function resolveStoryboardModelOptions(
   providerId: string,
   customModels: Record<string, CustomStoryboardModelEntry[]> | null | undefined,
-  compatibleConfig?: StoryboardCompatibleModelConfig | null
+  compatibleConfig?: StoryboardCompatibleModelConfig | null,
+  newApiConfig?: StoryboardNewApiModelConfig | null
 ): StoryboardModelOption[] {
   if (!isStoryboardCustomModelProviderId(providerId)) {
     return [];
@@ -338,7 +390,11 @@ export function resolveStoryboardModelOptions(
 
   const result: StoryboardModelOption[] = [];
   const seenModelIds = new Set<string>();
-  const normalizedCustomModels = normalizeStoryboardProviderCustomModels(customModels, compatibleConfig);
+  const normalizedCustomModels = normalizeStoryboardProviderCustomModels(
+    customModels,
+    compatibleConfig,
+    newApiConfig
+  );
 
   for (const option of BUILT_IN_STORYBOARD_MODELS[providerId]) {
     const modelKey = option.modelId.toLowerCase();
@@ -383,7 +439,8 @@ export function resolveConfiguredStoryboardModel(
   const resolvedOptions = resolveStoryboardModelOptions(
     providerId,
     settings.storyboardProviderCustomModels,
-    settings.storyboardCompatibleModelConfig
+    settings.storyboardCompatibleModelConfig,
+    settings.storyboardNewApiModelConfig
   );
   const defaultModelId = resolvedOptions[0]?.modelId ?? '';
   const explicitModel = normalizeTrimmedString(settings.storyboardModelOverrides?.[providerId]);
@@ -414,7 +471,8 @@ export function resolveConfiguredStoryboardModel(
 export function normalizeStoryboardModelOverrides(
   input: unknown,
   customModels: Record<string, CustomStoryboardModelEntry[]>,
-  compatibleConfig?: StoryboardCompatibleModelConfig | null
+  compatibleConfig?: StoryboardCompatibleModelConfig | null,
+  newApiConfig?: StoryboardNewApiModelConfig | null
 ): Record<string, string> {
   const record =
     input && typeof input === 'object' && !Array.isArray(input)
@@ -427,6 +485,7 @@ export function normalizeStoryboardModelOverrides(
       storyboardModelOverrides: rawModel ? { [providerId]: rawModel } : undefined,
       storyboardProviderCustomModels: customModels,
       storyboardCompatibleModelConfig: compatibleConfig,
+      storyboardNewApiModelConfig: newApiConfig,
     });
     return result;
   }, {});
@@ -494,6 +553,34 @@ export function resolveStoryboardCompatibleModelConfigForModel(
   });
 }
 
+export function resolveStoryboardNewApiModelConfigForModel(
+  modelId: string | null | undefined,
+  newApiConfig: StoryboardNewApiModelConfig | null | undefined,
+  customModels: Record<string, CustomStoryboardModelEntry[]> | null | undefined
+): StoryboardNewApiModelConfig {
+  const normalizedConfig = normalizeStoryboardNewApiModelConfig(newApiConfig);
+  const normalizedModelId = normalizeTrimmedString(modelId);
+  if (!normalizedModelId.startsWith(`${STORYBOARD_NEWAPI_PROVIDER_ID}/`)) {
+    return normalizedConfig;
+  }
+
+  const matchedEntry = getCustomStoryboardModels(STORYBOARD_NEWAPI_PROVIDER_ID, customModels).find(
+    (entry) =>
+      toStoryboardProviderModelId(STORYBOARD_NEWAPI_PROVIDER_ID, entry.modelId).toLowerCase()
+      === normalizedModelId.toLowerCase()
+  );
+
+  if (!matchedEntry) {
+    return normalizedConfig;
+  }
+
+  return normalizeStoryboardNewApiModelConfig({
+    ...normalizedConfig,
+    requestModel: matchedEntry.modelId,
+    displayName: matchedEntry.displayName,
+  });
+}
+
 interface StoryboardCustomModelProfile {
   aspectRatios: AspectRatioOption[];
   resolutions: ResolutionOption[];
@@ -528,25 +615,19 @@ function resolveStoryboardCustomModelProfile(
     };
   }
 
-  if (providerId === 'comfly' && (
-    normalizedModelId.includes('hd')
-    || normalizedModelId.includes('pro')
-    || normalizedModelId.includes('4k')
-  )) {
+  if (normalizedModelId.includes('2k') && !normalizedModelId.includes('4k')) {
     return {
-      aspectRatios: HD_ASPECT_RATIOS.map((value) => ({ value, label: value })),
-      resolutions: COMFLY_HD_RESOLUTIONS,
-      defaultResolution: '4K',
+      aspectRatios: COMPATIBLE_ASPECT_RATIO_OPTIONS,
+      resolutions: FULL_RESOLUTIONS.filter((item) => item.value === '2K'),
+      defaultResolution: '2K',
       eta: '45s',
       expectedDurationMs: 45000,
     };
   }
-
   if (
     providerId !== 'comfly'
     && (
       normalizedModelId.includes('hd')
-      || normalizedModelId.includes('pro')
       || normalizedModelId.includes('4k')
     )
   ) {
@@ -625,13 +706,49 @@ function createCompatibleCustomStoryboardImageModel(
   };
 }
 
+function createNewApiCustomStoryboardImageModel(
+  entry: CustomStoryboardModelEntry,
+  newApiConfig: StoryboardNewApiModelConfig | null | undefined
+): ImageModelDefinition | null {
+  const resolvedConfig = resolveStoryboardNewApiModelConfigForModel(
+    toStoryboardProviderModelId(STORYBOARD_NEWAPI_PROVIDER_ID, entry.modelId),
+    newApiConfig,
+    { [STORYBOARD_NEWAPI_PROVIDER_ID]: [entry] }
+  );
+
+  const legacyModel = createStoryboardNewApiImageModel(resolvedConfig);
+  if (!legacyModel) {
+    return null;
+  }
+
+  const providerModelId = toStoryboardProviderModelId(
+    STORYBOARD_NEWAPI_PROVIDER_ID,
+    entry.modelId
+  );
+
+  return {
+    ...legacyModel,
+    id: providerModelId,
+    displayName: entry.displayName || entry.modelId,
+    resolveRequest: ({ referenceImageCount }) => ({
+      requestModel: providerModelId,
+      modeLabel: resolveStoryboardNewApiModeLabel(
+        resolvedConfig.apiFormat,
+        referenceImageCount
+      ),
+    }),
+  };
+}
+
 export function createCustomStoryboardImageModels(
   customModels: Record<string, CustomStoryboardModelEntry[]> | null | undefined,
-  compatibleConfig?: StoryboardCompatibleModelConfig | null
+  compatibleConfig?: StoryboardCompatibleModelConfig | null,
+  newApiConfig?: StoryboardNewApiModelConfig | null
 ): ImageModelDefinition[] {
   const normalizedCustomModels = normalizeStoryboardProviderCustomModels(
     customModels,
-    compatibleConfig
+    compatibleConfig,
+    newApiConfig
   );
   const result: ImageModelDefinition[] = [];
   const seenModelIds = new Set<string>();
@@ -641,6 +758,8 @@ export function createCustomStoryboardImageModels(
       const model =
         providerId === STORYBOARD_COMPATIBLE_PROVIDER_ID
           ? createCompatibleCustomStoryboardImageModel(entry, compatibleConfig)
+          : providerId === STORYBOARD_NEWAPI_PROVIDER_ID
+            ? createNewApiCustomStoryboardImageModel(entry, newApiConfig)
           : createProviderCustomStoryboardImageModel(providerId, entry);
 
       if (!model) {
@@ -663,3 +782,4 @@ export function createCustomStoryboardImageModels(
 
   return result;
 }
+

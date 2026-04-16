@@ -4,6 +4,32 @@ export const ASSET_MEDIA_TYPES = ['image', 'audio'] as const;
 export type AssetCategory = (typeof ASSET_CATEGORIES)[number];
 export type AssetMediaType = (typeof ASSET_MEDIA_TYPES)[number];
 
+export type VoicePresetAssetType =
+  | 'qwen_tts_voice_preset'
+  | 'vox_voice_preset';
+
+export interface VoicePresetAssetMetadata {
+  type: VoicePresetAssetType;
+  referenceTranscript: string;
+  promptFile?: string | null;
+  promptLabel?: string | null;
+  voicePrompt?: string | null;
+  controlText?: string | null;
+  promptText?: string | null;
+  stylePreset?: string | null;
+  language?: string | null;
+  speakingRate?: number | null;
+  pitch?: number | null;
+  useReferenceAsReference?: boolean | null;
+  sourceGeneration?: string | null;
+  savedAt?: number | null;
+}
+
+export interface AssetMetadata {
+  voicePreset?: VoicePresetAssetMetadata;
+  [key: string]: unknown;
+}
+
 export interface AssetSubcategoryRecord {
   id: string;
   libraryId: string;
@@ -27,6 +53,7 @@ export interface AssetItemRecord {
   mimeType: string | null;
   durationMs: number | null;
   aspectRatio: string;
+  metadata: AssetMetadata | null;
   createdAt: number;
   updatedAt: number;
 }
@@ -72,6 +99,7 @@ export interface AssetItemMutationPayload {
   mimeType: string | null;
   durationMs: number | null;
   aspectRatio: string;
+  metadata?: AssetMetadata | null;
 }
 
 export interface CreateAssetItemPayload extends AssetItemMutationPayload {}
@@ -95,8 +123,95 @@ export interface CanvasAssetDragPayload {
   aspectRatio: string;
 }
 
+export function toCanvasAssetDragPayload(item: AssetItemRecord): CanvasAssetDragPayload {
+  return {
+    assetId: item.id,
+    assetLibraryId: item.libraryId,
+    assetName: item.name,
+    assetCategory: item.category,
+    mediaType: item.mediaType,
+    sourcePath: item.sourcePath,
+    previewPath: item.previewPath,
+    mimeType: item.mimeType,
+    durationMs: item.durationMs,
+    aspectRatio: item.aspectRatio,
+  };
+}
+
 export function resolveAssetMediaType(category: AssetCategory): AssetMediaType {
   return category === 'voice' ? 'audio' : 'image';
+}
+
+function isObjectRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function normalizeText(value: unknown): string {
+  return typeof value === 'string' ? value.trim() : '';
+}
+
+export function resolveVoicePresetAssetMetadata(
+  value: AssetItemRecord | AssetMetadata | null | undefined
+): VoicePresetAssetMetadata | null {
+  const metadata = isObjectRecord(value)
+    ? ('metadata' in value ? value.metadata : value)
+    : null;
+  if (!isObjectRecord(metadata)) {
+    return null;
+  }
+
+  const voicePreset = metadata.voicePreset;
+  if (!isObjectRecord(voicePreset)) {
+    return null;
+  }
+
+  const referenceTranscript = normalizeText(voicePreset.referenceTranscript);
+  if (!referenceTranscript) {
+    return null;
+  }
+
+  const normalizedType = normalizeText(voicePreset.type);
+  const type: VoicePresetAssetType =
+    normalizedType === 'vox_voice_preset'
+      ? 'vox_voice_preset'
+      : 'qwen_tts_voice_preset';
+
+  return {
+    type,
+    referenceTranscript,
+    promptFile: normalizeText(voicePreset.promptFile) || null,
+    promptLabel: normalizeText(voicePreset.promptLabel) || null,
+    voicePrompt: normalizeText(voicePreset.voicePrompt) || null,
+    controlText: normalizeText(voicePreset.controlText) || null,
+    promptText: normalizeText(voicePreset.promptText) || null,
+    stylePreset: normalizeText(voicePreset.stylePreset) || null,
+    language: normalizeText(voicePreset.language) || null,
+    speakingRate:
+      typeof voicePreset.speakingRate === 'number' && Number.isFinite(voicePreset.speakingRate)
+        ? voicePreset.speakingRate
+        : null,
+    pitch:
+      typeof voicePreset.pitch === 'number' && Number.isFinite(voicePreset.pitch)
+        ? voicePreset.pitch
+        : null,
+    useReferenceAsReference:
+      typeof voicePreset.useReferenceAsReference === 'boolean'
+        ? voicePreset.useReferenceAsReference
+        : null,
+    sourceGeneration: normalizeText(voicePreset.sourceGeneration || type) || null,
+    savedAt:
+      typeof voicePreset.savedAt === 'number' && Number.isFinite(voicePreset.savedAt)
+        ? voicePreset.savedAt
+        : null,
+  };
+}
+
+export function isReusableVoicePresetAsset(item: AssetItemRecord): boolean {
+  if (item.category !== 'voice' || item.mediaType !== 'audio') {
+    return false;
+  }
+
+  return resolveVoicePresetAssetMetadata(item) !== null;
 }
 
 export function getAssetCategoryOrder(category: AssetCategory): number {

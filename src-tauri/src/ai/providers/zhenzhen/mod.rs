@@ -1,12 +1,13 @@
 use base64::{engine::general_purpose::STANDARD, Engine};
-use reqwest::multipart::Part;
-use reqwest::Client;
+use reqwest::{
+    multipart::{Form, Part},
+    Client,
+};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::sync::RwLock;
-use tokio::time::{sleep, Duration};
 use tracing::info;
 
 use crate::ai::error::AIError;
@@ -16,20 +17,27 @@ const DEFAULT_BASE_URL: &str = "https://ai.t8star.cn";
 const CHAT_COMPLETIONS_ENDPOINT_PATH: &str = "/v1/chat/completions";
 const GENERATIONS_ENDPOINT_PATH: &str = "/v1/images/generations";
 const EDITS_ENDPOINT_PATH: &str = "/v1/images/edits";
-const TASKS_ENDPOINT_PATH: &str = "/v1/images/tasks";
-const POLL_INTERVAL_MS: u64 = 2000;
-const MAX_POLL_RETRIES: u32 = 150;
 
-const SUPPORTED_MODELS: [&str; 4] = [
+const SUPPORTED_MODELS: [&str; 10] = [
+    "nano-banana-pro",
     "nano-banana",
     "nano-banana-hd",
+    "nano-banana-2",
+    "nano-banana-2-2k",
     "nano-banana-2-4k",
+    "nano-banana-pro-2k",
+    "nano-banana-pro-4k",
+    "gemini-3.1-flash-image-preview",
     "gemini-3.1-flash-image-preview-4k",
 ];
+const LEGACY_DEFAULT_MODELS: [&str; 2] = ["nano-banana", "nano-banana-2"];
+const LEGACY_TWO_K_MODEL: &str = "nano-banana-2-2k";
 const LEGACY_HD_MODEL: &str = "nano-banana-hd";
-const FOUR_K_MODEL: &str = "nano-banana-2-4k";
-const GEMINI_FLASH_IMAGE_PREVIEW_4K_MODEL: &str = "gemini-3.1-flash-image-preview-4k";
-const HD_RESOLUTION: &str = "4K";
+const LEGACY_FOUR_K_MODEL: &str = "nano-banana-2-4k";
+const DEFAULT_MODEL: &str = "nano-banana-pro";
+const LEGACY_NEW_VARIANTS: [&str; 2] = ["nano-banana-pro-2k", "nano-banana-pro-4k"];
+const GEMINI_FLASH_IMAGE_PREVIEW_MODEL: &str = "gemini-3.1-flash-image-preview";
+const LEGACY_GEMINI_FLASH_IMAGE_PREVIEW_4K_MODEL: &str = "gemini-3.1-flash-image-preview-4k";
 
 const SUPPORTED_ASPECT_RATIOS: [&str; 14] = [
     "1:1", "1:4", "1:8", "2:3", "3:2", "3:4", "4:1", "4:3", "4:5", "5:4", "8:1", "9:16", "16:9",
@@ -46,19 +54,6 @@ struct GenerationsRequestBody {
     image_size: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     aspect_ratio: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    image: Option<Vec<String>>,
-}
-
-#[derive(Debug, Serialize)]
-struct GeminiPreviewRequestBody {
-    model: String,
-    prompt: String,
-    size: String,
-    resolution: String,
-    n: u8,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    image_urls: Option<Vec<String>>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -102,20 +97,29 @@ impl ZhenzhenProvider {
 
     fn resolve_effective_model(model: &str, requested_size: &str) -> String {
         let sanitized_model = Self::sanitize_model(model);
-        if sanitized_model == GEMINI_FLASH_IMAGE_PREVIEW_4K_MODEL {
-            return sanitized_model;
+        if sanitized_model == GEMINI_FLASH_IMAGE_PREVIEW_MODEL
+            || sanitized_model == LEGACY_GEMINI_FLASH_IMAGE_PREVIEW_4K_MODEL
+        {
+            let _ = requested_size;
+            return GEMINI_FLASH_IMAGE_PREVIEW_MODEL.to_string();
         }
-        if requested_size.trim().eq_ignore_ascii_case(HD_RESOLUTION) {
-            return FOUR_K_MODEL.to_string();
+        if LEGACY_DEFAULT_MODELS.contains(&sanitized_model.as_str()) {
+            return DEFAULT_MODEL.to_string();
         }
-        if sanitized_model == LEGACY_HD_MODEL {
-            return FOUR_K_MODEL.to_string();
+        if sanitized_model == LEGACY_TWO_K_MODEL {
+            return DEFAULT_MODEL.to_string();
+        }
+        if sanitized_model == LEGACY_HD_MODEL
+            || sanitized_model == LEGACY_FOUR_K_MODEL
+            || LEGACY_NEW_VARIANTS.contains(&sanitized_model.as_str())
+        {
+            return DEFAULT_MODEL.to_string();
+        }
+        if sanitized_model.is_empty() {
+            let _ = requested_size;
+            return DEFAULT_MODEL.to_string();
         }
         sanitized_model
-    }
-
-    fn is_gemini_preview_model(model: &str) -> bool {
-        Self::sanitize_model(model) == GEMINI_FLASH_IMAGE_PREVIEW_4K_MODEL
     }
 
     fn decode_file_url_path(value: &str) -> String {
@@ -256,52 +260,8 @@ impl ZhenzhenProvider {
         }
     }
 
-    fn resolve_gemini_resolution(size: &str) -> String {
-        match size.trim().to_ascii_uppercase().as_str() {
-            "2K" => "2K".to_string(),
-            "4K" => "4K".to_string(),
-            _ => "1K".to_string(),
-        }
-    }
-
-    fn resolve_gemini_canvas_size(aspect_ratio: &str) -> String {
-        if Self::validate_aspect_ratio(aspect_ratio) {
-            return aspect_ratio.to_string();
-        }
-        "1:1".to_string()
-    }
-
     fn should_use_chat_completion(request: &GenerateRequest) -> bool {
         request.size.trim().is_empty() && request.aspect_ratio.trim().is_empty()
-    }
-
-    async fn normalize_gemini_reference_images(
-        reference_images: &[String],
-    ) -> Result<Vec<String>, AIError> {
-        let mut normalized = Vec::with_capacity(reference_images.len());
-        for (index, source) in reference_images.iter().enumerate() {
-            let trimmed = source.trim();
-            if trimmed.starts_with("http://") || trimmed.starts_with("https://") {
-                normalized.push(trimmed.to_string());
-                continue;
-            }
-
-            let bytes = Self::source_to_bytes(trimmed).await.map_err(|error| {
-                AIError::InvalidRequest(format!(
-                    "Failed to read reference image {}: {}",
-                    index + 1,
-                    error
-                ))
-            })?;
-            let extension = Self::file_extension_from_source(trimmed);
-            let mime_type = Self::mime_type_from_extension(extension);
-            normalized.push(format!(
-                "data:{};base64,{}",
-                mime_type,
-                STANDARD.encode(bytes)
-            ));
-        }
-        Ok(normalized)
     }
 
     fn extract_error_message(payload: &Value) -> Option<String> {
@@ -373,140 +333,6 @@ impl ZhenzhenProvider {
         })
     }
 
-    fn extract_task_id(payload: &Value) -> Option<String> {
-        ["/task_id", "/data/task_id", "/id"]
-            .iter()
-            .find_map(|pointer| {
-                payload
-                    .pointer(pointer)
-                    .and_then(Value::as_str)
-                    .map(str::trim)
-                    .filter(|value| !value.is_empty())
-                    .map(ToString::to_string)
-            })
-    }
-
-    fn extract_first_image(payload: &Value) -> Option<String> {
-        let url_pointers = [
-            "/data/0/url",
-            "/data/data/0/url",
-            "/data/data/data/0/url",
-            "/data/output/data/0/url",
-            "/data/result/data/0/url",
-            "/data/image_urls/0",
-            "/data/output/image_urls/0",
-            "/result/image_urls/0",
-            "/image_urls/0",
-        ];
-
-        if let Some(url) = url_pointers.iter().find_map(|pointer| {
-            payload
-                .pointer(pointer)
-                .and_then(Value::as_str)
-                .map(str::trim)
-                .filter(|value| !value.is_empty())
-                .map(ToString::to_string)
-        }) {
-            return Some(url);
-        }
-
-        let b64_pointers = [
-            "/data/0/b64_json",
-            "/data/data/0/b64_json",
-            "/data/data/data/0/b64_json",
-            "/data/output/data/0/b64_json",
-            "/data/result/data/0/b64_json",
-        ];
-
-        b64_pointers.iter().find_map(|pointer| {
-            payload
-                .pointer(pointer)
-                .and_then(Value::as_str)
-                .map(str::trim)
-                .filter(|value| !value.is_empty())
-                .map(|value| format!("data:image/png;base64,{}", value))
-        })
-    }
-
-    fn extract_task_status(payload: &Value) -> Option<String> {
-        ["/data/status", "/status"].iter().find_map(|pointer| {
-            payload
-                .pointer(pointer)
-                .and_then(Value::as_str)
-                .map(str::trim)
-                .filter(|value| !value.is_empty())
-                .map(|value| value.to_ascii_uppercase())
-        })
-    }
-
-    async fn submit_gemini_preview_task(
-        &self,
-        request: &GenerateRequest,
-        model: &str,
-    ) -> Result<Value, AIError> {
-        let endpoint = format!("{}{}?async=true", self.base_url, GENERATIONS_ENDPOINT_PATH);
-        let api_key = self
-            .api_key
-            .read()
-            .await
-            .clone()
-            .ok_or_else(|| AIError::InvalidRequest("API key not set".to_string()))?;
-
-        let reference_images = request.reference_images.as_deref().unwrap_or(&[]);
-        let normalized_reference_images =
-            Self::normalize_gemini_reference_images(reference_images).await?;
-
-        let body = GeminiPreviewRequestBody {
-            model: model.to_string(),
-            prompt: request.prompt.clone(),
-            size: Self::resolve_gemini_canvas_size(&request.aspect_ratio),
-            resolution: Self::resolve_gemini_resolution(&request.size),
-            n: 1,
-            image_urls: if normalized_reference_images.is_empty() {
-                None
-            } else {
-                Some(normalized_reference_images)
-            },
-        };
-
-        info!(
-            "[Zhenzhen API] Gemini Preview URL: {}, model: {}, size: {}, aspect_ratio: {}, refs: {}",
-            endpoint,
-            model,
-            request.size,
-            request.aspect_ratio,
-            reference_images.len()
-        );
-
-        let response = self
-            .client
-            .post(&endpoint)
-            .header("Authorization", format!("Bearer {}", api_key))
-            .header("Content-Type", "application/json")
-            .json(&body)
-            .send()
-            .await?;
-
-        let status = response.status();
-        let response_text = response.text().await.map_err(AIError::from)?;
-        info!("[Zhenzhen API] Gemini Preview response status: {}", status);
-        info!("[Zhenzhen API] Gemini Preview response: {}", response_text);
-
-        if !status.is_success() {
-            return Err(AIError::Provider(format!(
-                "Zhenzhen Gemini Preview request failed {}: {}",
-                status, response_text
-            )));
-        }
-
-        serde_json::from_str::<Value>(&response_text).map_err(|error| {
-            AIError::Provider(format!(
-                "Failed to parse Zhenzhen Gemini Preview response: {}. Response was: {}",
-                error, response_text
-            ))
-        })
-    }
-
     async fn request_chat_completion(
         &self,
         request: &GenerateRequest,
@@ -567,108 +393,7 @@ impl ZhenzhenProvider {
         })
     }
 
-    async fn poll_gemini_preview_task(&self, task_id: &str) -> Result<Option<String>, AIError> {
-        let endpoint = format!("{}{}/{}", self.base_url, TASKS_ENDPOINT_PATH, task_id);
-        let api_key = self
-            .api_key
-            .read()
-            .await
-            .clone()
-            .ok_or_else(|| AIError::InvalidRequest("API key not set".to_string()))?;
-
-        let response = self
-            .client
-            .get(&endpoint)
-            .header("Authorization", format!("Bearer {}", api_key))
-            .send()
-            .await?;
-
-        let status = response.status();
-        let response_text = response.text().await.map_err(AIError::from)?;
-        info!("[Zhenzhen API] Task status response status: {}", status);
-        info!("[Zhenzhen API] Task status response: {}", response_text);
-
-        if !status.is_success() {
-            return Err(AIError::Provider(format!(
-                "Zhenzhen task status request failed {}: {}",
-                status, response_text
-            )));
-        }
-
-        let payload = serde_json::from_str::<Value>(&response_text).map_err(|error| {
-            AIError::Provider(format!(
-                "Failed to parse Zhenzhen task status response: {}. Response was: {}",
-                error, response_text
-            ))
-        })?;
-
-        if let Some(image) = Self::extract_first_image(&payload) {
-            return Ok(Some(image));
-        }
-
-        if let Some(task_status) = Self::extract_task_status(&payload) {
-            match task_status.as_str() {
-                "SUCCESS" | "SUCCEEDED" | "COMPLETED" | "DONE" => {
-                    return Err(AIError::Provider(
-                        "Zhenzhen task completed but response did not include image data"
-                            .to_string(),
-                    ));
-                }
-                "FAILURE" | "FAILED" | "ERROR" | "CANCELLED" => {
-                    let message = Self::extract_error_message(&payload).unwrap_or_else(|| {
-                        format!("Zhenzhen task failed with status {}", task_status)
-                    });
-                    return Err(AIError::TaskFailed(message));
-                }
-                "QUEUED" | "SUBMITTED" | "PENDING" | "RUNNING" | "PROCESSING" | "IN_PROGRESS" => {
-                    return Ok(None);
-                }
-                _ => {}
-            }
-        }
-
-        if let Some(message) = Self::extract_error_message(&payload) {
-            return Err(AIError::Provider(message));
-        }
-
-        Ok(None)
-    }
-
-    async fn generate_with_gemini_preview(
-        &self,
-        request: &GenerateRequest,
-        model: &str,
-    ) -> Result<String, AIError> {
-        let payload = self.submit_gemini_preview_task(request, model).await?;
-
-        if let Some(error) = Self::extract_error_message(&payload) {
-            return Err(AIError::Provider(error));
-        }
-
-        if let Some(image) = Self::extract_first_image(&payload) {
-            return Ok(image);
-        }
-
-        let task_id = Self::extract_task_id(&payload).ok_or_else(|| {
-            AIError::Provider(
-                "Zhenzhen Gemini Preview response missing both image data and task_id".to_string(),
-            )
-        })?;
-
-        for _ in 0..MAX_POLL_RETRIES {
-            match self.poll_gemini_preview_task(&task_id).await? {
-                Some(image) => return Ok(image),
-                None => sleep(Duration::from_millis(POLL_INTERVAL_MS)).await,
-            }
-        }
-
-        Err(AIError::Provider(format!(
-            "Zhenzhen Gemini Preview task timed out after {} retries",
-            MAX_POLL_RETRIES
-        )))
-    }
-
-    async fn request_text_to_image(
+    async fn request_generation(
         &self,
         request: &GenerateRequest,
         model: String,
@@ -693,11 +418,10 @@ impl ZhenzhenProvider {
             } else {
                 None
             },
-            image: None,
         };
 
         info!(
-            "[Zhenzhen API] Text2Img URL: {}, model: {}, size: {}, aspect_ratio: {}",
+            "[Zhenzhen API] Generations URL: {}, model: {}, size: {}, aspect_ratio: {}",
             endpoint, model, request.size, request.aspect_ratio
         );
 
@@ -730,7 +454,7 @@ impl ZhenzhenProvider {
         })
     }
 
-    async fn request_image_to_image(
+    async fn request_edit(
         &self,
         request: &GenerateRequest,
         model: String,
@@ -747,9 +471,9 @@ impl ZhenzhenProvider {
             AIError::InvalidRequest("Reference images required for img2img".to_string())
         })?;
 
-        let mut form = reqwest::multipart::Form::new()
-            .text("prompt", request.prompt.clone())
+        let mut form = Form::new()
             .text("model", model.clone())
+            .text("prompt", request.prompt.clone())
             .text("response_format", "url".to_string());
 
         if let Some(image_size) = Self::resolve_image_size(&model, &request.size) {
@@ -760,18 +484,13 @@ impl ZhenzhenProvider {
             form = form.text("aspect_ratio", request.aspect_ratio.clone());
         }
 
-        for (index, source) in reference_images.iter().enumerate() {
+        for (idx, source) in reference_images.iter().enumerate() {
             let bytes = Self::source_to_bytes(source).await.map_err(|error| {
-                AIError::InvalidRequest(format!(
-                    "Failed to read reference image {}: {}",
-                    index + 1,
-                    error
-                ))
+                AIError::InvalidRequest(format!("Failed to read image {}: {}", idx + 1, error))
             })?;
             let extension = Self::file_extension_from_source(source);
-            let file_name = format!("image_{}.{}", index + 1, extension);
             let part = Part::bytes(bytes)
-                .file_name(file_name)
+                .file_name(format!("image_{}.{}", idx + 1, extension))
                 .mime_str(Self::mime_type_from_extension(extension))
                 .map_err(|error| {
                     AIError::Provider(format!("Failed to create multipart part: {}", error))
@@ -780,7 +499,7 @@ impl ZhenzhenProvider {
         }
 
         info!(
-            "[Zhenzhen API] Img2Img URL: {}, model: {}, size: {}, aspect_ratio: {}, refs: {}",
+            "[Zhenzhen API] Edits URL: {}, model: {}, size: {}, aspect_ratio: {}, images: {}",
             endpoint,
             model,
             request.size,
@@ -803,14 +522,14 @@ impl ZhenzhenProvider {
 
         if !status.is_success() {
             return Err(AIError::Provider(format!(
-                "Zhenzhen request failed {}: {}",
+                "Zhenzhen edit request failed {}: {}",
                 status, response_text
             )));
         }
 
         serde_json::from_str(&response_text).map_err(|error| {
             AIError::Provider(format!(
-                "Failed to parse Zhenzhen response: {}. Response was: {}",
+                "Failed to parse Zhenzhen edit response: {}. Response was: {}",
                 error, response_text
             ))
         })
@@ -838,10 +557,8 @@ impl AIProvider for ZhenzhenProvider {
 
     fn list_models(&self) -> Vec<String> {
         vec![
-            "zhenzhen/nano-banana".to_string(),
-            "zhenzhen/nano-banana-hd".to_string(),
-            "zhenzhen/nano-banana-2-4k".to_string(),
-            "zhenzhen/gemini-3.1-flash-image-preview-4k".to_string(),
+            "zhenzhen/nano-banana-pro".to_string(),
+            "zhenzhen/gemini-3.1-flash-image-preview".to_string(),
         ]
     }
 
@@ -869,19 +586,16 @@ impl AIProvider for ZhenzhenProvider {
             return self.request_chat_completion(&request, &model).await;
         }
 
-        if Self::is_gemini_preview_model(&model) {
-            return self.generate_with_gemini_preview(&request, &model).await;
-        }
-
-        let response = if request
+        let has_reference_images = request
             .reference_images
             .as_ref()
             .map(|images| !images.is_empty())
-            .unwrap_or(false)
-        {
-            self.request_image_to_image(&request, model).await?
+            .unwrap_or(false);
+
+        let response = if has_reference_images {
+            self.request_edit(&request, model).await?
         } else {
-            self.request_text_to_image(&request, model).await?
+            self.request_generation(&request, model).await?
         };
 
         if let Some(error) = response.error {

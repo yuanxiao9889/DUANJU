@@ -1,36 +1,89 @@
-import { useEffect, useState } from 'react';
-import { ReactFlowProvider } from '@xyflow/react';
-import { invoke } from '@tauri-apps/api/core';
-import { Canvas } from './features/canvas/Canvas';
-import { TitleBar } from './components/TitleBar';
-import { SettingsDialog } from './components/SettingsDialog';
-import { UpdateAvailableDialog, type UpdateIgnoreMode } from './components/UpdateAvailableDialog';
-import { GlobalErrorDialog } from './components/GlobalErrorDialog';
-import { PsImageToast } from './components/PsImageToast';
-import { ProjectManager } from './features/project/ProjectManager';
-import { useThemeStore } from './stores/themeStore';
-import { useProjectStore } from './stores/projectStore';
-import { useSettingsStore } from './stores/settingsStore';
+import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { invoke } from "@tauri-apps/api/core";
+import { getCurrentWindow } from "@tauri-apps/api/window";
+import {
+  AppBootScreen,
+  AppContentLoader,
+} from "./components/AppBootScreen";
+import { TitleBar } from "./components/TitleBar";
+import type { UpdateIgnoreMode } from "./components/UpdateAvailableDialog";
+import { GlobalErrorDialog } from "./components/GlobalErrorDialog";
+import { PsImageToast } from "./components/PsImageToast";
+import { useThemeStore } from "./stores/themeStore";
+import { useProjectStore } from "./stores/projectStore";
+import { useSettingsStore } from "./stores/settingsStore";
 import {
   checkForUpdate,
   isUpdateVersionSuppressed,
   suppressUpdateVersion,
-} from './features/update/application/checkForUpdate';
+} from "./features/update/application/checkForUpdate";
 import {
   subscribeOpenGlobalErrorDialog,
   type GlobalErrorDialogDetail,
-} from './features/app/errorDialogEvents';
+} from "./features/app/errorDialogEvents";
 import {
   subscribeOpenSettingsDialog,
   type SettingsCategory,
-} from './features/settings/settingsEvents';
-import { initializePsIntegration } from './stores/psIntegrationStore';
-import { ensureDailyDatabaseBackup } from './commands/storage';
+} from "./features/settings/settingsEvents";
+import {
+  subscribeOpenDreaminaSetupDialog,
+  type DreaminaSetupDialogDetail,
+} from "./features/jimeng/dreaminaSetupDialogEvents";
+import { initializePsIntegration } from "./stores/psIntegrationStore";
+import { ensureDailyDatabaseBackup } from "./commands/storage";
+import { useJimengVideoQueueStore } from "./stores/jimengVideoQueueStore";
+import {
+  checkDreaminaCliUpdate,
+  updateDreaminaCli,
+} from "./commands/dreaminaCli";
+import {
+  ASSET_PANEL_CONTEXT_EVENT,
+  ASSET_PANEL_READY_EVENT,
+  ASSET_PANEL_SET_LIBRARY_EVENT,
+  ASSET_PANEL_WINDOW_LABEL,
+  emitToAssetPanel,
+  type AssetPanelProjectContext,
+} from "./features/assets/application/assetPanelBridge";
+import { DetachedAssetPanelWindow } from "./features/assets/ui/DetachedAssetPanelWindow";
+
+const WINDOW_CLOSE_FLUSH_TIMEOUT_MS = 2500;
+const WINDOW_CLOSE_REQUEST_TIMEOUT_MS = 1200;
+
+const CanvasScreen = lazy(() =>
+  import("./features/canvas/CanvasScreen").then((module) => ({
+    default: module.CanvasScreen,
+  })),
+);
+const ProjectManager = lazy(() =>
+  import("./features/project/ProjectManager").then((module) => ({
+    default: module.ProjectManager,
+  })),
+);
+const SettingsDialog = lazy(() =>
+  import("./components/SettingsDialog").then((module) => ({
+    default: module.SettingsDialog,
+  })),
+);
+const ExtensionsDialog = lazy(() =>
+  import("./components/ExtensionsDialog").then((module) => ({
+    default: module.ExtensionsDialog,
+  })),
+);
+const UpdateAvailableDialog = lazy(() =>
+  import("./components/UpdateAvailableDialog").then((module) => ({
+    default: module.UpdateAvailableDialog,
+  })),
+);
+const DreaminaSetupDialog = lazy(() =>
+  import("./components/DreaminaSetupDialog").then((module) => ({
+    default: module.DreaminaSetupDialog,
+  })),
+);
 
 function toRgbCssValue(hexColor: string): string {
-  const hex = hexColor.replace('#', '');
+  const hex = hexColor.replace("#", "");
   if (!/^[0-9a-fA-F]{6}$/.test(hex)) {
-    return '59 130 246';
+    return "59 130 246";
   }
   const r = Number.parseInt(hex.slice(0, 2), 16);
   const g = Number.parseInt(hex.slice(2, 4), 16);
@@ -38,29 +91,41 @@ function toRgbCssValue(hexColor: string): string {
   return `${r} ${g} ${b}`;
 }
 
-function App() {
+async function settleWithinTimeout(
+  promise: Promise<void>,
+  timeoutMs: number,
+  actionLabel: string,
+): Promise<boolean> {
+  let timeoutId: number | null = null;
+
+  try {
+    return await Promise.race([
+      promise.then(() => true),
+      new Promise<boolean>((resolve) => {
+        timeoutId = window.setTimeout(() => {
+          console.warn(`${actionLabel} timed out after ${timeoutMs}ms`);
+          resolve(false);
+        }, timeoutMs);
+      }),
+    ]);
+  } catch (error) {
+    console.error(`${actionLabel} failed`, error);
+    return false;
+  } finally {
+    if (timeoutId !== null) {
+      window.clearTimeout(timeoutId);
+    }
+  }
+}
+
+function useApplyGlobalAppearance() {
   const { theme } = useThemeStore();
   const uiRadiusPreset = useSettingsStore((state) => state.uiRadiusPreset);
   const themeTonePreset = useSettingsStore((state) => state.themeTonePreset);
   const accentColor = useSettingsStore((state) => state.accentColor);
-  const autoCheckAppUpdateOnLaunch = useSettingsStore((state) => state.autoCheckAppUpdateOnLaunch);
-  const enableUpdateDialog = useSettingsStore((state) => state.enableUpdateDialog);
-  const setEnableUpdateDialog = useSettingsStore((state) => state.setEnableUpdateDialog);
-  const settingsHydrated = useSettingsStore((state) => state.isHydrated);
-  const [showSettings, setShowSettings] = useState(false);
-  const [settingsInitialCategory, setSettingsInitialCategory] = useState<SettingsCategory>('general');
-  const [showUpdateDialog, setShowUpdateDialog] = useState(false);
-  const [latestVersion, setLatestVersion] = useState<string>('');
-  const [currentVersion, setCurrentVersion] = useState<string>('');
-  const [globalError, setGlobalError] = useState<GlobalErrorDialogDetail | null>(null);
-
-  const isHydrated = useProjectStore((state) => state.isHydrated);
-  const hydrate = useProjectStore((state) => state.hydrate);
-  const currentProjectId = useProjectStore((state) => state.currentProjectId);
-  const closeProject = useProjectStore((state) => state.closeProject);
 
   useEffect(() => {
-    document.documentElement.classList.toggle('dark', theme === 'dark');
+    document.documentElement.classList.toggle("dark", theme === "dark");
   }, [theme]);
 
   useEffect(() => {
@@ -76,17 +141,74 @@ function App() {
   useEffect(() => {
     const root = document.documentElement;
     const isMac =
-      typeof navigator !== 'undefined'
-      && /(Mac|iPhone|iPad|iPod)/i.test(`${navigator.platform} ${navigator.userAgent}`);
-    root.dataset.platform = isMac ? 'macos' : 'default';
+      typeof navigator !== "undefined" &&
+      /(Mac|iPhone|iPad|iPod)/i.test(
+        `${navigator.platform} ${navigator.userAgent}`,
+      );
+    root.dataset.platform = isMac ? "macos" : "default";
   }, []);
 
   useEffect(() => {
     const root = document.documentElement;
-    const normalized = accentColor.startsWith('#') ? accentColor : `#${accentColor}`;
-    root.style.setProperty('--accent', normalized);
-    root.style.setProperty('--accent-rgb', toRgbCssValue(normalized));
+    const normalized = accentColor.startsWith("#")
+      ? accentColor
+      : `#${accentColor}`;
+    root.style.setProperty("--accent", normalized);
+    root.style.setProperty("--accent-rgb", toRgbCssValue(normalized));
   }, [accentColor]);
+}
+
+function MainApp() {
+  useApplyGlobalAppearance();
+
+  const autoCheckAppUpdateOnLaunch = useSettingsStore(
+    (state) => state.autoCheckAppUpdateOnLaunch,
+  );
+  const enableUpdateDialog = useSettingsStore(
+    (state) => state.enableUpdateDialog,
+  );
+  const autoUpdateDreaminaCliOnLaunch = useSettingsStore(
+    (state) => state.autoUpdateDreaminaCliOnLaunch,
+  );
+  const setEnableUpdateDialog = useSettingsStore(
+    (state) => state.setEnableUpdateDialog,
+  );
+  const settingsHydrated = useSettingsStore((state) => state.isHydrated);
+  const [showSettings, setShowSettings] = useState(false);
+  const [showExtensions, setShowExtensions] = useState(false);
+  const [settingsDialogLoaded, setSettingsDialogLoaded] = useState(false);
+  const [extensionsDialogLoaded, setExtensionsDialogLoaded] = useState(false);
+  const [updateDialogLoaded, setUpdateDialogLoaded] = useState(false);
+  const [dreaminaDialogLoaded, setDreaminaDialogLoaded] = useState(false);
+  const [settingsInitialCategory, setSettingsInitialCategory] =
+    useState<SettingsCategory>("general");
+  const [showUpdateDialog, setShowUpdateDialog] = useState(false);
+  const [latestVersion, setLatestVersion] = useState<string>("");
+  const [currentVersion, setCurrentVersion] = useState<string>("");
+  const [globalError, setGlobalError] =
+    useState<GlobalErrorDialogDetail | null>(null);
+  const [dreaminaSetupDetail, setDreaminaSetupDetail] =
+    useState<DreaminaSetupDialogDetail | null>(null);
+
+  const isHydrated = useProjectStore((state) => state.isHydrated);
+  const hydrate = useProjectStore((state) => state.hydrate);
+  const currentProjectId = useProjectStore((state) => state.currentProjectId);
+  const currentProject = useProjectStore((state) => state.currentProject);
+  const closeProject = useProjectStore((state) => state.closeProject);
+  const setCurrentProjectAssetLibrary = useProjectStore(
+    (state) => state.setCurrentProjectAssetLibrary,
+  );
+  const flushCurrentProjectToDisk = useProjectStore(
+    (state) => state.flushCurrentProjectToDisk,
+  );
+  const openJimengVideoQueueProject = useJimengVideoQueueStore(
+    (state) => state.openProject,
+  );
+  const closeJimengVideoQueueProject = useJimengVideoQueueStore(
+    (state) => state.closeProject,
+  );
+  const isWindowCloseInProgressRef = useRef(false);
+  const hasAttemptedDreaminaAutoUpdateRef = useRef(false);
 
   useEffect(() => {
     void hydrate();
@@ -97,11 +219,8 @@ function App() {
       return;
     }
 
-    const {
-      psIntegrationEnabled,
-      psServerPort,
-      psAutoStartServer,
-    } = useSettingsStore.getState();
+    const { psIntegrationEnabled, psServerPort, psAutoStartServer } =
+      useSettingsStore.getState();
 
     const unsubscribe = initializePsIntegration({
       enabled: psIntegrationEnabled,
@@ -113,6 +232,90 @@ function App() {
   }, [settingsHydrated]);
 
   useEffect(() => {
+    if (!currentProjectId) {
+      closeJimengVideoQueueProject();
+      return;
+    }
+
+    void openJimengVideoQueueProject(currentProjectId);
+  }, [
+    closeJimengVideoQueueProject,
+    currentProjectId,
+    openJimengVideoQueueProject,
+  ]);
+
+  const assetPanelProjectContext = useMemo<AssetPanelProjectContext>(
+    () => ({
+      projectId: currentProject?.id ?? null,
+      projectName: currentProject?.name ?? null,
+      projectType: currentProject?.projectType ?? null,
+      assetLibraryId: currentProject?.assetLibraryId ?? null,
+    }),
+    [
+      currentProject?.assetLibraryId,
+      currentProject?.id,
+      currentProject?.name,
+      currentProject?.projectType,
+    ],
+  );
+
+  useEffect(() => {
+    void emitToAssetPanel(ASSET_PANEL_CONTEXT_EVENT, assetPanelProjectContext).catch(
+      (error) => {
+        console.warn("failed to sync asset panel context", error);
+      },
+    );
+  }, [assetPanelProjectContext]);
+
+  useEffect(() => {
+    const appWindow = getCurrentWindow();
+    let unlistenAssetPanelReady: (() => void) | null = null;
+    let unlistenAssetPanelLibraryChange: (() => void) | null = null;
+    let disposed = false;
+
+    const registerAssetPanelBridge = async () => {
+      const nextUnlistenAssetPanelReady = await appWindow.listen(
+        ASSET_PANEL_READY_EVENT,
+        () => {
+          void emitToAssetPanel(
+            ASSET_PANEL_CONTEXT_EVENT,
+            assetPanelProjectContext,
+          ).catch((error) => {
+            console.warn("failed to deliver initial asset panel context", error);
+          });
+        },
+      );
+      if (disposed) {
+        nextUnlistenAssetPanelReady();
+        return;
+      }
+      unlistenAssetPanelReady = nextUnlistenAssetPanelReady;
+
+      const nextUnlistenAssetPanelLibraryChange = await appWindow.listen<string | null>(
+        ASSET_PANEL_SET_LIBRARY_EVENT,
+        (event) => {
+          setCurrentProjectAssetLibrary(event.payload?.trim() || null);
+        },
+      );
+      if (disposed) {
+        nextUnlistenAssetPanelLibraryChange();
+        return;
+      }
+      unlistenAssetPanelLibraryChange = nextUnlistenAssetPanelLibraryChange;
+    };
+
+    void registerAssetPanelBridge().catch((error) => {
+      console.error("Failed to register asset panel bridge", error);
+    });
+
+    return () => {
+      disposed = true;
+      unlistenAssetPanelReady?.();
+      unlistenAssetPanelLibraryChange?.();
+    };
+  }, [assetPanelProjectContext, setCurrentProjectAssetLibrary]);
+
+  useEffect(() => {
     const unsubscribe = subscribeOpenGlobalErrorDialog((detail) => {
       setGlobalError(detail);
     });
@@ -121,11 +324,44 @@ function App() {
 
   useEffect(() => {
     const unsubscribe = subscribeOpenSettingsDialog(({ category }) => {
-      setSettingsInitialCategory(category ?? 'general');
+      setSettingsInitialCategory(category ?? "general");
+      setSettingsDialogLoaded(true);
       setShowSettings(true);
     });
     return unsubscribe;
   }, []);
+
+  useEffect(() => {
+    const unsubscribe = subscribeOpenDreaminaSetupDialog((detail) => {
+      setDreaminaDialogLoaded(true);
+      setDreaminaSetupDetail(detail);
+    });
+    return unsubscribe;
+  }, []);
+
+  useEffect(() => {
+    if (showSettings) {
+      setSettingsDialogLoaded(true);
+    }
+  }, [showSettings]);
+
+  useEffect(() => {
+    if (showExtensions) {
+      setExtensionsDialogLoaded(true);
+    }
+  }, [showExtensions]);
+
+  useEffect(() => {
+    if (showUpdateDialog) {
+      setUpdateDialogLoaded(true);
+    }
+  }, [showUpdateDialog]);
+
+  useEffect(() => {
+    if (dreaminaSetupDetail) {
+      setDreaminaDialogLoaded(true);
+    }
+  }, [dreaminaSetupDetail]);
 
   useEffect(() => {
     let cancelled = false;
@@ -137,14 +373,14 @@ function App() {
       }
 
       try {
-        await invoke('frontend_ready');
+        await invoke("frontend_ready");
       } catch (error) {
         if (cancelled) {
           return;
         }
 
         if (attempt === 1 || attempt % 10 === 0) {
-          console.warn('failed to notify frontend readiness', error);
+          console.warn("failed to notify frontend readiness", error);
         }
 
         const retryDelayMs = Math.min(500, 80 * attempt);
@@ -177,12 +413,17 @@ function App() {
         return;
       }
       const result = await checkForUpdate();
-      if (!cancelled && result.hasUpdate && result.latestVersion && enableUpdateDialog) {
+      if (
+        !cancelled &&
+        result.hasUpdate &&
+        result.latestVersion &&
+        enableUpdateDialog
+      ) {
         if (isUpdateVersionSuppressed(result.latestVersion)) {
           return;
         }
-        setLatestVersion(result.latestVersion ?? '');
-        setCurrentVersion(result.currentVersion ?? '');
+        setLatestVersion(result.latestVersion ?? "");
+        setCurrentVersion(result.currentVersion ?? "");
         setShowUpdateDialog(true);
       }
     };
@@ -194,33 +435,134 @@ function App() {
   }, [isHydrated, autoCheckAppUpdateOnLaunch, enableUpdateDialog]);
 
   useEffect(() => {
+    if (!settingsHydrated || !autoUpdateDreaminaCliOnLaunch) {
+      return;
+    }
+
+    if (hasAttemptedDreaminaAutoUpdateRef.current) {
+      return;
+    }
+    hasAttemptedDreaminaAutoUpdateRef.current = true;
+
+    let cancelled = false;
+
+    const runDreaminaAutoUpdate = async () => {
+      try {
+        const info = await checkDreaminaCliUpdate();
+        if (cancelled || info.checkError || !info.hasUpdate) {
+          return;
+        }
+
+        await updateDreaminaCli();
+      } catch (error) {
+        if (!cancelled) {
+          console.warn("failed to auto update Dreamina CLI", error);
+        }
+      }
+    };
+
+    void runDreaminaAutoUpdate();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [settingsHydrated, autoUpdateDreaminaCliOnLaunch]);
+
+  useEffect(() => {
     if (!isHydrated) {
       return;
     }
 
     void ensureDailyDatabaseBackup().catch((error) => {
-      console.warn('failed to ensure daily database backup', error);
+      console.warn("failed to ensure daily database backup", error);
     });
   }, [isHydrated]);
 
-  const handleManualCheckUpdate = async (): Promise<'has-update' | 'up-to-date' | 'failed'> => {
-    const result = await checkForUpdate();
-    if (!result.hasUpdate) {
-      return result.error ? 'failed' : 'up-to-date';
+  const requestWindowClose = useCallback(async () => {
+    if (isWindowCloseInProgressRef.current) {
+      return;
     }
 
-    setLatestVersion(result.latestVersion ?? '');
-    setCurrentVersion(result.currentVersion ?? '');
+    isWindowCloseInProgressRef.current = true;
+
+    await settleWithinTimeout(
+      flushCurrentProjectToDisk(),
+      WINDOW_CLOSE_FLUSH_TIMEOUT_MS,
+      "Project flush before window close",
+    );
+
+    const exitRequested = await settleWithinTimeout(
+      invoke<void>("request_app_exit"),
+      WINDOW_CLOSE_REQUEST_TIMEOUT_MS,
+      "App exit request",
+    );
+
+    if (!exitRequested) {
+      isWindowCloseInProgressRef.current = false;
+    }
+  }, [flushCurrentProjectToDisk]);
+
+  useEffect(() => {
+    const appWindow = getCurrentWindow();
+    let disposed = false;
+    let unlistenWindowClose: (() => void) | null = null;
+
+    const detachWindowCloseListener = () => {
+      if (!unlistenWindowClose) {
+        return;
+      }
+
+      const stopListening = unlistenWindowClose;
+      unlistenWindowClose = null;
+
+      try {
+        stopListening();
+      } catch (error) {
+        console.error("Failed to detach window close listener", error);
+      }
+    };
+
+    const registerWindowCloseHandler = async () => {
+      unlistenWindowClose = await appWindow.onCloseRequested(async (event) => {
+        if (disposed) {
+          return;
+        }
+
+        event.preventDefault();
+        await requestWindowClose();
+      });
+    };
+
+    void registerWindowCloseHandler().catch((error) => {
+      console.error("Failed to register window close handler", error);
+    });
+
+    return () => {
+      disposed = true;
+      detachWindowCloseListener();
+    };
+  }, [requestWindowClose]);
+
+  const handleManualCheckUpdate = async (): Promise<
+    "has-update" | "up-to-date" | "failed"
+  > => {
+    const result = await checkForUpdate();
+    if (!result.hasUpdate) {
+      return result.error ? "failed" : "up-to-date";
+    }
+
+    setLatestVersion(result.latestVersion ?? "");
+    setCurrentVersion(result.currentVersion ?? "");
 
     if (enableUpdateDialog) {
       setShowUpdateDialog(true);
     }
 
-    return 'has-update';
+    return "has-update";
   };
 
   const handleApplyIgnore = (mode: UpdateIgnoreMode) => {
-    if (mode === 'forever-all') {
+    if (mode === "forever-all") {
       setEnableUpdateDialog(false);
       return;
     }
@@ -229,58 +571,104 @@ function App() {
       return;
     }
 
-    suppressUpdateVersion(latestVersion, mode === 'today-version' ? 'today' : 'forever');
+    suppressUpdateVersion(
+      latestVersion,
+      mode === "today-version" ? "today" : "forever",
+    );
   };
 
-  if (!isHydrated) {
-    return (
-      <ReactFlowProvider>
-        <div className="w-full h-full bg-bg-dark" />
-      </ReactFlowProvider>
-    );
+  return (
+    <div className="w-full h-full flex flex-col bg-bg-dark">
+      <TitleBar
+        onExtensionsClick={() => {
+          setExtensionsDialogLoaded(true);
+          setShowExtensions(true);
+        }}
+        onSettingsClick={() => {
+          setSettingsInitialCategory("general");
+          setSettingsDialogLoaded(true);
+          setShowSettings(true);
+        }}
+        onCloseRequest={requestWindowClose}
+        showBackButton={!!currentProjectId}
+        onBackClick={closeProject}
+      />
+
+      <main className="relative flex-1 min-h-0 overflow-hidden">
+        {isHydrated ? (
+          <Suspense fallback={<AppContentLoader />}>
+            {currentProjectId ? <CanvasScreen /> : <ProjectManager />}
+          </Suspense>
+        ) : (
+          <AppBootScreen />
+        )}
+      </main>
+
+      {settingsDialogLoaded ? (
+        <Suspense fallback={null}>
+          <SettingsDialog
+            isOpen={showSettings}
+            onClose={() => setShowSettings(false)}
+            initialCategory={settingsInitialCategory}
+            onCheckUpdate={handleManualCheckUpdate}
+          />
+        </Suspense>
+      ) : null}
+      {extensionsDialogLoaded ? (
+        <Suspense fallback={null}>
+          <ExtensionsDialog
+            isOpen={showExtensions}
+            onClose={() => setShowExtensions(false)}
+          />
+        </Suspense>
+      ) : null}
+      {updateDialogLoaded ? (
+        <Suspense fallback={null}>
+          <UpdateAvailableDialog
+            isOpen={showUpdateDialog}
+            onClose={() => setShowUpdateDialog(false)}
+            latestVersion={latestVersion}
+            currentVersion={currentVersion}
+            onApplyIgnore={handleApplyIgnore}
+          />
+        </Suspense>
+      ) : null}
+      <GlobalErrorDialog
+        isOpen={Boolean(globalError)}
+        title={globalError?.title ?? ""}
+        message={globalError?.message ?? ""}
+        details={globalError?.details}
+        copyText={globalError?.copyText}
+        onClose={() => setGlobalError(null)}
+      />
+      {dreaminaDialogLoaded ? (
+        <Suspense fallback={null}>
+          <DreaminaSetupDialog
+            isOpen={Boolean(dreaminaSetupDetail)}
+            detail={dreaminaSetupDetail}
+            onClose={() => setDreaminaSetupDetail(null)}
+          />
+        </Suspense>
+      ) : null}
+      <PsImageToast />
+    </div>
+  );
+}
+
+function DetachedAssetPanelApp() {
+  useApplyGlobalAppearance();
+
+  return <DetachedAssetPanelWindow />;
+}
+
+function App() {
+  const currentWindowLabel = getCurrentWindow().label;
+
+  if (currentWindowLabel === ASSET_PANEL_WINDOW_LABEL) {
+    return <DetachedAssetPanelApp />;
   }
 
-  return (
-    <ReactFlowProvider>
-      <div className="w-full h-full flex flex-col bg-bg-dark">
-        <TitleBar
-          onSettingsClick={() => {
-            setSettingsInitialCategory('general');
-            setShowSettings(true);
-          }}
-          showBackButton={!!currentProjectId}
-          onBackClick={closeProject}
-        />
-
-        <main className="relative flex-1 min-h-0 overflow-hidden">
-          {currentProjectId ? <Canvas /> : <ProjectManager />}
-        </main>
-
-        <SettingsDialog
-          isOpen={showSettings}
-          onClose={() => setShowSettings(false)}
-          initialCategory={settingsInitialCategory}
-          onCheckUpdate={handleManualCheckUpdate}
-        />
-        <UpdateAvailableDialog
-          isOpen={showUpdateDialog}
-          onClose={() => setShowUpdateDialog(false)}
-          latestVersion={latestVersion}
-          currentVersion={currentVersion}
-          onApplyIgnore={handleApplyIgnore}
-        />
-        <GlobalErrorDialog
-          isOpen={Boolean(globalError)}
-          title={globalError?.title ?? ''}
-          message={globalError?.message ?? ''}
-          details={globalError?.details}
-          copyText={globalError?.copyText}
-          onClose={() => setGlobalError(null)}
-        />
-        <PsImageToast />
-      </div>
-    </ReactFlowProvider>
-  );
+  return <MainApp />;
 }
 
 export default App;

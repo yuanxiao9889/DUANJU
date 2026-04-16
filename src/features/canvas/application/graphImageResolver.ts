@@ -1,12 +1,9 @@
 import {
-  isExportImageNode,
-  isImageEditNode,
-  isStoryboardGenNode,
-  isUploadNode,
   type CanvasEdge,
   type CanvasNode,
 } from '../domain/canvasNodes';
 import type { GraphImageResolver } from './ports';
+import { extractReferenceImageUrls } from './nodeReferenceExtraction';
 
 export class DefaultGraphImageResolver implements GraphImageResolver {
   collectInputImages(nodeId: string, nodes: CanvasNode[], edges: CanvasEdge[]): string[] {
@@ -27,15 +24,6 @@ export class DefaultGraphImageResolver implements GraphImageResolver {
       return [];
     }
 
-    if (
-      isUploadNode(node)
-      || isImageEditNode(node)
-      || isExportImageNode(node)
-      || isStoryboardGenNode(node)
-    ) {
-      return node.data.imageUrl ? [node.data.imageUrl] : [];
-    }
-
-    return [];
+    return extractReferenceImageUrls(node);
   }
 }

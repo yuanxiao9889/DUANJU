@@ -1,12 +1,9 @@
 import { create } from 'zustand';
-import {
+import type {
   Connection,
   EdgeChange,
   NodeChange,
-  type Viewport,
-  addEdge,
-  applyEdgeChanges,
-  applyNodeChanges,
+  Viewport,
 } from '@xyflow/react';
 import { v4 as uuidv4 } from 'uuid';
 
@@ -19,23 +16,53 @@ import {
   EXPORT_RESULT_NODE_LAYOUT_HEIGHT,
   EXPORT_RESULT_NODE_MIN_HEIGHT,
   EXPORT_RESULT_NODE_MIN_WIDTH,
+  IMAGE_COLLAGE_NODE_DEFAULT_HEIGHT,
+  IMAGE_COLLAGE_NODE_DEFAULT_WIDTH,
   IMAGE_EDIT_NODE_DEFAULT_HEIGHT,
   IMAGE_EDIT_NODE_DEFAULT_WIDTH,
+  SCRIPT_CHAPTER_NODE_DEFAULT_HEIGHT,
+  SCRIPT_CHAPTER_NODE_DEFAULT_WIDTH,
+  SCRIPT_REFERENCE_NODE_DEFAULT_HEIGHT,
+  SCRIPT_REFERENCE_NODE_DEFAULT_WIDTH,
+  SCRIPT_SCENE_NODE_DEFAULT_HEIGHT,
+  SCRIPT_SCENE_NODE_DEFAULT_WIDTH,
+  SHOOTING_SCRIPT_NODE_DEFAULT_HEIGHT,
+  SHOOTING_SCRIPT_NODE_DEFAULT_WIDTH,
+  type JimengImageNodeData,
+  type JimengNodeData,
   type ActiveToolDialog,
   type CanvasEdge,
   type CanvasNode,
   type CanvasNodeData,
   type CanvasNodeType,
+  type EpisodeCard,
   type ExportImageNodeResultKind,
   type ImageEditNodeData,
+  type ImageCollageNodeData,
   type NodeToolType,
   type StoryboardExportOptions,
   type StoryboardFrameItem,
   type ScriptChapterNodeData,
-  isExportImageNode,
-  isImageEditNode,
+  type ScriptRootNodeData,
+  type ScriptSceneNodeData,
+  type ShootingScriptNodeData,
+  type ScriptReferenceNodeData,
+  type ScriptCharacterReferenceNodeData,
+  type ScriptLocationReferenceNodeData,
+  type ScriptItemReferenceNodeData,
+  createDefaultSceneCard,
+  normalizeShootingScriptNodeData,
+  normalizeImageCollageNodeData,
+  normalizeScriptChapterNodeData,
+  normalizeScriptCharacterReferenceNodeData,
+  normalizeScriptItemReferenceNodeData,
+  normalizeScriptLocationReferenceNodeData,
+  normalizeScriptReferenceNodeData,
+  normalizeScriptRootNodeData,
+  normalizeScriptSceneNodeData,
   isStoryboardSplitNode,
-  isUploadNode,
+  isImageCollageNode,
+  resolveSingleImageConnectionSource,
 } from '@/features/canvas/domain/canvasNodes';
 import {
   nodeHasSourceHandle,
@@ -44,6 +71,7 @@ import {
 import { EXPORT_RESULT_DISPLAY_NAME } from '@/features/canvas/domain/nodeDisplay';
 import { nodeCatalog } from '@/features/canvas/application/nodeCatalog';
 import { canvasNodeFactory } from '@/features/canvas/application/canvasServices';
+import { emitCanvasNodesDeleted } from '@/features/canvas/application/nodeDeletionEvents';
 import {
   ensureAtLeastOneMinEdge,
   resolveMinEdgeFittedSize,
@@ -63,6 +91,13 @@ import {
 import type { AssetItemRecord } from '@/features/assets/domain/types';
 import { useSettingsStore } from '@/stores/settingsStore';
 import { getImageModel } from '@/features/canvas/models';
+import {
+  normalizeJimengImageResolutionForModel,
+  normalizeJimengReferenceMode,
+  normalizeJimengVideoModel,
+} from '@/features/jimeng/domain/jimengOptions';
+import type { CanvasSemanticColor } from '@/features/canvas/domain/semanticColors';
+import { useScriptEditorStore } from '@/stores/scriptEditorStore';
 
 export type {
   ActiveToolDialog,
@@ -74,17 +109,191 @@ export type {
   StoryboardFrameItem,
 };
 
-export interface CanvasHistorySnapshot {
+function applyNodeChangesLocal(
+  changes: NodeChange<CanvasNode>[],
+  nodes: CanvasNode[]
+): CanvasNode[] {
+  let nextNodes = [...nodes];
+
+  for (const change of changes) {
+    switch (change.type) {
+      case 'add': {
+        const index = typeof change.index === 'number' ? change.index : nextNodes.length;
+        nextNodes = [
+          ...nextNodes.slice(0, index),
+          change.item,
+          ...nextNodes.slice(index),
+        ];
+        break;
+      }
+      case 'remove':
+        nextNodes = nextNodes.filter((node) => node.id !== change.id);
+        break;
+      case 'replace':
+        nextNodes = nextNodes.map((node) => (node.id === change.id ? change.item : node));
+        break;
+      case 'select':
+        nextNodes = nextNodes.map((node) => (
+          node.id === change.id ? { ...node, selected: change.selected } : node
+        ));
+        break;
+      case 'position':
+        nextNodes = nextNodes.map((node) => {
+          if (node.id !== change.id) {
+            return node;
+          }
+
+          return {
+            ...node,
+            position: change.position ?? node.position,
+            dragging:
+              'dragging' in change
+                ? change.dragging
+                : node.dragging,
+          };
+        });
+        break;
+      case 'dimensions':
+        nextNodes = nextNodes.map((node) => {
+          if (node.id !== change.id) {
+            return node;
+          }
+
+          const width = change.dimensions?.width;
+          const height = change.dimensions?.height;
+          const shouldSetWidth =
+            change.setAttributes === true || change.setAttributes === 'width';
+          const shouldSetHeight =
+            change.setAttributes === true || change.setAttributes === 'height';
+
+          return {
+            ...node,
+            width: shouldSetWidth && typeof width === 'number' ? width : node.width,
+            height: shouldSetHeight && typeof height === 'number' ? height : node.height,
+            measured: {
+              ...(node.measured ?? {}),
+              width: typeof width === 'number' ? width : node.measured?.width,
+              height: typeof height === 'number' ? height : node.measured?.height,
+            },
+            resizing:
+              'resizing' in change ? change.resizing : node.resizing,
+          };
+        });
+        break;
+      default:
+        break;
+    }
+  }
+
+  return nextNodes;
+}
+
+function applyEdgeChangesLocal(
+  changes: EdgeChange<CanvasEdge>[],
+  edges: CanvasEdge[]
+): CanvasEdge[] {
+  let nextEdges = [...edges];
+
+  for (const change of changes) {
+    switch (change.type) {
+      case 'add': {
+        const index = typeof change.index === 'number' ? change.index : nextEdges.length;
+        nextEdges = [
+          ...nextEdges.slice(0, index),
+          change.item,
+          ...nextEdges.slice(index),
+        ];
+        break;
+      }
+      case 'remove':
+        nextEdges = nextEdges.filter((edge) => edge.id !== change.id);
+        break;
+      case 'replace':
+        nextEdges = nextEdges.map((edge) => (edge.id === change.id ? change.item : edge));
+        break;
+      case 'select':
+        nextEdges = nextEdges.map((edge) => (
+          edge.id === change.id ? { ...edge, selected: change.selected } : edge
+        ));
+        break;
+      default:
+        break;
+    }
+  }
+
+  return nextEdges;
+}
+
+function addEdgeLocal(
+  connection: Connection | CanvasEdge,
+  edges: CanvasEdge[]
+): CanvasEdge[] {
+  const sourceHandle = connection.sourceHandle ?? null;
+  const targetHandle = connection.targetHandle ?? null;
+  const alreadyExists = edges.some((edge) =>
+    edge.source === connection.source &&
+    edge.target === connection.target &&
+    (edge.sourceHandle ?? null) === sourceHandle &&
+    (edge.targetHandle ?? null) === targetHandle
+  );
+
+  if (alreadyExists) {
+    return edges;
+  }
+
+  const nextEdge = {
+    ...connection,
+    id:
+      ('id' in connection && typeof connection.id === 'string' && connection.id.trim().length > 0)
+        ? connection.id
+        : `xy-edge__${connection.source}-${sourceHandle ?? 'null'}-${connection.target}-${targetHandle ?? 'null'}`,
+  } as CanvasEdge;
+
+  return [...edges, nextEdge];
+}
+
+export interface CanvasFullHistorySnapshot {
+  kind?: 'full';
   nodes: CanvasNode[];
   edges: CanvasEdge[];
 }
+
+export interface CanvasNodePatchHistoryEntry {
+  nodeId: string;
+  node: CanvasNode | null;
+}
+
+export interface CanvasNodePatchHistorySnapshot {
+  kind: 'nodePatch';
+  entries: CanvasNodePatchHistoryEntry[];
+}
+
+export type CanvasHistorySnapshot =
+  | CanvasFullHistorySnapshot
+  | CanvasNodePatchHistorySnapshot;
 
 export interface CanvasHistoryState {
   past: CanvasHistorySnapshot[];
   future: CanvasHistorySnapshot[];
 }
 
+export interface GeneratedScriptChapterInput {
+  title: string;
+  summary: string;
+  contentHtml: string;
+  sceneTitle?: string;
+  sceneSummary?: string;
+  sceneHeading?: string;
+  characters?: string[];
+  location?: string;
+  items?: string[];
+  visualHook?: string;
+  directorNotes?: string;
+  sourceDraftLabel?: string;
+}
+
 const MAX_HISTORY_STEPS = 50;
+const MAX_HISTORY_TIMELINE_REFERENCE_BUDGET = 120_000;
 const IMAGE_NODE_VISUAL_MIN_EDGE = 96;
 const DERIVED_NODE_COLUMN_GAP = 28;
 const DERIVED_NODE_STACK_GAP = 20;
@@ -109,6 +318,15 @@ interface AddNodeOptions {
   parentId?: string;
   inheritParentFromNodeId?: string;
   positionSpace?: 'canvas' | 'parent';
+}
+
+interface UpdateNodeDataOptions {
+  historyMode?: 'push' | 'skip';
+}
+
+interface AddGeneratedScriptChaptersOptions {
+  nodeWidth?: number;
+  nodeHeight?: number;
 }
 
 function appendNodeClassName(existing: string | undefined, className: string): string {
@@ -210,7 +428,9 @@ interface CanvasState {
   nodes: CanvasNode[];
   edges: CanvasEdge[];
   selectedNodeId: string | null;
+  highlightedReferenceSourceNodeId: string | null;
   activeToolDialog: ActiveToolDialog | null;
+  nodeDescriptionPanelOpenById: Record<string, boolean>;
   history: CanvasHistoryState;
   dragHistorySnapshot: CanvasHistorySnapshot | null;
   currentViewport: Viewport;
@@ -264,8 +484,21 @@ interface CanvasState {
       aspectRatioStrategy?: 'provided' | 'derivedFromSource';
       sizeStrategy?: 'generated' | 'autoMinEdge' | 'matchSource';
       matchSourceNodeSize?: boolean;
+      connectToSource?: boolean;
     }
   ) => string | null;
+  addStoryboardSplitFrameExportNodes: (
+    sourceNodeId: string,
+    frames: Array<{
+      imageUrl: string;
+      previewImageUrl?: string | null;
+      aspectRatio?: string | null;
+      title?: string | null;
+    }>,
+    options?: {
+      gridCols?: number;
+    }
+  ) => string[];
   addStoryboardSplitNode: (
     sourceNodeId: string,
     rows: number,
@@ -273,8 +506,42 @@ interface CanvasState {
     frames: StoryboardFrameItem[],
     frameAspectRatio?: string
   ) => string | null;
+  addStoryboardSplitResultNode: (
+    sourceNodeId: string,
+    rows: number,
+    cols: number,
+    frames: StoryboardFrameItem[],
+    frameAspectRatio?: string
+  ) => string | null;
+  addGeneratedScriptChapters: (
+    sourceNodeId: string,
+    chapters: GeneratedScriptChapterInput[],
+    options?: AddGeneratedScriptChaptersOptions
+  ) => string[];
+  createScriptSceneNodeFromChapterScene: (
+    chapterNodeId: string,
+    sceneId: string
+  ) => string | null;
+  ensureShootingScriptNodeFromSceneEpisode: (
+    sceneNodeId: string,
+    episodeId: string
+  ) => {
+    nodeId: string | null;
+    created: boolean;
+  };
+  reindexScriptSceneEpisodes: (sourceChapterId: string) => void;
 
-  updateNodeData: (nodeId: string, data: Partial<CanvasNodeData>) => void;
+  updateNodeData: (
+    nodeId: string,
+    data: Partial<CanvasNodeData>,
+    options?: UpdateNodeDataOptions
+  ) => void;
+  updateNodesData: (
+    nodeIds: Iterable<string>,
+    data: Partial<CanvasNodeData>,
+    options?: UpdateNodeDataOptions
+  ) => void;
+  applySemanticColorToSelected: (color: CanvasSemanticColor) => void;
   updateNodePosition: (nodeId: string, position: { x: number; y: number }) => void;
   updateStoryboardFrame: (
     nodeId: string,
@@ -307,6 +574,9 @@ interface CanvasState {
   ungroupNode: (groupNodeId: string) => boolean;
   deleteEdge: (edgeId: string) => void;
   setSelectedNode: (nodeId: string | null) => void;
+  setHighlightedReferenceSourceNode: (nodeId: string | null) => void;
+  toggleNodeDescriptionPanel: (nodeId: string) => void;
+  setNodeDescriptionPanelOpen: (nodeId: string, isOpen: boolean) => void;
 
   openToolDialog: (dialog: ActiveToolDialog) => void;
   closeToolDialog: () => void;
@@ -365,10 +635,7 @@ function normalizeNodes(rawNodes: CanvasNode[]): CanvasNode[] {
         return null;
       }
 
-      const normalizedNodeType =
-        node.type === CANVAS_NODE_TYPES.storyboardSplitResult
-          ? CANVAS_NODE_TYPES.storyboardSplit
-          : (node.type as CanvasNodeType);
+      const normalizedNodeType = node.type as CanvasNodeType;
       const definition = nodeCatalog.getDefinition(normalizedNodeType);
       const mergedData = {
         ...definition.createDefaultData(),
@@ -439,6 +706,69 @@ function normalizeNodes(rawNodes: CanvasNode[]): CanvasNode[] {
         }
       }
 
+      if (normalizedNodeType === CANVAS_NODE_TYPES.scriptRoot) {
+        Object.assign(
+          mergedData,
+          normalizeScriptRootNodeData(mergedData as ScriptRootNodeData)
+        );
+      }
+
+      if (normalizedNodeType === CANVAS_NODE_TYPES.scriptChapter) {
+        Object.assign(
+          mergedData,
+          normalizeScriptChapterNodeData(mergedData as ScriptChapterNodeData)
+        );
+      }
+
+      if (normalizedNodeType === CANVAS_NODE_TYPES.scriptScene) {
+        Object.assign(
+          mergedData,
+          normalizeScriptSceneNodeData(mergedData as ScriptSceneNodeData)
+        );
+      }
+
+      if (normalizedNodeType === CANVAS_NODE_TYPES.shootingScript) {
+        Object.assign(
+          mergedData,
+          normalizeShootingScriptNodeData(mergedData as ShootingScriptNodeData)
+        );
+      }
+
+      if (normalizedNodeType === CANVAS_NODE_TYPES.scriptReference) {
+        Object.assign(
+          mergedData,
+          normalizeScriptReferenceNodeData(mergedData as ScriptReferenceNodeData)
+        );
+      }
+
+      if (normalizedNodeType === CANVAS_NODE_TYPES.scriptCharacterReference) {
+        Object.assign(
+          mergedData,
+          normalizeScriptCharacterReferenceNodeData(mergedData as ScriptCharacterReferenceNodeData)
+        );
+      }
+
+      if (normalizedNodeType === CANVAS_NODE_TYPES.scriptLocationReference) {
+        Object.assign(
+          mergedData,
+          normalizeScriptLocationReferenceNodeData(mergedData as ScriptLocationReferenceNodeData)
+        );
+      }
+
+      if (normalizedNodeType === CANVAS_NODE_TYPES.scriptItemReference) {
+        Object.assign(
+          mergedData,
+          normalizeScriptItemReferenceNodeData(mergedData as ScriptItemReferenceNodeData)
+        );
+      }
+
+      if (normalizedNodeType === CANVAS_NODE_TYPES.imageCollage) {
+        Object.assign(
+          mergedData,
+          normalizeImageCollageNodeData(mergedData as ImageCollageNodeData)
+        );
+      }
+
       if ('aspectRatio' in mergedData && !mergedData.aspectRatio) {
         mergedData.aspectRatio = DEFAULT_ASPECT_RATIO;
       }
@@ -463,14 +793,13 @@ function normalizeNodes(rawNodes: CanvasNode[]): CanvasNode[] {
         data: mergedData,
       };
 
-      return shouldApplyImageEditDefaultSize(normalizedNode, mergedData)
-        ? withImageEditDefaultSize(normalizedNode)
-        : normalizedNode;
+      return applyDefaultNodeSize(normalizedNode, mergedData);
     })
     .filter((node): node is CanvasNode => Boolean(node));
 
-  const nodeMap = new Map(normalizedNodes.map((node) => [node.id, node] as const));
-  return normalizedNodes.map((node) => {
+  const reindexedNodes = reindexScriptSceneNodesByChapter(normalizedNodes).nodes;
+  const nodeMap = new Map(reindexedNodes.map((node) => [node.id, node] as const));
+  return reindexedNodes.map((node) => {
     if (!node.parentId || typeof node.extent === 'undefined') {
       return node;
     }
@@ -487,12 +816,278 @@ function normalizeNodes(rawNodes: CanvasNode[]): CanvasNode[] {
   });
 }
 
+function buildScriptSceneSourceKey(sourceChapterId: string, sourceSceneId: string): string {
+  return `${sourceChapterId}::${sourceSceneId}`;
+}
+
+function buildShootingScriptSourceKey(sourceSceneNodeId: string, sourceEpisodeId: string): string {
+  return `${sourceSceneNodeId}::${sourceEpisodeId}`;
+}
+
+function isScriptSceneNodeType(node: CanvasNode): node is CanvasNode & {
+  data: ScriptSceneNodeData;
+  type: typeof CANVAS_NODE_TYPES.scriptScene;
+} {
+  return node.type === CANVAS_NODE_TYPES.scriptScene;
+}
+
+function isShootingScriptNodeType(node: CanvasNode): node is CanvasNode & {
+  data: ShootingScriptNodeData;
+  type: typeof CANVAS_NODE_TYPES.shootingScript;
+} {
+  return node.type === CANVAS_NODE_TYPES.shootingScript;
+}
+
+function sortEpisodeCardsForChapterReindex(episodes: EpisodeCard[]): EpisodeCard[] {
+  return [...episodes].sort((left, right) => {
+    const orderDelta = left.order - right.order;
+    if (orderDelta !== 0) {
+      return orderDelta;
+    }
+    return left.id.localeCompare(right.id);
+  });
+}
+
+function reindexScriptSceneNodesByChapter(
+  nodes: CanvasNode[],
+  sourceChapterId?: string
+): { nodes: CanvasNode[]; changed: boolean } {
+  const chapterNumberById = new Map<string, number>();
+  for (const node of nodes) {
+    if (node.type !== CANVAS_NODE_TYPES.scriptChapter) {
+      continue;
+    }
+
+    const chapterData = node.data as ScriptChapterNodeData;
+    chapterNumberById.set(node.id, chapterData.chapterNumber || 1);
+  }
+
+  const sceneNodesByChapter = new Map<string, Array<CanvasNode & {
+    data: ScriptSceneNodeData;
+    type: typeof CANVAS_NODE_TYPES.scriptScene;
+  }>>();
+
+  for (const node of nodes) {
+    if (!isScriptSceneNodeType(node)) {
+      continue;
+    }
+
+    const chapterId = node.data.sourceChapterId;
+    if (!chapterId) {
+      continue;
+    }
+    if (sourceChapterId && chapterId !== sourceChapterId) {
+      continue;
+    }
+
+    const list = sceneNodesByChapter.get(chapterId) ?? [];
+    list.push(node);
+    sceneNodesByChapter.set(chapterId, list);
+  }
+
+  if (sceneNodesByChapter.size === 0) {
+    return { nodes, changed: false };
+  }
+
+  let changed = false;
+  const nextNodeById = new Map<string, CanvasNode>();
+  const shootingScriptContextBySourceKey = new Map<string, {
+    chapterNumber: number;
+    sceneNumber: number;
+    sceneTitle: string;
+    episodeNumber: number;
+    episodeTitle: string;
+  }>();
+
+  sceneNodesByChapter.forEach((sceneNodes, chapterId) => {
+    const sortedSceneNodes = [...sceneNodes].sort((left, right) => {
+      const sceneOrderDelta = left.data.sourceSceneOrder - right.data.sourceSceneOrder;
+      if (sceneOrderDelta !== 0) {
+        return sceneOrderDelta;
+      }
+
+      return left.data.sourceSceneId.localeCompare(right.data.sourceSceneId);
+    });
+
+    const chapterNumber = chapterNumberById.get(chapterId) ?? sortedSceneNodes[0]?.data.chapterNumber ?? 1;
+    let nextEpisodeNumber = 1;
+
+    for (const [sceneIndex, sceneNode] of sortedSceneNodes.entries()) {
+      const sceneNumber = sceneIndex + 1;
+      const sortedEpisodes = sortEpisodeCardsForChapterReindex(sceneNode.data.episodes ?? []);
+      const nextEpisodes = sortedEpisodes.map((episode, index) => {
+        const normalizedEpisodeNumber = nextEpisodeNumber;
+        nextEpisodeNumber += 1;
+        return {
+          ...episode,
+          order: index,
+          episodeNumber: normalizedEpisodeNumber,
+        };
+      });
+
+      nextEpisodes.forEach((episode) => {
+        shootingScriptContextBySourceKey.set(
+          buildShootingScriptSourceKey(sceneNode.id, episode.id),
+          {
+            chapterNumber,
+            sceneNumber,
+            sceneTitle: sceneNode.data.title,
+            episodeNumber: episode.episodeNumber,
+            episodeTitle: episode.title,
+          }
+        );
+      });
+
+      const hasEpisodeChange =
+        nextEpisodes.length !== sceneNode.data.episodes.length
+        || nextEpisodes.some((episode, index) => {
+          const previousEpisode = sceneNode.data.episodes[index];
+          return !previousEpisode
+            || previousEpisode.id !== episode.id
+            || previousEpisode.order !== episode.order
+            || previousEpisode.episodeNumber !== episode.episodeNumber;
+        });
+
+      if (!hasEpisodeChange && sceneNode.data.chapterNumber === chapterNumber) {
+        continue;
+      }
+
+      changed = true;
+      nextNodeById.set(sceneNode.id, {
+        ...sceneNode,
+        data: {
+          ...sceneNode.data,
+          chapterNumber,
+          episodes: nextEpisodes,
+        },
+      });
+    }
+  });
+
+  for (const node of nodes) {
+    if (!isShootingScriptNodeType(node)) {
+      continue;
+    }
+
+    const nextContext = shootingScriptContextBySourceKey.get(
+      buildShootingScriptSourceKey(node.data.sourceSceneNodeId, node.data.sourceEpisodeId)
+    );
+    if (!nextContext) {
+      continue;
+    }
+
+    const normalizedData = normalizeShootingScriptNodeData({
+      ...node.data,
+      chapterNumber: nextContext.chapterNumber,
+      sceneNumber: nextContext.sceneNumber,
+      sceneTitle: nextContext.sceneTitle,
+      episodeNumber: nextContext.episodeNumber,
+      episodeTitle: nextContext.episodeTitle,
+    });
+
+    const hasScriptChange =
+      node.data.chapterNumber !== normalizedData.chapterNumber
+      || node.data.sceneNumber !== normalizedData.sceneNumber
+      || node.data.sceneTitle !== normalizedData.sceneTitle
+      || node.data.episodeNumber !== normalizedData.episodeNumber
+      || node.data.episodeTitle !== normalizedData.episodeTitle
+      || normalizedData.rows.length !== node.data.rows.length
+      || normalizedData.rows.some((row, index) => {
+        const previousRow = node.data.rows[index];
+        return !previousRow
+          || previousRow.id !== row.id
+          || previousRow.shotNumber !== row.shotNumber;
+      });
+
+    if (!hasScriptChange) {
+      continue;
+    }
+
+    changed = true;
+    nextNodeById.set(node.id, {
+      ...node,
+      data: normalizedData,
+    });
+  }
+
+  if (!changed) {
+    return { nodes, changed: false };
+  }
+
+  return {
+    nodes: nodes.map((node) => nextNodeById.get(node.id) ?? node),
+    changed: true,
+  };
+}
+
+function findScriptSceneNodeBySource(
+  nodes: CanvasNode[],
+  sourceChapterId: string,
+  sourceSceneId: string
+): (CanvasNode & {
+  data: ScriptSceneNodeData;
+  type: typeof CANVAS_NODE_TYPES.scriptScene;
+}) | null {
+  const sourceKey = buildScriptSceneSourceKey(sourceChapterId, sourceSceneId);
+
+  return nodes.find((node): node is CanvasNode & {
+    data: ScriptSceneNodeData;
+    type: typeof CANVAS_NODE_TYPES.scriptScene;
+  } => (
+    isScriptSceneNodeType(node)
+    && buildScriptSceneSourceKey(node.data.sourceChapterId, node.data.sourceSceneId) === sourceKey
+  )) ?? null;
+}
+
+function findShootingScriptNodeBySource(
+  nodes: CanvasNode[],
+  sourceSceneNodeId: string,
+  sourceEpisodeId: string
+): (CanvasNode & {
+  data: ShootingScriptNodeData;
+  type: typeof CANVAS_NODE_TYPES.shootingScript;
+}) | null {
+  const sourceKey = buildShootingScriptSourceKey(sourceSceneNodeId, sourceEpisodeId);
+
+  return nodes.find((node): node is CanvasNode & {
+    data: ShootingScriptNodeData;
+    type: typeof CANVAS_NODE_TYPES.shootingScript;
+  } => (
+    isShootingScriptNodeType(node)
+    && buildShootingScriptSourceKey(node.data.sourceSceneNodeId, node.data.sourceEpisodeId) === sourceKey
+  )) ?? null;
+}
+
 function normalizeHistory(history?: CanvasHistoryState): CanvasHistoryState {
   if (!history) {
     return { past: [], future: [] };
   }
 
   const normalizeSnapshot = (snapshot: CanvasHistorySnapshot): CanvasHistorySnapshot => {
+    if (isCanvasNodePatchHistorySnapshot(snapshot)) {
+      const normalizedPatchNodes = normalizeNodes(
+        snapshot.entries
+          .map((entry) => entry.node)
+          .filter((node): node is CanvasNode => Boolean(node))
+      );
+      let normalizedIndex = 0;
+      return {
+        kind: 'nodePatch',
+        entries: snapshot.entries.map((entry) => {
+          if (!entry.node) {
+            return entry;
+          }
+
+          const normalizedNode = normalizedPatchNodes[normalizedIndex] ?? entry.node;
+          normalizedIndex += 1;
+          return {
+            nodeId: entry.nodeId,
+            node: normalizedNode,
+          };
+        }),
+      };
+    }
+
     const normalizedNodes = normalizeNodes(snapshot.nodes);
     return {
       nodes: normalizedNodes,
@@ -501,13 +1096,154 @@ function normalizeHistory(history?: CanvasHistoryState): CanvasHistoryState {
   };
 
   return {
-    past: history.past.slice(-MAX_HISTORY_STEPS).map(normalizeSnapshot),
-    future: history.future.slice(-MAX_HISTORY_STEPS).map(normalizeSnapshot),
+    past: trimSnapshotTimeline(
+      history.past.slice(-MAX_HISTORY_STEPS).map(normalizeSnapshot)
+    ),
+    future: trimSnapshotTimeline(
+      history.future.slice(-MAX_HISTORY_STEPS).map(normalizeSnapshot)
+    ),
   };
 }
 
 function createSnapshot(nodes: CanvasNode[], edges: CanvasEdge[]): CanvasHistorySnapshot {
   return { nodes, edges };
+}
+
+function isCanvasNodePatchHistorySnapshot(
+  snapshot: CanvasHistorySnapshot
+): snapshot is CanvasNodePatchHistorySnapshot {
+  return snapshot.kind === 'nodePatch';
+}
+
+function createNodePatchSnapshot(
+  nodes: CanvasNode[],
+  nodeIds: Iterable<string>,
+  fallbackEdges: CanvasEdge[]
+): CanvasHistorySnapshot {
+  const seenNodeIds = new Set<string>();
+  const previousNodeById = new Map(nodes.map((node) => [node.id, node] as const));
+  const entries: CanvasNodePatchHistoryEntry[] = [];
+
+  for (const nodeId of nodeIds) {
+    if (!nodeId || seenNodeIds.has(nodeId)) {
+      continue;
+    }
+
+    seenNodeIds.add(nodeId);
+    const previousNode = previousNodeById.get(nodeId);
+    if (!previousNode) {
+      continue;
+    }
+
+    entries.push({
+      nodeId,
+      node: previousNode,
+    });
+  }
+
+  return entries.length > 0
+    ? {
+        kind: 'nodePatch',
+        entries,
+      }
+    : createSnapshot(nodes, fallbackEdges);
+}
+
+function createReverseNodePatchSnapshot(
+  snapshot: CanvasNodePatchHistorySnapshot,
+  nodes: CanvasNode[],
+  fallbackEdges: CanvasEdge[]
+): CanvasHistorySnapshot {
+  const currentNodeById = new Map(nodes.map((node) => [node.id, node] as const));
+  const entries = snapshot.entries.map((entry) => ({
+    nodeId: entry.nodeId,
+    node: currentNodeById.get(entry.nodeId) ?? null,
+  }));
+
+  return entries.length > 0
+    ? {
+        kind: 'nodePatch',
+        entries,
+      }
+    : createSnapshot(nodes, fallbackEdges);
+}
+
+function applyNodePatchSnapshot(
+  currentNodes: CanvasNode[],
+  snapshot: CanvasNodePatchHistorySnapshot
+): CanvasNode[] {
+  const patchById = new Map(snapshot.entries.map((entry) => [entry.nodeId, entry.node] as const));
+  const nextNodes: CanvasNode[] = [];
+
+  for (const node of currentNodes) {
+    if (!patchById.has(node.id)) {
+      nextNodes.push(node);
+      continue;
+    }
+
+    const patchedNode = patchById.get(node.id) ?? null;
+    patchById.delete(node.id);
+    if (patchedNode) {
+      nextNodes.push(patchedNode);
+    }
+  }
+
+  for (const patchedNode of patchById.values()) {
+    if (patchedNode) {
+      nextNodes.push(patchedNode);
+    }
+  }
+
+  return nextNodes;
+}
+
+function applyHistorySnapshot(
+  currentNodes: CanvasNode[],
+  currentEdges: CanvasEdge[],
+  snapshot: CanvasHistorySnapshot
+): CanvasFullHistorySnapshot {
+  if (isCanvasNodePatchHistorySnapshot(snapshot)) {
+    return {
+      nodes: applyNodePatchSnapshot(currentNodes, snapshot),
+      edges: currentEdges,
+    };
+  }
+
+  return snapshot;
+}
+
+function estimateSnapshotReferenceFootprint(snapshot: CanvasHistorySnapshot): number {
+  if (isCanvasNodePatchHistorySnapshot(snapshot)) {
+    return snapshot.entries.length;
+  }
+
+  return snapshot.nodes.length + snapshot.edges.length;
+}
+
+function trimSnapshotTimeline(snapshots: CanvasHistorySnapshot[]): CanvasHistorySnapshot[] {
+  if (snapshots.length <= 1) {
+    return snapshots;
+  }
+
+  let totalFootprint = 0;
+  for (const snapshot of snapshots) {
+    totalFootprint += estimateSnapshotReferenceFootprint(snapshot);
+  }
+
+  if (totalFootprint <= MAX_HISTORY_TIMELINE_REFERENCE_BUDGET) {
+    return snapshots;
+  }
+
+  let trimStartIndex = 0;
+  while (
+    trimStartIndex < snapshots.length - 1
+    && totalFootprint > MAX_HISTORY_TIMELINE_REFERENCE_BUDGET
+  ) {
+    totalFootprint -= estimateSnapshotReferenceFootprint(snapshots[trimStartIndex]);
+    trimStartIndex += 1;
+  }
+
+  return trimStartIndex > 0 ? snapshots.slice(trimStartIndex) : snapshots;
 }
 
 function normalizeNonEmptyString(value: unknown): string | null {
@@ -529,11 +1265,7 @@ function resolveStoryboardFrameImageKeys(frame: StoryboardFrameItem): string[] {
 }
 
 function isStoryboardInputSourceNode(node: CanvasNode | undefined): boolean {
-  return Boolean(
-    node
-    && (isUploadNode(node) || isImageEditNode(node) || isExportImageNode(node))
-    && normalizeNonEmptyString(node.data.imageUrl)
-  );
+  return Boolean(resolveSingleImageConnectionSource(node));
 }
 
 function doesStoryboardFrameReferenceIncomingEdge(
@@ -541,6 +1273,7 @@ function doesStoryboardFrameReferenceIncomingEdge(
   edge: CanvasEdge,
   sourceNode: CanvasNode
 ): boolean {
+  const singleImageSource = resolveSingleImageConnectionSource(sourceNode);
   const normalizedFrameSourceEdgeId = normalizeNonEmptyString(frame.sourceEdgeId);
   if (normalizedFrameSourceEdgeId && normalizedFrameSourceEdgeId === edge.id) {
     return true;
@@ -557,8 +1290,8 @@ function doesStoryboardFrameReferenceIncomingEdge(
   }
 
   const sourceImageKeys = [
-    normalizeNonEmptyString(sourceNode.data.imageUrl),
-    normalizeNonEmptyString(sourceNode.data.previewImageUrl),
+    normalizeNonEmptyString(singleImageSource?.imageUrl),
+    normalizeNonEmptyString(singleImageSource?.previewImageUrl),
   ].filter((value): value is string => Boolean(value));
 
   return sourceImageKeys.some((key) => frameImageKeys.includes(key));
@@ -661,6 +1394,179 @@ function withImageEditDefaultSize(node: CanvasNode): CanvasNode {
       height: IMAGE_EDIT_NODE_DEFAULT_HEIGHT,
     },
   };
+}
+
+function withScriptSceneDefaultSize(node: CanvasNode): CanvasNode {
+  return {
+    ...node,
+    width: SCRIPT_SCENE_NODE_DEFAULT_WIDTH,
+    height: SCRIPT_SCENE_NODE_DEFAULT_HEIGHT,
+    style: {
+      ...(node.style ?? {}),
+      width: SCRIPT_SCENE_NODE_DEFAULT_WIDTH,
+      height: SCRIPT_SCENE_NODE_DEFAULT_HEIGHT,
+    },
+  };
+}
+
+function withShootingScriptDefaultSize(node: CanvasNode): CanvasNode {
+  return {
+    ...node,
+    width: SHOOTING_SCRIPT_NODE_DEFAULT_WIDTH,
+    height: SHOOTING_SCRIPT_NODE_DEFAULT_HEIGHT,
+    style: {
+      ...(node.style ?? {}),
+      width: SHOOTING_SCRIPT_NODE_DEFAULT_WIDTH,
+      height: SHOOTING_SCRIPT_NODE_DEFAULT_HEIGHT,
+    },
+  };
+}
+
+function withScriptReferenceDefaultSize(node: CanvasNode): CanvasNode {
+  return {
+    ...node,
+    width: SCRIPT_REFERENCE_NODE_DEFAULT_WIDTH,
+    height: SCRIPT_REFERENCE_NODE_DEFAULT_HEIGHT,
+    style: {
+      ...(node.style ?? {}),
+      width: SCRIPT_REFERENCE_NODE_DEFAULT_WIDTH,
+      height: SCRIPT_REFERENCE_NODE_DEFAULT_HEIGHT,
+    },
+  };
+}
+
+function withImageCollageDefaultSize(node: CanvasNode): CanvasNode {
+  return {
+    ...node,
+    width: IMAGE_COLLAGE_NODE_DEFAULT_WIDTH,
+    height: IMAGE_COLLAGE_NODE_DEFAULT_HEIGHT,
+    style: {
+      ...(node.style ?? {}),
+      width: IMAGE_COLLAGE_NODE_DEFAULT_WIDTH,
+      height: IMAGE_COLLAGE_NODE_DEFAULT_HEIGHT,
+    },
+  };
+}
+
+function isScriptAssetReferenceNodeType(type: CanvasNodeType): boolean {
+  return type === CANVAS_NODE_TYPES.scriptCharacterReference
+    || type === CANVAS_NODE_TYPES.scriptLocationReference
+    || type === CANVAS_NODE_TYPES.scriptItemReference;
+}
+
+function applyDefaultNodeSize(node: CanvasNode, data: CanvasNodeData): CanvasNode {
+  if (shouldApplyImageEditDefaultSize(node, data)) {
+    return withImageEditDefaultSize(node);
+  }
+
+  if (node.type === CANVAS_NODE_TYPES.imageCollage) {
+    const resolvedWidth =
+      resolveNumericNodeDimension(node.width)
+      ?? resolveNumericNodeDimension(node.style?.width);
+    const resolvedHeight =
+      resolveNumericNodeDimension(node.height)
+      ?? resolveNumericNodeDimension(node.style?.height);
+    if (resolvedWidth === null || resolvedHeight === null) {
+      return withImageCollageDefaultSize(node);
+    }
+  }
+
+  if (node.type === CANVAS_NODE_TYPES.scriptScene) {
+    const resolvedWidth =
+      resolveNumericNodeDimension(node.width)
+      ?? resolveNumericNodeDimension(node.style?.width);
+    const resolvedHeight =
+      resolveNumericNodeDimension(node.height)
+      ?? resolveNumericNodeDimension(node.style?.height);
+    if (resolvedWidth === null || resolvedHeight === null) {
+      return withScriptSceneDefaultSize(node);
+    }
+  }
+
+  if (node.type === CANVAS_NODE_TYPES.scriptReference || isScriptAssetReferenceNodeType(node.type)) {
+    const resolvedWidth =
+      resolveNumericNodeDimension(node.width)
+      ?? resolveNumericNodeDimension(node.style?.width);
+    const resolvedHeight =
+      resolveNumericNodeDimension(node.height)
+      ?? resolveNumericNodeDimension(node.style?.height);
+    if (resolvedWidth === null || resolvedHeight === null) {
+      return withScriptReferenceDefaultSize(node);
+    }
+  }
+
+  if (node.type === CANVAS_NODE_TYPES.shootingScript) {
+    const resolvedWidth =
+      resolveNumericNodeDimension(node.width)
+      ?? resolveNumericNodeDimension(node.style?.width);
+    const resolvedHeight =
+      resolveNumericNodeDimension(node.height)
+      ?? resolveNumericNodeDimension(node.style?.height);
+    if (resolvedWidth === null || resolvedHeight === null) {
+      return withShootingScriptDefaultSize(node);
+    }
+  }
+
+  return node;
+}
+
+function cleanupImageCollageNodesForRemovedEdges(
+  nodes: CanvasNode[],
+  previousEdges: CanvasEdge[],
+  nextEdges: CanvasEdge[]
+): CanvasNode[] {
+  const nextEdgeById = new Map(nextEdges.map((edge) => [edge.id, edge] as const));
+  const removedEdgeIds = previousEdges
+    .filter((edge) => {
+      const nextEdge = nextEdgeById.get(edge.id);
+      return !nextEdge
+        || nextEdge.source !== edge.source
+        || nextEdge.target !== edge.target
+        || (nextEdge.sourceHandle ?? null) !== (edge.sourceHandle ?? null)
+        || (nextEdge.targetHandle ?? null) !== (edge.targetHandle ?? null);
+    })
+    .map((edge) => edge.id);
+
+  if (removedEdgeIds.length === 0) {
+    return nodes;
+  }
+
+  const removedEdgeIdSet = new Set(removedEdgeIds);
+  let changed = false;
+  const nextNodes = nodes.map((node) => {
+    if (!isImageCollageNode(node)) {
+      return node;
+    }
+
+    const normalizedData = normalizeImageCollageNodeData(node.data as ImageCollageNodeData);
+    const remainingLayers = normalizedData.layers.filter(
+      (layer) => !removedEdgeIdSet.has(layer.sourceEdgeId)
+    );
+    const nextSelectedLayerId = remainingLayers.some(
+      (layer) => layer.sourceEdgeId === normalizedData.selectedLayerId
+    )
+      ? normalizedData.selectedLayerId
+      : null;
+
+    if (
+      remainingLayers.length === normalizedData.layers.length
+      && nextSelectedLayerId === normalizedData.selectedLayerId
+    ) {
+      return node;
+    }
+
+    changed = true;
+    return {
+      ...node,
+      data: normalizeImageCollageNodeData({
+        ...normalizedData,
+        layers: remainingLayers,
+        selectedLayerId: nextSelectedLayerId,
+      }),
+    };
+  });
+
+  return changed ? nextNodes : nodes;
 }
 
 function shouldApplyImageEditDefaultSize(node: CanvasNode, data: CanvasNodeData): boolean {
@@ -805,6 +1711,62 @@ function resolvePreferredDerivedColumnPosition(
   return null;
 }
 
+function resolveBatchDerivedNodePosition(
+  nodes: CanvasNode[],
+  edges: CanvasEdge[],
+  sourceNode: CanvasNode,
+  newNodeWidth: number,
+  newNodeHeight: number
+): { x: number; y: number } {
+  const nodeMap = new Map(nodes.map((node) => [node.id, node] as const));
+  const ignoredCollisionNodeIds = collectAncestorGroupNodeIds(sourceNode, nodeMap);
+  const preferredPosition = resolvePreferredDerivedColumnPosition(
+    nodes,
+    edges,
+    sourceNode,
+    newNodeWidth,
+    newNodeHeight,
+    nodeMap,
+    ignoredCollisionNodeIds
+  );
+
+  if (preferredPosition) {
+    return preferredPosition;
+  }
+
+  const sourcePosition = resolveAbsolutePosition(sourceNode, nodeMap);
+  const sourceSize = getNodeSize(sourceNode);
+  const anchorX = sourcePosition.x + sourceSize.width + DERIVED_NODE_COLUMN_GAP;
+  const anchorY = sourcePosition.y;
+  const stepX = newNodeWidth + DERIVED_NODE_NEXT_COLUMN_GAP;
+  const stepY = newNodeHeight + resolveDerivedNodeStackGap(sourceNode);
+
+  for (let columnIndex = 0; columnIndex < 12; columnIndex += 1) {
+    for (let rowIndex = 0; rowIndex < DERIVED_NODE_MAX_ROWS_PER_COLUMN; rowIndex += 1) {
+      const candidateX = anchorX + columnIndex * stepX;
+      const candidateY = anchorY + rowIndex * stepY;
+      if (
+        !collidesWithExistingNodes(
+          nodes,
+          nodeMap,
+          candidateX,
+          candidateY,
+          newNodeWidth,
+          newNodeHeight,
+          ignoredCollisionNodeIds
+        )
+      ) {
+        return { x: candidateX, y: candidateY };
+      }
+    }
+  }
+
+  return {
+    x: anchorX + stepX,
+    y: anchorY,
+  };
+}
+
 function isImageAutoResizableType(type: CanvasNodeType): boolean {
   return type === CANVAS_NODE_TYPES.upload
     || type === CANVAS_NODE_TYPES.imageEdit
@@ -859,33 +1821,78 @@ function resolveNodeCreationDefaults(
   type: CanvasNodeType,
   data: Partial<CanvasNodeData>
 ): Partial<CanvasNodeData> {
-  if (type !== CANVAS_NODE_TYPES.imageEdit) {
-    return data;
+  if (type === CANVAS_NODE_TYPES.imageEdit) {
+    const {
+      lastImageEditModelId,
+      lastImageEditSize,
+      lastImageEditRequestAspectRatio,
+      storyboardCompatibleModelConfig,
+      storyboardNewApiModelConfig,
+      storyboardProviderCustomModels,
+    } = useSettingsStore.getState();
+    const preferredModelId = getImageModel(
+      lastImageEditModelId,
+      storyboardCompatibleModelConfig,
+      storyboardNewApiModelConfig,
+      storyboardProviderCustomModels
+    ).id;
+    const imageEditData = data as Partial<ImageEditNodeData>;
+
+    return {
+      model: imageEditData.model ?? preferredModelId,
+      size: imageEditData.size ?? lastImageEditSize,
+      requestAspectRatio:
+        imageEditData.requestAspectRatio
+        ?? lastImageEditRequestAspectRatio
+        ?? AUTO_REQUEST_ASPECT_RATIO,
+      ...imageEditData,
+    } as Partial<CanvasNodeData>;
   }
 
   const {
-    lastImageEditModelId,
-    lastImageEditSize,
-    lastImageEditRequestAspectRatio,
-    storyboardCompatibleModelConfig,
-    storyboardProviderCustomModels,
+    lastJimengImageModelVersion,
+    lastJimengImageResolutionType,
+    lastJimengImageAspectRatio,
+    lastJimengVideoModel,
+    lastJimengVideoReferenceMode,
+    lastJimengVideoAspectRatio,
+    lastJimengVideoDurationSeconds,
+    lastJimengVideoResolution,
   } = useSettingsStore.getState();
-  const preferredModelId = getImageModel(
-    lastImageEditModelId,
-    storyboardCompatibleModelConfig,
-    storyboardProviderCustomModels
-  ).id;
-  const imageEditData = data as Partial<ImageEditNodeData>;
 
-  return {
-    model: imageEditData.model ?? preferredModelId,
-    size: imageEditData.size ?? lastImageEditSize,
-    requestAspectRatio:
-      imageEditData.requestAspectRatio
-      ?? lastImageEditRequestAspectRatio
-      ?? AUTO_REQUEST_ASPECT_RATIO,
-    ...imageEditData,
-  } as Partial<CanvasNodeData>;
+  if (type === CANVAS_NODE_TYPES.jimengImage) {
+    const jimengImageData = data as Partial<JimengImageNodeData>;
+    const modelVersion = jimengImageData.modelVersion ?? lastJimengImageModelVersion;
+    const resolutionType = normalizeJimengImageResolutionForModel(
+      modelVersion,
+      jimengImageData.resolutionType ?? lastJimengImageResolutionType
+    );
+
+    return {
+      ...jimengImageData,
+      modelVersion,
+      resolutionType,
+      aspectRatio: jimengImageData.aspectRatio ?? lastJimengImageAspectRatio,
+    } as Partial<CanvasNodeData>;
+  }
+
+  if (type === CANVAS_NODE_TYPES.jimeng) {
+    const jimengVideoData = data as Partial<JimengNodeData>;
+
+    return {
+      ...jimengVideoData,
+      model: normalizeJimengVideoModel(jimengVideoData.model ?? lastJimengVideoModel),
+      referenceMode: normalizeJimengReferenceMode(
+        jimengVideoData.referenceMode ?? lastJimengVideoReferenceMode
+      ),
+      aspectRatio: jimengVideoData.aspectRatio ?? lastJimengVideoAspectRatio,
+      durationSeconds:
+        jimengVideoData.durationSeconds ?? lastJimengVideoDurationSeconds,
+      videoResolution: jimengVideoData.videoResolution ?? lastJimengVideoResolution,
+    } as Partial<CanvasNodeData>;
+  }
+
+  return data;
 }
 
 function resolveDerivedAspectRatio(
@@ -1147,6 +2154,34 @@ function mapHistorySnapshots(
 
   const mapTimeline = (timeline: CanvasHistorySnapshot[]): CanvasHistorySnapshot[] =>
     timeline.map((snapshot) => {
+      if (isCanvasNodePatchHistorySnapshot(snapshot)) {
+        const patchNodes = snapshot.entries
+          .map((entry) => entry.node)
+          .filter((node): node is CanvasNode => Boolean(node));
+        const result = mapNodes(patchNodes);
+        changed ||= result.changed;
+        if (!result.changed) {
+          return snapshot;
+        }
+
+        let nextNodeIndex = 0;
+        return {
+          kind: 'nodePatch',
+          entries: snapshot.entries.map((entry) => {
+            if (!entry.node) {
+              return entry;
+            }
+
+            const nextNode = result.nodes[nextNodeIndex] ?? entry.node;
+            nextNodeIndex += 1;
+            return {
+              nodeId: entry.nodeId,
+              node: nextNode,
+            };
+          }),
+        };
+      }
+
       const result = mapNodes(snapshot.nodes);
       changed ||= result.changed;
       return result.changed
@@ -1375,15 +2410,30 @@ function pushSnapshot(
   snapshot: CanvasHistorySnapshot
 ): CanvasHistorySnapshot[] {
   const last = snapshots[snapshots.length - 1];
-  if (last && last.nodes === snapshot.nodes && last.edges === snapshot.edges) {
-    return snapshots;
+  if (last) {
+    if (
+      !isCanvasNodePatchHistorySnapshot(last)
+      && !isCanvasNodePatchHistorySnapshot(snapshot)
+      && last.nodes === snapshot.nodes
+      && last.edges === snapshot.edges
+    ) {
+      return snapshots;
+    }
+
+    if (
+      isCanvasNodePatchHistorySnapshot(last)
+      && isCanvasNodePatchHistorySnapshot(snapshot)
+      && last.entries === snapshot.entries
+    ) {
+      return snapshots;
+    }
   }
 
   const next = [...snapshots, snapshot];
   if (next.length > MAX_HISTORY_STEPS) {
     next.shift();
   }
-  return next;
+  return trimSnapshotTimeline(next);
 }
 
 function resolveSelectedNodeId(selectedNodeId: string | null, nodes: CanvasNode[]): string | null {
@@ -1422,7 +2472,9 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
   nodes: [],
   edges: [],
   selectedNodeId: null,
+  highlightedReferenceSourceNodeId: null,
   activeToolDialog: null,
+  nodeDescriptionPanelOpenById: {},
   history: { past: [], future: [] },
   dragHistorySnapshot: null,
   currentViewport: { x: 0, y: 0, zoom: 1 },
@@ -1463,7 +2515,7 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
           .map((change) => change.id)
       );
 
-      let nextNodes = applyNodeChanges<CanvasNode>(changes, state.nodes);
+      let nextNodes = applyNodeChangesLocal(changes, state.nodes);
       if (resizedNodeIds.size > 0) {
         nextNodes = nextNodes.map((node) => {
           if (!resizedNodeIds.has(node.id) || !isImageAutoResizableType(node.type)) {
@@ -1497,6 +2549,12 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
           'resizing' in change &&
           change.resizing === false
       );
+      const interactionNodeIds = changes
+        .filter((change): change is NodeChange<CanvasNode> & { id: string } =>
+          (change.type === 'position' || change.type === 'dimensions')
+          && typeof change.id === 'string'
+        )
+        .map((change) => change.id);
       const hasInteractionMove = hasDragMove || hasResizeMove;
       const hasInteractionEnd = hasDragEnd || hasResizeEnd;
 
@@ -1508,7 +2566,15 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
       }
 
       if (hasInteractionEnd) {
-        const snapshot = nextDragHistorySnapshot ?? createSnapshot(state.nodes, state.edges);
+        const snapshot = nextDragHistorySnapshot
+          && !isCanvasNodePatchHistorySnapshot(nextDragHistorySnapshot)
+          && interactionNodeIds.length > 0
+          ? createNodePatchSnapshot(
+              nextDragHistorySnapshot.nodes,
+              interactionNodeIds,
+              nextDragHistorySnapshot.edges
+            )
+          : nextDragHistorySnapshot ?? createSnapshot(state.nodes, state.edges);
         nextHistory = {
           past: pushSnapshot(state.history.past, snapshot),
           future: [],
@@ -1534,7 +2600,8 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
 
   onEdgesChange: (changes) => {
     set((state) => {
-      const nextEdges = applyEdgeChanges<CanvasEdge>(changes, state.edges);
+      const nextEdges = applyEdgeChangesLocal(changes, state.edges);
+      const nextNodes = cleanupImageCollageNodesForRemovedEdges(state.nodes, state.edges, nextEdges);
       const hasMeaningfulChange = changes.some((change) => change.type !== 'select');
 
       if (!hasMeaningfulChange) {
@@ -1542,6 +2609,7 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
       }
 
       return {
+        nodes: nextNodes,
         edges: nextEdges,
         history: {
           past: pushSnapshot(state.history.past, createSnapshot(state.nodes, state.edges)),
@@ -1556,7 +2624,7 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
     const sourceHandle = normalizeHandleId(connection.sourceHandle) ?? 'source';
     const targetHandle = normalizeHandleId(connection.targetHandle) ?? 'target';
     set((state) => ({
-      edges: addEdge<CanvasEdge>(
+      edges: addEdgeLocal(
         { ...connection, sourceHandle, targetHandle, type: 'disconnectableEdge' },
         state.edges
       ),
@@ -1576,7 +2644,9 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
       nodes: normalizedNodes,
       edges: normalizedEdges,
       selectedNodeId: null,
+      highlightedReferenceSourceNodeId: null,
       activeToolDialog: null,
+      nodeDescriptionPanelOpenById: {},
       history: normalizeHistory(history),
       dragHistorySnapshot: null,
     });
@@ -1647,9 +2717,7 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
       const nodeMap = new Map(state.nodes.map((node) => [node.id, node] as const));
       const parentGroupId = options.parentId ?? resolveInheritedGroupParentId(sourceNode, nodeMap);
       const createdNode = canvasNodeFactory.createNode(type, position, initialData);
-      const sizedNode = shouldApplyImageEditDefaultSize(createdNode, createdNode.data)
-        ? withImageEditDefaultSize(createdNode)
-        : createdNode;
+      const sizedNode = applyDefaultNodeSize(createdNode, createdNode.data);
       const newNode = attachNodeToGroupParent(
         sizedNode,
         position,
@@ -2011,9 +3079,20 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
     const nextNodes = parentGroupId
       ? fitGroupNodeToChildren([...state.nodes, node], parentGroupId)
       : [...state.nodes, node];
+    const nextEdges = options?.connectToSource && sourceNode && nodeHasSourceHandle(sourceNode.type)
+      ? addEdgeLocal({
+        id: `e-${sourceNodeId}-${node.id}`,
+        source: sourceNodeId,
+        target: node.id,
+        sourceHandle: 'source',
+        targetHandle: 'target',
+        type: 'disconnectableEdge',
+      }, state.edges)
+      : state.edges;
 
     set({
       nodes: nextNodes,
+      edges: nextEdges,
       selectedNodeId: node.id,
       activeToolDialog: null,
       history: {
@@ -2024,6 +3103,97 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
     });
 
     return node.id;
+  },
+
+  addStoryboardSplitFrameExportNodes: (sourceNodeId, frames, options) => {
+    const state = get();
+    const sourceNode = state.nodes.find((node) => node.id === sourceNodeId);
+    if (!sourceNode) {
+      return [];
+    }
+
+    const frameEntries = frames.filter((frame) => typeof frame.imageUrl === 'string' && frame.imageUrl.trim().length > 0);
+    if (frameEntries.length === 0) {
+      return [];
+    }
+
+    const nodeMap = new Map(state.nodes.map((node) => [node.id, node] as const));
+    const parentGroupId = resolveInheritedGroupParentId(sourceNode, nodeMap);
+    const sourcePosition = resolveAbsolutePosition(sourceNode, nodeMap);
+    const sourceSize = getNodeSize(sourceNode);
+    const safeGridCols = Math.max(1, Math.floor(options?.gridCols ?? 3));
+    const createdNodeIds: string[] = [];
+    const createdNodes: CanvasNode[] = [];
+    const nextEdges = [...state.edges];
+    const baseX = sourcePosition.x + sourceSize.width + DERIVED_NODE_COLUMN_GAP;
+    const baseY = sourcePosition.y;
+
+    frameEntries.forEach((frame, index) => {
+      const resolvedAspectRatio =
+        (typeof frame.aspectRatio === 'string' && frame.aspectRatio.trim().length > 0)
+          ? frame.aspectRatio
+          : DEFAULT_ASPECT_RATIO;
+      const derivedSize = resolveGeneratedImageNodeDimensions(resolvedAspectRatio, {
+        minWidth: EXPORT_RESULT_NODE_MIN_WIDTH,
+        minHeight: EXPORT_RESULT_NODE_MIN_HEIGHT,
+      });
+      const columnIndex = index % safeGridCols;
+      const rowIndex = Math.floor(index / safeGridCols);
+      const absolutePosition = {
+        x: baseX + columnIndex * (derivedSize.width + DERIVED_NODE_COLUMN_GAP),
+        y: baseY + rowIndex * (derivedSize.height + DERIVED_NODE_STACK_GAP),
+      };
+      const nodeData: Partial<CanvasNodeData> = {
+        imageUrl: frame.imageUrl,
+        previewImageUrl: frame.previewImageUrl ?? null,
+        aspectRatio: resolvedAspectRatio,
+        resultKind: 'storyboardFrameEdit',
+        displayName: frame.title?.trim() || EXPORT_RESULT_DISPLAY_NAME.storyboardFrameEdit,
+      };
+      let node = canvasNodeFactory.createNode(
+        CANVAS_NODE_TYPES.exportImage,
+        absolutePosition,
+        nodeData
+      );
+      node.width = derivedSize.width;
+      node.height = derivedSize.height;
+      node.style = {
+        ...(node.style ?? {}),
+        width: derivedSize.width,
+        height: derivedSize.height,
+      };
+      node = attachNodeToGroupParent(node, absolutePosition, parentGroupId, nodeMap);
+      createdNodes.push(node);
+      createdNodeIds.push(node.id);
+      nodeMap.set(node.id, node);
+      nextEdges.push({
+        id: `e-${sourceNodeId}-${node.id}`,
+        source: sourceNodeId,
+        target: node.id,
+        sourceHandle: 'source',
+        targetHandle: 'target',
+        type: 'disconnectableEdge',
+      });
+    });
+
+    const nextNodesBase = [...state.nodes, ...createdNodes];
+    const nextNodes = parentGroupId
+      ? fitGroupNodeToChildren(nextNodesBase, parentGroupId)
+      : nextNodesBase;
+
+    set({
+      nodes: nextNodes,
+      edges: nextEdges,
+      selectedNodeId: createdNodeIds[0] ?? state.selectedNodeId,
+      activeToolDialog: null,
+      history: {
+        past: pushSnapshot(state.history.past, createSnapshot(state.nodes, state.edges)),
+        future: [],
+      },
+      dragHistorySnapshot: null,
+    });
+
+    return createdNodeIds;
   },
 
   addStoryboardSplitNode: (sourceNodeId, rows, cols, frames, frameAspectRatio) => {
@@ -2081,9 +3251,444 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
     return node.id;
   },
 
-  updateNodeData: (nodeId, data) => {
+  addStoryboardSplitResultNode: (sourceNodeId, rows, cols, frames, frameAspectRatio) => {
+    const state = get();
+    const sourceNode = state.nodes.find((node) => node.id === sourceNodeId);
+    const nodeMap = new Map(state.nodes.map((node) => [node.id, node] as const));
+    const parentGroupId = resolveInheritedGroupParentId(sourceNode, nodeMap);
+    const normalizedGridLayout = normalizeStoryboardGridLayout(frames.length, rows, cols);
+    const resolvedFrameAspectRatio =
+      frameAspectRatio ??
+      frames.find((frame) => typeof frame.aspectRatio === 'string')?.aspectRatio ??
+      DEFAULT_ASPECT_RATIO;
+    const nodeSize = resolveStoryboardSplitNodeSize(
+      normalizedGridLayout.rows,
+      normalizedGridLayout.cols
+    );
+    const position = state.findNodePosition(
+      sourceNodeId,
+      nodeSize.width,
+      nodeSize.height
+    );
+
+    let node = canvasNodeFactory.createNode(CANVAS_NODE_TYPES.storyboardSplitResult, position, {
+      sourceNodeId,
+      gridRows: normalizedGridLayout.rows,
+      gridCols: normalizedGridLayout.cols,
+      frames,
+      aspectRatio: resolvedFrameAspectRatio,
+      frameAspectRatio: resolvedFrameAspectRatio,
+    });
+    node.width = nodeSize.width;
+    node.height = nodeSize.height;
+    node.style = {
+      ...(node.style ?? {}),
+      width: nodeSize.width,
+      height: nodeSize.height,
+    };
+    node = attachNodeToGroupParent(node, position, parentGroupId, nodeMap);
+    const nextNodes = parentGroupId
+      ? fitGroupNodeToChildren([...state.nodes, node], parentGroupId)
+      : [...state.nodes, node];
+
+    set({
+      nodes: nextNodes,
+      selectedNodeId: node.id,
+      activeToolDialog: null,
+      history: {
+        past: pushSnapshot(state.history.past, createSnapshot(state.nodes, state.edges)),
+        future: [],
+      },
+      dragHistorySnapshot: null,
+    });
+
+    return node.id;
+  },
+
+  addGeneratedScriptChapters: (sourceNodeId, chapters, options) => {
+    const safeChapters = chapters
+      .filter((chapter) => chapter.contentHtml.trim().length > 0)
+      .slice(0, 6);
+    if (safeChapters.length === 0) {
+      return [];
+    }
+
+    const state = get();
+    const sourceNode = state.nodes.find((node) => node.id === sourceNodeId);
+    if (!sourceNode || !nodeHasSourceHandle(sourceNode.type)) {
+      return [];
+    }
+
+    const nodeWidth = Math.max(
+      240,
+      Math.round(options?.nodeWidth ?? SCRIPT_CHAPTER_NODE_DEFAULT_WIDTH)
+    );
+    const nodeHeight = Math.max(
+      220,
+      Math.round(options?.nodeHeight ?? SCRIPT_CHAPTER_NODE_DEFAULT_HEIGHT)
+    );
+    const rootNodeMap = new Map(state.nodes.map((node) => [node.id, node] as const));
+    const parentGroupId = resolveInheritedGroupParentId(sourceNode, rootNodeMap);
+    let nextChapterNumber = state.nodes.reduce((maxNumber, node) => {
+      if (node.type !== CANVAS_NODE_TYPES.scriptChapter) {
+        return maxNumber;
+      }
+
+      const value = Number((node.data as ScriptChapterNodeData).chapterNumber);
+      return Number.isFinite(value) ? Math.max(maxNumber, Math.floor(value)) : maxNumber;
+    }, 0) + 1;
+
+    const nextNodes = [...state.nodes];
+    const nextEdges = [...state.edges];
+    const createdNodeIds: string[] = [];
+
+    for (const chapter of safeChapters) {
+      const position = resolveBatchDerivedNodePosition(
+        nextNodes,
+        nextEdges,
+        sourceNode,
+        nodeWidth,
+        nodeHeight
+      );
+      const title = chapter.title.trim() || `章节 ${nextChapterNumber}`;
+      const summary = chapter.summary.trim();
+      const contentHtml = chapter.contentHtml.trim();
+      const sceneHeading = chapter.sceneHeading?.trim() ?? '';
+      const location = chapter.location?.trim() ?? '';
+      const characters = Array.from(
+        new Set(
+          (chapter.characters ?? [])
+            .map((item) => item.trim())
+            .filter((item) => item.length > 0)
+        )
+      );
+      const items = Array.from(
+        new Set(
+          (chapter.items ?? [])
+            .map((item) => item.trim())
+            .filter((item) => item.length > 0)
+        )
+      );
+      const scene = createDefaultSceneCard(0);
+      scene.title = chapter.sceneTitle?.trim() || title || scene.title;
+      scene.summary = chapter.sceneSummary?.trim() || summary || sceneHeading;
+      scene.draftHtml = contentHtml;
+      scene.sourceDraftHtml = contentHtml || undefined;
+      scene.sourceDraftLabel = chapter.sourceDraftLabel?.trim() || undefined;
+      scene.visualHook = chapter.visualHook?.trim() ?? '';
+      scene.directorNotes = chapter.directorNotes?.trim() ?? '';
+      scene.status = contentHtml ? 'drafting' : 'idea';
+
+      let node = canvasNodeFactory.createNode(
+        CANVAS_NODE_TYPES.scriptChapter,
+        position,
+        normalizeScriptChapterNodeData({
+          displayName: title,
+          chapterNumber: nextChapterNumber,
+          title,
+          content: contentHtml,
+          summary,
+          chapterPurpose: '',
+          chapterQuestion: '',
+          sceneHeadings: sceneHeading ? [sceneHeading] : [],
+          scenes: [scene],
+          characters,
+          locations: location ? [location] : [],
+          items,
+          emotionalShift: '',
+          isBranchPoint: false,
+          branchType: 'main',
+          tables: [],
+          plotPoints: [],
+        })
+      );
+      node.width = nodeWidth;
+      node.height = nodeHeight;
+      node.style = {
+        ...(node.style ?? {}),
+        width: nodeWidth,
+        height: nodeHeight,
+      };
+
+      const stagedNodeMap = new Map(nextNodes.map((currentNode) => [currentNode.id, currentNode] as const));
+      node = attachNodeToGroupParent(node, position, parentGroupId, stagedNodeMap);
+      nextNodes.push(node);
+      nextEdges.push({
+        id: `e-${sourceNodeId}-${node.id}`,
+        source: sourceNodeId,
+        target: node.id,
+        sourceHandle: 'source',
+        targetHandle: 'target',
+        type: 'disconnectableEdge',
+      });
+      createdNodeIds.push(node.id);
+      nextChapterNumber += 1;
+    }
+
+    const normalizedNodes = parentGroupId
+      ? fitGroupNodeToChildren(nextNodes, parentGroupId)
+      : nextNodes;
+
+    set({
+      nodes: normalizedNodes,
+      edges: nextEdges,
+      selectedNodeId: createdNodeIds[0] ?? state.selectedNodeId,
+      activeToolDialog: null,
+      history: {
+        past: pushSnapshot(state.history.past, createSnapshot(state.nodes, state.edges)),
+        future: [],
+      },
+      dragHistorySnapshot: null,
+    });
+
+    return createdNodeIds;
+  },
+
+  createScriptSceneNodeFromChapterScene: (chapterNodeId, sceneId) => {
+    const state = get();
+    const chapterNode = state.nodes.find(
+      (node) => node.id === chapterNodeId && node.type === CANVAS_NODE_TYPES.scriptChapter
+    );
+    if (!chapterNode) {
+      return null;
+    }
+
+    const existingSceneNode = findScriptSceneNodeBySource(state.nodes, chapterNodeId, sceneId);
+    if (existingSceneNode) {
+      return existingSceneNode.id;
+    }
+
+    const chapterData = chapterNode.data as ScriptChapterNodeData;
+    const sourceScene = (chapterData.scenes ?? []).find((scene) => scene.id === sceneId);
+    if (!sourceScene) {
+      return null;
+    }
+
+    const position = get().findNodePosition(
+      chapterNodeId,
+      SCRIPT_SCENE_NODE_DEFAULT_WIDTH,
+      SCRIPT_SCENE_NODE_DEFAULT_HEIGHT
+    );
+    const initialData = normalizeScriptSceneNodeData({
+      displayName: sourceScene.title || `场景 ${sourceScene.order + 1}`,
+      sourceChapterId: chapterNodeId,
+      sourceSceneId: sourceScene.id,
+      sourceSceneOrder: sourceScene.order,
+      chapterNumber: chapterData.chapterNumber || 1,
+      title: sourceScene.title,
+      summary: sourceScene.summary,
+      purpose: sourceScene.purpose,
+      povCharacter: sourceScene.povCharacter,
+      goal: sourceScene.goal,
+      conflict: sourceScene.conflict,
+      turn: sourceScene.turn,
+      emotionalShift: sourceScene.emotionalShift,
+      visualHook: sourceScene.visualHook,
+      subtext: sourceScene.subtext,
+      sourceDraftHtml: sourceScene.sourceDraftHtml?.trim() || sourceScene.draftHtml || undefined,
+      draftHtml: sourceScene.draftHtml,
+      episodes: [],
+    });
+
+    const rootNodeMap = new Map(state.nodes.map((node) => [node.id, node] as const));
+    const parentGroupId = resolveInheritedGroupParentId(chapterNode, rootNodeMap);
+    let createdNode = canvasNodeFactory.createNode(
+      CANVAS_NODE_TYPES.scriptScene,
+      position,
+      initialData
+    );
+    createdNode = applyDefaultNodeSize(createdNode, createdNode.data);
+
+    const stagedNodeMap = new Map(state.nodes.map((node) => [node.id, node] as const));
+    createdNode = attachNodeToGroupParent(
+      createdNode,
+      position,
+      parentGroupId,
+      stagedNodeMap
+    );
+
+    const edgeId = `e-${chapterNodeId}-${createdNode.id}`;
+    const nextNodes = parentGroupId
+      ? fitGroupNodeToChildren([...state.nodes, createdNode], parentGroupId)
+      : [...state.nodes, createdNode];
+    const reindexedResult = reindexScriptSceneNodesByChapter(nextNodes, chapterNodeId);
+    const nextEdges = state.edges.some((edge) => edge.id === edgeId)
+      ? state.edges
+      : [
+          ...state.edges,
+          {
+            id: edgeId,
+            source: chapterNodeId,
+            target: createdNode.id,
+            sourceHandle: 'source',
+            targetHandle: 'target',
+            type: 'disconnectableEdge',
+          },
+        ];
+
+    set({
+      nodes: reindexedResult.nodes,
+      edges: nextEdges,
+      selectedNodeId: createdNode.id,
+      activeToolDialog: null,
+      history: {
+        past: pushSnapshot(state.history.past, createSnapshot(state.nodes, state.edges)),
+        future: [],
+      },
+      dragHistorySnapshot: null,
+    });
+
+    return createdNode.id;
+  },
+
+  ensureShootingScriptNodeFromSceneEpisode: (sceneNodeId, episodeId) => {
+    const state = get();
+    const sceneNode = state.nodes.find(
+      (node) => node.id === sceneNodeId && node.type === CANVAS_NODE_TYPES.scriptScene
+    );
+    if (!sceneNode) {
+      return { nodeId: null, created: false };
+    }
+
+    const existingScriptNode = findShootingScriptNodeBySource(state.nodes, sceneNodeId, episodeId);
+    if (existingScriptNode) {
+      return { nodeId: existingScriptNode.id, created: false };
+    }
+
+    const sceneData = sceneNode.data as ScriptSceneNodeData;
+    const episode = sceneData.episodes.find((item) => item.id === episodeId);
+    if (!episode) {
+      return { nodeId: null, created: false };
+    }
+
+    const chapterNode = state.nodes.find(
+      (node) => node.id === sceneData.sourceChapterId && node.type === CANVAS_NODE_TYPES.scriptChapter
+    );
+    const chapterData = chapterNode?.data as ScriptChapterNodeData | undefined;
+    const migratedRows = (episode.shotRows ?? []).map((row, index) => ({
+      id: row.id,
+      shotNumber: row.shotNumber || String(index + 1),
+      beat: row.beat,
+      action: row.action,
+      composition: [row.shotSize, row.framingAngle].filter(Boolean).join(' / '),
+      camera: row.cameraMove,
+      duration: row.rhythmDuration,
+      audio: [row.dialogueCue, row.audioCue].filter(Boolean).join(' / '),
+      blocking: row.blocking,
+      artLighting: row.artLighting,
+      continuityNote: row.continuityNote,
+      directorIntent: '',
+      genTarget: row.genTarget,
+      genPrompt: row.genPrompt,
+      status: row.status,
+    }));
+
+    const position = get().findNodePosition(
+      sceneNodeId,
+      SHOOTING_SCRIPT_NODE_DEFAULT_WIDTH,
+      SHOOTING_SCRIPT_NODE_DEFAULT_HEIGHT
+    );
+    const initialData = normalizeShootingScriptNodeData({
+      displayName: episode.title?.trim() || `拍摄脚本 ${sceneData.chapterNumber || 1}-${episode.episodeNumber}`,
+      sourceChapterId: sceneData.sourceChapterId,
+      sourceSceneNodeId: sceneNodeId,
+      sourceEpisodeId: episode.id,
+      chapterNumber: sceneData.chapterNumber || 1,
+      sceneNumber: sceneData.sourceSceneOrder + 1,
+      sceneTitle: sceneData.title,
+      episodeNumber: episode.episodeNumber,
+      episodeTitle: episode.title,
+      rows: migratedRows,
+      status: migratedRows.length > 0 ? 'ready' : 'drafting',
+      lastGeneratedAt: migratedRows.length > 0
+        ? (episode.shotScriptUpdatedAt ?? Date.now())
+        : null,
+      lastError: null,
+      sourceSnapshot: {
+        chapterTitle: chapterData?.title || chapterData?.displayName || '',
+        sceneTitle: sceneData.title,
+        sceneSummary: sceneData.summary,
+        episodeTitle: episode.title,
+        episodeSummary: episode.summary,
+        episodeDraft: episode.draftHtml,
+        episodeDirectorNotes: episode.directorNotes,
+        continuitySummary: episode.continuitySummary,
+        continuityFacts: episode.continuityFacts,
+        continuityOpenLoops: episode.continuityOpenLoops,
+      },
+    });
+
+    const rootNodeMap = new Map(state.nodes.map((node) => [node.id, node] as const));
+    const parentGroupId = resolveInheritedGroupParentId(sceneNode, rootNodeMap);
+    let createdNode = canvasNodeFactory.createNode(
+      CANVAS_NODE_TYPES.shootingScript,
+      position,
+      initialData
+    );
+    createdNode = applyDefaultNodeSize(createdNode, createdNode.data);
+
+    const stagedNodeMap = new Map(state.nodes.map((node) => [node.id, node] as const));
+    createdNode = attachNodeToGroupParent(
+      createdNode,
+      position,
+      parentGroupId,
+      stagedNodeMap
+    );
+
+    const edgeId = `e-${sceneNodeId}-${createdNode.id}`;
+    const nextNodes = parentGroupId
+      ? fitGroupNodeToChildren([...state.nodes, createdNode], parentGroupId)
+      : [...state.nodes, createdNode];
+    const nextEdges = state.edges.some((edge) => edge.id === edgeId)
+      ? state.edges
+      : [
+          ...state.edges,
+          {
+            id: edgeId,
+            source: sceneNodeId,
+            target: createdNode.id,
+            sourceHandle: 'source',
+            targetHandle: 'target',
+            type: 'disconnectableEdge',
+          },
+        ];
+
+    set({
+      nodes: nextNodes,
+      edges: nextEdges,
+      selectedNodeId: createdNode.id,
+      activeToolDialog: null,
+      history: {
+        past: pushSnapshot(state.history.past, createSnapshot(state.nodes, state.edges)),
+        future: [],
+      },
+      dragHistorySnapshot: null,
+    });
+
+    return { nodeId: createdNode.id, created: true };
+  },
+
+  reindexScriptSceneEpisodes: (sourceChapterId) => {
+    if (!sourceChapterId.trim()) {
+      return;
+    }
+
+    set((state) => {
+      const reindexedResult = reindexScriptSceneNodesByChapter(state.nodes, sourceChapterId);
+      if (!reindexedResult.changed) {
+        return {};
+      }
+
+      return {
+        nodes: reindexedResult.nodes,
+      };
+    });
+  },
+
+  updateNodeData: (nodeId, data, options) => {
     set((state) => {
       let changed = false;
+      const affectedChapterIds = new Set<string>();
       const nextNodes = state.nodes.map((node) => {
         if (node.id !== nodeId) {
           return node;
@@ -2101,6 +3706,62 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
           ...node.data,
           ...data,
         } as CanvasNodeData;
+        if (node.type === CANVAS_NODE_TYPES.scriptChapter) {
+          Object.assign(
+            mergedData,
+            normalizeScriptChapterNodeData(mergedData as ScriptChapterNodeData)
+          );
+          if ('chapterNumber' in data) {
+            affectedChapterIds.add(node.id);
+          }
+        }
+        if (node.type === CANVAS_NODE_TYPES.scriptScene) {
+          const previousData = node.data as ScriptSceneNodeData;
+          const normalizedSceneData = normalizeScriptSceneNodeData(mergedData as ScriptSceneNodeData);
+          Object.assign(mergedData, normalizedSceneData);
+          if (previousData.sourceChapterId) {
+            affectedChapterIds.add(previousData.sourceChapterId);
+          }
+          if (normalizedSceneData.sourceChapterId) {
+            affectedChapterIds.add(normalizedSceneData.sourceChapterId);
+          }
+        }
+        if (node.type === CANVAS_NODE_TYPES.shootingScript) {
+          Object.assign(
+            mergedData,
+            normalizeShootingScriptNodeData(mergedData as ShootingScriptNodeData)
+          );
+        }
+        if (node.type === CANVAS_NODE_TYPES.scriptReference) {
+          Object.assign(
+            mergedData,
+            normalizeScriptReferenceNodeData(mergedData as ScriptReferenceNodeData)
+          );
+        }
+        if (node.type === CANVAS_NODE_TYPES.scriptCharacterReference) {
+          Object.assign(
+            mergedData,
+            normalizeScriptCharacterReferenceNodeData(mergedData as ScriptCharacterReferenceNodeData)
+          );
+        }
+        if (node.type === CANVAS_NODE_TYPES.scriptLocationReference) {
+          Object.assign(
+            mergedData,
+            normalizeScriptLocationReferenceNodeData(mergedData as ScriptLocationReferenceNodeData)
+          );
+        }
+        if (node.type === CANVAS_NODE_TYPES.scriptItemReference) {
+          Object.assign(
+            mergedData,
+            normalizeScriptItemReferenceNodeData(mergedData as ScriptItemReferenceNodeData)
+          );
+        }
+        if (node.type === CANVAS_NODE_TYPES.imageCollage) {
+          Object.assign(
+            mergedData,
+            normalizeImageCollageNodeData(mergedData as ImageCollageNodeData)
+          );
+        }
         const resizedNode = maybeApplyImageAutoResize(
           {
             ...node,
@@ -2117,14 +3778,149 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
         return {};
       }
 
+      let normalizedNextNodes = nextNodes;
+      affectedChapterIds.forEach((chapterId) => {
+        normalizedNextNodes = reindexScriptSceneNodesByChapter(normalizedNextNodes, chapterId).nodes;
+      });
+
+      const nextHistory =
+        options?.historyMode === 'skip'
+          ? state.history
+          : {
+              past: pushSnapshot(state.history.past, createSnapshot(state.nodes, state.edges)),
+              future: [],
+            };
+
       return {
-        nodes: nextNodes,
-        history: {
-          past: pushSnapshot(state.history.past, createSnapshot(state.nodes, state.edges)),
-          future: [],
-        },
+        nodes: normalizedNextNodes,
+        history: nextHistory,
         dragHistorySnapshot: null,
       };
+    });
+  },
+
+  updateNodesData: (nodeIds, data, options) => {
+    const normalizedNodeIds = Array.from(
+      new Set(
+        Array.from(nodeIds).filter((nodeId): nodeId is string => (
+          typeof nodeId === 'string' && nodeId.trim().length > 0
+        ))
+      )
+    );
+
+    if (normalizedNodeIds.length === 0) {
+      return;
+    }
+
+    set((state) => {
+      const targetNodeIds = new Set(normalizedNodeIds);
+      let changed = false;
+      const affectedChapterIds = new Set<string>();
+      const nextNodes = state.nodes.map((node) => {
+        if (!targetNodeIds.has(node.id)) {
+          return node;
+        }
+
+        const hasDataChange = Object.entries(data).some(([key, nextValue]) => {
+          const previousValue = (node.data as Record<string, unknown>)[key];
+          return !Object.is(previousValue, nextValue);
+        });
+        if (!hasDataChange) {
+          return node;
+        }
+
+        const mergedData = {
+          ...node.data,
+          ...data,
+        } as CanvasNodeData;
+        if (node.type === CANVAS_NODE_TYPES.scriptChapter) {
+          Object.assign(
+            mergedData,
+            normalizeScriptChapterNodeData(mergedData as ScriptChapterNodeData)
+          );
+          if ('chapterNumber' in data) {
+            affectedChapterIds.add(node.id);
+          }
+        }
+        if (node.type === CANVAS_NODE_TYPES.scriptScene) {
+          const previousData = node.data as ScriptSceneNodeData;
+          const normalizedSceneData = normalizeScriptSceneNodeData(mergedData as ScriptSceneNodeData);
+          Object.assign(mergedData, normalizedSceneData);
+          if (previousData.sourceChapterId) {
+            affectedChapterIds.add(previousData.sourceChapterId);
+          }
+          if (normalizedSceneData.sourceChapterId) {
+            affectedChapterIds.add(normalizedSceneData.sourceChapterId);
+          }
+        }
+        if (node.type === CANVAS_NODE_TYPES.shootingScript) {
+          Object.assign(
+            mergedData,
+            normalizeShootingScriptNodeData(mergedData as ShootingScriptNodeData)
+          );
+        }
+        if (node.type === CANVAS_NODE_TYPES.imageCollage) {
+          Object.assign(
+            mergedData,
+            normalizeImageCollageNodeData(mergedData as ImageCollageNodeData)
+          );
+        }
+        const resizedNode = maybeApplyImageAutoResize(
+          {
+            ...node,
+            data: mergedData,
+          },
+          data
+        );
+
+        changed = true;
+        return resizedNode;
+      });
+
+      if (!changed) {
+        return {};
+      }
+
+      let normalizedNextNodes = nextNodes;
+      affectedChapterIds.forEach((chapterId) => {
+        normalizedNextNodes = reindexScriptSceneNodesByChapter(normalizedNextNodes, chapterId).nodes;
+      });
+
+      const nextHistory =
+        options?.historyMode === 'skip'
+          ? state.history
+          : {
+              past: pushSnapshot(
+                state.history.past,
+                createNodePatchSnapshot(state.nodes, normalizedNodeIds, state.edges)
+              ),
+              future: [],
+            };
+
+      return {
+        nodes: normalizedNextNodes,
+        history: nextHistory,
+        dragHistorySnapshot: null,
+      };
+    });
+  },
+
+  applySemanticColorToSelected: (color) => {
+    const selectedColorableNodes = get()
+      .nodes
+      .filter((node) => node.selected && node.type !== CANVAS_NODE_TYPES.group);
+    const targetNodeIds = selectedColorableNodes.map((node) => node.id);
+
+    if (targetNodeIds.length === 0) {
+      return;
+    }
+
+    const shouldClearColor = selectedColorableNodes.every((node) => (
+      (node.data as { semanticColor?: CanvasSemanticColor | null }).semanticColor === color
+    ));
+
+    get().updateNodesData(targetNodeIds, {
+      semanticColor: shouldClearColor ? null : color,
     });
   },
 
@@ -2555,6 +4351,13 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
       return;
     }
 
+    let deletedNodeIds: string[] = [];
+    const affectedChapterIds = new Set<string>();
+    let fallbackChapterId: string | null = null;
+    let fallbackSceneId: string | null = null;
+    let fallbackEpisodeId: string | null = null;
+    const { activeSceneNodeId, activeScriptNodeId } = useScriptEditorStore.getState();
+
     set((state) => {
       const existingIds = uniqueIds.filter((nodeId) => state.nodes.some((node) => node.id === nodeId));
       if (existingIds.length === 0) {
@@ -2562,16 +4365,63 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
       }
 
       const deleteSet = collectNodeIdsWithDescendants(state.nodes, existingIds);
+      deletedNodeIds = Array.from(deleteSet);
+      if (activeSceneNodeId && deleteSet.has(activeSceneNodeId)) {
+        const activeSceneNode = state.nodes.find(
+          (node) => node.id === activeSceneNodeId && node.type === CANVAS_NODE_TYPES.scriptScene
+        );
+        if (activeSceneNode) {
+          const activeSceneData = activeSceneNode.data as ScriptSceneNodeData;
+          const sourceChapterSurvives = state.nodes.some(
+            (node) => node.id === activeSceneData.sourceChapterId && !deleteSet.has(node.id)
+          );
+          if (sourceChapterSurvives) {
+            fallbackChapterId = activeSceneData.sourceChapterId;
+            fallbackSceneId = activeSceneData.sourceSceneId;
+          }
+        }
+      }
+      if (activeScriptNodeId && deleteSet.has(activeScriptNodeId)) {
+        const activeScriptNode = state.nodes.find(
+          (node) => node.id === activeScriptNodeId && node.type === CANVAS_NODE_TYPES.shootingScript
+        );
+        if (activeScriptNode) {
+          const activeScriptData = activeScriptNode.data as ShootingScriptNodeData;
+          const sourceSceneSurvives = state.nodes.some(
+            (node) => node.id === activeScriptData.sourceSceneNodeId && !deleteSet.has(node.id)
+          );
+          if (sourceSceneSurvives) {
+            fallbackSceneId = activeScriptData.sourceSceneNodeId;
+            fallbackEpisodeId = activeScriptData.sourceEpisodeId;
+          }
+        }
+      }
+      state.nodes.forEach((node) => {
+        if (!deleteSet.has(node.id) || node.type !== CANVAS_NODE_TYPES.scriptScene) {
+          return;
+        }
+
+        const sceneData = node.data as ScriptSceneNodeData;
+        if (sceneData.sourceChapterId) {
+          affectedChapterIds.add(sceneData.sourceChapterId);
+        }
+      });
       const nextNodes = state.nodes.filter((node) => !deleteSet.has(node.id));
       const nextEdges = state.edges.filter(
         (edge) => !deleteSet.has(edge.source) && !deleteSet.has(edge.target)
       );
+      let normalizedNextNodes = nextNodes;
+      affectedChapterIds.forEach((chapterId) => {
+        normalizedNextNodes = reindexScriptSceneNodesByChapter(normalizedNextNodes, chapterId).nodes;
+      });
 
       return {
-        nodes: nextNodes,
+        nodes: normalizedNextNodes,
         edges: nextEdges,
         selectedNodeId:
-          state.selectedNodeId && deleteSet.has(state.selectedNodeId) ? null : state.selectedNodeId,
+          state.selectedNodeId && deleteSet.has(state.selectedNodeId)
+            ? fallbackChapterId ?? null
+            : state.selectedNodeId,
         activeToolDialog:
           state.activeToolDialog && deleteSet.has(state.activeToolDialog.nodeId)
             ? null
@@ -2583,6 +4433,32 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
         dragHistorySnapshot: null,
       };
     });
+
+    if (deletedNodeIds.length > 0) {
+      if (activeScriptNodeId && deletedNodeIds.includes(activeScriptNodeId)) {
+        if (fallbackSceneId) {
+          useScriptEditorStore.getState().focusSceneNode(
+            fallbackSceneId,
+            fallbackEpisodeId
+          );
+        } else {
+          useScriptEditorStore.getState().clearSelection();
+        }
+      } else if (activeSceneNodeId && deletedNodeIds.includes(activeSceneNodeId)) {
+        if (fallbackChapterId && fallbackSceneId) {
+          useScriptEditorStore.getState().focusChapterScene(
+            fallbackChapterId,
+            fallbackSceneId
+          );
+        } else {
+          useScriptEditorStore.getState().clearSelection();
+        }
+      }
+    }
+
+    if (deletedNodeIds.length > 0) {
+      emitCanvasNodesDeleted(deletedNodeIds);
+    }
   },
 
   groupNodes: (nodeIds) => {
@@ -3052,8 +4928,12 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
         return {};
       }
 
+      const nextEdges = state.edges.filter((edge) => edge.id !== edgeId);
+      const nextNodes = cleanupImageCollageNodesForRemovedEdges(state.nodes, state.edges, nextEdges);
+
       return {
-        edges: state.edges.filter((edge) => edge.id !== edgeId),
+        nodes: nextNodes,
+        edges: nextEdges,
         history: {
           past: pushSnapshot(state.history.past, createSnapshot(state.nodes, state.edges)),
           future: [],
@@ -3065,6 +4945,28 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
 
   setSelectedNode: (nodeId) => {
     set({ selectedNodeId: nodeId });
+  },
+
+  setHighlightedReferenceSourceNode: (nodeId) => {
+    set({ highlightedReferenceSourceNodeId: nodeId });
+  },
+
+  toggleNodeDescriptionPanel: (nodeId) => {
+    set((state) => ({
+      nodeDescriptionPanelOpenById: {
+        ...state.nodeDescriptionPanelOpenById,
+        [nodeId]: !state.nodeDescriptionPanelOpenById[nodeId],
+      },
+    }));
+  },
+
+  setNodeDescriptionPanelOpen: (nodeId, isOpen) => {
+    set((state) => ({
+      nodeDescriptionPanelOpenById: {
+        ...state.nodeDescriptionPanelOpenById,
+        [nodeId]: isOpen,
+      },
+    }));
   },
 
   openToolDialog: (dialog) => {
@@ -3082,14 +4984,17 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
       return false;
     }
 
-    const currentSnapshot = createSnapshot(state.nodes, state.edges);
+    const currentSnapshot = isCanvasNodePatchHistorySnapshot(target)
+      ? createReverseNodePatchSnapshot(target, state.nodes, state.edges)
+      : createSnapshot(state.nodes, state.edges);
+    const appliedSnapshot = applyHistorySnapshot(state.nodes, state.edges, target);
     const nextPast = state.history.past.slice(0, -1);
 
     set({
-      nodes: target.nodes,
-      edges: target.edges,
-      selectedNodeId: resolveSelectedNodeId(state.selectedNodeId, target.nodes),
-      activeToolDialog: resolveActiveToolDialog(state.activeToolDialog, target.nodes),
+      nodes: appliedSnapshot.nodes,
+      edges: appliedSnapshot.edges,
+      selectedNodeId: resolveSelectedNodeId(state.selectedNodeId, appliedSnapshot.nodes),
+      activeToolDialog: resolveActiveToolDialog(state.activeToolDialog, appliedSnapshot.nodes),
       history: {
         past: nextPast,
         future: pushSnapshot(state.history.future, currentSnapshot),
@@ -3106,14 +5011,17 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
       return false;
     }
 
-    const currentSnapshot = createSnapshot(state.nodes, state.edges);
+    const currentSnapshot = isCanvasNodePatchHistorySnapshot(target)
+      ? createReverseNodePatchSnapshot(target, state.nodes, state.edges)
+      : createSnapshot(state.nodes, state.edges);
+    const appliedSnapshot = applyHistorySnapshot(state.nodes, state.edges, target);
     const nextFuture = state.history.future.slice(0, -1);
 
     set({
-      nodes: target.nodes,
-      edges: target.edges,
-      selectedNodeId: resolveSelectedNodeId(state.selectedNodeId, target.nodes),
-      activeToolDialog: resolveActiveToolDialog(state.activeToolDialog, target.nodes),
+      nodes: appliedSnapshot.nodes,
+      edges: appliedSnapshot.edges,
+      selectedNodeId: resolveSelectedNodeId(state.selectedNodeId, appliedSnapshot.nodes),
+      activeToolDialog: resolveActiveToolDialog(state.activeToolDialog, appliedSnapshot.nodes),
       history: {
         past: pushSnapshot(state.history.past, currentSnapshot),
         future: nextFuture,
@@ -3133,7 +5041,9 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
         nodes: [],
         edges: [],
         selectedNodeId: null,
+        highlightedReferenceSourceNodeId: null,
         activeToolDialog: null,
+        nodeDescriptionPanelOpenById: {},
         history: {
           past: pushSnapshot(state.history.past, createSnapshot(state.nodes, state.edges)),
           future: [],

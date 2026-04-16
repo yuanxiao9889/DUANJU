@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { Sparkles, RefreshCw, Check, X, ChevronDown, ChevronUp, Settings2 } from 'lucide-react';
-import { UiButton } from '@/components/ui/primitives';
+import { UiButton, UiLoadingOverlay } from '@/components/ui';
+import { createUiRangeStyle } from '@/components/ui/rangeStyle';
 import type { StoryOutline } from '../application/outlineGenerator';
 
 export interface OutlineGenerationOptions {
@@ -67,6 +68,7 @@ export function OutlineConfirmDialog({
   if (!isOpen) return null;
 
   const effectiveStyle = style === 'custom' ? customStyle : style;
+  const chapterCountSliderStyle = createUiRangeStyle(chapterCount, MIN_CHAPTERS, MAX_CHAPTERS);
 
   const handleRegenerate = () => {
     onRegenerate({
@@ -93,6 +95,7 @@ export function OutlineConfirmDialog({
         ref={dialogRef}
         className="relative bg-surface-dark border border-border-dark rounded-xl w-[750px] max-h-[90vh] mx-4 shadow-2xl flex flex-col"
       >
+        <UiLoadingOverlay visible={isGenerating} insetClassName="inset-0" />
         <div className="flex items-center justify-between p-4 border-b border-border-dark shrink-0">
           <div className="flex items-center gap-2">
             <Sparkles className="w-5 h-5 text-amber-400" />
@@ -174,7 +177,8 @@ export function OutlineConfirmDialog({
                         max={MAX_CHAPTERS}
                         value={chapterCount}
                         onChange={(e) => setChapterCount(Number(e.target.value))}
-                        className="flex-1 h-2 bg-bg-dark rounded-lg appearance-none cursor-pointer accent-amber-500"
+                        className="ui-range flex-1"
+                        style={chapterCountSliderStyle}
                       />
                       <span className="text-sm font-medium text-amber-400 w-10 text-right">
                         {chapterCount} 章
@@ -224,7 +228,7 @@ export function OutlineConfirmDialog({
                 disabled={isGenerating}
                 className="w-full border border-amber-500/30 hover:border-amber-500/50 text-amber-400"
               >
-                <RefreshCw className={`w-4 h-4 ${isGenerating ? 'animate-spin' : ''}`} />
+                <RefreshCw className="w-4 h-4" />
                 <span>{isGenerating ? '生成中...' : '重新生成'}</span>
               </UiButton>
             </div>
@@ -287,10 +291,10 @@ export function OutlineConfirmDialog({
           </UiButton>
         </div>
 
-        {isGenerating && (
+        {false && (
           <div className="absolute inset-0 bg-surface-dark/80 flex items-center justify-center rounded-xl">
             <div className="text-center">
-              <div className="animate-spin w-8 h-8 border-2 border-amber-500 border-t-transparent rounded-full mx-auto mb-2" />
+              <></>
               <div className="text-sm text-text-muted">AI 正在生成大纲...</div>
             </div>
           </div>

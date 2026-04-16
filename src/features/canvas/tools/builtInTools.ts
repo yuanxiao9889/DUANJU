@@ -1,15 +1,21 @@
 import {
   NODE_TOOL_TYPES,
+  isAudioNode,
   isExportImageNode,
   isImageEditNode,
+  isPanorama360Node,
   isUploadNode,
+  isVideoNode,
   type CanvasNode,
 } from '../domain/canvasNodes';
 import { stringifyAnnotationItems } from './annotation';
-import type { CanvasToolPlugin } from './types';
+import type { CanvasToolPlugin, ToolOptions } from './types';
 
 function supportsImageSourceNode(node: CanvasNode): boolean {
-  return isUploadNode(node) || isImageEditNode(node) || isExportImageNode(node);
+  return isUploadNode(node)
+    || isImageEditNode(node)
+    || isPanorama360Node(node)
+    || isExportImageNode(node);
 }
 
 export const cropToolPlugin: CanvasToolPlugin = {
@@ -17,11 +23,48 @@ export const cropToolPlugin: CanvasToolPlugin = {
   label: '裁剪',
   icon: 'crop',
   editor: 'crop',
-  supportsNode: (node) => supportsImageSourceNode(node) && Boolean(node.data.imageUrl),
-  createInitialOptions: () => ({
-    aspectRatio: 'free',
-    customAspectRatio: '',
-  }),
+  supportsNode: (node) => {
+    if (supportsImageSourceNode(node)) {
+      return Boolean(node.data.imageUrl);
+    }
+
+    if (isVideoNode(node)) {
+      return Boolean(node.data.videoUrl);
+    }
+
+    if (isAudioNode(node)) {
+      return Boolean(node.data.audioUrl);
+    }
+
+    return false;
+  },
+  createInitialOptions: (node) => {
+    if (isVideoNode(node)) {
+      return {
+        mediaType: 'video',
+        startTime: 0,
+        endTime: typeof node.data.duration === 'number' ? node.data.duration : 0,
+        duration: typeof node.data.duration === 'number' ? node.data.duration : 0,
+        fileName: typeof node.data.videoFileName === 'string' ? node.data.videoFileName : '',
+      } as ToolOptions;
+    }
+
+    if (isAudioNode(node)) {
+      return {
+        mediaType: 'audio',
+        startTime: 0,
+        endTime: typeof node.data.duration === 'number' ? node.data.duration : 0,
+        duration: typeof node.data.duration === 'number' ? node.data.duration : 0,
+        fileName: typeof node.data.audioFileName === 'string' ? node.data.audioFileName : '',
+      } as ToolOptions;
+    }
+
+    return {
+      mediaType: 'image',
+      aspectRatio: 'free',
+      customAspectRatio: '',
+    } as ToolOptions;
+  },
   fields: [
     {
       key: 'aspectRatio',

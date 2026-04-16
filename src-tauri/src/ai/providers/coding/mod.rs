@@ -62,8 +62,6 @@ struct CodingChoice {
 struct CodingDelta {
     #[serde(rename = "content")]
     content: Option<String>,
-    #[serde(rename = "role")]
-    role: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -100,17 +98,21 @@ impl CodingProvider {
     }
 
     pub fn get_endpoint(&self, model: &str) -> String {
+        let default_endpoint = format!(
+            "{}/v1/chat/completions",
+            self.base_url.trim_end_matches('/')
+        );
         if model.starts_with("qwen") || model.starts_with("glm") || model.starts_with("kimi") {
             // For Coding Plan, use the specific endpoint
             // Documentation: https://help.aliyun.com/zh/model-studio/coding-plan-quickstart
-            "https://coding.dashscope.aliyuncs.com/v1/chat/completions".to_string()
+            default_endpoint
         } else if model.starts_with("MiniMax") {
             "https://api.minimaxi.com/v1/chat/completions".to_string()
         } else if model.starts_with("ep-") {
             "https://ark.cn-beijing.volces.com/api/v3/chat/completions".to_string()
         } else {
             // Default fallback
-            "https://coding.dashscope.aliyuncs.com/v1/chat/completions".to_string()
+            default_endpoint
         }
     }
 }

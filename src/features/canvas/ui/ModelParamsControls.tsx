@@ -1,6 +1,6 @@
 import { memo, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
-import { SlidersHorizontal, Zap, Palette, Settings } from 'lucide-react';
+import { SlidersHorizontal, Zap, Palette } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 
 import { AUTO_REQUEST_ASPECT_RATIO } from '@/features/canvas/domain/canvasNodes';
@@ -21,6 +21,7 @@ import {
 } from '@/components/ui';
 import { useSettingsStore } from '@/stores/settingsStore';
 import { openSettingsDialog } from '@/features/settings/settingsEvents';
+import { StyleTemplateMenuPanel } from '@/features/project/StyleTemplateMenuPanel';
 
 interface ModelParamsControlsProps {
   imageModels: ImageModelDefinition[];
@@ -189,7 +190,7 @@ export const ModelParamsControls = memo(({
   const [panelProviderId, setPanelProviderId] = useState(selectedModel.providerId);
   const [missingKeyProviderName, setMissingKeyProviderName] = useState<string | null>(null);
   const [styleTemplatePanelOpen, setStyleTemplatePanelOpen] = useState(false);
-  const apiKeys = useSettingsStore((state) => state.apiKeys);
+  const storyboardApiKeys = useSettingsStore((state) => state.storyboardApiKeys);
   const styleTemplates = useSettingsStore((state) => state.styleTemplates);
 
   const selectedProvider = useMemo(
@@ -211,6 +212,7 @@ export const ModelParamsControls = memo(({
   );
   const providerOptions = useMemo(() => {
     const providerOrder = [
+      'azemm',
       'kie',
       'ppio',
       'fal',
@@ -474,7 +476,7 @@ export const ModelParamsControls = memo(({
             active={styleTemplatePanelOpen}
             className={
               styleTemplateTriggerMode === 'icon'
-                ? `${chipClassName} !w-7 !px-0 shrink-0 justify-center`
+                ? `${chipClassName} !w-8 !px-0 shrink-0 justify-center`
                 : `${chipClassName} w-auto shrink-0 justify-center`
             }
             title={selectedStyleTemplateName}
@@ -556,7 +558,7 @@ export const ModelParamsControls = memo(({
                           }`}
                         onClick={(event) => {
                           event.stopPropagation();
-                          const providerApiKey = (apiKeys[provider.id] ?? '').trim();
+                          const providerApiKey = (storyboardApiKeys[provider.id] ?? '').trim();
                           if (!providerApiKey) {
                             setOpenPanel(null);
                             setMissingKeyProviderName(provider.label || provider.name);
@@ -844,53 +846,14 @@ export const ModelParamsControls = memo(({
           style={buildPanelStyle(styleTemplatePanelAnchor, 'center')}
           onClick={(event) => event.stopPropagation()}
         >
-          <UiPanel className="min-w-[180px] p-1">
-            <button
-              className={`w-full rounded-md px-3 py-1.5 text-left text-xs transition-colors ${
-                !selectedStyleTemplateId ? 'bg-accent/15 text-accent' : 'text-text-muted hover:bg-surface-hover'
-              }`}
-              onClick={() => {
-                onStyleTemplateChange?.(null, '');
-                setStyleTemplatePanelOpen(false);
-              }}
-            >
-              {t('styleTemplate.noTemplate')}
-            </button>
-
-            {styleTemplates.length > 0 && (
-              <div className="my-1 border-t border-border" />
-            )}
-
-            {styleTemplates.map((template) => (
-              <button
-                key={template.id}
-                className={`w-full rounded-md px-3 py-1.5 text-left text-xs transition-colors ${
-                  selectedStyleTemplateId === template.id
-                    ? 'bg-accent/15 text-accent'
-                    : 'text-text-muted hover:bg-surface-hover'
-                }`}
-                onClick={() => {
-                  onStyleTemplateChange?.(template.id, template.prompt);
-                  setStyleTemplatePanelOpen(false);
-                }}
-              >
-                {template.name}
-              </button>
-            ))}
-
-            <div className="my-1 border-t border-border" />
-
-            <button
-              className="flex w-full items-center gap-1.5 rounded-md px-3 py-1.5 text-left text-xs text-text-muted transition-colors hover:bg-surface-hover"
-              onClick={() => {
-                setStyleTemplatePanelOpen(false);
-                onOpenStyleTemplateManager?.();
-              }}
-            >
-              <Settings className="h-3 w-3" />
-              {t('styleTemplate.manageTemplates')}
-            </button>
-          </UiPanel>
+          <StyleTemplateMenuPanel
+            selectedTemplateId={selectedStyleTemplateId ?? null}
+            onTemplateChange={(templateId, prompt) =>
+              onStyleTemplateChange?.(templateId, prompt)
+            }
+            onRequestClose={() => setStyleTemplatePanelOpen(false)}
+            onManage={() => onOpenStyleTemplateManager?.()}
+          />
         </div>,
         document.body
       )}

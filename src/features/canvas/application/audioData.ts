@@ -42,8 +42,75 @@ interface PrepareAudioOptions {
   mimeType?: string | null;
 }
 
+function normalizeAudioMimeTypeValue(mimeType: string | null | undefined): string | null {
+  const normalized = mimeType?.split(';', 1)[0]?.trim().toLowerCase() ?? '';
+  if (!normalized) {
+    return null;
+  }
+
+  if (normalized === 'audio/mp3') return 'audio/mpeg';
+  if (
+    normalized === 'audio/x-wav'
+    || normalized === 'audio/wave'
+    || normalized === 'audio/x-pn-wav'
+  ) {
+    return 'audio/wav';
+  }
+  if (normalized === 'audio/x-m4a') return 'audio/mp4';
+  if (normalized === 'audio/x-flac') return 'audio/flac';
+
+  return normalized;
+}
+
+function inferAudioMimeTypeFromSource(source: string): string | null {
+  const trimmedSource = source.trim();
+  if (!trimmedSource) {
+    return null;
+  }
+
+  const normalizedSource = trimmedSource.split('#', 1)[0]?.split('?', 1)[0] ?? trimmedSource;
+  const extension = normalizedSource.split('.').pop()?.trim().toLowerCase() ?? '';
+
+  if (extension === 'mp3') return 'audio/mpeg';
+  if (extension === 'wav') return 'audio/wav';
+  if (extension === 'ogg' || extension === 'oga') return 'audio/ogg';
+  if (extension === 'webm') return 'audio/webm';
+  if (extension === 'm4a' || extension === 'mp4') return 'audio/mp4';
+  if (extension === 'aac') return 'audio/aac';
+  if (extension === 'flac') return 'audio/flac';
+
+  return null;
+}
+
+function replaceDataUrlMimeType(dataUrl: string, mimeType: string): string {
+  const commaIndex = dataUrl.indexOf(',');
+  if (commaIndex < 0) {
+    return dataUrl;
+  }
+
+  const metadata = dataUrl.slice(5, commaIndex);
+  const semicolonIndex = metadata.indexOf(';');
+
+  if (semicolonIndex >= 0) {
+    const leadingSegment = metadata.slice(0, semicolonIndex);
+    if (leadingSegment.includes('/')) {
+      return `data:${mimeType}${metadata.slice(semicolonIndex)}${dataUrl.slice(commaIndex)}`;
+    }
+  } else if (metadata.includes('/')) {
+    return `data:${mimeType}${dataUrl.slice(commaIndex)}`;
+  }
+
+  const metadataSuffix = metadata ? `;${metadata}` : '';
+  return `data:${mimeType}${metadataSuffix}${dataUrl.slice(commaIndex)}`;
+}
+
 export function isSupportedAudioType(mimeType: string): boolean {
-  return SUPPORTED_AUDIO_TYPES.includes(mimeType.toLowerCase() as (typeof SUPPORTED_AUDIO_TYPES)[number]);
+  const normalizedMimeType = normalizeAudioMimeTypeValue(mimeType);
+  if (!normalizedMimeType) {
+    return false;
+  }
+
+  return SUPPORTED_AUDIO_TYPES.includes(normalizedMimeType as (typeof SUPPORTED_AUDIO_TYPES)[number]);
 }
 
 export function isSupportedAudioFile(file: File): boolean {
@@ -51,7 +118,7 @@ export function isSupportedAudioFile(file: File): boolean {
 }
 
 function resolveAudioExtension(file: File): string {
-  const mime = file.type.toLowerCase();
+  const mime = normalizeAudioMimeTypeValue(file.type) ?? file.type.toLowerCase();
   if (mime === 'audio/mpeg' || mime === 'audio/mp3') return 'mp3';
   if (mime === 'audio/wav' || mime === 'audio/x-wav' || mime === 'audio/wave' || mime === 'audio/x-pn-wav') return 'wav';
   if (mime === 'audio/ogg') return 'ogg';
@@ -104,7 +171,7 @@ export async function getAudioMetadata(file: File): Promise<AudioMetadata> {
     audio.onloadedmetadata = () => {
       finishResolve({
         duration: Number.isFinite(audio.duration) ? audio.duration : 0,
-        mimeType: file.type.trim() || null,
+        mimeType: normalizeAudioMimeTypeValue(file.type.trim()) ?? null,
       });
     };
     audio.onerror = () => {
@@ -212,14 +279,23 @@ export function resolveAudioDisplayUrl(audioUrl: string): string {
   return resolveImageDisplayUrl(audioUrl);
 }
 
-export async function audioUrlToDataUrl(audioUrl: string): Promise<string> {
+export async function audioUrlToDataUrl(
+  audioUrl: string,
+  options: { mimeType?: string | null } = {}
+): Promise<string> {
   const trimmedAudioUrl = audioUrl.trim();
   if (!trimmedAudioUrl) {
     throw new Error('Audio source is empty');
   }
 
+  const preferredMimeType =
+    normalizeAudioMimeTypeValue(options.mimeType)
+    ?? inferAudioMimeTypeFromSource(trimmedAudioUrl);
+
   if (trimmedAudioUrl.startsWith('data:')) {
-    return trimmedAudioUrl;
+    return preferredMimeType
+      ? replaceDataUrlMimeType(trimmedAudioUrl, preferredMimeType)
+      : trimmedAudioUrl;
   }
 
   const response = await fetch(resolveAudioDisplayUrl(trimmedAudioUrl));
@@ -227,7 +303,22 @@ export async function audioUrlToDataUrl(audioUrl: string): Promise<string> {
     throw new Error(`Failed to load audio data (${response.status})`);
   }
 
-  return await blobToDataUrl(await response.blob());
+  const sourceBlob = await response.blob();
+  const resolvedMimeType =
+    preferredMimeType
+    ?? normalizeAudioMimeTypeValue(sourceBlob.type)
+    ?? inferAudioMimeTypeFromSource(trimmedAudioUrl);
+
+  if (!resolvedMimeType) {
+    return await blobToDataUrl(sourceBlob);
+  }
+
+  const normalizedBlob =
+    normalizeAudioMimeTypeValue(sourceBlob.type) === resolvedMimeType
+      ? sourceBlob
+      : new Blob([await sourceBlob.arrayBuffer()], { type: resolvedMimeType });
+
+  return await blobToDataUrl(normalizedBlob);
 }
 
 export function formatAudioDuration(seconds: number | null | undefined): string {

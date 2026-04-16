@@ -6,6 +6,7 @@ import {
   useMemo,
   useRef,
   useState,
+  type RefObject,
   type ButtonHTMLAttributes,
   type ChangeEvent,
   type HTMLAttributes,
@@ -23,6 +24,7 @@ import {
   UI_POPOVER_TRANSITION_MS,
 } from './motion';
 import { useDialogTransition } from './useDialogTransition';
+import { useDraggableDialog } from './useDraggableDialog';
 
 type ButtonVariant = 'primary' | 'muted' | 'ghost';
 
@@ -46,13 +48,24 @@ interface UiCheckboxProps extends Omit<ButtonHTMLAttributes<HTMLButtonElement>, 
   onCheckedChange?: (checked: boolean) => void;
 }
 
-interface UiSelectProps extends SelectHTMLAttributes<HTMLSelectElement> {}
+interface UiSelectProps extends SelectHTMLAttributes<HTMLSelectElement> {
+  menuAnchorRef?: RefObject<HTMLElement | null>;
+}
 
-interface UiSelectOption {
+interface UiSelectOptionItem {
+  kind: 'option';
   value: string;
   label: ReactNode;
   disabled: boolean;
 }
+
+interface UiSelectGroupItem {
+  kind: 'group';
+  label: ReactNode;
+  key: string;
+}
+
+type UiSelectItem = UiSelectOptionItem | UiSelectGroupItem;
 
 interface UiModalProps {
   isOpen: boolean;
@@ -62,6 +75,74 @@ interface UiModalProps {
   footer?: ReactNode;
   widthClassName?: string;
   containerClassName?: string;
+  headerClassName?: string;
+  draggable?: boolean;
+}
+
+const UI_SELECT_OPEN_EVENT = 'codex-ui-select-open';
+
+function extractTextContent(node: ReactNode): string {
+  if (typeof node === 'string' || typeof node === 'number') {
+    return String(node);
+  }
+
+  if (Array.isArray(node)) {
+    return node.map((item) => extractTextContent(item)).join('');
+  }
+
+  if (isValidElement(node)) {
+    return extractTextContent(node.props.children);
+  }
+
+  return '';
+}
+
+function hasTextContent(node: ReactNode): boolean {
+  return extractTextContent(node).trim().length > 0;
+}
+
+function parseUiSelectItems(children: ReactNode): UiSelectItem[] {
+  const items: UiSelectItem[] = [];
+
+  Children.toArray(children).forEach((child, index) => {
+    if (!isValidElement(child)) {
+      return;
+    }
+
+    if (child.type === 'option') {
+      const optionValue = child.props.value ?? child.props.children;
+      items.push({
+        kind: 'option',
+        value: String(optionValue ?? ''),
+        label: child.props.children,
+        disabled: Boolean(child.props.disabled),
+      });
+      return;
+    }
+
+    if (child.type === 'optgroup') {
+      const groupLabel = child.props.label ?? '';
+      const groupKey = String(child.key ?? `group-${index}-${extractTextContent(groupLabel)}`);
+      const nestedItems = parseUiSelectItems(child.props.children);
+      const optionItems = nestedItems.filter(
+        (item): item is UiSelectOptionItem => item.kind === 'option'
+      );
+
+      if (optionItems.length === 0) {
+        return;
+      }
+
+      items.push({
+        kind: 'group',
+        label: groupLabel,
+        key: groupKey,
+      });
+      items.push(...optionItems);
+      return;
+    }
+  });
+
+  return items;
 }
 
 function resolveButtonVariant(variant: ButtonVariant): string {
@@ -104,30 +185,42 @@ export function UiIconButton({ className = '', active = false, ...props }: UiIco
 }
 
 export const UiChipButton = forwardRef<HTMLButtonElement, UiChipButtonProps>(
-  ({ className = '', active = false, ...props }, ref) => (
+  ({ className = '', active = false, children, ...props }, ref) => {
+    const isIconOnly = !hasTextContent(children);
+
+    return (
     <button
       ref={ref}
-      className={`inline-flex h-10 items-center justify-center gap-2 border ui-field px-3 text-sm transition-colors ${active ? 'border-accent/45 bg-accent/15 text-text-dark' : 'text-text-dark hover:bg-[rgba(15,23,42,0.08)] dark:hover:bg-bg-dark'} ${className}`}
+      data-ui-icon-only={isIconOnly ? 'true' : undefined}
+      className={`inline-flex h-10 items-center justify-center gap-2 border ui-field px-3 text-sm transition-colors ${
+        isIconOnly ? '[&_svg]:h-4 [&_svg]:w-4' : ''
+      } ${active ? 'border-accent/45 bg-accent/15 text-text-dark' : 'text-text-dark hover:bg-[rgba(15,23,42,0.08)] dark:hover:bg-bg-dark'} ${className}`}
+      {...props}
+    >
+      {children}
+    </button>
+    );
+  }
+);
+
+UiChipButton.displayName = 'UiChipButton';
+
+export const UiPanel = forwardRef<HTMLDivElement, HTMLAttributes<HTMLDivElement>>(
+  ({ className = '', ...props }, ref) => (
+    <div
+      ref={ref}
+      className={`border ui-panel ${className}`}
       {...props}
     />
   )
 );
 
-UiChipButton.displayName = 'UiChipButton';
-
-export function UiPanel({ className = '', ...props }: HTMLAttributes<HTMLDivElement>) {
-  return (
-    <div
-      className={`border ui-panel ${className}`}
-      {...props}
-    />
-  );
-}
+UiPanel.displayName = 'UiPanel';
 
 export function UiTextArea({ className = '', ...props }: TextareaHTMLAttributes<HTMLTextAreaElement>) {
   return (
     <textarea
-      className={`w-full resize-none border ui-field px-3 py-2.5 text-sm text-text-dark outline-none transition-colors placeholder:text-text-muted/70 focus:border-accent ${className}`}
+      className={`ui-scrollbar w-full resize-none border ui-field px-3 py-2.5 text-sm text-text-dark outline-none transition-colors placeholder:text-text-muted/70 focus:border-accent ${className}`}
       {...props}
     />
   );
@@ -137,7 +230,7 @@ export const UiTextAreaField = forwardRef<HTMLTextAreaElement, TextareaHTMLAttri
   ({ className = '', ...props }, ref) => (
     <textarea
       ref={ref}
-      className={`w-full resize-none border ui-field px-3 py-2.5 text-sm text-text-dark outline-none transition-colors placeholder:text-text-muted/70 focus:border-accent ${className}`}
+      className={`ui-scrollbar w-full resize-none border ui-field px-3 py-2.5 text-sm text-text-dark outline-none transition-colors placeholder:text-text-muted/70 focus:border-accent ${className}`}
       {...props}
     />
   )
@@ -193,6 +286,7 @@ export function UiSelect({ className = '', children, ...props }: UiSelectProps) 
     onFocus,
     disabled,
     name,
+    menuAnchorRef,
     'aria-label': ariaLabel,
     ...selectProps
   } = props;
@@ -209,22 +303,13 @@ export function UiSelect({ className = '', children, ...props }: UiSelectProps) 
     isOpen,
     UI_POPOVER_TRANSITION_MS
   );
-  const parsedOptions = useMemo<UiSelectOption[]>(() => {
-    return Children.toArray(children).flatMap((child) => {
-      if (!isValidElement(child) || child.type !== 'option') {
-        return [];
-      }
-
-      const optionValue = child.props.value ?? child.props.children;
-      return [
-        {
-          value: String(optionValue ?? ''),
-          label: child.props.children,
-          disabled: Boolean(child.props.disabled),
-        },
-      ];
-    });
+  const parsedItems = useMemo<UiSelectItem[]>(() => {
+    return parseUiSelectItems(children);
   }, [children]);
+  const parsedOptions = useMemo<UiSelectOptionItem[]>(
+    () => parsedItems.filter((item): item is UiSelectOptionItem => item.kind === 'option'),
+    [parsedItems]
+  );
   const initialValue = useMemo(() => {
     if (value != null) {
       return String(value);
@@ -262,13 +347,32 @@ export function UiSelect({ className = '', children, ...props }: UiSelectProps) 
       }
 
       const rect = trigger.getBoundingClientRect();
+      const anchorRect = menuAnchorRef?.current?.getBoundingClientRect() ?? rect;
+      const viewportWidth = window.innerWidth;
       const viewportHeight = window.innerHeight;
-      const estimatedMenuHeight = Math.min(Math.max(parsedOptions.length * 38 + 12, 60), 240);
-      const openAbove = rect.bottom + 8 + estimatedMenuHeight > viewportHeight && rect.top > estimatedMenuHeight;
+      const estimatedMenuHeight = Math.min(Math.max(parsedItems.length * 38 + 12, 60), 240);
+      const longestOptionTextLength = parsedItems.reduce((maxLength, item) => {
+        const itemTextLength = extractTextContent(item.label).trim().length;
+        return Math.max(maxLength, itemTextLength);
+      }, 0);
+      const estimatedMenuWidth = Math.max(
+        anchorRect.width,
+        Math.min(320, Math.max(96, longestOptionTextLength * 8.5 + 44))
+      );
+      const menuGap = 6;
+      const openAbove =
+        anchorRect.bottom + menuGap + estimatedMenuHeight > viewportHeight
+        && anchorRect.top > estimatedMenuHeight;
+      const nextLeft = Math.min(
+        Math.max(8, anchorRect.left),
+        Math.max(8, viewportWidth - estimatedMenuWidth - 8)
+      );
       setMenuStyle({
-        left: rect.left,
-        top: openAbove ? Math.max(8, rect.top - estimatedMenuHeight - 8) : rect.bottom + 8,
-        width: rect.width,
+        left: nextLeft,
+        top: openAbove
+          ? Math.max(8, anchorRect.top - estimatedMenuHeight - menuGap)
+          : anchorRect.bottom + menuGap,
+        width: estimatedMenuWidth,
       });
     };
 
@@ -279,7 +383,23 @@ export function UiSelect({ className = '', children, ...props }: UiSelectProps) 
       window.removeEventListener('resize', updatePosition);
       window.removeEventListener('scroll', updatePosition, true);
     };
-  }, [isOpen, parsedOptions.length]);
+  }, [isOpen, menuAnchorRef, parsedItems]);
+
+  useEffect(() => {
+    const handleAnotherSelectOpen = (event: Event) => {
+      const detail = (event as CustomEvent<{ id?: string }>).detail;
+      if (detail?.id === listboxIdRef.current) {
+        return;
+      }
+
+      setIsOpen(false);
+    };
+
+    window.addEventListener(UI_SELECT_OPEN_EVENT, handleAnotherSelectOpen as EventListener);
+    return () => {
+      window.removeEventListener(UI_SELECT_OPEN_EVENT, handleAnotherSelectOpen as EventListener);
+    };
+  }, []);
 
   useEffect(() => {
     if (!isOpen) {
@@ -330,6 +450,32 @@ export function UiSelect({ className = '', children, ...props }: UiSelectProps) 
     } as ChangeEvent<HTMLSelectElement>);
   };
 
+  const openMenu = () => {
+    if (disabled || parsedOptions.length === 0) {
+      return;
+    }
+
+    window.dispatchEvent(
+      new CustomEvent(UI_SELECT_OPEN_EVENT, {
+        detail: { id: listboxIdRef.current },
+      })
+    );
+    setIsOpen(true);
+  };
+
+  const closeMenu = () => {
+    setIsOpen(false);
+  };
+
+  const toggleMenu = () => {
+    if (isOpen) {
+      closeMenu();
+      return;
+    }
+
+    openMenu();
+  };
+
   const handleTriggerKeyDown = (event: ReactKeyboardEvent<HTMLButtonElement>) => {
     if (disabled || parsedOptions.length === 0) {
       return;
@@ -337,7 +483,7 @@ export function UiSelect({ className = '', children, ...props }: UiSelectProps) 
 
     if (event.key === 'Enter' || event.key === ' ') {
       event.preventDefault();
-      setIsOpen((current) => !current);
+      toggleMenu();
       return;
     }
 
@@ -356,12 +502,12 @@ export function UiSelect({ className = '', children, ...props }: UiSelectProps) 
           : (currentIndex + (event.key === 'ArrowDown' ? 1 : -1) + enabledOptions.length) %
             enabledOptions.length;
       commitValue(enabledOptions[nextIndex].value);
-      setIsOpen(false);
+      closeMenu();
     }
   };
 
   return (
-    <div className="relative">
+    <div className="relative min-w-0">
       <select
         ref={hiddenSelectRef}
         tabIndex={-1}
@@ -383,20 +529,20 @@ export function UiSelect({ className = '', children, ...props }: UiSelectProps) 
         aria-expanded={isOpen}
         aria-controls={listboxIdRef.current}
         disabled={disabled}
-        className={`group inline-flex h-8 w-full items-center justify-between rounded-[6px] border border-[color:var(--ui-border-soft)] bg-[var(--ui-surface-field)] px-3 text-left text-xs font-medium text-text-dark outline-none transition-[border-color,background-color,box-shadow,color] hover:border-[color:var(--ui-border-strong)] focus-visible:border-accent focus-visible:shadow-[0_0_0_2px_rgba(var(--accent-rgb),0.12)] disabled:cursor-not-allowed disabled:opacity-55 ${className}`}
+        className={`group inline-flex h-8 w-full items-center justify-between rounded-[6px] border border-[color:var(--ui-border-soft)] bg-[var(--ui-surface-field)] px-2 text-left text-xs font-medium text-text-dark outline-none transition-[border-color,background-color,box-shadow,color] hover:border-[color:var(--ui-border-strong)] focus-visible:border-accent focus-visible:shadow-[0_0_0_2px_rgba(var(--accent-rgb),0.12)] disabled:cursor-not-allowed disabled:opacity-55 ${className}`}
         onClick={() => {
           if (!disabled && parsedOptions.length > 0) {
-            setIsOpen((current) => !current);
+            toggleMenu();
           }
         }}
         onKeyDown={handleTriggerKeyDown}
         onBlur={(event) => onBlur?.(event as never)}
         onFocus={(event) => onFocus?.(event as never)}
       >
-        <span className="min-w-0 truncate pr-3">{selectedOption?.label ?? ''}</span>
-        <span className="flex h-4 w-4 shrink-0 items-center justify-center text-text-muted transition-colors group-hover:text-text-dark group-focus-visible:text-accent">
+        <span className="min-w-0 truncate pr-1.5">{selectedOption?.label ?? ''}</span>
+        <span className="flex h-3.5 w-3.5 shrink-0 items-center justify-center text-text-muted transition-colors group-hover:text-text-dark group-focus-visible:text-accent">
           <ChevronDown
-            className={`h-3.5 w-3.5 transition-transform ${isOpen ? 'rotate-180' : ''}`}
+            className={`h-3 w-3 transition-transform ${isOpen ? 'rotate-180' : ''}`}
             style={{ transitionDuration: `${UI_POPOVER_TRANSITION_MS}ms` }}
           />
         </span>
@@ -420,32 +566,43 @@ export function UiSelect({ className = '', children, ...props }: UiSelectProps) 
               }}
             >
               <div className="ui-scrollbar max-h-[228px] overflow-y-auto">
-                {parsedOptions.map((option) => {
-                  const isSelected = option.value === selectedValue;
+                {parsedItems.map((item) => {
+                  if (item.kind === 'group') {
+                    return (
+                      <div
+                        key={item.key}
+                        className="px-3 pb-1 pt-2 text-[11px] font-semibold uppercase tracking-[0.12em] text-text-muted/80 first:pt-1"
+                      >
+                        {item.label}
+                      </div>
+                    );
+                  }
+
+                  const isSelected = item.value === selectedValue;
                   return (
                     <button
-                      key={option.value}
+                      key={item.value}
                       type="button"
                       role="option"
                       aria-selected={isSelected}
-                      disabled={option.disabled}
+                      disabled={item.disabled}
                       className={`flex w-full items-center justify-between rounded-[4px] px-3 py-2 text-sm transition-colors ${
-                        option.disabled
+                        item.disabled
                           ? 'cursor-not-allowed opacity-40'
                           : isSelected
                             ? 'bg-accent text-white'
                             : 'text-text-dark hover:bg-[rgba(255,255,255,0.08)] dark:hover:bg-white/[0.06]'
                       }`}
                       onClick={() => {
-                        if (option.disabled) {
+                        if (item.disabled) {
                           return;
                         }
-                        commitValue(option.value);
-                        setIsOpen(false);
+                        commitValue(item.value);
+                        closeMenu();
                         triggerRef.current?.focus();
                       }}
                     >
-                      <span className="truncate">{option.label}</span>
+                      <span className="min-w-0 whitespace-nowrap text-left">{item.label}</span>
                       {isSelected ? <Check className="ml-3 h-3.5 w-3.5 shrink-0 text-white" /> : null}
                     </button>
                   );
@@ -467,37 +624,60 @@ export function UiModal({
   footer,
   widthClassName = 'w-[460px]',
   containerClassName = '',
+  headerClassName = '',
+  draggable = true,
 }: UiModalProps) {
   const { shouldRender, isVisible } = useDialogTransition(isOpen, UI_DIALOG_TRANSITION_MS);
+  const {
+    panelRef,
+    overlayLayoutClassName,
+    panelPositionClassName,
+    panelStyle,
+    dragHandleClassName,
+    handleDragStart,
+  } = useDraggableDialog({
+    enabled: draggable,
+    isOpen,
+  });
 
   if (!shouldRender) {
     return null;
   }
 
-  return (
-    <div className={`fixed ${UI_CONTENT_OVERLAY_INSET_CLASS} z-50 flex items-center justify-center ${containerClassName}`}>
+  if (typeof document === 'undefined') {
+    return null;
+  }
+
+  return createPortal(
+    <div className={`fixed ${UI_CONTENT_OVERLAY_INSET_CLASS} z-[10040] ${overlayLayoutClassName} ${containerClassName}`}>
       <div
         className={`absolute inset-0 bg-black/55 transition-opacity duration-200 ${isVisible ? 'opacity-100' : 'opacity-0'}`}
         onClick={onClose}
       />
-      <UiPanel
-        className={`relative transition-opacity duration-200 ${isVisible ? 'opacity-100' : 'opacity-0'} ${widthClassName}`}
-      >
-        <div className="flex items-center justify-between border-b border-[rgba(255,255,255,0.1)] px-4 py-3">
-          <h2 className="text-sm font-medium text-text-dark">{title}</h2>
-          <UiIconButton className="h-8 w-8" onClick={onClose}>
-            <X className="h-4 w-4" />
-          </UiIconButton>
-        </div>
-
-        <div className="px-4 py-4">{children}</div>
-
-        {footer && (
-          <div className="flex justify-end gap-2 border-t border-[rgba(255,255,255,0.1)] px-4 py-3">
-            {footer}
+      <div ref={panelRef} className={panelPositionClassName} style={panelStyle}>
+        <UiPanel
+          className={`relative max-h-[calc(100vh-40px)] overflow-hidden transition-opacity duration-200 ${isVisible ? 'opacity-100' : 'opacity-0'} ${widthClassName}`}
+        >
+          <div
+            className={`flex items-center justify-between border-b border-[rgba(255,255,255,0.1)] px-4 py-3 ${dragHandleClassName} ${headerClassName}`}
+            onPointerDown={draggable ? handleDragStart : undefined}
+          >
+            <h2 className="text-sm font-medium text-text-dark">{title}</h2>
+            <UiIconButton className="h-8 w-8" onClick={onClose}>
+              <X className="h-4 w-4" />
+            </UiIconButton>
           </div>
-        )}
-      </UiPanel>
-    </div>
+
+          <div className="px-4 py-4">{children}</div>
+
+          {footer && (
+            <div className="flex justify-end gap-2 border-t border-[rgba(255,255,255,0.1)] px-4 py-3">
+              {footer}
+            </div>
+          )}
+        </UiPanel>
+      </div>
+    </div>,
+    document.body
   );
 }

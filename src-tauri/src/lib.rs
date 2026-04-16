@@ -1,4 +1,4 @@
-pub mod ai;
+﻿pub mod ai;
 pub mod commands;
 
 use std::path::PathBuf;
@@ -6,11 +6,14 @@ use std::time::Duration;
 
 use commands::ai as ai_commands;
 use commands::asset_state;
+use commands::dreamina_cli;
+use commands::extensions;
 use commands::image;
-use commands::jimeng_chrome;
-use commands::jimeng_panel;
+use commands::jimeng_video_queue;
 use commands::project_state;
 use commands::ps_server;
+use commands::seedance;
+use commands::script_project_package;
 use commands::system;
 use commands::text_gen;
 use commands::update;
@@ -64,7 +67,7 @@ fn setup_logging() {
             .init();
     }
 
-    info!("Storyboard Copilot starting...");
+    info!("OOpii Infinite Canvas starting...");
 }
 
 fn show_main_window(app: &tauri::AppHandle) {
@@ -90,7 +93,7 @@ fn frontend_ready(app: tauri::AppHandle) {
 pub fn run() {
     setup_logging();
 
-    tauri::Builder::default()
+    let app = tauri::Builder::default()
         .on_page_load(|window, _payload| {
             if window.label() != MAIN_WINDOW_LABEL {
                 return;
@@ -140,15 +143,24 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .invoke_handler(tauri::generate_handler![
             frontend_ready,
-            jimeng_chrome::ensure_jimeng_chrome_session,
-            jimeng_chrome::focus_jimeng_chrome_workspace,
-            jimeng_chrome::inspect_jimeng_chrome_options,
-            jimeng_chrome::submit_jimeng_chrome_task,
-            jimeng_chrome::sync_jimeng_chrome_draft_options,
-            jimeng_panel::ensure_jimeng_panel_window,
-            jimeng_panel::submit_jimeng_panel_task,
-            jimeng_panel::inspect_jimeng_panel_options,
-            jimeng_panel::sync_jimeng_panel_draft_options,
+            extensions::read_extension_package,
+            extensions::start_extension_runtime,
+            extensions::stop_extension_runtime,
+            extensions::get_extension_runtime_status,
+            extensions::run_extension_command,
+            dreamina_cli::check_dreamina_cli_status,
+            dreamina_cli::check_dreamina_cli_update,
+            dreamina_cli::install_dreamina_cli,
+            dreamina_cli::update_dreamina_cli,
+            dreamina_cli::open_dreamina_login_terminal,
+            dreamina_cli::logout_dreamina_cli,
+            dreamina_cli::run_dreamina_guided_setup,
+            dreamina_cli::generate_jimeng_dreamina_images,
+            dreamina_cli::generate_jimeng_dreamina_videos,
+            dreamina_cli::submit_jimeng_dreamina_images,
+            dreamina_cli::submit_jimeng_dreamina_videos,
+            dreamina_cli::query_jimeng_dreamina_image_results,
+            dreamina_cli::query_jimeng_dreamina_video_result,
             image::split_image,
             image::split_image_source,
             image::prepare_node_image_source,
@@ -165,6 +177,9 @@ pub fn run() {
             image::save_image_source_to_directory,
             image::save_image_source_to_app_debug_dir,
             image::copy_image_source_to_clipboard,
+            jimeng_video_queue::list_jimeng_video_queue_jobs,
+            jimeng_video_queue::upsert_jimeng_video_queue_job,
+            jimeng_video_queue::delete_jimeng_video_queue_job,
             ai_commands::set_api_key,
             ai_commands::submit_generate_image_job,
             ai_commands::get_generate_image_job,
@@ -187,12 +202,16 @@ pub fn run() {
             project_state::rename_project_record,
             project_state::delete_project_record,
             system::get_runtime_system_info,
+            system::request_app_exit,
             text_gen::generate_text,
             text_gen::test_provider_connection,
             text_gen::get_active_text_model_status,
             update::check_latest_release_tag,
             commands::export::save_text_file,
             commands::export::save_binary_file,
+            script_project_package::export_script_project_package,
+            script_project_package::preview_script_project_package,
+            script_project_package::import_script_project_package,
             commands::storage::get_storage_info,
             commands::storage::list_database_backups,
             commands::storage::create_database_backup,
@@ -201,6 +220,8 @@ pub fn run() {
             commands::storage::migrate_storage,
             commands::storage::reset_storage_to_default,
             commands::storage::open_storage_folder,
+            seedance::create_seedance_video_task,
+            seedance::get_seedance_video_task,
             ps_server::start_ps_server,
             ps_server::stop_ps_server,
             ps_server::get_ps_server_status,
@@ -208,6 +229,18 @@ pub fn run() {
             ps_server::get_ps_selection,
             ps_server::get_ps_selection_image,
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .build(tauri::generate_context!())
+        .expect("error while building tauri application");
+
+    if let Err(err) = commands::storage::ensure_storage_asset_scope(&app.handle().clone()) {
+        warn!("failed to restore storage asset scope on startup: {err}");
+    }
+
+    app.run(|_app_handle, event| {
+        if let tauri::RunEvent::Exit = event {
+            tauri::async_runtime::block_on(async {
+                extensions::shutdown_all_extension_runtimes().await;
+            });
+        }
+    });
 }

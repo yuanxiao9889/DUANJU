@@ -1,14 +1,9 @@
-import { createPreviewDataUrl } from '@/features/canvas/application/imageData';
 import { audioUrlToDataUrl } from '@/features/canvas/application/audioData';
-import {
-  ensureJimengChromeSession,
-  submitJimengChromeTask,
-  syncJimengChromeDraftOptions,
-} from '@/commands/jimengPanel';
-import { useJimengPanelStore, type JimengPanelMode } from '@/stores/jimengPanelStore';
-import type { JimengInspectionReport } from '@/features/jimeng/domain/jimengInspection';
+import { createPreviewDataUrl } from '@/features/canvas/application/imageData';
+import { videoUrlToDataUrl } from '@/features/canvas/application/videoData';
 
-const REFERENCE_TOKEN_PATTERN = /@\u56fe(?:\u7247)?\d+/g;
+const DREAMINA_REFERENCE_TOKEN_AT_PREFIX_PATTERN =
+  /@(?=(?:\u56fe(?:\u7247)?|\u89c6\u9891|\u97f3(?:\u9891)?)\d+)/g;
 const JIMENG_REFERENCE_IMAGE_MAX_DIMENSION = 1600;
 
 export interface JimengReferenceImagePayload {
@@ -21,14 +16,9 @@ export interface JimengReferenceAudioPayload {
   dataUrl: string;
 }
 
-export interface JimengTaskSubmission {
-  prompt: string;
-  referenceImageSources?: string[];
-  referenceAudioSources?: string[];
-}
-
-export interface JimengDraftSyncPayload {
-  prompt?: string;
+export interface JimengReferenceVideoPayload {
+  fileName: string;
+  dataUrl: string;
 }
 
 function normalizeWhitespace(value: string): string {
@@ -41,11 +31,9 @@ function normalizeWhitespace(value: string): string {
 }
 
 export function buildJimengSubmissionPrompt(prompt: string): string {
-  return normalizeWhitespace(prompt.replace(REFERENCE_TOKEN_PATTERN, ' '));
-}
-
-function resolveSubmitMode(mode: JimengPanelMode): Exclude<JimengPanelMode, 'hidden'> {
-  return mode === 'hidden' ? 'expanded' : mode;
+  return normalizeWhitespace(
+    prompt.replace(DREAMINA_REFERENCE_TOKEN_AT_PREFIX_PATTERN, '')
+  );
 }
 
 function sanitizeJimengReferenceFileName(rawName: string): string {
@@ -111,6 +99,30 @@ function resolveAudioDataUrlExtension(dataUrl: string): string {
   return 'mp3';
 }
 
+function resolveVideoDataUrlExtension(dataUrl: string): string {
+  const mimeSegment = dataUrl.slice(5, dataUrl.indexOf(';'));
+  const normalizedMime = mimeSegment.toLowerCase();
+  if (normalizedMime === 'video/mp4') {
+    return 'mp4';
+  }
+  if (normalizedMime === 'video/webm') {
+    return 'webm';
+  }
+  if (normalizedMime === 'video/ogg') {
+    return 'ogv';
+  }
+  if (normalizedMime === 'video/quicktime') {
+    return 'mov';
+  }
+  if (normalizedMime === 'video/x-msvideo') {
+    return 'avi';
+  }
+  if (normalizedMime === 'video/x-matroska') {
+    return 'mkv';
+  }
+  return 'mp4';
+}
+
 function resolveJimengReferenceFileName(source: string, dataUrl: string, index: number): string {
   const normalizedSource = source.trim();
   const basename = normalizedSource
@@ -149,7 +161,28 @@ function resolveJimengReferenceAudioFileName(
   return sanitizeJimengReferenceFileName(`jimeng-audio-${index + 1}.${extension}`);
 }
 
-async function prepareJimengReferenceImages(
+function resolveJimengReferenceVideoFileName(
+  source: string,
+  dataUrl: string,
+  index: number
+): string {
+  const normalizedSource = source.trim();
+  const basename = normalizedSource
+    .split(/[\\/]/)
+    .pop()
+    ?.split('?')[0]
+    ?.split('#')[0]
+    ?.trim();
+
+  if (basename && basename.includes('.')) {
+    return sanitizeJimengReferenceFileName(basename);
+  }
+
+  const extension = resolveVideoDataUrlExtension(dataUrl);
+  return sanitizeJimengReferenceFileName(`jimeng-video-${index + 1}.${extension}`);
+}
+
+export async function prepareJimengReferenceImages(
   sources: string[] | undefined
 ): Promise<JimengReferenceImagePayload[]> {
   const uniqueSources = [...new Set((sources ?? []).map((source) => source.trim()).filter(Boolean))];
@@ -168,7 +201,7 @@ async function prepareJimengReferenceImages(
   );
 }
 
-async function prepareJimengReferenceAudios(
+export async function prepareJimengReferenceAudios(
   sources: string[] | undefined
 ): Promise<JimengReferenceAudioPayload[]> {
   const uniqueSources = [...new Set((sources ?? []).map((source) => source.trim()).filter(Boolean))];
@@ -187,45 +220,21 @@ async function prepareJimengReferenceAudios(
   );
 }
 
-export async function submitJimengTask(payload: JimengTaskSubmission): Promise<void> {
-  const chromeSessionPromise = ensureJimengChromeSession();
-  const referenceImagesPromise = prepareJimengReferenceImages(payload.referenceImageSources);
-  const referenceAudiosPromise = prepareJimengReferenceAudios(payload.referenceAudioSources);
-
-  await chromeSessionPromise;
-  const referenceImages = await referenceImagesPromise;
-  const referenceAudios = await referenceAudiosPromise;
-
-  await submitJimengChromeTask({
-    prompt: payload.prompt,
-    skipToolbarAutomation: true,
-    referenceImages,
-    referenceAudios,
-    autoSubmit: true,
-  });
-}
-
-export async function syncJimengDraftControls(
-  payload: JimengDraftSyncPayload,
-  options: {
-    revealIfHidden?: boolean;
-  } = {}
-): Promise<JimengInspectionReport | null> {
-  const panelStore = useJimengPanelStore.getState();
-  const revealIfHidden = options.revealIfHidden ?? false;
-
-  if (panelStore.mode === 'hidden' && !revealIfHidden) {
-    return null;
+export async function prepareJimengReferenceVideos(
+  sources: string[] | undefined
+): Promise<JimengReferenceVideoPayload[]> {
+  const uniqueSources = [...new Set((sources ?? []).map((source) => source.trim()).filter(Boolean))];
+  if (uniqueSources.length === 0) {
+    return [];
   }
 
-  const targetMode = resolveSubmitMode(panelStore.mode);
-
-  if (panelStore.mode === 'hidden') {
-    panelStore.setMode(targetMode);
-  }
-
-  return await syncJimengChromeDraftOptions<JimengInspectionReport>({
-    prompt: payload.prompt ?? '',
-    autoSubmit: false,
-  });
+  return await Promise.all(
+    uniqueSources.map(async (source, index) => {
+      const dataUrl = await videoUrlToDataUrl(source);
+      return {
+        fileName: resolveJimengReferenceVideoFileName(source, dataUrl, index),
+        dataUrl,
+      };
+    })
+  );
 }

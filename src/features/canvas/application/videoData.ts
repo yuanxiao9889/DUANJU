@@ -1,6 +1,11 @@
 import { isTauri } from '@tauri-apps/api/core';
 import { persistImageBinary, persistImageSource } from '@/commands/image';
-import { prepareNodeImage, reduceAspectRatio } from './imageData';
+import {
+  blobToDataUrl,
+  prepareNodeImage,
+  reduceAspectRatio,
+  resolveImageDisplayUrl,
+} from './imageData';
 
 export interface VideoMetadata {
   width: number;
@@ -26,14 +31,24 @@ const SUPPORTED_VIDEO_TYPES = [
   'video/x-msvideo',
   'video/x-matroska',
 ];
+const SUPPORTED_VIDEO_EXTENSION_PATTERN =
+  /\.(mp4|webm|ogv|mov|avi|mkv)$/i;
 const VIDEO_POSTER_MAX_DIMENSION = 960;
 
+function normalizeVideoMimeType(mimeType: string): string {
+  return mimeType.split(';', 1)[0]?.trim().toLowerCase() ?? '';
+}
+
 export function isSupportedVideoType(mimeType: string): boolean {
-  return SUPPORTED_VIDEO_TYPES.includes(mimeType.toLowerCase());
+  return SUPPORTED_VIDEO_TYPES.includes(normalizeVideoMimeType(mimeType));
+}
+
+export function isSupportedVideoFile(file: File): boolean {
+  return isSupportedVideoType(file.type) || SUPPORTED_VIDEO_EXTENSION_PATTERN.test(file.name);
 }
 
 function resolveVideoExtension(file: File): string {
-  const mime = file.type.toLowerCase();
+  const mime = normalizeVideoMimeType(file.type);
   if (mime === 'video/mp4') return 'mp4';
   if (mime === 'video/webm') return 'webm';
   if (mime === 'video/ogg') return 'ogv';
@@ -52,6 +67,10 @@ function resolveVideoExtension(file: File): string {
 
 export function getVideoMetadata(file: File): Promise<VideoMetadata> {
   return getVideoMetadataAndPoster(file).then((result) => result.metadata);
+}
+
+export function resolveVideoDisplayUrl(videoUrl: string): string {
+  return resolveImageDisplayUrl(videoUrl);
 }
 
 async function getVideoMetadataAndPoster(
@@ -145,8 +164,8 @@ async function prepareVideoPoster(posterDataUrl: string | null): Promise<string 
 }
 
 export async function prepareNodeVideoFromFile(file: File): Promise<PreparedVideo> {
-  if (!isSupportedVideoType(file.type)) {
-    throw new Error(`Unsupported video type: ${file.type}`);
+  if (!isSupportedVideoFile(file)) {
+    throw new Error(`Unsupported video type: ${file.type || file.name}`);
   }
 
   const { metadata, posterDataUrl } = await getVideoMetadataAndPoster(file);
@@ -364,18 +383,22 @@ async function createCaptureSourceObjectUrl(source: string): Promise<{
     throw new Error('Video source is empty');
   }
 
-  const normalizedSource = trimmedSource.toLowerCase();
-  if (normalizedSource.startsWith('blob:') || normalizedSource.startsWith('data:')) {
+  const displaySource = resolveVideoDisplayUrl(trimmedSource);
+  const normalizedDisplaySource = displaySource.toLowerCase();
+  if (
+    normalizedDisplaySource.startsWith('blob:')
+    || normalizedDisplaySource.startsWith('data:')
+  ) {
     return { captureSource: trimmedSource };
   }
 
   if (
-    normalizedSource.startsWith('http://') ||
-    normalizedSource.startsWith('https://') ||
-    normalizedSource.startsWith('asset:') ||
-    normalizedSource.startsWith('tauri:')
+    normalizedDisplaySource.startsWith('http://')
+    || normalizedDisplaySource.startsWith('https://')
+    || normalizedDisplaySource.startsWith('asset:')
+    || normalizedDisplaySource.startsWith('tauri:')
   ) {
-    const response = await fetch(trimmedSource);
+    const response = await fetch(displaySource);
     if (!response.ok) {
       throw new Error(`Failed to fetch video source (${response.status})`);
     }
@@ -388,7 +411,7 @@ async function createCaptureSourceObjectUrl(source: string): Promise<{
     };
   }
 
-  return { captureSource: trimmedSource };
+  return { captureSource: displaySource };
 }
 
 export async function captureVideoFrameFromSource(
@@ -411,6 +434,29 @@ export async function captureVideoFrameFromSource(
     return captureVideoFrame(video, maxDimension);
   } finally {
     cleanupVideoElement(video);
+    revoke?.();
+  }
+}
+
+export async function videoUrlToDataUrl(videoUrl: string): Promise<string> {
+  const trimmedVideoUrl = videoUrl.trim();
+  if (!trimmedVideoUrl) {
+    throw new Error('Video source is empty');
+  }
+
+  if (trimmedVideoUrl.startsWith('data:')) {
+    return trimmedVideoUrl;
+  }
+
+  const { captureSource, revoke } = await createCaptureSourceObjectUrl(trimmedVideoUrl);
+  try {
+    const response = await fetch(captureSource);
+    if (!response.ok) {
+      throw new Error(`Failed to load video data (${response.status})`);
+    }
+
+    return await blobToDataUrl(await response.blob());
+  } finally {
     revoke?.();
   }
 }

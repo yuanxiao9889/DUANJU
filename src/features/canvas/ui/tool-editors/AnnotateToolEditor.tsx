@@ -15,6 +15,7 @@ import {
 import type { KonvaEventObject } from 'konva/lib/Node';
 import type Konva from 'konva';
 
+import { createUiRangeStyle } from '@/components/ui/rangeStyle';
 import type { ToolOptions } from '@/features/canvas/tools';
 import {
   normalizeAnnotationRect,
@@ -1014,6 +1015,12 @@ export function AnnotateToolEditor({ options, onOptionsChange, sourceImageUrl }:
                   step={0.1}
                   value={Number(lineWidthPercent.toFixed(1))}
                   onChange={(event) => handleStyleInputChange({ lineWidthPercent: Number(event.target.value) })}
+                  className="ui-range w-32"
+                  style={createUiRangeStyle(
+                    Number(lineWidthPercent.toFixed(1)),
+                    MIN_LINE_WIDTH_PERCENT,
+                    MAX_LINE_WIDTH_PERCENT,
+                  )}
                 />
                 <span className="w-10 text-xs text-text-muted">{lineWidthPercent.toFixed(1)}%</span>
               </>

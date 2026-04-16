@@ -16,6 +16,7 @@ import {
   UiButton,
   UiIconButton,
   UiInput,
+  UiLoadingAnimation,
   UiModal,
   UiPanel,
   UiSelect,
@@ -581,6 +582,7 @@ interface AssetEditorDialogProps {
     mimeType: string | null;
     durationMs: number | null;
     aspectRatio: string;
+    metadata: AssetItemRecord['metadata'];
   }) => Promise<void>;
 }
 
@@ -734,6 +736,7 @@ function AssetEditorDialog({ library, state, onClose, onConfirm }: AssetEditorDi
                 mimeType,
                 durationMs,
                 aspectRatio,
+                metadata: state?.mode === 'edit' ? state.asset.metadata : null,
               })
             }
           >
@@ -955,6 +958,7 @@ export function AssetManagerTab() {
     mimeType: string | null;
     durationMs: number | null;
     aspectRatio: string;
+    metadata: AssetItemRecord['metadata'];
   }) => {
     if (!selectedLibrary) {
       return;
@@ -975,6 +979,7 @@ export function AssetManagerTab() {
         mimeType: payload.mimeType,
         durationMs: payload.durationMs,
         aspectRatio: payload.aspectRatio,
+        metadata: payload.metadata,
       });
     } else {
       await createItem({
@@ -990,6 +995,7 @@ export function AssetManagerTab() {
         mimeType: payload.mimeType,
         durationMs: payload.durationMs,
         aspectRatio: payload.aspectRatio,
+        metadata: payload.metadata,
       });
     }
 
@@ -1019,6 +1025,7 @@ export function AssetManagerTab() {
             mimeType: prepared.mimeType,
             durationMs: Math.round(prepared.duration * 1000),
             aspectRatio: '1:1',
+            metadata: null,
           });
           continue;
         }
@@ -1037,6 +1044,7 @@ export function AssetManagerTab() {
           mimeType: file.type.trim() || null,
           durationMs: null,
           aspectRatio: prepared.aspectRatio,
+          metadata: null,
         });
       } catch (error) {
         console.error('Failed to import dropped asset image', {
@@ -1218,9 +1226,7 @@ export function AssetManagerTab() {
         </>
       )}
 
-      {isLoading ? (
-        <div className="text-sm text-text-muted">{t('common.loading')}</div>
-      ) : null}
+      {isLoading ? <UiLoadingAnimation size="md" /> : null}
 
       <LibraryNameDialog
         state={libraryDialogState}

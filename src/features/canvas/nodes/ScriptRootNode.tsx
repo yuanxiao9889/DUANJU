@@ -35,7 +35,7 @@ export const ScriptRootNode = memo(({ id, data, selected }: ScriptRootNodeProps)
           : 'border-amber-500/20 hover:border-amber-500/40'
       }`}
       style={{
-        background: 'linear-gradient(135deg, rgba(245,158,11,0.1) 0%, rgba(15,23,42,0.95) 50%, rgba(15,23,42,0.98) 100%)',
+        background: 'linear-gradient(135deg, rgb(79 52 10) 0%, rgb(15 23 42) 50%, rgb(15 23 42) 100%)',
       }}
     >
       <Handle

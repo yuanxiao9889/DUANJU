@@ -3,6 +3,7 @@ import { ZoomIn, ZoomOut } from 'lucide-react';
 
 import { resolveImageDisplayUrl } from '@/features/canvas/application/imageData';
 import { UiInput, UiButton } from '@/components/ui';
+import { createUiRangeStyle } from '@/components/ui/rangeStyle';
 import type { VisualToolEditorProps } from './types';
 
 const MIN_GRID_SIZE = 1;
@@ -210,6 +211,33 @@ function formatPercent(value: number): string {
   return `${Number.isInteger(value) ? value.toFixed(0) : value.toFixed(1)}%`;
 }
 
+function normalizeRatios(value: unknown, segments: number): number[] {
+  if (!Array.isArray(value) || value.length !== segments) {
+    return [];
+  }
+
+  const numericRatios = value.map((item) => toFiniteNumber(item, Number.NaN));
+  if (numericRatios.some((ratio) => !Number.isFinite(ratio) || ratio <= 0)) {
+    return [];
+  }
+
+  const total = numericRatios.reduce((sum, ratio) => sum + ratio, 0);
+  if (!(total > 0)) {
+    return [];
+  }
+
+  let allocated = 0;
+  return numericRatios.map((ratio, index) => {
+    if (index === numericRatios.length - 1) {
+      return clampDecimal(100 - allocated, 0, 100, 0);
+    }
+
+    const normalized = clampDecimal((ratio / total) * 100, 0, 100, 0);
+    allocated += normalized;
+    return normalized;
+  });
+}
+
 interface NumberStepperProps {
   label: string;
   value: number;
@@ -265,9 +293,6 @@ export function SplitStoryboardToolEditor({ sourceImageUrl, options, onOptionsCh
   const [pan, setPan] = useState({ x: 0, y: 0 });
   const [isPanning, setIsPanning] = useState(false);
   const [panStart, setPanStart] = useState({ x: 0, y: 0 });
-  
-  const [colRatios, setColRatios] = useState<number[]>([]);
-  const [rowRatios, setRowRatios] = useState<number[]>([]);
   const [draggingLine, setDraggingLine] = useState<{
     type: 'horizontal' | 'vertical';
     index: number;
@@ -280,12 +305,12 @@ export function SplitStoryboardToolEditor({ sourceImageUrl, options, onOptionsCh
     setNaturalSize(null);
     setZoom(1);
     setPan({ x: 0, y: 0 });
-    setColRatios([]);
-    setRowRatios([]);
   }, [displaySourceImageUrl]);
 
   const rows = clampInteger(toFiniteNumber(options.rows, 3), MIN_GRID_SIZE, MAX_GRID_SIZE);
   const cols = clampInteger(toFiniteNumber(options.cols, 3), MIN_GRID_SIZE, MAX_GRID_SIZE);
+  const colRatios = useMemo(() => normalizeRatios(options.colRatios, cols), [cols, options.colRatios]);
+  const rowRatios = useMemo(() => normalizeRatios(options.rowRatios, rows), [options.rowRatios, rows]);
 
   const legacyLineThicknessPx = Math.max(0, toFiniteNumber(options.lineThickness, LEGACY_DEFAULT_LINE_THICKNESS_PX));
   const maxLineThicknessPercent = useMemo(() => {
@@ -352,6 +377,17 @@ export function SplitStoryboardToolEditor({ sourceImageUrl, options, onOptionsCh
       rowRatios.length === rows ? rowRatios : undefined
     );
   }, [cols, lineThicknessPx, naturalSize, rows, colRatios, rowRatios]);
+
+  const commitRatios = useCallback(
+    (nextColRatios: number[], nextRowRatios: number[]) => {
+      onOptionsChange({
+        ...options,
+        colRatios: nextColRatios,
+        rowRatios: nextRowRatios,
+      });
+    },
+    [onOptionsChange, options]
+  );
 
   const updateOptions = useCallback(
     (patch: Partial<Record<'rows' | 'cols' | 'lineThicknessPercent', number>>) => {
@@ -476,7 +512,7 @@ export function SplitStoryboardToolEditor({ sourceImageUrl, options, onOptionsCh
   }, [colRatios, rowRatios, cols, rows]);
 
   const handleLineDragMove = useCallback((e: React.MouseEvent) => {
-    if (!draggingLine || !naturalSize || !previewContainerRef.current) return;
+    if (!draggingLine || !previewContainerRef.current) return;
 
     const imageElement = previewContainerRef.current.querySelector('img');
     const imageRect = imageElement?.getBoundingClientRect();
@@ -500,7 +536,7 @@ export function SplitStoryboardToolEditor({ sourceImageUrl, options, onOptionsCh
         if (nextRatio >= 5) {
           currentRatios[draggingLine.index] = newRatio;
           currentRatios[draggingLine.index + 1] = nextRatio;
-          setColRatios(currentRatios);
+          commitRatios(currentRatios, rowRatios);
         }
       }
     } else {
@@ -517,22 +553,21 @@ export function SplitStoryboardToolEditor({ sourceImageUrl, options, onOptionsCh
         if (nextRatio >= 5) {
           currentRatios[draggingLine.index] = newRatio;
           currentRatios[draggingLine.index + 1] = nextRatio;
-          setRowRatios(currentRatios);
+          commitRatios(colRatios, currentRatios);
         }
       }
     }
     
     setDraggingLine(prev => prev ? { ...prev, startX: e.clientX, startY: e.clientY } : null);
-  }, [draggingLine, naturalSize, colRatios, rowRatios, cols, rows]);
+  }, [colRatios, commitRatios, cols, draggingLine, rowRatios, rows]);
 
   const handleLineDragEnd = useCallback(() => {
     setDraggingLine(null);
   }, []);
 
   const handleResetRatios = useCallback(() => {
-    setColRatios([]);
-    setRowRatios([]);
-  }, []);
+    commitRatios([], []);
+  }, [commitRatios]);
 
   useEffect(() => {
     const handleGlobalMouseMove = (e: MouseEvent) => {
@@ -711,7 +746,6 @@ export function SplitStoryboardToolEditor({ sourceImageUrl, options, onOptionsCh
             max={MAX_GRID_SIZE}
             onChange={(value) => {
               updateOptions({ rows: value });
-              setRowRatios([]);
             }}
           />
           <NumberStepper
@@ -721,7 +755,6 @@ export function SplitStoryboardToolEditor({ sourceImageUrl, options, onOptionsCh
             max={MAX_GRID_SIZE}
             onChange={(value) => {
               updateOptions({ cols: value });
-              setColRatios([]);
             }}
           />
         </div>
@@ -741,7 +774,8 @@ export function SplitStoryboardToolEditor({ sourceImageUrl, options, onOptionsCh
             step={0.1}
             value={lineThicknessPercent}
             onChange={(event) => updateOptions({ lineThicknessPercent: Number(event.target.value) })}
-            className="h-2 w-full cursor-pointer appearance-none rounded-full bg-white/15"
+            className="ui-range"
+            style={createUiRangeStyle(lineThicknessPercent, 0, Math.max(0, maxLineThicknessPercent))}
           />
           <UiInput
             type="number"

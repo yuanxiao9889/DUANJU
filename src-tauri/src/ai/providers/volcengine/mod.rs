@@ -293,7 +293,10 @@ impl VolcengineProvider {
         if !status.is_success() {
             return Err(AIError::Provider(
                 Self::extract_error_message(&payload).unwrap_or_else(|| {
-                    format!("Volcengine chat request failed {}: {}", status, response_text)
+                    format!(
+                        "Volcengine chat request failed {}: {}",
+                        status, response_text
+                    )
                 }),
             ));
         }

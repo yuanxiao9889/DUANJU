@@ -1,19 +1,22 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { NodeToolbar as ReactFlowNodeToolbar } from '@xyflow/react';
-import { Copy, Crop, Download, FolderOpen, PenLine, RefreshCw, Scissors, Trash2, Unlink2, Table, Upload, Sparkles, Send, Check, LayoutTemplate } from 'lucide-react';
+import { Copy, Crop, Download, FileText, FolderOpen, PenLine, RefreshCw, Save, Scissors, Trash2, Unlink2, Table, Upload, Sparkles, Send, Check, LayoutTemplate } from 'lucide-react';
 import { save } from '@tauri-apps/plugin-dialog';
 import { useTranslation } from 'react-i18next';
 
+import { UiLoadingAnimation } from '@/components/ui';
 import {
   NODE_TOOL_TYPES,
   isAudioNode,
   isExportImageNode,
   isGroupNode,
   isImageEditNode,
+  isPanorama360Node,
   isStoryboardGenNode,
   isStoryboardSplitNode,
   isStoryboardSplitResultNode,
   isUploadNode,
+  nodeSupportsDescriptionPanel,
   type CanvasNode,
   type NodeToolType,
 } from '@/features/canvas/domain/canvasNodes';
@@ -32,6 +35,7 @@ import { usePsIntegrationStore } from '@/stores/psIntegrationStore';
 import { UI_POPOVER_TRANSITION_MS } from '@/components/ui/motion';
 import { sanitizeStoryboardText } from '@/features/canvas/application/storyboardText';
 import { buildGenerationErrorReport } from '@/features/canvas/application/generationErrorReport';
+import { resolveConnectedTtsText } from '@/features/canvas/nodes/qwenTtsShared';
 import {
   NODE_TOOLBAR_ALIGN,
   NODE_TOOLBAR_CLASS,
@@ -83,7 +87,14 @@ export const NodeActionToolbar = memo(({ node }: NodeActionToolbarProps) => {
   const layoutGroupNode = useCanvasStore((state) => state.layoutGroupNode);
   const ungroupNode = useCanvasStore((state) => state.ungroupNode);
   const updateNodeData = useCanvasStore((state) => state.updateNodeData);
-  const canReupload = isUploadNode(node) && Boolean(node.data.imageUrl);
+  const isDescriptionPanelOpen = useCanvasStore(
+    (state) => Boolean(state.nodeDescriptionPanelOpenById[node.id])
+  );
+  const toggleNodeDescriptionPanel = useCanvasStore(
+    (state) => state.toggleNodeDescriptionPanel
+  );
+  const nodes = useCanvasStore((state) => state.nodes);
+  const edges = useCanvasStore((state) => state.edges);
   const downloadPresetPaths = useSettingsStore((state) => state.downloadPresetPaths);
   const ignoreAtTagWhenCopyingAndGenerating = useSettingsStore(
     (state) => state.ignoreAtTagWhenCopyingAndGenerating
@@ -100,7 +111,12 @@ export const NodeActionToolbar = memo(({ node }: NodeActionToolbarProps) => {
   const copyErrorFeedbackTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const downloadMenuCloseTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const imageSource = useMemo(() => {
-    if (isUploadNode(node) || isImageEditNode(node) || isExportImageNode(node)) {
+    if (
+      isUploadNode(node)
+      || isImageEditNode(node)
+      || isPanorama360Node(node)
+      || isExportImageNode(node)
+    ) {
       return node.data.imageUrl || node.data.previewImageUrl || null;
     }
     return null;
@@ -111,6 +127,31 @@ export const NodeActionToolbar = memo(({ node }: NodeActionToolbarProps) => {
     }
     return null;
   }, [node]);
+  const canSaveVoicePreset = useMemo(() => {
+    if (!isAudioNode(node)) {
+      return false;
+    }
+
+    const audioUrl = typeof node.data.audioUrl === 'string' ? node.data.audioUrl.trim() : '';
+    if (node.data.generationSource !== 'ttsVoiceDesign' || audioUrl.length === 0) {
+      return false;
+    }
+
+    const storedReferenceText =
+      typeof node.data.ttsPresetSource?.referenceText === 'string'
+        ? node.data.ttsPresetSource.referenceText.trim()
+        : '';
+    if (storedReferenceText.length > 0) {
+      return true;
+    }
+
+    const sourceNodeId = typeof node.data.sourceNodeId === 'string' ? node.data.sourceNodeId.trim() : '';
+    return sourceNodeId.length > 0 && resolveConnectedTtsText(sourceNodeId, nodes, edges).trim().length > 0;
+  }, [edges, node, nodes]);
+  const supportsDescriptionPanel = nodeSupportsDescriptionPanel(node);
+  const hasNodeDescription =
+    typeof node.data.nodeDescription === 'string'
+    && node.data.nodeDescription.trim().length > 0;
   const canHandleImage = Boolean(imageSource);
   const canAddToAssets = Boolean(imageSource || audioSource);
   const generationError =
@@ -134,11 +175,11 @@ export const NodeActionToolbar = memo(({ node }: NodeActionToolbarProps) => {
     && typeof (node.data as { generationProviderId?: unknown }).generationProviderId === 'string'
       ? ((node.data as { generationProviderId?: string }).generationProviderId ?? '').trim()
       : '';
-  const isGenerationPending =
+  const generationStartedAt =
     isExportResultImage
-    && typeof (node.data as { isGenerating?: unknown }).isGenerating === 'boolean'
-      ? (node.data as { isGenerating?: boolean }).isGenerating === true
-      : false;
+    && typeof (node.data as { generationStartedAt?: unknown }).generationStartedAt === 'number'
+      ? (node.data as { generationStartedAt?: number }).generationStartedAt ?? null
+      : null;
   const canRefetchGenerationResult =
     isExportResultImage && generationJobId.length > 0 && generationProviderId.length > 0;
   const generationErrorReport = useMemo(
@@ -299,17 +340,19 @@ export const NodeActionToolbar = memo(({ node }: NodeActionToolbarProps) => {
   }, [canCopyGenerationError, generationErrorReport]);
 
   const handleRefetchGenerationResult = useCallback(() => {
-    if (!canRefetchGenerationResult || isGenerationPending) {
+    if (!canRefetchGenerationResult) {
       return;
     }
 
+    const refreshRequestedAt = Date.now();
     updateNodeData(node.id, {
       isGenerating: true,
-      generationStartedAt: Date.now(),
+      generationStartedAt: generationStartedAt ?? refreshRequestedAt,
+      generationForceRefreshRequestedAt: refreshRequestedAt,
       generationError: null,
       generationErrorDetails: null,
     });
-  }, [canRefetchGenerationResult, isGenerationPending, node.id, updateNodeData]);
+  }, [canRefetchGenerationResult, generationStartedAt, node.id, updateNodeData]);
 
   const handleSendToPs = useCallback(async () => {
     if (!imageSource) {
@@ -408,18 +451,42 @@ export const NodeActionToolbar = memo(({ node }: NodeActionToolbarProps) => {
             </UiChipButton>
           );
         })}
-        {!isImageEdit && canReupload && (
+        {!isImageEdit && supportsDescriptionPanel && (
           <UiChipButton
-            key="upload-reupload"
-            className={`h-8 ${TOOLBAR_BUTTON_RADIUS_CLASS} px-2.5 text-xs ${TOOLBAR_NEUTRAL_BUTTON_CLASS}`}
-            onClick={() =>
-              canvasEventBus.publish('upload-node/reupload', {
-                nodeId: node.id,
-              })
+            key="node-description-toggle"
+            className={`h-8 ${TOOLBAR_BUTTON_RADIUS_CLASS} px-2.5 text-xs ${
+              isDescriptionPanelOpen || hasNodeDescription
+                ? '!border-accent/45 !bg-accent/15 !text-text-dark hover:!bg-accent/20'
+                : TOOLBAR_NEUTRAL_BUTTON_CLASS
+            }`}
+            title={
+              isDescriptionPanelOpen
+                ? t('nodeToolbar.collapseDescription')
+                : t('nodeToolbar.expandDescription')
             }
+            onClick={(event) => {
+              event.stopPropagation();
+              closeDownloadMenu();
+              toggleNodeDescriptionPanel(node.id);
+            }}
           >
-            <RefreshCw className="h-3.5 w-3.5" />
-            {t('nodeToolbar.reupload')}
+            <FileText className="h-3.5 w-3.5" />
+            {t('nodeToolbar.description')}
+          </UiChipButton>
+        )}
+        {!isImageEdit && canSaveVoicePreset && (
+          <UiChipButton
+            key="audio-save-preset"
+            className={`h-8 ${TOOLBAR_BUTTON_RADIUS_CLASS} px-2.5 text-xs ${TOOLBAR_NEUTRAL_BUTTON_CLASS}`}
+            onClick={(event) => {
+              event.stopPropagation();
+              canvasEventBus.publish('audio-node/open-save-preset', {
+                nodeId: node.id,
+              });
+            }}
+          >
+            <Save className="h-3.5 w-3.5" />
+            {t('node.audioNode.saveAsPreset')}
           </UiChipButton>
         )}
         {!isImageEdit && canAddToAssets && (
@@ -470,10 +537,9 @@ export const NodeActionToolbar = memo(({ node }: NodeActionToolbarProps) => {
               event.stopPropagation();
               handleRefetchGenerationResult();
             }}
-            disabled={isGenerationPending}
             title={t('node.imageNode.manualRefresh')}
           >
-            <RefreshCw className={`h-3.5 w-3.5 ${isGenerationPending ? 'animate-spin' : ''}`} />
+            <RefreshCw className="h-3.5 w-3.5" />
           </UiChipButton>
         )}
         {!isImageEdit && canHandleImage && (
@@ -517,7 +583,7 @@ export const NodeActionToolbar = memo(({ node }: NodeActionToolbarProps) => {
             title={psServerStatus.ps_connected ? t('nodeToolbar.sendToPs') : t('nodeToolbar.psNotConnected')}
           >
             {isSendingToPs ? (
-              <RefreshCw className="h-3.5 w-3.5 animate-spin" />
+              <UiLoadingAnimation size="xs" />
             ) : isPsSendSuccess ? (
               <Check className="h-3.5 w-3.5" />
             ) : (

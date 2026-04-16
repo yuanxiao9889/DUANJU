@@ -10,6 +10,12 @@ import {
   type StoryboardCompatibleModelConfig,
 } from './storyboardCompatible';
 import {
+  createStoryboardNewApiImageModel,
+  isStoryboardNewApiModelId,
+  STORYBOARD_NEWAPI_MODEL_ID,
+  type StoryboardNewApiModelConfig,
+} from './storyboardNewApi';
+import {
   createCustomStoryboardImageModels,
   isStoryboardCompatibleModelId,
   type CustomStoryboardModelEntry,
@@ -46,42 +52,62 @@ export const DEFAULT_IMAGE_MODEL_ID = 'kie/nano-banana-2';
 const imageModelAliasMap = new Map<string, string>([
   ['gemini-3.1-flash', 'ppio/gemini-3.1-flash'],
   ['gemini-3.1-flash-edit', 'ppio/gemini-3.1-flash'],
+  ['zhenzhen/nano-banana', 'zhenzhen/nano-banana-pro'],
+  ['zhenzhen/nano-banana-2', 'zhenzhen/nano-banana-pro'],
+  ['zhenzhen/nano-banana-2-2k', 'zhenzhen/nano-banana-pro'],
+  ['zhenzhen/nano-banana-hd', 'zhenzhen/nano-banana-pro'],
+  ['zhenzhen/nano-banana-2-4k', 'zhenzhen/nano-banana-pro'],
+  ['zhenzhen/nano-banana-pro-2k', 'zhenzhen/nano-banana-pro'],
+  ['zhenzhen/nano-banana-pro-4k', 'zhenzhen/nano-banana-pro'],
+  ['zhenzhen/gemini-3.1-flash-image-preview-4k', 'zhenzhen/gemini-3.1-flash-image-preview'],
 ]);
 
 function resolveCompatibleModelList(
   compatibleConfig?: StoryboardCompatibleModelConfig | null,
+  newApiConfig?: StoryboardNewApiModelConfig | null,
   customStoryboardModels?: Record<string, CustomStoryboardModelEntry[]> | null
 ): ImageModelDefinition[] {
   const customModels = createCustomStoryboardImageModels(
     customStoryboardModels,
-    compatibleConfig
+    compatibleConfig,
+    newApiConfig
   );
   const hasCompatibleCustomModels = customModels.some(
     (model) => model.providerId === 'compatible'
+  );
+  const hasNewApiCustomModels = customModels.some(
+    (model) => model.providerId === 'newapi'
   );
   const compatibleModel =
     hasCompatibleCustomModels
       ? null
       : createStoryboardCompatibleImageModel(compatibleConfig);
+  const newApiModel =
+    hasNewApiCustomModels
+      ? null
+      : createStoryboardNewApiImageModel(newApiConfig);
   return [
     ...imageModels,
     ...customModels,
     ...(compatibleModel ? [compatibleModel] : []),
+    ...(newApiModel ? [newApiModel] : []),
   ];
 }
 
 export function listImageModels(
   compatibleConfig?: StoryboardCompatibleModelConfig | null,
+  newApiConfig?: StoryboardNewApiModelConfig | null,
   customStoryboardModels?: Record<string, CustomStoryboardModelEntry[]> | null
 ): ImageModelDefinition[] {
-  return resolveCompatibleModelList(compatibleConfig, customStoryboardModels);
+  return resolveCompatibleModelList(compatibleConfig, newApiConfig, customStoryboardModels);
 }
 
 export function listStoryboardImageModels(
   compatibleConfig?: StoryboardCompatibleModelConfig | null,
+  newApiConfig?: StoryboardNewApiModelConfig | null,
   customStoryboardModels?: Record<string, CustomStoryboardModelEntry[]> | null
 ): ImageModelDefinition[] {
-  return resolveCompatibleModelList(compatibleConfig, customStoryboardModels);
+  return resolveCompatibleModelList(compatibleConfig, newApiConfig, customStoryboardModels);
 }
 
 export function listModelProviders(): ModelProviderDefinition[] {
@@ -91,6 +117,7 @@ export function listModelProviders(): ModelProviderDefinition[] {
 function resolveImageModel(
   modelId: string,
   compatibleConfig?: StoryboardCompatibleModelConfig | null,
+  newApiConfig?: StoryboardNewApiModelConfig | null,
   customStoryboardModels?: Record<string, CustomStoryboardModelEntry[]> | null
 ): ImageModelDefinition {
   const resolvedModelId = imageModelAliasMap.get(modelId) ?? modelId;
@@ -100,9 +127,16 @@ function resolveImageModel(
       ?? imageModelMap.get(DEFAULT_IMAGE_MODEL_ID)!
     );
   }
+  if (resolvedModelId === STORYBOARD_NEWAPI_MODEL_ID) {
+    return (
+      createStoryboardNewApiImageModel(newApiConfig)
+      ?? imageModelMap.get(DEFAULT_IMAGE_MODEL_ID)!
+    );
+  }
 
   const dynamicModel = resolveCompatibleModelList(
     compatibleConfig,
+    newApiConfig,
     customStoryboardModels
   ).find((model) => model.id === resolvedModelId);
   if (dynamicModel) {
@@ -115,6 +149,12 @@ function resolveImageModel(
       ?? imageModelMap.get(DEFAULT_IMAGE_MODEL_ID)!
     );
   }
+  if (isStoryboardNewApiModelId(resolvedModelId)) {
+    return (
+      createStoryboardNewApiImageModel(newApiConfig)
+      ?? imageModelMap.get(DEFAULT_IMAGE_MODEL_ID)!
+    );
+  }
 
   return imageModelMap.get(resolvedModelId) ?? imageModelMap.get(DEFAULT_IMAGE_MODEL_ID)!;
 }
@@ -122,17 +162,19 @@ function resolveImageModel(
 export function getImageModel(
   modelId: string,
   compatibleConfig?: StoryboardCompatibleModelConfig | null,
+  newApiConfig?: StoryboardNewApiModelConfig | null,
   customStoryboardModels?: Record<string, CustomStoryboardModelEntry[]> | null
 ): ImageModelDefinition {
-  return resolveImageModel(modelId, compatibleConfig, customStoryboardModels);
+  return resolveImageModel(modelId, compatibleConfig, newApiConfig, customStoryboardModels);
 }
 
 export function getStoryboardImageModel(
   modelId: string,
   compatibleConfig?: StoryboardCompatibleModelConfig | null,
+  newApiConfig?: StoryboardNewApiModelConfig | null,
   customStoryboardModels?: Record<string, CustomStoryboardModelEntry[]> | null
 ): ImageModelDefinition {
-  return resolveImageModel(modelId, compatibleConfig, customStoryboardModels);
+  return resolveImageModel(modelId, compatibleConfig, newApiConfig, customStoryboardModels);
 }
 
 export function resolveImageModelResolutions(

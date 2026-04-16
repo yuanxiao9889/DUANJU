@@ -10,6 +10,9 @@ import {
   parseAspectRatio,
   persistImageLocally,
 } from './imageData';
+import { prepareNodeAudioFromFile } from './audioData';
+import { trimMediaSource } from './mediaTrim';
+import { prepareNodeVideoFromFile } from './videoData';
 import { cropImageSource, readStoryboardImageMetadata } from '@/commands/image';
 import { drawAnnotations, parseAnnotationItems } from '../tools/annotation';
 import type {
@@ -48,9 +51,7 @@ export class CanvasToolProcessor implements ToolProcessor {
 
     switch (toolType) {
       case NODE_TOOL_TYPES.crop:
-        return {
-          outputImageUrl: await this.cropImage(sourceImageUrl, options),
-        };
+        return await this.cropSource(sourceImageUrl, options);
       case NODE_TOOL_TYPES.annotate:
         // Keep annotate on frontend for now because it supports free-form vector annotations.
         // Prefer local source first to avoid CORS taint and repeated remote fetches.
@@ -63,6 +64,24 @@ export class CanvasToolProcessor implements ToolProcessor {
       default:
         throw new Error('不支持的工具类型');
     }
+  }
+
+  private async cropSource(
+    sourceImage: string,
+    options: Record<string, unknown>
+  ): Promise<ToolProcessorResult> {
+    const mediaType = typeof options.mediaType === 'string' ? options.mediaType : 'image';
+    if (mediaType === 'video') {
+      return await this.trimVideo(sourceImage, options);
+    }
+
+    if (mediaType === 'audio') {
+      return await this.trimAudio(sourceImage, options);
+    }
+
+    return {
+      outputImageUrl: await this.cropImage(sourceImage, options),
+    };
   }
 
   private async cropImage(sourceImage: string, options: Record<string, unknown>): Promise<string> {
@@ -145,6 +164,72 @@ export class CanvasToolProcessor implements ToolProcessor {
     );
 
     return canvasToDataUrl(canvas);
+  }
+
+  private async trimVideo(
+    sourceVideo: string,
+    options: Record<string, unknown>
+  ): Promise<ToolProcessorResult> {
+    const trimmedMedia = await trimMediaSource(
+      sourceVideo,
+      'video',
+      Number(options.startTime ?? 0),
+      Number(options.endTime ?? 0)
+    );
+    const outputFileName = this.buildTrimmedFileName(
+      String(options.fileName ?? 'video'),
+      trimmedMedia.extension
+    );
+    const outputFile = new File([trimmedMedia.blob], outputFileName, {
+      type: trimmedMedia.mimeType || 'video/webm',
+    });
+    const preparedVideo = await prepareNodeVideoFromFile(outputFile);
+
+    return {
+      outputVideoUrl: preparedVideo.videoUrl,
+      previewImageUrl: preparedVideo.previewImageUrl,
+      aspectRatio: preparedVideo.aspectRatio,
+      duration: preparedVideo.duration,
+      mimeType: outputFile.type,
+      outputFileName,
+    };
+  }
+
+  private async trimAudio(
+    sourceAudio: string,
+    options: Record<string, unknown>
+  ): Promise<ToolProcessorResult> {
+    const trimmedMedia = await trimMediaSource(
+      sourceAudio,
+      'audio',
+      Number(options.startTime ?? 0),
+      Number(options.endTime ?? 0)
+    );
+    const outputFileName = this.buildTrimmedFileName(
+      String(options.fileName ?? 'audio'),
+      trimmedMedia.extension
+    );
+    const outputFile = new File([trimmedMedia.blob], outputFileName, {
+      type: trimmedMedia.mimeType || 'audio/webm',
+    });
+    const preparedAudio = await prepareNodeAudioFromFile(outputFile);
+
+    return {
+      outputAudioUrl: preparedAudio.audioUrl,
+      previewImageUrl: preparedAudio.previewImageUrl,
+      duration: preparedAudio.duration,
+      mimeType: preparedAudio.mimeType,
+      outputFileName,
+    };
+  }
+
+  private buildTrimmedFileName(sourceFileName: string, extension: string): string {
+    const normalizedSourceFileName = sourceFileName.trim();
+    const fileNameWithoutExtension = normalizedSourceFileName.includes('.')
+      ? normalizedSourceFileName.replace(/\.[^.]+$/, '')
+      : normalizedSourceFileName;
+    const baseName = fileNameWithoutExtension || 'clip';
+    return `${baseName}-clip.${extension}`;
   }
 
   private async annotateImage(

@@ -1,10 +1,19 @@
 import { useState, useCallback, useEffect, useMemo, type KeyboardEvent as ReactKeyboardEvent } from 'react';
-import { X, Eye, EyeOff, FolderOpen, Plus, Trash2, Maximize2, Minimize2, HardDrive, Loader2, Circle, Keyboard, RotateCcw } from 'lucide-react';
-import { Trans, useTranslation } from 'react-i18next';
+import { X, Eye, EyeOff, FolderOpen, Plus, Trash2, Maximize2, Minimize2, HardDrive, Circle, Keyboard, RotateCcw, ChevronDown, ChevronRight } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
 import { getVersion } from '@tauri-apps/api/app';
 import { open } from '@tauri-apps/plugin-dialog';
 import { openPath } from '@tauri-apps/plugin-opener';
+import {
+  checkDreaminaCliUpdate,
+  checkDreaminaCliStatus,
+  logoutDreaminaCli,
+  updateDreaminaCli,
+  type DreaminaCliUpdateInfoResponse,
+  type DreaminaCliStatusResponse,
+} from '@/commands/dreaminaCli';
 import { useSettingsStore } from '@/stores/settingsStore';
+import { useProjectStore } from '@/stores/projectStore';
 import { usePsIntegrationStore } from '@/stores/psIntegrationStore';
 import { testProviderConnection } from '@/commands/textGen';
 import { 
@@ -19,9 +28,11 @@ import {
   type DatabaseBackupRecord,
   type StorageInfo 
 } from '@/commands/storage';
-import { UiCheckbox, UiInput, UiModal, UiSelect } from '@/components/ui';
+import { UiCheckbox, UiLoadingAnimation, UiModal, UiSelect } from '@/components/ui';
 import { UI_CONTENT_OVERLAY_INSET_CLASS, UI_DIALOG_TRANSITION_MS } from '@/components/ui/motion';
 import { useDialogTransition } from '@/components/ui/useDialogTransition';
+import { useDraggableDialog } from '@/components/ui/useDraggableDialog';
+import { ProviderModelSettingsSection } from '@/components/settings/ProviderModelSettingsSection';
 import {
   getCustomScriptModels,
   getCustomStoryboardModels,
@@ -33,17 +44,18 @@ import {
   resolveScriptModelOptions,
   SCRIPT_COMPATIBLE_PROVIDER_ID,
   resolveStoryboardCompatibleModelConfigForModel,
+  resolveStoryboardNewApiModelConfigForModel,
   toStoryboardProviderModelId,
   upsertCustomScriptModelEntry,
   type CustomScriptModelEntry,
   type CustomStoryboardModelEntry,
+  type ModelProviderDefinition,
   type ScriptCompatibleProviderConfig,
-  STORYBOARD_COMPATIBLE_API_FORMATS,
   listModelProviders,
-  type StoryboardCompatibleApiFormat,
+  normalizeStoryboardNewApiModelConfig,
+  type StoryboardNewApiModelConfig,
   upsertCustomStoryboardModelEntry,
 } from '@/features/canvas/models';
-import { GRSAI_NANO_BANANA_PRO_MODEL_OPTIONS } from '@/features/canvas/models/providers/grsai';
 import { GRSAI_CREDIT_TIERS } from '@/features/canvas/pricing/types';
 import type { SettingsCategory } from '@/features/settings/settingsEvents';
 import {
@@ -51,6 +63,7 @@ import {
   formatShortcutForDisplay,
   getShortcutFromKeyboardEvent,
 } from '@/features/settings/keyboardShortcuts';
+import { openDreaminaSetupDialog } from '@/features/jimeng/dreaminaSetupDialogEvents';
 import {
   RELEASE_NOTES,
   RELEASE_NOTE_SECTION_ORDER,
@@ -71,6 +84,107 @@ interface SettingsCheckboxCardProps {
   onCheckedChange: (checked: boolean) => void;
 }
 
+type ProviderTab = 'script' | 'storyboard';
+
+interface ProviderGroupConfig {
+  id: string;
+  labelKey: string;
+  providerIds?: readonly string[];
+  includeRemaining?: boolean;
+  defaultCollapsed?: boolean;
+}
+
+interface ResolvedProviderGroup extends ProviderGroupConfig {
+  providers: ModelProviderDefinition[];
+}
+
+const SCRIPT_PROVIDER_GROUP_CONFIGS: ProviderGroupConfig[] = [
+  {
+    id: 'official',
+    labelKey: 'settings.providerGroupOfficial',
+    providerIds: ['alibaba', 'coding', 'volcengine'],
+    defaultCollapsed: false,
+  },
+  {
+    id: 'thirdParty',
+    labelKey: 'settings.providerGroupThirdParty',
+    includeRemaining: true,
+    defaultCollapsed: true,
+  },
+];
+
+const STORYBOARD_PROVIDER_GROUP_CONFIGS: ProviderGroupConfig[] = [
+  {
+    id: 'preferred',
+    labelKey: 'settings.providerGroupPreferred',
+    providerIds: ['grsai'],
+    defaultCollapsed: false,
+  },
+  {
+    id: 'stable',
+    labelKey: 'settings.providerGroupStable',
+    providerIds: ['kie', 'ppio', 'fal', 'volcengine'],
+    defaultCollapsed: true,
+  },
+  {
+    id: 'cheap',
+    labelKey: 'settings.providerGroupAffordable',
+    providerIds: ['azemm', 'zhenzhen', 'comfly', 'bltcy', 'runninghub'],
+    defaultCollapsed: true,
+  },
+  {
+    id: 'other',
+    labelKey: 'settings.providerGroupOther',
+    includeRemaining: true,
+    defaultCollapsed: true,
+  },
+];
+
+function resolveProviderGroups(
+  providers: ModelProviderDefinition[],
+  configs: ProviderGroupConfig[]
+): ResolvedProviderGroup[] {
+  const providerMap = new Map(providers.map((provider) => [provider.id, provider]));
+  const usedProviderIds = new Set<string>();
+
+  return configs
+    .map((config) => {
+      const groupedProviders = config.includeRemaining
+        ? providers.filter((provider) => !usedProviderIds.has(provider.id))
+        : (config.providerIds ?? [])
+          .map((providerId) => providerMap.get(providerId))
+          .filter((provider): provider is ModelProviderDefinition => Boolean(provider));
+
+      groupedProviders.forEach((provider) => usedProviderIds.add(provider.id));
+
+      return {
+        ...config,
+        providers: groupedProviders,
+      };
+    })
+    .filter((group) => group.providers.length > 0);
+}
+
+function buildProviderGroupCollapseKey(tab: ProviderTab, groupId: string): string {
+  return `${tab}:${groupId}`;
+}
+
+function buildDefaultProviderGroupCollapseState(): Record<string, boolean> {
+  const nextState: Record<string, boolean> = {};
+
+  for (const config of SCRIPT_PROVIDER_GROUP_CONFIGS) {
+    nextState[buildProviderGroupCollapseKey('script', config.id)] = Boolean(config.defaultCollapsed);
+  }
+
+  for (const config of STORYBOARD_PROVIDER_GROUP_CONFIGS) {
+    nextState[buildProviderGroupCollapseKey('storyboard', config.id)] = Boolean(config.defaultCollapsed);
+  }
+
+  return nextState;
+}
+
+const DEFAULT_PROVIDER_GROUP_COLLAPSE_STATE = buildDefaultProviderGroupCollapseState();
+
 const RELEASE_NOTE_SECTION_LABEL_KEYS: Record<ReleaseNoteSectionKey, string> = {
   added: 'settings.releaseSectionAdded',
   optimized: 'settings.releaseSectionOptimized',
@@ -88,6 +202,7 @@ const PROVIDER_REGISTER_URLS: Record<string, string> = {
   fal: 'https://fal.ai',
   alibaba: 'https://bailian.console.aliyun.com',
   coding: 'https://bailian.console.aliyun.com',
+  azemm: 'https://api.azemm.top',
   comfly: 'https://ai.comfly.chat/register?aff=25c82943753',
   zhenzhen: 'https://ai.t8star.cn/register?aff=9d51cc44298',
   bltcy: 'https://api.bltcy.ai/register?aff=z9mi114199',
@@ -101,6 +216,7 @@ const PROVIDER_GET_KEY_URLS: Record<string, string> = {
   fal: 'https://fal.ai/dashboard/keys',
   alibaba: 'https://bailian.console.aliyun.com/cn-beijing/#/api-key',
   coding: 'https://bailian.console.aliyun.com/cn-beijing/#/api-key',
+  azemm: 'https://api.azemm.top',
   comfly: 'https://ai.comfly.chat/register?aff=25c82943753',
   zhenzhen: 'https://ai.t8star.cn/register?aff=9d51cc44298',
   bltcy: 'https://api.bltcy.ai/register?aff=z9mi114199',
@@ -111,30 +227,11 @@ const DEFAULT_PROVIDER_TEST_MODELS: Record<string, string> = {
   ppio: 'ppio/gemini-3.1-flash',
   kie: 'kie/nano-banana-2',
   fal: 'fal/nano-banana-2',
-  comfly: 'comfly/gemini-3.1-flash-image-preview-4k',
-  zhenzhen: 'zhenzhen/gemini-3.1-flash-image-preview-4k',
+  azemm: 'azemm/gemini-3.1-flash-image-preview',
+  comfly: 'comfly/gemini-3.1-flash-image-preview',
+  zhenzhen: 'zhenzhen/gemini-3.1-flash-image-preview',
   bltcy: 'bltcy/gemini-3.1-flash-image-preview-4k',
 };
-
-const STORYBOARD_COMPATIBLE_FORMAT_LABEL_KEYS: Record<
-  StoryboardCompatibleApiFormat,
-  string
-> = {
-  'openai-generations': 'settings.storyboardCompatibleFormatOpenaiGenerations',
-  'openai-edits': 'settings.storyboardCompatibleFormatOpenaiEdits',
-  'openai-chat': 'settings.storyboardCompatibleFormatOpenaiChat',
-  'gemini-generate-content': 'settings.storyboardCompatibleFormatGeminiGenerateContent',
-};
-
-function resolveCompatibleEndpointPlaceholder(
-  apiFormat: StoryboardCompatibleApiFormat
-): string {
-  if (apiFormat === 'gemini-generate-content') {
-    return 'https://generativelanguage.googleapis.com';
-  }
-
-  return 'https://api.openai.com';
-}
 
 function resolveDatabaseBackupKindLabel(
   t: (key: string) => string,
@@ -207,7 +304,8 @@ export function SettingsDialog({
 }: SettingsDialogProps) {
   const { t, i18n } = useTranslation();
   const {
-    apiKeys,
+    scriptApiKeys,
+    storyboardApiKeys,
     scriptProviderEnabled,
     scriptModelOverrides,
     scriptProviderCustomModels,
@@ -216,6 +314,7 @@ export function SettingsDialog({
     storyboardProviderCustomModels,
     hrsaiNanoBananaProModel,
     storyboardCompatibleModelConfig,
+    storyboardNewApiModelConfig,
     downloadPresetPaths,
     useUploadFilenameAsNodeTitle,
     storyboardGenKeepStyleConsistent,
@@ -234,7 +333,9 @@ export function SettingsDialog({
     themeTonePreset,
     accentColor,
     canvasEdgeRoutingMode,
-    setProviderApiKey,
+    autoUpdateDreaminaCliOnLaunch,
+    setScriptProviderApiKey,
+    setStoryboardProviderApiKey,
     setScriptProviderEnabled,
     setScriptModelOverride,
     setScriptProviderCustomModels,
@@ -243,6 +344,7 @@ export function SettingsDialog({
     setStoryboardProviderCustomModels,
     setGrsaiNanoBananaProModel,
     setStoryboardCompatibleModelConfig,
+    setStoryboardNewApiModelConfig,
     setDownloadPresetPaths,
     setUseUploadFilenameAsNodeTitle,
     setStoryboardGenKeepStyleConsistent,
@@ -261,6 +363,7 @@ export function SettingsDialog({
     setThemeTonePreset,
     setAccentColor,
     setCanvasEdgeRoutingMode,
+    setAutoUpdateDreaminaCliOnLaunch,
     psIntegrationEnabled,
     psServerPort,
     psAutoStartServer,
@@ -281,6 +384,7 @@ export function SettingsDialog({
       'ppio',
       'fal',
       'grsai',
+      'azemm',
       'comfly',
       'zhenzhen',
       'bltcy',
@@ -289,6 +393,7 @@ export function SettingsDialog({
       'alibaba',
       'coding',
       'compatible',
+      'newapi',
     ];
     const providerIndex = new Map(providerOrder.map((id, index) => [id, index]));
     return listModelProviders().slice().sort((left, right) => {
@@ -299,12 +404,21 @@ export function SettingsDialog({
   }, []);
   const scriptProviders = useMemo(() => listScriptProviders(providers), [providers]);
   const storyboardProviders = useMemo(
-    () => providers.filter((p) => p.id !== 'alibaba' && p.id !== 'coding' && p.id !== 'volcengine'),
+    () => providers.filter((p) => p.id !== 'alibaba' && p.id !== 'coding'),
     [providers]
   );
+  const scriptProviderGroups = useMemo(
+    () => resolveProviderGroups(scriptProviders, SCRIPT_PROVIDER_GROUP_CONFIGS),
+    [scriptProviders]
+  );
+  const storyboardProviderGroups = useMemo(
+    () => resolveProviderGroups(storyboardProviders, STORYBOARD_PROVIDER_GROUP_CONFIGS),
+    [storyboardProviders]
+  );
   const [activeCategory, setActiveCategory] = useState<SettingsCategory>(initialCategory);
-  const [localProviderTab, setLocalProviderTab] = useState<'script' | 'storyboard'>('script');
-  const [localApiKeys, setLocalApiKeys] = useState<Record<string, string>>(apiKeys);
+  const [localProviderTab, setLocalProviderTab] = useState<ProviderTab>('script');
+  const [localScriptApiKeys, setLocalScriptApiKeys] = useState<Record<string, string>>(scriptApiKeys);
+  const [localStoryboardApiKeys, setLocalStoryboardApiKeys] = useState<Record<string, string>>(storyboardApiKeys);
   const [localGrsaiNanoBananaProModel, setLocalGrsaiNanoBananaProModel] = useState(
    hrsaiNanoBananaProModel
   );
@@ -331,6 +445,10 @@ export function SettingsDialog({
     useState<Record<string, string>>({});
   const [localStoryboardCompatibleModelConfig, setLocalStoryboardCompatibleModelConfig] =
     useState(storyboardCompatibleModelConfig);
+  const [localStoryboardNewApiModelConfig, setLocalStoryboardNewApiModelConfig] =
+    useState<StoryboardNewApiModelConfig>(normalizeStoryboardNewApiModelConfig(
+      storyboardNewApiModelConfig
+    ));
   const [localDownloadPathInput, setLocalDownloadPathInput] = useState('');
   const [localDownloadPresetPaths, setLocalDownloadPresetPaths] = useState(downloadPresetPaths);
   const [localUseUploadFilenameAsNodeTitle, setLocalUseUploadFilenameAsNodeTitle] = useState(
@@ -364,9 +482,15 @@ export function SettingsDialog({
   const [localThemeTonePreset, setLocalThemeTonePreset] = useState(themeTonePreset);
   const [localAccentColor, setLocalAccentColor] = useState(accentColor);
   const [localCanvasEdgeRoutingMode, setLocalCanvasEdgeRoutingMode] = useState(canvasEdgeRoutingMode);
+  const [localAutoUpdateDreaminaCliOnLaunch, setLocalAutoUpdateDreaminaCliOnLaunch] = useState(
+    autoUpdateDreaminaCliOnLaunch
+  );
   const [localPsIntegrationEnabled, setLocalPsIntegrationEnabled] = useState(psIntegrationEnabled);
   const [localPsServerPort, setLocalPsServerPort] = useState(psServerPort);
   const [localPsAutoStartServer, setLocalPsAutoStartServer] = useState(psAutoStartServer);
+  const [collapsedProviderGroups, setCollapsedProviderGroups] = useState<Record<string, boolean>>(
+    () => ({ ...DEFAULT_PROVIDER_GROUP_COLLAPSE_STATE })
+  );
   const [revealedApiKeys, setRevealedApiKeys] = useState<Record<string, boolean>>({});
   const [testingConnection, setTestingConnection] = useState<string | null>(null);
   const [testResults, setTestResults] = useState<Record<string, { success: boolean; message: string }>>({});
@@ -382,8 +506,29 @@ export function SettingsDialog({
   const [isMigrating, setIsMigrating] = useState(false);
   const [migrationError, setMigrationError] = useState<string | null>(null);
   const [runtimeVersion, setRuntimeVersion] = useState<string>('');
+  const [dreaminaStatus, setDreaminaStatus] = useState<DreaminaCliStatusResponse | null>(null);
+  const [dreaminaUpdateInfo, setDreaminaUpdateInfo] = useState<DreaminaCliUpdateInfoResponse | null>(null);
+  const [isCheckingDreaminaStatus, setIsCheckingDreaminaStatus] = useState(false);
+  const [isCheckingDreaminaUpdate, setIsCheckingDreaminaUpdate] = useState(false);
+  const [isUpdatingDreamina, setIsUpdatingDreamina] = useState(false);
+  const [isLoggingOutDreamina, setIsLoggingOutDreamina] = useState(false);
+  const [dreaminaActionNotice, setDreaminaActionNotice] = useState<{
+    tone: 'info' | 'success' | 'error';
+    message: string;
+  } | null>(null);
   const [isCapturingGroupShortcut, setIsCapturingGroupShortcut] = useState(false);
   const { shouldRender, isVisible } = useDialogTransition(isOpen, UI_DIALOG_TRANSITION_MS);
+  const {
+    panelRef,
+    overlayLayoutClassName,
+    panelPositionClassName,
+    panelStyle,
+    dragHandleClassName,
+    isDragging,
+    handleDragStart,
+  } = useDraggableDialog({
+    isOpen,
+  });
   const runtimePsPort = serverStatus.running ? serverStatus.port : null;
   const pluginPsPort = runtimePsPort ?? psServerPort;
   const normalizedRuntimeVersion = useMemo(() => normalizeVersion(runtimeVersion), [runtimeVersion]);
@@ -418,7 +563,8 @@ export function SettingsDialog({
     if (!isOpen) {
       return;
     }
-    setLocalApiKeys(apiKeys);
+    setLocalScriptApiKeys(scriptApiKeys);
+    setLocalStoryboardApiKeys(storyboardApiKeys);
     setLocalDownloadPresetPaths(downloadPresetPaths);
     setLocalGrsaiNanoBananaProModel(hrsaiNanoBananaProModel);
     setLocalScriptProviderEnabled(scriptProviderEnabled);
@@ -434,6 +580,9 @@ export function SettingsDialog({
     setLocalStoryboardModelIdInputs({});
     setLocalStoryboardModelDisplayNameInputs({});
     setLocalStoryboardCompatibleModelConfig(storyboardCompatibleModelConfig);
+    setLocalStoryboardNewApiModelConfig(
+      normalizeStoryboardNewApiModelConfig(storyboardNewApiModelConfig)
+    );
     setLocalUseUploadFilenameAsNodeTitle(useUploadFilenameAsNodeTitle);
     setLocalStoryboardGenKeepStyleConsistent(storyboardGenKeepStyleConsistent);
     setLocalStoryboardGenDisableTextInImage(storyboardGenDisableTextInImage);
@@ -451,15 +600,19 @@ export function SettingsDialog({
     setLocalThemeTonePreset(themeTonePreset);
     setLocalAccentColor(accentColor);
     setLocalCanvasEdgeRoutingMode(canvasEdgeRoutingMode);
+    setLocalAutoUpdateDreaminaCliOnLaunch(autoUpdateDreaminaCliOnLaunch);
     setLocalPsIntegrationEnabled(psIntegrationEnabled);
     setLocalPsServerPort(psServerPort);
     setLocalPsAutoStartServer(psAutoStartServer);
+    setCollapsedProviderGroups({ ...DEFAULT_PROVIDER_GROUP_COLLAPSE_STATE });
     setIsCapturingGroupShortcut(false);
+    setDreaminaActionNotice(null);
     setRevealedApiKeys({});
     setLocalDownloadPathInput('');
   }, [
     isOpen,
-    apiKeys,
+    scriptApiKeys,
+    storyboardApiKeys,
     downloadPresetPaths,
     hrsaiNanoBananaProModel,
     scriptProviderEnabled,
@@ -469,6 +622,7 @@ export function SettingsDialog({
     storyboardModelOverrides,
     storyboardProviderCustomModels,
     storyboardCompatibleModelConfig,
+    storyboardNewApiModelConfig,
     useUploadFilenameAsNodeTitle,
     storyboardGenKeepStyleConsistent,
     storyboardGenDisableTextInImage,
@@ -486,6 +640,7 @@ export function SettingsDialog({
     themeTonePreset,
     accentColor,
     canvasEdgeRoutingMode,
+    autoUpdateDreaminaCliOnLaunch,
     psIntegrationEnabled,
     psServerPort,
     psAutoStartServer,
@@ -500,6 +655,190 @@ export function SettingsDialog({
 
     setActiveCategory(initialCategory);
   }, [initialCategory, isOpen]);
+
+  useEffect(() => {
+    if (!scriptProviders.some((provider) => provider.id === selectedScriptProvider)) {
+      setSelectedScriptProvider(scriptProviders[0]?.id || '');
+    }
+  }, [scriptProviders, selectedScriptProvider]);
+
+  useEffect(() => {
+    if (!storyboardProviders.some((provider) => provider.id === selectedStoryboardProvider)) {
+      setSelectedStoryboardProvider(storyboardProviders[0]?.id || '');
+    }
+  }, [selectedStoryboardProvider, storyboardProviders]);
+
+  useEffect(() => {
+    const selectedProviderId =
+      localProviderTab === 'script' ? selectedScriptProvider : selectedStoryboardProvider;
+    const groups = localProviderTab === 'script' ? scriptProviderGroups : storyboardProviderGroups;
+    const selectedGroup = groups.find((group) =>
+      group.providers.some((provider) => provider.id === selectedProviderId)
+    );
+
+    if (!selectedGroup) {
+      return;
+    }
+
+    const collapseKey = buildProviderGroupCollapseKey(localProviderTab, selectedGroup.id);
+    setCollapsedProviderGroups((previous) => (
+      previous[collapseKey]
+        ? {
+            ...previous,
+            [collapseKey]: false,
+          }
+        : previous
+    ));
+  }, [
+    localProviderTab,
+    scriptProviderGroups,
+    selectedScriptProvider,
+    selectedStoryboardProvider,
+    storyboardProviderGroups,
+  ]);
+
+  const refreshDreaminaStatus = useCallback(
+    async (options?: { silent?: boolean }) => {
+      setIsCheckingDreaminaStatus(true);
+      if (!options?.silent) {
+        setDreaminaActionNotice(null);
+      }
+
+      try {
+        const nextStatus = await checkDreaminaCliStatus();
+        setDreaminaStatus(nextStatus);
+        if (!options?.silent) {
+          setDreaminaActionNotice({
+            tone: 'info',
+            message: t('settings.dreaminaStatusRefreshed'),
+          });
+        }
+        return nextStatus;
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        const fallbackStatus: DreaminaCliStatusResponse = {
+          ready: false,
+          code: 'unknown',
+          message: t('settings.dreaminaStatusLoadFailed'),
+          detail: message,
+        };
+        setDreaminaStatus(fallbackStatus);
+        if (!options?.silent) {
+          setDreaminaActionNotice({
+            tone: 'error',
+            message,
+          });
+        }
+        return fallbackStatus;
+      } finally {
+        setIsCheckingDreaminaStatus(false);
+      }
+    },
+    [t]
+  );
+
+  const refreshDreaminaUpdateInfo = useCallback(
+    async (options?: { silent?: boolean }) => {
+      setIsCheckingDreaminaUpdate(true);
+      if (!options?.silent) {
+        setDreaminaActionNotice(null);
+      }
+
+      try {
+        const nextInfo = await checkDreaminaCliUpdate();
+        setDreaminaUpdateInfo(nextInfo);
+        if (!options?.silent && !nextInfo.checkError) {
+          setDreaminaActionNotice({
+            tone: nextInfo.hasUpdate ? 'info' : 'success',
+            message: nextInfo.hasUpdate
+              ? t('settings.dreaminaUpdateAvailableNotice', {
+                  version: nextInfo.latestVersion ?? '-',
+                })
+              : t('settings.dreaminaUpToDateNotice'),
+          });
+        }
+        return nextInfo;
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        setDreaminaUpdateInfo((previous) => previous ?? {
+          activeSource: 'bundled',
+          currentVersion: null,
+          bundledVersion: null,
+          latestVersion: null,
+          releaseDate: null,
+          releaseNotes: null,
+          hasUpdate: false,
+          checkError: message,
+        });
+        if (!options?.silent) {
+          setDreaminaActionNotice({
+            tone: 'error',
+            message,
+          });
+        }
+        return null;
+      } finally {
+        setIsCheckingDreaminaUpdate(false);
+      }
+    },
+    [t]
+  );
+
+  const handleOpenDreaminaSetup = useCallback(() => {
+    onClose();
+    setTimeout(() => {
+      openDreaminaSetupDialog({
+        initialStatus: dreaminaStatus,
+      });
+    }, UI_DIALOG_TRANSITION_MS);
+  }, [dreaminaStatus, onClose]);
+
+  const handleUpdateDreamina = useCallback(async () => {
+    setIsUpdatingDreamina(true);
+    setDreaminaActionNotice(null);
+
+    try {
+      const response = await updateDreaminaCli();
+      await Promise.all([
+        refreshDreaminaStatus({ silent: true }),
+        refreshDreaminaUpdateInfo({ silent: true }),
+      ]);
+      setDreaminaActionNotice({
+        tone: 'success',
+        message: response.detail ?? response.message,
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      setDreaminaActionNotice({
+        tone: 'error',
+        message,
+      });
+    } finally {
+      setIsUpdatingDreamina(false);
+    }
+  }, [refreshDreaminaStatus, refreshDreaminaUpdateInfo]);
+
+  const handleLogoutDreamina = useCallback(async () => {
+    setIsLoggingOutDreamina(true);
+    setDreaminaActionNotice(null);
+
+    try {
+      const response = await logoutDreaminaCli();
+      await refreshDreaminaStatus({ silent: true });
+      setDreaminaActionNotice({
+        tone: 'success',
+        message: response.message,
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      setDreaminaActionNotice({
+        tone: 'error',
+        message,
+      });
+    } finally {
+      setIsLoggingOutDreamina(false);
+    }
+  }, [refreshDreaminaStatus]);
 
   const loadStorageInfo = useCallback(async () => {
     setIsLoadingStorageInfo(true);
@@ -532,9 +871,20 @@ export function SettingsDialog({
       return;
     }
 
+    void Promise.all([
+      refreshDreaminaStatus({ silent: true }),
+      refreshDreaminaUpdateInfo({ silent: true }),
+    ]);
     void loadStorageInfo();
     void loadDatabaseBackups();
-  }, [activeCategory, isOpen, loadDatabaseBackups, loadStorageInfo]);
+  }, [
+    activeCategory,
+    isOpen,
+    loadDatabaseBackups,
+    loadStorageInfo,
+    refreshDreaminaStatus,
+    refreshDreaminaUpdateInfo,
+  ]);
 
   const handleChangeStoragePath = useCallback(async () => {
     if (isMigrating) return;
@@ -546,14 +896,15 @@ export function SettingsDialog({
       setMigrationError(null);
       setIsMigrating(true);
 
+      await useProjectStore.getState().flushCurrentProjectToDisk();
       await migrateStorage(newPath, true);
-      await Promise.all([loadStorageInfo(), loadDatabaseBackups()]);
+      window.location.reload();
     } catch (error) {
       setMigrationError(error instanceof Error ? error.message : String(error));
     } finally {
       setIsMigrating(false);
     }
-  }, [isMigrating, loadDatabaseBackups, loadStorageInfo]);
+  }, [isMigrating]);
 
   const handleOpenStorageFolder = useCallback(async () => {
     try {
@@ -701,6 +1052,16 @@ export function SettingsDialog({
         )
       );
     }
+
+    if (providerId === 'newapi') {
+      setLocalStoryboardNewApiModelConfig((previous) =>
+        resolveStoryboardNewApiModelConfigForModel(
+          nextResolvedModelId,
+          previous,
+          { ...localStoryboardProviderCustomModels, [providerId]: nextEntries }
+        )
+      );
+    }
   }, [
     localStoryboardModelDisplayNameInputs,
     localStoryboardModelIdInputs,
@@ -731,6 +1092,7 @@ export function SettingsDialog({
       },
       storyboardProviderCustomModels: nextCustomModels,
       storyboardCompatibleModelConfig: localStoryboardCompatibleModelConfig,
+      storyboardNewApiModelConfig: localStoryboardNewApiModelConfig,
     });
 
     setLocalStoryboardProviderCustomModels(nextCustomModels);
@@ -752,15 +1114,33 @@ export function SettingsDialog({
         )
       );
     }
+
+    if (providerId === 'newapi') {
+      setLocalStoryboardNewApiModelConfig((previous) =>
+        resolveStoryboardNewApiModelConfigForModel(
+          nextResolvedModel,
+          {
+            ...previous,
+            requestModel: remainingEntries[0]?.modelId ?? '',
+            displayName: remainingEntries[0]?.displayName ?? '',
+          },
+          nextCustomModels
+        )
+      );
+    }
   }, [
     localStoryboardCompatibleModelConfig,
     localStoryboardModelOverrides,
+    localStoryboardNewApiModelConfig,
     localStoryboardProviderCustomModels,
   ]);
 
   const handleSave = useCallback(() => {
-    providers.forEach((provider) => {
-      setProviderApiKey(provider.id, localApiKeys[provider.id] ?? '');
+    scriptProviders.forEach((provider) => {
+      setScriptProviderApiKey(provider.id, localScriptApiKeys[provider.id] ?? '');
+    });
+    storyboardProviders.forEach((provider) => {
+      setStoryboardProviderApiKey(provider.id, localStoryboardApiKeys[provider.id] ?? '');
     });
     setGrsaiNanoBananaProModel(localGrsaiNanoBananaProModel);
     setScriptProviderEnabled(localScriptProviderEnabled);
@@ -775,6 +1155,8 @@ export function SettingsDialog({
       );
     });
     setScriptCompatibleProviderConfig(localScriptCompatibleProviderConfig);
+    setStoryboardCompatibleModelConfig(localStoryboardCompatibleModelConfig);
+    setStoryboardNewApiModelConfig(localStoryboardNewApiModelConfig);
     storyboardProviders.forEach((provider) => {
       if (!isStoryboardCustomModelProviderId(provider.id)) {
         return;
@@ -786,6 +1168,7 @@ export function SettingsDialog({
           storyboardModelOverrides: localStoryboardModelOverrides,
           storyboardProviderCustomModels: localStoryboardProviderCustomModels,
           storyboardCompatibleModelConfig: localStoryboardCompatibleModelConfig,
+          storyboardNewApiModelConfig: localStoryboardNewApiModelConfig,
         })
       );
       setStoryboardProviderCustomModels(
@@ -793,7 +1176,6 @@ export function SettingsDialog({
         getCustomStoryboardModels(provider.id, localStoryboardProviderCustomModels)
       );
     });
-    setStoryboardCompatibleModelConfig(localStoryboardCompatibleModelConfig);
     setDownloadPresetPaths(localDownloadPresetPaths);
     setUseUploadFilenameAsNodeTitle(localUseUploadFilenameAsNodeTitle);
     setStoryboardGenKeepStyleConsistent(localStoryboardGenKeepStyleConsistent);
@@ -812,12 +1194,14 @@ export function SettingsDialog({
     setThemeTonePreset(localThemeTonePreset);
     setAccentColor(localAccentColor);
     setCanvasEdgeRoutingMode(localCanvasEdgeRoutingMode);
+    setAutoUpdateDreaminaCliOnLaunch(localAutoUpdateDreaminaCliOnLaunch);
     setPsIntegrationEnabled(localPsIntegrationEnabled);
     setPsServerPort(localPsServerPort);
     setPsAutoStartServer(localPsAutoStartServer);
     onClose();
   }, [
-    localApiKeys,
+    localScriptApiKeys,
+    localStoryboardApiKeys,
     localDownloadPresetPaths,
     localGrsaiNanoBananaProModel,
     localUseUploadFilenameAsNodeTitle,
@@ -837,6 +1221,7 @@ export function SettingsDialog({
     localThemeTonePreset,
     localAccentColor,
     localCanvasEdgeRoutingMode,
+    localAutoUpdateDreaminaCliOnLaunch,
     localPsIntegrationEnabled,
     localPsServerPort,
     localPsAutoStartServer,
@@ -844,12 +1229,13 @@ export function SettingsDialog({
     localScriptProviderCustomModels,
     localScriptCompatibleProviderConfig,
     localStoryboardCompatibleModelConfig,
+    localStoryboardNewApiModelConfig,
     localStoryboardModelOverrides,
     localStoryboardProviderCustomModels,
-    providers,
     scriptProviders,
     storyboardProviders,
-    setProviderApiKey,
+    setScriptProviderApiKey,
+    setStoryboardProviderApiKey,
     setGrsaiNanoBananaProModel,
     setScriptProviderEnabled,
     setScriptModelOverride,
@@ -858,6 +1244,7 @@ export function SettingsDialog({
     setStoryboardModelOverride,
     setStoryboardProviderCustomModels,
     setStoryboardCompatibleModelConfig,
+    setStoryboardNewApiModelConfig,
     setDownloadPresetPaths,
     setUseUploadFilenameAsNodeTitle,
     setStoryboardGenKeepStyleConsistent,
@@ -876,6 +1263,7 @@ export function SettingsDialog({
     setThemeTonePreset,
     setAccentColor,
     setCanvasEdgeRoutingMode,
+    setAutoUpdateDreaminaCliOnLaunch,
     setPsIntegrationEnabled,
     setPsServerPort,
     setPsAutoStartServer,
@@ -887,6 +1275,64 @@ export function SettingsDialog({
     () => formatShortcutForDisplay(localGroupNodesShortcut),
     [localGroupNodesShortcut]
   );
+  const dreaminaStatusMeta = useMemo(() => {
+    if (isCheckingDreaminaStatus && !dreaminaStatus) {
+      return {
+        label: t('settings.dreaminaStatusChecking'),
+        className: 'border-border-dark bg-surface-dark text-text-muted',
+      };
+    }
+
+    switch (dreaminaStatus?.code) {
+      case 'ready':
+        return {
+          label: t('settings.dreaminaStatusReady'),
+          className: 'border-green-500/30 bg-green-500/10 text-green-400',
+        };
+      case 'membershipRequired':
+        return {
+          label: t('settings.dreaminaStatusMembershipRequired'),
+          className: 'border-rose-500/30 bg-rose-500/10 text-rose-300',
+        };
+      case 'loginRequired':
+        return {
+          label: t('settings.dreaminaStatusLoginRequired'),
+          className: 'border-amber-500/30 bg-amber-500/10 text-amber-300',
+        };
+      case 'cliMissing':
+        return {
+          label: t('settings.dreaminaStatusCliMissing'),
+          className: 'border-red-500/30 bg-red-500/10 text-red-300',
+        };
+      case 'gitBashMissing':
+        return {
+          label: t('settings.dreaminaStatusGitMissing'),
+          className: 'border-red-500/30 bg-red-500/10 text-red-300',
+        };
+      default:
+        return {
+          label: t('settings.dreaminaStatusUnknown'),
+          className: 'border-border-dark bg-surface-dark text-text-muted',
+        };
+    }
+  }, [dreaminaStatus, isCheckingDreaminaStatus, t]);
+  const dreaminaActiveSourceLabel = useMemo(() => {
+    switch (dreaminaUpdateInfo?.activeSource) {
+      case 'userInstalled':
+        return t('settings.dreaminaSourceUserInstalled');
+      case 'systemPath':
+        return t('settings.dreaminaSourceSystemPath');
+      case 'bundled':
+      default:
+        return t('settings.dreaminaSourceBundled');
+    }
+  }, [dreaminaUpdateInfo?.activeSource, t]);
+  const dreaminaNoticeClassName =
+    dreaminaActionNotice?.tone === 'error'
+      ? 'border-red-500/30 bg-red-500/10 text-red-300'
+      : dreaminaActionNotice?.tone === 'success'
+        ? 'border-green-500/30 bg-green-500/10 text-green-400'
+        : 'border-accent/20 bg-accent/[0.08] text-text-muted';
 
   const formatReleaseDate = useCallback(
     (value: string) => {
@@ -969,35 +1415,42 @@ export function SettingsDialog({
   if (!shouldRender) return null;
 
   return (
-    <div className={`fixed ${UI_CONTENT_OVERLAY_INSET_CLASS} z-50 flex items-center justify-center`}>
+    <div className={`fixed ${UI_CONTENT_OVERLAY_INSET_CLASS} z-50 ${overlayLayoutClassName}`}>
       <div
         className={`absolute inset-0 bg-black/90 transition-opacity duration-200 ${isVisible ? 'opacity-100' : 'opacity-0'}`}
         onClick={onClose}
       />
-      <div className="relative w-[min(96vw,1120px)]">
+      <div ref={panelRef} className={panelPositionClassName} style={panelStyle}>
         <div
-          className={`relative mx-auto overflow-hidden rounded-lg border border-border-dark bg-surface-dark shadow-xl transition-all duration-200 ${isVisible ? 'opacity-100' : 'opacity-0'} flex ${isDialogExpanded ? 'w-[min(94vw,1000px)] h-[min(90vh,700px)]' : 'w-[700px] h-[500px]'}`}
+          className={`relative overflow-hidden rounded-lg border border-border-dark bg-surface-dark shadow-xl ${isDragging ? 'transition-none' : 'transition-opacity duration-200'} ${isVisible ? 'opacity-100' : 'opacity-0'} flex flex-col ${isDialogExpanded ? 'w-[min(94vw,1000px)] h-[min(90vh,700px)]' : 'w-[700px] h-[500px]'}`}
         >
-          <div className="absolute top-3 right-3 flex items-center gap-1 z-10">
-            <button
-              onClick={() => setIsDialogExpanded(!isDialogExpanded)}
-              className="p-1 hover:bg-bg-dark rounded transition-colors"
-              title={isDialogExpanded ? t('settings.dialogCollapse') : t('settings.dialogExpand')}
-            >
-              {isDialogExpanded ? (
-                <Minimize2 className="w-5 h-5 text-text-muted" />
-              ) : (
-                <Maximize2 className="w-5 h-5 text-text-muted" />
-              )}
-            </button>
-            <button
-              onClick={onClose}
-              className="p-1 hover:bg-bg-dark rounded transition-colors"
-            >
-              <X className="w-5 h-5 text-text-muted" />
-            </button>
+          <div
+            className={`flex items-center justify-between border-b border-border-dark px-4 py-3 ${dragHandleClassName}`}
+            onPointerDown={handleDragStart}
+          >
+            <div className="text-sm font-medium text-text-dark">{t('settings.title')}</div>
+            <div className="flex items-center gap-1" data-ui-modal-drag-ignore="true">
+              <button
+                onClick={() => setIsDialogExpanded(!isDialogExpanded)}
+                className="p-1 hover:bg-bg-dark rounded transition-colors"
+                title={isDialogExpanded ? t('settings.dialogCollapse') : t('settings.dialogExpand')}
+              >
+                {isDialogExpanded ? (
+                  <Minimize2 className="w-5 h-5 text-text-muted" />
+                ) : (
+                  <Maximize2 className="w-5 h-5 text-text-muted" />
+                )}
+              </button>
+              <button
+                onClick={onClose}
+                className="p-1 hover:bg-bg-dark rounded transition-colors"
+              >
+                <X className="w-5 h-5 text-text-muted" />
+              </button>
+            </div>
           </div>
 
+          <div className="flex min-h-0 flex-1">
           {/* Sidebar */}
           <div className="w-[180px] bg-bg-dark border-r border-border-dark flex flex-col">
             <div className="px-4 py-4">
@@ -1151,13 +1604,113 @@ export function SettingsDialog({
                 </div>
 
                 <div className="flex-1 flex min-h-0">
-                  <div className="w-[140px] border-r border-border-dark bg-bg-dark flex flex-col">
+                  <div className="w-[196px] border-r border-border-dark bg-bg-dark flex flex-col">
                     <div className="px-3 py-3 text-xs font-medium text-text-muted uppercase tracking-wider">
                       {t('settings.providerList')}
                     </div>
                     <nav className="flex-1 overflow-y-auto ui-scrollbar">
-                      {(localProviderTab === 'script' ? scriptProviders : storyboardProviders).map((provider) => {
-                        const hasKey = Boolean((localApiKeys[provider.id] ?? '').trim());
+                      {(localProviderTab === 'script'
+                        ? scriptProviderGroups
+                        : storyboardProviderGroups).map((group) => {
+                          const isCollapsed = Boolean(
+                            collapsedProviderGroups[
+                              buildProviderGroupCollapseKey(localProviderTab, group.id)
+                            ]
+                          );
+
+                          return (
+                            <div
+                              key={`${localProviderTab}-${group.id}`}
+                              className="border-b border-border-dark/70 last:border-b-0"
+                            >
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  setCollapsedProviderGroups((previous) => ({
+                                    ...previous,
+                                    [buildProviderGroupCollapseKey(localProviderTab, group.id)]:
+                                      !isCollapsed,
+                                  }))
+                                }
+                                className="flex w-full items-center gap-2 px-3 py-2 text-left text-[11px] font-medium uppercase tracking-[0.08em] text-text-muted transition-colors hover:bg-surface-dark hover:text-text-dark"
+                              >
+                                {isCollapsed ? (
+                                  <ChevronRight className="h-3.5 w-3.5 shrink-0" />
+                                ) : (
+                                  <ChevronDown className="h-3.5 w-3.5 shrink-0" />
+                                )}
+                                <span className="min-w-0 flex-1 truncate">
+                                  {t(group.labelKey)}
+                                </span>
+                                <span className="text-[10px] text-text-muted/80">
+                                  {group.providers.length}
+                                </span>
+                              </button>
+
+                              {!isCollapsed && (
+                                <div className="pb-1">
+                                  {group.providers.map((provider) => {
+                                    const providerApiKey = (
+                                      localProviderTab === 'script'
+                                        ? localScriptApiKeys[provider.id]
+                                        : localStoryboardApiKeys[provider.id]
+                                    ) ?? '';
+                                    const hasKey = Boolean(providerApiKey.trim());
+                                    const selectedProviderId =
+                                      localProviderTab === 'script'
+                                        ? selectedScriptProvider
+                                        : selectedStoryboardProvider;
+                                    const isSelected = selectedProviderId === provider.id;
+                                    const isEnabled =
+                                      localProviderTab === 'script'
+                                      && localScriptProviderEnabled === provider.id
+                                      && hasKey;
+
+                                    return (
+                                      <button
+                                        key={provider.id}
+                                        onClick={() => {
+                                          if (localProviderTab === 'script') {
+                                            setSelectedScriptProvider(provider.id);
+                                          } else {
+                                            setSelectedStoryboardProvider(provider.id);
+                                          }
+                                        }}
+                                        className={`ml-2 flex w-[calc(100%-8px)] items-center gap-2 rounded-l-md px-3 py-2 text-left transition-colors ${
+                                          isSelected
+                                            ? 'border-l-2 border-accent bg-accent/10 text-text-dark'
+                                            : 'text-text-muted hover:bg-surface-dark hover:text-text-dark'
+                                        }`}
+                                      >
+                                        <span
+                                          className={`h-2 w-2 shrink-0 rounded-full ${hasKey ? 'bg-green-500' : 'bg-border-dark'}`}
+                                          title={hasKey ? t('settings.keyConfigured') : t('settings.keyNotConfigured')}
+                                        />
+                                        <span className="min-w-0 flex-1 truncate text-xs">
+                                          {i18n.language.startsWith('zh') ? provider.label : provider.name}
+                                        </span>
+                                        {isEnabled && (
+                                          <span className="text-[10px] font-medium text-amber-500">
+                                            {t('settings.providerActive')}
+                                          </span>
+                                        )}
+                                      </button>
+                                    );
+                                  })}
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })}
+                    </nav>
+                    <nav className="hidden">
+                      {false && (localProviderTab === 'script' ? scriptProviders : storyboardProviders).map((provider) => {
+                        const providerApiKey = (
+                          localProviderTab === 'script'
+                            ? localScriptApiKeys[provider.id]
+                            : localStoryboardApiKeys[provider.id]
+                        ) ?? '';
+                        const hasKey = Boolean(providerApiKey.trim());
                         const selectedProviderId = localProviderTab === 'script' ? selectedScriptProvider : selectedStoryboardProvider;
                         const isSelected = selectedProviderId === provider.id;
                         const isEnabled = localProviderTab === 'script' && localScriptProviderEnabled === provider.id && hasKey;
@@ -1185,7 +1738,7 @@ export function SettingsDialog({
                               {i18n.language.startsWith('zh') ? provider.label : provider.name}
                             </span>
                             {isEnabled && (
-                              <span className="ml-auto text-[10px] text-amber-500 font-medium">已激活</span>
+                              <span className="ml-auto text-[10px] text-amber-500 font-medium">{t('settings.providerActive')}</span>
                             )}
                           </button>
                         );
@@ -1199,10 +1752,46 @@ export function SettingsDialog({
                       const provider = providers.find(p => p.id === selectedProviderId);
                       if (!provider) return null;
                       const displayName = i18n.language.startsWith('zh') ? provider.label : provider.name;
-                      const isRevealed = Boolean(revealedApiKeys[provider.id]);
-                      const hasKey = Boolean((localApiKeys[provider.id] ?? '').trim());
                       const isScriptTab = localProviderTab === 'script';
+                      const revealKey = `${localProviderTab}:${provider.id}`;
+                      const currentApiKey = (
+                        isScriptTab
+                          ? localScriptApiKeys[provider.id]
+                          : localStoryboardApiKeys[provider.id]
+                      ) ?? '';
+                      const isRevealed = Boolean(revealedApiKeys[revealKey]);
+                      const hasKey = Boolean(currentApiKey.trim());
+                      const isKeyInputEmpty = currentApiKey.length === 0;
+                      const clearApiKeyButtonTitle = `${t('common.delete')} ${t('settings.apiKey')}`;
                       const isEnabled = isScriptTab && localScriptProviderEnabled === provider.id && hasKey;
+                      const updateCurrentApiKey = (nextValue: string) => {
+                        if (isScriptTab) {
+                          setLocalScriptApiKeys((previous) => ({
+                            ...previous,
+                            [provider.id]: nextValue,
+                          }));
+                          if (!nextValue.trim() && localScriptProviderEnabled === provider.id) {
+                            setLocalScriptProviderEnabled('');
+                          }
+                          return;
+                        }
+
+                        setLocalStoryboardApiKeys((previous) => ({
+                          ...previous,
+                          [provider.id]: nextValue,
+                        }));
+                      };
+                      const clearCurrentApiKey = () => {
+                        updateCurrentApiKey('');
+                        setRevealedApiKeys((previous) =>
+                          previous[revealKey]
+                            ? {
+                                ...previous,
+                                [revealKey]: false,
+                              }
+                            : previous
+                        );
+                      };
                       const resolvedScriptModel = isScriptTab
                         ? resolveConfiguredScriptModel(provider.id, {
                             scriptModelOverrides: localScriptModelOverrides,
@@ -1269,13 +1858,20 @@ export function SettingsDialog({
                                   });
                                   setLocalScriptProviderEnabled(isEnabled ? '' : provider.id);
                                 }}
-                                className={`px-4 py-1.5 text-xs font-medium rounded transition-colors ${
+                                className={`relative overflow-hidden px-4 py-1.5 text-xs font-medium text-transparent rounded transition-colors ${
                                   isEnabled
                                     ? 'bg-amber-500 text-white hover:bg-amber-600'
                                     : 'bg-surface-dark text-text-dark border border-border-dark hover:bg-bg-dark disabled:opacity-50 disabled:cursor-not-allowed'
                                 }`}
                               >
-                                {isEnabled ? '已激活' : '激活'}
+                                <span
+                                  className={`pointer-events-none absolute inset-0 flex items-center justify-center ${
+                                    isEnabled ? 'text-white' : 'text-text-dark'
+                                  }`}
+                                >
+                                  {isEnabled ? t('settings.providerActive') : t('settings.providerActivate')}
+                                </span>
+                                {isEnabled ? t('settings.providerActive') : t('settings.providerActivate')}
                               </button>
                             )}
                           </div>
@@ -1309,38 +1905,52 @@ export function SettingsDialog({
                             <div className="relative">
                               <input
                                 type={isRevealed ? 'text' : 'password'}
-                                value={localApiKeys[provider.id] ?? ''}
+                                value={currentApiKey}
                                 onChange={(event) => {
-                                  const nextValue = event.target.value;
-                                  setLocalApiKeys((previous) => ({
-                                    ...previous,
-                                    [provider.id]: nextValue,
-                                  }));
+                                  updateCurrentApiKey(event.target.value);
                                 }}
                                 placeholder={t('settings.enterApiKey')}
-                                className="w-full rounded border border-border-dark bg-surface-dark px-3 py-2 pr-10 text-sm text-text-dark placeholder:text-text-muted"
+                                className="w-full rounded border border-border-dark bg-surface-dark px-3 py-2 pr-20 text-sm text-text-dark placeholder:text-text-muted"
                               />
-                              <button
-                                type="button"
-                                onClick={() =>
-                                  setRevealedApiKeys((previous) => ({
-                                    ...previous,
-                                    [provider.id]: !isRevealed,
-                                  }))
-                                }
-                                className="absolute right-2 top-1/2 -translate-y-1/2 rounded p-1 hover:bg-bg-dark"
-                              >
-                                {isRevealed ? (
-                                  <EyeOff className="h-4 w-4 text-text-muted" />
-                                ) : (
-                                  <Eye className="h-4 w-4 text-text-muted" />
-                                )}
-                              </button>
-                            </div>
-                            {!isScriptTab && provider.id === 'compatible' ? (
-                              <div className="mt-3 rounded-md border border-border-dark bg-black/10 px-3 py-2 text-xs leading-5 text-text-muted">
-                                {t('settings.storyboardCompatibleNoConnectionTest')}
+                              <div className="absolute right-2 top-1/2 flex -translate-y-1/2 items-center gap-1">
+                                <button
+                                  type="button"
+                                  onClick={clearCurrentApiKey}
+                                  disabled={isKeyInputEmpty}
+                                  title={clearApiKeyButtonTitle}
+                                  aria-label={clearApiKeyButtonTitle}
+                                  className="rounded p-1 hover:bg-bg-dark disabled:cursor-not-allowed disabled:opacity-40"
+                                >
+                                  <X className="h-4 w-4 text-text-muted" />
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    setRevealedApiKeys((previous) => ({
+                                      ...previous,
+                                      [revealKey]: !isRevealed,
+                                    }))
+                                  }
+                                  className="rounded p-1 hover:bg-bg-dark"
+                                >
+                                  {isRevealed ? (
+                                    <EyeOff className="h-4 w-4 text-text-muted" />
+                                  ) : (
+                                    <Eye className="h-4 w-4 text-text-muted" />
+                                  )}
+                                </button>
                               </div>
+                            </div>
+                            {!isScriptTab ? (
+                              provider.id === 'compatible' ? (
+                                <div className="mt-3 rounded-md border border-border-dark bg-black/10 px-3 py-2 text-xs leading-5 text-text-muted">
+                                  {t('settings.storyboardCompatibleNoConnectionTest')}
+                                </div>
+                              ) : provider.id === 'newapi' ? (
+                                <div className="mt-3 rounded-md border border-border-dark bg-black/10 px-3 py-2 text-xs leading-5 text-text-muted">
+                                  {t('settings.storyboardNewApiNoConnectionTest')}
+                                </div>
+                              ) : null
                             ) : (
                               <div className="mt-3 space-y-2">
                                 <button
@@ -1359,7 +1969,7 @@ export function SettingsDialog({
                                         : DEFAULT_PROVIDER_TEST_MODELS[provider.id] ?? 'gemini-2.0-flash';
                                     const result = await testProviderConnection({
                                       provider: provider.id,
-                                      apiKey: localApiKeys[provider.id] || '',
+                                      apiKey: currentApiKey,
                                       model,
                                       extraParams:
                                         isScriptCompatibleProvider
@@ -1399,355 +2009,96 @@ export function SettingsDialog({
                             )}
                           </div>
 
-                          {isScriptTab && (
-                            <div className="rounded-lg border border-border-dark bg-bg-dark p-4">
-                              <div className="mb-1 text-xs font-medium text-text-dark">
-                                {t('settings.scriptModelSelection')}
-                              </div>
-                              <p className="mb-3 text-xs leading-5 text-text-muted">
-                                {t('settings.scriptModelSelectionDesc')}
-                              </p>
-                              <div className="space-y-3">
-                                <UiSelect
-                                  value={resolvedScriptModel}
-                                  onChange={(event) => {
-                                    handleSelectScriptModel(provider.id, event.target.value);
-                                  }}
-                                  className="h-9 text-sm"
-                                  disabled={scriptModelOptions.length === 0}
-                                >
-                                  {scriptModelOptions.length > 0 ? (
-                                    scriptModelOptions.map((option) => (
-                                      <option key={option.modelId} value={option.modelId}>
-                                        {option.label}
-                                      </option>
-                                    ))
-                                  ) : (
-                                    <option value="">-</option>
-                                  )}
-                                </UiSelect>
-
-                                <div className="space-y-3">
-                                  <div>
-                                    <div className="mb-1 text-[11px] font-medium text-text-muted">
-                                      {t('settings.scriptCustomModelIdLabel')}
-                                    </div>
-                                    <UiInput
-                                      value={customScriptModelIdInput}
-                                      onChange={(event) =>
-                                        setLocalScriptModelIdInputs((previous) => ({
-                                          ...previous,
-                                          [provider.id]: event.target.value,
-                                        }))
-                                      }
-                                      onKeyDown={(event) => {
-                                        if (event.key === 'Enter') {
-                                          event.preventDefault();
-                                          handleAddCustomScriptModel(provider.id);
-                                        }
-                                      }}
-                                      placeholder={t('settings.scriptCustomModelIdPlaceholder')}
-                                      className="h-9 rounded-lg text-sm"
-                                    />
-                                  </div>
-                                  <div>
-                                    <div className="mb-1 text-[11px] font-medium text-text-muted">
-                                      {t('settings.scriptCustomModelDisplayNameLabel')}
-                                    </div>
-                                    <UiInput
-                                      value={customScriptModelDisplayNameInput}
-                                      onChange={(event) =>
-                                        setLocalScriptModelDisplayNameInputs((previous) => ({
-                                          ...previous,
-                                          [provider.id]: event.target.value,
-                                        }))
-                                      }
-                                      onKeyDown={(event) => {
-                                        if (event.key === 'Enter') {
-                                          event.preventDefault();
-                                          handleAddCustomScriptModel(provider.id);
-                                        }
-                                      }}
-                                      placeholder={t('settings.scriptCustomModelDisplayNamePlaceholder')}
-                                      className="h-9 rounded-lg text-sm"
-                                    />
-                                  </div>
-                                  <button
-                                    type="button"
-                                    onClick={() => handleAddCustomScriptModel(provider.id)}
-                                    className="inline-flex h-9 w-full items-center justify-center gap-1 rounded-lg border border-border-dark bg-surface-dark px-3 text-xs text-text-dark transition-colors hover:bg-bg-dark"
-                                  >
-                                    <Plus className="h-3.5 w-3.5" />
-                                    {t('settings.scriptCustomModelAdd')}
-                                  </button>
-                                </div>
-
-                                {customScriptModels.length > 0 ? (
-                                  <div className="space-y-2">
-                                    {customScriptModels.map((model) => (
-                                      <div
-                                        key={model.id}
-                                        className="flex items-center gap-3 rounded-md border border-border-dark bg-surface-dark px-3 py-2"
-                                      >
-                                        <div className="min-w-0 flex-1">
-                                          <div className="truncate text-sm text-text-dark">
-                                            {model.displayName}
-                                          </div>
-                                          <div className="truncate text-[11px] text-text-muted">
-                                            {model.modelId}
-                                          </div>
-                                        </div>
-                                        <button
-                                          type="button"
-                                          onClick={() => handleRemoveCustomScriptModel(provider.id, model)}
-                                          className="rounded p-1 text-text-muted transition-colors hover:bg-bg-dark hover:text-text-dark"
-                                          title={t('settings.scriptCustomModelDelete')}
-                                        >
-                                          <Trash2 className="h-4 w-4" />
-                                        </button>
-                                      </div>
-                                    ))}
-                                  </div>
-                                ) : (
-                                  <div className="rounded-md border border-dashed border-border-dark px-3 py-2 text-[11px] leading-5 text-text-muted">
-                                    {t('settings.scriptCustomModelEmpty')}
-                                  </div>
-                                )}
-                              </div>
-                            </div>
-                          )}
-
-                          {isScriptCompatibleProvider && (
-                            <div className="rounded-lg border border-border-dark bg-bg-dark p-4">
-                              <div className="mb-1 text-xs font-medium text-text-dark">
-                                {t('settings.scriptCompatibleTitle')}
-                              </div>
-                              <p className="mb-3 text-xs leading-5 text-text-muted">
-                                {t('settings.scriptCompatibleDesc')}
-                              </p>
-                              <div className="space-y-3">
-                                <div>
-                                  <div className="mb-1 text-xs font-medium text-text-dark">
-                                    {t('settings.scriptCompatibleEndpointUrl')}
-                                  </div>
-                                  <UiInput
-                                    value={localScriptCompatibleProviderConfig.endpointUrl}
-                                    onChange={(event) =>
-                                      setLocalScriptCompatibleProviderConfig((previous) => ({
-                                        ...previous,
-                                        endpointUrl: event.target.value,
-                                      }))
-                                    }
-                                    placeholder="https://your-api-host/v1/chat/completions"
-                                    className="h-9 text-sm"
-                                  />
-                                </div>
-                                <div className="rounded-md border border-border-dark bg-black/10 px-3 py-2 text-[11px] leading-5 text-text-muted">
-                                  {t('settings.scriptCompatibleHint')}
-                                </div>
-                              </div>
-                            </div>
-                          )}
-
-                          {isStoryboardCustomizableProvider && (
-                            <div className="rounded-lg border border-border-dark bg-bg-dark p-4">
-                              <div className="mb-1 text-xs font-medium text-text-dark">
-                                {t('settings.storyboardModelSelection')}
-                              </div>
-                              <p className="mb-3 text-xs leading-5 text-text-muted">
-                                {t(
-                                  provider.id === 'compatible'
-                                    ? 'settings.storyboardCompatibleModelSelectionDesc'
-                                    : 'settings.storyboardModelSelectionDesc'
-                                )}
-                              </p>
-                              <div className="space-y-3">
-                                <div className="space-y-3">
-                                  <div>
-                                    <div className="mb-1 text-[11px] font-medium text-text-muted">
-                                      {t('settings.scriptCustomModelIdLabel')}
-                                    </div>
-                                    <UiInput
-                                      value={customStoryboardModelIdInput}
-                                      onChange={(event) =>
-                                        setLocalStoryboardModelIdInputs((previous) => ({
-                                          ...previous,
-                                          [provider.id]: event.target.value,
-                                        }))
-                                      }
-                                      onKeyDown={(event) => {
-                                        if (event.key === 'Enter') {
-                                          event.preventDefault();
-                                          handleAddCustomStoryboardModel(provider.id);
-                                        }
-                                      }}
-                                      placeholder={
-                                        provider.id === 'compatible'
-                                          ? 'gpt-image-1 / gemini-2.5-flash-image-preview'
-                                          : t('settings.storyboardCustomModelIdPlaceholder')
-                                      }
-                                      className="h-9 rounded-lg text-sm"
-                                    />
-                                  </div>
-                                  <div>
-                                    <div className="mb-1 text-[11px] font-medium text-text-muted">
-                                      {t('settings.scriptCustomModelDisplayNameLabel')}
-                                    </div>
-                                    <UiInput
-                                      value={customStoryboardModelDisplayNameInput}
-                                      onChange={(event) =>
-                                        setLocalStoryboardModelDisplayNameInputs((previous) => ({
-                                          ...previous,
-                                          [provider.id]: event.target.value,
-                                        }))
-                                      }
-                                      onKeyDown={(event) => {
-                                        if (event.key === 'Enter') {
-                                          event.preventDefault();
-                                          handleAddCustomStoryboardModel(provider.id);
-                                        }
-                                      }}
-                                      placeholder={t('settings.storyboardCustomModelDisplayNamePlaceholder')}
-                                      className="h-9 rounded-lg text-sm"
-                                    />
-                                  </div>
-                                  <button
-                                    type="button"
-                                    onClick={() => handleAddCustomStoryboardModel(provider.id)}
-                                    className="inline-flex h-9 w-full items-center justify-center gap-1 rounded-lg border border-border-dark bg-surface-dark px-3 text-xs text-text-dark transition-colors hover:bg-bg-dark"
-                                  >
-                                    <Plus className="h-3.5 w-3.5" />
-                                    {t('settings.scriptCustomModelAdd')}
-                                  </button>
-                                </div>
-
-                                {customStoryboardModels.length > 0 ? (
-                                  <div className="space-y-2">
-                                    {customStoryboardModels.map((model) => (
-                                      <div
-                                        key={model.id}
-                                        className="flex items-center gap-3 rounded-md border border-border-dark bg-surface-dark px-3 py-2"
-                                      >
-                                        <div className="min-w-0 flex-1">
-                                          <div className="truncate text-sm text-text-dark">
-                                            {model.displayName}
-                                          </div>
-                                          <div className="truncate text-[11px] text-text-muted">
-                                            {model.modelId}
-                                          </div>
-                                        </div>
-                                        <button
-                                          type="button"
-                                          onClick={() =>
-                                            handleRemoveCustomStoryboardModel(provider.id, model)
-                                          }
-                                          className="rounded p-1 text-text-muted transition-colors hover:bg-bg-dark hover:text-text-dark"
-                                          title={t('settings.scriptCustomModelDelete')}
-                                        >
-                                          <Trash2 className="h-4 w-4" />
-                                        </button>
-                                      </div>
-                                    ))}
-                                  </div>
-                                ) : (
-                                  <div className="rounded-md border border-dashed border-border-dark px-3 py-2 text-[11px] leading-5 text-text-muted">
-                                    {t('settings.storyboardCustomModelEmpty')}
-                                  </div>
-                                )}
-                              </div>
-                            </div>
-                          )}
-
-                          {provider.id === 'compatible' && (
-                            <div className="rounded-lg border border-border-dark bg-bg-dark p-4">
-                              <div className="mb-1 text-xs font-medium text-text-dark">
-                                {t('settings.storyboardCompatibleTitle')}
-                              </div>
-                              <p className="mb-3 text-xs leading-5 text-text-muted">
-                                {t('settings.storyboardCompatibleDesc')}
-                              </p>
-                              <div className="space-y-3">
-                                <div>
-                                  <div className="mb-1 text-xs font-medium text-text-dark">
-                                    {t('settings.storyboardCompatibleFormat')}
-                                  </div>
-                                  <UiSelect
-                                    value={localStoryboardCompatibleModelConfig.apiFormat}
-                                    onChange={(event) =>
-                                      setLocalStoryboardCompatibleModelConfig((previous) => ({
-                                        ...previous,
-                                        apiFormat: event.target.value as StoryboardCompatibleApiFormat,
-                                      }))
-                                    }
-                                    className="h-9 text-sm"
-                                  >
-                                    {STORYBOARD_COMPATIBLE_API_FORMATS.map((format) => (
-                                      <option key={format} value={format}>
-                                        {t(STORYBOARD_COMPATIBLE_FORMAT_LABEL_KEYS[format])}
-                                      </option>
-                                    ))}
-                                  </UiSelect>
-                                </div>
-                                <div>
-                                  <div className="mb-1 text-xs font-medium text-text-dark">
-                                    {t('settings.storyboardCompatibleEndpointUrl')}
-                                  </div>
-                                  <UiInput
-                                    value={localStoryboardCompatibleModelConfig.endpointUrl}
-                                    onChange={(event) =>
-                                      setLocalStoryboardCompatibleModelConfig((previous) => ({
-                                        ...previous,
-                                        endpointUrl: event.target.value,
-                                      }))
-                                    }
-                                    placeholder={resolveCompatibleEndpointPlaceholder(
-                                      localStoryboardCompatibleModelConfig.apiFormat
-                                    )}
-                                    className="h-9 text-sm"
-                                  />
-                                </div>
-                                <div className="rounded-md border border-border-dark bg-black/10 px-3 py-2 text-[11px] leading-5 text-text-muted">
-                                  {t('settings.storyboardCompatibleHint')}
-                                </div>
-                              </div>
-                            </div>
-                          )}
-
-                          {provider.id === 'grsai' && (
-                            <div className="rounded-lg border border-border-dark bg-bg-dark p-4">
-                              <div className="mb-1 text-xs font-medium text-text-dark">
-                                {t('settings.nanoBananaProModel')}
-                              </div>
-                              <p className="mb-2 text-xs text-text-muted">
-                                <Trans
-                                  i18nKey="settings.nanoBananaProModelDesc"
-                                  components={{
-                                    modelListLink: (
-                                      <a
-                                        href="https://grsai.com/zh/dashboard/models"
-                                        target="_blank"
-                                        rel="noreferrer"
-                                        className="text-accent hover:underline"
-                                      />
-                                    ),
-                                  }}
-                                />
-                              </p>
-                              <UiSelect
-                                value={localGrsaiNanoBananaProModel}
-                                onChange={(event) =>
-                                  setLocalGrsaiNanoBananaProModel(event.target.value)
-                                }
-                                className="h-9 text-sm"
-                              >
-                                {GRSAI_NANO_BANANA_PRO_MODEL_OPTIONS.map((option) => (
-                                  <option key={option} value={option}>
-                                    {option}
-                                  </option>
-                                ))}
-                              </UiSelect>
-                            </div>
-                          )}
+                          <ProviderModelSettingsSection
+                            provider={provider}
+                            isScriptTab={isScriptTab}
+                            isScriptCompatibleProvider={isScriptCompatibleProvider}
+                            isStoryboardCustomizableProvider={isStoryboardCustomizableProvider}
+                            resolvedScriptModel={resolvedScriptModel}
+                            scriptModelOptions={scriptModelOptions}
+                            customScriptModels={customScriptModels}
+                            customScriptModelIdInput={customScriptModelIdInput}
+                            customScriptModelDisplayNameInput={customScriptModelDisplayNameInput}
+                            onSelectScriptModel={(modelId) =>
+                              handleSelectScriptModel(provider.id, modelId)
+                            }
+                            onScriptModelIdInputChange={(value) =>
+                              setLocalScriptModelIdInputs((previous) => ({
+                                ...previous,
+                                [provider.id]: value,
+                              }))
+                            }
+                            onScriptModelDisplayNameInputChange={(value) =>
+                              setLocalScriptModelDisplayNameInputs((previous) => ({
+                                ...previous,
+                                [provider.id]: value,
+                              }))
+                            }
+                            onAddCustomScriptModel={() => handleAddCustomScriptModel(provider.id)}
+                            onRemoveCustomScriptModel={(model) =>
+                              handleRemoveCustomScriptModel(provider.id, model)
+                            }
+                            scriptCompatibleProviderConfig={localScriptCompatibleProviderConfig}
+                            onScriptCompatibleEndpointUrlChange={(value) =>
+                              setLocalScriptCompatibleProviderConfig((previous) => ({
+                                ...previous,
+                                endpointUrl: value,
+                              }))
+                            }
+                            customStoryboardModels={customStoryboardModels}
+                            customStoryboardModelIdInput={customStoryboardModelIdInput}
+                            customStoryboardModelDisplayNameInput={
+                              customStoryboardModelDisplayNameInput
+                            }
+                            onStoryboardModelIdInputChange={(value) =>
+                              setLocalStoryboardModelIdInputs((previous) => ({
+                                ...previous,
+                                [provider.id]: value,
+                              }))
+                            }
+                            onStoryboardModelDisplayNameInputChange={(value) =>
+                              setLocalStoryboardModelDisplayNameInputs((previous) => ({
+                                ...previous,
+                                [provider.id]: value,
+                              }))
+                            }
+                            onAddCustomStoryboardModel={() =>
+                              handleAddCustomStoryboardModel(provider.id)
+                            }
+                            onRemoveCustomStoryboardModel={(model) =>
+                              handleRemoveCustomStoryboardModel(provider.id, model)
+                            }
+                            storyboardCompatibleModelConfig={localStoryboardCompatibleModelConfig}
+                            onStoryboardCompatibleFormatChange={(format) =>
+                              setLocalStoryboardCompatibleModelConfig((previous) => ({
+                                ...previous,
+                                apiFormat: format,
+                              }))
+                            }
+                            onStoryboardCompatibleEndpointUrlChange={(value) =>
+                              setLocalStoryboardCompatibleModelConfig((previous) => ({
+                                ...previous,
+                                endpointUrl: value,
+                              }))
+                            }
+                            storyboardNewApiModelConfig={localStoryboardNewApiModelConfig}
+                            onStoryboardNewApiFormatChange={(format) =>
+                              setLocalStoryboardNewApiModelConfig((previous) => ({
+                                ...previous,
+                                apiFormat: format,
+                              }))
+                            }
+                            onStoryboardNewApiEndpointUrlChange={(value) =>
+                              setLocalStoryboardNewApiModelConfig((previous) => ({
+                                ...previous,
+                                endpointUrl: value,
+                              }))
+                            }
+                            grsaiNanoBananaProModel={localGrsaiNanoBananaProModel}
+                            onGrsaiNanoBananaProModelChange={(value) =>
+                              setLocalGrsaiNanoBananaProModel(value)
+                            }
+                          />
 
                         </div>
                       );
@@ -2009,6 +2360,208 @@ export function SettingsDialog({
                 </div>
 
                 <div className="ui-scrollbar flex-1 space-y-4 overflow-y-auto p-6">
+                  <div className="rounded-lg border border-border-dark bg-bg-dark p-4">
+                    <div className="flex flex-wrap items-start justify-between gap-3">
+                      <div>
+                        <h3 className="text-sm font-medium text-text-dark">
+                          {t('settings.dreaminaSectionTitle')}
+                        </h3>
+                        <p className="mt-1 text-xs leading-5 text-text-muted">
+                          {t('settings.dreaminaSectionDesc')}
+                        </p>
+                      </div>
+                      <span
+                        className={`inline-flex items-center rounded-full border px-2.5 py-1 text-[11px] ${dreaminaStatusMeta.className}`}
+                      >
+                        {dreaminaStatusMeta.label}
+                      </span>
+                    </div>
+
+                    <div className="mt-3 rounded border border-border-dark bg-surface-dark p-3">
+                      <div className="text-[11px] uppercase tracking-wide text-text-muted">
+                        {t('settings.dreaminaStatusLabel')}
+                      </div>
+                      <div className="mt-1 flex items-start gap-2">
+                        {isCheckingDreaminaStatus && (
+                          <UiLoadingAnimation size="sm" className="mt-0.5 shrink-0" />
+                        )}
+                        <div className="min-w-0">
+                          <div className="text-sm text-text-dark">
+                            {dreaminaStatus?.message ?? t('settings.dreaminaStatusChecking')}
+                          </div>
+                          {dreaminaStatus?.detail && dreaminaStatus.code !== 'loginRequired' && (
+                            <div className="mt-1 whitespace-pre-wrap break-all font-mono text-[11px] leading-5 text-text-muted">
+                              {dreaminaStatus.detail}
+                            </div>
+                          )}
+
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="mt-3 grid gap-3 md:grid-cols-2">
+                      <div className="rounded border border-border-dark bg-surface-dark p-3">
+                        <div className="text-[11px] uppercase tracking-wide text-text-muted">
+                          {t('settings.dreaminaCurrentVersionLabel')}
+                        </div>
+                        <div className="mt-1 text-sm font-medium text-text-dark">
+                          {dreaminaUpdateInfo?.currentVersion
+                            ? `v${dreaminaUpdateInfo.currentVersion}`
+                            : t('settings.dreaminaVersionUnknown')}
+                        </div>
+                        <div className="mt-1 text-xs text-text-muted">
+                          {t('settings.dreaminaSourceLabel')}: {dreaminaActiveSourceLabel}
+                        </div>
+                      </div>
+
+                      <div className="rounded border border-border-dark bg-surface-dark p-3">
+                        <div className="text-[11px] uppercase tracking-wide text-text-muted">
+                          {t('settings.dreaminaLatestVersionLabel')}
+                        </div>
+                        <div className="mt-1 flex items-center gap-2 text-sm font-medium text-text-dark">
+                          {isCheckingDreaminaUpdate && !dreaminaUpdateInfo ? (
+                            <>
+                              <UiLoadingAnimation size="xs" />
+                              {t('settings.dreaminaCheckingUpdate')}
+                            </>
+                          ) : dreaminaUpdateInfo?.latestVersion ? (
+                            `v${dreaminaUpdateInfo.latestVersion}`
+                          ) : (
+                            t('settings.dreaminaVersionUnknown')
+                          )}
+                        </div>
+                        <div className="mt-1 text-xs text-text-muted">
+                          {t('settings.dreaminaReleaseDateLabel')}:{' '}
+                          {dreaminaUpdateInfo?.releaseDate ?? t('settings.dreaminaVersionUnknown')}
+                        </div>
+                      </div>
+                    </div>
+
+                    {dreaminaUpdateInfo?.releaseNotes && (
+                      <div className="mt-3 rounded border border-border-dark bg-surface-dark p-3">
+                        <div className="text-[11px] uppercase tracking-wide text-text-muted">
+                          {t('settings.dreaminaReleaseNotesLabel')}
+                        </div>
+                        <div className="mt-1 text-sm text-text-dark">
+                          {dreaminaUpdateInfo.releaseNotes}
+                        </div>
+                      </div>
+                    )}
+
+                    {dreaminaUpdateInfo?.checkError && (
+                      <div className="mt-3 rounded border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs leading-5 text-amber-200">
+                        {t('settings.dreaminaUpdateCheckFailedLabel')}: {dreaminaUpdateInfo.checkError}
+                      </div>
+                    )}
+
+                    {dreaminaActionNotice && (
+                      <div
+                        className={`mt-3 rounded border px-3 py-2 text-xs leading-5 ${dreaminaNoticeClassName}`}
+                      >
+                        {dreaminaActionNotice.message}
+                      </div>
+                    )}
+
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      <button
+                        type="button"
+                        disabled={
+                          isCheckingDreaminaStatus || isLoggingOutDreamina || isUpdatingDreamina
+                        }
+                        onClick={() => {
+                          void refreshDreaminaStatus();
+                        }}
+                        className="inline-flex h-9 items-center justify-center rounded border border-border-dark bg-surface-dark px-3 text-xs text-text-dark transition-colors hover:bg-bg-dark disabled:cursor-not-allowed disabled:opacity-50"
+                      >
+                        {isCheckingDreaminaStatus ? (
+                          <>
+                            <UiLoadingAnimation size="xs" className="mr-1.5" />
+                            {t('settings.dreaminaStatusChecking')}
+                          </>
+                        ) : (
+                          t('settings.dreaminaRefreshStatus')
+                        )}
+                      </button>
+
+                      <button
+                        type="button"
+                        disabled={isCheckingDreaminaUpdate || isUpdatingDreamina}
+                        onClick={() => {
+                          void refreshDreaminaUpdateInfo();
+                        }}
+                        className="inline-flex h-9 items-center justify-center rounded border border-border-dark bg-surface-dark px-3 text-xs text-text-dark transition-colors hover:bg-bg-dark disabled:cursor-not-allowed disabled:opacity-50"
+                      >
+                        {isCheckingDreaminaUpdate ? (
+                          <>
+                            <UiLoadingAnimation size="xs" className="mr-1.5" />
+                            {t('settings.dreaminaCheckingUpdate')}
+                          </>
+                        ) : (
+                          t('settings.dreaminaCheckUpdate')
+                        )}
+                      </button>
+
+                      <button
+                        type="button"
+                        disabled={
+                          isCheckingDreaminaUpdate ||
+                          isUpdatingDreamina ||
+                          !dreaminaUpdateInfo?.hasUpdate
+                        }
+                        onClick={() => {
+                          void handleUpdateDreamina();
+                        }}
+                        className="inline-flex h-9 items-center justify-center rounded border border-accent/30 bg-accent/10 px-3 text-xs text-accent transition-colors hover:bg-accent/15 disabled:cursor-not-allowed disabled:opacity-50"
+                      >
+                        {isUpdatingDreamina ? (
+                          <>
+                            <UiLoadingAnimation size="xs" className="mr-1.5" />
+                            {t('settings.dreaminaUpdating')}
+                          </>
+                        ) : (
+                          t('settings.dreaminaUpdateNow')
+                        )}
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={handleOpenDreaminaSetup}
+                        className="inline-flex h-9 items-center justify-center rounded border border-border-dark bg-surface-dark px-3 text-xs text-text-dark transition-colors hover:bg-bg-dark"
+                      >
+                        {t('settings.dreaminaOpenSetup')}
+                      </button>
+
+                      {(isLoggingOutDreamina || dreaminaStatus?.code === 'ready') && (
+                        <button
+                          type="button"
+                          disabled={
+                            isCheckingDreaminaStatus || isLoggingOutDreamina || isUpdatingDreamina
+                          }
+                          onClick={() => {
+                            void handleLogoutDreamina();
+                          }}
+                          className="inline-flex h-9 items-center justify-center rounded border border-red-500/30 bg-red-500/10 px-3 text-xs text-red-300 transition-colors hover:bg-red-500/15 disabled:cursor-not-allowed disabled:opacity-50"
+                        >
+                          {isLoggingOutDreamina ? (
+                            <>
+                              <UiLoadingAnimation size="xs" className="mr-1.5" />
+                              {t('settings.dreaminaLoggingOut')}
+                            </>
+                          ) : (
+                            t('settings.dreaminaLogout')
+                          )}
+                        </button>
+                      )}
+                    </div>
+                  </div>
+
+                  <SettingsCheckboxCard
+                    checked={localAutoUpdateDreaminaCliOnLaunch}
+                    onCheckedChange={setLocalAutoUpdateDreaminaCliOnLaunch}
+                    title={t('settings.dreaminaAutoUpdateOnLaunch')}
+                    description={t('settings.dreaminaAutoUpdateOnLaunchDesc')}
+                  />
+
                   <SettingsCheckboxCard
                     checked={localStoryboardGenKeepStyleConsistent}
                     onCheckedChange={setLocalStoryboardGenKeepStyleConsistent}
@@ -2161,7 +2714,7 @@ export function SettingsDialog({
 
                     {isLoadingStorageInfo ? (
                       <div className="flex items-center justify-center py-4">
-                        <Loader2 className="h-5 w-5 animate-spin text-text-muted" />
+                        <UiLoadingAnimation size="md" />
                       </div>
                     ) : storageInfo ? (
                       <>
@@ -2248,7 +2801,7 @@ export function SettingsDialog({
                           >
                             {isMigrating ? (
                               <>
-                                <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+                                <UiLoadingAnimation size="xs" className="mr-1.5" />
                                 {t('settings.migrating')}
                               </>
                             ) : (
@@ -2273,7 +2826,7 @@ export function SettingsDialog({
                           >
                             {isCreatingDatabaseBackup ? (
                               <>
-                                <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+                                <UiLoadingAnimation size="xs" className="mr-1.5" />
                                 {t('settings.creatingBackup')}
                               </>
                             ) : (
@@ -2302,7 +2855,7 @@ export function SettingsDialog({
 
                           {isLoadingDatabaseBackups ? (
                             <div className="flex items-center justify-center py-5">
-                              <Loader2 className="h-4 w-4 animate-spin text-text-muted" />
+                              <UiLoadingAnimation size="sm" />
                             </div>
                           ) : databaseBackups.length > 0 ? (
                             <div className="ui-scrollbar mt-3 max-h-[220px] space-y-2 overflow-y-auto pr-1">
@@ -2321,7 +2874,7 @@ export function SettingsDialog({
                                       {new Date(backup.createdAt).toLocaleString()}
                                     </div>
                                     <div className="mt-0.5 truncate text-[11px] text-text-muted">
-                                      {formatBytes(backup.size)} · {backup.id}
+                                      {formatBytes(backup.size)} - {backup.id}
                                     </div>
                                   </div>
                                   <button
@@ -2618,7 +3171,7 @@ export function SettingsDialog({
                       >
                         {isStarting ? (
                           <>
-                            <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+                            <UiLoadingAnimation size="xs" className="mr-1.5" />
                             {t('common.loading')}
                           </>
                         ) : (
@@ -2633,7 +3186,7 @@ export function SettingsDialog({
                       >
                         {isStopping ? (
                           <>
-                            <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+                            <UiLoadingAnimation size="xs" className="mr-1.5" />
                             {t('common.loading')}
                           </>
                         ) : (
@@ -2758,6 +3311,7 @@ export function SettingsDialog({
               </>
             )}
           </div>
+          </div>
         </div>
       </div>
       <UiModal
@@ -2786,7 +3340,7 @@ export function SettingsDialog({
             >
               {isRestoringDatabaseBackup ? (
                 <>
-                  <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />
+                  <UiLoadingAnimation size="sm" className="mr-1.5" />
                   {t('settings.restoringBackup')}
                 </>
               ) : (

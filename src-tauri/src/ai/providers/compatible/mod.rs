@@ -259,6 +259,15 @@ impl CompatibleProvider {
         Some(width / height)
     }
 
+    fn resolve_chat_size(size: &str) -> Option<&'static str> {
+        match size.trim().to_ascii_uppercase().as_str() {
+            "1K" => Some("1k"),
+            "2K" => Some("2k"),
+            "4K" => Some("4k"),
+            _ => None,
+        }
+    }
+
     fn resolve_openai_size(size: &str, aspect_ratio: &str) -> Option<String> {
         let normalized_size = size.trim().to_ascii_uppercase();
         let ratio = Self::parse_aspect_ratio(aspect_ratio).unwrap_or(1.0);
@@ -335,7 +344,9 @@ impl CompatibleProvider {
 
     fn resolve_gemini_image_size(request_model: &str, size: &str) -> Option<&'static str> {
         let lower_model = request_model.trim().to_ascii_lowercase();
-        let supports_image_size = lower_model.contains("3.") || lower_model.contains("preview");
+        let supports_image_size = lower_model.contains("nano-banana-pro")
+            || lower_model.contains("3.")
+            || lower_model.contains("preview");
         if !supports_image_size {
             return None;
         }
@@ -346,6 +357,27 @@ impl CompatibleProvider {
             "4K" => Some("4K"),
             _ => None,
         }
+    }
+
+    fn build_prompt_text(request: &GenerateRequest) -> String {
+        let mut lines = vec![request.prompt.trim().to_string()];
+
+        if !request.size.trim().is_empty() {
+            lines.push(format!("Preferred size: {}.", request.size.trim()));
+        }
+
+        if !request.aspect_ratio.trim().is_empty() {
+            lines.push(format!(
+                "Preferred aspect ratio: {}.",
+                request.aspect_ratio.trim()
+            ));
+        }
+
+        lines
+            .into_iter()
+            .filter(|line| !line.is_empty())
+            .collect::<Vec<String>>()
+            .join("\n\n")
     }
 
     fn extract_error_message(payload: &Value) -> Option<String> {
@@ -674,6 +706,12 @@ impl CompatibleProvider {
         if let Some(size) = size {
             form = form.text("size", size);
         }
+        if let Some(image_size) = Self::resolve_gemini_image_size(request_model, &request.size) {
+            form = form.text("image_size", image_size.to_string());
+            if !request.aspect_ratio.trim().is_empty() {
+                form = form.text("aspect_ratio", request.aspect_ratio.trim().to_string());
+            }
+        }
 
         let reference_images = request.reference_images.as_ref().ok_or_else(|| {
             AIError::InvalidRequest(
@@ -760,6 +798,14 @@ impl CompatibleProvider {
         if let Some(size) = size {
             body["size"] = Value::String(size);
         }
+        if let Some(image_size) =
+            Self::resolve_gemini_image_size(&config.request_model, &request.size)
+        {
+            body["image_size"] = Value::String(image_size.to_string());
+            if !request.aspect_ratio.trim().is_empty() {
+                body["aspect_ratio"] = Value::String(request.aspect_ratio.trim().to_string());
+            }
+        }
         if let Some(image_inputs) = image_inputs {
             body["image"] = if image_inputs.len() == 1 {
                 Value::String(image_inputs[0].clone())
@@ -808,12 +854,7 @@ impl CompatibleProvider {
             Self::resolve_openai_endpoint(&config.endpoint_url, CompatibleApiFormat::OpenAiChat);
         let mut content = vec![json!({
             "type": "text",
-            "text": format!(
-                "{}\n\nPreferred size: {}. Preferred aspect ratio: {}.",
-                request.prompt.as_str(),
-                request.size.as_str(),
-                request.aspect_ratio.as_str()
-            ),
+            "text": Self::build_prompt_text(request),
         })];
         if let Some(reference_images) = request.reference_images.as_ref() {
             for source in reference_images {
@@ -826,7 +867,7 @@ impl CompatibleProvider {
             }
         }
 
-        let body = json!({
+        let mut body = json!({
             "model": Self::sanitize_model(&config.request_model),
             "messages": [{
                 "role": "user",
@@ -835,6 +876,17 @@ impl CompatibleProvider {
             "stream": false,
             "modalities": ["text", "image"],
         });
+        if let Some(size) = Self::resolve_chat_size(&request.size) {
+            body["size"] = Value::String(size.to_string());
+        }
+        if let Some(image_size) =
+            Self::resolve_gemini_image_size(&config.request_model, &request.size)
+        {
+            body["image_size"] = Value::String(image_size.to_string());
+            if !request.aspect_ratio.trim().is_empty() {
+                body["aspect_ratio"] = Value::String(request.aspect_ratio.trim().to_string());
+            }
+        }
         self.send_json_request(&endpoint, api_key, body, CompatibleApiFormat::OpenAiChat)
             .await
     }

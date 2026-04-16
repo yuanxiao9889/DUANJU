@@ -1,6 +1,6 @@
 import { memo, useCallback, useEffect, useMemo, useState } from 'react';
 import { Handle, Position, useUpdateNodeInternals, type NodeProps } from '@xyflow/react';
-import { Download } from 'lucide-react';
+import { Download, Scissors, SquareArrowOutUpRight } from 'lucide-react';
 import { open } from '@tauri-apps/plugin-dialog';
 import { openPath, revealItemInDir } from '@tauri-apps/plugin-opener';
 import { join } from '@tauri-apps/api/path';
@@ -13,12 +13,12 @@ import {
   type StoryboardFrameItem,
   type StoryboardSplitResultNodeData,
 } from '@/features/canvas/domain/canvasNodes';
-import { resolveNodeDisplayName } from '@/features/canvas/domain/nodeDisplay';
+import { resolveNodeDisplayName, EXPORT_RESULT_DISPLAY_NAME } from '@/features/canvas/domain/nodeDisplay';
 import { NodeHeader, NODE_HEADER_FLOATING_POSITION_CLASS } from '@/features/canvas/ui/NodeHeader';
 import { NodeResizeHandle } from '@/features/canvas/ui/NodeResizeHandle';
 import { NODE_CONTROL_ICON_CLASS, NODE_CONTROL_PRIMARY_BUTTON_CLASS } from '@/features/canvas/ui/nodeControlStyles';
 import { CanvasNodeImage } from '@/features/canvas/ui/CanvasNodeImage';
-import { resolveImageDisplayUrl } from '@/features/canvas/application/imageData';
+import { prepareNodeImage, resolveImageDisplayUrl } from '@/features/canvas/application/imageData';
 import { useCanvasStore } from '@/stores/canvasStore';
 import { useProjectStore } from '@/stores/projectStore';
 import { useSettingsStore } from '@/stores/settingsStore';
@@ -109,12 +109,16 @@ function SplitResultFrameCard({
   frameAspectRatioCss,
   viewerImageList,
   label,
+  editLabel,
+  onEditFrame,
 }: {
   frame: StoryboardFrameItem;
   index: number;
   frameAspectRatioCss: string;
   viewerImageList: string[];
   label: string;
+  editLabel: string;
+  onEditFrame: (frame: StoryboardFrameItem, index: number) => void;
 }) {
   const source = frame.imageUrl || frame.previewImageUrl;
   const displaySource = source ? resolveImageDisplayUrl(frame.previewImageUrl || frame.imageUrl || source) : null;
@@ -123,7 +127,7 @@ function SplitResultFrameCard({
 
   return (
     <div className="relative bg-bg-dark/85">
-      <div className="relative overflow-hidden bg-surface-dark" style={{ aspectRatio: frameAspectRatioCss }}>
+      <div className="group/frame relative overflow-hidden bg-surface-dark" style={{ aspectRatio: frameAspectRatioCss }}>
         {displaySource && viewerSource ? (
           <CanvasNodeImage
             src={displaySource}
@@ -138,6 +142,20 @@ function SplitResultFrameCard({
             {label}
           </div>
         )}
+        {source ? (
+          <button
+            type="button"
+            className="absolute right-1 top-1 rounded bg-black/60 p-1 text-white opacity-0 transition-all duration-150 hover:bg-black/75 group-hover/frame:opacity-100"
+            onPointerDown={(event) => event.stopPropagation()}
+            onClick={(event) => {
+              event.stopPropagation();
+              onEditFrame(frame, index);
+            }}
+            title={editLabel}
+          >
+            <SquareArrowOutUpRight className="h-3 w-3" />
+          </button>
+        ) : null}
       </div>
       <div className="min-h-10 border-t border-[rgba(255,255,255,0.12)] bg-bg-dark/90 px-1.5 py-1 text-[11px] text-text-dark">
         <div className="line-clamp-2 break-words text-text-muted/90">{noteText}</div>
@@ -160,10 +178,16 @@ export const StoryboardSplitResultNode = memo(({
   const updateNodeInternals = useUpdateNodeInternals();
   const setSelectedNode = useCanvasStore((state) => state.setSelectedNode);
   const updateNodeData = useCanvasStore((state) => state.updateNodeData);
+  const addDerivedExportNode = useCanvasStore((state) => state.addDerivedExportNode);
+  const addStoryboardSplitFrameExportNodes = useCanvasStore(
+    (state) => state.addStoryboardSplitFrameExportNodes
+  );
+  const addEdge = useCanvasStore((state) => state.addEdge);
   const currentProjectName = useProjectStore((state) => state.currentProject?.name);
   const downloadPresetPaths = useSettingsStore((state) => state.downloadPresetPaths);
 
   const [isExportingFrames, setIsExportingFrames] = useState(false);
+  const [isSeparatingFrames, setIsSeparatingFrames] = useState(false);
   const [exportError, setExportError] = useState<string | null>(null);
 
   const orderedFrames = useMemo(
@@ -288,6 +312,86 @@ export const StoryboardSplitResultNode = memo(({
     }
   }, [currentProjectName, isExportingFrames, orderedFrames, resolveExportRootDir, t]);
 
+  const handleEditFrame = useCallback(async (frame: StoryboardFrameItem, index: number) => {
+    try {
+      const sourceImage = frame.imageUrl ?? frame.previewImageUrl;
+      if (!sourceImage) {
+        setExportError(t('node.storyboardSplitResult.editEmpty'));
+        return;
+      }
+
+      const frameTitle = t('node.storyboardNode.frameIndex', { index: index + 1 })
+        || EXPORT_RESULT_DISPLAY_NAME.storyboardFrameEdit;
+      const prepared = await prepareNodeImage(sourceImage);
+      const createdNodeId = addDerivedExportNode(
+        id,
+        prepared.imageUrl,
+        prepared.aspectRatio,
+        prepared.previewImageUrl,
+        {
+          defaultTitle: frameTitle,
+          resultKind: 'storyboardFrameEdit',
+        }
+      );
+
+      if (createdNodeId) {
+        addEdge(id, createdNodeId);
+      }
+    } catch (error) {
+      setExportError(
+        error instanceof Error && error.message.trim()
+          ? error.message
+          : t('node.storyboardSplitResult.editFailed')
+      );
+    }
+  }, [addDerivedExportNode, addEdge, id, t]);
+
+  const handleSeparateAllFrames = useCallback(async () => {
+    if (isSeparatingFrames) {
+      return;
+    }
+
+    const frameEntries = orderedFrames
+      .map((frame, index) => ({
+        sourceImage: frame.imageUrl ?? frame.previewImageUrl ?? '',
+        title: t('node.storyboardNode.frameIndex', { index: index + 1 }),
+      }))
+      .filter((frame): frame is { sourceImage: string; title: string } => frame.sourceImage.length > 0);
+
+    if (frameEntries.length === 0) {
+      setExportError(t('node.storyboardSplitResult.editEmpty'));
+      return;
+    }
+
+    setExportError(null);
+    setIsSeparatingFrames(true);
+    try {
+      const preparedFrames = await Promise.all(
+        frameEntries.map(async (frame) => {
+          const prepared = await prepareNodeImage(frame.sourceImage);
+          return {
+            imageUrl: prepared.imageUrl,
+            previewImageUrl: prepared.previewImageUrl,
+            aspectRatio: prepared.aspectRatio,
+            title: frame.title,
+          };
+        })
+      );
+
+      addStoryboardSplitFrameExportNodes(id, preparedFrames, {
+        gridCols,
+      });
+    } catch (error) {
+      setExportError(
+        error instanceof Error && error.message.trim()
+          ? error.message
+          : t('node.storyboardSplitResult.separateAllFailed')
+      );
+    } finally {
+      setIsSeparatingFrames(false);
+    }
+  }, [addStoryboardSplitFrameExportNodes, gridCols, id, isSeparatingFrames, orderedFrames, t]);
+
   return (
     <div
       className={`
@@ -323,6 +427,8 @@ export const StoryboardSplitResultNode = memo(({
               frameAspectRatioCss={frameAspectRatioCss}
               viewerImageList={viewerImageList}
               label={t('node.storyboardNode.frameIndex', { index: index + 1 })}
+              editLabel={t('node.storyboardSplitResult.editFrame')}
+              onEditFrame={handleEditFrame}
             />
           ))}
           {Array.from({ length: emptyFrameSlotCount }, (_, index) => (
@@ -348,21 +454,38 @@ export const StoryboardSplitResultNode = memo(({
             capacity: totalGridSlots,
           })}
         </div>
-        <UiButton
-          size="sm"
-          variant="primary"
-          className={`nodrag ${NODE_CONTROL_PRIMARY_BUTTON_CLASS}`}
-          onClick={(event) => {
-            event.stopPropagation();
-            void handleExportFrames();
-          }}
-          disabled={isExportingFrames}
-        >
-          <Download className={NODE_CONTROL_ICON_CLASS} />
-          {isExportingFrames
-            ? t('node.storyboardSplitResult.exportingFrames')
-            : t('node.storyboardSplitResult.exportFrames')}
-        </UiButton>
+        <div className="flex items-center gap-2">
+          <UiButton
+            size="sm"
+            variant="ghost"
+            className={`nodrag ${NODE_CONTROL_PRIMARY_BUTTON_CLASS}`}
+            onClick={(event) => {
+              event.stopPropagation();
+              void handleSeparateAllFrames();
+            }}
+            disabled={isSeparatingFrames}
+          >
+            <Scissors className={NODE_CONTROL_ICON_CLASS} />
+            {isSeparatingFrames
+              ? t('node.storyboardSplitResult.separatingAll')
+              : t('node.storyboardSplitResult.separateAll')}
+          </UiButton>
+          <UiButton
+            size="sm"
+            variant="primary"
+            className={`nodrag ${NODE_CONTROL_PRIMARY_BUTTON_CLASS}`}
+            onClick={(event) => {
+              event.stopPropagation();
+              void handleExportFrames();
+            }}
+            disabled={isExportingFrames}
+          >
+            <Download className={NODE_CONTROL_ICON_CLASS} />
+            {isExportingFrames
+              ? t('node.storyboardSplitResult.exportingFrames')
+              : t('node.storyboardSplitResult.exportFrames')}
+          </UiButton>
+        </div>
       </div>
 
       {exportError ? (

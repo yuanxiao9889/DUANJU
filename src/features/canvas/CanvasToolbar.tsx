@@ -1,22 +1,28 @@
 import { memo, useCallback, useState } from 'react';
+import { save } from '@tauri-apps/plugin-dialog';
 import { useTranslation } from 'react-i18next';
 import {
+  Download,
+  FileText,
+  Lock,
+  Maximize2,
+  Package,
   Plus,
+  Trash2,
+  Unlock,
   ZoomIn,
   ZoomOut,
-  Maximize2,
-  Lock,
-  Unlock,
-  Trash2,
-  FileText,
-  Download,
 } from 'lucide-react';
 import { useReactFlow } from '@xyflow/react';
 
 import { CANVAS_NODE_TYPES } from '@/features/canvas/domain/canvasNodes';
+import {
+  buildDefaultScriptProjectPackageFileName,
+  exportScriptProjectPackageBundle,
+} from '@/features/canvas/application/scriptProjectPackage';
+import { BranchSelectionDialog } from '@/features/canvas/ui/BranchSelectionDialog';
 import { useCanvasStore } from '@/stores/canvasStore';
 import { useProjectStore } from '@/stores/projectStore';
-import { BranchSelectionDialog } from './ui/BranchSelectionDialog';
 
 interface CanvasToolbarProps {
   isLocked: boolean;
@@ -28,6 +34,11 @@ export const CanvasToolbar = memo(({ isLocked, onToggleLock }: CanvasToolbarProp
   const { zoomIn, zoomOut, fitView } = useReactFlow();
   const addNode = useCanvasStore((state) => state.addNode);
   const clearCanvas = useCanvasStore((state) => state.clearCanvas);
+  const nodes = useCanvasStore((state) => state.nodes);
+  const edges = useCanvasStore((state) => state.edges);
+  const currentViewport = useCanvasStore((state) => state.currentViewport);
+  const history = useCanvasStore((state) => state.history);
+  const selectedNodeId = useCanvasStore((state) => state.selectedNodeId);
   const currentProject = useProjectStore((state) => state.getCurrentProject());
   const [showExportDialog, setShowExportDialog] = useState(false);
 
@@ -51,6 +62,29 @@ export const CanvasToolbar = memo(({ isLocked, onToggleLock }: CanvasToolbarProp
     addNode(CANVAS_NODE_TYPES.scriptRoot, { x, y });
   }, [addNode]);
 
+  const handleExportNativePackage = useCallback(async () => {
+    const rootTitle = (nodes.find((node) => node.type === CANVAS_NODE_TYPES.scriptRoot)?.data as {
+      title?: string;
+    } | undefined)?.title?.trim() || 'Untitled Script';
+    const selectedPath = await save({
+      defaultPath: buildDefaultScriptProjectPackageFileName(rootTitle),
+      filters: [{ name: 'Script Project Package', extensions: ['scpkg'] }],
+    });
+
+    if (typeof selectedPath !== 'string') {
+      return;
+    }
+
+    await exportScriptProjectPackageBundle(selectedPath, {
+      currentProject,
+      nodes: nodes as any,
+      edges: edges as any,
+      viewport: currentViewport,
+      history,
+      selectedNodeId,
+    });
+  }, [currentProject, currentViewport, edges, history, nodes, selectedNodeId]);
+
   return (
     <div className="absolute left-1/2 top-4 z-10 flex -translate-x-1/2 items-center gap-2 rounded-lg border border-border-dark bg-surface-dark px-2 py-1.5 shadow-lg">
       {projectType === 'script' ? (
@@ -70,7 +104,7 @@ export const CanvasToolbar = memo(({ isLocked, onToggleLock }: CanvasToolbarProp
             <FileText className="h-4 w-4" />
             新建剧本
           </button>
-          
+
           <button
             onClick={handleAddChapterNode}
             disabled={isLocked}
@@ -107,19 +141,27 @@ export const CanvasToolbar = memo(({ isLocked, onToggleLock }: CanvasToolbarProp
 
       <div className="h-6 w-px bg-border-dark" />
 
-      {projectType === 'script' && (
+      {projectType === 'script' ? (
         <>
           <button
             onClick={() => setShowExportDialog(true)}
             className="flex items-center gap-1.5 rounded px-3 py-1.5 text-sm font-medium transition-colors duration-200 bg-amber-500/20 text-amber-400 hover:bg-amber-500/30"
-            title="导出剧本"
+            title={t('scriptExportDialog.exportScript')}
           >
             <Download className="h-4 w-4" />
-            导出
+            {t('scriptExportDialog.exportScript')}
+          </button>
+          <button
+            onClick={handleExportNativePackage}
+            className="flex items-center gap-1.5 rounded px-3 py-1.5 text-sm font-medium transition-colors duration-200 bg-cyan-500/15 text-cyan-300 hover:bg-cyan-500/25"
+            title={t('scriptExportDialog.exportPackage')}
+          >
+            <Package className="h-4 w-4" />
+            {t('scriptExportDialog.exportPackage')}
           </button>
           <div className="h-6 w-px bg-border-dark" />
         </>
-      )}
+      ) : null}
 
       <button
         onClick={() => zoomIn()}
@@ -154,7 +196,11 @@ export const CanvasToolbar = memo(({ isLocked, onToggleLock }: CanvasToolbarProp
         className="rounded p-1.5 transition-colors hover:bg-bg-dark"
         title={isLocked ? t('canvas.toolbar.unlock') : t('canvas.toolbar.lock')}
       >
-        {isLocked ? <Lock className="h-4 w-4 text-accent" /> : <Unlock className="h-4 w-4 text-text-muted" />}
+        {isLocked ? (
+          <Lock className="h-4 w-4 text-accent" />
+        ) : (
+          <Unlock className="h-4 w-4 text-text-muted" />
+        )}
       </button>
 
       <button
@@ -166,10 +212,12 @@ export const CanvasToolbar = memo(({ isLocked, onToggleLock }: CanvasToolbarProp
         <Trash2 className="h-4 w-4 text-red-500" />
       </button>
 
-      <BranchSelectionDialog
-        isOpen={showExportDialog}
-        onClose={() => setShowExportDialog(false)}
-      />
+      {showExportDialog ? (
+        <BranchSelectionDialog
+          isOpen={showExportDialog}
+          onClose={() => setShowExportDialog(false)}
+        />
+      ) : null}
     </div>
   );
 });

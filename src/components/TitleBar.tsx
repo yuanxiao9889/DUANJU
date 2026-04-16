@@ -1,43 +1,43 @@
-import { useCallback, useEffect, useState } from 'react';
+﻿import { useCallback, useEffect, useState } from 'react';
 import { getVersion } from '@tauri-apps/api/app';
+import type { MouseEvent as ReactMouseEvent } from 'react';
 import { getCurrentWindow } from '@tauri-apps/api/window';
-import { Minus, X, Maximize2, Settings, ArrowLeft } from 'lucide-react';
+import { Minus, X, Maximize2, Settings, ArrowLeft, PackageOpen } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { Moon, Sun, Languages } from 'lucide-react';
 import { useThemeStore } from '@/stores/themeStore';
-import { useProjectStore } from '@/stores/projectStore';
-import { resolveErrorContent, showErrorDialog } from '@/features/canvas/application/errorDialog';
-import { focusJimengChromeWorkspace } from '@/features/jimeng/application/jimengChromeWorkspace';
 import closeNormalIcon from '@/assets/macos-traffic-lights/1-close-1-normal.svg';
 import closeHoverIcon from '@/assets/macos-traffic-lights/2-close-2-hover.svg';
 import minimizeNormalIcon from '@/assets/macos-traffic-lights/2-minimize-1-normal.svg';
 import minimizeHoverIcon from '@/assets/macos-traffic-lights/2-minimize-2-hover.svg';
 import maximizeNormalIcon from '@/assets/macos-traffic-lights/3-maximize-1-normal.svg';
 import maximizeHoverIcon from '@/assets/macos-traffic-lights/3-maximize-2-hover.svg';
+import titlebarLogo from '@/assets/titlebar-logo.png';
 
 interface TitleBarProps {
+  onExtensionsClick: () => void;
   onSettingsClick: () => void;
+  onCloseRequest?: () => Promise<void> | void;
   showBackButton?: boolean;
   onBackClick?: () => void;
 }
 
 export function TitleBar({
+  onExtensionsClick,
   onSettingsClick,
+  onCloseRequest,
   showBackButton,
   onBackClick,
 }: TitleBarProps) {
   const { t, i18n } = useTranslation();
   const { theme, toggleTheme } = useThemeStore();
-  const currentProjectName = useProjectStore((state) => state.currentProject?.name);
   const [runtimeVersion, setRuntimeVersion] = useState<string>('');
-  const [isJimengBusy, setIsJimengBusy] = useState(false);
-  const [hasOpenedJimengChrome, setHasOpenedJimengChrome] = useState(false);
 
   const appWindow = getCurrentWindow();
-  const isZh = i18n.language.startsWith('zh');
   const isMac =
     typeof navigator !== 'undefined'
     && /(Mac|iPhone|iPad|iPod)/i.test(`${navigator.platform} ${navigator.userAgent}`);
+
   useEffect(() => {
     let mounted = true;
 
@@ -60,9 +60,6 @@ export function TitleBar({
     };
   }, []);
 
-  const appTitle = runtimeVersion ? `${t('app.title')} v${runtimeVersion}` : t('app.title');
-  const titleText = currentProjectName ? `${currentProjectName} - ${appTitle}` : appTitle;
-
   const handleMinimize = useCallback(async () => {
     await appWindow.minimize();
   }, [appWindow]);
@@ -77,8 +74,57 @@ export function TitleBar({
   }, [appWindow]);
 
   const handleClose = useCallback(async () => {
-    await appWindow.close();
-  }, [appWindow]);
+    if (onCloseRequest) {
+      await onCloseRequest();
+      return;
+    }
+
+    try {
+      await appWindow.close();
+    } catch (error) {
+      console.error('Failed to request window close', error);
+
+      try {
+        await appWindow.destroy();
+      } catch (destroyError) {
+        console.error('Failed to force destroy window from title bar', destroyError);
+      }
+    }
+  }, [appWindow, onCloseRequest]);
+
+  const handleWindowControlMouseDown = useCallback(
+    (
+      event: ReactMouseEvent<HTMLButtonElement>,
+      action: () => Promise<void>,
+    ) => {
+      if (event.button !== 0) {
+        return;
+      }
+
+      event.preventDefault();
+      event.stopPropagation();
+      void action();
+    },
+    [],
+  );
+
+  const handleWindowControlClick = useCallback(
+    (
+      event: ReactMouseEvent<HTMLButtonElement>,
+      action: () => Promise<void>,
+    ) => {
+      // Mouse interactions are handled on mousedown so the first click on an
+      // inactive undecorated window still works. Keep click for keyboard use.
+      if (event.detail !== 0) {
+        return;
+      }
+
+      event.preventDefault();
+      event.stopPropagation();
+      void action();
+    },
+    [],
+  );
 
   const handleDragStart = useCallback(async (e: React.MouseEvent) => {
     if (e.button !== 0) return;
@@ -97,33 +143,6 @@ export function TitleBar({
   const handleThemeClick = useCallback(() => {
     toggleTheme();
   }, [toggleTheme]);
-
-  const handleOpenJimengChrome = useCallback(async () => {
-    if (isJimengBusy) {
-      return;
-    }
-
-    setIsJimengBusy(true);
-    try {
-      await focusJimengChromeWorkspace();
-      setHasOpenedJimengChrome(true);
-    } catch (error) {
-      const content = resolveErrorContent(error, t('titleBar.jimengOpenFailed'));
-      const isChromeMissing = content.message.includes('Chrome/Chromium was not found');
-
-      await showErrorDialog(
-        isChromeMissing ? t('titleBar.jimengChromeMissing') : content.message,
-        t('common.error'),
-        isChromeMissing ? content.message : content.details
-      );
-    } finally {
-      setIsJimengBusy(false);
-    }
-  }, [isJimengBusy, t]);
-
-  const jimengButtonTitle = isJimengBusy
-    ? t('titleBar.jimengOpeningChrome')
-    : t('titleBar.jimengOpenChrome');
 
   return (
     <div className="relative z-50 flex h-10 shrink-0 items-center justify-between border-b border-border-dark bg-surface-dark select-none">
@@ -184,36 +203,22 @@ export function TitleBar({
             <ArrowLeft className="w-4 h-4 text-text-muted hover:text-text-dark" />
           </button>
         )}
-        <span className="text-sm font-semibold text-text-dark">
-          {titleText}
-        </span>
-        {!isZh && !currentProjectName ? (
-          <span className="text-xs text-text-muted ml-2">{t('app.subtitle')}</span>
-        ) : null}
+        <div className="flex items-center gap-2 min-w-0">
+          <img
+            src={titlebarLogo}
+            alt=""
+            className="h-5 w-auto shrink-0 object-contain select-none"
+            draggable={false}
+          />
+          {runtimeVersion ? (
+            <span className="text-xs font-medium text-text-muted">
+              v{runtimeVersion}
+            </span>
+          ) : null}
+        </div>
       </div>
 
-      {/* 右侧按钮区域 */}
       <div className="flex items-center h-full">
-        <button
-          type="button"
-          onClick={() => {
-            void handleOpenJimengChrome();
-          }}
-          disabled={isJimengBusy}
-          className={`h-full px-3 transition-colors ${isJimengBusy ? 'cursor-wait opacity-70' : 'hover:bg-bg-dark'} ${hasOpenedJimengChrome ? 'bg-bg-dark/60' : ''}`}
-          title={jimengButtonTitle}
-          aria-label={jimengButtonTitle}
-          aria-pressed={hasOpenedJimengChrome}
-        >
-          <span className="inline-flex items-center gap-2 text-xs font-medium text-text-muted">
-            <span
-              className={`h-1.5 w-1.5 rounded-full transition-colors ${hasOpenedJimengChrome ? 'bg-[rgb(var(--accent-rgb))]' : 'bg-border-dark'}`}
-              aria-hidden="true"
-            />
-            <span>{t('titleBar.jimengPanel')}</span>
-          </span>
-        </button>
-
         <button
           type="button"
           onClick={handleLanguageClick}
@@ -238,6 +243,15 @@ export function TitleBar({
 
         <button
           type="button"
+          onClick={onExtensionsClick}
+          className="h-full px-3 hover:bg-bg-dark transition-colors"
+          title={t('titleBar.extensions')}
+        >
+          <PackageOpen className="w-4 h-4 text-text-muted" />
+        </button>
+
+        <button
+          type="button"
           onClick={onSettingsClick}
           className="h-full px-3 hover:bg-bg-dark transition-colors"
           title={t('settings.title')}
@@ -251,7 +265,12 @@ export function TitleBar({
 
             <button
               type="button"
-              onClick={handleMinimize}
+              onMouseDown={(event) =>
+                handleWindowControlMouseDown(event, handleMinimize)
+              }
+              onClick={(event) =>
+                handleWindowControlClick(event, handleMinimize)
+              }
               className="h-full px-3 hover:bg-bg-dark transition-colors"
               title={t('titleBar.minimize')}
             >
@@ -260,7 +279,12 @@ export function TitleBar({
 
             <button
               type="button"
-              onClick={handleMaximize}
+              onMouseDown={(event) =>
+                handleWindowControlMouseDown(event, handleMaximize)
+              }
+              onClick={(event) =>
+                handleWindowControlClick(event, handleMaximize)
+              }
               className="h-full px-3 hover:bg-bg-dark transition-colors"
               title={t('titleBar.maximize')}
             >
@@ -269,7 +293,10 @@ export function TitleBar({
 
             <button
               type="button"
-              onClick={handleClose}
+              onMouseDown={(event) =>
+                handleWindowControlMouseDown(event, handleClose)
+              }
+              onClick={(event) => handleWindowControlClick(event, handleClose)}
               className="h-full px-3 hover:bg-red-500 transition-colors group"
               title={t('titleBar.close')}
             >

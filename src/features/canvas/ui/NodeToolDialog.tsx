@@ -1,11 +1,19 @@
-import { useMemo, useState, useEffect, useCallback } from 'react';
+import { lazy, Suspense, useMemo, useState, useEffect, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import {
+  AUDIO_NODE_DEFAULT_HEIGHT,
+  AUDIO_NODE_DEFAULT_WIDTH,
+  CANVAS_NODE_TYPES,
+  EXPORT_RESULT_NODE_MIN_HEIGHT,
+  EXPORT_RESULT_NODE_MIN_WIDTH,
   NODE_TOOL_TYPES,
+  isAudioNode,
   isExportImageNode,
   isImageEditNode,
+  isPanorama360Node,
   isUploadNode,
+  isVideoNode,
   type NodeToolType,
 } from '@/features/canvas/domain/canvasNodes';
 import { EXPORT_RESULT_DISPLAY_NAME } from '@/features/canvas/domain/nodeDisplay';
@@ -13,24 +21,47 @@ import {
   canvasEventBus,
   canvasToolProcessor,
 } from '@/features/canvas/application/canvasServices';
+import { useCanvasNodeById } from '@/features/canvas/hooks/useCanvasNodeGraph';
 import { prepareNodeImage, resolveImageDisplayUrl } from '@/features/canvas/application/imageData';
+import { resolveMinEdgeFittedSize } from '@/features/canvas/application/imageNodeSizing';
 import { readStoryboardImageMetadata } from '@/commands/image';
 import { getToolPlugin, type ToolOptions } from '@/features/canvas/tools';
 import { useCanvasStore } from '@/stores/canvasStore';
-import { UiButton, UiModal } from '@/components/ui';
+import { UiButton, UiLoadingBanner, UiLoadingOverlay, UiModal } from '@/components/ui';
 import { UI_DIALOG_TRANSITION_MS } from '@/components/ui/motion';
-import { FormToolEditor } from './tool-editors/FormToolEditor';
-import { CropToolEditor } from './tool-editors/CropToolEditor';
-import { AnnotateToolEditor } from './tool-editors/AnnotateToolEditor';
-import { SplitStoryboardToolEditor } from './tool-editors/SplitStoryboardToolEditor';
+const FormToolEditor = lazy(async () => {
+  const module = await import('./tool-editors/FormToolEditor');
+  return { default: module.FormToolEditor };
+});
+
+const CropToolEditor = lazy(async () => {
+  const module = await import('./tool-editors/CropToolEditor');
+  return { default: module.CropToolEditor };
+});
+
+const MediaTrimToolEditor = lazy(async () => {
+  const module = await import('./tool-editors/MediaTrimToolEditor');
+  return { default: module.MediaTrimToolEditor };
+});
+
+const AnnotateToolEditor = lazy(async () => {
+  const module = await import('./tool-editors/AnnotateToolEditor');
+  return { default: module.AnnotateToolEditor };
+});
+
+const SplitStoryboardToolEditor = lazy(async () => {
+  const module = await import('./tool-editors/SplitStoryboardToolEditor');
+  return { default: module.SplitStoryboardToolEditor };
+});
 
 export function NodeToolDialog() {
   const { t } = useTranslation();
   const activeToolDialog = useCanvasStore((state) => state.activeToolDialog);
-  const nodes = useCanvasStore((state) => state.nodes);
+  const addNode = useCanvasStore((state) => state.addNode);
   const addDerivedExportNode = useCanvasStore((state) => state.addDerivedExportNode);
-  const addStoryboardSplitNode = useCanvasStore((state) => state.addStoryboardSplitNode);
+  const addStoryboardSplitResultNode = useCanvasStore((state) => state.addStoryboardSplitResultNode);
   const addEdge = useCanvasStore((state) => state.addEdge);
+  const findNodePosition = useCanvasStore((state) => state.findNodePosition);
 
   const [isProcessing, setIsProcessing] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -53,25 +84,47 @@ export function NodeToolDialog() {
     };
   }, [activeToolDialog]);
 
-  const sourceNode = useMemo(() => {
-    if (!displayToolDialog) {
-      return null;
-    }
+  const sourceNode = useCanvasNodeById(displayToolDialog?.nodeId ?? '');
 
-    return nodes.find((node) => node.id === displayToolDialog.nodeId) ?? null;
-  }, [displayToolDialog, nodes]);
-
-  const sourceImageUrl = useMemo(() => {
+  const sourceAsset = useMemo(() => {
     if (!sourceNode) {
       return null;
     }
 
-    if (isUploadNode(sourceNode) || isImageEditNode(sourceNode) || isExportImageNode(sourceNode)) {
-      return sourceNode.data.imageUrl;
+    if (
+      isUploadNode(sourceNode)
+      || isImageEditNode(sourceNode)
+      || isPanorama360Node(sourceNode)
+      || isExportImageNode(sourceNode)
+    ) {
+      return {
+        mediaType: 'image' as const,
+        sourceUrl: sourceNode.data.imageUrl,
+      };
+    }
+
+    if (isVideoNode(sourceNode)) {
+      return {
+        mediaType: 'video' as const,
+        sourceUrl: sourceNode.data.videoUrl,
+      };
+    }
+
+    if (isAudioNode(sourceNode)) {
+      return {
+        mediaType: 'audio' as const,
+        sourceUrl: sourceNode.data.audioUrl,
+      };
     }
 
     return null;
   }, [sourceNode]);
+
+  const sourceImageUrl = sourceAsset?.mediaType === 'image' ? sourceAsset.sourceUrl : null;
+  const sourceMediaUrl = sourceAsset?.sourceUrl ?? null;
+  const sourceTrimMediaType = sourceAsset?.mediaType === 'video' || sourceAsset?.mediaType === 'audio'
+    ? sourceAsset.mediaType
+    : null;
 
   const activePlugin = useMemo(() => {
     if (!displayToolDialog) {
@@ -196,7 +249,7 @@ export function NodeToolDialog() {
   }, [t]);
 
   const handleApply = useCallback(async () => {
-    if (!activeToolDialog || !sourceNode || !sourceImageUrl || !activePlugin) {
+    if (!activeToolDialog || !sourceNode || !sourceMediaUrl || !activePlugin) {
       setError(t('toolDialog.noProcessableImage'));
       return;
     }
@@ -205,13 +258,13 @@ export function NodeToolDialog() {
     setError(null);
 
     try {
-      const result = await activePlugin.execute(sourceImageUrl, options, {
+      const result = await activePlugin.execute(sourceMediaUrl, options, {
         processTool: (toolType, imageUrl, toolOptions) =>
           canvasToolProcessor.process(toolType, imageUrl, toolOptions),
       });
 
       if (result.storyboardFrames && result.rows && result.cols) {
-        const createdNodeId = addStoryboardSplitNode(
+        const createdNodeId = addStoryboardSplitResultNode(
           sourceNode.id,
           result.rows,
           result.cols,
@@ -238,6 +291,45 @@ export function NodeToolDialog() {
         if (createdNodeId) {
           addEdge(sourceNode.id, createdNodeId);
         }
+      } else if (result.outputVideoUrl) {
+        const aspectRatio = result.aspectRatio?.trim() || '16:9';
+        const mediaSize = resolveMinEdgeFittedSize(aspectRatio, {
+          minWidth: EXPORT_RESULT_NODE_MIN_WIDTH,
+          minHeight: EXPORT_RESULT_NODE_MIN_HEIGHT,
+        });
+        const createdNodeId = addNode(
+          CANVAS_NODE_TYPES.video,
+          findNodePosition(sourceNode.id, mediaSize.width, mediaSize.height + 54),
+          {
+            videoUrl: result.outputVideoUrl,
+            previewImageUrl: result.previewImageUrl ?? null,
+            videoFileName: result.outputFileName ?? undefined,
+            aspectRatio,
+            duration: result.duration,
+            displayName: t('toolDialog.trimResultTitle'),
+          },
+          { inheritParentFromNodeId: sourceNode.id }
+        );
+        if (createdNodeId) {
+          addEdge(sourceNode.id, createdNodeId);
+        }
+      } else if (result.outputAudioUrl) {
+        const createdNodeId = addNode(
+          CANVAS_NODE_TYPES.audio,
+          findNodePosition(sourceNode.id, AUDIO_NODE_DEFAULT_WIDTH, AUDIO_NODE_DEFAULT_HEIGHT),
+          {
+            audioUrl: result.outputAudioUrl,
+            previewImageUrl: result.previewImageUrl ?? null,
+            audioFileName: result.outputFileName ?? undefined,
+            duration: result.duration,
+            mimeType: result.mimeType,
+            displayName: t('toolDialog.trimResultTitle'),
+          },
+          { inheritParentFromNodeId: sourceNode.id }
+        );
+        if (createdNodeId) {
+          addEdge(sourceNode.id, createdNodeId);
+        }
       }
 
       closeDialog();
@@ -249,23 +341,51 @@ export function NodeToolDialog() {
   }, [
     activeToolDialog,
     sourceNode,
-    sourceImageUrl,
+    sourceMediaUrl,
     activePlugin,
     options,
-    addStoryboardSplitNode,
+    addNode,
+    addStoryboardSplitResultNode,
     addDerivedExportNode,
     addEdge,
     closeDialog,
+    findNodePosition,
     resolveResultNodeTitle,
     t,
   ]);
+
+  const isTrimRangeInvalid = useMemo(() => {
+    if (!sourceTrimMediaType) {
+      return false;
+    }
+
+    const startTime = typeof options.startTime === 'number' ? options.startTime : Number.NaN;
+    const endTime = typeof options.endTime === 'number' ? options.endTime : Number.NaN;
+    const duration = typeof options.duration === 'number' ? options.duration : Number.NaN;
+
+    return (
+      !Number.isFinite(startTime)
+      || !Number.isFinite(endTime)
+      || !Number.isFinite(duration)
+      || duration <= 0
+      || startTime < 0
+      || endTime <= startTime
+      || endTime - startTime < 0.1
+    );
+  }, [options.duration, options.endTime, options.startTime, sourceTrimMediaType]);
 
   const widthClassName = useMemo(() => {
     if (!activePlugin) {
       return 'w-[min(460px,calc(100vw-40px))]';
     }
     if (activePlugin.editor === 'crop') {
-      return 'w-[min(980px,calc(100vw-40px))]';
+      if (sourceTrimMediaType === 'video') {
+        return 'w-[min(860px,calc(100vw-40px))]';
+      }
+      if (sourceTrimMediaType === 'audio') {
+        return 'w-[min(700px,calc(100vw-40px))]';
+      }
+      return 'w-[min(920px,calc(100vw-40px))]';
     }
     if (activePlugin.editor === 'annotate') {
       return 'w-[min(1120px,calc(100vw-40px))]';
@@ -274,11 +394,23 @@ export function NodeToolDialog() {
       return 'w-[min(1120px,calc(100vw-40px))]';
     }
     return 'w-[min(460px,calc(100vw-40px))]';
-  }, [activePlugin]);
+  }, [activePlugin, sourceTrimMediaType]);
 
   const editorContent = useMemo(() => {
     if (!activePlugin) {
       return null;
+    }
+
+    if (activePlugin.editor === 'crop' && sourceTrimMediaType && sourceMediaUrl) {
+      return (
+        <MediaTrimToolEditor
+          plugin={activePlugin}
+          sourceMediaUrl={sourceMediaUrl}
+          mediaType={sourceTrimMediaType}
+          options={options}
+          onOptionsChange={setOptions}
+        />
+      );
     }
 
     if (activePlugin.editor === 'crop' && sourceImageUrl) {
@@ -322,9 +454,15 @@ export function NodeToolDialog() {
         onOptionsChange={setOptions}
       />
     );
-  }, [activePlugin, options, sourceImageUrl]);
+  }, [activePlugin, options, sourceImageUrl, sourceMediaUrl, sourceTrimMediaType]);
 
   const isOpen = Boolean(activeToolDialog && isSplitImageReady);
+  const isApplyDisabled = isProcessing || !sourceMediaUrl || isTrimRangeInvalid;
+  const loadingEditorFallback = (
+    <div className="flex h-[280px] items-center justify-center rounded-2xl border border-border-dark bg-bg-dark/35">
+      <UiLoadingBanner />
+    </div>
+  );
 
   return (
     <UiModal
@@ -332,19 +470,23 @@ export function NodeToolDialog() {
       title={`${resolveToolLabel(activePlugin?.type)}${t('toolDialog.suffix')}`}
       onClose={closeDialog}
       widthClassName={widthClassName}
+      draggable={activePlugin?.editor === 'split' || activePlugin?.editor === 'crop'}
       footer={
         <>
           <UiButton variant="ghost" size="sm" onClick={closeDialog}>
             {t('common.cancel')}
           </UiButton>
-          <UiButton size="sm" variant="primary" onClick={handleApply} disabled={isProcessing || !sourceImageUrl}>
+          <UiButton size="sm" variant="primary" onClick={handleApply} disabled={isApplyDisabled}>
             {isProcessing ? t('toolDialog.processing') : t('toolDialog.apply')}
           </UiButton>
         </>
       }
     >
-      <div className="space-y-3 max-h-[82vh] overflow-y-auto pr-1">
-        {editorContent}
+      <div className="relative space-y-3 max-h-[82vh] overflow-y-auto pr-1">
+        <UiLoadingOverlay visible={isProcessing} insetClassName="inset-0" />
+        <Suspense fallback={loadingEditorFallback}>
+          {editorContent}
+        </Suspense>
         {error && <div className="text-xs text-red-400">{error}</div>}
       </div>
     </UiModal>

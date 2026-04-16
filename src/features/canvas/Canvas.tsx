@@ -1,4 +1,6 @@
 import {
+  lazy,
+  Suspense,
   useState,
   useCallback,
   useEffect,
@@ -21,22 +23,27 @@ import {
   type OnConnectStartParams,
   type Viewport,
 } from '@xyflow/react';
+import { getCurrentWindow } from '@tauri-apps/api/window';
 import { join } from '@tauri-apps/api/path';
 import { open } from '@tauri-apps/plugin-dialog';
 import { useTranslation } from 'react-i18next';
-import { Upload, ImagePlus, Grid3x3, Map as MapIcon, Plus, Minus, AlignCenter } from 'lucide-react';
+import { Upload, ImagePlus, Grid3x3, Map as MapIcon, Plus, Minus, AlignCenter, ListOrdered } from 'lucide-react';
 import '@xyflow/react/dist/style.css';
 
 import {
   ASSET_DRAG_MIME_TYPE,
+  type CanvasAssetDragPayload,
   parseAssetDragPayload,
 } from '@/features/assets/domain/types';
+import { ASSET_PANEL_INSERT_EVENT } from '@/features/assets/application/assetPanelBridge';
 import {
   subscribeAssetItemDeleted,
   subscribeAssetItemUpdated,
 } from '@/features/assets/application/assetEvents';
+import { useAssetStore } from '@/stores/assetStore';
 import { useCanvasStore } from '@/stores/canvasStore';
 import { useProjectStore } from '@/stores/projectStore';
+import { useScriptEditorStore } from '@/stores/scriptEditorStore';
 import { getConfiguredApiKeyCount, useSettingsStore } from '@/stores/settingsStore';
 import { canvasAiGateway, canvasEventBus } from '@/features/canvas/application/canvasServices';
 import {
@@ -46,8 +53,11 @@ import {
   type CanvasNodeType,
   type CanvasNodeData,
   type ScriptChapterNodeData,
+  type ScriptSceneNodeData,
   DEFAULT_NODE_WIDTH,
-  getNodePrimaryImageSource,
+  getNodePrimaryDownloadSource,
+  normalizeSceneCards,
+  resolveSingleImageConnectionSource,
 } from '@/features/canvas/domain/canvasNodes';
 import { isSupportedAudioFile, prepareNodeAudioFromFile } from '@/features/canvas/application/audioData';
 import { prepareNodeImage, prepareNodeImageFromFile } from '@/features/canvas/application/imageData';
@@ -67,19 +77,23 @@ import {
   calculateBranchNodePosition,
   DEFAULT_LAYOUT_CONFIG,
 } from '@/features/canvas/application/mindMapLayout';
+import { htmlToPlainText } from '@/features/canvas/application/sceneEpisodeGenerator';
+import {
+  getCanvasNodeSize as getNodeSize,
+  resolveAbsoluteCanvasNodePosition as resolveAbsoluteNodePosition,
+} from '@/features/canvas/application/nodeGeometry';
 import { embedStoryboardImageMetadata, saveImageSourceToDirectory } from '@/commands/image';
 import { resolveNodeDisplayName } from '@/features/canvas/domain/nodeDisplay';
 import { listModelProviders } from '@/features/canvas/models';
+import { isCanvasNodeTypeEnabled } from '@/features/canvas/application/nodeCatalog';
 import { nodeTypes } from './nodes';
 import { edgeTypes } from './edges';
 import { NodeSelectionMenu } from './NodeSelectionMenu';
+import { SceneCatalogMenu } from './SceneCatalogMenu';
+import { EpisodeCatalogMenu } from './EpisodeCatalogMenu';
 import { SelectedNodeOverlay } from './ui/SelectedNodeOverlay';
-import { NodeToolDialog } from './ui/NodeToolDialog';
-import { ImageViewerModal } from './ui/ImageViewerModal';
 import { MissingApiKeyHint } from '@/features/settings/MissingApiKeyHint';
 import { eventMatchesShortcut } from '@/features/settings/keyboardShortcuts';
-import { ScriptBiblePanel } from './ui/ScriptBiblePanel';
-import { ScriptWelcomeDialog } from './ui/ScriptWelcomeDialog';
 import { AlignmentGuides } from './ui/AlignmentGuides';
 import { detectAlignments, type AlignmentGuide } from './application/nodeAlignment';
 import { MergedConnectionAnchor } from './ui/MergedConnectionAnchor';
@@ -89,6 +103,39 @@ import { calculateNodesBounds } from './application/nodeBounds';
 import { GroupSidebar } from './ui/GroupSidebar';
 import { SelectionGroupBar } from './ui/SelectionGroupBar';
 import { CanvasAssetDock } from './ui/CanvasAssetDock';
+import { JimengVideoQueuePanel } from '@/features/jimeng/ui/JimengVideoQueuePanel';
+import { useJimengVideoQueueStore } from '@/stores/jimengVideoQueueStore';
+import { CanvasColorLegend } from './ui/CanvasColorLegend';
+import { withSemanticNodePresentation } from './ui/nodeSemanticStyles';
+import {
+  createDefaultCanvasColorLabelMap,
+  type CanvasSemanticColor,
+} from './domain/semanticColors';
+
+const ScriptBiblePanel = lazy(async () => {
+  const module = await import('./ui/ScriptBiblePanel');
+  return { default: module.ScriptBiblePanel };
+});
+
+const ScriptWelcomeDialog = lazy(async () => {
+  const module = await import('./ui/ScriptWelcomeDialog');
+  return { default: module.ScriptWelcomeDialog };
+});
+
+const SceneStudioPanel = lazy(async () => {
+  const module = await import('./ui/SceneStudioPanel');
+  return { default: module.SceneStudioPanel };
+});
+
+const NodeToolDialog = lazy(async () => {
+  const module = await import('./ui/NodeToolDialog');
+  return { default: module.NodeToolDialog };
+});
+
+const ImageViewerModal = lazy(async () => {
+  const module = await import('./ui/ImageViewerModal');
+  return { default: module.ImageViewerModal };
+});
 
 const DEFAULT_VIEWPORT: Viewport = { x: 0, y: 0, zoom: 1 };
 
@@ -133,11 +180,14 @@ interface DuplicateResult {
 }
 
 const ALT_DRAG_COPY_Z_INDEX = 2000;
+const SCRIPT_CHAPTER_NODE_DRAG_HANDLE_SELECTOR = '.script-chapter-node__drag-handle';
 const GENERATION_JOB_POLL_INTERVAL_MS = 1400;
 const GENERATION_JOB_RECOVERY_THRESHOLD_MS = 2 * 60 * 1000;
 const GENERATION_JOB_RECOVERY_SWEEP_INTERVAL_MS = 15 * 1000;
 const GENERATION_JOB_STALE_ACTIVITY_MS = 20 * 1000;
 const GENERATION_JOB_RESULT_RETRY_INTERVAL_MS = 4000;
+const GENERATION_JOB_FORCE_REFRESH_MIN_MS = 75 * 1000;
+const GENERATION_JOB_FORCE_REFRESH_MAX_MS = 3 * 60 * 1000;
 const DRAG_OVERLAY_IDLE_CLEAR_MS = 420;
 
 interface GenerationStoryboardMetadata {
@@ -183,6 +233,36 @@ function hasGenerationStoryboardMetadata(value: unknown): value is GenerationSto
     && Array.isArray(candidate.frameNotes);
 }
 
+function shouldPreferForceRefreshForPendingGeneration(data: Record<string, unknown>): boolean {
+  const manualRequestAt =
+    typeof data.generationForceRefreshRequestedAt === 'number'
+      ? data.generationForceRefreshRequestedAt
+      : null;
+  if (manualRequestAt !== null && Number.isFinite(manualRequestAt) && manualRequestAt > 0) {
+    return true;
+  }
+
+  const generationStartedAt =
+    typeof data.generationStartedAt === 'number' ? data.generationStartedAt : null;
+  if (generationStartedAt === null) {
+    return false;
+  }
+
+  const expectedDurationMs =
+    typeof data.generationDurationMs === 'number' && Number.isFinite(data.generationDurationMs)
+      ? data.generationDurationMs
+      : 60000;
+  const forceRefreshThresholdMs = Math.min(
+    GENERATION_JOB_FORCE_REFRESH_MAX_MS,
+    Math.max(
+      GENERATION_JOB_FORCE_REFRESH_MIN_MS,
+      Math.round(Math.max(30000, expectedDurationMs) * 1.35)
+    )
+  );
+
+  return Date.now() - generationStartedAt >= forceRefreshThresholdMs;
+}
+
 function padTimestampSegment(value: number): string {
   return String(value).padStart(2, '0');
 }
@@ -204,49 +284,18 @@ function normalizeDialogDirectoryPath(value: string | string[] | null): string |
   return null;
 }
 
-function resolveSelectedImageSuggestedFileName(node: CanvasNode, index: number): string {
-  const sourceFileName =
-    'sourceFileName' in node.data && typeof node.data.sourceFileName === 'string'
-      ? node.data.sourceFileName.trim()
-      : '';
-  if (sourceFileName) {
-    return sourceFileName;
+function resolveSelectedDownloadSuggestedFileName(
+  node: CanvasNode,
+  index: number,
+  fileName?: string | null
+): string {
+  const normalizedFileName = typeof fileName === 'string' ? fileName.trim() : '';
+  if (normalizedFileName) {
+    return normalizedFileName;
   }
 
   const displayName = resolveNodeDisplayName(node.type, node.data).trim();
-  return displayName || `image-${index + 1}`;
-}
-
-function getNodeSize(node: CanvasNode): { width: number; height: number } {
-  const styleWidth = typeof node.style?.width === 'number' ? node.style.width : null;
-  const styleHeight = typeof node.style?.height === 'number' ? node.style.height : null;
-  return {
-    width: node.measured?.width ?? styleWidth ?? DEFAULT_NODE_WIDTH,
-    height: node.measured?.height ?? styleHeight ?? 200,
-  };
-}
-
-function resolveAbsoluteNodePosition(
-  node: CanvasNode,
-  nodeMap: globalThis.Map<string, CanvasNode>
-): { x: number; y: number } {
-  let x = node.position.x;
-  let y = node.position.y;
-  let currentParentId = node.parentId;
-  const visited = new Set<string>();
-
-  while (currentParentId && !visited.has(currentParentId)) {
-    visited.add(currentParentId);
-    const parentNode = nodeMap.get(currentParentId);
-    if (!parentNode) {
-      break;
-    }
-    x += parentNode.position.x;
-    y += parentNode.position.y;
-    currentParentId = parentNode.parentId;
-  }
-
-  return { x, y };
+  return displayName || `asset-${index + 1}`;
 }
 
 function findContainingGroupId(
@@ -356,13 +405,34 @@ function resolveClipboardImageFile(event: ClipboardEvent): File | null {
   return null;
 }
 
+function isCanvasPasteTarget(
+  target: EventTarget | null,
+  container: HTMLElement | null
+): boolean {
+  if (!container) {
+    return false;
+  }
+
+  const element = target as HTMLElement | null;
+  if (!element || element === document.body || element === document.documentElement) {
+    return true;
+  }
+
+  return container.contains(element);
+}
+
 function resolveAllowedNodeTypes(
   handleType: HandleType,
   projectType: 'storyboard' | 'script' = 'storyboard',
+  linkedScriptProjectId?: string | null,
   sourceNodeId?: string | null,
   nodes?: CanvasNode[]
 ): CanvasNodeType[] {
-  const baseTypes = getConnectMenuNodeTypes(handleType, projectType);
+  const baseTypes = getConnectMenuNodeTypes(handleType, projectType, {
+    linkedScriptProjectId,
+  }).filter(
+    (type) => isCanvasNodeTypeEnabled(type)
+  );
   
   if (!sourceNodeId || !nodes) {
     return baseTypes;
@@ -371,6 +441,50 @@ function resolveAllowedNodeTypes(
   const sourceNode = nodes.find((n) => n.id === sourceNodeId);
   if (!sourceNode) {
     return baseTypes;
+  }
+
+  let allowedTypes = baseTypes;
+
+  if (handleType === 'source') {
+    const isSingleImageSource = Boolean(resolveSingleImageConnectionSource(sourceNode));
+    const isAudioReferenceSource = sourceNode.type === CANVAS_NODE_TYPES.audio;
+    const isVideoReferenceSource =
+      sourceNode.type === CANVAS_NODE_TYPES.video
+      || sourceNode.type === CANVAS_NODE_TYPES.jimengVideoResult
+      || sourceNode.type === CANVAS_NODE_TYPES.seedanceVideoResult;
+
+    if (isAudioReferenceSource || isVideoReferenceSource) {
+      return allowedTypes.filter(
+        (type) =>
+          type === CANVAS_NODE_TYPES.jimeng
+          || type === CANVAS_NODE_TYPES.seedance
+      );
+    }
+
+    const shouldHideVoiceDesign =
+      isSingleImageSource
+      || isVideoReferenceSource
+      || sourceNode.type === CANVAS_NODE_TYPES.jimeng
+      || sourceNode.type === CANVAS_NODE_TYPES.seedance
+      || sourceNode.type === CANVAS_NODE_TYPES.jimengImage
+      || sourceNode.type === CANVAS_NODE_TYPES.jimengImageResult;
+
+    if (!isSingleImageSource) {
+      allowedTypes = allowedTypes.filter(
+        (type) =>
+          type !== CANVAS_NODE_TYPES.jimengImage
+          && type !== CANVAS_NODE_TYPES.panorama360
+          && type !== CANVAS_NODE_TYPES.imageCollage
+      );
+    }
+
+    if (shouldHideVoiceDesign) {
+      allowedTypes = allowedTypes.filter(
+        (type) => type !== CANVAS_NODE_TYPES.ttsVoiceDesign
+      );
+    }
+  } else if (sourceNode.type === CANVAS_NODE_TYPES.panorama360) {
+    allowedTypes = allowedTypes.filter((type) => canNodeTypeServeAsPanoramaInputSource(type));
   }
   
   const isSourceRootNode = sourceNode.type === CANVAS_NODE_TYPES.scriptRoot;
@@ -382,24 +496,40 @@ function resolveAllowedNodeTypes(
     const isMainChapter = sourceData.branchType === 'main' && sourceDepth === 1;
     
     if (isMainChapter) {
-      return baseTypes.filter(
+      return allowedTypes.filter(
         (type) => type !== CANVAS_NODE_TYPES.scriptChapter || 
         (type === CANVAS_NODE_TYPES.scriptChapter && handleType === 'source')
       );
     }
     
-    return baseTypes.filter((type) => type !== CANVAS_NODE_TYPES.scriptChapter);
+    return allowedTypes.filter((type) => type !== CANVAS_NODE_TYPES.scriptChapter);
   }
   
   if (isSourceRootNode) {
-    return baseTypes;
+    return allowedTypes;
   }
-  
-  return baseTypes;
+
+  return allowedTypes;
 }
 
 function canNodeTypeBeManualConnectionSource(type: CanvasNodeType): boolean {
   return nodeHasSourceHandle(type);
+}
+
+function canNodeTypeServeAsPanoramaInputSource(type: CanvasNodeType): boolean {
+  return type === CANVAS_NODE_TYPES.upload
+    || type === CANVAS_NODE_TYPES.imageEdit
+    || type === CANVAS_NODE_TYPES.exportImage
+    || type === CANVAS_NODE_TYPES.panorama360;
+}
+
+function canNodeServeAsPanoramaInputSource(node: CanvasNode | undefined): boolean {
+  if (!node) {
+    return false;
+  }
+
+  return Boolean(resolveSingleImageConnectionSource(node))
+    || canNodeTypeServeAsPanoramaInputSource(node.type);
 }
 
 function shouldInsertIntoLinearOutgoingFlow(node: CanvasNode | undefined): boolean {
@@ -469,6 +599,10 @@ interface PreviewConnectionLine {
   handleType: HandleType;
 }
 
+interface ConnectNodeBusinessRuleOptions {
+  schedulePersist?: boolean;
+}
+
 export function Canvas() {
   const { t } = useTranslation();
   const reactFlowInstance = useReactFlow();
@@ -479,13 +613,18 @@ export function Canvas() {
   const suppressNextEdgeClickRef = useRef(false);
 
   const [showNodeMenu, setShowNodeMenu] = useState(false);
+  const [showSceneCatalogMenu, setShowSceneCatalogMenu] = useState(false);
+  const [showEpisodeCatalogMenu, setShowEpisodeCatalogMenu] = useState(false);
   const [showWelcomeDialog, setShowWelcomeDialog] = useState(false);
+  const [hasMountedToolDialog, setHasMountedToolDialog] = useState(false);
+  const [hasMountedImageViewer, setHasMountedImageViewer] = useState(false);
   const [alignmentGuides, setAlignmentGuides] = useState<AlignmentGuide[]>([]);
   const [isDraggingNode, setIsDraggingNode] = useState(false);
   const [isDraggingBranchConnection, setIsDraggingBranchConnection] = useState(false);
   const [branchConnectionSource, setBranchConnectionSource] = useState<CanvasNode[]>([]);
   const [branchConnectionPosition, setBranchConnectionPosition] = useState<{ x: number; y: number } | null>(null);
   const [showBatchMenu, setShowBatchMenu] = useState(false);
+  const [showJimengQueuePanel, setShowJimengQueuePanel] = useState(false);
   const [isExportingSelectedImages, setIsExportingSelectedImages] = useState(false);
   const [batchMenuPosition, setBatchMenuPosition] = useState({ x: 0, y: 0 });
   const [menuPosition, setMenuPosition] = useState({ x: 0, y: 0 });
@@ -496,6 +635,8 @@ export function Canvas() {
   const [pendingConnectStart, setPendingConnectStart] = useState<PendingConnectStart | null>(
     null
   );
+  const [sceneCatalogChapterNodeId, setSceneCatalogChapterNodeId] = useState<string | null>(null);
+  const [episodeCatalogSceneNodeId, setEpisodeCatalogSceneNodeId] = useState<string | null>(null);
   const [previewConnectionVisual, setPreviewConnectionVisual] =
     useState<PreviewConnectionVisual | null>(null);
   const [dragOverlayKind, setDragOverlayKind] = useState<CanvasDragOverlayKind>(null);
@@ -539,9 +680,28 @@ export function Canvas() {
   const connectNodes = useCanvasStore((state) => state.onConnect);
   const setCanvasData = useCanvasStore((state) => state.setCanvasData);
   const updateNodeData = useCanvasStore((state) => state.updateNodeData);
+  const applySemanticColorToSelected = useCanvasStore(
+    (state) => state.applySemanticColorToSelected
+  );
   const addNode = useCanvasStore((state) => state.addNode);
   const setSelectedNode = useCanvasStore((state) => state.setSelectedNode);
   const selectedNodeId = useCanvasStore((state) => state.selectedNodeId);
+  const assetLibraries = useAssetStore((state) => state.libraries);
+  const areAssetLibrariesHydrated = useAssetStore((state) => state.isHydrated);
+  const activeChapterId = useScriptEditorStore((state) => state.activeChapterId);
+  const activeChapterSceneId = useScriptEditorStore((state) => state.activeChapterSceneId);
+  const focusChapter = useScriptEditorStore((state) => state.focusChapter);
+  const activeSceneNodeId = useScriptEditorStore((state) => state.activeSceneNodeId);
+  const activeEpisodeId = useScriptEditorStore((state) => state.activeEpisodeId);
+  const activeScriptNodeId = useScriptEditorStore((state) => state.activeScriptNodeId);
+  const focusSceneNode = useScriptEditorStore((state) => state.focusSceneNode);
+  const focusShootingScript = useScriptEditorStore((state) => state.focusShootingScript);
+  const createScriptSceneNodeFromChapterScene = useCanvasStore(
+    (state) => state.createScriptSceneNodeFromChapterScene
+  );
+  const ensureShootingScriptNodeFromSceneEpisode = useCanvasStore(
+    (state) => state.ensureShootingScriptNodeFromSceneEpisode
+  );
   const deleteEdge = useCanvasStore((state) => state.deleteEdge);
   const deleteNode = useCanvasStore((state) => state.deleteNode);
   const deleteNodes = useCanvasStore((state) => state.deleteNodes);
@@ -554,6 +714,7 @@ export function Canvas() {
   const detachNodesFromGroup = useCanvasStore((state) => state.detachNodesFromGroup);
   const openToolDialog = useCanvasStore((state) => state.openToolDialog);
   const closeToolDialog = useCanvasStore((state) => state.closeToolDialog);
+  const activeToolDialog = useCanvasStore((state) => state.activeToolDialog);
   const setViewportState = useCanvasStore((state) => state.setViewportState);
   const setCanvasViewportSize = useCanvasStore((state) => state.setCanvasViewportSize);
   const currentViewport = useCanvasStore((state) => state.currentViewport);
@@ -571,10 +732,18 @@ export function Canvas() {
   const groupNodesShortcut = useSettingsStore((state) => state.groupNodesShortcut);
   const setShowMiniMap = useSettingsStore((state) => state.setShowMiniMap);
   const setShowAlignmentGuides = useSettingsStore((state) => state.setShowAlignmentGuides);
-  const apiKeys = useSettingsStore((state) => state.apiKeys);
+  const storyboardApiKeys = useSettingsStore((state) => state.storyboardApiKeys);
   const providerIds = useMemo(() => listModelProviders().map((provider) => provider.id), []);
   const configuredApiKeyCount = useSettingsStore((state) =>
-    getConfiguredApiKeyCount(state.apiKeys, providerIds)
+    getConfiguredApiKeyCount(
+      { ...state.scriptApiKeys, ...state.storyboardApiKeys },
+      providerIds
+    )
+  );
+  const jimengQueueJobs = useJimengVideoQueueStore((state) => state.jobs);
+  const jimengQueuePendingCount = useMemo(
+    () => jimengQueueJobs.filter((job) => job.status !== 'completed' && job.status !== 'failed' && job.status !== 'cancelled').length,
+    [jimengQueueJobs]
   );
 
   const clearDragOverlay = useCallback(() => {
@@ -604,11 +773,27 @@ export function Canvas() {
 
   const getCurrentProject = useProjectStore((state) => state.getCurrentProject);
   const project = getCurrentProject();
+  const isScriptProject = project?.projectType === 'script';
   const saveCurrentProject = useProjectStore((state) => state.saveCurrentProject);
   const saveCurrentProjectViewport = useProjectStore((state) => state.saveCurrentProjectViewport);
+  const setCurrentProjectColorLabels = useProjectStore(
+    (state) => state.setCurrentProjectColorLabels
+  );
   const cancelPendingViewportPersist = useProjectStore(
     (state) => state.cancelPendingViewportPersist
   );
+
+  useEffect(() => {
+    if (activeToolDialog) {
+      setHasMountedToolDialog(true);
+    }
+  }, [activeToolDialog]);
+
+  useEffect(() => {
+    if (imageViewer.isOpen) {
+      setHasMountedImageViewer(true);
+    }
+  }, [imageViewer.isOpen]);
 
   const persistCanvasSnapshot = useCallback(() => {
     if (isRestoringCanvasRef.current) {
@@ -651,6 +836,60 @@ export function Canvas() {
     setBranchConnectionPosition(null);
   }, []);
 
+  const connectNodesWithBusinessRules = useCallback(
+    (
+      connection: Connection,
+      options?: ConnectNodeBusinessRuleOptions
+    ): boolean => {
+      const sourceId = connection.source ?? null;
+      const targetId = connection.target ?? null;
+      if (!sourceId || !targetId) {
+        return false;
+      }
+
+      const currentState = useCanvasStore.getState();
+      const sourceNode = currentState.nodes.find((node) => node.id === sourceId);
+      const targetNode = currentState.nodes.find((node) => node.id === targetId);
+      if (!sourceNode || !targetNode) {
+        return false;
+      }
+
+      const sourceHandle = connection.sourceHandle ?? 'source';
+      const targetHandle = connection.targetHandle ?? 'target';
+      if (
+        (sourceHandle === 'source' && !canNodeTypeBeManualConnectionSource(sourceNode.type))
+        || !nodeHasSourceHandle(sourceNode.type)
+        || !nodeHasTargetHandle(targetNode.type)
+      ) {
+        return false;
+      }
+
+      if (targetNode.type === CANVAS_NODE_TYPES.panorama360) {
+        if (!canNodeServeAsPanoramaInputSource(sourceNode)) {
+          return false;
+        }
+
+        const incomingPanoramaEdges = currentState.edges.filter((edge) => edge.target === targetNode.id);
+        incomingPanoramaEdges.forEach((edge) => {
+          deleteEdge(edge.id);
+        });
+      }
+
+      connectNodes({
+        ...connection,
+        sourceHandle,
+        targetHandle,
+      });
+
+      if (options?.schedulePersist !== false) {
+        scheduleCanvasPersist(0);
+      }
+
+      return true;
+    },
+    [connectNodes, deleteEdge, scheduleCanvasPersist]
+  );
+
   const connectBranchSourcesToExistingNode = useCallback(
     (targetNodeId: string | null): boolean => {
       if (!targetNodeId) {
@@ -672,12 +911,14 @@ export function Canvas() {
           continue;
         }
 
-        connectNodes({
+        if (!connectNodesWithBusinessRules({
           source: sourceNode.id,
           target: targetNodeId,
           sourceHandle: 'source',
           targetHandle: 'target',
-        });
+        }, { schedulePersist: false })) {
+          continue;
+        }
         connectedCount += 1;
       }
 
@@ -688,7 +929,7 @@ export function Canvas() {
       scheduleCanvasPersist(0);
       return true;
     },
-    [branchConnectionSource, connectNodes, nodes, scheduleCanvasPersist]
+    [branchConnectionSource, connectNodesWithBusinessRules, nodes, scheduleCanvasPersist]
   );
 
   const markGenerationNodeActivity = useCallback((nodeId: string) => {
@@ -726,7 +967,7 @@ export function Canvas() {
         return;
       }
 
-      const providerApiKey = apiKeys[generationProviderId] ?? '';
+      const providerApiKey = storyboardApiKeys[generationProviderId] ?? '';
       if (!providerApiKey) {
         return;
       }
@@ -739,7 +980,7 @@ export function Canvas() {
         });
       });
     },
-    [apiKeys]
+    [storyboardApiKeys]
   );
 
   const applyGenerationSuccessResult = useCallback(
@@ -775,6 +1016,7 @@ export function Canvas() {
           aspectRatio: prepared.aspectRatio,
           isGenerating: false,
           generationStartedAt: null,
+          generationForceRefreshRequestedAt: null,
           generationClientSessionId: null,
           generationStoryboardMetadata: undefined,
           generationError: null,
@@ -824,6 +1066,7 @@ export function Canvas() {
       updateNodeData(nodeId, {
         isGenerating: false,
         generationStartedAt: null,
+        generationForceRefreshRequestedAt: null,
         generationClientSessionId: null,
         generationStoryboardMetadata: undefined,
         generationError: errorMessage,
@@ -852,6 +1095,10 @@ export function Canvas() {
           return;
         }
 
+        preferForceRefresh =
+          preferForceRefresh
+          || shouldPreferForceRefreshForPendingGeneration(currentState.data);
+
         try {
           markGenerationNodeActivity(nodeId);
           await syncGenerationProviderApiKey(nodeId, currentState.generationProviderId);
@@ -879,6 +1126,14 @@ export function Canvas() {
             continue;
           }
 
+          if (
+            (status.status === 'queued' || status.status === 'running')
+            && typeof status.error === 'string'
+            && status.error.trim().length > 0
+          ) {
+            preferForceRefresh = true;
+          }
+
           if (status.status === 'queued' || status.status === 'running') {
             if (!continuous) {
               return;
@@ -891,10 +1146,12 @@ export function Canvas() {
             continue;
           }
 
-          if (status.status === 'succeeded' && typeof status.result === 'string' && status.result.trim()) {
-            const applied = await applyGenerationSuccessResult(nodeId, currentState.data, status.result);
-            if (applied) {
-              return;
+          if (status.status === 'succeeded') {
+            if (typeof status.result === 'string' && status.result.trim()) {
+              const applied = await applyGenerationSuccessResult(nodeId, currentState.data, status.result);
+              if (applied) {
+                return;
+              }
             }
 
             preferForceRefresh = true;
@@ -1024,6 +1281,18 @@ export function Canvas() {
       unsubscribeAssetItemDeleted();
     };
   }, [detachDeletedAssetReferences, getCurrentProject, syncAssetItemReferences]);
+
+  useEffect(() => {
+    if (!areAssetLibrariesHydrated || !getCurrentProject()) {
+      return;
+    }
+
+    for (const library of assetLibraries) {
+      for (const item of library.items) {
+        syncAssetItemReferences(item);
+      }
+    }
+  }, [assetLibraries, areAssetLibrariesHydrated, getCurrentProject, syncAssetItemReferences]);
 
   useEffect(() => {
     const handleDragSessionEnd = () => {
@@ -1259,13 +1528,9 @@ export function Canvas() {
 
   const handleConnect = useCallback(
     (connection: Connection) => {
-      if (!canNodeBeManualConnectionSource(connection.source, nodes)) {
-        return;
-      }
-      connectNodes(connection);
-      scheduleCanvasPersist(0);
+      connectNodesWithBusinessRules(connection);
     },
-    [connectNodes, nodes, scheduleCanvasPersist]
+    [connectNodesWithBusinessRules]
   );
 
   const handleMoveEnd = useCallback(
@@ -1429,6 +1694,9 @@ export function Canvas() {
     }
     return selectedNode.id;
   }, [nodes, selectedNodeIds]);
+  const useUploadFilenameAsNodeTitle = useSettingsStore(
+    (state) => state.useUploadFilenameAsNodeTitle
+  );
   const groupNodesList = useMemo(
     () => nodes.filter((node) => node.type === CANVAS_NODE_TYPES.group),
     [nodes]
@@ -1441,6 +1709,113 @@ export function Canvas() {
     const selectedNode = nodes.find((node) => node.id === selectedNodeId);
     return selectedNode?.type === CANVAS_NODE_TYPES.group ? selectedNode.id : null;
   }, [nodes, selectedNodeId]);
+  const selectedScriptSceneNode = useMemo(() => {
+    if (selectedNodeIds.length !== 1) {
+      return null;
+    }
+
+    const selectedNode = nodes.find((node) => node.id === selectedNodeIds[0]);
+    return selectedNode?.type === CANVAS_NODE_TYPES.scriptScene ? selectedNode : null;
+  }, [nodes, selectedNodeIds]);
+  const selectedShootingScriptNode = useMemo(() => {
+    if (selectedNodeIds.length !== 1) {
+      return null;
+    }
+
+    const selectedNode = nodes.find((node) => node.id === selectedNodeIds[0]);
+    return selectedNode?.type === CANVAS_NODE_TYPES.shootingScript ? selectedNode : null;
+  }, [nodes, selectedNodeIds]);
+  const selectedScriptChapterNode = useMemo(() => {
+    if (selectedNodeIds.length !== 1) {
+      return null;
+    }
+
+    const selectedNode = nodes.find((node) => node.id === selectedNodeIds[0]);
+    return selectedNode?.type === CANVAS_NODE_TYPES.scriptChapter ? selectedNode : null;
+  }, [nodes, selectedNodeIds]);
+  const sceneCatalogItems = useMemo(() => {
+    if (!sceneCatalogChapterNodeId) {
+      return [];
+    }
+
+    const chapterNode = nodes.find(
+      (node) => node.id === sceneCatalogChapterNodeId && node.type === CANVAS_NODE_TYPES.scriptChapter
+    );
+    if (!chapterNode) {
+      return [];
+    }
+
+    const chapterData = chapterNode.data as ScriptChapterNodeData;
+    const createdSceneKeys = new Set(
+      nodes
+        .filter((node) => node.type === CANVAS_NODE_TYPES.scriptScene)
+        .map((node) => {
+          const sceneNodeData = node.data as ScriptSceneNodeData;
+          return `${sceneNodeData.sourceChapterId}::${sceneNodeData.sourceSceneId}`;
+        })
+    );
+
+    return normalizeSceneCards(chapterData.scenes, chapterData.content)
+      .slice()
+      .sort((left, right) => left.order - right.order)
+      .map((scene) => ({
+        id: scene.id,
+        order: scene.order,
+        title: scene.title,
+        summary: scene.summary || scene.purpose || scene.visualHook || scene.draftHtml,
+        created: createdSceneKeys.has(`${sceneCatalogChapterNodeId}::${scene.id}`),
+      }));
+  }, [nodes, sceneCatalogChapterNodeId]);
+  const sceneCatalogChapterNode = useMemo(() => {
+    if (!sceneCatalogChapterNodeId) {
+      return null;
+    }
+
+    const chapterNode = nodes.find(
+      (node) => node.id === sceneCatalogChapterNodeId && node.type === CANVAS_NODE_TYPES.scriptChapter
+    );
+    return chapterNode ?? null;
+  }, [nodes, sceneCatalogChapterNodeId]);
+  const episodeCatalogItems = useMemo(() => {
+    if (!episodeCatalogSceneNodeId) {
+      return [];
+    }
+
+    const sceneNode = nodes.find(
+      (node) => node.id === episodeCatalogSceneNodeId && node.type === CANVAS_NODE_TYPES.scriptScene
+    );
+    if (!sceneNode) {
+      return [];
+    }
+
+    const sceneData = sceneNode.data as ScriptSceneNodeData;
+    const createdEpisodeIds = new Set(
+      nodes
+        .filter((node) => node.type === CANVAS_NODE_TYPES.shootingScript)
+        .map((node) => (node.data as { sourceEpisodeId?: string }).sourceEpisodeId)
+        .filter((value): value is string => typeof value === 'string' && value.trim().length > 0)
+    );
+
+    return [...sceneData.episodes]
+      .sort((left, right) => left.order - right.order)
+      .map((episode) => ({
+        id: episode.id,
+        episodeNumber: episode.episodeNumber,
+        title: episode.title,
+        summary: episode.summary || episode.purpose || htmlToPlainText(episode.draftHtml || ''),
+        created: createdEpisodeIds.has(episode.id),
+      }));
+  }, [episodeCatalogSceneNodeId, nodes]);
+  const episodeCatalogSceneNode = useMemo(() => {
+    if (!episodeCatalogSceneNodeId) {
+      return null;
+    }
+
+    const sceneNode = nodes.find(
+      (node) => node.id === episodeCatalogSceneNodeId && node.type === CANVAS_NODE_TYPES.scriptScene
+    );
+    return sceneNode ?? null;
+  }, [episodeCatalogSceneNodeId, nodes]);
 
   useEffect(() => {
     if (selectedNodeIds.length === 1) {
@@ -1454,6 +1829,80 @@ export function Canvas() {
       setSelectedNode(null);
     }
   }, [selectedNodeId, selectedNodeIds, setSelectedNode]);
+
+  useEffect(() => {
+    if (project?.projectType !== 'script' || !selectedScriptChapterNode) {
+      return;
+    }
+
+    const selectedChapterData = selectedScriptChapterNode.data as ScriptChapterNodeData;
+    const chapterScenes = normalizeSceneCards(selectedChapterData.scenes, selectedChapterData.content);
+    const fallbackSceneId = chapterScenes[0]?.id ?? null;
+    const nextSceneId = activeChapterId === selectedScriptChapterNode.id
+      ? activeChapterSceneId ?? fallbackSceneId
+      : fallbackSceneId;
+
+    if (activeChapterId === selectedScriptChapterNode.id && activeChapterSceneId === nextSceneId) {
+      return;
+    }
+
+    focusChapter(selectedScriptChapterNode.id, nextSceneId);
+  }, [
+    activeChapterId,
+    activeChapterSceneId,
+    focusChapter,
+    project?.projectType,
+    selectedScriptChapterNode,
+  ]);
+
+  useEffect(() => {
+    if (project?.projectType !== 'script' || !selectedScriptSceneNode) {
+      return;
+    }
+
+    const selectedSceneData = selectedScriptSceneNode.data as ScriptSceneNodeData;
+    const fallbackEpisodeId = selectedSceneData.episodes[0]?.id ?? null;
+    const nextEpisodeId = activeSceneNodeId === selectedScriptSceneNode.id
+      ? activeEpisodeId ?? fallbackEpisodeId
+      : fallbackEpisodeId;
+
+    if (activeSceneNodeId === selectedScriptSceneNode.id && activeEpisodeId === nextEpisodeId) {
+      return;
+    }
+
+    focusSceneNode(selectedScriptSceneNode.id, nextEpisodeId);
+  }, [
+    activeEpisodeId,
+    activeSceneNodeId,
+    focusSceneNode,
+    project?.projectType,
+    selectedScriptSceneNode,
+  ]);
+
+  useEffect(() => {
+    if (project?.projectType !== 'script' || !selectedShootingScriptNode) {
+      return;
+    }
+
+    const selectedScriptData = selectedShootingScriptNode.data as {
+      sourceSceneNodeId?: string;
+      sourceEpisodeId?: string;
+    };
+    if (activeScriptNodeId === selectedShootingScriptNode.id) {
+      return;
+    }
+
+    focusShootingScript(selectedShootingScriptNode.id, {
+      sceneNodeId: selectedScriptData.sourceSceneNodeId ?? null,
+      episodeId: selectedScriptData.sourceEpisodeId ?? null,
+      cell: null,
+    });
+  }, [
+    activeScriptNodeId,
+    focusShootingScript,
+    project?.projectType,
+    selectedShootingScriptNode,
+  ]);
 
   useEffect(() => {
     if (!isDraggingBranchConnection) return;
@@ -1487,9 +1936,40 @@ export function Canvas() {
   }, [connectBranchSourcesToExistingNode, isDraggingBranchConnection, resetBranchConnectionState]);
 
   useEffect(() => {
+    const createUploadNodeFromClipboardImage = async (file: File) => {
+      const containerRect = reactFlowWrapperRef.current?.getBoundingClientRect();
+      const position = containerRect
+        ? reactFlowInstance.screenToFlowPosition({
+            x: containerRect.left + containerRect.width / 2,
+            y: containerRect.top + containerRect.height / 2,
+          })
+        : (() => {
+            const viewport = reactFlowInstance.getViewport();
+            const { canvasViewportSize } = useCanvasStore.getState();
+            return {
+              x: (canvasViewportSize.width / 2 - viewport.x) / viewport.zoom,
+              y: (canvasViewportSize.height / 2 - viewport.y) / viewport.zoom,
+            };
+          })();
+
+      try {
+        const imageData = await prepareNodeImageFromFile(file);
+        const newNodeId = addNode(CANVAS_NODE_TYPES.upload, position, {
+          imageUrl: imageData.imageUrl,
+          previewImageUrl: imageData.previewImageUrl,
+          aspectRatio: imageData.aspectRatio,
+          sourceFileName: file.name,
+          ...(useUploadFilenameAsNodeTitle && file.name ? { displayName: file.name } : {}),
+        });
+        setSelectedNode(newNodeId);
+      } catch (error) {
+        console.error('Failed to process pasted image:', error);
+      }
+    };
+
     const handlePaste = (event: ClipboardEvent) => {
       pasteImageHandledRef.current = false;
-      if (!selectedUploadNodeId || isTypingTarget(event.target)) {
+      if (isTypingTarget(event.target)) {
         return;
       }
 
@@ -1498,19 +1978,38 @@ export function Canvas() {
         return;
       }
 
+      const isPasteInsideCanvas = isCanvasPasteTarget(
+        event.target,
+        reactFlowWrapperRef.current
+      );
+      if (!selectedUploadNodeId && !isPasteInsideCanvas) {
+        return;
+      }
+
       event.preventDefault();
       pasteImageHandledRef.current = true;
-      canvasEventBus.publish('upload-node/paste-image', {
-        nodeId: selectedUploadNodeId,
-        file: imageFile,
-      });
+      if (selectedUploadNodeId) {
+        canvasEventBus.publish('upload-node/paste-image', {
+          nodeId: selectedUploadNodeId,
+          file: imageFile,
+        });
+        return;
+      }
+
+      void createUploadNodeFromClipboardImage(imageFile);
     };
 
     document.addEventListener('paste', handlePaste);
     return () => {
       document.removeEventListener('paste', handlePaste);
     };
-  }, [selectedUploadNodeId]);
+  }, [
+    addNode,
+    reactFlowInstance,
+    selectedUploadNodeId,
+    setSelectedNode,
+    useUploadFilenameAsNodeTitle,
+  ]);
 
   useEffect(() => {
     const handlePointerMove = (event: PointerEvent) => {
@@ -1609,38 +2108,36 @@ export function Canvas() {
         }
         event.preventDefault();
         const selectedIdSet = new Set(selectedNodeIds);
+        const copiedNodes = nodes.filter(
+          (node) =>
+            selectedIdSet.has(node.id)
+            && node.type !== CANVAS_NODE_TYPES.scriptScene
+            && node.type !== CANVAS_NODE_TYPES.shootingScript
+        );
+        const copiedNodeIdSet = new Set(copiedNodes.map((node) => node.id));
         copiedSnapshotRef.current = {
-          nodes: nodes.filter((node) => selectedIdSet.has(node.id)),
+          nodes: copiedNodes,
           edges: edges.filter(
-            (edge) => selectedIdSet.has(edge.source) && selectedIdSet.has(edge.target)
+            (edge) => copiedNodeIdSet.has(edge.source) && copiedNodeIdSet.has(edge.target)
           ),
         };
         return;
       }
 
       if (isPaste) {
-        if (selectedUploadNodeId) {
-          pasteImageHandledRef.current = false;
-          window.setTimeout(() => {
-            if (pasteImageHandledRef.current) {
-              pasteImageHandledRef.current = false;
-              return;
-            }
+        pasteImageHandledRef.current = false;
+        window.setTimeout(() => {
+          if (pasteImageHandledRef.current) {
+            pasteImageHandledRef.current = false;
+            return;
+          }
 
-            if (!copiedSnapshotRef.current || copiedSnapshotRef.current.nodes.length === 0) {
-              return;
-            }
+          if (!copiedSnapshotRef.current || copiedSnapshotRef.current.nodes.length === 0) {
+            return;
+          }
 
-            void duplicateNodesRef.current?.(copiedSnapshotRef.current.nodes.map((node) => node.id));
-          }, 0);
-          return;
-        }
-
-        if (!copiedSnapshotRef.current || copiedSnapshotRef.current.nodes.length === 0) {
-          return;
-        }
-        event.preventDefault();
-        void duplicateNodesRef.current?.(copiedSnapshotRef.current.nodes.map((node) => node.id));
+          void duplicateNodesRef.current?.(copiedSnapshotRef.current.nodes.map((node) => node.id));
+        }, 0);
         return;
       }
 
@@ -1716,6 +2213,17 @@ export function Canvas() {
     selectedUploadNodeId,
   ]);
 
+  const closeConnectMenus = useCallback(() => {
+    setShowNodeMenu(false);
+    setShowSceneCatalogMenu(false);
+    setShowEpisodeCatalogMenu(false);
+    setSceneCatalogChapterNodeId(null);
+    setEpisodeCatalogSceneNodeId(null);
+    setMenuAllowedTypes(undefined);
+    setPendingConnectStart(null);
+    setPreviewConnectionVisual(null);
+  }, []);
+
   const openNodeMenuAtClientPosition = useCallback((clientX: number, clientY: number) => {
     const containerRect = reactFlowWrapperRef.current?.getBoundingClientRect();
     if (!containerRect) {
@@ -1732,11 +2240,117 @@ export function Canvas() {
       x: clientX - containerRect.left,
       y: clientY - containerRect.top,
     });
+    setShowSceneCatalogMenu(false);
+    setShowEpisodeCatalogMenu(false);
+    setSceneCatalogChapterNodeId(null);
+    setEpisodeCatalogSceneNodeId(null);
     setMenuAllowedTypes(undefined);
     setPendingConnectStart(null);
     setPreviewConnectionVisual(null);
     setShowNodeMenu(true);
   }, [reactFlowInstance]);
+
+  const openSceneCatalogAtClientPosition = useCallback((
+    chapterNodeId: string,
+    clientX: number,
+    clientY: number
+  ) => {
+    const containerRect = reactFlowWrapperRef.current?.getBoundingClientRect();
+    if (!containerRect) {
+      return;
+    }
+
+    setMenuPosition({
+      x: clientX - containerRect.left,
+      y: clientY - containerRect.top,
+    });
+    setShowNodeMenu(false);
+    setShowEpisodeCatalogMenu(false);
+    setMenuAllowedTypes(undefined);
+    setSceneCatalogChapterNodeId(chapterNodeId);
+    setEpisodeCatalogSceneNodeId(null);
+    setShowSceneCatalogMenu(true);
+  }, []);
+
+  const openEpisodeCatalogAtClientPosition = useCallback((
+    sceneNodeId: string,
+    clientX: number,
+    clientY: number
+  ) => {
+    const containerRect = reactFlowWrapperRef.current?.getBoundingClientRect();
+    if (!containerRect) {
+      return;
+    }
+
+    setMenuPosition({
+      x: clientX - containerRect.left,
+      y: clientY - containerRect.top,
+    });
+    setShowNodeMenu(false);
+    setShowSceneCatalogMenu(false);
+    setMenuAllowedTypes(undefined);
+    setSceneCatalogChapterNodeId(null);
+    setEpisodeCatalogSceneNodeId(sceneNodeId);
+    setShowEpisodeCatalogMenu(true);
+  }, []);
+
+  const handleSceneCatalogSelect = useCallback((sceneId: string) => {
+    if (!sceneCatalogChapterNodeId) {
+      return;
+    }
+
+    const nextSceneNodeId = createScriptSceneNodeFromChapterScene(sceneCatalogChapterNodeId, sceneId);
+    if (!nextSceneNodeId) {
+      return;
+    }
+
+    const nextSceneNode = useCanvasStore.getState().nodes.find(
+      (node) => node.id === nextSceneNodeId && node.type === CANVAS_NODE_TYPES.scriptScene
+    );
+    const nextSceneData = nextSceneNode?.data as ScriptSceneNodeData | undefined;
+    const firstEpisodeId = nextSceneData?.episodes[0]?.id ?? null;
+
+    setSelectedNode(nextSceneNodeId);
+    focusSceneNode(nextSceneNodeId, firstEpisodeId);
+    closeConnectMenus();
+    scheduleCanvasPersist(0);
+  }, [
+    closeConnectMenus,
+    createScriptSceneNodeFromChapterScene,
+    focusSceneNode,
+    sceneCatalogChapterNodeId,
+    scheduleCanvasPersist,
+    setSelectedNode,
+  ]);
+
+  const handleEpisodeCatalogSelect = useCallback((episodeId: string) => {
+    if (!episodeCatalogSceneNodeId) {
+      return;
+    }
+
+    const result = ensureShootingScriptNodeFromSceneEpisode(episodeCatalogSceneNodeId, episodeId);
+    if (!result.nodeId) {
+      return;
+    }
+
+    setSelectedNode(result.nodeId);
+    focusShootingScript(result.nodeId, {
+      sceneNodeId: episodeCatalogSceneNodeId,
+      episodeId,
+      cell: null,
+    });
+    closeConnectMenus();
+    if (result.created) {
+      scheduleCanvasPersist(0);
+    }
+  }, [
+    closeConnectMenus,
+    ensureShootingScriptNodeFromSceneEpisode,
+    episodeCatalogSceneNodeId,
+    focusShootingScript,
+    scheduleCanvasPersist,
+    setSelectedNode,
+  ]);
 
   const handleDragOver = useCallback((event: React.DragEvent) => {
     event.preventDefault();
@@ -1762,21 +2376,9 @@ export function Canvas() {
     }
   }, [clearDragOverlay]);
 
-  const handleDrop = useCallback(async (event: React.DragEvent) => {
-    event.preventDefault();
-    event.stopPropagation();
-    clearDragOverlay();
-
-    const assetPayload = parseAssetDragPayload(
-      event.dataTransfer.getData(ASSET_DRAG_MIME_TYPE)
-    );
-    if (assetPayload) {
-      const position = reactFlowInstance.screenToFlowPosition({
-        x: event.clientX,
-        y: event.clientY,
-      });
-
-      const newNodeId = assetPayload.mediaType === 'audio'
+  const insertAssetPayloadNode = useCallback(
+    (assetPayload: CanvasAssetDragPayload, position: { x: number; y: number }) => {
+      return assetPayload.mediaType === 'audio'
         ? addNode(CANVAS_NODE_TYPES.audio, position, {
             displayName: assetPayload.assetName,
             audioFileName: assetPayload.assetName,
@@ -1800,6 +2402,72 @@ export function Canvas() {
             assetName: assetPayload.assetName,
             assetCategory: assetPayload.assetCategory,
           });
+    },
+    [addNode]
+  );
+
+  const insertAssetPayloadAtViewportCenter = useCallback(
+    (assetPayload: CanvasAssetDragPayload) => {
+      const containerRect = reactFlowWrapperRef.current?.getBoundingClientRect();
+      if (!containerRect) {
+        return;
+      }
+
+      const position = reactFlowInstance.screenToFlowPosition({
+        x: containerRect.left + containerRect.width / 2,
+        y: containerRect.top + containerRect.height / 2,
+      });
+
+      const newNodeId = insertAssetPayloadNode(assetPayload, position);
+      setSelectedNode(newNodeId);
+      scheduleCanvasPersist(0);
+    },
+    [insertAssetPayloadNode, reactFlowInstance, scheduleCanvasPersist, setSelectedNode]
+  );
+
+  useEffect(() => {
+    const currentWindow = getCurrentWindow();
+    let unlistenInsertAsset: (() => void) | null = null;
+    let disposed = false;
+
+    const registerInsertAssetListener = async () => {
+      const nextUnlistenInsertAsset = await currentWindow.listen<CanvasAssetDragPayload>(
+        ASSET_PANEL_INSERT_EVENT,
+        (event) => {
+          insertAssetPayloadAtViewportCenter(event.payload);
+        }
+      );
+      if (disposed) {
+        nextUnlistenInsertAsset();
+        return;
+      }
+      unlistenInsertAsset = nextUnlistenInsertAsset;
+    };
+
+    void registerInsertAssetListener().catch((error) => {
+      console.error('Failed to register detached asset insert listener', error);
+    });
+
+    return () => {
+      disposed = true;
+      unlistenInsertAsset?.();
+    };
+  }, [insertAssetPayloadAtViewportCenter]);
+
+  const handleDrop = useCallback(async (event: React.DragEvent) => {
+    event.preventDefault();
+    event.stopPropagation();
+    clearDragOverlay();
+
+    const assetPayload = parseAssetDragPayload(
+      event.dataTransfer.getData(ASSET_DRAG_MIME_TYPE)
+    );
+    if (assetPayload) {
+      const position = reactFlowInstance.screenToFlowPosition({
+        x: event.clientX,
+        y: event.clientY,
+      });
+      const newNodeId = insertAssetPayloadNode(assetPayload, position);
       setSelectedNode(newNodeId);
       scheduleCanvasPersist(0);
       return;
@@ -1876,15 +2544,16 @@ export function Canvas() {
         y: basePosition.y + Math.floor((imageFiles.length + i) / 4) * NODE_OFFSET,
       };
 
-      try {
-        const videoData = await prepareNodeVideoFromFile(file);
-        addNode(CANVAS_NODE_TYPES.video, position, {
-          videoUrl: videoData.videoUrl,
-          videoFileName: file.name,
-          aspectRatio: videoData.aspectRatio,
-          duration: videoData.duration,
-        });
-      } catch (err) {
+        try {
+          const videoData = await prepareNodeVideoFromFile(file);
+          addNode(CANVAS_NODE_TYPES.video, position, {
+            videoUrl: videoData.videoUrl,
+            previewImageUrl: videoData.previewImageUrl,
+            videoFileName: file.name,
+            aspectRatio: videoData.aspectRatio,
+            duration: videoData.duration,
+          });
+        } catch (err) {
         console.error('Failed to process dropped video:', err);
       }
     }
@@ -1911,7 +2580,14 @@ export function Canvas() {
         console.error('Failed to process dropped audio:', err);
       }
     }
-  }, [addNode, clearDragOverlay, reactFlowInstance, scheduleCanvasPersist, setSelectedNode]);
+  }, [
+    addNode,
+    clearDragOverlay,
+    insertAssetPayloadNode,
+    reactFlowInstance,
+    scheduleCanvasPersist,
+    setSelectedNode,
+  ]);
 
   const handlePaneClick = useCallback((event: ReactMouseEvent) => {
     if (suppressNextPaneClickRef.current) {
@@ -1925,11 +2601,8 @@ export function Canvas() {
     }
 
     setSelectedNode(null);
-    setShowNodeMenu(false);
-    setMenuAllowedTypes(undefined);
-    setPendingConnectStart(null);
-    setPreviewConnectionVisual(null);
-  }, [openNodeMenuAtClientPosition, setSelectedNode]);
+    closeConnectMenus();
+  }, [closeConnectMenus, openNodeMenuAtClientPosition, setSelectedNode]);
 
   const handlePaneContextMenu = useCallback((event: MouseEvent | React.MouseEvent) => {
     event.preventDefault();
@@ -1940,10 +2613,8 @@ export function Canvas() {
 
   const handleNodeSelect = useCallback(
   (type: CanvasNodeType) => {
-    const isSupplementConnection = pendingConnectStart?.handleId === 'supplement';
     const isBranchConnection = (() => {
       if (!pendingConnectStart?.nodeId) return false;
-      if (isSupplementConnection) return false;
       const sourceNode = nodes.find(n => n.id === pendingConnectStart.nodeId);
       return sourceNode?.type === CANVAS_NODE_TYPES.scriptChapter;
     })();
@@ -1951,27 +2622,7 @@ export function Canvas() {
     let nodeData: Partial<CanvasNodeData> = {};
     let nodePosition = flowPosition;
       
-      if (type === CANVAS_NODE_TYPES.scriptChapter && isSupplementConnection) {
-      const sourceNode = nodes.find(n => n.id === pendingConnectStart?.nodeId);
-      const sourceData = sourceNode?.data as ScriptChapterNodeData | undefined;
-      const sourceDepth = sourceData?.depth || 1;
-      
-      nodeData = {
-        branchType: 'supplement',
-        parentId: pendingConnectStart?.nodeId,
-        chapterNumber: sourceData?.chapterNumber || 1,
-        displayName: `补充`,
-        depth: sourceDepth + 1,
-      };
-        
-        if (sourceNode) {
-          const sourceNodeHeight = sourceNode.measured?.height ?? DEFAULT_LAYOUT_CONFIG.nodeHeight;
-          nodePosition = {
-            x: sourceNode.position.x,
-            y: sourceNode.position.y + sourceNodeHeight + 40,
-          };
-        }
-      } else if (type === CANVAS_NODE_TYPES.scriptChapter && isBranchConnection) {
+      if (type === CANVAS_NODE_TYPES.scriptChapter && isBranchConnection) {
         const sourceNode = nodes.find(n => n.id === pendingConnectStart?.nodeId);
         const isSourceRootNode = sourceNode?.type === CANVAS_NODE_TYPES.scriptRoot;
         
@@ -2134,28 +2785,28 @@ export function Canvas() {
               deleteEdge(edge.id);
             });
 
-            connectNodes({
+            connectNodesWithBusinessRules({
               source: pendingConnectStart.nodeId,
               target: newNodeId,
               sourceHandle: 'source',
               targetHandle: 'target',
-            });
+            }, { schedulePersist: false });
 
             existingOutgoingEdges.forEach((edge) => {
-              connectNodes({
+              connectNodesWithBusinessRules({
                 source: newNodeId,
                 target: edge.target,
                 sourceHandle: 'source',
                 targetHandle: edge.targetHandle ?? 'target',
-              });
+              }, { schedulePersist: false });
             });
           } else {
-            connectNodes({
+            connectNodesWithBusinessRules({
               source: pendingConnectStart.nodeId,
               target: newNodeId,
               sourceHandle: 'source',
               targetHandle: 'target',
-            });
+            }, { schedulePersist: false });
           }
         } else {
           const existingIncomingEdges = edges.filter(
@@ -2166,33 +2817,31 @@ export function Canvas() {
             deleteEdge(edge.id);
           });
           
-          connectNodes({
+          connectNodesWithBusinessRules({
             source: newNodeId,
             target: pendingConnectStart.nodeId,
             sourceHandle: 'source',
             targetHandle: 'target',
-          });
+          }, { schedulePersist: false });
           
           existingIncomingEdges.forEach((edge) => {
-            connectNodes({
+            connectNodesWithBusinessRules({
               source: edge.source,
               target: newNodeId,
               sourceHandle: edge.sourceHandle ?? 'source',
               targetHandle: 'target',
-            });
+            }, { schedulePersist: false });
           });
         }
       }
 
       scheduleCanvasPersist(0);
-      setShowNodeMenu(false);
-      setMenuAllowedTypes(undefined);
-      setPendingConnectStart(null);
-      setPreviewConnectionVisual(null);
+      closeConnectMenus();
     },
     [
       addNode,
-      connectNodes,
+      closeConnectMenus,
+      connectNodesWithBusinessRules,
       deleteEdge,
       edges,
       flowPosition,
@@ -2203,48 +2852,11 @@ export function Canvas() {
     ]
   );
 
-  const handleCreateBranch = useCallback((action?: 'createBranch' | 'createSupplement') => {
+  const handleCreateBranch = useCallback(() => {
   if (!pendingConnectStart) return;
   
   const sourceNode = nodes.find(n => n.id === pendingConnectStart.nodeId);
   if (!sourceNode) return;
-  
-  const isSupplementConnection = action === 'createSupplement' || pendingConnectStart.handleId === 'supplement';
-  
-  if (isSupplementConnection) {
-    const sourceData = sourceNode.data as ScriptChapterNodeData;
-    const sourceDepth = sourceData?.depth || 1;
-    const sourceNodeHeight = sourceNode.measured?.height ?? DEFAULT_LAYOUT_CONFIG.nodeHeight;
-    
-    const nodeData: Partial<ScriptChapterNodeData> = {
-      branchType: 'supplement',
-      parentId: pendingConnectStart.nodeId,
-      chapterNumber: sourceData?.chapterNumber || 1,
-      displayName: `补充`,
-      depth: sourceDepth + 1,
-    };
-    
-    const nodePosition = {
-      x: sourceNode.position.x,
-      y: sourceNode.position.y + sourceNodeHeight + 40,
-    };
-    
-    const newNodeId = addNode(CANVAS_NODE_TYPES.scriptChapter, nodePosition, nodeData);
-    
-    connectNodes({
-      source: pendingConnectStart.nodeId,
-      target: newNodeId,
-      sourceHandle: 'supplement',
-      targetHandle: 'target',
-    });
-    
-    scheduleCanvasPersist(0);
-    setShowNodeMenu(false);
-    setMenuAllowedTypes(undefined);
-    setPendingConnectStart(null);
-    setPreviewConnectionVisual(null);
-    return;
-  }
   
   const isSourceRootNode = sourceNode.type === CANVAS_NODE_TYPES.scriptRoot;
   
@@ -2280,18 +2892,15 @@ export function Canvas() {
     
     const newNodeId = addNode(CANVAS_NODE_TYPES.scriptChapter, nodePosition, nodeData);
     
-    connectNodes({
+    connectNodesWithBusinessRules({
       source: pendingConnectStart.nodeId,
       target: newNodeId,
       sourceHandle: 'source',
       targetHandle: 'target',
-    });
+    }, { schedulePersist: false });
     
     scheduleCanvasPersist(0);
-    setShowNodeMenu(false);
-    setMenuAllowedTypes(undefined);
-    setPendingConnectStart(null);
-    setPreviewConnectionVisual(null);
+    closeConnectMenus();
     return;
   }
   
@@ -2329,21 +2938,19 @@ export function Canvas() {
   
   const newNodeId = addNode(CANVAS_NODE_TYPES.scriptChapter, nodePosition, nodeData);
   
-  connectNodes({
+  connectNodesWithBusinessRules({
     source: pendingConnectStart.nodeId,
     target: newNodeId,
     sourceHandle: 'source',
     targetHandle: 'target',
-  });
+  }, { schedulePersist: false });
   
   scheduleCanvasPersist(0);
-  setShowNodeMenu(false);
-  setMenuAllowedTypes(undefined);
-  setPendingConnectStart(null);
-  setPreviewConnectionVisual(null);
+  closeConnectMenus();
 }, [
   addNode,
-  connectNodes,
+  closeConnectMenus,
+  connectNodesWithBusinessRules,
   nodes,
   pendingConnectStart,
   scheduleCanvasPersist,
@@ -2356,7 +2963,12 @@ export function Canvas() {
         return null as DuplicateResult | null;
       }
 
-      const sourceNodes = nodes.filter((node) => dedupedIds.includes(node.id));
+      const sourceNodes = nodes.filter(
+        (node) =>
+          dedupedIds.includes(node.id)
+          && node.type !== CANVAS_NODE_TYPES.scriptScene
+          && node.type !== CANVAS_NODE_TYPES.shootingScript
+      );
       if (sourceNodes.length === 0) {
         return null as DuplicateResult | null;
       }
@@ -2523,6 +3135,10 @@ export function Canvas() {
   const handleConnectStart = useCallback(
     (event: MouseEvent | TouchEvent, params: OnConnectStartParams) => {
       setShowNodeMenu(false);
+      setShowSceneCatalogMenu(false);
+      setShowEpisodeCatalogMenu(false);
+      setSceneCatalogChapterNodeId(null);
+      setEpisodeCatalogSceneNodeId(null);
       setMenuAllowedTypes(undefined);
       setPreviewConnectionVisual(null);
 
@@ -2970,12 +3586,18 @@ export function Canvas() {
 
       const dropNodeId = resolveDropNodeId(event.target, clientPosition);
 
-      const isSupplementConnection = pendingConnectStart.handleId === 'supplement';
-      const isBranchConnection = (() => {
+      const sourceConnectNode = nodes.find((node) => node.id === pendingConnectStart.nodeId);
+      const isSceneCatalogConnection =
+        project?.projectType === 'script'
+        && pendingConnectStart.handleType === 'source'
+        && sourceConnectNode?.type === CANVAS_NODE_TYPES.scriptChapter;
+      const isEpisodeCatalogConnection =
+        project?.projectType === 'script'
+        && pendingConnectStart.handleType === 'source'
+        && sourceConnectNode?.type === CANVAS_NODE_TYPES.scriptScene;
+      const isBranchConnection = !isSceneCatalogConnection && !isEpisodeCatalogConnection && (() => {
         if (!pendingConnectStart?.nodeId) return false;
-        if (isSupplementConnection) return false;
-        const sourceNode = nodes.find(n => n.id === pendingConnectStart.nodeId);
-        return sourceNode?.type === CANVAS_NODE_TYPES.scriptChapter;
+        return sourceConnectNode?.type === CANVAS_NODE_TYPES.scriptChapter;
       })();
 
       if (dropNodeId && dropNodeId !== pendingConnectStart.nodeId) {
@@ -2995,29 +3617,16 @@ export function Canvas() {
           nodeHasSourceHandle(sourceNode.type) &&
           nodeHasTargetHandle(targetNode.type)
         ) {
-          connectNodes({
+          connectNodesWithBusinessRules({
             source: sourceNode.id,
             target: targetNode.id,
             sourceHandle: 'source',
             targetHandle: 'target',
           });
-          scheduleCanvasPersist(0);
           setPendingConnectStart(null);
           setPreviewConnectionVisual(null);
           return;
         }
-      }
-
-      const allowedTypes = resolveAllowedNodeTypes(
-        pendingConnectStart.handleType,
-        project?.projectType === 'script' ? 'script' : 'storyboard',
-        pendingConnectStart.nodeId,
-        nodes
-      );
-      if (allowedTypes.length === 0) {
-        setPendingConnectStart(null);
-        setPreviewConnectionVisual(null);
-        return;
       }
 
       const endX = clientPosition.x - containerRect.left;
@@ -3058,7 +3667,13 @@ export function Canvas() {
             end: { x: endX, y: endY },
             handleType: pendingConnectStart.handleType,
           }),
-          stroke: isBranchConnection ? 'rgba(168, 85, 247, 0.9)' : 'rgba(255,255,255,0.9)',
+          stroke: isSceneCatalogConnection
+            ? 'rgba(20, 184, 166, 0.92)'
+            : isEpisodeCatalogConnection
+              ? 'rgba(34, 211, 238, 0.92)'
+            : isBranchConnection
+              ? 'rgba(168, 85, 247, 0.9)'
+              : 'rgba(255,255,255,0.9)',
           strokeWidth: 1,
           strokeLinecap: 'round',
           left: 0,
@@ -3074,11 +3689,44 @@ export function Canvas() {
         x: clientPosition.x - containerRect.left,
         y: clientPosition.y - containerRect.top,
       });
+      if (isSceneCatalogConnection && sourceConnectNode) {
+        suppressNextPaneClickRef.current = true;
+        openSceneCatalogAtClientPosition(sourceConnectNode.id, clientPosition.x, clientPosition.y);
+        return;
+      }
+
+      if (isEpisodeCatalogConnection && sourceConnectNode) {
+        suppressNextPaneClickRef.current = true;
+        openEpisodeCatalogAtClientPosition(sourceConnectNode.id, clientPosition.x, clientPosition.y);
+        return;
+      }
+
+      const allowedTypes = resolveAllowedNodeTypes(
+        pendingConnectStart.handleType,
+        project?.projectType === 'script' ? 'script' : 'storyboard',
+        project?.linkedScriptProjectId ?? null,
+        pendingConnectStart.nodeId,
+        nodes
+      );
+      if (allowedTypes.length === 0) {
+        setPendingConnectStart(null);
+        setPreviewConnectionVisual(null);
+        return;
+      }
+
       setMenuAllowedTypes(allowedTypes);
       suppressNextPaneClickRef.current = true;
       setShowNodeMenu(true);
     },
-    [connectNodes, nodes, pendingConnectStart, reactFlowInstance, scheduleCanvasPersist]
+    [
+      connectNodesWithBusinessRules,
+      nodes,
+      openSceneCatalogAtClientPosition,
+      openEpisodeCatalogAtClientPosition,
+      pendingConnectStart,
+      project?.projectType,
+      reactFlowInstance,
+    ]
   );
 
   const emptyHint = useMemo(
@@ -3100,6 +3748,43 @@ export function Canvas() {
     () => nodes.filter((node) => node.selected),
     [nodes]
   );
+  const flowNodes = useMemo<CanvasNode[]>(
+    () => nodes.map((node) => {
+      const presentedNode = withSemanticNodePresentation(node);
+
+      if (node.type !== CANVAS_NODE_TYPES.scriptChapter) {
+        return presentedNode;
+      }
+
+      return {
+        ...presentedNode,
+        dragHandle: SCRIPT_CHAPTER_NODE_DRAG_HANDLE_SELECTOR,
+      };
+    }),
+    [nodes]
+  );
+  const colorLegendLabels = project?.colorLabels ?? createDefaultCanvasColorLabelMap();
+  const selectedColorableNodes = useMemo<CanvasNode[]>(
+    () => selectedNodes.filter((node) => node.type !== CANVAS_NODE_TYPES.group),
+    [selectedNodes]
+  );
+  const activeSelectedSemanticColor = useMemo<CanvasSemanticColor | null>(() => {
+    if (selectedColorableNodes.length === 0) {
+      return null;
+    }
+
+    const [firstNode] = selectedColorableNodes;
+    const firstColor = (firstNode.data as { semanticColor?: CanvasSemanticColor | null }).semanticColor;
+    if (!firstColor) {
+      return null;
+    }
+
+    return selectedColorableNodes.every((node) => (
+      (node.data as { semanticColor?: CanvasSemanticColor | null }).semanticColor === firstColor
+    ))
+      ? firstColor
+      : null;
+  }, [selectedColorableNodes]);
   const selectedNodesForOverlay = useMemo<CanvasNode[]>(() => {
     const nodeMap = new globalThis.Map(nodes.map((node) => [node.id, node] as const));
     return selectedNodes.map((node) => ({
@@ -3110,20 +3795,40 @@ export function Canvas() {
   const selectedDownloadNodes = useMemo(
     () =>
       selectedNodes.flatMap((node, index) => {
-        const source = getNodePrimaryImageSource(node);
-        if (!source) {
+        const downloadSource = getNodePrimaryDownloadSource(node);
+        if (!downloadSource) {
           return [];
         }
 
         return [
           {
-            source,
-            suggestedFileName: resolveSelectedImageSuggestedFileName(node, index),
+            source: downloadSource.source,
+            suggestedFileName: resolveSelectedDownloadSuggestedFileName(
+              node,
+              index,
+              downloadSource.fileName
+            ),
           },
         ];
       }),
     [selectedNodes]
   );
+  const handleApplySemanticColor = useCallback((color: CanvasSemanticColor) => {
+    applySemanticColorToSelected(color);
+  }, [applySemanticColorToSelected]);
+  const handleUpdateColorLabel = useCallback((
+    color: CanvasSemanticColor,
+    label: string
+  ) => {
+    if (!project) {
+      return;
+    }
+
+    setCurrentProjectColorLabels({
+      ...colorLegendLabels,
+      [color]: label,
+    });
+  }, [colorLegendLabels, project, setCurrentProjectColorLabels]);
 
   const handleGroupSelectedNodes = useCallback(() => {
     if (selectedNodeIds.length < 2) {
@@ -3136,7 +3841,7 @@ export function Canvas() {
     }
   }, [groupNodes, scheduleCanvasPersist, selectedNodeIds]);
 
-  const handleExportSelectedImages = useCallback(async () => {
+  const handleExportSelectedMedia = useCallback(async () => {
     if (selectedDownloadNodes.length < 2 || isExportingSelectedImages) {
       return;
     }
@@ -3207,23 +3912,41 @@ export function Canvas() {
 
     // 自动连接所有源节点到新节点
     for (const sourceNode of branchConnectionSource) {
-      connectNodes({
+      connectNodesWithBusinessRules({
         source: sourceNode.id,
         target: newNodeId,
         sourceHandle: 'source',
         targetHandle: 'target',
-      });
+      }, { schedulePersist: false });
     }
 
     scheduleCanvasPersist(0);
     resetBranchConnectionState();
-  }, [branchConnectionSource, addNode, connectNodes, resetBranchConnectionState, scheduleCanvasPersist]);
+  }, [branchConnectionSource, addNode, connectNodesWithBusinessRules, resetBranchConnectionState, scheduleCanvasPersist]);
 
   return (
     <div ref={wrapperRef} className="relative h-full w-full flex">
-      <ScriptBiblePanel />
-      <ScriptWelcomeDialog isOpen={showWelcomeDialog} onClose={() => setShowWelcomeDialog(false)} />
-      <div ref={reactFlowWrapperRef} className="flex-1 relative">
+      {isScriptProject && (
+        <Suspense fallback={null}>
+          <ScriptBiblePanel />
+        </Suspense>
+      )}
+      {isScriptProject && showWelcomeDialog && (
+        <Suspense fallback={null}>
+          <ScriptWelcomeDialog
+            isOpen={showWelcomeDialog}
+            onClose={() => setShowWelcomeDialog(false)}
+          />
+        </Suspense>
+      )}
+      <div ref={reactFlowWrapperRef} className="relative min-w-0 flex-1">
+      <CanvasColorLegend
+        colorLabels={colorLegendLabels}
+        eligibleSelectedCount={selectedColorableNodes.length}
+        activeColor={activeSelectedSemanticColor}
+        onApplyColor={handleApplySemanticColor}
+        onUpdateLabel={handleUpdateColorLabel}
+      />
       <GroupSidebar
         groups={groupNodesList}
         selectedGroupId={selectedGroupId}
@@ -3231,7 +3954,7 @@ export function Canvas() {
         onSelectGroup={handleLocateGroup}
       />
       <ReactFlow
-        nodes={nodes}
+        nodes={flowNodes}
         edges={edges}
         onNodesChange={handleNodesChange}
         onEdgesChange={handleEdgesChange}
@@ -3288,7 +4011,7 @@ export function Canvas() {
           viewport={currentViewport}
           onGroup={handleGroupSelectedNodes}
           downloadableCount={selectedDownloadNodes.length}
-          onExportSelected={handleExportSelectedImages}
+          onExportSelected={handleExportSelectedMedia}
           isExportingSelected={isExportingSelectedImages}
         />
 
@@ -3376,6 +4099,28 @@ export function Canvas() {
 
         <div style={{ width: '1px', height: '16px', backgroundColor: '#374151' }} />
 
+        <button
+          onClick={() => setShowJimengQueuePanel((value) => !value)}
+          style={{
+            color: showJimengQueuePanel ? '#3b82f6' : '#6b7280',
+            padding: '6px',
+            borderRadius: '4px',
+            position: 'relative',
+          }}
+          title={t('jimengQueue.panel.toggle')}
+        >
+          <ListOrdered style={{ width: '16px', height: '16px' }} />
+          {jimengQueuePendingCount > 0 ? (
+            <span
+              className="absolute -right-1 -top-1 inline-flex min-w-[16px] items-center justify-center rounded-full bg-accent px-1 text-[10px] font-semibold text-white"
+            >
+              {jimengQueuePendingCount > 99 ? '99+' : jimengQueuePendingCount}
+            </span>
+          ) : null}
+        </button>
+
+        <div style={{ width: '1px', height: '16px', backgroundColor: '#374151' }} />
+
         {/* 小地图开关 */}
         <button
           onClick={() => setShowMiniMap(!showMiniMap)}
@@ -3428,6 +4173,11 @@ export function Canvas() {
         </button>
       </div>
 
+      <JimengVideoQueuePanel
+        isOpen={showJimengQueuePanel}
+        onClose={() => setShowJimengQueuePanel(false)}
+      />
+
       {dragOverlayKind && (
         <div className="absolute inset-0 z-50 pointer-events-none">
           <div
@@ -3472,7 +4222,7 @@ export function Canvas() {
         </div>
       )}
 
-      {showNodeMenu && previewConnectionVisual && (
+      {(showNodeMenu || showSceneCatalogMenu || showEpisodeCatalogMenu) && previewConnectionVisual && (
         <svg
           className="pointer-events-none absolute z-40 overflow-visible"
           style={{
@@ -3502,46 +4252,67 @@ export function Canvas() {
           projectType={project?.projectType as 'storyboard' | 'script' | undefined}
           showBranchOption={(() => {
             if (project?.projectType !== 'script' || !pendingConnectStart?.nodeId) return false;
-            if (pendingConnectStart.handleId === 'supplement') return false;
             const sourceNode = nodes.find(n => n.id === pendingConnectStart.nodeId);
             return sourceNode?.type === CANVAS_NODE_TYPES.scriptChapter || sourceNode?.type === CANVAS_NODE_TYPES.scriptRoot;
           })()}
           onlyBranchOption={(() => {
             if (project?.projectType !== 'script' || !pendingConnectStart?.nodeId) return false;
-            if (pendingConnectStart.handleId === 'supplement') return false;
             const sourceNode = nodes.find(n => n.id === pendingConnectStart.nodeId);
             return sourceNode?.type === CANVAS_NODE_TYPES.scriptChapter || sourceNode?.type === CANVAS_NODE_TYPES.scriptRoot;
           })()}
-          showSupplementOption={(() => {
-            if (project?.projectType !== 'script' || !pendingConnectStart?.nodeId) return false;
-            return pendingConnectStart.handleId === 'supplement';
-          })()}
-          onlySupplementOption={(() => {
-            if (project?.projectType !== 'script' || !pendingConnectStart?.nodeId) return false;
-            return pendingConnectStart.handleId === 'supplement';
-          })()}
           onSelect={handleNodeSelect}
           onSpecialAction={handleCreateBranch}
-          onClose={() => {
-            setShowNodeMenu(false);
-            setMenuAllowedTypes(undefined);
-            setPendingConnectStart(null);
-            setPreviewConnectionVisual(null);
-          }}
+          onClose={closeConnectMenus}
         />
       )}
 
-      <NodeToolDialog />
+      {showSceneCatalogMenu && sceneCatalogChapterNode && (
+        <SceneCatalogMenu
+          position={menuPosition}
+          chapterNumber={(sceneCatalogChapterNode.data as ScriptChapterNodeData).chapterNumber || 1}
+          chapterTitle={(sceneCatalogChapterNode.data as ScriptChapterNodeData).title || ''}
+          scenes={sceneCatalogItems}
+          onSelect={handleSceneCatalogSelect}
+          onClose={closeConnectMenus}
+        />
+      )}
 
-      <ImageViewerModal
-        open={imageViewer.isOpen}
-        imageUrl={imageViewer.currentImageUrl || ''}
-        imageList={imageViewer.imageList}
-        currentIndex={imageViewer.currentIndex}
-        onClose={closeImageViewer}
-        onNavigate={navigateImageViewer}
-      />
+      {showEpisodeCatalogMenu && episodeCatalogSceneNode && (
+        <EpisodeCatalogMenu
+          position={menuPosition}
+          chapterNumber={(episodeCatalogSceneNode.data as ScriptSceneNodeData).chapterNumber || 1}
+          sceneOrder={(episodeCatalogSceneNode.data as ScriptSceneNodeData).sourceSceneOrder}
+          sceneTitle={(episodeCatalogSceneNode.data as ScriptSceneNodeData).title || ''}
+          episodes={episodeCatalogItems}
+          onSelect={handleEpisodeCatalogSelect}
+          onClose={closeConnectMenus}
+        />
+      )}
+
+      {hasMountedToolDialog && (
+        <Suspense fallback={null}>
+          <NodeToolDialog />
+        </Suspense>
+      )}
+
+      {hasMountedImageViewer && (
+        <Suspense fallback={null}>
+          <ImageViewerModal
+            open={imageViewer.isOpen}
+            imageUrl={imageViewer.currentImageUrl || ''}
+            imageList={imageViewer.imageList}
+            currentIndex={imageViewer.currentIndex}
+            onClose={closeImageViewer}
+            onNavigate={navigateImageViewer}
+          />
+        </Suspense>
+      )}
       </div>
+      {isScriptProject && (
+        <Suspense fallback={null}>
+          <SceneStudioPanel />
+        </Suspense>
+      )}
     </div>
   );
 }

@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use rusqlite::{params, Connection, OptionalExtension};
@@ -7,7 +8,14 @@ use serde_json::Value;
 use tauri::AppHandle;
 use uuid::Uuid;
 
-use super::project_state::{open_db, prune_unreferenced_images, replace_project_image_refs};
+use super::{
+    image::persist_image_source,
+    project_state::{
+        normalize_image_ref_path, open_db, project_nodes_array_mut, prune_unreferenced_images,
+        replace_project_image_refs,
+    },
+    storage,
+};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -36,6 +44,7 @@ pub struct AssetItemRecord {
     pub mime_type: Option<String>,
     pub duration_ms: Option<i64>,
     pub aspect_ratio: String,
+    pub metadata: Option<Value>,
     pub created_at: i64,
     pub updated_at: i64,
 }
@@ -95,6 +104,7 @@ pub struct AssetItemMutationPayload {
     pub mime_type: Option<String>,
     pub duration_ms: Option<i64>,
     pub aspect_ratio: String,
+    pub metadata: Option<Value>,
 }
 
 fn current_timestamp_ms() -> i64 {
@@ -115,12 +125,150 @@ fn normalize_optional_text(value: Option<String>) -> Option<String> {
     })
 }
 
+fn decode_file_url_path(value: &str) -> String {
+    let raw = value.trim_start_matches("file://");
+    let decoded = urlencoding::decode(raw)
+        .map(|result| result.into_owned())
+        .unwrap_or_else(|_| raw.to_string());
+
+    if cfg!(target_os = "windows")
+        && decoded.starts_with('/')
+        && decoded
+            .chars()
+            .nth(1)
+            .is_some_and(|ch| ch.is_ascii_alphabetic())
+        && decoded.chars().nth(2) == Some(':')
+    {
+        decoded[1..].to_string()
+    } else {
+        decoded
+    }
+}
+
+fn resolve_local_asset_path(value: &str) -> Option<PathBuf> {
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+
+    let lower = trimmed.to_ascii_lowercase();
+    if lower.starts_with("data:")
+        || lower.starts_with("http://")
+        || lower.starts_with("https://")
+        || lower.starts_with("blob:")
+    {
+        return None;
+    }
+
+    if lower.starts_with("file://") {
+        return Some(PathBuf::from(decode_file_url_path(trimmed)));
+    }
+
+    let is_windows_drive_path = trimmed.len() >= 3
+        && trimmed.as_bytes()[1] == b':'
+        && (trimmed.as_bytes()[2] == b'\\' || trimmed.as_bytes()[2] == b'/')
+        && trimmed.as_bytes()[0].is_ascii_alphabetic();
+    let is_unc_path = trimmed.starts_with("\\\\");
+    let is_unix_absolute_path = trimmed.starts_with('/');
+
+    if is_windows_drive_path || is_unc_path || is_unix_absolute_path {
+        return Some(PathBuf::from(trimmed));
+    }
+
+    None
+}
+
+fn normalize_path_for_prefix_match(path: &Path) -> String {
+    let normalized = path
+        .to_string_lossy()
+        .replace('\\', "/")
+        .trim_end_matches('/')
+        .to_string();
+
+    if cfg!(target_os = "windows") {
+        normalized.to_ascii_lowercase()
+    } else {
+        normalized
+    }
+}
+
+fn is_path_within_dir(path: &Path, dir: &Path) -> bool {
+    let normalized_path = normalize_path_for_prefix_match(path);
+    let normalized_dir = normalize_path_for_prefix_match(dir);
+
+    normalized_path == normalized_dir || normalized_path.starts_with(&(normalized_dir + "/"))
+}
+
+fn should_persist_asset_path(images_dir: &Path, value: &str) -> bool {
+    let Some(local_path) = resolve_local_asset_path(value) else {
+        return false;
+    };
+
+    !is_path_within_dir(&local_path, images_dir)
+}
+
+async fn normalize_asset_media_paths(
+    app: &AppHandle,
+    source_path: String,
+    preview_path: Option<String>,
+) -> Result<(String, Option<String>), String> {
+    let images_dir = storage::resolve_images_dir(app)?;
+    let normalized_source_path = source_path.trim().to_string();
+    let normalized_preview_path = normalize_optional_text(preview_path);
+
+    let safe_source_path = if let Some(relocated_path) =
+        storage::relocate_storage_path_to_images_dir(&normalized_source_path, &images_dir)
+    {
+        relocated_path
+    } else if should_persist_asset_path(&images_dir, &normalized_source_path) {
+        persist_image_source(app.clone(), normalized_source_path.clone()).await?
+    } else {
+        normalized_source_path
+    };
+
+    let safe_preview_path = match normalized_preview_path {
+        Some(path) => {
+            if let Some(relocated_path) =
+                storage::relocate_storage_path_to_images_dir(&path, &images_dir)
+            {
+                Some(relocated_path)
+            } else if should_persist_asset_path(&images_dir, &path) {
+                Some(persist_image_source(app.clone(), path).await?)
+            } else {
+                Some(path)
+            }
+        }
+        None => None,
+    };
+
+    Ok((safe_source_path, safe_preview_path))
+}
+
 fn serialize_tags(tags: &[String]) -> Result<String, String> {
     serde_json::to_string(tags).map_err(|e| format!("Failed to encode asset tags: {}", e))
 }
 
 fn deserialize_tags(value: String) -> Vec<String> {
     serde_json::from_str::<Vec<String>>(&value).unwrap_or_default()
+}
+
+fn serialize_metadata(value: Option<&Value>) -> Result<String, String> {
+    match value {
+        Some(metadata) if !metadata.is_null() => serde_json::to_string(metadata)
+            .map_err(|e| format!("Failed to encode asset metadata: {}", e)),
+        _ => Ok("{}".to_string()),
+    }
+}
+
+fn deserialize_metadata(value: String) -> Option<Value> {
+    let trimmed = value.trim();
+    if trimmed.is_empty() || trimmed == "{}" || trimmed.eq_ignore_ascii_case("null") {
+        return None;
+    }
+
+    serde_json::from_str::<Value>(trimmed)
+        .ok()
+        .filter(|metadata| !metadata.is_null())
 }
 
 fn normalize_asset_media_type(category: &str, requested_media_type: &str) -> String {
@@ -138,7 +286,11 @@ fn normalize_asset_media_type(category: &str, requested_media_type: &str) -> Str
     "image".to_string()
 }
 
-fn touch_library(tx: &rusqlite::Transaction<'_>, library_id: &str, updated_at: i64) -> Result<(), String> {
+fn touch_library(
+    tx: &rusqlite::Transaction<'_>,
+    library_id: &str,
+    updated_at: i64,
+) -> Result<(), String> {
     tx.execute(
         "UPDATE asset_libraries SET updated_at = ?1 WHERE id = ?2",
         params![updated_at, library_id],
@@ -153,20 +305,50 @@ fn replace_asset_image_refs(
     source_path: &str,
     preview_path: Option<&str>,
 ) -> Result<(), String> {
-    tx.execute("DELETE FROM asset_image_refs WHERE asset_id = ?1", params![asset_id])
-        .map_err(|e| format!("Failed to clear asset image refs: {}", e))?;
+    tx.execute(
+        "DELETE FROM asset_image_refs WHERE asset_id = ?1",
+        params![asset_id],
+    )
+    .map_err(|e| format!("Failed to clear asset image refs: {}", e))?;
 
     for path in [Some(source_path), preview_path] {
         let Some(path) = path.map(str::trim).filter(|value| !value.is_empty()) else {
             continue;
         };
+        let Some(normalized_path) = normalize_image_ref_path(path) else {
+            continue;
+        };
         tx.execute(
             "INSERT OR IGNORE INTO asset_image_refs (asset_id, path) VALUES (?1, ?2)",
-            params![asset_id, path],
+            params![asset_id, normalized_path],
         )
         .map_err(|e| format!("Failed to upsert asset image ref: {}", e))?;
     }
 
+    Ok(())
+}
+
+fn update_asset_item_paths(
+    tx: &rusqlite::Transaction<'_>,
+    asset_id: &str,
+    source_path: &str,
+    preview_path: Option<&str>,
+) -> Result<(), String> {
+    tx.execute(
+        r#"
+        UPDATE asset_items
+        SET
+          source_path = ?2,
+          preview_path = ?3,
+          image_path = ?2,
+          preview_image_path = COALESCE(?3, '')
+        WHERE id = ?1
+        "#,
+        params![asset_id, source_path, preview_path],
+    )
+    .map_err(|e| format!("Failed to update asset item paths: {}", e))?;
+
+    replace_asset_image_refs(tx, asset_id, source_path, preview_path)?;
     Ok(())
 }
 
@@ -262,12 +444,15 @@ fn patch_asset_bound_node(node: &mut Value, item: &AssetItemRecord) -> bool {
     changed
 }
 
-fn patch_asset_bound_nodes(nodes_json: &str, item: &AssetItemRecord) -> Result<(String, bool), String> {
-    let mut parsed =
-        serde_json::from_str::<Value>(nodes_json).map_err(|e| format!("Failed to parse project nodes JSON: {}", e))?;
+fn patch_asset_bound_nodes(
+    nodes_json: &str,
+    item: &AssetItemRecord,
+) -> Result<(String, bool), String> {
+    let mut parsed = serde_json::from_str::<Value>(nodes_json)
+        .map_err(|e| format!("Failed to parse project nodes JSON: {}", e))?;
 
     let mut changed = false;
-    if let Some(nodes) = parsed.as_array_mut() {
+    if let Some(nodes) = project_nodes_array_mut(&mut parsed) {
         for node in nodes {
             changed |= patch_asset_bound_node(node, item);
         }
@@ -277,8 +462,8 @@ fn patch_asset_bound_nodes(nodes_json: &str, item: &AssetItemRecord) -> Result<(
         return Ok((nodes_json.to_string(), false));
     }
 
-    let encoded =
-        serde_json::to_string(&parsed).map_err(|e| format!("Failed to encode project nodes JSON: {}", e))?;
+    let encoded = serde_json::to_string(&parsed)
+        .map_err(|e| format!("Failed to encode project nodes JSON: {}", e))?;
     Ok((encoded, true))
 }
 
@@ -303,12 +488,27 @@ fn patch_asset_bound_history(
         };
 
         for snapshot in timeline {
-            let Some(nodes) = snapshot.get_mut("nodes").and_then(Value::as_array_mut) else {
-                continue;
-            };
+            if let Some(nodes) = snapshot.get_mut("nodes").and_then(Value::as_array_mut) {
+                for node in nodes {
+                    changed |= patch_asset_bound_node(node, item);
+                }
+            }
 
-            for node in nodes {
-                changed |= patch_asset_bound_node(node, item);
+            if snapshot.get("kind").and_then(Value::as_str) == Some("nodePatch") {
+                let Some(entries) = snapshot.get_mut("entries").and_then(Value::as_array_mut)
+                else {
+                    continue;
+                };
+
+                for entry in entries {
+                    let Some(node) = entry.get_mut("node") else {
+                        continue;
+                    };
+                    if node.is_null() {
+                        continue;
+                    }
+                    changed |= patch_asset_bound_node(node, item);
+                }
             }
         }
     }
@@ -347,7 +547,7 @@ fn detach_deleted_asset_from_nodes(
         .map_err(|e| format!("Failed to parse project nodes JSON: {}", e))?;
 
     let mut changed = false;
-    if let Some(nodes) = parsed.as_array_mut() {
+    if let Some(nodes) = project_nodes_array_mut(&mut parsed) {
         for node in nodes {
             changed |= detach_deleted_asset_reference(node, asset_item_id);
         }
@@ -383,12 +583,27 @@ fn detach_deleted_asset_from_history(
         };
 
         for snapshot in timeline {
-            let Some(nodes) = snapshot.get_mut("nodes").and_then(Value::as_array_mut) else {
-                continue;
-            };
+            if let Some(nodes) = snapshot.get_mut("nodes").and_then(Value::as_array_mut) {
+                for node in nodes {
+                    changed |= detach_deleted_asset_reference(node, asset_item_id);
+                }
+            }
 
-            for node in nodes {
-                changed |= detach_deleted_asset_reference(node, asset_item_id);
+            if snapshot.get("kind").and_then(Value::as_str) == Some("nodePatch") {
+                let Some(entries) = snapshot.get_mut("entries").and_then(Value::as_array_mut)
+                else {
+                    continue;
+                };
+
+                for entry in entries {
+                    let Some(node) = entry.get_mut("node") else {
+                        continue;
+                    };
+                    if node.is_null() {
+                        continue;
+                    }
+                    changed |= detach_deleted_asset_reference(node, asset_item_id);
+                }
             }
         }
     }
@@ -402,7 +617,10 @@ fn detach_deleted_asset_from_history(
     Ok((encoded, true))
 }
 
-fn sync_asset_item_to_projects(conn: &mut Connection, item: &AssetItemRecord) -> Result<(), String> {
+fn sync_asset_item_to_projects(
+    conn: &mut Connection,
+    item: &AssetItemRecord,
+) -> Result<(), String> {
     let project_rows: Vec<(String, String, String)> = {
         let pattern = format!("%{}%", item.id);
         let mut stmt = conn
@@ -462,7 +680,41 @@ fn sync_asset_item_to_projects(conn: &mut Connection, item: &AssetItemRecord) ->
     Ok(())
 }
 
-fn detach_asset_item_from_projects(conn: &mut Connection, asset_item_id: &str) -> Result<(), String> {
+async fn migrate_asset_item_paths_if_needed(
+    app: &AppHandle,
+    conn: &mut Connection,
+    item: &mut AssetItemRecord,
+) -> Result<bool, String> {
+    let (next_source_path, next_preview_path) =
+        normalize_asset_media_paths(app, item.source_path.clone(), item.preview_path.clone())
+            .await?;
+
+    if next_source_path == item.source_path && next_preview_path == item.preview_path {
+        return Ok(false);
+    }
+
+    let tx = conn
+        .transaction()
+        .map_err(|e| format!("Failed to begin asset item migration transaction: {}", e))?;
+    update_asset_item_paths(
+        &tx,
+        &item.id,
+        &next_source_path,
+        next_preview_path.as_deref(),
+    )?;
+    tx.commit()
+        .map_err(|e| format!("Failed to commit asset item migration transaction: {}", e))?;
+
+    item.source_path = next_source_path;
+    item.preview_path = next_preview_path;
+    sync_asset_item_to_projects(conn, item)?;
+    Ok(true)
+}
+
+fn detach_asset_item_from_projects(
+    conn: &mut Connection,
+    asset_item_id: &str,
+) -> Result<(), String> {
     let project_rows: Vec<(String, String, String)> = {
         let pattern = format!("%{}%", asset_item_id);
         let mut stmt = conn
@@ -604,6 +856,7 @@ fn load_library_items(conn: &Connection, library_id: &str) -> Result<Vec<AssetIt
               NULLIF(TRIM(COALESCE(mime_type, '')), '') AS mime_type,
               duration_ms,
               aspect_ratio,
+              COALESCE(NULLIF(TRIM(metadata_json), ''), '{}') AS metadata_json,
               created_at,
               updated_at
             FROM asset_items
@@ -629,8 +882,9 @@ fn load_library_items(conn: &Connection, library_id: &str) -> Result<Vec<AssetIt
                 mime_type: row.get(10)?,
                 duration_ms: row.get(11)?,
                 aspect_ratio: row.get(12)?,
-                created_at: row.get(13)?,
-                updated_at: row.get(14)?,
+                metadata: deserialize_metadata(row.get(13)?),
+                created_at: row.get(14)?,
+                updated_at: row.get(15)?,
             })
         })
         .map_err(|e| format!("Failed to query asset items: {}", e))?;
@@ -656,118 +910,128 @@ fn load_asset_library_record(
 }
 
 #[tauri::command]
-pub fn list_asset_libraries(app: AppHandle) -> Result<Vec<AssetLibraryRecord>, String> {
-    let conn = open_db(&app)?;
-    let mut stmt = conn
-        .prepare(
-            r#"
-            SELECT id, name, created_at, updated_at
-            FROM asset_libraries
-            ORDER BY updated_at DESC
-            "#,
-        )
-        .map_err(|e| format!("Failed to prepare asset libraries query: {}", e))?;
+pub async fn list_asset_libraries(app: AppHandle) -> Result<Vec<AssetLibraryRecord>, String> {
+    let mut conn = open_db(&app)?;
+    let mut libraries = {
+        let mut stmt = conn
+            .prepare(
+                r#"
+                SELECT id, name, created_at, updated_at
+                FROM asset_libraries
+                ORDER BY updated_at DESC
+                "#,
+            )
+            .map_err(|e| format!("Failed to prepare asset libraries query: {}", e))?;
 
-    let rows = stmt
-        .query_map([], |row| {
-            Ok(AssetLibraryRecord {
-                id: row.get(0)?,
-                name: row.get(1)?,
-                created_at: row.get(2)?,
-                updated_at: row.get(3)?,
-                subcategories: Vec::new(),
-                items: Vec::new(),
+        let rows = stmt
+            .query_map([], |row| {
+                Ok(AssetLibraryRecord {
+                    id: row.get(0)?,
+                    name: row.get(1)?,
+                    created_at: row.get(2)?,
+                    updated_at: row.get(3)?,
+                    subcategories: Vec::new(),
+                    items: Vec::new(),
+                })
             })
-        })
-        .map_err(|e| format!("Failed to query asset libraries: {}", e))?;
+            .map_err(|e| format!("Failed to query asset libraries: {}", e))?;
 
-    let mut libraries = Vec::new();
-    for row in rows {
-        libraries.push(row.map_err(|e| format!("Failed to read asset library: {}", e))?);
-    }
+        let mut libraries = Vec::new();
+        for row in rows {
+            libraries.push(row.map_err(|e| format!("Failed to read asset library: {}", e))?);
+        }
+        libraries
+    };
 
     let mut subcategories_by_library = HashMap::<String, Vec<AssetSubcategoryRecord>>::new();
-    let mut subcategory_stmt = conn
-        .prepare(
-            r#"
-            SELECT id, library_id, category, name, created_at, updated_at
-            FROM asset_subcategories
-            ORDER BY category ASC, name COLLATE NOCASE ASC
-            "#,
-        )
-        .map_err(|e| format!("Failed to prepare all asset subcategories query: {}", e))?;
-    let subcategory_rows = subcategory_stmt
-        .query_map([], |row| {
-            Ok(AssetSubcategoryRecord {
-                id: row.get(0)?,
-                library_id: row.get(1)?,
-                category: row.get(2)?,
-                name: row.get(3)?,
-                created_at: row.get(4)?,
-                updated_at: row.get(5)?,
+    {
+        let mut subcategory_stmt = conn
+            .prepare(
+                r#"
+                SELECT id, library_id, category, name, created_at, updated_at
+                FROM asset_subcategories
+                ORDER BY category ASC, name COLLATE NOCASE ASC
+                "#,
+            )
+            .map_err(|e| format!("Failed to prepare all asset subcategories query: {}", e))?;
+        let subcategory_rows = subcategory_stmt
+            .query_map([], |row| {
+                Ok(AssetSubcategoryRecord {
+                    id: row.get(0)?,
+                    library_id: row.get(1)?,
+                    category: row.get(2)?,
+                    name: row.get(3)?,
+                    created_at: row.get(4)?,
+                    updated_at: row.get(5)?,
+                })
             })
-        })
-        .map_err(|e| format!("Failed to query all asset subcategories: {}", e))?;
-    for row in subcategory_rows {
-        let subcategory = row.map_err(|e| format!("Failed to read asset subcategory row: {}", e))?;
-        subcategories_by_library
-            .entry(subcategory.library_id.clone())
-            .or_default()
-            .push(subcategory);
+            .map_err(|e| format!("Failed to query all asset subcategories: {}", e))?;
+        for row in subcategory_rows {
+            let subcategory =
+                row.map_err(|e| format!("Failed to read asset subcategory row: {}", e))?;
+            subcategories_by_library
+                .entry(subcategory.library_id.clone())
+                .or_default()
+                .push(subcategory);
+        }
     }
 
     let mut items_by_library = HashMap::<String, Vec<AssetItemRecord>>::new();
-    let mut item_stmt = conn
-        .prepare(
-            r#"
-            SELECT
-              id,
-              library_id,
-              category,
-              COALESCE(NULLIF(TRIM(media_type), ''), CASE WHEN category = 'voice' THEN 'audio' ELSE 'image' END) AS media_type,
-              subcategory_id,
-              name,
-              description,
-              tags_json,
-              COALESCE(NULLIF(TRIM(source_path), ''), image_path) AS source_path,
-              NULLIF(TRIM(COALESCE(preview_path, preview_image_path, '')), '') AS preview_path,
-              NULLIF(TRIM(COALESCE(mime_type, '')), '') AS mime_type,
-              duration_ms,
-              aspect_ratio,
-              created_at,
-              updated_at
-            FROM asset_items
-            ORDER BY category ASC, name COLLATE NOCASE ASC
-            "#,
-        )
-        .map_err(|e| format!("Failed to prepare all asset items query: {}", e))?;
-    let item_rows = item_stmt
-        .query_map([], |row| {
-            Ok(AssetItemRecord {
-                id: row.get(0)?,
-                library_id: row.get(1)?,
-                category: row.get(2)?,
-                media_type: row.get(3)?,
-                subcategory_id: row.get(4)?,
-                name: row.get(5)?,
-                description: row.get(6)?,
-                tags: deserialize_tags(row.get(7)?),
-                source_path: row.get(8)?,
-                preview_path: row.get(9)?,
-                mime_type: row.get(10)?,
-                duration_ms: row.get(11)?,
-                aspect_ratio: row.get(12)?,
-                created_at: row.get(13)?,
-                updated_at: row.get(14)?,
+    {
+        let mut item_stmt = conn
+            .prepare(
+                r#"
+                SELECT
+                  id,
+                  library_id,
+                  category,
+                  COALESCE(NULLIF(TRIM(media_type), ''), CASE WHEN category = 'voice' THEN 'audio' ELSE 'image' END) AS media_type,
+                  subcategory_id,
+                  name,
+                  description,
+                  tags_json,
+                  COALESCE(NULLIF(TRIM(source_path), ''), image_path) AS source_path,
+                  NULLIF(TRIM(COALESCE(preview_path, preview_image_path, '')), '') AS preview_path,
+                  NULLIF(TRIM(COALESCE(mime_type, '')), '') AS mime_type,
+                  duration_ms,
+                  aspect_ratio,
+                  COALESCE(NULLIF(TRIM(metadata_json), ''), '{}') AS metadata_json,
+                  created_at,
+                  updated_at
+                FROM asset_items
+                ORDER BY category ASC, name COLLATE NOCASE ASC
+                "#,
+            )
+            .map_err(|e| format!("Failed to prepare all asset items query: {}", e))?;
+        let item_rows = item_stmt
+            .query_map([], |row| {
+                Ok(AssetItemRecord {
+                    id: row.get(0)?,
+                    library_id: row.get(1)?,
+                    category: row.get(2)?,
+                    media_type: row.get(3)?,
+                    subcategory_id: row.get(4)?,
+                    name: row.get(5)?,
+                    description: row.get(6)?,
+                    tags: deserialize_tags(row.get(7)?),
+                    source_path: row.get(8)?,
+                    preview_path: row.get(9)?,
+                    mime_type: row.get(10)?,
+                    duration_ms: row.get(11)?,
+                    aspect_ratio: row.get(12)?,
+                    metadata: deserialize_metadata(row.get(13)?),
+                    created_at: row.get(14)?,
+                    updated_at: row.get(15)?,
+                })
             })
-        })
-        .map_err(|e| format!("Failed to query all asset items: {}", e))?;
-    for row in item_rows {
-        let item = row.map_err(|e| format!("Failed to read asset item row: {}", e))?;
-        items_by_library
-            .entry(item.library_id.clone())
-            .or_default()
-            .push(item);
+            .map_err(|e| format!("Failed to query all asset items: {}", e))?;
+        for row in item_rows {
+            let item = row.map_err(|e| format!("Failed to read asset item row: {}", e))?;
+            items_by_library
+                .entry(item.library_id.clone())
+                .or_default()
+                .push(item);
+        }
     }
 
     for library in &mut libraries {
@@ -775,6 +1039,17 @@ pub fn list_asset_libraries(app: AppHandle) -> Result<Vec<AssetLibraryRecord>, S
             .remove(&library.id)
             .unwrap_or_default();
         library.items = items_by_library.remove(&library.id).unwrap_or_default();
+    }
+
+    let mut migrated_any = false;
+    for library in &mut libraries {
+        for item in &mut library.items {
+            migrated_any |= migrate_asset_item_paths_if_needed(&app, &mut conn, item).await?;
+        }
+    }
+
+    if migrated_any {
+        prune_unreferenced_images(&app)?;
     }
 
     Ok(libraries)
@@ -863,9 +1138,12 @@ pub fn create_asset_subcategory(
     let mut conn = open_db(&app)?;
     let subcategory_id = Uuid::new_v4().to_string();
     let now = current_timestamp_ms();
-    let tx = conn
-        .transaction()
-        .map_err(|e| format!("Failed to begin asset subcategory create transaction: {}", e))?;
+    let tx = conn.transaction().map_err(|e| {
+        format!(
+            "Failed to begin asset subcategory create transaction: {}",
+            e
+        )
+    })?;
 
     tx.execute(
         r#"
@@ -883,8 +1161,12 @@ pub fn create_asset_subcategory(
     )
     .map_err(|e| format!("Failed to create asset subcategory: {}", e))?;
     touch_library(&tx, &payload.library_id, now)?;
-    tx.commit()
-        .map_err(|e| format!("Failed to commit asset subcategory create transaction: {}", e))?;
+    tx.commit().map_err(|e| {
+        format!(
+            "Failed to commit asset subcategory create transaction: {}",
+            e
+        )
+    })?;
 
     let conn = open_db(&app)?;
     conn.query_row(
@@ -938,17 +1220,24 @@ pub fn update_asset_subcategory(
         .map_err(|e| format!("Failed to load asset subcategory for update: {}", e))?;
 
     let now = current_timestamp_ms();
-    let tx = conn
-        .transaction()
-        .map_err(|e| format!("Failed to begin asset subcategory update transaction: {}", e))?;
+    let tx = conn.transaction().map_err(|e| {
+        format!(
+            "Failed to begin asset subcategory update transaction: {}",
+            e
+        )
+    })?;
     tx.execute(
         "UPDATE asset_subcategories SET name = ?1, updated_at = ?2 WHERE id = ?3",
         params![payload.name.trim(), now, payload.id],
     )
     .map_err(|e| format!("Failed to update asset subcategory: {}", e))?;
     touch_library(&tx, &existing.library_id, now)?;
-    tx.commit()
-        .map_err(|e| format!("Failed to commit asset subcategory update transaction: {}", e))?;
+    tx.commit().map_err(|e| {
+        format!(
+            "Failed to commit asset subcategory update transaction: {}",
+            e
+        )
+    })?;
 
     Ok(AssetSubcategoryRecord {
         id: existing.id,
@@ -971,9 +1260,12 @@ pub fn delete_asset_subcategory(app: AppHandle, subcategory_id: String) -> Resul
         )
         .map_err(|e| format!("Failed to load asset subcategory for delete: {}", e))?;
     let now = current_timestamp_ms();
-    let tx = conn
-        .transaction()
-        .map_err(|e| format!("Failed to begin asset subcategory delete transaction: {}", e))?;
+    let tx = conn.transaction().map_err(|e| {
+        format!(
+            "Failed to begin asset subcategory delete transaction: {}",
+            e
+        )
+    })?;
 
     tx.execute(
         "UPDATE asset_items SET subcategory_id = NULL WHERE subcategory_id = ?1",
@@ -986,13 +1278,17 @@ pub fn delete_asset_subcategory(app: AppHandle, subcategory_id: String) -> Resul
     )
     .map_err(|e| format!("Failed to delete asset subcategory: {}", e))?;
     touch_library(&tx, &library_id, now)?;
-    tx.commit()
-        .map_err(|e| format!("Failed to commit asset subcategory delete transaction: {}", e))?;
+    tx.commit().map_err(|e| {
+        format!(
+            "Failed to commit asset subcategory delete transaction: {}",
+            e
+        )
+    })?;
 
     Ok(())
 }
 
-fn create_or_update_asset_item(
+async fn create_or_update_asset_item(
     app: &AppHandle,
     payload: AssetItemMutationPayload,
 ) -> Result<AssetItemRecord, String> {
@@ -1009,8 +1305,6 @@ fn create_or_update_asset_item(
     let normalized_description = payload.description.trim().to_string();
     let normalized_media_type =
         normalize_asset_media_type(&normalized_category, &payload.media_type);
-    let normalized_source_path = payload.source_path.trim().to_string();
-    let normalized_preview_path = normalize_optional_text(payload.preview_path.clone());
     let normalized_mime_type = normalize_optional_text(payload.mime_type.clone());
     let normalized_duration_ms = payload.duration_ms.filter(|value| *value >= 0);
     let normalized_aspect_ratio = if payload.aspect_ratio.trim().is_empty() {
@@ -1018,6 +1312,13 @@ fn create_or_update_asset_item(
     } else {
         payload.aspect_ratio.trim().to_string()
     };
+    let metadata_json = serialize_metadata(payload.metadata.as_ref())?;
+    let (normalized_source_path, normalized_preview_path) = normalize_asset_media_paths(
+        app,
+        payload.source_path.clone(),
+        payload.preview_path.clone(),
+    )
+    .await?;
 
     if normalized_source_path.is_empty() {
         return Err("Asset source path is required".to_string());
@@ -1055,13 +1356,14 @@ fn create_or_update_asset_item(
           preview_path,
           mime_type,
           duration_ms,
+          metadata_json,
           image_path,
           preview_image_path,
           aspect_ratio,
           created_at,
           updated_at
         )
-        VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17)
+        VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18)
         ON CONFLICT(id) DO UPDATE SET
           library_id = excluded.library_id,
           category = excluded.category,
@@ -1074,6 +1376,7 @@ fn create_or_update_asset_item(
           preview_path = excluded.preview_path,
           mime_type = excluded.mime_type,
           duration_ms = excluded.duration_ms,
+          metadata_json = excluded.metadata_json,
           image_path = excluded.image_path,
           preview_image_path = excluded.preview_image_path,
           aspect_ratio = excluded.aspect_ratio,
@@ -1092,6 +1395,7 @@ fn create_or_update_asset_item(
             normalized_preview_path.clone(),
             normalized_mime_type,
             normalized_duration_ms,
+            metadata_json,
             normalized_source_path.clone(),
             normalized_preview_path.clone().unwrap_or_default(),
             normalized_aspect_ratio,
@@ -1132,6 +1436,7 @@ fn create_or_update_asset_item(
               NULLIF(TRIM(COALESCE(mime_type, '')), '') AS mime_type,
               duration_ms,
               aspect_ratio,
+              COALESCE(NULLIF(TRIM(metadata_json), ''), '{}') AS metadata_json,
               created_at,
               updated_at
             FROM asset_items
@@ -1154,8 +1459,9 @@ fn create_or_update_asset_item(
                     mime_type: row.get(10)?,
                     duration_ms: row.get(11)?,
                     aspect_ratio: row.get(12)?,
-                    created_at: row.get(13)?,
-                    updated_at: row.get(14)?,
+                    metadata: deserialize_metadata(row.get(13)?),
+                    created_at: row.get(14)?,
+                    updated_at: row.get(15)?,
                 })
             },
         )
@@ -1171,15 +1477,22 @@ fn create_or_update_asset_item(
 }
 
 #[tauri::command]
-pub fn create_asset_item(
+pub async fn create_asset_item(
     app: AppHandle,
     payload: AssetItemMutationPayload,
 ) -> Result<AssetItemRecord, String> {
-    create_or_update_asset_item(&app, AssetItemMutationPayload { id: None, ..payload })
+    create_or_update_asset_item(
+        &app,
+        AssetItemMutationPayload {
+            id: None,
+            ..payload
+        },
+    )
+    .await
 }
 
 #[tauri::command]
-pub fn update_asset_item(
+pub async fn update_asset_item(
     app: AppHandle,
     payload: AssetItemMutationPayload,
 ) -> Result<AssetItemRecord, String> {
@@ -1187,7 +1500,7 @@ pub fn update_asset_item(
         return Err("Asset item id is required for updates".to_string());
     }
 
-    create_or_update_asset_item(&app, payload)
+    create_or_update_asset_item(&app, payload).await
 }
 
 #[tauri::command]
@@ -1215,8 +1528,11 @@ pub fn delete_asset_item(app: AppHandle, asset_item_id: String) -> Result<(), St
         params![asset_item_id],
     )
     .map_err(|e| format!("Failed to delete asset image refs: {}", e))?;
-    tx.execute("DELETE FROM asset_items WHERE id = ?1", params![asset_item_id])
-        .map_err(|e| format!("Failed to delete asset item: {}", e))?;
+    tx.execute(
+        "DELETE FROM asset_items WHERE id = ?1",
+        params![asset_item_id],
+    )
+    .map_err(|e| format!("Failed to delete asset item: {}", e))?;
     touch_library(&tx, &existing_library_id, now)?;
     tx.commit()
         .map_err(|e| format!("Failed to commit asset item delete transaction: {}", e))?;
@@ -1225,4 +1541,179 @@ pub fn delete_asset_item(app: AppHandle, asset_item_id: String) -> Result<(), St
     detach_asset_item_from_projects(&mut sync_conn, &asset_item_id)?;
     prune_unreferenced_images(&app)?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{
+        detach_deleted_asset_from_history, patch_asset_bound_history, patch_asset_bound_nodes,
+        AssetItemRecord,
+    };
+    use serde_json::Value;
+
+    fn sample_image_asset() -> AssetItemRecord {
+        AssetItemRecord {
+            id: "asset-1".to_string(),
+            library_id: "library-1".to_string(),
+            category: "character".to_string(),
+            media_type: "image".to_string(),
+            subcategory_id: None,
+            name: "Updated Asset".to_string(),
+            description: String::new(),
+            tags: Vec::new(),
+            source_path: "C:/assets/updated.png".to_string(),
+            preview_path: Some("C:/assets/updated-preview.png".to_string()),
+            mime_type: None,
+            duration_ms: None,
+            aspect_ratio: "16:9".to_string(),
+            metadata: None,
+            created_at: 1,
+            updated_at: 2,
+        }
+    }
+
+    #[test]
+    fn patch_asset_bound_nodes_supports_object_payloads() {
+        let nodes_json = r#"
+        {
+          "nodes": [
+            {
+              "id": "node-1",
+              "type": "upload",
+              "data": {
+                "assetId": "asset-1",
+                "displayName": "Old",
+                "assetName": "Old",
+                "assetCategory": "old-category",
+                "assetLibraryId": "old-library",
+                "imageUrl": "C:/assets/old.png",
+                "previewImageUrl": "C:/assets/old-preview.png",
+                "aspectRatio": "1:1",
+                "sourceFileName": "Old"
+              }
+            }
+          ],
+          "imagePool": [
+            "C:/assets/updated.png",
+            "C:/assets/updated-preview.png"
+          ]
+        }
+        "#;
+
+        let (next_nodes_json, changed) = patch_asset_bound_nodes(nodes_json, &sample_image_asset())
+            .expect("patch should succeed");
+        assert!(changed, "matching asset node should update");
+
+        let parsed: Value =
+            serde_json::from_str(&next_nodes_json).expect("patched nodes json should parse");
+        let data = parsed
+            .get("nodes")
+            .and_then(Value::as_array)
+            .and_then(|nodes| nodes.first())
+            .and_then(|node| node.get("data"))
+            .and_then(Value::as_object)
+            .expect("patched node data should exist");
+
+        assert_eq!(
+            data.get("imageUrl").and_then(Value::as_str),
+            Some("C:/assets/updated.png")
+        );
+        assert_eq!(
+            data.get("previewImageUrl").and_then(Value::as_str),
+            Some("C:/assets/updated-preview.png")
+        );
+        assert_eq!(
+            data.get("displayName").and_then(Value::as_str),
+            Some("Updated Asset")
+        );
+    }
+
+    #[test]
+    fn asset_history_helpers_support_node_patch_snapshots() {
+        let history_json = r#"
+        {
+          "past": [
+            {
+              "kind": "nodePatch",
+              "entries": [
+                {
+                  "nodeId": "node-1",
+                  "node": {
+                    "id": "node-1",
+                    "type": "upload",
+                    "data": {
+                      "assetId": "asset-1",
+                      "displayName": "Old",
+                      "assetName": "Old",
+                      "assetCategory": "old-category",
+                      "assetLibraryId": "old-library",
+                      "imageUrl": "C:/assets/old.png",
+                      "previewImageUrl": "C:/assets/old-preview.png",
+                      "aspectRatio": "1:1",
+                      "sourceFileName": "Old"
+                    }
+                  }
+                }
+              ]
+            }
+          ],
+          "future": []
+        }
+        "#;
+
+        let (patched_history_json, patched_changed) =
+            patch_asset_bound_history(history_json, &sample_image_asset())
+                .expect("patch history should succeed");
+        assert!(patched_changed, "node patch history should update");
+
+        let patched: Value =
+            serde_json::from_str(&patched_history_json).expect("patched history should parse");
+        let patched_data = patched
+            .get("past")
+            .and_then(Value::as_array)
+            .and_then(|past| past.first())
+            .and_then(|snapshot| snapshot.get("entries"))
+            .and_then(Value::as_array)
+            .and_then(|entries| entries.first())
+            .and_then(|entry| entry.get("node"))
+            .and_then(|node| node.get("data"))
+            .and_then(Value::as_object)
+            .expect("patched node patch data should exist");
+
+        assert_eq!(
+            patched_data.get("imageUrl").and_then(Value::as_str),
+            Some("C:/assets/updated.png")
+        );
+
+        let (detached_history_json, detached_changed) =
+            detach_deleted_asset_from_history(&patched_history_json, "asset-1")
+                .expect("detach history should succeed");
+        assert!(
+            detached_changed,
+            "node patch history should detach deleted asset"
+        );
+
+        let detached: Value =
+            serde_json::from_str(&detached_history_json).expect("detached history should parse");
+        let detached_data = detached
+            .get("past")
+            .and_then(Value::as_array)
+            .and_then(|past| past.first())
+            .and_then(|snapshot| snapshot.get("entries"))
+            .and_then(Value::as_array)
+            .and_then(|entries| entries.first())
+            .and_then(|entry| entry.get("node"))
+            .and_then(|node| node.get("data"))
+            .and_then(Value::as_object)
+            .expect("detached node patch data should exist");
+
+        assert!(detached_data.get("assetId").is_some_and(Value::is_null));
+        assert!(detached_data.get("assetName").is_some_and(Value::is_null));
+        assert!(detached_data
+            .get("assetCategory")
+            .is_some_and(Value::is_null));
+        assert!(detached_data
+            .get("assetLibraryId")
+            .is_some_and(Value::is_null));
+    }
 }

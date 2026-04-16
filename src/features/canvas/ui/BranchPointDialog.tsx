@@ -1,8 +1,8 @@
 import { useState, useCallback, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Sparkles, X, Loader2, Check, Pencil, CheckCircle } from 'lucide-react';
+import { Sparkles, X, Check, Pencil, CheckCircle } from 'lucide-react';
 import { generateBranches, type GeneratedBranch } from '@/commands/textGen';
-import { UiButton } from '@/components/ui/primitives';
+import { UiButton, UiLoadingOverlay } from '@/components/ui';
 import type { ScriptChapterNodeData } from '@/features/canvas/domain/canvasNodes';
 
 interface BranchPointDialogProps {
@@ -114,6 +114,7 @@ export function BranchPointDialog({
     <div className="fixed inset-0 z-50 flex items-center justify-center">
       <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={onClose} />
       <div className="relative bg-surface-dark border border-border-dark rounded-2xl max-w-2xl w-full mx-4 shadow-2xl max-h-[85vh] flex flex-col">
+        <UiLoadingOverlay visible={isGenerating} insetClassName="inset-0" />
         <div className="flex items-center justify-between p-4 border-b border-border-dark">
           <div className="flex items-center gap-2">
             <Sparkles className="w-5 h-5 text-purple-400" />
@@ -163,10 +164,7 @@ export function BranchPointDialog({
             className="w-full flex items-center justify-center gap-2"
           >
             {isGenerating ? (
-              <>
-                <Loader2 className="w-4 h-4 animate-spin" />
-                {t('branch.generating')}
-              </>
+              t('branch.generating')
             ) : (
               <>
                 <Sparkles className="w-4 h-4" />

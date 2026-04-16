@@ -19,18 +19,9 @@ const TASKS_ENDPOINT_PATH: &str = "/v1/images/tasks";
 const POLL_INTERVAL_MS: u64 = 2000;
 const MAX_POLL_RETRIES: u32 = 150;
 
-const SUPPORTED_MODELS: [&str; 6] = [
-    "nano-banana",
-    "nano-banana-hd",
-    "nano-banana-2",
-    "nano-banana-2-2k",
-    "nano-banana-2-4k",
-    "gemini-3.1-flash-image-preview-4k",
-];
-const LEGACY_HD_MODEL: &str = "nano-banana-hd";
-const TWO_K_MODEL: &str = "nano-banana-2-2k";
-const FOUR_K_MODEL: &str = "nano-banana-2-4k";
-const GEMINI_FLASH_IMAGE_PREVIEW_4K_MODEL: &str = "gemini-3.1-flash-image-preview-4k";
+const SUPPORTED_MODELS: [&str; 2] = ["nano-banana-pro", "gemini-3.1-flash-image-preview"];
+const DEFAULT_MODEL: &str = "nano-banana-pro";
+const GEMINI_FLASH_IMAGE_PREVIEW_MODEL: &str = "gemini-3.1-flash-image-preview";
 
 const SUPPORTED_ASPECT_RATIOS: [&str; 14] = [
     "1:1", "1:4", "1:8", "2:3", "3:2", "3:4", "4:1", "4:3", "4:5", "5:4", "8:1", "9:16", "16:9",
@@ -50,8 +41,6 @@ struct TaskStatusResponse {
 #[derive(Debug, Deserialize)]
 struct TaskStatusData {
     status: String,
-    #[serde(default)]
-    progress: Option<String>,
     #[serde(default)]
     data: Option<TaskResultData>,
     #[serde(default)]
@@ -105,21 +94,18 @@ impl ComflyProvider {
 
     fn resolve_effective_model(model: &str, requested_size: &str) -> String {
         let sanitized_model = Self::sanitize_model(model);
-        let normalized_size = requested_size.trim().to_ascii_uppercase();
-
-        if sanitized_model == GEMINI_FLASH_IMAGE_PREVIEW_4K_MODEL {
-            return sanitized_model;
+        if sanitized_model.is_empty() {
+            let _ = requested_size;
+            return DEFAULT_MODEL.to_string();
         }
-        if normalized_size == "4K" {
-            return FOUR_K_MODEL.to_string();
+        if sanitized_model == GEMINI_FLASH_IMAGE_PREVIEW_MODEL {
+            return GEMINI_FLASH_IMAGE_PREVIEW_MODEL.to_string();
         }
-        if normalized_size == "2K" {
-            return TWO_K_MODEL.to_string();
-        }
-        if sanitized_model == LEGACY_HD_MODEL {
-            return FOUR_K_MODEL.to_string();
+        if sanitized_model == DEFAULT_MODEL {
+            return DEFAULT_MODEL.to_string();
         }
 
+        let _ = requested_size;
         sanitized_model
     }
 
@@ -192,12 +178,7 @@ impl ComflyProvider {
         SUPPORTED_ASPECT_RATIOS.contains(&aspect_ratio)
     }
 
-    fn resolve_image_size(model: &str, size: &str) -> Option<String> {
-        let normalized_model = model.trim().to_ascii_lowercase();
-        if normalized_model == TWO_K_MODEL || normalized_model == FOUR_K_MODEL {
-            return None;
-        }
-
+    fn resolve_image_size(_model: &str, size: &str) -> Option<String> {
         let normalized_size = size.trim().to_ascii_uppercase();
         match normalized_size.as_str() {
             "1K" | "2K" | "4K" => Some(normalized_size),
@@ -579,12 +560,8 @@ impl AIProvider for ComflyProvider {
 
     fn list_models(&self) -> Vec<String> {
         vec![
-            "comfly/nano-banana".to_string(),
-            "comfly/nano-banana-hd".to_string(),
-            "comfly/nano-banana-2".to_string(),
-            "comfly/nano-banana-2-2k".to_string(),
-            "comfly/nano-banana-2-4k".to_string(),
-            "comfly/gemini-3.1-flash-image-preview-4k".to_string(),
+            "comfly/nano-banana-pro".to_string(),
+            "comfly/gemini-3.1-flash-image-preview".to_string(),
         ]
     }
 

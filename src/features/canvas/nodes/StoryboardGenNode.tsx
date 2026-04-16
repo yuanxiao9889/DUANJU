@@ -29,7 +29,6 @@ import { useCanvasStore } from '@/stores/canvasStore';
 import { useSettingsStore } from '@/stores/settingsStore';
 import {
   canvasAiGateway,
-  graphImageResolver,
 } from '@/features/canvas/application/canvasServices';
 import { resolveErrorContent, showErrorDialog } from '@/features/canvas/application/errorDialog';
 import {
@@ -45,6 +44,10 @@ import {
   type GenerationDebugContext,
 } from '@/features/canvas/application/generationErrorReport';
 import {
+  buildReferenceAwareGenerationPrompt,
+  normalizeReferenceImagePrompt,
+} from '@/features/canvas/application/referenceImagePrompting';
+import {
   sanitizeStoryboardPromptText,
   sanitizeStoryboardText,
 } from '@/features/canvas/application/storyboardText';
@@ -57,15 +60,20 @@ import {
 } from '@/features/canvas/application/referenceTokenEditing';
 import {
   DEFAULT_IMAGE_MODEL_ID,
-  STORYBOARD_COMPATIBLE_MODEL_ID,
   getStoryboardImageModel,
+  isStoryboardCompatibleModelId,
+  isStoryboardNewApiModelId,
   listStoryboardImageModels,
   resolveImageModelResolution,
   resolveImageModelResolutions,
+  resolveStoryboardCompatibleModelConfigForModel,
+  resolveStoryboardNewApiModelConfigForModel,
   toStoryboardCompatibleExtraParamsPayload,
+  toStoryboardNewApiExtraParamsPayload,
 } from '@/features/canvas/models';
 import { GRSAI_NANO_BANANA_PRO_MODEL_ID } from '@/features/canvas/models/image/grsai/nanoBananaPro';
 import { resolveModelPriceDisplay } from '@/features/canvas/pricing';
+import { useCanvasNodeInputImages } from '@/features/canvas/hooks/useCanvasNodeGraph';
 import { ModelParamsControls } from '@/features/canvas/ui/ModelParamsControls';
 import { CanvasNodeImage } from '@/features/canvas/ui/CanvasNodeImage';
 import {
@@ -542,16 +550,20 @@ export const StoryboardGenNode = memo(({ id, data, selected, width, height }: St
   const { zoom } = useViewport();
   const updateNodeInternals = useUpdateNodeInternals();
   const setSelectedNode = useCanvasStore((state) => state.setSelectedNode);
-  const nodes = useCanvasStore((state) => state.nodes);
-  const edges = useCanvasStore((state) => state.edges);
   const updateNodeData = useCanvasStore((state) => state.updateNodeData);
   const addNode = useCanvasStore((state) => state.addNode);
   const addEdge = useCanvasStore((state) => state.addEdge);
   const findNodePosition = useCanvasStore((state) => state.findNodePosition);
-  const apiKeys = useSettingsStore((state) => state.apiKeys);
+  const storyboardApiKeys = useSettingsStore((state) => state.storyboardApiKeys);
   const hrsaiNanoBananaProModel = useSettingsStore((state) => state.hrsaiNanoBananaProModel);
   const storyboardCompatibleModelConfig = useSettingsStore(
     (state) => state.storyboardCompatibleModelConfig
+  );
+  const storyboardNewApiModelConfig = useSettingsStore(
+    (state) => state.storyboardNewApiModelConfig
+  );
+  const storyboardProviderCustomModels = useSettingsStore(
+    (state) => state.storyboardProviderCustomModels
   );
   const storyboardGenKeepStyleConsistent = useSettingsStore(
     (state) => state.storyboardGenKeepStyleConsistent
@@ -600,10 +612,7 @@ export const StoryboardGenNode = memo(({ id, data, selected, width, height }: St
     [nodeData]
   );
 
-  const incomingImages = useMemo(
-    () => graphImageResolver.collectInputImages(id, nodes, edges),
-    [id, nodes, edges]
-  );
+  const incomingImages = useCanvasNodeInputImages(id);
   const incomingImageItems = useMemo(
     () =>
       incomingImages.map((imageUrl, index) => ({
@@ -619,34 +628,89 @@ export const StoryboardGenNode = memo(({ id, data, selected, width, height }: St
   );
 
   const imageModels = useMemo(
-    () => listStoryboardImageModels(storyboardCompatibleModelConfig),
-    [storyboardCompatibleModelConfig]
+    () => listStoryboardImageModels(
+      storyboardCompatibleModelConfig,
+      storyboardNewApiModelConfig,
+      storyboardProviderCustomModels
+    ),
+    [
+      storyboardCompatibleModelConfig,
+      storyboardNewApiModelConfig,
+      storyboardProviderCustomModels,
+    ]
   );
 
   const selectedModel = useMemo(() => {
     const modelId = nodeData.model ?? DEFAULT_IMAGE_MODEL_ID;
-    return getStoryboardImageModel(modelId, storyboardCompatibleModelConfig);
-  }, [nodeData.model, storyboardCompatibleModelConfig]);
-  const providerApiKey = apiKeys[selectedModel.providerId] ?? '';
+    return getStoryboardImageModel(
+      modelId,
+      storyboardCompatibleModelConfig,
+      storyboardNewApiModelConfig,
+      storyboardProviderCustomModels
+    );
+  }, [
+    nodeData.model,
+    storyboardCompatibleModelConfig,
+    storyboardNewApiModelConfig,
+    storyboardProviderCustomModels,
+  ]);
+  const resolvedCompatibleModelConfig = useMemo(
+    () =>
+      isStoryboardCompatibleModelId(selectedModel.id)
+        ? resolveStoryboardCompatibleModelConfigForModel(
+          selectedModel.id,
+          storyboardCompatibleModelConfig,
+          storyboardProviderCustomModels
+        )
+        : storyboardCompatibleModelConfig,
+    [
+      selectedModel.id,
+      storyboardCompatibleModelConfig,
+      storyboardProviderCustomModels,
+    ]
+  );
+  const resolvedNewApiModelConfig = useMemo(
+    () =>
+      isStoryboardNewApiModelId(selectedModel.id)
+        ? resolveStoryboardNewApiModelConfigForModel(
+          selectedModel.id,
+          storyboardNewApiModelConfig,
+          storyboardProviderCustomModels
+        )
+        : storyboardNewApiModelConfig,
+    [
+      selectedModel.id,
+      storyboardNewApiModelConfig,
+      storyboardProviderCustomModels,
+    ]
+  );
+  const providerApiKey = storyboardApiKeys[selectedModel.providerId] ?? '';
   const effectiveExtraParams = useMemo(
     () => ({
       ...(nodeData.extraParams ?? {}),
       ...(selectedModel.id === GRSAI_NANO_BANANA_PRO_MODEL_ID
         ? { grsai_pro_model: hrsaiNanoBananaProModel }
         : {}),
-      ...(selectedModel.id === STORYBOARD_COMPATIBLE_MODEL_ID
+      ...(isStoryboardCompatibleModelId(selectedModel.id)
         ? {
           compatible_config: toStoryboardCompatibleExtraParamsPayload(
-            storyboardCompatibleModelConfig
+            resolvedCompatibleModelConfig
           ),
         }
+        : isStoryboardNewApiModelId(selectedModel.id)
+          ? {
+            newapi_config: toStoryboardNewApiExtraParamsPayload(
+              resolvedNewApiModelConfig
+            ),
+          }
         : {}),
     }),
     [
       hrsaiNanoBananaProModel,
       nodeData.extraParams,
+      resolvedCompatibleModelConfig,
+      resolvedNewApiModelConfig,
       selectedModel.id,
-      storyboardCompatibleModelConfig,
     ]
   );
   const resolutionOptions = useMemo(
@@ -744,13 +808,16 @@ export const StoryboardGenNode = memo(({ id, data, selected, width, height }: St
   });
   const debugRequestModel = useMemo(
     () =>
-      selectedModel.id === STORYBOARD_COMPATIBLE_MODEL_ID
-        ? storyboardCompatibleModelConfig.requestModel
+      isStoryboardCompatibleModelId(selectedModel.id)
+        ? resolvedCompatibleModelConfig.requestModel
+        : isStoryboardNewApiModelId(selectedModel.id)
+          ? resolvedNewApiModelConfig.requestModel
         : requestResolution.requestModel,
     [
       requestResolution.requestModel,
       selectedModel.id,
-      storyboardCompatibleModelConfig.requestModel,
+      resolvedCompatibleModelConfig.requestModel,
+      resolvedNewApiModelConfig.requestModel,
     ]
   );
   const resolvedPriceDisplay = useMemo(
@@ -1125,8 +1192,9 @@ export const StoryboardGenNode = memo(({ id, data, selected, width, height }: St
       return;
     }
 
-    const prompt = buildPrompt();
-    if (!prompt) {
+    const basePrompt = buildPrompt();
+    const displayPrompt = normalizeReferenceImagePrompt(basePrompt).trim();
+    if (!displayPrompt) {
       const errorMessage = t('node.storyboardGen.promptRequired');
       setError(errorMessage);
       void showErrorDialog(errorMessage, t('common.error'));
@@ -1188,6 +1256,10 @@ export const StoryboardGenNode = memo(({ id, data, selected, width, height }: St
 
       // 将网格图片作为最后一张参考图片
       const allReferenceImages = [...incomingImages, gridImageDataUrl];
+      const submittedPrompt = buildReferenceAwareGenerationPrompt(
+        basePrompt,
+        allReferenceImages.length
+      );
 
       const metadataFrameNotes = nodeData.frames
         .slice(0, safeRows * safeCols)
@@ -1197,7 +1269,7 @@ export const StoryboardGenNode = memo(({ id, data, selected, width, height }: St
         });
 
       const jobId = await canvasAiGateway.submitGenerateImageJob({
-        prompt,
+        prompt: submittedPrompt,
         model: requestResolution.requestModel,
         size: selectedResolution.value,
         aspectRatio: resolvedRequestAspectRatio,
@@ -1210,7 +1282,7 @@ export const StoryboardGenNode = memo(({ id, data, selected, width, height }: St
         requestModel: debugRequestModel,
         requestSize: selectedResolution.value,
         requestAspectRatio: resolvedRequestAspectRatio,
-        prompt,
+        prompt: submittedPrompt,
         extraParams: effectiveExtraParams,
         referenceImageCount: allReferenceImages.length,
         referenceImagePlaceholders: createReferenceImagePlaceholders(allReferenceImages.length),
@@ -1240,7 +1312,7 @@ export const StoryboardGenNode = memo(({ id, data, selected, width, height }: St
         requestModel: debugRequestModel,
         requestSize: selectedResolution.value,
         requestAspectRatio: resolvedRequestAspectRatio,
-        prompt,
+        prompt: buildReferenceAwareGenerationPrompt(basePrompt, incomingImages.length + 1),
         extraParams: effectiveExtraParams,
         referenceImageCount: incomingImages.length + 1,
         referenceImagePlaceholders: createReferenceImagePlaceholders(incomingImages.length + 1),

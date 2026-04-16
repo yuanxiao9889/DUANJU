@@ -8,7 +8,11 @@ import type {
   NodeToolType,
   StoryboardFrameItem,
 } from '../domain/canvasNodes';
-import type { CanvasNodeDefinition, NodeMenuProjectType } from '../domain/nodeRegistry';
+import type {
+  CanvasNodeDefinition,
+  NodeMenuAvailabilityOptions,
+  NodeMenuProjectType,
+} from '../domain/nodeRegistry';
 
 export interface IdGenerator {
   next: () => string;
@@ -16,7 +20,10 @@ export interface IdGenerator {
 
 export interface NodeCatalog {
   getDefinition: (type: CanvasNodeType) => CanvasNodeDefinition;
-  getMenuDefinitions: (projectType?: NodeMenuProjectType) => CanvasNodeDefinition[];
+  getMenuDefinitions: (
+    projectType?: NodeMenuProjectType,
+    options?: NodeMenuAvailabilityOptions
+  ) => CanvasNodeDefinition[];
 }
 
 export interface NodeFactory {
@@ -65,6 +72,13 @@ export interface ImageSplitGateway {
 
 export interface ToolProcessorResult {
   outputImageUrl?: string;
+  outputVideoUrl?: string;
+  outputAudioUrl?: string;
+  previewImageUrl?: string | null;
+  aspectRatio?: string;
+  duration?: number;
+  mimeType?: string | null;
+  outputFileName?: string | null;
   storyboardFrames?: StoryboardFrameItem[];
   rows?: number;
   cols?: number;
@@ -85,6 +99,9 @@ export interface CanvasEventMap {
     toolType: NodeToolType;
   };
   'tool-dialog/close': undefined;
+  'audio-node/open-save-preset': {
+    nodeId: string;
+  };
   'upload-node/reupload': {
     nodeId: string;
   };

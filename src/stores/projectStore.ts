@@ -4,8 +4,10 @@ import type { Viewport } from '@xyflow/react';
 import {
   useCanvasStore,
   type CanvasEdge,
+  type CanvasHistorySnapshot,
   type CanvasHistoryState,
   type CanvasNode,
+  type CanvasNodePatchHistorySnapshot,
   type CanvasNodeData,
 } from './canvasStore';
 import {
@@ -18,6 +20,11 @@ import {
   type ProjectRecord,
   type ProjectSummaryRecord,
 } from '@/commands/projectState';
+import {
+  createDefaultCanvasColorLabelMap,
+  normalizeCanvasColorLabelMap,
+  type CanvasColorLabelMap,
+} from '@/features/canvas/domain/semanticColors';
 
 const DEFAULT_VIEWPORT: Viewport = {
   x: 0,
@@ -40,9 +47,11 @@ const VIEWPORT_EPSILON = 0.001;
 const IDLE_PERSIST_TIMEOUT_MS = 1200;
 const FALLBACK_IDLE_DELAY_MS = 64;
 const MAX_PERSISTED_HISTORY_STEPS = 12;
+const MAX_PERSISTED_HISTORY_JSON_CHARS = 900_000;
 const MAX_HISTORY_RESTORE_JSON_CHARS = 1_500_000;
 const DELETE_RETRY_DELAY_MS = 80;
 const MAX_DELETE_RETRIES = 10;
+const FLUSH_WAIT_INTERVAL_MS = 16;
 
 const queuedProjectUpserts = new Map<string, Project>();
 const projectUpsertTimers = new Map<string, ReturnType<typeof setTimeout>>();
@@ -51,6 +60,7 @@ const queuedViewportUpserts = new Map<string, string>();
 const viewportUpsertTimers = new Map<string, ReturnType<typeof setTimeout>>();
 const viewportUpsertsInFlight = new Set<string>();
 const deletingProjectIds = new Set<string>();
+const historyBudgetWarnedProjectIds = new Set<string>();
 
 export type ProjectType = 'storyboard' | 'script';
 
@@ -59,6 +69,7 @@ export interface ProjectSummary {
   name: string;
   projectType: ProjectType;
   assetLibraryId: string | null;
+  linkedScriptProjectId: string | null;
   createdAt: number;
   updatedAt: number;
   nodeCount: number;
@@ -69,11 +80,23 @@ export interface Project extends ProjectSummary {
   edges: CanvasEdge[];
   viewport?: Viewport;
   history: CanvasHistoryState;
+  colorLabels: CanvasColorLabelMap;
 }
 
 type PersistedProject = Project & {
   imagePool?: string[];
 };
+
+interface PersistedNodesPayload {
+  nodes: CanvasNode[];
+  imagePool?: string[];
+}
+
+function isCanvasNodePatchHistorySnapshot(
+  snapshot: CanvasHistorySnapshot
+): snapshot is CanvasNodePatchHistorySnapshot {
+  return snapshot.kind === 'nodePatch';
+}
 
 function encodeImageReference(
   imageUrl: string | null | undefined,
@@ -153,6 +176,23 @@ function mapNodeImageReferences(
       });
     }
 
+    if (Array.isArray(nextData.resultImages)) {
+      nextData.resultImages = nextData.resultImages.map((item) => {
+        if (!item || typeof item !== 'object') {
+          return item;
+        }
+
+        const itemRecord = item as Record<string, unknown>;
+        return {
+          ...itemRecord,
+          imageUrl: mapImageUrl(itemRecord.imageUrl as string | null | undefined) ?? null,
+          previewImageUrl:
+            mapImageUrl(itemRecord.previewImageUrl as string | null | undefined) ?? null,
+          sourceUrl: mapImageUrl(itemRecord.sourceUrl as string | null | undefined) ?? null,
+        };
+      });
+    }
+
     return {
       ...node,
       data: nextData as CanvasNodeData,
@@ -164,15 +204,26 @@ function mapHistoryImageReferences(
   history: CanvasHistoryState,
   mapImageUrl: (imageUrl: string | null | undefined) => string | null | undefined
 ): CanvasHistoryState {
+  const mapSnapshot = (snapshot: CanvasHistorySnapshot): CanvasHistorySnapshot => {
+    if (isCanvasNodePatchHistorySnapshot(snapshot)) {
+      return {
+        kind: 'nodePatch',
+        entries: snapshot.entries.map((entry) => ({
+          nodeId: entry.nodeId,
+          node: entry.node ? mapNodeImageReferences([entry.node], mapImageUrl)[0] : null,
+        })),
+      };
+    }
+
+    return {
+      ...snapshot,
+      nodes: mapNodeImageReferences(snapshot.nodes, mapImageUrl),
+    };
+  };
+
   return {
-    past: history.past.map((snapshot) => ({
-      ...snapshot,
-      nodes: mapNodeImageReferences(snapshot.nodes, mapImageUrl),
-    })),
-    future: history.future.map((snapshot) => ({
-      ...snapshot,
-      nodes: mapNodeImageReferences(snapshot.nodes, mapImageUrl),
-    })),
+    past: history.past.map(mapSnapshot),
+    future: history.future.map(mapSnapshot),
   };
 }
 
@@ -180,6 +231,39 @@ function trimHistoryForPersistence(history: CanvasHistoryState): CanvasHistorySt
   return {
     past: history.past.slice(-MAX_PERSISTED_HISTORY_STEPS),
     future: history.future.slice(-MAX_PERSISTED_HISTORY_STEPS),
+  };
+}
+
+function trimHistoryToJsonBudget(
+  history: CanvasHistoryState,
+  maxChars: number
+): { history: CanvasHistoryState; trimmed: boolean } {
+  let nextPast = history.past;
+  let nextFuture = history.future;
+  let serialized = JSON.stringify({ past: nextPast, future: nextFuture });
+
+  if (serialized.length <= maxChars) {
+    return { history, trimmed: false };
+  }
+
+  while ((nextPast.length > 0 || nextFuture.length > 0) && serialized.length > maxChars) {
+    if (nextPast.length >= nextFuture.length && nextPast.length > 0) {
+      nextPast = nextPast.slice(1);
+    } else if (nextFuture.length > 0) {
+      nextFuture = nextFuture.slice(1);
+    } else {
+      nextPast = nextPast.slice(1);
+    }
+
+    serialized = JSON.stringify({ past: nextPast, future: nextFuture });
+  }
+
+  return {
+    history: {
+      past: nextPast,
+      future: nextFuture,
+    },
+    trimmed: nextPast.length !== history.past.length || nextFuture.length !== history.future.length,
   };
 }
 
@@ -193,6 +277,62 @@ function encodeProject(project: Project): PersistedProject {
     ...project,
     nodes: mapNodeImageReferences(project.nodes, encode),
     history: mapHistoryImageReferences(project.history, encode),
+    imagePool,
+  };
+}
+
+function encodeProjectForPersistence(project: Project): PersistedProject {
+  const historyWithinStepLimit = trimHistoryForPersistence(project.history);
+  const stepLimitedProject: Project = {
+    ...project,
+    history: historyWithinStepLimit,
+  };
+  const encodedProject = encodeProject(stepLimitedProject);
+  const historyWithinBudget = trimHistoryToJsonBudget(
+    encodedProject.history,
+    MAX_PERSISTED_HISTORY_JSON_CHARS
+  );
+
+  if (!historyWithinBudget.trimmed) {
+    historyBudgetWarnedProjectIds.delete(project.id);
+    return encodedProject;
+  }
+
+  if (!historyBudgetWarnedProjectIds.has(project.id)) {
+    historyBudgetWarnedProjectIds.add(project.id);
+    console.info(
+      `Trim persisted history for project ${project.id} to stay within ${MAX_PERSISTED_HISTORY_JSON_CHARS} chars`
+    );
+  }
+
+  const nextProject: Project = {
+    ...stepLimitedProject,
+    history: {
+      past: historyWithinStepLimit.past.slice(-historyWithinBudget.history.past.length),
+      future: historyWithinStepLimit.future.slice(-historyWithinBudget.history.future.length),
+    },
+  };
+
+  return encodeProject(nextProject);
+}
+
+function parsePersistedNodesPayload(value: unknown): PersistedNodesPayload {
+  if (Array.isArray(value)) {
+    return { nodes: value as CanvasNode[] };
+  }
+
+  if (!value || typeof value !== 'object') {
+    return { nodes: [] };
+  }
+
+  const record = value as Record<string, unknown>;
+  const nodes = Array.isArray(record.nodes) ? (record.nodes as CanvasNode[]) : [];
+  const imagePool = Array.isArray(record.imagePool)
+    ? record.imagePool.filter((item): item is string => typeof item === 'string')
+    : undefined;
+
+  return {
+    nodes,
     imagePool,
   };
 }
@@ -285,6 +425,7 @@ function toProjectSummary(record: ProjectSummaryRecord): ProjectSummary {
     name: record.name,
     projectType: (record.projectType as ProjectType) || 'storyboard',
     assetLibraryId: record.assetLibraryId ?? null,
+    linkedScriptProjectId: record.linkedScriptProjectId ?? null,
     createdAt: record.createdAt,
     updatedAt: record.updatedAt,
     nodeCount: record.nodeCount,
@@ -292,34 +433,38 @@ function toProjectSummary(record: ProjectSummaryRecord): ProjectSummary {
 }
 
 function toProjectRecord(project: Project): ProjectRecord {
-  const encodedProject = encodeProject(project);
-  const persistedNodes = encodedProject.nodes;
-  const persistedHistory = trimHistoryForPersistence(encodedProject.history);
+  const encodedProject = encodeProjectForPersistence(project);
+  const persistedNodesPayload: PersistedNodesPayload = {
+    nodes: encodedProject.nodes,
+    imagePool: encodedProject.imagePool ?? [],
+  };
 
   return {
     id: encodedProject.id,
     name: encodedProject.name,
     projectType: encodedProject.projectType || 'storyboard',
     assetLibraryId: encodedProject.assetLibraryId ?? null,
+    linkedScriptProjectId: encodedProject.linkedScriptProjectId ?? null,
     createdAt: encodedProject.createdAt,
     updatedAt: encodedProject.updatedAt,
     nodeCount: encodedProject.nodeCount,
-    nodesJson: JSON.stringify(persistedNodes),
+    nodesJson: JSON.stringify(persistedNodesPayload),
     edgesJson: JSON.stringify(encodedProject.edges),
     viewportJson: JSON.stringify(encodedProject.viewport),
-    historyJson: JSON.stringify({
-      ...persistedHistory,
-      imagePool: encodedProject.imagePool ?? [],
-    }),
+    historyJson: JSON.stringify(encodedProject.history),
+    colorLabelsJson: JSON.stringify(encodedProject.colorLabels),
   };
 }
 
 function fromProjectRecord(record: ProjectRecord): Project {
-  const parsedNodes = safeParseJson<CanvasNode[]>(record.nodesJson, []);
+  const parsedNodesPayload = parsePersistedNodesPayload(safeParseJson<unknown>(record.nodesJson, []));
+  const parsedNodes = parsedNodesPayload.nodes;
   const parsedEdges = safeParseJson<CanvasEdge[]>(record.edgesJson, []);
   const parsedViewport = safeParseJson<Viewport>(record.viewportJson, DEFAULT_VIEWPORT);
   const shouldRestoreHistory = record.historyJson.length <= MAX_HISTORY_RESTORE_JSON_CHARS;
-  const extractedImagePool = extractImagePoolFromHistoryJson(record.historyJson);
+  const extractedImagePool =
+    parsedNodesPayload.imagePool
+    ?? extractImagePoolFromHistoryJson(record.historyJson);
   const parsedHistoryPayload = shouldRestoreHistory
     ? safeParseJson<{
         past?: CanvasHistoryState['past'];
@@ -344,6 +489,7 @@ function fromProjectRecord(record: ProjectRecord): Project {
     name: record.name,
     projectType: (record.projectType as ProjectType) || 'storyboard',
     assetLibraryId: record.assetLibraryId ?? null,
+    linkedScriptProjectId: record.linkedScriptProjectId ?? null,
     createdAt: record.createdAt,
     updatedAt: record.updatedAt,
     nodeCount: record.nodeCount,
@@ -351,7 +497,10 @@ function fromProjectRecord(record: ProjectRecord): Project {
     edges: parsedEdges,
     viewport: parsedViewport ?? DEFAULT_VIEWPORT,
     history: parsedHistory,
-    imagePool: parsedHistoryPayload.imagePool ?? extractedImagePool,
+    colorLabels: normalizeCanvasColorLabelMap(
+      safeParseJson<unknown>(record.colorLabelsJson, createDefaultCanvasColorLabelMap())
+    ),
+    imagePool: parsedNodesPayload.imagePool ?? parsedHistoryPayload.imagePool ?? extractedImagePool,
   };
 
   const decodedProject = decodeProject(persistedProject);
@@ -360,6 +509,7 @@ function fromProjectRecord(record: ProjectRecord): Project {
     nodeCount: parsedNodes.length,
     viewport: decodedProject.viewport ?? DEFAULT_VIEWPORT,
     history: decodedProject.history ?? createEmptyHistory(),
+    colorLabels: normalizeCanvasColorLabelMap(decodedProject.colorLabels),
   };
 }
 
@@ -400,6 +550,12 @@ function normalizeViewport(viewport: Viewport): Viewport {
     y: Number(viewport.y.toFixed(2)),
     zoom: Number(viewport.zoom.toFixed(4)),
   };
+}
+
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => {
+    window.setTimeout(resolve, ms);
+  });
 }
 
 function clearQueuedProjectUpsert(projectId: string): void {
@@ -500,6 +656,19 @@ function persistProject(project: Project, options?: PersistProjectOptions): void
   queueProjectUpsert(project, options);
 }
 
+async function persistProjectImmediately(project: Project): Promise<void> {
+  const projectId = project.id;
+  deletingProjectIds.delete(projectId);
+  clearQueuedProjectUpsert(projectId);
+  clearQueuedViewportUpsert(projectId);
+
+  while (projectUpsertsInFlight.has(projectId) || viewportUpsertsInFlight.has(projectId)) {
+    await delay(FLUSH_WAIT_INTERVAL_MS);
+  }
+
+  await upsertProjectRecord(toProjectRecord(project));
+}
+
 function flushViewportUpsert(projectId: string): void {
   if (deletingProjectIds.has(projectId) || viewportUpsertsInFlight.has(projectId)) {
     return;
@@ -559,6 +728,7 @@ function queueViewportUpsert(
 
 function persistProjectDelete(projectId: string): void {
   deletingProjectIds.add(projectId);
+  historyBudgetWarnedProjectIds.delete(projectId);
   clearQueuedProjectUpsert(projectId);
   clearQueuedViewportUpsert(projectId);
 
@@ -608,7 +778,12 @@ interface ProjectState {
   deleteProject: (id: string) => void;
   deleteProjects: (ids: string[]) => void;
   renameProject: (id: string, name: string) => void;
+  setProjectLinkedScriptProject: (
+    projectId: string,
+    linkedScriptProjectId: string | null
+  ) => Promise<void>;
   setCurrentProjectAssetLibrary: (assetLibraryId: string | null) => void;
+  setCurrentProjectColorLabels: (colorLabels: CanvasColorLabelMap) => void;
   openProject: (id: string) => void;
   closeProject: () => void;
   getCurrentProject: () => Project | null;
@@ -620,6 +795,7 @@ interface ProjectState {
   ) => void;
   saveCurrentProjectViewport: (viewport: Viewport) => void;
   cancelPendingViewportPersist: () => void;
+  flushCurrentProjectToDisk: () => Promise<void>;
 }
 
 export const useProjectStore = create<ProjectState>((set, get) => ({
@@ -662,6 +838,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
       name,
       projectType,
       assetLibraryId: null,
+      linkedScriptProjectId: null,
       createdAt: now,
       updatedAt: now,
       nodeCount: 0,
@@ -669,6 +846,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
       edges: [],
       viewport: DEFAULT_VIEWPORT,
       history: createEmptyHistory(),
+      colorLabels: createDefaultCanvasColorLabelMap(),
     };
 
     set((state) => ({
@@ -742,6 +920,66 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
     });
   },
 
+  setProjectLinkedScriptProject: async (projectId, linkedScriptProjectId) => {
+    const normalizedLinkedScriptProjectId = linkedScriptProjectId?.trim() || null;
+    const updatedAt = Date.now();
+    const updateSummary = (project: Project): ProjectSummary => ({
+      id: project.id,
+      name: project.name,
+      projectType: project.projectType,
+      assetLibraryId: project.assetLibraryId ?? null,
+      linkedScriptProjectId: project.linkedScriptProjectId ?? null,
+      createdAt: project.createdAt,
+      updatedAt: project.updatedAt,
+      nodeCount: project.nodeCount,
+    });
+
+    const { currentProjectId, currentProject } = get();
+    if (currentProjectId === projectId && currentProject?.id === projectId) {
+      if ((currentProject.linkedScriptProjectId ?? null) === normalizedLinkedScriptProjectId) {
+        return;
+      }
+
+      const nextProject: Project = {
+        ...currentProject,
+        linkedScriptProjectId: normalizedLinkedScriptProjectId,
+        updatedAt,
+      };
+
+      set((state) => ({
+        currentProject: nextProject,
+        projects: updateProjectSummary(state.projects, updateSummary(nextProject)),
+      }));
+      persistProject(nextProject, { debounceMs: 0 });
+      return;
+    }
+
+    try {
+      const record = await getProjectRecord(projectId);
+      if (!record) {
+        return;
+      }
+
+      const existingProject = fromProjectRecord(record);
+      if ((existingProject.linkedScriptProjectId ?? null) === normalizedLinkedScriptProjectId) {
+        return;
+      }
+
+      const nextProject: Project = {
+        ...existingProject,
+        linkedScriptProjectId: normalizedLinkedScriptProjectId,
+        updatedAt,
+      };
+
+      set((state) => ({
+        projects: updateProjectSummary(state.projects, updateSummary(nextProject)),
+      }));
+      await persistProjectImmediately(nextProject);
+    } catch (error) {
+      console.error('Failed to update linked script project', error);
+    }
+  },
+
   openProject: (id) => {
     const reqSeq = ++openProjectRequestSeq;
     useCanvasStore.getState().closeImageViewer();
@@ -768,6 +1006,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
             name: project.name,
             projectType: project.projectType,
             assetLibraryId: project.assetLibraryId ?? null,
+            linkedScriptProjectId: project.linkedScriptProjectId ?? null,
             createdAt: project.createdAt,
             updatedAt: project.updatedAt,
             nodeCount: project.nodeCount,
@@ -806,6 +1045,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
         name: nextProject.name,
         projectType: nextProject.projectType,
         assetLibraryId: nextProject.assetLibraryId ?? null,
+        linkedScriptProjectId: nextProject.linkedScriptProjectId ?? null,
         createdAt: nextProject.createdAt,
         updatedAt: nextProject.updatedAt,
         nodeCount: nextProject.nodeCount,
@@ -853,15 +1093,56 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
 
     set((state) => ({
       currentProject: nextProject,
-      projects: updateProjectSummary(state.projects, {
-        id: nextProject.id,
-        name: nextProject.name,
-        projectType: nextProject.projectType,
-        assetLibraryId: nextProject.assetLibraryId ?? null,
-        createdAt: nextProject.createdAt,
-        updatedAt: nextProject.updatedAt,
-        nodeCount: nextProject.nodeCount,
-      }),
+        projects: updateProjectSummary(state.projects, {
+          id: nextProject.id,
+          name: nextProject.name,
+          projectType: nextProject.projectType,
+          assetLibraryId: nextProject.assetLibraryId ?? null,
+          linkedScriptProjectId: nextProject.linkedScriptProjectId ?? null,
+          createdAt: nextProject.createdAt,
+          updatedAt: nextProject.updatedAt,
+          nodeCount: nextProject.nodeCount,
+        }),
+    }));
+
+    persistProject(nextProject, { debounceMs: 0 });
+  },
+
+  setCurrentProjectColorLabels: (colorLabels) => {
+    const { currentProjectId, currentProject } = get();
+    if (!currentProjectId || !currentProject || currentProject.id !== currentProjectId) {
+      return;
+    }
+
+    const nextColorLabels = normalizeCanvasColorLabelMap(colorLabels);
+    const hasChanged = (
+      currentProject.colorLabels.red !== nextColorLabels.red ||
+      currentProject.colorLabels.purple !== nextColorLabels.purple ||
+      currentProject.colorLabels.yellow !== nextColorLabels.yellow ||
+      currentProject.colorLabels.green !== nextColorLabels.green
+    );
+    if (!hasChanged) {
+      return;
+    }
+
+    const nextProject: Project = {
+      ...currentProject,
+      colorLabels: nextColorLabels,
+      updatedAt: Date.now(),
+    };
+
+    set((state) => ({
+      currentProject: nextProject,
+        projects: updateProjectSummary(state.projects, {
+          id: nextProject.id,
+          name: nextProject.name,
+          projectType: nextProject.projectType,
+          assetLibraryId: nextProject.assetLibraryId ?? null,
+          linkedScriptProjectId: nextProject.linkedScriptProjectId ?? null,
+          createdAt: nextProject.createdAt,
+          updatedAt: nextProject.updatedAt,
+          nodeCount: nextProject.nodeCount,
+        }),
     }));
 
     persistProject(nextProject, { debounceMs: 0 });
@@ -904,15 +1185,16 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
 
     set((state) => ({
       currentProject: nextProject,
-      projects: updateProjectSummary(state.projects, {
-        id: nextProject.id,
-        name: nextProject.name,
-        projectType: nextProject.projectType,
-        assetLibraryId: nextProject.assetLibraryId ?? null,
-        createdAt: nextProject.createdAt,
-        updatedAt: nextProject.updatedAt,
-        nodeCount: nextProject.nodeCount,
-      }),
+        projects: updateProjectSummary(state.projects, {
+          id: nextProject.id,
+          name: nextProject.name,
+          projectType: nextProject.projectType,
+          assetLibraryId: nextProject.assetLibraryId ?? null,
+          linkedScriptProjectId: nextProject.linkedScriptProjectId ?? null,
+          createdAt: nextProject.createdAt,
+          updatedAt: nextProject.updatedAt,
+          nodeCount: nextProject.nodeCount,
+        }),
     }));
     persistProject(nextProject);
   },
@@ -945,5 +1227,39 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
       return;
     }
     clearQueuedViewportUpsert(currentProjectId);
+  },
+
+  flushCurrentProjectToDisk: async () => {
+    const { currentProjectId, currentProject } = get();
+    if (!currentProjectId || !currentProject || currentProject.id !== currentProjectId) {
+      return;
+    }
+
+    const canvasState = useCanvasStore.getState();
+    const nextProject: Project = {
+      ...currentProject,
+      nodes: canvasState.nodes,
+      edges: canvasState.edges,
+      viewport: canvasState.currentViewport ?? currentProject.viewport ?? DEFAULT_VIEWPORT,
+      history: canvasState.history ?? currentProject.history ?? createEmptyHistory(),
+      nodeCount: canvasState.nodes.length,
+      updatedAt: Date.now(),
+    };
+
+    set((state) => ({
+      currentProject: nextProject,
+        projects: updateProjectSummary(state.projects, {
+          id: nextProject.id,
+          name: nextProject.name,
+          projectType: nextProject.projectType,
+          assetLibraryId: nextProject.assetLibraryId ?? null,
+          linkedScriptProjectId: nextProject.linkedScriptProjectId ?? null,
+          createdAt: nextProject.createdAt,
+          updatedAt: nextProject.updatedAt,
+          nodeCount: nextProject.nodeCount,
+        }),
+    }));
+
+    await persistProjectImmediately(nextProject);
   },
 }));

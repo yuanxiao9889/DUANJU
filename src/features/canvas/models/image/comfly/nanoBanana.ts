@@ -1,10 +1,8 @@
 import type { ImageModelDefinition, ResolutionOption } from '../../types';
 
-export const COMFLY_NANO_BANANA_MODEL_ID = 'comfly/nano-banana';
-export const COMFLY_GEMINI_FLASH_IMAGE_PREVIEW_4K_REQUEST_MODEL_ID =
-  'comfly/gemini-3.1-flash-image-preview-4k';
+export const COMFLY_NANO_BANANA_PRO_MODEL_ID = 'comfly/nano-banana-pro';
 
-const GEMINI_FLASH_IMAGE_PREVIEW_4K_ASPECT_RATIOS = [
+const ASPECT_RATIOS = [
   '1:1',
   '1:4',
   '1:8',
@@ -28,22 +26,22 @@ const RESOLUTION_OPTIONS: ResolutionOption[] = [
 ];
 
 export const imageModel: ImageModelDefinition = {
-  id: COMFLY_NANO_BANANA_MODEL_ID,
+  id: COMFLY_NANO_BANANA_PRO_MODEL_ID,
   mediaType: 'image',
-  displayName: '香蕉2',
+  displayName: '\u9999\u8549Pro',
   providerId: 'comfly',
-  description: 'Google fast image model with up to 4K output and stronger reference consistency.',
+  description: 'Comfly Nano Banana Pro with 1K/2K/4K output controlled by image_size.',
   eta: '30s',
   expectedDurationMs: 30000,
   defaultAspectRatio: '1:1',
   defaultResolution: '1K',
-  aspectRatios: GEMINI_FLASH_IMAGE_PREVIEW_4K_ASPECT_RATIOS.map((value) => ({
+  aspectRatios: ASPECT_RATIOS.map((value) => ({
     value,
     label: value,
   })),
   resolutions: RESOLUTION_OPTIONS,
   resolveRequest: ({ referenceImageCount }) => ({
-    requestModel: COMFLY_GEMINI_FLASH_IMAGE_PREVIEW_4K_REQUEST_MODEL_ID,
-    modeLabel: referenceImageCount > 0 ? '编辑模式' : '生成模式',
+    requestModel: COMFLY_NANO_BANANA_PRO_MODEL_ID,
+    modeLabel: referenceImageCount > 0 ? 'Edit' : 'Generate',
   }),
 };
