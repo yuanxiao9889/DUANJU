@@ -1,5 +1,6 @@
 pub mod ai;
 pub mod asset_state;
+pub mod clip_library;
 pub mod dreamina_cli;
 pub mod export;
 pub mod extensions;
@@ -16,6 +17,7 @@ pub mod update;
 
 pub use ai::*;
 pub use asset_state::*;
+pub use clip_library::*;
 pub use dreamina_cli::*;
 pub use export::*;
 pub use extensions::*;

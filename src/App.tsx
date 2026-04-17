@@ -1,6 +1,7 @@
 import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWindow } from "@tauri-apps/api/window";
+import { useTranslation } from "react-i18next";
 import {
   AppBootScreen,
   AppContentLoader,
@@ -12,6 +13,7 @@ import { PsImageToast } from "./components/PsImageToast";
 import { useThemeStore } from "./stores/themeStore";
 import { useProjectStore } from "./stores/projectStore";
 import { useSettingsStore } from "./stores/settingsStore";
+import { useCanvasStore } from "./stores/canvasStore";
 import {
   checkForUpdate,
   isUpdateVersionSuppressed,
@@ -45,6 +47,26 @@ import {
   type AssetPanelProjectContext,
 } from "./features/assets/application/assetPanelBridge";
 import { DetachedAssetPanelWindow } from "./features/assets/ui/DetachedAssetPanelWindow";
+import {
+  CLIP_LIBRARY_PANEL_CLOSED_EVENT,
+  CLIP_LIBRARY_PANEL_CONTEXT_EVENT,
+  CLIP_LIBRARY_PANEL_FOCUS_TARGET_EVENT,
+  CLIP_LIBRARY_PANEL_NODE_BOUND_EVENT,
+  CLIP_LIBRARY_PANEL_READY_EVENT,
+  CLIP_LIBRARY_PANEL_SET_LIBRARY_EVENT,
+  CLIP_LIBRARY_PANEL_WINDOW_LABEL,
+  blockClipLibraryPanelOpenFor,
+  consumeClipLibraryPanelNavigationQueue,
+  emitToClipLibraryPanel,
+  isClipLibraryPanelOpenBlocked,
+  openClipLibraryPanelWindow,
+  queueClipLibraryPanelFocusTarget,
+  queueClipLibraryPanelLibrary,
+  setLatestClipLibraryPanelProjectContext,
+  type ClipLibraryPanelNodeBoundPayload,
+  type ClipLibraryPanelProjectContext,
+} from "./features/clip-library/application/clipLibraryPanelBridge";
+import { DetachedClipLibraryWindow } from "./features/clip-library/ui/DetachedClipLibraryWindow";
 
 const WINDOW_CLOSE_FLUSH_TIMEOUT_MS = 2500;
 const WINDOW_CLOSE_REQUEST_TIMEOUT_MS = 1200;
@@ -160,6 +182,7 @@ function useApplyGlobalAppearance() {
 
 function MainApp() {
   useApplyGlobalAppearance();
+  const { t } = useTranslation();
 
   const autoCheckAppUpdateOnLaunch = useSettingsStore(
     (state) => state.autoCheckAppUpdateOnLaunch,
@@ -198,6 +221,7 @@ function MainApp() {
   const setCurrentProjectAssetLibrary = useProjectStore(
     (state) => state.setCurrentProjectAssetLibrary,
   );
+  const updateNodeData = useCanvasStore((state) => state.updateNodeData);
   const flushCurrentProjectToDisk = useProjectStore(
     (state) => state.flushCurrentProjectToDisk,
   );
@@ -259,6 +283,23 @@ function MainApp() {
     ],
   );
 
+  const clipLibraryPanelProjectContext = useMemo<ClipLibraryPanelProjectContext>(
+    () => ({
+      projectId: currentProject?.id ?? null,
+      projectName: currentProject?.name ?? null,
+      projectType: currentProject?.projectType ?? null,
+      clipLibraryId: currentProject?.clipLibraryId ?? null,
+      clipLastFolderId: currentProject?.clipLastFolderId ?? null,
+    }),
+    [
+      currentProject?.clipLastFolderId,
+      currentProject?.clipLibraryId,
+      currentProject?.id,
+      currentProject?.name,
+      currentProject?.projectType,
+    ],
+  );
+
   useEffect(() => {
     void emitToAssetPanel(ASSET_PANEL_CONTEXT_EVENT, assetPanelProjectContext).catch(
       (error) => {
@@ -266,6 +307,16 @@ function MainApp() {
       },
     );
   }, [assetPanelProjectContext]);
+
+  useEffect(() => {
+    setLatestClipLibraryPanelProjectContext(clipLibraryPanelProjectContext);
+    void emitToClipLibraryPanel(
+      CLIP_LIBRARY_PANEL_CONTEXT_EVENT,
+      clipLibraryPanelProjectContext,
+    ).catch((error) => {
+      console.warn("failed to sync clip library panel context", error);
+    });
+  }, [clipLibraryPanelProjectContext]);
 
   useEffect(() => {
     const appWindow = getCurrentWindow();
@@ -314,6 +365,98 @@ function MainApp() {
       unlistenAssetPanelLibraryChange?.();
     };
   }, [assetPanelProjectContext, setCurrentProjectAssetLibrary]);
+
+  useEffect(() => {
+    const appWindow = getCurrentWindow();
+    let unlistenClipPanelReady: (() => void) | null = null;
+    let unlistenClipNodeBound: (() => void) | null = null;
+    let unlistenClipPanelClosed: (() => void) | null = null;
+    let disposed = false;
+
+    const registerClipPanelBridge = async () => {
+      const nextUnlistenClipPanelReady = await appWindow.listen(
+        CLIP_LIBRARY_PANEL_READY_EVENT,
+        () => {
+          const queuedNavigation = consumeClipLibraryPanelNavigationQueue();
+
+          void emitToClipLibraryPanel(
+            CLIP_LIBRARY_PANEL_CONTEXT_EVENT,
+            clipLibraryPanelProjectContext,
+          ).catch((error) => {
+            console.warn("failed to deliver initial clip library panel context", error);
+          });
+
+          if (queuedNavigation.libraryId !== undefined) {
+            void emitToClipLibraryPanel(
+              CLIP_LIBRARY_PANEL_SET_LIBRARY_EVENT,
+              queuedNavigation.libraryId,
+            ).catch((error) => {
+              console.warn("failed to deliver queued clip library selection", error);
+            });
+          }
+
+          if (queuedNavigation.focusTarget) {
+            void emitToClipLibraryPanel(
+              CLIP_LIBRARY_PANEL_FOCUS_TARGET_EVENT,
+              queuedNavigation.focusTarget,
+            ).catch((error) => {
+              console.warn("failed to deliver queued clip library focus target", error);
+            });
+          }
+        },
+      );
+      if (disposed) {
+        nextUnlistenClipPanelReady();
+        return;
+      }
+      unlistenClipPanelReady = nextUnlistenClipPanelReady;
+
+      const nextUnlistenClipNodeBound =
+        await appWindow.listen<ClipLibraryPanelNodeBoundPayload>(
+          CLIP_LIBRARY_PANEL_NODE_BOUND_EVENT,
+          (event) => {
+            const payload = event.payload;
+            if (!payload || payload.projectId !== currentProject?.id) {
+              return;
+            }
+
+            updateNodeData(payload.nodeId, {
+              clipLibraryId: payload.clipLibraryId,
+              clipFolderId: payload.clipFolderId,
+              clipItemId: payload.clipItemId,
+            });
+          },
+        );
+      if (disposed) {
+        nextUnlistenClipNodeBound();
+        return;
+      }
+      unlistenClipNodeBound = nextUnlistenClipNodeBound;
+
+      const nextUnlistenClipPanelClosed = await appWindow.listen(
+        CLIP_LIBRARY_PANEL_CLOSED_EVENT,
+        () => {
+          blockClipLibraryPanelOpenFor();
+        },
+      );
+      if (disposed) {
+        nextUnlistenClipPanelClosed();
+        return;
+      }
+      unlistenClipPanelClosed = nextUnlistenClipPanelClosed;
+    };
+
+    void registerClipPanelBridge().catch((error) => {
+      console.error("Failed to register clip library panel bridge", error);
+    });
+
+    return () => {
+      disposed = true;
+      unlistenClipPanelReady?.();
+      unlistenClipNodeBound?.();
+      unlistenClipPanelClosed?.();
+    };
+  }, [clipLibraryPanelProjectContext, currentProject?.id, updateNodeData]);
 
   useEffect(() => {
     const unsubscribe = subscribeOpenGlobalErrorDialog((detail) => {
@@ -577,6 +720,35 @@ function MainApp() {
     );
   };
 
+  const handleOpenClipLibraryPanel = useCallback(async () => {
+    if (isClipLibraryPanelOpenBlocked()) {
+      return;
+    }
+
+    const libraryId = currentProject?.clipLibraryId?.trim() || null;
+    const clipLastFolderId = currentProject?.clipLastFolderId?.trim() || null;
+    queueClipLibraryPanelLibrary(libraryId);
+    queueClipLibraryPanelFocusTarget(
+      libraryId && clipLastFolderId
+        ? {
+            clipLibraryId: libraryId,
+            clipFolderId: clipLastFolderId,
+          }
+        : null
+    );
+    await openClipLibraryPanelWindow(t("clipLibrary.windowTitle"));
+
+    if (libraryId) {
+      await emitToClipLibraryPanel(CLIP_LIBRARY_PANEL_SET_LIBRARY_EVENT, libraryId);
+      if (clipLastFolderId) {
+        await emitToClipLibraryPanel(CLIP_LIBRARY_PANEL_FOCUS_TARGET_EVENT, {
+          clipLibraryId: libraryId,
+          clipFolderId: clipLastFolderId,
+        });
+      }
+    }
+  }, [currentProject?.clipLastFolderId, currentProject?.clipLibraryId, t]);
+
   return (
     <div className="w-full h-full flex flex-col bg-bg-dark">
       <TitleBar
@@ -584,6 +756,7 @@ function MainApp() {
           setExtensionsDialogLoaded(true);
           setShowExtensions(true);
         }}
+        onClipLibraryClick={handleOpenClipLibraryPanel}
         onSettingsClick={() => {
           setSettingsInitialCategory("general");
           setSettingsDialogLoaded(true);
@@ -661,8 +834,18 @@ function DetachedAssetPanelApp() {
   return <DetachedAssetPanelWindow />;
 }
 
+function DetachedClipLibraryPanelApp() {
+  useApplyGlobalAppearance();
+
+  return <DetachedClipLibraryWindow />;
+}
+
 function App() {
   const currentWindowLabel = getCurrentWindow().label;
+
+  if (currentWindowLabel === CLIP_LIBRARY_PANEL_WINDOW_LABEL) {
+    return <DetachedClipLibraryPanelApp />;
+  }
 
   if (currentWindowLabel === ASSET_PANEL_WINDOW_LABEL) {
     return <DetachedAssetPanelApp />;

@@ -657,7 +657,12 @@ function ScriptAssetReferenceNode({
         maxHeight={MAX_NODE_HEIGHT}
         isVisible={selected}
       />
-      <UiLoadingOverlay visible={isLoading} insetClassName="inset-3" />
+      <UiLoadingOverlay
+        visible={isLoading}
+        insetClassName="inset-3"
+        backdropClassName="bg-transparent"
+        variant="bare"
+      />
     </div>
   );
 }

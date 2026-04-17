@@ -454,17 +454,11 @@ export const SeedanceVideoResultNode = memo(
     const headerStatus = useMemo(() => {
       if (data.isGenerating) {
         return (
-          <span
+          <NodeStatusBadge
+            label={taskStatusLabel}
+            tone="processing"
             title={taskStatusLabel}
-            className="inline-flex h-7 w-7 items-center justify-center rounded-full border border-accent/30 bg-accent/12 shadow-[0_8px_16px_rgba(var(--accent-rgb),0.12)]"
-          >
-            <UiLoadingAnimation
-              width={18}
-              height={18}
-              fit="cover"
-              className="overflow-hidden rounded-full"
-            />
-          </span>
+          />
         );
       }
 
@@ -569,15 +563,16 @@ export const SeedanceVideoResultNode = memo(
                 )}
               </div>
               {showBlockingOverlay ? (
-                <div className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center bg-black/12">
-                  <div className="overflow-hidden rounded-[22px]">
-                    <UiLoadingAnimation
-                      className="drop-shadow-[0_16px_36px_rgba(0,0,0,0.32)]"
-                      width="min(220px, calc(100% - 2rem))"
-                      height="96px"
-                      fit="cover"
-                    />
-                  </div>
+                <div className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center">
+                  <UiLoadingAnimation
+                    className="block"
+                    width="min(320px, calc(100% - 2rem))"
+                    height="120px"
+                    fit="contain"
+                    trimBars
+                    trimInset="18%"
+                    zoom={1.45}
+                  />
                   <span className="sr-only">{t("common.loading")}</span>
                 </div>
               ) : null}

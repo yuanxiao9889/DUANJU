@@ -422,7 +422,12 @@ export const JimengImageResultNode = memo(
         }}
         onClick={() => setSelectedNode(id)}
       >
-        <UiLoadingOverlay visible={showBlockingOverlay} insetClassName="inset-3" />
+        <UiLoadingOverlay
+          visible={showBlockingOverlay}
+          insetClassName="inset-3"
+          backdropClassName="bg-transparent"
+          variant="bare"
+        />
         <NodeHeader
           className={NODE_HEADER_FLOATING_POSITION_CLASS}
           icon={<Sparkles className="h-3.5 w-3.5" />}
@@ -447,8 +452,8 @@ export const JimengImageResultNode = memo(
           >
             {resultSlots.map((item, index) => {
               const source =
-                item?.previewImageUrl ??
                 item?.imageUrl ??
+                item?.previewImageUrl ??
                 item?.sourceUrl ??
                 null;
               const viewerSource =
@@ -481,7 +486,9 @@ export const JimengImageResultNode = memo(
                       />
                     ) : (
                       <div className="flex h-full w-full items-center justify-center bg-[radial-gradient(circle_at_top,#1f2937_0%,#0f172a_72%)] text-sm text-text-muted">
-                        {data.isGenerating
+                        {showBlockingOverlay
+                          ? null
+                          : data.isGenerating
                           ? t("node.jimengImageResult.pending")
                           : t("node.jimengImageResult.slotLabel", {
                               index: index + 1,

@@ -12,7 +12,8 @@ const DEFAULT_LINE_THICKNESS_PERCENT = 0.5;
 const MAX_LINE_THICKNESS_PERCENT = 20;
 const LEGACY_DEFAULT_LINE_THICKNESS_PX = 6;
 const PREVIEW_VIEWPORT_HEIGHT = 'h-[min(560px,60vh)]';
-const MIN_ZOOM = 0.5;
+const PREVIEW_VIEWPORT_PADDING_PX = 24;
+const MIN_ZOOM = 1;
 const MAX_ZOOM = 4;
 const ZOOM_STEP = 0.25;
 
@@ -286,6 +287,7 @@ function NumberStepper({ label, value, min, max, onChange }: NumberStepperProps)
 
 export function SplitStoryboardToolEditor({ sourceImageUrl, options, onOptionsChange }: VisualToolEditorProps) {
   const [naturalSize, setNaturalSize] = useState<{ width: number; height: number } | null>(null);
+  const [viewportSize, setViewportSize] = useState({ width: 0, height: 0 });
   const displaySourceImageUrl = useMemo(() => resolveImageDisplayUrl(sourceImageUrl), [sourceImageUrl]);
   const previewContainerRef = useRef<HTMLDivElement>(null);
   
@@ -306,6 +308,32 @@ export function SplitStoryboardToolEditor({ sourceImageUrl, options, onOptionsCh
     setZoom(1);
     setPan({ x: 0, y: 0 });
   }, [displaySourceImageUrl]);
+
+  useEffect(() => {
+    const element = previewContainerRef.current;
+    if (!element) {
+      return;
+    }
+
+    const updateViewportSize = () => {
+      const rect = element.getBoundingClientRect();
+      setViewportSize({
+        width: Math.max(0, Math.round(rect.width)),
+        height: Math.max(0, Math.round(rect.height)),
+      });
+    };
+
+    updateViewportSize();
+
+    if (typeof ResizeObserver === 'undefined') {
+      return;
+    }
+
+    const observer = new ResizeObserver(updateViewportSize);
+    observer.observe(element);
+
+    return () => observer.disconnect();
+  }, []);
 
   const rows = clampInteger(toFiniteNumber(options.rows, 3), MIN_GRID_SIZE, MAX_GRID_SIZE);
   const cols = clampInteger(toFiniteNumber(options.cols, 3), MIN_GRID_SIZE, MAX_GRID_SIZE);
@@ -361,6 +389,50 @@ export function SplitStoryboardToolEditor({ sourceImageUrl, options, onOptionsCh
       naturalSize.height
     );
   }, [cols, lineThicknessPercent, naturalSize, rows]);
+
+  const renderedImageSize = useMemo(() => {
+    if (!naturalSize) {
+      return null;
+    }
+
+    if (viewportSize.width <= 0 || viewportSize.height <= 0) {
+      return {
+        width: naturalSize.width,
+        height: naturalSize.height,
+        fitScale: 1,
+      };
+    }
+
+    const maxWidth = Math.max(1, viewportSize.width - PREVIEW_VIEWPORT_PADDING_PX);
+    const maxHeight = Math.max(1, viewportSize.height - PREVIEW_VIEWPORT_PADDING_PX);
+    const fitScale = Math.min(
+      maxWidth / naturalSize.width,
+      maxHeight / naturalSize.height,
+      1
+    );
+
+    return {
+      width: Math.max(1, Math.round(naturalSize.width * fitScale)),
+      height: Math.max(1, Math.round(naturalSize.height * fitScale)),
+      fitScale,
+    };
+  }, [naturalSize, viewportSize.height, viewportSize.width]);
+
+  const displayedZoomPercent = useMemo(() => {
+    if (!renderedImageSize) {
+      return Math.round(zoom * 100);
+    }
+
+    return Math.round(renderedImageSize.fitScale * zoom * 100);
+  }, [renderedImageSize, zoom]);
+
+  const maxZoom = useMemo(() => {
+    if (!renderedImageSize) {
+      return MAX_ZOOM;
+    }
+
+    return Math.max(MAX_ZOOM, MAX_ZOOM / renderedImageSize.fitScale);
+  }, [renderedImageSize]);
 
   const layout = useMemo(() => {
     if (!naturalSize) {
@@ -436,8 +508,8 @@ export function SplitStoryboardToolEditor({ sourceImageUrl, options, onOptionsCh
   );
 
   const handleZoomIn = useCallback(() => {
-    setZoom((z) => Math.min(MAX_ZOOM, z + ZOOM_STEP));
-  }, []);
+    setZoom((z) => Math.min(maxZoom, z + ZOOM_STEP));
+  }, [maxZoom]);
 
   const handleZoomOut = useCallback(() => {
     setZoom((z) => Math.max(MIN_ZOOM, z - ZOOM_STEP));
@@ -452,7 +524,7 @@ export function SplitStoryboardToolEditor({ sourceImageUrl, options, onOptionsCh
     if (e.ctrlKey || e.metaKey) {
       e.preventDefault();
       const delta = e.deltaY > 0 ? -ZOOM_STEP : ZOOM_STEP;
-      const newZoom = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, zoom + delta));
+      const newZoom = Math.max(MIN_ZOOM, Math.min(maxZoom, zoom + delta));
       
       if (previewContainerRef.current) {
         const rect = previewContainerRef.current.getBoundingClientRect();
@@ -467,7 +539,7 @@ export function SplitStoryboardToolEditor({ sourceImageUrl, options, onOptionsCh
       
       setZoom(newZoom);
     }
-  }, [zoom, pan]);
+  }, [maxZoom, zoom, pan]);
 
   const handlePanStart = useCallback((e: React.MouseEvent) => {
     if (zoom > 1 && e.button === 0) {
@@ -613,11 +685,11 @@ export function SplitStoryboardToolEditor({ sourceImageUrl, options, onOptionsCh
               >
                 <ZoomOut className="h-3.5 w-3.5" />
               </button>
-              <span className="min-w-[40px] text-center text-[11px]">{Math.round(zoom * 100)}%</span>
+              <span className="min-w-[40px] text-center text-[11px]">{displayedZoomPercent}%</span>
               <button
                 type="button"
                 onClick={handleZoomIn}
-                disabled={zoom >= MAX_ZOOM}
+                disabled={zoom >= maxZoom}
                 className="p-0.5 text-text-muted hover:text-text-dark disabled:opacity-40 disabled:cursor-not-allowed"
                 title="放大"
               >
@@ -638,7 +710,7 @@ export function SplitStoryboardToolEditor({ sourceImageUrl, options, onOptionsCh
 
         <div
           ref={previewContainerRef}
-          className={`ui-scrollbar flex ${PREVIEW_VIEWPORT_HEIGHT} items-center justify-center overflow-auto rounded-xl border border-[rgba(255,255,255,0.12)] bg-bg-dark/70 p-3 ${zoom > 1 ? 'cursor-grab' : ''} ${isPanning ? 'cursor-grabbing' : ''}`}
+          className={`flex ${PREVIEW_VIEWPORT_HEIGHT} items-center justify-center overflow-hidden rounded-xl border border-[rgba(255,255,255,0.12)] bg-bg-dark/70 p-3 ${zoom > 1 ? 'cursor-grab' : ''} ${isPanning ? 'cursor-grabbing' : ''}`}
           onWheel={handleWheel}
           onMouseDown={handlePanStart}
           onMouseMove={handlePanMove}
@@ -646,8 +718,10 @@ export function SplitStoryboardToolEditor({ sourceImageUrl, options, onOptionsCh
           onMouseLeave={handlePanEnd}
         >
           <div 
-            className="relative inline-flex items-center justify-center"
+            className="relative flex-shrink-0"
             style={{
+              width: renderedImageSize ? `${renderedImageSize.width}px` : undefined,
+              height: renderedImageSize ? `${renderedImageSize.height}px` : undefined,
               transform: `scale(${zoom}) translate(${pan.x}px, ${pan.y}px)`,
               transformOrigin: 'center center',
             }}
@@ -655,7 +729,8 @@ export function SplitStoryboardToolEditor({ sourceImageUrl, options, onOptionsCh
             <img
               src={displaySourceImageUrl}
               alt="split-preview"
-              className="max-h-full w-auto max-w-full rounded-lg border border-[rgba(255,255,255,0.08)] object-contain"
+              className="block max-h-full max-w-full rounded-lg border border-[rgba(255,255,255,0.08)] object-contain"
+              style={renderedImageSize ? { width: '100%', height: '100%' } : undefined}
               onLoad={(event) => {
                 const target = event.currentTarget;
                 setNaturalSize({

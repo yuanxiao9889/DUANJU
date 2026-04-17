@@ -1,7 +1,5 @@
 import type { ReactNode } from 'react';
 
-import { UiLoadingAnimation } from '@/components/ui';
-
 export type NodeStatusTone = 'processing' | 'warning' | 'danger';
 
 interface NodeStatusBadgeProps {
@@ -33,12 +31,12 @@ export function NodeStatusBadge({
       title={title}
       className={`inline-flex h-6 items-center gap-1.5 rounded-full border px-2.5 text-[11px] font-medium ${TONE_CLASS_MAP[tone]}`}
     >
-      {animate ? (
-        <UiLoadingAnimation width={20} height={20} className="-my-px" />
-      ) : icon ? (
+      {icon ? (
         <span className="inline-flex items-center justify-center">
           {icon}
         </span>
+      ) : animate ? (
+        <span className="h-1.5 w-1.5 rounded-full bg-current/75" />
       ) : null}
       <span className="leading-none">{label}</span>
     </span>

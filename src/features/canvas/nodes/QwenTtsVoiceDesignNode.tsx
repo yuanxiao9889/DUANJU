@@ -880,7 +880,12 @@ export const QwenTtsVoiceDesignNode = memo(({
           id="source"
           className="!h-3 !w-3 !border-2 !border-white !bg-accent"
         />
-        <UiLoadingOverlay visible={showBlockingOverlay} insetClassName="inset-3" />
+        <UiLoadingOverlay
+          visible={showBlockingOverlay}
+          insetClassName="inset-3"
+          backdropClassName="bg-transparent"
+          variant="bare"
+        />
       </div>
 
       <UiModal

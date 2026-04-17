@@ -794,7 +794,7 @@ export const useSettingsStore = create<SettingsState>()(
     }),
     {
       name: 'settings-storage',
-      version: 28,
+      version: 29,
       onRehydrateStorage: () => {
         return (state, error) => {
           if (error) {
@@ -803,7 +803,7 @@ export const useSettingsStore = create<SettingsState>()(
           state?.setIsHydrated(true);
         };
       },
-      migrate: (persistedState: unknown) => {
+      migrate: (persistedState: unknown, persistedVersion) => {
         const state = (persistedState ?? {}) as {
           apiKey?: string;
           apiKeys?: ProviderApiKeys;
@@ -918,9 +918,15 @@ export const useSettingsStore = create<SettingsState>()(
           state.styleTemplates,
           normalizedStyleTemplateCategoryIds
         );
+        const shouldBackfillPanoramaStyleTemplate =
+          persistedVersion === undefined || persistedVersion < 29;
         const seededPanoramaStyleTemplateState = seedPanoramaStyleTemplate({
           styleTemplates: normalizedStyleTemplates,
-          hasInjectedPanoramaStyleTemplate: state.hasInjectedPanoramaStyleTemplate ?? false,
+          // Backfill the built-in panorama template once for pre-v29 settings.
+          hasInjectedPanoramaStyleTemplate:
+            shouldBackfillPanoramaStyleTemplate
+              ? false
+              : state.hasInjectedPanoramaStyleTemplate ?? false,
         });
 
         return {

@@ -1,8 +1,9 @@
 ﻿import { useCallback, useEffect, useState } from 'react';
 import { getVersion } from '@tauri-apps/api/app';
+import { useRef } from 'react';
 import type { MouseEvent as ReactMouseEvent } from 'react';
 import { getCurrentWindow } from '@tauri-apps/api/window';
-import { Minus, X, Maximize2, Settings, ArrowLeft, PackageOpen } from 'lucide-react';
+import { Minus, X, Maximize2, Settings, ArrowLeft, PackageOpen, Film } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { Moon, Sun, Languages } from 'lucide-react';
 import { useThemeStore } from '@/stores/themeStore';
@@ -16,6 +17,7 @@ import titlebarLogo from '@/assets/titlebar-logo.png';
 
 interface TitleBarProps {
   onExtensionsClick: () => void;
+  onClipLibraryClick?: () => Promise<void> | void;
   onSettingsClick: () => void;
   onCloseRequest?: () => Promise<void> | void;
   showBackButton?: boolean;
@@ -24,6 +26,7 @@ interface TitleBarProps {
 
 export function TitleBar({
   onExtensionsClick,
+  onClipLibraryClick,
   onSettingsClick,
   onCloseRequest,
   showBackButton,
@@ -32,6 +35,7 @@ export function TitleBar({
   const { t, i18n } = useTranslation();
   const { theme, toggleTheme } = useThemeStore();
   const [runtimeVersion, setRuntimeVersion] = useState<string>('');
+  const clipLibraryPointerArmedRef = useRef(false);
 
   const appWindow = getCurrentWindow();
   const isMac =
@@ -144,6 +148,36 @@ export function TitleBar({
     toggleTheme();
   }, [toggleTheme]);
 
+  const handleClipLibraryMouseDown = useCallback((event: ReactMouseEvent<HTMLButtonElement>) => {
+    if (event.button !== 0) {
+      clipLibraryPointerArmedRef.current = false;
+      return;
+    }
+
+    clipLibraryPointerArmedRef.current = true;
+  }, []);
+
+  const handleClipLibraryClick = useCallback(async (event: ReactMouseEvent<HTMLButtonElement>) => {
+    const isKeyboardTrigger = event.detail === 0;
+    const isPointerTrigger = clipLibraryPointerArmedRef.current;
+    clipLibraryPointerArmedRef.current = false;
+
+    if (!isKeyboardTrigger && !isPointerTrigger) {
+      return;
+    }
+
+    if (!onClipLibraryClick) {
+      return;
+    }
+
+    try {
+      await onClipLibraryClick();
+    } catch (error) {
+      console.error('Failed to open clip library from title bar', error);
+      window.alert(t('titleBar.clipLibraryOpenFailed'));
+    }
+  }, [onClipLibraryClick, t]);
+
   return (
     <div className="relative z-50 flex h-10 shrink-0 items-center justify-between border-b border-border-dark bg-surface-dark select-none">
       {isMac ? (
@@ -248,6 +282,19 @@ export function TitleBar({
           title={t('titleBar.extensions')}
         >
           <PackageOpen className="w-4 h-4 text-text-muted" />
+        </button>
+
+        <button
+          type="button"
+          onMouseDown={handleClipLibraryMouseDown}
+          onMouseLeave={() => {
+            clipLibraryPointerArmedRef.current = false;
+          }}
+          onClick={(event) => void handleClipLibraryClick(event)}
+          className="h-full px-3 hover:bg-bg-dark transition-colors"
+          title={t('titleBar.clipLibrary')}
+        >
+          <Film className="w-4 h-4 text-text-muted" />
         </button>
 
         <button

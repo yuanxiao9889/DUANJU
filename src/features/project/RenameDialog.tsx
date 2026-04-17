@@ -32,6 +32,7 @@ export function RenameDialog({
     handleDragStart,
   } = useDraggableDialog({
     isOpen,
+    isPresent: shouldRender,
   });
 
   useEffect(() => {

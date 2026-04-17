@@ -43,6 +43,7 @@ import {
   NODE_TOOLBAR_POSITION,
 } from './nodeToolbarConfig';
 import { NodeAddToAssetsButton } from './NodeAddToAssetsButton';
+import { NodeAddToClipLibraryButton } from './NodeAddToClipLibraryButton';
 
 interface NodeActionToolbarProps {
   node: CanvasNode;
@@ -154,6 +155,12 @@ export const NodeActionToolbar = memo(({ node }: NodeActionToolbarProps) => {
     && node.data.nodeDescription.trim().length > 0;
   const canHandleImage = Boolean(imageSource);
   const canAddToAssets = Boolean(imageSource || audioSource);
+  const canAddToClipLibrary =
+    Boolean(audioSource)
+    || (
+      typeof (node.data as { videoUrl?: unknown }).videoUrl === 'string'
+      && ((node.data as { videoUrl?: string }).videoUrl ?? '').trim().length > 0
+    );
   const generationError =
     isExportImageNode(node)
     && typeof (node.data as { generationError?: unknown }).generationError === 'string'
@@ -494,6 +501,20 @@ export const NodeActionToolbar = memo(({ node }: NodeActionToolbarProps) => {
             node={node}
             mediaSource={audioSource ?? imageSource ?? ''}
             mediaType={audioSource ? 'audio' : 'image'}
+            className={`h-8 ${TOOLBAR_BUTTON_RADIUS_CLASS} px-2.5 text-xs ${TOOLBAR_NEUTRAL_BUTTON_CLASS}`}
+          />
+        )}
+        {!isImageEdit && canAddToClipLibrary && (
+          <NodeAddToClipLibraryButton
+            node={node}
+            mediaSource={
+              audioSource
+              ?? (
+                typeof (node.data as { videoUrl?: unknown }).videoUrl === 'string'
+                  ? ((node.data as { videoUrl?: string }).videoUrl ?? '')
+                  : ''
+              )
+            }
             className={`h-8 ${TOOLBAR_BUTTON_RADIUS_CLASS} px-2.5 text-xs ${TOOLBAR_NEUTRAL_BUTTON_CLASS}`}
           />
         )}

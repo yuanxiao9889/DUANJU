@@ -9,6 +9,7 @@ import type {
 export const JIMENG_VIDEO_QUEUE_MAX_ACTIVE_JOBS = 1;
 export const JIMENG_VIDEO_QUEUE_MAX_ATTEMPTS = 3;
 export const JIMENG_VIDEO_QUEUE_RETRY_DELAY_MS = 15_000;
+export const JIMENG_VIDEO_QUEUE_CONCURRENCY_BACKOFF_MAX_MS = 5 * 60 * 1_000;
 export const JIMENG_VIDEO_QUEUE_POLL_INTERVAL_MS = 2_500;
 export const JIMENG_VIDEO_QUEUE_ATTEMPT_TIMEOUT_MS = 10 * 60 * 1_000;
 
@@ -82,5 +83,21 @@ export function canJimengVideoQueueJobBeRescheduled(
     status === "waitingConcurrency" ||
     status === "retrying" ||
     status === "failed"
+  );
+}
+
+export function isJimengVideoQueueServerConcurrencyMessage(
+  message: string | null | undefined,
+): boolean {
+  const normalized = message?.trim().toLowerCase() ?? "";
+  if (!normalized) {
+    return false;
+  }
+
+  return (
+    normalized.includes("exceedconcurrencylimit") ||
+    normalized.includes("ret=1310") ||
+    normalized.includes("concurrency limit") ||
+    normalized.includes("concurrent limit")
   );
 }

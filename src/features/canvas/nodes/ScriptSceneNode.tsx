@@ -282,7 +282,12 @@ export const ScriptSceneNode = memo(({
         maxHeight={MAX_NODE_HEIGHT}
         isVisible={selected}
       />
-      <UiLoadingOverlay visible={isGenerating} insetClassName="inset-3" />
+      <UiLoadingOverlay
+        visible={isGenerating}
+        insetClassName="inset-3"
+        backdropClassName="bg-transparent"
+        variant="bare"
+      />
     </div>
   );
 });

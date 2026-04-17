@@ -53,6 +53,7 @@ import {
 import { resolveNodeStyleDimension } from "@/features/canvas/ui/nodeDimensionUtils";
 import { queryJimengVideoResult } from "@/features/jimeng/application/jimengVideoSubmission";
 import {
+  isJimengVideoQueueServerConcurrencyMessage,
   type JimengVideoQueueJobStatus,
 } from "@/features/jimeng/domain/jimengVideoQueue";
 import {
@@ -176,6 +177,10 @@ export const JimengVideoResultNode = memo(
     const queueStatus = (data.queueStatus ?? null) as
       | JimengVideoQueueJobStatus
       | null;
+    const queueLastError = data.lastError?.trim() ?? null;
+    const isServerConcurrencyBlocked =
+      queueStatus === "retrying" &&
+      isJimengVideoQueueServerConcurrencyMessage(queueLastError);
     const canRequery =
       Boolean(normalizedSubmitId) &&
       queueStatus !== "waiting" &&
@@ -452,13 +457,16 @@ export const JimengVideoResultNode = memo(
 
     const placeholderText = useMemo(() => {
       if (queueStatus) {
+        if (isServerConcurrencyBlocked) {
+          return t("jimengQueue.status.serverConcurrencyBlocked");
+        }
         return t(`jimengQueue.status.${queueStatus}`);
       }
 
       return data.isGenerating
         ? t("node.jimengVideoResult.pending")
         : t("node.jimengVideoResult.empty");
-    }, [data.isGenerating, queueStatus, t]);
+    }, [data.isGenerating, isServerConcurrencyBlocked, queueStatus, t]);
     const queueStatusMessage = useMemo(() => {
       if (queueStatus === "waiting") {
         return t("jimengQueue.result.waiting");
@@ -469,6 +477,9 @@ export const JimengVideoResultNode = memo(
       }
 
       if (queueStatus === "retrying") {
+        if (isServerConcurrencyBlocked) {
+          return t("jimengQueue.result.serverConcurrencyBlocked");
+        }
         const current =
           typeof data.queueAttemptCount === "number" &&
           Number.isFinite(data.queueAttemptCount)
@@ -518,6 +529,7 @@ export const JimengVideoResultNode = memo(
     }, [
       data.queueAttemptCount,
       data.queueMaxAttempts,
+      isServerConcurrencyBlocked,
       queueStatus,
       statusNotice,
       t,
@@ -580,7 +592,8 @@ export const JimengVideoResultNode = memo(
         }
       },
     });
-    const combinedError = videoError ?? data.lastError ?? null;
+    const combinedError =
+      videoError ?? (isServerConcurrencyBlocked ? null : queueLastError);
     const headerStatus = useMemo(() => {
       if (
         queueStatus === "waiting" ||
@@ -590,7 +603,11 @@ export const JimengVideoResultNode = memo(
         return (
           <NodeStatusBadge
             icon={<Clock3 className="h-3 w-3" />}
-            label={t(`jimengQueue.status.${queueStatus}`)}
+            label={
+              isServerConcurrencyBlocked
+                ? t("jimengQueue.status.serverConcurrencyBlocked")
+                : t(`jimengQueue.status.${queueStatus}`)
+            }
             tone="warning"
           />
         );
@@ -603,21 +620,19 @@ export const JimengVideoResultNode = memo(
         data.isGenerating
       ) {
         return (
-          <span
+          <NodeStatusBadge
+            label={
+              queueStatus
+                ? t(`jimengQueue.status.${queueStatus}`)
+                : t("node.jimengVideoResult.generating")
+            }
+            tone="processing"
             title={
               queueStatus
                 ? t(`jimengQueue.status.${queueStatus}`)
                 : t("node.jimengVideoResult.generating")
             }
-            className="inline-flex h-7 w-7 items-center justify-center rounded-full border border-accent/30 bg-accent/12 shadow-[0_8px_16px_rgba(var(--accent-rgb),0.12)]"
-          >
-            <UiLoadingAnimation
-              width={18}
-              height={18}
-              fit="cover"
-              className="overflow-hidden rounded-full"
-            />
-          </span>
+          />
         );
       }
 
@@ -654,7 +669,14 @@ export const JimengVideoResultNode = memo(
       }
 
       return null;
-    }, [combinedError, data.isGenerating, queueStatus, t, videoSource]);
+    }, [
+      combinedError,
+      data.isGenerating,
+      isServerConcurrencyBlocked,
+      queueStatus,
+      t,
+      videoSource,
+    ]);
 
     return (
       <div
@@ -733,15 +755,16 @@ export const JimengVideoResultNode = memo(
                 )}
               </div>
               {showBlockingOverlay ? (
-                <div className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center bg-black/12">
-                  <div className="overflow-hidden rounded-[22px]">
-                    <UiLoadingAnimation
-                      className="drop-shadow-[0_16px_36px_rgba(0,0,0,0.32)]"
-                      width="min(220px, calc(100% - 2rem))"
-                      height="96px"
-                      fit="cover"
-                    />
-                  </div>
+                <div className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center">
+                  <UiLoadingAnimation
+                    className="block"
+                    width="min(320px, calc(100% - 2rem))"
+                    height="120px"
+                    fit="contain"
+                    trimBars
+                    trimInset="18%"
+                    zoom={1.45}
+                  />
                   <span className="sr-only">{t("common.loading")}</span>
                 </div>
               ) : null}

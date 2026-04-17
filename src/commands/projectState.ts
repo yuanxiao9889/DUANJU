@@ -7,6 +7,8 @@ export interface ProjectSummaryRecord {
   name: string;
   projectType: ProjectType;
   assetLibraryId: string | null;
+  clipLibraryId: string | null;
+  clipLastFolderId: string | null;
   linkedScriptProjectId: string | null;
   createdAt: number;
   updatedAt: number;
@@ -18,6 +20,8 @@ export interface ProjectRecord {
   name: string;
   projectType: ProjectType;
   assetLibraryId: string | null;
+  clipLibraryId: string | null;
+  clipLastFolderId: string | null;
   linkedScriptProjectId: string | null;
   createdAt: number;
   updatedAt: number;

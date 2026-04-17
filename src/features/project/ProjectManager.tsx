@@ -21,10 +21,11 @@ import {
   X,
 } from 'lucide-react';
 
-import { UiLoadingBanner } from '@/components/ui';
+import { UiLoadingBanner, UiPanel } from '@/components/ui';
 import { UI_CONTENT_OVERLAY_INSET_CLASS } from '@/components/ui/motion';
 import { UiButton, UiSelect } from '@/components/ui/primitives';
 import { MissingApiKeyHint } from '@/features/settings/MissingApiKeyHint';
+import { useClipLibraryStore } from '@/stores/clipLibraryStore';
 import { getConfiguredApiKeyCount, useSettingsStore } from '@/stores/settingsStore';
 import { useProjectStore, type ProjectType } from '@/stores/projectStore';
 import { DeleteConfirmDialog } from './DeleteConfirmDialog';
@@ -34,11 +35,17 @@ import { StyleTemplateDialog } from './StyleTemplateDialog';
 
 type ProjectSortField = 'name' | 'createdAt' | 'updatedAt';
 type SortDirection = 'asc' | 'desc';
-type ProjectManagerTab = 'projects' | 'assets';
+type ProjectManagerTab = 'projects' | 'assets' | 'clipLibraries';
 
 const AssetManagerTab = lazy(() =>
   import('./AssetManagerTab').then((module) => ({
     default: module.AssetManagerTab,
+  }))
+);
+
+const ClipLibraryManagerTab = lazy(() =>
+  import('./ClipLibraryManagerTab').then((module) => ({
+    default: module.ClipLibraryManagerTab,
   }))
 );
 
@@ -65,6 +72,7 @@ function ProjectListView({
   setShowStyleTemplateDialog,
   linkedStoryboardCountByScriptId,
   scriptProjects,
+  clipLibraryNameById,
 }: {
   sortField: ProjectSortField;
   sortDirection: SortDirection;
@@ -88,6 +96,7 @@ function ProjectListView({
   setShowStyleTemplateDialog: (open: boolean) => void;
   linkedStoryboardCountByScriptId: Map<string, number>;
   scriptProjects: ReturnType<typeof useProjectStore.getState>['projects'];
+  clipLibraryNameById: Map<string, string>;
 }) {
   const { t } = useTranslation();
 
@@ -218,6 +227,9 @@ function ProjectListView({
               ? scriptProjects.find((candidate) => candidate.id === project.linkedScriptProjectId) ?? null
               : null;
             const linkedStoryboardCount = linkedStoryboardCountByScriptId.get(project.id) ?? 0;
+            const linkedClipLibraryName = project.clipLibraryId
+              ? clipLibraryNameById.get(project.clipLibraryId) ?? null
+              : null;
             return (
               <div
                 key={project.id}
@@ -313,12 +325,20 @@ function ProjectListView({
 
                 <div className="space-y-1 text-xs text-text-muted">
                   {project.projectType === 'storyboard' ? (
-                    <p className="flex items-center gap-1.5">
-                      <span className="opacity-60">{t('project.linkedScriptLabel')}:</span>
-                      <span className={linkedScriptProject ? 'text-cyan-200' : ''}>
-                        {linkedScriptProject?.name || t('project.linkedScriptEmpty')}
-                      </span>
-                    </p>
+                    <>
+                      <p className="flex items-center gap-1.5">
+                        <span className="opacity-60">{t('project.linkedScriptLabel')}:</span>
+                        <span className={linkedScriptProject ? 'text-cyan-200' : ''}>
+                          {linkedScriptProject?.name || t('project.linkedScriptEmpty')}
+                        </span>
+                      </p>
+                      <p className="flex items-center gap-1.5">
+                        <span className="opacity-60">{t('project.clipLibraryLabel')}:</span>
+                        <span className={linkedClipLibraryName ? 'text-accent' : ''}>
+                          {linkedClipLibraryName || t('project.clipLibraryEmpty')}
+                        </span>
+                      </p>
+                    </>
                   ) : (
                     <p className="flex items-center gap-1.5">
                       <span className="opacity-60">{t('project.linkedStoryboardCountLabel')}:</span>
@@ -359,49 +379,215 @@ function LinkScriptProjectDialog({
   onConfirm: (linkedScriptProjectId: string | null) => void;
 }) {
   const { t } = useTranslation();
+  const hydrateClipLibraries = useClipLibraryStore((state) => state.hydrate);
+  const libraries = useClipLibraryStore((state) => state.libraries);
+  const isLoadingLibraries = useClipLibraryStore((state) => state.isLoadingLibraries);
+  const setProjectClipLibrary = useProjectStore((state) => state.setProjectClipLibrary);
+
+  const [activeTab, setActiveTab] = useState<'script' | 'clipLibrary'>('script');
   const [selectedScriptProjectId, setSelectedScriptProjectId] = useState(initialLinkedScriptProjectId ?? '');
+  const [selectedLibraryId, setSelectedLibraryId] = useState('');
+  const [isSubmittingClipLibrary, setIsSubmittingClipLibrary] = useState(false);
 
   useEffect(() => {
     if (!isOpen) {
       return;
     }
     setSelectedScriptProjectId(initialLinkedScriptProjectId ?? '');
-  }, [initialLinkedScriptProjectId, isOpen]);
+    setActiveTab('script');
+    setSelectedLibraryId(storyboardProject?.clipLibraryId?.trim() || '');
+    void hydrateClipLibraries();
+  }, [
+    hydrateClipLibraries,
+    initialLinkedScriptProjectId,
+    isOpen,
+    storyboardProject?.clipLibraryId,
+  ]);
 
   if (!isOpen || !storyboardProject) {
     return null;
   }
+
+  const currentBoundLibrary = storyboardProject.clipLibraryId
+    ? libraries.find((library) => library.id === storyboardProject.clipLibraryId) ?? null
+    : null;
+  const selectedLibrary =
+    libraries.find((library) => library.id === selectedLibraryId) ?? null;
+  const isSwitchingLibrary = Boolean(
+    storyboardProject.clipLibraryId?.trim()
+    && selectedLibraryId
+    && storyboardProject.clipLibraryId.trim() !== selectedLibraryId
+  );
+  const canConfirmClipLibrary = Boolean(
+    storyboardProject.projectType === 'storyboard'
+    && selectedLibraryId
+    && !isSubmittingClipLibrary
+  );
+  const hasBoundClipLibrary = Boolean(storyboardProject.clipLibraryId?.trim());
+
+  const handleConfirmClipLibrary = async () => {
+    if (storyboardProject.projectType !== 'storyboard' || !selectedLibraryId || isSubmittingClipLibrary) {
+      return;
+    }
+
+    setIsSubmittingClipLibrary(true);
+    try {
+      await setProjectClipLibrary(storyboardProject.id, selectedLibraryId, null);
+      onClose();
+    } catch (error) {
+      console.error('Failed to confirm clip library binding inside relation dialog', error);
+      window.alert(t('project.bindClipLibraryFailed'));
+    } finally {
+      setIsSubmittingClipLibrary(false);
+    }
+  };
+
+  const handleUnbindClipLibrary = async () => {
+    if (!hasBoundClipLibrary || isSubmittingClipLibrary) {
+      return;
+    }
+
+    setIsSubmittingClipLibrary(true);
+    try {
+      const confirmed = window.confirm(
+        t('project.unbindClipLibraryConfirm', { name: storyboardProject.name })
+      );
+      if (!confirmed) {
+        return;
+      }
+
+      await setProjectClipLibrary(storyboardProject.id, null, null);
+      onClose();
+    } catch (error) {
+      console.error('Failed to unbind clip library inside relation dialog', error);
+      window.alert(t('project.unbindClipLibraryFailed'));
+    } finally {
+      setIsSubmittingClipLibrary(false);
+    }
+  };
+
+  const renderScriptTab = () => (
+    <>
+      <label className="block">
+        <div className="mb-2 text-sm font-medium text-text-dark">{t('project.linkScript')}</div>
+        <UiSelect
+          value={selectedScriptProjectId}
+          onChange={(event) => setSelectedScriptProjectId(event.target.value)}
+          className="h-11 w-full rounded-xl text-sm"
+        >
+          <option value="">{t('project.linkedScriptEmpty')}</option>
+          {scriptProjects.map((project) => (
+            <option key={project.id} value={project.id}>
+              {project.name}
+            </option>
+          ))}
+        </UiSelect>
+      </label>
+
+      {scriptProjects.length === 0 ? (
+        <p className="mt-3 text-sm text-amber-200">{t('project.linkScriptNoScripts')}</p>
+      ) : null}
+    </>
+  );
+
+  const renderClipLibraryTab = () => (
+    <div className="space-y-4">
+      {currentBoundLibrary ? (
+        <p className="text-xs text-text-muted">
+          {t('project.currentClipLibrary')}: {currentBoundLibrary.name}
+        </p>
+      ) : null}
+
+      {libraries.length === 0 && !isLoadingLibraries ? (
+        <UiPanel className="rounded-xl border-dashed px-4 py-4">
+          <p className="text-sm text-text-muted">{t('project.bindClipLibraryNoLibraries')}</p>
+        </UiPanel>
+      ) : (
+        <>
+          <label className="block">
+            <div className="mb-2 text-sm font-medium text-text-dark">
+              {t('project.clipLibraryLabel')}
+            </div>
+            <UiSelect
+              value={selectedLibraryId}
+              onChange={(event) => setSelectedLibraryId(event.target.value)}
+              className="h-11 w-full rounded-xl text-sm"
+            >
+              <option value="">{t('project.bindClipLibraryLibraryPlaceholder')}</option>
+              {libraries.map((library) => (
+                <option key={library.id} value={library.id}>
+                  {library.name}
+                </option>
+              ))}
+            </UiSelect>
+          </label>
+        </>
+      )}
+
+      {isSwitchingLibrary ? (
+        <UiPanel className="rounded-xl border-amber-500/30 bg-amber-500/10 px-4 py-3">
+          <div className="flex items-start gap-3">
+            <Film className="mt-0.5 h-4 w-4 shrink-0 text-amber-300" />
+            <div>
+              <div className="text-sm font-medium text-amber-100">
+                {t('project.rebindClipLibraryWarningTitle')}
+              </div>
+              <p className="mt-1 text-xs text-amber-100/85">
+                {t('project.rebindClipLibraryWarning')}
+              </p>
+            </div>
+          </div>
+        </UiPanel>
+      ) : null}
+
+      {selectedLibrary ? (
+        <div className="flex items-center gap-2 text-xs text-text-muted">
+          <Link2 className="h-3.5 w-3.5" />
+          <span>{selectedLibrary.rootPath}</span>
+        </div>
+      ) : null}
+    </div>
+  );
 
   return (
     <div className={`fixed ${UI_CONTENT_OVERLAY_INSET_CLASS} z-50 flex items-center justify-center`}>
       <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={onClose} />
       <div className="relative z-10 w-[calc(100vw-2rem)] max-w-lg rounded-2xl border border-border-dark/50 bg-surface-dark/95 p-6 shadow-[0_24px_48px_rgba(0,0,0,0.25)] backdrop-blur-md">
         <div className="mb-5">
-          <h2 className="text-xl font-semibold text-text-dark">{t('project.linkScriptTitle')}</h2>
+          <h2 className="text-xl font-semibold text-text-dark">{t('project.linkBindingsTitle')}</h2>
           <p className="mt-2 text-sm text-text-muted">
-            {t('project.linkScriptDescription', { name: storyboardProject.name })}
+            {activeTab === 'script'
+              ? t('project.linkScriptDescription', { name: storyboardProject.name })
+              : t('project.bindClipLibraryDescription', { name: storyboardProject.name })}
           </p>
         </div>
 
-        <label className="block">
-          <div className="mb-2 text-sm font-medium text-text-dark">{t('project.linkScript')}</div>
-          <UiSelect
-            value={selectedScriptProjectId}
-            onChange={(event) => setSelectedScriptProjectId(event.target.value)}
-            className="h-11 w-full rounded-xl text-sm"
+        <div className="mb-5 flex rounded-xl border border-border-dark/60 bg-bg-dark/35 p-1">
+          <button
+            type="button"
+            className={`flex-1 rounded-lg px-3 py-2 text-sm transition-colors ${
+              activeTab === 'script'
+                ? 'bg-accent text-white'
+                : 'text-text-muted hover:bg-white/[0.04] hover:text-text-dark'
+            }`}
+            onClick={() => setActiveTab('script')}
           >
-            <option value="">{t('project.linkedScriptEmpty')}</option>
-            {scriptProjects.map((project) => (
-              <option key={project.id} value={project.id}>
-                {project.name}
-              </option>
-            ))}
-          </UiSelect>
-        </label>
+            {t('project.linkBindingsTabs.script')}
+          </button>
+          <button
+            type="button"
+            className={`flex-1 rounded-lg px-3 py-2 text-sm transition-colors ${
+              activeTab === 'clipLibrary'
+                ? 'bg-accent text-white'
+                : 'text-text-muted hover:bg-white/[0.04] hover:text-text-dark'
+            }`}
+            onClick={() => setActiveTab('clipLibrary')}
+          >
+            {t('project.linkBindingsTabs.clipLibrary')}
+          </button>
+        </div>
 
-        {scriptProjects.length === 0 ? (
-          <p className="mt-3 text-sm text-amber-200">{t('project.linkScriptNoScripts')}</p>
-        ) : null}
+        {activeTab === 'script' ? renderScriptTab() : renderClipLibraryTab()}
 
         <div className="mt-6 flex gap-3">
           <UiButton variant="ghost" onClick={onClose} className="flex-1">
@@ -409,17 +595,37 @@ function LinkScriptProjectDialog({
           </UiButton>
           <UiButton
             variant="ghost"
-            onClick={() => onConfirm(null)}
+            onClick={() => {
+              if (activeTab === 'script') {
+                onConfirm(null);
+                return;
+              }
+              void handleUnbindClipLibrary();
+            }}
             className="flex-1"
+            disabled={activeTab === 'clipLibrary' ? !hasBoundClipLibrary || isSubmittingClipLibrary : false}
           >
-            {t('project.unlinkScript')}
+            {activeTab === 'clipLibrary'
+              ? t('clipLibraryManager.unbindProject')
+              : t('project.unlinkScript')}
           </UiButton>
           <UiButton
             variant="primary"
-            onClick={() => onConfirm(selectedScriptProjectId.trim() || null)}
+            onClick={() => {
+              if (activeTab === 'script') {
+                onConfirm(selectedScriptProjectId.trim() || null);
+                return;
+              }
+              void handleConfirmClipLibrary();
+            }}
             className="flex-1"
+            disabled={activeTab === 'clipLibrary' ? !canConfirmClipLibrary : false}
           >
-            {t('common.confirm')}
+            {activeTab === 'clipLibrary'
+              ? isSubmittingClipLibrary
+                ? t('common.saving')
+                : t('common.confirm')
+              : t('common.confirm')}
           </UiButton>
         </div>
       </div>
@@ -431,12 +637,16 @@ export function ProjectManager() {
   const { t } = useTranslation();
   const projectsTabLabel = t('project.tabs.projects');
   const assetsTabLabel = t('project.tabs.assets');
+  const clipLibrariesTabLabel = t('project.tabs.clipLibraries');
   const configuredApiKeyCount = useSettingsStore((state) =>
     getConfiguredApiKeyCount({ ...state.scriptApiKeys, ...state.storyboardApiKeys })
   );
+  const hydrateClipLibraries = useClipLibraryStore((state) => state.hydrate);
+  const clipLibraries = useClipLibraryStore((state) => state.libraries);
 
   const [activeTab, setActiveTab] = useState<ProjectManagerTab>('projects');
   const [assetTabLoaded, setAssetTabLoaded] = useState(false);
+  const [clipLibraryTabLoaded, setClipLibraryTabLoaded] = useState(false);
   const [showRenameDialog, setShowRenameDialog] = useState(false);
   const [editingProjectId, setEditingProjectId] = useState<string | null>(null);
   const [editingProjectName, setEditingProjectName] = useState('');
@@ -504,13 +714,24 @@ export function ProjectManager() {
     });
     return nextMap;
   }, [projects]);
+  const clipLibraryNameById = useMemo(
+    () => new Map(clipLibraries.map((library) => [library.id, library.name])),
+    [clipLibraries]
+  );
   const linkDialogProject = linkDialogProjectId
     ? projects.find((project) => project.id === linkDialogProjectId) ?? null
     : null;
 
   useEffect(() => {
+    void hydrateClipLibraries();
+  }, [hydrateClipLibraries]);
+
+  useEffect(() => {
     if (activeTab === 'assets') {
       setAssetTabLoaded(true);
+    }
+    if (activeTab === 'clipLibraries') {
+      setClipLibraryTabLoaded(true);
     }
   }, [activeTab]);
 
@@ -649,6 +870,17 @@ export function ProjectManager() {
             >
               {assetsTabLabel}
             </UiButton>
+            <UiButton
+              type="button"
+              size="sm"
+              variant={activeTab === 'clipLibraries' ? 'primary' : 'ghost'}
+              onClick={() => {
+                setClipLibraryTabLoaded(true);
+                setActiveTab('clipLibraries');
+              }}
+            >
+              {clipLibrariesTabLabel}
+            </UiButton>
           </div>
         </div>
 
@@ -676,8 +908,9 @@ export function ProjectManager() {
             setShowStyleTemplateDialog={setShowStyleTemplateDialog}
             linkedStoryboardCountByScriptId={linkedStoryboardCountByScriptId}
             scriptProjects={scriptProjects}
+            clipLibraryNameById={clipLibraryNameById}
           />
-        ) : (
+        ) : activeTab === 'assets' ? (
           <Suspense
             fallback={
               <div className="rounded-xl border border-border-dark bg-surface-dark/70 p-6">
@@ -686,6 +919,16 @@ export function ProjectManager() {
             }
           >
             {assetTabLoaded ? <AssetManagerTab /> : null}
+          </Suspense>
+        ) : (
+          <Suspense
+            fallback={
+              <div className="rounded-xl border border-border-dark bg-surface-dark/70 p-6">
+                <UiLoadingBanner />
+              </div>
+            }
+          >
+            {clipLibraryTabLoaded ? <ClipLibraryManagerTab /> : null}
           </Suspense>
         )}
       </div>

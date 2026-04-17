@@ -266,6 +266,10 @@ export interface VideoNodeData extends NodeDisplayData {
   videoUrl: string | null;
   previewImageUrl?: string | null;
   videoFileName?: string | null;
+  descriptionText?: string | null;
+  clipLibraryId?: string | null;
+  clipFolderId?: string | null;
+  clipItemId?: string | null;
   aspectRatio: string;
   duration?: number;
   isSizeManuallyAdjusted?: boolean;
@@ -276,6 +280,10 @@ export interface AudioNodeData extends NodeDisplayData {
   audioUrl: string | null;
   previewImageUrl?: string | null;
   audioFileName?: string | null;
+  descriptionText?: string | null;
+  clipLibraryId?: string | null;
+  clipFolderId?: string | null;
+  clipItemId?: string | null;
   duration?: number;
   mimeType?: string | null;
   generationSource?: VoiceGenerationSource | null;

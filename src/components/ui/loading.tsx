@@ -13,6 +13,9 @@ interface UiLoadingAnimationProps {
   title?: string;
   style?: CSSProperties;
   fit?: 'contain' | 'cover' | 'fill';
+  trimBars?: boolean;
+  trimInset?: string;
+  zoom?: number;
 }
 
 interface UiLoadingIndicatorProps extends UiLoadingAnimationProps {
@@ -34,6 +37,7 @@ interface UiLoadingOverlayProps {
   insetClassName?: string;
   backdropClassName?: string;
   blockInteractions?: boolean;
+  variant?: 'default' | 'bare';
 }
 
 const SIZE_CLASS_MAP: Record<UiLoadingSize, string> = {
@@ -58,6 +62,11 @@ const FIT_CLASS_MAP: Record<NonNullable<UiLoadingAnimationProps['fit']>, string>
   fill: 'object-fill',
 };
 
+const BARE_LOADING_WIDTH = 'min(320px, calc(100% - 2rem))';
+const BARE_LOADING_HEIGHT = '120px';
+const BARE_LOADING_TRIM_INSET = '18%';
+const BARE_LOADING_ZOOM = 1.45;
+
 export function UiLoadingAnimation({
   size = 'md',
   className = '',
@@ -66,20 +75,40 @@ export function UiLoadingAnimation({
   title,
   style,
   fit = 'contain',
+  trimBars = false,
+  trimInset = BARE_LOADING_TRIM_INSET,
+  zoom = 1,
 }: UiLoadingAnimationProps) {
+  const resolvedZoom =
+    typeof zoom === 'number' && Number.isFinite(zoom) && zoom > 0
+      ? zoom
+      : 1;
   const resolvedStyle: CSSProperties | undefined =
     width || height || style
       ? {
           display: 'block',
           width,
           height,
+          backgroundColor: 'transparent',
+          objectPosition: 'center',
+          clipPath: trimBars ? `inset(${trimInset} 0 ${trimInset} 0)` : undefined,
+          transform: resolvedZoom !== 1 ? `scale(${resolvedZoom})` : undefined,
+          transformOrigin: 'center',
           ...style,
         }
-      : { display: 'block', ...(style ?? {}) };
+      : {
+          display: 'block',
+          backgroundColor: 'transparent',
+          objectPosition: 'center',
+          clipPath: trimBars ? `inset(${trimInset} 0 ${trimInset} 0)` : undefined,
+          transform: resolvedZoom !== 1 ? `scale(${resolvedZoom})` : undefined,
+          transformOrigin: 'center',
+          ...(style ?? {}),
+        };
 
   return (
     <span
-      className={`inline-flex shrink-0 items-center justify-center ${className}`.trim()}
+      className={`inline-flex shrink-0 items-center justify-center ${trimBars || resolvedZoom !== 1 ? 'overflow-hidden' : ''} ${className}`.trim()}
       title={title}
       aria-hidden="true"
     >
@@ -169,9 +198,12 @@ export function UiLoadingOverlay({
   className = '',
   panelClassName = '',
   insetClassName = 'inset-0',
-  backdropClassName = 'bg-black/28 backdrop-blur-[2px]',
+  backdropClassName = 'bg-[rgba(6,8,12,0.78)] backdrop-blur-[3px]',
   blockInteractions = false,
+  variant = 'default',
 }: UiLoadingOverlayProps) {
+  const { t } = useTranslation();
+
   if (!visible) {
     return null;
   }
@@ -180,7 +212,25 @@ export function UiLoadingOverlay({
     <div
       className={`absolute ${insetClassName} z-20 flex items-center justify-center rounded-[inherit] ${blockInteractions ? 'pointer-events-auto' : 'pointer-events-none'} ${backdropClassName} ${className}`.trim()}
     >
-      <UiLoadingBanner panelClassName={panelClassName} />
+      <div
+        className={`${
+          variant === 'bare'
+            ? 'inline-flex items-center justify-center overflow-visible rounded-none bg-transparent shadow-none'
+            : 'overflow-hidden rounded-[22px] bg-bg-dark/92 shadow-[0_16px_36px_rgba(0,0,0,0.32)]'
+        } ${panelClassName}`.trim()}
+        style={variant === 'bare' ? undefined : { width: 'min(220px, calc(100% - 2rem))' }}
+      >
+        <UiLoadingAnimation
+          className={variant === 'bare' ? 'block' : 'block h-[96px] w-full'}
+          width={variant === 'bare' ? BARE_LOADING_WIDTH : '100%'}
+          height={variant === 'bare' ? BARE_LOADING_HEIGHT : '96px'}
+          fit={variant === 'bare' ? 'contain' : 'cover'}
+          trimBars={variant === 'bare'}
+          trimInset={variant === 'bare' ? BARE_LOADING_TRIM_INSET : undefined}
+          zoom={variant === 'bare' ? BARE_LOADING_ZOOM : 1}
+        />
+        <span className="sr-only">{t('common.loading')}</span>
+      </div>
     </div>
   );
 }

@@ -6,6 +6,7 @@ use std::time::Duration;
 
 use commands::ai as ai_commands;
 use commands::asset_state;
+use commands::clip_library;
 use commands::dreamina_cli;
 use commands::extensions;
 use commands::image;
@@ -195,6 +196,27 @@ pub fn run() {
             asset_state::create_asset_item,
             asset_state::update_asset_item,
             asset_state::delete_asset_item,
+            clip_library::list_clip_libraries,
+            clip_library::get_clip_library_snapshot,
+            clip_library::create_clip_library,
+            clip_library::open_clip_library_root,
+            clip_library::update_clip_library,
+            clip_library::delete_clip_library,
+            clip_library::create_clip_library_chapter,
+            clip_library::update_clip_library_chapter,
+            clip_library::move_clip_library_chapter,
+            clip_library::delete_clip_library_chapter,
+            clip_library::create_clip_folder,
+            clip_library::move_clip_folder,
+            clip_library::rename_clip_folder,
+            clip_library::delete_clip_folder,
+            clip_library::add_node_media_to_clip_library,
+            clip_library::update_clip_item_description,
+            clip_library::rename_clip_item,
+            clip_library::move_clip_item,
+            clip_library::delete_clip_item,
+            clip_library::save_clip_library_ui_state,
+            clip_library::get_clip_delete_impact,
             project_state::list_project_summaries,
             project_state::get_project_record,
             project_state::upsert_project_record,

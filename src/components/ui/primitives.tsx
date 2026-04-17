@@ -638,6 +638,7 @@ export function UiModal({
   } = useDraggableDialog({
     enabled: draggable,
     isOpen,
+    isPresent: shouldRender,
   });
 
   if (!shouldRender) {

@@ -3,11 +3,11 @@ import {
   Handle,
   Position,
   useUpdateNodeInternals,
-  useViewport,
   type NodeProps,
 } from '@xyflow/react';
 import { AlertTriangle, Image as ImageIcon, RefreshCw, Sparkles } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
+import { UiLoadingAnimation } from '@/components/ui';
 
 import {
   CANVAS_NODE_TYPES,
@@ -25,7 +25,6 @@ import {
 import {
   detectImageDimensions,
   resolveImageDisplayUrl,
-  shouldUseOriginalImageByZoom,
 } from '@/features/canvas/application/imageData';
 import { resolveNodeDisplayName } from '@/features/canvas/domain/nodeDisplay';
 import { NodeHeader, NODE_HEADER_FLOATING_POSITION_CLASS } from '@/features/canvas/ui/NodeHeader';
@@ -66,7 +65,6 @@ export const ImageNode = memo(({ id, data, selected, type, width }: ImageNodePro
   const isReferenceSourceHighlighted = useCanvasStore(
     (state) => state.highlightedReferenceSourceNodeId === id
   );
-  const { zoom } = useViewport();
   const [now, setNow] = useState(() => Date.now());
   const isExportResultNode = type === CANVAS_NODE_TYPES.exportImage;
   const isGenerating = typeof data.isGenerating === 'boolean' ? data.isGenerating : false;
@@ -85,8 +83,6 @@ export const ImageNode = memo(({ id, data, selected, type, width }: ImageNodePro
     isExportResultNode && !hasPersistedImage && generationJobId.length > 0;
   const generationStartedAt =
     typeof data.generationStartedAt === 'number' ? data.generationStartedAt : null;
-  const generationDurationMs =
-    typeof data.generationDurationMs === 'number' ? data.generationDurationMs : 60000;
   const resolvedAspectRatio = data.aspectRatio || DEFAULT_ASPECT_RATIO;
   const compactSize = resolveMinEdgeFittedSize(resolvedAspectRatio, {
     minWidth: EXPORT_RESULT_NODE_MIN_WIDTH,
@@ -161,18 +157,6 @@ export const ImageNode = memo(({ id, data, selected, type, width }: ImageNodePro
     };
   }, [dimensionSource, id, imageHeight, imageWidth, updateNodeData]);
 
-  const simulatedProgress = useMemo(() => {
-    if (!isGenerating) {
-      return 0;
-    }
-
-    const startedAt = generationStartedAt ?? Date.now();
-    const duration = Math.max(1000, generationDurationMs);
-    const elapsed = Math.max(0, now - startedAt);
-
-    return Math.min(elapsed / duration, 0.96);
-  }, [generationDurationMs, generationStartedAt, isGenerating, now]);
-
   const waitedMinutes = useMemo(() => {
     if (!isGenerating || generationStartedAt === null) {
       return 0;
@@ -211,11 +195,8 @@ export const ImageNode = memo(({ id, data, selected, type, width }: ImageNodePro
   }, [data.previewImageUrl]);
 
   const imageSource = useMemo(() => {
-    const preferOriginal = shouldUseOriginalImageByZoom(zoom);
-    return preferOriginal
-      ? (originalImageUrl ?? previewImageUrl)
-      : (previewImageUrl ?? originalImageUrl);
-  }, [originalImageUrl, previewImageUrl, zoom]);
+    return originalImageUrl ?? previewImageUrl;
+  }, [originalImageUrl, previewImageUrl]);
 
   const fallbackImageSource = useMemo(() => {
     if (!imageSource) {
@@ -233,21 +214,6 @@ export const ImageNode = memo(({ id, data, selected, type, width }: ImageNodePro
   const nodeDescription =
     typeof data.nodeDescription === 'string' ? data.nodeDescription : '';
 
-  const handleManualRefresh = () => {
-    if (!canManualRefresh) {
-      return;
-    }
-
-    const refreshRequestedAt = Date.now();
-    updateNodeData(id, {
-      isGenerating: true,
-      generationStartedAt: generationStartedAt ?? refreshRequestedAt,
-      generationForceRefreshRequestedAt: refreshRequestedAt,
-      generationError: null,
-      generationErrorDetails: null,
-    });
-  };
-
   const headerStatus = useMemo(() => {
     if (hasGenerationError) {
       return (
@@ -263,10 +229,8 @@ export const ImageNode = memo(({ id, data, selected, type, width }: ImageNodePro
     if (isGenerating) {
       return (
         <NodeStatusBadge
-          icon={<RefreshCw className="h-3 w-3" />}
           label={t('nodeStatus.generating')}
           tone="processing"
-          animate
         />
       );
     }
@@ -330,23 +294,12 @@ export const ImageNode = memo(({ id, data, selected, type, width }: ImageNodePro
             <span className="text-center text-[12px] font-medium leading-5 text-red-200">
               {t('node.imageNode.generationFailed')}
             </span>
-            {canManualRefresh && (
-              <button
-                type="button"
-                onClick={(event) => {
-                  event.stopPropagation();
-                  handleManualRefresh();
-                }}
-                className="inline-flex items-center justify-center gap-2 self-center rounded-full border border-[rgba(255,255,255,0.18)] bg-bg-dark/90 px-4 py-2 text-sm font-medium text-text-dark shadow-lg transition-colors hover:border-accent/50 hover:bg-bg-dark"
-              >
-                <RefreshCw className="h-4 w-4" />
-                {t('node.imageNode.manualRefresh')}
-              </button>
-            )}
             <span className="max-h-[88px] overflow-y-auto break-words text-center text-[11px] leading-5 text-red-200/90">
               {generationError}
             </span>
           </div>
+        ) : isGenerating ? (
+          <div className="h-full w-full bg-bg-dark" />
         ) : (
           <div className="flex h-full w-full flex-col items-center justify-center gap-2 px-4 text-text-muted/85">
             {isExportResultNode ? (
@@ -357,29 +310,21 @@ export const ImageNode = memo(({ id, data, selected, type, width }: ImageNodePro
             <span className="px-4 text-center text-[12px] leading-6">
               {waitingResultText}
             </span>
-            {canManualRefresh && (
-              <button
-                type="button"
-                onClick={(event) => {
-                  event.stopPropagation();
-                  handleManualRefresh();
-                }}
-                className="inline-flex items-center justify-center gap-2 self-center rounded-full border border-[rgba(255,255,255,0.18)] bg-bg-dark/90 px-4 py-2 text-sm font-medium text-text-dark shadow-lg transition-colors hover:border-accent/50 hover:bg-bg-dark"
-              >
-                <RefreshCw className="h-4 w-4" />
-                {t('node.imageNode.manualRefresh')}
-              </button>
-            )}
           </div>
         )}
 
         {isGenerating && (
-          <div className="pointer-events-none absolute inset-0 overflow-hidden">
-            <div className="absolute inset-0 bg-bg-dark/55" />
-            <div
-              className="absolute left-0 top-0 h-full bg-gradient-to-r from-[rgba(255,255,255,0.4)] to-[rgba(255,255,255,0.06)] transition-[width] duration-100 ease-linear"
-              style={{ width: `${simulatedProgress * 100}%` }}
+          <div className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center">
+            <UiLoadingAnimation
+              className="block"
+              width="min(320px, calc(100% - 2rem))"
+              height="120px"
+              fit="contain"
+              trimBars
+              trimInset="18%"
+              zoom={1.45}
             />
+            <span className="sr-only">{t('common.loading')}</span>
           </div>
         )}
         <ImageResolutionBadge width={imageWidth} height={imageHeight} />

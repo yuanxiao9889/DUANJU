@@ -2154,7 +2154,12 @@ export const SeedanceNode = memo(
           minWidth={SEEDANCE_NODE_MIN_WIDTH}
           minHeight={SEEDANCE_NODE_MIN_HEIGHT}
         />
-        <UiLoadingOverlay visible={showBlockingOverlay} insetClassName="inset-3" />
+        <UiLoadingOverlay
+          visible={showBlockingOverlay}
+          insetClassName="inset-3"
+          backdropClassName="bg-transparent"
+          variant="bare"
+        />
       </div>
     );
   },

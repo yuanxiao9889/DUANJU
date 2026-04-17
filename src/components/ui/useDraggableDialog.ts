@@ -67,6 +67,7 @@ function resolveDialogAxisBounds(
 interface UseDraggableDialogOptions {
   enabled?: boolean;
   isOpen: boolean;
+  isPresent?: boolean;
   initialPosition?: DialogPosition | null;
 }
 
@@ -83,6 +84,7 @@ interface UseDraggableDialogResult {
 export function useDraggableDialog({
   enabled = true,
   isOpen,
+  isPresent = isOpen,
   initialPosition = null,
 }: UseDraggableDialogOptions): UseDraggableDialogResult {
   const panelRef = useRef<HTMLDivElement>(null);
@@ -275,14 +277,26 @@ export function useDraggableDialog({
 
   useEffect(() => {
     if (!enabled) {
-      if (!isOpen) {
+      if (!isPresent) {
         resetDialogPosition();
       }
       return;
     }
 
-    if (!isOpen || typeof window === 'undefined') {
+    if (!isPresent || typeof window === 'undefined') {
       resetDialogPosition();
+      return;
+    }
+
+    if (!isOpen) {
+      // Keep the last position during fade-out so the dialog does not snap back before unmount.
+      if (pendingPositionRef.current) {
+        cancelScheduledCommit();
+        flushPendingPosition();
+      }
+
+      dragOffsetRef.current = null;
+      setIsDragging(false);
       return;
     }
 
@@ -314,10 +328,18 @@ export function useDraggableDialog({
       resizeObserver?.disconnect();
       window.removeEventListener('resize', handleWindowResize);
     };
-  }, [enabled, isOpen, resetDialogPosition, syncAutoPosition]);
+  }, [
+    cancelScheduledCommit,
+    enabled,
+    flushPendingPosition,
+    isOpen,
+    isPresent,
+    resetDialogPosition,
+    syncAutoPosition,
+  ]);
 
   useEffect(() => {
-    if (!enabled || !isOpen || typeof window === 'undefined') {
+    if (!enabled || !isOpen || !isPresent || typeof window === 'undefined') {
       return;
     }
 
@@ -329,7 +351,7 @@ export function useDraggableDialog({
   });
 
   useEffect(() => {
-    if (!enabled || !isDragging || typeof window === 'undefined') {
+    if (!enabled || !isOpen || !isDragging || typeof window === 'undefined') {
       return;
     }
 
@@ -373,7 +395,7 @@ export function useDraggableDialog({
   ]);
 
   const handleDragStart = useCallback((event: ReactPointerEvent<HTMLElement>) => {
-    if (!enabled) {
+    if (!enabled || !isOpen) {
       return;
     }
 
@@ -411,7 +433,7 @@ export function useDraggableDialog({
     commitPosition(clampViewportPosition(panelRect.left, panelRect.top));
     setIsDragging(true);
     event.preventDefault();
-  }, [clampViewportPosition, commitPosition, enabled]);
+  }, [clampViewportPosition, commitPosition, enabled, isOpen]);
 
   return {
     panelRef,

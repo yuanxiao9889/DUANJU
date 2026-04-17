@@ -528,6 +528,7 @@ export function SettingsDialog({
     handleDragStart,
   } = useDraggableDialog({
     isOpen,
+    isPresent: shouldRender,
   });
   const runtimePsPort = serverStatus.running ? serverStatus.port : null;
   const pluginPsPort = runtimePsPort ?? psServerPort;

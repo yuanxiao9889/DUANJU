@@ -28,6 +28,7 @@ export function DeleteConfirmDialog({
     handleDragStart,
   } = useDraggableDialog({
     isOpen,
+    isPresent: shouldRender,
   });
 
   const count = projectNames.length;

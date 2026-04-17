@@ -1693,7 +1693,12 @@ export const JimengImageNode = memo(
           maxWidth={JIMENG_IMAGE_NODE_MAX_WIDTH}
           maxHeight={JIMENG_IMAGE_NODE_MAX_HEIGHT}
         />
-        <UiLoadingOverlay visible={showBlockingOverlay} insetClassName="inset-3" />
+        <UiLoadingOverlay
+          visible={showBlockingOverlay}
+          insetClassName="inset-3"
+          backdropClassName="bg-transparent"
+          variant="bare"
+        />
         <CameraParamsDialog
           isOpen={showCameraParamsDialog}
           value={resolvedCameraParams}

@@ -1658,7 +1658,12 @@ export const ImageEditNode = memo(({ id, data, selected, width, height }: ImageE
         maxHeight={IMAGE_EDIT_NODE_MAX_HEIGHT}
         isVisible={selected}
       />
-      <UiLoadingOverlay visible={showBlockingOverlay} insetClassName="inset-3" />
+      <UiLoadingOverlay
+        visible={showBlockingOverlay}
+        insetClassName="inset-3"
+        backdropClassName="bg-transparent"
+        variant="bare"
+      />
       
       <StyleTemplateDialog
         isOpen={showStyleTemplateDialog}

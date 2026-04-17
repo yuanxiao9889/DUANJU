@@ -69,6 +69,8 @@ export interface ProjectSummary {
   name: string;
   projectType: ProjectType;
   assetLibraryId: string | null;
+  clipLibraryId: string | null;
+  clipLastFolderId: string | null;
   linkedScriptProjectId: string | null;
   createdAt: number;
   updatedAt: number;
@@ -425,10 +427,27 @@ function toProjectSummary(record: ProjectSummaryRecord): ProjectSummary {
     name: record.name,
     projectType: (record.projectType as ProjectType) || 'storyboard',
     assetLibraryId: record.assetLibraryId ?? null,
+    clipLibraryId: record.clipLibraryId ?? null,
+    clipLastFolderId: record.clipLastFolderId ?? null,
     linkedScriptProjectId: record.linkedScriptProjectId ?? null,
     createdAt: record.createdAt,
     updatedAt: record.updatedAt,
     nodeCount: record.nodeCount,
+  };
+}
+
+function projectToSummary(project: Project): ProjectSummary {
+  return {
+    id: project.id,
+    name: project.name,
+    projectType: project.projectType,
+    assetLibraryId: project.assetLibraryId ?? null,
+    clipLibraryId: project.clipLibraryId ?? null,
+    clipLastFolderId: project.clipLastFolderId ?? null,
+    linkedScriptProjectId: project.linkedScriptProjectId ?? null,
+    createdAt: project.createdAt,
+    updatedAt: project.updatedAt,
+    nodeCount: project.nodeCount,
   };
 }
 
@@ -444,6 +463,8 @@ function toProjectRecord(project: Project): ProjectRecord {
     name: encodedProject.name,
     projectType: encodedProject.projectType || 'storyboard',
     assetLibraryId: encodedProject.assetLibraryId ?? null,
+    clipLibraryId: encodedProject.clipLibraryId ?? null,
+    clipLastFolderId: encodedProject.clipLastFolderId ?? null,
     linkedScriptProjectId: encodedProject.linkedScriptProjectId ?? null,
     createdAt: encodedProject.createdAt,
     updatedAt: encodedProject.updatedAt,
@@ -489,6 +510,8 @@ function fromProjectRecord(record: ProjectRecord): Project {
     name: record.name,
     projectType: (record.projectType as ProjectType) || 'storyboard',
     assetLibraryId: record.assetLibraryId ?? null,
+    clipLibraryId: record.clipLibraryId ?? null,
+    clipLastFolderId: record.clipLastFolderId ?? null,
     linkedScriptProjectId: record.linkedScriptProjectId ?? null,
     createdAt: record.createdAt,
     updatedAt: record.updatedAt,
@@ -774,6 +797,7 @@ interface ProjectState {
   isOpeningProject: boolean;
 
   hydrate: () => Promise<void>;
+  refreshProjectSummaries: () => Promise<void>;
   createProject: (name: string, projectType: ProjectType) => string;
   deleteProject: (id: string) => void;
   deleteProjects: (ids: string[]) => void;
@@ -782,7 +806,17 @@ interface ProjectState {
     projectId: string,
     linkedScriptProjectId: string | null
   ) => Promise<void>;
+  setProjectClipLibrary: (
+    projectId: string,
+    clipLibraryId: string | null,
+    clipLastFolderId?: string | null
+  ) => Promise<void>;
+  setProjectClipLastFolder: (
+    projectId: string,
+    clipLastFolderId: string | null
+  ) => Promise<void>;
   setCurrentProjectAssetLibrary: (assetLibraryId: string | null) => void;
+  setCurrentProjectClipLibrary: (clipLibraryId: string | null) => void;
   setCurrentProjectColorLabels: (colorLabels: CanvasColorLabelMap) => void;
   openProject: (id: string) => void;
   closeProject: () => void;
@@ -830,6 +864,33 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
     }
   },
 
+  refreshProjectSummaries: async () => {
+    try {
+      const records = await listProjectSummaries();
+      const projects = records.map(toProjectSummary).sort((a, b) => b.updatedAt - a.updatedAt);
+      set((state) => ({
+        projects,
+        currentProject:
+          state.currentProject && state.currentProjectId
+            ? {
+                ...state.currentProject,
+                clipLibraryId:
+                  projects.find((project) => project.id === state.currentProjectId)?.clipLibraryId
+                  ?? state.currentProject.clipLibraryId
+                  ?? null,
+                clipLastFolderId:
+                  projects.find((project) => project.id === state.currentProjectId)?.clipLastFolderId
+                  ?? state.currentProject.clipLastFolderId
+                  ?? null,
+              }
+            : state.currentProject,
+        isHydrated: true,
+      }));
+    } catch (error) {
+      console.error('Failed to refresh project summaries from SQLite', error);
+    }
+  },
+
   createProject: (name, projectType) => {
     const id = uuidv4();
     const now = Date.now();
@@ -838,6 +899,8 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
       name,
       projectType,
       assetLibraryId: null,
+      clipLibraryId: null,
+      clipLastFolderId: null,
       linkedScriptProjectId: null,
       createdAt: now,
       updatedAt: now,
@@ -923,16 +986,6 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
   setProjectLinkedScriptProject: async (projectId, linkedScriptProjectId) => {
     const normalizedLinkedScriptProjectId = linkedScriptProjectId?.trim() || null;
     const updatedAt = Date.now();
-    const updateSummary = (project: Project): ProjectSummary => ({
-      id: project.id,
-      name: project.name,
-      projectType: project.projectType,
-      assetLibraryId: project.assetLibraryId ?? null,
-      linkedScriptProjectId: project.linkedScriptProjectId ?? null,
-      createdAt: project.createdAt,
-      updatedAt: project.updatedAt,
-      nodeCount: project.nodeCount,
-    });
 
     const { currentProjectId, currentProject } = get();
     if (currentProjectId === projectId && currentProject?.id === projectId) {
@@ -948,7 +1001,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
 
       set((state) => ({
         currentProject: nextProject,
-        projects: updateProjectSummary(state.projects, updateSummary(nextProject)),
+        projects: updateProjectSummary(state.projects, projectToSummary(nextProject)),
       }));
       persistProject(nextProject, { debounceMs: 0 });
       return;
@@ -972,11 +1025,128 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
       };
 
       set((state) => ({
-        projects: updateProjectSummary(state.projects, updateSummary(nextProject)),
+        projects: updateProjectSummary(state.projects, projectToSummary(nextProject)),
       }));
       await persistProjectImmediately(nextProject);
     } catch (error) {
       console.error('Failed to update linked script project', error);
+    }
+  },
+
+  setProjectClipLibrary: async (projectId, clipLibraryId, clipLastFolderId = null) => {
+    const normalizedClipLibraryId = clipLibraryId?.trim() || null;
+    const normalizedClipLastFolderId = clipLastFolderId?.trim() || null;
+    const updatedAt = Date.now();
+
+    const { currentProjectId, currentProject } = get();
+    if (currentProjectId === projectId && currentProject?.id === projectId) {
+      const nextClipLastFolderId =
+        normalizedClipLibraryId === currentProject.clipLibraryId
+          ? normalizedClipLastFolderId
+          : null;
+      if (
+        (currentProject.clipLibraryId ?? null) === normalizedClipLibraryId
+        && (currentProject.clipLastFolderId ?? null) === nextClipLastFolderId
+      ) {
+        return;
+      }
+
+      const nextProject: Project = {
+        ...currentProject,
+        clipLibraryId: normalizedClipLibraryId,
+        clipLastFolderId: nextClipLastFolderId,
+        updatedAt,
+      };
+
+      set((state) => ({
+        currentProject: nextProject,
+        projects: updateProjectSummary(state.projects, projectToSummary(nextProject)),
+      }));
+      persistProject(nextProject, { debounceMs: 0 });
+      return;
+    }
+
+    try {
+      const record = await getProjectRecord(projectId);
+      if (!record) {
+        return;
+      }
+
+      const existingProject = fromProjectRecord(record);
+      const nextClipLastFolderId =
+        normalizedClipLibraryId === (existingProject.clipLibraryId ?? null)
+          ? normalizedClipLastFolderId
+          : null;
+      if (
+        (existingProject.clipLibraryId ?? null) === normalizedClipLibraryId
+        && (existingProject.clipLastFolderId ?? null) === nextClipLastFolderId
+      ) {
+        return;
+      }
+
+      const nextProject: Project = {
+        ...existingProject,
+        clipLibraryId: normalizedClipLibraryId,
+        clipLastFolderId: nextClipLastFolderId,
+        updatedAt,
+      };
+
+      set((state) => ({
+        projects: updateProjectSummary(state.projects, projectToSummary(nextProject)),
+      }));
+      await persistProjectImmediately(nextProject);
+    } catch (error) {
+      console.error('Failed to update clip library binding', error);
+    }
+  },
+
+  setProjectClipLastFolder: async (projectId, clipLastFolderId) => {
+    const normalizedClipLastFolderId = clipLastFolderId?.trim() || null;
+    const updatedAt = Date.now();
+
+    const { currentProjectId, currentProject } = get();
+    if (currentProjectId === projectId && currentProject?.id === projectId) {
+      if ((currentProject.clipLastFolderId ?? null) === normalizedClipLastFolderId) {
+        return;
+      }
+
+      const nextProject: Project = {
+        ...currentProject,
+        clipLastFolderId: normalizedClipLastFolderId,
+        updatedAt,
+      };
+
+      set((state) => ({
+        currentProject: nextProject,
+        projects: updateProjectSummary(state.projects, projectToSummary(nextProject)),
+      }));
+      persistProject(nextProject, { debounceMs: 0 });
+      return;
+    }
+
+    try {
+      const record = await getProjectRecord(projectId);
+      if (!record) {
+        return;
+      }
+
+      const existingProject = fromProjectRecord(record);
+      if ((existingProject.clipLastFolderId ?? null) === normalizedClipLastFolderId) {
+        return;
+      }
+
+      const nextProject: Project = {
+        ...existingProject,
+        clipLastFolderId: normalizedClipLastFolderId,
+        updatedAt,
+      };
+
+      set((state) => ({
+        projects: updateProjectSummary(state.projects, projectToSummary(nextProject)),
+      }));
+      await persistProjectImmediately(nextProject);
+    } catch (error) {
+      console.error('Failed to update clip library last folder', error);
     }
   },
 
@@ -1001,16 +1171,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
           currentProjectId: id,
           currentProject: project,
           isOpeningProject: false,
-          projects: updateProjectSummary(state.projects, {
-            id: project.id,
-            name: project.name,
-            projectType: project.projectType,
-            assetLibraryId: project.assetLibraryId ?? null,
-            linkedScriptProjectId: project.linkedScriptProjectId ?? null,
-            createdAt: project.createdAt,
-            updatedAt: project.updatedAt,
-            nodeCount: project.nodeCount,
-          }),
+          projects: updateProjectSummary(state.projects, projectToSummary(project)),
         }));
       } catch (error) {
         if (reqSeq !== openProjectRequestSeq) {
@@ -1040,16 +1201,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
         updatedAt: Date.now(),
       };
 
-      persistedSummary = {
-        id: nextProject.id,
-        name: nextProject.name,
-        projectType: nextProject.projectType,
-        assetLibraryId: nextProject.assetLibraryId ?? null,
-        linkedScriptProjectId: nextProject.linkedScriptProjectId ?? null,
-        createdAt: nextProject.createdAt,
-        updatedAt: nextProject.updatedAt,
-        nodeCount: nextProject.nodeCount,
-      };
+      persistedSummary = projectToSummary(nextProject);
       persistProject(nextProject, { immediate: true });
     }
 
@@ -1093,16 +1245,36 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
 
     set((state) => ({
       currentProject: nextProject,
-        projects: updateProjectSummary(state.projects, {
-          id: nextProject.id,
-          name: nextProject.name,
-          projectType: nextProject.projectType,
-          assetLibraryId: nextProject.assetLibraryId ?? null,
-          linkedScriptProjectId: nextProject.linkedScriptProjectId ?? null,
-          createdAt: nextProject.createdAt,
-          updatedAt: nextProject.updatedAt,
-          nodeCount: nextProject.nodeCount,
-        }),
+      projects: updateProjectSummary(state.projects, projectToSummary(nextProject)),
+    }));
+
+    persistProject(nextProject, { debounceMs: 0 });
+  },
+
+  setCurrentProjectClipLibrary: (clipLibraryId) => {
+    const { currentProjectId, currentProject } = get();
+    if (!currentProjectId || !currentProject || currentProject.id !== currentProjectId) {
+      return;
+    }
+
+    const normalizedClipLibraryId = clipLibraryId?.trim() ? clipLibraryId : null;
+    if ((currentProject.clipLibraryId ?? null) === normalizedClipLibraryId) {
+      return;
+    }
+
+    const nextProject: Project = {
+      ...currentProject,
+      clipLibraryId: normalizedClipLibraryId,
+      clipLastFolderId:
+        normalizedClipLibraryId && normalizedClipLibraryId === (currentProject.clipLibraryId ?? null)
+          ? currentProject.clipLastFolderId ?? null
+          : null,
+      updatedAt: Date.now(),
+    };
+
+    set((state) => ({
+      currentProject: nextProject,
+      projects: updateProjectSummary(state.projects, projectToSummary(nextProject)),
     }));
 
     persistProject(nextProject, { debounceMs: 0 });
@@ -1133,16 +1305,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
 
     set((state) => ({
       currentProject: nextProject,
-        projects: updateProjectSummary(state.projects, {
-          id: nextProject.id,
-          name: nextProject.name,
-          projectType: nextProject.projectType,
-          assetLibraryId: nextProject.assetLibraryId ?? null,
-          linkedScriptProjectId: nextProject.linkedScriptProjectId ?? null,
-          createdAt: nextProject.createdAt,
-          updatedAt: nextProject.updatedAt,
-          nodeCount: nextProject.nodeCount,
-        }),
+      projects: updateProjectSummary(state.projects, projectToSummary(nextProject)),
     }));
 
     persistProject(nextProject, { debounceMs: 0 });
@@ -1185,16 +1348,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
 
     set((state) => ({
       currentProject: nextProject,
-        projects: updateProjectSummary(state.projects, {
-          id: nextProject.id,
-          name: nextProject.name,
-          projectType: nextProject.projectType,
-          assetLibraryId: nextProject.assetLibraryId ?? null,
-          linkedScriptProjectId: nextProject.linkedScriptProjectId ?? null,
-          createdAt: nextProject.createdAt,
-          updatedAt: nextProject.updatedAt,
-          nodeCount: nextProject.nodeCount,
-        }),
+      projects: updateProjectSummary(state.projects, projectToSummary(nextProject)),
     }));
     persistProject(nextProject);
   },
@@ -1248,16 +1402,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
 
     set((state) => ({
       currentProject: nextProject,
-        projects: updateProjectSummary(state.projects, {
-          id: nextProject.id,
-          name: nextProject.name,
-          projectType: nextProject.projectType,
-          assetLibraryId: nextProject.assetLibraryId ?? null,
-          linkedScriptProjectId: nextProject.linkedScriptProjectId ?? null,
-          createdAt: nextProject.createdAt,
-          updatedAt: nextProject.updatedAt,
-          nodeCount: nextProject.nodeCount,
-        }),
+      projects: updateProjectSummary(state.projects, projectToSummary(nextProject)),
     }));
 
     await persistProjectImmediately(nextProject);

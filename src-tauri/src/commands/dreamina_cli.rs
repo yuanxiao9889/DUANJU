@@ -892,10 +892,49 @@ fn bash_style_path(path: &Path) -> String {
 }
 
 fn cli_path(path: &Path) -> String {
-    path.canonicalize()
-        .unwrap_or_else(|_| path.to_path_buf())
-        .to_string_lossy()
-        .replace('\\', "/")
+    normalize_cli_path(
+        &path
+            .canonicalize()
+            .unwrap_or_else(|_| path.to_path_buf())
+            .to_string_lossy(),
+    )
+}
+
+fn normalize_cli_path(value: &str) -> String {
+    #[cfg(target_os = "windows")]
+    let normalized = if let Some(stripped) = value.strip_prefix(r"\\?\UNC\") {
+        format!(r"\\{stripped}")
+    } else if let Some(stripped) = value.strip_prefix(r"\\?\") {
+        stripped.to_string()
+    } else {
+        value.to_string()
+    };
+
+    #[cfg(not(target_os = "windows"))]
+    let normalized = value.to_string();
+
+    normalized.replace('\\', "/")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::normalize_cli_path;
+
+    #[test]
+    fn normalize_cli_path_strips_windows_verbatim_drive_prefix() {
+        assert_eq!(
+            normalize_cli_path(r"\\?\C:\Users\Tester\image.png"),
+            "C:/Users/Tester/image.png"
+        );
+    }
+
+    #[test]
+    fn normalize_cli_path_strips_windows_verbatim_unc_prefix() {
+        assert_eq!(
+            normalize_cli_path(r"\\?\UNC\server\share\image.png"),
+            "//server/share/image.png"
+        );
+    }
 }
 
 fn bash_quote(value: &str) -> String {

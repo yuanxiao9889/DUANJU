@@ -19,6 +19,10 @@ pub struct ProjectSummaryRecord {
     #[serde(default)]
     pub asset_library_id: Option<String>,
     #[serde(default)]
+    pub clip_library_id: Option<String>,
+    #[serde(default)]
+    pub clip_last_folder_id: Option<String>,
+    #[serde(default)]
     pub linked_script_project_id: Option<String>,
     pub created_at: i64,
     pub updated_at: i64,
@@ -39,6 +43,10 @@ pub struct ProjectRecord {
     #[serde(default)]
     pub asset_library_id: Option<String>,
     #[serde(default)]
+    pub clip_library_id: Option<String>,
+    #[serde(default)]
+    pub clip_last_folder_id: Option<String>,
+    #[serde(default)]
     pub linked_script_project_id: Option<String>,
     pub created_at: i64,
     pub updated_at: i64,
@@ -54,6 +62,292 @@ fn resolve_db_path(app: &AppHandle) -> Result<PathBuf, String> {
     storage::resolve_db_path(app)
 }
 
+fn read_table_columns(conn: &Connection, table_name: &str) -> Result<HashSet<String>, String> {
+    let pragma = format!("PRAGMA table_info({table_name})");
+    let mut stmt = conn
+        .prepare(&pragma)
+        .map_err(|e| format!("Failed to inspect {table_name} schema: {}", e))?;
+    let rows = stmt
+        .query_map([], |row| row.get::<_, String>(1))
+        .map_err(|e| format!("Failed to inspect {table_name} columns: {}", e))?;
+
+    let mut columns = HashSet::new();
+    for name_result in rows {
+        let column_name =
+            name_result.map_err(|e| format!("Failed to read {table_name} column name: {}", e))?;
+        columns.insert(column_name);
+    }
+
+    Ok(columns)
+}
+
+fn ensure_table_column(
+    conn: &Connection,
+    table_name: &str,
+    column_name: &str,
+    column_definition: &str,
+) -> Result<(), String> {
+    let columns = read_table_columns(conn, table_name)?;
+    if columns.contains(column_name) {
+        return Ok(());
+    }
+
+    let statement =
+        format!("ALTER TABLE {table_name} ADD COLUMN {column_name} {column_definition}");
+    conn.execute(&statement, [])
+        .map_err(|e| format!("Failed to add {table_name}.{column_name} column: {}", e))?;
+
+    Ok(())
+}
+
+fn table_exists(conn: &Connection, table_name: &str) -> Result<bool, String> {
+    let count: i64 = conn
+        .query_row(
+            "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = ?1",
+            params![table_name],
+            |row| row.get(0),
+        )
+        .map_err(|e| format!("Failed to inspect sqlite_master for {table_name}: {}", e))?;
+    Ok(count > 0)
+}
+
+fn clear_clip_binding_data(data: &mut serde_json::Map<String, Value>) -> bool {
+    let mut changed = false;
+    for key in [
+        "clipLibraryId",
+        "clipProjectLinkId",
+        "clipFolderId",
+        "clipItemId",
+    ] {
+        let should_clear = data.get(key).is_some_and(|value| !value.is_null());
+        if should_clear {
+            data.insert(key.to_string(), Value::Null);
+            changed = true;
+        }
+    }
+    changed
+}
+
+fn clear_node_clip_bindings(node: &mut Value) -> bool {
+    node.get_mut("data")
+        .and_then(Value::as_object_mut)
+        .map(clear_clip_binding_data)
+        .unwrap_or(false)
+}
+
+fn clear_nodes_clip_bindings(nodes: &mut [Value]) -> bool {
+    let mut changed = false;
+    for node in nodes {
+        changed |= clear_node_clip_bindings(node);
+    }
+    changed
+}
+
+fn clear_history_snapshot_clip_bindings(snapshot: &mut Value) -> bool {
+    let mut changed = false;
+
+    if let Some(nodes) = snapshot.get_mut("nodes").and_then(Value::as_array_mut) {
+        changed |= clear_nodes_clip_bindings(nodes);
+    }
+
+    if snapshot.get("kind").and_then(Value::as_str) != Some("nodePatch") {
+        return changed;
+    }
+
+    let Some(entries) = snapshot.get_mut("entries").and_then(Value::as_array_mut) else {
+        return changed;
+    };
+
+    for entry in entries {
+        let Some(node) = entry.get_mut("node") else {
+            continue;
+        };
+        if node.is_null() {
+            continue;
+        }
+        changed |= clear_node_clip_bindings(node);
+    }
+
+    changed
+}
+
+fn clear_project_clip_binding_payload(
+    nodes_json: &str,
+    history_json: &str,
+) -> Result<Option<(String, String)>, String> {
+    let mut parsed_nodes = serde_json::from_str::<Value>(nodes_json)
+        .map_err(|e| format!("Failed to parse project nodes json for clip reset: {}", e))?;
+    let mut parsed_history = serde_json::from_str::<Value>(history_json)
+        .map_err(|e| format!("Failed to parse project history json for clip reset: {}", e))?;
+
+    let mut changed = false;
+
+    if let Some(nodes) = project_nodes_array_mut(&mut parsed_nodes) {
+        changed |= clear_nodes_clip_bindings(nodes);
+    }
+
+    for timeline_key in ["past", "future"] {
+        let Some(timeline) = parsed_history
+            .get_mut(timeline_key)
+            .and_then(Value::as_array_mut)
+        else {
+            continue;
+        };
+
+        for snapshot in timeline {
+            changed |= clear_history_snapshot_clip_bindings(snapshot);
+        }
+    }
+
+    if !changed {
+        return Ok(None);
+    }
+
+    let next_nodes_json = serde_json::to_string(&parsed_nodes)
+        .map_err(|e| format!("Failed to serialize cleared project nodes json: {}", e))?;
+    let next_history_json = serde_json::to_string(&parsed_history)
+        .map_err(|e| format!("Failed to serialize cleared project history json: {}", e))?;
+
+    Ok(Some((next_nodes_json, next_history_json)))
+}
+
+fn ensure_clip_library_tables(conn: &Connection) -> Result<(), String> {
+    conn.execute_batch(
+        r#"
+        CREATE TABLE IF NOT EXISTS clip_library_chapters (
+          id TEXT PRIMARY KEY,
+          library_id TEXT NOT NULL,
+          name TEXT NOT NULL,
+          sort_order INTEGER NOT NULL DEFAULT 0,
+          fs_name TEXT NOT NULL DEFAULT '',
+          created_at INTEGER NOT NULL,
+          updated_at INTEGER NOT NULL
+        );
+        CREATE TABLE IF NOT EXISTS clip_folders (
+          id TEXT PRIMARY KEY,
+          library_id TEXT NOT NULL,
+          chapter_id TEXT NOT NULL,
+          parent_id TEXT,
+          kind TEXT NOT NULL,
+          name TEXT NOT NULL,
+          sort_order INTEGER NOT NULL DEFAULT 0,
+          shot_order INTEGER,
+          number_code TEXT,
+          fs_name TEXT NOT NULL DEFAULT '',
+          created_at INTEGER NOT NULL,
+          updated_at INTEGER NOT NULL
+        );
+        CREATE TABLE IF NOT EXISTS clip_items (
+          id TEXT PRIMARY KEY,
+          library_id TEXT NOT NULL,
+          folder_id TEXT NOT NULL,
+          media_type TEXT NOT NULL,
+          name TEXT NOT NULL,
+          description_text TEXT NOT NULL DEFAULT '',
+          file_name TEXT NOT NULL,
+          source_path TEXT NOT NULL,
+          preview_path TEXT,
+          duration_ms INTEGER,
+          mime_type TEXT,
+          waveform_path TEXT,
+          source_node_id TEXT,
+          source_node_title TEXT,
+          source_project_id TEXT,
+          source_project_name TEXT NOT NULL DEFAULT '',
+          created_at INTEGER NOT NULL,
+          updated_at INTEGER NOT NULL
+        );
+        CREATE TABLE IF NOT EXISTS clip_library_ui_state (
+          library_id TEXT PRIMARY KEY,
+          expanded_keys_json TEXT NOT NULL DEFAULT '[]',
+          selected_key TEXT,
+          scroll_top REAL NOT NULL DEFAULT 0,
+          left_width REAL,
+          right_width REAL,
+          last_filter_json TEXT NOT NULL DEFAULT '{}',
+          always_on_top INTEGER NOT NULL DEFAULT 0,
+          updated_at INTEGER NOT NULL
+        );
+        "#,
+    )
+    .map_err(|e| format!("Failed to initialize clip library tables: {}", e))?;
+
+    Ok(())
+}
+
+fn reset_clip_library_prototype_data_if_needed(conn: &Connection) -> Result<(), String> {
+    let has_project_links = table_exists(conn, "clip_library_project_links")?;
+    let folder_columns = if table_exists(conn, "clip_folders")? {
+        Some(read_table_columns(conn, "clip_folders")?)
+    } else {
+        None
+    };
+    let item_columns = if table_exists(conn, "clip_items")? {
+        Some(read_table_columns(conn, "clip_items")?)
+    } else {
+        None
+    };
+
+    let needs_reset = has_project_links
+        || folder_columns
+            .as_ref()
+            .is_some_and(|columns| columns.contains("project_link_id") || !columns.contains("chapter_id"))
+        || item_columns.as_ref().is_some_and(|columns| {
+            columns.contains("project_link_id")
+                || !columns.contains("source_project_id")
+                || !columns.contains("source_project_name")
+        });
+
+    if !needs_reset {
+        return Ok(());
+    }
+
+    let project_rows: Vec<(String, String, String)> = {
+        let mut stmt = conn
+            .prepare("SELECT id, nodes_json, history_json FROM projects")
+            .map_err(|e| format!("Failed to prepare project clip reset query: {}", e))?;
+        let rows = stmt
+            .query_map([], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)))
+            .map_err(|e| format!("Failed to query projects for clip reset: {}", e))?;
+
+        let mut results = Vec::new();
+        for row in rows {
+            results.push(row.map_err(|e| format!("Failed to decode project clip reset row: {}", e))?);
+        }
+        results
+    };
+
+    for (project_id, nodes_json, history_json) in project_rows {
+        let Some((next_nodes_json, next_history_json)) =
+            clear_project_clip_binding_payload(&nodes_json, &history_json)?
+        else {
+            continue;
+        };
+
+        conn.execute(
+            "UPDATE projects SET nodes_json = ?1, history_json = ?2 WHERE id = ?3",
+            params![next_nodes_json, next_history_json, project_id],
+        )
+        .map_err(|e| format!("Failed to clear stale clip bindings in project: {}", e))?;
+    }
+
+    conn.execute("UPDATE projects SET clip_last_folder_id = NULL", [])
+        .map_err(|e| format!("Failed to clear clip_last_folder_id during clip reset: {}", e))?;
+
+    conn.execute_batch(
+        r#"
+        DROP TABLE IF EXISTS clip_library_project_links;
+        DROP TABLE IF EXISTS clip_items;
+        DROP TABLE IF EXISTS clip_folders;
+        DROP TABLE IF EXISTS clip_library_chapters;
+        DROP TABLE IF EXISTS clip_library_ui_state;
+        "#,
+    )
+    .map_err(|e| format!("Failed to reset legacy clip library tables: {}", e))?;
+
+    Ok(())
+}
+
 fn ensure_projects_table(conn: &Connection) -> Result<(), String> {
     conn.execute_batch(
         r#"
@@ -62,6 +356,8 @@ fn ensure_projects_table(conn: &Connection) -> Result<(), String> {
           name TEXT NOT NULL,
           project_type TEXT NOT NULL DEFAULT 'storyboard',
           asset_library_id TEXT,
+          clip_library_id TEXT,
+          clip_last_folder_id TEXT,
           linked_script_project_id TEXT,
           created_at INTEGER NOT NULL,
           updated_at INTEGER NOT NULL,
@@ -122,6 +418,13 @@ fn ensure_projects_table(conn: &Connection) -> Result<(), String> {
           PRIMARY KEY(asset_id, path)
         );
         CREATE INDEX IF NOT EXISTS idx_asset_image_refs_path ON asset_image_refs(path);
+        CREATE TABLE IF NOT EXISTS clip_libraries (
+          id TEXT PRIMARY KEY,
+          name TEXT NOT NULL,
+          root_path TEXT NOT NULL,
+          created_at INTEGER NOT NULL,
+          updated_at INTEGER NOT NULL
+        );
         CREATE TABLE IF NOT EXISTS jimeng_video_queue_jobs (
           job_id TEXT PRIMARY KEY,
           project_id TEXT NOT NULL,
@@ -153,6 +456,8 @@ fn ensure_projects_table(conn: &Connection) -> Result<(), String> {
     let mut has_node_count = false;
     let mut has_project_type = false;
     let mut has_asset_library_id = false;
+    let mut has_clip_library_id = false;
+    let mut has_clip_last_folder_id = false;
     let mut has_linked_script_project_id = false;
     let mut has_color_labels_json = false;
     let mut stmt = conn
@@ -173,6 +478,12 @@ fn ensure_projects_table(conn: &Connection) -> Result<(), String> {
         }
         if column_name == "asset_library_id" {
             has_asset_library_id = true;
+        }
+        if column_name == "clip_library_id" {
+            has_clip_library_id = true;
+        }
+        if column_name == "clip_last_folder_id" {
+            has_clip_last_folder_id = true;
         }
         if column_name == "linked_script_project_id" {
             has_linked_script_project_id = true;
@@ -203,6 +514,16 @@ fn ensure_projects_table(conn: &Connection) -> Result<(), String> {
             .map_err(|e| format!("Failed to add asset_library_id column: {}", e))?;
     }
 
+    if !has_clip_library_id {
+        conn.execute("ALTER TABLE projects ADD COLUMN clip_library_id TEXT", [])
+            .map_err(|e| format!("Failed to add clip_library_id column: {}", e))?;
+    }
+
+    if !has_clip_last_folder_id {
+        conn.execute("ALTER TABLE projects ADD COLUMN clip_last_folder_id TEXT", [])
+            .map_err(|e| format!("Failed to add clip_last_folder_id column: {}", e))?;
+    }
+
     if !has_linked_script_project_id {
         conn.execute(
             "ALTER TABLE projects ADD COLUMN linked_script_project_id TEXT",
@@ -223,6 +544,9 @@ fn ensure_projects_table(conn: &Connection) -> Result<(), String> {
         r#"
         CREATE INDEX IF NOT EXISTS idx_projects_updated_at ON projects(updated_at DESC);
         CREATE INDEX IF NOT EXISTS idx_projects_asset_library_id ON projects(asset_library_id);
+        CREATE INDEX IF NOT EXISTS idx_projects_clip_library_id ON projects(clip_library_id);
+        CREATE INDEX IF NOT EXISTS idx_projects_clip_last_folder_id
+          ON projects(clip_last_folder_id);
         CREATE INDEX IF NOT EXISTS idx_projects_linked_script_project_id
           ON projects(linked_script_project_id);
         "#,
@@ -370,6 +694,159 @@ fn ensure_projects_table(conn: &Connection) -> Result<(), String> {
         [],
     )
     .map_err(|e| format!("Failed to backfill asset_items.metadata_json: {}", e))?;
+
+    reset_clip_library_prototype_data_if_needed(conn)?;
+    ensure_clip_library_tables(conn)?;
+
+    ensure_table_column(
+        conn,
+        "clip_library_chapters",
+        "fs_name",
+        "TEXT NOT NULL DEFAULT ''",
+    )?;
+    ensure_table_column(
+        conn,
+        "clip_folders",
+        "chapter_id",
+        "TEXT NOT NULL DEFAULT ''",
+    )?;
+    ensure_table_column(conn, "clip_folders", "shot_order", "INTEGER")?;
+    ensure_table_column(conn, "clip_folders", "number_code", "TEXT")?;
+    ensure_table_column(conn, "clip_folders", "fs_name", "TEXT NOT NULL DEFAULT ''")?;
+    ensure_table_column(
+        conn,
+        "clip_items",
+        "description_text",
+        "TEXT NOT NULL DEFAULT ''",
+    )?;
+    ensure_table_column(conn, "clip_items", "file_name", "TEXT NOT NULL DEFAULT ''")?;
+    ensure_table_column(conn, "clip_items", "source_path", "TEXT NOT NULL DEFAULT ''")?;
+    ensure_table_column(conn, "clip_items", "preview_path", "TEXT")?;
+    ensure_table_column(conn, "clip_items", "duration_ms", "INTEGER")?;
+    ensure_table_column(conn, "clip_items", "mime_type", "TEXT")?;
+    ensure_table_column(conn, "clip_items", "waveform_path", "TEXT")?;
+    ensure_table_column(conn, "clip_items", "source_node_id", "TEXT")?;
+    ensure_table_column(conn, "clip_items", "source_node_title", "TEXT")?;
+    ensure_table_column(conn, "clip_items", "source_project_id", "TEXT")?;
+    ensure_table_column(
+        conn,
+        "clip_items",
+        "source_project_name",
+        "TEXT NOT NULL DEFAULT ''",
+    )?;
+    ensure_table_column(
+        conn,
+        "clip_library_ui_state",
+        "expanded_keys_json",
+        "TEXT NOT NULL DEFAULT '[]'",
+    )?;
+    ensure_table_column(
+        conn,
+        "clip_library_ui_state",
+        "selected_key",
+        "TEXT",
+    )?;
+    ensure_table_column(
+        conn,
+        "clip_library_ui_state",
+        "scroll_top",
+        "REAL NOT NULL DEFAULT 0",
+    )?;
+    ensure_table_column(
+        conn,
+        "clip_library_ui_state",
+        "left_width",
+        "REAL",
+    )?;
+    ensure_table_column(
+        conn,
+        "clip_library_ui_state",
+        "right_width",
+        "REAL",
+    )?;
+    ensure_table_column(
+        conn,
+        "clip_library_ui_state",
+        "last_filter_json",
+        "TEXT NOT NULL DEFAULT '{}'",
+    )?;
+    ensure_table_column(
+        conn,
+        "clip_library_ui_state",
+        "always_on_top",
+        "INTEGER NOT NULL DEFAULT 0",
+    )?;
+    ensure_table_column(
+        conn,
+        "clip_library_ui_state",
+        "updated_at",
+        "INTEGER NOT NULL DEFAULT 0",
+    )?;
+
+    conn.execute(
+        r#"
+        UPDATE clip_library_chapters
+        SET fs_name = COALESCE(NULLIF(TRIM(name), ''), 'Untitled Chapter')
+        WHERE TRIM(COALESCE(fs_name, '')) = ''
+        "#,
+        [],
+    )
+    .map_err(|e| format!("Failed to backfill clip_library_chapters.fs_name: {}", e))?;
+
+    conn.execute(
+        r#"
+        UPDATE clip_folders
+        SET fs_name = CASE
+          WHEN kind IN ('shot', 'script') AND TRIM(COALESCE(number_code, '')) <> '' AND TRIM(COALESCE(name, '')) <> ''
+            THEN TRIM(number_code) || ' ' || TRIM(name)
+          WHEN kind IN ('shot', 'script') AND TRIM(COALESCE(number_code, '')) <> ''
+            THEN TRIM(number_code)
+          WHEN TRIM(COALESCE(name, '')) <> ''
+            THEN TRIM(name)
+          WHEN kind = 'script'
+            THEN 'Untitled Script'
+          ELSE 'Untitled Shot'
+        END
+        WHERE TRIM(COALESCE(fs_name, '')) = ''
+        "#,
+        [],
+    )
+    .map_err(|e| format!("Failed to backfill clip_folders.fs_name: {}", e))?;
+
+    conn.execute(
+        r#"
+        UPDATE clip_library_ui_state
+        SET last_filter_json = '{}'
+        WHERE TRIM(COALESCE(last_filter_json, '')) = ''
+        "#,
+        [],
+    )
+    .map_err(|e| format!("Failed to backfill clip_library_ui_state.last_filter_json: {}", e))?;
+
+    conn.execute_batch(
+        r#"
+        CREATE INDEX IF NOT EXISTS idx_clip_libraries_updated_at ON clip_libraries(updated_at DESC);
+        CREATE INDEX IF NOT EXISTS idx_clip_library_chapters_library_id
+          ON clip_library_chapters(library_id, sort_order, created_at);
+        CREATE INDEX IF NOT EXISTS idx_clip_folders_library_id
+          ON clip_folders(library_id, chapter_id, parent_id, sort_order, created_at);
+        CREATE INDEX IF NOT EXISTS idx_clip_folders_number_code
+          ON clip_folders(library_id, number_code);
+        CREATE INDEX IF NOT EXISTS idx_clip_folders_kind
+          ON clip_folders(library_id, kind, chapter_id, parent_id);
+        CREATE INDEX IF NOT EXISTS idx_clip_items_library_id
+          ON clip_items(library_id, folder_id, created_at DESC);
+        CREATE INDEX IF NOT EXISTS idx_clip_items_media_type
+          ON clip_items(library_id, media_type, created_at DESC);
+        CREATE INDEX IF NOT EXISTS idx_clip_items_name
+          ON clip_items(library_id, name COLLATE NOCASE);
+        CREATE INDEX IF NOT EXISTS idx_clip_items_description
+          ON clip_items(library_id, description_text COLLATE NOCASE);
+        CREATE INDEX IF NOT EXISTS idx_clip_items_source_project
+          ON clip_items(library_id, source_project_id, created_at DESC);
+        "#,
+    )
+    .map_err(|e| format!("Failed to initialize clip library indexes: {}", e))?;
 
     Ok(())
 }
@@ -1082,6 +1559,8 @@ pub fn list_project_summaries(app: AppHandle) -> Result<Vec<ProjectSummaryRecord
                 name,
                 COALESCE(project_type, 'storyboard') as project_type,
                 asset_library_id,
+                clip_library_id,
+                clip_last_folder_id,
                 linked_script_project_id,
                 created_at,
                 updated_at,
@@ -1099,10 +1578,12 @@ pub fn list_project_summaries(app: AppHandle) -> Result<Vec<ProjectSummaryRecord
                 name: row.get(1)?,
                 project_type: row.get(2)?,
                 asset_library_id: row.get(3)?,
-                linked_script_project_id: row.get(4)?,
-                created_at: row.get(5)?,
-                updated_at: row.get(6)?,
-                node_count: row.get(7)?,
+                clip_library_id: row.get(4)?,
+                clip_last_folder_id: row.get(5)?,
+                linked_script_project_id: row.get(6)?,
+                created_at: row.get(7)?,
+                updated_at: row.get(8)?,
+                node_count: row.get(9)?,
             })
         })
         .map_err(|e| format!("Failed to query project summaries: {}", e))?;
@@ -1129,6 +1610,8 @@ pub fn get_project_record(
                     name,
                     COALESCE(project_type, 'storyboard') as project_type,
                     asset_library_id,
+                    clip_library_id,
+                    clip_last_folder_id,
                     linked_script_project_id,
                     created_at,
                     updated_at,
@@ -1151,15 +1634,17 @@ pub fn get_project_record(
                 name: row.get(1)?,
                 project_type: row.get(2)?,
                 asset_library_id: row.get(3)?,
-                linked_script_project_id: row.get(4)?,
-                created_at: row.get(5)?,
-                updated_at: row.get(6)?,
-                node_count: row.get(7)?,
-                nodes_json: row.get(8)?,
-                edges_json: row.get(9)?,
-                viewport_json: row.get(10)?,
-                history_json: row.get(11)?,
-                color_labels_json: row.get(12)?,
+                clip_library_id: row.get(4)?,
+                clip_last_folder_id: row.get(5)?,
+                linked_script_project_id: row.get(6)?,
+                created_at: row.get(7)?,
+                updated_at: row.get(8)?,
+                node_count: row.get(9)?,
+                nodes_json: row.get(10)?,
+                edges_json: row.get(11)?,
+                viewport_json: row.get(12)?,
+                history_json: row.get(13)?,
+                color_labels_json: row.get(14)?,
             })
         })
     };
@@ -1198,6 +1683,8 @@ pub fn upsert_project_record(app: AppHandle, mut record: ProjectRecord) -> Resul
             name,
             project_type,
             asset_library_id,
+            clip_library_id,
+            clip_last_folder_id,
             linked_script_project_id,
             created_at,
             updated_at,
@@ -1208,11 +1695,13 @@ pub fn upsert_project_record(app: AppHandle, mut record: ProjectRecord) -> Resul
             history_json,
             color_labels_json
         )
-        VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)
+        VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)
         ON CONFLICT(id) DO UPDATE SET
             name = excluded.name,
             project_type = excluded.project_type,
             asset_library_id = excluded.asset_library_id,
+            clip_library_id = excluded.clip_library_id,
+            clip_last_folder_id = excluded.clip_last_folder_id,
             linked_script_project_id = excluded.linked_script_project_id,
             created_at = excluded.created_at,
             updated_at = excluded.updated_at,
@@ -1228,6 +1717,8 @@ pub fn upsert_project_record(app: AppHandle, mut record: ProjectRecord) -> Resul
             record.name,
             record.project_type,
             record.asset_library_id,
+            record.clip_library_id,
+            record.clip_last_folder_id,
             record.linked_script_project_id,
             record.created_at,
             record.updated_at,
@@ -1313,6 +1804,7 @@ mod tests {
     use super::storage;
     use super::{
         ensure_projects_table, extract_project_image_paths, normalize_image_ref_path,
+        read_table_columns,
         rewrite_project_payload_media_paths,
     };
     use rusqlite::Connection;
@@ -1410,6 +1902,160 @@ mod tests {
             legacy_project_count, 1,
             "existing projects should remain readable"
         );
+    }
+
+    #[test]
+    fn ensure_projects_table_migrates_clip_library_tables_with_missing_layout_columns() {
+        let conn = Connection::open_in_memory().expect("failed to open in-memory db");
+        conn.execute_batch(
+            r#"
+            CREATE TABLE projects (
+              id TEXT PRIMARY KEY,
+              name TEXT NOT NULL,
+              created_at INTEGER NOT NULL,
+              updated_at INTEGER NOT NULL,
+              node_count INTEGER NOT NULL DEFAULT 0,
+              nodes_json TEXT NOT NULL,
+              edges_json TEXT NOT NULL,
+              viewport_json TEXT NOT NULL,
+              history_json TEXT NOT NULL,
+              project_type TEXT NOT NULL DEFAULT 'storyboard'
+            );
+            CREATE TABLE clip_library_chapters (
+              id TEXT PRIMARY KEY,
+              library_id TEXT NOT NULL,
+              name TEXT NOT NULL,
+              sort_order INTEGER NOT NULL DEFAULT 0,
+              created_at INTEGER NOT NULL,
+              updated_at INTEGER NOT NULL
+            );
+            CREATE TABLE clip_library_project_links (
+              id TEXT PRIMARY KEY,
+              library_id TEXT NOT NULL,
+              chapter_id TEXT NOT NULL,
+              project_id TEXT NOT NULL,
+              sort_order INTEGER NOT NULL DEFAULT 0,
+              created_at INTEGER NOT NULL,
+              updated_at INTEGER NOT NULL
+            );
+            CREATE TABLE clip_folders (
+              id TEXT PRIMARY KEY,
+              library_id TEXT NOT NULL,
+              project_link_id TEXT NOT NULL,
+              parent_id TEXT,
+              kind TEXT NOT NULL,
+              name TEXT NOT NULL,
+              sort_order INTEGER NOT NULL DEFAULT 0,
+              created_at INTEGER NOT NULL,
+              updated_at INTEGER NOT NULL
+            );
+            INSERT INTO projects (
+              id,
+              name,
+              created_at,
+              updated_at,
+              node_count,
+              nodes_json,
+              edges_json,
+              viewport_json,
+              history_json,
+              project_type
+            )
+            VALUES (
+              'project-1',
+              'Storyboard A',
+              1,
+              1,
+              0,
+              '[]',
+              '[]',
+              '{}',
+              '{"past":[],"future":[]}',
+              'storyboard'
+            );
+            INSERT INTO clip_library_chapters (id, library_id, name, sort_order, created_at, updated_at)
+            VALUES ('chapter-1', 'library-1', '第一章', 0, 1, 1);
+            INSERT INTO clip_library_project_links (
+              id,
+              library_id,
+              chapter_id,
+              project_id,
+              sort_order,
+              created_at,
+              updated_at
+            )
+            VALUES ('link-1', 'library-1', 'chapter-1', 'project-1', 0, 1, 1);
+            INSERT INTO clip_folders (
+              id,
+              library_id,
+              project_link_id,
+              parent_id,
+              kind,
+              name,
+              sort_order,
+              created_at,
+              updated_at
+            )
+            VALUES ('folder-1', 'library-1', 'link-1', NULL, 'shot', '开场', 0, 1, 1);
+            "#,
+        )
+        .expect("failed to seed legacy clip library schema");
+
+        ensure_projects_table(&conn).expect("clip library schema migration should succeed");
+
+        let chapter_columns = read_table_columns(&conn, "clip_library_chapters")
+            .expect("failed to inspect clip_library_chapters");
+        let project_link_columns = read_table_columns(&conn, "clip_library_project_links")
+            .expect("failed to inspect clip_library_project_links");
+        let folder_columns =
+            read_table_columns(&conn, "clip_folders").expect("failed to inspect clip_folders");
+
+        assert!(
+            chapter_columns.contains("fs_name"),
+            "clip_library_chapters.fs_name should be added for legacy data"
+        );
+        assert!(
+            project_link_columns.contains("fs_name"),
+            "clip_library_project_links.fs_name should be added for legacy data"
+        );
+        assert!(
+            folder_columns.contains("shot_order"),
+            "clip_folders.shot_order should be added for legacy data"
+        );
+        assert!(
+            folder_columns.contains("number_code"),
+            "clip_folders.number_code should be added for legacy data"
+        );
+        assert!(
+            folder_columns.contains("fs_name"),
+            "clip_folders.fs_name should be added for legacy data"
+        );
+
+        let chapter_fs_name: String = conn
+            .query_row(
+                "SELECT fs_name FROM clip_library_chapters WHERE id = 'chapter-1'",
+                [],
+                |row| row.get(0),
+            )
+            .expect("failed to read migrated clip chapter fs_name");
+        let project_link_fs_name: String = conn
+            .query_row(
+                "SELECT fs_name FROM clip_library_project_links WHERE id = 'link-1'",
+                [],
+                |row| row.get(0),
+            )
+            .expect("failed to read migrated clip project link fs_name");
+        let folder_fs_name: String = conn
+            .query_row(
+                "SELECT fs_name FROM clip_folders WHERE id = 'folder-1'",
+                [],
+                |row| row.get(0),
+            )
+            .expect("failed to read migrated clip folder fs_name");
+
+        assert_eq!(chapter_fs_name, "第一章");
+        assert_eq!(project_link_fs_name, "Storyboard A");
+        assert_eq!(folder_fs_name, "开场");
     }
 
     #[test]

@@ -24,12 +24,14 @@ import {
 } from "@/features/canvas/domain/canvasNodes";
 import {
   JIMENG_VIDEO_QUEUE_ATTEMPT_TIMEOUT_MS,
+  JIMENG_VIDEO_QUEUE_CONCURRENCY_BACKOFF_MAX_MS,
   JIMENG_VIDEO_QUEUE_MAX_ACTIVE_JOBS,
   JIMENG_VIDEO_QUEUE_MAX_ATTEMPTS,
   JIMENG_VIDEO_QUEUE_POLL_INTERVAL_MS,
   JIMENG_VIDEO_QUEUE_RETRY_DELAY_MS,
   canJimengVideoQueueJobBeRescheduled,
   isJimengVideoQueueActiveStatus,
+  isJimengVideoQueueServerConcurrencyMessage,
   isJimengVideoQueueTerminalStatus,
   type JimengVideoQueueJob,
   type JimengVideoQueueJobStatus,
@@ -93,6 +95,7 @@ const projectLoadedAtById = new Map<string, number>();
 const inflightJobIds = new Set<string>();
 const nextPollAtByJobId = new Map<string, number>();
 const discardedJobIds = new Set<string>();
+const concurrencyBackoffAttemptByJobId = new Map<string, number>();
 
 function sortJobs(jobs: JimengVideoQueueJob[]): JimengVideoQueueJob[] {
   return [...jobs].sort((left, right) => {
@@ -391,6 +394,20 @@ function resolveJobErrorMessage(error: unknown): string {
   ).message;
 }
 
+function clearConcurrencyBackoff(jobId: string): void {
+  concurrencyBackoffAttemptByJobId.delete(jobId);
+}
+
+function resolveNextConcurrencyBackoffDelay(jobId: string): number {
+  const currentAttempt = concurrencyBackoffAttemptByJobId.get(jobId) ?? 0;
+  const delay = Math.min(
+    JIMENG_VIDEO_QUEUE_RETRY_DELAY_MS * 2 ** currentAttempt,
+    JIMENG_VIDEO_QUEUE_CONCURRENCY_BACKOFF_MAX_MS,
+  );
+  concurrencyBackoffAttemptByJobId.set(jobId, currentAttempt + 1);
+  return delay;
+}
+
 function buildRetryingJob(
   job: JimengVideoQueueJob,
   errorMessage: string,
@@ -415,6 +432,26 @@ function buildAttemptFailureJob(
   errorMessage: string,
 ): JimengVideoQueueJob {
   return buildRetryingJob(job, errorMessage);
+}
+
+function buildConcurrencyBlockedJob(
+  job: JimengVideoQueueJob,
+  errorMessage: string,
+): JimengVideoQueueJob {
+  const now = Date.now();
+  const delay = resolveNextConcurrencyBackoffDelay(job.jobId);
+
+  return {
+    ...job,
+    submitId: null,
+    status: "retrying",
+    attemptCount: Math.max(0, job.attemptCount - 1),
+    lastError: errorMessage,
+    updatedAt: now,
+    startedAt: null,
+    nextRetryAt: now + delay,
+    completedAt: null,
+  };
 }
 
 function buildFailedJob(
@@ -476,6 +513,7 @@ async function discardJobsForDeletedResultNodes(
     discardedJobIds.add(job.jobId);
     inflightJobIds.delete(job.jobId);
     nextPollAtByJobId.delete(job.jobId);
+    clearConcurrencyBackoff(job.jobId);
     removeOpenProjectJob(currentProjectId, job.jobId);
   });
 
@@ -605,13 +643,18 @@ async function startJobAttempt(job: JimengVideoQueueJob): Promise<void> {
     if (isJobDiscarded(currentJob.jobId)) {
       return;
     }
+    clearConcurrencyBackoff(currentJob.jobId);
     nextPollAtByJobId.set(currentJob.jobId, Date.now());
     await commitJob(currentJob, { flushProject: true });
   } catch (error) {
     if (isJobDiscarded(currentJob.jobId)) {
       return;
     }
-    currentJob = buildFailedJob(currentJob, resolveJobErrorMessage(error));
+    const errorMessage = resolveJobErrorMessage(error);
+    currentJob = isJimengVideoQueueServerConcurrencyMessage(errorMessage)
+      ? buildConcurrencyBlockedJob(currentJob, errorMessage)
+      : (clearConcurrencyBackoff(currentJob.jobId),
+        buildFailedJob(currentJob, errorMessage));
     await commitJob(currentJob, { flushProject: true });
   } finally {
     inflightJobIds.delete(job.jobId);
@@ -641,6 +684,7 @@ async function pollJob(job: JimengVideoQueueJob): Promise<void> {
         workingJob,
         i18n.t("jimengQueue.errors.timeout"),
       );
+      clearConcurrencyBackoff(workingJob.jobId);
       nextPollAtByJobId.delete(workingJob.jobId);
       await commitJob(timedOutJob, { flushProject: true });
       return;
@@ -699,6 +743,7 @@ async function pollJob(job: JimengVideoQueueJob): Promise<void> {
         completedAt: now,
         lastError: null,
       };
+      clearConcurrencyBackoff(workingJob.jobId);
       nextPollAtByJobId.delete(workingJob.jobId);
       await commitJob(completedJob, { flushProject: true, syncNodes: false });
       return;
@@ -730,6 +775,7 @@ async function pollJob(job: JimengVideoQueueJob): Promise<void> {
         workingJob,
         failureMessage,
       );
+      clearConcurrencyBackoff(workingJob.jobId);
       nextPollAtByJobId.delete(workingJob.jobId);
       await commitJob(failedJob, { flushProject: true });
       return;
@@ -739,6 +785,7 @@ async function pollJob(job: JimengVideoQueueJob): Promise<void> {
       workingJob,
       response.failureMessage?.trim() || i18n.t("jimengQueue.errors.resultEmpty"),
     );
+    clearConcurrencyBackoff(workingJob.jobId);
     nextPollAtByJobId.delete(workingJob.jobId);
     await commitJob(failedJob, { flushProject: true });
   } catch (error) {
@@ -756,6 +803,7 @@ async function pollJob(job: JimengVideoQueueJob): Promise<void> {
         workingJob,
         resolveJobErrorMessage(error),
       );
+      clearConcurrencyBackoff(workingJob.jobId);
       nextPollAtByJobId.delete(workingJob.jobId);
       await commitJob(failedJob, { flushProject: true });
       return;
@@ -942,6 +990,7 @@ export const useJimengVideoQueueStore = create<JimengVideoQueueState>(
       const currentProjectId = get().currentProjectId;
       if (currentProjectId) {
         projectLoadedAtById.delete(currentProjectId);
+        get().jobs.forEach((job) => clearConcurrencyBackoff(job.jobId));
       }
       stopScheduler();
       set({
@@ -1017,6 +1066,7 @@ export const useJimengVideoQueueStore = create<JimengVideoQueueState>(
         },
         { syncNodes: true, flushProject: true },
       );
+      clearConcurrencyBackoff(job.jobId);
       ensureSchedulerRunning();
     },
 
@@ -1038,6 +1088,7 @@ export const useJimengVideoQueueStore = create<JimengVideoQueueState>(
         },
         { syncNodes: true, flushProject: true },
       );
+      clearConcurrencyBackoff(job.jobId);
       ensureSchedulerRunning();
     },
 
@@ -1066,6 +1117,7 @@ export const useJimengVideoQueueStore = create<JimengVideoQueueState>(
         },
         { syncNodes: true, flushProject: true },
       );
+      clearConcurrencyBackoff(job.jobId);
     },
 
     retryJob: async (jobId) => {
@@ -1089,6 +1141,7 @@ export const useJimengVideoQueueStore = create<JimengVideoQueueState>(
         },
         { syncNodes: true, flushProject: true },
       );
+      clearConcurrencyBackoff(job.jobId);
       ensureSchedulerRunning();
     },
 
@@ -1115,6 +1168,7 @@ export const useJimengVideoQueueStore = create<JimengVideoQueueState>(
 
       removeOpenProjectJob(currentProjectId, jobId);
       nextPollAtByJobId.delete(jobId);
+      clearConcurrencyBackoff(jobId);
       try {
         await deleteJimengVideoQueueJob(jobId);
       } catch (error) {

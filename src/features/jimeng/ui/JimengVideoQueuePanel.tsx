@@ -20,6 +20,7 @@ import {
   JIMENG_VIDEO_QUEUE_MAX_ACTIVE_JOBS,
   canJimengVideoQueueJobBeRescheduled,
   isJimengVideoQueueActiveStatus,
+  isJimengVideoQueueServerConcurrencyMessage,
   isJimengVideoQueueTerminalStatus,
   type JimengVideoQueueJob,
   type JimengVideoQueueJobStatus,
@@ -79,6 +80,7 @@ function resolveModelLabel(
 function resolveStatusLabel(
   status: JimengVideoQueueJobStatus,
   t: TFunction,
+  lastError?: string | null,
 ): string {
   switch (status) {
     case "waiting":
@@ -92,7 +94,9 @@ function resolveStatusLabel(
     case "generating":
       return t("jimengQueue.status.generating");
     case "retrying":
-      return t("jimengQueue.status.retrying");
+      return isJimengVideoQueueServerConcurrencyMessage(lastError)
+        ? t("jimengQueue.status.serverConcurrencyBlocked")
+        : t("jimengQueue.status.retrying");
     case "completed":
       return t("jimengQueue.status.completed");
     case "failed":
@@ -127,6 +131,13 @@ function resolveJobStatusDescription(
     case "generating":
       return t("node.jimengVideoResult.statusGenerating");
     case "retrying":
+      if (isJimengVideoQueueServerConcurrencyMessage(job.lastError)) {
+        return retryLabel
+          ? t("jimengQueue.result.serverConcurrencyRetryAt", {
+              time: retryLabel,
+            })
+          : t("jimengQueue.result.serverConcurrencyBlocked");
+      }
       return retryLabel
         ? t("jimengQueue.panel.retryAt", {
             time: retryLabel,
@@ -161,7 +172,7 @@ function resolveJobStatusDescription(
         ? t("jimengQueue.panel.completedAt", { time: completedLabel })
         : t("jimengQueue.status.completed");
     default:
-      return resolveStatusLabel(job.status, t);
+      return resolveStatusLabel(job.status, t, job.lastError);
   }
 }
 
@@ -351,7 +362,7 @@ export function JimengVideoQueuePanel({
                       <span
                         className={`absolute bottom-1 right-1 rounded-full border px-2 py-0.5 text-[10px] font-medium ${resolveStatusTone(job.status)}`}
                       >
-                        {resolveStatusLabel(job.status, t)}
+                        {resolveStatusLabel(job.status, t, job.lastError)}
                       </span>
                     </div>
 

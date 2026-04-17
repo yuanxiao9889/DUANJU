@@ -3075,7 +3075,12 @@ export const JimengNode = memo(
           minWidth={JIMENG_NODE_MIN_WIDTH}
           minHeight={JIMENG_NODE_MIN_HEIGHT}
         />
-        <UiLoadingOverlay visible={showBlockingOverlay} insetClassName="inset-3" />
+        <UiLoadingOverlay
+          visible={showBlockingOverlay}
+          insetClassName="inset-3"
+          backdropClassName="bg-transparent"
+          variant="bare"
+        />
         <JimengVideoQueueScheduleModal
           isOpen={showQueueScheduleModal}
           title={t("jimengQueue.schedule.createTitle")}

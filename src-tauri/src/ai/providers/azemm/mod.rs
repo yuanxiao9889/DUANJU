@@ -9,7 +9,7 @@ use tracing::info;
 use crate::ai::error::AIError;
 use crate::ai::{AIProvider, GenerateRequest};
 
-const DEFAULT_BASE_URL: &str = "http://45.152.65.57:3000";
+const DEFAULT_BASE_URL: &str = "https://api.azemm.top";
 const CHAT_COMPLETIONS_ENDPOINT_PATH: &str = "/v1/chat/completions";
 
 const SUPPORTED_MODELS: [&str; 2] = [
