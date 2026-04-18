@@ -417,6 +417,7 @@ export function DreaminaSetupDialog({
   const showCompactQrLayout = isLoginFlowVisible;
   const showQrFailureState = isLoginFlowVisible && !loginQrDataUrl && isLoginFlowFailed;
   const hasManualLoginFallback = Boolean(loginPageUrl) && !loginQrDataUrl;
+  const canOpenManualLogin = Boolean(loginPageUrl);
   const runtimeSourceCopy = useMemo(
     () => resolveRuntimeSourceCopy(setupProgress?.gitSource, t),
     [setupProgress?.gitSource, t],
@@ -633,7 +634,6 @@ export function DreaminaSetupDialog({
     if (
       !isOpen ||
       !loginPageUrl ||
-      Boolean(loginQrDataUrl) ||
       autoOpenedLoginUrlRef.current === loginPageUrl
     ) {
       return;
@@ -643,7 +643,7 @@ export function DreaminaSetupDialog({
     void openUrl(loginPageUrl).catch((error) => {
       console.error("Failed to auto-open Dreamina login page", error);
     });
-  }, [isOpen, loginPageUrl, loginQrDataUrl]);
+  }, [isOpen, loginPageUrl]);
 
   useEffect(() => {
     if (
@@ -863,7 +863,7 @@ export function DreaminaSetupDialog({
                   </div>
                 ) : null}
 
-                {hasManualLoginFallback ? (
+                {canOpenManualLogin ? (
                   <div className="rounded-xl border border-[rgba(255,255,255,0.08)] bg-black/10 px-3 py-3">
                     <div className="text-sm font-medium text-text-dark">
                       {t("dreaminaSetup.manualLogin.title")}

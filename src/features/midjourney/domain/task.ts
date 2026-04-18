@@ -17,6 +17,7 @@ export interface MidjourneyTaskSnapshot {
   status: string;
   progress: string;
   imageUrl?: string | null;
+  imageUrls?: string[] | null;
   prompt?: string | null;
   promptEn?: string | null;
   finalPrompt?: string | null;

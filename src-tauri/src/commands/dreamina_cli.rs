@@ -1,6 +1,7 @@
 use std::env;
 use std::fs;
 use std::fs::OpenOptions;
+use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::process::Stdio;
@@ -325,6 +326,12 @@ struct DreaminaCliResolvedBinary {
     binary_path: Option<PathBuf>,
     current_version: Option<String>,
     bundled_version: Option<String>,
+}
+
+#[derive(Debug, Clone)]
+struct DreaminaLoginCheckloginResult {
+    authorized: bool,
+    detail: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -1514,6 +1521,72 @@ fn dreamina_login_confirmed(workspace: &Path) -> bool {
     dreamina_login_success_logged(workspace)
 }
 
+fn append_dreamina_login_log_marker(workspace: &Path, marker: &str) -> Result<(), String> {
+    let log_path = dreamina_login_log_path(workspace);
+    let mut log_file = OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&log_path)
+        .map_err(|error| format!("failed to append Dreamina login marker: {error}"))?;
+    writeln!(log_file, "{marker}")
+        .map_err(|error| format!("failed to write Dreamina login marker: {error}"))
+}
+
+fn first_non_empty_dreamina_line_owned(stdout: &str, stderr: &str) -> Option<String> {
+    first_non_empty_dreamina_output(stdout, stderr).map(str::trim).and_then(|line| {
+        if line.is_empty() {
+            None
+        } else {
+            Some(line.to_string())
+        }
+    })
+}
+
+fn looks_like_dreamina_checklogin_pending(detail: &str) -> bool {
+    let lowered = detail.to_ascii_lowercase();
+    lowered.contains("authorization_pending")
+        || lowered.contains("still pending")
+        || lowered.contains("still waiting")
+        || lowered.contains("waiting for browser authorization")
+        || lowered.contains("waiting for login")
+        || lowered.contains("wait for login")
+        || lowered.contains("等待登录")
+        || lowered.contains("请先登录")
+        || lowered.contains("请重试")
+        || lowered.contains("timed out")
+        || lowered.contains("timeout")
+}
+
+fn looks_like_dreamina_checklogin_expired(detail: &str) -> bool {
+    let lowered = detail.to_ascii_lowercase();
+    (lowered.contains("device_code") || lowered.contains("device code"))
+        && (lowered.contains("expired") || lowered.contains("invalid"))
+}
+
+fn summarize_dreamina_checklogin_waiting_detail(raw_detail: Option<&str>) -> Option<String> {
+    let raw_detail = raw_detail.map(str::trim).filter(|detail| !detail.is_empty());
+    if let Some(raw_detail) = raw_detail {
+        if looks_like_dreamina_checklogin_expired(raw_detail) {
+            return Some(format!(
+                "Dreamina OAuth device_code is no longer valid. Refresh the login page and authorize again.\nLatest checklogin output:\n{raw_detail}"
+            ));
+        }
+        if looks_like_dreamina_checklogin_pending(raw_detail) {
+            return Some(format!(
+                "Dreamina is still waiting for browser authorization. Complete authorization in the browser and keep this dialog open.\nLatest checklogin output:\n{raw_detail}"
+            ));
+        }
+        return Some(format!(
+            "Dreamina checklogin returned a non-ready status:\n{raw_detail}"
+        ));
+    }
+
+    Some(
+        "Dreamina is still waiting for browser authorization. Complete authorization in the browser and keep this dialog open."
+            .to_string(),
+    )
+}
+
 fn tail_lines(text: &str, line_count: usize) -> String {
     let lines = text
         .lines()
@@ -1749,6 +1822,17 @@ fn dreamina_login_wait_detail(workspace: &Path) -> Option<String> {
             format!("Dreamina is still preparing the login QR code. Latest login output:\n{tail}"),
         )
     })
+}
+
+fn dreamina_login_wait_detail_with_checklogin(
+    workspace: &Path,
+    checklogin_detail: Option<&str>,
+) -> Option<String> {
+    let mut detail = dreamina_login_wait_detail(workspace);
+    if let Some(checklogin_detail) = checklogin_detail {
+        append_detail_section(&mut detail, checklogin_detail);
+    }
+    detail
 }
 
 fn encode_file_as_data_url(path: &Path, mime_type: &str) -> Result<String, String> {
@@ -2233,7 +2317,7 @@ async fn run_dreamina_login_checklogin_once(
     runtime: &GitBashRuntime,
     device_code: &str,
     poll_seconds: u64,
-) -> Result<(), String> {
+) -> Result<DreaminaLoginCheckloginResult, String> {
     let command_env = dreamina_process_env(&workspace)?;
     let script = format!(
         "{prefix}; {dreamina} login checklogin --device_code={device_code} --poll={poll_seconds}",
@@ -2246,15 +2330,32 @@ async fn run_dreamina_login_checklogin_once(
         run_git_bash_script(runtime, command_env, workspace, script).await?;
 
     if success {
-        Ok(())
-    } else {
-        Err(format_dreamina_script_failure(
-            "Dreamina login checklogin",
-            &stdout,
-            &stderr,
-            "Dreamina login checklogin failed.",
-        ))
+        return Ok(DreaminaLoginCheckloginResult {
+            authorized: true,
+            detail: first_non_empty_dreamina_line_owned(&stdout, &stderr)
+                .map(|line| format!("Dreamina checklogin confirmed authorization: {line}")),
+        });
     }
+
+    let output_line = first_non_empty_dreamina_line_owned(&stdout, &stderr);
+    if let Some(detail) = summarize_dreamina_checklogin_waiting_detail(output_line.as_deref()) {
+        if output_line.is_none()
+            || looks_like_dreamina_checklogin_pending(&detail)
+            || looks_like_dreamina_checklogin_expired(&detail)
+        {
+            return Ok(DreaminaLoginCheckloginResult {
+                authorized: false,
+                detail: Some(detail),
+            });
+        }
+    }
+
+    Err(format_dreamina_script_failure(
+        "Dreamina login checklogin",
+        &stdout,
+        &stderr,
+        "Dreamina login checklogin failed.",
+    ))
 }
 
 fn sanitize_file_name(raw_name: &str, fallback_stem: &str, fallback_extension: &str) -> String {
@@ -3362,6 +3463,8 @@ async fn wait_for_dreamina_login(
     let mut verify_started_at: Option<Instant> = None;
     let mut auto_relaunch_count = 0u8;
     let mut last_device_checklogin_at: Option<Instant> = None;
+    let mut device_flow_confirmed = dreamina_login_success_logged(workspace);
+    let mut last_device_checklogin_detail: Option<String> = None;
 
     loop {
         let now = Instant::now();
@@ -3380,17 +3483,46 @@ async fn wait_for_dreamina_login(
 
         if let Some(device_code) = login_device_code.as_deref() {
             let should_check = last_device_checklogin_at
-                .map(|last| now.saturating_duration_since(last).as_millis() as u64 >= device_poll_interval_ms)
+                .map(|last| {
+                    now.saturating_duration_since(last).as_millis() as u64 >= device_poll_interval_ms
+                })
                 .unwrap_or(true);
-            if should_check {
+            if should_check && !device_flow_confirmed {
                 last_device_checklogin_at = Some(now);
-                let _ = run_dreamina_login_checklogin_once(
+                match run_dreamina_login_checklogin_once(
                     workspace.to_path_buf(),
                     runtime,
                     device_code,
                     0,
                 )
-                .await;
+                .await
+                {
+                    Ok(result) => {
+                        if result.authorized {
+                            device_flow_confirmed = true;
+                            if verify_started_at.is_none() {
+                                verify_started_at = Some(now);
+                            }
+                            if !dreamina_login_success_logged(workspace) {
+                                let _ = append_dreamina_login_log_marker(
+                                    workspace,
+                                    DREAMINA_LOGIN_SUCCESS_MARKER,
+                                );
+                            }
+                            if last_device_checklogin_detail.is_none() {
+                                last_device_checklogin_detail = Some(
+                                    "Dreamina OAuth authorization was accepted. Verifying the local session."
+                                        .to_string(),
+                                );
+                            }
+                        } else if let Some(detail) = result.detail {
+                            last_device_checklogin_detail = Some(detail);
+                        }
+                    }
+                    Err(error) => {
+                        last_device_checklogin_detail = Some(error);
+                    }
+                }
             }
         }
 
@@ -3479,7 +3611,10 @@ async fn wait_for_dreamina_login(
                 DreaminaSetupProgressStage::Verifying,
                 verify_progress.min(99) as u8,
                 Some(runtime.source),
-                dreamina_login_wait_detail(workspace),
+                dreamina_login_wait_detail_with_checklogin(
+                    workspace,
+                    last_device_checklogin_detail.as_deref(),
+                ),
                 login_qr_data_url,
                 login_page_url.clone(),
             );
@@ -3488,7 +3623,11 @@ async fn wait_for_dreamina_login(
         }
 
         if !qr_seen && !device_flow_ready && now >= qr_deadline {
-            let detail = dreamina_login_wait_detail(workspace).or_else(|| {
+            let detail = dreamina_login_wait_detail_with_checklogin(
+                workspace,
+                last_device_checklogin_detail.as_deref(),
+            )
+            .or_else(|| {
                 Some(
                     "Dreamina did not render a login QR code in time. Please retry to refresh the QR code."
                         .to_string(),
@@ -3509,7 +3648,12 @@ async fn wait_for_dreamina_login(
                 detail: status
                     .detail
                     .clone()
-                    .or_else(|| dreamina_login_wait_detail(workspace)),
+                    .or_else(|| {
+                        dreamina_login_wait_detail_with_checklogin(
+                            workspace,
+                            last_device_checklogin_detail.as_deref(),
+                        )
+                    }),
                 ..status
             };
             return (status, true);
@@ -3527,7 +3671,10 @@ async fn wait_for_dreamina_login(
             DreaminaSetupProgressStage::WaitingForLogin,
             progress.min(94) as u8,
             Some(runtime.source),
-            dreamina_login_wait_detail(workspace),
+            dreamina_login_wait_detail_with_checklogin(
+                workspace,
+                last_device_checklogin_detail.as_deref(),
+            ),
             login_qr_data_url,
             login_page_url,
         );

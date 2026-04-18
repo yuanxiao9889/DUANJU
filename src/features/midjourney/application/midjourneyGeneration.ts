@@ -9,6 +9,7 @@ import type {
 import {
   detectImageDimensions,
   prepareNodeImage,
+  reduceAspectRatio,
 } from '@/features/canvas/application/imageData';
 import { splitImageSource } from '@/commands/image';
 import {
@@ -124,21 +125,64 @@ export async function queryMidjourneyTask(
 async function fallbackGridImage(
   gridImageSource: string
 ): Promise<MjBatchImageItem[]> {
-  const prepared = await prepareNodeImage(gridImageSource);
-  const dimensions = await detectImageDimensions(prepared.imageUrl).catch(() => null);
+  return await prepareMidjourneyBatchImages([gridImageSource]);
+}
 
-  return [
-    {
+async function prepareMidjourneyBatchImage(
+  sourceUrl: string,
+  index: number
+): Promise<MjBatchImageItem> {
+  try {
+    const prepared = await prepareNodeImage(sourceUrl);
+    const dimensions = await detectImageDimensions(prepared.imageUrl).catch(() => null);
+
+    return {
       id: `mj-batch-image-${uuidv4()}`,
       imageUrl: prepared.imageUrl,
       previewImageUrl: prepared.previewImageUrl,
-      sourceUrl: gridImageSource,
-      index: 0,
-      aspectRatio: prepared.aspectRatio,
+      sourceUrl,
+      index,
+      aspectRatio:
+        prepared.aspectRatio ||
+        (dimensions ? reduceAspectRatio(dimensions.width, dimensions.height) : '1:1'),
       width: dimensions?.width,
       height: dimensions?.height,
-    },
-  ];
+    };
+  } catch {
+    const dimensions = await detectImageDimensions(sourceUrl).catch(() => null);
+
+    return {
+      id: `mj-batch-image-${uuidv4()}`,
+      imageUrl: sourceUrl,
+      previewImageUrl: sourceUrl,
+      sourceUrl,
+      index,
+      aspectRatio: dimensions
+        ? reduceAspectRatio(dimensions.width, dimensions.height)
+        : '1:1',
+      width: dimensions?.width,
+      height: dimensions?.height,
+    };
+  }
+}
+
+export async function prepareMidjourneyBatchImages(
+  imageSources: string[]
+): Promise<MjBatchImageItem[]> {
+  const normalizedSources = imageSources
+    .map((item) => item.trim())
+    .filter((item) => item.length > 0);
+  if (normalizedSources.length === 0) {
+    return [];
+  }
+
+  const preparedImages = await Promise.all(
+    normalizedSources.map((sourceUrl, index) =>
+      prepareMidjourneyBatchImage(sourceUrl, index)
+    )
+  );
+
+  return preparedImages.sort((left, right) => left.index - right.index);
 }
 
 export async function splitMidjourneyGridToBatchImages(
@@ -156,23 +200,7 @@ export async function splitMidjourneyGridToBatchImages(
     return splitSources as MjBatchImageItem[];
   }
 
-  const preparedImages = await Promise.all(
-    (splitSources as string[]).map(async (sourceUrl, index) => {
-      const prepared = await prepareNodeImage(sourceUrl);
-      const dimensions = await detectImageDimensions(prepared.imageUrl).catch(() => null);
-
-      return {
-        id: `mj-batch-image-${uuidv4()}`,
-        imageUrl: prepared.imageUrl,
-        previewImageUrl: prepared.previewImageUrl,
-        sourceUrl,
-        index,
-        aspectRatio: prepared.aspectRatio,
-        width: dimensions?.width,
-        height: dimensions?.height,
-      } satisfies MjBatchImageItem;
-    })
-  );
+  const preparedImages = await prepareMidjourneyBatchImages(splitSources as string[]);
 
   if (preparedImages.length === 0) {
     return fallbackGridImage(normalizedGridImageSource);

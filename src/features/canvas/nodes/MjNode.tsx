@@ -52,6 +52,7 @@ import {
   type MidjourneyAspectRatio,
   type MidjourneyVersionPreset,
   type MjNodeData,
+  type MjResultBatch,
   type MjResultNodeData,
 } from '@/features/canvas/domain/canvasNodes';
 import { resolveNodeDisplayName } from '@/features/canvas/domain/nodeDisplay';
@@ -75,6 +76,7 @@ import {
   appendMjResultBatch,
   areMjReferencesEqual,
   buildSyncedMjReferences,
+  updateMjResultBatch,
 } from '@/features/midjourney/application/midjourneyNodes';
 import {
   optimizeMidjourneyPrompt,
@@ -162,6 +164,7 @@ export const MjNode = memo(({ id, data, selected, width }: MjNodeProps) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const advancedParamsTriggerRef = useRef<HTMLDivElement>(null);
   const advancedParamsPanelRef = useRef<HTMLDivElement>(null);
+  const generateRequestInFlightRef = useRef(false);
 
   const [promptDraft, setPromptDraft] = useState(() => data.prompt ?? '');
   const promptDraftRef = useRef(data.prompt ?? '');
@@ -496,7 +499,7 @@ export const MjNode = memo(({ id, data, selected, width }: MjNodeProps) => {
       return;
     }
 
-    if (isPromptBusy) {
+    if (isPromptBusy || generateRequestInFlightRef.current) {
       return;
     }
 
@@ -539,15 +542,52 @@ export const MjNode = memo(({ id, data, selected, width }: MjNodeProps) => {
       return;
     }
 
+    generateRequestInFlightRef.current = true;
+    const startedAt = Date.now();
+    const placeholderBatchId = `mj-batch-${uuidv4()}`;
+    const placeholderBatch: MjResultBatch = {
+      id: placeholderBatchId,
+      taskId: '',
+      providerId: mjProviderEnabled,
+      status: 'SUBMITTED',
+      progress: '',
+      prompt,
+      promptEn: null,
+      finalPrompt: null,
+      images: [],
+      submitTime: startedAt,
+      startTime: null,
+      finishTime: null,
+      failReason: null,
+      isPolling: false,
+    };
+
     try {
+      const initialResultNode = useCanvasStore
+        .getState()
+        .nodes.find((node) => node.id === resultNodeId);
+      const initialResultData =
+        isMjResultNode(initialResultNode)
+          ? initialResultNode.data
+          : buildDefaultMjResultNodeData(id, t('node.midjourney.resultNodeTitle'));
+      const seededResultData = appendMjResultBatch(initialResultData, placeholderBatch);
+
+      updateNodeData(
+        resultNodeId,
+        {
+          ...seededResultData,
+          sourceNodeId: id,
+        },
+        { historyMode: 'skip' }
+      );
       updateNodeData(id, {
         prompt: promptDraft,
+        linkedResultNodeId: resultNodeId,
         isSubmitting: true,
         activeTaskId: null,
         lastError: null,
-      });
+      }, { historyMode: 'skip' });
 
-      const startedAt = Date.now();
       const submission = await submitMidjourneyImagineTask({
         providerId: mjProviderEnabled,
         apiKey,
@@ -578,7 +618,15 @@ export const MjNode = memo(({ id, data, selected, width }: MjNodeProps) => {
         isMjResultNode(latestResultNode)
           ? latestResultNode.data
           : buildDefaultMjResultNodeData(id, t('node.midjourney.resultNodeTitle'));
-      const nextResultData = appendMjResultBatch(currentResultData, pendingBatch);
+      const nextResultData = updateMjResultBatch(
+        currentResultData,
+        placeholderBatchId,
+        (batch) => ({
+          ...batch,
+          ...pendingBatch,
+          id: batch.id,
+        })
+      );
 
       updateNodeData(
         resultNodeId,
@@ -616,15 +664,37 @@ export const MjNode = memo(({ id, data, selected, width }: MjNodeProps) => {
         { historyMode: 'skip' }
       );
       if (resultNodeId) {
+        const latestResultNode = useCanvasStore
+          .getState()
+          .nodes.find((node) => node.id === resultNodeId);
+        const currentResultData =
+          isMjResultNode(latestResultNode)
+            ? latestResultNode.data
+            : buildDefaultMjResultNodeData(id, t('node.midjourney.resultNodeTitle'));
+        const failedResultData = updateMjResultBatch(
+          currentResultData,
+          placeholderBatchId,
+          (batch) => ({
+            ...batch,
+            status: 'FAILURE',
+            progress: '',
+            failReason: content.message,
+            isPolling: false,
+            finishTime: Date.now(),
+          })
+        );
         updateNodeData(
           resultNodeId,
           {
+            ...failedResultData,
             lastError: content.message,
           },
           { historyMode: 'skip' }
         );
       }
       await showErrorDialog(content.message, t('common.error'), content.details);
+    } finally {
+      generateRequestInFlightRef.current = false;
     }
   }, [
     addEdge,

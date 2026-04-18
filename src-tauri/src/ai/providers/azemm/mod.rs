@@ -1,22 +1,31 @@
 use base64::{engine::general_purpose::STANDARD, Engine};
 use reqwest::Client;
 use serde_json::{json, Value};
+use std::fs;
 use std::path::PathBuf;
+use std::process::Command;
 use std::sync::Arc;
+use tokio::process::Command as TokioCommand;
 use tokio::sync::RwLock;
 use tracing::info;
+use uuid::Uuid;
 
 use crate::ai::error::AIError;
 use crate::ai::{AIProvider, GenerateRequest};
 
 const DEFAULT_BASE_URL: &str = "https://api.azemm.top";
 const CHAT_COMPLETIONS_ENDPOINT_PATH: &str = "/v1/chat/completions";
+const BANANA_CLIENT_HEADER_VALUE: &str = "comfyui-banana-li";
+const CHAT_COMPLETIONS_GEMINI_PREFIX: &str = "google/";
+const GEMINI_PRO_IMAGE_PREVIEW_MODEL: &str = "gemini-3-pro-image-preview";
+const GEMINI_FLASH_IMAGE_PREVIEW_MODEL: &str = "gemini-3.1-flash-image-preview";
+const CURL_JSON_TRANSPORT_MIN_BYTES: usize = 64 * 1024;
+const CURL_JSON_TRANSPORT_TIMEOUT_SECONDS: u64 = 240;
 
 const SUPPORTED_MODELS: [&str; 2] = [
-    "gemini-3-pro-image-preview",
-    "gemini-3.1-flash-image-preview",
+    GEMINI_PRO_IMAGE_PREVIEW_MODEL,
+    GEMINI_FLASH_IMAGE_PREVIEW_MODEL,
 ];
-
 pub struct AzemmProvider {
     client: Client,
     api_key: Arc<RwLock<Option<String>>>,
@@ -26,7 +35,10 @@ pub struct AzemmProvider {
 impl AzemmProvider {
     pub fn new() -> Self {
         Self {
-            client: Client::new(),
+            client: Client::builder()
+                .http1_only()
+                .build()
+                .unwrap_or_else(|_| Client::new()),
             api_key: Arc::new(RwLock::new(None)),
             base_url: DEFAULT_BASE_URL.to_string(),
         }
@@ -43,9 +55,42 @@ impl AzemmProvider {
 
     fn sanitize_model(model: &str) -> String {
         model
-            .split_once('/')
-            .map(|(_, bare)| bare.to_string())
-            .unwrap_or_else(|| model.to_string())
+            .trim()
+            .strip_prefix("azemm/")
+            .unwrap_or(model.trim())
+            .to_string()
+    }
+
+    fn resolve_chat_model(model: &str) -> String {
+        let sanitized = Self::sanitize_model(model);
+        match sanitized.as_str() {
+            GEMINI_PRO_IMAGE_PREVIEW_MODEL | GEMINI_FLASH_IMAGE_PREVIEW_MODEL => {
+                format!("{}{}", CHAT_COMPLETIONS_GEMINI_PREFIX, sanitized)
+            }
+            _ => sanitized,
+        }
+    }
+
+    fn is_pro_image_preview_model(model: &str) -> bool {
+        Self::sanitize_model(model).eq_ignore_ascii_case(GEMINI_PRO_IMAGE_PREVIEW_MODEL)
+    }
+
+    fn wrap_selected_model_error(request: &GenerateRequest, error: AIError) -> AIError {
+        if Self::has_image_intent(request) && Self::is_pro_image_preview_model(&request.model) {
+            return AIError::Provider(format!(
+                "Azemm could not complete the request with the selected model '{}' and did not auto-switch models. Original error: {}",
+                Self::sanitize_model(&request.model),
+                error
+            ));
+        }
+
+        error
+    }
+
+    fn should_use_generate_content_for_model(model: &str) -> bool {
+        let normalized = Self::sanitize_model(model);
+        normalized.eq_ignore_ascii_case(GEMINI_FLASH_IMAGE_PREVIEW_MODEL)
+            || normalized.eq_ignore_ascii_case(GEMINI_PRO_IMAGE_PREVIEW_MODEL)
     }
 
     fn has_image_intent(request: &GenerateRequest) -> bool {
@@ -106,6 +151,38 @@ impl AzemmProvider {
         }
 
         request.prompt.trim().to_string()
+    }
+
+    fn build_chat_extra_body(
+        request: &GenerateRequest,
+        include_aspect_ratio: bool,
+        include_image_size: bool,
+    ) -> Option<Value> {
+        let mut image_config = serde_json::Map::new();
+        if include_aspect_ratio && !request.aspect_ratio.trim().is_empty() {
+            image_config.insert(
+                "aspect_ratio".to_string(),
+                Value::String(request.aspect_ratio.trim().to_string()),
+            );
+        }
+        if include_image_size {
+            if let Some(image_size) = Self::resolve_gemini_image_size(&request.size) {
+                image_config.insert(
+                    "image_size".to_string(),
+                    Value::String(image_size.to_string()),
+                );
+            }
+        }
+
+        if image_config.is_empty() {
+            return None;
+        }
+
+        Some(json!({
+            "google": {
+                "image_config": Value::Object(image_config),
+            }
+        }))
     }
 
     fn resolve_gemini_endpoint(&self, request_model: &str) -> String {
@@ -428,6 +505,17 @@ impl AzemmProvider {
             .and_then(Value::as_array)
         {
             for part in parts {
+                if let Some(text) = part
+                    .pointer("/text")
+                    .and_then(Value::as_str)
+                    .map(str::trim)
+                    .filter(|value| !value.is_empty())
+                {
+                    if let Some(image_source) = Self::extract_image_source_from_text(text) {
+                        return Some(image_source);
+                    }
+                }
+
                 if let Some(uri) = part
                     .pointer("/fileData/fileUri")
                     .or_else(|| part.pointer("/file_data/file_uri"))
@@ -527,16 +615,41 @@ impl AzemmProvider {
         })
     }
 
-    fn is_unexpected_end_json_error(message: &str) -> bool {
-        message
-            .trim()
-            .to_ascii_lowercase()
-            .contains("unexpected end of json input")
+    fn is_retryable_json_decode_error(message: &str) -> bool {
+        let normalized = message.trim().to_ascii_lowercase();
+        normalized.contains("unexpected end of json input")
+            || normalized.contains("eof while parsing")
+            || normalized.contains("unterminated string")
+            || normalized.contains("json decode error")
+            || normalized.contains("json_invalid")
+            || normalized.contains("failed to parse azemm generatecontent response")
     }
 
     fn should_retry_generate_content_payload(payload: &Value) -> bool {
         Self::extract_error_message(payload)
-            .map(|message| Self::is_unexpected_end_json_error(&message))
+            .map(|message| Self::is_retryable_json_decode_error(&message))
+            .unwrap_or(false)
+    }
+
+    fn should_use_curl_json_transport(request_kind: &str, payload_len: usize) -> bool {
+        payload_len >= CURL_JSON_TRANSPORT_MIN_BYTES
+            && (request_kind.starts_with("chat-") || request_kind.starts_with("generateContent"))
+    }
+
+    fn should_continue_chat_completion_attempt(message: &str) -> bool {
+        let normalized = message.trim().to_ascii_lowercase();
+        Self::is_retryable_json_decode_error(message)
+            || (normalized.contains("modalities") && normalized.contains("unsupported"))
+            || (normalized.contains("image_url") && normalized.contains("invalid"))
+            || (normalized.contains("invalid") && normalized.contains("image"))
+            || (normalized.contains("extra_body") && normalized.contains("invalid"))
+            || (normalized.contains("aspect_ratio") && normalized.contains("invalid"))
+            || (normalized.contains("image_size") && normalized.contains("invalid"))
+    }
+
+    fn should_retry_chat_completion_payload(payload: &Value) -> bool {
+        Self::extract_error_message(payload)
+            .map(|message| Self::should_continue_chat_completion_attempt(&message))
             .unwrap_or(false)
     }
 
@@ -545,6 +658,7 @@ impl AzemmProvider {
         request: &GenerateRequest,
         include_aspect_ratio: bool,
         include_prompt_preferences: bool,
+        include_image_size: bool,
     ) -> Result<Value, AIError> {
         let mut parts = vec![json!({
             "text": Self::build_generate_content_prompt(request, include_prompt_preferences),
@@ -564,12 +678,26 @@ impl AzemmProvider {
             }
         }
 
-        let mut image_config = json!({});
+        let mut image_config = serde_json::Map::new();
         if include_aspect_ratio && !request.aspect_ratio.trim().is_empty() {
-            image_config["aspectRatio"] = Value::String(request.aspect_ratio.clone());
+            image_config.insert(
+                "aspectRatio".to_string(),
+                Value::String(request.aspect_ratio.clone()),
+            );
         }
-        if let Some(image_size) = Self::resolve_gemini_image_size(&request.size) {
-            image_config["imageSize"] = Value::String(image_size.to_string());
+        if include_image_size {
+            if let Some(image_size) = Self::resolve_gemini_image_size(&request.size) {
+                image_config.insert(
+                    "imageSize".to_string(),
+                    Value::String(image_size.to_string()),
+                );
+            }
+        }
+
+        let mut generation_config = serde_json::Map::new();
+        generation_config.insert("responseModalities".to_string(), json!(["IMAGE"]));
+        if !image_config.is_empty() {
+            generation_config.insert("imageConfig".to_string(), Value::Object(image_config));
         }
 
         Ok(json!({
@@ -577,10 +705,7 @@ impl AzemmProvider {
                 "role": "user",
                 "parts": parts,
             }],
-            "generationConfig": {
-                "responseModalities": ["IMAGE"],
-                "imageConfig": image_config,
-            }
+            "generationConfig": Value::Object(generation_config),
         }))
     }
 
@@ -604,14 +729,56 @@ impl AzemmProvider {
             request_body.len()
         );
 
+        if Self::should_use_curl_json_transport(request_kind, request_body.len()) {
+            match Self::send_json_request_with_curl(
+                endpoint.to_string(),
+                api_key.to_string(),
+                request_body.clone(),
+                request_kind.to_string(),
+            )
+            .await
+            {
+                Ok((status, response_text)) => {
+                    info!("[Azemm] {} {} -> {} (curl)", request_kind, endpoint, status);
+                    info!("[Azemm] {} response (curl): {}", request_kind, response_text);
+
+                    let payload = serde_json::from_str::<Value>(&response_text).map_err(|error| {
+                        AIError::Provider(format!(
+                            "Failed to parse Azemm {} curl response: {}. Response was: {}",
+                            request_kind, error, response_text
+                        ))
+                    })?;
+
+                    if !status.is_success() {
+                        if let Some(message) = Self::extract_error_message(&payload) {
+                            return Err(AIError::Provider(message));
+                        }
+                        return Err(AIError::Provider(format!(
+                            "Azemm {} curl request failed {}: {}",
+                            request_kind, status, response_text
+                        )));
+                    }
+
+                    return Ok(payload);
+                }
+                Err(error) => {
+                    info!(
+                        "[Azemm] {} curl transport unavailable, falling back to reqwest: {}",
+                        request_kind, error
+                    );
+                }
+            }
+        }
+
         let response = self
             .client
             .post(endpoint)
+            .version(reqwest::Version::HTTP_11)
             .header("Accept", "application/json")
             .header("Authorization", format!("Bearer {}", api_key))
             .header("X-API-Key", api_key)
-            .header("X-Banana-Client", "storyboard-copilot")
-            .header("Content-Type", "application/json; charset=utf-8")
+            .header("X-Banana-Client", BANANA_CLIENT_HEADER_VALUE)
+            .header("Content-Type", "application/json")
             .body(request_body)
             .send()
             .await?;
@@ -644,46 +811,314 @@ impl AzemmProvider {
         })
     }
 
-    async fn request_chat_completion(&self, request: &GenerateRequest) -> Result<Value, AIError> {
-        let endpoint = format!("{}{}", self.base_url, CHAT_COMPLETIONS_ENDPOINT_PATH);
-        let api_key = self.get_api_key().await?;
-        let image_intent = Self::has_image_intent(request);
+    async fn send_json_request_with_curl(
+        endpoint: String,
+        api_key: String,
+        payload: Vec<u8>,
+        request_kind: String,
+    ) -> Result<(reqwest::StatusCode, String), AIError> {
+        let request_kind_for_join = request_kind.clone();
+        tokio::task::spawn_blocking(move || {
+            let request_file_path =
+                std::env::temp_dir().join(format!("storyboard-azemm-request-{}.json", Uuid::new_v4()));
+            let response_file_path =
+                std::env::temp_dir().join(format!("storyboard-azemm-response-{}.txt", Uuid::new_v4()));
 
-        let mut content = vec![json!({
-            "type": "text",
-            "text": Self::build_prompt_text(request),
-        })];
+            let result = (|| {
+                fs::write(&request_file_path, &payload).map_err(|error| {
+                    AIError::Provider(format!(
+                        "Failed to persist Azemm {} curl payload: {}",
+                        request_kind, error
+                    ))
+                })?;
 
-        if let Some(reference_images) = request.reference_images.as_ref() {
+                let curl_binary = if cfg!(target_os = "windows") {
+                    "curl.exe"
+                } else {
+                    "curl"
+                };
+                let output = Command::new(curl_binary)
+                    .arg("-sS")
+                    .arg("--http1.1")
+                    .arg("--connect-timeout")
+                    .arg("30")
+                    .arg("--max-time")
+                    .arg(CURL_JSON_TRANSPORT_TIMEOUT_SECONDS.to_string())
+                    .arg("-X")
+                    .arg("POST")
+                    .arg(&endpoint)
+                    .arg("-H")
+                    .arg(format!("Authorization: Bearer {}", api_key))
+                    .arg("-H")
+                    .arg(format!("X-API-Key: {}", api_key))
+                    .arg("-H")
+                    .arg(format!("X-Banana-Client: {}", BANANA_CLIENT_HEADER_VALUE))
+                    .arg("-H")
+                    .arg("Accept: application/json")
+                    .arg("-H")
+                    .arg("Content-Type: application/json")
+                    .arg("--data-binary")
+                    .arg(format!("@{}", request_file_path.display()))
+                    .arg("-o")
+                    .arg(&response_file_path)
+                    .arg("-w")
+                    .arg("%{http_code}")
+                    .output()
+                    .map_err(|error| {
+                        AIError::Provider(format!(
+                            "Failed to execute curl for Azemm {} request: {}",
+                            request_kind, error
+                        ))
+                    })?;
+
+                if !output.status.success() {
+                    let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+                    return Err(AIError::Provider(format!(
+                        "curl transport failed for Azemm {} request: {}",
+                        request_kind,
+                        if stderr.is_empty() {
+                            format!("exit status {}", output.status)
+                        } else {
+                            stderr
+                        }
+                    )));
+                }
+
+                let status_code = String::from_utf8_lossy(&output.stdout)
+                    .trim()
+                    .parse::<u16>()
+                    .map_err(|error| {
+                        AIError::Provider(format!(
+                            "Failed to parse curl HTTP status for Azemm {} request: {}",
+                            request_kind, error
+                        ))
+                    })?;
+                let response_bytes = fs::read(&response_file_path).map_err(|error| {
+                    AIError::Provider(format!(
+                        "Failed to read curl response for Azemm {} request: {}",
+                        request_kind, error
+                    ))
+                })?;
+                let response_text = String::from_utf8_lossy(&response_bytes).into_owned();
+                let status = reqwest::StatusCode::from_u16(status_code).map_err(|error| {
+                    AIError::Provider(format!(
+                        "Invalid curl HTTP status for Azemm {} request: {}",
+                        request_kind, error
+                    ))
+                })?;
+
+                Ok((status, response_text))
+            })();
+
+            let _ = fs::remove_file(&request_file_path);
+            let _ = fs::remove_file(&response_file_path);
+            result
+        })
+        .await
+        .map_err(|error| {
+            AIError::Provider(format!(
+                "curl transport join error for Azemm {} request: {}",
+                request_kind_for_join, error
+            ))
+        })?
+    }
+
+    #[cfg(target_os = "windows")]
+    async fn send_json_request_via_powershell(
+        &self,
+        endpoint: &str,
+        api_key: &str,
+        body: &Value,
+        request_kind: &str,
+    ) -> Result<Value, AIError> {
+        let body_path =
+            std::env::temp_dir().join(format!("storyboard-azemm-{}.json", Uuid::new_v4()));
+        let body_text = serde_json::to_string(body).map_err(|error| {
+            AIError::Provider(format!(
+                "Failed to serialize Azemm {} request body for PowerShell fallback: {}",
+                request_kind, error
+            ))
+        })?;
+        std::fs::write(&body_path, body_text.as_bytes())?;
+
+        let script = r#"
+$ErrorActionPreference = 'Stop'
+$headers = @{
+  Authorization = "Bearer $env:AZEMM_API_KEY"
+  'X-API-Key' = $env:AZEMM_API_KEY
+  'X-Banana-Client' = 'comfyui-banana-li'
+  Accept = 'application/json'
+  'Content-Type' = 'application/json'
+}
+$body = [System.IO.File]::ReadAllText($env:AZEMM_BODY_PATH, [System.Text.Encoding]::UTF8)
+try {
+  $response = Invoke-WebRequest -Method Post -Uri $env:AZEMM_ENDPOINT -Headers $headers -Body $body -UseBasicParsing
+  [Console]::Out.Write($response.Content)
+  exit 0
+} catch {
+  if ($_.Exception.Response) {
+    $stream = $_.Exception.Response.GetResponseStream()
+    if ($stream) {
+      $reader = New-Object System.IO.StreamReader($stream)
+      $content = $reader.ReadToEnd()
+      if ($content) {
+        [Console]::Out.Write($content)
+      }
+    }
+  }
+  if ($_.Exception.Message) {
+    [Console]::Error.Write($_.Exception.Message)
+  }
+  exit 1
+}
+"#;
+
+        let output = TokioCommand::new("powershell.exe")
+            .args([
+                "-NoLogo",
+                "-NoProfile",
+                "-NonInteractive",
+                "-ExecutionPolicy",
+                "Bypass",
+                "-Command",
+                script,
+            ])
+            .env("AZEMM_API_KEY", api_key)
+            .env("AZEMM_ENDPOINT", endpoint)
+            .env("AZEMM_BODY_PATH", &body_path)
+            .output()
+            .await?;
+
+        let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
+        let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+        let _ = std::fs::remove_file(&body_path);
+
+        if stdout.is_empty() {
+            return Err(AIError::Provider(format!(
+                "Azemm {} PowerShell fallback returned no JSON body. stderr: {}",
+                request_kind, stderr
+            )));
+        }
+
+        let payload = serde_json::from_str::<Value>(&stdout).map_err(|error| {
+            AIError::Provider(format!(
+                "Failed to parse Azemm {} PowerShell fallback response: {}. Response was: {}",
+                request_kind, error, stdout
+            ))
+        })?;
+
+        if !output.status.success() {
+            if let Some(message) = Self::extract_error_message(&payload) {
+                return Err(AIError::Provider(message));
+            }
+
+            return Err(AIError::Provider(format!(
+                "Azemm {} PowerShell fallback failed: {}",
+                request_kind,
+                if stderr.is_empty() { stdout } else { stderr }
+            )));
+        }
+
+        Ok(payload)
+    }
+
+    async fn build_chat_completion_body(
+        &self,
+        request: &GenerateRequest,
+        include_prompt_preferences: bool,
+        include_modalities: bool,
+        include_size: bool,
+        include_aspect_ratio: bool,
+        include_image_size: bool,
+        include_extra_body: bool,
+        include_extra_body_aspect_ratio: bool,
+        include_extra_body_image_size: bool,
+    ) -> Result<Value, AIError> {
+        let prompt_text =
+            Self::build_generate_content_prompt(request, include_prompt_preferences);
+        let message_content = if let Some(reference_images) = request
+            .reference_images
+            .as_ref()
+            .filter(|images| !images.is_empty())
+        {
+            let mut content_parts = vec![json!({
+                "type": "text",
+                "text": prompt_text,
+            })];
+
             for source in reference_images {
-                content.push(json!({
+                content_parts.push(json!({
                     "type": "image_url",
                     "image_url": {
                         "url": Self::source_to_data_url(source).await?,
                     }
                 }));
             }
-        }
 
-        let mut body = json!({
-            "model": Self::sanitize_model(&request.model),
-            "messages": [{
+            Value::Array(content_parts)
+        } else {
+            Value::String(prompt_text)
+        };
+
+        let image_intent = Self::has_image_intent(request);
+        let mut body = serde_json::Map::new();
+        body.insert(
+            "model".to_string(),
+            Value::String(Self::resolve_chat_model(&request.model)),
+        );
+        body.insert(
+            "messages".to_string(),
+            json!([{
                 "role": "user",
-                "content": content,
-            }],
-            "stream": false,
-        });
+                "content": message_content,
+            }]),
+        );
+        body.insert("stream".to_string(), Value::Bool(false));
 
-        if image_intent {
-            body["modalities"] = json!(["text", "image"]);
+        if image_intent && include_modalities {
+            body.insert("modalities".to_string(), json!(["text", "image"]));
+        }
+        if image_intent && include_size {
             if let Some(size) = Self::resolve_chat_size(&request.size) {
-                body["size"] = Value::String(size.to_string());
+                body.insert("size".to_string(), Value::String(size.to_string()));
+            }
+        }
+        if image_intent && include_aspect_ratio && !request.aspect_ratio.trim().is_empty() {
+            body.insert(
+                "aspect_ratio".to_string(),
+                Value::String(request.aspect_ratio.trim().to_string()),
+            );
+        }
+        if image_intent && include_image_size {
+            if let Some(image_size) = Self::resolve_gemini_image_size(&request.size) {
+                body.insert(
+                    "image_size".to_string(),
+                    Value::String(image_size.to_string()),
+                );
+            }
+        }
+        if image_intent && include_extra_body {
+            if let Some(extra_body) =
+                Self::build_chat_extra_body(
+                    request,
+                    include_extra_body_aspect_ratio,
+                    include_extra_body_image_size,
+                )
+            {
+                body.insert("extra_body".to_string(), extra_body);
             }
         }
 
+        Ok(Value::Object(body))
+    }
+
+    async fn request_chat_completion(&self, request: &GenerateRequest) -> Result<Value, AIError> {
+        let endpoint = format!("{}{}", self.base_url, CHAT_COMPLETIONS_ENDPOINT_PATH);
+        let api_key = self.get_api_key().await?;
+
         info!(
             "[Azemm] chat request model: {}, size: {}, aspect_ratio: {}, refs: {}",
-            Self::sanitize_model(&request.model),
+            Self::resolve_chat_model(&request.model),
             request.size,
             request.aspect_ratio,
             request
@@ -693,17 +1128,131 @@ impl AzemmProvider {
                 .unwrap_or(0)
         );
 
-        self.send_json_request(&endpoint, &api_key, body, "chat")
-            .await
+        let attempts = [
+            (
+                false,
+                false,
+                false,
+                false,
+                false,
+                true,
+                true,
+                true,
+                "chat-doc-google-extra-body",
+            ),
+            (
+                false,
+                false,
+                false,
+                true,
+                true,
+                false,
+                false,
+                false,
+                "chat-direct-image-config",
+            ),
+            (
+                false,
+                false,
+                true,
+                true,
+                true,
+                false,
+                false,
+                false,
+                "chat-direct-image-config-with-size",
+            ),
+            (
+                true,
+                true,
+                true,
+                true,
+                true,
+                false,
+                false,
+                false,
+                "chat-openai-compatible-fallback",
+            ),
+            (
+                false,
+                false,
+                false,
+                false,
+                false,
+                false,
+                false,
+                false,
+                "chat-minimal",
+            ),
+        ];
+
+        let mut last_retryable_error: Option<AIError> = None;
+        for (index, attempt) in attempts.iter().enumerate() {
+            let (
+                include_prompt_preferences,
+                include_modalities,
+                include_size,
+                include_aspect_ratio,
+                include_image_size,
+                include_extra_body,
+                include_extra_body_aspect_ratio,
+                include_extra_body_image_size,
+                request_kind,
+            ) = *attempt;
+            let body = self
+                .build_chat_completion_body(
+                    request,
+                    include_prompt_preferences,
+                    include_modalities,
+                    include_size,
+                    include_aspect_ratio,
+                    include_image_size,
+                    include_extra_body,
+                    include_extra_body_aspect_ratio,
+                    include_extra_body_image_size,
+                )
+                .await?;
+            let has_more_attempts = index + 1 < attempts.len();
+
+            match self
+                .send_json_request(&endpoint, &api_key, body, request_kind)
+                .await
+            {
+                Ok(payload)
+                    if has_more_attempts && Self::should_retry_chat_completion_payload(&payload) =>
+                {
+                    let message = Self::extract_error_message(&payload)
+                        .unwrap_or_else(|| "retryable upstream chat error".to_string());
+                    info!(
+                        "[Azemm] {} returned retryable chat error payload ({}), retrying with {}",
+                        request_kind, message, attempts[index + 1].8
+                    );
+                    last_retryable_error = Some(AIError::Provider(message));
+                }
+                Err(AIError::Provider(message))
+                    if has_more_attempts
+                        && Self::should_continue_chat_completion_attempt(&message) =>
+                {
+                    info!(
+                        "[Azemm] {} provider error matched chat fallback criteria ({}), retrying with {}",
+                        request_kind, message, attempts[index + 1].8
+                    );
+                    last_retryable_error = Some(AIError::Provider(message));
+                }
+                Ok(payload) => return Ok(payload),
+                Err(error) => return Err(error),
+            }
+        }
+
+        Err(last_retryable_error.unwrap_or_else(|| {
+            AIError::Provider("Azemm chat/completions attempts exhausted without a result".to_string())
+        }))
     }
 
     async fn request_generate_content(&self, request: &GenerateRequest) -> Result<Value, AIError> {
         let request_model = Self::sanitize_model(&request.model);
         let endpoint = self.resolve_gemini_endpoint(&request_model);
         let api_key = self.get_api_key().await?;
-        let body = self
-            .build_generate_content_body(request, true, true)
-            .await?;
 
         info!(
             "[Azemm] generateContent model: {}, endpoint: {}, size: {}, aspect_ratio: {}, refs: {}",
@@ -718,42 +1267,156 @@ impl AzemmProvider {
                 .unwrap_or(0)
         );
 
-        match self
-            .send_json_request(&endpoint, &api_key, body, "generateContent")
-            .await
-        {
-            Ok(payload) if Self::should_retry_generate_content_payload(&payload) => {
-                info!(
-                    "[Azemm] generateContent returned unexpected-end JSON error, retrying with minimal optional fields"
-                );
-                let fallback_body = self
-                    .build_generate_content_body(request, false, false)
-                    .await?;
-                self.send_json_request(
-                    &endpoint,
-                    &api_key,
-                    fallback_body,
-                    "generateContent-fallback",
-                )
-                .await
-            }
-            Err(AIError::Provider(message)) if Self::is_unexpected_end_json_error(&message) => {
-                info!(
-                    "[Azemm] generateContent provider error matched unexpected-end JSON error, retrying with minimal optional fields"
-                );
-                let fallback_body = self
-                    .build_generate_content_body(request, false, false)
-                    .await?;
-                self.send_json_request(
-                    &endpoint,
-                    &api_key,
-                    fallback_body,
-                    "generateContent-fallback",
-                )
-                .await
-            }
-            other => other,
+        let mut attempts = vec![
+            (true, true, true, "generateContent-doc-image-config"),
+            (false, false, true, "generateContent-doc-no-aspect"),
+        ];
+        if request.size.trim().is_empty() {
+            attempts.push((false, false, false, "generateContent-minimal"));
         }
+        let mut exhausted_retryable_error = false;
+
+        for (index, attempt) in attempts.iter().enumerate() {
+            let (include_aspect_ratio, include_prompt_preferences, include_image_size, request_kind) =
+                *attempt;
+            let body = self
+                .build_generate_content_body(
+                    request,
+                    include_aspect_ratio,
+                    include_prompt_preferences,
+                    include_image_size,
+                )
+                .await?;
+            let has_more_attempts = index + 1 < attempts.len();
+            match self
+                .send_json_request(&endpoint, &api_key, body.clone(), request_kind)
+                .await
+            {
+                Ok(payload)
+                    if Self::should_retry_generate_content_payload(&payload) && has_more_attempts =>
+                {
+                    info!(
+                        "[Azemm] {} returned retryable JSON decode error payload, retrying with {}",
+                        request_kind, attempts[index + 1].3
+                    );
+                }
+                Err(AIError::Provider(message))
+                    if Self::is_retryable_json_decode_error(&message) && has_more_attempts =>
+                {
+                    #[cfg(target_os = "windows")]
+                    {
+                        match self
+                            .send_json_request_via_powershell(
+                                &endpoint,
+                                &api_key,
+                                &body,
+                                request_kind,
+                            )
+                            .await
+                        {
+                            Ok(payload) => {
+                                info!(
+                                    "[Azemm] {} PowerShell fallback succeeded after reqwest retryable JSON decode error",
+                                    request_kind
+                                );
+                                return Ok(payload);
+                            }
+                            Err(power_shell_error) => {
+                                info!(
+                                    "[Azemm] {} PowerShell fallback also failed after reqwest retryable JSON decode error: {}",
+                                    request_kind, power_shell_error
+                                );
+                            }
+                        }
+                    }
+                    info!(
+                        "[Azemm] {} provider error matched retryable JSON decode criteria, retrying with {}",
+                        request_kind, attempts[index + 1].3
+                    );
+                }
+                Ok(payload) if Self::should_retry_generate_content_payload(&payload) => {
+                    exhausted_retryable_error = true;
+                    break;
+                }
+                Err(AIError::Provider(message))
+                    if Self::is_retryable_json_decode_error(&message) =>
+                {
+                    exhausted_retryable_error = true;
+                    break;
+                }
+                Err(AIError::Network(error)) => return Err(AIError::Network(error)),
+                Ok(payload) => return Ok(payload),
+                Err(error) => return Err(error),
+            }
+        }
+
+        if exhausted_retryable_error {
+            return Err(AIError::Provider(
+                "Azemm generateContent attempts exhausted with retryable upstream JSON decode errors"
+                    .to_string(),
+            ));
+        }
+
+        Err(AIError::Provider(
+            "Azemm generateContent attempts exhausted without a result".to_string(),
+        ))
+    }
+
+    async fn generate_once(&self, request: &GenerateRequest) -> Result<String, AIError> {
+        let image_intent = Self::has_image_intent(request);
+        let request_model = Self::sanitize_model(&request.model);
+        let use_generate_content =
+            image_intent && Self::should_use_generate_content_for_model(&request_model);
+        let payload = if use_generate_content {
+            info!(
+                "[Azemm] routing image request model '{}' via generateContent",
+                request_model
+            );
+            self.request_generate_content(request).await?
+        } else {
+            if image_intent {
+                info!(
+                    "[Azemm] routing image request model '{}' via chat/completions",
+                    request_model
+                );
+            }
+            self.request_chat_completion(request).await?
+        };
+
+        if let Some(error_message) = Self::extract_error_message(&payload) {
+            return Err(AIError::Provider(error_message));
+        }
+
+        if image_intent {
+            if let Some(image_source) = Self::extract_first_image(&payload) {
+                return Ok(image_source);
+            }
+
+            if let Some(text) = Self::extract_text(&payload) {
+                return Err(AIError::Provider(format!(
+                    "Azemm image response did not include image data: {}",
+                    text
+                )));
+            }
+
+            return Err(AIError::Provider(format!(
+                "Azemm image response did not include image data: {}",
+                payload
+            )));
+        }
+
+        if let Some(text) = Self::extract_text(&payload) {
+            return Ok(text);
+        }
+
+        if let Some(image_source) = Self::extract_first_image(&payload) {
+            return Ok(image_source);
+        }
+
+        Err(AIError::Provider(format!(
+            "Azemm chat response did not include text or image data: {}",
+            payload
+        )))
     }
 }
 
@@ -791,46 +1454,8 @@ impl AIProvider for AzemmProvider {
     }
 
     async fn generate(&self, request: GenerateRequest) -> Result<String, AIError> {
-        let image_intent = Self::has_image_intent(&request);
-        let payload = if image_intent {
-            self.request_generate_content(&request).await?
-        } else {
-            self.request_chat_completion(&request).await?
-        };
-
-        if let Some(error_message) = Self::extract_error_message(&payload) {
-            return Err(AIError::Provider(error_message));
-        }
-
-        if image_intent {
-            if let Some(image_source) = Self::extract_first_image(&payload) {
-                return Ok(image_source);
-            }
-
-            if let Some(text) = Self::extract_text(&payload) {
-                return Err(AIError::Provider(format!(
-                    "Azemm image response did not include image data: {}",
-                    text
-                )));
-            }
-
-            return Err(AIError::Provider(format!(
-                "Azemm image response did not include image data: {}",
-                payload
-            )));
-        }
-
-        if let Some(text) = Self::extract_text(&payload) {
-            return Ok(text);
-        }
-
-        if let Some(image_source) = Self::extract_first_image(&payload) {
-            return Ok(image_source);
-        }
-
-        Err(AIError::Provider(format!(
-            "Azemm chat response did not include text or image data: {}",
-            payload
-        )))
+        self.generate_once(&request)
+            .await
+            .map_err(|error| Self::wrap_selected_model_error(&request, error))
     }
 }

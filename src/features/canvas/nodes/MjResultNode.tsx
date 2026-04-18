@@ -61,6 +61,7 @@ import {
 } from '@/features/canvas/ui/NodeDescriptionPanel';
 import { resolveNodeStyleDimension } from '@/features/canvas/ui/nodeDimensionUtils';
 import {
+  prepareMidjourneyBatchImages,
   queryMidjourneyTask,
   splitMidjourneyGridToBatchImages,
 } from '@/features/midjourney/application/midjourneyGeneration';
@@ -390,9 +391,14 @@ export const MjResultNode = memo(
 
         try {
           const task = await queryMidjourneyTask(providerId, apiKey, taskId);
+          const taskImageUrls = (task.imageUrls ?? [])
+            .map((item) => item?.trim() ?? '')
+            .filter((item) => item.length > 0);
           const taskImageUrl = task.imageUrl?.trim() ?? '';
           const images =
-            taskImageUrl.length > 0
+            taskImageUrls.length > 0
+              ? await prepareMidjourneyBatchImages(taskImageUrls)
+              : taskImageUrl.length > 0
               ? await splitMidjourneyGridToBatchImages(taskImageUrl)
               : latestBatch.images;
           const terminal = isMidjourneyTaskTerminal(task.status);
