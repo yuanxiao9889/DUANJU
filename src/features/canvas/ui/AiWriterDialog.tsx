@@ -1,8 +1,15 @@
 import { useState, useCallback, useEffect } from 'react';
 import { createPortal } from 'react-dom';
 import { Sparkles, X, ArrowRight, GitFork } from 'lucide-react';
-import { expandScript, rewriteScript, expandFromSummary, expandFromMergedBranches } from '@/commands/textGen';
-import type { MergedBranchContent } from '@/commands/textGen';
+import {
+  expandScript,
+  rewriteScript,
+  expandFromSummary,
+  expandFromMergedBranches,
+  type MergedBranchContent,
+  type SummaryExpandRequest,
+  type SummaryExpandValidationResult,
+} from '@/commands/textGen';
 import { UiButton, UiLoadingBanner, UiLoadingOverlay } from '@/components/ui';
 import { useDraggableDialog } from '@/components/ui/useDraggableDialog';
 
@@ -32,6 +39,7 @@ interface AiWriterDialogProps {
   originalText: string;
   chapterTitle?: string;
   chapterNumber?: number;
+  summaryExpandContext?: Omit<SummaryExpandRequest, 'instruction'> | null;
   mergedBranchContents?: MergedBranchContent[];
   onClose: () => void;
   onConfirm: (result: string) => void;
@@ -45,6 +53,7 @@ export function AiWriterDialog({
   originalText,
   chapterTitle,
   chapterNumber,
+  summaryExpandContext,
   mergedBranchContents,
   onClose,
   onConfirm,
@@ -55,6 +64,8 @@ export function AiWriterDialog({
   const [result, setResult] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
+  const [validation, setValidation] = useState<SummaryExpandValidationResult | null>(null);
+  const [generationAttempts, setGenerationAttempts] = useState(0);
   const [dialogPosition, setDialogPosition] = useState<{ left?: number; right?: number; top?: number } | null>(null);
   const initialDialogPosition =
     dialogPosition?.left != null && dialogPosition?.top != null
@@ -83,6 +94,8 @@ export function AiWriterDialog({
 
     setIsLoading(true);
     setError('');
+    setValidation(null);
+    setGenerationAttempts(0);
 
     try {
       let generatedText: string;
@@ -92,13 +105,17 @@ export function AiWriterDialog({
           instruction: instruction || '请扩写这段内容，使其更加丰富生动',
         });
       } else if (mode === 'expandFromSummary') {
-        const rawText = await expandFromSummary({
-          summary: originalText,
-          chapterTitle: chapterTitle || '未命名章节',
-          chapterNumber,
+        const response = await expandFromSummary({
+          ...(summaryExpandContext ?? {
+            summary: originalText,
+            chapterTitle: chapterTitle || '未命名章节',
+            chapterNumber,
+          }),
           instruction: instruction || undefined,
         });
-        generatedText = simpleMarkdownToHtml(rawText);
+        setValidation(response.validation);
+        setGenerationAttempts(response.attempts);
+        generatedText = simpleMarkdownToHtml(response.text);
       } else if (mode === 'expandFromMerged') {
         const rawText = await expandFromMergedBranches({
           summary: originalText,
@@ -120,7 +137,7 @@ export function AiWriterDialog({
     } finally {
       setIsLoading(false);
     }
-  }, [mode, originalText, instruction, chapterTitle, chapterNumber, mergedBranchContents]);
+  }, [mode, originalText, instruction, chapterTitle, chapterNumber, summaryExpandContext, mergedBranchContents]);
 
   const handleConfirm = useCallback(() => {
     if (result) {
@@ -133,6 +150,8 @@ export function AiWriterDialog({
     setInstruction('');
     setResult('');
     setError('');
+    setValidation(null);
+    setGenerationAttempts(0);
   }, []);
 
   const handleClose = useCallback(() => {
@@ -347,6 +366,41 @@ export function AiWriterDialog({
               </div>
             )}
 
+            {mode === 'expandFromSummary' && validation && (validation.status === 'warning' || generationAttempts > 1) ? (
+              <div
+                className={`rounded-lg border p-3 text-sm ${
+                  validation.status === 'warning'
+                    ? 'border-red-500/30 bg-red-500/10 text-red-300'
+                    : 'border-emerald-500/30 bg-emerald-500/10 text-emerald-200'
+                }`}
+              >
+                <div className="font-medium">
+                  {validation.status === 'warning'
+                    ? '自动校验发现潜在冲突'
+                    : '已根据自动校验修正 1 次'}
+                </div>
+                <div className="mt-1 leading-6">
+                  {validation.summary}
+                </div>
+                {validation.issues.length > 0 ? (
+                  <div className="mt-3 space-y-2">
+                    {validation.issues.map((issue, index) => (
+                      <div
+                        key={`${issue.code}-${index}`}
+                        className="rounded-md border border-current/15 bg-black/10 px-3 py-2"
+                      >
+                        <div className="font-medium">{issue.title}</div>
+                        <div className="mt-1 leading-6 opacity-90">{issue.detail}</div>
+                        {issue.evidence ? (
+                          <div className="mt-1 text-xs opacity-75">证据：{issue.evidence}</div>
+                        ) : null}
+                      </div>
+                    ))}
+                  </div>
+                ) : null}
+              </div>
+            ) : null}
+
             {result && (
               <div>
                 <label className="block text-sm font-medium text-text-dark mb-2 flex items-center gap-2">
@@ -390,7 +444,9 @@ export function AiWriterDialog({
                 onClick={handleConfirm}
                 className="flex items-center gap-2"
               >
-                确认替换
+                {mode === 'expandFromSummary' && validation?.status === 'warning'
+                  ? '仍然替换'
+                  : '确认替换'}
               </UiButton>
             )}
           </div>

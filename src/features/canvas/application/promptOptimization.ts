@@ -20,7 +20,7 @@ interface OptimizePromptRequest {
   maxPromptLength?: number;
 }
 
-interface ScriptPromptContext {
+export interface ScriptPromptContext {
   provider: string;
   model: string;
   supportsImageAnalysis: boolean;
@@ -408,6 +408,7 @@ function buildPromptOptimizationInstruction(
   return [
     modeSpecificInstruction,
     imageInstruction,
+    "Keep the optimized prompt in the same primary language as the source prompt. If the source prompt is mainly English, return English. If it is mainly Chinese, return Chinese. Do not translate it into another language.",
     "必须保留原提示词里所有明确事实，包括人物数量、身份关系、服装、道具、地点、时间、风格、比例、时长和限定词。",
     "如果提示词中出现 @图片1、@图片2 这类引用，你必须原样保留，不能改名、删除、增补，也不要改变它们的含义。",
     "结果要比原文稍微更丰满一点，但仍然保持紧凑、可直接用于生成。",

@@ -14,6 +14,7 @@ export interface StyleTemplate {
   id: string;
   name: string;
   prompt: string;
+  imageUrl: string | null;
   categoryId: string | null;
   sortOrder: number;
   createdAt: number;
@@ -133,6 +134,11 @@ export function normalizeStyleTemplates(
         typeof candidate.name === "string" ? candidate.name.trim() : "";
       const prompt =
         typeof candidate.prompt === "string" ? candidate.prompt.trim() : "";
+      const imageUrl =
+        typeof candidate.imageUrl === "string" &&
+        candidate.imageUrl.trim().length > 0
+          ? candidate.imageUrl.trim()
+          : null;
 
       if (!id || !name || !prompt || seenIds.has(id)) {
         return null;
@@ -170,6 +176,7 @@ export function normalizeStyleTemplates(
         id,
         name,
         prompt,
+        imageUrl,
         categoryId,
         sortOrder,
         createdAt,
@@ -180,51 +187,46 @@ export function normalizeStyleTemplates(
     .filter((item): item is StyleTemplate => item !== null);
 }
 
-export function removeStyleTemplatePrompt(
+export function hasStyleTemplatePrompt(
+  currentPrompt: string,
+  templatePrompt: string,
+): boolean {
+  const normalizedPrompt = currentPrompt.trim();
+  const normalizedTemplatePrompt = templatePrompt.trim();
+
+  if (!normalizedPrompt || !normalizedTemplatePrompt) {
+    return false;
+  }
+
+  return new RegExp(
+    `(?:^|,\\s*)${escapeRegExp(normalizedTemplatePrompt)}(?:\\s*(?:,|$))`,
+  ).test(normalizedPrompt);
+}
+
+export function appendStyleTemplatePrompt(
   currentPrompt: string,
   templatePrompt: string,
 ): string {
   const normalizedPrompt = currentPrompt.trim();
   const normalizedTemplatePrompt = templatePrompt.trim();
 
-  if (!normalizedPrompt || !normalizedTemplatePrompt) {
+  if (!normalizedTemplatePrompt) {
     return normalizedPrompt;
   }
 
-  return normalizedPrompt
-    .replace(
-      new RegExp(`(?:,\\s*)?${escapeRegExp(normalizedTemplatePrompt)}\\s*$`),
-      "",
-    )
+  if (!normalizedPrompt) {
+    return normalizedTemplatePrompt;
+  }
+
+  if (hasStyleTemplatePrompt(normalizedPrompt, normalizedTemplatePrompt)) {
+    return normalizedPrompt;
+  }
+
+  const promptWithoutTrailingSeparator = normalizedPrompt
     .replace(/[，,]\s*$/, "")
     .trim();
-}
 
-export function applyStyleTemplatePrompt(
-  currentPrompt: string,
-  previousTemplatePrompt: string,
-  nextTemplatePrompt: string,
-): string {
-  const basePrompt = removeStyleTemplatePrompt(
-    currentPrompt,
-    previousTemplatePrompt,
-  );
-  const normalizedNextTemplate = nextTemplatePrompt.trim();
-
-  if (!normalizedNextTemplate) {
-    return basePrompt;
-  }
-
-  if (
-    basePrompt &&
-    new RegExp(
-      `(?:^|,\\s*)${escapeRegExp(normalizedNextTemplate)}\\s*$`,
-    ).test(basePrompt)
-  ) {
-    return basePrompt;
-  }
-
-  return basePrompt
-    ? `${basePrompt}, ${normalizedNextTemplate}`
-    : normalizedNextTemplate;
+  return promptWithoutTrailingSeparator
+    ? `${promptWithoutTrailingSeparator}, ${normalizedTemplatePrompt}`
+    : normalizedTemplatePrompt;
 }

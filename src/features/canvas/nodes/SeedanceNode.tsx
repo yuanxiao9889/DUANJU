@@ -90,7 +90,7 @@ import {
   normalizeSeedanceModelId,
 } from "@/features/seedance/domain/seedanceOptions";
 import { StyleTemplatePicker } from "@/features/project/StyleTemplatePicker";
-import { applyStyleTemplatePrompt } from "@/features/project/styleTemplatePrompt";
+import { appendStyleTemplatePrompt } from "@/features/project/styleTemplatePrompt";
 import { useCanvasStore } from "@/stores/canvasStore";
 import { useSettingsStore } from "@/stores/settingsStore";
 
@@ -848,10 +848,6 @@ export const SeedanceNode = memo(
       lastPromptOptimizationUndoState,
       setLastPromptOptimizationUndoState,
     ] = useState<PromptOptimizationUndoState | null>(null);
-    const [selectedStyleTemplateId, setSelectedStyleTemplateId] = useState<
-      string | null
-    >(null);
-    const [styleTemplatePrompt, setStyleTemplatePrompt] = useState("");
     const [showImagePicker, setShowImagePicker] = useState(false);
     const [pickerCursor, setPickerCursor] = useState<number | null>(null);
     const [pickerActiveIndex, setPickerActiveIndex] = useState(0);
@@ -2049,15 +2045,11 @@ export const SeedanceNode = memo(
                   }
                 />
                 <StyleTemplatePicker
-                  selectedTemplateId={selectedStyleTemplateId}
                   className={`${NODE_CONTROL_CHIP_CLASS} shrink-0 !w-8 !px-0 justify-center`}
-                  onTemplateChange={(templateId, prompt) => {
-                    setSelectedStyleTemplateId(templateId);
-                    setStyleTemplatePrompt(prompt);
-                    const nextPrompt = applyStyleTemplatePrompt(
+                  onTemplateApply={(template) => {
+                    const nextPrompt = appendStyleTemplatePrompt(
                       promptValueRef.current,
-                      styleTemplatePrompt,
-                      prompt,
+                      template.prompt,
                     );
                     handlePromptChange(nextPrompt);
                     setLastPromptOptimizationMeta(null);

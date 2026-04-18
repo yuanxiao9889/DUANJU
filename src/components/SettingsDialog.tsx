@@ -57,12 +57,20 @@ import {
   upsertCustomStoryboardModelEntry,
 } from '@/features/canvas/models';
 import { GRSAI_CREDIT_TIERS } from '@/features/canvas/pricing/types';
-import type { SettingsCategory } from '@/features/settings/settingsEvents';
+import type {
+  ProviderTab,
+  SettingsCategory,
+} from '@/features/settings/settingsEvents';
 import {
   DEFAULT_GROUP_NODES_SHORTCUT,
   formatShortcutForDisplay,
   getShortcutFromKeyboardEvent,
 } from '@/features/settings/keyboardShortcuts';
+import {
+  listMidjourneyProviders,
+  normalizeMidjourneyProviderEnabledSelection,
+  type MidjourneyProviderId,
+} from '@/features/midjourney/domain/providers';
 import { openDreaminaSetupDialog } from '@/features/jimeng/dreaminaSetupDialogEvents';
 import {
   RELEASE_NOTES,
@@ -74,6 +82,7 @@ interface SettingsDialogProps {
   isOpen: boolean;
   onClose: () => void;
   initialCategory?: SettingsCategory;
+  initialProviderTab?: ProviderTab;
   onCheckUpdate?: () => Promise<'has-update' | 'up-to-date' | 'failed'>;
 }
 
@@ -83,8 +92,6 @@ interface SettingsCheckboxCardProps {
   checked: boolean;
   onCheckedChange: (checked: boolean) => void;
 }
-
-type ProviderTab = 'script' | 'storyboard';
 
 interface ProviderGroupConfig {
   id: string;
@@ -140,6 +147,15 @@ const STORYBOARD_PROVIDER_GROUP_CONFIGS: ProviderGroupConfig[] = [
   },
 ];
 
+const MJ_PROVIDER_GROUP_CONFIGS: ProviderGroupConfig[] = [
+  {
+    id: 'mjPlatforms',
+    labelKey: 'settings.providerGroupMj',
+    providerIds: ['comfly', 'zhenzhen', 'bltcy'],
+    defaultCollapsed: false,
+  },
+];
+
 function resolveProviderGroups(
   providers: ModelProviderDefinition[],
   configs: ProviderGroupConfig[]
@@ -178,6 +194,10 @@ function buildDefaultProviderGroupCollapseState(): Record<string, boolean> {
 
   for (const config of STORYBOARD_PROVIDER_GROUP_CONFIGS) {
     nextState[buildProviderGroupCollapseKey('storyboard', config.id)] = Boolean(config.defaultCollapsed);
+  }
+
+  for (const config of MJ_PROVIDER_GROUP_CONFIGS) {
+    nextState[buildProviderGroupCollapseKey('mj', config.id)] = Boolean(config.defaultCollapsed);
   }
 
   return nextState;
@@ -301,12 +321,15 @@ export function SettingsDialog({
   isOpen,
   onClose,
   initialCategory = 'general',
+  initialProviderTab = 'script',
 }: SettingsDialogProps) {
   const { t, i18n } = useTranslation();
   const {
     scriptApiKeys,
     storyboardApiKeys,
+    mjApiKeys,
     scriptProviderEnabled,
+    mjProviderEnabled,
     scriptModelOverrides,
     scriptProviderCustomModels,
     scriptCompatibleProviderConfig,
@@ -336,7 +359,9 @@ export function SettingsDialog({
     autoUpdateDreaminaCliOnLaunch,
     setScriptProviderApiKey,
     setStoryboardProviderApiKey,
+    setMjProviderApiKey,
     setScriptProviderEnabled,
+    setMjProviderEnabled,
     setScriptModelOverride,
     setScriptProviderCustomModels,
     setScriptCompatibleProviderConfig,
@@ -407,6 +432,7 @@ export function SettingsDialog({
     () => providers.filter((p) => p.id !== 'alibaba' && p.id !== 'coding'),
     [providers]
   );
+  const mjProviders = useMemo(() => listMidjourneyProviders(providers), [providers]);
   const scriptProviderGroups = useMemo(
     () => resolveProviderGroups(scriptProviders, SCRIPT_PROVIDER_GROUP_CONFIGS),
     [scriptProviders]
@@ -415,16 +441,27 @@ export function SettingsDialog({
     () => resolveProviderGroups(storyboardProviders, STORYBOARD_PROVIDER_GROUP_CONFIGS),
     [storyboardProviders]
   );
+  const mjProviderGroups = useMemo(
+    () => resolveProviderGroups(mjProviders, MJ_PROVIDER_GROUP_CONFIGS),
+    [mjProviders]
+  );
   const [activeCategory, setActiveCategory] = useState<SettingsCategory>(initialCategory);
-  const [localProviderTab, setLocalProviderTab] = useState<ProviderTab>('script');
+  const [localProviderTab, setLocalProviderTab] = useState<ProviderTab>(initialProviderTab);
   const [localScriptApiKeys, setLocalScriptApiKeys] = useState<Record<string, string>>(scriptApiKeys);
   const [localStoryboardApiKeys, setLocalStoryboardApiKeys] = useState<Record<string, string>>(storyboardApiKeys);
+  const [localMjApiKeys, setLocalMjApiKeys] = useState<Record<string, string>>(mjApiKeys);
   const [localGrsaiNanoBananaProModel, setLocalGrsaiNanoBananaProModel] = useState(
    hrsaiNanoBananaProModel
   );
   const [localScriptProviderEnabled, setLocalScriptProviderEnabled] = useState(scriptProviderEnabled);
+  const [localMjProviderEnabled, setLocalMjProviderEnabled] = useState<MidjourneyProviderId>(
+    mjProviderEnabled
+  );
   const [selectedScriptProvider, setSelectedScriptProvider] = useState(scriptProviderEnabled || scriptProviders[0]?.id || '');
   const [selectedStoryboardProvider, setSelectedStoryboardProvider] = useState(storyboardProviders[0]?.id || '');
+  const [selectedMjProvider, setSelectedMjProvider] = useState<string>(
+    mjProviderEnabled || mjProviders[0]?.id || ''
+  );
   const [localScriptModelOverrides, setLocalScriptModelOverrides] =
     useState<Record<string, string>>(scriptModelOverrides);
   const [localScriptProviderCustomModels, setLocalScriptProviderCustomModels] =
@@ -566,11 +603,14 @@ export function SettingsDialog({
     }
     setLocalScriptApiKeys(scriptApiKeys);
     setLocalStoryboardApiKeys(storyboardApiKeys);
+    setLocalMjApiKeys(mjApiKeys);
     setLocalDownloadPresetPaths(downloadPresetPaths);
     setLocalGrsaiNanoBananaProModel(hrsaiNanoBananaProModel);
     setLocalScriptProviderEnabled(scriptProviderEnabled);
+    setLocalMjProviderEnabled(mjProviderEnabled);
     setSelectedScriptProvider(scriptProviderEnabled || scriptProviders[0]?.id || '');
     setSelectedStoryboardProvider(storyboardProviders[0]?.id || '');
+    setSelectedMjProvider(mjProviderEnabled || mjProviders[0]?.id || '');
     setLocalScriptModelOverrides(scriptModelOverrides);
     setLocalScriptProviderCustomModels(scriptProviderCustomModels);
     setLocalScriptCompatibleProviderConfig(scriptCompatibleProviderConfig);
@@ -614,9 +654,11 @@ export function SettingsDialog({
     isOpen,
     scriptApiKeys,
     storyboardApiKeys,
+    mjApiKeys,
     downloadPresetPaths,
     hrsaiNanoBananaProModel,
     scriptProviderEnabled,
+    mjProviderEnabled,
     scriptModelOverrides,
     scriptProviderCustomModels,
     scriptCompatibleProviderConfig,
@@ -647,6 +689,7 @@ export function SettingsDialog({
     psAutoStartServer,
     scriptProviders,
     storyboardProviders,
+    mjProviders,
   ]);
 
   useEffect(() => {
@@ -655,7 +698,8 @@ export function SettingsDialog({
     }
 
     setActiveCategory(initialCategory);
-  }, [initialCategory, isOpen]);
+    setLocalProviderTab(initialProviderTab);
+  }, [initialCategory, initialProviderTab, isOpen]);
 
   useEffect(() => {
     if (!scriptProviders.some((provider) => provider.id === selectedScriptProvider)) {
@@ -670,9 +714,24 @@ export function SettingsDialog({
   }, [selectedStoryboardProvider, storyboardProviders]);
 
   useEffect(() => {
+    if (!mjProviders.some((provider) => provider.id === selectedMjProvider)) {
+      setSelectedMjProvider(localMjProviderEnabled || mjProviders[0]?.id || '');
+    }
+  }, [localMjProviderEnabled, mjProviders, selectedMjProvider]);
+
+  useEffect(() => {
     const selectedProviderId =
-      localProviderTab === 'script' ? selectedScriptProvider : selectedStoryboardProvider;
-    const groups = localProviderTab === 'script' ? scriptProviderGroups : storyboardProviderGroups;
+      localProviderTab === 'script'
+        ? selectedScriptProvider
+        : localProviderTab === 'storyboard'
+          ? selectedStoryboardProvider
+          : selectedMjProvider;
+    const groups =
+      localProviderTab === 'script'
+        ? scriptProviderGroups
+        : localProviderTab === 'storyboard'
+          ? storyboardProviderGroups
+          : mjProviderGroups;
     const selectedGroup = groups.find((group) =>
       group.providers.some((provider) => provider.id === selectedProviderId)
     );
@@ -696,6 +755,8 @@ export function SettingsDialog({
     selectedScriptProvider,
     selectedStoryboardProvider,
     storyboardProviderGroups,
+    selectedMjProvider,
+    mjProviderGroups,
   ]);
 
   const refreshDreaminaStatus = useCallback(
@@ -1143,8 +1204,16 @@ export function SettingsDialog({
     storyboardProviders.forEach((provider) => {
       setStoryboardProviderApiKey(provider.id, localStoryboardApiKeys[provider.id] ?? '');
     });
+    mjProviders.forEach((provider) => {
+      if (provider.id === 'comfly' || provider.id === 'zhenzhen' || provider.id === 'bltcy') {
+        setMjProviderApiKey(provider.id, localMjApiKeys[provider.id] ?? '');
+      }
+    });
     setGrsaiNanoBananaProModel(localGrsaiNanoBananaProModel);
     setScriptProviderEnabled(localScriptProviderEnabled);
+    setMjProviderEnabled(
+      normalizeMidjourneyProviderEnabledSelection(localMjProviderEnabled, localMjApiKeys)
+    );
     scriptProviders.forEach((provider) => {
       setScriptModelOverride(provider.id, resolveConfiguredScriptModel(provider.id, {
         scriptModelOverrides: localScriptModelOverrides,
@@ -1203,6 +1272,7 @@ export function SettingsDialog({
   }, [
     localScriptApiKeys,
     localStoryboardApiKeys,
+    localMjApiKeys,
     localDownloadPresetPaths,
     localGrsaiNanoBananaProModel,
     localUseUploadFilenameAsNodeTitle,
@@ -1233,12 +1303,16 @@ export function SettingsDialog({
     localStoryboardNewApiModelConfig,
     localStoryboardModelOverrides,
     localStoryboardProviderCustomModels,
+    localMjProviderEnabled,
     scriptProviders,
     storyboardProviders,
+    mjProviders,
     setScriptProviderApiKey,
     setStoryboardProviderApiKey,
+    setMjProviderApiKey,
     setGrsaiNanoBananaProModel,
     setScriptProviderEnabled,
+    setMjProviderEnabled,
     setScriptModelOverride,
     setScriptProviderCustomModels,
     setScriptCompatibleProviderConfig,
@@ -1601,6 +1675,16 @@ export function SettingsDialog({
                     >
                       {t('settings.storyboardApiEnabled')}
                     </button>
+                    <button
+                      onClick={() => setLocalProviderTab('mj')}
+                      className={`px-4 py-2 text-sm font-medium rounded-t transition-colors ${
+                        localProviderTab === 'mj'
+                          ? 'bg-surface-dark text-text-dark border-t border-l border-r border-border-dark -mb-px'
+                          : 'text-text-muted hover:text-text-dark'
+                      }`}
+                    >
+                      {t('settings.mjApiEnabled')}
+                    </button>
                   </div>
                 </div>
 
@@ -1610,9 +1694,13 @@ export function SettingsDialog({
                       {t('settings.providerList')}
                     </div>
                     <nav className="flex-1 overflow-y-auto ui-scrollbar">
-                      {(localProviderTab === 'script'
-                        ? scriptProviderGroups
-                        : storyboardProviderGroups).map((group) => {
+                      {(
+                        localProviderTab === 'script'
+                          ? scriptProviderGroups
+                          : localProviderTab === 'storyboard'
+                            ? storyboardProviderGroups
+                            : mjProviderGroups
+                      ).map((group) => {
                           const isCollapsed = Boolean(
                             collapsedProviderGroups[
                               buildProviderGroupCollapseKey(localProviderTab, group.id)
@@ -1654,18 +1742,24 @@ export function SettingsDialog({
                                     const providerApiKey = (
                                       localProviderTab === 'script'
                                         ? localScriptApiKeys[provider.id]
-                                        : localStoryboardApiKeys[provider.id]
+                                        : localProviderTab === 'storyboard'
+                                          ? localStoryboardApiKeys[provider.id]
+                                          : localMjApiKeys[provider.id]
                                     ) ?? '';
                                     const hasKey = Boolean(providerApiKey.trim());
                                     const selectedProviderId =
                                       localProviderTab === 'script'
                                         ? selectedScriptProvider
-                                        : selectedStoryboardProvider;
+                                        : localProviderTab === 'storyboard'
+                                          ? selectedStoryboardProvider
+                                          : selectedMjProvider;
                                     const isSelected = selectedProviderId === provider.id;
                                     const isEnabled =
                                       localProviderTab === 'script'
-                                      && localScriptProviderEnabled === provider.id
-                                      && hasKey;
+                                        ? localScriptProviderEnabled === provider.id && hasKey
+                                        : localProviderTab === 'mj'
+                                          ? localMjProviderEnabled === provider.id
+                                          : false;
 
                                     return (
                                       <button
@@ -1673,8 +1767,10 @@ export function SettingsDialog({
                                         onClick={() => {
                                           if (localProviderTab === 'script') {
                                             setSelectedScriptProvider(provider.id);
-                                          } else {
+                                          } else if (localProviderTab === 'storyboard') {
                                             setSelectedStoryboardProvider(provider.id);
+                                          } else {
+                                            setSelectedMjProvider(provider.id);
                                           }
                                         }}
                                         className={`ml-2 flex w-[calc(100%-8px)] items-center gap-2 rounded-l-md px-3 py-2 text-left transition-colors ${
@@ -1705,24 +1801,44 @@ export function SettingsDialog({
                         })}
                     </nav>
                     <nav className="hidden">
-                      {false && (localProviderTab === 'script' ? scriptProviders : storyboardProviders).map((provider) => {
+                      {false && (
+                        localProviderTab === 'script'
+                          ? scriptProviders
+                          : localProviderTab === 'storyboard'
+                            ? storyboardProviders
+                            : mjProviders
+                      ).map((provider) => {
                         const providerApiKey = (
                           localProviderTab === 'script'
                             ? localScriptApiKeys[provider.id]
-                            : localStoryboardApiKeys[provider.id]
+                            : localProviderTab === 'storyboard'
+                              ? localStoryboardApiKeys[provider.id]
+                              : localMjApiKeys[provider.id]
                         ) ?? '';
                         const hasKey = Boolean(providerApiKey.trim());
-                        const selectedProviderId = localProviderTab === 'script' ? selectedScriptProvider : selectedStoryboardProvider;
+                        const selectedProviderId =
+                          localProviderTab === 'script'
+                            ? selectedScriptProvider
+                            : localProviderTab === 'storyboard'
+                              ? selectedStoryboardProvider
+                              : selectedMjProvider;
                         const isSelected = selectedProviderId === provider.id;
-                        const isEnabled = localProviderTab === 'script' && localScriptProviderEnabled === provider.id && hasKey;
+                        const isEnabled =
+                          localProviderTab === 'script'
+                            ? localScriptProviderEnabled === provider.id && hasKey
+                            : localProviderTab === 'mj'
+                              ? localMjProviderEnabled === provider.id
+                              : false;
                         return (
                           <button
                             key={provider.id}
                             onClick={() => {
                               if (localProviderTab === 'script') {
                                 setSelectedScriptProvider(provider.id);
-                              } else {
+                              } else if (localProviderTab === 'storyboard') {
                                 setSelectedStoryboardProvider(provider.id);
+                              } else {
+                                setSelectedMjProvider(provider.id);
                               }
                             }}
                             className={`w-full flex items-center gap-2 px-3 py-2 text-left transition-colors ${
@@ -1749,22 +1865,35 @@ export function SettingsDialog({
 
                   <div className="flex-1 overflow-y-auto ui-scrollbar p-5">
                     {(() => {
-                      const selectedProviderId = localProviderTab === 'script' ? selectedScriptProvider : selectedStoryboardProvider;
+                      const selectedProviderId =
+                        localProviderTab === 'script'
+                          ? selectedScriptProvider
+                          : localProviderTab === 'storyboard'
+                            ? selectedStoryboardProvider
+                            : selectedMjProvider;
                       const provider = providers.find(p => p.id === selectedProviderId);
                       if (!provider) return null;
                       const displayName = i18n.language.startsWith('zh') ? provider.label : provider.name;
                       const isScriptTab = localProviderTab === 'script';
+                      const isMjTab = localProviderTab === 'mj';
                       const revealKey = `${localProviderTab}:${provider.id}`;
                       const currentApiKey = (
                         isScriptTab
                           ? localScriptApiKeys[provider.id]
-                          : localStoryboardApiKeys[provider.id]
+                          : isMjTab
+                            ? localMjApiKeys[provider.id]
+                            : localStoryboardApiKeys[provider.id]
                       ) ?? '';
                       const isRevealed = Boolean(revealedApiKeys[revealKey]);
                       const hasKey = Boolean(currentApiKey.trim());
                       const isKeyInputEmpty = currentApiKey.length === 0;
                       const clearApiKeyButtonTitle = `${t('common.delete')} ${t('settings.apiKey')}`;
-                      const isEnabled = isScriptTab && localScriptProviderEnabled === provider.id && hasKey;
+                      const isEnabled =
+                        isScriptTab
+                          ? localScriptProviderEnabled === provider.id && hasKey
+                          : isMjTab
+                            ? localMjProviderEnabled === provider.id
+                            : false;
                       const updateCurrentApiKey = (nextValue: string) => {
                         if (isScriptTab) {
                           setLocalScriptApiKeys((previous) => ({
@@ -1774,6 +1903,14 @@ export function SettingsDialog({
                           if (!nextValue.trim() && localScriptProviderEnabled === provider.id) {
                             setLocalScriptProviderEnabled('');
                           }
+                          return;
+                        }
+
+                        if (isMjTab) {
+                          setLocalMjApiKeys((previous) => ({
+                            ...previous,
+                            [provider.id]: nextValue,
+                          }));
                           return;
                         }
 
@@ -1827,6 +1964,12 @@ export function SettingsDialog({
                         localStoryboardModelDisplayNameInputs[provider.id] ?? '';
                       const customStoryboardModelIdInput =
                         localStoryboardModelIdInputs[provider.id] ?? '';
+                      const showActivationButton = isScriptTab || isMjTab;
+                      const canActivateProvider = isScriptTab
+                        ? hasKey && isScriptProviderReady
+                        : isMjTab
+                          ? hasKey
+                          : false;
 
                       return (
                         <div className="space-y-4">
@@ -1842,22 +1985,33 @@ export function SettingsDialog({
                                 </span>
                               )}
                               </div>
-                            {isScriptTab && (
+                            {showActivationButton && (
                               <button
                                 type="button"
-                                disabled={!hasKey || !isScriptProviderReady}
+                                disabled={!canActivateProvider}
                                 onClick={(e) => {
                                   e.preventDefault();
                                   e.stopPropagation();
                                   const switchedAt = Date.now();
-                                  const nextProvider = isEnabled ? '' : provider.id;
-                                  console.info('[TextModelActivation] switch provider', {
-                                    scope: 'script',
-                                    from: localScriptProviderEnabled,
-                                    to: nextProvider,
+                                  if (isScriptTab) {
+                                    const nextProvider = isEnabled ? '' : provider.id;
+                                    console.info('[TextModelActivation] switch provider', {
+                                      scope: 'script',
+                                      from: localScriptProviderEnabled,
+                                      to: nextProvider,
+                                      switchedAt,
+                                    });
+                                    setLocalScriptProviderEnabled(isEnabled ? '' : provider.id);
+                                    return;
+                                  }
+
+                                  console.info('[MjProviderActivation] switch provider', {
+                                    scope: 'mj',
+                                    from: localMjProviderEnabled,
+                                    to: provider.id,
                                     switchedAt,
                                   });
-                                  setLocalScriptProviderEnabled(isEnabled ? '' : provider.id);
+                                  setLocalMjProviderEnabled(provider.id as MidjourneyProviderId);
                                 }}
                                 className={`relative overflow-hidden px-4 py-1.5 text-xs font-medium text-transparent rounded transition-colors ${
                                   isEnabled
@@ -1942,7 +2096,7 @@ export function SettingsDialog({
                                 </button>
                               </div>
                             </div>
-                            {!isScriptTab ? (
+                            {!isScriptTab && !isMjTab ? (
                               provider.id === 'compatible' ? (
                                 <div className="mt-3 rounded-md border border-border-dark bg-black/10 px-3 py-2 text-xs leading-5 text-text-muted">
                                   {t('settings.storyboardCompatibleNoConnectionTest')}
@@ -2010,96 +2164,98 @@ export function SettingsDialog({
                             )}
                           </div>
 
-                          <ProviderModelSettingsSection
-                            provider={provider}
-                            isScriptTab={isScriptTab}
-                            isScriptCompatibleProvider={isScriptCompatibleProvider}
-                            isStoryboardCustomizableProvider={isStoryboardCustomizableProvider}
-                            resolvedScriptModel={resolvedScriptModel}
-                            scriptModelOptions={scriptModelOptions}
-                            customScriptModels={customScriptModels}
-                            customScriptModelIdInput={customScriptModelIdInput}
-                            customScriptModelDisplayNameInput={customScriptModelDisplayNameInput}
-                            onSelectScriptModel={(modelId) =>
-                              handleSelectScriptModel(provider.id, modelId)
-                            }
-                            onScriptModelIdInputChange={(value) =>
-                              setLocalScriptModelIdInputs((previous) => ({
-                                ...previous,
-                                [provider.id]: value,
-                              }))
-                            }
-                            onScriptModelDisplayNameInputChange={(value) =>
-                              setLocalScriptModelDisplayNameInputs((previous) => ({
-                                ...previous,
-                                [provider.id]: value,
-                              }))
-                            }
-                            onAddCustomScriptModel={() => handleAddCustomScriptModel(provider.id)}
-                            onRemoveCustomScriptModel={(model) =>
-                              handleRemoveCustomScriptModel(provider.id, model)
-                            }
-                            scriptCompatibleProviderConfig={localScriptCompatibleProviderConfig}
-                            onScriptCompatibleEndpointUrlChange={(value) =>
-                              setLocalScriptCompatibleProviderConfig((previous) => ({
-                                ...previous,
-                                endpointUrl: value,
-                              }))
-                            }
-                            customStoryboardModels={customStoryboardModels}
-                            customStoryboardModelIdInput={customStoryboardModelIdInput}
-                            customStoryboardModelDisplayNameInput={
-                              customStoryboardModelDisplayNameInput
-                            }
-                            onStoryboardModelIdInputChange={(value) =>
-                              setLocalStoryboardModelIdInputs((previous) => ({
-                                ...previous,
-                                [provider.id]: value,
-                              }))
-                            }
-                            onStoryboardModelDisplayNameInputChange={(value) =>
-                              setLocalStoryboardModelDisplayNameInputs((previous) => ({
-                                ...previous,
-                                [provider.id]: value,
-                              }))
-                            }
-                            onAddCustomStoryboardModel={() =>
-                              handleAddCustomStoryboardModel(provider.id)
-                            }
-                            onRemoveCustomStoryboardModel={(model) =>
-                              handleRemoveCustomStoryboardModel(provider.id, model)
-                            }
-                            storyboardCompatibleModelConfig={localStoryboardCompatibleModelConfig}
-                            onStoryboardCompatibleFormatChange={(format) =>
-                              setLocalStoryboardCompatibleModelConfig((previous) => ({
-                                ...previous,
-                                apiFormat: format,
-                              }))
-                            }
-                            onStoryboardCompatibleEndpointUrlChange={(value) =>
-                              setLocalStoryboardCompatibleModelConfig((previous) => ({
-                                ...previous,
-                                endpointUrl: value,
-                              }))
-                            }
-                            storyboardNewApiModelConfig={localStoryboardNewApiModelConfig}
-                            onStoryboardNewApiFormatChange={(format) =>
-                              setLocalStoryboardNewApiModelConfig((previous) => ({
-                                ...previous,
-                                apiFormat: format,
-                              }))
-                            }
-                            onStoryboardNewApiEndpointUrlChange={(value) =>
-                              setLocalStoryboardNewApiModelConfig((previous) => ({
-                                ...previous,
-                                endpointUrl: value,
-                              }))
-                            }
-                            grsaiNanoBananaProModel={localGrsaiNanoBananaProModel}
-                            onGrsaiNanoBananaProModelChange={(value) =>
-                              setLocalGrsaiNanoBananaProModel(value)
-                            }
-                          />
+                          {!isMjTab ? (
+                            <ProviderModelSettingsSection
+                              provider={provider}
+                              isScriptTab={isScriptTab}
+                              isScriptCompatibleProvider={isScriptCompatibleProvider}
+                              isStoryboardCustomizableProvider={isStoryboardCustomizableProvider}
+                              resolvedScriptModel={resolvedScriptModel}
+                              scriptModelOptions={scriptModelOptions}
+                              customScriptModels={customScriptModels}
+                              customScriptModelIdInput={customScriptModelIdInput}
+                              customScriptModelDisplayNameInput={customScriptModelDisplayNameInput}
+                              onSelectScriptModel={(modelId) =>
+                                handleSelectScriptModel(provider.id, modelId)
+                              }
+                              onScriptModelIdInputChange={(value) =>
+                                setLocalScriptModelIdInputs((previous) => ({
+                                  ...previous,
+                                  [provider.id]: value,
+                                }))
+                              }
+                              onScriptModelDisplayNameInputChange={(value) =>
+                                setLocalScriptModelDisplayNameInputs((previous) => ({
+                                  ...previous,
+                                  [provider.id]: value,
+                                }))
+                              }
+                              onAddCustomScriptModel={() => handleAddCustomScriptModel(provider.id)}
+                              onRemoveCustomScriptModel={(model) =>
+                                handleRemoveCustomScriptModel(provider.id, model)
+                              }
+                              scriptCompatibleProviderConfig={localScriptCompatibleProviderConfig}
+                              onScriptCompatibleEndpointUrlChange={(value) =>
+                                setLocalScriptCompatibleProviderConfig((previous) => ({
+                                  ...previous,
+                                  endpointUrl: value,
+                                }))
+                              }
+                              customStoryboardModels={customStoryboardModels}
+                              customStoryboardModelIdInput={customStoryboardModelIdInput}
+                              customStoryboardModelDisplayNameInput={
+                                customStoryboardModelDisplayNameInput
+                              }
+                              onStoryboardModelIdInputChange={(value) =>
+                                setLocalStoryboardModelIdInputs((previous) => ({
+                                  ...previous,
+                                  [provider.id]: value,
+                                }))
+                              }
+                              onStoryboardModelDisplayNameInputChange={(value) =>
+                                setLocalStoryboardModelDisplayNameInputs((previous) => ({
+                                  ...previous,
+                                  [provider.id]: value,
+                                }))
+                              }
+                              onAddCustomStoryboardModel={() =>
+                                handleAddCustomStoryboardModel(provider.id)
+                              }
+                              onRemoveCustomStoryboardModel={(model) =>
+                                handleRemoveCustomStoryboardModel(provider.id, model)
+                              }
+                              storyboardCompatibleModelConfig={localStoryboardCompatibleModelConfig}
+                              onStoryboardCompatibleFormatChange={(format) =>
+                                setLocalStoryboardCompatibleModelConfig((previous) => ({
+                                  ...previous,
+                                  apiFormat: format,
+                                }))
+                              }
+                              onStoryboardCompatibleEndpointUrlChange={(value) =>
+                                setLocalStoryboardCompatibleModelConfig((previous) => ({
+                                  ...previous,
+                                  endpointUrl: value,
+                                }))
+                              }
+                              storyboardNewApiModelConfig={localStoryboardNewApiModelConfig}
+                              onStoryboardNewApiFormatChange={(format) =>
+                                setLocalStoryboardNewApiModelConfig((previous) => ({
+                                  ...previous,
+                                  apiFormat: format,
+                                }))
+                              }
+                              onStoryboardNewApiEndpointUrlChange={(value) =>
+                                setLocalStoryboardNewApiModelConfig((previous) => ({
+                                  ...previous,
+                                  endpointUrl: value,
+                                }))
+                              }
+                              grsaiNanoBananaProModel={localGrsaiNanoBananaProModel}
+                              onGrsaiNanoBananaProModelChange={(value) =>
+                                setLocalGrsaiNanoBananaProModel(value)
+                              }
+                            />
+                          ) : null}
 
                         </div>
                       );

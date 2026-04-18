@@ -393,6 +393,26 @@ fn normalize_version_option(value: Option<&str>) -> Option<String> {
         .filter(|version| !version.is_empty())
 }
 
+fn append_detail_section(detail: &mut Option<String>, section: impl AsRef<str>) {
+    let section = section.as_ref().trim();
+    if section.is_empty() {
+        return;
+    }
+
+    match detail {
+        Some(existing) => {
+            if existing.contains(section) {
+                return;
+            }
+            if !existing.trim().is_empty() {
+                existing.push_str("\n\n");
+            }
+            existing.push_str(section);
+        }
+        None => *detail = Some(section.to_string()),
+    }
+}
+
 fn push_unique_path(paths: &mut Vec<PathBuf>, candidate: PathBuf) {
     if !paths.iter().any(|current| current == &candidate) {
         paths.push(candidate);
@@ -792,6 +812,67 @@ async fn fetch_dreamina_latest_version_record(
         .map_err(|error| format!("failed to decode Dreamina version metadata: {error}"))
 }
 
+fn dreamina_release_notes_indicate_login_change(release_notes: &str) -> bool {
+    let lowered = release_notes.to_ascii_lowercase();
+    lowered.contains("login")
+        || release_notes.contains("登录")
+        || release_notes.contains("鐧诲綍")
+}
+
+fn format_dreamina_outdated_login_hint(
+    current_version: &str,
+    latest_record: &DreaminaCliVersionRecord,
+) -> Option<String> {
+    let latest_version = normalize_version_option(latest_record.version.as_deref())?;
+    if compare_versions(&latest_version, current_version) != std::cmp::Ordering::Greater {
+        return None;
+    }
+
+    let mut sentences = vec![format!(
+        "Dreamina CLI v{latest_version} is available, but this computer is still using v{current_version}. Update the CLI before retrying login."
+    )];
+    let release_notes = latest_record
+        .release_notes
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty());
+    let release_date = latest_record
+        .release_date
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty());
+
+    if let Some(notes) = release_notes {
+        if dreamina_release_notes_indicate_login_change(notes) {
+            if let Some(date) = release_date {
+                sentences.push(format!(
+                    "Official release notes on {date} mention a login-flow change."
+                ));
+            } else {
+                sentences.push("Official release notes mention a login-flow change.".to_string());
+            }
+        } else if let Some(date) = release_date {
+            sentences.push(format!("A newer official CLI was released on {date}."));
+        }
+    } else if let Some(date) = release_date {
+        sentences.push(format!("A newer official CLI was released on {date}."));
+    }
+
+    Some(sentences.join(" "))
+}
+
+fn dreamina_outdated_login_hint(
+    runtime: &GitBashRuntime,
+    command_env: &DreaminaProcessEnv,
+    latest_record: Option<&DreaminaCliVersionRecord>,
+) -> Option<String> {
+    let latest_record = latest_record?;
+    let current_version = resolve_active_dreamina_binary(runtime, command_env)
+        .current_version
+        .filter(|value| !value.trim().is_empty())?;
+    format_dreamina_outdated_login_hint(&current_version, latest_record)
+}
+
 fn git_root_from_bash_path(path: &Path) -> Option<PathBuf> {
     let file_name = path.file_name()?.to_string_lossy().to_ascii_lowercase();
     if file_name != "bash.exe" {
@@ -1189,7 +1270,7 @@ fn dreamina_login_headless_script(
     command_env: &DreaminaProcessEnv,
 ) -> String {
     format!(
-        "{prefix}; {dreamina} login --headless --debug < /dev/null; status=$?; echo '{exit_marker} '$status; exit \"$status\"",
+        "{prefix}; {dreamina} login --headless < /dev/null; status=$?; echo '{exit_marker} '$status; exit \"$status\"",
         prefix = dreamina_command_prefix(runtime, command_env),
         dreamina = dreamina_command_target(runtime, command_env),
         exit_marker = DREAMINA_LOGIN_EXIT_MARKER,
@@ -1373,6 +1454,45 @@ fn dreamina_login_page_url(workspace: &Path) -> Option<String> {
     fallback
 }
 
+fn parse_dreamina_login_field_value(log_text: &str, field: &str) -> Option<String> {
+    let field = field.to_ascii_lowercase();
+    log_text.lines().find_map(|line| {
+        let trimmed = line.trim();
+        let (key, value) = trimmed.split_once(':')?;
+        if key.trim().to_ascii_lowercase() != field {
+            return None;
+        }
+        let value = value.trim();
+        if value.is_empty() {
+            None
+        } else {
+            Some(value.to_string())
+        }
+    })
+}
+
+fn dreamina_login_device_code(workspace: &Path) -> Option<String> {
+    let log_text = read_text_file_lossy(&dreamina_login_log_path(workspace))?;
+    parse_dreamina_login_field_value(&log_text, "device_code")
+}
+
+fn dreamina_login_user_code(workspace: &Path) -> Option<String> {
+    let log_text = read_text_file_lossy(&dreamina_login_log_path(workspace))?;
+    parse_dreamina_login_field_value(&log_text, "user_code")
+}
+
+fn dreamina_login_poll_interval_ms(workspace: &Path) -> Option<u64> {
+    let log_text = read_text_file_lossy(&dreamina_login_log_path(workspace))?;
+    let value = parse_dreamina_login_field_value(&log_text, "poll_interval")?;
+    let normalized = value.trim().trim_end_matches('s').trim();
+    let seconds = normalized.parse::<u64>().ok()?;
+    Some(seconds.saturating_mul(1000).max(500))
+}
+
+fn dreamina_device_flow_login_ready(workspace: &Path) -> bool {
+    dreamina_login_page_url(workspace).is_some() && dreamina_login_device_code(workspace).is_some()
+}
+
 fn dreamina_login_success_logged(workspace: &Path) -> bool {
     read_text_file_lossy(&dreamina_login_log_path(workspace))
         .map(|text| {
@@ -1390,12 +1510,8 @@ fn dreamina_login_exit_code(workspace: &Path) -> Option<i32> {
     })
 }
 
-fn dreamina_credential_has_usable_session(workspace: &Path) -> bool {
-    dreamina_credential_session_detail(workspace).is_none()
-}
-
 fn dreamina_login_confirmed(workspace: &Path) -> bool {
-    dreamina_login_success_logged(workspace) || dreamina_credential_has_usable_session(workspace)
+    dreamina_login_success_logged(workspace)
 }
 
 fn tail_lines(text: &str, line_count: usize) -> String {
@@ -1474,14 +1590,14 @@ fn dreamina_internal_log_tail(workspace: &Path, line_count: usize) -> Option<Str
 
 fn dreamina_login_debug_hint(workspace: &Path) -> String {
     format!(
-        "This app already retried the QR login with `dreamina login --headless --debug`.\nDebug log: {}\nExpected QR file: {}",
+        "This app already retried the login with `dreamina login --headless`.\nLogin log: {}\nExpected QR file: {}",
         dreamina_login_log_path(workspace).display(),
         dreamina_login_qr_path(workspace).display()
     )
 }
 
 fn append_dreamina_login_debug_hint(workspace: &Path, detail: String) -> String {
-    if detail.contains("dreamina login --headless --debug") {
+    if detail.contains("dreamina login --headless") {
         detail
     } else {
         format!("{detail}\n\n{}", dreamina_login_debug_hint(workspace))
@@ -1556,6 +1672,19 @@ fn dreamina_login_wait_detail(workspace: &Path) -> Option<String> {
             "The QR code is ready. Scan it with Douyin and confirm the login on your phone."
                 .to_string(),
         );
+    }
+
+    if dreamina_device_flow_login_ready(workspace) {
+        let verification_url = dreamina_login_page_url(workspace).unwrap_or_default();
+        let user_code = dreamina_login_user_code(workspace)
+            .map(|value| format!("user_code: {value}"))
+            .unwrap_or_else(|| "user_code: (not parsed)".to_string());
+        return Some(append_dreamina_login_debug_hint(
+            workspace,
+            format!(
+                "Dreamina switched to OAuth Device Flow. Open the verification page and complete authorization in the browser, then keep this dialog open while the app keeps checking login status.\nverification_uri: {verification_url}\n{user_code}"
+            ),
+        ));
     }
 
     if let Some(exit_code) = dreamina_login_exit_code(workspace) {
@@ -1647,9 +1776,20 @@ fn encode_file_as_data_url(path: &Path, mime_type: &str) -> Result<String, Strin
     Err(format!("failed to read Dreamina login QR file: {error}"))
 }
 
+fn encode_login_url_as_qr_image_url(login_url: &str) -> String {
+    format!(
+        "https://api.qrserver.com/v1/create-qr-code/?size=720x720&margin=0&data={}",
+        urlencoding::encode(login_url)
+    )
+}
+
 fn dreamina_login_qr_data_url(workspace: &Path) -> Option<String> {
-    let qr_path = dreamina_login_qr_file_path(workspace)?;
-    encode_file_as_data_url(&qr_path, "image/png").ok()
+    if let Some(qr_path) = dreamina_login_qr_file_path(workspace) {
+        return encode_file_as_data_url(&qr_path, "image/png").ok();
+    }
+
+    let verification_url = dreamina_login_page_url(workspace)?;
+    Some(encode_login_url_as_qr_image_url(&verification_url))
 }
 
 fn powershell_quote(value: &str) -> String {
@@ -1994,7 +2134,7 @@ fn normalize_dreamina_cli_error(line: &str) -> String {
         || lowered.contains("user_credit")
     {
         return format!(
-            "Dreamina CLI is not ready. Run `dreamina login` first. If the login flow gets stuck, retry with `dreamina login --headless --debug`. After login, verify with `dreamina user_credit`. You can also check `~/.dreamina_cli/config.toml` and `~/.dreamina_cli/credential.json`. Original error: {trimmed}"
+            "Dreamina CLI is not ready. Run `dreamina login` first. For headless auth, run `dreamina login --headless`, then poll with `dreamina login checklogin --device_code=<device_code> --poll=30`. After login, verify with `dreamina user_credit`. You can also check `~/.dreamina_cli/config.toml` and `~/.dreamina_cli/credential.json`. Original error: {trimmed}"
         );
     }
     trimmed.to_string()
@@ -2086,6 +2226,35 @@ async fn run_dreamina_action(
             Some(detail)
         },
     })
+}
+
+async fn run_dreamina_login_checklogin_once(
+    workspace: PathBuf,
+    runtime: &GitBashRuntime,
+    device_code: &str,
+    poll_seconds: u64,
+) -> Result<(), String> {
+    let command_env = dreamina_process_env(&workspace)?;
+    let script = format!(
+        "{prefix}; {dreamina} login checklogin --device_code={device_code} --poll={poll_seconds}",
+        prefix = dreamina_command_prefix(runtime, &command_env),
+        dreamina = dreamina_command_target(runtime, &command_env),
+        device_code = bash_quote(device_code),
+        poll_seconds = poll_seconds
+    );
+    let (success, stdout, stderr) =
+        run_git_bash_script(runtime, command_env, workspace, script).await?;
+
+    if success {
+        Ok(())
+    } else {
+        Err(format_dreamina_script_failure(
+            "Dreamina login checklogin",
+            &stdout,
+            &stderr,
+            "Dreamina login checklogin failed.",
+        ))
+    }
 }
 
 fn sanitize_file_name(raw_name: &str, fallback_stem: &str, fallback_extension: &str) -> String {
@@ -3100,11 +3269,13 @@ async fn open_dreamina_login_terminal_with_runtime(
     let command_env = dreamina_process_env(&workspace)?;
     terminate_conflicting_dreamina_processes(runtime, &command_env).await?;
     let remaining_port_owners = query_dreamina_callback_port_owners().await?;
-    if !remaining_port_owners.is_empty() {
-        return Err(format_dreamina_callback_port_owner_detail(
+    let callback_port_notice = if remaining_port_owners.is_empty() {
+        None
+    } else {
+        Some(format_dreamina_callback_port_owner_detail(
             &remaining_port_owners,
-        ));
-    }
+        ))
+    };
     let script = dreamina_login_headless_script(runtime, &command_env);
     let bash_path = runtime.bash_path.clone();
     let log_path = dreamina_login_log_path(&workspace);
@@ -3161,15 +3332,21 @@ async fn open_dreamina_login_terminal_with_runtime(
 
     Ok(DreaminaCliActionResponse {
         message:
-            "Dreamina login QR flow started. Scan the QR code in the app with Douyin, then the app will continue polling automatically."
+            "Dreamina headless login flow started. Complete the authorization step shown in the app, then the app will continue polling automatically."
                 .to_string(),
-        detail: Some(
-            format!(
-                "Dreamina is rendering the official headless login QR code. Debug output is being written to {} and the QR image will be saved to {}",
+        detail: Some(match callback_port_notice {
+            Some(notice) => format!(
+                "Dreamina login output is being written to {} and the QR image (if produced by this CLI version) will be saved to {}.\n\n{}",
+                log_path.display(),
+                qr_path.display(),
+                notice
+            ),
+            None => format!(
+                "Dreamina login output is being written to {} and the QR image (if produced by this CLI version) will be saved to {}.",
                 log_path.display(),
                 qr_path.display()
             ),
-        ),
+        }),
     })
 }
 
@@ -3184,14 +3361,37 @@ async fn wait_for_dreamina_login(
     let mut qr_seen = false;
     let mut verify_started_at: Option<Instant> = None;
     let mut auto_relaunch_count = 0u8;
+    let mut last_device_checklogin_at: Option<Instant> = None;
 
     loop {
         let now = Instant::now();
+        let login_page_url = dreamina_login_page_url(workspace);
+        let login_device_code = dreamina_login_device_code(workspace);
+        let device_poll_interval_ms = dreamina_login_poll_interval_ms(workspace)
+            .unwrap_or(DREAMINA_LOGIN_POLL_INTERVAL_MS)
+            .clamp(500, 10_000);
+        let device_flow_ready = login_page_url.is_some() && login_device_code.is_some();
         let qr_file_ready = dreamina_login_qr_file_path(workspace).is_some();
         let login_qr_data_url = dreamina_login_qr_data_url(workspace);
         qr_seen |= qr_file_ready || login_qr_data_url.is_some();
         if verify_started_at.is_none() && dreamina_login_confirmed(workspace) {
             verify_started_at = Some(now);
+        }
+
+        if let Some(device_code) = login_device_code.as_deref() {
+            let should_check = last_device_checklogin_at
+                .map(|last| now.saturating_duration_since(last).as_millis() as u64 >= device_poll_interval_ms)
+                .unwrap_or(true);
+            if should_check {
+                last_device_checklogin_at = Some(now);
+                let _ = run_dreamina_login_checklogin_once(
+                    workspace.to_path_buf(),
+                    runtime,
+                    device_code,
+                    0,
+                )
+                .await;
+            }
         }
 
         let status =
@@ -3212,6 +3412,7 @@ async fn wait_for_dreamina_login(
 
         if !qr_seen
             && verify_started_at.is_none()
+            && !device_flow_ready
             && auto_relaunch_count < 2
             && dreamina_login_callback_port_busy(workspace)
         {
@@ -3226,7 +3427,7 @@ async fn wait_for_dreamina_login(
                     auto_relaunch_count
                 )),
                 None,
-                dreamina_login_page_url(workspace),
+                login_page_url.clone(),
             );
 
             if let Err(error) =
@@ -3280,13 +3481,13 @@ async fn wait_for_dreamina_login(
                 Some(runtime.source),
                 dreamina_login_wait_detail(workspace),
                 login_qr_data_url,
-                dreamina_login_page_url(workspace),
+                login_page_url.clone(),
             );
             sleep(Duration::from_millis(DREAMINA_LOGIN_POLL_INTERVAL_MS)).await;
             continue;
         }
 
-        if !qr_seen && now >= qr_deadline {
+        if !qr_seen && !device_flow_ready && now >= qr_deadline {
             let detail = dreamina_login_wait_detail(workspace).or_else(|| {
                 Some(
                     "Dreamina did not render a login QR code in time. Please retry to refresh the QR code."
@@ -3328,7 +3529,7 @@ async fn wait_for_dreamina_login(
             Some(runtime.source),
             dreamina_login_wait_detail(workspace),
             login_qr_data_url,
-            dreamina_login_page_url(workspace),
+            login_page_url,
         );
         sleep(Duration::from_millis(DREAMINA_LOGIN_POLL_INTERVAL_MS)).await;
     }
@@ -3350,6 +3551,8 @@ pub async fn run_dreamina_guided_setup(
 
     let workspace = dreamina_workspace(&app)?;
     let runtime = resolve_git_bash_runtime(&app)?;
+    let command_env = dreamina_process_env(&workspace)?;
+    let manifest = bundled_dreamina_manifest(&runtime);
     emit_dreamina_setup_progress(
         &app,
         DreaminaSetupProgressStage::PreparingGit,
@@ -3363,6 +3566,10 @@ pub async fn run_dreamina_guided_setup(
     let mut status = resolve_dreamina_cli_status_with_runtime(workspace.clone(), &runtime).await;
     let mut login_terminal_opened = false;
     let mut login_wait_timed_out = false;
+    let latest_dreamina_record = fetch_dreamina_latest_version_record(manifest.as_ref())
+        .await
+        .ok();
+    let mut prelogin_update_error: Option<String> = None;
 
     if matches!(status.code, DreaminaCliStatusCode::CliMissing) {
         emit_dreamina_setup_progress(
@@ -3393,6 +3600,48 @@ pub async fn run_dreamina_guided_setup(
         }
     }
 
+    if matches!(
+        status.code,
+        DreaminaCliStatusCode::LoginRequired | DreaminaCliStatusCode::Unknown
+    ) {
+        if let Some(update_hint) = dreamina_outdated_login_hint(
+            &runtime,
+            &command_env,
+            latest_dreamina_record.as_ref(),
+        ) {
+            emit_dreamina_setup_progress(
+                &app,
+                DreaminaSetupProgressStage::InstallingCli,
+                56,
+                Some(runtime.source),
+                Some(format!(
+                    "Updating Dreamina CLI before login. {update_hint}"
+                )),
+                None,
+                None,
+            );
+
+            match update_dreamina_cli_with_runtime(workspace.clone(), &runtime).await {
+                Ok(update_result) => {
+                    emit_dreamina_setup_progress(
+                        &app,
+                        DreaminaSetupProgressStage::Verifying,
+                        68,
+                        Some(runtime.source),
+                        update_result.detail.clone(),
+                        None,
+                        None,
+                    );
+                    status =
+                        resolve_dreamina_cli_status_with_runtime(workspace.clone(), &runtime).await;
+                }
+                Err(error) => {
+                    prelogin_update_error = Some(error);
+                }
+            }
+        }
+    }
+
     if matches!(status.code, DreaminaCliStatusCode::LoginRequired) {
         emit_dreamina_setup_progress(
             &app,
@@ -3420,6 +3669,22 @@ pub async fn run_dreamina_guided_setup(
         let (next_status, timed_out) = wait_for_dreamina_login(&app, &workspace, &runtime).await;
         status = next_status;
         login_wait_timed_out = timed_out;
+    }
+
+    if !status.ready {
+        if let Some(error) = prelogin_update_error.take() {
+            append_detail_section(
+                &mut status.detail,
+                format!("Automatic Dreamina CLI update failed before login:\n{error}"),
+            );
+        }
+        if let Some(update_hint) = dreamina_outdated_login_hint(
+            &runtime,
+            &command_env,
+            latest_dreamina_record.as_ref(),
+        ) {
+            append_detail_section(&mut status.detail, update_hint);
+        }
     }
 
     if status.ready {

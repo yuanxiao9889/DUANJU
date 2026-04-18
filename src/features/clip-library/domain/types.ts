@@ -91,6 +91,16 @@ export interface AddNodeMediaToClipLibraryResult {
   clipFolderId: string;
 }
 
+export interface AddNodeMediaToClipLibraryMediaOverride {
+  mediaType: ClipMediaType;
+  sourcePath: string;
+  previewPath?: string | null;
+  title?: string | null;
+  descriptionText?: string | null;
+  durationMs?: number | null;
+  mimeType?: string | null;
+}
+
 export interface CreateClipLibraryPayload {
   name: string;
   rootPath: string;
@@ -177,4 +187,5 @@ export interface AddNodeMediaToClipLibraryPayload {
   nodeId: string;
   libraryId: string;
   folderId: string;
+  mediaOverride?: AddNodeMediaToClipLibraryMediaOverride | null;
 }

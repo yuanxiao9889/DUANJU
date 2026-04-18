@@ -9,6 +9,8 @@ use tauri::AppHandle;
 
 use super::storage;
 
+const STYLE_TEMPLATE_SETTINGS_REFS_PROJECT_ID: &str = "__settings_style_template_refs__";
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ProjectSummaryRecord {
@@ -1527,6 +1529,46 @@ pub(crate) fn replace_project_image_refs(
         )
         .map_err(|e| format!("Failed to upsert project image ref: {}", e))?;
     }
+
+    Ok(())
+}
+
+#[tauri::command]
+pub fn sync_style_template_image_refs(app: AppHandle, paths: Vec<String>) -> Result<(), String> {
+    let images_dir = resolve_images_dir(&app)?;
+    let mut conn = open_db(&app)?;
+    let tx = conn
+        .transaction()
+        .map_err(|e| format!("Failed to begin style template refs transaction: {}", e))?;
+
+    tx.execute(
+        "DELETE FROM project_image_refs WHERE project_id = ?1",
+        params![STYLE_TEMPLATE_SETTINGS_REFS_PROJECT_ID],
+    )
+    .map_err(|e| format!("Failed to clear style template image refs: {}", e))?;
+
+    for raw_path in paths {
+        let trimmed = raw_path.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+
+        let relocated_path =
+            storage::relocate_storage_path_to_images_dir(trimmed, &images_dir)
+                .unwrap_or_else(|| trimmed.to_string());
+        let Some(normalized_path) = normalize_image_ref_path(&relocated_path) else {
+            continue;
+        };
+
+        tx.execute(
+            "INSERT OR IGNORE INTO project_image_refs (project_id, path) VALUES (?1, ?2)",
+            params![STYLE_TEMPLATE_SETTINGS_REFS_PROJECT_ID, normalized_path],
+        )
+        .map_err(|e| format!("Failed to upsert style template image ref: {}", e))?;
+    }
+
+    tx.commit()
+        .map_err(|e| format!("Failed to commit style template refs transaction: {}", e))?;
 
     Ok(())
 }

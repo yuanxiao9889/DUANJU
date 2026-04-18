@@ -2,6 +2,7 @@ import {
   isAudioNode,
   isExportImageNode,
   isImageEditNode,
+  isMjResultNode,
   isPanorama360Node,
   isJimengImageNode,
   isJimengImageResultNode,
@@ -10,6 +11,7 @@ import {
   isStoryboardGenNode,
   isUploadNode,
   isVideoNode,
+  getMjResultNodeActiveImages,
   type CanvasNode,
 } from '../domain/canvasNodes';
 
@@ -45,6 +47,12 @@ export function extractReferenceImageUrls(node: CanvasNode): string[] {
       .filter((imageUrl): imageUrl is string => Boolean(imageUrl && imageUrl.trim().length > 0));
   }
 
+  if (isMjResultNode(node)) {
+    return getMjResultNodeActiveImages(node.data)
+      .map((item) => item.imageUrl ?? item.previewImageUrl ?? item.sourceUrl ?? null)
+      .filter((imageUrl): imageUrl is string => Boolean(imageUrl && imageUrl.trim().length > 0));
+  }
+
   return [];
 }
 
@@ -74,6 +82,35 @@ export function extractReferenceVisuals(node: CanvasNode): ExtractedReferenceVis
 
   if (isJimengImageNode(node) || isJimengImageResultNode(node)) {
     return (node.data.resultImages ?? [])
+      .map((item) => {
+        const previewImageUrl =
+          item.imageUrl?.trim()
+          ?? item.previewImageUrl?.trim()
+          ?? item.sourceUrl?.trim()
+          ?? '';
+        if (!previewImageUrl) {
+          return null;
+        }
+
+        return {
+          kind: 'image' as const,
+          referenceUrl: previewImageUrl,
+          previewImageUrl,
+        };
+      })
+      .filter(
+        (
+          item
+        ): item is {
+          kind: 'image';
+          referenceUrl: string;
+          previewImageUrl: string;
+        } => Boolean(item)
+      );
+  }
+
+  if (isMjResultNode(node)) {
+    return getMjResultNodeActiveImages(node.data)
       .map((item) => {
         const previewImageUrl =
           item.imageUrl?.trim()

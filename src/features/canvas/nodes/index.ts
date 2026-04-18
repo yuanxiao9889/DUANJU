@@ -9,6 +9,8 @@ import { JimengImageResultNode } from './JimengImageResultNode';
 import { JimengVideoResultNode } from './JimengVideoResultNode';
 import { ImageNode } from './ImageNode';
 import { JimengNode } from './JimengNode';
+import { MjNode } from './MjNode';
+import { MjResultNode } from './MjResultNode';
 import { SeedanceNode } from './SeedanceNode';
 import { SeedanceVideoResultNode } from './SeedanceVideoResultNode';
 import { StoryboardGenNode } from './StoryboardGenNode';
@@ -47,6 +49,8 @@ export const nodeTypes: NodeTypes = {
   imageNode: ImageEditNode,
   panorama360Node: Panorama360Node,
   jimengImageNode: JimengImageNode,
+  mjNode: MjNode,
+  mjResultNode: MjResultNode,
   jimengImageResultNode: JimengImageResultNode,
   jimengVideoResultNode: JimengVideoResultNode,
   jimengNode: JimengNode,
@@ -86,6 +90,8 @@ export {
   ImageEditNode, 
   Panorama360Node,
   JimengImageNode,
+  MjNode,
+  MjResultNode,
   JimengImageResultNode,
   JimengVideoResultNode,
   ImageNode, 

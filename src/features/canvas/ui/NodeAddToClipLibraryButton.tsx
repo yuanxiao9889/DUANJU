@@ -52,6 +52,54 @@ function normalizeText(value: unknown): string {
   return typeof value === 'string' ? value.trim() : '';
 }
 
+function resolveNodeDescriptionText(node: CanvasNode): string {
+  const data = node.data as Record<string, unknown>;
+  for (const key of [
+    'descriptionText',
+    'nodeDescription',
+    'description',
+    'prompt',
+    'note',
+    'caption',
+    'scriptText',
+  ]) {
+    const value = normalizeText(data[key]);
+    if (value) {
+      return value;
+    }
+  }
+  return '';
+}
+
+function resolveNodeMediaOverride(node: CanvasNode) {
+  const data = node.data as Record<string, unknown>;
+  const audioUrl = normalizeText(data.audioUrl);
+  const videoUrl = normalizeText(data.videoUrl);
+  const sourcePath = audioUrl || videoUrl;
+  if (!sourcePath) {
+    return null;
+  }
+
+  const mediaType = audioUrl ? 'audio' : 'video';
+  const fileName = normalizeText(audioUrl ? data.audioFileName : data.videoFileName);
+  const displayName = normalizeText(data.displayName);
+  const mimeType = normalizeText(data.mimeType);
+  const durationSeconds =
+    typeof data.duration === 'number' && Number.isFinite(data.duration) && data.duration > 0
+      ? data.duration
+      : null;
+
+  return {
+    mediaType,
+    sourcePath,
+    previewPath: normalizeText(data.previewImageUrl) || null,
+    title: displayName || fileName || null,
+    descriptionText: resolveNodeDescriptionText(node) || null,
+    durationMs: durationSeconds !== null ? Math.round(durationSeconds * 1000) : null,
+    mimeType: mimeType || null,
+  } as const;
+}
+
 function resolveFolderSelection(
   snapshot: ClipLibrarySnapshot | null,
   scriptFolderId: string | null | undefined
@@ -555,6 +603,7 @@ export function NodeAddToClipLibraryButton({
           nodeId: node.id,
           libraryId,
           folderId,
+          mediaOverride: resolveNodeMediaOverride(node),
         });
 
         updateNodeData(node.id, {
@@ -562,6 +611,7 @@ export function NodeAddToClipLibraryButton({
           clipFolderId: result.clipFolderId,
           clipItemId: result.item.id,
         });
+        await flushCurrentProjectToDisk();
         await setProjectClipLastFolder(currentProject.id, result.clipFolderId);
 
         setIsAddedSuccess(true);

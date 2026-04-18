@@ -76,6 +76,7 @@ interface UiModalProps {
   widthClassName?: string;
   containerClassName?: string;
   headerClassName?: string;
+  bodyClassName?: string;
   draggable?: boolean;
 }
 
@@ -625,6 +626,7 @@ export function UiModal({
   widthClassName = 'w-[460px]',
   containerClassName = '',
   headerClassName = '',
+  bodyClassName = '',
   draggable = true,
 }: UiModalProps) {
   const { shouldRender, isVisible } = useDialogTransition(isOpen, UI_DIALOG_TRANSITION_MS);
@@ -669,7 +671,7 @@ export function UiModal({
             </UiIconButton>
           </div>
 
-          <div className="px-4 py-4">{children}</div>
+          <div className={`px-4 py-4 ${bodyClassName}`}>{children}</div>
 
           {footer && (
             <div className="flex justify-end gap-2 border-t border-[rgba(255,255,255,0.1)] px-4 py-3">

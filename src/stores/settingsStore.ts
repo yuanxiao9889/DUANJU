@@ -1,5 +1,7 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
+import { isTauri } from '@tauri-apps/api/core';
+import { syncStyleTemplateImageRefs } from '@/commands/projectState';
 import {
   DEFAULT_GRSAI_CREDIT_TIER_ID,
   PRICE_DISPLAY_CURRENCY_MODES,
@@ -60,7 +62,12 @@ import {
   sortStyleTemplateCategories,
   sortStyleTemplates,
 } from '@/features/project/styleTemplateUtils';
-import { seedPanoramaStyleTemplate } from '@/features/project/defaultStyleTemplates';
+import { seedBuiltinStyleTemplates } from '@/features/project/defaultStyleTemplates';
+import {
+  MJ_PROVIDER_IDS,
+  normalizeMidjourneyProviderEnabledSelection,
+  type MidjourneyProviderId,
+} from '@/features/midjourney/domain/providers';
 
 export type { StyleTemplate, StyleTemplateCategory };
 
@@ -74,7 +81,9 @@ interface SettingsState {
   isHydrated: boolean;
   scriptApiKeys: ProviderApiKeys;
   storyboardApiKeys: ProviderApiKeys;
+  mjApiKeys: ProviderApiKeys;
   scriptProviderEnabled: string;
+  mjProviderEnabled: MidjourneyProviderId;
   scriptModelOverrides: Record<string, string>;
   scriptProviderCustomModels: Record<string, CustomScriptModelEntry[]>;
   scriptCompatibleProviderConfig: ScriptCompatibleProviderConfig;
@@ -130,7 +139,9 @@ interface SettingsState {
   setIsHydrated: (isHydrated: boolean) => void;
   setScriptProviderApiKey: (providerId: string, key: string) => void;
   setStoryboardProviderApiKey: (providerId: string, key: string) => void;
+  setMjProviderApiKey: (providerId: MidjourneyProviderId, key: string) => void;
   setScriptProviderEnabled: (providerId: string) => void;
+  setMjProviderEnabled: (providerId: MidjourneyProviderId) => void;
   setScriptModelOverride: (providerId: string, model: string) => void;
   setScriptProviderCustomModels: (
     providerId: string,
@@ -202,11 +213,11 @@ interface SettingsState {
   ) => void;
   deleteStyleTemplateCategory: (id: string) => void;
   addStyleTemplate: (
-    template: Pick<StyleTemplate, 'name' | 'prompt' | 'categoryId'>
+    template: Pick<StyleTemplate, 'name' | 'prompt' | 'imageUrl' | 'categoryId'>
   ) => string;
   updateStyleTemplate: (
     id: string,
-    updates: Partial<Pick<StyleTemplate, 'name' | 'prompt' | 'categoryId'>>
+    updates: Partial<Pick<StyleTemplate, 'name' | 'prompt' | 'imageUrl' | 'categoryId'>>
   ) => void;
   deleteStyleTemplate: (id: string) => void;
   markStyleTemplateUsed: (id: string) => void;
@@ -227,6 +238,45 @@ function normalizeHexColor(input: string): string {
 
 function normalizeApiKey(input: string): string {
   return input.trim();
+}
+
+let lastSyncedStyleTemplateImageRefsSignature: string | null = null;
+
+function collectStyleTemplateImageRefs(templates: StyleTemplate[]): string[] {
+  const refs: string[] = [];
+  const seen = new Set<string>();
+
+  for (const template of templates) {
+    const imageUrl = typeof template.imageUrl === 'string' ? template.imageUrl.trim() : '';
+    if (!imageUrl || seen.has(imageUrl)) {
+      continue;
+    }
+    seen.add(imageUrl);
+    refs.push(imageUrl);
+  }
+
+  return refs;
+}
+
+function scheduleStyleTemplateImageRefsSync(templates: StyleTemplate[]): void {
+  if (!isTauri()) {
+    return;
+  }
+
+  const refs = collectStyleTemplateImageRefs(templates);
+  const signature = refs.join('\n');
+
+  if (lastSyncedStyleTemplateImageRefsSignature === signature) {
+    return;
+  }
+
+  void syncStyleTemplateImageRefs(refs)
+    .then(() => {
+      lastSyncedStyleTemplateImageRefsSignature = signature;
+    })
+    .catch((error) => {
+      console.error('failed to sync style template image refs', error);
+    });
 }
 
 function normalizePriceDisplayCurrencyMode(
@@ -384,7 +434,9 @@ export const useSettingsStore = create<SettingsState>()(
       isHydrated: false,
       scriptApiKeys: {},
       storyboardApiKeys: {},
+      mjApiKeys: {},
       scriptProviderEnabled: 'alibaba',
+      mjProviderEnabled: 'comfly',
       scriptModelOverrides: {
         alibaba: DEFAULT_ALIBABA_TEXT_MODEL,
         coding: DEFAULT_CODING_MODEL,
@@ -431,12 +483,12 @@ export const useSettingsStore = create<SettingsState>()(
       canvasEdgeRoutingMode: 'spline',
       autoCheckAppUpdateOnLaunch: true,
       enableUpdateDialog: true,
-      autoUpdateDreaminaCliOnLaunch: false,
+      autoUpdateDreaminaCliOnLaunch: true,
       showMiniMap: true,
       showGrid: true,
       showAlignmentGuides: true,
       styleTemplateCategories: [],
-      styleTemplates: seedPanoramaStyleTemplate({
+      styleTemplates: seedBuiltinStyleTemplates({
         styleTemplates: [],
         hasInjectedPanoramaStyleTemplate: false,
       }).styleTemplates,
@@ -459,7 +511,15 @@ export const useSettingsStore = create<SettingsState>()(
             [providerId]: normalizeApiKey(key),
           },
         })),
+      setMjProviderApiKey: (providerId, key) =>
+        set((state) => ({
+          mjApiKeys: {
+            ...state.mjApiKeys,
+            [providerId]: normalizeApiKey(key),
+          },
+        })),
       setScriptProviderEnabled: (providerId) => set({ scriptProviderEnabled: providerId }),
+      setMjProviderEnabled: (providerId) => set({ mjProviderEnabled: providerId }),
       setScriptModelOverride: (providerId, model) =>
         set((state) => ({
           scriptModelOverrides: {
@@ -699,6 +759,7 @@ export const useSettingsStore = create<SettingsState>()(
         }
 
         const id = crypto.randomUUID();
+        let nextStyleTemplates: StyleTemplate[] = [];
         set((state) => {
           const now = Date.now();
           const nextSortOrder =
@@ -714,28 +775,36 @@ export const useSettingsStore = create<SettingsState>()(
             template.categoryId && validCategoryIds.has(template.categoryId)
               ? template.categoryId
               : null;
+          const imageUrl =
+            typeof template.imageUrl === 'string' && template.imageUrl.trim().length > 0
+              ? template.imageUrl.trim()
+              : null;
+          nextStyleTemplates = sortStyleTemplates([
+            ...state.styleTemplates,
+            {
+              id,
+              name: trimmedName,
+              prompt: trimmedPrompt,
+              imageUrl,
+              categoryId,
+              sortOrder: nextSortOrder,
+              createdAt: now,
+              updatedAt: now,
+              lastUsedAt: null,
+            },
+          ]);
 
           return {
-            styleTemplates: sortStyleTemplates([
-              ...state.styleTemplates,
-              {
-                id,
-                name: trimmedName,
-                prompt: trimmedPrompt,
-                categoryId,
-                sortOrder: nextSortOrder,
-                createdAt: now,
-                updatedAt: now,
-                lastUsedAt: null,
-              },
-            ]),
+            styleTemplates: nextStyleTemplates,
           };
         });
+        scheduleStyleTemplateImageRefsSync(nextStyleTemplates);
         return id;
       },
-      updateStyleTemplate: (id, updates) =>
-        set((state) => ({
-          styleTemplates: sortStyleTemplates(
+      updateStyleTemplate: (id, updates) => {
+        let nextStyleTemplates: StyleTemplate[] = [];
+        set((state) => {
+          nextStyleTemplates = sortStyleTemplates(
             state.styleTemplates.map((template) => {
               if (template.id !== id) {
                 return template;
@@ -752,6 +821,12 @@ export const useSettingsStore = create<SettingsState>()(
                   : updates.categoryId === null
                     ? null
                     : template.categoryId;
+              const nextImageUrl =
+                typeof updates.imageUrl === 'string'
+                  ? updates.imageUrl.trim() || null
+                  : updates.imageUrl === null
+                    ? null
+                    : template.imageUrl;
 
               return {
                 ...template,
@@ -764,16 +839,27 @@ export const useSettingsStore = create<SettingsState>()(
                   typeof updates.prompt === 'string'
                     ? updates.prompt.trim() || template.prompt
                     : template.prompt,
+                imageUrl: nextImageUrl,
                 categoryId: nextCategoryId,
                 updatedAt: Date.now(),
               };
             })
-          ),
-        })),
-      deleteStyleTemplate: (id) =>
-        set((state) => ({
-          styleTemplates: state.styleTemplates.filter((t) => t.id !== id),
-        })),
+          );
+
+          return { styleTemplates: nextStyleTemplates };
+        });
+        scheduleStyleTemplateImageRefsSync(nextStyleTemplates);
+      },
+      deleteStyleTemplate: (id) => {
+        let nextStyleTemplates: StyleTemplate[] = [];
+        set((state) => {
+          nextStyleTemplates = state.styleTemplates.filter((t) => t.id !== id);
+          return {
+            styleTemplates: nextStyleTemplates,
+          };
+        });
+        scheduleStyleTemplateImageRefsSync(nextStyleTemplates);
+      },
       markStyleTemplateUsed: (id) =>
         set((state) => ({
           styleTemplates: sortStyleTemplates(
@@ -794,11 +880,14 @@ export const useSettingsStore = create<SettingsState>()(
     }),
     {
       name: 'settings-storage',
-      version: 29,
+      version: 33,
       onRehydrateStorage: () => {
         return (state, error) => {
           if (error) {
             console.error('failed to hydrate settings storage', error);
+          }
+          if (state) {
+            scheduleStyleTemplateImageRefsSync(state.styleTemplates);
           }
           state?.setIsHydrated(true);
         };
@@ -809,7 +898,9 @@ export const useSettingsStore = create<SettingsState>()(
           apiKeys?: ProviderApiKeys;
           scriptApiKeys?: ProviderApiKeys;
           storyboardApiKeys?: ProviderApiKeys;
+          mjApiKeys?: ProviderApiKeys;
           scriptProviderEnabled?: string;
+          mjProviderEnabled?: string;
           scriptModelOverrides?: Record<string, string>;
           scriptProviderCustomModels?: Record<string, CustomScriptModelEntry[]>;
           scriptCompatibleProviderConfig?: Partial<ScriptCompatibleProviderConfig>;
@@ -858,6 +949,7 @@ export const useSettingsStore = create<SettingsState>()(
         const migratedLegacyApiKeys = normalizeApiKeys(state.apiKeys);
         const migratedScriptApiKeys = normalizeApiKeys(state.scriptApiKeys);
         const migratedStoryboardApiKeys = normalizeApiKeys(state.storyboardApiKeys);
+        const migratedMjApiKeys = normalizeApiKeys(state.mjApiKeys);
         const fallbackApiKeys =
           Object.keys(migratedLegacyApiKeys).length > 0
             ? migratedLegacyApiKeys
@@ -872,9 +964,24 @@ export const useSettingsStore = create<SettingsState>()(
           Object.keys(migratedStoryboardApiKeys).length > 0
             ? migratedStoryboardApiKeys
             : fallbackApiKeys;
+        const migratedMjApiKeySeed = MJ_PROVIDER_IDS.reduce<ProviderApiKeys>((acc, providerId) => {
+          const seededKey = resolvedStoryboardApiKeys[providerId]?.trim() ?? '';
+          if (seededKey) {
+            acc[providerId] = seededKey;
+          }
+          return acc;
+        }, {});
+        const resolvedMjApiKeys =
+          Object.keys(migratedMjApiKeys).length > 0
+            ? migratedMjApiKeys
+            : migratedMjApiKeySeed;
         const normalizedScriptProviderEnabled = normalizeScriptProviderEnabledSelection(
           state.scriptProviderEnabled,
           resolvedScriptApiKeys
+        );
+        const normalizedMjProviderEnabled = normalizeMidjourneyProviderEnabledSelection(
+          state.mjProviderEnabled,
+          resolvedMjApiKeys
         );
         const ignoreAtTagWhenCopyingAndGenerating =
           state.ignoreAtTagWhenCopyingAndGenerating ?? true;
@@ -918,13 +1025,10 @@ export const useSettingsStore = create<SettingsState>()(
           state.styleTemplates,
           normalizedStyleTemplateCategoryIds
         );
-        const shouldBackfillPanoramaStyleTemplate =
-          persistedVersion === undefined || persistedVersion < 29;
-        const seededPanoramaStyleTemplateState = seedPanoramaStyleTemplate({
+        const seededBuiltinStyleTemplateState = seedBuiltinStyleTemplates({
           styleTemplates: normalizedStyleTemplates,
-          // Backfill the built-in panorama template once for pre-v29 settings.
           hasInjectedPanoramaStyleTemplate:
-            shouldBackfillPanoramaStyleTemplate
+            persistedVersion === undefined || persistedVersion < 31
               ? false
               : state.hasInjectedPanoramaStyleTemplate ?? false,
         });
@@ -934,7 +1038,9 @@ export const useSettingsStore = create<SettingsState>()(
           isHydrated: true,
           scriptApiKeys: resolvedScriptApiKeys,
           storyboardApiKeys: resolvedStoryboardApiKeys,
+          mjApiKeys: resolvedMjApiKeys,
           scriptProviderEnabled: normalizedScriptProviderEnabled,
+          mjProviderEnabled: normalizedMjProviderEnabled,
           scriptModelOverrides: normalizedScriptModelOverrides,
           scriptProviderCustomModels: normalizedScriptProviderCustomModels,
           scriptCompatibleProviderConfig: normalizedScriptCompatibleProviderConfig,
@@ -989,7 +1095,7 @@ export const useSettingsStore = create<SettingsState>()(
           canvasEdgeRoutingMode: normalizeCanvasEdgeRoutingMode(state.canvasEdgeRoutingMode),
           autoCheckAppUpdateOnLaunch: state.autoCheckAppUpdateOnLaunch ?? true,
           enableUpdateDialog: state.enableUpdateDialog ?? true,
-          autoUpdateDreaminaCliOnLaunch: state.autoUpdateDreaminaCliOnLaunch ?? false,
+          autoUpdateDreaminaCliOnLaunch: state.autoUpdateDreaminaCliOnLaunch ?? true,
           enableStoryboardGenGridPreviewShortcut:
             state.enableStoryboardGenGridPreviewShortcut ?? false,
           groupNodesShortcut: normalizeShortcut(state.groupNodesShortcut),
@@ -1007,9 +1113,9 @@ export const useSettingsStore = create<SettingsState>()(
           showGrid: state.showGrid ?? true,
           showAlignmentGuides: state.showAlignmentGuides ?? true,
           styleTemplateCategories: normalizedStyleTemplateCategories,
-          styleTemplates: seededPanoramaStyleTemplateState.styleTemplates,
+          styleTemplates: seededBuiltinStyleTemplateState.styleTemplates,
           hasInjectedPanoramaStyleTemplate:
-            seededPanoramaStyleTemplateState.hasInjectedPanoramaStyleTemplate,
+            seededBuiltinStyleTemplateState.hasInjectedPanoramaStyleTemplate,
           psIntegrationEnabled: true,
           psServerPort: 9527,
           psAutoStartServer: true,

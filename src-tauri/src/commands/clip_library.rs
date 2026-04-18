@@ -228,6 +228,7 @@ pub struct AddNodeMediaToClipLibraryPayload {
     pub node_id: String,
     pub library_id: String,
     pub folder_id: String,
+    pub media_override: Option<AddNodeMediaToClipLibraryMediaOverride>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -236,6 +237,18 @@ pub struct AddNodeMediaToClipLibraryResult {
     pub item: ClipItemRecord,
     pub clip_library_id: String,
     pub clip_folder_id: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AddNodeMediaToClipLibraryMediaOverride {
+    pub media_type: String,
+    pub source_path: String,
+    pub preview_path: Option<String>,
+    pub title: Option<String>,
+    pub description_text: Option<String>,
+    pub duration_ms: Option<i64>,
+    pub mime_type: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -1462,19 +1475,30 @@ fn extract_duration_ms(data: &Map<String, Value>) -> Option<i64> {
 
 fn extract_project_node_media(node: &Value, image_pool: &[String]) -> Option<ProjectNodeMediaRecord> {
     let node_object = node.as_object()?;
-    let node_type = node_object.get("type")?.as_str()?;
-    if node_type != VIDEO_NODE_TYPE && node_type != AUDIO_NODE_TYPE {
-        return None;
-    }
+    let node_type = node_object.get("type").and_then(Value::as_str).unwrap_or("");
 
     let node_id = node_object.get("id")?.as_str()?.to_string();
     let data = resolve_node_data_map(node)?;
-    let media_type = if node_type == VIDEO_NODE_TYPE { "video" } else { "audio" };
-
-    let source_path = data
-        .get(if media_type == "video" { "videoUrl" } else { "audioUrl" })
+    let resolved_audio_path = data
+        .get("audioUrl")
         .and_then(Value::as_str)
-        .and_then(|value| resolve_project_media_ref(value, image_pool))?;
+        .and_then(|value| resolve_project_media_ref(value, image_pool));
+    let resolved_video_path = data
+        .get("videoUrl")
+        .and_then(Value::as_str)
+        .and_then(|value| resolve_project_media_ref(value, image_pool));
+
+    let (media_type, source_path) = if node_type == AUDIO_NODE_TYPE {
+        ("audio", resolved_audio_path.or(resolved_video_path)?)
+    } else if node_type == VIDEO_NODE_TYPE {
+        ("video", resolved_video_path.or(resolved_audio_path)?)
+    } else if let Some(audio_path) = resolved_audio_path {
+        ("audio", audio_path)
+    } else if let Some(video_path) = resolved_video_path {
+        ("video", video_path)
+    } else {
+        return None;
+    };
 
     if resolve_local_path(&source_path).is_none() {
         return None;
@@ -1543,6 +1567,67 @@ fn find_project_node_media(record: &ProjectRecord, node_id: &str) -> Result<Proj
     }
 
     Err("The requested media node could not be found or is not a local video/audio node".to_string())
+}
+
+fn media_override_to_record(
+    node_id: &str,
+    payload: &AddNodeMediaToClipLibraryMediaOverride,
+) -> Option<ProjectNodeMediaRecord> {
+    let media_type = match payload.media_type.trim() {
+        "video" => "video",
+        "audio" => "audio",
+        _ => return None,
+    };
+    let source_path = payload.source_path.trim();
+    if source_path.is_empty() || resolve_local_path(source_path).is_none() {
+        return None;
+    }
+
+    let title = payload
+        .title
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(|value| value.to_string())
+        .unwrap_or_else(|| {
+            if media_type == "video" {
+                "Video".to_string()
+            } else {
+                "Audio".to_string()
+            }
+        });
+
+    Some(ProjectNodeMediaRecord {
+        node_id: node_id.to_string(),
+        media_type: media_type.to_string(),
+        title,
+        description_text: payload
+            .description_text
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(|value| value.to_string())
+            .unwrap_or_default(),
+        source_path: source_path.to_string(),
+        preview_path: payload
+            .preview_path
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(|value| value.to_string()),
+        duration_ms: payload.duration_ms.filter(|value| *value > 0),
+        mime_type: payload
+            .mime_type
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(|value| value.to_string())
+            .or_else(|| {
+                resolve_local_path(source_path)
+                    .as_deref()
+                    .and_then(|path| infer_mime_from_path(path, media_type))
+            }),
+    })
 }
 
 fn patch_node_clip_binding(
@@ -2539,7 +2624,14 @@ pub fn add_node_media_to_clip_library(
         return Err("Media can only be imported into script folders".to_string());
     }
 
-    let media = find_project_node_media(&project, &payload.node_id)?;
+    let media = match find_project_node_media(&project, &payload.node_id) {
+        Ok(media) => media,
+        Err(error) => payload
+            .media_override
+            .as_ref()
+            .and_then(|media_override| media_override_to_record(&payload.node_id, media_override))
+            .ok_or(error)?,
+    };
     let source_path = resolve_local_path(&media.source_path)
         .ok_or_else(|| "The selected node does not contain a supported local media file".to_string())?;
     if !source_path.exists() {
@@ -2912,7 +3004,8 @@ pub fn get_clip_delete_impact(
 mod tests {
     use super::{
         build_numbered_display_name, extract_description_text, extract_project_node_media,
-        normalize_required_name, pad_code, sanitize_fs_component,
+        media_override_to_record, normalize_required_name, pad_code, sanitize_fs_component,
+        AddNodeMediaToClipLibraryMediaOverride,
     };
     use serde_json::json;
 
@@ -2981,5 +3074,46 @@ mod tests {
             media.preview_path.as_deref(),
             Some(r"C:\Users\Tester\Videos\clip-preview.png")
         );
+    }
+
+    #[test]
+    fn extract_project_node_media_supports_non_video_node_types_with_video_url() {
+        let node = json!({
+            "id": "result-video-1",
+            "type": "jimengVideoResultNode",
+            "data": {
+                "videoUrl": r"C:\Users\Tester\Videos\generated.mp4",
+                "previewImageUrl": r"C:\Users\Tester\Videos\generated-preview.png",
+                "displayName": "Generated Video"
+            }
+        });
+
+        let media = extract_project_node_media(&node, &[])
+            .expect("result video node should also resolve as clip media");
+
+        assert_eq!(media.node_id, "result-video-1");
+        assert_eq!(media.media_type, "video");
+        assert_eq!(media.source_path, r"C:\Users\Tester\Videos\generated.mp4");
+    }
+
+    #[test]
+    fn media_override_to_record_accepts_frontend_snapshot() {
+        let payload = AddNodeMediaToClipLibraryMediaOverride {
+            media_type: "video".to_string(),
+            source_path: r"C:\Users\Tester\Videos\override.mp4".to_string(),
+            preview_path: Some(r"C:\Users\Tester\Videos\override-preview.png".to_string()),
+            title: Some("Override Video".to_string()),
+            description_text: Some("desc".to_string()),
+            duration_ms: Some(3200),
+            mime_type: None,
+        };
+
+        let media = media_override_to_record("node-1", &payload)
+            .expect("frontend override should resolve");
+
+        assert_eq!(media.node_id, "node-1");
+        assert_eq!(media.media_type, "video");
+        assert_eq!(media.source_path, r"C:\Users\Tester\Videos\override.mp4");
+        assert_eq!(media.duration_ms, Some(3200));
     }
 }

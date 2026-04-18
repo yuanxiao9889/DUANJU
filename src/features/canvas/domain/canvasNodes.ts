@@ -1,5 +1,9 @@
 import type { Edge, Node, XYPosition } from '@xyflow/react';
 import type { CanvasSemanticColor } from './semanticColors';
+import {
+  normalizeMidjourneyProviderId,
+  type MidjourneyProviderId,
+} from '@/features/midjourney/domain/providers';
 
 export const CANVAS_NODE_TYPES = {
   upload: 'uploadNode',
@@ -7,6 +11,8 @@ export const CANVAS_NODE_TYPES = {
   panorama360: 'panorama360Node',
   jimeng: 'jimengNode',
   jimengImage: 'jimengImageNode',
+  mj: 'mjNode',
+  mjResult: 'mjResultNode',
   jimengImageResult: 'jimengImageResultNode',
   jimengVideoResult: 'jimengVideoResultNode',
   seedance: 'seedanceNode',
@@ -60,6 +66,14 @@ export const JIMENG_IMAGE_RESULT_NODE_DEFAULT_WIDTH = 640;
 export const JIMENG_IMAGE_RESULT_NODE_DEFAULT_HEIGHT = 520;
 export const JIMENG_IMAGE_RESULT_NODE_MIN_WIDTH = 560;
 export const JIMENG_IMAGE_RESULT_NODE_MIN_HEIGHT = 420;
+export const MJ_NODE_DEFAULT_WIDTH = 700;
+export const MJ_NODE_DEFAULT_HEIGHT = 360;
+export const MJ_NODE_MIN_WIDTH = 620;
+export const MJ_NODE_MIN_HEIGHT = 320;
+export const MJ_RESULT_NODE_DEFAULT_WIDTH = 700;
+export const MJ_RESULT_NODE_DEFAULT_HEIGHT = 560;
+export const MJ_RESULT_NODE_MIN_WIDTH = 620;
+export const MJ_RESULT_NODE_MIN_HEIGHT = 420;
 export const JIMENG_VIDEO_RESULT_NODE_DEFAULT_WIDTH = 520;
 export const JIMENG_VIDEO_RESULT_NODE_DEFAULT_HEIGHT = 388;
 export const JIMENG_VIDEO_RESULT_NODE_MIN_WIDTH = 360;
@@ -149,6 +163,23 @@ export const JIMENG_ASPECT_RATIOS = [
   '9:16',
 ] as const;
 
+export const MIDJOURNEY_ASPECT_RATIOS = [
+  '1:1',
+  '16:9',
+  '9:16',
+  '4:3',
+  '3:4',
+  '2:3',
+  '3:2',
+] as const;
+
+export const MIDJOURNEY_VERSION_PRESETS = [
+  '',
+  '7',
+  '6.1',
+  'niji6',
+] as const;
+
 export const JIMENG_DURATION_SECONDS = [4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15] as const;
 export const JIMENG_VIDEO_RESOLUTIONS = ['720p', '1080p'] as const;
 export const SEEDANCE_MODEL_IDS = [
@@ -179,6 +210,8 @@ export type JimengImageResolutionType = (typeof JIMENG_IMAGE_RESOLUTION_TYPES)[n
 export type JimengVideoModelId = (typeof JIMENG_VIDEO_MODEL_IDS)[number];
 export type JimengReferenceMode = (typeof JIMENG_REFERENCE_MODES)[number];
 export type JimengAspectRatio = (typeof JIMENG_ASPECT_RATIOS)[number];
+export type MidjourneyAspectRatio = (typeof MIDJOURNEY_ASPECT_RATIOS)[number];
+export type MidjourneyVersionPreset = (typeof MIDJOURNEY_VERSION_PRESETS)[number];
 export type JimengDurationSeconds = (typeof JIMENG_DURATION_SECONDS)[number];
 export type JimengVideoResolution = (typeof JIMENG_VIDEO_RESOLUTIONS)[number];
 export type SeedanceModelId = (typeof SEEDANCE_MODEL_IDS)[number];
@@ -494,6 +527,44 @@ export interface JimengGeneratedImageItem {
   fileName?: string | null;
 }
 
+export type MjReferenceRole = 'reference' | 'styleReference';
+
+export interface MjReferenceItem {
+  imageUrl: string;
+  sourceNodeId: string;
+  sourceEdgeId: string;
+  role: MjReferenceRole;
+  sortIndex: number;
+}
+
+export interface MjBatchImageItem {
+  id: string;
+  imageUrl: string | null;
+  previewImageUrl?: string | null;
+  sourceUrl?: string | null;
+  index: number;
+  aspectRatio: string;
+  width?: number;
+  height?: number;
+}
+
+export interface MjResultBatch {
+  id: string;
+  taskId: string;
+  providerId: MidjourneyProviderId;
+  status: string;
+  progress: string;
+  prompt: string;
+  promptEn?: string | null;
+  finalPrompt?: string | null;
+  images: MjBatchImageItem[];
+  submitTime?: number | null;
+  startTime?: number | null;
+  finishTime?: number | null;
+  failReason?: string | null;
+  isPolling: boolean;
+}
+
 export interface JimengGeneratedVideoItem {
   id: string;
   sourceUrl?: string | null;
@@ -519,6 +590,28 @@ export interface JimengImageNodeData extends NodeDisplayData {
   lastGeneratedAt?: number | null;
   lastError?: string | null;
   resultImages?: JimengGeneratedImageItem[];
+}
+
+export interface MjNodeData extends NodeDisplayData {
+  prompt: string;
+  linkedResultNodeId?: string | null;
+  references: MjReferenceItem[];
+  aspectRatio?: MidjourneyAspectRatio;
+  rawMode?: boolean;
+  versionPreset?: MidjourneyVersionPreset;
+  advancedParams?: string;
+  isSubmitting?: boolean;
+  activeTaskId?: string | null;
+  lastSubmittedAt?: number | null;
+  lastError?: string | null;
+}
+
+export interface MjResultNodeData extends NodeDisplayData {
+  sourceNodeId?: string | null;
+  batches: MjResultBatch[];
+  activeBatchId?: string | null;
+  lastError?: string | null;
+  lastGeneratedAt?: number | null;
 }
 
 export interface JimengImageResultNodeData extends NodeDisplayData {
@@ -692,6 +785,130 @@ function normalizeBooleanValue(value: unknown, fallback = false): boolean {
   return typeof value === 'boolean' ? value : fallback;
 }
 
+function normalizeMidjourneyAspectRatioValue(value: unknown): MidjourneyAspectRatio {
+  return typeof value === 'string'
+    && MIDJOURNEY_ASPECT_RATIOS.includes(value as MidjourneyAspectRatio)
+    ? value as MidjourneyAspectRatio
+    : MIDJOURNEY_ASPECT_RATIOS[0];
+}
+
+function normalizeMidjourneyVersionPresetValue(value: unknown): MidjourneyVersionPreset {
+  return typeof value === 'string'
+    && MIDJOURNEY_VERSION_PRESETS.includes(value as MidjourneyVersionPreset)
+    ? value as MidjourneyVersionPreset
+    : MIDJOURNEY_VERSION_PRESETS[0];
+}
+
+function normalizeMjReferenceRole(value: unknown): MjReferenceRole {
+  return value === 'styleReference' ? 'styleReference' : 'reference';
+}
+
+function normalizeMjReferenceItems(value: unknown): MjReferenceItem[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  const items = value
+    .map((item, index): MjReferenceItem | null => {
+      if (!item || typeof item !== 'object') {
+        return null;
+      }
+
+      const record = item as Partial<MjReferenceItem>;
+      const imageUrl = normalizeString(record.imageUrl).trim();
+      const sourceNodeId = normalizeString(record.sourceNodeId).trim();
+      const sourceEdgeId = normalizeString(record.sourceEdgeId).trim();
+      if (!imageUrl || !sourceNodeId || !sourceEdgeId) {
+        return null;
+      }
+
+      return {
+        imageUrl,
+        sourceNodeId,
+        sourceEdgeId,
+        role: normalizeMjReferenceRole(record.role),
+        sortIndex: Math.max(0, Math.round(normalizeFiniteNumber(record.sortIndex, index))),
+      };
+    })
+    .filter((item): item is MjReferenceItem => Boolean(item))
+    .sort((left, right) => {
+      const sortDelta = left.sortIndex - right.sortIndex;
+      if (sortDelta !== 0) {
+        return sortDelta;
+      }
+      return left.imageUrl.localeCompare(right.imageUrl);
+    });
+
+  return items.map((item, index) => ({
+    ...item,
+    sortIndex: index,
+  }));
+}
+
+function normalizeMjBatchImageItems(value: unknown, fallbackAspectRatio: string): MjBatchImageItem[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value
+    .map((item, index): MjBatchImageItem | null => {
+      if (!item || typeof item !== 'object') {
+        return null;
+      }
+
+      const record = item as Partial<MjBatchImageItem>;
+      return {
+        id: normalizeString(record.id, `mj-batch-image-${index + 1}`),
+        imageUrl: normalizeString(record.imageUrl).trim() || null,
+        previewImageUrl: normalizeString(record.previewImageUrl).trim() || null,
+        sourceUrl: normalizeString(record.sourceUrl).trim() || null,
+        index: Math.max(0, Math.round(normalizeFiniteNumber(record.index, index))),
+        aspectRatio: normalizeString(record.aspectRatio).trim() || fallbackAspectRatio,
+        width: Number.isFinite(record.width) ? Number(record.width) : undefined,
+        height: Number.isFinite(record.height) ? Number(record.height) : undefined,
+      };
+    })
+    .filter((item): item is MjBatchImageItem => Boolean(item))
+    .sort((left, right) => left.index - right.index);
+}
+
+function normalizeMjResultBatches(value: unknown, fallbackAspectRatio: string): MjResultBatch[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value
+    .map((item, index): MjResultBatch | null => {
+      if (!item || typeof item !== 'object') {
+        return null;
+      }
+
+      const record = item as Partial<MjResultBatch>;
+      const taskId = normalizeString(record.taskId).trim();
+      if (!taskId) {
+        return null;
+      }
+
+      return {
+        id: normalizeString(record.id, `mj-batch-${index + 1}`),
+        taskId,
+        providerId: normalizeMidjourneyProviderId(record.providerId),
+        status: normalizeString(record.status, 'queued').trim() || 'queued',
+        progress: normalizeString(record.progress).trim(),
+        prompt: normalizeString(record.prompt).trim(),
+        promptEn: normalizeString(record.promptEn).trim() || null,
+        finalPrompt: normalizeString(record.finalPrompt).trim() || null,
+        images: normalizeMjBatchImageItems(record.images, fallbackAspectRatio),
+        submitTime: Number.isFinite(record.submitTime) ? Number(record.submitTime) : null,
+        startTime: Number.isFinite(record.startTime) ? Number(record.startTime) : null,
+        finishTime: Number.isFinite(record.finishTime) ? Number(record.finishTime) : null,
+        failReason: normalizeString(record.failReason).trim() || null,
+        isPolling: normalizeBooleanValue(record.isPolling),
+      };
+    })
+    .filter((item): item is MjResultBatch => Boolean(item));
+}
+
 function normalizeImageCollageLayerItems(value: unknown): ImageCollageLayerItem[] {
   if (!Array.isArray(value)) {
     return [];
@@ -762,6 +979,49 @@ export function normalizeImageCollageNodeData(
       ? selectedLayerId
       : null,
     backgroundMode: normalizeImageCollageBackgroundMode(data?.backgroundMode),
+  };
+}
+
+export function normalizeMjNodeData(
+  data: Partial<MjNodeData> | null | undefined
+): MjNodeData {
+  return {
+    displayName: normalizeString(data?.displayName).trim() || undefined,
+    nodeDescription: normalizeString(data?.nodeDescription).trim() || null,
+    semanticColor: data?.semanticColor ?? null,
+    prompt: normalizeString(data?.prompt),
+    linkedResultNodeId: normalizeString(data?.linkedResultNodeId).trim() || null,
+    references: normalizeMjReferenceItems(data?.references),
+    aspectRatio: normalizeMidjourneyAspectRatioValue(data?.aspectRatio),
+    rawMode: normalizeBooleanValue(data?.rawMode),
+    versionPreset: normalizeMidjourneyVersionPresetValue(data?.versionPreset),
+    advancedParams: normalizeString(data?.advancedParams).trim(),
+    isSubmitting: normalizeBooleanValue(data?.isSubmitting),
+    activeTaskId: normalizeString(data?.activeTaskId).trim() || null,
+    lastSubmittedAt: Number.isFinite(data?.lastSubmittedAt) ? Number(data?.lastSubmittedAt) : null,
+    lastError: normalizeString(data?.lastError).trim() || null,
+  };
+}
+
+export function normalizeMjResultNodeData(
+  data: Partial<MjResultNodeData> | null | undefined
+): MjResultNodeData {
+  const batches = normalizeMjResultBatches(data?.batches, DEFAULT_ASPECT_RATIO);
+  const activeBatchId = normalizeString(data?.activeBatchId).trim();
+  const resolvedActiveBatchId =
+    batches.some((batch) => batch.id === activeBatchId)
+      ? activeBatchId
+      : batches[0]?.id ?? null;
+
+  return {
+    displayName: normalizeString(data?.displayName).trim() || undefined,
+    nodeDescription: normalizeString(data?.nodeDescription).trim() || null,
+    semanticColor: data?.semanticColor ?? null,
+    sourceNodeId: normalizeString(data?.sourceNodeId).trim() || null,
+    batches,
+    activeBatchId: resolvedActiveBatchId,
+    lastError: normalizeString(data?.lastError).trim() || null,
+    lastGeneratedAt: Number.isFinite(data?.lastGeneratedAt) ? Number(data?.lastGeneratedAt) : null,
   };
 }
 
@@ -1202,6 +1462,8 @@ export type CanvasNodeData =
   | ImageEditNodeData
   | JimengNodeData
   | JimengImageNodeData
+  | MjNodeData
+  | MjResultNodeData
   | JimengImageResultNodeData
   | JimengVideoResultNodeData
   | SeedanceNodeData
@@ -2142,6 +2404,18 @@ export function isJimengImageNode(
   return node?.type === CANVAS_NODE_TYPES.jimengImage;
 }
 
+export function isMjNode(
+  node: CanvasNode | null | undefined
+): node is Node<MjNodeData, typeof CANVAS_NODE_TYPES.mj> {
+  return node?.type === CANVAS_NODE_TYPES.mj;
+}
+
+export function isMjResultNode(
+  node: CanvasNode | null | undefined
+): node is Node<MjResultNodeData, typeof CANVAS_NODE_TYPES.mjResult> {
+  return node?.type === CANVAS_NODE_TYPES.mjResult;
+}
+
 export function isJimengImageResultNode(
   node: CanvasNode | null | undefined
 ): node is Node<JimengImageResultNodeData, typeof CANVAS_NODE_TYPES.jimengImageResult> {
@@ -2203,6 +2477,7 @@ export function nodeSupportsDescriptionPanel(
     isUploadNode(node)
     || isPanorama360Node(node)
     || isExportImageNode(node)
+    || isMjResultNode(node)
     || isJimengImageResultNode(node)
     || isVideoNode(node)
     || isJimengVideoResultNode(node)
@@ -2370,6 +2645,42 @@ function resolveJimengResultImageSource(
   );
 }
 
+function resolveMjBatchImageSource(
+  item: MjBatchImageItem | undefined
+): string | null {
+  if (!item) {
+    return null;
+  }
+
+  return normalizeImageSource(
+    item.imageUrl ?? item.previewImageUrl ?? item.sourceUrl ?? null
+  );
+}
+
+export function getMjResultNodeActiveBatch(
+  data: MjResultNodeData | null | undefined
+): MjResultBatch | null {
+  if (!data) {
+    return null;
+  }
+
+  const activeBatchId = normalizeString(data.activeBatchId).trim();
+  if (activeBatchId) {
+    const matchedBatch = data.batches.find((batch) => batch.id === activeBatchId) ?? null;
+    if (matchedBatch) {
+      return matchedBatch;
+    }
+  }
+
+  return data.batches[0] ?? null;
+}
+
+export function getMjResultNodeActiveImages(
+  data: MjResultNodeData | null | undefined
+): MjBatchImageItem[] {
+  return getMjResultNodeActiveBatch(data)?.images ?? [];
+}
+
 export function resolveSingleImageConnectionSource(
   node: CanvasNode | null | undefined
 ): SingleImageConnectionSource | null {
@@ -2455,6 +2766,12 @@ export function getNodePrimaryImageSource(
   if (isJimengImageNode(node)) {
     const primaryResult = node.data.resultImages?.find((item) => Boolean(resolveJimengResultSource(item)));
     return resolveJimengResultSource(primaryResult);
+  }
+
+  if (isMjResultNode(node)) {
+    const primaryResult = getMjResultNodeActiveImages(node.data)
+      .find((item) => Boolean(resolveMjBatchImageSource(item)));
+    return resolveMjBatchImageSource(primaryResult);
   }
 
   return null;

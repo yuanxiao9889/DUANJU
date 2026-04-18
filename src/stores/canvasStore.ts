@@ -20,6 +20,10 @@ import {
   IMAGE_COLLAGE_NODE_DEFAULT_WIDTH,
   IMAGE_EDIT_NODE_DEFAULT_HEIGHT,
   IMAGE_EDIT_NODE_DEFAULT_WIDTH,
+  MJ_NODE_DEFAULT_HEIGHT,
+  MJ_NODE_DEFAULT_WIDTH,
+  MJ_RESULT_NODE_DEFAULT_HEIGHT,
+  MJ_RESULT_NODE_DEFAULT_WIDTH,
   SCRIPT_CHAPTER_NODE_DEFAULT_HEIGHT,
   SCRIPT_CHAPTER_NODE_DEFAULT_WIDTH,
   SCRIPT_REFERENCE_NODE_DEFAULT_HEIGHT,
@@ -39,6 +43,8 @@ import {
   type ExportImageNodeResultKind,
   type ImageEditNodeData,
   type ImageCollageNodeData,
+  type MjNodeData,
+  type MjResultNodeData,
   type NodeToolType,
   type StoryboardExportOptions,
   type StoryboardFrameItem,
@@ -53,6 +59,8 @@ import {
   createDefaultSceneCard,
   normalizeShootingScriptNodeData,
   normalizeImageCollageNodeData,
+  normalizeMjNodeData,
+  normalizeMjResultNodeData,
   normalizeScriptChapterNodeData,
   normalizeScriptCharacterReferenceNodeData,
   normalizeScriptItemReferenceNodeData,
@@ -769,6 +777,20 @@ function normalizeNodes(rawNodes: CanvasNode[]): CanvasNode[] {
         );
       }
 
+      if (normalizedNodeType === CANVAS_NODE_TYPES.mj) {
+        Object.assign(
+          mergedData,
+          normalizeMjNodeData(mergedData as MjNodeData)
+        );
+      }
+
+      if (normalizedNodeType === CANVAS_NODE_TYPES.mjResult) {
+        Object.assign(
+          mergedData,
+          normalizeMjResultNodeData(mergedData as MjResultNodeData)
+        );
+      }
+
       if ('aspectRatio' in mergedData && !mergedData.aspectRatio) {
         mergedData.aspectRatio = DEFAULT_ASPECT_RATIO;
       }
@@ -1396,6 +1418,32 @@ function withImageEditDefaultSize(node: CanvasNode): CanvasNode {
   };
 }
 
+function withMjNodeDefaultSize(node: CanvasNode): CanvasNode {
+  return {
+    ...node,
+    width: MJ_NODE_DEFAULT_WIDTH,
+    height: MJ_NODE_DEFAULT_HEIGHT,
+    style: {
+      ...(node.style ?? {}),
+      width: MJ_NODE_DEFAULT_WIDTH,
+      height: MJ_NODE_DEFAULT_HEIGHT,
+    },
+  };
+}
+
+function withMjResultDefaultSize(node: CanvasNode): CanvasNode {
+  return {
+    ...node,
+    width: MJ_RESULT_NODE_DEFAULT_WIDTH,
+    height: MJ_RESULT_NODE_DEFAULT_HEIGHT,
+    style: {
+      ...(node.style ?? {}),
+      width: MJ_RESULT_NODE_DEFAULT_WIDTH,
+      height: MJ_RESULT_NODE_DEFAULT_HEIGHT,
+    },
+  };
+}
+
 function withScriptSceneDefaultSize(node: CanvasNode): CanvasNode {
   return {
     ...node,
@@ -1457,6 +1505,30 @@ function isScriptAssetReferenceNodeType(type: CanvasNodeType): boolean {
 function applyDefaultNodeSize(node: CanvasNode, data: CanvasNodeData): CanvasNode {
   if (shouldApplyImageEditDefaultSize(node, data)) {
     return withImageEditDefaultSize(node);
+  }
+
+  if (node.type === CANVAS_NODE_TYPES.mj) {
+    const resolvedWidth =
+      resolveNumericNodeDimension(node.width)
+      ?? resolveNumericNodeDimension(node.style?.width);
+    const resolvedHeight =
+      resolveNumericNodeDimension(node.height)
+      ?? resolveNumericNodeDimension(node.style?.height);
+    if (resolvedWidth === null || resolvedHeight === null) {
+      return withMjNodeDefaultSize(node);
+    }
+  }
+
+  if (node.type === CANVAS_NODE_TYPES.mjResult) {
+    const resolvedWidth =
+      resolveNumericNodeDimension(node.width)
+      ?? resolveNumericNodeDimension(node.style?.width);
+    const resolvedHeight =
+      resolveNumericNodeDimension(node.height)
+      ?? resolveNumericNodeDimension(node.style?.height);
+    if (resolvedWidth === null || resolvedHeight === null) {
+      return withMjResultDefaultSize(node);
+    }
   }
 
   if (node.type === CANVAS_NODE_TYPES.imageCollage) {

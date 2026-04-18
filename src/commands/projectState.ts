@@ -63,3 +63,7 @@ export async function renameProjectRecord(
 export async function deleteProjectRecord(projectId: string): Promise<void> {
   await invoke('delete_project_record', { projectId });
 }
+
+export async function syncStyleTemplateImageRefs(paths: string[]): Promise<void> {
+  await invoke('sync_style_template_image_refs', { paths });
+}

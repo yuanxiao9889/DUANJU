@@ -236,7 +236,13 @@ function isLikelyTauriRuntime(): boolean {
   }
 
   const host = window.location.hostname.toLowerCase();
-  return host === 'tauri.localhost' || host === 'asset.localhost';
+  return (
+    host === 'tauri.localhost'
+    || host === 'asset.localhost'
+    || host === 'localhost'
+    || host === '127.0.0.1'
+    || host === '[::1]'
+  );
 }
 
 function encodeLocalPathForAssetHost(localFilePath: string): string {

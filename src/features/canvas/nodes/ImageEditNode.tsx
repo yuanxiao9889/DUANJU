@@ -96,8 +96,7 @@ import {
 import { CameraParamsDialog } from '@/features/canvas/ui/CameraParamsDialog';
 import { CameraTriggerIcon } from '@/features/canvas/ui/CameraTriggerIcon';
 import { ModelParamsControls } from '@/features/canvas/ui/ModelParamsControls';
-import { StyleTemplateDialog } from '@/features/project/StyleTemplateDialog';
-import { applyStyleTemplatePrompt } from '@/features/project/styleTemplatePrompt';
+import { appendStyleTemplatePrompt } from '@/features/project/styleTemplatePrompt';
 import { CanvasNodeImage } from '@/features/canvas/ui/CanvasNodeImage';
 import { NodePriceBadge } from '@/features/canvas/ui/NodePriceBadge';
 import { NodeStatusBadge } from '@/features/canvas/ui/NodeStatusBadge';
@@ -374,9 +373,6 @@ export const ImageEditNode = memo(({ id, data, selected, width, height }: ImageE
   const [promptDraft, setPromptDraft] = useState(() => data.prompt ?? '');
   const promptDraftRef = useRef(promptDraft);
   const previousIncomingImagesRef = useRef<string[] | null>(null);
-  const [selectedStyleTemplateId, setSelectedStyleTemplateId] = useState<string | null>(null);
-  const [styleTemplatePrompt, setStyleTemplatePrompt] = useState<string>('');
-  const [showStyleTemplateDialog, setShowStyleTemplateDialog] = useState(false);
   const [showCameraParamsDialog, setShowCameraParamsDialog] = useState(false);
   const [showImagePicker, setShowImagePicker] = useState(false);
   const [pickerCursor, setPickerCursor] = useState<number | null>(null);
@@ -1532,20 +1528,15 @@ export const ImageEditNode = memo(({ id, data, selected, width, height }: ImageE
                   },
                 })
               }
-              selectedStyleTemplateId={selectedStyleTemplateId}
-              onStyleTemplateChange={(templateId, prompt) => {
-                setSelectedStyleTemplateId(templateId);
-                setStyleTemplatePrompt(prompt);
-                const nextPrompt = applyStyleTemplatePrompt(
+              onStyleTemplateApply={(template) => {
+                const nextPrompt = appendStyleTemplatePrompt(
                   promptDraftRef.current,
-                  styleTemplatePrompt,
-                  prompt
+                  template.prompt
                 );
                 setPromptDraft(nextPrompt);
                 promptDraftRef.current = nextPrompt;
                 setLastPromptOptimizationUndoState(null);
               }}
-              onOpenStyleTemplateManager={() => setShowStyleTemplateDialog(true)}
               triggerSize="sm"
               chipClassName={NODE_CONTROL_CHIP_CLASS}
               modelChipClassName={NODE_CONTROL_MODEL_CHIP_CLASS}
@@ -1665,10 +1656,6 @@ export const ImageEditNode = memo(({ id, data, selected, width, height }: ImageE
         variant="bare"
       />
       
-      <StyleTemplateDialog
-        isOpen={showStyleTemplateDialog}
-        onClose={() => setShowStyleTemplateDialog(false)}
-      />
       <CameraParamsDialog
         isOpen={showCameraParamsDialog}
         value={resolvedCameraParams}

@@ -21,7 +21,9 @@ import {
 } from '@/components/ui';
 import { useSettingsStore } from '@/stores/settingsStore';
 import { openSettingsDialog } from '@/features/settings/settingsEvents';
+import { StyleTemplateDialog } from '@/features/project/StyleTemplateDialog';
 import { StyleTemplateMenuPanel } from '@/features/project/StyleTemplateMenuPanel';
+import type { StyleTemplate } from '@/features/project/styleTemplateUtils';
 
 interface ModelParamsControlsProps {
   imageModels: ImageModelDefinition[];
@@ -35,8 +37,7 @@ interface ModelParamsControlsProps {
   onAspectRatioChange: (aspectRatio: string) => void;
   extraParams?: Record<string, unknown>;
   onExtraParamChange?: (key: string, value: boolean | number | string) => void;
-  selectedStyleTemplateId?: string | null;
-  onStyleTemplateChange?: (templateId: string | null, prompt: string) => void;
+  onStyleTemplateApply?: (template: StyleTemplate) => void;
   onOpenStyleTemplateManager?: () => void;
   showProviderName?: boolean;
   triggerSize?: 'md' | 'sm';
@@ -150,8 +151,7 @@ export const ModelParamsControls = memo(({
   onAspectRatioChange,
   extraParams,
   onExtraParamChange,
-  selectedStyleTemplateId,
-  onStyleTemplateChange,
+  onStyleTemplateApply,
   onOpenStyleTemplateManager,
   showProviderName = true,
   triggerSize = 'md',
@@ -172,26 +172,23 @@ export const ModelParamsControls = memo(({
   const modelTriggerRef = useRef<HTMLDivElement>(null);
   const paramsTriggerRef = useRef<HTMLDivElement>(null);
   const otherParamsTriggerRef = useRef<HTMLDivElement>(null);
-  const styleTemplateTriggerRef = useRef<HTMLDivElement>(null);
   const modelPanelRef = useRef<HTMLDivElement>(null);
   const paramsPanelRef = useRef<HTMLDivElement>(null);
   const otherParamsPanelRef = useRef<HTMLDivElement>(null);
-  const styleTemplatePanelRef = useRef<HTMLDivElement>(null);
   const [openPanel, setOpenPanel] = useState<'model' | 'params' | 'otherParams' | null>(null);
   const [renderPanel, setRenderPanel] = useState<'model' | 'params' | 'otherParams' | null>(null);
   const [isPanelVisible, setIsPanelVisible] = useState(false);
   const [modelPanelAnchor, setModelPanelAnchor] = useState<PanelAnchor | null>(null);
   const [paramsPanelAnchor, setParamsPanelAnchor] = useState<PanelAnchor | null>(null);
   const [otherParamsPanelAnchor, setOtherParamsPanelAnchor] = useState<PanelAnchor | null>(null);
-  const [styleTemplatePanelAnchor, setStyleTemplatePanelAnchor] = useState<PanelAnchor | null>(null);
   const [modelAnchorBaseWidth, setModelAnchorBaseWidth] = useState<number | null>(null);
   const [paramsAnchorBaseWidth, setParamsAnchorBaseWidth] = useState<number | null>(null);
   const [otherParamsAnchorBaseWidth, setOtherParamsAnchorBaseWidth] = useState<number | null>(null);
   const [panelProviderId, setPanelProviderId] = useState(selectedModel.providerId);
   const [missingKeyProviderName, setMissingKeyProviderName] = useState<string | null>(null);
   const [styleTemplatePanelOpen, setStyleTemplatePanelOpen] = useState(false);
+  const [showStyleTemplateManager, setShowStyleTemplateManager] = useState(false);
   const storyboardApiKeys = useSettingsStore((state) => state.storyboardApiKeys);
-  const styleTemplates = useSettingsStore((state) => state.styleTemplates);
 
   const selectedProvider = useMemo(
     () => getModelProvider(selectedModel.providerId),
@@ -202,14 +199,7 @@ export const ModelParamsControls = memo(({
     [selectedModel.displayName]
   );
   const selectedProviderName = selectedProvider.label || selectedProvider.name;
-  const selectedStyleTemplateName = useMemo(
-    () =>
-      selectedStyleTemplateId
-        ? styleTemplates.find((template) => template.id === selectedStyleTemplateId)?.name
-          ?? t('styleTemplate.selectTemplate')
-        : t('styleTemplate.selectTemplate'),
-    [selectedStyleTemplateId, styleTemplates, t]
-  );
+  const styleTemplateTriggerTitle = t('styleTemplate.selectTemplate');
   const providerOptions = useMemo(() => {
     const providerOrder = [
       'azemm',
@@ -361,14 +351,7 @@ export const ModelParamsControls = memo(({
       if (otherParamsPanelRef.current?.contains(target)) {
         return;
       }
-      if (styleTemplatePanelRef.current?.contains(target)) {
-        return;
-      }
-      if (styleTemplateTriggerRef.current?.contains(target)) {
-        return;
-      }
       setOpenPanel(null);
-      setStyleTemplatePanelOpen(false);
     };
 
     document.addEventListener('mousedown', handleOutside, true);
@@ -470,8 +453,8 @@ export const ModelParamsControls = memo(({
         </UiChipButton>
       </div>
 
-      {onStyleTemplateChange && (
-        <div ref={styleTemplateTriggerRef} className="relative flex">
+      {onStyleTemplateApply && (
+        <div className="relative flex">
           <UiChipButton
             active={styleTemplatePanelOpen}
             className={
@@ -479,8 +462,8 @@ export const ModelParamsControls = memo(({
                 ? `${chipClassName} !w-8 !px-0 shrink-0 justify-center`
                 : `${chipClassName} w-auto shrink-0 justify-center`
             }
-            title={selectedStyleTemplateName}
-            aria-label={selectedStyleTemplateName}
+            title={styleTemplateTriggerTitle}
+            aria-label={styleTemplateTriggerTitle}
             onClick={(event) => {
               event.stopPropagation();
               if (styleTemplatePanelOpen) {
@@ -488,14 +471,13 @@ export const ModelParamsControls = memo(({
                 return;
               }
               setOpenPanel(null);
-              setStyleTemplatePanelAnchor(getPanelAnchor(styleTemplateTriggerRef.current, 'center'));
               setStyleTemplatePanelOpen(true);
             }}
           >
             <Palette className={paramsIconClassName} />
             {styleTemplateTriggerMode === 'label' && (
               <span className={paramsPrimaryTextClassName}>
-                {selectedStyleTemplateName}
+                {styleTemplateTriggerTitle}
               </span>
             )}
           </UiChipButton>
@@ -839,24 +821,35 @@ export const ModelParamsControls = memo(({
         document.body
       )}
 
-      {typeof document !== 'undefined' && styleTemplatePanelOpen && createPortal(
-        <div
-          ref={styleTemplatePanelRef}
-          className="fixed z-[80]"
-          style={buildPanelStyle(styleTemplatePanelAnchor, 'center')}
-          onClick={(event) => event.stopPropagation()}
+      {onStyleTemplateApply && (
+        <UiModal
+          isOpen={styleTemplatePanelOpen}
+          title={styleTemplateTriggerTitle}
+          onClose={() => setStyleTemplatePanelOpen(false)}
+          widthClassName="w-[820px] max-w-[calc(100vw-32px)]"
+          headerClassName="border-b-0 !px-4 !pt-3 !pb-1"
+          bodyClassName="!pt-0 !pb-4"
         >
           <StyleTemplateMenuPanel
-            selectedTemplateId={selectedStyleTemplateId ?? null}
-            onTemplateChange={(templateId, prompt) =>
-              onStyleTemplateChange?.(templateId, prompt)
-            }
+            embedded
+            onTemplateApply={onStyleTemplateApply}
             onRequestClose={() => setStyleTemplatePanelOpen(false)}
-            onManage={() => onOpenStyleTemplateManager?.()}
+            onManage={() => {
+              setStyleTemplatePanelOpen(false);
+              if (onOpenStyleTemplateManager) {
+                onOpenStyleTemplateManager();
+                return;
+              }
+              setShowStyleTemplateManager(true);
+            }}
           />
-        </div>,
-        document.body
+        </UiModal>
       )}
+
+      <StyleTemplateDialog
+        isOpen={showStyleTemplateManager}
+        onClose={() => setShowStyleTemplateManager(false)}
+      />
 
       {typeof document !== 'undefined' && createPortal(
         <UiModal

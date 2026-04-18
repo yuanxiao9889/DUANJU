@@ -6,6 +6,8 @@ import {
   JIMENG_DURATION_SECONDS,
   JIMENG_IMAGE_MODEL_VERSIONS,
   JIMENG_IMAGE_RESOLUTION_TYPES,
+  MIDJOURNEY_ASPECT_RATIOS,
+  MIDJOURNEY_VERSION_PRESETS,
   type ImageSize,
   JIMENG_REFERENCE_MODES,
   JIMENG_VIDEO_MODEL_IDS,
@@ -23,6 +25,8 @@ import {
   type ImageCollageNodeData,
   type Panorama360NodeData,
   type JimengImageNodeData,
+  type MjNodeData,
+  type MjResultNodeData,
   type JimengImageResultNodeData,
   type JimengNodeData,
   type JimengVideoResultNodeData,
@@ -66,7 +70,7 @@ import {
 
 export type MenuIconKey = 'upload' | 'sparkles' | 'layout' | 'text' | 'video' | 'audio' | 'link';
 export type NodeMenuProjectType = 'storyboard' | 'script';
-export type NodeMenuGroupKey = 'jimeng' | 'storyboard' | 'media' | 'text' | 'scriptReference';
+export type NodeMenuGroupKey = 'jimeng' | 'midjourney' | 'storyboard' | 'media' | 'text' | 'scriptReference';
 
 export interface CanvasNodeMenuGroupDefinition {
   id: NodeMenuGroupKey;
@@ -112,6 +116,11 @@ export const canvasNodeMenuGroups: Record<NodeMenuGroupKey, CanvasNodeMenuGroupD
   jimeng: {
     id: 'jimeng',
     labelKey: 'node.menuGroup.jimeng',
+    menuIcon: 'sparkles',
+  },
+  midjourney: {
+    id: 'midjourney',
+    labelKey: 'node.menuGroup.midjourney',
     menuIcon: 'sparkles',
   },
   storyboard: {
@@ -623,6 +632,69 @@ const jimengImageNodeDefinition: CanvasNodeDefinition<JimengImageNodeData> = {
     lastGeneratedAt: null,
     lastError: null,
     resultImages: [],
+  }),
+};
+
+const mjNodeDefinition: CanvasNodeDefinition<MjNodeData> = {
+  type: CANVAS_NODE_TYPES.mj,
+  menuLabelKey: 'node.menu.midjourney',
+  menuIcon: 'sparkles',
+  menuGroup: 'midjourney',
+  visibleInMenu: true,
+  menuProjectTypes: ['storyboard'],
+  capabilities: {
+    toolbar: true,
+    promptInput: false,
+  },
+  connectivity: {
+    sourceHandle: true,
+    targetHandle: true,
+    connectMenu: {
+      fromSource: true,
+      fromTarget: false,
+    },
+  },
+  createDefaultData: () => ({
+    displayName: DEFAULT_NODE_DISPLAY_NAME[CANVAS_NODE_TYPES.mj],
+    prompt: '',
+    linkedResultNodeId: null,
+    references: [],
+    aspectRatio: MIDJOURNEY_ASPECT_RATIOS[0],
+    rawMode: false,
+    versionPreset: MIDJOURNEY_VERSION_PRESETS[0],
+    advancedParams: '',
+    isSubmitting: false,
+    activeTaskId: null,
+    lastSubmittedAt: null,
+    lastError: null,
+  }),
+};
+
+const mjResultNodeDefinition: CanvasNodeDefinition<MjResultNodeData> = {
+  type: CANVAS_NODE_TYPES.mjResult,
+  menuLabelKey: 'node.menu.midjourneyResult',
+  menuIcon: 'layout',
+  visibleInMenu: false,
+  menuProjectTypes: ['storyboard'],
+  capabilities: {
+    toolbar: true,
+    promptInput: false,
+  },
+  connectivity: {
+    sourceHandle: true,
+    targetHandle: true,
+    connectMenu: {
+      fromSource: false,
+      fromTarget: false,
+    },
+  },
+  createDefaultData: () => ({
+    displayName: DEFAULT_NODE_DISPLAY_NAME[CANVAS_NODE_TYPES.mjResult],
+    sourceNodeId: null,
+    batches: [],
+    activeBatchId: null,
+    lastError: null,
+    lastGeneratedAt: null,
   }),
 };
 
@@ -1393,6 +1465,8 @@ export const canvasNodeDefinitions: Record<CanvasNodeType, CanvasNodeDefinition>
   [CANVAS_NODE_TYPES.panorama360]: panorama360NodeDefinition,
   [CANVAS_NODE_TYPES.jimeng]: jimengNodeDefinition,
   [CANVAS_NODE_TYPES.jimengImage]: jimengImageNodeDefinition,
+  [CANVAS_NODE_TYPES.mj]: mjNodeDefinition,
+  [CANVAS_NODE_TYPES.mjResult]: mjResultNodeDefinition,
   [CANVAS_NODE_TYPES.jimengImageResult]: jimengImageResultNodeDefinition,
   [CANVAS_NODE_TYPES.jimengVideoResult]: jimengVideoResultNodeDefinition,
   [CANVAS_NODE_TYPES.seedance]: seedanceNodeDefinition,

@@ -11,6 +11,7 @@ use commands::dreamina_cli;
 use commands::extensions;
 use commands::image;
 use commands::jimeng_video_queue;
+use commands::midjourney;
 use commands::project_state;
 use commands::ps_server;
 use commands::seedance;
@@ -181,6 +182,8 @@ pub fn run() {
             jimeng_video_queue::list_jimeng_video_queue_jobs,
             jimeng_video_queue::upsert_jimeng_video_queue_job,
             jimeng_video_queue::delete_jimeng_video_queue_job,
+            midjourney::submit_midjourney_imagine,
+            midjourney::query_midjourney_tasks,
             ai_commands::set_api_key,
             ai_commands::submit_generate_image_job,
             ai_commands::get_generate_image_job,
@@ -223,6 +226,7 @@ pub fn run() {
             project_state::update_project_viewport_record,
             project_state::rename_project_record,
             project_state::delete_project_record,
+            project_state::sync_style_template_image_refs,
             system::get_runtime_system_info,
             system::request_app_exit,
             text_gen::generate_text,

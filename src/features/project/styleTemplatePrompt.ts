@@ -1,4 +1,4 @@
 export {
-  applyStyleTemplatePrompt,
-  removeStyleTemplatePrompt,
+  appendStyleTemplatePrompt,
+  hasStyleTemplatePrompt,
 } from "@/features/project/styleTemplateUtils";

@@ -195,6 +195,37 @@ function mapNodeImageReferences(
       });
     }
 
+    if (Array.isArray(nextData.batches)) {
+      nextData.batches = nextData.batches.map((batch) => {
+        if (!batch || typeof batch !== 'object') {
+          return batch;
+        }
+
+        const batchRecord = batch as Record<string, unknown>;
+        if (!Array.isArray(batchRecord.images)) {
+          return batch;
+        }
+
+        return {
+          ...batchRecord,
+          images: batchRecord.images.map((imageItem) => {
+            if (!imageItem || typeof imageItem !== 'object') {
+              return imageItem;
+            }
+
+            const imageRecord = imageItem as Record<string, unknown>;
+            return {
+              ...imageRecord,
+              imageUrl: mapImageUrl(imageRecord.imageUrl as string | null | undefined) ?? null,
+              previewImageUrl:
+                mapImageUrl(imageRecord.previewImageUrl as string | null | undefined) ?? null,
+              sourceUrl: mapImageUrl(imageRecord.sourceUrl as string | null | undefined) ?? null,
+            };
+          }),
+        };
+      });
+    }
+
     return {
       ...node,
       data: nextData as CanvasNodeData,

@@ -11,6 +11,8 @@ export const DEFAULT_NODE_DISPLAY_NAME: Record<CanvasNodeType, string> = {
   [CANVAS_NODE_TYPES.panorama360]: '360 \u5168\u666f',
   [CANVAS_NODE_TYPES.jimeng]: '\u5373\u68a6\u89c6\u9891',
   [CANVAS_NODE_TYPES.jimengImage]: '\u5373\u68a6\u56fe\u7247',
+  [CANVAS_NODE_TYPES.mj]: 'Midjourney',
+  [CANVAS_NODE_TYPES.mjResult]: 'MJ \u7ed3\u679c',
   [CANVAS_NODE_TYPES.jimengImageResult]: '\u751f\u6210\u7ed3\u679c',
   [CANVAS_NODE_TYPES.jimengVideoResult]: '\u751f\u6210\u7ed3\u679c',
   [CANVAS_NODE_TYPES.seedance]: 'Seedance \u89c6\u9891',

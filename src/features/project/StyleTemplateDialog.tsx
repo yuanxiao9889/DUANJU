@@ -2,7 +2,9 @@ import { useEffect, useMemo, useState } from "react";
 import { FolderTree, Pencil, Plus, Trash2 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
-import { UiButton, UiInput, UiModal, UiSelect, UiTextArea } from "@/components/ui";
+import { UiButton, UiInput, UiModal } from "@/components/ui";
+import { StyleTemplateCard } from "@/features/project/StyleTemplateCard";
+import { StyleTemplateEditorModal } from "@/features/project/StyleTemplateEditorModal";
 import {
   STYLE_TEMPLATE_UNGROUPED_CATEGORY_ID,
   sortStyleTemplateCategories,
@@ -23,20 +25,6 @@ interface EditCategoryModalProps {
   title: string;
   onClose: () => void;
   onSave: (name: string) => void;
-}
-
-interface EditTemplateModalProps {
-  isOpen: boolean;
-  title: string;
-  initialTemplate?: StyleTemplate | null;
-  initialCategoryId: string | null;
-  categories: StyleTemplateCategory[];
-  onClose: () => void;
-  onSave: (input: {
-    name: string;
-    prompt: string;
-    categoryId: string | null;
-  }) => void;
 }
 
 interface DeleteConfirmState {
@@ -95,114 +83,6 @@ function EditCategoryModal({
           onChange={(event) => setName(event.target.value)}
           placeholder={t("styleTemplate.categoryNamePlaceholder")}
         />
-      </div>
-    </UiModal>
-  );
-}
-
-function EditTemplateModal({
-  isOpen,
-  title,
-  initialTemplate,
-  initialCategoryId,
-  categories,
-  onClose,
-  onSave,
-}: EditTemplateModalProps) {
-  const { t } = useTranslation();
-  const [name, setName] = useState(initialTemplate?.name ?? "");
-  const [prompt, setPrompt] = useState(initialTemplate?.prompt ?? "");
-  const [categoryId, setCategoryId] = useState<string>(
-    initialTemplate?.categoryId ?? initialCategoryId ?? STYLE_TEMPLATE_UNGROUPED_CATEGORY_ID,
-  );
-
-  useEffect(() => {
-    if (!isOpen) {
-      return;
-    }
-
-    setName(initialTemplate?.name ?? "");
-    setPrompt(initialTemplate?.prompt ?? "");
-    setCategoryId(
-      initialTemplate?.categoryId ??
-        initialCategoryId ??
-        STYLE_TEMPLATE_UNGROUPED_CATEGORY_ID,
-    );
-  }, [initialCategoryId, initialTemplate, isOpen]);
-
-  return (
-    <UiModal
-      isOpen={isOpen}
-      title={title}
-      onClose={onClose}
-      widthClassName="w-[calc(100vw-32px)] max-w-[560px]"
-      footer={
-        <>
-          <UiButton type="button" variant="ghost" onClick={onClose}>
-            {t("common.cancel")}
-          </UiButton>
-          <UiButton
-            type="button"
-            variant="primary"
-            disabled={!name.trim() || !prompt.trim()}
-            onClick={() =>
-              onSave({
-                name: name.trim(),
-                prompt: prompt.trim(),
-                categoryId:
-                  categoryId === STYLE_TEMPLATE_UNGROUPED_CATEGORY_ID
-                    ? null
-                    : categoryId,
-              })
-            }
-          >
-            {t("common.save")}
-          </UiButton>
-        </>
-      }
-    >
-      <div className="space-y-4">
-        <div className="space-y-2">
-          <label className="text-xs font-medium uppercase tracking-[0.12em] text-text-muted">
-            {t("styleTemplate.templateName")}
-          </label>
-          <UiInput
-            value={name}
-            onChange={(event) => setName(event.target.value)}
-            placeholder={t("styleTemplate.templateNamePlaceholder")}
-          />
-        </div>
-
-        <div className="space-y-2">
-          <label className="text-xs font-medium uppercase tracking-[0.12em] text-text-muted">
-            {t("styleTemplate.category")}
-          </label>
-          <UiSelect
-            value={categoryId}
-            onChange={(event) => setCategoryId(event.target.value)}
-          >
-            <option value={STYLE_TEMPLATE_UNGROUPED_CATEGORY_ID}>
-              {t("styleTemplate.uncategorized")}
-            </option>
-            {categories.map((category) => (
-              <option key={category.id} value={category.id}>
-                {category.name}
-              </option>
-            ))}
-          </UiSelect>
-        </div>
-
-        <div className="space-y-2">
-          <label className="text-xs font-medium uppercase tracking-[0.12em] text-text-muted">
-            {t("styleTemplate.templatePrompt")}
-          </label>
-          <UiTextArea
-            rows={7}
-            value={prompt}
-            onChange={(event) => setPrompt(event.target.value)}
-            placeholder={t("styleTemplate.templatePromptPlaceholder")}
-          />
-        </div>
       </div>
     </UiModal>
   );
@@ -284,6 +164,7 @@ export function StyleTemplateDialog({
     () => sortStyleTemplates(styleTemplates),
     [styleTemplates],
   );
+
   const [selectedCategoryId, setSelectedCategoryId] = useState<string>(
     STYLE_TEMPLATE_UNGROUPED_CATEGORY_ID,
   );
@@ -319,6 +200,7 @@ export function StyleTemplateDialog({
       ? t("styleTemplate.uncategorized")
       : sortedCategories.find((category) => category.id === selectedCategoryId)
           ?.name ?? t("styleTemplate.uncategorized");
+
   const filteredTemplates = useMemo(
     () =>
       selectedCategoryId === STYLE_TEMPLATE_UNGROUPED_CATEGORY_ID
@@ -329,16 +211,24 @@ export function StyleTemplateDialog({
     [selectedCategoryId, sortedTemplates],
   );
 
+  const categoryNameById = useMemo(
+    () =>
+      new Map(
+        sortedCategories.map((category) => [category.id, category.name] as const),
+      ),
+    [sortedCategories],
+  );
+
   return (
     <>
       <UiModal
         isOpen={isOpen}
         title={t("styleTemplate.title")}
         onClose={onClose}
-        widthClassName="w-[calc(100vw-40px)] max-w-[980px]"
+        widthClassName="w-[calc(100vw-40px)] max-w-[1120px]"
       >
         <div className="grid gap-4 md:grid-cols-[260px_minmax(0,1fr)]">
-          <div className="rounded-2xl border border-white/10 bg-black/10 p-3">
+          <div className="rounded-[20px] border border-white/10 bg-black/10 p-3">
             <div className="flex items-center justify-between gap-2">
               <div className="text-sm font-medium text-text-dark">
                 {t("styleTemplate.categoryTitle")}
@@ -357,7 +247,7 @@ export function StyleTemplateDialog({
             <div className="mt-3 space-y-2">
               <button
                 type="button"
-                className={`group flex w-full items-center justify-between rounded-xl border px-3 py-2 text-left transition-colors ${
+                className={`group flex w-full items-center justify-between rounded-[14px] border px-3 py-2 text-left transition-colors ${
                   selectedCategoryId === STYLE_TEMPLATE_UNGROUPED_CATEGORY_ID
                     ? "border-accent/35 bg-accent/12 text-text-dark"
                     : "border-white/10 bg-white/[0.03] text-text-muted hover:bg-white/[0.05]"
@@ -375,7 +265,7 @@ export function StyleTemplateDialog({
               </button>
 
               {sortedCategories.length === 0 ? (
-                <div className="rounded-xl border border-dashed border-white/10 px-3 py-5 text-center text-xs text-text-muted">
+                <div className="rounded-[14px] border border-dashed border-white/10 px-3 py-5 text-center text-xs text-text-muted">
                   {t("styleTemplate.emptyCategoryHint")}
                 </div>
               ) : (
@@ -388,7 +278,7 @@ export function StyleTemplateDialog({
                   return (
                     <div
                       key={category.id}
-                      className={`group rounded-xl border px-3 py-2 transition-colors ${
+                      className={`group rounded-[14px] border px-3 py-2 transition-colors ${
                         isActive
                           ? "border-accent/35 bg-accent/12"
                           : "border-white/10 bg-white/[0.03] hover:bg-white/[0.05]"
@@ -441,7 +331,7 @@ export function StyleTemplateDialog({
             </div>
           </div>
 
-          <div className="rounded-2xl border border-white/10 bg-black/10 p-3">
+          <div className="rounded-[20px] border border-white/10 bg-black/10 p-3">
             <div className="flex flex-wrap items-center justify-between gap-3">
               <div>
                 <div className="inline-flex items-center gap-2 text-sm font-medium text-text-dark">
@@ -466,52 +356,52 @@ export function StyleTemplateDialog({
               </UiButton>
             </div>
 
-            <div className="ui-scrollbar mt-3 max-h-[520px] space-y-2 overflow-y-auto pr-1">
+            <div className="ui-scrollbar mt-3 max-h-[540px] overflow-y-auto pr-1">
               {filteredTemplates.length === 0 ? (
-                <div className="rounded-2xl border border-dashed border-white/10 px-4 py-10 text-center text-sm text-text-muted">
+                <div className="rounded-[16px] border border-dashed border-white/10 px-4 py-10 text-center text-sm text-text-muted">
                   {t("styleTemplate.emptyTemplateHint")}
                 </div>
               ) : (
-                filteredTemplates.map((template) => (
-                  <div
-                    key={template.id}
-                    className="group rounded-2xl border border-white/10 bg-white/[0.03] p-3 transition-colors hover:bg-white/[0.05]"
-                  >
-                    <div className="flex items-start justify-between gap-3">
-                      <div className="min-w-0 flex-1">
-                        <div className="truncate text-sm font-medium text-text-dark">
-                          {template.name}
-                        </div>
-                        <div className="mt-2 line-clamp-3 text-xs leading-5 text-text-muted">
-                          {template.prompt}
-                        </div>
-                      </div>
-
-                      <div className="flex shrink-0 gap-1 opacity-0 transition-opacity group-hover:opacity-100">
-                        <button
-                          type="button"
-                          className="rounded-lg p-1.5 text-text-muted transition-colors hover:bg-white/[0.06] hover:text-text-dark"
-                          onClick={() => setEditingTemplate(template)}
-                        >
-                          <Pencil className="h-3.5 w-3.5" />
-                        </button>
-                        <button
-                          type="button"
-                          className="rounded-lg p-1.5 text-text-muted transition-colors hover:bg-rose-500/12 hover:text-rose-300"
-                          onClick={() =>
-                            setPendingDelete({
-                              type: "template",
-                              id: template.id,
-                              name: template.name,
-                            })
-                          }
-                        >
-                          <Trash2 className="h-3.5 w-3.5" />
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-                ))
+                <div className="grid grid-cols-[repeat(auto-fill,minmax(214px,214px))] content-start justify-start gap-3">
+                  {filteredTemplates.map((template) => (
+                    <StyleTemplateCard
+                      key={template.id}
+                      template={template}
+                      radius="compact"
+                      categoryLabel={
+                        template.categoryId
+                          ? categoryNameById.get(template.categoryId) ??
+                            t("styleTemplate.uncategorized")
+                          : t("styleTemplate.uncategorized")
+                      }
+                      className="w-full"
+                      actions={
+                        <>
+                          <button
+                            type="button"
+                            className="rounded-full p-1.5 text-text-muted transition-colors hover:bg-white/[0.06] hover:text-text-dark"
+                            onClick={() => setEditingTemplate(template)}
+                          >
+                            <Pencil className="h-3.5 w-3.5" />
+                          </button>
+                          <button
+                            type="button"
+                            className="rounded-full p-1.5 text-text-muted transition-colors hover:bg-rose-500/12 hover:text-rose-300"
+                            onClick={() =>
+                              setPendingDelete({
+                                type: "template",
+                                id: template.id,
+                                name: template.name,
+                              })
+                            }
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </button>
+                        </>
+                      }
+                    />
+                  ))}
+                </div>
               )}
             </div>
           </div>
@@ -546,7 +436,7 @@ export function StyleTemplateDialog({
         }}
       />
 
-      <EditTemplateModal
+      <StyleTemplateEditorModal
         isOpen={showCreateTemplate}
         title={t("styleTemplate.newTemplate")}
         initialCategoryId={
@@ -556,20 +446,23 @@ export function StyleTemplateDialog({
         }
         categories={sortedCategories}
         onClose={() => setShowCreateTemplate(false)}
-        onSave={(input) => {
-          addStyleTemplate(input);
+        onSave={async (input) => {
+          const nextTemplateId = addStyleTemplate(input);
+          if (nextTemplateId && input.categoryId) {
+            setSelectedCategoryId(input.categoryId);
+          }
           setShowCreateTemplate(false);
         }}
       />
 
-      <EditTemplateModal
+      <StyleTemplateEditorModal
         isOpen={Boolean(editingTemplate)}
         title={t("styleTemplate.editTemplate")}
         initialTemplate={editingTemplate}
         initialCategoryId={editingTemplate?.categoryId ?? null}
         categories={sortedCategories}
         onClose={() => setEditingTemplate(null)}
-        onSave={(input) => {
+        onSave={async (input) => {
           if (!editingTemplate) {
             return;
           }

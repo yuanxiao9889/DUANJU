@@ -6,6 +6,7 @@ import {
   SCRIPT_COMPATIBLE_PROVIDER_ID,
   toScriptCompatibleExtraParamsPayload,
 } from '@/features/canvas/models';
+import type { StoryBeat } from '@/features/canvas/domain/canvasNodes';
 import { openSettingsDialog } from '@/features/settings/settingsEvents';
 import { useSettingsStore } from '@/stores/settingsStore';
 
@@ -456,12 +457,69 @@ ${request.requirement}
   return result.text;
 }
 
+export interface SummaryExpandSceneContext {
+  title: string;
+  summary: string;
+  purpose?: string;
+  povCharacter?: string;
+  goal?: string;
+  conflict?: string;
+  turn?: string;
+  emotionalShift?: string;
+  visualHook?: string;
+  subtext?: string;
+}
+
+export interface SummaryExpandStoryRootContext {
+  title?: string;
+  premise?: string;
+  theme?: string;
+  protagonist?: string;
+  want?: string;
+  stakes?: string;
+  tone?: string;
+  directorVision?: string;
+  beats?: Array<Pick<StoryBeat, 'key' | 'title' | 'summary' | 'dramaticQuestion'>>;
+  characterLibraryNames?: string[];
+  locationLibraryNames?: string[];
+  itemLibraryNames?: string[];
+}
+
+export interface SummaryExpandValidationIssue {
+  code: 'character_drift' | 'outline_drift' | 'continuity_conflict';
+  title: string;
+  detail: string;
+  evidence?: string;
+}
+
+export interface SummaryExpandValidationResult {
+  status: 'clear' | 'warning';
+  summary: string;
+  issues: SummaryExpandValidationIssue[];
+  checkedAt: number;
+}
+
 export interface SummaryExpandRequest {
   summary: string;
   chapterTitle: string;
   chapterNumber?: number;
+  chapterPurpose?: string;
+  chapterQuestion?: string;
+  scenes?: SummaryExpandSceneContext[];
+  characters?: string[];
+  locations?: string[];
+  items?: string[];
+  previousChapterSummary?: string;
+  nextChapterSummary?: string;
+  storyRoot?: SummaryExpandStoryRootContext | null;
   instruction?: string;
   model?: string;
+}
+
+export interface SummaryExpandResponse {
+  text: string;
+  validation: SummaryExpandValidationResult;
+  attempts: number;
 }
 
 export interface SceneEpisodeGenerationRequest {
@@ -499,51 +557,409 @@ export interface GeneratedSceneEpisode {
   endingHook: string;
 }
 
-export async function expandFromSummary(request: SummaryExpandRequest): Promise<string> {
-  const prompt = `你是一位专业的剧本编剧助手。请根据以下章节摘要，扩写成完整的剧本内容。
+function trimOrFallback(value: string | undefined | null, fallback = '无'): string {
+  const trimmed = normalizeNonEmptyString(value);
+  return trimmed || fallback;
+}
 
-章节标题：${request.chapterTitle}
-${request.chapterNumber ? `章节序号：第${request.chapterNumber}章` : ''}
+function dedupeTrimmedStrings(values: Array<string | undefined | null>, limit = Number.POSITIVE_INFINITY): string[] {
+  const seen = new Set<string>();
+  const normalized: string[] = [];
 
-章节摘要：
-${request.summary}
+  for (const value of values) {
+    const trimmed = normalizeNonEmptyString(value);
+    if (!trimmed || seen.has(trimmed)) {
+      continue;
+    }
 
-${request.instruction ? `扩写要求：${request.instruction}` : ''}
+    seen.add(trimmed);
+    normalized.push(trimmed);
 
-请按照以下 Markdown 格式输出剧本内容：
+    if (normalized.length >= limit) {
+      break;
+    }
+  }
 
-## 场景X：地点 - 时间 - 内/外景
+  return normalized;
+}
 
-场景描述文字...
+function normalizeSummaryExpandScenes(scenes: SummaryExpandSceneContext[] | undefined): SummaryExpandSceneContext[] {
+  if (!Array.isArray(scenes)) {
+    return [];
+  }
 
----
+  return scenes
+    .map((scene) => ({
+      title: normalizeNonEmptyString(scene.title),
+      summary: normalizeNonEmptyString(scene.summary),
+      purpose: normalizeNonEmptyString(scene.purpose),
+      povCharacter: normalizeNonEmptyString(scene.povCharacter),
+      goal: normalizeNonEmptyString(scene.goal),
+      conflict: normalizeNonEmptyString(scene.conflict),
+      turn: normalizeNonEmptyString(scene.turn),
+      emotionalShift: normalizeNonEmptyString(scene.emotionalShift),
+      visualHook: normalizeNonEmptyString(scene.visualHook),
+      subtext: normalizeNonEmptyString(scene.subtext),
+    }))
+    .filter((scene) => (
+      scene.title
+      || scene.summary
+      || scene.purpose
+      || scene.povCharacter
+      || scene.goal
+      || scene.conflict
+      || scene.turn
+      || scene.emotionalShift
+      || scene.visualHook
+      || scene.subtext
+    ));
+}
 
-**角色名**：（动作/表情）对白内容
+function hasStructuredSummaryExpandScenes(scenes: SummaryExpandSceneContext[]): boolean {
+  return scenes.some((scene) => (
+    Boolean(scene.summary)
+    || Boolean(scene.purpose)
+    || Boolean(scene.povCharacter)
+    || Boolean(scene.goal)
+    || Boolean(scene.conflict)
+    || Boolean(scene.turn)
+    || Boolean(scene.emotionalShift)
+    || Boolean(scene.visualHook)
+    || Boolean(scene.subtext)
+    || Boolean(scene.title && !/^场景\s+\d+$/i.test(scene.title))
+  ));
+}
 
-**角色名**：对白内容
+function formatSummaryExpandList(title: string, values: string[]): string {
+  return `${title}：${values.length > 0 ? values.join('、') : '无'}`;
+}
 
----
+function formatSummaryExpandBeats(
+  beats: SummaryExpandStoryRootContext['beats'] | undefined
+): string {
+  if (!beats || beats.length === 0) {
+    return '无';
+  }
 
-## 场景Y：...
+  return beats
+    .map((beat) => {
+      const beatTitle = normalizeNonEmptyString(beat.title) || beat.key;
+      const beatSummary = normalizeNonEmptyString(beat.summary) || '无摘要';
+      const dramaticQuestion = normalizeNonEmptyString(beat.dramaticQuestion);
+      return dramaticQuestion
+        ? `${beatTitle}：${beatSummary}；戏剧问题：${dramaticQuestion}`
+        : `${beatTitle}：${beatSummary}`;
+    })
+    .join('\n');
+}
 
-格式说明：
-- 使用 ## 标记场景标题
-- 使用 --- 分隔不同场景
-- 使用 **角色名**： 标记对白
-- 使用（）标记动作或表情说明
-- 场景描述使用普通段落
-- 每个段落之间用空行分隔
+function formatSummaryExpandSceneCards(scenes: SummaryExpandSceneContext[]): string {
+  if (scenes.length === 0 || !hasStructuredSummaryExpandScenes(scenes)) {
+    return '无';
+  }
 
-请直接输出 Markdown 格式的剧本内容，不要添加任何解释。`;
+  return scenes
+    .map((scene, index) => [
+      `场景 ${index + 1}：${scene.title || `未命名场景 ${index + 1}`}`,
+      `- 摘要：${trimOrFallback(scene.summary)}`,
+      `- 作用：${trimOrFallback(scene.purpose)}`,
+      `- POV：${trimOrFallback(scene.povCharacter)}`,
+      `- 目标：${trimOrFallback(scene.goal)}`,
+      `- 冲突：${trimOrFallback(scene.conflict)}`,
+      `- 转折：${trimOrFallback(scene.turn)}`,
+      `- 情绪变化：${trimOrFallback(scene.emotionalShift)}`,
+      `- 视觉钩子：${trimOrFallback(scene.visualHook)}`,
+      `- 潜台词：${trimOrFallback(scene.subtext)}`,
+    ].join('\n'))
+    .join('\n\n');
+}
 
-  const result = await generateText({
-    prompt,
-    model: request.model,
-    temperature: 0.8,
-    maxTokens: 4096,
-  });
+function resolveSummaryExpandExpectedCharacterNames(request: SummaryExpandRequest): string[] {
+  const scenes = normalizeSummaryExpandScenes(request.scenes);
+  return dedupeTrimmedStrings(
+    [
+      request.storyRoot?.protagonist,
+      ...(request.storyRoot?.characterLibraryNames ?? []),
+      ...(request.characters ?? []),
+      ...scenes.map((scene) => scene.povCharacter),
+    ],
+    16
+  );
+}
 
-  return result.text;
+function buildSummaryExpandPrompt(
+  request: SummaryExpandRequest,
+  repairNotes: string[] = []
+): string {
+  const scenes = normalizeSummaryExpandScenes(request.scenes);
+  const hasStructuredScenes = hasStructuredSummaryExpandScenes(scenes);
+  const expectedCharacterNames = resolveSummaryExpandExpectedCharacterNames(request);
+  const locationNames = dedupeTrimmedStrings([
+    ...(request.storyRoot?.locationLibraryNames ?? []),
+    ...(request.locations ?? []),
+  ], 12);
+  const itemNames = dedupeTrimmedStrings([
+    ...(request.storyRoot?.itemLibraryNames ?? []),
+    ...(request.items ?? []),
+  ], 12);
+  const storyTitle = normalizeNonEmptyString(request.storyRoot?.title) || request.chapterTitle;
+
+  return [
+    '你是一位严格遵守大纲的剧本扩写助手。',
+    '你的职责是把既有章节规划扩写成更完整的章节初稿，而不是重写大纲或另起主线。',
+    '请始终遵守以下硬约束：',
+    '1. 当前章节的 scene cards 是本章剧情骨架；如果提供了 scene cards，必须按顺序覆盖，不能跳过、调换或擅自新增主线。',
+    '2. 已出现的人名、POV 角色、关键目标、核心冲突和转折不得改名、替换、反向改写或无故消失。',
+    '3. 上一章摘要只用于承接，下一章摘要只用于收束和留钩子，不能把下一章主戏提前写进本章。',
+    '4. 信息不足时优先补足动作、对白、场面调度和情绪细节，不要擅自改设定。',
+    hasStructuredScenes
+      ? '5. 每个 scene card 的摘要、作用、目标、冲突、转折至少要在对应场景里得到体现。'
+      : '5. 当前章节没有完整 scene cards，请严格贴合章节摘要与相邻章节摘要扩写，不要发散。',
+    '6. 输出必须是可直接转成剧本草稿的 Markdown，不要输出解释、分析、说明或 JSON。',
+    '',
+    repairNotes.length > 0 ? '上一轮自动校验发现以下问题，请在不改主线的前提下修正：' : '',
+    repairNotes.length > 0 ? repairNotes.map((note) => `- ${note}`).join('\n') : '',
+    repairNotes.length > 0 ? '' : '',
+    '故事上下文：',
+    `- 故事标题：${trimOrFallback(storyTitle, '未命名故事')}`,
+    `- 故事前提：${trimOrFallback(request.storyRoot?.premise)}`,
+    `- 主题：${trimOrFallback(request.storyRoot?.theme)}`,
+    `- 主角：${trimOrFallback(request.storyRoot?.protagonist)}`,
+    `- 主角外在目标：${trimOrFallback(request.storyRoot?.want)}`,
+    `- 失败代价：${trimOrFallback(request.storyRoot?.stakes)}`,
+    `- 基调：${trimOrFallback(request.storyRoot?.tone)}`,
+    `- 导演视角：${trimOrFallback(request.storyRoot?.directorVision)}`,
+    `- 核心节拍：\n${formatSummaryExpandBeats(request.storyRoot?.beats)}`,
+    '',
+    '当前章节硬约束：',
+    `- 章节标题：${trimOrFallback(request.chapterTitle, '未命名章节')}`,
+    request.chapterNumber ? `- 章节序号：第${request.chapterNumber}章` : '',
+    `- 章节摘要：${trimOrFallback(request.summary)}`,
+    `- 章节作用：${trimOrFallback(request.chapterPurpose)}`,
+    `- 章节问题：${trimOrFallback(request.chapterQuestion)}`,
+    formatSummaryExpandList('必须保留的角色名', expectedCharacterNames),
+    formatSummaryExpandList('相关地点', locationNames),
+    formatSummaryExpandList('相关道具', itemNames),
+    '',
+    '本章 scene cards：',
+    formatSummaryExpandSceneCards(scenes),
+    '',
+    '相邻章节摘要：',
+    `- 上一章摘要：${trimOrFallback(request.previousChapterSummary)}`,
+    `- 下一章摘要：${trimOrFallback(request.nextChapterSummary)}`,
+    '',
+    request.instruction ? `额外扩写要求：${request.instruction}` : '',
+    request.instruction ? '' : '',
+    '请按照以下 Markdown 格式输出：',
+    '## 场景X：地点 - 时间 - 内/外景',
+    '',
+    '场景描述文字...',
+    '',
+    '---',
+    '',
+    '**角色名**：（动作/表情）对白内容',
+    '',
+    '**角色名**：对白内容',
+    '',
+    '---',
+    '',
+    '## 场景Y：...',
+    '',
+    '格式要求：',
+    '- 使用 ## 标记场景标题',
+    '- 使用 --- 分隔不同场景',
+    '- 使用 **角色名**：标记对白',
+    '- 使用（）标记动作或表情说明',
+    '- 场景描述使用普通段落',
+    '- 每个段落之间空一行',
+    '',
+    '请直接输出 Markdown 格式的章节内容，不要添加任何解释。',
+  ]
+    .filter(Boolean)
+    .join('\n');
+}
+
+function normalizeSummaryExpandValidationIssue(
+  value: unknown,
+  index: number
+): SummaryExpandValidationIssue | null {
+  if (!value || typeof value !== 'object') {
+    return null;
+  }
+
+  const record = value as Record<string, unknown>;
+  const title = readStringValue(record, ['title', 'name']);
+  const detail = readStringValue(record, ['detail', 'description', 'summary']);
+  if (!title || !detail) {
+    return null;
+  }
+
+  const rawCode = readStringValue(record, ['code', 'type']).toLowerCase();
+  const code: SummaryExpandValidationIssue['code'] =
+    rawCode === 'character_drift' || rawCode === 'outline_drift' || rawCode === 'continuity_conflict'
+      ? rawCode
+      : index === 0
+        ? 'outline_drift'
+        : 'continuity_conflict';
+
+  return {
+    code,
+    title,
+    detail,
+    evidence: readStringValue(record, ['evidence', 'example']),
+  };
+}
+
+function buildSummaryExpandValidationFallback(
+  summary: string,
+  detail?: string
+): SummaryExpandValidationResult {
+  return {
+    status: 'warning',
+    summary,
+    issues: detail
+      ? [{
+        code: 'continuity_conflict',
+        title: '自动校验未稳定完成',
+        detail,
+      }]
+      : [],
+    checkedAt: Date.now(),
+  };
+}
+
+function buildSummaryExpandValidationPrompt(
+  request: SummaryExpandRequest,
+  candidateText: string
+): string {
+  const scenes = normalizeSummaryExpandScenes(request.scenes);
+  const expectedCharacterNames = resolveSummaryExpandExpectedCharacterNames(request);
+
+  return [
+    '你是一位严格的剧本大纲校对编辑。',
+    '请判断候选章节文本是否偏离既有大纲。',
+    '只根据提供的章节骨架、相邻章节摘要与故事信息判断，不要因为文风变化或细节丰富而误报。',
+    '如果没有明显问题，返回 status="clear"。',
+    '如果出现角色改名、角色身份漂移、场景顺序偏离、目标/冲突/转折被改写，或和相邻章节承接明显冲突，返回 status="warning"。',
+    '返回 JSON，严格使用以下结构：',
+    '{"status":"clear|warning","summary":"...","issues":[{"code":"character_drift|outline_drift|continuity_conflict","title":"...","detail":"...","evidence":"..."}]}',
+    '',
+    '故事上下文：',
+    `- 标题：${trimOrFallback(request.storyRoot?.title || request.chapterTitle, '未命名故事')}`,
+    `- 主角：${trimOrFallback(request.storyRoot?.protagonist)}`,
+    `- 主题：${trimOrFallback(request.storyRoot?.theme)}`,
+    '',
+    '当前章节约束：',
+    `- 章节标题：${trimOrFallback(request.chapterTitle, '未命名章节')}`,
+    request.chapterNumber ? `- 章节序号：第${request.chapterNumber}章` : '',
+    `- 章节摘要：${trimOrFallback(request.summary)}`,
+    `- 章节作用：${trimOrFallback(request.chapterPurpose)}`,
+    `- 章节问题：${trimOrFallback(request.chapterQuestion)}`,
+    formatSummaryExpandList('必须保留的角色名', expectedCharacterNames),
+    '',
+    '本章 scene cards：',
+    formatSummaryExpandSceneCards(scenes),
+    '',
+    '相邻章节摘要：',
+    `- 上一章摘要：${trimOrFallback(request.previousChapterSummary)}`,
+    `- 下一章摘要：${trimOrFallback(request.nextChapterSummary)}`,
+    '',
+    '候选章节文本：',
+    candidateText.trim() || '无',
+  ]
+    .filter(Boolean)
+    .join('\n');
+}
+
+async function validateSummaryExpansion(
+  request: SummaryExpandRequest,
+  candidateText: string
+): Promise<SummaryExpandValidationResult> {
+  try {
+    const result = await generateText({
+      prompt: buildSummaryExpandValidationPrompt(request, candidateText),
+      model: request.model,
+      temperature: 0.15,
+      maxTokens: 1200,
+    });
+
+    const parsed = extractJsonValue(result.text);
+    if (!parsed || typeof parsed !== 'object') {
+      return buildSummaryExpandValidationFallback(
+        '自动校验未返回稳定结构，请人工确认扩写结果是否偏离大纲。'
+      );
+    }
+
+    const record = parsed as Record<string, unknown>;
+    const issues = Array.isArray(record.issues)
+      ? record.issues
+        .map((issue, index) => normalizeSummaryExpandValidationIssue(issue, index))
+        .filter((issue): issue is SummaryExpandValidationIssue => Boolean(issue))
+      : [];
+    const summary = readStringValue(record, ['summary', 'message'])
+      || (issues.length > 0 ? '检测到可能偏离既有大纲的内容。' : '未发现明显大纲漂移。');
+    const status = record.status === 'warning' || issues.length > 0 ? 'warning' : 'clear';
+
+    return {
+      status,
+      summary,
+      issues,
+      checkedAt: Date.now(),
+    };
+  } catch (error) {
+    return buildSummaryExpandValidationFallback(
+      '自动校验执行失败，请人工确认扩写结果是否偏离大纲。',
+      error instanceof Error ? error.message : undefined
+    );
+  }
+}
+
+function buildSummaryExpandRepairNotes(validation: SummaryExpandValidationResult): string[] {
+  return validation.issues.map((issue) => (
+    issue.evidence
+      ? `${issue.title}：${issue.detail}。证据：${issue.evidence}`
+      : `${issue.title}：${issue.detail}`
+  ));
+}
+
+function shouldRetrySummaryExpansion(validation: SummaryExpandValidationResult): boolean {
+  return validation.status === 'warning' && validation.issues.length > 0;
+}
+
+export async function expandFromSummary(
+  request: SummaryExpandRequest
+): Promise<SummaryExpandResponse> {
+  const maxAttempts = 2;
+  let attempts = 0;
+  let latestText = '';
+  let latestValidation = buildSummaryExpandValidationFallback('尚未生成扩写结果。');
+  let repairNotes: string[] = [];
+
+  while (attempts < maxAttempts) {
+    attempts += 1;
+
+    const result = await generateText({
+      prompt: buildSummaryExpandPrompt(request, repairNotes),
+      model: request.model,
+      temperature: 0.45,
+      maxTokens: 4096,
+    });
+
+    latestText = result.text;
+    latestValidation = await validateSummaryExpansion(request, latestText);
+
+    if (!shouldRetrySummaryExpansion(latestValidation) || attempts >= maxAttempts) {
+      break;
+    }
+
+    repairNotes = buildSummaryExpandRepairNotes(latestValidation);
+  }
+
+  return {
+    text: latestText,
+    validation: latestValidation,
+    attempts,
+  };
 }
 
 function clampSceneEpisodeCount(value: number | undefined): number {

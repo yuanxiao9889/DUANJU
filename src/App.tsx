@@ -26,6 +26,7 @@ import {
 import {
   subscribeOpenSettingsDialog,
   type SettingsCategory,
+  type ProviderTab,
 } from "./features/settings/settingsEvents";
 import {
   subscribeOpenDreaminaSetupDialog,
@@ -205,6 +206,8 @@ function MainApp() {
   const [dreaminaDialogLoaded, setDreaminaDialogLoaded] = useState(false);
   const [settingsInitialCategory, setSettingsInitialCategory] =
     useState<SettingsCategory>("general");
+  const [settingsInitialProviderTab, setSettingsInitialProviderTab] =
+    useState<ProviderTab>("script");
   const [showUpdateDialog, setShowUpdateDialog] = useState(false);
   const [latestVersion, setLatestVersion] = useState<string>("");
   const [currentVersion, setCurrentVersion] = useState<string>("");
@@ -466,8 +469,9 @@ function MainApp() {
   }, []);
 
   useEffect(() => {
-    const unsubscribe = subscribeOpenSettingsDialog(({ category }) => {
+    const unsubscribe = subscribeOpenSettingsDialog(({ category, providerTab }) => {
       setSettingsInitialCategory(category ?? "general");
+      setSettingsInitialProviderTab(providerTab ?? "script");
       setSettingsDialogLoaded(true);
       setShowSettings(true);
     });
@@ -759,6 +763,7 @@ function MainApp() {
         onClipLibraryClick={handleOpenClipLibraryPanel}
         onSettingsClick={() => {
           setSettingsInitialCategory("general");
+          setSettingsInitialProviderTab("script");
           setSettingsDialogLoaded(true);
           setShowSettings(true);
         }}
@@ -783,6 +788,7 @@ function MainApp() {
             isOpen={showSettings}
             onClose={() => setShowSettings(false)}
             initialCategory={settingsInitialCategory}
+            initialProviderTab={settingsInitialProviderTab}
             onCheckUpdate={handleManualCheckUpdate}
           />
         </Suspense>

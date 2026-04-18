@@ -92,7 +92,7 @@ import {
   resolveJimengImageResolutionOptionsForModel,
 } from "@/features/jimeng/domain/jimengOptions";
 import { StyleTemplatePicker } from "@/features/project/StyleTemplatePicker";
-import { applyStyleTemplatePrompt } from "@/features/project/styleTemplatePrompt";
+import { appendStyleTemplatePrompt } from "@/features/project/styleTemplatePrompt";
 
 type JimengImageNodeProps = NodeProps & {
   id: string;
@@ -421,10 +421,6 @@ export const JimengImageNode = memo(
       lastPromptOptimizationUndoState,
       setLastPromptOptimizationUndoState,
     ] = useState<PromptOptimizationUndoState | null>(null);
-    const [selectedStyleTemplateId, setSelectedStyleTemplateId] = useState<
-      string | null
-    >(null);
-    const [styleTemplatePrompt, setStyleTemplatePrompt] = useState("");
     const [showCameraParamsDialog, setShowCameraParamsDialog] = useState(false);
     const [showImagePicker, setShowImagePicker] = useState(false);
     const [pickerCursor, setPickerCursor] = useState<number | null>(null);
@@ -1568,15 +1564,11 @@ export const JimengImageNode = memo(
                 onChange={handleAspectRatioChange}
               />
               <StyleTemplatePicker
-                selectedTemplateId={selectedStyleTemplateId}
                 className={`${NODE_CONTROL_CHIP_CLASS} !w-8 !px-0 shrink-0 justify-center`}
-                onTemplateChange={(templateId, prompt) => {
-                  setSelectedStyleTemplateId(templateId);
-                  setStyleTemplatePrompt(prompt);
-                  const nextPrompt = applyStyleTemplatePrompt(
+                onTemplateApply={(template) => {
+                  const nextPrompt = appendStyleTemplatePrompt(
                     promptValueRef.current,
-                    styleTemplatePrompt,
-                    prompt,
+                    template.prompt,
                   );
                   handlePromptChange(nextPrompt);
                 }}

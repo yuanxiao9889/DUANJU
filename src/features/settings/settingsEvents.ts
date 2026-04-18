@@ -8,8 +8,11 @@ export type SettingsCategory =
   | 'psIntegration'
   | 'about';
 
+export type ProviderTab = 'script' | 'storyboard' | 'mj';
+
 interface OpenSettingsEventDetail {
   category?: SettingsCategory;
+  providerTab?: ProviderTab;
 }
 
 const OPEN_SETTINGS_EVENT = 'storyboard:open-settings-dialog';

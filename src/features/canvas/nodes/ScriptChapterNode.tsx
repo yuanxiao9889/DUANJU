@@ -4,6 +4,8 @@ import { FileText, GitBranch, GitFork, GripHorizontal, Sparkles } from 'lucide-r
 import { useTranslation } from 'react-i18next';
 
 import { UiScrollArea } from '@/components/ui';
+import type { SummaryExpandRequest } from '@/commands/textGen';
+import { getSortedScriptChapterNodes } from '@/features/canvas/application/sceneContinuity';
 import { AiWriterDialog } from '@/features/canvas/ui/AiWriterDialog';
 import { NodeHeader, NODE_HEADER_FLOATING_POSITION_CLASS } from '@/features/canvas/ui/NodeHeader';
 import { NodeResizeHandle } from '@/features/canvas/ui/NodeResizeHandle';
@@ -13,8 +15,10 @@ import {
   SCRIPT_CHAPTER_NODE_DEFAULT_WIDTH,
   createDefaultSceneCard,
   normalizeSceneCards,
+  normalizeScriptRootNodeData,
   type SceneCard,
   type ScriptChapterNodeData,
+  type ScriptRootNodeData,
   type ScriptSceneNodeData,
 } from '@/features/canvas/domain/canvasNodes';
 import { resolveNodeDisplayName } from '@/features/canvas/domain/nodeDisplay';
@@ -168,6 +172,7 @@ export const ScriptChapterNode = memo(({ id, data, selected, width, height }: Sc
   const updateNodeData = useCanvasStore((state) => state.updateNodeData);
   const setSelectedNode = useCanvasStore((state) => state.setSelectedNode);
   const nodes = useCanvasStore((state) => state.nodes);
+  const edges = useCanvasStore((state) => state.edges);
   const activeChapterId = useScriptEditorStore((state) => state.activeChapterId);
   const activeChapterSceneId = useScriptEditorStore((state) => state.activeChapterSceneId);
   const activeSceneNodeId = useScriptEditorStore((state) => state.activeSceneNodeId);
@@ -203,6 +208,41 @@ export const ScriptChapterNode = memo(({ id, data, selected, width, height }: Sc
   const hasMaterializedSceneNodes = sceneNodeBySceneId.size > 0;
   const hasMergedBranches = Boolean(data.mergedFromBranches && data.mergedFromBranches.length > 0);
   const isMergePoint = data.isMergePoint || (hasMergedBranches && (data.mergedFromBranches?.length ?? 0) >= 2);
+  const storyRootData = useMemo(() => {
+    const incomingSourceIds = new Set(
+      edges
+        .filter((edge) => edge.target === id)
+        .map((edge) => edge.source)
+    );
+    const connectedRootNode = nodes.find(
+      (node) => incomingSourceIds.has(node.id) && node.type === CANVAS_NODE_TYPES.scriptRoot
+    );
+    const rootNode = connectedRootNode
+      ?? nodes.find((node) => node.type === CANVAS_NODE_TYPES.scriptRoot)
+      ?? null;
+
+    return rootNode
+      ? normalizeScriptRootNodeData(rootNode.data as ScriptRootNodeData)
+      : null;
+  }, [edges, id, nodes]);
+  const adjacentChapterSummaries = useMemo(() => {
+    const sortedChapters = getSortedScriptChapterNodes(nodes);
+    const currentIndex = sortedChapters.findIndex((node) => node.id === id);
+    if (currentIndex < 0) {
+      return {
+        previousChapterSummary: '',
+        nextChapterSummary: '',
+      };
+    }
+
+    const previousChapter = currentIndex > 0 ? sortedChapters[currentIndex - 1] : null;
+    const nextChapter = currentIndex < sortedChapters.length - 1 ? sortedChapters[currentIndex + 1] : null;
+
+    return {
+      previousChapterSummary: (previousChapter?.data.summary || '').trim(),
+      nextChapterSummary: (nextChapter?.data.summary || '').trim(),
+    };
+  }, [id, nodes]);
   const mergedBranchContents = useMemo(
     () =>
       mergedBranchNodes.map((branchNode) => {
@@ -221,6 +261,65 @@ export const ScriptChapterNode = memo(({ id, data, selected, width, height }: Sc
       }),
     [mergedBranchNodes],
   );
+  const summaryExpandContext = useMemo<Omit<SummaryExpandRequest, 'instruction'>>(() => ({
+    summary: data.summary || '',
+    chapterTitle: data.title || resolvedTitle || '未命名章节',
+    chapterNumber: data.chapterNumber,
+    chapterPurpose: data.chapterPurpose,
+    chapterQuestion: data.chapterQuestion,
+    scenes: scenes.map((scene) => ({
+      title: scene.title,
+      summary: scene.summary,
+      purpose: scene.purpose,
+      povCharacter: scene.povCharacter,
+      goal: scene.goal,
+      conflict: scene.conflict,
+      turn: scene.turn,
+      emotionalShift: scene.emotionalShift,
+      visualHook: scene.visualHook,
+      subtext: scene.subtext,
+    })),
+    characters: data.characters,
+    locations: data.locations,
+    items: data.items,
+    previousChapterSummary: adjacentChapterSummaries.previousChapterSummary,
+    nextChapterSummary: adjacentChapterSummaries.nextChapterSummary,
+    storyRoot: storyRootData
+      ? {
+        title: storyRootData.title || storyRootData.displayName || '',
+        premise: storyRootData.premise,
+        theme: storyRootData.theme,
+        protagonist: storyRootData.protagonist,
+        want: storyRootData.want,
+        stakes: storyRootData.stakes,
+        tone: storyRootData.tone,
+        directorVision: storyRootData.directorVision,
+        beats: storyRootData.beats?.map((beat) => ({
+          key: beat.key,
+          title: beat.title,
+          summary: beat.summary,
+          dramaticQuestion: beat.dramaticQuestion,
+        })),
+        characterLibraryNames: storyRootData.assetLibraryCharacters.map((item) => item.name),
+        locationLibraryNames: storyRootData.assetLibraryLocations.map((item) => item.name),
+        itemLibraryNames: storyRootData.assetLibraryItems.map((item) => item.name),
+      }
+      : null,
+  }), [
+    adjacentChapterSummaries.nextChapterSummary,
+    adjacentChapterSummaries.previousChapterSummary,
+    data.chapterNumber,
+    data.chapterPurpose,
+    data.chapterQuestion,
+    data.characters,
+    data.items,
+    data.locations,
+    data.summary,
+    data.title,
+    resolvedTitle,
+    scenes,
+    storyRootData,
+  ]);
 
   const handleTitleChange = useCallback((nextTitle: string) => {
     updateNodeData(id, { displayName: nextTitle });
@@ -510,8 +609,9 @@ export const ScriptChapterNode = memo(({ id, data, selected, width, height }: Sc
           isOpen
           mode={aiDialogMode}
           originalText={data.summary || ''}
-          chapterTitle={data.title}
+          chapterTitle={summaryExpandContext.chapterTitle}
           chapterNumber={data.chapterNumber}
+          summaryExpandContext={aiDialogMode === 'expandFromSummary' ? summaryExpandContext : null}
           mergedBranchContents={hasMergedBranches ? mergedBranchContents : undefined}
           onClose={() => setAiDialogMode(null)}
           onConfirm={handleAiConfirm}

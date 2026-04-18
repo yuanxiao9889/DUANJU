@@ -225,7 +225,12 @@ function scoreSceneRelevance(
   return score;
 }
 
-function sortTimelineChapters(a: CanvasNode, b: CanvasNode): number {
+export type ScriptChapterTimelineNode = CanvasNode & {
+  type: typeof CANVAS_NODE_TYPES.scriptChapter;
+  data: ScriptChapterNodeData;
+};
+
+export function sortScriptChapterTimelineNodes(a: CanvasNode, b: CanvasNode): number {
   const chapterA = a.data as ScriptChapterNodeData;
   const chapterB = b.data as ScriptChapterNodeData;
   const numberDelta = (chapterA.chapterNumber || 0) - (chapterB.chapterNumber || 0);
@@ -257,6 +262,13 @@ function sortTimelineChapters(a: CanvasNode, b: CanvasNode): number {
   return (a.position?.x || 0) - (b.position?.x || 0);
 }
 
+export function getSortedScriptChapterNodes(nodes: CanvasNode[]): ScriptChapterTimelineNode[] {
+  return nodes
+    .filter((node): node is ScriptChapterTimelineNode => node.type === CANVAS_NODE_TYPES.scriptChapter)
+    .slice()
+    .sort(sortScriptChapterTimelineNodes);
+}
+
 function formatSceneReference(entry: TimelineSceneEntry): SceneContinuityReference {
   const memory = resolveSceneContinuityMemory(entry.scene);
 
@@ -267,9 +279,7 @@ function formatSceneReference(entry: TimelineSceneEntry): SceneContinuityReferen
 }
 
 function buildTimelineEntries(nodes: CanvasNode[]): TimelineSceneEntry[] {
-  const chapters = nodes
-    .filter((node) => node.type === CANVAS_NODE_TYPES.scriptChapter)
-    .sort(sortTimelineChapters);
+  const chapters = getSortedScriptChapterNodes(nodes);
 
   const timeline: TimelineSceneEntry[] = [];
   const sceneNodesByChapterId = new Map<string, Array<{ id: string; data: ScriptSceneNodeData }>>();
