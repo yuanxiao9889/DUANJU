@@ -156,6 +156,9 @@ const MJ_PROVIDER_GROUP_CONFIGS: ProviderGroupConfig[] = [
   },
 ];
 
+const ABOUT_FEEDBACK_QQ_GROUP = '835213642';
+const ABOUT_FEEDBACK_QR_SRC = '/community-qq-835213642.jpg';
+
 function resolveProviderGroups(
   providers: ModelProviderDefinition[],
   configs: ProviderGroupConfig[]
@@ -3417,6 +3420,45 @@ export function SettingsDialog({
                         {runtimeVersion || t('settings.aboutVersionUnknown')}
                       </span>
                     </p>
+                  </div>
+
+                  <div className="rounded-lg border border-border-dark bg-bg-dark p-4">
+                    <div className="space-y-4">
+                      <div className="min-w-0">
+                        <h3 className="text-sm font-medium text-text-dark">
+                          {t('settings.aboutFeedbackTitle')}
+                        </h3>
+                        <p className="mt-1 text-xs leading-5 text-text-muted">
+                          {t('settings.aboutFeedbackDesc')}
+                        </p>
+                        <div className="mt-3 rounded border border-border-dark bg-surface-dark p-3">
+                          <p className="text-sm text-text-dark">
+                            {t('settings.aboutFeedbackPrompt')}
+                          </p>
+                          <p className="mt-2 text-sm text-text-dark">
+                            {t('settings.aboutFeedbackGroupLabel')}:{' '}
+                            <span className="font-medium text-accent">
+                              {ABOUT_FEEDBACK_QQ_GROUP}
+                            </span>
+                          </p>
+                        </div>
+                        <p className="mt-3 text-xs text-text-muted">
+                          {t('settings.aboutFeedbackQrHint')}
+                        </p>
+                      </div>
+
+                      <div className="mx-auto w-full max-w-[220px]">
+                        <div className="overflow-hidden rounded-xl border border-border-dark bg-surface-dark p-2">
+                          <img
+                            src={ABOUT_FEEDBACK_QR_SRC}
+                            alt={t('settings.aboutFeedbackQrAlt', {
+                              group: ABOUT_FEEDBACK_QQ_GROUP,
+                            })}
+                            className="w-full rounded-lg object-cover"
+                          />
+                        </div>
+                      </div>
+                    </div>
                   </div>
 
                   <div className="rounded-lg border border-border-dark bg-bg-dark p-4">

@@ -1,4 +1,4 @@
-﻿pub mod ai;
+pub mod ai;
 pub mod commands;
 
 use std::path::PathBuf;
@@ -14,8 +14,8 @@ use commands::jimeng_video_queue;
 use commands::midjourney;
 use commands::project_state;
 use commands::ps_server;
-use commands::seedance;
 use commands::script_project_package;
+use commands::seedance;
 use commands::system;
 use commands::text_gen;
 use commands::update;
@@ -231,6 +231,7 @@ pub fn run() {
             project_state::sync_style_template_image_refs,
             system::get_runtime_system_info,
             system::request_app_exit,
+            system::start_system_file_drag,
             text_gen::generate_text,
             text_gen::test_provider_connection,
             text_gen::get_active_text_model_status,

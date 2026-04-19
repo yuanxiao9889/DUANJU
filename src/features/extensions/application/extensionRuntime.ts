@@ -194,6 +194,24 @@ function formatHealthCheckLabel(
   switch (checkName) {
     case 'python':
       return 'embedded Python runtime';
+    case 'runner':
+      return 'runner script';
+    case 'model':
+      return 'model directory';
+    case 'torch':
+      return 'PyTorch';
+    case 'torchvision':
+      return 'torchvision';
+    case 'transformers':
+      return 'transformers';
+    case 'safetensors':
+      return 'safetensors';
+    case 'timm':
+      return 'timm';
+    case 'kornia':
+      return 'kornia';
+    case 'cuda':
+      return 'CUDA support';
     case 'qwen_tts':
       return 'qwen_tts package';
     case 'base':
@@ -214,6 +232,8 @@ function formatListedModelLabel(
   modelId: string
 ): string {
   switch (modelId) {
+    case 'rmbg2':
+      return 'RMBG-2.0 model';
     case 'voice_design':
       return 'VoiceDesign model';
     case 'base':

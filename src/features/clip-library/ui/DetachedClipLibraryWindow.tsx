@@ -1,4 +1,5 @@
 import {
+  type DragEvent as ReactDragEvent,
   useCallback,
   useEffect,
   useMemo,
@@ -6,6 +7,7 @@ import {
   useState,
   type MouseEvent as ReactMouseEvent,
 } from 'react';
+import { isTauri } from '@tauri-apps/api/core';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { openPath, revealItemInDir } from '@tauri-apps/plugin-opener';
 import {
@@ -16,6 +18,9 @@ import {
   FolderOpen,
   GripVertical,
   Layers3,
+  Maximize2,
+  Minimize2,
+  Minus,
   Music4,
   Pin,
   PinOff,
@@ -38,8 +43,10 @@ import {
   UiTextArea,
 } from '@/components/ui';
 import { openClipLibraryRoot } from '@/commands/clipLibrary';
+import { startSystemFileDrag } from '@/commands/system';
 import { formatAudioDuration, resolveAudioDisplayUrl } from '@/features/canvas/application/audioData';
 import { resolveImageDisplayUrl, resolveLocalFileSourcePath } from '@/features/canvas/application/imageData';
+import { resolveVideoDisplayUrl } from '@/features/canvas/application/videoData';
 import {
   CLIP_LIBRARY_PANEL_CLOSED_EVENT,
   CLIP_LIBRARY_PANEL_CONTEXT_EVENT,
@@ -109,6 +116,15 @@ const LEFT_WIDTH_MIN = 220;
 const LEFT_WIDTH_MAX = 420;
 const RIGHT_WIDTH_MIN = 300;
 const RIGHT_WIDTH_MAX = 520;
+
+function isWindowChromeInteractiveTarget(target: HTMLElement | null): boolean {
+  return Boolean(
+    target?.closest('button')
+    || target?.closest('input')
+    || target?.closest('select')
+    || target?.closest('[data-window-control="true"]')
+  );
+}
 
 function clamp(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value));
@@ -183,6 +199,25 @@ function buildFileUrl(localPath: string): string {
     return `file:///${normalized}`;
   }
   return `file://${normalized}`;
+}
+
+function shouldUseNativeSystemDrag(): boolean {
+  if (!isTauri() || typeof navigator === 'undefined') {
+    return false;
+  }
+
+  const navigatorWithUserAgentData = navigator as Navigator & {
+    userAgentData?: {
+      platform?: string;
+    };
+  };
+  const platformText =
+    navigatorWithUserAgentData.userAgentData?.platform
+    || navigator.platform
+    || navigator.userAgent
+    || '';
+
+  return /win/i.test(platformText);
 }
 
 function safeFileDragPayload(item: ClipItemRecord): { localPath: string; fileUrl: string } | null {
@@ -268,6 +303,7 @@ function mediaTypeLabel(
 export function DetachedClipLibraryWindow() {
   const { t, i18n } = useTranslation();
   const appWindow = getCurrentWindow();
+  const useNativeSystemDrag = shouldUseNativeSystemDrag();
   const hydrate = useClipLibraryStore((state) => state.hydrate);
   const libraries = useClipLibraryStore((state) => state.libraries);
   const currentSnapshot = useClipLibraryStore((state) => state.currentSnapshot);
@@ -302,13 +338,17 @@ export function DetachedClipLibraryWindow() {
   const [rightWidth, setRightWidth] = useState(DEFAULT_RIGHT_WIDTH);
   const [treeScrollTop, setTreeScrollTop] = useState(0);
   const [alwaysOnTop, setAlwaysOnTop] = useState(false);
+  const [isMaximized, setIsMaximized] = useState(false);
   const [descriptionDraft, setDescriptionDraft] = useState('');
   const [isSavingDescription, setIsSavingDescription] = useState(false);
+  const [detailVideoFallbackUrl, setDetailVideoFallbackUrl] = useState<string | null>(null);
+  const [isPreparingDetailVideo, setIsPreparingDetailVideo] = useState(false);
   const [textPromptState, setTextPromptState] = useState<TextPromptState | null>(null);
 
   const pendingFocusTargetRef = useRef<ClipLibraryPanelFocusTarget | null>(null);
   const restoredLibraryIdRef = useRef<string | null>(null);
   const lastProjectFocusKeyRef = useRef('');
+  const detailVideoRequestTokenRef = useRef(0);
   const treeScrollRef = useRef<HTMLDivElement | null>(null);
   const persistTimerRef = useRef<number | null>(null);
   const persistBoundsTimerRef = useRef<number | null>(null);
@@ -337,6 +377,45 @@ export function DetachedClipLibraryWindow() {
     }, 180);
   }, [persistBounds]);
 
+  const handleExternalFileDragStart = useCallback(
+    (
+      event: ReactDragEvent<HTMLElement>,
+      item: ClipItemRecord,
+      dragPayload: { localPath: string; fileUrl: string }
+    ) => {
+      if (useNativeSystemDrag) {
+        event.preventDefault();
+        return;
+      }
+
+      event.stopPropagation();
+      event.dataTransfer.effectAllowed = 'copy';
+      event.dataTransfer.setData('text/plain', dragPayload.localPath);
+      event.dataTransfer.setData('text/uri-list', dragPayload.fileUrl);
+      event.dataTransfer.setData(
+        'DownloadURL',
+        `${item.mimeType || 'application/octet-stream'}:${item.fileName}:${dragPayload.fileUrl}`
+      );
+    },
+    [useNativeSystemDrag]
+  );
+
+  const handleExternalFileMouseDown = useCallback(
+    (
+      event: ReactMouseEvent<HTMLElement>,
+      dragPayload: { localPath: string; fileUrl: string }
+    ) => {
+      event.stopPropagation();
+      if (!useNativeSystemDrag || event.button !== 0) {
+        return;
+      }
+
+      event.preventDefault();
+      void startSystemFileDrag(dragPayload.localPath);
+    },
+    [useNativeSystemDrag]
+  );
+
   const handleCloseWindow = useCallback(async () => {
     if (isClosingWindowRef.current) {
       return;
@@ -356,6 +435,14 @@ export function DetachedClipLibraryWindow() {
       console.warn('Failed to close clip library window', error);
     }
   }, [appWindow, persistBounds]);
+
+  const syncWindowMaximizeState = useCallback(async () => {
+    try {
+      setIsMaximized(await appWindow.isMaximized());
+    } catch (error) {
+      console.warn('Failed to read clip library maximize state', error);
+    }
+  }, [appWindow]);
 
   useEffect(() => {
     let unlistenContext: (() => void) | null = null;
@@ -395,6 +482,7 @@ export function DetachedClipLibraryWindow() {
       });
       unlistenResize = await appWindow.onResized(() => {
         schedulePersistBounds();
+        void syncWindowMaximizeState();
       });
       unlistenClose = await appWindow.onCloseRequested((event) => {
         if (isClosingWindowRef.current) {
@@ -406,6 +494,7 @@ export function DetachedClipLibraryWindow() {
 
       await emitToMainWindow(CLIP_LIBRARY_PANEL_READY_EVENT);
       await appWindow.show();
+      await syncWindowMaximizeState();
     };
 
     void registerListeners().catch((error) => {
@@ -426,7 +515,7 @@ export function DetachedClipLibraryWindow() {
       unlistenResize?.();
       unlistenClose?.();
     };
-  }, [appWindow, handleCloseWindow, loadLibrary, schedulePersistBounds]);
+  }, [appWindow, handleCloseWindow, loadLibrary, schedulePersistBounds, syncWindowMaximizeState]);
 
   useEffect(() => {
     const targetLibraryId = projectContext.clipLibraryId?.trim() || null;
@@ -478,6 +567,10 @@ export function DetachedClipLibraryWindow() {
       console.warn('Failed to update clip library always-on-top state', error);
     });
   }, [alwaysOnTop, appWindow]);
+
+  useEffect(() => {
+    void syncWindowMaximizeState();
+  }, [syncWindowMaximizeState]);
 
   const chapterMap = useMemo(
     () => new Map((currentSnapshot?.chapters ?? []).map((chapter) => [chapter.id, chapter])),
@@ -724,9 +817,45 @@ export function DetachedClipLibraryWindow() {
     [selectedItemId, selectedItems]
   );
 
+  const detailVideoDirectSource = useMemo(() => {
+    if (!selectedItem || selectedItem.mediaType !== 'video') {
+      return null;
+    }
+
+    const sourcePath = selectedItem.sourcePath.trim();
+    return sourcePath ? resolveVideoDisplayUrl(sourcePath) : null;
+  }, [selectedItem]);
+
+  const detailVideoPosterSource = useMemo(() => {
+    if (!selectedItem || selectedItem.mediaType !== 'video') {
+      return null;
+    }
+
+    const posterPath = (selectedItem.previewPath || selectedItem.sourcePath).trim();
+    return posterPath ? resolveImageDisplayUrl(posterPath) : null;
+  }, [selectedItem]);
+
+  const detailVideoSource = detailVideoFallbackUrl ?? detailVideoDirectSource;
+
   useEffect(() => {
     setDescriptionDraft(selectedItem?.descriptionText ?? '');
   }, [selectedItem?.descriptionText, selectedItem?.id]);
+
+  useEffect(() => {
+    detailVideoRequestTokenRef.current += 1;
+    setIsPreparingDetailVideo(false);
+    setDetailVideoFallbackUrl(null);
+  }, [selectedItem?.id, selectedItem?.mediaType, selectedItem?.sourcePath]);
+
+  useEffect(() => {
+    if (!detailVideoFallbackUrl) {
+      return;
+    }
+
+    return () => {
+      URL.revokeObjectURL(detailVideoFallbackUrl);
+    };
+  }, [detailVideoFallbackUrl]);
 
   const availableScriptFolders = useMemo(() => {
     if (!currentSnapshot) {
@@ -889,7 +1018,7 @@ export function DetachedClipLibraryWindow() {
   const handleHeaderDrag = useCallback(
     async (event: ReactMouseEvent<HTMLElement>) => {
       const target = event.target as HTMLElement | null;
-      if (target?.closest('button') || target?.closest('input') || target?.closest('select')) {
+      if (isWindowChromeInteractiveTarget(target)) {
         return;
       }
       try {
@@ -899,6 +1028,41 @@ export function DetachedClipLibraryWindow() {
       }
     },
     [appWindow]
+  );
+
+  const handleMinimizeWindow = useCallback(async () => {
+    try {
+      await appWindow.minimize();
+    } catch (error) {
+      console.warn('Failed to minimize clip library window', error);
+    }
+  }, [appWindow]);
+
+  const handleToggleMaximizeWindow = useCallback(async () => {
+    try {
+      if (await appWindow.isMaximized()) {
+        await appWindow.unmaximize();
+        setIsMaximized(false);
+        return;
+      }
+
+      await appWindow.maximize();
+      setIsMaximized(true);
+    } catch (error) {
+      console.warn('Failed to toggle clip library maximize state', error);
+    }
+  }, [appWindow]);
+
+  const handleHeaderDoubleClick = useCallback(
+    async (event: ReactMouseEvent<HTMLElement>) => {
+      const target = event.target as HTMLElement | null;
+      if (isWindowChromeInteractiveTarget(target)) {
+        return;
+      }
+
+      await handleToggleMaximizeWindow();
+    },
+    [handleToggleMaximizeWindow]
   );
 
   const canCreateShot = Boolean(
@@ -1290,11 +1454,53 @@ export function DetachedClipLibraryWindow() {
     && !isSavingDescription
     && descriptionDraft.trim() !== (selectedItem?.descriptionText ?? '').trim();
 
+  const handleDetailVideoLoadError = useCallback(() => {
+    if (!selectedItem || selectedItem.mediaType !== 'video' || !detailVideoDirectSource) {
+      return;
+    }
+
+    if (detailVideoFallbackUrl || isPreparingDetailVideo) {
+      return;
+    }
+
+    setIsPreparingDetailVideo(true);
+    const requestToken = detailVideoRequestTokenRef.current;
+
+    void (async () => {
+      try {
+        const response = await fetch(detailVideoDirectSource);
+        if (!response.ok) {
+          throw new Error(`Failed to fetch clip detail video (${response.status})`);
+        }
+
+        const videoBlob = await response.blob();
+        const objectUrl = URL.createObjectURL(videoBlob);
+        if (requestToken !== detailVideoRequestTokenRef.current) {
+          URL.revokeObjectURL(objectUrl);
+          return;
+        }
+        setDetailVideoFallbackUrl(objectUrl);
+      } catch (error) {
+        console.warn('Failed to build clip detail video fallback source', error);
+      } finally {
+        if (requestToken === detailVideoRequestTokenRef.current) {
+          setIsPreparingDetailVideo(false);
+        }
+      }
+    })();
+  }, [
+    detailVideoDirectSource,
+    detailVideoFallbackUrl,
+    isPreparingDetailVideo,
+    selectedItem,
+  ]);
+
   return (
     <div className="flex h-full min-h-0 flex-col bg-bg-dark">
       <header
         className="flex h-12 shrink-0 items-center gap-3 border-b border-border-dark px-4"
         onMouseDown={handleHeaderDrag}
+        onDoubleClick={(event) => void handleHeaderDoubleClick(event)}
       >
         <div className="min-w-0 flex-1">
           <div className="text-sm font-semibold text-text-dark">{t('clipLibrary.windowTitle')}</div>
@@ -1318,7 +1524,14 @@ export function DetachedClipLibraryWindow() {
           ))}
         </UiSelect>
 
-        <UiButton type="button" variant="ghost" size="sm" className="gap-2" onClick={() => setAlwaysOnTop((value) => !value)}>
+        <UiButton
+          type="button"
+          variant="ghost"
+          size="sm"
+          className="gap-2"
+          data-window-control="true"
+          onClick={() => setAlwaysOnTop((value) => !value)}
+        >
           {alwaysOnTop ? <Pin className="h-4 w-4" /> : <PinOff className="h-4 w-4" />}
           {alwaysOnTop ? t('clipLibrary.pinned') : t('clipLibrary.pin')}
         </UiButton>
@@ -1327,17 +1540,52 @@ export function DetachedClipLibraryWindow() {
           variant="ghost"
           size="sm"
           className="gap-2"
+          data-window-control="true"
           onClick={() => void handleOpenLibraryRoot()}
           disabled={!currentSnapshot}
         >
           <FolderOpen className="h-4 w-4" />
           {t('clipLibrary.openRoot')}
         </UiButton>
-        <UiButton type="button" variant="ghost" size="sm" className="gap-2" onClick={() => void refreshCurrentLibrary()}>
+        <UiButton
+          type="button"
+          variant="ghost"
+          size="sm"
+          className="gap-2"
+          data-window-control="true"
+          onClick={() => void refreshCurrentLibrary()}
+        >
           <RefreshCw className="h-4 w-4" />
           {t('common.retry')}
         </UiButton>
-        <UiButton type="button" variant="ghost" size="sm" onClick={() => void handleCloseWindow()}>
+        <UiButton
+          type="button"
+          variant="ghost"
+          size="sm"
+          data-window-control="true"
+          onClick={() => void handleMinimizeWindow()}
+          title={t('titleBar.minimize')}
+        >
+          <Minus className="h-4 w-4" />
+        </UiButton>
+        <UiButton
+          type="button"
+          variant="ghost"
+          size="sm"
+          data-window-control="true"
+          onClick={() => void handleToggleMaximizeWindow()}
+          title={isMaximized ? t('titleBar.restore') : t('titleBar.maximize')}
+        >
+          {isMaximized ? <Minimize2 className="h-4 w-4" /> : <Maximize2 className="h-4 w-4" />}
+        </UiButton>
+        <UiButton
+          type="button"
+          variant="ghost"
+          size="sm"
+          data-window-control="true"
+          onClick={() => void handleCloseWindow()}
+          title={t('titleBar.close')}
+        >
           <X className="h-4 w-4" />
         </UiButton>
       </header>
@@ -1532,8 +1780,20 @@ export function DetachedClipLibraryWindow() {
                             isSelected
                               ? 'border-accent/40 bg-accent/[0.08]'
                               : 'border-[rgba(255,255,255,0.08)] bg-white/[0.03] hover:border-[rgba(255,255,255,0.16)]'
-                          }`}
+                          } ${dragPayload ? 'cursor-grab active:cursor-grabbing' : ''}`}
+                          draggable={Boolean(dragPayload) && !useNativeSystemDrag}
+                          onMouseDown={
+                            dragPayload
+                              ? (event) => handleExternalFileMouseDown(event, dragPayload)
+                              : undefined
+                          }
+                          onDragStart={
+                            dragPayload
+                              ? (event) => handleExternalFileDragStart(event, item, dragPayload)
+                              : undefined
+                          }
                           onClick={() => setSelectedItemId(item.id)}
+                          title={dragPayload ? t('clipLibrary.dragHint') : undefined}
                         >
                           <div className="flex items-start gap-3">
                             <div className="h-16 w-16 shrink-0 overflow-hidden rounded-xl bg-bg-dark/70">
@@ -1559,17 +1819,9 @@ export function DetachedClipLibraryWindow() {
                                 </div>
                                 {dragPayload ? (
                                   <span
-                                    draggable
-                                    onDragStart={(event) => {
-                                      event.stopPropagation();
-                                      event.dataTransfer.effectAllowed = 'copy';
-                                      event.dataTransfer.setData('text/plain', dragPayload.localPath);
-                                      event.dataTransfer.setData('text/uri-list', dragPayload.fileUrl);
-                                      event.dataTransfer.setData(
-                                        'DownloadURL',
-                                        `${item.mimeType || 'application/octet-stream'}:${item.fileName}:${dragPayload.fileUrl}`
-                                      );
-                                    }}
+                                    draggable={!useNativeSystemDrag}
+                                    onMouseDown={(event) => handleExternalFileMouseDown(event, dragPayload)}
+                                    onDragStart={(event) => handleExternalFileDragStart(event, item, dragPayload)}
                                     className="inline-flex h-8 w-8 shrink-0 cursor-grab items-center justify-center rounded-lg border border-[rgba(255,255,255,0.08)] bg-white/[0.03] text-text-muted hover:text-text-dark active:cursor-grabbing"
                                     title={t('clipLibrary.dragHint')}
                                   >
@@ -1622,13 +1874,17 @@ export function DetachedClipLibraryWindow() {
                   </div>
                 ) : (
                   <div className="space-y-4">
-                    <div className="overflow-hidden rounded-2xl border border-[rgba(255,255,255,0.08)] bg-bg-dark/60">
+                    <div className="relative overflow-hidden rounded-2xl border border-[rgba(255,255,255,0.08)] bg-bg-dark/60">
                       {selectedItem.mediaType === 'video' ? (
                         <video
+                          key={`${selectedItem.id}:${detailVideoFallbackUrl ? 'fallback' : 'direct'}`}
                           controls
-                          src={resolveImageDisplayUrl(selectedItem.sourcePath)}
-                          poster={resolveImageDisplayUrl(selectedItem.previewPath || selectedItem.sourcePath)}
+                          preload="metadata"
+                          playsInline
+                          src={detailVideoSource ?? undefined}
+                          poster={detailVideoPosterSource ?? undefined}
                           className="aspect-video w-full bg-black"
+                          onError={handleDetailVideoLoadError}
                         />
                       ) : (
                         <div className="space-y-4 p-4">
@@ -1640,6 +1896,11 @@ export function DetachedClipLibraryWindow() {
                           <ClipAudioWaveform sourcePath={selectedItem.sourcePath} />
                         </div>
                       )}
+                      {selectedItem.mediaType === 'video' && isPreparingDetailVideo ? (
+                        <div className="pointer-events-none absolute inset-0 flex items-center justify-center bg-black/35">
+                          <UiLoadingAnimation size="sm" />
+                        </div>
+                      ) : null}
                     </div>
 
                     <div className="space-y-3 rounded-2xl border border-[rgba(255,255,255,0.08)] bg-white/[0.03] p-4">
@@ -1650,7 +1911,11 @@ export function DetachedClipLibraryWindow() {
                         </div>
                       </div>
 
-                      <InfoRow label={t('clipLibrary.details.fileName')} value={selectedItem.fileName} />
+                      <InfoRow
+                        label={t('clipLibrary.details.fileName')}
+                        value={selectedItem.fileName}
+                        truncate
+                      />
                       <InfoRow
                         label={t('clipLibrary.details.duration')}
                         value={
@@ -1678,6 +1943,7 @@ export function DetachedClipLibraryWindow() {
                             .filter(Boolean)
                             .join(' / ') || t('clipLibrary.details.unknown')
                         }
+                        truncate
                       />
 
                       <div>
@@ -1759,11 +2025,24 @@ export function DetachedClipLibraryWindow() {
   );
 }
 
-function InfoRow({ label, value }: { label: string; value: string }) {
+function InfoRow({
+  label,
+  value,
+  truncate = false,
+}: {
+  label: string;
+  value: string;
+  truncate?: boolean;
+}) {
   return (
     <div className="flex items-start justify-between gap-3 text-sm">
       <span className="shrink-0 text-text-muted">{label}</span>
-      <span className="min-w-0 text-right text-text-dark">{value}</span>
+      <span
+        className={`min-w-0 text-right text-text-dark ${truncate ? 'truncate whitespace-nowrap' : 'break-words'}`}
+        title={truncate ? value : undefined}
+      >
+        {value}
+      </span>
     </div>
   );
 }

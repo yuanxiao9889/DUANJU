@@ -6,7 +6,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use rusqlite::{params, Connection, OptionalExtension, Transaction};
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
-use tauri::AppHandle;
+use tauri::{AppHandle, Manager};
 use uuid::Uuid;
 
 use super::project_state::{open_db, project_nodes_array, project_nodes_array_mut, ProjectRecord};
@@ -459,7 +459,11 @@ fn unique_path_with_suffix(base_dir: &Path, file_name: &str) -> PathBuf {
     }
 }
 
-fn copy_file_to_dir(source_path: &Path, target_dir: &Path, preferred_name: &str) -> Result<String, String> {
+fn copy_file_to_dir(
+    source_path: &Path,
+    target_dir: &Path,
+    preferred_name: &str,
+) -> Result<String, String> {
     ensure_dir(target_dir)?;
     let target_path = unique_path_with_suffix(target_dir, preferred_name);
     fs::copy(source_path, &target_path).map_err(|e| {
@@ -478,7 +482,11 @@ fn copy_file_to_dir(source_path: &Path, target_dir: &Path, preferred_name: &str)
         .to_string())
 }
 
-fn move_file_to_dir(source_path: &Path, target_dir: &Path, preferred_name: &str) -> Result<String, String> {
+fn move_file_to_dir(
+    source_path: &Path,
+    target_dir: &Path,
+    preferred_name: &str,
+) -> Result<String, String> {
     ensure_dir(target_dir)?;
     let target_path = unique_path_with_suffix(target_dir, preferred_name);
 
@@ -520,7 +528,8 @@ fn is_path_within_dir(path: &Path, dir: &Path) -> bool {
         normalized_dir.push('/');
     }
 
-    normalized_path == normalized_dir.trim_end_matches('/') || normalized_path.starts_with(&normalized_dir)
+    normalized_path == normalized_dir.trim_end_matches('/')
+        || normalized_path.starts_with(&normalized_dir)
 }
 
 fn maybe_remove_path(path: Option<&str>, root_path: &Path) {
@@ -637,6 +646,31 @@ fn resolve_project_media_ref(value: &str, image_pool: &[String]) -> Option<Strin
     }
 
     Some(trimmed.to_string())
+}
+
+fn allow_clip_library_root_asset_scope(app: &AppHandle, root_path: &Path) -> Result<(), String> {
+    ensure_dir(root_path)?;
+    app.asset_protocol_scope()
+        .allow_directory(root_path, true)
+        .map_err(|error| {
+            format!(
+                "Failed to allow clip library root for asset protocol ({}): {}",
+                root_path.display(),
+                error
+            )
+        })?;
+    Ok(())
+}
+
+fn allow_clip_library_asset_scope(app: &AppHandle, root_path: &str) -> Result<(), String> {
+    let trimmed_root_path = root_path.trim();
+    if trimmed_root_path.is_empty() {
+        return Err("Clip library root path is required".to_string());
+    }
+
+    let resolved_root_path =
+        resolve_local_path(trimmed_root_path).unwrap_or_else(|| PathBuf::from(trimmed_root_path));
+    allow_clip_library_root_asset_scope(app, &resolved_root_path)
 }
 
 fn read_clip_library(conn: &Connection, library_id: &str) -> Result<ClipLibraryRecord, String> {
@@ -1035,7 +1069,9 @@ fn load_project_record(conn: &Connection, project_id: &str) -> Result<ProjectRec
     .map_err(|_| "The requested project could not be found".to_string())
 }
 
-fn load_project_binding_states(conn: &Connection) -> Result<Vec<ProjectBindingStateRecord>, String> {
+fn load_project_binding_states(
+    conn: &Connection,
+) -> Result<Vec<ProjectBindingStateRecord>, String> {
     let mut stmt = conn
         .prepare(
             r#"
@@ -1060,7 +1096,8 @@ fn load_project_binding_states(conn: &Connection) -> Result<Vec<ProjectBindingSt
 
     let mut records = Vec::new();
     for row in rows {
-        records.push(row.map_err(|e| format!("Failed to decode project binding state row: {}", e))?);
+        records
+            .push(row.map_err(|e| format!("Failed to decode project binding state row: {}", e))?);
     }
     Ok(records)
 }
@@ -1106,7 +1143,9 @@ fn ordered_folder_ids(
         .map_err(|e| format!("Failed to prepare ordered folder query: {}", e))?;
 
     let rows = stmt
-        .query_map(params![library_id, chapter_id, parent_id], |row| row.get::<_, String>(0))
+        .query_map(params![library_id, chapter_id, parent_id], |row| {
+            row.get::<_, String>(0)
+        })
         .map_err(|e| format!("Failed to query ordered folders: {}", e))?;
 
     let mut ids = Vec::new();
@@ -1148,7 +1187,14 @@ fn write_folder_sort_orders(
             WHERE id = ?3 AND library_id = ?4 AND chapter_id = ?5 AND
               ((?6 IS NULL AND parent_id IS NULL) OR parent_id = ?6)
             "#,
-            params![index as i64, now, folder_id, library_id, chapter_id, parent_id],
+            params![
+                index as i64,
+                now,
+                folder_id,
+                library_id,
+                chapter_id,
+                parent_id
+            ],
         )
         .map_err(|e| format!("Failed to write clip folder sort order: {}", e))?;
     }
@@ -1168,17 +1214,18 @@ fn insert_id_at(ids: &mut Vec<String>, id: String, target_index: usize) {
 }
 
 fn relocate_id(ids: &mut Vec<String>, id: &str, target_index: usize) -> Result<(), String> {
-    let current_index = ids
-        .iter()
-        .position(|value| value == id)
-        .ok_or_else(|| "The requested record could not be found in the current ordering".to_string())?;
+    let current_index = ids.iter().position(|value| value == id).ok_or_else(|| {
+        "The requested record could not be found in the current ordering".to_string()
+    })?;
     let value = ids.remove(current_index);
     let next_index = target_index.min(ids.len());
     ids.insert(next_index, value);
     Ok(())
 }
 
-fn folder_children_by_parent(snapshot: &ClipLibrarySnapshot) -> BTreeMap<Option<String>, Vec<ClipFolderRecord>> {
+fn folder_children_by_parent(
+    snapshot: &ClipLibrarySnapshot,
+) -> BTreeMap<Option<String>, Vec<ClipFolderRecord>> {
     let mut result = BTreeMap::new();
     for folder in &snapshot.folders {
         result
@@ -1428,7 +1475,10 @@ fn reconcile_library_files(tx: &Transaction<'_>, library_id: &str) -> Result<(),
             item.source_path.clone()
         } else if current_path.exists() {
             let next_file_name = move_file_to_dir(&current_path, target_dir, &item.file_name)?;
-            target_dir.join(&next_file_name).to_string_lossy().to_string()
+            target_dir
+                .join(&next_file_name)
+                .to_string_lossy()
+                .to_string()
         } else if target_path.exists() {
             target_path.to_string_lossy().to_string()
         } else {
@@ -1473,9 +1523,15 @@ fn extract_duration_ms(data: &Map<String, Value>) -> Option<i64> {
     Some((duration * 1000.0).round() as i64)
 }
 
-fn extract_project_node_media(node: &Value, image_pool: &[String]) -> Option<ProjectNodeMediaRecord> {
+fn extract_project_node_media(
+    node: &Value,
+    image_pool: &[String],
+) -> Option<ProjectNodeMediaRecord> {
     let node_object = node.as_object()?;
-    let node_type = node_object.get("type").and_then(Value::as_str).unwrap_or("");
+    let node_type = node_object
+        .get("type")
+        .and_then(Value::as_str)
+        .unwrap_or("");
 
     let node_id = node_object.get("id")?.as_str()?.to_string();
     let data = resolve_node_data_map(node)?;
@@ -1516,13 +1572,23 @@ fn extract_project_node_media(node: &Value, image_pool: &[String]) -> Option<Pro
         .filter(|value| !value.is_empty())
         .map(|value| value.to_string())
         .or_else(|| {
-            data.get(if media_type == "video" { "videoFileName" } else { "audioFileName" })
-                .and_then(Value::as_str)
-                .map(str::trim)
-                .filter(|value| !value.is_empty())
-                .map(|value| value.to_string())
+            data.get(if media_type == "video" {
+                "videoFileName"
+            } else {
+                "audioFileName"
+            })
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(|value| value.to_string())
         })
-        .unwrap_or_else(|| if media_type == "video" { "Video".to_string() } else { "Audio".to_string() });
+        .unwrap_or_else(|| {
+            if media_type == "video" {
+                "Video".to_string()
+            } else {
+                "Audio".to_string()
+            }
+        });
 
     let mime_type = data
         .get("mimeType")
@@ -1548,7 +1614,10 @@ fn extract_project_node_media(node: &Value, image_pool: &[String]) -> Option<Pro
     })
 }
 
-fn find_project_node_media(record: &ProjectRecord, node_id: &str) -> Result<ProjectNodeMediaRecord, String> {
+fn find_project_node_media(
+    record: &ProjectRecord,
+    node_id: &str,
+) -> Result<ProjectNodeMediaRecord, String> {
     let parsed_nodes = serde_json::from_str::<Value>(&record.nodes_json)
         .map_err(|e| format!("Failed to parse project nodes json for clip scan: {}", e))?;
     let parsed_history = serde_json::from_str::<Value>(&record.history_json)
@@ -1566,7 +1635,10 @@ fn find_project_node_media(record: &ProjectRecord, node_id: &str) -> Result<Proj
         }
     }
 
-    Err("The requested media node could not be found or is not a local video/audio node".to_string())
+    Err(
+        "The requested media node could not be found or is not a local video/audio node"
+            .to_string(),
+    )
 }
 
 fn media_override_to_record(
@@ -1659,7 +1731,10 @@ fn patch_node_clip_binding(
         "clipFolderId".to_string(),
         Value::String(clip_folder_id.to_string()),
     );
-    data.insert("clipItemId".to_string(), Value::String(clip_item_id.to_string()));
+    data.insert(
+        "clipItemId".to_string(),
+        Value::String(clip_item_id.to_string()),
+    );
     true
 }
 
@@ -1774,10 +1849,18 @@ fn rewrite_project_clip_bindings<F>(
 where
     F: FnMut(&mut Value) -> bool,
 {
-    let mut parsed_nodes = serde_json::from_str::<Value>(nodes_json)
-        .map_err(|e| format!("Failed to parse project nodes json for clip binding rewrite: {}", e))?;
-    let mut parsed_history = serde_json::from_str::<Value>(history_json)
-        .map_err(|e| format!("Failed to parse project history json for clip binding rewrite: {}", e))?;
+    let mut parsed_nodes = serde_json::from_str::<Value>(nodes_json).map_err(|e| {
+        format!(
+            "Failed to parse project nodes json for clip binding rewrite: {}",
+            e
+        )
+    })?;
+    let mut parsed_history = serde_json::from_str::<Value>(history_json).map_err(|e| {
+        format!(
+            "Failed to parse project history json for clip binding rewrite: {}",
+            e
+        )
+    })?;
 
     let mut changed = false;
 
@@ -1854,11 +1937,9 @@ fn clear_clip_bindings_in_projects(
         let mut next_clip_last_folder_id = record.clip_last_folder_id.clone();
         let mut changed = false;
 
-        if target
-            .library_id
-            .as_ref()
-            .is_some_and(|library_id| record.clip_library_id.as_deref() == Some(library_id.as_str()))
-        {
+        if target.library_id.as_ref().is_some_and(|library_id| {
+            record.clip_library_id.as_deref() == Some(library_id.as_str())
+        }) {
             next_clip_library_id = None;
             next_clip_last_folder_id = None;
             changed = true;
@@ -1951,7 +2032,10 @@ fn patch_clip_binding_on_project_node(
     )
 }
 
-fn collect_descendant_folder_ids(snapshot: &ClipLibrarySnapshot, folder_id: &str) -> HashSet<String> {
+fn collect_descendant_folder_ids(
+    snapshot: &ClipLibrarySnapshot,
+    folder_id: &str,
+) -> HashSet<String> {
     let children_by_parent = folder_children_by_parent(snapshot);
     let mut result = HashSet::new();
     let mut queue = vec![Some(folder_id.to_string())];
@@ -1971,7 +2055,10 @@ fn collect_descendant_folder_ids(snapshot: &ClipLibrarySnapshot, folder_id: &str
     result
 }
 
-fn collect_item_ids_for_folders(snapshot: &ClipLibrarySnapshot, folder_ids: &HashSet<String>) -> HashSet<String> {
+fn collect_item_ids_for_folders(
+    snapshot: &ClipLibrarySnapshot,
+    folder_ids: &HashSet<String>,
+) -> HashSet<String> {
     snapshot
         .items
         .iter()
@@ -1980,9 +2067,16 @@ fn collect_item_ids_for_folders(snapshot: &ClipLibrarySnapshot, folder_ids: &Has
         .collect()
 }
 
-fn count_bound_nodes(record: &ProjectBindingStateRecord, target: &BindingPatchTarget) -> Result<i64, String> {
-    let parsed_nodes = serde_json::from_str::<Value>(&record.nodes_json)
-        .map_err(|e| format!("Failed to parse project nodes json for delete impact: {}", e))?;
+fn count_bound_nodes(
+    record: &ProjectBindingStateRecord,
+    target: &BindingPatchTarget,
+) -> Result<i64, String> {
+    let parsed_nodes = serde_json::from_str::<Value>(&record.nodes_json).map_err(|e| {
+        format!(
+            "Failed to parse project nodes json for delete impact: {}",
+            e
+        )
+    })?;
     let Some(nodes) = project_nodes_array(&parsed_nodes) else {
         return Ok(0);
     };
@@ -2008,7 +2102,11 @@ fn validate_storyboard_project(record: &ProjectRecord) -> Result<(), String> {
 
 fn delete_item_files(snapshot: &ClipLibrarySnapshot, item_ids: &HashSet<String>) {
     let root_path = PathBuf::from(&snapshot.library.root_path);
-    for item in snapshot.items.iter().filter(|item| item_ids.contains(&item.id)) {
+    for item in snapshot
+        .items
+        .iter()
+        .filter(|item| item_ids.contains(&item.id))
+    {
         maybe_remove_path(Some(&item.source_path), &root_path);
         maybe_remove_path(item.preview_path.as_deref(), &root_path);
         maybe_remove_path(item.waveform_path.as_deref(), &root_path);
@@ -2048,7 +2146,9 @@ pub fn list_clip_libraries(app: AppHandle) -> Result<Vec<ClipLibraryRecord>, Str
 
     let mut libraries = Vec::new();
     for row in rows {
-        libraries.push(row.map_err(|e| format!("Failed to decode clip library row: {}", e))?);
+        let library = row.map_err(|e| format!("Failed to decode clip library row: {}", e))?;
+        allow_clip_library_asset_scope(&app, &library.root_path)?;
+        libraries.push(library);
     }
     Ok(libraries)
 }
@@ -2059,7 +2159,9 @@ pub fn get_clip_library_snapshot(
     library_id: String,
 ) -> Result<ClipLibrarySnapshot, String> {
     let conn = open_db(&app)?;
-    build_clip_library_snapshot(&conn, library_id.trim())
+    let snapshot = build_clip_library_snapshot(&conn, library_id.trim())?;
+    allow_clip_library_asset_scope(&app, &snapshot.library.root_path)?;
+    Ok(snapshot)
 }
 
 #[tauri::command]
@@ -2075,6 +2177,7 @@ pub fn create_clip_library(
 
     let root_dir = PathBuf::from(root_path);
     ensure_dir(&root_dir)?;
+    allow_clip_library_root_asset_scope(&app, &root_dir)?;
 
     let conn = open_db(&app)?;
     let now = current_timestamp_ms();
@@ -2330,9 +2433,14 @@ fn resolve_target_parent(
 ) -> Result<(String, Option<String>), String> {
     let kind = normalize_folder_kind(&payload.kind)?;
     if kind == "shot" {
-        let chapter_id = normalize_optional_text(payload.chapter_id.clone())
-            .ok_or_else(|| "A target chapter is required when creating a shot folder".to_string())?;
-        if payload.parent_id.as_ref().is_some_and(|value| !value.trim().is_empty()) {
+        let chapter_id = normalize_optional_text(payload.chapter_id.clone()).ok_or_else(|| {
+            "A target chapter is required when creating a shot folder".to_string()
+        })?;
+        if payload
+            .parent_id
+            .as_ref()
+            .is_some_and(|value| !value.trim().is_empty())
+        {
             return Err("Shot folders cannot be created under another folder".to_string());
         }
         return Ok((chapter_id, None));
@@ -2407,7 +2515,9 @@ pub fn create_clip_folder(
     )
     .map_err(|e| format!("Failed to create clip folder: {}", e))?;
 
-    let insert_index = if let Some(insert_before_id) = normalize_optional_text(payload.insert_before_id.clone()) {
+    let insert_index = if let Some(insert_before_id) =
+        normalize_optional_text(payload.insert_before_id.clone())
+    {
         sibling_ids
             .iter()
             .position(|value| value == &insert_before_id)
@@ -2423,7 +2533,13 @@ pub fn create_clip_folder(
     };
 
     insert_id_at(&mut sibling_ids, folder_id.clone(), insert_index);
-    write_folder_sort_orders(&tx, &library.id, &chapter_id, parent_id.as_deref(), &sibling_ids)?;
+    write_folder_sort_orders(
+        &tx,
+        &library.id,
+        &chapter_id,
+        parent_id.as_deref(),
+        &sibling_ids,
+    )?;
     finalize_layout(&tx, &library.id)?;
     tx.commit()
         .map_err(|e| format!("Failed to commit clip folder create transaction: {}", e))?;
@@ -2572,8 +2688,11 @@ pub fn delete_clip_folder(app: AppHandle, folder_id: String) -> Result<(), Strin
             .map_err(|e| format!("Failed to delete clip item under folder: {}", e))?;
     }
     for descendant_id in &folder_ids {
-        tx.execute("DELETE FROM clip_folders WHERE id = ?1", params![descendant_id])
-            .map_err(|e| format!("Failed to delete clip folder descendant: {}", e))?;
+        tx.execute(
+            "DELETE FROM clip_folders WHERE id = ?1",
+            params![descendant_id],
+        )
+        .map_err(|e| format!("Failed to delete clip folder descendant: {}", e))?;
     }
 
     let mut sibling_ids = ordered_folder_ids(
@@ -2613,12 +2732,16 @@ pub fn add_node_media_to_clip_library(
 
     let library_id = payload.library_id.trim();
     if project.clip_library_id.as_deref() != Some(library_id) {
-        return Err("Bind the storyboard project to this clip library before importing media".to_string());
+        return Err(
+            "Bind the storyboard project to this clip library before importing media".to_string(),
+        );
     }
 
     let folder = read_folder(&conn, payload.folder_id.trim())?;
     if folder.library_id != library_id {
-        return Err("The target clip folder does not belong to the selected clip library".to_string());
+        return Err(
+            "The target clip folder does not belong to the selected clip library".to_string(),
+        );
     }
     if folder.kind != "script" {
         return Err("Media can only be imported into script folders".to_string());
@@ -2632,8 +2755,9 @@ pub fn add_node_media_to_clip_library(
             .and_then(|media_override| media_override_to_record(&payload.node_id, media_override))
             .ok_or(error)?,
     };
-    let source_path = resolve_local_path(&media.source_path)
-        .ok_or_else(|| "The selected node does not contain a supported local media file".to_string())?;
+    let source_path = resolve_local_path(&media.source_path).ok_or_else(|| {
+        "The selected node does not contain a supported local media file".to_string()
+    })?;
     if !source_path.exists() {
         return Err("The selected media file does not exist on disk".to_string());
     }
@@ -2706,7 +2830,14 @@ pub fn add_node_media_to_clip_library(
     )
     .map_err(|e| format!("Failed to insert clip item: {}", e))?;
 
-    patch_clip_binding_on_project_node(&tx, &project, &payload.node_id, &library.id, &folder.id, &item_id)?;
+    patch_clip_binding_on_project_node(
+        &tx,
+        &project,
+        &payload.node_id,
+        &library.id,
+        &folder.id,
+        &item_id,
+    )?;
     touch_library_updated_at(&tx, &library.id)?;
     tx.commit()
         .map_err(|e| format!("Failed to commit clip item add transaction: {}", e))?;
@@ -2728,14 +2859,21 @@ pub fn update_clip_item_description(
     let item = read_item(&conn, &payload.item_id)?;
     conn.execute(
         "UPDATE clip_items SET description_text = ?1, updated_at = ?2 WHERE id = ?3",
-        params![payload.description_text.trim(), current_timestamp_ms(), item.id],
+        params![
+            payload.description_text.trim(),
+            current_timestamp_ms(),
+            item.id
+        ],
     )
     .map_err(|e| format!("Failed to update clip item description: {}", e))?;
     read_item(&conn, &item.id)
 }
 
 #[tauri::command]
-pub fn rename_clip_item(app: AppHandle, payload: RenameClipItemPayload) -> Result<ClipItemRecord, String> {
+pub fn rename_clip_item(
+    app: AppHandle,
+    payload: RenameClipItemPayload,
+) -> Result<ClipItemRecord, String> {
     let mut conn = open_db(&app)?;
     let item = read_item(&conn, &payload.item_id)?;
     let folder = read_folder(&conn, &item.folder_id)?;
@@ -2758,13 +2896,19 @@ pub fn rename_clip_item(app: AppHandle, payload: RenameClipItemPayload) -> Resul
         .filter(|value| !value.is_empty())
         .map(|value| format!(".{value}"))
         .unwrap_or_default();
-    let preferred_file_name =
-        format!("{}{}", sanitize_fs_component(&next_name, DEFAULT_ITEM_NAME), extension);
+    let preferred_file_name = format!(
+        "{}{}",
+        sanitize_fs_component(&next_name, DEFAULT_ITEM_NAME),
+        extension
+    );
 
     let current_path = PathBuf::from(&item.source_path);
     let (next_file_name, next_source_path) = if current_path.exists() {
         let next_file_name = move_file_to_dir(&current_path, &target_dir, &preferred_file_name)?;
-        let next_source_path = target_dir.join(&next_file_name).to_string_lossy().to_string();
+        let next_source_path = target_dir
+            .join(&next_file_name)
+            .to_string_lossy()
+            .to_string();
         (next_file_name, next_source_path)
     } else {
         (item.file_name.clone(), item.source_path.clone())
@@ -2779,7 +2923,13 @@ pub fn rename_clip_item(app: AppHandle, payload: RenameClipItemPayload) -> Resul
             updated_at = ?4
         WHERE id = ?5
         "#,
-        params![next_name, next_file_name, next_source_path, current_timestamp_ms(), item.id],
+        params![
+            next_name,
+            next_file_name,
+            next_source_path,
+            current_timestamp_ms(),
+            item.id
+        ],
     )
     .map_err(|e| format!("Failed to rename clip item: {}", e))?;
 
@@ -2791,7 +2941,10 @@ pub fn rename_clip_item(app: AppHandle, payload: RenameClipItemPayload) -> Resul
 }
 
 #[tauri::command]
-pub fn move_clip_item(app: AppHandle, payload: MoveClipItemPayload) -> Result<ClipItemRecord, String> {
+pub fn move_clip_item(
+    app: AppHandle,
+    payload: MoveClipItemPayload,
+) -> Result<ClipItemRecord, String> {
     let mut conn = open_db(&app)?;
     let item = read_item(&conn, &payload.item_id)?;
     let target_folder = read_folder(&conn, &payload.target_folder_id)?;
@@ -2816,7 +2969,10 @@ pub fn move_clip_item(app: AppHandle, payload: MoveClipItemPayload) -> Result<Cl
 
     let (next_file_name, next_source_path) = if current_path.exists() {
         let next_file_name = move_file_to_dir(&current_path, &target_dir, &item.file_name)?;
-        let next_source_path = target_dir.join(&next_file_name).to_string_lossy().to_string();
+        let next_source_path = target_dir
+            .join(&next_file_name)
+            .to_string_lossy()
+            .to_string();
         (next_file_name, next_source_path)
     } else {
         (item.file_name.clone(), item.source_path.clone())
@@ -2926,10 +3082,27 @@ pub fn get_clip_delete_impact(
     let conn = open_db(&app)?;
 
     let resolved_library_id = normalize_optional_text(query.library_id.clone())
-        .or_else(|| normalize_optional_text(query.chapter_id.clone()).and_then(|chapter_id| read_chapter(&conn, &chapter_id).ok().map(|chapter| chapter.library_id)))
-        .or_else(|| normalize_optional_text(query.folder_id.clone()).and_then(|folder_id| read_folder(&conn, &folder_id).ok().map(|folder| folder.library_id)))
-        .or_else(|| normalize_optional_text(query.item_id.clone()).and_then(|item_id| read_item(&conn, &item_id).ok().map(|item| item.library_id)))
-        .ok_or_else(|| "A clip library target is required when querying delete impact".to_string())?;
+        .or_else(|| {
+            normalize_optional_text(query.chapter_id.clone()).and_then(|chapter_id| {
+                read_chapter(&conn, &chapter_id)
+                    .ok()
+                    .map(|chapter| chapter.library_id)
+            })
+        })
+        .or_else(|| {
+            normalize_optional_text(query.folder_id.clone()).and_then(|folder_id| {
+                read_folder(&conn, &folder_id)
+                    .ok()
+                    .map(|folder| folder.library_id)
+            })
+        })
+        .or_else(|| {
+            normalize_optional_text(query.item_id.clone())
+                .and_then(|item_id| read_item(&conn, &item_id).ok().map(|item| item.library_id))
+        })
+        .ok_or_else(|| {
+            "A clip library target is required when querying delete impact".to_string()
+        })?;
 
     let snapshot = build_clip_library_snapshot(&conn, &resolved_library_id)?;
 
@@ -3108,8 +3281,8 @@ mod tests {
             mime_type: None,
         };
 
-        let media = media_override_to_record("node-1", &payload)
-            .expect("frontend override should resolve");
+        let media =
+            media_override_to_record("node-1", &payload).expect("frontend override should resolve");
 
         assert_eq!(media.node_id, "node-1");
         assert_eq!(media.media_type, "video");

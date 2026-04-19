@@ -639,25 +639,6 @@ function buildSeedanceVideoResultNodeTitle(fallbackTitle: string): string {
   return fallbackTitle;
 }
 
-function Field({
-  label,
-  children,
-  className = "",
-}: {
-  label: string;
-  children: ReactNode;
-  className?: string;
-}) {
-  return (
-    <label className={`flex min-w-0 flex-col gap-1 ${className}`}>
-      <span className="text-[10px] font-medium uppercase tracking-[0.12em] text-text-muted">
-        {label}
-      </span>
-      {children}
-    </label>
-  );
-}
-
 function FixedControlChip<T extends string | number>({
   label,
   value,
@@ -1773,11 +1754,8 @@ export const SeedanceNode = memo(
           }
         />
 
-        <div className="flex min-h-0 flex-1 flex-col gap-3 pt-5">
-          <Field
-            label={t("node.seedance.promptLabel")}
-            className="min-h-0 flex-1"
-          >
+        <div className="flex min-h-0 flex-1 flex-col gap-2 pt-3">
+          <div className="min-h-0 flex-1">
             <div
               ref={promptPanelRef}
               className="relative min-h-0 flex-1 rounded-xl border border-white/10 bg-black/12 p-2"
@@ -1997,7 +1975,7 @@ export const SeedanceNode = memo(
                 </div>
               ) : null}
             </div>
-          </Field>
+          </div>
 
           <div className="flex items-center gap-2">
             <div className="ui-scrollbar min-w-0 flex-1 overflow-x-auto overflow-y-hidden">

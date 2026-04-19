@@ -9,6 +9,7 @@ export const CANVAS_NODE_TYPES = {
   upload: 'uploadNode',
   imageEdit: 'imageNode',
   panorama360: 'panorama360Node',
+  backgroundRemove: 'backgroundRemoveNode',
   jimeng: 'jimengNode',
   jimengImage: 'jimengImageNode',
   mj: 'mjNode',
@@ -58,6 +59,8 @@ export const PANORAMA360_NODE_DEFAULT_WIDTH = 520;
 export const PANORAMA360_NODE_DEFAULT_HEIGHT = 380;
 export const PANORAMA360_NODE_MIN_WIDTH = 420;
 export const PANORAMA360_NODE_MIN_HEIGHT = 300;
+export const BACKGROUND_REMOVE_NODE_DEFAULT_WIDTH = 440;
+export const BACKGROUND_REMOVE_NODE_DEFAULT_HEIGHT = 320;
 export const EXPORT_RESULT_NODE_DEFAULT_WIDTH = 384;
 export const EXPORT_RESULT_NODE_LAYOUT_HEIGHT = 288;
 export const EXPORT_RESULT_NODE_MIN_WIDTH = 168;
@@ -274,6 +277,7 @@ export interface UploadImageNodeData extends NodeImageData {
 
 export type ExportImageNodeResultKind =
   | 'generic'
+  | 'backgroundRemoved'
   | 'storyboardGenOutput'
   | 'storyboardSplitExport'
   | 'storyboardFrameEdit'
@@ -472,6 +476,13 @@ export interface Panorama360NodeData extends NodeImageData {
   viewerYaw?: number;
   viewerPitch?: number;
   viewerFov?: number;
+}
+
+export interface BackgroundRemoveNodeData extends NodeDisplayData {
+  statusText?: string | null;
+  lastError?: string | null;
+  lastGeneratedAt?: number | null;
+  [key: string]: unknown;
 }
 
 export interface ImageCollageLayerItem {
@@ -1613,6 +1624,7 @@ export type CanvasNodeData =
   | UploadImageNodeData
   | ExportImageNodeData
   | Panorama360NodeData
+  | BackgroundRemoveNodeData
   | ImageCollageNodeData
   | TextAnnotationNodeData
   | GroupNodeData
@@ -2541,6 +2553,12 @@ export function isPanorama360Node(
   node: CanvasNode | null | undefined
 ): node is Node<Panorama360NodeData, typeof CANVAS_NODE_TYPES.panorama360> {
   return node?.type === CANVAS_NODE_TYPES.panorama360;
+}
+
+export function isBackgroundRemoveNode(
+  node: CanvasNode | null | undefined
+): node is Node<BackgroundRemoveNodeData, typeof CANVAS_NODE_TYPES.backgroundRemove> {
+  return node?.type === CANVAS_NODE_TYPES.backgroundRemove;
 }
 
 export function isImageCollageNode(

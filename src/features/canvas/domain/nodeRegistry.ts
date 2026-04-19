@@ -21,6 +21,7 @@ import {
   type CanvasNodeType,
   type ExportImageNodeData,
   type GroupNodeData,
+  type BackgroundRemoveNodeData,
   type ImageEditNodeData,
   type ImageCollageNodeData,
   type Panorama360NodeData,
@@ -65,6 +66,7 @@ import { DEFAULT_IMAGE_MODEL_ID } from '../models';
 import {
   QWEN_TTS_COMPLETE_EXTENSION_ID,
   QWEN_TTS_SIMPLE_EXTENSION_ID,
+  RMBG2_COMPLETE_EXTENSION_ID,
   VOXCPM2_COMPLETE_EXTENSION_ID,
 } from '@/features/extensions/domain/types';
 
@@ -237,6 +239,34 @@ const panorama360NodeDefinition: CanvasNodeDefinition<Panorama360NodeData> = {
     viewerYaw: 0,
     viewerPitch: 0,
     viewerFov: 75,
+  }),
+};
+
+const backgroundRemoveNodeDefinition: CanvasNodeDefinition<BackgroundRemoveNodeData> = {
+  type: CANVAS_NODE_TYPES.backgroundRemove,
+  menuLabelKey: 'node.menu.backgroundRemove',
+  menuIcon: 'sparkles',
+  menuGroup: 'media',
+  visibleInMenu: true,
+  menuProjectTypes: ['storyboard'],
+  requiredExtensionId: RMBG2_COMPLETE_EXTENSION_ID,
+  capabilities: {
+    toolbar: true,
+    promptInput: false,
+  },
+  connectivity: {
+    sourceHandle: true,
+    targetHandle: true,
+    connectMenu: {
+      fromSource: true,
+      fromTarget: false,
+    },
+  },
+  createDefaultData: () => ({
+    displayName: DEFAULT_NODE_DISPLAY_NAME[CANVAS_NODE_TYPES.backgroundRemove],
+    statusText: null,
+    lastError: null,
+    lastGeneratedAt: null,
   }),
 };
 
@@ -1470,6 +1500,7 @@ export const canvasNodeDefinitions: Record<CanvasNodeType, CanvasNodeDefinition>
   [CANVAS_NODE_TYPES.upload]: uploadNodeDefinition,
   [CANVAS_NODE_TYPES.imageEdit]: imageEditNodeDefinition,
   [CANVAS_NODE_TYPES.panorama360]: panorama360NodeDefinition,
+  [CANVAS_NODE_TYPES.backgroundRemove]: backgroundRemoveNodeDefinition,
   [CANVAS_NODE_TYPES.jimeng]: jimengNodeDefinition,
   [CANVAS_NODE_TYPES.jimengImage]: jimengImageNodeDefinition,
   [CANVAS_NODE_TYPES.mj]: mjNodeDefinition,

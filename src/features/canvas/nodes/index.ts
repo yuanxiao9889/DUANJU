@@ -4,6 +4,7 @@ import { GroupNode } from './GroupNode';
 import { AudioNode } from './AudioNode';
 import { ImageEditNode } from './ImageEditNode';
 import { Panorama360Node } from './Panorama360Node';
+import { BackgroundRemoveNode } from './BackgroundRemoveNode';
 import { JimengImageNode } from './JimengImageNode';
 import { JimengImageResultNode } from './JimengImageResultNode';
 import { JimengVideoResultNode } from './JimengVideoResultNode';
@@ -48,6 +49,7 @@ export const nodeTypes: NodeTypes = {
   audioNode: AudioNode,
   imageNode: ImageEditNode,
   panorama360Node: Panorama360Node,
+  backgroundRemoveNode: BackgroundRemoveNode,
   jimengImageNode: JimengImageNode,
   mjNode: MjNode,
   mjResultNode: MjResultNode,
@@ -89,6 +91,7 @@ export {
   AudioNode,
   ImageEditNode, 
   Panorama360Node,
+  BackgroundRemoveNode,
   JimengImageNode,
   MjNode,
   MjResultNode,

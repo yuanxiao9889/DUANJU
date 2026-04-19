@@ -18,3 +18,16 @@ export async function getRuntimeSystemInfo(): Promise<RuntimeSystemInfo | null> 
     return null;
   }
 }
+
+export async function startSystemFileDrag(sourcePath: string): Promise<boolean> {
+  if (!isTauri()) {
+    return false;
+  }
+
+  try {
+    return await invoke<boolean>('start_system_file_drag', { sourcePath });
+  } catch (error) {
+    console.warn('failed to start native system file drag', error);
+    return false;
+  }
+}

@@ -744,14 +744,18 @@ impl AzemmProvider {
             {
                 Ok((status, response_text)) => {
                     info!("[Azemm] {} {} -> {} (curl)", request_kind, endpoint, status);
-                    info!("[Azemm] {} response (curl): {}", request_kind, response_text);
+                    info!(
+                        "[Azemm] {} response (curl): {}",
+                        request_kind, response_text
+                    );
 
-                    let payload = serde_json::from_str::<Value>(&response_text).map_err(|error| {
-                        AIError::Provider(format!(
-                            "Failed to parse Azemm {} curl response: {}. Response was: {}",
-                            request_kind, error, response_text
-                        ))
-                    })?;
+                    let payload =
+                        serde_json::from_str::<Value>(&response_text).map_err(|error| {
+                            AIError::Provider(format!(
+                                "Failed to parse Azemm {} curl response: {}. Response was: {}",
+                                request_kind, error, response_text
+                            ))
+                        })?;
 
                     if !status.is_success() {
                         if let Some(message) = Self::extract_error_message(&payload) {
@@ -823,10 +827,10 @@ impl AzemmProvider {
     ) -> Result<(reqwest::StatusCode, String), AIError> {
         let request_kind_for_join = request_kind.clone();
         tokio::task::spawn_blocking(move || {
-            let request_file_path =
-                std::env::temp_dir().join(format!("storyboard-azemm-request-{}.json", Uuid::new_v4()));
-            let response_file_path =
-                std::env::temp_dir().join(format!("storyboard-azemm-response-{}.txt", Uuid::new_v4()));
+            let request_file_path = std::env::temp_dir()
+                .join(format!("storyboard-azemm-request-{}.json", Uuid::new_v4()));
+            let response_file_path = std::env::temp_dir()
+                .join(format!("storyboard-azemm-response-{}.txt", Uuid::new_v4()));
 
             let result = (|| {
                 fs::write(&request_file_path, &payload).map_err(|error| {
@@ -1041,8 +1045,7 @@ try {
         include_extra_body_aspect_ratio: bool,
         include_extra_body_image_size: bool,
     ) -> Result<Value, AIError> {
-        let prompt_text =
-            Self::build_generate_content_prompt(request, include_prompt_preferences);
+        let prompt_text = Self::build_generate_content_prompt(request, include_prompt_preferences);
         let message_content = if let Some(reference_images) = request
             .reference_images
             .as_ref()
@@ -1105,13 +1108,11 @@ try {
             }
         }
         if image_intent && include_extra_body {
-            if let Some(extra_body) =
-                Self::build_chat_extra_body(
-                    request,
-                    include_extra_body_aspect_ratio,
-                    include_extra_body_image_size,
-                )
-            {
+            if let Some(extra_body) = Self::build_chat_extra_body(
+                request,
+                include_extra_body_aspect_ratio,
+                include_extra_body_image_size,
+            ) {
                 body.insert("extra_body".to_string(), extra_body);
             }
         }
@@ -1226,13 +1227,16 @@ try {
                 .await
             {
                 Ok(payload)
-                    if has_more_attempts && Self::should_retry_chat_completion_payload(&payload) =>
+                    if has_more_attempts
+                        && Self::should_retry_chat_completion_payload(&payload) =>
                 {
                     let message = Self::extract_error_message(&payload)
                         .unwrap_or_else(|| "retryable upstream chat error".to_string());
                     info!(
                         "[Azemm] {} returned retryable chat error payload ({}), retrying with {}",
-                        request_kind, message, attempts[index + 1].8
+                        request_kind,
+                        message,
+                        attempts[index + 1].8
                     );
                     last_retryable_error = Some(AIError::Provider(message));
                 }
@@ -1252,7 +1256,9 @@ try {
         }
 
         Err(last_retryable_error.unwrap_or_else(|| {
-            AIError::Provider("Azemm chat/completions attempts exhausted without a result".to_string())
+            AIError::Provider(
+                "Azemm chat/completions attempts exhausted without a result".to_string(),
+            )
         }))
     }
 
@@ -1284,8 +1290,12 @@ try {
         let mut exhausted_retryable_error = false;
 
         for (index, attempt) in attempts.iter().enumerate() {
-            let (include_aspect_ratio, include_prompt_preferences, include_image_size, request_kind) =
-                *attempt;
+            let (
+                include_aspect_ratio,
+                include_prompt_preferences,
+                include_image_size,
+                request_kind,
+            ) = *attempt;
             let body = self
                 .build_generate_content_body(
                     request,
@@ -1300,11 +1310,13 @@ try {
                 .await
             {
                 Ok(payload)
-                    if Self::should_retry_generate_content_payload(&payload) && has_more_attempts =>
+                    if Self::should_retry_generate_content_payload(&payload)
+                        && has_more_attempts =>
                 {
                     info!(
                         "[Azemm] {} returned retryable JSON decode error payload, retrying with {}",
-                        request_kind, attempts[index + 1].3
+                        request_kind,
+                        attempts[index + 1].3
                     );
                 }
                 Err(AIError::Provider(message))

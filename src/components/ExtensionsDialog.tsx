@@ -36,6 +36,7 @@ function normalizeDialogDirectoryPath(value: string | string[] | null): string |
 }
 
 const NODE_FEATURE_LABEL_KEYS: Record<string, string> = {
+  backgroundRemoveNode: 'node.menu.backgroundRemove',
   ttsTextNode: 'node.menu.textAnnotation',
   ttsVoiceDesignNode: 'node.menu.ttsVoiceDesign',
   ttsSavedVoiceNode: 'node.menu.ttsSavedVoice',
@@ -45,6 +46,7 @@ const NODE_FEATURE_LABEL_KEYS: Record<string, string> = {
 };
 
 const MODEL_ROLE_LABEL_KEYS: Record<string, string> = {
+  backgroundRemoval: 'extensions.modelRoles.backgroundRemoval',
   voiceDesign: 'extensions.modelRoles.voiceDesign',
   voiceClone: 'extensions.modelRoles.voiceClone',
   customVoice: 'extensions.modelRoles.customVoice',

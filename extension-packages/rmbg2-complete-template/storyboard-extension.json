@@ -1,0 +1,75 @@
+{
+  "schemaVersion": 2,
+  "id": "rmbg2-complete",
+  "name": "RMBG-2.0 Complete",
+  "version": "0.1.0",
+  "description": "Offline RMBG-2.0 background removal runtime for Storyboard Copilot. Intended for internal evaluation and non-commercial validation only. Ships as a standalone Python-bridge extension with GPU PyTorch warmup and local model assets.",
+  "runtime": "python-bridge",
+  "entry": {
+    "kind": "python",
+    "python": "runtime/python/python.exe",
+    "script": "runtime/app/storyboard_rmbg_runner.py"
+  },
+  "hardwareRequirements": {
+    "summary": "This package targets GPU-only RMBG-2.0 inference with a local PyTorch runtime. CUDA availability is required during warmup and execution.",
+    "recommendations": [
+      "Recommended: an NVIDIA GPU with CUDA support and enough VRAM for RMBG-2.0 warmup and repeated single-image inference.",
+      "The assembled package is large because it includes a portable Python runtime, the local model snapshot, and runtime cache/output directories.",
+      "Use this first version only for internal validation or other non-commercial scenarios until the upstream license is re-evaluated."
+    ],
+    "notes": [
+      "The extension preserves the original input dimensions and exports a transparent PNG without default cropping.",
+      "The template is assembled into build/extensions/rmbg2-complete and is not intended to be loaded directly before assembly."
+    ]
+  },
+  "models": [
+    {
+      "id": "rmbg2",
+      "path": "runtime/models/RMBG-2.0",
+      "role": "backgroundRemoval"
+    }
+  ],
+  "features": {
+    "nodes": [
+      "backgroundRemoveNode"
+    ],
+    "settingsSections": [
+      "extensions"
+    ],
+    "entryPoints": [
+      "titleBar"
+    ]
+  },
+  "startupSteps": [
+    {
+      "id": "validate",
+      "label": "Validate package",
+      "description": "Check the runtime entry and model declarations.",
+      "durationMs": 260
+    },
+    {
+      "id": "verify-runtime",
+      "label": "Verify runtime",
+      "description": "Check Python, CUDA, and RMBG inference dependencies.",
+      "durationMs": 420
+    },
+    {
+      "id": "verify-models",
+      "label": "Verify models",
+      "description": "Check the local RMBG-2.0 model snapshot.",
+      "durationMs": 420
+    },
+    {
+      "id": "warmup",
+      "label": "Warm up runtime",
+      "description": "Load RMBG-2.0 on the GPU before exposing the canvas node.",
+      "durationMs": 760
+    },
+    {
+      "id": "register-nodes",
+      "label": "Register nodes",
+      "description": "Expose the background removal node to the canvas.",
+      "durationMs": 220
+    }
+  ]
+}

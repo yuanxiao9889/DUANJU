@@ -9,6 +9,7 @@ export const DEFAULT_NODE_DISPLAY_NAME: Record<CanvasNodeType, string> = {
   [CANVAS_NODE_TYPES.upload]: '\u4e0a\u4f20\u56fe\u7247',
   [CANVAS_NODE_TYPES.imageEdit]: 'AI \u56fe\u7247',
   [CANVAS_NODE_TYPES.panorama360]: '360 \u5168\u666f',
+  [CANVAS_NODE_TYPES.backgroundRemove]: '\u62a0\u56fe',
   [CANVAS_NODE_TYPES.jimeng]: '\u5373\u68a6\u89c6\u9891',
   [CANVAS_NODE_TYPES.jimengImage]: '\u5373\u68a6\u56fe\u7247',
   [CANVAS_NODE_TYPES.mj]: 'Midjourney',
@@ -56,6 +57,7 @@ const LEGACY_DEFAULT_NODE_DISPLAY_NAMES: Partial<Record<CanvasNodeType, string[]
 
 export const EXPORT_RESULT_DISPLAY_NAME: Record<ExportImageNodeResultKind, string> = {
   generic: '\u7ed3\u679c\u56fe\u7247',
+  backgroundRemoved: '\u62a0\u56fe\u7ed3\u679c',
   storyboardGenOutput: '\u5206\u955c\u8f93\u51fa',
   storyboardSplitExport: '\u5207\u5272\u5bfc\u51fa',
   storyboardFrameEdit: '\u5206\u955c\u5e27',

@@ -184,10 +184,12 @@ export async function openClipLibraryPanelWindow(title: string): Promise<Webview
     center: !hasStoredPosition,
     resizable: true,
     decorations: false,
+    minimizable: true,
+    maximizable: true,
+    closable: true,
     shadow: true,
     visible: false,
     focus: false,
-    parent: MAIN_WINDOW_LABEL,
   });
 }
 

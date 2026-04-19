@@ -25,6 +25,7 @@ import {
 import { formatAudioDuration, resolveAudioDisplayUrl } from '@/features/canvas/application/audioData';
 import { resolveImageDisplayUrl } from '@/features/canvas/application/imageData';
 import { useAssetStore } from '@/stores/assetStore';
+import { AssetExternalDragHandle } from './AssetExternalDragHandle';
 
 type AssetSearchCategory = AssetCategory | 'all';
 type AssetSearchSort = 'updatedAt' | 'name';
@@ -524,7 +525,7 @@ export function AssetSearchPanel({
           )}
           <div className="text-xs text-text-muted">
             {selectedLibrary
-              ? t('assets.doubleClickToInsert')
+              ? t('assets.doubleClickOrDragOut')
               : libraries.length === 0
                 ? t('assets.emptyHint')
                 : t('assets.selectLibraryToBrowseHint')}
@@ -655,9 +656,19 @@ export function AssetSearchPanel({
                       )}
                     </div>
                     <div className="space-y-1 border-t border-[rgba(255,255,255,0.08)] px-3 py-2">
-                      <div className="truncate text-sm font-medium text-text-dark">{item.name}</div>
-                      <div className="truncate text-xs text-text-muted">
-                        {resolveCategoryLabel(t, item.category)}
+                      <div className="flex items-start gap-2">
+                        <div className="min-w-0 flex-1 space-y-1">
+                          <div className="truncate text-sm font-medium text-text-dark">
+                            {item.name}
+                          </div>
+                          <div className="truncate text-xs text-text-muted">
+                            {resolveCategoryLabel(t, item.category)}
+                          </div>
+                        </div>
+                        <AssetExternalDragHandle
+                          item={item}
+                          className="inline-flex h-8 w-8 shrink-0 cursor-grab items-center justify-center rounded-lg border border-[rgba(255,255,255,0.08)] bg-white/[0.03] text-text-muted transition-colors hover:text-text-dark active:cursor-grabbing"
+                        />
                       </div>
                     </div>
                   </button>
@@ -698,8 +709,14 @@ export function AssetSearchPanel({
                 <div className="min-w-0 flex-1">
                   <div className="flex items-center justify-between gap-3">
                     <div className="truncate text-sm font-medium text-text-dark">{item.name}</div>
-                    <div className="text-xs text-text-muted">
-                      {formatUpdatedAt(item.updatedAt, i18n.language)}
+                    <div className="flex shrink-0 items-center gap-2">
+                      <div className="text-xs text-text-muted">
+                        {formatUpdatedAt(item.updatedAt, i18n.language)}
+                      </div>
+                      <AssetExternalDragHandle
+                        item={item}
+                        className="inline-flex h-8 w-8 cursor-grab items-center justify-center rounded-lg border border-[rgba(255,255,255,0.08)] bg-white/[0.03] text-text-muted transition-colors hover:text-text-dark active:cursor-grabbing"
+                      />
                     </div>
                   </div>
                   <div className="mt-1 flex items-center gap-2 text-xs text-text-muted">
@@ -775,16 +792,23 @@ export function AssetSearchPanel({
               </div>
             </div>
 
-            <UiButton
-              type="button"
-              variant="primary"
-              className="w-full"
-              onClick={() => handleInsertAsset(selectedAsset)}
-            >
-              {lastInsertedAssetId === selectedAsset.id
-                ? t('assets.insertedToCanvas')
-                : t('assets.insertToCanvas')}
-            </UiButton>
+            <div className="flex items-center gap-2">
+              <UiButton
+                type="button"
+                variant="primary"
+                className="min-w-0 flex-1"
+                onClick={() => handleInsertAsset(selectedAsset)}
+              >
+                {lastInsertedAssetId === selectedAsset.id
+                  ? t('assets.insertedToCanvas')
+                  : t('assets.insertToCanvas')}
+              </UiButton>
+              <AssetExternalDragHandle
+                item={selectedAsset}
+                showLabel
+                className="inline-flex h-11 shrink-0 cursor-grab items-center gap-2 rounded-xl border border-[rgba(255,255,255,0.08)] bg-white/[0.03] px-3 text-sm font-medium text-text-muted transition-colors hover:text-text-dark active:cursor-grabbing"
+              />
+            </div>
 
             <div className="rounded-2xl border border-[rgba(255,255,255,0.08)] bg-white/[0.03] p-4">
               <div className="mb-2 text-xs font-medium uppercase tracking-[0.16em] text-text-muted/75">

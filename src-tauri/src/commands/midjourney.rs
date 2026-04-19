@@ -3,9 +3,9 @@ use base64::Engine as _;
 use reqwest::{multipart, Client};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
-use std::path::Path;
 #[cfg(target_os = "windows")]
 use std::os::windows::process::CommandExt;
+use std::path::Path;
 #[cfg(target_os = "windows")]
 use std::process::{Command, Output};
 use std::time::Duration;
@@ -198,9 +198,12 @@ fn parse_curl_json_output(output: Output) -> Result<(u16, Value), String> {
     let status_text = stdout[marker_index + CURL_HTTP_STATUS_MARKER.len()..]
         .trim()
         .to_string();
-    let status_code = status_text
-        .parse::<u16>()
-        .map_err(|error| format!("failed to parse curl http status {}: {}", status_text, error))?;
+    let status_code = status_text.parse::<u16>().map_err(|error| {
+        format!(
+            "failed to parse curl http status {}: {}",
+            status_text, error
+        )
+    })?;
 
     if !output.status.success() && body.is_empty() {
         return Err(format!(
@@ -292,10 +295,19 @@ fn create_temp_upload_file(source: &SourceBytes) -> Result<std::path::PathBuf, S
         "storyboard-mj-upload-{}-{}.{}",
         std::process::id(),
         nonce,
-        if extension.is_empty() { "bin" } else { extension }
+        if extension.is_empty() {
+            "bin"
+        } else {
+            extension
+        }
     ));
-    std::fs::write(&path, &source.bytes)
-        .map_err(|error| format!("failed to write temp upload file {}: {}", path.display(), error))?;
+    std::fs::write(&path, &source.bytes).map_err(|error| {
+        format!(
+            "failed to write temp upload file {}: {}",
+            path.display(),
+            error
+        )
+    })?;
     Ok(path)
 }
 
@@ -477,8 +489,7 @@ fn is_provider_proxy_image_url(provider: MidjourneyProviderConfig, image_url: &s
         .trim_end_matches("/mj/task")
         .to_ascii_lowercase();
 
-    lower.contains("/mj/image/")
-        || (!provider_base.is_empty() && lower.starts_with(&provider_base))
+    lower.contains("/mj/image/") || (!provider_base.is_empty() && lower.starts_with(&provider_base))
 }
 
 fn normalize_scalar_string(value: &Value) -> Option<String> {
@@ -611,20 +622,9 @@ fn extract_button_emoji(value: &Value) -> Option<String> {
         }
         Value::Object(record) => extract_string_by_pointers(
             value,
-            &[
-                "/name",
-                "/label",
-                "/shortcode",
-                "/id",
-                "/value",
-                "/text",
-            ],
+            &["/name", "/label", "/shortcode", "/id", "/value", "/text"],
         )
-        .or_else(|| {
-            record
-                .values()
-                .find_map(extract_button_emoji)
-        }),
+        .or_else(|| record.values().find_map(extract_button_emoji)),
         _ => None,
     }
 }
@@ -654,15 +654,9 @@ fn normalize_midjourney_button(
     Some(MidjourneyTaskButtonDto {
         custom_id,
         label,
-        button_type: record
-            .get("type")
-            .and_then(normalize_scalar_string),
-        style_value: record
-            .get("style")
-            .and_then(normalize_scalar_string),
-        emoji: record
-            .get("emoji")
-            .and_then(extract_button_emoji),
+        button_type: record.get("type").and_then(normalize_scalar_string),
+        style_value: record.get("style").and_then(normalize_scalar_string),
+        emoji: record.get("emoji").and_then(extract_button_emoji),
         group_index,
         order,
     })
@@ -715,7 +709,11 @@ fn extract_midjourney_buttons(payload: &Value) -> Vec<MidjourneyTaskButtonDto> {
         "/data/buttonMessage/buttons",
     ]
     .iter()
-    .find_map(|pointer| payload.pointer(pointer).map(normalize_midjourney_buttons_from_value))
+    .find_map(|pointer| {
+        payload
+            .pointer(pointer)
+            .map(normalize_midjourney_buttons_from_value)
+    })
     .unwrap_or_default()
 }
 
@@ -736,7 +734,9 @@ fn extract_error_message(payload: &Value) -> Option<String> {
     )
 }
 
-async fn parse_json_response(response: reqwest::Response) -> Result<(reqwest::StatusCode, Value), String> {
+async fn parse_json_response(
+    response: reqwest::Response,
+) -> Result<(reqwest::StatusCode, Value), String> {
     let status = response.status();
     let text = response
         .text()
@@ -744,9 +744,7 @@ async fn parse_json_response(response: reqwest::Response) -> Result<(reqwest::St
         .map_err(|error| format!("failed to read Midjourney response body: {error}"))?;
 
     let payload = serde_json::from_str::<Value>(&text).map_err(|error| {
-        format!(
-            "failed to parse Midjourney response JSON: {error}. Response: {text}"
-        )
+        format!("failed to parse Midjourney response JSON: {error}. Response: {text}")
     })?;
 
     Ok((status, payload))
@@ -782,7 +780,12 @@ async fn fetch_authenticated_image_data_url(
     let bytes = response
         .bytes()
         .await
-        .map_err(|error| format!("failed to read Midjourney image body {}: {}", image_url, error))?
+        .map_err(|error| {
+            format!(
+                "failed to read Midjourney image body {}: {}",
+                image_url, error
+            )
+        })?
         .to_vec();
 
     Ok(format!(
@@ -841,7 +844,9 @@ async fn send_midjourney_json_request(
             #[cfg(target_os = "windows")]
             {
                 match run_curl_json_post(endpoint, api_key, body) {
-                    Ok((status_code, payload)) => Ok((to_reqwest_status_code(status_code), payload)),
+                    Ok((status_code, payload)) => {
+                        Ok((to_reqwest_status_code(status_code), payload))
+                    }
                     Err(curl_error) => Err(format!(
                         "failed to {} via {}: {} | curl fallback: {}",
                         operation, endpoint, error, curl_error
@@ -850,7 +855,10 @@ async fn send_midjourney_json_request(
             }
             #[cfg(not(target_os = "windows"))]
             {
-                Err(format!("failed to {} via {}: {}", operation, endpoint, error))
+                Err(format!(
+                    "failed to {} via {}: {}",
+                    operation, endpoint, error
+                ))
             }
         }
     }
@@ -858,8 +866,7 @@ async fn send_midjourney_json_request(
 
 #[cfg(target_os = "windows")]
 fn to_reqwest_status_code(status_code: u16) -> reqwest::StatusCode {
-    reqwest::StatusCode::from_u16(status_code)
-        .unwrap_or(reqwest::StatusCode::INTERNAL_SERVER_ERROR)
+    reqwest::StatusCode::from_u16(status_code).unwrap_or(reqwest::StatusCode::INTERNAL_SERVER_ERROR)
 }
 
 fn validate_advanced_params(advanced_params: &str) -> Result<(), String> {
@@ -897,19 +904,28 @@ fn build_final_prompt(
 
     let mut fragments = vec![prompt_fragments.join(" ")];
 
-    if let Some(value) = aspect_ratio.map(str::trim).filter(|value| !value.is_empty()) {
+    if let Some(value) = aspect_ratio
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
         fragments.push(format!("--ar {value}"));
     }
     if raw_mode {
         fragments.push("--raw".to_string());
     }
-    if let Some(value) = version_preset.map(str::trim).filter(|value| !value.is_empty()) {
+    if let Some(value) = version_preset
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
         fragments.push(format!("--v {value}"));
     }
     if !style_reference_urls.is_empty() {
         fragments.push(format!("--sref {}", style_reference_urls.join(" ")));
     }
-    if let Some(value) = advanced_params.map(str::trim).filter(|value| !value.is_empty()) {
+    if let Some(value) = advanced_params
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
         fragments.push(value.to_string());
     }
 
@@ -967,12 +983,8 @@ async fn upload_midjourney_prompt_images(
     .await?;
 
     if !status.is_success() {
-        return Err(extract_error_message(&payload).unwrap_or_else(|| {
-            format!(
-                "{} failed with status {}: {}",
-                label, status, payload
-            )
-        }));
+        return Err(extract_error_message(&payload)
+            .unwrap_or_else(|| format!("{} failed with status {}: {}", label, status, payload)));
     }
 
     let urls = extract_uploaded_midjourney_image_urls(&payload);
@@ -1031,7 +1043,9 @@ async fn upload_style_reference(
                 #[cfg(target_os = "windows")]
                 {
                     match run_curl_file_upload(endpoint, api_key, &source_bytes) {
-                        Ok((status_code, payload)) => (to_reqwest_status_code(status_code), payload),
+                        Ok((status_code, payload)) => {
+                            (to_reqwest_status_code(status_code), payload)
+                        }
                         Err(curl_error) => {
                             last_error = Some(format!(
                                 "failed to upload Midjourney style reference via {}: {} | curl fallback: {}",
@@ -1062,7 +1076,9 @@ async fn upload_style_reference(
             continue;
         }
 
-        if let Some(url) = extract_string_by_pointers(&payload, &["/url", "/data/url", "/result/url"]) {
+        if let Some(url) =
+            extract_string_by_pointers(&payload, &["/url", "/data/url", "/result/url"])
+        {
             return Ok(url);
         }
 
@@ -1112,10 +1128,7 @@ fn normalize_midjourney_mutation_response(payload: &Value) -> MidjourneyMutation
                 "/data/message",
             ],
         ),
-        state: extract_value_by_pointers(
-            payload,
-            &["/state", "/result/state", "/data/state"],
-        ),
+        state: extract_value_by_pointers(payload, &["/state", "/result/state", "/data/state"]),
         properties: extract_value_by_pointers(
             payload,
             &["/properties", "/result/properties", "/data/properties"],
@@ -1123,7 +1136,10 @@ fn normalize_midjourney_mutation_response(payload: &Value) -> MidjourneyMutation
     }
 }
 
-fn normalize_midjourney_task(payload: &Value, fallback_task_id: &str) -> Result<MidjourneyTaskDto, String> {
+fn normalize_midjourney_task(
+    payload: &Value,
+    fallback_task_id: &str,
+) -> Result<MidjourneyTaskDto, String> {
     let task_id = extract_string_by_pointers(payload, &["/id", "/result/id", "/data/id"])
         .unwrap_or_else(|| fallback_task_id.to_string());
     if task_id.trim().is_empty() {
@@ -1132,15 +1148,9 @@ fn normalize_midjourney_task(payload: &Value, fallback_task_id: &str) -> Result<
 
     Ok(MidjourneyTaskDto {
         id: task_id,
-        action: extract_string_by_pointers(
-            payload,
-            &["/action", "/result/action", "/data/action"],
-        ),
-        status: extract_string_by_pointers(
-            payload,
-            &["/status", "/result/status", "/data/status"],
-        )
-        .unwrap_or_else(|| "UNKNOWN".to_string()),
+        action: extract_string_by_pointers(payload, &["/action", "/result/action", "/data/action"]),
+        status: extract_string_by_pointers(payload, &["/status", "/result/status", "/data/status"])
+            .unwrap_or_else(|| "UNKNOWN".to_string()),
         progress: extract_string_by_pointers(
             payload,
             &["/progress", "/result/progress", "/data/progress"],
@@ -1180,10 +1190,7 @@ fn normalize_midjourney_task(payload: &Value, fallback_task_id: &str) -> Result<
                 "/data/properties/image_urls",
             ],
         ),
-        prompt: extract_string_by_pointers(
-            payload,
-            &["/prompt", "/result/prompt", "/data/prompt"],
-        ),
+        prompt: extract_string_by_pointers(payload, &["/prompt", "/result/prompt", "/data/prompt"]),
         prompt_en: extract_string_by_pointers(
             payload,
             &[
@@ -1214,10 +1221,7 @@ fn normalize_midjourney_task(payload: &Value, fallback_task_id: &str) -> Result<
             payload,
             &["/properties", "/result/properties", "/data/properties"],
         ),
-        state: extract_value_by_pointers(
-            payload,
-            &["/state", "/result/state", "/data/state"],
-        ),
+        state: extract_value_by_pointers(payload, &["/state", "/result/state", "/data/state"]),
         fail_reason: extract_string_by_pointers(
             payload,
             &[
@@ -1327,9 +1331,8 @@ pub async fn submit_midjourney_imagine(
         .filter(|item| !item.trim().is_empty())
         .enumerate()
     {
-        style_reference_urls.push(
-            upload_style_reference(&client, provider, api_key, source, index).await?
-        );
+        style_reference_urls
+            .push(upload_style_reference(&client, provider, api_key, source, index).await?);
     }
 
     let final_prompt = build_final_prompt(
@@ -1375,7 +1378,12 @@ pub async fn submit_midjourney_imagine(
         &response_payload,
         &["/result", "/result/id", "/id", "/data/id"],
     )
-        .ok_or_else(|| format!("Midjourney imagine response missing task id: {}", response_payload))?;
+    .ok_or_else(|| {
+        format!(
+            "Midjourney imagine response missing task id: {}",
+            response_payload
+        )
+    })?;
 
     Ok(SubmitMidjourneyImagineResponse {
         task_id,
@@ -1452,10 +1460,20 @@ pub async fn submit_midjourney_modal(
     let mut request_body = json!({
         "taskId": task_id,
     });
-    if let Some(prompt) = payload.prompt.as_deref().map(str::trim).filter(|value| !value.is_empty()) {
+    if let Some(prompt) = payload
+        .prompt
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
         request_body["prompt"] = Value::String(prompt.to_string());
     }
-    if let Some(mask_base64) = payload.mask_base64.as_deref().map(str::trim).filter(|value| !value.is_empty()) {
+    if let Some(mask_base64) = payload
+        .mask_base64
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
         request_body["maskBase64"] = Value::String(mask_base64.to_string());
     }
 

@@ -291,9 +291,9 @@ fn reset_clip_library_prototype_data_if_needed(conn: &Connection) -> Result<(), 
     };
 
     let needs_reset = has_project_links
-        || folder_columns
-            .as_ref()
-            .is_some_and(|columns| columns.contains("project_link_id") || !columns.contains("chapter_id"))
+        || folder_columns.as_ref().is_some_and(|columns| {
+            columns.contains("project_link_id") || !columns.contains("chapter_id")
+        })
         || item_columns.as_ref().is_some_and(|columns| {
             columns.contains("project_link_id")
                 || !columns.contains("source_project_id")
@@ -314,7 +314,8 @@ fn reset_clip_library_prototype_data_if_needed(conn: &Connection) -> Result<(), 
 
         let mut results = Vec::new();
         for row in rows {
-            results.push(row.map_err(|e| format!("Failed to decode project clip reset row: {}", e))?);
+            results
+                .push(row.map_err(|e| format!("Failed to decode project clip reset row: {}", e))?);
         }
         results
     };
@@ -334,7 +335,12 @@ fn reset_clip_library_prototype_data_if_needed(conn: &Connection) -> Result<(), 
     }
 
     conn.execute("UPDATE projects SET clip_last_folder_id = NULL", [])
-        .map_err(|e| format!("Failed to clear clip_last_folder_id during clip reset: {}", e))?;
+        .map_err(|e| {
+            format!(
+                "Failed to clear clip_last_folder_id during clip reset: {}",
+                e
+            )
+        })?;
 
     conn.execute_batch(
         r#"
@@ -522,8 +528,11 @@ fn ensure_projects_table(conn: &Connection) -> Result<(), String> {
     }
 
     if !has_clip_last_folder_id {
-        conn.execute("ALTER TABLE projects ADD COLUMN clip_last_folder_id TEXT", [])
-            .map_err(|e| format!("Failed to add clip_last_folder_id column: {}", e))?;
+        conn.execute(
+            "ALTER TABLE projects ADD COLUMN clip_last_folder_id TEXT",
+            [],
+        )
+        .map_err(|e| format!("Failed to add clip_last_folder_id column: {}", e))?;
     }
 
     if !has_linked_script_project_id {
@@ -722,7 +731,12 @@ fn ensure_projects_table(conn: &Connection) -> Result<(), String> {
         "TEXT NOT NULL DEFAULT ''",
     )?;
     ensure_table_column(conn, "clip_items", "file_name", "TEXT NOT NULL DEFAULT ''")?;
-    ensure_table_column(conn, "clip_items", "source_path", "TEXT NOT NULL DEFAULT ''")?;
+    ensure_table_column(
+        conn,
+        "clip_items",
+        "source_path",
+        "TEXT NOT NULL DEFAULT ''",
+    )?;
     ensure_table_column(conn, "clip_items", "preview_path", "TEXT")?;
     ensure_table_column(conn, "clip_items", "duration_ms", "INTEGER")?;
     ensure_table_column(conn, "clip_items", "mime_type", "TEXT")?;
@@ -742,30 +756,15 @@ fn ensure_projects_table(conn: &Connection) -> Result<(), String> {
         "expanded_keys_json",
         "TEXT NOT NULL DEFAULT '[]'",
     )?;
-    ensure_table_column(
-        conn,
-        "clip_library_ui_state",
-        "selected_key",
-        "TEXT",
-    )?;
+    ensure_table_column(conn, "clip_library_ui_state", "selected_key", "TEXT")?;
     ensure_table_column(
         conn,
         "clip_library_ui_state",
         "scroll_top",
         "REAL NOT NULL DEFAULT 0",
     )?;
-    ensure_table_column(
-        conn,
-        "clip_library_ui_state",
-        "left_width",
-        "REAL",
-    )?;
-    ensure_table_column(
-        conn,
-        "clip_library_ui_state",
-        "right_width",
-        "REAL",
-    )?;
+    ensure_table_column(conn, "clip_library_ui_state", "left_width", "REAL")?;
+    ensure_table_column(conn, "clip_library_ui_state", "right_width", "REAL")?;
     ensure_table_column(
         conn,
         "clip_library_ui_state",
@@ -823,7 +822,12 @@ fn ensure_projects_table(conn: &Connection) -> Result<(), String> {
         "#,
         [],
     )
-    .map_err(|e| format!("Failed to backfill clip_library_ui_state.last_filter_json: {}", e))?;
+    .map_err(|e| {
+        format!(
+            "Failed to backfill clip_library_ui_state.last_filter_json: {}",
+            e
+        )
+    })?;
 
     conn.execute_batch(
         r#"
@@ -1134,16 +1138,15 @@ fn collect_image_paths_from_node(node: &Value, image_pool: &[String], paths: &mu
 fn is_media_path_key(key: &str) -> bool {
     matches!(
         key,
-        "imageUrl"
-            | "previewImageUrl"
-            | "sourceUrl"
-            | "posterSourceUrl"
-            | "videoUrl"
-            | "audioUrl"
+        "imageUrl" | "previewImageUrl" | "sourceUrl" | "posterSourceUrl" | "videoUrl" | "audioUrl"
     )
 }
 
-fn collect_image_paths_from_value(value: &Value, image_pool: &[String], paths: &mut HashSet<String>) {
+fn collect_image_paths_from_value(
+    value: &Value,
+    image_pool: &[String],
+    paths: &mut HashSet<String>,
+) {
     match value {
         Value::Object(record) => {
             for (key, nested) in record {
@@ -1542,9 +1545,8 @@ pub fn sync_style_template_image_refs(app: AppHandle, paths: Vec<String>) -> Res
             continue;
         }
 
-        let relocated_path =
-            storage::relocate_storage_path_to_images_dir(trimmed, &images_dir)
-                .unwrap_or_else(|| trimmed.to_string());
+        let relocated_path = storage::relocate_storage_path_to_images_dir(trimmed, &images_dir)
+            .unwrap_or_else(|| trimmed.to_string());
         let Some(normalized_path) = normalize_image_ref_path(&relocated_path) else {
             continue;
         };
@@ -1835,8 +1837,7 @@ mod tests {
     use super::storage;
     use super::{
         ensure_projects_table, extract_project_image_paths, normalize_image_ref_path,
-        read_table_columns,
-        rewrite_project_payload_media_paths,
+        read_table_columns, rewrite_project_payload_media_paths,
     };
     use rusqlite::Connection;
     use std::fs;

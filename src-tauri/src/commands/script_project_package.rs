@@ -245,7 +245,9 @@ pub async fn export_script_project_package(
 
     for asset in &payload.assets {
         if asset.id.trim().is_empty() {
-            return Err("Encountered an asset with an empty id while exporting package.".to_string());
+            return Err(
+                "Encountered an asset with an empty id while exporting package.".to_string(),
+            );
         }
 
         let source_path = PathBuf::from(asset.source_path.trim());
@@ -390,8 +392,13 @@ pub async fn import_script_project_package(
         let bytes = STANDARD
             .decode(&asset.data_base64)
             .map_err(|err| format!("Failed to decode packaged asset {}: {}", asset.id, err))?;
-        fs::write(&output_path, &bytes)
-            .map_err(|err| format!("Failed to write imported asset {}: {}", output_path.display(), err))?;
+        fs::write(&output_path, &bytes).map_err(|err| {
+            format!(
+                "Failed to write imported asset {}: {}",
+                output_path.display(),
+                err
+            )
+        })?;
 
         replacements.insert(
             format!("{}{}", PACKAGE_ASSET_REF_PREFIX, matching_manifest_entry.id),

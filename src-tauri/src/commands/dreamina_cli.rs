@@ -821,9 +821,7 @@ async fn fetch_dreamina_latest_version_record(
 
 fn dreamina_release_notes_indicate_login_change(release_notes: &str) -> bool {
     let lowered = release_notes.to_ascii_lowercase();
-    lowered.contains("login")
-        || release_notes.contains("登录")
-        || release_notes.contains("鐧诲綍")
+    lowered.contains("login") || release_notes.contains("登录") || release_notes.contains("鐧诲綍")
 }
 
 fn format_dreamina_outdated_login_hint(
@@ -1533,13 +1531,15 @@ fn append_dreamina_login_log_marker(workspace: &Path, marker: &str) -> Result<()
 }
 
 fn first_non_empty_dreamina_line_owned(stdout: &str, stderr: &str) -> Option<String> {
-    first_non_empty_dreamina_output(stdout, stderr).map(str::trim).and_then(|line| {
-        if line.is_empty() {
-            None
-        } else {
-            Some(line.to_string())
-        }
-    })
+    first_non_empty_dreamina_output(stdout, stderr)
+        .map(str::trim)
+        .and_then(|line| {
+            if line.is_empty() {
+                None
+            } else {
+                Some(line.to_string())
+            }
+        })
 }
 
 fn looks_like_dreamina_checklogin_pending(detail: &str) -> bool {
@@ -1564,7 +1564,9 @@ fn looks_like_dreamina_checklogin_expired(detail: &str) -> bool {
 }
 
 fn summarize_dreamina_checklogin_waiting_detail(raw_detail: Option<&str>) -> Option<String> {
-    let raw_detail = raw_detail.map(str::trim).filter(|detail| !detail.is_empty());
+    let raw_detail = raw_detail
+        .map(str::trim)
+        .filter(|detail| !detail.is_empty());
     if let Some(raw_detail) = raw_detail {
         if looks_like_dreamina_checklogin_expired(raw_detail) {
             return Some(format!(
@@ -3484,7 +3486,8 @@ async fn wait_for_dreamina_login(
         if let Some(device_code) = login_device_code.as_deref() {
             let should_check = last_device_checklogin_at
                 .map(|last| {
-                    now.saturating_duration_since(last).as_millis() as u64 >= device_poll_interval_ms
+                    now.saturating_duration_since(last).as_millis() as u64
+                        >= device_poll_interval_ms
                 })
                 .unwrap_or(true);
             if should_check && !device_flow_confirmed {
@@ -3645,15 +3648,12 @@ async fn wait_for_dreamina_login(
 
         if now >= deadline {
             let status = DreaminaCliStatusResponse {
-                detail: status
-                    .detail
-                    .clone()
-                    .or_else(|| {
-                        dreamina_login_wait_detail_with_checklogin(
-                            workspace,
-                            last_device_checklogin_detail.as_deref(),
-                        )
-                    }),
+                detail: status.detail.clone().or_else(|| {
+                    dreamina_login_wait_detail_with_checklogin(
+                        workspace,
+                        last_device_checklogin_detail.as_deref(),
+                    )
+                }),
                 ..status
             };
             return (status, true);
@@ -3751,19 +3751,15 @@ pub async fn run_dreamina_guided_setup(
         status.code,
         DreaminaCliStatusCode::LoginRequired | DreaminaCliStatusCode::Unknown
     ) {
-        if let Some(update_hint) = dreamina_outdated_login_hint(
-            &runtime,
-            &command_env,
-            latest_dreamina_record.as_ref(),
-        ) {
+        if let Some(update_hint) =
+            dreamina_outdated_login_hint(&runtime, &command_env, latest_dreamina_record.as_ref())
+        {
             emit_dreamina_setup_progress(
                 &app,
                 DreaminaSetupProgressStage::InstallingCli,
                 56,
                 Some(runtime.source),
-                Some(format!(
-                    "Updating Dreamina CLI before login. {update_hint}"
-                )),
+                Some(format!("Updating Dreamina CLI before login. {update_hint}")),
                 None,
                 None,
             );
@@ -3825,11 +3821,9 @@ pub async fn run_dreamina_guided_setup(
                 format!("Automatic Dreamina CLI update failed before login:\n{error}"),
             );
         }
-        if let Some(update_hint) = dreamina_outdated_login_hint(
-            &runtime,
-            &command_env,
-            latest_dreamina_record.as_ref(),
-        ) {
+        if let Some(update_hint) =
+            dreamina_outdated_login_hint(&runtime, &command_env, latest_dreamina_record.as_ref())
+        {
             append_detail_section(&mut status.detail, update_hint);
         }
     }

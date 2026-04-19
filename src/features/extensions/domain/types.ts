@@ -2,6 +2,7 @@ export const STORYBOARD_EXTENSION_MANIFEST_FILE = 'storyboard-extension.json';
 export const QWEN_TTS_SIMPLE_EXTENSION_ID = 'qwen3-tts-simple';
 export const QWEN_TTS_COMPLETE_EXTENSION_ID = 'qwen3-tts-complete';
 export const VOXCPM2_COMPLETE_EXTENSION_ID = 'voxcpm2-complete';
+export const RMBG2_COMPLETE_EXTENSION_ID = 'rmbg2-complete';
 
 export interface ExtensionFeatureSet {
   nodes: string[];
