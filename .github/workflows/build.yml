@@ -89,10 +89,10 @@ jobs:
           if [[ "$MAC_MODE" == "unsigned-test" ]]; then
             BODY="${BODY}
 
-## macOS 测试包说明
+            ## macOS 测试包说明
 
-- macOS 安装包为未签名内部测试 DMG，仅供内部测试
-- 普通 macOS 环境可能需要手动绕过 Gatekeeper 后打开"
+            - macOS 安装包为未签名内部测试 DMG，仅供内部测试
+            - 普通 macOS 环境可能需要手动绕过 Gatekeeper 后打开"
           fi
 
           echo "tag=$TAG" >> "$GITHUB_OUTPUT"
