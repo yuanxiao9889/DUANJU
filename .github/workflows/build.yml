@@ -233,6 +233,7 @@ jobs:
         if: matrix.platform != 'macos-latest' || steps.mac-mode.outputs.mode == 'signed'
         env:
           CI: true
+          GITHUB_TOKEN: ${{ github.token }}
           APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
           APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
           APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
@@ -246,6 +247,7 @@ jobs:
         shell: bash
         env:
           CI: true
+          GITHUB_TOKEN: ${{ github.token }}
         run: |
           unset APPLE_CERTIFICATE
           unset APPLE_CERTIFICATE_PASSWORD

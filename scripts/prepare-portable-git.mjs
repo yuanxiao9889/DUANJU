@@ -12,6 +12,7 @@ const GIT_FOR_WINDOWS_LATEST_RELEASE_API =
   "https://api.github.com/repos/git-for-windows/git/releases/latest";
 const PORTABLE_GIT_ASSET_PATTERN = /^PortableGit-.*-64-bit\.7z\.exe$/i;
 const SKIP_ENV = "PORTABLE_GIT_SKIP";
+const GITHUB_API_VERSION = "2022-11-28";
 
 function fail(message) {
   console.error(message);
@@ -56,11 +57,19 @@ function removeChildren(directoryPath, preservedNames = new Set()) {
 }
 
 async function fetchJson(url) {
+  const token = process.env.GITHUB_TOKEN || process.env.GH_TOKEN;
+  const headers = {
+    Accept: "application/vnd.github+json",
+    "User-Agent": "Storyboard-Copilot-Build",
+  };
+
+  if (token) {
+    headers.Authorization = `Bearer ${token}`;
+    headers["X-GitHub-Api-Version"] = GITHUB_API_VERSION;
+  }
+
   const response = await fetch(url, {
-    headers: {
-      Accept: "application/vnd.github+json",
-      "User-Agent": "Storyboard-Copilot-Build",
-    },
+    headers,
   });
 
   if (!response.ok) {
