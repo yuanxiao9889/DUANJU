@@ -50,6 +50,26 @@ jobs:
           APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         run: |
+          validate_macos_certificate() {
+            local cert_file
+            cert_file="$(mktemp)"
+
+            if ! printf '%s' "$APPLE_CERTIFICATE" | base64 --decode >"$cert_file" 2>/dev/null; then
+              echo "APPLE_CERTIFICATE is not valid base64. Falling back to unsigned-test packaging."
+              rm -f "$cert_file"
+              return 1
+            fi
+
+            if ! openssl pkcs12 -in "$cert_file" -passin "pass:$APPLE_CERTIFICATE_PASSWORD" -nokeys -clcerts -noout >/dev/null 2>&1; then
+              echo "APPLE_CERTIFICATE could not be parsed as a PKCS#12 certificate with the provided password. Falling back to unsigned-test packaging."
+              rm -f "$cert_file"
+              return 1
+            fi
+
+            rm -f "$cert_file"
+            return 0
+          }
+
           if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
             TAG="${GITHUB_REF#refs/tags/}"
           else
@@ -85,6 +105,10 @@ jobs:
               break
             fi
           done
+
+          if [[ "$MAC_MODE" == "signed" ]] && ! validate_macos_certificate; then
+            MAC_MODE="unsigned-test"
+          fi
 
           if [[ "$MAC_MODE" == "unsigned-test" ]]; then
             BODY="${BODY}
@@ -196,13 +220,6 @@ jobs:
         if: matrix.platform == 'macos-latest'
         id: mac-mode
         shell: bash
-        env:
-          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
-          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
-          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
-          APPLE_ID: ${{ secrets.APPLE_ID }}
-          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
-          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         run: |
           if [[ "${{ needs.prepare-release.outputs.mac_mode }}" == "signed" ]]; then
             echo "mode=signed" >> "$GITHUB_OUTPUT"
@@ -213,6 +230,7 @@ jobs:
           fi
 
       - name: Build bundles
+        if: matrix.platform != 'macos-latest' || steps.mac-mode.outputs.mode == 'signed'
         env:
           CI: true
           APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
@@ -221,6 +239,18 @@ jobs:
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: npx tauri build ${{ matrix.args }}
+
+      - name: Build bundles (macOS unsigned test)
+        if: matrix.platform == 'macos-latest' && steps.mac-mode.outputs.mode == 'unsigned-test'
+        env:
+          CI: true
+          APPLE_CERTIFICATE: ""
+          APPLE_CERTIFICATE_PASSWORD: ""
+          APPLE_SIGNING_IDENTITY: ""
+          APPLE_ID: ""
+          APPLE_PASSWORD: ""
+          APPLE_TEAM_ID: ""
         run: npx tauri build ${{ matrix.args }}
 
       - name: Rename unsigned macOS DMG
