@@ -1534,7 +1534,7 @@ export const ImageEditNode = memo(({ id, data, selected, width, height }: ImageE
                   template.prompt
                 );
                 setPromptDraft(nextPrompt);
-                promptDraftRef.current = nextPrompt;
+                commitPromptDraft(nextPrompt);
                 setLastPromptOptimizationUndoState(null);
               }}
               triggerSize="sm"

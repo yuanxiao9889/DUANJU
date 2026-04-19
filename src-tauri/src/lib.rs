@@ -183,6 +183,8 @@ pub fn run() {
             jimeng_video_queue::upsert_jimeng_video_queue_job,
             jimeng_video_queue::delete_jimeng_video_queue_job,
             midjourney::submit_midjourney_imagine,
+            midjourney::submit_midjourney_action,
+            midjourney::submit_midjourney_modal,
             midjourney::query_midjourney_tasks,
             ai_commands::set_api_key,
             ai_commands::submit_generate_image_job,

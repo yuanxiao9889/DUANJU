@@ -691,6 +691,13 @@ const mjResultNodeDefinition: CanvasNodeDefinition<MjResultNodeData> = {
   createDefaultData: () => ({
     displayName: DEFAULT_NODE_DISPLAY_NAME[CANVAS_NODE_TYPES.mjResult],
     sourceNodeId: null,
+    nodeRole: 'root',
+    rootSourceNodeId: null,
+    parentResultNodeId: null,
+    parentBatchId: null,
+    sourceImageIndex: null,
+    branchKey: null,
+    branchActionLabel: null,
     batches: [],
     activeBatchId: null,
     lastError: null,

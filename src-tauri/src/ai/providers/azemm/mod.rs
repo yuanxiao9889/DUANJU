@@ -2,6 +2,8 @@ use base64::{engine::general_purpose::STANDARD, Engine};
 use reqwest::Client;
 use serde_json::{json, Value};
 use std::fs;
+#[cfg(target_os = "windows")]
+use std::os::windows::process::CommandExt;
 use std::path::PathBuf;
 use std::process::Command;
 use std::sync::Arc;
@@ -21,6 +23,8 @@ const GEMINI_PRO_IMAGE_PREVIEW_MODEL: &str = "gemini-3-pro-image-preview";
 const GEMINI_FLASH_IMAGE_PREVIEW_MODEL: &str = "gemini-3.1-flash-image-preview";
 const CURL_JSON_TRANSPORT_MIN_BYTES: usize = 64 * 1024;
 const CURL_JSON_TRANSPORT_TIMEOUT_SECONDS: u64 = 240;
+#[cfg(target_os = "windows")]
+const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 
 const SUPPORTED_MODELS: [&str; 2] = [
     GEMINI_PRO_IMAGE_PREVIEW_MODEL,
@@ -837,7 +841,10 @@ impl AzemmProvider {
                 } else {
                     "curl"
                 };
-                let output = Command::new(curl_binary)
+                let mut command = Command::new(curl_binary);
+                #[cfg(target_os = "windows")]
+                command.creation_flags(CREATE_NO_WINDOW);
+                let output = command
                     .arg("-sS")
                     .arg("--http1.1")
                     .arg("--connect-timeout")

@@ -21,8 +21,15 @@ import {
   TriangleAlert,
 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
+import { v4 as uuidv4 } from 'uuid';
 
-import { UiButton } from '@/components/ui';
+import {
+  UiButton,
+  UiChipButton,
+  UiInput,
+  UiModal,
+  UiTextArea,
+} from '@/components/ui';
 import {
   prepareNodeImage,
   resolveImageDisplayUrl,
@@ -37,14 +44,14 @@ import {
   MJ_RESULT_NODE_DEFAULT_WIDTH,
   MJ_RESULT_NODE_MIN_HEIGHT,
   MJ_RESULT_NODE_MIN_WIDTH,
+  getMjResultNodeActiveBatch,
   isMjResultNode,
+  type MjActionButton,
+  type MjActionFamily,
   type MjBatchImageItem,
+  type MjModalKind,
   type MjResultBatch,
   type MjResultNodeData,
-} from '@/features/canvas/domain/canvasNodes';
-import {
-  getMjResultNodeActiveBatch,
-  isMjNode,
 } from '@/features/canvas/domain/canvasNodes';
 import { resolveNodeDisplayName } from '@/features/canvas/domain/nodeDisplay';
 import { useCanvasNodeById } from '@/features/canvas/hooks/useCanvasNodeGraph';
@@ -61,20 +68,34 @@ import {
 } from '@/features/canvas/ui/NodeDescriptionPanel';
 import { resolveNodeStyleDimension } from '@/features/canvas/ui/nodeDimensionUtils';
 import {
+  appendMjResultBatch,
+  ensureMidjourneyBranchResultNode,
+  updateMjResultBatch,
+} from '@/features/midjourney/application/midjourneyNodes';
+import {
   prepareMidjourneyBatchImages,
   queryMidjourneyTask,
   splitMidjourneyGridToBatchImages,
+  submitMidjourneyActionTask,
+  submitMidjourneyModalTask,
 } from '@/features/midjourney/application/midjourneyGeneration';
-import { updateMjResultBatch } from '@/features/midjourney/application/midjourneyNodes';
 import {
-  isMidjourneyTaskTerminal,
-  normalizeMidjourneyTaskPhase,
-  updateMjBatchFromTask,
-} from '@/features/midjourney/domain/task';
+  inferMidjourneyModalKind,
+  isSupportedMidjourneyActionButton,
+  normalizeMidjourneyButtons,
+} from '@/features/midjourney/domain/action';
 import {
   normalizeMidjourneyProviderId,
   resolveMidjourneyProviderLabel,
+  type MidjourneyProviderId,
 } from '@/features/midjourney/domain/providers';
+import {
+  createPendingMjBatch,
+  isMidjourneyTaskTerminal,
+  normalizeMidjourneyTaskPhase,
+  type MidjourneyTaskSnapshot,
+  updateMjBatchFromTask,
+} from '@/features/midjourney/domain/task';
 import { openSettingsDialog } from '@/features/settings/settingsEvents';
 import { useCanvasStore } from '@/stores/canvasStore';
 import { useSettingsStore } from '@/stores/settingsStore';
@@ -85,9 +106,57 @@ type MjResultNodeProps = NodeProps & {
   selected?: boolean;
 };
 
+type SupportedModalKind = Exclude<MjModalKind, 'none' | 'unsupported'>;
+
+interface MidjourneyModalState {
+  kind: SupportedModalKind;
+  batchId: string;
+  modalTaskId: string;
+  providerId: MidjourneyProviderId;
+  button: MjActionButton;
+  sourceImageIndex: number | null;
+  promptDraft: string;
+  zoomDraft: number;
+  actionInstanceKey: string;
+  isSubmitting: boolean;
+}
+
 const BATCH_GRID_SLOT_COUNT = 4;
 const MIDJOURNEY_POLL_INTERVAL_MS = 5_000;
 const MIDJOURNEY_POLL_ERROR_BACKOFF_MS = 10_000;
+const CUSTOM_ZOOM_MIN = 1;
+const CUSTOM_ZOOM_MAX = 2;
+const CUSTOM_ZOOM_STEP = 0.1;
+const DEFAULT_CUSTOM_ZOOM = 1.5;
+const ACTION_FAMILY_ORDER: MjActionFamily[] = [
+  'upscale',
+  'variation',
+  'zoom',
+  'pan',
+  'reroll',
+];
+
+function clamp(value: number, min: number, max: number): number {
+  return Math.min(max, Math.max(min, value));
+}
+
+function normalizeCustomZoomValue(value: number): number {
+  const clamped = clamp(value, CUSTOM_ZOOM_MIN, CUSTOM_ZOOM_MAX);
+  return Math.round(clamped / CUSTOM_ZOOM_STEP) * CUSTOM_ZOOM_STEP;
+}
+
+function formatCustomZoomValue(value: number): string {
+  return normalizeCustomZoomValue(value).toFixed(1);
+}
+
+function buildCustomZoomPrompt(prompt: string, zoomValue: number): string {
+  const cleanedPrompt = prompt
+    .replace(/\s--zoom\s+\S+/gi, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+  const zoomSuffix = `--zoom ${formatCustomZoomValue(zoomValue)}`;
+  return [cleanedPrompt, zoomSuffix].filter(Boolean).join(' ').trim();
+}
 
 function toCssAspectRatio(aspectRatio: string | null | undefined): string {
   const [rawWidth = '1', rawHeight = '1'] = (aspectRatio ?? '1:1').split(':');
@@ -134,12 +203,32 @@ function buildBatchSlots(batch: MjResultBatch): Array<MjBatchImageItem | null> {
   );
 }
 
+function listBatchImageCandidates(item: MjBatchImageItem | null | undefined): string[] {
+  const candidates = [item?.imageUrl, item?.previewImageUrl, item?.sourceUrl];
+  const deduped: string[] = [];
+  for (const rawCandidate of candidates) {
+    const normalized = rawCandidate?.trim() ?? '';
+    if (!normalized || deduped.includes(normalized)) {
+      continue;
+    }
+    deduped.push(normalized);
+  }
+  return deduped;
+}
+
 function buildBatchViewerImageList(batch: MjResultBatch): string[] {
-  return [...batch.images]
+  const urls: string[] = [];
+  for (const item of [...batch.images]
     .sort((left, right) => left.index - right.index)
-    .map((item) => item.imageUrl ?? item.previewImageUrl ?? item.sourceUrl ?? '')
-    .filter((value): value is string => value.trim().length > 0)
-    .map((value) => resolveImageDisplayUrl(value));
+  ) {
+    for (const candidate of listBatchImageCandidates(item)) {
+      if (!urls.includes(candidate)) {
+        urls.push(candidate);
+      }
+    }
+  }
+
+  return urls.map((value) => resolveImageDisplayUrl(value));
 }
 
 function resolveBatchAspectRatio(batch: MjResultBatch): string {
@@ -183,16 +272,234 @@ function resolveBatchStatusTone(
   return 'warning';
 }
 
+function resolveActionFamilyLabel(
+  family: MjActionFamily,
+  t: (key: string) => string
+): string {
+  switch (family) {
+    case 'upscale':
+      return t('node.midjourney.result.actionFamily.upscale');
+    case 'variation':
+      return t('node.midjourney.result.actionFamily.variation');
+    case 'zoom':
+      return t('node.midjourney.result.actionFamily.zoom');
+    case 'pan':
+      return t('node.midjourney.result.actionFamily.pan');
+    case 'reroll':
+      return t('node.midjourney.result.actionFamily.reroll');
+    default:
+      return t('node.midjourney.result.actionFamily.other');
+  }
+}
+
+function humanizeMidjourneyActionCustomId(value: string): string {
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return 'Action';
+  }
+
+  const lastToken = trimmed.split(/::|:/).filter(Boolean).pop() ?? trimmed;
+  if (/^[uv][1-4]$/i.test(lastToken)) {
+    return lastToken.toUpperCase();
+  }
+
+  return lastToken
+    .replace(/[_-]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .replace(/\b\w/g, (character) => character.toUpperCase());
+}
+
+function resolveActionDisplayLabel(
+  button: MjActionButton,
+  t: (key: string) => string
+): string {
+  const rawLabel = button.label.trim();
+  const loweredLabel = rawLabel.toLowerCase();
+  const loweredCustomId = button.customId.trim().toLowerCase();
+  const looksLikeRawCustomId =
+    !rawLabel ||
+    rawLabel === button.customId ||
+    rawLabel.includes('::');
+
+  if (button.scope !== 'image') {
+    if (button.family === 'reroll') {
+      return resolveActionFamilyLabel(button.family, t);
+    }
+    if (looksLikeRawCustomId) {
+      return humanizeMidjourneyActionCustomId(button.customId);
+    }
+    return rawLabel || button.customId;
+  }
+
+  if (button.family === 'variation') {
+    if (
+      loweredLabel.includes('subtle') ||
+      loweredCustomId.includes('subtle')
+    ) {
+      return 'V Subtle';
+    }
+    if (
+      loweredLabel.includes('strong') ||
+      loweredCustomId.includes('strong')
+    ) {
+      return 'V Strong';
+    }
+  }
+
+  if (button.family === 'upscale') {
+    if (
+      loweredLabel.includes('subtle') ||
+      loweredCustomId.includes('subtle')
+    ) {
+      return 'Subtle';
+    }
+    if (
+      loweredLabel.includes('creative') ||
+      loweredLabel.includes('strong') ||
+      loweredCustomId.includes('creative') ||
+      loweredCustomId.includes('strong')
+    ) {
+      return 'Creative';
+    }
+  }
+
+  if (looksLikeRawCustomId) {
+    return humanizeMidjourneyActionCustomId(button.customId);
+  }
+
+  return rawLabel || button.customId;
+}
+
+function buildActionInstanceKey(batchId: string, button: MjActionButton): string {
+  return [
+    batchId,
+    button.scope === 'image'
+      ? `img-${Number.isFinite(button.imageIndex) ? Number(button.imageIndex) : 'none'}`
+      : 'batch',
+    button.actionKey,
+  ].join('::');
+}
+
+function groupButtonsByFamily(buttons: MjActionButton[]): Array<{
+  family: MjActionFamily;
+  items: MjActionButton[];
+}> {
+  return ACTION_FAMILY_ORDER
+    .map((family) => ({
+      family,
+      items: buttons.filter((button) => button.family === family),
+    }))
+    .filter((group) => group.items.length > 0);
+}
+
+function hasMultipleImageActionTargets(buttons: MjActionButton[]): boolean {
+  const imageIndexes = new Set<number>();
+  for (const button of buttons) {
+    if (button.scope !== 'image' || !Number.isFinite(button.imageIndex)) {
+      continue;
+    }
+    imageIndexes.add(Number(button.imageIndex));
+    if (imageIndexes.size > 1) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function isSingleImageActionResult(action: string | null | undefined): boolean {
+  const normalized = action?.trim().toLowerCase() ?? '';
+  if (!normalized) {
+    return false;
+  }
+
+  return (
+    normalized.includes('upscale') ||
+    normalized.includes('upsample') ||
+    normalized.includes('zoom') ||
+    normalized.includes('pan') ||
+    normalized.includes('outpaint') ||
+    normalized.includes('make square')
+  );
+}
+
+function isGridImageActionResult(action: string | null | undefined): boolean {
+  const normalized = action?.trim().toLowerCase() ?? '';
+  if (!normalized) {
+    return false;
+  }
+
+  return (
+    normalized.includes('variation') ||
+    normalized.includes('vary') ||
+    normalized.includes('reroll') ||
+    normalized.includes('re-roll') ||
+    normalized.includes('refresh')
+  );
+}
+
+function shouldTreatTaskAsSingleImageResult(
+  task: MidjourneyTaskSnapshot,
+  batch: MjResultBatch
+): boolean {
+  const taskImageUrls = (task.imageUrls ?? [])
+    .map((value) => value?.trim() ?? '')
+    .filter((value) => value.length > 0);
+
+  if (taskImageUrls.length > 1) {
+    return false;
+  }
+  if (taskImageUrls.length === 1) {
+    return true;
+  }
+
+  const normalizedTaskButtons = normalizeMidjourneyButtons(task.buttons);
+  const resolvedButtons =
+    normalizedTaskButtons.length > 0 ? normalizedTaskButtons : batch.buttons;
+
+  if (hasMultipleImageActionTargets(resolvedButtons)) {
+    return false;
+  }
+
+  if (isSingleImageActionResult(task.action) || isSingleImageActionResult(batch.action)) {
+    return true;
+  }
+
+  if (isGridImageActionResult(task.action) || isGridImageActionResult(batch.action)) {
+    return false;
+  }
+
+  return batch.images.length === 1 && resolvedButtons.length > 0;
+}
+
+function buildBatchDisplayItems(batch: MjResultBatch): Array<MjBatchImageItem | null> {
+  const orderedImages = [...batch.images].sort((left, right) => left.index - right.index);
+  if (orderedImages.length === 1) {
+    return orderedImages;
+  }
+
+  return buildBatchSlots(batch);
+}
+
+function resolveBranchSourceImageIndex(button: MjActionButton): number | null {
+  return button.scope === 'image' && Number.isFinite(button.imageIndex)
+    ? Number(button.imageIndex)
+    : null;
+}
+
 export const MjResultNode = memo(
   ({ id, data, selected, width }: MjResultNodeProps) => {
     const { t, i18n } = useTranslation();
     const updateNodeInternals = useUpdateNodeInternals();
     const currentNode = useCanvasNodeById(id);
+    const parentResultNode = useCanvasNodeById(data.parentResultNodeId ?? '');
     const mjApiKeys = useSettingsStore((state) => state.mjApiKeys);
     const setSelectedNode = useCanvasStore((state) => state.setSelectedNode);
     const updateNodeData = useCanvasStore((state) => state.updateNodeData);
     const addDerivedUploadNode = useCanvasStore((state) => state.addDerivedUploadNode);
+    const addNode = useCanvasStore((state) => state.addNode);
     const addEdge = useCanvasStore((state) => state.addEdge);
+    const findNodePosition = useCanvasStore((state) => state.findNodePosition);
     const isDescriptionPanelOpen = useCanvasStore(
       (state) => Boolean(state.nodeDescriptionPanelOpenById[id])
     );
@@ -202,9 +509,15 @@ export const MjResultNode = memo(
     const pollTimersRef = useRef(new Map<string, number>());
     const activePollBatchIdsRef = useRef(new Set<string>());
     const unmountedRef = useRef(false);
+    const scrollContainerRef = useRef<HTMLDivElement>(null);
     const [expandedBatchIds, setExpandedBatchIds] = useState<Record<string, boolean>>(
       {}
     );
+    const [selectedImageIndexByBatchId, setSelectedImageIndexByBatchId] = useState<
+      Record<string, number | null>
+    >({});
+    const [busyActionKeys, setBusyActionKeys] = useState<Record<string, boolean>>({});
+    const [modalState, setModalState] = useState<MidjourneyModalState | null>(null);
 
     const resolvedTitle = useMemo(
       () => resolveNodeDisplayName(CANVAS_NODE_TYPES.mjResult, data),
@@ -214,7 +527,10 @@ export const MjResultNode = memo(
       MJ_RESULT_NODE_MIN_WIDTH,
       Math.round(width ?? MJ_RESULT_NODE_DEFAULT_WIDTH)
     );
-    const explicitHeight = resolveNodeStyleDimension(currentNode?.style?.height);
+    const explicitHeight =
+      typeof currentNode?.height === 'number' && Number.isFinite(currentNode.height)
+        ? currentNode.height
+        : resolveNodeStyleDimension(currentNode?.style?.height);
     const hasExplicitHeight = typeof explicitHeight === 'number';
     const descriptionPanelHeight = isDescriptionPanelOpen
       ? NODE_DESCRIPTION_PANEL_EXPANDED_TOTAL_HEIGHT
@@ -245,18 +561,167 @@ export const MjResultNode = memo(
         }) ?? null,
       [data.batches, mjApiKeys]
     );
+    const branchLineageText = useMemo(() => {
+      if (data.nodeRole !== 'branch') {
+        return null;
+      }
+
+      const parts: string[] = [];
+      if (isMjResultNode(parentResultNode) && data.parentBatchId) {
+        const batchIndex = parentResultNode.data.batches.findIndex(
+          (batch) => batch.id === data.parentBatchId
+        );
+        if (batchIndex >= 0) {
+          parts.push(
+            t('node.midjourney.result.branchLineageBatch', {
+              index: parentResultNode.data.batches.length - batchIndex,
+            })
+          );
+        }
+      }
+
+      if (Number.isFinite(data.sourceImageIndex)) {
+        parts.push(
+          t('node.midjourney.result.branchLineageImage', {
+            index: Number(data.sourceImageIndex) + 1,
+          })
+        );
+      }
+
+      if ((data.branchActionLabel ?? '').trim()) {
+        parts.push(data.branchActionLabel!.trim());
+      }
+
+      return parts.join(' / ') || null;
+    }, [
+      data.branchActionLabel,
+      data.nodeRole,
+      data.parentBatchId,
+      data.sourceImageIndex,
+      parentResultNode,
+      t,
+    ]);
+    const selectedImageSignature = useMemo(
+      () => JSON.stringify(selectedImageIndexByBatchId),
+      [selectedImageIndexByBatchId]
+    );
+
+    const setActionBusy = useCallback((actionKey: string, isBusy: boolean) => {
+      setBusyActionKeys((current) => {
+        if (isBusy) {
+          if (current[actionKey]) {
+            return current;
+          }
+          return {
+            ...current,
+            [actionKey]: true,
+          };
+        }
+
+        if (!current[actionKey]) {
+          return current;
+        }
+
+        const next = { ...current };
+        delete next[actionKey];
+        return next;
+      });
+    }, []);
+
+    const closeModal = useCallback(() => {
+      if (modalState) {
+        setActionBusy(modalState.actionInstanceKey, false);
+      }
+      setModalState(null);
+    }, [modalState, setActionBusy]);
+
+    const appendPendingBatchToResultNode = useCallback(
+      (resultNodeId: string, pendingBatch: MjResultBatch) => {
+        const latestNode = useCanvasStore
+          .getState()
+          .nodes.find((node) => node.id === resultNodeId);
+        if (!isMjResultNode(latestNode)) {
+          throw new Error(t('node.midjourney.result.branchNodeMissing'));
+        }
+
+        const nextNodeData = appendMjResultBatch(latestNode.data, pendingBatch);
+        updateNodeData(
+          resultNodeId,
+          {
+            ...nextNodeData,
+            lastError: null,
+          },
+          { historyMode: 'skip' }
+        );
+      },
+      [t, updateNodeData]
+    );
 
     useEffect(() => {
       updateNodeInternals(id);
     }, [
       batchSections.length,
+      branchLineageText,
       hasExplicitHeight,
       id,
       isDescriptionPanelOpen,
       resolvedHeight,
       resolvedWidth,
+      selectedImageSignature,
       updateNodeInternals,
     ]);
+
+    useEffect(() => {
+      if (selected) {
+        scrollContainerRef.current?.scrollTo({ top: 0, behavior: 'smooth' });
+      }
+    }, [selected]);
+
+    useEffect(() => {
+      setSelectedImageIndexByBatchId((current) => {
+        let changed = false;
+        const next: Record<string, number | null> = {};
+        for (const batch of data.batches) {
+          const currentImageIndex = current[batch.id] ?? null;
+          const availableImageIndexes = [...batch.images]
+            .sort((left, right) => left.index - right.index)
+            .map((item) => item.index);
+          const hasImageScopedButtons = batch.buttons.some(
+            (button) => button.scope === 'image'
+          );
+
+          if (
+            currentImageIndex !== null &&
+            availableImageIndexes.includes(currentImageIndex)
+          ) {
+            next[batch.id] = currentImageIndex;
+            continue;
+          }
+
+          if (currentImageIndex !== null) {
+            changed = true;
+          }
+
+          if (hasImageScopedButtons && availableImageIndexes.length > 0) {
+            next[batch.id] = availableImageIndexes[0];
+            if (currentImageIndex !== availableImageIndexes[0]) {
+              changed = true;
+            }
+            continue;
+          }
+
+          if (currentImageIndex !== null) {
+            changed = true;
+          }
+        }
+
+        if (!changed && Object.keys(current).length !== Object.keys(next).length) {
+          changed = true;
+        }
+
+        return changed ? next : current;
+      });
+    }, [data.batches]);
 
     const clearScheduledPoll = useCallback((batchId?: string) => {
       if (batchId) {
@@ -273,42 +738,6 @@ export const MjResultNode = memo(
       }
       pollTimersRef.current.clear();
     }, []);
-
-    const syncSourceNodeSubmissionState = useCallback(
-      (pendingTaskId: string | null) => {
-        const sourceNodeId = data.sourceNodeId?.trim() ?? '';
-        if (!sourceNodeId) {
-          return;
-        }
-
-        const sourceNode = useCanvasStore
-          .getState()
-          .nodes.find((node) => node.id === sourceNodeId);
-        if (!isMjNode(sourceNode)) {
-          return;
-        }
-
-        const nextIsSubmitting = Boolean(pendingTaskId);
-        const currentTaskId = sourceNode.data.activeTaskId ?? null;
-        const currentIsSubmitting = Boolean(sourceNode.data.isSubmitting);
-        if (
-          currentIsSubmitting === nextIsSubmitting &&
-          currentTaskId === pendingTaskId
-        ) {
-          return;
-        }
-
-        updateNodeData(
-          sourceNodeId,
-          {
-            isSubmitting: nextIsSubmitting,
-            activeTaskId: pendingTaskId,
-          },
-          { historyMode: 'skip' }
-        );
-      },
-      [data.sourceNodeId, updateNodeData]
-    );
 
     const handlePollBatch = useCallback(
       async (
@@ -377,7 +806,6 @@ export const MjResultNode = memo(
             },
             { historyMode: 'skip' }
           );
-          syncSourceNodeSubmissionState(null);
           clearScheduledPoll(batchId);
           return;
         }
@@ -395,37 +823,63 @@ export const MjResultNode = memo(
             .map((item) => item?.trim() ?? '')
             .filter((item) => item.length > 0);
           const taskImageUrl = task.imageUrl?.trim() ?? '';
-          const images =
-            taskImageUrls.length > 0
-              ? await prepareMidjourneyBatchImages(taskImageUrls)
-              : taskImageUrl.length > 0
-              ? await splitMidjourneyGridToBatchImages(taskImageUrl)
-              : latestBatch.images;
+          const shouldUseSingleImageResult = shouldTreatTaskAsSingleImageResult(
+            task,
+            latestBatch
+          );
+          let images = latestBatch.images;
+          if (taskImageUrls.length > 0) {
+            const preparedImages = await prepareMidjourneyBatchImages(taskImageUrls);
+            if (preparedImages.length > 0) {
+              images = preparedImages;
+            } else if (taskImageUrl.length > 0) {
+              images = shouldUseSingleImageResult
+                ? await prepareMidjourneyBatchImages([taskImageUrl])
+                : await splitMidjourneyGridToBatchImages(taskImageUrl);
+            }
+          } else if (taskImageUrl.length > 0) {
+            images = shouldUseSingleImageResult
+              ? await prepareMidjourneyBatchImages([taskImageUrl])
+              : await splitMidjourneyGridToBatchImages(taskImageUrl);
+          }
+
+          const phase = normalizeMidjourneyTaskPhase(task.status);
           const terminal = isMidjourneyTaskTerminal(task.status);
+          const succeededWithoutImages = terminal && phase === 'succeeded' && images.length === 0;
+          const terminalErrorMessage = succeededWithoutImages
+            ? t('node.midjourney.result.imageMissingAfterSuccess')
+            : phase !== 'succeeded'
+            ? task.failReason?.trim() || t('node.midjourney.result.pollFailed')
+            : null;
           const nextNodeData = updateMjResultBatch(
             latestNode.data,
             batchId,
-            (batch) => updateMjBatchFromTask(batch, task, images)
+            (batch) => {
+              const nextBatch = updateMjBatchFromTask(batch, task, images);
+              if (!succeededWithoutImages) {
+                return nextBatch;
+              }
+
+              return {
+                ...nextBatch,
+                failReason: terminalErrorMessage,
+                isPolling: false,
+              };
+            }
           );
-          const nextError =
-            terminal && normalizeMidjourneyTaskPhase(task.status) !== 'succeeded'
-              ? task.failReason?.trim() || t('node.midjourney.result.pollFailed')
-              : null;
 
           updateNodeData(
             id,
             {
               ...nextNodeData,
               activeBatchId: batchId,
-              lastError: nextError,
+              lastError: terminalErrorMessage,
               lastGeneratedAt: terminal
                 ? task.finishTime ?? Date.now()
                 : latestNode.data.lastGeneratedAt ?? null,
             },
             { historyMode: 'skip' }
           );
-
-          syncSourceNodeSubmissionState(terminal ? null : task.id);
 
           if (terminal) {
             clearScheduledPoll(batchId);
@@ -444,13 +898,28 @@ export const MjResultNode = memo(
             error,
             t('node.midjourney.result.pollFailed')
           );
-          updateNodeData(
-            id,
-            {
-              lastError: content.message,
-            },
-            { historyMode: 'skip' }
-          );
+          const isBackgroundPoll = Boolean(options?.scheduleNext) && !options?.showErrorDialog;
+
+          console.warn('[midjourney] poll batch failed', {
+            nodeId: id,
+            batchId,
+            taskId,
+            providerId,
+            background: isBackgroundPoll,
+            message: content.message,
+            details: content.details,
+            rawError: error,
+          });
+
+          if (!isBackgroundPoll) {
+            updateNodeData(
+              id,
+              {
+                lastError: content.message,
+              },
+              { historyMode: 'skip' }
+            );
+          }
 
           if (options?.scheduleNext && !unmountedRef.current) {
             const timer = window.setTimeout(() => {
@@ -466,7 +935,7 @@ export const MjResultNode = memo(
           activePollBatchIdsRef.current.delete(batchId);
         }
       },
-      [clearScheduledPoll, i18n.language, id, mjApiKeys, syncSourceNodeSubmissionState, t, updateNodeData]
+      [clearScheduledPoll, i18n.language, id, mjApiKeys, t, updateNodeData]
     );
 
     const handleRefreshActiveBatch = useCallback(async () => {
@@ -511,12 +980,282 @@ export const MjResultNode = memo(
       [addDerivedUploadNode, addEdge, id, t]
     );
 
+    const handleSelectBatch = useCallback((batchId: string) => {
+      updateNodeData(
+        id,
+        {
+          activeBatchId: batchId,
+        },
+        { historyMode: 'skip' }
+      );
+    }, [id, updateNodeData]);
+
     const toggleBatchPrompt = useCallback((batchId: string) => {
       setExpandedBatchIds((current) => ({
         ...current,
         [batchId]: !current[batchId],
       }));
     }, []);
+
+    const handleOpenProviderSettings = useCallback(() => {
+      openSettingsDialog({ category: 'providers', providerTab: 'mj' });
+    }, []);
+
+    const handleSubmitAction = useCallback(
+      async (batch: MjResultBatch, button: MjActionButton) => {
+        const actionInstanceKey = buildActionInstanceKey(batch.id, button);
+        if (busyActionKeys[actionInstanceKey]) {
+          return;
+        }
+
+        const providerId = normalizeMidjourneyProviderId(batch.providerId);
+        const providerLabel = resolveMidjourneyProviderLabel(providerId, i18n.language);
+        const apiKey = mjApiKeys[providerId]?.trim() ?? '';
+        if (!apiKey) {
+          const message = t('node.midjourney.result.providerKeyRequired', {
+            provider: providerLabel,
+          });
+          updateNodeData(id, { lastError: message }, { historyMode: 'skip' });
+          handleOpenProviderSettings();
+          await showErrorDialog(message, t('common.error'));
+          return;
+        }
+
+        handleSelectBatch(batch.id);
+        setActionBusy(actionInstanceKey, true);
+        let keepBusyForModal = false;
+
+        try {
+          const response = await submitMidjourneyActionTask({
+            providerId,
+            apiKey,
+            taskId: batch.taskId,
+            customId: button.customId,
+          });
+          const responseTaskId = response.taskId?.trim() ?? '';
+          const modalKind = inferMidjourneyModalKind(button, response.code === 21);
+
+          if (response.code === 21) {
+            if (modalKind === 'unsupported' || modalKind === 'none') {
+              throw new Error(
+                response.description?.trim()
+                || t('node.midjourney.result.unsupportedModal')
+              );
+            }
+
+            keepBusyForModal = true;
+            setModalState({
+              kind: modalKind,
+              batchId: batch.id,
+              modalTaskId: responseTaskId || batch.taskId,
+              providerId,
+              button,
+              sourceImageIndex: resolveBranchSourceImageIndex(button),
+              promptDraft: batch.prompt?.trim() || '',
+              zoomDraft: DEFAULT_CUSTOM_ZOOM,
+              actionInstanceKey,
+              isSubmitting: false,
+            });
+            updateNodeData(id, { lastError: null }, { historyMode: 'skip' });
+            return;
+          }
+
+          if (!responseTaskId) {
+            throw new Error(
+              response.description?.trim()
+              || t('node.midjourney.result.actionTaskMissing')
+            );
+          }
+
+          const branch = ensureMidjourneyBranchResultNode({
+            nodes: useCanvasStore.getState().nodes,
+            addNode,
+            addEdge,
+            findNodePosition,
+            sourceResultNodeId: id,
+            sourceResultData: data,
+            parentBatchId: batch.id,
+            sourceImageIndex: resolveBranchSourceImageIndex(button),
+            button,
+          });
+
+          const pendingBatchBase = createPendingMjBatch({
+            id: `mj-batch-${uuidv4()}`,
+            taskId: responseTaskId,
+            providerId,
+            prompt: batch.prompt?.trim() || '',
+            finalPrompt: batch.finalPrompt?.trim() || batch.prompt?.trim() || '',
+            action: button.label,
+            submitTime: Date.now(),
+          });
+
+          appendPendingBatchToResultNode(branch.nodeId, {
+            ...pendingBatchBase,
+            state: response.state ?? null,
+            properties: response.properties ?? null,
+          });
+          updateNodeData(id, { lastError: null }, { historyMode: 'skip' });
+          setSelectedNode(branch.nodeId);
+          await flushCurrentProjectToDiskSafely('saving Midjourney action submission');
+        } catch (error) {
+          const content = resolveErrorContent(
+            error,
+            t('node.midjourney.result.actionSubmitFailed')
+          );
+          updateNodeData(
+            id,
+            {
+              lastError: content.message,
+            },
+            { historyMode: 'skip' }
+          );
+          await showErrorDialog(content.message, t('common.error'), content.details);
+        } finally {
+          if (!keepBusyForModal) {
+            setActionBusy(actionInstanceKey, false);
+          }
+        }
+      },
+      [
+        addEdge,
+        addNode,
+        appendPendingBatchToResultNode,
+        busyActionKeys,
+        data,
+        findNodePosition,
+        handleOpenProviderSettings,
+        handleSelectBatch,
+        i18n.language,
+        id,
+        mjApiKeys,
+        setActionBusy,
+        setSelectedNode,
+        t,
+        updateNodeData,
+      ]
+    );
+
+    const handleSubmitModal = useCallback(async () => {
+      if (!modalState || modalState.isSubmitting) {
+        return;
+      }
+
+      const providerLabel = resolveMidjourneyProviderLabel(
+        modalState.providerId,
+        i18n.language
+      );
+      const apiKey = mjApiKeys[modalState.providerId]?.trim() ?? '';
+      if (!apiKey) {
+        const message = t('node.midjourney.result.providerKeyRequired', {
+          provider: providerLabel,
+        });
+        updateNodeData(id, { lastError: message }, { historyMode: 'skip' });
+        handleOpenProviderSettings();
+        await showErrorDialog(message, t('common.error'));
+        return;
+      }
+
+      setModalState((current) => (
+        current
+          ? {
+            ...current,
+            isSubmitting: true,
+          }
+          : current
+      ));
+
+      try {
+        const sourceBatch = data.batches.find((batch) => batch.id === modalState.batchId);
+        const promptDraft = modalState.promptDraft.trim() || sourceBatch?.prompt?.trim() || '';
+        const modalPrompt =
+          modalState.kind === 'customZoom'
+            ? buildCustomZoomPrompt(promptDraft, modalState.zoomDraft)
+            : promptDraft;
+
+        const response = await submitMidjourneyModalTask({
+          providerId: modalState.providerId,
+          apiKey,
+          taskId: modalState.modalTaskId,
+          prompt: modalPrompt,
+        });
+        const responseTaskId = response.taskId?.trim() ?? '';
+        if (!responseTaskId) {
+          throw new Error(
+            response.description?.trim()
+            || t('node.midjourney.result.actionTaskMissing')
+          );
+        }
+
+        const branch = ensureMidjourneyBranchResultNode({
+          nodes: useCanvasStore.getState().nodes,
+          addNode,
+          addEdge,
+          findNodePosition,
+          sourceResultNodeId: id,
+          sourceResultData: data,
+          parentBatchId: modalState.batchId,
+          sourceImageIndex: modalState.sourceImageIndex,
+          button: modalState.button,
+        });
+
+        const pendingBatchBase = createPendingMjBatch({
+          id: `mj-batch-${uuidv4()}`,
+          taskId: responseTaskId,
+          providerId: modalState.providerId,
+          prompt: promptDraft,
+          finalPrompt: modalPrompt,
+          action: modalState.button.label,
+          submitTime: Date.now(),
+        });
+
+        appendPendingBatchToResultNode(branch.nodeId, {
+          ...pendingBatchBase,
+          state: response.state ?? null,
+          properties: response.properties ?? null,
+        });
+        updateNodeData(id, { lastError: null }, { historyMode: 'skip' });
+        setActionBusy(modalState.actionInstanceKey, false);
+        setModalState(null);
+        setSelectedNode(branch.nodeId);
+        await flushCurrentProjectToDiskSafely('saving Midjourney modal submission');
+      } catch (error) {
+        const content = resolveErrorContent(
+          error,
+          t('node.midjourney.result.modalSubmitFailed')
+        );
+        updateNodeData(
+          id,
+          {
+            lastError: content.message,
+          },
+          { historyMode: 'skip' }
+        );
+        setModalState((current) => (
+          current
+            ? {
+              ...current,
+              isSubmitting: false,
+            }
+            : current
+        ));
+        await showErrorDialog(content.message, t('common.error'), content.details);
+      }
+    }, [
+      addEdge,
+      addNode,
+      appendPendingBatchToResultNode,
+      data,
+      findNodePosition,
+      handleOpenProviderSettings,
+      i18n.language,
+      id,
+      mjApiKeys,
+      modalState,
+      setActionBusy,
+      setSelectedNode,
+      t,
+      updateNodeData,
+    ]);
 
     useEffect(() => {
       const pendingBatches = data.batches.filter((batch) => batch.isPolling);
@@ -527,8 +1266,6 @@ export const MjResultNode = memo(
           clearScheduledPoll(existingBatchId);
         }
       }
-
-      syncSourceNodeSubmissionState(pendingBatches[0]?.taskId ?? null);
 
       pendingBatches.forEach((batch) => {
         const providerId = normalizeMidjourneyProviderId(batch.providerId);
@@ -550,7 +1287,6 @@ export const MjResultNode = memo(
       data.batches,
       handlePollBatch,
       mjApiKeys,
-      syncSourceNodeSubmissionState,
     ]);
 
     useEffect(() => {
@@ -613,7 +1349,14 @@ export const MjResultNode = memo(
       }
 
       return null;
-    }, [batchSections.length, data.lastError, i18n.language, pendingBatchCount, pendingBatchMissingProviderKey, t]);
+    }, [
+      batchSections.length,
+      data.lastError,
+      i18n.language,
+      pendingBatchCount,
+      pendingBatchMissingProviderKey,
+      t,
+    ]);
 
     const statusText = useMemo(() => {
       if (pendingBatchMissingProviderKey) {
@@ -644,7 +1387,15 @@ export const MjResultNode = memo(
       }
 
       return t('node.midjourney.result.empty');
-    }, [activeBatch, batchSections.length, data.lastError, i18n.language, pendingBatchCount, pendingBatchMissingProviderKey, t]);
+    }, [
+      activeBatch,
+      batchSections.length,
+      data.lastError,
+      i18n.language,
+      pendingBatchCount,
+      pendingBatchMissingProviderKey,
+      t,
+    ]);
 
     const nodeDescription =
       typeof data.nodeDescription === 'string' ? data.nodeDescription : '';
@@ -664,6 +1415,7 @@ export const MjResultNode = memo(
         `}
         style={{
           width: `${resolvedWidth}px`,
+          minHeight: `${resolvedMinHeight}px`,
           ...(resolvedHeight ? { height: `${resolvedHeight}px` } : {}),
         }}
         onClick={() => setSelectedNode(id)}
@@ -678,15 +1430,32 @@ export const MjResultNode = memo(
         />
 
         <div
+          ref={scrollContainerRef}
           className="ui-scrollbar nowheel min-h-0 flex-1 overflow-auto pt-5"
           onWheelCapture={(event) => event.stopPropagation()}
         >
+          {data.nodeRole === 'branch' ? (
+            <div className="mb-4 rounded-2xl border border-white/10 bg-white/[0.035] px-3 py-2.5">
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="rounded-full border border-white/10 bg-black/20 px-2 py-0.5 text-[11px] text-text-muted">
+                  {t('node.midjourney.result.branchNode')}
+                </span>
+                {branchLineageText ? (
+                  <span className="text-[11px] text-text-muted">
+                    {t('node.midjourney.result.branchLineage', {
+                      lineage: branchLineageText,
+                    })}
+                  </span>
+                ) : null}
+              </div>
+            </div>
+          ) : null}
+
           {batchSections.length > 0 ? (
             <div className="space-y-0">
               {batchSections.map((batch, batchIndex) => {
                 const isActive =
                   data.activeBatchId === batch.id || (!data.activeBatchId && batchIndex === 0);
-                const batchSlots = buildBatchSlots(batch);
                 const batchViewerImageList = buildBatchViewerImageList(batch);
                 const batchAspectRatioCss = toCssAspectRatio(resolveBatchAspectRatio(batch));
                 const submittedAt = formatTimestamp(batch.submitTime, i18n.language);
@@ -695,10 +1464,40 @@ export const MjResultNode = memo(
                 const promptExpanded = Boolean(expandedBatchIds[batch.id]);
                 const phaseLabel = resolveBatchPhaseLabel(batch, t);
                 const statusTone = resolveBatchStatusTone(batch);
+                const phase = normalizeMidjourneyTaskPhase(batch.status);
+                const shouldShowBatchFailure =
+                  Boolean(batch.failReason) &&
+                  (phase === 'failed' || phase === 'cancelled');
+                const providerId = normalizeMidjourneyProviderId(batch.providerId);
                 const providerLabel = resolveMidjourneyProviderLabel(
-                  batch.providerId,
+                  providerId,
                   i18n.language
                 );
+                const providerApiKey = mjApiKeys[providerId]?.trim() ?? '';
+                const supportedButtons = batch.buttons.filter(isSupportedMidjourneyActionButton);
+                const unsupportedCount = batch.buttons.length - supportedButtons.length;
+                const selectedImageIndex =
+                  selectedImageIndexByBatchId[batch.id] ?? null;
+                const imageScopedButtons = Number.isFinite(selectedImageIndex)
+                  ? supportedButtons.filter(
+                    (button) =>
+                      button.scope === 'image' &&
+                      Number(button.imageIndex) === Number(selectedImageIndex)
+                  )
+                  : [];
+                const batchScopedButtons = supportedButtons.filter(
+                  (button) => button.scope === 'batch'
+                );
+                const imageActionGroups = groupButtonsByFamily(imageScopedButtons);
+                const batchActionGroups = groupButtonsByFamily(batchScopedButtons);
+                const hasImageScopedButtons = supportedButtons.some(
+                  (button) => button.scope === 'image'
+                );
+                const showActionPanel =
+                  batch.buttons.length > 0 || phase === 'succeeded';
+                const batchDisplayItems = buildBatchDisplayItems(batch);
+                const showSingleImageLayout =
+                  batchDisplayItems.length === 1 && Boolean(batchDisplayItems[0]);
 
                 return (
                   <section
@@ -715,13 +1514,7 @@ export const MjResultNode = memo(
                       }`}
                       onClick={(event) => {
                         event.stopPropagation();
-                        updateNodeData(
-                          id,
-                          {
-                            activeBatchId: batch.id,
-                          },
-                          { historyMode: 'skip' }
-                        );
+                        handleSelectBatch(batch.id);
                       }}
                       onKeyDown={(event) => {
                         if (event.key !== 'Enter' && event.key !== ' ') {
@@ -730,13 +1523,7 @@ export const MjResultNode = memo(
 
                         event.preventDefault();
                         event.stopPropagation();
-                        updateNodeData(
-                          id,
-                          {
-                            activeBatchId: batch.id,
-                          },
-                          { historyMode: 'skip' }
-                        );
+                        handleSelectBatch(batch.id);
                       }}
                     >
                       <div className="flex items-start justify-between gap-3">
@@ -750,6 +1537,11 @@ export const MjResultNode = memo(
                             <span className="rounded-full border border-white/10 bg-white/[0.04] px-2 py-0.5 text-[11px] text-text-muted">
                               {providerLabel}
                             </span>
+                            {batch.action ? (
+                              <span className="rounded-full border border-white/10 bg-white/[0.04] px-2 py-0.5 text-[11px] text-text-muted">
+                                {batch.action}
+                              </span>
+                            ) : null}
                             <NodeStatusBadge label={phaseLabel} tone={statusTone} />
                             {batch.progress?.trim() ? (
                               <span className="rounded-full border border-white/10 bg-white/[0.04] px-2 py-0.5 text-[11px] text-text-muted">
@@ -799,7 +1591,7 @@ export const MjResultNode = memo(
                         </button>
                       </div>
 
-                      {batch.failReason ? (
+                      {shouldShowBatchFailure ? (
                         <div className="mt-2 rounded-xl border border-rose-400/18 bg-rose-500/10 px-3 py-2 text-xs text-rose-200">
                           {batch.failReason}
                         </div>
@@ -842,51 +1634,90 @@ export const MjResultNode = memo(
                         </div>
                       ) : null}
 
-                      <div className="mt-3 grid grid-cols-2 gap-2">
-                        {batchSlots.map((item, index) => {
-                          const source =
-                            item?.imageUrl ?? item?.previewImageUrl ?? item?.sourceUrl ?? null;
+                      <div
+                        className={`mt-3 grid gap-2 ${showSingleImageLayout ? 'grid-cols-1' : 'grid-cols-2'}`}
+                      >
+                        {batchDisplayItems.map((item, index) => {
+                          const sourceCandidates = listBatchImageCandidates(item);
+                          const source = sourceCandidates[0] ?? null;
+                          const fallbackSource =
+                            sourceCandidates.find((candidate) => candidate !== source) ?? null;
                           const viewerSource = source ? resolveImageDisplayUrl(source) : null;
+                          const fallbackViewerSource = fallbackSource
+                            ? resolveImageDisplayUrl(fallbackSource)
+                            : null;
+                          const isImageSelected =
+                            selectedImageIndex !== null && Number(selectedImageIndex) === index;
 
                           return (
                             <div
                               key={item?.id ?? `${batch.id}-slot-${index + 1}`}
-                              className="group/mj-slot relative overflow-hidden rounded-xl border border-white/10 bg-black/10"
+                              className={`group/mj-slot relative overflow-hidden rounded-xl border bg-black/10 transition-colors ${
+                                isImageSelected
+                                  ? 'border-accent bg-accent/10 shadow-[0_0_0_2px_rgba(59,130,246,0.34),0_10px_24px_rgba(59,130,246,0.16)]'
+                                  : 'border-white/10'
+                              }`}
                             >
-                              <div
-                                className="overflow-hidden bg-surface-dark"
-                                style={{ aspectRatio: batchAspectRatioCss }}
+                              <button
+                                type="button"
+                                className="nodrag block w-full text-left"
+                                disabled={!item}
+                                onPointerDown={(event) => {
+                                  event.stopPropagation();
+                                }}
+                                onClick={(event) => {
+                                  event.stopPropagation();
+                                  setSelectedNode(id);
+                                  handleSelectBatch(batch.id);
+                                  if (item) {
+                                    setSelectedImageIndexByBatchId((current) => ({
+                                      ...current,
+                                      [batch.id]: index,
+                                    }));
+                                  }
+                                }}
                               >
-                                {source && viewerSource ? (
-                                  <CanvasNodeImage
-                                    src={viewerSource}
-                                    alt={t('node.midjourney.result.slotLabel', {
-                                      index: index + 1,
-                                    })}
-                                    viewerSourceUrl={viewerSource}
-                                    viewerImageList={batchViewerImageList}
-                                    className="h-full w-full object-cover"
-                                    draggable={false}
-                                  />
-                                ) : (
-                                  <div className="flex h-full w-full items-center justify-center bg-[radial-gradient(circle_at_top,#1f2937_0%,#0f172a_72%)] px-3 text-center text-xs text-text-muted">
-                                    {batch.isPolling
-                                      ? t('node.midjourney.result.pendingSlot')
-                                      : t('node.midjourney.result.slotLabel', {
+                                <div
+                                  className="overflow-hidden bg-surface-dark"
+                                  style={{ aspectRatio: batchAspectRatioCss }}
+                                >
+                                  {source && viewerSource ? (
+                                    <CanvasNodeImage
+                                      src={viewerSource}
+                                      alt={t('node.midjourney.result.slotLabel', {
+                                        index: index + 1,
+                                      })}
+                                      fallbackSrc={fallbackViewerSource}
+                                      viewerImageList={batchViewerImageList}
+                                      className="h-full w-full object-cover"
+                                      draggable={false}
+                                    />
+                                  ) : (
+                                    <div className="flex h-full w-full items-center justify-center bg-[radial-gradient(circle_at_top,#1f2937_0%,#0f172a_72%)] px-3 text-center text-xs text-text-muted">
+                                      {batch.isPolling
+                                        ? t('node.midjourney.result.pendingSlot')
+                                        : t('node.midjourney.result.slotLabel', {
                                           index: index + 1,
                                         })}
-                                  </div>
-                                )}
-                              </div>
+                                    </div>
+                                  )}
+                                </div>
+                              </button>
 
-                              <div className="pointer-events-none absolute left-2 top-2 rounded-full bg-black/55 px-2 py-1 text-[11px] font-medium text-white">
+                              <div
+                                className={`pointer-events-none absolute left-2 top-2 rounded-full px-2 py-1 text-[11px] font-medium text-white transition-colors ${
+                                  isImageSelected
+                                    ? 'bg-accent/85 shadow-[0_0_0_1px_rgba(255,255,255,0.16)]'
+                                    : 'bg-black/55'
+                                }`}
+                              >
                                 {index + 1}
                               </div>
 
                               {item && source ? (
                                 <button
                                   type="button"
-                                  className="absolute right-2 top-2 rounded bg-black/60 p-1 text-white opacity-0 transition-all duration-150 hover:bg-black/75 group-hover/mj-slot:opacity-100"
+                                  className="nodrag absolute right-2 top-2 rounded bg-black/60 p-1 text-white opacity-0 transition-all duration-150 hover:bg-black/75 group-hover/mj-slot:opacity-100"
                                   onPointerDown={(event) => event.stopPropagation()}
                                   onClick={(event) => {
                                     event.stopPropagation();
@@ -901,6 +1732,152 @@ export const MjResultNode = memo(
                           );
                         })}
                       </div>
+
+                      {showActionPanel ? (
+                        <div
+                          className="mt-3 rounded-2xl border border-white/8 bg-black/10 p-3"
+                          onClick={(event) => event.stopPropagation()}
+                          onPointerDown={(event) => event.stopPropagation()}
+                        >
+                          <div className="flex flex-wrap items-center justify-between gap-2">
+                            <div className="text-[12px] font-medium text-text-dark">
+                              {t('node.midjourney.result.actionsTitle')}
+                            </div>
+                            {Number.isFinite(selectedImageIndex) ? (
+                              <div className="text-[11px] text-text-muted">
+                                {t('node.midjourney.result.selectedImage', {
+                                  index: Number(selectedImageIndex) + 1,
+                                })}
+                              </div>
+                            ) : null}
+                          </div>
+
+                          {!providerApiKey ? (
+                            <div className="mt-3 flex flex-wrap items-center justify-between gap-2 rounded-xl border border-amber-400/18 bg-amber-500/10 px-3 py-2">
+                              <div className="text-xs text-amber-100">
+                                {t('node.midjourney.result.providerKeyRequired', {
+                                  provider: providerLabel,
+                                })}
+                              </div>
+                              <UiButton
+                                type="button"
+                                size="sm"
+                                variant="muted"
+                                onClick={handleOpenProviderSettings}
+                              >
+                                {t('node.midjourney.result.openProviderSettings')}
+                              </UiButton>
+                            </div>
+                          ) : null}
+
+                          {providerApiKey && hasImageScopedButtons && !Number.isFinite(selectedImageIndex) ? (
+                            <div className="mt-3 rounded-xl border border-white/8 bg-white/[0.03] px-3 py-2 text-xs text-text-muted">
+                              {t('node.midjourney.result.selectImageForActions')}
+                            </div>
+                          ) : null}
+
+                          {providerApiKey && imageActionGroups.length > 0 ? (
+                            <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1.5">
+                              {imageActionGroups.map(({ family, items }) => (
+                                <div
+                                  key={`${batch.id}-image-${family}`}
+                                  className="inline-flex flex-wrap items-center gap-1.5"
+                                >
+                                  <span className="shrink-0 text-[10px] font-medium leading-none text-text-muted">
+                                    {resolveActionFamilyLabel(family, t)}
+                                  </span>
+                                  {items.map((button) => {
+                                    const actionInstanceKey = buildActionInstanceKey(
+                                      batch.id,
+                                      button
+                                    );
+                                    const isBusy = Boolean(
+                                      busyActionKeys[actionInstanceKey]
+                                    );
+                                    const isDisabled = !providerApiKey || isBusy;
+                                    return (
+                                      <UiChipButton
+                                        key={`${batch.id}-${family}-${button.customId}`}
+                                        type="button"
+                                        active={isBusy}
+                                        disabled={isDisabled}
+                                        className="h-7 rounded-full !px-2.5 text-[11px]"
+                                        onClick={() => void handleSubmitAction(batch, button)}
+                                      >
+                                        {isBusy ? (
+                                          <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                                        ) : null}
+                                        <span className="truncate">
+                                          {resolveActionDisplayLabel(button, t)}
+                                        </span>
+                                      </UiChipButton>
+                                    );
+                                  })}
+                                </div>
+                              ))}
+                            </div>
+                          ) : null}
+
+                          {providerApiKey && batchActionGroups.length > 0 ? (
+                            <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1.5">
+                              {batchActionGroups.map(({ family, items }) => (
+                                <div
+                                  key={`${batch.id}-batch-${family}`}
+                                  className="inline-flex flex-wrap items-center gap-1.5"
+                                >
+                                  <span className="shrink-0 text-[10px] font-medium leading-none text-text-muted">
+                                    {resolveActionFamilyLabel(family, t)}
+                                  </span>
+                                  {items.map((button) => {
+                                    const actionInstanceKey = buildActionInstanceKey(
+                                      batch.id,
+                                      button
+                                    );
+                                    const isBusy = Boolean(
+                                      busyActionKeys[actionInstanceKey]
+                                    );
+                                    const isDisabled = !providerApiKey || isBusy;
+                                    return (
+                                      <UiChipButton
+                                        key={`${batch.id}-${family}-${button.customId}`}
+                                        type="button"
+                                        active={isBusy}
+                                        disabled={isDisabled}
+                                        className="h-7 max-w-full rounded-full !px-2.5 text-[11px]"
+                                        onClick={() => void handleSubmitAction(batch, button)}
+                                      >
+                                        {isBusy ? (
+                                          <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                                        ) : null}
+                                        <span className="max-w-[180px] truncate">
+                                          {resolveActionDisplayLabel(button, t)}
+                                        </span>
+                                      </UiChipButton>
+                                    );
+                                  })}
+                                </div>
+                              ))}
+                            </div>
+                          ) : null}
+
+                          {providerApiKey &&
+                          supportedButtons.length === 0 &&
+                          unsupportedCount === 0 &&
+                          phase === 'succeeded' ? (
+                            <div className="mt-3 rounded-xl border border-white/8 bg-white/[0.03] px-3 py-2 text-xs text-text-muted">
+                              {t('node.midjourney.result.noAvailableActions')}
+                            </div>
+                          ) : null}
+
+                          {unsupportedCount > 0 ? (
+                            <div className="mt-3 text-xs text-text-muted">
+                              {t('node.midjourney.result.unsupportedActions', {
+                                count: unsupportedCount,
+                              })}
+                            </div>
+                          ) : null}
+                        </div>
+                      ) : null}
                     </div>
                   </section>
                 );
@@ -962,6 +1939,125 @@ export const MjResultNode = memo(
           minWidth={MJ_RESULT_NODE_MIN_WIDTH}
           minHeight={resolvedMinHeight}
         />
+
+        <UiModal
+          isOpen={Boolean(modalState)}
+          title={
+            modalState?.kind === 'customZoom'
+              ? t('node.midjourney.result.modal.customZoomTitle')
+              : t('node.midjourney.result.modal.remixPromptTitle')
+          }
+          onClose={() => {
+            if (!modalState?.isSubmitting) {
+              closeModal();
+            }
+          }}
+          widthClassName="w-[520px]"
+          footer={(
+            <>
+              <UiButton
+                type="button"
+                variant="ghost"
+                disabled={Boolean(modalState?.isSubmitting)}
+                onClick={closeModal}
+              >
+                {t('common.cancel')}
+              </UiButton>
+              <UiButton
+                type="button"
+                disabled={Boolean(modalState?.isSubmitting)}
+                onClick={() => void handleSubmitModal()}
+              >
+                {modalState?.isSubmitting ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : null}
+                {t('common.confirm')}
+              </UiButton>
+            </>
+          )}
+        >
+          {modalState ? (
+            <div className="space-y-3">
+              {modalState.kind === 'customZoom' ? (
+                <label className="block rounded-xl border border-white/10 bg-black/10 px-3 py-2.5">
+                  <div className="mb-2 text-xs font-medium text-text-muted">
+                    {t('node.midjourney.result.modal.zoomLabel')}
+                  </div>
+                  <div className="flex items-center gap-3">
+                    <input
+                      type="range"
+                      min={CUSTOM_ZOOM_MIN}
+                      max={CUSTOM_ZOOM_MAX}
+                      step={CUSTOM_ZOOM_STEP}
+                      value={modalState.zoomDraft}
+                      className="ui-range nodrag h-5 flex-1"
+                      onChange={(event) => {
+                        const nextValue = normalizeCustomZoomValue(
+                          Number.parseFloat(event.target.value)
+                        );
+                        setModalState((current) => (
+                          current
+                            ? {
+                              ...current,
+                              zoomDraft: nextValue,
+                            }
+                            : current
+                        ));
+                      }}
+                    />
+                    <UiInput
+                      type="number"
+                      min={CUSTOM_ZOOM_MIN}
+                      max={CUSTOM_ZOOM_MAX}
+                      step={CUSTOM_ZOOM_STEP}
+                      value={formatCustomZoomValue(modalState.zoomDraft)}
+                      className="!w-24 !rounded-xl !border-white/10 !bg-white/[0.04] !px-3 !py-2 text-sm"
+                      onChange={(event) => {
+                        const nextValue = normalizeCustomZoomValue(
+                          Number.parseFloat(event.target.value || `${DEFAULT_CUSTOM_ZOOM}`)
+                        );
+                        setModalState((current) => (
+                          current
+                            ? {
+                              ...current,
+                              zoomDraft: nextValue,
+                            }
+                            : current
+                        ));
+                      }}
+                    />
+                  </div>
+                  <div className="mt-2 text-[11px] text-text-muted">
+                    {t('node.midjourney.result.modal.zoomHint')}
+                  </div>
+                </label>
+              ) : null}
+
+              <label className="block rounded-xl border border-white/10 bg-black/10 px-3 py-2.5">
+                <div className="mb-2 text-xs font-medium text-text-muted">
+                  {t('node.midjourney.result.modal.promptLabel')}
+                </div>
+                <UiTextArea
+                  rows={7}
+                  value={modalState.promptDraft}
+                  className="!rounded-xl !border-white/10 !bg-white/[0.04] !text-sm"
+                  placeholder={t('node.midjourney.result.modal.promptPlaceholder')}
+                  onChange={(event) => {
+                    const nextValue = event.target.value;
+                    setModalState((current) => (
+                      current
+                        ? {
+                          ...current,
+                          promptDraft: nextValue,
+                        }
+                        : current
+                    ));
+                  }}
+                />
+              </label>
+            </div>
+          ) : null}
+        </UiModal>
       </div>
     );
   }

@@ -1,6 +1,6 @@
 [package]
 name = "storyboard-copilot"
-version = "1.0.0"
+version = "1.0.1"
 default-run = "storyboard-copilot"
 description = "OOpii无限画布 - AI 驱动的无限画布分镜创作工具"
 authors = ["you"]

@@ -20,8 +20,42 @@ export interface SubmitMidjourneyImagineResponse {
   state?: string | null;
 }
 
+export interface SubmitMidjourneyActionPayload {
+  providerId: MidjourneyProviderId;
+  apiKey: string;
+  taskId: string;
+  customId: string;
+}
+
+export interface SubmitMidjourneyModalPayload {
+  providerId: MidjourneyProviderId;
+  apiKey: string;
+  taskId: string;
+  prompt?: string;
+  maskBase64?: string;
+}
+
+export interface MidjourneyMutationResponse {
+  code?: number | null;
+  taskId?: string | null;
+  description?: string | null;
+  state?: Record<string, unknown> | string | null;
+  properties?: Record<string, unknown> | null;
+}
+
+export interface MidjourneyTaskButtonDto {
+  customId: string;
+  label: string;
+  type?: string | null;
+  style?: string | null;
+  emoji?: string | null;
+  groupIndex?: number;
+  order?: number;
+}
+
 export interface MidjourneyTaskDto {
   id: string;
+  action?: string | null;
   status: string;
   progress: string;
   imageUrl?: string | null;
@@ -29,6 +63,9 @@ export interface MidjourneyTaskDto {
   prompt?: string | null;
   promptEn?: string | null;
   finalPrompt?: string | null;
+  buttons?: MidjourneyTaskButtonDto[] | null;
+  properties?: Record<string, unknown> | null;
+  state?: Record<string, unknown> | string | null;
   failReason?: string | null;
   submitTime?: number | null;
   startTime?: number | null;
@@ -75,6 +112,35 @@ export async function queryMidjourneyTasks(
       provider_id: payload.providerId,
       api_key: payload.apiKey,
       task_ids: payload.taskIds,
+    },
+  });
+}
+
+export async function submitMidjourneyAction(
+  payload: SubmitMidjourneyActionPayload
+): Promise<MidjourneyMutationResponse> {
+  ensureTauriRuntime();
+  return await invoke<MidjourneyMutationResponse>('submit_midjourney_action', {
+    payload: {
+      provider_id: payload.providerId,
+      api_key: payload.apiKey,
+      task_id: payload.taskId,
+      custom_id: payload.customId,
+    },
+  });
+}
+
+export async function submitMidjourneyModal(
+  payload: SubmitMidjourneyModalPayload
+): Promise<MidjourneyMutationResponse> {
+  ensureTauriRuntime();
+  return await invoke<MidjourneyMutationResponse>('submit_midjourney_modal', {
+    payload: {
+      provider_id: payload.providerId,
+      api_key: payload.apiKey,
+      task_id: payload.taskId,
+      prompt: payload.prompt ?? null,
+      mask_base64: payload.maskBase64 ?? null,
     },
   });
 }

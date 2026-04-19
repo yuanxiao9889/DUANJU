@@ -5,6 +5,7 @@ import {
   useMemo,
   useRef,
   useState,
+  type CSSProperties,
   type MouseEvent as ReactMouseEvent,
 } from 'react';
 import {
@@ -27,11 +28,10 @@ import { v4 as uuidv4 } from 'uuid';
 import {
   UiButton,
   UiChipButton,
-  UiInput,
   UiPanel,
   UiSelect,
-  UiTextAreaField,
 } from '@/components/ui';
+import { createUiRangeStyle } from '@/components/ui/rangeStyle';
 import { resolveImageDisplayUrl } from '@/features/canvas/application/imageData';
 import {
   resolveErrorContent,
@@ -53,7 +53,6 @@ import {
   type MidjourneyVersionPreset,
   type MjNodeData,
   type MjResultBatch,
-  type MjResultNodeData,
 } from '@/features/canvas/domain/canvasNodes';
 import { resolveNodeDisplayName } from '@/features/canvas/domain/nodeDisplay';
 import {
@@ -76,6 +75,7 @@ import {
   appendMjResultBatch,
   areMjReferencesEqual,
   buildSyncedMjReferences,
+  createRootMjResultNodeData,
   updateMjResultBatch,
 } from '@/features/midjourney/application/midjourneyNodes';
 import {
@@ -84,7 +84,13 @@ import {
   translateMidjourneyPrompt,
 } from '@/features/midjourney/application/midjourneyPrompt';
 import { submitMidjourneyImagineTask } from '@/features/midjourney/application/midjourneyGeneration';
-import { validateMidjourneyAdvancedParams } from '@/features/midjourney/domain/prompt';
+import {
+  MIDJOURNEY_ADVANCED_PARAM_RANGES,
+  buildMidjourneyAdvancedParams,
+  parseMidjourneyAdvancedParams,
+  validateMidjourneyAdvancedParams,
+  type MidjourneyAdvancedParamsDraft,
+} from '@/features/midjourney/domain/prompt';
 import { createPendingMjBatch } from '@/features/midjourney/domain/task';
 import { resolveMidjourneyProviderLabel } from '@/features/midjourney/domain/providers';
 import { openSettingsDialog } from '@/features/settings/settingsEvents';
@@ -113,15 +119,20 @@ function FixedControlChip<T extends string>({
   options: Array<{ value: T; label: string }>;
   onChange: (nextValue: T) => void;
 }) {
+  const chipRef = useRef<HTMLDivElement>(null);
+
   return (
     <div
+      ref={chipRef}
       className={`flex h-7 min-w-[108px] shrink-0 items-center gap-1 rounded-lg border border-[color:var(--ui-border-soft)] bg-[var(--ui-surface-field)] px-2 ${NODE_CONTROL_CHIP_CLASS}`}
+      onMouseDown={(event) => event.stopPropagation()}
     >
       <span className="shrink-0 text-[10px] text-text-muted/90">{label}</span>
       <div className="min-w-0 flex-1">
         <UiSelect
           value={value}
           aria-label={label}
+          menuAnchorRef={chipRef}
           className="nodrag !h-6 !w-full !rounded-md !border-0 !bg-transparent !px-0.5 !text-[10.5px] !font-medium hover:!border-0 focus-visible:!border-0 focus-visible:!shadow-none"
           onChange={(event) => onChange(event.target.value as T)}
         >
@@ -136,15 +147,56 @@ function FixedControlChip<T extends string>({
   );
 }
 
-function buildDefaultMjResultNodeData(sourceNodeId: string, displayName: string): MjResultNodeData {
-  return {
-    sourceNodeId,
-    displayName,
-    batches: [],
-    activeBatchId: null,
-    lastError: null,
-    lastGeneratedAt: null,
-  };
+function AdvancedParamSlider({
+  label,
+  value,
+  min,
+  max,
+  step,
+  onChange,
+}: {
+  label: string;
+  value: number;
+  min: number;
+  max: number;
+  step: number;
+  onChange: (nextValue: number) => void;
+}) {
+  const sliderStyle = {
+    ...createUiRangeStyle(value, min, max),
+    '--ui-range-track-size': '5px',
+    '--ui-range-thumb-size': '12px',
+    '--ui-range-track': 'rgba(104, 112, 128, 0.56)',
+    '--ui-range-track-fill-start': 'rgba(104, 112, 128, 0.92)',
+    '--ui-range-track-fill-end': 'rgba(104, 112, 128, 0.92)',
+    '--ui-range-thumb-bg': 'rgba(196, 202, 214, 0.98)',
+    '--ui-range-thumb-border': 'rgba(233, 237, 245, 0.18)',
+    '--ui-range-thumb-shadow': 'none',
+    '--ui-range-thumb-shadow-hover': '0 0 0 4px rgba(255,255,255,0.05)',
+  } as CSSProperties;
+
+  return (
+    <div className="border-t border-border-dark/90 px-5 py-5 first:border-t-0">
+      <div className="grid grid-cols-[88px_minmax(0,1fr)_auto] items-center gap-4">
+        <span className="text-[15px] font-medium leading-none text-[#d7dbe3]">{label}</span>
+        <div className="flex min-w-0 items-center">
+          <input
+            type="range"
+            min={min}
+            max={max}
+            step={step}
+            value={value}
+            className="ui-range nodrag h-5"
+            style={sliderStyle}
+            onChange={(event) => onChange(Number.parseInt(event.target.value, 10))}
+          />
+        </div>
+        <span className="min-w-[30px] rounded-md border border-white/8 bg-black/18 px-2 py-1 text-center text-[11px] font-medium leading-none text-[#c8ced9] shadow-[inset_0_1px_0_rgba(255,255,255,0.03)]">
+          {value}
+        </span>
+      </div>
+    </div>
+  );
 }
 
 export const MjNode = memo(({ id, data, selected, width }: MjNodeProps) => {
@@ -168,7 +220,9 @@ export const MjNode = memo(({ id, data, selected, width }: MjNodeProps) => {
 
   const [promptDraft, setPromptDraft] = useState(() => data.prompt ?? '');
   const promptDraftRef = useRef(data.prompt ?? '');
-  const [advancedParamsDraft, setAdvancedParamsDraft] = useState(() => data.advancedParams ?? '');
+  const [advancedParamsDraft, setAdvancedParamsDraft] = useState<MidjourneyAdvancedParamsDraft>(
+    () => parseMidjourneyAdvancedParams(data.advancedParams ?? '')
+  );
   const [isAdvancedParamsOpen, setIsAdvancedParamsOpen] = useState(false);
   const [isOptimizingPrompt, setIsOptimizingPrompt] = useState(false);
   const [isTranslatingPrompt, setIsTranslatingPrompt] = useState(false);
@@ -203,17 +257,14 @@ export const MjNode = memo(({ id, data, selected, width }: MjNodeProps) => {
         .map((reference) => reference.imageUrl),
     [syncedReferences]
   );
-  const hasPendingBatch = Boolean(
-    linkedResultNode?.data.batches.some((batch) => batch.isPolling)
-  );
-  const isSubmitting = Boolean(data.isSubmitting || hasPendingBatch);
+  const pendingBatchCount = linkedResultNode?.data.batches.filter((batch) => batch.isPolling).length ?? 0;
+  const isSubmitting = Boolean(data.isSubmitting);
   const isPromptBusy = isSubmitting || isOptimizingPrompt || isTranslatingPrompt;
   const canRewritePrompt = stripMidjourneyParams(promptDraft).length > 0;
   const canUndoPromptRewrite = Boolean(
     lastPromptRewriteUndoState
     && promptDraft === lastPromptRewriteUndoState.appliedPrompt
   );
-  const hasAdvancedParams = (data.advancedParams ?? '').trim().length > 0;
   const aspectRatioOptions = useMemo(
     () => MIDJOURNEY_ASPECT_RATIOS.map((value) => ({ value, label: value })),
     []
@@ -238,7 +289,7 @@ export const MjNode = memo(({ id, data, selected, width }: MjNodeProps) => {
 
   useEffect(() => {
     if (!isAdvancedParamsOpen) {
-      setAdvancedParamsDraft(data.advancedParams ?? '');
+      setAdvancedParamsDraft(parseMidjourneyAdvancedParams(data.advancedParams ?? ''));
     }
   }, [data.advancedParams, isAdvancedParamsOpen]);
 
@@ -308,7 +359,7 @@ export const MjNode = memo(({ id, data, selected, width }: MjNodeProps) => {
       }
 
       setIsAdvancedParamsOpen(false);
-      setAdvancedParamsDraft(data.advancedParams ?? '');
+      setAdvancedParamsDraft(parseMidjourneyAdvancedParams(data.advancedParams ?? ''));
     };
 
     window.addEventListener('pointerdown', handlePointerDown);
@@ -464,7 +515,8 @@ export const MjNode = memo(({ id, data, selected, width }: MjNodeProps) => {
   );
 
   const handleApplyAdvancedParams = useCallback(async () => {
-    const validation = validateMidjourneyAdvancedParams(advancedParamsDraft);
+    const nextAdvancedParams = buildMidjourneyAdvancedParams(advancedParamsDraft);
+    const validation = validateMidjourneyAdvancedParams(nextAdvancedParams);
     if (!validation.valid) {
       const message = t('node.midjourney.advancedParamsConflict', {
         params: validation.duplicatedReservedParams.join(', '),
@@ -474,7 +526,7 @@ export const MjNode = memo(({ id, data, selected, width }: MjNodeProps) => {
     }
 
     updateNodeData(id, {
-      advancedParams: advancedParamsDraft.trim(),
+      advancedParams: nextAdvancedParams,
       lastError: data.lastError ?? null,
     });
     setIsAdvancedParamsOpen(false);
@@ -525,7 +577,7 @@ export const MjNode = memo(({ id, data, selected, width }: MjNodeProps) => {
       resultNodeId = addNode(
         CANVAS_NODE_TYPES.mjResult,
         resultNodePosition,
-        buildDefaultMjResultNodeData(id, t('node.midjourney.resultNodeTitle')),
+        createRootMjResultNodeData(id, t('node.midjourney.resultNodeTitle')),
         { inheritParentFromNodeId: id }
       );
       addEdge(id, resultNodeId);
@@ -549,12 +601,16 @@ export const MjNode = memo(({ id, data, selected, width }: MjNodeProps) => {
       id: placeholderBatchId,
       taskId: '',
       providerId: mjProviderEnabled,
+      action: null,
       status: 'SUBMITTED',
       progress: '',
       prompt,
       promptEn: null,
       finalPrompt: null,
       images: [],
+      buttons: [],
+      properties: null,
+      state: null,
       submitTime: startedAt,
       startTime: null,
       finishTime: null,
@@ -569,7 +625,7 @@ export const MjNode = memo(({ id, data, selected, width }: MjNodeProps) => {
       const initialResultData =
         isMjResultNode(initialResultNode)
           ? initialResultNode.data
-          : buildDefaultMjResultNodeData(id, t('node.midjourney.resultNodeTitle'));
+          : createRootMjResultNodeData(id, t('node.midjourney.resultNodeTitle'));
       const seededResultData = appendMjResultBatch(initialResultData, placeholderBatch);
 
       updateNodeData(
@@ -608,6 +664,7 @@ export const MjNode = memo(({ id, data, selected, width }: MjNodeProps) => {
         providerId: mjProviderEnabled,
         prompt: submission.prompt,
         finalPrompt: submission.finalPrompt,
+        action: null,
         submitTime: startedAt,
       });
 
@@ -617,7 +674,7 @@ export const MjNode = memo(({ id, data, selected, width }: MjNodeProps) => {
       const currentResultData =
         isMjResultNode(latestResultNode)
           ? latestResultNode.data
-          : buildDefaultMjResultNodeData(id, t('node.midjourney.resultNodeTitle'));
+          : createRootMjResultNodeData(id, t('node.midjourney.resultNodeTitle'));
       const nextResultData = updateMjResultBatch(
         currentResultData,
         placeholderBatchId,
@@ -641,8 +698,8 @@ export const MjNode = memo(({ id, data, selected, width }: MjNodeProps) => {
         {
           prompt: promptDraft,
           linkedResultNodeId: resultNodeId,
-          isSubmitting: true,
-          activeTaskId: submission.taskId,
+          isSubmitting: false,
+          activeTaskId: null,
           lastSubmittedAt: startedAt,
           lastError: null,
         },
@@ -670,7 +727,7 @@ export const MjNode = memo(({ id, data, selected, width }: MjNodeProps) => {
         const currentResultData =
           isMjResultNode(latestResultNode)
             ? latestResultNode.data
-            : buildDefaultMjResultNodeData(id, t('node.midjourney.resultNodeTitle'));
+            : createRootMjResultNodeData(id, t('node.midjourney.resultNodeTitle'));
         const failedResultData = updateMjResultBatch(
           currentResultData,
           placeholderBatchId,
@@ -742,13 +799,13 @@ export const MjNode = memo(({ id, data, selected, width }: MjNodeProps) => {
         onTitleChange={(nextTitle) => updateNodeData(id, { displayName: nextTitle })}
       />
 
-      <div className="flex min-h-0 flex-1 flex-col pt-5">
+      <div className="flex min-h-0 flex-1 flex-col">
         <div
-          className="rounded-[var(--node-radius)] border border-white/10 bg-[linear-gradient(180deg,rgba(255,255,255,0.05),rgba(255,255,255,0.02))] p-3"
+          className="relative min-h-0 rounded-lg border border-[rgba(255,255,255,0.1)] bg-bg-dark/45 p-2"
           onClick={(event) => event.stopPropagation()}
           onPointerDown={(event) => event.stopPropagation()}
         >
-          <UiTextAreaField
+          <textarea
             value={promptDraft}
             onChange={(event) => {
               const nextValue = event.target.value;
@@ -760,7 +817,8 @@ export const MjNode = memo(({ id, data, selected, width }: MjNodeProps) => {
             }}
             onBlur={commitPromptDraft}
             placeholder={t('node.midjourney.promptPlaceholder')}
-            className="nodrag ui-scrollbar min-h-[132px] border-0 bg-transparent px-0 py-0 text-sm leading-6 focus:border-0 focus-visible:ring-0"
+            className="ui-scrollbar nodrag nowheel relative block min-h-[132px] w-full resize-none overflow-y-auto overflow-x-hidden border-none bg-transparent px-1 py-0.5 text-sm leading-6 text-text-dark caret-text-dark outline-none placeholder:text-text-muted/80 whitespace-pre-wrap break-words focus:border-transparent focus-visible:ring-0"
+            style={{ scrollbarGutter: 'stable' }}
           />
         </div>
 
@@ -838,7 +896,7 @@ export const MjNode = memo(({ id, data, selected, width }: MjNodeProps) => {
         </div>
 
         <div
-          className="mt-2 flex flex-wrap items-center gap-2"
+          className="mt-2 flex items-center gap-2"
           onClick={(event) => event.stopPropagation()}
           onPointerDown={(event) => event.stopPropagation()}
         >
@@ -935,16 +993,14 @@ export const MjNode = memo(({ id, data, selected, width }: MjNodeProps) => {
               type="button"
               title={t('node.midjourney.advancedParamsButton')}
               aria-label={t('node.midjourney.advancedParamsButton')}
-              className={`${NODE_CONTROL_CHIP_CLASS} shrink-0 !w-8 !px-0 justify-center !border-[rgba(255,255,255,0.12)] !bg-bg-dark/80 ${
+              className={`${NODE_CONTROL_CHIP_CLASS} shrink-0 !w-8 !px-0 justify-center ${
                 isAdvancedParamsOpen
-                  ? '!bg-white/[0.06] !text-[#ff5d2b] hover:!bg-white/[0.08]'
-                  : hasAdvancedParams
-                    ? '!text-[#ff5d2b] hover:!bg-white/[0.06]'
-                    : '!text-text-muted hover:!bg-white/[0.06] hover:!text-[#ff5d2b]'
+                  ? '!bg-white/[0.06] !text-text-dark hover:!bg-white/[0.08]'
+                  : '!text-text-dark hover:!bg-white/[0.06]'
               }`}
               onClick={(event) => {
                 event.stopPropagation();
-                setAdvancedParamsDraft(data.advancedParams ?? '');
+                setAdvancedParamsDraft(parseMidjourneyAdvancedParams(data.advancedParams ?? ''));
                 setIsAdvancedParamsOpen((current) => !current);
               }}
             >
@@ -957,34 +1013,87 @@ export const MjNode = memo(({ id, data, selected, width }: MjNodeProps) => {
             {isAdvancedParamsOpen ? (
               <div
                 ref={advancedParamsPanelRef}
-                className="absolute right-0 top-[calc(100%+8px)] z-20 w-[320px]"
+                className="absolute right-0 top-[calc(100%+10px)] z-20 w-[372px]"
                 onClick={(event) => event.stopPropagation()}
                 onPointerDown={(event) => event.stopPropagation()}
               >
-                <UiPanel className="space-y-3 rounded-xl p-3 shadow-[0_14px_36px_rgba(0,0,0,0.32)]">
-                  <div className="space-y-1">
-                    <div className="text-xs font-medium text-text-dark">
+                <UiPanel className="overflow-hidden rounded-[22px] border border-border-dark/95 bg-[linear-gradient(180deg,rgba(30,33,40,0.98),rgba(20,22,28,0.98))] p-0 shadow-[0_24px_56px_rgba(0,0,0,0.46)] backdrop-blur-xl">
+                  <div className="relative border-b border-border-dark/95 px-5 py-4 text-center">
+                    <div className="text-[18px] font-semibold tracking-[-0.01em] text-text-dark">
                       {t('node.midjourney.advancedParamsTitle')}
                     </div>
-                    <div className="text-[11px] leading-5 text-text-muted">
+                    <button
+                      type="button"
+                      className="absolute right-5 top-1/2 -translate-y-1/2 rounded-md px-2 py-1 text-[12px] font-medium text-text-muted transition-colors hover:bg-white/[0.04] hover:text-text-dark"
+                      onClick={() =>
+                        setAdvancedParamsDraft({
+                          stylize: MIDJOURNEY_ADVANCED_PARAM_RANGES.stylize.min,
+                          chaos: MIDJOURNEY_ADVANCED_PARAM_RANGES.chaos.min,
+                          weird: MIDJOURNEY_ADVANCED_PARAM_RANGES.weird.min,
+                          preservedSeed: null,
+                          passthroughTokens: [],
+                        })
+                      }
+                    >
+                      {t('node.midjourney.advancedParamsReset')}
+                    </button>
+                  </div>
+
+                  <AdvancedParamSlider
+                    label={t('node.midjourney.advancedParamStylize')}
+                    value={advancedParamsDraft.stylize}
+                    min={MIDJOURNEY_ADVANCED_PARAM_RANGES.stylize.min}
+                    max={MIDJOURNEY_ADVANCED_PARAM_RANGES.stylize.max}
+                    step={MIDJOURNEY_ADVANCED_PARAM_RANGES.stylize.step}
+                    onChange={(nextValue) =>
+                      setAdvancedParamsDraft((current) => ({
+                        ...current,
+                        stylize: nextValue,
+                      }))
+                    }
+                  />
+
+                  <AdvancedParamSlider
+                    label={t('node.midjourney.advancedParamWeird')}
+                    value={advancedParamsDraft.weird}
+                    min={MIDJOURNEY_ADVANCED_PARAM_RANGES.weird.min}
+                    max={MIDJOURNEY_ADVANCED_PARAM_RANGES.weird.max}
+                    step={MIDJOURNEY_ADVANCED_PARAM_RANGES.weird.step}
+                    onChange={(nextValue) =>
+                      setAdvancedParamsDraft((current) => ({
+                        ...current,
+                        weird: nextValue,
+                      }))
+                    }
+                  />
+
+                  <AdvancedParamSlider
+                    label={t('node.midjourney.advancedParamChaos')}
+                    value={advancedParamsDraft.chaos}
+                    min={MIDJOURNEY_ADVANCED_PARAM_RANGES.chaos.min}
+                    max={MIDJOURNEY_ADVANCED_PARAM_RANGES.chaos.max}
+                    step={MIDJOURNEY_ADVANCED_PARAM_RANGES.chaos.step}
+                    onChange={(nextValue) =>
+                      setAdvancedParamsDraft((current) => ({
+                        ...current,
+                        chaos: nextValue,
+                      }))
+                    }
+                  />
+
+                  <div className="border-t border-border-dark/95 px-5 py-4">
+                    <div className="text-[11px] leading-6 text-text-muted/85">
                       {t('node.midjourney.advancedParamsHint')}
                     </div>
                   </div>
 
-                  <UiInput
-                    value={advancedParamsDraft}
-                    onChange={(event) => setAdvancedParamsDraft(event.target.value)}
-                    placeholder={t('node.midjourney.advancedParamsPlaceholder')}
-                    className="nodrag h-9"
-                  />
-
-                  <div className="flex items-center justify-end gap-2">
+                  <div className="flex items-center justify-end gap-2 border-t border-border-dark/95 bg-black/10 px-5 py-4">
                     <UiButton
                       type="button"
                       size="sm"
                       variant="muted"
                       onClick={() => {
-                        setAdvancedParamsDraft(data.advancedParams ?? '');
+                        setAdvancedParamsDraft(parseMidjourneyAdvancedParams(data.advancedParams ?? ''));
                         setIsAdvancedParamsOpen(false);
                       }}
                     >
@@ -1003,6 +1112,22 @@ export const MjNode = memo(({ id, data, selected, width }: MjNodeProps) => {
               </div>
             ) : null}
           </div>
+
+          <UiButton
+            type="button"
+            size="sm"
+            variant="primary"
+            disabled={isPromptBusy}
+            className={`${NODE_CONTROL_PRIMARY_BUTTON_CLASS} ml-auto shrink-0`}
+            onClick={() => void handleGenerate()}
+          >
+            {isSubmitting ? (
+              <Loader2 className={`${NODE_CONTROL_GENERATE_ICON_CLASS} animate-spin`} />
+            ) : (
+              <Sparkles className={NODE_CONTROL_GENERATE_ICON_CLASS} />
+            )}
+            {t('canvas.generate')}
+          </UiButton>
         </div>
 
         <div className="mt-2 min-h-[20px] text-[11px] text-text-muted">
@@ -1016,34 +1141,14 @@ export const MjNode = memo(({ id, data, selected, width }: MjNodeProps) => {
             <span>{t('node.midjourney.translatingPrompt')}</span>
           ) : isSubmitting ? (
             <span>{t('node.midjourney.statusSubmitting')}</span>
+          ) : pendingBatchCount > 0 ? (
+            <span>{t('node.midjourney.statusPollingBatches', { count: pendingBatchCount })}</span>
           ) : !apiKey ? (
             <span>{t('node.midjourney.apiKeyHint')}</span>
           ) : (
             <span>{t('node.midjourney.statusIdle')}</span>
           )}
         </div>
-      </div>
-
-      <div
-        className="mt-2 flex items-center justify-end gap-2"
-        onClick={(event) => event.stopPropagation()}
-        onPointerDown={(event) => event.stopPropagation()}
-      >
-        <UiButton
-          type="button"
-          size="sm"
-          variant="primary"
-          disabled={isPromptBusy}
-          className={NODE_CONTROL_PRIMARY_BUTTON_CLASS}
-          onClick={() => void handleGenerate()}
-        >
-          {isSubmitting ? (
-            <Loader2 className={`${NODE_CONTROL_GENERATE_ICON_CLASS} animate-spin`} />
-          ) : (
-            <Sparkles className={NODE_CONTROL_GENERATE_ICON_CLASS} />
-          )}
-          {t('canvas.generate')}
-        </UiButton>
       </div>
 
       <Handle type="target" position={Position.Left} id="target" />

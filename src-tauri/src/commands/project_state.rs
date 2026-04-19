@@ -1125,55 +1125,44 @@ fn resolve_image_ref(value: &str, image_pool: &[String]) -> Option<String> {
 }
 
 fn collect_image_paths_from_node(node: &Value, image_pool: &[String], paths: &mut HashSet<String>) {
-    let data = match node.get("data").and_then(|value| value.as_object()) {
-        Some(value) => value,
-        Option::None => return,
+    let Some(data) = node.get("data") else {
+        return;
     };
+    collect_image_paths_from_value(data, image_pool, paths);
+}
 
-    for key in ["imageUrl", "previewImageUrl", "videoUrl", "audioUrl"] {
-        if let Some(raw_value) = data.get(key).and_then(|value| value.as_str()) {
-            if let Some(path) = resolve_image_ref(raw_value, image_pool) {
-                paths.insert(path);
-            }
-        }
-    }
+fn is_media_path_key(key: &str) -> bool {
+    matches!(
+        key,
+        "imageUrl"
+            | "previewImageUrl"
+            | "sourceUrl"
+            | "posterSourceUrl"
+            | "videoUrl"
+            | "audioUrl"
+    )
+}
 
-    if let Some(frames) = data.get("frames").and_then(|value| value.as_array()) {
-        for frame in frames {
-            let frame_obj = match frame.as_object() {
-                Some(value) => value,
-                Option::None => continue,
-            };
-            for key in ["imageUrl", "previewImageUrl"] {
-                if let Some(raw_value) = frame_obj.get(key).and_then(|value| value.as_str()) {
-                    if let Some(path) = resolve_image_ref(raw_value, image_pool) {
-                        paths.insert(path);
+fn collect_image_paths_from_value(value: &Value, image_pool: &[String], paths: &mut HashSet<String>) {
+    match value {
+        Value::Object(record) => {
+            for (key, nested) in record {
+                if is_media_path_key(key) {
+                    if let Some(raw_value) = nested.as_str() {
+                        if let Some(path) = resolve_image_ref(raw_value, image_pool) {
+                            paths.insert(path);
+                        }
                     }
                 }
+                collect_image_paths_from_value(nested, image_pool, paths);
             }
         }
-    }
-
-    if let Some(result_images) = data.get("resultImages").and_then(|value| value.as_array()) {
-        for item in result_images {
-            let item_obj = match item.as_object() {
-                Some(value) => value,
-                Option::None => continue,
-            };
-            for key in [
-                "imageUrl",
-                "previewImageUrl",
-                "sourceUrl",
-                "posterSourceUrl",
-                "videoUrl",
-            ] {
-                if let Some(raw_value) = item_obj.get(key).and_then(|value| value.as_str()) {
-                    if let Some(path) = resolve_image_ref(raw_value, image_pool) {
-                        paths.insert(path);
-                    }
-                }
+        Value::Array(items) => {
+            for item in items {
+                collect_image_paths_from_value(item, image_pool, paths);
             }
         }
+        _ => {}
     }
 }
 
@@ -2206,6 +2195,58 @@ mod tests {
         assert!(paths.contains(
             normalize_image_ref_path("C:/Users/Tester/images/undo-preview.png")
                 .expect("patch history image path should normalize")
+                .as_str()
+        ));
+    }
+
+    #[test]
+    fn extract_project_image_paths_supports_midjourney_batch_images() {
+        let nodes_json = r#"
+        {
+          "nodes": [
+            {
+              "id": "mj-result-node",
+              "type": "mjResultNode",
+              "data": {
+                "batches": [
+                  {
+                    "id": "batch-1",
+                    "images": [
+                      {
+                        "imageUrl": "__img_ref__:0",
+                        "previewImageUrl": "__img_ref__:1",
+                        "sourceUrl": "__img_ref__:2"
+                      }
+                    ]
+                  }
+                ]
+              }
+            }
+          ],
+          "imagePool": [
+            "C:\\Users\\Tester\\images\\mj-0.png",
+            "C:/Users/Tester/images/mj-0-preview.png",
+            "C:/Users/Tester/images/mj-0-source.png"
+          ]
+        }
+        "#;
+        let history_json = r#"{"past":[],"future":[]}"#;
+
+        let paths = extract_project_image_paths(nodes_json, history_json);
+
+        assert!(paths.contains(
+            normalize_image_ref_path(r"C:\Users\Tester\images\mj-0.png")
+                .expect("mj image path should normalize")
+                .as_str()
+        ));
+        assert!(paths.contains(
+            normalize_image_ref_path("C:/Users/Tester/images/mj-0-preview.png")
+                .expect("mj preview path should normalize")
+                .as_str()
+        ));
+        assert!(paths.contains(
+            normalize_image_ref_path("C:/Users/Tester/images/mj-0-source.png")
+                .expect("mj source path should normalize")
                 .as_str()
         ));
     }

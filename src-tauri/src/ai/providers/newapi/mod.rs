@@ -8,6 +8,8 @@ use serde_json::{json, Value};
 use std::fs;
 use std::io::Cursor;
 use std::net::IpAddr;
+#[cfg(target_os = "windows")]
+use std::os::windows::process::CommandExt;
 use std::path::PathBuf;
 use std::process::Command;
 use std::sync::Arc;
@@ -25,6 +27,8 @@ const JSON_REQUEST_MAX_ATTEMPTS: usize = 2;
 const JSON_REQUEST_RETRY_DELAY_MS: u64 = 2_000;
 const CURL_JSON_TRANSPORT_MIN_BYTES: usize = 64 * 1024;
 const CURL_JSON_TRANSPORT_TIMEOUT_SECONDS: u64 = 240;
+#[cfg(target_os = "windows")]
+const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 const FLOW2API_IMAGE_BASE_MODELS: [&str; 4] = [
     "gemini-2.5-flash-image",
     "gemini-3.0-pro-image",
@@ -1000,7 +1004,10 @@ impl NewApiProvider {
                 } else {
                     "curl"
                 };
-                let output = Command::new(curl_binary)
+                let mut command = Command::new(curl_binary);
+                #[cfg(target_os = "windows")]
+                command.creation_flags(CREATE_NO_WINDOW);
+                let output = command
                     .arg("-sS")
                     .arg("--http1.1")
                     .arg("--connect-timeout")

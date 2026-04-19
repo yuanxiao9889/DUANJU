@@ -1,6 +1,6 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Handle, Position } from '@xyflow/react';
-import { Check, ChevronDown, Film, Image as ImageIcon, Link2, RefreshCcw, TriangleAlert, Video, X } from 'lucide-react';
+import { Check, ChevronDown, Film, Image as ImageIcon, Link2, RefreshCcw, Sparkles, TriangleAlert, Video, X } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 
 import { UiLoadingOverlay, UiScrollArea, UiSelect } from '@/components/ui';
@@ -17,6 +17,8 @@ import {
   CANVAS_NODE_TYPES,
   IMAGE_EDIT_NODE_DEFAULT_HEIGHT,
   IMAGE_EDIT_NODE_DEFAULT_WIDTH,
+  MJ_NODE_DEFAULT_HEIGHT,
+  MJ_NODE_DEFAULT_WIDTH,
   SCRIPT_REFERENCE_NODE_DEFAULT_HEIGHT,
   SCRIPT_REFERENCE_NODE_DEFAULT_WIDTH,
   SEEDANCE_NODE_DEFAULT_HEIGHT,
@@ -37,7 +39,7 @@ type ScriptReferenceNodeProps = {
   height?: number;
 };
 
-type ScriptReferenceDownstreamTarget = 'image' | 'video' | 'jimengImage' | 'jimengVideo';
+type ScriptReferenceDownstreamTarget = 'image' | 'video' | 'jimengImage' | 'jimengVideo' | 'mjImage';
 
 const MIN_NODE_WIDTH = 520;
 const MIN_NODE_HEIGHT = 460;
@@ -72,6 +74,11 @@ const SCRIPT_REFERENCE_DOWNSTREAM_TARGETS = {
     type: CANVAS_NODE_TYPES.jimeng,
     width: JIMENG_VIDEO_NODE_DEFAULT_WIDTH,
     height: JIMENG_VIDEO_NODE_DEFAULT_HEIGHT,
+  },
+  mjImage: {
+    type: CANVAS_NODE_TYPES.mj,
+    width: MJ_NODE_DEFAULT_WIDTH,
+    height: MJ_NODE_DEFAULT_HEIGHT,
   },
 } satisfies Record<
   ScriptReferenceDownstreamTarget,
@@ -927,6 +934,7 @@ export const ScriptReferenceNode = memo(({
 
         <div className="mt-3 flex flex-wrap gap-2">
           <button type="button" disabled={selectedRows.length === 0} onClick={(event) => { event.stopPropagation(); createDownstreamNodes('image'); }} className="inline-flex items-center gap-1.5 rounded-lg border border-cyan-500/30 bg-cyan-500/10 px-3 py-1.5 text-xs font-medium text-cyan-200 disabled:opacity-60"><ImageIcon className="h-3.5 w-3.5" />{t('node.scriptReference.generateImage')}</button>
+          <button type="button" disabled={selectedRows.length === 0} onClick={(event) => { event.stopPropagation(); createDownstreamNodes('mjImage'); }} className="inline-flex items-center gap-1.5 rounded-lg border border-fuchsia-500/30 bg-fuchsia-500/10 px-3 py-1.5 text-xs font-medium text-fuchsia-200 disabled:opacity-60"><Sparkles className="h-3.5 w-3.5" />{t('node.scriptReference.generateMidjourneyImage')}</button>
           <button type="button" disabled={selectedRows.length === 0} onClick={(event) => { event.stopPropagation(); createDownstreamNodes('video'); }} className="inline-flex items-center gap-1.5 rounded-lg border border-violet-500/30 bg-violet-500/10 px-3 py-1.5 text-xs font-medium text-violet-200 disabled:opacity-60"><Video className="h-3.5 w-3.5" />{t('node.scriptReference.generateVideo')}</button>
           <button type="button" disabled={selectedRows.length === 0} onClick={(event) => { event.stopPropagation(); createStoryboardNode(); }} className="inline-flex items-center gap-1.5 rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-3 py-1.5 text-xs font-medium text-emerald-200 disabled:opacity-60"><Film className="h-3.5 w-3.5" />{t('node.scriptReference.addStoryboardGen')}</button>
           <button type="button" disabled={selectedRows.length === 0} onClick={(event) => { event.stopPropagation(); createDownstreamNodes('jimengImage'); }} className="inline-flex items-center gap-1.5 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-1.5 text-xs font-medium text-amber-200 disabled:opacity-60"><ImageIcon className="h-3.5 w-3.5" />{t('node.scriptReference.generateJimengImage')}</button>

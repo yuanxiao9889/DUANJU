@@ -14,7 +14,10 @@ import {
 import { splitImageSource } from '@/commands/image';
 import {
   queryMidjourneyTasks,
+  submitMidjourneyAction,
   submitMidjourneyImagine,
+  submitMidjourneyModal,
+  type MidjourneyMutationResponse,
   type MidjourneyTaskDto,
 } from '@/features/midjourney/infrastructure/commands';
 import {
@@ -40,6 +43,21 @@ export interface SubmitMidjourneyImagineOutput {
   prompt: string;
   finalPrompt: string;
   state?: string | null;
+}
+
+export interface SubmitMidjourneyActionInput {
+  providerId: MidjourneyProviderId;
+  apiKey: string;
+  taskId: string;
+  customId: string;
+}
+
+export interface SubmitMidjourneyModalInput {
+  providerId: MidjourneyProviderId;
+  apiKey: string;
+  taskId: string;
+  prompt?: string | null;
+  maskBase64?: string | null;
 }
 
 export async function submitMidjourneyImagineTask(
@@ -120,6 +138,71 @@ export async function queryMidjourneyTask(
   }
 
   return task;
+}
+
+function validateMutationInput(
+  providerId: MidjourneyProviderId,
+  apiKey: string,
+  taskId: string
+): {
+  providerId: MidjourneyProviderId;
+  apiKey: string;
+  taskId: string;
+} {
+  const normalizedApiKey = apiKey.trim();
+  if (!normalizedApiKey) {
+    throw new Error('MJ API key is required');
+  }
+
+  const normalizedTaskId = taskId.trim();
+  if (!normalizedTaskId) {
+    throw new Error('Midjourney task id is required');
+  }
+
+  return {
+    providerId,
+    apiKey: normalizedApiKey,
+    taskId: normalizedTaskId,
+  };
+}
+
+export async function submitMidjourneyActionTask(
+  input: SubmitMidjourneyActionInput
+): Promise<MidjourneyMutationResponse> {
+  const validated = validateMutationInput(
+    input.providerId,
+    input.apiKey,
+    input.taskId
+  );
+  const customId = input.customId.trim();
+  if (!customId) {
+    throw new Error('Midjourney action custom id is required');
+  }
+
+  return await submitMidjourneyAction({
+    providerId: validated.providerId,
+    apiKey: validated.apiKey,
+    taskId: validated.taskId,
+    customId,
+  });
+}
+
+export async function submitMidjourneyModalTask(
+  input: SubmitMidjourneyModalInput
+): Promise<MidjourneyMutationResponse> {
+  const validated = validateMutationInput(
+    input.providerId,
+    input.apiKey,
+    input.taskId
+  );
+
+  return await submitMidjourneyModal({
+    providerId: validated.providerId,
+    apiKey: validated.apiKey,
+    taskId: validated.taskId,
+    prompt: input.prompt?.trim() ?? '',
+    maskBase64: input.maskBase64?.trim() ?? '',
+  });
 }
 
 async function fallbackGridImage(

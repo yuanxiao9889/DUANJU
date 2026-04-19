@@ -548,16 +548,47 @@ export interface MjBatchImageItem {
   height?: number;
 }
 
+export type MjResultNodeRole = 'root' | 'branch';
+export type MjActionFamily =
+  | 'upscale'
+  | 'variation'
+  | 'reroll'
+  | 'zoom'
+  | 'pan'
+  | 'other';
+export type MjActionScope = 'image' | 'batch';
+export type MjModalKind = 'none' | 'customZoom' | 'remixPrompt' | 'unsupported';
+
+export interface MjActionButton {
+  customId: string;
+  label: string;
+  type?: string | null;
+  style?: string | null;
+  emoji?: string | null;
+  family: MjActionFamily;
+  scope: MjActionScope;
+  imageIndex?: number | null;
+  actionKey: string;
+  requiresModal: boolean;
+  modalKind?: MjModalKind;
+  groupIndex: number;
+  order: number;
+}
+
 export interface MjResultBatch {
   id: string;
   taskId: string;
   providerId: MidjourneyProviderId;
+  action?: string | null;
   status: string;
   progress: string;
   prompt: string;
   promptEn?: string | null;
   finalPrompt?: string | null;
   images: MjBatchImageItem[];
+  buttons: MjActionButton[];
+  properties?: Record<string, unknown> | null;
+  state?: Record<string, unknown> | string | null;
   submitTime?: number | null;
   startTime?: number | null;
   finishTime?: number | null;
@@ -608,6 +639,13 @@ export interface MjNodeData extends NodeDisplayData {
 
 export interface MjResultNodeData extends NodeDisplayData {
   sourceNodeId?: string | null;
+  nodeRole?: MjResultNodeRole;
+  rootSourceNodeId?: string | null;
+  parentResultNodeId?: string | null;
+  parentBatchId?: string | null;
+  sourceImageIndex?: number | null;
+  branchKey?: string | null;
+  branchActionLabel?: string | null;
   batches: MjResultBatch[];
   activeBatchId?: string | null;
   lastError?: string | null;
@@ -803,6 +841,59 @@ function normalizeMjReferenceRole(value: unknown): MjReferenceRole {
   return value === 'styleReference' ? 'styleReference' : 'reference';
 }
 
+function normalizeMjResultNodeRole(value: unknown): MjResultNodeRole {
+  return value === 'branch' ? 'branch' : 'root';
+}
+
+function normalizeMjActionFamily(value: unknown): MjActionFamily {
+  switch (value) {
+    case 'upscale':
+    case 'variation':
+    case 'reroll':
+    case 'zoom':
+    case 'pan':
+      return value;
+    default:
+      return 'other';
+  }
+}
+
+function normalizeMjActionScope(value: unknown): MjActionScope {
+  return value === 'image' ? 'image' : 'batch';
+}
+
+function normalizeMjModalKind(value: unknown): MjModalKind {
+  switch (value) {
+    case 'customZoom':
+    case 'remixPrompt':
+    case 'unsupported':
+      return value;
+    default:
+      return 'none';
+  }
+}
+
+function normalizeStructuredRecord(
+  value: unknown
+): Record<string, unknown> | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return null;
+  }
+
+  return value as Record<string, unknown>;
+}
+
+function normalizeMjStateValue(
+  value: unknown
+): Record<string, unknown> | string | null {
+  if (typeof value === 'string') {
+    const normalized = value.trim();
+    return normalized.length > 0 ? normalized : null;
+  }
+
+  return normalizeStructuredRecord(value);
+}
+
 function normalizeMjReferenceItems(value: unknown): MjReferenceItem[] {
   if (!Array.isArray(value)) {
     return [];
@@ -843,6 +934,54 @@ function normalizeMjReferenceItems(value: unknown): MjReferenceItem[] {
     ...item,
     sortIndex: index,
   }));
+}
+
+function normalizeMjActionButtons(value: unknown): MjActionButton[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value
+    .map((item, index): MjActionButton | null => {
+      if (!item || typeof item !== 'object') {
+        return null;
+      }
+
+      const record = item as Partial<MjActionButton>;
+      const customId = normalizeString(record.customId).trim();
+      const actionKey = normalizeString(record.actionKey).trim();
+      if (!customId || !actionKey) {
+        return null;
+      }
+
+      return {
+        customId,
+        label: normalizeString(record.label).trim() || customId,
+        type: normalizeString(record.type).trim() || null,
+        style: normalizeString(record.style).trim() || null,
+        emoji: normalizeString(record.emoji).trim() || null,
+        family: normalizeMjActionFamily(record.family),
+        scope: normalizeMjActionScope(record.scope),
+        imageIndex: Number.isFinite(record.imageIndex) ? Math.max(0, Math.round(Number(record.imageIndex))) : null,
+        actionKey,
+        requiresModal: normalizeBooleanValue(record.requiresModal),
+        modalKind: normalizeMjModalKind(record.modalKind),
+        groupIndex: Math.max(0, Math.round(normalizeFiniteNumber(record.groupIndex, 0))),
+        order: Math.max(0, Math.round(normalizeFiniteNumber(record.order, index))),
+      };
+    })
+    .filter((item): item is MjActionButton => Boolean(item))
+    .sort((left, right) => {
+      const groupDelta = left.groupIndex - right.groupIndex;
+      if (groupDelta !== 0) {
+        return groupDelta;
+      }
+      const orderDelta = left.order - right.order;
+      if (orderDelta !== 0) {
+        return orderDelta;
+      }
+      return left.label.localeCompare(right.label);
+    });
 }
 
 function normalizeMjBatchImageItems(value: unknown, fallbackAspectRatio: string): MjBatchImageItem[] {
@@ -893,12 +1032,16 @@ function normalizeMjResultBatches(value: unknown, fallbackAspectRatio: string): 
         id: normalizeString(record.id, `mj-batch-${index + 1}`),
         taskId,
         providerId: normalizeMidjourneyProviderId(record.providerId),
+        action: normalizeString(record.action).trim() || null,
         status: normalizeString(record.status, 'queued').trim() || 'queued',
         progress: normalizeString(record.progress).trim(),
         prompt: normalizeString(record.prompt).trim(),
         promptEn: normalizeString(record.promptEn).trim() || null,
         finalPrompt: normalizeString(record.finalPrompt).trim() || null,
         images: normalizeMjBatchImageItems(record.images, fallbackAspectRatio),
+        buttons: normalizeMjActionButtons(record.buttons),
+        properties: normalizeStructuredRecord(record.properties),
+        state: normalizeMjStateValue(record.state),
         submitTime: Number.isFinite(record.submitTime) ? Number(record.submitTime) : null,
         startTime: Number.isFinite(record.startTime) ? Number(record.startTime) : null,
         finishTime: Number.isFinite(record.finishTime) ? Number(record.finishTime) : null,
@@ -1008,6 +1151,9 @@ export function normalizeMjResultNodeData(
 ): MjResultNodeData {
   const batches = normalizeMjResultBatches(data?.batches, DEFAULT_ASPECT_RATIO);
   const activeBatchId = normalizeString(data?.activeBatchId).trim();
+  const nodeRole = normalizeMjResultNodeRole(data?.nodeRole);
+  const sourceNodeId = normalizeString(data?.sourceNodeId).trim() || null;
+  const parentResultNodeId = normalizeString(data?.parentResultNodeId).trim() || null;
   const resolvedActiveBatchId =
     batches.some((batch) => batch.id === activeBatchId)
       ? activeBatchId
@@ -1017,7 +1163,18 @@ export function normalizeMjResultNodeData(
     displayName: normalizeString(data?.displayName).trim() || undefined,
     nodeDescription: normalizeString(data?.nodeDescription).trim() || null,
     semanticColor: data?.semanticColor ?? null,
-    sourceNodeId: normalizeString(data?.sourceNodeId).trim() || null,
+    sourceNodeId,
+    nodeRole,
+    rootSourceNodeId:
+      normalizeString(data?.rootSourceNodeId).trim()
+      || (nodeRole === 'root' ? sourceNodeId : null),
+    parentResultNodeId,
+    parentBatchId: normalizeString(data?.parentBatchId).trim() || null,
+    sourceImageIndex: Number.isFinite(data?.sourceImageIndex)
+      ? Math.max(0, Math.round(Number(data?.sourceImageIndex)))
+      : null,
+    branchKey: normalizeString(data?.branchKey).trim() || null,
+    branchActionLabel: normalizeString(data?.branchActionLabel).trim() || null,
     batches,
     activeBatchId: resolvedActiveBatchId,
     lastError: normalizeString(data?.lastError).trim() || null,

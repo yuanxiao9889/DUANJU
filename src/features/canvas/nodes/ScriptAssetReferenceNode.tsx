@@ -1,6 +1,6 @@
 import { memo, useCallback, useEffect, useMemo, useState } from 'react';
 import { Handle, Position } from '@xyflow/react';
-import { Image as ImageIcon, Link2, MapPin, Package, RefreshCcw, TriangleAlert, User } from 'lucide-react';
+import { Image as ImageIcon, Link2, MapPin, Package, RefreshCcw, Sparkles, TriangleAlert, User } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 
 import { UiLoadingOverlay, UiScrollArea, UiSelect } from '@/components/ui';
@@ -19,6 +19,8 @@ import {
   CANVAS_NODE_TYPES,
   IMAGE_EDIT_NODE_DEFAULT_HEIGHT,
   IMAGE_EDIT_NODE_DEFAULT_WIDTH,
+  MJ_NODE_DEFAULT_HEIGHT,
+  MJ_NODE_DEFAULT_WIDTH,
   SCRIPT_REFERENCE_NODE_DEFAULT_HEIGHT,
   SCRIPT_REFERENCE_NODE_DEFAULT_WIDTH,
   type CanvasNodeType,
@@ -62,7 +64,7 @@ type ScriptAssetReferenceNodeProps<TData extends ScriptAssetReferenceNodeData> =
   height?: number;
 };
 
-type ScriptAssetReferenceDownstreamTarget = 'image' | 'jimengImage';
+type ScriptAssetReferenceDownstreamTarget = 'image' | 'jimengImage' | 'mjImage';
 
 const MIN_NODE_WIDTH = 520;
 const MIN_NODE_HEIGHT = 460;
@@ -81,6 +83,11 @@ const SCRIPT_ASSET_REFERENCE_DOWNSTREAM_TARGETS = {
     type: CANVAS_NODE_TYPES.jimengImage,
     width: JIMENG_IMAGE_NODE_DEFAULT_WIDTH,
     height: JIMENG_IMAGE_NODE_DEFAULT_HEIGHT,
+  },
+  mjImage: {
+    type: CANVAS_NODE_TYPES.mj,
+    width: MJ_NODE_DEFAULT_WIDTH,
+    height: MJ_NODE_DEFAULT_HEIGHT,
   },
 } satisfies Record<
   ScriptAssetReferenceDownstreamTarget,
@@ -530,6 +537,18 @@ function ScriptAssetReferenceNode({
           >
             <ImageIcon className="h-3.5 w-3.5" />
             {t('node.scriptAssetReference.generateImage')}
+          </button>
+          <button
+            type="button"
+            disabled={!selectedAsset}
+            onClick={(event) => {
+              event.stopPropagation();
+              createDownstreamNode('mjImage');
+            }}
+            className="inline-flex items-center gap-1.5 rounded-lg border border-fuchsia-500/30 bg-fuchsia-500/10 px-3 py-1.5 text-xs font-medium text-fuchsia-200 disabled:opacity-60"
+          >
+            <Sparkles className="h-3.5 w-3.5" />
+            {t('node.scriptAssetReference.generateMidjourneyImage')}
           </button>
           <button
             type="button"
