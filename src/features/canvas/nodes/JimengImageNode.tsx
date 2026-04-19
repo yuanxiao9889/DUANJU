@@ -1586,6 +1586,7 @@ export const JimengImageNode = memo(
               >
                 <CameraTriggerIcon
                   active={isCameraParamsApplied}
+                  variant="photo"
                   className={`h-4 w-4 origin-center scale-[1.24] ${
                     isCameraParamsApplied ? "text-emerald-300" : "text-text-dark"
                   }`}

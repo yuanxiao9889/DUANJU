@@ -2121,6 +2121,7 @@ export const SeedanceNode = memo(
                 >
                   <CameraTriggerIcon
                     active={isShotParamsPanelOpen}
+                    variant="video"
                     className="h-4 w-4 origin-center scale-[1.18]"
                   />
                 </UiChipButton>

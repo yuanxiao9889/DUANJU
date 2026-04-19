@@ -3071,10 +3071,11 @@ export const JimengNode = memo(
                   toggleShotParamsPanel(id);
                 }}
               >
-                <CameraTriggerIcon
-                  active={isShotParamsPanelOpen}
-                  className="h-4 w-4 origin-center scale-[1.18]"
-                />
+                  <CameraTriggerIcon
+                    active={isShotParamsPanelOpen}
+                    variant="video"
+                    className="h-4 w-4 origin-center scale-[1.18]"
+                  />
               </UiChipButton>
               <UiChipButton
                 type="button"

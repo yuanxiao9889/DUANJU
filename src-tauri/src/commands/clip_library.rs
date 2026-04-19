@@ -482,6 +482,59 @@ fn copy_file_to_dir(
         .to_string())
 }
 
+fn preferred_file_name_from_path(path: &Path, fallback: &str) -> String {
+    path.file_name()
+        .and_then(|value| value.to_str())
+        .map(|value| sanitize_fs_component(value, fallback))
+        .unwrap_or_else(|| fallback.to_string())
+}
+
+fn build_preview_fallback_name(source_path: &Path, preview_path: &Path) -> String {
+    let preview_stem = source_path
+        .file_stem()
+        .and_then(|value| value.to_str())
+        .map(|value| sanitize_fs_component(&format!("{value}-preview"), "preview"))
+        .unwrap_or_else(|| "preview".to_string());
+    let preview_extension = preview_path
+        .extension()
+        .and_then(|value| value.to_str())
+        .filter(|value| !value.is_empty())
+        .map(|value| format!(".{value}"))
+        .unwrap_or_default();
+
+    format!("{preview_stem}{preview_extension}")
+}
+
+fn copy_optional_preview_to_dir(
+    preview_path: Option<&str>,
+    source_path: &Path,
+    target_dir: &Path,
+) -> Result<Option<String>, String> {
+    let Some(preview_path) = preview_path
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    else {
+        return Ok(None);
+    };
+    let Some(resolved_preview_path) = resolve_local_path(preview_path) else {
+        return Ok(None);
+    };
+    if !resolved_preview_path.exists() {
+        return Ok(None);
+    }
+
+    let fallback_name = build_preview_fallback_name(source_path, &resolved_preview_path);
+    let preferred_name = preferred_file_name_from_path(&resolved_preview_path, &fallback_name);
+    let copied_file_name = copy_file_to_dir(&resolved_preview_path, target_dir, &preferred_name)?;
+
+    Ok(Some(
+        target_dir
+            .join(copied_file_name)
+            .to_string_lossy()
+            .to_string(),
+    ))
+}
+
 fn move_file_to_dir(
     source_path: &Path,
     target_dir: &Path,
@@ -510,6 +563,45 @@ fn move_file_to_dir(
         .and_then(|value| value.to_str())
         .unwrap_or(preferred_name)
         .to_string())
+}
+
+fn sync_optional_preview_path_to_dir(
+    preview_path: Option<&str>,
+    source_path: &Path,
+    target_dir: &Path,
+) -> Result<Option<String>, String> {
+    let Some(preview_path) = preview_path
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    else {
+        return Ok(None);
+    };
+    let Some(resolved_preview_path) = resolve_local_path(preview_path) else {
+        return Ok(Some(preview_path.to_string()));
+    };
+
+    let fallback_name = build_preview_fallback_name(source_path, &resolved_preview_path);
+    let preferred_name = preferred_file_name_from_path(&resolved_preview_path, &fallback_name);
+    let target_path = target_dir.join(&preferred_name);
+    if resolved_preview_path == target_path {
+        return Ok(Some(target_path.to_string_lossy().to_string()));
+    }
+
+    if resolved_preview_path.exists() {
+        let moved_file_name = move_file_to_dir(&resolved_preview_path, target_dir, &preferred_name)?;
+        return Ok(Some(
+            target_dir
+                .join(moved_file_name)
+                .to_string_lossy()
+                .to_string(),
+        ));
+    }
+
+    if target_path.exists() {
+        return Ok(Some(target_path.to_string_lossy().to_string()));
+    }
+
+    Ok(Some(preview_path.to_string()))
 }
 
 fn normalize_path_for_prefix_match(path: &Path) -> String {
@@ -1485,15 +1577,27 @@ fn reconcile_library_files(tx: &Transaction<'_>, library_id: &str) -> Result<(),
             item.source_path.clone()
         };
 
-        if next_source_path != item.source_path {
-            let next_file_name = Path::new(&next_source_path)
-                .file_name()
-                .and_then(|value| value.to_str())
-                .unwrap_or(&item.file_name)
-                .to_string();
+        let next_file_name = Path::new(&next_source_path)
+            .file_name()
+            .and_then(|value| value.to_str())
+            .unwrap_or(&item.file_name)
+            .to_string();
+        let next_preview_path = sync_optional_preview_path_to_dir(
+            item.preview_path.as_deref(),
+            Path::new(&next_source_path),
+            target_dir,
+        )?;
+
+        if next_source_path != item.source_path || next_preview_path != item.preview_path {
             tx.execute(
-                "UPDATE clip_items SET source_path = ?1, file_name = ?2, updated_at = ?3 WHERE id = ?4",
-                params![next_source_path, next_file_name, current_timestamp_ms(), item.id],
+                "UPDATE clip_items SET source_path = ?1, file_name = ?2, preview_path = ?3, updated_at = ?4 WHERE id = ?5",
+                params![
+                    next_source_path,
+                    next_file_name,
+                    next_preview_path,
+                    current_timestamp_ms(),
+                    item.id
+                ],
             )
             .map_err(|e| format!("Failed to update clip item path after layout sync: {}", e))?;
         }
@@ -2158,8 +2262,13 @@ pub fn get_clip_library_snapshot(
     app: AppHandle,
     library_id: String,
 ) -> Result<ClipLibrarySnapshot, String> {
-    let conn = open_db(&app)?;
-    let snapshot = build_clip_library_snapshot(&conn, library_id.trim())?;
+    let mut conn = open_db(&app)?;
+    let tx = conn
+        .transaction()
+        .map_err(|e| format!("Failed to begin clip library snapshot transaction: {}", e))?;
+    let snapshot = finalize_layout(&tx, library_id.trim())?;
+    tx.commit()
+        .map_err(|e| format!("Failed to commit clip library snapshot transaction: {}", e))?;
     allow_clip_library_asset_scope(&app, &snapshot.library.root_path)?;
     Ok(snapshot)
 }
@@ -2777,6 +2886,8 @@ pub fn add_node_media_to_clip_library(
         .unwrap_or_else(|| DEFAULT_ITEM_NAME.to_string());
     let copied_file_name = copy_file_to_dir(&source_path, &target_dir, &preferred_file_name)?;
     let copied_path = target_dir.join(&copied_file_name);
+    let copied_preview_path =
+        copy_optional_preview_to_dir(media.preview_path.as_deref(), &source_path, &target_dir)?;
 
     let tx = conn
         .transaction()
@@ -2817,7 +2928,7 @@ pub fn add_node_media_to_clip_library(
             media.description_text,
             copied_file_name,
             copied_path.to_string_lossy().to_string(),
-            media.preview_path,
+            copied_preview_path,
             media.duration_ms,
             media.mime_type,
             media.node_id,
@@ -2913,6 +3024,11 @@ pub fn rename_clip_item(
     } else {
         (item.file_name.clone(), item.source_path.clone())
     };
+    let next_preview_path = sync_optional_preview_path_to_dir(
+        item.preview_path.as_deref(),
+        Path::new(&next_source_path),
+        &target_dir,
+    )?;
 
     tx.execute(
         r#"
@@ -2920,13 +3036,15 @@ pub fn rename_clip_item(
         SET name = ?1,
             file_name = ?2,
             source_path = ?3,
-            updated_at = ?4
-        WHERE id = ?5
+            preview_path = ?4,
+            updated_at = ?5
+        WHERE id = ?6
         "#,
         params![
             next_name,
             next_file_name,
             next_source_path,
+            next_preview_path,
             current_timestamp_ms(),
             item.id
         ],
@@ -2977,13 +3095,19 @@ pub fn move_clip_item(
     } else {
         (item.file_name.clone(), item.source_path.clone())
     };
+    let next_preview_path = sync_optional_preview_path_to_dir(
+        item.preview_path.as_deref(),
+        Path::new(&next_source_path),
+        &target_dir,
+    )?;
 
     tx.execute(
-        "UPDATE clip_items SET folder_id = ?1, file_name = ?2, source_path = ?3, updated_at = ?4 WHERE id = ?5",
+        "UPDATE clip_items SET folder_id = ?1, file_name = ?2, source_path = ?3, preview_path = ?4, updated_at = ?5 WHERE id = ?6",
         params![
             target_folder.id,
             next_file_name,
             next_source_path,
+            next_preview_path,
             current_timestamp_ms(),
             item.id
         ],
@@ -3176,11 +3300,21 @@ pub fn get_clip_delete_impact(
 #[cfg(test)]
 mod tests {
     use super::{
-        build_numbered_display_name, extract_description_text, extract_project_node_media,
-        media_override_to_record, normalize_required_name, pad_code, sanitize_fs_component,
+        build_numbered_display_name, copy_optional_preview_to_dir, extract_description_text,
+        extract_project_node_media, media_override_to_record, normalize_required_name, pad_code,
+        sanitize_fs_component, sync_optional_preview_path_to_dir,
         AddNodeMediaToClipLibraryMediaOverride,
     };
+    use std::{env, fs};
+    use std::path::PathBuf;
     use serde_json::json;
+    use uuid::Uuid;
+
+    fn create_temp_test_dir(label: &str) -> PathBuf {
+        let path = env::temp_dir().join(format!("storyboard-copilot-{label}-{}", Uuid::new_v4()));
+        fs::create_dir_all(&path).expect("temp test dir should be created");
+        path
+    }
 
     #[test]
     fn pad_code_expands_after_double_digits() {
@@ -3288,5 +3422,59 @@ mod tests {
         assert_eq!(media.media_type, "video");
         assert_eq!(media.source_path, r"C:\Users\Tester\Videos\override.mp4");
         assert_eq!(media.duration_ms, Some(3200));
+    }
+
+    #[test]
+    fn copy_optional_preview_to_dir_copies_preview_into_library_folder() {
+        let source_dir = create_temp_test_dir("copy-preview-source");
+        let target_dir = create_temp_test_dir("copy-preview-target");
+        let source_path = source_dir.join("clip.mp4");
+        let preview_path = source_dir.join("clip-preview.png");
+        let preview_path_value = preview_path.to_string_lossy().to_string();
+        fs::write(&source_path, b"video").expect("source file should exist");
+        fs::write(&preview_path, b"preview").expect("preview file should exist");
+
+        let copied_preview = copy_optional_preview_to_dir(
+            Some(preview_path_value.as_str()),
+            &source_path,
+            &target_dir,
+        )
+        .expect("preview copy should succeed")
+        .expect("preview path should be returned");
+        let copied_preview_path = PathBuf::from(&copied_preview);
+
+        assert!(copied_preview_path.exists());
+        assert_eq!(copied_preview_path.parent(), Some(target_dir.as_path()));
+        assert!(preview_path.exists());
+
+        let _ = fs::remove_dir_all(&source_dir);
+        let _ = fs::remove_dir_all(&target_dir);
+    }
+
+    #[test]
+    fn sync_optional_preview_path_to_dir_moves_preview_into_target_folder() {
+        let source_dir = create_temp_test_dir("sync-preview-source");
+        let target_dir = create_temp_test_dir("sync-preview-target");
+        let source_path = target_dir.join("clip.mp4");
+        let preview_path = source_dir.join("clip-preview.png");
+        let preview_path_value = preview_path.to_string_lossy().to_string();
+        fs::write(&source_path, b"video").expect("source file should exist");
+        fs::write(&preview_path, b"preview").expect("preview file should exist");
+
+        let synced_preview = sync_optional_preview_path_to_dir(
+            Some(preview_path_value.as_str()),
+            &source_path,
+            &target_dir,
+        )
+        .expect("preview sync should succeed")
+        .expect("preview path should be returned");
+        let synced_preview_path = PathBuf::from(&synced_preview);
+
+        assert!(synced_preview_path.exists());
+        assert_eq!(synced_preview_path.parent(), Some(target_dir.as_path()));
+        assert!(!preview_path.exists());
+
+        let _ = fs::remove_dir_all(&source_dir);
+        let _ = fs::remove_dir_all(&target_dir);
     }
 }
