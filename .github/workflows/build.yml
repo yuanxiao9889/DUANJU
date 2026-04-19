@@ -243,15 +243,17 @@ jobs:
 
       - name: Build bundles (macOS unsigned test)
         if: matrix.platform == 'macos-latest' && steps.mac-mode.outputs.mode == 'unsigned-test'
+        shell: bash
         env:
           CI: true
-          APPLE_CERTIFICATE: ""
-          APPLE_CERTIFICATE_PASSWORD: ""
-          APPLE_SIGNING_IDENTITY: ""
-          APPLE_ID: ""
-          APPLE_PASSWORD: ""
-          APPLE_TEAM_ID: ""
-        run: npx tauri build ${{ matrix.args }}
+        run: |
+          unset APPLE_CERTIFICATE
+          unset APPLE_CERTIFICATE_PASSWORD
+          unset APPLE_SIGNING_IDENTITY
+          unset APPLE_ID
+          unset APPLE_PASSWORD
+          unset APPLE_TEAM_ID
+          npx tauri build ${{ matrix.args }}
 
       - name: Rename unsigned macOS DMG
         if: matrix.platform == 'macos-latest' && steps.mac-mode.outputs.mode == 'unsigned-test'
