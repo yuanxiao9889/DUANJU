@@ -67,17 +67,23 @@ import {
   useCanvasNodeById,
 } from "@/features/canvas/hooks/useCanvasNodeGraph";
 import { CanvasNodeImage } from "@/features/canvas/ui/CanvasNodeImage";
+import { CameraTriggerIcon } from "@/features/canvas/ui/CameraTriggerIcon";
 import {
   NodeHeader,
   NODE_HEADER_FLOATING_POSITION_CLASS,
 } from "@/features/canvas/ui/NodeHeader";
 import { NodeResizeHandle } from "@/features/canvas/ui/NodeResizeHandle";
 import { ReferenceVisualChip } from "@/features/canvas/ui/ReferenceVisualChip";
+import { ShotParamsPanel } from "@/features/canvas/ui/ShotParamsPanel";
 import { NodeStatusBadge } from "@/features/canvas/ui/NodeStatusBadge";
 import {
   NODE_CONTROL_CHIP_CLASS,
   NODE_CONTROL_PRIMARY_BUTTON_CLASS,
 } from "@/features/canvas/ui/nodeControlStyles";
+import {
+  type PromptSelectionRange,
+  insertShotParamToken,
+} from "@/features/canvas/shot-params/shotParamsPrompt";
 import { submitSeedanceVideoTask } from "@/features/seedance/application/seedanceVideoSubmission";
 import {
   SEEDANCE_ASPECT_RATIO_OPTIONS,
@@ -770,6 +776,15 @@ export const SeedanceNode = memo(
     const addNode = useCanvasStore((state) => state.addNode);
     const findNodePosition = useCanvasStore((state) => state.findNodePosition);
     const updateNodeData = useCanvasStore((state) => state.updateNodeData);
+    const isShotParamsPanelOpen = useCanvasStore(
+      (state) => state.activeShotParamsPanelNodeId === id,
+    );
+    const toggleShotParamsPanel = useCanvasStore(
+      (state) => state.toggleShotParamsPanel,
+    );
+    const closeShotParamsPanel = useCanvasStore(
+      (state) => state.closeShotParamsPanel,
+    );
 
     const apiKey = storyboardApiKeys.volcengine?.trim() ?? "";
     const resolvedTitle = useMemo(
@@ -818,6 +833,7 @@ export const SeedanceNode = memo(
     const promptHoverLayerRef = useRef<HTMLDivElement>(null);
     const [promptDraft, setPromptDraft] = useState(() => data.prompt ?? "");
     const promptValueRef = useRef(promptDraft);
+    const lastPromptSelectionRef = useRef<PromptSelectionRange | null>(null);
     const pickerItemRefs = useRef<Array<HTMLButtonElement | null>>([]);
     const [isOptimizingPrompt, setIsOptimizingPrompt] = useState(false);
     const [promptOptimizationError, setPromptOptimizationError] = useState<
@@ -960,6 +976,7 @@ export const SeedanceNode = memo(
     }, [data.isSubmitting, data.lastError, promptOptimizationError, t]);
 
     const modeHintKey = `node.seedance.modeHints.${selectedInputMode}`;
+    const shotParamsTriggerTitle = t("shotParams.trigger");
 
     useEffect(() => {
       updateNodeInternals(id);
@@ -1004,6 +1021,20 @@ export const SeedanceNode = memo(
         );
       },
       [],
+    );
+
+    const rememberPromptSelection = useCallback(
+      (textarea: HTMLTextAreaElement | null) => {
+        if (!textarea) {
+          return;
+        }
+
+        const start = textarea.selectionStart ?? promptValueRef.current.length;
+        const end = textarea.selectionEnd ?? start;
+        lastPromptSelectionRef.current = { start, end };
+        syncPromptTextSelectionState(textarea);
+      },
+      [syncPromptTextSelectionState],
     );
 
     const syncPromptHighlightScroll = useCallback(() => {
@@ -1094,6 +1125,7 @@ export const SeedanceNode = memo(
 
           promptElement.focus();
           promptElement.setSelectionRange(nextCursor, nextCursor);
+          lastPromptSelectionRef.current = { start: nextCursor, end: nextCursor };
           syncPromptHighlightScroll();
           syncPromptTextSelectionState(promptElement);
         });
@@ -1105,6 +1137,43 @@ export const SeedanceNode = memo(
         syncPromptHighlightScroll,
         syncPromptTextSelectionState,
       ],
+    );
+
+    const handleShotParamInsert = useCallback(
+      (value: string) => {
+        const promptElement = promptRef.current;
+        const fallbackCursor = promptValueRef.current.length;
+        const selection =
+          promptElement && document.activeElement === promptElement
+            ? {
+                start: promptElement.selectionStart ?? fallbackCursor,
+                end: promptElement.selectionEnd ?? fallbackCursor,
+              }
+            : lastPromptSelectionRef.current ?? {
+                start: fallbackCursor,
+                end: fallbackCursor,
+              };
+        const { nextText, nextCursor } = insertShotParamToken(
+          promptValueRef.current,
+          selection,
+          value,
+        );
+        handlePromptChange(nextText);
+
+        requestAnimationFrame(() => {
+          const nextPromptElement = promptRef.current;
+          if (!nextPromptElement) {
+            return;
+          }
+
+          nextPromptElement.focus();
+          nextPromptElement.setSelectionRange(nextCursor, nextCursor);
+          lastPromptSelectionRef.current = { start: nextCursor, end: nextCursor };
+          syncPromptHighlightScroll();
+          syncPromptTextSelectionState(nextPromptElement);
+        });
+      },
+      [handlePromptChange, syncPromptHighlightScroll, syncPromptTextSelectionState],
     );
 
     const handleOptimizePrompt = useCallback(async () => {
@@ -1489,6 +1558,7 @@ export const SeedanceNode = memo(
     ]);
 
     const handleGenerate = useCallback(async () => {
+      closeShotParamsPanel();
       const validationError = validateGenerationRequest();
       if (validationError) {
         updateSeedanceNodeData({
@@ -1638,6 +1708,7 @@ export const SeedanceNode = memo(
       addEdge,
       addNode,
       apiKey,
+      closeShotParamsPanel,
       findNodePosition,
       id,
       imageReferences,
@@ -1725,6 +1796,9 @@ export const SeedanceNode = memo(
       },
       [highlightedReferenceSourceNodeId, setHighlightedReferenceSourceNode],
     );
+    const shotParamsButtonClassName = isShotParamsPanelOpen
+      ? `${NODE_CONTROL_CHIP_CLASS} shrink-0 !w-8 !border-accent/55 !bg-accent/15 !px-0 justify-center text-accent shadow-[0_0_0_1px_rgba(59,130,246,0.18)]`
+      : `${NODE_CONTROL_CHIP_CLASS} shrink-0 !w-8 !px-0 justify-center`;
 
     return (
       <div
@@ -1803,7 +1877,7 @@ export const SeedanceNode = memo(
                     value={promptDraft}
                     onChange={(event) => {
                       handlePromptChange(event.target.value);
-                      syncPromptTextSelectionState(event.currentTarget);
+                      rememberPromptSelection(event.currentTarget);
                     }}
                     placeholder={t("node.seedance.promptPlaceholder")}
                     className="ui-scrollbar nodrag nowheel relative z-10 h-full min-h-[148px] w-full resize-none rounded-xl border border-transparent bg-transparent px-3 py-2 text-sm leading-6 text-transparent caret-text-dark outline-none placeholder:text-text-muted/70 focus:border-accent/50 whitespace-pre-wrap break-words selection:bg-accent/30 selection:text-transparent"
@@ -1814,13 +1888,13 @@ export const SeedanceNode = memo(
                       hidePromptReferencePreview();
                     }}
                     onSelect={(event) =>
-                      syncPromptTextSelectionState(event.currentTarget)
+                      rememberPromptSelection(event.currentTarget)
                     }
                     onMouseUp={(event) =>
-                      syncPromptTextSelectionState(event.currentTarget)
+                      rememberPromptSelection(event.currentTarget)
                     }
                     onKeyUp={(event) =>
-                      syncPromptTextSelectionState(event.currentTarget)
+                      rememberPromptSelection(event.currentTarget)
                     }
                     onBlur={() => setIsPromptTextSelectionActive(false)}
                     onKeyDownCapture={handlePromptKeyDown}
@@ -2036,6 +2110,22 @@ export const SeedanceNode = memo(
                 />
                 <UiChipButton
                   type="button"
+                  active={isShotParamsPanelOpen}
+                  className={shotParamsButtonClassName}
+                  aria-label={shotParamsTriggerTitle}
+                  title={shotParamsTriggerTitle}
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    toggleShotParamsPanel(id);
+                  }}
+                >
+                  <CameraTriggerIcon
+                    active={isShotParamsPanelOpen}
+                    className="h-4 w-4 origin-center scale-[1.18]"
+                  />
+                </UiChipButton>
+                <UiChipButton
+                  type="button"
                   active={isOptimizingPrompt}
                   disabled={
                     isOptimizingPrompt || promptDraft.trim().length === 0
@@ -2107,6 +2197,13 @@ export const SeedanceNode = memo(
             {statusInfoText}
           </div>
         </div>
+
+        {isShotParamsPanelOpen ? (
+          <ShotParamsPanel
+            onClose={closeShotParamsPanel}
+            onInsert={(option) => handleShotParamInsert(option.value)}
+          />
+        ) : null}
 
         <Handle
           type="target"

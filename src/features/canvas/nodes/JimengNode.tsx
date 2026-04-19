@@ -60,7 +60,9 @@ import {
 } from "@/features/canvas/ui/NodeHeader";
 import { NodeResizeHandle } from "@/features/canvas/ui/NodeResizeHandle";
 import { CanvasNodeImage } from "@/features/canvas/ui/CanvasNodeImage";
+import { CameraTriggerIcon } from "@/features/canvas/ui/CameraTriggerIcon";
 import { ReferenceVisualChip } from "@/features/canvas/ui/ReferenceVisualChip";
+import { ShotParamsPanel } from "@/features/canvas/ui/ShotParamsPanel";
 import { NodeStatusBadge } from "@/features/canvas/ui/NodeStatusBadge";
 import {
   NODE_CONTROL_CHIP_CLASS,
@@ -68,6 +70,10 @@ import {
   NODE_CONTROL_PRIMARY_BUTTON_CLASS,
 } from "@/features/canvas/ui/nodeControlStyles";
 import { UiButton, UiChipButton, UiSelect } from "@/components/ui";
+import {
+  type PromptSelectionRange,
+  insertShotParamToken,
+} from "@/features/canvas/shot-params/shotParamsPrompt";
 import { useCanvasStore } from "@/stores/canvasStore";
 import { useSettingsStore } from "@/stores/settingsStore";
 import { generateJimengVideos } from "@/features/jimeng/application/jimengVideoSubmission";
@@ -1108,6 +1114,7 @@ export const JimengNode = memo(
     const promptHoverLayerRef = useRef<HTMLDivElement>(null);
     const [promptDraft, setPromptDraft] = useState(() => data.prompt ?? "");
     const promptValueRef = useRef(promptDraft);
+    const lastPromptSelectionRef = useRef<PromptSelectionRange | null>(null);
     const previousOrderedReferenceImagesRef = useRef<string[] | null>(null);
     const pickerItemRefs = useRef<Array<HTMLButtonElement | null>>([]);
     const [showImagePicker, setShowImagePicker] = useState(false);
@@ -1140,6 +1147,15 @@ export const JimengNode = memo(
     const addEdge = useCanvasStore((state) => state.addEdge);
     const deleteEdge = useCanvasStore((state) => state.deleteEdge);
     const findNodePosition = useCanvasStore((state) => state.findNodePosition);
+    const isShotParamsPanelOpen = useCanvasStore(
+      (state) => state.activeShotParamsPanelNodeId === id,
+    );
+    const toggleShotParamsPanel = useCanvasStore(
+      (state) => state.toggleShotParamsPanel,
+    );
+    const closeShotParamsPanel = useCanvasStore(
+      (state) => state.closeShotParamsPanel,
+    );
     const setLastJimengVideoDefaults = useSettingsStore(
       (state) => state.setLastJimengVideoDefaults,
     );
@@ -1325,6 +1341,7 @@ export const JimengNode = memo(
       isFirstLastFrameCountInvalid ||
       hasReferenceVideoTooLong ||
       hasTooManyReferenceVideos;
+    const shotParamsTriggerTitle = t("shotParams.trigger");
     const modelOptions = useMemo(
       () =>
         JIMENG_VIDEO_MODEL_OPTIONS.map((option) => ({
@@ -1493,6 +1510,20 @@ export const JimengNode = memo(
       [],
     );
 
+    const rememberPromptSelection = useCallback(
+      (textarea: HTMLTextAreaElement | null) => {
+        if (!textarea) {
+          return;
+        }
+
+        const start = textarea.selectionStart ?? promptValueRef.current.length;
+        const end = textarea.selectionEnd ?? start;
+        lastPromptSelectionRef.current = { start, end };
+        syncPromptTextSelectionState(textarea);
+      },
+      [syncPromptTextSelectionState],
+    );
+
     const syncPromptHighlightScroll = useCallback(() => {
       if (!promptRef.current || !promptHighlightRef.current) {
         return;
@@ -1591,6 +1622,7 @@ export const JimengNode = memo(
           }
           promptElement.focus();
           promptElement.setSelectionRange(nextCursor, nextCursor);
+          lastPromptSelectionRef.current = { start: nextCursor, end: nextCursor };
           syncPromptHighlightScroll();
           syncPromptTextSelectionState(promptElement);
         });
@@ -1602,6 +1634,43 @@ export const JimengNode = memo(
         syncPromptHighlightScroll,
         syncPromptTextSelectionState,
       ],
+    );
+
+    const handleShotParamInsert = useCallback(
+      (value: string) => {
+        const promptElement = promptRef.current;
+        const fallbackCursor = promptValueRef.current.length;
+        const selection =
+          promptElement && document.activeElement === promptElement
+            ? {
+                start: promptElement.selectionStart ?? fallbackCursor,
+                end: promptElement.selectionEnd ?? fallbackCursor,
+              }
+            : lastPromptSelectionRef.current ?? {
+                start: fallbackCursor,
+                end: fallbackCursor,
+              };
+        const { nextText, nextCursor } = insertShotParamToken(
+          promptValueRef.current,
+          selection,
+          value,
+        );
+        handlePromptChange(nextText);
+
+        requestAnimationFrame(() => {
+          const nextPromptElement = promptRef.current;
+          if (!nextPromptElement) {
+            return;
+          }
+
+          nextPromptElement.focus();
+          nextPromptElement.setSelectionRange(nextCursor, nextCursor);
+          lastPromptSelectionRef.current = { start: nextCursor, end: nextCursor };
+          syncPromptHighlightScroll();
+          syncPromptTextSelectionState(nextPromptElement);
+        });
+      },
+      [handlePromptChange, syncPromptHighlightScroll, syncPromptTextSelectionState],
     );
 
     const handleReferenceSortStart = useCallback(
@@ -2004,6 +2073,7 @@ export const JimengNode = memo(
     ]);
 
     const handleGenerate = useCallback(async () => {
+      closeShotParamsPanel();
       const prompt = promptDraft.trim();
       const startedAt = Date.now();
       let createdResultNodeId: string | null = null;
@@ -2178,6 +2248,7 @@ export const JimengNode = memo(
     }, [
       addEdge,
       addNode,
+      closeShotParamsPanel,
       findNodePosition,
       flushCurrentProjectToDiskSafely,
       hasReferenceVideoTooLong,
@@ -2549,6 +2620,9 @@ export const JimengNode = memo(
         : [cliModeHint, durationSuggestionText, promptOptimizationNotice]
             .filter(Boolean)
             .join(" | "));
+    const shotParamsButtonClassName = isShotParamsPanelOpen
+      ? `${NODE_CONTROL_CHIP_CLASS} shrink-0 !w-8 !border-accent/55 !bg-accent/15 !px-0 justify-center text-accent shadow-[0_0_0_1px_rgba(59,130,246,0.18)]`
+      : `${NODE_CONTROL_CHIP_CLASS} shrink-0 !w-8 !px-0 justify-center`;
     const showBlockingOverlay = Boolean(data.isGenerating || isOptimizingPrompt);
 
     const handleModelChange = useCallback(
@@ -2713,7 +2787,7 @@ export const JimengNode = memo(
                 value={promptDraft}
                 onChange={(event) => {
                   handlePromptChange(event.target.value);
-                  syncPromptTextSelectionState(event.currentTarget);
+                  rememberPromptSelection(event.currentTarget);
                 }}
                 placeholder={t("node.jimeng.promptPlaceholder")}
                 className="ui-scrollbar nodrag nowheel relative z-10 h-full w-full resize-none rounded-xl border border-white/10 bg-black/15 px-3 py-2 text-sm leading-6 text-transparent caret-text-dark outline-none placeholder:text-text-muted/70 focus:border-accent/50 whitespace-pre-wrap break-words selection:bg-accent/30 selection:text-transparent"
@@ -2724,13 +2798,13 @@ export const JimengNode = memo(
                   hidePromptReferencePreview();
                 }}
                 onSelect={(event) =>
-                  syncPromptTextSelectionState(event.currentTarget)
+                  rememberPromptSelection(event.currentTarget)
                 }
                 onMouseUp={(event) =>
-                  syncPromptTextSelectionState(event.currentTarget)
+                  rememberPromptSelection(event.currentTarget)
                 }
                 onKeyUp={(event) =>
-                  syncPromptTextSelectionState(event.currentTarget)
+                  rememberPromptSelection(event.currentTarget)
                 }
                 onBlur={() => setIsPromptTextSelectionActive(false)}
                 onKeyDownCapture={handlePromptKeyDown}
@@ -2988,6 +3062,22 @@ export const JimengNode = memo(
               />
               <UiChipButton
                 type="button"
+                active={isShotParamsPanelOpen}
+                className={shotParamsButtonClassName}
+                aria-label={shotParamsTriggerTitle}
+                title={shotParamsTriggerTitle}
+                onClick={(event) => {
+                  event.stopPropagation();
+                  toggleShotParamsPanel(id);
+                }}
+              >
+                <CameraTriggerIcon
+                  active={isShotParamsPanelOpen}
+                  className="h-4 w-4 origin-center scale-[1.18]"
+                />
+              </UiChipButton>
+              <UiChipButton
+                type="button"
                 className={`${NODE_CONTROL_CHIP_CLASS} shrink-0 !w-8 !px-0 justify-center`}
                 disabled={isOptimizingPrompt}
                 aria-label={t("node.jimeng.optimizePrompt")}
@@ -3049,6 +3139,13 @@ export const JimengNode = memo(
           >
             {statusInfoText}
           </div>
+        ) : null}
+
+        {isShotParamsPanelOpen ? (
+          <ShotParamsPanel
+            onClose={closeShotParamsPanel}
+            onInsert={(option) => handleShotParamInsert(option.value)}
+          />
         ) : null}
 
         <Handle

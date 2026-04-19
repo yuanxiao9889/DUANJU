@@ -1,4 +1,4 @@
-import { Camera } from 'lucide-react';
+import { Video } from 'lucide-react';
 
 interface CameraTriggerIconProps {
   active?: boolean;
@@ -21,11 +21,11 @@ export function CameraTriggerIcon({
           fill="currentColor"
           fillRule="evenodd"
           clipRule="evenodd"
-          d="M4 5.25A2.75 2.75 0 0 0 1.25 8v8A2.75 2.75 0 0 0 4 18.75h16A2.75 2.75 0 0 0 22.75 16V8A2.75 2.75 0 0 0 20 5.25h-3.146a1.25 1.25 0 0 1-.884-.366l-.824-.824A2.75 2.75 0 0 0 13.203 3H10.8a2.75 2.75 0 0 0-1.944.805l-.825.824a1.25 1.25 0 0 1-.884.366H4ZM12 15.5a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7Z"
+          d="M4.5 5.25A2.25 2.25 0 0 0 2.25 7.5v9A2.25 2.25 0 0 0 4.5 18.75h8A2.25 2.25 0 0 0 14.75 16.5v-1.444l4.182 2.51c1.183.71 2.818-.143 2.818-1.523V8.957c0-1.38-1.635-2.233-2.818-1.523l-4.182 2.51V7.5a2.25 2.25 0 0 0-2.25-2.25h-8Z"
         />
       </svg>
     );
   }
 
-  return <Camera className={className} strokeWidth={2.3} />;
+  return <Video className={className} strokeWidth={2.3} />;
 }

@@ -438,6 +438,7 @@ interface CanvasState {
   selectedNodeId: string | null;
   highlightedReferenceSourceNodeId: string | null;
   activeToolDialog: ActiveToolDialog | null;
+  activeShotParamsPanelNodeId: string | null;
   nodeDescriptionPanelOpenById: Record<string, boolean>;
   history: CanvasHistoryState;
   dragHistorySnapshot: CanvasHistorySnapshot | null;
@@ -583,6 +584,9 @@ interface CanvasState {
   deleteEdge: (edgeId: string) => void;
   setSelectedNode: (nodeId: string | null) => void;
   setHighlightedReferenceSourceNode: (nodeId: string | null) => void;
+  openShotParamsPanel: (nodeId: string) => void;
+  closeShotParamsPanel: () => void;
+  toggleShotParamsPanel: (nodeId: string) => void;
   toggleNodeDescriptionPanel: (nodeId: string) => void;
   setNodeDescriptionPanelOpen: (nodeId: string, isOpen: boolean) => void;
 
@@ -2515,6 +2519,18 @@ function resolveSelectedNodeId(selectedNodeId: string | null, nodes: CanvasNode[
   return nodes.some((node) => node.id === selectedNodeId) ? selectedNodeId : null;
 }
 
+function resolveActiveShotParamsPanelNodeId(
+  activeShotParamsPanelNodeId: string | null,
+  nodes: CanvasNode[],
+): string | null {
+  if (!activeShotParamsPanelNodeId) {
+    return null;
+  }
+  return nodes.some((node) => node.id === activeShotParamsPanelNodeId)
+    ? activeShotParamsPanelNodeId
+    : null;
+}
+
 function resolveActiveToolDialog(
   activeToolDialog: ActiveToolDialog | null,
   nodes: CanvasNode[]
@@ -2546,6 +2562,7 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
   selectedNodeId: null,
   highlightedReferenceSourceNodeId: null,
   activeToolDialog: null,
+  activeShotParamsPanelNodeId: null,
   nodeDescriptionPanelOpenById: {},
   history: { past: [], future: [] },
   dragHistorySnapshot: null,
@@ -2664,6 +2681,10 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
         nodes: nextNodes,
         selectedNodeId: resolveSelectedNodeId(state.selectedNodeId, nextNodes),
         activeToolDialog: resolveActiveToolDialog(state.activeToolDialog, nextNodes),
+        activeShotParamsPanelNodeId: resolveActiveShotParamsPanelNodeId(
+          state.activeShotParamsPanelNodeId,
+          nextNodes,
+        ),
         history: nextHistory,
         dragHistorySnapshot: nextDragHistorySnapshot,
       };
@@ -2718,6 +2739,7 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
       selectedNodeId: null,
       highlightedReferenceSourceNodeId: null,
       activeToolDialog: null,
+      activeShotParamsPanelNodeId: null,
       nodeDescriptionPanelOpenById: {},
       history: normalizeHistory(history),
       dragHistorySnapshot: null,
@@ -4498,6 +4520,10 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
           state.activeToolDialog && deleteSet.has(state.activeToolDialog.nodeId)
             ? null
             : state.activeToolDialog,
+        activeShotParamsPanelNodeId:
+          state.activeShotParamsPanelNodeId && deleteSet.has(state.activeShotParamsPanelNodeId)
+            ? null
+            : state.activeShotParamsPanelNodeId,
         history: {
           past: pushSnapshot(state.history.past, createSnapshot(state.nodes, state.edges)),
           future: [],
@@ -5023,6 +5049,21 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
     set({ highlightedReferenceSourceNodeId: nodeId });
   },
 
+  openShotParamsPanel: (nodeId) => {
+    set({ activeShotParamsPanelNodeId: nodeId });
+  },
+
+  closeShotParamsPanel: () => {
+    set({ activeShotParamsPanelNodeId: null });
+  },
+
+  toggleShotParamsPanel: (nodeId) => {
+    set((state) => ({
+      activeShotParamsPanelNodeId:
+        state.activeShotParamsPanelNodeId === nodeId ? null : nodeId,
+    }));
+  },
+
   toggleNodeDescriptionPanel: (nodeId) => {
     set((state) => ({
       nodeDescriptionPanelOpenById: {
@@ -5067,6 +5108,10 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
       edges: appliedSnapshot.edges,
       selectedNodeId: resolveSelectedNodeId(state.selectedNodeId, appliedSnapshot.nodes),
       activeToolDialog: resolveActiveToolDialog(state.activeToolDialog, appliedSnapshot.nodes),
+      activeShotParamsPanelNodeId: resolveActiveShotParamsPanelNodeId(
+        state.activeShotParamsPanelNodeId,
+        appliedSnapshot.nodes,
+      ),
       history: {
         past: nextPast,
         future: pushSnapshot(state.history.future, currentSnapshot),
@@ -5094,6 +5139,10 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
       edges: appliedSnapshot.edges,
       selectedNodeId: resolveSelectedNodeId(state.selectedNodeId, appliedSnapshot.nodes),
       activeToolDialog: resolveActiveToolDialog(state.activeToolDialog, appliedSnapshot.nodes),
+      activeShotParamsPanelNodeId: resolveActiveShotParamsPanelNodeId(
+        state.activeShotParamsPanelNodeId,
+        appliedSnapshot.nodes,
+      ),
       history: {
         past: pushSnapshot(state.history.past, currentSnapshot),
         future: nextFuture,
@@ -5115,6 +5164,7 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
         selectedNodeId: null,
         highlightedReferenceSourceNodeId: null,
         activeToolDialog: null,
+        activeShotParamsPanelNodeId: null,
         nodeDescriptionPanelOpenById: {},
         history: {
           past: pushSnapshot(state.history.past, createSnapshot(state.nodes, state.edges)),

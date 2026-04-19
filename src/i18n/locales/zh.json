@@ -102,6 +102,12 @@
       }
     }
   },
+  "shotParams": {
+    "title": "拍摄参数",
+    "trigger": "拍摄参数",
+    "close": "关闭拍摄参数面板",
+    "previewUnavailable": "无预览图"
+  },
   "cameraHelp": {
     "title": "参数说明",
     "subtitle": "这里先提供常用焦段的画面效果说明，后续可继续补充相机、镜头和光圈的图文示意，不需要重做弹窗结构。",

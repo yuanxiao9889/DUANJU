@@ -103,6 +103,12 @@
       }
     }
   },
+  "shotParams": {
+    "title": "Shot Params",
+    "trigger": "Shot Params",
+    "close": "Close shot params panel",
+    "previewUnavailable": "No preview"
+  },
   "cameraHelp": {
     "title": "Parameter Guide",
     "subtitle": "Use these focal length notes as a quick visual-language guide. The structure is ready for future image and diagram references.",
