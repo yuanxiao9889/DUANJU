@@ -93,6 +93,7 @@ import {
 } from '@/features/midjourney/domain/prompt';
 import { createPendingMjBatch } from '@/features/midjourney/domain/task';
 import { resolveMidjourneyProviderLabel } from '@/features/midjourney/domain/providers';
+import { MjStyleCodeDialog } from '@/features/midjourney/ui/MjStyleCodeDialog';
 import { openSettingsDialog } from '@/features/settings/settingsEvents';
 import { useCanvasStore } from '@/stores/canvasStore';
 import { useSettingsStore } from '@/stores/settingsStore';
@@ -224,6 +225,7 @@ export const MjNode = memo(({ id, data, selected, width }: MjNodeProps) => {
     () => parseMidjourneyAdvancedParams(data.advancedParams ?? '')
   );
   const [isAdvancedParamsOpen, setIsAdvancedParamsOpen] = useState(false);
+  const [isStyleCodeDialogOpen, setIsStyleCodeDialogOpen] = useState(false);
   const [isOptimizingPrompt, setIsOptimizingPrompt] = useState(false);
   const [isTranslatingPrompt, setIsTranslatingPrompt] = useState(false);
   const [promptRewriteError, setPromptRewriteError] = useState<string | null>(null);
@@ -258,6 +260,7 @@ export const MjNode = memo(({ id, data, selected, width }: MjNodeProps) => {
     [syncedReferences]
   );
   const pendingBatchCount = linkedResultNode?.data.batches.filter((batch) => batch.isPolling).length ?? 0;
+  const personalizationCodeCount = data.personalizationCodes?.length ?? 0;
   const isSubmitting = Boolean(data.isSubmitting);
   const isPromptBusy = isSubmitting || isOptimizingPrompt || isTranslatingPrompt;
   const canRewritePrompt = stripMidjourneyParams(promptDraft).length > 0;
@@ -649,6 +652,7 @@ export const MjNode = memo(({ id, data, selected, width }: MjNodeProps) => {
         apiKey,
         prompt,
         references: syncedReferences,
+        personalizationCodes: data.personalizationCodes ?? [],
         aspectRatio:
           (data.aspectRatio ?? MIDJOURNEY_ASPECT_RATIOS[0]) as MidjourneyAspectRatio,
         rawMode: data.rawMode ?? false,
@@ -759,6 +763,7 @@ export const MjNode = memo(({ id, data, selected, width }: MjNodeProps) => {
     apiKey,
     data.advancedParams,
     data.aspectRatio,
+    data.personalizationCodes,
     data.rawMode,
     data.versionPreset,
     findNodePosition,
@@ -927,6 +932,25 @@ export const MjNode = memo(({ id, data, selected, width }: MjNodeProps) => {
             options={versionOptions}
             onChange={(nextValue) => updateNodeData(id, { versionPreset: nextValue })}
           />
+
+          <UiChipButton
+            type="button"
+            active={isStyleCodeDialogOpen || personalizationCodeCount > 0}
+            className={`${NODE_CONTROL_CHIP_CLASS} shrink-0 gap-1 px-2`}
+            aria-label={t('node.midjourney.personalization.button')}
+            title={t('node.midjourney.personalization.button')}
+            onClick={(event) => {
+              event.stopPropagation();
+              setIsStyleCodeDialogOpen(true);
+            }}
+          >
+            <span className="text-[11px] font-semibold uppercase">P</span>
+            {personalizationCodeCount > 0 ? (
+              <span className="rounded-full bg-white/10 px-1.5 py-0.5 text-[10px] leading-none text-text-dark">
+                {personalizationCodeCount}
+              </span>
+            ) : null}
+          </UiChipButton>
 
           <UiChipButton
             type="button"
@@ -1154,6 +1178,15 @@ export const MjNode = memo(({ id, data, selected, width }: MjNodeProps) => {
       <Handle type="target" position={Position.Left} id="target" />
       <Handle type="source" position={Position.Right} id="source" />
       <NodeResizeHandle minWidth={MJ_NODE_MIN_WIDTH} minHeight={MJ_NODE_MIN_HEIGHT} />
+      <MjStyleCodeDialog
+        isOpen={isStyleCodeDialogOpen}
+        selectedCodes={data.personalizationCodes ?? []}
+        onClose={() => setIsStyleCodeDialogOpen(false)}
+        onConfirm={(codes) => {
+          updateNodeData(id, { personalizationCodes: codes });
+          setIsStyleCodeDialogOpen(false);
+        }}
+      />
     </div>
   );
 });

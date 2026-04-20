@@ -3,9 +3,10 @@ import type {
   MidjourneyVersionPreset,
   MjReferenceItem,
 } from '@/features/canvas/domain/canvasNodes';
+import { normalizeMjPersonalizationCodes } from '@/features/midjourney/domain/styleCodePresets';
 
-const RESERVED_ADVANCED_PARAMS = ['ar', 'raw', 'v', 'sref'] as const;
-const RESERVED_PARAM_PATTERN = /(^|\s)--(ar|raw|v|sref)(?=\s|$)/gi;
+const RESERVED_ADVANCED_PARAMS = ['ar', 'raw', 'v', 'sref', 'p'] as const;
+const RESERVED_PARAM_PATTERN = /(^|\s)--(ar|raw|v|sref|p)(?=\s|$)/gi;
 const ADVANCED_PARAM_TOKEN_PATTERN = /"[^"]*"|'[^']*'|\S+/g;
 
 export const MIDJOURNEY_ADVANCED_PARAM_RANGES = {
@@ -33,6 +34,7 @@ export interface MidjourneyPromptBuildOptions {
   versionPreset?: MidjourneyVersionPreset | string | null;
   advancedParams?: string | null;
   styleReferenceUrls?: string[];
+  personalizationCodes?: string[];
 }
 
 export interface MidjourneyPromptValidationResult {
@@ -262,6 +264,9 @@ export function buildMidjourneyFinalPrompt(options: MidjourneyPromptBuildOptions
   const styleReferenceUrls = (options.styleReferenceUrls ?? [])
     .map((item) => item.trim())
     .filter((item) => item.length > 0);
+  const personalizationCodes = normalizeMjPersonalizationCodes(
+    options.personalizationCodes ?? []
+  );
 
   if (options.aspectRatio?.trim()) {
     fragments.push(`--ar ${options.aspectRatio.trim()}`);
@@ -278,6 +283,10 @@ export function buildMidjourneyFinalPrompt(options: MidjourneyPromptBuildOptions
   if (styleReferenceUrls.length > 0) {
     fragments.push(`--sref ${styleReferenceUrls.join(' ')}`);
   }
+
+  personalizationCodes.forEach((code) => {
+    fragments.push(`--p ${code}`);
+  });
 
   const advancedParams = options.advancedParams?.trim() ?? '';
   if (advancedParams) {

@@ -692,6 +692,7 @@ const mjNodeDefinition: CanvasNodeDefinition<MjNodeData> = {
     aspectRatio: MIDJOURNEY_ASPECT_RATIOS[0],
     rawMode: false,
     versionPreset: MIDJOURNEY_VERSION_PRESETS[0],
+    personalizationCodes: [],
     advancedParams: '',
     isSubmitting: false,
     activeTaskId: null,

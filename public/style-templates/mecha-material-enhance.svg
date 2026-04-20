@@ -1,0 +1,39 @@
+<svg width="300" height="400" viewBox="0 0 300 400" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="bg" x1="28" y1="18" x2="264" y2="380" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#0D141F"/>
+      <stop offset="0.48" stop-color="#1A2230"/>
+      <stop offset="1" stop-color="#060A11"/>
+    </linearGradient>
+    <linearGradient id="panelA" x1="84" y1="82" x2="164" y2="318" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#C8D1DA"/>
+      <stop offset="0.45" stop-color="#7B8796"/>
+      <stop offset="1" stop-color="#2A3340"/>
+    </linearGradient>
+    <linearGradient id="panelB" x1="170" y1="76" x2="236" y2="320" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#7C8797"/>
+      <stop offset="0.5" stop-color="#2E3947"/>
+      <stop offset="1" stop-color="#121822"/>
+    </linearGradient>
+    <linearGradient id="highlight" x1="150" y1="78" x2="212" y2="172" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#F8FBFF" stop-opacity="0.98"/>
+      <stop offset="1" stop-color="#F8FBFF" stop-opacity="0"/>
+    </linearGradient>
+  </defs>
+  <rect width="300" height="400" rx="34" fill="url(#bg)"/>
+  <rect x="20" y="20" width="260" height="360" rx="28" fill="#03060A" fill-opacity="0.16" stroke="white" stroke-opacity="0.08"/>
+  <path d="M78 92L144 72L194 104L176 304L106 330L60 282L78 92Z" fill="url(#panelA)"/>
+  <path d="M144 72L226 92L244 286L176 304L194 104L144 72Z" fill="url(#panelB)"/>
+  <path d="M92 118L146 102L182 124L168 278L116 294L82 260L92 118Z" stroke="#EAF2FF" stroke-opacity="0.56" stroke-width="2.5"/>
+  <path d="M146 102L208 118L222 266L168 278L182 124L146 102Z" stroke="#F4F8FF" stroke-opacity="0.34" stroke-width="2.5"/>
+  <path d="M120 144L160 132" stroke="#DDE7F7" stroke-opacity="0.86" stroke-width="4" stroke-linecap="round"/>
+  <path d="M108 184L160 168" stroke="#DDE7F7" stroke-opacity="0.64" stroke-width="4" stroke-linecap="round"/>
+  <path d="M102 226L158 208" stroke="#DDE7F7" stroke-opacity="0.46" stroke-width="4" stroke-linecap="round"/>
+  <path d="M160 132L208 146" stroke="#EDF4FF" stroke-opacity="0.24" stroke-width="3.5" stroke-linecap="round"/>
+  <path d="M160 168L214 184" stroke="#EDF4FF" stroke-opacity="0.22" stroke-width="3.5" stroke-linecap="round"/>
+  <path d="M158 208L218 226" stroke="#EDF4FF" stroke-opacity="0.2" stroke-width="3.5" stroke-linecap="round"/>
+  <path d="M112 92L192 76L214 124L148 108L112 92Z" fill="url(#highlight)"/>
+  <circle cx="184" cy="156" r="6" fill="#A9D7FF" fill-opacity="0.95"/>
+  <circle cx="198" cy="216" r="4.5" fill="#A9D7FF" fill-opacity="0.72"/>
+  <path d="M70 332C106 320 132 314 156 314C182 314 204 320 234 332" stroke="#B6C8DE" stroke-opacity="0.28" stroke-width="3" stroke-linecap="round"/>
+</svg>

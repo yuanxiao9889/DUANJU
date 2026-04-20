@@ -100,15 +100,23 @@ export function updateMjBatchFromTask(
 ): MjResultBatch {
   const phase = normalizeMidjourneyTaskPhase(task.status);
   const normalizedButtons = normalizeMidjourneyButtons(task.buttons);
+  const preservedPrompt = batch.prompt.trim();
+  const resolvedTaskPrompt = task.prompt?.trim() || '';
+  const preservedFinalPrompt = batch.finalPrompt?.trim() || '';
+  const resolvedTaskFinalPrompt = task.finalPrompt?.trim() || '';
+
   return {
     ...batch,
     taskId: task.id,
     action: task.action?.trim() || batch.action || null,
     status: task.status,
     progress: task.progress?.trim() ?? '',
-    prompt: task.prompt?.trim() || batch.prompt,
-    promptEn: task.promptEn?.trim() || batch.promptEn || null,
-    finalPrompt: task.finalPrompt?.trim() || batch.finalPrompt || null,
+    // Keep the locally submitted prompt/final prompt as the source of truth so
+    // provider-side auto translations do not overwrite the user's choice.
+    prompt: preservedPrompt || resolvedTaskPrompt,
+    promptEn: batch.promptEn?.trim() || null,
+    finalPrompt:
+      preservedFinalPrompt || resolvedTaskFinalPrompt || preservedPrompt || resolvedTaskPrompt || null,
     images: images ?? batch.images,
     buttons: normalizedButtons.length > 0 ? normalizedButtons : batch.buttons,
     properties: task.properties ?? batch.properties ?? null,

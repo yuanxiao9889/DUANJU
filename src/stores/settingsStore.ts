@@ -68,8 +68,14 @@ import {
   normalizeMidjourneyProviderEnabledSelection,
   type MidjourneyProviderId,
 } from '@/features/midjourney/domain/providers';
+import {
+  normalizeMjPersonalizationCode,
+  normalizeMjStyleCodePresets,
+  sortMjStyleCodePresets,
+  type MjStyleCodePreset,
+} from '@/features/midjourney/domain/styleCodePresets';
 
-export type { StyleTemplate, StyleTemplateCategory };
+export type { MjStyleCodePreset, StyleTemplate, StyleTemplateCategory };
 
 export type UiRadiusPreset = 'compact' | 'default' | 'large';
 export type ThemeTonePreset = 'neutral' | 'warm' | 'cool';
@@ -132,6 +138,7 @@ interface SettingsState {
   showAlignmentGuides: boolean;
   styleTemplateCategories: StyleTemplateCategory[];
   styleTemplates: StyleTemplate[];
+  mjStyleCodePresets: MjStyleCodePreset[];
   hasInjectedPanoramaStyleTemplate: boolean;
   psIntegrationEnabled: boolean;
   psServerPort: number;
@@ -221,6 +228,15 @@ interface SettingsState {
   ) => void;
   deleteStyleTemplate: (id: string) => void;
   markStyleTemplateUsed: (id: string) => void;
+  addMjStyleCodePreset: (
+    preset: Pick<MjStyleCodePreset, 'name' | 'code' | 'imageUrl'>
+  ) => string;
+  updateMjStyleCodePreset: (
+    id: string,
+    updates: Partial<Pick<MjStyleCodePreset, 'name' | 'code' | 'imageUrl'>>
+  ) => void;
+  deleteMjStyleCodePreset: (id: string) => void;
+  markMjStyleCodePresetUsed: (id: string) => void;
   setPsIntegrationEnabled: (enabled: boolean) => void;
   setPsServerPort: (port: number) => void;
   setPsAutoStartServer: (enabled: boolean) => void;
@@ -240,39 +256,54 @@ function normalizeApiKey(input: string): string {
   return input.trim();
 }
 
-let lastSyncedStyleTemplateImageRefsSignature: string | null = null;
+let lastSyncedSettingsImageRefsSignature: string | null = null;
 
-function collectStyleTemplateImageRefs(templates: StyleTemplate[]): string[] {
+function collectSettingsImageRefs(
+  styleTemplates: StyleTemplate[],
+  mjStyleCodePresets: MjStyleCodePreset[]
+): string[] {
   const refs: string[] = [];
   const seen = new Set<string>();
 
-  for (const template of templates) {
-    const imageUrl = typeof template.imageUrl === 'string' ? template.imageUrl.trim() : '';
+  const appendRef = (candidate: string | null | undefined) => {
+    const imageUrl = typeof candidate === 'string' ? candidate.trim() : '';
     if (!imageUrl || seen.has(imageUrl)) {
-      continue;
+      return;
     }
+
     seen.add(imageUrl);
     refs.push(imageUrl);
+  };
+
+  for (const template of styleTemplates) {
+    appendRef(template.imageUrl);
+  }
+
+  for (const preset of mjStyleCodePresets) {
+    appendRef(preset.imageUrl);
   }
 
   return refs;
 }
 
-function scheduleStyleTemplateImageRefsSync(templates: StyleTemplate[]): void {
+function scheduleSettingsImageRefsSync(
+  styleTemplates: StyleTemplate[],
+  mjStyleCodePresets: MjStyleCodePreset[]
+): void {
   if (!isTauri()) {
     return;
   }
 
-  const refs = collectStyleTemplateImageRefs(templates);
+  const refs = collectSettingsImageRefs(styleTemplates, mjStyleCodePresets);
   const signature = refs.join('\n');
 
-  if (lastSyncedStyleTemplateImageRefsSignature === signature) {
+  if (lastSyncedSettingsImageRefsSignature === signature) {
     return;
   }
 
   void syncStyleTemplateImageRefs(refs)
     .then(() => {
-      lastSyncedStyleTemplateImageRefsSignature = signature;
+      lastSyncedSettingsImageRefsSignature = signature;
     })
     .catch((error) => {
       console.error('failed to sync style template image refs', error);
@@ -492,6 +523,7 @@ export const useSettingsStore = create<SettingsState>()(
         styleTemplates: [],
         hasInjectedPanoramaStyleTemplate: false,
       }).styleTemplates,
+      mjStyleCodePresets: [],
       hasInjectedPanoramaStyleTemplate: true,
       psIntegrationEnabled: true,
       psServerPort: 9527,
@@ -760,7 +792,9 @@ export const useSettingsStore = create<SettingsState>()(
 
         const id = crypto.randomUUID();
         let nextStyleTemplates: StyleTemplate[] = [];
+        let nextMjStyleCodePresets: MjStyleCodePreset[] = [];
         set((state) => {
+          nextMjStyleCodePresets = state.mjStyleCodePresets;
           const now = Date.now();
           const nextSortOrder =
             state.styleTemplates.reduce(
@@ -798,12 +832,14 @@ export const useSettingsStore = create<SettingsState>()(
             styleTemplates: nextStyleTemplates,
           };
         });
-        scheduleStyleTemplateImageRefsSync(nextStyleTemplates);
+        scheduleSettingsImageRefsSync(nextStyleTemplates, nextMjStyleCodePresets);
         return id;
       },
       updateStyleTemplate: (id, updates) => {
         let nextStyleTemplates: StyleTemplate[] = [];
+        let nextMjStyleCodePresets: MjStyleCodePreset[] = [];
         set((state) => {
+          nextMjStyleCodePresets = state.mjStyleCodePresets;
           nextStyleTemplates = sortStyleTemplates(
             state.styleTemplates.map((template) => {
               if (template.id !== id) {
@@ -848,17 +884,19 @@ export const useSettingsStore = create<SettingsState>()(
 
           return { styleTemplates: nextStyleTemplates };
         });
-        scheduleStyleTemplateImageRefsSync(nextStyleTemplates);
+        scheduleSettingsImageRefsSync(nextStyleTemplates, nextMjStyleCodePresets);
       },
       deleteStyleTemplate: (id) => {
         let nextStyleTemplates: StyleTemplate[] = [];
+        let nextMjStyleCodePresets: MjStyleCodePreset[] = [];
         set((state) => {
+          nextMjStyleCodePresets = state.mjStyleCodePresets;
           nextStyleTemplates = state.styleTemplates.filter((t) => t.id !== id);
           return {
             styleTemplates: nextStyleTemplates,
           };
         });
-        scheduleStyleTemplateImageRefsSync(nextStyleTemplates);
+        scheduleSettingsImageRefsSync(nextStyleTemplates, nextMjStyleCodePresets);
       },
       markStyleTemplateUsed: (id) =>
         set((state) => ({
@@ -874,20 +912,161 @@ export const useSettingsStore = create<SettingsState>()(
             )
           ),
         })),
+      addMjStyleCodePreset: (preset) => {
+        const normalizedCode = normalizeMjPersonalizationCode(preset.code);
+        if (!normalizedCode) {
+          return '';
+        }
+
+        let resolvedPresetId = '';
+        let nextStyleTemplates: StyleTemplate[] = [];
+        let nextMjStyleCodePresets: MjStyleCodePreset[] = [];
+        set((state) => {
+          nextStyleTemplates = state.styleTemplates;
+          const existingPreset = state.mjStyleCodePresets.find(
+            (item) => item.code === normalizedCode
+          );
+          if (existingPreset) {
+            resolvedPresetId = existingPreset.id;
+            nextMjStyleCodePresets = state.mjStyleCodePresets;
+            return {};
+          }
+
+          const now = Date.now();
+          resolvedPresetId = crypto.randomUUID();
+          const nextSortOrder =
+            state.mjStyleCodePresets.reduce(
+              (maxOrder, currentPreset) =>
+                Math.max(maxOrder, currentPreset.sortOrder),
+              -1
+            ) + 1;
+          const imageUrl =
+            typeof preset.imageUrl === 'string' && preset.imageUrl.trim().length > 0
+              ? preset.imageUrl.trim()
+              : null;
+          nextMjStyleCodePresets = sortMjStyleCodePresets([
+            ...state.mjStyleCodePresets,
+            {
+              id: resolvedPresetId,
+              name: preset.name.trim() || normalizedCode,
+              code: normalizedCode,
+              imageUrl,
+              sortOrder: nextSortOrder,
+              createdAt: now,
+              updatedAt: now,
+              lastUsedAt: null,
+            },
+          ]);
+
+          return {
+            mjStyleCodePresets: nextMjStyleCodePresets,
+          };
+        });
+
+        if (resolvedPresetId) {
+          scheduleSettingsImageRefsSync(nextStyleTemplates, nextMjStyleCodePresets);
+        }
+        return resolvedPresetId;
+      },
+      updateMjStyleCodePreset: (id, updates) => {
+        let nextStyleTemplates: StyleTemplate[] = [];
+        let nextMjStyleCodePresets: MjStyleCodePreset[] = [];
+        set((state) => {
+          nextStyleTemplates = state.styleTemplates;
+          const usedCodes = new Set(
+            state.mjStyleCodePresets
+              .filter((preset) => preset.id !== id)
+              .map((preset) => preset.code)
+          );
+
+          nextMjStyleCodePresets = sortMjStyleCodePresets(
+            state.mjStyleCodePresets.map((preset) => {
+              if (preset.id !== id) {
+                return preset;
+              }
+
+              const nextCodeCandidate =
+                typeof updates.code === 'string'
+                  ? normalizeMjPersonalizationCode(updates.code)
+                  : preset.code;
+              const nextCode =
+                nextCodeCandidate && !usedCodes.has(nextCodeCandidate)
+                  ? nextCodeCandidate
+                  : preset.code;
+              const nextImageUrl =
+                typeof updates.imageUrl === 'string'
+                  ? updates.imageUrl.trim() || null
+                  : updates.imageUrl === null
+                    ? null
+                    : preset.imageUrl;
+
+              return {
+                ...preset,
+                ...updates,
+                name:
+                  typeof updates.name === 'string'
+                    ? updates.name.trim() || nextCode
+                    : preset.name,
+                code: nextCode,
+                imageUrl: nextImageUrl,
+                updatedAt: Date.now(),
+              };
+            })
+          );
+
+          return {
+            mjStyleCodePresets: nextMjStyleCodePresets,
+          };
+        });
+
+        scheduleSettingsImageRefsSync(nextStyleTemplates, nextMjStyleCodePresets);
+      },
+      deleteMjStyleCodePreset: (id) => {
+        let nextStyleTemplates: StyleTemplate[] = [];
+        let nextMjStyleCodePresets: MjStyleCodePreset[] = [];
+        set((state) => {
+          nextStyleTemplates = state.styleTemplates;
+          nextMjStyleCodePresets = state.mjStyleCodePresets.filter(
+            (preset) => preset.id !== id
+          );
+          return {
+            mjStyleCodePresets: nextMjStyleCodePresets,
+          };
+        });
+
+        scheduleSettingsImageRefsSync(nextStyleTemplates, nextMjStyleCodePresets);
+      },
+      markMjStyleCodePresetUsed: (id) =>
+        set((state) => ({
+          mjStyleCodePresets: sortMjStyleCodePresets(
+            state.mjStyleCodePresets.map((preset) =>
+              preset.id === id
+                ? {
+                    ...preset,
+                    lastUsedAt: Date.now(),
+                    updatedAt: Date.now(),
+                  }
+                : preset
+            )
+          ),
+        })),
       setPsIntegrationEnabled: (enabled) => set({ psIntegrationEnabled: enabled }),
       setPsServerPort: (port) => set({ psServerPort: port }),
       setPsAutoStartServer: (enabled) => set({ psAutoStartServer: enabled }),
     }),
     {
       name: 'settings-storage',
-      version: 33,
+      version: 34,
       onRehydrateStorage: () => {
         return (state, error) => {
           if (error) {
             console.error('failed to hydrate settings storage', error);
           }
           if (state) {
-            scheduleStyleTemplateImageRefsSync(state.styleTemplates);
+            scheduleSettingsImageRefsSync(
+              state.styleTemplates,
+              state.mjStyleCodePresets
+            );
           }
           state?.setIsHydrated(true);
         };
@@ -943,6 +1122,7 @@ export const useSettingsStore = create<SettingsState>()(
           showAlignmentGuides?: boolean;
           styleTemplateCategories?: unknown;
           styleTemplates?: unknown;
+          mjStyleCodePresets?: unknown;
           hasInjectedPanoramaStyleTemplate?: boolean;
         };
 
@@ -1024,6 +1204,9 @@ export const useSettingsStore = create<SettingsState>()(
         const normalizedStyleTemplates = normalizeStyleTemplates(
           state.styleTemplates,
           normalizedStyleTemplateCategoryIds
+        );
+        const normalizedMjStyleCodePresets = normalizeMjStyleCodePresets(
+          state.mjStyleCodePresets
         );
         const seededBuiltinStyleTemplateState = seedBuiltinStyleTemplates({
           styleTemplates: normalizedStyleTemplates,
@@ -1114,6 +1297,7 @@ export const useSettingsStore = create<SettingsState>()(
           showAlignmentGuides: state.showAlignmentGuides ?? true,
           styleTemplateCategories: normalizedStyleTemplateCategories,
           styleTemplates: seededBuiltinStyleTemplateState.styleTemplates,
+          mjStyleCodePresets: normalizedMjStyleCodePresets,
           hasInjectedPanoramaStyleTemplate:
             seededBuiltinStyleTemplateState.hasInjectedPanoramaStyleTemplate,
           psIntegrationEnabled: true,

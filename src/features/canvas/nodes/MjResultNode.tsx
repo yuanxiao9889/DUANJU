@@ -1296,6 +1296,9 @@ export const MjResultNode = memo(
       };
     }, [clearScheduledPoll]);
 
+    const visibleLastError =
+      pendingBatchCount > 0 && !pendingBatchMissingProviderKey ? null : data.lastError;
+
     const headerStatus = useMemo(() => {
       if (pendingBatchMissingProviderKey) {
         return (
@@ -1325,13 +1328,13 @@ export const MjResultNode = memo(
         );
       }
 
-      if (data.lastError) {
+      if (visibleLastError) {
         return (
           <NodeStatusBadge
             icon={<TriangleAlert className="h-3 w-3" />}
             label={t('nodeStatus.error')}
             tone="danger"
-            title={data.lastError}
+            title={visibleLastError}
           />
         );
       }
@@ -1351,11 +1354,11 @@ export const MjResultNode = memo(
       return null;
     }, [
       batchSections.length,
-      data.lastError,
       i18n.language,
       pendingBatchCount,
       pendingBatchMissingProviderKey,
       t,
+      visibleLastError,
     ]);
 
     const statusText = useMemo(() => {
@@ -1368,12 +1371,12 @@ export const MjResultNode = memo(
         });
       }
 
-      if (data.lastError) {
-        return data.lastError;
-      }
-
       if (pendingBatchCount > 0) {
         return t('node.midjourney.result.statusPolling');
+      }
+
+      if (visibleLastError) {
+        return visibleLastError;
       }
 
       if (batchSections.length === 0) {
@@ -1390,11 +1393,11 @@ export const MjResultNode = memo(
     }, [
       activeBatch,
       batchSections.length,
-      data.lastError,
       i18n.language,
       pendingBatchCount,
       pendingBatchMissingProviderKey,
       t,
+      visibleLastError,
     ]);
 
     const nodeDescription =
@@ -1897,7 +1900,7 @@ export const MjResultNode = memo(
         >
           <div
             className={`min-w-0 flex-1 truncate text-[11px] ${
-              data.lastError ? 'text-rose-300' : 'text-text-muted'
+              visibleLastError ? 'text-rose-300' : 'text-text-muted'
             }`}
             title={statusText}
           >

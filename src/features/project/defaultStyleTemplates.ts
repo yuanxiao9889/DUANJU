@@ -33,33 +33,40 @@ interface BuiltinStyleTemplateDefinition {
   categoryId: string | null;
 }
 
+const BUILTIN_STYLE_TEMPLATE_IMAGE_PATHS = {
+  panorama360: './style-templates/panorama-360.svg',
+  cinematicAtmosphere: './style-templates/cinematic-atmosphere.svg',
+  characterThreeView: './style-templates/character-three-view.svg',
+  mechaMaterialEnhance: './style-templates/mecha-material-enhance.svg',
+} as const;
+
 const BUILTIN_STYLE_TEMPLATE_DEFINITIONS: readonly BuiltinStyleTemplateDefinition[] = [
   {
     id: PANORAMA_STYLE_TEMPLATE_ID,
     name: PANORAMA_STYLE_TEMPLATE_NAME,
     prompt: PANORAMA_STYLE_TEMPLATE_PROMPT,
-    imageUrl: null,
+    imageUrl: BUILTIN_STYLE_TEMPLATE_IMAGE_PATHS.panorama360,
     categoryId: null,
   },
   {
     id: CINEMATIC_ATMOSPHERE_STYLE_TEMPLATE_ID,
     name: CINEMATIC_ATMOSPHERE_STYLE_TEMPLATE_NAME,
     prompt: CINEMATIC_ATMOSPHERE_STYLE_TEMPLATE_PROMPT,
-    imageUrl: null,
+    imageUrl: BUILTIN_STYLE_TEMPLATE_IMAGE_PATHS.cinematicAtmosphere,
     categoryId: null,
   },
   {
     id: CHARACTER_THREE_VIEW_STYLE_TEMPLATE_ID,
     name: CHARACTER_THREE_VIEW_STYLE_TEMPLATE_NAME,
     prompt: CHARACTER_THREE_VIEW_STYLE_TEMPLATE_PROMPT,
-    imageUrl: null,
+    imageUrl: BUILTIN_STYLE_TEMPLATE_IMAGE_PATHS.characterThreeView,
     categoryId: null,
   },
   {
     id: MECHA_MATERIAL_STYLE_TEMPLATE_ID,
     name: MECHA_MATERIAL_STYLE_TEMPLATE_NAME,
     prompt: MECHA_MATERIAL_STYLE_TEMPLATE_PROMPT,
-    imageUrl: null,
+    imageUrl: BUILTIN_STYLE_TEMPLATE_IMAGE_PATHS.mechaMaterialEnhance,
     categoryId: null,
   },
 ];

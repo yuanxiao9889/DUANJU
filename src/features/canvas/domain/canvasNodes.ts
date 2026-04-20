@@ -4,6 +4,7 @@ import {
   normalizeMidjourneyProviderId,
   type MidjourneyProviderId,
 } from '@/features/midjourney/domain/providers';
+import { normalizeMjPersonalizationCodes } from '@/features/midjourney/domain/styleCodePresets';
 
 export const CANVAS_NODE_TYPES = {
   upload: 'uploadNode',
@@ -641,6 +642,7 @@ export interface MjNodeData extends NodeDisplayData {
   aspectRatio?: MidjourneyAspectRatio;
   rawMode?: boolean;
   versionPreset?: MidjourneyVersionPreset;
+  personalizationCodes: string[];
   advancedParams?: string;
   isSubmitting?: boolean;
   activeTaskId?: string | null;
@@ -1149,6 +1151,7 @@ export function normalizeMjNodeData(
     aspectRatio: normalizeMidjourneyAspectRatioValue(data?.aspectRatio),
     rawMode: normalizeBooleanValue(data?.rawMode),
     versionPreset: normalizeMidjourneyVersionPresetValue(data?.versionPreset),
+    personalizationCodes: normalizeMjPersonalizationCodes(data?.personalizationCodes),
     advancedParams: normalizeString(data?.advancedParams).trim(),
     isSubmitting: normalizeBooleanValue(data?.isSubmitting),
     activeTaskId: normalizeString(data?.activeTaskId).trim() || null,

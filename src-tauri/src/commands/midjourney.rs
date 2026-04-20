@@ -83,6 +83,8 @@ pub struct SubmitMidjourneyImaginePayload {
     pub reference_images: Vec<String>,
     #[serde(default)]
     pub style_reference_images: Vec<String>,
+    #[serde(default)]
+    pub personalization_codes: Vec<String>,
     pub aspect_ratio: Option<String>,
     pub raw_mode: Option<bool>,
     pub version_preset: Option<String>,
@@ -870,17 +872,45 @@ fn to_reqwest_status_code(status_code: u16) -> reqwest::StatusCode {
 }
 
 fn validate_advanced_params(advanced_params: &str) -> Result<(), String> {
-    let lowered = advanced_params.to_ascii_lowercase();
-    for reserved in ["--ar", "--raw", "--v", "--sref"] {
-        if lowered.contains(reserved) {
-            return Err(format!(
-                "advanced_params must not include reserved option {}",
-                reserved
-            ));
+    for token in advanced_params.split_whitespace() {
+        let lowered = token.trim().to_ascii_lowercase();
+        for reserved in ["ar", "raw", "v", "sref", "p"] {
+            let reserved_flag = format!("--{reserved}");
+            if lowered == reserved_flag || lowered.starts_with(&format!("{reserved_flag}=")) {
+                return Err(format!(
+                    "advanced_params must not include reserved option {}",
+                    reserved_flag
+                ));
+            }
         }
     }
 
     Ok(())
+}
+
+fn normalize_personalization_code(value: &str) -> String {
+    value
+        .replace("\r\n", " ")
+        .replace('\n', " ")
+        .split_whitespace()
+        .filter(|token| !token.eq_ignore_ascii_case("--p"))
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+fn normalize_personalization_codes(personalization_codes: &[String]) -> Vec<String> {
+    let mut normalized_codes: Vec<String> = Vec::new();
+
+    for value in personalization_codes {
+        let normalized = normalize_personalization_code(value);
+        if normalized.is_empty() || normalized_codes.iter().any(|item| item == &normalized) {
+            continue;
+        }
+
+        normalized_codes.push(normalized);
+    }
+
+    normalized_codes
 }
 
 fn build_final_prompt(
@@ -890,6 +920,7 @@ fn build_final_prompt(
     raw_mode: bool,
     version_preset: Option<&str>,
     style_reference_urls: &[String],
+    personalization_codes: &[String],
     advanced_params: Option<&str>,
 ) -> String {
     let mut prompt_fragments: Vec<String> = reference_image_urls
@@ -922,6 +953,9 @@ fn build_final_prompt(
     if !style_reference_urls.is_empty() {
         fragments.push(format!("--sref {}", style_reference_urls.join(" ")));
     }
+    for code in normalize_personalization_codes(personalization_codes) {
+        fragments.push(format!("--p {code}"));
+    }
     if let Some(value) = advanced_params
         .map(str::trim)
         .filter(|value| !value.is_empty())
@@ -929,7 +963,11 @@ fn build_final_prompt(
         fragments.push(value.to_string());
     }
 
-    fragments.join(" ")
+    fragments
+        .into_iter()
+        .filter(|value| !value.trim().is_empty())
+        .collect::<Vec<_>>()
+        .join(" ")
 }
 
 fn extract_uploaded_midjourney_image_urls(payload: &Value) -> Vec<String> {
@@ -1342,6 +1380,7 @@ pub async fn submit_midjourney_imagine(
         payload.raw_mode.unwrap_or(false),
         payload.version_preset.as_deref(),
         &style_reference_urls,
+        &payload.personalization_codes,
         payload.advanced_params.as_deref(),
     );
     let request_body = json!({

@@ -26,12 +26,14 @@ import {
   validateMidjourneyAdvancedParams,
 } from '@/features/midjourney/domain/prompt';
 import type { MidjourneyProviderId } from '@/features/midjourney/domain/providers';
+import { normalizeMjPersonalizationCodes } from '@/features/midjourney/domain/styleCodePresets';
 
 export interface SubmitMidjourneyImagineInput {
   providerId: MidjourneyProviderId;
   apiKey: string;
   prompt: string;
   references: MjReferenceItem[];
+  personalizationCodes?: string[];
   aspectRatio?: MidjourneyAspectRatio | string | null;
   rawMode?: boolean;
   versionPreset?: MidjourneyVersionPreset | string | null;
@@ -83,12 +85,16 @@ export async function submitMidjourneyImagineTask(
   const { referenceImages, styleReferenceImages } = partitionMjReferences(
     input.references
   );
+  const personalizationCodes = normalizeMjPersonalizationCodes(
+    input.personalizationCodes ?? []
+  );
   const response = await submitMidjourneyImagine({
     providerId: input.providerId,
     apiKey,
     prompt,
     referenceImages,
     styleReferenceImages,
+    personalizationCodes,
     aspectRatio: input.aspectRatio ?? undefined,
     rawMode: input.rawMode ?? false,
     versionPreset: input.versionPreset ?? undefined,
@@ -105,6 +111,7 @@ export async function submitMidjourneyImagineTask(
         aspectRatio: input.aspectRatio,
         rawMode: input.rawMode,
         versionPreset: input.versionPreset,
+        personalizationCodes,
         advancedParams: input.advancedParams,
       }),
     state: response.state ?? null,

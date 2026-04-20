@@ -7,6 +7,7 @@ export interface SubmitMidjourneyImaginePayload {
   prompt: string;
   referenceImages?: string[];
   styleReferenceImages?: string[];
+  personalizationCodes?: string[];
   aspectRatio?: string;
   rawMode?: boolean;
   versionPreset?: string;
@@ -95,6 +96,7 @@ export async function submitMidjourneyImagine(
       prompt: payload.prompt,
       reference_images: payload.referenceImages ?? [],
       style_reference_images: payload.styleReferenceImages ?? [],
+      personalization_codes: payload.personalizationCodes ?? [],
       aspect_ratio: payload.aspectRatio ?? null,
       raw_mode: payload.rawMode ?? false,
       version_preset: payload.versionPreset ?? null,
