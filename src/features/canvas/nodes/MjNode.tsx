@@ -239,7 +239,10 @@ export const MjNode = memo(({ id, data, selected, width }: MjNodeProps) => {
     MJ_NODE_MIN_WIDTH,
     Math.round(width ?? MJ_NODE_DEFAULT_WIDTH)
   );
-  const explicitHeight = resolveNodeStyleDimension(currentNode?.style?.height);
+  const explicitHeight =
+    typeof currentNode?.height === 'number' && Number.isFinite(currentNode.height)
+      ? currentNode.height
+      : resolveNodeStyleDimension(currentNode?.style?.height);
   const hasExplicitHeight =
     typeof explicitHeight === 'number'
     && Math.abs(explicitHeight - MJ_NODE_DEFAULT_HEIGHT) > 1;
@@ -251,13 +254,6 @@ export const MjNode = memo(({ id, data, selected, width }: MjNodeProps) => {
   const syncedReferences = useMemo(
     () => buildSyncedMjReferences(connectedReferenceImages, data.references ?? []),
     [connectedReferenceImages, data.references]
-  );
-  const optimizationReferenceImages = useMemo(
-    () =>
-      syncedReferences
-        .filter((reference) => reference.role === 'reference')
-        .map((reference) => reference.imageUrl),
-    [syncedReferences]
   );
   const pendingBatchCount = linkedResultNode?.data.batches.filter((batch) => batch.isPolling).length ?? 0;
   const personalizationCodeCount = data.personalizationCodes?.length ?? 0;
@@ -415,7 +411,6 @@ export const MjNode = memo(({ id, data, selected, width }: MjNodeProps) => {
     try {
       const result = await optimizeMidjourneyPrompt({
         prompt: sourcePrompt,
-        referenceImages: optimizationReferenceImages,
       });
       if (promptDraftRef.current !== sourcePrompt) {
         return;
@@ -436,7 +431,6 @@ export const MjNode = memo(({ id, data, selected, width }: MjNodeProps) => {
     applyPromptRewrite,
     id,
     isPromptBusy,
-    optimizationReferenceImages,
     t,
     updateNodeData,
   ]);

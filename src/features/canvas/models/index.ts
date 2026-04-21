@@ -5,3 +5,4 @@ export * from './scriptProviders';
 export * from './storyboardProviders';
 export * from './storyboardCompatible';
 export * from './storyboardNewApi';
+export * from './storyboardApi2Ok';

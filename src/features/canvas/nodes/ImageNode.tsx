@@ -27,6 +27,7 @@ import {
   resolveImageDisplayUrl,
 } from '@/features/canvas/application/imageData';
 import { resolveNodeDisplayName } from '@/features/canvas/domain/nodeDisplay';
+import { getModelProvider } from '@/features/canvas/models';
 import { NodeHeader, NODE_HEADER_FLOATING_POSITION_CLASS } from '@/features/canvas/ui/NodeHeader';
 import { NodeResizeHandle } from '@/features/canvas/ui/NodeResizeHandle';
 import { CanvasNodeImage } from '@/features/canvas/ui/CanvasNodeImage';
@@ -81,6 +82,10 @@ export const ImageNode = memo(({ id, data, selected, type, width }: ImageNodePro
     isExportResultNode && !isGenerating && !hasPersistedImage && generationError.length > 0;
   const canManualRefresh =
     isExportResultNode && !hasPersistedImage && generationJobId.length > 0;
+  const generationProviderId =
+    typeof (data as { generationProviderId?: unknown }).generationProviderId === 'string'
+      ? ((data as { generationProviderId?: string }).generationProviderId ?? '').trim()
+      : '';
   const generationStartedAt =
     typeof data.generationStartedAt === 'number' ? data.generationStartedAt : null;
   const resolvedAspectRatio = data.aspectRatio || DEFAULT_ASPECT_RATIO;
@@ -112,6 +117,19 @@ export const ImageNode = memo(({ id, data, selected, type, width }: ImageNodePro
     () => resolveNodeDisplayName(type as CanvasNodeType, data),
     [data, type]
   );
+  const resolutionProviderName = useMemo(() => {
+    if (!isExportResultNode || !generationProviderId || generationProviderId === 'jimeng') {
+      return null;
+    }
+
+    const provider = getModelProvider(generationProviderId);
+    if (provider.id === 'unknown') {
+      return null;
+    }
+
+    const normalizedName = provider.name.trim() || provider.label.trim();
+    return normalizedName.length > 0 ? normalizedName : null;
+  }, [generationProviderId, isExportResultNode]);
   const dimensionSource = data.imageUrl ?? data.previewImageUrl ?? null;
 
   useEffect(() => {
@@ -327,7 +345,11 @@ export const ImageNode = memo(({ id, data, selected, type, width }: ImageNodePro
             <span className="sr-only">{t('common.loading')}</span>
           </div>
         )}
-        <ImageResolutionBadge width={imageWidth} height={imageHeight} />
+        <ImageResolutionBadge
+          width={imageWidth}
+          height={imageHeight}
+          providerName={resolutionProviderName}
+        />
       </div>
       <NodeDescriptionPanel
         isOpen={isDescriptionPanelOpen}

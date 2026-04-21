@@ -13,6 +13,8 @@ function normalizeText(value: unknown): string {
   return typeof value === 'string' ? value.trim() : '';
 }
 
+const MJ_PERSONALIZATION_CODE_INPUT_SPLIT_PATTERN = /[\n,，]+/;
+
 export function normalizeMjPersonalizationCode(
   value: string | null | undefined
 ): string {
@@ -21,6 +23,27 @@ export function normalizeMjPersonalizationCode(
     .replace(/(^|\s)--p(?=\s|$)/gi, ' ')
     .replace(/\s+/g, ' ')
     .trim();
+}
+
+export function parseMjPersonalizationCodeInput(
+  value: string | null | undefined
+): string[] {
+  const normalizedInput = (value ?? '')
+    .replace(/\r\n?/g, '\n')
+    .replace(/(^|\s)--p(?=\s|$)/gi, '\n');
+
+  return normalizeMjPersonalizationCodes(
+    normalizedInput
+      .split(MJ_PERSONALIZATION_CODE_INPUT_SPLIT_PATTERN)
+      .map((item) => item.trim())
+      .filter((item) => item.length > 0)
+  );
+}
+
+export function formatMjPersonalizationCodeInput(
+  value: string[] | null | undefined
+): string {
+  return normalizeMjPersonalizationCodes(value ?? []).join(', ');
 }
 
 export function normalizeMjPersonalizationCodes(value: unknown): string[] {

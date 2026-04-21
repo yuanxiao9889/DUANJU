@@ -61,13 +61,16 @@ import {
 import {
   DEFAULT_IMAGE_MODEL_ID,
   getStoryboardImageModel,
+  isStoryboardApi2OkModelId,
   isStoryboardCompatibleModelId,
   isStoryboardNewApiModelId,
   listStoryboardImageModels,
+  resolveStoryboardApi2OkModelConfigForModel,
   resolveImageModelResolution,
   resolveImageModelResolutions,
   resolveStoryboardCompatibleModelConfigForModel,
   resolveStoryboardNewApiModelConfigForModel,
+  toStoryboardApi2OkExtraParamsPayload,
   toStoryboardCompatibleExtraParamsPayload,
   toStoryboardNewApiExtraParamsPayload,
 } from '@/features/canvas/models';
@@ -559,6 +562,9 @@ export const StoryboardGenNode = memo(({ id, data, selected, width, height }: St
   const storyboardCompatibleModelConfig = useSettingsStore(
     (state) => state.storyboardCompatibleModelConfig
   );
+  const storyboardApi2OkModelConfig = useSettingsStore(
+    (state) => state.storyboardApi2OkModelConfig
+  );
   const storyboardNewApiModelConfig = useSettingsStore(
     (state) => state.storyboardNewApiModelConfig
   );
@@ -631,11 +637,13 @@ export const StoryboardGenNode = memo(({ id, data, selected, width, height }: St
     () => listStoryboardImageModels(
       storyboardCompatibleModelConfig,
       storyboardNewApiModelConfig,
+      storyboardApi2OkModelConfig,
       storyboardProviderCustomModels
     ),
     [
       storyboardCompatibleModelConfig,
       storyboardNewApiModelConfig,
+      storyboardApi2OkModelConfig,
       storyboardProviderCustomModels,
     ]
   );
@@ -646,12 +654,14 @@ export const StoryboardGenNode = memo(({ id, data, selected, width, height }: St
       modelId,
       storyboardCompatibleModelConfig,
       storyboardNewApiModelConfig,
+      storyboardApi2OkModelConfig,
       storyboardProviderCustomModels
     );
   }, [
     nodeData.model,
     storyboardCompatibleModelConfig,
     storyboardNewApiModelConfig,
+    storyboardApi2OkModelConfig,
     storyboardProviderCustomModels,
   ]);
   const resolvedCompatibleModelConfig = useMemo(
@@ -684,6 +694,21 @@ export const StoryboardGenNode = memo(({ id, data, selected, width, height }: St
       storyboardProviderCustomModels,
     ]
   );
+  const resolvedApi2OkModelConfig = useMemo(
+    () =>
+      isStoryboardApi2OkModelId(selectedModel.id)
+        ? resolveStoryboardApi2OkModelConfigForModel(
+          selectedModel.id,
+          storyboardApi2OkModelConfig,
+          storyboardProviderCustomModels
+        )
+        : storyboardApi2OkModelConfig,
+    [
+      selectedModel.id,
+      storyboardApi2OkModelConfig,
+      storyboardProviderCustomModels,
+    ]
+  );
   const providerApiKey = storyboardApiKeys[selectedModel.providerId] ?? '';
   const effectiveExtraParams = useMemo(
     () => ({
@@ -703,11 +728,18 @@ export const StoryboardGenNode = memo(({ id, data, selected, width, height }: St
               resolvedNewApiModelConfig
             ),
           }
+        : isStoryboardApi2OkModelId(selectedModel.id)
+          ? {
+            api2ok_config: toStoryboardApi2OkExtraParamsPayload(
+              resolvedApi2OkModelConfig
+            ),
+          }
         : {}),
     }),
     [
       hrsaiNanoBananaProModel,
       nodeData.extraParams,
+      resolvedApi2OkModelConfig,
       resolvedCompatibleModelConfig,
       resolvedNewApiModelConfig,
       selectedModel.id,
@@ -812,10 +844,13 @@ export const StoryboardGenNode = memo(({ id, data, selected, width, height }: St
         ? resolvedCompatibleModelConfig.requestModel
         : isStoryboardNewApiModelId(selectedModel.id)
           ? resolvedNewApiModelConfig.requestModel
+        : isStoryboardApi2OkModelId(selectedModel.id)
+          ? resolvedApi2OkModelConfig.requestModel
         : requestResolution.requestModel,
     [
       requestResolution.requestModel,
       selectedModel.id,
+      resolvedApi2OkModelConfig.requestModel,
       resolvedCompatibleModelConfig.requestModel,
       resolvedNewApiModelConfig.requestModel,
     ]

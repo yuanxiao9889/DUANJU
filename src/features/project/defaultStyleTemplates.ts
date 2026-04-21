@@ -34,10 +34,10 @@ interface BuiltinStyleTemplateDefinition {
 }
 
 const BUILTIN_STYLE_TEMPLATE_IMAGE_PATHS = {
-  panorama360: './style-templates/panorama-360.svg',
-  cinematicAtmosphere: './style-templates/cinematic-atmosphere.svg',
-  characterThreeView: './style-templates/character-three-view.svg',
-  mechaMaterialEnhance: './style-templates/mecha-material-enhance.svg',
+  panorama360: '/style-templates/panorama-360.jpg',
+  cinematicAtmosphere: '/style-templates/cinematic-atmosphere.jpg',
+  characterThreeView: '/style-templates/character-three-view.jpg',
+  mechaMaterialEnhance: '/style-templates/mecha-material-enhance.jpg',
 } as const;
 
 const BUILTIN_STYLE_TEMPLATE_DEFINITIONS: readonly BuiltinStyleTemplateDefinition[] = [
@@ -91,6 +91,28 @@ function normalizeTemplateImageUrl(imageUrl: string | null | undefined): string 
   return trimmedImageUrl.length > 0 ? trimmedImageUrl : null;
 }
 
+function resolveBuiltinTemplateImageUrl(
+  builtinTemplate: BuiltinStyleTemplateDefinition,
+  matchedTemplate: StyleTemplate | null
+): string | null {
+  const matchedImageUrl = normalizeTemplateImageUrl(matchedTemplate?.imageUrl);
+  if (!matchedImageUrl) {
+    return normalizeTemplateImageUrl(builtinTemplate.imageUrl);
+  }
+
+  // Upgrade previously persisted bundled SVG placeholders to the current
+  // bundled raster previews while still preserving real user-local images.
+  if (
+    matchedImageUrl.startsWith('/style-templates/')
+    || matchedImageUrl.startsWith('./style-templates/')
+    || matchedImageUrl.startsWith('style-templates/')
+  ) {
+    return normalizeTemplateImageUrl(builtinTemplate.imageUrl);
+  }
+
+  return matchedImageUrl;
+}
+
 function getBuiltinStyleTemplateMatchScore(
   template: StyleTemplate,
   builtinTemplate: BuiltinStyleTemplateDefinition
@@ -139,19 +161,16 @@ function findBuiltinStyleTemplateMatch(
 function createBuiltinStyleTemplate(
   builtinTemplate: BuiltinStyleTemplateDefinition,
   matchedTemplate: StyleTemplate | null,
-  fallbackSortOrder: number,
-  now: number
+  fallbackSortOrder: number
 ): StyleTemplate {
-  const createdAt = matchedTemplate?.createdAt ?? now + fallbackSortOrder;
+  const createdAt = matchedTemplate?.createdAt ?? fallbackSortOrder;
   const updatedAt = matchedTemplate?.updatedAt ?? createdAt;
 
   return {
     id: builtinTemplate.id,
     name: matchedTemplate?.name.trim() || builtinTemplate.name,
     prompt: matchedTemplate?.prompt.trim() || builtinTemplate.prompt,
-    imageUrl: normalizeTemplateImageUrl(
-      matchedTemplate?.imageUrl ?? builtinTemplate.imageUrl
-    ),
+    imageUrl: resolveBuiltinTemplateImageUrl(builtinTemplate, matchedTemplate),
     categoryId: matchedTemplate?.categoryId ?? builtinTemplate.categoryId,
     sortOrder: matchedTemplate?.sortOrder ?? fallbackSortOrder,
     createdAt,
@@ -163,7 +182,6 @@ function createBuiltinStyleTemplate(
 export function seedBuiltinStyleTemplates(
   input: BuiltinStyleTemplateSeedInput
 ): BuiltinStyleTemplateSeedResult {
-  const now = input.now ?? Date.now();
   const consumedTemplateIds = new Set<string>();
 
   const builtinTemplates = BUILTIN_STYLE_TEMPLATE_DEFINITIONS.map(
@@ -181,8 +199,7 @@ export function seedBuiltinStyleTemplates(
       return createBuiltinStyleTemplate(
         builtinTemplate,
         matchedTemplate,
-        index,
-        now
+        index
       );
     }
   );

@@ -38,6 +38,10 @@ import {
   resolveImageDisplayUrl,
 } from '@/features/canvas/application/imageData';
 import { optimizeCanvasPrompt } from '@/features/canvas/application/promptOptimization';
+import {
+  buildSequentialPromptReferenceImageCandidates,
+  resolvePromptReferenceImageBindings,
+} from '@/features/canvas/application/promptReferenceImageBindings';
 import { resolveMinEdgeFittedSize } from '@/features/canvas/application/imageNodeSizing';
 import { appendCameraParamsToPrompt } from '@/features/canvas/camera/cameraPrompt';
 import {
@@ -68,13 +72,16 @@ import {
 import {
   DEFAULT_IMAGE_MODEL_ID,
   getImageModel,
+  isStoryboardApi2OkModelId,
   isStoryboardCompatibleModelId,
   isStoryboardNewApiModelId,
   listImageModels,
+  resolveStoryboardApi2OkModelConfigForModel,
   resolveImageModelResolution,
   resolveImageModelResolutions,
   resolveStoryboardCompatibleModelConfigForModel,
   resolveStoryboardNewApiModelConfigForModel,
+  toStoryboardApi2OkExtraParamsPayload,
   toStoryboardCompatibleExtraParamsPayload,
   toStoryboardNewApiExtraParamsPayload,
 } from '@/features/canvas/models';
@@ -392,6 +399,9 @@ export const ImageEditNode = memo(({ id, data, selected, width, height }: ImageE
   const storyboardCompatibleModelConfig = useSettingsStore(
     (state) => state.storyboardCompatibleModelConfig
   );
+  const storyboardApi2OkModelConfig = useSettingsStore(
+    (state) => state.storyboardApi2OkModelConfig
+  );
   const storyboardNewApiModelConfig = useSettingsStore(
     (state) => state.storyboardNewApiModelConfig
   );
@@ -412,9 +422,15 @@ export const ImageEditNode = memo(({ id, data, selected, width, height }: ImageE
     () => listImageModels(
       storyboardCompatibleModelConfig,
       storyboardNewApiModelConfig,
+      storyboardApi2OkModelConfig,
       storyboardProviderCustomModels
     ),
-    [storyboardCompatibleModelConfig, storyboardNewApiModelConfig, storyboardProviderCustomModels]
+    [
+      storyboardCompatibleModelConfig,
+      storyboardNewApiModelConfig,
+      storyboardApi2OkModelConfig,
+      storyboardProviderCustomModels,
+    ]
   );
 
   const selectedModel = useMemo(() => {
@@ -423,12 +439,14 @@ export const ImageEditNode = memo(({ id, data, selected, width, height }: ImageE
       modelId,
       storyboardCompatibleModelConfig,
       storyboardNewApiModelConfig,
+      storyboardApi2OkModelConfig,
       storyboardProviderCustomModels
     );
   }, [
     data.model,
     storyboardCompatibleModelConfig,
     storyboardNewApiModelConfig,
+    storyboardApi2OkModelConfig,
     storyboardProviderCustomModels,
   ]);
   const resolvedCompatibleModelConfig = useMemo(
@@ -458,6 +476,21 @@ export const ImageEditNode = memo(({ id, data, selected, width, height }: ImageE
     [
       selectedModel.id,
       storyboardNewApiModelConfig,
+      storyboardProviderCustomModels,
+    ]
+  );
+  const resolvedApi2OkModelConfig = useMemo(
+    () =>
+      isStoryboardApi2OkModelId(selectedModel.id)
+        ? resolveStoryboardApi2OkModelConfigForModel(
+          selectedModel.id,
+          storyboardApi2OkModelConfig,
+          storyboardProviderCustomModels
+        )
+        : storyboardApi2OkModelConfig,
+    [
+      selectedModel.id,
+      storyboardApi2OkModelConfig,
       storyboardProviderCustomModels,
     ]
   );
@@ -520,11 +553,18 @@ export const ImageEditNode = memo(({ id, data, selected, width, height }: ImageE
               resolvedNewApiModelConfig
             ),
           }
+        : isStoryboardApi2OkModelId(selectedModel.id)
+          ? {
+            api2ok_config: toStoryboardApi2OkExtraParamsPayload(
+              resolvedApi2OkModelConfig
+            ),
+          }
         : {}),
     }),
     [
       data.extraParams,
       hrsaiNanoBananaProModel,
+      resolvedApi2OkModelConfig,
       resolvedCompatibleModelConfig,
       resolvedNewApiModelConfig,
       selectedModel.id,
@@ -564,9 +604,12 @@ export const ImageEditNode = memo(({ id, data, selected, width, height }: ImageE
         ? resolvedCompatibleModelConfig.requestModel
         : isStoryboardNewApiModelId(selectedModel.id)
           ? resolvedNewApiModelConfig.requestModel
+        : isStoryboardApi2OkModelId(selectedModel.id)
+          ? resolvedApi2OkModelConfig.requestModel
         : requestResolution.requestModel,
     [
       requestResolution.requestModel,
+      resolvedApi2OkModelConfig.requestModel,
       resolvedCompatibleModelConfig.requestModel,
       resolvedNewApiModelConfig.requestModel,
       selectedModel.id,
@@ -828,10 +871,15 @@ export const ImageEditNode = memo(({ id, data, selected, width, height }: ImageE
         currentPrompt,
         requestReferenceImages
       );
+      const optimizationReferenceImageBindings = resolvePromptReferenceImageBindings(
+        currentPrompt,
+        buildSequentialPromptReferenceImageCandidates(requestReferenceImages)
+      );
       const result = await optimizeCanvasPrompt({
         mode: 'image',
         prompt: currentPrompt,
         referenceImages: optimizationReferenceImages,
+        referenceImageBindings: optimizationReferenceImageBindings,
         maxPromptLength: optimizedPromptMaxLength,
       });
       if (promptDraftRef.current !== sourcePrompt) {
@@ -840,7 +888,7 @@ export const ImageEditNode = memo(({ id, data, selected, width, height }: ImageE
       const nextPrompt = result.prompt;
       setLastPromptOptimizationMeta({
         modelLabel: [result.context.provider, result.context.model].filter(Boolean).join(' / '),
-        referenceImageCount: result.usedReferenceImages ? optimizationReferenceImages.length : 0,
+        referenceImageCount: result.usedReferenceImageCount,
       });
       if (nextPrompt !== sourcePrompt) {
         setLastPromptOptimizationUndoState({
@@ -1206,6 +1254,7 @@ export const ImageEditNode = memo(({ id, data, selected, width, height }: ImageE
       modelId,
       storyboardCompatibleModelConfig,
       storyboardNewApiModelConfig,
+      storyboardApi2OkModelConfig,
       storyboardProviderCustomModels
     );
     const nextExtraParams = {
@@ -1242,6 +1291,7 @@ export const ImageEditNode = memo(({ id, data, selected, width, height }: ImageE
     setLastImageEditDefaults,
     storyboardCompatibleModelConfig,
     storyboardNewApiModelConfig,
+    storyboardApi2OkModelConfig,
     storyboardProviderCustomModels,
     updateNodeData,
   ]);

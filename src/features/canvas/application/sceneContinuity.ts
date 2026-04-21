@@ -129,7 +129,7 @@ function summarizeDraftText(draftHtml: string): string {
   return truncateText(draftText, 180);
 }
 
-function resolveSceneContinuityMemory(scene: SceneCard): SceneContinuityReference {
+export function resolveSceneContinuityMemory(scene: SceneCard): SceneContinuityReference {
   const facts = dedupeLines(scene.continuityFacts ?? [], 8);
   const openLoops = dedupeLines(scene.continuityOpenLoops ?? [], 6);
   const summary = normalizeWhitespace(
@@ -155,6 +155,35 @@ function resolveSceneContinuityMemory(scene: SceneCard): SceneContinuityReferenc
     facts: facts.length > 0 ? facts : fallbackFacts,
     openLoops,
   };
+}
+
+export function hasSceneContinuityMemory(
+  scene: Pick<SceneCard, 'continuitySummary' | 'continuityFacts' | 'continuityOpenLoops'>
+): boolean {
+  return Boolean(
+    normalizeWhitespace(scene.continuitySummary).length > 0
+    || dedupeLines(scene.continuityFacts ?? [], 1).length > 0
+    || dedupeLines(scene.continuityOpenLoops ?? [], 1).length > 0
+  );
+}
+
+export function needsSceneContinuityMemoryRefresh(
+  scene: Pick<
+    SceneCard,
+    'draftHtml' | 'sourceDraftHtml' | 'continuitySummary' | 'continuityFacts' | 'continuityOpenLoops' | 'continuityUpdatedAt'
+  >
+): boolean {
+  const draftText = normalizeWhitespace(htmlToPlainText(scene.draftHtml));
+  if (!draftText) {
+    return false;
+  }
+
+  if (!hasSceneContinuityMemory(scene) || !Number.isFinite(scene.continuityUpdatedAt)) {
+    return true;
+  }
+
+  const sourceDraftText = normalizeWhitespace(htmlToPlainText(scene.sourceDraftHtml ?? ''));
+  return Boolean(sourceDraftText) && sourceDraftText !== draftText;
 }
 
 function buildSceneSearchText(scene: SceneCard): string {

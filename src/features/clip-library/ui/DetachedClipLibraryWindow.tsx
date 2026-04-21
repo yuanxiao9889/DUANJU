@@ -37,6 +37,7 @@ import {
   UiButton,
   UiInput,
   UiLoadingAnimation,
+  UiModal,
   UiPanel,
   UiSelect,
   TextPromptDialog,
@@ -94,6 +95,12 @@ interface TextPromptState {
   label: string;
   initialValue?: string;
   onConfirm: (value: string) => Promise<void>;
+}
+
+interface DeleteConfirmState {
+  summary: string;
+  impact: string;
+  onConfirm: () => Promise<void>;
 }
 
 const EMPTY_PROJECT_CONTEXT: ClipLibraryPanelProjectContext = {
@@ -344,6 +351,8 @@ export function DetachedClipLibraryWindow() {
   const [detailVideoFallbackUrl, setDetailVideoFallbackUrl] = useState<string | null>(null);
   const [isPreparingDetailVideo, setIsPreparingDetailVideo] = useState(false);
   const [textPromptState, setTextPromptState] = useState<TextPromptState | null>(null);
+  const [deleteConfirmState, setDeleteConfirmState] = useState<DeleteConfirmState | null>(null);
+  const [isDeleteSubmitting, setIsDeleteSubmitting] = useState(false);
 
   const pendingFocusTargetRef = useRef<ClipLibraryPanelFocusTarget | null>(null);
   const restoredLibraryIdRef = useRef<string | null>(null);
@@ -1284,46 +1293,66 @@ export function DetachedClipLibraryWindow() {
 
   const handleDeleteSelectedNode = useCallback(async () => {
     if (selectedChapter) {
+      const chapterId = selectedChapter.id;
+      const chapterName = selectedChapter.name;
+      const nextSelectedKey = currentSnapshot ? rootTreeKey(currentSnapshot.library.id) : null;
       try {
-        const impact = await getDeleteImpact({ chapterId: selectedChapter.id });
-        const confirmed = window.confirm(
-          `${t('clipLibrary.actions.deleteChapterConfirm', { name: selectedChapter.name })}\n\n${t('clipLibrary.deleteImpact', {
+        const impact = await getDeleteImpact({ chapterId });
+        setDeleteConfirmState({
+          summary: t('clipLibrary.actions.deleteChapterConfirm', { name: chapterName }),
+          impact: t('clipLibrary.deleteImpact', {
             projects: impact.projectCount,
             nodes: impact.nodeCount,
             folders: impact.folderCount,
             items: impact.itemCount,
-          })}`
-        );
-        if (!confirmed) {
-          return;
-        }
-        await deleteChapter(selectedChapter.id);
-        setSelectedKey(currentSnapshot ? rootTreeKey(currentSnapshot.library.id) : null);
+          }),
+          onConfirm: async () => {
+            try {
+              await deleteChapter(chapterId);
+              setSelectedKey(nextSelectedKey);
+              setSelectedItemId(null);
+            } catch (error) {
+              console.error('Failed to delete clip chapter', error);
+              window.alert(t('clipLibrary.actions.deleteChapterFailed'));
+              throw error;
+            }
+          },
+        });
       } catch (error) {
-        console.error('Failed to delete clip chapter', error);
+        console.error('Failed to prepare clip chapter deletion', error);
         window.alert(t('clipLibrary.actions.deleteChapterFailed'));
       }
       return;
     }
 
     if (selectedFolder) {
+      const folderId = selectedFolder.id;
+      const folderName = selectedFolder.fsName;
+      const nextSelectedKey = currentSnapshot ? rootTreeKey(currentSnapshot.library.id) : null;
       try {
-        const impact = await getDeleteImpact({ folderId: selectedFolder.id });
-        const confirmed = window.confirm(
-          `${t('clipLibrary.actions.deleteFolderConfirm', { name: selectedFolder.fsName })}\n\n${t('clipLibrary.deleteImpact', {
+        const impact = await getDeleteImpact({ folderId });
+        setDeleteConfirmState({
+          summary: t('clipLibrary.actions.deleteFolderConfirm', { name: folderName }),
+          impact: t('clipLibrary.deleteImpact', {
             projects: impact.projectCount,
             nodes: impact.nodeCount,
             folders: impact.folderCount,
             items: impact.itemCount,
-          })}`
-        );
-        if (!confirmed) {
-          return;
-        }
-        await deleteFolder(selectedFolder.id);
-        setSelectedKey(currentSnapshot ? rootTreeKey(currentSnapshot.library.id) : null);
+          }),
+          onConfirm: async () => {
+            try {
+              await deleteFolder(folderId);
+              setSelectedKey(nextSelectedKey);
+              setSelectedItemId(null);
+            } catch (error) {
+              console.error('Failed to delete clip folder', error);
+              window.alert(t('clipLibrary.actions.deleteFolderFailed'));
+              throw error;
+            }
+          },
+        });
       } catch (error) {
-        console.error('Failed to delete clip folder', error);
+        console.error('Failed to prepare clip folder deletion', error);
         window.alert(t('clipLibrary.actions.deleteFolderFailed'));
       }
     }
@@ -1356,25 +1385,48 @@ export function DetachedClipLibraryWindow() {
     if (!selectedItem) {
       return;
     }
+    const itemId = selectedItem.id;
+    const itemName = selectedItem.name;
     try {
-      const impact = await getDeleteImpact({ itemId: selectedItem.id });
-      const confirmed = window.confirm(
-        `${t('clipLibrary.actions.deleteItemConfirm', { name: selectedItem.name })}\n\n${t('clipLibrary.deleteImpact', {
+      const impact = await getDeleteImpact({ itemId });
+      setDeleteConfirmState({
+        summary: t('clipLibrary.actions.deleteItemConfirm', { name: itemName }),
+        impact: t('clipLibrary.deleteImpact', {
           projects: impact.projectCount,
           nodes: impact.nodeCount,
           folders: impact.folderCount,
           items: impact.itemCount,
-        })}`
-      );
-      if (!confirmed) {
-        return;
-      }
-      await deleteItem(selectedItem.id);
+        }),
+        onConfirm: async () => {
+          try {
+            await deleteItem(itemId);
+            setSelectedItemId(null);
+          } catch (error) {
+            console.error('Failed to delete clip item', error);
+            window.alert(t('clipLibrary.actions.deleteItemFailed'));
+            throw error;
+          }
+        },
+      });
     } catch (error) {
-      console.error('Failed to delete clip item', error);
+      console.error('Failed to prepare clip item deletion', error);
       window.alert(t('clipLibrary.actions.deleteItemFailed'));
     }
   }, [deleteItem, getDeleteImpact, selectedItem, t]);
+
+  const handleConfirmDelete = useCallback(async () => {
+    if (!deleteConfirmState || isDeleteSubmitting) {
+      return;
+    }
+
+    setIsDeleteSubmitting(true);
+    try {
+      await deleteConfirmState.onConfirm();
+      setDeleteConfirmState(null);
+    } finally {
+      setIsDeleteSubmitting(false);
+    }
+  }, [deleteConfirmState, isDeleteSubmitting]);
 
   const handleSaveDescription = useCallback(async () => {
     if (!selectedItem || isSavingDescription) {
@@ -2021,6 +2073,50 @@ export function DetachedClipLibraryWindow() {
           await textPromptState.onConfirm(value);
         }}
       />
+      <UiModal
+        isOpen={Boolean(deleteConfirmState)}
+        title={t('common.delete')}
+        onClose={() => {
+          if (isDeleteSubmitting) {
+            return;
+          }
+          setDeleteConfirmState(null);
+        }}
+        widthClassName="w-[460px]"
+        footer={(
+          <>
+            <UiButton
+              type="button"
+              variant="ghost"
+              onClick={() => setDeleteConfirmState(null)}
+              disabled={isDeleteSubmitting}
+            >
+              {t('common.cancel')}
+            </UiButton>
+            <UiButton
+              type="button"
+              variant="primary"
+              className="gap-2 bg-red-500 text-white hover:bg-red-600"
+              onClick={() => void handleConfirmDelete()}
+              disabled={isDeleteSubmitting}
+            >
+              {isDeleteSubmitting ? <UiLoadingAnimation size="xs" /> : null}
+              {t('common.delete')}
+            </UiButton>
+          </>
+        )}
+      >
+        <div className="space-y-3">
+          <div className="rounded-2xl border border-red-500/20 bg-red-500/[0.08] p-4">
+            <div className="text-sm font-medium text-text-dark">
+              {deleteConfirmState?.summary}
+            </div>
+            <div className="mt-2 text-xs leading-6 text-text-muted">
+              {deleteConfirmState?.impact}
+            </div>
+          </div>
+        </div>
+      </UiModal>
     </div>
   );
 }

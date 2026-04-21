@@ -52,6 +52,10 @@ import {
 } from "@/features/canvas/hooks/useCanvasNodeGraph";
 import { resolveImageDisplayUrl } from "@/features/canvas/application/imageData";
 import { optimizeCanvasPrompt } from "@/features/canvas/application/promptOptimization";
+import {
+  buildSequentialPromptReferenceImageCandidates,
+  resolvePromptReferenceImageBindings,
+} from "@/features/canvas/application/promptReferenceImageBindings";
 import { flushCurrentProjectToDiskSafely } from "@/features/canvas/application/projectPersistence";
 import {
   buildShortReferenceToken,
@@ -762,10 +766,15 @@ export const JimengImageNode = memo(
           incomingImages,
           modelSupportsReferenceImages,
         );
+        const optimizationReferenceImageBindings = resolvePromptReferenceImageBindings(
+          currentPrompt,
+          buildSequentialPromptReferenceImageCandidates(incomingImages),
+        );
         const result = await optimizeCanvasPrompt({
           mode: "image",
           prompt: currentPrompt,
           referenceImages: optimizationReferenceImages,
+          referenceImageBindings: optimizationReferenceImageBindings,
           maxPromptLength: optimizedPromptMaxLength,
         });
         if (promptValueRef.current !== sourcePrompt) {
@@ -777,9 +786,7 @@ export const JimengImageNode = memo(
           modelLabel: [result.context.provider, result.context.model]
             .filter(Boolean)
             .join(" / "),
-          referenceImageCount: result.usedReferenceImages
-            ? optimizationReferenceImages.length
-            : 0,
+          referenceImageCount: result.usedReferenceImageCount,
         });
         if (nextPrompt !== sourcePrompt) {
           setLastPromptOptimizationUndoState({

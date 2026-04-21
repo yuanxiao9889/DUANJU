@@ -41,6 +41,10 @@ import { resolveImageDisplayUrl } from "@/features/canvas/application/imageData"
 import { flushCurrentProjectToDiskSafely } from "@/features/canvas/application/projectPersistence";
 import { optimizeCanvasPrompt } from "@/features/canvas/application/promptOptimization";
 import {
+  resolvePromptReferenceImageBindings,
+  type PromptReferenceImageCandidate,
+} from "@/features/canvas/application/promptReferenceImageBindings";
+import {
   buildShortReferenceToken,
   insertReferenceToken,
   removeTextRange,
@@ -1192,12 +1196,37 @@ export const SeedanceNode = memo(
       updateSeedanceNodeData({ lastError: null });
 
       try {
+        const optimizationReferenceImageBindings =
+          resolvePromptReferenceImageBindings(
+            currentPrompt,
+            referenceVisualItems
+              .map((item, index) => {
+                if (item.kind !== "image") {
+                  return null;
+                }
+
+                const imageUrl =
+                  item.previewImageUrl?.trim() ?? item.referenceUrl.trim();
+                if (!imageUrl) {
+                  return null;
+                }
+
+                return {
+                  referenceNumber: index + 1,
+                  imageUrl,
+                } satisfies PromptReferenceImageCandidate;
+              })
+              .filter(
+                (item): item is PromptReferenceImageCandidate => Boolean(item),
+              ),
+          );
         const result = await optimizeCanvasPrompt({
           mode: "video",
           prompt: currentPrompt,
           referenceImages: referenceVisualItems
             .map((item) => item.previewImageUrl ?? item.referenceUrl)
             .filter((item): item is string => Boolean(item)),
+          referenceImageBindings: optimizationReferenceImageBindings,
         });
         if (promptValueRef.current !== sourcePrompt) {
           return;
@@ -1208,9 +1237,7 @@ export const SeedanceNode = memo(
           modelLabel: [result.context.provider, result.context.model]
             .filter(Boolean)
             .join(" / "),
-          referenceImageCount: result.usedReferenceImages
-            ? referenceVisualItems.length
-            : 0,
+          referenceImageCount: result.usedReferenceImageCount,
         });
         if (nextPrompt !== sourcePrompt) {
           setLastPromptOptimizationUndoState({

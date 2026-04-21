@@ -55,6 +55,10 @@ import {
   type PromptDurationRecommendation,
 } from "@/features/canvas/application/promptOptimization";
 import {
+  resolvePromptReferenceImageBindings,
+  type PromptReferenceImageCandidate,
+} from "@/features/canvas/application/promptReferenceImageBindings";
+import {
   NodeHeader,
   NODE_HEADER_FLOATING_POSITION_CLASS,
 } from "@/features/canvas/ui/NodeHeader";
@@ -1800,12 +1804,37 @@ export const JimengNode = memo(
 
       try {
         const previousDurationSuggestion = readDurationSuggestionSnapshot(data);
+        const optimizationReferenceImageBindings =
+          resolvePromptReferenceImageBindings(
+            currentPrompt,
+            incomingVisualItems
+              .map((item, index) => {
+                if (item.kind !== "image") {
+                  return null;
+                }
+
+                const imageUrl =
+                  item.previewImageUrl?.trim() ?? item.referenceUrl.trim();
+                if (!imageUrl) {
+                  return null;
+                }
+
+                return {
+                  referenceNumber: index + 1,
+                  imageUrl,
+                } satisfies PromptReferenceImageCandidate;
+              })
+              .filter(
+                (item): item is PromptReferenceImageCandidate => Boolean(item),
+              ),
+          );
         const result = await optimizeCanvasPrompt({
           mode: "jimeng",
           prompt: currentPrompt,
           referenceImages: incomingVisualItems.map(
             (item) => item.previewImageUrl,
           ).filter((item): item is string => Boolean(item)),
+          referenceImageBindings: optimizationReferenceImageBindings,
         });
         if (promptValueRef.current !== sourcePrompt) {
           return;
@@ -1819,9 +1848,7 @@ export const JimengNode = memo(
           modelLabel: [result.context.provider, result.context.model]
             .filter(Boolean)
             .join(" / "),
-          referenceImageCount: result.usedReferenceImages
-            ? incomingVisualItems.length
-            : 0,
+          referenceImageCount: result.usedReferenceImageCount,
         });
 
         const promptChanged = nextPrompt !== sourcePrompt;

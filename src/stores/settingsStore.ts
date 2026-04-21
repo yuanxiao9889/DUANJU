@@ -27,9 +27,11 @@ import {
   normalizeScriptProviderEnabledSelection,
   normalizeStoryboardModelOverrides,
   normalizeStoryboardCompatibleModelConfig,
+  normalizeStoryboardApi2OkModelConfig,
   normalizeStoryboardNewApiModelConfig,
   normalizeStoryboardProviderCustomModels,
   type ScriptCompatibleProviderConfig,
+  type StoryboardApi2OkModelConfig,
   type StoryboardCompatibleModelConfig,
   type StoryboardNewApiModelConfig,
 } from '@/features/canvas/models';
@@ -74,6 +76,14 @@ import {
   sortMjStyleCodePresets,
   type MjStyleCodePreset,
 } from '@/features/midjourney/domain/styleCodePresets';
+import {
+  mergeImportedMjStyleCodePackageData,
+  mergeImportedStyleTemplatePackageData,
+  type MjStyleCodeImportSummary,
+  type MjStyleCodePackageData,
+  type StyleTemplateImportSummary,
+  type StyleTemplatePackageData,
+} from '@/features/settings/stylePresetPackages';
 
 export type { MjStyleCodePreset, StyleTemplate, StyleTemplateCategory };
 
@@ -96,6 +106,7 @@ interface SettingsState {
   storyboardModelOverrides: Record<string, string>;
   storyboardProviderCustomModels: Record<string, CustomStoryboardModelEntry[]>;
   storyboardCompatibleModelConfig: StoryboardCompatibleModelConfig;
+  storyboardApi2OkModelConfig: StoryboardApi2OkModelConfig;
   storyboardNewApiModelConfig: StoryboardNewApiModelConfig;
   lastImageEditModelId: string;
   lastImageEditSize: ImageSize;
@@ -164,6 +175,9 @@ interface SettingsState {
   ) => void;
   setStoryboardCompatibleModelConfig: (
     config: Partial<StoryboardCompatibleModelConfig>
+  ) => void;
+  setStoryboardApi2OkModelConfig: (
+    config: Partial<StoryboardApi2OkModelConfig>
   ) => void;
   setStoryboardNewApiModelConfig: (
     config: Partial<StoryboardNewApiModelConfig>
@@ -237,6 +251,12 @@ interface SettingsState {
   ) => void;
   deleteMjStyleCodePreset: (id: string) => void;
   markMjStyleCodePresetUsed: (id: string) => void;
+  importStyleTemplatePackageData: (
+    data: StyleTemplatePackageData
+  ) => StyleTemplateImportSummary;
+  importMjStyleCodePackageData: (
+    data: MjStyleCodePackageData
+  ) => MjStyleCodeImportSummary;
   setPsIntegrationEnabled: (enabled: boolean) => void;
   setPsServerPort: (port: number) => void;
   setPsAutoStartServer: (enabled: boolean) => void;
@@ -355,12 +375,14 @@ function normalizeImageEditModelId(
   input: string | null | undefined,
   compatibleConfig?: StoryboardCompatibleModelConfig | null,
   newApiConfig?: StoryboardNewApiModelConfig | null,
+  api2OkConfig?: StoryboardApi2OkModelConfig | null,
   customStoryboardModels?: Record<string, CustomStoryboardModelEntry[]> | null
 ): string {
   return getImageModel(
     (input ?? '').trim(),
     compatibleConfig,
     newApiConfig,
+    api2OkConfig,
     customStoryboardModels
   ).id;
 }
@@ -478,6 +500,7 @@ export const useSettingsStore = create<SettingsState>()(
       storyboardModelOverrides: {},
       storyboardProviderCustomModels: {},
       storyboardCompatibleModelConfig: normalizeStoryboardCompatibleModelConfig(undefined),
+      storyboardApi2OkModelConfig: normalizeStoryboardApi2OkModelConfig(undefined),
       storyboardNewApiModelConfig: normalizeStoryboardNewApiModelConfig(undefined),
       lastImageEditModelId: DEFAULT_IMAGE_MODEL_ID,
       lastImageEditSize: '2K',
@@ -591,7 +614,8 @@ export const useSettingsStore = create<SettingsState>()(
               normalizeStoryboardProviderCustomModels(
                 { [providerId]: models },
                 state.storyboardCompatibleModelConfig,
-                state.storyboardNewApiModelConfig
+                state.storyboardNewApiModelConfig,
+                state.storyboardApi2OkModelConfig
               )[providerId] ?? [],
           },
         })),
@@ -600,6 +624,14 @@ export const useSettingsStore = create<SettingsState>()(
           storyboardCompatibleModelConfig:
             normalizeStoryboardCompatibleModelConfig({
               ...state.storyboardCompatibleModelConfig,
+              ...config,
+            }),
+        })),
+      setStoryboardApi2OkModelConfig: (config) =>
+        set((state) => ({
+          storyboardApi2OkModelConfig:
+            normalizeStoryboardApi2OkModelConfig({
+              ...state.storyboardApi2OkModelConfig,
               ...config,
             }),
         })),
@@ -617,6 +649,7 @@ export const useSettingsStore = create<SettingsState>()(
             modelId ?? state.lastImageEditModelId,
             state.storyboardCompatibleModelConfig,
             state.storyboardNewApiModelConfig,
+            state.storyboardApi2OkModelConfig,
             state.storyboardProviderCustomModels
           ),
           lastImageEditSize: normalizeImageEditSize(size ?? state.lastImageEditSize),
@@ -1050,13 +1083,81 @@ export const useSettingsStore = create<SettingsState>()(
             )
           ),
         })),
+      importStyleTemplatePackageData: (data) => {
+        let nextStyleTemplateCategories: StyleTemplateCategory[] = [];
+        let nextStyleTemplates: StyleTemplate[] = [];
+        let nextMjStyleCodePresets: MjStyleCodePreset[] = [];
+        let summary: StyleTemplateImportSummary = {
+          added: 0,
+          updated: 0,
+          skipped: 0,
+          addedCategories: 0,
+          updatedCategories: 0,
+          skippedCategories: 0,
+          addedTemplates: 0,
+          updatedTemplates: 0,
+          skippedTemplates: 0,
+        };
+
+        set((state) => {
+          nextMjStyleCodePresets = state.mjStyleCodePresets;
+          const merged = mergeImportedStyleTemplatePackageData({
+            currentCategories: state.styleTemplateCategories,
+            currentTemplates: state.styleTemplates,
+            importedCategories: data.categories,
+            importedTemplates: data.templates,
+          });
+
+          nextStyleTemplateCategories = merged.categories;
+          nextStyleTemplates = merged.templates;
+          summary = merged.summary;
+
+          return {
+            styleTemplateCategories: nextStyleTemplateCategories,
+            styleTemplates: nextStyleTemplates,
+          };
+        });
+
+        scheduleSettingsImageRefsSync(nextStyleTemplates, nextMjStyleCodePresets);
+        return summary;
+      },
+      importMjStyleCodePackageData: (data) => {
+        let nextStyleTemplates: StyleTemplate[] = [];
+        let nextMjStyleCodePresets: MjStyleCodePreset[] = [];
+        let summary: MjStyleCodeImportSummary = {
+          added: 0,
+          updated: 0,
+          skipped: 0,
+          addedPresets: 0,
+          updatedPresets: 0,
+          skippedPresets: 0,
+        };
+
+        set((state) => {
+          nextStyleTemplates = state.styleTemplates;
+          const merged = mergeImportedMjStyleCodePackageData({
+            currentPresets: state.mjStyleCodePresets,
+            importedPresets: data.presets,
+          });
+
+          nextMjStyleCodePresets = merged.presets;
+          summary = merged.summary;
+
+          return {
+            mjStyleCodePresets: nextMjStyleCodePresets,
+          };
+        });
+
+        scheduleSettingsImageRefsSync(nextStyleTemplates, nextMjStyleCodePresets);
+        return summary;
+      },
       setPsIntegrationEnabled: (enabled) => set({ psIntegrationEnabled: enabled }),
       setPsServerPort: (port) => set({ psServerPort: port }),
       setPsAutoStartServer: (enabled) => set({ psAutoStartServer: enabled }),
     }),
     {
       name: 'settings-storage',
-      version: 34,
+      version: 35,
       onRehydrateStorage: () => {
         return (state, error) => {
           if (error) {
@@ -1107,6 +1208,7 @@ export const useSettingsStore = create<SettingsState>()(
           enableUpdateDialog?: boolean;
           autoUpdateDreaminaCliOnLaunch?: boolean;
           storyboardCompatibleModelConfig?: Partial<StoryboardCompatibleModelConfig>;
+          storyboardApi2OkModelConfig?: Partial<StoryboardApi2OkModelConfig>;
           storyboardNewApiModelConfig?: Partial<StoryboardNewApiModelConfig>;
           enableStoryboardGenGridPreviewShortcut?: boolean;
           groupNodesShortcut?: string;
@@ -1167,18 +1269,22 @@ export const useSettingsStore = create<SettingsState>()(
           state.ignoreAtTagWhenCopyingAndGenerating ?? true;
         const normalizedStoryboardCompatibleModelConfig =
           normalizeStoryboardCompatibleModelConfig(state.storyboardCompatibleModelConfig);
+        const normalizedStoryboardApi2OkModelConfig =
+          normalizeStoryboardApi2OkModelConfig(state.storyboardApi2OkModelConfig);
         const normalizedStoryboardNewApiModelConfig =
           normalizeStoryboardNewApiModelConfig(state.storyboardNewApiModelConfig);
         const normalizedStoryboardProviderCustomModels = normalizeStoryboardProviderCustomModels(
           state.storyboardProviderCustomModels,
           normalizedStoryboardCompatibleModelConfig,
-          normalizedStoryboardNewApiModelConfig
+          normalizedStoryboardNewApiModelConfig,
+          normalizedStoryboardApi2OkModelConfig
         );
         const normalizedStoryboardModelOverrides = normalizeStoryboardModelOverrides(
           state.storyboardModelOverrides,
           normalizedStoryboardProviderCustomModels,
           normalizedStoryboardCompatibleModelConfig,
-          normalizedStoryboardNewApiModelConfig
+          normalizedStoryboardNewApiModelConfig,
+          normalizedStoryboardApi2OkModelConfig
         );
         const normalizedScriptProviderCustomModels = seedDefaultScriptProviderCustomModels(
           normalizeScriptProviderCustomModels(state.scriptProviderCustomModels)
@@ -1230,11 +1336,13 @@ export const useSettingsStore = create<SettingsState>()(
           storyboardModelOverrides: normalizedStoryboardModelOverrides,
           storyboardProviderCustomModels: normalizedStoryboardProviderCustomModels,
           storyboardCompatibleModelConfig: normalizedStoryboardCompatibleModelConfig,
+          storyboardApi2OkModelConfig: normalizedStoryboardApi2OkModelConfig,
           storyboardNewApiModelConfig: normalizedStoryboardNewApiModelConfig,
           lastImageEditModelId: normalizeImageEditModelId(
             state.lastImageEditModelId,
             normalizedStoryboardCompatibleModelConfig,
             normalizedStoryboardNewApiModelConfig,
+            normalizedStoryboardApi2OkModelConfig,
             normalizedStoryboardProviderCustomModels
           ),
           lastImageEditSize: normalizeImageEditSize(state.lastImageEditSize),

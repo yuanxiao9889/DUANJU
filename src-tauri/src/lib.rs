@@ -16,6 +16,7 @@ use commands::project_state;
 use commands::ps_server;
 use commands::script_project_package;
 use commands::seedance;
+use commands::style_preset_package;
 use commands::system;
 use commands::text_gen;
 use commands::update;
@@ -241,6 +242,10 @@ pub fn run() {
             script_project_package::export_script_project_package,
             script_project_package::preview_script_project_package,
             script_project_package::import_script_project_package,
+            style_preset_package::export_style_template_package,
+            style_preset_package::import_style_template_package,
+            style_preset_package::export_mj_style_code_package,
+            style_preset_package::import_mj_style_code_package,
             commands::storage::get_storage_info,
             commands::storage::list_database_backups,
             commands::storage::create_database_backup,

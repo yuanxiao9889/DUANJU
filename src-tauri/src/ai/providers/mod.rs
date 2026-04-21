@@ -3,6 +3,7 @@ use std::sync::Arc;
 use super::AIProvider;
 
 pub mod alibaba;
+pub mod api2ok;
 pub mod azemm;
 pub mod bltcy;
 pub mod coding;
@@ -18,6 +19,7 @@ pub mod volcengine;
 pub mod zhenzhen;
 
 pub use alibaba::AlibabaProvider;
+pub use api2ok::Api2OkProvider;
 pub use azemm::AzemmProvider;
 pub use bltcy::BltcyProvider;
 pub use coding::CodingProvider;
@@ -39,6 +41,7 @@ pub fn build_default_providers() -> Vec<Arc<dyn AIProvider>> {
         Arc::new(KieProvider::new()),
         Arc::new(FalProvider::new()),
         Arc::new(AlibabaProvider::new()),
+        Arc::new(Api2OkProvider::new()),
         Arc::new(AzemmProvider::new()),
         Arc::new(BltcyProvider::new()),
         Arc::new(CompatibleProvider::new()),

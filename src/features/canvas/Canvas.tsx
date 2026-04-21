@@ -100,6 +100,7 @@ import { MergedConnectionAnchor } from './ui/MergedConnectionAnchor';
 import { BranchConnectionPreview } from './ui/BranchConnectionPreview';
 import { BatchOperationMenu } from './ui/BatchOperationMenu';
 import { calculateNodesBounds } from './application/nodeBounds';
+import { createPreviewConnectionPath } from './application/connectionPreviewPath';
 import { GroupSidebar } from './ui/GroupSidebar';
 import { SelectionGroupBar } from './ui/SelectionGroupBar';
 import { CanvasAssetDock } from './ui/CanvasAssetDock';
@@ -579,25 +580,6 @@ function resolveDropNodeId(
   clientPosition: { x: number; y: number }
 ): string | null {
   return resolveDropNodeElement(eventTarget, clientPosition)?.dataset?.id ?? null;
-}
-
-function createPreviewPath(line: PreviewConnectionLine): string {
-  const { start, end, handleType } = line;
-  const deltaX = end.x - start.x;
-  const curveStrength = Math.max(36, Math.min(120, Math.abs(deltaX) * 0.4));
-  const handleDirection = handleType === 'source' ? 1 : -1;
-  const isReverseDrag = deltaX * handleDirection < 0;
-  const effectiveDirection = isReverseDrag ? -handleDirection : handleDirection;
-  const startControlX = start.x + effectiveDirection * curveStrength;
-  const endControlX = end.x - effectiveDirection * curveStrength;
-
-  return `M ${start.x} ${start.y} C ${startControlX} ${start.y}, ${endControlX} ${end.y}, ${end.x} ${end.y}`;
-}
-
-interface PreviewConnectionLine {
-  start: { x: number; y: number };
-  end: { x: number; y: number };
-  handleType: HandleType;
 }
 
 interface ConnectNodeBusinessRuleOptions {
@@ -3663,7 +3645,7 @@ export function Canvas() {
         setPreviewConnectionVisual(null);
       } else {
         setPreviewConnectionVisual({
-          d: createPreviewPath({
+          d: createPreviewConnectionPath({
             start: { x: startX, y: startY },
             end: { x: endX, y: endY },
             handleType: pendingConnectStart.handleType,

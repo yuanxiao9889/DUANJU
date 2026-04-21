@@ -400,6 +400,16 @@ function normalizeChapter(
   const chapterTitleFallback = deriveChapterTitle(index, locale);
   const rawTitle = normalizeString(record.title);
 
+  const normalizedScenes = scenes.length > 0
+    ? scenes
+      .slice(0, 2)
+      .map((scene, sceneIndex) => normalizeScene(scene, index, sceneIndex, locale))
+    : [];
+
+  while (normalizedScenes.length < 2) {
+    normalizedScenes.push(normalizeScene({}, index, normalizedScenes.length, locale));
+  }
+
   return {
     number: toFiniteNumber(record.number, index + 1),
     title: shouldReplaceLocalizedPlaceholder(
@@ -413,11 +423,7 @@ function normalizeChapter(
     summary: normalizeString(record.summary),
     chapterPurpose: normalizeString(record.chapterPurpose),
     chapterQuestion: normalizeString(record.chapterQuestion),
-    scenes: scenes.length > 0
-      ? scenes
-        .slice(0, 4)
-        .map((scene, sceneIndex) => normalizeScene(scene, index, sceneIndex, locale))
-      : [normalizeScene({}, index, 0, locale)],
+    scenes: normalizedScenes,
   };
 }
 
@@ -587,11 +593,25 @@ function normalizePlan(
   };
 }
 
+function computeStoryPlanMaxTokens(chapterCount: number): number {
+  return Math.min(4096, 1400 + Math.max(1, chapterCount) * 350);
+}
+
 function buildPrompt(input: StoryPlannerInput, locale: StoryPlannerLocale): string {
   const copy = STORY_PLANNER_COPY[locale];
+  const includeWorldview = input.worldviewDescription.trim().length > 0;
+  const worldviewSection = includeWorldview
+    ? [
+        '- Because the user provided a world/setting note, include a compact `worldview` object.',
+        '- Keep worldview concise: `name`, `description`, `era`, `technology`, `magic`, `society`, `geography`.',
+      ]
+    : [
+        '- Do not return a `worldview` field when the user did not provide a world/setting note.',
+      ];
+
   return [
     'You are a story planner who thinks like both a screenwriter and a director.',
-    'Return a strong story skeleton that is easy to continue writing scene by scene.',
+    'Return a lean story skeleton that is fast to generate and easy to continue chapter by chapter.',
     copy.languageInstruction,
     'Return JSON only. Do not include markdown or commentary.',
     '',
@@ -609,77 +629,35 @@ function buildPrompt(input: StoryPlannerInput, locale: StoryPlannerLocale): stri
     '',
     'Output requirements:',
     `1. Return exactly ${input.chapterCount} chapters.`,
-    '2. Each chapter must contain 2 to 4 scenes.',
-    '3. Each scene should emphasize action, conflict, a turn, and a visual hook.',
-    '4. Build in some directorial thinking so the story is easy to expand into storyboard beats later.',
-    '5. Keep chapter titles and scene titles concise.',
+    '2. Each chapter must contain exactly 2 scene cards.',
+    '3. Each scene card must only contain: `title`, `summary`, `purpose`, `povCharacter`, `goal`, `conflict`, `turn`.',
+    '4. Keep every field concise and strongly connected to the same main dramatic line.',
+    '5. Chapters should flow cleanly into the next chapter instead of feeling episodic or reset.',
+    ...worldviewSection,
     '',
-    'JSON shape:',
-    '{',
-    '  "title": "Story title",',
-    '  "genre": "Genre",',
-    '  "premise": "One-sentence premise",',
-    '  "theme": "Theme",',
-    '  "protagonist": "Protagonist",',
-    '  "want": "External goal",',
-    '  "need": "Inner need",',
-    '  "stakes": "Stakes",',
-    '  "tone": "Overall tone",',
-    '  "directorVision": "One-sentence director lens",',
-    '  "beats": [',
-    `    { "key": "opening", "title": "${copy.beatCopy.opening.title}", "summary": "...", "dramaticQuestion": "..." },`,
-    `    { "key": "inciting", "title": "${copy.beatCopy.inciting.title}", "summary": "...", "dramaticQuestion": "..." },`,
-    `    { "key": "lock_in", "title": "${copy.beatCopy.lock_in.title}", "summary": "...", "dramaticQuestion": "..." },`,
-    `    { "key": "first_setback", "title": "${copy.beatCopy.first_setback.title}", "summary": "...", "dramaticQuestion": "..." },`,
-    `    { "key": "midpoint", "title": "${copy.beatCopy.midpoint.title}", "summary": "...", "dramaticQuestion": "..." },`,
-    `    { "key": "all_is_lost", "title": "${copy.beatCopy.all_is_lost.title}", "summary": "...", "dramaticQuestion": "..." },`,
-    `    { "key": "climax", "title": "${copy.beatCopy.climax.title}", "summary": "...", "dramaticQuestion": "..." },`,
-    `    { "key": "resolution", "title": "${copy.beatCopy.resolution.title}", "summary": "...", "dramaticQuestion": "..." }`,
-    '  ],',
-    '  "chapters": [',
-    '    {',
-    '      "number": 1,',
-    `      "title": "${copy.chapterTitle(0)}",`,
-    `      "summary": "${copy.fallbackChapterSummary.first}",`,
-    `      "chapterPurpose": "${copy.chapterPurpose.first}",`,
-    `      "chapterQuestion": "${copy.chapterQuestion.middle}",`,
-    '      "scenes": [',
-    '        {',
-    `          "title": "${copy.sceneTitle(0, 0)}",`,
-    '          "summary": "Scene summary",',
-    '          "purpose": "Why this scene exists",',
-    '          "povCharacter": "POV character",',
-    '          "goal": "What someone wants",',
-    '          "conflict": "What blocks them",',
-    '          "turn": "What changes by the end",',
-    '          "emotionalShift": "Emotional movement",',
-    '          "visualHook": "A directable image or action",',
-    '          "subtext": "What is meant but not fully said"',
-    '        }',
-    '      ]',
-    '    }',
-    '  ],',
-    '  "worldview": {',
-    '    "name": "Worldview name",',
-    '    "description": "Core setting summary",',
-    '    "era": "Era",',
-    '    "technology": "Technology level",',
-    '    "magic": "Supernatural rules",',
-    '    "society": "Social structure",',
-    '    "geography": "Geographic flavor"',
-    '  }',
-    '}',
+    'Required top-level fields:',
+    '`title`, `genre`, `premise`, `theme`, `protagonist`, `want`, `need`, `stakes`, `tone`, `directorVision`, `beats`, `chapters`.',
+    'Required beat item fields:',
+    '`key`, `title`, `summary`, `dramaticQuestion`.',
+    'Required chapter item fields:',
+    '`number`, `title`, `summary`, `chapterPurpose`, `chapterQuestion`, `scenes`.',
+    'Required scene item fields:',
+    '`title`, `summary`, `purpose`, `povCharacter`, `goal`, `conflict`, `turn`.',
+    '',
+    'Minimal example:',
+    `{"title":"${copy.untitledStory}","genre":"${input.genre || copy.genreFallback}","premise":"${input.premise || copy.notSpecified}","theme":"${input.theme || copy.notSpecified}","protagonist":"${input.protagonist || copy.notSpecified}","want":"${input.want || copy.notSpecified}","need":"...","stakes":"${input.stakes || copy.notSpecified}","tone":"${input.tone || copy.notSpecified}","directorVision":"${input.directorVision || copy.notSpecified}","beats":[{"key":"opening","title":"${copy.beatCopy.opening.title}","summary":"...","dramaticQuestion":"..."}],"chapters":[{"number":1,"title":"${copy.chapterTitle(0)}","summary":"${copy.fallbackChapterSummary.first}","chapterPurpose":"${copy.chapterPurpose.first}","chapterQuestion":"${copy.chapterQuestion.middle}","scenes":[{"title":"${copy.sceneTitle(0, 0)}","summary":"...","purpose":"...","povCharacter":"...","goal":"...","conflict":"...","turn":"..."},{"title":"${copy.sceneTitle(0, 1)}","summary":"...","purpose":"...","povCharacter":"...","goal":"...","conflict":"...","turn":"..."}]}]}`,
   ].join('\n');
 }
 
 export async function planStory(input: StoryPlannerInput): Promise<StoryPlan> {
   const locale = detectPlannerLocale(input);
+  const maxTokens = computeStoryPlanMaxTokens(input.chapterCount);
 
   try {
     const result = await generateText({
       prompt: buildPrompt(input, locale),
       temperature: 0.7,
-      maxTokens: 8192,
+      maxTokens,
     });
 
     const parsed = parseJsonObject(result.text);

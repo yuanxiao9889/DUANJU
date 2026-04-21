@@ -1,6 +1,7 @@
 import { useMemo } from 'react';
 import type { Node } from '@xyflow/react';
 import { calculateNodesBounds } from '../application/nodeBounds';
+import { createPreviewConnectionPath } from '../application/connectionPreviewPath';
 
 interface BranchConnectionPreviewProps {
   sourceNodes: Node[];
@@ -46,6 +47,24 @@ export function BranchConnectionPreview({
     y: pos.y * viewport.zoom + viewport.y,
   }));
 
+  const sourcePaths = useMemo(() => {
+    return screenSourcePositions.map((position) =>
+      createPreviewConnectionPath({
+        start: position,
+        end: screenMergePoint,
+        handleType: 'source',
+      })
+    );
+  }, [screenMergePoint, screenSourcePositions]);
+
+  const mergedPreviewPath = useMemo(() => {
+    return createPreviewConnectionPath({
+      start: screenMergePoint,
+      end: screenCurrentPosition,
+      handleType: 'source',
+    });
+  }, [screenCurrentPosition, screenMergePoint]);
+
   return (
     <svg
       className="pointer-events-none absolute inset-0"
@@ -64,25 +83,27 @@ export function BranchConnectionPreview({
         </marker>
       </defs>
 
-      {screenSourcePositions.map((pos, index) => (
+      {sourcePaths.map((path, index) => (
         <path
           key={index}
-          d={`M ${pos.x} ${pos.y} Q ${(pos.x + screenMergePoint.x) / 2} ${pos.y} ${screenMergePoint.x} ${screenMergePoint.y}`}
+          d={path}
           stroke="#3b82f6"
           strokeWidth="2"
           fill="none"
           strokeDasharray="5,5"
           opacity="0.7"
+          strokeLinecap="round"
         />
       ))}
 
       <path
-        d={`M ${screenMergePoint.x} ${screenMergePoint.y} L ${screenCurrentPosition.x} ${screenCurrentPosition.y}`}
+        d={mergedPreviewPath}
         stroke="#3b82f6"
         strokeWidth="2"
         fill="none"
         strokeDasharray="5,5"
         markerEnd="url(#preview-arrowhead)"
+        strokeLinecap="round"
       />
 
       <circle

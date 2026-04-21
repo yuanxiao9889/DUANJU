@@ -16,6 +16,7 @@ import {
 import {
   buildSceneContinuityContext,
   generateSceneContinuityMemory,
+  needsSceneContinuityMemoryRefresh,
   type SceneContinuityContext,
 } from '@/features/canvas/application/sceneContinuity';
 import { runSceneContinuityCheck } from '@/features/canvas/application/sceneContinuityCheck';
@@ -266,6 +267,8 @@ export function SceneStudioPanel() {
   const [isRewriteLoading, setIsRewriteLoading] = useState(false);
   const [activeSceneTab, setActiveSceneTab] = useState<'overview' | 'draft' | 'director'>('overview');
   const panelResizeStateRef = useRef<{ startX: number; startWidth: number } | null>(null);
+  const autoContinuityRefreshSignaturesRef = useRef(new Map<string, string>());
+  const continuityRefreshInFlightRef = useRef(new Set<string>());
 
   const resolvedWorkbenchNode = useMemo(() => {
     if (
@@ -1019,6 +1022,120 @@ export function SceneStudioPanel() {
     updateSelectedEpisode(patch as Partial<EpisodeCard>);
   }, [isChapterMode, updateSelectedChapterScene, updateSelectedEpisode]);
 
+  const applyContinuityPatchToScene = useCallback((sceneId: string, patch: Partial<SceneCard>) => {
+    const store = useCanvasStore.getState();
+
+    if (isChapterMode) {
+      if (!chapterNodeId) {
+        return;
+      }
+
+      const chapterNode = store.nodes.find((node) => (
+        node.id === chapterNodeId && node.type === CANVAS_NODE_TYPES.scriptChapter
+      ));
+      if (!chapterNode) {
+        return;
+      }
+
+      const chapterData = chapterNode.data as ScriptChapterNodeData;
+      const chapterScenes = normalizeSceneCards(chapterData.scenes, chapterData.content);
+      const nextScenes = chapterScenes.map((scene) => (
+        scene.id === sceneId ? { ...scene, ...patch } : scene
+      ));
+
+      store.updateNodeData(chapterNodeId, {
+        scenes: nextScenes,
+        sceneHeadings: nextScenes
+          .map((scene) => scene.title.trim())
+          .filter((value) => value.length > 0),
+        content: composeChapterContentFromScenes(nextScenes, chapterData.content),
+      }, { historyMode: 'skip' });
+      return;
+    }
+
+    if (!sceneNodeId) {
+      return;
+    }
+
+    const sceneNode = store.nodes.find((node) => (
+      node.id === sceneNodeId && node.type === CANVAS_NODE_TYPES.scriptScene
+    ));
+    if (!sceneNode) {
+      return;
+    }
+
+    const sceneData = sceneNode.data as ScriptSceneNodeData;
+    const nextEpisodes = updateEpisodeList(sceneData.episodes, sceneId, (episode) => ({
+      ...episode,
+      ...patch,
+    }));
+    store.updateNodeData(sceneNodeId, { episodes: nextEpisodes }, { historyMode: 'skip' });
+  }, [chapterNodeId, isChapterMode, sceneNodeId]);
+
+  const refreshContinuityMemory = useCallback(async (
+    scene: SceneCard,
+    options?: { silent?: boolean }
+  ) => {
+    if (!chapterContext || isShootingScriptMode) {
+      return false;
+    }
+
+    const draftHtml = scene.draftHtml.trim();
+    if (!draftHtml) {
+      return false;
+    }
+
+    const silent = options?.silent ?? false;
+    const sceneSignature = `${scene.id}::${draftHtml}`;
+    if (continuityRefreshInFlightRef.current.has(sceneSignature)) {
+      return false;
+    }
+
+    continuityRefreshInFlightRef.current.add(sceneSignature);
+
+    if (!silent) {
+      setContinuityError('');
+      setIsContinuityLoading(true);
+    }
+
+    try {
+      const memory = await generateSceneContinuityMemory({
+        scene,
+        chapter: chapterContext,
+        storyRoot: rootData ?? null,
+        continuityContext,
+      });
+
+      applyContinuityPatchToScene(scene.id, {
+        continuitySummary: memory.summary,
+        continuityFacts: memory.facts,
+        continuityOpenLoops: memory.openLoops,
+        continuityUpdatedAt: memory.updatedAt,
+        sourceDraftHtml: draftHtml,
+      });
+      autoContinuityRefreshSignaturesRef.current.set(scene.id, sceneSignature);
+      return true;
+    } catch (error) {
+      if (!silent) {
+        setContinuityError(error instanceof Error ? error.message : String(error));
+      } else {
+        console.warn('[SceneStudioPanel] Failed to auto refresh continuity memory', error);
+      }
+      return false;
+    } finally {
+      continuityRefreshInFlightRef.current.delete(sceneSignature);
+      if (!silent) {
+        setIsContinuityLoading(false);
+      }
+    }
+  }, [
+    applyContinuityPatchToScene,
+    chapterContext,
+    continuityContext,
+    isShootingScriptMode,
+    rootData,
+  ]);
+
   const updateCurrentCopilotMessage = useCallback((
     messageId: string,
     updater: (message: SceneCopilotThreadMessage) => SceneCopilotThreadMessage,
@@ -1313,32 +1430,31 @@ export function SceneStudioPanel() {
       return;
     }
 
-    setContinuityError('');
-    setIsContinuityLoading(true);
-    try {
-      const memory = await generateSceneContinuityMemory({
-        scene: selectedSceneDraft,
-        chapter: chapterContext,
-        storyRoot: rootData ?? null,
-        continuityContext,
-      });
-      applySelectedScenePatch({
-        continuitySummary: memory.summary,
-        continuityFacts: memory.facts,
-        continuityOpenLoops: memory.openLoops,
-        continuityUpdatedAt: memory.updatedAt,
-      });
-    } catch (error) {
-      setContinuityError(error instanceof Error ? error.message : String(error));
-    } finally {
-      setIsContinuityLoading(false);
+    await refreshContinuityMemory(selectedSceneDraft);
+  }, [chapterContext, refreshContinuityMemory, selectedSceneDraft]);
+
+  useEffect(() => {
+    if (
+      isShootingScriptMode
+      || !selectedSceneDraft
+      || !chapterContext
+      || !needsSceneContinuityMemoryRefresh(selectedSceneDraft)
+    ) {
+      return;
     }
+
+    const sceneSignature = `${selectedSceneDraft.id}::${selectedSceneDraft.draftHtml.trim()}`;
+    if (autoContinuityRefreshSignaturesRef.current.get(selectedSceneDraft.id) === sceneSignature) {
+      return;
+    }
+
+    autoContinuityRefreshSignaturesRef.current.set(selectedSceneDraft.id, sceneSignature);
+    void refreshContinuityMemory(selectedSceneDraft, { silent: true });
   }, [
     chapterContext,
-    continuityContext,
-    rootData,
+    isShootingScriptMode,
+    refreshContinuityMemory,
     selectedSceneDraft,
-    applySelectedScenePatch,
   ]);
 
   const handleRunContinuityCheck = useCallback(async () => {

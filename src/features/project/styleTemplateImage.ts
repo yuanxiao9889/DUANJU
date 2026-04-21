@@ -5,12 +5,22 @@ export const STYLE_TEMPLATE_IMAGE_RATIO_LABEL = "3:4";
 export const STYLE_TEMPLATE_IMAGE_OUTPUT_WIDTH = 720;
 export const STYLE_TEMPLATE_IMAGE_OUTPUT_HEIGHT = 960;
 export const STYLE_TEMPLATE_IMAGE_OUTPUT_QUALITY = 0.86;
+export const MJ_STYLE_CODE_IMAGE_ASPECT_RATIO = 4 / 3;
+export const MJ_STYLE_CODE_IMAGE_RATIO_LABEL = "4:3";
+export const MJ_STYLE_CODE_IMAGE_OUTPUT_WIDTH = 960;
+export const MJ_STYLE_CODE_IMAGE_OUTPUT_HEIGHT = 720;
 
 export interface StyleTemplateImageCropRect {
   x: number;
   y: number;
   width: number;
   height: number;
+}
+
+interface PresetThumbnailRenderOptions {
+  outputWidth: number;
+  outputHeight: number;
+  quality?: number;
 }
 
 function clamp(value: number, min: number, max: number): number {
@@ -37,9 +47,10 @@ function canvasToBlob(
   });
 }
 
-export async function createStyleTemplateThumbnailDataUrl(
+export async function createPresetThumbnailDataUrl(
   sourceImageUrl: string,
   cropRect: StyleTemplateImageCropRect,
+  options: PresetThumbnailRenderOptions,
 ): Promise<string> {
   const image = await loadImageElement(sourceImageUrl);
   const naturalWidth = Math.max(1, image.naturalWidth);
@@ -51,8 +62,8 @@ export async function createStyleTemplateThumbnailDataUrl(
   const cropHeight = clamp(Math.round(cropRect.height), 1, naturalHeight - cropY);
 
   const canvas = document.createElement("canvas");
-  canvas.width = STYLE_TEMPLATE_IMAGE_OUTPUT_WIDTH;
-  canvas.height = STYLE_TEMPLATE_IMAGE_OUTPUT_HEIGHT;
+  canvas.width = options.outputWidth;
+  canvas.height = options.outputHeight;
 
   const context = canvas.getContext("2d");
   if (!context) {
@@ -69,14 +80,36 @@ export async function createStyleTemplateThumbnailDataUrl(
     cropHeight,
     0,
     0,
-    STYLE_TEMPLATE_IMAGE_OUTPUT_WIDTH,
-    STYLE_TEMPLATE_IMAGE_OUTPUT_HEIGHT,
+    options.outputWidth,
+    options.outputHeight,
   );
 
   const blob = await canvasToBlob(
     canvas,
     "image/jpeg",
-    STYLE_TEMPLATE_IMAGE_OUTPUT_QUALITY,
+    options.quality ?? STYLE_TEMPLATE_IMAGE_OUTPUT_QUALITY,
   );
   return await blobToDataUrl(blob);
+}
+
+export async function createStyleTemplateThumbnailDataUrl(
+  sourceImageUrl: string,
+  cropRect: StyleTemplateImageCropRect,
+): Promise<string> {
+  return await createPresetThumbnailDataUrl(sourceImageUrl, cropRect, {
+    outputWidth: STYLE_TEMPLATE_IMAGE_OUTPUT_WIDTH,
+    outputHeight: STYLE_TEMPLATE_IMAGE_OUTPUT_HEIGHT,
+    quality: STYLE_TEMPLATE_IMAGE_OUTPUT_QUALITY,
+  });
+}
+
+export async function createMjStyleCodeThumbnailDataUrl(
+  sourceImageUrl: string,
+  cropRect: StyleTemplateImageCropRect,
+): Promise<string> {
+  return await createPresetThumbnailDataUrl(sourceImageUrl, cropRect, {
+    outputWidth: MJ_STYLE_CODE_IMAGE_OUTPUT_WIDTH,
+    outputHeight: MJ_STYLE_CODE_IMAGE_OUTPUT_HEIGHT,
+    quality: STYLE_TEMPLATE_IMAGE_OUTPUT_QUALITY,
+  });
 }

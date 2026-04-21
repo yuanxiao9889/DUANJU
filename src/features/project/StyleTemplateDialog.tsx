@@ -1,10 +1,33 @@
 import { useEffect, useMemo, useState } from "react";
-import { FolderTree, Pencil, Plus, Trash2 } from "lucide-react";
+import { open, save } from "@tauri-apps/plugin-dialog";
+import {
+  Download,
+  FolderTree,
+  Loader2,
+  Pencil,
+  Plus,
+  Trash2,
+  Upload,
+} from "lucide-react";
 import { useTranslation } from "react-i18next";
 
 import { UiButton, UiInput, UiModal } from "@/components/ui";
+import {
+  exportStyleTemplatePackage,
+  importStyleTemplatePackage,
+} from "@/commands/stylePresetPackage";
 import { StyleTemplateCard } from "@/features/project/StyleTemplateCard";
 import { StyleTemplateEditorModal } from "@/features/project/StyleTemplateEditorModal";
+import {
+  buildStyleTemplatePackageData,
+  prepareStyleTemplatePackageDataForExport,
+  STYLE_TEMPLATE_PACKAGE_FILE_NAME,
+} from "@/features/settings/stylePresetPackages";
+import {
+  formatStyleTemplateExportSuccessMessage,
+  formatStyleTemplateImportSummaryMessage,
+  resolveStyleTemplatePackageErrorMessage,
+} from "@/features/settings/stylePresetPackageUi";
 import {
   STYLE_TEMPLATE_UNGROUPED_CATEGORY_ID,
   sortStyleTemplateCategories,
@@ -32,6 +55,11 @@ interface DeleteConfirmState {
   id: string;
   name: string;
   affectedTemplateCount?: number;
+}
+
+interface ActionStatus {
+  tone: "success" | "error";
+  message: string;
 }
 
 function EditCategoryModal({
@@ -155,6 +183,9 @@ export function StyleTemplateDialog({
   const deleteStyleTemplate = useSettingsStore(
     (state) => state.deleteStyleTemplate,
   );
+  const importStyleTemplatePackageData = useSettingsStore(
+    (state) => state.importStyleTemplatePackageData,
+  );
 
   const sortedCategories = useMemo(
     () => sortStyleTemplateCategories(styleTemplateCategories),
@@ -176,6 +207,10 @@ export function StyleTemplateDialog({
   const [pendingDelete, setPendingDelete] = useState<DeleteConfirmState | null>(
     null,
   );
+  const [activeAction, setActiveAction] = useState<"import" | "export" | null>(
+    null,
+  );
+  const [actionStatus, setActionStatus] = useState<ActionStatus | null>(null);
 
   useEffect(() => {
     if (!isOpen) {
@@ -193,6 +228,8 @@ export function StyleTemplateDialog({
 
       return sortedCategories[0]?.id ?? STYLE_TEMPLATE_UNGROUPED_CATEGORY_ID;
     });
+    setActiveAction(null);
+    setActionStatus(null);
   }, [isOpen, sortedCategories]);
 
   const selectedCategoryName =
@@ -219,6 +256,86 @@ export function StyleTemplateDialog({
     [sortedCategories],
   );
 
+  const exportablePackageData = useMemo(
+    () => buildStyleTemplatePackageData(styleTemplateCategories, styleTemplates),
+    [styleTemplateCategories, styleTemplates],
+  );
+  const hasExportablePackageData =
+    exportablePackageData.categories.length > 0 ||
+    exportablePackageData.templates.length > 0;
+
+  const handleImportPackage = async () => {
+    setActiveAction("import");
+    setActionStatus(null);
+
+    try {
+      const selectedPath = await open({
+        multiple: false,
+        filters: [{ name: "Style Template Package", extensions: ["scpreset"] }],
+      });
+
+      if (typeof selectedPath !== "string") {
+        return;
+      }
+
+      const importedPackage = await importStyleTemplatePackage(selectedPath);
+      const summary = importStyleTemplatePackageData(importedPackage.data);
+      setActionStatus({
+        tone: "success",
+        message: formatStyleTemplateImportSummaryMessage(t, summary),
+      });
+    } catch (error) {
+      console.error("[StyleTemplateDialog] failed to import package", error);
+      setActionStatus({
+        tone: "error",
+        message: resolveStyleTemplatePackageErrorMessage(t, error, "import"),
+      });
+    } finally {
+      setActiveAction(null);
+    }
+  };
+
+  const handleExportPackage = async () => {
+    setActiveAction("export");
+    setActionStatus(null);
+
+    try {
+      const selectedPath = await save({
+        defaultPath: STYLE_TEMPLATE_PACKAGE_FILE_NAME,
+        filters: [{ name: "Style Template Package", extensions: ["scpreset"] }],
+      });
+
+      if (typeof selectedPath !== "string") {
+        return;
+      }
+
+      const exportData = await prepareStyleTemplatePackageDataForExport(
+        styleTemplateCategories,
+        styleTemplates,
+      );
+      await exportStyleTemplatePackage({
+        targetPath: selectedPath,
+        data: exportData,
+      });
+      setActionStatus({
+        tone: "success",
+        message: formatStyleTemplateExportSuccessMessage(
+          t,
+          exportData.categories.length,
+          exportData.templates.length,
+        ),
+      });
+    } catch (error) {
+      console.error("[StyleTemplateDialog] failed to export package", error);
+      setActionStatus({
+        tone: "error",
+        message: resolveStyleTemplatePackageErrorMessage(t, error, "export"),
+      });
+    } finally {
+      setActiveAction(null);
+    }
+  };
+
   return (
     <>
       <UiModal
@@ -227,7 +344,20 @@ export function StyleTemplateDialog({
         onClose={onClose}
         widthClassName="w-[calc(100vw-40px)] max-w-[1120px]"
       >
-        <div className="grid gap-4 md:grid-cols-[260px_minmax(0,1fr)]">
+        <div className="space-y-4">
+          {actionStatus ? (
+            <div
+              className={`rounded-[16px] border px-4 py-3 text-sm ${
+                actionStatus.tone === "success"
+                  ? "border-emerald-500/20 bg-emerald-500/10 text-emerald-100"
+                  : "border-rose-500/20 bg-rose-500/10 text-rose-100"
+              }`}
+            >
+              {actionStatus.message}
+            </div>
+          ) : null}
+
+          <div className="grid gap-4 md:grid-cols-[260px_minmax(0,1fr)]">
           <div className="rounded-[20px] border border-white/10 bg-black/10 p-3">
             <div className="flex items-center justify-between gap-2">
               <div className="text-sm font-medium text-text-dark">
@@ -345,15 +475,50 @@ export function StyleTemplateDialog({
                 </div>
               </div>
 
-              <UiButton
-                type="button"
-                size="sm"
-                variant="primary"
-                onClick={() => setShowCreateTemplate(true)}
-              >
-                <Plus className="mr-1 h-3.5 w-3.5" />
-                {t("styleTemplate.newTemplate")}
-              </UiButton>
+              <div className="flex flex-wrap items-center gap-2">
+                <UiButton
+                  type="button"
+                  size="sm"
+                  variant="muted"
+                  disabled={activeAction !== null}
+                  onClick={() => {
+                    void handleImportPackage();
+                  }}
+                >
+                  {activeAction === "import" ? (
+                    <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />
+                  ) : (
+                    <Upload className="mr-1 h-3.5 w-3.5" />
+                  )}
+                  {t("common.import")}
+                </UiButton>
+                <UiButton
+                  type="button"
+                  size="sm"
+                  variant="muted"
+                  disabled={!hasExportablePackageData || activeAction !== null}
+                  onClick={() => {
+                    void handleExportPackage();
+                  }}
+                >
+                  {activeAction === "export" ? (
+                    <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />
+                  ) : (
+                    <Download className="mr-1 h-3.5 w-3.5" />
+                  )}
+                  {t("common.export")}
+                </UiButton>
+                <UiButton
+                  type="button"
+                  size="sm"
+                  variant="primary"
+                  disabled={activeAction !== null}
+                  onClick={() => setShowCreateTemplate(true)}
+                >
+                  <Plus className="mr-1 h-3.5 w-3.5" />
+                  {t("styleTemplate.newTemplate")}
+                </UiButton>
+              </div>
             </div>
 
             <div className="ui-scrollbar mt-3 max-h-[540px] overflow-y-auto pr-1">
@@ -405,6 +570,7 @@ export function StyleTemplateDialog({
               )}
             </div>
           </div>
+        </div>
         </div>
       </UiModal>
 

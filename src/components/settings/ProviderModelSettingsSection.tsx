@@ -89,6 +89,10 @@ function resolveStoryboardCustomModelIdPlaceholder(providerId: string, fallback:
     return 'gemini-3.1-flash-image / gemini-3.0-pro-image';
   }
 
+  if (providerId === 'api2ok') {
+    return 'gemini-3-pro-image-preview / gemini-3.1-flash-image';
+  }
+
   return fallback;
 }
 

@@ -3,6 +3,7 @@ import {
   resolveActivatedScriptProvider,
   resolveConfiguredScriptModel,
 } from "@/features/canvas/models";
+import type { PromptReferenceImageBinding } from "@/features/canvas/application/promptReferenceImageBindings";
 import { openSettingsDialog } from "@/features/settings/settingsEvents";
 import { useSettingsStore } from "@/stores/settingsStore";
 
@@ -17,6 +18,7 @@ interface OptimizePromptRequest {
   mode: PromptOptimizationMode;
   prompt: string;
   referenceImages?: string[];
+  referenceImageBindings?: PromptReferenceImageBinding[];
   maxPromptLength?: number;
 }
 
@@ -37,6 +39,7 @@ interface OptimizePromptResult {
   prompt: string;
   context: ScriptPromptContext;
   usedReferenceImages: boolean;
+  usedReferenceImageCount: number;
   durationRecommendation?: PromptDurationRecommendation | null;
 }
 
@@ -90,6 +93,7 @@ const IMAGE_ANALYSIS_MODEL_HINTS = [
   "omni",
   "image",
   "qvq",
+  "gpt-5",
   "gpt-4o",
   "gpt-4.1",
   "gpt-4.5",
@@ -98,6 +102,14 @@ const IMAGE_ANALYSIS_MODEL_HINTS = [
   "internvl",
   "llava",
 ] as const;
+const VALID_IMAGE_REFERENCE_TOKEN_PATTERN = /^@\u56fe(?:\u7247)?\d+$/;
+
+type ReferenceImageAnalysisBias = "static" | "dynamic";
+
+interface ResolvedReferenceImageInputs {
+  referenceImages: string[];
+  referenceImageBindings: PromptReferenceImageBinding[];
+}
 
 function dedupeReferenceTokens(text: string): string[] {
   const matches = text.match(ALL_REFERENCE_TOKEN_PATTERN) ?? [];
@@ -349,6 +361,73 @@ function sanitizeReferenceImages(
   return result;
 }
 
+function sanitizeReferenceImageBindings(
+  referenceImageBindings: PromptReferenceImageBinding[] | undefined,
+): PromptReferenceImageBinding[] {
+  if (
+    !Array.isArray(referenceImageBindings)
+    || referenceImageBindings.length === 0
+  ) {
+    return [];
+  }
+
+  const result: PromptReferenceImageBinding[] = [];
+  const seenTokens = new Set<string>();
+
+  for (const binding of referenceImageBindings) {
+    const token =
+      typeof binding?.token === "string" ? binding.token.trim() : "";
+    const imageUrl =
+      typeof binding?.imageUrl === "string" ? binding.imageUrl.trim() : "";
+    if (
+      !token
+      || !imageUrl
+      || seenTokens.has(token)
+      || !VALID_IMAGE_REFERENCE_TOKEN_PATTERN.test(token)
+    ) {
+      continue;
+    }
+
+    result.push({
+      token,
+      imageUrl,
+    });
+    seenTokens.add(token);
+    if (result.length >= 4) {
+      break;
+    }
+  }
+
+  return result;
+}
+
+function resolveOptimizationReferenceImageInputs(
+  request: OptimizePromptRequest,
+  supportsImageAnalysis: boolean,
+): ResolvedReferenceImageInputs {
+  if (!supportsImageAnalysis) {
+    return {
+      referenceImages: [],
+      referenceImageBindings: [],
+    };
+  }
+
+  const referenceImageBindings = sanitizeReferenceImageBindings(
+    request.referenceImageBindings,
+  );
+  if (referenceImageBindings.length > 0) {
+    return {
+      referenceImages: referenceImageBindings.map((binding) => binding.imageUrl),
+      referenceImageBindings,
+    };
+  }
+
+  return {
+    referenceImages: sanitizeReferenceImages(request.referenceImages),
+    referenceImageBindings: [],
+  };
+}
+
 function resolveScriptPromptContext(): ScriptPromptContext {
   const settings = useSettingsStore.getState();
   const provider = resolveActivatedScriptProvider(settings);
@@ -377,11 +456,140 @@ function resolveScriptPromptContext(): ScriptPromptContext {
   };
 }
 
+function buildReferenceImageInstruction(
+  bias: ReferenceImageAnalysisBias,
+  useReferenceImages: boolean,
+  referenceImageBindings: PromptReferenceImageBinding[],
+): string {
+  if (!useReferenceImages) {
+    return "No reference images are attached for this optimization pass. Optimize only from the source prompt itself.";
+  }
+
+  const biasInstruction =
+    bias === "static"
+      ? "Treat each attached reference image as a static visual anchor for subject appearance, wardrobe, material details, composition, lighting, color palette, spatial relationships, and style continuity. Do not infer new motion, camera moves, or plot beats from a still image."
+      : "Treat each attached reference image as a motion-oriented anchor for character or scene continuity, likely starting frame or pose, action direction, lens distance or angle tendency, movement energy, and rhythm mood. You may translate a still image into a plausible dynamic cue, but do not invent extra story events or a full shot list.";
+
+  const bindingLines =
+    referenceImageBindings.length > 0
+      ? [
+          "Attachment-to-token mapping:",
+          ...referenceImageBindings.map(
+            (binding, index) =>
+              `Attachment ${index + 1} corresponds to ${binding.token}.`,
+          ),
+          "Only use each attachment to interpret its mapped token. Do not swap attachments or merge mapped details unless the source prompt explicitly asks for it.",
+        ]
+      : [];
+
+  return [
+    referenceImageBindings.length > 0
+      ? "Reference images are attached for explicit token analysis."
+      : "Reference images are attached for prompt optimization.",
+    biasInstruction,
+    "Use attached reference images only to reinforce facts already grounded in the source prompt. Do not invent new characters, props, locations, story events, or hard constraints from the images alone.",
+    ...bindingLines,
+  ].join("\n");
+}
+
+function buildReferenceAwarePromptOptimizationInstruction(
+  mode: PromptOptimizationMode,
+  prompt: string,
+  useReferenceImages: boolean,
+  referenceImageBindings: PromptReferenceImageBinding[],
+): string {
+  const modeSpecificInstruction =
+    mode === "image"
+      ? [
+          "You are lightly optimizing an AI image-generation prompt.",
+          "Keep the original meaning and all hard facts unchanged.",
+          "Improve clarity around composition, lighting, texture, color, material cues, and spatial detail, but do not invent new subjects, props, actions, scenes, plot beats, or constraints.",
+          "Prefer 2 to 4 concrete visual improvements over long adjective stacks.",
+          "If the source prompt is already specific, keep the rewrite restrained.",
+        ].join("\n")
+      : [
+          "You are lightly optimizing an AI video-generation prompt.",
+          "Keep the original meaning and all hard facts unchanged.",
+          "Improve clarity around motion, shot feel, pacing, camera tendency, and action readability, but do not invent new characters, props, locations, plot beats, or extra shot events.",
+          "Prefer 2 to 4 concrete dynamic or cinematic improvements over long adjective stacks.",
+          "If the source prompt does not imply complex camera movement, keep the rewrite restrained.",
+        ].join("\n");
+
+  return [
+    modeSpecificInstruction,
+    buildReferenceImageInstruction(
+      mode === "image" ? "static" : "dynamic",
+      useReferenceImages,
+      referenceImageBindings,
+    ),
+    "Keep the optimized prompt in the same primary language as the source prompt. If the source prompt is mainly English, return English. If it is mainly Chinese, return Chinese. Do not translate it into another language.",
+    "Preserve all explicit facts from the source prompt, including subject count, identity, relationships, wardrobe, props, setting, time, style, aspect ratio, duration, and any other hard constraints.",
+    "If the prompt contains tokens like @\u56fe1 or @\u56fe\u72472, preserve them exactly as written. Do not rename, renumber, delete, add, or reinterpret those tokens.",
+    "Make the result slightly richer than the source while keeping it compact and directly usable for generation.",
+    "Do not output explanations, analysis, headings, or quotation marks. Output only the final optimized prompt text.",
+    "",
+    "Source prompt:",
+    prompt.trim(),
+  ].join("\n");
+}
+
+function buildReferenceAwareJimengPromptOptimizationInstruction(
+  prompt: string,
+  useReferenceImages: boolean,
+  referenceImageBindings: PromptReferenceImageBinding[],
+): string {
+  return [
+    "You are optimizing a Chinese AI video prompt for Jimeng.",
+    "Keep the original meaning, characters, actions, story beats, setting, and all hard constraints intact.",
+    'Write the final "optimizedPrompt" in polished Chinese, as one production-ready prompt with flowing cinematic language, not as a dry keyword list.',
+    "Bias the result toward filmic realism, photographed scene texture, and cinematic atmosphere, closer to a movie shot than an advertising slogan or a pile of flashy adjectives.",
+    "Upgrade the prompt with stronger cinematic texture, visual style, atmosphere, lighting logic, lens language, motion rhythm, and scene coherence, but stay grounded in what is already written.",
+    "Moderately enrich the visual detail so the scene feels more vivid on screen. Favor concrete cinematic description, photographed space, and tactile atmosphere over abstract praise.",
+    `Good enrichment directions include: ${JIMENG_CINEMATIC_DETAIL_DIMENSIONS.join("; ")}.`,
+    `When it fits the source, you may selectively use concise professional film descriptors such as: ${JIMENG_CINEMATIC_TERM_EXAMPLES.join(", ")}.`,
+    "Add a slightly fuller amount of extra detail that clarifies the existing scene. Prefer 2 to 4 strong cinematic embellishments over a long stack of adjectives.",
+    "Let the final prompt feel modestly richer than the source, roughly like one small layer of added cinematic specificity, not a full rewrite.",
+    "Prefer movie-like atmosphere, lensing, lighting logic, and spatial depth. Avoid glossy commercial polish, exaggerated fantasy ornament, or poster-style tag clouds unless the source prompt explicitly asks for them.",
+    "Do not invent new characters, new props, new locations, new camera events, or extra plot twists.",
+    "If the prompt already has a clear camera move, refine it. If it does not, keep the camera language restrained and natural. Do not force montage, multi-shot editing, or flashy camera choreography unless the source already implies it.",
+    buildReferenceImageInstruction(
+      "dynamic",
+      useReferenceImages,
+      referenceImageBindings,
+    ),
+    "The added detail should mainly enrich lighting, texture, atmosphere, composition, motion quality, and a small amount of scene detail. It must not change the narrative facts.",
+    ...JIMENG_STRUCTURAL_CONTENT_PRESERVATION_INSTRUCTIONS,
+    "If the prompt contains reference tokens like @\u56fe1, @\u56fe\u72472, @\u97f31, or @\u97f3\u98912, preserve them exactly as written.",
+    `Also estimate the suitable video duration. "recommendedDurationSeconds" must be an integer from 1 to ${MAX_JIMENG_DURATION_SECONDS}.`,
+    `If the content clearly needs more than ${MAX_JIMENG_DURATION_SECONDS} seconds, set "recommendedDurationSeconds" to ${MAX_JIMENG_DURATION_SECONDS}, set "estimatedDurationSeconds" to your best real estimate above ${MAX_JIMENG_DURATION_SECONDS}, and set "exceedsMaxDuration" to true.`,
+    "Return strict JSON only. Do not return markdown fences or any explanation.",
+    "JSON schema:",
+    "{",
+    '  "optimizedPrompt": "string",',
+    `  "recommendedDurationSeconds": 1-${MAX_JIMENG_DURATION_SECONDS},`,
+    '  "estimatedDurationSeconds": integer >= 1,',
+    '  "exceedsMaxDuration": boolean,',
+    '  "reason": "one short sentence about pacing and shot density"',
+    "}",
+    "",
+    "Source prompt:",
+    prompt.trim(),
+  ].join("\n");
+}
+
 function buildPromptOptimizationInstruction(
   mode: PromptOptimizationMode,
   prompt: string,
   useReferenceImages: boolean,
+  referenceImageBindings: PromptReferenceImageBinding[],
 ): string {
+  return buildReferenceAwarePromptOptimizationInstruction(
+    mode,
+    prompt,
+    useReferenceImages,
+    referenceImageBindings,
+  );
+
   const modeSpecificInstruction =
     mode === "image"
       ? [
@@ -483,7 +691,14 @@ function buildDialoguePromptOptimizationInstruction(prompt: string): string {
 function buildJimengPromptOptimizationInstruction(
   prompt: string,
   useReferenceImages: boolean,
+  referenceImageBindings: PromptReferenceImageBinding[],
 ): string {
+  return buildReferenceAwareJimengPromptOptimizationInstruction(
+    prompt,
+    useReferenceImages,
+    referenceImageBindings,
+  );
+
   return buildJimengFilmicPromptOptimizationInstruction(
     prompt,
     useReferenceImages,
@@ -794,12 +1009,13 @@ export async function optimizeCanvasPrompt(
   }
 
   const context = resolveScriptPromptContext();
-  const candidateReferenceImages = sanitizeReferenceImages(
-    request.referenceImages,
+  const {
+    referenceImages,
+    referenceImageBindings,
+  } = resolveOptimizationReferenceImageInputs(
+    request,
+    context.supportsImageAnalysis,
   );
-  const referenceImages = context.supportsImageAnalysis
-    ? candidateReferenceImages
-    : [];
 
   const result = await generateText({
     prompt:
@@ -807,6 +1023,7 @@ export async function optimizeCanvasPrompt(
         ? buildJimengPromptOptimizationInstruction(
             normalizedPrompt,
             referenceImages.length > 0,
+            referenceImageBindings,
           )
         : request.mode === "dialogue"
           ? buildDialoguePromptOptimizationInstruction(normalizedPrompt)
@@ -816,6 +1033,7 @@ export async function optimizeCanvasPrompt(
             request.mode,
             normalizedPrompt,
             referenceImages.length > 0,
+            referenceImageBindings,
           ),
     provider: context.provider,
     model: context.model,
@@ -841,6 +1059,7 @@ export async function optimizeCanvasPrompt(
       ),
       context,
       usedReferenceImages: referenceImages.length > 0,
+      usedReferenceImageCount: referenceImages.length,
       durationRecommendation: parsedResult.durationRecommendation,
     };
   }
@@ -861,6 +1080,7 @@ export async function optimizeCanvasPrompt(
     prompt: normalizedResult,
     context,
     usedReferenceImages: referenceImages.length > 0,
+    usedReferenceImageCount: referenceImages.length,
     durationRecommendation: null,
   };
 }

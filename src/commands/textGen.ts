@@ -470,6 +470,18 @@ export interface SummaryExpandSceneContext {
   subtext?: string;
 }
 
+export interface SummaryExpandContinuityReference {
+  label: string;
+  summary: string;
+  facts: string[];
+  openLoops: string[];
+}
+
+export interface SummaryExpandContinuityContext {
+  guardrails: string[];
+  relevantMemories: SummaryExpandContinuityReference[];
+}
+
 export interface SummaryExpandStoryRootContext {
   title?: string;
   premise?: string;
@@ -511,6 +523,7 @@ export interface SummaryExpandRequest {
   items?: string[];
   previousChapterSummary?: string;
   nextChapterSummary?: string;
+  continuityContext?: SummaryExpandContinuityContext | null;
   storyRoot?: SummaryExpandStoryRootContext | null;
   instruction?: string;
   model?: string;
@@ -779,6 +792,282 @@ function buildSummaryExpandPrompt(
     .join('\n');
 }
 
+const BALANCED_SUMMARY_EXPAND_SCENE_LIMIT = 2;
+const BALANCED_SUMMARY_EXPAND_CHARACTER_LIMIT = 6;
+const BALANCED_SUMMARY_EXPAND_LOCATION_LIMIT = 4;
+const BALANCED_SUMMARY_EXPAND_ITEM_LIMIT = 4;
+const BALANCED_SUMMARY_EXPAND_MEMORY_LIMIT = 3;
+
+function getBalancedSummaryExpandScenes(request: SummaryExpandRequest): SummaryExpandSceneContext[] {
+  return normalizeSummaryExpandScenes(request.scenes).slice(0, BALANCED_SUMMARY_EXPAND_SCENE_LIMIT);
+}
+
+function resolveBalancedSummaryExpandExpectedCharacterNames(request: SummaryExpandRequest): string[] {
+  const scenes = getBalancedSummaryExpandScenes(request);
+  return dedupeTrimmedStrings(
+    [
+      request.storyRoot?.protagonist,
+      ...(request.storyRoot?.characterLibraryNames ?? []),
+      ...(request.characters ?? []),
+      ...scenes.map((scene) => scene.povCharacter),
+    ],
+    BALANCED_SUMMARY_EXPAND_CHARACTER_LIMIT
+  );
+}
+
+function normalizeBalancedSummaryExpandContinuityContext(
+  value: SummaryExpandContinuityContext | null | undefined
+): SummaryExpandContinuityContext | null {
+  if (!value) {
+    return null;
+  }
+
+  const guardrails = dedupeTrimmedStrings(value.guardrails ?? [], 8);
+  const relevantMemories = Array.isArray(value.relevantMemories)
+    ? value.relevantMemories
+      .map((memory) => {
+        const label = normalizeNonEmptyString(memory?.label);
+        const summary = normalizeNonEmptyString(memory?.summary);
+        const facts = dedupeTrimmedStrings(memory?.facts ?? [], 4);
+        const openLoops = dedupeTrimmedStrings(memory?.openLoops ?? [], 3);
+
+        if (!label && !summary && facts.length === 0 && openLoops.length === 0) {
+          return null;
+        }
+
+        return {
+          label,
+          summary,
+          facts,
+          openLoops,
+        };
+      })
+      .filter((memory): memory is SummaryExpandContinuityReference => Boolean(memory))
+      .slice(0, BALANCED_SUMMARY_EXPAND_MEMORY_LIMIT)
+    : [];
+
+  if (guardrails.length === 0 && relevantMemories.length === 0) {
+    return null;
+  }
+
+  return {
+    guardrails,
+    relevantMemories,
+  };
+}
+
+function formatBalancedSummaryExpandList(title: string, values: string[]): string {
+  return values.length > 0 ? `- ${title}: ${values.join(', ')}` : '';
+}
+
+function formatBalancedSummaryExpandBeats(
+  beats: SummaryExpandStoryRootContext['beats'] | undefined
+): string {
+  if (!beats || beats.length === 0) {
+    return '- None';
+  }
+
+  return beats
+    .map((beat) => {
+      const beatTitle = normalizeNonEmptyString(beat.title) || beat.key;
+      const beatSummary = normalizeNonEmptyString(beat.summary) || 'No summary';
+      const dramaticQuestion = normalizeNonEmptyString(beat.dramaticQuestion);
+      return dramaticQuestion
+        ? `- ${beatTitle}: ${beatSummary} | Dramatic question: ${dramaticQuestion}`
+        : `- ${beatTitle}: ${beatSummary}`;
+    })
+    .join('\n');
+}
+
+function formatBalancedSummaryExpandSceneCards(scenes: SummaryExpandSceneContext[]): string {
+  if (scenes.length === 0 || !hasStructuredSummaryExpandScenes(scenes)) {
+    return '- None';
+  }
+
+  return scenes
+    .map((scene, index) => [
+      `- Scene ${index + 1}: ${scene.title || `Scene ${index + 1}`}`,
+      `  Summary: ${trimOrFallback(scene.summary)}`,
+      `  Purpose: ${trimOrFallback(scene.purpose)}`,
+      `  POV: ${trimOrFallback(scene.povCharacter)}`,
+      `  Goal: ${trimOrFallback(scene.goal)}`,
+      `  Conflict: ${trimOrFallback(scene.conflict)}`,
+      `  Turn: ${trimOrFallback(scene.turn)}`,
+      scene.emotionalShift ? `  Emotional shift: ${scene.emotionalShift}` : '',
+      scene.visualHook ? `  Visual hook: ${scene.visualHook}` : '',
+      scene.subtext ? `  Subtext: ${scene.subtext}` : '',
+    ].filter(Boolean).join('\n'))
+    .join('\n\n');
+}
+
+function formatBalancedSummaryExpandContinuityContext(request: SummaryExpandRequest): string {
+  const continuityContext = normalizeBalancedSummaryExpandContinuityContext(request.continuityContext);
+  if (!continuityContext) {
+    return request.previousChapterSummary?.trim()
+      ? `Primary handoff summary:\n- ${request.previousChapterSummary.trim()}`
+      : 'Primary handoff summary:\n- None';
+  }
+
+  const [primaryMemory, ...relatedMemories] = continuityContext.relevantMemories;
+  return [
+    continuityContext.guardrails.length > 0
+      ? [
+          'Continuity guardrails:',
+          ...continuityContext.guardrails.map((guardrail) => `- ${guardrail}`),
+        ].join('\n')
+      : '',
+    primaryMemory
+      ? [
+          'Primary handoff memory:',
+          `- Label: ${trimOrFallback(primaryMemory.label, 'Previous chapter handoff')}`,
+          `- Summary: ${trimOrFallback(primaryMemory.summary)}`,
+          formatBalancedSummaryExpandList('Facts to keep', primaryMemory.facts),
+          formatBalancedSummaryExpandList('Open loops to carry', primaryMemory.openLoops),
+        ].filter(Boolean).join('\n')
+      : request.previousChapterSummary?.trim()
+        ? `Primary handoff summary:\n- ${request.previousChapterSummary.trim()}`
+        : 'Primary handoff summary:\n- None',
+    relatedMemories.length > 0
+      ? [
+          'Relevant earlier memories:',
+          ...relatedMemories.slice(0, 2).map((memory, index) => [
+            `- Memory ${index + 1}: ${trimOrFallback(memory.label, `Reference ${index + 1}`)}`,
+            `  Summary: ${trimOrFallback(memory.summary)}`,
+            memory.facts.length > 0 ? `  Facts: ${memory.facts.join(' | ')}` : '',
+            memory.openLoops.length > 0 ? `  Open loops: ${memory.openLoops.join(' | ')}` : '',
+          ].filter(Boolean).join('\n')),
+        ].join('\n')
+      : '',
+  ].filter(Boolean).join('\n\n');
+}
+
+function buildBalancedSummaryExpandPrompt(
+  request: SummaryExpandRequest,
+  repairNotes: string[] = []
+): string {
+  const scenes = getBalancedSummaryExpandScenes(request);
+  const hasStructuredScenes = hasStructuredSummaryExpandScenes(scenes);
+  const expectedCharacterNames = resolveBalancedSummaryExpandExpectedCharacterNames(request);
+  const locationNames = dedupeTrimmedStrings([
+    ...(request.storyRoot?.locationLibraryNames ?? []),
+    ...(request.locations ?? []),
+  ], BALANCED_SUMMARY_EXPAND_LOCATION_LIMIT);
+  const itemNames = dedupeTrimmedStrings([
+    ...(request.storyRoot?.itemLibraryNames ?? []),
+    ...(request.items ?? []),
+  ], BALANCED_SUMMARY_EXPAND_ITEM_LIMIT);
+  const storyTitle = normalizeNonEmptyString(request.storyRoot?.title) || request.chapterTitle;
+
+  return [
+    'You are a screenplay drafting assistant focused on balanced continuity.',
+    'Write in the dominant language of the provided story material.',
+    'Expand the chapter into a readable draft without rewriting the established outline.',
+    'Preserve names, roles, relationships, chapter goals, core conflicts, turns, and the exit hook into the next chapter.',
+    'You may enrich dialogue, blocking, sensory detail, and emotional texture as long as the main dramatic line stays intact.',
+    'If context is thin, deepen execution inside the existing chapter rather than inventing a new subplot.',
+    hasStructuredScenes
+      ? 'Cover the scene cards in order and make each one visibly express its summary, purpose, goal, conflict, and turn.'
+      : 'There are no strong scene cards, so stay tightly aligned with the chapter summary and adjacent chapter setup.',
+    'Return Markdown only. Do not output commentary or JSON.',
+    '',
+    repairNotes.length > 0 ? 'Fix these continuity problems from the last attempt without changing the main line:' : '',
+    repairNotes.length > 0 ? repairNotes.map((note) => `- ${note}`).join('\n') : '',
+    repairNotes.length > 0 ? '' : '',
+    'Story root:',
+    `- Title: ${trimOrFallback(storyTitle, 'Untitled Story')}`,
+    `- Premise: ${trimOrFallback(request.storyRoot?.premise)}`,
+    `- Theme: ${trimOrFallback(request.storyRoot?.theme)}`,
+    `- Protagonist: ${trimOrFallback(request.storyRoot?.protagonist)}`,
+    `- External goal: ${trimOrFallback(request.storyRoot?.want)}`,
+    `- Stakes: ${trimOrFallback(request.storyRoot?.stakes)}`,
+    `- Tone: ${trimOrFallback(request.storyRoot?.tone)}`,
+    `- Director lens: ${trimOrFallback(request.storyRoot?.directorVision)}`,
+    `- Core beats:\n${formatBalancedSummaryExpandBeats(request.storyRoot?.beats)}`,
+    '',
+    'Current chapter scaffold:',
+    `- Chapter title: ${trimOrFallback(request.chapterTitle, 'Untitled Chapter')}`,
+    request.chapterNumber ? `- Chapter number: ${request.chapterNumber}` : '',
+    `- Chapter summary: ${trimOrFallback(request.summary)}`,
+    `- Chapter purpose: ${trimOrFallback(request.chapterPurpose)}`,
+    `- Chapter question: ${trimOrFallback(request.chapterQuestion)}`,
+    formatBalancedSummaryExpandList('Names that must stay stable', expectedCharacterNames),
+    formatBalancedSummaryExpandList('Relevant locations', locationNames),
+    formatBalancedSummaryExpandList('Relevant items', itemNames),
+    '',
+    'Scene cards:',
+    formatBalancedSummaryExpandSceneCards(scenes),
+    '',
+    formatBalancedSummaryExpandContinuityContext(request),
+    '',
+    `Next chapter setup: ${trimOrFallback(request.nextChapterSummary)}`,
+    '',
+    request.instruction ? `Additional writing preference: ${request.instruction}` : '',
+    request.instruction ? '' : '',
+    'Output format:',
+    '- Use `##` scene headings.',
+    '- Separate scenes with `---`.',
+    '- Use `**Character**:` for dialogue lines.',
+    '- Use plain paragraphs for action and scene description.',
+    '',
+    'Return the chapter draft in Markdown only.',
+  ]
+    .filter(Boolean)
+    .join('\n');
+}
+
+function buildBalancedSummaryExpandValidationPrompt(
+  request: SummaryExpandRequest,
+  candidateText: string
+): string {
+  const scenes = getBalancedSummaryExpandScenes(request);
+  const expectedCharacterNames = resolveBalancedSummaryExpandExpectedCharacterNames(request);
+
+  return [
+    'You are a strict screenplay continuity editor.',
+    'Judge whether the candidate chapter draft drifts away from the provided story scaffold.',
+    'Ignore harmless prose or style variation. Focus on renamed characters, changed goals/conflicts/turns, outline drift, and broken continuity handoff.',
+    'Return JSON only using this exact shape:',
+    '{"status":"clear|warning","summary":"...","issues":[{"code":"character_drift|outline_drift|continuity_conflict","title":"...","detail":"...","evidence":"..."}]}',
+    '',
+    'Story root:',
+    `- Title: ${trimOrFallback(request.storyRoot?.title || request.chapterTitle, 'Untitled Story')}`,
+    `- Protagonist: ${trimOrFallback(request.storyRoot?.protagonist)}`,
+    `- Theme: ${trimOrFallback(request.storyRoot?.theme)}`,
+    '',
+    'Current chapter scaffold:',
+    `- Chapter title: ${trimOrFallback(request.chapterTitle, 'Untitled Chapter')}`,
+    request.chapterNumber ? `- Chapter number: ${request.chapterNumber}` : '',
+    `- Chapter summary: ${trimOrFallback(request.summary)}`,
+    `- Chapter purpose: ${trimOrFallback(request.chapterPurpose)}`,
+    `- Chapter question: ${trimOrFallback(request.chapterQuestion)}`,
+    formatBalancedSummaryExpandList('Names that must stay stable', expectedCharacterNames),
+    '',
+    'Scene cards:',
+    formatBalancedSummaryExpandSceneCards(scenes),
+    '',
+    formatBalancedSummaryExpandContinuityContext(request),
+    '',
+    `Next chapter setup: ${trimOrFallback(request.nextChapterSummary)}`,
+    '',
+    'Candidate chapter draft:',
+    candidateText.trim() || 'None',
+  ]
+    .filter(Boolean)
+    .join('\n');
+}
+
+function computeBalancedSummaryExpandMaxTokens(request: SummaryExpandRequest): number {
+  const sceneCount = Math.max(1, getBalancedSummaryExpandScenes(request).length || 1);
+  return Math.min(3072, 1200 + sceneCount * 480);
+}
+
+function shouldRetryBalancedSummaryExpansion(validation: SummaryExpandValidationResult): boolean {
+  return validation.status === 'warning'
+    && validation.issues.some((issue) => (
+      issue.code === 'character_drift' || issue.code === 'continuity_conflict'
+    ));
+}
+
 function normalizeSummaryExpandValidationIssue(
   value: unknown,
   index: number
@@ -877,10 +1166,10 @@ async function validateSummaryExpansion(
 ): Promise<SummaryExpandValidationResult> {
   try {
     const result = await generateText({
-      prompt: buildSummaryExpandValidationPrompt(request, candidateText),
+      prompt: buildBalancedSummaryExpandValidationPrompt(request, candidateText),
       model: request.model,
       temperature: 0.15,
-      maxTokens: 1200,
+      maxTokens: 700,
     });
 
     const parsed = extractJsonValue(result.text);
@@ -926,6 +1215,11 @@ function shouldRetrySummaryExpansion(validation: SummaryExpandValidationResult):
   return validation.status === 'warning' && validation.issues.length > 0;
 }
 
+// Keep legacy helpers reachable while the balanced prompt rollout remains side-by-side.
+void buildSummaryExpandPrompt;
+void buildSummaryExpandValidationPrompt;
+void shouldRetrySummaryExpansion;
+
 export async function expandFromSummary(
   request: SummaryExpandRequest
 ): Promise<SummaryExpandResponse> {
@@ -939,16 +1233,16 @@ export async function expandFromSummary(
     attempts += 1;
 
     const result = await generateText({
-      prompt: buildSummaryExpandPrompt(request, repairNotes),
+      prompt: buildBalancedSummaryExpandPrompt(request, repairNotes),
       model: request.model,
       temperature: 0.45,
-      maxTokens: 4096,
+      maxTokens: computeBalancedSummaryExpandMaxTokens(request),
     });
 
     latestText = result.text;
     latestValidation = await validateSummaryExpansion(request, latestText);
 
-    if (!shouldRetrySummaryExpansion(latestValidation) || attempts >= maxAttempts) {
+    if (!shouldRetryBalancedSummaryExpansion(latestValidation) || attempts >= maxAttempts) {
       break;
     }
 

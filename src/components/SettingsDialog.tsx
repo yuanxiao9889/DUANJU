@@ -43,6 +43,7 @@ import {
   resolveConfiguredStoryboardModel,
   resolveScriptModelOptions,
   SCRIPT_COMPATIBLE_PROVIDER_ID,
+  resolveStoryboardApi2OkModelConfigForModel,
   resolveStoryboardCompatibleModelConfigForModel,
   resolveStoryboardNewApiModelConfigForModel,
   toStoryboardProviderModelId,
@@ -52,7 +53,9 @@ import {
   type ModelProviderDefinition,
   type ScriptCompatibleProviderConfig,
   listModelProviders,
+  normalizeStoryboardApi2OkModelConfig,
   normalizeStoryboardNewApiModelConfig,
+  type StoryboardApi2OkModelConfig,
   type StoryboardNewApiModelConfig,
   upsertCustomStoryboardModelEntry,
 } from '@/features/canvas/models';
@@ -136,7 +139,7 @@ const STORYBOARD_PROVIDER_GROUP_CONFIGS: ProviderGroupConfig[] = [
   {
     id: 'cheap',
     labelKey: 'settings.providerGroupAffordable',
-    providerIds: ['azemm', 'zhenzhen', 'comfly', 'bltcy', 'runninghub'],
+    providerIds: ['azemm', 'zhenzhen', 'comfly', 'bltcy', 'runninghub', 'api2ok'],
     defaultCollapsed: true,
   },
   {
@@ -340,6 +343,7 @@ export function SettingsDialog({
     storyboardProviderCustomModels,
     hrsaiNanoBananaProModel,
     storyboardCompatibleModelConfig,
+    storyboardApi2OkModelConfig,
     storyboardNewApiModelConfig,
     downloadPresetPaths,
     useUploadFilenameAsNodeTitle,
@@ -372,6 +376,7 @@ export function SettingsDialog({
     setStoryboardProviderCustomModels,
     setGrsaiNanoBananaProModel,
     setStoryboardCompatibleModelConfig,
+    setStoryboardApi2OkModelConfig,
     setStoryboardNewApiModelConfig,
     setDownloadPresetPaths,
     setUseUploadFilenameAsNodeTitle,
@@ -418,6 +423,7 @@ export function SettingsDialog({
       'bltcy',
       'volcengine',
       'runninghub',
+      'api2ok',
       'alibaba',
       'coding',
       'compatible',
@@ -485,6 +491,10 @@ export function SettingsDialog({
     useState<Record<string, string>>({});
   const [localStoryboardCompatibleModelConfig, setLocalStoryboardCompatibleModelConfig] =
     useState(storyboardCompatibleModelConfig);
+  const [localStoryboardApi2OkModelConfig, setLocalStoryboardApi2OkModelConfig] =
+    useState<StoryboardApi2OkModelConfig>(normalizeStoryboardApi2OkModelConfig(
+      storyboardApi2OkModelConfig
+    ));
   const [localStoryboardNewApiModelConfig, setLocalStoryboardNewApiModelConfig] =
     useState<StoryboardNewApiModelConfig>(normalizeStoryboardNewApiModelConfig(
       storyboardNewApiModelConfig
@@ -624,6 +634,9 @@ export function SettingsDialog({
     setLocalStoryboardModelIdInputs({});
     setLocalStoryboardModelDisplayNameInputs({});
     setLocalStoryboardCompatibleModelConfig(storyboardCompatibleModelConfig);
+    setLocalStoryboardApi2OkModelConfig(
+      normalizeStoryboardApi2OkModelConfig(storyboardApi2OkModelConfig)
+    );
     setLocalStoryboardNewApiModelConfig(
       normalizeStoryboardNewApiModelConfig(storyboardNewApiModelConfig)
     );
@@ -668,6 +681,7 @@ export function SettingsDialog({
     storyboardModelOverrides,
     storyboardProviderCustomModels,
     storyboardCompatibleModelConfig,
+    storyboardApi2OkModelConfig,
     storyboardNewApiModelConfig,
     useUploadFilenameAsNodeTitle,
     storyboardGenKeepStyleConsistent,
@@ -1127,6 +1141,16 @@ export function SettingsDialog({
         )
       );
     }
+
+    if (providerId === 'api2ok') {
+      setLocalStoryboardApi2OkModelConfig((previous) =>
+        resolveStoryboardApi2OkModelConfigForModel(
+          nextResolvedModelId,
+          previous,
+          { ...localStoryboardProviderCustomModels, [providerId]: nextEntries }
+        )
+      );
+    }
   }, [
     localStoryboardModelDisplayNameInputs,
     localStoryboardModelIdInputs,
@@ -1157,6 +1181,7 @@ export function SettingsDialog({
       },
       storyboardProviderCustomModels: nextCustomModels,
       storyboardCompatibleModelConfig: localStoryboardCompatibleModelConfig,
+      storyboardApi2OkModelConfig: localStoryboardApi2OkModelConfig,
       storyboardNewApiModelConfig: localStoryboardNewApiModelConfig,
     });
 
@@ -1193,7 +1218,22 @@ export function SettingsDialog({
         )
       );
     }
+
+    if (providerId === 'api2ok') {
+      setLocalStoryboardApi2OkModelConfig((previous) =>
+        resolveStoryboardApi2OkModelConfigForModel(
+          nextResolvedModel,
+          {
+            ...previous,
+            requestModel: remainingEntries[0]?.modelId ?? '',
+            displayName: remainingEntries[0]?.displayName ?? '',
+          },
+          nextCustomModels
+        )
+      );
+    }
   }, [
+    localStoryboardApi2OkModelConfig,
     localStoryboardCompatibleModelConfig,
     localStoryboardModelOverrides,
     localStoryboardNewApiModelConfig,
@@ -1229,6 +1269,7 @@ export function SettingsDialog({
     });
     setScriptCompatibleProviderConfig(localScriptCompatibleProviderConfig);
     setStoryboardCompatibleModelConfig(localStoryboardCompatibleModelConfig);
+    setStoryboardApi2OkModelConfig(localStoryboardApi2OkModelConfig);
     setStoryboardNewApiModelConfig(localStoryboardNewApiModelConfig);
     storyboardProviders.forEach((provider) => {
       if (!isStoryboardCustomModelProviderId(provider.id)) {
@@ -1241,6 +1282,7 @@ export function SettingsDialog({
           storyboardModelOverrides: localStoryboardModelOverrides,
           storyboardProviderCustomModels: localStoryboardProviderCustomModels,
           storyboardCompatibleModelConfig: localStoryboardCompatibleModelConfig,
+          storyboardApi2OkModelConfig: localStoryboardApi2OkModelConfig,
           storyboardNewApiModelConfig: localStoryboardNewApiModelConfig,
         })
       );
@@ -1303,6 +1345,7 @@ export function SettingsDialog({
     localScriptProviderCustomModels,
     localScriptCompatibleProviderConfig,
     localStoryboardCompatibleModelConfig,
+    localStoryboardApi2OkModelConfig,
     localStoryboardNewApiModelConfig,
     localStoryboardModelOverrides,
     localStoryboardProviderCustomModels,
@@ -1322,6 +1365,7 @@ export function SettingsDialog({
     setStoryboardModelOverride,
     setStoryboardProviderCustomModels,
     setStoryboardCompatibleModelConfig,
+    setStoryboardApi2OkModelConfig,
     setStoryboardNewApiModelConfig,
     setDownloadPresetPaths,
     setUseUploadFilenameAsNodeTitle,
@@ -2107,6 +2151,10 @@ export function SettingsDialog({
                               ) : provider.id === 'newapi' ? (
                                 <div className="mt-3 rounded-md border border-border-dark bg-black/10 px-3 py-2 text-xs leading-5 text-text-muted">
                                   {t('settings.storyboardNewApiNoConnectionTest')}
+                                </div>
+                              ) : provider.id === 'api2ok' ? (
+                                <div className="mt-3 rounded-md border border-border-dark bg-black/10 px-3 py-2 text-xs leading-5 text-text-muted">
+                                  {t('settings.storyboardApi2OkNoConnectionTest')}
                                 </div>
                               ) : null
                             ) : (

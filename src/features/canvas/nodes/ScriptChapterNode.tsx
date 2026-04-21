@@ -4,8 +4,13 @@ import { FileText, GitBranch, GitFork, GripHorizontal, Sparkles } from 'lucide-r
 import { useTranslation } from 'react-i18next';
 
 import { UiScrollArea } from '@/components/ui';
-import type { SummaryExpandRequest } from '@/commands/textGen';
-import { getSortedScriptChapterNodes } from '@/features/canvas/application/sceneContinuity';
+import type { SummaryExpandContinuityContext, SummaryExpandRequest } from '@/commands/textGen';
+import {
+  buildSceneContinuityContext,
+  generateSceneContinuityMemory,
+  getSortedScriptChapterNodes,
+  resolveSceneContinuityMemory,
+} from '@/features/canvas/application/sceneContinuity';
 import { AiWriterDialog } from '@/features/canvas/ui/AiWriterDialog';
 import { NodeHeader, NODE_HEADER_FLOATING_POSITION_CLASS } from '@/features/canvas/ui/NodeHeader';
 import { NodeResizeHandle } from '@/features/canvas/ui/NodeResizeHandle';
@@ -15,6 +20,7 @@ import {
   SCRIPT_CHAPTER_NODE_DEFAULT_WIDTH,
   createDefaultSceneCard,
   normalizeSceneCards,
+  normalizeScriptChapterNodeData,
   normalizeScriptRootNodeData,
   type SceneCard,
   type ScriptChapterNodeData,
@@ -64,6 +70,49 @@ function summarizeGeneratedSceneDraft(html: string, fallback = ''): string {
   return text.length > 96
     ? `${text.slice(0, 96).trim()}...`
     : text;
+}
+
+function dedupeTrimmedStrings(values: Array<string | undefined | null>, limit = Number.POSITIVE_INFINITY): string[] {
+  const seen = new Set<string>();
+  const normalized: string[] = [];
+
+  for (const value of values) {
+    const trimmed = typeof value === 'string' ? value.trim() : '';
+    if (!trimmed || seen.has(trimmed)) {
+      continue;
+    }
+
+    seen.add(trimmed);
+    normalized.push(trimmed);
+
+    if (normalized.length >= limit) {
+      break;
+    }
+  }
+
+  return normalized;
+}
+
+function buildChapterHandoffContinuityReference(
+  chapterData: ScriptChapterNodeData
+): SummaryExpandContinuityContext['relevantMemories'][number] | null {
+  const chapterScenes = normalizeSceneCards(chapterData.scenes, chapterData.content);
+  const lastScene = chapterScenes[chapterScenes.length - 1];
+  if (!lastScene) {
+    return null;
+  }
+
+  const memory = resolveSceneContinuityMemory(lastScene);
+  const chapterLabel = chapterData.title
+    || chapterData.displayName
+    || `Chapter ${chapterData.chapterNumber ?? ''}`.trim();
+
+  return {
+    label: chapterLabel ? `${chapterLabel} / ${memory.label}` : memory.label,
+    summary: memory.summary || chapterData.summary || '',
+    facts: memory.facts.slice(0, 4),
+    openLoops: memory.openLoops.slice(0, 3),
+  };
 }
 
 function splitGeneratedChapterHtmlIntoScenes(
@@ -243,6 +292,43 @@ export const ScriptChapterNode = memo(({ id, data, selected, width, height }: Sc
       nextChapterSummary: (nextChapter?.data.summary || '').trim(),
     };
   }, [id, nodes]);
+  const chapterContinuityContext = useMemo<SummaryExpandContinuityContext | null>(() => {
+    const sortedChapters = getSortedScriptChapterNodes(nodes);
+    const currentIndex = sortedChapters.findIndex((node) => node.id === id);
+    if (currentIndex < 0) {
+      return null;
+    }
+
+    const previousChapter = currentIndex > 0 ? sortedChapters[currentIndex - 1] : null;
+    const firstScene = scenes[0];
+    const baseContext = firstScene
+      ? buildSceneContinuityContext({
+          nodes,
+          currentChapterId: id,
+          currentSceneId: firstScene.id,
+          currentScene: firstScene,
+          storyRoot: storyRootData ?? null,
+        })
+      : null;
+    const primaryHandoff = previousChapter
+      ? buildChapterHandoffContinuityReference(previousChapter.data)
+      : null;
+    const relatedMemories = (baseContext?.relevantMemories ?? [])
+      .filter((memory) => !primaryHandoff || (
+        memory.label !== primaryHandoff.label || memory.summary !== primaryHandoff.summary
+      ))
+      .slice(0, 2);
+    const guardrails = dedupeTrimmedStrings(baseContext?.guardrails ?? [], 6);
+
+    if (!primaryHandoff && guardrails.length === 0 && relatedMemories.length === 0) {
+      return null;
+    }
+
+    return {
+      guardrails,
+      relevantMemories: primaryHandoff ? [primaryHandoff, ...relatedMemories] : relatedMemories,
+    };
+  }, [id, nodes, scenes, storyRootData]);
   const mergedBranchContents = useMemo(
     () =>
       mergedBranchNodes.map((branchNode) => {
@@ -284,6 +370,7 @@ export const ScriptChapterNode = memo(({ id, data, selected, width, height }: Sc
     items: data.items,
     previousChapterSummary: adjacentChapterSummaries.previousChapterSummary,
     nextChapterSummary: adjacentChapterSummaries.nextChapterSummary,
+    continuityContext: chapterContinuityContext,
     storyRoot: storyRootData
       ? {
         title: storyRootData.title || storyRootData.displayName || '',
@@ -308,6 +395,7 @@ export const ScriptChapterNode = memo(({ id, data, selected, width, height }: Sc
   }), [
     adjacentChapterSummaries.nextChapterSummary,
     adjacentChapterSummaries.previousChapterSummary,
+    chapterContinuityContext,
     data.chapterNumber,
     data.chapterPurpose,
     data.chapterQuestion,
@@ -341,6 +429,75 @@ export const ScriptChapterNode = memo(({ id, data, selected, width, height }: Sc
     focusChapterScene(id, sceneId);
   }, [focusChapterScene, id, setSelectedNode]);
 
+  const scheduleHandoffMemoryRefresh = useCallback((sceneId: string, expectedDraftHtml: string) => {
+    void (async () => {
+      try {
+        const initialState = useCanvasStore.getState();
+        const initialNode = initialState.nodes.find((node) => node.id === id && node.type === CANVAS_NODE_TYPES.scriptChapter);
+        if (!initialNode) {
+          return;
+        }
+
+        const initialChapter = normalizeScriptChapterNodeData(initialNode.data as ScriptChapterNodeData);
+        const initialScenes = normalizeSceneCards(initialChapter.scenes, initialChapter.content);
+        const targetScene = initialScenes.find((scene) => scene.id === sceneId);
+        if (!targetScene || targetScene.draftHtml.trim() !== expectedDraftHtml.trim()) {
+          return;
+        }
+
+        const continuityContext = buildSceneContinuityContext({
+          nodes: initialState.nodes,
+          currentChapterId: id,
+          currentSceneId: targetScene.id,
+          currentScene: targetScene,
+          storyRoot: storyRootData ?? null,
+        });
+        const memory = await generateSceneContinuityMemory({
+          scene: targetScene,
+          chapter: initialChapter,
+          storyRoot: storyRootData ?? null,
+          continuityContext,
+        });
+
+        const latestState = useCanvasStore.getState();
+        const latestNode = latestState.nodes.find((node) => node.id === id && node.type === CANVAS_NODE_TYPES.scriptChapter);
+        if (!latestNode) {
+          return;
+        }
+
+        const latestChapter = normalizeScriptChapterNodeData(latestNode.data as ScriptChapterNodeData);
+        const latestScenes = normalizeSceneCards(latestChapter.scenes, latestChapter.content);
+        const latestScene = latestScenes.find((scene) => scene.id === sceneId);
+        if (!latestScene || latestScene.draftHtml.trim() !== expectedDraftHtml.trim()) {
+          return;
+        }
+
+        const nextScenes = latestScenes.map((scene) => (
+          scene.id === sceneId
+            ? {
+                ...scene,
+                continuitySummary: memory.summary,
+                continuityFacts: memory.facts,
+                continuityOpenLoops: memory.openLoops,
+                continuityUpdatedAt: memory.updatedAt,
+                sourceDraftHtml: scene.draftHtml.trim() ? scene.draftHtml : scene.sourceDraftHtml,
+                sourceDraftLabel: scene.sourceDraftLabel?.trim() || t('script.sceneWorkbench.generatedSourceLabel'),
+              }
+            : scene
+        ));
+        latestState.updateNodeData(id, {
+          scenes: nextScenes,
+          sceneHeadings: nextScenes
+            .map((scene) => scene.title.trim())
+            .filter((value) => value.length > 0),
+          content: latestChapter.content,
+        }, { historyMode: 'skip' });
+      } catch (error) {
+        console.warn('[ScriptChapterNode] Failed to refresh handoff memory', error);
+      }
+    })();
+  }, [id, storyRootData, t]);
+
   const handleAiConfirm = useCallback((result: string) => {
     if (aiDialogMode !== 'expandFromSummary' && aiDialogMode !== 'expandFromMerged') {
       return;
@@ -357,6 +514,12 @@ export const ScriptChapterNode = memo(({ id, data, selected, width, height }: Sc
             title: generatedScene.title || fallbackScene.title,
             summary: generatedScene.summary || fallbackScene.summary,
             draftHtml: generatedScene.draftHtml,
+            sourceDraftHtml: generatedScene.draftHtml || fallbackScene.sourceDraftHtml,
+            sourceDraftLabel: fallbackScene.sourceDraftLabel?.trim() || t('script.sceneWorkbench.generatedSourceLabel'),
+            continuitySummary: '',
+            continuityFacts: [],
+            continuityOpenLoops: [],
+            continuityUpdatedAt: null,
             status: generatedScene.draftHtml.trim() ? 'drafting' : fallbackScene.status,
           };
         }),
@@ -373,12 +536,16 @@ export const ScriptChapterNode = memo(({ id, data, selected, width, height }: Sc
           .map((scene) => scene.title.trim())
           .filter((value) => value.length > 0),
       });
+      const lastGeneratedScene = nextScenes[generatedScenes.length - 1];
+      if (lastGeneratedScene?.draftHtml.trim()) {
+        scheduleHandoffMemoryRefresh(lastGeneratedScene.id, lastGeneratedScene.draftHtml);
+      }
     } else {
       updateNodeData(id, { content: result });
     }
 
     setAiDialogMode(null);
-  }, [aiDialogMode, id, scenes, updateNodeData]);
+  }, [aiDialogMode, id, scheduleHandoffMemoryRefresh, scenes, t, updateNodeData]);
 
   return (
     <>

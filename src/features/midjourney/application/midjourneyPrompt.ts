@@ -14,13 +14,11 @@ export type MidjourneyPromptTranslationDirection = 'zhToEn' | 'enToZh';
 
 export interface OptimizeMidjourneyPromptInput {
   prompt: string;
-  referenceImages?: string[];
 }
 
 export interface OptimizeMidjourneyPromptOutput {
   prompt: string;
   context: ScriptPromptContext;
-  usedReferenceImages: boolean;
 }
 
 export interface TranslateMidjourneyPromptInput {
@@ -43,6 +41,7 @@ const IMAGE_ANALYSIS_MODEL_HINTS = [
   'omni',
   'image',
   'qvq',
+  'gpt-5',
   'gpt-4o',
   'gpt-4.1',
   'gpt-4.5',
@@ -61,27 +60,6 @@ function normalizePromptText(value: string): string {
     .replace(/\r\n?/g, '\n')
     .replace(/\u00a0/g, ' ')
     .trim();
-}
-
-function sanitizeReferenceImages(referenceImages: string[] | undefined): string[] {
-  if (!Array.isArray(referenceImages) || referenceImages.length === 0) {
-    return [];
-  }
-
-  const result: string[] = [];
-  for (const image of referenceImages) {
-    const trimmed = typeof image === 'string' ? image.trim() : '';
-    if (!trimmed || result.includes(trimmed)) {
-      continue;
-    }
-
-    result.push(trimmed);
-    if (result.length >= 4) {
-      break;
-    }
-  }
-
-  return result;
 }
 
 function normalizeMidjourneyPromptResult(rawText: string): string {
@@ -211,7 +189,6 @@ export async function optimizeMidjourneyPrompt(
   const result = await optimizeCanvasPrompt({
     mode: 'image',
     prompt: strippedPrompt,
-    referenceImages: sanitizeReferenceImages(input.referenceImages),
   });
   const prompt = stripMidjourneyParams(result.prompt);
 
@@ -222,7 +199,6 @@ export async function optimizeMidjourneyPrompt(
   return {
     prompt,
     context: result.context,
-    usedReferenceImages: result.usedReferenceImages,
   };
 }
 

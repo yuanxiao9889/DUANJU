@@ -26,15 +26,9 @@ const BANANA_CLIENT_HEADER_VALUE: &str = "comfyui-banana-li";
 const JSON_REQUEST_MAX_ATTEMPTS: usize = 2;
 const JSON_REQUEST_RETRY_DELAY_MS: u64 = 2_000;
 const CURL_JSON_TRANSPORT_MIN_BYTES: usize = 64 * 1024;
-const CURL_JSON_TRANSPORT_TIMEOUT_SECONDS: u64 = 240;
+const CURL_JSON_TRANSPORT_TIMEOUT_SECONDS: u64 = 1_000;
 #[cfg(target_os = "windows")]
 const CREATE_NO_WINDOW: u32 = 0x0800_0000;
-const FLOW2API_IMAGE_BASE_MODELS: [&str; 4] = [
-    "gemini-2.5-flash-image",
-    "gemini-3.0-pro-image",
-    "gemini-3.1-flash-image",
-    "imagen-4.0-generate-preview",
-];
 const FLOW2API_IMAGE_ASPECT_SUFFIXES: [&str; 5] = [
     "-landscape",
     "-portrait",
@@ -343,6 +337,12 @@ impl NewApiProvider {
 
     fn resolve_openai_endpoint(endpoint_url: &str) -> String {
         let trimmed = endpoint_url.trim().trim_end_matches('/');
+        let trimmed = trimmed
+            .strip_suffix("/chat/completions")
+            .or_else(|| trimmed.strip_suffix("/images/generations"))
+            .or_else(|| trimmed.strip_suffix("/images/edits"))
+            .unwrap_or(trimmed)
+            .trim_end_matches('/');
         if trimmed.ends_with("/chat/completions") {
             return trimmed.to_string();
         }
@@ -439,25 +439,26 @@ impl NewApiProvider {
         }
 
         let lower = trimmed.to_ascii_lowercase();
+        let looks_like_google_image_model = lower.contains("imagen")
+            || (lower.contains("gemini")
+                && (lower.contains("image") || lower.contains("preview")));
+        if !looks_like_google_image_model {
+            return trimmed.to_string();
+        }
+
         let without_size = lower
             .strip_suffix("-1k")
             .or_else(|| lower.strip_suffix("-2k"))
             .or_else(|| lower.strip_suffix("-4k"))
             .unwrap_or(lower.as_str());
 
-        for base in FLOW2API_IMAGE_BASE_MODELS {
-            if without_size == base {
-                return base.to_string();
-            }
-            for suffix in FLOW2API_IMAGE_ASPECT_SUFFIXES {
-                let expected = format!("{}{}", base, suffix);
-                if without_size == expected {
-                    return base.to_string();
-                }
+        for suffix in FLOW2API_IMAGE_ASPECT_SUFFIXES {
+            if let Some(normalized) = without_size.strip_suffix(suffix) {
+                return normalized.to_string();
             }
         }
 
-        trimmed.to_string()
+        without_size.to_string()
     }
 
     fn resolve_gemini_image_size(request_model: &str, size: &str) -> Option<&'static str> {
@@ -537,13 +538,13 @@ impl NewApiProvider {
         let mut image_config = serde_json::Map::new();
         if !request.aspect_ratio.trim().is_empty() {
             image_config.insert(
-                "aspectRatio".to_string(),
+                "aspect_ratio".to_string(),
                 Value::String(request.aspect_ratio.trim().to_string()),
             );
         }
         if let Some(image_size) = Self::resolve_gemini_image_size(request_model, &request.size) {
             image_config.insert(
-                "imageSize".to_string(),
+                "image_size".to_string(),
                 Value::String(image_size.to_string()),
             );
         }
@@ -553,8 +554,8 @@ impl NewApiProvider {
         }
 
         Some(json!({
-            "generationConfig": {
-                "imageConfig": Value::Object(image_config),
+            "google": {
+                "image_config": Value::Object(image_config),
             }
         }))
     }
@@ -661,9 +662,25 @@ impl NewApiProvider {
             || normalized.contains("unterminated string starting at")
             || normalized.contains("json decode error")
             || normalized.contains("json_invalid")
+            || normalized.contains("eof while parsing")
+    }
+
+    fn is_timeout_message(message: &str) -> bool {
+        let normalized = message.trim().to_ascii_lowercase();
+        normalized.contains("gateway time-out")
+            || normalized.contains("gateway timeout")
+            || normalized.contains("request timeout")
+            || normalized.contains("operation timed out")
+            || normalized.contains("timed out")
+            || normalized.contains("deadline exceeded")
+            || normalized.contains("context deadline exceeded")
     }
 
     fn should_continue_generate_content_attempt(message: &str) -> bool {
+        if Self::is_timeout_message(message) {
+            return false;
+        }
+
         let normalized = message.trim().to_ascii_lowercase();
         Self::is_json_parse_error(message)
             || normalized.contains("failed to extract image from upstream response")
@@ -680,11 +697,28 @@ impl NewApiProvider {
             || (normalized.contains("invalid") && normalized.contains("image"))
     }
 
+    fn should_retry_openai_request_with_generate_content(message: &str) -> bool {
+        let normalized = message.trim().to_ascii_lowercase();
+        Self::is_json_parse_error(message)
+            || normalized.contains("invalid json payload received")
+            || normalized.contains("unable to parse number")
+            || (normalized.contains("multipart") && normalized.contains("invalid"))
+            || (normalized.contains("multipart") && normalized.contains("unsupported"))
+            || (normalized.contains("form-data") && normalized.contains("unsupported"))
+            || (normalized.contains("content-type") && normalized.contains("unsupported"))
+            || (normalized.contains("upstream_error")
+                && (normalized.contains("invalid json")
+                    || normalized.contains("unable to parse")
+                    || normalized.contains("multipart")
+                    || normalized.contains("form-data")))
+    }
+
     fn is_flow2api_image_request_model(request_model: &str) -> bool {
         let normalized = Self::normalize_flow2api_image_request_model(request_model);
-        FLOW2API_IMAGE_BASE_MODELS
-            .iter()
-            .any(|base| normalized.eq_ignore_ascii_case(base))
+        let lower = normalized.to_ascii_lowercase();
+        lower.contains("imagen")
+            || (lower.contains("gemini")
+                && (lower.contains("image") || lower.contains("preview")))
     }
 
     fn should_retry_generate_content_payload(payload: &Value) -> bool {
@@ -698,6 +732,18 @@ impl NewApiProvider {
             status.as_u16(),
             408 | 409 | 425 | 429 | 500 | 502 | 503 | 504
         )
+    }
+
+    fn is_timeout_http_status(status: reqwest::StatusCode) -> bool {
+        matches!(status.as_u16(), 408 | 504)
+    }
+
+    fn should_retry_http_status(status: reqwest::StatusCode) -> bool {
+        Self::is_retryable_http_status(status) && !Self::is_timeout_http_status(status)
+    }
+
+    fn should_retry_transport_error(error: &reqwest::Error) -> bool {
+        error.is_connect() && !error.is_timeout()
     }
 
     fn extract_markdown_link(text: &str, image_only: bool) -> Option<String> {
@@ -1133,7 +1179,7 @@ impl NewApiProvider {
                         );
                         if !status.is_success() {
                             if attempt < JSON_REQUEST_MAX_ATTEMPTS
-                                && Self::is_retryable_http_status(status)
+                                && Self::should_retry_http_status(status)
                             {
                                 warn!(
                                     "[NewAPI] {} attempt {}/{} hit retryable status {} via curl. Retrying after {}ms.",
@@ -1160,6 +1206,17 @@ impl NewApiProvider {
                         });
                     }
                     Err(error) => {
+                        if matches!(&error, AIError::Provider(message) if Self::is_timeout_message(message))
+                        {
+                            warn!(
+                                "[NewAPI] {} attempt {}/{} curl transport hit a timeout-like failure. Not falling back to reqwest to avoid duplicate submissions: {}",
+                                request_kind,
+                                attempt,
+                                JSON_REQUEST_MAX_ATTEMPTS,
+                                error
+                            );
+                            return Err(error);
+                        }
                         warn!(
                             "[NewAPI] {} attempt {}/{} curl transport unavailable, falling back to reqwest: {}",
                             request_kind, attempt, JSON_REQUEST_MAX_ATTEMPTS, error
@@ -1195,7 +1252,7 @@ impl NewApiProvider {
                     );
                     if !status.is_success() {
                         if attempt < JSON_REQUEST_MAX_ATTEMPTS
-                            && Self::is_retryable_http_status(status)
+                            && Self::should_retry_http_status(status)
                         {
                             warn!(
                                 "[NewAPI] {} attempt {}/{} hit retryable status {}. Retrying after {}ms.",
@@ -1223,7 +1280,7 @@ impl NewApiProvider {
                 }
                 Err(error)
                     if attempt < JSON_REQUEST_MAX_ATTEMPTS
-                        && (error.is_timeout() || error.is_connect()) =>
+                        && Self::should_retry_transport_error(&error) =>
                 {
                     warn!(
                         "[NewAPI] {} attempt {}/{} hit retryable transport error: {}. Retrying after {}ms.",
@@ -1250,6 +1307,7 @@ impl NewApiProvider {
         endpoint: &str,
         api_key: &str,
         form: Form,
+        request_kind: &str,
     ) -> Result<Value, AIError> {
         let response = self
             .client
@@ -1265,19 +1323,19 @@ impl NewApiProvider {
 
         let status = response.status();
         let response_text = response.text().await?;
-        info!("[NewAPI] {} -> {}", endpoint, status);
-        info!("[NewAPI] response: {}", response_text);
+        info!("[NewAPI] {} {} -> {}", request_kind, endpoint, status);
+        info!("[NewAPI] {} response: {}", request_kind, response_text);
         if !status.is_success() {
             return Err(AIError::Provider(format!(
-                "NewAPI request failed {}: {}",
-                status, response_text
+                "NewAPI {} request failed {}: {}",
+                request_kind, status, response_text
             )));
         }
 
         Ok(serde_json::from_str(&response_text).map_err(|error| {
             AIError::Provider(format!(
-                "Failed to parse NewAPI response: {}. Response was: {}",
-                error, response_text
+                "Failed to parse NewAPI {} response: {}. Response was: {}",
+                request_kind, error, response_text
             ))
         })?)
     }
@@ -1487,6 +1545,7 @@ impl NewApiProvider {
         api_key: &str,
     ) -> Result<Value, AIError> {
         let request_model = Self::normalize_flow2api_image_request_model(&config.request_model);
+        let is_flow2api_image_model = Self::is_flow2api_image_request_model(&request_model);
         let endpoint = Self::resolve_openai_endpoint(&config.endpoint_url);
         let prompt_text = Self::build_prompt_text(request);
         let message_content = if let Some(reference_images) = request
@@ -1525,23 +1584,31 @@ impl NewApiProvider {
         );
         body.insert("stream".to_string(), Value::Bool(false));
 
-        if let Some(size) = Self::resolve_openai_size(&request.size, &request.aspect_ratio) {
-            body.insert("size".to_string(), Value::String(size));
+        if !is_flow2api_image_model {
+            if let Some(size) = Self::resolve_openai_size(&request.size, &request.aspect_ratio) {
+                body.insert("size".to_string(), Value::String(size));
+            }
         }
-        if !request.aspect_ratio.trim().is_empty() {
+        if !is_flow2api_image_model && !request.aspect_ratio.trim().is_empty() {
             body.insert(
                 "aspect_ratio".to_string(),
                 Value::String(request.aspect_ratio.trim().to_string()),
             );
         }
-        if let Some(image_size) = Self::resolve_gemini_image_size(&request_model, &request.size) {
-            body.insert(
-                "image_size".to_string(),
-                Value::String(image_size.to_string()),
-            );
+        if !is_flow2api_image_model {
+            if let Some(image_size) = Self::resolve_gemini_image_size(&request_model, &request.size)
+            {
+                body.insert(
+                    "image_size".to_string(),
+                    Value::String(image_size.to_string()),
+                );
+            }
         }
         if let Some(extra_body) = Self::build_flow2api_openai_extra_body(request, &request_model) {
-            body.insert("extra_body".to_string(), extra_body);
+            body.insert(
+                "extra_body".to_string(),
+                extra_body,
+            );
         }
 
         self.send_json_request(&endpoint, api_key, Value::Object(body), "openai-chat")
@@ -1597,7 +1664,29 @@ impl NewApiProvider {
             }
         }
 
-        self.send_multipart_request(&endpoint, api_key, form).await
+        self.send_multipart_request(&endpoint, api_key, form, "openai-edits")
+            .await
+    }
+
+    async fn run_openai_edits_with_generate_content_fallback(
+        &self,
+        request: &GenerateRequest,
+        config: &NewApiConfig,
+        api_key: &str,
+    ) -> Result<Value, AIError> {
+        match self.run_openai_edits(request, config, api_key).await {
+            Ok(payload) => Ok(payload),
+            Err(AIError::Provider(message))
+                if Self::is_flow2api_image_request_model(&config.request_model)
+                    && Self::should_retry_openai_request_with_generate_content(&message) =>
+            {
+                info!(
+                    "[NewAPI] openai-edits provider error matched native JSON fallback criteria, retrying with generateContent"
+                );
+                self.run_generate_content(request, config, api_key).await
+            }
+            Err(error) => Err(error),
+        }
     }
 
     async fn run_openai_compatible(
@@ -1607,8 +1696,8 @@ impl NewApiProvider {
         api_key: &str,
     ) -> Result<Value, AIError> {
         let has_reference_images = Self::has_reference_images(request);
-        let prefers_generate_content_fallback =
-            has_reference_images && Self::is_flow2api_image_request_model(&config.request_model);
+        let supports_generate_content_fallback =
+            Self::is_flow2api_image_request_model(&config.request_model);
 
         match self.run_openai_chat(request, config, api_key).await {
             Ok(payload)
@@ -1617,34 +1706,44 @@ impl NewApiProvider {
                         .map(|message| Self::should_retry_openai_chat_with_openai_edits(&message))
                         .unwrap_or(false) =>
             {
-                if prefers_generate_content_fallback {
-                    info!(
-                        "[NewAPI] openai-compatible returned an image compatibility error payload for a Flow2API image model, retrying with generateContent"
-                    );
-                    self.run_generate_content(request, config, api_key).await
-                } else {
-                    info!(
-                        "[NewAPI] openai-compatible returned an image compatibility error payload, retrying with OpenAI edits"
-                    );
-                    self.run_openai_edits(request, config, api_key).await
-                }
+                info!(
+                    "[NewAPI] openai-compatible returned an image compatibility error payload, retrying with OpenAI edits"
+                );
+                self.run_openai_edits_with_generate_content_fallback(request, config, api_key)
+                    .await
+            }
+            Ok(payload)
+                if supports_generate_content_fallback
+                    && Self::extract_error_message(&payload)
+                        .map(|message| {
+                            Self::should_retry_openai_request_with_generate_content(&message)
+                        })
+                        .unwrap_or(false) =>
+            {
+                info!(
+                    "[NewAPI] openai-compatible returned a native JSON fallback error payload, retrying with generateContent"
+                );
+                self.run_generate_content(request, config, api_key).await
             }
             Ok(payload) => Ok(payload),
             Err(AIError::Provider(message))
                 if has_reference_images
                     && Self::should_retry_openai_chat_with_openai_edits(&message) =>
             {
-                if prefers_generate_content_fallback {
-                    info!(
-                        "[NewAPI] openai-compatible provider error matched image compatibility fallback criteria for a Flow2API image model, retrying with generateContent"
-                    );
-                    self.run_generate_content(request, config, api_key).await
-                } else {
-                    info!(
-                        "[NewAPI] openai-compatible provider error matched image compatibility fallback criteria, retrying with OpenAI edits"
-                    );
-                    self.run_openai_edits(request, config, api_key).await
-                }
+                info!(
+                    "[NewAPI] openai-compatible provider error matched image compatibility fallback criteria, retrying with OpenAI edits"
+                );
+                self.run_openai_edits_with_generate_content_fallback(request, config, api_key)
+                    .await
+            }
+            Err(AIError::Provider(message))
+                if supports_generate_content_fallback
+                    && Self::should_retry_openai_request_with_generate_content(&message) =>
+            {
+                info!(
+                    "[NewAPI] openai-compatible provider error matched native JSON fallback criteria, retrying with generateContent"
+                );
+                self.run_generate_content(request, config, api_key).await
             }
             Err(error) => Err(error),
         }
@@ -1680,6 +1779,22 @@ mod tests {
             endpoint,
             "https://nano.oopii.cn/v1beta/models/gemini-3.1-flash-image-landscape-4k:generateContent"
         );
+    }
+
+    #[test]
+    fn resolve_openai_endpoint_normalizes_images_generations_base() {
+        let endpoint =
+            NewApiProvider::resolve_openai_endpoint("https://nano.oopii.cn/v1/images/generations");
+
+        assert_eq!(endpoint, "https://nano.oopii.cn/v1/chat/completions");
+    }
+
+    #[test]
+    fn resolve_openai_endpoint_normalizes_images_edits_base() {
+        let endpoint =
+            NewApiProvider::resolve_openai_endpoint("https://nano.oopii.cn/v1/images/edits");
+
+        assert_eq!(endpoint, "https://nano.oopii.cn/v1/chat/completions");
     }
 
     #[test]
@@ -1728,6 +1843,12 @@ mod tests {
             ),
             "imagen-4.0-generate-preview".to_string()
         );
+        assert_eq!(
+            NewApiProvider::normalize_flow2api_image_request_model(
+                "vendor/gemini-3-pro-image-preview-landscape-4k"
+            ),
+            "vendor/gemini-3-pro-image-preview".to_string()
+        );
     }
 
     #[test]
@@ -1742,6 +1863,9 @@ mod tests {
     fn is_flow2api_image_request_model_detects_supported_base_and_variant_models() {
         assert!(NewApiProvider::is_flow2api_image_request_model(
             "gemini-3.0-pro-image"
+        ));
+        assert!(NewApiProvider::is_flow2api_image_request_model(
+            "vendor/gemini-3-pro-image-preview"
         ));
         assert!(NewApiProvider::is_flow2api_image_request_model(
             "gemini-3.0-pro-image-landscape-4k"
@@ -1777,10 +1901,10 @@ mod tests {
         assert_eq!(
             extra_body,
             json!({
-                "generationConfig": {
-                    "imageConfig": {
-                        "aspectRatio": "16:9",
-                        "imageSize": "4K",
+                "google": {
+                    "image_config": {
+                        "aspect_ratio": "16:9",
+                        "image_size": "4K",
                     }
                 }
             })
@@ -1900,6 +2024,15 @@ mod tests {
     }
 
     #[test]
+    fn should_continue_generate_content_attempt_detects_openresty_html_504() {
+        let message = "NewAPI generateContent-banana request failed 504 Gateway Timeout: <html><body><center><h1>504 Gateway Time-out</h1></center><hr><center>openresty</center></body></html>";
+
+        assert!(!NewApiProvider::should_continue_generate_content_attempt(
+            message
+        ));
+    }
+
+    #[test]
     fn should_continue_generate_content_attempt_detects_unterminated_string_error() {
         let message = "Provider error: NewAPI openai-chat request failed 422 Unprocessable Entity: {\"detail\":[{\"type\":\"json_invalid\",\"loc\":[\"body\",176],\"msg\":\"JSON decode error\",\"ctx\":{\"error\":\"Unterminated string starting at\"}}]}";
 
@@ -1918,6 +2051,29 @@ mod tests {
 
         assert!(!NewApiProvider::should_retry_generate_content_payload(
             &payload
+        ));
+    }
+
+    #[test]
+    fn is_timeout_message_detects_transport_timeout_variants() {
+        assert!(NewApiProvider::is_timeout_message(
+            "curl transport failed for NewAPI generateContent request: Operation timed out after 240001 milliseconds"
+        ));
+        assert!(NewApiProvider::is_timeout_message(
+            "NewAPI generateContent request failed 504 Gateway Timeout: <html><body><center><h1>504 Gateway Time-out</h1></center></body></html>"
+        ));
+    }
+
+    #[test]
+    fn should_retry_http_status_skips_timeout_statuses() {
+        assert!(!NewApiProvider::should_retry_http_status(
+            reqwest::StatusCode::REQUEST_TIMEOUT
+        ));
+        assert!(!NewApiProvider::should_retry_http_status(
+            reqwest::StatusCode::GATEWAY_TIMEOUT
+        ));
+        assert!(NewApiProvider::should_retry_http_status(
+            reqwest::StatusCode::BAD_GATEWAY
         ));
     }
 
@@ -1955,6 +2111,16 @@ mod tests {
         ));
         assert!(!NewApiProvider::should_retry_openai_chat_with_openai_edits(
             "PUBLIC_ERROR_UNUSUAL_ACTIVITY_TOO_MUCH_TRAFFIC"
+        ));
+    }
+
+    #[test]
+    fn should_retry_openai_request_with_generate_content_for_invalid_json_gateway_error() {
+        assert!(NewApiProvider::should_retry_openai_request_with_generate_content(
+            "NewAPI openai-edits request failed 400 Bad Request: {\"error\":{\"message\":\"Invalid JSON payload received. Unable to parse number.\\n--503939003c066953-c\\n^\",\"type\":\"upstream_error\"}}"
+        ));
+        assert!(!NewApiProvider::should_retry_openai_request_with_generate_content(
+            "model not found"
         ));
     }
 }
