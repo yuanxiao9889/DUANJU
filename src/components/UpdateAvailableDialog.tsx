@@ -10,7 +10,8 @@ import type {
   UpdateErrorCode,
 } from '@/features/update/application/checkForUpdate';
 
-const QUARK_DOWNLOAD_URL = 'https://pan.quark.cn/s/5b6733a8fc8e';
+const WINDOWS_QUARK_DOWNLOAD_URL = 'https://pan.quark.cn/s/5b6733a8fc8e';
+const MACOS_QUARK_DOWNLOAD_URL = 'https://pan.quark.cn/s/d855a55e54c0';
 const GITHUB_RELEASES_URL = 'https://github.com/yuanxiao9889/DUANJU/releases';
 
 interface UpdateAvailableDialogProps {
@@ -63,6 +64,18 @@ function formatBytes(bytes: number): string {
 
   const precision = value >= 100 || unitIndex === 0 ? 0 : 1;
   return `${value.toFixed(precision)} ${units[unitIndex]}`;
+}
+
+function isMacPlatform(): boolean {
+  if (typeof navigator === 'undefined') {
+    return false;
+  }
+
+  return /(Mac|iPhone|iPad|iPod)/i.test(`${navigator.platform} ${navigator.userAgent}`);
+}
+
+function resolveQuarkDownloadUrl(): string {
+  return isMacPlatform() ? MACOS_QUARK_DOWNLOAD_URL : WINDOWS_QUARK_DOWNLOAD_URL;
 }
 
 function resolveGithubReleaseUrl(version?: string): string {
@@ -155,7 +168,7 @@ export function UpdateAvailableDialog({
   }, [latestVersion]);
 
   const handleOpenQuark = useCallback(() => {
-    void openUrl(QUARK_DOWNLOAD_URL);
+    void openUrl(resolveQuarkDownloadUrl());
   }, []);
 
   return (
