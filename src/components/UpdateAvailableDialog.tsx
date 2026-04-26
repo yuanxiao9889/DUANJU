@@ -11,7 +11,7 @@ import type {
 } from '@/features/update/application/checkForUpdate';
 
 const QUARK_DOWNLOAD_URL = 'https://pan.quark.cn/s/5b6733a8fc8e';
-const GITHUB_RELEASES_URL = 'https://github.com/henjicc/Storyboard-Copilot/releases';
+const GITHUB_RELEASES_URL = 'https://github.com/yuanxiao9889/DUANJU/releases';
 
 interface UpdateAvailableDialogProps {
   isOpen: boolean;
@@ -68,7 +68,7 @@ function formatBytes(bytes: number): string {
 function resolveGithubReleaseUrl(version?: string): string {
   const normalized = normalizeVersion(version ?? '');
   return normalized
-    ? `https://github.com/henjicc/Storyboard-Copilot/releases/tag/v${normalized}`
+    ? `https://github.com/yuanxiao9889/DUANJU/releases/tag/v${normalized}`
     : GITHUB_RELEASES_URL;
 }
 

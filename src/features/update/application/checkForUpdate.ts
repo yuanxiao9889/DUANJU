@@ -4,7 +4,7 @@ import { isTauri } from '@tauri-apps/api/core';
 import { check, type Update } from '@tauri-apps/plugin-updater';
 
 const GITHUB_LATEST_RELEASE_API =
-  'https://api.github.com/repos/henjicc/Storyboard-Copilot/releases/latest';
+  'https://api.github.com/repos/yuanxiao9889/DUANJU/releases/latest';
 const VERSION_SUPPRESSION_STORAGE_KEY = 'storyboard:update-check:version-suppressions';
 const UPDATE_CHECK_TIMEOUT_MS = 8_000;
 
