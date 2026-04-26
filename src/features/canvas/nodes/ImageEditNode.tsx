@@ -499,15 +499,33 @@ export const ImageEditNode = memo(({ id, data, selected, width, height }: ImageE
       storyboardProviderCustomModels,
     ]
   );
+  const requestedOopiiResolution = useMemo(
+    () =>
+      isStoryboardOopiiModelId(selectedModel.id)
+        ? resolveImageModelResolution(selectedModel, data.size, {
+          extraParams: data.extraParams,
+        }).value
+        : null,
+    [data.extraParams, data.size, selectedModel]
+  );
   const resolvedOopiiModelConfig = useMemo(
     () =>
       isStoryboardOopiiModelId(selectedModel.id)
         ? resolveStoryboardOopiiModelConfigForModel(
           selectedModel.id,
-          storyboardProviderCustomModels
+          storyboardProviderCustomModels,
+          {
+            resolution: requestedOopiiResolution,
+            extraParams: data.extraParams,
+          }
         )
         : resolveStoryboardOopiiModelConfigForModel(null, storyboardProviderCustomModels),
-    [selectedModel.id, storyboardProviderCustomModels]
+    [
+      data.extraParams,
+      requestedOopiiResolution,
+      selectedModel.id,
+      storyboardProviderCustomModels,
+    ]
   );
   const incomingImageItems = useMemo<IncomingReferenceImageItem[]>(
     () =>

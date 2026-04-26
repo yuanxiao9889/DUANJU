@@ -72,6 +72,17 @@ struct GenerateContentAttempt {
     image_size_override: Option<&'static str>,
 }
 
+#[derive(Debug, Clone, PartialEq)]
+struct OpenAiRequestFields {
+    request_model: String,
+    size: Option<String>,
+    aspect_ratio: Option<String>,
+    image_size: Option<String>,
+    image_backend: Option<String>,
+    extra_body: Option<Value>,
+    gpt2api_image_size: Option<String>,
+}
+
 pub struct NewApiProvider {
     client: Client,
     api_key: Arc<RwLock<Option<String>>>,
@@ -526,6 +537,148 @@ impl NewApiProvider {
         Some(resolved.to_string())
     }
 
+    fn is_gpt2api_image_request_model_alias(request_model: &str) -> bool {
+        let normalized = request_model.trim().to_ascii_lowercase();
+        matches!(
+            normalized.as_str(),
+            "gpt-image-2-2k-low"
+                | "gpt-image-2-2k-medium"
+                | "gpt-image-2-2k-high"
+                | "gpt-image-2-4k-low"
+                | "gpt-image-2-4k-medium"
+                | "gpt-image-2-4k-high"
+        )
+    }
+
+    fn resolve_gpt2api_resolution(request_model: &str, size: &str) -> Option<&'static str> {
+        match size.trim().to_ascii_uppercase().as_str() {
+            "1K" => Some("1K"),
+            "2K" => Some("2K"),
+            "4K" => Some("4K"),
+            _ => {
+                let normalized = request_model.trim().to_ascii_lowercase();
+                if normalized.starts_with("gpt-image-2-2k-") {
+                    Some("2K")
+                } else if normalized.starts_with("gpt-image-2-4k-") {
+                    Some("4K")
+                } else if normalized == "gpt-image-2" || normalized.starts_with("gpt-image-2-1k-") {
+                    Some("1K")
+                } else {
+                    None
+                }
+            }
+        }
+    }
+
+    fn resolve_gpt2api_image_size(
+        request_model: &str,
+        size: &str,
+        aspect_ratio: &str,
+    ) -> Option<&'static str> {
+        let resolution = Self::resolve_gpt2api_resolution(request_model, size)?;
+        let normalized_aspect_ratio = aspect_ratio.trim();
+
+        match (resolution, normalized_aspect_ratio) {
+            ("1K", "1:1") => Some("1024x1024"),
+            ("1K", "5:4") => Some("1120x896"),
+            ("1K", "9:16") => Some("720x1280"),
+            ("1K", "21:9") => Some("1456x624"),
+            ("1K", "16:9") => Some("1280x720"),
+            ("1K", "4:3") => Some("1152x864"),
+            ("1K", "3:2") => Some("1248x832"),
+            ("1K", "4:5") => Some("896x1120"),
+            ("1K", "3:4") => Some("864x1152"),
+            ("1K", "2:3") => Some("832x1248"),
+            ("2K", "1:1") => Some("2048x2048"),
+            ("2K", "5:4") => Some("2240x1792"),
+            ("2K", "9:16") => Some("1440x2560"),
+            ("2K", "21:9") => Some("3024x1296"),
+            ("2K", "16:9") => Some("2560x1440"),
+            ("2K", "4:3") => Some("2304x1728"),
+            ("2K", "3:2") => Some("2496x1664"),
+            ("2K", "4:5") => Some("1792x2240"),
+            ("2K", "3:4") => Some("1728x2304"),
+            ("2K", "2:3") => Some("1664x2496"),
+            ("4K", "1:1") => Some("2880x2880"),
+            ("4K", "5:4") => Some("3200x2560"),
+            ("4K", "9:16") => Some("2160x3840"),
+            ("4K", "21:9") => Some("3696x1584"),
+            ("4K", "16:9") => Some("3840x2160"),
+            ("4K", "4:3") => Some("3264x2448"),
+            ("4K", "3:2") => Some("3504x2336"),
+            ("4K", "4:5") => Some("2560x3200"),
+            ("4K", "3:4") => Some("2448x3264"),
+            ("4K", "2:3") => Some("2336x3504"),
+            _ => None,
+        }
+    }
+
+    fn build_gpt2api_prompt_text(prompt: &str, image_size: &str) -> String {
+        let size_tag = format!("[__gpt2api_image_size={}__]", image_size);
+        let trimmed_prompt = prompt.trim();
+        if trimmed_prompt.is_empty() {
+            return size_tag;
+        }
+
+        format!("{trimmed_prompt}\n\n{size_tag}")
+    }
+
+    fn resolve_openai_request_fields(
+        request: &GenerateRequest,
+        config_request_model: &str,
+    ) -> Result<OpenAiRequestFields, AIError> {
+        if Self::is_gpt2api_image_request_model_alias(config_request_model) {
+            let image_size = Self::resolve_gpt2api_image_size(
+                config_request_model,
+                &request.size,
+                &request.aspect_ratio,
+            )
+            .ok_or_else(|| {
+                AIError::InvalidRequest(format!(
+                    "Unsupported gpt-image-2 size/aspect combination: size={}, aspect_ratio={}",
+                    request.size.trim(),
+                    request.aspect_ratio.trim()
+                ))
+            })?;
+
+            return Ok(OpenAiRequestFields {
+                request_model: config_request_model.trim().to_string(),
+                size: None,
+                aspect_ratio: None,
+                image_size: None,
+                image_backend: Some("auto".to_string()),
+                extra_body: None,
+                gpt2api_image_size: Some(image_size.to_string()),
+            });
+        }
+
+        let request_model = Self::normalize_flow2api_image_request_model(config_request_model);
+        let is_flow2api_image_model = Self::is_flow2api_image_request_model(&request_model);
+
+        Ok(OpenAiRequestFields {
+            request_model: request_model.clone(),
+            size: if is_flow2api_image_model {
+                None
+            } else {
+                Self::resolve_openai_size(&request.size, &request.aspect_ratio)
+            },
+            aspect_ratio: if is_flow2api_image_model || request.aspect_ratio.trim().is_empty() {
+                None
+            } else {
+                Some(request.aspect_ratio.trim().to_string())
+            },
+            image_size: if is_flow2api_image_model {
+                None
+            } else {
+                Self::resolve_gemini_image_size(&request_model, &request.size)
+                    .map(|value| value.to_string())
+            },
+            image_backend: None,
+            extra_body: Self::build_flow2api_openai_extra_body(request, &request_model),
+            gpt2api_image_size: None,
+        })
+    }
+
     fn build_flow2api_openai_extra_body(
         request: &GenerateRequest,
         request_model: &str,
@@ -586,6 +739,71 @@ impl NewApiProvider {
             .filter(|line| !line.is_empty())
             .collect::<Vec<String>>()
             .join("\n\n")
+    }
+
+    fn build_openai_chat_prompt_text(
+        request: &GenerateRequest,
+        fields: &OpenAiRequestFields,
+    ) -> String {
+        if let Some(image_size) = fields.gpt2api_image_size.as_deref() {
+            return Self::build_gpt2api_prompt_text(&request.prompt, image_size);
+        }
+
+        Self::build_prompt_text(request)
+    }
+
+    fn build_openai_edits_prompt_text(
+        request: &GenerateRequest,
+        fields: &OpenAiRequestFields,
+    ) -> String {
+        if let Some(image_size) = fields.gpt2api_image_size.as_deref() {
+            return Self::build_gpt2api_prompt_text(&request.prompt, image_size);
+        }
+
+        request.prompt.clone()
+    }
+
+    fn build_openai_chat_body(
+        fields: &OpenAiRequestFields,
+        message_content: Value,
+    ) -> serde_json::Map<String, Value> {
+        let mut body = serde_json::Map::new();
+        body.insert(
+            "model".to_string(),
+            Value::String(fields.request_model.clone()),
+        );
+        body.insert(
+            "messages".to_string(),
+            json!([{
+                "role": "user",
+                "content": message_content,
+            }]),
+        );
+        body.insert("stream".to_string(), Value::Bool(false));
+
+        if let Some(size) = fields.size.as_ref() {
+            body.insert("size".to_string(), Value::String(size.clone()));
+        }
+        if let Some(aspect_ratio) = fields.aspect_ratio.as_ref() {
+            body.insert(
+                "aspect_ratio".to_string(),
+                Value::String(aspect_ratio.clone()),
+            );
+        }
+        if let Some(image_size) = fields.image_size.as_ref() {
+            body.insert("image_size".to_string(), Value::String(image_size.clone()));
+        }
+        if let Some(image_backend) = fields.image_backend.as_ref() {
+            body.insert(
+                "image_backend".to_string(),
+                Value::String(image_backend.clone()),
+            );
+        }
+        if let Some(extra_body) = fields.extra_body.as_ref() {
+            body.insert("extra_body".to_string(), extra_body.clone());
+        }
+
+        body
     }
 
     fn build_generate_content_prompt(
@@ -1542,10 +1760,9 @@ impl NewApiProvider {
         config: &NewApiConfig,
         api_key: &str,
     ) -> Result<Value, AIError> {
-        let request_model = Self::normalize_flow2api_image_request_model(&config.request_model);
-        let is_flow2api_image_model = Self::is_flow2api_image_request_model(&request_model);
         let endpoint = Self::resolve_openai_endpoint(&config.endpoint_url);
-        let prompt_text = Self::build_prompt_text(request);
+        let fields = Self::resolve_openai_request_fields(request, &config.request_model)?;
+        let prompt_text = Self::build_openai_chat_prompt_text(request, &fields);
         let message_content = if let Some(reference_images) = request
             .reference_images
             .as_ref()
@@ -1571,40 +1788,7 @@ impl NewApiProvider {
             Value::String(prompt_text)
         };
 
-        let mut body = serde_json::Map::new();
-        body.insert("model".to_string(), Value::String(request_model.clone()));
-        body.insert(
-            "messages".to_string(),
-            json!([{
-                "role": "user",
-                "content": message_content,
-            }]),
-        );
-        body.insert("stream".to_string(), Value::Bool(false));
-
-        if !is_flow2api_image_model {
-            if let Some(size) = Self::resolve_openai_size(&request.size, &request.aspect_ratio) {
-                body.insert("size".to_string(), Value::String(size));
-            }
-        }
-        if !is_flow2api_image_model && !request.aspect_ratio.trim().is_empty() {
-            body.insert(
-                "aspect_ratio".to_string(),
-                Value::String(request.aspect_ratio.trim().to_string()),
-            );
-        }
-        if !is_flow2api_image_model {
-            if let Some(image_size) = Self::resolve_gemini_image_size(&request_model, &request.size)
-            {
-                body.insert(
-                    "image_size".to_string(),
-                    Value::String(image_size.to_string()),
-                );
-            }
-        }
-        if let Some(extra_body) = Self::build_flow2api_openai_extra_body(request, &request_model) {
-            body.insert("extra_body".to_string(), extra_body);
-        }
+        let body = Self::build_openai_chat_body(&fields, message_content);
 
         self.send_json_request(&endpoint, api_key, Value::Object(body), "openai-chat")
             .await
@@ -1617,7 +1801,7 @@ impl NewApiProvider {
         api_key: &str,
     ) -> Result<Value, AIError> {
         let endpoint = Self::resolve_openai_edits_endpoint(&config.endpoint_url);
-        let request_model = Self::normalize_flow2api_image_request_model(&config.request_model);
+        let fields = Self::resolve_openai_request_fields(request, &config.request_model)?;
         let sources = request
             .reference_images
             .as_ref()
@@ -1627,8 +1811,11 @@ impl NewApiProvider {
             })?;
 
         let mut form = Form::new()
-            .text("model", request_model.clone())
-            .text("prompt", request.prompt.clone())
+            .text("model", fields.request_model.clone())
+            .text(
+                "prompt",
+                Self::build_openai_edits_prompt_text(request, &fields),
+            )
             .text("response_format", "url".to_string());
 
         for (index, source) in sources.iter().enumerate() {
@@ -1649,14 +1836,17 @@ impl NewApiProvider {
             form = form.part(field_name.to_string(), image_part);
         }
 
-        if let Some(size) = Self::resolve_openai_size(&request.size, &request.aspect_ratio) {
-            form = form.text("size", size);
+        if let Some(size) = fields.size.as_ref() {
+            form = form.text("size", size.clone());
         }
-        if let Some(image_size) = Self::resolve_gemini_image_size(&request_model, &request.size) {
-            form = form.text("image_size", image_size.to_string());
-            if !request.aspect_ratio.trim().is_empty() {
-                form = form.text("aspect_ratio", request.aspect_ratio.trim().to_string());
-            }
+        if let Some(image_size) = fields.image_size.as_ref() {
+            form = form.text("image_size", image_size.clone());
+        }
+        if let Some(aspect_ratio) = fields.aspect_ratio.as_ref() {
+            form = form.text("aspect_ratio", aspect_ratio.clone());
+        }
+        if let Some(image_backend) = fields.image_backend.as_ref() {
+            form = form.text("image_backend", image_backend.clone());
         }
 
         self.send_multipart_request(&endpoint, api_key, form, "openai-edits")
@@ -1748,7 +1938,7 @@ impl NewApiProvider {
 #[cfg(test)]
 mod tests {
     use super::NewApiProvider;
-    use serde_json::json;
+    use serde_json::{json, Value};
 
     #[test]
     fn resolve_endpoint_encodes_slash_model_names() {
@@ -1919,6 +2109,84 @@ mod tests {
 
         assert!(
             NewApiProvider::build_flow2api_openai_extra_body(&request, "gpt-image-1").is_none()
+        );
+    }
+
+    #[test]
+    fn resolve_gpt2api_image_size_maps_2k_16_9() {
+        assert_eq!(
+            NewApiProvider::resolve_gpt2api_image_size("gpt-image-2-2k-medium", "2K", "16:9"),
+            Some("2560x1440")
+        );
+    }
+
+    #[test]
+    fn resolve_gpt2api_image_size_maps_4k_9_16() {
+        assert_eq!(
+            NewApiProvider::resolve_gpt2api_image_size("gpt-image-2-4k-high", "4K", "9:16"),
+            Some("2160x3840")
+        );
+    }
+
+    #[test]
+    fn build_gpt2api_prompt_text_appends_size_tag() {
+        assert_eq!(
+            NewApiProvider::build_gpt2api_prompt_text("make it cinematic", "2560x1440"),
+            "make it cinematic\n\n[__gpt2api_image_size=2560x1440__]".to_string()
+        );
+    }
+
+    #[test]
+    fn build_openai_request_fields_for_gpt2api_alias_include_backend_and_omit_generic_size() {
+        let request = crate::ai::GenerateRequest {
+            prompt: "make it cinematic".to_string(),
+            model: "newapi/gpt-image-2".to_string(),
+            size: "2K".to_string(),
+            aspect_ratio: "16:9".to_string(),
+            reference_images: None,
+            extra_params: None,
+        };
+
+        let fields =
+            NewApiProvider::resolve_openai_request_fields(&request, "gpt-image-2-2k-medium")
+                .expect("expected gpt-image-2 alias fields");
+        let prompt = NewApiProvider::build_openai_chat_prompt_text(&request, &fields);
+        let body = NewApiProvider::build_openai_chat_body(&fields, Value::String(prompt.clone()));
+
+        assert_eq!(fields.request_model, "gpt-image-2-2k-medium".to_string());
+        assert_eq!(fields.image_backend.as_deref(), Some("auto"));
+        assert_eq!(fields.gpt2api_image_size.as_deref(), Some("2560x1440"));
+        assert!(!body.contains_key("size"));
+        assert!(!body.contains_key("aspect_ratio"));
+        assert!(!body.contains_key("image_size"));
+        assert_eq!(
+            body.get("image_backend"),
+            Some(&Value::String("auto".to_string()))
+        );
+        assert_eq!(
+            body.get("model"),
+            Some(&Value::String("gpt-image-2-2k-medium".to_string()))
+        );
+        assert!(prompt.ends_with("[__gpt2api_image_size=2560x1440__]"));
+    }
+
+    #[test]
+    fn build_openai_edits_prompt_text_uses_gpt2api_size_tag() {
+        let request = crate::ai::GenerateRequest {
+            prompt: "make it cinematic".to_string(),
+            model: "newapi/gpt-image-2".to_string(),
+            size: "4K".to_string(),
+            aspect_ratio: "9:16".to_string(),
+            reference_images: Some(vec!["https://example.com/reference.png".to_string()]),
+            extra_params: None,
+        };
+
+        let fields = NewApiProvider::resolve_openai_request_fields(&request, "gpt-image-2-4k-high")
+            .expect("expected gpt-image-2 alias fields");
+
+        assert_eq!(
+            NewApiProvider::build_openai_edits_prompt_text(&request, &fields),
+            "make it cinematic\n\n[__gpt2api_image_size=2160x3840__]".to_string()
         );
     }
 

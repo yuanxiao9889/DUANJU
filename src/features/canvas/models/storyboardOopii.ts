@@ -1,4 +1,4 @@
-import type { ImageModelDefinition } from './types';
+import type { ImageModelDefinition, ResolutionOption } from './types';
 import {
   createStoryboardNewApiImageModel,
   normalizeStoryboardNewApiApiFormat,
@@ -13,6 +13,33 @@ import type { CustomStoryboardModelEntry } from './storyboardProviders';
 
 export const STORYBOARD_OOPII_PROVIDER_ID = 'oopii';
 export const STORYBOARD_OOPII_BASE_URL = 'https://www.oopii.cn/';
+export const STORYBOARD_OOPII_GPT_IMAGE_2_REQUEST_MODEL = 'gpt-image-2';
+
+const OOPII_GPT_IMAGE_2_ASPECT_RATIOS = [
+  '1:1',
+  '2:3',
+  '3:2',
+  '3:4',
+  '4:3',
+  '4:5',
+  '5:4',
+  '9:16',
+  '16:9',
+  '21:9',
+] as const;
+
+const OOPII_GPT_IMAGE_2_RESOLUTIONS: ResolutionOption[] = [
+  { value: '1K', label: '1K' },
+  { value: '2K', label: '2K' },
+  { value: '4K', label: '4K' },
+];
+
+const OOPII_GPT_IMAGE_2_QUALITY_OPTIONS = ['low', 'medium', 'high'] as const;
+
+interface StoryboardOopiiRequestContext {
+  resolution?: string | null;
+  extraParams?: Record<string, unknown> | null;
+}
 
 export interface StoryboardOopiiBuiltinModel {
   id: string;
@@ -25,8 +52,8 @@ export const STORYBOARD_OOPII_BUILTIN_MODELS = [
   {
     id: `${STORYBOARD_OOPII_PROVIDER_ID}/gpt-image-2`,
     apiFormat: 'openai',
-    requestModel: 'gpt-image-2',
-    displayName: 'gpt-image-2',
+    requestModel: STORYBOARD_OOPII_GPT_IMAGE_2_REQUEST_MODEL,
+    displayName: STORYBOARD_OOPII_GPT_IMAGE_2_REQUEST_MODEL,
   },
   {
     id: `${STORYBOARD_OOPII_PROVIDER_ID}/gemini-3-pro-image-preview`,
@@ -83,6 +110,58 @@ function inferStoryboardOopiiApiFormat(
   return 'openai';
 }
 
+function normalizeStoryboardOopiiResolution(
+  resolution: string | null | undefined
+): '1K' | '2K' | '4K' | null {
+  const normalizedResolution = normalizeTrimmedString(resolution).toUpperCase();
+  if (
+    normalizedResolution === '1K'
+    || normalizedResolution === '2K'
+    || normalizedResolution === '4K'
+  ) {
+    return normalizedResolution;
+  }
+
+  return null;
+}
+
+function isStoryboardOopiiGptImage2RequestModel(
+  requestModel: string | null | undefined
+): boolean {
+  return normalizeStoryboardOopiiRequestModel(requestModel)
+    .toLowerCase()
+    .startsWith(STORYBOARD_OOPII_GPT_IMAGE_2_REQUEST_MODEL);
+}
+
+function normalizeStoryboardOopiiGptImage2Quality(
+  extraParams: Record<string, unknown> | null | undefined
+): 'low' | 'medium' | 'high' {
+  const quality = normalizeTrimmedString(extraParams?.['quality']).toLowerCase();
+  return OOPII_GPT_IMAGE_2_QUALITY_OPTIONS.includes(
+    quality as (typeof OOPII_GPT_IMAGE_2_QUALITY_OPTIONS)[number]
+  )
+    ? quality as 'low' | 'medium' | 'high'
+    : 'medium';
+}
+
+function resolveStoryboardOopiiRequestModelVariant(
+  requestModel: string | null | undefined,
+  requestContext?: StoryboardOopiiRequestContext | null
+): string {
+  const normalizedRequestModel = normalizeStoryboardOopiiRequestModel(requestModel);
+  if (!isStoryboardOopiiGptImage2RequestModel(normalizedRequestModel)) {
+    return normalizedRequestModel;
+  }
+
+  const normalizedResolution = normalizeStoryboardOopiiResolution(requestContext?.resolution);
+  if (normalizedResolution !== '2K' && normalizedResolution !== '4K') {
+    return STORYBOARD_OOPII_GPT_IMAGE_2_REQUEST_MODEL;
+  }
+
+  const quality = normalizeStoryboardOopiiGptImage2Quality(requestContext?.extraParams);
+  return `${STORYBOARD_OOPII_GPT_IMAGE_2_REQUEST_MODEL}-${normalizedResolution.toLowerCase()}-${quality}`;
+}
+
 export function findStoryboardOopiiBuiltinModel(
   value: string | null | undefined
 ): StoryboardOopiiBuiltinModel | undefined {
@@ -137,14 +216,26 @@ export function isStoryboardOopiiModelId(value: string | null | undefined): bool
 
 export function resolveStoryboardOopiiModelConfigForModel(
   modelId: string | null | undefined,
-  customModels: Record<string, CustomStoryboardModelEntry[]> | null | undefined
+  customModels: Record<string, CustomStoryboardModelEntry[]> | null | undefined,
+  requestContext?: StoryboardOopiiRequestContext | null
 ): StoryboardNewApiModelConfig {
   const normalizedModelId = normalizeTrimmedString(modelId);
   const matchedBuiltinModel = findStoryboardOopiiBuiltinModel(normalizedModelId);
   if (matchedBuiltinModel) {
-    return normalizeStoryboardOopiiModelConfig({
+    const baseConfig = normalizeStoryboardOopiiModelConfig({
       requestModel: matchedBuiltinModel.requestModel,
       displayName: matchedBuiltinModel.displayName,
+    });
+    const requestModelVariant = resolveStoryboardOopiiRequestModelVariant(
+      baseConfig.requestModel,
+      requestContext
+    );
+    if (requestModelVariant === baseConfig.requestModel) {
+      return baseConfig;
+    }
+    return normalizeStoryboardOopiiModelConfig({
+      ...baseConfig,
+      requestModel: requestModelVariant,
     });
   }
 
@@ -157,21 +248,47 @@ export function resolveStoryboardOopiiModelConfigForModel(
       )
       : undefined;
   if (matchedCustomModel) {
-    return normalizeStoryboardOopiiModelConfig({
+    const baseConfig = normalizeStoryboardOopiiModelConfig({
       requestModel: matchedCustomModel.modelId,
       displayName: matchedCustomModel.displayName,
+    });
+    const requestModelVariant = resolveStoryboardOopiiRequestModelVariant(
+      baseConfig.requestModel,
+      requestContext
+    );
+    if (requestModelVariant === baseConfig.requestModel) {
+      return baseConfig;
+    }
+    return normalizeStoryboardOopiiModelConfig({
+      ...baseConfig,
+      requestModel: requestModelVariant,
     });
   }
 
   const normalizedRequestModel = normalizeStoryboardOopiiRequestModel(normalizedModelId);
   if (normalizedRequestModel) {
+    const requestModelVariant = resolveStoryboardOopiiRequestModelVariant(
+      normalizedRequestModel,
+      requestContext
+    );
     return normalizeStoryboardOopiiModelConfig({
-      requestModel: normalizedRequestModel,
+      requestModel: requestModelVariant,
       displayName: normalizedRequestModel,
     });
   }
 
-  return normalizeStoryboardOopiiModelConfig(undefined);
+  const baseConfig = normalizeStoryboardOopiiModelConfig(undefined);
+  const requestModelVariant = resolveStoryboardOopiiRequestModelVariant(
+    baseConfig.requestModel,
+    requestContext
+  );
+  if (requestModelVariant === baseConfig.requestModel) {
+    return baseConfig;
+  }
+  return normalizeStoryboardOopiiModelConfig({
+    ...baseConfig,
+    requestModel: requestModelVariant,
+  });
 }
 
 export function toStoryboardOopiiNewApiPayload(
@@ -192,14 +309,53 @@ export function createStoryboardOopiiImageModel(
     return null;
   }
 
-  const providerModelId = `${STORYBOARD_OOPII_PROVIDER_ID}/${normalizedConfig.requestModel}`;
+  const isGptImage2Model = isStoryboardOopiiGptImage2RequestModel(normalizedConfig.requestModel);
+  const providerModelId = isGptImage2Model
+    ? `${STORYBOARD_OOPII_PROVIDER_ID}/${STORYBOARD_OOPII_GPT_IMAGE_2_REQUEST_MODEL}`
+    : `${STORYBOARD_OOPII_PROVIDER_ID}/${normalizedConfig.requestModel}`;
 
   return {
     ...legacyModel,
     id: providerModelId,
-    displayName: normalizedConfig.displayName,
+    displayName: isGptImage2Model
+      ? STORYBOARD_OOPII_GPT_IMAGE_2_REQUEST_MODEL
+      : normalizedConfig.displayName,
     providerId: STORYBOARD_OOPII_PROVIDER_ID,
-    description: 'Fixed OOpii storyboard image endpoint',
+    description: isGptImage2Model
+      ? 'OOpii gpt-image-2 with 1K base output and 2K/4K quality tiers.'
+      : 'Fixed OOpii storyboard image endpoint',
+    defaultAspectRatio: isGptImage2Model ? '1:1' : legacyModel.defaultAspectRatio,
+    defaultResolution: isGptImage2Model ? '1K' : legacyModel.defaultResolution,
+    aspectRatios: isGptImage2Model
+      ? OOPII_GPT_IMAGE_2_ASPECT_RATIOS.map((value) => ({ value, label: value }))
+      : legacyModel.aspectRatios,
+    resolutions: isGptImage2Model ? OOPII_GPT_IMAGE_2_RESOLUTIONS : legacyModel.resolutions,
+    extraParamsSchema: isGptImage2Model
+      ? [
+        {
+          key: 'quality',
+          label: 'Generation quality',
+          labelKey: 'modelParams.generationQuality',
+          description:
+            'Controls image fidelity, latency, and cost for gpt-image-2 output.',
+          descriptionKey: 'modelParams.generationQualityDesc',
+          type: 'enum',
+          defaultValue: 'medium',
+          visibleResolutions: ['2K', '4K'],
+          options: [
+            { value: 'low', label: 'Low', labelKey: 'modelParams.generationQualityLow' },
+            { value: 'medium', label: 'Medium', labelKey: 'modelParams.generationQualityMedium' },
+            { value: 'high', label: 'High', labelKey: 'modelParams.generationQualityHigh' },
+          ],
+        },
+      ]
+      : legacyModel.extraParamsSchema,
+    defaultExtraParams: isGptImage2Model
+      ? {
+        ...legacyModel.defaultExtraParams,
+        quality: 'medium',
+      }
+      : legacyModel.defaultExtraParams,
     resolveRequest: ({ referenceImageCount }) => ({
       requestModel: providerModelId,
       modeLabel: resolveStoryboardNewApiModeLabel(

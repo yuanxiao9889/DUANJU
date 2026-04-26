@@ -237,6 +237,9 @@ function MainApp() {
   const setEnableUpdateDialog = useSettingsStore(
     (state) => state.setEnableUpdateDialog,
   );
+  const setAutoCheckAppUpdateOnLaunch = useSettingsStore(
+    (state) => state.setAutoCheckAppUpdateOnLaunch,
+  );
   const settingsHydrated = useSettingsStore((state) => state.isHydrated);
   const [showSettings, setShowSettings] = useState(false);
   const [showExtensions, setShowExtensions] = useState(false);
@@ -914,8 +917,9 @@ function MainApp() {
 
   const handleDisableUpdateReminders = useCallback(() => {
     setEnableUpdateDialog(false);
+    setAutoCheckAppUpdateOnLaunch(false);
     setShowUpdateDialog(false);
-  }, [setEnableUpdateDialog]);
+  }, [setAutoCheckAppUpdateOnLaunch, setEnableUpdateDialog]);
 
   const handleInstallUpdateNow = useCallback(async () => {
     setUpdateDialogErrorCode(null);

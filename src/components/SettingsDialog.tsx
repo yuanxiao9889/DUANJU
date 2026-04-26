@@ -598,6 +598,20 @@ export function SettingsDialog({
   const [restoreBackupTarget, setRestoreBackupTarget] = useState<DatabaseBackupRecord | null>(null);
   const [isMigrating, setIsMigrating] = useState(false);
   const [migrationError, setMigrationError] = useState<string | null>(null);
+
+  const handleLocalAutoCheckAppUpdateOnLaunchChange = useCallback((enabled: boolean) => {
+    setLocalAutoCheckAppUpdateOnLaunch(enabled);
+    if (enabled) {
+      setLocalEnableUpdateDialog(true);
+    }
+  }, []);
+
+  const handleLocalEnableUpdateDialogChange = useCallback((enabled: boolean) => {
+    setLocalEnableUpdateDialog(enabled);
+    if (!enabled) {
+      setLocalAutoCheckAppUpdateOnLaunch(false);
+    }
+  }, []);
   const [runtimeVersion, setRuntimeVersion] = useState<string>('');
   const [dreaminaStatus, setDreaminaStatus] = useState<DreaminaCliStatusResponse | null>(null);
   const [dreaminaUpdateInfo, setDreaminaUpdateInfo] = useState<DreaminaCliUpdateInfoResponse | null>(null);
@@ -1417,7 +1431,7 @@ export function SettingsDialog({
     setAccentColor(localAccentColor);
     setCanvasEdgeRoutingMode(localCanvasEdgeRoutingMode);
     setAutoCheckAppUpdateOnLaunch(localAutoCheckAppUpdateOnLaunch);
-    setEnableUpdateDialog(localEnableUpdateDialog);
+    setEnableUpdateDialog(localEnableUpdateDialog || localAutoCheckAppUpdateOnLaunch);
     setAutoUpdateDreaminaCliOnLaunch(localAutoUpdateDreaminaCliOnLaunch);
     setPsIntegrationEnabled(localPsIntegrationEnabled);
     setPsServerPort(localPsServerPort);
@@ -2991,14 +3005,14 @@ export function SettingsDialog({
                     <div className="mt-4 grid gap-3 md:grid-cols-2">
                       <SettingsCheckboxCard
                         checked={localAutoCheckAppUpdateOnLaunch}
-                        onCheckedChange={setLocalAutoCheckAppUpdateOnLaunch}
+                        onCheckedChange={handleLocalAutoCheckAppUpdateOnLaunchChange}
                         title={t('settings.autoCheckUpdateOnLaunch')}
                         description={t('settings.autoCheckUpdateOnLaunchDesc')}
                       />
 
                       <SettingsCheckboxCard
                         checked={localEnableUpdateDialog}
-                        onCheckedChange={setLocalEnableUpdateDialog}
+                        onCheckedChange={handleLocalEnableUpdateDialogChange}
                         title={t('settings.enableUpdateDialog')}
                         description={t('settings.enableUpdateDialogDesc')}
                       />

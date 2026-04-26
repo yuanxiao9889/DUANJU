@@ -29,6 +29,7 @@ export interface ExtraParamDefinition {
   label: string;
   labelKey?: string;
   type: ExtraParamType;
+  visibleResolutions?: string[];
   description?: string;
   descriptionKey?: string;
   defaultValue?: boolean | number | string;

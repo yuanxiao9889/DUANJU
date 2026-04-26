@@ -460,7 +460,8 @@ function resolveSeedanceReferenceAwareDeleteRange(
     };
   }
 
-  const point = direction === "backward" ? Math.max(0, safeStart - 1) : safeStart;
+  const point =
+    direction === "backward" ? Math.max(0, safeStart - 1) : safeStart;
 
   for (const tokenRange of tokenRanges) {
     if (point >= tokenRange.blockStart && point < tokenRange.blockEnd) {
@@ -532,7 +533,10 @@ function resolvePickerAnchor(
     ),
     top: Math.max(
       0,
-      textareaRect.top - containerRect.top + caretOffset.top + PICKER_Y_OFFSET_PX,
+      textareaRect.top -
+        containerRect.top +
+        caretOffset.top +
+        PICKER_Y_OFFSET_PX,
     ),
   };
 }
@@ -768,7 +772,9 @@ export const SeedanceNode = memo(
     const currentNode = useCanvasNodeById(id);
     const connectedVisuals = useCanvasConnectedReferenceVisuals(id);
     const connectedAudios = useCanvasConnectedAudioReferences(id);
-    const storyboardApiKeys = useSettingsStore((state) => state.storyboardApiKeys);
+    const storyboardApiKeys = useSettingsStore(
+      (state) => state.storyboardApiKeys,
+    );
     const setSelectedNode = useCanvasStore((state) => state.setSelectedNode);
     const highlightedReferenceSourceNodeId = useCanvasStore(
       (state) => state.highlightedReferenceSourceNodeId,
@@ -1129,7 +1135,10 @@ export const SeedanceNode = memo(
 
           promptElement.focus();
           promptElement.setSelectionRange(nextCursor, nextCursor);
-          lastPromptSelectionRef.current = { start: nextCursor, end: nextCursor };
+          lastPromptSelectionRef.current = {
+            start: nextCursor,
+            end: nextCursor,
+          };
           syncPromptHighlightScroll();
           syncPromptTextSelectionState(promptElement);
         });
@@ -1153,10 +1162,10 @@ export const SeedanceNode = memo(
                 start: promptElement.selectionStart ?? fallbackCursor,
                 end: promptElement.selectionEnd ?? fallbackCursor,
               }
-            : lastPromptSelectionRef.current ?? {
+            : (lastPromptSelectionRef.current ?? {
                 start: fallbackCursor,
                 end: fallbackCursor,
-              };
+              });
         const { nextText, nextCursor } = insertShotParamToken(
           promptValueRef.current,
           selection,
@@ -1172,12 +1181,19 @@ export const SeedanceNode = memo(
 
           nextPromptElement.focus();
           nextPromptElement.setSelectionRange(nextCursor, nextCursor);
-          lastPromptSelectionRef.current = { start: nextCursor, end: nextCursor };
+          lastPromptSelectionRef.current = {
+            start: nextCursor,
+            end: nextCursor,
+          };
           syncPromptHighlightScroll();
           syncPromptTextSelectionState(nextPromptElement);
         });
       },
-      [handlePromptChange, syncPromptHighlightScroll, syncPromptTextSelectionState],
+      [
+        handlePromptChange,
+        syncPromptHighlightScroll,
+        syncPromptTextSelectionState,
+      ],
     );
 
     const handleOptimizePrompt = useCallback(async () => {
@@ -1216,8 +1232,8 @@ export const SeedanceNode = memo(
                   imageUrl,
                 } satisfies PromptReferenceImageCandidate;
               })
-              .filter(
-                (item): item is PromptReferenceImageCandidate => Boolean(item),
+              .filter((item): item is PromptReferenceImageCandidate =>
+                Boolean(item),
               ),
           );
         const result = await optimizeCanvasPrompt({
@@ -1284,7 +1300,9 @@ export const SeedanceNode = memo(
         return;
       }
 
-      if (promptValueRef.current !== lastPromptOptimizationUndoState.appliedPrompt) {
+      if (
+        promptValueRef.current !== lastPromptOptimizationUndoState.appliedPrompt
+      ) {
         return;
       }
 
@@ -1362,10 +1380,7 @@ export const SeedanceNode = memo(
           ),
           top: Math.max(
             horizontalPadding,
-            Math.min(
-              event.clientY - previewHostRect.top + verticalGap,
-              maxTop,
-            ),
+            Math.min(event.clientY - previewHostRect.top + verticalGap, maxTop),
           ),
         });
       },
@@ -1482,7 +1497,6 @@ export const SeedanceNode = memo(
           setPickerActiveIndex(0);
           return;
         }
-
       },
       [
         handlePromptChange,
@@ -1655,8 +1669,12 @@ export const SeedanceNode = memo(
           resolution: selectedResolution,
           generateAudio: resolvedGenerateAudio,
           returnLastFrame: resolvedReturnLastFrame,
-          referenceImageSources: imageReferences.map((item) => item.referenceUrl),
-          referenceVideoSources: videoReferences.map((item) => item.referenceUrl),
+          referenceImageSources: imageReferences.map(
+            (item) => item.referenceUrl,
+          ),
+          referenceVideoSources: videoReferences.map(
+            (item) => item.referenceUrl,
+          ),
           referenceAudioSources: referenceAudioItems.map((item) => ({
             source: item.audioUrl,
             mimeType: item.mimeType,
@@ -1790,7 +1808,7 @@ export const SeedanceNode = memo(
     const combinedError = promptOptimizationError ?? data.lastError ?? null;
     const canUndoPromptOptimization = Boolean(
       lastPromptOptimizationUndoState &&
-        promptDraft === lastPromptOptimizationUndoState.appliedPrompt,
+      promptDraft === lastPromptOptimizationUndoState.appliedPrompt,
     );
     const promptOptimizationNotice = lastPromptOptimizationMeta
       ? `${t("node.seedance.optimizeModelLabel", {
@@ -1808,17 +1826,19 @@ export const SeedanceNode = memo(
       combinedError ??
       (data.isSubmitting
         ? t("node.seedance.submitting")
-        : promptOptimizationNotice ??
+        : (promptOptimizationNotice ??
           (lastSubmittedTime
             ? t("node.seedance.lastSubmitted", { time: lastSubmittedTime })
-            : t(modeHintKey)));
+            : t(modeHintKey))));
     const showBlockingOverlay = Boolean(
       data.isSubmitting || data.isGenerating || isOptimizingPrompt,
     );
     const handleReferenceSourceHighlight = useCallback(
       (sourceNodeId: string) => {
         setHighlightedReferenceSourceNode(
-          highlightedReferenceSourceNodeId === sourceNodeId ? null : sourceNodeId,
+          highlightedReferenceSourceNodeId === sourceNodeId
+            ? null
+            : sourceNodeId,
         );
       },
       [highlightedReferenceSourceNodeId, setHighlightedReferenceSourceNode],
@@ -1856,226 +1876,224 @@ export const SeedanceNode = memo(
         />
 
         <div className="flex min-h-0 flex-1 flex-col gap-2 pt-3">
-          <div className="min-h-0 flex-1">
-            <div
-              ref={promptPanelRef}
-              className="relative min-h-0 flex-1 rounded-xl border border-white/10 bg-black/12 p-2"
-            >
-              <div className="flex h-full min-h-0 flex-col gap-2">
+          <div
+            ref={promptPanelRef}
+            className="relative min-h-0 flex-1 rounded-xl border border-white/10 bg-black/12 p-2"
+          >
+            <div className="flex h-full min-h-0 flex-col gap-2">
+              <div
+                ref={promptPreviewHostRef}
+                className="relative min-h-[148px] flex-1 overflow-hidden rounded-xl"
+              >
                 <div
-                  ref={promptPreviewHostRef}
-                  className="relative min-h-[148px] flex-1 overflow-hidden rounded-xl"
+                  ref={promptHighlightRef}
+                  aria-hidden="true"
+                  className="ui-scrollbar pointer-events-none absolute inset-0 overflow-y-auto overflow-x-hidden text-sm leading-6 text-text-dark"
+                  style={{ scrollbarGutter: "stable" }}
                 >
-                  <div
-                    ref={promptHighlightRef}
-                    aria-hidden="true"
-                    className="ui-scrollbar pointer-events-none absolute inset-0 overflow-y-auto overflow-x-hidden text-sm leading-6 text-text-dark"
-                    style={{ scrollbarGutter: "stable" }}
-                  >
-                    <div className="min-h-full whitespace-pre-wrap break-words px-3 py-2">
-                      {renderPromptWithHighlights(
-                        promptDraft,
-                        referenceVisualItems.length,
-                        referenceAudioItems.length,
-                      )}
-                    </div>
+                  <div className="min-h-full whitespace-pre-wrap break-words px-3 py-2">
+                    {renderPromptWithHighlights(
+                      promptDraft,
+                      referenceVisualItems.length,
+                      referenceAudioItems.length,
+                    )}
                   </div>
+                </div>
 
-                  <div
-                    ref={promptHoverLayerRef}
-                    aria-hidden="true"
-                    className="ui-scrollbar pointer-events-none absolute inset-0 z-20 overflow-y-auto overflow-x-hidden text-sm leading-6 text-transparent"
-                    style={{ scrollbarGutter: "stable" }}
-                  >
-                    <div className="min-h-full whitespace-pre-wrap break-words px-3 py-2">
-                      {renderPromptReferenceHoverTargets(
-                        promptDraft,
-                        referenceVisualItems.length,
-                        referenceAudioItems.length,
-                        handlePromptReferenceTokenHover,
-                        hidePromptReferencePreview,
-                        handlePromptReferenceTokenMouseDown,
-                      )}
-                    </div>
+                <div
+                  ref={promptHoverLayerRef}
+                  aria-hidden="true"
+                  className="ui-scrollbar pointer-events-none absolute inset-0 z-20 overflow-y-auto overflow-x-hidden text-sm leading-6 text-transparent"
+                  style={{ scrollbarGutter: "stable" }}
+                >
+                  <div className="min-h-full whitespace-pre-wrap break-words px-3 py-2">
+                    {renderPromptReferenceHoverTargets(
+                      promptDraft,
+                      referenceVisualItems.length,
+                      referenceAudioItems.length,
+                      handlePromptReferenceTokenHover,
+                      hidePromptReferencePreview,
+                      handlePromptReferenceTokenMouseDown,
+                    )}
                   </div>
+                </div>
 
-                  <textarea
-                    ref={promptRef}
-                    value={promptDraft}
-                    onChange={(event) => {
-                      handlePromptChange(event.target.value);
-                      rememberPromptSelection(event.currentTarget);
-                    }}
-                    placeholder={t("node.seedance.promptPlaceholder")}
-                    className="ui-scrollbar nodrag nowheel relative z-10 h-full min-h-[148px] w-full resize-none rounded-xl border border-transparent bg-transparent px-3 py-2 text-sm leading-6 text-transparent caret-text-dark outline-none placeholder:text-text-muted/70 focus:border-accent/50 whitespace-pre-wrap break-words selection:bg-accent/30 selection:text-transparent"
-                    style={{ scrollbarGutter: "stable" }}
-                    onScroll={syncPromptHighlightScroll}
-                    onMouseDown={(event) => {
-                      event.stopPropagation();
-                      hidePromptReferencePreview();
-                    }}
-                    onSelect={(event) =>
-                      rememberPromptSelection(event.currentTarget)
-                    }
-                    onMouseUp={(event) =>
-                      rememberPromptSelection(event.currentTarget)
-                    }
-                    onKeyUp={(event) =>
-                      rememberPromptSelection(event.currentTarget)
-                    }
-                    onBlur={() => setIsPromptTextSelectionActive(false)}
-                    onKeyDownCapture={handlePromptKeyDown}
-                  />
+                <textarea
+                  ref={promptRef}
+                  value={promptDraft}
+                  onChange={(event) => {
+                    handlePromptChange(event.target.value);
+                    rememberPromptSelection(event.currentTarget);
+                  }}
+                  placeholder={t("node.seedance.promptPlaceholder")}
+                  className="ui-scrollbar nodrag nowheel relative z-10 h-full min-h-[148px] w-full resize-none rounded-xl border border-transparent bg-transparent px-3 py-2 text-sm leading-6 text-transparent caret-text-dark outline-none placeholder:text-text-muted/70 focus:border-accent/50 whitespace-pre-wrap break-words selection:bg-accent/30 selection:text-transparent"
+                  style={{ scrollbarGutter: "stable" }}
+                  onScroll={syncPromptHighlightScroll}
+                  onMouseDown={(event) => {
+                    event.stopPropagation();
+                    hidePromptReferencePreview();
+                  }}
+                  onSelect={(event) =>
+                    rememberPromptSelection(event.currentTarget)
+                  }
+                  onMouseUp={(event) =>
+                    rememberPromptSelection(event.currentTarget)
+                  }
+                  onKeyUp={(event) =>
+                    rememberPromptSelection(event.currentTarget)
+                  }
+                  onBlur={() => setIsPromptTextSelectionActive(false)}
+                  onKeyDownCapture={handlePromptKeyDown}
+                />
 
-                  {promptReferencePreview ? (
-                    <div
-                      className="pointer-events-none absolute z-30 w-fit overflow-hidden rounded-xl shadow-[0_12px_28px_rgba(0,0,0,0.28)]"
-                      style={{
-                        left: `${promptReferencePreview.left}px`,
-                        top: `${promptReferencePreview.top}px`,
+                {promptReferencePreview ? (
+                  <div
+                    className="pointer-events-none absolute z-30 w-fit overflow-hidden rounded-xl shadow-[0_12px_28px_rgba(0,0,0,0.28)]"
+                    style={{
+                      left: `${promptReferencePreview.left}px`,
+                      top: `${promptReferencePreview.top}px`,
+                    }}
+                  >
+                    <ReferenceVisualCard
+                      item={{
+                        sourceEdgeId: "",
+                        sourceNodeId: "",
+                        kind: promptReferencePreview.kind,
+                        referenceUrl: promptReferencePreview.imageUrl ?? "",
+                        previewImageUrl: promptReferencePreview.imageUrl,
+                        displayUrl: promptReferencePreview.displayUrl,
+                        label: promptReferencePreview.alt,
+                        durationSeconds: promptReferencePreview.durationSeconds,
+                        tokenLabel: "",
                       }}
-                    >
-                      <ReferenceVisualCard
-                        item={{
-                          sourceEdgeId: "",
-                          sourceNodeId: "",
-                          kind: promptReferencePreview.kind,
-                          referenceUrl: promptReferencePreview.imageUrl ?? "",
-                          previewImageUrl: promptReferencePreview.imageUrl,
-                          displayUrl: promptReferencePreview.displayUrl,
-                          label: promptReferencePreview.alt,
-                          durationSeconds: promptReferencePreview.durationSeconds,
-                          tokenLabel: "",
-                        }}
-                      />
-                    </div>
-                  ) : null}
-                </div>
-
-                <div className="flex min-h-[44px] flex-wrap items-center gap-2 rounded-xl border border-white/10 bg-black/10 px-2 py-2">
-                  {referenceVisualItems.length > 0 ? (
-                    <div className="flex min-w-0 flex-wrap items-center gap-2">
-                      {referenceVisualItems.map((item) => (
-                        <ReferenceVisualChip
-                          key={`${item.sourceEdgeId}-${item.referenceUrl}`}
-                          kind={item.kind}
-                          displayUrl={item.displayUrl}
-                          label={item.label}
-                          tokenLabel={item.tokenLabel}
-                          metaLabel={
-                            item.kind === "video"
-                              ? (item.durationSeconds
-                                  ? formatVideoTime(item.durationSeconds)
-                                  : "VIDEO")
-                              : null
-                          }
-                          isActive={
-                            highlightedReferenceSourceNodeId === item.sourceNodeId
-                          }
-                          onMouseDown={(event) => {
-                            event.stopPropagation();
-                            if (event.button !== 0) {
-                              return;
-                            }
-                            handleReferenceSourceHighlight(item.sourceNodeId);
-                          }}
-                        />
-                      ))}
-                    </div>
-                  ) : null}
-
-                  {referenceAudioItems.length > 0 ? (
-                    <div className="flex min-w-0 flex-wrap items-center gap-2">
-                      {referenceAudioItems.map((item) => (
-                        <ReferenceAudioChip
-                          key={`${item.sourceEdgeId}-${item.audioUrl}`}
-                          item={item}
-                        />
-                      ))}
-                    </div>
-                  ) : null}
-
-                  {referenceVisualItems.length === 0 &&
-                  referenceAudioItems.length === 0 ? (
-                    <div className="text-[11px] text-text-muted">
-                      {t("node.seedance.noReferences")}
-                    </div>
-                  ) : null}
-                </div>
+                    />
+                  </div>
+                ) : null}
               </div>
 
-              {showImagePicker && referencePickerItems.length > 0 ? (
-                <div
-                  className="nowheel absolute z-30 w-[168px] overflow-hidden rounded-xl border border-[rgba(255,255,255,0.16)] bg-surface-dark shadow-xl"
-                  style={{ left: pickerAnchor.left, top: pickerAnchor.top }}
-                  onMouseDown={(event) => event.stopPropagation()}
-                  onWheelCapture={(event) => event.stopPropagation()}
-                >
-                  <div
-                    className="ui-scrollbar nowheel max-h-[220px] overflow-y-auto"
-                    onWheelCapture={(event) => event.stopPropagation()}
-                    role="listbox"
-                  >
-                    {referencePickerItems.map((item, index) => (
-                      <button
-                        key={item.key}
-                        ref={(node) => {
-                          pickerItemRefs.current[index] = node;
-                        }}
-                        type="button"
-                        onClick={(event) => {
+              <div className="flex min-h-[44px] flex-wrap items-center gap-2 rounded-xl border border-white/10 bg-black/10 px-2 py-2">
+                {referenceVisualItems.length > 0 ? (
+                  <div className="flex min-w-0 flex-wrap items-center gap-2">
+                    {referenceVisualItems.map((item) => (
+                      <ReferenceVisualChip
+                        key={`${item.sourceEdgeId}-${item.referenceUrl}`}
+                        kind={item.kind}
+                        displayUrl={item.displayUrl}
+                        label={item.label}
+                        tokenLabel={item.tokenLabel}
+                        metaLabel={
+                          item.kind === "video"
+                            ? item.durationSeconds
+                              ? formatVideoTime(item.durationSeconds)
+                              : "VIDEO"
+                            : null
+                        }
+                        isActive={
+                          highlightedReferenceSourceNodeId === item.sourceNodeId
+                        }
+                        onMouseDown={(event) => {
                           event.stopPropagation();
-                          insertReferenceItem(index);
+                          if (event.button !== 0) {
+                            return;
+                          }
+                          handleReferenceSourceHighlight(item.sourceNodeId);
                         }}
-                        onMouseEnter={() => setPickerActiveIndex(index)}
-                        role="option"
-                        aria-selected={pickerActiveIndex === index}
-                        className={`flex w-full items-center gap-2 border border-transparent bg-bg-dark/70 px-2 py-2 text-left text-sm text-text-dark transition-colors hover:border-[rgba(255,255,255,0.18)] ${
-                          pickerActiveIndex === index
-                            ? "border-accent/55 bg-white/[0.08] shadow-[0_0_0_1px_rgba(59,130,246,0.22)]"
-                            : ""
-                        }`}
-                      >
-                        {item.kind === "visual" ? (
-                          <div className="relative h-8 w-8 shrink-0 overflow-hidden rounded">
-                            {item.displayUrl ? (
-                              <CanvasNodeImage
-                                src={item.displayUrl}
-                                alt={item.label}
-                                className="h-8 w-8 object-cover"
-                                viewerSourceUrl={item.displayUrl}
-                                disableViewer
-                                draggable={false}
-                              />
-                            ) : (
-                              <div className="flex h-8 w-8 items-center justify-center rounded bg-white/[0.06] text-text-muted">
-                                {item.previewKind === "video" ? (
-                                  <Video className="h-4 w-4" />
-                                ) : (
-                                  <ImageIcon className="h-4 w-4" />
-                                )}
-                              </div>
-                            )}
-                          </div>
-                        ) : (
-                          <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded bg-white/[0.06] text-text-muted">
-                            <Music4 className="h-4 w-4" />
-                          </div>
-                        )}
-                        <div className="min-w-0">
-                          <div className="truncate text-[11px] font-medium text-text-dark">
-                            {item.tokenLabel}
-                          </div>
-                          <div className="truncate text-[11px] text-text-muted">
-                            {item.label}
-                          </div>
-                        </div>
-                      </button>
+                      />
                     ))}
                   </div>
-                </div>
-              ) : null}
+                ) : null}
+
+                {referenceAudioItems.length > 0 ? (
+                  <div className="flex min-w-0 flex-wrap items-center gap-2">
+                    {referenceAudioItems.map((item) => (
+                      <ReferenceAudioChip
+                        key={`${item.sourceEdgeId}-${item.audioUrl}`}
+                        item={item}
+                      />
+                    ))}
+                  </div>
+                ) : null}
+
+                {referenceVisualItems.length === 0 &&
+                referenceAudioItems.length === 0 ? (
+                  <div className="text-[11px] text-text-muted">
+                    {t("node.seedance.noReferences")}
+                  </div>
+                ) : null}
+              </div>
             </div>
+
+            {showImagePicker && referencePickerItems.length > 0 ? (
+              <div
+                className="nowheel absolute z-30 w-[168px] overflow-hidden rounded-xl border border-[rgba(255,255,255,0.16)] bg-surface-dark shadow-xl"
+                style={{ left: pickerAnchor.left, top: pickerAnchor.top }}
+                onMouseDown={(event) => event.stopPropagation()}
+                onWheelCapture={(event) => event.stopPropagation()}
+              >
+                <div
+                  className="ui-scrollbar nowheel max-h-[220px] overflow-y-auto"
+                  onWheelCapture={(event) => event.stopPropagation()}
+                  role="listbox"
+                >
+                  {referencePickerItems.map((item, index) => (
+                    <button
+                      key={item.key}
+                      ref={(node) => {
+                        pickerItemRefs.current[index] = node;
+                      }}
+                      type="button"
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        insertReferenceItem(index);
+                      }}
+                      onMouseEnter={() => setPickerActiveIndex(index)}
+                      role="option"
+                      aria-selected={pickerActiveIndex === index}
+                      className={`flex w-full items-center gap-2 border border-transparent bg-bg-dark/70 px-2 py-2 text-left text-sm text-text-dark transition-colors hover:border-[rgba(255,255,255,0.18)] ${
+                        pickerActiveIndex === index
+                          ? "border-accent/55 bg-white/[0.08] shadow-[0_0_0_1px_rgba(59,130,246,0.22)]"
+                          : ""
+                      }`}
+                    >
+                      {item.kind === "visual" ? (
+                        <div className="relative h-8 w-8 shrink-0 overflow-hidden rounded">
+                          {item.displayUrl ? (
+                            <CanvasNodeImage
+                              src={item.displayUrl}
+                              alt={item.label}
+                              className="h-8 w-8 object-cover"
+                              viewerSourceUrl={item.displayUrl}
+                              disableViewer
+                              draggable={false}
+                            />
+                          ) : (
+                            <div className="flex h-8 w-8 items-center justify-center rounded bg-white/[0.06] text-text-muted">
+                              {item.previewKind === "video" ? (
+                                <Video className="h-4 w-4" />
+                              ) : (
+                                <ImageIcon className="h-4 w-4" />
+                              )}
+                            </div>
+                          )}
+                        </div>
+                      ) : (
+                        <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded bg-white/[0.06] text-text-muted">
+                          <Music4 className="h-4 w-4" />
+                        </div>
+                      )}
+                      <div className="min-w-0">
+                        <div className="truncate text-[11px] font-medium text-text-dark">
+                          {item.tokenLabel}
+                        </div>
+                        <div className="truncate text-[11px] text-text-muted">
+                          {item.label}
+                        </div>
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            ) : null}
           </div>
 
           <div className="flex items-center gap-2">

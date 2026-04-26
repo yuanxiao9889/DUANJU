@@ -742,15 +742,33 @@ export const StoryboardGenNode = memo(({ id, data, selected, width, height }: St
       storyboardProviderCustomModels,
     ]
   );
+  const requestedOopiiResolution = useMemo(
+    () =>
+      isStoryboardOopiiModelId(selectedModel.id)
+        ? resolveImageModelResolution(selectedModel, nodeData.size, {
+          extraParams: nodeData.extraParams,
+        }).value
+        : null,
+    [nodeData.extraParams, nodeData.size, selectedModel]
+  );
   const resolvedOopiiModelConfig = useMemo(
     () =>
       isStoryboardOopiiModelId(selectedModel.id)
         ? resolveStoryboardOopiiModelConfigForModel(
           selectedModel.id,
-          storyboardProviderCustomModels
+          storyboardProviderCustomModels,
+          {
+            resolution: requestedOopiiResolution,
+            extraParams: nodeData.extraParams,
+          }
         )
         : resolveStoryboardOopiiModelConfigForModel(null, storyboardProviderCustomModels),
-    [selectedModel.id, storyboardProviderCustomModels]
+    [
+      nodeData.extraParams,
+      requestedOopiiResolution,
+      selectedModel.id,
+      storyboardProviderCustomModels,
+    ]
   );
   const providerApiKey = storyboardApiKeys[selectedModel.providerId] ?? '';
   const effectiveExtraParams = useMemo(

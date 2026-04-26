@@ -275,7 +275,16 @@ export const ModelParamsControls = memo(({
   const paramsSecondaryTextClassName = isCompactTrigger
     ? 'text-[10px] leading-none text-text-muted/80'
     : 'text-text-muted/80';
-  const extraParamSchema = selectedModel.extraParamsSchema ?? [];
+  const extraParamSchema = useMemo(
+    () =>
+      (selectedModel.extraParamsSchema ?? []).filter(
+        (definition) =>
+          !definition.visibleResolutions
+          || definition.visibleResolutions.length === 0
+          || definition.visibleResolutions.includes(selectedResolution.value)
+      ),
+    [selectedModel.extraParamsSchema, selectedResolution.value]
+  );
   const inlineExtraParamSchema = useMemo(
     () =>
       extraParamSchema.filter(

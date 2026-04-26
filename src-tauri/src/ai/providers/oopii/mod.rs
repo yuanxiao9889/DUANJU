@@ -13,6 +13,7 @@ pub const DEFAULT_OOPII_TEXT_MODEL: &str = "gpt-5.4";
 pub const OOPII_STORYBOARD_BASE_URL: &str = "https://www.oopii.cn/";
 const OOPII_STORYBOARD_DEFAULT_API_FORMAT: &str = "openai";
 const OOPII_STORYBOARD_GEMINI_API_FORMAT: &str = "gemini";
+const OOPII_STORYBOARD_GPT_IMAGE_2_REQUEST_MODEL: &str = "gpt-image-2";
 
 #[derive(Debug, Clone, Default, Deserialize)]
 struct OopiiStoryboardPayload {
@@ -55,7 +56,7 @@ impl OopiiProvider {
         model
             .split_once('/')
             .map(|(_, bare)| bare.trim().to_string())
-            .unwrap_or_default()
+            .unwrap_or_else(|| model.trim().to_string())
     }
 
     fn infer_storyboard_api_format(request_model: &str) -> &'static str {
@@ -67,7 +68,10 @@ impl OopiiProvider {
         }
     }
 
-    fn resolve_storyboard_api_format(payload_api_format: &str, request_model: &str) -> &'static str {
+    fn resolve_storyboard_api_format(
+        payload_api_format: &str,
+        request_model: &str,
+    ) -> &'static str {
         match payload_api_format.trim() {
             "gemini" | "gemini-generate-content" => OOPII_STORYBOARD_GEMINI_API_FORMAT,
             "openai" | "openai-chat" | "openai-edits" => OOPII_STORYBOARD_DEFAULT_API_FORMAT,
@@ -75,7 +79,9 @@ impl OopiiProvider {
         }
     }
 
-    fn extract_storyboard_payload(request: &GenerateRequest) -> Result<OopiiStoryboardPayload, AIError> {
+    fn extract_storyboard_payload(
+        request: &GenerateRequest,
+    ) -> Result<OopiiStoryboardPayload, AIError> {
         let raw_value = request
             .extra_params
             .as_ref()
@@ -87,24 +93,89 @@ impl OopiiProvider {
         }
     }
 
+    fn normalize_storyboard_resolution(size: &str) -> Option<&'static str> {
+        match size.trim().to_ascii_uppercase().as_str() {
+            "1K" => Some("1K"),
+            "2K" => Some("2K"),
+            "4K" => Some("4K"),
+            _ => None,
+        }
+    }
+
+    fn is_storyboard_gpt_image_2_request_model(request_model: &str) -> bool {
+        let normalized = Self::strip_provider_prefix(request_model).to_ascii_lowercase();
+        normalized.starts_with(OOPII_STORYBOARD_GPT_IMAGE_2_REQUEST_MODEL)
+    }
+
+    fn resolve_storyboard_gpt_image_2_quality(request: &GenerateRequest) -> &'static str {
+        let quality = request
+            .extra_params
+            .as_ref()
+            .and_then(|params| params.get("quality"))
+            .and_then(Value::as_str)
+            .map(|value| value.trim().to_ascii_lowercase())
+            .unwrap_or_else(|| "medium".to_string());
+
+        match quality.as_str() {
+            "low" => "low",
+            "high" => "high",
+            _ => "medium",
+        }
+    }
+
+    fn resolve_storyboard_request_model(request: &GenerateRequest, request_model: &str) -> String {
+        let normalized = Self::strip_provider_prefix(request_model);
+        if normalized.is_empty() {
+            return String::new();
+        }
+
+        if !Self::is_storyboard_gpt_image_2_request_model(&normalized) {
+            return normalized;
+        }
+
+        match Self::normalize_storyboard_resolution(&request.size) {
+            Some("2K") => format!(
+                "{OOPII_STORYBOARD_GPT_IMAGE_2_REQUEST_MODEL}-2k-{}",
+                Self::resolve_storyboard_gpt_image_2_quality(request)
+            ),
+            Some("4K") => format!(
+                "{OOPII_STORYBOARD_GPT_IMAGE_2_REQUEST_MODEL}-4k-{}",
+                Self::resolve_storyboard_gpt_image_2_quality(request)
+            ),
+            _ => OOPII_STORYBOARD_GPT_IMAGE_2_REQUEST_MODEL.to_string(),
+        }
+    }
+
+    fn resolve_storyboard_display_name(payload_display_name: &str, request_model: &str) -> String {
+        let trimmed = payload_display_name.trim();
+        if !trimmed.is_empty() {
+            return trimmed.to_string();
+        }
+
+        if Self::is_storyboard_gpt_image_2_request_model(request_model) {
+            return OOPII_STORYBOARD_GPT_IMAGE_2_REQUEST_MODEL.to_string();
+        }
+
+        request_model.trim().to_string()
+    }
+
     fn inject_newapi_config(request: &mut GenerateRequest) -> Result<(), AIError> {
         let payload = Self::extract_storyboard_payload(request)?;
-        let resolved_request_model = if payload.request_model.trim().is_empty() {
+        let base_request_model = if payload.request_model.trim().is_empty() {
             Self::strip_provider_prefix(&request.model)
         } else {
             payload.request_model.trim().to_string()
         };
-        if resolved_request_model.is_empty() {
+        if base_request_model.is_empty() {
             return Err(AIError::InvalidRequest(
                 "OOpii request model is required".to_string(),
             ));
         }
+        let resolved_request_model =
+            Self::resolve_storyboard_request_model(request, &base_request_model);
 
-        let display_name = if payload.display_name.trim().is_empty() {
-            resolved_request_model.clone()
-        } else {
-            payload.display_name.trim().to_string()
-        };
+        let display_name =
+            Self::resolve_storyboard_display_name(&payload.display_name, &resolved_request_model);
         let api_format =
             Self::resolve_storyboard_api_format(&payload.api_format, &resolved_request_model);
 
@@ -177,7 +248,10 @@ mod tests {
     fn exposes_expected_provider_identity() {
         let provider = OopiiProvider::new();
         assert_eq!(provider.name(), OOPII_PROVIDER_ID);
-        assert_eq!(provider.list_models(), vec![DEFAULT_OOPII_TEXT_MODEL.to_string()]);
+        assert_eq!(
+            provider.list_models(),
+            vec![DEFAULT_OOPII_TEXT_MODEL.to_string()]
+        );
     }
 
     #[test]
@@ -243,7 +317,7 @@ mod tests {
         let mut request = GenerateRequest {
             prompt: "test".to_string(),
             model: "oopii/gpt-image-2".to_string(),
-            size: "2K".to_string(),
+            size: "1K".to_string(),
             aspect_ratio: "1:1".to_string(),
             reference_images: None,
             extra_params: None,
@@ -263,6 +337,66 @@ mod tests {
                 "api_format": "openai",
                 "endpoint_url": OOPII_STORYBOARD_BASE_URL,
                 "request_model": "gpt-image-2",
+                "display_name": "gpt-image-2",
+            })
+        );
+    }
+
+    #[test]
+    fn injects_2k_medium_alias_for_gpt_image_2_when_quality_missing() {
+        let mut request = GenerateRequest {
+            prompt: "test".to_string(),
+            model: "oopii/gpt-image-2".to_string(),
+            size: "2K".to_string(),
+            aspect_ratio: "1:1".to_string(),
+            reference_images: None,
+            extra_params: None,
+        };
+
+        OopiiProvider::inject_newapi_config(&mut request).unwrap();
+        let payload = request
+            .extra_params
+            .as_ref()
+            .and_then(|params| params.get("newapi_config"))
+            .cloned()
+            .unwrap();
+
+        assert_eq!(
+            payload,
+            json!({
+                "api_format": "openai",
+                "endpoint_url": OOPII_STORYBOARD_BASE_URL,
+                "request_model": "gpt-image-2-2k-medium",
+                "display_name": "gpt-image-2",
+            })
+        );
+    }
+
+    #[test]
+    fn injects_4k_quality_alias_for_gpt_image_2() {
+        let mut request = GenerateRequest {
+            prompt: "test".to_string(),
+            model: "oopii/gpt-image-2".to_string(),
+            size: "4K".to_string(),
+            aspect_ratio: "9:16".to_string(),
+            reference_images: None,
+            extra_params: Some(HashMap::from([("quality".to_string(), json!("high"))])),
+        };
+
+        OopiiProvider::inject_newapi_config(&mut request).unwrap();
+        let payload = request
+            .extra_params
+            .as_ref()
+            .and_then(|params| params.get("newapi_config"))
+            .cloned()
+            .unwrap();
+
+        assert_eq!(
+            payload,
+            json!({
+                "api_format": "openai",
+                "endpoint_url": OOPII_STORYBOARD_BASE_URL,
+                "request_model": "gpt-image-2-4k-high",
                 "display_name": "gpt-image-2",
             })
         );
