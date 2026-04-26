@@ -40,7 +40,7 @@
 
 固定 updater 地址：
 
-- `https://github.com/henjicc/Storyboard-Copilot/releases/latest/download/latest.json`
+- `https://github.com/yuanxiao9889/DUANJU/releases/latest/download/latest.json`
 
 ## 发布后校验
 
