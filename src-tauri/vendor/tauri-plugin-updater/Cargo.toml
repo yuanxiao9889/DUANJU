@@ -55,9 +55,14 @@ windows-sys = { version = "0.59.0", features = [
   "Win32_UI_Shell",
 ] }
 
+[target."cfg(target_os = \"macos\")".dependencies]
+flate2 = { version = "1", optional = true }
+osakit = { version = "0.3", features = ["full"] }
+tar = { version = "0.4", optional = true }
+
 [features]
 default = ["rustls-tls", "zip"]
-zip = ["dep:zip"]
+zip = ["dep:zip", "dep:tar", "dep:flate2"]
 native-tls = ["reqwest/native-tls"]
 native-tls-vendored = ["reqwest/native-tls-vendored"]
 rustls-tls = ["reqwest/rustls-tls"]
