@@ -333,12 +333,12 @@
       "tipDescription": "这一步会把图片解码压力前置，减少大量图片节点一起挂载时的瞬时卡顿。"
     },
     "compare": {
-      "mergeSuccess": "\u5df2\u521b\u5efa\u56fe\u7247\u5bf9\u6bd4\u8282\u70b9",
-      "mergeFailed": "\u6682\u65f6\u65e0\u6cd5\u5bf9\u6bd4\u8fd9\u4e24\u5f20\u56fe\u7247",
-      "ratioMismatch": "\u4e24\u5f20\u56fe\u7247\u7684\u5bbd\u9ad8\u6bd4\u5fc5\u987b\u8db3\u591f\u63a5\u8fd1\u624d\u80fd\u5bf9\u6bd4",
-      "connected": "\u5df2\u8fde\u7ebf\u7684\u56fe\u7247\u8282\u70b9\u6682\u4e0d\u652f\u6301\u5bf9\u6bd4",
-      "grouped": "\u5206\u7ec4\u5185\u7684\u56fe\u7247\u8282\u70b9\u6682\u4e0d\u652f\u6301\u5bf9\u6bd4",
-      "missingImage": "\u4e24\u4e2a\u8282\u70b9\u90fd\u9700\u8981\u6709\u53ef\u9884\u89c8\u7684\u56fe\u7247\u624d\u80fd\u5bf9\u6bd4"
+      "mergeSuccess": "已创建图片对比节点",
+      "mergeFailed": "暂时无法对比这两张图片",
+      "ratioMismatch": "两张图片的宽高比必须足够接近才能对比",
+      "connected": "已连线的图片节点暂不支持对比",
+      "grouped": "分组内的图片节点暂不支持对比",
+      "missingImage": "两个节点都需要有可预览的图片才能对比"
     }
   },
   "group": {
@@ -419,7 +419,7 @@
     "locateInClipLibraryFailed": "打开剪辑素材库定位失败。",
     "clipLibraryUnavailable": "请先给当前 storyboard 项目绑定剪辑素材库。",
     "clipLibraryBindingMissing": "当前 storyboard 项目还没有挂到所选剪辑素材库中。",
-    "separateCompare": "\u5206\u79bb"
+    "separateCompare": "分离"
   },
   "modelParams": {
     "provider": "供应商",
@@ -489,7 +489,7 @@
       "scriptCharacterReference": "角色引用",
       "scriptLocationReference": "场景引用",
       "scriptItemReference": "道具引用",
-      "imageCompare": "\u56fe\u7247\u5bf9\u6bd4"
+      "imageCompare": "图片对比"
     },
     "menuGroup": {
       "imageGeneration": "图片生成",
@@ -565,8 +565,8 @@
         "titlePlaceholder": "输入预设标题",
         "titleRequired": "请先输入标题",
         "customInputLabel": "自定义风格码",
-      "customInputPlaceholder": "输入风格码预设，支持逗号、换行，也可直接粘贴完整的 --p code",
-      "manualInputHint": "这里只放手填风格码；是否带 --p 由你自己决定，多个 code 可用逗号或换行分隔。",
+        "customInputPlaceholder": "输入风格码预设，支持逗号、换行，也可直接粘贴完整的 --p code",
+        "manualInputHint": "这里只放手填风格码；是否带 --p 由你自己决定，多个 code 可用逗号或换行分隔。",
         "coverLabel": "预设封面",
         "coverAlt": "风格码封面",
         "coverHint": "可选上传一张封面图，方便后续识别这个预设。",
@@ -1658,12 +1658,12 @@
       }
     },
     "imageCompare": {
-      "baseAlt": "\u5e95\u56fe",
-      "overlayAlt": "\u8986\u76d6\u56fe",
-      "empty": "\u7f3a\u5c11\u56fe\u7247\uff0c\u6682\u65f6\u65e0\u6cd5\u9884\u89c8\u5bf9\u6bd4",
-      "separate": "\u5206\u79bb",
-      "dragHint": "\u62d6\u52a8\u5206\u5272\u7ebf\u67e5\u770b\u5bf9\u6bd4",
-      "dragDivider": "\u62d6\u52a8\u5bf9\u6bd4\u5206\u5272\u7ebf"
+      "baseAlt": "底图",
+      "overlayAlt": "覆盖图",
+      "empty": "缺少图片，暂时无法预览对比",
+      "separate": "分离",
+      "dragHint": "拖动分割线查看对比",
+      "dragDivider": "拖动对比分割线"
     }
   },
   "viewer": {
@@ -1968,7 +1968,7 @@
     },
     "table": {
       "templateTitle": "广告脚本模板",
-      "templateDescription": "\u5148\u9009\u4e00\u5957\u8fb9\u754c\u660e\u786e\u7684\u7ed3\u6784\u3002\u4f60\u53ef\u4ee5\u7ee7\u7eed\u9690\u85cf\u3001\u6392\u5e8f\uff0c\u5e76\u6309\u9700\u8981\u8865\u5145\u81ea\u5b9a\u4e49\u5217\u3002",
+      "templateDescription": "先选一套边界明确的结构。你可以继续隐藏、排序，并按需要补充自定义列。",
       "generate": "生成脚本表",
       "export": "导出 .xlsx",
       "workbookFileType": "Excel 工作簿",
@@ -2027,9 +2027,9 @@
         "directorIntent": "导演意图",
         "status": "状态"
       },
-      "addCustomColumn": "\u6dfb\u52a0\u81ea\u5b9a\u4e49\u5217",
-      "customColumnPlaceholder": "\u8f93\u5165\u81ea\u5b9a\u4e49\u5217\u540d",
-      "customColumn": "\u81ea\u5b9a\u4e49\u5217"
+      "addCustomColumn": "添加自定义列",
+      "customColumnPlaceholder": "输入自定义列名",
+      "customColumn": "自定义列"
     },
     "messages": {
       "templateApplied": "已应用模板：{{name}}",
@@ -2044,8 +2044,8 @@
       "selectRowFirst": "请先选中一行，再进行单行改写。",
       "workbookExported": "表格已导出。",
       "previewApplied": "预览内容已应用到当前表格。",
-      "customColumnAdded": "\u5df2\u6dfb\u52a0\u81ea\u5b9a\u4e49\u5217\uff1a{{name}}",
-      "customColumnRemoved": "\u5df2\u79fb\u9664\u81ea\u5b9a\u4e49\u5217\uff1a{{name}}"
+      "customColumnAdded": "已添加自定义列：{{name}}",
+      "customColumnRemoved": "已移除自定义列：{{name}}"
     },
     "errors": {
       "unknown": "发生了未知错误。",
@@ -2058,8 +2058,8 @@
       "rowRewriteEmpty": "当前行没有返回可用改写候选，请换个描述再试。",
       "exportPathRequired": "缺少导出路径。",
       "noVisibleColumns": "请至少保留一列可见后再导出。",
-      "customColumnNameRequired": "\u8bf7\u5148\u8f93\u5165\u81ea\u5b9a\u4e49\u5217\u540d\u3002",
-      "customColumnNameDuplicate": "\u5df2\u6709\u540c\u540d\u5217\uff0c\u8bf7\u6362\u4e00\u4e2a\u540d\u79f0\u3002"
+      "customColumnNameRequired": "请先输入自定义列名。",
+      "customColumnNameDuplicate": "已有同名列，请换一个名称。"
     }
   },
   "clipLibraryManager": {
@@ -2559,7 +2559,9 @@
     },
     "providerGroupRecommended": "推荐组",
     "storyboardOopiiModelSelectionDesc": "OOpii 固定使用内置的 NewAPI 图片接口，默认可直接选择 gpt-image-2、香蕉Pro、香蕉2；填入 API Key 后即可使用，如有需要仍可在下方追加自定义模型 ID。",
-    "storyboardOopiiNoConnectionTest": "OOpii 分镜接口固定复用内置的 NewAPI 图片链路。请保存后直接在分镜节点里验证生成链路。"
+    "storyboardOopiiNoConnectionTest": "OOpii 分镜接口固定复用内置的 NewAPI 图片链路。请保存后直接在分镜节点里验证生成链路。",
+    "appUpdateSectionTitle": "????",
+    "appUpdateSectionDesc": "????????????????????????????????????"
   },
   "pricing": {
     "nativePrice": "原币种：{{value}}",
@@ -2784,16 +2786,30 @@
     }
   },
   "update": {
-    "dialogTitle": "发现新版本",
-    "dialogDescription": "检测到软件有新版本，是否前往下载？",
-    "goToQuarkDownload": "前往网盘下载",
-    "goToGithubDownload": "去 GitHub 下载",
-    "versionLine": "当前版本：{{currentVersion}}，最新版本：{{latestVersion}}",
-    "ignoreRule": "忽略提醒规则",
-    "ignoreTodayVersion": "今日不再提示该版本",
-    "ignoreThisVersionForever": "不再提示该版本",
-    "ignoreAllForever": "永远不再提示更新",
-    "applyIgnore": "应用忽略"
+    "dialogTitle": "?????",
+    "dialogDescription": "???????Windows ????????????????????????????????????",
+    "installNow": "????",
+    "later": "??",
+    "ignoreToday": "??????",
+    "ignoreThisVersion": "?????",
+    "disableReminders": "??????",
+    "manualDownload": "????",
+    "manualOnlyPlatformNotice": "???????????????? GitHub Release ????????????",
+    "noEndpointFallback": "???????????????????????????????????????????",
+    "networkFallback": "?????????????????????????????????",
+    "unknownFallback": "??????????????????????",
+    "installFailed": "????????????????????????",
+    "quarkFallbackLink": "??????",
+    "versionLine": "?????{{currentVersion}}??????{{latestVersion}}",
+    "publishedAt": "????",
+    "releaseNotesTitle": "????",
+    "releaseNotesEmpty": "?? Release ???????",
+    "manualDownloadHint": "?????????????????? GitHub Release??????????????",
+    "downloading": "???????",
+    "downloadingUnknownSize": "?????????? {{downloaded}}",
+    "downloadProgress": "???????{{downloaded}} / {{total}}?{{percent}}%?",
+    "installing": "????????",
+    "restarting": "????????????"
   },
   "errorDialog": {
     "detailsTitle": "错误详情",

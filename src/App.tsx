@@ -8,15 +8,15 @@ import {
   useRef,
   useState,
 } from "react";
-import { invoke } from "@tauri-apps/api/core";
+import { invoke, isTauri } from "@tauri-apps/api/core";
 import { getCurrentWindow } from "@tauri-apps/api/window";
+import { relaunch } from "@tauri-apps/plugin-process";
 import { useTranslation } from "react-i18next";
 import {
   AppBootScreen,
   AppContentLoader,
 } from "./components/AppBootScreen";
 import { TitleBar } from "./components/TitleBar";
-import type { UpdateIgnoreMode } from "./components/UpdateAvailableDialog";
 import { GlobalErrorDialog } from "./components/GlobalErrorDialog";
 import { PsImageToast } from "./components/PsImageToast";
 import { useThemeStore } from "./stores/themeStore";
@@ -30,8 +30,12 @@ import {
 import { CanvasProjectLoadingScreen } from "./features/canvas/ui/CanvasProjectLoadingScreen";
 import {
   checkForUpdate,
+  downloadAndInstallUpdate,
   isUpdateVersionSuppressed,
   suppressUpdateVersion,
+  type UpdateCheckResult,
+  type UpdateDownloadProgress,
+  type UpdateErrorCode,
 } from "./features/update/application/checkForUpdate";
 import {
   subscribeOpenGlobalErrorDialog,
@@ -86,6 +90,14 @@ import { DetachedClipLibraryWindow } from "./features/clip-library/ui/DetachedCl
 const WINDOW_CLOSE_FLUSH_TIMEOUT_MS = 2500;
 const WINDOW_CLOSE_REQUEST_TIMEOUT_MS = 1200;
 const MIN_CANVAS_ENTRY_LOADING_MS = 420;
+
+function isWindowsUpdaterRuntime(): boolean {
+  return (
+    isTauri() &&
+    typeof navigator !== "undefined" &&
+    /Windows/i.test(navigator.userAgent)
+  );
+}
 
 const CanvasScreen = lazy(() =>
   import("./features/canvas/CanvasScreen").then((module) => ({
@@ -241,6 +253,18 @@ function MainApp() {
   const [showUpdateDialog, setShowUpdateDialog] = useState(false);
   const [latestVersion, setLatestVersion] = useState<string>("");
   const [currentVersion, setCurrentVersion] = useState<string>("");
+  const [updateReleaseNotes, setUpdateReleaseNotes] = useState<string>("");
+  const [updatePublishedAt, setUpdatePublishedAt] = useState<string>("");
+  const [updateDialogErrorCode, setUpdateDialogErrorCode] =
+    useState<UpdateErrorCode | null>(null);
+  const [updateCanInstallInApp, setUpdateCanInstallInApp] = useState(
+    isWindowsUpdaterRuntime(),
+  );
+  const [updateInstallState, setUpdateInstallState] = useState<
+    "idle" | "downloading" | "installing" | "restarting"
+  >("idle");
+  const [updateDownloadProgress, setUpdateDownloadProgress] =
+    useState<UpdateDownloadProgress | null>(null);
   const [globalError, setGlobalError] =
     useState<GlobalErrorDialogDetail | null>(null);
   const [dreaminaSetupDetail, setDreaminaSetupDetail] =
@@ -653,6 +677,22 @@ function MainApp() {
     }
   }, [showUpdateDialog]);
 
+  const openUpdateDialogForResult = useCallback(
+    (result: UpdateCheckResult) => {
+      setLatestVersion(result.latestVersion ?? "");
+      setCurrentVersion(result.currentVersion ?? "");
+      setUpdateReleaseNotes(result.releaseNotes ?? "");
+      setUpdatePublishedAt(result.publishedAt ?? "");
+      setUpdateDialogErrorCode(result.error ?? null);
+      setUpdateCanInstallInApp(isWindowsUpdaterRuntime() && !result.error);
+      setUpdateInstallState("idle");
+      setUpdateDownloadProgress(null);
+      setUpdateDialogLoaded(true);
+      setShowUpdateDialog(true);
+    },
+    [],
+  );
+
   useEffect(() => {
     if (dreaminaSetupDetail) {
       setDreaminaDialogLoaded(true);
@@ -718,9 +758,7 @@ function MainApp() {
         if (isUpdateVersionSuppressed(result.latestVersion)) {
           return;
         }
-        setLatestVersion(result.latestVersion ?? "");
-        setCurrentVersion(result.currentVersion ?? "");
-        setShowUpdateDialog(true);
+        openUpdateDialogForResult(result);
       }
     };
 
@@ -728,7 +766,12 @@ function MainApp() {
     return () => {
       cancelled = true;
     };
-  }, [isHydrated, autoCheckAppUpdateOnLaunch, enableUpdateDialog]);
+  }, [
+    isHydrated,
+    autoCheckAppUpdateOnLaunch,
+    enableUpdateDialog,
+    openUpdateDialogForResult,
+  ]);
 
   useEffect(() => {
     if (!settingsHydrated || !autoUpdateDreaminaCliOnLaunch) {
@@ -847,31 +890,55 @@ function MainApp() {
       return result.error ? "failed" : "up-to-date";
     }
 
-    setLatestVersion(result.latestVersion ?? "");
-    setCurrentVersion(result.currentVersion ?? "");
-
-    if (enableUpdateDialog) {
-      setShowUpdateDialog(true);
-    }
-
+    openUpdateDialogForResult(result);
     return "has-update";
   };
 
-  const handleApplyIgnore = (mode: UpdateIgnoreMode) => {
-    if (mode === "forever-all") {
-      setEnableUpdateDialog(false);
-      return;
-    }
-
+  const handleIgnoreUpdateToday = useCallback(() => {
     if (!latestVersion) {
       return;
     }
 
-    suppressUpdateVersion(
-      latestVersion,
-      mode === "today-version" ? "today" : "forever",
-    );
-  };
+    suppressUpdateVersion(latestVersion, "today");
+    setShowUpdateDialog(false);
+  }, [latestVersion]);
+
+  const handleIgnoreUpdateVersion = useCallback(() => {
+    if (!latestVersion) {
+      return;
+    }
+
+    suppressUpdateVersion(latestVersion, "forever");
+    setShowUpdateDialog(false);
+  }, [latestVersion]);
+
+  const handleDisableUpdateReminders = useCallback(() => {
+    setEnableUpdateDialog(false);
+    setShowUpdateDialog(false);
+  }, [setEnableUpdateDialog]);
+
+  const handleInstallUpdateNow = useCallback(async () => {
+    setUpdateDialogErrorCode(null);
+    setUpdateInstallState("downloading");
+    setUpdateDownloadProgress({
+      phase: "downloading",
+      downloadedBytes: 0,
+    });
+
+    try {
+      await downloadAndInstallUpdate((progress) => {
+        setUpdateInstallState(progress.phase);
+        setUpdateDownloadProgress(progress);
+      });
+
+      setUpdateInstallState("restarting");
+      await relaunch();
+    } catch (error) {
+      console.error("failed to install app update", error);
+      setUpdateInstallState("idle");
+      setUpdateDialogErrorCode("install");
+    }
+  }, []);
 
   const handleOpenClipLibraryPanel = useCallback(async () => {
     if (isClipLibraryPanelOpenBlocked()) {
@@ -984,7 +1051,18 @@ function MainApp() {
             onClose={() => setShowUpdateDialog(false)}
             latestVersion={latestVersion}
             currentVersion={currentVersion}
-            onApplyIgnore={handleApplyIgnore}
+            releaseNotes={updateReleaseNotes}
+            publishedAt={updatePublishedAt}
+            canInstallInApp={updateCanInstallInApp}
+            installState={updateInstallState}
+            downloadProgress={updateDownloadProgress}
+            errorCode={updateDialogErrorCode}
+            onInstallNow={() => {
+              void handleInstallUpdateNow();
+            }}
+            onIgnoreToday={handleIgnoreUpdateToday}
+            onIgnoreVersion={handleIgnoreUpdateVersion}
+            onDisableReminders={handleDisableUpdateReminders}
           />
         </Suspense>
       ) : null}

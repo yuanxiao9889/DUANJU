@@ -361,6 +361,7 @@ export function SettingsDialog({
   initialCategory = 'general',
   initialProviderTab = 'script',
   initialProviderId,
+  onCheckUpdate,
 }: SettingsDialogProps) {
   const { t, i18n } = useTranslation();
   const {
@@ -396,6 +397,8 @@ export function SettingsDialog({
     themeTonePreset,
     accentColor,
     canvasEdgeRoutingMode,
+    autoCheckAppUpdateOnLaunch,
+    enableUpdateDialog,
     autoUpdateDreaminaCliOnLaunch,
     setScriptProviderApiKey,
     setStoryboardProviderApiKey,
@@ -429,6 +432,8 @@ export function SettingsDialog({
     setThemeTonePreset,
     setAccentColor,
     setCanvasEdgeRoutingMode,
+    setAutoCheckAppUpdateOnLaunch,
+    setEnableUpdateDialog,
     setAutoUpdateDreaminaCliOnLaunch,
     psIntegrationEnabled,
     psServerPort,
@@ -566,6 +571,10 @@ export function SettingsDialog({
   const [localThemeTonePreset, setLocalThemeTonePreset] = useState(themeTonePreset);
   const [localAccentColor, setLocalAccentColor] = useState(accentColor);
   const [localCanvasEdgeRoutingMode, setLocalCanvasEdgeRoutingMode] = useState(canvasEdgeRoutingMode);
+  const [localAutoCheckAppUpdateOnLaunch, setLocalAutoCheckAppUpdateOnLaunch] = useState(
+    autoCheckAppUpdateOnLaunch
+  );
+  const [localEnableUpdateDialog, setLocalEnableUpdateDialog] = useState(enableUpdateDialog);
   const [localAutoUpdateDreaminaCliOnLaunch, setLocalAutoUpdateDreaminaCliOnLaunch] = useState(
     autoUpdateDreaminaCliOnLaunch
   );
@@ -596,6 +605,10 @@ export function SettingsDialog({
   const [isCheckingDreaminaUpdate, setIsCheckingDreaminaUpdate] = useState(false);
   const [isUpdatingDreamina, setIsUpdatingDreamina] = useState(false);
   const [isLoggingOutDreamina, setIsLoggingOutDreamina] = useState(false);
+  const [isCheckingAppUpdate, setIsCheckingAppUpdate] = useState(false);
+  const [appUpdateCheckResult, setAppUpdateCheckResult] = useState<
+    'has-update' | 'up-to-date' | 'failed' | null
+  >(null);
   const [dreaminaActionNotice, setDreaminaActionNotice] = useState<{
     tone: 'info' | 'success' | 'error';
     message: string;
@@ -691,12 +704,16 @@ export function SettingsDialog({
     setLocalThemeTonePreset(themeTonePreset);
     setLocalAccentColor(accentColor);
     setLocalCanvasEdgeRoutingMode(canvasEdgeRoutingMode);
+    setLocalAutoCheckAppUpdateOnLaunch(autoCheckAppUpdateOnLaunch);
+    setLocalEnableUpdateDialog(enableUpdateDialog);
     setLocalAutoUpdateDreaminaCliOnLaunch(autoUpdateDreaminaCliOnLaunch);
     setLocalPsIntegrationEnabled(psIntegrationEnabled);
     setLocalPsServerPort(psServerPort);
     setLocalPsAutoStartServer(psAutoStartServer);
     setCollapsedProviderGroups({ ...DEFAULT_PROVIDER_GROUP_COLLAPSE_STATE });
     setIsCapturingGroupShortcut(false);
+    setIsCheckingAppUpdate(false);
+    setAppUpdateCheckResult(null);
     setDreaminaActionNotice(null);
     setRevealedApiKeys({});
     setLocalDownloadPathInput('');
@@ -734,6 +751,8 @@ export function SettingsDialog({
     themeTonePreset,
     accentColor,
     canvasEdgeRoutingMode,
+    autoCheckAppUpdateOnLaunch,
+    enableUpdateDialog,
     autoUpdateDreaminaCliOnLaunch,
     psIntegrationEnabled,
     psServerPort,
@@ -1310,6 +1329,24 @@ export function SettingsDialog({
     localStoryboardProviderCustomModels,
   ]);
 
+  const handleCheckAppUpdate = useCallback(async () => {
+    if (!onCheckUpdate || isCheckingAppUpdate) {
+      return;
+    }
+
+    setIsCheckingAppUpdate(true);
+    setAppUpdateCheckResult(null);
+
+    try {
+      const result = await onCheckUpdate();
+      setAppUpdateCheckResult(result);
+    } catch {
+      setAppUpdateCheckResult('failed');
+    } finally {
+      setIsCheckingAppUpdate(false);
+    }
+  }, [isCheckingAppUpdate, onCheckUpdate]);
+
   const handleSave = useCallback(() => {
     scriptProviders.forEach((provider) => {
       setScriptProviderApiKey(provider.id, localScriptApiKeys[provider.id] ?? '');
@@ -1379,6 +1416,8 @@ export function SettingsDialog({
     setThemeTonePreset(localThemeTonePreset);
     setAccentColor(localAccentColor);
     setCanvasEdgeRoutingMode(localCanvasEdgeRoutingMode);
+    setAutoCheckAppUpdateOnLaunch(localAutoCheckAppUpdateOnLaunch);
+    setEnableUpdateDialog(localEnableUpdateDialog);
     setAutoUpdateDreaminaCliOnLaunch(localAutoUpdateDreaminaCliOnLaunch);
     setPsIntegrationEnabled(localPsIntegrationEnabled);
     setPsServerPort(localPsServerPort);
@@ -1407,6 +1446,8 @@ export function SettingsDialog({
     localThemeTonePreset,
     localAccentColor,
     localCanvasEdgeRoutingMode,
+    localAutoCheckAppUpdateOnLaunch,
+    localEnableUpdateDialog,
     localAutoUpdateDreaminaCliOnLaunch,
     localPsIntegrationEnabled,
     localPsServerPort,
@@ -1455,6 +1496,8 @@ export function SettingsDialog({
     setThemeTonePreset,
     setAccentColor,
     setCanvasEdgeRoutingMode,
+    setAutoCheckAppUpdateOnLaunch,
+    setEnableUpdateDialog,
     setAutoUpdateDreaminaCliOnLaunch,
     setPsIntegrationEnabled,
     setPsServerPort,
@@ -2896,6 +2939,71 @@ export function SettingsDialog({
                     title={t('settings.dreaminaAutoUpdateOnLaunch')}
                     description={t('settings.dreaminaAutoUpdateOnLaunchDesc')}
                   />
+
+                  <div className="rounded-lg border border-border-dark bg-bg-dark p-4">
+                    <div className="flex flex-wrap items-start justify-between gap-3">
+                      <div>
+                        <h3 className="text-sm font-medium text-text-dark">
+                          {t('settings.appUpdateSectionTitle')}
+                        </h3>
+                        <p className="mt-1 text-xs leading-5 text-text-muted">
+                          {t('settings.appUpdateSectionDesc')}
+                        </p>
+                      </div>
+
+                      <button
+                        type="button"
+                        disabled={isCheckingAppUpdate || !onCheckUpdate}
+                        onClick={() => {
+                          void handleCheckAppUpdate();
+                        }}
+                        className="inline-flex h-9 items-center justify-center rounded border border-border-dark bg-surface-dark px-3 text-xs text-text-dark transition-colors hover:bg-bg-dark disabled:cursor-not-allowed disabled:opacity-50"
+                      >
+                        {isCheckingAppUpdate ? (
+                          <>
+                            <UiLoadingAnimation size="xs" className="mr-1.5" />
+                            {t('settings.checkingUpdate')}
+                          </>
+                        ) : (
+                          t('settings.checkUpdateNow')
+                        )}
+                      </button>
+                    </div>
+
+                    {appUpdateCheckResult ? (
+                      <div
+                        className={`mt-3 rounded border px-3 py-2 text-xs leading-5 ${
+                          appUpdateCheckResult === 'failed'
+                            ? 'border-amber-500/30 bg-amber-500/10 text-amber-200'
+                            : appUpdateCheckResult === 'has-update'
+                              ? 'border-accent/30 bg-accent/10 text-accent'
+                              : 'border-border-dark bg-surface-dark text-text-muted'
+                        }`}
+                      >
+                        {appUpdateCheckResult === 'has-update'
+                          ? t('settings.checkUpdateHasUpdate')
+                          : appUpdateCheckResult === 'up-to-date'
+                            ? t('settings.checkUpdateUpToDate')
+                            : t('settings.checkUpdateFailed')}
+                      </div>
+                    ) : null}
+
+                    <div className="mt-4 grid gap-3 md:grid-cols-2">
+                      <SettingsCheckboxCard
+                        checked={localAutoCheckAppUpdateOnLaunch}
+                        onCheckedChange={setLocalAutoCheckAppUpdateOnLaunch}
+                        title={t('settings.autoCheckUpdateOnLaunch')}
+                        description={t('settings.autoCheckUpdateOnLaunchDesc')}
+                      />
+
+                      <SettingsCheckboxCard
+                        checked={localEnableUpdateDialog}
+                        onCheckedChange={setLocalEnableUpdateDialog}
+                        title={t('settings.enableUpdateDialog')}
+                        description={t('settings.enableUpdateDialogDesc')}
+                      />
+                    </div>
+                  </div>
 
                   <SettingsCheckboxCard
                     checked={localStoryboardGenKeepStyleConsistent}

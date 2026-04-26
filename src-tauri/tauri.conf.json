@@ -9,6 +9,17 @@
     "beforeBuildCommand": "npm run build:app",
     "frontendDist": "../dist"
   },
+  "plugins": {
+    "updater": {
+      "endpoints": [
+        "https://github.com/henjicc/Storyboard-Copilot/releases/latest/download/latest.json"
+      ],
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDI5MkJCNjg5OEMwMDg4QTQKUldTa2lBQ01pYllyS2FFTjBndWpVYnExUk5wbjkwcUMrZUpBN3VVN245Q1RTS0pYQUN6dlVUMkUK",
+      "windows": {
+        "installMode": "passive"
+      }
+    }
+  },
   "app": {
     "withGlobalTauri": true,
     "macOSPrivateApi": false,
@@ -45,6 +56,7 @@
   },
   "bundle": {
     "active": true,
+    "createUpdaterArtifacts": true,
     "useLocalToolsDir": true,
     "targets": "all",
     "publisher": "Storyboard Copilot Team",

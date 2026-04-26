@@ -1,0 +1,63 @@
+[package]
+name = "tauri-plugin-updater"
+version = "2.6.1"
+description = "In-app updates for Tauri applications."
+edition = "2021"
+authors = ["Tauri Programme within The Commons Conservancy"]
+license = "Apache-2.0 OR MIT"
+rust-version = "1.77.2"
+repository = "https://github.com/tauri-apps/plugins-workspace"
+links = "tauri-plugin-updater"
+
+[package.metadata.docs.rs]
+rustc-args = ["--cfg", "docsrs"]
+rustdoc-args = ["--cfg", "docsrs"]
+no-default-features = true
+features = ["zip"]
+
+[package.metadata.platforms.support]
+windows = { level = "full", notes = "" }
+linux = { level = "full", notes = "" }
+macos = { level = "full", notes = "" }
+android = { level = "none", notes = "" }
+ios = { level = "none", notes = "" }
+
+[build-dependencies]
+tauri-plugin = { version = "2", features = ["build"] }
+
+[dependencies]
+tauri = { version = "2", default-features = false }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "2"
+log = "0.4"
+tokio = "1"
+reqwest = { version = "0.12", default-features = false, features = [
+  "json",
+  "stream",
+] }
+url = "2"
+http = "1"
+minisign-verify = "0.2"
+time = { version = "0.3", features = ["parsing", "formatting"] }
+base64 = "0.22"
+semver = { version = "1", features = ["serde"] }
+futures-util = "0.3"
+tempfile = "=3.20.0"
+infer = "0.19"
+percent-encoding = "2.3"
+
+[target."cfg(target_os = \"windows\")".dependencies]
+zip = { version = "2", default-features = false, optional = true }
+windows-sys = { version = "0.59.0", features = [
+  "Win32_Foundation",
+  "Win32_UI_WindowsAndMessaging",
+  "Win32_UI_Shell",
+] }
+
+[features]
+default = ["rustls-tls", "zip"]
+zip = ["dep:zip"]
+native-tls = ["reqwest/native-tls"]
+native-tls-vendored = ["reqwest/native-tls-vendored"]
+rustls-tls = ["reqwest/rustls-tls"]

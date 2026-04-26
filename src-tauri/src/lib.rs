@@ -97,7 +97,7 @@ fn frontend_ready(app: tauri::AppHandle) {
 pub fn run() {
     setup_logging();
 
-    let app = tauri::Builder::default()
+    let builder = tauri::Builder::default()
         .on_page_load(|window, _payload| {
             if window.label() != MAIN_WINDOW_LABEL {
                 return;
@@ -144,7 +144,14 @@ pub fn run() {
             Ok(())
         })
         .plugin(tauri_plugin_opener::init())
-        .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_dialog::init());
+
+    #[cfg(target_os = "windows")]
+    let builder = builder
+        .plugin(tauri_plugin_process::init())
+        .plugin(tauri_plugin_updater::Builder::new().build());
+
+    let app = builder
         .invoke_handler(tauri::generate_handler![
             frontend_ready,
             ad_skill_package::export_ad_director_skill_package,
