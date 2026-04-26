@@ -199,11 +199,6 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Normalize product name for CI bundle
-        shell: bash
-        run: |
-          node -e "const fs=require('fs');const p='src-tauri/tauri.conf.json';const j=JSON.parse(fs.readFileSync(p,'utf8'));j.productName='Storyboard-Copilot';fs.writeFileSync(p, JSON.stringify(j, null, 2));"
-
       - name: Resolve macOS packaging mode
         id: mac-mode
         shell: bash
@@ -269,7 +264,7 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ needs.prepare-release.outputs.tag }}
-          name: Storyboard Copilot ${{ needs.prepare-release.outputs.tag }}
+          name: OOpii无限画布 ${{ needs.prepare-release.outputs.tag }}
           body: ${{ needs.prepare-release.outputs.body }}
           target_commitish: ${{ github.sha }}
           draft: false
@@ -307,11 +302,6 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Normalize product name for CI bundle
-        shell: pwsh
-        run: |
-          node -e "const fs=require('fs');const p='src-tauri/tauri.conf.json';const j=JSON.parse(fs.readFileSync(p,'utf8'));j.productName='Storyboard-Copilot';fs.writeFileSync(p, JSON.stringify(j, null, 2));"
-
       - name: Build and publish Windows artifacts
         uses: tauri-apps/tauri-action@v0.6.2
         env:
@@ -321,7 +311,7 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
           tagName: ${{ needs.prepare-release.outputs.tag }}
-          releaseName: Storyboard Copilot ${{ needs.prepare-release.outputs.tag }}
+          releaseName: OOpii无限画布 ${{ needs.prepare-release.outputs.tag }}
           releaseBody: ${{ needs.prepare-release.outputs.body }}
           releaseDraft: false
           prerelease: false
