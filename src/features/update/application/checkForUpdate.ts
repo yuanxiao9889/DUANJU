@@ -301,7 +301,7 @@ async function checkGithubReleaseFallback(
     return toManualUpdateResult(latestRelease, currentVersion, error);
   }
 
-  return { hasUpdate: false, currentVersion, error };
+  return { hasUpdate: false, currentVersion };
 }
 
 export async function checkForUpdate(): Promise<UpdateCheckResult> {
