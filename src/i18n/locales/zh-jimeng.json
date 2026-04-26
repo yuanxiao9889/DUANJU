@@ -1,0 +1,190 @@
+{
+  "common": {
+    "next": "\u4e0b\u4e00\u9879"
+  },
+  "node": {
+    "menu": {
+      "jimengVideo": "\u5373\u68a6\u89c6\u9891",
+      "jimengImage": "\u5373\u68a6\u56fe\u7247",
+      "jimengImageResult": "\u5373\u68a6\u56db\u5bab\u683c",
+      "jimengVideoResult": "\u5373\u68a6\u89c6\u9891\u7ed3\u679c"
+    },
+    "jimeng": {
+      "promptLabel": "\u63d0\u793a\u8bcd",
+      "promptPlaceholder": "\u63cf\u8ff0\u4f60\u60f3\u8ba9\u5373\u68a6\u89c6\u9891\u751f\u6210\u7684\u753b\u9762\u3001\u52a8\u4f5c\u3001\u955c\u5934\u548c\u8282\u594f",
+      "promptRequired": "\u8bf7\u8f93\u5165\u5373\u68a6\u89c6\u9891\u751f\u6210\u7684\u63d0\u793a\u8bcd",
+      "optimizePrompt": "\u89c6\u9891\u4f18\u5316\u63d0\u793a\u8bcd",
+      "optimizingPrompt": "\u6b63\u5728\u4f18\u5316\u89c6\u9891\u63d0\u793a\u8bcd",
+      "optimizePromptFailed": "\u89c6\u9891\u63d0\u793a\u8bcd\u4f18\u5316\u5931\u8d25",
+      "checkCli": "CLI\u68c0\u6d4b",
+      "checkingCli": "\u68c0\u6d4b CLI",
+      "checkCliFailed": "Dreamina CLI \u68c0\u6d4b\u5931\u8d25",
+      "undoOptimizedPrompt": "\u64a4\u9500\u89c6\u9891\u4f18\u5316",
+      "optimizeModelLabel": "\u672c\u6b21\u4f18\u5316\u6a21\u578b\uff1a{{model}}",
+      "optimizeReferenceImagesLabel": "\u53c2\u8003\u56fe\uff1a{{status}}",
+      "optimizeReferenceImagesUsed": "\u5df2\u5e26\u5165 {{count}} \u5f20",
+      "optimizeReferenceImagesUnused": "\u672a\u5e26\u5165",
+      "referenceCount": "\u5df2\u8fde\u63a5 {{count}} \u5f20\u53c2\u8003\u56fe",
+      "referenceImagesLabel": "\u53c2\u8003\u56fe\u7247",
+      "referenceImageLabel": "\u53c2\u8003\u56fe {{index}}",
+      "referenceVideoLabel": "\u53c2\u8003\u89c6\u9891 {{index}}",
+      "referenceVideoBadge": "\u89c6\u9891",
+      "referenceReorderHint": "\u62d6\u52a8\u8c03\u6574\u987a\u5e8f",
+      "referenceEmpty": "\u8fde\u63a5\u4e0a\u6e38\u56fe\u7247\u3001\u89c6\u9891\u6216\u97f3\u9891\u540e\uff0c\u8f93\u5165 @ \u53ef\u5728\u63d0\u793a\u8bcd\u91cc\u63d2\u5165\u53c2\u8003\u7d20\u6750\u3002",
+      "audioReferencesLabel": "{{count}} \u6761\u97f3\u9891\u53c2\u8003",
+      "audioReferenceLabel": "\u97f3\u9891 {{index}}",
+      "audioReferencesEmpty": "\u8fde\u63a5\u97f3\u9891\u8282\u70b9\u540e\uff0c\u4f1a\u4f5c\u4e3a\u53c2\u8003\u97f3\u9891\u4e00\u5e76\u63d0\u4ea4\u3002",
+      "cliBlockedAudioNeedsImage": "\u5f53\u524d\u8fde\u63a5\u4e86\u97f3\u9891\u53c2\u8003\uff0c\u81f3\u5c11\u8fd8\u9700 1 \u4e2a\u56fe\u7247\u6216\u89c6\u9891\u53c2\u8003\u624d\u80fd\u63d0\u4ea4 Dreamina CLI",
+      "cliMode": {
+        "text2video": "\u6587\u751f\u89c6\u9891",
+        "image2video": "\u56fe\u751f\u89c6\u9891",
+        "frames2video": "\u9996\u5c3e\u5e27",
+        "multiframe2video": "\u591a\u5e27\u8f6c\u573a",
+        "multimodal2video": "\u591a\u6a21\u6001"
+      },
+      "cliHint": {
+        "text2video": "CLI\uff1a{{command}} | \u751f\u6548\u6a21\u578b {{model}} | \u65f6\u957f 4-15s | \u6e05\u6670\u5ea6 720p",
+        "image2video": "CLI\uff1a{{command}} | \u65f6\u957f {{duration}} | \u6e05\u6670\u5ea6 {{resolution}}",
+        "frames2video": "CLI\uff1a{{command}} | \u4ec5\u53d6\u7b2c 1 \u5f20\u4e0e\u6700\u540e 1 \u5f20 | \u751f\u6548\u6a21\u578b {{model}} | \u65f6\u957f {{duration}} | \u6e05\u6670\u5ea6 {{resolution}}",
+        "multiframeTwo": "CLI\uff1a{{command}} | 2 \u5f20\u53c2\u8003\u56fe | \u65f6\u957f 2-8s | \u6a21\u578b/\u6bd4\u4f8b/\u6e05\u6670\u5ea6\u7531 CLI \u56fa\u5b9a",
+        "multiframeMany": "CLI\uff1a{{command}} | {{count}} \u5f20\u53c2\u8003\u56fe | \u81ea\u52a8\u5206\u914d\u6bcf\u6bb5\u8f6c\u573a\u65f6\u957f | \u6a21\u578b/\u6bd4\u4f8b/\u6e05\u6670\u5ea6\u7531 CLI \u56fa\u5b9a",
+        "multimodal2video": "CLI\uff1a{{command}} | \u751f\u6548\u6a21\u578b {{model}} | \u65f6\u957f 4-15s | \u6e05\u6670\u5ea6 720p"
+      },
+      "submit": "\u751f\u6210",
+      "submitting": "\u751f\u6210\u4e2d",
+      "submitFailed": "\u5373\u68a6\u89c6\u9891\u751f\u6210\u5931\u8d25",
+      "durationSuggestionLabel": "\u5efa\u8bae\u65f6\u957f\uff1a{{seconds}} \u79d2",
+      "durationSuggestionOverflow": "\u5efa\u8bae\u65f6\u957f\uff1a{{seconds}} \u79d2\uff0c\u5f53\u524d\u5185\u5bb9\u53ef\u80fd\u9700\u8981\u7ea6 {{estimated}} \u79d2\uff0c\u53ef\u80fd\u8d85\u51fa 15 \u79d2\u9650\u5236",
+      "resultReturnedAt": "{{time}} \u5df2\u751f\u6210\u5230\u89c6\u9891\u7ed3\u679c\u8282\u70b9",
+      "resultEmpty": "\u5373\u68a6\u6ca1\u6709\u8fd4\u56de\u53ef\u7528\u89c6\u9891\u7ed3\u679c",
+      "resultNodeTitle": "\u5373\u68a6\u89c6\u9891\u7ed3\u679c",
+      "parameterHint": "\u5f53\u524d\u8282\u70b9\u4f7f\u7528 Dreamina CLI \u56fa\u5b9a\u53c2\u6570\uff0c\u70b9\u51fb\u751f\u6210\u540e\u4f1a\u521b\u5efa\u89c6\u9891\u7ed3\u679c\u8282\u70b9\u3002",
+      "parameters": {
+        "model": "\u6a21\u578b",
+        "referenceMode": "\u53c2\u8003\u65b9\u5f0f",
+        "aspectRatio": "\u6bd4\u4f8b",
+        "duration": "\u65f6\u957f",
+        "videoResolution": "\u6e05\u6670\u5ea6"
+      },
+      "modelOptions": {
+        "seedance20fast": "Seedance 2.0 Fast",
+        "seedance20": "Seedance 2.0",
+        "seedance20fastVip": "Seedance 2.0 Fast VIP",
+        "seedance20Vip": "Seedance 2.0 VIP",
+        "v3_5pro": "3.5 Pro",
+        "v3_0pro": "3.0 Pro",
+        "v3_0fast": "3.0 Fast",
+        "v3_0": "3.0 \u6807\u51c6"
+      },
+      "referenceModes": {
+        "allAround": "\u5168\u80fd\u53c2\u8003",
+        "firstLastFrame": "\u9996\u5c3e\u5e27",
+        "smartFrames": "\u667a\u80fd\u591a\u5e27",
+        "subject": "\u4e3b\u4f53\u53c2\u8003"
+      },
+      "aspectRatios": {
+        "21:9": "21:9",
+        "16:9": "16:9",
+        "4:3": "4:3",
+        "1:1": "1:1",
+        "3:4": "3:4",
+        "9:16": "9:16"
+      },
+      "durations": {
+        "4": "4 \u79d2",
+        "5": "5 \u79d2",
+        "6": "6 \u79d2",
+        "7": "7 \u79d2",
+        "8": "8 \u79d2",
+        "9": "9 \u79d2",
+        "10": "10 \u79d2",
+        "11": "11 \u79d2",
+        "12": "12 \u79d2",
+        "13": "13 \u79d2",
+        "14": "14 \u79d2",
+        "15": "15 \u79d2"
+      },
+      "videoResolutionOptions": {
+        "720p": "720p",
+        "1080p": "1080p"
+      }
+    },
+    "jimengImage": {
+      "promptLabel": "\u63d0\u793a\u8bcd",
+      "promptPlaceholder": "\u63cf\u8ff0\u4f60\u60f3\u8ba9\u5373\u68a6\u751f\u6210\u7684\u56fe\u7247\u5185\u5bb9",
+      "promptRequired": "\u8bf7\u8f93\u5165\u5373\u68a6\u56fe\u7247\u751f\u6210\u7684\u63d0\u793a\u8bcd",
+      "optimizePrompt": "\u56fe\u7247\u4f18\u5316\u63d0\u793a\u8bcd",
+      "optimizingPrompt": "\u6b63\u5728\u4f18\u5316\u56fe\u7247\u63d0\u793a\u8bcd",
+      "optimizePromptFailed": "\u56fe\u7247\u63d0\u793a\u8bcd\u4f18\u5316\u5931\u8d25",
+      "checkCli": "CLI\u68c0\u6d4b",
+      "checkingCli": "\u68c0\u6d4b CLI",
+      "checkCliFailed": "Dreamina CLI \u68c0\u6d4b\u5931\u8d25",
+      "undoOptimizedPrompt": "\u64a4\u9500\u56fe\u7247\u4f18\u5316",
+      "optimizeModelLabel": "\u672c\u6b21\u4f18\u5316\u6a21\u578b\uff1a{{model}}",
+      "optimizeReferenceImagesLabel": "\u53c2\u8003\u56fe\uff1a{{status}}",
+      "optimizeReferenceImagesUsed": "\u5df2\u5e26\u5165 {{count}} \u5f20",
+      "optimizeReferenceImagesUnused": "\u672a\u5e26\u5165",
+      "referenceCount": "\u5df2\u8fde\u63a5 {{count}} \u5f20\u53c2\u8003\u56fe",
+      "referenceEmpty": "\u8fde\u63a5\u4e0a\u6e38\u56fe\u7247\u540e\uff0c\u4f1a\u4f5c\u4e3a Dreamina CLI \u7684\u53c2\u8003\u56fe\u4e00\u5e76\u63d0\u4ea4\u3002",
+      "generate": "\u751f\u6210",
+      "generating": "\u751f\u6210\u4e2d",
+      "generateFailed": "\u5373\u68a6\u56fe\u7247\u751f\u6210\u5931\u8d25",
+      "generatedAt": "\u5df2\u751f\u6210 {{time}}",
+      "generatedToNode": "{{time}} \u5df2\u751f\u6210\u5230\u65b0\u7684\u56db\u5bab\u683c\u8282\u70b9",
+      "resultNodeTitle": "\u5373\u68a6\u56db\u5bab\u683c\u7ed3\u679c",
+      "parameterHint": "\u5f53\u524d\u8282\u70b9\u4f7f\u7528 Dreamina CLI \u56fa\u5b9a\u53c2\u6570\uff0c\u70b9\u51fb\u751f\u6210\u540e\u4f1a\u521b\u5efa\u56db\u5bab\u683c\u7ed3\u679c\u8282\u70b9\u3002",
+      "parameters": {
+        "model": "\u6a21\u578b",
+        "resolution": "\u6e05\u6670\u5ea6",
+        "aspectRatio": "\u6bd4\u4f8b"
+      },
+      "modelOptions": {
+        "v3_0": "3.0",
+        "v3_1": "3.1",
+        "v4_0": "4.0",
+        "v4_1": "4.1",
+        "v4_5": "4.5",
+        "v4_6": "4.6",
+        "v5_0": "5.0",
+        "lab": "Lab"
+      },
+      "resolutionOptions": {
+        "1k": "1K",
+        "2k": "2K",
+        "4k": "4K"
+      }
+    },
+    "jimengImageResult": {
+      "empty": "\u7b49\u5f85\u5373\u68a6\u8fd4\u56de\u7ed3\u679c\u3002",
+      "pending": "\u751f\u6210\u4e2d...",
+      "slotLabel": "\u7ed3\u679c {{index}}",
+      "extractImage": "\u5206\u79bb\u6b64\u56fe",
+      "extractEmpty": "\u8fd9\u4e00\u683c\u5f53\u524d\u6ca1\u6709\u53ef\u5206\u79bb\u7684\u56fe\u7247",
+      "extractFailed": "\u5206\u79bb\u56fe\u7247\u5931\u8d25",
+      "extractSuccess": "\u5df2\u5206\u79bb\u7ed3\u679c {{index}}",
+      "extractedTitle": "\u5373\u68a6\u7ed3\u679c {{index}}",
+      "generating": "\u751f\u6210\u4e2d",
+      "statusGenerating": "\u5373\u68a6\u6b63\u5728\u751f\u6210\u6700\u65b0\u4e00\u7ec4 4 \u5f20\u56fe...",
+      "generatedAt": "\u5df2\u751f\u6210 {{time}}",
+      "readyCount": "{{count}} \u5f20\u56fe\u7247",
+      "requery": "\u91cd\u67e5\u7ed3\u679c",
+      "requeryUnavailable": "\u8fd9\u4e2a\u5373\u68a6\u56db\u5bab\u683c\u8282\u70b9\u6ca1\u6709\u53ef\u7528\u7684 submit_id\uff0c\u6682\u65f6\u65e0\u6cd5\u91cd\u67e5\u3002",
+      "requeryFailed": "\u5373\u68a6\u56fe\u7247\u7ed3\u679c\u91cd\u67e5\u5931\u8d25",
+      "requeryPendingCount": "\u4ecd\u6709 {{count}} \u4e2a\u4efb\u52a1\u7b49\u5f85\u56de\u4f20",
+      "requeryReadyCount": "\u5df2\u91cd\u65b0\u62c9\u53d6 {{count}} \u5f20\u56fe\u7247"
+    },
+    "jimengVideoResult": {
+      "empty": "\u7b49\u5f85\u5373\u68a6\u8fd4\u56de\u89c6\u9891\u7ed3\u679c\u3002",
+      "pending": "\u751f\u6210\u4e2d...",
+      "generating": "\u751f\u6210\u4e2d",
+      "ready": "\u5df2\u56de\u4f20",
+      "statusGenerating": "\u5373\u68a6\u6b63\u5728\u751f\u6210\u89c6\u9891\u7ed3\u679c...",
+      "generatedAt": "\u5df2\u56de\u4f20 {{time}}",
+      "duration": "\u65f6\u957f {{duration}}",
+      "requery": "\u91cd\u67e5\u7ed3\u679c",
+      "requeryUnavailable": "\u8fd9\u4e2a\u5373\u68a6\u89c6\u9891\u7ed3\u679c\u8282\u70b9\u6ca1\u6709\u53ef\u7528\u7684 submit_id\uff0c\u6682\u65f6\u65e0\u6cd5\u91cd\u67e5\u3002",
+      "requeryFailed": "\u5373\u68a6\u89c6\u9891\u7ed3\u679c\u91cd\u67e5\u5931\u8d25",
+      "requeryPending": "\u4efb\u52a1\u8fd8\u5728\u751f\u6210\u4e2d\uff0c\u7a0d\u540e\u53ef\u518d\u91cd\u67e5"
+    }
+  }
+}

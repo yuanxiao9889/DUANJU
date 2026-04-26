@@ -1,0 +1,2 @@
+# Keep project-level Cargo config portable for local builds and CI.
+# If you need a proxy locally, configure it in your user-level Cargo config instead.

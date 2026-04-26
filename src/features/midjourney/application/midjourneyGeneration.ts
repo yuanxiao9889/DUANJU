@@ -1,0 +1,300 @@
+import { v4 as uuidv4 } from 'uuid';
+
+import type {
+  MidjourneyAspectRatio,
+  MidjourneyVersionPreset,
+  MjBatchImageItem,
+  MjReferenceItem,
+} from '@/features/canvas/domain/canvasNodes';
+import {
+  detectImageDimensions,
+  prepareNodeImage,
+  reduceAspectRatio,
+} from '@/features/canvas/application/imageData';
+import { splitImageSource } from '@/commands/image';
+import {
+  queryMidjourneyTasks,
+  submitMidjourneyAction,
+  submitMidjourneyImagine,
+  submitMidjourneyModal,
+  type MidjourneyMutationResponse,
+  type MidjourneyTaskDto,
+} from '@/features/midjourney/infrastructure/commands';
+import {
+  buildMidjourneyFinalPrompt,
+  partitionMjReferences,
+  validateMidjourneyAdvancedParams,
+} from '@/features/midjourney/domain/prompt';
+import type { MidjourneyProviderId } from '@/features/midjourney/domain/providers';
+import { normalizeMjPersonalizationCodes } from '@/features/midjourney/domain/styleCodePresets';
+
+export interface SubmitMidjourneyImagineInput {
+  providerId: MidjourneyProviderId;
+  apiKey: string;
+  prompt: string;
+  references: MjReferenceItem[];
+  personalizationCodes?: string[];
+  aspectRatio?: MidjourneyAspectRatio | string | null;
+  rawMode?: boolean;
+  versionPreset?: MidjourneyVersionPreset | string | null;
+  advancedParams?: string | null;
+}
+
+export interface SubmitMidjourneyImagineOutput {
+  taskId: string;
+  prompt: string;
+  finalPrompt: string;
+  state?: string | null;
+}
+
+export interface SubmitMidjourneyActionInput {
+  providerId: MidjourneyProviderId;
+  apiKey: string;
+  taskId: string;
+  customId: string;
+}
+
+export interface SubmitMidjourneyModalInput {
+  providerId: MidjourneyProviderId;
+  apiKey: string;
+  taskId: string;
+  prompt?: string | null;
+  maskBase64?: string | null;
+}
+
+export async function submitMidjourneyImagineTask(
+  input: SubmitMidjourneyImagineInput
+): Promise<SubmitMidjourneyImagineOutput> {
+  const apiKey = input.apiKey.trim();
+  if (!apiKey) {
+    throw new Error('MJ API key is required');
+  }
+
+  const prompt = input.prompt.trim();
+  if (!prompt) {
+    throw new Error('Prompt is required');
+  }
+
+  const validation = validateMidjourneyAdvancedParams(input.advancedParams);
+  if (!validation.valid) {
+    throw new Error(
+      `Advanced Params duplicates reserved params: ${validation.duplicatedReservedParams.join(', ')}`
+    );
+  }
+
+  const { referenceImages, styleReferenceImages } = partitionMjReferences(
+    input.references
+  );
+  const personalizationCodes = normalizeMjPersonalizationCodes(
+    input.personalizationCodes ?? []
+  );
+  const response = await submitMidjourneyImagine({
+    providerId: input.providerId,
+    apiKey,
+    prompt,
+    referenceImages,
+    styleReferenceImages,
+    personalizationCodes,
+    aspectRatio: input.aspectRatio ?? undefined,
+    rawMode: input.rawMode ?? false,
+    versionPreset: input.versionPreset ?? undefined,
+    advancedParams: input.advancedParams ?? undefined,
+  });
+
+  return {
+    taskId: response.taskId,
+    prompt,
+    finalPrompt:
+      response.finalPrompt ||
+      buildMidjourneyFinalPrompt({
+        prompt,
+        aspectRatio: input.aspectRatio,
+        rawMode: input.rawMode,
+        versionPreset: input.versionPreset,
+        personalizationCodes,
+        advancedParams: input.advancedParams,
+      }),
+    state: response.state ?? null,
+  };
+}
+
+export async function queryMidjourneyTask(
+  providerId: MidjourneyProviderId,
+  apiKey: string,
+  taskId: string
+): Promise<MidjourneyTaskDto> {
+  const normalizedApiKey = apiKey.trim();
+  if (!normalizedApiKey) {
+    throw new Error('MJ API key is required');
+  }
+
+  const normalizedTaskId = taskId.trim();
+  if (!normalizedTaskId) {
+    throw new Error('Midjourney task id is required');
+  }
+
+  const tasks = await queryMidjourneyTasks({
+    providerId,
+    apiKey: normalizedApiKey,
+    taskIds: [normalizedTaskId],
+  });
+
+  const task = tasks.find((item) => item.id === normalizedTaskId) ?? tasks[0];
+  if (!task) {
+    throw new Error(`Midjourney task not found: ${normalizedTaskId}`);
+  }
+
+  return task;
+}
+
+function validateMutationInput(
+  providerId: MidjourneyProviderId,
+  apiKey: string,
+  taskId: string
+): {
+  providerId: MidjourneyProviderId;
+  apiKey: string;
+  taskId: string;
+} {
+  const normalizedApiKey = apiKey.trim();
+  if (!normalizedApiKey) {
+    throw new Error('MJ API key is required');
+  }
+
+  const normalizedTaskId = taskId.trim();
+  if (!normalizedTaskId) {
+    throw new Error('Midjourney task id is required');
+  }
+
+  return {
+    providerId,
+    apiKey: normalizedApiKey,
+    taskId: normalizedTaskId,
+  };
+}
+
+export async function submitMidjourneyActionTask(
+  input: SubmitMidjourneyActionInput
+): Promise<MidjourneyMutationResponse> {
+  const validated = validateMutationInput(
+    input.providerId,
+    input.apiKey,
+    input.taskId
+  );
+  const customId = input.customId.trim();
+  if (!customId) {
+    throw new Error('Midjourney action custom id is required');
+  }
+
+  return await submitMidjourneyAction({
+    providerId: validated.providerId,
+    apiKey: validated.apiKey,
+    taskId: validated.taskId,
+    customId,
+  });
+}
+
+export async function submitMidjourneyModalTask(
+  input: SubmitMidjourneyModalInput
+): Promise<MidjourneyMutationResponse> {
+  const validated = validateMutationInput(
+    input.providerId,
+    input.apiKey,
+    input.taskId
+  );
+
+  return await submitMidjourneyModal({
+    providerId: validated.providerId,
+    apiKey: validated.apiKey,
+    taskId: validated.taskId,
+    prompt: input.prompt?.trim() ?? '',
+    maskBase64: input.maskBase64?.trim() ?? '',
+  });
+}
+
+async function fallbackGridImage(
+  gridImageSource: string
+): Promise<MjBatchImageItem[]> {
+  return await prepareMidjourneyBatchImages([gridImageSource]);
+}
+
+async function prepareMidjourneyBatchImage(
+  sourceUrl: string,
+  index: number
+): Promise<MjBatchImageItem> {
+  try {
+    const prepared = await prepareNodeImage(sourceUrl);
+    const dimensions = await detectImageDimensions(prepared.imageUrl).catch(() => null);
+
+    return {
+      id: `mj-batch-image-${uuidv4()}`,
+      imageUrl: prepared.imageUrl,
+      previewImageUrl: prepared.previewImageUrl,
+      sourceUrl,
+      index,
+      aspectRatio:
+        prepared.aspectRatio ||
+        (dimensions ? reduceAspectRatio(dimensions.width, dimensions.height) : '1:1'),
+      width: dimensions?.width,
+      height: dimensions?.height,
+    };
+  } catch {
+    const dimensions = await detectImageDimensions(sourceUrl).catch(() => null);
+
+    return {
+      id: `mj-batch-image-${uuidv4()}`,
+      imageUrl: sourceUrl,
+      previewImageUrl: sourceUrl,
+      sourceUrl,
+      index,
+      aspectRatio: dimensions
+        ? reduceAspectRatio(dimensions.width, dimensions.height)
+        : '1:1',
+      width: dimensions?.width,
+      height: dimensions?.height,
+    };
+  }
+}
+
+export async function prepareMidjourneyBatchImages(
+  imageSources: string[]
+): Promise<MjBatchImageItem[]> {
+  const normalizedSources = imageSources
+    .map((item) => item.trim())
+    .filter((item) => item.length > 0);
+  if (normalizedSources.length === 0) {
+    return [];
+  }
+
+  const preparedImages = await Promise.all(
+    normalizedSources.map((sourceUrl, index) =>
+      prepareMidjourneyBatchImage(sourceUrl, index)
+    )
+  );
+
+  return preparedImages.sort((left, right) => left.index - right.index);
+}
+
+export async function splitMidjourneyGridToBatchImages(
+  gridImageSource: string
+): Promise<MjBatchImageItem[]> {
+  const normalizedGridImageSource = gridImageSource.trim();
+  if (!normalizedGridImageSource) {
+    return [];
+  }
+
+  const splitSources = await splitImageSource(normalizedGridImageSource, 2, 2, 0).catch(
+    async () => fallbackGridImage(normalizedGridImageSource)
+  );
+  if (splitSources.length > 0 && typeof splitSources[0] !== 'string') {
+    return splitSources as MjBatchImageItem[];
+  }
+
+  const preparedImages = await prepareMidjourneyBatchImages(splitSources as string[]);
+
+  if (preparedImages.length === 0) {
+    return fallbackGridImage(normalizedGridImageSource);
+  }
+
+  return preparedImages.sort((left, right) => left.index - right.index);
+}

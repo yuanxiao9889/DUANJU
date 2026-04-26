@@ -1,0 +1,82 @@
+{
+  "schemaVersion": 2,
+  "id": "seedvr2-complete",
+  "name": "SeedVR2 Complete",
+  "version": "0.1.0",
+  "description": "Offline SeedVR2 image and video upscaling runtime for Storyboard Copilot. Bundles a portable Python bridge, the upstream SeedVR2 inference code, default local weights, and packaged ffmpeg tools for video encoding and audio remux.",
+  "runtime": "python-bridge",
+  "entry": {
+    "kind": "python",
+    "python": "runtime/python/python.exe",
+    "script": "runtime/app/storyboard_seedvr2_runner.py"
+  },
+  "hardwareRequirements": {
+    "summary": "This package targets Windows desktop with a local NVIDIA GPU workflow. SeedVR2 is intended for offline high-quality image and video upscaling, and the current preset targets roughly 12 GB or more of VRAM for stable execution.",
+    "recommendations": [
+      "Recommended: NVIDIA GPU with CUDA 12 support and at least 12 GB of VRAM.",
+      "The assembled package is large because it includes a portable Python runtime, local SeedVR2 source, default model weights, runtime caches, and ffmpeg binaries.",
+      "Video runs are fixed to a conservative streaming preset so long clips do not have to load every frame into memory at once."
+    ],
+    "notes": [
+      "This first version only exposes one fixed default model combination: SeedVR2 3B FP8 plus the FP16 VAE.",
+      "The template is assembled into build/extensions/seedvr2-complete and is not intended to be loaded directly before packaging.",
+      "Upstream code is Apache 2.0; keep model provenance and usage notes in the packaged README."
+    ]
+  },
+  "models": [
+    {
+      "id": "seedvr2-default-dit",
+      "path": "runtime/models/SEEDVR2/seedvr2_ema_3b_fp8_e4m3fn.safetensors",
+      "role": "imageVideoUpscale"
+    },
+    {
+      "id": "seedvr2-default-vae",
+      "path": "runtime/models/SEEDVR2/ema_vae_fp16.safetensors",
+      "role": "vae"
+    }
+  ],
+  "features": {
+    "nodes": [
+      "seedvr2ImageUpscaleNode",
+      "seedvr2VideoUpscaleNode"
+    ],
+    "settingsSections": [
+      "extensions"
+    ],
+    "entryPoints": [
+      "titleBar"
+    ]
+  },
+  "startupSteps": [
+    {
+      "id": "validate",
+      "label": "Validate package",
+      "description": "Check the SeedVR2 runner entry, local model files, and ffmpeg tools.",
+      "durationMs": 260
+    },
+    {
+      "id": "verify-runtime",
+      "label": "Verify runtime",
+      "description": "Check Python, CUDA, and SeedVR2 inference dependencies.",
+      "durationMs": 420
+    },
+    {
+      "id": "verify-models",
+      "label": "Verify models",
+      "description": "Check the bundled default SeedVR2 DiT and VAE weights.",
+      "durationMs": 420
+    },
+    {
+      "id": "warmup",
+      "label": "Warm up runtime",
+      "description": "Probe CUDA and import the fixed SeedVR2 inference stack before exposing the nodes.",
+      "durationMs": 820
+    },
+    {
+      "id": "register-nodes",
+      "label": "Register nodes",
+      "description": "Expose the SeedVR2 image and video nodes to the canvas.",
+      "durationMs": 220
+    }
+  ]
+}

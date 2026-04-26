@@ -1,0 +1,287 @@
+name: Build Storyboard-Copilot
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: "Release tag (example: v0.1.17)"
+        required: true
+        type: string
+      release_notes:
+        description: "Optional release notes override shown on GitHub Release"
+        required: false
+        type: string
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  prepare-release:
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.resolve.outputs.tag }}
+      version: ${{ steps.resolve.outputs.version }}
+      body: ${{ steps.resolve.outputs.body }}
+      mac_mode: ${{ steps.resolve.outputs.mac_mode }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+
+      - name: Resolve release metadata
+        id: resolve
+        shell: bash
+        env:
+          INPUT_TAG: ${{ github.event.inputs.release_tag }}
+          INPUT_NOTES: ${{ github.event.inputs.release_notes }}
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          validate_macos_certificate() {
+            local cert_file
+            cert_file="$(mktemp)"
+
+            if ! printf '%s' "$APPLE_CERTIFICATE" | base64 --decode >"$cert_file" 2>/dev/null; then
+              echo "APPLE_CERTIFICATE is not valid base64. Falling back to unsigned-test packaging."
+              rm -f "$cert_file"
+              return 1
+            fi
+
+            if ! openssl pkcs12 -in "$cert_file" -passin "pass:$APPLE_CERTIFICATE_PASSWORD" -nokeys -clcerts -noout >/dev/null 2>&1; then
+              echo "APPLE_CERTIFICATE could not be parsed as a PKCS#12 certificate with the provided password. Falling back to unsigned-test packaging."
+              rm -f "$cert_file"
+              return 1
+            fi
+
+            rm -f "$cert_file"
+            return 0
+          }
+
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+            TAG="${GITHUB_REF#refs/tags/}"
+          else
+            TAG="$INPUT_TAG"
+          fi
+
+          if [[ -z "$TAG" || ! "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+([.-][0-9A-Za-z.-]+)?$ ]]; then
+            echo "Invalid release tag: $TAG"
+            exit 1
+          fi
+
+          VERSION="${TAG#v}"
+          NOTES_FILE="docs/releases/${TAG}.md"
+
+          if [[ -n "$INPUT_NOTES" ]]; then
+            BODY="$INPUT_NOTES"
+          elif [[ -f "$NOTES_FILE" ]]; then
+            BODY="$(cat "$NOTES_FILE")"
+          else
+            BODY="Release ${TAG}"
+          fi
+
+          MAC_MODE="signed"
+          for key in \
+            APPLE_CERTIFICATE \
+            APPLE_CERTIFICATE_PASSWORD \
+            APPLE_SIGNING_IDENTITY \
+            APPLE_ID \
+            APPLE_PASSWORD \
+            APPLE_TEAM_ID; do
+            if [[ -z "${!key}" ]]; then
+              MAC_MODE="unsigned-test"
+              break
+            fi
+          done
+
+          if [[ "$MAC_MODE" == "signed" ]] && ! validate_macos_certificate; then
+            MAC_MODE="unsigned-test"
+          fi
+
+          if [[ "$MAC_MODE" == "unsigned-test" ]]; then
+            BODY="${BODY}
+
+            ## macOS 测试包说明
+
+            - macOS 安装包为未签名内部测试 DMG，仅供内部测试
+            - 普通 macOS 环境可能需要手动绕过 Gatekeeper 后打开"
+          fi
+
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "mac_mode=$MAC_MODE" >> "$GITHUB_OUTPUT"
+          {
+            echo "body<<EOF"
+            printf '%s\n' "$BODY"
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Remove existing release assets for reruns
+        uses: actions/github-script@v7
+        env:
+          RELEASE_TAG: ${{ steps.resolve.outputs.tag }}
+        with:
+          script: |
+            const tag = process.env.RELEASE_TAG;
+            if (!tag) {
+              core.info('No release tag resolved, skipping asset cleanup.');
+              return;
+            }
+
+            try {
+              const { data: release } = await github.rest.repos.getReleaseByTag({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                tag,
+              });
+
+              if (!release.assets || release.assets.length === 0) {
+                core.info(`Release ${tag} has no existing assets to delete.`);
+                return;
+              }
+
+              for (const asset of release.assets) {
+                core.info(`Deleting existing release asset: ${asset.name}`);
+                await github.rest.repos.deleteReleaseAsset({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  asset_id: asset.id,
+                });
+              }
+            } catch (error) {
+              if (error && typeof error === 'object' && 'status' in error && error.status === 404) {
+                core.info(`Release ${tag} does not exist yet, skipping asset cleanup.`);
+                return;
+              }
+
+              throw error;
+            }
+
+  build-release:
+    needs: prepare-release
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Windows
+            platform: windows-latest
+            args: --bundles nsis
+            artifact_glob: src-tauri/target/release/bundle/nsis/*.exe
+          - name: macOS
+            platform: macos-latest
+            args: --target universal-apple-darwin --bundles dmg
+            artifact_glob: src-tauri/target/universal-apple-darwin/release/bundle/dmg/*.dmg
+    name: Build ${{ matrix.name }}
+    runs-on: ${{ matrix.platform }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+
+      - name: Setup Rust (Windows)
+        if: matrix.platform == 'windows-latest'
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Setup Rust (macOS universal target)
+        if: matrix.platform == 'macos-latest'
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin,x86_64-apple-darwin
+
+      - name: Setup Rust cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - name: Sync app version to release tag
+        run: node scripts/sync-version.mjs ${{ needs.prepare-release.outputs.version }}
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Resolve macOS packaging mode
+        if: matrix.platform == 'macos-latest'
+        id: mac-mode
+        shell: bash
+        run: |
+          if [[ "${{ needs.prepare-release.outputs.mac_mode }}" == "signed" ]]; then
+            echo "mode=signed" >> "$GITHUB_OUTPUT"
+            echo "Using signed macOS release packaging."
+          else
+            echo "mode=unsigned-test" >> "$GITHUB_OUTPUT"
+            echo "Using unsigned macOS test packaging because Apple signing secrets are not configured."
+          fi
+
+      - name: Build bundles
+        if: matrix.platform != 'macos-latest' || steps.mac-mode.outputs.mode == 'signed'
+        env:
+          CI: true
+          GITHUB_TOKEN: ${{ github.token }}
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: npx tauri build ${{ matrix.args }}
+
+      - name: Build bundles (macOS unsigned test)
+        if: matrix.platform == 'macos-latest' && steps.mac-mode.outputs.mode == 'unsigned-test'
+        shell: bash
+        env:
+          CI: true
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          unset APPLE_CERTIFICATE
+          unset APPLE_CERTIFICATE_PASSWORD
+          unset APPLE_SIGNING_IDENTITY
+          unset APPLE_ID
+          unset APPLE_PASSWORD
+          unset APPLE_TEAM_ID
+          npx tauri build ${{ matrix.args }}
+
+      - name: Rename unsigned macOS DMG
+        if: matrix.platform == 'macos-latest' && steps.mac-mode.outputs.mode == 'unsigned-test'
+        shell: bash
+        run: |
+          dmg="$(find src-tauri/target/universal-apple-darwin/release/bundle/dmg -maxdepth 1 -name '*.dmg' | head -n 1)"
+          if [[ -z "$dmg" ]]; then
+            echo "No DMG artifact found to rename."
+            exit 1
+          fi
+
+          dir="$(dirname "$dmg")"
+          file="$(basename "$dmg")"
+          stem="${file%.dmg}"
+          renamed="${dir}/${stem}-unsigned-test.dmg"
+          mv "$dmg" "$renamed"
+          echo "Renamed macOS test artifact to $(basename "$renamed")"
+
+      - name: Upload bundles to GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ needs.prepare-release.outputs.tag }}
+          name: 短剧助手 ${{ needs.prepare-release.outputs.tag }}
+          body: ${{ needs.prepare-release.outputs.body }}
+          target_commitish: ${{ github.sha }}
+          draft: false
+          prerelease: false
+          files: ${{ matrix.artifact_glob }}
+          fail_on_unmatched_files: true

@@ -1,0 +1,79 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "OOpii无限画布",
+  "version": "2.2.0",
+  "identifier": "com.storyboard.copilot",
+  "build": {
+    "beforeDevCommand": "npm run dev",
+    "devUrl": "http://localhost:1420",
+    "beforeBuildCommand": "npm run build:app",
+    "frontendDist": "../dist"
+  },
+  "app": {
+    "withGlobalTauri": true,
+    "macOSPrivateApi": false,
+    "windows": [
+      {
+        "label": "main",
+        "create": false,
+        "title": "OOpii无限画布",
+        "dragDropEnabled": false,
+        "width": 1800,
+        "height": 980,
+        "minWidth": 960,
+        "minHeight": 600,
+        "visible": false,
+        "resizable": true,
+        "fullscreen": false,
+        "center": true,
+        "decorations": false,
+        "transparent": false,
+        "shadow": true
+      }
+    ],
+    "security": {
+      "csp": null,
+      "assetProtocol": {
+        "enable": true,
+        "scope": [
+          "$APPDATA/**",
+          "$APPLOCALDATA/**",
+          "$TEMP/**"
+        ]
+      }
+    }
+  },
+  "bundle": {
+    "active": true,
+    "useLocalToolsDir": true,
+    "targets": "all",
+    "publisher": "Storyboard Copilot Team",
+    "copyright": "Copyright © 2024 Storyboard Copilot Team. All rights reserved.",
+    "shortDescription": "AI 驱动的短剧分镜创作工具",
+    "longDescription": "OOpii无限画布是一款基于 AI 技术的无限画布分镜创作工具，支持图像生成、视频处理、分镜编排等功能，帮助创作者高效完成分镜设计。",
+    "category": "GraphicsDesign",
+    "windows": {
+      "wix": {
+        "language": "zh-CN"
+      },
+      "nsis": {
+        "languages": [
+          "SimpChinese",
+          "English"
+        ],
+        "displayLanguageSelector": false,
+        "installerHooks": "nsis/installer-hooks.nsh"
+      }
+    },
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ],
+    "resources": {
+      "resources/": "resources/"
+    }
+  }
+}

@@ -1,0 +1,28 @@
+{
+  "sourceDir": "I:\\Qwen3-TTS-1.7B\\Qwen3-TTS",
+  "outputDir": "E:\\Storyboard-Copilot\\build\\extensions\\qwen3-tts-complete",
+  "mode": "copy",
+  "assembledAt": "2026-04-02T16:02:45.615Z",
+  "assets": [
+    {
+      "target": "runtime/python",
+      "mode": "copy"
+    },
+    {
+      "target": "runtime/models/Qwen3-TTS-12Hz-1.7B-Base",
+      "mode": "copy"
+    },
+    {
+      "target": "runtime/models/Qwen3-TTS-12Hz-1.7B-VoiceDesign",
+      "mode": "copy"
+    },
+    {
+      "target": "runtime/models/Qwen3-TTS-12Hz-1.7B-CustomVoice",
+      "mode": "copy"
+    },
+    {
+      "target": "runtime/models/Qwen3-TTS-Tokenizer-12Hz",
+      "mode": "copy"
+    }
+  ]
+}

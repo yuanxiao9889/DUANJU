@@ -1,0 +1,12 @@
+{
+  "installerUrl": "https://jimeng.jianying.com/cli",
+  "downloadBase": "https://lf3-static.bytednsdoc.com/obj/eden-cn/psj_hupthlyk/ljhwZthlaukjlkulzlp/dreamina_cli_beta",
+  "binaryName": "dreamina_cli_windows_amd64.exe",
+  "binaryUrl": "https://lf3-static.bytednsdoc.com/obj/eden-cn/psj_hupthlyk/ljhwZthlaukjlkulzlp/dreamina_cli_beta/dreamina_cli_windows_amd64.exe",
+  "skillUrl": "https://lf3-static.bytednsdoc.com/obj/eden-cn/psj_hupthlyk/ljhwZthlaukjlkulzlp/dreamina_cli_beta/SKILL.md",
+  "versionUrl": "https://lf3-static.bytednsdoc.com/obj/eden-cn/psj_hupthlyk/ljhwZthlaukjlkulzlp/version.json",
+  "version": "1.4.2",
+  "releaseDate": "2026-04-22",
+  "releaseNotes": "修复上传多张图片时的超时问题",
+  "preparedAt": "2026-04-22T08:52:13.563Z"
+}
