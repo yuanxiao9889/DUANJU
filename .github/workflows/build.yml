@@ -211,7 +211,7 @@ jobs:
           releaseDraft: false
           prerelease: false
           args: --bundles nsis
-          uploadUpdaterJson: true
+          includeUpdaterJson: true
           updaterJsonPreferNsis: true
 
   build-macos-release:
