@@ -264,7 +264,7 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ needs.prepare-release.outputs.tag }}
-          name: OOpii无限画布 ${{ needs.prepare-release.outputs.tag }}
+          name: oopii无限画布 ${{ needs.prepare-release.outputs.tag }}
           body: ${{ needs.prepare-release.outputs.body }}
           target_commitish: ${{ github.sha }}
           draft: false
@@ -311,7 +311,7 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
           tagName: ${{ needs.prepare-release.outputs.tag }}
-          releaseName: OOpii无限画布 ${{ needs.prepare-release.outputs.tag }}
+          releaseName: oopii无限画布 ${{ needs.prepare-release.outputs.tag }}
           releaseBody: ${{ needs.prepare-release.outputs.body }}
           releaseDraft: false
           prerelease: false
