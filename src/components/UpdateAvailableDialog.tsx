@@ -10,9 +10,7 @@ import type {
   UpdateErrorCode,
 } from '@/features/update/application/checkForUpdate';
 
-const WINDOWS_QUARK_DOWNLOAD_URL = 'https://pan.quark.cn/s/5b6733a8fc8e';
-const MACOS_QUARK_DOWNLOAD_URL = 'https://pan.quark.cn/s/d855a55e54c0';
-const GITHUB_RELEASES_URL = 'https://github.com/yuanxiao9889/DUANJU/releases';
+const UPDATE_DOWNLOAD_URL = 'https://pan.quark.cn/s/d855a55e54c0';
 
 interface UpdateAvailableDialogProps {
   isOpen: boolean;
@@ -29,10 +27,6 @@ interface UpdateAvailableDialogProps {
   onIgnoreToday?: () => void;
   onIgnoreVersion?: () => void;
   onDisableReminders?: () => void;
-}
-
-function normalizeVersion(version: string): string {
-  return version.trim().replace(/^v/i, '');
 }
 
 function formatPublishedAt(value?: string): string | null {
@@ -64,25 +58,6 @@ function formatBytes(bytes: number): string {
 
   const precision = value >= 100 || unitIndex === 0 ? 0 : 1;
   return `${value.toFixed(precision)} ${units[unitIndex]}`;
-}
-
-function isMacPlatform(): boolean {
-  if (typeof navigator === 'undefined') {
-    return false;
-  }
-
-  return /(Mac|iPhone|iPad|iPod)/i.test(`${navigator.platform} ${navigator.userAgent}`);
-}
-
-function resolveQuarkDownloadUrl(): string {
-  return isMacPlatform() ? MACOS_QUARK_DOWNLOAD_URL : WINDOWS_QUARK_DOWNLOAD_URL;
-}
-
-function resolveGithubReleaseUrl(version?: string): string {
-  const normalized = normalizeVersion(version ?? '');
-  return normalized
-    ? `https://github.com/yuanxiao9889/DUANJU/releases/tag/v${normalized}`
-    : GITHUB_RELEASES_URL;
 }
 
 export function UpdateAvailableDialog({
@@ -163,12 +138,8 @@ export function UpdateAvailableDialog({
     return null;
   }, [canInstallInApp, errorCode, t]);
 
-  const handleOpenGithub = useCallback(() => {
-    void openUrl(resolveGithubReleaseUrl(latestVersion));
-  }, [latestVersion]);
-
-  const handleOpenQuark = useCallback(() => {
-    void openUrl(resolveQuarkDownloadUrl());
+  const handleOpenDownload = useCallback(() => {
+    void openUrl(UPDATE_DOWNLOAD_URL);
   }, []);
 
   return (
@@ -193,7 +164,7 @@ export function UpdateAvailableDialog({
             ) : null}
             <button
               type="button"
-              onClick={handleOpenQuark}
+              onClick={handleOpenDownload}
               className="text-xs text-text-muted transition-colors hover:text-text-dark"
             >
               {t('update.quarkFallbackLink')}
@@ -204,7 +175,7 @@ export function UpdateAvailableDialog({
             <UiButton variant="muted" size="sm" onClick={onClose} disabled={isInstalling}>
               {t('update.later')}
             </UiButton>
-            <UiButton variant="muted" size="sm" onClick={handleOpenGithub}>
+            <UiButton variant="muted" size="sm" onClick={handleOpenDownload}>
               {t('update.manualDownload')}
             </UiButton>
             {onIgnoreVersion ? (
