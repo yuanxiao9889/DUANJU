@@ -180,6 +180,9 @@ function resolveUpdateErrorCode(error: unknown): UpdateErrorCode {
 
   if (
     message.includes('endpoint') ||
+    message.includes('latest.json') ||
+    message.includes('not found') ||
+    message.includes('404') ||
     message.includes('pubkey') ||
     message.includes('public key')
   ) {
