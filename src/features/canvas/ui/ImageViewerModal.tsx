@@ -30,8 +30,14 @@ export function ImageViewerModal({
   const { t, i18n } = useTranslation();
   const viewerControlClass =
     'inline-flex h-10 items-center justify-center rounded-full border border-white/20 bg-black/60 px-4 text-sm text-white backdrop-blur-xl transition-colors hover:bg-white/10';
+  const metadataCardClass =
+    'rounded-2xl border border-white/[0.05] bg-white/[0.035] p-4';
   const promptActionClass =
-    'inline-flex h-9 items-center justify-center gap-2 rounded-full border border-white/15 bg-white/8 px-3 text-xs font-medium text-white transition-colors hover:bg-white/12 disabled:cursor-not-allowed disabled:opacity-45';
+    'inline-flex h-9 items-center justify-center gap-2 rounded-full border border-white/[0.08] bg-white/[0.05] px-3 text-xs font-medium text-white/88 transition-colors hover:bg-white/[0.08] disabled:cursor-not-allowed disabled:opacity-45';
+  const promptActionCopiedClass =
+    'inline-flex h-9 items-center justify-center gap-2 rounded-full border border-white/[0.08] bg-emerald-400/14 px-3 text-xs font-medium text-white/88 transition-colors hover:bg-emerald-400/18 disabled:cursor-not-allowed disabled:opacity-45';
+  const promptSurfaceClass =
+    'ui-scrollbar min-h-[180px] flex-1 rounded-[24px] border border-white/[0.05] bg-white/[0.04] p-4 text-sm leading-6 text-white/84 shadow-inner shadow-black/10';
   const [isVisible, setIsVisible] = useState(false);
   const [overlayOpacity, setOverlayOpacity] = useState(0);
   const [displayImageUrl, setDisplayImageUrl] = useState(imageUrl);
@@ -326,10 +332,10 @@ export function ImageViewerModal({
           )}
         </div>
 
-        <aside className="flex w-full shrink-0 flex-col rounded-[28px] border border-white/10 bg-white/6 p-4 shadow-[0_24px_64px_rgba(0,0,0,0.28)] backdrop-blur-xl xl:min-h-0 xl:w-[380px]">
+        <aside className="flex w-full shrink-0 flex-col rounded-[28px] border border-white/[0.06] bg-white/[0.045] p-4 shadow-[0_24px_64px_rgba(0,0,0,0.24)] backdrop-blur-xl xl:min-h-0 xl:w-[380px]">
           <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-1">
-            <div className="rounded-2xl border border-white/8 bg-black/24 p-4">
-              <div className="text-[11px] font-medium uppercase tracking-[0.18em] text-white/38">
+            <div className={metadataCardClass}>
+              <div className="text-[11px] font-medium uppercase tracking-[0.18em] text-white/34">
                 {t('viewer.provider', '厂商')}
               </div>
               <div className="mt-2 text-sm leading-6 text-white/92">
@@ -337,8 +343,8 @@ export function ImageViewerModal({
               </div>
             </div>
 
-            <div className="rounded-2xl border border-white/8 bg-black/24 p-4">
-              <div className="text-[11px] font-medium uppercase tracking-[0.18em] text-white/38">
+            <div className={metadataCardClass}>
+              <div className="text-[11px] font-medium uppercase tracking-[0.18em] text-white/34">
                 {t('viewer.model', '模型')}
               </div>
               <div className="mt-2 break-words text-sm leading-6 text-white/92">
@@ -346,8 +352,8 @@ export function ImageViewerModal({
               </div>
             </div>
 
-            <div className="rounded-2xl border border-white/8 bg-black/24 p-4 sm:col-span-2 xl:col-span-1">
-              <div className="text-[11px] font-medium uppercase tracking-[0.18em] text-white/38">
+            <div className={`${metadataCardClass} sm:col-span-2 xl:col-span-1`}>
+              <div className="text-[11px] font-medium uppercase tracking-[0.18em] text-white/34">
                 {t('viewer.generatedAt', '生成时间')}
               </div>
               <div className="mt-2 break-words text-sm leading-6 text-white/92">
@@ -358,13 +364,13 @@ export function ImageViewerModal({
 
           <div className="mt-4 flex min-h-[220px] flex-1 flex-col xl:min-h-0">
             <div className="mb-3 flex items-center justify-between gap-3">
-              <div className="text-[11px] font-medium uppercase tracking-[0.18em] text-white/38">
+              <div className="text-[11px] font-medium uppercase tracking-[0.18em] text-white/34">
                 {t('viewer.prompt', '提示词')}
               </div>
               <button
                 type="button"
                 disabled={!promptText}
-                className={promptActionClass}
+                className={isPromptCopied ? promptActionCopiedClass : promptActionClass}
                 onClick={() => {
                   void handleCopyPrompt();
                 }}
@@ -378,10 +384,14 @@ export function ImageViewerModal({
               <textarea
                 readOnly
                 value={promptText}
-                className="ui-scrollbar min-h-[180px] flex-1 resize-none rounded-[24px] border border-white/8 bg-black/28 p-4 text-sm leading-6 text-white/88 outline-none"
+                className={`${promptSurfaceClass} resize-none appearance-none outline-none`}
+                style={{
+                  backgroundColor: 'rgba(255, 255, 255, 0.04)',
+                  color: 'rgba(255, 255, 255, 0.84)',
+                }}
               />
             ) : (
-              <div className="ui-scrollbar min-h-[180px] flex-1 overflow-auto rounded-[24px] border border-white/8 bg-black/28 p-4 text-sm leading-6 text-white/88">
+              <div className={`${promptSurfaceClass} overflow-auto`}>
                 <div className="text-white/42">
                   {hasMetadata
                     ? t('viewer.promptEmpty', '未记录提示词')
