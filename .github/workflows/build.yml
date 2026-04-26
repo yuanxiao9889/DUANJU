@@ -199,6 +199,11 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Normalize product name for CI bundle
+        shell: bash
+        run: |
+          node -e "const fs=require('fs');const p='src-tauri/tauri.conf.json';const j=JSON.parse(fs.readFileSync(p,'utf8'));j.productName='Storyboard-Copilot';fs.writeFileSync(p, JSON.stringify(j, null, 2));"
+
       - name: Resolve macOS packaging mode
         id: mac-mode
         shell: bash
@@ -301,6 +306,11 @@ jobs:
 
       - name: Install dependencies
         run: npm ci
+
+      - name: Normalize product name for CI bundle
+        shell: pwsh
+        run: |
+          node -e "const fs=require('fs');const p='src-tauri/tauri.conf.json';const j=JSON.parse(fs.readFileSync(p,'utf8'));j.productName='Storyboard-Copilot';fs.writeFileSync(p, JSON.stringify(j, null, 2));"
 
       - name: Build and publish Windows artifacts
         uses: tauri-apps/tauri-action@v0.6.2
