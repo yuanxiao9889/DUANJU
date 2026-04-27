@@ -13,6 +13,7 @@ import {
   Handle,
   Position,
   useUpdateNodeInternals,
+  useViewport,
   type NodeProps,
 } from "@xyflow/react";
 import {
@@ -90,10 +91,13 @@ import {
 import {
   DEFAULT_PICKER_ANCHOR,
   type PickerAnchor,
+  readTextareaScroll,
   readTextareaSelection,
+  resolveFloatingPreviewPosition,
   resolveTextSelection,
   resolveTextareaPickerAnchor,
   restoreTextareaSelection,
+  type TextareaScrollSnapshot,
   type TextSelectionRange,
 } from "@/features/canvas/application/textareaSelection";
 import { submitSeedanceVideoTask } from "@/features/seedance/application/seedanceVideoSubmission";
@@ -704,6 +708,7 @@ function ReferenceAudioChip({ item }: { item: ReferenceAudioItem }) {
 export const SeedanceNode = memo(
   ({ id, data, selected, width }: SeedanceNodeProps) => {
     const { t, i18n } = useTranslation();
+    const { zoom } = useViewport();
     const updateNodeInternals = useUpdateNodeInternals();
     const currentNode = useCanvasNodeById(id);
     const connectedVisuals = useCanvasConnectedReferenceVisuals(id);
@@ -1043,13 +1048,17 @@ export const SeedanceNode = memo(
     }, [showImagePicker]);
 
     const schedulePromptSelectionRestore = useCallback(
-      (selection: TextSelectionRange | number) => {
+      (
+        selection: TextSelectionRange | number,
+        scrollSnapshot?: TextareaScrollSnapshot | null,
+      ) => {
         requestAnimationFrame(() => {
           restoreTextareaSelection(
             promptRef.current,
             selection,
             promptValueRef.current.length,
             {
+              scrollSnapshot,
               syncScroll: syncPromptHighlightScroll,
               onAfterRestore: (textarea, nextSelection) => {
                 lastPromptSelectionRef.current = nextSelection;
@@ -1069,6 +1078,7 @@ export const SeedanceNode = memo(
           return;
         }
 
+        const scrollSnapshot = readTextareaScroll(promptRef.current);
         const selection = resolveTextSelection({
           textarea: promptRef.current,
           lastSelection: pickerSelectionRef.current ?? lastPromptSelectionRef.current,
@@ -1086,7 +1096,7 @@ export const SeedanceNode = memo(
         pickerSelectionRef.current = null;
         setPickerActiveIndex(0);
 
-        schedulePromptSelectionRestore(nextCursor);
+        schedulePromptSelectionRestore(nextCursor, scrollSnapshot);
       },
       [handlePromptChange, referencePickerItems, schedulePromptSelectionRestore],
     );
@@ -1243,20 +1253,16 @@ export const SeedanceNode = memo(
           return;
         }
 
-        const previewHostRect = previewHost.getBoundingClientRect();
         const previewMaxWidth = 144;
         const previewMaxHeight = 132;
-        const horizontalPadding = 12;
-        const horizontalGap = 8;
-        const verticalGap = 8;
-        const maxLeft = Math.max(
-          horizontalPadding,
-          previewHostRect.width - previewMaxWidth - horizontalPadding,
-        );
-        const maxTop = Math.max(
-          horizontalPadding,
-          previewHostRect.height - previewMaxHeight - horizontalPadding,
-        );
+        const previewPosition = resolveFloatingPreviewPosition({
+          container: previewHost,
+          clientX: event.clientX,
+          clientY: event.clientY,
+          previewWidth: previewMaxWidth,
+          previewHeight: previewMaxHeight,
+          zoom,
+        });
 
         setPromptReferencePreview({
           imageUrl: item.previewImageUrl,
@@ -1264,20 +1270,11 @@ export const SeedanceNode = memo(
           alt: item.label,
           kind: item.kind,
           durationSeconds: item.durationSeconds,
-          left: Math.max(
-            horizontalPadding,
-            Math.min(
-              event.clientX - previewHostRect.left + horizontalGap,
-              maxLeft,
-            ),
-          ),
-          top: Math.max(
-            horizontalPadding,
-            Math.min(event.clientY - previewHostRect.top + verticalGap, maxTop),
-          ),
+          left: previewPosition.left,
+          top: previewPosition.top,
         });
       },
-      [referenceVisualItems],
+      [referenceVisualItems, zoom],
     );
 
     const handlePromptReferenceTokenMouseDown = useCallback(

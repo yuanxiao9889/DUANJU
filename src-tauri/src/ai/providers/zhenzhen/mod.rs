@@ -270,6 +270,10 @@ impl ZhenzhenProvider {
         rounded as u32
     }
 
+    fn is_near_ratio(actual: f32, target: f32) -> bool {
+        (actual - target).abs() < 0.12
+    }
+
     fn clamp_gpt_image_2_dimensions(
         width: f32,
         height: f32,
@@ -321,6 +325,31 @@ impl ZhenzhenProvider {
         let ratio = Self::parse_aspect_ratio(aspect_ratio).unwrap_or(1.0);
         if !(1.0 / 3.0..=3.0).contains(&ratio) {
             return None;
+        }
+
+        // Bias common orientations to the documented "popular sizes" first.
+        if Self::is_near_ratio(ratio, 1.0) {
+            match normalized_size.as_str() {
+                "1k" => return Some("1024x1024".to_string()),
+                "2k" => return Some("2048x2048".to_string()),
+                _ => {}
+            }
+        }
+        if Self::is_near_ratio(ratio, 16.0 / 9.0) {
+            match normalized_size.as_str() {
+                "1k" => return Some("1536x1024".to_string()),
+                "2k" => return Some("2048x1152".to_string()),
+                "4k" => return Some("3840x2160".to_string()),
+                _ => {}
+            }
+        }
+        if Self::is_near_ratio(ratio, 9.0 / 16.0) {
+            match normalized_size.as_str() {
+                "1k" => return Some("1024x1536".to_string()),
+                "2k" => return Some("1152x2048".to_string()),
+                "4k" => return Some("2160x3840".to_string()),
+                _ => {}
+            }
         }
 
         let resolved = match normalized_size.as_str() {

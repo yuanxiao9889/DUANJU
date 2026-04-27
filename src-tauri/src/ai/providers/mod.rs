@@ -9,6 +9,7 @@ pub mod bltcy;
 pub mod coding;
 pub mod comfly;
 pub mod compatible;
+pub mod deepseek;
 pub mod fal;
 pub mod grsai;
 pub mod kie;
@@ -26,6 +27,7 @@ pub use bltcy::BltcyProvider;
 pub use coding::CodingProvider;
 pub use comfly::ComflyProvider;
 pub use compatible::CompatibleProvider;
+pub use deepseek::DeepSeekProvider;
 pub use fal::FalProvider;
 pub use grsai::GrsaiProvider;
 pub use kie::KieProvider;
@@ -48,6 +50,7 @@ pub fn build_default_providers() -> Vec<Arc<dyn AIProvider>> {
         Arc::new(BltcyProvider::new()),
         Arc::new(CompatibleProvider::new()),
         Arc::new(CodingProvider::new()),
+        Arc::new(DeepSeekProvider::new()),
         Arc::new(NewApiProvider::new()),
         Arc::new(OopiiProvider::new()),
         Arc::new(ZhenzhenProvider::new()),

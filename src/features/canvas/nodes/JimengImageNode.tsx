@@ -13,6 +13,7 @@ import {
   Handle,
   Position,
   useUpdateNodeInternals,
+  useViewport,
   type NodeProps,
 } from "@xyflow/react";
 import {
@@ -68,10 +69,13 @@ import {
 import {
   DEFAULT_PICKER_ANCHOR,
   type PickerAnchor,
+  readTextareaScroll,
   readTextareaSelection,
+  resolveFloatingPreviewPosition,
   resolveTextSelection,
   resolveTextareaPickerAnchor,
   restoreTextareaSelection,
+  type TextareaScrollSnapshot,
   type TextSelectionRange,
 } from "@/features/canvas/application/textareaSelection";
 import {
@@ -336,6 +340,7 @@ function FixedControlChip<T extends string>({
 export const JimengImageNode = memo(
   ({ id, data, selected, width, height }: JimengImageNodeProps) => {
     const { t, i18n } = useTranslation();
+    const { zoom } = useViewport();
     const updateNodeInternals = useUpdateNodeInternals();
     const rootRef = useRef<HTMLDivElement>(null);
     const promptPanelRef = useRef<HTMLDivElement>(null);
@@ -645,13 +650,17 @@ export const JimengImageNode = memo(
     }, []);
 
     const schedulePromptSelectionRestore = useCallback(
-      (selection: TextSelectionRange | number) => {
+      (
+        selection: TextSelectionRange | number,
+        scrollSnapshot?: TextareaScrollSnapshot | null,
+      ) => {
         requestAnimationFrame(() => {
           restoreTextareaSelection(
             promptRef.current,
             selection,
             promptValueRef.current.length,
             {
+              scrollSnapshot,
               syncScroll: syncPromptHighlightScroll,
               onAfterRestore: (textarea, nextSelection) => {
                 lastPromptSelectionRef.current = nextSelection;
@@ -668,6 +677,7 @@ export const JimengImageNode = memo(
       (imageIndex: number) => {
         const marker = buildShortReferenceToken(imageIndex);
         const currentPrompt = promptValueRef.current;
+        const scrollSnapshot = readTextareaScroll(promptRef.current);
         const selection = resolveTextSelection({
           textarea: promptRef.current,
           lastSelection: pickerSelectionRef.current ?? lastPromptSelectionRef.current,
@@ -685,7 +695,7 @@ export const JimengImageNode = memo(
         setShowImagePicker(false);
         pickerSelectionRef.current = null;
         setPickerActiveIndex(0);
-        schedulePromptSelectionRestore(nextCursor);
+        schedulePromptSelectionRestore(nextCursor, scrollSnapshot);
       },
       [handlePromptChange, schedulePromptSelectionRestore],
     );
@@ -1049,33 +1059,26 @@ export const JimengImageNode = memo(
           return;
         }
 
-        const previewHostRect = previewHost.getBoundingClientRect();
         const previewMaxWidth = 144;
         const previewMaxHeight = 132;
-        const horizontalPadding = 12;
-        const horizontalGap = 8;
-        const verticalGap = 8;
-        const maxLeft = Math.max(
-          horizontalPadding,
-          previewHostRect.width - previewMaxWidth - horizontalPadding,
-        );
-        const preferredLeft =
-          event.clientX - previewHostRect.left + horizontalGap;
-        const preferredTop = event.clientY - previewHostRect.top + verticalGap;
-        const maxTop = Math.max(
-          horizontalPadding,
-          previewHostRect.height - previewMaxHeight - horizontalPadding,
-        );
+        const previewPosition = resolveFloatingPreviewPosition({
+          container: previewHost,
+          clientX: event.clientX,
+          clientY: event.clientY,
+          previewWidth: previewMaxWidth,
+          previewHeight: previewMaxHeight,
+          zoom,
+        });
 
         setPromptReferencePreview({
           imageUrl: item.imageUrl,
           displayUrl: item.displayUrl,
           alt: item.label,
-          left: Math.max(horizontalPadding, Math.min(preferredLeft, maxLeft)),
-          top: Math.max(horizontalPadding, Math.min(preferredTop, maxTop)),
+          left: previewPosition.left,
+          top: previewPosition.top,
         });
       },
-      [incomingImageItems],
+      [incomingImageItems, zoom],
     );
 
     const handlePromptReferenceTokenMouseDown = useCallback(

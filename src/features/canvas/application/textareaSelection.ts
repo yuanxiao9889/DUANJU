@@ -3,6 +3,11 @@ export interface TextSelectionRange {
   end: number;
 }
 
+export interface TextareaScrollSnapshot {
+  scrollTop: number;
+  scrollLeft: number;
+}
+
 export interface PickerAnchor {
   left: number;
   top: number;
@@ -16,6 +21,7 @@ export interface ResolveTextSelectionOptions {
 }
 
 export interface RestoreTextareaSelectionOptions {
+  scrollSnapshot?: TextareaScrollSnapshot | null;
   syncScroll?: () => void;
   onAfterRestore?: (
     textarea: HTMLTextAreaElement,
@@ -29,6 +35,19 @@ export interface ResolveTextareaPickerAnchorOptions {
   caretIndex: number;
   zoom?: number;
   yOffset?: number;
+  fallbackAnchor?: PickerAnchor;
+}
+
+export interface ResolveFloatingPreviewPositionOptions {
+  container: HTMLElement | null;
+  clientX: number;
+  clientY: number;
+  previewWidth: number;
+  previewHeight: number;
+  zoom?: number;
+  horizontalPadding?: number;
+  horizontalGap?: number;
+  verticalGap?: number;
   fallbackAnchor?: PickerAnchor;
 }
 
@@ -84,6 +103,39 @@ export function readTextareaSelection(
   };
 }
 
+function normalizeTextareaScrollSnapshot(
+  snapshot: TextareaScrollSnapshot | null | undefined
+): TextareaScrollSnapshot | null {
+  if (!snapshot) {
+    return null;
+  }
+
+  const scrollTop = Number.isFinite(snapshot.scrollTop)
+    ? Math.max(0, snapshot.scrollTop)
+    : 0;
+  const scrollLeft = Number.isFinite(snapshot.scrollLeft)
+    ? Math.max(0, snapshot.scrollLeft)
+    : 0;
+
+  return {
+    scrollTop,
+    scrollLeft,
+  };
+}
+
+export function readTextareaScroll(
+  textarea: HTMLTextAreaElement | null | undefined
+): TextareaScrollSnapshot | null {
+  if (!textarea) {
+    return null;
+  }
+
+  return normalizeTextareaScrollSnapshot({
+    scrollTop: textarea.scrollTop,
+    scrollLeft: textarea.scrollLeft,
+  });
+}
+
 export function resolveTextSelection(
   options: ResolveTextSelectionOptions
 ): TextSelectionRange {
@@ -117,9 +169,14 @@ export function restoreTextareaSelection(
       ? createCollapsedTextSelection(selection, fallbackLength)
       : normalizeTextSelectionRange(selection, fallbackLength)
         ?? createCollapsedTextSelection(fallbackLength, fallbackLength);
+  const normalizedScrollSnapshot = normalizeTextareaScrollSnapshot(options.scrollSnapshot);
 
   textarea.focus();
   textarea.setSelectionRange(normalizedSelection.start, normalizedSelection.end);
+  if (normalizedScrollSnapshot) {
+    textarea.scrollTop = normalizedScrollSnapshot.scrollTop;
+    textarea.scrollLeft = normalizedScrollSnapshot.scrollLeft;
+  }
   options.syncScroll?.();
   options.onAfterRestore?.(textarea, normalizedSelection);
 
@@ -197,5 +254,40 @@ export function resolveTextareaPickerAnchor(
       0,
       (textareaRect.top - containerRect.top) / safeZoom + caretOffset.top + yOffset
     ),
+  };
+}
+
+export function resolveFloatingPreviewPosition(
+  options: ResolveFloatingPreviewPositionOptions
+): PickerAnchor {
+  const {
+    container,
+    clientX,
+    clientY,
+    previewWidth,
+    previewHeight,
+    zoom = 1,
+    horizontalPadding = 12,
+    horizontalGap = 8,
+    verticalGap = 8,
+    fallbackAnchor = DEFAULT_PICKER_ANCHOR,
+  } = options;
+
+  if (!container) {
+    return fallbackAnchor;
+  }
+
+  const containerRect = container.getBoundingClientRect();
+  const safeZoom = Number.isFinite(zoom) && zoom > 0 ? zoom : 1;
+  const localWidth = containerRect.width / safeZoom;
+  const localHeight = containerRect.height / safeZoom;
+  const preferredLeft = (clientX - containerRect.left) / safeZoom + horizontalGap;
+  const preferredTop = (clientY - containerRect.top) / safeZoom + verticalGap;
+  const maxLeft = Math.max(horizontalPadding, localWidth - previewWidth - horizontalPadding);
+  const maxTop = Math.max(horizontalPadding, localHeight - previewHeight - horizontalPadding);
+
+  return {
+    left: Math.max(horizontalPadding, Math.min(preferredLeft, maxLeft)),
+    top: Math.max(horizontalPadding, Math.min(preferredTop, maxTop)),
   };
 }

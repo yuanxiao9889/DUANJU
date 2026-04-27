@@ -1,6 +1,7 @@
 export * from './types';
 export * from './registry';
 export * from './scriptCompatible';
+export * from './scriptDeepseek';
 export * from './scriptOopii';
 export * from './scriptProviders';
 export * from './storyboardProviders';

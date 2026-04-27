@@ -26,7 +26,8 @@ export const imageModel: ImageModelDefinition = {
   mediaType: 'image',
   displayName: 'gpt-image-2',
   providerId: 'bltcy',
-  description: 'Plato AI gpt-image-2 using OpenAI-style generations/edits size-based requests.',
+  description:
+    'Plato AI gpt-image-2 using OpenAI-style generations/edits size-based requests. 2K/4K remain experimental, and common 1:1, 16:9, and 9:16 sizes now prefer the documented presets first.',
   eta: '30s',
   expectedDurationMs: 30000,
   defaultAspectRatio: '1:1',

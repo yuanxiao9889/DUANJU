@@ -39,6 +39,16 @@ export interface ExtraParamDefinition {
   step?: number;
 }
 
+export type ExtraParamValue = boolean | number | string;
+
+export function isExtraParamValue(value: unknown): value is ExtraParamValue {
+  return (
+    typeof value === 'boolean'
+    || typeof value === 'number'
+    || typeof value === 'string'
+  );
+}
+
 export interface ImageModelDefinition {
   id: string;
   mediaType: 'image';
@@ -59,4 +69,31 @@ export interface ImageModelDefinition {
     requestModel: string;
     modeLabel: string;
   };
+}
+
+export function resolveImageModelExtraParams(
+  model: Pick<ImageModelDefinition, 'extraParamsSchema'>,
+  ...sources: Array<Record<string, unknown> | null | undefined>
+): Record<string, ExtraParamValue> {
+  const allowedKeys = new Set((model.extraParamsSchema ?? []).map((definition) => definition.key));
+  if (allowedKeys.size === 0) {
+    return {};
+  }
+
+  const resolved: Record<string, ExtraParamValue> = {};
+  sources.forEach((source) => {
+    if (!source) {
+      return;
+    }
+
+    Object.entries(source).forEach(([key, value]) => {
+      if (!allowedKeys.has(key) || !isExtraParamValue(value)) {
+        return;
+      }
+
+      resolved[key] = value;
+    });
+  });
+
+  return resolved;
 }

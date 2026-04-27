@@ -1,10 +1,12 @@
 import { invoke, isTauri } from '@tauri-apps/api/core';
 import {
   isScriptCompatibleProviderConfigured,
+  SCRIPT_DEEPSEEK_PROVIDER_ID,
   SCRIPT_OOPII_PROVIDER_ID,
   resolveActivatedScriptProvider,
   resolveConfiguredScriptModel,
   SCRIPT_COMPATIBLE_PROVIDER_ID,
+  toScriptDeepseekExtraParamsPayload,
   toScriptOopiiExtraParamsPayload,
   toScriptCompatibleExtraParamsPayload,
 } from '@/features/canvas/models';
@@ -316,6 +318,10 @@ function resolveTextGenerationExtraParams(
 
   if (provider === SCRIPT_OOPII_PROVIDER_ID) {
     return toScriptOopiiExtraParamsPayload(model, model) as unknown as Record<string, unknown>;
+  }
+
+  if (provider === SCRIPT_DEEPSEEK_PROVIDER_ID) {
+    return toScriptDeepseekExtraParamsPayload(model, model) as unknown as Record<string, unknown>;
   }
 
   if (provider !== SCRIPT_COMPATIBLE_PROVIDER_ID) {
@@ -1885,6 +1891,23 @@ export interface TestConnectionResponse {
   message: string;
 }
 
+function resolveTestConnectionExtraParams(
+  request: TestConnectionRequest
+): Record<string, unknown> | undefined {
+  if (request.extraParams && Object.keys(request.extraParams).length > 0) {
+    return request.extraParams;
+  }
+
+  if (request.provider === SCRIPT_DEEPSEEK_PROVIDER_ID) {
+    return toScriptDeepseekExtraParamsPayload(
+      request.model,
+      request.model
+    ) as unknown as Record<string, unknown>;
+  }
+
+  return undefined;
+}
+
 export interface ActiveTextModelStatus {
   active: boolean;
   provider?: string;
@@ -1912,7 +1935,7 @@ export async function testProviderConnection(
         provider: request.provider,
         api_key: request.apiKey,
         model: request.model,
-        extra_params: request.extraParams,
+        extra_params: resolveTestConnectionExtraParams(request),
       },
     });
 

@@ -18,9 +18,11 @@ import {
   type CustomScriptModelEntry,
   type CustomStoryboardModelEntry,
   DEFAULT_BLTCY_TEXT_MODEL,
+  DEFAULT_DEEPSEEK_TEXT_MODEL,
   DEFAULT_OOPII_TEXT_MODEL,
   DEFAULT_IMAGE_MODEL_ID,
   getImageModel,
+  isExtraParamValue,
   normalizeScriptCompatibleProviderConfig,
   normalizeScriptModelOverrides,
   normalizeScriptProviderCustomModels,
@@ -31,6 +33,7 @@ import {
   normalizeStoryboardApi2OkModelConfig,
   normalizeStoryboardNewApiModelConfig,
   normalizeStoryboardProviderCustomModels,
+  type ExtraParamValue,
   type ScriptCompatibleProviderConfig,
   type StoryboardApi2OkModelConfig,
   type StoryboardCompatibleModelConfig,
@@ -137,6 +140,7 @@ interface SettingsState {
   lastImageEditModelId: string;
   lastImageEditSize: ImageSize;
   lastImageEditRequestAspectRatio: string;
+  lastImageGenerationExtraParams: Record<string, ExtraParamValue>;
   lastJimengImageModelVersion: JimengImageModelVersion;
   lastJimengImageResolutionType: JimengImageResolutionType;
   lastJimengImageAspectRatio: JimengAspectRatio;
@@ -220,6 +224,9 @@ interface SettingsState {
     size?: ImageSize | string;
     requestAspectRatio?: string;
   }) => void;
+  setLastImageGenerationExtraParams: (
+    extraParams: Record<string, ExtraParamValue>
+  ) => void;
   setLastJimengImageDefaults: (defaults: {
     modelVersion?: JimengImageModelVersion | string;
     resolutionType?: JimengImageResolutionType | string;
@@ -478,6 +485,26 @@ function normalizeImageEditRequestAspectRatio(input: string | null | undefined):
   return trimmed.length > 0 ? trimmed : AUTO_REQUEST_ASPECT_RATIO;
 }
 
+function normalizeImageGenerationExtraParams(
+  input: unknown
+): Record<string, ExtraParamValue> {
+  if (!input || typeof input !== 'object') {
+    return {};
+  }
+
+  return Object.entries(input as Record<string, unknown>).reduce<Record<string, ExtraParamValue>>(
+    (accumulator, [key, value]) => {
+      if (!isExtraParamValue(value)) {
+        return accumulator;
+      }
+
+      accumulator[key] = value;
+      return accumulator;
+    },
+    {}
+  );
+}
+
 function normalizeJimengImageModelVersion(
   input: JimengImageModelVersion | string | null | undefined
 ): JimengImageModelVersion {
@@ -575,6 +602,7 @@ export const useSettingsStore = create<SettingsState>()(
       scriptModelOverrides: {
         alibaba: DEFAULT_ALIBABA_TEXT_MODEL,
         coding: DEFAULT_CODING_MODEL,
+        deepseek: DEFAULT_DEEPSEEK_TEXT_MODEL,
         bltcy: DEFAULT_BLTCY_TEXT_MODEL,
         oopii: DEFAULT_OOPII_TEXT_MODEL,
       },
@@ -588,6 +616,7 @@ export const useSettingsStore = create<SettingsState>()(
       lastImageEditModelId: DEFAULT_IMAGE_MODEL_ID,
       lastImageEditSize: '2K',
       lastImageEditRequestAspectRatio: AUTO_REQUEST_ASPECT_RATIO,
+      lastImageGenerationExtraParams: {},
       lastJimengImageModelVersion: '5.0',
       lastJimengImageResolutionType: '2k',
       lastJimengImageAspectRatio: '1:1',
@@ -746,6 +775,13 @@ export const useSettingsStore = create<SettingsState>()(
           lastImageEditRequestAspectRatio: normalizeImageEditRequestAspectRatio(
             requestAspectRatio ?? state.lastImageEditRequestAspectRatio
           ),
+        })),
+      setLastImageGenerationExtraParams: (extraParams) =>
+        set((state) => ({
+          lastImageGenerationExtraParams: normalizeImageGenerationExtraParams({
+            ...state.lastImageGenerationExtraParams,
+            ...extraParams,
+          }),
         })),
       setLastJimengImageDefaults: ({ modelVersion, resolutionType, aspectRatio }) =>
         set((state) => {
@@ -1478,7 +1514,7 @@ export const useSettingsStore = create<SettingsState>()(
     }),
     {
       name: 'settings-storage',
-      version: 38,
+      version: 39,
       onRehydrateStorage: () => {
         return (state, error) => {
           if (error) {
@@ -1514,6 +1550,7 @@ export const useSettingsStore = create<SettingsState>()(
           lastImageEditModelId?: string;
           lastImageEditSize?: ImageSize | string;
           lastImageEditRequestAspectRatio?: string;
+          lastImageGenerationExtraParams?: unknown;
           lastJimengImageModelVersion?: JimengImageModelVersion | string;
           lastJimengImageResolutionType?: JimengImageResolutionType | string;
           lastJimengImageAspectRatio?: JimengAspectRatio | string;
@@ -1626,6 +1663,7 @@ export const useSettingsStore = create<SettingsState>()(
           {
             alibaba: state.alibabaTextModel,
             coding: state.codingModel,
+            deepseek: DEFAULT_DEEPSEEK_TEXT_MODEL,
             bltcy: DEFAULT_BLTCY_TEXT_MODEL,
             oopii: DEFAULT_OOPII_TEXT_MODEL,
           }
@@ -1687,6 +1725,9 @@ export const useSettingsStore = create<SettingsState>()(
           lastImageEditSize: normalizeImageEditSize(state.lastImageEditSize),
           lastImageEditRequestAspectRatio: normalizeImageEditRequestAspectRatio(
             state.lastImageEditRequestAspectRatio
+          ),
+          lastImageGenerationExtraParams: normalizeImageGenerationExtraParams(
+            state.lastImageGenerationExtraParams
           ),
           lastJimengImageModelVersion: normalizeJimengImageModelVersion(
             state.lastJimengImageModelVersion

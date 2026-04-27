@@ -10,7 +10,7 @@ import {
   useEffect,
   useRef,
 } from 'react';
-import { Handle, Position, useUpdateNodeInternals, type NodeProps } from '@xyflow/react';
+import { Handle, Position, useUpdateNodeInternals, useViewport, type NodeProps } from '@xyflow/react';
 import { AlertTriangle, Loader2, Sparkles, Undo2, Wand2 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 
@@ -74,10 +74,13 @@ import {
 import {
   DEFAULT_PICKER_ANCHOR,
   type PickerAnchor,
+  readTextareaScroll,
   readTextareaSelection,
+  resolveFloatingPreviewPosition,
   resolveTextSelection,
   resolveTextareaPickerAnchor,
   restoreTextareaSelection,
+  type TextareaScrollSnapshot,
   type TextSelectionRange,
 } from '@/features/canvas/application/textareaSelection';
 import {
@@ -88,6 +91,7 @@ import {
   isStoryboardNewApiModelId,
   isStoryboardOopiiModelId,
   listImageModels,
+  resolveImageModelExtraParams,
   resolveStoryboardApi2OkModelConfigForModel,
   resolveImageModelResolution,
   resolveImageModelResolutions,
@@ -308,6 +312,7 @@ function buildAiResultNodeTitle(prompt: string, fallbackTitle: string): string {
 
 export const ImageEditNode = memo(({ id, data, selected, width, height }: ImageEditNodeProps) => {
   const { t, i18n } = useTranslation();
+  const { zoom } = useViewport();
   const updateNodeInternals = useUpdateNodeInternals();
   const [error, setError] = useState<string | null>(null);
   const [isOptimizingPrompt, setIsOptimizingPrompt] = useState(false);
@@ -356,6 +361,12 @@ export const ImageEditNode = memo(({ id, data, selected, width, height }: ImageE
     (state) => state.storyboardProviderCustomModels
   );
   const setLastImageEditDefaults = useSettingsStore((state) => state.setLastImageEditDefaults);
+  const lastImageGenerationExtraParams = useSettingsStore(
+    (state) => state.lastImageGenerationExtraParams
+  );
+  const setLastImageGenerationExtraParams = useSettingsStore(
+    (state) => state.setLastImageGenerationExtraParams
+  );
   const showNodePrice = useSettingsStore((state) => state.showNodePrice);
   const priceDisplayCurrencyMode = useSettingsStore((state) => state.priceDisplayCurrencyMode);
   const usdToCnyRate = useSettingsStore((state) => state.usdToCnyRate);
@@ -441,14 +452,24 @@ export const ImageEditNode = memo(({ id, data, selected, width, height }: ImageE
       storyboardProviderCustomModels,
     ]
   );
+  const resolvedModelExtraParams = useMemo(
+    () =>
+      resolveImageModelExtraParams(
+        selectedModel,
+        selectedModel.defaultExtraParams,
+        lastImageGenerationExtraParams,
+        data.extraParams
+      ),
+    [data.extraParams, lastImageGenerationExtraParams, selectedModel]
+  );
   const requestedOopiiResolution = useMemo(
     () =>
       isStoryboardOopiiModelId(selectedModel.id)
         ? resolveImageModelResolution(selectedModel, data.size, {
-          extraParams: data.extraParams,
+          extraParams: resolvedModelExtraParams,
         }).value
         : null,
-    [data.extraParams, data.size, selectedModel]
+    [data.size, resolvedModelExtraParams, selectedModel]
   );
   const resolvedOopiiModelConfig = useMemo(
     () =>
@@ -458,13 +479,13 @@ export const ImageEditNode = memo(({ id, data, selected, width, height }: ImageE
           storyboardProviderCustomModels,
           {
             resolution: requestedOopiiResolution,
-            extraParams: data.extraParams,
+            extraParams: resolvedModelExtraParams,
           }
         )
         : resolveStoryboardOopiiModelConfigForModel(null, storyboardProviderCustomModels),
     [
-      data.extraParams,
       requestedOopiiResolution,
+      resolvedModelExtraParams,
       selectedModel.id,
       storyboardProviderCustomModels,
     ]
@@ -509,7 +530,7 @@ export const ImageEditNode = memo(({ id, data, selected, width, height }: ImageE
   const providerApiKey = storyboardApiKeys[selectedModel.providerId] ?? '';
   const effectiveExtraParams = useMemo(
     () => ({
-      ...(data.extraParams ?? {}),
+      ...resolvedModelExtraParams,
       ...(selectedModel.id === GRSAI_NANO_BANANA_PRO_MODEL_ID
         ? { grsai_pro_model: hrsaiNanoBananaProModel }
         : {}),
@@ -540,8 +561,8 @@ export const ImageEditNode = memo(({ id, data, selected, width, height }: ImageE
         : {}),
     }),
     [
-      data.extraParams,
       hrsaiNanoBananaProModel,
+      resolvedModelExtraParams,
       resolvedOopiiModelConfig,
       resolvedApi2OkModelConfig,
       resolvedCompatibleModelConfig,
@@ -858,13 +879,17 @@ export const ImageEditNode = memo(({ id, data, selected, width, height }: ImageE
     }
   }, []);
 
-  const schedulePromptSelectionRestore = useCallback((selection: TextSelectionRange | number) => {
+  const schedulePromptSelectionRestore = useCallback((
+    selection: TextSelectionRange | number,
+    scrollSnapshot?: TextareaScrollSnapshot | null
+  ) => {
     requestAnimationFrame(() => {
       restoreTextareaSelection(
         promptRef.current,
         selection,
         promptDraftRef.current.length,
         {
+          scrollSnapshot,
           syncScroll: syncPromptHighlightScroll,
           onAfterRestore: (textarea, nextSelection) => {
             lastPromptSelectionRef.current = nextSelection;
@@ -1157,6 +1182,7 @@ export const ImageEditNode = memo(({ id, data, selected, width, height }: ImageE
   const insertImageReference = useCallback((imageIndex: number) => {
     const marker = buildShortReferenceToken(imageIndex);
     const currentPrompt = promptDraftRef.current;
+    const scrollSnapshot = readTextareaScroll(promptRef.current);
     const selection = resolveTextSelection({
       textarea: promptRef.current,
       lastSelection: pickerSelectionRef.current ?? lastPromptSelectionRef.current,
@@ -1170,7 +1196,7 @@ export const ImageEditNode = memo(({ id, data, selected, width, height }: ImageE
     setShowImagePicker(false);
     pickerSelectionRef.current = null;
     setPickerActiveIndex(0);
-    schedulePromptSelectionRestore(nextCursor);
+    schedulePromptSelectionRestore(nextCursor, scrollSnapshot);
   }, [commitManualPromptDraft, schedulePromptSelectionRestore]);
 
   const handlePromptKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
@@ -1362,31 +1388,25 @@ export const ImageEditNode = memo(({ id, data, selected, width, height }: ImageE
       return;
     }
 
-    const previewHostRect = previewHost.getBoundingClientRect();
     const previewMaxWidth = 144;
     const previewMaxHeight = 132;
-    const horizontalPadding = 12;
-    const horizontalGap = 8;
-    const verticalGap = 8;
-    const maxLeft = Math.max(
-      horizontalPadding,
-      previewHostRect.width - previewMaxWidth - horizontalPadding
-    );
-    const preferredLeft = event.clientX - previewHostRect.left + horizontalGap;
-    const preferredTop = event.clientY - previewHostRect.top + verticalGap;
-    const maxTop = Math.max(
-      horizontalPadding,
-      previewHostRect.height - previewMaxHeight - horizontalPadding
-    );
+    const previewPosition = resolveFloatingPreviewPosition({
+      container: previewHost,
+      clientX: event.clientX,
+      clientY: event.clientY,
+      previewWidth: previewMaxWidth,
+      previewHeight: previewMaxHeight,
+      zoom,
+    });
 
     setPromptReferencePreview({
       imageUrl: item.referenceUrl,
       displayUrl: item.displayUrl,
       alt: item.label,
-      left: Math.max(horizontalPadding, Math.min(preferredLeft, maxLeft)),
-      top: Math.max(horizontalPadding, Math.min(preferredTop, maxTop)),
+      left: previewPosition.left,
+      top: previewPosition.top,
     });
-  }, [incomingImageItems]);
+  }, [incomingImageItems, zoom]);
 
   const handlePromptReferenceTokenMouseDown = useCallback((
     tokenEnd: number,
@@ -1570,15 +1590,16 @@ export const ImageEditNode = memo(({ id, data, selected, width, height }: ImageE
                 });
               }
               }
-              extraParams={data.extraParams}
-              onExtraParamChange={(key, value) =>
+              extraParams={resolvedModelExtraParams}
+              onExtraParamChange={(key, value) => {
                 updateNodeData(id, {
                   extraParams: {
                     ...(data.extraParams ?? {}),
                     [key]: value,
                   },
-                })
-              }
+                });
+                setLastImageGenerationExtraParams({ [key]: value });
+              }}
               onStyleTemplateApply={(template) => {
                 const nextPrompt = appendStyleTemplatePrompt(
                   promptDraftRef.current,

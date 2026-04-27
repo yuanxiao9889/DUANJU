@@ -1,4 +1,5 @@
 import {
+  type FormEvent as ReactFormEvent,
   type KeyboardEvent as ReactKeyboardEvent,
   type MouseEvent as ReactMouseEvent,
   type ReactNode,
@@ -63,10 +64,13 @@ import {
 import {
   DEFAULT_PICKER_ANCHOR,
   type PickerAnchor,
+  readTextareaScroll,
   readTextareaSelection,
+  resolveFloatingPreviewPosition,
   resolveTextSelection,
   resolveTextareaPickerAnchor,
   restoreTextareaSelection,
+  type TextareaScrollSnapshot,
   type TextSelectionRange,
 } from '@/features/canvas/application/textareaSelection';
 import {
@@ -77,6 +81,7 @@ import {
   isStoryboardNewApiModelId,
   isStoryboardOopiiModelId,
   listStoryboardImageModels,
+  resolveImageModelExtraParams,
   resolveStoryboardApi2OkModelConfigForModel,
   resolveImageModelResolution,
   resolveImageModelResolutions,
@@ -123,6 +128,14 @@ interface AspectRatioChoice {
   label: string;
 }
 
+interface FrameReferencePreviewState {
+  imageUrl: string;
+  displayUrl: string;
+  alt: string;
+  left: number;
+  top: number;
+}
+
 const STORYBOARD_NODE_HORIZONTAL_PADDING_PX = 24;
 const STORYBOARD_GRID_GAP_PX = 2;
 const STORYBOARD_GRID_BASE_CELL_HEIGHT_PX = 78;
@@ -149,6 +162,7 @@ const NODE_VERTICAL_PADDING_PX = 24;
 const FRAME_CELL_MIN_WIDTH_PX = 24;
 const FRAME_CELL_MIN_HEIGHT_PX = 16;
 const GRID_LINE_THICKNESS_PERCENT = 0.4;
+const REFERENCE_PICKER_TRIGGER_CHARACTERS = new Set(['@', '\uFF20']);
 const RATIO_CONTROL_MODE_BUTTON_CLASS =
   'flex h-5 items-center rounded-full border px-1.5 text-[9px] transition-colors';
 const FRIENDLY_ASPECT_RATIO_CANDIDATES = [
@@ -233,6 +247,58 @@ function renderFrameDescriptionWithHighlights(description: string, maxImageCount
   return segments;
 }
 
+function renderFrameReferenceHoverTargets(
+  description: string,
+  maxImageCount: number,
+  onTokenHover: (tokenIndex: number, event: ReactMouseEvent<HTMLSpanElement>) => void,
+  onTokenLeave: () => void,
+  onTokenMouseDown: (tokenEnd: number, event: ReactMouseEvent<HTMLSpanElement>) => void
+): ReactNode {
+  if (!description) {
+    return ' ';
+  }
+
+  const segments: ReactNode[] = [];
+  let lastIndex = 0;
+  const referenceTokens = findReferenceTokens(description, maxImageCount);
+  for (const token of referenceTokens) {
+    const matchStart = token.start;
+
+    if (matchStart > lastIndex) {
+      segments.push(
+        <span key={`hover-plain-${lastIndex}`} className="text-transparent">
+          {description.slice(lastIndex, matchStart)}
+        </span>
+      );
+    }
+
+    segments.push(
+      <span
+        key={`hover-ref-${matchStart}`}
+        className="pointer-events-auto cursor-help select-none text-transparent"
+        onMouseEnter={(event) => onTokenHover(token.value - 1, event)}
+        onMouseMove={(event) => onTokenHover(token.value - 1, event)}
+        onMouseLeave={onTokenLeave}
+        onMouseDown={(event) => onTokenMouseDown(token.end, event)}
+      >
+        {token.token}
+      </span>
+    );
+
+    lastIndex = token.end;
+  }
+
+  if (lastIndex < description.length) {
+    segments.push(
+      <span key={`hover-plain-${lastIndex}`} className="text-transparent">
+        {description.slice(lastIndex)}
+      </span>
+    );
+  }
+
+  return segments;
+}
+
 function buildFrameDescriptionDrafts(
   frames: StoryboardGenNodeData['frames']
 ): Record<string, string> {
@@ -260,6 +326,14 @@ function areFrameDescriptionDraftsEqual(
   }
 
   return true;
+}
+
+function isReferencePickerTriggerCharacter(value: string | null | undefined): boolean {
+  if (!value) {
+    return false;
+  }
+
+  return REFERENCE_PICKER_TRIGGER_CHARACTERS.has(value);
 }
 
 type GridStepperControlProps = {
@@ -534,6 +608,12 @@ export const StoryboardGenNode = memo(({ id, data, selected, width, height }: St
   const showStoryboardGenAdvancedRatioControls = useSettingsStore(
     (state) => state.showStoryboardGenAdvancedRatioControls
   );
+  const lastImageGenerationExtraParams = useSettingsStore(
+    (state) => state.lastImageGenerationExtraParams
+  );
+  const setLastImageGenerationExtraParams = useSettingsStore(
+    (state) => state.setLastImageGenerationExtraParams
+  );
   const showNodePrice = useSettingsStore((state) => state.showNodePrice);
   const priceDisplayCurrencyMode = useSettingsStore((state) => state.priceDisplayCurrencyMode);
   const usdToCnyRate = useSettingsStore((state) => state.usdToCnyRate);
@@ -547,9 +627,15 @@ export const StoryboardGenNode = memo(({ id, data, selected, width, height }: St
   const [pickerFrameIndex, setPickerFrameIndex] = useState<number | null>(null);
   const [pickerActiveIndex, setPickerActiveIndex] = useState(0);
   const [pickerAnchor, setPickerAnchor] = useState<PickerAnchor>(DEFAULT_PICKER_ANCHOR);
+  const [activeFrameId, setActiveFrameId] = useState<string | null>(null);
+  const [composingFrameId, setComposingFrameId] = useState<string | null>(null);
+  const [frameReferencePreview, setFrameReferencePreview] =
+    useState<FrameReferencePreviewState | null>(null);
   const lastPointerAnchorRef = useRef<{ frameIndex: number; anchor: PickerAnchor } | null>(null);
+  const framePreviewHostRef = useRef<HTMLDivElement>(null);
   const frameTextareaRefs = useRef<Record<string, HTMLTextAreaElement | null>>({});
   const frameHighlightRefs = useRef<Record<string, HTMLDivElement | null>>({});
+  const frameHoverRefs = useRef<Record<string, HTMLDivElement | null>>({});
 
   const nodeData = data as StoryboardGenNodeData;
   const [frameDescriptionDrafts, setFrameDescriptionDrafts] = useState<Record<string, string>>(() =>
@@ -679,14 +765,24 @@ export const StoryboardGenNode = memo(({ id, data, selected, width, height }: St
       storyboardProviderCustomModels,
     ]
   );
+  const resolvedModelExtraParams = useMemo(
+    () =>
+      resolveImageModelExtraParams(
+        selectedModel,
+        selectedModel.defaultExtraParams,
+        lastImageGenerationExtraParams,
+        nodeData.extraParams
+      ),
+    [lastImageGenerationExtraParams, nodeData.extraParams, selectedModel]
+  );
   const requestedOopiiResolution = useMemo(
     () =>
       isStoryboardOopiiModelId(selectedModel.id)
         ? resolveImageModelResolution(selectedModel, nodeData.size, {
-          extraParams: nodeData.extraParams,
+          extraParams: resolvedModelExtraParams,
         }).value
         : null,
-    [nodeData.extraParams, nodeData.size, selectedModel]
+    [nodeData.size, resolvedModelExtraParams, selectedModel]
   );
   const resolvedOopiiModelConfig = useMemo(
     () =>
@@ -696,13 +792,13 @@ export const StoryboardGenNode = memo(({ id, data, selected, width, height }: St
           storyboardProviderCustomModels,
           {
             resolution: requestedOopiiResolution,
-            extraParams: nodeData.extraParams,
+            extraParams: resolvedModelExtraParams,
           }
         )
         : resolveStoryboardOopiiModelConfigForModel(null, storyboardProviderCustomModels),
     [
-      nodeData.extraParams,
       requestedOopiiResolution,
+      resolvedModelExtraParams,
       selectedModel.id,
       storyboardProviderCustomModels,
     ]
@@ -710,7 +806,7 @@ export const StoryboardGenNode = memo(({ id, data, selected, width, height }: St
   const providerApiKey = storyboardApiKeys[selectedModel.providerId] ?? '';
   const effectiveExtraParams = useMemo(
     () => ({
-      ...(nodeData.extraParams ?? {}),
+      ...resolvedModelExtraParams,
       ...(selectedModel.id === GRSAI_NANO_BANANA_PRO_MODEL_ID
         ? { grsai_pro_model: hrsaiNanoBananaProModel }
         : {}),
@@ -742,7 +838,7 @@ export const StoryboardGenNode = memo(({ id, data, selected, width, height }: St
     }),
     [
       hrsaiNanoBananaProModel,
-      nodeData.extraParams,
+      resolvedModelExtraParams,
       resolvedApi2OkModelConfig,
       resolvedCompatibleModelConfig,
       resolvedNewApiModelConfig,
@@ -1025,6 +1121,13 @@ export const StoryboardGenNode = memo(({ id, data, selected, width, height }: St
         delete frameSelectionRangesRef.current[frameId];
       }
     });
+    Object.keys(frameHoverRefs.current).forEach((frameId) => {
+      if (!validFrameIds.has(frameId)) {
+        delete frameHoverRefs.current[frameId];
+      }
+    });
+    setActiveFrameId((current) => (current && validFrameIds.has(current) ? current : null));
+    setComposingFrameId((current) => (current && validFrameIds.has(current) ? current : null));
   }, [nodeData.frames]);
 
   useEffect(() => {
@@ -1058,11 +1161,16 @@ export const StoryboardGenNode = memo(({ id, data, selected, width, height }: St
       setShowImagePicker(false);
       setPickerFrameIndex(null);
       setPickerActiveIndex(0);
+      setFrameReferencePreview(null);
       return;
     }
 
     setPickerActiveIndex((previous) => Math.min(previous, incomingImages.length - 1));
   }, [incomingImages.length]);
+
+  useEffect(() => {
+    setFrameReferencePreview(null);
+  }, [frameDescriptionDrafts, incomingImages]);
 
   useEffect(() => {
     if (!showImagePicker) {
@@ -1082,6 +1190,7 @@ export const StoryboardGenNode = memo(({ id, data, selected, width, height }: St
 
       setShowImagePicker(false);
       setPickerFrameIndex(null);
+      setFrameReferencePreview(null);
     };
 
     document.addEventListener('pointerdown', handleOutsidePointerDown, true);
@@ -1493,7 +1602,40 @@ export const StoryboardGenNode = memo(({ id, data, selected, width, height }: St
     setShowImagePicker(false);
     setPickerFrameIndex(null);
     setPickerActiveIndex(0);
+    setFrameReferencePreview(null);
   }, []);
+
+  const hideFrameReferencePreview = useCallback(() => {
+    setFrameReferencePreview(null);
+  }, []);
+
+  const openFrameImagePicker = useCallback((
+    index: number,
+    frameId: string,
+    textarea: HTMLTextAreaElement,
+    selection: TextSelectionRange,
+    caretIndex: number = selection.start
+  ) => {
+    frameSelectionRangesRef.current[frameId] = selection;
+    setFrameReferencePreview(null);
+
+    const pointerAnchor = lastPointerAnchorRef.current;
+    if (pointerAnchor && pointerAnchor.frameIndex === index) {
+      setPickerAnchor(pointerAnchor.anchor);
+    } else {
+      setPickerAnchor(resolveTextareaPickerAnchor({
+        container: rootRef.current,
+        textarea,
+        caretIndex,
+        zoom,
+        yOffset: 0,
+      }));
+    }
+
+    setPickerFrameIndex(index);
+    setPickerActiveIndex(0);
+    setShowImagePicker(true);
+  }, [zoom]);
 
   const syncFrameHighlightScroll = useCallback((frameId: string) => {
     const textarea = frameTextareaRefs.current[frameId];
@@ -1504,6 +1646,11 @@ export const StoryboardGenNode = memo(({ id, data, selected, width, height }: St
 
     highlight.scrollTop = textarea.scrollTop;
     highlight.scrollLeft = textarea.scrollLeft;
+    const hover = frameHoverRefs.current[frameId];
+    if (hover) {
+      hover.scrollTop = textarea.scrollTop;
+      hover.scrollLeft = textarea.scrollLeft;
+    }
   }, []);
 
   const rememberFrameSelection = useCallback((frameId: string, textarea: HTMLTextAreaElement | null) => {
@@ -1511,11 +1658,13 @@ export const StoryboardGenNode = memo(({ id, data, selected, width, height }: St
       textarea,
       textarea?.value.length ?? (frameDescriptionDraftsRef.current[frameId] ?? '').length
     );
+    setFrameReferencePreview(null);
   }, []);
 
   const scheduleFrameSelectionRestore = useCallback((
     frameId: string,
-    selection: TextSelectionRange | number
+    selection: TextSelectionRange | number,
+    scrollSnapshot?: TextareaScrollSnapshot | null
   ) => {
     requestAnimationFrame(() => {
       const textarea = frameTextareaRefs.current[frameId];
@@ -1526,6 +1675,7 @@ export const StoryboardGenNode = memo(({ id, data, selected, width, height }: St
         selection,
         fallbackLength,
         {
+          scrollSnapshot,
           syncScroll: () => syncFrameHighlightScroll(frameId),
         }
       );
@@ -1550,6 +1700,7 @@ export const StoryboardGenNode = memo(({ id, data, selected, width, height }: St
 
     const marker = buildShortReferenceToken(imageIndex);
     const currentDescription = frameDescriptionDraftsRef.current[frame.id] ?? frame.description;
+    const scrollSnapshot = readTextareaScroll(frameTextareaRefs.current[frame.id]);
     const selection = resolveTextSelection({
       textarea: frameTextareaRefs.current[frame.id],
       lastSelection: frameSelectionRangesRef.current[frame.id],
@@ -1564,7 +1715,7 @@ export const StoryboardGenNode = memo(({ id, data, selected, width, height }: St
     );
     handleFrameDescriptionChange(pickerFrameIndex, nextDescription);
     closeImagePicker();
-    scheduleFrameSelectionRestore(frame.id, nextCursor);
+    scheduleFrameSelectionRestore(frame.id, nextCursor, scrollSnapshot);
   }, [closeImagePicker, handleFrameDescriptionChange, nodeData, pickerFrameIndex, scheduleFrameSelectionRestore]);
 
   const handleFrameDescriptionKeyDown = useCallback(
@@ -1618,7 +1769,7 @@ export const StoryboardGenNode = memo(({ id, data, selected, width, height }: St
         }
       }
 
-      if (event.key === '@' && incomingImages.length > 0) {
+      if (isReferencePickerTriggerCharacter(event.key) && incomingImages.length > 0) {
         if (!frame) {
           return;
         }
@@ -1631,22 +1782,7 @@ export const StoryboardGenNode = memo(({ id, data, selected, width, height }: St
             lastSelection: frameSelectionRangesRef.current[frame.id],
             fallbackLength: event.currentTarget.value.length,
           });
-        frameSelectionRangesRef.current[frame.id] = selection;
-        const pointerAnchor = lastPointerAnchorRef.current;
-        if (pointerAnchor && pointerAnchor.frameIndex === index) {
-          setPickerAnchor(pointerAnchor.anchor);
-        } else {
-          setPickerAnchor(resolveTextareaPickerAnchor({
-            container: rootRef.current,
-            textarea: event.currentTarget,
-            caretIndex: selection.start,
-            zoom,
-            yOffset: 0,
-          }));
-        }
-        setPickerFrameIndex(index);
-        setPickerActiveIndex(0);
-        setShowImagePicker(true);
+        openFrameImagePicker(index, frame.id, event.currentTarget, selection);
         return;
       }
 
@@ -1661,13 +1797,82 @@ export const StoryboardGenNode = memo(({ id, data, selected, width, height }: St
       incomingImages.length,
       insertImageReference,
       nodeData.frames,
+      openFrameImagePicker,
       pickerActiveIndex,
       pickerFrameIndex,
       scheduleFrameSelectionRestore,
       showImagePicker,
-      zoom,
     ]
   );
+
+  const handleFrameDescriptionBeforeInput = useCallback(
+    (index: number, event: ReactFormEvent<HTMLTextAreaElement>) => {
+      const frame = nodeData.frames[index];
+      if (!frame || incomingImages.length <= 0) {
+        return;
+      }
+
+      const nativeEvent = event.nativeEvent as InputEvent;
+      if (!isReferencePickerTriggerCharacter(nativeEvent.data)) {
+        return;
+      }
+
+      event.preventDefault();
+      event.stopPropagation();
+
+      const selection =
+        readTextareaSelection(event.currentTarget, event.currentTarget.value.length)
+        ?? resolveTextSelection({
+          textarea: event.currentTarget,
+          lastSelection: frameSelectionRangesRef.current[frame.id],
+          fallbackLength: event.currentTarget.value.length,
+        });
+
+      openFrameImagePicker(index, frame.id, event.currentTarget, selection);
+    },
+    [incomingImages.length, nodeData.frames, openFrameImagePicker]
+  );
+
+  const handleFrameReferenceTokenHover = useCallback((
+    tokenIndex: number,
+    event: ReactMouseEvent<HTMLSpanElement>
+  ) => {
+    const item = incomingImageItems[tokenIndex];
+    const previewHost = framePreviewHostRef.current;
+    if (!item || !previewHost) {
+      setFrameReferencePreview(null);
+      return;
+    }
+
+    const previewMaxWidth = 144;
+    const previewMaxHeight = 132;
+    const previewPosition = resolveFloatingPreviewPosition({
+      container: previewHost,
+      clientX: event.clientX,
+      clientY: event.clientY,
+      previewWidth: previewMaxWidth,
+      previewHeight: previewMaxHeight,
+      zoom,
+    });
+
+    setFrameReferencePreview({
+      imageUrl: item.imageUrl,
+      displayUrl: item.displayUrl,
+      alt: item.label,
+      left: previewPosition.left,
+      top: previewPosition.top,
+    });
+  }, [incomingImageItems, zoom]);
+
+  const handleFrameReferenceTokenMouseDown = useCallback((
+    frameId: string,
+    tokenEnd: number,
+    event: ReactMouseEvent<HTMLSpanElement>
+  ) => {
+    event.preventDefault();
+    event.stopPropagation();
+    scheduleFrameSelectionRestore(frameId, tokenEnd);
+  }, [scheduleFrameSelectionRestore]);
 
   if (!nodeData) {
     return null;
@@ -1765,7 +1970,10 @@ export const StoryboardGenNode = memo(({ id, data, selected, width, height }: St
       </div>
 
       {/* Frame Grid */}
-      <div className="mb-2 flex min-h-0 flex-1 items-center justify-center">
+      <div
+        ref={framePreviewHostRef}
+        className="relative mb-2 flex min-h-0 flex-1 items-center justify-center overflow-visible"
+      >
         <div
           className="grid gap-0.5"
           style={{
@@ -1775,6 +1983,8 @@ export const StoryboardGenNode = memo(({ id, data, selected, width, height }: St
         >
           {nodeData.frames.map((frame, index) => {
             const frameDescription = frameDescriptionDrafts[frame.id] ?? frame.description;
+            const showNativeFrameText =
+              activeFrameId === frame.id && composingFrameId === frame.id;
             return (
               <div
                 key={frame.id}
@@ -1786,11 +1996,29 @@ export const StoryboardGenNode = memo(({ id, data, selected, width, height }: St
                     frameHighlightRefs.current[frame.id] = element;
                   }}
                   aria-hidden="true"
-                  className="ui-scrollbar pointer-events-none absolute inset-0 overflow-y-auto overflow-x-hidden text-[10px] leading-4 text-text-dark"
+                  className={`ui-scrollbar pointer-events-none absolute inset-0 overflow-y-auto overflow-x-hidden text-[10px] leading-4 text-text-dark transition-opacity ${showNativeFrameText ? 'opacity-0' : 'opacity-100'}`}
                   style={{ scrollbarGutter: 'stable' }}
                 >
                   <div className="min-h-full whitespace-pre-wrap break-words px-1.5 py-1 text-left">
             {renderFrameDescriptionWithHighlights(frameDescription, incomingImages.length)}
+                  </div>
+                </div>
+                <div
+                  ref={(element) => {
+                    frameHoverRefs.current[frame.id] = element;
+                  }}
+                  aria-hidden="true"
+                  className={`ui-scrollbar pointer-events-none absolute inset-0 z-20 overflow-y-auto overflow-x-hidden text-[10px] leading-4 text-transparent transition-opacity ${showNativeFrameText ? 'opacity-0' : 'opacity-100'}`}
+                  style={{ scrollbarGutter: 'stable' }}
+                >
+                  <div className="min-h-full whitespace-pre-wrap break-words px-1.5 py-1 text-left">
+                    {renderFrameReferenceHoverTargets(
+                      frameDescription,
+                      incomingImages.length,
+                      handleFrameReferenceTokenHover,
+                      hideFrameReferencePreview,
+                      (tokenEnd, event) => handleFrameReferenceTokenMouseDown(frame.id, tokenEnd, event)
+                    )}
                   </div>
                 </div>
                 <textarea
@@ -1803,17 +2031,38 @@ export const StoryboardGenNode = memo(({ id, data, selected, width, height }: St
                     handleFrameDescriptionChange(index, nextValue);
                     rememberFrameSelection(frame.id, event.currentTarget);
                   }}
+                  onBeforeInput={(event) => handleFrameDescriptionBeforeInput(index, event)}
                   onKeyDown={(event) => handleFrameDescriptionKeyDown(index, event)}
                   onScroll={() => syncFrameHighlightScroll(frame.id)}
+                  onMouseDown={(event) => {
+                    event.stopPropagation();
+                    hideFrameReferencePreview();
+                  }}
                   onPointerDown={(event) => {
+                    event.stopPropagation();
                     lastPointerAnchorRef.current = {
                       frameIndex: index,
                       anchor: resolvePointerAnchor(rootRef.current, event.clientX, event.clientY, zoom),
                     };
                   }}
                   onFocus={(event) => {
+                    setActiveFrameId(frame.id);
                     rememberFrameSelection(frame.id, event.currentTarget);
                     syncFrameHighlightScroll(frame.id);
+                  }}
+                  onCompositionStart={() => {
+                    setActiveFrameId(frame.id);
+                    setComposingFrameId(frame.id);
+                    hideFrameReferencePreview();
+                  }}
+                  onCompositionEnd={(event) => {
+                    rememberFrameSelection(frame.id, event.currentTarget);
+                    setComposingFrameId((current) => (current === frame.id ? null : current));
+                  }}
+                  onBlur={(event) => {
+                    rememberFrameSelection(frame.id, event.currentTarget);
+                    setActiveFrameId((current) => (current === frame.id ? null : current));
+                    setComposingFrameId((current) => (current === frame.id ? null : current));
                   }}
                   onSelect={(event) => rememberFrameSelection(frame.id, event.currentTarget)}
                   onMouseUp={(event) => rememberFrameSelection(frame.id, event.currentTarget)}
@@ -1822,13 +2071,35 @@ export const StoryboardGenNode = memo(({ id, data, selected, width, height }: St
                     index: String(index + 1).padStart(2, '0'),
                   })}
                   wrap="soft"
-                  className="ui-scrollbar nodrag nowheel relative z-10 h-full w-full resize-none overflow-y-auto overflow-x-hidden bg-transparent px-1.5 py-1 text-left text-[10px] leading-4 text-transparent caret-text-dark placeholder:text-text-muted/40 focus:border-accent/50 focus:outline-none whitespace-pre-wrap break-words"
+                  className={`ui-scrollbar nodrag nowheel relative z-10 h-full w-full resize-none overflow-y-auto overflow-x-hidden border-none bg-transparent px-1.5 py-1 text-left text-[10px] leading-4 caret-text-dark outline-none whitespace-pre-wrap break-words placeholder:text-text-muted/40 ${showNativeFrameText
+                    ? 'text-text-dark selection:bg-accent/30'
+                    : 'text-transparent selection:bg-accent/30 selection:text-transparent'
+                    }`}
                   style={{ scrollbarGutter: 'stable' }}
                 />
               </div>
             );
           })}
         </div>
+
+        {frameReferencePreview ? (
+          <div
+            className="pointer-events-none absolute z-30 w-fit overflow-hidden rounded-xl shadow-[0_12px_28px_rgba(0,0,0,0.28)]"
+            style={{
+              left: `${frameReferencePreview.left}px`,
+              top: `${frameReferencePreview.top}px`,
+            }}
+          >
+            <CanvasNodeImage
+              src={frameReferencePreview.displayUrl}
+              alt={frameReferencePreview.alt}
+              viewerSourceUrl={resolveImageDisplayUrl(frameReferencePreview.imageUrl)}
+              viewerImageList={incomingImageViewerList}
+              className="block max-h-[132px] max-w-[144px] rounded-xl object-contain"
+              draggable={false}
+            />
+          </div>
+        ) : null}
       </div>
 
       {showImagePicker && incomingImageItems.length > 0 && (
@@ -1889,15 +2160,16 @@ export const StoryboardGenNode = memo(({ id, data, selected, width, height }: St
           onAspectRatioChange={(aspectRatio) =>
             updateNodeData(id, { requestAspectRatio: aspectRatio })
           }
-          extraParams={nodeData.extraParams}
-          onExtraParamChange={(key, value) =>
+          extraParams={resolvedModelExtraParams}
+          onExtraParamChange={(key, value) => {
             updateNodeData(id, {
               extraParams: {
                 ...(nodeData.extraParams ?? {}),
                 [key]: value,
               },
-            })
-          }
+            });
+            setLastImageGenerationExtraParams({ [key]: value });
+          }}
           triggerSize="sm"
           chipClassName={NODE_CONTROL_CHIP_CLASS}
           modelChipClassName={NODE_CONTROL_MODEL_CHIP_CLASS}

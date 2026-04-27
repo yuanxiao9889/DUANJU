@@ -7,6 +7,11 @@ import {
   CODING_MODEL_OPTIONS,
 } from './providers/coding';
 import {
+  DEFAULT_DEEPSEEK_TEXT_MODEL,
+  DEEPSEEK_PRO_TEXT_MODEL,
+  SCRIPT_DEEPSEEK_PROVIDER_ID,
+} from './scriptDeepseek';
+import {
   DEFAULT_OOPII_TEXT_MODEL,
   SCRIPT_OOPII_PROVIDER_ID,
 } from './scriptOopii';
@@ -17,6 +22,7 @@ export const DEFAULT_SCRIPT_PROVIDER_ID = 'alibaba';
 export const SCRIPT_PROVIDER_IDS = [
   'alibaba',
   'coding',
+  SCRIPT_DEEPSEEK_PROVIDER_ID,
   'azemm',
   'bltcy',
   'volcengine',
@@ -76,6 +82,18 @@ const BUILT_IN_SCRIPT_MODELS: Record<ScriptProviderId, readonly ScriptModelOptio
       label: option.label,
       source: 'builtin',
     })),
+  deepseek: [
+    {
+      modelId: DEFAULT_DEEPSEEK_TEXT_MODEL,
+      label: DEFAULT_DEEPSEEK_TEXT_MODEL,
+      source: 'builtin',
+    },
+    {
+      modelId: DEEPSEEK_PRO_TEXT_MODEL,
+      label: DEEPSEEK_PRO_TEXT_MODEL,
+      source: 'builtin',
+    },
+  ],
   azemm: [],
   bltcy: [],
   volcengine: [],

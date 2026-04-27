@@ -44,7 +44,9 @@ import {
   resolveStoryboardModelOptions,
   resolveScriptModelOptions,
   SCRIPT_COMPATIBLE_PROVIDER_ID,
+  SCRIPT_DEEPSEEK_PROVIDER_ID,
   SCRIPT_OOPII_PROVIDER_ID,
+  DEFAULT_DEEPSEEK_TEXT_MODEL,
   resolveStoryboardApi2OkModelConfigForModel,
   resolveStoryboardCompatibleModelConfigForModel,
   resolveStoryboardNewApiModelConfigForModel,
@@ -117,7 +119,7 @@ const SCRIPT_PROVIDER_GROUP_CONFIGS: ProviderGroupConfig[] = [
   {
     id: 'official',
     labelKey: 'settings.providerGroupOfficial',
-    providerIds: ['alibaba', 'coding', 'volcengine'],
+    providerIds: ['alibaba', 'deepseek', 'coding', 'volcengine'],
     defaultCollapsed: false,
   },
   {
@@ -258,6 +260,7 @@ const PROVIDER_REGISTER_URLS: Record<string, string> = {
   kie: 'https://kie.ai?ref=63c2653eb5b2ceb249033cc97b1b7ec3',
   fal: 'https://fal.ai',
   alibaba: 'https://bailian.console.aliyun.com',
+  deepseek: 'https://platform.deepseek.com/',
   coding: 'https://bailian.console.aliyun.com',
   azemm: 'https://api.azemm.top',
   comfly: 'https://ai.comfly.chat/register?aff=25c82943753',
@@ -273,6 +276,7 @@ const PROVIDER_GET_KEY_URLS: Record<string, string> = {
   kie: 'https://kie.ai?ref=63c2653eb5b2ceb249033cc97b1b7ec3',
   fal: 'https://fal.ai/dashboard/keys',
   alibaba: 'https://bailian.console.aliyun.com/cn-beijing/#/api-key',
+  deepseek: 'https://platform.deepseek.com/api_keys',
   coding: 'https://bailian.console.aliyun.com/cn-beijing/#/api-key',
   azemm: 'https://api.azemm.top',
   comfly: 'https://ai.comfly.chat/register?aff=25c82943753',
@@ -285,6 +289,7 @@ const DEFAULT_PROVIDER_TEST_MODELS: Record<string, string> = {
   ppio: 'ppio/gemini-3.1-flash',
   kie: 'kie/nano-banana-2',
   fal: 'fal/nano-banana-2',
+  deepseek: DEFAULT_DEEPSEEK_TEXT_MODEL,
   azemm: 'azemm/gemini-3.1-flash-image-preview',
   comfly: 'comfly/gemini-3.1-flash-image-preview',
   zhenzhen: 'zhenzhen/gemini-3.1-flash-image-preview',
@@ -464,6 +469,7 @@ export function SettingsDialog({
       'runninghub',
       'api2ok',
       'alibaba',
+      'deepseek',
       'coding',
       'compatible',
       'newapi',
@@ -477,7 +483,11 @@ export function SettingsDialog({
   }, []);
   const scriptProviders = useMemo(() => listScriptProviders(providers), [providers]);
   const storyboardProviders = useMemo(
-    () => providers.filter((p) => p.id !== 'alibaba' && p.id !== 'coding'),
+    () => providers.filter((p) => (
+      p.id !== 'alibaba'
+      && p.id !== 'coding'
+      && p.id !== SCRIPT_DEEPSEEK_PROVIDER_ID
+    )),
     [providers]
   );
   const mjProviders = useMemo(() => listMidjourneyProviders(providers), [providers]);
@@ -2146,6 +2156,8 @@ export function SettingsDialog({
                         : '';
                       const isScriptCompatibleProvider =
                         isScriptTab && provider.id === SCRIPT_COMPATIBLE_PROVIDER_ID;
+                      const isScriptDeepseekProvider =
+                        isScriptTab && provider.id === SCRIPT_DEEPSEEK_PROVIDER_ID;
                       const isScriptOopiiProvider =
                         isScriptTab && provider.id === SCRIPT_OOPII_PROVIDER_ID;
                       const isScriptProviderReady =
@@ -2365,6 +2377,8 @@ export function SettingsDialog({
                                             model,
                                             model
                                           ) as unknown as Record<string, unknown>
+                                          : isScriptDeepseekProvider
+                                            ? undefined
                                           : isScriptOopiiProvider
                                             ? toScriptOopiiExtraParamsPayload(
                                               model,

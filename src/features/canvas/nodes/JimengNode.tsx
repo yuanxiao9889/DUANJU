@@ -14,6 +14,7 @@ import {
   Handle,
   Position,
   useUpdateNodeInternals,
+  useViewport,
   type NodeProps,
 } from "@xyflow/react";
 import {
@@ -78,10 +79,13 @@ import { insertShotParamToken } from "@/features/canvas/shot-params/shotParamsPr
 import {
   DEFAULT_PICKER_ANCHOR,
   type PickerAnchor,
+  readTextareaScroll,
   readTextareaSelection,
+  resolveFloatingPreviewPosition,
   resolveTextSelection,
   resolveTextareaPickerAnchor,
   restoreTextareaSelection,
+  type TextareaScrollSnapshot,
   type TextSelectionRange,
 } from "@/features/canvas/application/textareaSelection";
 import { useCanvasStore } from "@/stores/canvasStore";
@@ -1028,6 +1032,7 @@ function resolveJimengCliEffectiveVideoModel(
 export const JimengNode = memo(
   ({ id, data, selected, width, height }: JimengNodeProps) => {
     const { t, i18n } = useTranslation();
+    const { zoom } = useViewport();
     const updateNodeInternals = useUpdateNodeInternals();
     const rootRef = useRef<HTMLDivElement>(null);
     const promptPanelRef = useRef<HTMLDivElement>(null);
@@ -1468,13 +1473,17 @@ export const JimengNode = memo(
     }, []);
 
     const schedulePromptSelectionRestore = useCallback(
-      (selection: TextSelectionRange | number) => {
+      (
+        selection: TextSelectionRange | number,
+        scrollSnapshot?: TextareaScrollSnapshot | null,
+      ) => {
         requestAnimationFrame(() => {
           restoreTextareaSelection(
             promptRef.current,
             selection,
             promptValueRef.current.length,
             {
+              scrollSnapshot,
               syncScroll: syncPromptHighlightScroll,
               onAfterRestore: (textarea, nextSelection) => {
                 lastPromptSelectionRef.current = nextSelection;
@@ -1553,6 +1562,7 @@ export const JimengNode = memo(
         }
 
         const currentPrompt = promptValueRef.current;
+        const scrollSnapshot = readTextareaScroll(promptRef.current);
         const selection = resolveTextSelection({
           textarea: promptRef.current,
           lastSelection: pickerSelectionRef.current ?? lastPromptSelectionRef.current,
@@ -1571,7 +1581,7 @@ export const JimengNode = memo(
         pickerSelectionRef.current = null;
         setPickerActiveIndex(0);
 
-        schedulePromptSelectionRestore(nextCursor);
+        schedulePromptSelectionRestore(nextCursor, scrollSnapshot);
       },
       [
         handlePromptChange,
@@ -2327,23 +2337,16 @@ export const JimengNode = memo(
           return;
         }
 
-        const previewHostRect = previewHost.getBoundingClientRect();
         const previewMaxWidth = 144;
         const previewMaxHeight = 132;
-        const horizontalPadding = 12;
-        const horizontalGap = 8;
-        const verticalGap = 8;
-        const maxLeft = Math.max(
-          horizontalPadding,
-          previewHostRect.width - previewMaxWidth - horizontalPadding,
-        );
-        const preferredLeft =
-          event.clientX - previewHostRect.left + horizontalGap;
-        const preferredTop = event.clientY - previewHostRect.top + verticalGap;
-        const maxTop = Math.max(
-          horizontalPadding,
-          previewHostRect.height - previewMaxHeight - horizontalPadding,
-        );
+        const previewPosition = resolveFloatingPreviewPosition({
+          container: previewHost,
+          clientX: event.clientX,
+          clientY: event.clientY,
+          previewWidth: previewMaxWidth,
+          previewHeight: previewMaxHeight,
+          zoom,
+        });
 
         setPromptReferencePreview({
           imageUrl: item.previewImageUrl,
@@ -2351,11 +2354,11 @@ export const JimengNode = memo(
           alt: item.label,
           kind: item.kind,
           durationSeconds: item.durationSeconds,
-          left: Math.max(horizontalPadding, Math.min(preferredLeft, maxLeft)),
-          top: Math.max(horizontalPadding, Math.min(preferredTop, maxTop)),
+          left: previewPosition.left,
+          top: previewPosition.top,
         });
       },
-      [incomingVisualItems],
+      [incomingVisualItems, zoom],
     );
 
     const handlePromptReferenceTokenMouseDown = useCallback(
