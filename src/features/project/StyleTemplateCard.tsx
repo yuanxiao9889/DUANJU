@@ -1,8 +1,9 @@
-import { memo, type ReactNode, useEffect, useState } from "react";
+import { memo, type ReactNode, useEffect, useMemo, useState } from "react";
 import { Image as ImageIcon, Palette } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
 import { resolveImageDisplayUrl } from "@/features/canvas/application/imageData";
+import { resolveBuiltinStyleTemplatePreviewImageUrl } from "@/features/project/defaultStyleTemplates";
 import type { StyleTemplate } from "@/features/project/styleTemplateUtils";
 
 interface StyleTemplateCardProps {
@@ -23,17 +24,37 @@ function StyleTemplateCardContent({
   radius = "default",
 }: Pick<StyleTemplateCardProps, "template" | "categoryLabel" | "actions" | "size" | "radius">) {
   const { t } = useTranslation();
-  const resolvedImageUrl = template.imageUrl
-    ? resolveImageDisplayUrl(template.imageUrl)
-    : null;
-  const [hasImageError, setHasImageError] = useState(false);
+  const previewImageSources = useMemo(() => {
+    const candidates = [
+      template.imageUrl,
+      resolveBuiltinStyleTemplatePreviewImageUrl(template),
+    ];
+    const seen = new Set<string>();
+
+    return candidates.reduce<string[]>((accumulator, candidate) => {
+      const trimmedCandidate = typeof candidate === "string" ? candidate.trim() : "";
+      if (!trimmedCandidate) {
+        return accumulator;
+      }
+
+      const displayUrl = resolveImageDisplayUrl(trimmedCandidate);
+      if (!displayUrl || seen.has(displayUrl)) {
+        return accumulator;
+      }
+
+      seen.add(displayUrl);
+      accumulator.push(displayUrl);
+      return accumulator;
+    }, []);
+  }, [template]);
+  const [activeImageIndex, setActiveImageIndex] = useState(0);
   const isCompact = size === "compact";
   const isCompactRadius = radius === "compact";
-  const displayImageUrl = resolvedImageUrl && !hasImageError ? resolvedImageUrl : null;
+  const displayImageUrl = previewImageSources[activeImageIndex] ?? null;
 
   useEffect(() => {
-    setHasImageError(false);
-  }, [resolvedImageUrl]);
+    setActiveImageIndex(0);
+  }, [previewImageSources]);
 
   return (
     <>
@@ -55,7 +76,13 @@ function StyleTemplateCardContent({
               alt={template.name}
               className="h-full w-full object-cover"
               draggable={false}
-              onError={() => setHasImageError(true)}
+              onError={() =>
+                setActiveImageIndex((currentIndex) =>
+                  currentIndex + 1 < previewImageSources.length
+                    ? currentIndex + 1
+                    : currentIndex
+                )
+              }
             />
           ) : (
             <div

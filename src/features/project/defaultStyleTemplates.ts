@@ -34,6 +34,7 @@ interface BuiltinStyleTemplateDefinition {
   name: string;
   prompt: string;
   imageUrl: string | null;
+  imageFileName: string | null;
   categoryId: string | null;
 }
 
@@ -42,6 +43,7 @@ interface BundledBuiltinStyleTemplateInput {
   name: string;
   prompt: string;
   imageAssetUrl: string;
+  imageFileName: string;
   categoryId?: string | null;
 }
 
@@ -78,6 +80,7 @@ function defineBundledBuiltinStyleTemplate(
     name: input.name,
     prompt: input.prompt,
     imageUrl: input.imageAssetUrl,
+    imageFileName: input.imageFileName,
     categoryId: input.categoryId ?? null,
   };
 }
@@ -88,24 +91,28 @@ const BUILTIN_STYLE_TEMPLATE_DEFINITIONS: readonly BuiltinStyleTemplateDefinitio
     name: PANORAMA_STYLE_TEMPLATE_NAME,
     prompt: PANORAMA_STYLE_TEMPLATE_PROMPT,
     imageAssetUrl: BUILTIN_STYLE_TEMPLATE_IMAGE_ASSETS.panorama360,
+    imageFileName: 'panorama-360.jpg',
   }),
   defineBundledBuiltinStyleTemplate({
     id: CINEMATIC_ATMOSPHERE_STYLE_TEMPLATE_ID,
     name: CINEMATIC_ATMOSPHERE_STYLE_TEMPLATE_NAME,
     prompt: CINEMATIC_ATMOSPHERE_STYLE_TEMPLATE_PROMPT,
     imageAssetUrl: BUILTIN_STYLE_TEMPLATE_IMAGE_ASSETS.cinematicAtmosphere,
+    imageFileName: 'cinematic-atmosphere.jpg',
   }),
   defineBundledBuiltinStyleTemplate({
     id: CHARACTER_THREE_VIEW_STYLE_TEMPLATE_ID,
     name: CHARACTER_THREE_VIEW_STYLE_TEMPLATE_NAME,
     prompt: CHARACTER_THREE_VIEW_STYLE_TEMPLATE_PROMPT,
     imageAssetUrl: BUILTIN_STYLE_TEMPLATE_IMAGE_ASSETS.characterThreeView,
+    imageFileName: 'character-three-view.jpg',
   }),
   defineBundledBuiltinStyleTemplate({
     id: MECHA_MATERIAL_STYLE_TEMPLATE_ID,
     name: MECHA_MATERIAL_STYLE_TEMPLATE_NAME,
     prompt: MECHA_MATERIAL_STYLE_TEMPLATE_PROMPT,
     imageAssetUrl: BUILTIN_STYLE_TEMPLATE_IMAGE_ASSETS.mechaMaterialEnhance,
+    imageFileName: 'mecha-material-enhance.jpg',
   }),
 ];
 
@@ -129,6 +136,38 @@ function normalizeTemplateImageUrl(imageUrl: string | null | undefined): string 
   return trimmedImageUrl.length > 0 ? trimmedImageUrl : null;
 }
 
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function stripImageUrlSearchAndHash(source: string): string {
+  const separatorIndex = source.search(/[?#]/);
+  return separatorIndex >= 0 ? source.slice(0, separatorIndex) : source;
+}
+
+function extractImageUrlPathnameCandidate(source: string): string {
+  const trimmedSource = source.trim();
+  if (!trimmedSource) {
+    return '';
+  }
+
+  try {
+    return decodeURIComponent(new URL(trimmedSource).pathname);
+  } catch {
+    return stripImageUrlSearchAndHash(trimmedSource);
+  }
+}
+
+function extractImageUrlBaseName(source: string): string {
+  const pathnameCandidate = extractImageUrlPathnameCandidate(source);
+  if (!pathnameCandidate) {
+    return '';
+  }
+
+  const segments = pathnameCandidate.split(/[\\/]/);
+  return segments[segments.length - 1]?.trim() ?? '';
+}
+
 function isBundledStyleTemplatePreviewUrl(imageUrl: string): boolean {
   const trimmedImageUrl = imageUrl.trim();
   if (!trimmedImageUrl) {
@@ -148,6 +187,64 @@ function isBundledStyleTemplatePreviewUrl(imageUrl: string): boolean {
   );
 }
 
+function isLikelyBundledStyleTemplatePreviewFileName(
+  imageUrl: string,
+  builtinTemplate: BuiltinStyleTemplateDefinition
+): boolean {
+  const expectedFileName = builtinTemplate.imageFileName?.trim();
+  if (!expectedFileName) {
+    return false;
+  }
+
+  const imageBaseName = extractImageUrlBaseName(imageUrl).toLowerCase();
+  if (!imageBaseName) {
+    return false;
+  }
+
+  const normalizedExpectedFileName = expectedFileName.toLowerCase();
+  if (imageBaseName === normalizedExpectedFileName) {
+    return true;
+  }
+
+  const extensionIndex = normalizedExpectedFileName.lastIndexOf('.');
+  if (extensionIndex <= 0 || extensionIndex >= normalizedExpectedFileName.length - 1) {
+    return false;
+  }
+
+  const expectedStem = normalizedExpectedFileName.slice(0, extensionIndex);
+  const expectedExtension = normalizedExpectedFileName.slice(extensionIndex + 1);
+  return new RegExp(
+    `^${escapeRegExp(expectedStem)}(?:-[a-z0-9_-]+)?\\.${escapeRegExp(expectedExtension)}$`,
+    'i'
+  ).test(imageBaseName);
+}
+
+function resolveMatchingBuiltinStyleTemplate(
+  template: Pick<StyleTemplate, 'id' | 'name' | 'prompt'>
+): BuiltinStyleTemplateDefinition | null {
+  let bestMatch: BuiltinStyleTemplateDefinition | null = null;
+  let bestScore = 0;
+
+  BUILTIN_STYLE_TEMPLATE_DEFINITIONS.forEach((builtinTemplate) => {
+    const score = getBuiltinStyleTemplateMatchScore(
+      template as StyleTemplate,
+      builtinTemplate
+    );
+    if (score > bestScore) {
+      bestMatch = builtinTemplate;
+      bestScore = score;
+    }
+  });
+
+  return bestScore > 0 ? bestMatch : null;
+}
+
+export function resolveBuiltinStyleTemplatePreviewImageUrl(
+  template: Pick<StyleTemplate, 'id' | 'name' | 'prompt'>
+): string | null {
+  return normalizeTemplateImageUrl(resolveMatchingBuiltinStyleTemplate(template)?.imageUrl);
+}
+
 function resolveBuiltinTemplateImageUrl(
   builtinTemplate: BuiltinStyleTemplateDefinition,
   matchedTemplate: StyleTemplate | null
@@ -159,7 +256,12 @@ function resolveBuiltinTemplateImageUrl(
 
   // Upgrade previously persisted bundled SVG placeholders to the current
   // bundled raster previews while still preserving real user-local images.
-  if (isBundledStyleTemplatePreviewUrl(matchedImageUrl)) {
+  // Older installed builds may have persisted absolute app-resource paths,
+  // so we also detect stale bundled file names and replace them here.
+  if (
+    isBundledStyleTemplatePreviewUrl(matchedImageUrl)
+    || isLikelyBundledStyleTemplatePreviewFileName(matchedImageUrl, builtinTemplate)
+  ) {
     return normalizeTemplateImageUrl(builtinTemplate.imageUrl);
   }
 
