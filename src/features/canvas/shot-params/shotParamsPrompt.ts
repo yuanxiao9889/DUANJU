@@ -2,11 +2,7 @@ import {
   insertReferenceToken,
   removeTextRange,
 } from "@/features/canvas/application/referenceTokenEditing";
-
-export interface PromptSelectionRange {
-  start: number;
-  end: number;
-}
+import type { TextSelectionRange } from "@/features/canvas/application/textareaSelection";
 
 function clamp(value: number, min: number, max: number): number {
   return Math.max(min, Math.min(max, value));
@@ -18,7 +14,7 @@ export function formatShotParamToken(value: string): string {
 
 export function insertShotParamToken(
   text: string,
-  selection: PromptSelectionRange,
+  selection: TextSelectionRange,
   value: string,
 ): { nextText: string; nextCursor: number } {
   const safeStart = clamp(Math.min(selection.start, selection.end), 0, text.length);

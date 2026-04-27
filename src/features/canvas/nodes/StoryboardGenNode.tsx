@@ -61,6 +61,15 @@ import {
   resolveReferenceAwareDeleteRange,
 } from '@/features/canvas/application/referenceTokenEditing';
 import {
+  DEFAULT_PICKER_ANCHOR,
+  type PickerAnchor,
+  readTextareaSelection,
+  resolveTextSelection,
+  resolveTextareaPickerAnchor,
+  restoreTextareaSelection,
+  type TextSelectionRange,
+} from '@/features/canvas/application/textareaSelection';
+import {
   DEFAULT_IMAGE_MODEL_ID,
   getStoryboardImageModel,
   isStoryboardApi2OkModelId,
@@ -114,13 +123,6 @@ interface AspectRatioChoice {
   label: string;
 }
 
-interface PickerAnchor {
-  left: number;
-  top: number;
-}
-
-const PICKER_FALLBACK_ANCHOR: PickerAnchor = { left: 8, top: 8 };
-
 const STORYBOARD_NODE_HORIZONTAL_PADDING_PX = 24;
 const STORYBOARD_GRID_GAP_PX = 2;
 const STORYBOARD_GRID_BASE_CELL_HEIGHT_PX = 78;
@@ -163,70 +165,6 @@ const FRIENDLY_ASPECT_RATIO_CANDIDATES = [
   '4:5',
 ];
 
-function getTextareaCaretOffset(
-  textarea: HTMLTextAreaElement,
-  caretIndex: number
-): PickerAnchor {
-  const mirror = document.createElement('div');
-  const computed = window.getComputedStyle(textarea);
-  const mirrorStyle = mirror.style;
-
-  mirrorStyle.position = 'absolute';
-  mirrorStyle.visibility = 'hidden';
-  mirrorStyle.pointerEvents = 'none';
-  mirrorStyle.whiteSpace = 'pre-wrap';
-  mirrorStyle.overflowWrap = 'break-word';
-  mirrorStyle.wordBreak = 'break-word';
-  mirrorStyle.boxSizing = computed.boxSizing;
-  mirrorStyle.width = `${textarea.clientWidth}px`;
-  mirrorStyle.font = computed.font;
-  mirrorStyle.lineHeight = computed.lineHeight;
-  mirrorStyle.letterSpacing = computed.letterSpacing;
-  mirrorStyle.padding = computed.padding;
-  mirrorStyle.border = computed.border;
-  mirrorStyle.textTransform = computed.textTransform;
-  mirrorStyle.textIndent = computed.textIndent;
-
-  mirror.textContent = textarea.value.slice(0, caretIndex);
-
-  const marker = document.createElement('span');
-  marker.textContent = textarea.value.slice(caretIndex, caretIndex + 1) || ' ';
-  mirror.appendChild(marker);
-
-  document.body.appendChild(mirror);
-
-  const left = marker.offsetLeft - textarea.scrollLeft;
-  const top = marker.offsetTop - textarea.scrollTop;
-
-  document.body.removeChild(mirror);
-
-  return {
-    left: Math.max(0, left),
-    top: Math.max(0, top),
-  };
-}
-
-function resolvePickerAnchor(
-  container: HTMLDivElement | null,
-  textarea: HTMLTextAreaElement,
-  caretIndex: number,
-  zoom: number
-): PickerAnchor {
-  if (!container) {
-    return PICKER_FALLBACK_ANCHOR;
-  }
-
-  const containerRect = container.getBoundingClientRect();
-  const textareaRect = textarea.getBoundingClientRect();
-  const caretOffset = getTextareaCaretOffset(textarea, caretIndex);
-  const safeZoom = Number.isFinite(zoom) && zoom > 0 ? zoom : 1;
-
-  return {
-    left: Math.max(0, (textareaRect.left - containerRect.left) / safeZoom + caretOffset.left),
-    top: Math.max(0, (textareaRect.top - containerRect.top) / safeZoom + caretOffset.top),
-  };
-}
-
 function resolvePointerAnchor(
   container: HTMLDivElement | null,
   clientX: number,
@@ -234,7 +172,7 @@ function resolvePointerAnchor(
   zoom: number
 ): PickerAnchor {
   if (!container) {
-    return PICKER_FALLBACK_ANCHOR;
+    return DEFAULT_PICKER_ANCHOR;
   }
 
   const containerRect = container.getBoundingClientRect();
@@ -604,13 +542,11 @@ export const StoryboardGenNode = memo(({ id, data, selected, width, height }: St
 
   const [error, setError] = useState<string | null>(null);
   const rootRef = useRef<HTMLDivElement>(null);
-  const activeFrameTextareaRef = useRef<HTMLTextAreaElement | null>(null);
   const pickerItemRefs = useRef<Array<HTMLButtonElement | null>>([]);
   const [showImagePicker, setShowImagePicker] = useState(false);
   const [pickerFrameIndex, setPickerFrameIndex] = useState<number | null>(null);
-  const [pickerCursor, setPickerCursor] = useState<number | null>(null);
   const [pickerActiveIndex, setPickerActiveIndex] = useState(0);
-  const [pickerAnchor, setPickerAnchor] = useState<PickerAnchor>(PICKER_FALLBACK_ANCHOR);
+  const [pickerAnchor, setPickerAnchor] = useState<PickerAnchor>(DEFAULT_PICKER_ANCHOR);
   const lastPointerAnchorRef = useRef<{ frameIndex: number; anchor: PickerAnchor } | null>(null);
   const frameTextareaRefs = useRef<Record<string, HTMLTextAreaElement | null>>({});
   const frameHighlightRefs = useRef<Record<string, HTMLDivElement | null>>({});
@@ -620,6 +556,7 @@ export const StoryboardGenNode = memo(({ id, data, selected, width, height }: St
     buildFrameDescriptionDrafts(nodeData.frames)
   );
   const frameDescriptionDraftsRef = useRef(frameDescriptionDrafts);
+  const frameSelectionRangesRef = useRef<Record<string, TextSelectionRange | null>>({});
   const resolvedTitle = useMemo(
     () => resolveNodeDisplayName(CANVAS_NODE_TYPES.storyboardGen, nodeData),
     [nodeData]
@@ -1082,6 +1019,15 @@ export const StoryboardGenNode = memo(({ id, data, selected, width, height }: St
   }, [nodeData.frames]);
 
   useEffect(() => {
+    const validFrameIds = new Set(nodeData.frames.map((frame) => frame.id));
+    Object.keys(frameSelectionRangesRef.current).forEach((frameId) => {
+      if (!validFrameIds.has(frameId)) {
+        delete frameSelectionRangesRef.current[frameId];
+      }
+    });
+  }, [nodeData.frames]);
+
+  useEffect(() => {
     updateNodeInternals(id);
   }, [id, resolvedNodeHeight, resolvedNodeWidth, updateNodeInternals]);
 
@@ -1111,7 +1057,6 @@ export const StoryboardGenNode = memo(({ id, data, selected, width, height }: St
     if (incomingImages.length === 0) {
       setShowImagePicker(false);
       setPickerFrameIndex(null);
-      setPickerCursor(null);
       setPickerActiveIndex(0);
       return;
     }
@@ -1137,7 +1082,6 @@ export const StoryboardGenNode = memo(({ id, data, selected, width, height }: St
 
       setShowImagePicker(false);
       setPickerFrameIndex(null);
-      setPickerCursor(null);
     };
 
     document.addEventListener('pointerdown', handleOutsidePointerDown, true);
@@ -1548,7 +1492,6 @@ export const StoryboardGenNode = memo(({ id, data, selected, width, height }: St
   const closeImagePicker = useCallback(() => {
     setShowImagePicker(false);
     setPickerFrameIndex(null);
-    setPickerCursor(null);
     setPickerActiveIndex(0);
   }, []);
 
@@ -1563,6 +1506,37 @@ export const StoryboardGenNode = memo(({ id, data, selected, width, height }: St
     highlight.scrollLeft = textarea.scrollLeft;
   }, []);
 
+  const rememberFrameSelection = useCallback((frameId: string, textarea: HTMLTextAreaElement | null) => {
+    frameSelectionRangesRef.current[frameId] = readTextareaSelection(
+      textarea,
+      textarea?.value.length ?? (frameDescriptionDraftsRef.current[frameId] ?? '').length
+    );
+  }, []);
+
+  const scheduleFrameSelectionRestore = useCallback((
+    frameId: string,
+    selection: TextSelectionRange | number
+  ) => {
+    requestAnimationFrame(() => {
+      const textarea = frameTextareaRefs.current[frameId];
+      const fallbackLength =
+        textarea?.value.length ?? (frameDescriptionDraftsRef.current[frameId] ?? '').length;
+      const restoredSelection = restoreTextareaSelection(
+        textarea,
+        selection,
+        fallbackLength,
+        {
+          syncScroll: () => syncFrameHighlightScroll(frameId),
+        }
+      );
+      if (!restoredSelection || !textarea) {
+        return;
+      }
+
+      frameSelectionRangesRef.current[frameId] = restoredSelection;
+    });
+  }, [syncFrameHighlightScroll]);
+
   const insertImageReference = useCallback((imageIndex: number) => {
     if (!nodeData || pickerFrameIndex === null) {
       return;
@@ -1576,7 +1550,13 @@ export const StoryboardGenNode = memo(({ id, data, selected, width, height }: St
 
     const marker = buildShortReferenceToken(imageIndex);
     const currentDescription = frameDescriptionDraftsRef.current[frame.id] ?? frame.description;
-    const cursor = pickerCursor ?? currentDescription.length;
+    const selection = resolveTextSelection({
+      textarea: frameTextareaRefs.current[frame.id],
+      lastSelection: frameSelectionRangesRef.current[frame.id],
+      fallbackLength: currentDescription.length,
+      requireFocus: true,
+    });
+    const cursor = selection.start;
     const { nextText: nextDescription, nextCursor } = insertReferenceToken(
       currentDescription,
       cursor,
@@ -1584,15 +1564,13 @@ export const StoryboardGenNode = memo(({ id, data, selected, width, height }: St
     );
     handleFrameDescriptionChange(pickerFrameIndex, nextDescription);
     closeImagePicker();
-
-    requestAnimationFrame(() => {
-      activeFrameTextareaRef.current?.focus();
-      activeFrameTextareaRef.current?.setSelectionRange(nextCursor, nextCursor);
-    });
-  }, [closeImagePicker, handleFrameDescriptionChange, nodeData, pickerCursor, pickerFrameIndex]);
+    scheduleFrameSelectionRestore(frame.id, nextCursor);
+  }, [closeImagePicker, handleFrameDescriptionChange, nodeData, pickerFrameIndex, scheduleFrameSelectionRestore]);
 
   const handleFrameDescriptionKeyDown = useCallback(
     (index: number, event: ReactKeyboardEvent<HTMLTextAreaElement>) => {
+      const frame = nodeData.frames[index];
+
       if (showImagePicker && incomingImages.length > 0 && pickerFrameIndex === index) {
         if (event.key === 'ArrowDown') {
           event.preventDefault();
@@ -1616,7 +1594,6 @@ export const StoryboardGenNode = memo(({ id, data, selected, width, height }: St
       }
 
       if (event.key === 'Backspace' || event.key === 'Delete') {
-        const frame = nodeData.frames[index];
         if (!frame) {
           return;
         }
@@ -1636,29 +1613,40 @@ export const StoryboardGenNode = memo(({ id, data, selected, width, height }: St
           event.preventDefault();
           const { nextText, nextCursor } = removeTextRange(currentDescription, deleteRange);
           handleFrameDescriptionChange(index, nextText);
-          requestAnimationFrame(() => {
-            activeFrameTextareaRef.current?.focus();
-            activeFrameTextareaRef.current?.setSelectionRange(nextCursor, nextCursor);
-            syncFrameHighlightScroll(frame.id);
-          });
+          scheduleFrameSelectionRestore(frame.id, nextCursor);
           return;
         }
       }
 
       if (event.key === '@' && incomingImages.length > 0) {
+        if (!frame) {
+          return;
+        }
+
         event.preventDefault();
-        const cursor = event.currentTarget.selectionStart ?? event.currentTarget.value.length;
+        const selection =
+          readTextareaSelection(event.currentTarget, event.currentTarget.value.length)
+          ?? resolveTextSelection({
+            textarea: event.currentTarget,
+            lastSelection: frameSelectionRangesRef.current[frame.id],
+            fallbackLength: event.currentTarget.value.length,
+          });
+        frameSelectionRangesRef.current[frame.id] = selection;
         const pointerAnchor = lastPointerAnchorRef.current;
         if (pointerAnchor && pointerAnchor.frameIndex === index) {
           setPickerAnchor(pointerAnchor.anchor);
         } else {
-          setPickerAnchor(resolvePickerAnchor(rootRef.current, event.currentTarget, cursor, zoom));
+          setPickerAnchor(resolveTextareaPickerAnchor({
+            container: rootRef.current,
+            textarea: event.currentTarget,
+            caretIndex: selection.start,
+            zoom,
+            yOffset: 0,
+          }));
         }
         setPickerFrameIndex(index);
-        setPickerCursor(cursor);
         setPickerActiveIndex(0);
         setShowImagePicker(true);
-        activeFrameTextareaRef.current = event.currentTarget;
         return;
       }
 
@@ -1675,8 +1663,8 @@ export const StoryboardGenNode = memo(({ id, data, selected, width, height }: St
       nodeData.frames,
       pickerActiveIndex,
       pickerFrameIndex,
+      scheduleFrameSelectionRestore,
       showImagePicker,
-      syncFrameHighlightScroll,
       zoom,
     ]
   );
@@ -1802,7 +1790,7 @@ export const StoryboardGenNode = memo(({ id, data, selected, width, height }: St
                   style={{ scrollbarGutter: 'stable' }}
                 >
                   <div className="min-h-full whitespace-pre-wrap break-words px-1.5 py-1 text-left">
-                    {renderFrameDescriptionWithHighlights(frameDescription, incomingImages.length)}
+            {renderFrameDescriptionWithHighlights(frameDescription, incomingImages.length)}
                   </div>
                 </div>
                 <textarea
@@ -1813,6 +1801,7 @@ export const StoryboardGenNode = memo(({ id, data, selected, width, height }: St
                   onChange={(event) => {
                     const nextValue = event.target.value;
                     handleFrameDescriptionChange(index, nextValue);
+                    rememberFrameSelection(frame.id, event.currentTarget);
                   }}
                   onKeyDown={(event) => handleFrameDescriptionKeyDown(index, event)}
                   onScroll={() => syncFrameHighlightScroll(frame.id)}
@@ -1823,9 +1812,12 @@ export const StoryboardGenNode = memo(({ id, data, selected, width, height }: St
                     };
                   }}
                   onFocus={(event) => {
-                    activeFrameTextareaRef.current = event.currentTarget;
+                    rememberFrameSelection(frame.id, event.currentTarget);
                     syncFrameHighlightScroll(frame.id);
                   }}
+                  onSelect={(event) => rememberFrameSelection(frame.id, event.currentTarget)}
+                  onMouseUp={(event) => rememberFrameSelection(frame.id, event.currentTarget)}
+                  onKeyUp={(event) => rememberFrameSelection(frame.id, event.currentTarget)}
                   placeholder={t('node.storyboardGen.framePlaceholder', {
                     index: String(index + 1).padStart(2, '0'),
                   })}

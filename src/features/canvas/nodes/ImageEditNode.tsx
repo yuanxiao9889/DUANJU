@@ -72,6 +72,15 @@ import {
   resolveReferenceAwareDeleteRange,
 } from '@/features/canvas/application/referenceTokenEditing';
 import {
+  DEFAULT_PICKER_ANCHOR,
+  type PickerAnchor,
+  readTextareaSelection,
+  resolveTextSelection,
+  resolveTextareaPickerAnchor,
+  restoreTextareaSelection,
+  type TextSelectionRange,
+} from '@/features/canvas/application/textareaSelection';
+import {
   DEFAULT_IMAGE_MODEL_ID,
   getImageModel,
   isStoryboardApi2OkModelId,
@@ -126,11 +135,6 @@ interface AspectRatioChoice {
   label: string;
 }
 
-interface PickerAnchor {
-  left: number;
-  top: number;
-}
-
 interface PromptOptimizationMeta {
   modelLabel: string;
   referenceImageCount: number;
@@ -158,74 +162,11 @@ interface IncomingReferenceImageItem {
   label: string;
 }
 
-const PICKER_FALLBACK_ANCHOR: PickerAnchor = { left: 8, top: 8 };
 const PICKER_Y_OFFSET_PX = 20;
 const IMAGE_EDIT_NODE_MIN_WIDTH = 480;
 const IMAGE_EDIT_NODE_MIN_HEIGHT = 180;
 const IMAGE_EDIT_NODE_MAX_WIDTH = 1400;
 const IMAGE_EDIT_NODE_MAX_HEIGHT = 1000;
-
-function getTextareaCaretOffset(
-  textarea: HTMLTextAreaElement,
-  caretIndex: number
-): PickerAnchor {
-  const mirror = document.createElement('div');
-  const computed = window.getComputedStyle(textarea);
-  const mirrorStyle = mirror.style;
-
-  mirrorStyle.position = 'absolute';
-  mirrorStyle.visibility = 'hidden';
-  mirrorStyle.pointerEvents = 'none';
-  mirrorStyle.whiteSpace = 'pre-wrap';
-  mirrorStyle.overflowWrap = 'break-word';
-  mirrorStyle.wordBreak = 'break-word';
-  mirrorStyle.boxSizing = computed.boxSizing;
-  mirrorStyle.width = `${textarea.clientWidth}px`;
-  mirrorStyle.font = computed.font;
-  mirrorStyle.lineHeight = computed.lineHeight;
-  mirrorStyle.letterSpacing = computed.letterSpacing;
-  mirrorStyle.padding = computed.padding;
-  mirrorStyle.border = computed.border;
-  mirrorStyle.textTransform = computed.textTransform;
-  mirrorStyle.textIndent = computed.textIndent;
-
-  mirror.textContent = textarea.value.slice(0, caretIndex);
-
-  const marker = document.createElement('span');
-  marker.textContent = textarea.value.slice(caretIndex, caretIndex + 1) || ' ';
-  mirror.appendChild(marker);
-
-  document.body.appendChild(mirror);
-
-  const left = marker.offsetLeft - textarea.scrollLeft;
-  const top = marker.offsetTop - textarea.scrollTop;
-
-  document.body.removeChild(mirror);
-
-  return {
-    left: Math.max(0, left),
-    top: Math.max(0, top),
-  };
-}
-
-function resolvePickerAnchor(
-  container: HTMLDivElement | null,
-  textarea: HTMLTextAreaElement,
-  caretIndex: number
-): PickerAnchor {
-  if (!container) {
-    return PICKER_FALLBACK_ANCHOR;
-  }
-
-  const containerRect = container.getBoundingClientRect();
-  const textareaRect = textarea.getBoundingClientRect();
-  const caretOffset = getTextareaCaretOffset(textarea, caretIndex);
-
-  return {
-    left: Math.max(0, textareaRect.left - containerRect.left + caretOffset.left),
-    top: Math.max(0, textareaRect.top - containerRect.top + caretOffset.top + PICKER_Y_OFFSET_PX),
-  };
-}
 
 function renderPromptWithHighlights(prompt: string, maxImageCount: number): ReactNode {
   if (!prompt) {
@@ -384,12 +325,13 @@ export const ImageEditNode = memo(({ id, data, selected, width, height }: ImageE
   const pickerItemRefs = useRef<Array<HTMLButtonElement | null>>([]);
   const [promptDraft, setPromptDraft] = useState(() => data.prompt ?? '');
   const promptDraftRef = useRef(promptDraft);
+  const lastPromptSelectionRef = useRef<TextSelectionRange | null>(null);
+  const pickerSelectionRef = useRef<TextSelectionRange | null>(null);
   const previousIncomingImagesRef = useRef<string[] | null>(null);
   const [showCameraParamsDialog, setShowCameraParamsDialog] = useState(false);
   const [showImagePicker, setShowImagePicker] = useState(false);
-  const [pickerCursor, setPickerCursor] = useState<number | null>(null);
   const [pickerActiveIndex, setPickerActiveIndex] = useState(0);
-  const [pickerAnchor, setPickerAnchor] = useState<PickerAnchor>(PICKER_FALLBACK_ANCHOR);
+  const [pickerAnchor, setPickerAnchor] = useState<PickerAnchor>(DEFAULT_PICKER_ANCHOR);
   const [promptReferencePreview, setPromptReferencePreview] =
     useState<PromptReferencePreviewState | null>(null);
   const [, setIsPromptTextSelectionActive] = useState(false);
@@ -851,7 +793,7 @@ export const ImageEditNode = memo(({ id, data, selected, width, height }: ImageE
   useEffect(() => {
     if (incomingImages.length === 0) {
       setShowImagePicker(false);
-      setPickerCursor(null);
+      pickerSelectionRef.current = null;
       setPickerActiveIndex(0);
       setPromptReferencePreview(null);
       return;
@@ -881,7 +823,7 @@ export const ImageEditNode = memo(({ id, data, selected, width, height }: ImageE
       }
 
       setShowImagePicker(false);
-      setPickerCursor(null);
+      pickerSelectionRef.current = null;
     };
 
     document.addEventListener('mousedown', handleOutside, true);
@@ -889,6 +831,49 @@ export const ImageEditNode = memo(({ id, data, selected, width, height }: ImageE
       document.removeEventListener('mousedown', handleOutside, true);
     };
   }, []);
+
+  const syncPromptTextSelectionState = useCallback((_target?: HTMLTextAreaElement | null) => {
+    setIsPromptTextSelectionActive(false);
+    setPromptReferencePreview(null);
+  }, []);
+
+  const rememberPromptSelection = useCallback((textarea: HTMLTextAreaElement | null) => {
+    lastPromptSelectionRef.current = readTextareaSelection(
+      textarea,
+      textarea?.value.length ?? promptDraftRef.current.length
+    );
+    syncPromptTextSelectionState(textarea);
+  }, [syncPromptTextSelectionState]);
+
+  const syncPromptHighlightScroll = useCallback(() => {
+    if (!promptRef.current || !promptHighlightRef.current) {
+      return;
+    }
+
+    promptHighlightRef.current.scrollTop = promptRef.current.scrollTop;
+    promptHighlightRef.current.scrollLeft = promptRef.current.scrollLeft;
+    if (promptHoverLayerRef.current) {
+      promptHoverLayerRef.current.scrollTop = promptRef.current.scrollTop;
+      promptHoverLayerRef.current.scrollLeft = promptRef.current.scrollLeft;
+    }
+  }, []);
+
+  const schedulePromptSelectionRestore = useCallback((selection: TextSelectionRange | number) => {
+    requestAnimationFrame(() => {
+      restoreTextareaSelection(
+        promptRef.current,
+        selection,
+        promptDraftRef.current.length,
+        {
+          syncScroll: syncPromptHighlightScroll,
+          onAfterRestore: (textarea, nextSelection) => {
+            lastPromptSelectionRef.current = nextSelection;
+            syncPromptTextSelectionState(textarea);
+          },
+        }
+      );
+    });
+  }, [syncPromptHighlightScroll, syncPromptTextSelectionState]);
 
   const handleOptimizePrompt = useCallback(async () => {
     const sourcePrompt = promptDraftRef.current;
@@ -942,17 +927,7 @@ export const ImageEditNode = memo(({ id, data, selected, width, height }: ImageE
       }
       setPromptDraft(nextPrompt);
       commitPromptDraft(nextPrompt);
-      requestAnimationFrame(() => {
-        const promptElement = promptRef.current;
-        if (!promptElement) {
-          return;
-        }
-        promptElement.focus();
-        const nextCursor = nextPrompt.length;
-        promptElement.setSelectionRange(nextCursor, nextCursor);
-        syncPromptHighlightScroll();
-        syncPromptTextSelectionState(promptElement);
-      });
+      schedulePromptSelectionRestore(nextPrompt.length);
     } catch (optimizationError) {
       const errorMessage =
         optimizationError instanceof Error && optimizationError.message.trim().length > 0
@@ -963,7 +938,7 @@ export const ImageEditNode = memo(({ id, data, selected, width, height }: ImageE
     } finally {
       setIsOptimizingPrompt(false);
     }
-  }, [commitPromptDraft, incomingImageItems, optimizedPromptMaxLength, t]);
+  }, [commitPromptDraft, incomingImageItems, optimizedPromptMaxLength, schedulePromptSelectionRestore, t]);
 
   const handleUndoOptimizedPrompt = useCallback(() => {
     if (!lastPromptOptimizationUndoState) {
@@ -979,18 +954,8 @@ export const ImageEditNode = memo(({ id, data, selected, width, height }: ImageE
     setLastPromptOptimizationMeta(null);
     setPromptDraft(restoredPrompt);
     commitPromptDraft(restoredPrompt);
-    requestAnimationFrame(() => {
-      const promptElement = promptRef.current;
-      if (!promptElement) {
-        return;
-      }
-      promptElement.focus();
-      const nextCursor = restoredPrompt.length;
-      promptElement.setSelectionRange(nextCursor, nextCursor);
-      syncPromptHighlightScroll();
-      syncPromptTextSelectionState(promptElement);
-    });
-  }, [commitPromptDraft, lastPromptOptimizationUndoState]);
+    schedulePromptSelectionRestore(restoredPrompt.length);
+  }, [commitPromptDraft, lastPromptOptimizationUndoState, schedulePromptSelectionRestore]);
 
   const handleGenerate = useCallback(async () => {
     const displayPrompt = normalizeReferenceImagePrompt(promptDraft).trim();
@@ -1189,46 +1154,24 @@ export const ImageEditNode = memo(({ id, data, selected, width, height }: ImageE
     updateNodeData,
   ]);
 
-  const syncPromptTextSelectionState = useCallback((_target?: HTMLTextAreaElement | null) => {
-    setIsPromptTextSelectionActive(false);
-    setPromptReferencePreview(null);
-  }, []);
-
-  const syncPromptHighlightScroll = useCallback(() => {
-    if (!promptRef.current || !promptHighlightRef.current) {
-      return;
-    }
-
-    promptHighlightRef.current.scrollTop = promptRef.current.scrollTop;
-    promptHighlightRef.current.scrollLeft = promptRef.current.scrollLeft;
-    if (promptHoverLayerRef.current) {
-      promptHoverLayerRef.current.scrollTop = promptRef.current.scrollTop;
-      promptHoverLayerRef.current.scrollLeft = promptRef.current.scrollLeft;
-    }
-  }, []);
-
   const insertImageReference = useCallback((imageIndex: number) => {
     const marker = buildShortReferenceToken(imageIndex);
     const currentPrompt = promptDraftRef.current;
-    const cursor = pickerCursor ?? currentPrompt.length;
+    const selection = resolveTextSelection({
+      textarea: promptRef.current,
+      lastSelection: pickerSelectionRef.current ?? lastPromptSelectionRef.current,
+      fallbackLength: currentPrompt.length,
+      requireFocus: true,
+    });
+    const cursor = selection.start;
     const { nextText: nextPrompt, nextCursor } = insertReferenceToken(currentPrompt, cursor, marker);
 
     commitManualPromptDraft(nextPrompt);
     setShowImagePicker(false);
-    setPickerCursor(null);
+    pickerSelectionRef.current = null;
     setPickerActiveIndex(0);
-
-    requestAnimationFrame(() => {
-      const promptElement = promptRef.current;
-      if (!promptElement) {
-        return;
-      }
-      promptElement.focus();
-      promptElement.setSelectionRange(nextCursor, nextCursor);
-      syncPromptHighlightScroll();
-      syncPromptTextSelectionState(promptElement);
-    });
-  }, [commitManualPromptDraft, pickerCursor, syncPromptHighlightScroll, syncPromptTextSelectionState]);
+    schedulePromptSelectionRestore(nextCursor);
+  }, [commitManualPromptDraft, schedulePromptSelectionRestore]);
 
   const handlePromptKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
     if (event.key === 'Backspace' || event.key === 'Delete') {
@@ -1247,16 +1190,7 @@ export const ImageEditNode = memo(({ id, data, selected, width, height }: ImageE
         event.preventDefault();
         const { nextText, nextCursor } = removeTextRange(currentPrompt, deleteRange);
         commitManualPromptDraft(nextText);
-        requestAnimationFrame(() => {
-          const promptElement = promptRef.current;
-          if (!promptElement) {
-            return;
-          }
-          promptElement.focus();
-          promptElement.setSelectionRange(nextCursor, nextCursor);
-          syncPromptHighlightScroll();
-          syncPromptTextSelectionState(promptElement);
-        });
+        schedulePromptSelectionRestore(nextCursor);
         return;
       }
     }
@@ -1289,9 +1223,21 @@ export const ImageEditNode = memo(({ id, data, selected, width, height }: ImageE
     if (event.key === '@' && incomingImages.length > 0) {
       event.preventDefault();
       event.stopPropagation();
-      const cursor = event.currentTarget.selectionStart ?? promptDraftRef.current.length;
-      setPickerAnchor(resolvePickerAnchor(promptPanelRef.current, event.currentTarget, cursor));
-      setPickerCursor(cursor);
+      const selection =
+        readTextareaSelection(event.currentTarget, promptDraftRef.current.length)
+        ?? resolveTextSelection({
+          textarea: event.currentTarget,
+          lastSelection: lastPromptSelectionRef.current,
+          fallbackLength: promptDraftRef.current.length,
+        });
+      lastPromptSelectionRef.current = selection;
+      pickerSelectionRef.current = selection;
+      setPickerAnchor(resolveTextareaPickerAnchor({
+        container: promptPanelRef.current,
+        textarea: event.currentTarget,
+        caretIndex: selection.start,
+        yOffset: PICKER_Y_OFFSET_PX,
+      }));
       setShowImagePicker(true);
       setPickerActiveIndex(0);
       return;
@@ -1301,7 +1247,7 @@ export const ImageEditNode = memo(({ id, data, selected, width, height }: ImageE
       event.preventDefault();
       event.stopPropagation();
       setShowImagePicker(false);
-      setPickerCursor(null);
+      pickerSelectionRef.current = null;
       setPickerActiveIndex(0);
       return;
     }
@@ -1448,17 +1394,8 @@ export const ImageEditNode = memo(({ id, data, selected, width, height }: ImageE
   ) => {
     event.preventDefault();
     event.stopPropagation();
-    requestAnimationFrame(() => {
-      const promptElement = promptRef.current;
-      if (!promptElement) {
-        return;
-      }
-      promptElement.focus();
-      promptElement.setSelectionRange(tokenEnd, tokenEnd);
-      syncPromptHighlightScroll();
-      syncPromptTextSelectionState(promptElement);
-    });
-  }, [syncPromptHighlightScroll, syncPromptTextSelectionState]);
+    schedulePromptSelectionRestore(tokenEnd);
+  }, [schedulePromptSelectionRestore]);
 
   return (
     <div
@@ -1520,7 +1457,7 @@ export const ImageEditNode = memo(({ id, data, selected, width, height }: ImageE
             onChange={(event) => {
               const nextValue = event.target.value;
               commitManualPromptDraft(nextValue);
-              syncPromptTextSelectionState(event.currentTarget);
+              rememberPromptSelection(event.currentTarget);
             }}
             onKeyDownCapture={handlePromptKeyDown}
             onScroll={syncPromptHighlightScroll}
@@ -1528,9 +1465,9 @@ export const ImageEditNode = memo(({ id, data, selected, width, height }: ImageE
               event.stopPropagation();
               hidePromptReferencePreview();
             }}
-            onSelect={(event) => syncPromptTextSelectionState(event.currentTarget)}
-            onMouseUp={(event) => syncPromptTextSelectionState(event.currentTarget)}
-            onKeyUp={(event) => syncPromptTextSelectionState(event.currentTarget)}
+            onSelect={(event) => rememberPromptSelection(event.currentTarget)}
+            onMouseUp={(event) => rememberPromptSelection(event.currentTarget)}
+            onKeyUp={(event) => rememberPromptSelection(event.currentTarget)}
             onBlur={() => setIsPromptTextSelectionActive(false)}
             placeholder={t('node.imageEdit.promptPlaceholder')}
             className="ui-scrollbar nodrag nowheel relative z-10 h-full w-full resize-none overflow-y-auto overflow-x-hidden border-none bg-transparent px-1 py-0.5 text-sm leading-6 text-transparent caret-text-dark outline-none placeholder:text-text-muted/80 focus:border-transparent whitespace-pre-wrap break-words selection:bg-accent/30 selection:text-transparent"

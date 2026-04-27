@@ -66,6 +66,15 @@ import {
   resolveReferenceAwareDeleteRange,
 } from "@/features/canvas/application/referenceTokenEditing";
 import {
+  DEFAULT_PICKER_ANCHOR,
+  type PickerAnchor,
+  readTextareaSelection,
+  resolveTextSelection,
+  resolveTextareaPickerAnchor,
+  restoreTextareaSelection,
+  type TextSelectionRange,
+} from "@/features/canvas/application/textareaSelection";
+import {
   NodeHeader,
   NODE_HEADER_FLOATING_POSITION_CLASS,
 } from "@/features/canvas/ui/NodeHeader";
@@ -119,11 +128,6 @@ interface FixedControlOption<T extends string> {
   label: string;
 }
 
-interface PickerAnchor {
-  left: number;
-  top: number;
-}
-
 interface PromptReferencePreviewState {
   imageUrl: string;
   displayUrl: string;
@@ -141,7 +145,6 @@ const JIMENG_IMAGE_NODE_MAX_HEIGHT = 1000;
 const DEFAULT_IMAGE_MODEL: JimengImageModelVersion = "5.0";
 const DEFAULT_IMAGE_RESOLUTION: JimengImageResolutionType = "2k";
 const DEFAULT_IMAGE_ASPECT_RATIO = "1:1";
-const PICKER_FALLBACK_ANCHOR: PickerAnchor = { left: 8, top: 8 };
 const PICKER_Y_OFFSET_PX = 20;
 
 function formatTimestamp(
@@ -164,77 +167,6 @@ function formatTimestamp(
 
 function buildJimengResultNodeTitle(fallbackTitle: string): string {
   return fallbackTitle;
-}
-
-function getTextareaCaretOffset(
-  textarea: HTMLTextAreaElement,
-  caretIndex: number,
-): PickerAnchor {
-  const mirror = document.createElement("div");
-  const computed = window.getComputedStyle(textarea);
-  const mirrorStyle = mirror.style;
-
-  mirrorStyle.position = "absolute";
-  mirrorStyle.visibility = "hidden";
-  mirrorStyle.pointerEvents = "none";
-  mirrorStyle.whiteSpace = "pre-wrap";
-  mirrorStyle.overflowWrap = "break-word";
-  mirrorStyle.wordBreak = "break-word";
-  mirrorStyle.boxSizing = computed.boxSizing;
-  mirrorStyle.width = `${textarea.clientWidth}px`;
-  mirrorStyle.font = computed.font;
-  mirrorStyle.lineHeight = computed.lineHeight;
-  mirrorStyle.letterSpacing = computed.letterSpacing;
-  mirrorStyle.padding = computed.padding;
-  mirrorStyle.border = computed.border;
-  mirrorStyle.textTransform = computed.textTransform;
-  mirrorStyle.textIndent = computed.textIndent;
-
-  mirror.textContent = textarea.value.slice(0, caretIndex);
-
-  const marker = document.createElement("span");
-  marker.textContent = textarea.value.slice(caretIndex, caretIndex + 1) || " ";
-  mirror.appendChild(marker);
-
-  document.body.appendChild(mirror);
-
-  const left = marker.offsetLeft - textarea.scrollLeft;
-  const top = marker.offsetTop - textarea.scrollTop;
-
-  document.body.removeChild(mirror);
-
-  return {
-    left: Math.max(0, left),
-    top: Math.max(0, top),
-  };
-}
-
-function resolvePickerAnchor(
-  container: HTMLDivElement | null,
-  textarea: HTMLTextAreaElement,
-  caretIndex: number,
-): PickerAnchor {
-  if (!container) {
-    return PICKER_FALLBACK_ANCHOR;
-  }
-
-  const containerRect = container.getBoundingClientRect();
-  const textareaRect = textarea.getBoundingClientRect();
-  const caretOffset = getTextareaCaretOffset(textarea, caretIndex);
-
-  return {
-    left: Math.max(
-      0,
-      textareaRect.left - containerRect.left + caretOffset.left,
-    ),
-    top: Math.max(
-      0,
-      textareaRect.top -
-        containerRect.top +
-        caretOffset.top +
-        PICKER_Y_OFFSET_PX,
-    ),
-  };
 }
 
 function renderPromptWithHighlights(
@@ -413,6 +345,8 @@ export const JimengImageNode = memo(
     const promptHoverLayerRef = useRef<HTMLDivElement>(null);
     const [promptDraft, setPromptDraft] = useState(() => data.prompt ?? "");
     const promptValueRef = useRef(promptDraft);
+    const lastPromptSelectionRef = useRef<TextSelectionRange | null>(null);
+    const pickerSelectionRef = useRef<TextSelectionRange | null>(null);
     const previousIncomingImagesRef = useRef<string[] | null>(null);
     const pickerItemRefs = useRef<Array<HTMLButtonElement | null>>([]);
     const [isOptimizingPrompt, setIsOptimizingPrompt] = useState(false);
@@ -427,10 +361,9 @@ export const JimengImageNode = memo(
     ] = useState<PromptOptimizationUndoState | null>(null);
     const [showCameraParamsDialog, setShowCameraParamsDialog] = useState(false);
     const [showImagePicker, setShowImagePicker] = useState(false);
-    const [pickerCursor, setPickerCursor] = useState<number | null>(null);
     const [pickerActiveIndex, setPickerActiveIndex] = useState(0);
     const [pickerAnchor, setPickerAnchor] = useState<PickerAnchor>(
-      PICKER_FALLBACK_ANCHOR,
+      DEFAULT_PICKER_ANCHOR,
     );
     const [promptReferencePreview, setPromptReferencePreview] =
       useState<PromptReferencePreviewState | null>(null);
@@ -618,7 +551,7 @@ export const JimengImageNode = memo(
     useEffect(() => {
       if (incomingImages.length === 0 || !modelSupportsReferenceImages) {
         setShowImagePicker(false);
-        setPickerCursor(null);
+        pickerSelectionRef.current = null;
         setPickerActiveIndex(0);
         setPromptReferencePreview(null);
         return;
@@ -650,7 +583,7 @@ export const JimengImageNode = memo(
         }
 
         setShowImagePicker(false);
-        setPickerCursor(null);
+        pickerSelectionRef.current = null;
         setPromptReferencePreview(null);
       };
 
@@ -687,6 +620,17 @@ export const JimengImageNode = memo(
       [],
     );
 
+    const rememberPromptSelection = useCallback(
+      (textarea: HTMLTextAreaElement | null) => {
+        lastPromptSelectionRef.current = readTextareaSelection(
+          textarea,
+          textarea?.value.length ?? promptValueRef.current.length,
+        );
+        syncPromptTextSelectionState(textarea);
+      },
+      [syncPromptTextSelectionState],
+    );
+
     const syncPromptHighlightScroll = useCallback(() => {
       if (!promptRef.current || !promptHighlightRef.current) {
         return;
@@ -700,11 +644,37 @@ export const JimengImageNode = memo(
       }
     }, []);
 
+    const schedulePromptSelectionRestore = useCallback(
+      (selection: TextSelectionRange | number) => {
+        requestAnimationFrame(() => {
+          restoreTextareaSelection(
+            promptRef.current,
+            selection,
+            promptValueRef.current.length,
+            {
+              syncScroll: syncPromptHighlightScroll,
+              onAfterRestore: (textarea, nextSelection) => {
+                lastPromptSelectionRef.current = nextSelection;
+                syncPromptTextSelectionState(textarea);
+              },
+            },
+          );
+        });
+      },
+      [syncPromptHighlightScroll, syncPromptTextSelectionState],
+    );
+
     const insertImageReference = useCallback(
       (imageIndex: number) => {
         const marker = buildShortReferenceToken(imageIndex);
         const currentPrompt = promptValueRef.current;
-        const cursor = pickerCursor ?? currentPrompt.length;
+        const selection = resolveTextSelection({
+          textarea: promptRef.current,
+          lastSelection: pickerSelectionRef.current ?? lastPromptSelectionRef.current,
+          fallbackLength: currentPrompt.length,
+          requireFocus: true,
+        });
+        const cursor = selection.start;
         const { nextText, nextCursor } = insertReferenceToken(
           currentPrompt,
           cursor,
@@ -713,32 +683,17 @@ export const JimengImageNode = memo(
 
         handlePromptChange(nextText);
         setShowImagePicker(false);
-        setPickerCursor(null);
+        pickerSelectionRef.current = null;
         setPickerActiveIndex(0);
-
-        requestAnimationFrame(() => {
-          const promptElement = promptRef.current;
-          if (!promptElement) {
-            return;
-          }
-          promptElement.focus();
-          promptElement.setSelectionRange(nextCursor, nextCursor);
-          syncPromptHighlightScroll();
-          syncPromptTextSelectionState(promptElement);
-        });
+        schedulePromptSelectionRestore(nextCursor);
       },
-      [
-        handlePromptChange,
-        pickerCursor,
-        syncPromptHighlightScroll,
-        syncPromptTextSelectionState,
-      ],
+      [handlePromptChange, schedulePromptSelectionRestore],
     );
 
     const handleRemoveReferenceImage = useCallback(
       (sourceEdgeId: string) => {
         setShowImagePicker(false);
-        setPickerCursor(null);
+        pickerSelectionRef.current = null;
         setPromptReferencePreview(null);
         deleteEdge(sourceEdgeId);
       },
@@ -798,17 +753,7 @@ export const JimengImageNode = memo(
         }
 
         updatePrompt(nextPrompt);
-        requestAnimationFrame(() => {
-          const promptElement = promptRef.current;
-          if (!promptElement) {
-            return;
-          }
-          promptElement.focus();
-          const cursor = nextPrompt.length;
-          promptElement.setSelectionRange(cursor, cursor);
-          syncPromptHighlightScroll();
-          syncPromptTextSelectionState(promptElement);
-        });
+        schedulePromptSelectionRestore(nextPrompt.length);
       } catch (error) {
         const message =
           error instanceof Error && error.message.trim().length > 0
@@ -846,21 +791,10 @@ export const JimengImageNode = memo(
       setLastPromptOptimizationMeta(null);
       setLastPromptOptimizationUndoState(null);
       updatePrompt(restoredPrompt);
-      requestAnimationFrame(() => {
-        const promptElement = promptRef.current;
-        if (!promptElement) {
-          return;
-        }
-        promptElement.focus();
-        const cursor = restoredPrompt.length;
-        promptElement.setSelectionRange(cursor, cursor);
-        syncPromptHighlightScroll();
-        syncPromptTextSelectionState(promptElement);
-      });
+      schedulePromptSelectionRestore(restoredPrompt.length);
     }, [
       lastPromptOptimizationUndoState,
-      syncPromptHighlightScroll,
-      syncPromptTextSelectionState,
+      schedulePromptSelectionRestore,
       updatePrompt,
     ]);
 
@@ -1148,18 +1082,9 @@ export const JimengImageNode = memo(
       (tokenEnd: number, event: ReactMouseEvent<HTMLSpanElement>) => {
         event.preventDefault();
         event.stopPropagation();
-        requestAnimationFrame(() => {
-          const promptElement = promptRef.current;
-          if (!promptElement) {
-            return;
-          }
-          promptElement.focus();
-          promptElement.setSelectionRange(tokenEnd, tokenEnd);
-          syncPromptHighlightScroll();
-          syncPromptTextSelectionState(promptElement);
-        });
+        schedulePromptSelectionRestore(tokenEnd);
       },
-      [syncPromptHighlightScroll, syncPromptTextSelectionState],
+      [schedulePromptSelectionRestore],
     );
 
     const handlePromptKeyDown = useCallback(
@@ -1186,16 +1111,7 @@ export const JimengImageNode = memo(
               deleteRange,
             );
             handlePromptChange(nextText);
-            requestAnimationFrame(() => {
-              const promptElement = promptRef.current;
-              if (!promptElement) {
-                return;
-              }
-              promptElement.focus();
-              promptElement.setSelectionRange(nextCursor, nextCursor);
-              syncPromptHighlightScroll();
-              syncPromptTextSelectionState(promptElement);
-            });
+            schedulePromptSelectionRestore(nextCursor);
             return;
           }
         }
@@ -1234,16 +1150,23 @@ export const JimengImageNode = memo(
         ) {
           event.preventDefault();
           event.stopPropagation();
-          const cursor =
-            event.currentTarget.selectionStart ?? promptValueRef.current.length;
+          const selection =
+            readTextareaSelection(event.currentTarget, promptValueRef.current.length)
+            ?? resolveTextSelection({
+              textarea: event.currentTarget,
+              lastSelection: lastPromptSelectionRef.current,
+              fallbackLength: promptValueRef.current.length,
+            });
+          lastPromptSelectionRef.current = selection;
+          pickerSelectionRef.current = selection;
           setPickerAnchor(
-            resolvePickerAnchor(
-              promptPanelRef.current,
-              event.currentTarget,
-              cursor,
-            ),
+            resolveTextareaPickerAnchor({
+              container: promptPanelRef.current,
+              textarea: event.currentTarget,
+              caretIndex: selection.start,
+              yOffset: PICKER_Y_OFFSET_PX,
+            }),
           );
-          setPickerCursor(cursor);
           setShowImagePicker(true);
           setPickerActiveIndex(0);
           return;
@@ -1253,7 +1176,7 @@ export const JimengImageNode = memo(
           event.preventDefault();
           event.stopPropagation();
           setShowImagePicker(false);
-          setPickerCursor(null);
+          pickerSelectionRef.current = null;
           setPickerActiveIndex(0);
           return;
         }
@@ -1272,8 +1195,7 @@ export const JimengImageNode = memo(
         modelSupportsReferenceImages,
         pickerActiveIndex,
         showImagePicker,
-        syncPromptHighlightScroll,
-        syncPromptTextSelectionState,
+        schedulePromptSelectionRestore,
       ],
     );
 
@@ -1412,12 +1334,12 @@ export const JimengImageNode = memo(
                 </div>
               </div>
 
-              <textarea
-                ref={promptRef}
-                value={promptDraft}
+                <textarea
+                  ref={promptRef}
+                  value={promptDraft}
                 onChange={(event) => {
                   handlePromptChange(event.target.value);
-                  syncPromptTextSelectionState(event.currentTarget);
+                  rememberPromptSelection(event.currentTarget);
                 }}
                 placeholder={t("node.jimengImage.promptPlaceholder")}
                 className="ui-scrollbar nodrag nowheel relative z-10 h-full w-full resize-none rounded-xl border border-white/10 bg-black/15 px-3 py-2 text-sm leading-6 text-transparent caret-text-dark outline-none placeholder:text-text-muted/70 focus:border-accent/50 whitespace-pre-wrap break-words selection:bg-accent/30 selection:text-transparent"
@@ -1428,13 +1350,13 @@ export const JimengImageNode = memo(
                   hidePromptReferencePreview();
                 }}
                 onSelect={(event) =>
-                  syncPromptTextSelectionState(event.currentTarget)
+                  rememberPromptSelection(event.currentTarget)
                 }
                 onMouseUp={(event) =>
-                  syncPromptTextSelectionState(event.currentTarget)
+                  rememberPromptSelection(event.currentTarget)
                 }
                 onKeyUp={(event) =>
-                  syncPromptTextSelectionState(event.currentTarget)
+                  rememberPromptSelection(event.currentTarget)
                 }
                 onBlur={() => setIsPromptTextSelectionActive(false)}
                 onKeyDownCapture={handlePromptKeyDown}

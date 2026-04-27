@@ -74,6 +74,10 @@ import {
   prepareNodeVideoFromSource,
 } from '@/features/canvas/application/videoData';
 import {
+  canNodeInheritAltDuplicatedReferenceInputs,
+  nodeProvidesReferenceMaterial,
+} from '@/features/canvas/application/nodeReferenceExtraction';
+import {
   buildGenerationErrorReport,
   CURRENT_RUNTIME_SESSION_ID,
 } from '@/features/canvas/application/generationErrorReport';
@@ -194,6 +198,7 @@ interface DuplicateOptions {
   disableOffsetIteration?: boolean;
   suppressSelect?: boolean;
   suppressPersist?: boolean;
+  includeExternalMaterialEdges?: boolean;
 }
 
 interface DuplicateResult {
@@ -3515,9 +3520,26 @@ export function Canvas() {
       }
 
       const sourceIdSet = new Set(sourceNodes.map((node) => node.id));
+      const sourceById = new globalThis.Map(sourceNodes.map((sourceNode) => [sourceNode.id, sourceNode] as const));
+      const allNodeById = new globalThis.Map(nodes.map((currentNode) => [currentNode.id, currentNode] as const));
       const internalEdges = edges.filter(
         (edge) => sourceIdSet.has(edge.source) && sourceIdSet.has(edge.target)
       );
+      const externalMaterialIncomingEdges = options.includeExternalMaterialEdges
+        ? edges.filter((edge) => {
+          if (sourceIdSet.has(edge.source) || !sourceIdSet.has(edge.target)) {
+            return false;
+          }
+
+          const targetNode = sourceById.get(edge.target);
+          const sourceNode = allNodeById.get(edge.source);
+          if (!canNodeInheritAltDuplicatedReferenceInputs(targetNode) || !sourceNode) {
+            return false;
+          }
+
+          return nodeProvidesReferenceMaterial(sourceNode);
+        })
+        : [];
 
       const baseOffsets = [
         { x: 44, y: 30 },
@@ -3562,7 +3584,6 @@ export function Canvas() {
 
       const idMap = new globalThis.Map<string, string>();
       const sizeMap = new globalThis.Map<string, { width: number; height: number }>();
-      const sourceById = new globalThis.Map(sourceNodes.map((sourceNode) => [sourceNode.id, sourceNode] as const));
       for (const sourceNode of sourceNodes) {
         const data = cloneNodeData(sourceNode.data);
         if (sourceNode.type === CANVAS_NODE_TYPES.mj) {
@@ -3702,6 +3723,20 @@ export function Canvas() {
         });
       }
 
+      for (const edge of externalMaterialIncomingEdges) {
+        const nextTarget = idMap.get(edge.target);
+        if (!nextTarget) {
+          continue;
+        }
+
+        connectNodesWithBusinessRules({
+          source: edge.source,
+          target: nextTarget,
+          sourceHandle: edge.sourceHandle ?? 'source',
+          targetHandle: edge.targetHandle ?? 'target',
+        }, { schedulePersist: false });
+      }
+
       if (!options.disableOffsetIteration) {
         pasteIterationRef.current += 1;
       }
@@ -3714,7 +3749,16 @@ export function Canvas() {
       }
       return { firstNodeId, idMap };
     },
-    [addNode, applyNodesChange, connectNodes, edges, nodes, scheduleCanvasPersist, setSelectedNode]
+    [
+      addNode,
+      applyNodesChange,
+      connectNodes,
+      connectNodesWithBusinessRules,
+      edges,
+      nodes,
+      scheduleCanvasPersist,
+      setSelectedNode,
+    ]
   );
 
   useEffect(() => {
@@ -3817,6 +3861,7 @@ export function Canvas() {
       const duplicateResult = duplicateNodes(sourceNodeIds, {
         explicitOffset: { x: 0, y: 0 },
         disableOffsetIteration: true,
+        includeExternalMaterialEdges: true,
         suppressPersist: true,
         suppressSelect: true,
       });

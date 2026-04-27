@@ -2,11 +2,13 @@ import {
   isAudioNode,
   isExportImageNode,
   isImageEditNode,
+  isJimengNode,
   isMjResultNode,
   isPanorama360Node,
   isJimengImageNode,
   isJimengImageResultNode,
   isJimengVideoResultNode,
+  isSeedanceNode,
   isSeedanceVideoResultNode,
   isStoryboardGenNode,
   isUploadNode,
@@ -201,4 +203,26 @@ export function extractAudioReference(node: CanvasNode): ExtractedAudioReference
     mimeType,
     durationSeconds: typeof node.data.duration === 'number' ? node.data.duration : null,
   };
+}
+
+export function nodeProvidesReferenceMaterial(node: CanvasNode | null | undefined): boolean {
+  if (!node) {
+    return false;
+  }
+
+  return extractReferenceVisuals(node).length > 0 || Boolean(extractAudioReference(node));
+}
+
+export function canNodeInheritAltDuplicatedReferenceInputs(
+  node: CanvasNode | null | undefined
+): boolean {
+  if (!node) {
+    return false;
+  }
+
+  return isImageEditNode(node)
+    || isStoryboardGenNode(node)
+    || isJimengImageNode(node)
+    || isJimengNode(node)
+    || isSeedanceNode(node);
 }
