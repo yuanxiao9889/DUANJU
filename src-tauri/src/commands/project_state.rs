@@ -1304,11 +1304,12 @@ fn repair_project_record_storage_aliases_if_needed(
     app: &AppHandle,
     record: &mut ProjectRecord,
 ) -> Result<bool, String> {
-    let images_dir = resolve_images_dir(app)?;
     let Some((next_nodes_json, next_history_json)) =
-        rewrite_project_payload_media_paths(&record.nodes_json, &record.history_json, &|value| {
-            storage::relocate_storage_path_to_images_dir(value, &images_dir)
-        })?
+        rewrite_project_payload_media_paths_to_known_storage(
+            app,
+            &record.nodes_json,
+            &record.history_json,
+        )?
     else {
         return Ok(false);
     };
@@ -1326,6 +1327,17 @@ fn repair_project_record_storage_aliases_if_needed(
     record.nodes_json = next_nodes_json;
     record.history_json = next_history_json;
     Ok(true)
+}
+
+fn rewrite_project_payload_media_paths_to_known_storage(
+    app: &AppHandle,
+    nodes_json: &str,
+    history_json: &str,
+) -> Result<Option<(String, String)>, String> {
+    let known_images_dirs = storage::resolve_known_images_dirs(app)?;
+    rewrite_project_payload_media_paths(nodes_json, history_json, &|value| {
+        storage::relocate_storage_path_to_known_images_dirs(value, &known_images_dirs)
+    })
 }
 
 pub(crate) fn rewrite_storage_media_paths_in_connection(
@@ -1535,7 +1547,7 @@ pub(crate) fn replace_project_image_refs(
 
 #[tauri::command]
 pub fn sync_style_template_image_refs(app: AppHandle, paths: Vec<String>) -> Result<(), String> {
-    let images_dir = resolve_images_dir(&app)?;
+    let known_images_dirs = storage::resolve_known_images_dirs(&app)?;
     let mut conn = open_db(&app)?;
     let tx = conn
         .transaction()
@@ -1553,8 +1565,9 @@ pub fn sync_style_template_image_refs(app: AppHandle, paths: Vec<String>) -> Res
             continue;
         }
 
-        let relocated_path = storage::relocate_storage_path_to_images_dir(trimmed, &images_dir)
-            .unwrap_or_else(|| trimmed.to_string());
+        let relocated_path =
+            storage::relocate_storage_path_to_known_images_dirs(trimmed, &known_images_dirs)
+                .unwrap_or_else(|| trimmed.to_string());
         let Some(normalized_path) = normalize_image_ref_path(&relocated_path) else {
             continue;
         };
@@ -1706,11 +1719,12 @@ pub fn get_project_record(
 
 #[tauri::command]
 pub fn upsert_project_record(app: AppHandle, mut record: ProjectRecord) -> Result<(), String> {
-    let images_dir = resolve_images_dir(&app)?;
     if let Some((next_nodes_json, next_history_json)) =
-        rewrite_project_payload_media_paths(&record.nodes_json, &record.history_json, &|value| {
-            storage::relocate_storage_path_to_images_dir(value, &images_dir)
-        })?
+        rewrite_project_payload_media_paths_to_known_storage(
+            &app,
+            &record.nodes_json,
+            &record.history_json,
+        )?
     {
         record.nodes_json = next_nodes_json;
         record.history_json = next_history_json;
@@ -2315,7 +2329,10 @@ mod tests {
         let history_json = r#"{"past":[],"future":[]}"#;
 
         let rewritten = rewrite_project_payload_media_paths(nodes_json, history_json, &|value| {
-            storage::relocate_storage_path_to_images_dir(value, &images_dir)
+            storage::relocate_storage_path_to_known_images_dirs(
+                value,
+                std::slice::from_ref(&images_dir),
+            )
         })
         .expect("rewrite should succeed")
         .expect("payload should change");
@@ -2415,7 +2432,10 @@ mod tests {
         "#;
 
         let rewritten = rewrite_project_payload_media_paths(nodes_json, history_json, &|value| {
-            storage::relocate_storage_path_to_images_dir(value, &images_dir)
+            storage::relocate_storage_path_to_known_images_dirs(
+                value,
+                std::slice::from_ref(&images_dir),
+            )
         })
         .expect("rewrite should succeed")
         .expect("payload should change");

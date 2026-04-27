@@ -173,6 +173,35 @@ pub fn resolve_images_dir(app: &AppHandle) -> Result<PathBuf, String> {
     Ok(images_dir)
 }
 
+pub(crate) fn resolve_known_images_dirs(app: &AppHandle) -> Result<Vec<PathBuf>, String> {
+    let mut results = Vec::new();
+    let mut seen = HashSet::new();
+
+    let current_images_dir = resolve_images_dir(app)?;
+    let current_compare_key =
+        storage_path_compare_key(&current_images_dir.to_string_lossy().replace('\\', "/"));
+    seen.insert(current_compare_key);
+    results.push(current_images_dir);
+
+    let default_images_dir = get_default_storage_path(app)?.join("images");
+    let default_compare_key =
+        storage_path_compare_key(&default_images_dir.to_string_lossy().replace('\\', "/"));
+    if seen.insert(default_compare_key) {
+        results.push(default_images_dir);
+    }
+
+    let config = read_storage_config(app)?;
+    for legacy_path in config.legacy_paths {
+        let images_dir = PathBuf::from(legacy_path).join("images");
+        let compare_key = storage_path_compare_key(&images_dir.to_string_lossy().replace('\\', "/"));
+        if seen.insert(compare_key) {
+            results.push(images_dir);
+        }
+    }
+
+    Ok(results)
+}
+
 pub(crate) fn normalize_storage_path_string(value: &str) -> Option<String> {
     let trimmed = value.trim();
     if trimmed.is_empty() {
@@ -244,9 +273,9 @@ pub(crate) fn rebase_storage_path_string(
     Some(format!("{}/{}", normalized_to_base, suffix))
 }
 
-pub(crate) fn relocate_storage_path_to_images_dir(
+pub(crate) fn relocate_storage_path_to_known_images_dirs(
     value: &str,
-    images_dir: &Path,
+    images_dirs: &[PathBuf],
 ) -> Option<String> {
     let normalized_value = normalize_storage_path_string(value)?;
     let current_path = PathBuf::from(&normalized_value);
@@ -263,19 +292,24 @@ pub(crate) fn relocate_storage_path_to_images_dir(
     }
 
     let file_name = current_path.file_name()?.to_str()?;
-    let candidate_path = images_dir.join(file_name);
-    if !candidate_path.exists() {
-        return None;
+    let normalized_value_compare_key = storage_path_compare_key(&normalized_value);
+
+    for images_dir in images_dirs {
+        let candidate_path = images_dir.join(file_name);
+        if !candidate_path.exists() {
+            continue;
+        }
+
+        let normalized_candidate =
+            normalize_storage_path_string(&candidate_path.to_string_lossy())?;
+        if storage_path_compare_key(&normalized_candidate) == normalized_value_compare_key {
+            continue;
+        }
+
+        return Some(normalized_candidate);
     }
 
-    let normalized_candidate = normalize_storage_path_string(&candidate_path.to_string_lossy())?;
-    if storage_path_compare_key(&normalized_candidate)
-        == storage_path_compare_key(&normalized_value)
-    {
-        return None;
-    }
-
-    Some(normalized_candidate)
+    None
 }
 
 pub fn resolve_debug_dir(app: &AppHandle) -> Result<PathBuf, String> {
@@ -949,7 +983,9 @@ pub fn open_storage_folder(app: AppHandle) -> Result<(), String> {
 
 #[cfg(test)]
 mod tests {
-    use super::{rebase_storage_path_string, relocate_storage_path_to_images_dir};
+    use super::{
+        rebase_storage_path_string, relocate_storage_path_to_known_images_dirs,
+    };
     use std::fs;
     use std::path::PathBuf;
 
@@ -974,9 +1010,9 @@ mod tests {
         let candidate_path = images_dir.join("missing.png");
         fs::write(&candidate_path, b"ok").expect("failed to seed image");
 
-        let relocated = relocate_storage_path_to_images_dir(
+        let relocated = relocate_storage_path_to_known_images_dirs(
             r"C:\LegacyStorage\images\missing.png",
-            &images_dir,
+            &[images_dir],
         )
         .expect("legacy image path should relocate");
 
@@ -984,6 +1020,31 @@ mod tests {
             relocated,
             candidate_path.to_string_lossy().replace('\\', "/")
         );
+
+        let _ = fs::remove_dir_all(temp_root);
+    }
+
+    #[test]
+    fn relocate_storage_path_to_known_images_dirs_checks_multiple_storage_roots() {
+        let temp_root = std::env::temp_dir().join(format!(
+            "storyboard-storage-known-images-test-{}",
+            std::process::id()
+        ));
+        let current_images_dir = temp_root.join("current").join("images");
+        let legacy_images_dir = temp_root.join("legacy").join("images");
+        fs::create_dir_all(&current_images_dir).expect("failed to create current images dir");
+        fs::create_dir_all(&legacy_images_dir).expect("failed to create legacy images dir");
+
+        let legacy_file = legacy_images_dir.join("recoverable.png");
+        fs::write(&legacy_file, b"ok").expect("failed to seed legacy image");
+
+        let relocated = relocate_storage_path_to_known_images_dirs(
+            r"G:\AI画布\缓存\images\recoverable.png",
+            &[current_images_dir, legacy_images_dir],
+        )
+        .expect("legacy image path should relocate from known dirs");
+
+        assert_eq!(relocated, legacy_file.to_string_lossy().replace('\\', "/"));
 
         let _ = fs::remove_dir_all(temp_root);
     }
