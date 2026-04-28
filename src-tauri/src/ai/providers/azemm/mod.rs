@@ -1,4 +1,5 @@
 use base64::{engine::general_purpose::STANDARD, Engine};
+use reqwest::multipart::{Form, Part};
 use reqwest::Client;
 use serde_json::{json, Value};
 use std::fs;
@@ -17,19 +18,40 @@ use crate::ai::{AIProvider, GenerateRequest};
 
 const DEFAULT_BASE_URL: &str = "https://api.azemm.top";
 const CHAT_COMPLETIONS_ENDPOINT_PATH: &str = "/v1/chat/completions";
+const GENERATIONS_ENDPOINT_PATH: &str = "/v1/images/generations";
+const EDITS_ENDPOINT_PATH: &str = "/v1/images/edits";
 const BANANA_CLIENT_HEADER_VALUE: &str = "comfyui-banana-li";
 const CHAT_COMPLETIONS_GEMINI_PREFIX: &str = "google/";
+const GPT_IMAGE_2_MODEL: &str = "gpt-image-2";
 const GEMINI_PRO_IMAGE_PREVIEW_MODEL: &str = "gemini-3-pro-image-preview";
 const GEMINI_FLASH_IMAGE_PREVIEW_MODEL: &str = "gemini-3.1-flash-image-preview";
+const GPT_IMAGE_2_MAX_EDGE: f32 = 3840.0;
+const GPT_IMAGE_2_MAX_PIXELS: f32 = 8_294_400.0;
 const CURL_JSON_TRANSPORT_MIN_BYTES: usize = 64 * 1024;
 const CURL_JSON_TRANSPORT_TIMEOUT_SECONDS: u64 = 240;
 #[cfg(target_os = "windows")]
 const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 
-const SUPPORTED_MODELS: [&str; 2] = [
+const SUPPORTED_MODELS: [&str; 3] = [
+    GPT_IMAGE_2_MODEL,
     GEMINI_PRO_IMAGE_PREVIEW_MODEL,
     GEMINI_FLASH_IMAGE_PREVIEW_MODEL,
 ];
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum AzemmRequestRoute {
+    GptImage2Generations,
+    GptImage2Edits,
+    GenerateContent,
+    ChatCompletions,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct GptImage2RequestFields {
+    size: Option<String>,
+    quality: Option<String>,
+}
+
 pub struct AzemmProvider {
     client: Client,
     api_key: Arc<RwLock<Option<String>>>,
@@ -97,14 +119,41 @@ impl AzemmProvider {
             || normalized.eq_ignore_ascii_case(GEMINI_PRO_IMAGE_PREVIEW_MODEL)
     }
 
+    fn is_gpt_image_2_model(model: &str) -> bool {
+        Self::sanitize_model(model).eq_ignore_ascii_case(GPT_IMAGE_2_MODEL)
+    }
+
+    fn has_reference_images(request: &GenerateRequest) -> bool {
+        request
+            .reference_images
+            .as_ref()
+            .map(|images| !images.is_empty())
+            .unwrap_or(false)
+    }
+
     fn has_image_intent(request: &GenerateRequest) -> bool {
         !request.size.trim().is_empty()
             || !request.aspect_ratio.trim().is_empty()
-            || request
-                .reference_images
-                .as_ref()
-                .map(|images| !images.is_empty())
-                .unwrap_or(false)
+            || Self::has_reference_images(request)
+    }
+
+    fn resolve_request_route(request: &GenerateRequest) -> AzemmRequestRoute {
+        let request_model = Self::sanitize_model(&request.model);
+        if Self::is_gpt_image_2_model(&request_model) {
+            return if Self::has_reference_images(request) {
+                AzemmRequestRoute::GptImage2Edits
+            } else {
+                AzemmRequestRoute::GptImage2Generations
+            };
+        }
+
+        if Self::has_image_intent(request)
+            && Self::should_use_generate_content_for_model(&request_model)
+        {
+            return AzemmRequestRoute::GenerateContent;
+        }
+
+        AzemmRequestRoute::ChatCompletions
     }
 
     fn resolve_chat_size(size: &str) -> Option<&'static str> {
@@ -122,6 +171,144 @@ impl AzemmProvider {
             "2K" => Some("2K"),
             "4K" => Some("4K"),
             _ => None,
+        }
+    }
+
+    fn resolve_gpt_image_2_quality(request: &GenerateRequest) -> Option<String> {
+        let quality = request
+            .extra_params
+            .as_ref()
+            .and_then(|params| params.get("quality"))
+            .and_then(|raw| raw.as_str())
+            .map(|value| value.trim().to_ascii_lowercase())
+            .filter(|value| matches!(value.as_str(), "auto" | "low" | "medium" | "high"));
+
+        match quality.as_deref() {
+            Some("low") | Some("medium") | Some("high") => quality,
+            _ => None,
+        }
+    }
+
+    fn parse_aspect_ratio(value: &str) -> Option<f32> {
+        let (raw_width, raw_height) = value.split_once(':')?;
+        let width = raw_width.trim().parse::<f32>().ok()?;
+        let height = raw_height.trim().parse::<f32>().ok()?;
+        if width <= 0.0 || height <= 0.0 {
+            return None;
+        }
+
+        Some(width / height)
+    }
+
+    fn round_dimension_to_multiple(value: f32) -> u32 {
+        let rounded = ((value / 16.0).round() as i32).max(1) * 16;
+        rounded as u32
+    }
+
+    fn is_near_ratio(actual: f32, target: f32) -> bool {
+        (actual - target).abs() < 0.12
+    }
+
+    fn clamp_gpt_image_2_dimensions(width: f32, height: f32) -> Option<(u32, u32)> {
+        if !width.is_finite() || !height.is_finite() || width <= 0.0 || height <= 0.0 {
+            return None;
+        }
+
+        let edge_scale = (GPT_IMAGE_2_MAX_EDGE / width.max(height)).min(1.0);
+        let pixel_scale = (GPT_IMAGE_2_MAX_PIXELS / (width * height)).sqrt().min(1.0);
+        let scale = edge_scale.min(pixel_scale);
+
+        let mut scaled_width = width * scale;
+        let mut scaled_height = height * scale;
+        let mut rounded_width = Self::round_dimension_to_multiple(scaled_width);
+        let mut rounded_height = Self::round_dimension_to_multiple(scaled_height);
+
+        while (rounded_width as f32 > GPT_IMAGE_2_MAX_EDGE
+            || rounded_height as f32 > GPT_IMAGE_2_MAX_EDGE
+            || (rounded_width * rounded_height) as f32 > GPT_IMAGE_2_MAX_PIXELS)
+            && rounded_width > 16
+            && rounded_height > 16
+        {
+            let downscale = (GPT_IMAGE_2_MAX_EDGE / rounded_width.max(rounded_height) as f32).min(
+                (GPT_IMAGE_2_MAX_PIXELS / (rounded_width * rounded_height) as f32)
+                    .sqrt()
+                    .min(1.0),
+            );
+            scaled_width *= downscale.min(0.995);
+            scaled_height *= downscale.min(0.995);
+            rounded_width = Self::round_dimension_to_multiple(scaled_width);
+            rounded_height = Self::round_dimension_to_multiple(scaled_height);
+        }
+
+        Some((rounded_width, rounded_height))
+    }
+
+    fn resolve_gpt_image_2_size(size: &str, aspect_ratio: &str) -> Option<String> {
+        let normalized_size = size.trim().to_ascii_lowercase();
+        let ratio = Self::parse_aspect_ratio(aspect_ratio.trim())?;
+
+        if Self::is_near_ratio(ratio, 1.0) {
+            match normalized_size.as_str() {
+                "1k" => return Some("1024x1024".to_string()),
+                "2k" => return Some("2048x2048".to_string()),
+                _ => {}
+            }
+        }
+        if Self::is_near_ratio(ratio, 16.0 / 9.0) {
+            match normalized_size.as_str() {
+                "1k" => return Some("1536x1024".to_string()),
+                "2k" => return Some("2048x1152".to_string()),
+                "4k" => return Some("3840x2160".to_string()),
+                _ => {}
+            }
+        }
+        if Self::is_near_ratio(ratio, 9.0 / 16.0) {
+            match normalized_size.as_str() {
+                "1k" => return Some("1024x1536".to_string()),
+                "2k" => return Some("1152x2048".to_string()),
+                "4k" => return Some("2160x3840".to_string()),
+                _ => {}
+            }
+        }
+
+        let resolved = match normalized_size.as_str() {
+            "1k" => {
+                if ratio >= 1.0 {
+                    let height = 1024.0;
+                    let width = height * ratio;
+                    Self::clamp_gpt_image_2_dimensions(width, height)
+                } else {
+                    let width = 1024.0;
+                    let height = width / ratio;
+                    Self::clamp_gpt_image_2_dimensions(width, height)
+                }
+            }
+            "2k" => {
+                if ratio >= 1.0 {
+                    let width = 2048.0;
+                    let height = width / ratio;
+                    Self::clamp_gpt_image_2_dimensions(width, height)
+                } else {
+                    let height = 2048.0;
+                    let width = height * ratio;
+                    Self::clamp_gpt_image_2_dimensions(width, height)
+                }
+            }
+            "4k" => {
+                let width = (GPT_IMAGE_2_MAX_PIXELS * ratio).sqrt();
+                let height = (GPT_IMAGE_2_MAX_PIXELS / ratio).sqrt();
+                Self::clamp_gpt_image_2_dimensions(width, height)
+            }
+            _ => None,
+        }?;
+
+        Some(format!("{}x{}", resolved.0, resolved.1))
+    }
+
+    fn resolve_gpt_image_2_request_fields(request: &GenerateRequest) -> GptImage2RequestFields {
+        GptImage2RequestFields {
+            size: Self::resolve_gpt_image_2_size(&request.size, &request.aspect_ratio),
+            quality: Self::resolve_gpt_image_2_quality(request),
         }
     }
 
@@ -636,8 +823,10 @@ impl AzemmProvider {
     }
 
     fn should_use_curl_json_transport(request_kind: &str, payload_len: usize) -> bool {
-        payload_len >= CURL_JSON_TRANSPORT_MIN_BYTES
-            && (request_kind.starts_with("chat-") || request_kind.starts_with("generateContent"))
+        request_kind.starts_with("gpt-image-2-")
+            || (payload_len >= CURL_JSON_TRANSPORT_MIN_BYTES
+                && (request_kind.starts_with("chat-")
+                    || request_kind.starts_with("generateContent")))
     }
 
     fn should_continue_chat_completion_attempt(message: &str) -> bool {
@@ -788,6 +977,53 @@ impl AzemmProvider {
             .header("X-Banana-Client", BANANA_CLIENT_HEADER_VALUE)
             .header("Content-Type", "application/json")
             .body(request_body)
+            .send()
+            .await?;
+
+        let status = response.status();
+        let response_text = response.text().await?;
+        info!("[Azemm] {} -> {}", endpoint, status);
+        info!("[Azemm] {} response: {}", request_kind, response_text);
+
+        let payload = serde_json::from_str::<Value>(&response_text);
+
+        if !status.is_success() {
+            if let Ok(payload) = &payload {
+                if let Some(message) = Self::extract_error_message(payload) {
+                    return Err(AIError::Provider(message));
+                }
+            }
+
+            return Err(AIError::Provider(format!(
+                "Azemm {} request failed {}: {}",
+                request_kind, status, response_text
+            )));
+        }
+
+        payload.map_err(|error| {
+            AIError::Provider(format!(
+                "Failed to parse Azemm {} response: {}. Response was: {}",
+                request_kind, error, response_text
+            ))
+        })
+    }
+
+    async fn send_multipart_request(
+        &self,
+        endpoint: &str,
+        api_key: &str,
+        form: Form,
+        request_kind: &str,
+    ) -> Result<Value, AIError> {
+        let response = self
+            .client
+            .post(endpoint)
+            .version(reqwest::Version::HTTP_11)
+            .header("Accept", "application/json")
+            .header("Authorization", format!("Bearer {}", api_key))
+            .header("X-API-Key", api_key)
+            .header("X-Banana-Client", BANANA_CLIENT_HEADER_VALUE)
+            .multipart(form)
             .send()
             .await?;
 
@@ -1381,25 +1617,133 @@ try {
         ))
     }
 
-    async fn generate_once(&self, request: &GenerateRequest) -> Result<String, AIError> {
-        let image_intent = Self::has_image_intent(request);
+    async fn request_gpt_image_2_generation(
+        &self,
+        request: &GenerateRequest,
+    ) -> Result<Value, AIError> {
+        let endpoint = format!("{}{}", self.base_url, GENERATIONS_ENDPOINT_PATH);
+        let api_key = self.get_api_key().await?;
         let request_model = Self::sanitize_model(&request.model);
-        let use_generate_content =
-            image_intent && Self::should_use_generate_content_for_model(&request_model);
-        let payload = if use_generate_content {
-            info!(
-                "[Azemm] routing image request model '{}' via generateContent",
-                request_model
+        let GptImage2RequestFields { size, quality } =
+            Self::resolve_gpt_image_2_request_fields(request);
+
+        let mut body = serde_json::Map::new();
+        body.insert("model".to_string(), Value::String(request_model.clone()));
+        body.insert("prompt".to_string(), Value::String(request.prompt.clone()));
+        body.insert(
+            "response_format".to_string(),
+            Value::String("url".to_string()),
+        );
+        if let Some(size) = size {
+            body.insert("size".to_string(), Value::String(size));
+        }
+        if let Some(quality) = quality {
+            body.insert("quality".to_string(), Value::String(quality));
+        }
+
+        info!(
+            "[Azemm] gpt-image-2 generations model: {}, size: {}, aspect_ratio: {}",
+            request_model, request.size, request.aspect_ratio
+        );
+
+        self.send_json_request(
+            &endpoint,
+            &api_key,
+            Value::Object(body),
+            "gpt-image-2-generations",
+        )
+        .await
+    }
+
+    async fn request_gpt_image_2_edit(&self, request: &GenerateRequest) -> Result<Value, AIError> {
+        let endpoint = format!("{}{}", self.base_url, EDITS_ENDPOINT_PATH);
+        let api_key = self.get_api_key().await?;
+        let request_model = Self::sanitize_model(&request.model);
+        let reference_images = request.reference_images.as_ref().ok_or_else(|| {
+            AIError::InvalidRequest("Azemm gpt-image-2 edits require reference images".to_string())
+        })?;
+        if reference_images.is_empty() {
+            return Err(AIError::InvalidRequest(
+                "Azemm gpt-image-2 edits require reference images".to_string(),
+            ));
+        }
+
+        let GptImage2RequestFields { size, quality } =
+            Self::resolve_gpt_image_2_request_fields(request);
+        let mut form = Form::new()
+            .text("model", request_model.clone())
+            .text("prompt", request.prompt.clone())
+            .text("response_format", "url".to_string());
+        if let Some(size) = size {
+            form = form.text("size", size);
+        }
+        if let Some(quality) = quality {
+            form = form.text("quality", quality);
+        }
+
+        for (index, source) in reference_images.iter().enumerate() {
+            let bytes = Self::source_to_bytes(source).await?;
+            let extension = Self::file_extension_from_source(source);
+            let image_part = Part::bytes(bytes)
+                .file_name(format!("image_{}.{}", index + 1, extension))
+                .mime_str(Self::mime_type_from_extension(extension))
+                .map_err(|error| {
+                    AIError::Provider(format!("Failed to create multipart image part: {}", error))
+                })?;
+            form = form.part("image[]", image_part);
+        }
+
+        info!(
+            "[Azemm] gpt-image-2 edits model: {}, size: {}, aspect_ratio: {}, refs: {}",
+            request_model,
+            request.size,
+            request.aspect_ratio,
+            reference_images.len()
+        );
+
+        self.send_multipart_request(&endpoint, &api_key, form, "gpt-image-2-edits")
+            .await
+    }
+
+    async fn generate_once(&self, request: &GenerateRequest) -> Result<String, AIError> {
+        let request_model = Self::sanitize_model(&request.model);
+        let route = Self::resolve_request_route(request);
+        let image_intent = Self::has_image_intent(request)
+            || matches!(
+                route,
+                AzemmRequestRoute::GptImage2Generations | AzemmRequestRoute::GptImage2Edits
             );
-            self.request_generate_content(request).await?
-        } else {
-            if image_intent {
+        let payload = match route {
+            AzemmRequestRoute::GptImage2Generations => {
                 info!(
-                    "[Azemm] routing image request model '{}' via chat/completions",
+                    "[Azemm] routing image request model '{}' via /v1/images/generations",
                     request_model
                 );
+                self.request_gpt_image_2_generation(request).await?
             }
-            self.request_chat_completion(request).await?
+            AzemmRequestRoute::GptImage2Edits => {
+                info!(
+                    "[Azemm] routing image request model '{}' via /v1/images/edits",
+                    request_model
+                );
+                self.request_gpt_image_2_edit(request).await?
+            }
+            AzemmRequestRoute::GenerateContent => {
+                info!(
+                    "[Azemm] routing image request model '{}' via generateContent",
+                    request_model
+                );
+                self.request_generate_content(request).await?
+            }
+            AzemmRequestRoute::ChatCompletions => {
+                if image_intent {
+                    info!(
+                        "[Azemm] routing image request model '{}' via chat/completions",
+                        request_model
+                    );
+                }
+                self.request_chat_completion(request).await?
+            }
         };
 
         if let Some(error_message) = Self::extract_error_message(&payload) {
@@ -1461,6 +1805,7 @@ impl AIProvider for AzemmProvider {
 
     fn list_models(&self) -> Vec<String> {
         vec![
+            "azemm/gpt-image-2".to_string(),
             "azemm/gemini-3-pro-image-preview".to_string(),
             "azemm/gemini-3.1-flash-image-preview".to_string(),
         ]
@@ -1476,5 +1821,98 @@ impl AIProvider for AzemmProvider {
         self.generate_once(&request)
             .await
             .map_err(|error| Self::wrap_selected_model_error(&request, error))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::collections::HashMap;
+
+    use serde_json::json;
+
+    use super::{AzemmProvider, AzemmRequestRoute};
+    use crate::ai::{AIProvider, GenerateRequest};
+
+    fn make_request(
+        model: &str,
+        size: &str,
+        aspect_ratio: &str,
+        reference_images: Option<Vec<String>>,
+        quality: Option<&str>,
+    ) -> GenerateRequest {
+        let extra_params =
+            quality.map(|value| HashMap::from([("quality".to_string(), json!(value))]));
+
+        GenerateRequest {
+            prompt: "test prompt".to_string(),
+            model: model.to_string(),
+            size: size.to_string(),
+            aspect_ratio: aspect_ratio.to_string(),
+            reference_images,
+            extra_params,
+        }
+    }
+
+    #[test]
+    fn list_models_includes_gpt_image_2() {
+        let provider = AzemmProvider::new();
+        assert!(provider
+            .list_models()
+            .contains(&"azemm/gpt-image-2".to_string()));
+    }
+
+    #[test]
+    fn routes_gpt_image_2_without_reference_images_to_generations() {
+        let request = make_request("azemm/gpt-image-2", "1K", "1:1", None, None);
+        assert_eq!(
+            AzemmProvider::resolve_request_route(&request),
+            AzemmRequestRoute::GptImage2Generations
+        );
+    }
+
+    #[test]
+    fn routes_gpt_image_2_with_reference_images_to_edits() {
+        let request = make_request(
+            "azemm/gpt-image-2",
+            "1K",
+            "1:1",
+            Some(vec!["https://example.com/demo.png".to_string()]),
+            None,
+        );
+        assert_eq!(
+            AzemmProvider::resolve_request_route(&request),
+            AzemmRequestRoute::GptImage2Edits
+        );
+    }
+
+    #[test]
+    fn skips_auto_quality_and_preserves_explicit_quality() {
+        let auto_request = make_request("azemm/gpt-image-2", "1K", "1:1", None, Some("auto"));
+        let high_request = make_request("azemm/gpt-image-2", "1K", "1:1", None, Some("high"));
+
+        assert_eq!(
+            AzemmProvider::resolve_gpt_image_2_request_fields(&auto_request).quality,
+            None
+        );
+        assert_eq!(
+            AzemmProvider::resolve_gpt_image_2_request_fields(&high_request).quality,
+            Some("high".to_string())
+        );
+    }
+
+    #[test]
+    fn resolves_common_gpt_image_2_sizes() {
+        assert_eq!(
+            AzemmProvider::resolve_gpt_image_2_size("1K", "1:1"),
+            Some("1024x1024".to_string())
+        );
+        assert_eq!(
+            AzemmProvider::resolve_gpt_image_2_size("1K", "16:9"),
+            Some("1536x1024".to_string())
+        );
+        assert_eq!(
+            AzemmProvider::resolve_gpt_image_2_size("1K", "9:16"),
+            Some("1024x1536".to_string())
+        );
     }
 }

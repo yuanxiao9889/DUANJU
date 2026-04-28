@@ -65,6 +65,12 @@ const STORYBOARD_COMPATIBLE_FORMAT_LABEL_KEYS: Record<StoryboardCompatibleApiFor
   'gemini-generate-content': 'settings.storyboardCompatibleFormatGeminiGenerateContent',
 };
 
+const STORYBOARD_NEWAPI_FORMAT_LABEL_KEYS: Record<StoryboardNewApiApiFormat, string> = {
+  openai: 'settings.storyboardNewApiFormatOpenai',
+  'openai-images': 'settings.storyboardNewApiFormatOpenaiImages',
+  gemini: 'settings.storyboardNewApiFormatGemini',
+};
+
 function resolveCompatibleEndpointPlaceholder(apiFormat: StoryboardCompatibleApiFormat): string {
   if (apiFormat === 'gemini-generate-content') {
     return 'https://generativelanguage.googleapis.com';
@@ -99,6 +105,24 @@ function resolveStoryboardCustomModelIdPlaceholder(providerId: string, fallback:
   }
 
   return fallback;
+}
+
+function resolveStoryboardNewApiEndpointPlaceholder(apiFormat: StoryboardNewApiApiFormat): string {
+  return apiFormat === 'gemini'
+    ? 'https://your-newapi-host'
+    : 'https://your-newapi-host/v1';
+}
+
+function resolveStoryboardNewApiHintKey(apiFormat: StoryboardNewApiApiFormat): string {
+  if (apiFormat === 'openai-images') {
+    return 'settings.storyboardNewApiHintOpenaiImages';
+  }
+
+  if (apiFormat === 'gemini') {
+    return 'settings.storyboardNewApiHintGemini';
+  }
+
+  return 'settings.storyboardNewApiHintOpenai';
 }
 
 export function ProviderModelSettingsSection({
@@ -457,11 +481,7 @@ export function ProviderModelSettingsSection({
               >
                 {STORYBOARD_NEWAPI_API_FORMATS.map((format) => (
                   <option key={format} value={format}>
-                    {t(
-                      format === 'openai'
-                        ? 'settings.storyboardNewApiFormatOpenai'
-                        : 'settings.storyboardNewApiFormatGemini'
-                    )}
+                    {t(STORYBOARD_NEWAPI_FORMAT_LABEL_KEYS[format])}
                   </option>
                 ))}
               </UiSelect>
@@ -473,20 +493,14 @@ export function ProviderModelSettingsSection({
               <UiInput
                 value={storyboardNewApiModelConfig.endpointUrl}
                 onChange={(event) => onStoryboardNewApiEndpointUrlChange(event.target.value)}
-                placeholder={
-                  storyboardNewApiModelConfig.apiFormat === 'openai'
-                    ? 'https://your-newapi-host/v1'
-                    : 'https://your-newapi-host'
-                }
+                placeholder={resolveStoryboardNewApiEndpointPlaceholder(
+                  storyboardNewApiModelConfig.apiFormat
+                )}
                 className="h-9 text-sm"
               />
             </div>
             <div className="rounded-md border border-border-dark bg-black/10 px-3 py-2 text-[11px] leading-5 text-text-muted">
-              {t(
-                storyboardNewApiModelConfig.apiFormat === 'openai'
-                  ? 'settings.storyboardNewApiHintOpenai'
-                  : 'settings.storyboardNewApiHintGemini'
-              )}
+              {t(resolveStoryboardNewApiHintKey(storyboardNewApiModelConfig.apiFormat))}
             </div>
           </div>
         </div>

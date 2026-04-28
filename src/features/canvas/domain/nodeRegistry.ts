@@ -40,6 +40,7 @@ import {
   type StoryboardSplitResultNodeData,
   type StoryboardGenNodeData,
   type TextAnnotationNodeData,
+  type LlmLogicNodeData,
   type TtsTextNodeData,
   type TtsSavedVoiceNodeData,
   type TtsVoiceDesignNodeData,
@@ -510,6 +511,46 @@ const textAnnotationNodeDefinition: CanvasNodeDefinition<TextAnnotationNodeData>
   createDefaultData: () => ({
     displayName: DEFAULT_NODE_DISPLAY_NAME[CANVAS_NODE_TYPES.textAnnotation],
     content: '',
+    generationSource: null,
+    showCopyButton: false,
+    isGenerating: false,
+    generationStatusText: null,
+  }),
+};
+
+const llmLogicNodeDefinition: CanvasNodeDefinition<LlmLogicNodeData> = {
+  type: CANVAS_NODE_TYPES.llmLogic,
+  menuLabelKey: 'node.menu.llmLogic',
+  menuIcon: 'text',
+  menuGroup: 'text',
+  visibleInMenu: true,
+  menuProjectTypes: ['storyboard'],
+  capabilities: {
+    toolbar: true,
+    promptInput: false,
+  },
+  connectivity: {
+    sourceHandle: true,
+    targetHandle: true,
+    connectMenu: {
+      fromSource: true,
+      fromTarget: false,
+    },
+  },
+  createDefaultData: () => ({
+    displayName: DEFAULT_NODE_DISPLAY_NAME[CANVAS_NODE_TYPES.llmLogic],
+    model: '',
+    systemInstruction: '',
+    userPrompt: '',
+    presetCategoryKey: null,
+    presetKey: null,
+    activeRequestId: null,
+    outputNodeId: null,
+    pendingRequestIds: [],
+    isGenerating: false,
+    statusText: null,
+    lastError: null,
+    lastGeneratedAt: null,
   }),
 };
 
@@ -1697,6 +1738,7 @@ export const canvasNodeDefinitions: Record<CanvasNodeType, CanvasNodeDefinition>
   [CANVAS_NODE_TYPES.exportImage]: exportImageNodeDefinition,
   [CANVAS_NODE_TYPES.imageCompare]: imageCompareNodeDefinition,
   [CANVAS_NODE_TYPES.textAnnotation]: textAnnotationNodeDefinition,
+  [CANVAS_NODE_TYPES.llmLogic]: llmLogicNodeDefinition,
   [CANVAS_NODE_TYPES.group]: groupNodeDefinition,
   [CANVAS_NODE_TYPES.storyboardSplit]: storyboardSplitDefinition,
   [CANVAS_NODE_TYPES.imageCollage]: imageCollageNodeDefinition,

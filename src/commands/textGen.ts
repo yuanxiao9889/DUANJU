@@ -291,16 +291,18 @@ function resolveProviderAndModel(request: TextGenerationRequest): { provider: st
     });
   }
 
-  const model = resolveConfiguredScriptModel(provider, settings).trim();
+  const requestedModel = normalizeNonEmptyString(request.model);
+  const configuredModel = resolveConfiguredScriptModel(provider, settings).trim();
+  const model = requestedModel || configuredModel;
   if (!model) {
     return openProviderSettingsAndThrow(NO_ACTIVE_SCRIPT_PROVIDER_MODEL_MESSAGE);
   }
 
-  if (request.model && request.model.trim() && request.model.trim() !== model) {
-    console.warn('[AI] ignoring non-active script model override', {
-      requestedModel: request.model,
-      activeModel: model,
+  if (requestedModel && requestedModel !== configuredModel) {
+    console.info('[AI] using active script provider model override', {
       provider,
+      configuredModel,
+      requestedModel,
     });
   }
 

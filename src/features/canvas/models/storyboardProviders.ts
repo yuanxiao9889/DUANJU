@@ -35,6 +35,7 @@ import {
   STORYBOARD_OOPII_BUILTIN_MODELS,
   STORYBOARD_OOPII_PROVIDER_ID,
 } from './storyboardOopii';
+import { AZEMM_GPT_IMAGE_2_MODEL_ID } from './image/azemm/gptImage2';
 import { AZEMM_NANO_BANANA_MODEL_ID } from './image/azemm/nanoBanana';
 import { AZEMM_NANO_BANANA_HD_MODEL_ID } from './image/azemm/nanoBananaHd';
 import { BLTCY_GEMINI_FLASH_IMAGE_PREVIEW_4K_MODEL_ID } from './image/bltcy/nanoBanana';
@@ -158,6 +159,7 @@ const BUILT_IN_STORYBOARD_MODELS: Record<
   azemm: [
     { modelId: AZEMM_NANO_BANANA_MODEL_ID, label: '\u9999\u85492', source: 'builtin' },
     { modelId: AZEMM_NANO_BANANA_HD_MODEL_ID, label: '\u9999\u8549pro', source: 'builtin' },
+    { modelId: AZEMM_GPT_IMAGE_2_MODEL_ID, label: 'gpt-image-2', source: 'builtin' },
   ],
   comfly: [
     { modelId: COMFLY_NANO_BANANA_PRO_MODEL_ID, label: '\u9999\u8549Pro', source: 'builtin' },

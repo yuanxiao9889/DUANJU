@@ -18,6 +18,8 @@ import {
   EXPORT_RESULT_NODE_MIN_WIDTH,
   JIMENG_VIDEO_RESULT_NODE_DEFAULT_HEIGHT,
   JIMENG_VIDEO_RESULT_NODE_DEFAULT_WIDTH,
+  LLM_LOGIC_NODE_DEFAULT_HEIGHT,
+  LLM_LOGIC_NODE_DEFAULT_WIDTH,
   IMAGE_COMPARE_NODE_DEFAULT_HEIGHT,
   IMAGE_COMPARE_NODE_DEFAULT_WIDTH,
   IMAGE_COLLAGE_NODE_DEFAULT_HEIGHT,
@@ -54,11 +56,13 @@ import {
   type ImageViewerMetadata,
   type ImageEditNodeData,
   type ImageCollageNodeData,
+  type LlmLogicNodeData,
   type MjNodeData,
   type MjResultNodeData,
   type NodeToolType,
   type StoryboardExportOptions,
   type StoryboardFrameItem,
+  type TextAnnotationNodeData,
   type ScriptChapterNodeData,
   type ScriptRootNodeData,
   type ScriptSceneNodeData,
@@ -74,6 +78,8 @@ import {
   normalizeShootingScriptNodeData,
   normalizeImageCompareNodeData,
   normalizeImageCollageNodeData,
+  normalizeLlmLogicNodeData,
+  normalizeTextAnnotationNodeData,
   normalizeExportImageGenerationSummary,
   normalizeMjNodeData,
   normalizeMjResultNodeData,
@@ -116,7 +122,11 @@ import {
 } from '@/features/canvas/application/groupLayout';
 import type { AssetItemRecord } from '@/features/assets/domain/types';
 import { useSettingsStore } from '@/stores/settingsStore';
-import { getImageModel } from '@/features/canvas/models';
+import {
+  getImageModel,
+  resolveActivatedScriptProvider,
+  resolveConfiguredScriptModel,
+} from '@/features/canvas/models';
 import {
   normalizeJimengImageResolutionForModel,
   normalizeJimengReferenceMode,
@@ -875,6 +885,20 @@ function normalizeNodes(rawNodes: CanvasNode[]): CanvasNode[] {
       if (normalizedNodeType === CANVAS_NODE_TYPES.exportImage) {
         (mergedData as ExportImageNodeData).generationSummary = normalizeExportImageGenerationSummary(
           (mergedData as ExportImageNodeData).generationSummary
+        );
+      }
+
+      if (normalizedNodeType === CANVAS_NODE_TYPES.textAnnotation) {
+        Object.assign(
+          mergedData,
+          normalizeTextAnnotationNodeData(mergedData as TextAnnotationNodeData)
+        );
+      }
+
+      if (normalizedNodeType === CANVAS_NODE_TYPES.llmLogic) {
+        Object.assign(
+          mergedData,
+          normalizeLlmLogicNodeData(mergedData as LlmLogicNodeData)
         );
       }
 
@@ -1693,6 +1717,19 @@ function withImageCompareDefaultSize(node: CanvasNode): CanvasNode {
   };
 }
 
+function withLlmLogicDefaultSize(node: CanvasNode): CanvasNode {
+  return {
+    ...node,
+    width: LLM_LOGIC_NODE_DEFAULT_WIDTH,
+    height: LLM_LOGIC_NODE_DEFAULT_HEIGHT,
+    style: {
+      ...(node.style ?? {}),
+      width: LLM_LOGIC_NODE_DEFAULT_WIDTH,
+      height: LLM_LOGIC_NODE_DEFAULT_HEIGHT,
+    },
+  };
+}
+
 function isScriptAssetReferenceNodeType(type: CanvasNodeType): boolean {
   return type === CANVAS_NODE_TYPES.scriptCharacterReference
     || type === CANVAS_NODE_TYPES.scriptLocationReference
@@ -1749,6 +1786,18 @@ function applyDefaultNodeSize(node: CanvasNode, data: CanvasNodeData): CanvasNod
       ?? resolveNumericNodeDimension(node.style?.height);
     if (resolvedWidth === null || resolvedHeight === null) {
       return withImageCompareDefaultSize(node);
+    }
+  }
+
+  if (node.type === CANVAS_NODE_TYPES.llmLogic) {
+    const resolvedWidth =
+      resolveNumericNodeDimension(node.width)
+      ?? resolveNumericNodeDimension(node.style?.width);
+    const resolvedHeight =
+      resolveNumericNodeDimension(node.height)
+      ?? resolveNumericNodeDimension(node.style?.height);
+    if (resolvedWidth === null || resolvedHeight === null) {
+      return withLlmLogicDefaultSize(node);
     }
   }
 
@@ -2141,6 +2190,20 @@ function resolveNodeCreationDefaults(
         ?? lastImageEditRequestAspectRatio
         ?? AUTO_REQUEST_ASPECT_RATIO,
       ...imageEditData,
+    } as Partial<CanvasNodeData>;
+  }
+
+  if (type === CANVAS_NODE_TYPES.llmLogic) {
+    const settings = useSettingsStore.getState();
+    const llmLogicData = data as Partial<LlmLogicNodeData>;
+    const activeProvider = resolveActivatedScriptProvider(settings);
+    const preferredModel = activeProvider
+      ? resolveConfiguredScriptModel(activeProvider, settings).trim()
+      : '';
+
+    return {
+      ...llmLogicData,
+      model: llmLogicData.model?.trim() || preferredModel,
     } as Partial<CanvasNodeData>;
   }
 
@@ -4212,6 +4275,18 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
             (mergedData as ExportImageNodeData).generationSummary
           );
         }
+        if (node.type === CANVAS_NODE_TYPES.textAnnotation) {
+          Object.assign(
+            mergedData,
+            normalizeTextAnnotationNodeData(mergedData as TextAnnotationNodeData)
+          );
+        }
+        if (node.type === CANVAS_NODE_TYPES.llmLogic) {
+          Object.assign(
+            mergedData,
+            normalizeLlmLogicNodeData(mergedData as LlmLogicNodeData)
+          );
+        }
         const resizedNode = maybeApplyImageAutoResize(
           {
             ...node,
@@ -4337,6 +4412,18 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
         if (node.type === CANVAS_NODE_TYPES.exportImage) {
           (mergedData as ExportImageNodeData).generationSummary = normalizeExportImageGenerationSummary(
             (mergedData as ExportImageNodeData).generationSummary
+          );
+        }
+        if (node.type === CANVAS_NODE_TYPES.textAnnotation) {
+          Object.assign(
+            mergedData,
+            normalizeTextAnnotationNodeData(mergedData as TextAnnotationNodeData)
+          );
+        }
+        if (node.type === CANVAS_NODE_TYPES.llmLogic) {
+          Object.assign(
+            mergedData,
+            normalizeLlmLogicNodeData(mergedData as LlmLogicNodeData)
           );
         }
         const resizedNode = maybeApplyImageAutoResize(

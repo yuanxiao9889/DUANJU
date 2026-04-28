@@ -394,7 +394,9 @@ impl KieProvider {
         let file_part = Part::bytes(bytes)
             .file_name(file_name.clone())
             .mime_str(Self::mime_type_from_extension(extension))
-            .map_err(|err| AIError::Provider(format!("KIE stream upload invalid MIME part: {}", err)))?;
+            .map_err(|err| {
+                AIError::Provider(format!("KIE stream upload invalid MIME part: {}", err))
+            })?;
         let form = Form::new()
             .part("file", file_part)
             .text("uploadPath", UPLOAD_PATH.to_string())
@@ -462,14 +464,18 @@ impl KieProvider {
             return Ok(source.to_string());
         }
 
-        match self.upload_reference_image_base64(api_key, source, index).await {
+        match self
+            .upload_reference_image_base64(api_key, source, index)
+            .await
+        {
             Ok(uploaded_url) => Ok(uploaded_url),
             Err(base64_error) => {
                 info!(
                     "[KIE upload] base64 upload failed, falling back to stream upload: {}",
                     base64_error
                 );
-                self.upload_reference_image_stream(api_key, source, index).await
+                self.upload_reference_image_stream(api_key, source, index)
+                    .await
             }
         }
     }

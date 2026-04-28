@@ -21,6 +21,7 @@ import { StoryboardGenNode } from './StoryboardGenNode';
 import { ImageCollageNode } from './ImageCollageNode';
 import { StoryboardNode } from './StoryboardNode';
 import { StoryboardSplitResultNode } from './StoryboardSplitResultNode';
+import { LlmLogicNode } from './LlmLogicNode';
 import { TextAnnotationNode } from './TextAnnotationNode';
 import { TtsTextNode } from './TtsTextNode';
 import { ScriptSceneNode } from './ScriptSceneNode';
@@ -69,6 +70,7 @@ export const nodeTypes: NodeTypes = {
   imageCollageNode: ImageCollageNode,
   storyboardNode: StoryboardNode,
   storyboardSplitResultNode: StoryboardSplitResultNode,
+  llmLogicNode: LlmLogicNode,
   textAnnotationNode: TextAnnotationNode,
   ttsTextNode: TextAnnotationNode,
   ttsVoiceDesignNode: QwenTtsVoiceDesignNode,
@@ -116,6 +118,7 @@ export {
   ImageCollageNode,
   StoryboardNode, 
   StoryboardSplitResultNode,
+  LlmLogicNode,
   TextAnnotationNode, 
   TtsTextNode,
   QwenTtsVoiceDesignNode,

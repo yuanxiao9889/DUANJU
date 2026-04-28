@@ -5,14 +5,13 @@ import {
   useUpdateNodeInternals,
   type NodeProps,
 } from '@xyflow/react';
-import { FileText, Undo2, Wand2 } from 'lucide-react';
+import { Check, Copy, FileText, Loader2 } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import remarkBreaks from 'remark-breaks';
 import { useTranslation } from 'react-i18next';
 import { openUrl } from '@tauri-apps/plugin-opener';
 
-import { UiLoadingAnimation } from '@/components/ui';
 import {
   CANVAS_NODE_TYPES,
   TTS_TEXT_NODE_DEFAULT_HEIGHT,
@@ -21,7 +20,6 @@ import {
   type TtsTextNodeData,
 } from '@/features/canvas/domain/canvasNodes';
 import { showErrorDialog } from '@/features/canvas/application/errorDialog';
-import { optimizeCanvasPrompt } from '@/features/canvas/application/promptOptimization';
 import { resolveNodeDisplayName } from '@/features/canvas/domain/nodeDisplay';
 import { NodeHeader, NODE_HEADER_FLOATING_POSITION_CLASS } from '@/features/canvas/ui/NodeHeader';
 import { NodeResizeHandle } from '@/features/canvas/ui/NodeResizeHandle';
@@ -41,9 +39,34 @@ const MIN_HEIGHT = 160;
 const MAX_WIDTH = 900;
 const MAX_HEIGHT = 900;
 
-interface TextOptimizationUndoState {
-  previousContent: string;
-  appliedContent: string;
+async function copyTextToClipboard(value: string): Promise<void> {
+  if (typeof navigator !== 'undefined' && navigator.clipboard?.writeText) {
+    await navigator.clipboard.writeText(value);
+    return;
+  }
+
+  if (typeof document === 'undefined') {
+    throw new Error('Clipboard is unavailable');
+  }
+
+  const textarea = document.createElement('textarea');
+  textarea.value = value;
+  textarea.setAttribute('readonly', 'true');
+  textarea.style.position = 'fixed';
+  textarea.style.opacity = '0';
+  textarea.style.pointerEvents = 'none';
+  textarea.style.left = '-9999px';
+  textarea.style.top = '0';
+  document.body.appendChild(textarea);
+  textarea.focus();
+  textarea.select();
+
+  const succeeded = document.execCommand('copy');
+  document.body.removeChild(textarea);
+
+  if (!succeeded) {
+    throw new Error('execCommand copy failed');
+  }
 }
 
 export const TextAnnotationNode = memo(({
@@ -56,14 +79,11 @@ export const TextAnnotationNode = memo(({
 }: TextAnnotationNodeProps) => {
   const { t } = useTranslation();
   const updateNodeInternals = useUpdateNodeInternals();
-  const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const setSelectedNode = useCanvasStore((state) => state.setSelectedNode);
   const updateNodeData = useCanvasStore((state) => state.updateNodeData);
   const content = typeof data.content === 'string' ? data.content : '';
-  const contentRef = useRef(content);
-  const [isOptimizingContent, setIsOptimizingContent] = useState(false);
-  const [lastOptimizationUndoState, setLastOptimizationUndoState] =
-    useState<TextOptimizationUndoState | null>(null);
+  const copyFeedbackTimeoutRef = useRef<number | null>(null);
+  const [copied, setCopied] = useState(false);
   const resolvedNodeType = type === CANVAS_NODE_TYPES.ttsText
     ? CANVAS_NODE_TYPES.ttsText
     : CANVAS_NODE_TYPES.textAnnotation;
@@ -79,6 +99,16 @@ export const TextAnnotationNode = memo(({
   const resolvedTitle = resolveNodeDisplayName(resolvedNodeType, data);
   const resolvedWidth = Math.max(MIN_WIDTH, Math.round(width ?? defaultWidth));
   const resolvedHeight = Math.max(MIN_HEIGHT, Math.round(height ?? defaultHeight));
+  const showCopyButton =
+    resolvedNodeType === CANVAS_NODE_TYPES.textAnnotation
+    && data.showCopyButton === true;
+  const isGeneratingOutput =
+    resolvedNodeType === CANVAS_NODE_TYPES.textAnnotation
+    && data.isGenerating === true;
+  const generationStatusText =
+    typeof data.generationStatusText === 'string' && data.generationStatusText.trim().length > 0
+      ? data.generationStatusText
+      : t('node.llmLogic.running');
   const handleMarkdownLinkClick = useCallback((href?: string) => {
     if (!href) {
       return;
@@ -87,91 +117,33 @@ export const TextAnnotationNode = memo(({
   }, []);
 
   useEffect(() => {
-    contentRef.current = content;
-  }, [content]);
-
-  useEffect(() => {
     updateNodeInternals(id);
   }, [id, resolvedHeight, resolvedWidth, updateNodeInternals]);
 
-  const focusTextareaToEnd = useCallback(() => {
-    requestAnimationFrame(() => {
-      const textarea = textareaRef.current;
-      if (!textarea) {
-        return;
-      }
-      const nextCursor = textarea.value.length;
-      textarea.focus();
-      textarea.setSelectionRange(nextCursor, nextCursor);
-    });
+  useEffect(() => () => {
+    if (copyFeedbackTimeoutRef.current !== null) {
+      window.clearTimeout(copyFeedbackTimeoutRef.current);
+    }
   }, []);
 
-  const handleOptimizeContent = useCallback(async () => {
-    const sourceContent = contentRef.current;
-    const normalizedSourceContent = sourceContent.trim();
-    if (!normalizedSourceContent) {
-      await showErrorDialog(
-        t(`${translationKeyPrefix}.contentRequired`),
-        t('common.error'),
-      );
-      return;
-    }
+  const copyButtonLabel = copied ? t('common.copied') : t('common.copy');
 
-    setIsOptimizingContent(true);
+  const handleCopyContent = useCallback(async () => {
     try {
-      const result = await optimizeCanvasPrompt({
-        mode: 'dialogue',
-        prompt: normalizedSourceContent,
-      });
-
-      if (contentRef.current !== sourceContent) {
-        return;
+      await copyTextToClipboard(content);
+      setCopied(true);
+      if (copyFeedbackTimeoutRef.current !== null) {
+        window.clearTimeout(copyFeedbackTimeoutRef.current);
       }
-
-      const nextContent = result.prompt.trim();
-      if (!nextContent) {
-        throw new Error(t(`${translationKeyPrefix}.optimizePromptFailed`));
-      }
-
-      setLastOptimizationUndoState(
-        nextContent === sourceContent
-          ? null
-          : {
-              previousContent: sourceContent,
-              appliedContent: nextContent,
-            },
-      );
-      updateNodeData(id, { content: nextContent });
-      focusTextareaToEnd();
-    } catch (error) {
-      const message =
-        error instanceof Error && error.message.trim().length > 0
-          ? error.message
-          : t(`${translationKeyPrefix}.optimizePromptFailed`);
-      await showErrorDialog(message, t('common.error'));
-    } finally {
-      setIsOptimizingContent(false);
+      copyFeedbackTimeoutRef.current = window.setTimeout(() => {
+        setCopied(false);
+        copyFeedbackTimeoutRef.current = null;
+      }, 1200);
+    } catch {
+      setCopied(false);
+      await showErrorDialog(t('copyFailed'), t('common.error'));
     }
-  }, [focusTextareaToEnd, id, t, translationKeyPrefix, updateNodeData]);
-
-  const handleUndoOptimizedContent = useCallback(() => {
-    if (!lastOptimizationUndoState) {
-      return;
-    }
-
-    if (contentRef.current !== lastOptimizationUndoState.appliedContent) {
-      return;
-    }
-
-    setLastOptimizationUndoState(null);
-    updateNodeData(id, { content: lastOptimizationUndoState.previousContent });
-    focusTextareaToEnd();
-  }, [focusTextareaToEnd, id, lastOptimizationUndoState, updateNodeData]);
-
-  const canUndoOptimizedContent = Boolean(
-    lastOptimizationUndoState &&
-      content === lastOptimizationUndoState.appliedContent,
-  );
+  }, [content, t]);
 
   return (
     <div
@@ -200,20 +172,53 @@ export const TextAnnotationNode = memo(({
         isVisible={selected}
       />
 
+      {showCopyButton && !isGeneratingOutput ? (
+        <button
+          type="button"
+          title={copyButtonLabel}
+          aria-label={copyButtonLabel}
+          disabled={content.length === 0}
+          onPointerDown={(event) => event.stopPropagation()}
+          onClick={(event) => {
+            event.stopPropagation();
+            void handleCopyContent();
+          }}
+          className="nodrag absolute bottom-2.5 right-2.5 z-20 inline-flex h-7 w-7 items-center justify-center rounded-md border border-white/10 bg-white/[0.04] text-text-muted shadow-[0_6px_14px_rgba(0,0,0,0.18)] backdrop-blur-sm transition-colors hover:border-white/18 hover:bg-white/[0.08] hover:text-text-dark disabled:cursor-not-allowed disabled:border-white/8 disabled:bg-white/[0.02] disabled:text-text-muted/45"
+        >
+          {copied ? (
+            <Check className="h-3.5 w-3.5" strokeWidth={2.2} />
+          ) : (
+            <Copy className="h-3.5 w-3.5" strokeWidth={2.1} />
+          )}
+        </button>
+      ) : null}
+
+      {isGeneratingOutput ? (
+        <div className="pointer-events-none absolute right-2.5 top-2.5 z-20 inline-flex h-7 w-7 items-center justify-center rounded-md border border-white/10 bg-white/[0.04] text-text-muted shadow-[0_6px_14px_rgba(0,0,0,0.18)] backdrop-blur-sm">
+          <Loader2 className="h-3.5 w-3.5 animate-spin" strokeWidth={2.1} />
+        </div>
+      ) : null}
+
       {selected ? (
         <textarea
-          ref={textareaRef}
           autoFocus
+          readOnly={isGeneratingOutput}
           value={content}
           onChange={(event) => {
             const nextValue = event.target.value;
             updateNodeData(id, { content: nextValue });
           }}
           placeholder={t(`${translationKeyPrefix}.placeholder`)}
-          className="nodrag nowheel h-full w-full resize-none border-none bg-transparent px-1 py-0.5 pb-10 pr-14 text-sm leading-6 text-text-dark outline-none placeholder:text-text-muted/70"
+          className={`nodrag nowheel h-full w-full resize-none border-none bg-transparent px-1 py-0.5 pb-2 text-sm leading-6 text-text-dark outline-none placeholder:text-text-muted/70 ${
+            showCopyButton ? 'pr-10 pb-10' : 'pr-2'
+          }`}
         />
       ) : (
-        <div className="nodrag nowheel h-full w-full overflow-auto px-1 py-0.5 pb-10 text-sm leading-6 text-text-dark">
+        <div
+          className={`nodrag nowheel h-full w-full overflow-auto px-1 py-0.5 pb-2 text-sm leading-6 text-text-dark ${
+            showCopyButton ? 'pr-10 pb-10' : 'pr-2'
+          }`}
+        >
           {content.trim().length > 0 ? (
             <div className="markdown-body break-words [&_a]:text-accent [&_blockquote]:border-l-2 [&_blockquote]:border-white/20 [&_blockquote]:pl-3 [&_code]:rounded [&_code]:bg-white/10 [&_code]:px-1 [&_code]:py-0.5 [&_h1]:text-base [&_h1]:font-semibold [&_h2]:text-[15px] [&_h2]:font-semibold [&_h3]:text-sm [&_h3]:font-semibold [&_hr]:border-white/10 [&_li]:my-0.5 [&_ol]:list-decimal [&_ol]:pl-5 [&_p]:my-0 [&_p+_p]:mt-4 [&_pre]:overflow-auto [&_pre]:rounded-md [&_pre]:bg-black/30 [&_pre]:p-2 [&_table]:w-full [&_table]:border-collapse [&_table]:text-xs [&_td]:border [&_td]:border-white/10 [&_td]:px-2 [&_td]:py-1 [&_th]:border [&_th]:border-white/10 [&_th]:px-2 [&_th]:py-1 [&_ul]:list-disc [&_ul]:pl-5">
               <ReactMarkdown
@@ -244,43 +249,12 @@ export const TextAnnotationNode = memo(({
         </div>
       )}
 
-      {selected ? (
-        <div className="pointer-events-none absolute bottom-2 right-2 z-20 flex items-center gap-1">
-          <button
-            type="button"
-            title={
-              isOptimizingContent
-                ? t(`${translationKeyPrefix}.optimizingPrompt`)
-                : t(`${translationKeyPrefix}.optimizePrompt`)
-            }
-            disabled={isOptimizingContent || content.trim().length === 0}
-            onPointerDown={(event) => event.stopPropagation()}
-            onClick={(event) => {
-              event.stopPropagation();
-              void handleOptimizeContent();
-            }}
-            className="nodrag pointer-events-auto inline-flex h-7 w-7 items-center justify-center rounded-lg border border-white/12 bg-black/55 text-text-dark shadow-[0_8px_18px_rgba(0,0,0,0.28)] backdrop-blur-sm transition-colors hover:border-accent/45 hover:bg-accent/14 disabled:cursor-not-allowed disabled:border-white/8 disabled:bg-black/28 disabled:text-text-muted/45"
-          >
-            {isOptimizingContent ? (
-              <UiLoadingAnimation size="xs" />
-            ) : (
-              <Wand2 className="h-3.5 w-3.5" strokeWidth={2.25} />
-            )}
-          </button>
-          {canUndoOptimizedContent ? (
-            <button
-              type="button"
-              title={t(`${translationKeyPrefix}.undoOptimizedPrompt`)}
-              onPointerDown={(event) => event.stopPropagation()}
-              onClick={(event) => {
-                event.stopPropagation();
-                handleUndoOptimizedContent();
-              }}
-              className="nodrag pointer-events-auto inline-flex h-7 w-7 items-center justify-center rounded-lg border border-white/12 bg-black/55 text-text-dark shadow-[0_8px_18px_rgba(0,0,0,0.28)] backdrop-blur-sm transition-colors hover:border-white/22 hover:bg-white/10"
-            >
-              <Undo2 className="h-3.5 w-3.5" strokeWidth={2.2} />
-            </button>
-          ) : null}
+      {isGeneratingOutput ? (
+        <div className="pointer-events-none absolute inset-[36px_6px_6px_6px] z-10 flex items-center justify-center rounded-[20px] bg-black/28 backdrop-blur-[1px]">
+          <div className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-black/45 px-3 py-1.5 text-xs text-text-dark shadow-[0_8px_20px_rgba(0,0,0,0.22)]">
+            <Loader2 className="h-3.5 w-3.5 animate-spin text-text-muted" />
+            <span>{generationStatusText}</span>
+          </div>
         </div>
       ) : null}
 
@@ -290,6 +264,14 @@ export const TextAnnotationNode = memo(({
         id="source"
         className="!h-3 !w-3 !border-2 !border-white !bg-accent"
       />
+      {resolvedNodeType === CANVAS_NODE_TYPES.textAnnotation ? (
+        <Handle
+          type="target"
+          position={Position.Left}
+          id="target"
+          className="!h-3 !w-3 !border-2 !border-white !bg-accent"
+        />
+      ) : null}
     </div>
   );
 });

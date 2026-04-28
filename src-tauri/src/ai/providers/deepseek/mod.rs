@@ -109,8 +109,8 @@ mod tests {
     use serde_json::json;
 
     use super::{
-        DeepSeekProvider, DEEPSEEK_BASE_URL, DEEPSEEK_PROVIDER_ID, DEFAULT_DEEPSEEK_TEXT_MODEL,
-        DEEPSEEK_PRO_TEXT_MODEL,
+        DeepSeekProvider, DEEPSEEK_BASE_URL, DEEPSEEK_PROVIDER_ID, DEEPSEEK_PRO_TEXT_MODEL,
+        DEFAULT_DEEPSEEK_TEXT_MODEL,
     };
     use crate::ai::AIProvider;
     use crate::ai::GenerateRequest;

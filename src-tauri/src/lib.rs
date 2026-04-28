@@ -106,12 +106,12 @@ fn fit_main_window_to_work_area(
 
     let scale_factor = monitor.scale_factor().max(1.0);
     let work_area = monitor.work_area();
-    let max_width =
-        (f64::from(work_area.size.width) / scale_factor - MAIN_WINDOW_WORK_AREA_MARGIN_WIDTH)
-            .max(window_config.min_width.unwrap_or(720.0));
-    let max_height =
-        (f64::from(work_area.size.height) / scale_factor - MAIN_WINDOW_WORK_AREA_MARGIN_HEIGHT)
-            .max(window_config.min_height.unwrap_or(520.0));
+    let max_width = (f64::from(work_area.size.width) / scale_factor
+        - MAIN_WINDOW_WORK_AREA_MARGIN_WIDTH)
+        .max(window_config.min_width.unwrap_or(720.0));
+    let max_height = (f64::from(work_area.size.height) / scale_factor
+        - MAIN_WINDOW_WORK_AREA_MARGIN_HEIGHT)
+        .max(window_config.min_height.unwrap_or(520.0));
 
     let target_width = window_config.width.min(max_width);
     let target_height = window_config.height.min(max_height);
@@ -135,10 +135,7 @@ fn fit_main_window_to_work_area(
 
     info!(
         "adjusted main window startup size to {:.0}x{:.0} logical px for work area {}x{}",
-        target_width,
-        target_height,
-        work_area.size.width,
-        work_area.size.height
+        target_width, target_height, work_area.size.width, work_area.size.height
     );
 }
 
@@ -336,7 +333,8 @@ pub fn run() {
 
     let app_handle = app.handle().clone();
 
-    if let Err(err) = commands::storage::recover_storage_from_legacy_default_if_needed(&app_handle) {
+    if let Err(err) = commands::storage::recover_storage_from_legacy_default_if_needed(&app_handle)
+    {
         warn!("failed to recover legacy storage root on startup: {err}");
     }
 

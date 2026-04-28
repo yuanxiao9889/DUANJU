@@ -40,8 +40,8 @@ mod windows_native_file_drag {
             UI::{
                 Input::KeyboardAndMouse::{GetAsyncKeyState, VK_LBUTTON},
                 Shell::{
-                    DragQueryFileW, HDROP, SHCreateStdEnumFmtEtc, CFSTR_FILENAMEW,
-                    CFSTR_PERFORMEDDROPEFFECT, CFSTR_PREFERREDDROPEFFECT, DROPFILES,
+                    DragQueryFileW, SHCreateStdEnumFmtEtc, CFSTR_FILENAMEW,
+                    CFSTR_PERFORMEDDROPEFFECT, CFSTR_PREFERREDDROPEFFECT, DROPFILES, HDROP,
                 },
                 WindowsAndMessaging::{
                     DispatchMessageW, GetCursorPos, GetSystemMetrics, PeekMessageW,
@@ -503,8 +503,7 @@ mod windows_native_file_drag {
     impl ClipboardGuard {
         fn open() -> Result<Self, String> {
             unsafe {
-                OpenClipboard(None)
-                    .map_err(|error| format!("OpenClipboard failed: {error}"))?;
+                OpenClipboard(None).map_err(|error| format!("OpenClipboard failed: {error}"))?;
             }
 
             Ok(Self)

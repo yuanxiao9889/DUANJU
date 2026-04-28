@@ -183,10 +183,7 @@ impl ComflyProvider {
         (actual - target).abs() < 0.12
     }
 
-    fn clamp_gpt_image_2_dimensions(
-        width: f32,
-        height: f32,
-    ) -> Option<(u32, u32)> {
+    fn clamp_gpt_image_2_dimensions(width: f32, height: f32) -> Option<(u32, u32)> {
         if !width.is_finite() || !height.is_finite() || width <= 0.0 || height <= 0.0 {
             return None;
         }
@@ -206,12 +203,11 @@ impl ComflyProvider {
             && rounded_width > 16
             && rounded_height > 16
         {
-            let downscale =
-                (GPT_IMAGE_2_MAX_EDGE / rounded_width.max(rounded_height) as f32).min(
-                    (GPT_IMAGE_2_MAX_PIXELS / (rounded_width * rounded_height) as f32)
-                        .sqrt()
-                        .min(1.0),
-                );
+            let downscale = (GPT_IMAGE_2_MAX_EDGE / rounded_width.max(rounded_height) as f32).min(
+                (GPT_IMAGE_2_MAX_PIXELS / (rounded_width * rounded_height) as f32)
+                    .sqrt()
+                    .min(1.0),
+            );
             scaled_width *= downscale.min(0.995);
             scaled_height *= downscale.min(0.995);
             rounded_width = Self::round_dimension_to_multiple(scaled_width);
@@ -718,16 +714,12 @@ impl ComflyProvider {
         })?;
 
         match task_status.as_str() {
-            "SUCCESS" => {
-                Self::extract_task_image(&payload)
-                    .map(Some)
-                    .ok_or_else(|| {
-                        AIError::Provider(format!(
-                            "Task succeeded but no URL or base64 data. Response was: {}",
-                            response_text
-                        ))
-                    })
-            }
+            "SUCCESS" => Self::extract_task_image(&payload).map(Some).ok_or_else(|| {
+                AIError::Provider(format!(
+                    "Task succeeded but no URL or base64 data. Response was: {}",
+                    response_text
+                ))
+            }),
             "FAILURE" | "FAILED" | "ERROR" => {
                 let reason = Self::extract_task_fail_reason(&payload)
                     .unwrap_or_else(|| "Unknown error".to_string());

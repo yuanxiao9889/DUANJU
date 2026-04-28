@@ -6,6 +6,7 @@ export const STORYBOARD_NEWAPI_MODEL_ID =
 
 export const STORYBOARD_NEWAPI_API_FORMATS = [
   'openai',
+  'openai-images',
   'gemini',
 ] as const;
 
@@ -39,6 +40,13 @@ export function normalizeStoryboardNewApiApiFormat(
     || normalizedInput === 'openai-edits'
   ) {
     return 'openai';
+  }
+
+  if (
+    normalizedInput === 'openai-images'
+    || normalizedInput === 'openai-image'
+  ) {
+    return 'openai-images';
   }
 
   if (
@@ -97,10 +105,14 @@ export function resolveStoryboardNewApiModeLabel(
   apiFormat: StoryboardNewApiApiFormat,
   referenceImageCount: number
 ): string {
-  const suffix = referenceImageCount > 0 ? '（图生图）' : '';
-  return apiFormat === 'openai'
-    ? `OpenAI 兼容格式${suffix}`
-    : `Gemini 原生格式${suffix}`;
+  const suffix = referenceImageCount > 0 ? '锛堝浘鐢熷浘锛?' : '';
+  if (apiFormat === 'openai') {
+    return `OpenAI 鍏煎鏍煎紡${suffix}`;
+  }
+  if (apiFormat === 'openai-images') {
+    return `OpenAI 鍥剧墖鎺ュ彛${suffix}`;
+  }
+  return `Gemini 鍘熺敓鏍煎紡${suffix}`;
 }
 
 export function createStoryboardNewApiImageModel(
@@ -116,8 +128,8 @@ export function createStoryboardNewApiImageModel(
     mediaType: 'image',
     displayName: normalizedConfig.displayName,
     providerId: STORYBOARD_NEWAPI_PROVIDER_ID,
-    description: '按 NewAPI 文档发送的自定义图片接口。',
-    eta: '实验性',
+    description: 'NewAPI-backed storyboard image endpoint.',
+    eta: '瀹為獙鎬?',
     expectedDurationMs: 60000,
     defaultAspectRatio: '1:1',
     defaultResolution: '2K',

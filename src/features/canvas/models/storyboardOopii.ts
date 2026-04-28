@@ -101,6 +101,13 @@ function inferStoryboardOopiiApiFormat(
   }
 
   if (
+    normalizedRequestModel.startsWith(`${STORYBOARD_OOPII_GPT_IMAGE_2_REQUEST_MODEL}-2k-`)
+    || normalizedRequestModel.startsWith(`${STORYBOARD_OOPII_GPT_IMAGE_2_REQUEST_MODEL}-4k-`)
+  ) {
+    return 'openai-images';
+  }
+
+  if (
     normalizedRequestModel.includes('gemini')
     || normalizedRequestModel.includes('imagen')
   ) {
@@ -160,6 +167,44 @@ function resolveStoryboardOopiiRequestModelVariant(
 
   const quality = normalizeStoryboardOopiiGptImage2Quality(requestContext?.extraParams);
   return `${STORYBOARD_OOPII_GPT_IMAGE_2_REQUEST_MODEL}-${normalizedResolution.toLowerCase()}-${quality}`;
+}
+
+function resolveStoryboardOopiiApiFormatVariant(
+  baseApiFormat: StoryboardNewApiApiFormat,
+  requestModel: string
+): StoryboardNewApiApiFormat {
+  const normalizedRequestModel = normalizeStoryboardOopiiRequestModel(requestModel).toLowerCase();
+  if (
+    normalizedRequestModel.startsWith(`${STORYBOARD_OOPII_GPT_IMAGE_2_REQUEST_MODEL}-2k-`)
+    || normalizedRequestModel.startsWith(`${STORYBOARD_OOPII_GPT_IMAGE_2_REQUEST_MODEL}-4k-`)
+  ) {
+    return 'openai-images';
+  }
+
+  if (normalizedRequestModel === STORYBOARD_OOPII_GPT_IMAGE_2_REQUEST_MODEL) {
+    return 'openai';
+  }
+
+  return baseApiFormat;
+}
+
+function finalizeStoryboardOopiiModelConfig(
+  baseConfig: StoryboardNewApiModelConfig,
+  requestContext?: StoryboardOopiiRequestContext | null
+): StoryboardNewApiModelConfig {
+  const requestModelVariant = resolveStoryboardOopiiRequestModelVariant(
+    baseConfig.requestModel,
+    requestContext
+  );
+
+  return normalizeStoryboardOopiiModelConfig({
+    ...baseConfig,
+    apiFormat: resolveStoryboardOopiiApiFormatVariant(
+      baseConfig.apiFormat,
+      requestModelVariant
+    ),
+    requestModel: requestModelVariant,
+  });
 }
 
 export function findStoryboardOopiiBuiltinModel(
@@ -222,21 +267,13 @@ export function resolveStoryboardOopiiModelConfigForModel(
   const normalizedModelId = normalizeTrimmedString(modelId);
   const matchedBuiltinModel = findStoryboardOopiiBuiltinModel(normalizedModelId);
   if (matchedBuiltinModel) {
-    const baseConfig = normalizeStoryboardOopiiModelConfig({
-      requestModel: matchedBuiltinModel.requestModel,
-      displayName: matchedBuiltinModel.displayName,
-    });
-    const requestModelVariant = resolveStoryboardOopiiRequestModelVariant(
-      baseConfig.requestModel,
+    return finalizeStoryboardOopiiModelConfig(
+      normalizeStoryboardOopiiModelConfig({
+        requestModel: matchedBuiltinModel.requestModel,
+        displayName: matchedBuiltinModel.displayName,
+      }),
       requestContext
     );
-    if (requestModelVariant === baseConfig.requestModel) {
-      return baseConfig;
-    }
-    return normalizeStoryboardOopiiModelConfig({
-      ...baseConfig,
-      requestModel: requestModelVariant,
-    });
   }
 
   const matchedCustomModel =
@@ -248,47 +285,30 @@ export function resolveStoryboardOopiiModelConfigForModel(
       )
       : undefined;
   if (matchedCustomModel) {
-    const baseConfig = normalizeStoryboardOopiiModelConfig({
-      requestModel: matchedCustomModel.modelId,
-      displayName: matchedCustomModel.displayName,
-    });
-    const requestModelVariant = resolveStoryboardOopiiRequestModelVariant(
-      baseConfig.requestModel,
+    return finalizeStoryboardOopiiModelConfig(
+      normalizeStoryboardOopiiModelConfig({
+        requestModel: matchedCustomModel.modelId,
+        displayName: matchedCustomModel.displayName,
+      }),
       requestContext
     );
-    if (requestModelVariant === baseConfig.requestModel) {
-      return baseConfig;
-    }
-    return normalizeStoryboardOopiiModelConfig({
-      ...baseConfig,
-      requestModel: requestModelVariant,
-    });
   }
 
   const normalizedRequestModel = normalizeStoryboardOopiiRequestModel(normalizedModelId);
   if (normalizedRequestModel) {
-    const requestModelVariant = resolveStoryboardOopiiRequestModelVariant(
-      normalizedRequestModel,
+    return finalizeStoryboardOopiiModelConfig(
+      normalizeStoryboardOopiiModelConfig({
+        requestModel: normalizedRequestModel,
+        displayName: normalizedRequestModel,
+      }),
       requestContext
     );
-    return normalizeStoryboardOopiiModelConfig({
-      requestModel: requestModelVariant,
-      displayName: normalizedRequestModel,
-    });
   }
 
-  const baseConfig = normalizeStoryboardOopiiModelConfig(undefined);
-  const requestModelVariant = resolveStoryboardOopiiRequestModelVariant(
-    baseConfig.requestModel,
+  return finalizeStoryboardOopiiModelConfig(
+    normalizeStoryboardOopiiModelConfig(undefined),
     requestContext
   );
-  if (requestModelVariant === baseConfig.requestModel) {
-    return baseConfig;
-  }
-  return normalizeStoryboardOopiiModelConfig({
-    ...baseConfig,
-    requestModel: requestModelVariant,
-  });
 }
 
 export function toStoryboardOopiiNewApiPayload(

@@ -33,6 +33,7 @@ export const CANVAS_NODE_TYPES = {
   seedanceVideoResult: 'seedanceVideoResultNode',
   exportImage: 'exportImageNode',
   textAnnotation: 'textAnnotationNode',
+  llmLogic: 'llmLogicNode',
   group: 'groupNode',
   storyboardSplit: 'storyboardNode',
   imageCollage: 'imageCollageNode',
@@ -118,6 +119,8 @@ export const AUDIO_NODE_DEFAULT_WIDTH = 320;
 export const AUDIO_NODE_DEFAULT_HEIGHT = 96;
 export const TTS_TEXT_NODE_DEFAULT_WIDTH = 500;
 export const TTS_TEXT_NODE_DEFAULT_HEIGHT = 300;
+export const LLM_LOGIC_NODE_DEFAULT_WIDTH = 520;
+export const LLM_LOGIC_NODE_DEFAULT_HEIGHT = 420;
 export const SCRIPT_CHAPTER_NODE_DEFAULT_WIDTH = 420;
 export const SCRIPT_CHAPTER_NODE_DEFAULT_HEIGHT = 380;
 export const SCRIPT_SCENE_NODE_DEFAULT_WIDTH = 460;
@@ -369,8 +372,50 @@ export interface GroupNodeData extends NodeDisplayData {
   [key: string]: unknown;
 }
 
+export interface TextAnnotationGenerationSource {
+  kind: 'llmLogic';
+  sourceNodeId: string;
+}
+
 export interface TextAnnotationNodeData extends NodeDisplayData {
   content: string;
+  generationSource?: TextAnnotationGenerationSource | null;
+  showCopyButton?: boolean;
+  isGenerating?: boolean;
+  generationStatusText?: string | null;
+  [key: string]: unknown;
+}
+
+export type LlmLogicPresetKey =
+  | 'generalPolish'
+  | 'spokenNatural'
+  | 'clarity'
+  | 'voiceSeparation'
+  | 'cinematicImagery'
+  | 'rhythmPause'
+  | 'emotionProgression'
+  | 'subtext'
+  | 'dialogueTension'
+  | 'dubbingReadability';
+
+export type LlmLogicPresetCategoryKey =
+  | 'voice'
+  | 'screen'
+  | 'writing';
+
+export interface LlmLogicNodeData extends NodeDisplayData {
+  model: string;
+  systemInstruction: string;
+  userPrompt: string;
+  presetCategoryKey?: LlmLogicPresetCategoryKey | null;
+  presetKey?: LlmLogicPresetKey | null;
+  activeRequestId?: string | null;
+  outputNodeId?: string | null;
+  pendingRequestIds?: string[];
+  isGenerating?: boolean;
+  statusText?: string | null;
+  lastError?: string | null;
+  lastGeneratedAt?: number | null;
   [key: string]: unknown;
 }
 
@@ -2047,6 +2092,7 @@ export type CanvasNodeData =
   | Seedvr2VideoUpscaleNodeData
   | ImageCollageNodeData
   | TextAnnotationNodeData
+  | LlmLogicNodeData
   | GroupNodeData
   | ImageEditNodeData
   | JimengNodeData
@@ -2934,6 +2980,88 @@ export function normalizeAdProjectRootNodeData(
   };
 }
 
+export function normalizeTextAnnotationNodeData(data: TextAnnotationNodeData): TextAnnotationNodeData {
+  return {
+    ...data,
+    content: normalizeString(data.content),
+    generationSource:
+      data.generationSource
+      && data.generationSource.kind === 'llmLogic'
+      && normalizeString(data.generationSource.sourceNodeId).trim()
+        ? {
+            kind: 'llmLogic',
+            sourceNodeId: normalizeString(data.generationSource.sourceNodeId).trim(),
+          }
+        : null,
+    showCopyButton: normalizeBooleanValue(data.showCopyButton, false),
+    isGenerating: normalizeBooleanValue(data.isGenerating, false),
+    generationStatusText: normalizeString(data.generationStatusText).trim() || null,
+  };
+}
+
+export function normalizeLlmLogicNodeData(data: LlmLogicNodeData): LlmLogicNodeData {
+  const presetCategoryKey = normalizeString(data.presetCategoryKey).trim();
+  const presetKey = normalizeString(data.presetKey).trim();
+  const normalizedPresetCategoryKey: LlmLogicPresetCategoryKey | null = [
+    'voice',
+    'screen',
+    'writing',
+  ].includes(presetCategoryKey)
+    ? presetCategoryKey as LlmLogicPresetCategoryKey
+    : ({
+        general: 'writing',
+        dialogue: 'screen',
+        dubbing: 'voice',
+      } as const)[presetCategoryKey as 'general' | 'dialogue' | 'dubbing'] ?? null;
+  const normalizedPresetKey: LlmLogicPresetKey | null = [
+    'generalPolish',
+    'spokenNatural',
+    'clarity',
+    'voiceSeparation',
+    'cinematicImagery',
+    'rhythmPause',
+    'emotionProgression',
+    'subtext',
+    'dialogueTension',
+    'dubbingReadability',
+  ].includes(presetKey)
+    ? presetKey as LlmLogicPresetKey
+    : null;
+  const derivedPresetCategoryKey: LlmLogicPresetCategoryKey | null = normalizedPresetKey
+    ? ({
+        generalPolish: 'writing',
+        spokenNatural: 'voice',
+        clarity: 'writing',
+        voiceSeparation: 'voice',
+        cinematicImagery: 'screen',
+        rhythmPause: 'voice',
+        emotionProgression: 'screen',
+        subtext: 'screen',
+        dialogueTension: 'screen',
+        dubbingReadability: 'voice',
+      } satisfies Record<LlmLogicPresetKey, LlmLogicPresetCategoryKey>)[normalizedPresetKey]
+    : normalizedPresetCategoryKey;
+
+  return {
+    ...data,
+    model: normalizeString(data.model),
+    systemInstruction: normalizeString(data.systemInstruction),
+    userPrompt: normalizeString(data.userPrompt),
+    presetCategoryKey: derivedPresetCategoryKey,
+    presetKey: normalizedPresetKey,
+    activeRequestId: normalizeString(data.activeRequestId).trim() || null,
+    outputNodeId: normalizeString(data.outputNodeId).trim() || null,
+    pendingRequestIds: normalizeStringArray(data.pendingRequestIds),
+    isGenerating: normalizeBooleanValue(data.isGenerating, false),
+    statusText: normalizeString(data.statusText).trim() || null,
+    lastError: normalizeString(data.lastError).trim() || null,
+    lastGeneratedAt:
+      typeof data.lastGeneratedAt === 'number' && Number.isFinite(data.lastGeneratedAt)
+        ? data.lastGeneratedAt
+        : null,
+  };
+}
+
 export function normalizeScriptChapterNodeData(data: ScriptChapterNodeData): ScriptChapterNodeData {
   return {
     ...data,
@@ -3239,6 +3367,12 @@ export function isTextAnnotationNode(
   node: CanvasNode | null | undefined
 ): node is Node<TextAnnotationNodeData, typeof CANVAS_NODE_TYPES.textAnnotation> {
   return node?.type === CANVAS_NODE_TYPES.textAnnotation;
+}
+
+export function isLlmLogicNode(
+  node: CanvasNode | null | undefined
+): node is Node<LlmLogicNodeData, typeof CANVAS_NODE_TYPES.llmLogic> {
+  return node?.type === CANVAS_NODE_TYPES.llmLogic;
 }
 
 export function isVideoNode(

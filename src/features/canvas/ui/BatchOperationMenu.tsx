@@ -64,6 +64,7 @@ const sourceTypeLabelKeyMap: Partial<Record<CanvasNodeType, string>> = {
   [CANVAS_NODE_TYPES.storyboardSplit]: 'node.menu.storyboardCompose',
   [CANVAS_NODE_TYPES.storyboardSplitResult]: 'node.menu.storyboardSplitResult',
   [CANVAS_NODE_TYPES.textAnnotation]: 'node.menu.textAnnotation',
+  [CANVAS_NODE_TYPES.llmLogic]: 'node.menu.llmLogic',
   [CANVAS_NODE_TYPES.ttsText]: 'node.menu.ttsText',
   [CANVAS_NODE_TYPES.scriptChapter]: 'node.menu.scriptChapter',
   [CANVAS_NODE_TYPES.scriptReference]: 'node.menu.scriptReference',

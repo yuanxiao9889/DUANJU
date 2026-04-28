@@ -110,12 +110,11 @@ impl BltcyProvider {
             && rounded_width > 16
             && rounded_height > 16
         {
-            let downscale =
-                (GPT_IMAGE_2_MAX_EDGE / rounded_width.max(rounded_height) as f32).min(
-                    (GPT_IMAGE_2_MAX_PIXELS / (rounded_width * rounded_height) as f32)
-                        .sqrt()
-                        .min(1.0),
-                );
+            let downscale = (GPT_IMAGE_2_MAX_EDGE / rounded_width.max(rounded_height) as f32).min(
+                (GPT_IMAGE_2_MAX_PIXELS / (rounded_width * rounded_height) as f32)
+                    .sqrt()
+                    .min(1.0),
+            );
             scaled_width *= downscale.min(0.995);
             scaled_height *= downscale.min(0.995);
             rounded_width = Self::round_dimension_to_multiple(scaled_width);
@@ -732,10 +731,7 @@ impl BltcyProvider {
 
         info!(
             "[鏌忔媺鍥?AI API] Image Generations URL: {}, model: {}, size: {}, aspect_ratio: {}",
-            endpoint,
-            model,
-            request.size,
-            request.aspect_ratio
+            endpoint, model, request.size, request.aspect_ratio
         );
 
         let response = self
@@ -790,7 +786,8 @@ impl BltcyProvider {
             .text("response_format", "url".to_string());
 
         if Self::is_gpt_image_2_model(model) {
-            if let Some(size) = Self::resolve_gpt_image_2_size(&request.size, &request.aspect_ratio) {
+            if let Some(size) = Self::resolve_gpt_image_2_size(&request.size, &request.aspect_ratio)
+            {
                 form = form.text("size", size);
             }
             if let Some(quality) = Self::resolve_gpt_image_2_quality(request) {
@@ -995,7 +992,8 @@ impl AIProvider for BltcyProvider {
             if has_reference_images {
                 self.send_edit_request(&api_key, &request, &model).await?
             } else {
-                self.send_generation_request(&api_key, &request, &model).await?
+                self.send_generation_request(&api_key, &request, &model)
+                    .await?
             }
         } else if Self::uses_edit_endpoint(&model) {
             self.send_edit_request(&api_key, &request, &model).await?

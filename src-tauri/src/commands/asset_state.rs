@@ -217,10 +217,11 @@ async fn normalize_asset_media_paths(
     let normalized_source_path = source_path.trim().to_string();
     let normalized_preview_path = normalize_optional_text(preview_path);
 
-    let safe_source_path = if let Some(relocated_path) = storage::relocate_storage_path_to_known_images_dirs(
-        &normalized_source_path,
-        &known_images_dirs,
-    ) {
+    let safe_source_path = if let Some(relocated_path) =
+        storage::relocate_storage_path_to_known_images_dirs(
+            &normalized_source_path,
+            &known_images_dirs,
+        ) {
         relocated_path
     } else if should_persist_asset_path(&images_dir, &normalized_source_path) {
         persist_image_source(app.clone(), normalized_source_path.clone()).await?

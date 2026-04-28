@@ -1,0 +1,22 @@
+services:
+  image-chat-proxy:
+    build: .
+    container_name: image-chat-proxy
+    restart: always
+    volumes:
+      - /opt/newapi-image-chat-proxy/generated:/app/generated
+    environment:
+      UPSTREAM_BASE_URL: https://ai.dearglory.cn
+      REQUEST_TIMEOUT_SECONDS: "600"
+      LOG_LEVEL: INFO
+      PUBLIC_BASE_URL: https://www.oopii.cn
+      GENERATED_DIR: /app/generated
+      DEBUG_IMAGE_URL: https://www.oopii.cn/proxy-images/proxy-debug.png
+    ports:
+      - "8787:8787"
+    networks:
+      - baota_net
+
+networks:
+  baota_net:
+    external: true

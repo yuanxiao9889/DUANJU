@@ -51,6 +51,7 @@ struct NewApiConfigPayload {
 enum NewApiFormat {
     GeminiGenerateContent,
     OpenAiCompatible,
+    OpenAiImages,
 }
 
 #[derive(Debug, Clone)]
@@ -83,6 +84,12 @@ struct OpenAiRequestFields {
     gpt2api_image_size: Option<String>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum OpenAiImageRoute {
+    Generations,
+    Edits,
+}
+
 pub struct NewApiProvider {
     client: Client,
     api_key: Arc<RwLock<Option<String>>>,
@@ -104,6 +111,7 @@ impl NewApiProvider {
         match input.trim() {
             "" => Ok(NewApiFormat::OpenAiCompatible),
             "openai" => Ok(NewApiFormat::OpenAiCompatible),
+            "openai-images" => Ok(NewApiFormat::OpenAiImages),
             "gemini" => Ok(NewApiFormat::GeminiGenerateContent),
             "gemini-generate-content" => Ok(NewApiFormat::GeminiGenerateContent),
             "openai-chat" => Ok(NewApiFormat::OpenAiCompatible),
@@ -363,8 +371,28 @@ impl NewApiProvider {
         format!("{}/v1/chat/completions", trimmed)
     }
 
+    fn resolve_openai_generations_endpoint(endpoint_url: &str) -> String {
+        let trimmed = endpoint_url.trim().trim_end_matches('/');
+        let trimmed = trimmed
+            .strip_suffix("/chat/completions")
+            .or_else(|| trimmed.strip_suffix("/images/generations"))
+            .or_else(|| trimmed.strip_suffix("/images/edits"))
+            .unwrap_or(trimmed)
+            .trim_end_matches('/');
+        if trimmed.ends_with("/v1") {
+            return format!("{}/images/generations", trimmed);
+        }
+        format!("{}/v1/images/generations", trimmed)
+    }
+
     fn resolve_openai_edits_endpoint(endpoint_url: &str) -> String {
         let trimmed = endpoint_url.trim().trim_end_matches('/');
+        let trimmed = trimmed
+            .strip_suffix("/chat/completions")
+            .or_else(|| trimmed.strip_suffix("/images/generations"))
+            .or_else(|| trimmed.strip_suffix("/images/edits"))
+            .unwrap_or(trimmed)
+            .trim_end_matches('/');
         if trimmed.ends_with("/images/edits") {
             return trimmed.to_string();
         }
@@ -720,6 +748,14 @@ impl NewApiProvider {
             .unwrap_or(false)
     }
 
+    fn resolve_openai_images_route(reference_image_count: usize) -> OpenAiImageRoute {
+        if reference_image_count > 0 {
+            OpenAiImageRoute::Edits
+        } else {
+            OpenAiImageRoute::Generations
+        }
+    }
+
     fn build_prompt_text(request: &GenerateRequest) -> String {
         let mut lines = vec![request.prompt.trim().to_string()];
 
@@ -763,6 +799,17 @@ impl NewApiProvider {
         request.prompt.clone()
     }
 
+    fn build_openai_generations_prompt_text(
+        request: &GenerateRequest,
+        fields: &OpenAiRequestFields,
+    ) -> String {
+        if let Some(image_size) = fields.gpt2api_image_size.as_deref() {
+            return Self::build_gpt2api_prompt_text(&request.prompt, image_size);
+        }
+
+        request.prompt.trim().to_string()
+    }
+
     fn build_openai_chat_body(
         fields: &OpenAiRequestFields,
         message_content: Value,
@@ -804,6 +851,81 @@ impl NewApiProvider {
         }
 
         body
+    }
+
+    fn build_openai_generations_body(
+        request: &GenerateRequest,
+        fields: &OpenAiRequestFields,
+    ) -> serde_json::Map<String, Value> {
+        let mut body = serde_json::Map::new();
+        body.insert(
+            "model".to_string(),
+            Value::String(fields.request_model.clone()),
+        );
+        body.insert(
+            "prompt".to_string(),
+            Value::String(Self::build_openai_generations_prompt_text(request, fields)),
+        );
+        body.insert("n".to_string(), json!(1));
+
+        if let Some(size) = fields.size.as_ref() {
+            body.insert("size".to_string(), Value::String(size.clone()));
+        }
+        if let Some(aspect_ratio) = fields.aspect_ratio.as_ref() {
+            body.insert(
+                "aspect_ratio".to_string(),
+                Value::String(aspect_ratio.clone()),
+            );
+        }
+        if let Some(image_size) = fields.image_size.as_ref() {
+            body.insert("image_size".to_string(), Value::String(image_size.clone()));
+        }
+        if let Some(image_backend) = fields.image_backend.as_ref() {
+            body.insert(
+                "image_backend".to_string(),
+                Value::String(image_backend.clone()),
+            );
+        }
+        if let Some(extra_body) = fields.extra_body.as_ref() {
+            body.insert("extra_body".to_string(), extra_body.clone());
+        }
+
+        body
+    }
+
+    fn build_openai_images_edits_text_fields(
+        request: &GenerateRequest,
+        fields: &OpenAiRequestFields,
+    ) -> Vec<(String, String)> {
+        let mut text_fields = vec![
+            ("model".to_string(), fields.request_model.clone()),
+            (
+                "prompt".to_string(),
+                Self::build_openai_edits_prompt_text(request, fields),
+            ),
+            ("n".to_string(), "1".to_string()),
+        ];
+
+        if let Some(size) = fields.size.as_ref() {
+            text_fields.push(("size".to_string(), size.clone()));
+        }
+        if let Some(image_size) = fields.image_size.as_ref() {
+            text_fields.push(("image_size".to_string(), image_size.clone()));
+        }
+        if let Some(aspect_ratio) = fields.aspect_ratio.as_ref() {
+            text_fields.push(("aspect_ratio".to_string(), aspect_ratio.clone()));
+        }
+        if let Some(image_backend) = fields.image_backend.as_ref() {
+            text_fields.push(("image_backend".to_string(), image_backend.clone()));
+        }
+
+        text_fields
+    }
+
+    fn build_openai_images_edits_image_field_names(
+        reference_image_count: usize,
+    ) -> Vec<&'static str> {
+        vec!["image"; reference_image_count]
     }
 
     fn build_generate_content_prompt(
@@ -1874,6 +1996,88 @@ impl NewApiProvider {
         }
     }
 
+    async fn run_openai_generations(
+        &self,
+        request: &GenerateRequest,
+        config: &NewApiConfig,
+        api_key: &str,
+    ) -> Result<Value, AIError> {
+        let endpoint = Self::resolve_openai_generations_endpoint(&config.endpoint_url);
+        let fields = Self::resolve_openai_request_fields(request, &config.request_model)?;
+        let body = Self::build_openai_generations_body(request, &fields);
+
+        self.send_json_request(
+            &endpoint,
+            api_key,
+            Value::Object(body),
+            "openai-images-generations",
+        )
+        .await
+    }
+
+    async fn run_openai_images_edits(
+        &self,
+        request: &GenerateRequest,
+        config: &NewApiConfig,
+        api_key: &str,
+    ) -> Result<Value, AIError> {
+        let endpoint = Self::resolve_openai_edits_endpoint(&config.endpoint_url);
+        let fields = Self::resolve_openai_request_fields(request, &config.request_model)?;
+        let sources = request
+            .reference_images
+            .as_ref()
+            .filter(|images| !images.is_empty())
+            .ok_or_else(|| {
+                AIError::InvalidRequest(
+                    "OpenAI image edits require at least one reference image".to_string(),
+                )
+            })?;
+
+        let mut form = Form::new();
+        for (field_name, field_value) in
+            Self::build_openai_images_edits_text_fields(request, &fields)
+        {
+            form = form.text(field_name, field_value);
+        }
+
+        let image_field_names = Self::build_openai_images_edits_image_field_names(sources.len());
+        for (index, source) in sources.iter().enumerate() {
+            let bytes = Self::source_to_bytes(source).await?;
+            let extension = Self::file_extension_from_source(source);
+            let image_part = Part::bytes(bytes)
+                .file_name(format!("image-{}.{}", index + 1, extension))
+                .mime_str(Self::mime_type_from_extension(extension))
+                .map_err(|error| {
+                    AIError::Provider(format!("Failed to create multipart image part: {}", error))
+                })?;
+
+            form = form.part(image_field_names[index].to_string(), image_part);
+        }
+
+        self.send_multipart_request(&endpoint, api_key, form, "openai-images-edits")
+            .await
+    }
+
+    async fn run_openai_images(
+        &self,
+        request: &GenerateRequest,
+        config: &NewApiConfig,
+        api_key: &str,
+    ) -> Result<Value, AIError> {
+        match Self::resolve_openai_images_route(
+            request
+                .reference_images
+                .as_ref()
+                .map(|images| images.len())
+                .unwrap_or(0),
+        ) {
+            OpenAiImageRoute::Generations => {
+                self.run_openai_generations(request, config, api_key).await
+            }
+            OpenAiImageRoute::Edits => self.run_openai_images_edits(request, config, api_key).await,
+        }
+    }
+
     async fn run_openai_compatible(
         &self,
         request: &GenerateRequest,
@@ -1980,6 +2184,15 @@ mod tests {
             NewApiProvider::resolve_openai_endpoint("https://www.oopii.cn/v1/images/edits");
 
         assert_eq!(endpoint, "https://www.oopii.cn/v1/chat/completions");
+    }
+
+    #[test]
+    fn resolve_openai_generations_endpoint_normalizes_chat_base() {
+        let endpoint = NewApiProvider::resolve_openai_generations_endpoint(
+            "https://www.oopii.cn/v1/chat/completions",
+        );
+
+        assert_eq!(endpoint, "https://www.oopii.cn/v1/images/generations");
     }
 
     #[test]
@@ -2191,6 +2404,91 @@ mod tests {
     }
 
     #[test]
+    fn resolve_openai_images_route_prefers_generations_without_references() {
+        assert_eq!(
+            NewApiProvider::resolve_openai_images_route(0),
+            super::OpenAiImageRoute::Generations
+        );
+        assert_eq!(
+            NewApiProvider::resolve_openai_images_route(2),
+            super::OpenAiImageRoute::Edits
+        );
+    }
+
+    #[test]
+    fn build_openai_generations_body_for_gpt2api_alias_uses_doc_fields() {
+        let request = crate::ai::GenerateRequest {
+            prompt: "make it cinematic".to_string(),
+            model: "newapi/gpt-image-2".to_string(),
+            size: "2K".to_string(),
+            aspect_ratio: "16:9".to_string(),
+            reference_images: None,
+            extra_params: None,
+        };
+
+        let fields =
+            NewApiProvider::resolve_openai_request_fields(&request, "gpt-image-2-2k-medium")
+                .expect("expected gpt-image-2 alias fields");
+        let body = NewApiProvider::build_openai_generations_body(&request, &fields);
+
+        assert_eq!(
+            body.get("model"),
+            Some(&Value::String("gpt-image-2-2k-medium".to_string()))
+        );
+        assert_eq!(body.get("n"), Some(&json!(1)));
+        assert_eq!(
+            body.get("image_backend"),
+            Some(&Value::String("auto".to_string()))
+        );
+        assert_eq!(
+            body.get("prompt"),
+            Some(&Value::String(
+                "make it cinematic\n\n[__gpt2api_image_size=2560x1440__]".to_string()
+            ))
+        );
+        assert!(!body.contains_key("size"));
+        assert!(!body.contains_key("aspect_ratio"));
+        assert!(!body.contains_key("image_size"));
+    }
+
+    #[test]
+    fn build_openai_images_edits_text_fields_for_gpt2api_alias_uses_doc_fields() {
+        let request = crate::ai::GenerateRequest {
+            prompt: "make it cinematic".to_string(),
+            model: "newapi/gpt-image-2".to_string(),
+            size: "4K".to_string(),
+            aspect_ratio: "9:16".to_string(),
+            reference_images: Some(vec!["https://example.com/reference.png".to_string()]),
+            extra_params: None,
+        };
+
+        let fields = NewApiProvider::resolve_openai_request_fields(&request, "gpt-image-2-4k-high")
+            .expect("expected gpt-image-2 alias fields");
+        let text_fields = NewApiProvider::build_openai_images_edits_text_fields(&request, &fields);
+
+        assert_eq!(
+            text_fields,
+            vec![
+                ("model".to_string(), "gpt-image-2-4k-high".to_string()),
+                (
+                    "prompt".to_string(),
+                    "make it cinematic\n\n[__gpt2api_image_size=2160x3840__]".to_string()
+                ),
+                ("n".to_string(), "1".to_string()),
+                ("image_backend".to_string(), "auto".to_string()),
+            ]
+        );
+    }
+
+    #[test]
+    fn build_openai_images_edits_image_field_names_repeat_image_key() {
+        assert_eq!(
+            NewApiProvider::build_openai_images_edits_image_field_names(3),
+            vec!["image", "image", "image"]
+        );
+    }
+
+    #[test]
     fn extract_first_image_prefers_flow2api_upscaled_asset() {
         let payload = json!({
             "url": "https://storage.googleapis.com/example/original.jpg",
@@ -2347,6 +2645,10 @@ mod tests {
             super::NewApiFormat::OpenAiCompatible
         );
         assert_eq!(
+            NewApiProvider::parse_api_format("openai-images").unwrap(),
+            super::NewApiFormat::OpenAiImages
+        );
+        assert_eq!(
             NewApiProvider::parse_api_format("openai-chat").unwrap(),
             super::NewApiFormat::OpenAiCompatible
         );
@@ -2434,6 +2736,9 @@ impl AIProvider for NewApiProvider {
             NewApiFormat::GeminiGenerateContent => {
                 self.run_generate_content(&request, &config, &api_key)
                     .await?
+            }
+            NewApiFormat::OpenAiImages => {
+                self.run_openai_images(&request, &config, &api_key).await?
             }
             NewApiFormat::OpenAiCompatible => {
                 self.run_openai_compatible(&request, &config, &api_key)

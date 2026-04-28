@@ -1161,11 +1161,12 @@ mod tests {
             .expect("cwd test lock should be available");
 
         let original_current_dir = std::env::current_dir().expect("cwd should be readable");
-        let temp_root = std::env::temp_dir().join(format!(
-            "storyboard-extension-discovery-{}",
-            Uuid::new_v4()
-        ));
-        let complete_dir = temp_root.join("build").join("extensions").join("test-complete");
+        let temp_root =
+            std::env::temp_dir().join(format!("storyboard-extension-discovery-{}", Uuid::new_v4()));
+        let complete_dir = temp_root
+            .join("build")
+            .join("extensions")
+            .join("test-complete");
         let template_dir = temp_root
             .join("extension-packages")
             .join("test-complete-template");
@@ -1175,10 +1176,16 @@ mod tests {
                 .expect("python runtime dir should be created");
             fs::create_dir_all(folder.join("runtime").join("app"))
                 .expect("app runtime dir should be created");
-            fs::write(folder.join("runtime").join("python").join("python.exe"), b"")
-                .expect("python placeholder should be written");
-            fs::write(folder.join("runtime").join("app").join("runner.py"), b"print('ok')\n")
-                .expect("runner placeholder should be written");
+            fs::write(
+                folder.join("runtime").join("python").join("python.exe"),
+                b"",
+            )
+            .expect("python placeholder should be written");
+            fs::write(
+                folder.join("runtime").join("app").join("runner.py"),
+                b"print('ok')\n",
+            )
+            .expect("runner placeholder should be written");
             fs::write(
                 folder.join(EXTENSION_MANIFEST_FILE),
                 serde_json::to_vec_pretty(&json!({

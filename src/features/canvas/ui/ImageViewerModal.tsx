@@ -1,12 +1,74 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { ChevronLeft, ChevronRight, Copy, RotateCcw, X } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Copy, Download, RotateCcw, X } from 'lucide-react';
+import { save } from '@tauri-apps/plugin-dialog';
 
 import { UI_CONTENT_OVERLAY_INSET_CLASS } from '@/components/ui/motion';
+import { saveImageSourceToPath } from '@/commands/image';
 import type { ImageViewerMetadata } from '@/features/canvas/domain/canvasNodes';
 import { getModelProvider } from '@/features/canvas/models';
 
 import { useImageViewerTransform } from '../hooks/useImageViewerTransform';
+
+const FALLBACK_VIEWER_DOWNLOAD_EXTENSION = 'png';
+const IMAGE_FILE_EXTENSION_PATTERN =
+  /\.(png|jpe?g|webp|gif|bmp|avif|tiff?|svg)$/i;
+
+function sanitizeFileNameSegment(value: string): string {
+  return value.replace(/[<>:"/\\|?*\u0000-\u001F]/g, '-').trim();
+}
+
+function resolveViewerDownloadExtension(source: string): string {
+  const trimmedSource = source.trim();
+  const dataUrlMatch = /^data:image\/([a-z0-9.+-]+);/i.exec(trimmedSource);
+  if (dataUrlMatch) {
+    const dataUrlExtension = dataUrlMatch[1]?.toLowerCase();
+    if (dataUrlExtension === 'jpeg') {
+      return 'jpg';
+    }
+    if (dataUrlExtension) {
+      return dataUrlExtension;
+    }
+  }
+
+  const normalizedSource = trimmedSource.split(/[?#]/, 1)[0] ?? '';
+  const extensionMatch = normalizedSource.match(IMAGE_FILE_EXTENSION_PATTERN);
+  if (!extensionMatch) {
+    return FALLBACK_VIEWER_DOWNLOAD_EXTENSION;
+  }
+
+  const normalizedExtension = extensionMatch[1]?.toLowerCase();
+  if (!normalizedExtension) {
+    return FALLBACK_VIEWER_DOWNLOAD_EXTENSION;
+  }
+
+  return normalizedExtension === 'jpeg' ? 'jpg' : normalizedExtension;
+}
+
+function resolveViewerDownloadFileName(source: string, currentIndex: number): string {
+  const trimmedSource = source.trim();
+  const fallbackExtension = resolveViewerDownloadExtension(trimmedSource);
+  const normalizedSource = trimmedSource.split(/[?#]/, 1)[0] ?? '';
+  const decodedSource = (() => {
+    try {
+      return decodeURIComponent(normalizedSource);
+    } catch {
+      return normalizedSource;
+    }
+  })();
+  const extractedFileName = decodedSource.split(/[\\/]/).pop()?.trim() ?? '';
+  const sanitizedFileName = sanitizeFileNameSegment(extractedFileName);
+
+  if (!sanitizedFileName) {
+    return `image-${currentIndex + 1}.${fallbackExtension}`;
+  }
+
+  if (IMAGE_FILE_EXTENSION_PATTERN.test(sanitizedFileName)) {
+    return sanitizedFileName;
+  }
+
+  return `${sanitizedFileName}.${fallbackExtension}`;
+}
 
 export interface ImageViewerModalProps {
   open: boolean;
@@ -210,6 +272,26 @@ export function ImageViewerModal({
     }, 1200);
   };
 
+  const handleDownloadImage = async () => {
+    const source = displayImageUrl.trim();
+    if (!source) {
+      return;
+    }
+
+    try {
+      const selectedPath = await save({
+        defaultPath: resolveViewerDownloadFileName(source, currentIndex),
+      });
+      if (!selectedPath || Array.isArray(selectedPath)) {
+        return;
+      }
+
+      await saveImageSourceToPath(source, selectedPath);
+    } catch (error) {
+      console.error('Failed to save viewer image', error);
+    }
+  };
+
   if (!isVisible) {
     return null;
   }
@@ -297,6 +379,17 @@ export function ImageViewerModal({
               title={t('viewer.reset', '重置视图')}
             >
               <RotateCcw className="h-4 w-4" />
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                void handleDownloadImage();
+              }}
+              className={viewerControlClass}
+              title={t('viewer.download', '下载图片')}
+              aria-label={t('viewer.download', '下载图片')}
+            >
+              <Download className="h-4 w-4" />
             </button>
             <button
               type="button"

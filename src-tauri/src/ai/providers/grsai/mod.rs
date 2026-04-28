@@ -560,7 +560,9 @@ impl GrsaiProvider {
                 model: Self::resolve_completions_model(&model),
                 prompt: request.prompt.clone(),
                 size: Self::resolve_completions_size(request),
-                urls: self.prepare_reference_urls(&api_key, request, false).await?,
+                urls: self
+                    .prepare_reference_urls(&api_key, request, false)
+                    .await?,
                 web_hook: "-1".to_string(),
                 shut_progress: true,
             };

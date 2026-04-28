@@ -67,8 +67,8 @@ fn read_storage_config_from_path(config_path: &Path) -> Result<StorageConfig, St
         return Ok(StorageConfig::default());
     }
 
-    let mut file = fs::File::open(config_path)
-        .map_err(|e| format!("Failed to open storage config: {}", e))?;
+    let mut file =
+        fs::File::open(config_path).map_err(|e| format!("Failed to open storage config: {}", e))?;
 
     let mut content = String::new();
     file.read_to_string(&mut content)
@@ -144,7 +144,9 @@ pub fn resolve_storage_base_path(app: &AppHandle) -> Result<PathBuf, String> {
     get_default_storage_path(app)
 }
 
-pub fn recover_storage_from_legacy_default_if_needed(app: &AppHandle) -> Result<Option<PathBuf>, String> {
+pub fn recover_storage_from_legacy_default_if_needed(
+    app: &AppHandle,
+) -> Result<Option<PathBuf>, String> {
     let mut config = read_storage_config(app)?;
     if config.custom_path.is_some() {
         return Ok(None);
@@ -162,8 +164,8 @@ pub fn recover_storage_from_legacy_default_if_needed(app: &AppHandle) -> Result<
         return Ok(None);
     };
 
-    let normalized_candidate = normalize_storage_path_string(&best_candidate.path.to_string_lossy())
-        .ok_or_else(|| {
+    let normalized_candidate =
+        normalize_storage_path_string(&best_candidate.path.to_string_lossy()).ok_or_else(|| {
             format!(
                 "Failed to normalize recovered storage path: {}",
                 best_candidate.path.display()
@@ -253,7 +255,8 @@ pub(crate) fn resolve_known_images_dirs(app: &AppHandle) -> Result<Vec<PathBuf>,
     let config = read_storage_config(app)?;
     for legacy_path in config.legacy_paths {
         let images_dir = PathBuf::from(legacy_path).join("images");
-        let compare_key = storage_path_compare_key(&images_dir.to_string_lossy().replace('\\', "/"));
+        let compare_key =
+            storage_path_compare_key(&images_dir.to_string_lossy().replace('\\', "/"));
         if seen.insert(compare_key) {
             results.push(images_dir);
         }
@@ -328,7 +331,9 @@ fn evaluate_legacy_storage_candidate(path: &Path) -> Option<LegacyStorageCandida
     }
 
     let db_path = path.join("projects.db");
-    let db_metadata = fs::metadata(&db_path).ok().filter(|metadata| metadata.len() > 0);
+    let db_metadata = fs::metadata(&db_path)
+        .ok()
+        .filter(|metadata| metadata.len() > 0);
     let config_metadata = fs::metadata(path.join(STORAGE_CONFIG_FILE)).ok();
     let images_dir = path.join("images");
     let images_has_entries = images_dir.is_dir() && directory_has_entries(&images_dir);
@@ -354,7 +359,11 @@ fn evaluate_legacy_storage_candidate(path: &Path) -> Option<LegacyStorageCandida
     let modified_at = db_metadata
         .as_ref()
         .and_then(|metadata| metadata.modified().ok())
-        .or_else(|| config_metadata.as_ref().and_then(|metadata| metadata.modified().ok()))
+        .or_else(|| {
+            config_metadata
+                .as_ref()
+                .and_then(|metadata| metadata.modified().ok())
+        })
         .or_else(|| {
             fs::metadata(&images_dir)
                 .ok()
@@ -394,7 +403,8 @@ fn discover_legacy_storage_candidates(
                 continue;
             }
 
-            let compare_key = storage_path_compare_key(&variant.to_string_lossy().replace('\\', "/"));
+            let compare_key =
+                storage_path_compare_key(&variant.to_string_lossy().replace('\\', "/"));
             if !seen.insert(compare_key) {
                 continue;
             }
@@ -406,11 +416,9 @@ fn discover_legacy_storage_candidates(
     }
 
     let current_config_path = get_config_path(app)?;
-    for variant in collect_storage_root_variants(
-        current_config_path
-            .parent()
-            .unwrap_or(default_path),
-    ) {
+    for variant in
+        collect_storage_root_variants(current_config_path.parent().unwrap_or(default_path))
+    {
         if storage_roots_equal(&variant, default_path) {
             continue;
         }
@@ -1194,9 +1202,7 @@ pub fn open_storage_folder(app: AppHandle) -> Result<(), String> {
 
 #[cfg(test)]
 mod tests {
-    use super::{
-        rebase_storage_path_string, relocate_storage_path_to_known_images_dirs,
-    };
+    use super::{rebase_storage_path_string, relocate_storage_path_to_known_images_dirs};
     use std::fs;
     use std::path::PathBuf;
 
