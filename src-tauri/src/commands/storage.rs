@@ -7,6 +7,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use rusqlite::{Connection, DatabaseName};
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Manager};
+use tracing::info;
 
 use super::project_state;
 
@@ -26,6 +27,23 @@ const AUTO_DATABASE_BACKUP_INTERVAL_MS: i64 = 24 * 60 * 60 * 1000;
 const MAX_AUTO_DATABASE_BACKUPS: usize = 7;
 const MAX_MANUAL_DATABASE_BACKUPS: usize = 20;
 const MAX_PRE_RESTORE_DATABASE_BACKUPS: usize = 5;
+const LEGACY_STORAGE_DIR_NAMES: &[&str] = &[
+    "Storyboard-Copilot",
+    "storyboard-copilot",
+    "Storyboard Copilot",
+    "StoryboardCopilot",
+    "分镜助手",
+    "短剧助手",
+    "OOpii无限画布",
+    "OOpii鏃犻檺鐢诲竷",
+];
+
+#[derive(Debug, Clone)]
+struct LegacyStorageCandidate {
+    path: PathBuf,
+    score: u8,
+    modified_at: i64,
+}
 
 fn get_config_path(app: &AppHandle) -> Result<PathBuf, String> {
     let app_data_dir = app
@@ -41,12 +59,15 @@ fn get_config_path(app: &AppHandle) -> Result<PathBuf, String> {
 
 fn read_storage_config(app: &AppHandle) -> Result<StorageConfig, String> {
     let config_path = get_config_path(app)?;
+    read_storage_config_from_path(&config_path)
+}
 
+fn read_storage_config_from_path(config_path: &Path) -> Result<StorageConfig, String> {
     if !config_path.exists() {
         return Ok(StorageConfig::default());
     }
 
-    let mut file = fs::File::open(&config_path)
+    let mut file = fs::File::open(config_path)
         .map_err(|e| format!("Failed to open storage config: {}", e))?;
 
     let mut content = String::new();
@@ -121,6 +142,45 @@ pub fn resolve_storage_base_path(app: &AppHandle) -> Result<PathBuf, String> {
     }
 
     get_default_storage_path(app)
+}
+
+pub fn recover_storage_from_legacy_default_if_needed(app: &AppHandle) -> Result<Option<PathBuf>, String> {
+    let mut config = read_storage_config(app)?;
+    if config.custom_path.is_some() {
+        return Ok(None);
+    }
+
+    let default_path = get_default_storage_path(app)?;
+    if evaluate_legacy_storage_candidate(&default_path).is_some() {
+        return Ok(None);
+    }
+
+    let Some(best_candidate) = discover_legacy_storage_candidates(app, &default_path)?
+        .into_iter()
+        .next()
+    else {
+        return Ok(None);
+    };
+
+    let normalized_candidate = normalize_storage_path_string(&best_candidate.path.to_string_lossy())
+        .ok_or_else(|| {
+            format!(
+                "Failed to normalize recovered storage path: {}",
+                best_candidate.path.display()
+            )
+        })?;
+
+    info!(
+        "Recovered legacy storage root {} for empty default storage {}",
+        best_candidate.path.display(),
+        default_path.display()
+    );
+
+    config.custom_path = Some(normalized_candidate);
+    let config = normalize_storage_config(config);
+    write_storage_config(app, &config)?;
+
+    Ok(config.custom_path.map(PathBuf::from))
 }
 
 fn allow_asset_scope_directory(app: &AppHandle, path: &Path) -> Result<(), String> {
@@ -222,6 +282,157 @@ fn storage_path_compare_key(value: &str) -> String {
     } else {
         value.to_string()
     }
+}
+
+fn storage_roots_equal(left: &Path, right: &Path) -> bool {
+    storage_path_compare_key(&left.to_string_lossy().replace('\\', "/"))
+        == storage_path_compare_key(&right.to_string_lossy().replace('\\', "/"))
+}
+
+fn directory_has_entries(path: &Path) -> bool {
+    fs::read_dir(path)
+        .ok()
+        .and_then(|mut entries| entries.next())
+        .is_some()
+}
+
+fn collect_storage_root_variants(root: &Path) -> Vec<PathBuf> {
+    let mut results = Vec::new();
+    let mut seen = HashSet::new();
+
+    let push_path = |results: &mut Vec<PathBuf>, seen: &mut HashSet<String>, path: PathBuf| {
+        let compare_key = storage_path_compare_key(&path.to_string_lossy().replace('\\', "/"));
+        if seen.insert(compare_key) {
+            results.push(path);
+        }
+    };
+
+    push_path(&mut results, &mut seen, root.to_path_buf());
+
+    if let Ok(config) = read_storage_config_from_path(&root.join(STORAGE_CONFIG_FILE)) {
+        if let Some(custom_path) = config.custom_path {
+            push_path(&mut results, &mut seen, PathBuf::from(custom_path));
+        }
+
+        for legacy_path in config.legacy_paths {
+            push_path(&mut results, &mut seen, PathBuf::from(legacy_path));
+        }
+    }
+
+    results
+}
+
+fn evaluate_legacy_storage_candidate(path: &Path) -> Option<LegacyStorageCandidate> {
+    if !path.exists() || !path.is_dir() {
+        return None;
+    }
+
+    let db_path = path.join("projects.db");
+    let db_metadata = fs::metadata(&db_path).ok().filter(|metadata| metadata.len() > 0);
+    let config_metadata = fs::metadata(path.join(STORAGE_CONFIG_FILE)).ok();
+    let images_dir = path.join("images");
+    let images_has_entries = images_dir.is_dir() && directory_has_entries(&images_dir);
+    let backups_dir = path.join("backups").join("db");
+    let backups_has_entries = backups_dir.is_dir() && directory_has_entries(&backups_dir);
+
+    let score = if db_metadata.is_some() {
+        4
+    } else if images_has_entries {
+        3
+    } else if backups_has_entries {
+        2
+    } else if config_metadata.is_some() {
+        1
+    } else {
+        0
+    };
+
+    if score == 0 {
+        return None;
+    }
+
+    let modified_at = db_metadata
+        .as_ref()
+        .and_then(|metadata| metadata.modified().ok())
+        .or_else(|| config_metadata.as_ref().and_then(|metadata| metadata.modified().ok()))
+        .or_else(|| {
+            fs::metadata(&images_dir)
+                .ok()
+                .and_then(|metadata| metadata.modified().ok())
+        })
+        .or_else(|| {
+            fs::metadata(&backups_dir)
+                .ok()
+                .and_then(|metadata| metadata.modified().ok())
+        })
+        .map(system_time_to_timestamp_ms)
+        .unwrap_or_default();
+
+    Some(LegacyStorageCandidate {
+        path: path.to_path_buf(),
+        score,
+        modified_at,
+    })
+}
+
+fn discover_legacy_storage_candidates(
+    app: &AppHandle,
+    default_path: &Path,
+) -> Result<Vec<LegacyStorageCandidate>, String> {
+    let parent_dir = match default_path.parent() {
+        Some(parent) => parent,
+        None => return Ok(Vec::new()),
+    };
+
+    let mut candidates = Vec::new();
+    let mut seen = HashSet::new();
+
+    for dir_name in LEGACY_STORAGE_DIR_NAMES {
+        let root = parent_dir.join(dir_name);
+        for variant in collect_storage_root_variants(&root) {
+            if storage_roots_equal(&variant, default_path) {
+                continue;
+            }
+
+            let compare_key = storage_path_compare_key(&variant.to_string_lossy().replace('\\', "/"));
+            if !seen.insert(compare_key) {
+                continue;
+            }
+
+            if let Some(candidate) = evaluate_legacy_storage_candidate(&variant) {
+                candidates.push(candidate);
+            }
+        }
+    }
+
+    let current_config_path = get_config_path(app)?;
+    for variant in collect_storage_root_variants(
+        current_config_path
+            .parent()
+            .unwrap_or(default_path),
+    ) {
+        if storage_roots_equal(&variant, default_path) {
+            continue;
+        }
+
+        let compare_key = storage_path_compare_key(&variant.to_string_lossy().replace('\\', "/"));
+        if !seen.insert(compare_key) {
+            continue;
+        }
+
+        if let Some(candidate) = evaluate_legacy_storage_candidate(&variant) {
+            candidates.push(candidate);
+        }
+    }
+
+    candidates.sort_by(|left, right| {
+        right
+            .score
+            .cmp(&left.score)
+            .then_with(|| right.modified_at.cmp(&left.modified_at))
+            .then_with(|| left.path.cmp(&right.path))
+    });
+    Ok(candidates)
 }
 
 fn remember_legacy_storage_path(config: &mut StorageConfig, path: &Path) {

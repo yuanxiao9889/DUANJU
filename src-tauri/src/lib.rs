@@ -334,7 +334,13 @@ pub fn run() {
         .build(tauri::generate_context!())
         .expect("error while building tauri application");
 
-    if let Err(err) = commands::storage::ensure_storage_asset_scope(&app.handle().clone()) {
+    let app_handle = app.handle().clone();
+
+    if let Err(err) = commands::storage::recover_storage_from_legacy_default_if_needed(&app_handle) {
+        warn!("failed to recover legacy storage root on startup: {err}");
+    }
+
+    if let Err(err) = commands::storage::ensure_storage_asset_scope(&app_handle) {
         warn!("failed to restore storage asset scope on startup: {err}");
     }
 
