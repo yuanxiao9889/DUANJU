@@ -68,6 +68,7 @@ import {
 import { resolveNodeDisplayName } from "@/features/canvas/domain/nodeDisplay";
 import {
   useCanvasConnectedAudioReferences,
+  useCanvasConnectedTextInput,
   useCanvasConnectedReferenceVisuals,
   useCanvasNodeById,
 } from "@/features/canvas/hooks/useCanvasNodeGraph";
@@ -81,6 +82,7 @@ import { NodeResizeHandle } from "@/features/canvas/ui/NodeResizeHandle";
 import { ReferenceVisualChip } from "@/features/canvas/ui/ReferenceVisualChip";
 import { ShotParamsPanel } from "@/features/canvas/ui/ShotParamsPanel";
 import { NodeStatusBadge } from "@/features/canvas/ui/NodeStatusBadge";
+import { UpstreamPromptLockOverlay } from "@/features/canvas/ui/UpstreamPromptLockOverlay";
 import {
   NODE_CONTROL_CHIP_CLASS,
   NODE_CONTROL_PRIMARY_BUTTON_CLASS,
@@ -713,6 +715,11 @@ export const SeedanceNode = memo(
     const currentNode = useCanvasNodeById(id);
     const connectedVisuals = useCanvasConnectedReferenceVisuals(id);
     const connectedAudios = useCanvasConnectedAudioReferences(id);
+    const {
+      connectedText,
+      hasConnectedTextSource,
+      hasNonEmptyConnectedText,
+    } = useCanvasConnectedTextInput(id);
     const storyboardApiKeys = useSettingsStore(
       (state) => state.storyboardApiKeys,
     );
@@ -783,6 +790,9 @@ export const SeedanceNode = memo(
     const promptHighlightRef = useRef<HTMLDivElement>(null);
     const promptHoverLayerRef = useRef<HTMLDivElement>(null);
     const [promptDraft, setPromptDraft] = useState(() => data.prompt ?? "");
+    const isPromptLockedByUpstream = hasConnectedTextSource;
+    const displayedPrompt = promptDraft;
+    const effectivePrompt = isPromptLockedByUpstream ? connectedText : promptDraft;
     const promptValueRef = useRef(promptDraft);
     const lastPromptSelectionRef = useRef<TextSelectionRange | null>(null);
     const pickerSelectionRef = useRef<TextSelectionRange | null>(null);
@@ -1014,6 +1024,19 @@ export const SeedanceNode = memo(
     }, [referencePickerItems.length]);
 
     useEffect(() => {
+      if (!isPromptLockedByUpstream) {
+        return;
+      }
+
+      promptRef.current?.blur();
+      setShowImagePicker(false);
+      pickerSelectionRef.current = null;
+      setPickerActiveIndex(0);
+      closeShotParamsPanel();
+      setPromptReferencePreview(null);
+    }, [closeShotParamsPanel, isPromptLockedByUpstream]);
+
+    useEffect(() => {
       if (!showImagePicker) {
         return;
       }
@@ -1053,11 +1076,11 @@ export const SeedanceNode = memo(
         scrollSnapshot?: TextareaScrollSnapshot | null,
       ) => {
         requestAnimationFrame(() => {
-          restoreTextareaSelection(
-            promptRef.current,
-            selection,
-            promptValueRef.current.length,
-            {
+        restoreTextareaSelection(
+          promptRef.current,
+          selection,
+          promptRef.current?.value.length ?? promptValueRef.current.length,
+          {
               scrollSnapshot,
               syncScroll: syncPromptHighlightScroll,
               onAfterRestore: (textarea, nextSelection) => {
@@ -1073,6 +1096,10 @@ export const SeedanceNode = memo(
 
     const insertReferenceItem = useCallback(
       (pickerIndex: number) => {
+        if (isPromptLockedByUpstream) {
+          return;
+        }
+
         const pickerItem = referencePickerItems[pickerIndex];
         if (!pickerItem) {
           return;
@@ -1098,11 +1125,20 @@ export const SeedanceNode = memo(
 
         schedulePromptSelectionRestore(nextCursor, scrollSnapshot);
       },
-      [handlePromptChange, referencePickerItems, schedulePromptSelectionRestore],
+      [
+        handlePromptChange,
+        isPromptLockedByUpstream,
+        referencePickerItems,
+        schedulePromptSelectionRestore,
+      ],
     );
 
     const handleShotParamInsert = useCallback(
       (value: string) => {
+        if (isPromptLockedByUpstream) {
+          return;
+        }
+
         const selection = resolveTextSelection({
           textarea: promptRef.current,
           lastSelection: lastPromptSelectionRef.current,
@@ -1117,10 +1153,14 @@ export const SeedanceNode = memo(
         handlePromptChange(nextText);
         schedulePromptSelectionRestore(nextCursor);
       },
-      [handlePromptChange, schedulePromptSelectionRestore],
+      [handlePromptChange, isPromptLockedByUpstream, schedulePromptSelectionRestore],
     );
 
     const handleOptimizePrompt = useCallback(async () => {
+      if (isPromptLockedByUpstream) {
+        return;
+      }
+
       const sourcePrompt = promptValueRef.current;
       const currentPrompt = sourcePrompt.trim();
       if (!currentPrompt) {
@@ -1202,6 +1242,7 @@ export const SeedanceNode = memo(
       }
     }, [
       handlePromptChange,
+      isPromptLockedByUpstream,
       referenceVisualItems,
       syncPromptHighlightScroll,
       syncPromptTextSelectionState,
@@ -1210,6 +1251,10 @@ export const SeedanceNode = memo(
     ]);
 
     const handleUndoOptimizedPrompt = useCallback(() => {
+      if (isPromptLockedByUpstream) {
+        return;
+      }
+
       if (!lastPromptOptimizationUndoState) {
         return;
       }
@@ -1228,6 +1273,7 @@ export const SeedanceNode = memo(
       schedulePromptSelectionRestore(restoredPrompt.length);
     }, [
       handlePromptChange,
+      isPromptLockedByUpstream,
       lastPromptOptimizationUndoState,
       schedulePromptSelectionRestore,
     ]);
@@ -1288,6 +1334,10 @@ export const SeedanceNode = memo(
 
     const handlePromptKeyDown = useCallback(
       (event: KeyboardEvent<HTMLTextAreaElement>) => {
+        if (isPromptLockedByUpstream) {
+          return;
+        }
+
         if (event.key === "Backspace" || event.key === "Delete") {
           const currentPrompt = promptValueRef.current;
           const selectionStart =
@@ -1379,6 +1429,7 @@ export const SeedanceNode = memo(
       },
       [
         handlePromptChange,
+        isPromptLockedByUpstream,
         insertReferenceItem,
         pickerActiveIndex,
         referenceAudioItems.length,
@@ -1394,7 +1445,7 @@ export const SeedanceNode = memo(
         return t("node.seedance.apiKeyRequired");
       }
 
-      const prompt = promptDraft.trim();
+      const prompt = effectivePrompt.trim();
       if (!prompt) {
         return t("node.seedance.promptRequired");
       }
@@ -1465,8 +1516,8 @@ export const SeedanceNode = memo(
       return null;
     }, [
       apiKey,
+      effectivePrompt,
       imageReferences.length,
-      promptDraft,
       referenceAudioDuration,
       referenceAudioItems.length,
       referenceVideoDuration,
@@ -1488,7 +1539,7 @@ export const SeedanceNode = memo(
         return;
       }
 
-      const prompt = promptDraft.trim();
+      const prompt = effectivePrompt.trim();
       const startedAt = Date.now();
       let createdResultNodeId: string | null = null;
 
@@ -1632,10 +1683,10 @@ export const SeedanceNode = memo(
       addNode,
       apiKey,
       closeShotParamsPanel,
+      effectivePrompt,
       findNodePosition,
       id,
       imageReferences,
-      promptDraft,
       referenceAudioItems,
       resolvedGenerateAudio,
       resolvedReturnLastFrame,
@@ -1700,14 +1751,22 @@ export const SeedanceNode = memo(
               : t("node.seedance.optimizeReferenceImagesUnused"),
         })}`
       : null;
+    const promptLockStatusText = isPromptLockedByUpstream
+      ? (
+          hasNonEmptyConnectedText
+            ? t("common.upstreamTextDisconnectHint")
+            : t("common.upstreamTextEmpty")
+        )
+      : null;
     const statusInfoText =
       combinedError ??
       (data.isSubmitting
         ? t("node.seedance.submitting")
-        : (promptOptimizationNotice ??
+        : (promptLockStatusText ??
+          (promptOptimizationNotice ??
           (lastSubmittedTime
             ? t("node.seedance.lastSubmitted", { time: lastSubmittedTime })
-            : t(modeHintKey))));
+            : t(modeHintKey)))));
     const showBlockingOverlay = Boolean(
       data.isSubmitting || data.isGenerating || isOptimizingPrompt,
     );
@@ -1771,7 +1830,7 @@ export const SeedanceNode = memo(
                 >
                   <div className="min-h-full whitespace-pre-wrap break-words px-3 py-2">
                     {renderPromptWithHighlights(
-                      promptDraft,
+                      displayedPrompt,
                       referenceVisualItems.length,
                       referenceAudioItems.length,
                     )}
@@ -1786,7 +1845,7 @@ export const SeedanceNode = memo(
                 >
                   <div className="min-h-full whitespace-pre-wrap break-words px-3 py-2">
                     {renderPromptReferenceHoverTargets(
-                      promptDraft,
+                      displayedPrompt,
                       referenceVisualItems.length,
                       referenceAudioItems.length,
                       handlePromptReferenceTokenHover,
@@ -1798,13 +1857,21 @@ export const SeedanceNode = memo(
 
                 <textarea
                   ref={promptRef}
-                  value={promptDraft}
+                  value={displayedPrompt}
+                  readOnly={isPromptLockedByUpstream}
+                  aria-readonly={isPromptLockedByUpstream}
+                  aria-disabled={isPromptLockedByUpstream}
+                  tabIndex={isPromptLockedByUpstream ? -1 : undefined}
                   onChange={(event) => {
                     handlePromptChange(event.target.value);
                     rememberPromptSelection(event.currentTarget);
                   }}
                   placeholder={t("node.seedance.promptPlaceholder")}
-                  className="ui-scrollbar nodrag nowheel relative z-10 h-full min-h-[148px] w-full resize-none rounded-xl border border-transparent bg-transparent px-3 py-2 text-sm leading-6 text-transparent caret-text-dark outline-none placeholder:text-text-muted/70 focus:border-accent/50 whitespace-pre-wrap break-words selection:bg-accent/30 selection:text-transparent"
+                  className={`ui-scrollbar nodrag nowheel relative z-10 h-full min-h-[148px] w-full resize-none rounded-xl border border-transparent bg-transparent px-3 py-2 text-sm leading-6 text-transparent outline-none placeholder:text-text-muted/70 whitespace-pre-wrap break-words selection:bg-accent/30 selection:text-transparent ${
+                    isPromptLockedByUpstream
+                      ? "cursor-default caret-transparent"
+                      : "caret-text-dark focus:border-accent/50"
+                  }`}
                   style={{ scrollbarGutter: "stable" }}
                   onScroll={syncPromptHighlightScroll}
                   onMouseDown={(event) => {
@@ -1823,6 +1890,12 @@ export const SeedanceNode = memo(
                   onBlur={() => setIsPromptTextSelectionActive(false)}
                   onKeyDownCapture={handlePromptKeyDown}
                 />
+
+                {isPromptLockedByUpstream ? (
+                  <UpstreamPromptLockOverlay
+                    empty={!hasNonEmptyConnectedText}
+                  />
+                ) : null}
 
                 {promptReferencePreview ? (
                   <div
@@ -2021,7 +2094,11 @@ export const SeedanceNode = memo(
                 />
                 <StyleTemplatePicker
                   className={`${NODE_CONTROL_CHIP_CLASS} shrink-0 !w-8 !px-0 justify-center`}
+                  disabled={isPromptLockedByUpstream}
                   onTemplateApply={(template) => {
+                    if (isPromptLockedByUpstream) {
+                      return;
+                    }
                     const nextPrompt = appendStyleTemplatePrompt(
                       promptValueRef.current,
                       template.prompt,
@@ -2034,6 +2111,7 @@ export const SeedanceNode = memo(
                 <UiChipButton
                   type="button"
                   active={isShotParamsPanelOpen}
+                  disabled={isPromptLockedByUpstream}
                   className={shotParamsButtonClassName}
                   aria-label={shotParamsTriggerTitle}
                   title={shotParamsTriggerTitle}
@@ -2052,7 +2130,9 @@ export const SeedanceNode = memo(
                   type="button"
                   active={isOptimizingPrompt}
                   disabled={
-                    isOptimizingPrompt || promptDraft.trim().length === 0
+                    isPromptLockedByUpstream
+                    || isOptimizingPrompt
+                    || promptDraft.trim().length === 0
                   }
                   className={`${NODE_CONTROL_CHIP_CLASS} shrink-0 !w-8 !px-0 justify-center`}
                   aria-label={
@@ -2077,7 +2157,11 @@ export const SeedanceNode = memo(
                 </UiChipButton>
                 <UiChipButton
                   type="button"
-                  disabled={isOptimizingPrompt || !canUndoPromptOptimization}
+                  disabled={
+                    isPromptLockedByUpstream
+                    || isOptimizingPrompt
+                    || !canUndoPromptOptimization
+                  }
                   className={`${NODE_CONTROL_CHIP_CLASS} shrink-0 !w-8 !px-0 justify-center`}
                   aria-label={t("node.seedance.undoOptimizedPrompt")}
                   title={t("node.seedance.undoOptimizedPrompt")}
@@ -2122,7 +2206,7 @@ export const SeedanceNode = memo(
           </div>
         </div>
 
-        {isShotParamsPanelOpen ? (
+        {isShotParamsPanelOpen && !isPromptLockedByUpstream ? (
           <ShotParamsPanel
             onClose={closeShotParamsPanel}
             onInsert={(option) => handleShotParamInsert(option.value)}

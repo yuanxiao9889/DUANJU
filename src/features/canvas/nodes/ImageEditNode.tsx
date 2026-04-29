@@ -108,6 +108,7 @@ import { resolveModelPriceDisplay } from '@/features/canvas/pricing';
 import { resolveScriptAssetOptimizedPromptMaxLength } from '@/features/canvas/application/scriptAssetReferencePromptLimit';
 import {
   useCanvasConnectedReferenceVisuals,
+  useCanvasConnectedTextInput,
   useCanvasIncomingSourceNodes,
 } from '@/features/canvas/hooks/useCanvasNodeGraph';
 import {
@@ -120,6 +121,7 @@ import {
 import { CameraParamsDialog } from '@/features/canvas/ui/CameraParamsDialog';
 import { CameraTriggerIcon } from '@/features/canvas/ui/CameraTriggerIcon';
 import { ModelParamsControls } from '@/features/canvas/ui/ModelParamsControls';
+import { UpstreamPromptLockOverlay } from '@/features/canvas/ui/UpstreamPromptLockOverlay';
 import { appendStyleTemplatePrompt } from '@/features/project/styleTemplatePrompt';
 import { CanvasNodeImage } from '@/features/canvas/ui/CanvasNodeImage';
 import { NodePriceBadge } from '@/features/canvas/ui/NodePriceBadge';
@@ -374,7 +376,15 @@ export const ImageEditNode = memo(({ id, data, selected, width, height }: ImageE
   const grsaiCreditTierId = useSettingsStore((state) => state.grsaiCreditTierId);
 
   const connectedReferenceVisuals = useCanvasConnectedReferenceVisuals(id);
+  const {
+    connectedText,
+    hasConnectedTextSource,
+    hasNonEmptyConnectedText,
+  } = useCanvasConnectedTextInput(id);
   const incomingSourceNodes = useCanvasIncomingSourceNodes(id);
+  const isPromptLockedByUpstream = hasConnectedTextSource;
+  const displayedPrompt = promptDraft;
+  const effectivePrompt = isPromptLockedByUpstream ? connectedText : promptDraft;
 
   const imageModels = useMemo(
     () => listImageModels(
@@ -824,8 +834,20 @@ export const ImageEditNode = memo(({ id, data, selected, width, height }: ImageE
   }, [incomingImages.length]);
 
   useEffect(() => {
+    if (!isPromptLockedByUpstream) {
+      return;
+    }
+
+    promptRef.current?.blur();
+    setShowImagePicker(false);
+    pickerSelectionRef.current = null;
+    setPickerActiveIndex(0);
     setPromptReferencePreview(null);
-  }, [incomingImages, promptDraft]);
+  }, [isPromptLockedByUpstream]);
+
+  useEffect(() => {
+    setPromptReferencePreview(null);
+  }, [displayedPrompt, incomingImages]);
 
   useEffect(() => {
     if (!showImagePicker) {
@@ -887,7 +909,7 @@ export const ImageEditNode = memo(({ id, data, selected, width, height }: ImageE
       restoreTextareaSelection(
         promptRef.current,
         selection,
-        promptDraftRef.current.length,
+        promptRef.current?.value.length ?? promptDraftRef.current.length,
         {
           scrollSnapshot,
           syncScroll: syncPromptHighlightScroll,
@@ -901,6 +923,10 @@ export const ImageEditNode = memo(({ id, data, selected, width, height }: ImageE
   }, [syncPromptHighlightScroll, syncPromptTextSelectionState]);
 
   const handleOptimizePrompt = useCallback(async () => {
+    if (isPromptLockedByUpstream) {
+      return;
+    }
+
     const sourcePrompt = promptDraftRef.current;
     const currentPrompt = sourcePrompt.trim();
     if (!currentPrompt) {
@@ -963,9 +989,20 @@ export const ImageEditNode = memo(({ id, data, selected, width, height }: ImageE
     } finally {
       setIsOptimizingPrompt(false);
     }
-  }, [commitPromptDraft, incomingImageItems, optimizedPromptMaxLength, schedulePromptSelectionRestore, t]);
+  }, [
+    commitPromptDraft,
+    incomingImageItems,
+    isPromptLockedByUpstream,
+    optimizedPromptMaxLength,
+    schedulePromptSelectionRestore,
+    t,
+  ]);
 
   const handleUndoOptimizedPrompt = useCallback(() => {
+    if (isPromptLockedByUpstream) {
+      return;
+    }
+
     if (!lastPromptOptimizationUndoState) {
       return;
     }
@@ -980,10 +1017,15 @@ export const ImageEditNode = memo(({ id, data, selected, width, height }: ImageE
     setPromptDraft(restoredPrompt);
     commitPromptDraft(restoredPrompt);
     schedulePromptSelectionRestore(restoredPrompt.length);
-  }, [commitPromptDraft, lastPromptOptimizationUndoState, schedulePromptSelectionRestore]);
+  }, [
+    commitPromptDraft,
+    isPromptLockedByUpstream,
+    lastPromptOptimizationUndoState,
+    schedulePromptSelectionRestore,
+  ]);
 
   const handleGenerate = useCallback(async () => {
-    const displayPrompt = normalizeReferenceImagePrompt(promptDraft).trim();
+    const displayPrompt = normalizeReferenceImagePrompt(effectivePrompt).trim();
     if (!displayPrompt) {
       const errorMessage = t('node.imageEdit.promptRequired');
       setError(errorMessage);
@@ -1017,7 +1059,7 @@ export const ImageEditNode = memo(({ id, data, selected, width, height }: ImageE
         : selectedAspectRatio.value;
     const submittedPrompt = appendCameraParamsToPrompt(
       buildReferenceAwareGenerationPrompt(
-        promptDraft,
+        effectivePrompt,
         incomingImages.length
       ),
       resolvedCameraParams
@@ -1161,8 +1203,8 @@ export const ImageEditNode = memo(({ id, data, selected, width, height }: ImageE
     addEdge,
     providerApiKey,
     findNodePosition,
-    promptDraft,
     resolvedCameraParams,
+    effectivePrompt,
     effectiveExtraParams,
     id,
     incomingImages,
@@ -1180,6 +1222,10 @@ export const ImageEditNode = memo(({ id, data, selected, width, height }: ImageE
   ]);
 
   const insertImageReference = useCallback((imageIndex: number) => {
+    if (isPromptLockedByUpstream) {
+      return;
+    }
+
     const marker = buildShortReferenceToken(imageIndex);
     const currentPrompt = promptDraftRef.current;
     const scrollSnapshot = readTextareaScroll(promptRef.current);
@@ -1197,9 +1243,18 @@ export const ImageEditNode = memo(({ id, data, selected, width, height }: ImageE
     pickerSelectionRef.current = null;
     setPickerActiveIndex(0);
     schedulePromptSelectionRestore(nextCursor, scrollSnapshot);
-  }, [commitManualPromptDraft, schedulePromptSelectionRestore]);
+  }, [commitManualPromptDraft, isPromptLockedByUpstream, schedulePromptSelectionRestore]);
 
   const handlePromptKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
+    if (isPromptLockedByUpstream) {
+      if ((event.ctrlKey || event.metaKey) && event.key === 'Enter') {
+        event.preventDefault();
+        event.stopPropagation();
+        void handleGenerate();
+      }
+      return;
+    }
+
     if (event.key === 'Backspace' || event.key === 'Delete') {
       const currentPrompt = promptDraftRef.current;
       const selectionStart = event.currentTarget.selectionStart ?? currentPrompt.length;
@@ -1366,10 +1421,18 @@ export const ImageEditNode = memo(({ id, data, selected, width, height }: ImageE
             : t('node.imageEdit.optimizeReferenceImagesUnused'),
       })}`
       : null;
+  const promptLockStatusText = isPromptLockedByUpstream
+    ? (
+        hasNonEmptyConnectedText
+          ? t('common.upstreamTextDisconnectHint')
+          : t('common.upstreamTextEmpty')
+      )
+    : null;
   const statusInfoText =
     error
     ?? (isOptimizingPrompt ? t('node.imageEdit.optimizingPrompt') : null)
     ?? promptOptimizationNotice
+    ?? promptLockStatusText
     ?? t('node.imageEdit.statusHint');
   const showBlockingOverlay = Boolean(data.isGenerating || isOptimizingPrompt);
 
@@ -1450,7 +1513,7 @@ export const ImageEditNode = memo(({ id, data, selected, width, height }: ImageE
             style={{ scrollbarGutter: 'stable' }}
           >
             <div className="min-h-full whitespace-pre-wrap break-words px-1 py-0.5">
-              {renderPromptWithHighlights(promptDraft, incomingImages.length)}
+              {renderPromptWithHighlights(displayedPrompt, incomingImages.length)}
             </div>
           </div>
 
@@ -1462,7 +1525,7 @@ export const ImageEditNode = memo(({ id, data, selected, width, height }: ImageE
           >
             <div className="min-h-full whitespace-pre-wrap break-words px-1 py-0.5">
               {renderPromptReferenceHoverTargets(
-                promptDraft,
+                displayedPrompt,
                 incomingImages.length,
                 handlePromptReferenceTokenHover,
                 hidePromptReferencePreview,
@@ -1473,7 +1536,11 @@ export const ImageEditNode = memo(({ id, data, selected, width, height }: ImageE
 
           <textarea
             ref={promptRef}
-            value={promptDraft}
+            value={displayedPrompt}
+            readOnly={isPromptLockedByUpstream}
+            aria-readonly={isPromptLockedByUpstream}
+            aria-disabled={isPromptLockedByUpstream}
+            tabIndex={isPromptLockedByUpstream ? -1 : undefined}
             onChange={(event) => {
               const nextValue = event.target.value;
               commitManualPromptDraft(nextValue);
@@ -1490,9 +1557,20 @@ export const ImageEditNode = memo(({ id, data, selected, width, height }: ImageE
             onKeyUp={(event) => rememberPromptSelection(event.currentTarget)}
             onBlur={() => setIsPromptTextSelectionActive(false)}
             placeholder={t('node.imageEdit.promptPlaceholder')}
-            className="ui-scrollbar nodrag nowheel relative z-10 h-full w-full resize-none overflow-y-auto overflow-x-hidden border-none bg-transparent px-1 py-0.5 text-sm leading-6 text-transparent caret-text-dark outline-none placeholder:text-text-muted/80 focus:border-transparent whitespace-pre-wrap break-words selection:bg-accent/30 selection:text-transparent"
+            className={`ui-scrollbar nodrag nowheel relative z-10 h-full w-full resize-none overflow-y-auto overflow-x-hidden border-none bg-transparent px-1 py-0.5 text-sm leading-6 text-transparent outline-none placeholder:text-text-muted/80 whitespace-pre-wrap break-words selection:bg-accent/30 selection:text-transparent ${
+              isPromptLockedByUpstream
+                ? 'cursor-default caret-transparent'
+                : 'caret-text-dark focus:border-transparent'
+            }`}
             style={{ scrollbarGutter: 'stable' }}
           />
+
+          {isPromptLockedByUpstream ? (
+            <UpstreamPromptLockOverlay
+              empty={!hasNonEmptyConnectedText}
+              className="rounded-lg"
+            />
+          ) : null}
 
           {promptReferencePreview ? (
             <div
@@ -1601,6 +1679,9 @@ export const ImageEditNode = memo(({ id, data, selected, width, height }: ImageE
                 setLastImageGenerationExtraParams({ [key]: value });
               }}
               onStyleTemplateApply={(template) => {
+                if (isPromptLockedByUpstream) {
+                  return;
+                }
                 const nextPrompt = appendStyleTemplatePrompt(
                   promptDraftRef.current,
                   template.prompt
@@ -1614,6 +1695,7 @@ export const ImageEditNode = memo(({ id, data, selected, width, height }: ImageE
               modelChipClassName={NODE_CONTROL_MODEL_CHIP_CLASS}
               paramsChipClassName={NODE_CONTROL_PARAMS_CHIP_CLASS}
               styleTemplateTriggerMode="icon"
+              styleTemplateDisabled={isPromptLockedByUpstream}
               afterStyleTemplateSlot={(
                 <Fragment>
                   <UiChipButton
@@ -1638,7 +1720,11 @@ export const ImageEditNode = memo(({ id, data, selected, width, height }: ImageE
                   <UiChipButton
                     type="button"
                     active={isOptimizingPrompt}
-                    disabled={isOptimizingPrompt || promptDraft.trim().length === 0}
+                    disabled={
+                      isPromptLockedByUpstream
+                      || isOptimizingPrompt
+                      || promptDraft.trim().length === 0
+                    }
                     className={`${NODE_CONTROL_CHIP_CLASS} !w-8 !px-0 shrink-0 justify-center`}
                     aria-label={
                       isOptimizingPrompt
@@ -1662,7 +1748,11 @@ export const ImageEditNode = memo(({ id, data, selected, width, height }: ImageE
                   </UiChipButton>
                   <UiChipButton
                     type="button"
-                    disabled={isOptimizingPrompt || !canUndoPromptOptimization}
+                    disabled={
+                      isPromptLockedByUpstream
+                      || isOptimizingPrompt
+                      || !canUndoPromptOptimization
+                    }
                     className={`${NODE_CONTROL_CHIP_CLASS} !w-8 !px-0 shrink-0 justify-center`}
                     aria-label={t('node.imageEdit.undoOptimizedPrompt')}
                     title={t('node.imageEdit.undoOptimizedPrompt')}

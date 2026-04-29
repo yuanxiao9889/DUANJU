@@ -1,4 +1,4 @@
-import { memo, useState } from "react";
+import { memo, useEffect, useState } from "react";
 import { Palette } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
@@ -26,6 +26,12 @@ export const StyleTemplatePicker = memo(
     const [showManager, setShowManager] = useState(false);
 
     const resolvedTitle = title?.trim() || t("styleTemplate.selectTemplate");
+
+    useEffect(() => {
+      if (disabled && panelOpen) {
+        setPanelOpen(false);
+      }
+    }, [disabled, panelOpen]);
 
     return (
       <>

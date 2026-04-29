@@ -28,7 +28,10 @@
     "moveUp": "Move Up",
     "moveDown": "Move Down",
     "import": "Import",
-    "export": "Export"
+    "export": "Export",
+    "upstreamTextDriven": "Driven by upstream text",
+    "upstreamTextDisconnectHint": "Disconnect the text edge to restore local input",
+    "upstreamTextEmpty": "Current upstream text is empty"
   },
   "cameraParams": {
     "title": "Camera Params",

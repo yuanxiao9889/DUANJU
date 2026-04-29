@@ -51,6 +51,7 @@ interface ModelParamsControlsProps {
   providerOptionClassName?: string;
   modelOptionClassName?: string;
   styleTemplateTriggerMode?: 'label' | 'icon';
+  styleTemplateDisabled?: boolean;
   afterStyleTemplateSlot?: ReactNode;
 }
 
@@ -165,6 +166,7 @@ export const ModelParamsControls = memo(({
   providerOptionClassName = DEFAULT_PROVIDER_OPTION_CLASS_NAME,
   modelOptionClassName = DEFAULT_MODEL_OPTION_CLASS_NAME,
   styleTemplateTriggerMode = 'label',
+  styleTemplateDisabled = false,
   afterStyleTemplateSlot,
 }: ModelParamsControlsProps) => {
   const { t } = useTranslation();
@@ -395,6 +397,12 @@ export const ModelParamsControls = memo(({
     }
   }, [openPanel]);
 
+  useEffect(() => {
+    if (styleTemplateDisabled && styleTemplatePanelOpen) {
+      setStyleTemplatePanelOpen(false);
+    }
+  }, [styleTemplateDisabled, styleTemplatePanelOpen]);
+
   const getPanelAnchor = (
     triggerElement: HTMLDivElement | null,
     align: 'center' | 'start',
@@ -499,6 +507,7 @@ export const ModelParamsControls = memo(({
         <div className="nodrag nopan relative flex">
           <UiChipButton
             active={styleTemplatePanelOpen}
+            disabled={styleTemplateDisabled}
             className={
               styleTemplateTriggerMode === 'icon'
                 ? `${chipClassName} !w-8 !px-0 shrink-0 justify-center`

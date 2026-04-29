@@ -57,6 +57,7 @@ import {
 import { resolveNodeDisplayName } from '@/features/canvas/domain/nodeDisplay';
 import {
   useCanvasConnectedReferenceImages,
+  useCanvasConnectedTextInput,
   useCanvasNodeById,
 } from '@/features/canvas/hooks/useCanvasNodeGraph';
 import { CanvasNodeImage } from '@/features/canvas/ui/CanvasNodeImage';
@@ -65,6 +66,7 @@ import {
   NODE_HEADER_FLOATING_POSITION_CLASS,
 } from '@/features/canvas/ui/NodeHeader';
 import { NodeResizeHandle } from '@/features/canvas/ui/NodeResizeHandle';
+import { UpstreamPromptLockOverlay } from '@/features/canvas/ui/UpstreamPromptLockOverlay';
 import { resolveNodeStyleDimension } from '@/features/canvas/ui/nodeDimensionUtils';
 import {
   NODE_CONTROL_CHIP_CLASS,
@@ -228,7 +230,13 @@ export const MjNode = memo(({ id, data, selected, width }: MjNodeProps) => {
   );
   const currentNode = useCanvasNodeById(id);
   const connectedReferenceImages = useCanvasConnectedReferenceImages(id);
+  const {
+    connectedText,
+    hasConnectedTextSource,
+    hasNonEmptyConnectedText,
+  } = useCanvasConnectedTextInput(id);
   const linkedNode = useCanvasNodeById(data.linkedResultNodeId ?? '');
+  const isPromptLockedByUpstream = hasConnectedTextSource;
   const linkedResultNode = useMemo(() => {
     if (!isMjResultNode(linkedNode) || linkedNode.data.nodeRole !== 'root') {
       return null;
@@ -253,6 +261,8 @@ export const MjNode = memo(({ id, data, selected, width }: MjNodeProps) => {
   const generateRequestInFlightRef = useRef(false);
 
   const [promptDraft, setPromptDraft] = useState(() => data.prompt ?? '');
+  const displayedPrompt = promptDraft;
+  const effectivePrompt = isPromptLockedByUpstream ? connectedText : promptDraft;
   const promptDraftRef = useRef(data.prompt ?? '');
   const [advancedParamsDraft, setAdvancedParamsDraft] = useState<MidjourneyAdvancedParamsDraft>(
     () => parseMidjourneyAdvancedParams(data.advancedParams || lastMidjourneyAdvancedParams)
@@ -461,7 +471,7 @@ export const MjNode = memo(({ id, data, selected, width }: MjNodeProps) => {
   );
 
   const handleOptimizePrompt = useCallback(async () => {
-    if (isPromptBusy) {
+    if (isPromptBusy || isPromptLockedByUpstream) {
       return;
     }
 
@@ -501,12 +511,13 @@ export const MjNode = memo(({ id, data, selected, width }: MjNodeProps) => {
     applyPromptRewrite,
     id,
     isPromptBusy,
+    isPromptLockedByUpstream,
     t,
     updateNodeData,
   ]);
 
   const handleTranslatePrompt = useCallback(async () => {
-    if (isPromptBusy) {
+    if (isPromptBusy || isPromptLockedByUpstream) {
       return;
     }
 
@@ -542,9 +553,13 @@ export const MjNode = memo(({ id, data, selected, width }: MjNodeProps) => {
     } finally {
       setIsTranslatingPrompt(false);
     }
-  }, [applyPromptRewrite, id, isPromptBusy, t, updateNodeData]);
+  }, [applyPromptRewrite, id, isPromptBusy, isPromptLockedByUpstream, t, updateNodeData]);
 
   const handleUndoPromptRewrite = useCallback(() => {
+    if (isPromptLockedByUpstream) {
+      return;
+    }
+
     if (!lastPromptRewriteUndoState) {
       return;
     }
@@ -561,7 +576,7 @@ export const MjNode = memo(({ id, data, selected, width }: MjNodeProps) => {
       prompt: lastPromptRewriteUndoState.previousPrompt,
       lastError: null,
     });
-  }, [id, lastPromptRewriteUndoState, updateNodeData]);
+  }, [id, isPromptLockedByUpstream, lastPromptRewriteUndoState, updateNodeData]);
 
   const handleToggleReferenceRole = useCallback(
     (imageUrl: string) => {
@@ -624,7 +639,7 @@ export const MjNode = memo(({ id, data, selected, width }: MjNodeProps) => {
   }, [id, setLastMidjourneyDefaults, updateNodeData]);
 
   const handleGenerate = useCallback(async () => {
-    const prompt = promptDraft.trim();
+    const prompt = effectivePrompt.trim();
     if (!prompt) {
       const message = t('node.midjourney.promptRequired');
       updateNodeData(id, { lastError: message });
@@ -853,7 +868,7 @@ export const MjNode = memo(({ id, data, selected, width }: MjNodeProps) => {
     isPromptBusy,
     linkedResultNode,
     mjProviderEnabled,
-    promptDraft,
+    effectivePrompt,
     providerLabel,
     resolvedAspectRatio,
     resolvedRawMode,
@@ -896,7 +911,11 @@ export const MjNode = memo(({ id, data, selected, width }: MjNodeProps) => {
           onPointerDown={(event) => event.stopPropagation()}
         >
           <textarea
-            value={promptDraft}
+            value={displayedPrompt}
+            readOnly={isPromptLockedByUpstream}
+            aria-readonly={isPromptLockedByUpstream}
+            aria-disabled={isPromptLockedByUpstream}
+            tabIndex={isPromptLockedByUpstream ? -1 : undefined}
             onChange={(event) => {
               const nextValue = event.target.value;
               promptDraftRef.current = nextValue;
@@ -907,9 +926,20 @@ export const MjNode = memo(({ id, data, selected, width }: MjNodeProps) => {
             }}
             onBlur={commitPromptDraft}
             placeholder={t('node.midjourney.promptPlaceholder')}
-            className="ui-scrollbar nodrag nowheel relative block min-h-[132px] w-full resize-none overflow-y-auto overflow-x-hidden border-none bg-transparent px-1 py-0.5 text-sm leading-6 text-text-dark caret-text-dark outline-none placeholder:text-text-muted/80 whitespace-pre-wrap break-words focus:border-transparent focus-visible:ring-0"
+            className={`ui-scrollbar nodrag nowheel relative block min-h-[132px] w-full resize-none overflow-y-auto overflow-x-hidden border-none bg-transparent px-1 py-0.5 text-sm leading-6 text-text-dark outline-none placeholder:text-text-muted/80 whitespace-pre-wrap break-words focus-visible:ring-0 ${
+              isPromptLockedByUpstream
+                ? 'cursor-default caret-transparent'
+                : 'caret-text-dark focus:border-transparent'
+            }`}
             style={{ scrollbarGutter: 'stable' }}
           />
+
+          {isPromptLockedByUpstream ? (
+            <UpstreamPromptLockOverlay
+              empty={!hasNonEmptyConnectedText}
+              className="rounded-lg"
+            />
+          ) : null}
         </div>
 
         <div
@@ -1035,7 +1065,7 @@ export const MjNode = memo(({ id, data, selected, width }: MjNodeProps) => {
           <UiChipButton
             type="button"
             active={isOptimizingPrompt}
-            disabled={isPromptBusy || !canRewritePrompt}
+            disabled={isPromptLockedByUpstream || isPromptBusy || !canRewritePrompt}
             className={`${NODE_CONTROL_CHIP_CLASS} shrink-0 !w-8 !px-0 justify-center`}
             aria-label={
               isOptimizingPrompt
@@ -1058,7 +1088,7 @@ export const MjNode = memo(({ id, data, selected, width }: MjNodeProps) => {
           <UiChipButton
             type="button"
             active={isTranslatingPrompt}
-            disabled={isPromptBusy || !canRewritePrompt}
+            disabled={isPromptLockedByUpstream || isPromptBusy || !canRewritePrompt}
             className={`${NODE_CONTROL_CHIP_CLASS} shrink-0 !w-8 !px-0 justify-center`}
             aria-label={
               isTranslatingPrompt
@@ -1080,7 +1110,7 @@ export const MjNode = memo(({ id, data, selected, width }: MjNodeProps) => {
 
           <UiChipButton
             type="button"
-            disabled={isPromptBusy || !canUndoPromptRewrite}
+            disabled={isPromptLockedByUpstream || isPromptBusy || !canUndoPromptRewrite}
             className={`${NODE_CONTROL_CHIP_CLASS} shrink-0 !w-8 !px-0 justify-center`}
             aria-label={t('node.midjourney.undoPromptRewrite')}
             title={t('node.midjourney.undoPromptRewrite')}
@@ -1255,6 +1285,12 @@ export const MjNode = memo(({ id, data, selected, width }: MjNodeProps) => {
             <span>{t('node.midjourney.statusSubmitting')}</span>
           ) : pendingBatchCount > 0 ? (
             <span>{t('node.midjourney.statusPollingBatches', { count: pendingBatchCount })}</span>
+          ) : isPromptLockedByUpstream ? (
+            <span>
+              {hasNonEmptyConnectedText
+                ? t('common.upstreamTextDisconnectHint')
+                : t('common.upstreamTextEmpty')}
+            </span>
           ) : !apiKey ? (
             <span>{t('node.midjourney.apiKeyHint')}</span>
           ) : (

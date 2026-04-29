@@ -47,6 +47,7 @@ import {
 } from "@/features/canvas/application/errorDialog";
 import {
   useCanvasConnectedAudioReferences,
+  useCanvasConnectedTextInput,
   useCanvasConnectedReferenceVisuals,
 } from "@/features/canvas/hooks/useCanvasNodeGraph";
 import { resolveImageDisplayUrl } from "@/features/canvas/application/imageData";
@@ -69,6 +70,7 @@ import { CameraTriggerIcon } from "@/features/canvas/ui/CameraTriggerIcon";
 import { ReferenceVisualChip } from "@/features/canvas/ui/ReferenceVisualChip";
 import { ShotParamsPanel } from "@/features/canvas/ui/ShotParamsPanel";
 import { NodeStatusBadge } from "@/features/canvas/ui/NodeStatusBadge";
+import { UpstreamPromptLockOverlay } from "@/features/canvas/ui/UpstreamPromptLockOverlay";
 import {
   NODE_CONTROL_CHIP_CLASS,
   NODE_CONTROL_GENERATE_ICON_CLASS,
@@ -1103,10 +1105,18 @@ export const JimengNode = memo(
     );
 
     const connectedReferenceVisuals = useCanvasConnectedReferenceVisuals(id);
+    const {
+      connectedText,
+      hasConnectedTextSource,
+      hasNonEmptyConnectedText,
+    } = useCanvasConnectedTextInput(id);
     const incomingReferenceVisualUrls = useMemo(
       () => connectedReferenceVisuals.map((item) => item.referenceUrl),
       [connectedReferenceVisuals],
     );
+    const isPromptLockedByUpstream = hasConnectedTextSource;
+    const displayedPrompt = promptDraft;
+    const effectivePrompt = isPromptLockedByUpstream ? connectedText : promptDraft;
     const orderedReferenceVisualUrls = useMemo(
       () =>
         resolveOrderedReferenceImages(
@@ -1379,8 +1389,21 @@ export const JimengNode = memo(
     }, [referencePickerItems.length]);
 
     useEffect(() => {
+      if (!isPromptLockedByUpstream) {
+        return;
+      }
+
+      promptRef.current?.blur();
+      setShowImagePicker(false);
+      pickerSelectionRef.current = null;
+      setPickerActiveIndex(0);
+      closeShotParamsPanel();
       setPromptReferencePreview(null);
-    }, [incomingAudios, incomingVisualItems, promptDraft]);
+    }, [closeShotParamsPanel, isPromptLockedByUpstream]);
+
+    useEffect(() => {
+      setPromptReferencePreview(null);
+    }, [displayedPrompt, incomingAudios, incomingVisualItems]);
 
     useEffect(() => {
       if (!showImagePicker) {
@@ -1478,11 +1501,11 @@ export const JimengNode = memo(
         scrollSnapshot?: TextareaScrollSnapshot | null,
       ) => {
         requestAnimationFrame(() => {
-          restoreTextareaSelection(
-            promptRef.current,
-            selection,
-            promptValueRef.current.length,
-            {
+        restoreTextareaSelection(
+          promptRef.current,
+          selection,
+          promptRef.current?.value.length ?? promptValueRef.current.length,
+          {
               scrollSnapshot,
               syncScroll: syncPromptHighlightScroll,
               onAfterRestore: (textarea, nextSelection) => {
@@ -1556,6 +1579,10 @@ export const JimengNode = memo(
 
     const insertReferenceItem = useCallback(
       (pickerIndex: number) => {
+        if (isPromptLockedByUpstream) {
+          return;
+        }
+
         const pickerItem = referencePickerItems[pickerIndex];
         if (!pickerItem) {
           return;
@@ -1585,6 +1612,7 @@ export const JimengNode = memo(
       },
       [
         handlePromptChange,
+        isPromptLockedByUpstream,
         referencePickerItems,
         schedulePromptSelectionRestore,
       ],
@@ -1592,6 +1620,10 @@ export const JimengNode = memo(
 
     const handleShotParamInsert = useCallback(
       (value: string) => {
+        if (isPromptLockedByUpstream) {
+          return;
+        }
+
         const selection = resolveTextSelection({
           textarea: promptRef.current,
           lastSelection: lastPromptSelectionRef.current,
@@ -1606,7 +1638,7 @@ export const JimengNode = memo(
         handlePromptChange(nextText);
         schedulePromptSelectionRestore(nextCursor);
       },
-      [handlePromptChange, schedulePromptSelectionRestore],
+      [handlePromptChange, isPromptLockedByUpstream, schedulePromptSelectionRestore],
     );
 
     const handleReferenceSortStart = useCallback(
@@ -1720,6 +1752,10 @@ export const JimengNode = memo(
     }, [draggingReferenceIndex]);
 
     const handleOptimizePrompt = useCallback(async () => {
+      if (isPromptLockedByUpstream) {
+        return;
+      }
+
       const sourcePrompt = promptValueRef.current;
       const currentPrompt = sourcePrompt.trim();
       if (!currentPrompt) {
@@ -1820,6 +1856,7 @@ export const JimengNode = memo(
       data,
       id,
       incomingVisualItems,
+      isPromptLockedByUpstream,
       syncPromptHighlightScroll,
       t,
       updateNodeData,
@@ -1827,6 +1864,10 @@ export const JimengNode = memo(
     ]);
 
     const handleUndoOptimizedPrompt = useCallback(() => {
+      if (isPromptLockedByUpstream) {
+        return;
+      }
+
       if (!lastPromptOptimizationUndoState) {
         return;
       }
@@ -1851,6 +1892,7 @@ export const JimengNode = memo(
       schedulePromptSelectionRestore(restoredPrompt.length);
     }, [
       id,
+      isPromptLockedByUpstream,
       lastPromptOptimizationUndoState,
       schedulePromptSelectionRestore,
       updateNodeData,
@@ -1858,7 +1900,7 @@ export const JimengNode = memo(
     ]);
 
     const enqueueJimengVideoJob = useCallback(async (scheduledAt: number | null) => {
-      const prompt = promptDraft.trim();
+      const prompt = effectivePrompt.trim();
       let createdResultNodeId: string | null = null;
       const resultNodeTitle = buildJimengVideoResultNodeTitle(
         t("node.jimeng.resultNodeTitle"),
@@ -1988,6 +2030,7 @@ export const JimengNode = memo(
       addEdge,
       addNode,
       currentProjectId,
+      effectivePrompt,
       enqueueJimengQueueJob,
       findNodePosition,
       flushCurrentProjectToDiskSafely,
@@ -1997,7 +2040,6 @@ export const JimengNode = memo(
       incomingAudios,
       isGenerateBlocked,
       isFirstLastFrameCountInvalid,
-      promptDraft,
       referenceImageSources,
       referenceVideoSources,
       selectedAspectRatio,
@@ -2011,7 +2053,7 @@ export const JimengNode = memo(
 
     const handleGenerate = useCallback(async () => {
       closeShotParamsPanel();
-      const prompt = promptDraft.trim();
+      const prompt = effectivePrompt.trim();
       const startedAt = Date.now();
       let createdResultNodeId: string | null = null;
       const resultNodeTitle = buildJimengVideoResultNodeTitle(
@@ -2186,6 +2228,7 @@ export const JimengNode = memo(
       addEdge,
       addNode,
       closeShotParamsPanel,
+      effectivePrompt,
       findNodePosition,
       flushCurrentProjectToDiskSafely,
       hasReferenceVideoTooLong,
@@ -2194,7 +2237,6 @@ export const JimengNode = memo(
       incomingAudios,
       isFirstLastFrameCountInvalid,
       isGenerateBlocked,
-      promptDraft,
       referenceImageSources,
       referenceVideoSources,
       selectedAspectRatio,
@@ -2208,6 +2250,15 @@ export const JimengNode = memo(
 
     const handlePromptKeyDown = useCallback(
       (event: KeyboardEvent<HTMLTextAreaElement>) => {
+        if (isPromptLockedByUpstream) {
+          if ((event.ctrlKey || event.metaKey) && event.key === "Enter") {
+            event.preventDefault();
+            event.stopPropagation();
+            void handleGenerate();
+          }
+          return;
+        }
+
         if (event.key === "Backspace" || event.key === "Delete") {
           const currentPrompt = promptValueRef.current;
           const selectionStart =
@@ -2308,6 +2359,7 @@ export const JimengNode = memo(
         handlePromptChange,
         incomingAudios.length,
         incomingVisualItems.length,
+        isPromptLockedByUpstream,
         insertReferenceItem,
         pickerActiveIndex,
         referencePickerItems.length,
@@ -2391,6 +2443,13 @@ export const JimengNode = memo(
       durationSuggestionSnapshot,
       t,
     );
+    const promptLockStatusText = isPromptLockedByUpstream
+      ? (
+          hasNonEmptyConnectedText
+            ? t("common.upstreamTextDisconnectHint")
+            : t("common.upstreamTextEmpty")
+        )
+      : null;
     const cliModeHint = useMemo(() => {
       if (isFirstLastFrameCountInvalid) {
         return t("node.jimeng.firstLastFrameRequiresTwoImages");
@@ -2533,11 +2592,12 @@ export const JimengNode = memo(
 
     const statusInfoText =
       combinedError ??
+      (promptLockStatusText ??
       (lastSubmittedTime
         ? t("node.jimeng.resultReturnedAt", { time: lastSubmittedTime })
         : [cliModeHint, durationSuggestionText, promptOptimizationNotice]
             .filter(Boolean)
-            .join(" | "));
+            .join(" | ")));
     const shotParamsButtonClassName = isShotParamsPanelOpen
       ? `${NODE_CONTROL_CHIP_CLASS} shrink-0 !w-8 !border-accent/55 !bg-accent/15 !px-0 justify-center text-accent shadow-[0_0_0_1px_rgba(59,130,246,0.18)]`
       : `${NODE_CONTROL_CHIP_CLASS} shrink-0 !w-8 !px-0 justify-center`;
@@ -2675,7 +2735,7 @@ export const JimengNode = memo(
               >
                 <div className="min-h-full whitespace-pre-wrap break-words px-3 py-2">
                   {renderPromptWithHighlights(
-                    promptDraft,
+                    displayedPrompt,
                     incomingVisualItems.length,
                     incomingAudios.length,
                   )}
@@ -2690,7 +2750,7 @@ export const JimengNode = memo(
               >
                 <div className="min-h-full whitespace-pre-wrap break-words px-3 py-2">
                     {renderPromptReferenceHoverTargets(
-                      promptDraft,
+                      displayedPrompt,
                       incomingVisualItems.length,
                       incomingAudios.length,
                       handlePromptReferenceTokenHover,
@@ -2702,13 +2762,21 @@ export const JimengNode = memo(
 
               <textarea
                 ref={promptRef}
-                value={promptDraft}
+                value={displayedPrompt}
+                readOnly={isPromptLockedByUpstream}
+                aria-readonly={isPromptLockedByUpstream}
+                aria-disabled={isPromptLockedByUpstream}
+                tabIndex={isPromptLockedByUpstream ? -1 : undefined}
                 onChange={(event) => {
                   handlePromptChange(event.target.value);
                   rememberPromptSelection(event.currentTarget);
                 }}
                 placeholder={t("node.jimeng.promptPlaceholder")}
-                className="ui-scrollbar nodrag nowheel relative z-10 h-full w-full resize-none rounded-xl border border-white/10 bg-black/15 px-3 py-2 text-sm leading-6 text-transparent caret-text-dark outline-none placeholder:text-text-muted/70 focus:border-accent/50 whitespace-pre-wrap break-words selection:bg-accent/30 selection:text-transparent"
+                className={`ui-scrollbar nodrag nowheel relative z-10 h-full w-full resize-none rounded-xl border border-white/10 bg-black/15 px-3 py-2 text-sm leading-6 text-transparent outline-none placeholder:text-text-muted/70 whitespace-pre-wrap break-words selection:bg-accent/30 selection:text-transparent ${
+                  isPromptLockedByUpstream
+                    ? "cursor-default caret-transparent"
+                    : "caret-text-dark focus:border-accent/50"
+                }`}
                 style={{ scrollbarGutter: "stable" }}
                 onScroll={syncPromptHighlightScroll}
                 onMouseDown={(event) => {
@@ -2727,6 +2795,12 @@ export const JimengNode = memo(
                 onBlur={() => setIsPromptTextSelectionActive(false)}
                 onKeyDownCapture={handlePromptKeyDown}
               />
+
+              {isPromptLockedByUpstream ? (
+                <UpstreamPromptLockOverlay
+                  empty={!hasNonEmptyConnectedText}
+                />
+              ) : null}
 
               {promptReferencePreview ? (
                 <div
@@ -2968,7 +3042,11 @@ export const JimengNode = memo(
               />
               <StyleTemplatePicker
                 className={`${NODE_CONTROL_CHIP_CLASS} shrink-0 !w-8 !px-0 justify-center`}
+                disabled={isPromptLockedByUpstream}
                 onTemplateApply={(template) => {
+                  if (isPromptLockedByUpstream) {
+                    return;
+                  }
                   const nextPrompt = appendStyleTemplatePrompt(
                     promptValueRef.current,
                     template.prompt,
@@ -2981,6 +3059,7 @@ export const JimengNode = memo(
               <UiChipButton
                 type="button"
                 active={isShotParamsPanelOpen}
+                disabled={isPromptLockedByUpstream}
                 className={shotParamsButtonClassName}
                 aria-label={shotParamsTriggerTitle}
                 title={shotParamsTriggerTitle}
@@ -2998,7 +3077,7 @@ export const JimengNode = memo(
               <UiChipButton
                 type="button"
                 className={`${NODE_CONTROL_CHIP_CLASS} shrink-0 !w-8 !px-0 justify-center`}
-                disabled={isOptimizingPrompt}
+                disabled={isPromptLockedByUpstream || isOptimizingPrompt}
                 aria-label={t("node.jimeng.optimizePrompt")}
                 title={t("node.jimeng.optimizePrompt")}
                 onClick={() => void handleOptimizePrompt()}
@@ -3010,7 +3089,11 @@ export const JimengNode = memo(
               </UiChipButton>
               <UiChipButton
                 type="button"
-                disabled={isOptimizingPrompt || !canUndoPromptOptimization}
+                disabled={
+                  isPromptLockedByUpstream
+                  || isOptimizingPrompt
+                  || !canUndoPromptOptimization
+                }
                 className={`${NODE_CONTROL_CHIP_CLASS} shrink-0 !w-8 !px-0 justify-center`}
                 aria-label={t("node.jimeng.undoOptimizedPrompt")}
                 title={t("node.jimeng.undoOptimizedPrompt")}
@@ -3060,7 +3143,7 @@ export const JimengNode = memo(
           </div>
         ) : null}
 
-        {isShotParamsPanelOpen ? (
+        {isShotParamsPanelOpen && !isPromptLockedByUpstream ? (
           <ShotParamsPanel
             onClose={closeShotParamsPanel}
             onInsert={(option) => handleShotParamInsert(option.value)}

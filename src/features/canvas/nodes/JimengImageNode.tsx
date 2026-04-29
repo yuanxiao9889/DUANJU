@@ -49,6 +49,7 @@ import {
 } from "@/features/canvas/camera/cameraPresets";
 import {
   useCanvasConnectedReferenceImages,
+  useCanvasConnectedTextInput,
   useCanvasIncomingSourceNodes,
 } from "@/features/canvas/hooks/useCanvasNodeGraph";
 import { resolveImageDisplayUrl } from "@/features/canvas/application/imageData";
@@ -88,6 +89,7 @@ import { CameraParamsDialog } from "@/features/canvas/ui/CameraParamsDialog";
 import { CameraTriggerIcon } from "@/features/canvas/ui/CameraTriggerIcon";
 import { NodeStatusBadge } from "@/features/canvas/ui/NodeStatusBadge";
 import { ReferenceVisualChip } from "@/features/canvas/ui/ReferenceVisualChip";
+import { UpstreamPromptLockOverlay } from "@/features/canvas/ui/UpstreamPromptLockOverlay";
 import {
   NODE_CONTROL_CHIP_CLASS,
   NODE_CONTROL_GENERATE_ICON_CLASS,
@@ -390,7 +392,15 @@ export const JimengImageNode = memo(
     );
 
     const connectedReferenceImages = useCanvasConnectedReferenceImages(id);
+    const {
+      connectedText,
+      hasConnectedTextSource,
+      hasNonEmptyConnectedText,
+    } = useCanvasConnectedTextInput(id);
     const incomingSourceNodes = useCanvasIncomingSourceNodes(id);
+    const isPromptLockedByUpstream = hasConnectedTextSource;
+    const displayedPrompt = promptDraft;
+    const effectivePrompt = isPromptLockedByUpstream ? connectedText : promptDraft;
     const incomingImages = useMemo(
       () => connectedReferenceImages.map((item) => item.imageUrl),
       [connectedReferenceImages],
@@ -568,8 +578,20 @@ export const JimengImageNode = memo(
     }, [incomingImages.length, modelSupportsReferenceImages]);
 
     useEffect(() => {
+      if (!isPromptLockedByUpstream) {
+        return;
+      }
+
+      promptRef.current?.blur();
+      setShowImagePicker(false);
+      pickerSelectionRef.current = null;
+      setPickerActiveIndex(0);
       setPromptReferencePreview(null);
-    }, [incomingImages, promptDraft]);
+    }, [isPromptLockedByUpstream]);
+
+    useEffect(() => {
+      setPromptReferencePreview(null);
+    }, [displayedPrompt, incomingImages]);
 
     useEffect(() => {
       if (!showImagePicker) {
@@ -655,11 +677,11 @@ export const JimengImageNode = memo(
         scrollSnapshot?: TextareaScrollSnapshot | null,
       ) => {
         requestAnimationFrame(() => {
-          restoreTextareaSelection(
-            promptRef.current,
-            selection,
-            promptValueRef.current.length,
-            {
+        restoreTextareaSelection(
+          promptRef.current,
+          selection,
+          promptRef.current?.value.length ?? promptValueRef.current.length,
+          {
               scrollSnapshot,
               syncScroll: syncPromptHighlightScroll,
               onAfterRestore: (textarea, nextSelection) => {
@@ -675,6 +697,10 @@ export const JimengImageNode = memo(
 
     const insertImageReference = useCallback(
       (imageIndex: number) => {
+        if (isPromptLockedByUpstream) {
+          return;
+        }
+
         const marker = buildShortReferenceToken(imageIndex);
         const currentPrompt = promptValueRef.current;
         const scrollSnapshot = readTextareaScroll(promptRef.current);
@@ -697,7 +723,7 @@ export const JimengImageNode = memo(
         setPickerActiveIndex(0);
         schedulePromptSelectionRestore(nextCursor, scrollSnapshot);
       },
-      [handlePromptChange, schedulePromptSelectionRestore],
+      [handlePromptChange, isPromptLockedByUpstream, schedulePromptSelectionRestore],
     );
 
     const handleRemoveReferenceImage = useCallback(
@@ -711,6 +737,10 @@ export const JimengImageNode = memo(
     );
 
     const handleOptimizePrompt = useCallback(async () => {
+      if (isPromptLockedByUpstream) {
+        return;
+      }
+
       const sourcePrompt = promptValueRef.current;
       const currentPrompt = sourcePrompt.trim();
       if (!currentPrompt) {
@@ -777,6 +807,7 @@ export const JimengImageNode = memo(
     }, [
       id,
       incomingImages,
+      isPromptLockedByUpstream,
       optimizedPromptMaxLength,
       modelSupportsReferenceImages,
       syncPromptHighlightScroll,
@@ -786,6 +817,10 @@ export const JimengImageNode = memo(
     ]);
 
     const handleUndoOptimizedPrompt = useCallback(() => {
+      if (isPromptLockedByUpstream) {
+        return;
+      }
+
       if (!lastPromptOptimizationUndoState) {
         return;
       }
@@ -803,13 +838,14 @@ export const JimengImageNode = memo(
       updatePrompt(restoredPrompt);
       schedulePromptSelectionRestore(restoredPrompt.length);
     }, [
+      isPromptLockedByUpstream,
       lastPromptOptimizationUndoState,
       schedulePromptSelectionRestore,
       updatePrompt,
     ]);
 
     const handleGenerate = useCallback(async () => {
-      const prompt = promptDraft.trim();
+      const prompt = effectivePrompt.trim();
       if (!prompt) {
         const message = t("node.jimengImage.promptRequired");
         updateNodeData(id, { lastError: message });
@@ -973,10 +1009,10 @@ export const JimengImageNode = memo(
       findNodePosition,
       flushCurrentProjectToDiskSafely,
       id,
+      effectivePrompt,
       incomingImages,
       isGenerateBlocked,
       modelSupportsReferenceImages,
-      promptDraft,
       resolvedCameraParams,
       selectedAspectRatio,
       selectedModel,
@@ -1092,6 +1128,15 @@ export const JimengImageNode = memo(
 
     const handlePromptKeyDown = useCallback(
       (event: KeyboardEvent<HTMLTextAreaElement>) => {
+        if (isPromptLockedByUpstream) {
+          if ((event.ctrlKey || event.metaKey) && event.key === "Enter") {
+            event.preventDefault();
+            event.stopPropagation();
+            void handleGenerate();
+          }
+          return;
+        }
+
         if (event.key === "Backspace" || event.key === "Delete") {
           const currentPrompt = promptValueRef.current;
           const selectionStart =
@@ -1194,6 +1239,7 @@ export const JimengImageNode = memo(
         handleGenerate,
         handlePromptChange,
         incomingImages.length,
+        isPromptLockedByUpstream,
         insertImageReference,
         modelSupportsReferenceImages,
         pickerActiveIndex,
@@ -1228,6 +1274,13 @@ export const JimengImageNode = memo(
               count: incomingImages.length,
             })
           : t("node.jimengImage.referenceEmpty");
+    const promptLockStatusText = isPromptLockedByUpstream
+      ? (
+          hasNonEmptyConnectedText
+            ? t("common.upstreamTextDisconnectHint")
+            : t("common.upstreamTextEmpty")
+        )
+      : null;
 
     const headerStatus = useMemo(() => {
       if (isOptimizingPrompt) {
@@ -1257,11 +1310,12 @@ export const JimengImageNode = memo(
 
     const statusInfoText =
       combinedError ??
+      (promptLockStatusText ??
       (lastGeneratedTime
         ? t("node.jimengImage.generatedToNode", { time: lastGeneratedTime })
         : (promptOptimizationNotice ??
           referenceStatusText ??
-          t("node.jimengImage.parameterHint")));
+          t("node.jimengImage.parameterHint"))));
     const showBlockingOverlay = Boolean(data.isGenerating || isOptimizingPrompt);
     const handleReferenceSourceHighlight = useCallback(
       (sourceNodeId: string) => {
@@ -1314,7 +1368,7 @@ export const JimengImageNode = memo(
               >
                 <div className="min-h-full whitespace-pre-wrap break-words px-3 py-2">
                   {renderPromptWithHighlights(
-                    promptDraft,
+                    displayedPrompt,
                     incomingImages.length,
                   )}
                 </div>
@@ -1328,7 +1382,7 @@ export const JimengImageNode = memo(
               >
                 <div className="min-h-full whitespace-pre-wrap break-words px-3 py-2">
                   {renderPromptReferenceHoverTargets(
-                    promptDraft,
+                    displayedPrompt,
                     incomingImages.length,
                     handlePromptReferenceTokenHover,
                     hidePromptReferencePreview,
@@ -1339,13 +1393,21 @@ export const JimengImageNode = memo(
 
                 <textarea
                   ref={promptRef}
-                  value={promptDraft}
+                  value={displayedPrompt}
+                  readOnly={isPromptLockedByUpstream}
+                  aria-readonly={isPromptLockedByUpstream}
+                  aria-disabled={isPromptLockedByUpstream}
+                  tabIndex={isPromptLockedByUpstream ? -1 : undefined}
                 onChange={(event) => {
                   handlePromptChange(event.target.value);
                   rememberPromptSelection(event.currentTarget);
                 }}
                 placeholder={t("node.jimengImage.promptPlaceholder")}
-                className="ui-scrollbar nodrag nowheel relative z-10 h-full w-full resize-none rounded-xl border border-white/10 bg-black/15 px-3 py-2 text-sm leading-6 text-transparent caret-text-dark outline-none placeholder:text-text-muted/70 focus:border-accent/50 whitespace-pre-wrap break-words selection:bg-accent/30 selection:text-transparent"
+                className={`ui-scrollbar nodrag nowheel relative z-10 h-full w-full resize-none rounded-xl border border-white/10 bg-black/15 px-3 py-2 text-sm leading-6 text-transparent outline-none placeholder:text-text-muted/70 whitespace-pre-wrap break-words selection:bg-accent/30 selection:text-transparent ${
+                  isPromptLockedByUpstream
+                    ? "cursor-default caret-transparent"
+                    : "caret-text-dark focus:border-accent/50"
+                }`}
                 style={{ scrollbarGutter: "stable" }}
                 onScroll={syncPromptHighlightScroll}
                 onMouseDown={(event) => {
@@ -1364,6 +1426,12 @@ export const JimengImageNode = memo(
                 onBlur={() => setIsPromptTextSelectionActive(false)}
                 onKeyDownCapture={handlePromptKeyDown}
               />
+
+              {isPromptLockedByUpstream ? (
+                <UpstreamPromptLockOverlay
+                  empty={!hasNonEmptyConnectedText}
+                />
+              ) : null}
 
               {promptReferencePreview ? (
                 <div
@@ -1497,7 +1565,11 @@ export const JimengImageNode = memo(
               />
               <StyleTemplatePicker
                 className={`${NODE_CONTROL_CHIP_CLASS} !w-8 !px-0 shrink-0 justify-center`}
+                disabled={isPromptLockedByUpstream}
                 onTemplateApply={(template) => {
+                  if (isPromptLockedByUpstream) {
+                    return;
+                  }
                   const nextPrompt = appendStyleTemplatePrompt(
                     promptValueRef.current,
                     template.prompt,
@@ -1528,7 +1600,9 @@ export const JimengImageNode = memo(
                 type="button"
                 active={isOptimizingPrompt}
                 disabled={
-                  isOptimizingPrompt || promptDraft.trim().length === 0
+                  isPromptLockedByUpstream
+                  || isOptimizingPrompt
+                  || promptDraft.trim().length === 0
                 }
                 className={`${NODE_CONTROL_CHIP_CLASS} !w-8 !px-0 shrink-0 justify-center`}
                 aria-label={
@@ -1553,7 +1627,11 @@ export const JimengImageNode = memo(
               </UiChipButton>
               <UiChipButton
                 type="button"
-                disabled={isOptimizingPrompt || !canUndoPromptOptimization}
+                disabled={
+                  isPromptLockedByUpstream
+                  || isOptimizingPrompt
+                  || !canUndoPromptOptimization
+                }
                 className={`${NODE_CONTROL_CHIP_CLASS} !w-8 !px-0 shrink-0 justify-center`}
                 aria-label={t("node.jimengImage.undoOptimizedPrompt")}
                 title={t("node.jimengImage.undoOptimizedPrompt")}

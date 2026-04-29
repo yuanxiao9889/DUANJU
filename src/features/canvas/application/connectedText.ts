@@ -4,6 +4,12 @@ import {
   type CanvasNode,
 } from '@/features/canvas/domain/canvasNodes';
 
+export interface ConnectedCanvasTextInput {
+  connectedText: string;
+  hasConnectedTextSource: boolean;
+  hasNonEmptyConnectedText: boolean;
+}
+
 function htmlToPlainText(value: string): string {
   const trimmed = value.trim();
   if (!trimmed) {
@@ -33,7 +39,18 @@ function htmlToPlainText(value: string): string {
     .trim();
 }
 
-function resolveNodeText(node: CanvasNode | undefined): string {
+export function isCanvasTextSourceNode(node: CanvasNode | undefined): boolean {
+  return Boolean(
+    node
+    && (
+      node.type === CANVAS_NODE_TYPES.textAnnotation
+      || node.type === CANVAS_NODE_TYPES.ttsText
+      || node.type === CANVAS_NODE_TYPES.scriptChapter
+    )
+  );
+}
+
+export function resolveCanvasTextSourceNodeText(node: CanvasNode | undefined): string {
   if (!node) {
     return '';
   }
@@ -54,19 +71,41 @@ function resolveNodeText(node: CanvasNode | undefined): string {
   return '';
 }
 
+export function resolveConnectedCanvasTextInput(
+  nodeId: string,
+  nodes: CanvasNode[],
+  edges: CanvasEdge[]
+): ConnectedCanvasTextInput {
+  const incomingEdges = edges.filter((edge) => edge.target === nodeId);
+  if (incomingEdges.length === 0) {
+    return {
+      connectedText: '',
+      hasConnectedTextSource: false,
+      hasNonEmptyConnectedText: false,
+    };
+  }
+
+  const nodeMap = new Map(nodes.map((node) => [node.id, node] as const));
+  const sourceTexts = incomingEdges
+    .map((edge) => nodeMap.get(edge.source))
+    .filter((node): node is CanvasNode => isCanvasTextSourceNode(node))
+    .map((node) => resolveCanvasTextSourceNodeText(node))
+    .filter((text) => text.length > 0);
+  const connectedText = sourceTexts.join('\n\n');
+  const hasConnectedTextSource = incomingEdges
+    .some((edge) => isCanvasTextSourceNode(nodeMap.get(edge.source)));
+
+  return {
+    connectedText,
+    hasConnectedTextSource,
+    hasNonEmptyConnectedText: connectedText.trim().length > 0,
+  };
+}
+
 export function resolveConnectedCanvasText(
   nodeId: string,
   nodes: CanvasNode[],
   edges: CanvasEdge[]
 ): string {
-  const incomingEdges = edges.filter((edge) => edge.target === nodeId);
-  if (incomingEdges.length === 0) {
-    return '';
-  }
-
-  const nodeMap = new Map(nodes.map((node) => [node.id, node] as const));
-  return incomingEdges
-    .map((edge) => resolveNodeText(nodeMap.get(edge.source)))
-    .filter((text) => text.length > 0)
-    .join('\n\n');
+  return resolveConnectedCanvasTextInput(nodeId, nodes, edges).connectedText;
 }

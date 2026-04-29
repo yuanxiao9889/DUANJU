@@ -1,5 +1,9 @@
 import { useMemo } from 'react';
 
+import {
+  isCanvasTextSourceNode,
+  resolveCanvasTextSourceNodeText,
+} from '@/features/canvas/application/connectedText';
 import type { ConnectedReferenceImage } from '@/features/canvas/application/connectedReferenceImages';
 import type { ConnectedReferenceVisual } from '@/features/canvas/application/connectedReferenceVisuals';
 import {
@@ -29,6 +33,12 @@ export interface CanvasIncomingSourceNode {
   node: CanvasNode;
 }
 
+export interface CanvasConnectedTextInput {
+  connectedText: string;
+  hasConnectedTextSource: boolean;
+  hasNonEmptyConnectedText: boolean;
+}
+
 const EMPTY_EDGES: CanvasEdge[] = [];
 const EMPTY_NODES: CanvasNode[] = [];
 const EMPTY_NODE_REFERENCES: Array<CanvasNode | undefined> = [];
@@ -37,6 +47,11 @@ const EMPTY_CONNECTED_REFERENCE_IMAGES: ConnectedReferenceImage[] = [];
 const EMPTY_CONNECTED_REFERENCE_VISUALS: ConnectedReferenceVisual[] = [];
 const EMPTY_CONNECTED_AUDIO_REFERENCES: ConnectedAudioReference[] = [];
 const EMPTY_INCOMING_SOURCE_NODES: CanvasIncomingSourceNode[] = [];
+const EMPTY_CONNECTED_TEXT_INPUT: CanvasConnectedTextInput = {
+  connectedText: '',
+  hasConnectedTextSource: false,
+  hasNonEmptyConnectedText: false,
+};
 
 const nodeByIdCache = new WeakMap<CanvasNode[], Map<string, CanvasNode>>();
 const incomingEdgesByTargetCache = new WeakMap<CanvasEdge[], Map<string, CanvasEdge[]>>();
@@ -457,6 +472,54 @@ function createConnectedAudioReferencesSelector(nodeId: string) {
   };
 }
 
+function createConnectedTextInputSelector(nodeId: string) {
+  let previousIncomingEdges: CanvasEdge[] | null = null;
+  let previousSourceNodes: Array<CanvasNode | undefined> | null = null;
+  let previousResult = EMPTY_CONNECTED_TEXT_INPUT;
+
+  return (state: CanvasGraphSnapshot): CanvasConnectedTextInput => {
+    const incomingEdges = resolveIncomingEdges(state, nodeId);
+    const sourceNodes = resolveSourceNodes(state, incomingEdges);
+    const shouldRecompute = haveRelevantSourcesChanged(
+      previousIncomingEdges,
+      previousSourceNodes,
+      incomingEdges,
+      sourceNodes
+    );
+
+    if (!shouldRecompute) {
+      return previousResult;
+    }
+
+    const sourceTexts: string[] = [];
+    let hasConnectedTextSource = false;
+
+    for (const sourceNode of sourceNodes) {
+      if (!isCanvasTextSourceNode(sourceNode)) {
+        continue;
+      }
+
+      hasConnectedTextSource = true;
+      const sourceText = resolveCanvasTextSourceNodeText(sourceNode);
+      if (sourceText.length > 0) {
+        sourceTexts.push(sourceText);
+      }
+    }
+
+    const connectedText = sourceTexts.join('\n\n');
+    previousIncomingEdges = incomingEdges;
+    previousSourceNodes = sourceNodes;
+    previousResult = hasConnectedTextSource || connectedText.length > 0
+      ? {
+          connectedText,
+          hasConnectedTextSource,
+          hasNonEmptyConnectedText: connectedText.trim().length > 0,
+        }
+      : EMPTY_CONNECTED_TEXT_INPUT;
+    return previousResult;
+  };
+}
+
 export function useCanvasNodeInputImages(nodeId: string): string[] {
   const selector = useMemo(() => createInputImagesSelector(nodeId), [nodeId]);
   return useCanvasStore(selector);
@@ -499,5 +562,10 @@ export function useCanvasConnectedReferenceVisuals(nodeId: string): ConnectedRef
 
 export function useCanvasConnectedAudioReferences(nodeId: string): ConnectedAudioReference[] {
   const selector = useMemo(() => createConnectedAudioReferencesSelector(nodeId), [nodeId]);
+  return useCanvasStore(selector);
+}
+
+export function useCanvasConnectedTextInput(nodeId: string): CanvasConnectedTextInput {
+  const selector = useMemo(() => createConnectedTextInputSelector(nodeId), [nodeId]);
   return useCanvasStore(selector);
 }
