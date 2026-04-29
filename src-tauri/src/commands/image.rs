@@ -13,7 +13,7 @@ use std::borrow::Cow;
 use std::io::Cursor;
 use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
-use std::time::{Instant, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use tauri::AppHandle;
 use tracing::info;
 
@@ -22,6 +22,10 @@ use super::storage;
 const STORYBOARD_METADATA_PNG_TEXT_KEY: &str = "StoryboardCopilotMetadata";
 const FAST_PREVIEW_BYPASS_MAX_BYTES: usize = 2_000_000;
 const FAST_PREVIEW_BYPASS_MAX_DIMENSION: u32 = 2048;
+const IMAGE_SOURCE_CONNECT_TIMEOUT_SECONDS: u64 = 10;
+const IMAGE_SOURCE_TOTAL_TIMEOUT_SECONDS: u64 = 45;
+
+static IMAGE_SOURCE_HTTP_CLIENT: OnceLock<reqwest::Client> = OnceLock::new();
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -138,6 +142,36 @@ pub async fn split_image_source(
         safe_rows, safe_cols, requested_line
     );
 
+    if safe_rows > 0 && safe_cols > 0 {
+        let (source_bytes, _source_ext) = resolve_source_bytes(trimmed_source).await?;
+        let resolve_elapsed = started.elapsed().as_millis();
+        let app_handle = app.clone();
+        let (results, decode_elapsed, blocking_elapsed) = tokio::task::spawn_blocking(move || {
+            split_image_source_blocking(
+                &app_handle,
+                source_bytes,
+                safe_rows,
+                safe_cols,
+                requested_line,
+                col_ratios,
+                row_ratios,
+            )
+        })
+        .await
+        .map_err(|e| format!("Failed to join split image task: {}", e))??;
+
+        info!(
+            "split_image_source done: {} frames, resolve_source={}ms, decode={}ms, blocking={}ms, total={}ms",
+            results.len(),
+            resolve_elapsed,
+            decode_elapsed,
+            blocking_elapsed,
+            started.elapsed().as_millis()
+        );
+
+        return Ok(results);
+    }
+
     let (source_bytes, _source_ext) = resolve_source_bytes(trimmed_source).await?;
     let decode_done = Instant::now();
     let image = image::load_from_memory(&source_bytes)
@@ -228,6 +262,105 @@ pub async fn split_image_source(
     );
 
     Ok(results)
+}
+
+fn split_image_source_blocking(
+    app: &AppHandle,
+    source_bytes: Vec<u8>,
+    safe_rows: u32,
+    safe_cols: u32,
+    requested_line: u32,
+    col_ratios: Option<Vec<f64>>,
+    row_ratios: Option<Vec<f64>>,
+) -> Result<(Vec<String>, u128, u128), String> {
+    let blocking_started = Instant::now();
+    let decode_started = Instant::now();
+    let image = image::load_from_memory(&source_bytes)
+        .map_err(|e| format!("Failed to decode source image: {}", e))?;
+    let decode_elapsed = decode_started.elapsed().as_millis();
+
+    let (width, height) = image.dimensions();
+    let resolved_line = resolve_line_thickness(width, height, safe_rows, safe_cols, requested_line);
+    let usable_width =
+        width.saturating_sub((safe_cols.saturating_sub(1)).saturating_mul(resolved_line));
+    let usable_height =
+        height.saturating_sub((safe_rows.saturating_sub(1)).saturating_mul(resolved_line));
+
+    if usable_width < safe_cols || usable_height < safe_rows {
+        return Err("鍒嗗壊绾胯繃绮楋紝鏃犳硶瀹屾垚鍒囧壊".to_string());
+    }
+
+    let column_widths = if let Some(ratios) = col_ratios {
+        if ratios.len() == safe_cols as usize {
+            ratios
+                .iter()
+                .map(|r| (usable_width as f64 * r / 100.0).max(1.0) as u32)
+                .collect()
+        } else {
+            split_sizes(usable_width, safe_cols)
+        }
+    } else {
+        split_sizes(usable_width, safe_cols)
+    };
+
+    let row_heights = if let Some(ratios) = row_ratios {
+        if ratios.len() == safe_rows as usize {
+            ratios
+                .iter()
+                .map(|r| (usable_height as f64 * r / 100.0).max(1.0) as u32)
+                .collect()
+        } else {
+            split_sizes(usable_height, safe_rows)
+        }
+    } else {
+        split_sizes(usable_height, safe_rows)
+    };
+
+    let mut x_offsets = Vec::with_capacity(safe_cols as usize);
+    let mut cursor_x = 0_u32;
+    for col in 0..safe_cols {
+        x_offsets.push(cursor_x);
+        cursor_x = cursor_x.saturating_add(column_widths[col as usize]);
+        if col < safe_cols - 1 {
+            cursor_x = cursor_x.saturating_add(resolved_line);
+        }
+    }
+
+    let mut y_offsets = Vec::with_capacity(safe_rows as usize);
+    let mut cursor_y = 0_u32;
+    for row in 0..safe_rows {
+        y_offsets.push(cursor_y);
+        cursor_y = cursor_y.saturating_add(row_heights[row as usize]);
+        if row < safe_rows - 1 {
+            cursor_y = cursor_y.saturating_add(resolved_line);
+        }
+    }
+
+    let mut results = Vec::with_capacity((safe_rows * safe_cols) as usize);
+
+    for row in 0..safe_rows {
+        for col in 0..safe_cols {
+            let x = x_offsets[col as usize];
+            let y = y_offsets[row as usize];
+            let width = column_widths[col as usize];
+            let height = row_heights[row as usize];
+            let cropped = image.crop_imm(x, y, width, height);
+
+            let mut buffer = Cursor::new(Vec::new());
+            cropped
+                .write_to(&mut buffer, image::ImageFormat::Png)
+                .map_err(|e| format!("Failed to encode split image: {}", e))?;
+
+            let persisted = persist_image_bytes(app, buffer.get_ref(), "png")?;
+            results.push(persisted);
+        }
+    }
+
+    Ok((
+        results,
+        decode_elapsed,
+        blocking_started.elapsed().as_millis(),
+    ))
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -732,12 +865,24 @@ pub async fn prepare_node_image_source(
     let resolve_started = Instant::now();
     let (bytes, extension) = resolve_source_bytes(trimmed).await?;
     let resolve_elapsed = resolve_started.elapsed().as_millis();
-    let result =
-        prepare_node_image_from_bytes(&app, &bytes, &extension, safe_max_dimension, "source")?;
+    let bytes_len = bytes.len();
+    let extension_for_log = extension.clone();
+    let app_handle = app.clone();
+    let result = tokio::task::spawn_blocking(move || {
+        prepare_node_image_from_bytes(
+            &app_handle,
+            &bytes,
+            &extension,
+            safe_max_dimension,
+            "source",
+        )
+    })
+    .await
+    .map_err(|e| format!("Failed to join prepare image source task: {}", e))??;
     info!(
         "prepare_node_image_source resolved: bytes={}, ext={}, resolve_source={}ms, total={}ms",
-        bytes.len(),
-        extension,
+        bytes_len,
+        extension_for_log,
         resolve_elapsed,
         started.elapsed().as_millis()
     );
@@ -762,17 +907,24 @@ pub async fn prepare_node_image_binary(
         .map(normalize_extension)
         .unwrap_or_else(|| "png".to_string());
 
-    let result = prepare_node_image_from_bytes(
-        &app,
-        &bytes,
-        &resolved_extension,
-        safe_max_dimension,
-        "binary",
-    )?;
+    let bytes_len = bytes.len();
+    let extension_for_log = resolved_extension.clone();
+    let app_handle = app.clone();
+    let result = tokio::task::spawn_blocking(move || {
+        prepare_node_image_from_bytes(
+            &app_handle,
+            &bytes,
+            &resolved_extension,
+            safe_max_dimension,
+            "binary",
+        )
+    })
+    .await
+    .map_err(|e| format!("Failed to join prepare image binary task: {}", e))??;
     info!(
         "prepare_node_image_binary resolved: bytes={}, ext={}, total={}ms",
-        bytes.len(),
-        resolved_extension,
+        bytes_len,
+        extension_for_log,
         started.elapsed().as_millis()
     );
     Ok(result)
@@ -1226,6 +1378,49 @@ fn parse_data_url(source: &str) -> Result<(Vec<u8>, String), String> {
     Ok((bytes, extension_from_mime(mime)))
 }
 
+fn image_source_http_client() -> &'static reqwest::Client {
+    IMAGE_SOURCE_HTTP_CLIENT.get_or_init(|| {
+        reqwest::Client::builder()
+            .connect_timeout(Duration::from_secs(IMAGE_SOURCE_CONNECT_TIMEOUT_SECONDS))
+            .timeout(Duration::from_secs(IMAGE_SOURCE_TOTAL_TIMEOUT_SECONDS))
+            .build()
+            .unwrap_or_else(|_| reqwest::Client::new())
+    })
+}
+
+async fn fetch_remote_image_source_bytes(source: &str) -> Result<(Vec<u8>, String), String> {
+    let response = image_source_http_client()
+        .get(source)
+        .send()
+        .await
+        .map_err(|e| format!("Failed to download remote image: {}", e))?;
+
+    if !response.status().is_success() {
+        return Err(format!(
+            "Remote image request failed with status {}",
+            response.status()
+        ));
+    }
+
+    let mime_ext = response
+        .headers()
+        .get(reqwest::header::CONTENT_TYPE)
+        .and_then(|value| value.to_str().ok())
+        .map(extension_from_mime);
+
+    let bytes = response
+        .bytes()
+        .await
+        .map_err(|e| format!("Failed to read remote image body: {}", e))?
+        .to_vec();
+
+    let ext = mime_ext
+        .or_else(|| extension_from_path_like(source))
+        .unwrap_or_else(|| "png".to_string());
+
+    Ok((bytes, ext))
+}
+
 fn read_storyboard_metadata_from_png_bytes(
     bytes: &[u8],
 ) -> Result<Option<StoryboardImageMetadata>, String> {
@@ -1302,35 +1497,20 @@ async fn resolve_source_bytes(source: &str) -> Result<(Vec<u8>, String), String>
         return parse_data_url(source);
     }
 
+    let trimmed = source.trim();
+    let likely_base64 = trimmed.len() > 256
+        && trimmed
+            .chars()
+            .all(|ch| ch.is_ascii_alphanumeric() || ch == '+' || ch == '/' || ch == '=');
+    if likely_base64 {
+        let bytes = STANDARD
+            .decode(trimmed)
+            .map_err(|e| format!("Failed to decode base64 image source: {}", e))?;
+        return Ok((bytes, "png".to_string()));
+    }
+
     if source.starts_with("http://") || source.starts_with("https://") {
-        let response = reqwest::get(source)
-            .await
-            .map_err(|e| format!("Failed to download remote image: {}", e))?;
-
-        if !response.status().is_success() {
-            return Err(format!(
-                "Remote image request failed with status {}",
-                response.status()
-            ));
-        }
-
-        let mime_ext = response
-            .headers()
-            .get(reqwest::header::CONTENT_TYPE)
-            .and_then(|value| value.to_str().ok())
-            .map(extension_from_mime);
-
-        let bytes = response
-            .bytes()
-            .await
-            .map_err(|e| format!("Failed to read remote image body: {}", e))?
-            .to_vec();
-
-        let ext = mime_ext
-            .or_else(|| extension_from_path_like(source))
-            .unwrap_or_else(|| "png".to_string());
-
-        return Ok((bytes, ext));
+        return fetch_remote_image_source_bytes(source).await;
     }
 
     if source.starts_with("file://") {
@@ -1356,6 +1536,20 @@ async fn resolve_source_bytes(source: &str) -> Result<(Vec<u8>, String), String>
         .unwrap_or_else(|| "png".to_string());
 
     Ok((bytes, ext))
+}
+
+pub async fn resolve_image_source_bytes(source: &str) -> Result<(Vec<u8>, String), String> {
+    resolve_source_bytes(source).await
+}
+
+pub async fn materialize_image_source(app: &AppHandle, source: &str) -> Result<String, String> {
+    let trimmed = source.trim();
+    if trimmed.is_empty() {
+        return Err("Image source is empty".to_string());
+    }
+
+    let (bytes, extension) = resolve_image_source_bytes(trimmed).await?;
+    persist_image_bytes(app, &bytes, &extension)
 }
 
 #[tauri::command]
@@ -1396,23 +1590,7 @@ pub async fn embed_storyboard_image_metadata(
 
 #[tauri::command]
 pub async fn persist_image_source(app: AppHandle, source: String) -> Result<String, String> {
-    let trimmed = source.trim();
-    if trimmed.is_empty() {
-        return Err("Image source is empty".to_string());
-    }
-
-    let (bytes, extension) = resolve_source_bytes(trimmed).await?;
-    let images_dir = resolve_images_dir(&app)?;
-    let digest = md5::compute(&bytes);
-    let filename = format!("{:x}.{}", digest, extension);
-    let output_path = images_dir.join(filename);
-
-    if !output_path.exists() {
-        std::fs::write(&output_path, bytes)
-            .map_err(|e| format!("Failed to persist image source: {}", e))?;
-    }
-
-    Ok(output_path.to_string_lossy().to_string())
+    materialize_image_source(&app, &source).await
 }
 
 #[tauri::command]

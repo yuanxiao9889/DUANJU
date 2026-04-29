@@ -594,6 +594,9 @@ export const ScriptReferenceNode = memo(({
     const availableIds = new Set(selectedEpisodeRef?.rows.map((row) => row.id) ?? []);
     return selectedRowIds.filter((rowId) => !availableIds.has(rowId));
   }, [selectedEpisodeRef, selectedRowIds]);
+  const totalEpisodeRowCount = selectedEpisodeRef?.rows.length ?? 0;
+  const canSelectAllRows = totalEpisodeRowCount > 0 && selectedRows.length < totalEpisodeRowCount;
+  const canDeselectAllRows = selectedRowIds.length > 0;
   const staleSnapshot = isSnapshotStale(
     data,
     selectedEpisodeRef?.scriptNodeId ?? null,
@@ -619,6 +622,12 @@ export const ScriptReferenceNode = memo(({
                 : selectedChapter
                   ? t('node.scriptReference.selectSceneHint')
                   : t('node.scriptReference.selectChapterHint');
+  const showWarningBadge = Boolean(
+    loadError
+    || (data.referencedEpisodeId && !selectedEpisodeRef)
+    || missingSelectedRowIds.length > 0
+    || staleSnapshot
+  );
 
   const handleSelectChapter = useCallback((chapterId: string) => {
     if (selectedChapterId === chapterId && (data.referencedChapterId ?? null) === chapterId) {
@@ -788,6 +797,26 @@ export const ScriptReferenceNode = memo(({
       selectedRowIds: nextSelectedRowIds.filter((candidateId) => validRowIds.has(candidateId)),
     }, { historyMode: 'skip' });
   }, [id, selectedEpisodeRef, selectedRowIds, updateNodeData]);
+
+  const handleSelectAllRows = useCallback(() => {
+    if (!selectedEpisodeRef) {
+      return;
+    }
+
+    updateNodeData(id, {
+      selectedRowIds: selectedEpisodeRef.rows.map((row) => row.id),
+    }, { historyMode: 'skip' });
+  }, [id, selectedEpisodeRef, updateNodeData]);
+
+  const handleDeselectAllRows = useCallback(() => {
+    if (!canDeselectAllRows) {
+      return;
+    }
+
+    updateNodeData(id, {
+      selectedRowIds: [],
+    }, { historyMode: 'skip' });
+  }, [canDeselectAllRows, id, updateNodeData]);
 
   const createDownstreamNodes = useCallback((target: ScriptReferenceDownstreamTarget) => {
     if (!selectedEpisodeRef || selectedRows.length === 0) {
@@ -987,18 +1016,6 @@ export const ScriptReferenceNode = memo(({
           </div>
         </div>
 
-        <div className="mt-3 flex flex-wrap items-center gap-2 text-xs">
-          <span className="rounded-full bg-bg-dark px-2.5 py-1 text-text-muted">
-            {t('node.scriptReference.selectedRows', { count: selectedRowIds.length })}
-          </span>
-          {statusMessage !== t('node.scriptReference.ready') ? (
-            <span className="inline-flex items-center gap-1 rounded-full bg-amber-500/10 px-2.5 py-1 text-amber-200">
-              <TriangleAlert className="h-3.5 w-3.5" />
-              {t('node.scriptReference.warning')}
-            </span>
-          ) : null}
-        </div>
-
         <div className="mt-3 flex flex-wrap gap-2">
           <button type="button" disabled={selectedRows.length === 0} onClick={(event) => { event.stopPropagation(); createDownstreamNodes('image'); }} className="inline-flex items-center gap-1.5 rounded-lg border border-cyan-500/30 bg-cyan-500/10 px-3 py-1.5 text-xs font-medium text-cyan-200 disabled:opacity-60"><ImageIcon className="h-3.5 w-3.5" />{t('node.scriptReference.generateImage')}</button>
           <button type="button" disabled={selectedRows.length === 0} onClick={(event) => { event.stopPropagation(); createDownstreamNodes('mjImage'); }} className="inline-flex items-center gap-1.5 rounded-lg border border-fuchsia-500/30 bg-fuchsia-500/10 px-3 py-1.5 text-xs font-medium text-fuchsia-200 disabled:opacity-60"><Sparkles className="h-3.5 w-3.5" />{t('node.scriptReference.generateMidjourneyImage')}</button>
@@ -1142,6 +1159,39 @@ export const ScriptReferenceNode = memo(({
                         </div>
                       </div>
                       <button type="button" onClick={() => persistSelection(selectedEpisodeRef, selectedRowIds)} className="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-border-dark bg-surface-dark px-3 py-1.5 text-xs font-medium text-text-dark hover:bg-bg-dark"><RefreshCcw className="h-3.5 w-3.5" />{t('node.scriptReference.refreshSelection')}</button>
+                    </div>
+                    <div className="flex flex-wrap items-center gap-2 border-b border-border-dark/70 px-3 py-3 text-xs">
+                      <span className="rounded-full bg-bg-dark px-2.5 py-1 text-text-muted">
+                        {t('node.scriptReference.selectedRows', { count: selectedRowIds.length })}
+                      </span>
+                      <button
+                        type="button"
+                        disabled={!canSelectAllRows}
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          handleSelectAllRows();
+                        }}
+                        className="inline-flex items-center rounded-full border border-border-dark bg-bg-dark px-2.5 py-1 text-text-muted transition hover:border-cyan-400/25 hover:text-cyan-100 disabled:cursor-not-allowed disabled:opacity-50"
+                      >
+                        {t('project.selectAll')}
+                      </button>
+                      <button
+                        type="button"
+                        disabled={!canDeselectAllRows}
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          handleDeselectAllRows();
+                        }}
+                        className="inline-flex items-center rounded-full border border-border-dark bg-bg-dark px-2.5 py-1 text-text-muted transition hover:border-cyan-400/25 hover:text-cyan-100 disabled:cursor-not-allowed disabled:opacity-50"
+                      >
+                        {t('project.deselectAll')}
+                      </button>
+                      {showWarningBadge ? (
+                        <span className="inline-flex items-center gap-1 rounded-full bg-amber-500/10 px-2.5 py-1 text-amber-200">
+                          <TriangleAlert className="h-3.5 w-3.5" />
+                          {t('node.scriptReference.warning')}
+                        </span>
+                      ) : null}
                     </div>
                     <UiScrollArea
                       className="nowheel min-h-0 flex-1"

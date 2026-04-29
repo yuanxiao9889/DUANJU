@@ -62,6 +62,8 @@ pub struct ProjectRecord {
     pub viewport_json: String,
     pub history_json: String,
     pub color_labels_json: String,
+    #[serde(default)]
+    pub script_welcome_skipped: bool,
 }
 
 fn resolve_db_path(app: &AppHandle) -> Result<PathBuf, String> {
@@ -379,7 +381,8 @@ fn ensure_projects_table(conn: &Connection) -> Result<(), String> {
           edges_json TEXT NOT NULL,
           viewport_json TEXT NOT NULL,
           history_json TEXT NOT NULL,
-          color_labels_json TEXT NOT NULL DEFAULT '{}'
+          color_labels_json TEXT NOT NULL DEFAULT '{}',
+          script_welcome_skipped INTEGER NOT NULL DEFAULT 0
         );
         CREATE TABLE IF NOT EXISTS project_image_refs (
           project_id TEXT NOT NULL,
@@ -474,6 +477,7 @@ fn ensure_projects_table(conn: &Connection) -> Result<(), String> {
     let mut has_linked_script_project_id = false;
     let mut has_linked_ad_project_id = false;
     let mut has_color_labels_json = false;
+    let mut has_script_welcome_skipped = false;
     let mut stmt = conn
         .prepare("PRAGMA table_info(projects)")
         .map_err(|e| format!("Failed to inspect projects schema: {}", e))?;
@@ -507,6 +511,9 @@ fn ensure_projects_table(conn: &Connection) -> Result<(), String> {
         }
         if column_name == "color_labels_json" {
             has_color_labels_json = true;
+        }
+        if column_name == "script_welcome_skipped" {
+            has_script_welcome_skipped = true;
         }
     }
 
@@ -566,6 +573,14 @@ fn ensure_projects_table(conn: &Connection) -> Result<(), String> {
             [],
         )
         .map_err(|e| format!("Failed to add color_labels_json column: {}", e))?;
+    }
+
+    if !has_script_welcome_skipped {
+        conn.execute(
+            "ALTER TABLE projects ADD COLUMN script_welcome_skipped INTEGER NOT NULL DEFAULT 0",
+            [],
+        )
+        .map_err(|e| format!("Failed to add script_welcome_skipped column: {}", e))?;
     }
 
     conn.execute_batch(
@@ -1675,9 +1690,10 @@ pub fn get_project_record(
                     node_count,
                     nodes_json,
                     edges_json,
-                  viewport_json,
-                  history_json,
-                  color_labels_json
+                    viewport_json,
+                    history_json,
+                    color_labels_json,
+                    script_welcome_skipped
                 FROM projects
                 WHERE id = ?1
                 LIMIT 1
@@ -1703,6 +1719,7 @@ pub fn get_project_record(
                 viewport_json: row.get(13)?,
                 history_json: row.get(14)?,
                 color_labels_json: row.get(15)?,
+                script_welcome_skipped: row.get(16)?,
             })
         })
     };
@@ -1753,9 +1770,10 @@ pub fn upsert_project_record(app: AppHandle, mut record: ProjectRecord) -> Resul
             edges_json,
             viewport_json,
             history_json,
-            color_labels_json
+            color_labels_json,
+            script_welcome_skipped
         )
-        VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16)
+        VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17)
         ON CONFLICT(id) DO UPDATE SET
             name = excluded.name,
             project_type = excluded.project_type,
@@ -1769,9 +1787,10 @@ pub fn upsert_project_record(app: AppHandle, mut record: ProjectRecord) -> Resul
             node_count = excluded.node_count,
             nodes_json = excluded.nodes_json,
             edges_json = excluded.edges_json,
-          viewport_json = excluded.viewport_json,
-          history_json = excluded.history_json,
-          color_labels_json = excluded.color_labels_json
+            viewport_json = excluded.viewport_json,
+            history_json = excluded.history_json,
+            color_labels_json = excluded.color_labels_json,
+            script_welcome_skipped = excluded.script_welcome_skipped
         "#,
         params![
             record.id,
@@ -1790,6 +1809,7 @@ pub fn upsert_project_record(app: AppHandle, mut record: ProjectRecord) -> Resul
             record.viewport_json,
             record.history_json,
             record.color_labels_json,
+            record.script_welcome_skipped,
         ],
     )
     .map_err(|e| format!("Failed to upsert project: {}", e))?;
@@ -1946,6 +1966,13 @@ mod tests {
             .expect("failed to read pragma rows")
             .flatten()
             .any(|column_name| column_name == "color_labels_json");
+        let has_script_welcome_skipped: bool = conn
+            .prepare("PRAGMA table_info(projects)")
+            .expect("failed to prepare pragma")
+            .query_map([], |row| row.get::<_, String>(1))
+            .expect("failed to read pragma rows")
+            .flatten()
+            .any(|column_name| column_name == "script_welcome_skipped");
         assert!(
             has_asset_library_id,
             "asset_library_id should be added for legacy projects"
@@ -1962,6 +1989,10 @@ mod tests {
             has_color_labels_json,
             "color_labels_json should be added for legacy projects"
         );
+        assert!(
+            has_script_welcome_skipped,
+            "script_welcome_skipped should be added for legacy projects"
+        );
 
         let legacy_project_count: i64 = conn
             .query_row(
@@ -1973,6 +2004,18 @@ mod tests {
         assert_eq!(
             legacy_project_count, 1,
             "existing projects should remain readable"
+        );
+
+        let legacy_project_script_welcome_skipped: bool = conn
+            .query_row(
+                "SELECT script_welcome_skipped FROM projects WHERE id = 'legacy-project'",
+                [],
+                |row| row.get(0),
+            )
+            .expect("failed to read legacy project script welcome flag");
+        assert!(
+            !legacy_project_script_welcome_skipped,
+            "legacy projects should default script_welcome_skipped to false"
         );
     }
 

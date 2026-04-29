@@ -63,6 +63,7 @@ import {
   type ScriptCharacterNodeData,
   type ScriptLocationNodeData,
   type ScriptItemNodeData,
+  type ScriptStoryNoteNodeData,
   type ScriptPlotPointNodeData,
   type ScriptWorldviewNodeData,
   createDefaultSceneCard,
@@ -421,6 +422,8 @@ const exportImageNodeDefinition: CanvasNodeDefinition<ExportImageNodeData> = {
     isSizeManuallyAdjusted: false,
     resultKind: 'generic',
     generationSummary: null,
+    generationPhase: null,
+    generationFailureStage: null,
   }),
 };
 
@@ -1664,6 +1667,32 @@ const scriptItemNodeDefinition: CanvasNodeDefinition<ScriptItemNodeData> = {
   }),
 };
 
+const scriptStoryNoteNodeDefinition: CanvasNodeDefinition<ScriptStoryNoteNodeData> = {
+  type: CANVAS_NODE_TYPES.scriptStoryNote,
+  menuLabelKey: 'node.menu.scriptStoryNote',
+  menuIcon: 'text',
+  visibleInMenu: true,
+  menuProjectTypes: ['script'],
+  capabilities: {
+    toolbar: false,
+    promptInput: false,
+  },
+  connectivity: {
+    sourceHandle: false,
+    targetHandle: false,
+    connectMenu: {
+      fromSource: false,
+      fromTarget: false,
+    },
+  },
+  createDefaultData: () => ({
+    displayName: DEFAULT_NODE_DISPLAY_NAME[CANVAS_NODE_TYPES.scriptStoryNote] || '故事参考',
+    title: DEFAULT_NODE_DISPLAY_NAME[CANVAS_NODE_TYPES.scriptStoryNote] || '故事参考',
+    content: '',
+    isEnabled: true,
+  }),
+};
+
 const scriptPlotPointNodeDefinition: CanvasNodeDefinition<ScriptPlotPointNodeData> = {
   type: CANVAS_NODE_TYPES.scriptPlotPoint,
   menuLabelKey: 'node.menu.scriptPlotPoint',
@@ -1765,6 +1794,7 @@ export const canvasNodeDefinitions: Record<CanvasNodeType, CanvasNodeDefinition>
   [CANVAS_NODE_TYPES.scriptCharacter]: scriptCharacterNodeDefinition,
   [CANVAS_NODE_TYPES.scriptLocation]: scriptLocationNodeDefinition,
   [CANVAS_NODE_TYPES.scriptItem]: scriptItemNodeDefinition,
+  [CANVAS_NODE_TYPES.scriptStoryNote]: scriptStoryNoteNodeDefinition,
   [CANVAS_NODE_TYPES.scriptPlotPoint]: scriptPlotPointNodeDefinition,
   [CANVAS_NODE_TYPES.scriptWorldview]: scriptWorldviewNodeDefinition,
 };

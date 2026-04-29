@@ -20,6 +20,7 @@ import {
   type SceneContinuityContext,
 } from '@/features/canvas/application/sceneContinuity';
 import { runSceneContinuityCheck } from '@/features/canvas/application/sceneContinuityCheck';
+import { collectEnabledScriptStoryNotes } from '@/features/canvas/application/scriptStoryNotes';
 import {
   createManualEpisodeCard,
   generateEpisodesFromSceneNode,
@@ -72,6 +73,7 @@ const SCENE_STUDIO_CONTINUITY_NODE_TYPES = [
   CANVAS_NODE_TYPES.scriptCharacter,
   CANVAS_NODE_TYPES.scriptLocation,
   CANVAS_NODE_TYPES.scriptItem,
+  CANVAS_NODE_TYPES.scriptStoryNote,
   CANVAS_NODE_TYPES.scriptWorldview,
 ] as const;
 
@@ -457,6 +459,10 @@ export function SceneStudioPanel() {
     sceneNodeData?.sourceChapterId,
     selectedSceneDraft,
   ]);
+  const storyNotes = useMemo(
+    () => collectEnabledScriptStoryNotes(continuityNodes),
+    [continuityNodes]
+  );
 
   useEffect(() => {
     if (!chapterNodeData || !chapterNodeId || !selectedChapterScene) {
@@ -732,6 +738,7 @@ export function SceneStudioPanel() {
       const nextEpisodes = await generateEpisodesFromSceneNode(sceneNodeData, chapterContext, {
         episodeCount: defaultCount,
         sourceDraftLabel: t('script.sceneWorkbench.generatedSourceLabel'),
+        storyNotes,
       });
       updateNodeData(sceneNodeId, { episodes: nextEpisodes }, { historyMode: 'skip' });
       focusSceneNode(sceneNodeId, nextEpisodes[0]?.id ?? null);
@@ -740,7 +747,7 @@ export function SceneStudioPanel() {
     } finally {
       setIsEpisodeGenerating(false);
     }
-  }, [chapterContext, focusSceneNode, sceneNodeData, sceneNodeId, t, updateNodeData]);
+  }, [chapterContext, focusSceneNode, sceneNodeData, sceneNodeId, storyNotes, t, updateNodeData]);
 
   const selectedShootingScriptRow = useMemo(() => {
     if (!shootingScriptNodeData) {
@@ -1103,6 +1110,7 @@ export function SceneStudioPanel() {
         scene,
         chapter: chapterContext,
         storyRoot: rootData ?? null,
+        storyNotes,
         continuityContext,
       });
 
@@ -1134,6 +1142,7 @@ export function SceneStudioPanel() {
     continuityContext,
     isShootingScriptMode,
     rootData,
+    storyNotes,
   ]);
 
   const updateCurrentCopilotMessage = useCallback((
@@ -1251,6 +1260,7 @@ export function SceneStudioPanel() {
         scene: selectedSceneDraft,
         chapter: chapterContext,
         storyRoot: rootData ?? null,
+        storyNotes,
         history,
         continuityContext,
       });
@@ -1296,6 +1306,7 @@ export function SceneStudioPanel() {
     selectedDraftRange,
     selectedDraftText,
     selectedSceneDraft,
+    storyNotes,
     t,
   ]);
 
@@ -1316,6 +1327,7 @@ export function SceneStudioPanel() {
         scene: selectedSceneDraft,
         chapter: chapterContext,
         storyRoot: rootData ?? null,
+        storyNotes,
         history: currentCopilotMessages,
         continuityContext,
       });
@@ -1356,6 +1368,7 @@ export function SceneStudioPanel() {
     currentCopilotMessages,
     rootData,
     selectedSceneDraft,
+    storyNotes,
     applySelectedScenePatch,
   ]);
 
@@ -1376,6 +1389,7 @@ export function SceneStudioPanel() {
         scene: selectedSceneDraft,
         chapter: chapterContext,
         storyRoot: rootData ?? null,
+        storyNotes,
         history: currentCopilotMessages,
         continuityContext,
       });
@@ -1411,6 +1425,7 @@ export function SceneStudioPanel() {
     isChapterMode,
     rootData,
     selectedSceneDraft,
+    storyNotes,
     t,
     applySelectedScenePatch,
   ]);
@@ -1473,6 +1488,7 @@ export function SceneStudioPanel() {
         scene: selectedSceneDraft,
         chapter: chapterContext,
         storyRoot: rootData ?? null,
+        storyNotes,
         continuityContext,
       });
       setLatestContinuityCheck(check);
@@ -1487,6 +1503,7 @@ export function SceneStudioPanel() {
     isChapterMode,
     rootData,
     selectedSceneDraft,
+    storyNotes,
     t,
   ]);
 

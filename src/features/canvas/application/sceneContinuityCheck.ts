@@ -5,8 +5,10 @@ import type {
   SceneContinuityIssue,
   ScriptChapterNodeData,
   ScriptRootNodeData,
+  ScriptStoryNotePromptEntry,
 } from '../domain/canvasNodes';
 import type { SceneContinuityContext } from './sceneContinuity';
+import { formatScriptStoryNotesPromptBlock } from './scriptStoryNotes';
 
 export interface RunSceneContinuityCheckOptions {
   candidateText: string;
@@ -14,6 +16,7 @@ export interface RunSceneContinuityCheckOptions {
   scene: SceneCard;
   chapter: ScriptChapterNodeData;
   storyRoot?: ScriptRootNodeData | null;
+  storyNotes?: ScriptStoryNotePromptEntry[];
   continuityContext?: SceneContinuityContext | null;
 }
 
@@ -170,6 +173,9 @@ export async function runSceneContinuityCheck(
     `- Premise: ${trimOrFallback(options.storyRoot?.premise)}`,
     `- Theme: ${trimOrFallback(options.storyRoot?.theme)}`,
     `- Protagonist: ${trimOrFallback(options.storyRoot?.protagonist)}`,
+    '',
+    'Story reference notes:',
+    formatScriptStoryNotesPromptBlock(options.storyNotes, 'None'),
     '',
     'Current chapter:',
     `- Chapter title: ${trimOrFallback(options.chapter.title, 'Untitled Chapter')}`,

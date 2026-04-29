@@ -5,9 +5,11 @@ import type {
   SceneCopilotThreadMessage,
   ScriptChapterNodeData,
   ScriptRootNodeData,
+  ScriptStoryNotePromptEntry,
   StoryBeat,
 } from '../domain/canvasNodes';
 import type { SceneContinuityContext } from './sceneContinuity';
+import { formatScriptStoryNotesPromptBlock } from './scriptStoryNotes';
 
 export type SceneCopilotMode = Exclude<SceneCopilotMessageMode, 'seed'>;
 
@@ -23,6 +25,7 @@ export interface SceneCopilotRequest {
   scene: SceneCard;
   chapter: ScriptChapterNodeData;
   storyRoot?: ScriptRootNodeData | null;
+  storyNotes?: ScriptStoryNotePromptEntry[];
   history?: SceneCopilotHistoryMessage[];
   continuityContext?: SceneContinuityContext | null;
 }
@@ -241,6 +244,9 @@ function buildPromptWithTask(request: SceneCopilotRequest, taskInstruction: stri
     `- Tone: ${trimOrFallback(request.storyRoot?.tone)}`,
     `- Director lens: ${trimOrFallback(request.storyRoot?.directorVision)}`,
     `- Core beats:\n${formatBeats(request.storyRoot?.beats)}`,
+    '',
+    'Story reference notes:',
+    formatScriptStoryNotesPromptBlock(request.storyNotes, 'None'),
     '',
     'Chapter context:',
     `- Chapter number: ${request.chapter.chapterNumber || 1}`,

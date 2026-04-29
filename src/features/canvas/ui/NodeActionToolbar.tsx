@@ -35,7 +35,10 @@ import { useCanvasStore } from '@/stores/canvasStore';
 import { usePsIntegrationStore } from '@/stores/psIntegrationStore';
 import { UI_POPOVER_TRANSITION_MS } from '@/components/ui/motion';
 import { sanitizeStoryboardText } from '@/features/canvas/application/storyboardText';
-import { buildGenerationErrorReport } from '@/features/canvas/application/generationErrorReport';
+import {
+  buildGenerationErrorReport,
+  CURRENT_RUNTIME_SESSION_ID,
+} from '@/features/canvas/application/generationErrorReport';
 import { resolveConnectedTtsText } from '@/features/canvas/nodes/qwenTtsShared';
 import {
   NODE_TOOLBAR_ALIGN,
@@ -67,6 +70,7 @@ const SCRIPT_ASSET_NODE_TYPES = new Set<string>([
   'scriptCharacterNode',
   'scriptLocationNode',
   'scriptItemNode',
+  'scriptStoryNoteNode',
   'scriptPlotPointNode',
   'scriptWorldviewNode',
 ]);
@@ -356,8 +360,11 @@ export const NodeActionToolbar = memo(({ node }: NodeActionToolbarProps) => {
     const refreshRequestedAt = Date.now();
     updateNodeData(node.id, {
       isGenerating: true,
+      generationPhase: 'running',
+      generationFailureStage: null,
       generationStartedAt: generationStartedAt ?? refreshRequestedAt,
       generationForceRefreshRequestedAt: refreshRequestedAt,
+      generationClientSessionId: CURRENT_RUNTIME_SESSION_ID,
       generationError: null,
       generationErrorDetails: null,
     });

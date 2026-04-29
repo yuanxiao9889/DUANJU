@@ -1085,6 +1085,8 @@ export const ImageEditNode = memo(({ id, data, selected, width, height }: ImageE
       newNodePosition,
       {
         isGenerating: true,
+        generationPhase: 'submitting',
+        generationFailureStage: null,
         generationStartedAt,
         generationDurationMs,
         resultKind: 'generic',
@@ -1151,9 +1153,13 @@ export const ImageEditNode = memo(({ id, data, selected, width, height }: ImageE
       };
       updateNodeData(newNodeId, {
         generationJobId: jobId,
+        generationPhase: 'queued',
+        generationFailureStage: null,
         generationSourceType: 'imageEdit',
         generationProviderId: selectedModel.providerId,
         generationClientSessionId: CURRENT_RUNTIME_SESSION_ID,
+        generationError: null,
+        generationErrorDetails: null,
         generationDebugContext,
       });
     } catch (generationError) {
@@ -1189,6 +1195,8 @@ export const ImageEditNode = memo(({ id, data, selected, width, height }: ImageE
       );
       updateNodeData(newNodeId, {
         isGenerating: false,
+        generationPhase: 'failed',
+        generationFailureStage: 'submit',
         generationStartedAt: null,
         generationJobId: null,
         generationProviderId: null,

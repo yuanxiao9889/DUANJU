@@ -343,6 +343,8 @@ export const AdScriptReferenceNode = memo(({
     () => rows.filter((row) => selectedIdSet.has(row.id)),
     [rows, selectedIdSet]
   );
+  const canSelectAllRows = rows.length > 0 && selectedRows.length < rows.length;
+  const canDeselectAllRows = data.selectedRowIds.length > 0;
   const hasMissingSelectedRows = data.selectedRowIds.length > 0 && selectedRows.length !== data.selectedRowIds.length;
   const staleSnapshot = isSnapshotStale(data, linkedReference);
   const selectedTemplateLabel = linkedReference
@@ -377,6 +379,7 @@ export const AdScriptReferenceNode = memo(({
   const derivedSyncMessage = derivedSyncStatus === 'ready' || derivedSyncStatus === 'idle'
     ? null
     : statusMessage;
+  const showWarningBadge = derivedSyncStatus !== 'ready' && derivedSyncStatus !== 'idle';
 
   useEffect(() => {
     const nextLinkedProjectId = linkedAdProjectId ?? null;
@@ -440,6 +443,26 @@ export const AdScriptReferenceNode = memo(({
 
     updateNodeData(id, { selectedRowIds: nextSelectedRowIds }, { historyMode: 'skip' });
   }, [data.selectedRowIds, id, rows, updateNodeData]);
+
+  const handleSelectAllRows = useCallback(() => {
+    if (rows.length === 0) {
+      return;
+    }
+
+    updateNodeData(id, {
+      selectedRowIds: rows.map((row) => row.id),
+    }, { historyMode: 'skip' });
+  }, [id, rows, updateNodeData]);
+
+  const handleDeselectAllRows = useCallback(() => {
+    if (!canDeselectAllRows) {
+      return;
+    }
+
+    updateNodeData(id, {
+      selectedRowIds: [],
+    }, { historyMode: 'skip' });
+  }, [canDeselectAllRows, id, updateNodeData]);
 
   const createDownstreamNodes = useCallback((target: AdReferenceDownstreamTarget) => {
     if (!linkedReference || selectedRows.length === 0) {
@@ -595,18 +618,6 @@ export const AdScriptReferenceNode = memo(({
           </div>
         </div>
 
-        <div className="mt-3 flex flex-wrap items-center gap-2 text-xs">
-          <span className="rounded-full bg-bg-dark px-2.5 py-1 text-text-muted">
-            {t('node.adScriptReference.selectedRows', { count: data.selectedRowIds.length })}
-          </span>
-          {statusMessage !== t('node.adScriptReference.ready') ? (
-            <span className="inline-flex items-center gap-1 rounded-full bg-amber-500/10 px-2.5 py-1 text-amber-200">
-              <TriangleAlert className="h-3.5 w-3.5" />
-              {t('node.adScriptReference.warning')}
-            </span>
-          ) : null}
-        </div>
-
         <div className="mt-3 flex flex-wrap gap-2">
           <button type="button" disabled={selectedRows.length === 0} onClick={(event) => { event.stopPropagation(); createDownstreamNodes('image'); }} className="inline-flex items-center gap-1.5 rounded-lg border border-cyan-500/30 bg-cyan-500/10 px-3 py-1.5 text-xs font-medium text-cyan-200 disabled:opacity-60"><ImageIcon className="h-3.5 w-3.5" />{t('node.adScriptReference.generateImage')}</button>
           <button type="button" disabled={selectedRows.length === 0} onClick={(event) => { event.stopPropagation(); createDownstreamNodes('mjImage'); }} className="inline-flex items-center gap-1.5 rounded-lg border border-fuchsia-500/30 bg-fuchsia-500/10 px-3 py-1.5 text-xs font-medium text-fuchsia-200 disabled:opacity-60"><Sparkles className="h-3.5 w-3.5" />{t('node.adScriptReference.generateMidjourneyImage')}</button>
@@ -647,6 +658,40 @@ export const AdScriptReferenceNode = memo(({
                     {t('node.adScriptReference.refreshSelection')}
                   </button>
                 </div>
+              </div>
+
+              <div className="flex flex-wrap items-center gap-2 px-1 text-xs">
+                <span className="rounded-full bg-bg-dark px-2.5 py-1 text-text-muted">
+                  {t('node.adScriptReference.selectedRows', { count: data.selectedRowIds.length })}
+                </span>
+                <button
+                  type="button"
+                  disabled={!canSelectAllRows}
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    handleSelectAllRows();
+                  }}
+                  className="inline-flex items-center rounded-full border border-border-dark bg-bg-dark px-2.5 py-1 text-text-muted transition hover:border-emerald-400/25 hover:text-emerald-100 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  {t('project.selectAll')}
+                </button>
+                <button
+                  type="button"
+                  disabled={!canDeselectAllRows}
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    handleDeselectAllRows();
+                  }}
+                  className="inline-flex items-center rounded-full border border-border-dark bg-bg-dark px-2.5 py-1 text-text-muted transition hover:border-emerald-400/25 hover:text-emerald-100 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  {t('project.deselectAll')}
+                </button>
+                {showWarningBadge ? (
+                  <span className="inline-flex items-center gap-1 rounded-full bg-amber-500/10 px-2.5 py-1 text-amber-200">
+                    <TriangleAlert className="h-3.5 w-3.5" />
+                    {t('node.adScriptReference.warning')}
+                  </span>
+                ) : null}
               </div>
 
               <div className="min-h-0 flex-1 rounded-xl border border-border-dark/70 bg-bg-dark">

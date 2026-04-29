@@ -1395,6 +1395,8 @@ export const StoryboardGenNode = memo(({ id, data, selected, width, height }: St
       newNodePosition,
       {
         isGenerating: true,
+        generationPhase: 'submitting',
+        generationFailureStage: null,
         generationStartedAt,
         generationDurationMs,
         displayName: EXPORT_RESULT_DISPLAY_NAME.storyboardGenOutput,
@@ -1467,9 +1469,13 @@ export const StoryboardGenNode = memo(({ id, data, selected, width, height }: St
       };
       updateNodeData(newNodeId, {
         generationJobId: jobId,
+        generationPhase: 'queued',
+        generationFailureStage: null,
         generationSourceType: 'storyboardGen',
         generationProviderId: selectedModel.providerId,
         generationClientSessionId: CURRENT_RUNTIME_SESSION_ID,
+        generationError: null,
+        generationErrorDetails: null,
         generationDebugContext,
         generationStoryboardMetadata: {
           gridRows: safeRows,
@@ -1510,6 +1516,8 @@ export const StoryboardGenNode = memo(({ id, data, selected, width, height }: St
       );
       updateNodeData(newNodeId, {
         isGenerating: false,
+        generationPhase: 'failed',
+        generationFailureStage: 'submit',
         generationStartedAt: null,
         generationJobId: null,
         generationProviderId: null,

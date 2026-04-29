@@ -338,6 +338,11 @@ export function resolveImageDisplayUrl(imageUrl: string): string {
 export async function persistImageLocally(source: string): Promise<string> {
   const localFilePath = resolveLocalFileSourcePath(source);
   if (localFilePath) {
+    // Keep Tauri-side image sources inside the app storage pool so the node's
+    // original image path stays stable across imports, reloads, and drag flows.
+    if (isTauri()) {
+      return await persistImageSource(localFilePath);
+    }
     return localFilePath;
   }
 

@@ -23,6 +23,7 @@ import {
   createManualEpisodeCard,
   generateEpisodesFromSceneNode,
 } from '@/features/canvas/application/sceneEpisodeGenerator';
+import { collectEnabledScriptStoryNotes } from '@/features/canvas/application/scriptStoryNotes';
 import { useCanvasStore } from '@/stores/canvasStore';
 import { useScriptEditorStore } from '@/stores/scriptEditorStore';
 
@@ -114,9 +115,11 @@ export const ScriptSceneNode = memo(({
       const defaultCount = mode === 'regenerate'
         ? Math.max(1, data.episodes.length || 3)
         : Math.max(3, data.episodes.length);
+      const storyNotes = collectEnabledScriptStoryNotes(nodes);
       const nextEpisodes = await generateEpisodesFromSceneNode(data, sourceChapterData, {
         episodeCount: defaultCount,
         sourceDraftLabel: t('script.sceneWorkbench.generatedSourceLabel'),
+        storyNotes,
       });
       updateNodeData(id, { episodes: nextEpisodes }, { historyMode: 'skip' });
       openWorkbench(nextEpisodes[0]?.id ?? null);
@@ -125,7 +128,7 @@ export const ScriptSceneNode = memo(({
     } finally {
       setIsGenerating(false);
     }
-  }, [data, id, openWorkbench, sourceChapterData, t, updateNodeData]);
+  }, [data, id, nodes, openWorkbench, sourceChapterData, t, updateNodeData]);
 
   return (
     <div

@@ -20,6 +20,7 @@ use tracing::{info, warn};
 
 use crate::ai::error::AIError;
 use crate::ai::{AIProvider, GenerateRequest};
+use crate::commands::image::resolve_image_source_bytes;
 
 const STORYBOARD_MODEL_ID: &str = "newapi/storyboard-experimental";
 const BANANA_CLIENT_HEADER_VALUE: &str = "comfyui-banana-li";
@@ -99,6 +100,7 @@ impl NewApiProvider {
     pub fn new() -> Self {
         let client = Client::builder()
             .http1_only()
+            .connect_timeout(Duration::from_secs(10))
             .build()
             .unwrap_or_else(|_| Client::new());
         Self {
@@ -184,37 +186,10 @@ impl NewApiProvider {
         if trimmed.is_empty() {
             return Err(AIError::InvalidRequest("image source is empty".to_string()));
         }
-
-        if let Some((meta, payload)) = trimmed.split_once(',') {
-            if meta.starts_with("data:") && meta.ends_with(";base64") && !payload.is_empty() {
-                return STANDARD.decode(payload).map_err(|error| {
-                    AIError::InvalidRequest(format!("invalid base64 payload: {}", error))
-                });
-            }
-        }
-
-        let likely_base64 = trimmed.len() > 256
-            && trimmed
-                .chars()
-                .all(|ch| ch.is_ascii_alphanumeric() || ch == '+' || ch == '/' || ch == '=');
-        if likely_base64 {
-            return STANDARD.decode(trimmed).map_err(|error| {
-                AIError::InvalidRequest(format!("invalid base64 payload: {}", error))
-            });
-        }
-
-        if trimmed.starts_with("http://") || trimmed.starts_with("https://") {
-            let response = reqwest::get(trimmed).await?;
-            let bytes = response.bytes().await?;
-            return Ok(bytes.to_vec());
-        }
-
-        let path = if trimmed.starts_with("file://") {
-            PathBuf::from(Self::decode_file_url_path(trimmed))
-        } else {
-            PathBuf::from(trimmed)
-        };
-        Ok(std::fs::read(path)?)
+        let (bytes, _extension) = resolve_image_source_bytes(trimmed)
+            .await
+            .map_err(AIError::InvalidRequest)?;
+        Ok(bytes)
     }
 
     async fn source_to_png_bytes(source: &str) -> Result<Vec<u8>, AIError> {

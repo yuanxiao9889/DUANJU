@@ -73,6 +73,7 @@ import {
   type ScriptCharacterReferenceNodeData,
   type ScriptLocationReferenceNodeData,
   type ScriptItemReferenceNodeData,
+  type ScriptStoryNoteNodeData,
   createDefaultSceneCard,
   isImageCompareNode,
   normalizeShootingScriptNodeData,
@@ -91,6 +92,7 @@ import {
   normalizeScriptReferenceNodeData,
   normalizeScriptRootNodeData,
   normalizeScriptSceneNodeData,
+  normalizeScriptStoryNoteNodeData,
   isStoryboardSplitNode,
   isImageCollageNode,
   resolveSingleImageConnectionSource,
@@ -812,6 +814,13 @@ function normalizeNodes(rawNodes: CanvasNode[]): CanvasNode[] {
         );
       }
 
+      if (normalizedNodeType === CANVAS_NODE_TYPES.scriptStoryNote) {
+        Object.assign(
+          mergedData,
+          normalizeScriptStoryNoteNodeData(mergedData as ScriptStoryNoteNodeData)
+        );
+      }
+
       if (normalizedNodeType === CANVAS_NODE_TYPES.shootingScript) {
         Object.assign(
           mergedData,
@@ -912,7 +921,11 @@ function normalizeNodes(rawNodes: CanvasNode[]): CanvasNode[] {
           typeof (mergedData as { generationJobId?: unknown }).generationJobId === 'string'
             ? (mergedData as { generationJobId?: string }).generationJobId?.trim() ?? ''
             : '';
-        if (!generationJobId) {
+        const generationPhase =
+          typeof (mergedData as { generationPhase?: unknown }).generationPhase === 'string'
+            ? (mergedData as { generationPhase?: string }).generationPhase?.trim() ?? ''
+            : '';
+        if (!generationJobId && generationPhase !== 'submitting') {
           mergedData.isGenerating = false;
           if ('generationStartedAt' in mergedData) {
             mergedData.generationStartedAt = null;
@@ -4222,6 +4235,12 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
             affectedChapterIds.add(normalizedSceneData.sourceChapterId);
           }
         }
+        if (node.type === CANVAS_NODE_TYPES.scriptStoryNote) {
+          Object.assign(
+            mergedData,
+            normalizeScriptStoryNoteNodeData(mergedData as ScriptStoryNoteNodeData)
+          );
+        }
         if (node.type === CANVAS_NODE_TYPES.shootingScript) {
           Object.assign(
             mergedData,
@@ -4390,6 +4409,12 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
           if (normalizedSceneData.sourceChapterId) {
             affectedChapterIds.add(normalizedSceneData.sourceChapterId);
           }
+        }
+        if (node.type === CANVAS_NODE_TYPES.scriptStoryNote) {
+          Object.assign(
+            mergedData,
+            normalizeScriptStoryNoteNodeData(mergedData as ScriptStoryNoteNodeData)
+          );
         }
         if (node.type === CANVAS_NODE_TYPES.shootingScript) {
           Object.assign(

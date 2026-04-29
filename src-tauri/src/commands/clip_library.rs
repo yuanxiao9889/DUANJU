@@ -1134,7 +1134,8 @@ fn load_project_record(conn: &Connection, project_id: &str) -> Result<ProjectRec
           edges_json,
           viewport_json,
           history_json,
-          color_labels_json
+          color_labels_json,
+          script_welcome_skipped
         FROM projects
         WHERE id = ?1
         LIMIT 1
@@ -1158,6 +1159,7 @@ fn load_project_record(conn: &Connection, project_id: &str) -> Result<ProjectRec
                 viewport_json: row.get(13)?,
                 history_json: row.get(14)?,
                 color_labels_json: row.get(15)?,
+                script_welcome_skipped: row.get(16)?,
             })
         },
     )

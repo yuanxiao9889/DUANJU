@@ -50,6 +50,7 @@ export const DEFAULT_NODE_DISPLAY_NAME: Record<CanvasNodeType, string> = {
   [CANVAS_NODE_TYPES.scriptCharacter]: '\u89d2\u8272',
   [CANVAS_NODE_TYPES.scriptLocation]: '\u573a\u666f',
   [CANVAS_NODE_TYPES.scriptItem]: '\u9053\u5177',
+  [CANVAS_NODE_TYPES.scriptStoryNote]: '\u6545\u4e8b\u53c2\u8003',
   [CANVAS_NODE_TYPES.scriptPlotPoint]: '\u60c5\u8282\u70b9',
   [CANVAS_NODE_TYPES.scriptWorldview]: '\u4e16\u754c\u89c2',
 };

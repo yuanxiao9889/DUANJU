@@ -33,6 +33,7 @@ export interface ProjectRecord {
   viewportJson: string;
   historyJson: string;
   colorLabelsJson: string;
+  scriptWelcomeSkipped: boolean;
 }
 
 export async function listProjectSummaries(): Promise<ProjectSummaryRecord[]> {

@@ -14,7 +14,7 @@ import {
   buildUserFacingLanguageInstruction,
   detectUserContentLanguage,
 } from '@/features/app/contentLanguage';
-import type { StoryBeat } from '@/features/canvas/domain/canvasNodes';
+import type { ScriptStoryNotePromptEntry, StoryBeat } from '@/features/canvas/domain/canvasNodes';
 import { openSettingsDialog } from '@/features/settings/settingsEvents';
 import { useSettingsStore } from '@/stores/settingsStore';
 
@@ -543,6 +543,7 @@ export interface SummaryExpandRequest {
   nextChapterSummary?: string;
   continuityContext?: SummaryExpandContinuityContext | null;
   storyRoot?: SummaryExpandStoryRootContext | null;
+  storyNotes?: ScriptStoryNotePromptEntry[];
   instruction?: string;
   model?: string;
 }
@@ -557,6 +558,7 @@ export interface SceneEpisodeGenerationRequest {
   chapterNumber?: number;
   chapterTitle?: string;
   chapterSummary?: string;
+  storyNotes?: ScriptStoryNotePromptEntry[];
   sceneTitle: string;
   sceneSummary?: string;
   purpose?: string;
@@ -703,6 +705,31 @@ function formatSummaryExpandSceneCards(scenes: SummaryExpandSceneContext[]): str
       `- 潜台词：${trimOrFallback(scene.subtext)}`,
     ].join('\n'))
     .join('\n\n');
+}
+
+function formatStoryNotesPromptBlock(
+  storyNotes: ScriptStoryNotePromptEntry[] | undefined,
+  emptyText = 'None'
+): string {
+  if (!Array.isArray(storyNotes) || storyNotes.length === 0) {
+    return emptyText;
+  }
+
+  const normalizedNotes = storyNotes
+    .map((note, index) => {
+      const title = normalizeNonEmptyString(note?.title) || `Story Note ${index + 1}`;
+      const content = normalizeNonEmptyString(note?.content);
+      if (!content) {
+        return null;
+      }
+
+      return `[${index + 1}] ${title}\n${content}`;
+    })
+    .filter((note): note is string => Boolean(note));
+
+  return normalizedNotes.length > 0
+    ? normalizedNotes.join('\n\n')
+    : emptyText;
 }
 
 function resolveSummaryExpandExpectedCharacterNames(request: SummaryExpandRequest): string[] {
@@ -988,6 +1015,7 @@ function buildBalancedSummaryExpandPrompt(
     request.nextChapterSummary,
     request.continuityContext,
     request.storyRoot,
+    request.storyNotes,
     request.instruction,
   ]);
 
@@ -1016,6 +1044,9 @@ function buildBalancedSummaryExpandPrompt(
     `- Tone: ${trimOrFallback(request.storyRoot?.tone)}`,
     `- Director lens: ${trimOrFallback(request.storyRoot?.directorVision)}`,
     `- Core beats:\n${formatBalancedSummaryExpandBeats(request.storyRoot?.beats)}`,
+    '',
+    'Story reference notes:',
+    formatStoryNotesPromptBlock(request.storyNotes),
     '',
     'Current chapter scaffold:',
     `- Chapter title: ${trimOrFallback(request.chapterTitle, 'Untitled Chapter')}`,
@@ -1066,6 +1097,9 @@ function buildBalancedSummaryExpandValidationPrompt(
     `- Title: ${trimOrFallback(request.storyRoot?.title || request.chapterTitle, 'Untitled Story')}`,
     `- Protagonist: ${trimOrFallback(request.storyRoot?.protagonist)}`,
     `- Theme: ${trimOrFallback(request.storyRoot?.theme)}`,
+    '',
+    'Story reference notes:',
+    formatStoryNotesPromptBlock(request.storyNotes),
     '',
     'Current chapter scaffold:',
     `- Chapter title: ${trimOrFallback(request.chapterTitle, 'Untitled Chapter')}`,
@@ -1380,6 +1414,9 @@ export async function generateSceneEpisodes(
     `- 章节序号：${request.chapterNumber ?? 1}`,
     `- 章节标题：${request.chapterTitle?.trim() || '未命名章节'}`,
     `- 章节摘要：${request.chapterSummary?.trim() || '无'}`,
+    '',
+    '故事参考：',
+    formatStoryNotesPromptBlock(request.storyNotes, '无'),
     '',
     '场景上下文：',
     `- 场景标题：${sceneTitle}`,

@@ -1,5 +1,6 @@
 import { useState, useCallback, useEffect, useMemo, type KeyboardEvent as ReactKeyboardEvent } from 'react';
 import { X, Eye, EyeOff, FolderOpen, Plus, Trash2, Maximize2, Minimize2, HardDrive, Circle, Keyboard, RotateCcw, ChevronDown, ChevronRight } from 'lucide-react';
+import type { TFunction } from 'i18next';
 import { useTranslation } from 'react-i18next';
 import { getVersion } from '@tauri-apps/api/app';
 import { open } from '@tauri-apps/plugin-dialog';
@@ -81,11 +82,8 @@ import {
   type MidjourneyProviderId,
 } from '@/features/midjourney/domain/providers';
 import { openDreaminaSetupDialog } from '@/features/jimeng/dreaminaSetupDialogEvents';
-import {
-  RELEASE_NOTES,
-  RELEASE_NOTE_SECTION_ORDER,
-  type ReleaseNoteSectionKey,
-} from '@/features/update/releaseNotes';
+
+type AppUpdateCheckResult = 'has-update' | 'up-to-date' | 'failed';
 
 interface SettingsDialogProps {
   isOpen: boolean;
@@ -93,7 +91,7 @@ interface SettingsDialogProps {
   initialCategory?: SettingsCategory;
   initialProviderTab?: ProviderTab;
   initialProviderId?: string;
-  onCheckUpdate?: () => Promise<'has-update' | 'up-to-date' | 'failed'>;
+  onCheckUpdate?: () => Promise<AppUpdateCheckResult>;
 }
 
 interface SettingsCheckboxCardProps {
@@ -218,14 +216,12 @@ function buildDefaultProviderGroupCollapseState(): Record<string, boolean> {
 
 const DEFAULT_PROVIDER_GROUP_COLLAPSE_STATE = buildDefaultProviderGroupCollapseState();
 
-const RELEASE_NOTE_SECTION_LABEL_KEYS: Record<ReleaseNoteSectionKey, string> = {
-  added: 'settings.releaseSectionAdded',
-  optimized: 'settings.releaseSectionOptimized',
-  fixed: 'settings.releaseSectionFixed',
-};
+function normalizeSettingsCategory(category: SettingsCategory | undefined): SettingsCategory {
+  if (category === 'releaseNotes') {
+    return 'about';
+  }
 
-function normalizeVersion(value: string): string {
-  return value.trim().replace(/^v/i, '');
+  return category ?? 'general';
 }
 
 const STORYBOARD_PROVIDER_DISPLAY_NAME_OVERRIDES: Record<
@@ -355,6 +351,95 @@ function SettingsCheckboxCard({
           <h3 className="text-sm font-medium text-text-dark">{title}</h3>
           <p className="mt-1 text-xs text-text-muted">{description}</p>
         </div>
+      </div>
+    </div>
+  );
+}
+
+interface AppUpdateSettingsSectionProps {
+  t: TFunction;
+  isCheckingAppUpdate: boolean;
+  canCheckUpdate: boolean;
+  appUpdateCheckResult: AppUpdateCheckResult | null;
+  onCheckUpdate: () => void;
+  autoCheckAppUpdateOnLaunch: boolean;
+  onAutoCheckAppUpdateOnLaunchChange: (checked: boolean) => void;
+  enableUpdateDialog: boolean;
+  onEnableUpdateDialogChange: (checked: boolean) => void;
+}
+
+function AppUpdateSettingsSection({
+  t,
+  isCheckingAppUpdate,
+  canCheckUpdate,
+  appUpdateCheckResult,
+  onCheckUpdate,
+  autoCheckAppUpdateOnLaunch,
+  onAutoCheckAppUpdateOnLaunchChange,
+  enableUpdateDialog,
+  onEnableUpdateDialogChange,
+}: AppUpdateSettingsSectionProps) {
+  return (
+    <div className="rounded-lg border border-border-dark bg-bg-dark p-4">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h3 className="text-sm font-medium text-text-dark">
+            {t('settings.appUpdateSectionTitle')}
+          </h3>
+          <p className="mt-1 text-xs leading-5 text-text-muted">
+            {t('settings.appUpdateSectionDesc')}
+          </p>
+        </div>
+
+        <button
+          type="button"
+          disabled={isCheckingAppUpdate || !canCheckUpdate}
+          onClick={onCheckUpdate}
+          className="inline-flex h-9 items-center justify-center rounded border border-border-dark bg-surface-dark px-3 text-xs text-text-dark transition-colors hover:bg-bg-dark disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          {isCheckingAppUpdate ? (
+            <>
+              <UiLoadingAnimation size="xs" className="mr-1.5" />
+              {t('settings.checkingUpdate')}
+            </>
+          ) : (
+            t('settings.checkUpdateNow')
+          )}
+        </button>
+      </div>
+
+      {appUpdateCheckResult ? (
+        <div
+          className={`mt-3 rounded border px-3 py-2 text-xs leading-5 ${
+            appUpdateCheckResult === 'failed'
+              ? 'border-amber-500/30 bg-amber-500/10 text-amber-200'
+              : appUpdateCheckResult === 'has-update'
+                ? 'border-accent/30 bg-accent/10 text-accent'
+                : 'border-border-dark bg-surface-dark text-text-muted'
+          }`}
+        >
+          {appUpdateCheckResult === 'has-update'
+            ? t('settings.checkUpdateHasUpdate')
+            : appUpdateCheckResult === 'up-to-date'
+              ? t('settings.checkUpdateUpToDate')
+              : t('settings.checkUpdateFailed')}
+        </div>
+      ) : null}
+
+      <div className="mt-4 grid gap-3 md:grid-cols-2">
+        <SettingsCheckboxCard
+          checked={autoCheckAppUpdateOnLaunch}
+          onCheckedChange={onAutoCheckAppUpdateOnLaunchChange}
+          title={t('settings.autoCheckUpdateOnLaunch')}
+          description={t('settings.autoCheckUpdateOnLaunchDesc')}
+        />
+
+        <SettingsCheckboxCard
+          checked={enableUpdateDialog}
+          onCheckedChange={onEnableUpdateDialogChange}
+          title={t('settings.enableUpdateDialog')}
+          description={t('settings.enableUpdateDialogDesc')}
+        />
       </div>
     </div>
   );
@@ -503,7 +588,9 @@ export function SettingsDialog({
     () => resolveProviderGroups(mjProviders, MJ_PROVIDER_GROUP_CONFIGS),
     [mjProviders]
   );
-  const [activeCategory, setActiveCategory] = useState<SettingsCategory>(initialCategory);
+  const [activeCategory, setActiveCategory] = useState<SettingsCategory>(() =>
+    normalizeSettingsCategory(initialCategory)
+  );
   const [localProviderTab, setLocalProviderTab] = useState<ProviderTab>(initialProviderTab);
   const [localScriptApiKeys, setLocalScriptApiKeys] = useState<Record<string, string>>(scriptApiKeys);
   const [localStoryboardApiKeys, setLocalStoryboardApiKeys] = useState<Record<string, string>>(storyboardApiKeys);
@@ -630,9 +717,7 @@ export function SettingsDialog({
   const [isUpdatingDreamina, setIsUpdatingDreamina] = useState(false);
   const [isLoggingOutDreamina, setIsLoggingOutDreamina] = useState(false);
   const [isCheckingAppUpdate, setIsCheckingAppUpdate] = useState(false);
-  const [appUpdateCheckResult, setAppUpdateCheckResult] = useState<
-    'has-update' | 'up-to-date' | 'failed' | null
-  >(null);
+  const [appUpdateCheckResult, setAppUpdateCheckResult] = useState<AppUpdateCheckResult | null>(null);
   const [dreaminaActionNotice, setDreaminaActionNotice] = useState<{
     tone: 'info' | 'success' | 'error';
     message: string;
@@ -653,7 +738,6 @@ export function SettingsDialog({
   });
   const runtimePsPort = serverStatus.running ? serverStatus.port : null;
   const pluginPsPort = runtimePsPort ?? psServerPort;
-  const normalizedRuntimeVersion = useMemo(() => normalizeVersion(runtimeVersion), [runtimeVersion]);
   const psPortAutoAdjusted =
     serverStatus.running
     && serverStatus.port !== null
@@ -791,7 +875,7 @@ export function SettingsDialog({
       return;
     }
 
-    setActiveCategory(initialCategory);
+    setActiveCategory(normalizeSettingsCategory(initialCategory));
     setLocalProviderTab(initialProviderTab);
   }, [initialCategory, initialProviderTab, isOpen]);
 
@@ -1593,22 +1677,6 @@ export function SettingsDialog({
         ? 'border-green-500/30 bg-green-500/10 text-green-400'
         : 'border-accent/20 bg-accent/[0.08] text-text-muted';
 
-  const formatReleaseDate = useCallback(
-    (value: string) => {
-      const date = new Date(`${value}T00:00:00`);
-      if (Number.isNaN(date.getTime())) {
-        return value;
-      }
-
-      return new Intl.DateTimeFormat(i18n.language.startsWith('zh') ? 'zh-CN' : 'en-US', {
-        year: 'numeric',
-        month: 'long',
-        day: 'numeric',
-      }).format(date);
-    },
-    [i18n.language]
-  );
-
   const handleGroupShortcutKeyDown = useCallback(
     (event: ReactKeyboardEvent<HTMLButtonElement>) => {
       event.preventDefault();
@@ -1787,20 +1855,6 @@ export function SettingsDialog({
               `}
               >
                 <span className="text-sm">{t('settings.experimental')}</span>
-              </button>
-
-              <button
-                onClick={() => setActiveCategory('releaseNotes')}
-                className={`
-                w-full flex items-center gap-3 px-4 py-2.5 text-left
-                transition-colors
-                ${activeCategory === 'releaseNotes'
-                    ? 'bg-accent/10 text-text-dark border-l-2 border-accent'
-                    : 'text-text-muted hover:bg-bg-dark hover:text-text-dark'
-                  }
-              `}
-              >
-                <span className="text-sm">{t('settings.releaseNotes')}</span>
               </button>
 
               <button
@@ -2968,71 +3022,6 @@ export function SettingsDialog({
                     description={t('settings.dreaminaAutoUpdateOnLaunchDesc')}
                   />
 
-                  <div className="rounded-lg border border-border-dark bg-bg-dark p-4">
-                    <div className="flex flex-wrap items-start justify-between gap-3">
-                      <div>
-                        <h3 className="text-sm font-medium text-text-dark">
-                          {t('settings.appUpdateSectionTitle')}
-                        </h3>
-                        <p className="mt-1 text-xs leading-5 text-text-muted">
-                          {t('settings.appUpdateSectionDesc')}
-                        </p>
-                      </div>
-
-                      <button
-                        type="button"
-                        disabled={isCheckingAppUpdate || !onCheckUpdate}
-                        onClick={() => {
-                          void handleCheckAppUpdate();
-                        }}
-                        className="inline-flex h-9 items-center justify-center rounded border border-border-dark bg-surface-dark px-3 text-xs text-text-dark transition-colors hover:bg-bg-dark disabled:cursor-not-allowed disabled:opacity-50"
-                      >
-                        {isCheckingAppUpdate ? (
-                          <>
-                            <UiLoadingAnimation size="xs" className="mr-1.5" />
-                            {t('settings.checkingUpdate')}
-                          </>
-                        ) : (
-                          t('settings.checkUpdateNow')
-                        )}
-                      </button>
-                    </div>
-
-                    {appUpdateCheckResult ? (
-                      <div
-                        className={`mt-3 rounded border px-3 py-2 text-xs leading-5 ${
-                          appUpdateCheckResult === 'failed'
-                            ? 'border-amber-500/30 bg-amber-500/10 text-amber-200'
-                            : appUpdateCheckResult === 'has-update'
-                              ? 'border-accent/30 bg-accent/10 text-accent'
-                              : 'border-border-dark bg-surface-dark text-text-muted'
-                        }`}
-                      >
-                        {appUpdateCheckResult === 'has-update'
-                          ? t('settings.checkUpdateHasUpdate')
-                          : appUpdateCheckResult === 'up-to-date'
-                            ? t('settings.checkUpdateUpToDate')
-                            : t('settings.checkUpdateFailed')}
-                      </div>
-                    ) : null}
-
-                    <div className="mt-4 grid gap-3 md:grid-cols-2">
-                      <SettingsCheckboxCard
-                        checked={localAutoCheckAppUpdateOnLaunch}
-                        onCheckedChange={handleLocalAutoCheckAppUpdateOnLaunchChange}
-                        title={t('settings.autoCheckUpdateOnLaunch')}
-                        description={t('settings.autoCheckUpdateOnLaunchDesc')}
-                      />
-
-                      <SettingsCheckboxCard
-                        checked={localEnableUpdateDialog}
-                        onCheckedChange={handleLocalEnableUpdateDialogChange}
-                        title={t('settings.enableUpdateDialog')}
-                        description={t('settings.enableUpdateDialogDesc')}
-                      />
-                    </div>
-                  </div>
-
                   <SettingsCheckboxCard
                     checked={localStoryboardGenKeepStyleConsistent}
                     onCheckedChange={setLocalStoryboardGenKeepStyleConsistent}
@@ -3432,114 +3421,6 @@ export function SettingsDialog({
               </>
             )}
 
-            {activeCategory === 'releaseNotes' && (
-              <>
-                <div className="border-b border-border-dark px-6 py-5">
-                  <div className="flex flex-wrap items-start justify-between gap-4">
-                    <div>
-                      <h2 className="text-lg font-semibold text-text-dark">
-                        {t('settings.releaseNotes')}
-                      </h2>
-                      <p className="mt-1 text-sm text-text-muted">
-                        {t('settings.releaseNotesDesc')}
-                      </p>
-                    </div>
-
-                    <div className="rounded-lg border border-border-dark bg-bg-dark px-3 py-2 text-right">
-                      <p className="text-[11px] uppercase tracking-[0.14em] text-text-muted">
-                        {t('settings.aboutVersionLabel')}
-                      </p>
-                      <p className="mt-1 text-sm font-medium text-text-dark">
-                        {runtimeVersion || t('settings.aboutVersionUnknown')}
-                      </p>
-                    </div>
-                  </div>
-                </div>
-
-                <div className="ui-scrollbar flex-1 space-y-4 overflow-y-auto p-6">
-                  {RELEASE_NOTES.length > 0 ? (
-                    RELEASE_NOTES.map((note) => {
-                      const noteSections = RELEASE_NOTE_SECTION_ORDER
-                        .map((sectionKey) => ({
-                          sectionKey,
-                          items: note.sections[sectionKey] ?? [],
-                        }))
-                        .filter(({ items }) => items.length > 0);
-                      const isCurrentVersion =
-                        normalizedRuntimeVersion.length > 0
-                        && normalizeVersion(note.version) === normalizedRuntimeVersion;
-
-                      return (
-                        <section
-                          key={note.version}
-                          className="overflow-hidden rounded-xl border border-border-dark bg-bg-dark"
-                        >
-                          <div className="flex flex-wrap items-start justify-between gap-3 border-b border-border-dark px-4 py-4">
-                            <div className="flex flex-wrap items-center gap-2">
-                              <h3 className="text-base font-semibold text-text-dark">
-                                v{note.version}
-                              </h3>
-                              {isCurrentVersion && (
-                                <span className="rounded-full border border-accent/20 bg-accent/10 px-2 py-0.5 text-[11px] font-medium text-accent">
-                                  {t('settings.currentVersionBadge')}
-                                </span>
-                              )}
-                            </div>
-
-                            <p className="text-xs text-text-muted">
-                              {t('settings.releaseDate')}: {formatReleaseDate(note.date)}
-                            </p>
-                          </div>
-
-                          <div className="space-y-4 p-4">
-                            {noteSections.map(({ sectionKey, items }) => (
-                              <div key={sectionKey} className="space-y-2">
-                                <h4 className="text-sm font-medium text-text-dark">
-                                  {t(RELEASE_NOTE_SECTION_LABEL_KEYS[sectionKey])}
-                                </h4>
-                                <ul className="space-y-2">
-                                  {items.map((itemKey) => (
-                                    <li
-                                      key={itemKey}
-                                      className="flex items-start gap-2 text-sm text-text-muted"
-                                    >
-                                      <span className="mt-[0.45rem] h-1.5 w-1.5 shrink-0 rounded-full bg-accent/80" />
-                                      <span>{t(itemKey)}</span>
-                                    </li>
-                                  ))}
-                                </ul>
-                              </div>
-                            ))}
-                          </div>
-                        </section>
-                      );
-                    })
-                  ) : (
-                    <div className="rounded-lg border border-dashed border-border-dark bg-bg-dark p-6 text-sm text-text-muted">
-                      {t('settings.releaseNotesEmpty')}
-                    </div>
-                  )}
-                </div>
-
-                <div className="flex justify-end border-t border-border-dark px-6 py-4">
-                  <div className="flex gap-2">
-                    <button
-                      onClick={onClose}
-                      className="rounded border border-border-dark px-4 py-2 text-sm font-medium text-text-dark transition-colors hover:bg-bg-dark"
-                    >
-                      {t('common.close')}
-                    </button>
-                    <button
-                      onClick={handleSave}
-                      className="rounded bg-accent px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-accent/80"
-                    >
-                      {t('common.save')}
-                    </button>
-                  </div>
-                </div>
-              </>
-            )}
-
             {activeCategory === 'psIntegration' && (
               <>
                 <div className="px-6 py-5 border-b border-border-dark">
@@ -3732,6 +3613,20 @@ export function SettingsDialog({
                       </span>
                     </p>
                   </div>
+
+                  <AppUpdateSettingsSection
+                    t={t}
+                    isCheckingAppUpdate={isCheckingAppUpdate}
+                    canCheckUpdate={Boolean(onCheckUpdate)}
+                    appUpdateCheckResult={appUpdateCheckResult}
+                    onCheckUpdate={() => {
+                      void handleCheckAppUpdate();
+                    }}
+                    autoCheckAppUpdateOnLaunch={localAutoCheckAppUpdateOnLaunch}
+                    onAutoCheckAppUpdateOnLaunchChange={handleLocalAutoCheckAppUpdateOnLaunchChange}
+                    enableUpdateDialog={localEnableUpdateDialog}
+                    onEnableUpdateDialogChange={handleLocalEnableUpdateDialogChange}
+                  />
 
                   <div className="rounded-lg border border-border-dark bg-bg-dark p-4">
                     <div className="space-y-4">

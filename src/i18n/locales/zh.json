@@ -476,6 +476,7 @@
       "scriptCharacter": "角色",
       "scriptLocation": "场景",
       "scriptItem": "道具",
+      "scriptStoryNote": "故事参考",
       "scriptPlotPoint": "埋点",
       "scriptRoot": "剧本根节点",
       "generateImage": "生成图片",
@@ -519,7 +520,9 @@
       "generatedAlt": "生成图",
       "waitingResult": "等待输出结果图片",
       "waitingResultDelayed": "已经等待 {{minutes}} 分钟了，还没有结果。继续等待中...",
+      "submittingRequest": "正在提交请求...",
       "selectToEdit": "选中后在下方输入提示词生成或编辑图片",
+      "submissionFailed": "请求未成功发出",
       "generationFailed": "生成失败",
       "manualRefresh": "手动获取"
     },
@@ -2305,7 +2308,7 @@
     "experimental": "实验",
     "experimentalDesc": "用于放置实验性质或低频使用的功能开关。",
     "about": "关于",
-    "aboutDesc": "应用信息",
+    "aboutDesc": "应用信息、更新与反馈",
     "general": "通用",
     "generalDesc": "通用设置",
     "dreaminaSectionTitle": "即梦 CLI",
@@ -3241,6 +3244,7 @@
       "importCardTitle": "导入剧本 / 恢复工程包",
       "importCardDesc": "既可以导入 TXT、Markdown、Fountain、FDX、DOCX 等剧本文档，也可以直接恢复完整工程包。",
       "backToProjects": "返回项目管理",
+      "skipToEmptyCanvas": "跳过并进入空画布",
       "importDesc": "我们会先为你创建空白章节节点，并且每一章都已经准备好在场景工作台里继续写场景。",
       "importFileTitle": "导入完整剧本",
       "importFileDesc": "支持 TXT、Markdown、Fountain、FDX 和 DOCX。默认优先保留原文，不会在导入时把正文压成骨架。",
@@ -3410,6 +3414,7 @@
     "addToCanvas": "添加到画布"
   },
   "nodeStatus": {
+    "submitting": "提交中",
     "generating": "生成中",
     "retryAvailable": "可重试",
     "error": "错误"
@@ -3448,6 +3453,20 @@
       "descriptionPlaceholder": "描述这个道具",
       "emptyHint": "点击编辑添加道具详情",
       "optimizeMissingSource": "请先填写道具名称、描述或出场章节中的至少一项，再进行优化。"
+    },
+    "storyNote": {
+      "title": "参考标题",
+      "titlePlaceholder": "例如：故事前提、世界规则、人物关系基线",
+      "content": "参考内容",
+      "contentPlaceholder": "写下希望后续剧情生成持续参考的故事概括、设定约束、关系说明或连续性提示。",
+      "emptyHint": "点击编辑添加故事参考",
+      "enabled": "已启用",
+      "disabled": "已停用",
+      "enable": "启用故事参考",
+      "disable": "停用故事参考",
+      "inactiveHint": "停用后节点仍保留在画布上，但不再参与后续剧情生成。",
+      "charCount": "{{current}} / {{max}}",
+      "optimizeMissingSource": "请先填写一些故事参考内容，再进行优化。"
     },
     "plotPoint": {
       "type": "类型",

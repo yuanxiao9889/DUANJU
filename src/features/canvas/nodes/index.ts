@@ -46,6 +46,7 @@ import { ScriptWorldviewNode } from './ScriptWorldviewNode';
 import { ScriptCharacterNode } from './ScriptCharacterNode';
 import { ScriptLocationNode } from './ScriptLocationNode';
 import { ScriptItemNode } from './ScriptItemNode';
+import { ScriptStoryNoteNode } from './ScriptStoryNoteNode';
 import { ScriptPlotPointNode } from './ScriptPlotPointNode';
 
 export const nodeTypes: NodeTypes = {
@@ -93,6 +94,7 @@ export const nodeTypes: NodeTypes = {
   scriptCharacterNode: ScriptCharacterNode,
   scriptLocationNode: ScriptLocationNode,
   scriptItemNode: ScriptItemNode,
+  scriptStoryNoteNode: ScriptStoryNoteNode,
   scriptPlotPointNode: ScriptPlotPointNode,
 };
 
@@ -141,5 +143,6 @@ export {
   ScriptCharacterNode,
   ScriptLocationNode,
   ScriptItemNode,
+  ScriptStoryNoteNode,
   ScriptPlotPointNode,
 };

@@ -7,11 +7,13 @@ import {
   type EpisodeCard,
   type ScriptChapterNodeData,
   type ScriptSceneNodeData,
+  type ScriptStoryNotePromptEntry,
 } from '@/features/canvas/domain/canvasNodes';
 
 interface GenerateEpisodesFromSceneOptions {
   episodeCount?: number;
   sourceDraftLabel?: string;
+  storyNotes?: ScriptStoryNotePromptEntry[];
 }
 
 function escapeHtml(text: string): string {
@@ -136,6 +138,7 @@ export async function generateEpisodesFromSceneNode(
     chapterNumber: chapterData.chapterNumber || sceneNode.chapterNumber,
     chapterTitle: chapterData.title || chapterData.displayName || '',
     chapterSummary: chapterData.summary,
+    storyNotes: options.storyNotes,
     sceneTitle: sceneNode.title,
     sceneSummary: sceneNode.summary,
     purpose: sceneNode.purpose,

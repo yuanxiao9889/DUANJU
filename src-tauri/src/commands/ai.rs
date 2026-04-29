@@ -17,10 +17,12 @@ use crate::ai::{
     GenerateRequest, ProviderRegistry, ProviderTaskHandle, ProviderTaskPollResult,
     ProviderTaskSubmission,
 };
+use crate::commands::image::materialize_image_source;
 
 static REGISTRY: std::sync::OnceLock<ProviderRegistry> = std::sync::OnceLock::new();
 static ACTIVE_NON_RESUMABLE_JOB_IDS: std::sync::OnceLock<Arc<RwLock<HashSet<String>>>> =
     std::sync::OnceLock::new();
+const REFERENCE_IMAGE_MATERIALIZATION_TIMEOUT_SECONDS: u64 = 90;
 
 fn get_registry() -> &'static ProviderRegistry {
     REGISTRY.get_or_init(|| {
@@ -259,6 +261,40 @@ fn dto_from_record(record: &GenerationJobRecord) -> GenerationJobStatusDto {
     }
 }
 
+async fn materialize_request_reference_images(
+    app: &AppHandle,
+    request: &mut GenerateRequest,
+) -> Result<(), String> {
+    let Some(reference_images) = request.reference_images.take() else {
+        return Ok(());
+    };
+    if reference_images.is_empty() {
+        request.reference_images = Some(Vec::new());
+        return Ok(());
+    }
+
+    let materialized = tokio::time::timeout(
+        Duration::from_secs(REFERENCE_IMAGE_MATERIALIZATION_TIMEOUT_SECONDS),
+        async {
+            let mut resolved = Vec::with_capacity(reference_images.len());
+            for source in reference_images {
+                resolved.push(materialize_image_source(app, source.as_str()).await?);
+            }
+            Ok::<Vec<String>, String>(resolved)
+        },
+    )
+    .await
+    .map_err(|_| {
+        format!(
+            "Timed out while preparing reference images after {} seconds",
+            REFERENCE_IMAGE_MATERIALIZATION_TIMEOUT_SECONDS
+        )
+    })??;
+
+    request.reference_images = Some(materialized);
+    Ok(())
+}
+
 #[tauri::command]
 pub async fn set_api_key(provider: String, api_key: String) -> Result<(), String> {
     info!("Setting API key for provider: {}", provider);
@@ -288,7 +324,7 @@ pub async fn submit_generate_image_job(
         .cloned()
         .ok_or_else(|| "Provider not found".to_string())?;
 
-    let req = GenerateRequest {
+    let mut req = GenerateRequest {
         prompt: request.prompt,
         model: request.model,
         size: request.size,
@@ -336,11 +372,13 @@ pub async fn submit_generate_image_job(
         return Ok(job_id);
     }
 
+    materialize_request_reference_images(&app, &mut req).await?;
+
     insert_generation_job(
         &app,
         job_id.as_str(),
         provider_id.as_str(),
-        "running",
+        "queued",
         false,
         None,
         None,
@@ -356,6 +394,14 @@ pub async fn submit_generate_image_job(
     let spawned_job_id = job_id.clone();
     let spawned_provider = provider.clone();
     tauri::async_runtime::spawn(async move {
+        if let Err(error) =
+            update_generation_job(&app_handle, spawned_job_id.as_str(), "running", None, None)
+        {
+            info!(
+                "Failed to mark non-resumable generation job as running before provider execution: {}",
+                error
+            );
+        }
         let result = spawned_provider.generate(req).await;
         let update_result = match result {
             Ok(image_source) => update_generation_job(

@@ -1133,6 +1133,9 @@ export function Canvas() {
   const setCurrentProjectColorLabels = useProjectStore(
     (state) => state.setCurrentProjectColorLabels
   );
+  const setCurrentProjectScriptWelcomeSkipped = useProjectStore(
+    (state) => state.setCurrentProjectScriptWelcomeSkipped
+  );
   const cancelPendingViewportPersist = useProjectStore(
     (state) => state.cancelPendingViewportPersist
   );
@@ -1386,6 +1389,8 @@ export function Canvas() {
           previewImageUrl: previewWithMetadata,
           aspectRatio: prepared.aspectRatio,
           isGenerating: false,
+          generationPhase: 'succeeded',
+          generationFailureStage: null,
           generationStartedAt: null,
           generationForceRefreshRequestedAt: null,
           generationClientSessionId: null,
@@ -1442,6 +1447,8 @@ export function Canvas() {
 
       updateNodeData(nodeId, {
         isGenerating: false,
+        generationPhase: 'failed',
+        generationFailureStage: 'run',
         generationStartedAt: null,
         generationForceRefreshRequestedAt: null,
         generationClientSessionId: null,
@@ -1512,6 +1519,16 @@ export function Canvas() {
           }
 
           if (status.status === 'queued' || status.status === 'running') {
+            if (currentState.data.generationPhase !== status.status) {
+              updateNodeData(
+                nodeId,
+                {
+                  generationPhase: status.status,
+                  generationFailureStage: null,
+                },
+                { historyMode: 'skip' }
+              );
+            }
             if (!continuous) {
               return;
             }
@@ -1622,7 +1639,7 @@ export function Canvas() {
       if (!isRestoringCanvasRef.current && currentProject?.projectType === 'script') {
         const hasChapters = nodes.some((n) => n.type === 'scriptChapterNode');
         const hasRoot = nodes.some((n) => n.type === 'scriptRootNode');
-        if (!hasChapters && !hasRoot) {
+        if (!hasChapters && !hasRoot && !currentProject.scriptWelcomeSkipped) {
           setShowWelcomeDialog(true);
         }
       }
@@ -3603,6 +3620,12 @@ export function Canvas() {
         if ('generationJobId' in (data as Record<string, unknown>)) {
           (data as { generationJobId?: string | null }).generationJobId = null;
         }
+        if ('generationPhase' in (data as Record<string, unknown>)) {
+          (data as { generationPhase?: string | null }).generationPhase = null;
+        }
+        if ('generationFailureStage' in (data as Record<string, unknown>)) {
+          (data as { generationFailureStage?: string | null }).generationFailureStage = null;
+        }
         if ('generationProviderId' in (data as Record<string, unknown>)) {
           (data as { generationProviderId?: string | null }).generationProviderId = null;
         }
@@ -4571,6 +4594,10 @@ export function Canvas() {
           <ScriptWelcomeDialog
             isOpen={showWelcomeDialog}
             onClose={() => setShowWelcomeDialog(false)}
+            onSkipToEmptyCanvas={() => {
+              setCurrentProjectScriptWelcomeSkipped(true);
+              setShowWelcomeDialog(false);
+            }}
           />
         </Suspense>
       )}

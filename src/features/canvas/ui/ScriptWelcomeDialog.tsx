@@ -26,6 +26,7 @@ import {
 interface ScriptWelcomeDialogProps {
   isOpen: boolean;
   onClose: () => void;
+  onSkipToEmptyCanvas: () => void;
 }
 
 type WelcomeMode = 'select' | 'import' | 'create';
@@ -72,7 +73,11 @@ function mapImportedScenes(document: ImportedScriptDocument, chapterIndex: numbe
   })) ?? [createDefaultSceneCard(0)];
 }
 
-export function ScriptWelcomeDialog({ isOpen, onClose }: ScriptWelcomeDialogProps) {
+export function ScriptWelcomeDialog({
+  isOpen,
+  onClose,
+  onSkipToEmptyCanvas,
+}: ScriptWelcomeDialogProps) {
   const { t } = useTranslation();
   const { addNode, addEdge, setSelectedNode } = useCanvasStore();
   const closeProject = useProjectStore((state) => state.closeProject);
@@ -469,14 +474,23 @@ export function ScriptWelcomeDialog({ isOpen, onClose }: ScriptWelcomeDialogProp
               </div>
             </button>
 
-            <button
-              type="button"
-              onClick={closeProject}
-              className="md:col-span-2 inline-flex items-center justify-center gap-2 rounded-xl border border-border-dark bg-bg-dark/25 px-4 py-3 text-sm text-text-muted transition-colors hover:bg-bg-dark hover:text-text-dark"
-            >
-              <ArrowLeft className="h-4 w-4" />
-              {t('script.storyStart.backToProjects')}
-            </button>
+            <div className="md:col-span-2 flex flex-col gap-3 sm:flex-row">
+              <button
+                type="button"
+                onClick={onSkipToEmptyCanvas}
+                className="inline-flex flex-1 items-center justify-center rounded-xl border border-border-dark bg-bg-dark/35 px-4 py-3 text-sm text-text-muted transition-colors hover:border-border-dark/80 hover:bg-bg-dark/55 hover:text-text-dark"
+              >
+                {t('script.storyStart.skipToEmptyCanvas')}
+              </button>
+              <button
+                type="button"
+                onClick={closeProject}
+                className="inline-flex flex-1 items-center justify-center gap-2 rounded-xl border border-border-dark bg-bg-dark/25 px-4 py-3 text-sm text-text-muted transition-colors hover:bg-bg-dark hover:text-text-dark"
+              >
+                <ArrowLeft className="h-4 w-4" />
+                {t('script.storyStart.backToProjects')}
+              </button>
+            </div>
           </div>
         ) : null}
 

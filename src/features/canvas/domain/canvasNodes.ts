@@ -60,6 +60,7 @@ export const CANVAS_NODE_TYPES = {
   scriptCharacter: 'scriptCharacterNode',
   scriptLocation: 'scriptLocationNode',
   scriptItem: 'scriptItemNode',
+  scriptStoryNote: 'scriptStoryNoteNode',
   scriptPlotPoint: 'scriptPlotPointNode',
   scriptWorldview: 'scriptWorldviewNode',
 } as const;
@@ -314,6 +315,13 @@ export type ExportImageNodeResultKind =
   | 'imageCollageExport';
 
 export type ExportImageGenerationSourceType = 'imageEdit' | 'storyboardGen';
+export type ExportImageGenerationPhase =
+  | 'submitting'
+  | 'queued'
+  | 'running'
+  | 'failed'
+  | 'succeeded';
+export type ExportImageGenerationFailureStage = 'submit' | 'run';
 
 export interface ImageViewerMetadata {
   sourceType: ExportImageGenerationSourceType;
@@ -328,6 +336,8 @@ export interface ExportImageGenerationSummary extends ImageViewerMetadata {}
 export interface ExportImageNodeData extends NodeImageData {
   resultKind?: ExportImageNodeResultKind;
   generationSummary?: ExportImageGenerationSummary | null;
+  generationPhase?: ExportImageGenerationPhase | null;
+  generationFailureStage?: ExportImageGenerationFailureStage | null;
 }
 
 export type ImageCompareSourceNodeType =
@@ -1038,6 +1048,27 @@ function normalizeExportImageGenerationSourceType(
   return value === 'imageEdit' || value === 'storyboardGen' ? value : null;
 }
 
+function normalizeExportImageGenerationPhase(
+  value: unknown
+): ExportImageGenerationPhase | null {
+  switch (value) {
+    case 'submitting':
+    case 'queued':
+    case 'running':
+    case 'failed':
+    case 'succeeded':
+      return value;
+    default:
+      return null;
+  }
+}
+
+function normalizeExportImageGenerationFailureStage(
+  value: unknown
+): ExportImageGenerationFailureStage | null {
+  return value === 'submit' || value === 'run' ? value : null;
+}
+
 export function normalizeExportImageGenerationSummary(
   value: unknown
 ): ExportImageGenerationSummary | null {
@@ -1465,6 +1496,10 @@ function normalizeStaticImageCompareSnapshotData(
     ...baseData,
     resultKind: normalizeExportImageNodeResultKind(record.resultKind),
     generationSummary: normalizeExportImageGenerationSummary(record.generationSummary),
+    generationPhase: normalizeExportImageGenerationPhase(record.generationPhase),
+    generationFailureStage: normalizeExportImageGenerationFailureStage(
+      record.generationFailureStage
+    ),
   };
 }
 
@@ -2062,6 +2097,12 @@ export interface ScriptItemNodeData extends NodeDisplayData {
   appearances: string[];
 }
 
+export interface ScriptStoryNoteNodeData extends NodeDisplayData {
+  title: string;
+  content: string;
+  isEnabled: boolean;
+}
+
 export interface ScriptPlotPointNodeData extends NodeDisplayData {
   pointType: 'setup' | 'payoff';
   description: string;
@@ -2078,6 +2119,11 @@ export interface ScriptWorldviewNodeData extends NodeDisplayData {
   society: string;
   geography: string;
   rules: string[];
+}
+
+export interface ScriptStoryNotePromptEntry {
+  title: string;
+  content: string;
 }
 
 export interface AdProjectRootNodeData extends NodeDisplayData, AdProjectRootState {}
@@ -2127,6 +2173,7 @@ export type CanvasNodeData =
   | ScriptCharacterNodeData
   | ScriptLocationNodeData
   | ScriptItemNodeData
+  | ScriptStoryNoteNodeData
   | ScriptPlotPointNodeData
   | ScriptWorldviewNodeData;
 
@@ -3098,6 +3145,17 @@ export function normalizeScriptSceneNodeData(data: ScriptSceneNodeData): ScriptS
   };
 }
 
+export function normalizeScriptStoryNoteNodeData(
+  data: ScriptStoryNoteNodeData
+): ScriptStoryNoteNodeData {
+  return {
+    ...data,
+    title: normalizeString(data.title),
+    content: normalizeString(data.content),
+    isEnabled: normalizeBooleanValue(data.isEnabled, true),
+  };
+}
+
 export function normalizeShootingScriptNodeData(
   data: ShootingScriptNodeData
 ): ShootingScriptNodeData {
@@ -3523,6 +3581,12 @@ export function isScriptItemNode(
   return node?.type === CANVAS_NODE_TYPES.scriptItem;
 }
 
+export function isScriptStoryNoteNode(
+  node: CanvasNode | null | undefined
+): node is Node<ScriptStoryNoteNodeData, typeof CANVAS_NODE_TYPES.scriptStoryNote> {
+  return node?.type === CANVAS_NODE_TYPES.scriptStoryNote;
+}
+
 export function isScriptPlotPointNode(
   node: CanvasNode | null | undefined
 ): node is Node<ScriptPlotPointNodeData, typeof CANVAS_NODE_TYPES.scriptPlotPoint> {
@@ -3814,6 +3878,7 @@ export function nodeHasImage(node: CanvasNode | null | undefined): boolean {
     isScriptCharacterNode(node) ||
     isScriptLocationNode(node) ||
     isScriptItemNode(node) ||
+    isScriptStoryNoteNode(node) ||
     isScriptPlotPointNode(node) ||
     isScriptWorldviewNode(node)
   ) {

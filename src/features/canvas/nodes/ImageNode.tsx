@@ -81,6 +81,16 @@ export const ImageNode = memo(({ id, data, selected, type, width }: ImageNodePro
     typeof (data as { generationJobId?: unknown }).generationJobId === 'string'
       ? ((data as { generationJobId?: string }).generationJobId ?? '').trim()
       : '';
+  const generationPhase =
+    typeof (data as { generationPhase?: unknown }).generationPhase === 'string'
+      ? ((data as { generationPhase?: string }).generationPhase ?? '').trim()
+      : '';
+  const generationFailureStage =
+    typeof (data as { generationFailureStage?: unknown }).generationFailureStage === 'string'
+      ? ((data as { generationFailureStage?: string }).generationFailureStage ?? '').trim()
+      : '';
+  const isSubmittingGeneration =
+    isExportResultNode && isGenerating && generationPhase === 'submitting' && generationJobId.length === 0;
   const hasGenerationError =
     isExportResultNode && !isGenerating && !hasPersistedImage && generationError.length > 0;
   const canManualRefresh =
@@ -258,6 +268,20 @@ export const ImageNode = memo(({ id, data, selected, type, width }: ImageNodePro
 
     return t('node.imageNode.waitingResultDelayed', { minutes: waitedMinutes });
   }, [isExportResultNode, isGenerating, t, waitedMinutes]);
+  const generatingStatusText = useMemo(() => {
+    if (isSubmittingGeneration) {
+      return t('node.imageNode.submittingRequest');
+    }
+
+    return waitingResultText;
+  }, [isSubmittingGeneration, t, waitingResultText]);
+  const generationFailedTitle = useMemo(() => {
+    if (generationFailureStage === 'submit') {
+      return t('node.imageNode.submissionFailed');
+    }
+
+    return t('node.imageNode.generationFailed');
+  }, [generationFailureStage, t]);
 
   const originalImageUrl = useMemo(() => {
     if (!data.imageUrl) {
@@ -317,7 +341,7 @@ export const ImageNode = memo(({ id, data, selected, type, width }: ImageNodePro
     if (isGenerating) {
       return (
         <NodeStatusBadge
-          label={t('nodeStatus.generating')}
+          label={isSubmittingGeneration ? t('nodeStatus.submitting') : t('nodeStatus.generating')}
           tone="processing"
         />
       );
@@ -334,7 +358,7 @@ export const ImageNode = memo(({ id, data, selected, type, width }: ImageNodePro
     }
 
     return null;
-  }, [canManualRefresh, generationError, hasGenerationError, isGenerating, t]);
+  }, [canManualRefresh, generationError, hasGenerationError, isGenerating, isSubmittingGeneration, t]);
 
   return (
     <div
@@ -381,7 +405,7 @@ export const ImageNode = memo(({ id, data, selected, type, width }: ImageNodePro
           <div className="flex h-full w-full flex-col items-center justify-center gap-2 px-4 text-red-300">
             <AlertTriangle className="h-7 w-7 opacity-90" />
             <span className="text-center text-[12px] font-medium leading-5 text-red-200">
-              {t('node.imageNode.generationFailed')}
+              {generationFailedTitle}
             </span>
             <span className="max-h-[88px] overflow-y-auto break-words text-center text-[11px] leading-5 text-red-200/90">
               {generationError}
@@ -403,7 +427,7 @@ export const ImageNode = memo(({ id, data, selected, type, width }: ImageNodePro
         )}
 
         {isGenerating && (
-          <div className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center">
+          <div className="pointer-events-none absolute inset-0 z-10 flex flex-col items-center justify-center gap-2 px-4">
             <UiLoadingAnimation
               className="block"
               width="min(320px, calc(100% - 2rem))"
@@ -413,6 +437,9 @@ export const ImageNode = memo(({ id, data, selected, type, width }: ImageNodePro
               trimInset="18%"
               zoom={1.45}
             />
+            <span className="max-w-[240px] text-center text-[12px] leading-5 text-text-dark/88">
+              {generatingStatusText}
+            </span>
             <span className="sr-only">{t('common.loading')}</span>
           </div>
         )}

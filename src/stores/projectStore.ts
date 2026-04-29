@@ -93,6 +93,7 @@ export interface Project extends ProjectSummary {
   viewport?: Viewport;
   history: CanvasHistoryState;
   colorLabels: CanvasColorLabelMap;
+  scriptWelcomeSkipped: boolean;
 }
 
 type PersistedProject = Project & {
@@ -489,6 +490,7 @@ function toProjectRecord(project: Project): ProjectRecord {
     viewportJson: JSON.stringify(encodedProject.viewport),
     historyJson: JSON.stringify(encodedProject.history),
     colorLabelsJson: JSON.stringify(encodedProject.colorLabels),
+    scriptWelcomeSkipped: encodedProject.scriptWelcomeSkipped ?? false,
   };
 }
 
@@ -539,6 +541,7 @@ function fromProjectRecord(record: ProjectRecord): Project {
     colorLabels: normalizeCanvasColorLabelMap(
       safeParseJson<unknown>(record.colorLabelsJson, createDefaultCanvasColorLabelMap())
     ),
+    scriptWelcomeSkipped: record.scriptWelcomeSkipped ?? false,
     imagePool: parsedNodesPayload.imagePool ?? parsedHistoryPayload.imagePool ?? extractedImagePool,
   };
 
@@ -838,6 +841,7 @@ interface ProjectState {
   setCurrentProjectAssetLibrary: (assetLibraryId: string | null) => void;
   setCurrentProjectClipLibrary: (clipLibraryId: string | null) => void;
   setCurrentProjectColorLabels: (colorLabels: CanvasColorLabelMap) => void;
+  setCurrentProjectScriptWelcomeSkipped: (scriptWelcomeSkipped: boolean) => void;
   openProject: (id: string) => void;
   closeProject: () => void;
   getCurrentProject: () => Project | null;
@@ -939,6 +943,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
       viewport: DEFAULT_VIEWPORT,
       history: createEmptyHistory(),
       colorLabels: createDefaultCanvasColorLabelMap(),
+      scriptWelcomeSkipped: false,
     };
 
     set((state) => ({
@@ -1409,6 +1414,30 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
     const nextProject: Project = {
       ...currentProject,
       colorLabels: nextColorLabels,
+      updatedAt: Date.now(),
+    };
+
+    set((state) => ({
+      currentProject: nextProject,
+      projects: updateProjectSummary(state.projects, projectToSummary(nextProject)),
+    }));
+
+    persistProject(nextProject, { debounceMs: 0 });
+  },
+
+  setCurrentProjectScriptWelcomeSkipped: (scriptWelcomeSkipped) => {
+    const { currentProjectId, currentProject } = get();
+    if (!currentProjectId || !currentProject || currentProject.id !== currentProjectId) {
+      return;
+    }
+
+    if (currentProject.scriptWelcomeSkipped === scriptWelcomeSkipped) {
+      return;
+    }
+
+    const nextProject: Project = {
+      ...currentProject,
+      scriptWelcomeSkipped,
       updatedAt: Date.now(),
     };
 

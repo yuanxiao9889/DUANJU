@@ -10,8 +10,14 @@ import {
   type ScriptLocationNodeData,
   type ScriptRootNodeData,
   type ScriptSceneNodeData,
+  type ScriptStoryNotePromptEntry,
   type ScriptWorldviewNodeData,
 } from '../domain/canvasNodes';
+import {
+  collectEnabledScriptStoryNotes,
+  formatScriptStoryNoteGuardrails,
+  formatScriptStoryNotesPromptBlock,
+} from './scriptStoryNotes';
 
 export interface SceneContinuityMemory {
   summary: string;
@@ -44,6 +50,7 @@ interface GenerateSceneContinuityMemoryOptions {
   scene: SceneCard;
   chapter: ScriptChapterNodeData;
   storyRoot?: ScriptRootNodeData | null;
+  storyNotes?: ScriptStoryNotePromptEntry[];
   continuityContext?: SceneContinuityContext | null;
 }
 
@@ -549,6 +556,7 @@ export function buildSceneContinuityContext({
   const guardrails = dedupeLines(
     [
       ...storyGuardrails,
+      ...formatScriptStoryNoteGuardrails(collectEnabledScriptStoryNotes(nodes)),
       ...resolveCharacterGuardrails(nodes, currentSceneText, storyRoot),
       ...resolveLocationGuardrails(nodes, currentSceneText),
       ...resolveItemGuardrails(nodes, currentSceneText),
@@ -636,6 +644,7 @@ export async function generateSceneContinuityMemory({
   scene,
   chapter,
   storyRoot,
+  storyNotes,
   continuityContext,
 }: GenerateSceneContinuityMemoryOptions): Promise<SceneContinuityMemory> {
   const draftText = htmlToPlainText(scene.draftHtml);
@@ -659,6 +668,9 @@ export async function generateSceneContinuityMemory({
     `- Premise: ${normalizeWhitespace(storyRoot?.premise ?? '') || 'Not specified'}`,
     `- Theme: ${normalizeWhitespace(storyRoot?.theme ?? '') || 'Not specified'}`,
     `- Protagonist: ${normalizeWhitespace(storyRoot?.protagonist ?? '') || 'Not specified'}`,
+    '',
+    'Story reference notes:',
+    formatScriptStoryNotesPromptBlock(storyNotes, 'None'),
     '',
     'Current chapter:',
     `- Chapter title: ${normalizeWhitespace(chapter.title) || 'Untitled Chapter'}`,

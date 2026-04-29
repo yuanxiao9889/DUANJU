@@ -707,31 +707,33 @@ export const LlmLogicNode = memo(({
                 ))}
               </UiSelect>
             </div>
+          </div>
 
-            <label className="flex flex-col gap-1.5">
+          <div className="flex min-h-0 flex-1 flex-col gap-3">
+            <label className="flex min-h-0 flex-1 flex-col gap-1.5">
               <span className="text-[11px] font-medium uppercase tracking-[0.08em] text-text-muted/85">
                 {t('node.llmLogic.customDirection')}
               </span>
               <UiTextArea
                 value={typeof data.userPrompt === 'string' ? data.userPrompt : ''}
                 placeholder={t('node.llmLogic.customDirectionPlaceholder')}
-                className="nodrag nowheel h-20 bg-black/10"
+                className="nodrag nowheel min-h-20 flex-1 bg-black/10"
                 onChange={(event) => updateNodeData(id, { userPrompt: event.target.value })}
               />
             </label>
-          </div>
 
-          <label className="flex flex-col gap-1.5">
-            <span className="text-[11px] font-medium uppercase tracking-[0.08em] text-text-muted/85">
-              {t('node.llmLogic.systemInstruction')}
-            </span>
-            <UiTextArea
-              value={typeof data.systemInstruction === 'string' ? data.systemInstruction : ''}
-              placeholder={t('node.llmLogic.systemInstructionPlaceholder')}
-              className="nodrag nowheel h-24 bg-black/10"
-              onChange={(event) => updateNodeData(id, { systemInstruction: event.target.value })}
-            />
-          </label>
+            <label className="flex min-h-0 flex-1 flex-col gap-1.5">
+              <span className="text-[11px] font-medium uppercase tracking-[0.08em] text-text-muted/85">
+                {t('node.llmLogic.systemInstruction')}
+              </span>
+              <UiTextArea
+                value={typeof data.systemInstruction === 'string' ? data.systemInstruction : ''}
+                placeholder={t('node.llmLogic.systemInstructionPlaceholder')}
+                className="nodrag nowheel min-h-24 flex-1 bg-black/10"
+                onChange={(event) => updateNodeData(id, { systemInstruction: event.target.value })}
+              />
+            </label>
+          </div>
 
           {configurationError ? (
             <div className="rounded-xl border border-amber-400/25 bg-amber-400/10 px-3 py-2.5 text-xs leading-5 text-amber-100">

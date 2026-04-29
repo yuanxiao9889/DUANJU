@@ -487,6 +487,7 @@
       "scriptCharacter": "Character",
       "scriptLocation": "Location",
       "scriptItem": "Item",
+      "scriptStoryNote": "Story Note",
       "scriptPlotPoint": "Plot Point",
       "scriptRoot": "Script Root",
       "generateImage": "Generate Image",
@@ -521,7 +522,9 @@
       "generatedAlt": "Generated image",
       "waitingResult": "Waiting for output image",
       "waitingResultDelayed": "Already waited {{minutes}} minutes with no result yet. Still waiting...",
+      "submittingRequest": "Submitting request...",
       "selectToEdit": "Select this node and enter a prompt below to generate or edit image",
+      "submissionFailed": "Request was not sent",
       "generationFailed": "Generation failed",
       "manualRefresh": "Fetch Again"
     },
@@ -1771,6 +1774,7 @@
     }
   },
   "nodeStatus": {
+    "submitting": "Submitting",
     "generating": "Generating",
     "retryAvailable": "Retry available",
     "error": "Error"
@@ -1862,6 +1866,20 @@
       "descriptionPlaceholder": "Describe this prop or item",
       "emptyHint": "Click edit to add item details",
       "optimizeMissingSource": "Add at least an item name, description, or appearance context before optimizing."
+    },
+    "storyNote": {
+      "title": "Reference Title",
+      "titlePlaceholder": "For example: story premise, secret rule, relationship baseline",
+      "content": "Reference Content",
+      "contentPlaceholder": "Write the story summary, setting note, continuity rule, or narrative constraint you want later drafting to keep in mind.",
+      "emptyHint": "Click edit to add a story reference note",
+      "enabled": "Enabled",
+      "disabled": "Disabled",
+      "enable": "Enable story reference",
+      "disable": "Disable story reference",
+      "inactiveHint": "Disabled notes stay on canvas but no longer affect later story generation.",
+      "charCount": "{{current}} / {{max}}",
+      "optimizeMissingSource": "Add some story reference text before optimizing."
     },
     "plotPoint": {
       "type": "Type",
@@ -2534,7 +2552,7 @@
     "experimental": "Experimental",
     "experimentalDesc": "Low-priority or experimental feature toggles.",
     "about": "About",
-    "aboutDesc": "Application information",
+    "aboutDesc": "App info, updates, and feedback",
     "general": "General",
     "generalDesc": "General settings",
     "dreaminaSectionTitle": "Dreamina CLI",
@@ -3470,6 +3488,7 @@
       "importCardTitle": "Import Script / Restore Package",
       "importCardDesc": "Import TXT, Markdown, Fountain, FDX, or DOCX drafts, or restore a complete project package in one step.",
       "backToProjects": "Back to Project Manager",
+      "skipToEmptyCanvas": "Skip to Empty Canvas",
       "importDesc": "We will create empty chapter nodes for you, and each chapter will already be ready to hold scenes in Scene Studio.",
       "importFileTitle": "Import Full Draft",
       "importFileDesc": "Supports TXT, Markdown, Fountain, FDX, and DOCX. The default goal is preservation first, not collapsing your draft into a skeleton.",
