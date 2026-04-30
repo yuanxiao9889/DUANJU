@@ -5,6 +5,7 @@ import { save } from '@tauri-apps/plugin-dialog';
 
 import { UI_CONTENT_OVERLAY_INSET_CLASS } from '@/components/ui/motion';
 import { saveImageSourceToPath } from '@/commands/image';
+import { resolveLocalFileSourcePath } from '@/features/canvas/application/imageData';
 import type { ImageViewerMetadata } from '@/features/canvas/domain/canvasNodes';
 import { getModelProvider } from '@/features/canvas/models';
 
@@ -279,14 +280,15 @@ export function ImageViewerModal({
     }
 
     try {
+      const downloadSource = resolveLocalFileSourcePath(source) ?? source;
       const selectedPath = await save({
-        defaultPath: resolveViewerDownloadFileName(source, currentIndex),
+        defaultPath: resolveViewerDownloadFileName(downloadSource, currentIndex),
       });
       if (!selectedPath || Array.isArray(selectedPath)) {
         return;
       }
 
-      await saveImageSourceToPath(source, selectedPath);
+      await saveImageSourceToPath(downloadSource, selectedPath);
     } catch (error) {
       console.error('Failed to save viewer image', error);
     }

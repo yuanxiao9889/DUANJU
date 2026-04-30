@@ -21,11 +21,17 @@ use commands::style_preset_package;
 use commands::system;
 use commands::text_gen;
 use commands::update;
-use tauri::{LogicalSize, Manager, WebviewWindow};
+use tauri::menu::{Menu, MenuItem};
+use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
+use tauri::{Emitter, LogicalSize, Manager, WebviewWindow};
 use tracing::{info, warn};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
-const MAIN_WINDOW_LABEL: &str = "main";
+pub(crate) const MAIN_WINDOW_LABEL: &str = "main";
+pub(crate) const MAIN_TRAY_ID: &str = "main-tray";
+pub(crate) const MAIN_TRAY_SHOW_WINDOW_MENU_ID: &str = "show-main-window";
+pub(crate) const MAIN_TRAY_QUIT_MENU_ID: &str = "quit-app";
+pub(crate) const FRONTEND_MAIN_CLOSE_REQUEST_EVENT: &str = "app:request-main-close";
 const FRONTEND_READY_TIMEOUT_MS: u64 = 3_500;
 const MAIN_WINDOW_WORK_AREA_MARGIN_WIDTH: f64 = 48.0;
 const MAIN_WINDOW_WORK_AREA_MARGIN_HEIGHT: f64 = 72.0;
@@ -76,7 +82,26 @@ fn setup_logging() {
     info!("OOpii Infinite Canvas starting...");
 }
 
-fn show_main_window(app: &tauri::AppHandle) {
+pub(crate) fn set_main_tray_visible(
+    app: &tauri::AppHandle,
+    visible: bool,
+) -> Result<(), String> {
+    let Some(tray) = app.tray_by_id(MAIN_TRAY_ID) else {
+        if visible {
+            return Err("main tray icon not found".to_string());
+        }
+        return Ok(());
+    };
+
+    tray.set_visible(visible)
+        .map_err(|err| format!("failed to set tray visibility: {err}"))
+}
+
+pub(crate) fn show_main_window(app: &tauri::AppHandle) {
+    if let Err(err) = set_main_tray_visible(app, false) {
+        warn!("{err}");
+    }
+
     if let Some(main_window) = app.get_webview_window(MAIN_WINDOW_LABEL) {
         if let Err(err) = main_window.show() {
             warn!("failed to show main window: {err}");
@@ -86,6 +111,31 @@ fn show_main_window(app: &tauri::AppHandle) {
         }
     } else {
         warn!("main window not found while trying to reveal UI");
+    }
+}
+
+pub(crate) fn minimize_main_window_to_tray(app: &tauri::AppHandle) -> Result<(), String> {
+    set_main_tray_visible(app, true)?;
+
+    let Some(main_window) = app.get_webview_window(MAIN_WINDOW_LABEL) else {
+        return Err("main window not found while minimizing to tray".to_string());
+    };
+
+    main_window
+        .hide()
+        .map_err(|err| format!("failed to hide main window to tray: {err}"))
+}
+
+fn emit_main_window_close_request(app: &tauri::AppHandle) {
+    show_main_window(app);
+
+    let Some(main_window) = app.get_webview_window(MAIN_WINDOW_LABEL) else {
+        warn!("main window not found while emitting close request");
+        return;
+    };
+
+    if let Err(err) = main_window.emit(FRONTEND_MAIN_CLOSE_REQUEST_EVENT, ()) {
+        warn!("failed to emit main close request event: {err}");
     }
 }
 
@@ -175,6 +225,58 @@ pub fn run() {
 
             if let Err(err) = main_window.hide() {
                 warn!("failed to hide main window on startup: {err}");
+            }
+
+            let tray_icon = app
+                .default_window_icon()
+                .cloned()
+                .ok_or_else(|| "missing default window icon for tray".to_string())?;
+            let show_main_window_item = MenuItem::with_id(
+                app,
+                MAIN_TRAY_SHOW_WINDOW_MENU_ID,
+                "显示主窗口",
+                true,
+                None::<&str>,
+            )?;
+            let quit_app_item = MenuItem::with_id(
+                app,
+                MAIN_TRAY_QUIT_MENU_ID,
+                "退出应用",
+                true,
+                None::<&str>,
+            )?;
+            let tray_menu = Menu::with_items(app, &[&show_main_window_item, &quit_app_item])?;
+            let tray = TrayIconBuilder::with_id(MAIN_TRAY_ID)
+                .icon(tray_icon)
+                .menu(&tray_menu)
+                .tooltip("OOpii Infinite Canvas")
+                .show_menu_on_left_click(false)
+                .on_menu_event(|app, event| {
+                    if event.id() == MAIN_TRAY_SHOW_WINDOW_MENU_ID {
+                        show_main_window(app);
+                        return;
+                    }
+
+                    if event.id() == MAIN_TRAY_QUIT_MENU_ID {
+                        emit_main_window_close_request(app);
+                    }
+                })
+                .on_tray_icon_event(|tray, event| {
+                    if matches!(
+                        event,
+                        TrayIconEvent::Click {
+                            button: MouseButton::Left,
+                            button_state: MouseButtonState::Up,
+                            ..
+                        }
+                    ) {
+                        show_main_window(tray.app_handle());
+                    }
+                })
+                .build(app)?;
+
+            if let Err(err) = tray.set_visible(false) {
+                warn!("failed to hide tray icon on startup: {err}");
             }
 
             let app_handle = app.handle().clone();
@@ -295,6 +397,7 @@ pub fn run() {
             project_state::delete_project_record,
             project_state::sync_style_template_image_refs,
             system::get_runtime_system_info,
+            system::minimize_main_window_to_tray,
             system::read_system_clipboard_file_paths,
             system::request_app_exit,
             system::start_system_file_drag,

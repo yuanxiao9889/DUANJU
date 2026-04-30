@@ -80,11 +80,17 @@ impl AzemmProvider {
     }
 
     fn sanitize_model(model: &str) -> String {
-        model
+        let sanitized = model
             .trim()
             .strip_prefix("azemm/")
             .unwrap_or(model.trim())
-            .to_string()
+            .trim()
+            .to_string();
+        if sanitized.is_empty() {
+            GPT_IMAGE_2_MODEL.to_string()
+        } else {
+            sanitized
+        }
     }
 
     fn resolve_chat_model(model: &str) -> String {
@@ -1690,7 +1696,7 @@ try {
                 .map_err(|error| {
                     AIError::Provider(format!("Failed to create multipart image part: {}", error))
                 })?;
-            form = form.part("image[]", image_part);
+            form = form.part("image", image_part);
         }
 
         info!(

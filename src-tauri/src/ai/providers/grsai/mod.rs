@@ -20,10 +20,13 @@ const RESULT_ENDPOINT_PATH: &str = "/v1/draw/result";
 const UPLOAD_TOKEN_ENDPOINT_PATH: &str = "/client/resource/newUploadTokenZH";
 const DEFAULT_BASE_URL: &str = "https://grsai.dakka.com.cn";
 const DEFAULT_PRO_MODEL: &str = "nano-banana-pro";
-const DEFAULT_GPT_IMAGE_MODEL: &str = "gpt-image-2";
+const DEFAULT_GPT_IMAGE_MODEL: &str = "gpt-image-2-vip";
+const LEGACY_GPT_IMAGE_MODEL: &str = "gpt-image-2";
+const GPT_IMAGE_2_MAX_EDGE: f32 = 3840.0;
+const GPT_IMAGE_2_MAX_PIXELS: f32 = 8_294_400.0;
 const POLL_INTERVAL_MS: u64 = 2000;
 
-const SUPPORTED_MODELS: [&str; 9] = [
+const SUPPORTED_MODELS: [&str; 10] = [
     "nano-banana-2",
     "nano-banana-fast",
     "nano-banana",
@@ -32,7 +35,13 @@ const SUPPORTED_MODELS: [&str; 9] = [
     "nano-banana-pro-cl",
     "nano-banana-pro-vip",
     "nano-banana-pro-4k-vip",
-    "gpt-image-2",
+    LEGACY_GPT_IMAGE_MODEL,
+    DEFAULT_GPT_IMAGE_MODEL,
+];
+
+const SUPPORTED_ASPECT_RATIOS: [&str; 15] = [
+    "1:1", "2:3", "3:2", "3:4", "4:3", "4:5", "5:4", "9:16", "16:9", "21:9", "9:21", "1:3",
+    "3:1", "1:2", "2:1",
 ];
 
 fn decode_file_url_path(value: &str) -> String {
@@ -199,7 +208,8 @@ struct NanoBananaDrawRequestBody {
 struct CompletionsRequestBody {
     model: String,
     prompt: String,
-    size: String,
+    aspect_ratio: String,
+    quality: String,
     urls: Vec<String>,
     #[serde(rename = "webHook")]
     web_hook: String,
@@ -279,7 +289,7 @@ impl GrsaiProvider {
         }
 
         if Self::resolve_request_route(&requested) == GrsaiRequestRoute::Completions {
-            return requested;
+            return Self::resolve_completions_model(&requested);
         }
 
         requested
@@ -295,19 +305,197 @@ impl GrsaiProvider {
 
     fn resolve_completions_model(input: &str) -> String {
         let trimmed = input.trim().to_ascii_lowercase();
-        if trimmed.is_empty() {
+        if trimmed.is_empty()
+            || trimmed == LEGACY_GPT_IMAGE_MODEL
+            || trimmed == DEFAULT_GPT_IMAGE_MODEL
+        {
             return DEFAULT_GPT_IMAGE_MODEL.to_string();
         }
         trimmed
     }
 
-    fn resolve_completions_size(request: &GenerateRequest) -> String {
-        let aspect_ratio = request.aspect_ratio.trim();
-        if !aspect_ratio.is_empty() {
-            return aspect_ratio.to_string();
+    fn validate_aspect_ratio(aspect_ratio: &str) -> bool {
+        SUPPORTED_ASPECT_RATIOS.contains(&aspect_ratio)
+    }
+
+    fn parse_size_dimensions(value: &str) -> Option<(u32, u32)> {
+        let (raw_width, raw_height) = value.trim().split_once('x')?;
+        let width = raw_width.trim().parse::<u32>().ok()?;
+        let height = raw_height.trim().parse::<u32>().ok()?;
+        if width == 0 || height == 0 {
+            return None;
+        }
+        Some((width, height))
+    }
+
+    fn round_dimension_to_multiple(value: f32) -> u32 {
+        let rounded = ((value / 16.0).round() as i32).max(1) * 16;
+        rounded as u32
+    }
+
+    fn is_near_ratio(actual: f32, target: f32) -> bool {
+        (actual - target).abs() < 0.12
+    }
+
+    fn clamp_gpt_image_2_dimensions(width: f32, height: f32) -> Option<(u32, u32)> {
+        if !width.is_finite() || !height.is_finite() || width <= 0.0 || height <= 0.0 {
+            return None;
         }
 
-        "auto".to_string()
+        let edge_scale = (GPT_IMAGE_2_MAX_EDGE / width.max(height)).min(1.0);
+        let pixel_scale = (GPT_IMAGE_2_MAX_PIXELS / (width * height)).sqrt().min(1.0);
+        let scale = edge_scale.min(pixel_scale);
+
+        let mut scaled_width = width * scale;
+        let mut scaled_height = height * scale;
+        let mut rounded_width = Self::round_dimension_to_multiple(scaled_width);
+        let mut rounded_height = Self::round_dimension_to_multiple(scaled_height);
+
+        while (rounded_width as f32 > GPT_IMAGE_2_MAX_EDGE
+            || rounded_height as f32 > GPT_IMAGE_2_MAX_EDGE
+            || (rounded_width * rounded_height) as f32 > GPT_IMAGE_2_MAX_PIXELS)
+            && rounded_width > 16
+            && rounded_height > 16
+        {
+            let downscale = (GPT_IMAGE_2_MAX_EDGE / rounded_width.max(rounded_height) as f32).min(
+                (GPT_IMAGE_2_MAX_PIXELS / (rounded_width * rounded_height) as f32)
+                    .sqrt()
+                    .min(1.0),
+            );
+            scaled_width *= downscale.min(0.995);
+            scaled_height *= downscale.min(0.995);
+            rounded_width = Self::round_dimension_to_multiple(scaled_width);
+            rounded_height = Self::round_dimension_to_multiple(scaled_height);
+        }
+
+        Some((rounded_width, rounded_height))
+    }
+
+    fn parse_aspect_ratio(value: &str) -> Option<f32> {
+        let (raw_w, raw_h) = value.split_once(':')?;
+        let width = raw_w.trim().parse::<f32>().ok()?;
+        let height = raw_h.trim().parse::<f32>().ok()?;
+        if width <= 0.0 || height <= 0.0 {
+            return None;
+        }
+        Some(width / height)
+    }
+
+    fn normalize_legacy_aspect_ratio(aspect_ratio: &str) -> String {
+        match aspect_ratio.trim() {
+            "1:4" | "1:8" => "1:3".to_string(),
+            "4:1" | "8:1" => "3:1".to_string(),
+            other => other.to_string(),
+        }
+    }
+
+    fn resolve_gpt_image_2_size(size: &str, aspect_ratio: &str) -> Option<String> {
+        let normalized_size = size.trim().to_ascii_lowercase();
+        if normalized_size.is_empty() || normalized_size == "auto" {
+            return Some("auto".to_string());
+        }
+
+        let normalized_aspect_ratio = Self::normalize_legacy_aspect_ratio(aspect_ratio);
+        if let Some((width, height)) = Self::parse_size_dimensions(&normalized_aspect_ratio) {
+            return Some(format!("{}x{}", width, height));
+        }
+
+        if let Some((width, height)) = Self::parse_size_dimensions(&normalized_size) {
+            return Some(format!("{}x{}", width, height));
+        }
+
+        let ratio = Self::parse_aspect_ratio(&normalized_aspect_ratio).unwrap_or(1.0);
+        if !(1.0 / 3.0..=3.0).contains(&ratio) {
+            return None;
+        }
+
+        if Self::is_near_ratio(ratio, 1.0) {
+            match normalized_size.as_str() {
+                "1k" => return Some("1024x1024".to_string()),
+                "2k" => return Some("2048x2048".to_string()),
+                _ => {}
+            }
+        }
+        if Self::is_near_ratio(ratio, 16.0 / 9.0) {
+            match normalized_size.as_str() {
+                "1k" => return Some("1536x1024".to_string()),
+                "2k" => return Some("2048x1152".to_string()),
+                "4k" => return Some("3840x2160".to_string()),
+                _ => {}
+            }
+        }
+        if Self::is_near_ratio(ratio, 9.0 / 16.0) {
+            match normalized_size.as_str() {
+                "1k" => return Some("1024x1536".to_string()),
+                "2k" => return Some("1152x2048".to_string()),
+                "4k" => return Some("2160x3840".to_string()),
+                _ => {}
+            }
+        }
+
+        let resolved = match normalized_size.as_str() {
+            "1k" => {
+                if ratio >= 1.0 {
+                    let height = 1024.0;
+                    let width = height * ratio;
+                    Self::clamp_gpt_image_2_dimensions(width, height)
+                } else {
+                    let width = 1024.0;
+                    let height = width / ratio;
+                    Self::clamp_gpt_image_2_dimensions(width, height)
+                }
+            }
+            "2k" => {
+                if ratio >= 1.0 {
+                    let width = 2048.0;
+                    let height = width / ratio;
+                    Self::clamp_gpt_image_2_dimensions(width, height)
+                } else {
+                    let height = 2048.0;
+                    let width = height * ratio;
+                    Self::clamp_gpt_image_2_dimensions(width, height)
+                }
+            }
+            "4k" => {
+                let width = (GPT_IMAGE_2_MAX_PIXELS * ratio).sqrt();
+                let height = (GPT_IMAGE_2_MAX_PIXELS / ratio).sqrt();
+                Self::clamp_gpt_image_2_dimensions(width, height)
+            }
+            _ => None,
+        }?;
+
+        Some(format!("{}x{}", resolved.0, resolved.1))
+    }
+
+    fn resolve_completions_aspect_ratio(request: &GenerateRequest) -> String {
+        let raw_aspect_ratio = request.aspect_ratio.trim();
+        if raw_aspect_ratio.is_empty() || raw_aspect_ratio.eq_ignore_ascii_case("auto") {
+            return "auto".to_string();
+        }
+
+        let normalized_aspect_ratio = Self::normalize_legacy_aspect_ratio(raw_aspect_ratio);
+        if request.size.trim().is_empty() || request.size.trim().eq_ignore_ascii_case("auto") {
+            if Self::parse_size_dimensions(&normalized_aspect_ratio).is_some()
+                || Self::validate_aspect_ratio(&normalized_aspect_ratio)
+            {
+                return normalized_aspect_ratio;
+            }
+            return "auto".to_string();
+        }
+
+        Self::resolve_gpt_image_2_size(&request.size, &normalized_aspect_ratio)
+            .unwrap_or_else(|| normalized_aspect_ratio.to_string())
+    }
+
+    fn resolve_completions_quality(request: &GenerateRequest) -> String {
+        request
+            .extra_params
+            .as_ref()
+            .and_then(|params| params.get("quality"))
+            .and_then(|raw| raw.as_str())
+            .map(|value| value.trim().to_ascii_lowercase())
+            .filter(|value| matches!(value.as_str(), "auto" | "low" | "medium" | "high"))
+            .unwrap_or_else(|| "auto".to_string())
     }
 
     fn resolve_task_payload<'a>(value: &'a Value) -> Result<&'a Value, AIError> {
@@ -546,6 +734,7 @@ impl GrsaiProvider {
         &self,
         request: &GenerateRequest,
         model: String,
+        return_task_id_immediately: bool,
     ) -> Result<Value, AIError> {
         let api_key = self
             .api_key
@@ -559,7 +748,8 @@ impl GrsaiProvider {
             let body = CompletionsRequestBody {
                 model: Self::resolve_completions_model(&model),
                 prompt: request.prompt.clone(),
-                size: Self::resolve_completions_size(request),
+                aspect_ratio: Self::resolve_completions_aspect_ratio(request),
+                quality: Self::resolve_completions_quality(request),
                 urls: self
                     .prepare_reference_urls(&api_key, request, false)
                     .await?,
@@ -588,7 +778,11 @@ impl GrsaiProvider {
             aspect_ratio,
             image_size,
             urls,
-            web_hook: String::new(),
+            web_hook: if return_task_id_immediately {
+                "-1".to_string()
+            } else {
+                String::new()
+            },
             shut_progress: true,
             cdn: "zh".to_string(),
         };
@@ -613,7 +807,7 @@ impl GrsaiProvider {
                 aspect_ratio: None,
                 image_size: body.image_size.clone(),
                 urls: body.urls.clone(),
-                web_hook: String::new(),
+                web_hook: body.web_hook.clone(),
                 shut_progress: body.shut_progress,
                 cdn: body.cdn.clone(),
             };
@@ -718,6 +912,7 @@ impl AIProvider for GrsaiProvider {
             "grsai/nano-banana-2".to_string(),
             "grsai/nano-banana-pro".to_string(),
             "grsai/gpt-image-2".to_string(),
+            "grsai/gpt-image-2-vip".to_string(),
         ]
     }
 
@@ -736,7 +931,7 @@ impl AIProvider for GrsaiProvider {
         request: GenerateRequest,
     ) -> Result<ProviderTaskSubmission, AIError> {
         let model = self.normalize_requested_model(&request);
-        let draw_response = self.request_draw(&request, model).await?;
+        let draw_response = self.request_draw(&request, model, true).await?;
         let payload = Self::resolve_task_payload(&draw_response)?;
 
         if let Some(url) = Self::extract_result_url(payload) {
@@ -767,7 +962,7 @@ impl AIProvider for GrsaiProvider {
             model, request.size, request.aspect_ratio
         );
 
-        let draw_response = self.request_draw(&request, model).await?;
+        let draw_response = self.request_draw(&request, model, false).await?;
         let payload = Self::resolve_task_payload(&draw_response)?;
 
         if let Some(url) = Self::extract_result_url(payload) {
@@ -780,5 +975,168 @@ impl AIProvider for GrsaiProvider {
             .ok_or_else(|| AIError::Provider("GRSAI response missing task id".to_string()))?;
 
         self.poll_result_until_complete(task_id).await
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::collections::HashMap;
+
+    use serde_json::json;
+
+    use super::{CompletionsRequestBody, GrsaiProvider};
+    use crate::ai::{AIProvider, GenerateRequest};
+
+    fn make_request(
+        model: &str,
+        size: &str,
+        aspect_ratio: &str,
+        quality: Option<&str>,
+    ) -> GenerateRequest {
+        let extra_params =
+            quality.map(|value| HashMap::from([("quality".to_string(), json!(value))]));
+
+        GenerateRequest {
+            prompt: "test prompt".to_string(),
+            model: model.to_string(),
+            size: size.to_string(),
+            aspect_ratio: aspect_ratio.to_string(),
+            reference_images: None,
+            extra_params,
+        }
+    }
+
+    #[test]
+    fn list_models_includes_legacy_and_vip_ids() {
+        let provider = GrsaiProvider::new();
+        assert!(provider
+            .list_models()
+            .contains(&"grsai/gpt-image-2".to_string()));
+        assert!(provider
+            .list_models()
+            .contains(&"grsai/gpt-image-2-vip".to_string()));
+    }
+
+    #[test]
+    fn normalizes_gpt_image_aliases_to_vip_model() {
+        let provider = GrsaiProvider::new();
+        for model in [
+            "grsai/gpt-image-2",
+            "gpt-image-2",
+            "gpt-image-2-vip",
+            "grsai/gpt-image-2-vip",
+        ] {
+            let request = make_request(model, "2K", "16:9", None);
+            assert_eq!(
+                provider.normalize_requested_model(&request),
+                "gpt-image-2-vip".to_string()
+            );
+        }
+    }
+
+    #[test]
+    fn serializes_completions_body_with_aspect_ratio_and_quality() {
+        let body = CompletionsRequestBody {
+            model: "gpt-image-2-vip".to_string(),
+            prompt: "prompt".to_string(),
+            aspect_ratio: "2048x1152".to_string(),
+            quality: "high".to_string(),
+            urls: vec!["https://example.com/ref.png".to_string()],
+            web_hook: "-1".to_string(),
+            shut_progress: true,
+        };
+
+        let value = serde_json::to_value(body).expect("body should serialize");
+        assert_eq!(
+            value.get("aspectRatio").and_then(|raw| raw.as_str()),
+            Some("2048x1152")
+        );
+        assert_eq!(value.get("quality").and_then(|raw| raw.as_str()), Some("high"));
+        assert!(value.get("size").is_none());
+    }
+
+    #[test]
+    fn resolves_common_vip_sizes() {
+        assert_eq!(
+            GrsaiProvider::resolve_completions_aspect_ratio(&make_request(
+                "gpt-image-2",
+                "1K",
+                "1:1",
+                None
+            )),
+            "1024x1024".to_string()
+        );
+        assert_eq!(
+            GrsaiProvider::resolve_completions_aspect_ratio(&make_request(
+                "gpt-image-2",
+                "2K",
+                "16:9",
+                None
+            )),
+            "2048x1152".to_string()
+        );
+        assert_eq!(
+            GrsaiProvider::resolve_completions_aspect_ratio(&make_request(
+                "gpt-image-2",
+                "4K",
+                "9:16",
+                None
+            )),
+            "2160x3840".to_string()
+        );
+    }
+
+    #[test]
+    fn normalizes_legacy_extreme_ratios_to_documented_bounds() {
+        assert_eq!(
+            GrsaiProvider::resolve_completions_aspect_ratio(&make_request(
+                "gpt-image-2",
+                "2K",
+                "1:8",
+                None
+            )),
+            GrsaiProvider::resolve_completions_aspect_ratio(&make_request(
+                "gpt-image-2",
+                "2K",
+                "1:3",
+                None
+            ))
+        );
+        assert_eq!(
+            GrsaiProvider::resolve_completions_aspect_ratio(&make_request(
+                "gpt-image-2",
+                "2K",
+                "8:1",
+                None
+            )),
+            GrsaiProvider::resolve_completions_aspect_ratio(&make_request(
+                "gpt-image-2",
+                "2K",
+                "3:1",
+                None
+            ))
+        );
+    }
+
+    #[test]
+    fn defaults_quality_to_auto_and_preserves_explicit_values() {
+        assert_eq!(
+            GrsaiProvider::resolve_completions_quality(&make_request(
+                "gpt-image-2",
+                "2K",
+                "16:9",
+                None
+            )),
+            "auto".to_string()
+        );
+        assert_eq!(
+            GrsaiProvider::resolve_completions_quality(&make_request(
+                "gpt-image-2",
+                "2K",
+                "16:9",
+                Some("medium")
+            )),
+            "medium".to_string()
+        );
     }
 }

@@ -32,6 +32,14 @@
     "import": "导入",
     "export": "导出"
   },
+  "appCloseDialog": {
+    "title": "\u6709\u4efb\u52a1\u6b63\u5728\u751f\u6210",
+    "description": "\u5f53\u524d\u753b\u5e03\u4ecd\u6709\u751f\u6210\u4efb\u52a1\u5728\u8fdb\u884c\u4e2d\uff0c\u4f60\u53ef\u4ee5\u5148\u6700\u5c0f\u5316\u5230\u6258\u76d8\u7ee7\u7eed\u540e\u53f0\u8fd0\u884c\uff0c\u6216\u8005\u76f4\u63a5\u5173\u95ed\u5e94\u7528\u3002",
+    "hint": "\u9009\u62e9\u201c\u6700\u5c0f\u5316\u201d\u540e\uff0c\u4e3b\u7a97\u53e3\u4f1a\u88ab\u9690\u85cf\uff0c\u4f60\u4e4b\u540e\u53ef\u4ee5\u4ece\u6258\u76d8\u91cd\u65b0\u6253\u5f00\u5e94\u7528\u3002",
+    "minimize": "\u6700\u5c0f\u5316",
+    "cancelClose": "\u53d6\u6d88\u5173\u95ed",
+    "forceClose": "\u76f4\u63a5\u5173\u95ed"
+  },
   "cameraParams": {
     "title": "相机参数",
     "trigger": "相机参数",
@@ -2220,6 +2228,10 @@
     "dropAudioToCategory": "拖入音频到这里，直接加入{{category}}",
     "importingToCategory": "正在导入 {{count}} 张图片到{{category}}...",
     "importingAudioToCategory": "正在导入 {{count}} 个音频到{{category}}...",
+    "importingProgressToCategory": "正在导入 {{category}}：{{completed}} / {{total}}",
+    "importingProgressFailures": "当前已有 {{count}} 个文件失败，系统会继续自动兜底或跳过。",
+    "importFailureSummaryTitle": "有部分文件未能成功导入",
+    "importFailureSummaryDetail": "成功导入 {{succeeded}} / {{total}} 个文件。失败文件：{{names}}",
     "dropImportAutoFill": "将自动使用文件名创建资产，后续可再单独编辑",
     "filterBySubcategory": "按二级分类「{{name}}」筛选",
     "untitledAsset": "未命名资产",

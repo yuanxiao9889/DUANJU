@@ -25,6 +25,10 @@ import {
   type StoryboardRatioControlMode,
   type StoryboardGenNodeData,
 } from '@/features/canvas/domain/canvasNodes';
+import {
+  GRSAI_GPT_IMAGE_2_MODEL_ID,
+  normalizeGrsaiGptImage2AspectRatio,
+} from '@/features/canvas/models/image/grsai/gptImage2';
 import { resolveMinEdgeFittedSize } from '@/features/canvas/application/imageNodeSizing';
 import { EXPORT_RESULT_DISPLAY_NAME, resolveNodeDisplayName } from '@/features/canvas/domain/nodeDisplay';
 import { useCanvasStore } from '@/stores/canvasStore';
@@ -865,11 +869,19 @@ export const StoryboardGenNode = memo(({ id, data, selected, width, height }: St
     [selectedModel.aspectRatios, t]
   );
 
+  const normalizedRequestAspectRatio = useMemo(
+    () =>
+      selectedModel.id === GRSAI_GPT_IMAGE_2_MODEL_ID
+        ? normalizeGrsaiGptImage2AspectRatio(nodeData.requestAspectRatio) ?? AUTO_REQUEST_ASPECT_RATIO
+        : nodeData.requestAspectRatio,
+    [nodeData.requestAspectRatio, selectedModel.id]
+  );
+
   const selectedAspectRatio = useMemo((): AspectRatioChoice => {
-    const nodeAspectRatio = nodeData.requestAspectRatio;
+    const nodeAspectRatio = normalizedRequestAspectRatio;
     const found = nodeAspectRatio ? aspectRatioOptions.find((item) => item.value === nodeAspectRatio) : undefined;
     return found ?? aspectRatioOptions[0];
-  }, [aspectRatioOptions, nodeData.requestAspectRatio]);
+  }, [aspectRatioOptions, normalizedRequestAspectRatio]);
 
   const ratioControlMode: StoryboardRatioControlMode = showStoryboardGenAdvancedRatioControls
     ? (nodeData.ratioControlMode === 'overall' ? 'overall' : 'cell')

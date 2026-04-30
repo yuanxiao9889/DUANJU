@@ -10,7 +10,7 @@ use md5;
 use png::{BitDepth, ColorType, Decoder, Encoder};
 use serde::{Deserialize, Serialize};
 use std::borrow::Cow;
-use std::io::Cursor;
+use std::io::{Cursor, Write};
 use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
@@ -1283,16 +1283,130 @@ fn resolve_images_dir(app: &AppHandle) -> Result<PathBuf, String> {
     storage::resolve_images_dir(app)
 }
 
+fn verify_persisted_image_path(output_path: &Path) -> Result<(), String> {
+    let metadata = std::fs::metadata(output_path)
+        .map_err(|e| format!("Failed to inspect persisted generated image: {}", e))?;
+
+    if !metadata.is_file() {
+        return Err(format!(
+            "Persisted generated image is not a file: {}",
+            output_path.display()
+        ));
+    }
+
+    if metadata.len() == 0 {
+        return Err(format!(
+            "Persisted generated image is empty: {}",
+            output_path.display()
+        ));
+    }
+
+    Ok(())
+}
+
+fn build_temp_image_output_path(output_path: &Path, attempt: u32) -> Result<PathBuf, String> {
+    let parent = output_path
+        .parent()
+        .ok_or_else(|| format!("Persist target has no parent directory: {}", output_path.display()))?;
+    let file_name = output_path
+        .file_name()
+        .map(|value| value.to_string_lossy().to_string())
+        .unwrap_or_else(|| "storyboard-image".to_string());
+    let stamp = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_nanos();
+
+    Ok(parent.join(format!(
+        ".{}.{}.{}.tmp",
+        file_name,
+        std::process::id(),
+        stamp + u128::from(attempt)
+    )))
+}
+
+fn write_bytes_atomically(output_path: &Path, bytes: &[u8]) -> Result<(), String> {
+    if bytes.is_empty() {
+        return Err("Failed to persist generated image: image bytes are empty".to_string());
+    }
+
+    let parent = output_path
+        .parent()
+        .ok_or_else(|| format!("Persist target has no parent directory: {}", output_path.display()))?;
+    std::fs::create_dir_all(parent)
+        .map_err(|e| format!("Failed to create image output dir: {}", e))?;
+
+    if verify_persisted_image_path(output_path).is_ok() {
+        return Ok(());
+    }
+
+    if output_path.exists() {
+        let _ = std::fs::remove_file(output_path);
+    }
+
+    for attempt in 0..24_u32 {
+        if verify_persisted_image_path(output_path).is_ok() {
+            return Ok(());
+        }
+
+        let temp_path = build_temp_image_output_path(output_path, attempt)?;
+        let temp_file_result = std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&temp_path);
+
+        let mut temp_file = match temp_file_result {
+            Ok(file) => file,
+            Err(err) if err.kind() == std::io::ErrorKind::AlreadyExists => {
+                continue;
+            }
+            Err(err) => {
+                return Err(format!("Failed to create temp image file: {}", err));
+            }
+        };
+
+        if let Err(err) = temp_file.write_all(bytes) {
+            let _ = std::fs::remove_file(&temp_path);
+            return Err(format!("Failed to write temp image file: {}", err));
+        }
+
+        if let Err(err) = temp_file.sync_all() {
+            let _ = std::fs::remove_file(&temp_path);
+            return Err(format!("Failed to sync temp image file: {}", err));
+        }
+
+        drop(temp_file);
+
+        match std::fs::rename(&temp_path, output_path) {
+            Ok(()) => {
+                verify_persisted_image_path(output_path)?;
+                return Ok(());
+            }
+            Err(err) => {
+                let target_ready = verify_persisted_image_path(output_path).is_ok();
+                let _ = std::fs::remove_file(&temp_path);
+                if target_ready {
+                    return Ok(());
+                }
+                return Err(format!("Failed to finalize generated image: {}", err));
+            }
+        }
+    }
+
+    Err(format!(
+        "Failed to persist generated image after repeated attempts: {}",
+        output_path.display()
+    ))
+}
+
 fn persist_image_bytes(app: &AppHandle, bytes: &[u8], extension: &str) -> Result<String, String> {
     let images_dir = resolve_images_dir(app)?;
     let digest = md5::compute(bytes);
     let filename = format!("{:x}.{}", digest, normalize_extension(extension));
     let output_path = images_dir.join(filename);
 
-    if !output_path.exists() {
-        std::fs::write(&output_path, bytes)
-            .map_err(|e| format!("Failed to persist generated image: {}", e))?;
-    }
+    write_bytes_atomically(&output_path, bytes)?;
+    verify_persisted_image_path(&output_path)?;
 
     Ok(output_path.to_string_lossy().to_string())
 }
@@ -1346,14 +1460,99 @@ fn decode_file_url_path(value: &str) -> String {
         .map(|result| result.into_owned())
         .unwrap_or_else(|_| raw.to_string());
 
+    normalize_windows_local_path(decoded)
+}
+
+fn normalize_windows_local_path(value: String) -> String {
     if cfg!(target_os = "windows")
-        && decoded.starts_with('/')
-        && decoded.len() > 2
-        && decoded.as_bytes().get(2) == Some(&b':')
+        && value.starts_with('/')
+        && value.len() > 2
+        && value.as_bytes().get(1).is_some_and(u8::is_ascii_alphabetic)
+        && value.as_bytes().get(2) == Some(&b':')
     {
-        decoded[1..].to_string()
+        value[1..].to_string()
     } else {
-        decoded
+        value
+    }
+}
+
+fn strip_url_search_and_hash(value: &str) -> &str {
+    let separator_index = value.find(|ch| ch == '?' || ch == '#').unwrap_or(value.len());
+    &value[..separator_index]
+}
+
+fn decode_asset_localhost_path(value: &str) -> Option<String> {
+    let trimmed = strip_url_search_and_hash(value.trim());
+    if trimmed.is_empty() {
+        return None;
+    }
+
+    let lower = trimmed.to_ascii_lowercase();
+    let encoded_path = if lower.starts_with("http://asset.localhost/") {
+        &trimmed["http://asset.localhost/".len()..]
+    } else if lower.starts_with("https://asset.localhost/") {
+        &trimmed["https://asset.localhost/".len()..]
+    } else if lower.starts_with("asset://localhost/") {
+        &trimmed["asset://localhost/".len()..]
+    } else if lower.starts_with("//asset.localhost/") {
+        &trimmed["//asset.localhost/".len()..]
+    } else if lower.starts_with("asset.localhost/") {
+        &trimmed["asset.localhost/".len()..]
+    } else {
+        return None;
+    };
+
+    if encoded_path.is_empty() {
+        return None;
+    }
+
+    let decoded = urlencoding::decode(encoded_path)
+        .map(|result| result.into_owned())
+        .unwrap_or_else(|_| encoded_path.to_string());
+    let normalized = normalize_windows_local_path(decoded);
+
+    if normalized.is_empty() {
+        None
+    } else {
+        Some(normalized)
+    }
+}
+
+fn resolve_local_image_source_path(source: &str) -> Option<PathBuf> {
+    let trimmed = source.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+
+    let lower = trimmed.to_ascii_lowercase();
+    if lower.starts_with("data:") || lower.starts_with("blob:") {
+        return None;
+    }
+
+    if let Some(asset_local_path) = decode_asset_localhost_path(trimmed) {
+        return Some(PathBuf::from(asset_local_path));
+    }
+
+    if lower.starts_with("file://") {
+        return Some(PathBuf::from(decode_file_url_path(trimmed)));
+    }
+
+    if lower.starts_with("http://") || lower.starts_with("https://") || lower.starts_with("asset://")
+    {
+        return None;
+    }
+
+    let is_windows_drive_path = trimmed.len() >= 3
+        && trimmed.as_bytes()[1] == b':'
+        && (trimmed.as_bytes()[2] == b'\\' || trimmed.as_bytes()[2] == b'/')
+        && trimmed.as_bytes()[0].is_ascii_alphabetic();
+    let is_unc_path = trimmed.starts_with("\\\\");
+    let is_unix_absolute_path = trimmed.starts_with('/');
+
+    if is_windows_drive_path || is_unc_path || is_unix_absolute_path {
+        Some(PathBuf::from(trimmed))
+    } else {
+        None
     }
 }
 
@@ -1493,11 +1692,11 @@ fn encode_png_with_storyboard_metadata(
 }
 
 async fn resolve_source_bytes(source: &str) -> Result<(Vec<u8>, String), String> {
-    if source.starts_with("data:") {
-        return parse_data_url(source);
+    let trimmed = source.trim();
+    if trimmed.starts_with("data:") {
+        return parse_data_url(trimmed);
     }
 
-    let trimmed = source.trim();
     let likely_base64 = trimmed.len() > 256
         && trimmed
             .chars()
@@ -1509,15 +1708,9 @@ async fn resolve_source_bytes(source: &str) -> Result<(Vec<u8>, String), String>
         return Ok((bytes, "png".to_string()));
     }
 
-    if source.starts_with("http://") || source.starts_with("https://") {
-        return fetch_remote_image_source_bytes(source).await;
-    }
-
-    if source.starts_with("file://") {
-        let file_path = decode_file_url_path(source);
-        let local_path = PathBuf::from(file_path);
+    if let Some(local_path) = resolve_local_image_source_path(trimmed) {
         let bytes = std::fs::read(&local_path)
-            .map_err(|e| format!("Failed to read file:// image source: {}", e))?;
+            .map_err(|e| format!("Failed to read local image source: {}", e))?;
         let ext = local_path
             .extension()
             .and_then(|item| item.to_str())
@@ -1526,7 +1719,11 @@ async fn resolve_source_bytes(source: &str) -> Result<(Vec<u8>, String), String>
         return Ok((bytes, ext));
     }
 
-    let local_path = PathBuf::from(source);
+    if trimmed.starts_with("http://") || trimmed.starts_with("https://") {
+        return fetch_remote_image_source_bytes(trimmed).await;
+    }
+
+    let local_path = PathBuf::from(trimmed);
     let bytes = std::fs::read(&local_path)
         .map_err(|e| format!("Failed to read local image source: {}", e))?;
     let ext = local_path
@@ -1887,4 +2084,90 @@ pub async fn load_image(file_path: String) -> Result<String, String> {
     };
 
     Ok(format!("data:{};base64,{}", mime, base64_data))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{
+        decode_asset_localhost_path, resolve_local_image_source_path, write_bytes_atomically,
+    };
+    use std::path::{Path, PathBuf};
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    fn normalize_path_for_assertion(path: &Path) -> String {
+        path.to_string_lossy().replace('\\', "/")
+    }
+
+    fn create_temp_test_dir(label: &str) -> PathBuf {
+        let stamp = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_nanos();
+        let dir = std::env::temp_dir().join(format!(
+            "storyboard-copilot-image-tests-{}-{}",
+            label, stamp
+        ));
+        std::fs::create_dir_all(&dir).expect("temp test dir should be created");
+        dir
+    }
+
+    #[test]
+    fn decodes_asset_localhost_urls_to_local_paths() {
+        let resolved = decode_asset_localhost_path(
+            "http://asset.localhost/C%3A%2FUsers%2FWin11%2FAppData%2Fimage.png?__img_retry=2",
+        );
+
+        assert_eq!(
+            resolved.as_deref(),
+            Some("C:/Users/Win11/AppData/image.png")
+        );
+    }
+
+    #[test]
+    fn resolves_asset_localhost_sources_as_local_files() {
+        let resolved = resolve_local_image_source_path(
+            "https://asset.localhost/C%3A%2FUsers%2FWin11%2FAppData%2Fimage.png",
+        )
+        .expect("asset.localhost path should resolve");
+
+        assert_eq!(
+            normalize_path_for_assertion(&resolved),
+            "C:/Users/Win11/AppData/image.png"
+        );
+    }
+
+    #[test]
+    fn keeps_remote_non_asset_urls_remote() {
+        let resolved = resolve_local_image_source_path("https://example.com/image.png");
+
+        assert!(resolved.is_none());
+    }
+
+    #[test]
+    fn write_bytes_atomically_persists_non_empty_file() {
+        let temp_dir = create_temp_test_dir("persist");
+        let output_path = temp_dir.join("image.png");
+
+        write_bytes_atomically(&output_path, b"image-bytes").expect("image bytes should persist");
+
+        let persisted = std::fs::read(&output_path).expect("persisted file should be readable");
+        assert_eq!(persisted, b"image-bytes");
+
+        let _ = std::fs::remove_dir_all(temp_dir);
+    }
+
+    #[test]
+    fn write_bytes_atomically_recovers_zero_length_target() {
+        let temp_dir = create_temp_test_dir("recover-zero");
+        let output_path = temp_dir.join("image.png");
+        std::fs::File::create(&output_path).expect("zero-length file should be created");
+
+        write_bytes_atomically(&output_path, b"fresh-image")
+            .expect("zero-length target should be replaced");
+
+        let persisted = std::fs::read(&output_path).expect("recovered file should be readable");
+        assert_eq!(persisted, b"fresh-image");
+
+        let _ = std::fs::remove_dir_all(temp_dir);
+    }
 }

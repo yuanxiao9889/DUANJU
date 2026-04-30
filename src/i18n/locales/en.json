@@ -33,6 +33,14 @@
     "upstreamTextDisconnectHint": "Disconnect the text edge to restore local input",
     "upstreamTextEmpty": "Current upstream text is empty"
   },
+  "appCloseDialog": {
+    "title": "Generation still in progress",
+    "description": "The current canvas still has active generation tasks. You can minimize the app to the tray and let them keep running in the background, or close the app directly.",
+    "hint": "Choosing Minimize hides the main window and keeps the background tasks running until you restore the app from the tray.",
+    "minimize": "Minimize",
+    "cancelClose": "Cancel Close",
+    "forceClose": "Close Anyway"
+  },
   "cameraParams": {
     "title": "Camera Params",
     "trigger": "Camera Params",
@@ -2517,6 +2525,10 @@
     "dropAudioToCategory": "Drop audio files here to add them to {{category}}",
     "importingToCategory": "Importing {{count}} images to {{category}}...",
     "importingAudioToCategory": "Importing {{count}} audio files to {{category}}...",
+    "importingProgressToCategory": "Importing {{completed}} / {{total}} into {{category}}...",
+    "importingProgressFailures": "{{count}} file(s) failed so far and will fall back or be skipped.",
+    "importFailureSummaryTitle": "Some files could not be imported",
+    "importFailureSummaryDetail": "Imported {{succeeded}} of {{total}} files. Failed: {{names}}",
     "dropImportAutoFill": "Files are added with their file names, and you can edit each one later.",
     "filterBySubcategory": "Filter by subcategory \"{{name}}\"",
     "untitledAsset": "Untitled Asset",

@@ -27,6 +27,10 @@ import {
   type ImageSize,
 } from '@/features/canvas/domain/canvasNodes';
 import { resolveNodeDisplayName } from '@/features/canvas/domain/nodeDisplay';
+import {
+  GRSAI_GPT_IMAGE_2_MODEL_ID,
+  normalizeGrsaiGptImage2AspectRatio,
+} from '@/features/canvas/models/image/grsai/gptImage2';
 import { NodeHeader, NODE_HEADER_FLOATING_POSITION_CLASS } from '@/features/canvas/ui/NodeHeader';
 import { NodeResizeHandle } from '@/features/canvas/ui/NodeResizeHandle';
 import {
@@ -598,11 +602,19 @@ export const ImageEditNode = memo(({ id, data, selected, width, height }: ImageE
     [selectedModel.aspectRatios, t]
   );
 
+  const normalizedRequestAspectRatio = useMemo(
+    () =>
+      selectedModel.id === GRSAI_GPT_IMAGE_2_MODEL_ID
+        ? normalizeGrsaiGptImage2AspectRatio(data.requestAspectRatio) ?? AUTO_REQUEST_ASPECT_RATIO
+        : data.requestAspectRatio,
+    [data.requestAspectRatio, selectedModel.id]
+  );
+
   const selectedAspectRatio = useMemo(
     () =>
-      aspectRatioOptions.find((item) => item.value === data.requestAspectRatio) ??
+      aspectRatioOptions.find((item) => item.value === normalizedRequestAspectRatio) ??
       aspectRatioOptions[0],
-    [aspectRatioOptions, data.requestAspectRatio]
+    [aspectRatioOptions, normalizedRequestAspectRatio]
   );
 
   const requestResolution = selectedModel.resolveRequest({
@@ -1365,10 +1377,16 @@ export const ImageEditNode = memo(({ id, data, selected, width, height }: ImageE
     const nextResolution = resolveImageModelResolution(nextModel, data.size, {
       extraParams: nextExtraParams,
     });
+    const normalizedNextRequestAspectRatio =
+      nextModel.id === GRSAI_GPT_IMAGE_2_MODEL_ID
+        ? normalizeGrsaiGptImage2AspectRatio(data.requestAspectRatio)
+        : data.requestAspectRatio;
     const nextRequestAspectRatio =
-      data.requestAspectRatio === AUTO_REQUEST_ASPECT_RATIO
-      || nextModel.aspectRatios.some((aspectRatio) => aspectRatio.value === data.requestAspectRatio)
-        ? data.requestAspectRatio ?? AUTO_REQUEST_ASPECT_RATIO
+      normalizedNextRequestAspectRatio === AUTO_REQUEST_ASPECT_RATIO
+      || nextModel.aspectRatios.some(
+        (aspectRatio) => aspectRatio.value === normalizedNextRequestAspectRatio
+      )
+        ? normalizedNextRequestAspectRatio ?? AUTO_REQUEST_ASPECT_RATIO
         : AUTO_REQUEST_ASPECT_RATIO;
 
     updateNodeData(id, {

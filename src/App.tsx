@@ -16,6 +16,7 @@ import {
   AppBootScreen,
   AppContentLoader,
 } from "./components/AppBootScreen";
+import { CloseWithActiveGenerationDialog } from "./components/CloseWithActiveGenerationDialog";
 import { TitleBar } from "./components/TitleBar";
 import { GlobalErrorDialog } from "./components/GlobalErrorDialog";
 import { PsImageToast } from "./components/PsImageToast";
@@ -52,6 +53,7 @@ import {
 } from "./features/jimeng/dreaminaSetupDialogEvents";
 import { initializePsIntegration } from "./stores/psIntegrationStore";
 import { ensureDailyDatabaseBackup } from "./commands/storage";
+import { minimizeMainWindowToTray } from "./commands/system";
 import { useJimengVideoQueueStore } from "./stores/jimengVideoQueueStore";
 import {
   checkDreaminaCliUpdate,
@@ -90,6 +92,11 @@ import { DetachedClipLibraryWindow } from "./features/clip-library/ui/DetachedCl
 const WINDOW_CLOSE_FLUSH_TIMEOUT_MS = 2500;
 const WINDOW_CLOSE_REQUEST_TIMEOUT_MS = 1200;
 const MIN_CANVAS_ENTRY_LOADING_MS = 420;
+const MAIN_WINDOW_CLOSE_REQUEST_EVENT = "app:request-main-close";
+
+function hasActiveGenerationFlag(data: unknown): boolean {
+  return Boolean((data as { isGenerating?: boolean } | null)?.isGenerating);
+}
 
 function isWindowsUpdaterRuntime(): boolean {
   return (
@@ -272,6 +279,11 @@ function MainApp() {
     useState<GlobalErrorDialogDetail | null>(null);
   const [dreaminaSetupDetail, setDreaminaSetupDetail] =
     useState<DreaminaSetupDialogDetail | null>(null);
+  const [showCloseWithActiveGenerationDialog, setShowCloseWithActiveGenerationDialog] =
+    useState(false);
+  const [closeDialogActionState, setCloseDialogActionState] = useState<
+    "idle" | "minimize" | "close"
+  >("idle");
 
   const isHydrated = useProjectStore((state) => state.isHydrated);
   const isOpeningProject = useProjectStore((state) => state.isOpeningProject);
@@ -291,6 +303,9 @@ function MainApp() {
   );
   const currentProjectClipLastFolderId = useProjectStore(
     (state) => state.currentProject?.clipLastFolderId ?? null,
+  );
+  const hasActiveCanvasGeneration = useCanvasStore((state) =>
+    state.nodes.some((node) => hasActiveGenerationFlag(node.data)),
   );
   const closeProject = useProjectStore((state) => state.closeProject);
   const setCurrentProjectAssetLibrary = useProjectStore(
@@ -820,6 +835,20 @@ function MainApp() {
     });
   }, [isHydrated]);
 
+  const shouldInterceptWindowClose =
+    currentProjectId != null &&
+    currentProjectType !== "ad" &&
+    hasActiveCanvasGeneration;
+
+  useEffect(() => {
+    if (shouldInterceptWindowClose) {
+      return;
+    }
+
+    setShowCloseWithActiveGenerationDialog(false);
+    setCloseDialogActionState("idle");
+  }, [shouldInterceptWindowClose]);
+
   const requestWindowClose = useCallback(async () => {
     if (isWindowCloseInProgressRef.current) {
       return;
@@ -843,6 +872,56 @@ function MainApp() {
       isWindowCloseInProgressRef.current = false;
     }
   }, [flushCurrentProjectToDisk]);
+
+  const handleMainWindowCloseIntent = useCallback(async () => {
+    if (isWindowCloseInProgressRef.current) {
+      return;
+    }
+
+    if (shouldInterceptWindowClose) {
+      if (
+        showCloseWithActiveGenerationDialog ||
+        closeDialogActionState !== "idle"
+      ) {
+        return;
+      }
+      setCloseDialogActionState("idle");
+      setShowCloseWithActiveGenerationDialog(true);
+      return;
+    }
+
+    await requestWindowClose();
+  }, [
+    closeDialogActionState,
+    requestWindowClose,
+    shouldInterceptWindowClose,
+    showCloseWithActiveGenerationDialog,
+  ]);
+
+  const handleMinimizeToTray = useCallback(async () => {
+    if (closeDialogActionState !== "idle") {
+      return;
+    }
+
+    setCloseDialogActionState("minimize");
+    const minimized = await minimizeMainWindowToTray();
+    if (minimized) {
+      setShowCloseWithActiveGenerationDialog(false);
+    }
+    setCloseDialogActionState("idle");
+  }, [closeDialogActionState]);
+
+  const handleForceCloseWithActiveGeneration = useCallback(async () => {
+    if (closeDialogActionState !== "idle") {
+      return;
+    }
+
+    setCloseDialogActionState("close");
+    await requestWindowClose();
+    if (!isWindowCloseInProgressRef.current) {
+      setCloseDialogActionState("idle");
+    }
+  }, [closeDialogActionState, requestWindowClose]);
 
   useEffect(() => {
     const appWindow = getCurrentWindow();
@@ -871,7 +950,7 @@ function MainApp() {
         }
 
         event.preventDefault();
-        await requestWindowClose();
+        await handleMainWindowCloseIntent();
       });
     };
 
@@ -883,7 +962,34 @@ function MainApp() {
       disposed = true;
       detachWindowCloseListener();
     };
-  }, [requestWindowClose]);
+  }, [handleMainWindowCloseIntent]);
+
+  useEffect(() => {
+    const appWindow = getCurrentWindow();
+    let disposed = false;
+    let unlistenMainCloseRequest: (() => void) | null = null;
+
+    const registerMainCloseRequestListener = async () => {
+      unlistenMainCloseRequest = await appWindow.listen(
+        MAIN_WINDOW_CLOSE_REQUEST_EVENT,
+        () => {
+          if (disposed) {
+            return;
+          }
+          void handleMainWindowCloseIntent();
+        },
+      );
+    };
+
+    void registerMainCloseRequestListener().catch((error) => {
+      console.error("Failed to register tray close request listener", error);
+    });
+
+    return () => {
+      disposed = true;
+      unlistenMainCloseRequest?.();
+    };
+  }, [handleMainWindowCloseIntent]);
 
   const handleManualCheckUpdate = async (): Promise<
     "has-update" | "up-to-date" | "failed"
@@ -988,7 +1094,7 @@ function MainApp() {
           setSettingsDialogLoaded(true);
           setShowSettings(true);
         }}
-        onCloseRequest={requestWindowClose}
+        onCloseRequest={handleMainWindowCloseIntent}
         showBackButton={!!currentProjectId}
         onBackClick={closeProject}
       />
@@ -1077,6 +1183,18 @@ function MainApp() {
         details={globalError?.details}
         copyText={globalError?.copyText}
         onClose={() => setGlobalError(null)}
+      />
+      <CloseWithActiveGenerationDialog
+        isOpen={showCloseWithActiveGenerationDialog}
+        actionState={closeDialogActionState}
+        onClose={() => {
+          if (closeDialogActionState !== "idle") {
+            return;
+          }
+          setShowCloseWithActiveGenerationDialog(false);
+        }}
+        onMinimize={handleMinimizeToTray}
+        onForceClose={handleForceCloseWithActiveGeneration}
       />
       {dreaminaDialogLoaded ? (
         <Suspense fallback={null}>

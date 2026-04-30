@@ -1,6 +1,9 @@
 use serde::Serialize;
 use std::process::Command;
 use std::time::Duration;
+use tracing::warn;
+
+use crate::{minimize_main_window_to_tray as hide_main_window_to_tray, set_main_tray_visible};
 
 #[cfg(target_os = "windows")]
 mod windows_native_file_drag {
@@ -736,12 +739,21 @@ pub fn read_system_clipboard_file_paths(app: tauri::AppHandle) -> Result<Vec<Str
 
 #[tauri::command]
 pub async fn request_app_exit(app: tauri::AppHandle) -> Result<(), String> {
+    if let Err(err) = set_main_tray_visible(&app, false) {
+        warn!("{err}");
+    }
+
     tauri::async_runtime::spawn(async move {
         tokio::time::sleep(Duration::from_millis(40)).await;
         app.exit(0);
     });
 
     Ok(())
+}
+
+#[tauri::command]
+pub fn minimize_main_window_to_tray(app: tauri::AppHandle) -> Result<(), String> {
+    hide_main_window_to_tray(&app)
 }
 
 #[tauri::command]

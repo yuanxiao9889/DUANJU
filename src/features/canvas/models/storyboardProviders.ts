@@ -154,7 +154,7 @@ const BUILT_IN_STORYBOARD_MODELS: Record<
   grsai: [
     { modelId: GRSAI_NANO_BANANA_2_MODEL_ID, label: 'Nano Banana 2', source: 'builtin' },
     { modelId: GRSAI_NANO_BANANA_PRO_MODEL_ID, label: 'Nano Banana Pro', source: 'builtin' },
-    { modelId: GRSAI_GPT_IMAGE_2_MODEL_ID, label: 'gpt-image-2', source: 'builtin' },
+    { modelId: GRSAI_GPT_IMAGE_2_MODEL_ID, label: 'gpt-image-2-vip', source: 'builtin' },
   ],
   azemm: [
     { modelId: AZEMM_NANO_BANANA_MODEL_ID, label: '\u9999\u85492', source: 'builtin' },

@@ -41,6 +41,7 @@ function greatestCommonDivisor(a: number, b: number): number {
 const DEFAULT_PREVIEW_MAX_DIMENSION = 512;
 const LOCAL_PATH_PREFIX_PATTERN = /^(?:[A-Za-z]:[\\/]|\\\\|\/)/;
 const URL_SCHEME_PREFIX_PATTERN = /^[a-z][a-z0-9+\-.]*:\/\//i;
+const LOCAL_IMAGE_DISPLAY_SOURCE_CACHE_LIMIT = 128;
 const BUNDLED_APP_ASSET_PREFIXES = [
   '/assets/',
   './assets/',
@@ -80,6 +81,10 @@ export interface ImagePixelDimensions {
   width: number;
   height: number;
 }
+
+const LOCAL_IMAGE_READABILITY_RETRY_DELAYS_MS = [80, 160, 320, 640, 1280] as const;
+const localImageDisplaySourceCache = new Map<string, string>();
+const localImageDisplaySourceInflight = new Map<string, Promise<string>>();
 
 interface ErrorWithDetails extends Error {
   details?: string;
@@ -335,6 +340,70 @@ export function resolveImageDisplayUrl(imageUrl: string): string {
   }
 }
 
+function rememberLocalImageDisplaySource(localFilePath: string, displaySource: string): void {
+  if (!displaySource) {
+    return;
+  }
+
+  if (localImageDisplaySourceCache.has(localFilePath)) {
+    localImageDisplaySourceCache.delete(localFilePath);
+  }
+  localImageDisplaySourceCache.set(localFilePath, displaySource);
+
+  while (localImageDisplaySourceCache.size > LOCAL_IMAGE_DISPLAY_SOURCE_CACHE_LIMIT) {
+    const oldestKey = localImageDisplaySourceCache.keys().next().value;
+    if (!oldestKey) {
+      break;
+    }
+    localImageDisplaySourceCache.delete(oldestKey);
+  }
+}
+
+export function getCachedStableImageDisplaySource(source: string): string | null {
+  const localFilePath = resolveLocalFileSourcePath(source);
+  if (!localFilePath) {
+    return null;
+  }
+
+  return localImageDisplaySourceCache.get(localFilePath) ?? null;
+}
+
+export async function loadStableImageDisplaySource(source: string): Promise<string> {
+  const normalizedSource = source.trim();
+  if (!normalizedSource) {
+    return normalizedSource;
+  }
+
+  const localFilePath = resolveLocalFileSourcePath(normalizedSource);
+  if (!localFilePath || !isTauri()) {
+    return resolveImageDisplayUrl(normalizedSource);
+  }
+
+  const cachedDisplaySource = localImageDisplaySourceCache.get(localFilePath);
+  if (cachedDisplaySource) {
+    return cachedDisplaySource;
+  }
+
+  const inflightRequest = localImageDisplaySourceInflight.get(localFilePath);
+  if (inflightRequest) {
+    return await inflightRequest;
+  }
+
+  const request = loadImage(localFilePath)
+    .then((displaySource) => {
+      rememberLocalImageDisplaySource(localFilePath, displaySource);
+      localImageDisplaySourceInflight.delete(localFilePath);
+      return displaySource;
+    })
+    .catch((error) => {
+      localImageDisplaySourceInflight.delete(localFilePath);
+      throw error;
+    });
+
+  localImageDisplaySourceInflight.set(localFilePath, request);
+  return await request;
+}
+
 export async function persistImageLocally(source: string): Promise<string> {
   const localFilePath = resolveLocalFileSourcePath(source);
   if (localFilePath) {
@@ -361,7 +430,7 @@ async function canReadLocalImageSource(source: string): Promise<boolean> {
 
   if (isTauri()) {
     try {
-      await loadImage(localFilePath);
+      await loadStableImageDisplaySource(localFilePath);
       return true;
     } catch {
       return false;
@@ -395,6 +464,92 @@ export async function resolveReadableImageSource(
   return (await canReadLocalImageSource(normalizedSource))
     ? normalizedSource
     : normalizedFallback;
+}
+
+async function canRenderLocalImageSource(source: string): Promise<boolean> {
+  const localFilePath = resolveLocalFileSourcePath(source);
+  if (!localFilePath) {
+    return true;
+  }
+
+  try {
+    await loadStableImageDisplaySource(localFilePath);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => {
+    window.setTimeout(resolve, ms);
+  });
+}
+
+async function waitForLocalImageSourceReadiness(source: string): Promise<boolean> {
+  const normalizedSource = source.trim();
+  if (!normalizedSource) {
+    return false;
+  }
+
+  for (let index = 0; index < LOCAL_IMAGE_READABILITY_RETRY_DELAYS_MS.length; index += 1) {
+    if (await canRenderLocalImageSource(normalizedSource)) {
+      return true;
+    }
+
+    const retryDelayMs = LOCAL_IMAGE_READABILITY_RETRY_DELAYS_MS[index];
+    await sleep(retryDelayMs);
+  }
+
+  return await canRenderLocalImageSource(normalizedSource);
+}
+
+export async function waitForReadableLocalImageSource(
+  source: string,
+  fallbackSource?: string | null
+): Promise<string> {
+  const normalizedSource = source.trim();
+  const normalizedFallback =
+    typeof fallbackSource === 'string' ? fallbackSource.trim() : '';
+
+  if (!normalizedSource) {
+    return normalizedFallback;
+  }
+
+  const sourceReadable = await waitForLocalImageSourceReadiness(normalizedSource);
+  if (sourceReadable) {
+    return normalizedSource;
+  }
+
+  if (normalizedFallback && normalizedFallback !== normalizedSource) {
+    const fallbackReadable = await waitForLocalImageSourceReadiness(normalizedFallback);
+    if (fallbackReadable) {
+      return normalizedFallback;
+    }
+  }
+
+  throw createImagePipelineError(
+    '链路中的本地图片尚未准备就绪',
+    `source=${normalizedSource}\nfallback=${normalizedFallback || 'none'}`
+  );
+}
+
+export async function ensurePreparedNodeImageReadable(
+  prepared: PreparedNodeImage
+): Promise<PreparedNodeImage> {
+  const resolvedPreviewSource = await waitForReadableLocalImageSource(
+    prepared.previewImageUrl,
+    prepared.imageUrl
+  );
+
+  if (resolvedPreviewSource === prepared.previewImageUrl) {
+    return prepared;
+  }
+
+  return {
+    ...prepared,
+    previewImageUrl: prepared.imageUrl,
+  };
 }
 
 export async function loadImageElement(source: string): Promise<HTMLImageElement> {

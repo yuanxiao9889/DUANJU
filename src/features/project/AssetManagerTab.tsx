@@ -37,9 +37,14 @@ import {
   resolveAudioDisplayUrl,
 } from '@/features/canvas/application/audioData';
 import {
+  ensurePreparedNodeImageReadable,
+  getCachedStableImageDisplaySource,
+  loadStableImageDisplaySource,
   prepareNodeImageFromFile,
+  resolveLocalFileSourcePath,
   resolveImageDisplayUrl,
 } from '@/features/canvas/application/imageData';
+import { CanvasNodeImage } from '@/features/canvas/ui/CanvasNodeImage';
 import { useAssetStore } from '@/stores/assetStore';
 
 type LibraryDialogState =
@@ -74,6 +79,25 @@ interface ConfirmDialogState {
   onConfirm: () => Promise<void>;
 }
 
+interface AssetBatchImportFailure {
+  fileName: string;
+  errorMessage: string;
+}
+
+interface AssetBatchImportResult {
+  totalCount: number;
+  succeededCount: number;
+  failedCount: number;
+  failures: AssetBatchImportFailure[];
+}
+
+interface AssetBatchImportProgress {
+  totalCount: number;
+  completedCount: number;
+  succeededCount: number;
+  failedCount: number;
+}
+
 interface AssetCategorySectionProps {
   category: AssetCategory;
   library: AssetLibraryRecord;
@@ -81,9 +105,131 @@ interface AssetCategorySectionProps {
   onRenameSubcategory: (subcategoryId: string, category: AssetCategory, name: string) => void;
   onDeleteSubcategory: (subcategoryId: string) => void;
   onCreateAsset: (category: AssetCategory) => void;
-  onQuickImportAssets: (category: AssetCategory, files: File[]) => Promise<void>;
+  onQuickImportAssets: (category: AssetCategory, files: File[]) => Promise<AssetBatchImportResult>;
+  importProgress: AssetBatchImportProgress | null;
+  lastImportResult: AssetBatchImportResult | null;
   onEditAsset: (asset: AssetItemRecord) => void;
   onDeleteAsset: (assetId: string) => void;
+}
+
+const QUICK_IMPORT_CONCURRENCY = 3;
+
+function resolveImportErrorMessage(error: unknown): string {
+  if (error instanceof Error) {
+    const details = 'details' in error && typeof error.details === 'string'
+      ? error.details.trim()
+      : '';
+    return details ? `${error.message}\n${details}` : error.message;
+  }
+
+  if (typeof error === 'string') {
+    return error;
+  }
+
+  try {
+    return JSON.stringify(error, null, 2);
+  } catch {
+    return String(error);
+  }
+}
+
+function normalizeAssetImageSource(source: string | null | undefined): string | null {
+  const normalized = typeof source === 'string' ? source.trim() : '';
+  return normalized || null;
+}
+
+function resolveInitialAssetImageDisplaySource(source: string | null): string | null {
+  if (!source) {
+    return null;
+  }
+
+  const cachedDisplaySource = getCachedStableImageDisplaySource(source);
+  if (cachedDisplaySource) {
+    return cachedDisplaySource;
+  }
+
+  return resolveLocalFileSourcePath(source) ? null : resolveImageDisplayUrl(source);
+}
+
+function AssetImagePreview({
+  primarySource,
+  fallbackSource,
+  alt,
+  className,
+}: {
+  primarySource: string | null | undefined;
+  fallbackSource?: string | null | undefined;
+  alt: string;
+  className: string;
+}) {
+  const normalizedPrimarySource = normalizeAssetImageSource(primarySource);
+  const normalizedFallbackSource = normalizeAssetImageSource(fallbackSource);
+  const [primarySrc, setPrimarySrc] = useState<string | null>(() =>
+    resolveInitialAssetImageDisplaySource(normalizedPrimarySource)
+  );
+  const [fallbackSrc, setFallbackSrc] = useState<string | null>(() => {
+    if (!normalizedFallbackSource || normalizedFallbackSource === normalizedPrimarySource) {
+      return null;
+    }
+
+    return resolveInitialAssetImageDisplaySource(normalizedFallbackSource);
+  });
+
+  useEffect(() => {
+    let isCancelled = false;
+
+    const initialPrimarySrc = resolveInitialAssetImageDisplaySource(normalizedPrimarySource);
+    const initialFallbackSrc =
+      normalizedFallbackSource && normalizedFallbackSource !== normalizedPrimarySource
+        ? resolveInitialAssetImageDisplaySource(normalizedFallbackSource)
+        : null;
+
+    setPrimarySrc(initialPrimarySrc);
+    setFallbackSrc(initialFallbackSrc);
+
+    const loadDisplaySource = async (
+      source: string | null,
+      onResolved: (displaySource: string | null) => void
+    ) => {
+      if (!source || !resolveLocalFileSourcePath(source)) {
+        return;
+      }
+
+      try {
+        const displaySource = await loadStableImageDisplaySource(source);
+        if (!isCancelled) {
+          onResolved(displaySource);
+        }
+      } catch (error) {
+        if (!isCancelled) {
+          onResolved(null);
+        }
+        console.warn('[AssetManagerTab] failed to load stable local asset preview', {
+          source,
+          error,
+        });
+      }
+    };
+
+    void loadDisplaySource(normalizedPrimarySource, setPrimarySrc);
+    if (normalizedFallbackSource && normalizedFallbackSource !== normalizedPrimarySource) {
+      void loadDisplaySource(normalizedFallbackSource, setFallbackSrc);
+    }
+
+    return () => {
+      isCancelled = true;
+    };
+  }, [normalizedFallbackSource, normalizedPrimarySource]);
+
+  return (
+    <CanvasNodeImage
+      src={primarySrc ?? ''}
+      fallbackSrc={fallbackSrc}
+      disableViewer
+      alt={alt}
+      className={className}
+    />
+  );
 }
 
 function resolveCategoryLabel(t: (key: string) => string, category: AssetCategory): string {
@@ -141,12 +287,13 @@ function AssetCategorySection({
   onDeleteSubcategory,
   onCreateAsset,
   onQuickImportAssets,
+  importProgress,
+  lastImportResult,
   onEditAsset,
   onDeleteAsset,
 }: AssetCategorySectionProps) {
   const { t } = useTranslation();
   const [isFileDragActive, setIsFileDragActive] = useState(false);
-  const [importingCount, setImportingCount] = useState(0);
   const [selectedSubcategoryId, setSelectedSubcategoryId] = useState('');
   const dragDepthRef = useRef(0);
   const subcategories = useMemo(
@@ -166,7 +313,11 @@ function AssetCategorySection({
   );
   const categoryLabel = resolveCategoryLabel(t, category);
   const categoryMediaType = resolveAssetMediaType(category);
-  const isImporting = importingCount > 0;
+  const isImporting = importProgress !== null;
+  const failedPreviewNames = useMemo(
+    () => lastImportResult?.failures.slice(0, 3).map((failure) => failure.fileName).join(', ') ?? '',
+    [lastImportResult]
+  );
   const filteredAssets = useMemo(
     () =>
       selectedSubcategoryId
@@ -236,12 +387,7 @@ function AssetCategorySection({
 
     event.preventDefault();
     resetDragState();
-    setImportingCount(files.length);
-    try {
-      await onQuickImportAssets(category, files);
-    } finally {
-      setImportingCount(0);
-    }
+    await onQuickImportAssets(category, files);
   };
 
   return (
@@ -261,12 +407,11 @@ function AssetCategorySection({
           <div className="rounded-xl border border-accent/30 bg-black/35 px-5 py-3">
             <div className="text-sm font-semibold text-text-dark">
               {isImporting
-                ? t(
-                    categoryMediaType === 'audio'
-                      ? 'assets.importingAudioToCategory'
-                      : 'assets.importingToCategory',
-                    { count: importingCount, category: categoryLabel }
-                  )
+                ? t('assets.importingProgressToCategory', {
+                    completed: importProgress?.completedCount ?? 0,
+                    total: importProgress?.totalCount ?? 0,
+                    category: categoryLabel,
+                  })
                 : t(
                     categoryMediaType === 'audio'
                       ? 'assets.dropAudioToCategory'
@@ -275,7 +420,11 @@ function AssetCategorySection({
                   )}
             </div>
             <div className="mt-1 text-xs text-text-muted">
-              {t('assets.dropImportAutoFill')}
+              {isImporting && (importProgress?.failedCount ?? 0) > 0
+                ? t('assets.importingProgressFailures', {
+                    count: importProgress?.failedCount ?? 0,
+                  })
+                : t('assets.dropImportAutoFill')}
             </div>
           </div>
         </div>
@@ -385,6 +534,21 @@ function AssetCategorySection({
           )}
         </div>
 
+        {lastImportResult && lastImportResult.failedCount > 0 ? (
+          <div className="rounded-xl border border-red-500/20 bg-red-500/10 px-4 py-3">
+            <div className="text-sm font-medium text-red-100">
+              {t('assets.importFailureSummaryTitle')}
+            </div>
+            <div className="mt-1 text-xs text-red-100/85">
+              {t('assets.importFailureSummaryDetail', {
+                succeeded: lastImportResult.succeededCount,
+                total: lastImportResult.totalCount,
+                names: failedPreviewNames,
+              })}
+            </div>
+          </div>
+        ) : null}
+
         <div>
           {filteredAssets.length === 0 ? (
             <div className="rounded-xl border border-dashed border-[rgba(255,255,255,0.12)] px-5 py-10 text-center">
@@ -426,8 +590,9 @@ function AssetCategorySection({
                         </div>
                       </div>
                     ) : (
-                      <img
-                        src={resolveImageDisplayUrl(asset.previewPath || asset.sourcePath)}
+                      <AssetImagePreview
+                        primarySource={asset.previewPath || asset.sourcePath}
+                        fallbackSource={asset.sourcePath}
                         alt={asset.name}
                         className="h-full w-full object-cover transition-transform duration-200 group-hover:scale-[1.03]"
                       />
@@ -679,7 +844,7 @@ function AssetEditorDialog({ library, state, onClose, onConfirm }: AssetEditorDi
         setDurationMs(Math.round(prepared.duration * 1000));
         setAspectRatio('1:1');
       } else {
-        const prepared = await prepareNodeImageFromFile(file);
+        const prepared = await ensurePreparedNodeImageReadable(await prepareNodeImageFromFile(file));
         setSourcePath(prepared.imageUrl);
         setPreviewPath(prepared.previewImageUrl);
         setMimeType(file.type.trim() || null);
@@ -775,8 +940,9 @@ function AssetEditorDialog({ library, state, onClose, onConfirm }: AssetEditorDi
                   </div>
                 )
               ) : previewPath || sourcePath ? (
-                <img
-                  src={resolveImageDisplayUrl(previewPath || sourcePath)}
+                <AssetImagePreview
+                  primarySource={previewPath || sourcePath}
+                  fallbackSource={sourcePath}
                   alt={name || t('assets.previewAlt')}
                   className="h-full w-full object-cover"
                 />
@@ -897,6 +1063,10 @@ export function AssetManagerTab() {
     useState<SubcategoryDialogState>(null);
   const [assetDialogState, setAssetDialogState] = useState<AssetDialogState>(null);
   const [confirmDialogState, setConfirmDialogState] = useState<ConfirmDialogState | null>(null);
+  const [batchImportProgressByCategory, setBatchImportProgressByCategory] =
+    useState<Partial<Record<AssetCategory, AssetBatchImportProgress>>>({});
+  const [batchImportResultByCategory, setBatchImportResultByCategory] =
+    useState<Partial<Record<AssetCategory, AssetBatchImportResult>>>({});
 
   useEffect(() => {
     void hydrate();
@@ -1002,58 +1172,152 @@ export function AssetManagerTab() {
     setAssetDialogState(null);
   };
 
-  const handleQuickImportAssets = async (category: AssetCategory, files: File[]) => {
+  const handleQuickImportAssets = async (
+    category: AssetCategory,
+    files: File[]
+  ): Promise<AssetBatchImportResult> => {
     if (!selectedLibrary || files.length === 0) {
-      return;
+      return {
+        totalCount: files.length,
+        succeededCount: 0,
+        failedCount: 0,
+        failures: [],
+      };
     }
 
-    for (const file of files) {
-      try {
-        const mediaType = resolveAssetMediaType(category);
-        if (mediaType === 'audio') {
-          const prepared = await prepareNodeAudioFromFile(file);
-          await createItem({
-            libraryId: selectedLibrary.id,
-            category,
-            mediaType,
-            subcategoryId: null,
-            name: resolveDefaultAssetName(file.name) || t('assets.untitledAsset'),
-            description: '',
-            tags: [],
-            sourcePath: prepared.audioUrl,
-            previewPath: prepared.previewImageUrl,
-            mimeType: prepared.mimeType,
-            durationMs: Math.round(prepared.duration * 1000),
-            aspectRatio: '1:1',
-            metadata: null,
-          });
-          continue;
+    const libraryId = selectedLibrary.id;
+    const mediaType = resolveAssetMediaType(category);
+    const totalCount = files.length;
+    const failures: AssetBatchImportFailure[] = [];
+    let nextIndex = 0;
+    let completedCount = 0;
+    let succeededCount = 0;
+    let failedCount = 0;
+
+    const publishProgress = () => {
+      setBatchImportProgressByCategory((current) => ({
+        ...current,
+        [category]: {
+          totalCount,
+          completedCount,
+          succeededCount,
+          failedCount,
+        },
+      }));
+    };
+
+    const clearProgress = () => {
+      setBatchImportProgressByCategory((current) => {
+        const next = { ...current };
+        delete next[category];
+        return next;
+      });
+    };
+
+    const publishResult = (result: AssetBatchImportResult) => {
+      setBatchImportResultByCategory((current) => {
+        if (result.failedCount === 0) {
+          const next = { ...current };
+          delete next[category];
+          return next;
         }
 
-        const prepared = await prepareNodeImageFromFile(file);
+        return {
+          ...current,
+          [category]: result,
+        };
+      });
+    };
+
+    const importSingleFile = async (file: File) => {
+      if (mediaType === 'audio') {
+        const prepared = await prepareNodeAudioFromFile(file);
         await createItem({
-          libraryId: selectedLibrary.id,
+          libraryId,
           category,
           mediaType,
           subcategoryId: null,
           name: resolveDefaultAssetName(file.name) || t('assets.untitledAsset'),
           description: '',
           tags: [],
-          sourcePath: prepared.imageUrl,
+          sourcePath: prepared.audioUrl,
           previewPath: prepared.previewImageUrl,
-          mimeType: file.type.trim() || null,
-          durationMs: null,
-          aspectRatio: prepared.aspectRatio,
+          mimeType: prepared.mimeType,
+          durationMs: Math.round(prepared.duration * 1000),
+          aspectRatio: '1:1',
           metadata: null,
         });
-      } catch (error) {
-        console.error('Failed to import dropped asset image', {
-          category,
-          fileName: file.name,
-          error,
-        });
+        return;
       }
-    }
+
+      const prepared = await ensurePreparedNodeImageReadable(await prepareNodeImageFromFile(file));
+      await createItem({
+        libraryId,
+        category,
+        mediaType,
+        subcategoryId: null,
+        name: resolveDefaultAssetName(file.name) || t('assets.untitledAsset'),
+        description: '',
+        tags: [],
+        sourcePath: prepared.imageUrl,
+        previewPath: prepared.previewImageUrl,
+        mimeType: file.type.trim() || null,
+        durationMs: null,
+        aspectRatio: prepared.aspectRatio,
+        metadata: null,
+      });
+    };
+
+    publishProgress();
+    publishResult({
+      totalCount,
+      succeededCount: 0,
+      failedCount: 0,
+      failures: [],
+    });
+
+    const workerCount = Math.max(1, Math.min(QUICK_IMPORT_CONCURRENCY, totalCount));
+    await Promise.all(
+      Array.from({ length: workerCount }, async () => {
+        while (nextIndex < totalCount) {
+          const currentIndex = nextIndex;
+          nextIndex += 1;
+          const file = files[currentIndex];
+
+          try {
+            await importSingleFile(file);
+            succeededCount += 1;
+          } catch (error) {
+            failedCount += 1;
+            const errorMessage = resolveImportErrorMessage(error);
+            failures.push({
+              fileName: file.name,
+              errorMessage,
+            });
+            console.error('Failed to import dropped asset image', {
+              category,
+              fileName: file.name,
+              error,
+              errorMessage,
+            });
+          } finally {
+            completedCount += 1;
+            publishProgress();
+          }
+        }
+      })
+    );
+
+    const result: AssetBatchImportResult = {
+      totalCount,
+      succeededCount,
+      failedCount,
+      failures,
+    };
+
+    clearProgress();
+    publishResult(result);
+    return result;
   };
 
   return (
@@ -1203,6 +1467,8 @@ export function AssetManagerTab() {
                     })
                   }
                   onQuickImportAssets={handleQuickImportAssets}
+                  importProgress={batchImportProgressByCategory[category] ?? null}
+                  lastImportResult={batchImportResultByCategory[category] ?? null}
                   onEditAsset={(asset) =>
                     setAssetDialogState({
                       mode: 'edit',

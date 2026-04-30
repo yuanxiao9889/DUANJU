@@ -44,3 +44,17 @@ export async function readSystemClipboardFilePaths(): Promise<string[]> {
     return [];
   }
 }
+
+export async function minimizeMainWindowToTray(): Promise<boolean> {
+  if (!isTauri()) {
+    return false;
+  }
+
+  try {
+    await invoke('minimize_main_window_to_tray');
+    return true;
+  } catch (error) {
+    console.warn('failed to minimize main window to tray', error);
+    return false;
+  }
+}
