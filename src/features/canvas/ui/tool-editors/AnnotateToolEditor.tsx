@@ -24,7 +24,7 @@ import {
   type AnnotationItem,
   type AnnotationToolType,
 } from '@/features/canvas/tools/annotation';
-import { resolveImageDisplayUrl } from '@/features/canvas/application/imageData';
+import { loadImageElement } from '@/features/canvas/application/imageData';
 import type { VisualToolEditorProps } from './types';
 
 const VIEWPORT_PADDING_PX = 16;
@@ -249,10 +249,23 @@ export function AnnotateToolEditor({ options, onOptionsChange, sourceImageUrl }:
   }, [options.annotations, selectedId]);
 
   useEffect(() => {
-    const img = new window.Image();
-    img.onload = () => setImage(img);
-    img.onerror = () => setImage(null);
-    img.src = resolveImageDisplayUrl(sourceImageUrl);
+    let cancelled = false;
+
+    void loadImageElement(sourceImageUrl)
+      .then((img) => {
+        if (!cancelled) {
+          setImage(img);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setImage(null);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
   }, [sourceImageUrl]);
 
   useEffect(() => {

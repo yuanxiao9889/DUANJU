@@ -23,7 +23,8 @@ import {
   resolveErrorContent,
   showErrorDialog,
 } from "@/features/canvas/application/errorDialog";
-import { resolveImageDisplayUrl } from "@/features/canvas/application/imageData";
+import { openSettingsDialog } from "@/features/settings/settingsEvents";
+import { CanvasNodeImage } from "@/features/canvas/ui/CanvasNodeImage";
 import { flushCurrentProjectToDiskSafely } from "@/features/canvas/application/projectPersistence";
 import {
   formatVideoTime,
@@ -39,6 +40,7 @@ import {
 import { resolveNodeDisplayName } from "@/features/canvas/domain/nodeDisplay";
 import { useNodeVideoPlaybackControls } from "@/features/canvas/hooks/useNodeVideoPlaybackControls";
 import { useCanvasNodeById } from "@/features/canvas/hooks/useCanvasNodeGraph";
+import { useStableImageDisplaySource } from "@/features/canvas/hooks/useStableImageDisplaySource";
 import {
   NodeHeader,
   NODE_HEADER_FLOATING_POSITION_CLASS,
@@ -156,8 +158,9 @@ export const SeedanceVideoResultNode = memo(
     }, [data.videoUrl]);
     const posterSource = useMemo(() => {
       const source = data.previewImageUrl?.trim() ?? "";
-      return source ? resolveImageDisplayUrl(source) : null;
+      return source || null;
     }, [data.previewImageUrl]);
+    const { displaySource: posterDisplaySource } = useStableImageDisplaySource(posterSource);
     const normalizedTaskStatus = useMemo(
       () => normalizeSeedanceTaskStatus(data.taskStatus),
       [data.taskStatus],
@@ -217,6 +220,11 @@ export const SeedanceVideoResultNode = memo(
           const message = t("node.seedance.apiKeyRequired");
           setStatusNotice(message);
           updateNodeData(id, { lastError: message });
+          openSettingsDialog({
+            category: "providers",
+            providerTab: "storyboard",
+            providerId: "volcengine",
+          });
           if (!options?.suppressErrorDialog) {
             await showErrorDialog(message, t("common.error"));
           }
@@ -525,10 +533,11 @@ export const SeedanceVideoResultNode = memo(
               style={hasExplicitHeight ? undefined : { aspectRatio: resolvedAspectRatio }}
             >
               {posterSource && (!isVideoReady || Boolean(videoError)) ? (
-                <img
+                <CanvasNodeImage
                   src={posterSource}
                   alt={t("node.videoNode.posterAlt")}
                   className="absolute inset-0 h-full w-full object-cover"
+                  disableViewer
                 />
               ) : null}
               <div
@@ -543,7 +552,7 @@ export const SeedanceVideoResultNode = memo(
                     controls
                     preload="metadata"
                     playsInline
-                    poster={posterSource ?? undefined}
+                    poster={posterDisplaySource ?? undefined}
                     className={`h-full w-full bg-black object-contain transition-opacity duration-150 ${
                       videoError ? "opacity-35" : "opacity-100"
                     }`}

@@ -1,4 +1,5 @@
 use std::collections::HashSet;
+use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
@@ -7,9 +8,11 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use tauri::AppHandle;
 
+use super::generation_history;
 use super::storage;
 
 const STYLE_TEMPLATE_SETTINGS_REFS_PROJECT_ID: &str = "__settings_style_template_refs__";
+const IMAGE_PRUNE_GRACE_PERIOD: Duration = Duration::from_secs(24 * 60 * 60);
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -66,8 +69,132 @@ pub struct ProjectRecord {
     pub script_welcome_skipped: bool,
 }
 
+#[derive(Debug, Clone)]
+struct LegacyProjectPayload {
+    legacy_id: String,
+    source_dir: PathBuf,
+    nodes_json: String,
+    edges_json: String,
+    viewport_json: String,
+    history_json: String,
+    node_count: i64,
+}
+
 fn resolve_db_path(app: &AppHandle) -> Result<PathBuf, String> {
     storage::resolve_db_path(app)
+}
+
+fn normalize_storage_compare_key(path: &Path) -> String {
+    path.to_string_lossy().replace('\\', "/").to_ascii_lowercase()
+}
+
+fn read_legacy_project_payload(project_db_path: &Path) -> Result<Option<LegacyProjectPayload>, String> {
+    if !project_db_path.exists() {
+        return Ok(None);
+    }
+
+    let conn = Connection::open(project_db_path)
+        .map_err(|e| format!("Failed to open legacy project db {}: {}", project_db_path.display(), e))?;
+
+    let has_project_data_table = table_exists(&conn, "project_data")?;
+    if !has_project_data_table {
+        return Ok(None);
+    }
+
+    let payload = conn
+        .query_row(
+            r#"
+            SELECT id, nodes_json, edges_json, viewport_json, history_json
+            FROM project_data
+            LIMIT 1
+            "#,
+            [],
+            |row| {
+                Ok(LegacyProjectPayload {
+                    legacy_id: row.get(0)?,
+                    source_dir: project_db_path
+                        .parent()
+                        .map(Path::to_path_buf)
+                        .unwrap_or_else(PathBuf::new),
+                    nodes_json: row.get(1)?,
+                    edges_json: row.get(2)?,
+                    viewport_json: row.get(3)?,
+                    history_json: row.get(4)?,
+                    node_count: 0,
+                })
+            },
+        );
+
+    match payload {
+        Ok(mut value) => {
+            let parsed_nodes = serde_json::from_str::<Value>(&value.nodes_json)
+                .map_err(|e| format!("Failed to parse legacy nodes json {}: {}", project_db_path.display(), e))?;
+            value.node_count = project_nodes_array(&parsed_nodes)
+                .map(|nodes| nodes.len() as i64)
+                .unwrap_or(0);
+            Ok(Some(value))
+        }
+        Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
+        Err(error) => Err(format!(
+            "Failed to load legacy project payload from {}: {}",
+            project_db_path.display(),
+            error
+        )),
+    }
+}
+
+fn collect_legacy_project_payloads(app: &AppHandle) -> Result<Vec<LegacyProjectPayload>, String> {
+    let current_root = storage::resolve_storage_base_path(app)?;
+    let current_root_key = normalize_storage_compare_key(&current_root);
+    let default_root = storage::get_default_storage_path(app)?;
+    let roots = storage::resolve_known_storage_roots(app)?;
+    let mut results = Vec::new();
+    let mut seen_legacy_ids = HashSet::new();
+
+    for root in roots {
+        let root_key = normalize_storage_compare_key(&root);
+        if root_key != current_root_key {
+            continue;
+        }
+
+        let legacy_projects_dir = default_root.join("projects");
+        if !legacy_projects_dir.is_dir() {
+            continue;
+        }
+
+        let entries = fs::read_dir(&legacy_projects_dir).map_err(|e| {
+            format!(
+                "Failed to read legacy projects directory {}: {}",
+                legacy_projects_dir.display(),
+                e
+            )
+        })?;
+
+        for entry in entries {
+            let entry = entry.map_err(|e| {
+                format!(
+                    "Failed to read legacy project directory entry in {}: {}",
+                    legacy_projects_dir.display(),
+                    e
+                )
+            })?;
+            let path = entry.path();
+            if !path.is_dir() {
+                continue;
+            }
+
+            let project_db_path = path.join("project.db");
+            let Some(payload) = read_legacy_project_payload(&project_db_path)? else {
+                continue;
+            };
+
+            if seen_legacy_ids.insert(payload.legacy_id.clone()) {
+                results.push(payload);
+            }
+        }
+    }
+
+    Ok(results)
 }
 
 fn read_table_columns(conn: &Connection, table_name: &str) -> Result<HashSet<String>, String> {
@@ -390,6 +517,12 @@ fn ensure_projects_table(conn: &Connection) -> Result<(), String> {
           PRIMARY KEY(project_id, path)
         );
         CREATE INDEX IF NOT EXISTS idx_project_image_refs_path ON project_image_refs(path);
+        CREATE TABLE IF NOT EXISTS legacy_project_imports (
+          legacy_id TEXT PRIMARY KEY,
+          project_id TEXT NOT NULL,
+          source_dir TEXT NOT NULL,
+          imported_at INTEGER NOT NULL
+        );
         CREATE TABLE IF NOT EXISTS asset_libraries (
           id TEXT PRIMARY KEY,
           name TEXT NOT NULL,
@@ -468,6 +601,8 @@ fn ensure_projects_table(conn: &Connection) -> Result<(), String> {
         "#,
     )
     .map_err(|e| format!("Failed to initialize projects table: {}", e))?;
+
+    generation_history::ensure_generation_history_ready(conn)?;
 
     let mut has_node_count = false;
     let mut has_project_type = false;
@@ -1314,6 +1449,298 @@ fn replace_asset_image_refs_in_tx(
     Ok(())
 }
 
+fn now_timestamp_ms() -> i64 {
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|duration| duration.as_millis() as i64)
+        .unwrap_or(0)
+}
+
+fn build_recovered_project_name(legacy_id: &str) -> String {
+    let short_id = legacy_id.chars().take(8).collect::<String>();
+    format!("Recovered {short_id}")
+}
+
+fn get_project_name_by_id(conn: &Connection, project_id: &str) -> Result<Option<String>, String> {
+    let result = conn.query_row(
+        "SELECT name FROM projects WHERE id = ?1 LIMIT 1",
+        params![project_id],
+        |row| row.get::<_, String>(0),
+    );
+
+    match result {
+        Ok(name) => Ok(Some(name)),
+        Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
+        Err(error) => Err(format!("Failed to read project name: {}", error)),
+    }
+}
+
+fn project_has_meaningful_content(
+    node_count: i64,
+    nodes_json: &str,
+    history_json: &str,
+) -> bool {
+    if node_count > 0 {
+        return true;
+    }
+
+    let parsed_nodes = serde_json::from_str::<Value>(nodes_json).ok();
+    if parsed_nodes
+        .as_ref()
+        .and_then(project_nodes_array)
+        .is_some_and(|nodes| !nodes.is_empty())
+    {
+        return true;
+    }
+
+    let parsed_history = serde_json::from_str::<Value>(history_json).ok();
+    for timeline_key in ["past", "future"] {
+        if parsed_history
+            .as_ref()
+            .and_then(|value| value.get(timeline_key))
+            .and_then(Value::as_array)
+            .is_some_and(|timeline| !timeline.is_empty())
+        {
+            return true;
+        }
+    }
+
+    false
+}
+
+fn project_already_imported(
+    conn: &Connection,
+    legacy_id: &str,
+    source_dir: &Path,
+) -> Result<bool, String> {
+    let source_dir = source_dir.to_string_lossy().replace('\\', "/");
+    let count: i64 = conn
+        .query_row(
+            r#"
+            SELECT COUNT(*)
+            FROM legacy_project_imports
+            WHERE legacy_id = ?1 AND source_dir = ?2
+            "#,
+            params![legacy_id, source_dir],
+            |row| row.get(0),
+        )
+        .map_err(|e| format!("Failed to inspect legacy import registry: {}", e))?;
+
+    Ok(count > 0)
+}
+
+fn remember_legacy_project_import_in_tx(
+    tx: &rusqlite::Transaction<'_>,
+    legacy_id: &str,
+    project_id: &str,
+    source_dir: &Path,
+) -> Result<(), String> {
+    tx.execute(
+        r#"
+        INSERT INTO legacy_project_imports (legacy_id, project_id, source_dir, imported_at)
+        VALUES (?1, ?2, ?3, ?4)
+        ON CONFLICT(legacy_id) DO UPDATE SET
+            project_id = excluded.project_id,
+            source_dir = excluded.source_dir,
+            imported_at = excluded.imported_at
+        "#,
+        params![
+            legacy_id,
+            project_id,
+            source_dir.to_string_lossy().replace('\\', "/"),
+            now_timestamp_ms()
+        ],
+    )
+    .map_err(|e| format!("Failed to record legacy project import: {}", e))?;
+
+    Ok(())
+}
+
+fn find_restore_target_project_id(
+    conn: &Connection,
+    legacy_payload: &LegacyProjectPayload,
+) -> Result<Option<String>, String> {
+    let result = conn.query_row(
+        r#"
+        SELECT id, node_count, nodes_json, history_json
+        FROM projects
+        WHERE id = ?1
+        LIMIT 1
+        "#,
+        params![legacy_payload.legacy_id],
+        |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, i64>(1)?,
+                row.get::<_, String>(2)?,
+                row.get::<_, String>(3)?,
+            ))
+        },
+    );
+
+    match result {
+        Ok((project_id, node_count, nodes_json, history_json)) => {
+            if project_has_meaningful_content(node_count, &nodes_json, &history_json) {
+                return Ok(None);
+            }
+
+            if legacy_payload.node_count <= 0 {
+                return Ok(None);
+            }
+
+            Ok(Some(project_id))
+        }
+        Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
+        Err(error) => Err(format!("Failed to query restore target: {}", error)),
+    }
+}
+
+fn project_id_exists(conn: &Connection, project_id: &str) -> Result<bool, String> {
+    let count: i64 = conn
+        .query_row(
+            "SELECT COUNT(*) FROM projects WHERE id = ?1",
+            params![project_id],
+            |row| row.get(0),
+        )
+        .map_err(|e| format!("Failed to inspect existing project id: {}", e))?;
+    Ok(count > 0)
+}
+
+fn build_recovered_project_id(conn: &Connection, legacy_id: &str) -> Result<String, String> {
+    let mut candidate = legacy_id.to_string();
+    if !project_id_exists(conn, &candidate)? {
+        return Ok(candidate);
+    }
+
+    let short_id = legacy_id.chars().take(8).collect::<String>();
+    candidate = format!("recovered-{short_id}");
+    if !project_id_exists(conn, &candidate)? {
+        return Ok(candidate);
+    }
+
+    let mut index = 2;
+    loop {
+        candidate = format!("recovered-{short_id}-{index}");
+        if !project_id_exists(conn, &candidate)? {
+            return Ok(candidate);
+        }
+        index += 1;
+    }
+}
+
+fn import_legacy_project_payload_in_tx(
+    tx: &rusqlite::Transaction<'_>,
+    project_id: &str,
+    project_name: &str,
+    legacy_payload: &LegacyProjectPayload,
+    created_at: i64,
+    updated_at: i64,
+) -> Result<(), String> {
+    tx.execute(
+        r#"
+        INSERT INTO projects (
+            id,
+            name,
+            project_type,
+            created_at,
+            updated_at,
+            node_count,
+            nodes_json,
+            edges_json,
+            viewport_json,
+            history_json,
+            color_labels_json,
+            script_welcome_skipped
+        )
+        VALUES (?1, ?2, 'storyboard', ?3, ?4, ?5, ?6, ?7, ?8, ?9, '{}', 0)
+        ON CONFLICT(id) DO UPDATE SET
+            name = excluded.name,
+            updated_at = excluded.updated_at,
+            node_count = excluded.node_count,
+            nodes_json = excluded.nodes_json,
+            edges_json = excluded.edges_json,
+            viewport_json = excluded.viewport_json,
+            history_json = excluded.history_json
+        "#,
+        params![
+            project_id,
+            project_name,
+            created_at,
+            updated_at,
+            legacy_payload.node_count,
+            legacy_payload.nodes_json,
+            legacy_payload.edges_json,
+            legacy_payload.viewport_json,
+            legacy_payload.history_json,
+        ],
+    )
+    .map_err(|e| format!("Failed to import legacy project payload: {}", e))?;
+
+    replace_project_image_refs(
+        tx,
+        project_id,
+        &legacy_payload.nodes_json,
+        &legacy_payload.history_json,
+    )?;
+
+    remember_legacy_project_import_in_tx(
+        tx,
+        &legacy_payload.legacy_id,
+        project_id,
+        &legacy_payload.source_dir,
+    )?;
+
+    Ok(())
+}
+
+fn import_legacy_projects_if_needed(conn: &mut Connection, app: &AppHandle) -> Result<bool, String> {
+    let legacy_payloads = collect_legacy_project_payloads(app)?;
+    if legacy_payloads.is_empty() {
+        return Ok(false);
+    }
+
+    let mut changed = false;
+
+    for payload in legacy_payloads {
+        if project_already_imported(conn, &payload.legacy_id, &payload.source_dir)? {
+            continue;
+        }
+
+        let restore_target_id = find_restore_target_project_id(conn, &payload)?;
+        let now = now_timestamp_ms();
+        let project_id = match restore_target_id.clone() {
+            Some(project_id) => project_id,
+            None => build_recovered_project_id(conn, &payload.legacy_id)?,
+        };
+        let project_name = if restore_target_id.is_some() {
+            get_project_name_by_id(conn, &project_id)?
+                .unwrap_or_else(|| build_recovered_project_name(&payload.legacy_id))
+        } else {
+            build_recovered_project_name(&payload.legacy_id)
+        };
+        let created_at = if restore_target_id.is_some() { now } else { now };
+
+        let tx = conn
+            .transaction()
+            .map_err(|e| format!("Failed to begin legacy import transaction: {}", e))?;
+        import_legacy_project_payload_in_tx(
+            &tx,
+            &project_id,
+            &project_name,
+            &payload,
+            created_at,
+            now,
+        )?;
+        tx.commit()
+            .map_err(|e| format!("Failed to commit legacy project import: {}", e))?;
+        changed = true;
+    }
+
+    Ok(changed)
+}
+
 fn repair_project_record_storage_aliases_if_needed(
     conn: &mut Connection,
     app: &AppHandle,
@@ -1510,6 +1937,8 @@ pub(crate) fn prune_unreferenced_images(app: &AppHandle) -> Result<(), String> {
         referenced.extend(extract_project_image_paths(&nodes_json, &history_json));
     }
 
+    referenced.extend(generation_history::collect_generation_history_paths(&conn)?);
+
     let images_dir = resolve_images_dir(app)?;
     let entries =
         std::fs::read_dir(&images_dir).map_err(|e| format!("Failed to read images dir: {}", e))?;
@@ -1525,6 +1954,16 @@ pub(crate) fn prune_unreferenced_images(app: &AppHandle) -> Result<(), String> {
         let normalized_path =
             normalize_image_ref_path(&path_string).unwrap_or_else(|| path_string.clone());
         if !referenced.contains(&normalized_path) {
+            let is_fresh_file = entry
+                .metadata()
+                .ok()
+                .and_then(|metadata| metadata.modified().ok())
+                .and_then(|modified_at| modified_at.elapsed().ok())
+                .is_some_and(|age| age < IMAGE_PRUNE_GRACE_PERIOD);
+            if is_fresh_file {
+                continue;
+            }
+
             std::fs::remove_file(&path)
                 .map_err(|e| format!("Failed to delete unreferenced image: {}", e))?;
         }
@@ -1602,7 +2041,8 @@ pub fn sync_style_template_image_refs(app: AppHandle, paths: Vec<String>) -> Res
 
 pub(crate) fn open_db(app: &AppHandle) -> Result<Connection, String> {
     let db_path = resolve_db_path(app)?;
-    let conn = Connection::open(db_path).map_err(|e| format!("Failed to open SQLite DB: {}", e))?;
+    let mut conn =
+        Connection::open(db_path).map_err(|e| format!("Failed to open SQLite DB: {}", e))?;
 
     conn.pragma_update(None, "journal_mode", "WAL")
         .map_err(|e| format!("Failed to set journal_mode=WAL: {}", e))?;
@@ -1614,6 +2054,7 @@ pub(crate) fn open_db(app: &AppHandle) -> Result<Connection, String> {
         .map_err(|e| format!("Failed to set busy timeout: {}", e))?;
 
     ensure_projects_table(&conn)?;
+    import_legacy_projects_if_needed(&mut conn, app)?;
     Ok(conn)
 }
 
@@ -1747,6 +2188,8 @@ pub fn upsert_project_record(app: AppHandle, mut record: ProjectRecord) -> Resul
         record.history_json = next_history_json;
     }
 
+    let _ = storage::maybe_create_pre_persist_backup(&app, &record.id);
+
     let mut conn = open_db(&app)?;
     let tx = conn
         .transaction()
@@ -1873,6 +2316,11 @@ pub fn delete_project_record(app: AppHandle, project_id: String) -> Result<(), S
         params![project_id],
     )
     .map_err(|e| format!("Failed to delete Jimeng queue jobs: {}", e))?;
+    tx.execute(
+        "DELETE FROM generation_history_items WHERE project_id = ?1",
+        params![project_id],
+    )
+    .map_err(|e| format!("Failed to delete generation history items: {}", e))?;
 
     tx.commit()
         .map_err(|e| format!("Failed to commit delete transaction: {}", e))?;
@@ -1885,11 +2333,13 @@ pub fn delete_project_record(app: AppHandle, project_id: String) -> Result<(), S
 mod tests {
     use super::storage;
     use super::{
-        ensure_projects_table, extract_project_image_paths, normalize_image_ref_path,
-        read_table_columns, rewrite_project_payload_media_paths,
+        ensure_projects_table, extract_project_image_paths, find_restore_target_project_id,
+        normalize_image_ref_path, project_has_meaningful_content, read_table_columns,
+        rewrite_project_payload_media_paths, LegacyProjectPayload,
     };
     use rusqlite::Connection;
     use std::fs;
+    use std::path::PathBuf;
 
     #[test]
     fn ensure_projects_table_migrates_legacy_projects_before_creating_indexes() {
@@ -2500,5 +2950,61 @@ mod tests {
             .contains(&history_preview.to_string_lossy().replace('\\', "/")));
 
         let _ = fs::remove_dir_all(temp_root);
+    }
+
+    #[test]
+    fn project_has_meaningful_content_detects_non_empty_nodes_and_history() {
+        assert!(!project_has_meaningful_content(
+            0,
+            r#"{"nodes":[],"imagePool":[]}"#,
+            r#"{"past":[],"future":[]}"#
+        ));
+        assert!(project_has_meaningful_content(
+            1,
+            r#"{"nodes":[]}"#,
+            r#"{"past":[],"future":[]}"#
+        ));
+        assert!(project_has_meaningful_content(
+            0,
+            r#"[{"id":"node-1","type":"image","data":{}}]"#,
+            r#"{"past":[],"future":[]}"#
+        ));
+        assert!(project_has_meaningful_content(
+            0,
+            r#"{"nodes":[]}"#,
+            r#"{"past":[{"nodes":[],"edges":[]}],"future":[]}"#
+        ));
+    }
+
+    #[test]
+    fn find_restore_target_project_id_only_matches_same_id_blank_project() {
+        let conn = Connection::open_in_memory().expect("failed to open in-memory db");
+        ensure_projects_table(&conn).expect("failed to prepare projects schema");
+        conn.execute_batch(
+            r#"
+            INSERT INTO projects (
+              id, name, project_type, created_at, updated_at, node_count,
+              nodes_json, edges_json, viewport_json, history_json, color_labels_json, script_welcome_skipped
+            ) VALUES
+              ('legacy-ep2', '第二集', 'storyboard', 1, 10, 0, '[]', '[]', '{}', '{"past":[],"future":[]}', '{}', 0),
+              ('filled-ep2', '第二集', 'storyboard', 1, 9, 2, '[{"id":"a"},{"id":"b"}]', '[]', '{}', '{"past":[],"future":[]}', '{}', 0),
+              ('other-project', '第一集', 'storyboard', 1, 8, 0, '[]', '[]', '{}', '{"past":[],"future":[]}', '{}', 0);
+            "#,
+        )
+        .expect("failed to seed projects");
+
+        let legacy_payload = LegacyProjectPayload {
+            legacy_id: "legacy-ep2".to_string(),
+            source_dir: PathBuf::from("C:/legacy/projects/legacy-ep2"),
+            nodes_json: r#"[{"id":"legacy-node","type":"directorStageNode","data":{}}]"#.to_string(),
+            edges_json: "[]".to_string(),
+            viewport_json: "{}".to_string(),
+            history_json: r#"{"past":[{"nodes":[],"edges":[]}],"future":[]}"#.to_string(),
+            node_count: 1,
+        };
+
+        let matched = find_restore_target_project_id(&conn, &legacy_payload)
+            .expect("restore target query should succeed");
+        assert_eq!(matched.as_deref(), Some("legacy-ep2"));
     }
 }

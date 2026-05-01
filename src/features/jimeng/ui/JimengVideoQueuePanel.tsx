@@ -11,11 +11,11 @@ import { useTranslation } from "react-i18next";
 import { useReactFlow } from "@xyflow/react";
 
 import { UiButton, UiLoadingAnimation, UiPanel } from "@/components/ui";
-import { resolveImageDisplayUrl } from "@/features/canvas/application/imageData";
 import {
   getCanvasNodeSize,
   resolveAbsoluteCanvasNodePosition,
 } from "@/features/canvas/application/nodeGeometry";
+import { CanvasNodeImage } from "@/features/canvas/ui/CanvasNodeImage";
 import {
   JIMENG_VIDEO_QUEUE_MAX_ACTIVE_JOBS,
   canJimengVideoQueueJobBeRescheduled,
@@ -315,9 +315,7 @@ export function JimengVideoQueuePanel({
               const resultData = (resultNode?.data ?? {}) as Record<string, unknown>;
               const rawPreviewUrl =
                 (resultData.previewImageUrl as string | null | undefined) ?? "";
-              const previewUrl = rawPreviewUrl
-                ? resolveImageDisplayUrl(rawPreviewUrl)
-                : null;
+              const previewUrl = rawPreviewUrl.trim() || null;
               const scheduledLabel = formatDateTime(
                 job.scheduledAt,
                 i18n.language,
@@ -349,10 +347,11 @@ export function JimengVideoQueuePanel({
                   <div className="flex gap-3">
                     <div className="relative h-16 w-24 shrink-0 overflow-hidden rounded-xl border border-white/10 bg-[radial-gradient(circle_at_top,#1f2937_0%,#0f172a_78%)]">
                       {previewUrl ? (
-                        <img
+                        <CanvasNodeImage
                           src={previewUrl}
                           alt={job.title}
                           className="h-full w-full object-cover"
+                          disableViewer
                         />
                       ) : (
                         <div className="flex h-full w-full items-center justify-center px-2 text-center text-[11px] text-text-muted">

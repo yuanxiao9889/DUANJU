@@ -56,7 +56,16 @@ export async function updateAssetItem(payload: UpdateAssetItemPayload): Promise<
   return await invoke<AssetItemRecord>('update_asset_item', { payload });
 }
 
+export async function repairAssetItemPreview(
+  assetItemId: string,
+  maxPreviewDimension?: number
+): Promise<AssetItemRecord> {
+  return await invoke<AssetItemRecord>('repair_asset_item_preview', {
+    assetItemId,
+    maxPreviewDimension,
+  });
+}
+
 export async function deleteAssetItem(assetItemId: string): Promise<void> {
   await invoke('delete_asset_item', { assetItemId });
 }
-

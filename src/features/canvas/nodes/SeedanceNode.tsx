@@ -27,6 +27,7 @@ import {
   Wand2,
 } from "lucide-react";
 import { useTranslation } from "react-i18next";
+import { openSettingsDialog } from "@/features/settings/settingsEvents";
 
 import {
   UiButton,
@@ -38,7 +39,6 @@ import {
   resolveErrorContent,
   showErrorDialog,
 } from "@/features/canvas/application/errorDialog";
-import { resolveImageDisplayUrl } from "@/features/canvas/application/imageData";
 import { flushCurrentProjectToDiskSafely } from "@/features/canvas/application/projectPersistence";
 import { optimizeCanvasPrompt } from "@/features/canvas/application/promptOptimization";
 import {
@@ -828,7 +828,7 @@ export const SeedanceNode = memo(
             referenceUrl: item.referenceUrl,
             previewImageUrl: item.previewImageUrl ?? null,
             displayUrl: previewSource
-              ? resolveImageDisplayUrl(previewSource)
+              ? previewSource
               : null,
             tokenLabel:
               item.kind === "video"
@@ -1535,6 +1535,13 @@ export const SeedanceNode = memo(
           isSubmitting: false,
           lastError: validationError,
         });
+        if (!apiKey) {
+          openSettingsDialog({
+            category: "providers",
+            providerTab: "storyboard",
+            providerId: "volcengine",
+          });
+        }
         await showErrorDialog(validationError, t("common.error"));
         return;
       }

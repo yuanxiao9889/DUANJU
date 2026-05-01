@@ -20,7 +20,6 @@ import {
   loadImageElement,
   parseAspectRatio,
   prepareNodeImage,
-  resolveImageDisplayUrl,
 } from '@/features/canvas/application/imageData';
 import {
   CANVAS_NODE_TYPES,
@@ -37,6 +36,7 @@ import {
 } from '@/features/canvas/domain/canvasNodes';
 import { EXPORT_RESULT_DISPLAY_NAME, resolveNodeDisplayName } from '@/features/canvas/domain/nodeDisplay';
 import { useCanvasIncomingSourceNodes } from '@/features/canvas/hooks/useCanvasNodeGraph';
+import { CanvasNodeImage } from '@/features/canvas/ui/CanvasNodeImage';
 import { NodeHeader, NODE_HEADER_FLOATING_POSITION_CLASS } from '@/features/canvas/ui/NodeHeader';
 import {
   NODE_CONTROL_CHIP_CLASS,
@@ -895,7 +895,7 @@ export const ImageCollageNode = memo(({ id, data, selected, width, height }: Ima
             {listLayers.map((layer, index) => {
               const isActive = layer.sourceEdgeId === normalizedData.selectedLayerId;
               const isDragTarget = dragOverLayerId === layer.sourceEdgeId && draggedLayerId !== layer.sourceEdgeId;
-              const displayUrl = resolveImageDisplayUrl(layer.previewImageUrl || layer.imageUrl);
+              const previewSource = layer.previewImageUrl || layer.imageUrl;
 
               return (
                 <div
@@ -948,11 +948,13 @@ export const ImageCollageNode = memo(({ id, data, selected, width, height }: Ima
                       : 'border-white/10 bg-[rgba(15,23,42,0.34)] hover:border-white/18 hover:bg-[rgba(15,23,42,0.5)]'
                   }`}
                 >
-                  <img
-                    src={displayUrl}
+                  <CanvasNodeImage
+                    src={previewSource}
+                    fallbackSrc={layer.imageUrl}
                     alt={t('node.imageCollage.layerLabel', { index: listLayers.length - index })}
                     className="h-14 w-14 rounded-lg object-cover"
                     draggable={false}
+                    disableViewer
                   />
                   <div className="min-w-0 flex-1">
                     <div className="truncate text-sm font-medium text-text-dark">

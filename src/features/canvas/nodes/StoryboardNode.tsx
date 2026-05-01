@@ -46,7 +46,6 @@ import {
   prepareNodeImage,
   persistImageLocally,
   reduceAspectRatio,
-  resolveImageDisplayUrl,
   shouldUseOriginalImageByZoom,
 } from '@/features/canvas/application/imageData';
 import { UiButton, UiCheckbox, UiChipButton, UiInput, UiPanel, UiSelect } from '@/components/ui';
@@ -484,12 +483,12 @@ const FrameCard = memo(
       const picked = preferOriginal
         ? frame.imageUrl || frame.previewImageUrl
         : frame.previewImageUrl || frame.imageUrl;
-      return picked ? resolveImageDisplayUrl(picked) : null;
+      return picked || null;
     }, [frame.imageUrl, frame.previewImageUrl, zoom, isWhitePlaceholder]);
     const viewerSource = useMemo(() => {
       if (isWhitePlaceholder) return null;
       const picked = frame.imageUrl || frame.previewImageUrl;
-      return picked ? resolveImageDisplayUrl(picked) : null;
+      return picked || null;
     }, [frame.imageUrl, frame.previewImageUrl, isWhitePlaceholder]);
     const frameAspectRatioCss = useMemo(
       () =>
@@ -727,7 +726,7 @@ export const StoryboardNode = memo(({ id, data, selected, width, height }: Story
         imageUrl: item.imageUrl,
         previewImageUrl: item.previewImageUrl,
         aspectRatio: item.aspectRatio,
-        displayUrl: resolveImageDisplayUrl(item.previewImageUrl || item.imageUrl),
+        displayUrl: item.previewImageUrl || item.imageUrl,
         label: `图${index + 1}`,
       })),
     [incomingImageRefs]
@@ -737,13 +736,13 @@ export const StoryboardNode = memo(({ id, data, selected, width, height }: Story
       orderedFrames
         .map((frame) => {
           const source = frame.imageUrl || frame.previewImageUrl;
-          return source ? resolveImageDisplayUrl(source) : null;
+          return source || null;
         })
         .filter((item): item is string => Boolean(item)),
     [orderedFrames]
   );
   const incomingImageViewerList = useMemo(
-    () => incomingImageItems.map((item) => resolveImageDisplayUrl(item.imageUrl)),
+    () => incomingImageItems.map((item) => item.imageUrl),
     [incomingImageItems]
   );
 
@@ -1461,7 +1460,7 @@ export const StoryboardNode = memo(({ id, data, selected, width, height }: Story
                     <CanvasNodeImage
                       src={item.displayUrl}
                       alt={item.label}
-                      viewerSourceUrl={resolveImageDisplayUrl(item.imageUrl)}
+                      viewerSourceUrl={item.imageUrl}
                       viewerImageList={incomingImageViewerList}
                       className="h-8 w-8 rounded object-cover"
                       draggable={false}

@@ -8,6 +8,7 @@ import {
   deleteAssetLibrary,
   deleteAssetSubcategory,
   listAssetLibraries,
+  repairAssetItemPreview,
   updateAssetItem,
   updateAssetLibrary,
   updateAssetSubcategory,
@@ -61,6 +62,29 @@ function upsertLibraryInList(
   return sortLibraries(next);
 }
 
+function mergeUpdatedAssetItem(
+  libraries: AssetLibraryRecord[],
+  item: AssetItemRecord
+): AssetLibraryRecord[] {
+  return libraries.map((library) => {
+    if (library.id !== item.libraryId) {
+      return {
+        ...library,
+        items: library.items.filter((existing) => existing.id !== item.id),
+      };
+    }
+
+    return {
+      ...library,
+      updatedAt: Math.max(library.updatedAt, item.updatedAt),
+      items: sortItems([
+        ...library.items.filter((existing) => existing.id !== item.id),
+        item,
+      ]),
+    };
+  });
+}
+
 interface AssetState {
   libraries: AssetLibraryRecord[];
   isHydrated: boolean;
@@ -79,6 +103,10 @@ interface AssetState {
   deleteSubcategory: (subcategoryId: string) => Promise<void>;
   createItem: (payload: CreateAssetItemPayload) => Promise<AssetItemRecord>;
   updateItem: (payload: UpdateAssetItemPayload) => Promise<AssetItemRecord>;
+  repairItemPreview: (
+    assetItemId: string,
+    maxPreviewDimension?: number
+  ) => Promise<AssetItemRecord>;
   deleteItem: (assetItemId: string) => Promise<void>;
 }
 
@@ -250,23 +278,16 @@ export const useAssetStore = create<AssetState>((set, get) => ({
   updateItem: async (payload) => {
     const item = await updateAssetItem(payload);
     set((state) => ({
-      libraries: state.libraries.map((library) => {
-        if (library.id !== item.libraryId) {
-          return {
-            ...library,
-            items: library.items.filter((existing) => existing.id !== item.id),
-          };
-        }
+      libraries: mergeUpdatedAssetItem(state.libraries, item),
+    }));
+    emitAssetItemUpdated(item);
+    return item;
+  },
 
-        return {
-          ...library,
-          updatedAt: Math.max(library.updatedAt, item.updatedAt),
-          items: sortItems([
-            ...library.items.filter((existing) => existing.id !== item.id),
-            item,
-          ]),
-        };
-      }),
+  repairItemPreview: async (assetItemId, maxPreviewDimension) => {
+    const item = await repairAssetItemPreview(assetItemId, maxPreviewDimension);
+    set((state) => ({
+      libraries: mergeUpdatedAssetItem(state.libraries, item),
     }));
     emitAssetItemUpdated(item);
     return item;

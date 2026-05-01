@@ -54,11 +54,12 @@ import {
 } from '@/features/canvas/application/videoData';
 import {
   prepareNodeImage,
-  resolveImageDisplayUrl,
 } from '@/features/canvas/application/imageData';
 import { useCanvasNodeById } from '@/features/canvas/hooks/useCanvasNodeGraph';
+import { useStableImageDisplaySource } from '@/features/canvas/hooks/useStableImageDisplaySource';
 import { useCanvasStore } from '@/stores/canvasStore';
 import { useSettingsStore } from '@/stores/settingsStore';
+import { CanvasNodeImage } from '@/features/canvas/ui/CanvasNodeImage';
 import { NodeStatusBadge } from '@/features/canvas/ui/NodeStatusBadge';
 import {
   NodeDescriptionPanel,
@@ -177,8 +178,9 @@ export const VideoNode = memo(({ id, data, selected, width }: VideoNodeProps) =>
     if (!data.previewImageUrl) {
       return null;
     }
-    return resolveImageDisplayUrl(data.previewImageUrl);
+    return data.previewImageUrl;
   }, [data.previewImageUrl]);
+  const { displaySource: posterDisplaySource } = useStableImageDisplaySource(posterSource);
   const nodePosition = currentNode?.position ?? null;
 
   const headerStatus = useMemo(() => {
@@ -656,10 +658,11 @@ export const VideoNode = memo(({ id, data, selected, width }: VideoNodeProps) =>
             <div className="flex h-full flex-col overflow-hidden rounded-[var(--node-radius)] bg-[linear-gradient(165deg,rgba(255,255,255,0.05),rgba(255,255,255,0.015))]">
             <div className={`relative min-h-0 flex-1 overflow-hidden bg-black ${flashFrame ? 'animate-pulse bg-white/20' : ''}`}>
               {posterSource && (!isVideoReady || Boolean(videoError)) ? (
-                <img
+                <CanvasNodeImage
                   src={posterSource}
                   alt={t('node.videoNode.posterAlt')}
                   className="absolute inset-0 h-full w-full object-cover"
+                  disableViewer
                 />
               ) : null}
               <div
@@ -670,7 +673,7 @@ export const VideoNode = memo(({ id, data, selected, width }: VideoNodeProps) =>
                 <video
                   ref={videoRef}
                   src={videoSource ?? undefined}
-                  poster={posterSource ?? undefined}
+                  poster={posterDisplaySource ?? undefined}
                   preload="metadata"
                   controls
                   className={`nodrag nowheel h-full w-full bg-black object-contain transition-opacity duration-150 ${

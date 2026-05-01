@@ -32,7 +32,7 @@ import {
   canvasToolProcessor,
 } from '@/features/canvas/application/canvasServices';
 import { useCanvasNodeById } from '@/features/canvas/hooks/useCanvasNodeGraph';
-import { prepareNodeImage, resolveImageDisplayUrl } from '@/features/canvas/application/imageData';
+import { loadImageElement, prepareNodeImage } from '@/features/canvas/application/imageData';
 import { resolveMinEdgeFittedSize } from '@/features/canvas/application/imageNodeSizing';
 import { readStoryboardImageMetadata } from '@/commands/image';
 import { getToolPlugin, type ToolOptions } from '@/features/canvas/tools';
@@ -229,29 +229,19 @@ export function NodeToolDialog() {
     }
 
     let cancelled = false;
-    const image = new Image();
-    const displayImageUrl = resolveImageDisplayUrl(sourceImageUrl);
 
     setIsSplitImageReady(false);
-
-    image.onload = () => {
-      if (cancelled) {
-        return;
-      }
-      setIsSplitImageReady(true);
-    };
-
-    image.onerror = () => {
-      if (cancelled) {
-        return;
-      }
-      setIsSplitImageReady(true);
-    };
-
-    image.src = displayImageUrl;
-    if (image.complete) {
-      setIsSplitImageReady(true);
-    }
+    void loadImageElement(sourceImageUrl)
+      .then(() => {
+        if (!cancelled) {
+          setIsSplitImageReady(true);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setIsSplitImageReady(true);
+        }
+      });
 
     return () => {
       cancelled = true;

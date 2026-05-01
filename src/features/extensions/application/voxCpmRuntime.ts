@@ -31,6 +31,8 @@ export interface GenerateVoxCpmVoiceDesignRequest {
   voicePrompt: string;
   cfgValue: number;
   inferenceTimesteps: number;
+  normalize: boolean;
+  denoise: boolean;
 }
 
 export interface GenerateVoxCpmVoiceCloneRequest {
@@ -39,6 +41,8 @@ export interface GenerateVoxCpmVoiceCloneRequest {
   controlText: string;
   cfgValue: number;
   inferenceTimesteps: number;
+  normalize: boolean;
+  denoise: boolean;
 }
 
 export interface GenerateVoxCpmUltimateCloneRequest {
@@ -48,6 +52,8 @@ export interface GenerateVoxCpmUltimateCloneRequest {
   useReferenceAsReference: boolean;
   cfgValue: number;
   inferenceTimesteps: number;
+  normalize: boolean;
+  denoise: boolean;
 }
 
 export interface GeneratedVoxCpmAudioAsset extends PreparedAudio {
@@ -219,8 +225,10 @@ export async function generateVoxCpmVoiceDesignAudio(
     {
       text: request.text,
       voicePrompt: request.voicePrompt,
-      cfgValue: normalizeFloat(request.cfgValue, 1.3, 0.1, 5),
+      cfgValue: normalizeFloat(request.cfgValue, 2, 0.1, 5),
       inferenceTimesteps: normalizePositiveInteger(request.inferenceTimesteps, 10, 1, 40),
+      normalize: request.normalize,
+      denoise: request.denoise,
       outputPrefix: `voice-design-${Date.now()}`,
     }
   );
@@ -239,8 +247,10 @@ export async function generateVoxCpmVoiceCloneAudio(
       text: request.text,
       referenceAudio: request.referenceAudio,
       controlText: request.controlText,
-      cfgValue: normalizeFloat(request.cfgValue, 1.3, 0.1, 5),
+      cfgValue: normalizeFloat(request.cfgValue, 2, 0.1, 5),
       inferenceTimesteps: normalizePositiveInteger(request.inferenceTimesteps, 10, 1, 40),
+      normalize: request.normalize,
+      denoise: request.denoise,
       outputPrefix: `voice-clone-${Date.now()}`,
     }
   );
@@ -260,8 +270,10 @@ export async function generateVoxCpmUltimateCloneAudio(
       referenceAudio: request.referenceAudio,
       promptText: request.promptText,
       useReferenceAsReference: request.useReferenceAsReference,
-      cfgValue: normalizeFloat(request.cfgValue, 1.3, 0.1, 5),
+      cfgValue: normalizeFloat(request.cfgValue, 2, 0.1, 5),
       inferenceTimesteps: normalizePositiveInteger(request.inferenceTimesteps, 10, 1, 40),
+      normalize: request.normalize,
+      denoise: request.denoise,
       outputPrefix: `ultimate-clone-${Date.now()}`,
     }
   );

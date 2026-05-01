@@ -28,7 +28,7 @@ import { getCurrentWindow } from '@tauri-apps/api/window';
 import { join } from '@tauri-apps/api/path';
 import { open } from '@tauri-apps/plugin-dialog';
 import { useTranslation } from 'react-i18next';
-import { Upload, ImagePlus, Grid3x3, Map as MapIcon, Plus, Minus, AlignCenter, ListOrdered } from 'lucide-react';
+import { Upload, ImagePlus, Grid3x3, Map as MapIcon, Plus, Minus, AlignCenter, ListOrdered, History } from 'lucide-react';
 import '@xyflow/react/dist/style.css';
 
 import {
@@ -36,6 +36,13 @@ import {
   type CanvasAssetDragPayload,
   parseAssetDragPayload,
 } from '@/features/assets/domain/types';
+import {
+  GENERATION_HISTORY_DRAG_MIME_TYPE,
+  collectGenerationHistoryRecords,
+  parseGenerationHistoryDragPayload,
+  parseGenerationHistorySnapshotNode,
+  type GenerationHistoryItemRecord,
+} from '@/features/canvas/application/generationHistory';
 import { ASSET_PANEL_INSERT_EVENT } from '@/features/assets/application/assetPanelBridge';
 import {
   subscribeAssetItemDeleted,
@@ -45,7 +52,7 @@ import { useAssetStore } from '@/stores/assetStore';
 import { useCanvasStore } from '@/stores/canvasStore';
 import { useProjectStore } from '@/stores/projectStore';
 import { useScriptEditorStore } from '@/stores/scriptEditorStore';
-import { getConfiguredApiKeyCount, useSettingsStore } from '@/stores/settingsStore';
+import { useSettingsStore } from '@/stores/settingsStore';
 import { canvasAiGateway, canvasEventBus } from '@/features/canvas/application/canvasServices';
 import {
   CANVAS_NODE_TYPES,
@@ -100,7 +107,6 @@ import {
 import { embedStoryboardImageMetadata, saveImageSourceToDirectory } from '@/commands/image';
 import { readSystemClipboardFilePaths } from '@/commands/system';
 import { resolveNodeDisplayName } from '@/features/canvas/domain/nodeDisplay';
-import { listModelProviders } from '@/features/canvas/models';
 import { isCanvasNodeTypeEnabled } from '@/features/canvas/application/nodeCatalog';
 import { nodeTypes } from './nodes';
 import { edgeTypes } from './edges';
@@ -108,7 +114,6 @@ import { NodeSelectionMenu } from './NodeSelectionMenu';
 import { SceneCatalogMenu } from './SceneCatalogMenu';
 import { EpisodeCatalogMenu } from './EpisodeCatalogMenu';
 import { SelectedNodeOverlay } from './ui/SelectedNodeOverlay';
-import { MissingApiKeyHint } from '@/features/settings/MissingApiKeyHint';
 import { eventMatchesShortcut } from '@/features/settings/keyboardShortcuts';
 import { AlignmentGuides } from './ui/AlignmentGuides';
 import { detectAlignments, type AlignmentGuide } from './application/nodeAlignment';
@@ -122,8 +127,10 @@ import { SelectionGroupBar } from './ui/SelectionGroupBar';
 import { CanvasAssetDock } from './ui/CanvasAssetDock';
 import { JimengVideoQueuePanel } from '@/features/jimeng/ui/JimengVideoQueuePanel';
 import { useJimengVideoQueueStore } from '@/stores/jimengVideoQueueStore';
+import { useGenerationHistoryStore } from '@/stores/generationHistoryStore';
 import { CanvasColorLegend } from './ui/CanvasColorLegend';
 import { CanvasZoomIndicator } from './ui/CanvasZoomIndicator';
+import { GenerationHistoryPanel } from './ui/GenerationHistoryPanel';
 import { withSemanticNodePresentation } from './ui/nodeSemanticStyles';
 import {
   createDefaultCanvasColorLabelMap,
@@ -845,6 +852,7 @@ export function Canvas() {
   const [branchConnectionPosition, setBranchConnectionPosition] = useState<{ x: number; y: number } | null>(null);
   const [showBatchMenu, setShowBatchMenu] = useState(false);
   const [showJimengQueuePanel, setShowJimengQueuePanel] = useState(false);
+  const [showGenerationHistoryPanel, setShowGenerationHistoryPanel] = useState(false);
   const [isExportingSelectedImages, setIsExportingSelectedImages] = useState(false);
   const [batchMenuPosition, setBatchMenuPosition] = useState({ x: 0, y: 0 });
   const [menuPosition, setMenuPosition] = useState({ x: 0, y: 0 });
@@ -871,6 +879,7 @@ export function Canvas() {
   const dragOverlayClearTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const imageCompareNoticeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const alignmentFrameRef = useRef<number | null>(null);
+  const restoredCanvasProjectIdRef = useRef<string | null>(null);
   const pendingAlignmentNodeRef = useRef<CanvasNode | null>(null);
   const activeGenerationPollNodeIdsRef = useRef(new Set<string>());
   const activeGenerationRecoveryNodeIdsRef = useRef(new Set<string>());
@@ -910,6 +919,7 @@ export function Canvas() {
     (state) => state.applySemanticColorToSelected
   );
   const addNode = useCanvasStore((state) => state.addNode);
+  const restoreGenerationSnapshotNode = useCanvasStore((state) => state.restoreGenerationSnapshotNode);
   const setSelectedNode = useCanvasStore((state) => state.setSelectedNode);
   const selectedNodeId = useCanvasStore((state) => state.selectedNodeId);
   const assetLibraries = useAssetStore((state) => state.libraries);
@@ -960,18 +970,14 @@ export function Canvas() {
   const setShowMiniMap = useSettingsStore((state) => state.setShowMiniMap);
   const setShowAlignmentGuides = useSettingsStore((state) => state.setShowAlignmentGuides);
   const storyboardApiKeys = useSettingsStore((state) => state.storyboardApiKeys);
-  const providerIds = useMemo(() => listModelProviders().map((provider) => provider.id), []);
-  const configuredApiKeyCount = useSettingsStore((state) =>
-    getConfiguredApiKeyCount(
-      { ...state.scriptApiKeys, ...state.storyboardApiKeys },
-      providerIds
-    )
-  );
   const jimengQueueJobs = useJimengVideoQueueStore((state) => state.jobs);
+  const generationHistoryItems = useGenerationHistoryStore((state) => state.items);
+  const upsertGenerationHistoryItems = useGenerationHistoryStore((state) => state.upsertItems);
   const jimengQueuePendingCount = useMemo(
     () => jimengQueueJobs.filter((job) => job.status !== 'completed' && job.status !== 'failed' && job.status !== 'cancelled').length,
     [jimengQueueJobs]
   );
+  const generationHistoryCount = generationHistoryItems.length;
 
   const syncViewportState = useCallback(
     (viewport: Viewport) => {
@@ -1126,7 +1132,10 @@ export function Canvas() {
   }, [flushPendingAlignment]);
 
   const getCurrentProject = useProjectStore((state) => state.getCurrentProject);
-  const project = getCurrentProject();
+  const currentProjectId = useProjectStore((state) => state.currentProjectId);
+  const currentProject = useProjectStore((state) => state.currentProject);
+  const project =
+    currentProject && currentProject.id === currentProjectId ? currentProject : getCurrentProject();
   const isScriptProject = project?.projectType === 'script';
   const saveCurrentProject = useProjectStore((state) => state.saveCurrentProject);
   const saveCurrentProjectViewport = useProjectStore((state) => state.saveCurrentProjectViewport);
@@ -1600,19 +1609,31 @@ export function Canvas() {
   }, [openToolDialog, closeToolDialog]);
 
   useEffect(() => {
-    isRestoringCanvasRef.current = true;
-    const project = getCurrentProject();
-    if (project) {
-      setCanvasData(project.nodes, project.edges, project.history);
-      syncViewportState(project.viewport ?? DEFAULT_VIEWPORT);
-      requestAnimationFrame(() => {
-        reactFlowInstance.setViewport(project.viewport ?? DEFAULT_VIEWPORT, { duration: 0 });
-      });
-    } else {
-      syncViewportState(DEFAULT_VIEWPORT);
+    const activeProject = project;
+    if (!activeProject || activeProject.id !== currentProjectId) {
+      return;
     }
+    if (restoredCanvasProjectIdRef.current === activeProject.id) {
+      return;
+    }
+
+    console.info('[canvas-restore]', {
+      projectId: activeProject.id,
+      nodeCount: activeProject.nodes.length,
+      edgeCount: activeProject.edges.length,
+      viewport: activeProject.viewport ?? DEFAULT_VIEWPORT,
+    });
+
+    isRestoringCanvasRef.current = true;
+    setCanvasData(activeProject.nodes, activeProject.edges, activeProject.history);
+    syncViewportState(activeProject.viewport ?? DEFAULT_VIEWPORT);
+    requestAnimationFrame(() => {
+      reactFlowInstance.setViewport(activeProject.viewport ?? DEFAULT_VIEWPORT, { duration: 0 });
+    });
+
     const restoreTimer = setTimeout(() => {
       isRestoringCanvasRef.current = false;
+      restoredCanvasProjectIdRef.current = activeProject.id;
     }, 0);
 
     return () => {
@@ -1621,17 +1642,30 @@ export function Canvas() {
         clearTimeout(saveTimerRef.current);
         saveTimerRef.current = null;
       }
-      closeImageViewer();
-      persistCanvasSnapshot();
     };
   }, [
-    closeImageViewer,
-    getCurrentProject,
-    persistCanvasSnapshot,
+    currentProjectId,
+    project?.id,
     reactFlowInstance,
     setCanvasData,
     syncViewportState,
   ]);
+
+  useEffect(() => {
+    return () => {
+      closeImageViewer();
+      persistCanvasSnapshot();
+    };
+  }, [closeImageViewer, persistCanvasSnapshot]);
+
+  useEffect(() => {
+    if (currentProjectId) {
+      return;
+    }
+
+    restoredCanvasProjectIdRef.current = null;
+    isRestoringCanvasRef.current = false;
+  }, [currentProjectId]);
 
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -3017,10 +3051,71 @@ export function Canvas() {
     };
   }, [insertAssetPayloadAtViewportCenter]);
 
+  useEffect(() => {
+    if (!project?.id || project.projectType !== 'storyboard') {
+      return;
+    }
+
+    const records = collectGenerationHistoryRecords(project.id, nodes, edges);
+    if (records.length === 0) {
+      return;
+    }
+
+    const existingItemsById = new Map<string, GenerationHistoryItemRecord>(
+      generationHistoryItems.map((item) => [item.id, item] as const)
+    );
+    const changedRecords = records.filter((record) => {
+      const existing = existingItemsById.get(record.id);
+      return !existing
+        || existing.updatedAt !== record.updatedAt
+        || existing.snapshotJson !== record.snapshotJson
+        || existing.previewPath !== record.previewPath
+        || existing.title !== record.title
+        || existing.aspectRatio !== record.aspectRatio
+        || existing.durationMs !== record.durationMs
+        || existing.mimeType !== record.mimeType
+        || existing.sourcePath !== record.sourcePath;
+    });
+    if (changedRecords.length === 0) {
+      return;
+    }
+
+    void upsertGenerationHistoryItems(changedRecords).catch((error) => {
+      console.error('[generationHistory] failed to sync generated records', {
+        projectId: project.id,
+        error,
+      });
+    });
+  }, [edges, generationHistoryItems, nodes, project?.id, project?.projectType, upsertGenerationHistoryItems]);
+
   const handleDrop = useCallback(async (event: React.DragEvent) => {
     event.preventDefault();
     event.stopPropagation();
     clearDragOverlay();
+
+    const generationHistoryPayload = parseGenerationHistoryDragPayload(
+      event.dataTransfer.getData(GENERATION_HISTORY_DRAG_MIME_TYPE)
+    );
+    if (generationHistoryPayload) {
+      const historyItem = generationHistoryItems.find(
+        (item) => item.id === generationHistoryPayload.itemId
+      );
+      if (historyItem) {
+        const snapshotNode = parseGenerationHistorySnapshotNode(historyItem);
+        if (snapshotNode) {
+          const position = reactFlowInstance.screenToFlowPosition({
+            x: event.clientX,
+            y: event.clientY,
+          });
+          const restoredNodeId = restoreGenerationSnapshotNode(snapshotNode, position);
+          if (restoredNodeId) {
+            setSelectedNode(restoredNodeId);
+            scheduleCanvasPersist(0);
+          }
+        }
+      }
+      return;
+    }
 
     const assetPayload = parseAssetDragPayload(
       event.dataTransfer.getData(ASSET_DRAG_MIME_TYPE)
@@ -3146,8 +3241,10 @@ export function Canvas() {
   }, [
     addNode,
     clearDragOverlay,
+    generationHistoryItems,
     insertAssetPayloadNode,
     reactFlowInstance,
+    restoreGenerationSnapshotNode,
     scheduleCanvasPersist,
     setSelectedNode,
   ]);
@@ -4391,7 +4488,6 @@ export function Canvas() {
     () => (
       <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
         <div className="flex max-w-3xl flex-col items-center gap-5 px-6 text-center">
-          {configuredApiKeyCount === 0 && <MissingApiKeyHint />}
           <div>
             <div className="mb-2 text-2xl text-text-muted">{t('canvas.emptyHintTitle')}</div>
             <div className="text-sm text-text-muted opacity-60">{t('canvas.emptyHintSubtitle')}</div>
@@ -4399,7 +4495,7 @@ export function Canvas() {
         </div>
       </div>
     ),
-    [configuredApiKeyCount, t]
+    [t]
   );
 
   const selectedNodes = useMemo<CanvasNode[]>(
@@ -4676,7 +4772,7 @@ export function Canvas() {
         {showMiniMap && !isViewportInteracting && !isImageViewerOpen && (
           <MiniMap
             className="canvas-minimap nopan nowheel !border-border-dark !bg-surface-dark"
-            style={{ pointerEvents: 'all', zIndex: 10000 }}
+            style={{ pointerEvents: 'all', zIndex: 10000, bottom: 84, right: 16 }}
             nodeColor="rgba(120, 120, 120, 0.92)"
             maskColor="rgba(0, 0, 0, 0.62)"
             pannable
@@ -4797,7 +4893,26 @@ export function Canvas() {
           ) : null}
         </button>
 
-        <div style={{ width: '1px', height: '16px', backgroundColor: '#374151' }} />
+        <button
+          onClick={() => setShowGenerationHistoryPanel((value) => !value)}
+          style={{
+            color: showGenerationHistoryPanel ? '#3b82f6' : '#6b7280',
+            padding: '6px',
+            borderRadius: '4px',
+            position: 'relative',
+          }}
+          title={t('generationHistory.toggle')}
+        >
+          <History style={{ width: '16px', height: '16px' }} />
+          {generationHistoryCount > 0 ? (
+            <span
+              className="absolute -right-1 -top-1 inline-flex min-w-[16px] items-center justify-center rounded-full bg-accent px-1 text-[10px] font-semibold text-white"
+            >
+              {generationHistoryCount > 99 ? '99+' : generationHistoryCount}
+            </span>
+          ) : null}
+        </button>
+
 
         {/* 小地图开关 */}
         <button
@@ -4850,6 +4965,11 @@ export function Canvas() {
         onClose={() => setShowJimengQueuePanel(false)}
       />
 
+      <GenerationHistoryPanel
+        isOpen={showGenerationHistoryPanel && !isImageViewerOpen}
+        onClose={() => setShowGenerationHistoryPanel(false)}
+      />
+
       {dragOverlayKind && (
         <div className="absolute inset-0 z-50 pointer-events-none">
           <div
@@ -4888,12 +5008,6 @@ export function Canvas() {
       )}
 
       {nodes.length === 0 && emptyHint}
-      {nodes.length > 0 && configuredApiKeyCount === 0 && (
-        <div className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center px-6">
-          <MissingApiKeyHint />
-        </div>
-      )}
-
       {(showNodeMenu || showSceneCatalogMenu || showEpisodeCatalogMenu) && previewConnectionVisual && (
         <svg
           className="pointer-events-none absolute z-40 overflow-visible"

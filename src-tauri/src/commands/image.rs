@@ -407,6 +407,13 @@ pub struct PrepareNodeImageResult {
     pub aspect_ratio: String,
 }
 
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ReadLocalImageBinaryResult {
+    pub bytes: Vec<u8>,
+    pub mime_type: String,
+}
+
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CropImageSourcePayload {
@@ -1454,6 +1461,20 @@ fn extension_from_path_like(value: &str) -> Option<String> {
     Some(ext)
 }
 
+fn mime_type_from_path_like(value: &str) -> String {
+    match extension_from_path_like(value).as_deref() {
+        Some("png") => "image/png".to_string(),
+        Some("jpg") | Some("jpeg") => "image/jpeg".to_string(),
+        Some("gif") => "image/gif".to_string(),
+        Some("webp") => "image/webp".to_string(),
+        Some("bmp") => "image/bmp".to_string(),
+        Some("avif") => "image/avif".to_string(),
+        Some("tiff") | Some("tif") => "image/tiff".to_string(),
+        Some("svg") => "image/svg+xml".to_string(),
+        _ => "image/png".to_string(),
+    }
+}
+
 fn decode_file_url_path(value: &str) -> String {
     let raw = value.trim_start_matches("file://");
     let decoded = urlencoding::decode(raw)
@@ -1554,6 +1575,38 @@ fn resolve_local_image_source_path(source: &str) -> Option<PathBuf> {
     } else {
         None
     }
+}
+
+fn resolve_required_local_image_source_path(source: &str) -> Result<PathBuf, String> {
+    resolve_local_image_source_path(source).ok_or_else(|| {
+        format!(
+            "Local image source path is required, got non-local value: {}",
+            source.trim()
+        )
+    })
+}
+
+fn resolve_readable_local_image_path(app: &AppHandle, source: &str) -> Result<PathBuf, String> {
+    let local_path = resolve_required_local_image_source_path(source)?;
+    if verify_persisted_image_path(&local_path).is_ok() {
+        return Ok(local_path);
+    }
+
+    let known_images_dirs = storage::resolve_known_images_dirs(app)?;
+    if let Some(relocated_path) = storage::relocate_storage_path_to_known_images_dirs(
+        &local_path.to_string_lossy(),
+        &known_images_dirs,
+    ) {
+        let relocated = PathBuf::from(relocated_path);
+        if verify_persisted_image_path(&relocated).is_ok() {
+            return Ok(relocated);
+        }
+    }
+
+    Err(format!(
+        "Local image file is missing or empty: {}",
+        local_path.display()
+    ))
 }
 
 fn parse_data_url(source: &str) -> Result<(Vec<u8>, String), String> {
@@ -2063,27 +2116,56 @@ pub async fn copy_image_source_to_clipboard(source: String) -> Result<(), String
 }
 
 #[tauri::command]
-pub async fn load_image(file_path: String) -> Result<String, String> {
+pub async fn load_image(app: AppHandle, file_path: String) -> Result<String, String> {
     info!("Loading image from: {}", file_path);
 
-    let image_data =
-        std::fs::read(&file_path).map_err(|e| format!("Failed to read file: {}", e))?;
+    let result = read_local_image_binary(app, file_path).await?;
+    let base64_data = STANDARD.encode(&result.bytes);
+    Ok(format!("data:{};base64,{}", result.mime_type, base64_data))
+}
 
-    let base64_data = STANDARD.encode(&image_data);
+#[tauri::command]
+pub async fn read_local_image_binary(
+    app: AppHandle,
+    file_path: String,
+) -> Result<ReadLocalImageBinaryResult, String> {
+    let local_path = resolve_readable_local_image_path(&app, &file_path)?;
+    let bytes = std::fs::read(&local_path)
+        .map_err(|e| format!("Failed to read local image file: {}", e))?;
+    let mime_type = mime_type_from_path_like(&local_path.to_string_lossy());
 
-    let mime = if file_path.ends_with(".png") {
-        "image/png"
-    } else if file_path.ends_with(".jpg") || file_path.ends_with(".jpeg") {
-        "image/jpeg"
-    } else if file_path.ends_with(".gif") {
-        "image/gif"
-    } else if file_path.ends_with(".webp") {
-        "image/webp"
-    } else {
-        "image/png"
-    };
+    Ok(ReadLocalImageBinaryResult { bytes, mime_type })
+}
 
-    Ok(format!("data:{};base64,{}", mime, base64_data))
+pub async fn ensure_local_image_preview_path(
+    app: &AppHandle,
+    source_path: &str,
+    preview_path: Option<&str>,
+    max_preview_dimension: Option<u32>,
+) -> Result<String, String> {
+    let normalized_preview_path = preview_path
+        .map(str::trim)
+        .filter(|value| !value.is_empty());
+    if let Some(existing_preview_path) = normalized_preview_path {
+        if let Ok(readable_preview_path) = resolve_readable_local_image_path(app, existing_preview_path) {
+            return Ok(readable_preview_path.to_string_lossy().to_string());
+        }
+    }
+
+    let normalized_source_path = source_path.trim();
+    if normalized_source_path.is_empty() {
+        return Err("Asset source path is empty".to_string());
+    }
+
+    let readable_source_path = resolve_readable_local_image_path(app, normalized_source_path)?;
+
+    let prepared = prepare_node_image_source(
+        app.clone(),
+        readable_source_path.to_string_lossy().to_string(),
+        max_preview_dimension,
+    )
+    .await?;
+    Ok(prepared.preview_image_path)
 }
 
 #[cfg(test)]

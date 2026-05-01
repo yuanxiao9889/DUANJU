@@ -46,7 +46,9 @@ import {
 import { openClipLibraryRoot } from '@/commands/clipLibrary';
 import { startSystemFileDrag } from '@/commands/system';
 import { formatAudioDuration, resolveAudioDisplayUrl } from '@/features/canvas/application/audioData';
-import { resolveImageDisplayUrl, resolveLocalFileSourcePath } from '@/features/canvas/application/imageData';
+import { resolveLocalFileSourcePath } from '@/features/canvas/application/imageData';
+import { useStableImageDisplaySource } from '@/features/canvas/hooks/useStableImageDisplaySource';
+import { CanvasNodeImage } from '@/features/canvas/ui/CanvasNodeImage';
 import { resolveVideoDisplayUrl } from '@/features/canvas/application/videoData';
 import {
   CLIP_LIBRARY_PANEL_CLOSED_EVENT,
@@ -840,9 +842,11 @@ export function DetachedClipLibraryWindow() {
       return null;
     }
 
-    const posterPath = (selectedItem.previewPath || selectedItem.sourcePath).trim();
-    return posterPath ? resolveImageDisplayUrl(posterPath) : null;
+    const posterPath = (selectedItem.previewPath ?? '').trim();
+    return posterPath || null;
   }, [selectedItem]);
+  const { displaySource: detailVideoPosterDisplaySource } =
+    useStableImageDisplaySource(detailVideoPosterSource);
 
   const detailVideoSource = detailVideoFallbackUrl ?? detailVideoDirectSource;
 
@@ -1849,12 +1853,17 @@ export function DetachedClipLibraryWindow() {
                         >
                           <div className="flex items-start gap-3">
                             <div className="h-16 w-16 shrink-0 overflow-hidden rounded-xl bg-bg-dark/70">
-                              {item.mediaType === 'video' ? (
-                                <img
-                                  src={resolveImageDisplayUrl(item.previewPath || item.sourcePath)}
+                              {item.mediaType === 'video' && (item.previewPath ?? '').trim() ? (
+                                <CanvasNodeImage
+                                  src={(item.previewPath ?? '').trim()}
                                   alt={item.name}
                                   className="h-full w-full object-cover"
+                                  disableViewer
                                 />
+                              ) : item.mediaType === 'video' ? (
+                                <div className="flex h-full items-center justify-center text-cyan-200">
+                                  <Film className="h-6 w-6" />
+                                </div>
                               ) : (
                                 <div className="flex h-full items-center justify-center text-cyan-200">
                                   <Music4 className="h-6 w-6" />
@@ -1934,7 +1943,7 @@ export function DetachedClipLibraryWindow() {
                           preload="metadata"
                           playsInline
                           src={detailVideoSource ?? undefined}
-                          poster={detailVideoPosterSource ?? undefined}
+                          poster={detailVideoPosterDisplaySource ?? undefined}
                           className="aspect-video w-full bg-black"
                           onError={handleDetailVideoLoadError}
                         />

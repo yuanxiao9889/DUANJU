@@ -33,7 +33,6 @@ import {
 import {
   prepareNodeImage,
   reduceAspectRatio,
-  resolveImageDisplayUrl,
 } from '@/features/canvas/application/imageData';
 import {
   resolveErrorContent,
@@ -231,7 +230,7 @@ function buildBatchViewerImageList(batch: MjResultBatch): string[] {
     }
   }
 
-  return urls.map((value) => resolveImageDisplayUrl(value));
+  return urls;
 }
 
 function resolveBatchAspectRatio(batch: MjResultBatch): string {
@@ -2167,9 +2166,9 @@ export const MjResultNode = memo(
                           const source = sourceCandidates[0] ?? null;
                           const fallbackSource =
                             sourceCandidates.find((candidate) => candidate !== source) ?? null;
-                          const viewerSource = source ? resolveImageDisplayUrl(source) : null;
+                          const viewerSource = source;
                           const fallbackViewerSource = fallbackSource
-                            ? resolveImageDisplayUrl(fallbackSource)
+                            ? fallbackSource
                             : null;
                           const imageActionIndex = item?.index ?? index;
                           const isImageSelected =

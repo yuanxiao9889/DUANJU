@@ -112,6 +112,7 @@ function normalizeVideoResolution(
 
 export interface GenerateJimengVideosPayload {
   prompt: string;
+  trackingId?: string;
   modelVersion?: JimengVideoModelId | string;
   referenceMode?: JimengReferenceMode | string;
   aspectRatio?: JimengAspectRatio | string;
@@ -126,6 +127,7 @@ export interface GenerateJimengVideosPayload {
 export interface GeneratedJimengVideosResponse {
   videos: JimengGeneratedVideoItem[];
   submitId: string;
+  pending: boolean;
 }
 
 export interface QueryJimengVideoResultPayload {
@@ -179,6 +181,7 @@ async function prepareJimengVideoSubmitPayload(
 
   return {
     prompt: normalizedPrompt,
+    trackingId: payload.trackingId,
     referenceMode: normalizedReferenceMode,
     aspectRatio: normalizeAspectRatio(payload.aspectRatio),
     durationSeconds: normalizeDuration(payload.durationSeconds),
@@ -328,9 +331,11 @@ export async function generateJimengVideos(
 
   if (lastResponse.videos.length === 0) {
     if (lastResponse.pending) {
-      throw new Error(
-        `Dreamina video generation timed out while waiting for submit_id=${submitResponse.submitId}`,
-      );
+      return {
+        videos: [],
+        submitId: lastResponse.submitId,
+        pending: true,
+      };
     }
 
     throw new Error(
@@ -341,6 +346,7 @@ export async function generateJimengVideos(
   return {
     videos: lastResponse.videos,
     submitId: lastResponse.submitId,
+    pending: false,
   };
 }
 

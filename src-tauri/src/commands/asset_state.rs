@@ -9,13 +9,15 @@ use tauri::AppHandle;
 use uuid::Uuid;
 
 use super::{
-    image::persist_image_source,
+    image::{ensure_local_image_preview_path, persist_image_source},
     project_state::{
         normalize_image_ref_path, open_db, project_nodes_array_mut, prune_unreferenced_images,
         replace_project_image_refs,
     },
     storage,
 };
+
+const DEFAULT_ASSET_PREVIEW_MAX_DIMENSION: u32 = 512;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -353,6 +355,58 @@ fn update_asset_item_paths(
 
     replace_asset_image_refs(tx, asset_id, source_path, preview_path)?;
     Ok(())
+}
+
+fn load_asset_item_record_by_id(
+    conn: &Connection,
+    asset_item_id: &str,
+) -> Result<AssetItemRecord, String> {
+    conn.query_row(
+        r#"
+        SELECT
+          id,
+          library_id,
+          category,
+          COALESCE(NULLIF(TRIM(media_type), ''), CASE WHEN category = 'voice' THEN 'audio' ELSE 'image' END) AS media_type,
+          subcategory_id,
+          name,
+          description,
+          tags_json,
+          COALESCE(NULLIF(TRIM(source_path), ''), image_path) AS source_path,
+          NULLIF(TRIM(COALESCE(preview_path, preview_image_path, '')), '') AS preview_path,
+          NULLIF(TRIM(COALESCE(mime_type, '')), '') AS mime_type,
+          duration_ms,
+          aspect_ratio,
+          COALESCE(NULLIF(TRIM(metadata_json), ''), '{}') AS metadata_json,
+          created_at,
+          updated_at
+        FROM asset_items
+        WHERE id = ?1
+        LIMIT 1
+        "#,
+        params![asset_item_id],
+        |row| {
+            Ok(AssetItemRecord {
+                id: row.get(0)?,
+                library_id: row.get(1)?,
+                category: row.get(2)?,
+                media_type: row.get(3)?,
+                subcategory_id: row.get(4)?,
+                name: row.get(5)?,
+                description: row.get(6)?,
+                tags: deserialize_tags(row.get(7)?),
+                source_path: row.get(8)?,
+                preview_path: row.get(9)?,
+                mime_type: row.get(10)?,
+                duration_ms: row.get(11)?,
+                aspect_ratio: row.get(12)?,
+                metadata: deserialize_metadata(row.get(13)?),
+                created_at: row.get(14)?,
+                updated_at: row.get(15)?,
+            })
+        },
+    )
+    .map_err(|e| format!("Failed to reload asset item: {}", e))
 }
 
 fn set_string_field(
@@ -1422,53 +1476,7 @@ async fn create_or_update_asset_item(
     tx.commit()
         .map_err(|e| format!("Failed to commit asset item upsert transaction: {}", e))?;
 
-    let item = open_db(app)?
-        .query_row(
-            r#"
-            SELECT
-              id,
-              library_id,
-              category,
-              COALESCE(NULLIF(TRIM(media_type), ''), CASE WHEN category = 'voice' THEN 'audio' ELSE 'image' END) AS media_type,
-              subcategory_id,
-              name,
-              description,
-              tags_json,
-              COALESCE(NULLIF(TRIM(source_path), ''), image_path) AS source_path,
-              NULLIF(TRIM(COALESCE(preview_path, preview_image_path, '')), '') AS preview_path,
-              NULLIF(TRIM(COALESCE(mime_type, '')), '') AS mime_type,
-              duration_ms,
-              aspect_ratio,
-              COALESCE(NULLIF(TRIM(metadata_json), ''), '{}') AS metadata_json,
-              created_at,
-              updated_at
-            FROM asset_items
-            WHERE id = ?1
-            LIMIT 1
-            "#,
-            params![item_id],
-            |row| {
-                Ok(AssetItemRecord {
-                    id: row.get(0)?,
-                    library_id: row.get(1)?,
-                    category: row.get(2)?,
-                    media_type: row.get(3)?,
-                    subcategory_id: row.get(4)?,
-                    name: row.get(5)?,
-                    description: row.get(6)?,
-                    tags: deserialize_tags(row.get(7)?),
-                    source_path: row.get(8)?,
-                    preview_path: row.get(9)?,
-                    mime_type: row.get(10)?,
-                    duration_ms: row.get(11)?,
-                    aspect_ratio: row.get(12)?,
-                    metadata: deserialize_metadata(row.get(13)?),
-                    created_at: row.get(14)?,
-                    updated_at: row.get(15)?,
-                })
-            },
-        )
-        .map_err(|e| format!("Failed to reload asset item: {}", e))?;
+    let item = load_asset_item_record_by_id(&open_db(app)?, &item_id)?;
 
     if payload.id.is_some() {
         let mut sync_conn = open_db(app)?;
@@ -1504,6 +1512,61 @@ pub async fn update_asset_item(
     }
 
     create_or_update_asset_item(&app, payload).await
+}
+
+#[tauri::command]
+pub async fn repair_asset_item_preview(
+    app: AppHandle,
+    asset_item_id: String,
+    max_preview_dimension: Option<u32>,
+) -> Result<AssetItemRecord, String> {
+    let mut conn = open_db(&app)?;
+    let mut item = load_asset_item_record_by_id(&conn, &asset_item_id)?;
+    if item.media_type != "image" {
+        return Ok(item);
+    }
+
+    let safe_max_preview_dimension = max_preview_dimension
+        .unwrap_or(DEFAULT_ASSET_PREVIEW_MAX_DIMENSION)
+        .clamp(64, 4096);
+    let repaired_preview_path = ensure_local_image_preview_path(
+        &app,
+        &item.source_path,
+        item.preview_path.as_deref(),
+        Some(safe_max_preview_dimension),
+    )
+    .await?;
+
+    if item.preview_path.as_deref() == Some(repaired_preview_path.as_str()) {
+        return Ok(item);
+    }
+
+    let now = current_timestamp_ms();
+    let tx = conn
+        .transaction()
+        .map_err(|e| format!("Failed to begin asset preview repair transaction: {}", e))?;
+    update_asset_item_paths(
+        &tx,
+        &item.id,
+        &item.source_path,
+        Some(repaired_preview_path.as_str()),
+    )?;
+    tx.execute(
+        "UPDATE asset_items SET updated_at = ?2 WHERE id = ?1",
+        params![item.id, now],
+    )
+    .map_err(|e| format!("Failed to update repaired asset item timestamp: {}", e))?;
+    touch_library(&tx, &item.library_id, now)?;
+    tx.commit()
+        .map_err(|e| format!("Failed to commit asset preview repair transaction: {}", e))?;
+
+    item.preview_path = Some(repaired_preview_path);
+    item.updated_at = now;
+
+    let mut sync_conn = open_db(&app)?;
+    sync_asset_item_to_projects(&mut sync_conn, &item)?;
+    prune_unreferenced_images(&app)?;
+    Ok(item)
 }
 
 #[tauri::command]

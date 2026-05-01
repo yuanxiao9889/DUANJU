@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ZoomIn, ZoomOut } from 'lucide-react';
 
-import { resolveImageDisplayUrl } from '@/features/canvas/application/imageData';
+import { useStableImageDisplaySource } from '@/features/canvas/hooks/useStableImageDisplaySource';
 import { UiInput, UiButton } from '@/components/ui';
 import { createUiRangeStyle } from '@/components/ui/rangeStyle';
 import type { VisualToolEditorProps } from './types';
@@ -288,7 +288,8 @@ function NumberStepper({ label, value, min, max, onChange }: NumberStepperProps)
 export function SplitStoryboardToolEditor({ sourceImageUrl, options, onOptionsChange }: VisualToolEditorProps) {
   const [naturalSize, setNaturalSize] = useState<{ width: number; height: number } | null>(null);
   const [viewportSize, setViewportSize] = useState({ width: 0, height: 0 });
-  const displaySourceImageUrl = useMemo(() => resolveImageDisplayUrl(sourceImageUrl), [sourceImageUrl]);
+  const { displaySource: stableSourceImageUrl } = useStableImageDisplaySource(sourceImageUrl);
+  const displaySourceImageUrl = stableSourceImageUrl ?? '';
   const previewContainerRef = useRef<HTMLDivElement>(null);
   
   const [zoom, setZoom] = useState(1);

@@ -23,8 +23,8 @@ import {
   toCanvasAssetDragPayload,
 } from '@/features/assets/domain/types';
 import { formatAudioDuration, resolveAudioDisplayUrl } from '@/features/canvas/application/audioData';
-import { resolveImageDisplayUrl } from '@/features/canvas/application/imageData';
 import { useAssetStore } from '@/stores/assetStore';
+import { AssetPreviewImage } from './AssetPreviewImage';
 import { AssetExternalDragHandle } from './AssetExternalDragHandle';
 
 type AssetSearchCategory = AssetCategory | 'all';
@@ -648,8 +648,10 @@ export function AssetSearchPanel({
                           </div>
                         </div>
                       ) : (
-                        <img
-                          src={resolveImageDisplayUrl(item.previewPath || item.sourcePath)}
+                        <AssetPreviewImage
+                          assetId={item.id}
+                          previewSource={item.previewPath}
+                          sourceSource={item.sourcePath}
                           alt={item.name}
                           className="block h-auto max-h-[420px] w-full transition-transform duration-200 group-hover:scale-[1.03]"
                         />
@@ -699,8 +701,10 @@ export function AssetSearchPanel({
                       <AudioLines className="h-6 w-6" />
                     </div>
                   ) : (
-                    <img
-                      src={resolveImageDisplayUrl(item.previewPath || item.sourcePath)}
+                    <AssetPreviewImage
+                      assetId={item.id}
+                      previewSource={item.previewPath}
+                      sourceSource={item.sourcePath}
                       alt={item.name}
                       className="h-full w-full object-cover"
                     />
@@ -771,10 +775,10 @@ export function AssetSearchPanel({
                   </div>
                 </div>
               ) : (
-                <img
-                  src={resolveImageDisplayUrl(
-                    selectedAsset.previewPath || selectedAsset.sourcePath
-                  )}
+                <AssetPreviewImage
+                  assetId={selectedAsset.id}
+                  previewSource={selectedAsset.previewPath}
+                  sourceSource={selectedAsset.sourcePath}
                   alt={selectedAsset.name}
                   className="h-full w-full object-cover"
                 />

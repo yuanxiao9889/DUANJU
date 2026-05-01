@@ -20,7 +20,6 @@ import {
   type ImageCompareNodeData,
 } from '@/features/canvas/domain/canvasNodes';
 import { resolveNodeDisplayName } from '@/features/canvas/domain/nodeDisplay';
-import { resolveImageDisplayUrl } from '@/features/canvas/application/imageData';
 import { CanvasNodeImage } from '@/features/canvas/ui/CanvasNodeImage';
 import { NodeHeader, NODE_HEADER_FLOATING_POSITION_CLASS } from '@/features/canvas/ui/NodeHeader';
 import { NodeResizeHandle } from '@/features/canvas/ui/NodeResizeHandle';
@@ -50,10 +49,10 @@ function clampDividerRatio(value: number): number {
 
 function resolveImageSources(imageUrl: string | null | undefined, previewImageUrl: string | null | undefined) {
   const resolvedImageUrl = typeof imageUrl === 'string' && imageUrl.trim().length > 0
-    ? resolveImageDisplayUrl(imageUrl)
+    ? imageUrl
     : null;
   const resolvedPreviewImageUrl = typeof previewImageUrl === 'string' && previewImageUrl.trim().length > 0
-    ? resolveImageDisplayUrl(previewImageUrl)
+    ? previewImageUrl
     : null;
   const primarySource = resolvedImageUrl ?? resolvedPreviewImageUrl;
   const fallbackSource = primarySource === resolvedImageUrl

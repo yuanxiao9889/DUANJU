@@ -18,6 +18,7 @@ export interface GenerateJimengDreaminaImagesPayload {
 
 export interface GenerateJimengDreaminaVideosPayload {
   prompt: string;
+  trackingId?: string;
   referenceMode?: string;
   aspectRatio?: string;
   durationSeconds?: number;
@@ -132,6 +133,10 @@ export interface QueryJimengDreaminaVideoResultPayload {
   submitId: string;
 }
 
+export interface ResolveJimengDreaminaVideoSubmitIdCachePayload {
+  trackingId: string;
+}
+
 export interface JimengDreaminaImageQueryResponse {
   submitIds: string[];
   pendingSubmitIds: string[];
@@ -147,6 +152,10 @@ export interface JimengDreaminaVideoQueryResponse {
   results: JimengDreaminaGeneratedVideoResult[];
   warnings: string[];
   failureMessage?: string | null;
+}
+
+export interface JimengDreaminaVideoSubmitIdCacheResponse {
+  submitId?: string | null;
 }
 
 export async function checkDreaminaCliStatus(): Promise<DreaminaCliStatusResponse> {
@@ -250,6 +259,17 @@ export async function queryJimengDreaminaVideoResult(
 ): Promise<JimengDreaminaVideoQueryResponse> {
   return await invoke<JimengDreaminaVideoQueryResponse>(
     "query_jimeng_dreamina_video_result",
+    {
+      payload,
+    },
+  );
+}
+
+export async function resolveJimengDreaminaVideoSubmitIdCache(
+  payload: ResolveJimengDreaminaVideoSubmitIdCachePayload,
+): Promise<JimengDreaminaVideoSubmitIdCacheResponse> {
+  return await invoke<JimengDreaminaVideoSubmitIdCacheResponse>(
+    "resolve_jimeng_dreamina_video_submit_id_cache",
     {
       payload,
     },

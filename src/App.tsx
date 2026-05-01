@@ -55,6 +55,7 @@ import { initializePsIntegration } from "./stores/psIntegrationStore";
 import { ensureDailyDatabaseBackup } from "./commands/storage";
 import { minimizeMainWindowToTray } from "./commands/system";
 import { useJimengVideoQueueStore } from "./stores/jimengVideoQueueStore";
+import { useGenerationHistoryStore } from "./stores/generationHistoryStore";
 import {
   checkDreaminaCliUpdate,
   updateDreaminaCli,
@@ -139,6 +140,11 @@ const UpdateAvailableDialog = lazy(() =>
 const DreaminaSetupDialog = lazy(() =>
   import("./components/DreaminaSetupDialog").then((module) => ({
     default: module.DreaminaSetupDialog,
+  })),
+);
+const ApiPlatformNoticeDialog = lazy(() =>
+  import("./components/ApiPlatformNoticeDialog").then((module) => ({
+    default: module.ApiPlatformNoticeDialog,
   })),
 );
 
@@ -241,16 +247,24 @@ function MainApp() {
   const autoUpdateDreaminaCliOnLaunch = useSettingsStore(
     (state) => state.autoUpdateDreaminaCliOnLaunch,
   );
+  const hasAcceptedApiPlatformNotice = useSettingsStore(
+    (state) => state.hasAcceptedApiPlatformNotice,
+  );
   const setEnableUpdateDialog = useSettingsStore(
     (state) => state.setEnableUpdateDialog,
   );
   const setAutoCheckAppUpdateOnLaunch = useSettingsStore(
     (state) => state.setAutoCheckAppUpdateOnLaunch,
   );
+  const setHasAcceptedApiPlatformNotice = useSettingsStore(
+    (state) => state.setHasAcceptedApiPlatformNotice,
+  );
   const settingsHydrated = useSettingsStore((state) => state.isHydrated);
   const [showSettings, setShowSettings] = useState(false);
   const [showExtensions, setShowExtensions] = useState(false);
+  const [showApiPlatformNotice, setShowApiPlatformNotice] = useState(false);
   const [settingsDialogLoaded, setSettingsDialogLoaded] = useState(false);
+  const [apiPlatformNoticeDialogLoaded, setApiPlatformNoticeDialogLoaded] = useState(false);
   const [extensionsDialogLoaded, setExtensionsDialogLoaded] = useState(false);
   const [updateDialogLoaded, setUpdateDialogLoaded] = useState(false);
   const [dreaminaDialogLoaded, setDreaminaDialogLoaded] = useState(false);
@@ -321,6 +335,12 @@ function MainApp() {
   const closeJimengVideoQueueProject = useJimengVideoQueueStore(
     (state) => state.closeProject,
   );
+  const openGenerationHistoryProject = useGenerationHistoryStore(
+    (state) => state.openProject,
+  );
+  const closeGenerationHistoryProject = useGenerationHistoryStore(
+    (state) => state.closeProject,
+  );
   const [canvasEntryLoadingState, setCanvasEntryLoadingState] =
     useState<CanvasEntryLoadingState>({
       projectId: null,
@@ -355,15 +375,28 @@ function MainApp() {
   }, [settingsHydrated]);
 
   useEffect(() => {
+    if (!settingsHydrated || hasAcceptedApiPlatformNotice) {
+      return;
+    }
+
+    setApiPlatformNoticeDialogLoaded(true);
+    setShowApiPlatformNotice(true);
+  }, [hasAcceptedApiPlatformNotice, settingsHydrated]);
+
+  useEffect(() => {
     if (!currentProjectId) {
       closeJimengVideoQueueProject();
+      closeGenerationHistoryProject();
       return;
     }
 
     void openJimengVideoQueueProject(currentProjectId);
+    void openGenerationHistoryProject(currentProjectId);
   }, [
+    closeGenerationHistoryProject,
     closeJimengVideoQueueProject,
     currentProjectId,
+    openGenerationHistoryProject,
     openJimengVideoQueueProject,
   ]);
 
@@ -1134,6 +1167,21 @@ function MainApp() {
         )}
       </main>
 
+      {apiPlatformNoticeDialogLoaded ? (
+        <Suspense fallback={null}>
+          <ApiPlatformNoticeDialog
+            isOpen={showApiPlatformNotice}
+            onClose={() => {
+              setHasAcceptedApiPlatformNotice(true);
+              setShowApiPlatformNotice(false);
+            }}
+            onAcknowledge={() => {
+              setHasAcceptedApiPlatformNotice(true);
+              setShowApiPlatformNotice(false);
+            }}
+          />
+        </Suspense>
+      ) : null}
       {settingsDialogLoaded ? (
         <Suspense fallback={null}>
           <SettingsDialog

@@ -1,10 +1,10 @@
 import { convertFileSrc, isTauri } from '@tauri-apps/api/core';
 
 import {
-  loadImage,
   prepareNodeImageBinary,
   persistImageSource,
   prepareNodeImageSource,
+  readLocalImageBinary,
 } from '@/commands/image';
 
 export function parseAspectRatio(value: string): number {
@@ -85,6 +85,8 @@ export interface ImagePixelDimensions {
 const LOCAL_IMAGE_READABILITY_RETRY_DELAYS_MS = [80, 160, 320, 640, 1280] as const;
 const localImageDisplaySourceCache = new Map<string, string>();
 const localImageDisplaySourceInflight = new Map<string, Promise<string>>();
+const localImageDisplaySourceFailureCache = new Map<string, number>();
+let localImageDisplaySourceCleanupRegistered = false;
 
 interface ErrorWithDetails extends Error {
   details?: string;
@@ -345,6 +347,11 @@ function rememberLocalImageDisplaySource(localFilePath: string, displaySource: s
     return;
   }
 
+  installLocalImageDisplaySourceUnloadCleanup();
+  const previousDisplaySource = localImageDisplaySourceCache.get(localFilePath);
+  if (previousDisplaySource && previousDisplaySource !== displaySource) {
+    URL.revokeObjectURL(previousDisplaySource);
+  }
   if (localImageDisplaySourceCache.has(localFilePath)) {
     localImageDisplaySourceCache.delete(localFilePath);
   }
@@ -355,8 +362,32 @@ function rememberLocalImageDisplaySource(localFilePath: string, displaySource: s
     if (!oldestKey) {
       break;
     }
+    const oldestDisplaySource = localImageDisplaySourceCache.get(oldestKey);
+    if (oldestDisplaySource) {
+      URL.revokeObjectURL(oldestDisplaySource);
+    }
     localImageDisplaySourceCache.delete(oldestKey);
   }
+}
+
+function releaseAllStableImageDisplaySources(): void {
+  localImageDisplaySourceCache.forEach((displaySource) => {
+    URL.revokeObjectURL(displaySource);
+  });
+  localImageDisplaySourceCache.clear();
+  localImageDisplaySourceInflight.clear();
+  localImageDisplaySourceFailureCache.clear();
+}
+
+function installLocalImageDisplaySourceUnloadCleanup(): void {
+  if (localImageDisplaySourceCleanupRegistered || typeof window === 'undefined') {
+    return;
+  }
+
+  localImageDisplaySourceCleanupRegistered = true;
+  window.addEventListener('beforeunload', () => {
+    releaseAllStableImageDisplaySources();
+  });
 }
 
 export function getCachedStableImageDisplaySource(source: string): string | null {
@@ -366,6 +397,20 @@ export function getCachedStableImageDisplaySource(source: string): string | null
   }
 
   return localImageDisplaySourceCache.get(localFilePath) ?? null;
+}
+
+function shouldSkipStableImageDisplaySourceRetry(localFilePath: string): boolean {
+  const failedAt = localImageDisplaySourceFailureCache.get(localFilePath);
+  if (!failedAt) {
+    return false;
+  }
+
+  if (Date.now() - failedAt < 5_000) {
+    return true;
+  }
+
+  localImageDisplaySourceFailureCache.delete(localFilePath);
+  return false;
 }
 
 export async function loadStableImageDisplaySource(source: string): Promise<string> {
@@ -379,6 +424,10 @@ export async function loadStableImageDisplaySource(source: string): Promise<stri
     return resolveImageDisplayUrl(normalizedSource);
   }
 
+  if (shouldSkipStableImageDisplaySourceRetry(localFilePath)) {
+    throw new Error(`Local image file is unavailable: ${localFilePath}`);
+  }
+
   const cachedDisplaySource = localImageDisplaySourceCache.get(localFilePath);
   if (cachedDisplaySource) {
     return cachedDisplaySource;
@@ -389,14 +438,19 @@ export async function loadStableImageDisplaySource(source: string): Promise<stri
     return await inflightRequest;
   }
 
-  const request = loadImage(localFilePath)
-    .then((displaySource) => {
+  const request = readLocalImageBinary(localFilePath)
+    .then(({ bytes, mimeType }) => {
+      const blob = new Blob([new Uint8Array(bytes)], {
+        type: mimeType || 'image/png',
+      });
+      const displaySource = URL.createObjectURL(blob);
       rememberLocalImageDisplaySource(localFilePath, displaySource);
       localImageDisplaySourceInflight.delete(localFilePath);
       return displaySource;
     })
     .catch((error) => {
       localImageDisplaySourceInflight.delete(localFilePath);
+      localImageDisplaySourceFailureCache.set(localFilePath, Date.now());
       throw error;
     });
 
@@ -554,7 +608,7 @@ export async function ensurePreparedNodeImageReadable(
 
 export async function loadImageElement(source: string): Promise<HTMLImageElement> {
   const image = new Image();
-  const displaySource = resolveImageDisplayUrl(source);
+  const displaySource = await loadStableImageDisplaySource(source);
   if (
     displaySource.startsWith('http://') ||
     displaySource.startsWith('https://') ||
@@ -582,7 +636,10 @@ export async function imageUrlToDataUrl(imageUrl: string): Promise<string> {
   if (localFilePath) {
     if (isTauri()) {
       try {
-        return await loadImage(localFilePath);
+        const { bytes, mimeType } = await readLocalImageBinary(localFilePath);
+        return await blobToDataUrl(new Blob([new Uint8Array(bytes)], {
+          type: mimeType || 'image/png',
+        }));
       } catch (error) {
         throw createImagePipelineError('无法读取本地图片数据', `source=${imageUrl}`, error);
       }

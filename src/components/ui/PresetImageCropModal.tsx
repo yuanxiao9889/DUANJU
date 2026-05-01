@@ -10,7 +10,7 @@ import { Loader2 } from 'lucide-react';
 import ReactCrop from 'react-image-crop';
 import 'react-image-crop/dist/ReactCrop.css';
 
-import { resolveImageDisplayUrl } from '@/features/canvas/application/imageData';
+import { useStableImageDisplaySource } from '@/features/canvas/hooks/useStableImageDisplaySource';
 import {
   type StyleTemplateImageCropRect,
 } from '@/features/project/styleTemplateImage';
@@ -105,6 +105,7 @@ export function PresetImageCropModal({
   const [completedCrop, setCompletedCrop] = useState<PixelCrop | null>(null);
   const [displaySize, setDisplaySize] = useState<FittedImageSize | null>(null);
   const [isConfirming, setIsConfirming] = useState(false);
+  const { displaySource: stableSourceImageUrl } = useStableImageDisplaySource(sourceImageUrl);
 
   useEffect(() => {
     if (!isOpen) {
@@ -236,7 +237,7 @@ export function PresetImageCropModal({
               >
                 <img
                   ref={imageRef}
-                  src={resolveImageDisplayUrl(sourceImageUrl)}
+                  src={stableSourceImageUrl ?? ''}
                   alt={imageAlt}
                   className="block select-none"
                   style={

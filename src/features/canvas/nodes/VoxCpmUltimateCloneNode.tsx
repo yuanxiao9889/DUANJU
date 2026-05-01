@@ -45,6 +45,7 @@ import {
   resolveVoicePresetHint,
   SliderField,
   SummaryCard,
+  ToggleField,
   useCompositionSafeTextareaDraft,
 } from './voxCpmShared';
 
@@ -175,6 +176,8 @@ export const VoxCpmUltimateCloneNode = memo(({
   const inferenceTimesteps = typeof data.inferenceTimesteps === 'number'
     ? clamp(Math.round(data.inferenceTimesteps), 1, 40)
     : DEFAULT_VOXCPM_INFERENCE_TIMESTEPS;
+  const normalize = data.normalize === true;
+  const denoise = data.denoise === true;
   const runtimeTone = resolveRuntimeTone(isExtensionReady, isExtensionStarting);
   const runtimeProgress = extensionRuntime?.progress ?? 0;
   const currentRuntimeStep = activeExtensionPackage?.startupSteps.find(
@@ -337,15 +340,17 @@ export const VoxCpmUltimateCloneNode = memo(({
     enqueueTtsAudioGeneration({
       audioNodeId,
       sourceNodeId: id,
-      run: () =>
-        generateVoxCpmUltimateCloneAudio(readyExtensionPackage, {
-          text: connectedTextTrimmed,
-          referenceAudio: referenceAudioPath,
-          promptText: promptTextTrimmed,
-          useReferenceAsReference,
-          cfgValue,
-          inferenceTimesteps,
-        }),
+        run: () =>
+          generateVoxCpmUltimateCloneAudio(readyExtensionPackage, {
+            text: connectedTextTrimmed,
+            referenceAudio: referenceAudioPath,
+            promptText: promptTextTrimmed,
+            useReferenceAsReference,
+            cfgValue,
+            inferenceTimesteps,
+            normalize,
+            denoise,
+          }),
     });
   };
 
@@ -608,6 +613,21 @@ export const VoxCpmUltimateCloneNode = memo(({
             step={1}
             value={inferenceTimesteps}
             onChange={(value) => handleFieldChange('inferenceTimesteps', value)}
+          />
+        </div>
+
+        <div className="grid gap-3 md:grid-cols-2">
+          <ToggleField
+            label={t('node.voxCpm.normalize')}
+            helperText={t('node.voxCpm.normalizeHint')}
+            checked={normalize}
+            onChange={(value) => handleFieldChange('normalize', value)}
+          />
+          <ToggleField
+            label={t('node.voxCpm.denoise')}
+            helperText={t('node.voxCpm.denoiseHint')}
+            checked={denoise}
+            onChange={(value) => handleFieldChange('denoise', value)}
           />
         </div>
 

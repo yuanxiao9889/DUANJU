@@ -13,6 +13,7 @@ export const DEFAULT_NODE_DISPLAY_NAME: Record<CanvasNodeType, string> = {
   [CANVAS_NODE_TYPES.backgroundRemove]: '\u62a0\u56fe',
   [CANVAS_NODE_TYPES.seedvr2ImageUpscale]: '\u56fe\u7247\u9ad8\u6e05\u653e\u5927',
   [CANVAS_NODE_TYPES.seedvr2VideoUpscale]: '\u89c6\u9891\u9ad8\u6e05\u653e\u5927',
+  [CANVAS_NODE_TYPES.legacy]: '\u65e7\u7248\u8282\u70b9',
   [CANVAS_NODE_TYPES.jimeng]: '\u5373\u68a6\u89c6\u9891',
   [CANVAS_NODE_TYPES.jimengImage]: '\u5373\u68a6\u56fe\u7247',
   [CANVAS_NODE_TYPES.mj]: 'Midjourney',

@@ -1,4 +1,5 @@
 import {
+  forwardRef,
   memo,
   useCallback,
   useEffect,
@@ -17,6 +18,7 @@ import {
 } from '@/features/canvas/application/imageLoadState';
 import { resolveLocalFileSourcePath } from '@/features/canvas/application/imageData';
 import type { ImageViewerMetadata } from '@/features/canvas/domain/canvasNodes';
+import { useStableImageDisplaySource } from '@/features/canvas/hooks/useStableImageDisplaySource';
 import { useCanvasStore } from '@/stores/canvasStore';
 
 export interface CanvasNodeImageProps extends ImgHTMLAttributes<HTMLImageElement> {
@@ -99,7 +101,19 @@ function normalizeViewerList(
   return deduped.length > 0 ? deduped : [currentImageUrl];
 }
 
-export const CanvasNodeImage = memo(({
+function normalizeCandidateList(values: Array<string | null | undefined>): string[] {
+  const deduped: string[] = [];
+  for (const value of values) {
+    const normalized = normalizeImageSrc(value);
+    if (!normalized || deduped.includes(normalized)) {
+      continue;
+    }
+    deduped.push(normalized);
+  }
+  return deduped;
+}
+
+export const CanvasNodeImage = memo(forwardRef<HTMLImageElement, CanvasNodeImageProps>(({
   viewerSourceUrl,
   viewerImageList,
   viewerMetadata = null,
@@ -110,7 +124,7 @@ export const CanvasNodeImage = memo(({
   onLoad,
   src,
   ...props
-}: CanvasNodeImageProps) => {
+}, forwardedRef) => {
   const openImageViewer = useCanvasStore((state) => state.openImageViewer);
   const requestedSrc = useMemo(
     () => normalizeImageSrc(typeof src === 'string' ? src : null),
@@ -136,15 +150,41 @@ export const CanvasNodeImage = memo(({
     () => resolveDisplayState(requestedSrc, resolvedFallbackSrc),
     [requestedSrc, resolvedFallbackSrc]
   );
+  const candidateSources = useMemo(
+    () => normalizeCandidateList([
+      requestedSrc,
+      resolvedFallbackSrc,
+      normalizedViewerSource,
+      ...(viewerImageList ?? []),
+    ]),
+    [normalizedViewerSource, requestedSrc, resolvedFallbackSrc, viewerImageList]
+  );
+  const candidateSourcesKey = useMemo(() => candidateSources.join('\n'), [candidateSources]);
   const [activeSrc, setActiveSrc] = useState<string | null>(() => resolvedDisplayState.activeSrc);
   const [isUsingFallback, setIsUsingFallback] = useState(
     () => resolvedDisplayState.isUsingFallback
   );
   const [retryAttempt, setRetryAttempt] = useState(0);
   const retryTimerRef = useRef<number | null>(null);
+  const failedCandidateSourcesRef = useRef<Set<string>>(new Set());
+  const {
+    displaySource: activeDisplaySource,
+    loadError: activeDisplaySourceError,
+    isLocalSource: isActiveLocalSource,
+  } = useStableImageDisplaySource(activeSrc);
   const renderedSrc = useMemo(
-    () => (activeSrc ? appendRetryTokenToImageSrc(activeSrc, retryAttempt) : null),
-    [activeSrc, retryAttempt]
+    () => {
+      if (!activeSrc) {
+        return null;
+      }
+
+      if (isActiveLocalSource) {
+        return activeDisplaySource;
+      }
+
+      return appendRetryTokenToImageSrc(activeDisplaySource ?? activeSrc, retryAttempt);
+    },
+    [activeDisplaySource, activeSrc, isActiveLocalSource, retryAttempt]
   );
 
   const clearRetryTimer = useCallback(() => {
@@ -156,6 +196,7 @@ export const CanvasNodeImage = memo(({
 
   useEffect(() => {
     clearRetryTimer();
+    failedCandidateSourcesRef.current.clear();
     setActiveSrc((currentActiveSrc) => (
       currentActiveSrc === resolvedDisplayState.activeSrc
         ? currentActiveSrc
@@ -167,18 +208,78 @@ export const CanvasNodeImage = memo(({
         : resolvedDisplayState.isUsingFallback
     ));
     setRetryAttempt(0);
-  }, [clearRetryTimer, resolvedDisplayState]);
+  }, [candidateSourcesKey, clearRetryTimer, resolvedDisplayState]);
 
   useEffect(() => () => {
     clearRetryTimer();
   }, [clearRetryTimer]);
 
+  const handleSourceFailure = useCallback((reason: 'resolve' | 'render', error?: unknown) => {
+    clearRetryTimer();
+    markImageLoadFailed(activeSrc);
+    if (activeSrc) {
+      failedCandidateSourcesRef.current.add(activeSrc);
+    }
+
+    const nextCandidate = candidateSources.find((candidate) => (
+      candidate !== activeSrc
+      && !failedCandidateSourcesRef.current.has(candidate)
+      && shouldAttemptImageLoad(candidate)
+    ));
+    if (nextCandidate) {
+      setActiveSrc(nextCandidate);
+      setIsUsingFallback(nextCandidate !== requestedSrc);
+      setRetryAttempt(0);
+      return;
+    }
+
+    console.warn('[CanvasNodeImage] image failed to load', {
+      src: activeSrc,
+      renderSrc: renderedSrc,
+      requestedSrc,
+      fallbackSrc: resolvedFallbackSrc,
+      retryAttempt,
+      viewerSourceUrl: normalizedViewerSource,
+      reason,
+      error,
+    });
+    setActiveSrc(null);
+    setIsUsingFallback(false);
+    setRetryAttempt(0);
+  }, [
+    activeSrc,
+    candidateSources,
+    clearRetryTimer,
+    normalizedViewerSource,
+    renderedSrc,
+    requestedSrc,
+    resolvedFallbackSrc,
+    retryAttempt,
+  ]);
+
+  useEffect(() => {
+    if (!activeSrc || !isActiveLocalSource || !activeDisplaySourceError) {
+      return;
+    }
+
+    handleSourceFailure('resolve', activeDisplaySourceError);
+  }, [
+    activeDisplaySourceError,
+    activeSrc,
+    handleSourceFailure,
+    isActiveLocalSource,
+  ]);
+
   const handleLoad = useCallback((event: SyntheticEvent<HTMLImageElement, Event>) => {
     onLoad?.(event);
+    const currentDisplaySrc = event.currentTarget.currentSrc || event.currentTarget.src || '';
+    if (isActiveLocalSource && (!activeDisplaySource || currentDisplaySrc === EMPTY_IMAGE_DATA_URL)) {
+      return;
+    }
     clearRetryTimer();
     setRetryAttempt(0);
     markImageLoadSucceeded(activeSrc);
-  }, [activeSrc, clearRetryTimer, onLoad]);
+  }, [activeDisplaySource, activeSrc, clearRetryTimer, isActiveLocalSource, onLoad]);
 
   const handleLoadError = useCallback((event: SyntheticEvent<HTMLImageElement, Event>) => {
     onError?.(event);
@@ -192,6 +293,7 @@ export const CanvasNodeImage = memo(({
       : undefined;
     if (
       activeSrc
+      && !isActiveLocalSource
       && retryDelayMs !== undefined
       && isRetryableLocalImageSource(activeSrc)
     ) {
@@ -203,36 +305,13 @@ export const CanvasNodeImage = memo(({
       return;
     }
 
-    clearRetryTimer();
-    markImageLoadFailed(activeSrc);
-
-    if (!isUsingFallback && resolvedFallbackSrc) {
-      setActiveSrc(resolvedFallbackSrc);
-      setIsUsingFallback(true);
-      setRetryAttempt(0);
-      return;
-    }
-
-    console.warn('[CanvasNodeImage] image failed to load', {
-      src: activeSrc,
-      renderSrc: renderedSrc,
-      requestedSrc,
-      fallbackSrc: resolvedFallbackSrc,
-      retryAttempt,
-      viewerSourceUrl: normalizedViewerSource,
-    });
-    setActiveSrc(null);
-    setIsUsingFallback(false);
-    setRetryAttempt(0);
+    handleSourceFailure('render');
   }, [
     activeSrc,
     clearRetryTimer,
-    isUsingFallback,
-    normalizedViewerSource,
+    handleSourceFailure,
+    isActiveLocalSource,
     onError,
-    requestedSrc,
-    renderedSrc,
-    resolvedFallbackSrc,
     retryAttempt,
   ]);
 
@@ -244,7 +323,7 @@ export const CanvasNodeImage = memo(({
     }
 
     const currentDisplaySrc =
-      event.currentTarget.currentSrc || activeSrc || requestedSrc || resolvedFallbackSrc || '';
+      activeSrc || requestedSrc || resolvedFallbackSrc || event.currentTarget.currentSrc || '';
     const resolvedSource =
       normalizedViewerSource ?? currentDisplaySrc.trim();
     if (!resolvedSource) {
@@ -272,6 +351,7 @@ export const CanvasNodeImage = memo(({
   return (
     <img
       {...props}
+      ref={forwardedRef}
       src={renderedSrc ?? EMPTY_IMAGE_DATA_URL}
       data-image-load-state={activeSrc ? (isUsingFallback ? 'fallback' : 'primary') : 'failed'}
       data-viewer-src={
@@ -284,6 +364,6 @@ export const CanvasNodeImage = memo(({
       onDoubleClick={handleDoubleClick}
     />
   );
-});
+}));
 
 CanvasNodeImage.displayName = 'CanvasNodeImage';

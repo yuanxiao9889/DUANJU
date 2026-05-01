@@ -26,8 +26,8 @@ import {
   getAssetPanelWindow,
   openAssetPanelWindow,
 } from '@/features/assets/application/assetPanelBridge';
+import { AssetPreviewImage } from '@/features/assets/ui/AssetPreviewImage';
 import { formatAudioDuration } from '@/features/canvas/application/audioData';
-import { resolveImageDisplayUrl } from '@/features/canvas/application/imageData';
 import { useAssetStore } from '@/stores/assetStore';
 import { useProjectStore } from '@/stores/projectStore';
 
@@ -547,8 +547,10 @@ export function CanvasAssetDock() {
                                 </div>
                               </div>
                             ) : (
-                              <img
-                                src={resolveImageDisplayUrl(item.previewPath || item.sourcePath)}
+                              <AssetPreviewImage
+                                assetId={item.id}
+                                previewSource={item.previewPath}
+                                sourceSource={item.sourcePath}
                                 alt={item.name}
                                 className="block h-auto w-full rounded-md transition-transform duration-200 group-hover:scale-[1.02]"
                               />

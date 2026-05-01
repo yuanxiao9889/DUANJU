@@ -4,8 +4,9 @@ import {
   getCachedImageLoadState,
   markImageLoadFailed,
   markImageLoadSucceeded,
+  shouldAttemptImageLoad,
 } from './imageLoadState';
-import { resolveImageDisplayUrl } from './imageData';
+import { loadStableImageDisplaySource } from './imageData';
 
 const DEFAULT_PRELOAD_CONCURRENCY = 6;
 const IMAGE_SOURCE_KEYS = new Set([
@@ -117,21 +118,22 @@ export function collectProjectImageUrls(nodes: CanvasNode[]): string[] {
     collectImageCandidates(node.data, urls, seenUrls, visitedObjects);
   });
 
-  return urls;
+  return urls.filter((url) => shouldAttemptImageLoad(url));
 }
 
 async function preloadSingleImage(url: string): Promise<void> {
-  const displaySource = resolveImageDisplayUrl(url);
-  const cachedState = getCachedImageLoadState(displaySource);
+  const cachedState = getCachedImageLoadState(url);
   if (cachedState === 'loaded') {
     return;
   }
 
   if (cachedState === 'failed') {
-    const cachedError = new Error(`Failed to preload image: ${displaySource}`);
+    const cachedError = new Error(`Failed to preload image: ${url}`);
     (cachedError as Error & { cached?: boolean }).cached = true;
     throw cachedError;
   }
+
+  const displaySource = await loadStableImageDisplaySource(url);
 
   await new Promise<void>((resolve, reject) => {
     const image = new Image();
@@ -145,7 +147,7 @@ async function preloadSingleImage(url: string): Promise<void> {
     }
 
     image.onload = () => {
-      markImageLoadSucceeded(displaySource);
+      markImageLoadSucceeded(url);
       if (typeof image.decode === 'function') {
         image.decode().catch(() => undefined).finally(() => resolve());
         return;
@@ -154,7 +156,7 @@ async function preloadSingleImage(url: string): Promise<void> {
       resolve();
     };
     image.onerror = () => {
-      markImageLoadFailed(displaySource);
+      markImageLoadFailed(url);
       reject(new Error(`Failed to preload image: ${displaySource}`));
     };
     image.src = displaySource;

@@ -8,7 +8,7 @@ import ReactCrop, {
 } from 'react-image-crop';
 import 'react-image-crop/dist/ReactCrop.css';
 
-import { resolveImageDisplayUrl } from '@/features/canvas/application/imageData';
+import { useStableImageDisplaySource } from '@/features/canvas/hooks/useStableImageDisplaySource';
 import type { ToolSelectField } from '@/features/canvas/tools';
 import type { VisualToolEditorProps } from './types';
 
@@ -126,10 +126,8 @@ export function CropToolEditor({ plugin, sourceImageUrl, options, onOptionsChang
   const [naturalSize, setNaturalSize] = useState({ width: 0, height: 0 });
   const [viewportSize, setViewportSize] = useState({ width: 0, height: 0 });
 
-  const displaySourceImageUrl = useMemo(
-    () => resolveImageDisplayUrl(sourceImageUrl),
-    [sourceImageUrl]
-  );
+  const { displaySource: stableSourceImageUrl } = useStableImageDisplaySource(sourceImageUrl);
+  const displaySourceImageUrl = stableSourceImageUrl ?? '';
 
   useEffect(() => {
     const element = viewportRef.current;

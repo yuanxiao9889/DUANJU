@@ -31,6 +31,7 @@ export const CANVAS_NODE_TYPES = {
   jimengVideoResult: 'jimengVideoResultNode',
   seedance: 'seedanceNode',
   seedanceVideoResult: 'seedanceVideoResultNode',
+  legacy: 'legacyNode',
   exportImage: 'exportImageNode',
   textAnnotation: 'textAnnotationNode',
   llmLogic: 'llmLogicNode',
@@ -259,6 +260,11 @@ export interface NodeDisplayData {
   nodeDescription?: string | null;
   semanticColor?: CanvasSemanticColor | null;
   [key: string]: unknown;
+}
+
+export interface LegacyNodeData extends NodeDisplayData {
+  legacyType: string;
+  legacyData: Record<string, unknown>;
 }
 
 export type VoiceGenerationSource =
@@ -553,6 +559,8 @@ export interface VoxCpmVoiceDesignNodeData extends NodeDisplayData {
   voicePrompt: string;
   cfgValue?: number;
   inferenceTimesteps?: number;
+  normalize?: boolean;
+  denoise?: boolean;
   isGenerating?: boolean;
   generationProgress?: number;
   statusText?: string | null;
@@ -567,6 +575,8 @@ export interface VoxCpmVoiceCloneNodeData extends NodeDisplayData {
   controlText: string;
   cfgValue?: number;
   inferenceTimesteps?: number;
+  normalize?: boolean;
+  denoise?: boolean;
   isGenerating?: boolean;
   generationProgress?: number;
   statusText?: string | null;
@@ -582,6 +592,8 @@ export interface VoxCpmUltimateCloneNodeData extends NodeDisplayData {
   useReferenceAsReference?: boolean;
   cfgValue?: number;
   inferenceTimesteps?: number;
+  normalize?: boolean;
+  denoise?: boolean;
   isGenerating?: boolean;
   generationProgress?: number;
   statusText?: string | null;
@@ -2136,6 +2148,7 @@ export type CanvasNodeData =
   | BackgroundRemoveNodeData
   | Seedvr2ImageUpscaleNodeData
   | Seedvr2VideoUpscaleNodeData
+  | LegacyNodeData
   | ImageCollageNodeData
   | TextAnnotationNodeData
   | LlmLogicNodeData

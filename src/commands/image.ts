@@ -63,6 +63,11 @@ export interface PrepareNodeImageSourceResult {
   aspectRatio: string;
 }
 
+export interface ReadLocalImageBinaryResult {
+  bytes: number[];
+  mimeType: string;
+}
+
 export interface CropImageSourcePayload {
   source: string;
   aspectRatio?: string;
@@ -134,6 +139,14 @@ export async function cropImageSource(
 
 export async function loadImage(filePath: string): Promise<string> {
   return await invoke('load_image', {
+    filePath,
+  });
+}
+
+export async function readLocalImageBinary(
+  filePath: string
+): Promise<ReadLocalImageBinaryResult> {
+  return await invoke<ReadLocalImageBinaryResult>('read_local_image_binary', {
     filePath,
   });
 }

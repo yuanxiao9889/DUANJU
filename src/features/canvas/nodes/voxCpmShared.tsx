@@ -27,7 +27,7 @@ import {
 } from '@/features/canvas/domain/canvasNodes';
 import { resolveConnectedTtsText } from './qwenTtsShared';
 
-export const DEFAULT_VOXCPM_CFG_VALUE = 1.3;
+export const DEFAULT_VOXCPM_CFG_VALUE = 2.0;
 export const DEFAULT_VOXCPM_INFERENCE_TIMESTEPS = 10;
 
 interface PromptOptimizationUndoState {
@@ -50,6 +50,13 @@ export interface SliderFieldProps {
   step: number;
   value: number;
   onChange: (value: number) => void;
+}
+
+export interface ToggleFieldProps {
+  label: string;
+  helperText: string;
+  checked: boolean;
+  onChange: (checked: boolean) => void;
 }
 
 interface OptimizableTextAreaFieldProps {
@@ -472,6 +479,30 @@ export function SliderField({
         className="ui-range nodrag nowheel mt-1.5 w-full"
         style={sliderStyle}
       />
+    </label>
+  );
+}
+
+export function ToggleField({
+  label,
+  helperText,
+  checked,
+  onChange,
+}: ToggleFieldProps) {
+  return (
+    <label className="flex items-start gap-3 rounded-xl border border-white/10 bg-black/10 px-3 py-2.5">
+      <input
+        type="checkbox"
+        checked={checked}
+        onChange={(event) => onChange(event.target.checked)}
+        onClick={(event) => event.stopPropagation()}
+        onPointerDown={(event) => event.stopPropagation()}
+        className="nodrag mt-0.5 h-4 w-4 shrink-0 rounded border-white/20 bg-black/10 text-accent"
+      />
+      <div className="min-w-0">
+        <div className="text-xs font-medium text-text-muted">{label}</div>
+        <div className="mt-1 text-[11px] leading-4 text-text-muted">{helperText}</div>
+      </div>
     </label>
   );
 }

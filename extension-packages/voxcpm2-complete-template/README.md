@@ -15,4 +15,5 @@ The assembled output is written to:
 - `E:\Storyboard-Copilot\build\extensions\voxcpm2-complete`
 
 The current package layout targets the upstream `OpenBMB/VoxCPM` project with
-the local runtime verified against `voxcpm 2.0.2`.
+the local runtime verified against `voxcpm 2.0.2` and the current upstream
+normalization / reference denoise workflow.

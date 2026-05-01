@@ -25,7 +25,6 @@ import {
 } from '@/features/canvas/application/imageNodeSizing';
 import {
   detectImageDimensions,
-  resolveImageDisplayUrl,
 } from '@/features/canvas/application/imageData';
 import { resolveNodeDisplayName } from '@/features/canvas/domain/nodeDisplay';
 import { getModelProvider } from '@/features/canvas/models';
@@ -288,7 +287,7 @@ export const ImageNode = memo(({ id, data, selected, type, width }: ImageNodePro
       return null;
     }
 
-    return resolveImageDisplayUrl(data.imageUrl);
+    return data.imageUrl;
   }, [data.imageUrl]);
 
   const previewImageUrl = useMemo(() => {
@@ -296,7 +295,7 @@ export const ImageNode = memo(({ id, data, selected, type, width }: ImageNodePro
       return null;
     }
 
-    return resolveImageDisplayUrl(data.previewImageUrl);
+    return data.previewImageUrl;
   }, [data.previewImageUrl]);
 
   const imageSource = useMemo(() => {

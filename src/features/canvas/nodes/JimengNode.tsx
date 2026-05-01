@@ -50,7 +50,6 @@ import {
   useCanvasConnectedTextInput,
   useCanvasConnectedReferenceVisuals,
 } from "@/features/canvas/hooks/useCanvasNodeGraph";
-import { resolveImageDisplayUrl } from "@/features/canvas/application/imageData";
 import { flushCurrentProjectToDiskSafely } from "@/features/canvas/application/projectPersistence";
 import {
   optimizeCanvasPrompt,
@@ -1151,7 +1150,7 @@ export const JimengNode = memo(
               referenceUrl,
               previewImageUrl: connectedItem.previewImageUrl,
               displayUrl: connectedItem.previewImageUrl
-                ? resolveImageDisplayUrl(connectedItem.previewImageUrl)
+                ? connectedItem.previewImageUrl
                 : null,
               tokenLabel:
                 connectedItem.kind === "video"
@@ -2111,6 +2110,8 @@ export const JimengNode = memo(
             videoFileName: null,
             aspectRatio: selectedAspectRatio,
             duration: selectedDuration,
+            autoRequeryEnabled: false,
+            autoRequeryIntervalSeconds: 900,
             isGenerating: true,
             generationStartedAt: startedAt,
             generationDurationMs: 180000,
@@ -2164,6 +2165,8 @@ export const JimengNode = memo(
 
             updateNodeData(createdResultNodeId, {
               submitId,
+              autoRequeryEnabled: true,
+              autoRequeryIntervalSeconds: 900,
               isGenerating: true,
               generationStartedAt: startedAt,
               lastError: null,
@@ -2193,9 +2196,17 @@ export const JimengNode = memo(
             duration: primaryResult.duration ?? selectedDuration,
             width: primaryResult.width ?? undefined,
             height: primaryResult.height ?? undefined,
+            autoRequeryEnabled: false,
             isGenerating: false,
             generationStartedAt: null,
             lastGeneratedAt: completedAt,
+            lastError: null,
+          });
+        } else if (createdResultNodeId && generationResponse.pending) {
+          updateNodeData(createdResultNodeId, {
+            submitId: generationResponse.submitId,
+            isGenerating: true,
+            generationStartedAt: startedAt,
             lastError: null,
           });
         }

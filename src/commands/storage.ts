@@ -27,6 +27,24 @@ export interface RestoreDatabaseBackupResult {
   safetyBackup: DatabaseBackupRecord | null;
 }
 
+export interface StorageMigrationValidation {
+  sourceProjectCount: number;
+  targetProjectCount: number;
+  sourceImageCount: number;
+  targetImageCount: number;
+  sourceBackupCount: number;
+  targetBackupCount: number;
+  sourceDbSize: number;
+  targetDbSize: number;
+  warnings: string[];
+}
+
+export interface StorageMigrationResult {
+  currentPath: string;
+  targetPath: string;
+  validation: StorageMigrationValidation;
+}
+
 export async function getStorageInfo(): Promise<StorageInfo> {
   return invoke<StorageInfo>('get_storage_info');
 }
@@ -52,14 +70,14 @@ export async function restoreDatabaseBackup(
 export async function migrateStorage(
   newPath: string,
   deleteOld: boolean
-): Promise<string> {
-  return invoke<string>('migrate_storage', { newPath, deleteOld });
+): Promise<StorageMigrationResult> {
+  return invoke<StorageMigrationResult>('migrate_storage', { newPath, deleteOld });
 }
 
 export async function resetStorageToDefault(
   deleteCustom: boolean
-): Promise<string> {
-  return invoke<string>('reset_storage_to_default', { deleteCustom });
+): Promise<StorageMigrationResult> {
+  return invoke<StorageMigrationResult>('reset_storage_to_default', { deleteCustom });
 }
 
 export async function openStorageFolder(): Promise<void> {

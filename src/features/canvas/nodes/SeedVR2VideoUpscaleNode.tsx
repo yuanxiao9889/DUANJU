@@ -19,6 +19,7 @@ import {
 } from '@/features/canvas/domain/canvasNodes';
 import { resolveNodeDisplayName } from '@/features/canvas/domain/nodeDisplay';
 import { useCanvasIncomingSourceNodes } from '@/features/canvas/hooks/useCanvasNodeGraph';
+import { CanvasNodeImage } from '@/features/canvas/ui/CanvasNodeImage';
 import { NodeHeader, NODE_HEADER_FLOATING_POSITION_CLASS } from '@/features/canvas/ui/NodeHeader';
 import { NodeStatusBadge } from '@/features/canvas/ui/NodeStatusBadge';
 import {
@@ -27,8 +28,6 @@ import {
 } from '@/features/extensions/application/seedvr2Runtime';
 import { useCanvasStore } from '@/stores/canvasStore';
 import { useExtensionsStore } from '@/stores/extensionsStore';
-import { resolveImageDisplayUrl } from '@/features/canvas/application/imageData';
-
 import { formatGeneratedTime, resolveRuntimeTone } from './voxCpmShared';
 
 type SeedVR2VideoUpscaleNodeProps = NodeProps & {
@@ -429,11 +428,12 @@ export const SeedVR2VideoUpscaleNode = memo(({
 
           <div className="flex items-start gap-3">
             {inputState.previewImageUrl ? (
-              <img
-                src={resolveImageDisplayUrl(inputState.previewImageUrl)}
+              <CanvasNodeImage
+                src={inputState.previewImageUrl}
                 alt={t('node.seedvr2VideoUpscale.sourcePreviewAlt')}
                 className="h-20 w-20 rounded-xl border border-white/10 object-cover"
                 draggable={false}
+                disableViewer
               />
             ) : (
               <div className="flex h-20 w-20 items-center justify-center rounded-xl border border-dashed border-white/10 bg-white/[0.03] text-text-muted">

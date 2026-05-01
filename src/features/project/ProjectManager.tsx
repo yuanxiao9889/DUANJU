@@ -25,9 +25,7 @@ import {
 import { UiLoadingBanner, UiPanel } from '@/components/ui';
 import { UI_CONTENT_OVERLAY_INSET_CLASS } from '@/components/ui/motion';
 import { UiButton, UiSelect } from '@/components/ui/primitives';
-import { MissingApiKeyHint } from '@/features/settings/MissingApiKeyHint';
 import { useClipLibraryStore } from '@/stores/clipLibraryStore';
-import { getConfiguredApiKeyCount, useSettingsStore } from '@/stores/settingsStore';
 import { useProjectStore, type ProjectType } from '@/stores/projectStore';
 import { DeleteConfirmDialog } from './DeleteConfirmDialog';
 import { ProjectTypeSelector, CreateProjectDialog } from './ProjectTypeSelector';
@@ -69,7 +67,6 @@ function ProjectListView({
   projects,
   selectedProjectIds,
   sortedProjects,
-  configuredApiKeyCount,
   setShowStyleTemplateDialog,
   linkedStoryboardCountByScriptId,
   linkedStoryboardCountByAdId,
@@ -100,7 +97,6 @@ function ProjectListView({
   projects: ReturnType<typeof useProjectStore.getState>['projects'];
   selectedProjectIds: Set<string>;
   sortedProjects: ReturnType<typeof useProjectStore.getState>['projects'];
-  configuredApiKeyCount: number;
   setShowStyleTemplateDialog: (open: boolean) => void;
   linkedStoryboardCountByScriptId: Map<string, number>;
   linkedStoryboardCountByAdId: Map<string, number>;
@@ -207,8 +203,6 @@ function ProjectListView({
           )}
         </div>
       </div>
-
-      {configuredApiKeyCount === 0 ? <MissingApiKeyHint className="mb-8" /> : null}
 
       {isSelectMode && selectedProjectIds.size > 0 ? (
         <div className="mb-4 rounded-lg bg-accent/10 px-4 py-2 text-sm text-accent">
@@ -774,9 +768,6 @@ export function ProjectManager() {
   const projectsTabLabel = t('project.tabs.projects');
   const assetsTabLabel = t('project.tabs.assets');
   const clipLibrariesTabLabel = t('project.tabs.clipLibraries');
-  const configuredApiKeyCount = useSettingsStore((state) =>
-    getConfiguredApiKeyCount({ ...state.scriptApiKeys, ...state.storyboardApiKeys })
-  );
   const hydrateClipLibraries = useClipLibraryStore((state) => state.hydrate);
   const clipLibraries = useClipLibraryStore((state) => state.libraries);
 
@@ -1061,7 +1052,6 @@ export function ProjectManager() {
             projects={projects}
             selectedProjectIds={selectedProjectIds}
             sortedProjects={sortedProjects}
-            configuredApiKeyCount={configuredApiKeyCount}
             setShowStyleTemplateDialog={setShowStyleTemplateDialog}
             linkedStoryboardCountByScriptId={linkedStoryboardCountByScriptId}
             linkedStoryboardCountByAdId={linkedStoryboardCountByAdId}

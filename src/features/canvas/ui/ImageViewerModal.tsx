@@ -8,6 +8,7 @@ import { saveImageSourceToPath } from '@/commands/image';
 import { resolveLocalFileSourcePath } from '@/features/canvas/application/imageData';
 import type { ImageViewerMetadata } from '@/features/canvas/domain/canvasNodes';
 import { getModelProvider } from '@/features/canvas/models';
+import { CanvasNodeImage } from '@/features/canvas/ui/CanvasNodeImage';
 
 import { useImageViewerTransform } from '../hooks/useImageViewerTransform';
 
@@ -328,9 +329,10 @@ export function ImageViewerModal({
           <div className="pointer-events-none absolute inset-x-0 top-0 z-10 h-24 bg-gradient-to-b from-black/55 to-transparent" />
 
           <div className="absolute inset-0 flex items-center justify-center p-4 sm:p-6">
-            <img
+            <CanvasNodeImage
               ref={imageRef}
               src={displayImageUrl}
+              disableViewer
               alt={t('viewer.imageAlt', '图片')}
               className="select-none transition-opacity duration-300"
               style={{

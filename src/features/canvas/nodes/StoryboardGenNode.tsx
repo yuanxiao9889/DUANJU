@@ -33,6 +33,7 @@ import { resolveMinEdgeFittedSize } from '@/features/canvas/application/imageNod
 import { EXPORT_RESULT_DISPLAY_NAME, resolveNodeDisplayName } from '@/features/canvas/domain/nodeDisplay';
 import { useCanvasStore } from '@/stores/canvasStore';
 import { useSettingsStore } from '@/stores/settingsStore';
+import { openSettingsDialog } from '@/features/settings/settingsEvents';
 import {
   canvasAiGateway,
 } from '@/features/canvas/application/canvasServices';
@@ -40,7 +41,6 @@ import { resolveErrorContent, showErrorDialog } from '@/features/canvas/applicat
 import {
   detectAspectRatio,
   parseAspectRatio,
-  resolveImageDisplayUrl,
   resolveReadableImageSource,
 } from '@/features/canvas/application/imageData';
 import {
@@ -683,13 +683,13 @@ export const StoryboardGenNode = memo(({ id, data, selected, width, height }: St
     () =>
       incomingImages.map((imageUrl, index) => ({
         imageUrl,
-        displayUrl: resolveImageDisplayUrl(imageUrl),
+        displayUrl: imageUrl,
         label: `图${index + 1}`,
       })),
     [incomingImages]
   );
   const incomingImageViewerList = useMemo(
-    () => incomingImageItems.map((item) => resolveImageDisplayUrl(item.imageUrl)),
+    () => incomingImageItems.map((item) => item.imageUrl),
     [incomingImageItems]
   );
 
@@ -1376,6 +1376,11 @@ export const StoryboardGenNode = memo(({ id, data, selected, width, height }: St
     if (!providerApiKey) {
       const errorMessage = t('node.storyboardGen.apiKeyRequired');
       setError(errorMessage);
+      openSettingsDialog({
+        category: 'providers',
+        providerTab: 'storyboard',
+        providerId: selectedModel.providerId,
+      });
       void showErrorDialog(errorMessage, t('common.error'));
       return;
     }
@@ -2113,7 +2118,7 @@ export const StoryboardGenNode = memo(({ id, data, selected, width, height }: St
             <CanvasNodeImage
               src={frameReferencePreview.displayUrl}
               alt={frameReferencePreview.alt}
-              viewerSourceUrl={resolveImageDisplayUrl(frameReferencePreview.imageUrl)}
+              viewerSourceUrl={frameReferencePreview.imageUrl}
               viewerImageList={incomingImageViewerList}
               className="block max-h-[132px] max-w-[144px] rounded-xl object-contain"
               draggable={false}
@@ -2150,7 +2155,7 @@ export const StoryboardGenNode = memo(({ id, data, selected, width, height }: St
                 <CanvasNodeImage
                   src={item.displayUrl}
                   alt={t('node.storyboardGen.referenceImageLabel', { index: imageIndex + 1 })}
-                  viewerSourceUrl={resolveImageDisplayUrl(item.imageUrl)}
+                  viewerSourceUrl={item.imageUrl}
                   viewerImageList={incomingImageViewerList}
                   className="h-8 w-8 rounded object-cover"
                 />

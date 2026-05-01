@@ -2,7 +2,7 @@ import { memo, type ReactNode, useEffect, useState } from 'react';
 import { Check, Palette } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 
-import { resolveImageDisplayUrl } from '@/features/canvas/application/imageData';
+import { CanvasNodeImage } from '@/features/canvas/ui/CanvasNodeImage';
 import type { MjStyleCodePreset } from '@/features/midjourney/domain/styleCodePresets';
 
 interface MjStyleCodePresetCardProps {
@@ -21,7 +21,7 @@ function MjStyleCodePresetCardComponent({
   className = '',
 }: MjStyleCodePresetCardProps) {
   const { t } = useTranslation();
-  const resolvedImageUrl = preset.imageUrl ? resolveImageDisplayUrl(preset.imageUrl) : null;
+  const resolvedImageUrl = preset.imageUrl?.trim() || null;
   const [hasImageError, setHasImageError] = useState(false);
   const displayImageUrl = resolvedImageUrl && !hasImageError ? resolvedImageUrl : null;
   const titleText = preset.name.trim() || preset.code.trim();
@@ -36,11 +36,12 @@ function MjStyleCodePresetCardComponent({
       <div className="relative">
         <div className="aspect-[4/3] w-full">
           {displayImageUrl ? (
-            <img
+            <CanvasNodeImage
               src={displayImageUrl}
               alt={preset.name}
               className="h-full w-full object-cover"
               draggable={false}
+              disableViewer
               onError={() => setHasImageError(true)}
             />
           ) : (

@@ -25,6 +25,7 @@ import {
   type BackgroundRemoveNodeData,
   type Seedvr2ImageUpscaleNodeData,
   type Seedvr2VideoUpscaleNodeData,
+  type LegacyNodeData,
   type ImageEditNodeData,
   type ImageCollageNodeData,
   type Panorama360NodeData,
@@ -489,6 +490,31 @@ const groupNodeDefinition: CanvasNodeDefinition<GroupNodeData> = {
   createDefaultData: () => ({
     displayName: DEFAULT_NODE_DISPLAY_NAME[CANVAS_NODE_TYPES.group],
     label: '组',
+  }),
+};
+
+const legacyNodeDefinition: CanvasNodeDefinition<LegacyNodeData> = {
+  type: CANVAS_NODE_TYPES.legacy,
+  menuLabelKey: 'node.menu.legacyNode',
+  menuIcon: 'text',
+  visibleInMenu: false,
+  menuProjectTypes: ['storyboard', 'script', 'ad'],
+  capabilities: {
+    toolbar: false,
+    promptInput: false,
+  },
+  connectivity: {
+    sourceHandle: true,
+    targetHandle: true,
+    connectMenu: {
+      fromSource: false,
+      fromTarget: false,
+    },
+  },
+  createDefaultData: () => ({
+    displayName: DEFAULT_NODE_DISPLAY_NAME[CANVAS_NODE_TYPES.legacy],
+    legacyType: 'legacyNode',
+    legacyData: {},
   }),
 };
 
@@ -1174,8 +1200,10 @@ const voxCpmVoiceDesignNodeDefinition: CanvasNodeDefinition<VoxCpmVoiceDesignNod
   createDefaultData: () => ({
     displayName: DEFAULT_NODE_DISPLAY_NAME[CANVAS_NODE_TYPES.voxCpmVoiceDesign],
     voicePrompt: '',
-    cfgValue: 1.3,
+    cfgValue: 2.0,
     inferenceTimesteps: 10,
+    normalize: false,
+    denoise: false,
     isGenerating: false,
     generationProgress: 0,
     statusText: null,
@@ -1209,8 +1237,10 @@ const voxCpmVoiceCloneNodeDefinition: CanvasNodeDefinition<VoxCpmVoiceCloneNodeD
     presetAssetId: null,
     referenceAssetId: null,
     controlText: '',
-    cfgValue: 1.3,
+    cfgValue: 2.0,
     inferenceTimesteps: 10,
+    normalize: false,
+    denoise: false,
     isGenerating: false,
     generationProgress: 0,
     statusText: null,
@@ -1245,8 +1275,10 @@ const voxCpmUltimateCloneNodeDefinition: CanvasNodeDefinition<VoxCpmUltimateClon
     referenceAssetId: null,
     promptText: '',
     useReferenceAsReference: true,
-    cfgValue: 1.3,
+    cfgValue: 2.0,
     inferenceTimesteps: 10,
+    normalize: false,
+    denoise: false,
     isGenerating: false,
     generationProgress: 0,
     statusText: null,
@@ -1764,6 +1796,7 @@ export const canvasNodeDefinitions: Record<CanvasNodeType, CanvasNodeDefinition>
   [CANVAS_NODE_TYPES.jimengVideoResult]: jimengVideoResultNodeDefinition,
   [CANVAS_NODE_TYPES.seedance]: seedanceNodeDefinition,
   [CANVAS_NODE_TYPES.seedanceVideoResult]: seedanceVideoResultNodeDefinition,
+  [CANVAS_NODE_TYPES.legacy]: legacyNodeDefinition,
   [CANVAS_NODE_TYPES.exportImage]: exportImageNodeDefinition,
   [CANVAS_NODE_TYPES.imageCompare]: imageCompareNodeDefinition,
   [CANVAS_NODE_TYPES.textAnnotation]: textAnnotationNodeDefinition,

@@ -9,6 +9,7 @@ import {
 } from "@/commands/jimengVideoQueue";
 import {
   checkDreaminaCliStatus,
+  resolveJimengDreaminaVideoSubmitIdCache,
   type DreaminaCliStatusCode,
 } from "@/commands/dreaminaCli";
 import { resolveErrorContent } from "@/features/canvas/application/errorDialog";
@@ -23,7 +24,6 @@ import {
   type JimengVideoResultNodeData,
 } from "@/features/canvas/domain/canvasNodes";
 import {
-  JIMENG_VIDEO_QUEUE_ATTEMPT_TIMEOUT_MS,
   JIMENG_VIDEO_QUEUE_CONCURRENCY_BACKOFF_MAX_MS,
   JIMENG_VIDEO_QUEUE_MAX_ACTIVE_JOBS,
   JIMENG_VIDEO_QUEUE_MAX_ATTEMPTS,
@@ -159,6 +159,87 @@ function parseJobRecord(record: JimengVideoQueueJobRecord): JimengVideoQueueJob 
     createdAt: record.createdAt,
     updatedAt: record.updatedAt,
   };
+}
+
+function normalizeSubmitId(value: unknown): string | null {
+  const normalized = typeof value === "string" ? value.trim() : "";
+  return normalized || null;
+}
+
+function resolveResultNodeSubmitId(job: JimengVideoQueueJob): string | null {
+  const canvasNode = useCanvasStore
+    .getState()
+    .nodes.find((node) => node.id === job.resultNodeId);
+  const projectNode = useProjectStore
+    .getState()
+    .currentProject?.nodes.find((node) => node.id === job.resultNodeId);
+  const nodeData = (canvasNode?.data ?? projectNode?.data ?? null) as
+    | Record<string, unknown>
+    | null;
+
+  return nodeData ? normalizeSubmitId(nodeData.submitId) : null;
+}
+
+async function resolveCachedSubmitId(job: JimengVideoQueueJob): Promise<string | null> {
+  try {
+    const response = await resolveJimengDreaminaVideoSubmitIdCache({
+      trackingId: job.jobId,
+    });
+    return normalizeSubmitId(response.submitId);
+  } catch (error) {
+    console.warn("[jimengQueue] failed to resolve submit id cache", {
+      jobId: job.jobId,
+      error,
+    });
+    return null;
+  }
+}
+
+async function recoverHydratedJobs(
+  jobs: JimengVideoQueueJob[],
+): Promise<JimengVideoQueueJob[]> {
+  const now = Date.now();
+  const recoveredJobs: JimengVideoQueueJob[] = [];
+  const changedJobs: JimengVideoQueueJob[] = [];
+
+  for (const job of jobs) {
+    if (job.status !== "submitting" || inflightJobIds.has(job.jobId)) {
+      recoveredJobs.push(job);
+      continue;
+    }
+
+    const recoveredSubmitId =
+      normalizeSubmitId(job.submitId) ??
+      resolveResultNodeSubmitId(job) ??
+      (await resolveCachedSubmitId(job));
+
+    if (recoveredSubmitId) {
+      const recoveredJob: JimengVideoQueueJob = {
+        ...job,
+        status: "submitted",
+        submitId: recoveredSubmitId,
+        updatedAt: now,
+        lastError: null,
+      };
+      nextPollAtByJobId.set(recoveredJob.jobId, now);
+      recoveredJobs.push(recoveredJob);
+      changedJobs.push(recoveredJob);
+      continue;
+    }
+
+    const failedJob = buildFailedJob(
+      {
+        ...job,
+        submitId: null,
+      },
+      i18n.t("jimengQueue.errors.submitInterrupted"),
+    );
+    recoveredJobs.push(failedJob);
+    changedJobs.push(failedJob);
+  }
+
+  await Promise.all(changedJobs.map((job) => persistJob(job)));
+  return sortJobs(recoveredJobs);
 }
 
 function isCurrentProjectOpen(projectId: string): boolean {
@@ -623,6 +704,7 @@ async function startJobAttempt(job: JimengVideoQueueJob): Promise<void> {
 
     const submitResponse = await submitJimengVideoJob({
       prompt: currentJob.payload.prompt,
+      trackingId: currentJob.jobId,
       modelVersion: currentJob.payload.modelVersion ?? undefined,
       referenceMode: currentJob.payload.referenceMode ?? undefined,
       aspectRatio: currentJob.payload.aspectRatio ?? undefined,
@@ -676,20 +758,6 @@ async function pollJob(job: JimengVideoQueueJob): Promise<void> {
   const submitId = job.submitId;
 
   try {
-    if (
-      workingJob.startedAt &&
-      Date.now() - workingJob.startedAt > JIMENG_VIDEO_QUEUE_ATTEMPT_TIMEOUT_MS
-    ) {
-      const timedOutJob = buildAttemptFailureJob(
-        workingJob,
-        i18n.t("jimengQueue.errors.timeout"),
-      );
-      clearConcurrencyBackoff(workingJob.jobId);
-      nextPollAtByJobId.delete(workingJob.jobId);
-      await commitJob(timedOutJob, { flushProject: true });
-      return;
-    }
-
     const response = await queryJimengVideoResult({ submitId });
     const now = Date.now();
     if (isJobDiscarded(workingJob.jobId)) {
@@ -794,20 +862,6 @@ async function pollJob(job: JimengVideoQueueJob): Promise<void> {
       return;
     }
     nextPollAtByJobId.set(workingJob.jobId, Date.now() + JIMENG_VIDEO_QUEUE_POLL_INTERVAL_MS);
-
-    if (
-      workingJob.startedAt &&
-      Date.now() - workingJob.startedAt > JIMENG_VIDEO_QUEUE_ATTEMPT_TIMEOUT_MS
-    ) {
-      const failedJob = buildAttemptFailureJob(
-        workingJob,
-        resolveJobErrorMessage(error),
-      );
-      clearConcurrencyBackoff(workingJob.jobId);
-      nextPollAtByJobId.delete(workingJob.jobId);
-      await commitJob(failedJob, { flushProject: true });
-      return;
-    }
 
     const warningJob: JimengVideoQueueJob = {
       ...workingJob,
@@ -961,9 +1015,14 @@ export const useJimengVideoQueueStore = create<JimengVideoQueueState>(
           return;
         }
 
+        const recoveredJobs = await recoverHydratedJobs(records.map(parseJobRecord));
+        if (requestSeq !== projectLoadRequestSeq) {
+          return;
+        }
+
         set({
           currentProjectId: projectId,
-          jobs: sortJobs(records.map(parseJobRecord)),
+          jobs: recoveredJobs,
           isHydrating: false,
         });
         projectLoadedAtById.set(projectId, Date.now());

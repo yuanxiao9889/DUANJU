@@ -70,6 +70,7 @@ pub struct GenerateJimengDreaminaImagesPayload {
 #[serde(rename_all = "camelCase")]
 pub struct GenerateJimengDreaminaVideosPayload {
     pub prompt: String,
+    pub tracking_id: Option<String>,
     pub reference_mode: Option<String>,
     pub aspect_ratio: Option<String>,
     pub duration_seconds: Option<u32>,
@@ -281,6 +282,12 @@ pub struct QueryJimengDreaminaVideoResultPayload {
     pub submit_id: String,
 }
 
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ResolveJimengDreaminaVideoSubmitIdCachePayload {
+    pub tracking_id: String,
+}
+
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct JimengDreaminaImageQueryResponse {
@@ -300,6 +307,21 @@ pub struct JimengDreaminaVideoQueryResponse {
     pub results: Vec<JimengDreaminaGeneratedVideoResult>,
     pub warnings: Vec<String>,
     pub failure_message: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct DreaminaSubmitIdCacheRecord {
+    pub tracking_id: String,
+    pub submit_id: String,
+    pub kind: String,
+    pub created_at_ms: u128,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DreaminaSubmitIdCacheResponse {
+    pub submit_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -2396,6 +2418,102 @@ fn runtime_submit_download_dir(
     Ok(path)
 }
 
+fn sanitize_tracking_id(value: &str) -> Option<String> {
+    let sanitized = value
+        .trim()
+        .chars()
+        .map(|character| {
+            if character.is_ascii_alphanumeric() || character == '-' || character == '_' {
+                character
+            } else {
+                '-'
+            }
+        })
+        .collect::<String>()
+        .trim_matches('-')
+        .to_string();
+
+    if sanitized.is_empty() {
+        None
+    } else {
+        Some(sanitized)
+    }
+}
+
+fn runtime_submit_id_cache_path(
+    app: &AppHandle,
+    kind: &str,
+    tracking_id: &str,
+) -> Result<Option<PathBuf>, String> {
+    let Some(safe_tracking_id) = sanitize_tracking_id(tracking_id) else {
+        return Ok(None);
+    };
+
+    let path = runtime_root(app)?
+        .join("submit-cache")
+        .join(kind)
+        .join(format!("{safe_tracking_id}.json"));
+    Ok(Some(path))
+}
+
+fn remember_dreamina_submit_id_cache(
+    app: &AppHandle,
+    kind: &str,
+    tracking_id: Option<&str>,
+    submit_id: &str,
+) -> Result<(), String> {
+    let Some(tracking_id) = tracking_id.map(str::trim).filter(|value| !value.is_empty()) else {
+        return Ok(());
+    };
+    let Some(cache_path) = runtime_submit_id_cache_path(app, kind, tracking_id)? else {
+        return Ok(());
+    };
+
+    if let Some(parent) = cache_path.parent() {
+        fs::create_dir_all(parent)
+            .map_err(|error| format!("failed to create Dreamina submit cache dir: {error}"))?;
+    }
+
+    let record = DreaminaSubmitIdCacheRecord {
+        tracking_id: tracking_id.to_string(),
+        submit_id: submit_id.trim().to_string(),
+        kind: kind.to_string(),
+        created_at_ms: SystemTime::now()
+            .duration_since(SystemTime::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_millis(),
+    };
+    let content = serde_json::to_string_pretty(&record)
+        .map_err(|error| format!("failed to serialize Dreamina submit cache: {error}"))?;
+    fs::write(&cache_path, content)
+        .map_err(|error| format!("failed to write Dreamina submit cache: {error}"))?;
+    Ok(())
+}
+
+fn read_dreamina_submit_id_cache(
+    app: &AppHandle,
+    kind: &str,
+    tracking_id: &str,
+) -> Result<Option<String>, String> {
+    let Some(cache_path) = runtime_submit_id_cache_path(app, kind, tracking_id)? else {
+        return Ok(None);
+    };
+    if !cache_path.exists() {
+        return Ok(None);
+    }
+
+    let content = fs::read_to_string(&cache_path)
+        .map_err(|error| format!("failed to read Dreamina submit cache: {error}"))?;
+    let record: DreaminaSubmitIdCacheRecord = serde_json::from_str(&content)
+        .map_err(|error| format!("failed to parse Dreamina submit cache: {error}"))?;
+    let submit_id = record.submit_id.trim();
+    if submit_id.is_empty() {
+        Ok(None)
+    } else {
+        Ok(Some(submit_id.to_string()))
+    }
+}
+
 fn data_url_extension(data_url: &str) -> &'static str {
     let mime = data_url
         .strip_prefix("data:")
@@ -2901,6 +3019,12 @@ async fn submit_jimeng_dreamina_video_request(
         video_args(payload, command, &image_paths, &video_paths, &audio_paths),
     )
     .await?;
+    remember_dreamina_submit_id_cache(
+        app,
+        "video",
+        payload.tracking_id.as_deref(),
+        &submit_id,
+    )?;
     let download_dir = request_dir.join("downloads").join(&submit_id);
     fs::create_dir_all(&download_dir)
         .map_err(|error| format!("failed to create Dreamina video download dir: {error}"))?;
@@ -4200,4 +4324,14 @@ pub async fn query_jimeng_dreamina_video_result(
         }
         Err(error) => Err(error),
     }
+}
+
+#[tauri::command]
+pub fn resolve_jimeng_dreamina_video_submit_id_cache(
+    app: AppHandle,
+    payload: ResolveJimengDreaminaVideoSubmitIdCachePayload,
+) -> Result<DreaminaSubmitIdCacheResponse, String> {
+    Ok(DreaminaSubmitIdCacheResponse {
+        submit_id: read_dreamina_submit_id_cache(&app, "video", &payload.tracking_id)?,
+    })
 }

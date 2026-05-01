@@ -52,7 +52,6 @@ import {
   useCanvasConnectedTextInput,
   useCanvasIncomingSourceNodes,
 } from "@/features/canvas/hooks/useCanvasNodeGraph";
-import { resolveImageDisplayUrl } from "@/features/canvas/application/imageData";
 import { optimizeCanvasPrompt } from "@/features/canvas/application/promptOptimization";
 import {
   buildSequentialPromptReferenceImageCandidates,
@@ -405,17 +404,14 @@ export const JimengImageNode = memo(
       () => connectedReferenceImages.map((item) => item.imageUrl),
       [connectedReferenceImages],
     );
-    const incomingImageDisplayList = useMemo(
-      () => incomingImages.map((imageUrl) => resolveImageDisplayUrl(imageUrl)),
-      [incomingImages],
-    );
+    const incomingImageDisplayList = useMemo(() => incomingImages, [incomingImages]);
     const incomingImageItems = useMemo(
       () =>
         connectedReferenceImages.map((item, index) => ({
           sourceEdgeId: item.sourceEdgeId,
           sourceNodeId: item.sourceNodeId,
           imageUrl: item.imageUrl,
-          displayUrl: resolveImageDisplayUrl(item.imageUrl),
+          displayUrl: item.imageUrl,
           tokenLabel: buildShortReferenceToken(index),
           label: t("node.jimengImage.referenceImageLabel", {
             index: index + 1,
@@ -1444,9 +1440,7 @@ export const JimengImageNode = memo(
                   <CanvasNodeImage
                     src={promptReferencePreview.displayUrl}
                     alt={promptReferencePreview.alt}
-                    viewerSourceUrl={resolveImageDisplayUrl(
-                      promptReferencePreview.imageUrl,
-                    )}
+                    viewerSourceUrl={promptReferencePreview.imageUrl}
                     viewerImageList={incomingImageDisplayList}
                     className="block max-h-[132px] max-w-[144px] rounded-xl object-contain"
                     draggable={false}

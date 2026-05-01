@@ -38,13 +38,10 @@ import {
 } from '@/features/canvas/application/audioData';
 import {
   ensurePreparedNodeImageReadable,
-  getCachedStableImageDisplaySource,
-  loadStableImageDisplaySource,
   prepareNodeImageFromFile,
-  resolveLocalFileSourcePath,
-  resolveImageDisplayUrl,
 } from '@/features/canvas/application/imageData';
 import { CanvasNodeImage } from '@/features/canvas/ui/CanvasNodeImage';
+import { AssetPreviewImage } from '@/features/assets/ui/AssetPreviewImage';
 import { useAssetStore } from '@/stores/assetStore';
 
 type LibraryDialogState =
@@ -138,19 +135,6 @@ function normalizeAssetImageSource(source: string | null | undefined): string | 
   return normalized || null;
 }
 
-function resolveInitialAssetImageDisplaySource(source: string | null): string | null {
-  if (!source) {
-    return null;
-  }
-
-  const cachedDisplaySource = getCachedStableImageDisplaySource(source);
-  if (cachedDisplaySource) {
-    return cachedDisplaySource;
-  }
-
-  return resolveLocalFileSourcePath(source) ? null : resolveImageDisplayUrl(source);
-}
-
 function AssetImagePreview({
   primarySource,
   fallbackSource,
@@ -164,67 +148,15 @@ function AssetImagePreview({
 }) {
   const normalizedPrimarySource = normalizeAssetImageSource(primarySource);
   const normalizedFallbackSource = normalizeAssetImageSource(fallbackSource);
-  const [primarySrc, setPrimarySrc] = useState<string | null>(() =>
-    resolveInitialAssetImageDisplaySource(normalizedPrimarySource)
-  );
-  const [fallbackSrc, setFallbackSrc] = useState<string | null>(() => {
-    if (!normalizedFallbackSource || normalizedFallbackSource === normalizedPrimarySource) {
-      return null;
-    }
-
-    return resolveInitialAssetImageDisplaySource(normalizedFallbackSource);
-  });
-
-  useEffect(() => {
-    let isCancelled = false;
-
-    const initialPrimarySrc = resolveInitialAssetImageDisplaySource(normalizedPrimarySource);
-    const initialFallbackSrc =
-      normalizedFallbackSource && normalizedFallbackSource !== normalizedPrimarySource
-        ? resolveInitialAssetImageDisplaySource(normalizedFallbackSource)
-        : null;
-
-    setPrimarySrc(initialPrimarySrc);
-    setFallbackSrc(initialFallbackSrc);
-
-    const loadDisplaySource = async (
-      source: string | null,
-      onResolved: (displaySource: string | null) => void
-    ) => {
-      if (!source || !resolveLocalFileSourcePath(source)) {
-        return;
-      }
-
-      try {
-        const displaySource = await loadStableImageDisplaySource(source);
-        if (!isCancelled) {
-          onResolved(displaySource);
-        }
-      } catch (error) {
-        if (!isCancelled) {
-          onResolved(null);
-        }
-        console.warn('[AssetManagerTab] failed to load stable local asset preview', {
-          source,
-          error,
-        });
-      }
-    };
-
-    void loadDisplaySource(normalizedPrimarySource, setPrimarySrc);
-    if (normalizedFallbackSource && normalizedFallbackSource !== normalizedPrimarySource) {
-      void loadDisplaySource(normalizedFallbackSource, setFallbackSrc);
-    }
-
-    return () => {
-      isCancelled = true;
-    };
-  }, [normalizedFallbackSource, normalizedPrimarySource]);
 
   return (
     <CanvasNodeImage
-      src={primarySrc ?? ''}
-      fallbackSrc={fallbackSrc}
+      src={normalizedPrimarySource ?? ''}
+      fallbackSrc={
+        normalizedFallbackSource && normalizedFallbackSource !== normalizedPrimarySource
+          ? normalizedFallbackSource
+          : null
+      }
       disableViewer
       alt={alt}
       className={className}
@@ -590,9 +522,10 @@ function AssetCategorySection({
                         </div>
                       </div>
                     ) : (
-                      <AssetImagePreview
-                        primarySource={asset.previewPath || asset.sourcePath}
-                        fallbackSource={asset.sourcePath}
+                      <AssetPreviewImage
+                        assetId={asset.id}
+                        previewSource={asset.previewPath}
+                        sourceSource={asset.sourcePath}
                         alt={asset.name}
                         className="h-full w-full object-cover transition-transform duration-200 group-hover:scale-[1.03]"
                       />

@@ -48,6 +48,7 @@ import { ScriptLocationNode } from './ScriptLocationNode';
 import { ScriptItemNode } from './ScriptItemNode';
 import { ScriptStoryNoteNode } from './ScriptStoryNoteNode';
 import { ScriptPlotPointNode } from './ScriptPlotPointNode';
+import { LegacyNode } from './LegacyNode';
 
 export const nodeTypes: NodeTypes = {
   exportImageNode: ImageNode,
@@ -81,6 +82,7 @@ export const nodeTypes: NodeTypes = {
   voxCpmUltimateCloneNode: VoxCpmUltimateCloneNode,
   uploadNode: UploadNode,
   videoNode: VideoNode,
+  legacyNode: LegacyNode,
   scriptRootNode: ScriptRootNode,
   scriptChapterNode: ScriptChapterNode,
   scriptSceneNode: ScriptSceneNode,
@@ -130,6 +132,7 @@ export {
   VoxCpmUltimateCloneNode,
   UploadNode, 
   VideoNode,
+  LegacyNode,
   ScriptRootNode, 
   ScriptChapterNode, 
   ScriptSceneNode,

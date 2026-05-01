@@ -32,7 +32,6 @@ import {
   UiSelect,
 } from '@/components/ui';
 import { createUiRangeStyle } from '@/components/ui/rangeStyle';
-import { resolveImageDisplayUrl } from '@/features/canvas/application/imageData';
 import {
   resolveErrorContent,
   showErrorDialog,
@@ -963,7 +962,7 @@ export const MjNode = memo(({ id, data, selected, width }: MjNodeProps) => {
           {syncedReferences.length > 0 ? (
             <div className="flex gap-2 overflow-x-auto pb-1">
               {syncedReferences.map((reference) => {
-                const displayUrl = resolveImageDisplayUrl(reference.imageUrl);
+                const displayUrl = reference.imageUrl;
                 const isStyleReference = reference.role === 'styleReference';
 
                 return (

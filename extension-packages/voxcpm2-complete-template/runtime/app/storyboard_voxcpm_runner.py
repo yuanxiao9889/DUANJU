@@ -149,6 +149,23 @@ def normalize_optional_text(value: Any) -> str:
     return str(value or "").strip()
 
 
+def normalize_bool(value: Any, fallback: bool = False) -> bool:
+    if isinstance(value, bool):
+        return value
+
+    if isinstance(value, (int, float)):
+        return bool(value)
+
+    if isinstance(value, str):
+        normalized = value.strip().lower()
+        if normalized in {"true", "1", "yes", "on"}:
+            return True
+        if normalized in {"false", "0", "no", "off"}:
+            return False
+
+    return fallback
+
+
 def normalize_file_path(value: Any, label: str) -> str:
     normalized = normalize_text(value, label)
     if not Path(normalized).exists():
@@ -231,7 +248,7 @@ def command_list_models() -> Dict[str, Any]:
 
 
 def command_warmup(payload: Dict[str, Any]) -> Dict[str, Any]:
-    load_denoiser = bool(payload.get("loadDenoiser", False))
+    load_denoiser = normalize_bool(payload.get("loadDenoiser"), False)
     started_at = time.time()
     get_model(load_denoiser=load_denoiser)
     elapsed_ms = int((time.time() - started_at) * 1000)
@@ -252,11 +269,13 @@ def command_warmup(payload: Dict[str, Any]) -> Dict[str, Any]:
 def command_generate_voice_design(payload: Dict[str, Any]) -> Dict[str, Any]:
     text = normalize_text(payload.get("text"), "text")
     control = normalize_optional_text(payload.get("voicePrompt") or payload.get("control"))
-    model = get_model(load_denoiser=bool(payload.get("loadDenoiser", False)))
+    model = get_model(load_denoiser=normalize_bool(payload.get("loadDenoiser"), False))
     output = model.generate(
         text=format_controlled_text(text, control),
-        cfg_value=normalize_float(payload.get("cfgValue"), 1.3, 0.1, 5.0),
+        cfg_value=normalize_float(payload.get("cfgValue"), 2.0, 0.1, 5.0),
         inference_timesteps=normalize_int(payload.get("inferenceTimesteps"), 10, 1, 40),
+        normalize=normalize_bool(payload.get("normalize"), False),
+        denoise=normalize_bool(payload.get("denoise"), False),
     )
     sample_rate = resolve_sample_rate(model)
     output_record = save_audio_output(
@@ -279,12 +298,14 @@ def command_generate_voice_clone(payload: Dict[str, Any]) -> Dict[str, Any]:
         payload.get("referenceAudio") or payload.get("reference_wav_path"),
         "referenceAudio",
     )
-    model = get_model(load_denoiser=bool(payload.get("loadDenoiser", False)))
+    model = get_model(load_denoiser=normalize_bool(payload.get("loadDenoiser"), False))
     output = model.generate(
         text=format_controlled_text(text, control),
         reference_wav_path=reference_audio,
-        cfg_value=normalize_float(payload.get("cfgValue"), 1.3, 0.1, 5.0),
+        cfg_value=normalize_float(payload.get("cfgValue"), 2.0, 0.1, 5.0),
         inference_timesteps=normalize_int(payload.get("inferenceTimesteps"), 10, 1, 40),
+        normalize=normalize_bool(payload.get("normalize"), False),
+        denoise=normalize_bool(payload.get("denoise"), False),
     )
     sample_rate = resolve_sample_rate(model)
     output_record = save_audio_output(
@@ -307,20 +328,22 @@ def command_generate_ultimate_clone(payload: Dict[str, Any]) -> Dict[str, Any]:
         "referenceAudio",
     )
     prompt_text = normalize_text(payload.get("promptText") or payload.get("prompt_text"), "promptText")
-    use_reference_as_reference = payload.get("useReferenceAsReference", True) is not False
+    use_reference_as_reference = normalize_bool(payload.get("useReferenceAsReference"), True)
     reference_audio = (
         prompt_audio
         if use_reference_as_reference
         else normalize_optional_text(payload.get("referenceWavPath") or payload.get("reference_wav_path"))
     )
 
-    model = get_model(load_denoiser=bool(payload.get("loadDenoiser", False)))
+    model = get_model(load_denoiser=normalize_bool(payload.get("loadDenoiser"), False))
     generate_kwargs: Dict[str, Any] = {
         "text": text,
         "prompt_wav_path": prompt_audio,
         "prompt_text": prompt_text,
-        "cfg_value": normalize_float(payload.get("cfgValue"), 1.3, 0.1, 5.0),
+        "cfg_value": normalize_float(payload.get("cfgValue"), 2.0, 0.1, 5.0),
         "inference_timesteps": normalize_int(payload.get("inferenceTimesteps"), 10, 1, 40),
+        "normalize": normalize_bool(payload.get("normalize"), False),
+        "denoise": normalize_bool(payload.get("denoise"), False),
     }
 
     if reference_audio:

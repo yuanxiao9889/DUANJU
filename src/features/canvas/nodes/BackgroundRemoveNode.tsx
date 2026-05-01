@@ -4,10 +4,7 @@ import { Image as ImageIcon, Scissors, Sparkles } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 
 import { UiButton, UiLoadingAnimation } from '@/components/ui';
-import {
-  persistImageLocally,
-  resolveImageDisplayUrl,
-} from '@/features/canvas/application/imageData';
+import { persistImageLocally } from '@/features/canvas/application/imageData';
 import {
   BACKGROUND_REMOVE_NODE_DEFAULT_HEIGHT,
   BACKGROUND_REMOVE_NODE_DEFAULT_WIDTH,
@@ -17,6 +14,7 @@ import {
 } from '@/features/canvas/domain/canvasNodes';
 import { resolveNodeDisplayName } from '@/features/canvas/domain/nodeDisplay';
 import { useCanvasIncomingSourceNodes } from '@/features/canvas/hooks/useCanvasNodeGraph';
+import { CanvasNodeImage } from '@/features/canvas/ui/CanvasNodeImage';
 import { NodeHeader, NODE_HEADER_FLOATING_POSITION_CLASS } from '@/features/canvas/ui/NodeHeader';
 import { NodeStatusBadge } from '@/features/canvas/ui/NodeStatusBadge';
 import { useCanvasStore } from '@/stores/canvasStore';
@@ -383,11 +381,13 @@ export const BackgroundRemoveNode = memo(({
 
           <div className="flex items-start gap-3">
             {inputState.previewImageUrl ? (
-              <img
-                src={resolveImageDisplayUrl(inputState.previewImageUrl)}
+              <CanvasNodeImage
+                src={inputState.previewImageUrl}
+                fallbackSrc={'imageUrl' in inputState ? inputState.imageUrl : null}
                 alt={t('node.backgroundRemove.sourcePreviewAlt')}
                 className="h-20 w-20 rounded-xl border border-white/10 object-cover"
                 draggable={false}
+                disableViewer
               />
             ) : (
               <div className="flex h-20 w-20 items-center justify-center rounded-xl border border-dashed border-white/10 bg-white/[0.03] text-text-muted">

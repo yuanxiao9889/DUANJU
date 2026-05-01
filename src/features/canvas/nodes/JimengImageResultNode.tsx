@@ -29,7 +29,6 @@ import {
   resolveErrorContent,
   showErrorDialog,
 } from "@/features/canvas/application/errorDialog";
-import { resolveImageDisplayUrl } from "@/features/canvas/application/imageData";
 import { CanvasNodeImage } from "@/features/canvas/ui/CanvasNodeImage";
 import {
   NodeHeader,
@@ -156,8 +155,7 @@ export const JimengImageResultNode = memo(
           .filter(
             (value): value is string =>
               typeof value === "string" && value.trim().length > 0,
-          )
-          .map((value) => resolveImageDisplayUrl(value)),
+          ),
       [resultImages],
     );
     const resolvedTitle = useMemo(
@@ -472,14 +470,14 @@ export const JimengImageResultNode = memo(
                   >
                     {source && viewerSource ? (
                       <CanvasNodeImage
-                        src={resolveImageDisplayUrl(source)}
+                        src={source}
                         alt={
                           item?.fileName ??
                           t("node.jimengImageResult.slotLabel", {
                             index: index + 1,
                           })
                         }
-                        viewerSourceUrl={resolveImageDisplayUrl(viewerSource)}
+                        viewerSourceUrl={viewerSource}
                         viewerImageList={viewerImageList}
                         className="h-full w-full object-cover"
                         draggable={false}

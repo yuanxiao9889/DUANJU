@@ -2,7 +2,7 @@ import { memo, type ReactNode, useEffect, useMemo, useState } from "react";
 import { Image as ImageIcon, Palette } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
-import { resolveImageDisplayUrl } from "@/features/canvas/application/imageData";
+import { CanvasNodeImage } from "@/features/canvas/ui/CanvasNodeImage";
 import { resolveBuiltinStyleTemplatePreviewImageUrl } from "@/features/project/defaultStyleTemplates";
 import type { StyleTemplate } from "@/features/project/styleTemplateUtils";
 
@@ -37,13 +37,12 @@ function StyleTemplateCardContent({
         return accumulator;
       }
 
-      const displayUrl = resolveImageDisplayUrl(trimmedCandidate);
-      if (!displayUrl || seen.has(displayUrl)) {
+      if (seen.has(trimmedCandidate)) {
         return accumulator;
       }
 
-      seen.add(displayUrl);
-      accumulator.push(displayUrl);
+      seen.add(trimmedCandidate);
+      accumulator.push(trimmedCandidate);
       return accumulator;
     }, []);
   }, [template]);
@@ -51,6 +50,7 @@ function StyleTemplateCardContent({
   const isCompact = size === "compact";
   const isCompactRadius = radius === "compact";
   const displayImageUrl = previewImageSources[activeImageIndex] ?? null;
+  const fallbackImageUrl = previewImageSources[activeImageIndex + 1] ?? null;
 
   useEffect(() => {
     setActiveImageIndex(0);
@@ -71,11 +71,13 @@ function StyleTemplateCardContent({
       >
         <div className="aspect-[3/4] w-full">
           {displayImageUrl ? (
-            <img
+            <CanvasNodeImage
               src={displayImageUrl}
+              fallbackSrc={fallbackImageUrl}
               alt={template.name}
               className="h-full w-full object-cover"
               draggable={false}
+              disableViewer
               onError={() =>
                 setActiveImageIndex((currentIndex) =>
                   currentIndex + 1 < previewImageSources.length

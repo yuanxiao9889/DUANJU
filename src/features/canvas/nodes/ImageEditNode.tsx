@@ -40,7 +40,6 @@ import { resolveErrorContent, showErrorDialog } from '@/features/canvas/applicat
 import {
   detectAspectRatio,
   parseAspectRatio,
-  resolveImageDisplayUrl,
   resolveReadableImageSource,
 } from '@/features/canvas/application/imageData';
 import { optimizeCanvasPrompt } from '@/features/canvas/application/promptOptimization';
@@ -50,6 +49,7 @@ import {
 } from '@/features/canvas/application/promptReferenceImageBindings';
 import { resolveMinEdgeFittedSize } from '@/features/canvas/application/imageNodeSizing';
 import { appendCameraParamsToPrompt } from '@/features/canvas/camera/cameraPrompt';
+import { openSettingsDialog } from '@/features/settings/settingsEvents';
 import {
   hasCameraParamsSelection,
   normalizeCameraParamsSelection,
@@ -519,7 +519,7 @@ export const ImageEditNode = memo(({ id, data, selected, width, height }: ImageE
             referenceUrl,
             requestImageUrl: referenceUrl,
             previewImageUrl,
-            displayUrl: resolveImageDisplayUrl(previewImageUrl),
+            displayUrl: previewImageUrl,
             tokenLabel: buildShortReferenceToken(index),
             label: t('node.imageEdit.referenceImageLabel', { index: index + 1 }),
           };
@@ -532,7 +532,7 @@ export const ImageEditNode = memo(({ id, data, selected, width, height }: ImageE
     [incomingImageItems]
   );
   const incomingImageViewerList = useMemo(
-    () => incomingImageItems.map((item) => resolveImageDisplayUrl(item.referenceUrl)),
+    () => incomingImageItems.map((item) => item.referenceUrl),
     [incomingImageItems]
   );
   const optimizedPromptMaxLength = useMemo(
@@ -1048,6 +1048,11 @@ export const ImageEditNode = memo(({ id, data, selected, width, height }: ImageE
     if (!providerApiKey) {
       const errorMessage = t('node.imageEdit.apiKeyRequired');
       setError(errorMessage);
+      openSettingsDialog({
+        category: 'providers',
+        providerTab: 'storyboard',
+        providerId: selectedModel.providerId,
+      });
       void showErrorDialog(errorMessage, t('common.error'));
       return;
     }
@@ -1609,7 +1614,7 @@ export const ImageEditNode = memo(({ id, data, selected, width, height }: ImageE
               <CanvasNodeImage
                 src={promptReferencePreview.displayUrl}
                 alt={promptReferencePreview.alt}
-                viewerSourceUrl={resolveImageDisplayUrl(promptReferencePreview.imageUrl)}
+                viewerSourceUrl={promptReferencePreview.imageUrl}
                 viewerImageList={incomingImageViewerList}
                 className="block max-h-[132px] max-w-[144px] rounded-xl object-contain"
                 draggable={false}
@@ -1653,7 +1658,7 @@ export const ImageEditNode = memo(({ id, data, selected, width, height }: ImageE
                   <CanvasNodeImage
                     src={item.displayUrl}
                     alt={item.label}
-                    viewerSourceUrl={resolveImageDisplayUrl(item.referenceUrl)}
+                    viewerSourceUrl={item.referenceUrl}
                     viewerImageList={incomingImageViewerList}
                     className="h-8 w-8 rounded object-cover"
                     draggable={false}

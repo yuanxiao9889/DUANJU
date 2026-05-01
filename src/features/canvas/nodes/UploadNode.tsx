@@ -39,7 +39,6 @@ import { NodeResizeHandle } from '@/features/canvas/ui/NodeResizeHandle';
 import {
   detectImageDimensions,
   prepareNodeImageFromFile,
-  resolveImageDisplayUrl,
   shouldUseOriginalImageByZoom,
 } from '@/features/canvas/application/imageData';
 import { CanvasNodeImage } from '@/features/canvas/ui/CanvasNodeImage';
@@ -322,7 +321,7 @@ export const UploadNode = memo(({ id, data, selected, width }: UploadNodeProps) 
       return null;
     }
 
-    return resolveImageDisplayUrl(data.imageUrl);
+    return data.imageUrl;
   }, [data.imageUrl]);
 
   const previewImageUrl = useMemo(() => {
@@ -330,7 +329,7 @@ export const UploadNode = memo(({ id, data, selected, width }: UploadNodeProps) 
       return null;
     }
 
-    return resolveImageDisplayUrl(data.previewImageUrl);
+    return data.previewImageUrl;
   }, [data.previewImageUrl]);
 
   const persistedImageSource = useMemo(() => {

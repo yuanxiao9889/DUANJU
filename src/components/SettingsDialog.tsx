@@ -165,6 +165,7 @@ const MJ_PROVIDER_GROUP_CONFIGS: ProviderGroupConfig[] = [
 ];
 
 const ABOUT_FEEDBACK_QQ_GROUP = '835213642';
+const ABOUT_OOPII_QQ_GROUP_URL = 'https://qm.qq.com/q/TcWYG0Ri0w';
 const ABOUT_FEEDBACK_QR_SRC = '/community-qq-835213642.jpg';
 
 function resolveProviderGroups(
@@ -1173,7 +1174,10 @@ export function SettingsDialog({
       setIsMigrating(true);
 
       await useProjectStore.getState().flushCurrentProjectToDisk();
-      await migrateStorage(newPath, true);
+      const result = await migrateStorage(newPath, true);
+      if (result.validation.warnings.length > 0) {
+        console.warn('Storage migration completed with warnings', result.validation);
+      }
       window.location.reload();
     } catch (error) {
       setMigrationError(error instanceof Error ? error.message : String(error));
@@ -3632,25 +3636,70 @@ export function SettingsDialog({
                     <div className="space-y-4">
                       <div className="min-w-0">
                         <h3 className="text-sm font-medium text-text-dark">
-                          {t('settings.aboutFeedbackTitle')}
+                          {t('settings.apiPlatformNoticeTitle')}
                         </h3>
-                        <p className="mt-1 text-xs leading-5 text-text-muted">
-                          {t('settings.aboutFeedbackDesc')}
+                        <p className="mt-2 whitespace-pre-line text-[13px] leading-6 text-text-muted">
+                          {t('settings.apiPlatformNoticeBody', {
+                            oopiiUrl: 'https://www.oopii.cn/',
+                            qqGroup: '835213642',
+                          })}
                         </p>
-                        <div className="mt-3 rounded border border-border-dark bg-surface-dark p-3">
-                          <p className="text-sm text-text-dark">
-                            {t('settings.aboutFeedbackPrompt')}
-                          </p>
-                          <p className="mt-2 text-sm text-text-dark">
-                            {t('settings.aboutFeedbackGroupLabel')}:{' '}
-                            <span className="font-medium text-accent">
-                              {ABOUT_FEEDBACK_QQ_GROUP}
+                        <div className="mt-3 space-y-2 rounded border border-border-dark bg-surface-dark p-3 text-sm">
+                          <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                            <span className="text-text-muted">
+                              {t('settings.apiPlatformNoticeWebsiteLabel')}:
                             </span>
+                            <a
+                              href="https://www.oopii.cn/"
+                              target="_blank"
+                              rel="noreferrer"
+                              className="break-all text-accent hover:underline"
+                            >
+                              https://www.oopii.cn/
+                            </a>
+                          </div>
+                          <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                            <span className="text-text-muted">
+                              {t('settings.apiPlatformNoticeQqLabel')}:
+                            </span>
+                            <span className="text-text-dark">835213642</span>
+                          </div>
+                          <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                            <span className="text-text-muted">
+                              {t('settings.apiPlatformNoticeJoinGroupLabel')}:
+                            </span>
+                            <a
+                              href={ABOUT_OOPII_QQ_GROUP_URL}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="break-all text-accent hover:underline"
+                            >
+                              {t('settings.apiPlatformNoticeJoinGroupLinkText')}
+                            </a>
+                          </div>
+                        </div>
+                        <div className="mt-4 border-t border-border-dark pt-4">
+                          <h3 className="text-sm font-medium text-text-dark">
+                            {t('settings.aboutFeedbackTitle')}
+                          </h3>
+                          <p className="mt-1 text-xs leading-5 text-text-muted">
+                            {t('settings.aboutFeedbackDesc')}
+                          </p>
+                          <div className="mt-3 rounded border border-border-dark bg-surface-dark p-3">
+                            <p className="text-sm text-text-dark">
+                              {t('settings.aboutFeedbackPrompt')}
+                            </p>
+                            <p className="mt-2 text-sm text-text-dark">
+                              {t('settings.aboutFeedbackGroupLabel')}:{' '}
+                              <span className="font-medium text-accent">
+                                {ABOUT_FEEDBACK_QQ_GROUP}
+                              </span>
+                            </p>
+                          </div>
+                          <p className="mt-3 text-xs text-text-muted">
+                            {t('settings.aboutFeedbackQrHint')}
                           </p>
                         </div>
-                        <p className="mt-3 text-xs text-text-muted">
-                          {t('settings.aboutFeedbackQrHint')}
-                        </p>
                       </div>
 
                       <div className="mx-auto w-full max-w-[220px]">

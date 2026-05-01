@@ -179,6 +179,7 @@ interface SettingsState {
   autoCheckAppUpdateOnLaunch: boolean;
   enableUpdateDialog: boolean;
   autoUpdateDreaminaCliOnLaunch: boolean;
+  hasAcceptedApiPlatformNotice: boolean;
   showMiniMap: boolean;
   showGrid: boolean;
   showAlignmentGuides: boolean;
@@ -271,6 +272,7 @@ interface SettingsState {
   setAutoCheckAppUpdateOnLaunch: (enabled: boolean) => void;
   setEnableUpdateDialog: (enabled: boolean) => void;
   setAutoUpdateDreaminaCliOnLaunch: (enabled: boolean) => void;
+  setHasAcceptedApiPlatformNotice: (accepted: boolean) => void;
   setShowMiniMap: (show: boolean) => void;
   setShowGrid: (show: boolean) => void;
   setShowAlignmentGuides: (show: boolean) => void;
@@ -655,6 +657,7 @@ export const useSettingsStore = create<SettingsState>()(
       autoCheckAppUpdateOnLaunch: true,
       enableUpdateDialog: true,
       autoUpdateDreaminaCliOnLaunch: true,
+      hasAcceptedApiPlatformNotice: false,
       showMiniMap: true,
       showGrid: true,
       showAlignmentGuides: true,
@@ -1511,10 +1514,12 @@ export const useSettingsStore = create<SettingsState>()(
       setPsIntegrationEnabled: (enabled) => set({ psIntegrationEnabled: enabled }),
       setPsServerPort: (port) => set({ psServerPort: port }),
       setPsAutoStartServer: (enabled) => set({ psAutoStartServer: enabled }),
+      setHasAcceptedApiPlatformNotice: (accepted) =>
+        set({ hasAcceptedApiPlatformNotice: accepted }),
     }),
     {
       name: 'settings-storage',
-      version: 39,
+      version: 42,
       onRehydrateStorage: () => {
         return (state, error) => {
           if (error) {
@@ -1570,6 +1575,7 @@ export const useSettingsStore = create<SettingsState>()(
           autoCheckAppUpdateOnLaunch?: boolean;
           enableUpdateDialog?: boolean;
           autoUpdateDreaminaCliOnLaunch?: boolean;
+          hasAcceptedApiPlatformNotice?: boolean;
           storyboardCompatibleModelConfig?: Partial<StoryboardCompatibleModelConfig>;
           storyboardApi2OkModelConfig?: Partial<StoryboardApi2OkModelConfig>;
           storyboardNewApiModelConfig?: Partial<StoryboardNewApiModelConfig>;
@@ -1782,6 +1788,7 @@ export const useSettingsStore = create<SettingsState>()(
           autoCheckAppUpdateOnLaunch: state.autoCheckAppUpdateOnLaunch ?? true,
           enableUpdateDialog: state.enableUpdateDialog ?? true,
           autoUpdateDreaminaCliOnLaunch: state.autoUpdateDreaminaCliOnLaunch ?? true,
+          hasAcceptedApiPlatformNotice: false,
           enableStoryboardGenGridPreviewShortcut:
             state.enableStoryboardGenGridPreviewShortcut ?? false,
           groupNodesShortcut: normalizeShortcut(state.groupNodesShortcut),

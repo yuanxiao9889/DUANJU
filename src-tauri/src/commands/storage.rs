@@ -23,10 +23,12 @@ const STORAGE_CONFIG_FILE: &str = "storage_config.json";
 const AUTO_DATABASE_BACKUP_KIND: &str = "auto";
 const MANUAL_DATABASE_BACKUP_KIND: &str = "manual";
 const PRE_RESTORE_DATABASE_BACKUP_KIND: &str = "pre_restore";
+pub(crate) const PRE_PERSIST_DATABASE_BACKUP_KIND: &str = "pre_persist";
 const AUTO_DATABASE_BACKUP_INTERVAL_MS: i64 = 24 * 60 * 60 * 1000;
 const MAX_AUTO_DATABASE_BACKUPS: usize = 7;
 const MAX_MANUAL_DATABASE_BACKUPS: usize = 20;
 const MAX_PRE_RESTORE_DATABASE_BACKUPS: usize = 5;
+const MAX_PRE_PERSIST_DATABASE_BACKUPS: usize = 12;
 const LEGACY_STORAGE_DIR_NAMES: &[&str] = &[
     "Storyboard-Copilot",
     "storyboard-copilot",
@@ -142,6 +144,31 @@ pub fn resolve_storage_base_path(app: &AppHandle) -> Result<PathBuf, String> {
     }
 
     get_default_storage_path(app)
+}
+
+pub(crate) fn resolve_known_storage_roots(app: &AppHandle) -> Result<Vec<PathBuf>, String> {
+    let mut results = Vec::new();
+    let mut seen = HashSet::new();
+
+    let push_path = |results: &mut Vec<PathBuf>, seen: &mut HashSet<String>, path: PathBuf| {
+        let compare_key = storage_path_compare_key(&path.to_string_lossy().replace('\\', "/"));
+        if seen.insert(compare_key) {
+            results.push(path);
+        }
+    };
+
+    let current_path = resolve_storage_base_path(app)?;
+    push_path(&mut results, &mut seen, current_path);
+
+    let default_path = get_default_storage_path(app)?;
+    push_path(&mut results, &mut seen, default_path);
+
+    let config = read_storage_config(app)?;
+    for legacy_path in config.legacy_paths {
+        push_path(&mut results, &mut seen, PathBuf::from(legacy_path));
+    }
+
+    Ok(results)
 }
 
 pub fn recover_storage_from_legacy_default_if_needed(
@@ -681,6 +708,164 @@ fn get_dir_size(path: &PathBuf) -> Result<u64, String> {
     Ok(total_size)
 }
 
+fn count_immediate_child_files(path: &Path) -> Result<u64, String> {
+    if !path.exists() {
+        return Ok(0);
+    }
+
+    let mut count = 0_u64;
+    for entry in fs::read_dir(path).map_err(|e| format!("Failed to read directory: {}", e))? {
+        let entry = entry.map_err(|e| format!("Failed to read directory entry: {}", e))?;
+        if entry
+            .file_type()
+            .map_err(|e| format!("Failed to inspect entry type: {}", e))?
+            .is_file()
+        {
+            count += 1;
+        }
+    }
+
+    Ok(count)
+}
+
+fn count_projects_in_db(db_path: &Path) -> Result<i64, String> {
+    if !db_path.exists() {
+        return Ok(0);
+    }
+
+    let conn = open_sqlite_connection(db_path)?;
+    let has_projects_table: i64 = conn
+        .query_row(
+            "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'projects'",
+            [],
+            |row| row.get(0),
+        )
+        .map_err(|e| format!("Failed to inspect projects table in {}: {}", db_path.display(), e))?;
+    if has_projects_table == 0 {
+        return Ok(0);
+    }
+
+    conn.query_row("SELECT COUNT(*) FROM projects", [], |row| row.get(0))
+        .map_err(|e| format!("Failed to count projects in {}: {}", db_path.display(), e))
+}
+
+fn validate_storage_migration(source_path: &Path, target_path: &Path) -> Result<StorageMigrationValidation, String> {
+    let source_db_path = source_path.join("projects.db");
+    let target_db_path = target_path.join("projects.db");
+    let source_images_path = source_path.join("images");
+    let target_images_path = target_path.join("images");
+    let source_backups_path = source_path.join("backups").join("db");
+    let target_backups_path = target_path.join("backups").join("db");
+
+    let source_project_count = count_projects_in_db(&source_db_path)?;
+    let target_project_count = count_projects_in_db(&target_db_path)?;
+    let source_image_count = count_immediate_child_files(&source_images_path)?;
+    let target_image_count = count_immediate_child_files(&target_images_path)?;
+    let source_backup_count = count_immediate_child_files(&source_backups_path)?;
+    let target_backup_count = count_immediate_child_files(&target_backups_path)?;
+    let source_db_size = fs::metadata(&source_db_path).map(|metadata| metadata.len()).unwrap_or(0);
+    let target_db_size = fs::metadata(&target_db_path).map(|metadata| metadata.len()).unwrap_or(0);
+
+    let mut warnings = Vec::new();
+
+    if target_project_count < source_project_count {
+        return Err(format!(
+            "Migration validation failed: target project count {} is smaller than source {}",
+            target_project_count, source_project_count
+        ));
+    }
+
+    if target_db_size == 0 && source_db_size > 0 {
+        return Err("Migration validation failed: target database is empty".to_string());
+    }
+
+    if target_image_count < source_image_count {
+        warnings.push(format!(
+            "Target images count {} is smaller than source {}",
+            target_image_count, source_image_count
+        ));
+    }
+
+    if target_backup_count < source_backup_count {
+        warnings.push(format!(
+            "Target backup count {} is smaller than source {}",
+            target_backup_count, source_backup_count
+        ));
+    }
+
+    Ok(StorageMigrationValidation {
+        source_project_count,
+        target_project_count,
+        source_image_count,
+        target_image_count,
+        source_backup_count,
+        target_backup_count,
+        source_db_size,
+        target_db_size,
+        warnings,
+    })
+}
+
+pub(crate) fn maybe_create_pre_persist_backup(app: &AppHandle, project_id: &str) -> Result<Option<DatabaseBackupRecord>, String> {
+    let source_db_path = resolve_db_path(app)?;
+    if !source_db_path.exists() {
+        return Ok(None);
+    }
+
+    let source_size = fs::metadata(&source_db_path)
+        .map(|metadata| metadata.len())
+        .unwrap_or(0);
+    if source_size == 0 {
+        return Ok(None);
+    }
+
+    let records = list_database_backup_records(app)?;
+    let latest_backup = records
+        .iter()
+        .filter(|record| record.kind == PRE_PERSIST_DATABASE_BACKUP_KIND)
+        .find(|record| {
+            let marker = format!("project-{}", project_id);
+            record.id.contains(&marker)
+        });
+
+    if let Some(latest_backup) = latest_backup {
+        let elapsed = current_timestamp_ms().saturating_sub(latest_backup.created_at);
+        if elapsed < 5 * 60 * 1000 {
+            return Ok(None);
+        }
+    }
+
+    let backups_dir = resolve_db_backups_dir(app)?;
+    let backup_id = format!(
+        "{}__project-{}__{}.db",
+        PRE_PERSIST_DATABASE_BACKUP_KIND,
+        project_id,
+        current_timestamp_ms()
+    );
+    let backup_path = backups_dir.join(&backup_id);
+
+    if let Err(error) = copy_database_safely(&source_db_path, &backup_path) {
+        let _ = remove_file_if_exists(&backup_path);
+        return Err(error);
+    }
+
+    let metadata = fs::metadata(&backup_path)
+        .map_err(|e| format!("Failed to read created pre-persist backup metadata: {}", e))?;
+    let record = DatabaseBackupRecord {
+        id: backup_id,
+        kind: PRE_PERSIST_DATABASE_BACKUP_KIND.to_string(),
+        path: backup_path.to_string_lossy().to_string(),
+        created_at: metadata
+            .modified()
+            .map(system_time_to_timestamp_ms)
+            .unwrap_or_else(|_| current_timestamp_ms()),
+        size: metadata.len(),
+    };
+
+    prune_database_backups(app)?;
+    Ok(Some(record))
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct DatabaseBackupRecord {
@@ -698,12 +883,35 @@ pub struct RestoreDatabaseBackupResult {
     pub safety_backup: Option<DatabaseBackupRecord>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct StorageMigrationValidation {
+    pub source_project_count: i64,
+    pub target_project_count: i64,
+    pub source_image_count: u64,
+    pub target_image_count: u64,
+    pub source_backup_count: u64,
+    pub target_backup_count: u64,
+    pub source_db_size: u64,
+    pub target_db_size: u64,
+    pub warnings: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct StorageMigrationResult {
+    pub current_path: String,
+    pub target_path: String,
+    pub validation: StorageMigrationValidation,
+}
+
 fn resolve_backup_kind(file_name: &str) -> Option<&'static str> {
     let (prefix, _) = file_name.split_once("__")?;
     match prefix {
         AUTO_DATABASE_BACKUP_KIND => Some(AUTO_DATABASE_BACKUP_KIND),
         MANUAL_DATABASE_BACKUP_KIND => Some(MANUAL_DATABASE_BACKUP_KIND),
         PRE_RESTORE_DATABASE_BACKUP_KIND => Some(PRE_RESTORE_DATABASE_BACKUP_KIND),
+        PRE_PERSIST_DATABASE_BACKUP_KIND => Some(PRE_PERSIST_DATABASE_BACKUP_KIND),
         _ => None,
     }
 }
@@ -779,6 +987,11 @@ fn prune_database_backups(app: &AppHandle) -> Result<(), String> {
         &records,
         PRE_RESTORE_DATABASE_BACKUP_KIND,
         MAX_PRE_RESTORE_DATABASE_BACKUPS,
+    )?;
+    prune_database_backups_by_kind(
+        &records,
+        PRE_PERSIST_DATABASE_BACKUP_KIND,
+        MAX_PRE_PERSIST_DATABASE_BACKUPS,
     )?;
     prune_database_backups_by_kind(
         &records,
@@ -1015,7 +1228,7 @@ pub fn migrate_storage(
     app: AppHandle,
     new_path: String,
     delete_old: bool,
-) -> Result<String, String> {
+) -> Result<StorageMigrationResult, String> {
     let current_path = resolve_storage_base_path(&app)?;
     let target_path = PathBuf::from(&new_path);
     let normalized_target_path = normalize_storage_path_string(&target_path.to_string_lossy())
@@ -1066,6 +1279,8 @@ pub fn migrate_storage(
         )?;
     }
 
+    let validation = validate_storage_migration(&current_path, &target_path)?;
+
     let mut config = read_storage_config(&app)?;
     remember_legacy_storage_path(&mut config, &current_path);
     config.custom_path = Some(normalized_target_path.clone());
@@ -1090,16 +1305,28 @@ pub fn migrate_storage(
         }
     }
 
-    Ok(normalized_target_path)
+    Ok(StorageMigrationResult {
+        current_path: current_path.to_string_lossy().to_string(),
+        target_path: normalized_target_path,
+        validation,
+    })
 }
 
 #[tauri::command]
-pub fn reset_storage_to_default(app: AppHandle, delete_custom: bool) -> Result<String, String> {
+pub fn reset_storage_to_default(
+    app: AppHandle,
+    delete_custom: bool,
+) -> Result<StorageMigrationResult, String> {
     let current_path = resolve_storage_base_path(&app)?;
     let default_path = get_default_storage_path(&app)?;
 
     if current_path == default_path {
-        return Ok(default_path.to_string_lossy().to_string());
+        let validation = validate_storage_migration(&default_path, &default_path)?;
+        return Ok(StorageMigrationResult {
+            current_path: current_path.to_string_lossy().to_string(),
+            target_path: default_path.to_string_lossy().to_string(),
+            validation,
+        });
     }
 
     fs::create_dir_all(&default_path)
@@ -1139,6 +1366,8 @@ pub fn reset_storage_to_default(app: AppHandle, delete_custom: bool) -> Result<S
         )?;
     }
 
+    let validation = validate_storage_migration(&current_path, &default_path)?;
+
     let mut config = read_storage_config(&app)?;
     remember_legacy_storage_path(&mut config, &current_path);
     config.custom_path = None;
@@ -1163,7 +1392,11 @@ pub fn reset_storage_to_default(app: AppHandle, delete_custom: bool) -> Result<S
         }
     }
 
-    Ok(default_path.to_string_lossy().to_string())
+    Ok(StorageMigrationResult {
+        current_path: current_path.to_string_lossy().to_string(),
+        target_path: default_path.to_string_lossy().to_string(),
+        validation,
+    })
 }
 
 #[tauri::command]
@@ -1202,7 +1435,11 @@ pub fn open_storage_folder(app: AppHandle) -> Result<(), String> {
 
 #[cfg(test)]
 mod tests {
-    use super::{rebase_storage_path_string, relocate_storage_path_to_known_images_dirs};
+    use super::{
+        count_projects_in_db, rebase_storage_path_string, relocate_storage_path_to_known_images_dirs,
+        validate_storage_migration,
+    };
+    use rusqlite::Connection;
     use std::fs;
     use std::path::PathBuf;
 
@@ -1262,6 +1499,57 @@ mod tests {
         .expect("legacy image path should relocate from known dirs");
 
         assert_eq!(relocated, legacy_file.to_string_lossy().replace('\\', "/"));
+
+        let _ = fs::remove_dir_all(temp_root);
+    }
+
+    #[test]
+    fn count_projects_in_db_returns_zero_when_projects_table_is_missing() {
+        let temp_root =
+            std::env::temp_dir().join(format!("storyboard-storage-db-count-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&temp_root);
+        fs::create_dir_all(&temp_root).expect("failed to create temp root");
+        let db_path = temp_root.join("projects.db");
+        let _conn = Connection::open(&db_path).expect("failed to create sqlite db");
+
+        let count = count_projects_in_db(&db_path).expect("count should succeed");
+        assert_eq!(count, 0);
+
+        let _ = fs::remove_dir_all(temp_root);
+    }
+
+    #[test]
+    fn validate_storage_migration_rejects_project_count_shrink() {
+        let temp_root =
+            std::env::temp_dir().join(format!("storyboard-storage-validate-{}", std::process::id()));
+        let source_root = temp_root.join("source");
+        let target_root = temp_root.join("target");
+        fs::create_dir_all(&source_root).expect("failed to create source root");
+        fs::create_dir_all(&target_root).expect("failed to create target root");
+
+        let source_db = source_root.join("projects.db");
+        let target_db = target_root.join("projects.db");
+        let source_conn = Connection::open(&source_db).expect("failed to open source db");
+        let target_conn = Connection::open(&target_db).expect("failed to open target db");
+        source_conn
+            .execute_batch(
+                r#"
+                CREATE TABLE projects (id TEXT PRIMARY KEY, name TEXT NOT NULL);
+                INSERT INTO projects (id, name) VALUES ('p1', 'One'), ('p2', 'Two');
+                "#,
+            )
+            .expect("failed to seed source db");
+        target_conn
+            .execute_batch(
+                r#"
+                CREATE TABLE projects (id TEXT PRIMARY KEY, name TEXT NOT NULL);
+                INSERT INTO projects (id, name) VALUES ('p1', 'One');
+                "#,
+            )
+            .expect("failed to seed target db");
+
+        let result = validate_storage_migration(&source_root, &target_root);
+        assert!(result.is_err(), "migration validation should fail when target loses projects");
 
         let _ = fs::remove_dir_all(temp_root);
     }

@@ -10,6 +10,7 @@ use commands::asset_state;
 use commands::clip_library;
 use commands::dreamina_cli;
 use commands::extensions;
+use commands::generation_history;
 use commands::image;
 use commands::jimeng_video_queue;
 use commands::midjourney;
@@ -330,6 +331,7 @@ pub fn run() {
             dreamina_cli::submit_jimeng_dreamina_videos,
             dreamina_cli::query_jimeng_dreamina_image_results,
             dreamina_cli::query_jimeng_dreamina_video_result,
+            dreamina_cli::resolve_jimeng_dreamina_video_submit_id_cache,
             image::split_image,
             image::split_image_source,
             image::prepare_node_image_source,
@@ -339,6 +341,7 @@ pub fn run() {
             image::read_storyboard_image_metadata,
             image::embed_storyboard_image_metadata,
             image::load_image,
+            image::read_local_image_binary,
             image::persist_image_source,
             image::persist_image_binary,
             image::save_image_source_to_downloads,
@@ -349,6 +352,9 @@ pub fn run() {
             jimeng_video_queue::list_jimeng_video_queue_jobs,
             jimeng_video_queue::upsert_jimeng_video_queue_job,
             jimeng_video_queue::delete_jimeng_video_queue_job,
+            generation_history::list_generation_history_items,
+            generation_history::upsert_generation_history_item,
+            generation_history::delete_generation_history_item,
             midjourney::submit_midjourney_imagine,
             midjourney::submit_midjourney_action,
             midjourney::submit_midjourney_modal,
@@ -367,6 +373,7 @@ pub fn run() {
             asset_state::delete_asset_subcategory,
             asset_state::create_asset_item,
             asset_state::update_asset_item,
+            asset_state::repair_asset_item_preview,
             asset_state::delete_asset_item,
             clip_library::list_clip_libraries,
             clip_library::get_clip_library_snapshot,

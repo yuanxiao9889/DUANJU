@@ -47,6 +47,7 @@ import {
   type CanvasNode,
   type CanvasNodeData,
   type CanvasNodeType,
+  type LegacyNodeData,
   type EpisodeCard,
   type ImageCompareNodeData,
   type ImageCompareNodeImageSnapshot,
@@ -123,6 +124,7 @@ import {
   layoutGroupChildren,
 } from '@/features/canvas/application/groupLayout';
 import type { AssetItemRecord } from '@/features/assets/domain/types';
+import { collectGeneratedContentNodeIds } from '@/features/canvas/application/generationHistory';
 import { useSettingsStore } from '@/stores/settingsStore';
 import {
   getImageModel,
@@ -678,6 +680,11 @@ interface CanvasState {
 
   applyMindMapLayout: () => void;
   clearCanvas: () => void;
+  clearGeneratedContent: () => string[];
+  restoreGenerationSnapshotNode: (
+    snapshotNode: CanvasNode,
+    position: { x: number; y: number }
+  ) => string | null;
 
   addImageFromBase64: (base64: string, width: number, height: number) => Promise<string>;
 }
@@ -715,19 +722,51 @@ function normalizeEdgesWithNodes(rawEdges: CanvasEdge[], nodes: CanvasNode[]): C
     }));
 }
 
+function isKnownCanvasNodeType(value: unknown): value is CanvasNodeType {
+  return typeof value === 'string' && Object.values(CANVAS_NODE_TYPES).includes(value as CanvasNodeType);
+}
+
+function normalizeLegacyNodeData(node: CanvasNode): LegacyNodeData {
+  const rawData = node.data && typeof node.data === 'object' && !Array.isArray(node.data)
+    ? { ...(node.data as Record<string, unknown>) }
+    : {};
+  const legacyData: Record<string, unknown> =
+    rawData.legacyData && typeof rawData.legacyData === 'object' && !Array.isArray(rawData.legacyData)
+      ? { ...(rawData.legacyData as Record<string, unknown>) }
+      : (rawData as Record<string, unknown>);
+
+  return {
+    displayName: typeof rawData.displayName === 'string' && rawData.displayName.trim().length > 0
+      ? rawData.displayName.trim()
+      : undefined,
+    legacyType: typeof rawData.legacyType === 'string' && rawData.legacyType.trim().length > 0
+      ? rawData.legacyType.trim()
+      : typeof node.type === 'string' && node.type.trim().length > 0
+        ? node.type
+        : CANVAS_NODE_TYPES.legacy,
+    legacyData,
+  };
+}
+
 function normalizeNodes(rawNodes: CanvasNode[]): CanvasNode[] {
   const normalizedNodes = rawNodes
     .map((node) => {
-      if (!Object.values(CANVAS_NODE_TYPES).includes(node.type as CanvasNodeType)) {
+      if (!node.type || typeof node.type !== 'string') {
         return null;
       }
 
-      const normalizedNodeType = node.type as CanvasNodeType;
+      const normalizedNodeType = isKnownCanvasNodeType(node.type)
+        ? (node.type as CanvasNodeType)
+        : CANVAS_NODE_TYPES.legacy;
       const definition = nodeCatalog.getDefinition(normalizedNodeType);
       const mergedData = {
         ...definition.createDefaultData(),
         ...(node.data as Partial<CanvasNodeData>),
       } as CanvasNodeData;
+
+      if (normalizedNodeType === CANVAS_NODE_TYPES.legacy) {
+        Object.assign(mergedData, normalizeLegacyNodeData(node));
+      }
 
       if (
         node.type === CANVAS_NODE_TYPES.storyboardSplit
@@ -3569,6 +3608,7 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
       videoFileName: options?.videoFileName ?? null,
       aspectRatio: resolvedAspectRatio,
       duration,
+      generationSourceNodeId: sourceNodeId,
     };
     if (options?.defaultTitle) {
       (videoNodeData as { displayName?: string }).displayName = options.defaultTitle;
@@ -5854,6 +5894,67 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
         dragHistorySnapshot: null,
       };
     });
+  },
+
+  clearGeneratedContent: () => {
+    const generatedNodeIds = collectGeneratedContentNodeIds(get().nodes, get().edges);
+    if (generatedNodeIds.length === 0) {
+      return [];
+    }
+
+    get().deleteNodes(generatedNodeIds);
+    return generatedNodeIds;
+  },
+
+  restoreGenerationSnapshotNode: (snapshotNode, position) => {
+    if (!snapshotNode || typeof snapshotNode.type !== 'string') {
+      return null;
+    }
+
+    const state = get();
+    const createdNode = canvasNodeFactory.createNode(
+      snapshotNode.type as CanvasNodeType,
+      position,
+      cloneCanvasValue((snapshotNode.data ?? {}) as CanvasNodeData)
+    );
+    let restoredNode: CanvasNode = {
+      ...createdNode,
+      selected: false,
+      position: {
+        x: position.x,
+        y: position.y,
+      },
+    };
+
+    if (isFiniteNodeDimension(snapshotNode.width)) {
+      restoredNode.width = snapshotNode.width;
+    }
+    if (isFiniteNodeDimension(snapshotNode.height)) {
+      restoredNode.height = snapshotNode.height;
+    }
+    if (snapshotNode.style && typeof snapshotNode.style === 'object') {
+      restoredNode.style = cloneCanvasValue(snapshotNode.style);
+    } else if (restoredNode.width || restoredNode.height) {
+      restoredNode.style = {
+        ...(restoredNode.width ? { width: restoredNode.width } : {}),
+        ...(restoredNode.height ? { height: restoredNode.height } : {}),
+      };
+    }
+
+    restoredNode = applyDefaultNodeSize(restoredNode, restoredNode.data);
+
+    set({
+      nodes: [...state.nodes, restoredNode],
+      selectedNodeId: restoredNode.id,
+      activeToolDialog: null,
+      history: {
+        past: pushSnapshot(state.history.past, createSnapshot(state.nodes, state.edges)),
+        future: [],
+      },
+      dragHistorySnapshot: null,
+    });
+
+    return restoredNode.id;
   },
 
   applyMindMapLayout: () => {

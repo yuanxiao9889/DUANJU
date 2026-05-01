@@ -18,7 +18,7 @@ import { NodeHeader, NODE_HEADER_FLOATING_POSITION_CLASS } from '@/features/canv
 import { NodeResizeHandle } from '@/features/canvas/ui/NodeResizeHandle';
 import { NODE_CONTROL_ICON_CLASS, NODE_CONTROL_PRIMARY_BUTTON_CLASS } from '@/features/canvas/ui/nodeControlStyles';
 import { CanvasNodeImage } from '@/features/canvas/ui/CanvasNodeImage';
-import { prepareNodeImage, resolveImageDisplayUrl } from '@/features/canvas/application/imageData';
+import { prepareNodeImage } from '@/features/canvas/application/imageData';
 import { useCanvasStore } from '@/stores/canvasStore';
 import { useProjectStore } from '@/stores/projectStore';
 import { useSettingsStore } from '@/stores/settingsStore';
@@ -121,8 +121,8 @@ function SplitResultFrameCard({
   onEditFrame: (frame: StoryboardFrameItem, index: number) => void;
 }) {
   const source = frame.imageUrl || frame.previewImageUrl;
-  const displaySource = source ? resolveImageDisplayUrl(frame.previewImageUrl || frame.imageUrl || source) : null;
-  const viewerSource = source ? resolveImageDisplayUrl(source) : null;
+  const displaySource = frame.previewImageUrl || frame.imageUrl || source || null;
+  const viewerSource = source || null;
   const noteText = frame.note?.trim() || label;
 
   return (
@@ -226,7 +226,7 @@ export const StoryboardSplitResultNode = memo(({
       orderedFrames
         .map((frame) => frame.imageUrl || frame.previewImageUrl)
         .filter((item): item is string => Boolean(item))
-        .map((item) => resolveImageDisplayUrl(item)),
+        .map((item) => item),
     [orderedFrames]
   );
 
