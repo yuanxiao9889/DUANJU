@@ -740,7 +740,13 @@ fn count_projects_in_db(db_path: &Path) -> Result<i64, String> {
             [],
             |row| row.get(0),
         )
-        .map_err(|e| format!("Failed to inspect projects table in {}: {}", db_path.display(), e))?;
+        .map_err(|e| {
+            format!(
+                "Failed to inspect projects table in {}: {}",
+                db_path.display(),
+                e
+            )
+        })?;
     if has_projects_table == 0 {
         return Ok(0);
     }
@@ -749,7 +755,10 @@ fn count_projects_in_db(db_path: &Path) -> Result<i64, String> {
         .map_err(|e| format!("Failed to count projects in {}: {}", db_path.display(), e))
 }
 
-fn validate_storage_migration(source_path: &Path, target_path: &Path) -> Result<StorageMigrationValidation, String> {
+fn validate_storage_migration(
+    source_path: &Path,
+    target_path: &Path,
+) -> Result<StorageMigrationValidation, String> {
     let source_db_path = source_path.join("projects.db");
     let target_db_path = target_path.join("projects.db");
     let source_images_path = source_path.join("images");
@@ -763,8 +772,12 @@ fn validate_storage_migration(source_path: &Path, target_path: &Path) -> Result<
     let target_image_count = count_immediate_child_files(&target_images_path)?;
     let source_backup_count = count_immediate_child_files(&source_backups_path)?;
     let target_backup_count = count_immediate_child_files(&target_backups_path)?;
-    let source_db_size = fs::metadata(&source_db_path).map(|metadata| metadata.len()).unwrap_or(0);
-    let target_db_size = fs::metadata(&target_db_path).map(|metadata| metadata.len()).unwrap_or(0);
+    let source_db_size = fs::metadata(&source_db_path)
+        .map(|metadata| metadata.len())
+        .unwrap_or(0);
+    let target_db_size = fs::metadata(&target_db_path)
+        .map(|metadata| metadata.len())
+        .unwrap_or(0);
 
     let mut warnings = Vec::new();
 
@@ -806,7 +819,10 @@ fn validate_storage_migration(source_path: &Path, target_path: &Path) -> Result<
     })
 }
 
-pub(crate) fn maybe_create_pre_persist_backup(app: &AppHandle, project_id: &str) -> Result<Option<DatabaseBackupRecord>, String> {
+pub(crate) fn maybe_create_pre_persist_backup(
+    app: &AppHandle,
+    project_id: &str,
+) -> Result<Option<DatabaseBackupRecord>, String> {
     let source_db_path = resolve_db_path(app)?;
     if !source_db_path.exists() {
         return Ok(None);
@@ -1436,8 +1452,8 @@ pub fn open_storage_folder(app: AppHandle) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::{
-        count_projects_in_db, rebase_storage_path_string, relocate_storage_path_to_known_images_dirs,
-        validate_storage_migration,
+        count_projects_in_db, rebase_storage_path_string,
+        relocate_storage_path_to_known_images_dirs, validate_storage_migration,
     };
     use rusqlite::Connection;
     use std::fs;
@@ -1505,8 +1521,10 @@ mod tests {
 
     #[test]
     fn count_projects_in_db_returns_zero_when_projects_table_is_missing() {
-        let temp_root =
-            std::env::temp_dir().join(format!("storyboard-storage-db-count-{}", std::process::id()));
+        let temp_root = std::env::temp_dir().join(format!(
+            "storyboard-storage-db-count-{}",
+            std::process::id()
+        ));
         let _ = fs::remove_dir_all(&temp_root);
         fs::create_dir_all(&temp_root).expect("failed to create temp root");
         let db_path = temp_root.join("projects.db");
@@ -1520,8 +1538,10 @@ mod tests {
 
     #[test]
     fn validate_storage_migration_rejects_project_count_shrink() {
-        let temp_root =
-            std::env::temp_dir().join(format!("storyboard-storage-validate-{}", std::process::id()));
+        let temp_root = std::env::temp_dir().join(format!(
+            "storyboard-storage-validate-{}",
+            std::process::id()
+        ));
         let source_root = temp_root.join("source");
         let target_root = temp_root.join("target");
         fs::create_dir_all(&source_root).expect("failed to create source root");
@@ -1549,7 +1569,10 @@ mod tests {
             .expect("failed to seed target db");
 
         let result = validate_storage_migration(&source_root, &target_root);
-        assert!(result.is_err(), "migration validation should fail when target loses projects");
+        assert!(
+            result.is_err(),
+            "migration validation should fail when target loses projects"
+        );
 
         let _ = fs::remove_dir_all(temp_root);
     }

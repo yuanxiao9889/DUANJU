@@ -26,9 +26,7 @@ pub struct GenerationHistoryItemRecord {
     pub updated_at: i64,
 }
 
-fn ensure_generation_history_table(
-    conn: &rusqlite::Connection,
-) -> Result<(), String> {
+fn ensure_generation_history_table(conn: &rusqlite::Connection) -> Result<(), String> {
     conn.execute_batch(
         r#"
         CREATE TABLE IF NOT EXISTS generation_history_items (
@@ -57,9 +55,7 @@ fn ensure_generation_history_table(
     Ok(())
 }
 
-pub(crate) fn ensure_generation_history_ready(
-    conn: &rusqlite::Connection,
-) -> Result<(), String> {
+pub(crate) fn ensure_generation_history_ready(conn: &rusqlite::Connection) -> Result<(), String> {
     ensure_generation_history_table(conn)
 }
 
@@ -78,10 +74,7 @@ pub(crate) fn collect_generation_history_paths(
         .map_err(|e| format!("Failed to prepare generation history path query: {}", e))?;
     let rows = stmt
         .query_map([], |row| {
-            Ok((
-                row.get::<_, String>(0)?,
-                row.get::<_, Option<String>>(1)?,
-            ))
+            Ok((row.get::<_, String>(0)?, row.get::<_, Option<String>>(1)?))
         })
         .map_err(|e| format!("Failed to query generation history paths: {}", e))?;
 
@@ -204,7 +197,12 @@ pub fn upsert_generation_history_item(
           mime_type = excluded.mime_type,
           duration_ms = excluded.duration_ms,
           aspect_ratio = excluded.aspect_ratio,
-          created_at = excluded.created_at,
+          created_at = CASE
+            WHEN excluded.created_at > 0
+              AND excluded.created_at < generation_history_items.created_at
+            THEN excluded.created_at
+            ELSE generation_history_items.created_at
+          END,
           updated_at = excluded.updated_at
         "#,
         params![
@@ -232,16 +230,16 @@ pub fn upsert_generation_history_item(
 }
 
 #[tauri::command]
-pub fn delete_generation_history_item(
-    app: AppHandle,
-    item_id: String,
-) -> Result<(), String> {
+pub fn delete_generation_history_item(app: AppHandle, item_id: String) -> Result<(), String> {
     let mut conn = open_db(&app)?;
     ensure_generation_history_ready(&conn)?;
 
-    let tx = conn
-        .transaction()
-        .map_err(|e| format!("Failed to begin generation history delete transaction: {}", e))?;
+    let tx = conn.transaction().map_err(|e| {
+        format!(
+            "Failed to begin generation history delete transaction: {}",
+            e
+        )
+    })?;
     tx.execute(
         "DELETE FROM generation_history_items WHERE id = ?1",
         params![item_id],

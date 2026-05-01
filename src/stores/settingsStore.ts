@@ -547,7 +547,7 @@ function normalizeJimengVideoResolution(
 ): JimengVideoResolution {
   return JIMENG_VIDEO_RESOLUTIONS.includes(input as JimengVideoResolution)
     ? (input as JimengVideoResolution)
-    : '1080p';
+    : '720p';
 }
 
 function normalizeCanvasEdgeRoutingMode(
@@ -626,7 +626,7 @@ export const useSettingsStore = create<SettingsState>()(
       lastJimengVideoReferenceMode: 'allAround',
       lastJimengVideoAspectRatio: '16:9',
       lastJimengVideoDurationSeconds: 5,
-      lastJimengVideoResolution: '1080p',
+      lastJimengVideoResolution: '720p',
       lastMidjourneyAspectRatio: MIDJOURNEY_ASPECT_RATIOS[0],
       lastMidjourneyVersionPreset: MIDJOURNEY_VERSION_PRESETS[0],
       lastMidjourneyRawMode: false,

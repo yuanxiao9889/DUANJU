@@ -52,6 +52,7 @@ import {
   NODE_DESCRIPTION_PANEL_EXPANDED_TOTAL_HEIGHT,
 } from "@/features/canvas/ui/NodeDescriptionPanel";
 import { resolveNodeStyleDimension } from "@/features/canvas/ui/nodeDimensionUtils";
+import { resolveJimengDreaminaVideoSubmitIdCache } from "@/commands/dreaminaCli";
 import { queryJimengVideoResult } from "@/features/jimeng/application/jimengVideoSubmission";
 import {
   isJimengVideoQueueServerConcurrencyMessage,
@@ -139,6 +140,10 @@ export const JimengVideoResultNode = memo(
       () => data.submitId?.trim() ?? "",
       [data.submitId],
     );
+    const normalizedQueueJobId = useMemo(
+      () => data.queueJobId?.trim() ?? "",
+      [data.queueJobId],
+    );
 
     const resolvedTitle = useMemo(
       () => resolveNodeDisplayName(CANVAS_NODE_TYPES.jimengVideoResult, data),
@@ -172,6 +177,7 @@ export const JimengVideoResultNode = memo(
       }
       return resolveVideoDisplayUrl(source);
     }, [data.videoUrl]);
+    const hasVideoResult = Boolean(videoSource);
     const posterSource = useMemo(() => {
       const source = data.previewImageUrl?.trim() ?? "";
       return source || null;
@@ -185,14 +191,12 @@ export const JimengVideoResultNode = memo(
       queueStatus === "retrying" &&
       isJimengVideoQueueServerConcurrencyMessage(queueLastError);
     const canRequery =
-      Boolean(normalizedSubmitId) &&
-      queueStatus !== "waiting" &&
-      queueStatus !== "waitingConcurrency" &&
-      queueStatus !== "retrying";
+      Boolean(normalizedSubmitId || normalizedQueueJobId);
     const hasPendingResult =
-      Boolean(data.isGenerating) ||
-      queueStatus === "submitted" ||
-      queueStatus === "generating";
+      !hasVideoResult &&
+      (Boolean(data.isGenerating) ||
+        queueStatus === "submitted" ||
+        queueStatus === "generating");
     const shouldAutoRequery =
       autoRequeryEnabled && canRequery && hasPendingResult;
 
@@ -209,11 +213,78 @@ export const JimengVideoResultNode = memo(
       videoSource,
     ]);
 
+    useEffect(() => {
+      if (!hasVideoResult) {
+        return;
+      }
+
+      const hasStalePendingState =
+        Boolean(data.isGenerating) ||
+        data.generationStartedAt != null ||
+        autoRequeryEnabled ||
+        queueStatus === "submitting" ||
+        queueStatus === "submitted" ||
+        queueStatus === "generating" ||
+        queueLastError !== null;
+
+      if (!hasStalePendingState) {
+        return;
+      }
+
+      updateNodeData(
+        id,
+        {
+          queueStatus: "completed",
+          autoRequeryEnabled: false,
+          isGenerating: false,
+          generationStartedAt: null,
+          lastGeneratedAt: data.lastGeneratedAt ?? Date.now(),
+          lastError: null,
+        },
+        { historyMode: "skip" },
+      );
+    }, [
+      autoRequeryEnabled,
+      data.generationStartedAt,
+      data.isGenerating,
+      data.lastGeneratedAt,
+      hasVideoResult,
+      id,
+      queueLastError,
+      queueStatus,
+      updateNodeData,
+    ]);
+
     const handleRequeryResult = useCallback(async (options?: RequeryOptions) => {
-      const submitId = normalizedSubmitId;
+      let submitId = normalizedSubmitId;
       const historyOptions = options?.suppressErrorDialog
         ? { historyMode: "skip" as const }
         : undefined;
+      if (!submitId && normalizedQueueJobId) {
+        try {
+          const cachedSubmit = await resolveJimengDreaminaVideoSubmitIdCache({
+            trackingId: normalizedQueueJobId,
+          });
+          submitId = cachedSubmit.submitId?.trim() ?? "";
+          if (submitId) {
+            updateNodeData(
+              id,
+              {
+                submitId,
+                queueStatus: "submitted",
+                lastError: null,
+              },
+              historyOptions,
+            );
+          }
+        } catch (error) {
+          console.warn("[JimengVideoResultNode] failed to recover submit id", {
+            queueJobId: normalizedQueueJobId,
+            error,
+          });
+        }
+      }
+
       if (!submitId) {
         const message = t("node.jimengVideoResult.requeryUnavailable");
         setStatusNotice(message);
@@ -344,9 +415,11 @@ export const JimengVideoResultNode = memo(
               : response.pending
                 ? true
                 : autoRequeryEnabled,
-            isGenerating: response.pending,
+            isGenerating: hasResult ? false : response.pending,
             generationStartedAt: response.pending
-              ? (data.generationStartedAt ?? Date.now())
+              ? hasResult
+                ? null
+                : (data.generationStartedAt ?? Date.now())
               : null,
             lastGeneratedAt: completedAt,
             lastError: null,
@@ -405,6 +478,7 @@ export const JimengVideoResultNode = memo(
       data.width,
       flushCurrentProjectToDiskSafely,
       id,
+      normalizedQueueJobId,
       normalizedSubmitId,
       t,
       updateNodeData,
@@ -571,7 +645,9 @@ export const JimengVideoResultNode = memo(
     }, [data.height, data.width]);
     const nodeDescription =
       typeof data.nodeDescription === "string" ? data.nodeDescription : "";
-    const showBlockingOverlay = Boolean(data.isGenerating || isRequerying);
+    const showBlockingOverlay = Boolean(
+      !hasVideoResult && (data.isGenerating || isRequerying),
+    );
     const {
       videoRef,
       isPlaying,
@@ -614,12 +690,24 @@ export const JimengVideoResultNode = memo(
       },
     });
     const combinedError =
-      videoError ?? (isServerConcurrencyBlocked ? null : queueLastError);
+      videoError ??
+      (!hasVideoResult && !isServerConcurrencyBlocked ? queueLastError : null);
     const headerStatus = useMemo(() => {
+      if (videoSource && !combinedError) {
+        return (
+          <NodeStatusBadge
+            icon={<Sparkles className="h-3 w-3" />}
+            label={t("node.jimengVideoResult.ready")}
+            tone="warning"
+          />
+        );
+      }
+
       if (
-        queueStatus === "waiting" ||
-        queueStatus === "waitingConcurrency" ||
-        queueStatus === "retrying"
+        !hasVideoResult &&
+        (queueStatus === "waiting" ||
+          queueStatus === "waitingConcurrency" ||
+          queueStatus === "retrying")
       ) {
         return (
           <NodeStatusBadge
@@ -635,10 +723,11 @@ export const JimengVideoResultNode = memo(
       }
 
       if (
-        queueStatus === "submitting" ||
-        queueStatus === "submitted" ||
-        queueStatus === "generating" ||
-        data.isGenerating
+        !hasVideoResult &&
+        (queueStatus === "submitting" ||
+          queueStatus === "submitted" ||
+          queueStatus === "generating" ||
+          data.isGenerating)
       ) {
         return (
           <NodeStatusBadge
@@ -679,20 +768,11 @@ export const JimengVideoResultNode = memo(
         );
       }
 
-      if (videoSource) {
-        return (
-          <NodeStatusBadge
-            icon={<Sparkles className="h-3 w-3" />}
-            label={t("node.jimengVideoResult.ready")}
-            tone="warning"
-          />
-        );
-      }
-
       return null;
     }, [
       combinedError,
       data.isGenerating,
+      hasVideoResult,
       isServerConcurrencyBlocked,
       queueStatus,
       t,

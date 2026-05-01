@@ -51,7 +51,7 @@ export interface StoryboardOopiiBuiltinModel {
 export const STORYBOARD_OOPII_BUILTIN_MODELS = [
   {
     id: `${STORYBOARD_OOPII_PROVIDER_ID}/gpt-image-2`,
-    apiFormat: 'openai',
+    apiFormat: 'openai-images',
     requestModel: STORYBOARD_OOPII_GPT_IMAGE_2_REQUEST_MODEL,
     displayName: STORYBOARD_OOPII_GPT_IMAGE_2_REQUEST_MODEL,
   },
@@ -100,10 +100,7 @@ function inferStoryboardOopiiApiFormat(
     return DEFAULT_STORYBOARD_OOPII_MODEL.apiFormat;
   }
 
-  if (
-    normalizedRequestModel.startsWith(`${STORYBOARD_OOPII_GPT_IMAGE_2_REQUEST_MODEL}-2k-`)
-    || normalizedRequestModel.startsWith(`${STORYBOARD_OOPII_GPT_IMAGE_2_REQUEST_MODEL}-4k-`)
-  ) {
+  if (normalizedRequestModel.startsWith(STORYBOARD_OOPII_GPT_IMAGE_2_REQUEST_MODEL)) {
     return 'openai-images';
   }
 
@@ -174,15 +171,8 @@ function resolveStoryboardOopiiApiFormatVariant(
   requestModel: string
 ): StoryboardNewApiApiFormat {
   const normalizedRequestModel = normalizeStoryboardOopiiRequestModel(requestModel).toLowerCase();
-  if (
-    normalizedRequestModel.startsWith(`${STORYBOARD_OOPII_GPT_IMAGE_2_REQUEST_MODEL}-2k-`)
-    || normalizedRequestModel.startsWith(`${STORYBOARD_OOPII_GPT_IMAGE_2_REQUEST_MODEL}-4k-`)
-  ) {
+  if (normalizedRequestModel.startsWith(STORYBOARD_OOPII_GPT_IMAGE_2_REQUEST_MODEL)) {
     return 'openai-images';
-  }
-
-  if (normalizedRequestModel === STORYBOARD_OOPII_GPT_IMAGE_2_REQUEST_MODEL) {
-    return 'openai';
   }
 
   return baseApiFormat;

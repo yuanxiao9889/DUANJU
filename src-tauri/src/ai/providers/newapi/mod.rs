@@ -82,7 +82,6 @@ struct OpenAiRequestFields {
     image_size: Option<String>,
     image_backend: Option<String>,
     extra_body: Option<Value>,
-    gpt2api_image_size: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -616,16 +615,6 @@ impl NewApiProvider {
         }
     }
 
-    fn build_gpt2api_prompt_text(prompt: &str, image_size: &str) -> String {
-        let size_tag = format!("[__gpt2api_image_size={}__]", image_size);
-        let trimmed_prompt = prompt.trim();
-        if trimmed_prompt.is_empty() {
-            return size_tag;
-        }
-
-        format!("{trimmed_prompt}\n\n{size_tag}")
-    }
-
     fn resolve_openai_request_fields(
         request: &GenerateRequest,
         config_request_model: &str,
@@ -646,12 +635,11 @@ impl NewApiProvider {
 
             return Ok(OpenAiRequestFields {
                 request_model: config_request_model.trim().to_string(),
-                size: None,
+                size: Some(image_size.to_string()),
                 aspect_ratio: None,
                 image_size: None,
                 image_backend: Some("auto".to_string()),
                 extra_body: None,
-                gpt2api_image_size: Some(image_size.to_string()),
             });
         }
 
@@ -678,7 +666,6 @@ impl NewApiProvider {
             },
             image_backend: None,
             extra_body: Self::build_flow2api_openai_extra_body(request, &request_model),
-            gpt2api_image_size: None,
         })
     }
 
@@ -754,34 +741,22 @@ impl NewApiProvider {
 
     fn build_openai_chat_prompt_text(
         request: &GenerateRequest,
-        fields: &OpenAiRequestFields,
+        _fields: &OpenAiRequestFields,
     ) -> String {
-        if let Some(image_size) = fields.gpt2api_image_size.as_deref() {
-            return Self::build_gpt2api_prompt_text(&request.prompt, image_size);
-        }
-
         Self::build_prompt_text(request)
     }
 
     fn build_openai_edits_prompt_text(
         request: &GenerateRequest,
-        fields: &OpenAiRequestFields,
+        _fields: &OpenAiRequestFields,
     ) -> String {
-        if let Some(image_size) = fields.gpt2api_image_size.as_deref() {
-            return Self::build_gpt2api_prompt_text(&request.prompt, image_size);
-        }
-
         request.prompt.clone()
     }
 
     fn build_openai_generations_prompt_text(
         request: &GenerateRequest,
-        fields: &OpenAiRequestFields,
+        _fields: &OpenAiRequestFields,
     ) -> String {
-        if let Some(image_size) = fields.gpt2api_image_size.as_deref() {
-            return Self::build_gpt2api_prompt_text(&request.prompt, image_size);
-        }
-
         request.prompt.trim().to_string()
     }
 
@@ -2053,6 +2028,35 @@ impl NewApiProvider {
         }
     }
 
+    async fn run_openai_images_with_chat_fallback(
+        &self,
+        request: &GenerateRequest,
+        config: &NewApiConfig,
+        api_key: &str,
+    ) -> Result<Value, AIError> {
+        match self.run_openai_images(request, config, api_key).await {
+            Ok(payload) => {
+                if let Some(message) = Self::extract_error_message(&payload) {
+                    warn!(
+                        "[NewAPI] openai-images returned an error payload, retrying via chat/completions fallback: {}",
+                        message
+                    );
+                    return self.run_openai_compatible(request, config, api_key).await;
+                }
+
+                Ok(payload)
+            }
+            Err(AIError::Provider(message)) if !Self::is_timeout_message(&message) => {
+                warn!(
+                    "[NewAPI] openai-images provider error, retrying via chat/completions fallback: {}",
+                    message
+                );
+                self.run_openai_compatible(request, config, api_key).await
+            }
+            Err(error) => Err(error),
+        }
+    }
+
     async fn run_openai_compatible(
         &self,
         request: &GenerateRequest,
@@ -2317,15 +2321,7 @@ mod tests {
     }
 
     #[test]
-    fn build_gpt2api_prompt_text_appends_size_tag() {
-        assert_eq!(
-            NewApiProvider::build_gpt2api_prompt_text("make it cinematic", "2560x1440"),
-            "make it cinematic\n\n[__gpt2api_image_size=2560x1440__]".to_string()
-        );
-    }
-
-    #[test]
-    fn build_openai_request_fields_for_gpt2api_alias_include_backend_and_omit_generic_size() {
+    fn build_openai_request_fields_for_gpt2api_alias_include_standard_size() {
         let request = crate::ai::GenerateRequest {
             prompt: "make it cinematic".to_string(),
             model: "newapi/gpt-image-2".to_string(),
@@ -2343,8 +2339,8 @@ mod tests {
 
         assert_eq!(fields.request_model, "gpt-image-2-2k-medium".to_string());
         assert_eq!(fields.image_backend.as_deref(), Some("auto"));
-        assert_eq!(fields.gpt2api_image_size.as_deref(), Some("2560x1440"));
-        assert!(!body.contains_key("size"));
+        assert_eq!(fields.size.as_deref(), Some("2560x1440"));
+        assert_eq!(body.get("size"), Some(&Value::String("2560x1440".to_string())));
         assert!(!body.contains_key("aspect_ratio"));
         assert!(!body.contains_key("image_size"));
         assert_eq!(
@@ -2355,11 +2351,11 @@ mod tests {
             body.get("model"),
             Some(&Value::String("gpt-image-2-2k-medium".to_string()))
         );
-        assert!(prompt.ends_with("[__gpt2api_image_size=2560x1440__]"));
+        assert!(!prompt.contains("__gpt2api_image_size"));
     }
 
     #[test]
-    fn build_openai_edits_prompt_text_uses_gpt2api_size_tag() {
+    fn build_openai_edits_prompt_text_omits_gpt2api_size_tag() {
         let request = crate::ai::GenerateRequest {
             prompt: "make it cinematic".to_string(),
             model: "newapi/gpt-image-2".to_string(),
@@ -2374,8 +2370,9 @@ mod tests {
 
         assert_eq!(
             NewApiProvider::build_openai_edits_prompt_text(&request, &fields),
-            "make it cinematic\n\n[__gpt2api_image_size=2160x3840__]".to_string()
+            "make it cinematic".to_string()
         );
+        assert_eq!(fields.size.as_deref(), Some("2160x3840"));
     }
 
     #[test]
@@ -2417,11 +2414,9 @@ mod tests {
         );
         assert_eq!(
             body.get("prompt"),
-            Some(&Value::String(
-                "make it cinematic\n\n[__gpt2api_image_size=2560x1440__]".to_string()
-            ))
+            Some(&Value::String("make it cinematic".to_string()))
         );
-        assert!(!body.contains_key("size"));
+        assert_eq!(body.get("size"), Some(&Value::String("2560x1440".to_string())));
         assert!(!body.contains_key("aspect_ratio"));
         assert!(!body.contains_key("image_size"));
     }
@@ -2445,11 +2440,9 @@ mod tests {
             text_fields,
             vec![
                 ("model".to_string(), "gpt-image-2-4k-high".to_string()),
-                (
-                    "prompt".to_string(),
-                    "make it cinematic\n\n[__gpt2api_image_size=2160x3840__]".to_string()
-                ),
+                ("prompt".to_string(), "make it cinematic".to_string()),
                 ("n".to_string(), "1".to_string()),
+                ("size".to_string(), "2160x3840".to_string()),
                 ("image_backend".to_string(), "auto".to_string()),
             ]
         );
@@ -2713,7 +2706,8 @@ impl AIProvider for NewApiProvider {
                     .await?
             }
             NewApiFormat::OpenAiImages => {
-                self.run_openai_images(&request, &config, &api_key).await?
+                self.run_openai_images_with_chat_fallback(&request, &config, &api_key)
+                    .await?
             }
             NewApiFormat::OpenAiCompatible => {
                 self.run_openai_compatible(&request, &config, &api_key)

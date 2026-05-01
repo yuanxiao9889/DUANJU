@@ -1312,9 +1312,12 @@ fn verify_persisted_image_path(output_path: &Path) -> Result<(), String> {
 }
 
 fn build_temp_image_output_path(output_path: &Path, attempt: u32) -> Result<PathBuf, String> {
-    let parent = output_path
-        .parent()
-        .ok_or_else(|| format!("Persist target has no parent directory: {}", output_path.display()))?;
+    let parent = output_path.parent().ok_or_else(|| {
+        format!(
+            "Persist target has no parent directory: {}",
+            output_path.display()
+        )
+    })?;
     let file_name = output_path
         .file_name()
         .map(|value| value.to_string_lossy().to_string())
@@ -1337,9 +1340,12 @@ fn write_bytes_atomically(output_path: &Path, bytes: &[u8]) -> Result<(), String
         return Err("Failed to persist generated image: image bytes are empty".to_string());
     }
 
-    let parent = output_path
-        .parent()
-        .ok_or_else(|| format!("Persist target has no parent directory: {}", output_path.display()))?;
+    let parent = output_path.parent().ok_or_else(|| {
+        format!(
+            "Persist target has no parent directory: {}",
+            output_path.display()
+        )
+    })?;
     std::fs::create_dir_all(parent)
         .map_err(|e| format!("Failed to create image output dir: {}", e))?;
 
@@ -1498,7 +1504,9 @@ fn normalize_windows_local_path(value: String) -> String {
 }
 
 fn strip_url_search_and_hash(value: &str) -> &str {
-    let separator_index = value.find(|ch| ch == '?' || ch == '#').unwrap_or(value.len());
+    let separator_index = value
+        .find(|ch| ch == '?' || ch == '#')
+        .unwrap_or(value.len());
     &value[..separator_index]
 }
 
@@ -1558,7 +1566,9 @@ fn resolve_local_image_source_path(source: &str) -> Option<PathBuf> {
         return Some(PathBuf::from(decode_file_url_path(trimmed)));
     }
 
-    if lower.starts_with("http://") || lower.starts_with("https://") || lower.starts_with("asset://")
+    if lower.starts_with("http://")
+        || lower.starts_with("https://")
+        || lower.starts_with("asset://")
     {
         return None;
     }
@@ -2147,7 +2157,9 @@ pub async fn ensure_local_image_preview_path(
         .map(str::trim)
         .filter(|value| !value.is_empty());
     if let Some(existing_preview_path) = normalized_preview_path {
-        if let Ok(readable_preview_path) = resolve_readable_local_image_path(app, existing_preview_path) {
+        if let Ok(readable_preview_path) =
+            resolve_readable_local_image_path(app, existing_preview_path)
+        {
             return Ok(readable_preview_path.to_string_lossy().to_string());
         }
     }

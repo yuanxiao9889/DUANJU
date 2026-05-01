@@ -21,7 +21,9 @@ import {
   JIMENG_IMAGE_RESULT_NODE_DEFAULT_WIDTH,
   JIMENG_IMAGE_RESULT_NODE_MIN_HEIGHT,
   JIMENG_IMAGE_RESULT_NODE_MIN_WIDTH,
+  type ImageViewerMetadata,
   type JimengGeneratedImageItem,
+  type JimengImageNodeData,
   type JimengImageResultNodeData,
 } from "@/features/canvas/domain/canvasNodes";
 import { resolveNodeDisplayName } from "@/features/canvas/domain/nodeDisplay";
@@ -105,11 +107,60 @@ function toCssAspectRatio(aspectRatio: string): string {
   return `${width} / ${height}`;
 }
 
+function normalizeText(value: unknown): string {
+  return typeof value === "string" ? value.trim() : "";
+}
+
+function resolveSourceJimengImageData(
+  node: ReturnType<typeof useCanvasNodeById>,
+): JimengImageNodeData | null {
+  return node?.type === CANVAS_NODE_TYPES.jimengImage
+    ? (node.data as JimengImageNodeData)
+    : null;
+}
+
+function buildJimengViewerRequestModel({
+  modelVersion,
+  resolutionType,
+  aspectRatio,
+  referenceImageCount,
+}: {
+  modelVersion?: string | null;
+  resolutionType?: string | null;
+  aspectRatio?: string | null;
+  referenceImageCount?: number | null;
+}): string {
+  const normalizedModelVersion = normalizeText(modelVersion) || "image";
+  const parts = [`jimeng-image-${normalizedModelVersion}`];
+  const normalizedResolution = normalizeText(resolutionType).toUpperCase();
+  const normalizedAspectRatio = normalizeText(aspectRatio);
+  if (normalizedResolution) {
+    parts.push(normalizedResolution);
+  }
+  if (normalizedAspectRatio) {
+    parts.push(normalizedAspectRatio);
+  }
+  if (
+    typeof referenceImageCount === "number" &&
+    Number.isFinite(referenceImageCount) &&
+    referenceImageCount > 0
+  ) {
+    parts.push(`refs ${Math.round(referenceImageCount)}`);
+  }
+
+  return parts.join(" / ");
+}
+
 export const JimengImageResultNode = memo(
   ({ id, data, selected, width }: JimengImageResultNodeProps) => {
     const { t, i18n } = useTranslation();
     const updateNodeInternals = useUpdateNodeInternals();
     const currentNode = useCanvasNodeById(id);
+    const sourceNode = useCanvasNodeById(data.sourceNodeId ?? "");
+    const sourceJimengImageData = useMemo(
+      () => resolveSourceJimengImageData(sourceNode),
+      [sourceNode],
+    );
     const setSelectedNode = useCanvasStore((state) => state.setSelectedNode);
     const updateNodeData = useCanvasStore((state) => state.updateNodeData);
     const isDescriptionPanelOpen = useCanvasStore(
@@ -150,7 +201,7 @@ export const JimengImageResultNode = memo(
         resultImages
           .map(
             (item) =>
-              item.previewImageUrl ?? item.imageUrl ?? item.sourceUrl ?? "",
+              item.imageUrl ?? item.sourceUrl ?? item.previewImageUrl ?? "",
           )
           .filter(
             (value): value is string =>
@@ -187,6 +238,42 @@ export const JimengImageResultNode = memo(
       () => formatTimestamp(data.lastGeneratedAt ?? null, i18n.language),
       [data.lastGeneratedAt, i18n.language],
     );
+    const viewerMetadata = useMemo<ImageViewerMetadata>(() => {
+      const submittedPrompt =
+        normalizeText(data.prompt) || normalizeText(sourceJimengImageData?.prompt);
+      const modelVersion =
+        normalizeText(data.modelVersion) || normalizeText(sourceJimengImageData?.modelVersion);
+      const resolutionType =
+        normalizeText(data.resolutionType) || normalizeText(sourceJimengImageData?.resolutionType);
+      const referenceImageCount =
+        typeof data.referenceImageCount === "number" &&
+        Number.isFinite(data.referenceImageCount)
+          ? data.referenceImageCount
+          : null;
+
+      return {
+        sourceType: "imageEdit",
+        providerId: "jimeng",
+        requestModel: buildJimengViewerRequestModel({
+          modelVersion,
+          resolutionType,
+          aspectRatio: data.aspectRatio,
+          referenceImageCount,
+        }),
+        prompt: submittedPrompt,
+        generatedAt: data.lastGeneratedAt ?? null,
+      };
+    }, [
+      data.aspectRatio,
+      data.lastGeneratedAt,
+      data.modelVersion,
+      data.prompt,
+      data.referenceImageCount,
+      data.resolutionType,
+      sourceJimengImageData?.modelVersion,
+      sourceJimengImageData?.prompt,
+      sourceJimengImageData?.resolutionType,
+    ]);
 
     useEffect(() => {
       updateNodeInternals(id);
@@ -264,6 +351,13 @@ export const JimengImageResultNode = memo(
 
         updateNodeData(id, {
           submitIds: response.submitIds,
+          prompt:
+            normalizeText(data.prompt) ||
+            normalizeText(sourceJimengImageData?.prompt) ||
+            null,
+          resolutionType:
+            data.resolutionType ?? sourceJimengImageData?.resolutionType,
+          referenceImageCount: data.referenceImageCount,
           resultImages: hasImages ? response.images : resultImages,
           isGenerating: hasPending,
           generationStartedAt: hasPending
@@ -301,10 +395,15 @@ export const JimengImageResultNode = memo(
       data.aspectRatio,
       data.generationStartedAt,
       data.lastGeneratedAt,
+      data.prompt,
+      data.referenceImageCount,
+      data.resolutionType,
       data.submitIds,
       flushCurrentProjectToDiskSafely,
       id,
       resultImages,
+      sourceJimengImageData?.prompt,
+      sourceJimengImageData?.resolutionType,
       t,
       updateNodeData,
     ]);
@@ -313,7 +412,7 @@ export const JimengImageResultNode = memo(
       async (item: JimengGeneratedImageItem, index: number) => {
         try {
           const sourceImage =
-            item.imageUrl ?? item.previewImageUrl ?? item.sourceUrl ?? null;
+            item.imageUrl ?? item.sourceUrl ?? item.previewImageUrl ?? null;
           if (!sourceImage) {
             setStatusNotice(t("node.jimengImageResult.extractEmpty"));
             return;
@@ -455,9 +554,9 @@ export const JimengImageResultNode = memo(
                 item?.sourceUrl ??
                 null;
               const viewerSource =
-                item?.previewImageUrl ??
                 item?.imageUrl ??
                 item?.sourceUrl ??
+                item?.previewImageUrl ??
                 null;
               return (
                 <div
@@ -479,6 +578,7 @@ export const JimengImageResultNode = memo(
                         }
                         viewerSourceUrl={viewerSource}
                         viewerImageList={viewerImageList}
+                        viewerMetadata={viewerMetadata}
                         className="h-full w-full object-cover"
                         draggable={false}
                       />

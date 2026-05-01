@@ -83,10 +83,7 @@ fn setup_logging() {
     info!("OOpii Infinite Canvas starting...");
 }
 
-pub(crate) fn set_main_tray_visible(
-    app: &tauri::AppHandle,
-    visible: bool,
-) -> Result<(), String> {
+pub(crate) fn set_main_tray_visible(app: &tauri::AppHandle, visible: bool) -> Result<(), String> {
     let Some(tray) = app.tray_by_id(MAIN_TRAY_ID) else {
         if visible {
             return Err("main tray icon not found".to_string());
@@ -239,13 +236,8 @@ pub fn run() {
                 true,
                 None::<&str>,
             )?;
-            let quit_app_item = MenuItem::with_id(
-                app,
-                MAIN_TRAY_QUIT_MENU_ID,
-                "退出应用",
-                true,
-                None::<&str>,
-            )?;
+            let quit_app_item =
+                MenuItem::with_id(app, MAIN_TRAY_QUIT_MENU_ID, "退出应用", true, None::<&str>)?;
             let tray_menu = Menu::with_items(app, &[&show_main_window_item, &quit_app_item])?;
             let tray = TrayIconBuilder::with_id(MAIN_TRAY_ID)
                 .icon(tray_icon)

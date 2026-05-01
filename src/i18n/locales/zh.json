@@ -46,8 +46,11 @@
     "summary": "已保存 {{count}} 条结果",
     "loading": "正在加载生成历史...",
     "empty": "还没有已保存的图片、视频或音频生成快照。",
+    "searchPlaceholder": "搜索生成历史...",
+    "searchEmpty": "没有匹配的生成结果。",
     "restore": "恢复到画布",
-    "aspectRatio": "画幅比例：{{value}}"
+    "aspectRatio": "画幅比例：{{value}}",
+    "missingSource": "源文件已丢失，建议删除这条历史或重新生成。"
   },
   "cameraParams": {
     "title": "相机参数",
@@ -786,18 +789,19 @@
         "multimodal2video": "多模态"
       },
       "cliHint": {
-        "text2video": "CLI：{{command}} | 生效模型 {{model}} | 时长 4-15 秒 | 分辨率 720p",
+        "text2video": "CLI：{{command}} | 生效模型 {{model}} | 时长 4-15 秒 | 分辨率 {{resolution}}",
         "image2video": "CLI：{{command}} | 时长 {{duration}} | 分辨率 {{resolution}}",
         "frames2video": "CLI：{{command}} | 只使用首尾两张图 | 生效模型 {{model}} | 时长 {{duration}} | 分辨率 {{resolution}}",
         "multiframeTwo": "CLI：{{command}} | 2 张参考图 | 时长 2-8 秒 | 模型 / 比例 / 分辨率由 CLI 固定",
         "multiframeMany": "CLI：{{command}} | {{count}} 张参考图 | 转场时长自动分配 | 模型 / 比例 / 分辨率由 CLI 固定",
-        "multimodal2video": "CLI：{{command}} | 生效模型 {{model}} | 时长 4-15 秒 | 分辨率 720p | 输入上限：图<=9 / 视频<=3 / 音频<=3"
+        "multimodal2video": "CLI：{{command}} | 生效模型 {{model}} | 时长 4-15 秒 | 分辨率 {{resolution}} | 输入上限：图<=9 / 视频<=3 / 音频<=3"
       },
       "parameters": {
         "model": "模型",
         "referenceMode": "参考",
         "aspectRatio": "比例",
-        "duration": "时长"
+        "duration": "时长",
+        "videoResolution": "清晰度"
       },
       "modelOptions": {
         "seedance20fast": "Seedance 2.0 Fast",
@@ -818,6 +822,10 @@
         "v3_0pro": "更稳定的 Pro 路线。",
         "v3_0fast": "更适合草稿阶段的 3.0 快速模式。",
         "v3_0": "基础 3.0 模式。"
+      },
+      "videoResolutionOptions": {
+        "720p": "720p",
+        "1080p": "1080p"
       },
       "referenceModes": {
         "allAround": "通用参考",
@@ -956,6 +964,8 @@
       "providerUnset": "供应商：未配置",
       "openSettings": "打开设置",
       "run": "生成 / 改写",
+      "runOverwrite": "覆盖生成",
+      "runCreate": "新建生成",
       "running": "生成中...",
       "runFailed": "生成失败",
       "completed": "已完成",
@@ -1805,7 +1815,7 @@
     "types": {
       "storyboard": "分镜",
       "script": "剧本",
-      "ad": "广告项目"
+      "ad": "广告"
     },
     "typeBadgeLabels": {
       "ad": "广告"
@@ -2822,7 +2832,7 @@
       "minimumHint": "最早可发送：{{time}}",
       "timeHint": "应用运行时会按这个时间自动提交；如果应用休眠或关闭，会在恢复后补发。",
       "timeInvalid": "请选择一个晚于当前时间的发送时间。",
-      "immediateHint": "任务会尽快进入队列，并遵守 10 条并发上限。",
+      "immediateHint": "任务会尽快进入队列，并遵守 {{count}} 条并发上限。",
       "summaryTitle": "计划发送",
       "summaryValue": "{{time}}（{{timezone}}）",
       "minus15Minutes": "-15 分钟",

@@ -40,8 +40,8 @@ const SUPPORTED_MODELS: [&str; 10] = [
 ];
 
 const SUPPORTED_ASPECT_RATIOS: [&str; 15] = [
-    "1:1", "2:3", "3:2", "3:4", "4:3", "4:5", "5:4", "9:16", "16:9", "21:9", "9:21", "1:3",
-    "3:1", "1:2", "2:1",
+    "1:1", "2:3", "3:2", "3:4", "4:3", "4:5", "5:4", "9:16", "16:9", "21:9", "9:21", "1:3", "3:1",
+    "1:2", "2:1",
 ];
 
 fn decode_file_url_path(value: &str) -> String {
@@ -1051,7 +1051,10 @@ mod tests {
             value.get("aspectRatio").and_then(|raw| raw.as_str()),
             Some("2048x1152")
         );
-        assert_eq!(value.get("quality").and_then(|raw| raw.as_str()), Some("high"));
+        assert_eq!(
+            value.get("quality").and_then(|raw| raw.as_str()),
+            Some("high")
+        );
         assert!(value.get("size").is_none());
     }
 

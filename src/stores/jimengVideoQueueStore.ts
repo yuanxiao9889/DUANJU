@@ -203,7 +203,7 @@ async function recoverHydratedJobs(
   const changedJobs: JimengVideoQueueJob[] = [];
 
   for (const job of jobs) {
-    if (job.status !== "submitting" || inflightJobIds.has(job.jobId)) {
+    if (isJimengVideoQueueTerminalStatus(job.status) || inflightJobIds.has(job.jobId)) {
       recoveredJobs.push(job);
       continue;
     }
@@ -223,7 +223,14 @@ async function recoverHydratedJobs(
       };
       nextPollAtByJobId.set(recoveredJob.jobId, now);
       recoveredJobs.push(recoveredJob);
-      changedJobs.push(recoveredJob);
+      if (job.status !== recoveredJob.status || job.submitId !== recoveredSubmitId) {
+        changedJobs.push(recoveredJob);
+      }
+      continue;
+    }
+
+    if (job.status !== "submitting") {
+      recoveredJobs.push(job);
       continue;
     }
 
@@ -653,6 +660,37 @@ async function markJobStatusForCapacity(
   );
 }
 
+async function recoverSubmittedInactiveJob(
+  job: JimengVideoQueueJob,
+  now: number,
+): Promise<boolean> {
+  if (
+    isJimengVideoQueueTerminalStatus(job.status) ||
+    isJimengVideoQueueActiveStatus(job.status)
+  ) {
+    return false;
+  }
+
+  const recoveredSubmitId =
+    normalizeSubmitId(job.submitId) ?? resolveResultNodeSubmitId(job);
+  if (!recoveredSubmitId) {
+    return false;
+  }
+
+  const recoveredJob: JimengVideoQueueJob = {
+    ...job,
+    status: "submitted",
+    submitId: recoveredSubmitId,
+    nextRetryAt: null,
+    updatedAt: now,
+    lastError: null,
+  };
+  nextPollAtByJobId.set(recoveredJob.jobId, now);
+  clearConcurrencyBackoff(recoveredJob.jobId);
+  await commitJob(recoveredJob, { syncNodes: true });
+  return true;
+}
+
 function findRetryBarrierJob(
   jobs: readonly JimengVideoQueueJob[],
 ): JimengVideoQueueJob | null {
@@ -925,6 +963,11 @@ async function schedulerTick(): Promise<void> {
     }
 
     let freshJobs = sortJobs(useJimengVideoQueueStore.getState().jobs);
+    for (const job of freshJobs) {
+      await recoverSubmittedInactiveJob(job, now);
+    }
+
+    freshJobs = sortJobs(useJimengVideoQueueStore.getState().jobs);
     const activeJobs = freshJobs.filter((job) =>
       isJimengVideoQueueActiveStatus(job.status),
     );

@@ -85,50 +85,63 @@ fn resolve_db_path(app: &AppHandle) -> Result<PathBuf, String> {
 }
 
 fn normalize_storage_compare_key(path: &Path) -> String {
-    path.to_string_lossy().replace('\\', "/").to_ascii_lowercase()
+    path.to_string_lossy()
+        .replace('\\', "/")
+        .to_ascii_lowercase()
 }
 
-fn read_legacy_project_payload(project_db_path: &Path) -> Result<Option<LegacyProjectPayload>, String> {
+fn read_legacy_project_payload(
+    project_db_path: &Path,
+) -> Result<Option<LegacyProjectPayload>, String> {
     if !project_db_path.exists() {
         return Ok(None);
     }
 
-    let conn = Connection::open(project_db_path)
-        .map_err(|e| format!("Failed to open legacy project db {}: {}", project_db_path.display(), e))?;
+    let conn = Connection::open(project_db_path).map_err(|e| {
+        format!(
+            "Failed to open legacy project db {}: {}",
+            project_db_path.display(),
+            e
+        )
+    })?;
 
     let has_project_data_table = table_exists(&conn, "project_data")?;
     if !has_project_data_table {
         return Ok(None);
     }
 
-    let payload = conn
-        .query_row(
-            r#"
+    let payload = conn.query_row(
+        r#"
             SELECT id, nodes_json, edges_json, viewport_json, history_json
             FROM project_data
             LIMIT 1
             "#,
-            [],
-            |row| {
-                Ok(LegacyProjectPayload {
-                    legacy_id: row.get(0)?,
-                    source_dir: project_db_path
-                        .parent()
-                        .map(Path::to_path_buf)
-                        .unwrap_or_else(PathBuf::new),
-                    nodes_json: row.get(1)?,
-                    edges_json: row.get(2)?,
-                    viewport_json: row.get(3)?,
-                    history_json: row.get(4)?,
-                    node_count: 0,
-                })
-            },
-        );
+        [],
+        |row| {
+            Ok(LegacyProjectPayload {
+                legacy_id: row.get(0)?,
+                source_dir: project_db_path
+                    .parent()
+                    .map(Path::to_path_buf)
+                    .unwrap_or_else(PathBuf::new),
+                nodes_json: row.get(1)?,
+                edges_json: row.get(2)?,
+                viewport_json: row.get(3)?,
+                history_json: row.get(4)?,
+                node_count: 0,
+            })
+        },
+    );
 
     match payload {
         Ok(mut value) => {
-            let parsed_nodes = serde_json::from_str::<Value>(&value.nodes_json)
-                .map_err(|e| format!("Failed to parse legacy nodes json {}: {}", project_db_path.display(), e))?;
+            let parsed_nodes = serde_json::from_str::<Value>(&value.nodes_json).map_err(|e| {
+                format!(
+                    "Failed to parse legacy nodes json {}: {}",
+                    project_db_path.display(),
+                    e
+                )
+            })?;
             value.node_count = project_nodes_array(&parsed_nodes)
                 .map(|nodes| nodes.len() as i64)
                 .unwrap_or(0);
@@ -1477,11 +1490,7 @@ fn get_project_name_by_id(conn: &Connection, project_id: &str) -> Result<Option<
     }
 }
 
-fn project_has_meaningful_content(
-    node_count: i64,
-    nodes_json: &str,
-    history_json: &str,
-) -> bool {
+fn project_has_meaningful_content(node_count: i64, nodes_json: &str, history_json: &str) -> bool {
     if node_count > 0 {
         return true;
     }
@@ -1695,7 +1704,10 @@ fn import_legacy_project_payload_in_tx(
     Ok(())
 }
 
-fn import_legacy_projects_if_needed(conn: &mut Connection, app: &AppHandle) -> Result<bool, String> {
+fn import_legacy_projects_if_needed(
+    conn: &mut Connection,
+    app: &AppHandle,
+) -> Result<bool, String> {
     let legacy_payloads = collect_legacy_project_payloads(app)?;
     if legacy_payloads.is_empty() {
         return Ok(false);
@@ -1720,7 +1732,11 @@ fn import_legacy_projects_if_needed(conn: &mut Connection, app: &AppHandle) -> R
         } else {
             build_recovered_project_name(&payload.legacy_id)
         };
-        let created_at = if restore_target_id.is_some() { now } else { now };
+        let created_at = if restore_target_id.is_some() {
+            now
+        } else {
+            now
+        };
 
         let tx = conn
             .transaction()
@@ -2996,7 +3012,8 @@ mod tests {
         let legacy_payload = LegacyProjectPayload {
             legacy_id: "legacy-ep2".to_string(),
             source_dir: PathBuf::from("C:/legacy/projects/legacy-ep2"),
-            nodes_json: r#"[{"id":"legacy-node","type":"directorStageNode","data":{}}]"#.to_string(),
+            nodes_json: r#"[{"id":"legacy-node","type":"directorStageNode","data":{}}]"#
+                .to_string(),
             edges_json: "[]".to_string(),
             viewport_json: "{}".to_string(),
             history_json: r#"{"past":[{"nodes":[],"edges":[]}],"future":[]}"#.to_string(),

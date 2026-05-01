@@ -20,6 +20,7 @@ import {
   type LlmLogicPresetCategoryKey,
   type LlmLogicPresetKey,
   type LlmLogicNodeData,
+  type TextAnnotationNodeData,
   type TextAnnotationGenerationSource,
 } from '@/features/canvas/domain/canvasNodes';
 import { resolveNodeDisplayName } from '@/features/canvas/domain/nodeDisplay';
@@ -42,6 +43,8 @@ type LlmLogicNodeProps = NodeProps & {
   width?: number;
   height?: number;
 };
+
+type LlmLogicRunMode = 'overwrite' | 'create';
 
 const MIN_WIDTH = 360;
 const MIN_HEIGHT = 300;
@@ -402,6 +405,58 @@ export const LlmLogicNode = memo(({
     return outputNodeId;
   }, [addEdge, addNode, findNodePosition, id, t, updateNodeData]);
 
+  const resolveOverwriteOutputNodeId = useCallback((): string | null => {
+    const store = useCanvasStore.getState();
+    const currentNode = store.nodes.find((node) => node.id === id);
+    const currentOutputNodeId = currentNode?.type === CANVAS_NODE_TYPES.llmLogic
+      ? normalizeString((currentNode.data as LlmLogicNodeData).outputNodeId)
+      : normalizeString(data.outputNodeId);
+
+    if (!currentOutputNodeId) {
+      return null;
+    }
+
+    const outputNode = store.nodes.find((node) => node.id === currentOutputNodeId);
+    if (outputNode?.type !== CANVAS_NODE_TYPES.textAnnotation) {
+      return null;
+    }
+
+    const outputData = outputNode.data as TextAnnotationNodeData;
+    const generationSource = outputData.generationSource;
+    if (
+      generationSource?.kind !== 'llmLogic'
+      || generationSource.sourceNodeId !== id
+    ) {
+      return null;
+    }
+
+    return currentOutputNodeId;
+  }, [data.outputNodeId, id]);
+
+  const prepareOutputNodeForRun = useCallback((mode: LlmLogicRunMode): string => {
+    const outputNodeId = mode === 'overwrite' ? resolveOverwriteOutputNodeId() : null;
+
+    if (outputNodeId) {
+      updateNodeData(
+        outputNodeId,
+        {
+          generationSource: {
+            kind: 'llmLogic',
+            sourceNodeId: id,
+          },
+          showCopyButton: true,
+          isGenerating: true,
+          generationStatusText: t('node.llmLogic.running'),
+        },
+        { historyMode: 'skip' }
+      );
+      updateNodeData(id, { outputNodeId }, { historyMode: 'skip' });
+      return outputNodeId;
+    }
+
+    return createOutputNode();
+  }, [createOutputNode, id, resolveOverwriteOutputNodeId, t, updateNodeData]);
+
   const resolveRemainingPendingRequestIds = useCallback((requestId: string): string[] => {
     const store = useCanvasStore.getState();
     const currentNode = store.nodes.find((node) => node.id === id);
@@ -412,7 +467,7 @@ export const LlmLogicNode = memo(({
     return pendingRequestIds.filter((pendingId) => pendingId !== requestId);
   }, [id]);
 
-  const handleGenerate = useCallback(async () => {
+  const handleGenerate = useCallback(async (mode: LlmLogicRunMode) => {
     const initialNode = useCanvasStore.getState().nodes.find((node) => node.id === id);
     const initialPendingRequestIds = initialNode?.type === CANVAS_NODE_TYPES.llmLogic
       ? normalizeRequestIds((initialNode.data as LlmLogicNodeData).pendingRequestIds)
@@ -474,7 +529,7 @@ export const LlmLogicNode = memo(({
       directionInstruction
     );
     const requestId = createLlmRequestId();
-    const outputNodeId = createOutputNode();
+    const outputNodeId = prepareOutputNodeForRun(mode);
     const nextPendingRequestIds = initialPendingRequestIds.includes(requestId)
       ? initialPendingRequestIds
       : [...initialPendingRequestIds, requestId];
@@ -564,10 +619,10 @@ export const LlmLogicNode = memo(({
     }
   }, [
     configurationError,
-    createOutputNode,
     data.systemInstruction,
     data.userPrompt,
     id,
+    prepareOutputNodeForRun,
     resolvedModel,
     resolvedPresetCategoryKey,
     resolvedPresetKey,
@@ -761,22 +816,38 @@ export const LlmLogicNode = memo(({
         </div>
 
         <div className="mt-2 flex shrink-0 items-center justify-between gap-3">
-          <div className="min-h-[20px] text-xs text-text-muted">
+          <div className="min-h-[20px] min-w-0 flex-1 text-xs text-text-muted">
             {data.statusText || t('node.llmLogic.statusIdle')}
           </div>
-          <UiButton
-            variant="primary"
-            size="sm"
-            className="nodrag gap-1.5"
-            onPointerDown={(event) => event.stopPropagation()}
-            onClick={(event) => {
-              event.stopPropagation();
-              void handleGenerate();
-            }}
-          >
-            <Sparkles className="h-3.5 w-3.5" />
-            {t('node.llmLogic.run')}
-          </UiButton>
+          <div className="flex shrink-0 items-center gap-2">
+            <UiButton
+              variant="primary"
+              size="sm"
+              className="nodrag gap-1.5"
+              disabled={Boolean(data.isGenerating)}
+              onPointerDown={(event) => event.stopPropagation()}
+              onClick={(event) => {
+                event.stopPropagation();
+                void handleGenerate('overwrite');
+              }}
+            >
+              <Sparkles className="h-3.5 w-3.5" />
+              {t('node.llmLogic.runOverwrite')}
+            </UiButton>
+            <UiButton
+              variant="muted"
+              size="sm"
+              className="nodrag gap-1.5"
+              disabled={Boolean(data.isGenerating)}
+              onPointerDown={(event) => event.stopPropagation()}
+              onClick={(event) => {
+                event.stopPropagation();
+                void handleGenerate('create');
+              }}
+            >
+              {t('node.llmLogic.runCreate')}
+            </UiButton>
+          </div>
         </div>
       </div>
 

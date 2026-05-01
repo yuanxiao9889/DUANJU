@@ -2701,6 +2701,21 @@ fn multiframe_durations(total_duration: Option<u32>, transition_count: usize) ->
     vec![formatted; transition_count]
 }
 
+fn seedance_two_model_supports_1080p(model: Option<&str>) -> bool {
+    matches!(model, Some("seedance2.0" | "seedance2.0_vip"))
+}
+
+fn normalize_seedance_two_video_resolution(
+    resolution: Option<&str>,
+    model: Option<&str>,
+) -> Option<&'static str> {
+    match resolution {
+        Some("1080p") if seedance_two_model_supports_1080p(model) => Some("1080p"),
+        Some("720p") => Some("720p"),
+        _ => None,
+    }
+}
+
 fn video_args(
     payload: &GenerateJimengDreaminaVideosPayload,
     command: VideoCommand,
@@ -2760,8 +2775,11 @@ fn video_args(
             if let Some(ratio) = ratio {
                 push_arg(&mut args, "--ratio", ratio);
             }
-            if matches!(resolution.as_deref(), Some("720p")) {
-                push_arg(&mut args, "--video_resolution", "720p");
+            if let Some(video_resolution) = normalize_seedance_two_video_resolution(
+                resolution.as_deref(),
+                text_model.as_deref(),
+            ) {
+                push_arg(&mut args, "--video_resolution", video_resolution);
             }
             if let Some(model) = text_model {
                 push_arg(&mut args, "--model_version", model);
@@ -2788,10 +2806,11 @@ fn video_args(
                 if let Some(duration) = duration {
                     push_arg(&mut args, "--duration", duration.to_string());
                 }
-                let allow_1080 = matches!(model.as_str(), "3.0" | "3.0fast" | "3.0pro" | "3.5pro");
-                let normalized = match (resolution.as_deref(), allow_1080) {
-                    (Some("1080p"), true) => Some("1080p"),
-                    (Some("720p"), _) => Some("720p"),
+                let normalized = match (model.as_str(), resolution.as_deref()) {
+                    ("3.0pro", _) => Some("1080p"),
+                    ("3.0" | "3.0fast" | "3.5pro", Some("1080p")) => Some("1080p"),
+                    ("seedance2.0" | "seedance2.0_vip", Some("1080p")) => Some("1080p"),
+                    (_, Some("720p")) => Some("720p"),
                     _ => None,
                 };
                 if let Some(video_resolution) = normalized {
@@ -2825,7 +2844,8 @@ fn video_args(
             if let Some(duration) = duration {
                 push_arg(&mut args, "--duration", duration.to_string());
             }
-            let allow_1080 = matches!(range_model, "3.0" | "3.5pro");
+            let allow_1080 = matches!(range_model, "3.0" | "3.5pro")
+                || seedance_two_model_supports_1080p(Some(range_model));
             let normalized = match (resolution.as_deref(), allow_1080) {
                 (Some("1080p"), true) => Some("1080p"),
                 (Some("720p"), _) => Some("720p"),
@@ -2882,8 +2902,11 @@ fn video_args(
             if let Some(ratio) = ratio {
                 push_arg(&mut args, "--ratio", ratio);
             }
-            if matches!(resolution.as_deref(), Some("720p")) {
-                push_arg(&mut args, "--video_resolution", "720p");
+            if let Some(video_resolution) = normalize_seedance_two_video_resolution(
+                resolution.as_deref(),
+                text_model.as_deref(),
+            ) {
+                push_arg(&mut args, "--video_resolution", video_resolution);
             }
             if let Some(model) = text_model {
                 push_arg(&mut args, "--model_version", model);
@@ -3019,12 +3042,7 @@ async fn submit_jimeng_dreamina_video_request(
         video_args(payload, command, &image_paths, &video_paths, &audio_paths),
     )
     .await?;
-    remember_dreamina_submit_id_cache(
-        app,
-        "video",
-        payload.tracking_id.as_deref(),
-        &submit_id,
-    )?;
+    remember_dreamina_submit_id_cache(app, "video", payload.tracking_id.as_deref(), &submit_id)?;
     let download_dir = request_dir.join("downloads").join(&submit_id);
     fs::create_dir_all(&download_dir)
         .map_err(|error| format!("failed to create Dreamina video download dir: {error}"))?;

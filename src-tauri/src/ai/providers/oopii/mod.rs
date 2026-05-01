@@ -12,6 +12,7 @@ pub const OOPII_PROVIDER_ID: &str = "oopii";
 pub const DEFAULT_OOPII_TEXT_MODEL: &str = "gpt-5.4";
 pub const OOPII_STORYBOARD_BASE_URL: &str = "https://www.oopii.cn/";
 const OOPII_STORYBOARD_DEFAULT_API_FORMAT: &str = "openai";
+const OOPII_STORYBOARD_OPENAI_IMAGES_API_FORMAT: &str = "openai-images";
 const OOPII_STORYBOARD_GEMINI_API_FORMAT: &str = "gemini";
 const OOPII_STORYBOARD_GPT_IMAGE_2_REQUEST_MODEL: &str = "gpt-image-2";
 
@@ -61,7 +62,9 @@ impl OopiiProvider {
 
     fn infer_storyboard_api_format(request_model: &str) -> &'static str {
         let normalized = request_model.trim().to_ascii_lowercase();
-        if normalized.contains("gemini") || normalized.contains("imagen") {
+        if Self::is_storyboard_gpt_image_2_request_model(&normalized) {
+            OOPII_STORYBOARD_OPENAI_IMAGES_API_FORMAT
+        } else if normalized.contains("gemini") || normalized.contains("imagen") {
             OOPII_STORYBOARD_GEMINI_API_FORMAT
         } else {
             OOPII_STORYBOARD_DEFAULT_API_FORMAT
@@ -72,8 +75,13 @@ impl OopiiProvider {
         payload_api_format: &str,
         request_model: &str,
     ) -> &'static str {
+        let is_gpt_image_2 = Self::is_storyboard_gpt_image_2_request_model(request_model);
         match payload_api_format.trim() {
             "gemini" | "gemini-generate-content" => OOPII_STORYBOARD_GEMINI_API_FORMAT,
+            "openai-images" => OOPII_STORYBOARD_OPENAI_IMAGES_API_FORMAT,
+            "openai" | "openai-chat" | "openai-edits" if is_gpt_image_2 => {
+                OOPII_STORYBOARD_OPENAI_IMAGES_API_FORMAT
+            }
             "openai" | "openai-chat" | "openai-edits" => OOPII_STORYBOARD_DEFAULT_API_FORMAT,
             _ => Self::infer_storyboard_api_format(request_model),
         }
@@ -334,7 +342,45 @@ mod tests {
         assert_eq!(
             payload,
             json!({
-                "api_format": "openai",
+                "api_format": "openai-images",
+                "endpoint_url": OOPII_STORYBOARD_BASE_URL,
+                "request_model": "gpt-image-2",
+                "display_name": "gpt-image-2",
+            })
+        );
+    }
+
+    #[test]
+    fn upgrades_legacy_openai_format_for_gpt_image_2_to_openai_images() {
+        let mut request = GenerateRequest {
+            prompt: "test".to_string(),
+            model: "oopii/gpt-image-2".to_string(),
+            size: "1K".to_string(),
+            aspect_ratio: "1:1".to_string(),
+            reference_images: None,
+            extra_params: Some(HashMap::from([(
+                "newapi_config".to_string(),
+                json!({
+                    "api_format": "openai",
+                    "endpoint_url": OOPII_STORYBOARD_BASE_URL,
+                    "request_model": "gpt-image-2",
+                    "display_name": "gpt-image-2",
+                }),
+            )])),
+        };
+
+        OopiiProvider::inject_newapi_config(&mut request).unwrap();
+        let payload = request
+            .extra_params
+            .as_ref()
+            .and_then(|params| params.get("newapi_config"))
+            .cloned()
+            .unwrap();
+
+        assert_eq!(
+            payload,
+            json!({
+                "api_format": "openai-images",
                 "endpoint_url": OOPII_STORYBOARD_BASE_URL,
                 "request_model": "gpt-image-2",
                 "display_name": "gpt-image-2",
@@ -364,7 +410,7 @@ mod tests {
         assert_eq!(
             payload,
             json!({
-                "api_format": "openai",
+                "api_format": "openai-images",
                 "endpoint_url": OOPII_STORYBOARD_BASE_URL,
                 "request_model": "gpt-image-2-2k-medium",
                 "display_name": "gpt-image-2",
@@ -394,7 +440,7 @@ mod tests {
         assert_eq!(
             payload,
             json!({
-                "api_format": "openai",
+                "api_format": "openai-images",
                 "endpoint_url": OOPII_STORYBOARD_BASE_URL,
                 "request_model": "gpt-image-2-4k-high",
                 "display_name": "gpt-image-2",

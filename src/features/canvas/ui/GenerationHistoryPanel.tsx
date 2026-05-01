@@ -1,9 +1,9 @@
-import { useMemo, useState } from 'react';
-import { Clock3, Image as ImageIcon, ListVideo, Music4, Trash2 } from 'lucide-react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { Clock3, Image as ImageIcon, ListVideo, Music4, Search, Trash2 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { useReactFlow } from '@xyflow/react';
 
-import { UiButton, UiLoadingAnimation, UiPanel } from '@/components/ui';
+import { UiButton, UiInput, UiLoadingAnimation, UiPanel } from '@/components/ui';
 import {
   GENERATION_HISTORY_DRAG_MIME_TYPE,
   collectGenerationHistoryItemNodeIds,
@@ -47,14 +47,21 @@ function GenerationHistoryVideoPreview({
   sourcePath,
   previewPath,
   title,
+  onMissingChange,
 }: {
   sourcePath: string;
   previewPath: string | null;
   title: string;
+  onMissingChange?: (isMissing: boolean) => void;
 }) {
-  const { displaySource: posterDisplaySource } = useStableImageDisplaySource(
+  const { displaySource: posterDisplaySource, loadError } = useStableImageDisplaySource(
     previewPath ?? sourcePath
   );
+  const isMissing = !posterDisplaySource && Boolean(loadError);
+
+  useEffect(() => {
+    onMissingChange?.(isMissing);
+  }, [isMissing, onMissingChange]);
 
   return (
     <video
@@ -77,16 +84,124 @@ export function GenerationHistoryPanel({
   const items = useGenerationHistoryStore((state) => state.items);
   const isHydrating = useGenerationHistoryStore((state) => state.isHydrating);
   const removeItem = useGenerationHistoryStore((state) => state.removeItem);
+  const syncFromCanvasSnapshot = useGenerationHistoryStore((state) => state.syncFromCanvasSnapshot);
   const nodes = useCanvasStore((state) => state.nodes);
   const edges = useCanvasStore((state) => state.edges);
   const deleteNodes = useCanvasStore((state) => state.deleteNodes);
   const restoreGenerationSnapshotNode = useCanvasStore((state) => state.restoreGenerationSnapshotNode);
   const setSelectedNode = useCanvasStore((state) => state.setSelectedNode);
+  const panelRef = useRef<HTMLDivElement | null>(null);
   const [deletingItemId, setDeletingItemId] = useState<string | null>(null);
+  const [missingItemIds, setMissingItemIds] = useState<Record<string, boolean>>({});
+  const [searchQuery, setSearchQuery] = useState('');
+
+  useEffect(() => {
+    if (!isOpen) {
+      return undefined;
+    }
+
+    const runSync = () => {
+      void syncFromCanvasSnapshot().catch((error) => {
+        console.error('[generationHistory] failed to sync from canvas snapshot', error);
+      });
+    };
+
+    if ('requestIdleCallback' in window) {
+      const idleCallbackId = window.requestIdleCallback(runSync, { timeout: 800 });
+      return () => {
+        window.cancelIdleCallback(idleCallbackId);
+      };
+    }
+
+    const timer = globalThis.setTimeout(runSync, 80);
+    return () => {
+      globalThis.clearTimeout(timer);
+    };
+  }, [isOpen, syncFromCanvasSnapshot]);
+
+  useEffect(() => {
+    if (!isOpen) {
+      setSearchQuery('');
+    }
+  }, [isOpen]);
+
+  useEffect(() => {
+    if (!isOpen) {
+      return undefined;
+    }
+
+    const handlePointerDown = (event: PointerEvent) => {
+      const target = event.target;
+      if (!(target instanceof Node)) {
+        return;
+      }
+      if (panelRef.current?.contains(target)) {
+        return;
+      }
+      if (target instanceof Element && target.closest('[data-generation-history-toggle="true"]')) {
+        return;
+      }
+      onClose();
+    };
+
+    document.addEventListener('pointerdown', handlePointerDown);
+    return () => {
+      document.removeEventListener('pointerdown', handlePointerDown);
+    };
+  }, [isOpen, onClose]);
 
   const groupedItems = useMemo(() => items, [items]);
+  const filteredItems = useMemo(() => {
+    const query = searchQuery.trim().toLocaleLowerCase();
+    if (!query) {
+      return groupedItems;
+    }
+
+    return groupedItems.filter((item) => {
+      const searchableText = [
+        item.title,
+        item.mediaType,
+        item.nodeType,
+        item.aspectRatio,
+        item.mimeType,
+        item.sourcePath,
+        item.previewPath,
+        formatTimestamp(item.createdAt, i18n.language),
+      ]
+        .filter(Boolean)
+        .join(' ')
+        .toLocaleLowerCase();
+      return searchableText.includes(query);
+    });
+  }, [groupedItems, i18n.language, searchQuery]);
+
+  const handleItemMissingChange = (itemId: string, isMissing: boolean) => {
+    setMissingItemIds((current) => {
+      if (Boolean(current[itemId]) === isMissing) {
+        return current;
+      }
+
+      if (!isMissing) {
+        if (!(itemId in current)) {
+          return current;
+        }
+        const next = { ...current };
+        delete next[itemId];
+        return next;
+      }
+
+      return {
+        ...current,
+        [itemId]: true,
+      };
+    });
+  };
 
   const handleRestore = (item: GenerationHistoryItemRecord) => {
+    if (missingItemIds[item.id]) {
+      return;
+    }
+
     const snapshotNode = parseGenerationHistorySnapshotNode(item);
     if (!snapshotNode) {
       return;
@@ -123,7 +238,10 @@ export function GenerationHistoryPanel({
   }
 
   return (
-    <UiPanel className="absolute bottom-[72px] right-[68px] z-[10001] flex max-h-[72vh] w-[calc(100vw-40px)] max-w-[420px] flex-col overflow-hidden rounded-2xl border-white/10 bg-surface-dark/96 shadow-[0_24px_64px_rgba(0,0,0,0.38)]">
+    <UiPanel
+      ref={panelRef}
+      className="absolute bottom-[72px] right-[68px] z-[10001] flex max-h-[72vh] w-[calc(100vw-40px)] max-w-[420px] flex-col overflow-hidden rounded-2xl border-white/10 bg-surface-dark/96 shadow-[0_24px_64px_rgba(0,0,0,0.38)]"
+    >
       <div className="flex items-start justify-between gap-3 border-b border-white/10 px-4 py-3">
         <div className="min-w-0">
           <div className="flex items-center gap-2 text-sm font-semibold text-text-dark">
@@ -139,6 +257,18 @@ export function GenerationHistoryPanel({
         </UiButton>
       </div>
 
+      <div className="border-b border-white/10 px-3 py-3">
+        <div className="relative">
+          <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-text-muted" />
+          <UiInput
+            value={searchQuery}
+            onChange={(event) => setSearchQuery(event.target.value)}
+            placeholder={t('generationHistory.searchPlaceholder')}
+            className="pl-9"
+          />
+        </div>
+      </div>
+
       {isHydrating ? (
         <div className="flex min-h-[220px] items-center justify-center gap-2 px-6 text-center text-sm text-text-muted">
           <UiLoadingAnimation size="sm" />
@@ -148,19 +278,32 @@ export function GenerationHistoryPanel({
         <div className="flex min-h-[220px] items-center justify-center px-6 text-center text-sm text-text-muted">
           {t('generationHistory.empty')}
         </div>
+      ) : filteredItems.length === 0 ? (
+        <div className="flex min-h-[220px] items-center justify-center px-6 text-center text-sm text-text-muted">
+          {t('generationHistory.searchEmpty')}
+        </div>
       ) : (
         <div className="flex-1 space-y-3 overflow-y-auto px-3 py-3">
-          {groupedItems.map((item) => {
+          {filteredItems.map((item) => {
             const previewSource = item.previewPath ?? item.sourcePath;
             const createdAtLabel = formatTimestamp(item.createdAt, i18n.language);
             const isDeleting = deletingItemId === item.id;
+            const isMissing = Boolean(missingItemIds[item.id]);
 
             return (
               <div
                 key={item.id}
-                className="rounded-2xl border border-white/10 bg-white/[0.03] p-3"
-                draggable
+                className={`rounded-2xl border p-3 transition-colors ${
+                  isMissing
+                    ? 'border-amber-400/30 bg-amber-500/[0.08]'
+                    : 'border-white/10 bg-white/[0.03]'
+                }`}
+                draggable={!isMissing}
                 onDragStart={(event) => {
+                  if (isMissing) {
+                    event.preventDefault();
+                    return;
+                  }
                   event.dataTransfer.effectAllowed = 'copy';
                   event.dataTransfer.setData(
                     GENERATION_HISTORY_DRAG_MIME_TYPE,
@@ -181,6 +324,9 @@ export function GenerationHistoryPanel({
                         sourcePath={item.sourcePath}
                         previewPath={previewSource}
                         title={item.title}
+                        onMissingChange={(value) => {
+                          handleItemMissingChange(item.id, value);
+                        }}
                       />
                     ) : (
                       <CanvasNodeImage
@@ -189,6 +335,12 @@ export function GenerationHistoryPanel({
                         disableViewer
                         alt={item.title}
                         className="h-full w-full object-cover"
+                        onError={() => {
+                          handleItemMissingChange(item.id, true);
+                        }}
+                        onLoad={() => {
+                          handleItemMissingChange(item.id, false);
+                        }}
                       />
                     )}
                   </div>
@@ -203,6 +355,11 @@ export function GenerationHistoryPanel({
                     <div className="mt-1 line-clamp-2 text-sm font-medium text-text-dark">
                       {item.title}
                     </div>
+                    {isMissing ? (
+                      <div className="mt-1 text-xs text-amber-200/90">
+                        {t('generationHistory.missingSource')}
+                      </div>
+                    ) : null}
                     {item.aspectRatio ? (
                       <div className="mt-1 text-xs text-text-muted">
                         {t('generationHistory.aspectRatio', { value: item.aspectRatio })}
@@ -214,6 +371,7 @@ export function GenerationHistoryPanel({
                         type="button"
                         variant="muted"
                         size="sm"
+                        disabled={isMissing}
                         onClick={() => handleRestore(item)}
                       >
                         {t('generationHistory.restore')}

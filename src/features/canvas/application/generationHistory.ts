@@ -341,8 +341,8 @@ function appendJimengImageResultDrafts(
   node.data.resultImages.forEach((item, index) => {
     const sourcePath =
       normalizeNullableText(item.imageUrl)
-      ?? normalizeNullableText(item.previewImageUrl)
-      ?? normalizeNullableText(item.sourceUrl);
+      ?? normalizeNullableText(item.sourceUrl)
+      ?? normalizeNullableText(item.previewImageUrl);
     if (!sourcePath) {
       return;
     }
@@ -581,6 +581,114 @@ export function collectGenerationHistoryRecords(
   return collectGenerationHistoryDrafts(projectId, nodes, edges).map((draft) => (
     toRecord(projectId, draft)
   ));
+}
+
+function appendGenerationHistorySignaturePart(
+  parts: string[],
+  projectId: string,
+  mediaType: GenerationHistoryMediaType,
+  sourcePath: string | null | undefined
+): void {
+  const normalizedSourcePath = normalizeNullableText(sourcePath);
+  if (!normalizedSourcePath) {
+    return;
+  }
+
+  parts.push(buildGenerationHistoryItemId(projectId, mediaType, normalizedSourcePath));
+}
+
+export function buildGenerationHistoryContentSignature(
+  projectId: string,
+  nodes: CanvasNode[],
+  edges: CanvasEdge[]
+): string {
+  const normalizedProjectId = normalizeText(projectId);
+  if (!normalizedProjectId) {
+    return '';
+  }
+
+  const parts: string[] = [];
+  const incomingSourceMap = buildIncomingSourceMap(nodes, edges);
+
+  for (const node of nodes) {
+    if (isExportImageNode(node)) {
+      if (!node.data.isGenerating) {
+        appendGenerationHistorySignaturePart(
+          parts,
+          normalizedProjectId,
+          'image',
+          normalizeNullableText(node.data.imageUrl) ?? normalizeNullableText(node.data.previewImageUrl)
+        );
+      }
+      continue;
+    }
+
+    if (isJimengImageResultNode(node)) {
+      node.data.resultImages.forEach((item) => {
+        appendGenerationHistorySignaturePart(
+          parts,
+          normalizedProjectId,
+          'image',
+          normalizeNullableText(item.imageUrl)
+            ?? normalizeNullableText(item.sourceUrl)
+            ?? normalizeNullableText(item.previewImageUrl)
+        );
+      });
+      continue;
+    }
+
+    if (isMjResultNode(node)) {
+      node.data.batches.forEach((batch) => {
+        batch.images.forEach((item) => {
+          appendGenerationHistorySignaturePart(
+            parts,
+            normalizedProjectId,
+            'image',
+            normalizeNullableText(item.imageUrl)
+              ?? normalizeNullableText(item.previewImageUrl)
+              ?? normalizeNullableText(item.sourceUrl)
+          );
+        });
+      });
+      continue;
+    }
+
+    if (isJimengVideoResultNode(node) || isSeedanceVideoResultNode(node)) {
+      if (!node.data.isGenerating) {
+        appendGenerationHistorySignaturePart(
+          parts,
+          normalizedProjectId,
+          'video',
+          node.data.videoUrl
+        );
+      }
+      continue;
+    }
+
+    if (isAudioNode(node)) {
+      if (node.data.generationSource && !node.data.isGenerating) {
+        appendGenerationHistorySignaturePart(
+          parts,
+          normalizedProjectId,
+          'audio',
+          node.data.audioUrl
+        );
+      }
+      continue;
+    }
+
+    const incomingSourceNodes = incomingSourceMap.get(node.id) ?? [];
+    if (isGeneratedVideoNode(node, incomingSourceNodes) && !node.data.isGenerating) {
+      appendGenerationHistorySignaturePart(
+        parts,
+        normalizedProjectId,
+        'video',
+        node.data.videoUrl
+      );
+    }
+  }
+
+  return Array.from(new Set(parts)).sort().join('\n');
 }
 
 export function parseGenerationHistorySnapshotNode(

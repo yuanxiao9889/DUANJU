@@ -6,6 +6,8 @@ import {
   upsertGenerationHistoryItem,
 } from '@/commands/generationHistory';
 import type { GenerationHistoryItemRecord } from '@/features/canvas/application/generationHistory';
+import { collectGenerationHistoryRecords } from '@/features/canvas/application/generationHistory';
+import { useCanvasStore } from '@/stores/canvasStore';
 
 interface GenerationHistoryState {
   currentProjectId: string | null;
@@ -13,6 +15,7 @@ interface GenerationHistoryState {
   isHydrating: boolean;
   openProject: (projectId: string) => Promise<void>;
   closeProject: () => void;
+  syncFromCanvasSnapshot: () => Promise<void>;
   upsertItems: (items: GenerationHistoryItemRecord[]) => Promise<void>;
   removeItem: (itemId: string) => Promise<void>;
 }
@@ -42,6 +45,42 @@ function mergeItems(
   }
 
   return sortItems(nextItems);
+}
+
+function hasGenerationHistoryContentChanged(
+  existingItem: GenerationHistoryItemRecord,
+  incomingItem: GenerationHistoryItemRecord
+): boolean {
+  return existingItem.projectId !== incomingItem.projectId
+    || existingItem.mediaType !== incomingItem.mediaType
+    || existingItem.nodeType !== incomingItem.nodeType
+    || existingItem.title !== incomingItem.title
+    || existingItem.snapshotJson !== incomingItem.snapshotJson
+    || existingItem.previewPath !== incomingItem.previewPath
+    || existingItem.mimeType !== incomingItem.mimeType
+    || existingItem.durationMs !== incomingItem.durationMs
+    || existingItem.aspectRatio !== incomingItem.aspectRatio
+    || existingItem.sourcePath !== incomingItem.sourcePath;
+}
+
+function mergeHistoryItemTimestamps(
+  incomingItem: GenerationHistoryItemRecord,
+  existingItem?: GenerationHistoryItemRecord
+): GenerationHistoryItemRecord {
+  if (!existingItem) {
+    return incomingItem;
+  }
+
+  const createdAt = Math.min(existingItem.createdAt, incomingItem.createdAt);
+  const contentChanged = hasGenerationHistoryContentChanged(existingItem, incomingItem);
+
+  return {
+    ...incomingItem,
+    createdAt,
+    updatedAt: contentChanged
+      ? Math.max(existingItem.updatedAt, incomingItem.updatedAt)
+      : existingItem.updatedAt,
+  };
 }
 
 export const useGenerationHistoryStore = create<GenerationHistoryState>((set, get) => ({
@@ -103,29 +142,41 @@ export const useGenerationHistoryStore = create<GenerationHistoryState>((set, ge
     });
   },
 
+  syncFromCanvasSnapshot: async () => {
+    const currentProjectId = get().currentProjectId;
+    if (!currentProjectId) {
+      return;
+    }
+
+    const { nodes, edges } = useCanvasStore.getState();
+    const records = collectGenerationHistoryRecords(currentProjectId, nodes, edges);
+    if (records.length === 0) {
+      return;
+    }
+
+    await get().upsertItems(records);
+  },
+
   upsertItems: async (items) => {
     const currentProjectId = get().currentProjectId;
     if (!currentProjectId || items.length === 0) {
       return;
     }
 
-    const normalizedItems = items.filter((item) => item.projectId === currentProjectId);
+    const currentItems = get().items;
+    const currentItemsById = new Map(currentItems.map((item) => [item.id, item] as const));
+    const normalizedItems = items
+      .filter((item) => item.projectId === currentProjectId)
+      .map((item) => mergeHistoryItemTimestamps(item, currentItemsById.get(item.id)));
     if (normalizedItems.length === 0) {
       return;
     }
 
-    const currentItems = get().items;
     const changedItems = normalizedItems.filter((item) => {
-      const existingItem = currentItems.find((candidate) => candidate.id === item.id);
+      const existingItem = currentItemsById.get(item.id);
       return !existingItem
-        || existingItem.updatedAt !== item.updatedAt
-        || existingItem.snapshotJson !== item.snapshotJson
-        || existingItem.previewPath !== item.previewPath
-        || existingItem.title !== item.title
-        || existingItem.aspectRatio !== item.aspectRatio
-        || existingItem.durationMs !== item.durationMs
-        || existingItem.mimeType !== item.mimeType
-        || existingItem.sourcePath !== item.sourcePath;
+        || item.createdAt < existingItem.createdAt
+        || hasGenerationHistoryContentChanged(existingItem, item);
     });
 
     if (changedItems.length === 0) {

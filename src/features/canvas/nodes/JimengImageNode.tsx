@@ -853,6 +853,9 @@ export const JimengImageNode = memo(
         prompt,
         resolvedCameraParams,
       );
+      const submittedReferenceImageCount = modelSupportsReferenceImages
+        ? incomingImages.length
+        : 0;
 
       if (isGenerateBlocked) {
         const message = t("node.jimengImage.referenceUnsupportedModel");
@@ -885,7 +888,10 @@ export const JimengImageNode = memo(
               t("node.jimengImage.resultNodeTitle"),
             ),
             submitIds: [],
+            prompt: submittedPrompt,
             modelVersion: selectedModel,
+            resolutionType: selectedResolution,
+            referenceImageCount: submittedReferenceImageCount,
             aspectRatio: selectedAspectRatio,
             gridRows: 2,
             gridCols: 2,
@@ -943,6 +949,11 @@ export const JimengImageNode = memo(
 
             updateNodeData(createdResultNodeId, {
               submitIds,
+              prompt: submittedPrompt,
+              modelVersion: selectedModel,
+              resolutionType: selectedResolution,
+              referenceImageCount: submittedReferenceImageCount,
+              aspectRatio: selectedAspectRatio,
               isGenerating: true,
               generationStartedAt: startedAt,
               lastError: null,
@@ -963,6 +974,10 @@ export const JimengImageNode = memo(
         if (createdResultNodeId) {
           updateNodeData(createdResultNodeId, {
             submitIds: generationResponse.submitIds,
+            prompt: submittedPrompt,
+            modelVersion: selectedModel,
+            resolutionType: selectedResolution,
+            referenceImageCount: submittedReferenceImageCount,
             aspectRatio: selectedAspectRatio,
             resultImages: generationResponse.images,
             isGenerating: false,

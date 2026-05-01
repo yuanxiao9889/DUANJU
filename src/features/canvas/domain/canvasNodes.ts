@@ -865,7 +865,10 @@ export interface MjResultNodeData extends NodeDisplayData {
 export interface JimengImageResultNodeData extends NodeDisplayData {
   sourceNodeId?: string | null;
   submitIds?: string[];
+  prompt?: string | null;
   modelVersion?: JimengImageModelVersion;
+  resolutionType?: JimengImageResolutionType;
+  referenceImageCount?: number;
   aspectRatio: string;
   gridRows: number;
   gridCols: number;

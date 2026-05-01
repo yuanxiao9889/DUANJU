@@ -109,6 +109,7 @@ import {
   JIMENG_DURATION_OPTIONS,
   JIMENG_REFERENCE_MODE_OPTIONS,
   JIMENG_VIDEO_MODEL_OPTIONS,
+  JIMENG_VIDEO_RESOLUTION_OPTIONS,
   normalizeJimengReferenceMode,
   normalizeJimengVideoModel,
   resolveJimengVideoRequiredReferenceImageCount,
@@ -277,15 +278,15 @@ interface JimengPromptTokenRange {
   blockEnd: number;
 }
 
-const JIMENG_NODE_DEFAULT_WIDTH = 920;
+const JIMENG_NODE_DEFAULT_WIDTH = 1000;
 const JIMENG_NODE_DEFAULT_HEIGHT = 500;
-const JIMENG_NODE_MIN_WIDTH = 820;
+const JIMENG_NODE_MIN_WIDTH = 980;
 const JIMENG_NODE_MIN_HEIGHT = 420;
-const JIMENG_NODE_MAX_WIDTH = 1320;
+const JIMENG_NODE_MAX_WIDTH = 1480;
 const JIMENG_NODE_MAX_HEIGHT = 1040;
 const DEFAULT_ASPECT_RATIO = "16:9";
 const DEFAULT_DURATION: JimengDurationSeconds = 5;
-const DEFAULT_VIDEO_RESOLUTION = "1080p";
+const DEFAULT_VIDEO_RESOLUTION: JimengVideoResolution = "720p";
 const PICKER_Y_OFFSET_PX = 20;
 const MAX_REFERENCE_VIDEO_DURATION_SECONDS = 15;
 const MAX_REFERENCE_VIDEO_COUNT = 3;
@@ -1000,6 +1001,12 @@ function isJimengSeedanceTwoFamilyModel(model: JimengVideoModelId): boolean {
   );
 }
 
+function jimengSeedanceTwoModelSupports1080p(
+  model: JimengVideoModelId,
+): boolean {
+  return model === "seedance2.0" || model === "seedance2.0_vip";
+}
+
 function resolveJimengCliEffectiveVideoModel(
   command:
     | "text2video"
@@ -1028,6 +1035,100 @@ function resolveJimengCliEffectiveVideoModel(
   }
 
   return null;
+}
+
+type JimengCliVideoCommand =
+  | "text2video"
+  | "image2video"
+  | "frames2video"
+  | "multiframe2video"
+  | "multimodal2video";
+
+function resolveJimengCliVideoCommand({
+  referenceImageCount,
+  hasReferenceVideos,
+  audioReferenceCount,
+  referenceMode,
+}: {
+  referenceImageCount: number;
+  hasReferenceVideos: boolean;
+  audioReferenceCount: number;
+  referenceMode: JimengReferenceMode;
+}): JimengCliVideoCommand {
+  if (hasReferenceVideos) {
+    return "multimodal2video";
+  }
+
+  if (referenceImageCount === 0) {
+    return audioReferenceCount > 0 ? "multimodal2video" : "text2video";
+  }
+
+  if (audioReferenceCount > 0) {
+    return "multimodal2video";
+  }
+
+  if (referenceImageCount === 1) {
+    return "image2video";
+  }
+
+  if (referenceMode === "firstLastFrame") {
+    return "frames2video";
+  }
+
+  if (referenceMode === "allAround" || referenceMode === "subject") {
+    return "multimodal2video";
+  }
+
+  return "multiframe2video";
+}
+
+function jimengFrames2VideoModelSupports1080p(model: JimengVideoModelId): boolean {
+  return (
+    model === "3.0" ||
+    model === "3.5pro" ||
+    jimengSeedanceTwoModelSupports1080p(model)
+  );
+}
+
+function resolveJimengVideoResolutionValues(
+  command: JimengCliVideoCommand,
+  selectedModel: JimengVideoModelId,
+): JimengVideoResolution[] {
+  if (command === "text2video" || command === "multimodal2video") {
+    const effectiveModel = resolveJimengCliEffectiveVideoModel(
+      command,
+      selectedModel,
+    );
+    if (effectiveModel && jimengSeedanceTwoModelSupports1080p(effectiveModel)) {
+      return ["720p", "1080p"];
+    }
+    return ["720p"];
+  }
+
+  if (command === "image2video") {
+    if (selectedModel === "3.0pro") {
+      return ["1080p"];
+    }
+    if (
+      selectedModel === "3.0" ||
+      selectedModel === "3.0fast" ||
+      selectedModel === "3.5pro" ||
+      jimengSeedanceTwoModelSupports1080p(selectedModel)
+    ) {
+      return ["720p", "1080p"];
+    }
+  }
+
+  if (command === "frames2video") {
+    const effectiveModel =
+      resolveJimengCliEffectiveVideoModel(command, selectedModel) ??
+      "seedance2.0fast";
+    if (jimengFrames2VideoModelSupports1080p(effectiveModel)) {
+      return ["720p", "1080p"];
+    }
+  }
+
+  return ["720p"];
 }
 
 export const JimengNode = memo(
@@ -1260,10 +1361,34 @@ export const JimengNode = memo(
     );
     const selectedAspectRatio = data.aspectRatio ?? DEFAULT_ASPECT_RATIO;
     const selectedDuration = data.durationSeconds ?? DEFAULT_DURATION;
-    const selectedVideoResolution =
+    const requestedVideoResolution =
       data.videoResolution === "720p" || data.videoResolution === "1080p"
         ? (data.videoResolution as JimengVideoResolution)
         : DEFAULT_VIDEO_RESOLUTION;
+    const cliVideoCommand = useMemo(
+      () =>
+        resolveJimengCliVideoCommand({
+          referenceImageCount: referenceImageSources.length,
+          hasReferenceVideos,
+          audioReferenceCount: incomingAudios.length,
+          referenceMode: selectedReferenceMode,
+        }),
+      [
+        hasReferenceVideos,
+        incomingAudios.length,
+        referenceImageSources.length,
+        selectedReferenceMode,
+      ],
+    );
+    const supportedVideoResolutionValues = useMemo(
+      () => resolveJimengVideoResolutionValues(cliVideoCommand, selectedModel),
+      [cliVideoCommand, selectedModel],
+    );
+    const selectedVideoResolution = supportedVideoResolutionValues.includes(
+      requestedVideoResolution,
+    )
+      ? requestedVideoResolution
+      : (supportedVideoResolutionValues[0] ?? DEFAULT_VIDEO_RESOLUTION);
     const durationSuggestionSnapshot = useMemo(
       () => readDurationSuggestionSnapshot(data),
       [data],
@@ -1320,6 +1445,16 @@ export const JimengNode = memo(
           label: t(option.labelKey),
         })),
       [t],
+    );
+    const videoResolutionOptions = useMemo(
+      () =>
+        JIMENG_VIDEO_RESOLUTION_OPTIONS.filter((option) =>
+          supportedVideoResolutionValues.includes(option.value),
+        ).map((option) => ({
+          value: option.value,
+          label: t(option.labelKey),
+        })),
+      [supportedVideoResolutionValues, t],
     );
     useEffect(() => {
       const externalPrompt = data.prompt ?? "";
@@ -2494,6 +2629,7 @@ export const JimengNode = memo(
                 `node.jimeng.modelOptions.${resolveJimengVideoModelOptionKey(effectiveModel)}`,
               )
             : "-",
+          resolution: selectedVideoResolution,
         });
       }
 
@@ -2509,6 +2645,7 @@ export const JimengNode = memo(
                 `node.jimeng.modelOptions.${resolveJimengVideoModelOptionKey(effectiveModel)}`,
               )
             : "-",
+          resolution: selectedVideoResolution,
         });
       }
 
@@ -2516,9 +2653,10 @@ export const JimengNode = memo(
         return t("node.jimeng.cliHint.image2video", {
           command: t("node.jimeng.cliMode.image2video"),
           duration: resolveJimengVideoModelDurationRange(selectedModel),
-          resolution: isJimengSeedanceTwoFamilyModel(selectedModel)
-            ? "720p"
-            : "720p / 1080p",
+          resolution: resolveJimengVideoResolutionValues(
+            "image2video",
+            selectedModel,
+          ).join(" / "),
         });
       }
 
@@ -2532,10 +2670,10 @@ export const JimengNode = memo(
             `node.jimeng.modelOptions.${resolveJimengVideoModelOptionKey(effectiveModel)}`,
           ),
           duration: resolveJimengVideoModelDurationRange(effectiveModel),
-          resolution:
-            effectiveModel === "3.0" || effectiveModel === "3.5pro"
-              ? "720p / 1080p"
-              : "720p",
+          resolution: resolveJimengVideoResolutionValues(
+            "frames2video",
+            selectedModel,
+          ).join(" / "),
         });
       }
 
@@ -2561,6 +2699,7 @@ export const JimengNode = memo(
               `node.jimeng.modelOptions.${resolveJimengVideoModelOptionKey(effectiveModel)}`,
             )
           : "-",
+        resolution: selectedVideoResolution,
       });
     }, [
       hasReferenceVideos,
@@ -2572,6 +2711,7 @@ export const JimengNode = memo(
       referenceImageSources.length,
       selectedModel,
       selectedReferenceMode,
+      selectedVideoResolution,
       t,
     ]);
 
@@ -2699,6 +2839,30 @@ export const JimengNode = memo(
         selectedModel,
         selectedReferenceMode,
         selectedVideoResolution,
+        setLastJimengVideoDefaults,
+        updateNodeData,
+      ],
+    );
+
+    const handleVideoResolutionChange = useCallback(
+      (nextValue: JimengVideoResolution) => {
+        updateNodeData(id, {
+          videoResolution: nextValue,
+        });
+        setLastJimengVideoDefaults({
+          model: selectedModel,
+          referenceMode: selectedReferenceMode,
+          aspectRatio: selectedAspectRatio,
+          durationSeconds: selectedDuration,
+          videoResolution: nextValue,
+        });
+      },
+      [
+        id,
+        selectedAspectRatio,
+        selectedDuration,
+        selectedModel,
+        selectedReferenceMode,
         setLastJimengVideoDefaults,
         updateNodeData,
       ],
@@ -3050,6 +3214,12 @@ export const JimengNode = memo(
                 value={selectedDuration}
                 options={durationOptions}
                 onChange={handleDurationChange}
+              />
+              <FixedControlChip
+                label={t("node.jimeng.parameters.videoResolution")}
+                value={selectedVideoResolution}
+                options={videoResolutionOptions}
+                onChange={handleVideoResolutionChange}
               />
               <StyleTemplatePicker
                 className={`${NODE_CONTROL_CHIP_CLASS} shrink-0 !w-8 !px-0 justify-center`}

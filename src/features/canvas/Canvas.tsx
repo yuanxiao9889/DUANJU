@@ -38,10 +38,9 @@ import {
 } from '@/features/assets/domain/types';
 import {
   GENERATION_HISTORY_DRAG_MIME_TYPE,
-  collectGenerationHistoryRecords,
+  buildGenerationHistoryContentSignature,
   parseGenerationHistoryDragPayload,
   parseGenerationHistorySnapshotNode,
-  type GenerationHistoryItemRecord,
 } from '@/features/canvas/application/generationHistory';
 import { ASSET_PANEL_INSERT_EVENT } from '@/features/assets/application/assetPanelBridge';
 import {
@@ -853,6 +852,9 @@ export function Canvas() {
   const [showBatchMenu, setShowBatchMenu] = useState(false);
   const [showJimengQueuePanel, setShowJimengQueuePanel] = useState(false);
   const [showGenerationHistoryPanel, setShowGenerationHistoryPanel] = useState(false);
+  const closeGenerationHistoryPanel = useCallback(() => {
+    setShowGenerationHistoryPanel(false);
+  }, []);
   const [isExportingSelectedImages, setIsExportingSelectedImages] = useState(false);
   const [batchMenuPosition, setBatchMenuPosition] = useState({ x: 0, y: 0 });
   const [menuPosition, setMenuPosition] = useState({ x: 0, y: 0 });
@@ -958,6 +960,7 @@ export function Canvas() {
   const closeImageViewer = useCanvasStore((state) => state.closeImageViewer);
   const navigateImageViewer = useCanvasStore((state) => state.navigateImageViewer);
   const isImageViewerOpen = imageViewer.isOpen;
+  const isGenerationHistoryPanelVisible = showGenerationHistoryPanel && !isImageViewerOpen;
   const snapToGrid = useCanvasStore((state) => state.snapToGrid);
   const snapGridSize = useCanvasStore((state) => state.snapGridSize);
   const setSnapToGrid = useCanvasStore((state) => state.setSnapToGrid);
@@ -972,12 +975,123 @@ export function Canvas() {
   const storyboardApiKeys = useSettingsStore((state) => state.storyboardApiKeys);
   const jimengQueueJobs = useJimengVideoQueueStore((state) => state.jobs);
   const generationHistoryItems = useGenerationHistoryStore((state) => state.items);
-  const upsertGenerationHistoryItems = useGenerationHistoryStore((state) => state.upsertItems);
+  const isGenerationHistoryHydrating = useGenerationHistoryStore((state) => state.isHydrating);
+  const generationHistoryStoreProjectId = useGenerationHistoryStore((state) => state.currentProjectId);
+  const syncGenerationHistoryFromCanvasSnapshot = useGenerationHistoryStore((state) => state.syncFromCanvasSnapshot);
+  const generationHistoryProjectId = useProjectStore((state) => state.currentProjectId);
   const jimengQueuePendingCount = useMemo(
     () => jimengQueueJobs.filter((job) => job.status !== 'completed' && job.status !== 'failed' && job.status !== 'cancelled').length,
     [jimengQueueJobs]
   );
-  const generationHistoryCount = generationHistoryItems.length;
+  const generationHistorySeenIdsRef = useRef<Record<string, Set<string>>>({});
+  const generationHistoryAutoSyncBaselineRef = useRef<{
+    projectId: string | null;
+    signature: string;
+  }>({
+    projectId: null,
+    signature: '',
+  });
+  const generationHistoryAutoSyncTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [generationHistoryNoticeCount, setGenerationHistoryNoticeCount] = useState(0);
+  const generationHistoryContentSignature = useMemo(
+    () =>
+      generationHistoryProjectId
+        ? buildGenerationHistoryContentSignature(generationHistoryProjectId, nodes, edges)
+        : '',
+    [edges, generationHistoryProjectId, nodes]
+  );
+
+  useEffect(() => {
+    if (generationHistoryAutoSyncTimerRef.current) {
+      clearTimeout(generationHistoryAutoSyncTimerRef.current);
+      generationHistoryAutoSyncTimerRef.current = null;
+    }
+
+    if (
+      !generationHistoryProjectId
+      || generationHistoryStoreProjectId !== generationHistoryProjectId
+      || isGenerationHistoryHydrating
+    ) {
+      generationHistoryAutoSyncBaselineRef.current = {
+        projectId: generationHistoryProjectId,
+        signature: generationHistoryContentSignature,
+      };
+      return undefined;
+    }
+
+    const baseline = generationHistoryAutoSyncBaselineRef.current;
+    if (baseline.projectId !== generationHistoryProjectId) {
+      generationHistoryAutoSyncBaselineRef.current = {
+        projectId: generationHistoryProjectId,
+        signature: generationHistoryContentSignature,
+      };
+      return undefined;
+    }
+
+    if (baseline.signature === generationHistoryContentSignature) {
+      return undefined;
+    }
+
+    generationHistoryAutoSyncBaselineRef.current = {
+      projectId: generationHistoryProjectId,
+      signature: generationHistoryContentSignature,
+    };
+
+    if (!generationHistoryContentSignature) {
+      return undefined;
+    }
+
+    generationHistoryAutoSyncTimerRef.current = setTimeout(() => {
+      generationHistoryAutoSyncTimerRef.current = null;
+      void syncGenerationHistoryFromCanvasSnapshot().catch((error) => {
+        console.error('[generationHistory] failed to auto-sync canvas snapshot', error);
+      });
+    }, 500);
+
+    return () => {
+      if (generationHistoryAutoSyncTimerRef.current) {
+        clearTimeout(generationHistoryAutoSyncTimerRef.current);
+        generationHistoryAutoSyncTimerRef.current = null;
+      }
+    };
+  }, [
+    generationHistoryContentSignature,
+    generationHistoryProjectId,
+    generationHistoryStoreProjectId,
+    isGenerationHistoryHydrating,
+    syncGenerationHistoryFromCanvasSnapshot,
+  ]);
+
+  useEffect(() => {
+    if (
+      !generationHistoryProjectId
+      || generationHistoryStoreProjectId !== generationHistoryProjectId
+      || isGenerationHistoryHydrating
+    ) {
+      setGenerationHistoryNoticeCount(0);
+      return;
+    }
+
+    const currentItemIds = generationHistoryItems.map((item) => item.id);
+    const seenIds = generationHistorySeenIdsRef.current[generationHistoryProjectId];
+
+    if (!seenIds || isGenerationHistoryPanelVisible) {
+      generationHistorySeenIdsRef.current[generationHistoryProjectId] = new Set(currentItemIds);
+      setGenerationHistoryNoticeCount(0);
+      return;
+    }
+
+    const unseenCount = currentItemIds.reduce((count, itemId) => (
+      seenIds.has(itemId) ? count : count + 1
+    ), 0);
+    setGenerationHistoryNoticeCount(unseenCount);
+  }, [
+    generationHistoryProjectId,
+    generationHistoryStoreProjectId,
+    generationHistoryItems,
+    isGenerationHistoryHydrating,
+    isGenerationHistoryPanelVisible,
+  ]);
 
   const syncViewportState = useCallback(
     (viewport: Viewport) => {
@@ -3051,43 +3165,6 @@ export function Canvas() {
     };
   }, [insertAssetPayloadAtViewportCenter]);
 
-  useEffect(() => {
-    if (!project?.id || project.projectType !== 'storyboard') {
-      return;
-    }
-
-    const records = collectGenerationHistoryRecords(project.id, nodes, edges);
-    if (records.length === 0) {
-      return;
-    }
-
-    const existingItemsById = new Map<string, GenerationHistoryItemRecord>(
-      generationHistoryItems.map((item) => [item.id, item] as const)
-    );
-    const changedRecords = records.filter((record) => {
-      const existing = existingItemsById.get(record.id);
-      return !existing
-        || existing.updatedAt !== record.updatedAt
-        || existing.snapshotJson !== record.snapshotJson
-        || existing.previewPath !== record.previewPath
-        || existing.title !== record.title
-        || existing.aspectRatio !== record.aspectRatio
-        || existing.durationMs !== record.durationMs
-        || existing.mimeType !== record.mimeType
-        || existing.sourcePath !== record.sourcePath;
-    });
-    if (changedRecords.length === 0) {
-      return;
-    }
-
-    void upsertGenerationHistoryItems(changedRecords).catch((error) => {
-      console.error('[generationHistory] failed to sync generated records', {
-        projectId: project.id,
-        error,
-      });
-    });
-  }, [edges, generationHistoryItems, nodes, project?.id, project?.projectType, upsertGenerationHistoryItems]);
-
   const handleDrop = useCallback(async (event: React.DragEvent) => {
     event.preventDefault();
     event.stopPropagation();
@@ -3255,6 +3332,11 @@ export function Canvas() {
       return;
     }
 
+    if (showGenerationHistoryPanel) {
+      closeGenerationHistoryPanel();
+      return;
+    }
+
     if (event.detail >= 2) {
       openNodeMenuAtClientPosition(event.clientX, event.clientY);
       return;
@@ -3262,7 +3344,13 @@ export function Canvas() {
 
     setSelectedNode(null);
     closeConnectMenus();
-  }, [closeConnectMenus, openNodeMenuAtClientPosition, setSelectedNode]);
+  }, [
+    closeConnectMenus,
+    closeGenerationHistoryPanel,
+    openNodeMenuAtClientPosition,
+    setSelectedNode,
+    showGenerationHistoryPanel,
+  ]);
 
   const handlePaneContextMenu = useCallback((event: MouseEvent | React.MouseEvent) => {
     event.preventDefault();
@@ -4894,6 +4982,7 @@ export function Canvas() {
         </button>
 
         <button
+          data-generation-history-toggle="true"
           onClick={() => setShowGenerationHistoryPanel((value) => !value)}
           style={{
             color: showGenerationHistoryPanel ? '#3b82f6' : '#6b7280',
@@ -4904,11 +4993,11 @@ export function Canvas() {
           title={t('generationHistory.toggle')}
         >
           <History style={{ width: '16px', height: '16px' }} />
-          {generationHistoryCount > 0 ? (
+          {generationHistoryNoticeCount > 0 ? (
             <span
               className="absolute -right-1 -top-1 inline-flex min-w-[16px] items-center justify-center rounded-full bg-accent px-1 text-[10px] font-semibold text-white"
             >
-              {generationHistoryCount > 99 ? '99+' : generationHistoryCount}
+              {generationHistoryNoticeCount > 99 ? '99+' : generationHistoryNoticeCount}
             </span>
           ) : null}
         </button>
@@ -4966,8 +5055,8 @@ export function Canvas() {
       />
 
       <GenerationHistoryPanel
-        isOpen={showGenerationHistoryPanel && !isImageViewerOpen}
-        onClose={() => setShowGenerationHistoryPanel(false)}
+        isOpen={isGenerationHistoryPanelVisible}
+        onClose={closeGenerationHistoryPanel}
       />
 
       {dragOverlayKind && (

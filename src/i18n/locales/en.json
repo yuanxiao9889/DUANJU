@@ -47,8 +47,11 @@
     "summary": "{{count}} saved results",
     "loading": "Loading generation history...",
     "empty": "No generated image, video, or audio snapshots yet.",
+    "searchPlaceholder": "Search generation history...",
+    "searchEmpty": "No matching generated results.",
     "restore": "Restore to Canvas",
-    "aspectRatio": "Aspect ratio: {{value}}"
+    "aspectRatio": "Aspect ratio: {{value}}",
+    "missingSource": "Source file is missing. Delete this history item or re-generate it."
   },
   "cameraParams": {
     "title": "Camera Params",
@@ -879,12 +882,12 @@
         "multimodal2video": "Multimodal"
       },
       "cliHint": {
-        "text2video": "CLI: {{command}} | Effective model {{model}} | Duration 4-15s | Resolution 720p",
+        "text2video": "CLI: {{command}} | Effective model {{model}} | Duration 4-15s | Resolution {{resolution}}",
         "image2video": "CLI: {{command}} | Duration {{duration}} | Resolution {{resolution}}",
         "frames2video": "CLI: {{command}} | Uses only the first and last image | Effective model {{model}} | Duration {{duration}} | Resolution {{resolution}}",
         "multiframeTwo": "CLI: {{command}} | 2 reference images | Duration 2-8s | Model / ratio / resolution are fixed by the CLI",
         "multiframeMany": "CLI: {{command}} | {{count}} reference images | Transition durations are auto-distributed | Model / ratio / resolution are fixed by the CLI",
-        "multimodal2video": "CLI: {{command}} | Effective model {{model}} | Duration 4-15s | Resolution 720p | Input limits: image<=9 / video<=3 / audio<=3"
+        "multimodal2video": "CLI: {{command}} | Effective model {{model}} | Duration 4-15s | Resolution {{resolution}} | Input limits: image<=9 / video<=3 / audio<=3"
       },
       "parameterHint": "This node now uses fixed Dreamina CLI parameters and creates a video result node after generation.",
       "parameters": {
@@ -1238,6 +1241,8 @@
       "providerUnset": "Provider: not configured",
       "openSettings": "Open Settings",
       "run": "Generate / Rewrite",
+      "runOverwrite": "Overwrite",
+      "runCreate": "New Result",
       "running": "Generating...",
       "runFailed": "Generation failed",
       "completed": "Completed",
@@ -1999,7 +2004,7 @@
     "types": {
       "storyboard": "Storyboard",
       "script": "Script",
-      "ad": "Ad Project"
+      "ad": "Ad"
     },
     "typeBadgeLabels": {
       "ad": "Ad"
@@ -3066,7 +3071,7 @@
       "minimumHint": "Earliest send: {{time}}",
       "timeHint": "The app will submit the task at this time while it is running. If the app is sleeping or closed, the task will be sent after it resumes.",
       "timeInvalid": "Choose a send time later than now.",
-      "immediateHint": "The task will enter the queue as soon as possible and still respect the 10-task concurrency cap.",
+      "immediateHint": "The task will enter the queue as soon as possible and still respect the {{count}}-task concurrency cap.",
       "summaryTitle": "Planned Send",
       "summaryValue": "{{time}} ({{timezone}})",
       "minus15Minutes": "-15 min",

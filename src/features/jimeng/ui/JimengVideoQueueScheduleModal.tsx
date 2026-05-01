@@ -3,6 +3,7 @@ import { Clock3, TimerReset } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
 import { UiButton, UiInput, UiModal, UiSelect } from "@/components/ui";
+import { JIMENG_VIDEO_QUEUE_MAX_ACTIVE_JOBS } from "@/features/jimeng/domain/jimengVideoQueue";
 
 interface JimengVideoQueueScheduleModalProps {
   isOpen: boolean;
@@ -484,7 +485,9 @@ export function JimengVideoQueueScheduleModal({
                     timezone: timezoneLabel,
                   })
                 : t("jimengQueue.schedule.timeInvalid")
-              : t("jimengQueue.schedule.immediateHint")}
+              : t("jimengQueue.schedule.immediateHint", {
+                  count: JIMENG_VIDEO_QUEUE_MAX_ACTIVE_JOBS,
+                })}
           </div>
 
           {mode === "scheduled" ? (
@@ -506,7 +509,9 @@ export function JimengVideoQueueScheduleModal({
             ? isScheduleInvalid
               ? t("jimengQueue.schedule.timeInvalid")
               : t("jimengQueue.schedule.timeHint")
-            : t("jimengQueue.schedule.immediateHint")}
+            : t("jimengQueue.schedule.immediateHint", {
+                count: JIMENG_VIDEO_QUEUE_MAX_ACTIVE_JOBS,
+              })}
         </p>
       </div>
     </UiModal>
