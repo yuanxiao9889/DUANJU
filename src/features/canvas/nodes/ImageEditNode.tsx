@@ -1543,7 +1543,7 @@ export const ImageEditNode = memo(({ id, data, selected, width, height }: ImageE
             className="ui-scrollbar pointer-events-none absolute inset-0 overflow-y-auto overflow-x-hidden text-sm leading-6 text-text-dark"
             style={{ scrollbarGutter: 'stable' }}
           >
-            <div className="min-h-full whitespace-pre-wrap break-words px-1 py-0.5">
+            <div className="canvas-textarea-wrap min-h-full px-1 py-0.5">
               {renderPromptWithHighlights(displayedPrompt, incomingImages.length)}
             </div>
           </div>
@@ -1554,7 +1554,7 @@ export const ImageEditNode = memo(({ id, data, selected, width, height }: ImageE
             className="ui-scrollbar pointer-events-none absolute inset-0 z-20 overflow-y-auto overflow-x-hidden text-sm leading-6 text-transparent"
             style={{ scrollbarGutter: 'stable' }}
           >
-            <div className="min-h-full whitespace-pre-wrap break-words px-1 py-0.5">
+            <div className="canvas-textarea-wrap min-h-full px-1 py-0.5">
               {renderPromptReferenceHoverTargets(
                 displayedPrompt,
                 incomingImages.length,
@@ -1588,7 +1588,7 @@ export const ImageEditNode = memo(({ id, data, selected, width, height }: ImageE
             onKeyUp={(event) => rememberPromptSelection(event.currentTarget)}
             onBlur={() => setIsPromptTextSelectionActive(false)}
             placeholder={t('node.imageEdit.promptPlaceholder')}
-            className={`ui-scrollbar nodrag nowheel relative z-10 h-full w-full resize-none overflow-y-auto overflow-x-hidden border-none bg-transparent px-1 py-0.5 text-sm leading-6 text-transparent outline-none placeholder:text-text-muted/80 whitespace-pre-wrap break-words selection:bg-accent/30 selection:text-transparent ${
+            className={`canvas-textarea-wrap ui-scrollbar nodrag nowheel relative z-10 h-full w-full resize-none overflow-y-auto overflow-x-hidden border-none bg-transparent px-1 py-0.5 text-sm leading-6 text-transparent outline-none placeholder:text-text-muted/80 selection:bg-accent/30 selection:text-transparent ${
               isPromptLockedByUpstream
                 ? 'cursor-default caret-transparent'
                 : 'caret-text-dark focus:border-transparent'

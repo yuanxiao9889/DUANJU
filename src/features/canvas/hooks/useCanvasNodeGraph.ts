@@ -336,7 +336,7 @@ function createConnectedReferenceImagesSelector(nodeId: string) {
     }
 
     const nextItems: ConnectedReferenceImage[] = [];
-    const seenImages = new Set<string>();
+    const seenReferenceUrls = new Set<string>();
 
     incomingEdges.forEach((edge, index) => {
       const sourceNode = sourceNodes[index];
@@ -344,17 +344,23 @@ function createConnectedReferenceImagesSelector(nodeId: string) {
         return;
       }
 
-      for (const imageUrl of extractReferenceImageUrls(sourceNode)) {
-        const normalizedImageUrl = imageUrl.trim();
-        if (!normalizedImageUrl || seenImages.has(normalizedImageUrl)) {
+      for (const item of extractReferenceVisuals(sourceNode)) {
+        if (item.kind !== 'image') {
           continue;
         }
 
-        seenImages.add(normalizedImageUrl);
+        const normalizedImageUrl = item.referenceUrl.trim();
+        const normalizedPreviewImageUrl = item.previewImageUrl?.trim() ?? '';
+        if (!normalizedImageUrl || seenReferenceUrls.has(normalizedImageUrl)) {
+          continue;
+        }
+
+        seenReferenceUrls.add(normalizedImageUrl);
         nextItems.push({
           sourceEdgeId: edge.id,
           sourceNodeId: sourceNode.id,
           imageUrl: normalizedImageUrl,
+          previewImageUrl: normalizedPreviewImageUrl || null,
         });
       }
     });

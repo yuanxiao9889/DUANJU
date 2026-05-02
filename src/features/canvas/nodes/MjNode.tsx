@@ -37,6 +37,7 @@ import {
   showErrorDialog,
 } from '@/features/canvas/application/errorDialog';
 import { flushCurrentProjectToDiskSafely } from '@/features/canvas/application/projectPersistence';
+import { resolveReadableReferenceImageSources } from '@/features/canvas/application/referenceImageSources';
 import {
   CANVAS_NODE_TYPES,
   MJ_NODE_DEFAULT_HEIGHT,
@@ -749,11 +750,16 @@ export const MjNode = memo(({ id, data, selected, width }: MjNodeProps) => {
         lastError: null,
       }, { historyMode: 'skip' });
 
+      const readableReferenceImageSources =
+        await resolveReadableReferenceImageSources(syncedReferences);
       const submission = await submitMidjourneyImagineTask({
         providerId: mjProviderEnabled,
         apiKey,
         prompt,
-        references: syncedReferences,
+        references: syncedReferences.map((reference, index) => ({
+          ...reference,
+          imageUrl: readableReferenceImageSources[index] ?? reference.imageUrl,
+        })),
         personalizationCodes: data.personalizationCodes ?? [],
         aspectRatio: resolvedAspectRatio,
         rawMode: resolvedRawMode,
@@ -925,7 +931,7 @@ export const MjNode = memo(({ id, data, selected, width }: MjNodeProps) => {
             }}
             onBlur={commitPromptDraft}
             placeholder={t('node.midjourney.promptPlaceholder')}
-            className={`ui-scrollbar nodrag nowheel relative block min-h-[132px] w-full resize-none overflow-y-auto overflow-x-hidden border-none bg-transparent px-1 py-0.5 text-sm leading-6 text-text-dark outline-none placeholder:text-text-muted/80 whitespace-pre-wrap break-words focus-visible:ring-0 ${
+            className={`canvas-textarea-wrap ui-scrollbar nodrag nowheel relative block min-h-[132px] w-full resize-none overflow-y-auto overflow-x-hidden border-none bg-transparent px-1 py-0.5 text-sm leading-6 text-text-dark outline-none placeholder:text-text-muted/80 focus-visible:ring-0 ${
               isPromptLockedByUpstream
                 ? 'cursor-default caret-transparent'
                 : 'caret-text-dark focus:border-transparent'
@@ -962,7 +968,7 @@ export const MjNode = memo(({ id, data, selected, width }: MjNodeProps) => {
           {syncedReferences.length > 0 ? (
             <div className="flex gap-2 overflow-x-auto pb-1">
               {syncedReferences.map((reference) => {
-                const displayUrl = reference.imageUrl;
+                const displayUrl = reference.previewImageUrl?.trim() || reference.imageUrl;
                 const isStyleReference = reference.role === 'styleReference';
 
                 return (
@@ -974,7 +980,7 @@ export const MjNode = memo(({ id, data, selected, width }: MjNodeProps) => {
                       <CanvasNodeImage
                         src={displayUrl}
                         alt={t('node.midjourney.referenceAlt')}
-                        viewerSourceUrl={displayUrl}
+                        viewerSourceUrl={reference.imageUrl}
                         viewerImageList={[displayUrl]}
                         className="h-[72px] w-full object-cover"
                         draggable={false}

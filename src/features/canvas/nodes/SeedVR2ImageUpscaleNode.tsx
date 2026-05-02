@@ -4,7 +4,10 @@ import { Image as ImageIcon, Sparkles } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 
 import { UiButton, UiLoadingAnimation } from '@/components/ui';
-import { persistImageLocally } from '@/features/canvas/application/imageData';
+import {
+  persistImageLocally,
+  resolveReadableImageSource,
+} from '@/features/canvas/application/imageData';
 import {
   CANVAS_NODE_TYPES,
   SEEDVR2_IMAGE_TARGET_RESOLUTIONS,
@@ -297,7 +300,11 @@ export const SeedVR2ImageUpscaleNode = memo(({
     );
 
     try {
-      const localImagePath = await persistImageLocally(inputState.imageUrl);
+      const readableImageSource = await resolveReadableImageSource(
+        inputState.imageUrl,
+        inputState.previewImageUrl,
+      );
+      const localImagePath = await persistImageLocally(readableImageSource);
 
       updateNodeData(
         id,

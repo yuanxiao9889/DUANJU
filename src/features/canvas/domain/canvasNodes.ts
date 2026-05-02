@@ -725,6 +725,7 @@ export type MjReferenceRole = 'reference' | 'styleReference';
 
 export interface MjReferenceItem {
   imageUrl: string;
+  previewImageUrl?: string | null;
   sourceNodeId: string;
   sourceEdgeId: string;
   role: MjReferenceRole;
@@ -1230,6 +1231,7 @@ function normalizeMjReferenceItems(value: unknown): MjReferenceItem[] {
 
       const record = item as Partial<MjReferenceItem>;
       const imageUrl = normalizeString(record.imageUrl).trim();
+      const previewImageUrl = normalizeString(record.previewImageUrl).trim();
       const sourceNodeId = normalizeString(record.sourceNodeId).trim();
       const sourceEdgeId = normalizeString(record.sourceEdgeId).trim();
       if (!imageUrl || !sourceNodeId || !sourceEdgeId) {
@@ -1238,6 +1240,7 @@ function normalizeMjReferenceItems(value: unknown): MjReferenceItem[] {
 
       return {
         imageUrl,
+        previewImageUrl: previewImageUrl || null,
         sourceNodeId,
         sourceEdgeId,
         role: normalizeMjReferenceRole(record.role),

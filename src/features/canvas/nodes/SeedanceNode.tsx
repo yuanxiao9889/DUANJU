@@ -41,6 +41,7 @@ import {
 } from "@/features/canvas/application/errorDialog";
 import { flushCurrentProjectToDiskSafely } from "@/features/canvas/application/projectPersistence";
 import { optimizeCanvasPrompt } from "@/features/canvas/application/promptOptimization";
+import { resolveReadableReferenceImageSources } from "@/features/canvas/application/referenceImageSources";
 import {
   resolvePromptReferenceImageBindings,
   type PromptReferenceImageCandidate,
@@ -1556,6 +1557,9 @@ export const SeedanceNode = memo(
       });
 
       try {
+        const readableReferenceImageSources =
+          await resolveReadableReferenceImageSources(imageReferences);
+
         const resultNodePosition = findNodePosition(
           id,
           SEEDANCE_VIDEO_RESULT_NODE_DEFAULT_WIDTH,
@@ -1605,9 +1609,7 @@ export const SeedanceNode = memo(
           resolution: selectedResolution,
           generateAudio: resolvedGenerateAudio,
           returnLastFrame: resolvedReturnLastFrame,
-          referenceImageSources: imageReferences.map(
-            (item) => item.referenceUrl,
-          ),
+          referenceImageSources: readableReferenceImageSources,
           referenceVideoSources: videoReferences.map(
             (item) => item.referenceUrl,
           ),
@@ -1835,7 +1837,7 @@ export const SeedanceNode = memo(
                   className="ui-scrollbar pointer-events-none absolute inset-0 overflow-y-auto overflow-x-hidden text-sm leading-6 text-text-dark"
                   style={{ scrollbarGutter: "stable" }}
                 >
-                  <div className="min-h-full whitespace-pre-wrap break-words px-3 py-2">
+                  <div className="canvas-textarea-wrap min-h-full rounded-xl border border-transparent px-3 py-2">
                     {renderPromptWithHighlights(
                       displayedPrompt,
                       referenceVisualItems.length,
@@ -1850,7 +1852,7 @@ export const SeedanceNode = memo(
                   className="ui-scrollbar pointer-events-none absolute inset-0 z-20 overflow-y-auto overflow-x-hidden text-sm leading-6 text-transparent"
                   style={{ scrollbarGutter: "stable" }}
                 >
-                  <div className="min-h-full whitespace-pre-wrap break-words px-3 py-2">
+                  <div className="canvas-textarea-wrap min-h-full rounded-xl border border-transparent px-3 py-2">
                     {renderPromptReferenceHoverTargets(
                       displayedPrompt,
                       referenceVisualItems.length,
@@ -1874,7 +1876,7 @@ export const SeedanceNode = memo(
                     rememberPromptSelection(event.currentTarget);
                   }}
                   placeholder={t("node.seedance.promptPlaceholder")}
-                  className={`ui-scrollbar nodrag nowheel relative z-10 h-full min-h-[148px] w-full resize-none rounded-xl border border-transparent bg-transparent px-3 py-2 text-sm leading-6 text-transparent outline-none placeholder:text-text-muted/70 whitespace-pre-wrap break-words selection:bg-accent/30 selection:text-transparent ${
+                  className={`canvas-textarea-wrap ui-scrollbar nodrag nowheel relative z-10 h-full min-h-[148px] w-full resize-none rounded-xl border border-transparent bg-transparent px-3 py-2 text-sm leading-6 text-transparent outline-none placeholder:text-text-muted/70 selection:bg-accent/30 selection:text-transparent ${
                     isPromptLockedByUpstream
                       ? "cursor-default caret-transparent"
                       : "caret-text-dark focus:border-accent/50"

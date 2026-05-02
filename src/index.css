@@ -165,6 +165,12 @@ body {
   color: var(--text);
 }
 
+.canvas-textarea-wrap {
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
+  word-break: break-word;
+}
+
 #boot-screen {
   font-family: var(--font-family-ui-default);
 }

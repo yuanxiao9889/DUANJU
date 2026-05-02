@@ -53,6 +53,7 @@ import {
   useCanvasIncomingSourceNodes,
 } from "@/features/canvas/hooks/useCanvasNodeGraph";
 import { optimizeCanvasPrompt } from "@/features/canvas/application/promptOptimization";
+import { resolveReadableReferenceImageSources } from "@/features/canvas/application/referenceImageSources";
 import {
   buildSequentialPromptReferenceImageCandidates,
   resolvePromptReferenceImageBindings,
@@ -404,14 +405,20 @@ export const JimengImageNode = memo(
       () => connectedReferenceImages.map((item) => item.imageUrl),
       [connectedReferenceImages],
     );
-    const incomingImageDisplayList = useMemo(() => incomingImages, [incomingImages]);
+    const incomingImageDisplayList = useMemo(
+      () =>
+        connectedReferenceImages.map(
+          (item) => item.previewImageUrl?.trim() || item.imageUrl,
+        ),
+      [connectedReferenceImages],
+    );
     const incomingImageItems = useMemo(
       () =>
         connectedReferenceImages.map((item, index) => ({
           sourceEdgeId: item.sourceEdgeId,
           sourceNodeId: item.sourceNodeId,
           imageUrl: item.imageUrl,
-          displayUrl: item.imageUrl,
+          displayUrl: item.previewImageUrl?.trim() || item.imageUrl,
           tokenLabel: buildShortReferenceToken(index),
           label: t("node.jimengImage.referenceImageLabel", {
             index: index + 1,
@@ -752,14 +759,16 @@ export const JimengImageNode = memo(
       updateNodeData(id, { lastError: null });
 
       try {
+        const readableIncomingImages =
+          await resolveReadableReferenceImageSources(connectedReferenceImages);
         const optimizationReferenceImages = resolveOptimizationReferenceImages(
           currentPrompt,
-          incomingImages,
+          readableIncomingImages,
           modelSupportsReferenceImages,
         );
         const optimizationReferenceImageBindings = resolvePromptReferenceImageBindings(
           currentPrompt,
-          buildSequentialPromptReferenceImageCandidates(incomingImages),
+          buildSequentialPromptReferenceImageCandidates(readableIncomingImages),
         );
         const result = await optimizeCanvasPrompt({
           mode: "image",
@@ -801,6 +810,7 @@ export const JimengImageNode = memo(
         setIsOptimizingPrompt(false);
       }
     }, [
+      connectedReferenceImages,
       id,
       incomingImages,
       isPromptLockedByUpstream,
@@ -874,6 +884,10 @@ export const JimengImageNode = memo(
       const startedAt = Date.now();
 
       try {
+        const readableReferenceImageSources =
+          modelSupportsReferenceImages
+            ? await resolveReadableReferenceImageSources(connectedReferenceImages)
+            : [];
         const resultNodePosition = findNodePosition(
           id,
           JIMENG_IMAGE_RESULT_NODE_DEFAULT_WIDTH,
@@ -939,9 +953,7 @@ export const JimengImageNode = memo(
           aspectRatio: selectedAspectRatio,
           resolutionType: selectedResolution,
           modelVersion: selectedModel,
-          referenceImageSources: modelSupportsReferenceImages
-            ? incomingImages
-            : [],
+          referenceImageSources: readableReferenceImageSources,
           onSubmitted: async ({ submitIds }) => {
             if (!createdResultNodeId) {
               return;
@@ -1019,6 +1031,7 @@ export const JimengImageNode = memo(
       data.generationDurationMs,
       findNodePosition,
       flushCurrentProjectToDiskSafely,
+      connectedReferenceImages,
       id,
       effectivePrompt,
       incomingImages,
@@ -1377,7 +1390,7 @@ export const JimengImageNode = memo(
                 className="ui-scrollbar pointer-events-none absolute inset-0 overflow-y-auto overflow-x-hidden text-sm leading-6 text-text-dark"
                 style={{ scrollbarGutter: "stable" }}
               >
-                <div className="min-h-full whitespace-pre-wrap break-words px-3 py-2">
+                <div className="canvas-textarea-wrap min-h-full rounded-xl border border-transparent px-3 py-2">
                   {renderPromptWithHighlights(
                     displayedPrompt,
                     incomingImages.length,
@@ -1391,7 +1404,7 @@ export const JimengImageNode = memo(
                 className="ui-scrollbar pointer-events-none absolute inset-0 z-20 overflow-y-auto overflow-x-hidden text-sm leading-6 text-transparent"
                 style={{ scrollbarGutter: "stable" }}
               >
-                <div className="min-h-full whitespace-pre-wrap break-words px-3 py-2">
+                <div className="canvas-textarea-wrap min-h-full rounded-xl border border-transparent px-3 py-2">
                   {renderPromptReferenceHoverTargets(
                     displayedPrompt,
                     incomingImages.length,
@@ -1414,7 +1427,7 @@ export const JimengImageNode = memo(
                   rememberPromptSelection(event.currentTarget);
                 }}
                 placeholder={t("node.jimengImage.promptPlaceholder")}
-                className={`ui-scrollbar nodrag nowheel relative z-10 h-full w-full resize-none rounded-xl border border-white/10 bg-black/15 px-3 py-2 text-sm leading-6 text-transparent outline-none placeholder:text-text-muted/70 whitespace-pre-wrap break-words selection:bg-accent/30 selection:text-transparent ${
+                className={`canvas-textarea-wrap ui-scrollbar nodrag nowheel relative z-10 h-full w-full resize-none rounded-xl border border-white/10 bg-black/15 px-3 py-2 text-sm leading-6 text-transparent outline-none placeholder:text-text-muted/70 selection:bg-accent/30 selection:text-transparent ${
                   isPromptLockedByUpstream
                     ? "cursor-default caret-transparent"
                     : "caret-text-dark focus:border-accent/50"

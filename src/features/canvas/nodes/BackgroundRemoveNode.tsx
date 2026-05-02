@@ -4,7 +4,10 @@ import { Image as ImageIcon, Scissors, Sparkles } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 
 import { UiButton, UiLoadingAnimation } from '@/components/ui';
-import { persistImageLocally } from '@/features/canvas/application/imageData';
+import {
+  persistImageLocally,
+  resolveReadableImageSource,
+} from '@/features/canvas/application/imageData';
 import {
   BACKGROUND_REMOVE_NODE_DEFAULT_HEIGHT,
   BACKGROUND_REMOVE_NODE_DEFAULT_WIDTH,
@@ -245,7 +248,11 @@ export const BackgroundRemoveNode = memo(({
     );
 
     try {
-      const localImagePath = await persistImageLocally(inputState.imageUrl);
+      const readableImageSource = await resolveReadableImageSource(
+        inputState.imageUrl,
+        inputState.previewImageUrl,
+      );
+      const localImagePath = await persistImageLocally(readableImageSource);
 
       updateNodeData(
         id,

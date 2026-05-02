@@ -28,6 +28,7 @@ const JSON_REQUEST_MAX_ATTEMPTS: usize = 2;
 const JSON_REQUEST_RETRY_DELAY_MS: u64 = 2_000;
 const CURL_JSON_TRANSPORT_MIN_BYTES: usize = 64 * 1024;
 const CURL_JSON_TRANSPORT_TIMEOUT_SECONDS: u64 = 1_000;
+const CURL_MULTIPART_TRANSPORT_TIMEOUT_SECONDS: u64 = 1_000;
 #[cfg(target_os = "windows")]
 const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 const FLOW2API_IMAGE_ASPECT_SUFFIXES: [&str; 5] = [
@@ -550,6 +551,11 @@ impl NewApiProvider {
                 | "gpt-image-2-4k-medium"
                 | "gpt-image-2-4k-high"
         )
+    }
+
+    fn is_gpt2api_image_request_model(request_model: &str) -> bool {
+        request_model.trim().eq_ignore_ascii_case("gpt-image-2")
+            || Self::is_gpt2api_image_request_model_alias(request_model)
     }
 
     fn resolve_gpt2api_resolution(request_model: &str, size: &str) -> Option<&'static str> {
@@ -1628,6 +1634,149 @@ impl NewApiProvider {
         })?)
     }
 
+    async fn send_multipart_request_with_curl(
+        endpoint: String,
+        api_key: String,
+        text_fields: Vec<(String, String)>,
+        file_parts: Vec<(String, Vec<u8>, &'static str)>,
+        request_kind: String,
+    ) -> Result<Value, AIError> {
+        let request_kind_for_join = request_kind.clone();
+        tokio::task::spawn_blocking(move || {
+            let temp_dir = std::env::temp_dir();
+            let response_file_path = temp_dir.join(format!(
+                "storyboard-copilot-newapi-multipart-response-{}.txt",
+                uuid::Uuid::new_v4()
+            ));
+            let mut temp_file_paths = Vec::<PathBuf>::new();
+
+            let result = (|| {
+                let curl_binary = if cfg!(target_os = "windows") {
+                    "curl.exe"
+                } else {
+                    "curl"
+                };
+                let mut command = Command::new(curl_binary);
+                #[cfg(target_os = "windows")]
+                command.creation_flags(CREATE_NO_WINDOW);
+
+                command
+                    .arg("-sS")
+                    .arg("--http1.1")
+                    .arg("--connect-timeout")
+                    .arg("30")
+                    .arg("--max-time")
+                    .arg(CURL_MULTIPART_TRANSPORT_TIMEOUT_SECONDS.to_string())
+                    .arg("-X")
+                    .arg("POST")
+                    .arg(&endpoint)
+                    .arg("-H")
+                    .arg(format!("Authorization: Bearer {}", api_key))
+                    .arg("-H")
+                    .arg("Accept: application/json")
+                    .arg("-H")
+                    .arg(format!("X-API-Key: {}", api_key))
+                    .arg("-H")
+                    .arg(format!("X-Banana-Client: {}", BANANA_CLIENT_HEADER_VALUE));
+
+                for (field_name, field_value) in text_fields {
+                    command
+                        .arg("--form-string")
+                        .arg(format!("{}={}", field_name, field_value));
+                }
+
+                for (index, (field_name, bytes, extension)) in file_parts.into_iter().enumerate() {
+                    let temp_file_path = temp_dir.join(format!(
+                        "storyboard-copilot-newapi-multipart-{}-{}.{}",
+                        uuid::Uuid::new_v4(),
+                        index + 1,
+                        extension
+                    ));
+                    fs::write(&temp_file_path, bytes).map_err(|error| {
+                        AIError::Provider(format!(
+                            "Failed to persist NewAPI {} multipart file: {}",
+                            request_kind, error
+                        ))
+                    })?;
+                    temp_file_paths.push(temp_file_path.clone());
+
+                    command.arg("--form").arg(format!(
+                        "{}=@{};type={};filename=image-{}.{}",
+                        field_name,
+                        temp_file_path.display(),
+                        Self::mime_type_from_extension(extension),
+                        index + 1,
+                        extension
+                    ));
+                }
+
+                command
+                    .arg("-o")
+                    .arg(&response_file_path)
+                    .arg("-w")
+                    .arg("%{http_code}");
+
+                let output = command.output().map_err(|error| {
+                    AIError::Provider(format!(
+                        "Failed to run curl for NewAPI {} request: {}",
+                        request_kind, error
+                    ))
+                })?;
+
+                let status_text = String::from_utf8_lossy(&output.stdout).trim().to_string();
+                let stderr_text = String::from_utf8_lossy(&output.stderr).trim().to_string();
+                let response_text = fs::read_to_string(&response_file_path).unwrap_or_default();
+
+                if !output.status.success() {
+                    return Err(AIError::Provider(format!(
+                        "NewAPI {} curl transport failed: {}",
+                        request_kind,
+                        if stderr_text.is_empty() {
+                            output.status.to_string()
+                        } else {
+                            stderr_text
+                        }
+                    )));
+                }
+
+                let status_code = status_text.parse::<u16>().unwrap_or(0);
+                info!(
+                    "[NewAPI] {} {} -> {} via curl multipart",
+                    request_kind, endpoint, status_code
+                );
+                info!("[NewAPI] {} response: {}", request_kind, response_text);
+
+                if !(200..300).contains(&status_code) {
+                    return Err(AIError::Provider(format!(
+                        "NewAPI {} request failed {}: {}",
+                        request_kind, status_code, response_text
+                    )));
+                }
+
+                serde_json::from_str(&response_text).map_err(|error| {
+                    AIError::Provider(format!(
+                        "Failed to parse NewAPI {} response: {}. Response was: {}",
+                        request_kind, error, response_text
+                    ))
+                })
+            })();
+
+            for path in temp_file_paths {
+                let _ = fs::remove_file(path);
+            }
+            let _ = fs::remove_file(response_file_path);
+
+            result
+        })
+        .await
+        .map_err(|error| {
+            AIError::Provider(format!(
+                "NewAPI {} curl multipart task failed: {}",
+                request_kind_for_join, error
+            ))
+        })?
+    }
+
     async fn build_generate_content_image_part(
         source: &str,
         force_png_reference_images: bool,
@@ -1983,29 +2132,23 @@ impl NewApiProvider {
                 )
             })?;
 
-        let mut form = Form::new();
-        for (field_name, field_value) in
-            Self::build_openai_images_edits_text_fields(request, &fields)
-        {
-            form = form.text(field_name, field_value);
-        }
-
+        let text_fields = Self::build_openai_images_edits_text_fields(request, &fields);
         let image_field_names = Self::build_openai_images_edits_image_field_names(sources.len());
+        let mut file_parts = Vec::with_capacity(sources.len());
         for (index, source) in sources.iter().enumerate() {
             let bytes = Self::source_to_bytes(source).await?;
             let extension = Self::file_extension_from_source(source);
-            let image_part = Part::bytes(bytes)
-                .file_name(format!("image-{}.{}", index + 1, extension))
-                .mime_str(Self::mime_type_from_extension(extension))
-                .map_err(|error| {
-                    AIError::Provider(format!("Failed to create multipart image part: {}", error))
-                })?;
-
-            form = form.part(image_field_names[index].to_string(), image_part);
+            file_parts.push((image_field_names[index].to_string(), bytes, extension));
         }
 
-        self.send_multipart_request(&endpoint, api_key, form, "openai-images-edits")
-            .await
+        Self::send_multipart_request_with_curl(
+            endpoint,
+            api_key.to_string(),
+            text_fields,
+            file_parts,
+            "openai-images-edits".to_string(),
+        )
+        .await
     }
 
     async fn run_openai_images(
@@ -2034,9 +2177,13 @@ impl NewApiProvider {
         config: &NewApiConfig,
         api_key: &str,
     ) -> Result<Value, AIError> {
+        let allow_chat_fallback = !Self::is_gpt2api_image_request_model(&config.request_model);
         match self.run_openai_images(request, config, api_key).await {
             Ok(payload) => {
                 if let Some(message) = Self::extract_error_message(&payload) {
+                    if !allow_chat_fallback {
+                        return Ok(payload);
+                    }
                     warn!(
                         "[NewAPI] openai-images returned an error payload, retrying via chat/completions fallback: {}",
                         message
@@ -2046,7 +2193,9 @@ impl NewApiProvider {
 
                 Ok(payload)
             }
-            Err(AIError::Provider(message)) if !Self::is_timeout_message(&message) => {
+            Err(AIError::Provider(message))
+                if allow_chat_fallback && !Self::is_timeout_message(&message) =>
+            {
                 warn!(
                     "[NewAPI] openai-images provider error, retrying via chat/completions fallback: {}",
                     message
@@ -2340,7 +2489,10 @@ mod tests {
         assert_eq!(fields.request_model, "gpt-image-2-2k-medium".to_string());
         assert_eq!(fields.image_backend.as_deref(), Some("auto"));
         assert_eq!(fields.size.as_deref(), Some("2560x1440"));
-        assert_eq!(body.get("size"), Some(&Value::String("2560x1440".to_string())));
+        assert_eq!(
+            body.get("size"),
+            Some(&Value::String("2560x1440".to_string()))
+        );
         assert!(!body.contains_key("aspect_ratio"));
         assert!(!body.contains_key("image_size"));
         assert_eq!(
@@ -2416,7 +2568,10 @@ mod tests {
             body.get("prompt"),
             Some(&Value::String("make it cinematic".to_string()))
         );
-        assert_eq!(body.get("size"), Some(&Value::String("2560x1440".to_string())));
+        assert_eq!(
+            body.get("size"),
+            Some(&Value::String("2560x1440".to_string()))
+        );
         assert!(!body.contains_key("aspect_ratio"));
         assert!(!body.contains_key("image_size"));
     }
@@ -2655,6 +2810,17 @@ mod tests {
         assert!(
             !NewApiProvider::should_retry_openai_request_with_generate_content("model not found")
         );
+    }
+
+    #[test]
+    fn identifies_base_and_alias_gpt_image_2_models() {
+        assert!(NewApiProvider::is_gpt2api_image_request_model(
+            "gpt-image-2"
+        ));
+        assert!(NewApiProvider::is_gpt2api_image_request_model(
+            "gpt-image-2-4k-high"
+        ));
+        assert!(!NewApiProvider::is_gpt2api_image_request_model("gpt-4.1"));
     }
 }
 

@@ -55,6 +55,7 @@ import {
   optimizeCanvasPrompt,
   type PromptDurationRecommendation,
 } from "@/features/canvas/application/promptOptimization";
+import { resolveReadableReferenceImageSources } from "@/features/canvas/application/referenceImageSources";
 import {
   resolvePromptReferenceImageBindings,
   type PromptReferenceImageCandidate,
@@ -2115,6 +2116,11 @@ export const JimengNode = memo(
           throw new Error(t("node.jimeng.queueResultNodeMissing"));
         }
 
+        const readableReferenceImageSources =
+          await resolveReadableReferenceImageSources(
+            incomingVisualItems.filter((item) => item.kind === "image"),
+          );
+
         await enqueueJimengQueueJob({
           projectId: currentProjectId,
           sourceNodeId: id,
@@ -2128,7 +2134,7 @@ export const JimengNode = memo(
             aspectRatio: selectedAspectRatio,
             durationSeconds: selectedDuration,
             videoResolution: selectedVideoResolution,
-            referenceImageSources,
+            referenceImageSources: readableReferenceImageSources,
             referenceVideoSources,
             referenceAudioSources: incomingAudios.map((item) => item.audioUrl),
           },
@@ -2283,6 +2289,11 @@ export const JimengNode = memo(
           return;
         }
 
+        const readableReferenceImageSources =
+          await resolveReadableReferenceImageSources(
+            incomingVisualItems.filter((item) => item.kind === "image"),
+          );
+
         const generationResponse = await generateJimengVideos({
           prompt,
           modelVersion: selectedModel,
@@ -2290,7 +2301,7 @@ export const JimengNode = memo(
           aspectRatio: selectedAspectRatio,
           durationSeconds: selectedDuration,
           videoResolution: selectedVideoResolution,
-          referenceImageSources,
+          referenceImageSources: readableReferenceImageSources,
           referenceVideoSources,
           referenceAudioSources: incomingAudios.map((item) => item.audioUrl),
           onSubmitted: async ({ submitId }) => {
@@ -2908,7 +2919,7 @@ export const JimengNode = memo(
                 className="ui-scrollbar pointer-events-none absolute inset-0 overflow-y-auto overflow-x-hidden text-sm leading-6 text-text-dark"
                 style={{ scrollbarGutter: "stable" }}
               >
-                <div className="min-h-full whitespace-pre-wrap break-words px-3 py-2">
+                <div className="canvas-textarea-wrap min-h-full rounded-xl border border-transparent px-3 py-2">
                   {renderPromptWithHighlights(
                     displayedPrompt,
                     incomingVisualItems.length,
@@ -2923,7 +2934,7 @@ export const JimengNode = memo(
                 className="ui-scrollbar pointer-events-none absolute inset-0 z-20 overflow-y-auto overflow-x-hidden text-sm leading-6 text-transparent"
                 style={{ scrollbarGutter: "stable" }}
               >
-                <div className="min-h-full whitespace-pre-wrap break-words px-3 py-2">
+                <div className="canvas-textarea-wrap min-h-full rounded-xl border border-transparent px-3 py-2">
                     {renderPromptReferenceHoverTargets(
                       displayedPrompt,
                       incomingVisualItems.length,
@@ -2947,7 +2958,7 @@ export const JimengNode = memo(
                   rememberPromptSelection(event.currentTarget);
                 }}
                 placeholder={t("node.jimeng.promptPlaceholder")}
-                className={`ui-scrollbar nodrag nowheel relative z-10 h-full w-full resize-none rounded-xl border border-white/10 bg-black/15 px-3 py-2 text-sm leading-6 text-transparent outline-none placeholder:text-text-muted/70 whitespace-pre-wrap break-words selection:bg-accent/30 selection:text-transparent ${
+                className={`canvas-textarea-wrap ui-scrollbar nodrag nowheel relative z-10 h-full w-full resize-none rounded-xl border border-white/10 bg-black/15 px-3 py-2 text-sm leading-6 text-transparent outline-none placeholder:text-text-muted/70 selection:bg-accent/30 selection:text-transparent ${
                   isPromptLockedByUpstream
                     ? "cursor-default caret-transparent"
                     : "caret-text-dark focus:border-accent/50"

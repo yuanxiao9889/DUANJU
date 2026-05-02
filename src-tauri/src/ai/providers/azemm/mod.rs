@@ -1,5 +1,4 @@
 use base64::{engine::general_purpose::STANDARD, Engine};
-use reqwest::multipart::{Form, Part};
 use reqwest::Client;
 use serde_json::{json, Value};
 use std::fs;
@@ -29,6 +28,7 @@ const GPT_IMAGE_2_MAX_EDGE: f32 = 3840.0;
 const GPT_IMAGE_2_MAX_PIXELS: f32 = 8_294_400.0;
 const CURL_JSON_TRANSPORT_MIN_BYTES: usize = 64 * 1024;
 const CURL_JSON_TRANSPORT_TIMEOUT_SECONDS: u64 = 240;
+const CURL_MULTIPART_TRANSPORT_TIMEOUT_SECONDS: u64 = 1_000;
 #[cfg(target_os = "windows")]
 const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 
@@ -1014,51 +1014,173 @@ impl AzemmProvider {
         })
     }
 
-    async fn send_multipart_request(
-        &self,
-        endpoint: &str,
-        api_key: &str,
-        form: Form,
-        request_kind: &str,
+    async fn send_multipart_request_with_curl(
+        endpoint: String,
+        api_key: String,
+        text_fields: Vec<(String, String)>,
+        file_parts: Vec<(String, Vec<u8>, &'static str)>,
+        request_kind: String,
     ) -> Result<Value, AIError> {
-        let response = self
-            .client
-            .post(endpoint)
-            .version(reqwest::Version::HTTP_11)
-            .header("Accept", "application/json")
-            .header("Authorization", format!("Bearer {}", api_key))
-            .header("X-API-Key", api_key)
-            .header("X-Banana-Client", BANANA_CLIENT_HEADER_VALUE)
-            .multipart(form)
-            .send()
-            .await?;
+        let request_kind_for_join = request_kind.clone();
+        tokio::task::spawn_blocking(move || {
+            let temp_dir = std::env::temp_dir();
+            let response_file_path = temp_dir.join(format!(
+                "storyboard-azemm-multipart-response-{}.txt",
+                Uuid::new_v4()
+            ));
+            let mut temp_file_paths = Vec::<PathBuf>::new();
 
-        let status = response.status();
-        let response_text = response.text().await?;
-        info!("[Azemm] {} -> {}", endpoint, status);
-        info!("[Azemm] {} response: {}", request_kind, response_text);
+            let result = (|| {
+                let curl_binary = if cfg!(target_os = "windows") {
+                    "curl.exe"
+                } else {
+                    "curl"
+                };
+                let mut command = Command::new(curl_binary);
+                #[cfg(target_os = "windows")]
+                command.creation_flags(CREATE_NO_WINDOW);
 
-        let payload = serde_json::from_str::<Value>(&response_text);
+                command
+                    .arg("-sS")
+                    .arg("--http1.1")
+                    .arg("--connect-timeout")
+                    .arg("30")
+                    .arg("--max-time")
+                    .arg(CURL_MULTIPART_TRANSPORT_TIMEOUT_SECONDS.to_string())
+                    .arg("-X")
+                    .arg("POST")
+                    .arg(&endpoint)
+                    .arg("-H")
+                    .arg(format!("Authorization: Bearer {}", api_key))
+                    .arg("-H")
+                    .arg(format!("X-API-Key: {}", api_key))
+                    .arg("-H")
+                    .arg(format!("X-Banana-Client: {}", BANANA_CLIENT_HEADER_VALUE))
+                    .arg("-H")
+                    .arg("Accept: application/json");
 
-        if !status.is_success() {
-            if let Ok(payload) = &payload {
-                if let Some(message) = Self::extract_error_message(payload) {
-                    return Err(AIError::Provider(message));
+                for (field_name, field_value) in text_fields {
+                    command
+                        .arg("--form-string")
+                        .arg(format!("{}={}", field_name, field_value));
                 }
+
+                for (index, (field_name, bytes, extension)) in file_parts.into_iter().enumerate() {
+                    let temp_file_path = temp_dir.join(format!(
+                        "storyboard-azemm-multipart-{}-{}.{}",
+                        Uuid::new_v4(),
+                        index + 1,
+                        extension
+                    ));
+                    fs::write(&temp_file_path, bytes).map_err(|error| {
+                        AIError::Provider(format!(
+                            "Failed to persist Azemm {} multipart file: {}",
+                            request_kind, error
+                        ))
+                    })?;
+                    temp_file_paths.push(temp_file_path.clone());
+
+                    command.arg("--form").arg(format!(
+                        "{}=@{};type={};filename=image_{}.{}",
+                        field_name,
+                        temp_file_path.display(),
+                        Self::mime_type_from_extension(extension),
+                        index + 1,
+                        extension
+                    ));
+                }
+
+                command
+                    .arg("-o")
+                    .arg(&response_file_path)
+                    .arg("-w")
+                    .arg("%{http_code}");
+
+                let output = command.output().map_err(|error| {
+                    AIError::Provider(format!(
+                        "Failed to execute curl for Azemm {} multipart request: {}",
+                        request_kind, error
+                    ))
+                })?;
+
+                let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+                if !output.status.success() {
+                    return Err(AIError::Provider(format!(
+                        "curl multipart transport failed for Azemm {} request: {}",
+                        request_kind,
+                        if stderr.is_empty() {
+                            format!("exit status {}", output.status)
+                        } else {
+                            stderr
+                        }
+                    )));
+                }
+
+                let status_code = String::from_utf8_lossy(&output.stdout)
+                    .trim()
+                    .parse::<u16>()
+                    .map_err(|error| {
+                        AIError::Provider(format!(
+                            "Failed to parse curl multipart HTTP status for Azemm {} request: {}",
+                            request_kind, error
+                        ))
+                    })?;
+                let response_text = fs::read_to_string(&response_file_path).map_err(|error| {
+                    AIError::Provider(format!(
+                        "Failed to read curl multipart response for Azemm {} request: {}",
+                        request_kind, error
+                    ))
+                })?;
+                let status = reqwest::StatusCode::from_u16(status_code).map_err(|error| {
+                    AIError::Provider(format!(
+                        "Invalid curl multipart HTTP status for Azemm {} request: {}",
+                        request_kind, error
+                    ))
+                })?;
+
+                info!(
+                    "[Azemm] {} {} -> {} (curl multipart)",
+                    request_kind, endpoint, status
+                );
+                info!(
+                    "[Azemm] {} response (curl multipart): {}",
+                    request_kind, response_text
+                );
+
+                let payload = serde_json::from_str::<Value>(&response_text).map_err(|error| {
+                    AIError::Provider(format!(
+                        "Failed to parse Azemm {} curl multipart response: {}. Response was: {}",
+                        request_kind, error, response_text
+                    ))
+                })?;
+
+                if !status.is_success() {
+                    if let Some(message) = Self::extract_error_message(&payload) {
+                        return Err(AIError::Provider(message));
+                    }
+                    return Err(AIError::Provider(format!(
+                        "Azemm {} curl multipart request failed {}: {}",
+                        request_kind, status, response_text
+                    )));
+                }
+
+                Ok(payload)
+            })();
+
+            for path in temp_file_paths {
+                let _ = fs::remove_file(path);
             }
+            let _ = fs::remove_file(response_file_path);
 
-            return Err(AIError::Provider(format!(
-                "Azemm {} request failed {}: {}",
-                request_kind, status, response_text
-            )));
-        }
-
-        payload.map_err(|error| {
-            AIError::Provider(format!(
-                "Failed to parse Azemm {} response: {}. Response was: {}",
-                request_kind, error, response_text
-            ))
+            result
         })
+        .await
+        .map_err(|error| {
+            AIError::Provider(format!(
+                "curl multipart transport join error for Azemm {} request: {}",
+                request_kind_for_join, error
+            ))
+        })?
     }
 
     async fn send_json_request_with_curl(
@@ -1676,27 +1798,23 @@ try {
 
         let GptImage2RequestFields { size, quality } =
             Self::resolve_gpt_image_2_request_fields(request);
-        let mut form = Form::new()
-            .text("model", request_model.clone())
-            .text("prompt", request.prompt.clone())
-            .text("response_format", "url".to_string());
+        let mut text_fields = vec![
+            ("model".to_string(), request_model.clone()),
+            ("prompt".to_string(), request.prompt.clone()),
+            ("response_format".to_string(), "url".to_string()),
+        ];
         if let Some(size) = size {
-            form = form.text("size", size);
+            text_fields.push(("size".to_string(), size));
         }
         if let Some(quality) = quality {
-            form = form.text("quality", quality);
+            text_fields.push(("quality".to_string(), quality));
         }
 
-        for (index, source) in reference_images.iter().enumerate() {
+        let mut file_parts = Vec::with_capacity(reference_images.len());
+        for source in reference_images {
             let bytes = Self::source_to_bytes(source).await?;
             let extension = Self::file_extension_from_source(source);
-            let image_part = Part::bytes(bytes)
-                .file_name(format!("image_{}.{}", index + 1, extension))
-                .mime_str(Self::mime_type_from_extension(extension))
-                .map_err(|error| {
-                    AIError::Provider(format!("Failed to create multipart image part: {}", error))
-                })?;
-            form = form.part("image", image_part);
+            file_parts.push(("image".to_string(), bytes, extension));
         }
 
         info!(
@@ -1707,8 +1825,14 @@ try {
             reference_images.len()
         );
 
-        self.send_multipart_request(&endpoint, &api_key, form, "gpt-image-2-edits")
-            .await
+        Self::send_multipart_request_with_curl(
+            endpoint,
+            api_key,
+            text_fields,
+            file_parts,
+            "gpt-image-2-edits".to_string(),
+        )
+        .await
     }
 
     async fn generate_once(&self, request: &GenerateRequest) -> Result<String, AIError> {

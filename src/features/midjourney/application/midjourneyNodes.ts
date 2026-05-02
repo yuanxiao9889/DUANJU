@@ -25,6 +25,7 @@ export function buildSyncedMjReferences(
     const existing = existingByImageUrl.get(item.imageUrl.trim());
     return {
       imageUrl: item.imageUrl.trim(),
+      previewImageUrl: item.previewImageUrl?.trim() || null,
       sourceNodeId: item.sourceNodeId,
       sourceEdgeId: item.sourceEdgeId,
       role: existing?.role ?? 'reference',
@@ -46,6 +47,7 @@ export function areMjReferencesEqual(
     return Boolean(
       candidate
       && candidate.imageUrl === item.imageUrl
+      && (candidate.previewImageUrl ?? null) === (item.previewImageUrl ?? null)
       && candidate.sourceNodeId === item.sourceNodeId
       && candidate.sourceEdgeId === item.sourceEdgeId
       && candidate.role === item.role

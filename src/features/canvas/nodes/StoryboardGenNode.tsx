@@ -100,7 +100,6 @@ import { GRSAI_NANO_BANANA_PRO_MODEL_ID } from '@/features/canvas/models/image/g
 import { resolveModelPriceDisplay } from '@/features/canvas/pricing';
 import {
   useCanvasConnectedReferenceVisuals,
-  useCanvasNodeInputImages,
 } from '@/features/canvas/hooks/useCanvasNodeGraph';
 import { ModelParamsControls } from '@/features/canvas/ui/ModelParamsControls';
 import { CanvasNodeImage } from '@/features/canvas/ui/CanvasNodeImage';
@@ -652,7 +651,6 @@ export const StoryboardGenNode = memo(({ id, data, selected, width, height }: St
     [nodeData]
   );
 
-  const incomingImages = useCanvasNodeInputImages(id);
   const connectedReferenceVisuals = useCanvasConnectedReferenceVisuals(id);
   const incomingRequestImageItems = useMemo(
     () =>
@@ -681,15 +679,19 @@ export const StoryboardGenNode = memo(({ id, data, selected, width, height }: St
   );
   const incomingImageItems = useMemo(
     () =>
-      incomingImages.map((imageUrl, index) => ({
-        imageUrl,
-        displayUrl: imageUrl,
+      incomingRequestImageItems.map((item, index) => ({
+        imageUrl: item.referenceUrl,
+        displayUrl: item.previewImageUrl,
         label: `图${index + 1}`,
       })),
-    [incomingImages]
+    [incomingRequestImageItems]
+  );
+  const incomingImages = useMemo(
+    () => incomingImageItems.map((item) => item.imageUrl),
+    [incomingImageItems]
   );
   const incomingImageViewerList = useMemo(
-    () => incomingImageItems.map((item) => item.imageUrl),
+    () => incomingImageItems.map((item) => item.displayUrl),
     [incomingImageItems]
   );
 
@@ -2024,7 +2026,7 @@ export const StoryboardGenNode = memo(({ id, data, selected, width, height }: St
                   className={`ui-scrollbar pointer-events-none absolute inset-0 overflow-y-auto overflow-x-hidden text-[10px] leading-4 text-text-dark transition-opacity ${showNativeFrameText ? 'opacity-0' : 'opacity-100'}`}
                   style={{ scrollbarGutter: 'stable' }}
                 >
-                  <div className="min-h-full whitespace-pre-wrap break-words px-1.5 py-1 text-left">
+                  <div className="canvas-textarea-wrap min-h-full px-1.5 py-1 text-left">
             {renderFrameDescriptionWithHighlights(frameDescription, incomingImages.length)}
                   </div>
                 </div>
@@ -2036,7 +2038,7 @@ export const StoryboardGenNode = memo(({ id, data, selected, width, height }: St
                   className={`ui-scrollbar pointer-events-none absolute inset-0 z-20 overflow-y-auto overflow-x-hidden text-[10px] leading-4 text-transparent transition-opacity ${showNativeFrameText ? 'opacity-0' : 'opacity-100'}`}
                   style={{ scrollbarGutter: 'stable' }}
                 >
-                  <div className="min-h-full whitespace-pre-wrap break-words px-1.5 py-1 text-left">
+                  <div className="canvas-textarea-wrap min-h-full px-1.5 py-1 text-left">
                     {renderFrameReferenceHoverTargets(
                       frameDescription,
                       incomingImages.length,
@@ -2096,7 +2098,7 @@ export const StoryboardGenNode = memo(({ id, data, selected, width, height }: St
                     index: String(index + 1).padStart(2, '0'),
                   })}
                   wrap="soft"
-                  className={`ui-scrollbar nodrag nowheel relative z-10 h-full w-full resize-none overflow-y-auto overflow-x-hidden border-none bg-transparent px-1.5 py-1 text-left text-[10px] leading-4 caret-text-dark outline-none whitespace-pre-wrap break-words placeholder:text-text-muted/40 ${showNativeFrameText
+                  className={`canvas-textarea-wrap ui-scrollbar nodrag nowheel relative z-10 h-full w-full resize-none overflow-y-auto overflow-x-hidden border-none bg-transparent px-1.5 py-1 text-left text-[10px] leading-4 caret-text-dark outline-none placeholder:text-text-muted/40 ${showNativeFrameText
                     ? 'text-text-dark selection:bg-accent/30'
                     : 'text-transparent selection:bg-accent/30 selection:text-transparent'
                     }`}
