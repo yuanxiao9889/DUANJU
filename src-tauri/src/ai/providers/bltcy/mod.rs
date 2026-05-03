@@ -720,7 +720,7 @@ impl BltcyProvider {
         request: &GenerateRequest,
         model: &str,
     ) -> Result<Value, AIError> {
-        let endpoint = format!("{}{}", self.base_url, GENERATIONS_ENDPOINT_PATH);
+        let endpoint = format!("{}{}?async=true", self.base_url, GENERATIONS_ENDPOINT_PATH);
         let body = json!({
             "model": model,
             "prompt": request.prompt,
@@ -768,7 +768,7 @@ impl BltcyProvider {
         request: &GenerateRequest,
         model: &str,
     ) -> Result<Value, AIError> {
-        let endpoint = format!("{}{}", self.base_url, EDITS_ENDPOINT_PATH);
+        let endpoint = format!("{}{}?async=true", self.base_url, EDITS_ENDPOINT_PATH);
         let reference_images = request.reference_images.as_ref().ok_or_else(|| {
             AIError::InvalidRequest(
                 "柏拉图 AI 香蕉Pro requires at least one reference image".to_string(),

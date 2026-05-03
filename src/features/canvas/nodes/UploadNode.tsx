@@ -13,7 +13,6 @@ import {
   Handle,
   Position,
   useUpdateNodeInternals,
-  useViewport,
   type NodeProps,
 } from '@xyflow/react';
 import { Upload } from 'lucide-react';
@@ -49,6 +48,7 @@ import {
 } from '@/features/canvas/ui/NodeDescriptionPanel';
 import { resolveNodeStyleDimension } from '@/features/canvas/ui/nodeDimensionUtils';
 import { useCanvasNodeById } from '@/features/canvas/hooks/useCanvasNodeGraph';
+import { useCanvasZoom } from '@/features/canvas/hooks/useCanvasZoom';
 import { useCanvasStore } from '@/stores/canvasStore';
 import { useSettingsStore } from '@/stores/settingsStore';
 
@@ -90,7 +90,7 @@ export const UploadNode = memo(({ id, data, selected, width }: UploadNodeProps) 
     (state) => state.highlightedReferenceSourceNodeId === id
   );
   const useUploadFilenameAsNodeTitle = useSettingsStore((state) => state.useUploadFilenameAsNodeTitle);
-  const { zoom } = useViewport();
+  const zoom = useCanvasZoom();
   const inputRef = useRef<HTMLInputElement>(null);
   const uploadSequenceRef = useRef(0);
   const uploadPerfRef = useRef<{

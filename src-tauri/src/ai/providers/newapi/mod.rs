@@ -1309,9 +1309,10 @@ impl NewApiProvider {
     }
 
     fn should_use_curl_json_transport(request_kind: &str, payload_len: usize) -> bool {
-        payload_len >= CURL_JSON_TRANSPORT_MIN_BYTES
-            && (request_kind.starts_with("openai-chat")
-                || request_kind.starts_with("generateContent"))
+        request_kind == "openai-images-generations"
+            || (payload_len >= CURL_JSON_TRANSPORT_MIN_BYTES
+                && (request_kind.starts_with("openai-chat")
+                    || request_kind.starts_with("generateContent")))
     }
 
     async fn send_json_request_with_curl(
@@ -2745,6 +2746,18 @@ mod tests {
         ));
         assert!(NewApiProvider::is_timeout_message(
             "NewAPI generateContent request failed 504 Gateway Timeout: <html><body><center><h1>504 Gateway Time-out</h1></center></body></html>"
+        ));
+    }
+
+    #[test]
+    fn openai_images_generations_prefers_curl_json_transport() {
+        assert!(NewApiProvider::should_use_curl_json_transport(
+            "openai-images-generations",
+            512
+        ));
+        assert!(!NewApiProvider::should_use_curl_json_transport(
+            "openai-chat",
+            512
         ));
     }
 

@@ -10,7 +10,7 @@ import {
   useEffect,
   useRef,
 } from 'react';
-import { Handle, Position, useUpdateNodeInternals, useViewport } from '@xyflow/react';
+import { Handle, Position, useUpdateNodeInternals } from '@xyflow/react';
 import { AlertTriangle, Minus, Plus, Sparkles } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 
@@ -101,6 +101,7 @@ import { resolveModelPriceDisplay } from '@/features/canvas/pricing';
 import {
   useCanvasConnectedReferenceVisuals,
 } from '@/features/canvas/hooks/useCanvasNodeGraph';
+import { useCanvasZoom } from '@/features/canvas/hooks/useCanvasZoom';
 import { ModelParamsControls } from '@/features/canvas/ui/ModelParamsControls';
 import { CanvasNodeImage } from '@/features/canvas/ui/CanvasNodeImage';
 import {
@@ -572,7 +573,7 @@ function generateGridImageDataUrl(
 
 export const StoryboardGenNode = memo(({ id, data, selected, width, height }: StoryboardGenNodeProps) => {
   const { t, i18n } = useTranslation();
-  const { zoom } = useViewport();
+  const zoom = useCanvasZoom();
   const updateNodeInternals = useUpdateNodeInternals();
   const setSelectedNode = useCanvasStore((state) => state.setSelectedNode);
   const updateNodeData = useCanvasStore((state) => state.updateNodeData);

@@ -10,7 +10,7 @@ import {
   useEffect,
   useRef,
 } from 'react';
-import { Handle, Position, useUpdateNodeInternals, useViewport, type NodeProps } from '@xyflow/react';
+import { Handle, Position, useUpdateNodeInternals, type NodeProps } from '@xyflow/react';
 import { AlertTriangle, Loader2, Sparkles, Undo2, Wand2 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 
@@ -115,6 +115,7 @@ import {
   useCanvasConnectedTextInput,
   useCanvasIncomingSourceNodes,
 } from '@/features/canvas/hooks/useCanvasNodeGraph';
+import { useCanvasZoom } from '@/features/canvas/hooks/useCanvasZoom';
 import {
   NODE_CONTROL_CHIP_CLASS,
   NODE_CONTROL_MODEL_CHIP_CLASS,
@@ -318,7 +319,7 @@ function buildAiResultNodeTitle(prompt: string, fallbackTitle: string): string {
 
 export const ImageEditNode = memo(({ id, data, selected, width, height }: ImageEditNodeProps) => {
   const { t, i18n } = useTranslation();
-  const { zoom } = useViewport();
+  const zoom = useCanvasZoom();
   const updateNodeInternals = useUpdateNodeInternals();
   const [error, setError] = useState<string | null>(null);
   const [isOptimizingPrompt, setIsOptimizingPrompt] = useState(false);

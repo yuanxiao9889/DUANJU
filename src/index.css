@@ -167,8 +167,17 @@ body {
 
 .canvas-textarea-wrap {
   white-space: pre-wrap;
-  overflow-wrap: break-word;
-  word-break: break-word;
+  overflow-wrap: anywhere;
+  word-break: normal;
+}
+
+.canvas-textarea-wrap:not(textarea)::after {
+  content: '\200b';
+}
+
+textarea.canvas-textarea-wrap {
+  overflow-wrap: normal;
+  word-break: normal;
 }
 
 #boot-screen {

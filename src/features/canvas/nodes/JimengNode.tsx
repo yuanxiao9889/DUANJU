@@ -14,7 +14,6 @@ import {
   Handle,
   Position,
   useUpdateNodeInternals,
-  useViewport,
   type NodeProps,
 } from "@xyflow/react";
 import {
@@ -50,6 +49,7 @@ import {
   useCanvasConnectedTextInput,
   useCanvasConnectedReferenceVisuals,
 } from "@/features/canvas/hooks/useCanvasNodeGraph";
+import { useCanvasZoom } from "@/features/canvas/hooks/useCanvasZoom";
 import { flushCurrentProjectToDiskSafely } from "@/features/canvas/application/projectPersistence";
 import {
   optimizeCanvasPrompt,
@@ -1135,7 +1135,7 @@ function resolveJimengVideoResolutionValues(
 export const JimengNode = memo(
   ({ id, data, selected, width, height }: JimengNodeProps) => {
     const { t, i18n } = useTranslation();
-    const { zoom } = useViewport();
+    const zoom = useCanvasZoom();
     const updateNodeInternals = useUpdateNodeInternals();
     const rootRef = useRef<HTMLDivElement>(null);
     const promptPanelRef = useRef<HTMLDivElement>(null);

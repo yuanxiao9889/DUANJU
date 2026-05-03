@@ -25,7 +25,7 @@ import { useProjectStore } from "./stores/projectStore";
 import { useSettingsStore } from "./stores/settingsStore";
 import { useCanvasStore } from "./stores/canvasStore";
 import {
-  collectProjectImageUrls,
+  collectProjectImagePreloadEntries,
   preloadProjectImages,
 } from "./features/canvas/application/projectImagePreloader";
 import { CanvasProjectLoadingScreen } from "./features/canvas/ui/CanvasProjectLoadingScreen";
@@ -93,6 +93,7 @@ import { DetachedClipLibraryWindow } from "./features/clip-library/ui/DetachedCl
 const WINDOW_CLOSE_FLUSH_TIMEOUT_MS = 2500;
 const WINDOW_CLOSE_REQUEST_TIMEOUT_MS = 1200;
 const MIN_CANVAS_ENTRY_LOADING_MS = 420;
+const MAX_CANVAS_ENTRY_IMAGE_PRELOAD_MS = 18_000;
 const MAIN_WINDOW_CLOSE_REQUEST_EVENT = "app:request-main-close";
 
 function hasActiveGenerationFlag(data: unknown): boolean {
@@ -422,7 +423,7 @@ function MainApp() {
 
     const runId = canvasEntryPreloadRunRef.current + 1;
     canvasEntryPreloadRunRef.current = runId;
-    const imageUrls = collectProjectImageUrls(currentProject.nodes);
+    const imageUrls = collectProjectImagePreloadEntries(currentProject.nodes);
     void import("./features/canvas/CanvasScreen");
 
     if (imageUrls.length === 0) {
@@ -447,23 +448,38 @@ function MainApp() {
     });
 
     void (async () => {
+      let entryPreloadTimeoutId: number | undefined;
       try {
-        await preloadProjectImages(imageUrls, {
-          onProgress: ({ totalCount, loadedCount, failedCount }) => {
-            if (canvasEntryPreloadRunRef.current !== runId) {
-              return;
-            }
+        await Promise.race([
+          preloadProjectImages(imageUrls, {
+            onProgress: ({ totalCount, loadedCount, failedCount }) => {
+              if (canvasEntryPreloadRunRef.current !== runId) {
+                return;
+              }
 
-            setCanvasEntryLoadingState({
-              projectId: currentProjectId,
-              phase: "images",
-              totalCount,
-              loadedCount,
-              failedCount,
-            });
-          },
-        });
+              setCanvasEntryLoadingState({
+                projectId: currentProjectId,
+                phase: "images",
+                totalCount,
+                loadedCount,
+                failedCount,
+              });
+            },
+          }),
+          new Promise<void>((resolve) => {
+            entryPreloadTimeoutId = window.setTimeout(() => {
+              console.warn(
+                `Canvas entry image preload timed out after ${MAX_CANVAS_ENTRY_IMAGE_PRELOAD_MS}ms; continuing into project.`
+              );
+              resolve();
+            }, MAX_CANVAS_ENTRY_IMAGE_PRELOAD_MS);
+          }),
+        ]);
       } finally {
+        if (typeof entryPreloadTimeoutId === "number") {
+          window.clearTimeout(entryPreloadTimeoutId);
+        }
+
         const elapsedMs = performance.now() - startedAt;
         const remainingMs = Math.max(0, MIN_CANVAS_ENTRY_LOADING_MS - elapsedMs);
         if (remainingMs > 0) {
@@ -476,6 +492,7 @@ function MainApp() {
           return;
         }
 
+        canvasEntryPreloadRunRef.current += 1;
         setCanvasEntryLoadingState({
           projectId: null,
           phase: "project",
@@ -1130,6 +1147,8 @@ function MainApp() {
         onCloseRequest={handleMainWindowCloseIntent}
         showBackButton={!!currentProjectId}
         onBackClick={closeProject}
+        projectName={currentProjectName}
+        projectType={currentProjectType}
       />
 
       <main className="relative flex-1 min-h-0 overflow-hidden">

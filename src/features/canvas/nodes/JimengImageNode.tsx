@@ -13,7 +13,6 @@ import {
   Handle,
   Position,
   useUpdateNodeInternals,
-  useViewport,
   type NodeProps,
 } from "@xyflow/react";
 import {
@@ -52,6 +51,7 @@ import {
   useCanvasConnectedTextInput,
   useCanvasIncomingSourceNodes,
 } from "@/features/canvas/hooks/useCanvasNodeGraph";
+import { useCanvasZoom } from "@/features/canvas/hooks/useCanvasZoom";
 import { optimizeCanvasPrompt } from "@/features/canvas/application/promptOptimization";
 import { resolveReadableReferenceImageSources } from "@/features/canvas/application/referenceImageSources";
 import {
@@ -342,7 +342,7 @@ function FixedControlChip<T extends string>({
 export const JimengImageNode = memo(
   ({ id, data, selected, width, height }: JimengImageNodeProps) => {
     const { t, i18n } = useTranslation();
-    const { zoom } = useViewport();
+    const zoom = useCanvasZoom();
     const updateNodeInternals = useUpdateNodeInternals();
     const rootRef = useRef<HTMLDivElement>(null);
     const promptPanelRef = useRef<HTMLDivElement>(null);

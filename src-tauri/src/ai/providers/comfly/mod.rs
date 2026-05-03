@@ -1,6 +1,6 @@
 use base64::{engine::general_purpose::STANDARD, Engine};
 use reqwest::Client;
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 use serde_json::{json, Value};
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -34,11 +34,6 @@ const SUPPORTED_ASPECT_RATIOS: [&str; 14] = [
     "1:1", "1:4", "1:8", "2:3", "3:2", "3:4", "4:1", "4:3", "4:5", "5:4", "8:1", "9:16", "16:9",
     "21:9",
 ];
-
-#[derive(Debug, Deserialize)]
-struct TaskSubmissionResponse {
-    task_id: String,
-}
 
 #[derive(Debug, Serialize)]
 struct GenerationsRequestBody {
@@ -407,6 +402,10 @@ impl ComflyProvider {
             .map(|value| value.to_ascii_uppercase())
     }
 
+    fn extract_task_id(payload: &Value) -> Option<String> {
+        Self::extract_string_from_pointers(payload, &["/task_id", "/data/task_id", "/id"])
+    }
+
     fn extract_task_fail_reason(payload: &Value) -> Option<String> {
         Self::extract_string_from_pointers(
             payload,
@@ -566,15 +565,20 @@ impl ComflyProvider {
             )));
         }
 
-        let task_response: TaskSubmissionResponse =
-            serde_json::from_str(&response_text).map_err(|e| {
-                AIError::Provider(format!(
-                    "Failed to parse Comfly response: {}. Response was: {}",
-                    e, response_text
-                ))
-            })?;
+        let payload: Value = serde_json::from_str(&response_text).map_err(|e| {
+            AIError::Provider(format!(
+                "Failed to parse Comfly response: {}. Response was: {}",
+                e, response_text
+            ))
+        })?;
 
-        Ok(task_response.task_id)
+        if let Some(error_message) = Self::extract_error_message(&payload) {
+            return Err(AIError::Provider(error_message));
+        }
+
+        Self::extract_task_id(&payload).ok_or_else(|| {
+            AIError::Provider(format!("Comfly async response missing task_id: {}", payload))
+        })
     }
 
     async fn submit_img2img(
@@ -662,15 +666,20 @@ impl ComflyProvider {
             )));
         }
 
-        let task_response: TaskSubmissionResponse =
-            serde_json::from_str(&response_text).map_err(|e| {
-                AIError::Provider(format!(
-                    "Failed to parse Comfly response: {}. Response was: {}",
-                    e, response_text
-                ))
-            })?;
+        let payload: Value = serde_json::from_str(&response_text).map_err(|e| {
+            AIError::Provider(format!(
+                "Failed to parse Comfly response: {}. Response was: {}",
+                e, response_text
+            ))
+        })?;
 
-        Ok(task_response.task_id)
+        if let Some(error_message) = Self::extract_error_message(&payload) {
+            return Err(AIError::Provider(error_message));
+        }
+
+        Self::extract_task_id(&payload).ok_or_else(|| {
+            AIError::Provider(format!("Comfly async response missing task_id: {}", payload))
+        })
     }
 
     async fn poll_task(&self, task_id: &str) -> Result<Option<String>, AIError> {

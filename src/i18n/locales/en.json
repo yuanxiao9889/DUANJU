@@ -238,7 +238,12 @@
     "minimize": "Minimize",
     "maximize": "Maximize",
     "restore": "Restore",
-    "close": "Close"
+    "close": "Close",
+    "projectTypes": {
+      "storyboard": "Storyboard",
+      "script": "Script",
+      "ad": "Ad"
+    }
   },
   "extensions": {
     "title": "Extensions Center",

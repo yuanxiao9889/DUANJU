@@ -41,7 +41,7 @@ function greatestCommonDivisor(a: number, b: number): number {
 const DEFAULT_PREVIEW_MAX_DIMENSION = 512;
 const LOCAL_PATH_PREFIX_PATTERN = /^(?:[A-Za-z]:[\\/]|\\\\|\/)/;
 const URL_SCHEME_PREFIX_PATTERN = /^[a-z][a-z0-9+\-.]*:\/\//i;
-const LOCAL_IMAGE_DISPLAY_SOURCE_CACHE_LIMIT = 128;
+const LOCAL_IMAGE_DISPLAY_SOURCE_CACHE_LIMIT = 512;
 const BUNDLED_APP_ASSET_PREFIXES = [
   '/assets/',
   './assets/',

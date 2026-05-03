@@ -233,7 +233,7 @@ export const CanvasNodeImage = memo(forwardRef<HTMLImageElement, CanvasNodeImage
       return;
     }
 
-    console.warn('[CanvasNodeImage] image failed to load', {
+    const logPayload = {
       src: activeSrc,
       renderSrc: renderedSrc,
       requestedSrc,
@@ -242,7 +242,12 @@ export const CanvasNodeImage = memo(forwardRef<HTMLImageElement, CanvasNodeImage
       viewerSourceUrl: normalizedViewerSource,
       reason,
       error,
-    });
+    };
+    if (isActiveLocalSource) {
+      console.debug('[CanvasNodeImage] image failed to load', logPayload);
+    } else {
+      console.warn('[CanvasNodeImage] image failed to load', logPayload);
+    }
     setActiveSrc(null);
     setIsUsingFallback(false);
     setRetryAttempt(0);
@@ -250,6 +255,7 @@ export const CanvasNodeImage = memo(forwardRef<HTMLImageElement, CanvasNodeImage
     activeSrc,
     candidateSources,
     clearRetryTimer,
+    isActiveLocalSource,
     normalizedViewerSource,
     renderedSrc,
     requestedSrc,

@@ -196,8 +196,8 @@ function getTextareaCaretOffset(
   mirrorStyle.visibility = 'hidden';
   mirrorStyle.pointerEvents = 'none';
   mirrorStyle.whiteSpace = 'pre-wrap';
-  mirrorStyle.overflowWrap = 'break-word';
-  mirrorStyle.wordBreak = 'break-word';
+  mirrorStyle.overflowWrap = computed.overflowWrap;
+  mirrorStyle.wordBreak = computed.wordBreak;
   mirrorStyle.boxSizing = computed.boxSizing;
   mirrorStyle.width = `${textarea.clientWidth}px`;
   mirrorStyle.font = computed.font;

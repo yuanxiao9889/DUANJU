@@ -13,7 +13,6 @@ import {
   Handle,
   Position,
   useUpdateNodeInternals,
-  useViewport,
   type NodeProps,
 } from "@xyflow/react";
 import {
@@ -73,6 +72,7 @@ import {
   useCanvasConnectedReferenceVisuals,
   useCanvasNodeById,
 } from "@/features/canvas/hooks/useCanvasNodeGraph";
+import { useCanvasZoom } from "@/features/canvas/hooks/useCanvasZoom";
 import { CanvasNodeImage } from "@/features/canvas/ui/CanvasNodeImage";
 import { CameraTriggerIcon } from "@/features/canvas/ui/CameraTriggerIcon";
 import {
@@ -711,7 +711,7 @@ function ReferenceAudioChip({ item }: { item: ReferenceAudioItem }) {
 export const SeedanceNode = memo(
   ({ id, data, selected, width }: SeedanceNodeProps) => {
     const { t, i18n } = useTranslation();
-    const { zoom } = useViewport();
+    const zoom = useCanvasZoom();
     const updateNodeInternals = useUpdateNodeInternals();
     const currentNode = useCanvasNodeById(id);
     const connectedVisuals = useCanvasConnectedReferenceVisuals(id);

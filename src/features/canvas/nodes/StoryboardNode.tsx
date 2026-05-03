@@ -12,7 +12,6 @@ import {
   Handle,
   Position,
   useUpdateNodeInternals,
-  useViewport,
   type NodeProps,
 } from '@xyflow/react';
 import { Download, FolderOpen, ImagePlus, SlidersHorizontal, SquareArrowOutUpRight, Minus, Plus, Trash2 } from 'lucide-react';
@@ -55,6 +54,7 @@ import {
   NODE_CONTROL_PRIMARY_BUTTON_CLASS,
 } from '@/features/canvas/ui/nodeControlStyles';
 import { useCanvasIncomingSourceNodes } from '@/features/canvas/hooks/useCanvasNodeGraph';
+import { useCanvasZoom } from '@/features/canvas/hooks/useCanvasZoom';
 import { useCanvasStore } from '@/stores/canvasStore';
 import { useProjectStore } from '@/stores/projectStore';
 import { useSettingsStore } from '@/stores/settingsStore';
@@ -473,7 +473,7 @@ const FrameCard = memo(
     onRemoveFrame,
   }: FrameCardProps) => {
     const updateStoryboardFrame = useCanvasStore((state) => state.updateStoryboardFrame);
-    const { zoom } = useViewport();
+    const zoom = useCanvasZoom();
 
     const isWhitePlaceholder = frame.imageUrl === 'white-placeholder';
 

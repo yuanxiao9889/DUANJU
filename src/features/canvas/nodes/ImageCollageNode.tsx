@@ -7,7 +7,7 @@ import {
   useState,
   type DragEvent as ReactDragEvent,
 } from 'react';
-import { Handle, Position, useUpdateNodeInternals, useViewport, type NodeProps } from '@xyflow/react';
+import { Handle, Position, useUpdateNodeInternals, type NodeProps } from '@xyflow/react';
 import { Download, LayoutGrid, X } from 'lucide-react';
 import { Group, Image as KonvaImage, Layer, Rect, Stage, Text as KonvaText, Transformer } from 'react-konva';
 import type { KonvaEventObject } from 'konva/lib/Node';
@@ -36,6 +36,7 @@ import {
 } from '@/features/canvas/domain/canvasNodes';
 import { EXPORT_RESULT_DISPLAY_NAME, resolveNodeDisplayName } from '@/features/canvas/domain/nodeDisplay';
 import { useCanvasIncomingSourceNodes } from '@/features/canvas/hooks/useCanvasNodeGraph';
+import { useCanvasZoom } from '@/features/canvas/hooks/useCanvasZoom';
 import { CanvasNodeImage } from '@/features/canvas/ui/CanvasNodeImage';
 import { NodeHeader, NODE_HEADER_FLOATING_POSITION_CLASS } from '@/features/canvas/ui/NodeHeader';
 import {
@@ -238,7 +239,7 @@ export const ImageCollageNode = memo(({ id, data, selected, width, height }: Ima
   const addDerivedExportNode = useCanvasStore((state) => state.addDerivedExportNode);
   const setSelectedNode = useCanvasStore((state) => state.setSelectedNode);
   const incomingSourceNodes = useCanvasIncomingSourceNodes(id);
-  const { zoom } = useViewport();
+  const zoom = useCanvasZoom();
 
   const stageRef = useRef<Konva.Stage | null>(null);
   const stageHostRef = useRef<HTMLDivElement | null>(null);

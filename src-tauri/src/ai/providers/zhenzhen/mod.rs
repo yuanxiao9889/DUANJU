@@ -3,11 +3,12 @@ use reqwest::{
     multipart::{Form, Part},
     Client,
 };
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 use serde_json::{json, Value};
 use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::sync::RwLock;
+use tokio::time::{sleep, Duration};
 use tracing::info;
 
 use crate::ai::error::AIError;
@@ -17,6 +18,9 @@ const DEFAULT_BASE_URL: &str = "https://ai.t8star.cn";
 const CHAT_COMPLETIONS_ENDPOINT_PATH: &str = "/v1/chat/completions";
 const GENERATIONS_ENDPOINT_PATH: &str = "/v1/images/generations";
 const EDITS_ENDPOINT_PATH: &str = "/v1/images/edits";
+const TASKS_ENDPOINT_PATH: &str = "/v1/images/tasks";
+const POLL_INTERVAL_MS: u64 = 2000;
+const MAX_POLL_RETRIES: u32 = 150;
 const GPT_IMAGE_2_MAX_EDGE: f32 = 3840.0;
 const GPT_IMAGE_2_MAX_PIXELS: f32 = 8_294_400.0;
 
@@ -62,23 +66,6 @@ struct GenerationsRequestBody {
     aspect_ratio: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     quality: Option<String>,
-}
-
-#[derive(Debug, Deserialize)]
-struct GenerationsResponse {
-    data: Option<Vec<ImageData>>,
-    error: Option<ApiError>,
-}
-
-#[derive(Debug, Deserialize)]
-struct ImageData {
-    url: Option<String>,
-    b64_json: Option<String>,
-}
-
-#[derive(Debug, Deserialize)]
-struct ApiError {
-    message: String,
 }
 
 pub struct ZhenzhenProvider {
@@ -497,6 +484,62 @@ impl ZhenzhenProvider {
         })
     }
 
+    fn extract_string_from_pointers(payload: &Value, pointers: &[&str]) -> Option<String> {
+        pointers.iter().find_map(|pointer| {
+            payload
+                .pointer(pointer)
+                .and_then(Value::as_str)
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .map(ToString::to_string)
+        })
+    }
+
+    fn extract_task_id(payload: &Value) -> Option<String> {
+        Self::extract_string_from_pointers(payload, &["/task_id", "/data/task_id", "/id"])
+    }
+
+    fn extract_task_status(payload: &Value) -> Option<String> {
+        Self::extract_string_from_pointers(payload, &["/status", "/data/status"])
+            .map(|value| value.to_ascii_uppercase())
+    }
+
+    fn extract_task_fail_reason(payload: &Value) -> Option<String> {
+        Self::extract_string_from_pointers(
+            payload,
+            &[
+                "/fail_reason",
+                "/data/fail_reason",
+                "/message",
+                "/data/message",
+            ],
+        )
+    }
+
+    fn extract_task_image(payload: &Value) -> Option<String> {
+        const IMAGE_ITEM_POINTERS: [&str; 3] =
+            ["/data/0", "/data/data/0", "/data/data/data/0"];
+
+        IMAGE_ITEM_POINTERS.iter().find_map(|pointer| {
+            let item = payload.pointer(pointer)?;
+
+            if let Some(url) = item
+                .get("url")
+                .and_then(Value::as_str)
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+            {
+                return Some(url.to_string());
+            }
+
+            item.get("b64_json")
+                .and_then(Value::as_str)
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .map(|value| format!("data:image/png;base64,{}", value))
+        })
+    }
+
     async fn request_chat_completion(
         &self,
         request: &GenerateRequest,
@@ -561,8 +604,8 @@ impl ZhenzhenProvider {
         &self,
         request: &GenerateRequest,
         model: String,
-    ) -> Result<GenerationsResponse, AIError> {
-        let endpoint = format!("{}{}", self.base_url, GENERATIONS_ENDPOINT_PATH);
+    ) -> Result<String, AIError> {
+        let endpoint = format!("{}{}?async=true", self.base_url, GENERATIONS_ENDPOINT_PATH);
         let api_key = self
             .api_key
             .read()
@@ -596,7 +639,7 @@ impl ZhenzhenProvider {
         };
 
         info!(
-            "[Zhenzhen API] Generations URL: {}, model: {}, size: {}, aspect_ratio: {}",
+            "[Zhenzhen API] Async generations URL: {}, model: {}, size: {}, aspect_ratio: {}",
             endpoint, model, request.size, request.aspect_ratio
         );
 
@@ -621,10 +664,21 @@ impl ZhenzhenProvider {
             )));
         }
 
-        serde_json::from_str(&response_text).map_err(|error| {
+        let payload: Value = serde_json::from_str(&response_text).map_err(|error| {
             AIError::Provider(format!(
                 "Failed to parse Zhenzhen response: {}. Response was: {}",
                 error, response_text
+            ))
+        })?;
+
+        if let Some(error_message) = Self::extract_error_message(&payload) {
+            return Err(AIError::Provider(error_message));
+        }
+
+        Self::extract_task_id(&payload).ok_or_else(|| {
+            AIError::Provider(format!(
+                "Zhenzhen async generation response missing task_id: {}",
+                payload
             ))
         })
     }
@@ -633,8 +687,8 @@ impl ZhenzhenProvider {
         &self,
         request: &GenerateRequest,
         model: String,
-    ) -> Result<GenerationsResponse, AIError> {
-        let endpoint = format!("{}{}", self.base_url, EDITS_ENDPOINT_PATH);
+    ) -> Result<String, AIError> {
+        let endpoint = format!("{}{}?async=true", self.base_url, EDITS_ENDPOINT_PATH);
         let api_key = self
             .api_key
             .read()
@@ -687,7 +741,7 @@ impl ZhenzhenProvider {
         }
 
         info!(
-            "[Zhenzhen API] Edits URL: {}, model: {}, size: {}, aspect_ratio: {}, images: {}",
+            "[Zhenzhen API] Async edits URL: {}, model: {}, size: {}, aspect_ratio: {}, images: {}",
             endpoint,
             model,
             request.size,
@@ -715,12 +769,100 @@ impl ZhenzhenProvider {
             )));
         }
 
-        serde_json::from_str(&response_text).map_err(|error| {
+        let payload: Value = serde_json::from_str(&response_text).map_err(|error| {
             AIError::Provider(format!(
                 "Failed to parse Zhenzhen edit response: {}. Response was: {}",
                 error, response_text
             ))
+        })?;
+
+        if let Some(error_message) = Self::extract_error_message(&payload) {
+            return Err(AIError::Provider(error_message));
+        }
+
+        Self::extract_task_id(&payload).ok_or_else(|| {
+            AIError::Provider(format!(
+                "Zhenzhen async edit response missing task_id: {}",
+                payload
+            ))
         })
+    }
+
+    async fn poll_task(&self, task_id: &str) -> Result<Option<String>, AIError> {
+        let endpoint = format!("{}{}/{}", self.base_url, TASKS_ENDPOINT_PATH, task_id);
+        let api_key = self
+            .api_key
+            .read()
+            .await
+            .clone()
+            .ok_or_else(|| AIError::InvalidRequest("API key not set".to_string()))?;
+
+        let response = self
+            .client
+            .get(&endpoint)
+            .header("Authorization", format!("Bearer {}", api_key))
+            .send()
+            .await?;
+
+        let status = response.status();
+        let response_text = response.text().await.map_err(AIError::from)?;
+        info!("[Zhenzhen API] Task status response status: {}", status);
+        info!("[Zhenzhen API] Task status response: {}", response_text);
+
+        if !status.is_success() {
+            return Err(AIError::Provider(format!(
+                "Zhenzhen task status request failed {}: {}",
+                status, response_text
+            )));
+        }
+
+        let payload: Value = serde_json::from_str(&response_text).map_err(|error| {
+            AIError::Provider(format!(
+                "Failed to parse Zhenzhen task status response: {}. Response was: {}",
+                error, response_text
+            ))
+        })?;
+
+        if let Some(image) = Self::extract_task_image(&payload) {
+            return Ok(Some(image));
+        }
+
+        let task_status = Self::extract_task_status(&payload).ok_or_else(|| {
+            AIError::Provider(format!(
+                "Zhenzhen task status response missing status field. Response was: {}",
+                response_text
+            ))
+        })?;
+
+        match task_status.as_str() {
+            "SUCCESS" | "SUCCEEDED" | "COMPLETED" | "DONE" => Err(AIError::Provider(format!(
+                "Zhenzhen task completed but response did not include image data: {}",
+                response_text
+            ))),
+            "FAILURE" | "FAILED" | "ERROR" | "CANCELLED" => {
+                let reason = Self::extract_task_fail_reason(&payload)
+                    .unwrap_or_else(|| format!("Task failed with status {}", task_status));
+                Err(AIError::TaskFailed(reason))
+            }
+            "QUEUED" | "SUBMITTED" | "PENDING" | "RUNNING" | "PROCESSING" | "IN_PROGRESS" => {
+                Ok(None)
+            }
+            _ => Ok(None),
+        }
+    }
+
+    async fn wait_for_task(&self, task_id: &str) -> Result<String, AIError> {
+        for _ in 0..MAX_POLL_RETRIES {
+            match self.poll_task(task_id).await? {
+                Some(image) => return Ok(image),
+                None => sleep(Duration::from_millis(POLL_INTERVAL_MS)).await,
+            }
+        }
+
+        Err(AIError::Provider(format!(
+            "Zhenzhen task timed out after {} retries",
+            MAX_POLL_RETRIES
+        )))
     }
 }
 
@@ -781,37 +923,13 @@ impl AIProvider for ZhenzhenProvider {
             .map(|images| !images.is_empty())
             .unwrap_or(false);
 
-        let response = if has_reference_images {
+        let task_id = if has_reference_images {
             self.request_edit(&request, model).await?
         } else {
             self.request_generation(&request, model).await?
         };
 
-        if let Some(error) = response.error {
-            return Err(AIError::Provider(format!(
-                "Zhenzhen API error: {}",
-                error.message
-            )));
-        }
-
-        let data = response
-            .data
-            .ok_or_else(|| AIError::Provider("Zhenzhen response missing data field".to_string()))?;
-
-        let first_image = data.first().ok_or_else(|| {
-            AIError::Provider("Zhenzhen response has empty data array".to_string())
-        })?;
-
-        if let Some(url) = &first_image.url {
-            return Ok(url.clone());
-        }
-
-        if let Some(b64_json) = &first_image.b64_json {
-            return Ok(format!("data:image/png;base64,{}", b64_json));
-        }
-
-        Err(AIError::Provider(
-            "Zhenzhen response missing both url and b64_json".to_string(),
-        ))
+        info!("[Zhenzhen API] Task ID: {}", task_id);
+        self.wait_for_task(&task_id).await
     }
 }

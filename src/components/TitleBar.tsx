@@ -7,6 +7,7 @@ import { Minus, X, Maximize2, Settings, ArrowLeft, PackageOpen, Film } from 'luc
 import { useTranslation } from 'react-i18next';
 import { Moon, Sun, Languages } from 'lucide-react';
 import { useThemeStore } from '@/stores/themeStore';
+import type { ProjectType } from '@/stores/projectStore';
 import closeNormalIcon from '@/assets/macos-traffic-lights/1-close-1-normal.svg';
 import closeHoverIcon from '@/assets/macos-traffic-lights/2-close-2-hover.svg';
 import minimizeNormalIcon from '@/assets/macos-traffic-lights/2-minimize-1-normal.svg';
@@ -22,6 +23,8 @@ interface TitleBarProps {
   onCloseRequest?: () => Promise<void> | void;
   showBackButton?: boolean;
   onBackClick?: () => void;
+  projectName?: string | null;
+  projectType?: ProjectType | null;
 }
 
 export function TitleBar({
@@ -31,6 +34,8 @@ export function TitleBar({
   onCloseRequest,
   showBackButton,
   onBackClick,
+  projectName,
+  projectType,
 }: TitleBarProps) {
   const { t, i18n } = useTranslation();
   const { theme, toggleTheme } = useThemeStore();
@@ -38,6 +43,15 @@ export function TitleBar({
   const clipLibraryPointerArmedRef = useRef(false);
 
   const appWindow = getCurrentWindow();
+  const normalizedProjectName = projectName?.trim() ?? '';
+  const normalizedProjectType = projectType ?? null;
+  const projectTypeLabel = normalizedProjectType
+    ? t(`titleBar.projectTypes.${normalizedProjectType}`)
+    : '';
+  const projectTitle =
+    normalizedProjectName && projectTypeLabel
+      ? `${projectTypeLabel}-${normalizedProjectName}`
+      : '';
   const isMac =
     typeof navigator !== 'undefined'
     && /(Mac|iPhone|iPad|iPod)/i.test(`${navigator.platform} ${navigator.userAgent}`);
@@ -180,6 +194,17 @@ export function TitleBar({
 
   return (
     <div className="relative z-50 flex h-10 shrink-0 items-center justify-between border-b border-border-dark bg-surface-dark select-none">
+      {projectTitle ? (
+        <div
+          className="pointer-events-none absolute left-1/2 top-1/2 z-10 flex max-w-[min(46vw,520px)] -translate-x-1/2 -translate-y-1/2 items-center justify-center"
+          title={projectTitle}
+        >
+          <div className="truncate text-[13px] font-medium text-text-dark/88">
+            {projectTitle}
+          </div>
+        </div>
+      ) : null}
+
       {isMac ? (
         <div className="group flex items-center h-full pl-3 pr-2 gap-2" data-no-drag="true">
           <button
