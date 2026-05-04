@@ -74,6 +74,7 @@ import {
   type ScriptCharacterReferenceNodeData,
   type ScriptLocationReferenceNodeData,
   type ScriptItemReferenceNodeData,
+  type ScriptCharacterNodeData,
   type ScriptStoryNoteNodeData,
   createDefaultSceneCard,
   isImageCompareNode,
@@ -86,6 +87,7 @@ import {
   normalizeMjNodeData,
   normalizeMjResultNodeData,
   normalizeScriptChapterNodeData,
+  normalizeScriptCharacterNodeData,
   normalizeScriptCharacterReferenceNodeData,
   normalizeAdScriptReferenceNodeData,
   normalizeScriptItemReferenceNodeData,
@@ -850,6 +852,13 @@ function normalizeNodes(rawNodes: CanvasNode[]): CanvasNode[] {
         Object.assign(
           mergedData,
           normalizeScriptSceneNodeData(mergedData as ScriptSceneNodeData)
+        );
+      }
+
+      if (normalizedNodeType === CANVAS_NODE_TYPES.scriptCharacter) {
+        Object.assign(
+          mergedData,
+          normalizeScriptCharacterNodeData(mergedData as ScriptCharacterNodeData)
         );
       }
 
@@ -4275,6 +4284,12 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
             affectedChapterIds.add(normalizedSceneData.sourceChapterId);
           }
         }
+        if (node.type === CANVAS_NODE_TYPES.scriptCharacter) {
+          Object.assign(
+            mergedData,
+            normalizeScriptCharacterNodeData(mergedData as ScriptCharacterNodeData)
+          );
+        }
         if (node.type === CANVAS_NODE_TYPES.scriptStoryNote) {
           Object.assign(
             mergedData,
@@ -4449,6 +4464,12 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
           if (normalizedSceneData.sourceChapterId) {
             affectedChapterIds.add(normalizedSceneData.sourceChapterId);
           }
+        }
+        if (node.type === CANVAS_NODE_TYPES.scriptCharacter) {
+          Object.assign(
+            mergedData,
+            normalizeScriptCharacterNodeData(mergedData as ScriptCharacterNodeData)
+          );
         }
         if (node.type === CANVAS_NODE_TYPES.scriptStoryNote) {
           Object.assign(

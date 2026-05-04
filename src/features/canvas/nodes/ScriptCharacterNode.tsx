@@ -1,4 +1,5 @@
 import { memo, useCallback, useState } from 'react';
+import { Handle, Position } from '@xyflow/react';
 import { Check, Loader2, Sparkles, User, X } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 
@@ -183,13 +184,21 @@ export const ScriptCharacterNode = memo(({
         </button>
       )}
       overlayContent={(
-        <NodeResizeHandle
-          minWidth={MIN_WIDTH}
-          minHeight={MIN_HEIGHT}
-          maxWidth={MAX_WIDTH}
-          maxHeight={MAX_HEIGHT}
-          isVisible={selected}
-        />
+        <>
+          <Handle
+            type="source"
+            id="source"
+            position={Position.Right}
+            className="!h-3 !w-3 !right-0 !rounded-full !border-surface-dark !bg-violet-300"
+          />
+          <NodeResizeHandle
+            minWidth={MIN_WIDTH}
+            minHeight={MIN_HEIGHT}
+            maxWidth={MAX_WIDTH}
+            maxHeight={MAX_HEIGHT}
+            isVisible={selected}
+          />
+        </>
       )}
       onToggleEdit={() => setIsEditing((previous) => !previous)}
       onDelete={() => deleteNode(id)}
@@ -290,8 +299,10 @@ export const ScriptCharacterNode = memo(({
           ) : null}
         </div>
       ) : (
-        <div className={SCRIPT_NODE_EMPTY_HINT_CLASS}>
-          {t('scriptNodes.character.emptyHint')}
+        <div className={`${SCRIPT_NODE_SCROLL_AREA_CLASS} space-y-3`}>
+          <div className={SCRIPT_NODE_EMPTY_HINT_CLASS}>
+            {t('scriptNodes.character.emptyHint')}
+          </div>
         </div>
       )}
     </ScriptNodeCard>

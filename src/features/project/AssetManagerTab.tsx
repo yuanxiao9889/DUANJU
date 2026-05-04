@@ -2,6 +2,8 @@ import { useEffect, useMemo, useRef, useState, type ChangeEvent, type DragEvent 
 import { useTranslation } from 'react-i18next';
 import {
   AudioLines,
+  BadgeCheck,
+  ExternalLink,
   Film,
   ImagePlus,
   MapPin,
@@ -25,9 +27,11 @@ import {
 import {
   ASSET_CATEGORIES,
   type AssetCategory,
+  type AssetMetadata,
   type AssetMediaType,
   type AssetItemRecord,
   type AssetLibraryRecord,
+  resolveSeedanceOfficialAssetMetadata,
   resolveAssetMediaType,
 } from '@/features/assets/domain/types';
 import {
@@ -42,6 +46,11 @@ import {
 } from '@/features/canvas/application/imageData';
 import { CanvasNodeImage } from '@/features/canvas/ui/CanvasNodeImage';
 import { AssetPreviewImage } from '@/features/assets/ui/AssetPreviewImage';
+import { SeedanceOfficialAssetPlaceholder } from '@/features/assets/ui/SeedanceOfficialAssetPlaceholder';
+import {
+  extractSeedanceAssetId,
+  normalizeSeedanceAssetUri,
+} from '@/features/seedance/domain/seedanceAssetUri';
 import { useAssetStore } from '@/stores/assetStore';
 
 type LibraryDialogState =
@@ -110,6 +119,10 @@ interface AssetCategorySectionProps {
 }
 
 const QUICK_IMPORT_CONCURRENCY = 3;
+const SEEDANCE_REAL_PERSON_DOC_URL = 'https://www.volcengine.com/docs/82379/2315856?lang=zh';
+const SEEDANCE_REAL_PERSON_LIMIT_DOC_URL = 'https://www.volcengine.com/docs/82379/2223965?lang=zh';
+
+type AssetSourceMode = 'local' | 'seedanceOfficial';
 
 function resolveImportErrorMessage(error: unknown): string {
   if (error instanceof Error) {
@@ -697,9 +710,16 @@ function AssetEditorDialog({ library, state, onClose, onConfirm }: AssetEditorDi
   const [mimeType, setMimeType] = useState<string | null>(null);
   const [durationMs, setDurationMs] = useState<number | null>(null);
   const [aspectRatio, setAspectRatio] = useState('1:1');
+  const [sourceMode, setSourceMode] = useState<AssetSourceMode>('local');
+  const [seedanceAssetId, setSeedanceAssetId] = useState('');
   const [isPreparingSource, setIsPreparingSource] = useState(false);
 
   const mediaType = resolveAssetMediaType(category);
+  const supportsSeedanceOfficialMode = category === 'character' && mediaType === 'image';
+  const normalizedSeedanceAssetUri = useMemo(
+    () => normalizeSeedanceAssetUri(seedanceAssetId),
+    [seedanceAssetId]
+  );
 
   useEffect(() => {
     if (!state) {
@@ -707,6 +727,9 @@ function AssetEditorDialog({ library, state, onClose, onConfirm }: AssetEditorDi
     }
 
     if (state.mode === 'edit') {
+      const officialMetadata = resolveSeedanceOfficialAssetMetadata(state.asset);
+      const officialAssetId =
+        officialMetadata?.assetId ?? extractSeedanceAssetId(state.asset.sourcePath) ?? '';
       setCategory(state.asset.category);
       setSubcategoryId(state.asset.subcategoryId ?? '');
       setName(state.asset.name);
@@ -717,6 +740,8 @@ function AssetEditorDialog({ library, state, onClose, onConfirm }: AssetEditorDi
       setMimeType(state.asset.mimeType);
       setDurationMs(state.asset.durationMs);
       setAspectRatio(state.asset.aspectRatio);
+      setSourceMode(officialAssetId ? 'seedanceOfficial' : 'local');
+      setSeedanceAssetId(officialAssetId);
       return;
     }
 
@@ -730,7 +755,15 @@ function AssetEditorDialog({ library, state, onClose, onConfirm }: AssetEditorDi
     setMimeType(null);
     setDurationMs(null);
     setAspectRatio('1:1');
+    setSourceMode('local');
+    setSeedanceAssetId('');
   }, [state]);
+
+  useEffect(() => {
+    if (!supportsSeedanceOfficialMode && sourceMode === 'seedanceOfficial') {
+      setSourceMode('local');
+    }
+  }, [sourceMode, supportsSeedanceOfficialMode]);
 
   const availableCategories = useMemo(() => {
     if (!state) {
@@ -776,13 +809,24 @@ function AssetEditorDialog({ library, state, onClose, onConfirm }: AssetEditorDi
         setMimeType(prepared.mimeType);
         setDurationMs(Math.round(prepared.duration * 1000));
         setAspectRatio('1:1');
+        setSourceMode('local');
+        setSeedanceAssetId('');
       } else {
         const prepared = await ensurePreparedNodeImageReadable(await prepareNodeImageFromFile(file));
-        setSourcePath(prepared.imageUrl);
-        setPreviewPath(prepared.previewImageUrl);
-        setMimeType(file.type.trim() || null);
-        setDurationMs(null);
-        setAspectRatio(prepared.aspectRatio);
+        if (sourceMode === 'seedanceOfficial' && supportsSeedanceOfficialMode) {
+          setPreviewPath(prepared.previewImageUrl ?? prepared.imageUrl);
+          setMimeType(file.type.trim() || null);
+          setDurationMs(null);
+          setAspectRatio('1:1');
+        } else {
+          setSourcePath(prepared.imageUrl);
+          setPreviewPath(prepared.previewImageUrl);
+          setMimeType(file.type.trim() || null);
+          setDurationMs(null);
+          setAspectRatio(prepared.aspectRatio);
+          setSourceMode('local');
+          setSeedanceAssetId('');
+        }
       }
       if (state?.mode === 'create' && name.trim().length === 0) {
         setName(resolveDefaultAssetName(file.name) || t('assets.untitledAsset'));
@@ -795,12 +839,67 @@ function AssetEditorDialog({ library, state, onClose, onConfirm }: AssetEditorDi
     }
   };
 
+  const buildMetadata = (assetUri: string | null): AssetMetadata | null => {
+    const baseMetadata: AssetMetadata = {
+      ...(state?.mode === 'edit' && state.asset.metadata ? state.asset.metadata : {}),
+    };
+    delete baseMetadata.seedanceOfficial;
+
+    if (assetUri) {
+      const assetId = extractSeedanceAssetId(assetUri);
+      if (!assetId) {
+        return baseMetadata;
+      }
+
+      return {
+        ...baseMetadata,
+        seedanceOfficial: {
+          kind: 'realPersonImage',
+          assetId,
+          uri: assetUri,
+          savedAt: Date.now(),
+        },
+      };
+    }
+
+    return Object.keys(baseMetadata).length > 0 ? baseMetadata : null;
+  };
+
   const canSubmit =
     Boolean(library) &&
     name.trim().length > 0 &&
-    sourcePath.trim().length > 0 &&
-    (mediaType === 'audio' || Boolean(previewPath?.trim())) &&
-    !isPreparingSource;
+    !isPreparingSource &&
+    (sourceMode === 'seedanceOfficial' && supportsSeedanceOfficialMode
+      ? Boolean(normalizedSeedanceAssetUri)
+      : sourcePath.trim().length > 0 &&
+        (mediaType === 'audio' || Boolean(previewPath?.trim())));
+
+  const handleConfirmSubmit = () => {
+    const officialAssetUri =
+      sourceMode === 'seedanceOfficial' && supportsSeedanceOfficialMode
+        ? normalizedSeedanceAssetUri
+        : null;
+    const nextSourcePath = officialAssetUri ?? sourcePath;
+
+    void onConfirm({
+      id: state?.mode === 'edit' ? state.asset.id : undefined,
+      category,
+      mediaType,
+      subcategoryId: subcategoryId || null,
+      name: name.trim(),
+      description: description.trim(),
+      tags: tagsText
+        .split(',')
+        .map((item) => item.trim())
+        .filter(Boolean),
+      sourcePath: nextSourcePath,
+      previewPath: officialAssetUri ? null : previewPath,
+      mimeType: officialAssetUri ? null : mimeType,
+      durationMs: officialAssetUri ? null : durationMs,
+      aspectRatio: officialAssetUri ? '1:1' : aspectRatio,
+      metadata: buildMetadata(officialAssetUri),
+    });
+  };
 
   return (
     <UiModal
@@ -817,26 +916,7 @@ function AssetEditorDialog({ library, state, onClose, onConfirm }: AssetEditorDi
             type="button"
             variant="primary"
             disabled={!canSubmit}
-            onClick={() =>
-              void onConfirm({
-                id: state?.mode === 'edit' ? state.asset.id : undefined,
-                category,
-                mediaType,
-                subcategoryId: subcategoryId || null,
-                name: name.trim(),
-                description: description.trim(),
-                tags: tagsText
-                  .split(',')
-                  .map((item) => item.trim())
-                  .filter(Boolean),
-                sourcePath,
-                previewPath,
-                mimeType,
-                durationMs,
-                aspectRatio,
-                metadata: state?.mode === 'edit' ? state.asset.metadata : null,
-              })
-            }
+            onClick={handleConfirmSubmit}
           >
             {t('common.save')}
           </UiButton>
@@ -845,9 +925,54 @@ function AssetEditorDialog({ library, state, onClose, onConfirm }: AssetEditorDi
     >
       <div className="grid gap-4 md:grid-cols-[220px_minmax(0,1fr)]">
         <div className="space-y-3">
+          {supportsSeedanceOfficialMode ? (
+            <div className="grid grid-cols-2 gap-1 rounded-xl border border-[rgba(255,255,255,0.08)] bg-white/[0.03] p-1">
+              <button
+                type="button"
+                className={`rounded-lg px-2 py-2 text-xs font-medium transition-colors ${
+                  sourceMode === 'local'
+                    ? 'bg-white/[0.12] text-text-dark'
+                    : 'text-text-muted hover:bg-white/[0.06] hover:text-text-dark'
+                }`}
+                onClick={() => setSourceMode('local')}
+              >
+                {t('assets.sourceModes.localImage')}
+              </button>
+              <button
+                type="button"
+                className={`rounded-lg px-2 py-2 text-xs font-medium transition-colors ${
+                  sourceMode === 'seedanceOfficial'
+                    ? 'bg-emerald-400/16 text-emerald-100'
+                    : 'text-text-muted hover:bg-white/[0.06] hover:text-text-dark'
+                }`}
+                onClick={() => setSourceMode('seedanceOfficial')}
+              >
+                {t('assets.sourceModes.seedanceOfficial')}
+              </button>
+            </div>
+          ) : null}
           <div className="overflow-hidden rounded-xl border border-[rgba(255,255,255,0.12)] bg-bg-dark/70">
             <div className="aspect-[4/3]">
-              {mediaType === 'audio' ? (
+              {sourceMode === 'seedanceOfficial' ? (
+                previewPath ? (
+                  <div className="relative h-full w-full">
+                    <AssetImagePreview
+                      primarySource={previewPath}
+                      fallbackSource={previewPath}
+                      alt={name || t('assets.previewAlt')}
+                      className="h-full w-full object-cover"
+                    />
+                    <div className="absolute left-2 top-2 rounded-full border border-emerald-300/20 bg-black/55 px-2 py-1 text-[10px] font-medium text-emerald-100">
+                      {t('assets.seedanceOfficialLocalPreviewBadge')}
+                    </div>
+                  </div>
+                ) : (
+                  <SeedanceOfficialAssetPlaceholder
+                    uri={normalizedSeedanceAssetUri ?? seedanceAssetId}
+                    className="rounded-none"
+                  />
+                )
+              ) : mediaType === 'audio' ? (
                 sourcePath ? (
                   <div className="flex h-full flex-col justify-between p-4">
                     <div className="flex h-12 w-12 items-center justify-center rounded-full bg-white/[0.06] text-rose-300">
@@ -907,7 +1032,13 @@ function AssetEditorDialog({ library, state, onClose, onConfirm }: AssetEditorDi
             )}
             {isPreparingSource
               ? t(mediaType === 'audio' ? 'assets.preparingAudio' : 'assets.preparingImage')
-              : t(mediaType === 'audio' ? 'assets.selectAudio' : 'assets.selectImage')}
+              : t(
+                  mediaType === 'audio'
+                    ? 'assets.selectAudio'
+                    : sourceMode === 'seedanceOfficial'
+                      ? 'assets.selectSeedanceOfficialPreviewImage'
+                      : 'assets.selectImage'
+                )}
           </UiButton>
         </div>
 
@@ -939,6 +1070,66 @@ function AssetEditorDialog({ library, state, onClose, onConfirm }: AssetEditorDi
               </UiSelect>
             </div>
           </div>
+
+          {sourceMode === 'seedanceOfficial' ? (
+            <div className="space-y-3 rounded-xl border border-emerald-300/20 bg-emerald-300/[0.06] p-3">
+              <div className="flex items-start gap-2">
+                <div className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-emerald-300/12 text-emerald-200">
+                  <BadgeCheck className="h-4 w-4" />
+                </div>
+                <div className="min-w-0 flex-1">
+                  <div className="text-sm font-semibold text-text-dark">
+                    {t('assets.seedanceOfficialTitle')}
+                  </div>
+                  <div className="mt-1 text-xs leading-5 text-text-muted">
+                    {t('assets.seedanceOfficialSummary')}
+                  </div>
+                </div>
+              </div>
+
+              <div className="space-y-1.5">
+                <label className="text-xs font-medium uppercase tracking-[0.14em] text-text-muted/80">
+                  {t('assets.seedanceOfficialAssetId')}
+                </label>
+                <UiInput
+                  value={seedanceAssetId}
+                  onChange={(event) => setSeedanceAssetId(event.target.value)}
+                  placeholder={t('assets.seedanceOfficialAssetIdPlaceholder')}
+                />
+                {seedanceAssetId.trim() && !normalizedSeedanceAssetUri ? (
+                  <div className="text-xs text-rose-300">
+                    {t('assets.seedanceOfficialInvalidAssetId')}
+                  </div>
+                ) : null}
+              </div>
+
+              <ol className="space-y-1.5 text-xs leading-5 text-text-muted">
+                <li>{t('assets.seedanceOfficialGuideStep1')}</li>
+                <li>{t('assets.seedanceOfficialGuideStep2')}</li>
+                <li>{t('assets.seedanceOfficialGuideStep3')}</li>
+              </ol>
+              <div className="flex flex-wrap gap-2">
+                <a
+                  href={SEEDANCE_REAL_PERSON_DOC_URL}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="inline-flex items-center gap-1 rounded-lg border border-emerald-300/20 bg-emerald-300/10 px-2.5 py-1.5 text-xs text-emerald-100 transition-colors hover:bg-emerald-300/16"
+                >
+                  <ExternalLink className="h-3 w-3" />
+                  {t('assets.seedanceOfficialDocsEntry')}
+                </a>
+                <a
+                  href={SEEDANCE_REAL_PERSON_LIMIT_DOC_URL}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="inline-flex items-center gap-1 rounded-lg border border-white/10 bg-white/[0.04] px-2.5 py-1.5 text-xs text-text-muted transition-colors hover:bg-white/[0.08] hover:text-text-dark"
+                >
+                  <ExternalLink className="h-3 w-3" />
+                  {t('assets.seedanceOfficialDocsLimits')}
+                </a>
+              </div>
+            </div>
+          ) : null}
 
           <div className="space-y-1.5">
             <label className="text-xs font-medium uppercase tracking-[0.14em] text-text-muted/80">

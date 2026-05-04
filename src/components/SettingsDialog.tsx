@@ -13,7 +13,10 @@ import {
   type DreaminaCliUpdateInfoResponse,
   type DreaminaCliStatusResponse,
 } from '@/commands/dreaminaCli';
-import { useSettingsStore } from '@/stores/settingsStore';
+import {
+  useSettingsStore,
+  type ThirdPartyVideoProviderId,
+} from '@/stores/settingsStore';
 import { useProjectStore } from '@/stores/projectStore';
 import { usePsIntegrationStore } from '@/stores/psIntegrationStore';
 import { testProviderConnection } from '@/commands/textGen';
@@ -163,6 +166,13 @@ const MJ_PROVIDER_GROUP_CONFIGS: ProviderGroupConfig[] = [
     defaultCollapsed: false,
   },
 ];
+
+const THIRD_PARTY_VIDEO_PROVIDER_ID: ThirdPartyVideoProviderId = 'gptBest';
+const THIRD_PARTY_VIDEO_PROVIDER = {
+  id: THIRD_PARTY_VIDEO_PROVIDER_ID,
+  name: 'GPT-Best',
+  label: 'GPT-Best',
+};
 
 const ABOUT_FEEDBACK_QQ_GROUP = '835213642';
 const ABOUT_OOPII_QQ_GROUP_URL = 'https://qm.qq.com/q/TcWYG0Ri0w';
@@ -459,6 +469,8 @@ export function SettingsDialog({
     scriptApiKeys,
     storyboardApiKeys,
     mjApiKeys,
+    thirdPartyVideoApiKeys,
+    thirdPartyVideoProviderConfig,
     scriptProviderEnabled,
     mjProviderEnabled,
     scriptModelOverrides,
@@ -494,6 +506,8 @@ export function SettingsDialog({
     setScriptProviderApiKey,
     setStoryboardProviderApiKey,
     setMjProviderApiKey,
+    setThirdPartyVideoProviderApiKey,
+    setThirdPartyVideoProviderConfig,
     setScriptProviderEnabled,
     setMjProviderEnabled,
     setScriptModelOverride,
@@ -596,6 +610,10 @@ export function SettingsDialog({
   const [localScriptApiKeys, setLocalScriptApiKeys] = useState<Record<string, string>>(scriptApiKeys);
   const [localStoryboardApiKeys, setLocalStoryboardApiKeys] = useState<Record<string, string>>(storyboardApiKeys);
   const [localMjApiKeys, setLocalMjApiKeys] = useState<Record<string, string>>(mjApiKeys);
+  const [localThirdPartyVideoApiKeys, setLocalThirdPartyVideoApiKeys] = useState<Record<ThirdPartyVideoProviderId, string>>(thirdPartyVideoApiKeys);
+  const [localThirdPartyVideoBaseUrl, setLocalThirdPartyVideoBaseUrl] = useState(
+    thirdPartyVideoProviderConfig.gptBest.baseUrl
+  );
   const [localGrsaiNanoBananaProModel, setLocalGrsaiNanoBananaProModel] = useState(
    hrsaiNanoBananaProModel
   );
@@ -608,6 +626,8 @@ export function SettingsDialog({
   const [selectedMjProvider, setSelectedMjProvider] = useState<string>(
     mjProviderEnabled || mjProviders[0]?.id || ''
   );
+  const [selectedThirdPartyVideoProvider, setSelectedThirdPartyVideoProvider] =
+    useState<ThirdPartyVideoProviderId>(THIRD_PARTY_VIDEO_PROVIDER_ID);
   const [localScriptModelOverrides, setLocalScriptModelOverrides] =
     useState<Record<string, string>>(scriptModelOverrides);
   const [localScriptProviderCustomModels, setLocalScriptProviderCustomModels] =
@@ -773,6 +793,8 @@ export function SettingsDialog({
     setLocalScriptApiKeys(scriptApiKeys);
     setLocalStoryboardApiKeys(storyboardApiKeys);
     setLocalMjApiKeys(mjApiKeys);
+    setLocalThirdPartyVideoApiKeys(thirdPartyVideoApiKeys);
+    setLocalThirdPartyVideoBaseUrl(thirdPartyVideoProviderConfig.gptBest.baseUrl);
     setLocalDownloadPresetPaths(downloadPresetPaths);
     setLocalGrsaiNanoBananaProModel(hrsaiNanoBananaProModel);
     setLocalScriptProviderEnabled(scriptProviderEnabled);
@@ -831,6 +853,8 @@ export function SettingsDialog({
     scriptApiKeys,
     storyboardApiKeys,
     mjApiKeys,
+    thirdPartyVideoApiKeys,
+    thirdPartyVideoProviderConfig,
     downloadPresetPaths,
     hrsaiNanoBananaProModel,
     scriptProviderEnabled,
@@ -906,6 +930,11 @@ export function SettingsDialog({
       && mjProviders.some((provider) => provider.id === initialProviderId)
     ) {
       setSelectedMjProvider(initialProviderId);
+      return;
+    }
+
+    if (initialProviderTab === 'thirdPartyVideo' && initialProviderId === THIRD_PARTY_VIDEO_PROVIDER_ID) {
+      setSelectedThirdPartyVideoProvider(THIRD_PARTY_VIDEO_PROVIDER_ID);
     }
   }, [
     initialProviderId,
@@ -935,6 +964,9 @@ export function SettingsDialog({
   }, [localMjProviderEnabled, mjProviders, selectedMjProvider]);
 
   useEffect(() => {
+    if (localProviderTab === 'thirdPartyVideo') {
+      return;
+    }
     const selectedProviderId =
       localProviderTab === 'script'
         ? selectedScriptProvider
@@ -1471,6 +1503,11 @@ export function SettingsDialog({
         setMjProviderApiKey(provider.id, localMjApiKeys[provider.id] ?? '');
       }
     });
+    setThirdPartyVideoProviderApiKey(
+      THIRD_PARTY_VIDEO_PROVIDER_ID,
+      localThirdPartyVideoApiKeys[THIRD_PARTY_VIDEO_PROVIDER_ID] ?? ''
+    );
+    setThirdPartyVideoProviderConfig({ baseUrl: localThirdPartyVideoBaseUrl });
     setGrsaiNanoBananaProModel(localGrsaiNanoBananaProModel);
     setScriptProviderEnabled(localScriptProviderEnabled);
     setMjProviderEnabled(
@@ -1539,6 +1576,8 @@ export function SettingsDialog({
     localScriptApiKeys,
     localStoryboardApiKeys,
     localMjApiKeys,
+    localThirdPartyVideoApiKeys,
+    localThirdPartyVideoBaseUrl,
     localDownloadPresetPaths,
     localGrsaiNanoBananaProModel,
     localUseUploadFilenameAsNodeTitle,
@@ -1579,6 +1618,8 @@ export function SettingsDialog({
     setScriptProviderApiKey,
     setStoryboardProviderApiKey,
     setMjProviderApiKey,
+    setThirdPartyVideoProviderApiKey,
+    setThirdPartyVideoProviderConfig,
     setGrsaiNanoBananaProModel,
     setScriptProviderEnabled,
     setMjProviderEnabled,
@@ -1927,6 +1968,16 @@ export function SettingsDialog({
                     >
                       {t('settings.mjApiEnabled')}
                     </button>
+                    <button
+                      onClick={() => setLocalProviderTab('thirdPartyVideo')}
+                      className={`px-4 py-2 text-sm font-medium rounded-t transition-colors ${
+                        localProviderTab === 'thirdPartyVideo'
+                          ? 'bg-surface-dark text-text-dark border-t border-l border-r border-border-dark -mb-px'
+                          : 'text-text-muted hover:text-text-dark'
+                      }`}
+                    >
+                      {t('settings.thirdPartyVideoApiEnabled')}
+                    </button>
                   </div>
                 </div>
 
@@ -1936,7 +1987,34 @@ export function SettingsDialog({
                       {t('settings.providerList')}
                     </div>
                     <nav className="flex-1 overflow-y-auto ui-scrollbar">
-                        {(
+                      {localProviderTab === 'thirdPartyVideo' ? (
+                        <button
+                          key={THIRD_PARTY_VIDEO_PROVIDER.id}
+                          onClick={() => setSelectedThirdPartyVideoProvider(THIRD_PARTY_VIDEO_PROVIDER_ID)}
+                          className={`ml-2 flex w-[calc(100%-8px)] items-center gap-2 rounded-l-md px-3 py-2 text-left transition-colors ${
+                            selectedThirdPartyVideoProvider === THIRD_PARTY_VIDEO_PROVIDER_ID
+                              ? 'border-l-2 border-accent bg-accent/10 text-text-dark'
+                              : 'text-text-muted hover:bg-surface-dark hover:text-text-dark'
+                          }`}
+                        >
+                          <span
+                            className={`h-2 w-2 shrink-0 rounded-full ${
+                              (localThirdPartyVideoApiKeys.gptBest ?? '').trim()
+                                ? 'bg-green-500'
+                                : 'bg-border-dark'
+                            }`}
+                            title={
+                              (localThirdPartyVideoApiKeys.gptBest ?? '').trim()
+                                ? t('settings.keyConfigured')
+                                : t('settings.keyNotConfigured')
+                            }
+                          />
+                          <span className="min-w-0 flex-1 truncate text-xs">
+                            {THIRD_PARTY_VIDEO_PROVIDER.label}
+                          </span>
+                        </button>
+                      ) : (
+                        (
                           localProviderTab === 'script'
                             ? scriptProviderGroups
                             : localProviderTab === 'storyboard'
@@ -2062,7 +2140,8 @@ export function SettingsDialog({
                               )}
                             </div>
                           );
-                        })}
+                        })
+                      )}
                     </nav>
                     <nav className="hidden">
                       {false && (
@@ -2134,6 +2213,114 @@ export function SettingsDialog({
 
                   <div className="flex-1 overflow-y-auto ui-scrollbar p-5">
                     {(() => {
+                      if (localProviderTab === 'thirdPartyVideo') {
+                        const currentApiKey =
+                          localThirdPartyVideoApiKeys[THIRD_PARTY_VIDEO_PROVIDER_ID] ?? '';
+                        const revealKey = `${localProviderTab}:${THIRD_PARTY_VIDEO_PROVIDER_ID}`;
+                        const isRevealed = Boolean(revealedApiKeys[revealKey]);
+                        const hasKey = Boolean(currentApiKey.trim());
+                        const hasBaseUrl = Boolean(localThirdPartyVideoBaseUrl.trim());
+
+                        return (
+                          <div className="space-y-4">
+                            <div className="flex items-center justify-between">
+                              <div className="flex items-center gap-3">
+                                <span
+                                  className={`h-3 w-3 rounded-full ${
+                                    hasKey && hasBaseUrl ? 'bg-green-500' : 'bg-border-dark'
+                                  }`}
+                                />
+                                <h3 className="text-base font-medium text-text-dark">
+                                  {THIRD_PARTY_VIDEO_PROVIDER.label}
+                                </h3>
+                                {hasKey && hasBaseUrl ? (
+                                  <span className="rounded bg-green-500/10 px-2 py-0.5 text-xs text-green-500">
+                                    {t('settings.keyConfigured')}
+                                  </span>
+                                ) : null}
+                              </div>
+                            </div>
+
+                            <div className="rounded-lg border border-border-dark bg-bg-dark p-4">
+                              <div className="mb-2 text-xs font-medium text-text-dark">
+                                {t('settings.apiKey')}
+                              </div>
+                              <p className="mb-3 text-xs leading-5 text-text-muted">
+                                {t('settings.thirdPartyVideoGptBestDesc')}
+                              </p>
+                              <div className="relative">
+                                <input
+                                  type={isRevealed ? 'text' : 'password'}
+                                  value={currentApiKey}
+                                  onChange={(event) =>
+                                    setLocalThirdPartyVideoApiKeys((previous) => ({
+                                      ...previous,
+                                      [THIRD_PARTY_VIDEO_PROVIDER_ID]: event.target.value,
+                                    }))
+                                  }
+                                  placeholder={t('settings.enterApiKey')}
+                                  className="w-full rounded border border-border-dark bg-surface-dark px-3 py-2 pr-20 text-sm text-text-dark placeholder:text-text-muted"
+                                />
+                                <div className="absolute right-2 top-1/2 flex -translate-y-1/2 items-center gap-1">
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setLocalThirdPartyVideoApiKeys((previous) => ({
+                                        ...previous,
+                                        [THIRD_PARTY_VIDEO_PROVIDER_ID]: '',
+                                      }));
+                                      setRevealedApiKeys((previous) => ({
+                                        ...previous,
+                                        [revealKey]: false,
+                                      }));
+                                    }}
+                                    disabled={!currentApiKey}
+                                    title={`${t('common.delete')} ${t('settings.apiKey')}`}
+                                    aria-label={`${t('common.delete')} ${t('settings.apiKey')}`}
+                                    className="rounded p-1 hover:bg-bg-dark disabled:cursor-not-allowed disabled:opacity-40"
+                                  >
+                                    <X className="h-4 w-4 text-text-muted" />
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() =>
+                                      setRevealedApiKeys((previous) => ({
+                                        ...previous,
+                                        [revealKey]: !isRevealed,
+                                      }))
+                                    }
+                                    className="rounded p-1 hover:bg-bg-dark"
+                                  >
+                                    {isRevealed ? (
+                                      <EyeOff className="h-4 w-4 text-text-muted" />
+                                    ) : (
+                                      <Eye className="h-4 w-4 text-text-muted" />
+                                    )}
+                                  </button>
+                                </div>
+                              </div>
+                            </div>
+
+                            <div className="rounded-lg border border-border-dark bg-bg-dark p-4">
+                              <div className="mb-2 text-xs font-medium text-text-dark">
+                                {t('settings.thirdPartyVideoBaseUrl')}
+                              </div>
+                              <input
+                                value={localThirdPartyVideoBaseUrl}
+                                onChange={(event) =>
+                                  setLocalThirdPartyVideoBaseUrl(event.target.value)
+                                }
+                                placeholder="https://your-gpt-best-host"
+                                className="w-full rounded border border-border-dark bg-surface-dark px-3 py-2 text-sm text-text-dark placeholder:text-text-muted"
+                              />
+                              <p className="mt-2 text-xs leading-5 text-text-muted">
+                                {t('settings.thirdPartyVideoBaseUrlHint')}
+                              </p>
+                            </div>
+                          </div>
+                        );
+                      }
+
                         const selectedProviderId =
                           localProviderTab === 'script'
                             ? selectedScriptProvider

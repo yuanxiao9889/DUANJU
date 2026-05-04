@@ -32,7 +32,9 @@ interface ScriptWelcomeDialogProps {
 type WelcomeMode = 'select' | 'import' | 'create';
 
 const INITIAL_FORM: StoryPlannerInput = {
+  mode: 'guided',
   premise: '',
+  outlineText: '',
   protagonist: '',
   want: '',
   stakes: '',
@@ -131,8 +133,10 @@ export function ScriptWelcomeDialog({
   }, [updateForm]);
 
   const canGenerateStory = useMemo(() => {
-    return form.premise.trim().length > 0;
-  }, [form.premise]);
+    return form.mode === 'outline'
+      ? Boolean(form.outlineText?.trim())
+      : form.premise.trim().length > 0;
+  }, [form.mode, form.outlineText, form.premise]);
 
   const importFormatLabels = useMemo<Record<ScriptImportFormat, string>>(() => ({
     txt: t('script.storyStart.importFormatTxt'),
@@ -636,6 +640,67 @@ export function ScriptWelcomeDialog({
                 </div>
               ) : null}
 
+              <div className="mb-4 grid grid-cols-2 gap-2 rounded-xl border border-border-dark bg-bg-dark/45 p-1">
+                <button
+                  type="button"
+                  onClick={() => updateForm('mode', 'guided')}
+                  className={`rounded-lg px-3 py-2 text-sm font-medium transition-colors ${
+                    form.mode === 'outline'
+                      ? 'text-text-muted hover:bg-white/5 hover:text-text-dark'
+                      : 'bg-amber-500/15 text-amber-200 shadow-[0_0_0_1px_rgba(245,158,11,0.16)]'
+                  }`}
+                >
+                  {t('script.storyStart.guidedTab')}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => updateForm('mode', 'outline')}
+                  className={`rounded-lg px-3 py-2 text-sm font-medium transition-colors ${
+                    form.mode === 'outline'
+                      ? 'bg-amber-500/15 text-amber-200 shadow-[0_0_0_1px_rgba(245,158,11,0.16)]'
+                      : 'text-text-muted hover:bg-white/5 hover:text-text-dark'
+                  }`}
+                >
+                  {t('script.storyStart.outlineTab')}
+                </button>
+              </div>
+
+              {form.mode === 'outline' ? (
+                <div className="space-y-4">
+                  <div className="rounded-xl border border-amber-500/20 bg-amber-500/8 px-3 py-2 text-xs leading-6 text-amber-100/80">
+                    {t('script.storyStart.outlineModeDesc')}
+                  </div>
+
+                  <label className="block">
+                    <span className="mb-1.5 block text-sm font-medium text-text-dark">
+                      {t('script.storyStart.outlineText')}
+                    </span>
+                    <textarea
+                      value={form.outlineText ?? ''}
+                      onChange={(event) => updateForm('outlineText', event.target.value)}
+                      rows={14}
+                      placeholder={t('script.storyStart.outlineTextPlaceholder')}
+                      className="w-full resize-none rounded-xl border border-border-dark bg-bg-dark px-3 py-2 text-sm leading-6 text-text-dark outline-none transition-colors placeholder:text-text-muted/60 focus:border-amber-500/45"
+                    />
+                  </label>
+
+                  <label className="block">
+                    <span className="mb-1.5 block text-sm font-medium text-text-dark">
+                      {t('script.storyStart.chapterCount')}
+                    </span>
+                    <div className="rounded-xl border border-border-dark bg-bg-dark px-3 py-2">
+                      <input
+                        type="number"
+                        min={1}
+                        step={1}
+                        value={form.chapterCount}
+                        onChange={(event) => handleChapterCountChange(event.target.value)}
+                        className="w-full bg-transparent text-sm font-medium text-amber-300 outline-none [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
+                      />
+                    </div>
+                  </label>
+                </div>
+              ) : (
               <div className="space-y-4">
                 <label className="block">
                   <span className="mb-1.5 block text-sm font-medium text-text-dark">
@@ -773,6 +838,7 @@ export function ScriptWelcomeDialog({
                   />
                 </label>
               </div>
+              )}
 
               <div className="mt-5 flex gap-3">
                 <UiButton variant="ghost" onClick={() => setMode('select')}>

@@ -23,6 +23,7 @@ import {
   createManualEpisodeCard,
   generateEpisodesFromSceneNode,
 } from '@/features/canvas/application/sceneEpisodeGenerator';
+import { collectConnectedScriptCharacterNotes } from '@/features/canvas/application/scriptCharacterNotes';
 import { collectEnabledScriptStoryNotes } from '@/features/canvas/application/scriptStoryNotes';
 import { useCanvasStore } from '@/stores/canvasStore';
 import { useScriptEditorStore } from '@/stores/scriptEditorStore';
@@ -68,6 +69,7 @@ export const ScriptSceneNode = memo(({
 }: ScriptSceneNodeProps) => {
   const { t } = useTranslation();
   const nodes = useCanvasStore((state) => state.nodes);
+  const edges = useCanvasStore((state) => state.edges);
   const updateNodeData = useCanvasStore((state) => state.updateNodeData);
   const setSelectedNode = useCanvasStore((state) => state.setSelectedNode);
   const focusSceneNode = useScriptEditorStore((state) => state.focusSceneNode);
@@ -116,10 +118,12 @@ export const ScriptSceneNode = memo(({
         ? Math.max(1, data.episodes.length || 3)
         : Math.max(3, data.episodes.length);
       const storyNotes = collectEnabledScriptStoryNotes(nodes);
+      const characterNotes = collectConnectedScriptCharacterNotes(id, nodes, edges);
       const nextEpisodes = await generateEpisodesFromSceneNode(data, sourceChapterData, {
         episodeCount: defaultCount,
         sourceDraftLabel: t('script.sceneWorkbench.generatedSourceLabel'),
         storyNotes,
+        characterNotes,
       });
       updateNodeData(id, { episodes: nextEpisodes }, { historyMode: 'skip' });
       openWorkbench(nextEpisodes[0]?.id ?? null);
@@ -128,7 +132,7 @@ export const ScriptSceneNode = memo(({
     } finally {
       setIsGenerating(false);
     }
-  }, [data, id, nodes, openWorkbench, sourceChapterData, t, updateNodeData]);
+  }, [data, edges, id, nodes, openWorkbench, sourceChapterData, t, updateNodeData]);
 
   return (
     <div

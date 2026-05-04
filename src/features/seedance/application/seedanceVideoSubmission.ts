@@ -31,6 +31,10 @@ import {
   normalizeSeedanceModelId,
   normalizeSeedanceResolution,
 } from '@/features/seedance/domain/seedanceOptions';
+import {
+  isSeedanceAssetUri,
+  normalizeSeedanceAssetUri,
+} from '@/features/seedance/domain/seedanceAssetUri';
 
 export const SEEDANCE_RESULT_POLL_INTERVAL_MS = 2_500;
 const SEEDANCE_REFERENCE_IMAGE_MAX_DIMENSION = 1600;
@@ -128,9 +132,13 @@ async function prepareReferenceImages(sources: string[] | undefined): Promise<st
   }
 
   return await Promise.all(
-    uniqueSources.map((source) =>
-      createPreviewDataUrl(source, SEEDANCE_REFERENCE_IMAGE_MAX_DIMENSION)
-    )
+    uniqueSources.map((source) => {
+      if (isSeedanceAssetUri(source)) {
+        return Promise.resolve(normalizeSeedanceAssetUri(source) ?? source.trim());
+      }
+
+      return createPreviewDataUrl(source, SEEDANCE_REFERENCE_IMAGE_MAX_DIMENSION);
+    })
   );
 }
 

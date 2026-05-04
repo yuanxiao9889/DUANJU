@@ -31,6 +31,9 @@ export const CANVAS_NODE_TYPES = {
   jimengVideoResult: 'jimengVideoResultNode',
   seedance: 'seedanceNode',
   seedanceVideoResult: 'seedanceVideoResultNode',
+  gptBestSeedance: 'gptBestSeedanceNode',
+  gptBestGrokVideo: 'gptBestGrokVideoNode',
+  gptBestVideoResult: 'gptBestVideoResultNode',
   legacy: 'legacyNode',
   exportImage: 'exportImageNode',
   textAnnotation: 'textAnnotationNode',
@@ -117,6 +120,14 @@ export const SEEDANCE_VIDEO_RESULT_NODE_DEFAULT_WIDTH = 520;
 export const SEEDANCE_VIDEO_RESULT_NODE_DEFAULT_HEIGHT = 388;
 export const SEEDANCE_VIDEO_RESULT_NODE_MIN_WIDTH = 360;
 export const SEEDANCE_VIDEO_RESULT_NODE_MIN_HEIGHT = 280;
+export const GPT_BEST_VIDEO_NODE_DEFAULT_WIDTH = 920;
+export const GPT_BEST_VIDEO_NODE_DEFAULT_HEIGHT = 560;
+export const GPT_BEST_VIDEO_NODE_MIN_WIDTH = 760;
+export const GPT_BEST_VIDEO_NODE_MIN_HEIGHT = 440;
+export const GPT_BEST_VIDEO_RESULT_NODE_DEFAULT_WIDTH = 520;
+export const GPT_BEST_VIDEO_RESULT_NODE_DEFAULT_HEIGHT = 388;
+export const GPT_BEST_VIDEO_RESULT_NODE_MIN_WIDTH = 360;
+export const GPT_BEST_VIDEO_RESULT_NODE_MIN_HEIGHT = 280;
 export const AUDIO_NODE_DEFAULT_WIDTH = 320;
 export const AUDIO_NODE_DEFAULT_HEIGHT = 96;
 export const TTS_TEXT_NODE_DEFAULT_WIDTH = 500;
@@ -234,6 +245,27 @@ export const SEEDANCE_ASPECT_RATIOS = [
 ] as const;
 export const SEEDANCE_DURATION_SECONDS = [-1, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15] as const;
 export const SEEDANCE_RESOLUTIONS = ['480p', '720p'] as const;
+export const GPT_BEST_VIDEO_SOURCE_KINDS = ['seedance', 'grok'] as const;
+export const GPT_BEST_SEEDANCE_INPUT_MODES = [
+  'textToVideo',
+  'firstFrame',
+  'firstLastFrame',
+] as const;
+export const GPT_BEST_VIDEO_ASPECT_RATIOS = [
+  '16:9',
+  '9:16',
+  '1:1',
+  '4:3',
+  '3:4',
+  '21:9',
+] as const;
+export const GPT_BEST_VIDEO_DURATION_SECONDS = [5, 10] as const;
+export const GPT_BEST_VIDEO_RESOLUTIONS = ['720p', '1080p'] as const;
+export const GPT_BEST_SEEDANCE_MODEL_IDS = [
+  'doubao-seedance-2-0-260128',
+  'doubao-seedance-2-0-fast-260128',
+] as const;
+export const GPT_BEST_GROK_VIDEO_MODEL_IDS = ['grok-video-3'] as const;
 export const SEEDVR2_IMAGE_TARGET_RESOLUTIONS = [1080, 1440, 2160] as const;
 export const SEEDVR2_VIDEO_TARGET_RESOLUTIONS = [720, 1080, 1440] as const;
 
@@ -252,6 +284,13 @@ export type SeedanceInputMode = (typeof SEEDANCE_INPUT_MODES)[number];
 export type SeedanceAspectRatio = (typeof SEEDANCE_ASPECT_RATIOS)[number];
 export type SeedanceDurationSeconds = (typeof SEEDANCE_DURATION_SECONDS)[number];
 export type SeedanceResolution = (typeof SEEDANCE_RESOLUTIONS)[number];
+export type GptBestVideoSourceKind = (typeof GPT_BEST_VIDEO_SOURCE_KINDS)[number];
+export type GptBestSeedanceInputMode = (typeof GPT_BEST_SEEDANCE_INPUT_MODES)[number];
+export type GptBestVideoAspectRatio = (typeof GPT_BEST_VIDEO_ASPECT_RATIOS)[number];
+export type GptBestVideoDurationSeconds = (typeof GPT_BEST_VIDEO_DURATION_SECONDS)[number];
+export type GptBestVideoResolution = (typeof GPT_BEST_VIDEO_RESOLUTIONS)[number];
+export type GptBestSeedanceModelId = (typeof GPT_BEST_SEEDANCE_MODEL_IDS)[number];
+export type GptBestGrokVideoModelId = (typeof GPT_BEST_GROK_VIDEO_MODEL_IDS)[number];
 export type Seedvr2ImageTargetResolution = (typeof SEEDVR2_IMAGE_TARGET_RESOLUTIONS)[number];
 export type Seedvr2VideoTargetResolution = (typeof SEEDVR2_VIDEO_TARGET_RESOLUTIONS)[number];
 
@@ -937,6 +976,53 @@ export interface SeedanceVideoResultNodeData extends NodeDisplayData {
   duration?: number;
   generateAudio?: boolean;
   returnLastFrame?: boolean;
+  isGenerating?: boolean;
+  generationStartedAt?: number | null;
+  generationDurationMs?: number;
+  lastGeneratedAt?: number | null;
+  lastError?: string | null;
+}
+
+export interface GptBestVideoNodeData extends NodeDisplayData {
+  prompt: string;
+  sourceKind: GptBestVideoSourceKind;
+  modelId: string;
+  inputMode?: GptBestSeedanceInputMode;
+  aspectRatio: GptBestVideoAspectRatio;
+  durationSeconds: GptBestVideoDurationSeconds;
+  resolution: GptBestVideoResolution;
+  isSubmitting?: boolean;
+  lastSubmittedAt?: number | null;
+  lastError?: string | null;
+}
+
+export interface GptBestVideoRequestSnapshot {
+  provider: 'gptBest';
+  sourceKind: GptBestVideoSourceKind;
+  modelId: string;
+  prompt: string;
+  imageCount: number;
+  aspectRatio: string;
+  durationSeconds: number;
+  resolution: string;
+  submittedAt: number;
+}
+
+export interface GptBestVideoResultNodeData extends NodeDisplayData {
+  sourceNodeId?: string | null;
+  provider?: 'gptBest';
+  sourceKind: GptBestVideoSourceKind;
+  taskId?: string | null;
+  taskStatus?: string | null;
+  taskUpdatedAt?: number | null;
+  modelId?: string | null;
+  videoUrl: string | null;
+  previewImageUrl?: string | null;
+  videoFileName?: string | null;
+  aspectRatio: string;
+  resolution?: string | null;
+  duration?: number;
+  requestSnapshot?: GptBestVideoRequestSnapshot | null;
   isGenerating?: boolean;
   generationStartedAt?: number | null;
   generationDurationMs?: number;
@@ -2144,6 +2230,13 @@ export interface ScriptStoryNotePromptEntry {
   content: string;
 }
 
+export interface ScriptCharacterPromptEntry {
+  name: string;
+  description: string;
+  personality: string;
+  appearance: string;
+}
+
 export interface AdProjectRootNodeData extends NodeDisplayData, AdProjectRootState {}
 
 export type CanvasNodeData =
@@ -2168,6 +2261,8 @@ export type CanvasNodeData =
   | JimengVideoResultNodeData
   | SeedanceNodeData
   | SeedanceVideoResultNodeData
+  | GptBestVideoNodeData
+  | GptBestVideoResultNodeData
   | StoryboardSplitNodeData
   | StoryboardSplitResultNodeData
   | StoryboardGenNodeData
@@ -3164,6 +3259,20 @@ export function normalizeScriptSceneNodeData(data: ScriptSceneNodeData): ScriptS
   };
 }
 
+export function normalizeScriptCharacterNodeData(
+  data: ScriptCharacterNodeData
+): ScriptCharacterNodeData {
+  return {
+    ...data,
+    name: normalizeString(data.name),
+    description: normalizeString(data.description),
+    personality: normalizeString(data.personality),
+    appearance: normalizeString(data.appearance),
+    statusUpdates: Array.isArray(data.statusUpdates) ? data.statusUpdates : [],
+    relationships: Array.isArray(data.relationships) ? data.relationships : [],
+  };
+}
+
 export function normalizeScriptStoryNoteNodeData(
   data: ScriptStoryNoteNodeData
 ): ScriptStoryNoteNodeData {
@@ -3410,6 +3519,24 @@ export function isSeedanceVideoResultNode(
   return node?.type === CANVAS_NODE_TYPES.seedanceVideoResult;
 }
 
+export function isGptBestSeedanceNode(
+  node: CanvasNode | null | undefined
+): node is Node<GptBestVideoNodeData, typeof CANVAS_NODE_TYPES.gptBestSeedance> {
+  return node?.type === CANVAS_NODE_TYPES.gptBestSeedance;
+}
+
+export function isGptBestGrokVideoNode(
+  node: CanvasNode | null | undefined
+): node is Node<GptBestVideoNodeData, typeof CANVAS_NODE_TYPES.gptBestGrokVideo> {
+  return node?.type === CANVAS_NODE_TYPES.gptBestGrokVideo;
+}
+
+export function isGptBestVideoResultNode(
+  node: CanvasNode | null | undefined
+): node is Node<GptBestVideoResultNodeData, typeof CANVAS_NODE_TYPES.gptBestVideoResult> {
+  return node?.type === CANVAS_NODE_TYPES.gptBestVideoResult;
+}
+
 export function isExportImageNode(
   node: CanvasNode | null | undefined
 ): node is Node<ExportImageNodeData, typeof CANVAS_NODE_TYPES.exportImage> {
@@ -3476,6 +3603,7 @@ export function nodeSupportsDescriptionPanel(
     || isVideoNode(node)
     || isJimengVideoResultNode(node)
     || isSeedanceVideoResultNode(node)
+    || isGptBestVideoResultNode(node)
     || isAudioNode(node)
   );
 }
@@ -3767,7 +3895,12 @@ export function resolveSingleVideoConnectionSource(
     return null;
   }
 
-  if (isVideoNode(node) || isJimengVideoResultNode(node) || isSeedanceVideoResultNode(node)) {
+  if (
+    isVideoNode(node)
+    || isJimengVideoResultNode(node)
+    || isSeedanceVideoResultNode(node)
+    || isGptBestVideoResultNode(node)
+  ) {
     const videoUrl = normalizeVideoSource(node.data.videoUrl);
     if (!videoUrl) {
       return null;

@@ -213,9 +213,10 @@ export function AssetSearchPanel({
         return true;
       }
 
-      return [item.name, item.description, ...item.tags].join(' ').toLowerCase().includes(
-        normalizedSearch
-      );
+      return [item.name, item.description, item.sourcePath, ...item.tags]
+        .join(' ')
+        .toLowerCase()
+        .includes(normalizedSearch);
     });
 
     nextItems.sort((left, right) => {

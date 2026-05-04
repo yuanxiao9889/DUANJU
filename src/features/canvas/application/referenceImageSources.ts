@@ -1,4 +1,8 @@
 import { resolveReadableImageSource } from './imageData';
+import {
+  isSeedanceAssetUri,
+  normalizeSeedanceAssetUri,
+} from '@/features/seedance/domain/seedanceAssetUri';
 
 export interface ReferenceImageSourceCandidate {
   referenceUrl?: string | null | undefined;
@@ -22,10 +26,13 @@ export async function resolveReadableReferenceImageSources(
       continue;
     }
 
-    const resolvedSource = await resolveReadableImageSource(
-      source || fallback,
-      fallback || null
-    );
+    const sourceToResolve = source || fallback;
+    const resolvedSource = isSeedanceAssetUri(sourceToResolve)
+      ? normalizeSeedanceAssetUri(sourceToResolve) ?? sourceToResolve
+      : await resolveReadableImageSource(
+          sourceToResolve,
+          fallback || null
+        );
     const normalizedSource = resolvedSource.trim();
     if (!normalizedSource || seenSources.has(normalizedSource)) {
       continue;

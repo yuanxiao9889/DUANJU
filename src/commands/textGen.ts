@@ -14,7 +14,11 @@ import {
   buildUserFacingLanguageInstruction,
   detectUserContentLanguage,
 } from '@/features/app/contentLanguage';
-import type { ScriptStoryNotePromptEntry, StoryBeat } from '@/features/canvas/domain/canvasNodes';
+import type {
+  ScriptCharacterPromptEntry,
+  ScriptStoryNotePromptEntry,
+  StoryBeat,
+} from '@/features/canvas/domain/canvasNodes';
 import { openSettingsDialog } from '@/features/settings/settingsEvents';
 import { useSettingsStore } from '@/stores/settingsStore';
 
@@ -544,6 +548,7 @@ export interface SummaryExpandRequest {
   continuityContext?: SummaryExpandContinuityContext | null;
   storyRoot?: SummaryExpandStoryRootContext | null;
   storyNotes?: ScriptStoryNotePromptEntry[];
+  characterNotes?: ScriptCharacterPromptEntry[];
   instruction?: string;
   model?: string;
 }
@@ -559,6 +564,7 @@ export interface SceneEpisodeGenerationRequest {
   chapterTitle?: string;
   chapterSummary?: string;
   storyNotes?: ScriptStoryNotePromptEntry[];
+  characterNotes?: ScriptCharacterPromptEntry[];
   sceneTitle: string;
   sceneSummary?: string;
   purpose?: string;
@@ -732,6 +738,32 @@ function formatStoryNotesPromptBlock(
     : emptyText;
 }
 
+function formatCharacterNotesPromptBlock(
+  characterNotes: ScriptCharacterPromptEntry[] | undefined,
+  emptyText = 'None'
+): string {
+  if (!Array.isArray(characterNotes) || characterNotes.length === 0) {
+    return emptyText;
+  }
+
+  const normalizedNotes = characterNotes
+    .map((note, index) => {
+      const name = normalizeNonEmptyString(note?.name) || `Character ${index + 1}`;
+      const lines = [
+        `[${index + 1}] ${name}`,
+        `- Description: ${trimOrFallback(note?.description)}`,
+        `- Personality: ${trimOrFallback(note?.personality)}`,
+        `- Appearance: ${trimOrFallback(note?.appearance)}`,
+      ];
+      return lines.join('\n');
+    })
+    .filter((note): note is string => Boolean(note));
+
+  return normalizedNotes.length > 0
+    ? normalizedNotes.join('\n\n')
+    : emptyText;
+}
+
 function resolveSummaryExpandExpectedCharacterNames(request: SummaryExpandRequest): string[] {
   const scenes = normalizeSummaryExpandScenes(request.scenes);
   return dedupeTrimmedStrings(
@@ -739,6 +771,7 @@ function resolveSummaryExpandExpectedCharacterNames(request: SummaryExpandReques
       request.storyRoot?.protagonist,
       ...(request.storyRoot?.characterLibraryNames ?? []),
       ...(request.characters ?? []),
+      ...(request.characterNotes ?? []).map((note) => note.name),
       ...scenes.map((scene) => scene.povCharacter),
     ],
     16
@@ -854,6 +887,7 @@ function resolveBalancedSummaryExpandExpectedCharacterNames(request: SummaryExpa
       request.storyRoot?.protagonist,
       ...(request.storyRoot?.characterLibraryNames ?? []),
       ...(request.characters ?? []),
+      ...(request.characterNotes ?? []).map((note) => note.name),
       ...scenes.map((scene) => scene.povCharacter),
     ],
     BALANCED_SUMMARY_EXPAND_CHARACTER_LIMIT
@@ -1016,6 +1050,7 @@ function buildBalancedSummaryExpandPrompt(
     request.continuityContext,
     request.storyRoot,
     request.storyNotes,
+    request.characterNotes,
     request.instruction,
   ]);
 
@@ -1047,6 +1082,9 @@ function buildBalancedSummaryExpandPrompt(
     '',
     'Story reference notes:',
     formatStoryNotesPromptBlock(request.storyNotes),
+    '',
+    'Character role references:',
+    formatCharacterNotesPromptBlock(request.characterNotes),
     '',
     'Current chapter scaffold:',
     `- Chapter title: ${trimOrFallback(request.chapterTitle, 'Untitled Chapter')}`,
@@ -1100,6 +1138,9 @@ function buildBalancedSummaryExpandValidationPrompt(
     '',
     'Story reference notes:',
     formatStoryNotesPromptBlock(request.storyNotes),
+    '',
+    'Character role references:',
+    formatCharacterNotesPromptBlock(request.characterNotes),
     '',
     'Current chapter scaffold:',
     `- Chapter title: ${trimOrFallback(request.chapterTitle, 'Untitled Chapter')}`,
@@ -1417,6 +1458,9 @@ export async function generateSceneEpisodes(
     '',
     '故事参考：',
     formatStoryNotesPromptBlock(request.storyNotes, '无'),
+    '',
+    '人物角色参考：',
+    formatCharacterNotesPromptBlock(request.characterNotes, '无'),
     '',
     '场景上下文：',
     `- 场景标题：${sceneTitle}`,

@@ -1358,6 +1358,14 @@ export function Canvas() {
         return false;
       }
 
+      if (
+        sourceNode.type === CANVAS_NODE_TYPES.scriptCharacter
+        && targetNode.type !== CANVAS_NODE_TYPES.scriptChapter
+        && targetNode.type !== CANVAS_NODE_TYPES.scriptScene
+      ) {
+        return false;
+      }
+
       if (targetNode.type === CANVAS_NODE_TYPES.panorama360) {
         if (!canNodeServeAsPanoramaInputSource(sourceNode)) {
           return false;

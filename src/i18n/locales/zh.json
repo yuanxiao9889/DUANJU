@@ -515,6 +515,9 @@
       "jimengImageResult": "即梦四宫格",
       "seedanceVideo": "官方 Seedance 2.0 视频",
       "seedanceVideoResult": "Seedance 视频结果",
+      "gptBestSeedanceVideo": "第三方 Seedance 2.0",
+      "gptBestGrokVideo": "第三方 Grok 视频",
+      "gptBestVideoResult": "第三方视频结果",
       "scriptReference": "脚本引用",
       "adScriptReference": "广告脚本引用",
       "scriptCharacterReference": "角色引用",
@@ -1494,6 +1497,7 @@
       "referenceVideoDurationLimit": "视频参考总时长必须控制在 {{seconds}} 秒以内。",
       "referenceAudioDurationLimit": "音频参考总时长必须控制在 {{seconds}} 秒以内。",
       "referenceAudioNeedsVisual": "音频参考不能单独提交，请至少再连接 1 个图片或视频参考。",
+      "seedanceOfficialAssetReferenceModeOnly": "官方真人 Asset ID 只能作为参考模式的图片参考使用，请将 Seedance 输入模式切换为参考模式后再生成。",
       "inputModes": {
         "textToVideo": "文生视频",
         "firstFrame": "首帧",
@@ -1593,6 +1597,82 @@
         "failed": "失败",
         "cancelled": "已取消",
         "expired": "已过期",
+        "unknown": "状态未知"
+      }
+    },
+    "gptBestVideo": {
+      "promptRequired": "请输入第三方视频生成提示词",
+      "apiKeyRequired": "请先在设置的“第三方视频”中填写 GPT-Best API Key",
+      "baseUrlRequired": "请先在设置的“第三方视频”中填写 GPT-Best Base URL",
+      "seedancePromptPlaceholder": "描述场景、动作、构图和节奏，用于第三方 Seedance 2.0 视频生成",
+      "grokPromptPlaceholder": "描述视频内容，可在提示词中用 @img1、@img2 引用连接的参考图",
+      "submit": "生成视频",
+      "submitting": "提交中",
+      "submitFailed": "第三方视频生成提交失败",
+      "optimizePrompt": "优化视频提示词",
+      "optimizingPrompt": "正在优化视频提示词",
+      "optimizePromptFailed": "视频提示词优化失败",
+      "undoOptimizedPrompt": "撤销优化提示词",
+      "resultNodeTitle": "生成结果",
+      "inputModeLabel": "模式",
+      "modelLabel": "模型",
+      "aspectRatioLabel": "比例",
+      "durationLabel": "时长",
+      "resolutionLabel": "清晰度",
+      "referenceImages": "{{count}} 张参考图",
+      "referenceImageAlt": "参考图 {{index}}",
+      "noReferences": "连接上游图片后，可作为图生视频参考。",
+      "lastSubmitted": "上次提交 {{time}}",
+      "textToVideoNoReferences": "文生视频模式不能连接参考图，请断开上游图片或切换模式。",
+      "firstFrameRequiresOneImage": "首帧图生视频需要正好 1 张参考图。",
+      "firstLastFrameRequiresTwoImages": "首尾帧图生视频需要正好 2 张参考图。",
+      "grokImageLimit": "Grok 视频最多支持 {{count}} 张参考图。",
+      "grokModeHint": "Grok 视频可使用提示词，也可连接参考图并用 @img1、@img2 引用。",
+      "modeHints": {
+        "textToVideo": "文生视频只使用提示词，提交前请断开参考图。",
+        "firstFrame": "连接 1 张图片作为首帧参考。",
+        "firstLastFrame": "连接 2 张图片作为首尾帧参考。"
+      },
+      "inputModes": {
+        "textToVideo": "文生视频",
+        "firstFrame": "首帧图生",
+        "firstLastFrame": "首尾帧"
+      },
+      "modelOptions": {
+        "doubao-seedance-2-0-260128": "Seedance 2.0",
+        "doubao-seedance-2-0-fast-260128": "Seedance 2.0 Fast",
+        "grok-video-3": "Grok Video 3"
+      },
+      "aspectRatios": {
+        "16:9": "16:9",
+        "9:16": "9:16",
+        "1:1": "1:1",
+        "4:3": "4:3",
+        "3:4": "3:4",
+        "21:9": "21:9"
+      },
+      "durations": {
+        "5": "5 秒",
+        "10": "10 秒"
+      },
+      "resolutions": {
+        "720p": "720p",
+        "1080p": "1080p"
+      }
+    },
+    "gptBestVideoResult": {
+      "empty": "等待第三方视频返回结果。",
+      "ready": "已回传",
+      "statusQueued": "任务排队中，等待第三方视频服务开始处理。",
+      "statusRunning": "第三方视频服务正在生成视频。",
+      "requery": "重新查询",
+      "requeryUnavailable": "当前第三方视频结果节点还没有可用的 task_id，暂时无法重新查询结果。",
+      "requeryFailed": "重新查询第三方视频结果失败",
+      "taskStatuses": {
+        "queued": "排队中",
+        "running": "生成中",
+        "succeeded": "已完成",
+        "failed": "失败",
         "unknown": "状态未知"
       }
     },
@@ -2217,6 +2297,24 @@
     "preparingAudio": "正在准备音频...",
     "selectImage": "选择图片",
     "selectAudio": "选择音频",
+    "selectSeedanceOfficialPreviewImage": "选择本地预览图",
+    "sourceModes": {
+      "localImage": "本地图片",
+      "seedanceOfficial": "官方真人 Asset ID"
+    },
+    "seedanceOfficialTitle": "官方真人 Asset ID",
+    "seedanceOfficialSummary": "用户在火山方舟完成真人认证和素材入库后，把官方 Asset ID 填到这里；生成时会直接发送 asset://ID。",
+    "seedanceOfficialAssetId": "Asset ID",
+    "seedanceOfficialAssetIdPlaceholder": "输入 Asset ID 或 asset://Asset ID",
+    "seedanceOfficialInvalidAssetId": "请输入有效的 Asset ID，不能包含空格。",
+    "seedanceOfficialGuideStep1": "1. 去官方页面录入真人形象素材并完成认证授权。",
+    "seedanceOfficialGuideStep2": "2. 在虚拟人像库确认素材可用于真人参考。",
+    "seedanceOfficialGuideStep3": "3. 复制官方 Asset ID，保存后拖到画布并连接 Seedance 参考模式。",
+    "seedanceOfficialDocsEntry": "录入真人形象素材",
+    "seedanceOfficialDocsLimits": "查看真人参考限制",
+    "seedanceOfficialPreview": "官方真人资产",
+    "seedanceOfficialBadge": "官方真人",
+    "seedanceOfficialLocalPreviewBadge": "本地预览",
     "previewAlt": "资产预览",
     "previewEmpty": "请先选择图片",
     "previewAudioEmpty": "请先选择音频",
@@ -2500,6 +2598,10 @@
     "scriptApiEnabled": "剧本 API",
     "storyboardApiEnabled": "分镜 API",
     "mjApiEnabled": "MJ API",
+    "thirdPartyVideoApiEnabled": "第三方视频",
+    "thirdPartyVideoGptBestDesc": "GPT-Best 的 Seedance 2.0 和 Grok 视频节点共用这组密钥。",
+    "thirdPartyVideoBaseUrl": "Base URL",
+    "thirdPartyVideoBaseUrlHint": "填写 GPT-Best 工作台提供的 Base URL；调用时会自动拼接 /v2/videos/generations。",
     "scriptApiDisabled": "未启用",
     "storyboardApiDisabled": "未启用",
     "scriptApiDesc": "选择用于剧本生成的 API 提供商",
@@ -3289,6 +3391,11 @@
       "createSubtitle": "给出故事前提，让 AI 先搭好章节和场景结构。",
       "createCardTitle": "生成故事骨架",
       "createCardDesc": "回答几个关键问题，先得到一版带导演视角的章节与场景结构。",
+      "guidedTab": "问题引导",
+      "outlineTab": "我的大纲",
+      "outlineModeDesc": "把你已有的大纲交给 AI 整理成章节骨架。AI 会保留主线顺序，并按章节数拆成可继续扩写的结构。",
+      "outlineText": "故事大纲",
+      "outlineTextPlaceholder": "粘贴或输入你的故事大纲、剧情梗概、章节草案、人物线索等内容。AI 会按你设置的章节数整理成故事骨架。",
       "importCardTitle": "导入剧本 / 恢复工程包",
       "importCardDesc": "既可以导入 TXT、Markdown、Fountain、FDX、DOCX 等剧本文档，也可以直接恢复完整工程包。",
       "backToProjects": "返回项目管理",

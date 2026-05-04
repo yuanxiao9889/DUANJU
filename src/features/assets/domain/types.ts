@@ -25,8 +25,16 @@ export interface VoicePresetAssetMetadata {
   savedAt?: number | null;
 }
 
+export interface SeedanceOfficialAssetMetadata {
+  kind: 'realPersonImage';
+  assetId: string;
+  uri: string;
+  savedAt?: number | null;
+}
+
 export interface AssetMetadata {
   voicePreset?: VoicePresetAssetMetadata;
+  seedanceOfficial?: SeedanceOfficialAssetMetadata;
   [key: string]: unknown;
 }
 
@@ -212,6 +220,45 @@ export function isReusableVoicePresetAsset(item: AssetItemRecord): boolean {
   }
 
   return resolveVoicePresetAssetMetadata(item) !== null;
+}
+
+export function resolveSeedanceOfficialAssetMetadata(
+  value: AssetItemRecord | AssetMetadata | null | undefined
+): SeedanceOfficialAssetMetadata | null {
+  const metadata = isObjectRecord(value)
+    ? ('metadata' in value ? value.metadata : value)
+    : null;
+  if (!isObjectRecord(metadata)) {
+    return null;
+  }
+
+  const seedanceOfficial = metadata.seedanceOfficial;
+  if (!isObjectRecord(seedanceOfficial)) {
+    return null;
+  }
+
+  const kind = normalizeText(seedanceOfficial.kind);
+  const assetId = normalizeText(seedanceOfficial.assetId);
+  const uri = normalizeText(seedanceOfficial.uri);
+  if (kind !== 'realPersonImage' || !assetId || !uri) {
+    return null;
+  }
+
+  return {
+    kind: 'realPersonImage',
+    assetId,
+    uri,
+    savedAt:
+      typeof seedanceOfficial.savedAt === 'number' && Number.isFinite(seedanceOfficial.savedAt)
+        ? seedanceOfficial.savedAt
+        : null,
+  };
+}
+
+export function isSeedanceOfficialAsset(item: AssetItemRecord): boolean {
+  return item.category === 'character'
+    && item.mediaType === 'image'
+    && resolveSeedanceOfficialAssetMetadata(item) !== null;
 }
 
 export function getAssetCategoryOrder(category: AssetCategory): number {

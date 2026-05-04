@@ -2,7 +2,9 @@ import { generateText } from '@/commands/textGen';
 import type { StoryBeatKey } from '../domain/canvasNodes';
 
 export interface StoryPlannerInput {
+  mode?: 'guided' | 'outline';
   premise: string;
+  outlineText?: string;
   protagonist: string;
   want: string;
   stakes: string;
@@ -283,6 +285,7 @@ function toFiniteNumber(value: unknown, fallback: number): number {
 
 function detectPlannerLocale(input: StoryPlannerInput): StoryPlannerLocale {
   const values = [
+    input.outlineText,
     input.premise,
     input.protagonist,
     input.want,
@@ -294,18 +297,24 @@ function detectPlannerLocale(input: StoryPlannerInput): StoryPlannerLocale {
     input.worldviewDescription,
   ];
 
-  return values.some((value) => CHINESE_TEXT_PATTERN.test(value))
+  return values.some((value) => typeof value === 'string' && CHINESE_TEXT_PATTERN.test(value))
     ? 'zh'
     : 'en';
 }
 
+function getPrimaryStoryText(input: StoryPlannerInput): string {
+  return input.mode === 'outline'
+    ? normalizeString(input.outlineText)
+    : normalizeString(input.premise);
+}
+
 function deriveFallbackTitle(input: StoryPlannerInput, locale: StoryPlannerLocale): string {
-  const trimmedPremise = input.premise.trim();
-  if (!trimmedPremise) {
+  const primaryText = getPrimaryStoryText(input);
+  if (!primaryText) {
     return STORY_PLANNER_COPY[locale].untitledStory;
   }
 
-  return trimmedPremise.slice(0, 36);
+  return primaryText.slice(0, 36);
 }
 
 function deriveChapterTitle(index: number, locale: StoryPlannerLocale): string {
@@ -512,7 +521,7 @@ function buildFallbackPlan(input: StoryPlannerInput, locale: StoryPlannerLocale)
   return {
     title: deriveFallbackTitle(input, locale),
     genre: input.genre || copy.genreFallback,
-    premise: input.premise,
+    premise: input.premise || getPrimaryStoryText(input),
     theme: input.theme,
     protagonist: input.protagonist,
     want: input.want,
@@ -569,7 +578,7 @@ function normalizePlan(
       payload.genre,
       input.genre || copy.genreFallback
     ),
-    premise: normalizeString(payload.premise, input.premise),
+    premise: normalizeString(payload.premise, input.premise || getPrimaryStoryText(input)),
     theme: normalizeString(payload.theme, input.theme),
     protagonist: normalizeString(payload.protagonist, input.protagonist),
     want: normalizeString(payload.want, input.want),
@@ -597,7 +606,7 @@ function computeStoryPlanMaxTokens(chapterCount: number): number {
   return Math.min(4096, 1400 + Math.max(1, chapterCount) * 350);
 }
 
-function buildPrompt(input: StoryPlannerInput, locale: StoryPlannerLocale): string {
+function buildGuidedPrompt(input: StoryPlannerInput, locale: StoryPlannerLocale): string {
   const copy = STORY_PLANNER_COPY[locale];
   const includeWorldview = input.worldviewDescription.trim().length > 0;
   const worldviewSection = includeWorldview
@@ -647,6 +656,50 @@ function buildPrompt(input: StoryPlannerInput, locale: StoryPlannerLocale): stri
     'Minimal example:',
     `{"title":"${copy.untitledStory}","genre":"${input.genre || copy.genreFallback}","premise":"${input.premise || copy.notSpecified}","theme":"${input.theme || copy.notSpecified}","protagonist":"${input.protagonist || copy.notSpecified}","want":"${input.want || copy.notSpecified}","need":"...","stakes":"${input.stakes || copy.notSpecified}","tone":"${input.tone || copy.notSpecified}","directorVision":"${input.directorVision || copy.notSpecified}","beats":[{"key":"opening","title":"${copy.beatCopy.opening.title}","summary":"...","dramaticQuestion":"..."}],"chapters":[{"number":1,"title":"${copy.chapterTitle(0)}","summary":"${copy.fallbackChapterSummary.first}","chapterPurpose":"${copy.chapterPurpose.first}","chapterQuestion":"${copy.chapterQuestion.middle}","scenes":[{"title":"${copy.sceneTitle(0, 0)}","summary":"...","purpose":"...","povCharacter":"...","goal":"...","conflict":"...","turn":"..."},{"title":"${copy.sceneTitle(0, 1)}","summary":"...","purpose":"...","povCharacter":"...","goal":"...","conflict":"...","turn":"..."}]}]}`,
   ].join('\n');
+}
+
+function buildOutlinePrompt(input: StoryPlannerInput, locale: StoryPlannerLocale): string {
+  const copy = STORY_PLANNER_COPY[locale];
+  const outlineText = normalizeString(input.outlineText);
+
+  return [
+    'You are a story planner who turns user-provided outlines into a clean, usable script skeleton.',
+    'Respect the user outline as the source of truth. Do not replace its main premise, major characters, or core sequence with a different story.',
+    'Infer missing story-profile fields only when they are not explicit in the outline.',
+    copy.languageInstruction,
+    'Return JSON only. Do not include markdown or commentary.',
+    '',
+    'User outline:',
+    outlineText || copy.notSpecified,
+    '',
+    `Requested chapter count: ${input.chapterCount}`,
+    '',
+    'Output requirements:',
+    `1. Return exactly ${input.chapterCount} chapters.`,
+    '2. Each chapter must contain exactly 2 scene cards.',
+    '3. Derive `title`, `genre`, `premise`, `theme`, `protagonist`, `want`, `need`, `stakes`, `tone`, `directorVision`, and `beats` from the outline whenever possible.',
+    '4. Chapters should follow the outline order and preserve the original cause-and-effect chain.',
+    '5. Each scene card must only contain: `title`, `summary`, `purpose`, `povCharacter`, `goal`, `conflict`, `turn`.',
+    '6. Include a compact `worldview` object only if the outline clearly contains world/setting information worth preserving.',
+    '',
+    'Required top-level fields:',
+    '`title`, `genre`, `premise`, `theme`, `protagonist`, `want`, `need`, `stakes`, `tone`, `directorVision`, `beats`, `chapters`.',
+    'Required beat item fields:',
+    '`key`, `title`, `summary`, `dramaticQuestion`.',
+    'Required chapter item fields:',
+    '`number`, `title`, `summary`, `chapterPurpose`, `chapterQuestion`, `scenes`.',
+    'Required scene item fields:',
+    '`title`, `summary`, `purpose`, `povCharacter`, `goal`, `conflict`, `turn`.',
+    '',
+    'Minimal example:',
+    `{"title":"${copy.untitledStory}","genre":"${copy.genreFallback}","premise":"...","theme":"...","protagonist":"...","want":"...","need":"...","stakes":"...","tone":"...","directorVision":"...","beats":[{"key":"opening","title":"${copy.beatCopy.opening.title}","summary":"...","dramaticQuestion":"..."}],"chapters":[{"number":1,"title":"${copy.chapterTitle(0)}","summary":"...","chapterPurpose":"...","chapterQuestion":"...","scenes":[{"title":"${copy.sceneTitle(0, 0)}","summary":"...","purpose":"...","povCharacter":"...","goal":"...","conflict":"...","turn":"..."},{"title":"${copy.sceneTitle(0, 1)}","summary":"...","purpose":"...","povCharacter":"...","goal":"...","conflict":"...","turn":"..."}]}]}`,
+  ].join('\n');
+}
+
+function buildPrompt(input: StoryPlannerInput, locale: StoryPlannerLocale): string {
+  return input.mode === 'outline'
+    ? buildOutlinePrompt(input, locale)
+    : buildGuidedPrompt(input, locale);
 }
 
 export async function planStory(input: StoryPlannerInput): Promise<StoryPlan> {

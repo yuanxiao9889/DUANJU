@@ -11,6 +11,7 @@ import {
   getSortedScriptChapterNodes,
   resolveSceneContinuityMemory,
 } from '@/features/canvas/application/sceneContinuity';
+import { collectConnectedScriptCharacterNotes } from '@/features/canvas/application/scriptCharacterNotes';
 import { collectEnabledScriptStoryNotes } from '@/features/canvas/application/scriptStoryNotes';
 import { AiWriterDialog } from '@/features/canvas/ui/AiWriterDialog';
 import { NodeHeader, NODE_HEADER_FLOATING_POSITION_CLASS } from '@/features/canvas/ui/NodeHeader';
@@ -349,6 +350,10 @@ export const ScriptChapterNode = memo(({ id, data, selected, width, height }: Sc
     [mergedBranchNodes],
   );
   const storyNotes = useMemo(() => collectEnabledScriptStoryNotes(nodes), [nodes]);
+  const characterNotes = useMemo(
+    () => collectConnectedScriptCharacterNotes(id, nodes, edges),
+    [edges, id, nodes]
+  );
   const summaryExpandContext = useMemo<Omit<SummaryExpandRequest, 'instruction'>>(() => ({
     summary: data.summary || '',
     chapterTitle: data.title || resolvedTitle || '未命名章节',
@@ -374,6 +379,7 @@ export const ScriptChapterNode = memo(({ id, data, selected, width, height }: Sc
     nextChapterSummary: adjacentChapterSummaries.nextChapterSummary,
     continuityContext: chapterContinuityContext,
     storyNotes,
+    characterNotes,
     storyRoot: storyRootData
       ? {
         title: storyRootData.title || storyRootData.displayName || '',
@@ -398,6 +404,7 @@ export const ScriptChapterNode = memo(({ id, data, selected, width, height }: Sc
   }), [
     adjacentChapterSummaries.nextChapterSummary,
     adjacentChapterSummaries.previousChapterSummary,
+    characterNotes,
     chapterContinuityContext,
     data.chapterNumber,
     data.chapterPurpose,

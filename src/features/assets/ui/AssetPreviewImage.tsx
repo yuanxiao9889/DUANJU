@@ -3,7 +3,9 @@ import { useEffect, useMemo, useRef } from 'react';
 import { resolveLocalFileSourcePath } from '@/features/canvas/application/imageData';
 import { useStableImageDisplaySource } from '@/features/canvas/hooks/useStableImageDisplaySource';
 import { CanvasNodeImage } from '@/features/canvas/ui/CanvasNodeImage';
+import { isSeedanceAssetUri } from '@/features/seedance/domain/seedanceAssetUri';
 import { useAssetStore } from '@/stores/assetStore';
+import { SeedanceOfficialAssetPlaceholder } from './SeedanceOfficialAssetPlaceholder';
 
 interface AssetPreviewImageProps {
   assetId: string;
@@ -28,9 +30,11 @@ export function AssetPreviewImage({
   const repairItemPreview = useAssetStore((state) => state.repairItemPreview);
   const normalizedPreviewSource = useMemo(() => normalizeSource(previewSource), [previewSource]);
   const normalizedSourceSource = useMemo(() => normalizeSource(sourceSource), [sourceSource]);
+  const isOfficialSeedanceAsset = isSeedanceAssetUri(normalizedSourceSource);
   const shouldRepairPreview = Boolean(
     assetId
     && normalizedSourceSource
+    && !isOfficialSeedanceAsset
     && resolveLocalFileSourcePath(normalizedSourceSource)
     && (!normalizedPreviewSource || normalizedPreviewSource !== normalizedSourceSource)
   );
@@ -69,6 +73,28 @@ export function AssetPreviewImage({
     repairItemPreview,
     shouldRepairPreview,
   ]);
+
+  if (isOfficialSeedanceAsset) {
+    if (normalizedPreviewSource) {
+      return (
+        <CanvasNodeImage
+          src={normalizedPreviewSource}
+          fallbackSrc={null}
+          disableViewer
+          alt={alt}
+          className={className}
+        />
+      );
+    }
+
+    return (
+      <SeedanceOfficialAssetPlaceholder
+        uri={normalizedSourceSource}
+        className={className}
+        compact
+      />
+    );
+  }
 
   return (
     <CanvasNodeImage

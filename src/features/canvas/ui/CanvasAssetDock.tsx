@@ -229,7 +229,7 @@ export function CanvasAssetDock() {
         return true;
       }
 
-      return [item.name, item.description, ...item.tags]
+      return [item.name, item.description, item.sourcePath, ...item.tags]
         .join(' ')
         .toLowerCase()
         .includes(normalizedSearch);

@@ -493,6 +493,9 @@
       "jimengVideoResult": "Jimeng Video Result",
       "seedanceVideo": "Official Seedance 2.0 Video",
       "seedanceVideoResult": "Seedance Video Result",
+      "gptBestSeedanceVideo": "Third-party Seedance 2.0",
+      "gptBestGrokVideo": "Third-party Grok Video",
+      "gptBestVideoResult": "Third-party Video Result",
       "storyboard": "Storyboard Compose",
       "storyboardCompose": "Storyboard Compose",
       "imageCollage": "Image Collage",
@@ -976,6 +979,7 @@
       "referenceVideoDurationLimit": "The combined video reference duration must stay within {{seconds}} seconds.",
       "referenceAudioDurationLimit": "The combined audio reference duration must stay within {{seconds}} seconds.",
       "referenceAudioNeedsVisual": "Audio references cannot be submitted alone. Add at least 1 image or video reference.",
+      "seedanceOfficialAssetReferenceModeOnly": "Official real-person Asset IDs can only be used as image references in Reference mode. Switch the Seedance input mode to Reference before generating.",
       "inputModes": {
         "textToVideo": "Text to Video",
         "firstFrame": "First Frame",
@@ -1131,6 +1135,82 @@
         "failed": "Failed",
         "cancelled": "Cancelled",
         "expired": "Expired",
+        "unknown": "Unknown"
+      }
+    },
+    "gptBestVideo": {
+      "promptRequired": "Please enter a prompt for third-party video generation",
+      "apiKeyRequired": "Please set the GPT-Best API key in Settings > Third-party Video",
+      "baseUrlRequired": "Please set the GPT-Best Base URL in Settings > Third-party Video",
+      "seedancePromptPlaceholder": "Describe the scene, motion, framing, and timing for third-party Seedance 2.0 video generation",
+      "grokPromptPlaceholder": "Describe the video. Use @img1, @img2, etc. to refer to connected reference images",
+      "submit": "Generate Video",
+      "submitting": "Submitting",
+      "submitFailed": "Failed to submit the third-party video task",
+      "optimizePrompt": "Optimize Video Prompt",
+      "optimizingPrompt": "Optimizing video prompt",
+      "optimizePromptFailed": "Video prompt optimization failed",
+      "undoOptimizedPrompt": "Undo optimized prompt",
+      "resultNodeTitle": "Generated Result",
+      "inputModeLabel": "Mode",
+      "modelLabel": "Model",
+      "aspectRatioLabel": "Ratio",
+      "durationLabel": "Duration",
+      "resolutionLabel": "Resolution",
+      "referenceImages": "{{count}} reference images",
+      "referenceImageAlt": "Reference image {{index}}",
+      "noReferences": "Connect upstream images to use them as image-to-video references.",
+      "lastSubmitted": "Submitted {{time}}",
+      "textToVideoNoReferences": "Text-to-video mode cannot use reference images. Disconnect upstream images or switch mode.",
+      "firstFrameRequiresOneImage": "First-frame mode requires exactly 1 reference image.",
+      "firstLastFrameRequiresTwoImages": "First/last-frame mode requires exactly 2 reference images.",
+      "grokImageLimit": "Grok video supports up to {{count}} reference images.",
+      "grokModeHint": "Grok video can use prompt-only generation or connected reference images with @img1, @img2 tags.",
+      "modeHints": {
+        "textToVideo": "Text-to-video uses only the prompt. Disconnect reference images before submitting.",
+        "firstFrame": "Connect 1 image as the first-frame reference.",
+        "firstLastFrame": "Connect 2 images as first/last-frame references."
+      },
+      "inputModes": {
+        "textToVideo": "Text to Video",
+        "firstFrame": "First Frame",
+        "firstLastFrame": "First/Last Frame"
+      },
+      "modelOptions": {
+        "doubao-seedance-2-0-260128": "Seedance 2.0",
+        "doubao-seedance-2-0-fast-260128": "Seedance 2.0 Fast",
+        "grok-video-3": "Grok Video 3"
+      },
+      "aspectRatios": {
+        "16:9": "16:9",
+        "9:16": "9:16",
+        "1:1": "1:1",
+        "4:3": "4:3",
+        "3:4": "3:4",
+        "21:9": "21:9"
+      },
+      "durations": {
+        "5": "5s",
+        "10": "10s"
+      },
+      "resolutions": {
+        "720p": "720p",
+        "1080p": "1080p"
+      }
+    },
+    "gptBestVideoResult": {
+      "empty": "Waiting for third-party video results.",
+      "ready": "Returned",
+      "statusQueued": "The task is queued and waiting for the third-party video service to start.",
+      "statusRunning": "The third-party video service is generating the video.",
+      "requery": "Re-query",
+      "requeryUnavailable": "This third-party video result node does not have a usable task ID yet.",
+      "requeryFailed": "Failed to re-query the third-party video result",
+      "taskStatuses": {
+        "queued": "Queued",
+        "running": "Generating",
+        "succeeded": "Completed",
+        "failed": "Failed",
         "unknown": "Unknown"
       }
     },
@@ -2509,6 +2589,24 @@
     "preparingAudio": "Preparing audio...",
     "selectImage": "Select Image",
     "selectAudio": "Select Audio",
+    "selectSeedanceOfficialPreviewImage": "Select Local Preview",
+    "sourceModes": {
+      "localImage": "Local Image",
+      "seedanceOfficial": "Official Asset ID"
+    },
+    "seedanceOfficialTitle": "Official Real-person Asset ID",
+    "seedanceOfficialSummary": "After the user completes real-person verification and asset ingestion in Volcengine, paste the official Asset ID here. Generation sends asset://ID directly.",
+    "seedanceOfficialAssetId": "Asset ID",
+    "seedanceOfficialAssetIdPlaceholder": "Enter Asset ID or asset://Asset ID",
+    "seedanceOfficialInvalidAssetId": "Enter a valid Asset ID without spaces.",
+    "seedanceOfficialGuideStep1": "1. Open the official page and complete real-person asset verification.",
+    "seedanceOfficialGuideStep2": "2. Confirm the asset is available for real-person reference in the avatar library.",
+    "seedanceOfficialGuideStep3": "3. Copy the official Asset ID, save it, then drag it to the canvas and connect it to Seedance Reference mode.",
+    "seedanceOfficialDocsEntry": "Real-person asset entry",
+    "seedanceOfficialDocsLimits": "Reference limits",
+    "seedanceOfficialPreview": "Official real-person asset",
+    "seedanceOfficialBadge": "Official person",
+    "seedanceOfficialLocalPreviewBadge": "Local preview",
     "previewAlt": "Asset preview",
     "previewEmpty": "Select an image",
     "previewAudioEmpty": "Select an audio file",
@@ -2739,6 +2837,10 @@
     "scriptApiEnabled": "Script API",
     "storyboardApiEnabled": "Storyboard API",
     "mjApiEnabled": "MJ API",
+    "thirdPartyVideoApiEnabled": "Third-party Video",
+    "thirdPartyVideoGptBestDesc": "GPT-Best Seedance 2.0 and Grok video nodes share this key.",
+    "thirdPartyVideoBaseUrl": "Base URL",
+    "thirdPartyVideoBaseUrlHint": "Use the Base URL from your GPT-Best dashboard. The app automatically appends /v2/videos/generations.",
     "scriptApiDisabled": "Disabled",
     "storyboardApiDisabled": "Disabled",
     "scriptApiDesc": "Select the API provider for script generation",
@@ -3528,6 +3630,11 @@
       "createSubtitle": "Give the story premise and let AI turn it into chapters and scenes.",
       "createCardTitle": "Generate Story Skeleton",
       "createCardDesc": "Answer a few high-value story questions and get a chapter-and-scene structure with some director thinking built in.",
+      "guidedTab": "Guided Questions",
+      "outlineTab": "My Outline",
+      "outlineModeDesc": "Give AI your existing outline and it will organize the main line into a chapter skeleton you can continue expanding.",
+      "outlineText": "Story Outline",
+      "outlineTextPlaceholder": "Paste or write your story outline, plot summary, chapter sketch, or character thread notes. AI will organize it into the chapter count you set.",
       "importCardTitle": "Import Script / Restore Package",
       "importCardDesc": "Import TXT, Markdown, Fountain, FDX, or DOCX drafts, or restore a complete project package in one step.",
       "backToProjects": "Back to Project Manager",

@@ -17,6 +17,11 @@ import { MjNode } from './MjNode';
 import { MjResultNode } from './MjResultNode';
 import { SeedanceNode } from './SeedanceNode';
 import { SeedanceVideoResultNode } from './SeedanceVideoResultNode';
+import {
+  GptBestGrokVideoNode,
+  GptBestSeedanceNode,
+} from './GptBestVideoNode';
+import { GptBestVideoResultNode } from './GptBestVideoResultNode';
 import { StoryboardGenNode } from './StoryboardGenNode';
 import { ImageCollageNode } from './ImageCollageNode';
 import { StoryboardNode } from './StoryboardNode';
@@ -68,6 +73,9 @@ export const nodeTypes: NodeTypes = {
   jimengNode: JimengNode,
   seedanceNode: SeedanceNode,
   seedanceVideoResultNode: SeedanceVideoResultNode,
+  gptBestSeedanceNode: GptBestSeedanceNode,
+  gptBestGrokVideoNode: GptBestGrokVideoNode,
+  gptBestVideoResultNode: GptBestVideoResultNode,
   storyboardGenNode: StoryboardGenNode,
   imageCollageNode: ImageCollageNode,
   storyboardNode: StoryboardNode,
@@ -118,6 +126,9 @@ export {
   JimengNode,
   SeedanceNode,
   SeedanceVideoResultNode,
+  GptBestSeedanceNode,
+  GptBestGrokVideoNode,
+  GptBestVideoResultNode,
   StoryboardGenNode, 
   ImageCollageNode,
   StoryboardNode, 

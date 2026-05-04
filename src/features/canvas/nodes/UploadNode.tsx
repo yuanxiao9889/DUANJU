@@ -42,6 +42,8 @@ import {
 } from '@/features/canvas/application/imageData';
 import { CanvasNodeImage } from '@/features/canvas/ui/CanvasNodeImage';
 import { ImageResolutionBadge } from '@/features/canvas/ui/ImageResolutionBadge';
+import { SeedanceOfficialAssetPlaceholder } from '@/features/assets/ui/SeedanceOfficialAssetPlaceholder';
+import { isSeedanceAssetUri } from '@/features/seedance/domain/seedanceAssetUri';
 import {
   NodeDescriptionPanel,
   NODE_DESCRIPTION_PANEL_EXPANDED_TOTAL_HEIGHT,
@@ -102,6 +104,7 @@ export const UploadNode = memo(({ id, data, selected, width }: UploadNodeProps) 
     stableLoaded: boolean;
   } | null>(null);
   const [transientPreviewUrl, setTransientPreviewUrl] = useState<string | null>(null);
+  const isSeedanceOfficialAsset = isSeedanceAssetUri(data.imageUrl);
   const resolvedAspectRatio = data.aspectRatio || '1:1';
   const compactSize = resolveMinEdgeFittedSize(resolvedAspectRatio, {
     minWidth: EXPORT_RESULT_NODE_MIN_WIDTH,
@@ -306,10 +309,22 @@ export const UploadNode = memo(({ id, data, selected, width }: UploadNodeProps) 
 
   const handleNodeClick = useCallback(() => {
     setSelectedNode(id);
-    if (!data.imageUrl && !data.previewImageUrl && !transientPreviewUrl) {
+    if (
+      !isSeedanceOfficialAsset
+      && !data.imageUrl
+      && !data.previewImageUrl
+      && !transientPreviewUrl
+    ) {
       inputRef.current?.click();
     }
-  }, [data.imageUrl, data.previewImageUrl, id, setSelectedNode, transientPreviewUrl]);
+  }, [
+    data.imageUrl,
+    data.previewImageUrl,
+    id,
+    isSeedanceOfficialAsset,
+    setSelectedNode,
+    transientPreviewUrl,
+  ]);
 
   useEffect(() => () => {
     uploadPerfRef.current = null;
@@ -368,7 +383,9 @@ export const UploadNode = memo(({ id, data, selected, width }: UploadNodeProps) 
   const nodeDescription =
     typeof data.nodeDescription === 'string' ? data.nodeDescription : '';
 
-  const dimensionSource = data.imageUrl ?? data.previewImageUrl ?? null;
+  const dimensionSource = isSeedanceOfficialAsset
+    ? data.previewImageUrl ?? null
+    : data.imageUrl ?? data.previewImageUrl ?? null;
 
   useEffect(() => {
     updateNodeInternals(id);
@@ -422,7 +439,32 @@ export const UploadNode = memo(({ id, data, selected, width }: UploadNodeProps) 
         onTitleChange={(nextTitle) => updateNodeData(id, { displayName: nextTitle })}
       />
 
-      {data.imageUrl || data.previewImageUrl || transientPreviewUrl ? (
+      {isSeedanceOfficialAsset ? (
+        <div
+          className="relative block min-h-0 flex-1 overflow-hidden rounded-[var(--node-radius)] bg-bg-dark"
+        >
+          {previewImageUrl ? (
+            <>
+              <CanvasNodeImage
+                src={previewImageUrl}
+                fallbackSrc={null}
+                viewerSourceUrl={previewImageUrl}
+                alt={t('node.upload.uploadedAlt')}
+                className="h-full w-full object-contain"
+              />
+              <div className="pointer-events-none absolute left-2 top-2 rounded-full border border-emerald-300/20 bg-black/55 px-2 py-1 text-[10px] font-medium text-emerald-100">
+                {t('assets.seedanceOfficialLocalPreviewBadge')}
+              </div>
+              <ImageResolutionBadge width={imageWidth} height={imageHeight} />
+            </>
+          ) : (
+            <SeedanceOfficialAssetPlaceholder
+              uri={data.imageUrl}
+              className="rounded-[var(--node-radius)]"
+            />
+          )}
+        </div>
+      ) : data.imageUrl || data.previewImageUrl || transientPreviewUrl ? (
         <div
           className="relative block min-h-0 flex-1 overflow-hidden rounded-[var(--node-radius)] bg-bg-dark"
         >

@@ -128,7 +128,7 @@ export function ScriptNodeCard({
 
   return (
     <div
-      className={`group relative flex flex-col overflow-hidden rounded-[18px] border bg-surface-dark shadow-[0_18px_34px_rgba(2,6,23,0.18)] transition-[border-color,box-shadow,transform] duration-200 ${
+      className={`group relative flex flex-col overflow-visible rounded-[18px] border bg-surface-dark shadow-[0_18px_34px_rgba(2,6,23,0.18)] transition-[border-color,box-shadow,transform] duration-200 ${
         selected ? accentClasses.selected : accentClasses.idle
       }`}
       style={{ width, minHeight, height }}

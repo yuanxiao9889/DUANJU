@@ -11,6 +11,7 @@ use commands::clip_library;
 use commands::dreamina_cli;
 use commands::extensions;
 use commands::generation_history;
+use commands::gpt_best_video;
 use commands::image;
 use commands::jimeng_video_queue;
 use commands::midjourney;
@@ -423,6 +424,8 @@ pub fn run() {
             commands::storage::open_storage_folder,
             seedance::create_seedance_video_task,
             seedance::get_seedance_video_task,
+            gpt_best_video::create_gpt_best_video_task,
+            gpt_best_video::get_gpt_best_video_task,
             ps_server::start_ps_server,
             ps_server::stop_ps_server,
             ps_server::get_ps_server_status,

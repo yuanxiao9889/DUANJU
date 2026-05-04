@@ -114,6 +114,10 @@ import {
   normalizeSeedanceInputMode,
   normalizeSeedanceModelId,
 } from "@/features/seedance/domain/seedanceOptions";
+import {
+  isSeedanceAssetUri,
+  normalizeSeedanceAssetUri,
+} from "@/features/seedance/domain/seedanceAssetUri";
 import { StyleTemplatePicker } from "@/features/project/StyleTemplatePicker";
 import { appendStyleTemplatePrompt } from "@/features/project/styleTemplatePrompt";
 import { useCanvasStore } from "@/stores/canvasStore";
@@ -820,13 +824,19 @@ export const SeedanceNode = memo(
     const referenceVisualItems = useMemo<ReferenceVisualItem[]>(
       () =>
         connectedVisuals.map((item, index) => {
+          const isOfficialSeedanceAsset =
+            item.kind === "image" && isSeedanceAssetUri(item.referenceUrl);
           const previewSource =
-            item.previewImageUrl?.trim() || item.referenceUrl.trim();
+            isOfficialSeedanceAsset
+              ? item.previewImageUrl?.trim() ?? ""
+              : item.previewImageUrl?.trim() || item.referenceUrl.trim();
           return {
             sourceEdgeId: item.sourceEdgeId,
             sourceNodeId: item.sourceNodeId,
             kind: item.kind,
-            referenceUrl: item.referenceUrl,
+            referenceUrl: isOfficialSeedanceAsset
+              ? normalizeSeedanceAssetUri(item.referenceUrl) ?? item.referenceUrl
+              : item.referenceUrl,
             previewImageUrl: item.previewImageUrl ?? null,
             displayUrl: previewSource
               ? previewSource
@@ -893,6 +903,10 @@ export const SeedanceNode = memo(
     const imageReferences = useMemo(
       () => referenceVisualItems.filter((item) => item.kind === "image"),
       [referenceVisualItems],
+    );
+    const hasSeedanceOfficialImageReferences = useMemo(
+      () => imageReferences.some((item) => isSeedanceAssetUri(item.referenceUrl)),
+      [imageReferences],
     );
     const videoReferences = useMemo(
       () => referenceVisualItems.filter((item) => item.kind === "video"),
@@ -1182,7 +1196,7 @@ export const SeedanceNode = memo(
             currentPrompt,
             referenceVisualItems
               .map((item, index) => {
-                if (item.kind !== "image") {
+                if (item.kind !== "image" || isSeedanceAssetUri(item.referenceUrl)) {
                   return null;
                 }
 
@@ -1206,7 +1220,10 @@ export const SeedanceNode = memo(
           prompt: currentPrompt,
           referenceImages: referenceVisualItems
             .map((item) => item.previewImageUrl ?? item.referenceUrl)
-            .filter((item): item is string => Boolean(item)),
+            .filter(
+              (item): item is string =>
+                Boolean(item) && !isSeedanceAssetUri(item),
+            ),
           referenceImageBindings: optimizationReferenceImageBindings,
         });
         if (promptValueRef.current !== sourcePrompt) {
@@ -1451,6 +1468,13 @@ export const SeedanceNode = memo(
         return t("node.seedance.promptRequired");
       }
 
+      if (
+        hasSeedanceOfficialImageReferences
+        && selectedInputMode !== "reference"
+      ) {
+        return t("node.seedance.seedanceOfficialAssetReferenceModeOnly");
+      }
+
       if (selectedInputMode === "textToVideo") {
         if (referenceVisualItems.length > 0 || referenceAudioItems.length > 0) {
           return t("node.seedance.textToVideoNoReferences");
@@ -1518,6 +1542,7 @@ export const SeedanceNode = memo(
     }, [
       apiKey,
       effectivePrompt,
+      hasSeedanceOfficialImageReferences,
       imageReferences.length,
       referenceAudioDuration,
       referenceAudioItems.length,
@@ -1946,7 +1971,9 @@ export const SeedanceNode = memo(
                             ? item.durationSeconds
                               ? formatVideoTime(item.durationSeconds)
                               : "VIDEO"
-                            : null
+                            : isSeedanceAssetUri(item.referenceUrl)
+                              ? t("assets.seedanceOfficialBadge")
+                              : null
                         }
                         isActive={
                           highlightedReferenceSourceNodeId === item.sourceNodeId

@@ -5,6 +5,7 @@ import {
 import {
   createDefaultEpisodeCard,
   type EpisodeCard,
+  type ScriptCharacterPromptEntry,
   type ScriptChapterNodeData,
   type ScriptSceneNodeData,
   type ScriptStoryNotePromptEntry,
@@ -14,6 +15,7 @@ interface GenerateEpisodesFromSceneOptions {
   episodeCount?: number;
   sourceDraftLabel?: string;
   storyNotes?: ScriptStoryNotePromptEntry[];
+  characterNotes?: ScriptCharacterPromptEntry[];
 }
 
 function escapeHtml(text: string): string {
@@ -139,6 +141,7 @@ export async function generateEpisodesFromSceneNode(
     chapterTitle: chapterData.title || chapterData.displayName || '',
     chapterSummary: chapterData.summary,
     storyNotes: options.storyNotes,
+    characterNotes: options.characterNotes,
     sceneTitle: sceneNode.title,
     sceneSummary: sceneNode.summary,
     purpose: sceneNode.purpose,

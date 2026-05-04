@@ -121,12 +121,27 @@ export type ThemeTonePreset = 'neutral' | 'warm' | 'cool';
 export type CanvasEdgeRoutingMode = 'spline' | 'orthogonal' | 'smartOrthogonal';
 export type ProviderApiKeys = Record<string, string>;
 export const DEFAULT_GRSAI_NANO_BANANA_PRO_MODEL = 'nano-banana-pro';
+export type ThirdPartyVideoProviderId = 'gptBest';
+
+export interface ThirdPartyVideoProviderConfig {
+  gptBest: {
+    baseUrl: string;
+  };
+}
+
+export const DEFAULT_THIRD_PARTY_VIDEO_PROVIDER_CONFIG: ThirdPartyVideoProviderConfig = {
+  gptBest: {
+    baseUrl: '',
+  },
+};
 
 interface SettingsState {
   isHydrated: boolean;
   scriptApiKeys: ProviderApiKeys;
   storyboardApiKeys: ProviderApiKeys;
   mjApiKeys: ProviderApiKeys;
+  thirdPartyVideoApiKeys: Record<ThirdPartyVideoProviderId, string>;
+  thirdPartyVideoProviderConfig: ThirdPartyVideoProviderConfig;
   scriptProviderEnabled: string;
   mjProviderEnabled: MidjourneyProviderId;
   scriptModelOverrides: Record<string, string>;
@@ -196,6 +211,13 @@ interface SettingsState {
   setScriptProviderApiKey: (providerId: string, key: string) => void;
   setStoryboardProviderApiKey: (providerId: string, key: string) => void;
   setMjProviderApiKey: (providerId: MidjourneyProviderId, key: string) => void;
+  setThirdPartyVideoProviderApiKey: (
+    providerId: ThirdPartyVideoProviderId,
+    key: string
+  ) => void;
+  setThirdPartyVideoProviderConfig: (
+    config: Partial<ThirdPartyVideoProviderConfig['gptBest']>
+  ) => void;
   setScriptProviderEnabled: (providerId: string) => void;
   setMjProviderEnabled: (providerId: MidjourneyProviderId) => void;
   setScriptModelOverride: (providerId: string, model: string) => void;
@@ -575,6 +597,24 @@ function normalizeApiKeys(input: ProviderApiKeys | null | undefined): ProviderAp
   }, {});
 }
 
+function normalizeThirdPartyVideoApiKeys(
+  input: Partial<Record<ThirdPartyVideoProviderId, string>> | null | undefined
+): Record<ThirdPartyVideoProviderId, string> {
+  return {
+    gptBest: normalizeApiKey(input?.gptBest ?? ''),
+  };
+}
+
+function normalizeThirdPartyVideoProviderConfig(
+  input: Partial<ThirdPartyVideoProviderConfig> | null | undefined
+): ThirdPartyVideoProviderConfig {
+  return {
+    gptBest: {
+      baseUrl: normalizeApiKey(input?.gptBest?.baseUrl ?? ''),
+    },
+  };
+}
+
 export function hasConfiguredApiKey(apiKeys: ProviderApiKeys): boolean {
   return getConfiguredApiKeyCount(apiKeys) > 0;
 }
@@ -599,6 +639,8 @@ export const useSettingsStore = create<SettingsState>()(
       scriptApiKeys: {},
       storyboardApiKeys: {},
       mjApiKeys: {},
+      thirdPartyVideoApiKeys: { gptBest: '' },
+      thirdPartyVideoProviderConfig: DEFAULT_THIRD_PARTY_VIDEO_PROVIDER_CONFIG,
       scriptProviderEnabled: 'alibaba',
       mjProviderEnabled: 'comfly',
       scriptModelOverrides: {
@@ -694,6 +736,23 @@ export const useSettingsStore = create<SettingsState>()(
             ...state.mjApiKeys,
             [providerId]: normalizeApiKey(key),
           },
+        })),
+      setThirdPartyVideoProviderApiKey: (providerId, key) =>
+        set((state) => ({
+          thirdPartyVideoApiKeys: {
+            ...state.thirdPartyVideoApiKeys,
+            [providerId]: normalizeApiKey(key),
+          },
+        })),
+      setThirdPartyVideoProviderConfig: (config) =>
+        set((state) => ({
+          thirdPartyVideoProviderConfig: normalizeThirdPartyVideoProviderConfig({
+            ...state.thirdPartyVideoProviderConfig,
+            gptBest: {
+              ...state.thirdPartyVideoProviderConfig.gptBest,
+              ...config,
+            },
+          }),
         })),
       setScriptProviderEnabled: (providerId) => set({ scriptProviderEnabled: providerId }),
       setMjProviderEnabled: (providerId) => set({ mjProviderEnabled: providerId }),
@@ -1519,7 +1578,7 @@ export const useSettingsStore = create<SettingsState>()(
     }),
     {
       name: 'settings-storage',
-      version: 42,
+      version: 43,
       onRehydrateStorage: () => {
         return (state, error) => {
           if (error) {
@@ -1541,6 +1600,8 @@ export const useSettingsStore = create<SettingsState>()(
           scriptApiKeys?: ProviderApiKeys;
           storyboardApiKeys?: ProviderApiKeys;
           mjApiKeys?: ProviderApiKeys;
+          thirdPartyVideoApiKeys?: Partial<Record<ThirdPartyVideoProviderId, string>>;
+          thirdPartyVideoProviderConfig?: Partial<ThirdPartyVideoProviderConfig>;
           scriptProviderEnabled?: string;
           mjProviderEnabled?: string;
           scriptModelOverrides?: Record<string, string>;
@@ -1603,6 +1664,11 @@ export const useSettingsStore = create<SettingsState>()(
         const migratedScriptApiKeys = normalizeApiKeys(state.scriptApiKeys);
         const migratedStoryboardApiKeys = normalizeApiKeys(state.storyboardApiKeys);
         const migratedMjApiKeys = normalizeApiKeys(state.mjApiKeys);
+        const migratedThirdPartyVideoApiKeys = normalizeThirdPartyVideoApiKeys(
+          state.thirdPartyVideoApiKeys
+        );
+        const normalizedThirdPartyVideoProviderConfig =
+          normalizeThirdPartyVideoProviderConfig(state.thirdPartyVideoProviderConfig);
         const fallbackApiKeys =
           Object.keys(migratedLegacyApiKeys).length > 0
             ? migratedLegacyApiKeys
@@ -1711,6 +1777,8 @@ export const useSettingsStore = create<SettingsState>()(
           scriptApiKeys: resolvedScriptApiKeys,
           storyboardApiKeys: resolvedStoryboardApiKeys,
           mjApiKeys: resolvedMjApiKeys,
+          thirdPartyVideoApiKeys: migratedThirdPartyVideoApiKeys,
+          thirdPartyVideoProviderConfig: normalizedThirdPartyVideoProviderConfig,
           scriptProviderEnabled: normalizedScriptProviderEnabled,
           mjProviderEnabled: normalizedMjProviderEnabled,
           scriptModelOverrides: normalizedScriptModelOverrides,
