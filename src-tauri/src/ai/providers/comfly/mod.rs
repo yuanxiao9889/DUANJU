@@ -577,7 +577,10 @@ impl ComflyProvider {
         }
 
         Self::extract_task_id(&payload).ok_or_else(|| {
-            AIError::Provider(format!("Comfly async response missing task_id: {}", payload))
+            AIError::Provider(format!(
+                "Comfly async response missing task_id: {}",
+                payload
+            ))
         })
     }
 
@@ -678,7 +681,10 @@ impl ComflyProvider {
         }
 
         Self::extract_task_id(&payload).ok_or_else(|| {
-            AIError::Provider(format!("Comfly async response missing task_id: {}", payload))
+            AIError::Provider(format!(
+                "Comfly async response missing task_id: {}",
+                payload
+            ))
         })
     }
 

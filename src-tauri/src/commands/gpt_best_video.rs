@@ -48,10 +48,10 @@ pub struct GetGptBestVideoTaskResponse {
 fn normalize_base_url(base_url: &str) -> Result<String, String> {
     let trimmed = base_url.trim().trim_end_matches('/');
     if trimmed.is_empty() {
-        return Err("GPT-Best Base URL is required".to_string());
+        return Err("Third-party video Base URL is required".to_string());
     }
     if !trimmed.starts_with("http://") && !trimmed.starts_with("https://") {
-        return Err("GPT-Best Base URL must start with http:// or https://".to_string());
+        return Err("Third-party video Base URL must start with http:// or https://".to_string());
     }
     Ok(trimmed.to_string())
 }
@@ -89,9 +89,11 @@ fn extract_string(payload: &Value, pointers: &[&str]) -> Option<String> {
 fn extract_i64(payload: &Value, pointers: &[&str]) -> Option<i64> {
     pointers.iter().find_map(|pointer| {
         payload.pointer(pointer).and_then(|value| {
-            value
-                .as_i64()
-                .or_else(|| value.as_str().and_then(|text| text.trim().parse::<i64>().ok()))
+            value.as_i64().or_else(|| {
+                value
+                    .as_str()
+                    .and_then(|text| text.trim().parse::<i64>().ok())
+            })
         })
     })
 }
@@ -145,10 +147,16 @@ fn extract_output_url(payload: &Value) -> Option<String> {
         return Some(value);
     }
 
-    let output = payload.pointer("/data/output").or_else(|| payload.pointer("/output"));
+    let output = payload
+        .pointer("/data/output")
+        .or_else(|| payload.pointer("/output"));
     if let Some(array) = output.and_then(Value::as_array) {
         return array.iter().find_map(|item| {
-            if let Some(url) = item.as_str().map(str::trim).filter(|value| !value.is_empty()) {
+            if let Some(url) = item
+                .as_str()
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+            {
                 return Some(url.to_string());
             }
             extract_string(item, &["/url", "/video_url"])
@@ -160,21 +168,26 @@ fn extract_output_url(payload: &Value) -> Option<String> {
 
 async fn parse_json_response(response: reqwest::Response, label: &str) -> Result<Value, String> {
     let status = response.status();
-    let response_text = response
-        .text()
-        .await
-        .map_err(|error| format!("Failed to read GPT-Best {} response: {}", label, error))?;
+    let response_text = response.text().await.map_err(|error| {
+        format!(
+            "Failed to read third-party video {} response: {}",
+            label, error
+        )
+    })?;
 
     let payload = serde_json::from_str::<Value>(&response_text).map_err(|error| {
         format!(
-            "Failed to parse GPT-Best {} response JSON: {}. Response was: {}",
+            "Failed to parse third-party video {} response JSON: {}. Response was: {}",
             label, error, response_text
         )
     })?;
 
     if !status.is_success() {
         return Err(extract_error_message(&payload).unwrap_or_else(|| {
-            format!("GPT-Best {} API returned {}: {}", label, status, payload)
+            format!(
+                "Third-party video {} API returned {}: {}",
+                label, status, payload
+            )
         }));
     }
 
@@ -187,18 +200,18 @@ pub async fn create_gpt_best_video_task(
 ) -> Result<CreateGptBestVideoTaskResponse, String> {
     let api_key = payload.api_key.trim();
     if api_key.is_empty() {
-        return Err("GPT-Best API key is required".to_string());
+        return Err("Third-party video API key is required".to_string());
     }
 
     let base_url = normalize_base_url(&payload.base_url)?;
     let model = payload.model.trim();
     if model.is_empty() {
-        return Err("GPT-Best video model is required".to_string());
+        return Err("Third-party video model is required".to_string());
     }
 
     let prompt = payload.prompt.trim();
     if prompt.is_empty() {
-        return Err("GPT-Best video prompt is required".to_string());
+        return Err("Third-party video prompt is required".to_string());
     }
 
     let mut body = Map::new();
@@ -235,13 +248,18 @@ pub async fn create_gpt_best_video_task(
         .json(&Value::Object(body))
         .send()
         .await
-        .map_err(|error| format!("Failed to call GPT-Best create video task API: {}", error))?;
+        .map_err(|error| {
+            format!(
+                "Failed to call third-party video create task API: {}",
+                error
+            )
+        })?;
 
     let response_payload = parse_json_response(response, "create video task").await?;
     let task_id = extract_task_id(&response_payload).ok_or_else(|| {
         extract_error_message(&response_payload).unwrap_or_else(|| {
             format!(
-                "GPT-Best create video task response did not include task_id: {}",
+                "Third-party video create task response did not include task_id: {}",
                 response_payload
             )
         })
@@ -256,13 +274,13 @@ pub async fn get_gpt_best_video_task(
 ) -> Result<GetGptBestVideoTaskResponse, String> {
     let api_key = payload.api_key.trim();
     if api_key.is_empty() {
-        return Err("GPT-Best API key is required".to_string());
+        return Err("Third-party video API key is required".to_string());
     }
 
     let base_url = normalize_base_url(&payload.base_url)?;
     let task_id = payload.task_id.trim();
     if task_id.is_empty() {
-        return Err("GPT-Best task_id is required".to_string());
+        return Err("Third-party video task_id is required".to_string());
     }
 
     let client = Client::new();
@@ -272,10 +290,11 @@ pub async fn get_gpt_best_video_task(
         .header("Authorization", format!("Bearer {}", api_key))
         .send()
         .await
-        .map_err(|error| format!("Failed to call GPT-Best query video task API: {}", error))?;
+        .map_err(|error| format!("Failed to call third-party video query task API: {}", error))?;
 
     let response_payload = parse_json_response(response, "query video task").await?;
-    let resolved_task_id = extract_task_id(&response_payload).unwrap_or_else(|| task_id.to_string());
+    let resolved_task_id =
+        extract_task_id(&response_payload).unwrap_or_else(|| task_id.to_string());
 
     Ok(GetGptBestVideoTaskResponse {
         task_id: resolved_task_id,

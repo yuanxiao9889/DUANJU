@@ -1559,8 +1559,10 @@ export function Canvas() {
         error?: string | null;
       }
     ) => {
-      const errorMessage =
+      const rawErrorMessage =
         status.error ?? (status.status === 'not_found' ? 'generation job not found' : 'generation failed');
+      const resolvedError = resolveErrorContent(rawErrorMessage, t('ai.error'));
+      const errorMessage = resolvedError.message;
       const generationClientSessionId =
         typeof currentData.generationClientSessionId === 'string'
           ? currentData.generationClientSessionId
@@ -1570,10 +1572,14 @@ export function Canvas() {
       if (shouldShowDialog) {
         const reportText = buildGenerationErrorReport({
           errorMessage,
-          errorDetails: status.error ?? undefined,
+          errorDetails: resolvedError.details ?? status.error ?? undefined,
           context: currentData.generationDebugContext,
+          errorCategory: resolvedError.category,
+          statusCode: resolvedError.statusCode,
+          traceId: resolvedError.traceId,
+          requestId: resolvedError.requestId,
         });
-        void showErrorDialog(errorMessage, t('common.error'), status.error ?? undefined, reportText);
+        void showErrorDialog(errorMessage, t('common.error'), resolvedError.details ?? status.error ?? undefined, reportText);
       }
 
       updateNodeData(nodeId, {
@@ -1585,7 +1591,7 @@ export function Canvas() {
         generationClientSessionId: null,
         generationStoryboardMetadata: undefined,
         generationError: errorMessage,
-        generationErrorDetails: status.error ?? null,
+        generationErrorDetails: resolvedError.details ?? status.error ?? null,
       });
       generationNodeActivityAtRef.current.delete(nodeId);
     },

@@ -16,6 +16,7 @@ import {
   createStoryboardNewApiImageModel,
   normalizeStoryboardNewApiModelConfig,
   resolveStoryboardNewApiModeLabel,
+  resolveStoryboardNewApiRuntimeModelConfig,
   STORYBOARD_NEWAPI_PROVIDER_ID,
   type StoryboardNewApiModelConfig,
 } from './storyboardNewApi';
@@ -652,12 +653,16 @@ export function resolveStoryboardCompatibleModelConfigForModel(
 export function resolveStoryboardNewApiModelConfigForModel(
   modelId: string | null | undefined,
   newApiConfig: StoryboardNewApiModelConfig | null | undefined,
-  customModels: Record<string, CustomStoryboardModelEntry[]> | null | undefined
+  customModels: Record<string, CustomStoryboardModelEntry[]> | null | undefined,
+  requestContext?: {
+    resolution?: string | null;
+    extraParams?: Record<string, unknown> | null;
+  } | null
 ): StoryboardNewApiModelConfig {
   const normalizedConfig = normalizeStoryboardNewApiModelConfig(newApiConfig);
   const normalizedModelId = normalizeTrimmedString(modelId);
   if (!normalizedModelId.startsWith(`${STORYBOARD_NEWAPI_PROVIDER_ID}/`)) {
-    return normalizedConfig;
+    return resolveStoryboardNewApiRuntimeModelConfig(normalizedConfig, requestContext);
   }
 
   const matchedEntry = getCustomStoryboardModels(STORYBOARD_NEWAPI_PROVIDER_ID, customModels).find(
@@ -667,14 +672,17 @@ export function resolveStoryboardNewApiModelConfigForModel(
   );
 
   if (!matchedEntry) {
-    return normalizedConfig;
+    return resolveStoryboardNewApiRuntimeModelConfig(normalizedConfig, requestContext);
   }
 
-  return normalizeStoryboardNewApiModelConfig({
-    ...normalizedConfig,
-    requestModel: matchedEntry.modelId,
-    displayName: matchedEntry.displayName,
-  });
+  return resolveStoryboardNewApiRuntimeModelConfig(
+    normalizeStoryboardNewApiModelConfig({
+      ...normalizedConfig,
+      requestModel: matchedEntry.modelId,
+      displayName: matchedEntry.displayName,
+    }),
+    requestContext
+  );
 }
 
 export function resolveStoryboardApi2OkModelConfigForModel(

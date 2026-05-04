@@ -213,7 +213,7 @@ async function prepareGptBestVideoPreviewImage(
       const preparedPoster = await prepareNodeImage(normalizedLastFrameSource, 640);
       return preparedPoster.previewImageUrl ?? preparedPoster.imageUrl;
     } catch (error) {
-      console.warn('[gpt-best-video] failed to prepare returned poster', error);
+      console.warn('[third-party-video] failed to prepare returned poster', error);
     }
   }
 
@@ -226,7 +226,7 @@ async function prepareGptBestVideoPreviewImage(
     const preparedPoster = await prepareNodeImage(capturedPosterDataUrl, 640);
     return preparedPoster.previewImageUrl ?? preparedPoster.imageUrl;
   } catch (error) {
-    console.warn('[gpt-best-video] failed to capture video poster', error);
+    console.warn('[third-party-video] failed to capture video poster', error);
     return null;
   }
 }
@@ -236,7 +236,7 @@ async function buildGeneratedVideoItem(
 ): Promise<GptBestGeneratedVideoItem> {
   const rawVideoUrl = task.video_url?.trim() ?? '';
   if (!rawVideoUrl) {
-    throw new Error('GPT-Best video result is missing a video URL');
+    throw new Error('Third-party video result is missing a video URL');
   }
 
   const persistedVideoUrl = isTauri()
@@ -256,7 +256,7 @@ async function buildGeneratedVideoItem(
     aspectRatio: task.ratio ?? '16:9',
     duration: task.duration ?? undefined,
     resolution: task.resolution ?? null,
-    fileName: `gpt-best-video-${task.task_id}.mp4`,
+    fileName: `third-party-video-${task.task_id}.mp4`,
   };
 }
 
@@ -288,7 +288,7 @@ export async function queryGptBestVideoResult(
       status: normalizedStatus,
       createdAt: task.created_at ?? null,
       updatedAt: task.updated_at ?? null,
-      errorMessage: task.error_message ?? 'GPT-Best video task did not complete successfully',
+      errorMessage: task.error_message ?? 'Third-party video task did not complete successfully',
     };
   }
 
@@ -308,17 +308,17 @@ export async function submitGptBestVideoTask(
 ): Promise<SubmittedGptBestVideoTaskResponse> {
   const normalizedApiKey = payload.apiKey.trim();
   if (!normalizedApiKey) {
-    throw new Error('GPT-Best API key is required');
+    throw new Error('Third-party video API key is required');
   }
 
   const normalizedBaseUrl = payload.baseUrl.trim();
   if (!normalizedBaseUrl) {
-    throw new Error('GPT-Best Base URL is required');
+    throw new Error('Third-party video Base URL is required');
   }
 
   const normalizedPrompt = normalizeWhitespace(payload.prompt);
   if (!normalizedPrompt) {
-    throw new Error('Prompt is required for GPT-Best video generation');
+    throw new Error('Prompt is required for third-party video generation');
   }
 
   const referenceImages = await prepareReferenceImages(payload.referenceImageSources);

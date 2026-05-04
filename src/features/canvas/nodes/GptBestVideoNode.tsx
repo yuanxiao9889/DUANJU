@@ -404,7 +404,7 @@ export const GptBestVideoNode = memo(
           { inheritParentFromNodeId: id }
         );
         addEdge(id, createdResultNodeId);
-        await flushCurrentProjectToDiskSafely('creating GPT-Best video result node');
+        await flushCurrentProjectToDiskSafely('creating third-party video result node');
 
         const submitResponse = await submitGptBestVideoTask({
           apiKey,
@@ -431,7 +431,7 @@ export const GptBestVideoNode = memo(
           lastSubmittedAt: startedAt,
           lastError: null,
         });
-        await flushCurrentProjectToDiskSafely('saving GPT-Best video task id');
+        await flushCurrentProjectToDiskSafely('saving third-party video task id');
       } catch (error) {
         const content = resolveErrorContent(error, t('node.gptBestVideo.submitFailed'));
         updateCurrentNodeData({
@@ -446,7 +446,7 @@ export const GptBestVideoNode = memo(
             lastError: content.message,
           });
         }
-        await flushCurrentProjectToDiskSafely('saving GPT-Best video submit error');
+        await flushCurrentProjectToDiskSafely('saving third-party video submit error');
         await showErrorDialog(content.message, t('common.error'), content.details);
       }
     }, [

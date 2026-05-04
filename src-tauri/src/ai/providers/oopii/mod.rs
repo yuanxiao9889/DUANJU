@@ -6,7 +6,9 @@ use serde_json::{json, Value};
 use super::compatible::CompatibleProvider;
 use super::newapi::NewApiProvider;
 use crate::ai::error::AIError;
-use crate::ai::{AIProvider, GenerateRequest};
+use crate::ai::{
+    AIProvider, GenerateRequest, ProviderTaskHandle, ProviderTaskPollResult, ProviderTaskSubmission,
+};
 
 pub const OOPII_PROVIDER_ID: &str = "oopii";
 pub const DEFAULT_OOPII_TEXT_MODEL: &str = "gpt-5.4";
@@ -230,6 +232,37 @@ impl AIProvider for OopiiProvider {
         self.newapi.set_api_key(api_key).await
     }
 
+    fn should_use_task_resume(&self, request: &GenerateRequest) -> bool {
+        if !Self::is_storyboard_request(request) {
+            return false;
+        }
+
+        let mut delegated_request = request.clone();
+        Self::inject_newapi_config(&mut delegated_request)
+            .map(|_| self.newapi.should_use_task_resume(&delegated_request))
+            .unwrap_or(false)
+    }
+
+    async fn submit_task(
+        &self,
+        mut request: GenerateRequest,
+    ) -> Result<ProviderTaskSubmission, AIError> {
+        if Self::is_storyboard_request(&request) {
+            Self::inject_newapi_config(&mut request)?;
+            return self.newapi.submit_task(request).await;
+        }
+
+        let image_source = self.compatible.generate(request).await?;
+        Ok(ProviderTaskSubmission::Succeeded(image_source))
+    }
+
+    async fn poll_task(
+        &self,
+        handle: ProviderTaskHandle,
+    ) -> Result<ProviderTaskPollResult, AIError> {
+        self.newapi.poll_task(handle).await
+    }
+
     async fn generate(&self, mut request: GenerateRequest) -> Result<String, AIError> {
         if Self::is_storyboard_request(&request) {
             Self::inject_newapi_config(&mut request)?;
@@ -446,5 +479,20 @@ mod tests {
                 "display_name": "gpt-image-2",
             })
         );
+    }
+
+    #[test]
+    fn storyboard_gpt_image_2_uses_sync_newapi_image_requests() {
+        let provider = OopiiProvider::new();
+        let request = GenerateRequest {
+            prompt: "test".to_string(),
+            model: "oopii/gpt-image-2".to_string(),
+            size: "2K".to_string(),
+            aspect_ratio: "1:1".to_string(),
+            reference_images: None,
+            extra_params: None,
+        };
+
+        assert!(!provider.should_use_task_resume(&request));
     }
 }

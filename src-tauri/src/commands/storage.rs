@@ -1125,7 +1125,10 @@ pub fn get_storage_info(app: AppHandle) -> Result<StorageInfo, String> {
 
 #[tauri::command]
 pub fn list_database_backups(app: AppHandle) -> Result<Vec<DatabaseBackupRecord>, String> {
-    list_database_backup_records(&app)
+    Ok(list_database_backup_records(&app)?
+        .into_iter()
+        .filter(|record| record.kind != PRE_PERSIST_DATABASE_BACKUP_KIND)
+        .collect())
 }
 
 #[tauri::command]

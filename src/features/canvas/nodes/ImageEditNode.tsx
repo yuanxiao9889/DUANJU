@@ -437,21 +437,6 @@ export const ImageEditNode = memo(({ id, data, selected, width, height }: ImageE
       storyboardProviderCustomModels,
     ]
   );
-  const resolvedNewApiModelConfig = useMemo(
-    () =>
-      isStoryboardNewApiModelId(selectedModel.id)
-        ? resolveStoryboardNewApiModelConfigForModel(
-          selectedModel.id,
-          storyboardNewApiModelConfig,
-          storyboardProviderCustomModels
-        )
-        : storyboardNewApiModelConfig,
-    [
-      selectedModel.id,
-      storyboardNewApiModelConfig,
-      storyboardProviderCustomModels,
-    ]
-  );
   const resolvedApi2OkModelConfig = useMemo(
     () =>
       isStoryboardApi2OkModelId(selectedModel.id)
@@ -474,8 +459,38 @@ export const ImageEditNode = memo(({ id, data, selected, width, height }: ImageE
         selectedModel.defaultExtraParams,
         lastImageGenerationExtraParams,
         data.extraParams
-      ),
+    ),
     [data.extraParams, lastImageGenerationExtraParams, selectedModel]
+  );
+  const requestedNewApiResolution = useMemo(
+    () =>
+      isStoryboardNewApiModelId(selectedModel.id)
+        ? resolveImageModelResolution(selectedModel, data.size, {
+          extraParams: resolvedModelExtraParams,
+        }).value
+        : null,
+    [data.size, resolvedModelExtraParams, selectedModel]
+  );
+  const resolvedNewApiModelConfig = useMemo(
+    () =>
+      isStoryboardNewApiModelId(selectedModel.id)
+        ? resolveStoryboardNewApiModelConfigForModel(
+          selectedModel.id,
+          storyboardNewApiModelConfig,
+          storyboardProviderCustomModels,
+          {
+            resolution: requestedNewApiResolution,
+            extraParams: resolvedModelExtraParams,
+          }
+        )
+        : storyboardNewApiModelConfig,
+    [
+      requestedNewApiResolution,
+      resolvedModelExtraParams,
+      selectedModel.id,
+      storyboardNewApiModelConfig,
+      storyboardProviderCustomModels,
+    ]
   );
   const requestedOopiiResolution = useMemo(
     () =>
@@ -1203,6 +1218,10 @@ export const ImageEditNode = memo(({ id, data, selected, width, height }: ImageE
         errorMessage: resolvedError.message,
         errorDetails: resolvedError.details,
         context: generationDebugContext,
+        errorCategory: resolvedError.category,
+        statusCode: resolvedError.statusCode,
+        traceId: resolvedError.traceId,
+        requestId: resolvedError.requestId,
       });
       setError(resolvedError.message);
       void showErrorDialog(

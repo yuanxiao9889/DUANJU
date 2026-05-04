@@ -38,6 +38,22 @@ fn active_non_resumable_job_ids() -> &'static Arc<RwLock<HashSet<String>>> {
     ACTIVE_NON_RESUMABLE_JOB_IDS.get_or_init(|| Arc::new(RwLock::new(HashSet::new())))
 }
 
+fn is_terminal_provider_poll_error(message: &str) -> bool {
+    let normalized = message.trim().to_ascii_lowercase();
+    normalized.contains(" request failed 400")
+        || normalized.contains(" request failed 401")
+        || normalized.contains(" request failed 403")
+        || normalized.contains(" request failed 404")
+        || normalized.contains(" request failed 410")
+        || normalized.contains("status 400")
+        || normalized.contains("status 401")
+        || normalized.contains("status 403")
+        || normalized.contains("status 404")
+        || normalized.contains("status 410")
+        || normalized.contains("task failed")
+        || normalized.contains("task expired")
+}
+
 #[derive(Debug, Serialize, Deserialize)]
 pub struct GenerateRequestDto {
     pub prompt: String,
@@ -336,7 +352,7 @@ pub async fn submit_generate_image_job(
     let job_id = Uuid::new_v4().to_string();
     let provider_id = provider.name().to_string();
 
-    if provider.supports_task_resume() {
+    if provider.should_use_task_resume(&req) {
         match provider.submit_task(req).await.map_err(|e| e.to_string())? {
             ProviderTaskSubmission::Succeeded(image_source) => {
                 insert_generation_job(
@@ -550,6 +566,21 @@ pub async fn get_generate_image_job(
             })
         }
         Err(AIError::TaskFailed(message)) => {
+            update_generation_job(
+                &app,
+                record.job_id.as_str(),
+                "failed",
+                None,
+                Some(message.as_str()),
+            )?;
+            Ok(GenerationJobStatusDto {
+                job_id: record.job_id,
+                status: "failed".to_string(),
+                result: None,
+                error: Some(message),
+            })
+        }
+        Err(AIError::Provider(message)) if is_terminal_provider_poll_error(&message) => {
             update_generation_job(
                 &app,
                 record.job_id.as_str(),

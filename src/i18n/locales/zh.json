@@ -1602,8 +1602,8 @@
     },
     "gptBestVideo": {
       "promptRequired": "请输入第三方视频生成提示词",
-      "apiKeyRequired": "请先在设置的“第三方视频”中填写 GPT-Best API Key",
-      "baseUrlRequired": "请先在设置的“第三方视频”中填写 GPT-Best Base URL",
+      "apiKeyRequired": "请先在设置的“第三方视频”中填写第三方视频 API Key",
+      "baseUrlRequired": "请先在设置的“第三方视频”中填写第三方视频 Base URL",
       "seedancePromptPlaceholder": "描述场景、动作、构图和节奏，用于第三方 Seedance 2.0 视频生成",
       "grokPromptPlaceholder": "描述视频内容，可在提示词中用 @img1、@img2 引用连接的参考图",
       "submit": "生成视频",
@@ -1857,6 +1857,24 @@
     "generating": "生成中...",
     "success": "生成成功",
     "error": "生成失败"
+  },
+  "aiError": {
+    "statusLine": "错误代码：{{code}}",
+    "categories": {
+      "policyViolation": "提交内容被上游平台的安全规则拦截。请调整提示词或参考图，尽量避免敏感、色情、暴力、仿冒、侵权或平台禁止的内容后再试。",
+      "timeout": "上游生成服务响应超时。任务可能排队过久、图片过大或服务暂时繁忙，请稍后重试；也可以减少参考图/尺寸，或换一个模型/渠道。",
+      "payloadTooLarge": "本次提交的参考图或请求内容过大。请压缩图片、减少参考图数量，或降低分辨率后再试。",
+      "endpointMismatch": "当前模型和接口路径不匹配。这通常是中转站模型配置问题，需要检查该模型是否走 /v1/images/generations 或 /v1/images/edits。",
+      "modelUnavailable": "当前模型没有可用渠道，或模型映射配置不正确。请检查中转站里的模型名、渠道状态和分组权限。",
+      "insufficientBalance": "当前账号或令牌余额不足，预扣费失败。请充值、降低生成规格，或切换可用的 API Key 后再试。",
+      "rateLimitOrQuota": "上游额度或请求频率受限。请稍后再试，或切换到额度充足的渠道。",
+      "upstreamUnavailable": "上游服务或代理暂时不可用。可能是渠道服务异常、代理连接失败或网关返回错误，请稍后重试或切换渠道。",
+      "badRequest": "上游不接受本次请求参数。请检查模型、尺寸、质量、参考图数量或提示词内容后再试。",
+      "auth": "API Key、账号权限或访问分组可能有问题。请检查设置里的密钥和中转站权限。",
+      "network": "网络请求没有成功发送到服务端。请检查网络连接、接口地址和代理设置后再试。",
+      "taskInterrupted": "生成任务已经中断或找不到记录。可能是应用重启、任务过期或服务器记录被清理，请重新提交生成。",
+      "unknown": "生成失败。请查看错误详情，或稍后重试。"
+    }
   },
   "project": {
     "title": "项目管理",
@@ -2599,9 +2617,9 @@
     "storyboardApiEnabled": "分镜 API",
     "mjApiEnabled": "MJ API",
     "thirdPartyVideoApiEnabled": "第三方视频",
-    "thirdPartyVideoGptBestDesc": "GPT-Best 的 Seedance 2.0 和 Grok 视频节点共用这组密钥。",
+    "thirdPartyVideoGptBestDesc": "第三方 Seedance 2.0 和第三方 Grok 视频节点共用这组密钥。",
     "thirdPartyVideoBaseUrl": "Base URL",
-    "thirdPartyVideoBaseUrlHint": "填写 GPT-Best 工作台提供的 Base URL；调用时会自动拼接 /v2/videos/generations。",
+    "thirdPartyVideoBaseUrlHint": "填写第三方视频平台提供的 Base URL；调用时会自动拼接 /v2/videos/generations。",
     "scriptApiDisabled": "未启用",
     "storyboardApiDisabled": "未启用",
     "scriptApiDesc": "选择用于剧本生成的 API 提供商",

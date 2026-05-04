@@ -517,8 +517,7 @@ impl ZhenzhenProvider {
     }
 
     fn extract_task_image(payload: &Value) -> Option<String> {
-        const IMAGE_ITEM_POINTERS: [&str; 3] =
-            ["/data/0", "/data/data/0", "/data/data/data/0"];
+        const IMAGE_ITEM_POINTERS: [&str; 3] = ["/data/0", "/data/data/0", "/data/data/data/0"];
 
         IMAGE_ITEM_POINTERS.iter().find_map(|pointer| {
             let item = payload.pointer(pointer)?;

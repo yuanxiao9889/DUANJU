@@ -1,7 +1,6 @@
 use base64::{engine::general_purpose::STANDARD, Engine};
 use image::imageops::FilterType;
 use image::ImageFormat;
-use reqwest::multipart::{Form, Part};
 use reqwest::Client;
 use serde::Deserialize;
 use serde_json::{json, Value};
@@ -19,7 +18,9 @@ use tokio::time::sleep;
 use tracing::{info, warn};
 
 use crate::ai::error::AIError;
-use crate::ai::{AIProvider, GenerateRequest};
+use crate::ai::{
+    AIProvider, GenerateRequest, ProviderTaskHandle, ProviderTaskPollResult, ProviderTaskSubmission,
+};
 use crate::commands::image::resolve_image_source_bytes;
 
 const STORYBOARD_MODEL_ID: &str = "newapi/storyboard-experimental";
@@ -27,8 +28,8 @@ const BANANA_CLIENT_HEADER_VALUE: &str = "comfyui-banana-li";
 const JSON_REQUEST_MAX_ATTEMPTS: usize = 2;
 const JSON_REQUEST_RETRY_DELAY_MS: u64 = 2_000;
 const CURL_JSON_TRANSPORT_MIN_BYTES: usize = 64 * 1024;
-const CURL_JSON_TRANSPORT_TIMEOUT_SECONDS: u64 = 1_000;
-const CURL_MULTIPART_TRANSPORT_TIMEOUT_SECONDS: u64 = 1_000;
+const CURL_JSON_TRANSPORT_TIMEOUT_SECONDS: u64 = 660;
+const CURL_MULTIPART_TRANSPORT_TIMEOUT_SECONDS: u64 = 660;
 #[cfg(target_os = "windows")]
 const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 const FLOW2API_IMAGE_ASPECT_SUFFIXES: [&str; 5] = [
@@ -82,6 +83,7 @@ struct OpenAiRequestFields {
     aspect_ratio: Option<String>,
     image_size: Option<String>,
     image_backend: Option<String>,
+    quality: Option<String>,
     extra_body: Option<Value>,
 }
 
@@ -125,6 +127,18 @@ impl NewApiProvider {
         }
     }
 
+    fn resolve_api_format_for_request_model(
+        api_format: &str,
+        request_model: &str,
+    ) -> Result<NewApiFormat, AIError> {
+        let parsed_format = Self::parse_api_format(api_format)?;
+        if Self::is_gpt2api_image_request_model(request_model) {
+            return Ok(NewApiFormat::OpenAiImages);
+        }
+
+        Ok(parsed_format)
+    }
+
     async fn get_api_key(&self) -> Result<String, AIError> {
         self.api_key
             .read()
@@ -158,7 +172,10 @@ impl NewApiProvider {
         }
 
         Ok(NewApiConfig {
-            api_format: Self::parse_api_format(&payload.api_format)?,
+            api_format: Self::resolve_api_format_for_request_model(
+                &payload.api_format,
+                &request_model,
+            )?,
             endpoint_url,
             request_model,
             display_name: payload.display_name.trim().to_string(),
@@ -377,6 +394,47 @@ impl NewApiProvider {
         format!("{}/v1/images/edits", trimmed)
     }
 
+    fn append_async_query(endpoint: &str) -> String {
+        if let Ok(mut url) = reqwest::Url::parse(endpoint) {
+            let pairs: Vec<(String, String)> = url
+                .query_pairs()
+                .filter(|(key, _)| key != "async")
+                .map(|(key, value)| (key.into_owned(), value.into_owned()))
+                .collect();
+            url.set_query(None);
+            {
+                let mut query = url.query_pairs_mut();
+                for (key, value) in pairs {
+                    query.append_pair(&key, &value);
+                }
+                query.append_pair("async", "true");
+            }
+            return url.to_string();
+        }
+
+        if endpoint.contains('?') {
+            format!("{}&async=true", endpoint)
+        } else {
+            format!("{}?async=true", endpoint)
+        }
+    }
+
+    fn resolve_openai_task_status_endpoint(endpoint_url: &str, task_id: &str) -> String {
+        let trimmed = endpoint_url.trim().trim_end_matches('/');
+        let trimmed = trimmed
+            .strip_suffix("/chat/completions")
+            .or_else(|| trimmed.strip_suffix("/images/generations"))
+            .or_else(|| trimmed.strip_suffix("/images/edits"))
+            .unwrap_or(trimmed)
+            .trim_end_matches('/');
+        let base = if trimmed.ends_with("/v1") {
+            trimmed.to_string()
+        } else {
+            format!("{}/v1", trimmed)
+        };
+        format!("{}/images/tasks/{}", base, task_id.trim())
+    }
+
     fn is_internal_result_host(host: &str) -> bool {
         let trimmed = host.trim().trim_matches(['[', ']']);
         if trimmed.is_empty() {
@@ -558,6 +616,32 @@ impl NewApiProvider {
             || Self::is_gpt2api_image_request_model_alias(request_model)
     }
 
+    fn resolve_gpt2api_quality(request: &GenerateRequest, request_model: &str) -> Option<String> {
+        let from_extra_params = request
+            .extra_params
+            .as_ref()
+            .and_then(|params| params.get("quality"))
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .map(str::to_ascii_lowercase)
+            .filter(|quality| matches!(quality.as_str(), "low" | "medium" | "high"));
+
+        if from_extra_params.is_some() {
+            return from_extra_params;
+        }
+
+        let normalized = request_model.trim().to_ascii_lowercase();
+        if normalized.ends_with("-low") {
+            Some("low".to_string())
+        } else if normalized.ends_with("-medium") {
+            Some("medium".to_string())
+        } else if normalized.ends_with("-high") {
+            Some("high".to_string())
+        } else {
+            None
+        }
+    }
+
     fn resolve_gpt2api_resolution(request_model: &str, size: &str) -> Option<&'static str> {
         match size.trim().to_ascii_uppercase().as_str() {
             "1K" => Some("1K"),
@@ -625,7 +709,7 @@ impl NewApiProvider {
         request: &GenerateRequest,
         config_request_model: &str,
     ) -> Result<OpenAiRequestFields, AIError> {
-        if Self::is_gpt2api_image_request_model_alias(config_request_model) {
+        if Self::is_gpt2api_image_request_model(config_request_model) {
             let image_size = Self::resolve_gpt2api_image_size(
                 config_request_model,
                 &request.size,
@@ -640,11 +724,12 @@ impl NewApiProvider {
             })?;
 
             return Ok(OpenAiRequestFields {
-                request_model: config_request_model.trim().to_string(),
+                request_model: "gpt-image-2".to_string(),
                 size: Some(image_size.to_string()),
                 aspect_ratio: None,
                 image_size: None,
                 image_backend: Some("auto".to_string()),
+                quality: Self::resolve_gpt2api_quality(request, config_request_model),
                 extra_body: None,
             });
         }
@@ -671,6 +756,7 @@ impl NewApiProvider {
                     .map(|value| value.to_string())
             },
             image_backend: None,
+            quality: None,
             extra_body: Self::build_flow2api_openai_extra_body(request, &request_model),
         })
     }
@@ -802,6 +888,9 @@ impl NewApiProvider {
                 Value::String(image_backend.clone()),
             );
         }
+        if let Some(quality) = fields.quality.as_ref() {
+            body.insert("quality".to_string(), Value::String(quality.clone()));
+        }
         if let Some(extra_body) = fields.extra_body.as_ref() {
             body.insert("extra_body".to_string(), extra_body.clone());
         }
@@ -842,6 +931,9 @@ impl NewApiProvider {
                 Value::String(image_backend.clone()),
             );
         }
+        if let Some(quality) = fields.quality.as_ref() {
+            body.insert("quality".to_string(), Value::String(quality.clone()));
+        }
         if let Some(extra_body) = fields.extra_body.as_ref() {
             body.insert("extra_body".to_string(), extra_body.clone());
         }
@@ -873,6 +965,9 @@ impl NewApiProvider {
         }
         if let Some(image_backend) = fields.image_backend.as_ref() {
             text_fields.push(("image_backend".to_string(), image_backend.clone()));
+        }
+        if let Some(quality) = fields.quality.as_ref() {
+            text_fields.push(("quality".to_string(), quality.clone()));
         }
 
         text_fields
@@ -934,6 +1029,7 @@ impl NewApiProvider {
         [
             "/error/message",
             "/error/status",
+            "/error",
             "/message",
             "/detail",
             "/details",
@@ -949,6 +1045,78 @@ impl NewApiProvider {
                 .filter(|value| !value.is_empty())
                 .map(ToString::to_string)
         })
+    }
+
+    fn extract_trimmed_string(payload: &Value, pointers: &[&str]) -> Option<String> {
+        pointers.iter().find_map(|pointer| {
+            payload
+                .pointer(pointer)
+                .and_then(Value::as_str)
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .map(ToString::to_string)
+        })
+    }
+
+    fn extract_async_task_id(payload: &Value) -> Option<String> {
+        Self::extract_trimmed_string(payload, &["/task_id", "/taskId", "/id", "/data/task_id"])
+    }
+
+    fn extract_async_status(payload: &Value) -> Option<String> {
+        Self::extract_trimmed_string(payload, &["/status", "/data/status"])
+            .map(|value| value.to_ascii_lowercase())
+    }
+
+    fn extract_async_status_url(payload: &Value) -> Option<String> {
+        Self::extract_trimmed_string(payload, &["/status_url", "/statusUrl", "/data/status_url"])
+    }
+
+    fn extract_async_content_url(payload: &Value) -> Option<String> {
+        Self::extract_trimmed_string(
+            payload,
+            &["/content_url", "/contentUrl", "/data/content_url"],
+        )
+    }
+
+    fn is_async_running_status(status: &str) -> bool {
+        matches!(
+            status.trim().to_ascii_lowercase().as_str(),
+            "submitted" | "queued" | "processing" | "pending" | "running" | "in_progress"
+        )
+    }
+
+    fn is_async_failed_status(status: &str) -> bool {
+        matches!(
+            status.trim().to_ascii_lowercase().as_str(),
+            "failed" | "failure" | "error" | "cancelled" | "canceled"
+        )
+    }
+
+    fn extract_async_failure_message(payload: &Value) -> String {
+        Self::extract_error_message(payload)
+            .or_else(|| {
+                Self::extract_trimmed_string(
+                    payload,
+                    &[
+                        "/error/code",
+                        "/error/type",
+                        "/error_code",
+                        "/code",
+                        "/status/message",
+                        "/data/error/message",
+                        "/data/error/code",
+                    ],
+                )
+            })
+            .unwrap_or_else(|| format!("NewAPI async image task failed: {}", payload))
+    }
+
+    fn is_async_unsupported_message(message: &str) -> bool {
+        let normalized = message.trim().to_ascii_lowercase();
+        normalized.contains("does not support async image tasks")
+            || normalized.contains("not support async image tasks")
+            || normalized.contains("unsupported async image")
+            || normalized.contains("async image tasks only support")
     }
 
     fn is_json_parse_error(message: &str) -> bool {
@@ -1597,44 +1765,6 @@ impl NewApiProvider {
         )))
     }
 
-    async fn send_multipart_request(
-        &self,
-        endpoint: &str,
-        api_key: &str,
-        form: Form,
-        request_kind: &str,
-    ) -> Result<Value, AIError> {
-        let response = self
-            .client
-            .post(endpoint)
-            .version(reqwest::Version::HTTP_11)
-            .header("Accept", "application/json")
-            .header("Authorization", format!("Bearer {}", api_key))
-            .header("X-API-Key", api_key)
-            .header("X-Banana-Client", BANANA_CLIENT_HEADER_VALUE)
-            .multipart(form)
-            .send()
-            .await?;
-
-        let status = response.status();
-        let response_text = response.text().await?;
-        info!("[NewAPI] {} {} -> {}", request_kind, endpoint, status);
-        info!("[NewAPI] {} response: {}", request_kind, response_text);
-        if !status.is_success() {
-            return Err(AIError::Provider(format!(
-                "NewAPI {} request failed {}: {}",
-                request_kind, status, response_text
-            )));
-        }
-
-        Ok(serde_json::from_str(&response_text).map_err(|error| {
-            AIError::Provider(format!(
-                "Failed to parse NewAPI {} response: {}. Response was: {}",
-                request_kind, error, response_text
-            ))
-        })?)
-    }
-
     async fn send_multipart_request_with_curl(
         endpoint: String,
         api_key: String,
@@ -1702,12 +1832,9 @@ impl NewApiProvider {
                     temp_file_paths.push(temp_file_path.clone());
 
                     command.arg("--form").arg(format!(
-                        "{}=@{};type={};filename=image-{}.{}",
+                        "{}=@{}",
                         field_name,
-                        temp_file_path.display(),
-                        Self::mime_type_from_extension(extension),
-                        index + 1,
-                        extension
+                        temp_file_path.display()
                     ));
                 }
 
@@ -2032,47 +2159,47 @@ impl NewApiProvider {
                 AIError::InvalidRequest("OpenAI 编辑接口至少需要一张参考图".to_string())
             })?;
 
-        let mut form = Form::new()
-            .text("model", fields.request_model.clone())
-            .text(
-                "prompt",
+        let mut text_fields = vec![
+            ("model".to_string(), fields.request_model.clone()),
+            (
+                "prompt".to_string(),
                 Self::build_openai_edits_prompt_text(request, &fields),
-            )
-            .text("response_format", "url".to_string());
+            ),
+            ("response_format".to_string(), "url".to_string()),
+        ];
 
+        if let Some(size) = fields.size.as_ref() {
+            text_fields.push(("size".to_string(), size.clone()));
+        }
+        if let Some(image_size) = fields.image_size.as_ref() {
+            text_fields.push(("image_size".to_string(), image_size.clone()));
+        }
+        if let Some(aspect_ratio) = fields.aspect_ratio.as_ref() {
+            text_fields.push(("aspect_ratio".to_string(), aspect_ratio.clone()));
+        }
+        if let Some(image_backend) = fields.image_backend.as_ref() {
+            text_fields.push(("image_backend".to_string(), image_backend.clone()));
+        }
+        if let Some(quality) = fields.quality.as_ref() {
+            text_fields.push(("quality".to_string(), quality.clone()));
+        }
+
+        let image_field_names = Self::build_openai_images_edits_image_field_names(sources.len());
+        let mut file_parts = Vec::with_capacity(sources.len());
         for (index, source) in sources.iter().enumerate() {
             let bytes = Self::source_to_bytes(source).await?;
             let extension = Self::file_extension_from_source(source);
-            let image_part = Part::bytes(bytes)
-                .file_name(format!("image-{}.{}", index + 1, extension))
-                .mime_str(Self::mime_type_from_extension(extension))
-                .map_err(|error| {
-                    AIError::Provider(format!("Failed to create multipart image part: {}", error))
-                })?;
-
-            let field_name = if sources.len() > 1 {
-                "image[]"
-            } else {
-                "image"
-            };
-            form = form.part(field_name.to_string(), image_part);
+            file_parts.push((image_field_names[index].to_string(), bytes, extension));
         }
 
-        if let Some(size) = fields.size.as_ref() {
-            form = form.text("size", size.clone());
-        }
-        if let Some(image_size) = fields.image_size.as_ref() {
-            form = form.text("image_size", image_size.clone());
-        }
-        if let Some(aspect_ratio) = fields.aspect_ratio.as_ref() {
-            form = form.text("aspect_ratio", aspect_ratio.clone());
-        }
-        if let Some(image_backend) = fields.image_backend.as_ref() {
-            form = form.text("image_backend", image_backend.clone());
-        }
-
-        self.send_multipart_request(&endpoint, api_key, form, "openai-edits")
-            .await
+        Self::send_multipart_request_with_curl(
+            endpoint,
+            api_key.to_string(),
+            text_fields,
+            file_parts,
+            "openai-edits".to_string(),
+        )
+        .await
     }
 
     async fn run_openai_edits_with_generate_content_fallback(
@@ -2150,6 +2277,307 @@ impl NewApiProvider {
             "openai-images-edits".to_string(),
         )
         .await
+    }
+
+    async fn submit_openai_async_generations(
+        &self,
+        request: &GenerateRequest,
+        config: &NewApiConfig,
+        api_key: &str,
+    ) -> Result<ProviderTaskSubmission, AIError> {
+        let endpoint = Self::append_async_query(&Self::resolve_openai_generations_endpoint(
+            &config.endpoint_url,
+        ));
+        let fields = Self::resolve_openai_request_fields(request, &config.request_model)?;
+        let body = Self::build_openai_generations_body(request, &fields);
+        let payload = self
+            .send_json_request(
+                &endpoint,
+                api_key,
+                Value::Object(body),
+                "openai-images-generations-async",
+            )
+            .await?;
+
+        self.async_submit_payload_to_submission(payload, config, api_key)
+            .await
+    }
+
+    async fn submit_openai_async_edits(
+        &self,
+        request: &GenerateRequest,
+        config: &NewApiConfig,
+        api_key: &str,
+    ) -> Result<ProviderTaskSubmission, AIError> {
+        let endpoint =
+            Self::append_async_query(&Self::resolve_openai_edits_endpoint(&config.endpoint_url));
+        let fields = Self::resolve_openai_request_fields(request, &config.request_model)?;
+        let sources = request
+            .reference_images
+            .as_ref()
+            .filter(|images| !images.is_empty())
+            .ok_or_else(|| {
+                AIError::InvalidRequest(
+                    "OpenAI image edits require at least one reference image".to_string(),
+                )
+            })?;
+
+        let text_fields = Self::build_openai_images_edits_text_fields(request, &fields);
+        let image_field_names = Self::build_openai_images_edits_image_field_names(sources.len());
+        let mut file_parts = Vec::with_capacity(sources.len());
+        for (index, source) in sources.iter().enumerate() {
+            let bytes = Self::source_to_bytes(source).await?;
+            let extension = Self::file_extension_from_source(source);
+            file_parts.push((image_field_names[index].to_string(), bytes, extension));
+        }
+
+        let payload = Self::send_multipart_request_with_curl(
+            endpoint,
+            api_key.to_string(),
+            text_fields,
+            file_parts,
+            "openai-images-edits-async".to_string(),
+        )
+        .await?;
+
+        self.async_submit_payload_to_submission(payload, config, api_key)
+            .await
+    }
+
+    async fn submit_openai_async_images(
+        &self,
+        request: &GenerateRequest,
+        config: &NewApiConfig,
+        api_key: &str,
+    ) -> Result<ProviderTaskSubmission, AIError> {
+        let result = match Self::resolve_openai_images_route(
+            request
+                .reference_images
+                .as_ref()
+                .map(|images| images.len())
+                .unwrap_or(0),
+        ) {
+            OpenAiImageRoute::Generations => {
+                self.submit_openai_async_generations(request, config, api_key)
+                    .await
+            }
+            OpenAiImageRoute::Edits => {
+                self.submit_openai_async_edits(request, config, api_key)
+                    .await
+            }
+        };
+
+        match result {
+            Ok(submission) => Ok(submission),
+            Err(AIError::Provider(message)) if Self::is_async_unsupported_message(&message) => {
+                warn!(
+                    "[NewAPI] async image task unsupported by current channel, falling back to sync openai-images path: {}",
+                    message
+                );
+                let payload = self
+                    .run_openai_images_with_chat_fallback(request, config, api_key)
+                    .await?;
+                self.sync_payload_to_submission(payload, config)
+            }
+            Err(error) => Err(error),
+        }
+    }
+
+    fn sync_payload_to_submission(
+        &self,
+        payload: Value,
+        config: &NewApiConfig,
+    ) -> Result<ProviderTaskSubmission, AIError> {
+        if let Some(error_message) = Self::extract_error_message(&payload) {
+            return Err(AIError::Provider(error_message));
+        }
+
+        if let Some(image_source) = Self::extract_first_image(&payload) {
+            return Ok(ProviderTaskSubmission::Succeeded(
+                Self::normalize_image_source(image_source, &config.endpoint_url),
+            ));
+        }
+
+        if let Some(text) = Self::extract_text(&payload) {
+            return Ok(ProviderTaskSubmission::Succeeded(text));
+        }
+
+        Err(AIError::Provider(format!(
+            "NewAPI response did not include image, text, or async task data: {}",
+            payload
+        )))
+    }
+
+    async fn async_submit_payload_to_submission(
+        &self,
+        payload: Value,
+        config: &NewApiConfig,
+        api_key: &str,
+    ) -> Result<ProviderTaskSubmission, AIError> {
+        if let Some(error_message) = Self::extract_error_message(&payload) {
+            return Err(AIError::Provider(error_message));
+        }
+
+        if let Some(task_id) = Self::extract_async_task_id(&payload) {
+            let status_url = Self::extract_async_status_url(&payload).unwrap_or_else(|| {
+                Self::resolve_openai_task_status_endpoint(&config.endpoint_url, &task_id)
+            });
+            let content_url = Self::extract_async_content_url(&payload);
+            let status =
+                Self::extract_async_status(&payload).unwrap_or_else(|| "submitted".to_string());
+
+            if Self::is_async_failed_status(&status) {
+                let message = Self::extract_async_failure_message(&payload);
+                return Err(AIError::Provider(message));
+            }
+
+            if status == "expired" {
+                return Err(AIError::Provider(
+                    "NewAPI async image task expired during submission".to_string(),
+                ));
+            }
+
+            if status == "succeeded" {
+                if let Some(content_url) = content_url.as_ref() {
+                    let data_url = self
+                        .download_async_content_as_data_url(
+                            content_url,
+                            &config.endpoint_url,
+                            api_key,
+                        )
+                        .await?;
+                    return Ok(ProviderTaskSubmission::Succeeded(data_url));
+                }
+            }
+
+            let metadata = json!({
+                "endpoint_url": config.endpoint_url,
+                "status_url": status_url,
+                "content_url": content_url,
+                "initial_status": status,
+            });
+            return Ok(ProviderTaskSubmission::Queued(ProviderTaskHandle {
+                task_id,
+                metadata: Some(metadata),
+            }));
+        }
+
+        self.sync_payload_to_submission(payload, config)
+    }
+
+    fn resolve_async_absolute_url(raw_url: &str, endpoint_url: &str) -> String {
+        let trimmed = raw_url.trim();
+        if reqwest::Url::parse(trimmed).is_ok() {
+            return trimmed.to_string();
+        }
+
+        if let Ok(base) = reqwest::Url::parse(endpoint_url.trim()) {
+            if let Ok(joined) = base.join(trimmed) {
+                return joined.to_string();
+            }
+        }
+
+        trimmed.to_string()
+    }
+
+    async fn get_async_task_payload(
+        &self,
+        status_url: &str,
+        endpoint_url: &str,
+        api_key: &str,
+    ) -> Result<Value, AIError> {
+        let resolved_url = Self::resolve_async_absolute_url(status_url, endpoint_url);
+        let response = self
+            .client
+            .get(&resolved_url)
+            .version(reqwest::Version::HTTP_11)
+            .header("Accept", "application/json")
+            .header("Authorization", format!("Bearer {}", api_key))
+            .header("X-API-Key", api_key)
+            .header("X-Banana-Client", BANANA_CLIENT_HEADER_VALUE)
+            .send()
+            .await?;
+        let status = response.status();
+        let response_text = response.text().await?;
+        info!(
+            "[NewAPI] openai-images-task-status {} -> {}",
+            resolved_url, status
+        );
+        info!(
+            "[NewAPI] openai-images-task-status response: {}",
+            response_text
+        );
+
+        if status == reqwest::StatusCode::TOO_MANY_REQUESTS {
+            return Ok(json!({ "status": "queued" }));
+        }
+
+        if !status.is_success() {
+            if let Ok(payload) = serde_json::from_str::<Value>(&response_text) {
+                return Ok(json!({
+                    "status": "failed",
+                    "error": payload.get("error").cloned().unwrap_or(payload),
+                }));
+            }
+            return Err(AIError::Provider(format!(
+                "NewAPI openai-images-task-status request failed {}: {}",
+                status, response_text
+            )));
+        }
+
+        serde_json::from_str(&response_text).map_err(|error| {
+            AIError::Provider(format!(
+                "Failed to parse NewAPI openai-images-task-status response: {}. Response was: {}",
+                error, response_text
+            ))
+        })
+    }
+
+    async fn download_async_content_as_data_url(
+        &self,
+        content_url: &str,
+        endpoint_url: &str,
+        api_key: &str,
+    ) -> Result<String, AIError> {
+        let resolved_url = Self::resolve_async_absolute_url(content_url, endpoint_url);
+        let response = self
+            .client
+            .get(&resolved_url)
+            .version(reqwest::Version::HTTP_11)
+            .header("Authorization", format!("Bearer {}", api_key))
+            .header("X-API-Key", api_key)
+            .header("X-Banana-Client", BANANA_CLIENT_HEADER_VALUE)
+            .send()
+            .await?;
+        let status = response.status();
+        if !status.is_success() {
+            let response_text = response.text().await.unwrap_or_default();
+            return Err(AIError::Provider(format!(
+                "NewAPI openai-images-task-content request failed {}: {}",
+                status, response_text
+            )));
+        }
+
+        let mime_type = response
+            .headers()
+            .get(reqwest::header::CONTENT_TYPE)
+            .and_then(|value| value.to_str().ok())
+            .map(str::trim)
+            .filter(|value| value.starts_with("image/"))
+            .unwrap_or("image/png")
+            .to_string();
+        let bytes = response.bytes().await?;
+        if bytes.is_empty() {
+            return Err(AIError::Provider(
+                "NewAPI async image content response was empty".to_string(),
+            ));
+        }
+
+        Ok(format!(
+            "data:{};base64,{}",
+            mime_type,
+            STANDARD.encode(bytes)
+        ))
     }
 
     async fn run_openai_images(
@@ -2272,6 +2700,7 @@ impl NewApiProvider {
 mod tests {
     use super::NewApiProvider;
     use serde_json::{json, Value};
+    use std::collections::HashMap;
 
     #[test]
     fn resolve_endpoint_encodes_slash_model_names() {
@@ -2322,6 +2751,95 @@ mod tests {
         );
 
         assert_eq!(endpoint, "https://www.oopii.cn/v1/images/generations");
+    }
+
+    #[test]
+    fn append_async_query_adds_async_true() {
+        assert_eq!(
+            NewApiProvider::append_async_query("https://www.oopii.cn/v1/images/generations"),
+            "https://www.oopii.cn/v1/images/generations?async=true"
+        );
+    }
+
+    #[test]
+    fn append_async_query_preserves_existing_query() {
+        assert_eq!(
+            NewApiProvider::append_async_query(
+                "https://www.oopii.cn/v1/images/edits?foo=bar&async=false"
+            ),
+            "https://www.oopii.cn/v1/images/edits?foo=bar&async=true"
+        );
+    }
+
+    #[test]
+    fn resolve_openai_task_status_endpoint_normalizes_images_base() {
+        let endpoint = NewApiProvider::resolve_openai_task_status_endpoint(
+            "https://www.oopii.cn/v1/images/generations",
+            "task_123",
+        );
+
+        assert_eq!(endpoint, "https://www.oopii.cn/v1/images/tasks/task_123");
+    }
+
+    #[test]
+    fn extract_async_task_response_fields() {
+        let payload = json!({
+            "task_id": "task_123",
+            "status": "submitted",
+            "status_url": "https://www.oopii.cn/v1/images/tasks/task_123",
+            "content_url": "https://www.oopii.cn/v1/images/tasks/task_123/content",
+        });
+
+        assert_eq!(
+            NewApiProvider::extract_async_task_id(&payload),
+            Some("task_123".to_string())
+        );
+        assert_eq!(
+            NewApiProvider::extract_async_status(&payload),
+            Some("submitted".to_string())
+        );
+        assert_eq!(
+            NewApiProvider::extract_async_status_url(&payload),
+            Some("https://www.oopii.cn/v1/images/tasks/task_123".to_string())
+        );
+        assert_eq!(
+            NewApiProvider::extract_async_content_url(&payload),
+            Some("https://www.oopii.cn/v1/images/tasks/task_123/content".to_string())
+        );
+    }
+
+    #[test]
+    fn async_status_normalization_detects_running_states() {
+        assert!(NewApiProvider::is_async_running_status("submitted"));
+        assert!(NewApiProvider::is_async_running_status("queued"));
+        assert!(NewApiProvider::is_async_running_status("processing"));
+        assert!(NewApiProvider::is_async_running_status("in_progress"));
+        assert!(!NewApiProvider::is_async_running_status("succeeded"));
+        assert!(!NewApiProvider::is_async_running_status("failed"));
+    }
+
+    #[test]
+    fn async_status_normalization_detects_failure_states() {
+        assert!(NewApiProvider::is_async_failed_status("failed"));
+        assert!(NewApiProvider::is_async_failed_status("FAILURE"));
+        assert!(NewApiProvider::is_async_failed_status("error"));
+        assert!(NewApiProvider::is_async_failed_status("cancelled"));
+        assert!(!NewApiProvider::is_async_failed_status("processing"));
+    }
+
+    #[test]
+    fn extract_async_failure_message_reads_error_object_code() {
+        let payload = json!({
+            "status": "failed",
+            "error": {
+                "code": "upstream_bad_request"
+            }
+        });
+
+        assert_eq!(
+            NewApiProvider::extract_async_failure_message(&payload),
+            "upstream_bad_request".to_string()
+        );
     }
 
     #[test]
@@ -2487,8 +3005,9 @@ mod tests {
         let prompt = NewApiProvider::build_openai_chat_prompt_text(&request, &fields);
         let body = NewApiProvider::build_openai_chat_body(&fields, Value::String(prompt.clone()));
 
-        assert_eq!(fields.request_model, "gpt-image-2-2k-medium".to_string());
+        assert_eq!(fields.request_model, "gpt-image-2".to_string());
         assert_eq!(fields.image_backend.as_deref(), Some("auto"));
+        assert_eq!(fields.quality.as_deref(), Some("medium"));
         assert_eq!(fields.size.as_deref(), Some("2560x1440"));
         assert_eq!(
             body.get("size"),
@@ -2502,7 +3021,11 @@ mod tests {
         );
         assert_eq!(
             body.get("model"),
-            Some(&Value::String("gpt-image-2-2k-medium".to_string()))
+            Some(&Value::String("gpt-image-2".to_string()))
+        );
+        assert_eq!(
+            body.get("quality"),
+            Some(&Value::String("medium".to_string()))
         );
         assert!(!prompt.contains("__gpt2api_image_size"));
     }
@@ -2525,7 +3048,9 @@ mod tests {
             NewApiProvider::build_openai_edits_prompt_text(&request, &fields),
             "make it cinematic".to_string()
         );
+        assert_eq!(fields.request_model, "gpt-image-2");
         assert_eq!(fields.size.as_deref(), Some("2160x3840"));
+        assert_eq!(fields.quality.as_deref(), Some("high"));
     }
 
     #[test]
@@ -2558,12 +3083,16 @@ mod tests {
 
         assert_eq!(
             body.get("model"),
-            Some(&Value::String("gpt-image-2-2k-medium".to_string()))
+            Some(&Value::String("gpt-image-2".to_string()))
         );
         assert_eq!(body.get("n"), Some(&json!(1)));
         assert_eq!(
             body.get("image_backend"),
             Some(&Value::String("auto".to_string()))
+        );
+        assert_eq!(
+            body.get("quality"),
+            Some(&Value::String("medium".to_string()))
         );
         assert_eq!(
             body.get("prompt"),
@@ -2575,6 +3104,37 @@ mod tests {
         );
         assert!(!body.contains_key("aspect_ratio"));
         assert!(!body.contains_key("image_size"));
+    }
+
+    #[test]
+    fn build_openai_generations_body_for_base_gpt_image_2_uses_size_and_quality_params() {
+        let mut extra_params = std::collections::HashMap::new();
+        extra_params.insert("quality".to_string(), Value::String("high".to_string()));
+        let request = crate::ai::GenerateRequest {
+            prompt: "make it cinematic".to_string(),
+            model: "newapi/gpt-image-2".to_string(),
+            size: "4K".to_string(),
+            aspect_ratio: "1:1".to_string(),
+            reference_images: None,
+            extra_params: Some(extra_params),
+        };
+
+        let fields = NewApiProvider::resolve_openai_request_fields(&request, "gpt-image-2")
+            .expect("expected gpt-image-2 fields");
+        let body = NewApiProvider::build_openai_generations_body(&request, &fields);
+
+        assert_eq!(
+            body.get("model"),
+            Some(&Value::String("gpt-image-2".to_string()))
+        );
+        assert_eq!(
+            body.get("size"),
+            Some(&Value::String("2880x2880".to_string()))
+        );
+        assert_eq!(
+            body.get("quality"),
+            Some(&Value::String("high".to_string()))
+        );
     }
 
     #[test]
@@ -2595,11 +3155,12 @@ mod tests {
         assert_eq!(
             text_fields,
             vec![
-                ("model".to_string(), "gpt-image-2-4k-high".to_string()),
+                ("model".to_string(), "gpt-image-2".to_string()),
                 ("prompt".to_string(), "make it cinematic".to_string()),
                 ("n".to_string(), "1".to_string()),
                 ("size".to_string(), "2160x3840".to_string()),
                 ("image_backend".to_string(), "auto".to_string()),
+                ("quality".to_string(), "high".to_string()),
             ]
         );
     }
@@ -2803,6 +3364,33 @@ mod tests {
     }
 
     #[test]
+    fn extract_config_forces_gpt_image_2_to_openai_images_route() {
+        let mut extra_params = HashMap::new();
+        extra_params.insert(
+            "newapi_config".to_string(),
+            json!({
+                "api_format": "openai-edits",
+                "endpoint_url": "https://www.oopii.cn/",
+                "request_model": "gpt-image-2-4k-high",
+                "display_name": "gpt-image-2",
+            }),
+        );
+        let request = crate::ai::GenerateRequest {
+            prompt: "make it cinematic".to_string(),
+            model: "newapi/gpt-image-2".to_string(),
+            size: "4K".to_string(),
+            aspect_ratio: "9:16".to_string(),
+            reference_images: Some(vec!["https://example.com/reference.png".to_string()]),
+            extra_params: Some(extra_params),
+        };
+
+        let config = NewApiProvider::extract_config(&request).expect("expected NewAPI config");
+
+        assert_eq!(config.api_format, super::NewApiFormat::OpenAiImages);
+        assert_eq!(config.request_model, "gpt-image-2-4k-high");
+    }
+
+    #[test]
     fn should_retry_openai_chat_with_openai_edits_only_for_image_compatibility_errors() {
         assert!(NewApiProvider::should_retry_openai_chat_with_openai_edits(
             "invalid image_url payload"
@@ -2857,10 +3445,114 @@ impl AIProvider for NewApiProvider {
         vec![STORYBOARD_MODEL_ID.to_string()]
     }
 
+    fn supports_task_resume(&self) -> bool {
+        false
+    }
+
+    fn should_use_task_resume(&self, request: &GenerateRequest) -> bool {
+        let _ = request;
+        false
+    }
+
     async fn set_api_key(&self, api_key: String) -> Result<(), AIError> {
         let mut key = self.api_key.write().await;
         *key = Some(api_key);
         Ok(())
+    }
+
+    async fn submit_task(
+        &self,
+        request: GenerateRequest,
+    ) -> Result<ProviderTaskSubmission, AIError> {
+        let api_key = self.get_api_key().await?;
+        let config = Self::extract_config(&request)?;
+        if config.api_format == NewApiFormat::OpenAiImages {
+            return self
+                .submit_openai_async_images(&request, &config, &api_key)
+                .await;
+        }
+
+        let image_source = self.generate(request).await?;
+        Ok(ProviderTaskSubmission::Succeeded(image_source))
+    }
+
+    async fn poll_task(
+        &self,
+        handle: ProviderTaskHandle,
+    ) -> Result<ProviderTaskPollResult, AIError> {
+        let api_key = self.get_api_key().await?;
+        let metadata = handle.metadata.unwrap_or_else(|| json!({}));
+        let endpoint_url = metadata
+            .get("endpoint_url")
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .unwrap_or("");
+        let status_url = metadata
+            .get("status_url")
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(ToString::to_string)
+            .unwrap_or_else(|| {
+                Self::resolve_openai_task_status_endpoint(endpoint_url, &handle.task_id)
+            });
+
+        let payload = self
+            .get_async_task_payload(&status_url, endpoint_url, &api_key)
+            .await?;
+
+        let status = Self::extract_async_status(&payload);
+        if status.is_none()
+            && (Self::extract_error_message(&payload).is_some()
+                || Self::extract_trimmed_string(&payload, &["/error/code", "/code"]).is_some())
+        {
+            return Ok(ProviderTaskPollResult::Failed(
+                Self::extract_async_failure_message(&payload),
+            ));
+        }
+
+        let status = status.unwrap_or_else(|| "queued".to_string());
+        if Self::is_async_running_status(&status) {
+            return Ok(ProviderTaskPollResult::Running);
+        }
+
+        if status == "succeeded" {
+            let content_url = Self::extract_async_content_url(&payload)
+                .or_else(|| {
+                    metadata
+                        .get("content_url")
+                        .and_then(Value::as_str)
+                        .map(str::trim)
+                        .filter(|value| !value.is_empty())
+                        .map(ToString::to_string)
+                })
+                .ok_or_else(|| {
+                    AIError::Provider(
+                        "NewAPI async image task succeeded but content_url was missing".to_string(),
+                    )
+                })?;
+            let data_url = self
+                .download_async_content_as_data_url(&content_url, endpoint_url, &api_key)
+                .await?;
+            return Ok(ProviderTaskPollResult::Succeeded(data_url));
+        }
+
+        if Self::is_async_failed_status(&status) {
+            let message = Self::extract_async_failure_message(&payload);
+            return Ok(ProviderTaskPollResult::Failed(message));
+        }
+
+        if status == "expired" {
+            return Ok(ProviderTaskPollResult::Failed(
+                "NewAPI async image content expired".to_string(),
+            ));
+        }
+
+        Err(AIError::Provider(format!(
+            "NewAPI async image task returned unknown status: {}",
+            status
+        )))
     }
 
     async fn generate(&self, request: GenerateRequest) -> Result<String, AIError> {

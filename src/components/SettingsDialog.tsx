@@ -170,8 +170,8 @@ const MJ_PROVIDER_GROUP_CONFIGS: ProviderGroupConfig[] = [
 const THIRD_PARTY_VIDEO_PROVIDER_ID: ThirdPartyVideoProviderId = 'gptBest';
 const THIRD_PARTY_VIDEO_PROVIDER = {
   id: THIRD_PARTY_VIDEO_PROVIDER_ID,
-  name: 'GPT-Best',
-  label: 'GPT-Best',
+  name: 'Third-party Video',
+  label: 'Third-party Video',
 };
 
 const ABOUT_FEEDBACK_QQ_GROUP = '835213642';
@@ -587,6 +587,7 @@ export function SettingsDialog({
       p.id !== 'alibaba'
       && p.id !== 'coding'
       && p.id !== SCRIPT_DEEPSEEK_PROVIDER_ID
+      && p.id !== 'jimeng'
     )),
     [providers]
   );
@@ -1824,7 +1825,7 @@ export function SettingsDialog({
 
           <div className="flex min-h-0 flex-1">
           {/* Sidebar */}
-          <div className="w-[180px] bg-bg-dark border-r border-border-dark flex flex-col">
+          <div className="w-[180px] shrink-0 bg-bg-dark border-r border-border-dark flex flex-col">
             <div className="px-4 py-4">
               <span className="text-xs font-medium text-text-muted uppercase tracking-wider">
                 {t('settings.title')}
@@ -1933,14 +1934,14 @@ export function SettingsDialog({
           </div>
 
           {/* Content */}
-          <div className="flex-1 flex flex-col">
+          <div className="min-w-0 flex-1 flex flex-col">
             {activeCategory === 'providers' && (
               <>
-                <div className="px-6 py-4 border-b border-border-dark">
-                  <div className="flex gap-1">
+                <div className="border-b border-border-dark px-6 py-4">
+                  <div className="ui-scrollbar flex gap-1 overflow-x-auto">
                     <button
                       onClick={() => setLocalProviderTab('script')}
-                      className={`px-4 py-2 text-sm font-medium rounded-t transition-colors ${
+                      className={`shrink-0 px-4 py-2 text-sm font-medium rounded-t transition-colors ${
                         localProviderTab === 'script'
                           ? 'bg-surface-dark text-text-dark border-t border-l border-r border-border-dark -mb-px'
                           : 'text-text-muted hover:text-text-dark'
@@ -1950,7 +1951,7 @@ export function SettingsDialog({
                     </button>
                     <button
                       onClick={() => setLocalProviderTab('storyboard')}
-                      className={`px-4 py-2 text-sm font-medium rounded-t transition-colors ${
+                      className={`shrink-0 px-4 py-2 text-sm font-medium rounded-t transition-colors ${
                         localProviderTab === 'storyboard'
                           ? 'bg-surface-dark text-text-dark border-t border-l border-r border-border-dark -mb-px'
                           : 'text-text-muted hover:text-text-dark'
@@ -1960,7 +1961,7 @@ export function SettingsDialog({
                     </button>
                     <button
                       onClick={() => setLocalProviderTab('mj')}
-                      className={`px-4 py-2 text-sm font-medium rounded-t transition-colors ${
+                      className={`shrink-0 px-4 py-2 text-sm font-medium rounded-t transition-colors ${
                         localProviderTab === 'mj'
                           ? 'bg-surface-dark text-text-dark border-t border-l border-r border-border-dark -mb-px'
                           : 'text-text-muted hover:text-text-dark'
@@ -1970,7 +1971,7 @@ export function SettingsDialog({
                     </button>
                     <button
                       onClick={() => setLocalProviderTab('thirdPartyVideo')}
-                      className={`px-4 py-2 text-sm font-medium rounded-t transition-colors ${
+                      className={`shrink-0 px-4 py-2 text-sm font-medium rounded-t transition-colors ${
                         localProviderTab === 'thirdPartyVideo'
                           ? 'bg-surface-dark text-text-dark border-t border-l border-r border-border-dark -mb-px'
                           : 'text-text-muted hover:text-text-dark'
@@ -1981,8 +1982,8 @@ export function SettingsDialog({
                   </div>
                 </div>
 
-                <div className="flex-1 flex min-h-0">
-                  <div className="w-[196px] border-r border-border-dark bg-bg-dark flex flex-col">
+                <div className="flex-1 flex min-h-0 min-w-0">
+                  <div className="w-[196px] shrink-0 border-r border-border-dark bg-bg-dark flex flex-col">
                     <div className="px-3 py-3 text-xs font-medium text-text-muted uppercase tracking-wider">
                       {t('settings.providerList')}
                     </div>
@@ -2010,7 +2011,7 @@ export function SettingsDialog({
                             }
                           />
                           <span className="min-w-0 flex-1 truncate text-xs">
-                            {THIRD_PARTY_VIDEO_PROVIDER.label}
+                            {t('settings.thirdPartyVideoApiEnabled')}
                           </span>
                         </button>
                       ) : (
@@ -2211,7 +2212,7 @@ export function SettingsDialog({
                     </nav>
                   </div>
 
-                  <div className="flex-1 overflow-y-auto ui-scrollbar p-5">
+                  <div className="min-w-0 flex-1 overflow-y-auto ui-scrollbar p-5">
                     {(() => {
                       if (localProviderTab === 'thirdPartyVideo') {
                         const currentApiKey =
@@ -2231,7 +2232,7 @@ export function SettingsDialog({
                                   }`}
                                 />
                                 <h3 className="text-base font-medium text-text-dark">
-                                  {THIRD_PARTY_VIDEO_PROVIDER.label}
+                                  {t('settings.thirdPartyVideoApiEnabled')}
                                 </h3>
                                 {hasKey && hasBaseUrl ? (
                                   <span className="rounded bg-green-500/10 px-2 py-0.5 text-xs text-green-500">
@@ -2310,7 +2311,7 @@ export function SettingsDialog({
                                 onChange={(event) =>
                                   setLocalThirdPartyVideoBaseUrl(event.target.value)
                                 }
-                                placeholder="https://your-gpt-best-host"
+                                placeholder="https://your-third-party-video-host"
                                 className="w-full rounded border border-border-dark bg-surface-dark px-3 py-2 text-sm text-text-dark placeholder:text-text-muted"
                               />
                               <p className="mt-2 text-xs leading-5 text-text-muted">

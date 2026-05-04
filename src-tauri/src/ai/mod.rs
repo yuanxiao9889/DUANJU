@@ -56,6 +56,10 @@ pub trait AIProvider: Send + Sync {
         false
     }
 
+    fn should_use_task_resume(&self, _request: &GenerateRequest) -> bool {
+        self.supports_task_resume()
+    }
+
     async fn submit_task(
         &self,
         _request: GenerateRequest,

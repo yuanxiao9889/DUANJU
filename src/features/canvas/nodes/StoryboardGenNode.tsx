@@ -742,21 +742,6 @@ export const StoryboardGenNode = memo(({ id, data, selected, width, height }: St
       storyboardProviderCustomModels,
     ]
   );
-  const resolvedNewApiModelConfig = useMemo(
-    () =>
-      isStoryboardNewApiModelId(selectedModel.id)
-        ? resolveStoryboardNewApiModelConfigForModel(
-          selectedModel.id,
-          storyboardNewApiModelConfig,
-          storyboardProviderCustomModels
-        )
-        : storyboardNewApiModelConfig,
-    [
-      selectedModel.id,
-      storyboardNewApiModelConfig,
-      storyboardProviderCustomModels,
-    ]
-  );
   const resolvedApi2OkModelConfig = useMemo(
     () =>
       isStoryboardApi2OkModelId(selectedModel.id)
@@ -779,8 +764,38 @@ export const StoryboardGenNode = memo(({ id, data, selected, width, height }: St
         selectedModel.defaultExtraParams,
         lastImageGenerationExtraParams,
         nodeData.extraParams
-      ),
+    ),
     [lastImageGenerationExtraParams, nodeData.extraParams, selectedModel]
+  );
+  const requestedNewApiResolution = useMemo(
+    () =>
+      isStoryboardNewApiModelId(selectedModel.id)
+        ? resolveImageModelResolution(selectedModel, nodeData.size, {
+          extraParams: resolvedModelExtraParams,
+        }).value
+        : null,
+    [nodeData.size, resolvedModelExtraParams, selectedModel]
+  );
+  const resolvedNewApiModelConfig = useMemo(
+    () =>
+      isStoryboardNewApiModelId(selectedModel.id)
+        ? resolveStoryboardNewApiModelConfigForModel(
+          selectedModel.id,
+          storyboardNewApiModelConfig,
+          storyboardProviderCustomModels,
+          {
+            resolution: requestedNewApiResolution,
+            extraParams: resolvedModelExtraParams,
+          }
+        )
+        : storyboardNewApiModelConfig,
+    [
+      requestedNewApiResolution,
+      resolvedModelExtraParams,
+      selectedModel.id,
+      storyboardNewApiModelConfig,
+      storyboardProviderCustomModels,
+    ]
   );
   const requestedOopiiResolution = useMemo(
     () =>
@@ -1526,6 +1541,10 @@ export const StoryboardGenNode = memo(({ id, data, selected, width, height }: St
         errorMessage: finalResolvedError.message,
         errorDetails: finalResolvedError.details,
         context: generationDebugContext,
+        errorCategory: finalResolvedError.category,
+        statusCode: finalResolvedError.statusCode,
+        traceId: finalResolvedError.traceId,
+        requestId: finalResolvedError.requestId,
       });
       setError(finalResolvedError.message);
       void showErrorDialog(

@@ -1140,8 +1140,8 @@
     },
     "gptBestVideo": {
       "promptRequired": "Please enter a prompt for third-party video generation",
-      "apiKeyRequired": "Please set the GPT-Best API key in Settings > Third-party Video",
-      "baseUrlRequired": "Please set the GPT-Best Base URL in Settings > Third-party Video",
+      "apiKeyRequired": "Please set the third-party video API key in Settings > Third-party Video",
+      "baseUrlRequired": "Please set the third-party video Base URL in Settings > Third-party Video",
       "seedancePromptPlaceholder": "Describe the scene, motion, framing, and timing for third-party Seedance 2.0 video generation",
       "grokPromptPlaceholder": "Describe the video. Use @img1, @img2, etc. to refer to connected reference images",
       "submit": "Generate Video",
@@ -2047,6 +2047,24 @@
     "success": "Generated successfully",
     "error": "Generation failed"
   },
+  "aiError": {
+    "statusLine": "Error code: {{code}}",
+    "categories": {
+      "policyViolation": "The upstream platform blocked this request because it may violate its safety rules. Please adjust the prompt or reference images and avoid sensitive, sexual, violent, impersonation, copyright-risk, or otherwise prohibited content.",
+      "timeout": "The upstream generation service timed out. The task may have queued too long, the images may be too large, or the service may be busy. Please retry later, reduce reference images/resolution, or switch model/channel.",
+      "payloadTooLarge": "This request is too large. Please compress reference images, use fewer reference images, or lower the resolution before trying again.",
+      "endpointMismatch": "The selected model does not match the API endpoint. This is usually a relay configuration issue; check whether the model should use /v1/images/generations or /v1/images/edits.",
+      "modelUnavailable": "No available channel was found for this model, or the model mapping is incorrect. Check the relay model name, channel status, and group permissions.",
+      "insufficientBalance": "The account or token balance is not enough for this request. Please top up, lower the generation settings, or switch to another API key.",
+      "rateLimitOrQuota": "The upstream quota or request rate is limited. Please retry later or switch to a channel with available quota.",
+      "upstreamUnavailable": "The upstream service or proxy is temporarily unavailable. The channel may be down, the proxy may have failed, or a gateway error occurred. Please retry later or switch channels.",
+      "badRequest": "The upstream service rejected the request parameters. Check the model, size, quality, reference image count, or prompt content before trying again.",
+      "auth": "The API key, account permission, or relay group access may be invalid. Please check the key and permissions in settings and the relay console.",
+      "network": "The request could not be sent successfully. Please check the network connection, endpoint URL, and proxy settings.",
+      "taskInterrupted": "The generation task was interrupted or its record could not be found. The app may have restarted, the task may have expired, or the server record may have been cleaned up. Please submit again.",
+      "unknown": "Generation failed. Please check the error details or retry later."
+    }
+  },
   "project": {
     "title": "Projects",
     "newProject": "New Project",
@@ -2838,9 +2856,9 @@
     "storyboardApiEnabled": "Storyboard API",
     "mjApiEnabled": "MJ API",
     "thirdPartyVideoApiEnabled": "Third-party Video",
-    "thirdPartyVideoGptBestDesc": "GPT-Best Seedance 2.0 and Grok video nodes share this key.",
+    "thirdPartyVideoGptBestDesc": "Third-party Seedance 2.0 and third-party Grok video nodes share this key.",
     "thirdPartyVideoBaseUrl": "Base URL",
-    "thirdPartyVideoBaseUrlHint": "Use the Base URL from your GPT-Best dashboard. The app automatically appends /v2/videos/generations.",
+    "thirdPartyVideoBaseUrlHint": "Use the Base URL from your third-party video platform. The app automatically appends /v2/videos/generations.",
     "scriptApiDisabled": "Disabled",
     "storyboardApiDisabled": "Disabled",
     "scriptApiDesc": "Select the API provider for script generation",

@@ -1,8 +1,17 @@
 import { openGlobalErrorDialog } from '@/features/app/errorDialogEvents';
+import {
+  type AiGenerationErrorCategory,
+  presentAiGenerationError,
+} from '@/features/canvas/application/aiGenerationError';
 
 export interface ResolvedErrorContent {
   message: string;
   details?: string;
+  category?: AiGenerationErrorCategory;
+  statusCode?: number;
+  traceId?: string;
+  requestId?: string;
+  rawMessage?: string;
 }
 
 interface ErrorWithDetails extends Error {
@@ -30,6 +39,11 @@ function stringifyUnknown(value: unknown): string | undefined {
 }
 
 export function resolveErrorContent(error: unknown, fallbackMessage: string): ResolvedErrorContent {
+  const presentedError = presentAiGenerationError(error, fallbackMessage);
+  if (presentedError.category !== 'unknown') {
+    return presentedError;
+  }
+
   if (error instanceof Error) {
     const errorWithDetails = error as ErrorWithDetails;
     const details = stringifyUnknown(errorWithDetails.details);

@@ -172,7 +172,7 @@ export const GptBestVideoResultNode = memo(
           lastError: null,
         });
         if (!options?.suppressErrorDialog) {
-          await flushCurrentProjectToDiskSafely('starting GPT-Best video requery');
+          await flushCurrentProjectToDiskSafely('starting third-party video requery');
         }
 
         try {
@@ -216,7 +216,7 @@ export const GptBestVideoResultNode = memo(
               lastError: errorMessage,
             });
             setStatusNotice(errorMessage);
-            await flushCurrentProjectToDiskSafely('saving GPT-Best video failed requery result');
+            await flushCurrentProjectToDiskSafely('saving third-party video failed requery result');
             if (!options?.suppressErrorDialog) {
               await showErrorDialog(errorMessage, t('common.error'));
             }
@@ -241,7 +241,7 @@ export const GptBestVideoResultNode = memo(
             lastGeneratedAt: completedAt,
             lastError: null,
           });
-          await flushCurrentProjectToDiskSafely('saving GPT-Best video requery result');
+          await flushCurrentProjectToDiskSafely('saving third-party video requery result');
         } catch (error) {
           const content = resolveErrorContent(error, t('node.gptBestVideoResult.requeryFailed'));
           setStatusNotice(content.message);
@@ -265,7 +265,7 @@ export const GptBestVideoResultNode = memo(
               });
             }, GPT_BEST_VIDEO_RESULT_POLL_INTERVAL_MS * 2);
           } else {
-            await flushCurrentProjectToDiskSafely('saving GPT-Best video requery error');
+            await flushCurrentProjectToDiskSafely('saving third-party video requery error');
           }
           if (!options?.suppressErrorDialog && !options?.scheduleNextPoll) {
             await showErrorDialog(content.message, t('common.error'), content.details);

@@ -1,3 +1,8 @@
+import {
+  type AiGenerationErrorCategory,
+  extractAiGenerationErrorDiagnostics,
+} from '@/features/canvas/application/aiGenerationError';
+
 export interface GenerationDebugContext {
   sourceType: 'imageEdit' | 'storyboardGen' | 'unknown';
   providerId?: string;
@@ -25,6 +30,10 @@ interface BuildGenerationErrorReportInput {
   errorMessage: string;
   errorDetails?: string;
   context?: unknown;
+  errorCategory?: AiGenerationErrorCategory;
+  statusCode?: number;
+  traceId?: string;
+  requestId?: string;
 }
 
 function toStringSafe(value: unknown): string {
@@ -125,12 +134,31 @@ export function buildGenerationErrorReport(
   input: BuildGenerationErrorReportInput
 ): string {
   const context = (input.context ?? {}) as Partial<GenerationDebugContext>;
+  const diagnostics = extractAiGenerationErrorDiagnostics(
+    [input.errorMessage, input.errorDetails].filter(Boolean).join('\n\n')
+  );
+  const errorCategory = input.errorCategory ?? diagnostics.category;
+  const statusCode = input.statusCode ?? diagnostics.statusCode;
+  const traceId = input.traceId ?? diagnostics.traceId;
+  const requestId = input.requestId ?? diagnostics.requestId;
   const sections: string[] = [];
   sections.push('# Generation Error Report');
   sections.push('');
   sections.push(`- Error: ${input.errorMessage || 'unknown error'}`);
   if (input.errorDetails) {
     sections.push(`- Details: ${input.errorDetails}`);
+  }
+  if (errorCategory && errorCategory !== 'unknown') {
+    sections.push(`- Category: ${errorCategory}`);
+  }
+  if (statusCode) {
+    sections.push(`- Status Code: ${statusCode}`);
+  }
+  if (traceId) {
+    sections.push(`- Trace ID: ${traceId}`);
+  }
+  if (requestId) {
+    sections.push(`- Request ID: ${requestId}`);
   }
   sections.push(`- App Version: ${context.appVersion ?? 'unknown'}`);
   sections.push(`- OS: ${context.osName ?? 'Unknown'} ${context.osVersion ?? 'unknown'}`.trim());
