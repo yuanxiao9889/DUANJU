@@ -33,6 +33,7 @@ import {
   type Seedvr2VideoUpscaleNodeData,
   type LegacyNodeData,
   type ImageEditNodeData,
+  type MultiAngleImageNodeData,
   type ImageCollageNodeData,
   type Panorama360NodeData,
   type JimengImageNodeData,
@@ -246,6 +247,42 @@ const imageEditNodeDefinition: CanvasNodeDefinition<ImageEditNodeData> = {
     isGenerating: false,
     generationStartedAt: null,
     generationDurationMs: 60000,
+  }),
+};
+
+const multiAngleImageNodeDefinition: CanvasNodeDefinition<MultiAngleImageNodeData> = {
+  type: CANVAS_NODE_TYPES.multiAngleImage,
+  menuLabelKey: 'node.menu.multiAngleImage',
+  menuIcon: 'sparkles',
+  menuGroup: 'imageGeneration',
+  visibleInMenu: true,
+  menuProjectTypes: ['storyboard'],
+  capabilities: {
+    toolbar: true,
+    promptInput: false,
+  },
+  connectivity: {
+    sourceHandle: true,
+    targetHandle: true,
+    connectMenu: {
+      fromSource: true,
+      fromTarget: false,
+    },
+  },
+  createDefaultData: () => ({
+    displayName: DEFAULT_NODE_DISPLAY_NAME[CANVAS_NODE_TYPES.multiAngleImage],
+    model: DEFAULT_IMAGE_MODEL_ID,
+    size: '2K' as ImageSize,
+    requestAspectRatio: AUTO_REQUEST_ASPECT_RATIO,
+    horizontalAngle: 0,
+    verticalAngle: 0,
+    zoom: 5,
+    cameraView: false,
+    extraParams: {},
+    isGenerating: false,
+    generationStartedAt: null,
+    generationDurationMs: 60000,
+    lastError: null,
   }),
 };
 
@@ -1905,6 +1942,7 @@ const scriptWorldviewNodeDefinition: CanvasNodeDefinition<ScriptWorldviewNodeDat
 export const canvasNodeDefinitions: Record<CanvasNodeType, CanvasNodeDefinition> = {
   [CANVAS_NODE_TYPES.upload]: uploadNodeDefinition,
   [CANVAS_NODE_TYPES.imageEdit]: imageEditNodeDefinition,
+  [CANVAS_NODE_TYPES.multiAngleImage]: multiAngleImageNodeDefinition,
   [CANVAS_NODE_TYPES.panorama360]: panorama360NodeDefinition,
   [CANVAS_NODE_TYPES.backgroundRemove]: backgroundRemoveNodeDefinition,
   [CANVAS_NODE_TYPES.seedvr2ImageUpscale]: seedvr2ImageUpscaleNodeDefinition,

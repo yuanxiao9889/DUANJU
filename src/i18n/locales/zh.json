@@ -478,6 +478,7 @@
     "menu": {
       "uploadImage": "上传图片",
       "aiImageGeneration": "AI 图片",
+      "multiAngleImage": "多角度图片",
       "panorama360": "360 全景",
       "backgroundRemove": "抠图",
       "seedvr2ImageUpscale": "图片高清放大",
@@ -571,6 +572,40 @@
       "resultTitle": "结果图片",
       "promptPlaceholder": "描述任何你想要生成或编辑的内容",
       "referenceImageLabel": "图片 {{index}}"
+    },
+    "multiAngleImage": {
+      "apiKeyRequired": "请在设置中填写 API Key",
+      "cameraView": "相机视角",
+      "distance": "距离",
+      "distanceClose": "特写",
+      "distanceMedium": "中景",
+      "distanceWide": "远景",
+      "elevation": "仰角",
+      "generateFailed": "多角度生成失败",
+      "horizontalAngle": "方位角",
+      "multiInputHint": "已连接多张图片，当前仅使用第一张有效图片",
+      "noInput": "连接一张上游图片后调整角度",
+      "resultTitle": "{{azimuth}}° {{direction}} / {{elevation}}° {{elevationLabel}} / {{distance}}",
+      "statusHint": "拖拽粉色/青色/黄色手柄或使用滑块微调角度，然后生成新的角度图片",
+      "sourceAlt": "多角度参考图",
+      "sourceRequired": "请先连接一张图片",
+      "presets": {
+        "front": "正面",
+        "frontRight": "右前",
+        "right": "右侧",
+        "backRight": "右后",
+        "back": "背面",
+        "backLeft": "左后",
+        "left": "左侧",
+        "frontLeft": "左前",
+        "low": "仰拍",
+        "eye": "平视",
+        "elevated": "高角度",
+        "high": "俯拍",
+        "wide": "远景",
+        "medium": "中景",
+        "close": "特写"
+      }
     },
     "midjourney": {
       "versionDefault": "默认",

@@ -26,6 +26,7 @@ import {
 import {
   detectImageDimensions,
 } from '@/features/canvas/application/imageData';
+import { resolveErrorContent } from '@/features/canvas/application/errorDialog';
 import { resolveNodeDisplayName } from '@/features/canvas/domain/nodeDisplay';
 import { getModelProvider } from '@/features/canvas/models';
 import { NodeHeader, NODE_HEADER_FLOATING_POSITION_CLASS } from '@/features/canvas/ui/NodeHeader';
@@ -72,10 +73,24 @@ export const ImageNode = memo(({ id, data, selected, type, width }: ImageNodePro
   const isExportResultNode = type === CANVAS_NODE_TYPES.exportImage;
   const isGenerating = typeof data.isGenerating === 'boolean' ? data.isGenerating : false;
   const hasPersistedImage = Boolean(data.imageUrl || data.previewImageUrl);
-  const generationError =
+  const rawGenerationError =
     typeof (data as { generationError?: unknown }).generationError === 'string'
       ? ((data as { generationError?: string }).generationError ?? '').trim()
       : '';
+  const generationErrorDetails =
+    typeof (data as { generationErrorDetails?: unknown }).generationErrorDetails === 'string'
+      ? ((data as { generationErrorDetails?: string }).generationErrorDetails ?? '').trim()
+      : '';
+  const generationError = useMemo(() => {
+    if (!rawGenerationError) {
+      return '';
+    }
+
+    const source = generationErrorDetails
+      ? `${rawGenerationError}\n\n${generationErrorDetails}`
+      : rawGenerationError;
+    return resolveErrorContent(source, rawGenerationError).message;
+  }, [generationErrorDetails, rawGenerationError]);
   const generationJobId =
     typeof (data as { generationJobId?: unknown }).generationJobId === 'string'
       ? ((data as { generationJobId?: string }).generationJobId ?? '').trim()

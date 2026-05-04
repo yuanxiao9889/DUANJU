@@ -4,7 +4,7 @@ import {
 } from '@/features/canvas/application/aiGenerationError';
 
 export interface GenerationDebugContext {
-  sourceType: 'imageEdit' | 'storyboardGen' | 'unknown';
+  sourceType: 'imageEdit' | 'storyboardGen' | 'multiAngleImage' | 'unknown';
   providerId?: string;
   requestModel?: string;
   requestSize?: string;
@@ -141,11 +141,15 @@ export function buildGenerationErrorReport(
   const statusCode = input.statusCode ?? diagnostics.statusCode;
   const traceId = input.traceId ?? diagnostics.traceId;
   const requestId = input.requestId ?? diagnostics.requestId;
+  const rawErrorMessage = input.errorDetails?.trim() || input.errorMessage || 'unknown error';
   const sections: string[] = [];
   sections.push('# Generation Error Report');
   sections.push('');
-  sections.push(`- Error: ${input.errorMessage || 'unknown error'}`);
-  if (input.errorDetails) {
+  sections.push(`- Error: ${rawErrorMessage}`);
+  if (input.errorMessage && input.errorMessage !== rawErrorMessage) {
+    sections.push(`- User Message: ${input.errorMessage}`);
+  }
+  if (input.errorDetails && input.errorDetails !== rawErrorMessage) {
     sections.push(`- Details: ${input.errorDetails}`);
   }
   if (errorCategory && errorCategory !== 'unknown') {

@@ -9,6 +9,7 @@ export const DEFAULT_NODE_DISPLAY_NAME: Record<CanvasNodeType, string> = {
   [CANVAS_NODE_TYPES.upload]: '\u4e0a\u4f20\u56fe\u7247',
   [CANVAS_NODE_TYPES.imageCompare]: '\u56fe\u7247\u5bf9\u6bd4',
   [CANVAS_NODE_TYPES.imageEdit]: 'AI \u56fe\u7247',
+  [CANVAS_NODE_TYPES.multiAngleImage]: '\u591a\u89d2\u5ea6\u56fe\u7247',
   [CANVAS_NODE_TYPES.panorama360]: '360 \u5168\u666f',
   [CANVAS_NODE_TYPES.backgroundRemove]: '\u62a0\u56fe',
   [CANVAS_NODE_TYPES.seedvr2ImageUpscale]: '\u56fe\u7247\u9ad8\u6e05\u653e\u5927',

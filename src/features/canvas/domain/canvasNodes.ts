@@ -19,6 +19,7 @@ export const CANVAS_NODE_TYPES = {
   upload: 'uploadNode',
   imageCompare: 'imageCompareNode',
   imageEdit: 'imageNode',
+  multiAngleImage: 'multiAngleImageNode',
   panorama360: 'panorama360Node',
   backgroundRemove: 'backgroundRemoveNode',
   seedvr2ImageUpscale: 'seedvr2ImageUpscaleNode',
@@ -76,6 +77,8 @@ export const AUTO_REQUEST_ASPECT_RATIO = 'auto';
 export const DEFAULT_NODE_WIDTH = 220;
 export const IMAGE_EDIT_NODE_DEFAULT_WIDTH = 500;
 export const IMAGE_EDIT_NODE_DEFAULT_HEIGHT = 280;
+export const MULTI_ANGLE_IMAGE_NODE_DEFAULT_WIDTH = 560;
+export const MULTI_ANGLE_IMAGE_NODE_DEFAULT_HEIGHT = 420;
 export const PANORAMA360_NODE_DEFAULT_WIDTH = 520;
 export const PANORAMA360_NODE_DEFAULT_HEIGHT = 380;
 export const PANORAMA360_NODE_MIN_WIDTH = 420;
@@ -359,7 +362,7 @@ export type ExportImageNodeResultKind =
   | 'storyboardFrameEdit'
   | 'imageCollageExport';
 
-export type ExportImageGenerationSourceType = 'imageEdit' | 'storyboardGen';
+export type ExportImageGenerationSourceType = 'imageEdit' | 'storyboardGen' | 'multiAngleImage';
 export type ExportImageGenerationPhase =
   | 'submitting'
   | 'queued'
@@ -674,6 +677,22 @@ export interface ImageEditNodeData extends NodeImageData {
   isGenerating?: boolean;
   generationStartedAt?: number | null;
   generationDurationMs?: number;
+}
+
+export interface MultiAngleImageNodeData extends NodeDisplayData {
+  model: string;
+  size: ImageSize;
+  requestAspectRatio?: string;
+  horizontalAngle: number;
+  verticalAngle: number;
+  zoom: number;
+  cameraView?: boolean;
+  extraParams?: Record<string, unknown>;
+  isGenerating?: boolean;
+  generationStartedAt?: number | null;
+  generationDurationMs?: number;
+  lastError?: string | null;
+  [key: string]: unknown;
 }
 
 export interface Panorama360NodeData extends NodeImageData {
@@ -1147,7 +1166,9 @@ function normalizeExportImageNodeResultKind(
 function normalizeExportImageGenerationSourceType(
   value: unknown
 ): ExportImageGenerationSourceType | null {
-  return value === 'imageEdit' || value === 'storyboardGen' ? value : null;
+  return value === 'imageEdit' || value === 'storyboardGen' || value === 'multiAngleImage'
+    ? value
+    : null;
 }
 
 function normalizeExportImageGenerationPhase(
@@ -2253,6 +2274,7 @@ export type CanvasNodeData =
   | LlmLogicNodeData
   | GroupNodeData
   | ImageEditNodeData
+  | MultiAngleImageNodeData
   | JimengNodeData
   | JimengImageNodeData
   | MjNodeData
@@ -3439,6 +3461,12 @@ export function isImageEditNode(
   node: CanvasNode | null | undefined
 ): node is Node<ImageEditNodeData, typeof CANVAS_NODE_TYPES.imageEdit> {
   return node?.type === CANVAS_NODE_TYPES.imageEdit;
+}
+
+export function isMultiAngleImageNode(
+  node: CanvasNode | null | undefined
+): node is Node<MultiAngleImageNodeData, typeof CANVAS_NODE_TYPES.multiAngleImage> {
+  return node?.type === CANVAS_NODE_TYPES.multiAngleImage;
 }
 
 export function isPanorama360Node(

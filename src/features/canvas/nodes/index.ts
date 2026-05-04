@@ -4,6 +4,7 @@ import { GroupNode } from './GroupNode';
 import { AudioNode } from './AudioNode';
 import { ImageCompareNode } from './ImageCompareNode';
 import { ImageEditNode } from './ImageEditNode';
+import { MultiAngleImageNode } from './MultiAngleImageNode';
 import { Panorama360Node } from './Panorama360Node';
 import { BackgroundRemoveNode } from './BackgroundRemoveNode';
 import { SeedVR2ImageUpscaleNode } from './SeedVR2ImageUpscaleNode';
@@ -61,6 +62,7 @@ export const nodeTypes: NodeTypes = {
   groupNode: GroupNode,
   audioNode: AudioNode,
   imageNode: ImageEditNode,
+  multiAngleImageNode: MultiAngleImageNode,
   panorama360Node: Panorama360Node,
   backgroundRemoveNode: BackgroundRemoveNode,
   seedvr2ImageUpscaleNode: SeedVR2ImageUpscaleNode,
@@ -112,7 +114,8 @@ export {
   GroupNode, 
   AudioNode,
   ImageCompareNode,
-  ImageEditNode, 
+  ImageEditNode,
+  MultiAngleImageNode,
   Panorama360Node,
   BackgroundRemoveNode,
   SeedVR2ImageUpscaleNode,
