@@ -37,6 +37,7 @@ import {
   canvasAiGateway,
 } from '@/features/canvas/application/canvasServices';
 import { resolveErrorContent, showErrorDialog } from '@/features/canvas/application/errorDialog';
+import { recordImageGenerationErrorLog } from '@/features/canvas/application/errorLog';
 import {
   detectAspectRatio,
   parseAspectRatio,
@@ -1251,6 +1252,22 @@ export const ImageEditNode = memo(({ id, data, selected, width, height }: ImageE
         resolvedError.details,
         reportText
       );
+      void recordImageGenerationErrorLog({
+        nodeId: newNodeId,
+        sourceType: 'imageEdit',
+        failureStage: 'submit',
+        errorMessage: resolvedError.message,
+        errorDetails: resolvedError.details,
+        context: generationDebugContext,
+        errorCategory: resolvedError.category,
+        statusCode: resolvedError.statusCode,
+        traceId: resolvedError.traceId,
+        requestId: resolvedError.requestId,
+        providerId: selectedModel.providerId,
+        startedAt: generationStartedAt,
+      }).catch((error) => {
+        console.warn('[ImageEditNode] failed to record error log', error);
+      });
       updateNodeData(newNodeId, {
         isGenerating: false,
         generationPhase: 'failed',

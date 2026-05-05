@@ -43,6 +43,7 @@ export interface ExtensionPackageManifest {
   version: string;
   description: string;
   runtime: string;
+  startupHealthTimeoutMs?: number;
   features: ExtensionFeatureSet;
   startupSteps: ExtensionStartupStep[];
   entry?: ExtensionRuntimeEntry;

@@ -35,6 +35,7 @@ import {
 } from '@/features/canvas/application/imageData';
 import { resolveMinEdgeFittedSize } from '@/features/canvas/application/imageNodeSizing';
 import { resolveErrorContent, showErrorDialog } from '@/features/canvas/application/errorDialog';
+import { recordImageGenerationErrorLog } from '@/features/canvas/application/errorLog';
 import {
   buildGenerationErrorReport,
   CURRENT_RUNTIME_SESSION_ID,
@@ -1452,6 +1453,22 @@ export const MultiAngleImageNode = memo(({
         resolvedError.details,
         reportText
       );
+      void recordImageGenerationErrorLog({
+        nodeId: newNodeId,
+        sourceType: 'multiAngleImage',
+        failureStage: 'submit',
+        errorMessage: resolvedError.message,
+        errorDetails: resolvedError.details,
+        context: generationDebugContext,
+        errorCategory: resolvedError.category,
+        statusCode: resolvedError.statusCode,
+        traceId: resolvedError.traceId,
+        requestId: resolvedError.requestId,
+        providerId: selectedModel.providerId,
+        startedAt: generationStartedAt,
+      }).catch((error) => {
+        console.warn('[MultiAngleImageNode] failed to record error log', error);
+      });
       updateNodeData(newNodeId, {
         isGenerating: false,
         generationPhase: 'failed',

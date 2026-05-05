@@ -114,10 +114,22 @@ function extractTraceId(raw: string): string | undefined {
 }
 
 function extractRequestId(raw: string): string | undefined {
+  const structuredMatch = raw.match(
+    /(?:request[_-]?id|x-request-id|req[_-]?id|remote[_-]?logid|logid)["']?\s*[:=：]\s*["']?([A-Za-z0-9_-]+)/i
+  );
+  if (structuredMatch) {
+    return structuredMatch[1];
+  }
+
   const patterns = [
     /request\s+id\s*[:：]\s*([A-Za-z0-9-]+)/i,
+    /request[_-]?id\s*[:=：]\s*([A-Za-z0-9-]+)/i,
     /request\s+ID\s+([A-Za-z0-9-]+)/,
     /\(request\s+id\s*[:：]\s*([A-Za-z0-9-]+)\)/i,
+    /x-request-id\s*[:=：]\s*([A-Za-z0-9-]+)/i,
+    /req[_-]?id\s*[:=：]\s*([A-Za-z0-9-]+)/i,
+    /remote[_-]?logid\s*[:=：]\s*([A-Za-z0-9-]+)/i,
+    /logid\s*[:=：]\s*([A-Za-z0-9-]+)/i,
   ];
 
   for (const pattern of patterns) {

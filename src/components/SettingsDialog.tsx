@@ -1,5 +1,5 @@
 import { useState, useCallback, useEffect, useMemo, type KeyboardEvent as ReactKeyboardEvent } from 'react';
-import { X, Eye, EyeOff, FolderOpen, Plus, Trash2, Maximize2, Minimize2, HardDrive, Circle, Keyboard, RotateCcw, ChevronDown, ChevronRight } from 'lucide-react';
+import { X, Eye, EyeOff, FolderOpen, Plus, Trash2, Maximize2, Minimize2, HardDrive, Circle, Keyboard, RotateCcw, ChevronDown, ChevronRight, FileWarning } from 'lucide-react';
 import type { TFunction } from 'i18next';
 import { useTranslation } from 'react-i18next';
 import { getVersion } from '@tauri-apps/api/app';
@@ -13,6 +13,7 @@ import {
   type DreaminaCliUpdateInfoResponse,
   type DreaminaCliStatusResponse,
 } from '@/commands/dreaminaCli';
+import { listErrorLogItems, type ErrorLogItemRecord } from '@/commands/errorLog';
 import {
   useSettingsStore,
   type ThirdPartyVideoProviderId,
@@ -37,6 +38,7 @@ import { UI_CONTENT_OVERLAY_INSET_CLASS, UI_DIALOG_TRANSITION_MS } from '@/compo
 import { useDialogTransition } from '@/components/ui/useDialogTransition';
 import { useDraggableDialog } from '@/components/ui/useDraggableDialog';
 import { ProviderModelSettingsSection } from '@/components/settings/ProviderModelSettingsSection';
+import { ErrorLogDialog } from '@/components/ErrorLogDialog';
 import {
   getCustomScriptModels,
   getCustomStoryboardModels,
@@ -177,6 +179,20 @@ const THIRD_PARTY_VIDEO_PROVIDER = {
 const ABOUT_FEEDBACK_QQ_GROUP = '835213642';
 const ABOUT_OOPII_QQ_GROUP_URL = 'https://qm.qq.com/q/TcWYG0Ri0w';
 const ABOUT_FEEDBACK_QR_SRC = '/community-qq-835213642.jpg';
+
+function resolveErrorLogDiagnosticId(record: ErrorLogItemRecord | undefined): string | null {
+  if (!record) {
+    return null;
+  }
+  return record.requestId || record.externalTaskId || record.jobId || null;
+}
+
+function formatErrorLogSummaryTime(timestamp: number | null): string {
+  if (!timestamp || !Number.isFinite(timestamp)) {
+    return '';
+  }
+  return new Date(timestamp).toLocaleString();
+}
 
 function resolveProviderGroups(
   providers: ModelProviderDefinition[],
@@ -732,6 +748,12 @@ export function SettingsDialog({
     }
   }, []);
   const [runtimeVersion, setRuntimeVersion] = useState<string>('');
+  const [showErrorLogDialog, setShowErrorLogDialog] = useState(false);
+  const [errorLogSummary, setErrorLogSummary] = useState<{
+    count: number;
+    latestAt: number | null;
+    latestRequestId: string | null;
+  }>({ count: 0, latestAt: null, latestRequestId: null });
   const [dreaminaStatus, setDreaminaStatus] = useState<DreaminaCliStatusResponse | null>(null);
   const [dreaminaUpdateInfo, setDreaminaUpdateInfo] = useState<DreaminaCliUpdateInfoResponse | null>(null);
   const [isCheckingDreaminaStatus, setIsCheckingDreaminaStatus] = useState(false);
@@ -786,6 +808,28 @@ export function SettingsDialog({
       mounted = false;
     };
   }, []);
+
+  const refreshErrorLogSummary = useCallback(async () => {
+    try {
+      const items = await listErrorLogItems();
+      const latest = items[0] as ErrorLogItemRecord | undefined;
+      setErrorLogSummary({
+        count: items.length,
+        latestAt: latest?.createdAt ?? null,
+        latestRequestId: resolveErrorLogDiagnosticId(latest),
+      });
+    } catch (error) {
+      console.warn('failed to load error log summary', error);
+      setErrorLogSummary({ count: 0, latestAt: null, latestRequestId: null });
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!isOpen || activeCategory !== 'about') {
+      return;
+    }
+    void refreshErrorLogSummary();
+  }, [activeCategory, isOpen, refreshErrorLogSummary]);
 
   useEffect(() => {
     if (!isOpen) {
@@ -3806,6 +3850,46 @@ export function SettingsDialog({
                     </p>
                   </div>
 
+                  <div className="rounded-lg border border-border-dark bg-bg-dark p-4">
+                    <div className="flex flex-wrap items-start justify-between gap-4">
+                      <div className="flex min-w-0 flex-1 items-start gap-3">
+                        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border border-border-dark bg-surface-dark text-accent">
+                          <FileWarning className="h-5 w-5" />
+                        </div>
+                        <div className="min-w-0">
+                          <h3 className="text-sm font-medium text-text-dark">
+                            {t('errorLog.aboutTitle')}
+                          </h3>
+                          <p className="mt-1 text-xs leading-5 text-text-muted">
+                            {t('errorLog.aboutDesc')}
+                          </p>
+                          <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1 text-xs text-text-muted">
+                            <span>
+                              {t('errorLog.aboutCount', { count: errorLogSummary.count })}
+                            </span>
+                            <span>
+                              {errorLogSummary.latestAt
+                                ? t('errorLog.aboutLatest', {
+                                  time: formatErrorLogSummaryTime(errorLogSummary.latestAt),
+                                })
+                                : t('errorLog.aboutNoLatest')}
+                            </span>
+                            <span className="max-w-full truncate">
+                              {t('errorLog.aboutLatestDiagnosticId')}: {errorLogSummary.latestRequestId || t('errorLog.notExtracted')}
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => setShowErrorLogDialog(true)}
+                        className="h-9 rounded-lg border border-border-dark bg-surface-dark px-3 text-sm font-medium text-text-dark transition-colors hover:border-[rgba(255,255,255,0.2)] hover:bg-bg-dark"
+                      >
+                        {t('errorLog.open')}
+                      </button>
+                    </div>
+                  </div>
+
                   <AppUpdateSettingsSection
                     t={t}
                     isCheckingAppUpdate={isCheckingAppUpdate}
@@ -4006,6 +4090,13 @@ export function SettingsDialog({
           </div>
         </div>
       </UiModal>
+      <ErrorLogDialog
+        isOpen={showErrorLogDialog}
+        onClose={() => {
+          setShowErrorLogDialog(false);
+          void refreshErrorLogSummary();
+        }}
+      />
     </div>
   );
 }

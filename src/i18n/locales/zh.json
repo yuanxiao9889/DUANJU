@@ -20,6 +20,7 @@
     "close": "关闭",
     "loading": "加载中...",
     "retry": "重试",
+    "refresh": "刷新",
     "error": "错误",
     "success": "成功",
     "copied": "已复制",
@@ -51,6 +52,65 @@
     "restore": "恢复到画布",
     "aspectRatio": "画幅比例：{{value}}",
     "missingSource": "源文件已丢失，建议删除这条历史或重新生成。"
+  },
+  "errorLog": {
+    "title": "错误日志",
+    "aboutTitle": "错误日志",
+    "aboutDesc": "查看近 14 天图片生成失败记录，并导出近期排障表格给开发者。",
+    "aboutCount": "14 天内 {{count}} 条日志",
+    "aboutLatest": "最近：{{time}}",
+    "aboutNoLatest": "暂无近期失败",
+    "aboutLatestRequestId": "最近 Request ID",
+    "aboutLatestDiagnosticId": "最近排障 ID",
+    "open": "查看错误日志",
+    "loading": "正在加载错误日志...",
+    "empty": "暂无图片生成错误日志。",
+    "searchPlaceholder": "搜索排障 ID、Request ID、Trace ID、Job ID、模型或错误...",
+    "sourceFilter": "来源筛选",
+    "categoryFilter": "分类筛选",
+    "startDate": "开始日期",
+    "endDate": "结束日期",
+    "allSources": "全部来源",
+    "allCategories": "全部分类",
+    "summary": "当前显示 {{count}} / 共 {{total}} 条，近 7 日可导出 {{exportCount}} 条。",
+    "lastSevenDays": "近 7 日",
+    "exportLastSevenDays": "导出近 7 日",
+    "exportEmpty": "近 7 日暂无可导出的错误日志。",
+    "exported": "已导出",
+    "clear": "清空日志",
+    "clearConfirm": "确定清空全部错误日志吗？",
+    "copied": "已复制",
+    "time": "时间",
+    "source": "来源",
+    "model": "模型 / 渠道",
+    "requestId": "Request ID",
+    "diagnosticId": "排障 ID",
+    "status": "状态码 / 分类",
+    "message": "错误",
+    "actions": "操作",
+    "copyRequestId": "复制 Request ID",
+    "copyDiagnosticId": "复制排障 ID",
+    "copyReport": "复制诊断报告",
+    "delete": "删除",
+    "unknown": "未知",
+    "notExtracted": "未提取",
+    "noStatusCode": "无状态码",
+    "sources": {
+      "imageEdit": "图片编辑",
+      "storyboardGen": "分镜图生成",
+      "multiAngleImage": "多角度图片",
+      "unknown": "未知"
+    },
+    "stages": {
+      "submit": "提交",
+      "run": "运行"
+    },
+    "idKinds": {
+      "requestId": "Request ID",
+      "externalTaskId": "上游任务 ID",
+      "jobId": "内部 Job ID",
+      "none": "无可用 ID"
+    }
   },
   "cameraParams": {
     "title": "相机参数",
@@ -534,6 +594,7 @@
       "media": "影音",
       "upscale": "放大节点",
       "text": "文本",
+      "extensionPackage": "扩展包节点",
       "scriptReference": "脚本引用"
     },
     "imageNode": {
@@ -931,6 +992,7 @@
       "scaleUp": "放大",
       "scaleDown": "缩小",
       "deleteLayer": "删除",
+      "clearCanvas": "清空拼接区域",
       "aspectRatio": "比例",
       "size": "分辨率",
       "export": "导出",
@@ -1911,6 +1973,21 @@
       "network": "网络请求没有成功发送到服务端。请检查网络连接、接口地址和代理设置后再试。",
       "taskInterrupted": "生成任务已经中断或找不到记录。可能是应用重启、任务过期或服务器记录被清理，请重新提交生成。",
       "unknown": "生成失败。请查看错误详情，或稍后重试。"
+    },
+    "categoryLabels": {
+      "policyViolation": "安全规则",
+      "timeout": "超时",
+      "payloadTooLarge": "请求过大",
+      "endpointMismatch": "接口不匹配",
+      "modelUnavailable": "模型不可用",
+      "insufficientBalance": "余额不足",
+      "rateLimitOrQuota": "限流/额度",
+      "upstreamUnavailable": "上游不可用",
+      "badRequest": "请求参数",
+      "auth": "鉴权",
+      "network": "网络",
+      "taskInterrupted": "任务中断",
+      "unknown": "未知"
     }
   },
   "project": {

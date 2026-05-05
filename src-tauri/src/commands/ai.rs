@@ -68,6 +68,8 @@ pub struct GenerateRequestDto {
 pub struct GenerationJobStatusDto {
     pub job_id: String,
     pub status: String,
+    pub provider_id: Option<String>,
+    pub external_task_id: Option<String>,
     pub result: Option<String>,
     pub error: Option<String>,
 }
@@ -272,6 +274,8 @@ fn dto_from_record(record: &GenerationJobRecord) -> GenerationJobStatusDto {
     GenerationJobStatusDto {
         job_id: record.job_id.clone(),
         status: record.status.clone(),
+        provider_id: Some(record.provider_id.clone()),
+        external_task_id: record.external_task_id.clone(),
         result: record.result.clone(),
         error: record.error.clone(),
     }
@@ -459,6 +463,8 @@ pub async fn get_generate_image_job(
         return Ok(GenerationJobStatusDto {
             job_id,
             status: "not_found".to_string(),
+            provider_id: None,
+            external_task_id: None,
             result: None,
             error: Some("job not found".to_string()),
         });
@@ -546,6 +552,8 @@ pub async fn get_generate_image_job(
             Ok(GenerationJobStatusDto {
                 job_id: record.job_id,
                 status: "succeeded".to_string(),
+                provider_id: Some(record.provider_id),
+                external_task_id: record.external_task_id,
                 result: Some(image_source),
                 error: None,
             })
@@ -561,6 +569,8 @@ pub async fn get_generate_image_job(
             Ok(GenerationJobStatusDto {
                 job_id: record.job_id,
                 status: "failed".to_string(),
+                provider_id: Some(record.provider_id),
+                external_task_id: record.external_task_id,
                 result: None,
                 error: Some(message),
             })
@@ -576,6 +586,8 @@ pub async fn get_generate_image_job(
             Ok(GenerationJobStatusDto {
                 job_id: record.job_id,
                 status: "failed".to_string(),
+                provider_id: Some(record.provider_id),
+                external_task_id: record.external_task_id,
                 result: None,
                 error: Some(message),
             })
@@ -591,6 +603,8 @@ pub async fn get_generate_image_job(
             Ok(GenerationJobStatusDto {
                 job_id: record.job_id,
                 status: "failed".to_string(),
+                provider_id: Some(record.provider_id),
+                external_task_id: record.external_task_id,
                 result: None,
                 error: Some(message),
             })
@@ -598,6 +612,8 @@ pub async fn get_generate_image_job(
         Err(error) => Ok(GenerationJobStatusDto {
             job_id: record.job_id,
             status: "running".to_string(),
+            provider_id: Some(record.provider_id),
+            external_task_id: record.external_task_id,
             result: None,
             error: Some(error.to_string()),
         }),

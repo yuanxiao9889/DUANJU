@@ -5,6 +5,7 @@
   "version": "0.1.0",
   "description": "Offline SeedVR2 image and video upscaling runtime for Storyboard Copilot. Bundles a portable Python bridge, the upstream SeedVR2 inference code, default local weights, and packaged ffmpeg tools for video encoding and audio remux.",
   "runtime": "python-bridge",
+  "startupHealthTimeoutMs": 90000,
   "entry": {
     "kind": "python",
     "python": "runtime/python/python.exe",

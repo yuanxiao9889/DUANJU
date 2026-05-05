@@ -88,6 +88,7 @@ import {
   CURRENT_RUNTIME_SESSION_ID,
 } from '@/features/canvas/application/generationErrorReport';
 import { resolveErrorContent, showErrorDialog } from '@/features/canvas/application/errorDialog';
+import { recordImageGenerationErrorLog } from '@/features/canvas/application/errorLog';
 import {
   getConnectMenuNodeTypes,
   nodeHasSourceHandle,
@@ -1557,6 +1558,8 @@ export function Canvas() {
       currentData: Record<string, unknown>,
       status: {
         status: 'queued' | 'running' | 'succeeded' | 'failed' | 'not_found';
+        provider_id?: string | null;
+        external_task_id?: string | null;
         error?: string | null;
       }
     ) => {
@@ -1582,6 +1585,27 @@ export function Canvas() {
         });
         void showErrorDialog(errorMessage, t('common.error'), resolvedError.details ?? status.error ?? undefined, reportText);
       }
+
+      void recordImageGenerationErrorLog({
+        nodeId,
+        sourceType: (currentData.generationDebugContext as { sourceType?: 'imageEdit' | 'storyboardGen' | 'multiAngleImage' | 'unknown' } | undefined)?.sourceType ?? 'unknown',
+        failureStage: 'run',
+        errorMessage,
+        errorDetails: resolvedError.details ?? status.error ?? undefined,
+        context: currentData.generationDebugContext,
+        errorCategory: resolvedError.category,
+        statusCode: resolvedError.statusCode,
+        traceId: resolvedError.traceId,
+        requestId: resolvedError.requestId,
+        jobId: typeof currentData.generationJobId === 'string' ? currentData.generationJobId : null,
+        externalTaskId: status.external_task_id ?? null,
+        providerId: status.provider_id ?? (
+          typeof currentData.generationProviderId === 'string' ? currentData.generationProviderId : null
+        ),
+        startedAt: typeof currentData.generationStartedAt === 'number' ? currentData.generationStartedAt : null,
+      }).catch((error) => {
+        console.warn('[GenerationJob] failed to record error log', error);
+      });
 
       updateNodeData(nodeId, {
         isGenerating: false,

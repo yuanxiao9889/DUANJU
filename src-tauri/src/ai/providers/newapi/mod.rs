@@ -1,7 +1,7 @@
 use base64::{engine::general_purpose::STANDARD, Engine};
 use image::imageops::FilterType;
 use image::ImageFormat;
-use reqwest::Client;
+use reqwest::{header::HeaderMap, Client};
 use serde::Deserialize;
 use serde_json::{json, Value};
 use std::fs;
@@ -1483,12 +1483,113 @@ impl NewApiProvider {
                     || request_kind.starts_with("generateContent")))
     }
 
+    fn extract_request_id_from_headers(headers: &HeaderMap) -> Option<String> {
+        [
+            "x-request-id",
+            "x-oneapi-request-id",
+            "request-id",
+            "x-requestid",
+            "x-newapi-request-id",
+            "x-new-api-request-id",
+        ]
+        .iter()
+        .find_map(|name| {
+            headers
+                .get(*name)
+                .and_then(|value| value.to_str().ok())
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .map(ToString::to_string)
+        })
+    }
+
+    fn extract_request_id_from_header_text(headers: &str) -> Option<String> {
+        headers.lines().find_map(|line| {
+            let (name, value) = line.split_once(':')?;
+            let normalized_name = name.trim().to_ascii_lowercase();
+            if matches!(
+                normalized_name.as_str(),
+                "x-request-id"
+                    | "x-oneapi-request-id"
+                    | "request-id"
+                    | "x-requestid"
+                    | "x-newapi-request-id"
+                    | "x-new-api-request-id"
+            ) {
+                let trimmed = value.trim();
+                if !trimmed.is_empty() {
+                    return Some(trimmed.to_string());
+                }
+            }
+            None
+        })
+    }
+
+    fn extract_request_id_from_payload(payload: &Value) -> Option<String> {
+        [
+            "/request_id",
+            "/requestId",
+            "/id",
+            "/error/request_id",
+            "/error/requestId",
+            "/error/id",
+            "/detail/request_id",
+            "/detail/requestId",
+        ]
+        .iter()
+        .find_map(|pointer| {
+            payload
+                .pointer(pointer)
+                .and_then(Value::as_str)
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .map(ToString::to_string)
+        })
+    }
+
+    fn extract_request_id_from_text(text: &str) -> Option<String> {
+        if let Ok(payload) = serde_json::from_str::<Value>(text) {
+            if let Some(request_id) = Self::extract_request_id_from_payload(&payload) {
+                return Some(request_id);
+            }
+        }
+
+        text.split(|ch: char| ch.is_whitespace() || matches!(ch, '"' | '\'' | ',' | '}' | '{'))
+            .find_map(|token| {
+                let normalized = token
+                    .trim_matches(|ch: char| matches!(ch, ':' | '=' | ';' | ',' | '"' | '\''));
+                let lower = normalized.to_ascii_lowercase();
+                for prefix in ["request_id=", "requestid=", "request-id=", "x-request-id="] {
+                    if let Some(value) = lower.strip_prefix(prefix) {
+                        if !value.is_empty() {
+                            let start = normalized.len() - value.len();
+                            return Some(normalized[start..].to_string());
+                        }
+                    }
+                }
+                None
+            })
+    }
+
+    fn append_request_id_to_error(message: String, request_id: Option<String>) -> String {
+        let Some(request_id) = request_id
+            .map(|value| value.trim().to_string())
+            .filter(|value| !value.is_empty())
+        else {
+            return message;
+        };
+        if message.contains(&request_id) {
+            return message;
+        }
+        format!("{} request_id={}", message, request_id)
+    }
+
     async fn send_json_request_with_curl(
         endpoint: String,
         api_key: String,
         payload: Vec<u8>,
         request_kind: String,
-    ) -> Result<(reqwest::StatusCode, String), AIError> {
+    ) -> Result<(reqwest::StatusCode, String, Option<String>), AIError> {
         let request_kind_for_join = request_kind.clone();
         tokio::task::spawn_blocking(move || {
             let request_file_path = std::env::temp_dir().join(format!(
@@ -1497,6 +1598,10 @@ impl NewApiProvider {
             ));
             let response_file_path = std::env::temp_dir().join(format!(
                 "storyboard-copilot-newapi-response-{}.txt",
+                uuid::Uuid::new_v4()
+            ));
+            let header_file_path = std::env::temp_dir().join(format!(
+                "storyboard-copilot-newapi-response-headers-{}.txt",
                 uuid::Uuid::new_v4()
             ));
 
@@ -1532,6 +1637,8 @@ impl NewApiProvider {
                     .arg("Content-Type: application/json")
                     .arg("--data-binary")
                     .arg(format!("@{}", request_file_path.display()))
+                    .arg("-D")
+                    .arg(&header_file_path)
                     .arg("-o")
                     .arg(&response_file_path)
                     .arg("-w")
@@ -1573,6 +1680,9 @@ impl NewApiProvider {
                     ))
                 })?;
                 let response_text = String::from_utf8_lossy(&response_bytes).into_owned();
+                let response_headers = fs::read_to_string(&header_file_path).unwrap_or_default();
+                let request_id = Self::extract_request_id_from_header_text(&response_headers)
+                    .or_else(|| Self::extract_request_id_from_text(&response_text));
                 let status = reqwest::StatusCode::from_u16(status_code).map_err(|error| {
                     AIError::Provider(format!(
                         "Invalid curl HTTP status for NewAPI {} request: {}",
@@ -1580,11 +1690,12 @@ impl NewApiProvider {
                     ))
                 })?;
 
-                Ok((status, response_text))
+                Ok((status, response_text, request_id))
             })();
 
             let _ = fs::remove_file(&request_file_path);
             let _ = fs::remove_file(&response_file_path);
+            let _ = fs::remove_file(&header_file_path);
             result
         })
         .await
@@ -1631,7 +1742,7 @@ impl NewApiProvider {
                 )
                 .await
                 {
-                    Ok((status, response_text)) => {
+                    Ok((status, response_text, request_id)) => {
                         info!(
                             "[NewAPI] {} attempt {}/{} {} -> {} (curl)",
                             request_kind, attempt, JSON_REQUEST_MAX_ATTEMPTS, endpoint, status
@@ -1655,9 +1766,12 @@ impl NewApiProvider {
                                 sleep(Duration::from_millis(JSON_REQUEST_RETRY_DELAY_MS)).await;
                                 continue;
                             }
-                            return Err(AIError::Provider(format!(
-                                "NewAPI {} request failed {}: {}",
-                                request_kind, status, response_text
+                            return Err(AIError::Provider(Self::append_request_id_to_error(
+                                format!(
+                                    "NewAPI {} request failed {}: {}",
+                                    request_kind, status, response_text
+                                ),
+                                request_id,
                             )));
                         }
 
@@ -1704,7 +1818,10 @@ impl NewApiProvider {
             match response {
                 Ok(response) => {
                     let status = response.status();
+                    let request_id = Self::extract_request_id_from_headers(response.headers());
                     let response_text = response.text().await?;
+                    let request_id =
+                        request_id.or_else(|| Self::extract_request_id_from_text(&response_text));
                     info!(
                         "[NewAPI] {} attempt {}/{} {} -> {}",
                         request_kind, attempt, JSON_REQUEST_MAX_ATTEMPTS, endpoint, status
@@ -1728,9 +1845,12 @@ impl NewApiProvider {
                             sleep(Duration::from_millis(JSON_REQUEST_RETRY_DELAY_MS)).await;
                             continue;
                         }
-                        return Err(AIError::Provider(format!(
-                            "NewAPI {} request failed {}: {}",
-                            request_kind, status, response_text
+                        return Err(AIError::Provider(Self::append_request_id_to_error(
+                            format!(
+                                "NewAPI {} request failed {}: {}",
+                                request_kind, status, response_text
+                            ),
+                            request_id,
                         )));
                     }
 
@@ -1777,6 +1897,10 @@ impl NewApiProvider {
             let temp_dir = std::env::temp_dir();
             let response_file_path = temp_dir.join(format!(
                 "storyboard-copilot-newapi-multipart-response-{}.txt",
+                uuid::Uuid::new_v4()
+            ));
+            let header_file_path = temp_dir.join(format!(
+                "storyboard-copilot-newapi-multipart-response-headers-{}.txt",
                 uuid::Uuid::new_v4()
             ));
             let mut temp_file_paths = Vec::<PathBuf>::new();
@@ -1839,6 +1963,8 @@ impl NewApiProvider {
                 }
 
                 command
+                    .arg("-D")
+                    .arg(&header_file_path)
                     .arg("-o")
                     .arg(&response_file_path)
                     .arg("-w")
@@ -1854,6 +1980,9 @@ impl NewApiProvider {
                 let status_text = String::from_utf8_lossy(&output.stdout).trim().to_string();
                 let stderr_text = String::from_utf8_lossy(&output.stderr).trim().to_string();
                 let response_text = fs::read_to_string(&response_file_path).unwrap_or_default();
+                let response_headers = fs::read_to_string(&header_file_path).unwrap_or_default();
+                let request_id = Self::extract_request_id_from_header_text(&response_headers)
+                    .or_else(|| Self::extract_request_id_from_text(&response_text));
 
                 if !output.status.success() {
                     return Err(AIError::Provider(format!(
@@ -1875,9 +2004,12 @@ impl NewApiProvider {
                 info!("[NewAPI] {} response: {}", request_kind, response_text);
 
                 if !(200..300).contains(&status_code) {
-                    return Err(AIError::Provider(format!(
-                        "NewAPI {} request failed {}: {}",
-                        request_kind, status_code, response_text
+                    return Err(AIError::Provider(Self::append_request_id_to_error(
+                        format!(
+                            "NewAPI {} request failed {}: {}",
+                            request_kind, status_code, response_text
+                        ),
+                        request_id,
                     )));
                 }
 
@@ -1893,6 +2025,7 @@ impl NewApiProvider {
                 let _ = fs::remove_file(path);
             }
             let _ = fs::remove_file(response_file_path);
+            let _ = fs::remove_file(header_file_path);
 
             result
         })
@@ -2498,7 +2631,9 @@ impl NewApiProvider {
             .send()
             .await?;
         let status = response.status();
+        let request_id = Self::extract_request_id_from_headers(response.headers());
         let response_text = response.text().await?;
+        let request_id = request_id.or_else(|| Self::extract_request_id_from_text(&response_text));
         info!(
             "[NewAPI] openai-images-task-status {} -> {}",
             resolved_url, status
@@ -2514,14 +2649,27 @@ impl NewApiProvider {
 
         if !status.is_success() {
             if let Ok(payload) = serde_json::from_str::<Value>(&response_text) {
+                let error_payload = payload.get("error").cloned().unwrap_or(payload);
+                let error_payload = if let Some(request_id) = request_id.clone() {
+                    json!({
+                        "message": format!("{} request_id={}", error_payload, request_id),
+                        "request_id": request_id,
+                        "raw": error_payload,
+                    })
+                } else {
+                    error_payload
+                };
                 return Ok(json!({
                     "status": "failed",
-                    "error": payload.get("error").cloned().unwrap_or(payload),
+                    "error": error_payload,
                 }));
             }
-            return Err(AIError::Provider(format!(
-                "NewAPI openai-images-task-status request failed {}: {}",
-                status, response_text
+            return Err(AIError::Provider(Self::append_request_id_to_error(
+                format!(
+                    "NewAPI openai-images-task-status request failed {}: {}",
+                    status, response_text
+                ),
+                request_id,
             )));
         }
 
@@ -2551,10 +2699,15 @@ impl NewApiProvider {
             .await?;
         let status = response.status();
         if !status.is_success() {
+            let request_id = Self::extract_request_id_from_headers(response.headers());
             let response_text = response.text().await.unwrap_or_default();
-            return Err(AIError::Provider(format!(
-                "NewAPI openai-images-task-content request failed {}: {}",
-                status, response_text
+            let request_id = request_id.or_else(|| Self::extract_request_id_from_text(&response_text));
+            return Err(AIError::Provider(Self::append_request_id_to_error(
+                format!(
+                    "NewAPI openai-images-task-content request failed {}: {}",
+                    status, response_text
+                ),
+                request_id,
             )));
         }
 

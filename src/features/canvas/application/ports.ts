@@ -92,6 +92,8 @@ export interface AiGateway {
   getGenerateImageJob: (jobId: string, options?: { forceRefresh?: boolean }) => Promise<{
     job_id: string;
     status: 'queued' | 'running' | 'succeeded' | 'failed' | 'not_found';
+    provider_id?: string | null;
+    external_task_id?: string | null;
     result?: string | null;
     error?: string | null;
   }>;

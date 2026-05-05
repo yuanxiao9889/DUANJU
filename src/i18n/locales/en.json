@@ -17,6 +17,7 @@
     "close": "Close",
     "loading": "Loading...",
     "retry": "Retry",
+    "refresh": "Refresh",
     "error": "Error",
     "success": "Success",
     "copied": "Copied",
@@ -52,6 +53,65 @@
     "restore": "Restore to Canvas",
     "aspectRatio": "Aspect ratio: {{value}}",
     "missingSource": "Source file is missing. Delete this history item or re-generate it."
+  },
+  "errorLog": {
+    "title": "Error Logs",
+    "aboutTitle": "Error Logs",
+    "aboutDesc": "View image generation failures from the last 14 days and export recent diagnostics for support.",
+    "aboutCount": "{{count}} logs in 14 days",
+    "aboutLatest": "Latest: {{time}}",
+    "aboutNoLatest": "No recent failures",
+    "aboutLatestRequestId": "Latest Request ID",
+    "aboutLatestDiagnosticId": "Latest Diagnostic ID",
+    "open": "View Error Logs",
+    "loading": "Loading error logs...",
+    "empty": "No image generation error logs yet.",
+    "searchPlaceholder": "Search diagnostic ID, Request ID, Trace ID, Job ID, model, or error...",
+    "sourceFilter": "Source filter",
+    "categoryFilter": "Category filter",
+    "startDate": "Start date",
+    "endDate": "End date",
+    "allSources": "All sources",
+    "allCategories": "All categories",
+    "summary": "{{count}} shown / {{total}} total. {{exportCount}} available for 7-day export.",
+    "lastSevenDays": "Last 7 days",
+    "exportLastSevenDays": "Export Last 7 Days",
+    "exportEmpty": "No logs from the last 7 days.",
+    "exported": "Exported",
+    "clear": "Clear Logs",
+    "clearConfirm": "Clear all error logs?",
+    "copied": "Copied",
+    "time": "Time",
+    "source": "Source",
+    "model": "Model / Channel",
+    "requestId": "Request ID",
+    "diagnosticId": "Diagnostic ID",
+    "status": "Status / Category",
+    "message": "Error",
+    "actions": "Actions",
+    "copyRequestId": "Copy Request ID",
+    "copyDiagnosticId": "Copy Diagnostic ID",
+    "copyReport": "Copy Diagnostic Report",
+    "delete": "Delete",
+    "unknown": "Unknown",
+    "notExtracted": "Not extracted",
+    "noStatusCode": "No code",
+    "sources": {
+      "imageEdit": "Image Edit",
+      "storyboardGen": "Storyboard Image",
+      "multiAngleImage": "Multi-angle Image",
+      "unknown": "Unknown"
+    },
+    "stages": {
+      "submit": "Submit",
+      "run": "Run"
+    },
+    "idKinds": {
+      "requestId": "Request ID",
+      "externalTaskId": "External Task ID",
+      "jobId": "Internal Job ID",
+      "none": "No ID"
+    }
   },
   "cameraParams": {
     "title": "Camera Params",
@@ -536,6 +596,7 @@
       "media": "Media",
       "upscale": "Upscale",
       "text": "Text",
+      "extensionPackage": "Extension Package Nodes",
       "scriptReference": "Script References"
     },
     "imageNode": {
@@ -1285,6 +1346,7 @@
       "scaleUp": "Scale Up",
       "scaleDown": "Scale Down",
       "deleteLayer": "Delete",
+      "clearCanvas": "Clear collage canvas",
       "aspectRatio": "Aspect Ratio",
       "size": "Resolution",
       "export": "Export",
@@ -2100,6 +2162,21 @@
       "network": "The request could not be sent successfully. Please check the network connection, endpoint URL, and proxy settings.",
       "taskInterrupted": "The generation task was interrupted or its record could not be found. The app may have restarted, the task may have expired, or the server record may have been cleaned up. Please submit again.",
       "unknown": "Generation failed. Please check the error details or retry later."
+    },
+    "categoryLabels": {
+      "policyViolation": "Policy",
+      "timeout": "Timeout",
+      "payloadTooLarge": "Too large",
+      "endpointMismatch": "Endpoint",
+      "modelUnavailable": "Model",
+      "insufficientBalance": "Balance",
+      "rateLimitOrQuota": "Rate limit",
+      "upstreamUnavailable": "Upstream",
+      "badRequest": "Bad request",
+      "auth": "Auth",
+      "network": "Network",
+      "taskInterrupted": "Interrupted",
+      "unknown": "Unknown"
     }
   },
   "project": {

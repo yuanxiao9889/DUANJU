@@ -16,7 +16,8 @@ use uuid::Uuid;
 const EXTENSION_MANIFEST_FILE: &str = "storyboard-extension.json";
 const EXTENSION_RUNTIME_CACHE_DIR: &str = "runtime/cache/requests";
 const EXTENSION_SERVER_RESPONSE_PREFIX: &str = "__SC_EXTENSION_RESPONSE__:";
-const EXTENSION_RUNTIME_BOOT_TIMEOUT_MS: u64 = 20_000;
+const EXTENSION_RUNTIME_BOOT_TIMEOUT_MS: u64 = 60_000;
+const EXTENSION_RUNTIME_MAX_BOOT_TIMEOUT_MS: u64 = 300_000;
 const EXTENSION_RUNTIME_STOP_TIMEOUT_MS: u64 = 3_000;
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -83,6 +84,8 @@ pub struct ExtensionPackageManifest {
     pub version: String,
     pub description: String,
     pub runtime: String,
+    #[serde(default)]
+    pub startup_health_timeout_ms: Option<u64>,
     #[serde(default)]
     pub features: ExtensionFeatureSet,
     #[serde(default)]
@@ -436,6 +439,13 @@ fn current_timestamp_ms() -> i64 {
         .duration_since(UNIX_EPOCH)
         .unwrap_or_else(|_| Duration::from_secs(0))
         .as_millis() as i64
+}
+
+fn resolve_startup_health_timeout_ms(manifest: &ExtensionPackageManifest) -> u64 {
+    manifest
+        .startup_health_timeout_ms
+        .unwrap_or(EXTENSION_RUNTIME_BOOT_TIMEOUT_MS)
+        .clamp(EXTENSION_RUNTIME_BOOT_TIMEOUT_MS, EXTENSION_RUNTIME_MAX_BOOT_TIMEOUT_MS)
 }
 
 fn resolve_extension_folder(folder_path: &str) -> Result<PathBuf, String> {
@@ -902,11 +912,12 @@ async fn spawn_python_runtime(
         stdout: BufReader::new(stdout).lines(),
     };
 
+    let startup_health_timeout_ms = resolve_startup_health_timeout_ms(manifest);
     let health_payload = build_command_payload("health", None)?;
     if let Err(error) = runtime
         .send_request(
             health_payload,
-            Some(Duration::from_millis(EXTENSION_RUNTIME_BOOT_TIMEOUT_MS)),
+            Some(Duration::from_millis(startup_health_timeout_ms)),
         )
         .await
     {
@@ -920,8 +931,10 @@ async fn spawn_python_runtime(
         }
 
         return Err(format!(
-            "Extension runtime '{}' failed its startup health check: {}",
-            manifest.id, error
+            "Extension runtime '{}' failed its startup health check after {}s: {}",
+            manifest.id,
+            startup_health_timeout_ms / 1000,
+            error
         ));
     }
 

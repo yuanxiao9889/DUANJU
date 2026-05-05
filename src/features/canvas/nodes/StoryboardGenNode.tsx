@@ -38,6 +38,7 @@ import {
   canvasAiGateway,
 } from '@/features/canvas/application/canvasServices';
 import { resolveErrorContent, showErrorDialog } from '@/features/canvas/application/errorDialog';
+import { recordImageGenerationErrorLog } from '@/features/canvas/application/errorLog';
 import {
   detectAspectRatio,
   parseAspectRatio,
@@ -1575,6 +1576,22 @@ export const StoryboardGenNode = memo(({ id, data, selected, width, height }: St
         finalResolvedError.details,
         reportText
       );
+      void recordImageGenerationErrorLog({
+        nodeId: newNodeId,
+        sourceType: 'storyboardGen',
+        failureStage: 'submit',
+        errorMessage: finalResolvedError.message,
+        errorDetails: finalResolvedError.details,
+        context: generationDebugContext,
+        errorCategory: finalResolvedError.category,
+        statusCode: finalResolvedError.statusCode,
+        traceId: finalResolvedError.traceId,
+        requestId: finalResolvedError.requestId,
+        providerId: selectedModel.providerId,
+        startedAt: generationStartedAt,
+      }).catch((error) => {
+        console.warn('[StoryboardGenNode] failed to record error log', error);
+      });
       updateNodeData(newNodeId, {
         isGenerating: false,
         generationPhase: 'failed',

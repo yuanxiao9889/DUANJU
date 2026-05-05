@@ -9,6 +9,7 @@ use commands::ai as ai_commands;
 use commands::asset_state;
 use commands::clip_library;
 use commands::dreamina_cli;
+use commands::error_log;
 use commands::extensions;
 use commands::generation_history;
 use commands::gpt_best_video;
@@ -352,6 +353,11 @@ pub fn run() {
             generation_history::list_generation_history_items,
             generation_history::upsert_generation_history_item,
             generation_history::delete_generation_history_item,
+            error_log::list_error_log_items,
+            error_log::upsert_error_log_item,
+            error_log::delete_error_log_item,
+            error_log::clear_error_log_items,
+            error_log::prune_error_log_items,
             midjourney::submit_midjourney_imagine,
             midjourney::submit_midjourney_action,
             midjourney::submit_midjourney_modal,

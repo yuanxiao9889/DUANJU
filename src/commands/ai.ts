@@ -14,6 +14,8 @@ export type GenerationJobState = 'queued' | 'running' | 'succeeded' | 'failed' |
 export interface GenerationJobStatus {
   job_id: string;
   status: GenerationJobState;
+  provider_id?: string | null;
+  external_task_id?: string | null;
   result?: string | null;
   error?: string | null;
 }

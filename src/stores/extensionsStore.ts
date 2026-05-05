@@ -108,6 +108,41 @@ function createErroredRuntimeState(
   };
 }
 
+function resolveErrorMessage(error: unknown, fallbackMessage: string): string {
+  if (error instanceof Error && error.message.trim().length > 0) {
+    return error.message.trim();
+  }
+
+  if (typeof error === 'string' && error.trim().length > 0) {
+    return error.trim();
+  }
+
+  if (error && typeof error === 'object') {
+    const record = error as Record<string, unknown>;
+    const candidate = [
+      record.message,
+      record.error,
+      record.details,
+      record.msg,
+    ].find((value) => typeof value === 'string' && value.trim().length > 0);
+
+    if (typeof candidate === 'string') {
+      return candidate.trim();
+    }
+
+    try {
+      const serialized = JSON.stringify(record);
+      if (serialized && serialized !== '{}') {
+        return serialized;
+      }
+    } catch {
+      // Fall through to the generic message.
+    }
+  }
+
+  return fallbackMessage;
+}
+
 function shouldApplyRuntimeObservation(
   observedAtById: Record<string, number>,
   extensionId: string,
@@ -343,10 +378,7 @@ export const useExtensionsStore = create<ExtensionsState>()(
                 [extensionId]: {
                   ...(state.runtimeById[extensionId] ?? DEFAULT_EXTENSION_RUNTIME_STATE),
                   status: 'error',
-                  error:
-                    error instanceof Error && error.message.trim().length > 0
-                      ? error.message
-                      : 'Failed to start extension runtime.',
+                  error: resolveErrorMessage(error, 'Failed to start extension runtime.'),
                   completedAt: Date.now(),
                 },
               },
@@ -398,10 +430,10 @@ export const useExtensionsStore = create<ExtensionsState>()(
                 : createIdleRuntimeState(),
             };
           } catch (error) {
-            const errorMessage =
-              error instanceof Error && error.message.trim().length > 0
-                ? error.message
-                : 'Failed to sync extension runtime state.';
+            const errorMessage = resolveErrorMessage(
+              error,
+              'Failed to sync extension runtime state.'
+            );
 
             return {
               extensionId,
