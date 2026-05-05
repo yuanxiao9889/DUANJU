@@ -17,6 +17,7 @@ export interface GenerationDebugContext {
   osName?: string;
   osVersion?: string;
   osBuild?: string;
+  networkProxySummary?: string;
   userAgent?: string;
 }
 
@@ -24,6 +25,7 @@ export const CURRENT_RUNTIME_SESSION_ID = `runtime-${Date.now()}-${Math.random()
 let runtimeDiagnosticsPromise: Promise<Pick<
   GenerationDebugContext,
   'appVersion' | 'osName' | 'osVersion' | 'osBuild' | 'userAgent'
+  | 'networkProxySummary'
 >> | null = null;
 
 interface BuildGenerationErrorReportInput {
@@ -82,6 +84,7 @@ function parseOsInfo(userAgent: string): { osName: string; osVersion: string } {
 
 export async function getRuntimeDiagnostics(): Promise<
   Pick<GenerationDebugContext, 'appVersion' | 'osName' | 'osVersion' | 'osBuild' | 'userAgent'>
+  & Pick<GenerationDebugContext, 'networkProxySummary'>
 > {
   if (!runtimeDiagnosticsPromise) {
     runtimeDiagnosticsPromise = (async () => {
@@ -92,6 +95,7 @@ export async function getRuntimeDiagnostics(): Promise<
       let resolvedOsName = osInfo.osName;
       let resolvedOsVersion = osInfo.osVersion;
       let resolvedOsBuild = 'unknown';
+      let networkProxySummary = 'unknown';
       try {
         const { getVersion } = await import('@tauri-apps/api/app');
         appVersion = await getVersion();
@@ -112,6 +116,9 @@ export async function getRuntimeDiagnostics(): Promise<
           if (systemInfo.osBuild) {
             resolvedOsBuild = systemInfo.osBuild;
           }
+          if (systemInfo.networkProxySummary) {
+            networkProxySummary = systemInfo.networkProxySummary;
+          }
         }
       } catch {
         // Fallback to user-agent parsed info.
@@ -122,6 +129,7 @@ export async function getRuntimeDiagnostics(): Promise<
         osName: resolvedOsName,
         osVersion: resolvedOsVersion,
         osBuild: resolvedOsBuild,
+        networkProxySummary,
         userAgent,
       };
     })();
@@ -167,6 +175,9 @@ export function buildGenerationErrorReport(
   sections.push(`- App Version: ${context.appVersion ?? 'unknown'}`);
   sections.push(`- OS: ${context.osName ?? 'Unknown'} ${context.osVersion ?? 'unknown'}`.trim());
   sections.push(`- OS Build: ${context.osBuild ?? 'unknown'}`);
+  if (context.networkProxySummary) {
+    sections.push(`- Network Proxy: ${context.networkProxySummary}`);
+  }
   sections.push('');
   sections.push('## Request Context');
   sections.push(`- Source: ${context.sourceType ?? 'unknown'}`);

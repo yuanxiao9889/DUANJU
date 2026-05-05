@@ -1383,6 +1383,7 @@ export const MultiAngleImageNode = memo(({
         osName: runtimeDiagnostics.osName,
         osVersion: runtimeDiagnostics.osVersion,
         osBuild: runtimeDiagnostics.osBuild,
+        networkProxySummary: runtimeDiagnostics.networkProxySummary,
         userAgent: runtimeDiagnostics.userAgent,
       };
       updateNodeData(newNodeId, {
@@ -1413,6 +1414,7 @@ export const MultiAngleImageNode = memo(({
         osName: runtimeDiagnostics.osName,
         osVersion: runtimeDiagnostics.osVersion,
         osBuild: runtimeDiagnostics.osBuild,
+        networkProxySummary: runtimeDiagnostics.networkProxySummary,
         userAgent: runtimeDiagnostics.userAgent,
       };
       const reportText = buildGenerationErrorReport({

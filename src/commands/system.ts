@@ -4,6 +4,7 @@ export interface RuntimeSystemInfo {
   osName: string;
   osVersion: string;
   osBuild: string;
+  networkProxySummary?: string;
 }
 
 export async function getRuntimeSystemInfo(): Promise<RuntimeSystemInfo | null> {

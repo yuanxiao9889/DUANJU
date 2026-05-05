@@ -65,7 +65,7 @@ const DEFAULT_MODEL_PANEL_CLASS_NAME = 'w-[560px] max-w-[calc(100vw-32px)] p-2';
 const DEFAULT_PROVIDER_OPTION_CLASS_NAME =
   'w-full min-w-0 px-3 text-center';
 const DEFAULT_MODEL_OPTION_CLASS_NAME =
-  'min-h-9 min-w-[128px] max-w-full justify-center px-3 py-2 text-center';
+  'min-h-9 w-full min-w-0 justify-center px-2 py-2 text-center';
 
 function getRatioPreviewStyle(ratio: string): { width: number; height: number } {
   const [rawW, rawH] = ratio.split(':').map((value) => Number(value));
@@ -619,7 +619,7 @@ export const ModelParamsControls = memo(({
                   {t('modelParams.model')}
                 </div>
                 <div className="ui-scrollbar max-h-[220px] overflow-y-auto pr-1">
-                  <div className="flex flex-wrap gap-2 pb-1">
+                  <div className="grid grid-cols-4 gap-2 pb-1">
                     {modelGroups.map((group) => {
                       const active = group.models.some((model) => model.id === selectedModel.id);
                       const targetModel = group.models.find((model) => model.id === selectedModel.id)
@@ -637,7 +637,7 @@ export const ModelParamsControls = memo(({
                             setOpenPanel(null);
                           }}
                         >
-                          <span className="max-w-full break-words text-center">{group.name}</span>
+                          <span className="max-w-full truncate text-center">{group.name}</span>
                         </button>
                       );
                     })}

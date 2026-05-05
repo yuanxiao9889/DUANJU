@@ -9,7 +9,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 use tokio::time::{sleep, Duration};
-use tracing::info;
+use tracing::{info, warn};
 
 use crate::ai::error::AIError;
 use crate::ai::{AIProvider, GenerateRequest};
@@ -21,6 +21,8 @@ const EDITS_ENDPOINT_PATH: &str = "/v1/images/edits";
 const TASKS_ENDPOINT_PATH: &str = "/v1/images/tasks";
 const POLL_INTERVAL_MS: u64 = 2000;
 const MAX_POLL_RETRIES: u32 = 150;
+const REQUEST_CONNECT_TIMEOUT_SECONDS: u64 = 30;
+const REQUEST_TOTAL_TIMEOUT_SECONDS: u64 = 1_000;
 const GPT_IMAGE_2_MAX_EDGE: f32 = 3840.0;
 const GPT_IMAGE_2_MAX_PIXELS: f32 = 8_294_400.0;
 
@@ -77,7 +79,18 @@ pub struct ZhenzhenProvider {
 impl ZhenzhenProvider {
     pub fn new() -> Self {
         Self {
-            client: Client::new(),
+            client: Client::builder()
+                .http1_only()
+                .connect_timeout(Duration::from_secs(REQUEST_CONNECT_TIMEOUT_SECONDS))
+                .timeout(Duration::from_secs(REQUEST_TOTAL_TIMEOUT_SECONDS))
+                .build()
+                .unwrap_or_else(|error| {
+                    warn!(
+                        "[Zhenzhen API] Failed to build hardened HTTP client, falling back to default client: {}",
+                        error
+                    );
+                    Client::new()
+                }),
             api_key: Arc::new(RwLock::new(None)),
             base_url: DEFAULT_BASE_URL.to_string(),
         }
@@ -564,7 +577,9 @@ impl ZhenzhenProvider {
         let response = self
             .client
             .post(&endpoint)
+            .version(reqwest::Version::HTTP_11)
             .header("Authorization", format!("Bearer {}", api_key))
+            .header("Accept", "application/json")
             .header("Content-Type", "application/json")
             .json(&body)
             .send()
@@ -645,7 +660,9 @@ impl ZhenzhenProvider {
         let response = self
             .client
             .post(&endpoint)
+            .version(reqwest::Version::HTTP_11)
             .header("Authorization", format!("Bearer {}", api_key))
+            .header("Accept", "application/json")
             .header("Content-Type", "application/json")
             .json(&body)
             .send()
@@ -725,11 +742,16 @@ impl ZhenzhenProvider {
             }
         }
 
+        let mut upload_total_bytes = 0usize;
+        let mut upload_summaries = Vec::with_capacity(reference_images.len());
+
         for (idx, source) in reference_images.iter().enumerate() {
             let bytes = Self::source_to_bytes(source).await.map_err(|error| {
                 AIError::InvalidRequest(format!("Failed to read image {}: {}", idx + 1, error))
             })?;
             let extension = Self::file_extension_from_source(source);
+            upload_total_bytes += bytes.len();
+            upload_summaries.push(format!("#{}:{}:{} bytes", idx + 1, extension, bytes.len()));
             let part = Part::bytes(bytes)
                 .file_name(format!("image_{}.{}", idx + 1, extension))
                 .mime_str(Self::mime_type_from_extension(extension))
@@ -740,18 +762,22 @@ impl ZhenzhenProvider {
         }
 
         info!(
-            "[Zhenzhen API] Async edits URL: {}, model: {}, size: {}, aspect_ratio: {}, images: {}",
+            "[Zhenzhen API] Async edits URL: {}, model: {}, size: {}, aspect_ratio: {}, images: {}, upload_bytes: {}, image_parts: {}",
             endpoint,
             model,
             request.size,
             request.aspect_ratio,
-            reference_images.len()
+            reference_images.len(),
+            upload_total_bytes,
+            upload_summaries.join(", ")
         );
 
         let response = self
             .client
             .post(&endpoint)
+            .version(reqwest::Version::HTTP_11)
             .header("Authorization", format!("Bearer {}", api_key))
+            .header("Accept", "application/json")
             .multipart(form)
             .send()
             .await?;
@@ -799,7 +825,9 @@ impl ZhenzhenProvider {
         let response = self
             .client
             .get(&endpoint)
+            .version(reqwest::Version::HTTP_11)
             .header("Authorization", format!("Bearer {}", api_key))
+            .header("Accept", "application/json")
             .send()
             .await?;
 

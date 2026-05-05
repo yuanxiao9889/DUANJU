@@ -582,6 +582,7 @@ pub struct RuntimeSystemInfo {
     pub os_name: String,
     pub os_version: String,
     pub os_build: String,
+    pub network_proxy_summary: String,
 }
 
 fn run_command(program: &str, args: &[&str]) -> Option<String> {
@@ -597,6 +598,113 @@ fn run_command(program: &str, args: &[&str]) -> Option<String> {
     } else {
         Some(trimmed.to_string())
     }
+}
+
+fn redact_proxy_credentials(value: &str) -> String {
+    let mut output = value.to_string();
+    for scheme in ["http://", "https://", "socks5://", "socks5h://"] {
+        let mut search_start = 0usize;
+        while let Some(relative_scheme_index) = output[search_start..].find(scheme) {
+            let scheme_index = search_start + relative_scheme_index;
+            let authority_start = scheme_index + scheme.len();
+            let authority_end = output[authority_start..]
+                .find(|ch| matches!(ch, '/' | ' ' | '\r' | '\n' | '\t'))
+                .map(|relative| authority_start + relative)
+                .unwrap_or(output.len());
+            let authority = &output[authority_start..authority_end];
+            if let Some(at_index) = authority.rfind('@') {
+                let replacement_start = authority_start;
+                let replacement_end = authority_start + at_index;
+                output.replace_range(replacement_start..replacement_end, "***");
+                search_start = replacement_start + 3;
+            } else {
+                search_start = authority_end;
+            }
+        }
+    }
+    output
+}
+
+fn compact_single_line(value: &str, max_len: usize) -> String {
+    let compacted = value
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty())
+        .collect::<Vec<_>>()
+        .join(" | ");
+    if compacted.len() <= max_len {
+        compacted
+    } else {
+        let preview = compacted.chars().take(max_len).collect::<String>();
+        format!("{}...({} chars)", preview, compacted.chars().count())
+    }
+}
+
+fn resolve_env_proxy_summary() -> Option<String> {
+    let keys = [
+        "HTTP_PROXY",
+        "HTTPS_PROXY",
+        "ALL_PROXY",
+        "NO_PROXY",
+        "http_proxy",
+        "https_proxy",
+        "all_proxy",
+        "no_proxy",
+    ];
+    let values = keys
+        .iter()
+        .filter_map(|key| {
+            std::env::var(key)
+                .ok()
+                .map(|value| value.trim().to_string())
+                .filter(|value| !value.is_empty())
+                .map(|value| format!("{}={}", key, redact_proxy_credentials(&value)))
+        })
+        .collect::<Vec<_>>();
+
+    if values.is_empty() {
+        None
+    } else {
+        Some(values.join(", "))
+    }
+}
+
+#[cfg(target_os = "windows")]
+fn resolve_windows_proxy_summary() -> Vec<String> {
+    let mut parts = Vec::new();
+    if let Some(winhttp) = run_command("netsh", &["winhttp", "show", "proxy"]) {
+        parts.push(format!(
+            "winhttp={}",
+            compact_single_line(&redact_proxy_credentials(&winhttp), 360)
+        ));
+    }
+
+    let internet_settings_key =
+        r#"HKCU\Software\Microsoft\Windows\CurrentVersion\Internet Settings"#;
+    for value_name in ["ProxyEnable", "ProxyServer", "AutoConfigURL"] {
+        if let Some(raw) = run_command("reg", &["query", internet_settings_key, "/v", value_name]) {
+            let compacted = compact_single_line(&redact_proxy_credentials(&raw), 220);
+            parts.push(format!("internet_settings_{}={}", value_name, compacted));
+        }
+    }
+
+    parts
+}
+
+#[cfg(not(target_os = "windows"))]
+fn resolve_windows_proxy_summary() -> Vec<String> {
+    Vec::new()
+}
+
+fn resolve_network_proxy_summary() -> String {
+    let mut parts = Vec::new();
+    if let Some(env_summary) = resolve_env_proxy_summary() {
+        parts.push(format!("env={}", compact_single_line(&env_summary, 360)));
+    } else {
+        parts.push("env=none".to_string());
+    }
+    parts.extend(resolve_windows_proxy_summary());
+    parts.join("; ")
 }
 
 #[cfg(target_os = "windows")]
@@ -643,6 +751,7 @@ fn resolve_windows_info() -> RuntimeSystemInfo {
         os_name: product_name,
         os_version: normalized_version,
         os_build: build,
+        network_proxy_summary: resolve_network_proxy_summary(),
     }
 }
 
@@ -656,6 +765,7 @@ fn resolve_macos_info() -> RuntimeSystemInfo {
         os_name: "macOS".to_string(),
         os_version: version,
         os_build: build,
+        network_proxy_summary: resolve_network_proxy_summary(),
     }
 }
 
@@ -679,6 +789,7 @@ fn resolve_linux_info() -> RuntimeSystemInfo {
         os_name,
         os_version,
         os_build: build,
+        network_proxy_summary: resolve_network_proxy_summary(),
     }
 }
 
@@ -688,6 +799,7 @@ fn resolve_generic_info() -> RuntimeSystemInfo {
         os_name: std::env::consts::OS.to_string(),
         os_version: "unknown".to_string(),
         os_build: "unknown".to_string(),
+        network_proxy_summary: resolve_network_proxy_summary(),
     }
 }
 

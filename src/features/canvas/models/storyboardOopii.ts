@@ -56,6 +56,12 @@ export const STORYBOARD_OOPII_BUILTIN_MODELS = [
     displayName: STORYBOARD_OOPII_GPT_IMAGE_2_REQUEST_MODEL,
   },
   {
+    id: `${STORYBOARD_OOPII_PROVIDER_ID}/grok-imagine-image-lite`,
+    apiFormat: 'openai-images',
+    requestModel: 'grok-imagine-image-lite',
+    displayName: 'grok-image',
+  },
+  {
     id: `${STORYBOARD_OOPII_PROVIDER_ID}/gemini-3-pro-image-preview`,
     apiFormat: 'gemini',
     requestModel: 'gemini-3-pro-image-preview',
