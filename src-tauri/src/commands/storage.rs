@@ -25,10 +25,6 @@ const MANUAL_DATABASE_BACKUP_KIND: &str = "manual";
 const PRE_RESTORE_DATABASE_BACKUP_KIND: &str = "pre_restore";
 pub(crate) const PRE_PERSIST_DATABASE_BACKUP_KIND: &str = "pre_persist";
 const AUTO_DATABASE_BACKUP_INTERVAL_MS: i64 = 24 * 60 * 60 * 1000;
-const MAX_AUTO_DATABASE_BACKUPS: usize = 7;
-const MAX_MANUAL_DATABASE_BACKUPS: usize = 20;
-const MAX_PRE_RESTORE_DATABASE_BACKUPS: usize = 5;
-const MAX_PRE_PERSIST_DATABASE_BACKUPS: usize = 12;
 const LEGACY_STORAGE_DIR_NAMES: &[&str] = &[
     "Storyboard-Copilot",
     "storyboard-copilot",
@@ -601,22 +597,100 @@ fn open_sqlite_connection(path: &Path) -> Result<Connection, String> {
     Ok(conn)
 }
 
-fn remove_file_if_exists(path: &Path) -> Result<(), String> {
-    match fs::remove_file(path) {
-        Ok(()) => Ok(()),
-        Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(()),
-        Err(error) => Err(format!(
-            "Failed to remove file {}: {}",
-            path.display(),
-            error
-        )),
+pub(crate) fn move_path_to_system_trash(path: &Path) -> Result<(), String> {
+    if !path.exists() {
+        return Ok(());
+    }
+
+    #[cfg(target_os = "windows")]
+    {
+        use std::os::windows::ffi::OsStrExt;
+        use windows::core::PCWSTR;
+        use windows::Win32::UI::Shell::{
+            SHFileOperationW, FOF_ALLOWUNDO, FOF_NOCONFIRMATION, FOF_NOERRORUI, FOF_SILENT,
+            FO_DELETE, SHFILEOPSTRUCTW,
+        };
+
+        let from = path
+            .as_os_str()
+            .encode_wide()
+            .chain(std::iter::once(0))
+            .chain(std::iter::once(0))
+            .collect::<Vec<_>>();
+        let mut operation = SHFILEOPSTRUCTW {
+            hwnd: Default::default(),
+            wFunc: FO_DELETE,
+            pFrom: PCWSTR(from.as_ptr()),
+            pTo: PCWSTR::null(),
+            fFlags: (FOF_ALLOWUNDO | FOF_NOCONFIRMATION | FOF_NOERRORUI | FOF_SILENT).0 as u16,
+            fAnyOperationsAborted: Default::default(),
+            hNameMappings: Default::default(),
+            lpszProgressTitle: PCWSTR::null(),
+        };
+
+        let result = unsafe { SHFileOperationW(&mut operation) };
+        if result != 0 {
+            return Err(format!(
+                "Failed to move {} to Recycle Bin: Windows error {}",
+                path.display(),
+                result
+            ));
+        }
+        if operation.fAnyOperationsAborted.as_bool() {
+            return Err(format!(
+                "Moving {} to Recycle Bin was cancelled",
+                path.display()
+            ));
+        }
+        return Ok(());
+    }
+
+    #[cfg(target_os = "macos")]
+    {
+        let status = std::process::Command::new("osascript")
+            .arg("-e")
+            .arg(format!(
+                "tell application \"Finder\" to delete POSIX file \"{}\"",
+                path.to_string_lossy()
+                    .replace('\\', "\\\\")
+                    .replace('"', "\\\"")
+            ))
+            .status()
+            .map_err(|e| format!("Failed to invoke macOS Trash for {}: {}", path.display(), e))?;
+        if status.success() {
+            return Ok(());
+        }
+        return Err(format!("Failed to move {} to Trash", path.display()));
+    }
+
+    #[cfg(all(unix, not(target_os = "macos")))]
+    {
+        for command in ["gio", "kioclient5", "kioclient"] {
+            let mut process = std::process::Command::new(command);
+            match command {
+                "gio" => {
+                    process.arg("trash").arg(path);
+                }
+                _ => {
+                    process.arg("move").arg(path).arg("trash:/");
+                }
+            }
+            if process
+                .status()
+                .map(|status| status.success())
+                .unwrap_or(false)
+            {
+                return Ok(());
+            }
+        }
+        return Err(format!("Failed to move {} to Trash", path.display()));
     }
 }
 
 fn remove_db_sidecar_files(db_path: &Path) -> Result<(), String> {
     for suffix in ["-wal", "-shm"] {
         let sidecar_path = PathBuf::from(format!("{}{}", db_path.to_string_lossy(), suffix));
-        remove_file_if_exists(&sidecar_path)?;
+        move_path_to_system_trash(&sidecar_path)?;
     }
 
     Ok(())
@@ -632,7 +706,7 @@ fn copy_database_safely(source_db_path: &Path, target_db_path: &Path) -> Result<
             .map_err(|e| format!("Failed to create backup destination dir: {}", e))?;
     }
 
-    remove_file_if_exists(target_db_path)?;
+    move_path_to_system_trash(target_db_path)?;
     remove_db_sidecar_files(target_db_path)?;
 
     let source_conn = open_sqlite_connection(source_db_path)?;
@@ -861,7 +935,7 @@ pub(crate) fn maybe_create_pre_persist_backup(
     let backup_path = backups_dir.join(&backup_id);
 
     if let Err(error) = copy_database_safely(&source_db_path, &backup_path) {
-        let _ = remove_file_if_exists(&backup_path);
+        let _ = move_path_to_system_trash(&backup_path);
         return Err(error);
     }
 
@@ -976,44 +1050,8 @@ fn list_database_backup_records(app: &AppHandle) -> Result<Vec<DatabaseBackupRec
     Ok(records)
 }
 
-fn prune_database_backups_by_kind(
-    records: &[DatabaseBackupRecord],
-    kind: &str,
-    keep: usize,
-) -> Result<(), String> {
-    for record in records
-        .iter()
-        .filter(|record| record.kind == kind)
-        .skip(keep)
-    {
-        remove_file_if_exists(Path::new(&record.path))?;
-    }
-
-    Ok(())
-}
-
 fn prune_database_backups(app: &AppHandle) -> Result<(), String> {
-    let records = list_database_backup_records(app)?;
-    prune_database_backups_by_kind(
-        &records,
-        AUTO_DATABASE_BACKUP_KIND,
-        MAX_AUTO_DATABASE_BACKUPS,
-    )?;
-    prune_database_backups_by_kind(
-        &records,
-        PRE_RESTORE_DATABASE_BACKUP_KIND,
-        MAX_PRE_RESTORE_DATABASE_BACKUPS,
-    )?;
-    prune_database_backups_by_kind(
-        &records,
-        PRE_PERSIST_DATABASE_BACKUP_KIND,
-        MAX_PRE_PERSIST_DATABASE_BACKUPS,
-    )?;
-    prune_database_backups_by_kind(
-        &records,
-        MANUAL_DATABASE_BACKUP_KIND,
-        MAX_MANUAL_DATABASE_BACKUPS,
-    )?;
+    let _ = app;
     Ok(())
 }
 
@@ -1038,7 +1076,7 @@ fn create_database_backup_internal(
     let backup_path = backups_dir.join(&backup_id);
 
     if let Err(error) = copy_database_safely(&source_db_path, &backup_path) {
-        let _ = remove_file_if_exists(&backup_path);
+        let _ = move_path_to_system_trash(&backup_path);
         return Err(error);
     }
 
@@ -1125,10 +1163,7 @@ pub fn get_storage_info(app: AppHandle) -> Result<StorageInfo, String> {
 
 #[tauri::command]
 pub fn list_database_backups(app: AppHandle) -> Result<Vec<DatabaseBackupRecord>, String> {
-    Ok(list_database_backup_records(&app)?
-        .into_iter()
-        .filter(|record| record.kind != PRE_PERSIST_DATABASE_BACKUP_KIND)
-        .collect())
+    list_database_backup_records(&app)
 }
 
 #[tauri::command]
@@ -1232,14 +1267,12 @@ fn copy_dir_recursive(src: &PathBuf, dst: &PathBuf) -> Result<(), String> {
     Ok(())
 }
 
-fn delete_dir_recursive(path: &PathBuf) -> Result<(), String> {
+fn move_dir_to_trash(path: &PathBuf) -> Result<(), String> {
     if !path.exists() {
         return Ok(());
     }
 
-    fs::remove_dir_all(path).map_err(|e| format!("Failed to delete directory: {}", e))?;
-
-    Ok(())
+    move_path_to_system_trash(path)
 }
 
 #[tauri::command]
@@ -1309,18 +1342,17 @@ pub fn migrate_storage(
 
     if delete_old {
         if db_path.exists() {
-            fs::remove_file(&db_path)
-                .map_err(|e| format!("Failed to delete old database: {}", e))?;
+            move_path_to_system_trash(&db_path)?;
         }
         remove_db_sidecar_files(&db_path)?;
         if images_dir.exists() {
-            delete_dir_recursive(&images_dir)?;
+            move_dir_to_trash(&images_dir)?;
         }
         if debug_dir.exists() {
-            delete_dir_recursive(&debug_dir)?;
+            move_dir_to_trash(&debug_dir)?;
         }
         if backups_dir.exists() {
-            delete_dir_recursive(&backups_dir)?;
+            move_dir_to_trash(&backups_dir)?;
         }
     }
 
@@ -1396,18 +1428,17 @@ pub fn reset_storage_to_default(
 
     if delete_custom {
         if db_path.exists() {
-            fs::remove_file(&db_path)
-                .map_err(|e| format!("Failed to delete custom database: {}", e))?;
+            move_path_to_system_trash(&db_path)?;
         }
         remove_db_sidecar_files(&db_path)?;
         if images_dir.exists() {
-            delete_dir_recursive(&images_dir)?;
+            move_dir_to_trash(&images_dir)?;
         }
         if debug_dir.exists() {
-            delete_dir_recursive(&debug_dir)?;
+            move_dir_to_trash(&debug_dir)?;
         }
         if backups_dir.exists() {
-            delete_dir_recursive(&backups_dir)?;
+            move_dir_to_trash(&backups_dir)?;
         }
     }
 

@@ -68,6 +68,26 @@ export interface ReadLocalImageBinaryResult {
   mimeType: string;
 }
 
+export interface OptimizeReferenceImagesForApiOptions {
+  maxDimension?: number;
+  maxBytes?: number;
+}
+
+export interface OptimizedReferenceImageForApi {
+  source: string;
+  imagePath: string;
+  originalFormat: string;
+  outputFormat: string;
+  originalWidth: number;
+  originalHeight: number;
+  outputWidth: number;
+  outputHeight: number;
+  originalBytes: number;
+  outputBytes: number;
+  resized: boolean;
+  transparent: boolean;
+}
+
 export interface CropImageSourcePayload {
   source: string;
   aspectRatio?: string;
@@ -162,6 +182,16 @@ export async function persistImageBinary(
   return await invoke('persist_image_binary', {
     bytes: Array.from(bytes),
     extension,
+  });
+}
+
+export async function optimizeReferenceImagesForApi(
+  sources: string[],
+  options?: OptimizeReferenceImagesForApiOptions
+): Promise<OptimizedReferenceImageForApi[]> {
+  return await invoke('optimize_reference_images_for_api', {
+    sources,
+    options,
   });
 }
 

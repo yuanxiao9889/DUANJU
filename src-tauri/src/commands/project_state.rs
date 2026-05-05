@@ -12,7 +12,6 @@ use super::generation_history;
 use super::storage;
 
 const STYLE_TEMPLATE_SETTINGS_REFS_PROJECT_ID: &str = "__settings_style_template_refs__";
-const IMAGE_PRUNE_GRACE_PERIOD: Duration = Duration::from_secs(24 * 60 * 60);
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -1122,6 +1121,9 @@ fn is_media_path_key(key: &str) -> bool {
         key,
         "imageUrl"
             | "previewImageUrl"
+            | "thumbnailUrl"
+            | "sourceImageUrl"
+            | "maskImageUrl"
             | "sourceUrl"
             | "posterSourceUrl"
             | "videoUrl"
@@ -1401,10 +1403,6 @@ fn extract_project_image_paths(nodes_json: &str, history_json: &str) -> HashSet<
     }
 
     paths
-}
-
-fn resolve_images_dir(app: &AppHandle) -> Result<PathBuf, String> {
-    storage::resolve_images_dir(app)
 }
 
 fn update_project_payload_in_tx(
@@ -1918,73 +1916,7 @@ pub(crate) fn rewrite_storage_media_paths_in_connection(
 }
 
 pub(crate) fn prune_unreferenced_images(app: &AppHandle) -> Result<(), String> {
-    let conn = open_db(app)?;
-    let mut referenced = HashSet::new();
-    for table_name in ["project_image_refs", "asset_image_refs"] {
-        let query = format!("SELECT DISTINCT path FROM {}", table_name);
-        let mut stmt = conn
-            .prepare(&query)
-            .map_err(|e| format!("Failed to prepare image refs query: {}", e))?;
-
-        let rows = stmt
-            .query_map([], |row| row.get::<_, String>(0))
-            .map_err(|e| format!("Failed to query image refs: {}", e))?;
-
-        for path_result in rows {
-            let path = path_result.map_err(|e| format!("Failed to decode image ref row: {}", e))?;
-            if let Some(normalized_path) = normalize_image_ref_path(&path) {
-                referenced.insert(normalized_path);
-            }
-        }
-    }
-
-    let mut stmt = conn
-        .prepare("SELECT nodes_json, history_json FROM projects")
-        .map_err(|e| format!("Failed to prepare project image scan query: {}", e))?;
-    let rows = stmt
-        .query_map([], |row| {
-            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
-        })
-        .map_err(|e| format!("Failed to query project payloads for image scan: {}", e))?;
-
-    for row in rows {
-        let (nodes_json, history_json) =
-            row.map_err(|e| format!("Failed to read project payload for image scan: {}", e))?;
-        referenced.extend(extract_project_image_paths(&nodes_json, &history_json));
-    }
-
-    referenced.extend(generation_history::collect_generation_history_paths(&conn)?);
-
-    let images_dir = resolve_images_dir(app)?;
-    let entries =
-        std::fs::read_dir(&images_dir).map_err(|e| format!("Failed to read images dir: {}", e))?;
-
-    for entry_result in entries {
-        let entry = entry_result.map_err(|e| format!("Failed to iterate images dir: {}", e))?;
-        let path = entry.path();
-        if !path.is_file() {
-            continue;
-        }
-
-        let path_string = path.to_string_lossy().to_string();
-        let normalized_path =
-            normalize_image_ref_path(&path_string).unwrap_or_else(|| path_string.clone());
-        if !referenced.contains(&normalized_path) {
-            let is_fresh_file = entry
-                .metadata()
-                .ok()
-                .and_then(|metadata| metadata.modified().ok())
-                .and_then(|modified_at| modified_at.elapsed().ok())
-                .is_some_and(|age| age < IMAGE_PRUNE_GRACE_PERIOD);
-            if is_fresh_file {
-                continue;
-            }
-
-            std::fs::remove_file(&path)
-                .map_err(|e| format!("Failed to delete unreferenced image: {}", e))?;
-        }
-    }
-
+    let _ = app;
     Ok(())
 }
 

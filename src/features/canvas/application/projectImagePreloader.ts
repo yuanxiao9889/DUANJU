@@ -2,7 +2,6 @@ import type { CanvasNode } from '@/stores/canvasStore';
 
 import {
   getCachedImageLoadState,
-  markImageLoadFailed,
   markImageLoadSucceeded,
   shouldAttemptImageLoad,
 } from './imageLoadState';
@@ -63,7 +62,6 @@ function withPreloadTimeout<T>(
 
   const timeout = new Promise<T>((_, reject) => {
     timeoutId = window.setTimeout(() => {
-      markImageLoadFailed(url);
       reject(new Error(`Timed out while ${phase}: ${url}`));
     }, timeoutMs);
   });
@@ -350,7 +348,6 @@ async function preloadSingleImage(url: string): Promise<void> {
       resolve();
     };
     image.onerror = () => {
-      markImageLoadFailed(url);
       reject(new Error(`Failed to preload image: ${url}`));
     };
     image.src = displaySource;

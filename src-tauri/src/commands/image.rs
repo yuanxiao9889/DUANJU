@@ -4,6 +4,7 @@ use base64::{engine::general_purpose::STANDARD, Engine};
 use directories::UserDirs;
 use fast_image_resize as fir;
 use fast_image_resize::images::Image as FirImage;
+use image::codecs::jpeg::JpegEncoder;
 use image::{DynamicImage, GenericImageView, ImageReader, Rgba, RgbaImage};
 use imageproc::drawing::{draw_text_mut, text_size};
 use md5;
@@ -24,6 +25,10 @@ const FAST_PREVIEW_BYPASS_MAX_BYTES: usize = 2_000_000;
 const FAST_PREVIEW_BYPASS_MAX_DIMENSION: u32 = 2048;
 const IMAGE_SOURCE_CONNECT_TIMEOUT_SECONDS: u64 = 10;
 const IMAGE_SOURCE_TOTAL_TIMEOUT_SECONDS: u64 = 45;
+const DEFAULT_API_REFERENCE_MAX_DIMENSION: u32 = 2048;
+const DEFAULT_API_REFERENCE_MAX_BYTES: usize = 3 * 1024 * 1024;
+const MIN_API_REFERENCE_MAX_DIMENSION: u32 = 512;
+const JPEG_REFERENCE_QUALITIES: [u8; 8] = [92, 88, 84, 80, 76, 72, 68, 62];
 
 static IMAGE_SOURCE_HTTP_CLIENT: OnceLock<reqwest::Client> = OnceLock::new();
 
@@ -416,6 +421,30 @@ pub struct ReadLocalImageBinaryResult {
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct OptimizeReferenceImagesForApiOptions {
+    pub max_dimension: Option<u32>,
+    pub max_bytes: Option<usize>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OptimizedReferenceImageForApi {
+    pub source: String,
+    pub image_path: String,
+    pub original_format: String,
+    pub output_format: String,
+    pub original_width: u32,
+    pub original_height: u32,
+    pub output_width: u32,
+    pub output_height: u32,
+    pub original_bytes: usize,
+    pub output_bytes: usize,
+    pub resized: bool,
+    pub transparent: bool,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct CropImageSourcePayload {
     pub source: String,
     pub aspect_ratio: Option<String>,
@@ -750,6 +779,145 @@ fn resize_image_fast(
         target_image.into_vec(),
     )
     .ok_or_else(|| "Failed to build RGBA image from resized buffer".to_string())
+}
+
+fn resize_image_to_max_dimension(source: &DynamicImage, max_dimension: u32) -> DynamicImage {
+    let width = source.width().max(1);
+    let height = source.height().max(1);
+    let longest_side = width.max(height);
+    if longest_side <= max_dimension.max(1) {
+        return source.clone();
+    }
+
+    let scale = max_dimension.max(1) as f64 / longest_side as f64;
+    let target_width = ((width as f64) * scale).round().max(1.0) as u32;
+    let target_height = ((height as f64) * scale).round().max(1.0) as u32;
+    resize_image_fast(source, target_width, target_height)
+        .map(DynamicImage::ImageRgba8)
+        .unwrap_or_else(|_| {
+            source.resize(
+                target_width,
+                target_height,
+                image::imageops::FilterType::Triangle,
+            )
+        })
+}
+
+fn image_has_transparency(source: &DynamicImage) -> bool {
+    source.to_rgba8().pixels().any(|pixel| pixel.0[3] < 255)
+}
+
+fn encode_png_image(source: &DynamicImage) -> Result<Vec<u8>, String> {
+    let mut buffer = Cursor::new(Vec::new());
+    source
+        .write_to(&mut buffer, image::ImageFormat::Png)
+        .map_err(|e| format!("Failed to encode PNG reference image: {}", e))?;
+    Ok(buffer.into_inner())
+}
+
+fn encode_jpeg_image(source: &DynamicImage, quality: u8) -> Result<Vec<u8>, String> {
+    let mut buffer = Vec::new();
+    let rgb = source.to_rgb8();
+    let mut encoder = JpegEncoder::new_with_quality(&mut buffer, quality);
+    encoder
+        .encode_image(&DynamicImage::ImageRgb8(rgb))
+        .map_err(|e| format!("Failed to encode JPEG reference image: {}", e))?;
+    Ok(buffer)
+}
+
+fn encode_api_reference_image(
+    source: &DynamicImage,
+    transparent: bool,
+    max_dimension: u32,
+    max_bytes: usize,
+) -> Result<(Vec<u8>, String, u32, u32), String> {
+    let safe_max_dimension = max_dimension.clamp(
+        MIN_API_REFERENCE_MAX_DIMENSION,
+        DEFAULT_API_REFERENCE_MAX_DIMENSION,
+    );
+    let safe_max_bytes = max_bytes.max(256 * 1024);
+    let mut current_max_dimension = safe_max_dimension;
+
+    loop {
+        let resized = resize_image_to_max_dimension(source, current_max_dimension);
+        if transparent {
+            let encoded = encode_png_image(&resized)?;
+            if encoded.len() <= safe_max_bytes
+                || current_max_dimension <= MIN_API_REFERENCE_MAX_DIMENSION
+            {
+                return Ok((
+                    encoded,
+                    "png".to_string(),
+                    resized.width().max(1),
+                    resized.height().max(1),
+                ));
+            }
+        } else {
+            let mut best_encoded = Vec::new();
+            for quality in JPEG_REFERENCE_QUALITIES {
+                let encoded = encode_jpeg_image(&resized, quality)?;
+                if encoded.len() <= safe_max_bytes {
+                    return Ok((
+                        encoded,
+                        "jpg".to_string(),
+                        resized.width().max(1),
+                        resized.height().max(1),
+                    ));
+                }
+                best_encoded = encoded;
+            }
+
+            if current_max_dimension <= MIN_API_REFERENCE_MAX_DIMENSION {
+                return Ok((
+                    best_encoded,
+                    "jpg".to_string(),
+                    resized.width().max(1),
+                    resized.height().max(1),
+                ));
+            }
+        }
+
+        let next_dimension = ((current_max_dimension as f64) * 0.85).round() as u32;
+        current_max_dimension = next_dimension.max(MIN_API_REFERENCE_MAX_DIMENSION);
+    }
+}
+
+fn optimize_api_reference_image_from_bytes(
+    app: &AppHandle,
+    source: String,
+    bytes: Vec<u8>,
+    original_format: String,
+    max_dimension: u32,
+    max_bytes: usize,
+) -> Result<OptimizedReferenceImageForApi, String> {
+    let original_bytes = bytes.len();
+    let image = image::load_from_memory(&bytes).map_err(|e| {
+        format!(
+            "Failed to decode reference image for API optimization: {}",
+            e
+        )
+    })?;
+    let original_width = image.width().max(1);
+    let original_height = image.height().max(1);
+    let transparent = image_has_transparency(&image);
+    let (output_bytes, output_format, output_width, output_height) =
+        encode_api_reference_image(&image, transparent, max_dimension, max_bytes)?;
+    let image_path = persist_image_bytes(app, &output_bytes, &output_format)?;
+
+    Ok(OptimizedReferenceImageForApi {
+        source,
+        image_path,
+        original_format,
+        output_format,
+        original_width,
+        original_height,
+        output_width,
+        output_height,
+        original_bytes,
+        output_bytes: output_bytes.len(),
+        resized: original_width != output_width || original_height != output_height,
+        transparent,
+    })
 }
 
 async fn load_dynamic_image_from_source(source: &str) -> Result<DynamicImage, String> {
@@ -1353,10 +1521,6 @@ fn write_bytes_atomically(output_path: &Path, bytes: &[u8]) -> Result<(), String
         return Ok(());
     }
 
-    if output_path.exists() {
-        let _ = std::fs::remove_file(output_path);
-    }
-
     for attempt in 0..24_u32 {
         if verify_persisted_image_path(output_path).is_ok() {
             return Ok(());
@@ -1397,11 +1561,21 @@ fn write_bytes_atomically(output_path: &Path, bytes: &[u8]) -> Result<(), String
             }
             Err(err) => {
                 let target_ready = verify_persisted_image_path(output_path).is_ok();
-                let _ = std::fs::remove_file(&temp_path);
                 if target_ready {
+                    let _ = std::fs::remove_file(&temp_path);
                     return Ok(());
                 }
-                return Err(format!("Failed to finalize generated image: {}", err));
+                let copy_result = if output_path.exists() {
+                    std::fs::copy(&temp_path, output_path).map(|_| ())
+                } else {
+                    Err(err)
+                };
+                let _ = std::fs::remove_file(&temp_path);
+                copy_result.map_err(|copy_err| {
+                    format!("Failed to finalize generated image: {}", copy_err)
+                })?;
+                verify_persisted_image_path(output_path)?;
+                return Ok(());
             }
         }
     }
@@ -1846,6 +2020,87 @@ pub async fn embed_storyboard_image_metadata(
     let encoded = encode_png_with_storyboard_metadata(&image, &metadata)?;
 
     persist_image_bytes(&app, &encoded, "png")
+}
+
+#[tauri::command]
+pub async fn optimize_reference_images_for_api(
+    app: AppHandle,
+    sources: Vec<String>,
+    options: Option<OptimizeReferenceImagesForApiOptions>,
+) -> Result<Vec<OptimizedReferenceImageForApi>, String> {
+    let started = Instant::now();
+    let safe_max_dimension = options
+        .as_ref()
+        .and_then(|value| value.max_dimension)
+        .unwrap_or(DEFAULT_API_REFERENCE_MAX_DIMENSION)
+        .clamp(
+            MIN_API_REFERENCE_MAX_DIMENSION,
+            DEFAULT_API_REFERENCE_MAX_DIMENSION,
+        );
+    let safe_max_bytes = options
+        .as_ref()
+        .and_then(|value| value.max_bytes)
+        .unwrap_or(DEFAULT_API_REFERENCE_MAX_BYTES)
+        .max(256 * 1024);
+    let mut results = Vec::with_capacity(sources.len());
+
+    for (index, source) in sources.into_iter().enumerate() {
+        let trimmed = source.trim().to_string();
+        if trimmed.is_empty() {
+            return Err(format!("Reference image {} source is empty", index + 1));
+        }
+
+        let resolve_started = Instant::now();
+        let (bytes, original_format) = resolve_source_bytes(&trimmed).await?;
+        let original_bytes = bytes.len();
+        let app_handle = app.clone();
+        let optimized = tokio::task::spawn_blocking(move || {
+            optimize_api_reference_image_from_bytes(
+                &app_handle,
+                trimmed,
+                bytes,
+                original_format,
+                safe_max_dimension,
+                safe_max_bytes,
+            )
+        })
+        .await
+        .map_err(|e| {
+            format!(
+                "Failed to join API reference image optimization task: {}",
+                e
+            )
+        })??;
+
+        info!(
+            "optimize_reference_images_for_api item {} done: original_bytes={}, output_bytes={}, output={}x{} {}, resolve={}ms",
+            index + 1,
+            original_bytes,
+            optimized.output_bytes,
+            optimized.output_width,
+            optimized.output_height,
+            optimized.output_format,
+            resolve_started.elapsed().as_millis()
+        );
+        results.push(optimized);
+    }
+
+    let total_before = results
+        .iter()
+        .map(|item| item.original_bytes)
+        .sum::<usize>();
+    let total_after = results.iter().map(|item| item.output_bytes).sum::<usize>();
+    info!(
+        "optimize_reference_images_for_api done: count={}, total_before={}, total_after={}, max_dimension={}, max_bytes={}, elapsed={}ms",
+        results.len(),
+        total_before,
+        total_after,
+        safe_max_dimension,
+        safe_max_bytes,
+        started.elapsed().as_millis()
+    );
+
+    Ok(results)
 }
 
 #[tauri::command]

@@ -43,6 +43,9 @@ const IMAGE_REF_PREFIX = '__img_ref__:';
 const MEDIA_REFERENCE_KEYS = new Set([
   'imageUrl',
   'previewImageUrl',
+  'thumbnailUrl',
+  'sourceImageUrl',
+  'maskImageUrl',
   'videoUrl',
   'audioUrl',
   'sourceUrl',

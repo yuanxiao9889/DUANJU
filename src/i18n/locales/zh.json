@@ -550,6 +550,8 @@
       "waitingResult": "等待输出结果图片",
       "waitingResultDelayed": "已经等待 {{minutes}} 分钟了，还没有结果。继续等待中...",
       "submittingRequest": "正在提交请求...",
+      "optimizedReferenceRequest": "多张参考图已压缩，正在生成...",
+      "optimizedReferenceRequestDowngraded": "多张参考图已压缩，4K 已自动改为 2K...",
       "selectToEdit": "选中后在下方输入提示词生成或编辑图片",
       "submissionFailed": "请求未成功发出",
       "generationFailed": "生成失败",

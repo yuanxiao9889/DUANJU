@@ -1132,6 +1132,9 @@ export const ImageEditNode = memo(({ id, data, selected, width, height }: ImageE
     addEdge(id, newNodeId);
 
     let resolvedRequestAspectRatio = initialRequestAspectRatio;
+    let effectiveRequestSize = selectedResolution.value;
+    let referenceImageOptimization: GenerationDebugContext['referenceImageOptimization'];
+    let resolutionDowngrade: GenerationDebugContext['resolutionDowngrade'];
 
     try {
       const resolvedRequestReferenceImages = await resolvedRequestReferenceImagesPromise;
@@ -1159,7 +1162,7 @@ export const ImageEditNode = memo(({ id, data, selected, width, height }: ImageE
       }
 
       await canvasAiGateway.setApiKey(selectedModel.providerId, providerApiKey);
-      const jobId = await canvasAiGateway.submitGenerateImageJob({
+      const resolvedGeneratePayload = await canvasAiGateway.resolveGenerateImagePayload({
         prompt: submittedPrompt,
         model: requestResolution.requestModel,
         size: selectedResolution.value,
@@ -1167,17 +1170,29 @@ export const ImageEditNode = memo(({ id, data, selected, width, height }: ImageE
         referenceImages: resolvedRequestReferenceImages,
         extraParams: effectiveExtraParams,
       });
+      effectiveRequestSize = resolvedGeneratePayload.effectiveSize;
+      referenceImageOptimization = resolvedGeneratePayload.referenceImageOptimization;
+      resolutionDowngrade = resolvedGeneratePayload.resolutionDowngrade;
+      const generationStatusText = resolutionDowngrade
+        ? t('node.imageNode.optimizedReferenceRequestDowngraded')
+        : referenceImageOptimization?.applied
+          ? t('node.imageNode.optimizedReferenceRequest')
+          : null;
+      const jobId = await canvasAiGateway.submitGenerateImageJob(resolvedGeneratePayload);
       const runtimeDiagnostics = await runtimeDiagnosticsPromise;
       const generationDebugContext: GenerationDebugContext = {
         sourceType: 'imageEdit',
         providerId: selectedModel.providerId,
         requestModel: debugRequestModel,
         requestSize: selectedResolution.value,
+        effectiveRequestSize,
         requestAspectRatio: resolvedRequestAspectRatio,
         prompt: submittedPrompt,
         extraParams: effectiveExtraParams,
         referenceImageCount: incomingImages.length,
         referenceImagePlaceholders: createReferenceImagePlaceholders(incomingImages.length),
+        referenceImageOptimization,
+        resolutionDowngrade,
         appVersion: runtimeDiagnostics.appVersion,
         osName: runtimeDiagnostics.osName,
         osVersion: runtimeDiagnostics.osVersion,
@@ -1192,6 +1207,7 @@ export const ImageEditNode = memo(({ id, data, selected, width, height }: ImageE
         generationSourceType: 'imageEdit',
         generationProviderId: selectedModel.providerId,
         generationClientSessionId: CURRENT_RUNTIME_SESSION_ID,
+        generationStatusText,
         generationError: null,
         generationErrorDetails: null,
         generationDebugContext,
@@ -1204,11 +1220,14 @@ export const ImageEditNode = memo(({ id, data, selected, width, height }: ImageE
         providerId: selectedModel.providerId,
         requestModel: debugRequestModel,
         requestSize: selectedResolution.value,
+        effectiveRequestSize,
         requestAspectRatio: resolvedRequestAspectRatio,
         prompt: submittedPrompt,
         extraParams: effectiveExtraParams,
         referenceImageCount: incomingImages.length,
         referenceImagePlaceholders: createReferenceImagePlaceholders(incomingImages.length),
+        referenceImageOptimization,
+        resolutionDowngrade,
         appVersion: runtimeDiagnostics.appVersion,
         osName: runtimeDiagnostics.osName,
         osVersion: runtimeDiagnostics.osVersion,
@@ -1240,6 +1259,7 @@ export const ImageEditNode = memo(({ id, data, selected, width, height }: ImageE
         generationJobId: null,
         generationProviderId: null,
         generationClientSessionId: null,
+        generationStatusText: null,
         generationError: resolvedError.message,
         generationErrorDetails: resolvedError.details ?? null,
         generationDebugContext,

@@ -552,6 +552,8 @@
       "waitingResult": "Waiting for output image",
       "waitingResultDelayed": "Already waited {{minutes}} minutes with no result yet. Still waiting...",
       "submittingRequest": "Submitting request...",
+      "optimizedReferenceRequest": "Multiple reference images compressed. Generating...",
+      "optimizedReferenceRequestDowngraded": "Multiple reference images compressed. 4K was changed to 2K...",
       "selectToEdit": "Select this node and enter a prompt below to generate or edit image",
       "submissionFailed": "Request was not sent",
       "generationFailed": "Generation failed",

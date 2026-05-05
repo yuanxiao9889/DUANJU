@@ -1353,6 +1353,9 @@ export const MultiAngleImageNode = memo(({
     setError(null);
 
     const runtimeDiagnosticsPromise = getRuntimeDiagnostics();
+    let effectiveRequestSize = selectedResolution.value;
+    let referenceImageOptimization: GenerationDebugContext['referenceImageOptimization'];
+    let resolutionDowngrade: GenerationDebugContext['resolutionDowngrade'];
 
     try {
       const requestImage = await resolveReadableImageSource(
@@ -1360,7 +1363,7 @@ export const MultiAngleImageNode = memo(({
         sourceImage.previewImageUrl
       );
       await canvasAiGateway.setApiKey(selectedModel.providerId, providerApiKey);
-      const jobId = await canvasAiGateway.submitGenerateImageJob({
+      const resolvedGeneratePayload = await canvasAiGateway.resolveGenerateImagePayload({
         prompt,
         model: requestResolution.requestModel,
         size: selectedResolution.value,
@@ -1368,17 +1371,29 @@ export const MultiAngleImageNode = memo(({
         referenceImages: [requestImage],
         extraParams: effectiveExtraParams,
       });
+      effectiveRequestSize = resolvedGeneratePayload.effectiveSize;
+      referenceImageOptimization = resolvedGeneratePayload.referenceImageOptimization;
+      resolutionDowngrade = resolvedGeneratePayload.resolutionDowngrade;
+      const generationStatusText = resolutionDowngrade
+        ? t('node.imageNode.optimizedReferenceRequestDowngraded')
+        : referenceImageOptimization?.applied
+          ? t('node.imageNode.optimizedReferenceRequest')
+          : null;
+      const jobId = await canvasAiGateway.submitGenerateImageJob(resolvedGeneratePayload);
       const runtimeDiagnostics = await runtimeDiagnosticsPromise;
       const generationDebugContext: GenerationDebugContext = {
         sourceType: 'multiAngleImage',
         providerId: selectedModel.providerId,
         requestModel: debugRequestModel,
         requestSize: selectedResolution.value,
+        effectiveRequestSize,
         requestAspectRatio: initialRequestAspectRatio,
         prompt,
         extraParams: effectiveExtraParams,
         referenceImageCount: 1,
         referenceImagePlaceholders: createReferenceImagePlaceholders(1),
+        referenceImageOptimization,
+        resolutionDowngrade,
         appVersion: runtimeDiagnostics.appVersion,
         osName: runtimeDiagnostics.osName,
         osVersion: runtimeDiagnostics.osVersion,
@@ -1393,6 +1408,7 @@ export const MultiAngleImageNode = memo(({
         generationSourceType: 'multiAngleImage',
         generationProviderId: selectedModel.providerId,
         generationClientSessionId: CURRENT_RUNTIME_SESSION_ID,
+        generationStatusText,
         generationError: null,
         generationErrorDetails: null,
         generationDebugContext,
@@ -1405,11 +1421,14 @@ export const MultiAngleImageNode = memo(({
         providerId: selectedModel.providerId,
         requestModel: debugRequestModel,
         requestSize: selectedResolution.value,
+        effectiveRequestSize,
         requestAspectRatio: initialRequestAspectRatio,
         prompt,
         extraParams: effectiveExtraParams,
         referenceImageCount: 1,
         referenceImagePlaceholders: createReferenceImagePlaceholders(1),
+        referenceImageOptimization,
+        resolutionDowngrade,
         appVersion: runtimeDiagnostics.appVersion,
         osName: runtimeDiagnostics.osName,
         osVersion: runtimeDiagnostics.osVersion,
@@ -1441,6 +1460,7 @@ export const MultiAngleImageNode = memo(({
         generationJobId: null,
         generationProviderId: null,
         generationClientSessionId: null,
+        generationStatusText: null,
         generationError: resolvedError.message,
         generationErrorDetails: resolvedError.details ?? null,
         generationDebugContext,

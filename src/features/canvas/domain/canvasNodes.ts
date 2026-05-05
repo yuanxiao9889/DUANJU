@@ -386,6 +386,7 @@ export interface ExportImageNodeData extends NodeImageData {
   generationSummary?: ExportImageGenerationSummary | null;
   generationPhase?: ExportImageGenerationPhase | null;
   generationFailureStage?: ExportImageGenerationFailureStage | null;
+  generationStatusText?: string | null;
 }
 
 export type ImageCompareSourceNodeType =
@@ -1625,6 +1626,7 @@ function normalizeStaticImageCompareSnapshotData(
     generationFailureStage: normalizeExportImageGenerationFailureStage(
       record.generationFailureStage
     ),
+    generationStatusText: normalizeString(record.generationStatusText).trim() || null,
   };
 }
 

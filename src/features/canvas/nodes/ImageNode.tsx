@@ -103,6 +103,10 @@ export const ImageNode = memo(({ id, data, selected, type, width }: ImageNodePro
     typeof (data as { generationFailureStage?: unknown }).generationFailureStage === 'string'
       ? ((data as { generationFailureStage?: string }).generationFailureStage ?? '').trim()
       : '';
+  const generationStatusText =
+    typeof (data as { generationStatusText?: unknown }).generationStatusText === 'string'
+      ? ((data as { generationStatusText?: string }).generationStatusText ?? '').trim()
+      : '';
   const isSubmittingGeneration =
     isExportResultNode && isGenerating && generationPhase === 'submitting' && generationJobId.length === 0;
   const hasGenerationError =
@@ -287,8 +291,12 @@ export const ImageNode = memo(({ id, data, selected, type, width }: ImageNodePro
       return t('node.imageNode.submittingRequest');
     }
 
+    if (generationStatusText) {
+      return generationStatusText;
+    }
+
     return waitingResultText;
-  }, [isSubmittingGeneration, t, waitingResultText]);
+  }, [generationStatusText, isSubmittingGeneration, t, waitingResultText]);
   const generationFailedTitle = useMemo(() => {
     if (generationFailureStage === 'submit') {
       return t('node.imageNode.submissionFailed');

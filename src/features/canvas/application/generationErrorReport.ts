@@ -2,17 +2,24 @@ import {
   type AiGenerationErrorCategory,
   extractAiGenerationErrorDiagnostics,
 } from '@/features/canvas/application/aiGenerationError';
+import type {
+  ReferenceImageOptimizationSummary,
+  ResolutionDowngradeSummary,
+} from '@/features/canvas/application/ports';
 
 export interface GenerationDebugContext {
   sourceType: 'imageEdit' | 'storyboardGen' | 'multiAngleImage' | 'unknown';
   providerId?: string;
   requestModel?: string;
   requestSize?: string;
+  effectiveRequestSize?: string;
   requestAspectRatio?: string;
   prompt?: string;
   extraParams?: Record<string, unknown>;
   referenceImageCount?: number;
   referenceImagePlaceholders?: string[];
+  referenceImageOptimization?: ReferenceImageOptimizationSummary;
+  resolutionDowngrade?: ResolutionDowngradeSummary;
   appVersion?: string;
   osName?: string;
   osVersion?: string;
@@ -190,6 +197,9 @@ export function buildGenerationErrorReport(
   if (context.requestSize) {
     sections.push(`- Size: ${context.requestSize}`);
   }
+  if (context.effectiveRequestSize && context.effectiveRequestSize !== context.requestSize) {
+    sections.push(`- Effective Size: ${context.effectiveRequestSize}`);
+  }
   if (context.requestAspectRatio) {
     sections.push(`- Aspect Ratio: ${context.requestAspectRatio}`);
   }
@@ -207,6 +217,16 @@ export function buildGenerationErrorReport(
       ? toStringSafe(context.extraParams)
       : '{}'
   );
+  if (context.resolutionDowngrade) {
+    sections.push('');
+    sections.push('## Resolution Downgrade');
+    sections.push(toStringSafe(context.resolutionDowngrade));
+  }
+  if (context.referenceImageOptimization) {
+    sections.push('');
+    sections.push('## Reference Image Optimization');
+    sections.push(toStringSafe(context.referenceImageOptimization));
+  }
   if (context.userAgent) {
     sections.push('');
     sections.push('## User Agent');

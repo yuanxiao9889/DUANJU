@@ -47,8 +47,46 @@ export interface GenerateImagePayload {
   extraParams?: Record<string, unknown>;
 }
 
+export interface ReferenceImageOptimizationItem {
+  source: string;
+  optimizedSource: string;
+  originalFormat: string;
+  outputFormat: string;
+  originalWidth: number;
+  originalHeight: number;
+  outputWidth: number;
+  outputHeight: number;
+  originalBytes: number;
+  outputBytes: number;
+  resized: boolean;
+  transparent: boolean;
+}
+
+export interface ReferenceImageOptimizationSummary {
+  applied: boolean;
+  inputCount: number;
+  totalBeforeBytes?: number;
+  totalAfterBytes?: number;
+  items: ReferenceImageOptimizationItem[];
+}
+
+export interface ResolutionDowngradeSummary {
+  from: string;
+  to: string;
+  reason: 'manyReferenceImages';
+}
+
+export interface ResolvedGenerateImagePayload extends GenerateImagePayload {
+  originalSize?: string;
+  effectiveSize: string;
+  referenceImages?: string[];
+  referenceImageOptimization?: ReferenceImageOptimizationSummary;
+  resolutionDowngrade?: ResolutionDowngradeSummary;
+}
+
 export interface AiGateway {
   setApiKey: (provider: string, apiKey: string) => Promise<void>;
+  resolveGenerateImagePayload: (payload: GenerateImagePayload) => Promise<ResolvedGenerateImagePayload>;
   generateImage: (payload: GenerateImagePayload) => Promise<string>;
   submitGenerateImageJob: (payload: GenerateImagePayload) => Promise<string>;
   getGenerateImageJob: (jobId: string, options?: { forceRefresh?: boolean }) => Promise<{

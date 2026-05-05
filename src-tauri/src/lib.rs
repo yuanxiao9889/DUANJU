@@ -222,8 +222,11 @@ pub fn run() {
 
             fit_main_window_to_work_area(&main_window, &window_config);
 
-            if let Err(err) = main_window.hide() {
-                warn!("failed to hide main window on startup: {err}");
+            if let Err(err) = main_window.show() {
+                warn!("failed to show main window on startup: {err}");
+            }
+            if let Err(err) = main_window.set_focus() {
+                warn!("failed to focus main window on startup: {err}");
             }
 
             let tray_icon = app
@@ -333,6 +336,7 @@ pub fn run() {
             image::merge_storyboard_images,
             image::read_storyboard_image_metadata,
             image::embed_storyboard_image_metadata,
+            image::optimize_reference_images_for_api,
             image::load_image,
             image::read_local_image_binary,
             image::persist_image_source,

@@ -12,6 +12,7 @@ import {
 } from 'react';
 
 import {
+  getImageLoadRetryDelayMs,
   markImageLoadFailed,
   markImageLoadSucceeded,
   shouldAttemptImageLoad,
@@ -111,6 +112,24 @@ function normalizeCandidateList(values: Array<string | null | undefined>): strin
     deduped.push(normalized);
   }
   return deduped;
+}
+
+function resolveSkippedCandidateRetryDelayMs(candidateSources: string[]): number | null {
+  let retryDelayMs: number | null = null;
+
+  for (const candidate of candidateSources) {
+    const candidateDelayMs = getImageLoadRetryDelayMs(candidate);
+    if (candidateDelayMs === null) {
+      continue;
+    }
+
+    retryDelayMs =
+      retryDelayMs === null
+        ? candidateDelayMs
+        : Math.min(retryDelayMs, candidateDelayMs);
+  }
+
+  return retryDelayMs;
 }
 
 export const CanvasNodeImage = memo(forwardRef<HTMLImageElement, CanvasNodeImageProps>(({
@@ -213,6 +232,33 @@ export const CanvasNodeImage = memo(forwardRef<HTMLImageElement, CanvasNodeImage
   useEffect(() => () => {
     clearRetryTimer();
   }, [clearRetryTimer]);
+
+  useEffect(() => {
+    if (activeSrc || candidateSources.length === 0) {
+      return;
+    }
+
+    const retryDelayMs = resolveSkippedCandidateRetryDelayMs(candidateSources);
+    if (retryDelayMs === null) {
+      return;
+    }
+
+    const retryTimerId = window.setTimeout(() => {
+      const nextCandidate = candidateSources.find((candidate) => shouldAttemptImageLoad(candidate));
+      if (!nextCandidate) {
+        return;
+      }
+
+      failedCandidateSourcesRef.current.delete(nextCandidate);
+      setActiveSrc(nextCandidate);
+      setIsUsingFallback(nextCandidate !== requestedSrc);
+      setRetryAttempt(0);
+    }, retryDelayMs + 20);
+
+    return () => {
+      window.clearTimeout(retryTimerId);
+    };
+  }, [activeSrc, candidateSources, requestedSrc]);
 
   const handleSourceFailure = useCallback((reason: 'resolve' | 'render', error?: unknown) => {
     clearRetryTimer();

@@ -2,7 +2,7 @@ use rusqlite::params;
 use serde::{Deserialize, Serialize};
 use tauri::AppHandle;
 
-use super::project_state::{normalize_image_ref_path, open_db, prune_unreferenced_images};
+use super::project_state::{open_db, prune_unreferenced_images};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -57,42 +57,6 @@ fn ensure_generation_history_table(conn: &rusqlite::Connection) -> Result<(), St
 
 pub(crate) fn ensure_generation_history_ready(conn: &rusqlite::Connection) -> Result<(), String> {
     ensure_generation_history_table(conn)
-}
-
-pub(crate) fn collect_generation_history_paths(
-    conn: &rusqlite::Connection,
-) -> Result<Vec<String>, String> {
-    ensure_generation_history_table(conn)?;
-
-    let mut stmt = conn
-        .prepare(
-            r#"
-            SELECT source_path, preview_path
-            FROM generation_history_items
-            "#,
-        )
-        .map_err(|e| format!("Failed to prepare generation history path query: {}", e))?;
-    let rows = stmt
-        .query_map([], |row| {
-            Ok((row.get::<_, String>(0)?, row.get::<_, Option<String>>(1)?))
-        })
-        .map_err(|e| format!("Failed to query generation history paths: {}", e))?;
-
-    let mut paths = Vec::new();
-    for row in rows {
-        let (source_path, preview_path) =
-            row.map_err(|e| format!("Failed to read generation history path row: {}", e))?;
-        if let Some(normalized_path) = normalize_image_ref_path(&source_path) {
-            paths.push(normalized_path);
-        }
-        if let Some(preview_path) = preview_path {
-            if let Some(normalized_path) = normalize_image_ref_path(&preview_path) {
-                paths.push(normalized_path);
-            }
-        }
-    }
-
-    Ok(paths)
 }
 
 #[tauri::command]

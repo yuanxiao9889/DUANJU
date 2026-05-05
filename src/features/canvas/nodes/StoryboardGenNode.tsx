@@ -1452,6 +1452,10 @@ export const StoryboardGenNode = memo(({ id, data, selected, width, height }: St
     setSelectedNode(null);
     setError(null);
 
+    let effectiveRequestSize = selectedResolution.value;
+    let referenceImageOptimization: GenerationDebugContext['referenceImageOptimization'];
+    let resolutionDowngrade: GenerationDebugContext['resolutionDowngrade'];
+
     try {
       await canvasAiGateway.setApiKey(selectedModel.providerId, providerApiKey);
 
@@ -1477,7 +1481,7 @@ export const StoryboardGenNode = memo(({ id, data, selected, width, height }: St
           return sanitizeStoryboardText(description, ignoreAtTagWhenCopyingAndGenerating);
         });
 
-      const jobId = await canvasAiGateway.submitGenerateImageJob({
+      const resolvedGeneratePayload = await canvasAiGateway.resolveGenerateImagePayload({
         prompt: submittedPrompt,
         model: requestResolution.requestModel,
         size: selectedResolution.value,
@@ -1485,17 +1489,29 @@ export const StoryboardGenNode = memo(({ id, data, selected, width, height }: St
         referenceImages: allRequestReferenceImages,
         extraParams: effectiveExtraParams,
       });
+      effectiveRequestSize = resolvedGeneratePayload.effectiveSize;
+      referenceImageOptimization = resolvedGeneratePayload.referenceImageOptimization;
+      resolutionDowngrade = resolvedGeneratePayload.resolutionDowngrade;
+      const generationStatusText = resolutionDowngrade
+        ? t('node.imageNode.optimizedReferenceRequestDowngraded')
+        : referenceImageOptimization?.applied
+          ? t('node.imageNode.optimizedReferenceRequest')
+          : null;
+      const jobId = await canvasAiGateway.submitGenerateImageJob(resolvedGeneratePayload);
       const runtimeDiagnostics = await runtimeDiagnosticsPromise;
       const generationDebugContext: GenerationDebugContext = {
         sourceType: 'storyboardGen',
         providerId: selectedModel.providerId,
         requestModel: debugRequestModel,
         requestSize: selectedResolution.value,
+        effectiveRequestSize,
         requestAspectRatio: resolvedRequestAspectRatio,
         prompt: submittedPrompt,
         extraParams: effectiveExtraParams,
         referenceImageCount: allRequestReferenceImages.length,
         referenceImagePlaceholders: createReferenceImagePlaceholders(allRequestReferenceImages.length),
+        referenceImageOptimization,
+        resolutionDowngrade,
         appVersion: runtimeDiagnostics.appVersion,
         osName: runtimeDiagnostics.osName,
         osVersion: runtimeDiagnostics.osVersion,
@@ -1510,6 +1526,7 @@ export const StoryboardGenNode = memo(({ id, data, selected, width, height }: St
         generationSourceType: 'storyboardGen',
         generationProviderId: selectedModel.providerId,
         generationClientSessionId: CURRENT_RUNTIME_SESSION_ID,
+        generationStatusText,
         generationError: null,
         generationErrorDetails: null,
         generationDebugContext,
@@ -1527,11 +1544,14 @@ export const StoryboardGenNode = memo(({ id, data, selected, width, height }: St
         providerId: selectedModel.providerId,
         requestModel: debugRequestModel,
         requestSize: selectedResolution.value,
+        effectiveRequestSize,
         requestAspectRatio: resolvedRequestAspectRatio,
         prompt: submittedPrompt,
         extraParams: effectiveExtraParams,
         referenceImageCount: incomingRequestImageItems.length + 1,
         referenceImagePlaceholders: createReferenceImagePlaceholders(incomingRequestImageItems.length + 1),
+        referenceImageOptimization,
+        resolutionDowngrade,
         appVersion: runtimeDiagnostics.appVersion,
         osName: runtimeDiagnostics.osName,
         osVersion: runtimeDiagnostics.osVersion,
@@ -1563,6 +1583,7 @@ export const StoryboardGenNode = memo(({ id, data, selected, width, height }: St
         generationJobId: null,
         generationProviderId: null,
         generationClientSessionId: null,
+        generationStatusText: null,
         generationStoryboardMetadata: undefined,
         generationError: finalResolvedError.message,
         generationErrorDetails: finalResolvedError.details ?? null,

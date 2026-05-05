@@ -21,6 +21,29 @@ function resolveImageFailureRetryDelayMs(value: string): number {
     : IMAGE_FAILURE_RETRY_DELAY_MS;
 }
 
+export function getImageLoadRetryDelayMs(
+  imageSrc: string | null | undefined
+): number | null {
+  const normalized = normalizeImageSource(imageSrc);
+  if (!normalized) {
+    return null;
+  }
+
+  const cached = imageLoadStateCache.get(normalized);
+  if (!cached || cached.state !== 'failed') {
+    return null;
+  }
+
+  const retryDelayMs = resolveImageFailureRetryDelayMs(normalized);
+  const elapsedMs = Date.now() - cached.updatedAt;
+  if (elapsedMs >= retryDelayMs) {
+    imageLoadStateCache.delete(normalized);
+    return 0;
+  }
+
+  return retryDelayMs - elapsedMs;
+}
+
 export function getCachedImageLoadState(
   imageSrc: string | null | undefined
 ): ImageLoadState | null {

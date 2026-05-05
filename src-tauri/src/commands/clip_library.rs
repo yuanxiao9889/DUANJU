@@ -10,6 +10,7 @@ use tauri::{AppHandle, Manager};
 use uuid::Uuid;
 
 use super::project_state::{open_db, project_nodes_array, project_nodes_array_mut, ProjectRecord};
+use super::storage::move_path_to_system_trash;
 
 const DEFAULT_LIBRARY_NAME: &str = "Untitled Clip Library";
 const DEFAULT_CHAPTER_NAME: &str = "Untitled Chapter";
@@ -544,7 +545,7 @@ fn move_file_to_dir(
     let target_path = unique_path_with_suffix(target_dir, preferred_name);
 
     match fs::rename(source_path, &target_path) {
-        Ok(_) => {}
+        Ok(()) => {}
         Err(_) => {
             fs::copy(source_path, &target_path).map_err(|e| {
                 format!(
@@ -554,7 +555,7 @@ fn move_file_to_dir(
                     e
                 )
             })?;
-            let _ = fs::remove_file(source_path);
+            move_path_to_system_trash(source_path)?;
         }
     }
 
@@ -625,7 +626,7 @@ fn is_path_within_dir(path: &Path, dir: &Path) -> bool {
         || normalized_path.starts_with(&normalized_dir)
 }
 
-fn maybe_remove_path(path: Option<&str>, root_path: &Path) {
+fn move_library_path_to_trash(path: Option<&str>, root_path: &Path) {
     let Some(value) = path else {
         return;
     };
@@ -635,7 +636,7 @@ fn maybe_remove_path(path: Option<&str>, root_path: &Path) {
     if !is_path_within_dir(&local_path, root_path) {
         return;
     }
-    let _ = fs::remove_file(&local_path);
+    let _ = move_path_to_system_trash(&local_path);
 }
 
 fn infer_mime_from_path(path: &Path, media_type: &str) -> Option<String> {
@@ -1538,7 +1539,7 @@ fn cleanup_empty_dirs(path: &Path, keep_paths: &HashSet<String>) {
         .map(|mut entries| entries.next().is_none())
         .unwrap_or(false);
     if is_empty {
-        let _ = fs::remove_dir(path);
+        let _ = move_path_to_system_trash(path);
     }
 }
 
@@ -2216,9 +2217,9 @@ fn delete_item_files(snapshot: &ClipLibrarySnapshot, item_ids: &HashSet<String>)
         .iter()
         .filter(|item| item_ids.contains(&item.id))
     {
-        maybe_remove_path(Some(&item.source_path), &root_path);
-        maybe_remove_path(item.preview_path.as_deref(), &root_path);
-        maybe_remove_path(item.waveform_path.as_deref(), &root_path);
+        move_library_path_to_trash(Some(&item.source_path), &root_path);
+        move_library_path_to_trash(item.preview_path.as_deref(), &root_path);
+        move_library_path_to_trash(item.waveform_path.as_deref(), &root_path);
     }
 }
 

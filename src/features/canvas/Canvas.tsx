@@ -1525,6 +1525,7 @@ export function Canvas() {
           generationStartedAt: null,
           generationForceRefreshRequestedAt: null,
           generationClientSessionId: null,
+          generationStatusText: null,
           generationStoryboardMetadata: undefined,
           generationError: null,
           generationErrorDetails: null,
@@ -1589,6 +1590,7 @@ export function Canvas() {
         generationStartedAt: null,
         generationForceRefreshRequestedAt: null,
         generationClientSessionId: null,
+        generationStatusText: null,
         generationStoryboardMetadata: undefined,
         generationError: errorMessage,
         generationErrorDetails: resolvedError.details ?? status.error ?? null,
@@ -3842,6 +3844,9 @@ export function Canvas() {
         }
         if ('generationDebugContext' in (data as Record<string, unknown>)) {
           (data as { generationDebugContext?: unknown }).generationDebugContext = undefined;
+        }
+        if ('generationStatusText' in (data as Record<string, unknown>)) {
+          (data as { generationStatusText?: string | null }).generationStatusText = null;
         }
 
         const nextNodeId = addNode(
