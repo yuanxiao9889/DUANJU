@@ -1556,8 +1556,8 @@ impl NewApiProvider {
 
         text.split(|ch: char| ch.is_whitespace() || matches!(ch, '"' | '\'' | ',' | '}' | '{'))
             .find_map(|token| {
-                let normalized = token
-                    .trim_matches(|ch: char| matches!(ch, ':' | '=' | ';' | ',' | '"' | '\''));
+                let normalized =
+                    token.trim_matches(|ch: char| matches!(ch, ':' | '=' | ';' | ',' | '"' | '\''));
                 let lower = normalized.to_ascii_lowercase();
                 for prefix in ["request_id=", "requestid=", "request-id=", "x-request-id="] {
                     if let Some(value) = lower.strip_prefix(prefix) {
@@ -2701,7 +2701,8 @@ impl NewApiProvider {
         if !status.is_success() {
             let request_id = Self::extract_request_id_from_headers(response.headers());
             let response_text = response.text().await.unwrap_or_default();
-            let request_id = request_id.or_else(|| Self::extract_request_id_from_text(&response_text));
+            let request_id =
+                request_id.or_else(|| Self::extract_request_id_from_text(&response_text));
             return Err(AIError::Provider(Self::append_request_id_to_error(
                 format!(
                     "NewAPI openai-images-task-content request failed {}: {}",

@@ -15,8 +15,9 @@ use crate::ai::{
 };
 
 const DRAW_ENDPOINT_PATH: &str = "/v1/draw/nano-banana";
-const COMPLETIONS_ENDPOINT_PATH: &str = "/v1/draw/completions";
 const RESULT_ENDPOINT_PATH: &str = "/v1/draw/result";
+const GPT_IMAGE_GENERATE_ENDPOINT_PATH: &str = "/v1/api/generate";
+const GPT_IMAGE_RESULT_ENDPOINT_PATH: &str = "/v1/api/result";
 const UPLOAD_TOKEN_ENDPOINT_PATH: &str = "/client/resource/newUploadTokenZH";
 const DEFAULT_BASE_URL: &str = "https://grsai.dakka.com.cn";
 const DEFAULT_PRO_MODEL: &str = "nano-banana-pro";
@@ -25,6 +26,7 @@ const LEGACY_GPT_IMAGE_MODEL: &str = "gpt-image-2";
 const GPT_IMAGE_2_MAX_EDGE: f32 = 3840.0;
 const GPT_IMAGE_2_MAX_PIXELS: f32 = 8_294_400.0;
 const POLL_INTERVAL_MS: u64 = 2000;
+const LOG_RESPONSE_PREVIEW_CHARS: usize = 800;
 
 const SUPPORTED_MODELS: [&str; 10] = [
     "nano-banana-2",
@@ -205,15 +207,13 @@ struct NanoBananaDrawRequestBody {
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
-struct CompletionsRequestBody {
+struct GptImageGenerateRequestBody {
     model: String,
     prompt: String,
+    images: Vec<String>,
     aspect_ratio: String,
     quality: String,
-    urls: Vec<String>,
-    #[serde(rename = "webHook")]
-    web_hook: String,
-    shut_progress: bool,
+    reply_type: String,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -518,6 +518,17 @@ impl GrsaiProvider {
         Ok(value)
     }
 
+    fn looks_like_gpt_image_task_id(task_id: &str) -> bool {
+        task_id
+            .split_once('-')
+            .map(|(prefix, rest)| {
+                !prefix.is_empty()
+                    && !rest.is_empty()
+                    && prefix.chars().all(|ch| ch.is_ascii_digit())
+            })
+            .unwrap_or(false)
+    }
+
     fn parse_response_value(response_text: &str) -> Result<Value, AIError> {
         let trimmed = response_text.trim();
         if trimmed.is_empty() {
@@ -554,16 +565,71 @@ impl GrsaiProvider {
         )))
     }
 
+    fn summarize_response_for_log(response_text: &str) -> String {
+        let trimmed = response_text.trim();
+        if trimmed.chars().count() <= LOG_RESPONSE_PREVIEW_CHARS {
+            return trimmed.to_string();
+        }
+
+        let preview = trimmed
+            .chars()
+            .take(LOG_RESPONSE_PREVIEW_CHARS)
+            .collect::<String>();
+        format!("{}...({} chars)", preview, trimmed.chars().count())
+    }
+
     fn extract_result_url(payload: &Value) -> Option<String> {
         payload
             .get("results")
             .and_then(|results| results.as_array())
             .and_then(|results| results.first())
             .and_then(|first| first.get("url"))
+            .or_else(|| {
+                payload
+                    .get("data")
+                    .and_then(|data| data.as_array())
+                    .and_then(|data| data.first())
+                    .and_then(|first| first.get("url"))
+            })
             .or_else(|| payload.get("url"))
             .and_then(|url| url.as_str())
             .map(|url| url.trim().trim_matches('`').trim().to_string())
             .filter(|url| !url.is_empty())
+    }
+
+    fn extract_result_status(payload: &Value) -> Option<String> {
+        payload
+            .get("status")
+            .or_else(|| payload.get("state"))
+            .and_then(|raw| raw.as_str())
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(|value| value.to_ascii_lowercase())
+    }
+
+    fn extract_failure_reason(payload: &Value) -> String {
+        for key in ["error", "failure_reason", "failureReason", "msg", "message"] {
+            if let Some(reason) = payload
+                .get(key)
+                .and_then(|raw| raw.as_str())
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+            {
+                return reason.to_string();
+            }
+
+            if let Some(reason) = payload
+                .get(key)
+                .and_then(|raw| raw.get("message"))
+                .and_then(|raw| raw.as_str())
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+            {
+                return reason.to_string();
+            }
+        }
+
+        "unknown failure".to_string()
     }
 
     async fn upload_reference_image_zh(
@@ -630,13 +696,7 @@ impl GrsaiProvider {
             .text("key", key.to_string())
             .part("file", file_part);
 
-        let upload_response = self
-            .client
-            .post(upload_url)
-            .multipart(form)
-            .timeout(std::time::Duration::from_secs(120))
-            .send()
-            .await?;
+        let upload_response = self.client.post(upload_url).multipart(form).send().await?;
 
         if !upload_response.status().is_success() {
             let status = upload_response.status();
@@ -672,7 +732,6 @@ impl GrsaiProvider {
             .post(endpoint)
             .header("Authorization", format!("Bearer {}", api_key))
             .header("Content-Type", "application/json; charset=utf-8")
-            .timeout(std::time::Duration::from_secs(300))
             .body(request_body)
             .send()
             .await?;
@@ -688,7 +747,10 @@ impl GrsaiProvider {
         }
 
         let response_text = response.text().await.map_err(AIError::from)?;
-        info!("[GRSAI API] Response: {}", response_text);
+        info!(
+            "[GRSAI API] Response: {}",
+            Self::summarize_response_for_log(response_text.as_str())
+        );
         Self::parse_response_value(&response_text)
     }
 
@@ -745,18 +807,34 @@ impl GrsaiProvider {
         let route = Self::resolve_request_route(&model);
 
         if route == GrsaiRequestRoute::Completions {
-            let body = CompletionsRequestBody {
-                model: Self::resolve_completions_model(&model),
+            let model = Self::resolve_completions_model(&model);
+            let aspect_ratio = Self::resolve_completions_aspect_ratio(request);
+            let quality = Self::resolve_completions_quality(request);
+            let images = self.prepare_reference_urls(&api_key, request, true).await?;
+            let reply_type = if return_task_id_immediately {
+                "async"
+            } else {
+                "json"
+            }
+            .to_string();
+            info!(
+                "[GRSAI API] gpt-image request model: {}, aspectRatio: {}, quality: {}, images: {}, prompt_chars: {}, replyType: {}",
+                model,
+                aspect_ratio,
+                quality,
+                images.len(),
+                request.prompt.chars().count(),
+                reply_type
+            );
+            let body = GptImageGenerateRequestBody {
+                model,
                 prompt: request.prompt.clone(),
-                aspect_ratio: Self::resolve_completions_aspect_ratio(request),
-                quality: Self::resolve_completions_quality(request),
-                urls: self
-                    .prepare_reference_urls(&api_key, request, false)
-                    .await?,
-                web_hook: "-1".to_string(),
-                shut_progress: true,
+                images,
+                aspect_ratio,
+                quality,
+                reply_type,
             };
-            let endpoint = format!("{}{}", self.base_url, COMPLETIONS_ENDPOINT_PATH);
+            let endpoint = format!("{}{}", self.base_url, GPT_IMAGE_GENERATE_ENDPOINT_PATH);
             return self.send_request_body(&endpoint, &api_key, &body).await;
         }
 
@@ -820,7 +898,10 @@ impl GrsaiProvider {
         Ok(response)
     }
 
-    async fn poll_result_once(&self, task_id: &str) -> Result<ProviderTaskPollResult, AIError> {
+    async fn poll_draw_result_once(
+        &self,
+        task_id: &str,
+    ) -> Result<ProviderTaskPollResult, AIError> {
         let endpoint = format!("{}{}", self.base_url, RESULT_ENDPOINT_PATH);
         let api_key = self
             .api_key
@@ -848,6 +929,10 @@ impl GrsaiProvider {
         }
 
         let poll_response_text = response.text().await.map_err(AIError::from)?;
+        info!(
+            "[GRSAI API] draw result response: {}",
+            Self::summarize_response_for_log(poll_response_text.as_str())
+        );
         let poll_response = Self::parse_response_value(&poll_response_text)?;
         let payload = Self::resolve_task_payload(&poll_response)?;
 
@@ -873,9 +958,80 @@ impl GrsaiProvider {
         }
     }
 
-    async fn poll_result_until_complete(&self, task_id: &str) -> Result<String, AIError> {
+    async fn poll_gpt_image_result_once(
+        &self,
+        task_id: &str,
+    ) -> Result<ProviderTaskPollResult, AIError> {
+        let endpoint = format!("{}{}", self.base_url, GPT_IMAGE_RESULT_ENDPOINT_PATH);
+        let api_key = self
+            .api_key
+            .read()
+            .await
+            .clone()
+            .ok_or_else(|| AIError::InvalidRequest("API key not set".to_string()))?;
+
+        let response = self
+            .client
+            .get(&endpoint)
+            .header("Authorization", format!("Bearer {}", api_key))
+            .query(&[("id", task_id)])
+            .send()
+            .await?;
+
+        if !response.status().is_success() {
+            let status = response.status();
+            let error_text = response.text().await.unwrap_or_default();
+            return Err(AIError::Provider(format!(
+                "GRSAI gpt-image result request failed {}: {}",
+                status, error_text
+            )));
+        }
+
+        let poll_response_text = response.text().await.map_err(AIError::from)?;
+        info!(
+            "[GRSAI API] gpt-image result response: {}",
+            Self::summarize_response_for_log(poll_response_text.as_str())
+        );
+        let poll_response = Self::parse_response_value(&poll_response_text)?;
+
+        if let Some(url) = Self::extract_result_url(&poll_response) {
+            return Ok(ProviderTaskPollResult::Succeeded(url));
+        }
+
+        match Self::extract_result_status(&poll_response).as_deref() {
+            Some("running") | Option::None => Ok(ProviderTaskPollResult::Running),
+            Some("succeeded") => Err(AIError::Provider(format!(
+                "GRSAI gpt-image result missing image url: {}",
+                poll_response
+            ))),
+            Some("failed") | Some("violation") => Ok(ProviderTaskPollResult::Failed(
+                Self::extract_failure_reason(&poll_response),
+            )),
+            Some(other) => Err(AIError::Provider(format!(
+                "GRSAI unexpected gpt-image task status: {}",
+                other
+            ))),
+        }
+    }
+
+    async fn poll_result_once(
+        &self,
+        task_id: &str,
+        route: GrsaiRequestRoute,
+    ) -> Result<ProviderTaskPollResult, AIError> {
+        match route {
+            GrsaiRequestRoute::Completions => self.poll_gpt_image_result_once(task_id).await,
+            GrsaiRequestRoute::NanoBanana => self.poll_draw_result_once(task_id).await,
+        }
+    }
+
+    async fn poll_result_until_complete(
+        &self,
+        task_id: &str,
+        route: GrsaiRequestRoute,
+    ) -> Result<String, AIError> {
         loop {
-            match self.poll_result_once(task_id).await? {
+            match self.poll_result_once(task_id, route).await? {
                 ProviderTaskPollResult::Running => {
                     sleep(Duration::from_millis(POLL_INTERVAL_MS)).await
                 }
@@ -911,8 +1067,8 @@ impl AIProvider for GrsaiProvider {
         vec![
             "grsai/nano-banana-2".to_string(),
             "grsai/nano-banana-pro".to_string(),
-            "grsai/gpt-image-2".to_string(),
             "grsai/gpt-image-2-vip".to_string(),
+            "grsai/gpt-image-2".to_string(),
         ]
     }
 
@@ -926,11 +1082,53 @@ impl AIProvider for GrsaiProvider {
         true
     }
 
+    fn should_use_task_resume(&self, request: &GenerateRequest) -> bool {
+        let model = self.normalize_requested_model(request);
+        matches!(
+            Self::resolve_request_route(&model),
+            GrsaiRequestRoute::NanoBanana | GrsaiRequestRoute::Completions
+        )
+    }
+
     async fn submit_task(
         &self,
         request: GenerateRequest,
     ) -> Result<ProviderTaskSubmission, AIError> {
         let model = self.normalize_requested_model(&request);
+        let route = Self::resolve_request_route(&model);
+        if route == GrsaiRequestRoute::Completions {
+            let payload = self.request_draw(&request, model, true).await?;
+            if let Some(url) = Self::extract_result_url(&payload) {
+                return Ok(ProviderTaskSubmission::Succeeded(url));
+            }
+
+            match Self::extract_result_status(&payload).as_deref() {
+                Some("running") => {
+                    let task_id =
+                        payload
+                            .get("id")
+                            .and_then(|raw| raw.as_str())
+                            .ok_or_else(|| {
+                                AIError::Provider(
+                                    "GRSAI gpt-image response missing task id".to_string(),
+                                )
+                            })?;
+                    return Ok(ProviderTaskSubmission::Queued(ProviderTaskHandle {
+                        task_id: task_id.to_string(),
+                        metadata: Some(json!({ "route": "gpt-image" })),
+                    }));
+                }
+                Some("failed") | Some("violation") => {
+                    return Err(AIError::Provider(Self::extract_failure_reason(&payload)));
+                }
+                _ => {}
+            }
+
+            return Err(AIError::Provider(format!(
+                "GRSAI gpt-image response missing image url or task id: {}",
+                payload
+            )));
+        }
         let draw_response = self.request_draw(&request, model, true).await?;
         let payload = Self::resolve_task_payload(&draw_response)?;
 
@@ -944,7 +1142,12 @@ impl AIProvider for GrsaiProvider {
             .ok_or_else(|| AIError::Provider("GRSAI response missing task id".to_string()))?;
         Ok(ProviderTaskSubmission::Queued(ProviderTaskHandle {
             task_id: task_id.to_string(),
-            metadata: None,
+            metadata: Some(json!({
+                "route": match route {
+                    GrsaiRequestRoute::Completions => "gpt-image",
+                    GrsaiRequestRoute::NanoBanana => "draw",
+                }
+            })),
         }))
     }
 
@@ -952,17 +1155,67 @@ impl AIProvider for GrsaiProvider {
         &self,
         handle: ProviderTaskHandle,
     ) -> Result<ProviderTaskPollResult, AIError> {
-        self.poll_result_once(handle.task_id.as_str()).await
+        let route = if Self::looks_like_gpt_image_task_id(handle.task_id.as_str()) {
+            GrsaiRequestRoute::Completions
+        } else {
+            handle
+                .metadata
+                .as_ref()
+                .and_then(|metadata| metadata.get("route"))
+                .and_then(Value::as_str)
+                .map(|value| {
+                    if value == "gpt-image" {
+                        GrsaiRequestRoute::Completions
+                    } else {
+                        GrsaiRequestRoute::NanoBanana
+                    }
+                })
+                .unwrap_or(GrsaiRequestRoute::NanoBanana)
+        };
+        self.poll_result_once(handle.task_id.as_str(), route).await
     }
 
     async fn generate(&self, request: GenerateRequest) -> Result<String, AIError> {
         let model = self.normalize_requested_model(&request);
+        let route = Self::resolve_request_route(&model);
         info!(
             "[GRSAI Request] model: {}, size: {}, aspect_ratio: {}",
             model, request.size, request.aspect_ratio
         );
 
         let draw_response = self.request_draw(&request, model, false).await?;
+        if route == GrsaiRequestRoute::Completions {
+            if let Some(url) = Self::extract_result_url(&draw_response) {
+                return Ok(url);
+            }
+
+            match Self::extract_result_status(&draw_response).as_deref() {
+                Some("running") => {
+                    let task_id = draw_response
+                        .get("id")
+                        .and_then(|raw| raw.as_str())
+                        .ok_or_else(|| {
+                            AIError::Provider(
+                                "GRSAI gpt-image response missing task id".to_string(),
+                            )
+                        })?;
+                    return self
+                        .poll_result_until_complete(task_id, GrsaiRequestRoute::Completions)
+                        .await;
+                }
+                Some("failed") | Some("violation") => {
+                    return Err(AIError::Provider(Self::extract_failure_reason(
+                        &draw_response,
+                    )));
+                }
+                _ => {}
+            }
+
+            return Err(AIError::Provider(format!(
+                "GRSAI gpt-image response missing image url or task id: {}",
+                draw_response
+            )));
+        }
         let payload = Self::resolve_task_payload(&draw_response)?;
 
         if let Some(url) = Self::extract_result_url(payload) {
@@ -974,7 +1227,7 @@ impl AIProvider for GrsaiProvider {
             .and_then(|raw| raw.as_str())
             .ok_or_else(|| AIError::Provider("GRSAI response missing task id".to_string()))?;
 
-        self.poll_result_until_complete(task_id).await
+        self.poll_result_until_complete(task_id, route).await
     }
 }
 
@@ -984,7 +1237,7 @@ mod tests {
 
     use serde_json::json;
 
-    use super::{CompletionsRequestBody, GrsaiProvider};
+    use super::{GptImageGenerateRequestBody, GrsaiProvider};
     use crate::ai::{AIProvider, GenerateRequest};
 
     fn make_request(
@@ -1007,14 +1260,14 @@ mod tests {
     }
 
     #[test]
-    fn list_models_includes_legacy_and_vip_ids() {
+    fn list_models_includes_documented_gpt_image_id() {
         let provider = GrsaiProvider::new();
         assert!(provider
             .list_models()
-            .contains(&"grsai/gpt-image-2".to_string()));
+            .contains(&"grsai/gpt-image-2-vip".to_string()));
         assert!(provider
             .list_models()
-            .contains(&"grsai/gpt-image-2-vip".to_string()));
+            .contains(&"grsai/gpt-image-2".to_string()));
     }
 
     #[test]
@@ -1035,18 +1288,38 @@ mod tests {
     }
 
     #[test]
-    fn serializes_completions_body_with_aspect_ratio_and_quality() {
-        let body = CompletionsRequestBody {
+    fn grsai_documented_async_models_use_resumable_submission() {
+        let provider = GrsaiProvider::new();
+        assert!(provider.should_use_task_resume(&make_request(
+            "grsai/gpt-image-2-vip",
+            "4K",
+            "9:16",
+            None
+        )));
+        assert!(provider.should_use_task_resume(&make_request(
+            "grsai/nano-banana-pro",
+            "2K",
+            "16:9",
+            None
+        )));
+    }
+
+    #[test]
+    fn serializes_gpt_image_generate_body_with_aspect_ratio_and_reply_type() {
+        let body = GptImageGenerateRequestBody {
             model: "gpt-image-2-vip".to_string(),
             prompt: "prompt".to_string(),
+            images: vec!["https://example.com/ref.png".to_string()],
             aspect_ratio: "2048x1152".to_string(),
             quality: "high".to_string(),
-            urls: vec!["https://example.com/ref.png".to_string()],
-            web_hook: "-1".to_string(),
-            shut_progress: true,
+            reply_type: "async".to_string(),
         };
 
         let value = serde_json::to_value(body).expect("body should serialize");
+        assert_eq!(
+            value.get("model").and_then(|raw| raw.as_str()),
+            Some("gpt-image-2-vip")
+        );
         assert_eq!(
             value.get("aspectRatio").and_then(|raw| raw.as_str()),
             Some("2048x1152")
@@ -1055,7 +1328,22 @@ mod tests {
             value.get("quality").and_then(|raw| raw.as_str()),
             Some("high")
         );
+        assert_eq!(
+            value.get("replyType").and_then(|raw| raw.as_str()),
+            Some("async")
+        );
+        assert_eq!(
+            value
+                .get("images")
+                .and_then(|raw| raw.as_array())
+                .map(Vec::len),
+            Some(1)
+        );
+        assert!(value.get("image").is_none());
+        assert!(value.get("urls").is_none());
         assert!(value.get("size").is_none());
+        assert!(value.get("response_format").is_none());
+        assert!(value.get("responseFormat").is_none());
     }
 
     #[test]

@@ -1970,6 +1970,10 @@ export function Canvas() {
         .map((node) => node.id);
 
       for (const nodeId of pendingNodeIds) {
+        if (activeGenerationPollNodeIdsRef.current.has(nodeId)) {
+          continue;
+        }
+
         if (activeGenerationRecoveryNodeIdsRef.current.has(nodeId)) {
           continue;
         }

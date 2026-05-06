@@ -35,12 +35,18 @@
     "upstreamTextEmpty": "Current upstream text is empty"
   },
   "appCloseDialog": {
-    "title": "Generation still in progress",
-    "description": "The current canvas still has active generation tasks. You can minimize the app to the tray and let them keep running in the background, or close the app directly.",
+    "idle": {
+      "title": "Close OOpii?",
+      "description": "You can minimize the app to the tray and restore it later, or close the app completely."
+    },
+    "active": {
+      "title": "Generation still in progress",
+      "description": "The current canvas still has active generation tasks. You can minimize the app to the tray and let them keep running in the background, or close the app directly."
+    },
     "hint": "Choosing Minimize hides the main window and keeps the background tasks running until you restore the app from the tray.",
-    "minimize": "Minimize",
+    "minimize": "Minimize to Tray",
     "cancelClose": "Cancel Close",
-    "forceClose": "Close Anyway"
+    "forceClose": "Close App"
   },
   "generationHistory": {
     "title": "Generation History",
@@ -3047,7 +3053,7 @@
     "migrating": "Migrating...",
     "databaseBackupTitle": "Database Backup and Restore",
     "databaseBackupDesc": "Automatic backup saves only projects.db and skips image files, so storage growth stays small while project and asset records remain recoverable.",
-    "backupsRetention": "Auto backup: once per day, keep 7 copies",
+    "backupsRetention": "Auto backup: once per day, keep up to 7 copies or about 2 GB; pre-persist temporary backups are cleaned automatically",
     "createBackupNow": "Back Up Now",
     "creatingBackup": "Creating backup...",
     "noDatabaseBackups": "No database backups yet.",

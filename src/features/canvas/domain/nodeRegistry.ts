@@ -89,7 +89,15 @@ import {
   VOXCPM2_COMPLETE_EXTENSION_ID,
 } from '@/features/extensions/domain/types';
 
-export type MenuIconKey = 'upload' | 'sparkles' | 'layout' | 'text' | 'video' | 'audio' | 'link';
+export type MenuIconKey =
+  | 'upload'
+  | 'sparkles'
+  | 'layout'
+  | 'text'
+  | 'video'
+  | 'audio'
+  | 'link'
+  | 'package';
 export type NodeMenuProjectType = 'storyboard' | 'script' | 'ad';
 export type NodeMenuGroupKey =
   | 'imageGeneration'
@@ -99,6 +107,7 @@ export type NodeMenuGroupKey =
   | 'media'
   | 'upscale'
   | 'text'
+  | 'extensionPackage'
   | 'scriptReference';
 
 export interface CanvasNodeMenuGroupDefinition {
@@ -177,6 +186,11 @@ export const canvasNodeMenuGroups: Record<NodeMenuGroupKey, CanvasNodeMenuGroupD
     id: 'text',
     labelKey: 'node.menuGroup.text',
     menuIcon: 'text',
+  },
+  extensionPackage: {
+    id: 'extensionPackage',
+    labelKey: 'node.menuGroup.extensionPackage',
+    menuIcon: 'package',
   },
   scriptReference: {
     id: 'scriptReference',
@@ -290,7 +304,7 @@ const panorama360NodeDefinition: CanvasNodeDefinition<Panorama360NodeData> = {
   type: CANVAS_NODE_TYPES.panorama360,
   menuLabelKey: 'node.menu.panorama360',
   menuIcon: 'video',
-  menuGroup: 'media',
+  menuGroup: 'imageGeneration',
   visibleInMenu: true,
   menuProjectTypes: ['storyboard'],
   capabilities: {
@@ -321,7 +335,7 @@ const backgroundRemoveNodeDefinition: CanvasNodeDefinition<BackgroundRemoveNodeD
   type: CANVAS_NODE_TYPES.backgroundRemove,
   menuLabelKey: 'node.menu.backgroundRemove',
   menuIcon: 'sparkles',
-  menuGroup: 'media',
+  menuGroup: 'extensionPackage',
   visibleInMenu: true,
   menuProjectTypes: ['storyboard'],
   requiredExtensionId: RMBG2_COMPLETE_EXTENSION_ID,
@@ -349,7 +363,7 @@ const seedvr2ImageUpscaleNodeDefinition: CanvasNodeDefinition<Seedvr2ImageUpscal
   type: CANVAS_NODE_TYPES.seedvr2ImageUpscale,
   menuLabelKey: 'node.menu.seedvr2ImageUpscale',
   menuIcon: 'sparkles',
-  menuGroup: 'upscale',
+  menuGroup: 'extensionPackage',
   visibleInMenu: true,
   menuProjectTypes: ['storyboard'],
   requiredExtensionId: SEEDVR2_COMPLETE_EXTENSION_ID,
@@ -379,7 +393,7 @@ const seedvr2VideoUpscaleNodeDefinition: CanvasNodeDefinition<Seedvr2VideoUpscal
   type: CANVAS_NODE_TYPES.seedvr2VideoUpscale,
   menuLabelKey: 'node.menu.seedvr2VideoUpscale',
   menuIcon: 'sparkles',
-  menuGroup: 'upscale',
+  menuGroup: 'extensionPackage',
   visibleInMenu: true,
   menuProjectTypes: ['storyboard'],
   requiredExtensionId: SEEDVR2_COMPLETE_EXTENSION_ID,
@@ -1238,7 +1252,7 @@ const ttsVoiceDesignNodeDefinition: CanvasNodeDefinition<TtsVoiceDesignNodeData>
   type: CANVAS_NODE_TYPES.ttsVoiceDesign,
   menuLabelKey: 'node.menu.ttsVoiceDesign',
   menuIcon: 'audio',
-  menuGroup: 'media',
+  menuGroup: 'extensionPackage',
   visibleInMenu: true,
   menuProjectTypes: ['storyboard'],
   requiredExtensionIds: [
@@ -1287,7 +1301,7 @@ const ttsSavedVoiceNodeDefinition: CanvasNodeDefinition<TtsSavedVoiceNodeData> =
   type: CANVAS_NODE_TYPES.ttsSavedVoice,
   menuLabelKey: 'node.menu.ttsSavedVoice',
   menuIcon: 'audio',
-  menuGroup: 'media',
+  menuGroup: 'extensionPackage',
   visibleInMenu: true,
   menuProjectTypes: ['storyboard'],
   requiredExtensionIds: [
@@ -1339,7 +1353,7 @@ const voxCpmVoiceDesignNodeDefinition: CanvasNodeDefinition<VoxCpmVoiceDesignNod
   type: CANVAS_NODE_TYPES.voxCpmVoiceDesign,
   menuLabelKey: 'node.menu.voxCpmVoiceDesign',
   menuIcon: 'audio',
-  menuGroup: 'media',
+  menuGroup: 'extensionPackage',
   visibleInMenu: true,
   menuProjectTypes: ['storyboard'],
   requiredExtensionId: VOXCPM2_COMPLETE_EXTENSION_ID,
@@ -1374,7 +1388,7 @@ const voxCpmVoiceCloneNodeDefinition: CanvasNodeDefinition<VoxCpmVoiceCloneNodeD
   type: CANVAS_NODE_TYPES.voxCpmVoiceClone,
   menuLabelKey: 'node.menu.voxCpmVoiceClone',
   menuIcon: 'audio',
-  menuGroup: 'media',
+  menuGroup: 'extensionPackage',
   visibleInMenu: true,
   menuProjectTypes: ['storyboard'],
   requiredExtensionId: VOXCPM2_COMPLETE_EXTENSION_ID,
@@ -1411,7 +1425,7 @@ const voxCpmUltimateCloneNodeDefinition: CanvasNodeDefinition<VoxCpmUltimateClon
   type: CANVAS_NODE_TYPES.voxCpmUltimateClone,
   menuLabelKey: 'node.menu.voxCpmUltimateClone',
   menuIcon: 'audio',
-  menuGroup: 'media',
+  menuGroup: 'extensionPackage',
   visibleInMenu: true,
   menuProjectTypes: ['storyboard'],
   requiredExtensionId: VOXCPM2_COMPLETE_EXTENSION_ID,

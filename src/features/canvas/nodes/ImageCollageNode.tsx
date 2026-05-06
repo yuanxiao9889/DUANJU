@@ -8,7 +8,7 @@ import {
   type DragEvent as ReactDragEvent,
 } from 'react';
 import { Handle, Position, useUpdateNodeInternals, type NodeProps } from '@xyflow/react';
-import { Download, LayoutGrid, X } from 'lucide-react';
+import { Download, LayoutGrid, Trash2, X } from 'lucide-react';
 import { Group, Image as KonvaImage, Layer, Rect, Stage, Text as KonvaText, Transformer } from 'react-konva';
 import type { KonvaEventObject } from 'konva/lib/Node';
 import type Konva from 'konva';
@@ -646,6 +646,28 @@ export const ImageCollageNode = memo(({ id, data, selected, width, height }: Ima
     }));
   }, [selectedPlacedLayer, updateLayer]);
 
+  const handleClearCanvas = useCallback(() => {
+    if (!hasPlacedLayers) {
+      return;
+    }
+
+    setExportError(null);
+    commitLayerCollection(
+      orderedLayers.map((layer) => ({
+        ...layer,
+        placed: false,
+        centerX: 0.5,
+        centerY: 0.5,
+        scale: 1,
+        rotationDeg: 0,
+        flipX: false,
+        flipY: false,
+      })),
+      null,
+      'push'
+    );
+  }, [commitLayerCollection, hasPlacedLayers, orderedLayers]);
+
   const handleToggleWhiteBackground = useCallback(() => {
     setExportError(null);
     updateNodeData(id, {
@@ -1039,6 +1061,24 @@ export const ImageCollageNode = memo(({ id, data, selected, width, height }: Ima
               }}
             >
               <div className="h-3.5 w-3.5 rounded-sm bg-white/90 shadow-[inset_0_0_0_1px_rgba(15,23,42,0.14)]" />
+            </button>
+            <button
+              type="button"
+              aria-label={t('node.imageCollage.clearCanvas')}
+              title={t('node.imageCollage.clearCanvas')}
+              disabled={!hasPlacedLayers}
+              className="
+                flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-white/10 bg-white/[0.04]
+                text-text-muted transition-colors hover:border-red-300/35 hover:bg-red-500/10 hover:text-red-200
+                disabled:cursor-not-allowed disabled:border-white/8 disabled:bg-white/[0.02] disabled:text-text-muted
+                disabled:opacity-45 disabled:hover:bg-white/[0.02] disabled:hover:text-text-muted
+              "
+              onClick={(event) => {
+                event.stopPropagation();
+                handleClearCanvas();
+              }}
+            >
+              <Trash2 className="h-4 w-4" strokeWidth={2.2} />
             </button>
           </div>
         </div>

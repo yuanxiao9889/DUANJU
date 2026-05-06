@@ -34,12 +34,18 @@
     "export": "导出"
   },
   "appCloseDialog": {
-    "title": "\u6709\u4efb\u52a1\u6b63\u5728\u751f\u6210",
-    "description": "\u5f53\u524d\u753b\u5e03\u4ecd\u6709\u751f\u6210\u4efb\u52a1\u5728\u8fdb\u884c\u4e2d\uff0c\u4f60\u53ef\u4ee5\u5148\u6700\u5c0f\u5316\u5230\u6258\u76d8\u7ee7\u7eed\u540e\u53f0\u8fd0\u884c\uff0c\u6216\u8005\u76f4\u63a5\u5173\u95ed\u5e94\u7528\u3002",
+    "idle": {
+      "title": "\u5173\u95ed OOpii\uff1f",
+      "description": "\u4f60\u53ef\u4ee5\u5148\u6700\u5c0f\u5316\u5230\u6258\u76d8\uff0c\u4e4b\u540e\u518d\u6062\u590d\u7a97\u53e3\uff1b\u4e5f\u53ef\u4ee5\u76f4\u63a5\u5b8c\u5168\u5173\u95ed\u5e94\u7528\u3002"
+    },
+    "active": {
+      "title": "\u6709\u4efb\u52a1\u6b63\u5728\u751f\u6210",
+      "description": "\u5f53\u524d\u753b\u5e03\u4ecd\u6709\u751f\u6210\u4efb\u52a1\u5728\u8fdb\u884c\u4e2d\uff0c\u4f60\u53ef\u4ee5\u5148\u6700\u5c0f\u5316\u5230\u6258\u76d8\u7ee7\u7eed\u540e\u53f0\u8fd0\u884c\uff0c\u6216\u8005\u76f4\u63a5\u5173\u95ed\u5e94\u7528\u3002"
+    },
     "hint": "\u9009\u62e9\u201c\u6700\u5c0f\u5316\u201d\u540e\uff0c\u4e3b\u7a97\u53e3\u4f1a\u88ab\u9690\u85cf\uff0c\u4f60\u4e4b\u540e\u53ef\u4ee5\u4ece\u6258\u76d8\u91cd\u65b0\u6253\u5f00\u5e94\u7528\u3002",
-    "minimize": "\u6700\u5c0f\u5316",
+    "minimize": "\u6700\u5c0f\u5316\u5230\u6258\u76d8",
     "cancelClose": "\u53d6\u6d88\u5173\u95ed",
-    "forceClose": "\u76f4\u63a5\u5173\u95ed"
+    "forceClose": "\u5173\u95ed\u5e94\u7528"
   },
   "generationHistory": {
     "title": "生成历史",
@@ -2808,7 +2814,7 @@
     "migrating": "迁移中...",
     "databaseBackupTitle": "数据库备份与恢复",
     "databaseBackupDesc": "自动备份只保存 projects.db，不备份图片文件，因此占用更小，但项目记录和资产记录仍然可以恢复。",
-    "backupsRetention": "自动备份：每天 1 次，保留 7 份",
+    "backupsRetention": "自动备份：每天 1 次，最多保留 7 份或约 2GB；保存前临时备份会自动清理",
     "createBackupNow": "立即备份",
     "creatingBackup": "正在创建备份...",
     "noDatabaseBackups": "还没有数据库备份。",

@@ -294,8 +294,7 @@ function MainApp() {
     useState<GlobalErrorDialogDetail | null>(null);
   const [dreaminaSetupDetail, setDreaminaSetupDetail] =
     useState<DreaminaSetupDialogDetail | null>(null);
-  const [showCloseWithActiveGenerationDialog, setShowCloseWithActiveGenerationDialog] =
-    useState(false);
+  const [showAppCloseDialog, setShowAppCloseDialog] = useState(false);
   const [closeDialogActionState, setCloseDialogActionState] = useState<
     "idle" | "minimize" | "close"
   >("idle");
@@ -885,19 +884,10 @@ function MainApp() {
     });
   }, [isHydrated]);
 
-  const shouldInterceptWindowClose =
+  const hasMainWindowActiveGeneration =
     currentProjectId != null &&
     currentProjectType !== "ad" &&
     hasActiveCanvasGeneration;
-
-  useEffect(() => {
-    if (shouldInterceptWindowClose) {
-      return;
-    }
-
-    setShowCloseWithActiveGenerationDialog(false);
-    setCloseDialogActionState("idle");
-  }, [shouldInterceptWindowClose]);
 
   const requestWindowClose = useCallback(async () => {
     if (isWindowCloseInProgressRef.current) {
@@ -928,24 +918,15 @@ function MainApp() {
       return;
     }
 
-    if (shouldInterceptWindowClose) {
-      if (
-        showCloseWithActiveGenerationDialog ||
-        closeDialogActionState !== "idle"
-      ) {
-        return;
-      }
-      setCloseDialogActionState("idle");
-      setShowCloseWithActiveGenerationDialog(true);
+    if (showAppCloseDialog || closeDialogActionState !== "idle") {
       return;
     }
 
-    await requestWindowClose();
+    setCloseDialogActionState("idle");
+    setShowAppCloseDialog(true);
   }, [
     closeDialogActionState,
-    requestWindowClose,
-    shouldInterceptWindowClose,
-    showCloseWithActiveGenerationDialog,
+    showAppCloseDialog,
   ]);
 
   const handleMinimizeToTray = useCallback(async () => {
@@ -956,7 +937,7 @@ function MainApp() {
     setCloseDialogActionState("minimize");
     const minimized = await minimizeMainWindowToTray();
     if (minimized) {
-      setShowCloseWithActiveGenerationDialog(false);
+      setShowAppCloseDialog(false);
     }
     setCloseDialogActionState("idle");
   }, [closeDialogActionState]);
@@ -1252,13 +1233,14 @@ function MainApp() {
         onClose={() => setGlobalError(null)}
       />
       <CloseWithActiveGenerationDialog
-        isOpen={showCloseWithActiveGenerationDialog}
+        isOpen={showAppCloseDialog}
+        hasActiveGeneration={hasMainWindowActiveGeneration}
         actionState={closeDialogActionState}
         onClose={() => {
           if (closeDialogActionState !== "idle") {
             return;
           }
-          setShowCloseWithActiveGenerationDialog(false);
+          setShowAppCloseDialog(false);
         }}
         onMinimize={handleMinimizeToTray}
         onForceClose={handleForceCloseWithActiveGeneration}

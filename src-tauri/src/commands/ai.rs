@@ -23,6 +23,7 @@ static REGISTRY: std::sync::OnceLock<ProviderRegistry> = std::sync::OnceLock::ne
 static ACTIVE_NON_RESUMABLE_JOB_IDS: std::sync::OnceLock<Arc<RwLock<HashSet<String>>>> =
     std::sync::OnceLock::new();
 const REFERENCE_IMAGE_MATERIALIZATION_TIMEOUT_SECONDS: u64 = 90;
+const INLINE_IMAGE_RESULT_MIN_LENGTH: usize = 1024;
 
 fn get_registry() -> &'static ProviderRegistry {
     REGISTRY.get_or_init(|| {
@@ -52,6 +53,8 @@ fn is_terminal_provider_poll_error(message: &str) -> bool {
         || normalized.contains("status 410")
         || normalized.contains("task failed")
         || normalized.contains("task expired")
+        || normalized.contains("result missing status")
+        || normalized.contains("unexpected task status")
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -281,6 +284,29 @@ fn dto_from_record(record: &GenerationJobRecord) -> GenerationJobStatusDto {
     }
 }
 
+fn looks_like_inline_image_source(value: &str) -> bool {
+    let trimmed = value.trim();
+    if trimmed.starts_with("data:image/") {
+        return true;
+    }
+
+    trimmed.len() > INLINE_IMAGE_RESULT_MIN_LENGTH
+        && trimmed
+            .chars()
+            .all(|ch| ch.is_ascii_alphanumeric() || ch == '+' || ch == '/' || ch == '=')
+}
+
+async fn prepare_generation_job_result_for_storage(
+    app: &AppHandle,
+    image_source: String,
+) -> Result<String, String> {
+    if looks_like_inline_image_source(image_source.as_str()) {
+        return materialize_image_source(app, image_source.as_str()).await;
+    }
+
+    Ok(image_source)
+}
+
 async fn materialize_request_reference_images(
     app: &AppHandle,
     request: &mut GenerateRequest,
@@ -359,6 +385,8 @@ pub async fn submit_generate_image_job(
     if provider.should_use_task_resume(&req) {
         match provider.submit_task(req).await.map_err(|e| e.to_string())? {
             ProviderTaskSubmission::Succeeded(image_source) => {
+                let stored_image_source =
+                    prepare_generation_job_result_for_storage(&app, image_source).await?;
                 insert_generation_job(
                     &app,
                     job_id.as_str(),
@@ -367,7 +395,7 @@ pub async fn submit_generate_image_job(
                     true,
                     None,
                     None,
-                    Some(image_source.as_str()),
+                    Some(stored_image_source.as_str()),
                     None,
                 )?;
             }
@@ -391,8 +419,6 @@ pub async fn submit_generate_image_job(
         }
         return Ok(job_id);
     }
-
-    materialize_request_reference_images(&app, &mut req).await?;
 
     insert_generation_job(
         &app,
@@ -422,15 +448,29 @@ pub async fn submit_generate_image_job(
                 error
             );
         }
-        let result = spawned_provider.generate(req).await;
+        let result = match materialize_request_reference_images(&app_handle, &mut req).await {
+            Ok(()) => spawned_provider.generate(req).await,
+            Err(error) => Err(crate::ai::error::AIError::InvalidRequest(error)),
+        };
         let update_result = match result {
-            Ok(image_source) => update_generation_job(
-                &app_handle,
-                spawned_job_id.as_str(),
-                "succeeded",
-                Some(image_source.as_str()),
-                None,
-            ),
+            Ok(image_source) => {
+                match prepare_generation_job_result_for_storage(&app_handle, image_source).await {
+                    Ok(stored_image_source) => update_generation_job(
+                        &app_handle,
+                        spawned_job_id.as_str(),
+                        "succeeded",
+                        Some(stored_image_source.as_str()),
+                        None,
+                    ),
+                    Err(error) => update_generation_job(
+                        &app_handle,
+                        spawned_job_id.as_str(),
+                        "failed",
+                        None,
+                        Some(error.as_str()),
+                    ),
+                }
+            }
             Err(error) => {
                 let message = error.to_string();
                 update_generation_job(
@@ -542,11 +582,13 @@ pub async fn get_generate_image_job(
             Ok(dto_from_record(&record))
         }
         Ok(ProviderTaskPollResult::Succeeded(image_source)) => {
+            let stored_image_source =
+                prepare_generation_job_result_for_storage(&app, image_source).await?;
             update_generation_job(
                 &app,
                 record.job_id.as_str(),
                 "succeeded",
-                Some(image_source.as_str()),
+                Some(stored_image_source.as_str()),
                 None,
             )?;
             Ok(GenerationJobStatusDto {
@@ -554,7 +596,7 @@ pub async fn get_generate_image_job(
                 status: "succeeded".to_string(),
                 provider_id: Some(record.provider_id),
                 external_task_id: record.external_task_id,
-                result: Some(image_source),
+                result: Some(stored_image_source),
                 error: None,
             })
         }

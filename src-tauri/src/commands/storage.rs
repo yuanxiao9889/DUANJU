@@ -25,6 +25,11 @@ const MANUAL_DATABASE_BACKUP_KIND: &str = "manual";
 const PRE_RESTORE_DATABASE_BACKUP_KIND: &str = "pre_restore";
 pub(crate) const PRE_PERSIST_DATABASE_BACKUP_KIND: &str = "pre_persist";
 const AUTO_DATABASE_BACKUP_INTERVAL_MS: i64 = 24 * 60 * 60 * 1000;
+const AUTO_DATABASE_BACKUP_RETENTION_COUNT: usize = 7;
+const PRE_RESTORE_DATABASE_BACKUP_RETENTION_COUNT: usize = 2;
+const PRE_PERSIST_DATABASE_BACKUP_RETENTION_COUNT: usize = 0;
+const AUTOMATIC_DATABASE_BACKUP_MAX_BYTES: u64 = 2 * 1024 * 1024 * 1024;
+const DATABASE_BACKUP_SIDECAR_CLEANUP_GRACE_MS: i64 = 5 * 60 * 1000;
 const LEGACY_STORAGE_DIR_NAMES: &[&str] = &[
     "Storyboard-Copilot",
     "storyboard-copilot",
@@ -687,10 +692,61 @@ pub(crate) fn move_path_to_system_trash(path: &Path) -> Result<(), String> {
     }
 }
 
+fn remove_file_if_exists(path: &Path) -> Result<(), String> {
+    match fs::remove_file(path) {
+        Ok(()) => Ok(()),
+        Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(()),
+        Err(error) => Err(format!("Failed to remove {}: {}", path.display(), error)),
+    }
+}
+
 fn remove_db_sidecar_files(db_path: &Path) -> Result<(), String> {
-    for suffix in ["-wal", "-shm"] {
+    for suffix in ["-journal", "-wal", "-shm"] {
         let sidecar_path = PathBuf::from(format!("{}{}", db_path.to_string_lossy(), suffix));
-        move_path_to_system_trash(&sidecar_path)?;
+        remove_file_if_exists(&sidecar_path)?;
+    }
+
+    Ok(())
+}
+
+fn is_database_backup_db_file(file_name: &str) -> bool {
+    file_name.ends_with(".db")
+}
+
+fn is_database_backup_sidecar_file(file_name: &str) -> bool {
+    file_name.ends_with(".db-journal")
+        || file_name.ends_with(".db-wal")
+        || file_name.ends_with(".db-shm")
+}
+
+fn cleanup_database_backup_sidecars(backups_dir: &Path) -> Result<(), String> {
+    if !backups_dir.exists() {
+        return Ok(());
+    }
+
+    let now = current_timestamp_ms();
+    for entry in fs::read_dir(backups_dir)
+        .map_err(|e| format!("Failed to read database backups dir: {}", e))?
+    {
+        let entry = entry.map_err(|e| format!("Failed to read database backup entry: {}", e))?;
+        let path = entry.path();
+        if !path.is_file() {
+            continue;
+        }
+
+        let file_name = entry.file_name().to_string_lossy().to_string();
+        if is_database_backup_sidecar_file(&file_name) {
+            let modified_at = entry
+                .metadata()
+                .ok()
+                .and_then(|metadata| metadata.modified().ok())
+                .map(system_time_to_timestamp_ms)
+                .unwrap_or_default();
+            if now.saturating_sub(modified_at) < DATABASE_BACKUP_SIDECAR_CLEANUP_GRACE_MS {
+                continue;
+            }
+            remove_file_if_exists(&path)?;
+        }
     }
 
     Ok(())
@@ -717,6 +773,7 @@ fn copy_database_safely(source_db_path: &Path, target_db_path: &Path) -> Result<
             None::<fn(rusqlite::backup::Progress)>,
         )
         .map_err(|e| format!("Failed to back up database: {}", e))?;
+    remove_db_sidecar_files(target_db_path)?;
 
     Ok(())
 }
@@ -893,67 +950,29 @@ fn validate_storage_migration(
     })
 }
 
-pub(crate) fn maybe_create_pre_persist_backup(
-    app: &AppHandle,
-    project_id: &str,
-) -> Result<Option<DatabaseBackupRecord>, String> {
-    let source_db_path = resolve_db_path(app)?;
-    if !source_db_path.exists() {
-        return Ok(None);
+fn database_backup_retention_count(kind: &str) -> Option<usize> {
+    match kind {
+        AUTO_DATABASE_BACKUP_KIND => Some(AUTO_DATABASE_BACKUP_RETENTION_COUNT),
+        PRE_RESTORE_DATABASE_BACKUP_KIND => Some(PRE_RESTORE_DATABASE_BACKUP_RETENTION_COUNT),
+        PRE_PERSIST_DATABASE_BACKUP_KIND => Some(PRE_PERSIST_DATABASE_BACKUP_RETENTION_COUNT),
+        _ => None,
     }
+}
 
-    let source_size = fs::metadata(&source_db_path)
-        .map(|metadata| metadata.len())
-        .unwrap_or(0);
-    if source_size == 0 {
-        return Ok(None);
-    }
+fn is_automatic_database_backup_kind(kind: &str) -> bool {
+    matches!(
+        kind,
+        AUTO_DATABASE_BACKUP_KIND
+            | PRE_RESTORE_DATABASE_BACKUP_KIND
+            | PRE_PERSIST_DATABASE_BACKUP_KIND
+    )
+}
 
-    let records = list_database_backup_records(app)?;
-    let latest_backup = records
-        .iter()
-        .filter(|record| record.kind == PRE_PERSIST_DATABASE_BACKUP_KIND)
-        .find(|record| {
-            let marker = format!("project-{}", project_id);
-            record.id.contains(&marker)
-        });
-
-    if let Some(latest_backup) = latest_backup {
-        let elapsed = current_timestamp_ms().saturating_sub(latest_backup.created_at);
-        if elapsed < 5 * 60 * 1000 {
-            return Ok(None);
-        }
-    }
-
-    let backups_dir = resolve_db_backups_dir(app)?;
-    let backup_id = format!(
-        "{}__project-{}__{}.db",
-        PRE_PERSIST_DATABASE_BACKUP_KIND,
-        project_id,
-        current_timestamp_ms()
-    );
-    let backup_path = backups_dir.join(&backup_id);
-
-    if let Err(error) = copy_database_safely(&source_db_path, &backup_path) {
-        let _ = move_path_to_system_trash(&backup_path);
-        return Err(error);
-    }
-
-    let metadata = fs::metadata(&backup_path)
-        .map_err(|e| format!("Failed to read created pre-persist backup metadata: {}", e))?;
-    let record = DatabaseBackupRecord {
-        id: backup_id,
-        kind: PRE_PERSIST_DATABASE_BACKUP_KIND.to_string(),
-        path: backup_path.to_string_lossy().to_string(),
-        created_at: metadata
-            .modified()
-            .map(system_time_to_timestamp_ms)
-            .unwrap_or_else(|_| current_timestamp_ms()),
-        size: metadata.len(),
-    };
-
-    prune_database_backups(app)?;
-    Ok(Some(record))
+fn delete_database_backup_record(record: &DatabaseBackupRecord) -> Result<(), String> {
+    let path = PathBuf::from(&record.path);
+    remove_file_if_exists(&path)?;
+    remove_db_sidecar_files(&path)?;
+    Ok(())
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -1008,6 +1027,7 @@ fn resolve_backup_kind(file_name: &str) -> Option<&'static str> {
 
 fn list_database_backup_records(app: &AppHandle) -> Result<Vec<DatabaseBackupRecord>, String> {
     let backups_dir = resolve_db_backups_dir(app)?;
+    cleanup_database_backup_sidecars(&backups_dir)?;
     let mut records = Vec::new();
 
     for entry in fs::read_dir(&backups_dir)
@@ -1020,6 +1040,10 @@ fn list_database_backup_records(app: &AppHandle) -> Result<Vec<DatabaseBackupRec
         }
 
         let file_name = entry.file_name().to_string_lossy().to_string();
+        if !is_database_backup_db_file(&file_name) {
+            continue;
+        }
+
         let Some(kind) = resolve_backup_kind(&file_name) else {
             continue;
         };
@@ -1051,7 +1075,61 @@ fn list_database_backup_records(app: &AppHandle) -> Result<Vec<DatabaseBackupRec
 }
 
 fn prune_database_backups(app: &AppHandle) -> Result<(), String> {
-    let _ = app;
+    let backups_dir = resolve_db_backups_dir(app)?;
+    cleanup_database_backup_sidecars(&backups_dir)?;
+
+    let records = list_database_backup_records(app)?;
+    let mut delete_ids = HashSet::new();
+
+    for kind in [
+        AUTO_DATABASE_BACKUP_KIND,
+        PRE_RESTORE_DATABASE_BACKUP_KIND,
+        PRE_PERSIST_DATABASE_BACKUP_KIND,
+    ] {
+        let Some(retention_count) = database_backup_retention_count(kind) else {
+            continue;
+        };
+
+        for record in records
+            .iter()
+            .filter(|record| record.kind == kind)
+            .skip(retention_count)
+        {
+            delete_ids.insert(record.id.clone());
+        }
+    }
+
+    let mut automatic_records = records
+        .iter()
+        .filter(|record| {
+            is_automatic_database_backup_kind(&record.kind) && !delete_ids.contains(&record.id)
+        })
+        .collect::<Vec<_>>();
+    let mut automatic_total_size = automatic_records
+        .iter()
+        .fold(0_u64, |total, record| total.saturating_add(record.size));
+
+    automatic_records.sort_by(|left, right| {
+        left.created_at
+            .cmp(&right.created_at)
+            .then_with(|| left.id.cmp(&right.id))
+    });
+
+    for record in automatic_records {
+        if automatic_total_size <= AUTOMATIC_DATABASE_BACKUP_MAX_BYTES {
+            break;
+        }
+        if delete_ids.insert(record.id.clone()) {
+            automatic_total_size = automatic_total_size.saturating_sub(record.size);
+        }
+    }
+
+    for record in records {
+        if delete_ids.contains(&record.id) {
+            delete_database_backup_record(&record)?;
+        }
+    }
+
     Ok(())
 }
 
@@ -1129,6 +1207,8 @@ pub struct StorageInfo {
 
 #[tauri::command]
 pub fn get_storage_info(app: AppHandle) -> Result<StorageInfo, String> {
+    prune_database_backups(&app)?;
+
     let default_path = get_default_storage_path(&app)?;
     let current_path = resolve_storage_base_path(&app)?;
     let is_custom = current_path != default_path;
@@ -1163,6 +1243,7 @@ pub fn get_storage_info(app: AppHandle) -> Result<StorageInfo, String> {
 
 #[tauri::command]
 pub fn list_database_backups(app: AppHandle) -> Result<Vec<DatabaseBackupRecord>, String> {
+    prune_database_backups(&app)?;
     list_database_backup_records(&app)
 }
 
@@ -1175,6 +1256,8 @@ pub fn create_database_backup(app: AppHandle) -> Result<DatabaseBackupRecord, St
 pub fn ensure_daily_database_backup(
     app: AppHandle,
 ) -> Result<Option<DatabaseBackupRecord>, String> {
+    prune_database_backups(&app)?;
+
     let source_db_path = resolve_db_path(&app)?;
     if !source_db_path.exists() {
         return Ok(None);

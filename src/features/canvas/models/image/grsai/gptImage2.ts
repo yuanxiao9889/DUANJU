@@ -1,7 +1,7 @@
 import type { ImageModelDefinition, ResolutionOption } from '../../types';
 
 export const GRSAI_GPT_IMAGE_2_MODEL_ID = 'grsai/gpt-image-2';
-export const GRSAI_GPT_IMAGE_2_REQUEST_MODEL = 'gpt-image-2-vip';
+export const GRSAI_GPT_IMAGE_2_REQUEST_MODEL = 'grsai/gpt-image-2-vip';
 
 const ASPECT_RATIOS = [
   '1:1',
@@ -40,7 +40,7 @@ export const imageModel: ImageModelDefinition = {
   displayName: 'gpt-image-2-vip',
   providerId: 'grsai',
   description:
-    'GRSAI gpt-image-2-vip using /v1/draw/completions with documented aspectRatio/quality fields and VIP pixel sizing for 2K/4K output.',
+    'GRSAI gpt-image-2-vip using /v1/api/generate with documented aspectRatio pixel values for 2K/4K output.',
   eta: '30s',
   expectedDurationMs: 30000,
   defaultAspectRatio: '1:1',
@@ -72,7 +72,7 @@ export const imageModel: ImageModelDefinition = {
     quality: 'auto',
   },
   resolveRequest: ({ referenceImageCount }) => ({
-    requestModel: GRSAI_GPT_IMAGE_2_MODEL_ID,
+    requestModel: GRSAI_GPT_IMAGE_2_REQUEST_MODEL,
     modeLabel: referenceImageCount > 0 ? 'Edit' : 'Generate',
   }),
 };

@@ -17,7 +17,6 @@ import type {
 const configuredApiKeyByProvider = new Map<string, string>();
 const pendingApiKeySyncByProvider = new Map<string, Promise<void>>();
 const API_REFERENCE_OPTIMIZATION_MIN_COUNT = 3;
-const API_REFERENCE_4K_DOWNGRADE_MIN_COUNT = 5;
 const API_REFERENCE_MAX_DIMENSION = 2048;
 const API_REFERENCE_MAX_BYTES = 3 * 1024 * 1024;
 
@@ -59,14 +58,6 @@ async function normalizeReferenceImages(payload: GenerateImagePayload): Promise<
       })
     )
     : undefined;
-}
-
-function shouldDowngradeResolution(payload: GenerateImagePayload): boolean {
-  const referenceImageCount = payload.referenceImages?.length ?? 0;
-  return (
-    referenceImageCount >= API_REFERENCE_4K_DOWNGRADE_MIN_COUNT
-    && payload.size.trim().toUpperCase() === '4K'
-  );
 }
 
 async function resolveGenerateImagePayload(
@@ -114,10 +105,9 @@ async function resolveGenerateImagePayload(
     };
   }
 
-  const shouldDowngrade = shouldDowngradeResolution(payload);
-  const effectiveSize = shouldDowngrade ? '2K' : payload.size;
+  const effectiveSize = payload.size;
 
-  if (referenceImageOptimization.applied || shouldDowngrade) {
+  if (referenceImageOptimization.applied) {
     console.info('[AI] resolved generation request before provider submission', {
       model: payload.model,
       originalSize: payload.size,
@@ -130,7 +120,6 @@ async function resolveGenerateImagePayload(
           totalAfterBytes: referenceImageOptimization.totalAfterBytes,
         }
         : { applied: false, inputCount: referenceImages.length },
-      resolutionDowngrade: shouldDowngrade ? { from: payload.size, to: effectiveSize } : null,
     });
   }
 
@@ -141,9 +130,6 @@ async function resolveGenerateImagePayload(
     size: effectiveSize,
     referenceImages: optimizedReferenceImages,
     referenceImageOptimization,
-    resolutionDowngrade: shouldDowngrade
-      ? { from: payload.size, to: effectiveSize, reason: 'manyReferenceImages' }
-      : undefined,
   };
 }
 

@@ -43,6 +43,7 @@ function MjStyleCodePresetCardComponent({
               draggable={false}
               disableViewer
               onError={() => setHasImageError(true)}
+              onSourceUnavailable={() => setHasImageError(true)}
             />
           ) : (
             <div className="flex h-full w-full flex-col items-center justify-center gap-3 bg-[radial-gradient(circle_at_top,_rgba(255,255,255,0.1),_transparent_55%),linear-gradient(180deg,rgba(27,40,58,0.95),rgba(19,30,45,0.82))] px-4 text-center">

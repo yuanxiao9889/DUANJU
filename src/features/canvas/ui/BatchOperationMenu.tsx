@@ -6,6 +6,7 @@ import {
   Image,
   LayoutGrid,
   Link2,
+  Package,
   Sparkles,
   Type,
   Upload,
@@ -47,6 +48,8 @@ interface MenuGroupEntry {
 
 type MenuEntry = MenuLeafEntry | MenuGroupEntry;
 
+const KEEP_SINGLE_ITEM_GROUPS = new Set<NodeMenuGroupKey>(['extensionPackage']);
+
 const iconMap: Record<MenuIconKey, typeof Upload> = {
   upload: Upload,
   sparkles: Sparkles,
@@ -55,6 +58,7 @@ const iconMap: Record<MenuIconKey, typeof Upload> = {
   text: Type,
   video: Video,
   audio: AudioLines,
+  package: Package,
 };
 
 const sourceTypeLabelKeyMap: Partial<Record<CanvasNodeType, string>> = {
@@ -117,7 +121,11 @@ function buildMenuEntries(definitions: CanvasNodeDefinition[]): MenuEntry[] {
   }
 
   return entries.flatMap((entry) => {
-    if (entry.kind === 'group' && entry.items.length === 1) {
+    if (
+      entry.kind === 'group'
+      && entry.items.length === 1
+      && !KEEP_SINGLE_ITEM_GROUPS.has(entry.groupId)
+    ) {
       return [{
         kind: 'item' as const,
         definition: entry.items[0],

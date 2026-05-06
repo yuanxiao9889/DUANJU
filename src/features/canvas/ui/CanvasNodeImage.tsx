@@ -28,6 +28,7 @@ export interface CanvasNodeImageProps extends ImgHTMLAttributes<HTMLImageElement
   viewerMetadata?: ImageViewerMetadata | null;
   disableViewer?: boolean;
   fallbackSrc?: string | null;
+  onSourceUnavailable?: (error?: unknown) => void;
 }
 
 const EMPTY_IMAGE_DATA_URL = 'data:image/gif;base64,R0lGODlhAQABAAD/ACwAAAAAAQABAAACADs=';
@@ -138,6 +139,7 @@ export const CanvasNodeImage = memo(forwardRef<HTMLImageElement, CanvasNodeImage
   viewerMetadata = null,
   disableViewer = false,
   fallbackSrc,
+  onSourceUnavailable,
   onDoubleClick,
   onError,
   onLoad,
@@ -294,6 +296,7 @@ export const CanvasNodeImage = memo(forwardRef<HTMLImageElement, CanvasNodeImage
     } else {
       console.warn('[CanvasNodeImage] image failed to load', logPayload);
     }
+    onSourceUnavailable?.(error);
     setActiveSrc(null);
     setIsUsingFallback(false);
     setRetryAttempt(0);
@@ -303,6 +306,7 @@ export const CanvasNodeImage = memo(forwardRef<HTMLImageElement, CanvasNodeImage
     clearRetryTimer,
     isActiveLocalSource,
     normalizedViewerSource,
+    onSourceUnavailable,
     renderedSrc,
     requestedSrc,
     resolvedFallbackSrc,

@@ -2136,8 +2136,6 @@ pub fn upsert_project_record(app: AppHandle, mut record: ProjectRecord) -> Resul
         record.history_json = next_history_json;
     }
 
-    let _ = storage::maybe_create_pre_persist_backup(&app, &record.id);
-
     let mut conn = open_db(&app)?;
     let tx = conn
         .transaction()
