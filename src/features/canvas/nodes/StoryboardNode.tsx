@@ -25,6 +25,7 @@ import {
   saveImageSourceToDirectory,
   type MergeStoryboardImagesResult,
 } from '@/commands/image';
+import { createCurrentProjectMediaContext } from '@/features/canvas/application/mediaPersistenceContext';
 import { NodeHeader, NODE_HEADER_FLOATING_POSITION_CLASS } from '@/features/canvas/ui/NodeHeader';
 import { NodeResizeHandle } from '@/features/canvas/ui/NodeResizeHandle';
 import { CanvasNodeImage } from '@/features/canvas/ui/CanvasNodeImage';
@@ -1104,7 +1105,7 @@ export const StoryboardNode = memo(({ id, data, selected, width, height }: Story
         frameIndexPrefix: options.frameIndexPrefix,
         textColor: options.textColor,
         frameNotes: orderedFrames.map((frame) => frame.note ?? ''),
-      });
+      }, createCurrentProjectMediaContext('image'));
       console.info(`${EXPORT_TRACE_PREFIX} merge-done`, {
         traceId,
         elapsedMs: Math.round(performance.now() - mergeStart),
@@ -1149,7 +1150,7 @@ export const StoryboardNode = memo(({ id, data, selected, width, height }: Story
         gridRows,
         gridCols,
         frameNotes: metadataFrameNotes,
-      }).catch((error) => {
+      }, createCurrentProjectMediaContext('image')).catch((error) => {
         console.warn('[StoryboardMetadata] embed failed on storyboard export', error);
         return finalImagePath;
       });

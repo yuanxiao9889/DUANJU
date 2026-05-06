@@ -436,7 +436,7 @@ pub async fn import_style_template_package(
             .map_err(|_| package_error("invalid_asset_blob"))?;
         let extension = extract_extension(&asset_blob.file_name)
             .or_else(|| extract_extension(&manifest_entry.original_file_name));
-        let persisted_path = image::persist_image_binary(app.clone(), bytes, extension).await?;
+    let persisted_path = image::persist_image_binary(app.clone(), bytes, extension, None).await?;
         asset_path_by_id.insert(asset_blob.id.clone(), persisted_path);
     }
 
@@ -550,7 +550,7 @@ pub async fn import_mj_style_code_package(
             .map_err(|_| package_error("invalid_asset_blob"))?;
         let extension = extract_extension(&asset_blob.file_name)
             .or_else(|| extract_extension(&manifest_entry.original_file_name));
-        let persisted_path = image::persist_image_binary(app.clone(), bytes, extension).await?;
+    let persisted_path = image::persist_image_binary(app.clone(), bytes, extension, None).await?;
         asset_path_by_id.insert(asset_blob.id.clone(), persisted_path);
     }
 

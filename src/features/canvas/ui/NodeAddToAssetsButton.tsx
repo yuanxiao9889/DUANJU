@@ -11,6 +11,7 @@ import {
 } from '@/features/assets/domain/types';
 import { prepareNodeAudio } from '@/features/canvas/application/audioData';
 import { prepareNodeImage } from '@/features/canvas/application/imageData';
+import { createSharedMediaContext } from '@/features/canvas/application/mediaPersistenceContext';
 import type { CanvasNode } from '@/features/canvas/domain/canvasNodes';
 import { useAssetStore } from '@/stores/assetStore';
 import { useCanvasStore } from '@/stores/canvasStore';
@@ -310,7 +311,7 @@ export function NodeAddToAssetsButton({
                   typeof nodeData.mimeType === 'string' && nodeData.mimeType.trim().length > 0
                     ? nodeData.mimeType
                     : null,
-              });
+              }, createSharedMediaContext('audio'));
 
               return await createItem({
                 libraryId: targetLibrary.id,
@@ -329,7 +330,11 @@ export function NodeAddToAssetsButton({
               });
             })()
           : await (async () => {
-              const prepared = await prepareNodeImage(mediaSource);
+              const prepared = await prepareNodeImage(
+                mediaSource,
+                undefined,
+                createSharedMediaContext('image')
+              );
               return await createItem({
                 libraryId: targetLibrary.id,
                 category,

@@ -209,24 +209,40 @@ fn should_persist_asset_path(images_dir: &Path, value: &str) -> bool {
     !is_path_within_dir(&local_path, images_dir)
 }
 
+fn asset_media_context(media_type: &str, role: Option<&str>) -> storage::MediaPersistContext {
+    storage::MediaPersistContext {
+        project_id: None,
+        media_type: Some(media_type.to_string()),
+        role: role.map(str::to_string),
+    }
+}
+
 async fn normalize_asset_media_paths(
     app: &AppHandle,
+    media_type: &str,
     source_path: String,
     preview_path: Option<String>,
 ) -> Result<(String, Option<String>), String> {
-    let images_dir = storage::resolve_images_dir(app)?;
-    let known_images_dirs = storage::resolve_known_images_dirs(app)?;
+    let media_context = asset_media_context(media_type, None);
+    let preview_context = asset_media_context("image", Some("preview"));
+    let media_dir = storage::resolve_media_dir(app, Some(&media_context), "", "original")?;
+    let known_media_dirs = storage::resolve_known_media_dirs(app)?;
     let normalized_source_path = source_path.trim().to_string();
     let normalized_preview_path = normalize_optional_text(preview_path);
 
     let safe_source_path = if let Some(relocated_path) =
-        storage::relocate_storage_path_to_known_images_dirs(
+        storage::relocate_storage_path_to_known_media_dirs(
             &normalized_source_path,
-            &known_images_dirs,
+            &known_media_dirs,
         ) {
         relocated_path
-    } else if should_persist_asset_path(&images_dir, &normalized_source_path) {
-        persist_image_source(app.clone(), normalized_source_path.clone()).await?
+    } else if should_persist_asset_path(&media_dir, &normalized_source_path) {
+        persist_image_source(
+            app.clone(),
+            normalized_source_path.clone(),
+            Some(media_context.clone()),
+        )
+        .await?
     } else {
         normalized_source_path
     };
@@ -234,11 +250,11 @@ async fn normalize_asset_media_paths(
     let safe_preview_path = match normalized_preview_path {
         Some(path) => {
             if let Some(relocated_path) =
-                storage::relocate_storage_path_to_known_images_dirs(&path, &known_images_dirs)
+                storage::relocate_storage_path_to_known_media_dirs(&path, &known_media_dirs)
             {
                 Some(relocated_path)
-            } else if should_persist_asset_path(&images_dir, &path) {
-                Some(persist_image_source(app.clone(), path).await?)
+            } else if should_persist_asset_path(&media_dir, &path) {
+                Some(persist_image_source(app.clone(), path, Some(preview_context)).await?)
             } else {
                 Some(path)
             }
@@ -742,9 +758,13 @@ async fn migrate_asset_item_paths_if_needed(
     conn: &mut Connection,
     item: &mut AssetItemRecord,
 ) -> Result<bool, String> {
-    let (next_source_path, next_preview_path) =
-        normalize_asset_media_paths(app, item.source_path.clone(), item.preview_path.clone())
-            .await?;
+    let (next_source_path, next_preview_path) = normalize_asset_media_paths(
+        app,
+        &item.media_type,
+        item.source_path.clone(),
+        item.preview_path.clone(),
+    )
+    .await?;
 
     if next_source_path == item.source_path && next_preview_path == item.preview_path {
         return Ok(false);
@@ -1372,6 +1392,7 @@ async fn create_or_update_asset_item(
     let metadata_json = serialize_metadata(payload.metadata.as_ref())?;
     let (normalized_source_path, normalized_preview_path) = normalize_asset_media_paths(
         app,
+        &normalized_media_type,
         payload.source_path.clone(),
         payload.preview_path.clone(),
     )

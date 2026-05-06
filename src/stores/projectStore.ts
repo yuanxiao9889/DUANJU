@@ -25,6 +25,7 @@ import {
   normalizeCanvasColorLabelMap,
   type CanvasColorLabelMap,
 } from '@/features/canvas/domain/semanticColors';
+import { setActiveMediaProjectId } from '@/features/canvas/application/mediaPersistenceContext';
 
 const DEFAULT_VIEWPORT: Viewport = {
   x: 0,
@@ -880,6 +881,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
         currentProject: null,
         isHydrated: true,
       });
+      setActiveMediaProjectId(null);
     } catch (error) {
       console.error('Failed to hydrate project summaries from SQLite', error);
       set({
@@ -888,6 +890,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
         currentProject: null,
         isHydrated: true,
       });
+      setActiveMediaProjectId(null);
     }
   },
 
@@ -955,29 +958,38 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
       currentProject: project,
       isOpeningProject: false,
     }));
+    setActiveMediaProjectId(id);
     persistProject(project, { immediate: true });
     return id;
   },
 
   deleteProject: (id) => {
+    const shouldClearActiveMediaProject = get().currentProjectId === id;
     set((state) => ({
       projects: state.projects.filter((project) => project.id !== id),
       currentProjectId: state.currentProjectId === id ? null : state.currentProjectId,
       currentProject: state.currentProject?.id === id ? null : state.currentProject,
       isOpeningProject: false,
     }));
+    if (shouldClearActiveMediaProject) {
+      setActiveMediaProjectId(null);
+    }
 
     persistProjectDelete(id);
   },
 
   deleteProjects: (ids) => {
     const idSet = new Set(ids);
+    const shouldClearActiveMediaProject = idSet.has(get().currentProjectId ?? '');
     set((state) => ({
       projects: state.projects.filter((project) => !idSet.has(project.id)),
       currentProjectId: idSet.has(state.currentProjectId ?? '') ? null : state.currentProjectId,
       currentProject: idSet.has(state.currentProject?.id ?? '') ? null : state.currentProject,
       isOpeningProject: false,
     }));
+    if (shouldClearActiveMediaProject) {
+      setActiveMediaProjectId(null);
+    }
 
     ids.forEach((id) => persistProjectDelete(id));
   },
@@ -1276,6 +1288,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
           isOpeningProject: false,
           projects: updateProjectSummary(state.projects, projectToSummary(project)),
         }));
+        setActiveMediaProjectId(id);
       } catch (error) {
         if (reqSeq !== openProjectRequestSeq) {
           return;
@@ -1330,6 +1343,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
       currentProject: null,
       isOpeningProject: false,
     }));
+    setActiveMediaProjectId(null);
   },
 
   getCurrentProject: () => {

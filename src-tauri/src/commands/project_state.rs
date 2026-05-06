@@ -1,4 +1,5 @@
-use std::collections::HashSet;
+use std::cell::RefCell;
+use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
@@ -66,6 +67,14 @@ pub struct ProjectRecord {
     pub color_labels_json: String,
     #[serde(default)]
     pub script_welcome_skipped: bool,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OrganizeProjectMediaResult {
+    pub project_id: String,
+    pub rewritten: bool,
+    pub copied_count: u64,
 }
 
 #[derive(Debug, Clone)]
@@ -1790,10 +1799,69 @@ fn rewrite_project_payload_media_paths_to_known_storage(
     nodes_json: &str,
     history_json: &str,
 ) -> Result<Option<(String, String)>, String> {
-    let known_images_dirs = storage::resolve_known_images_dirs(app)?;
+    let known_media_dirs = storage::resolve_known_media_dirs(app)?;
     rewrite_project_payload_media_paths(nodes_json, history_json, &|value| {
-        storage::relocate_storage_path_to_known_images_dirs(value, &known_images_dirs)
+        storage::relocate_storage_path_to_known_media_dirs(value, &known_media_dirs)
     })
+}
+
+fn is_path_under_dir(path: &str, dir: &Path) -> bool {
+    let Some(normalized_path) = normalize_image_ref_path(path) else {
+        return false;
+    };
+    let Some(normalized_dir) = normalize_image_ref_path(&dir.to_string_lossy()) else {
+        return false;
+    };
+
+    normalized_path == normalized_dir || normalized_path.starts_with(&(normalized_dir + "/"))
+}
+
+fn is_legacy_images_path(value: &str, legacy_images_dirs: &[PathBuf]) -> bool {
+    legacy_images_dirs
+        .iter()
+        .any(|legacy_dir| is_path_under_dir(value, legacy_dir))
+}
+
+fn extension_from_local_path(path: &Path) -> String {
+    path.extension()
+        .and_then(|value| value.to_str())
+        .map(storage::normalize_media_extension)
+        .unwrap_or_else(|| "bin".to_string())
+}
+
+fn media_ref_exists_under_dir(conn: &Connection, dir: &Path) -> Result<bool, String> {
+    if !dir.exists() {
+        return Ok(false);
+    }
+
+    let Some(normalized_dir) = normalize_image_ref_path(&dir.to_string_lossy()) else {
+        return Ok(false);
+    };
+    let compare_prefix = format!("{}/", normalized_dir);
+    let mut stmt = conn
+        .prepare(
+            r#"
+            SELECT path FROM project_image_refs
+            UNION
+            SELECT path FROM asset_image_refs
+            "#,
+        )
+        .map_err(|e| format!("Failed to prepare media ref lookup: {}", e))?;
+    let rows = stmt
+        .query_map([], |row| row.get::<_, String>(0))
+        .map_err(|e| format!("Failed to query media refs: {}", e))?;
+
+    for row in rows {
+        let value = row.map_err(|e| format!("Failed to read media ref: {}", e))?;
+        let Some(normalized_path) = normalize_image_ref_path(&value) else {
+            continue;
+        };
+        if normalized_path == normalized_dir || normalized_path.starts_with(&compare_prefix) {
+            return Ok(true);
+        }
+    }
+
+    Ok(false)
 }
 
 pub(crate) fn rewrite_storage_media_paths_in_connection(
@@ -1949,7 +2017,7 @@ pub(crate) fn replace_project_image_refs(
 
 #[tauri::command]
 pub fn sync_style_template_image_refs(app: AppHandle, paths: Vec<String>) -> Result<(), String> {
-    let known_images_dirs = storage::resolve_known_images_dirs(&app)?;
+    let known_media_dirs = storage::resolve_known_media_dirs(&app)?;
     let mut conn = open_db(&app)?;
     let tx = conn
         .transaction()
@@ -1968,7 +2036,7 @@ pub fn sync_style_template_image_refs(app: AppHandle, paths: Vec<String>) -> Res
         }
 
         let relocated_path =
-            storage::relocate_storage_path_to_known_images_dirs(trimmed, &known_images_dirs)
+            storage::relocate_storage_path_to_known_media_dirs(trimmed, &known_media_dirs)
                 .unwrap_or_else(|| trimmed.to_string());
         let Some(normalized_path) = normalize_image_ref_path(&relocated_path) else {
             continue;
@@ -2246,6 +2314,7 @@ pub fn rename_project_record(
 #[tauri::command]
 pub fn delete_project_record(app: AppHandle, project_id: String) -> Result<(), String> {
     let mut conn = open_db(&app)?;
+    let project_media_root = storage::resolve_project_media_root(&app, &project_id)?;
     let tx = conn
         .transaction()
         .map_err(|e| format!("Failed to begin delete transaction: {}", e))?;
@@ -2272,7 +2341,111 @@ pub fn delete_project_record(app: AppHandle, project_id: String) -> Result<(), S
         .map_err(|e| format!("Failed to commit delete transaction: {}", e))?;
 
     prune_unreferenced_images(&app)?;
+    if let Some(project_media_root) = project_media_root {
+        if project_media_root.exists() && !media_ref_exists_under_dir(&conn, &project_media_root)? {
+            storage::move_path_to_system_trash(&project_media_root)?;
+        }
+    }
     Ok(())
+}
+
+#[tauri::command]
+pub fn organize_project_media(
+    app: AppHandle,
+    project_id: String,
+) -> Result<OrganizeProjectMediaResult, String> {
+    let normalized_project_id = project_id.trim().to_string();
+    if normalized_project_id.is_empty() {
+        return Err("Project id is required".to_string());
+    }
+
+    let mut conn = open_db(&app)?;
+    let (nodes_json, history_json): (String, String) = conn
+        .query_row(
+            "SELECT nodes_json, history_json FROM projects WHERE id = ?1 LIMIT 1",
+            params![&normalized_project_id],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .map_err(|e| format!("Failed to load project for media organization: {}", e))?;
+    let legacy_images_dirs = storage::resolve_known_storage_roots(&app)?
+        .into_iter()
+        .map(|root| root.join("images"))
+        .collect::<Vec<_>>();
+    let copied_by_source = RefCell::new(HashMap::<String, String>::new());
+    let copied_count = RefCell::new(0_u64);
+
+    let rewritten = rewrite_project_payload_media_paths(
+        &nodes_json,
+        &history_json,
+        &|value| {
+            let normalized_value = normalize_image_ref_path(value)?;
+            if let Some(cached_path) = copied_by_source.borrow().get(&normalized_value) {
+                return Some(cached_path.clone());
+            }
+
+            if !is_legacy_images_path(value, &legacy_images_dirs) {
+                return None;
+            }
+
+            let local_path = PathBuf::from(value.trim());
+            if !local_path.is_file() {
+                return None;
+            }
+
+            let bytes = fs::read(&local_path).ok()?;
+            if bytes.is_empty() {
+                return None;
+            }
+
+            let extension = extension_from_local_path(&local_path);
+            let media_context = storage::MediaPersistContext {
+                project_id: Some(normalized_project_id.clone()),
+                media_type: Some(storage::media_type_from_extension(&extension)),
+                role: None,
+            };
+            let persisted_path = storage::persist_media_bytes(
+                &app,
+                &bytes,
+                &extension,
+                Some(&media_context),
+                "original",
+            )
+            .ok()?;
+
+            copied_by_source
+                .borrow_mut()
+                .insert(normalized_value, persisted_path.clone());
+            *copied_count.borrow_mut() += 1;
+            Some(persisted_path)
+        },
+    )?;
+
+    let Some((next_nodes_json, next_history_json)) = rewritten else {
+        return Ok(OrganizeProjectMediaResult {
+            project_id: normalized_project_id,
+            rewritten: false,
+            copied_count: *copied_count.borrow(),
+        });
+    };
+
+    let tx = conn
+        .transaction()
+        .map_err(|e| format!("Failed to begin media organization transaction: {}", e))?;
+    update_project_payload_in_tx(
+        &tx,
+        &normalized_project_id,
+        &next_nodes_json,
+        &next_history_json,
+    )?;
+    tx.commit()
+        .map_err(|e| format!("Failed to commit media organization transaction: {}", e))?;
+
+    let copied_count = *copied_count.borrow();
+    Ok(OrganizeProjectMediaResult {
+        project_id: normalized_project_id,
+        rewritten: true,
+        copied_count,
+    })
 }
 
 #[cfg(test)]

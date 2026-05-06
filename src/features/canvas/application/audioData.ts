@@ -1,10 +1,15 @@
 import { isTauri } from '@tauri-apps/api/core';
 
-import { persistImageBinary, persistImageSource } from '@/commands/image';
+import {
+  persistMediaBinary,
+  persistMediaSource,
+  type MediaPersistContext,
+} from '@/commands/media';
 import {
   blobToDataUrl,
   resolveImageDisplayUrl,
 } from './imageData';
+import { createCurrentProjectMediaContext } from './mediaPersistenceContext';
 
 const SUPPORTED_AUDIO_TYPES = [
   'audio/mpeg',
@@ -181,7 +186,10 @@ export async function getAudioMetadata(file: File): Promise<AudioMetadata> {
   });
 }
 
-export async function prepareNodeAudioFromFile(file: File): Promise<PreparedAudio> {
+export async function prepareNodeAudioFromFile(
+  file: File,
+  mediaContext: MediaPersistContext = createCurrentProjectMediaContext('audio')
+): Promise<PreparedAudio> {
   if (!isSupportedAudioFile(file)) {
     throw new Error(`Unsupported audio type: ${file.type || file.name}`);
   }
@@ -191,7 +199,10 @@ export async function prepareNodeAudioFromFile(file: File): Promise<PreparedAudi
   const normalizedPath = typeof tauriFilePath === 'string' ? tauriFilePath.trim() : '';
 
   if (isTauri() && normalizedPath.length > 0) {
-    const persistedAudioPath = await persistImageSource(normalizedPath);
+    const persistedAudioPath = await persistMediaSource(
+      normalizedPath,
+      mediaContext
+    );
     return {
       audioUrl: persistedAudioPath,
       previewImageUrl: null,
@@ -202,7 +213,11 @@ export async function prepareNodeAudioFromFile(file: File): Promise<PreparedAudi
 
   if (isTauri()) {
     const bytes = new Uint8Array(await file.arrayBuffer());
-    const persistedAudioPath = await persistImageBinary(bytes, resolveAudioExtension(file));
+    const persistedAudioPath = await persistMediaBinary(
+      bytes,
+      resolveAudioExtension(file),
+      mediaContext
+    );
     return {
       audioUrl: persistedAudioPath,
       previewImageUrl: null,
@@ -221,7 +236,8 @@ export async function prepareNodeAudioFromFile(file: File): Promise<PreparedAudi
 
 export async function prepareNodeAudio(
   audioUrl: string,
-  options: PrepareAudioOptions = {}
+  options: PrepareAudioOptions = {},
+  mediaContext: MediaPersistContext = createCurrentProjectMediaContext('audio')
 ): Promise<PreparedAudio> {
   const trimmedAudioUrl = audioUrl.trim();
   if (!trimmedAudioUrl) {
@@ -235,7 +251,10 @@ export async function prepareNodeAudio(
       : null;
 
   if (isTauri()) {
-    const persistedAudioPath = await persistImageSource(trimmedAudioUrl);
+    const persistedAudioPath = await persistMediaSource(
+      trimmedAudioUrl,
+      mediaContext
+    );
     return {
       audioUrl: persistedAudioPath,
       previewImageUrl: null,

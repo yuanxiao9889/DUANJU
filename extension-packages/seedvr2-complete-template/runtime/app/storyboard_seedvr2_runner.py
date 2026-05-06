@@ -312,6 +312,68 @@ def parse_cli_error(stderr_text: str) -> str | None:
     return None
 
 
+ERROR_LINE_PATTERNS = (
+    re.compile(
+        r"\b(?:RuntimeError|ValueError|FileNotFoundError|AssertionError|"
+        r"MemoryError|OSError|ImportError|ModuleNotFoundError|TypeError):",
+        re.IGNORECASE,
+    ),
+    re.compile(r"\bcuda out of memory\b", re.IGNORECASE),
+    re.compile(r"\bout of memory\b", re.IGNORECASE),
+    re.compile(r"\berror during processing\b", re.IGNORECASE),
+    re.compile(r"\bfailed to download required models\b", re.IGNORECASE),
+    re.compile(r"\binput path not found\b", re.IGNORECASE),
+    re.compile(r"\bimage file not found\b", re.IGNORECASE),
+    re.compile(r"\bcannot open (?:image|video) file\b", re.IGNORECASE),
+    re.compile(r"\brequires a cuda-capable nvidia gpu\b", re.IGNORECASE),
+    re.compile(r"\bffmpeg\b.*\b(?:missing|not found|requires)\b", re.IGNORECASE),
+    re.compile(r"\bunsupported input type\b", re.IGNORECASE),
+    re.compile(r"\[\s*error\s*\]", re.IGNORECASE),
+)
+
+NOISE_LINE_PATTERNS = (
+    re.compile(r"github\.com/numz/comfyui-seedvr2_videoupscaler", re.IGNORECASE),
+    re.compile(r"youtube\.com/@ainvfx", re.IGNORECASE),
+    re.compile(r"questions\?\s*updates\?", re.IGNORECASE),
+    re.compile(r"watch,\s*star\s*&\s*sponsor", re.IGNORECASE),
+    re.compile(r"^-{3,}$"),
+    re.compile(r"^─{3,}$"),
+)
+
+
+def is_noise_error_line(line: str) -> bool:
+    stripped = line.strip()
+    if not stripped:
+        return True
+
+    for pattern in NOISE_LINE_PATTERNS:
+        if pattern.search(stripped):
+            return True
+
+    return False
+
+
+def extract_relevant_error_line(output_text: str) -> str | None:
+    lines = [line.strip() for line in output_text.splitlines() if line.strip()]
+    if not lines:
+        return None
+
+    for line in reversed(lines):
+        if is_noise_error_line(line):
+            continue
+        if any(pattern.search(line) for pattern in ERROR_LINE_PATTERNS):
+            return line
+
+    for line in reversed(lines):
+        if line.startswith("Traceback (most recent call last):"):
+            continue
+        if is_noise_error_line(line):
+            continue
+        return line
+
+    return None
+
+
 def run_seedvr2_cli(input_path: Path, output_path: Path, extra_args: list[str]) -> None:
     checks = ensure_required_paths()
     failed_checks = [name for name, passed in checks.items() if not passed]
@@ -356,9 +418,14 @@ def run_seedvr2_cli(input_path: Path, output_path: Path, extra_args: list[str]) 
         raise RuntimeError(parsed_error)
 
     combined = "\n".join(filter(None, [stderr_text, stdout_text])).strip()
-    raise RuntimeError(
-        combined.splitlines()[-1] if combined else "SeedVR2 inference failed."
-    )
+    extracted_error = extract_relevant_error_line(combined)
+    raise RuntimeError(extracted_error or "SeedVR2 inference failed.")
+
+
+def summarize_exception(error: Exception) -> str:
+    message = traceback.format_exception_only(type(error), error)
+    combined = "".join(message).strip()
+    return extract_relevant_error_line(combined) or combined or "Unknown SeedVR2 runner error"
 
 
 def probe_video_metadata(video_path: Path) -> Dict[str, Any]:
@@ -641,13 +708,12 @@ def execute_payload(payload: Dict[str, Any]) -> Dict[str, Any]:
         response.setdefault("ok", True)
         response.setdefault("command", command)
         return response
-    except Exception:
+    except Exception as error:
         debug_log(traceback.format_exc())
         return {
             "ok": False,
             "command": command,
-            "error": traceback.format_exc().strip().splitlines()[-1]
-            or "Unknown SeedVR2 runner error",
+            "error": summarize_exception(error),
         }
 
 

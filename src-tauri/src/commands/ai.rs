@@ -301,7 +301,7 @@ async fn prepare_generation_job_result_for_storage(
     image_source: String,
 ) -> Result<String, String> {
     if looks_like_inline_image_source(image_source.as_str()) {
-        return materialize_image_source(app, image_source.as_str()).await;
+        return materialize_image_source(app, image_source.as_str(), None).await;
     }
 
     Ok(image_source)
@@ -324,7 +324,7 @@ async fn materialize_request_reference_images(
         async {
             let mut resolved = Vec::with_capacity(reference_images.len());
             for source in reference_images {
-                resolved.push(materialize_image_source(app, source.as_str()).await?);
+                resolved.push(materialize_image_source(app, source.as_str(), None).await?);
             }
             Ok::<Vec<String>, String>(resolved)
         },

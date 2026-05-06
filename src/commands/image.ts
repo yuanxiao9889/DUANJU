@@ -1,4 +1,5 @@
 import { invoke } from '@tauri-apps/api/core';
+import type { MediaPersistContext } from './media';
 
 export async function splitImage(
   imageBase64: string,
@@ -20,7 +21,8 @@ export async function splitImageSource(
   cols: number,
   lineThickness: number,
   colRatios?: number[],
-  rowRatios?: number[]
+  rowRatios?: number[],
+  mediaContext?: MediaPersistContext
 ): Promise<string[]> {
   return await invoke('split_image_source', {
     source,
@@ -29,6 +31,7 @@ export async function splitImageSource(
     lineThickness,
     colRatios,
     rowRatios,
+    mediaContext,
   });
 }
 
@@ -111,9 +114,10 @@ export interface MergeStoryboardImagesResult {
 }
 
 export async function mergeStoryboardImages(
-  payload: MergeStoryboardImagesPayload
+  payload: MergeStoryboardImagesPayload,
+  mediaContext?: MediaPersistContext
 ): Promise<MergeStoryboardImagesResult> {
-  return await invoke('merge_storyboard_images', { payload });
+  return await invoke('merge_storyboard_images', { payload, mediaContext });
 }
 
 export async function readStoryboardImageMetadata(
@@ -124,37 +128,43 @@ export async function readStoryboardImageMetadata(
 
 export async function embedStoryboardImageMetadata(
   source: string,
-  metadata: StoryboardImageMetadata
+  metadata: StoryboardImageMetadata,
+  mediaContext?: MediaPersistContext
 ): Promise<string> {
-  return await invoke('embed_storyboard_image_metadata', { source, metadata });
+  return await invoke('embed_storyboard_image_metadata', { source, metadata, mediaContext });
 }
 
 export async function prepareNodeImageSource(
   source: string,
-  maxPreviewDimension = 512
+  maxPreviewDimension = 512,
+  mediaContext?: MediaPersistContext
 ): Promise<PrepareNodeImageSourceResult> {
   return await invoke('prepare_node_image_source', {
     source,
     maxPreviewDimension,
+    mediaContext,
   });
 }
 
 export async function prepareNodeImageBinary(
   bytes: Uint8Array,
   extension?: string,
-  maxPreviewDimension = 512
+  maxPreviewDimension = 512,
+  mediaContext?: MediaPersistContext
 ): Promise<PrepareNodeImageSourceResult> {
   return await invoke('prepare_node_image_binary', {
     bytes: Array.from(bytes),
     extension,
     maxPreviewDimension,
+    mediaContext,
   });
 }
 
 export async function cropImageSource(
-  payload: CropImageSourcePayload
+  payload: CropImageSourcePayload,
+  mediaContext?: MediaPersistContext
 ): Promise<string> {
-  return await invoke('crop_image_source', { payload });
+  return await invoke('crop_image_source', { payload, mediaContext });
 }
 
 export async function loadImage(filePath: string): Promise<string> {
@@ -171,27 +181,34 @@ export async function readLocalImageBinary(
   });
 }
 
-export async function persistImageSource(source: string): Promise<string> {
-  return await invoke('persist_image_source', { source });
+export async function persistImageSource(
+  source: string,
+  mediaContext?: MediaPersistContext
+): Promise<string> {
+  return await invoke('persist_image_source', { source, mediaContext });
 }
 
 export async function persistImageBinary(
   bytes: Uint8Array,
-  extension = 'png'
+  extension = 'png',
+  mediaContext?: MediaPersistContext
 ): Promise<string> {
   return await invoke('persist_image_binary', {
     bytes: Array.from(bytes),
     extension,
+    mediaContext,
   });
 }
 
 export async function optimizeReferenceImagesForApi(
   sources: string[],
-  options?: OptimizeReferenceImagesForApiOptions
+  options?: OptimizeReferenceImagesForApiOptions,
+  mediaContext?: MediaPersistContext
 ): Promise<OptimizedReferenceImageForApi[]> {
   return await invoke('optimize_reference_images_for_api', {
     sources,
     options,
+    mediaContext,
   });
 }
 

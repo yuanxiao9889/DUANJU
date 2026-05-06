@@ -12,6 +12,7 @@ import {
   reduceAspectRatio,
 } from '@/features/canvas/application/imageData';
 import { splitImageSource } from '@/commands/image';
+import { createCurrentProjectMediaContext } from '@/features/canvas/application/mediaPersistenceContext';
 import {
   queryMidjourneyTasks,
   submitMidjourneyAction,
@@ -283,7 +284,15 @@ export async function splitMidjourneyGridToBatchImages(
     return [];
   }
 
-  const splitSources = await splitImageSource(normalizedGridImageSource, 2, 2, 0).catch(
+  const splitSources = await splitImageSource(
+    normalizedGridImageSource,
+    2,
+    2,
+    0,
+    undefined,
+    undefined,
+    createCurrentProjectMediaContext('image')
+  ).catch(
     async () => fallbackGridImage(normalizedGridImageSource)
   );
   if (splitSources.length > 0 && typeof splitSources[0] !== 'string') {

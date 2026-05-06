@@ -35,6 +35,10 @@ const DEFAULT_GROUP_LAYOUT_GAP_Y = 24;
 const GROUP_NODE_MIN_WIDTH = 220;
 const GROUP_NODE_MIN_HEIGHT = 140;
 
+function normalizeTimestamp(value: unknown): number | null {
+  return typeof value === 'number' && Number.isFinite(value) ? value : null;
+}
+
 function getNodeSize(node: CanvasNode): { width: number; height: number } {
   return {
     width:
@@ -81,6 +85,57 @@ function compareNodesByCurrentPosition(
   }
 
   return left.id.localeCompare(right.id);
+}
+
+function resolveNodeGeneratedTimestamp(node: CanvasNode): number | null {
+  const data = node.data as Record<string, unknown>;
+  const directGeneratedAt = normalizeTimestamp(data.generatedAt);
+  if (directGeneratedAt !== null) {
+    return directGeneratedAt;
+  }
+
+  const generationSummary = data.generationSummary;
+  if (generationSummary && typeof generationSummary === 'object') {
+    const summaryGeneratedAt = normalizeTimestamp(
+      (generationSummary as Record<string, unknown>).generatedAt
+    );
+    if (summaryGeneratedAt !== null) {
+      return summaryGeneratedAt;
+    }
+  }
+
+  return normalizeTimestamp(data.lastGeneratedAt);
+}
+
+function resolveParentOrder(
+  parentIds: string[],
+  orderIndexById: Map<string, number>
+): number {
+  return Math.min(
+    ...parentIds.map((parentId) => orderIndexById.get(parentId) ?? Number.MAX_SAFE_INTEGER),
+    Number.MAX_SAFE_INTEGER
+  );
+}
+
+function buildParentContextKey(
+  parentIds: string[],
+  orderIndexById: Map<string, number>
+): string {
+  if (parentIds.length === 0) {
+    return '';
+  }
+
+  return [...parentIds]
+    .sort((leftId, rightId) => {
+      const leftOrder = orderIndexById.get(leftId) ?? Number.MAX_SAFE_INTEGER;
+      const rightOrder = orderIndexById.get(rightId) ?? Number.MAX_SAFE_INTEGER;
+      if (leftOrder !== rightOrder) {
+        return leftOrder - rightOrder;
+      }
+
+      return leftId.localeCompare(rightId);
+    })
+    .join('|');
 }
 
 interface OrderedGroupGraph {
@@ -182,6 +237,15 @@ function buildLevelColumns(
 ): string[][][] {
   const orderIndexById = new Map(orderedIds.map((nodeId, index) => [nodeId, index] as const));
   const levels = new Map<number, string[]>();
+  const generatedTimestampById = new Map(
+    [...nodeMap.entries()].map(([nodeId, node]) => [nodeId, resolveNodeGeneratedTimestamp(node)] as const)
+  );
+  const parentContextKeyById = new Map(
+    orderedIds.map((nodeId) => [
+      nodeId,
+      buildParentContextKey(parentIdsByChild.get(nodeId) ?? [], orderIndexById),
+    ] as const)
+  );
 
   for (const nodeId of orderedIds) {
     const depth = depthById.get(nodeId) ?? 0;
@@ -194,25 +258,35 @@ function buildLevelColumns(
     .sort((left, right) => left[0] - right[0])
     .map(([, levelNodeIds]) => {
       const sortedLevelNodeIds = [...levelNodeIds].sort((leftId, rightId) => {
-        const leftParentOrder = Math.min(
-          ...(parentIdsByChild.get(leftId) ?? []).map(
-            (parentId) => orderIndexById.get(parentId) ?? Number.MAX_SAFE_INTEGER
-          ),
-          Number.MAX_SAFE_INTEGER
-        );
-        const rightParentOrder = Math.min(
-          ...(parentIdsByChild.get(rightId) ?? []).map(
-            (parentId) => orderIndexById.get(parentId) ?? Number.MAX_SAFE_INTEGER
-          ),
-          Number.MAX_SAFE_INTEGER
-        );
+        const leftParentIds = parentIdsByChild.get(leftId) ?? [];
+        const rightParentIds = parentIdsByChild.get(rightId) ?? [];
+        const leftParentOrder = resolveParentOrder(leftParentIds, orderIndexById);
+        const rightParentOrder = resolveParentOrder(rightParentIds, orderIndexById);
 
         if (leftParentOrder !== rightParentOrder) {
           return leftParentOrder - rightParentOrder;
         }
 
+        const leftParentContextKey = parentContextKeyById.get(leftId) ?? '';
+        const rightParentContextKey = parentContextKeyById.get(rightId) ?? '';
         const leftNode = nodeMap.get(leftId);
         const rightNode = nodeMap.get(rightId);
+
+        if (
+          leftParentContextKey.length > 0
+          && leftParentContextKey === rightParentContextKey
+        ) {
+          const leftGeneratedTimestamp = generatedTimestampById.get(leftId) ?? null;
+          const rightGeneratedTimestamp = generatedTimestampById.get(rightId) ?? null;
+          if (
+            leftGeneratedTimestamp !== null
+            && rightGeneratedTimestamp !== null
+            && leftGeneratedTimestamp !== rightGeneratedTimestamp
+          ) {
+            return leftGeneratedTimestamp - rightGeneratedTimestamp;
+          }
+        }
+
         if (leftNode && rightNode) {
           const verticalDelta = leftNode.position.y - rightNode.position.y;
           if (Math.abs(verticalDelta) > 1) {

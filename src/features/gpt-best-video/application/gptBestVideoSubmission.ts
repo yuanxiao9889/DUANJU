@@ -5,11 +5,12 @@ import {
   getGptBestVideoTask,
   type CreateGptBestVideoTaskPayload,
 } from '@/commands/gptBestVideo';
-import { persistImageSource } from '@/commands/image';
+import { persistMediaSource } from '@/commands/media';
 import {
   createPreviewDataUrl,
   prepareNodeImage,
 } from '@/features/canvas/application/imageData';
+import { createCurrentProjectMediaContext } from '@/features/canvas/application/mediaPersistenceContext';
 import {
   captureVideoFrameFromSource,
   resolveVideoDisplayUrl,
@@ -210,7 +211,11 @@ async function prepareGptBestVideoPreviewImage(
   const normalizedLastFrameSource = lastFrameSourceUrl?.trim() ?? '';
   if (normalizedLastFrameSource) {
     try {
-      const preparedPoster = await prepareNodeImage(normalizedLastFrameSource, 640);
+      const preparedPoster = await prepareNodeImage(
+        normalizedLastFrameSource,
+        640,
+        createCurrentProjectMediaContext('image', 'preview')
+      );
       return preparedPoster.previewImageUrl ?? preparedPoster.imageUrl;
     } catch (error) {
       console.warn('[third-party-video] failed to prepare returned poster', error);
@@ -223,7 +228,11 @@ async function prepareGptBestVideoPreviewImage(
       resolvePosterCaptureTime(durationSeconds),
       960
     );
-    const preparedPoster = await prepareNodeImage(capturedPosterDataUrl, 640);
+    const preparedPoster = await prepareNodeImage(
+      capturedPosterDataUrl,
+      640,
+      createCurrentProjectMediaContext('image', 'preview')
+    );
     return preparedPoster.previewImageUrl ?? preparedPoster.imageUrl;
   } catch (error) {
     console.warn('[third-party-video] failed to capture video poster', error);
@@ -240,7 +249,7 @@ async function buildGeneratedVideoItem(
   }
 
   const persistedVideoUrl = isTauri()
-    ? await persistImageSource(rawVideoUrl)
+    ? await persistMediaSource(rawVideoUrl, createCurrentProjectMediaContext('video'))
     : rawVideoUrl;
   const previewImageUrl = await prepareGptBestVideoPreviewImage(
     task.last_frame_url ?? null,

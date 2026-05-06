@@ -55,6 +55,7 @@ import {
 import {
   prepareNodeImage,
 } from '@/features/canvas/application/imageData';
+import { createCurrentProjectMediaContext } from '@/features/canvas/application/mediaPersistenceContext';
 import { useCanvasNodeById } from '@/features/canvas/hooks/useCanvasNodeGraph';
 import { useStableImageDisplaySource } from '@/features/canvas/hooks/useStableImageDisplaySource';
 import { useCanvasStore } from '@/stores/canvasStore';
@@ -598,7 +599,11 @@ export const VideoNode = memo(({ id, data, selected, width }: VideoNodeProps) =>
           );
         }
 
-        const preparedPoster = await prepareNodeImage(posterDataUrl, 640);
+        const preparedPoster = await prepareNodeImage(
+          posterDataUrl,
+          640,
+          createCurrentProjectMediaContext('image', 'preview')
+        );
         const nextPreviewImageUrl =
           preparedPoster.previewImageUrl ?? preparedPoster.imageUrl;
         if (!cancelled && nextPreviewImageUrl) {

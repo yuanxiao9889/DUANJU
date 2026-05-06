@@ -36,6 +36,12 @@ export interface ProjectRecord {
   scriptWelcomeSkipped: boolean;
 }
 
+export interface OrganizeProjectMediaResult {
+  projectId: string;
+  rewritten: boolean;
+  copiedCount: number;
+}
+
 export async function listProjectSummaries(): Promise<ProjectSummaryRecord[]> {
   return await invoke<ProjectSummaryRecord[]>('list_project_summaries');
 }
@@ -65,6 +71,12 @@ export async function renameProjectRecord(
 
 export async function deleteProjectRecord(projectId: string): Promise<void> {
   await invoke('delete_project_record', { projectId });
+}
+
+export async function organizeProjectMedia(
+  projectId: string
+): Promise<OrganizeProjectMediaResult> {
+  return await invoke<OrganizeProjectMediaResult>('organize_project_media', { projectId });
 }
 
 export async function syncStyleTemplateImageRefs(paths: string[]): Promise<void> {

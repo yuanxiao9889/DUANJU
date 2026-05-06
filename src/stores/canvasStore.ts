@@ -142,6 +142,7 @@ import {
 } from '@/features/jimeng/domain/jimengOptions';
 import type { CanvasSemanticColor } from '@/features/canvas/domain/semanticColors';
 import { useScriptEditorStore } from '@/stores/scriptEditorStore';
+import { createCurrentProjectMediaContext } from '@/features/canvas/application/mediaPersistenceContext';
 
 export type {
   ActiveToolDialog,
@@ -4943,7 +4944,7 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
         frameIndexPrefix: exportOptions?.frameIndexPrefix ?? '',
         textColor: exportOptions?.textColor ?? '#000000',
         frameNotes: frames.map((f) => f.note),
-      });
+      }, createCurrentProjectMediaContext('image'));
 
       if (!result.imagePath) {
         return null;
@@ -6066,7 +6067,12 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
     }
 
     const extension = isJpeg ? 'jpg' : 'png';
-    const result = await prepareNodeImageBinary(bytes, extension, 512);
+    const result = await prepareNodeImageBinary(
+      bytes,
+      extension,
+      512,
+      createCurrentProjectMediaContext('image')
+    );
 
     const state = get();
     const viewportCenterX = state.canvasViewportSize.width / 2;

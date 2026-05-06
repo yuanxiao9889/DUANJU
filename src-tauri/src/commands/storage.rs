@@ -19,6 +19,17 @@ pub struct StorageConfig {
     pub legacy_paths: Vec<String>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct MediaPersistContext {
+    #[serde(default)]
+    pub project_id: Option<String>,
+    #[serde(default)]
+    pub media_type: Option<String>,
+    #[serde(default)]
+    pub role: Option<String>,
+}
+
 const STORAGE_CONFIG_FILE: &str = "storage_config.json";
 const AUTO_DATABASE_BACKUP_KIND: &str = "auto";
 const MANUAL_DATABASE_BACKUP_KIND: &str = "manual";
@@ -263,31 +274,322 @@ pub fn resolve_images_dir(app: &AppHandle) -> Result<PathBuf, String> {
     Ok(images_dir)
 }
 
-pub(crate) fn resolve_known_images_dirs(app: &AppHandle) -> Result<Vec<PathBuf>, String> {
+pub(crate) fn normalize_media_extension(raw_ext: &str) -> String {
+    let ext = raw_ext.trim().trim_start_matches('.').to_ascii_lowercase();
+    if ext.is_empty() {
+        return "bin".to_string();
+    }
+
+    if ext == "jpeg" {
+        return "jpg".to_string();
+    }
+
+    ext
+}
+
+pub(crate) fn media_type_from_extension(raw_ext: &str) -> String {
+    match normalize_media_extension(raw_ext).as_str() {
+        "mp4" | "webm" | "ogv" | "mov" | "avi" | "mkv" => "video".to_string(),
+        "mp3" | "wav" | "ogg" | "oga" | "m4a" | "aac" | "flac" => "audio".to_string(),
+        _ => "image".to_string(),
+    }
+}
+
+fn normalize_media_type(value: Option<&str>, extension: &str) -> String {
+    match value.map(str::trim).filter(|item| !item.is_empty()) {
+        Some(value) if value.eq_ignore_ascii_case("video") => "video".to_string(),
+        Some(value) if value.eq_ignore_ascii_case("audio") => "audio".to_string(),
+        Some(value) if value.eq_ignore_ascii_case("image") => "image".to_string(),
+        _ => media_type_from_extension(extension),
+    }
+}
+
+fn normalize_media_role(value: Option<&str>) -> String {
+    match value.map(str::trim).filter(|item| !item.is_empty()) {
+        Some(value)
+            if value.eq_ignore_ascii_case("preview")
+                || value.eq_ignore_ascii_case("previews") =>
+        {
+            "previews".to_string()
+        }
+        Some(value) if value.eq_ignore_ascii_case("cache") => "cache".to_string(),
+        _ => "originals".to_string(),
+    }
+}
+
+fn sanitize_project_dir_name(raw: &str) -> Option<String> {
+    let trimmed = raw.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+
+    let mut sanitized = String::with_capacity(trimmed.len());
+    for ch in trimmed.chars() {
+        if ch.is_ascii_alphanumeric() || ch == '-' || ch == '_' {
+            sanitized.push(ch);
+        }
+    }
+
+    let compact = sanitized.trim_matches('-').trim_matches('_').to_string();
+    if compact.is_empty() {
+        None
+    } else {
+        Some(compact)
+    }
+}
+
+pub(crate) fn resolve_project_media_root_in_base(
+    base_path: &Path,
+    project_id: &str,
+) -> Option<PathBuf> {
+    sanitize_project_dir_name(project_id).map(|safe_project_id| {
+        base_path.join("projects").join(safe_project_id)
+    })
+}
+
+pub(crate) fn resolve_project_media_root(
+    app: &AppHandle,
+    project_id: &str,
+) -> Result<Option<PathBuf>, String> {
+    let base_path = resolve_storage_base_path(app)?;
+    Ok(resolve_project_media_root_in_base(&base_path, project_id))
+}
+
+pub(crate) fn resolve_media_dir_in_base(
+    base_path: &Path,
+    context: Option<&MediaPersistContext>,
+    extension: &str,
+    default_role: &str,
+) -> PathBuf {
+    let context = context.cloned().unwrap_or_default();
+    let media_type = normalize_media_type(context.media_type.as_deref(), extension);
+    let role = normalize_media_role(context.role.as_deref().or(Some(default_role)));
+    let scope_root = context
+        .project_id
+        .as_deref()
+        .and_then(|project_id| resolve_project_media_root_in_base(base_path, project_id))
+        .unwrap_or_else(|| base_path.join("shared"));
+
+    match media_type.as_str() {
+        "video" => scope_root.join("videos"),
+        "audio" => scope_root.join("audio"),
+        _ => scope_root.join("images").join(role),
+    }
+}
+
+pub(crate) fn resolve_media_dir(
+    app: &AppHandle,
+    context: Option<&MediaPersistContext>,
+    extension: &str,
+    default_role: &str,
+) -> Result<PathBuf, String> {
+    let base_path = resolve_storage_base_path(app)?;
+    let media_dir = resolve_media_dir_in_base(&base_path, context, extension, default_role);
+    fs::create_dir_all(&media_dir)
+        .map_err(|e| format!("Failed to create media dir: {}", e))?;
+    Ok(media_dir)
+}
+
+fn build_temp_media_output_path(output_path: &Path, attempt: u32) -> Result<PathBuf, String> {
+    let parent = output_path.parent().ok_or_else(|| {
+        format!(
+            "Persist target has no parent directory: {}",
+            output_path.display()
+        )
+    })?;
+    let file_name = output_path
+        .file_name()
+        .map(|value| value.to_string_lossy().to_string())
+        .unwrap_or_else(|| "storyboard-media".to_string());
+    let stamp = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_nanos();
+
+    Ok(parent.join(format!(
+        ".{}.{}.{}.tmp",
+        file_name,
+        std::process::id(),
+        stamp + u128::from(attempt)
+    )))
+}
+
+fn verify_persisted_media_path(output_path: &Path) -> Result<(), String> {
+    let metadata = fs::metadata(output_path)
+        .map_err(|e| format!("Failed to inspect persisted media: {}", e))?;
+
+    if !metadata.is_file() {
+        return Err(format!(
+            "Persisted media is not a file: {}",
+            output_path.display()
+        ));
+    }
+
+    if metadata.len() == 0 {
+        return Err(format!(
+            "Persisted media is empty: {}",
+            output_path.display()
+        ));
+    }
+
+    Ok(())
+}
+
+fn write_media_bytes_atomically(output_path: &Path, bytes: &[u8]) -> Result<(), String> {
+    if bytes.is_empty() {
+        return Err("Failed to persist media: bytes are empty".to_string());
+    }
+
+    let parent = output_path.parent().ok_or_else(|| {
+        format!(
+            "Persist target has no parent directory: {}",
+            output_path.display()
+        )
+    })?;
+    fs::create_dir_all(parent).map_err(|e| format!("Failed to create media output dir: {}", e))?;
+
+    if verify_persisted_media_path(output_path).is_ok() {
+        return Ok(());
+    }
+
+    for attempt in 0..24_u32 {
+        if verify_persisted_media_path(output_path).is_ok() {
+            return Ok(());
+        }
+
+        let temp_path = build_temp_media_output_path(output_path, attempt)?;
+        let temp_file_result = fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&temp_path);
+
+        let mut temp_file = match temp_file_result {
+            Ok(file) => file,
+            Err(err) if err.kind() == io::ErrorKind::AlreadyExists => continue,
+            Err(err) => return Err(format!("Failed to create temp media file: {}", err)),
+        };
+
+        if let Err(err) = temp_file.write_all(bytes) {
+            let _ = fs::remove_file(&temp_path);
+            return Err(format!("Failed to write temp media file: {}", err));
+        }
+
+        if let Err(err) = temp_file.sync_all() {
+            let _ = fs::remove_file(&temp_path);
+            return Err(format!("Failed to sync temp media file: {}", err));
+        }
+
+        drop(temp_file);
+
+        match fs::rename(&temp_path, output_path) {
+            Ok(()) => {
+                verify_persisted_media_path(output_path)?;
+                return Ok(());
+            }
+            Err(err) => {
+                if verify_persisted_media_path(output_path).is_ok() {
+                    let _ = fs::remove_file(&temp_path);
+                    return Ok(());
+                }
+
+                let copy_result = if output_path.exists() {
+                    fs::copy(&temp_path, output_path).map(|_| ())
+                } else {
+                    Err(err)
+                };
+                let _ = fs::remove_file(&temp_path);
+                copy_result
+                    .map_err(|copy_err| format!("Failed to finalize media file: {}", copy_err))?;
+                verify_persisted_media_path(output_path)?;
+                return Ok(());
+            }
+        }
+    }
+
+    Err(format!(
+        "Failed to persist media after repeated attempts: {}",
+        output_path.display()
+    ))
+}
+
+pub(crate) fn persist_media_bytes_in_base(
+    base_path: &Path,
+    bytes: &[u8],
+    extension: &str,
+    context: Option<&MediaPersistContext>,
+    default_role: &str,
+) -> Result<String, String> {
+    let normalized_extension = normalize_media_extension(extension);
+    let media_dir =
+        resolve_media_dir_in_base(base_path, context, &normalized_extension, default_role);
+    let digest = md5::compute(bytes);
+    let filename = format!("{:x}.{}", digest, normalized_extension);
+    let output_path = media_dir.join(filename);
+
+    write_media_bytes_atomically(&output_path, bytes)?;
+    verify_persisted_media_path(&output_path)?;
+
+    Ok(output_path.to_string_lossy().to_string())
+}
+
+pub(crate) fn persist_media_bytes(
+    app: &AppHandle,
+    bytes: &[u8],
+    extension: &str,
+    context: Option<&MediaPersistContext>,
+    default_role: &str,
+) -> Result<String, String> {
+    let base_path = resolve_storage_base_path(app)?;
+    persist_media_bytes_in_base(&base_path, bytes, extension, context, default_role)
+}
+
+fn push_unique_path(results: &mut Vec<PathBuf>, seen: &mut HashSet<String>, path: PathBuf) {
+    let compare_key = storage_path_compare_key(&path.to_string_lossy().replace('\\', "/"));
+    if seen.insert(compare_key) {
+        results.push(path);
+    }
+}
+
+fn push_known_media_dirs_for_scope(
+    results: &mut Vec<PathBuf>,
+    seen: &mut HashSet<String>,
+    scope_root: &Path,
+) {
+    for role in ["originals", "previews", "cache"] {
+        push_unique_path(results, seen, scope_root.join("images").join(role));
+    }
+    push_unique_path(results, seen, scope_root.join("videos"));
+    push_unique_path(results, seen, scope_root.join("audio"));
+}
+
+fn push_known_media_dirs_for_root(
+    results: &mut Vec<PathBuf>,
+    seen: &mut HashSet<String>,
+    root: &Path,
+) {
+    push_unique_path(results, seen, root.join("images"));
+    push_known_media_dirs_for_scope(results, seen, &root.join("shared"));
+
+    let projects_root = root.join("projects");
+    let Ok(entries) = fs::read_dir(&projects_root) else {
+        return;
+    };
+
+    for entry in entries.flatten() {
+        let project_root = entry.path();
+        if project_root.is_dir() {
+            push_known_media_dirs_for_scope(results, seen, &project_root);
+        }
+    }
+}
+
+pub(crate) fn resolve_known_media_dirs(app: &AppHandle) -> Result<Vec<PathBuf>, String> {
+    let roots = resolve_known_storage_roots(app)?;
     let mut results = Vec::new();
     let mut seen = HashSet::new();
 
-    let current_images_dir = resolve_images_dir(app)?;
-    let current_compare_key =
-        storage_path_compare_key(&current_images_dir.to_string_lossy().replace('\\', "/"));
-    seen.insert(current_compare_key);
-    results.push(current_images_dir);
-
-    let default_images_dir = get_default_storage_path(app)?.join("images");
-    let default_compare_key =
-        storage_path_compare_key(&default_images_dir.to_string_lossy().replace('\\', "/"));
-    if seen.insert(default_compare_key) {
-        results.push(default_images_dir);
-    }
-
-    let config = read_storage_config(app)?;
-    for legacy_path in config.legacy_paths {
-        let images_dir = PathBuf::from(legacy_path).join("images");
-        let compare_key =
-            storage_path_compare_key(&images_dir.to_string_lossy().replace('\\', "/"));
-        if seen.insert(compare_key) {
-            results.push(images_dir);
-        }
+    for root in roots {
+        push_known_media_dirs_for_root(&mut results, &mut seen, &root);
     }
 
     Ok(results)
@@ -520,9 +822,9 @@ pub(crate) fn rebase_storage_path_string(
     Some(format!("{}/{}", normalized_to_base, suffix))
 }
 
-pub(crate) fn relocate_storage_path_to_known_images_dirs(
+pub(crate) fn relocate_storage_path_to_known_media_dirs(
     value: &str,
-    images_dirs: &[PathBuf],
+    media_dirs: &[PathBuf],
 ) -> Option<String> {
     let normalized_value = normalize_storage_path_string(value)?;
     let current_path = PathBuf::from(&normalized_value);
@@ -530,19 +832,11 @@ pub(crate) fn relocate_storage_path_to_known_images_dirs(
         return None;
     }
 
-    let parent_name = current_path
-        .parent()
-        .and_then(|parent| parent.file_name())
-        .and_then(|name| name.to_str())?;
-    if !parent_name.eq_ignore_ascii_case("images") {
-        return None;
-    }
-
     let file_name = current_path.file_name()?.to_str()?;
     let normalized_value_compare_key = storage_path_compare_key(&normalized_value);
 
-    for images_dir in images_dirs {
-        let candidate_path = images_dir.join(file_name);
+    for media_dir in media_dirs {
+        let candidate_path = media_dir.join(file_name);
         if !candidate_path.exists() {
             continue;
         }
@@ -557,6 +851,27 @@ pub(crate) fn relocate_storage_path_to_known_images_dirs(
     }
 
     None
+}
+
+#[cfg(test)]
+pub(crate) fn relocate_storage_path_to_known_images_dirs(
+    value: &str,
+    images_dirs: &[PathBuf],
+) -> Option<String> {
+    let normalized_value = normalize_storage_path_string(value)?;
+    let current_path = PathBuf::from(&normalized_value);
+    let parent_name = current_path
+        .parent()
+        .and_then(|parent| parent.file_name())
+        .and_then(|name| name.to_str())?;
+    if !matches!(
+        parent_name.to_ascii_lowercase().as_str(),
+        "images" | "originals" | "previews" | "cache"
+    ) {
+        return None;
+    }
+
+    relocate_storage_path_to_known_media_dirs(&normalized_value, images_dirs)
 }
 
 pub fn resolve_debug_dir(app: &AppHandle) -> Result<PathBuf, String> {
@@ -859,6 +1174,37 @@ fn count_immediate_child_files(path: &Path) -> Result<u64, String> {
     Ok(count)
 }
 
+fn count_recursive_files(path: &Path) -> Result<u64, String> {
+    if !path.exists() {
+        return Ok(0);
+    }
+
+    if path.is_file() {
+        return Ok(1);
+    }
+
+    let mut count = 0_u64;
+    for entry in fs::read_dir(path).map_err(|e| format!("Failed to read directory: {}", e))? {
+        let entry = entry.map_err(|e| format!("Failed to read directory entry: {}", e))?;
+        let path = entry.path();
+        if path.is_dir() {
+            count += count_recursive_files(&path)?;
+        } else if path.is_file() {
+            count += 1;
+        }
+    }
+
+    Ok(count)
+}
+
+fn count_media_files_for_storage_root(root: &Path) -> Result<u64, String> {
+    let mut count = 0_u64;
+    for child in ["images", "projects", "shared"] {
+        count += count_recursive_files(&root.join(child))?;
+    }
+    Ok(count)
+}
+
 fn count_projects_in_db(db_path: &Path) -> Result<i64, String> {
     if !db_path.exists() {
         return Ok(0);
@@ -892,15 +1238,13 @@ fn validate_storage_migration(
 ) -> Result<StorageMigrationValidation, String> {
     let source_db_path = source_path.join("projects.db");
     let target_db_path = target_path.join("projects.db");
-    let source_images_path = source_path.join("images");
-    let target_images_path = target_path.join("images");
     let source_backups_path = source_path.join("backups").join("db");
     let target_backups_path = target_path.join("backups").join("db");
 
     let source_project_count = count_projects_in_db(&source_db_path)?;
     let target_project_count = count_projects_in_db(&target_db_path)?;
-    let source_image_count = count_immediate_child_files(&source_images_path)?;
-    let target_image_count = count_immediate_child_files(&target_images_path)?;
+    let source_image_count = count_media_files_for_storage_root(source_path)?;
+    let target_image_count = count_media_files_for_storage_root(target_path)?;
     let source_backup_count = count_immediate_child_files(&source_backups_path)?;
     let target_backup_count = count_immediate_child_files(&target_backups_path)?;
     let source_db_size = fs::metadata(&source_db_path)
@@ -1221,7 +1565,11 @@ pub fn get_storage_info(app: AppHandle) -> Result<StorageInfo, String> {
     };
 
     let images_dir = current_path.join("images");
-    let images_size = get_dir_size(&images_dir)?;
+    let projects_media_dir = current_path.join("projects");
+    let shared_media_dir = current_path.join("shared");
+    let images_size = get_dir_size(&images_dir)?
+        + get_dir_size(&projects_media_dir)?
+        + get_dir_size(&shared_media_dir)?;
     let backups_dir = current_path.join("backups").join("db");
     let backups_size = get_dir_size(&backups_dir)?;
 
@@ -1392,6 +1740,18 @@ pub fn migrate_storage(
         copy_dir_recursive(&images_dir, &target_images)?;
     }
 
+    let projects_dir = current_path.join("projects");
+    if projects_dir.exists() {
+        let target_projects = target_path.join("projects");
+        copy_dir_recursive(&projects_dir, &target_projects)?;
+    }
+
+    let shared_dir = current_path.join("shared");
+    if shared_dir.exists() {
+        let target_shared = target_path.join("shared");
+        copy_dir_recursive(&shared_dir, &target_shared)?;
+    }
+
     let debug_dir = current_path.join("debug");
     if debug_dir.exists() {
         let target_debug = target_path.join("debug");
@@ -1430,6 +1790,12 @@ pub fn migrate_storage(
         remove_db_sidecar_files(&db_path)?;
         if images_dir.exists() {
             move_dir_to_trash(&images_dir)?;
+        }
+        if projects_dir.exists() {
+            move_dir_to_trash(&projects_dir)?;
+        }
+        if shared_dir.exists() {
+            move_dir_to_trash(&shared_dir)?;
         }
         if debug_dir.exists() {
             move_dir_to_trash(&debug_dir)?;
@@ -1478,6 +1844,18 @@ pub fn reset_storage_to_default(
         copy_dir_recursive(&images_dir, &target_images)?;
     }
 
+    let projects_dir = current_path.join("projects");
+    if projects_dir.exists() {
+        let target_projects = default_path.join("projects");
+        copy_dir_recursive(&projects_dir, &target_projects)?;
+    }
+
+    let shared_dir = current_path.join("shared");
+    if shared_dir.exists() {
+        let target_shared = default_path.join("shared");
+        copy_dir_recursive(&shared_dir, &target_shared)?;
+    }
+
     let debug_dir = current_path.join("debug");
     if debug_dir.exists() {
         let target_debug = default_path.join("debug");
@@ -1516,6 +1894,12 @@ pub fn reset_storage_to_default(
         remove_db_sidecar_files(&db_path)?;
         if images_dir.exists() {
             move_dir_to_trash(&images_dir)?;
+        }
+        if projects_dir.exists() {
+            move_dir_to_trash(&projects_dir)?;
+        }
+        if shared_dir.exists() {
+            move_dir_to_trash(&shared_dir)?;
         }
         if debug_dir.exists() {
             move_dir_to_trash(&debug_dir)?;
@@ -1569,12 +1953,17 @@ pub fn open_storage_folder(app: AppHandle) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::{
-        count_projects_in_db, rebase_storage_path_string,
-        relocate_storage_path_to_known_images_dirs, validate_storage_migration,
+        count_projects_in_db, persist_media_bytes_in_base, rebase_storage_path_string,
+        relocate_storage_path_to_known_images_dirs, resolve_media_dir_in_base,
+        validate_storage_migration, MediaPersistContext,
     };
     use rusqlite::Connection;
     use std::fs;
     use std::path::PathBuf;
+
+    fn normalize_path_for_assertion(path: &std::path::Path) -> String {
+        path.to_string_lossy().replace('\\', "/")
+    }
 
     #[test]
     fn rebase_storage_path_string_moves_paths_between_storage_roots() {
@@ -1586,6 +1975,96 @@ mod tests {
             rebase_storage_path_string(source, &from_base, &to_base).expect("path should rebase");
 
         assert_eq!(rebased, "D:/StoryboardData/images/abc123.png");
+    }
+
+    #[test]
+    fn resolve_media_dir_in_base_uses_project_and_media_type() {
+        let root = PathBuf::from(r"D:\StoryboardData");
+        let context = MediaPersistContext {
+            project_id: Some("project-1".to_string()),
+            media_type: Some("video".to_string()),
+            role: None,
+        };
+
+        let path = resolve_media_dir_in_base(&root, Some(&context), "mp4", "original");
+
+        assert_eq!(
+            normalize_path_for_assertion(&path),
+            "D:/StoryboardData/projects/project-1/videos"
+        );
+    }
+
+    #[test]
+    fn resolve_media_dir_in_base_uses_shared_image_roles_without_project() {
+        let root = PathBuf::from(r"D:\StoryboardData");
+        let context = MediaPersistContext {
+            project_id: None,
+            media_type: Some("image".to_string()),
+            role: Some("preview".to_string()),
+        };
+
+        let path = resolve_media_dir_in_base(&root, Some(&context), "png", "original");
+
+        assert_eq!(
+            normalize_path_for_assertion(&path),
+            "D:/StoryboardData/shared/images/previews"
+        );
+    }
+
+    #[test]
+    fn resolve_media_dir_in_base_uses_default_role_when_context_role_is_absent() {
+        let root = PathBuf::from(r"D:\StoryboardData");
+        let context = MediaPersistContext {
+            project_id: Some("project-1".to_string()),
+            media_type: Some("image".to_string()),
+            role: None,
+        };
+
+        let path = resolve_media_dir_in_base(&root, Some(&context), "png", "preview");
+
+        assert_eq!(
+            normalize_path_for_assertion(&path),
+            "D:/StoryboardData/projects/project-1/images/previews"
+        );
+    }
+
+    #[test]
+    fn persist_media_bytes_in_base_dedupes_by_content_in_directory() {
+        let temp_root = std::env::temp_dir().join(format!(
+            "storyboard-storage-media-persist-{}",
+            std::process::id()
+        ));
+        let _ = fs::remove_dir_all(&temp_root);
+        fs::create_dir_all(&temp_root).expect("failed to create temp root");
+        let context = MediaPersistContext {
+            project_id: Some("project-1".to_string()),
+            media_type: Some("audio".to_string()),
+            role: None,
+        };
+
+        let first = persist_media_bytes_in_base(
+            &temp_root,
+            b"same-audio",
+            "mp3",
+            Some(&context),
+            "original",
+        )
+        .expect("first persist should succeed");
+        let second = persist_media_bytes_in_base(
+            &temp_root,
+            b"same-audio",
+            "mp3",
+            Some(&context),
+            "original",
+        )
+        .expect("second persist should dedupe");
+
+        assert_eq!(first, second);
+        assert!(normalize_path_for_assertion(&PathBuf::from(first)).contains(
+            "/projects/project-1/audio/"
+        ));
+
+        let _ = fs::remove_dir_all(temp_root);
     }
 
     #[test]

@@ -405,6 +405,7 @@ pub fn run() {
             project_state::update_project_viewport_record,
             project_state::rename_project_record,
             project_state::delete_project_record,
+            project_state::organize_project_media,
             project_state::sync_style_template_image_refs,
             system::get_runtime_system_info,
             system::minimize_main_window_to_tray,

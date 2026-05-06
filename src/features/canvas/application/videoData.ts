@@ -1,5 +1,9 @@
 import { isTauri } from '@tauri-apps/api/core';
-import { persistImageBinary, persistImageSource } from '@/commands/image';
+import {
+  persistMediaBinary,
+  persistMediaSource,
+  type MediaPersistContext,
+} from '@/commands/media';
 import {
   blobToDataUrl,
   prepareNodeImage,
@@ -7,6 +11,7 @@ import {
   resolveLocalFileSourcePath,
   resolveImageDisplayUrl,
 } from './imageData';
+import { createCurrentProjectMediaContext } from './mediaPersistenceContext';
 
 export interface VideoMetadata {
   width: number;
@@ -159,18 +164,34 @@ async function getVideoMetadataAndPoster(
   });
 }
 
-async function prepareVideoPoster(posterDataUrl: string | null): Promise<string | null> {
+function createVideoPosterMediaContext(mediaContext: MediaPersistContext): MediaPersistContext {
+  return {
+    projectId: mediaContext.projectId?.trim() || null,
+    mediaType: 'image',
+    role: 'preview',
+  };
+}
+
+async function prepareVideoPoster(
+  posterDataUrl: string | null,
+  mediaContext: MediaPersistContext
+): Promise<string | null> {
   if (!posterDataUrl) {
     return null;
   }
 
-  const preparedPoster = await prepareNodeImage(posterDataUrl, 640);
+  const preparedPoster = await prepareNodeImage(
+    posterDataUrl,
+    640,
+    mediaContext
+  );
   return preparedPoster.previewImageUrl ?? preparedPoster.imageUrl;
 }
 
 export async function prepareNodeVideoFromFile(
   file: File,
-  fallbackOptions: PrepareNodeVideoFallbackOptions = {}
+  fallbackOptions: PrepareNodeVideoFallbackOptions = {},
+  mediaContext: MediaPersistContext = createCurrentProjectMediaContext('video')
 ): Promise<PreparedVideo> {
   if (!isSupportedVideoFile(file)) {
     throw new Error(`Unsupported video type: ${file.type || file.name}`);
@@ -196,7 +217,10 @@ export async function prepareNodeVideoFromFile(
   }
 
   const previewImageUrl = metadata
-    ? await prepareVideoPoster(posterDataUrl).catch(() => fallbackOptions.previewImageUrl ?? null)
+    ? await prepareVideoPoster(
+        posterDataUrl,
+        createVideoPosterMediaContext(mediaContext)
+      ).catch(() => fallbackOptions.previewImageUrl ?? null)
     : (fallbackOptions.previewImageUrl ?? null);
   const aspectRatio = metadata
     ? reduceAspectRatio(metadata.width, metadata.height)
@@ -211,7 +235,10 @@ export async function prepareNodeVideoFromFile(
   const normalizedPath = typeof tauriFilePath === 'string' ? tauriFilePath.trim() : '';
 
   if (isTauri() && normalizedPath.length > 0) {
-    const persistedVideoPath = await persistImageSource(normalizedPath);
+    const persistedVideoPath = await persistMediaSource(
+      normalizedPath,
+      mediaContext
+    );
     return {
       videoUrl: persistedVideoPath,
       previewImageUrl,
@@ -222,7 +249,11 @@ export async function prepareNodeVideoFromFile(
 
   if (isTauri()) {
     const bytes = new Uint8Array(await file.arrayBuffer());
-    const persistedVideoPath = await persistImageBinary(bytes, resolveVideoExtension(file));
+    const persistedVideoPath = await persistMediaBinary(
+      bytes,
+      resolveVideoExtension(file),
+      mediaContext
+    );
     return {
       videoUrl: persistedVideoPath,
       previewImageUrl,
@@ -281,9 +312,15 @@ async function getVideoMetadataFromSource(source: string): Promise<VideoMetadata
   }
 }
 
-export async function persistVideoLocally(source: string): Promise<string> {
+export async function persistVideoLocally(
+  source: string,
+  mediaContext: MediaPersistContext = createCurrentProjectMediaContext('video')
+): Promise<string> {
   const localFilePath = resolveLocalFileSourcePath(source);
   if (localFilePath) {
+    if (isTauri()) {
+      return await persistMediaSource(localFilePath, mediaContext);
+    }
     return localFilePath;
   }
 
@@ -291,11 +328,14 @@ export async function persistVideoLocally(source: string): Promise<string> {
     return source;
   }
 
-  return await persistImageSource(source);
+  return await persistMediaSource(source, mediaContext);
 }
 
-export async function prepareNodeVideoFromSource(source: string): Promise<PreparedVideo> {
-  const persistedVideoPath = await persistVideoLocally(source);
+export async function prepareNodeVideoFromSource(
+  source: string,
+  mediaContext: MediaPersistContext = createCurrentProjectMediaContext('video')
+): Promise<PreparedVideo> {
+  const persistedVideoPath = await persistVideoLocally(source, mediaContext);
   const metadata = await getVideoMetadataFromSource(persistedVideoPath);
   const captureTime =
     Number.isFinite(metadata.duration) && metadata.duration > 0.18
@@ -306,7 +346,10 @@ export async function prepareNodeVideoFromSource(source: string): Promise<Prepar
     captureTime,
     VIDEO_POSTER_MAX_DIMENSION
   ).catch(() => null);
-  const previewImageUrl = await prepareVideoPoster(posterDataUrl);
+  const previewImageUrl = await prepareVideoPoster(
+    posterDataUrl,
+    createVideoPosterMediaContext(mediaContext)
+  );
 
   return {
     videoUrl: persistedVideoPath,

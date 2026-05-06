@@ -6,6 +6,7 @@ import {
 } from '@/commands/ai';
 import { optimizeReferenceImagesForApi } from '@/commands/image';
 import { imageUrlToDataUrl, persistImageLocally } from '@/features/canvas/application/imageData';
+import { createCurrentProjectMediaContext } from '@/features/canvas/application/mediaPersistenceContext';
 
 import type {
   AiGateway,
@@ -75,7 +76,7 @@ async function resolveGenerateImagePayload(
     const optimizedItems = await optimizeReferenceImagesForApi(referenceImages, {
       maxDimension: API_REFERENCE_MAX_DIMENSION,
       maxBytes: API_REFERENCE_MAX_BYTES,
-    });
+    }, createCurrentProjectMediaContext('image', 'cache'));
     optimizedReferenceImages = optimizedItems.map((item) => item.imagePath);
     referenceImageOptimization = {
       applied: true,

@@ -44,6 +44,7 @@ import {
   ensurePreparedNodeImageReadable,
   prepareNodeImageFromFile,
 } from '@/features/canvas/application/imageData';
+import { createSharedMediaContext } from '@/features/canvas/application/mediaPersistenceContext';
 import { CanvasNodeImage } from '@/features/canvas/ui/CanvasNodeImage';
 import { AssetPreviewImage } from '@/features/assets/ui/AssetPreviewImage';
 import { SeedanceOfficialAssetPlaceholder } from '@/features/assets/ui/SeedanceOfficialAssetPlaceholder';
@@ -803,7 +804,7 @@ function AssetEditorDialog({ library, state, onClose, onConfirm }: AssetEditorDi
     setIsPreparingSource(true);
     try {
       if (mediaType === 'audio') {
-        const prepared = await prepareNodeAudioFromFile(file);
+        const prepared = await prepareNodeAudioFromFile(file, createSharedMediaContext('audio'));
         setSourcePath(prepared.audioUrl);
         setPreviewPath(prepared.previewImageUrl);
         setMimeType(prepared.mimeType);
@@ -812,7 +813,9 @@ function AssetEditorDialog({ library, state, onClose, onConfirm }: AssetEditorDi
         setSourceMode('local');
         setSeedanceAssetId('');
       } else {
-        const prepared = await ensurePreparedNodeImageReadable(await prepareNodeImageFromFile(file));
+          const prepared = await ensurePreparedNodeImageReadable(
+            await prepareNodeImageFromFile(file, undefined, createSharedMediaContext('image'))
+          );
         if (sourceMode === 'seedanceOfficial' && supportsSeedanceOfficialMode) {
           setPreviewPath(prepared.previewImageUrl ?? prepared.imageUrl);
           setMimeType(file.type.trim() || null);
@@ -1355,7 +1358,7 @@ export function AssetManagerTab() {
 
     const importSingleFile = async (file: File) => {
       if (mediaType === 'audio') {
-        const prepared = await prepareNodeAudioFromFile(file);
+        const prepared = await prepareNodeAudioFromFile(file, createSharedMediaContext('audio'));
         await createItem({
           libraryId,
           category,
@@ -1374,7 +1377,9 @@ export function AssetManagerTab() {
         return;
       }
 
-      const prepared = await ensurePreparedNodeImageReadable(await prepareNodeImageFromFile(file));
+        const prepared = await ensurePreparedNodeImageReadable(
+          await prepareNodeImageFromFile(file, undefined, createSharedMediaContext('image'))
+        );
       await createItem({
         libraryId,
         category,

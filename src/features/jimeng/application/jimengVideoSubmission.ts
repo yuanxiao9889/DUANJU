@@ -4,7 +4,7 @@ import {
   submitJimengDreaminaVideos,
   queryJimengDreaminaVideoResult,
 } from "@/commands/dreaminaCli";
-import { persistImageSource } from "@/commands/image";
+import { persistMediaSource } from "@/commands/media";
 import {
   captureVideoFrameFromSource,
   resolveVideoDisplayUrl,
@@ -13,6 +13,7 @@ import {
   prepareNodeImage,
   reduceAspectRatio,
 } from "@/features/canvas/application/imageData";
+import { createCurrentProjectMediaContext } from "@/features/canvas/application/mediaPersistenceContext";
 import type {
   JimengAspectRatio,
   JimengDurationSeconds,
@@ -236,6 +237,7 @@ async function prepareJimengVideoPreviewImage(
       const preparedPoster = await prepareNodeImage(
         normalizedPosterSource,
         640,
+        createCurrentProjectMediaContext("image", "preview"),
       );
       return preparedPoster.previewImageUrl ?? preparedPoster.imageUrl;
     } catch (error) {
@@ -252,7 +254,11 @@ async function prepareJimengVideoPreviewImage(
       resolvePosterCaptureTime(durationSeconds),
       960,
     );
-    const preparedPoster = await prepareNodeImage(capturedPosterDataUrl, 640);
+    const preparedPoster = await prepareNodeImage(
+      capturedPosterDataUrl,
+      640,
+      createCurrentProjectMediaContext("image", "preview"),
+    );
     return preparedPoster.previewImageUrl ?? preparedPoster.imageUrl;
   } catch (error) {
     console.warn("[jimengVideo] failed to capture video poster", error);
@@ -270,7 +276,7 @@ async function buildGeneratedVideoItem(
   }
 
   const persistedVideoUrl = isTauri()
-    ? await persistImageSource(rawSourceUrl)
+    ? await persistMediaSource(rawSourceUrl, createCurrentProjectMediaContext("video"))
     : rawSourceUrl;
   const previewImageUrl = await prepareJimengVideoPreviewImage(
     null,

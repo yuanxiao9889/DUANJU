@@ -12,6 +12,7 @@ import {
 } from './imageData';
 import { prepareNodeAudioFromFile } from './audioData';
 import { trimMediaSource } from './mediaTrim';
+import { createCurrentProjectMediaContext } from './mediaPersistenceContext';
 import { prepareNodeVideoFromFile } from './videoData';
 import { cropImageSource, readStoryboardImageMetadata } from '@/commands/image';
 import { drawAnnotations, parseAnnotationItems } from '../tools/annotation';
@@ -93,7 +94,7 @@ export class CanvasToolProcessor implements ToolProcessor {
         cropY: Number(options.cropY),
         cropWidth: Number(options.cropWidth),
         cropHeight: Number(options.cropHeight),
-      });
+      }, createCurrentProjectMediaContext('image'));
     } catch {
       // Fallback to local canvas implementation when backend command is unavailable.
     }

@@ -7,18 +7,17 @@ use fast_image_resize::images::Image as FirImage;
 use image::codecs::jpeg::JpegEncoder;
 use image::{DynamicImage, GenericImageView, ImageReader, Rgba, RgbaImage};
 use imageproc::drawing::{draw_text_mut, text_size};
-use md5;
 use png::{BitDepth, ColorType, Decoder, Encoder};
 use serde::{Deserialize, Serialize};
 use std::borrow::Cow;
-use std::io::{Cursor, Write};
+use std::io::Cursor;
 use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use tauri::AppHandle;
 use tracing::info;
 
-use super::storage;
+use super::storage::{self, MediaPersistContext};
 
 const STORYBOARD_METADATA_PNG_TEXT_KEY: &str = "StoryboardCopilotMetadata";
 const FAST_PREVIEW_BYPASS_MAX_BYTES: usize = 2_000_000;
@@ -131,6 +130,7 @@ pub async fn split_image_source(
     line_thickness: Option<u32>,
     col_ratios: Option<Vec<f64>>,
     row_ratios: Option<Vec<f64>>,
+    media_context: Option<MediaPersistContext>,
 ) -> Result<Vec<String>, String> {
     let started = Instant::now();
     let trimmed_source = source.trim();
@@ -151,6 +151,7 @@ pub async fn split_image_source(
         let (source_bytes, _source_ext) = resolve_source_bytes(trimmed_source).await?;
         let resolve_elapsed = started.elapsed().as_millis();
         let app_handle = app.clone();
+        let blocking_media_context = media_context.clone();
         let (results, decode_elapsed, blocking_elapsed) = tokio::task::spawn_blocking(move || {
             split_image_source_blocking(
                 &app_handle,
@@ -160,6 +161,7 @@ pub async fn split_image_source(
                 requested_line,
                 col_ratios,
                 row_ratios,
+                blocking_media_context,
             )
         })
         .await
@@ -254,7 +256,7 @@ pub async fn split_image_source(
                 .write_to(&mut buffer, image::ImageFormat::Png)
                 .map_err(|e| format!("Failed to encode split image: {}", e))?;
 
-            let persisted = persist_image_bytes(&app, buffer.get_ref(), "png")?;
+            let persisted = persist_image_bytes(&app, buffer.get_ref(), "png", media_context.as_ref())?;
             results.push(persisted);
         }
     }
@@ -277,6 +279,7 @@ fn split_image_source_blocking(
     requested_line: u32,
     col_ratios: Option<Vec<f64>>,
     row_ratios: Option<Vec<f64>>,
+    media_context: Option<MediaPersistContext>,
 ) -> Result<(Vec<String>, u128, u128), String> {
     let blocking_started = Instant::now();
     let decode_started = Instant::now();
@@ -356,7 +359,7 @@ fn split_image_source_blocking(
                 .write_to(&mut buffer, image::ImageFormat::Png)
                 .map_err(|e| format!("Failed to encode split image: {}", e))?;
 
-            let persisted = persist_image_bytes(app, buffer.get_ref(), "png")?;
+            let persisted = persist_image_bytes(app, buffer.get_ref(), "png", media_context.as_ref())?;
             results.push(persisted);
         }
     }
@@ -889,6 +892,7 @@ fn optimize_api_reference_image_from_bytes(
     original_format: String,
     max_dimension: u32,
     max_bytes: usize,
+    media_context: Option<MediaPersistContext>,
 ) -> Result<OptimizedReferenceImageForApi, String> {
     let original_bytes = bytes.len();
     let image = image::load_from_memory(&bytes).map_err(|e| {
@@ -902,7 +906,13 @@ fn optimize_api_reference_image_from_bytes(
     let transparent = image_has_transparency(&image);
     let (output_bytes, output_format, output_width, output_height) =
         encode_api_reference_image(&image, transparent, max_dimension, max_bytes)?;
-    let image_path = persist_image_bytes(app, &output_bytes, &output_format)?;
+    let image_path = persist_image_bytes_with_role(
+        app,
+        &output_bytes,
+        &output_format,
+        media_context.as_ref(),
+        "cache",
+    )?;
 
     Ok(OptimizedReferenceImageForApi {
         source,
@@ -935,6 +945,7 @@ fn prepare_node_image_from_bytes(
     extension: &str,
     safe_max_dimension: u32,
     trace_tag: &str,
+    media_context: Option<MediaPersistContext>,
 ) -> Result<PrepareNodeImageResult, String> {
     let started = Instant::now();
     let probe_started = Instant::now();
@@ -948,7 +959,7 @@ fn prepare_node_image_from_bytes(
     let height = raw_height.max(1);
 
     let persist_started = Instant::now();
-    let image_path = persist_image_bytes(app, bytes, extension)?;
+    let image_path = persist_image_bytes(app, bytes, extension, media_context.as_ref())?;
     let persist_elapsed = persist_started.elapsed().as_millis();
     let longest_side = width.max(height);
     let bypass_preview = longest_side <= safe_max_dimension
@@ -999,7 +1010,13 @@ fn prepare_node_image_from_bytes(
     resized
         .write_to(&mut preview_buffer, image::ImageFormat::Png)
         .map_err(|e| format!("Failed to encode preview image: {}", e))?;
-    let preview_image_path = persist_image_bytes(app, preview_buffer.get_ref(), "png")?;
+    let preview_image_path = persist_image_bytes_with_role(
+        app,
+        preview_buffer.get_ref(),
+        "png",
+        media_context.as_ref(),
+        "preview",
+    )?;
     let resize_elapsed = resize_started.elapsed().as_millis();
 
     info!(
@@ -1029,6 +1046,7 @@ pub async fn prepare_node_image_source(
     app: AppHandle,
     source: String,
     max_preview_dimension: Option<u32>,
+    media_context: Option<MediaPersistContext>,
 ) -> Result<PrepareNodeImageResult, String> {
     let started = Instant::now();
     let trimmed = source.trim();
@@ -1043,6 +1061,7 @@ pub async fn prepare_node_image_source(
     let bytes_len = bytes.len();
     let extension_for_log = extension.clone();
     let app_handle = app.clone();
+    let blocking_media_context = media_context.clone();
     let result = tokio::task::spawn_blocking(move || {
         prepare_node_image_from_bytes(
             &app_handle,
@@ -1050,6 +1069,7 @@ pub async fn prepare_node_image_source(
             &extension,
             safe_max_dimension,
             "source",
+            blocking_media_context,
         )
     })
     .await
@@ -1070,6 +1090,7 @@ pub async fn prepare_node_image_binary(
     bytes: Vec<u8>,
     extension: Option<String>,
     max_preview_dimension: Option<u32>,
+    media_context: Option<MediaPersistContext>,
 ) -> Result<PrepareNodeImageResult, String> {
     let started = Instant::now();
     if bytes.is_empty() {
@@ -1085,6 +1106,7 @@ pub async fn prepare_node_image_binary(
     let bytes_len = bytes.len();
     let extension_for_log = resolved_extension.clone();
     let app_handle = app.clone();
+    let blocking_media_context = media_context.clone();
     let result = tokio::task::spawn_blocking(move || {
         prepare_node_image_from_bytes(
             &app_handle,
@@ -1092,6 +1114,7 @@ pub async fn prepare_node_image_binary(
             &resolved_extension,
             safe_max_dimension,
             "binary",
+            blocking_media_context,
         )
     })
     .await
@@ -1109,6 +1132,7 @@ pub async fn prepare_node_image_binary(
 pub async fn crop_image_source(
     app: AppHandle,
     payload: CropImageSourcePayload,
+    media_context: Option<MediaPersistContext>,
 ) -> Result<String, String> {
     let trimmed = payload.source.trim();
     if trimmed.is_empty() {
@@ -1172,13 +1196,14 @@ pub async fn crop_image_source(
         .write_to(&mut buffer, image::ImageFormat::Png)
         .map_err(|e| format!("Failed to encode cropped image: {}", e))?;
 
-    persist_image_bytes(&app, buffer.get_ref(), "png")
+    persist_image_bytes(&app, buffer.get_ref(), "png", media_context.as_ref())
 }
 
 #[tauri::command]
 pub async fn merge_storyboard_images(
     app: AppHandle,
     payload: MergeStoryboardImagesPayload,
+    media_context: Option<MediaPersistContext>,
 ) -> Result<MergeStoryboardImagesResult, String> {
     let started = Instant::now();
     let rows = payload.rows.max(1);
@@ -1431,7 +1456,7 @@ pub async fn merge_storyboard_images(
         .write_to(&mut buffer, image::ImageFormat::Png)
         .map_err(|e| format!("Failed to encode merged storyboard image: {}", e))?;
 
-    let image_path = persist_image_bytes(&app, buffer.get_ref(), "png")?;
+    let image_path = persist_image_bytes(&app, buffer.get_ref(), "png", media_context.as_ref())?;
     info!(
         "merge_storyboard_images done: {} cells, load={}ms, total={}ms, text_overlay_applied={}",
         total_cells,
@@ -1452,10 +1477,6 @@ pub async fn merge_storyboard_images(
         font_size,
         text_overlay_applied,
     })
-}
-
-fn resolve_images_dir(app: &AppHandle) -> Result<PathBuf, String> {
-    storage::resolve_images_dir(app)
 }
 
 fn verify_persisted_image_path(output_path: &Path) -> Result<(), String> {
@@ -1479,6 +1500,7 @@ fn verify_persisted_image_path(output_path: &Path) -> Result<(), String> {
     Ok(())
 }
 
+#[cfg(test)]
 fn build_temp_image_output_path(output_path: &Path, attempt: u32) -> Result<PathBuf, String> {
     let parent = output_path.parent().ok_or_else(|| {
         format!(
@@ -1503,7 +1525,10 @@ fn build_temp_image_output_path(output_path: &Path, attempt: u32) -> Result<Path
     )))
 }
 
+#[cfg(test)]
 fn write_bytes_atomically(output_path: &Path, bytes: &[u8]) -> Result<(), String> {
+    use std::io::Write;
+
     if bytes.is_empty() {
         return Err("Failed to persist generated image: image bytes are empty".to_string());
     }
@@ -1586,16 +1611,23 @@ fn write_bytes_atomically(output_path: &Path, bytes: &[u8]) -> Result<(), String
     ))
 }
 
-fn persist_image_bytes(app: &AppHandle, bytes: &[u8], extension: &str) -> Result<String, String> {
-    let images_dir = resolve_images_dir(app)?;
-    let digest = md5::compute(bytes);
-    let filename = format!("{:x}.{}", digest, normalize_extension(extension));
-    let output_path = images_dir.join(filename);
+fn persist_image_bytes(
+    app: &AppHandle,
+    bytes: &[u8],
+    extension: &str,
+    media_context: Option<&MediaPersistContext>,
+) -> Result<String, String> {
+    persist_image_bytes_with_role(app, bytes, extension, media_context, "original")
+}
 
-    write_bytes_atomically(&output_path, bytes)?;
-    verify_persisted_image_path(&output_path)?;
-
-    Ok(output_path.to_string_lossy().to_string())
+fn persist_image_bytes_with_role(
+    app: &AppHandle,
+    bytes: &[u8],
+    extension: &str,
+    media_context: Option<&MediaPersistContext>,
+    default_role: &str,
+) -> Result<String, String> {
+    storage::persist_media_bytes(app, bytes, extension, media_context, default_role)
 }
 
 fn normalize_extension(raw_ext: &str) -> String {
@@ -1776,10 +1808,10 @@ fn resolve_readable_local_image_path(app: &AppHandle, source: &str) -> Result<Pa
         return Ok(local_path);
     }
 
-    let known_images_dirs = storage::resolve_known_images_dirs(app)?;
-    if let Some(relocated_path) = storage::relocate_storage_path_to_known_images_dirs(
+    let known_media_dirs = storage::resolve_known_media_dirs(app)?;
+    if let Some(relocated_path) = storage::relocate_storage_path_to_known_media_dirs(
         &local_path.to_string_lossy(),
-        &known_images_dirs,
+        &known_media_dirs,
     ) {
         let relocated = PathBuf::from(relocated_path);
         if verify_persisted_image_path(&relocated).is_ok() {
@@ -1976,14 +2008,18 @@ pub async fn resolve_image_source_bytes(source: &str) -> Result<(Vec<u8>, String
     resolve_source_bytes(source).await
 }
 
-pub async fn materialize_image_source(app: &AppHandle, source: &str) -> Result<String, String> {
+pub async fn materialize_image_source(
+    app: &AppHandle,
+    source: &str,
+    media_context: Option<&MediaPersistContext>,
+) -> Result<String, String> {
     let trimmed = source.trim();
     if trimmed.is_empty() {
         return Err("Image source is empty".to_string());
     }
 
     let (bytes, extension) = resolve_image_source_bytes(trimmed).await?;
-    persist_image_bytes(app, &bytes, &extension)
+    persist_image_bytes(app, &bytes, &extension, media_context)
 }
 
 #[tauri::command]
@@ -2008,6 +2044,7 @@ pub async fn embed_storyboard_image_metadata(
     app: AppHandle,
     source: String,
     metadata: StoryboardImageMetadata,
+    media_context: Option<MediaPersistContext>,
 ) -> Result<String, String> {
     let trimmed = source.trim();
     if trimmed.is_empty() {
@@ -2019,7 +2056,7 @@ pub async fn embed_storyboard_image_metadata(
         .map_err(|e| format!("Failed to decode image for metadata embedding: {}", e))?;
     let encoded = encode_png_with_storyboard_metadata(&image, &metadata)?;
 
-    persist_image_bytes(&app, &encoded, "png")
+    persist_image_bytes(&app, &encoded, "png", media_context.as_ref())
 }
 
 #[tauri::command]
@@ -2027,6 +2064,7 @@ pub async fn optimize_reference_images_for_api(
     app: AppHandle,
     sources: Vec<String>,
     options: Option<OptimizeReferenceImagesForApiOptions>,
+    media_context: Option<MediaPersistContext>,
 ) -> Result<Vec<OptimizedReferenceImageForApi>, String> {
     let started = Instant::now();
     let safe_max_dimension = options
@@ -2054,6 +2092,7 @@ pub async fn optimize_reference_images_for_api(
         let (bytes, original_format) = resolve_source_bytes(&trimmed).await?;
         let original_bytes = bytes.len();
         let app_handle = app.clone();
+        let item_media_context = media_context.clone();
         let optimized = tokio::task::spawn_blocking(move || {
             optimize_api_reference_image_from_bytes(
                 &app_handle,
@@ -2062,6 +2101,7 @@ pub async fn optimize_reference_images_for_api(
                 original_format,
                 safe_max_dimension,
                 safe_max_bytes,
+                item_media_context,
             )
         })
         .await
@@ -2104,8 +2144,12 @@ pub async fn optimize_reference_images_for_api(
 }
 
 #[tauri::command]
-pub async fn persist_image_source(app: AppHandle, source: String) -> Result<String, String> {
-    materialize_image_source(&app, &source).await
+pub async fn persist_image_source(
+    app: AppHandle,
+    source: String,
+    media_context: Option<MediaPersistContext>,
+) -> Result<String, String> {
+    materialize_image_source(&app, &source, media_context.as_ref()).await
 }
 
 #[tauri::command]
@@ -2113,6 +2157,7 @@ pub async fn persist_image_binary(
     app: AppHandle,
     bytes: Vec<u8>,
     extension: Option<String>,
+    media_context: Option<MediaPersistContext>,
 ) -> Result<String, String> {
     let started = Instant::now();
     if bytes.is_empty() {
@@ -2124,7 +2169,7 @@ pub async fn persist_image_binary(
         .map(normalize_extension)
         .unwrap_or_else(|| "png".to_string());
 
-    let output = persist_image_bytes(&app, &bytes, &resolved_extension)?;
+    let output = persist_image_bytes(&app, &bytes, &resolved_extension, media_context.as_ref())?;
     info!(
         "persist_image_binary done: bytes={}, ext={}, elapsed={}ms",
         bytes.len(),
@@ -2430,6 +2475,7 @@ pub async fn ensure_local_image_preview_path(
         app.clone(),
         readable_source_path.to_string_lossy().to_string(),
         max_preview_dimension,
+        None,
     )
     .await?;
     Ok(prepared.preview_image_path)

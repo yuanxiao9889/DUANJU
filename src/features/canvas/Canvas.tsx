@@ -75,6 +75,7 @@ import {
   prepareNodeAudioFromFile,
 } from '@/features/canvas/application/audioData';
 import { parseAspectRatio, prepareNodeImage, prepareNodeImageFromFile } from '@/features/canvas/application/imageData';
+import { createCurrentProjectMediaContext } from '@/features/canvas/application/mediaPersistenceContext';
 import {
   prepareNodeVideoFromFile,
   prepareNodeVideoFromSource,
@@ -1500,7 +1501,7 @@ export function Canvas() {
             gridRows: Math.max(1, Math.round(storyboardMetadataRaw.gridRows)),
             gridCols: Math.max(1, Math.round(storyboardMetadataRaw.gridCols)),
             frameNotes: storyboardMetadataRaw.frameNotes,
-          }).catch((error) => {
+          }, createCurrentProjectMediaContext('image')).catch((error) => {
             console.warn('[GenerationJob] embed storyboard metadata failed', {
               nodeId,
               error,
