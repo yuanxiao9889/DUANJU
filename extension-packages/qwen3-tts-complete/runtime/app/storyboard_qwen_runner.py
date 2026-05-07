@@ -152,6 +152,33 @@ def ensure_required_paths() -> Dict[str, bool]:
     }
 
 
+def ensure_model_speech_tokenizer(model_key: str) -> None:
+    if model_key == "tokenizer":
+        return
+
+    tokenizer_source_dir = MODEL_PATHS["tokenizer"]
+    if not tokenizer_source_dir.exists():
+        raise FileNotFoundError(f"Tokenizer model path does not exist: {tokenizer_source_dir}")
+
+    model_dir = MODEL_PATHS[model_key]
+    speech_tokenizer_dir = model_dir / "speech_tokenizer"
+    speech_tokenizer_config = speech_tokenizer_dir / "config.json"
+    if speech_tokenizer_config.exists():
+        return
+
+    speech_tokenizer_dir.mkdir(parents=True, exist_ok=True)
+
+    for source_entry in tokenizer_source_dir.iterdir():
+        target_entry = speech_tokenizer_dir / source_entry.name
+        if target_entry.exists():
+            continue
+
+        if source_entry.is_dir():
+            shutil.copytree(source_entry, target_entry)
+        else:
+            shutil.copy2(source_entry, target_entry)
+
+
 def clear_model_cache() -> None:
     MODEL_CACHE.clear()
     gc.collect()
@@ -170,6 +197,8 @@ def get_model(model_key: str, device: str, dtype_name: Optional[str]) -> Qwen3TT
     model_path = MODEL_PATHS[model_key]
     if not model_path.exists():
         raise FileNotFoundError(f"Model path does not exist: {model_path}")
+
+    ensure_model_speech_tokenizer(model_key)
 
     dtype = resolve_dtype(dtype_name, device)
     attn_implementation = "flash_attention_2" if device.startswith("cuda") else None
