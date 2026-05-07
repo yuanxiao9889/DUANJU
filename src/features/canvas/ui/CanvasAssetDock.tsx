@@ -1,4 +1,12 @@
-import { useEffect, useMemo, useState } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type KeyboardEvent as ReactKeyboardEvent,
+  type PointerEvent as ReactPointerEvent,
+} from 'react';
 import { useTranslation } from 'react-i18next';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import {
@@ -31,9 +39,48 @@ import { formatAudioDuration } from '@/features/canvas/application/audioData';
 import { useAssetStore } from '@/stores/assetStore';
 import { useProjectStore } from '@/stores/projectStore';
 
-const ASSET_GRID_FIXED_MAX_HEIGHT_PX = 248;
 const DOCK_PANEL_TRANSITION_MS = 220;
-const DOCK_PANEL_MAX_HEIGHT_PX = 520;
+const DOCK_PANEL_HEIGHT_STORAGE_KEY = 'storyboard.asset-dock.height';
+const DOCK_PANEL_DEFAULT_HEIGHT_PX = 520;
+const DOCK_PANEL_MIN_HEIGHT_PX = 150;
+const DOCK_PANEL_VIEWPORT_VERTICAL_MARGIN_PX = 96;
+const ASSET_GRID_MIN_HEIGHT_PX = 0;
+const ASSET_GRID_RESERVED_HEIGHT_PX = 172;
+
+function resolveDockPanelMaxHeight(): number {
+  if (typeof window === 'undefined') {
+    return DOCK_PANEL_DEFAULT_HEIGHT_PX;
+  }
+
+  return Math.max(
+    DOCK_PANEL_MIN_HEIGHT_PX,
+    Math.round(window.innerHeight - DOCK_PANEL_VIEWPORT_VERTICAL_MARGIN_PX)
+  );
+}
+
+function clampDockPanelHeight(value: number): number {
+  if (!Number.isFinite(value)) {
+    return DOCK_PANEL_DEFAULT_HEIGHT_PX;
+  }
+
+  return Math.min(
+    resolveDockPanelMaxHeight(),
+    Math.max(DOCK_PANEL_MIN_HEIGHT_PX, Math.round(value))
+  );
+}
+
+function readDockPanelHeight(): number {
+  if (typeof window === 'undefined') {
+    return DOCK_PANEL_DEFAULT_HEIGHT_PX;
+  }
+
+  const raw = Number(window.localStorage.getItem(DOCK_PANEL_HEIGHT_STORAGE_KEY));
+  if (!Number.isFinite(raw) || raw <= 0) {
+    return clampDockPanelHeight(DOCK_PANEL_DEFAULT_HEIGHT_PX);
+  }
+
+  return clampDockPanelHeight(raw);
+}
 
 function resolveCategoryLabel(t: (key: string) => string, category: AssetCategory): string {
   return t(`assets.categories.${category}`);
@@ -71,10 +118,34 @@ export function CanvasAssetDock() {
   const [isPanelMounted, setIsPanelMounted] = useState(false);
   const [isPanelVisible, setIsPanelVisible] = useState(false);
   const [isDetachedPanelOpen, setIsDetachedPanelOpen] = useState(false);
+  const [dockPanelHeight, setDockPanelHeight] = useState(readDockPanelHeight);
+  const [isPanelResizing, setIsPanelResizing] = useState(false);
+  const panelResizeStateRef = useRef<{ startY: number; startHeight: number } | null>(null);
 
   useEffect(() => {
     void hydrate();
   }, [hydrate]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') {
+      return;
+    }
+
+    window.localStorage.setItem(DOCK_PANEL_HEIGHT_STORAGE_KEY, String(dockPanelHeight));
+  }, [dockPanelHeight]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') {
+      return;
+    }
+
+    const handleResize = () => {
+      setDockPanelHeight((current) => clampDockPanelHeight(current));
+    };
+
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
 
   const selectedLibrary = libraries.find((library) => library.id === assetLibraryId) ?? null;
 
@@ -145,6 +216,10 @@ export function CanvasAssetDock() {
   const isExpanded = Boolean(activeCategory && selectedLibrary);
   const visibleCategory = activeCategory ?? renderedCategory;
   const isDockOpen = isExpanded || isPanelMounted;
+  const assetGridMaxHeight = Math.max(
+    ASSET_GRID_MIN_HEIGHT_PX,
+    dockPanelHeight - ASSET_GRID_RESERVED_HEIGHT_PX
+  );
 
   useEffect(() => {
     if (isExpanded && activeCategory) {
@@ -170,6 +245,97 @@ export function CanvasAssetDock() {
 
     return () => window.clearTimeout(timeoutId);
   }, [activeCategory, isExpanded, isPanelMounted, renderedCategory]);
+
+  useEffect(() => {
+    if (!isPanelResizing) {
+      return;
+    }
+
+    if (typeof document !== 'undefined') {
+      document.body.style.cursor = 'row-resize';
+      document.body.style.userSelect = 'none';
+      window.getSelection()?.removeAllRanges();
+    }
+
+    const handlePointerMove = (event: PointerEvent) => {
+      const resizeState = panelResizeStateRef.current;
+      if (!resizeState) {
+        return;
+      }
+
+      setDockPanelHeight(
+        clampDockPanelHeight(resizeState.startHeight + (resizeState.startY - event.clientY))
+      );
+    };
+
+    const handlePointerUp = () => {
+      panelResizeStateRef.current = null;
+      setIsPanelResizing(false);
+    };
+
+    const handleSelectStart = (event: Event) => {
+      event.preventDefault();
+    };
+
+    window.addEventListener('pointermove', handlePointerMove);
+    window.addEventListener('pointerup', handlePointerUp);
+    window.addEventListener('selectstart', handleSelectStart);
+    return () => {
+      if (typeof document !== 'undefined') {
+        document.body.style.cursor = '';
+        document.body.style.userSelect = '';
+      }
+      window.removeEventListener('pointermove', handlePointerMove);
+      window.removeEventListener('pointerup', handlePointerUp);
+      window.removeEventListener('selectstart', handleSelectStart);
+    };
+  }, [isPanelResizing]);
+
+  const handleStartPanelResize = useCallback(
+    (event: ReactPointerEvent<HTMLDivElement>) => {
+      if (event.button !== 0 || !isPanelVisible) {
+        return;
+      }
+
+      event.preventDefault();
+      event.stopPropagation();
+      panelResizeStateRef.current = {
+        startY: event.clientY,
+        startHeight: dockPanelHeight,
+      };
+      setIsPanelResizing(true);
+    },
+    [dockPanelHeight, isPanelVisible]
+  );
+
+  const handlePanelResizeKeyDown = useCallback((event: ReactKeyboardEvent<HTMLDivElement>) => {
+    if (!isPanelVisible) {
+      return;
+    }
+
+    if (event.key === 'ArrowUp') {
+      event.preventDefault();
+      setDockPanelHeight((current) => clampDockPanelHeight(current + 24));
+      return;
+    }
+
+    if (event.key === 'ArrowDown') {
+      event.preventDefault();
+      setDockPanelHeight((current) => clampDockPanelHeight(current - 24));
+      return;
+    }
+
+    if (event.key === 'Home') {
+      event.preventDefault();
+      setDockPanelHeight(DOCK_PANEL_MIN_HEIGHT_PX);
+      return;
+    }
+
+    if (event.key === 'End') {
+      event.preventDefault();
+      setDockPanelHeight(resolveDockPanelMaxHeight());
+    }
+  }, [isPanelVisible]);
 
   const categoryStats = useMemo(
     () =>
@@ -289,6 +455,32 @@ export function CanvasAssetDock() {
           </button>
         ) : null}
 
+        {isDockOpen ? (
+          <div
+            role="separator"
+            aria-label={t('assets.resizeDockHeight')}
+            aria-orientation="horizontal"
+            aria-valuemin={DOCK_PANEL_MIN_HEIGHT_PX}
+            aria-valuemax={resolveDockPanelMaxHeight()}
+            aria-valuenow={dockPanelHeight}
+            tabIndex={0}
+            className={`absolute left-8 right-8 top-0 z-10 flex h-4 -translate-y-1/2 cursor-row-resize items-center justify-center rounded-full outline-none transition-opacity duration-200 focus-visible:ring-2 focus-visible:ring-accent/70 ${
+              isPanelVisible ? 'opacity-100' : 'pointer-events-none opacity-0'
+            }`}
+            onPointerDown={handleStartPanelResize}
+            onKeyDown={handlePanelResizeKeyDown}
+            title={t('assets.resizeDockHeight')}
+          >
+            <span
+              className={`h-1 w-24 rounded-full border border-white/[0.08] bg-white/[0.12] shadow-[0_6px_18px_rgba(0,0,0,0.24)] transition-[background-color,border-color,width] ${
+                isPanelResizing
+                  ? 'w-32 border-accent/35 bg-accent/35'
+                  : 'hover:border-white/[0.16] hover:bg-white/[0.2]'
+              }`}
+            />
+          </div>
+        ) : null}
+
         <div
           className={`rounded-lg border border-[rgba(255,255,255,0.12)] bg-surface-dark/92 p-3 backdrop-blur-md transition-[transform,box-shadow,border-color,background-color] duration-200 ease-out ${
             isDockOpen
@@ -364,15 +556,16 @@ export function CanvasAssetDock() {
 
           {isPanelMounted && visibleCategory && selectedLibrary ? (
             <div
-              className={`mt-2 overflow-hidden rounded-lg border border-[rgba(255,255,255,0.08)] bg-bg-dark/35 transition-[max-height,opacity,transform,margin] duration-200 ease-out ${
+              className={`mt-2 overflow-hidden rounded-lg border border-[rgba(255,255,255,0.08)] bg-bg-dark/35 transition-[height,opacity,transform,margin] duration-200 ease-out ${
                 isPanelVisible ? 'translate-y-0 opacity-100' : 'pointer-events-none -translate-y-1 opacity-0'
               }`}
               style={{
-                maxHeight: isPanelVisible ? `${DOCK_PANEL_MAX_HEIGHT_PX}px` : '0px',
+                height: isPanelVisible ? `${dockPanelHeight}px` : '0px',
+                transitionDuration: isPanelResizing ? '0ms' : undefined,
               }}
             >
               <div
-                className={`p-3 transition-[opacity,transform] duration-200 ease-out ${
+                className={`h-full min-h-0 p-3 transition-[opacity,transform] duration-200 ease-out ${
                   isPanelVisible ? 'translate-y-0 opacity-100' : 'translate-y-1 opacity-0'
                 }`}
               >
@@ -502,7 +695,7 @@ export function CanvasAssetDock() {
                   ) : (
                     <div
                       className="ui-scrollbar mt-3 overflow-y-auto pr-1"
-                      style={{ maxHeight: `${ASSET_GRID_FIXED_MAX_HEIGHT_PX}px` }}
+                      style={{ maxHeight: `${assetGridMaxHeight}px` }}
                     >
                       <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-3 lg:grid-cols-5">
                         {filteredItems.map((item, index) => (

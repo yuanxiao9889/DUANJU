@@ -852,7 +852,13 @@
       "screenshotSuccess": "截图成功",
       "screenshotFailed": "截图失败",
       "resetView": "重置视角",
-      "screenshotName": "{{name}}/全景截图 {{index}}"
+      "screenshotName": "{{name}}/全景截图 {{index}}",
+      "orbitScreenshot": "一键环拍",
+      "orbitScreenshotPending": "环拍中...",
+      "orbitScreenshotProgress": "正在环拍 {{current}}/{{total}} · {{angle}}°",
+      "orbitScreenshotSuccess": "已生成 {{count}} 张环拍截图",
+      "orbitScreenshotFailed": "环拍失败",
+      "orbitScreenshotName": "{{name}}/环拍 {{angle}}°"
     },
     "sendToPs": "发送到 PS",
     "sendToPsSuccess": "已发送到 Photoshop",
@@ -2473,6 +2479,7 @@
     "externalDragHint": "拖动这里可把真实本地文件拖到其他程序",
     "dragToOtherApps": "拖到其他程序",
     "detachPanel": "脱离面板",
+    "resizeDockHeight": "调整面板高度",
     "focusDetachedPanel": "打开独立面板",
     "focusCanvas": "聚焦画布",
     "reattachPanel": "附着回画布",

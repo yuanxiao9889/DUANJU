@@ -24,6 +24,8 @@ import { UiLoadingAnimation } from '@/components/ui';
 import {
   CANVAS_NODE_TYPES,
   DEFAULT_ASPECT_RATIO,
+  EXPORT_RESULT_NODE_MIN_HEIGHT,
+  EXPORT_RESULT_NODE_MIN_WIDTH,
   PANORAMA360_NODE_DEFAULT_HEIGHT,
   PANORAMA360_NODE_DEFAULT_WIDTH,
   PANORAMA360_NODE_MIN_HEIGHT,
@@ -35,6 +37,7 @@ import { resolveNodeDisplayName } from '@/features/canvas/domain/nodeDisplay';
 import { NodeHeader, NODE_HEADER_FLOATING_POSITION_CLASS } from '@/features/canvas/ui/NodeHeader';
 import { NodeResizeHandle } from '@/features/canvas/ui/NodeResizeHandle';
 import { NodeStatusBadge } from '@/features/canvas/ui/NodeStatusBadge';
+import { resolveMinEdgeFittedSize } from '@/features/canvas/application/imageNodeSizing';
 import { resolveImageDisplayUrl, prepareNodeImage } from '@/features/canvas/application/imageData';
 import {
   NODE_CONTROL_ACTION_BUTTON_CLASS,
@@ -77,6 +80,10 @@ const MAX_PITCH = Math.PI / 2 - 0.02;
 const VIEW_STATE_EPSILON = 0.0005;
 const VIEWER_CONTROL_BAR_HEIGHT = 64;
 const SCREENSHOT_LONG_SIDE_PX = 1920;
+const ORBIT_SCREENSHOT_ANGLE_OFFSETS = [0, 60, 120, 180, 240, 300] as const;
+const SCREENSHOT_RESULT_NODE_VERTICAL_GAP = 24;
+const SCREENSHOT_RESULT_NODE_HORIZONTAL_GAP = 32;
+const ORBIT_SCREENSHOT_ROWS_PER_COLUMN = 3;
 
 function resolveNodeDimension(value: number | undefined, fallback: number): number {
   if (typeof value === 'number' && Number.isFinite(value) && value > 1) {
@@ -181,6 +188,7 @@ export const Panorama360Node = memo(({ id, data, selected, width }: Panorama360N
 
   const [isTextureLoading, setIsTextureLoading] = useState(false);
   const [isCapturingScreenshot, setIsCapturingScreenshot] = useState(false);
+  const [isCapturingOrbitScreenshots, setIsCapturingOrbitScreenshots] = useState(false);
   const [viewerError, setViewerError] = useState<string | null>(null);
   const [actionStatus, setActionStatus] = useState<ActionStatus | null>(null);
 
@@ -207,6 +215,7 @@ export const Panorama360Node = memo(({ id, data, selected, width }: Panorama360N
     explicitHeight ?? PANORAMA360_NODE_DEFAULT_HEIGHT,
     PANORAMA360_NODE_MIN_HEIGHT
   );
+  const currentNodePosition = currentNode?.position;
   const viewerHeight = Math.max(180, resolvedHeight - VIEWER_CONTROL_BAR_HEIGHT);
   const resolvedTitle = useMemo(
     () => resolveNodeDisplayName(CANVAS_NODE_TYPES.panorama360, data),
@@ -554,21 +563,123 @@ export const Panorama360Node = memo(({ id, data, selected, width }: Panorama360N
     [handleNodeClick, renderScene, schedulePersistViewState]
   );
 
+  const capturePanoramaView = useCallback(
+    (viewState?: PanoramaViewState): string => {
+      const renderer = rendererRef.current;
+      const camera = cameraRef.current;
+      const controls = controlsRef.current;
+      const scene = sceneRef.current;
+      const host = viewerHostRef.current;
+      if (!renderer || !camera || !controls || !scene || !host) {
+        throw new Error(t('node.panorama360.screenshotFailed'));
+      }
+
+      const currentWidth = Math.max(1, Math.round(host.clientWidth));
+      const currentHeight = Math.max(1, Math.round(host.clientHeight));
+      const currentAspect = currentWidth / currentHeight;
+      const captureWidth = currentAspect >= 1
+        ? SCREENSHOT_LONG_SIDE_PX
+        : Math.max(960, Math.round(SCREENSHOT_LONG_SIDE_PX * currentAspect));
+      const captureHeight = currentAspect >= 1
+        ? Math.max(960, Math.round(SCREENSHOT_LONG_SIDE_PX / currentAspect))
+        : SCREENSHOT_LONG_SIDE_PX;
+      const previousPixelRatio = renderer.getPixelRatio();
+      const previousSize = renderer.getSize(new THREE.Vector2());
+      const previousAspect = camera.aspect;
+      const previousViewState = resolveViewerStateFromCamera(camera);
+      const previousIsApplyingExternalView = isApplyingExternalViewRef.current;
+      let screenshotDataUrl = '';
+
+      try {
+        isApplyingExternalViewRef.current = true;
+        if (viewState) {
+          applyViewStateToCamera(camera, controls, viewState);
+        }
+
+        renderer.setPixelRatio(1);
+        renderer.setSize(captureWidth, captureHeight, false);
+        camera.aspect = captureWidth / captureHeight;
+        camera.updateProjectionMatrix();
+        renderer.render(scene, camera);
+        screenshotDataUrl = renderer.domElement.toDataURL('image/jpeg', 0.95);
+      } finally {
+        renderer.setPixelRatio(previousPixelRatio);
+        renderer.setSize(previousSize.x, previousSize.y, false);
+        camera.aspect = previousAspect;
+        camera.updateProjectionMatrix();
+        if (viewState) {
+          applyViewStateToCamera(camera, controls, previousViewState);
+          latestViewStateRef.current = previousViewState;
+        }
+        isApplyingExternalViewRef.current = previousIsApplyingExternalView;
+        renderScene();
+      }
+
+      return screenshotDataUrl;
+    },
+    [renderScene, t]
+  );
+
+  const createScreenshotResultNode = useCallback(
+    async (
+      screenshotDataUrl: string,
+      resolveDisplayName: (screenshotIndex: number) => string,
+      placementIndex?: number
+    ) => {
+      const prepared = await prepareNodeImage(screenshotDataUrl);
+      if (!currentNodePosition) {
+        throw new Error(t('node.panorama360.screenshotFailed'));
+      }
+
+      const screenshotIndex = screenshotCountRef.current + 1;
+      screenshotCountRef.current = screenshotIndex;
+      const resultNodeSize = resolveMinEdgeFittedSize(prepared.aspectRatio, {
+        minWidth: EXPORT_RESULT_NODE_MIN_WIDTH,
+        minHeight: EXPORT_RESULT_NODE_MIN_HEIGHT,
+      });
+      const resolvedPlacementIndex = placementIndex ?? screenshotIndex - 1;
+      const rowIndex = placementIndex === undefined
+        ? resolvedPlacementIndex
+        : resolvedPlacementIndex % ORBIT_SCREENSHOT_ROWS_PER_COLUMN;
+      const columnIndex = placementIndex === undefined
+        ? 0
+        : Math.floor(resolvedPlacementIndex / ORBIT_SCREENSHOT_ROWS_PER_COLUMN);
+
+      const newNodeId = addNode(
+        CANVAS_NODE_TYPES.upload,
+        {
+          x: currentNodePosition.x
+            + resolvedWidth
+            + 40
+            + columnIndex * (resultNodeSize.width + SCREENSHOT_RESULT_NODE_HORIZONTAL_GAP),
+          y: currentNodePosition.y
+            + rowIndex * (resultNodeSize.height + SCREENSHOT_RESULT_NODE_VERTICAL_GAP),
+        },
+        {
+          imageUrl: prepared.imageUrl,
+          previewImageUrl: prepared.previewImageUrl,
+          aspectRatio: prepared.aspectRatio,
+          displayName: resolveDisplayName(screenshotIndex),
+        },
+        { inheritParentFromNodeId: id }
+      );
+      addEdge(id, newNodeId);
+    },
+    [addEdge, addNode, currentNodePosition, id, resolvedWidth, t]
+  );
+
   const handleScreenshot = useCallback(
     async (event: ReactMouseEvent<HTMLButtonElement>) => {
       event.stopPropagation();
       handleNodeClick();
 
-      if (!data.imageUrl || isCapturingScreenshot) {
-        return;
-      }
-
-      const renderer = rendererRef.current;
-      const camera = cameraRef.current;
-      const scene = sceneRef.current;
-      const host = viewerHostRef.current;
-      const currentNodePosition = currentNode?.position;
-      if (!renderer || !camera || !scene || !host) {
+      if (
+        !data.imageUrl
+        || isTextureLoading
+        || viewerError
+        || isCapturingScreenshot
+        || isCapturingOrbitScreenshots
+      ) {
         return;
       }
 
@@ -576,61 +687,14 @@ export const Panorama360Node = memo(({ id, data, selected, width }: Panorama360N
         setIsCapturingScreenshot(true);
         showActionStatus('info', t('node.panorama360.screenshotPending'), 0);
 
-        const currentWidth = Math.max(1, Math.round(host.clientWidth));
-        const currentHeight = Math.max(1, Math.round(host.clientHeight));
-        const currentAspect = currentWidth / currentHeight;
-        const captureWidth = currentAspect >= 1
-          ? SCREENSHOT_LONG_SIDE_PX
-          : Math.max(960, Math.round(SCREENSHOT_LONG_SIDE_PX * currentAspect));
-        const captureHeight = currentAspect >= 1
-          ? Math.max(960, Math.round(SCREENSHOT_LONG_SIDE_PX / currentAspect))
-          : SCREENSHOT_LONG_SIDE_PX;
-        const previousPixelRatio = renderer.getPixelRatio();
-        const previousSize = renderer.getSize(new THREE.Vector2());
-        const previousAspect = camera.aspect;
-        let screenshotDataUrl = '';
-
-        try {
-          renderer.setPixelRatio(1);
-          renderer.setSize(captureWidth, captureHeight, false);
-          camera.aspect = captureWidth / captureHeight;
-          camera.updateProjectionMatrix();
-          renderer.render(scene, camera);
-          screenshotDataUrl = renderer.domElement.toDataURL('image/jpeg', 0.95);
-        } finally {
-          renderer.setPixelRatio(previousPixelRatio);
-          renderer.setSize(previousSize.x, previousSize.y, false);
-          camera.aspect = previousAspect;
-          camera.updateProjectionMatrix();
-          renderScene();
-        }
-
-        const prepared = await prepareNodeImage(screenshotDataUrl);
-        if (!currentNodePosition) {
-          throw new Error(t('node.panorama360.screenshotFailed'));
-        }
-
-        const screenshotIndex = screenshotCountRef.current + 1;
-        screenshotCountRef.current = screenshotIndex;
-
-        const newNodeId = addNode(
-          CANVAS_NODE_TYPES.upload,
-          {
-            x: currentNodePosition.x + resolvedWidth + 40,
-            y: currentNodePosition.y + (screenshotIndex - 1) * 56,
-          },
-          {
-            imageUrl: prepared.imageUrl,
-            previewImageUrl: prepared.previewImageUrl,
-            aspectRatio: prepared.aspectRatio,
-            displayName: t('node.panorama360.screenshotName', {
-              name: resolvedTitle,
-              index: screenshotIndex,
-            }),
-          },
-          { inheritParentFromNodeId: id }
+        const screenshotDataUrl = capturePanoramaView();
+        await createScreenshotResultNode(
+          screenshotDataUrl,
+          (screenshotIndex) => t('node.panorama360.screenshotName', {
+            name: resolvedTitle,
+            index: screenshotIndex,
+          })
         );
-        addEdge(id, newNodeId);
 
         showActionStatus('success', t('node.panorama360.screenshotSuccess'));
       } catch (error) {
@@ -641,20 +705,115 @@ export const Panorama360Node = memo(({ id, data, selected, width }: Panorama360N
       }
     },
     [
-      addEdge,
-      addNode,
-      currentNode?.position,
+      capturePanoramaView,
+      createScreenshotResultNode,
       data.imageUrl,
       handleNodeClick,
-      id,
       isCapturingScreenshot,
-      renderScene,
+      isCapturingOrbitScreenshots,
+      isTextureLoading,
       resolvedTitle,
-      resolvedWidth,
       showActionStatus,
       t,
+      viewerError,
     ]
   );
+
+  const handleOrbitScreenshots = useCallback(
+    async (event: ReactMouseEvent<HTMLButtonElement>) => {
+      event.stopPropagation();
+      handleNodeClick();
+
+      if (
+        !data.imageUrl
+        || isTextureLoading
+        || viewerError
+        || isCapturingScreenshot
+        || isCapturingOrbitScreenshots
+      ) {
+        return;
+      }
+
+      const camera = cameraRef.current;
+      const controls = controlsRef.current;
+      if (!camera || !controls) {
+        return;
+      }
+
+      const initialViewState = resolveViewerStateFromCamera(camera);
+      const previousControlsEnabled = controls.enabled;
+
+      try {
+        setIsCapturingOrbitScreenshots(true);
+        controls.enabled = false;
+
+        for (let index = 0; index < ORBIT_SCREENSHOT_ANGLE_OFFSETS.length; index += 1) {
+          const angleOffset = ORBIT_SCREENSHOT_ANGLE_OFFSETS[index];
+          showActionStatus(
+            'info',
+            t('node.panorama360.orbitScreenshotProgress', {
+              current: index + 1,
+              total: ORBIT_SCREENSHOT_ANGLE_OFFSETS.length,
+              angle: angleOffset,
+            }),
+            0
+          );
+
+          const screenshotDataUrl = capturePanoramaView({
+            ...initialViewState,
+            yaw: initialViewState.yaw + THREE.MathUtils.degToRad(angleOffset),
+          });
+
+          await createScreenshotResultNode(
+            screenshotDataUrl,
+            () => t('node.panorama360.orbitScreenshotName', {
+              name: resolvedTitle,
+              angle: angleOffset,
+            }),
+            index
+          );
+        }
+
+        showActionStatus(
+          'success',
+          t('node.panorama360.orbitScreenshotSuccess', {
+            count: ORBIT_SCREENSHOT_ANGLE_OFFSETS.length,
+          })
+        );
+      } catch (error) {
+        console.error('Failed to capture panorama orbit screenshots:', error);
+        showActionStatus('danger', t('node.panorama360.orbitScreenshotFailed'), 4200);
+      } finally {
+        controls.enabled = previousControlsEnabled;
+        isApplyingExternalViewRef.current = true;
+        latestViewStateRef.current = initialViewState;
+        applyViewStateToCamera(camera, controls, initialViewState);
+        renderScene();
+        isApplyingExternalViewRef.current = false;
+        persistViewState(initialViewState);
+        setIsCapturingOrbitScreenshots(false);
+      }
+    },
+    [
+      capturePanoramaView,
+      createScreenshotResultNode,
+      data.imageUrl,
+      handleNodeClick,
+      isCapturingOrbitScreenshots,
+      isCapturingScreenshot,
+      isTextureLoading,
+      persistViewState,
+      renderScene,
+      resolvedTitle,
+      showActionStatus,
+      t,
+      viewerError,
+    ]
+  );
+
+  const isCaptureBusy = isCapturingScreenshot || isCapturingOrbitScreenshots;
+  const screenshotControlsDisabled =
+    !data.imageUrl || isTextureLoading || Boolean(viewerError) || isCaptureBusy;
 
   const headerStatus = useMemo(() => {
     if (viewerError) {
@@ -787,11 +946,11 @@ export const Panorama360Node = memo(({ id, data, selected, width }: Panorama360N
             </div>
           ) : null}
 
-          <div className="grid grid-cols-2 gap-2 rounded-[14px] border border-white/[0.05] bg-black/20 p-1">
+          <div className="grid grid-cols-3 gap-2 rounded-[14px] border border-white/[0.05] bg-black/20 p-1">
             <button
               type="button"
-              className={`${NODE_CONTROL_ACTION_BUTTON_CLASS} nodrag inline-flex h-9 w-full items-center justify-center gap-2 rounded-xl border border-accent/20 bg-accent/12 px-3 text-[12px] font-medium leading-none text-accent hover:border-accent/30 hover:bg-accent/18 disabled:cursor-not-allowed disabled:border-white/[0.06] disabled:bg-white/[0.04] disabled:text-text-muted disabled:opacity-55`}
-              disabled={!data.imageUrl || isCapturingScreenshot || Boolean(viewerError)}
+              className={`${NODE_CONTROL_ACTION_BUTTON_CLASS} nodrag inline-flex h-9 w-full items-center justify-center gap-2 rounded-xl border border-white/[0.08] bg-white/[0.05] px-2.5 text-[12px] font-medium leading-none text-text-dark hover:border-white/[0.14] hover:bg-white/[0.08] hover:text-white disabled:cursor-not-allowed disabled:border-white/[0.05] disabled:bg-white/[0.03] disabled:text-text-muted disabled:opacity-50`}
+              disabled={screenshotControlsDisabled}
               onClick={(event) => {
                 void handleScreenshot(event);
               }}
@@ -813,8 +972,31 @@ export const Panorama360Node = memo(({ id, data, selected, width }: Panorama360N
 
             <button
               type="button"
-              className={`${NODE_CONTROL_ACTION_BUTTON_CLASS} nodrag inline-flex h-9 w-full items-center justify-center gap-2 rounded-xl border border-white/[0.08] bg-white/[0.05] px-3 text-[12px] font-medium leading-none text-text-dark hover:border-white/[0.14] hover:bg-white/[0.08] hover:text-white disabled:cursor-not-allowed disabled:border-white/[0.05] disabled:bg-white/[0.03] disabled:text-text-muted disabled:opacity-50`}
-              disabled={!data.imageUrl}
+              className={`${NODE_CONTROL_ACTION_BUTTON_CLASS} nodrag inline-flex h-9 w-full items-center justify-center gap-2 rounded-xl border border-accent/20 bg-accent/12 px-2.5 text-[12px] font-medium leading-none text-accent hover:border-accent/30 hover:bg-accent/18 disabled:cursor-not-allowed disabled:border-white/[0.06] disabled:bg-white/[0.04] disabled:text-text-muted disabled:opacity-55`}
+              disabled={screenshotControlsDisabled}
+              onClick={(event) => {
+                void handleOrbitScreenshots(event);
+              }}
+              title={t('node.panorama360.orbitScreenshot')}
+            >
+              <span className="inline-flex h-5 w-5 shrink-0 items-center justify-center">
+                {isCapturingOrbitScreenshots ? (
+                  <UiLoadingAnimation size="sm" />
+                ) : (
+                  <Globe2 className={NODE_CONTROL_ICON_CLASS} />
+                )}
+              </span>
+              <span className="min-w-0 truncate">
+                {isCapturingOrbitScreenshots
+                  ? t('node.panorama360.orbitScreenshotPending')
+                  : t('node.panorama360.orbitScreenshot')}
+              </span>
+            </button>
+
+            <button
+              type="button"
+              className={`${NODE_CONTROL_ACTION_BUTTON_CLASS} nodrag inline-flex h-9 w-full items-center justify-center gap-2 rounded-xl border border-white/[0.08] bg-white/[0.05] px-2.5 text-[12px] font-medium leading-none text-text-dark hover:border-white/[0.14] hover:bg-white/[0.08] hover:text-white disabled:cursor-not-allowed disabled:border-white/[0.05] disabled:bg-white/[0.03] disabled:text-text-muted disabled:opacity-50`}
+              disabled={!data.imageUrl || isCaptureBusy}
               onClick={handleResetView}
               title={t('node.panorama360.resetView')}
             >

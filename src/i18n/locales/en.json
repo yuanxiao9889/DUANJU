@@ -862,7 +862,13 @@
       "screenshotSuccess": "View captured",
       "screenshotFailed": "Capture failed",
       "resetView": "Reset View",
-      "screenshotName": "{{name}}/Panorama Shot {{index}}"
+      "screenshotName": "{{name}}/Panorama Shot {{index}}",
+      "orbitScreenshot": "Orbit Capture",
+      "orbitScreenshotPending": "Orbit capturing...",
+      "orbitScreenshotProgress": "Capturing {{current}}/{{total}} · {{angle}}°",
+      "orbitScreenshotSuccess": "{{count}} views captured",
+      "orbitScreenshotFailed": "Orbit capture failed",
+      "orbitScreenshotName": "{{name}}/Orbit Shot {{angle}}°"
     },
     "jimeng": {
       "promptRequired": "Please enter a prompt for Jimeng video generation",
@@ -2765,6 +2771,7 @@
     "externalDragHint": "Drag this handle to send the real local file to another app",
     "dragToOtherApps": "Drag Out",
     "detachPanel": "Detach panel",
+    "resizeDockHeight": "Resize panel height",
     "focusDetachedPanel": "Open detached panel",
     "focusCanvas": "Focus canvas",
     "reattachPanel": "Reattach to canvas",
