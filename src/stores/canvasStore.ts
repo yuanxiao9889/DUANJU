@@ -350,6 +350,8 @@ export interface GeneratedScriptChapterInput {
 
 const MAX_HISTORY_STEPS = 50;
 const MAX_HISTORY_TIMELINE_REFERENCE_BUDGET = 120_000;
+const STALE_GENERATION_SUBMISSION_ERROR =
+  'generation job not found: submission interrupted before job id was saved';
 const IMAGE_NODE_VISUAL_MIN_EDGE = 96;
 const DERIVED_NODE_COLUMN_GAP = 28;
 const DERIVED_NODE_STACK_GAP = 20;
@@ -972,14 +974,22 @@ function normalizeNodes(rawNodes: CanvasNode[]): CanvasNode[] {
           typeof (mergedData as { generationJobId?: unknown }).generationJobId === 'string'
             ? (mergedData as { generationJobId?: string }).generationJobId?.trim() ?? ''
             : '';
-        const generationPhase =
-          typeof (mergedData as { generationPhase?: unknown }).generationPhase === 'string'
-            ? (mergedData as { generationPhase?: string }).generationPhase?.trim() ?? ''
-            : '';
-        if (!generationJobId && generationPhase !== 'submitting') {
+        if (!generationJobId) {
           mergedData.isGenerating = false;
           if ('generationStartedAt' in mergedData) {
             mergedData.generationStartedAt = null;
+          }
+          if (normalizedNodeType === CANVAS_NODE_TYPES.exportImage) {
+            (mergedData as ExportImageNodeData).generationPhase = 'failed';
+            (mergedData as ExportImageNodeData).generationFailureStage = 'submit';
+            (mergedData as ExportImageNodeData).generationStatusText = null;
+            (mergedData as { generationJobId?: string | null }).generationJobId = null;
+            (mergedData as { generationProviderId?: string | null }).generationProviderId = null;
+            (mergedData as { generationClientSessionId?: string | null }).generationClientSessionId = null;
+            (mergedData as { generationError?: string | null }).generationError =
+              STALE_GENERATION_SUBMISSION_ERROR;
+            (mergedData as { generationErrorDetails?: string | null }).generationErrorDetails =
+              STALE_GENERATION_SUBMISSION_ERROR;
           }
         }
       }

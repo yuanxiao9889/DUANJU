@@ -1521,9 +1521,11 @@ export const StoryboardGenNode = memo(({ id, data, selected, width, height }: St
         userAgent: runtimeDiagnostics.userAgent,
       };
       updateNodeData(newNodeId, {
+        isGenerating: true,
         generationJobId: jobId,
         generationPhase: 'queued',
         generationFailureStage: null,
+        generationStartedAt,
         generationSourceType: 'storyboardGen',
         generationProviderId: selectedModel.providerId,
         generationClientSessionId: CURRENT_RUNTIME_SESSION_ID,

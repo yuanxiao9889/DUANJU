@@ -1403,9 +1403,11 @@ export const MultiAngleImageNode = memo(({
         userAgent: runtimeDiagnostics.userAgent,
       };
       updateNodeData(newNodeId, {
+        isGenerating: true,
         generationJobId: jobId,
         generationPhase: 'queued',
         generationFailureStage: null,
+        generationStartedAt,
         generationSourceType: 'multiAngleImage',
         generationProviderId: selectedModel.providerId,
         generationClientSessionId: CURRENT_RUNTIME_SESSION_ID,

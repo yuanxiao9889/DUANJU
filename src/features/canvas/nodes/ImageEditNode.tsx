@@ -1202,9 +1202,11 @@ export const ImageEditNode = memo(({ id, data, selected, width, height }: ImageE
         userAgent: runtimeDiagnostics.userAgent,
       };
       updateNodeData(newNodeId, {
+        isGenerating: true,
         generationJobId: jobId,
         generationPhase: 'queued',
         generationFailureStage: null,
+        generationStartedAt,
         generationSourceType: 'imageEdit',
         generationProviderId: selectedModel.providerId,
         generationClientSessionId: CURRENT_RUNTIME_SESSION_ID,

@@ -248,7 +248,14 @@ function resolveCategory(normalized: string, statusCode?: number): AiGenerationE
     return 'network';
   }
 
-  if (hasAny(normalized, ['job interrupted by app restart', 'generation job not found', 'job not found'])) {
+  if (
+    hasAny(normalized, [
+      'job interrupted by app restart',
+      'generation job not found',
+      'job not found',
+      'submission interrupted before job id was saved',
+    ])
+  ) {
     return 'taskInterrupted';
   }
 

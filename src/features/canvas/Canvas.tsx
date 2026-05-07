@@ -237,6 +237,9 @@ const GENERATION_JOB_STALE_ACTIVITY_MS = 20 * 1000;
 const GENERATION_JOB_RESULT_RETRY_INTERVAL_MS = 4000;
 const GENERATION_JOB_FORCE_REFRESH_MIN_MS = 75 * 1000;
 const GENERATION_JOB_FORCE_REFRESH_MAX_MS = 3 * 60 * 1000;
+const GENERATION_JOB_SUBMISSION_TIMEOUT_MS = 10 * 60 * 1000;
+const STALE_GENERATION_SUBMISSION_ERROR =
+  'generation job not found: submission interrupted before job id was saved';
 const DRAG_OVERLAY_IDLE_CLEAR_MS = 420;
 const IMAGE_COMPARE_NOTICE_DURATION_MS = 2200;
 const IMAGE_COMPARE_ASPECT_RATIO_DELTA_THRESHOLD = 0.05;
@@ -273,6 +276,27 @@ function isPendingExportGenerationNode(node: CanvasNode): boolean {
   return data.isGenerating === true
     && typeof data.generationJobId === 'string'
     && data.generationJobId.trim().length > 0;
+}
+
+function isStaleSubmittingExportGenerationNode(node: CanvasNode, now: number): boolean {
+  if (node.type !== CANVAS_NODE_TYPES.exportImage) {
+    return false;
+  }
+
+  const data = node.data as Record<string, unknown>;
+  if (data.isGenerating !== true || data.generationPhase !== 'submitting') {
+    return false;
+  }
+
+  const jobId = typeof data.generationJobId === 'string' ? data.generationJobId.trim() : '';
+  if (jobId) {
+    return false;
+  }
+
+  const generationStartedAt =
+    typeof data.generationStartedAt === 'number' ? data.generationStartedAt : null;
+  return generationStartedAt !== null
+    && now - generationStartedAt >= GENERATION_JOB_SUBMISSION_TIMEOUT_MS;
 }
 
 function hasGenerationStoryboardMetadata(value: unknown): value is GenerationStoryboardMetadata {
@@ -1907,6 +1931,61 @@ export function Canvas() {
       }
     };
   }, [clearDragOverlay]);
+
+  useEffect(() => {
+    const clearStaleSubmittingNodes = () => {
+      const now = Date.now();
+      const staleNodeIds = useCanvasStore.getState().nodes
+        .filter((node) => isStaleSubmittingExportGenerationNode(node, now))
+        .map((node) => node.id);
+
+      for (const nodeId of staleNodeIds) {
+        generationNodeActivityAtRef.current.delete(nodeId);
+        activeGenerationPollNodeIdsRef.current.delete(nodeId);
+        activeGenerationRecoveryNodeIdsRef.current.delete(nodeId);
+        updateNodeData(
+          nodeId,
+          {
+            isGenerating: false,
+            generationPhase: 'failed',
+            generationFailureStage: 'submit',
+            generationStartedAt: null,
+            generationJobId: null,
+            generationProviderId: null,
+            generationClientSessionId: null,
+            generationStatusText: null,
+            generationError: STALE_GENERATION_SUBMISSION_ERROR,
+            generationErrorDetails: STALE_GENERATION_SUBMISSION_ERROR,
+          },
+          { historyMode: 'skip' }
+        );
+      }
+    };
+
+    const intervalId = window.setInterval(
+      clearStaleSubmittingNodes,
+      GENERATION_JOB_RECOVERY_SWEEP_INTERVAL_MS
+    );
+    const handleWindowFocus = () => {
+      clearStaleSubmittingNodes();
+    };
+    const handleVisibilityChange = () => {
+      if (!document.hidden) {
+        clearStaleSubmittingNodes();
+      }
+    };
+
+    window.addEventListener('focus', handleWindowFocus);
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+
+    clearStaleSubmittingNodes();
+
+    return () => {
+      window.clearInterval(intervalId);
+      window.removeEventListener('focus', handleWindowFocus);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
+  }, [nodes, updateNodeData]);
 
   useEffect(() => {
     const pendingNodeIds = nodes.filter(isPendingExportGenerationNode).map((node) => node.id);
