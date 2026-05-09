@@ -170,7 +170,9 @@ jobs:
             }
 
   build-macos-release:
-    needs: prepare-release
+    needs:
+      - prepare-release
+      - build-windows-release
     name: Build macOS Release
     runs-on: macos-latest
     steps:
@@ -273,9 +275,7 @@ jobs:
           fail_on_unmatched_files: true
 
   build-windows-release:
-    needs:
-      - prepare-release
-      - build-macos-release
+    needs: prepare-release
     name: Build Windows Release
     runs-on: windows-latest
     steps:
