@@ -32,7 +32,11 @@ import {
   canvasToolProcessor,
 } from '@/features/canvas/application/canvasServices';
 import { useCanvasNodeById } from '@/features/canvas/hooks/useCanvasNodeGraph';
-import { loadImageElement, prepareNodeImage } from '@/features/canvas/application/imageData';
+import {
+  loadImageElement,
+  prepareNodeImage,
+  resolveReadableImageSource,
+} from '@/features/canvas/application/imageData';
 import { resolveMinEdgeFittedSize } from '@/features/canvas/application/imageNodeSizing';
 import { readStoryboardImageMetadata } from '@/commands/image';
 import { getToolPlugin, type ToolOptions } from '@/features/canvas/tools';
@@ -139,6 +143,7 @@ export function NodeToolDialog() {
       return {
         mediaType: 'image' as const,
         sourceUrl: sourceNode.data.imageUrl,
+        previewUrl: sourceNode.data.previewImageUrl ?? null,
       };
     }
 
@@ -160,10 +165,24 @@ export function NodeToolDialog() {
   }, [sourceNode]);
 
   const sourceImageUrl = sourceAsset?.mediaType === 'image' ? sourceAsset.sourceUrl : null;
+  const sourcePreviewImageUrl = sourceAsset?.mediaType === 'image'
+    ? sourceAsset.previewUrl ?? null
+    : null;
   const sourceMediaUrl = sourceAsset?.sourceUrl ?? null;
   const sourceTrimMediaType = sourceAsset?.mediaType === 'video' || sourceAsset?.mediaType === 'audio'
     ? sourceAsset.mediaType
     : null;
+  const splitPrimarySource = useMemo(
+    () => sourceImageUrl?.trim() || sourcePreviewImageUrl?.trim() || '',
+    [sourceImageUrl, sourcePreviewImageUrl]
+  );
+  const splitFallbackSource = useMemo(() => (
+    sourcePreviewImageUrl?.trim()
+    && sourcePreviewImageUrl.trim() !== splitPrimarySource
+      ? sourcePreviewImageUrl.trim()
+      : null
+  ), [sourcePreviewImageUrl, splitPrimarySource]);
+  const [splitSourceImageUrl, setSplitSourceImageUrl] = useState<string | null>(sourceImageUrl);
 
   const activePlugin = useMemo(() => {
     if (!displayToolDialog) {
@@ -178,6 +197,37 @@ export function NodeToolDialog() {
     : null;
 
   useEffect(() => {
+    if (activePlugin?.editor !== 'split') {
+      setSplitSourceImageUrl(sourceImageUrl);
+      return;
+    }
+
+    if (!splitPrimarySource) {
+      setSplitSourceImageUrl(null);
+      return;
+    }
+
+    let cancelled = false;
+    setSplitSourceImageUrl(splitPrimarySource);
+
+    void resolveReadableImageSource(splitPrimarySource, splitFallbackSource)
+      .then((resolvedSource) => {
+        if (!cancelled) {
+          setSplitSourceImageUrl(resolvedSource || splitPrimarySource);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setSplitSourceImageUrl(splitPrimarySource);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [activePlugin?.editor, sourceImageUrl, splitFallbackSource, splitPrimarySource]);
+
+  useEffect(() => {
     if (!sourceNode || !activePlugin) {
       return;
     }
@@ -187,7 +237,7 @@ export function NodeToolDialog() {
     const initialOptions = activePlugin.createInitialOptions(sourceNode);
     setOptions(initialOptions);
 
-    if (activePlugin.editor !== 'split' || !sourceImageUrl) {
+    if (activePlugin.editor !== 'split' || !splitSourceImageUrl) {
       return () => {
         cancelled = true;
       };
@@ -195,7 +245,7 @@ export function NodeToolDialog() {
 
     void (async () => {
       try {
-        const metadata = await readStoryboardImageMetadata(sourceImageUrl);
+        const metadata = await readStoryboardImageMetadata(splitSourceImageUrl);
         if (!metadata || cancelled) {
           return;
         }
@@ -219,11 +269,11 @@ export function NodeToolDialog() {
     return () => {
       cancelled = true;
     };
-  }, [dialogKey, sourceNode, activePlugin, sourceImageUrl]);
+  }, [dialogKey, sourceNode, activePlugin, splitSourceImageUrl]);
 
   useEffect(() => {
-    const requiresSplitPreload = activePlugin?.editor === 'split' && Boolean(sourceImageUrl);
-    if (!requiresSplitPreload || !sourceImageUrl) {
+    const requiresSplitPreload = activePlugin?.editor === 'split' && Boolean(splitSourceImageUrl);
+    if (!requiresSplitPreload || !splitSourceImageUrl) {
       setIsSplitImageReady(true);
       return;
     }
@@ -231,7 +281,7 @@ export function NodeToolDialog() {
     let cancelled = false;
 
     setIsSplitImageReady(false);
-    void loadImageElement(sourceImageUrl)
+    void loadImageElement(splitSourceImageUrl)
       .then(() => {
         if (!cancelled) {
           setIsSplitImageReady(true);
@@ -246,7 +296,7 @@ export function NodeToolDialog() {
     return () => {
       cancelled = true;
     };
-  }, [activePlugin?.editor, sourceImageUrl]);
+  }, [activePlugin?.editor, splitSourceImageUrl]);
 
   const closeDialog = useCallback(() => {
     canvasEventBus.publish('tool-dialog/close', undefined);
@@ -278,7 +328,7 @@ export function NodeToolDialog() {
   }, [t]);
 
   const handleApply = useCallback(async () => {
-    if (!activeToolDialog || !sourceNode || !sourceMediaUrl || !activePlugin) {
+    if (!activeToolDialog || !sourceNode || !activePlugin) {
       setError(t('toolDialog.noProcessableImage'));
       return;
     }
@@ -287,7 +337,17 @@ export function NodeToolDialog() {
     setError(null);
 
     try {
-      const result = await activePlugin.execute(sourceMediaUrl, options, {
+      const processSourceUrl =
+        activePlugin.editor === 'split'
+          ? await resolveReadableImageSource(splitPrimarySource, splitFallbackSource)
+          : sourceMediaUrl;
+
+      if (!processSourceUrl) {
+        setError(t('toolDialog.noProcessableImage'));
+        return;
+      }
+
+      const result = await activePlugin.execute(processSourceUrl, options, {
         processTool: (toolType, imageUrl, toolOptions) =>
           canvasToolProcessor.process(toolType, imageUrl, toolOptions),
       });
@@ -372,6 +432,8 @@ export function NodeToolDialog() {
     sourceNode,
     sourceMediaUrl,
     activePlugin,
+    splitFallbackSource,
+    splitPrimarySource,
     options,
     addNode,
     addStoryboardSplitResultNode,
@@ -464,11 +526,11 @@ export function NodeToolDialog() {
       );
     }
 
-    if (activePlugin.editor === 'split' && sourceImageUrl) {
+    if (activePlugin.editor === 'split' && splitSourceImageUrl) {
       return (
         <SplitStoryboardToolEditor
           plugin={activePlugin}
-          sourceImageUrl={sourceImageUrl}
+          sourceImageUrl={splitSourceImageUrl}
           options={options}
           onOptionsChange={setOptions}
         />
@@ -483,10 +545,14 @@ export function NodeToolDialog() {
         onOptionsChange={setOptions}
       />
     );
-  }, [activePlugin, options, sourceImageUrl, sourceMediaUrl, sourceTrimMediaType]);
+  }, [activePlugin, options, sourceImageUrl, sourceMediaUrl, sourceTrimMediaType, splitSourceImageUrl]);
 
   const isOpen = Boolean(activeToolDialog && isSplitImageReady);
-  const isApplyDisabled = isProcessing || !sourceMediaUrl || isTrimRangeInvalid;
+  const isApplyDisabled = isProcessing || (
+    activePlugin?.editor === 'split'
+      ? !splitSourceImageUrl && !sourceImageUrl && !sourcePreviewImageUrl
+      : !sourceMediaUrl
+  ) || isTrimRangeInvalid;
   const loadingEditorFallback = (
     <div className="flex h-[280px] items-center justify-center rounded-2xl border border-border-dark bg-bg-dark/35">
       <UiLoadingBanner />

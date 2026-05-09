@@ -6,6 +6,12 @@ use tracing::warn;
 use crate::{minimize_main_window_to_tray as hide_main_window_to_tray, set_main_tray_visible};
 
 #[cfg(target_os = "windows")]
+use std::os::windows::process::CommandExt;
+
+#[cfg(target_os = "windows")]
+const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+
+#[cfg(target_os = "windows")]
 mod windows_native_file_drag {
     use std::ffi::OsString;
     use std::mem::{size_of, ManuallyDrop};
@@ -586,7 +592,10 @@ pub struct RuntimeSystemInfo {
 }
 
 fn run_command(program: &str, args: &[&str]) -> Option<String> {
-    let output = Command::new(program).args(args).output().ok()?;
+    let mut command = Command::new(program);
+    #[cfg(target_os = "windows")]
+    command.creation_flags(CREATE_NO_WINDOW);
+    let output = command.args(args).output().ok()?;
     if !output.status.success() {
         return None;
     }

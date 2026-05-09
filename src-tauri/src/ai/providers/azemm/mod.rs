@@ -1348,7 +1348,10 @@ try {
 }
 "#;
 
-        let output = TokioCommand::new("powershell.exe")
+        let mut command = TokioCommand::new("powershell.exe");
+        #[cfg(target_os = "windows")]
+        command.as_std_mut().creation_flags(CREATE_NO_WINDOW);
+        let output = command
             .args([
                 "-NoLogo",
                 "-NoProfile",
