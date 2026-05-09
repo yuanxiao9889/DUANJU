@@ -592,7 +592,8 @@
       "adScriptReference": "Ad Script Reference",
       "scriptCharacterReference": "Character Reference",
       "scriptLocationReference": "Scene Reference",
-      "scriptItemReference": "Prop Reference"
+      "scriptItemReference": "Prop Reference",
+      "directorStage": "3D Director Stage"
     },
     "menuGroup": {
       "imageGeneration": "Image Generation",
@@ -1993,6 +1994,16 @@
           "intro": "Generate a prop concept art image from the following prop information:"
         }
       }
+    },
+    "directorStage": {
+      "meta": "3D Space",
+      "open": "Open Stage",
+      "freeView": "Free View",
+      "defaultShotName": "Shot 1",
+      "objectCount": "Objects {{count}}",
+      "cameraSummary": "{{count}} shots / {{name}}",
+      "snapshotSaved": "Snapshot saved",
+      "noSnapshot": "No snapshot yet"
     }
   },
   "nodeStatus": {
@@ -2800,7 +2811,10 @@
     "untitledAsset": "Untitled Asset",
     "compactShowLibrary": "Browse",
     "compactShowDetails": "Details",
-    "all": "All"
+    "all": "All",
+    "mediaTypes": {
+      "model": "3D Model"
+    }
   },
   "settings": {
     "title": "Settings",
@@ -4017,5 +4031,191 @@
   "psImageToast": {
     "imageFromPs": "Image from Photoshop",
     "addToCanvas": "Add to Canvas"
+  },
+  "directorStage": {
+    "title": "3D Director Stage",
+    "headerMeta": "{{objects}} objects / {{shots}} shots",
+    "assetPack": {
+      "a3d": "A3D Preset Assets"
+    },
+    "tabs": {
+      "a3d": "A3D Presets",
+      "library": "My Models"
+    },
+    "assets": {
+      "lily": "Lily",
+      "xbot": "Xbot",
+      "mannequin": "Mannequin"
+    },
+    "assetCard": {
+      "poseCount": "{{count}} poses"
+    },
+    "crowd": {
+      "open": "Crowd Mode",
+      "title": "{{name}} Crowd Mode",
+      "modes": {
+        "formation": "Formation",
+        "crowd": "Crowd"
+      },
+      "columns": "Columns",
+      "rows": "Rows",
+      "count": "People",
+      "centerRadius": "Center Gap",
+      "create": "Create",
+      "update": "Update Crowd",
+      "formationName": "Formation {{count}}",
+      "crowdName": "Crowd",
+      "memberCount": "{{count}} people",
+      "formationCount": "{{count}} people will be created",
+      "formationSummary": "{{columns}} x {{rows}} / {{count}} people",
+      "limitHint": "Max {{count}} people",
+      "existingCrowdHint": "Confirming again updates the existing crowd instead of creating another one.",
+      "centerRadiusHint": "No models inside the center {{min}}-{{max}} m radius",
+      "progressTitle": "Generating crowd",
+      "progressHint": "First generation can take a moment. It will appear in the scene when ready.",
+      "progressQueue": "{{count}} crowd tasks",
+      "progressPhases": {
+        "queued": "Preparing resources",
+        "loading": "Loading model",
+        "posing": "Applying pose",
+        "baking": "Baking static model",
+        "preparing": "Preparing instance geometry",
+        "instancing": "Writing instances",
+        "ready": "Ready"
+      }
+    },
+    "environment": {
+      "title": "Environment",
+      "canvasInputs": "Canvas Inputs",
+      "connectedFallback": "Connected Environment {{count}}"
+    },
+    "skyboxes": {
+      "grid": "Grid Studio",
+      "studio": "Studio",
+      "sunset": "Sunset",
+      "city": "City",
+      "hdri21": "HDRI 21"
+    },
+    "modelLibrary": {
+      "import": "Import Model",
+      "importing": "Importing...",
+      "empty": "No 3D models imported yet.",
+      "emptyHint": "Import a local model, or browse Sketchfab for downloadable assets.",
+      "browseSketchfab": "Find Models on Sketchfab",
+      "openSketchfabFailed": "Could not open the Sketchfab link.",
+      "alreadyImported": "Model already exists in the library and was added to the scene.",
+      "delete": "Delete model",
+      "deleting": "Deleting...",
+      "deleteConfirm": "Delete \"{{name}}\" from the model library? Objects already in the scene will stay.",
+      "deleted": "Model removed from the library.",
+      "deleteFailed": "Could not delete the model.",
+      "noLibrary": "Select or create an asset library to import models.",
+      "modelFilter": "3D Model",
+      "defaultLibraryName": "3D Model Library"
+    },
+    "properties": {
+      "title": "Properties",
+      "none": "No selection",
+      "color": "Color"
+    },
+    "objects": {
+      "title": "Objects",
+      "empty": "Add a character or model from the left panel."
+    },
+    "poses": {
+      "title": "Pose",
+      "none": "No pose",
+      "idle": "Idle",
+      "walking": "Walking",
+      "fastRun": "Fast Run",
+      "running": "Running",
+      "jump": "Jump",
+      "sitting": "Sitting",
+      "sittingIdle": "Sitting Idle",
+      "femaleLaying": "Laying Pose",
+      "maleLaying": "Male Laying Pose",
+      "femaleDance": "Dance Pose",
+      "maleSitting": "Male Sitting Pose",
+      "userModelHint": "User models try common humanoid skeleton mapping; incompatible rigs are disabled.",
+      "incompatible": "This skeleton is not compatible with poses."
+    },
+    "bodyControls": {
+      "title": "Body Controls",
+      "reset": "Reset limbs",
+      "leftUpperArm": "Left upper arm",
+      "leftForeArm": "Left forearm",
+      "rightUpperArm": "Right upper arm",
+      "rightForeArm": "Right forearm",
+      "leftUpperLeg": "Left thigh",
+      "leftLowerLeg": "Left shin",
+      "rightUpperLeg": "Right thigh",
+      "rightLowerLeg": "Right shin"
+    },
+    "transform": {
+      "position": "Position",
+      "rotation": "Rotation",
+      "scale": "Scale",
+      "lockScale": "Lock XYZ uniform scale",
+      "unlockScale": "Unlock XYZ uniform scale"
+    },
+    "transformModes": {
+      "translate": "Move",
+      "rotate": "Rotate",
+      "scale": "Scale"
+    },
+    "viewport": {
+      "showGroundGrid": "Show ground grid",
+      "hideGroundGrid": "Hide ground grid"
+    },
+    "lights": {
+      "title": "Lights",
+      "enabled": "Enabled",
+      "intensity": "Intensity",
+      "target": "Target",
+      "distance": "Distance",
+      "angle": "Angle",
+      "penumbra": "Penumbra"
+    },
+    "lightKinds": {
+      "ambient": "Ambient",
+      "directional": "Key Light",
+      "point": "Point",
+      "spot": "Spot"
+    },
+    "camera": {
+      "freeView": "Free View",
+      "frameSelected": "Frame selected object",
+      "addShot": "Add Shot",
+      "deleteShot": "Delete shot",
+      "defaultShotName": "Shot 1",
+      "newShotName": "Shot {{count}}",
+      "focalLength": "Focal Length",
+      "focalValue": "{{value}}mm",
+      "lensSettings": "Lens Focal Length",
+      "fovValue": "FOV {{value}} deg",
+      "focalWithFovValue": "{{focal}}mm / FOV {{fov}} deg"
+    },
+    "snapshot": {
+      "send": "Snapshot to Canvas",
+      "capturing": "Capturing...",
+      "exportNodeTitle": "Director Stage Snapshot",
+      "aspectRatio": "Ratio",
+      "showMask": "Show snapshot mask",
+      "hideMask": "Hide snapshot mask",
+      "ratios": {
+        "r16x9": "16:9",
+        "r9x16": "9:16",
+        "r1x1": "1:1",
+        "r4x5": "4:5",
+        "r3x4": "3:4",
+        "r2x1": "2:1",
+        "r21x9": "21:9"
+      }
+    },
+    "status": {
+      "saved": "Project saved",
+      "snapshotSent": "Snapshot sent to canvas",
+      "modelLoadFailed": "Model failed to load"
+    }
   }
 }

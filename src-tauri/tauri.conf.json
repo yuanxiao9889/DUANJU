@@ -73,6 +73,7 @@
         "language": "zh-CN"
       },
       "nsis": {
+        "template": "nsis/installer-template.nsi",
         "languages": [
           "SimpChinese",
           "English"

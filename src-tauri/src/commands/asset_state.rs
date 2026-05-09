@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -237,12 +238,16 @@ async fn normalize_asset_media_paths(
         ) {
         relocated_path
     } else if should_persist_asset_path(&media_dir, &normalized_source_path) {
-        persist_image_source(
-            app.clone(),
-            normalized_source_path.clone(),
-            Some(media_context.clone()),
-        )
-        .await?
+        if media_type == "model" {
+            persist_model_source(app, &normalized_source_path, &media_context)?
+        } else {
+            persist_image_source(
+                app.clone(),
+                normalized_source_path.clone(),
+                Some(media_context.clone()),
+            )
+            .await?
+        }
     } else {
         normalized_source_path
     };
@@ -304,7 +309,32 @@ fn normalize_asset_media_type(category: &str, requested_media_type: &str) -> Str
         return "audio".to_string();
     }
 
+    if normalized_media_type == "model" {
+        return "model".to_string();
+    }
+
     "image".to_string()
+}
+
+fn model_extension_from_source(source_path: &Path) -> String {
+    source_path
+        .extension()
+        .and_then(|value| value.to_str())
+        .map(storage::normalize_media_extension)
+        .filter(|extension| matches!(extension.as_str(), "glb" | "gltf" | "fbx"))
+        .unwrap_or_else(|| "bin".to_string())
+}
+
+fn persist_model_source(
+    app: &AppHandle,
+    source: &str,
+    media_context: &storage::MediaPersistContext,
+) -> Result<String, String> {
+    let local_path = resolve_local_asset_path(source)
+        .ok_or_else(|| "Model source must be a readable local file".to_string())?;
+    let bytes = fs::read(&local_path).map_err(|e| format!("Failed to read model source: {}", e))?;
+    let extension = model_extension_from_source(&local_path);
+    storage::persist_media_bytes(app, &bytes, &extension, Some(media_context), "original")
 }
 
 fn touch_library(
@@ -1403,6 +1433,28 @@ async fn create_or_update_asset_item(
     }
 
     let tags_json = serialize_tags(&payload.tags)?;
+
+    if payload.id.is_none() && normalized_media_type == "model" {
+        let existing_model_item_id = conn
+            .query_row(
+                r#"
+                SELECT id
+                FROM asset_items
+                WHERE COALESCE(NULLIF(TRIM(media_type), ''), CASE WHEN category = 'voice' THEN 'audio' ELSE 'image' END) = 'model'
+                  AND COALESCE(NULLIF(TRIM(source_path), ''), image_path) = ?1
+                ORDER BY updated_at DESC
+                LIMIT 1
+                "#,
+                params![normalized_source_path],
+                |row| row.get::<_, String>(0),
+            )
+            .optional()
+            .map_err(|e| format!("Failed to find existing model asset: {}", e))?;
+
+        if let Some(existing_model_item_id) = existing_model_item_id {
+            return load_asset_item_record_by_id(&conn, &existing_model_item_id);
+        }
+    }
 
     let previous_library_id = if payload.id.is_some() {
         conn.query_row(

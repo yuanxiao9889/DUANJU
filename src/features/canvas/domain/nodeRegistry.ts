@@ -27,6 +27,7 @@ import {
   type CanvasNodeType,
   type ExportImageNodeData,
   type ImageCompareNodeData,
+  type DirectorStageNodeData,
   type GroupNodeData,
   type BackgroundRemoveNodeData,
   type Seedvr2ImageUpscaleNodeData,
@@ -79,6 +80,7 @@ import {
   createDefaultSceneCard,
 } from './canvasNodes';
 import { createDefaultAdProjectRootState } from '@/features/ad/types';
+import { createDefaultDirectorStageProject } from '@/features/director-stage/domain/types';
 import { DEFAULT_NODE_DISPLAY_NAME } from './nodeDisplay';
 import { DEFAULT_IMAGE_MODEL_ID } from '../models';
 import {
@@ -328,6 +330,37 @@ const panorama360NodeDefinition: CanvasNodeDefinition<Panorama360NodeData> = {
     viewerYaw: 0,
     viewerPitch: 0,
     viewerFov: 75,
+  }),
+};
+
+const directorStageNodeDefinition: CanvasNodeDefinition<DirectorStageNodeData> = {
+  type: CANVAS_NODE_TYPES.directorStage,
+  menuLabelKey: 'node.menu.directorStage',
+  menuIcon: 'package',
+  menuGroup: 'storyboard',
+  visibleInMenu: true,
+  menuProjectTypes: ['storyboard'],
+  capabilities: {
+    toolbar: true,
+    promptInput: false,
+  },
+  connectivity: {
+    sourceHandle: true,
+    targetHandle: true,
+    connectMenu: {
+      fromSource: true,
+      fromTarget: true,
+    },
+  },
+  createDefaultData: () => ({
+    displayName: DEFAULT_NODE_DISPLAY_NAME[CANVAS_NODE_TYPES.directorStage],
+    project: createDefaultDirectorStageProject(),
+    lastSnapshotUrl: null,
+    lastSnapshotPreviewUrl: null,
+    lastSnapshotAt: null,
+    objectCount: 0,
+    cameraShotCount: 1,
+    activeCameraShotName: null,
   }),
 };
 
@@ -1958,6 +1991,7 @@ export const canvasNodeDefinitions: Record<CanvasNodeType, CanvasNodeDefinition>
   [CANVAS_NODE_TYPES.imageEdit]: imageEditNodeDefinition,
   [CANVAS_NODE_TYPES.multiAngleImage]: multiAngleImageNodeDefinition,
   [CANVAS_NODE_TYPES.panorama360]: panorama360NodeDefinition,
+  [CANVAS_NODE_TYPES.directorStage]: directorStageNodeDefinition,
   [CANVAS_NODE_TYPES.backgroundRemove]: backgroundRemoveNodeDefinition,
   [CANVAS_NODE_TYPES.seedvr2ImageUpscale]: seedvr2ImageUpscaleNodeDefinition,
   [CANVAS_NODE_TYPES.seedvr2VideoUpscale]: seedvr2VideoUpscaleNodeDefinition,

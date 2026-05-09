@@ -1251,7 +1251,7 @@ export function SettingsDialog({
       setIsMigrating(true);
 
       await useProjectStore.getState().flushCurrentProjectToDisk();
-      const result = await migrateStorage(newPath, true);
+      const result = await migrateStorage(newPath, false);
       if (result.validation.warnings.length > 0) {
         console.warn('Storage migration completed with warnings', result.validation);
       }

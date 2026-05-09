@@ -57,6 +57,9 @@ const BUNDLED_APP_ASSET_PREFIXES = [
   '/shot-params/',
   './shot-params/',
   'shot-params/',
+  '/vendor/',
+  './vendor/',
+  'vendor/',
 ] as const;
 const BUNDLED_APP_ASSET_PATHS = new Set([
   '/app-icon.png',

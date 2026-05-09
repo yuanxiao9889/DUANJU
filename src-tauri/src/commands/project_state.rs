@@ -88,6 +88,12 @@ struct LegacyProjectPayload {
     node_count: i64,
 }
 
+#[derive(Debug, Clone)]
+struct ExistingProjectMediaSnapshot {
+    node_count: i64,
+    media_ref_count: usize,
+}
+
 fn resolve_db_path(app: &AppHandle) -> Result<PathBuf, String> {
     storage::resolve_db_path(app)
 }
@@ -1138,6 +1144,7 @@ fn is_media_path_key(key: &str) -> bool {
             | "videoUrl"
             | "audioUrl"
             | "referenceUrl"
+            | "modelPath"
     )
 }
 
@@ -1412,6 +1419,106 @@ fn extract_project_image_paths(nodes_json: &str, history_json: &str) -> HashSet<
     }
 
     paths
+}
+
+fn read_existing_project_media_snapshot(
+    conn: &Connection,
+    project_id: &str,
+) -> Result<Option<ExistingProjectMediaSnapshot>, String> {
+    let result = conn.query_row(
+        "SELECT node_count, nodes_json, history_json FROM projects WHERE id = ?1 LIMIT 1",
+        params![project_id],
+        |row| {
+            Ok((
+                row.get::<_, i64>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, String>(2)?,
+            ))
+        },
+    );
+
+    let (node_count, nodes_json, history_json) = match result {
+        Ok(value) => value,
+        Err(rusqlite::Error::QueryReturnedNoRows) => return Ok(None),
+        Err(error) => {
+            return Err(format!(
+                "Failed to read existing project media snapshot: {}",
+                error
+            ))
+        }
+    };
+
+    Ok(Some(ExistingProjectMediaSnapshot {
+        node_count,
+        media_ref_count: extract_project_image_paths(&nodes_json, &history_json).len(),
+    }))
+}
+
+fn is_suspicious_project_media_drop(
+    existing: &ExistingProjectMediaSnapshot,
+    incoming_node_count: i64,
+    incoming_media_ref_count: usize,
+) -> bool {
+    const MIN_EXISTING_MEDIA_REFS_FOR_GUARD: usize = 8;
+    const STABLE_NODE_COUNT_NUMERATOR: i64 = 4;
+    const STABLE_NODE_COUNT_DENOMINATOR: i64 = 5;
+    const SEVERE_REF_DROP_NUMERATOR: usize = 1;
+    const SEVERE_REF_DROP_DENOMINATOR: usize = 10;
+
+    if existing.media_ref_count < MIN_EXISTING_MEDIA_REFS_FOR_GUARD {
+        return false;
+    }
+
+    let stable_node_count = if existing.node_count <= 0 {
+        incoming_node_count > 0
+    } else {
+        incoming_node_count.saturating_mul(STABLE_NODE_COUNT_DENOMINATOR)
+            >= existing.node_count.saturating_mul(STABLE_NODE_COUNT_NUMERATOR)
+    };
+    if !stable_node_count {
+        return false;
+    }
+
+    incoming_media_ref_count == 0
+        || incoming_media_ref_count.saturating_mul(SEVERE_REF_DROP_DENOMINATOR)
+            <= existing
+                .media_ref_count
+                .saturating_mul(SEVERE_REF_DROP_NUMERATOR)
+}
+
+fn guard_project_media_refs_before_upsert(
+    app: &AppHandle,
+    conn: &Connection,
+    record: &ProjectRecord,
+) -> Result<(), String> {
+    let Some(existing) = read_existing_project_media_snapshot(conn, &record.id)? else {
+        return Ok(());
+    };
+
+    let incoming_media_ref_count =
+        extract_project_image_paths(&record.nodes_json, &record.history_json).len();
+    if !is_suspicious_project_media_drop(
+        &existing,
+        record.node_count,
+        incoming_media_ref_count,
+    ) {
+        return Ok(());
+    }
+
+    let backup_message = match storage::create_pre_persist_database_backup(app) {
+        Ok(backup) => format!(" A safety backup was created: {}", backup.id),
+        Err(error) => format!(" Safety backup failed: {}", error),
+    };
+
+    Err(format!(
+        "Blocked suspicious project media overwrite for project {}: media references would drop from {} to {} while node count changes from {} to {}.{}",
+        record.id,
+        existing.media_ref_count,
+        incoming_media_ref_count,
+        existing.node_count,
+        record.node_count,
+        backup_message
+    ))
 }
 
 fn update_project_payload_in_tx(
@@ -2205,6 +2312,8 @@ pub fn upsert_project_record(app: AppHandle, mut record: ProjectRecord) -> Resul
     }
 
     let mut conn = open_db(&app)?;
+    guard_project_media_refs_before_upsert(&app, &conn, &record)?;
+
     let tx = conn
         .transaction()
         .map_err(|e| format!("Failed to begin transaction: {}", e))?;

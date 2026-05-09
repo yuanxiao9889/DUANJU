@@ -124,6 +124,10 @@ function encodeImageReference(
     return imageUrl;
   }
 
+  if (imageUrl.startsWith(IMAGE_REF_PREFIX)) {
+    return imageUrl;
+  }
+
   const existingIndex = imageIndexMap.get(imageUrl);
   if (typeof existingIndex === 'number') {
     return `${IMAGE_REF_PREFIX}${existingIndex}`;
@@ -148,7 +152,112 @@ function decodeImageReference(
     return imageUrl;
   }
 
-  return imagePool[index] ?? null;
+  return imagePool[index] ?? imageUrl;
+}
+
+function parseImageReferenceIndex(value: string): number | null {
+  if (!value.startsWith(IMAGE_REF_PREFIX)) {
+    return null;
+  }
+
+  const indexText = value.slice(IMAGE_REF_PREFIX.length);
+  if (!/^\d+$/.test(indexText)) {
+    return null;
+  }
+
+  const index = Number.parseInt(indexText, 10);
+  return Number.isSafeInteger(index) ? index : null;
+}
+
+function collectMaxImageReferenceIndexInValue(value: unknown): number {
+  if (Array.isArray(value)) {
+    return value.reduce(
+      (maxIndex, item) => Math.max(maxIndex, collectMaxImageReferenceIndexInValue(item)),
+      -1
+    );
+  }
+
+  if (!value || typeof value !== 'object') {
+    return -1;
+  }
+
+  let maxIndex = -1;
+  for (const [key, nestedValue] of Object.entries(value as Record<string, unknown>)) {
+    if (MEDIA_REFERENCE_KEYS.has(key) && typeof nestedValue === 'string') {
+      const refIndex = parseImageReferenceIndex(nestedValue);
+      if (refIndex != null) {
+        maxIndex = Math.max(maxIndex, refIndex);
+      }
+    }
+
+    maxIndex = Math.max(maxIndex, collectMaxImageReferenceIndexInValue(nestedValue));
+  }
+
+  return maxIndex;
+}
+
+function collectMaxImageReferenceIndexInHistory(history: CanvasHistoryState): number {
+  return Math.max(
+    collectMaxImageReferenceIndexInValue(history.past),
+    collectMaxImageReferenceIndexInValue(history.future)
+  );
+}
+
+function normalizePersistedImagePool(value: unknown): string[] | undefined {
+  return Array.isArray(value)
+    ? value.filter((item): item is string => typeof item === 'string')
+    : undefined;
+}
+
+function resolvePersistedImagePool(
+  projectId: string,
+  nodes: CanvasNode[],
+  history: CanvasHistoryState,
+  nodesImagePool: string[] | undefined,
+  historyImagePool: string[] | undefined
+): string[] {
+  const requiredPoolSize = Math.max(
+    collectMaxImageReferenceIndexInValue(nodes),
+    collectMaxImageReferenceIndexInHistory(history)
+  ) + 1;
+
+  if (requiredPoolSize <= 0) {
+    return nodesImagePool ?? historyImagePool ?? [];
+  }
+
+  if (nodesImagePool && nodesImagePool.length >= requiredPoolSize) {
+    return nodesImagePool;
+  }
+
+  if (historyImagePool && historyImagePool.length >= requiredPoolSize) {
+    if (nodesImagePool && nodesImagePool.length > 0) {
+      console.warn(
+        `Recovered image pool for project ${projectId} from history because nodes imagePool was incomplete`,
+        {
+          requiredPoolSize,
+          nodesImagePoolSize: nodesImagePool.length,
+          historyImagePoolSize: historyImagePool.length,
+        }
+      );
+    }
+    return historyImagePool;
+  }
+
+  const fallbackPool =
+    (nodesImagePool?.length ?? 0) >= (historyImagePool?.length ?? 0)
+      ? nodesImagePool
+      : historyImagePool;
+
+  console.warn(
+    `Project ${projectId} has unresolved image references; preserving ref tokens instead of clearing media fields`,
+    {
+      requiredPoolSize,
+      nodesImagePoolSize: nodesImagePool?.length ?? 0,
+      historyImagePoolSize: historyImagePool?.length ?? 0,
+    }
+  );
+
+  return fallbackPool ?? [];
 }
 
 function mapImageReferencesInValue(
@@ -346,9 +455,7 @@ function parsePersistedNodesPayload(value: unknown): PersistedNodesPayload {
 
   const record = value as Record<string, unknown>;
   const nodes = Array.isArray(record.nodes) ? (record.nodes as CanvasNode[]) : [];
-  const imagePool = Array.isArray(record.imagePool)
-    ? record.imagePool.filter((item): item is string => typeof item === 'string')
-    : undefined;
+  const imagePool = normalizePersistedImagePool(record.imagePool);
 
   return {
     nodes,
@@ -504,9 +611,6 @@ function fromProjectRecord(record: ProjectRecord): Project {
   const parsedEdges = safeParseJson<CanvasEdge[]>(record.edgesJson, []);
   const parsedViewport = safeParseJson<Viewport>(record.viewportJson, DEFAULT_VIEWPORT);
   const shouldRestoreHistory = record.historyJson.length <= MAX_HISTORY_RESTORE_JSON_CHARS;
-  const extractedImagePool =
-    parsedNodesPayload.imagePool
-    ?? extractImagePoolFromHistoryJson(record.historyJson);
   const parsedHistoryPayload = shouldRestoreHistory
     ? safeParseJson<{
         past?: CanvasHistoryState['past'];
@@ -525,6 +629,16 @@ function fromProjectRecord(record: ProjectRecord): Project {
     past: parsedHistoryPayload.past ?? [],
     future: parsedHistoryPayload.future ?? [],
   };
+  const historyImagePool =
+    normalizePersistedImagePool(parsedHistoryPayload.imagePool)
+    ?? extractImagePoolFromHistoryJson(record.historyJson);
+  const imagePool = resolvePersistedImagePool(
+    record.id,
+    parsedNodes,
+    parsedHistory,
+    parsedNodesPayload.imagePool,
+    historyImagePool
+  );
 
   const persistedProject: PersistedProject = {
     id: record.id,
@@ -546,7 +660,7 @@ function fromProjectRecord(record: ProjectRecord): Project {
       safeParseJson<unknown>(record.colorLabelsJson, createDefaultCanvasColorLabelMap())
     ),
     scriptWelcomeSkipped: record.scriptWelcomeSkipped ?? false,
-    imagePool: parsedNodesPayload.imagePool ?? parsedHistoryPayload.imagePool ?? extractedImagePool,
+    imagePool,
   };
 
   const decodedProject = decodeProject(persistedProject);

@@ -34,8 +34,6 @@ const OOPII_GPT_IMAGE_2_RESOLUTIONS: ResolutionOption[] = [
   { value: '4K', label: '4K' },
 ];
 
-const OOPII_GPT_IMAGE_2_QUALITY_OPTIONS = ['low', 'medium', 'high'] as const;
-
 interface StoryboardOopiiRequestContext {
   resolution?: string | null;
   extraParams?: Record<string, unknown> | null;
@@ -120,21 +118,6 @@ function inferStoryboardOopiiApiFormat(
   return 'openai';
 }
 
-function normalizeStoryboardOopiiResolution(
-  resolution: string | null | undefined
-): '1K' | '2K' | '4K' | null {
-  const normalizedResolution = normalizeTrimmedString(resolution).toUpperCase();
-  if (
-    normalizedResolution === '1K'
-    || normalizedResolution === '2K'
-    || normalizedResolution === '4K'
-  ) {
-    return normalizedResolution;
-  }
-
-  return null;
-}
-
 function isStoryboardOopiiGptImage2RequestModel(
   requestModel: string | null | undefined
 ): boolean {
@@ -143,33 +126,14 @@ function isStoryboardOopiiGptImage2RequestModel(
     .startsWith(STORYBOARD_OOPII_GPT_IMAGE_2_REQUEST_MODEL);
 }
 
-function normalizeStoryboardOopiiGptImage2Quality(
-  extraParams: Record<string, unknown> | null | undefined
-): 'low' | 'medium' | 'high' {
-  const quality = normalizeTrimmedString(extraParams?.['quality']).toLowerCase();
-  return OOPII_GPT_IMAGE_2_QUALITY_OPTIONS.includes(
-    quality as (typeof OOPII_GPT_IMAGE_2_QUALITY_OPTIONS)[number]
-  )
-    ? quality as 'low' | 'medium' | 'high'
-    : 'medium';
-}
-
 function resolveStoryboardOopiiRequestModelVariant(
   requestModel: string | null | undefined,
-  requestContext?: StoryboardOopiiRequestContext | null
+  _requestContext?: StoryboardOopiiRequestContext | null
 ): string {
   const normalizedRequestModel = normalizeStoryboardOopiiRequestModel(requestModel);
-  if (!isStoryboardOopiiGptImage2RequestModel(normalizedRequestModel)) {
-    return normalizedRequestModel;
-  }
-
-  const normalizedResolution = normalizeStoryboardOopiiResolution(requestContext?.resolution);
-  if (normalizedResolution !== '2K' && normalizedResolution !== '4K') {
-    return STORYBOARD_OOPII_GPT_IMAGE_2_REQUEST_MODEL;
-  }
-
-  const quality = normalizeStoryboardOopiiGptImage2Quality(requestContext?.extraParams);
-  return `${STORYBOARD_OOPII_GPT_IMAGE_2_REQUEST_MODEL}-${normalizedResolution.toLowerCase()}-${quality}`;
+  return isStoryboardOopiiGptImage2RequestModel(normalizedRequestModel)
+    ? STORYBOARD_OOPII_GPT_IMAGE_2_REQUEST_MODEL
+    : normalizedRequestModel;
 }
 
 function resolveStoryboardOopiiApiFormatVariant(
@@ -338,7 +302,7 @@ export function createStoryboardOopiiImageModel(
       : normalizedConfig.displayName,
     providerId: STORYBOARD_OOPII_PROVIDER_ID,
     description: isGptImage2Model
-      ? 'OOpii gpt-image-2 with 1K base output and 2K/4K quality tiers.'
+      ? 'OOpii gpt-image-2 via OpenAI Images with size/quality parameters.'
       : 'Fixed OOpii storyboard image endpoint',
     defaultAspectRatio: isGptImage2Model ? '1:1' : legacyModel.defaultAspectRatio,
     defaultResolution: isGptImage2Model ? '1K' : legacyModel.defaultResolution,

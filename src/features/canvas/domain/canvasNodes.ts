@@ -14,6 +14,7 @@ import {
   type MidjourneyProviderId,
 } from '@/features/midjourney/domain/providers';
 import { normalizeMjPersonalizationCodes } from '@/features/midjourney/domain/styleCodePresets';
+import type { DirectorStageProject } from '@/features/director-stage/domain/types';
 
 export const CANVAS_NODE_TYPES = {
   upload: 'uploadNode',
@@ -21,6 +22,7 @@ export const CANVAS_NODE_TYPES = {
   imageEdit: 'imageNode',
   multiAngleImage: 'multiAngleImageNode',
   panorama360: 'panorama360Node',
+  directorStage: 'directorStageNode',
   backgroundRemove: 'backgroundRemoveNode',
   seedvr2ImageUpscale: 'seedvr2ImageUpscaleNode',
   seedvr2VideoUpscale: 'seedvr2VideoUpscaleNode',
@@ -83,6 +85,8 @@ export const PANORAMA360_NODE_DEFAULT_WIDTH = 520;
 export const PANORAMA360_NODE_DEFAULT_HEIGHT = 380;
 export const PANORAMA360_NODE_MIN_WIDTH = 420;
 export const PANORAMA360_NODE_MIN_HEIGHT = 300;
+export const DIRECTOR_STAGE_NODE_DEFAULT_WIDTH = 420;
+export const DIRECTOR_STAGE_NODE_DEFAULT_HEIGHT = 300;
 export const BACKGROUND_REMOVE_NODE_DEFAULT_WIDTH = 440;
 export const BACKGROUND_REMOVE_NODE_DEFAULT_HEIGHT = 320;
 export const SEEDVR2_IMAGE_UPSCALE_NODE_DEFAULT_WIDTH = 440;
@@ -700,6 +704,16 @@ export interface Panorama360NodeData extends NodeImageData {
   viewerYaw?: number;
   viewerPitch?: number;
   viewerFov?: number;
+}
+
+export interface DirectorStageNodeData extends NodeDisplayData {
+  project: DirectorStageProject;
+  lastSnapshotUrl?: string | null;
+  lastSnapshotPreviewUrl?: string | null;
+  lastSnapshotAt?: number | null;
+  objectCount?: number;
+  cameraShotCount?: number;
+  activeCameraShotName?: string | null;
 }
 
 export interface BackgroundRemoveNodeData extends NodeDisplayData {
@@ -2267,6 +2281,7 @@ export type CanvasNodeData =
   | ExportImageNodeData
   | ImageCompareNodeData
   | Panorama360NodeData
+  | DirectorStageNodeData
   | BackgroundRemoveNodeData
   | Seedvr2ImageUpscaleNodeData
   | Seedvr2VideoUpscaleNodeData
@@ -3477,6 +3492,12 @@ export function isPanorama360Node(
   return node?.type === CANVAS_NODE_TYPES.panorama360;
 }
 
+export function isDirectorStageNode(
+  node: CanvasNode | null | undefined
+): node is Node<DirectorStageNodeData, typeof CANVAS_NODE_TYPES.directorStage> {
+  return node?.type === CANVAS_NODE_TYPES.directorStage;
+}
+
 export function isBackgroundRemoveNode(
   node: CanvasNode | null | undefined
 ): node is Node<BackgroundRemoveNodeData, typeof CANVAS_NODE_TYPES.backgroundRemove> {
@@ -3871,6 +3892,21 @@ export function resolveSingleImageConnectionSource(
       imageUrl,
       previewImageUrl: normalizeImageSource(node.data.previewImageUrl) ?? imageUrl,
       aspectRatio: normalizeImageSource(node.data.aspectRatio) ?? DEFAULT_ASPECT_RATIO,
+    };
+  }
+
+  if (isDirectorStageNode(node)) {
+    const imageUrl =
+      normalizeImageSource(node.data.lastSnapshotUrl)
+      ?? normalizeImageSource(node.data.lastSnapshotPreviewUrl);
+    if (!imageUrl) {
+      return null;
+    }
+
+    return {
+      imageUrl,
+      previewImageUrl: normalizeImageSource(node.data.lastSnapshotPreviewUrl) ?? imageUrl,
+      aspectRatio: '16:9',
     };
   }
 

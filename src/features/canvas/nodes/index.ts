@@ -6,6 +6,7 @@ import { ImageCompareNode } from './ImageCompareNode';
 import { ImageEditNode } from './ImageEditNode';
 import { MultiAngleImageNode } from './MultiAngleImageNode';
 import { Panorama360Node } from './Panorama360Node';
+import { DirectorStageNode } from './DirectorStageNode';
 import { BackgroundRemoveNode } from './BackgroundRemoveNode';
 import { SeedVR2ImageUpscaleNode } from './SeedVR2ImageUpscaleNode';
 import { SeedVR2VideoUpscaleNode } from './SeedVR2VideoUpscaleNode';
@@ -64,6 +65,7 @@ export const nodeTypes: NodeTypes = {
   imageNode: ImageEditNode,
   multiAngleImageNode: MultiAngleImageNode,
   panorama360Node: Panorama360Node,
+  directorStageNode: DirectorStageNode,
   backgroundRemoveNode: BackgroundRemoveNode,
   seedvr2ImageUpscaleNode: SeedVR2ImageUpscaleNode,
   seedvr2VideoUpscaleNode: SeedVR2VideoUpscaleNode,
@@ -117,6 +119,7 @@ export {
   ImageEditNode,
   MultiAngleImageNode,
   Panorama360Node,
+  DirectorStageNode,
   BackgroundRemoveNode,
   SeedVR2ImageUpscaleNode,
   SeedVR2VideoUpscaleNode,

@@ -6,9 +6,9 @@
     "bootDescription": "正在加载项目列表、画布状态和本地配置，你可以马上看到应用框架，不再等待整页空白。"
   },
   "common": {
-    "upstreamTextDriven": "\u7531\u4e0a\u6e38\u6587\u672c\u9a71\u52a8",
-    "upstreamTextDisconnectHint": "\u65ad\u5f00\u6587\u672c\u8fde\u7ebf\u540e\u53ef\u6062\u590d\u672c\u5730\u8f93\u5165",
-    "upstreamTextEmpty": "\u5f53\u524d\u4e0a\u6e38\u6587\u672c\u4e3a\u7a7a",
+    "upstreamTextDriven": "由上游文本驱动",
+    "upstreamTextDisconnectHint": "断开文本连线后可恢复本地输入",
+    "upstreamTextEmpty": "当前上游文本为空",
     "back": "返回",
     "save": "保存",
     "saving": "保存中...",
@@ -35,17 +35,17 @@
   },
   "appCloseDialog": {
     "idle": {
-      "title": "\u5173\u95ed OOpii\uff1f",
-      "description": "\u4f60\u53ef\u4ee5\u5148\u6700\u5c0f\u5316\u5230\u6258\u76d8\uff0c\u4e4b\u540e\u518d\u6062\u590d\u7a97\u53e3\uff1b\u4e5f\u53ef\u4ee5\u76f4\u63a5\u5b8c\u5168\u5173\u95ed\u5e94\u7528\u3002"
+      "title": "关闭 OOpii？",
+      "description": "你可以先最小化到托盘，之后再恢复窗口；也可以直接完全关闭应用。"
     },
     "active": {
-      "title": "\u6709\u4efb\u52a1\u6b63\u5728\u751f\u6210",
-      "description": "\u5f53\u524d\u753b\u5e03\u4ecd\u6709\u751f\u6210\u4efb\u52a1\u5728\u8fdb\u884c\u4e2d\uff0c\u4f60\u53ef\u4ee5\u5148\u6700\u5c0f\u5316\u5230\u6258\u76d8\u7ee7\u7eed\u540e\u53f0\u8fd0\u884c\uff0c\u6216\u8005\u76f4\u63a5\u5173\u95ed\u5e94\u7528\u3002"
+      "title": "有任务正在生成",
+      "description": "当前画布仍有生成任务在进行中，你可以先最小化到托盘继续后台运行，或者直接关闭应用。"
     },
-    "hint": "\u9009\u62e9\u201c\u6700\u5c0f\u5316\u201d\u540e\uff0c\u4e3b\u7a97\u53e3\u4f1a\u88ab\u9690\u85cf\uff0c\u4f60\u4e4b\u540e\u53ef\u4ee5\u4ece\u6258\u76d8\u91cd\u65b0\u6253\u5f00\u5e94\u7528\u3002",
-    "minimize": "\u6700\u5c0f\u5316\u5230\u6258\u76d8",
-    "cancelClose": "\u53d6\u6d88\u5173\u95ed",
-    "forceClose": "\u5173\u95ed\u5e94\u7528"
+    "hint": "选择“最小化”后，主窗口会被隐藏，你之后可以从托盘重新打开应用。",
+    "minimize": "最小化到托盘",
+    "cancelClose": "取消关闭",
+    "forceClose": "关闭应用"
   },
   "generationHistory": {
     "title": "生成历史",
@@ -590,7 +590,8 @@
       "scriptCharacterReference": "角色引用",
       "scriptLocationReference": "场景引用",
       "scriptItemReference": "道具引用",
-      "imageCompare": "图片对比"
+      "imageCompare": "图片对比",
+      "directorStage": "3D 导演台"
     },
     "menuGroup": {
       "imageGeneration": "图片生成",
@@ -1936,6 +1937,16 @@
       "separate": "分离",
       "dragHint": "拖动分割线查看对比",
       "dragDivider": "拖动对比分割线"
+    },
+    "directorStage": {
+      "meta": "3D 空间",
+      "open": "打开导演台",
+      "freeView": "自由视角",
+      "defaultShotName": "镜头 1",
+      "objectCount": "对象 {{count}}",
+      "cameraSummary": "{{count}} 个镜头 / {{name}}",
+      "snapshotSaved": "已保存截图",
+      "noSnapshot": "暂无截图"
     }
   },
   "viewer": {
@@ -2508,7 +2519,10 @@
     "untitledAsset": "未命名资产",
     "compactShowLibrary": "浏览目录",
     "compactShowDetails": "查看详情",
-    "all": "全部"
+    "all": "全部",
+    "mediaTypes": {
+      "model": "3D 模型"
+    }
   },
   "styleTemplate": {
     "title": "风格模板",
@@ -3889,6 +3903,192 @@
       "openFileFailed": "打开素材文件失败。",
       "openFolderFailed": "打开所在目录失败。",
       "openRootFailed": "打开剪辑素材库根目录失败。"
+    }
+  },
+  "directorStage": {
+    "title": "3D 导演台",
+    "headerMeta": "{{objects}} 个对象 / {{shots}} 个镜头",
+    "assetPack": {
+      "a3d": "A3D 预设资产"
+    },
+    "tabs": {
+      "a3d": "A3D 预设",
+      "library": "我的模型库"
+    },
+    "assets": {
+      "lily": "Lily",
+      "xbot": "Xbot",
+      "mannequin": "Mannequin"
+    },
+    "assetCard": {
+      "poseCount": "{{count}} 个姿势"
+    },
+    "crowd": {
+      "open": "群演模式",
+      "title": "{{name}} 群演模式",
+      "modes": {
+        "formation": "队列方阵",
+        "crowd": "人群模式"
+      },
+      "columns": "横向数量",
+      "rows": "纵向数量",
+      "count": "人数",
+      "centerRadius": "中心留白",
+      "create": "生成",
+      "update": "更新人群",
+      "formationName": "队列 {{count}}",
+      "crowdName": "人群",
+      "memberCount": "{{count}} 人",
+      "formationCount": "将生成 {{count}} 人",
+      "formationSummary": "{{columns}} x {{rows}} / {{count}} 人",
+      "limitHint": "最多 {{count}} 人",
+      "existingCrowdHint": "再次确认会更新现有人群，不会新增第二个人群。",
+      "centerRadiusHint": "中心 {{min}}-{{max}} 米内不放模型",
+      "progressTitle": "正在生成群演",
+      "progressHint": "首次生成会稍慢，完成后会自动显示在场景中。",
+      "progressQueue": "{{count}} 个群演任务",
+      "progressPhases": {
+        "queued": "准备资源",
+        "loading": "加载模型",
+        "posing": "应用姿势",
+        "baking": "烘焙静态模型",
+        "preparing": "整理实例几何",
+        "instancing": "写入实例",
+        "ready": "完成"
+      }
+    },
+    "environment": {
+      "title": "环境",
+      "canvasInputs": "画布接入",
+      "connectedFallback": "接入环境 {{count}}"
+    },
+    "skyboxes": {
+      "grid": "网格棚",
+      "studio": "棚拍",
+      "sunset": "日落",
+      "city": "城市",
+      "hdri21": "HDRI 21"
+    },
+    "modelLibrary": {
+      "import": "导入模型",
+      "importing": "导入中...",
+      "empty": "还没有导入 3D 模型",
+      "emptyHint": "从本地导入模型，或到 Sketchfab 找可下载素材。",
+      "browseSketchfab": "去 Sketchfab 找模型",
+      "openSketchfabFailed": "无法打开 Sketchfab 链接",
+      "alreadyImported": "模型已在库中，已直接添加到场景",
+      "delete": "删除模型",
+      "deleting": "删除中...",
+      "deleteConfirm": "从模型库删除“{{name}}”？已放入场景的对象会保留。",
+      "deleted": "模型已从模型库删除",
+      "deleteFailed": "模型删除失败",
+      "noLibrary": "请选择或创建素材库后导入模型",
+      "modelFilter": "3D 模型",
+      "defaultLibraryName": "3D 模型库"
+    },
+    "properties": {
+      "title": "属性",
+      "none": "未选择对象",
+      "color": "颜色"
+    },
+    "objects": {
+      "title": "对象",
+      "empty": "从左侧添加角色或模型"
+    },
+    "poses": {
+      "title": "姿势",
+      "none": "无姿势",
+      "idle": "待机",
+      "walking": "走路",
+      "fastRun": "快跑",
+      "running": "奔跑",
+      "jump": "跳跃",
+      "sitting": "坐姿",
+      "sittingIdle": "坐姿待机",
+      "femaleLaying": "躺姿",
+      "maleLaying": "男性躺姿",
+      "femaleDance": "舞蹈姿势",
+      "maleSitting": "男性坐姿",
+      "userModelHint": "用户模型会尝试常见人形骨骼映射；不兼容时会禁用姿势。",
+      "incompatible": "当前骨架不兼容姿势预设"
+    },
+    "bodyControls": {
+      "title": "人体调节",
+      "reset": "重置四肢",
+      "leftUpperArm": "左上臂",
+      "leftForeArm": "左小臂",
+      "rightUpperArm": "右上臂",
+      "rightForeArm": "右小臂",
+      "leftUpperLeg": "左大腿",
+      "leftLowerLeg": "左小腿",
+      "rightUpperLeg": "右大腿",
+      "rightLowerLeg": "右小腿"
+    },
+    "transform": {
+      "position": "位置",
+      "rotation": "旋转",
+      "scale": "缩放",
+      "lockScale": "锁定 XYZ 同步缩放",
+      "unlockScale": "解除 XYZ 同步缩放"
+    },
+    "transformModes": {
+      "translate": "移动",
+      "rotate": "旋转",
+      "scale": "缩放"
+    },
+    "viewport": {
+      "showGroundGrid": "显示地面网格",
+      "hideGroundGrid": "隐藏地面网格"
+    },
+    "lights": {
+      "title": "灯光",
+      "enabled": "启用",
+      "intensity": "强度",
+      "target": "目标点",
+      "distance": "距离",
+      "angle": "角度",
+      "penumbra": "半影"
+    },
+    "lightKinds": {
+      "ambient": "环境光",
+      "directional": "主光",
+      "point": "点光",
+      "spot": "聚光"
+    },
+    "camera": {
+      "freeView": "自由视角",
+      "frameSelected": "适配所选对象",
+      "addShot": "新增镜头",
+      "deleteShot": "删除镜头",
+      "defaultShotName": "镜头 1",
+      "newShotName": "镜头 {{count}}",
+      "focalLength": "焦距",
+      "focalValue": "{{value}}mm",
+      "lensSettings": "镜头焦距",
+      "fovValue": "视角 {{value}}°",
+      "focalWithFovValue": "{{focal}}mm / 视角 {{fov}}°"
+    },
+    "snapshot": {
+      "send": "截图到画布",
+      "capturing": "截图中...",
+      "exportNodeTitle": "导演台截图",
+      "aspectRatio": "截图比例",
+      "showMask": "显示截图蒙版",
+      "hideMask": "隐藏截图蒙版",
+      "ratios": {
+        "r16x9": "16:9",
+        "r9x16": "9:16",
+        "r1x1": "1:1",
+        "r4x5": "4:5",
+        "r3x4": "3:4",
+        "r2x1": "2:1",
+        "r21x9": "21:9"
+      }
+    },
+    "status": {
+      "saved": "项目已保存",
+      "snapshotSent": "截图已发送到画布",
+      "modelLoadFailed": "模型加载失败"
     }
   }
 }

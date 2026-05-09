@@ -262,15 +262,7 @@ export const useAssetStore = create<AssetState>((set, get) => ({
   createItem: async (payload) => {
     const item = await createAssetItem(payload);
     set((state) => ({
-      libraries: state.libraries.map((library) =>
-        library.id === item.libraryId
-          ? {
-              ...library,
-              updatedAt: Math.max(library.updatedAt, item.updatedAt),
-              items: sortItems([...library.items, item]),
-            }
-          : library
-      ),
+      libraries: mergeUpdatedAssetItem(state.libraries, item),
     }));
     return item;
   },

@@ -648,6 +648,18 @@ export function AssetSearchPanel({
                             </div>
                           </div>
                         </div>
+                      ) : item.mediaType === 'model' ? (
+                        <div className="flex min-h-[132px] flex-col justify-between p-3">
+                          <Package className="h-6 w-6 text-emerald-300" />
+                          <div>
+                            <div className="truncate text-sm font-medium text-text-dark">
+                              {item.name}
+                            </div>
+                            <div className="text-xs text-text-muted">
+                              {t('assets.mediaTypes.model')}
+                            </div>
+                          </div>
+                        </div>
                       ) : (
                         <AssetPreviewImage
                           assetId={item.id}
@@ -701,6 +713,10 @@ export function AssetSearchPanel({
                     <div className="flex h-full items-center justify-center text-rose-300">
                       <AudioLines className="h-6 w-6" />
                     </div>
+                  ) : item.mediaType === 'model' ? (
+                    <div className="flex h-full items-center justify-center text-emerald-300">
+                      <Package className="h-6 w-6" />
+                    </div>
                   ) : (
                     <AssetPreviewImage
                       assetId={item.id}
@@ -730,6 +746,8 @@ export function AssetSearchPanel({
                       <span>
                         {formatAudioDuration(item.durationMs ? item.durationMs / 1000 : null)}
                       </span>
+                    ) : item.mediaType === 'model' ? (
+                      <span>{t('assets.mediaTypes.model')}</span>
                     ) : null}
                   </div>
                   {item.description ? (
@@ -773,6 +791,18 @@ export function AssetSearchPanel({
                       src={resolveAudioDisplayUrl(selectedAsset.sourcePath)}
                       className="mt-4 h-10 w-full"
                     />
+                  </div>
+                </div>
+              ) : selectedAsset.mediaType === 'model' ? (
+                <div className="flex h-full flex-col justify-between p-5">
+                  <Package className="h-8 w-8 text-emerald-300" />
+                  <div>
+                    <div className="text-lg font-semibold text-text-dark">
+                      {selectedAsset.name}
+                    </div>
+                    <div className="mt-1 text-sm text-text-muted">
+                      {t('assets.mediaTypes.model')}
+                    </div>
                   </div>
                 </div>
               ) : (

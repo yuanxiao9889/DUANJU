@@ -739,6 +739,18 @@ export function CanvasAssetDock() {
                                   {formatAudioDuration(item.durationMs ? item.durationMs / 1000 : null)}
                                 </div>
                               </div>
+                            ) : item.mediaType === 'model' ? (
+                              <div className="flex h-[72px] w-full flex-col justify-between rounded-md border border-[rgba(255,255,255,0.08)] bg-[linear-gradient(160deg,rgba(255,255,255,0.07),rgba(255,255,255,0.02))] px-3 py-2">
+                                <div className="flex items-center gap-2 text-emerald-300">
+                                  <Package className="h-4 w-4 shrink-0" />
+                                  <span className="truncate text-xs font-medium text-text-dark">
+                                    {item.name}
+                                  </span>
+                                </div>
+                                <div className="text-[11px] text-text-muted">
+                                  {t('assets.mediaTypes.model')}
+                                </div>
+                              </div>
                             ) : (
                               <AssetPreviewImage
                                 assetId={item.id}

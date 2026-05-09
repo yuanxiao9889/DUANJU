@@ -1,5 +1,5 @@
 export const ASSET_CATEGORIES = ['character', 'scene', 'prop', 'voice'] as const;
-export const ASSET_MEDIA_TYPES = ['image', 'audio'] as const;
+export const ASSET_MEDIA_TYPES = ['image', 'audio', 'model'] as const;
 
 export type AssetCategory = (typeof ASSET_CATEGORIES)[number];
 export type AssetMediaType = (typeof ASSET_MEDIA_TYPES)[number];
@@ -266,6 +266,9 @@ export function getAssetCategoryOrder(category: AssetCategory): number {
 }
 
 export function getAssetCategoriesForMediaType(mediaType: AssetMediaType): AssetCategory[] {
+  if (mediaType === 'model') {
+    return ASSET_CATEGORIES.filter((category) => category !== 'voice');
+  }
   return ASSET_CATEGORIES.filter((category) => resolveAssetMediaType(category) === mediaType);
 }
 

@@ -38,7 +38,7 @@ pub(crate) const PRE_PERSIST_DATABASE_BACKUP_KIND: &str = "pre_persist";
 const AUTO_DATABASE_BACKUP_INTERVAL_MS: i64 = 24 * 60 * 60 * 1000;
 const AUTO_DATABASE_BACKUP_RETENTION_COUNT: usize = 7;
 const PRE_RESTORE_DATABASE_BACKUP_RETENTION_COUNT: usize = 2;
-const PRE_PERSIST_DATABASE_BACKUP_RETENTION_COUNT: usize = 0;
+const PRE_PERSIST_DATABASE_BACKUP_RETENTION_COUNT: usize = 8;
 const AUTOMATIC_DATABASE_BACKUP_MAX_BYTES: u64 = 2 * 1024 * 1024 * 1024;
 const DATABASE_BACKUP_SIDECAR_CLEANUP_GRACE_MS: i64 = 5 * 60 * 1000;
 const LEGACY_STORAGE_DIR_NAMES: &[&str] = &[
@@ -291,6 +291,7 @@ pub(crate) fn media_type_from_extension(raw_ext: &str) -> String {
     match normalize_media_extension(raw_ext).as_str() {
         "mp4" | "webm" | "ogv" | "mov" | "avi" | "mkv" => "video".to_string(),
         "mp3" | "wav" | "ogg" | "oga" | "m4a" | "aac" | "flac" => "audio".to_string(),
+        "glb" | "gltf" | "fbx" => "model".to_string(),
         _ => "image".to_string(),
     }
 }
@@ -299,6 +300,7 @@ fn normalize_media_type(value: Option<&str>, extension: &str) -> String {
     match value.map(str::trim).filter(|item| !item.is_empty()) {
         Some(value) if value.eq_ignore_ascii_case("video") => "video".to_string(),
         Some(value) if value.eq_ignore_ascii_case("audio") => "audio".to_string(),
+        Some(value) if value.eq_ignore_ascii_case("model") => "model".to_string(),
         Some(value) if value.eq_ignore_ascii_case("image") => "image".to_string(),
         _ => media_type_from_extension(extension),
     }
@@ -307,8 +309,7 @@ fn normalize_media_type(value: Option<&str>, extension: &str) -> String {
 fn normalize_media_role(value: Option<&str>) -> String {
     match value.map(str::trim).filter(|item| !item.is_empty()) {
         Some(value)
-            if value.eq_ignore_ascii_case("preview")
-                || value.eq_ignore_ascii_case("previews") =>
+            if value.eq_ignore_ascii_case("preview") || value.eq_ignore_ascii_case("previews") =>
         {
             "previews".to_string()
         }
@@ -342,9 +343,8 @@ pub(crate) fn resolve_project_media_root_in_base(
     base_path: &Path,
     project_id: &str,
 ) -> Option<PathBuf> {
-    sanitize_project_dir_name(project_id).map(|safe_project_id| {
-        base_path.join("projects").join(safe_project_id)
-    })
+    sanitize_project_dir_name(project_id)
+        .map(|safe_project_id| base_path.join("projects").join(safe_project_id))
 }
 
 pub(crate) fn resolve_project_media_root(
@@ -373,6 +373,7 @@ pub(crate) fn resolve_media_dir_in_base(
     match media_type.as_str() {
         "video" => scope_root.join("videos"),
         "audio" => scope_root.join("audio"),
+        "model" => scope_root.join("models"),
         _ => scope_root.join("images").join(role),
     }
 }
@@ -385,8 +386,7 @@ pub(crate) fn resolve_media_dir(
 ) -> Result<PathBuf, String> {
     let base_path = resolve_storage_base_path(app)?;
     let media_dir = resolve_media_dir_in_base(&base_path, context, extension, default_role);
-    fs::create_dir_all(&media_dir)
-        .map_err(|e| format!("Failed to create media dir: {}", e))?;
+    fs::create_dir_all(&media_dir).map_err(|e| format!("Failed to create media dir: {}", e))?;
     Ok(media_dir)
 }
 
@@ -560,6 +560,7 @@ fn push_known_media_dirs_for_scope(
     }
     push_unique_path(results, seen, scope_root.join("videos"));
     push_unique_path(results, seen, scope_root.join("audio"));
+    push_unique_path(results, seen, scope_root.join("models"));
 }
 
 fn push_known_media_dirs_for_root(
@@ -620,6 +621,41 @@ fn storage_path_compare_key(value: &str) -> String {
 fn storage_roots_equal(left: &Path, right: &Path) -> bool {
     storage_path_compare_key(&left.to_string_lossy().replace('\\', "/"))
         == storage_path_compare_key(&right.to_string_lossy().replace('\\', "/"))
+}
+
+fn storage_path_key(path: &Path) -> String {
+    let normalized = path.to_string_lossy().replace('\\', "/");
+    let normalized = normalized.trim_end_matches('/').to_string();
+    storage_path_compare_key(&normalized)
+}
+
+fn storage_path_is_same_or_child(path: &Path, possible_parent: &Path) -> bool {
+    let path_key = storage_path_key(path);
+    let parent_key = storage_path_key(possible_parent);
+    path_key == parent_key || path_key.starts_with(&format!("{parent_key}/"))
+}
+
+fn ensure_non_overlapping_storage_paths(
+    current_path: &Path,
+    target_path: &Path,
+) -> Result<(), String> {
+    if storage_path_is_same_or_child(target_path, current_path) {
+        return Err(format!(
+            "Target storage path cannot be the current storage path or inside it. Current: {} Target: {}",
+            current_path.display(),
+            target_path.display()
+        ));
+    }
+
+    if storage_path_is_same_or_child(current_path, target_path) {
+        return Err(format!(
+            "Target storage path cannot contain the current storage path. Current: {} Target: {}",
+            current_path.display(),
+            target_path.display()
+        ));
+    }
+
+    Ok(())
 }
 
 fn directory_has_entries(path: &Path) -> bool {
@@ -917,9 +953,45 @@ fn open_sqlite_connection(path: &Path) -> Result<Connection, String> {
     Ok(conn)
 }
 
+fn is_protected_storage_child_dir(path: &Path) -> bool {
+    if !path.is_dir() {
+        return false;
+    }
+
+    let Some(dir_name) = path.file_name().and_then(|value| value.to_str()) else {
+        return false;
+    };
+    if !matches!(
+        dir_name.to_ascii_lowercase().as_str(),
+        "images" | "projects" | "shared" | "backups" | "debug"
+    ) {
+        return false;
+    }
+
+    let Some(parent) = path.parent() else {
+        return false;
+    };
+    if parent.join("projects.db").exists() || parent.join(STORAGE_CONFIG_FILE).exists() {
+        return true;
+    }
+
+    let storage_child_count = ["images", "projects", "shared", "backups", "debug"]
+        .iter()
+        .filter(|name| parent.join(name).exists())
+        .count();
+    storage_child_count >= 2
+}
+
 pub(crate) fn move_path_to_system_trash(path: &Path) -> Result<(), String> {
     if !path.exists() {
         return Ok(());
+    }
+
+    if is_protected_storage_child_dir(path) {
+        return Err(format!(
+            "Refusing to move protected storage media directory to trash: {}",
+            path.display()
+        ));
     }
 
     #[cfg(target_os = "windows")]
@@ -1600,6 +1672,12 @@ pub fn create_database_backup(app: AppHandle) -> Result<DatabaseBackupRecord, St
     create_database_backup_internal(&app, MANUAL_DATABASE_BACKUP_KIND)
 }
 
+pub(crate) fn create_pre_persist_database_backup(
+    app: &AppHandle,
+) -> Result<DatabaseBackupRecord, String> {
+    create_database_backup_internal(app, PRE_PERSIST_DATABASE_BACKUP_KIND)
+}
+
 #[tauri::command]
 pub fn ensure_daily_database_backup(
     app: AppHandle,
@@ -1698,12 +1776,19 @@ fn copy_dir_recursive(src: &PathBuf, dst: &PathBuf) -> Result<(), String> {
     Ok(())
 }
 
-fn move_dir_to_trash(path: &PathBuf) -> Result<(), String> {
-    if !path.exists() {
-        return Ok(());
+fn append_preserved_storage_cleanup_warning(
+    warnings: &mut Vec<String>,
+    requested_cleanup: bool,
+    source_path: &Path,
+) {
+    if !requested_cleanup {
+        return;
     }
 
-    move_path_to_system_trash(path)
+    warnings.push(format!(
+        "Previous storage directory was preserved at {}. The app no longer automatically removes old images/projects/shared/backups directories.",
+        source_path.display()
+    ));
 }
 
 #[tauri::command]
@@ -1717,9 +1802,7 @@ pub fn migrate_storage(
     let normalized_target_path = normalize_storage_path_string(&target_path.to_string_lossy())
         .unwrap_or_else(|| target_path.to_string_lossy().to_string());
 
-    if current_path == target_path {
-        return Err("Target path is the same as current path".to_string());
-    }
+    ensure_non_overlapping_storage_paths(&current_path, &target_path)?;
 
     fs::create_dir_all(&target_path)
         .map_err(|e| format!("Failed to create target directory: {}", e))?;
@@ -1774,7 +1857,8 @@ pub fn migrate_storage(
         )?;
     }
 
-    let validation = validate_storage_migration(&current_path, &target_path)?;
+    let mut validation = validate_storage_migration(&current_path, &target_path)?;
+    append_preserved_storage_cleanup_warning(&mut validation.warnings, delete_old, &current_path);
 
     let mut config = read_storage_config(&app)?;
     remember_legacy_storage_path(&mut config, &current_path);
@@ -1782,28 +1866,6 @@ pub fn migrate_storage(
     let config = normalize_storage_config(config);
     write_storage_config(&app, &config)?;
     ensure_storage_asset_scope(&app)?;
-
-    if delete_old {
-        if db_path.exists() {
-            move_path_to_system_trash(&db_path)?;
-        }
-        remove_db_sidecar_files(&db_path)?;
-        if images_dir.exists() {
-            move_dir_to_trash(&images_dir)?;
-        }
-        if projects_dir.exists() {
-            move_dir_to_trash(&projects_dir)?;
-        }
-        if shared_dir.exists() {
-            move_dir_to_trash(&shared_dir)?;
-        }
-        if debug_dir.exists() {
-            move_dir_to_trash(&debug_dir)?;
-        }
-        if backups_dir.exists() {
-            move_dir_to_trash(&backups_dir)?;
-        }
-    }
 
     Ok(StorageMigrationResult {
         current_path: current_path.to_string_lossy().to_string(),
@@ -1828,6 +1890,7 @@ pub fn reset_storage_to_default(
             validation,
         });
     }
+    ensure_non_overlapping_storage_paths(&current_path, &default_path)?;
 
     fs::create_dir_all(&default_path)
         .map_err(|e| format!("Failed to create default directory: {}", e))?;
@@ -1878,7 +1941,8 @@ pub fn reset_storage_to_default(
         )?;
     }
 
-    let validation = validate_storage_migration(&current_path, &default_path)?;
+    let mut validation = validate_storage_migration(&current_path, &default_path)?;
+    append_preserved_storage_cleanup_warning(&mut validation.warnings, delete_custom, &current_path);
 
     let mut config = read_storage_config(&app)?;
     remember_legacy_storage_path(&mut config, &current_path);
@@ -1886,28 +1950,6 @@ pub fn reset_storage_to_default(
     let config = normalize_storage_config(config);
     write_storage_config(&app, &config)?;
     ensure_storage_asset_scope(&app)?;
-
-    if delete_custom {
-        if db_path.exists() {
-            move_path_to_system_trash(&db_path)?;
-        }
-        remove_db_sidecar_files(&db_path)?;
-        if images_dir.exists() {
-            move_dir_to_trash(&images_dir)?;
-        }
-        if projects_dir.exists() {
-            move_dir_to_trash(&projects_dir)?;
-        }
-        if shared_dir.exists() {
-            move_dir_to_trash(&shared_dir)?;
-        }
-        if debug_dir.exists() {
-            move_dir_to_trash(&debug_dir)?;
-        }
-        if backups_dir.exists() {
-            move_dir_to_trash(&backups_dir)?;
-        }
-    }
 
     Ok(StorageMigrationResult {
         current_path: current_path.to_string_lossy().to_string(),
@@ -2060,9 +2102,8 @@ mod tests {
         .expect("second persist should dedupe");
 
         assert_eq!(first, second);
-        assert!(normalize_path_for_assertion(&PathBuf::from(first)).contains(
-            "/projects/project-1/audio/"
-        ));
+        assert!(normalize_path_for_assertion(&PathBuf::from(first))
+            .contains("/projects/project-1/audio/"));
 
         let _ = fs::remove_dir_all(temp_root);
     }

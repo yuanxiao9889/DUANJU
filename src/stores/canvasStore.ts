@@ -12,6 +12,8 @@ import {
   CANVAS_NODE_TYPES,
   DEFAULT_ASPECT_RATIO,
   DEFAULT_NODE_WIDTH,
+  DIRECTOR_STAGE_NODE_DEFAULT_HEIGHT,
+  DIRECTOR_STAGE_NODE_DEFAULT_WIDTH,
   EXPORT_RESULT_NODE_DEFAULT_WIDTH,
   EXPORT_RESULT_NODE_LAYOUT_HEIGHT,
   EXPORT_RESULT_NODE_MIN_HEIGHT,
@@ -49,6 +51,7 @@ import {
   type CanvasNode,
   type CanvasNodeData,
   type CanvasNodeType,
+  type DirectorStageNodeData,
   type LegacyNodeData,
   type EpisodeCard,
   type ImageCompareNodeData,
@@ -103,6 +106,7 @@ import {
   resolveSingleImageConnectionSource,
   resolveSingleVideoConnectionSource,
 } from '@/features/canvas/domain/canvasNodes';
+import { normalizeDirectorStageProject } from '@/features/director-stage/domain/types';
 import {
   nodeHasSourceHandle,
   nodeHasTargetHandle,
@@ -221,11 +225,22 @@ function applyNodeChangesLocal(
             change.setAttributes === true || change.setAttributes === 'width';
           const shouldSetHeight =
             change.setAttributes === true || change.setAttributes === 'height';
+          const shouldUpdateStyleWidth = shouldSetWidth && typeof width === 'number';
+          const shouldUpdateStyleHeight = shouldSetHeight && typeof height === 'number';
+          const nextStyle =
+            shouldUpdateStyleWidth || shouldUpdateStyleHeight
+              ? {
+                  ...(node.style ?? {}),
+                  ...(shouldUpdateStyleWidth ? { width } : {}),
+                  ...(shouldUpdateStyleHeight ? { height } : {}),
+                }
+              : node.style;
 
           return {
             ...node,
             width: shouldSetWidth && typeof width === 'number' ? width : node.width,
             height: shouldSetHeight && typeof height === 'number' ? height : node.height,
+            style: nextStyle,
             measured: {
               ...(node.measured ?? {}),
               width: typeof width === 'number' ? width : node.measured?.width,
@@ -500,6 +515,7 @@ interface CanvasState {
   highlightedReferenceSourceNodeId: string | null;
   activeToolDialog: ActiveToolDialog | null;
   activeShotParamsPanelNodeId: string | null;
+  activeDirectorStageNodeId: string | null;
   nodeDescriptionPanelOpenById: Record<string, boolean>;
   history: CanvasHistoryState;
   dragHistorySnapshot: CanvasHistorySnapshot | null;
@@ -528,6 +544,8 @@ interface CanvasState {
   onNodesChange: (changes: NodeChange<CanvasNode>[]) => void;
   onEdgesChange: (changes: EdgeChange<CanvasEdge>[]) => void;
   onConnect: (connection: Connection) => void;
+  openDirectorStage: (nodeId: string) => void;
+  closeDirectorStage: () => void;
 
   setCanvasData: (nodes: CanvasNode[], edges: CanvasEdge[], history?: CanvasHistoryState) => void;
   addNode: (
@@ -837,6 +855,19 @@ function normalizeNodes(rawNodes: CanvasNode[]): CanvasNode[] {
             fontSize: Math.max(1, Math.min(20, Math.round(normalizedFontSize))),
           };
         }
+      }
+
+      if (normalizedNodeType === CANVAS_NODE_TYPES.directorStage) {
+        const directorStageData = mergedData as DirectorStageNodeData;
+        directorStageData.project = normalizeDirectorStageProject(directorStageData.project);
+        directorStageData.objectCount =
+          directorStageData.project.entities.filter((entity) => !entity.crowdGroupId).length
+          + directorStageData.project.crowdGroups.length;
+        directorStageData.cameraShotCount = directorStageData.project.cameraShots.length;
+        directorStageData.activeCameraShotName =
+          directorStageData.project.cameraShots.find(
+            (shot) => shot.id === directorStageData.project.activeCameraShotId
+          )?.name ?? null;
       }
 
       if (normalizedNodeType === CANVAS_NODE_TYPES.scriptRoot) {
@@ -1804,6 +1835,19 @@ function withImageCompareDefaultSize(node: CanvasNode): CanvasNode {
   };
 }
 
+function withDirectorStageDefaultSize(node: CanvasNode): CanvasNode {
+  return {
+    ...node,
+    width: DIRECTOR_STAGE_NODE_DEFAULT_WIDTH,
+    height: DIRECTOR_STAGE_NODE_DEFAULT_HEIGHT,
+    style: {
+      ...(node.style ?? {}),
+      width: DIRECTOR_STAGE_NODE_DEFAULT_WIDTH,
+      height: DIRECTOR_STAGE_NODE_DEFAULT_HEIGHT,
+    },
+  };
+}
+
 function withLlmLogicDefaultSize(node: CanvasNode): CanvasNode {
   return {
     ...node,
@@ -1885,6 +1929,18 @@ function applyDefaultNodeSize(node: CanvasNode, data: CanvasNodeData): CanvasNod
       ?? resolveNumericNodeDimension(node.style?.height);
     if (resolvedWidth === null || resolvedHeight === null) {
       return withImageCompareDefaultSize(node);
+    }
+  }
+
+  if (node.type === CANVAS_NODE_TYPES.directorStage) {
+    const resolvedWidth =
+      resolveNumericNodeDimension(node.width)
+      ?? resolveNumericNodeDimension(node.style?.width);
+    const resolvedHeight =
+      resolveNumericNodeDimension(node.height)
+      ?? resolveNumericNodeDimension(node.style?.height);
+    if (resolvedWidth === null || resolvedHeight === null) {
+      return withDirectorStageDefaultSize(node);
     }
   }
 
@@ -2501,20 +2557,34 @@ function syncAssetItemToNode(
   setField('assetLibraryId', item.libraryId);
 
   if (item.mediaType === 'audio') {
-    setField('audioUrl', item.sourcePath);
-    setField('previewImageUrl', item.previewPath);
+    const nextAudioUrl = item.sourcePath.trim().length > 0
+      ? item.sourcePath
+      : (nodeData.audioUrl ?? null);
+    const nextPreviewImageUrl = item.previewPath && item.previewPath.trim().length > 0
+      ? item.previewPath
+      : (nodeData.previewImageUrl ?? null);
+
+    setField('audioUrl', nextAudioUrl);
+    setField('previewImageUrl', nextPreviewImageUrl);
     setField('audioFileName', item.name);
     setField('duration', item.durationMs != null ? item.durationMs / 1000 : undefined);
     setField('mimeType', item.mimeType);
   } else {
+    const nextImageUrl = item.sourcePath.trim().length > 0
+      ? item.sourcePath
+      : (nodeData.imageUrl ?? null);
+    const nextPreviewImageUrl = item.previewPath && item.previewPath.trim().length > 0
+      ? item.previewPath
+      : (nodeData.previewImageUrl ?? null);
+    const nextAspectRatio = item.aspectRatio || nodeData.aspectRatio || DEFAULT_ASPECT_RATIO;
     const resetImageDimensions =
-      nodeData.imageUrl !== item.sourcePath
-      || nodeData.previewImageUrl !== item.previewPath
-      || nodeData.aspectRatio !== item.aspectRatio;
+      nodeData.imageUrl !== nextImageUrl
+      || nodeData.previewImageUrl !== nextPreviewImageUrl
+      || nodeData.aspectRatio !== nextAspectRatio;
 
-    setField('imageUrl', item.sourcePath);
-    setField('previewImageUrl', item.previewPath);
-    setField('aspectRatio', item.aspectRatio);
+    setField('imageUrl', nextImageUrl);
+    setField('previewImageUrl', nextPreviewImageUrl);
+    setField('aspectRatio', nextAspectRatio);
     setField('sourceFileName', item.name);
 
     if (resetImageDimensions) {
@@ -2963,6 +3033,7 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
   highlightedReferenceSourceNodeId: null,
   activeToolDialog: null,
   activeShotParamsPanelNodeId: null,
+  activeDirectorStageNodeId: null,
   nodeDescriptionPanelOpenById: {},
   history: { past: [], future: [] },
   dragHistorySnapshot: null,
@@ -3141,6 +3212,7 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
       highlightedReferenceSourceNodeId: null,
       activeToolDialog: null,
       activeShotParamsPanelNodeId: null,
+      activeDirectorStageNodeId: null,
       nodeDescriptionPanelOpenById: {},
       history: normalizeHistory(history),
       dragHistorySnapshot: null,
@@ -3212,6 +3284,18 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
         },
       });
     }
+  },
+
+  openDirectorStage: (nodeId) => {
+    set((state) => (
+      state.nodes.some((node) => node.id === nodeId && node.type === CANVAS_NODE_TYPES.directorStage)
+        ? { activeDirectorStageNodeId: nodeId }
+        : {}
+    ));
+  },
+
+  closeDirectorStage: () => {
+    set({ activeDirectorStageNodeId: null });
   },
 
   addNode: (type, position, data = {}, options = {}) => {
@@ -4382,6 +4466,18 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
             normalizeImageCompareNodeData(mergedData as ImageCompareNodeData)
           );
         }
+        if (node.type === CANVAS_NODE_TYPES.directorStage) {
+          const directorStageData = mergedData as DirectorStageNodeData;
+          directorStageData.project = normalizeDirectorStageProject(directorStageData.project);
+          directorStageData.objectCount =
+            directorStageData.project.entities.filter((entity) => !entity.crowdGroupId).length
+            + directorStageData.project.crowdGroups.length;
+          directorStageData.cameraShotCount = directorStageData.project.cameraShots.length;
+          directorStageData.activeCameraShotName =
+            directorStageData.project.cameraShots.find(
+              (shot) => shot.id === directorStageData.project.activeCameraShotId
+            )?.name ?? null;
+        }
         if (node.type === CANVAS_NODE_TYPES.exportImage) {
           (mergedData as ExportImageNodeData).generationSummary = normalizeExportImageGenerationSummary(
             (mergedData as ExportImageNodeData).generationSummary
@@ -4532,6 +4628,18 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
             mergedData,
             normalizeImageCompareNodeData(mergedData as ImageCompareNodeData)
           );
+        }
+        if (node.type === CANVAS_NODE_TYPES.directorStage) {
+          const directorStageData = mergedData as DirectorStageNodeData;
+          directorStageData.project = normalizeDirectorStageProject(directorStageData.project);
+          directorStageData.objectCount =
+            directorStageData.project.entities.filter((entity) => !entity.crowdGroupId).length
+            + directorStageData.project.crowdGroups.length;
+          directorStageData.cameraShotCount = directorStageData.project.cameraShots.length;
+          directorStageData.activeCameraShotName =
+            directorStageData.project.cameraShots.find(
+              (shot) => shot.id === directorStageData.project.activeCameraShotId
+            )?.name ?? null;
         }
         if (node.type === CANVAS_NODE_TYPES.exportImage) {
           (mergedData as ExportImageNodeData).generationSummary = normalizeExportImageGenerationSummary(

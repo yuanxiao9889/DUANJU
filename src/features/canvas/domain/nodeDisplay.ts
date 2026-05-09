@@ -11,6 +11,7 @@ export const DEFAULT_NODE_DISPLAY_NAME: Record<CanvasNodeType, string> = {
   [CANVAS_NODE_TYPES.imageEdit]: 'AI \u56fe\u7247',
   [CANVAS_NODE_TYPES.multiAngleImage]: '\u591a\u89d2\u5ea6\u56fe\u7247',
   [CANVAS_NODE_TYPES.panorama360]: '360 \u5168\u666f',
+  [CANVAS_NODE_TYPES.directorStage]: '3D \u5bfc\u6f14\u53f0',
   [CANVAS_NODE_TYPES.backgroundRemove]: '\u62a0\u56fe',
   [CANVAS_NODE_TYPES.seedvr2ImageUpscale]: '\u56fe\u7247\u9ad8\u6e05\u653e\u5927',
   [CANVAS_NODE_TYPES.seedvr2VideoUpscale]: '\u89c6\u9891\u9ad8\u6e05\u653e\u5927',

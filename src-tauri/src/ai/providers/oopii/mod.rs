@@ -103,56 +103,21 @@ impl OopiiProvider {
         }
     }
 
-    fn normalize_storyboard_resolution(size: &str) -> Option<&'static str> {
-        match size.trim().to_ascii_uppercase().as_str() {
-            "1K" => Some("1K"),
-            "2K" => Some("2K"),
-            "4K" => Some("4K"),
-            _ => None,
-        }
-    }
-
     fn is_storyboard_gpt_image_2_request_model(request_model: &str) -> bool {
         let normalized = Self::strip_provider_prefix(request_model).to_ascii_lowercase();
         normalized.starts_with(OOPII_STORYBOARD_GPT_IMAGE_2_REQUEST_MODEL)
     }
 
-    fn resolve_storyboard_gpt_image_2_quality(request: &GenerateRequest) -> &'static str {
-        let quality = request
-            .extra_params
-            .as_ref()
-            .and_then(|params| params.get("quality"))
-            .and_then(Value::as_str)
-            .map(|value| value.trim().to_ascii_lowercase())
-            .unwrap_or_else(|| "medium".to_string());
-
-        match quality.as_str() {
-            "low" => "low",
-            "high" => "high",
-            _ => "medium",
-        }
-    }
-
-    fn resolve_storyboard_request_model(request: &GenerateRequest, request_model: &str) -> String {
+    fn resolve_storyboard_request_model(request_model: &str) -> String {
         let normalized = Self::strip_provider_prefix(request_model);
         if normalized.is_empty() {
             return String::new();
         }
 
-        if !Self::is_storyboard_gpt_image_2_request_model(&normalized) {
-            return normalized;
-        }
-
-        match Self::normalize_storyboard_resolution(&request.size) {
-            Some("2K") => format!(
-                "{OOPII_STORYBOARD_GPT_IMAGE_2_REQUEST_MODEL}-2k-{}",
-                Self::resolve_storyboard_gpt_image_2_quality(request)
-            ),
-            Some("4K") => format!(
-                "{OOPII_STORYBOARD_GPT_IMAGE_2_REQUEST_MODEL}-4k-{}",
-                Self::resolve_storyboard_gpt_image_2_quality(request)
-            ),
-            _ => OOPII_STORYBOARD_GPT_IMAGE_2_REQUEST_MODEL.to_string(),
+        if Self::is_storyboard_gpt_image_2_request_model(&normalized) {
+            OOPII_STORYBOARD_GPT_IMAGE_2_REQUEST_MODEL.to_string()
+        } else {
+            normalized
         }
     }
 
@@ -181,8 +146,7 @@ impl OopiiProvider {
                 "OOpii request model is required".to_string(),
             ));
         }
-        let resolved_request_model =
-            Self::resolve_storyboard_request_model(request, &base_request_model);
+        let resolved_request_model = Self::resolve_storyboard_request_model(&base_request_model);
 
         let display_name =
             Self::resolve_storyboard_display_name(&payload.display_name, &resolved_request_model);
@@ -422,7 +386,7 @@ mod tests {
     }
 
     #[test]
-    fn injects_2k_medium_alias_for_gpt_image_2_when_quality_missing() {
+    fn keeps_base_request_model_for_2k_gpt_image_2_requests() {
         let mut request = GenerateRequest {
             prompt: "test".to_string(),
             model: "oopii/gpt-image-2".to_string(),
@@ -445,14 +409,14 @@ mod tests {
             json!({
                 "api_format": "openai-images",
                 "endpoint_url": OOPII_STORYBOARD_BASE_URL,
-                "request_model": "gpt-image-2-2k-medium",
+                "request_model": "gpt-image-2",
                 "display_name": "gpt-image-2",
             })
         );
     }
 
     #[test]
-    fn injects_4k_quality_alias_for_gpt_image_2() {
+    fn keeps_base_request_model_for_4k_gpt_image_2_requests() {
         let mut request = GenerateRequest {
             prompt: "test".to_string(),
             model: "oopii/gpt-image-2".to_string(),
@@ -475,7 +439,43 @@ mod tests {
             json!({
                 "api_format": "openai-images",
                 "endpoint_url": OOPII_STORYBOARD_BASE_URL,
-                "request_model": "gpt-image-2-4k-high",
+                "request_model": "gpt-image-2",
+                "display_name": "gpt-image-2",
+            })
+        );
+    }
+
+    #[test]
+    fn normalizes_legacy_gpt_image_2_aliases_back_to_base_model() {
+        let mut request = GenerateRequest {
+            prompt: "test".to_string(),
+            model: "oopii/gpt-image-2".to_string(),
+            size: "4K".to_string(),
+            aspect_ratio: "16:9".to_string(),
+            reference_images: None,
+            extra_params: Some(HashMap::from([(
+                "newapi_config".to_string(),
+                json!({
+                    "request_model": "gpt-image-2-4k-high",
+                    "display_name": "gpt-image-2",
+                }),
+            )])),
+        };
+
+        OopiiProvider::inject_newapi_config(&mut request).unwrap();
+        let payload = request
+            .extra_params
+            .as_ref()
+            .and_then(|params| params.get("newapi_config"))
+            .cloned()
+            .unwrap();
+
+        assert_eq!(
+            payload,
+            json!({
+                "api_format": "openai-images",
+                "endpoint_url": OOPII_STORYBOARD_BASE_URL,
+                "request_model": "gpt-image-2",
                 "display_name": "gpt-image-2",
             })
         );

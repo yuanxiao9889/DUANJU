@@ -59,6 +59,7 @@ import {
   type CanvasNode,
   type CanvasNodeType,
   type CanvasNodeData,
+  type DirectorStageNodeData,
   normalizeExportImageGenerationSummary,
   type ScriptChapterNodeData,
   type ScriptSceneNodeData,
@@ -95,6 +96,11 @@ import {
   nodeHasSourceHandle,
   nodeHasTargetHandle,
 } from '@/features/canvas/domain/nodeRegistry';
+import {
+  createDefaultDirectorStageProject,
+  type DirectorStageConnectedEnvironment,
+} from '@/features/director-stage/domain/types';
+import { createDirectorStageEntityFromModelAsset } from '@/features/director-stage/engine/projectManager';
 import {
   calculateChildNodePosition,
   calculateBranchNodePosition,
@@ -161,6 +167,11 @@ const NodeToolDialog = lazy(async () => {
 const ImageViewerModal = lazy(async () => {
   const module = await import('./ui/ImageViewerModal');
   return { default: module.ImageViewerModal };
+});
+
+const DirectorStageWorkspace = lazy(async () => {
+  const module = await import('@/features/director-stage/ui/DirectorStageWorkspace');
+  return { default: module.DirectorStageWorkspace };
 });
 
 const DEFAULT_VIEWPORT: Viewport = { x: 0, y: 0, zoom: 1 };
@@ -980,6 +991,8 @@ export function Canvas() {
   const openToolDialog = useCanvasStore((state) => state.openToolDialog);
   const closeToolDialog = useCanvasStore((state) => state.closeToolDialog);
   const activeToolDialog = useCanvasStore((state) => state.activeToolDialog);
+  const activeDirectorStageNodeId = useCanvasStore((state) => state.activeDirectorStageNodeId);
+  const closeDirectorStage = useCanvasStore((state) => state.closeDirectorStage);
   const setViewportState = useCanvasStore((state) => state.setViewportState);
   const setCanvasViewportSize = useCanvasStore((state) => state.setCanvasViewportSize);
   const imageViewer = useCanvasStore((state) => state.imageViewer);
@@ -3213,8 +3226,8 @@ export function Canvas() {
 
   const insertAssetPayloadNode = useCallback(
     (assetPayload: CanvasAssetDragPayload, position: { x: number; y: number }) => {
-      return assetPayload.mediaType === 'audio'
-        ? addNode(CANVAS_NODE_TYPES.audio, position, {
+      if (assetPayload.mediaType === 'audio') {
+        return addNode(CANVAS_NODE_TYPES.audio, position, {
             displayName: assetPayload.assetName,
             audioFileName: assetPayload.assetName,
             audioUrl: assetPayload.sourcePath,
@@ -3225,18 +3238,50 @@ export function Canvas() {
             assetLibraryId: assetPayload.assetLibraryId,
             assetName: assetPayload.assetName,
             assetCategory: assetPayload.assetCategory,
-          })
-        : addNode(CANVAS_NODE_TYPES.upload, position, {
-            displayName: assetPayload.assetName,
-            sourceFileName: assetPayload.assetName,
-            imageUrl: assetPayload.sourcePath,
-            previewImageUrl: assetPayload.previewPath,
-            aspectRatio: assetPayload.aspectRatio,
-            assetId: assetPayload.assetId,
-            assetLibraryId: assetPayload.assetLibraryId,
-            assetName: assetPayload.assetName,
-            assetCategory: assetPayload.assetCategory,
           });
+      }
+
+      if (assetPayload.mediaType === 'model') {
+        const directorProject = createDefaultDirectorStageProject();
+        const entity = createDirectorStageEntityFromModelAsset({
+          assetId: assetPayload.assetId,
+          name: assetPayload.assetName,
+          modelPath: assetPayload.sourcePath,
+          previewPath: assetPayload.previewPath,
+          kind:
+            assetPayload.assetCategory === 'character'
+              ? 'character'
+              : assetPayload.assetCategory === 'scene'
+                ? 'scene'
+                : 'prop',
+          index: 0,
+        });
+        directorProject.entities = [entity];
+        directorProject.selectedEntityId = entity.id;
+        directorProject.updatedAt = Date.now();
+        return addNode(CANVAS_NODE_TYPES.directorStage, position, {
+          displayName: assetPayload.assetName,
+          project: directorProject,
+          objectCount: 1,
+          cameraShotCount: directorProject.cameraShots.length,
+          activeCameraShotName:
+            directorProject.cameraShots.find(
+              (shot) => shot.id === directorProject.activeCameraShotId
+            )?.name ?? null,
+        });
+      }
+
+      return addNode(CANVAS_NODE_TYPES.upload, position, {
+        displayName: assetPayload.assetName,
+        sourceFileName: assetPayload.assetName,
+        imageUrl: assetPayload.sourcePath,
+        previewImageUrl: assetPayload.previewPath,
+        aspectRatio: assetPayload.aspectRatio,
+        assetId: assetPayload.assetId,
+        assetLibraryId: assetPayload.assetLibraryId,
+        assetName: assetPayload.assetName,
+        assetCategory: assetPayload.assetCategory,
+      });
     },
     [addNode]
   );
@@ -4761,6 +4806,47 @@ export function Canvas() {
       position: resolveAbsoluteNodePosition(node, nodeMap),
     }));
   }, [nodes, selectedNodes]);
+  const activeDirectorStageNode = useMemo(
+    () => nodes.find(
+      (node) =>
+        node.id === activeDirectorStageNodeId
+        && node.type === CANVAS_NODE_TYPES.directorStage
+    ) ?? null,
+    [activeDirectorStageNodeId, nodes]
+  );
+  const connectedDirectorStageEnvironments = useMemo<DirectorStageConnectedEnvironment[]>(() => {
+    if (!activeDirectorStageNode) {
+      return [];
+    }
+
+    const nodeById = new globalThis.Map(nodes.map((node) => [node.id, node] as const));
+    return edges
+      .filter((edge) => edge.target === activeDirectorStageNode.id)
+      .flatMap((edge, index) => {
+        const sourceNode = nodeById.get(edge.source);
+        const imageSource = resolveSingleImageConnectionSource(sourceNode);
+        if (!sourceNode || !imageSource) {
+          return [];
+        }
+
+        const name = resolveNodeDisplayName(sourceNode.type, sourceNode.data).trim()
+          || t('directorStage.environment.connectedFallback', { count: index + 1 });
+        return [{
+          id: `canvas-env:${edge.id}:${sourceNode.id}`,
+          name,
+          backgroundPath: imageSource.imageUrl,
+          previewPath: imageSource.previewImageUrl ?? imageSource.imageUrl,
+          sourceNodeId: sourceNode.id,
+          sourceEdgeId: edge.id,
+        }];
+      });
+  }, [activeDirectorStageNode, edges, nodes, t]);
+
+  useEffect(() => {
+    if (activeDirectorStageNodeId && !activeDirectorStageNode) {
+      closeDirectorStage();
+    }
+  }, [activeDirectorStageNode, activeDirectorStageNodeId, closeDirectorStage]);
   const selectedDownloadNodes = useMemo(
     () =>
       selectedNodes.flatMap((node, index) => {
@@ -5307,6 +5393,16 @@ export function Canvas() {
             metadata={imageViewer.metadata}
             onClose={closeImageViewer}
             onNavigate={navigateImageViewer}
+          />
+        </Suspense>
+      )}
+      {activeDirectorStageNode && (
+        <Suspense fallback={null}>
+          <DirectorStageWorkspace
+            nodeId={activeDirectorStageNode.id}
+            data={activeDirectorStageNode.data as DirectorStageNodeData}
+            connectedEnvironments={connectedDirectorStageEnvironments}
+            onClose={closeDirectorStage}
           />
         </Suspense>
       )}

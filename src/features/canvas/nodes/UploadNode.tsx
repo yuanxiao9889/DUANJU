@@ -116,7 +116,9 @@ export const UploadNode = memo(({ id, data, selected, width }: UploadNodeProps) 
     minHeight: EXPORT_RESULT_NODE_MIN_HEIGHT,
   });
   const resizeMinWidth = resizeConstraints.minWidth;
-  const explicitHeight = resolveNodeStyleDimension(currentNode?.style?.height);
+  const explicitHeight =
+    resolveNodeStyleDimension(currentNode?.height)
+    ?? resolveNodeStyleDimension(currentNode?.style?.height);
   const collapsedHeight = Math.max(explicitHeight ?? compactSize.height, resizeConstraints.minHeight);
   const resizeMinHeight = resizeConstraints.minHeight
     + (isDescriptionPanelOpen ? NODE_DESCRIPTION_PANEL_EXPANDED_TOTAL_HEIGHT : 0);

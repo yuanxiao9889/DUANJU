@@ -1026,7 +1026,7 @@ fn normalize_cli_path(value: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::normalize_cli_path;
+    use super::{extract_json_value, normalize_cli_path};
 
     #[test]
     fn normalize_cli_path_strips_windows_verbatim_drive_prefix() {
@@ -1041,6 +1041,37 @@ mod tests {
         assert_eq!(
             normalize_cli_path(r"\\?\UNC\server\share\image.png"),
             "//server/share/image.png"
+        );
+    }
+
+    #[test]
+    fn extract_json_value_skips_non_json_braces_before_payload() {
+        let output = "\u{1b}[0m[Dreamina.Text2Video] prompt={shot 1}\n{\"submit_id\":\"abc\",\"gen_status\":\"querying\"}\n";
+        let value = extract_json_value(output).expect("expected JSON payload");
+
+        assert_eq!(
+            value.get("submit_id").and_then(|item| item.as_str()),
+            Some("abc")
+        );
+    }
+
+    #[test]
+    fn extract_json_value_accepts_json_with_trailing_logs() {
+        let output = "prefix log\n[{\"submit_id\":\"abc\"}]\nDone {ignored}";
+        let value = extract_json_value(output).expect("expected JSON payload");
+
+        assert!(value.is_array());
+    }
+
+    #[test]
+    fn extract_json_value_ignores_json_like_prompt_echo() {
+        let output =
+            "prompt={\"style\":\"noir\"}\n{\"submit_id\":\"abc\",\"gen_status\":\"querying\"}\n";
+        let value = extract_json_value(output).expect("expected JSON payload");
+
+        assert_eq!(
+            value.get("submit_id").and_then(|item| item.as_str()),
+            Some("abc")
         );
     }
 }
@@ -2090,12 +2121,48 @@ async fn terminate_conflicting_dreamina_processes(
     .map_err(|error| format!("failed to await Dreamina login cleanup: {error}"))?
 }
 
-fn extract_json_text(text: &str) -> Option<&str> {
+fn extract_json_value(text: &str) -> Option<Value> {
     let trimmed = text.trim();
-    let start = trimmed.find('{').or_else(|| trimmed.find('['))?;
-    let candidate = &trimmed[start..];
-    let end = candidate.rfind('}').or_else(|| candidate.rfind(']'))?;
-    Some(&candidate[..=end])
+    for (start, marker) in trimmed.char_indices() {
+        if marker != '{' && marker != '[' {
+            continue;
+        }
+
+        let candidate = &trimmed[start..];
+        let mut deserializer = serde_json::Deserializer::from_str(candidate);
+        if let Ok(value) = Value::deserialize(&mut deserializer) {
+            if is_probable_dreamina_json_value(&value) {
+                return Some(value);
+            }
+        }
+    }
+
+    None
+}
+
+fn is_probable_dreamina_json_value(value: &Value) -> bool {
+    match value {
+        Value::Object(object) => {
+            object.contains_key("submit_id")
+                || object.contains_key("gen_status")
+                || object.contains_key("result_json")
+                || object.contains_key("total_credit")
+                || object.contains_key("user_id")
+        }
+        Value::Array(items) => {
+            items.is_empty()
+                || items.iter().any(|item| {
+                    item.as_object()
+                        .map(|object| {
+                            object.contains_key("submit_id")
+                                || object.contains_key("gen_task_type")
+                                || object.contains_key("gen_status")
+                        })
+                        .unwrap_or(false)
+                })
+        }
+        _ => false,
+    }
 }
 
 fn first_non_empty_dreamina_output<'a>(stdout: &'a str, stderr: &'a str) -> Option<&'a str> {
@@ -2279,13 +2346,11 @@ async fn run_dreamina_json(
         return Err(normalize_dreamina_cli_error(&detail));
     }
     let combined = format!("{stdout}\n{stderr}");
-    let json_text = extract_json_text(&stdout)
-        .or_else(|| extract_json_text(&combined))
+    extract_json_value(&stdout)
+        .or_else(|| extract_json_value(&combined))
         .ok_or_else(|| {
             format!("Dreamina CLI did not return parseable JSON. stdout={stdout} stderr={stderr}")
-        })?;
-    serde_json::from_str::<Value>(json_text)
-        .map_err(|error| format!("failed to parse Dreamina JSON: {error}"))
+        })
 }
 
 async fn run_dreamina_action(
