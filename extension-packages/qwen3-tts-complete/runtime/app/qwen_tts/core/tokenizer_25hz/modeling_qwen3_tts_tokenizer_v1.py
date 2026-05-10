@@ -1431,9 +1431,9 @@ class Qwen3TTSTokenizerV1Model(Qwen3TTSTokenizerV1PreTrainedModel):
             force_download=kwargs.pop("force_download", False),
             proxies=kwargs.pop("proxies", None),
             resume_download=kwargs.pop("resume_download", None),
-            local_files_only=kwargs.pop("local_files_only", False),
-            token=kwargs.pop("use_auth_token", None),
-            revision=kwargs.pop("revision", None),
+            local_files_only=local_files_only,
+            token=token,
+            revision=revision,
         )
         if encoder_xvector_extractor_path is None:
             raise ValueError(f"""{pretrained_model_name_or_path}/{encoder_xvector_extractor_path} not exists""")

@@ -1037,8 +1037,11 @@ export const ScriptReferenceNode = memo(({
             </div>
           ) : (
             <>
-              <div className="rounded-xl border border-border-dark/70 bg-bg-dark px-3 py-2.5">
-                <div className="grid gap-2">
+              <UiScrollArea
+                className="nowheel max-h-[216px] shrink-0 rounded-xl border border-border-dark/70 bg-bg-dark"
+                viewportClassName="nowheel max-h-[216px]"
+                contentClassName="grid gap-2 px-3 py-2.5 pr-5"
+              >
                   <div className="grid grid-cols-[58px,minmax(0,1fr)] items-center gap-2">
                     <div className="text-[11px] font-medium uppercase tracking-[0.08em] text-cyan-200">
                       {t('node.scriptReference.chapterStep')}
@@ -1136,8 +1139,7 @@ export const ScriptReferenceNode = memo(({
                       <CompactSelectorHint message={t('node.scriptReference.selectSceneHint')} />
                     )}
                   </div>
-                </div>
-              </div>
+              </UiScrollArea>
 
               <div className="min-h-0 flex-1 rounded-xl border border-border-dark/70 bg-bg-dark">
                 {selectedEpisodeRef ? (

@@ -4,19 +4,19 @@ export interface ShootingScriptColumnDefinition {
   key: ShootingScriptColumnKey;
   labelKey: string;
   multiline?: boolean;
-  widthClassName?: string;
+  widthPx?: number;
 }
 
 export const SHOOTING_SCRIPT_PRIMARY_COLUMNS: ShootingScriptColumnDefinition[] = [
-  { key: 'shotNumber', labelKey: 'script.shootingScript.table.shotNumber', widthClassName: 'w-[126px]' },
-  { key: 'beat', labelKey: 'script.shootingScript.table.beat', multiline: true, widthClassName: 'w-[220px]' },
-  { key: 'action', labelKey: 'script.shootingScript.table.action', multiline: true, widthClassName: 'w-[430px]' },
-  { key: 'composition', labelKey: 'script.shootingScript.table.composition', multiline: true, widthClassName: 'w-[220px]' },
-  { key: 'camera', labelKey: 'script.shootingScript.table.camera', multiline: true, widthClassName: 'w-[220px]' },
-  { key: 'duration', labelKey: 'script.shootingScript.table.duration', widthClassName: 'w-[148px]' },
-  { key: 'audio', labelKey: 'script.shootingScript.table.audio', multiline: true, widthClassName: 'w-[230px]' },
-  { key: 'genTarget', labelKey: 'script.shootingScript.table.genTarget', widthClassName: 'w-[138px]' },
-  { key: 'genPrompt', labelKey: 'script.shootingScript.table.genPrompt', multiline: true, widthClassName: 'w-[420px]' },
+  { key: 'shotNumber', labelKey: 'script.shootingScript.table.shotNumber', widthPx: 92 },
+  { key: 'beat', labelKey: 'script.shootingScript.table.beat', multiline: true, widthPx: 160 },
+  { key: 'action', labelKey: 'script.shootingScript.table.action', multiline: true, widthPx: 300 },
+  { key: 'composition', labelKey: 'script.shootingScript.table.composition', multiline: true, widthPx: 160 },
+  { key: 'camera', labelKey: 'script.shootingScript.table.camera', multiline: true, widthPx: 160 },
+  { key: 'duration', labelKey: 'script.shootingScript.table.duration', widthPx: 112 },
+  { key: 'audio', labelKey: 'script.shootingScript.table.audio', multiline: true, widthPx: 190 },
+  { key: 'genTarget', labelKey: 'script.shootingScript.table.genTarget', widthPx: 104 },
+  { key: 'genPrompt', labelKey: 'script.shootingScript.table.genPrompt', multiline: true, widthPx: 250 },
 ];
 
 export const SHOOTING_SCRIPT_DETAIL_COLUMNS: ShootingScriptColumnDefinition[] = [

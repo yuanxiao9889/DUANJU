@@ -65,6 +65,7 @@ import {
   type ScriptSceneNodeData,
   DEFAULT_NODE_WIDTH,
   getNodePrimaryDownloadSource,
+  isImageCompareNode,
   isImageCompareSourceNode,
   normalizeSceneCards,
   resolveSingleImageConnectionSource,
@@ -999,6 +1000,18 @@ export function Canvas() {
   const closeImageViewer = useCanvasStore((state) => state.closeImageViewer);
   const navigateImageViewer = useCanvasStore((state) => state.navigateImageViewer);
   const isImageViewerOpen = imageViewer.isOpen;
+  const activeCompareViewerNode = useMemo(() => {
+    if (
+      !imageViewer.isOpen
+      || imageViewer.mode !== 'compare'
+      || !imageViewer.compareNodeId
+    ) {
+      return null;
+    }
+
+    const candidateNode = nodes.find((node) => node.id === imageViewer.compareNodeId);
+    return candidateNode && isImageCompareNode(candidateNode) ? candidateNode : null;
+  }, [imageViewer.compareNodeId, imageViewer.isOpen, imageViewer.mode, nodes]);
   const isGenerationHistoryPanelVisible = showGenerationHistoryPanel && !isImageViewerOpen;
   const snapToGrid = useCanvasStore((state) => state.snapToGrid);
   const snapGridSize = useCanvasStore((state) => state.snapGridSize);
@@ -1327,6 +1340,23 @@ export function Canvas() {
       setHasMountedImageViewer(true);
     }
   }, [imageViewer.isOpen]);
+
+  useEffect(() => {
+    if (
+      imageViewer.isOpen
+      && imageViewer.mode === 'compare'
+      && imageViewer.compareNodeId
+      && !activeCompareViewerNode
+    ) {
+      closeImageViewer();
+    }
+  }, [
+    activeCompareViewerNode,
+    closeImageViewer,
+    imageViewer.compareNodeId,
+    imageViewer.isOpen,
+    imageViewer.mode,
+  ]);
 
   const persistCanvasSnapshot = useCallback(() => {
     if (isRestoringCanvasRef.current) {
@@ -5385,15 +5415,29 @@ export function Canvas() {
 
       {hasMountedImageViewer && (
         <Suspense fallback={null}>
-          <ImageViewerModal
-            open={imageViewer.isOpen}
-            imageUrl={imageViewer.currentImageUrl || ''}
-            imageList={imageViewer.imageList}
-            currentIndex={imageViewer.currentIndex}
-            metadata={imageViewer.metadata}
-            onClose={closeImageViewer}
-            onNavigate={navigateImageViewer}
-          />
+          {imageViewer.mode === 'compare' ? (
+            activeCompareViewerNode ? (
+              <ImageViewerModal
+                open={imageViewer.isOpen}
+                mode="compare"
+                compareNodeId={activeCompareViewerNode.id}
+                compareData={activeCompareViewerNode.data}
+                onClose={closeImageViewer}
+                onNavigate={navigateImageViewer}
+              />
+            ) : null
+          ) : (
+            <ImageViewerModal
+              open={imageViewer.isOpen}
+              mode="single"
+              imageUrl={imageViewer.currentImageUrl || ''}
+              imageList={imageViewer.imageList}
+              currentIndex={imageViewer.currentIndex}
+              metadata={imageViewer.metadata}
+              onClose={closeImageViewer}
+              onNavigate={navigateImageViewer}
+            />
+          )}
         </Suspense>
       )}
       {activeDirectorStageNode && (

@@ -43,7 +43,17 @@ configure_stdio()
 
 import numpy as np
 
-APP_DIR = Path(__file__).resolve().parent
+def normalize_local_path(path: Path) -> Path:
+    path_text = str(path)
+    if os.name == "nt":
+        if path_text.startswith("\\\\?\\UNC\\"):
+            path_text = "\\\\" + path_text[len("\\\\?\\UNC\\"):]
+        elif path_text.startswith("\\\\?\\"):
+            path_text = path_text[len("\\\\?\\"):]
+    return Path(path_text)
+
+
+APP_DIR = normalize_local_path(Path(__file__).resolve().parent)
 RUNTIME_DIR = APP_DIR.parent
 PACKAGE_DIR = RUNTIME_DIR.parent
 MODELS_DIR = RUNTIME_DIR / "models"
@@ -207,6 +217,7 @@ def get_model(model_key: str, device: str, dtype_name: Optional[str]) -> Qwen3TT
         device_map=device,
         dtype=dtype,
         attn_implementation=attn_implementation,
+        local_files_only=True,
     )
     MODEL_CACHE[cache_key] = model
     return model

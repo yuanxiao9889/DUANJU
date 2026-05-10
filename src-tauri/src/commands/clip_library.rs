@@ -1518,17 +1518,6 @@ fn build_directory_maps(
 }
 
 fn cleanup_empty_dirs(path: &Path, keep_paths: &HashSet<String>) {
-    let Ok(entries) = fs::read_dir(path) else {
-        return;
-    };
-
-    for entry in entries.flatten() {
-        let child_path = entry.path();
-        if child_path.is_dir() {
-            cleanup_empty_dirs(&child_path, keep_paths);
-        }
-    }
-
     let normalized = normalize_path_for_prefix_match(path);
     if keep_paths.contains(&normalized) {
         return;
@@ -2268,13 +2257,8 @@ pub fn get_clip_library_snapshot(
     app: AppHandle,
     library_id: String,
 ) -> Result<ClipLibrarySnapshot, String> {
-    let mut conn = open_db(&app)?;
-    let tx = conn
-        .transaction()
-        .map_err(|e| format!("Failed to begin clip library snapshot transaction: {}", e))?;
-    let snapshot = finalize_layout(&tx, library_id.trim())?;
-    tx.commit()
-        .map_err(|e| format!("Failed to commit clip library snapshot transaction: {}", e))?;
+    let conn = open_db(&app)?;
+    let snapshot = build_clip_library_snapshot(&conn, library_id.trim())?;
     allow_clip_library_asset_scope(&app, &snapshot.library.root_path)?;
     Ok(snapshot)
 }

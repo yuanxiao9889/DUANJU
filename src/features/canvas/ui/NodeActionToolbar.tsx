@@ -1,4 +1,5 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { NodeToolbar as ReactFlowNodeToolbar } from '@xyflow/react';
 import { Copy, Crop, Download, FileText, FolderOpen, PenLine, RefreshCw, Save, Scissors, Trash2, Unlink2, Table, Upload, Sparkles, Send, Check, LayoutTemplate } from 'lucide-react';
 import { save } from '@tauri-apps/plugin-dialog';
@@ -65,6 +66,11 @@ const toolIconMap: Record<ToolIconKey, typeof Crop> = {
 const TOOLBAR_BUTTON_RADIUS_CLASS = 'rounded-full';
 const TOOLBAR_NEUTRAL_BUTTON_CLASS =
   'border-[rgba(255,255,255,0.18)] bg-bg-dark/70 text-text-dark hover:border-[rgba(255,255,255,0.32)] hover:bg-bg-dark';
+const DOWNLOAD_MENU_MIN_WIDTH = 280;
+const DOWNLOAD_MENU_VIEWPORT_MARGIN = 12;
+const DOWNLOAD_MENU_BUTTON_OFFSET = 8;
+const DOWNLOAD_MENU_ESTIMATED_ROW_HEIGHT = 36;
+const DOWNLOAD_MENU_VERTICAL_PADDING = 16;
 
 const SCRIPT_ASSET_NODE_TYPES = new Set<string>([
   'scriptCharacterNode',
@@ -77,6 +83,107 @@ const SCRIPT_ASSET_NODE_TYPES = new Set<string>([
 
 function isScriptAssetNode(node: CanvasNode): boolean {
   return SCRIPT_ASSET_NODE_TYPES.has(node.type ?? '');
+}
+
+function normalizeText(value: unknown): string {
+  return typeof value === 'string' ? value.trim() : '';
+}
+
+function stripUrlSearchAndHash(value: string): string {
+  const separatorIndex = value.search(/[?#]/);
+  return separatorIndex >= 0 ? value.slice(0, separatorIndex) : value;
+}
+
+function getFileNameFromPathLike(value: string): string {
+  const cleaned = stripUrlSearchAndHash(value.trim()).replace(/\\/g, '/');
+  const segments = cleaned.split('/').filter(Boolean);
+  return segments.length > 0 ? segments[segments.length - 1] : '';
+}
+
+function stripFileExtension(value: string): string {
+  return value.replace(/\.[^.]+$/, '').trim();
+}
+
+function getFileExtension(value: string): string {
+  const fileName = getFileNameFromPathLike(value);
+  const dotIndex = fileName.lastIndexOf('.');
+  if (dotIndex < 0 || dotIndex >= fileName.length - 1) {
+    return '';
+  }
+  return fileName.slice(dotIndex + 1).toLowerCase();
+}
+
+function resolveAudioExtensionFromMime(mimeType: unknown): string {
+  const normalized = normalizeText(mimeType).split(';', 1)[0]?.toLowerCase() ?? '';
+  if (normalized === 'audio/mpeg' || normalized === 'audio/mp3') return 'mp3';
+  if (
+    normalized === 'audio/wav'
+    || normalized === 'audio/x-wav'
+    || normalized === 'audio/wave'
+    || normalized === 'audio/x-pn-wav'
+  ) {
+    return 'wav';
+  }
+  if (normalized === 'audio/ogg') return 'ogg';
+  if (normalized === 'audio/webm') return 'webm';
+  if (normalized === 'audio/mp4' || normalized === 'audio/x-m4a') return 'm4a';
+  if (normalized === 'audio/aac') return 'aac';
+  if (normalized === 'audio/flac' || normalized === 'audio/x-flac') return 'flac';
+  return '';
+}
+
+function sanitizeDownloadFileName(value: string): string {
+  const sanitized = value
+    .replace(/[<>:"/\\|?*\u0000-\u001f]/g, '')
+    .trim()
+    .replace(/^\.+|\.+$/g, '');
+  return sanitized || 'node-media';
+}
+
+function clampNumber(value: number, min: number, max: number): number {
+  return Math.min(Math.max(value, min), max);
+}
+
+function resolveDownloadMenuPosition(
+  triggerRect: DOMRect,
+  itemCount: number
+): { x: number; y: number } {
+  if (typeof window === 'undefined') {
+    return {
+      x: triggerRect.left,
+      y: triggerRect.bottom + DOWNLOAD_MENU_BUTTON_OFFSET,
+    };
+  }
+
+  const viewportWidth = window.innerWidth;
+  const viewportHeight = window.innerHeight;
+  const estimatedMenuHeight =
+    DOWNLOAD_MENU_VERTICAL_PADDING
+    + DOWNLOAD_MENU_ESTIMATED_ROW_HEIGHT
+    + Math.max(0, itemCount) * DOWNLOAD_MENU_ESTIMATED_ROW_HEIGHT;
+  const maxX = Math.max(
+    DOWNLOAD_MENU_VIEWPORT_MARGIN,
+    viewportWidth - DOWNLOAD_MENU_MIN_WIDTH - DOWNLOAD_MENU_VIEWPORT_MARGIN
+  );
+  const x = clampNumber(
+    triggerRect.left,
+    DOWNLOAD_MENU_VIEWPORT_MARGIN,
+    maxX
+  );
+  const preferredY = triggerRect.bottom + DOWNLOAD_MENU_BUTTON_OFFSET;
+  const shouldPlaceAbove =
+    preferredY + estimatedMenuHeight > viewportHeight - DOWNLOAD_MENU_VIEWPORT_MARGIN
+    && triggerRect.top - estimatedMenuHeight - DOWNLOAD_MENU_BUTTON_OFFSET > DOWNLOAD_MENU_VIEWPORT_MARGIN;
+  const rawY = shouldPlaceAbove
+    ? triggerRect.top - estimatedMenuHeight - DOWNLOAD_MENU_BUTTON_OFFSET
+    : preferredY;
+  const maxY = Math.max(
+    DOWNLOAD_MENU_VIEWPORT_MARGIN,
+    viewportHeight - estimatedMenuHeight - DOWNLOAD_MENU_VIEWPORT_MARGIN
+  );
+  const y = clampNumber(rawY, DOWNLOAD_MENU_VIEWPORT_MARGIN, maxY);
+
+  return { x, y };
 }
 
 export const NodeActionToolbar = memo(({ node }: NodeActionToolbarProps) => {
@@ -160,6 +267,35 @@ export const NodeActionToolbar = memo(({ node }: NodeActionToolbarProps) => {
     typeof node.data.nodeDescription === 'string'
     && node.data.nodeDescription.trim().length > 0;
   const canHandleImage = Boolean(imageSource);
+  const downloadableSource = audioSource ?? imageSource;
+  const canDownloadMedia = Boolean(downloadableSource);
+  const downloadDefaultFileName = useMemo(() => {
+    if (isAudioNode(node)) {
+      const sourceExtension = getFileExtension(audioSource ?? '');
+      const audioExtension =
+        getFileExtension(normalizeText(node.data.audioFileName))
+        || sourceExtension
+        || resolveAudioExtensionFromMime(node.data.mimeType)
+        || 'mp3';
+      const baseName =
+        normalizeText(node.data.audioFileName)
+        || normalizeText(node.data.assetName)
+        || getFileNameFromPathLike(audioSource ?? '')
+        || `node-${node.id}`;
+      const safeName = sanitizeDownloadFileName(baseName);
+      return getFileExtension(safeName) ? safeName : `${safeName}.${audioExtension}`;
+    }
+
+    const imageFileName = getFileNameFromPathLike(imageSource ?? '');
+    const imageExtension = getFileExtension(imageFileName) || 'png';
+    const baseName = imageFileName || `node-${node.id}`;
+    const safeName = sanitizeDownloadFileName(baseName);
+    return getFileExtension(safeName) ? safeName : `${safeName}.${imageExtension}`;
+  }, [audioSource, imageSource, node]);
+  const downloadSuggestedFileStem = useMemo(
+    () => stripFileExtension(downloadDefaultFileName) || `node-${node.id}`,
+    [downloadDefaultFileName, node.id]
+  );
   const canAddToAssets = Boolean(imageSource || audioSource);
   const canAddToClipLibrary =
     Boolean(audioSource)
@@ -405,38 +541,80 @@ export const NodeActionToolbar = memo(({ node }: NodeActionToolbarProps) => {
   }, [imageSource, psServerStatus.running, psServerStatus.ps_connected]);
 
   const handleDownloadSaveAs = useCallback(async () => {
-    if (!imageSource) {
+    if (!downloadableSource) {
       return;
     }
 
     try {
       const selectedPath = await save({
-        defaultPath: `node-${node.id}.png`,
+        defaultPath: downloadDefaultFileName,
       });
       if (!selectedPath || Array.isArray(selectedPath)) {
         return;
       }
-      await saveImageSourceToPath(imageSource, selectedPath);
+      await saveImageSourceToPath(downloadableSource, selectedPath);
       closeDownloadMenu();
     } catch (error) {
-      console.error('Failed to save image with save-as', error);
+      console.error('Failed to save media with save-as', error);
     }
-  }, [closeDownloadMenu, imageSource, node.id]);
+  }, [closeDownloadMenu, downloadableSource, downloadDefaultFileName]);
 
   const handleDownloadToPreset = useCallback(
     async (targetDir: string) => {
-      if (!imageSource) {
+      if (!downloadableSource) {
         return;
       }
       try {
-        await saveImageSourceToDirectory(imageSource, targetDir, `node-${node.id}`);
+        await saveImageSourceToDirectory(downloadableSource, targetDir, downloadSuggestedFileStem);
         closeDownloadMenu();
       } catch (error) {
-        console.error('Failed to save image to preset dir', error);
+        console.error('Failed to save media to preset dir', error);
       }
     },
-    [closeDownloadMenu, imageSource, node.id]
+    [closeDownloadMenu, downloadableSource, downloadSuggestedFileStem]
   );
+
+  const downloadMenuContent = !isImageEdit && downloadMenu ? (
+    <div
+      ref={downloadMenuRef}
+      className={`fixed z-[120] min-w-[280px] rounded-xl border border-[rgba(255,255,255,0.18)] bg-surface-dark/95 p-2 shadow-2xl backdrop-blur-sm transition-opacity duration-150 ${isDownloadMenuVisible ? 'opacity-100' : 'opacity-0'}`}
+      style={{ left: `${downloadMenu.x}px`, top: `${downloadMenu.y}px` }}
+    >
+      <button
+        type="button"
+        className="flex h-9 w-full items-center gap-2 rounded-lg px-2.5 text-left text-sm text-text-dark transition-colors hover:bg-bg-dark"
+        onClick={() => {
+          void handleDownloadSaveAs();
+        }}
+      >
+        <Download className="h-4 w-4" />
+        {t('nodeToolbar.saveAs')}
+      </button>
+
+      {downloadPresetPaths.length > 0 ? (
+        <div className="mt-1 space-y-1 border-t border-[rgba(255,255,255,0.1)] pt-2">
+          {downloadPresetPaths.map((path) => (
+            <button
+              key={path}
+              type="button"
+              className="flex h-9 w-full items-center gap-2 rounded-lg px-2.5 text-left text-xs text-text-dark transition-colors hover:bg-bg-dark"
+              onClick={() => {
+                void handleDownloadToPreset(path);
+              }}
+              title={path}
+            >
+              <FolderOpen className="h-3.5 w-3.5 shrink-0 text-text-muted" />
+              <span className="truncate">{path}</span>
+            </button>
+          ))}
+        </div>
+      ) : (
+        <div className="mt-1 border-t border-[rgba(255,255,255,0.1)] px-2.5 pt-2 text-xs text-text-muted">
+          {t('nodeToolbar.noDownloadPresetPathsHint')}
+        </div>
+      )}
+    </div>
+  ) : null;
 
   return (
     <ReactFlowNodeToolbar
@@ -572,9 +750,9 @@ export const NodeActionToolbar = memo(({ node }: NodeActionToolbarProps) => {
             <RefreshCw className="h-3.5 w-3.5" />
           </UiChipButton>
         )}
-        {!isImageEdit && canHandleImage && (
+        {!isImageEdit && canDownloadMedia && (
           <UiChipButton
-            key="image-download"
+            key="media-download"
             className={`h-8 ${TOOLBAR_BUTTON_RADIUS_CLASS} px-2.5 text-xs ${TOOLBAR_NEUTRAL_BUTTON_CLASS}`}
             onClick={(event) => {
               event.stopPropagation();
@@ -582,10 +760,10 @@ export const NodeActionToolbar = memo(({ node }: NodeActionToolbarProps) => {
                 void handleDownloadSaveAs();
                 return;
               }
-              setDownloadMenu({
-                x: event.clientX,
-                y: event.clientY,
-              });
+              setDownloadMenu(resolveDownloadMenuPosition(
+                event.currentTarget.getBoundingClientRect(),
+                downloadPresetPaths.length
+              ));
               setIsDownloadMenuVisible(false);
             }}
           >
@@ -680,47 +858,7 @@ export const NodeActionToolbar = memo(({ node }: NodeActionToolbarProps) => {
         )}
       </UiPanel>
 
-      {!isImageEdit && downloadMenu && (
-        <div
-          ref={downloadMenuRef}
-          className={`fixed z-[120] min-w-[280px] rounded-xl border border-[rgba(255,255,255,0.18)] bg-surface-dark/95 p-2 shadow-2xl backdrop-blur-sm transition-opacity duration-150 ${isDownloadMenuVisible ? 'opacity-100' : 'opacity-0'}`}
-          style={{ left: `${downloadMenu.x}px`, top: `${downloadMenu.y}px` }}
-        >
-          <button
-            type="button"
-            className="flex h-9 w-full items-center gap-2 rounded-lg px-2.5 text-left text-sm text-text-dark transition-colors hover:bg-bg-dark"
-            onClick={() => {
-              void handleDownloadSaveAs();
-            }}
-          >
-            <Download className="h-4 w-4" />
-            {t('nodeToolbar.saveAs')}
-          </button>
-
-          {downloadPresetPaths.length > 0 ? (
-            <div className="mt-1 space-y-1 border-t border-[rgba(255,255,255,0.1)] pt-2">
-              {downloadPresetPaths.map((path) => (
-                <button
-                  key={path}
-                  type="button"
-                  className="flex h-9 w-full items-center gap-2 rounded-lg px-2.5 text-left text-xs text-text-dark transition-colors hover:bg-bg-dark"
-                  onClick={() => {
-                    void handleDownloadToPreset(path);
-                  }}
-                  title={path}
-                >
-                  <FolderOpen className="h-3.5 w-3.5 shrink-0 text-text-muted" />
-                  <span className="truncate">{path}</span>
-                </button>
-              ))}
-            </div>
-          ) : (
-            <div className="mt-1 border-t border-[rgba(255,255,255,0.1)] px-2.5 pt-2 text-xs text-text-muted">
-              {t('nodeToolbar.noDownloadPresetPathsHint')}
-            </div>
-          )}
-        </div>
-      )}
+      {downloadMenuContent ? createPortal(downloadMenuContent, document.body) : null}
     </ReactFlowNodeToolbar>
   );
 });

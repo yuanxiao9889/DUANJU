@@ -91,6 +91,12 @@ interface ClipLibraryState {
 }
 
 let hydrateRequest: Promise<void> | null = null;
+let loadLibraryRequest: {
+  libraryId: string;
+  requestId: number;
+  promise: Promise<ClipLibrarySnapshot | null>;
+} | null = null;
+let loadLibraryRequestId = 0;
 
 export const useClipLibraryStore = create<ClipLibraryState>((set, get) => ({
   libraries: [],
@@ -148,7 +154,8 @@ export const useClipLibraryStore = create<ClipLibraryState>((set, get) => ({
   },
 
   loadLibrary: async (libraryId) => {
-    if (!libraryId) {
+    const normalizedLibraryId = libraryId?.trim() || null;
+    if (!normalizedLibraryId) {
       set({
         currentLibraryId: null,
         currentSnapshot: null,
@@ -156,20 +163,43 @@ export const useClipLibraryStore = create<ClipLibraryState>((set, get) => ({
       return null;
     }
 
-    set({ isLoadingSnapshot: true, currentLibraryId: libraryId });
-    try {
-      const snapshot = await getClipLibrarySnapshot(libraryId);
-      set({
-        currentLibraryId: libraryId,
-        currentSnapshot: snapshot,
-        isLoadingSnapshot: false,
-      });
-      return snapshot;
-    } catch (error) {
-      console.error('Failed to load clip library snapshot', error);
-      set({ currentSnapshot: null, isLoadingSnapshot: false });
-      return null;
+    if (loadLibraryRequest?.libraryId === normalizedLibraryId) {
+      return await loadLibraryRequest.promise;
     }
+
+    set({ isLoadingSnapshot: true, currentLibraryId: normalizedLibraryId });
+    const requestId = loadLibraryRequestId + 1;
+    loadLibraryRequestId = requestId;
+    const request = (async () => {
+      try {
+        const snapshot = await getClipLibrarySnapshot(normalizedLibraryId);
+        if (get().currentLibraryId === normalizedLibraryId) {
+          set({
+            currentLibraryId: normalizedLibraryId,
+            currentSnapshot: snapshot,
+            isLoadingSnapshot: false,
+          });
+        }
+        return snapshot;
+      } catch (error) {
+        console.error('Failed to load clip library snapshot', error);
+        if (get().currentLibraryId === normalizedLibraryId) {
+          set({ currentSnapshot: null, isLoadingSnapshot: false });
+        }
+        return null;
+      } finally {
+        if (loadLibraryRequest?.requestId === requestId) {
+          loadLibraryRequest = null;
+        }
+      }
+    })();
+
+    loadLibraryRequest = {
+      libraryId: normalizedLibraryId,
+      requestId,
+      promise: request,
+    };
+    return await request;
   },
 
   refreshCurrentLibrary: async () => {

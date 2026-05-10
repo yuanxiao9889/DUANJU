@@ -6,11 +6,18 @@ import { save } from '@tauri-apps/plugin-dialog';
 import { UI_CONTENT_OVERLAY_INSET_CLASS } from '@/components/ui/motion';
 import { saveImageSourceToPath } from '@/commands/image';
 import { resolveLocalFileSourcePath } from '@/features/canvas/application/imageData';
-import type { ImageViewerMetadata } from '@/features/canvas/domain/canvasNodes';
+import {
+  CANVAS_NODE_TYPES,
+  type ImageCompareNodeData,
+  type ImageCompareNodeImageSnapshot,
+  type ImageViewerMetadata,
+} from '@/features/canvas/domain/canvasNodes';
 import { getModelProvider } from '@/features/canvas/models';
-import { CanvasNodeImage } from '@/features/canvas/ui/CanvasNodeImage';
+import { useCanvasStore } from '@/stores/canvasStore';
 
 import { useImageViewerTransform } from '../hooks/useImageViewerTransform';
+import { CanvasNodeImage } from './CanvasNodeImage';
+import { ImageCompareStage } from './ImageCompareStage';
 
 const FALLBACK_VIEWER_DOWNLOAD_EXTENSION = 'png';
 const IMAGE_FILE_EXTENSION_PATTERN =
@@ -72,26 +79,43 @@ function resolveViewerDownloadFileName(source: string, currentIndex: number): st
   return `${sanitizedFileName}.${fallbackExtension}`;
 }
 
-export interface ImageViewerModalProps {
+function resolveCompareImageTitle(
+  image: ImageCompareNodeImageSnapshot,
+  fallbackTitle: string
+): string {
+  const title = image.displayName?.trim();
+  return title && title.length > 0 ? title : fallbackTitle;
+}
+
+interface BaseImageViewerModalProps {
   open: boolean;
-  imageUrl: string;
-  imageList: string[];
-  currentIndex: number;
-  metadata: ImageViewerMetadata | null;
+  mode: 'single' | 'compare';
   onClose: () => void;
   onNavigate: (direction: 'prev' | 'next') => void;
 }
 
-export function ImageViewerModal({
-  open,
-  imageUrl,
-  imageList,
-  currentIndex,
-  metadata,
-  onClose,
-  onNavigate,
-}: ImageViewerModalProps): JSX.Element | null {
+interface SingleImageViewerModalProps extends BaseImageViewerModalProps {
+  mode: 'single';
+  imageUrl: string;
+  imageList: string[];
+  currentIndex: number;
+  metadata: ImageViewerMetadata | null;
+}
+
+interface CompareImageViewerModalProps extends BaseImageViewerModalProps {
+  mode: 'compare';
+  compareNodeId: string;
+  compareData: ImageCompareNodeData;
+}
+
+export type ImageViewerModalProps =
+  | SingleImageViewerModalProps
+  | CompareImageViewerModalProps;
+
+export function ImageViewerModal(props: ImageViewerModalProps): JSX.Element | null {
+  const { open, mode, onClose, onNavigate } = props;
   const { t, i18n } = useTranslation();
+  const updateNodeData = useCanvasStore((state) => state.updateNodeData);
   const viewerControlClass =
     'inline-flex h-10 items-center justify-center rounded-full border border-white/20 bg-black/60 px-4 text-sm text-white backdrop-blur-xl transition-colors hover:bg-white/10';
   const metadataCardClass =
@@ -104,27 +128,37 @@ export function ImageViewerModal({
     'ui-scrollbar min-h-[180px] flex-1 rounded-[24px] border border-white/[0.05] bg-white/[0.04] p-4 text-sm leading-6 text-white/84 shadow-inner shadow-black/10';
   const [isVisible, setIsVisible] = useState(false);
   const [overlayOpacity, setOverlayOpacity] = useState(0);
-  const [displayImageUrl, setDisplayImageUrl] = useState(imageUrl);
+  const [displayImageUrl, setDisplayImageUrl] = useState(
+    props.mode === 'single' ? props.imageUrl : ''
+  );
   const [isPromptCopied, setIsPromptCopied] = useState(false);
   const closeTimerRef = useRef<number | null>(null);
   const copyResetTimerRef = useRef<number | null>(null);
 
   const {
     containerRef,
-    imageRef,
+    transformTargetRef,
+    focusImageRef,
     scaleDisplayRef,
     viewerOpacity,
     resetView,
     zoomToActualSize,
-    handleImageMouseDown,
+    handleContentMouseDown,
     handleContainerMouseMove,
     handleContainerMouseUp,
-    handleImageMouseMove,
-    handleImageLoad,
+    handleContentMouseMove,
+    handleFocusImageLoad,
     isPointOnImageContent,
   } = useImageViewerTransform(open && isVisible);
 
   const locale = i18n.language.startsWith('zh') ? 'zh-CN' : 'en-US';
+  const isSingleMode = mode === 'single';
+  const imageUrl = isSingleMode ? props.imageUrl : '';
+  const imageList = isSingleMode ? props.imageList : [];
+  const currentIndex = isSingleMode ? props.currentIndex : 0;
+  const metadata = isSingleMode ? props.metadata : null;
+  const compareNodeId = mode === 'compare' ? props.compareNodeId : null;
+  const compareData = mode === 'compare' ? props.compareData : null;
   const providerName = useMemo(() => {
     const providerId = metadata?.providerId?.trim() ?? '';
     if (!providerId) {
@@ -157,6 +191,22 @@ export function ImageViewerModal({
 
   const promptText = metadata?.prompt?.trim() ?? '';
   const hasMetadata = Boolean(metadata);
+  const singleContentKey = imageUrl;
+  const compareContentKey = useMemo(() => {
+    if (!compareNodeId || !compareData) {
+      return '';
+    }
+
+    return [
+      compareNodeId,
+      compareData.baseImage.imageUrl ?? compareData.baseImage.previewImageUrl ?? '',
+      compareData.overlayImage.imageUrl ?? compareData.overlayImage.previewImageUrl ?? '',
+    ].join('::');
+  }, [
+    compareData,
+    compareNodeId,
+  ]);
+  const contentKey = isSingleMode ? singleContentKey : compareContentKey;
 
   useEffect(() => {
     if (!isVisible) {
@@ -171,7 +221,7 @@ export function ImageViewerModal({
 
   useEffect(() => {
     if (open) {
-      setDisplayImageUrl(imageUrl);
+      setDisplayImageUrl(isSingleMode ? imageUrl : '');
       setIsVisible(true);
       if (closeTimerRef.current) {
         clearTimeout(closeTimerRef.current);
@@ -200,15 +250,15 @@ export function ImageViewerModal({
         closeTimerRef.current = null;
       }
     };
-  }, [open, isVisible, imageUrl]);
+  }, [imageUrl, isSingleMode, isVisible, open]);
 
   useEffect(() => {
-    if (!open || !imageUrl) {
+    if (!open || !isSingleMode || !imageUrl) {
       return;
     }
 
     setDisplayImageUrl(imageUrl);
-  }, [open, imageUrl]);
+  }, [imageUrl, isSingleMode, open]);
 
   useEffect(() => {
     return () => {
@@ -229,7 +279,7 @@ export function ImageViewerModal({
     }
 
     resetView();
-  }, [open, imageUrl, resetView]);
+  }, [contentKey, open, resetView]);
 
   useEffect(() => {
     if (!open) {
@@ -237,18 +287,25 @@ export function ImageViewerModal({
     }
 
     const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        onClose();
+        return;
+      }
+
+      if (!isSingleMode) {
+        return;
+      }
+
       if (event.key === 'ArrowLeft') {
         onNavigate('prev');
       } else if (event.key === 'ArrowRight') {
         onNavigate('next');
-      } else if (event.key === 'Escape') {
-        onClose();
       }
     };
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [open, onNavigate, onClose]);
+  }, [isSingleMode, onClose, onNavigate, open]);
 
   useEffect(() => {
     setIsPromptCopied(false);
@@ -256,7 +313,7 @@ export function ImageViewerModal({
       clearTimeout(copyResetTimerRef.current);
       copyResetTimerRef.current = null;
     }
-  }, [imageUrl, metadata, open]);
+  }, [imageUrl, metadata, mode, open]);
 
   const handleCopyPrompt = async () => {
     if (!promptText || typeof navigator === 'undefined' || !navigator.clipboard?.writeText) {
@@ -275,6 +332,10 @@ export function ImageViewerModal({
   };
 
   const handleDownloadImage = async () => {
+    if (!isSingleMode) {
+      return;
+    }
+
     const source = displayImageUrl.trim();
     if (!source) {
       return;
@@ -293,6 +354,18 @@ export function ImageViewerModal({
     } catch (error) {
       console.error('Failed to save viewer image', error);
     }
+  };
+
+  const resolveCompareSourceLabel = (image: ImageCompareNodeImageSnapshot): string => {
+    if (image.sourceNodeType === CANVAS_NODE_TYPES.upload) {
+      return t('viewer.compare.sourceUpload');
+    }
+
+    if (image.sourceNodeType === CANVAS_NODE_TYPES.exportImage) {
+      return t('viewer.compare.sourceGenerated');
+    }
+
+    return t('viewer.unavailable');
   };
 
   if (!isVisible) {
@@ -329,35 +402,65 @@ export function ImageViewerModal({
           <div className="pointer-events-none absolute inset-x-0 top-0 z-10 h-24 bg-gradient-to-b from-black/55 to-transparent" />
 
           <div className="absolute inset-0 flex items-center justify-center p-4 sm:p-6">
-            <CanvasNodeImage
-              ref={imageRef}
-              src={displayImageUrl}
-              disableViewer
-              alt={t('viewer.imageAlt', '图片')}
-              className="select-none transition-opacity duration-300"
-              style={{
-                opacity: viewerOpacity * overlayOpacity,
-                transformOrigin: 'center',
-                width: '100%',
-                height: '100%',
-                objectFit: 'contain',
-              }}
-              onLoad={handleImageLoad}
-              onMouseDown={handleImageMouseDown}
-              onMouseMove={handleImageMouseMove}
-              onClick={(event) => {
-                if (isPointOnImageContent(event.clientX, event.clientY)) {
-                  event.stopPropagation();
-                } else {
-                  onClose();
-                }
-              }}
-              draggable={false}
-            />
+            {compareData && compareNodeId ? (
+              <ImageCompareStage
+                ref={transformTargetRef}
+                baseImage={compareData.baseImage}
+                overlayImage={compareData.overlayImage}
+                dividerRatio={compareData.dividerRatio}
+                baseImageRef={focusImageRef}
+                onBaseImageLoad={handleFocusImageLoad}
+                className="select-none rounded-[24px] transition-opacity duration-300"
+                style={{
+                  opacity: viewerOpacity * overlayOpacity,
+                  transformOrigin: 'center',
+                }}
+                onMouseDown={handleContentMouseDown}
+                onMouseMove={handleContentMouseMove}
+                onClick={(event) => {
+                  if (isPointOnImageContent(event.clientX, event.clientY)) {
+                    event.stopPropagation();
+                  } else {
+                    onClose();
+                  }
+                }}
+                onDividerRatioCommit={(nextRatio) => {
+                  updateNodeData(compareNodeId, { dividerRatio: nextRatio });
+                }}
+              />
+            ) : (
+              <div
+                ref={transformTargetRef}
+                className="h-full w-full select-none transition-opacity duration-300"
+                style={{
+                  opacity: viewerOpacity * overlayOpacity,
+                  transformOrigin: 'center',
+                }}
+                onMouseDown={handleContentMouseDown}
+                onMouseMove={handleContentMouseMove}
+                onClick={(event) => {
+                  if (isPointOnImageContent(event.clientX, event.clientY)) {
+                    event.stopPropagation();
+                  } else {
+                    onClose();
+                  }
+                }}
+              >
+                <CanvasNodeImage
+                  ref={focusImageRef}
+                  src={displayImageUrl}
+                  disableViewer
+                  alt={t('viewer.imageAlt')}
+                  className="h-full w-full object-contain"
+                  onLoad={handleFocusImageLoad}
+                  draggable={false}
+                />
+              </div>
+            )}
           </div>
 
           <div className="absolute right-4 top-4 z-20 flex flex-wrap items-center justify-end gap-2">
-            {imageList.length > 1 && (
+            {isSingleMode && imageList.length > 1 && (
               <div className={`${viewerControlClass} min-w-[78px]`}>
                 {currentIndex + 1} / {imageList.length}
               </div>
@@ -372,7 +475,7 @@ export function ImageViewerModal({
               type="button"
               onClick={zoomToActualSize}
               className={viewerControlClass}
-              title={t('viewer.actualSize', '1:1')}
+              title={t('viewer.actualSize')}
             >
               1:1
             </button>
@@ -380,39 +483,41 @@ export function ImageViewerModal({
               type="button"
               onClick={resetView}
               className={viewerControlClass}
-              title={t('viewer.reset', '重置视图')}
+              title={t('viewer.reset')}
             >
               <RotateCcw className="h-4 w-4" />
             </button>
-            <button
-              type="button"
-              onClick={() => {
-                void handleDownloadImage();
-              }}
-              className={viewerControlClass}
-              title={t('viewer.download', '下载图片')}
-              aria-label={t('viewer.download', '下载图片')}
-            >
-              <Download className="h-4 w-4" />
-            </button>
+            {isSingleMode && (
+              <button
+                type="button"
+                onClick={() => {
+                  void handleDownloadImage();
+                }}
+                className={viewerControlClass}
+                title={t('viewer.download')}
+                aria-label={t('viewer.download')}
+              >
+                <Download className="h-4 w-4" />
+              </button>
+            )}
             <button
               type="button"
               onClick={onClose}
               className={viewerControlClass}
-              title={t('common.close', '关闭')}
+              title={t('common.close')}
             >
               <X className="h-4 w-4" />
             </button>
           </div>
 
-          {imageList.length > 1 && (
+          {isSingleMode && imageList.length > 1 && (
             <div className="absolute bottom-4 left-1/2 z-20 flex -translate-x-1/2 items-center gap-3">
               <button
                 type="button"
                 onClick={() => onNavigate('prev')}
                 disabled={currentIndex <= 0}
                 className="rounded-full bg-zinc-800/80 p-2 text-white backdrop-blur-sm transition-all duration-200 hover:bg-zinc-700/80 disabled:cursor-not-allowed disabled:opacity-50"
-                title={t('viewer.prev', '上一张')}
+                title={t('viewer.prev')}
               >
                 <ChevronLeft className="h-5 w-5" />
               </button>
@@ -421,7 +526,7 @@ export function ImageViewerModal({
                 onClick={() => onNavigate('next')}
                 disabled={currentIndex >= imageList.length - 1}
                 className="rounded-full bg-zinc-800/80 p-2 text-white backdrop-blur-sm transition-all duration-200 hover:bg-zinc-700/80 disabled:cursor-not-allowed disabled:opacity-50"
-                title={t('viewer.next', '下一张')}
+                title={t('viewer.next')}
               >
                 <ChevronRight className="h-5 w-5" />
               </button>
@@ -430,73 +535,123 @@ export function ImageViewerModal({
         </div>
 
         <aside className="flex w-full shrink-0 flex-col rounded-[28px] border border-white/[0.06] bg-white/[0.045] p-4 shadow-[0_24px_64px_rgba(0,0,0,0.24)] backdrop-blur-xl xl:min-h-0 xl:w-[380px]">
-          <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-1">
-            <div className={metadataCardClass}>
-              <div className="text-[11px] font-medium uppercase tracking-[0.18em] text-white/34">
-                {t('viewer.provider', '厂商')}
-              </div>
-              <div className="mt-2 text-sm leading-6 text-white/92">
-                {providerName ?? t('viewer.unavailable', '暂无')}
-              </div>
-            </div>
-
-            <div className={metadataCardClass}>
-              <div className="text-[11px] font-medium uppercase tracking-[0.18em] text-white/34">
-                {t('viewer.model', '模型')}
-              </div>
-              <div className="mt-2 break-words text-sm leading-6 text-white/92">
-                {metadata?.requestModel?.trim() || t('viewer.unavailable', '暂无')}
-              </div>
-            </div>
-
-            <div className={`${metadataCardClass} sm:col-span-2 xl:col-span-1`}>
-              <div className="text-[11px] font-medium uppercase tracking-[0.18em] text-white/34">
-                {t('viewer.generatedAt', '生成时间')}
-              </div>
-              <div className="mt-2 break-words text-sm leading-6 text-white/92">
-                {generatedAtLabel ?? t('viewer.unavailable', '暂无')}
-              </div>
-            </div>
-          </div>
-
-          <div className="mt-4 flex min-h-[220px] flex-1 flex-col xl:min-h-0">
-            <div className="mb-3 flex items-center justify-between gap-3">
-              <div className="text-[11px] font-medium uppercase tracking-[0.18em] text-white/34">
-                {t('viewer.prompt', '提示词')}
-              </div>
-              <button
-                type="button"
-                disabled={!promptText}
-                className={isPromptCopied ? promptActionCopiedClass : promptActionClass}
-                onClick={() => {
-                  void handleCopyPrompt();
-                }}
-              >
-                <Copy className="h-3.5 w-3.5" />
-                {isPromptCopied ? t('common.copied', '已复制') : t('viewer.copyPrompt', '复制提示词')}
-              </button>
-            </div>
-
-            {hasMetadata && promptText ? (
-              <textarea
-                readOnly
-                value={promptText}
-                className={`${promptSurfaceClass} resize-none appearance-none outline-none`}
-                style={{
-                  backgroundColor: 'rgba(255, 255, 255, 0.04)',
-                  color: 'rgba(255, 255, 255, 0.84)',
-                }}
-              />
-            ) : (
-              <div className={`${promptSurfaceClass} overflow-auto`}>
-                <div className="text-white/42">
-                  {hasMetadata
-                    ? t('viewer.promptEmpty', '未记录提示词')
-                    : t('viewer.noMetadata', '这张图片暂时没有生成信息')}
+          {compareData ? (
+            <>
+              <div>
+                <div className="text-[11px] font-medium uppercase tracking-[0.18em] text-white/34">
+                  {t('viewer.compare.title')}
+                </div>
+                <div className="mt-2 text-lg font-medium text-white/92">
+                  {t('node.menu.imageCompare')}
+                </div>
+                <div className="mt-3 text-sm leading-6 text-white/62">
+                  {t('viewer.compare.hint')}
                 </div>
               </div>
-            )}
-          </div>
+
+              <div className="mt-4 grid gap-4">
+                <div className={metadataCardClass}>
+                  <div className="text-[11px] font-medium uppercase tracking-[0.18em] text-white/34">
+                    {t('viewer.compare.base')}
+                  </div>
+                  <div className="mt-2 break-words text-sm leading-6 text-white/92">
+                    {resolveCompareImageTitle(compareData.baseImage, t('viewer.compare.base'))}
+                  </div>
+                  <div className="mt-4 text-[11px] font-medium uppercase tracking-[0.18em] text-white/34">
+                    {t('viewer.compare.source')}
+                  </div>
+                  <div className="mt-2 text-sm leading-6 text-white/72">
+                    {resolveCompareSourceLabel(compareData.baseImage)}
+                  </div>
+                </div>
+
+                <div className={metadataCardClass}>
+                  <div className="text-[11px] font-medium uppercase tracking-[0.18em] text-white/34">
+                    {t('viewer.compare.overlay')}
+                  </div>
+                  <div className="mt-2 break-words text-sm leading-6 text-white/92">
+                    {resolveCompareImageTitle(compareData.overlayImage, t('viewer.compare.overlay'))}
+                  </div>
+                  <div className="mt-4 text-[11px] font-medium uppercase tracking-[0.18em] text-white/34">
+                    {t('viewer.compare.source')}
+                  </div>
+                  <div className="mt-2 text-sm leading-6 text-white/72">
+                    {resolveCompareSourceLabel(compareData.overlayImage)}
+                  </div>
+                </div>
+              </div>
+            </>
+          ) : (
+            <>
+              <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-1">
+                <div className={metadataCardClass}>
+                  <div className="text-[11px] font-medium uppercase tracking-[0.18em] text-white/34">
+                    {t('viewer.provider')}
+                  </div>
+                  <div className="mt-2 text-sm leading-6 text-white/92">
+                    {providerName ?? t('viewer.unavailable')}
+                  </div>
+                </div>
+
+                <div className={metadataCardClass}>
+                  <div className="text-[11px] font-medium uppercase tracking-[0.18em] text-white/34">
+                    {t('viewer.model')}
+                  </div>
+                  <div className="mt-2 break-words text-sm leading-6 text-white/92">
+                    {metadata?.requestModel?.trim() || t('viewer.unavailable')}
+                  </div>
+                </div>
+
+                <div className={`${metadataCardClass} sm:col-span-2 xl:col-span-1`}>
+                  <div className="text-[11px] font-medium uppercase tracking-[0.18em] text-white/34">
+                    {t('viewer.generatedAt')}
+                  </div>
+                  <div className="mt-2 break-words text-sm leading-6 text-white/92">
+                    {generatedAtLabel ?? t('viewer.unavailable')}
+                  </div>
+                </div>
+              </div>
+
+              <div className="mt-4 flex min-h-[220px] flex-1 flex-col xl:min-h-0">
+                <div className="mb-3 flex items-center justify-between gap-3">
+                  <div className="text-[11px] font-medium uppercase tracking-[0.18em] text-white/34">
+                    {t('viewer.prompt')}
+                  </div>
+                  <button
+                    type="button"
+                    disabled={!promptText}
+                    className={isPromptCopied ? promptActionCopiedClass : promptActionClass}
+                    onClick={() => {
+                      void handleCopyPrompt();
+                    }}
+                  >
+                    <Copy className="h-3.5 w-3.5" />
+                    {isPromptCopied ? t('common.copied') : t('viewer.copyPrompt')}
+                  </button>
+                </div>
+
+                {hasMetadata && promptText ? (
+                  <textarea
+                    readOnly
+                    value={promptText}
+                    className={`${promptSurfaceClass} resize-none appearance-none outline-none`}
+                    style={{
+                      backgroundColor: 'rgba(255, 255, 255, 0.04)',
+                      color: 'rgba(255, 255, 255, 0.84)',
+                    }}
+                  />
+                ) : (
+                  <div className={`${promptSurfaceClass} overflow-auto`}>
+                    <div className="text-white/42">
+                      {hasMetadata
+                        ? t('viewer.promptEmpty')
+                        : t('viewer.noMetadata')}
+                    </div>
+                  </div>
+                )}
+              </div>
+            </>
+          )}
         </aside>
       </div>
     </div>

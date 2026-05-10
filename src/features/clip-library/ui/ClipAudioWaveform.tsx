@@ -1,6 +1,10 @@
 import { useEffect, useMemo, useState } from 'react';
 
 import { resolveAudioDisplayUrl } from '@/features/canvas/application/audioData';
+import {
+  CLIP_AUDIO_WAVEFORM_MAX_BYTES,
+  readResponseArrayBufferWithinLimit,
+} from '@/features/clip-library/application/mediaPreviewLimits';
 
 interface ClipAudioWaveformProps {
   sourcePath: string;
@@ -59,7 +63,10 @@ export function ClipAudioWaveform({ sourcePath, className = '' }: ClipAudioWavef
           throw new Error(`Failed to load audio source (${response.status})`);
         }
 
-        const buffer = await response.arrayBuffer();
+        const buffer = await readResponseArrayBufferWithinLimit(
+          response,
+          CLIP_AUDIO_WAVEFORM_MAX_BYTES
+        );
         if (disposed) {
           return;
         }

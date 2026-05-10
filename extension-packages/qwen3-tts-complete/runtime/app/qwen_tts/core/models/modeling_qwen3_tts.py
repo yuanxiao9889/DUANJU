@@ -1905,9 +1905,9 @@ class Qwen3TTSForConditionalGeneration(Qwen3TTSPreTrainedModel, GenerationMixin)
             force_download=kwargs.pop("force_download", False),
             proxies=kwargs.pop("proxies", None),
             resume_download=kwargs.pop("resume_download", None),
-            local_files_only=kwargs.pop("local_files_only", False),
-            token=kwargs.pop("use_auth_token", None),
-            revision=kwargs.pop("revision", None),
+            local_files_only=local_files_only,
+            token=token,
+            revision=revision,
         )
         if speech_tokenizer_path is None:
             raise ValueError(f"""{pretrained_model_name_or_path}/{speech_tokenizer_path} not exists""")
@@ -1915,6 +1915,7 @@ class Qwen3TTSForConditionalGeneration(Qwen3TTSPreTrainedModel, GenerationMixin)
         speech_tokenizer = Qwen3TTSTokenizer.from_pretrained(
             speech_tokenizer_dir,
             *model_args,
+            local_files_only=local_files_only,
             **kwargs,
         )
         model.load_speech_tokenizer(speech_tokenizer)
@@ -1927,9 +1928,9 @@ class Qwen3TTSForConditionalGeneration(Qwen3TTSPreTrainedModel, GenerationMixin)
             force_download=kwargs.pop("force_download", False),
             proxies=kwargs.pop("proxies", None),
             resume_download=kwargs.pop("resume_download", None),
-            local_files_only=kwargs.pop("local_files_only", False),
-            token=kwargs.pop("use_auth_token", None),
-            revision=kwargs.pop("revision", None),
+            local_files_only=local_files_only,
+            token=token,
+            revision=revision,
         )
         with open(generate_config_path, "r", encoding="utf-8") as f:
             generate_config = json.load(f)

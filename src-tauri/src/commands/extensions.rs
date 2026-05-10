@@ -445,7 +445,10 @@ fn resolve_startup_health_timeout_ms(manifest: &ExtensionPackageManifest) -> u64
     manifest
         .startup_health_timeout_ms
         .unwrap_or(EXTENSION_RUNTIME_BOOT_TIMEOUT_MS)
-        .clamp(EXTENSION_RUNTIME_BOOT_TIMEOUT_MS, EXTENSION_RUNTIME_MAX_BOOT_TIMEOUT_MS)
+        .clamp(
+            EXTENSION_RUNTIME_BOOT_TIMEOUT_MS,
+            EXTENSION_RUNTIME_MAX_BOOT_TIMEOUT_MS,
+        )
 }
 
 fn resolve_extension_folder(folder_path: &str) -> Result<PathBuf, String> {
@@ -454,7 +457,8 @@ fn resolve_extension_folder(folder_path: &str) -> Result<PathBuf, String> {
         return Err("Extension folder path is empty.".to_string());
     }
 
-    let folder = PathBuf::from(trimmed_path);
+    let normalized_path = normalize_local_path_text(trimmed_path);
+    let folder = PathBuf::from(&normalized_path);
     if !folder.exists() {
         return Err(format!("Extension folder does not exist: {}", trimmed_path));
     }
@@ -464,6 +468,24 @@ fn resolve_extension_folder(folder_path: &str) -> Result<PathBuf, String> {
     }
 
     Ok(folder)
+}
+
+fn normalize_local_path_text(value: &str) -> String {
+    #[cfg(target_os = "windows")]
+    {
+        if let Some(stripped) = value.strip_prefix(r"\\?\UNC\") {
+            format!(r"\\{stripped}")
+        } else if let Some(stripped) = value.strip_prefix(r"\\?\") {
+            stripped.to_string()
+        } else {
+            value.to_string()
+        }
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    {
+        value.to_string()
+    }
 }
 
 fn resolve_extension_search_roots() -> Vec<PathBuf> {
@@ -503,11 +525,13 @@ fn validate_discovered_extension_folder(
 }
 
 fn normalize_discovered_folder_path(folder: &Path) -> String {
-    folder
+    let path = folder
         .canonicalize()
         .unwrap_or_else(|_| folder.to_path_buf())
         .to_string_lossy()
-        .to_string()
+        .to_string();
+
+    normalize_local_path_text(&path)
 }
 
 fn read_manifest_from_folder(folder: &Path) -> Result<ExtensionPackageManifest, String> {

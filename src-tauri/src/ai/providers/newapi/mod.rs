@@ -30,6 +30,7 @@ const JSON_REQUEST_RETRY_DELAY_MS: u64 = 2_000;
 const CURL_JSON_TRANSPORT_MIN_BYTES: usize = 64 * 1024;
 const CURL_JSON_TRANSPORT_TIMEOUT_SECONDS: u64 = 1_000;
 const CURL_MULTIPART_TRANSPORT_TIMEOUT_SECONDS: u64 = 1_000;
+const CURL_4K_IMAGE_TRANSPORT_TIMEOUT_SECONDS: u64 = 2_400;
 #[cfg(target_os = "windows")]
 const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 const FLOW2API_IMAGE_ASPECT_SUFFIXES: [&str; 5] = [
@@ -392,47 +393,6 @@ impl NewApiProvider {
             return format!("{}/images/edits", trimmed);
         }
         format!("{}/v1/images/edits", trimmed)
-    }
-
-    fn append_async_query(endpoint: &str) -> String {
-        if let Ok(mut url) = reqwest::Url::parse(endpoint) {
-            let pairs: Vec<(String, String)> = url
-                .query_pairs()
-                .filter(|(key, _)| key != "async")
-                .map(|(key, value)| (key.into_owned(), value.into_owned()))
-                .collect();
-            url.set_query(None);
-            {
-                let mut query = url.query_pairs_mut();
-                for (key, value) in pairs {
-                    query.append_pair(&key, &value);
-                }
-                query.append_pair("async", "true");
-            }
-            return url.to_string();
-        }
-
-        if endpoint.contains('?') {
-            format!("{}&async=true", endpoint)
-        } else {
-            format!("{}?async=true", endpoint)
-        }
-    }
-
-    fn resolve_openai_task_status_endpoint(endpoint_url: &str, task_id: &str) -> String {
-        let trimmed = endpoint_url.trim().trim_end_matches('/');
-        let trimmed = trimmed
-            .strip_suffix("/chat/completions")
-            .or_else(|| trimmed.strip_suffix("/images/generations"))
-            .or_else(|| trimmed.strip_suffix("/images/edits"))
-            .unwrap_or(trimmed)
-            .trim_end_matches('/');
-        let base = if trimmed.ends_with("/v1") {
-            trimmed.to_string()
-        } else {
-            format!("{}/v1", trimmed)
-        };
-        format!("{}/images/tasks/{}", base, task_id.trim())
     }
 
     fn is_internal_result_host(host: &str) -> bool {
@@ -810,6 +770,14 @@ impl NewApiProvider {
         }
     }
 
+    fn resolve_image_transport_timeout_seconds(request: &GenerateRequest) -> u64 {
+        if request.size.trim().eq_ignore_ascii_case("4K") {
+            CURL_4K_IMAGE_TRANSPORT_TIMEOUT_SECONDS
+        } else {
+            CURL_MULTIPART_TRANSPORT_TIMEOUT_SECONDS
+        }
+    }
+
     fn build_prompt_text(request: &GenerateRequest) -> String {
         let mut lines = vec![request.prompt.trim().to_string()];
 
@@ -1045,78 +1013,6 @@ impl NewApiProvider {
                 .filter(|value| !value.is_empty())
                 .map(ToString::to_string)
         })
-    }
-
-    fn extract_trimmed_string(payload: &Value, pointers: &[&str]) -> Option<String> {
-        pointers.iter().find_map(|pointer| {
-            payload
-                .pointer(pointer)
-                .and_then(Value::as_str)
-                .map(str::trim)
-                .filter(|value| !value.is_empty())
-                .map(ToString::to_string)
-        })
-    }
-
-    fn extract_async_task_id(payload: &Value) -> Option<String> {
-        Self::extract_trimmed_string(payload, &["/task_id", "/taskId", "/id", "/data/task_id"])
-    }
-
-    fn extract_async_status(payload: &Value) -> Option<String> {
-        Self::extract_trimmed_string(payload, &["/status", "/data/status"])
-            .map(|value| value.to_ascii_lowercase())
-    }
-
-    fn extract_async_status_url(payload: &Value) -> Option<String> {
-        Self::extract_trimmed_string(payload, &["/status_url", "/statusUrl", "/data/status_url"])
-    }
-
-    fn extract_async_content_url(payload: &Value) -> Option<String> {
-        Self::extract_trimmed_string(
-            payload,
-            &["/content_url", "/contentUrl", "/data/content_url"],
-        )
-    }
-
-    fn is_async_running_status(status: &str) -> bool {
-        matches!(
-            status.trim().to_ascii_lowercase().as_str(),
-            "submitted" | "queued" | "processing" | "pending" | "running" | "in_progress"
-        )
-    }
-
-    fn is_async_failed_status(status: &str) -> bool {
-        matches!(
-            status.trim().to_ascii_lowercase().as_str(),
-            "failed" | "failure" | "error" | "cancelled" | "canceled"
-        )
-    }
-
-    fn extract_async_failure_message(payload: &Value) -> String {
-        Self::extract_error_message(payload)
-            .or_else(|| {
-                Self::extract_trimmed_string(
-                    payload,
-                    &[
-                        "/error/code",
-                        "/error/type",
-                        "/error_code",
-                        "/code",
-                        "/status/message",
-                        "/data/error/message",
-                        "/data/error/code",
-                    ],
-                )
-            })
-            .unwrap_or_else(|| format!("NewAPI async image task failed: {}", payload))
-    }
-
-    fn is_async_unsupported_message(message: &str) -> bool {
-        let normalized = message.trim().to_ascii_lowercase();
-        normalized.contains("does not support async image tasks")
-            || normalized.contains("not support async image tasks")
-            || normalized.contains("unsupported async image")
-            || normalized.contains("async image tasks only support")
     }
 
     fn is_json_parse_error(message: &str) -> bool {
@@ -1589,6 +1485,7 @@ impl NewApiProvider {
         api_key: String,
         payload: Vec<u8>,
         request_kind: String,
+        timeout_seconds: u64,
     ) -> Result<(reqwest::StatusCode, String, Option<String>), AIError> {
         let request_kind_for_join = request_kind.clone();
         tokio::task::spawn_blocking(move || {
@@ -1627,7 +1524,7 @@ impl NewApiProvider {
                     .arg("--connect-timeout")
                     .arg("30")
                     .arg("--max-time")
-                    .arg(CURL_JSON_TRANSPORT_TIMEOUT_SECONDS.to_string())
+                    .arg(timeout_seconds.to_string())
                     .arg("-X")
                     .arg("POST")
                     .arg(&endpoint)
@@ -1713,6 +1610,7 @@ impl NewApiProvider {
         api_key: &str,
         body: Value,
         request_kind: &str,
+        timeout_seconds: u64,
     ) -> Result<Value, AIError> {
         let payload = serde_json::to_vec(&body).map_err(|error| {
             AIError::Provider(format!(
@@ -1739,6 +1637,7 @@ impl NewApiProvider {
                     api_key.to_string(),
                     payload.clone(),
                     request_kind.to_string(),
+                    timeout_seconds,
                 )
                 .await
                 {
@@ -1891,6 +1790,7 @@ impl NewApiProvider {
         text_fields: Vec<(String, String)>,
         file_parts: Vec<(String, Vec<u8>, &'static str)>,
         request_kind: String,
+        timeout_seconds: u64,
     ) -> Result<Value, AIError> {
         let request_kind_for_join = request_kind.clone();
         tokio::task::spawn_blocking(move || {
@@ -1921,7 +1821,7 @@ impl NewApiProvider {
                     .arg("--connect-timeout")
                     .arg("30")
                     .arg("--max-time")
-                    .arg(CURL_MULTIPART_TRANSPORT_TIMEOUT_SECONDS.to_string())
+                    .arg(timeout_seconds.to_string())
                     .arg("-X")
                     .arg("POST")
                     .arg(&endpoint)
@@ -2203,7 +2103,13 @@ impl NewApiProvider {
                 .await?;
             let has_more_attempts = index + 1 < attempts.len();
             match self
-                .send_json_request(&endpoint, api_key, body, attempt.request_kind)
+                .send_json_request(
+                    &endpoint,
+                    api_key,
+                    body,
+                    attempt.request_kind,
+                    CURL_JSON_TRANSPORT_TIMEOUT_SECONDS,
+                )
                 .await
             {
                 Ok(payload)
@@ -2272,8 +2178,14 @@ impl NewApiProvider {
 
         let body = Self::build_openai_chat_body(&fields, message_content);
 
-        self.send_json_request(&endpoint, api_key, Value::Object(body), "openai-chat")
-            .await
+        self.send_json_request(
+            &endpoint,
+            api_key,
+            Value::Object(body),
+            "openai-chat",
+            CURL_JSON_TRANSPORT_TIMEOUT_SECONDS,
+        )
+        .await
     }
 
     async fn run_openai_edits(
@@ -2331,6 +2243,7 @@ impl NewApiProvider {
             text_fields,
             file_parts,
             "openai-edits".to_string(),
+            Self::resolve_image_transport_timeout_seconds(request),
         )
         .await
     }
@@ -2371,6 +2284,7 @@ impl NewApiProvider {
             api_key,
             Value::Object(body),
             "openai-images-generations",
+            Self::resolve_image_transport_timeout_seconds(request),
         )
         .await
     }
@@ -2408,112 +2322,9 @@ impl NewApiProvider {
             text_fields,
             file_parts,
             "openai-images-edits".to_string(),
+            Self::resolve_image_transport_timeout_seconds(request),
         )
         .await
-    }
-
-    async fn submit_openai_async_generations(
-        &self,
-        request: &GenerateRequest,
-        config: &NewApiConfig,
-        api_key: &str,
-    ) -> Result<ProviderTaskSubmission, AIError> {
-        let endpoint = Self::append_async_query(&Self::resolve_openai_generations_endpoint(
-            &config.endpoint_url,
-        ));
-        let fields = Self::resolve_openai_request_fields(request, &config.request_model)?;
-        let body = Self::build_openai_generations_body(request, &fields);
-        let payload = self
-            .send_json_request(
-                &endpoint,
-                api_key,
-                Value::Object(body),
-                "openai-images-generations-async",
-            )
-            .await?;
-
-        self.async_submit_payload_to_submission(payload, config, api_key)
-            .await
-    }
-
-    async fn submit_openai_async_edits(
-        &self,
-        request: &GenerateRequest,
-        config: &NewApiConfig,
-        api_key: &str,
-    ) -> Result<ProviderTaskSubmission, AIError> {
-        let endpoint =
-            Self::append_async_query(&Self::resolve_openai_edits_endpoint(&config.endpoint_url));
-        let fields = Self::resolve_openai_request_fields(request, &config.request_model)?;
-        let sources = request
-            .reference_images
-            .as_ref()
-            .filter(|images| !images.is_empty())
-            .ok_or_else(|| {
-                AIError::InvalidRequest(
-                    "OpenAI image edits require at least one reference image".to_string(),
-                )
-            })?;
-
-        let text_fields = Self::build_openai_images_edits_text_fields(request, &fields);
-        let image_field_names = Self::build_openai_images_edits_image_field_names(sources.len());
-        let mut file_parts = Vec::with_capacity(sources.len());
-        for (index, source) in sources.iter().enumerate() {
-            let bytes = Self::source_to_bytes(source).await?;
-            let extension = Self::file_extension_from_source(source);
-            file_parts.push((image_field_names[index].to_string(), bytes, extension));
-        }
-
-        let payload = Self::send_multipart_request_with_curl(
-            endpoint,
-            api_key.to_string(),
-            text_fields,
-            file_parts,
-            "openai-images-edits-async".to_string(),
-        )
-        .await?;
-
-        self.async_submit_payload_to_submission(payload, config, api_key)
-            .await
-    }
-
-    async fn submit_openai_async_images(
-        &self,
-        request: &GenerateRequest,
-        config: &NewApiConfig,
-        api_key: &str,
-    ) -> Result<ProviderTaskSubmission, AIError> {
-        let result = match Self::resolve_openai_images_route(
-            request
-                .reference_images
-                .as_ref()
-                .map(|images| images.len())
-                .unwrap_or(0),
-        ) {
-            OpenAiImageRoute::Generations => {
-                self.submit_openai_async_generations(request, config, api_key)
-                    .await
-            }
-            OpenAiImageRoute::Edits => {
-                self.submit_openai_async_edits(request, config, api_key)
-                    .await
-            }
-        };
-
-        match result {
-            Ok(submission) => Ok(submission),
-            Err(AIError::Provider(message)) if Self::is_async_unsupported_message(&message) => {
-                warn!(
-                    "[NewAPI] async image task unsupported by current channel, falling back to sync openai-images path: {}",
-                    message
-                );
-                let payload = self
-                    .run_openai_images_with_chat_fallback(request, config, api_key)
-                    .await?;
-                self.sync_payload_to_submission(payload, config)
-            }
-            Err(error) => Err(error),
-        }
     }
 
     fn sync_payload_to_submission(
@@ -2536,202 +2347,9 @@ impl NewApiProvider {
         }
 
         Err(AIError::Provider(format!(
-            "NewAPI response did not include image, text, or async task data: {}",
+            "NewAPI response did not include image or text data: {}",
             payload
         )))
-    }
-
-    async fn async_submit_payload_to_submission(
-        &self,
-        payload: Value,
-        config: &NewApiConfig,
-        api_key: &str,
-    ) -> Result<ProviderTaskSubmission, AIError> {
-        if let Some(error_message) = Self::extract_error_message(&payload) {
-            return Err(AIError::Provider(error_message));
-        }
-
-        if let Some(task_id) = Self::extract_async_task_id(&payload) {
-            let status_url = Self::extract_async_status_url(&payload).unwrap_or_else(|| {
-                Self::resolve_openai_task_status_endpoint(&config.endpoint_url, &task_id)
-            });
-            let content_url = Self::extract_async_content_url(&payload);
-            let status =
-                Self::extract_async_status(&payload).unwrap_or_else(|| "submitted".to_string());
-
-            if Self::is_async_failed_status(&status) {
-                let message = Self::extract_async_failure_message(&payload);
-                return Err(AIError::Provider(message));
-            }
-
-            if status == "expired" {
-                return Err(AIError::Provider(
-                    "NewAPI async image task expired during submission".to_string(),
-                ));
-            }
-
-            if status == "succeeded" {
-                if let Some(content_url) = content_url.as_ref() {
-                    let data_url = self
-                        .download_async_content_as_data_url(
-                            content_url,
-                            &config.endpoint_url,
-                            api_key,
-                        )
-                        .await?;
-                    return Ok(ProviderTaskSubmission::Succeeded(data_url));
-                }
-            }
-
-            let metadata = json!({
-                "endpoint_url": config.endpoint_url,
-                "status_url": status_url,
-                "content_url": content_url,
-                "initial_status": status,
-            });
-            return Ok(ProviderTaskSubmission::Queued(ProviderTaskHandle {
-                task_id,
-                metadata: Some(metadata),
-            }));
-        }
-
-        self.sync_payload_to_submission(payload, config)
-    }
-
-    fn resolve_async_absolute_url(raw_url: &str, endpoint_url: &str) -> String {
-        let trimmed = raw_url.trim();
-        if reqwest::Url::parse(trimmed).is_ok() {
-            return trimmed.to_string();
-        }
-
-        if let Ok(base) = reqwest::Url::parse(endpoint_url.trim()) {
-            if let Ok(joined) = base.join(trimmed) {
-                return joined.to_string();
-            }
-        }
-
-        trimmed.to_string()
-    }
-
-    async fn get_async_task_payload(
-        &self,
-        status_url: &str,
-        endpoint_url: &str,
-        api_key: &str,
-    ) -> Result<Value, AIError> {
-        let resolved_url = Self::resolve_async_absolute_url(status_url, endpoint_url);
-        let response = self
-            .client
-            .get(&resolved_url)
-            .version(reqwest::Version::HTTP_11)
-            .header("Accept", "application/json")
-            .header("Authorization", format!("Bearer {}", api_key))
-            .header("X-API-Key", api_key)
-            .header("X-Banana-Client", BANANA_CLIENT_HEADER_VALUE)
-            .send()
-            .await?;
-        let status = response.status();
-        let request_id = Self::extract_request_id_from_headers(response.headers());
-        let response_text = response.text().await?;
-        let request_id = request_id.or_else(|| Self::extract_request_id_from_text(&response_text));
-        info!(
-            "[NewAPI] openai-images-task-status {} -> {}",
-            resolved_url, status
-        );
-        info!(
-            "[NewAPI] openai-images-task-status response: {}",
-            response_text
-        );
-
-        if status == reqwest::StatusCode::TOO_MANY_REQUESTS {
-            return Ok(json!({ "status": "queued" }));
-        }
-
-        if !status.is_success() {
-            if let Ok(payload) = serde_json::from_str::<Value>(&response_text) {
-                let error_payload = payload.get("error").cloned().unwrap_or(payload);
-                let error_payload = if let Some(request_id) = request_id.clone() {
-                    json!({
-                        "message": format!("{} request_id={}", error_payload, request_id),
-                        "request_id": request_id,
-                        "raw": error_payload,
-                    })
-                } else {
-                    error_payload
-                };
-                return Ok(json!({
-                    "status": "failed",
-                    "error": error_payload,
-                }));
-            }
-            return Err(AIError::Provider(Self::append_request_id_to_error(
-                format!(
-                    "NewAPI openai-images-task-status request failed {}: {}",
-                    status, response_text
-                ),
-                request_id,
-            )));
-        }
-
-        serde_json::from_str(&response_text).map_err(|error| {
-            AIError::Provider(format!(
-                "Failed to parse NewAPI openai-images-task-status response: {}. Response was: {}",
-                error, response_text
-            ))
-        })
-    }
-
-    async fn download_async_content_as_data_url(
-        &self,
-        content_url: &str,
-        endpoint_url: &str,
-        api_key: &str,
-    ) -> Result<String, AIError> {
-        let resolved_url = Self::resolve_async_absolute_url(content_url, endpoint_url);
-        let response = self
-            .client
-            .get(&resolved_url)
-            .version(reqwest::Version::HTTP_11)
-            .header("Authorization", format!("Bearer {}", api_key))
-            .header("X-API-Key", api_key)
-            .header("X-Banana-Client", BANANA_CLIENT_HEADER_VALUE)
-            .send()
-            .await?;
-        let status = response.status();
-        if !status.is_success() {
-            let request_id = Self::extract_request_id_from_headers(response.headers());
-            let response_text = response.text().await.unwrap_or_default();
-            let request_id =
-                request_id.or_else(|| Self::extract_request_id_from_text(&response_text));
-            return Err(AIError::Provider(Self::append_request_id_to_error(
-                format!(
-                    "NewAPI openai-images-task-content request failed {}: {}",
-                    status, response_text
-                ),
-                request_id,
-            )));
-        }
-
-        let mime_type = response
-            .headers()
-            .get(reqwest::header::CONTENT_TYPE)
-            .and_then(|value| value.to_str().ok())
-            .map(str::trim)
-            .filter(|value| value.starts_with("image/"))
-            .unwrap_or("image/png")
-            .to_string();
-        let bytes = response.bytes().await?;
-        if bytes.is_empty() {
-            return Err(AIError::Provider(
-                "NewAPI async image content response was empty".to_string(),
-            ));
-        }
-
-        Ok(format!(
-            "data:{};base64,{}",
-            mime_type,
-            STANDARD.encode(bytes)
-        ))
     }
 
     async fn run_openai_images(
@@ -2853,6 +2471,7 @@ impl NewApiProvider {
 #[cfg(test)]
 mod tests {
     use super::NewApiProvider;
+    use crate::ai::AIProvider;
     use serde_json::{json, Value};
     use std::collections::HashMap;
 
@@ -2905,95 +2524,6 @@ mod tests {
         );
 
         assert_eq!(endpoint, "https://www.oopii.cn/v1/images/generations");
-    }
-
-    #[test]
-    fn append_async_query_adds_async_true() {
-        assert_eq!(
-            NewApiProvider::append_async_query("https://www.oopii.cn/v1/images/generations"),
-            "https://www.oopii.cn/v1/images/generations?async=true"
-        );
-    }
-
-    #[test]
-    fn append_async_query_preserves_existing_query() {
-        assert_eq!(
-            NewApiProvider::append_async_query(
-                "https://www.oopii.cn/v1/images/edits?foo=bar&async=false"
-            ),
-            "https://www.oopii.cn/v1/images/edits?foo=bar&async=true"
-        );
-    }
-
-    #[test]
-    fn resolve_openai_task_status_endpoint_normalizes_images_base() {
-        let endpoint = NewApiProvider::resolve_openai_task_status_endpoint(
-            "https://www.oopii.cn/v1/images/generations",
-            "task_123",
-        );
-
-        assert_eq!(endpoint, "https://www.oopii.cn/v1/images/tasks/task_123");
-    }
-
-    #[test]
-    fn extract_async_task_response_fields() {
-        let payload = json!({
-            "task_id": "task_123",
-            "status": "submitted",
-            "status_url": "https://www.oopii.cn/v1/images/tasks/task_123",
-            "content_url": "https://www.oopii.cn/v1/images/tasks/task_123/content",
-        });
-
-        assert_eq!(
-            NewApiProvider::extract_async_task_id(&payload),
-            Some("task_123".to_string())
-        );
-        assert_eq!(
-            NewApiProvider::extract_async_status(&payload),
-            Some("submitted".to_string())
-        );
-        assert_eq!(
-            NewApiProvider::extract_async_status_url(&payload),
-            Some("https://www.oopii.cn/v1/images/tasks/task_123".to_string())
-        );
-        assert_eq!(
-            NewApiProvider::extract_async_content_url(&payload),
-            Some("https://www.oopii.cn/v1/images/tasks/task_123/content".to_string())
-        );
-    }
-
-    #[test]
-    fn async_status_normalization_detects_running_states() {
-        assert!(NewApiProvider::is_async_running_status("submitted"));
-        assert!(NewApiProvider::is_async_running_status("queued"));
-        assert!(NewApiProvider::is_async_running_status("processing"));
-        assert!(NewApiProvider::is_async_running_status("in_progress"));
-        assert!(!NewApiProvider::is_async_running_status("succeeded"));
-        assert!(!NewApiProvider::is_async_running_status("failed"));
-    }
-
-    #[test]
-    fn async_status_normalization_detects_failure_states() {
-        assert!(NewApiProvider::is_async_failed_status("failed"));
-        assert!(NewApiProvider::is_async_failed_status("FAILURE"));
-        assert!(NewApiProvider::is_async_failed_status("error"));
-        assert!(NewApiProvider::is_async_failed_status("cancelled"));
-        assert!(!NewApiProvider::is_async_failed_status("processing"));
-    }
-
-    #[test]
-    fn extract_async_failure_message_reads_error_object_code() {
-        let payload = json!({
-            "status": "failed",
-            "error": {
-                "code": "upstream_bad_request"
-            }
-        });
-
-        assert_eq!(
-            NewApiProvider::extract_async_failure_message(&payload),
-            "upstream_bad_request".to_string()
-        );
     }
 
     #[test]
@@ -3545,6 +3075,56 @@ mod tests {
     }
 
     #[test]
+    fn should_not_use_task_resume_for_openai_images_requests() {
+        let mut extra_params = HashMap::new();
+        extra_params.insert(
+            "newapi_config".to_string(),
+            json!({
+                "api_format": "openai-images",
+                "endpoint_url": "https://www.oopii.cn/",
+                "request_model": "gpt-image-2",
+                "display_name": "gpt-image-2",
+            }),
+        );
+        let request = crate::ai::GenerateRequest {
+            prompt: "extract the logo".to_string(),
+            model: "newapi/gpt-image-2".to_string(),
+            size: "4K".to_string(),
+            aspect_ratio: "16:9".to_string(),
+            reference_images: Some(vec!["https://example.com/reference.png".to_string()]),
+            extra_params: Some(extra_params),
+        };
+
+        let provider = NewApiProvider::new();
+        assert!(!provider.should_use_task_resume(&request));
+    }
+
+    #[test]
+    fn should_not_use_task_resume_for_openai_compatible_requests() {
+        let mut extra_params = HashMap::new();
+        extra_params.insert(
+            "newapi_config".to_string(),
+            json!({
+                "api_format": "openai",
+                "endpoint_url": "https://example.com/v1",
+                "request_model": "gpt-4.1",
+                "display_name": "gpt-4.1",
+            }),
+        );
+        let request = crate::ai::GenerateRequest {
+            prompt: "describe this".to_string(),
+            model: "newapi/gpt-4.1".to_string(),
+            size: "1K".to_string(),
+            aspect_ratio: "1:1".to_string(),
+            reference_images: None,
+            extra_params: Some(extra_params),
+        };
+
+        let provider = NewApiProvider::new();
+        assert!(!provider.should_use_task_resume(&request));
+    }
+
+    #[test]
     fn should_retry_openai_chat_with_openai_edits_only_for_image_compatibility_errors() {
         assert!(NewApiProvider::should_retry_openai_chat_with_openai_edits(
             "invalid image_url payload"
@@ -3620,93 +3200,39 @@ impl AIProvider for NewApiProvider {
     ) -> Result<ProviderTaskSubmission, AIError> {
         let api_key = self.get_api_key().await?;
         let config = Self::extract_config(&request)?;
-        if config.api_format == NewApiFormat::OpenAiImages {
-            return self
-                .submit_openai_async_images(&request, &config, &api_key)
-                .await;
-        }
-
-        let image_source = self.generate(request).await?;
+        let payload = match config.api_format {
+            NewApiFormat::GeminiGenerateContent => {
+                self.run_generate_content(&request, &config, &api_key)
+                    .await?
+            }
+            NewApiFormat::OpenAiImages => {
+                self.run_openai_images_with_chat_fallback(&request, &config, &api_key)
+                    .await?
+            }
+            NewApiFormat::OpenAiCompatible => {
+                self.run_openai_compatible(&request, &config, &api_key)
+                    .await?
+            }
+        };
+        let image_source = match self.sync_payload_to_submission(payload, &config)? {
+            ProviderTaskSubmission::Succeeded(image_source) => image_source,
+            ProviderTaskSubmission::Queued(_) => {
+                return Err(AIError::Provider(
+                    "NewAPI image response unexpectedly returned async task data".to_string(),
+                ));
+            }
+        };
         Ok(ProviderTaskSubmission::Succeeded(image_source))
     }
 
     async fn poll_task(
         &self,
-        handle: ProviderTaskHandle,
+        _handle: ProviderTaskHandle,
     ) -> Result<ProviderTaskPollResult, AIError> {
-        let api_key = self.get_api_key().await?;
-        let metadata = handle.metadata.unwrap_or_else(|| json!({}));
-        let endpoint_url = metadata
-            .get("endpoint_url")
-            .and_then(Value::as_str)
-            .map(str::trim)
-            .filter(|value| !value.is_empty())
-            .unwrap_or("");
-        let status_url = metadata
-            .get("status_url")
-            .and_then(Value::as_str)
-            .map(str::trim)
-            .filter(|value| !value.is_empty())
-            .map(ToString::to_string)
-            .unwrap_or_else(|| {
-                Self::resolve_openai_task_status_endpoint(endpoint_url, &handle.task_id)
-            });
-
-        let payload = self
-            .get_async_task_payload(&status_url, endpoint_url, &api_key)
-            .await?;
-
-        let status = Self::extract_async_status(&payload);
-        if status.is_none()
-            && (Self::extract_error_message(&payload).is_some()
-                || Self::extract_trimmed_string(&payload, &["/error/code", "/code"]).is_some())
-        {
-            return Ok(ProviderTaskPollResult::Failed(
-                Self::extract_async_failure_message(&payload),
-            ));
-        }
-
-        let status = status.unwrap_or_else(|| "queued".to_string());
-        if Self::is_async_running_status(&status) {
-            return Ok(ProviderTaskPollResult::Running);
-        }
-
-        if status == "succeeded" {
-            let content_url = Self::extract_async_content_url(&payload)
-                .or_else(|| {
-                    metadata
-                        .get("content_url")
-                        .and_then(Value::as_str)
-                        .map(str::trim)
-                        .filter(|value| !value.is_empty())
-                        .map(ToString::to_string)
-                })
-                .ok_or_else(|| {
-                    AIError::Provider(
-                        "NewAPI async image task succeeded but content_url was missing".to_string(),
-                    )
-                })?;
-            let data_url = self
-                .download_async_content_as_data_url(&content_url, endpoint_url, &api_key)
-                .await?;
-            return Ok(ProviderTaskPollResult::Succeeded(data_url));
-        }
-
-        if Self::is_async_failed_status(&status) {
-            let message = Self::extract_async_failure_message(&payload);
-            return Ok(ProviderTaskPollResult::Failed(message));
-        }
-
-        if status == "expired" {
-            return Ok(ProviderTaskPollResult::Failed(
-                "NewAPI async image content expired".to_string(),
-            ));
-        }
-
-        Err(AIError::Provider(format!(
-            "NewAPI async image task returned unknown status: {}",
-            status
-        )))
+        Err(AIError::Provider(
+            "NewAPI image task polling is not supported by standard NewAPI image endpoints"
+                .to_string(),
+        ))
     }
 
     async fn generate(&self, request: GenerateRequest) -> Result<String, AIError> {

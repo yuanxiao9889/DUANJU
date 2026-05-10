@@ -521,13 +521,7 @@ interface CanvasState {
   dragHistorySnapshot: CanvasHistorySnapshot | null;
   currentViewport: Viewport;
   canvasViewportSize: { width: number; height: number };
-  imageViewer: {
-    isOpen: boolean;
-    currentImageUrl: string | null;
-    imageList: string[];
-    currentIndex: number;
-    metadata: ImageViewerMetadata | null;
-  };
+  imageViewer: CanvasImageViewerState;
 
   // 网格设置
   snapToGrid: boolean;
@@ -697,6 +691,7 @@ interface CanvasState {
     imageList?: string[],
     metadata?: ImageViewerMetadata | null
   ) => void;
+  openImageCompareViewer: (nodeId: string) => void;
   closeImageViewer: () => void;
   navigateImageViewer: (direction: 'prev' | 'next') => void;
 
@@ -723,6 +718,30 @@ function normalizeHandleId(value: unknown): string | undefined {
     return undefined;
   }
   return trimmed;
+}
+
+type ImageViewerMode = 'single' | 'compare';
+
+interface CanvasImageViewerState {
+  isOpen: boolean;
+  mode: ImageViewerMode;
+  currentImageUrl: string | null;
+  imageList: string[];
+  currentIndex: number;
+  metadata: ImageViewerMetadata | null;
+  compareNodeId: string | null;
+}
+
+function createInitialImageViewerState(): CanvasImageViewerState {
+  return {
+    isOpen: false,
+    mode: 'single',
+    currentImageUrl: null,
+    imageList: [],
+    currentIndex: 0,
+    metadata: null,
+    compareNodeId: null,
+  };
 }
 
 function normalizeEdgesWithNodes(rawEdges: CanvasEdge[], nodes: CanvasNode[]): CanvasEdge[] {
@@ -3039,13 +3058,7 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
   dragHistorySnapshot: null,
   currentViewport: { x: 0, y: 0, zoom: 1 },
   canvasViewportSize: { width: 0, height: 0 },
-  imageViewer: {
-    isOpen: false,
-    currentImageUrl: null,
-    imageList: [],
-    currentIndex: 0,
-    metadata: null,
-  },
+  imageViewer: createInitialImageViewerState(),
 
   // 网格设置默认值
   snapToGrid: true,
@@ -3241,7 +3254,9 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
     const index = list.indexOf(imageUrl);
     set({
       imageViewer: {
+        ...createInitialImageViewerState(),
         isOpen: true,
+        mode: 'single',
         currentImageUrl: imageUrl,
         imageList: list,
         currentIndex: index >= 0 ? index : 0,
@@ -3250,20 +3265,33 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
     });
   },
 
-  closeImageViewer: () => {
+  openImageCompareViewer: (nodeId) => {
+    const state = get();
+    const targetNode = state.nodes.find((node) => node.id === nodeId);
+    if (!targetNode || !isImageCompareNode(targetNode)) {
+      return;
+    }
+
     set({
       imageViewer: {
-        isOpen: false,
-        currentImageUrl: null,
-        imageList: [],
-        currentIndex: 0,
-        metadata: null,
+        ...createInitialImageViewerState(),
+        isOpen: true,
+        mode: 'compare',
+        compareNodeId: nodeId,
       },
     });
   },
 
+  closeImageViewer: () => {
+    set({ imageViewer: createInitialImageViewerState() });
+  },
+
   navigateImageViewer: (direction) => {
     const state = get();
+    if (state.imageViewer.mode !== 'single') {
+      return;
+    }
+
     const { currentIndex, imageList } = state.imageViewer;
     if (direction === 'prev' && currentIndex > 0) {
       const newIndex = currentIndex - 1;

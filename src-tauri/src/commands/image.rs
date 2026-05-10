@@ -256,7 +256,8 @@ pub async fn split_image_source(
                 .write_to(&mut buffer, image::ImageFormat::Png)
                 .map_err(|e| format!("Failed to encode split image: {}", e))?;
 
-            let persisted = persist_image_bytes(&app, buffer.get_ref(), "png", media_context.as_ref())?;
+            let persisted =
+                persist_image_bytes(&app, buffer.get_ref(), "png", media_context.as_ref())?;
             results.push(persisted);
         }
     }
@@ -359,7 +360,8 @@ fn split_image_source_blocking(
                 .write_to(&mut buffer, image::ImageFormat::Png)
                 .map_err(|e| format!("Failed to encode split image: {}", e))?;
 
-            let persisted = persist_image_bytes(app, buffer.get_ref(), "png", media_context.as_ref())?;
+            let persisted =
+                persist_image_bytes(app, buffer.get_ref(), "png", media_context.as_ref())?;
             results.push(persisted);
         }
     }
@@ -1653,6 +1655,13 @@ fn extension_from_mime(mime: &str) -> String {
         "image/gif" => "gif".to_string(),
         "image/bmp" => "bmp".to_string(),
         "image/avif" => "avif".to_string(),
+        "audio/mpeg" | "audio/mp3" => "mp3".to_string(),
+        "audio/wav" | "audio/x-wav" | "audio/wave" | "audio/x-pn-wav" => "wav".to_string(),
+        "audio/ogg" => "ogg".to_string(),
+        "audio/webm" => "webm".to_string(),
+        "audio/mp4" | "audio/x-m4a" => "m4a".to_string(),
+        "audio/aac" => "aac".to_string(),
+        "audio/flac" | "audio/x-flac" => "flac".to_string(),
         _ => "png".to_string(),
     }
 }

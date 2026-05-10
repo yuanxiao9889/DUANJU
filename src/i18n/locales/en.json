@@ -2152,7 +2152,16 @@
     "download": "Download Image",
     "noMetadata": "No generation details are available for this image yet.",
     "promptEmpty": "Prompt was not recorded.",
-    "unavailable": "Unavailable"
+    "unavailable": "Unavailable",
+    "compare": {
+      "title": "Compare View",
+      "hint": "Drag the divider in the enlarged viewer to inspect both images in detail.",
+      "base": "Base Image",
+      "overlay": "Overlay Image",
+      "source": "Source",
+      "sourceUpload": "Uploaded image",
+      "sourceGenerated": "Generated result"
+    }
   },
   "split": {
     "title": "Split Storyboard",
@@ -2631,7 +2640,9 @@
       "title": "Content",
       "summary": "{{count}} results · {{mediaType}}",
       "empty": "No media matches the current selection.",
-      "noNumber": "Unnumbered"
+      "noNumber": "Unnumbered",
+      "renderedSummary": "Showing {{visible}} / {{total}}, {{remaining}} remaining",
+      "showMore": "Show More"
     },
     "details": {
       "title": "Details",
@@ -3624,6 +3635,8 @@
       "rewriteInstruction": "Rewrite Instruction",
       "runRewrite": "Generate Rewrite Variants",
       "applyVariant": "Replace Current Cell",
+      "viewColumns": "View",
+      "toggleColumns": "Toggle Columns",
       "status": {
         "empty": "Empty",
         "drafting": "Drafting",

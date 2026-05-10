@@ -61,6 +61,10 @@ import {
   type ClipLibraryPanelFocusTarget,
   type ClipLibraryPanelProjectContext,
 } from '@/features/clip-library/application/clipLibraryPanelBridge';
+import {
+  CLIP_DETAIL_VIDEO_FALLBACK_MAX_BYTES,
+  readResponseBlobWithinLimit,
+} from '@/features/clip-library/application/mediaPreviewLimits';
 import type {
   ClipFolderRecord,
   ClipItemRecord,
@@ -125,6 +129,7 @@ const LEFT_WIDTH_MIN = 220;
 const LEFT_WIDTH_MAX = 420;
 const RIGHT_WIDTH_MIN = 300;
 const RIGHT_WIDTH_MAX = 520;
+const CLIP_ITEM_RENDER_BATCH_SIZE = 80;
 
 function isWindowChromeInteractiveTarget(target: HTMLElement | null): boolean {
   return Boolean(
@@ -339,6 +344,7 @@ export function DetachedClipLibraryWindow() {
   const [projectContext, setProjectContext] = useState<ClipLibraryPanelProjectContext>(EMPTY_PROJECT_CONTEXT);
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
   const [selectedItemId, setSelectedItemId] = useState<string | null>(null);
+  const [renderItemLimit, setRenderItemLimit] = useState(CLIP_ITEM_RENDER_BATCH_SIZE);
   const [expandedKeys, setExpandedKeys] = useState<string[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [mediaTypeFilter, setMediaTypeFilter] = useState<ClipLibraryMediaFilter>('all');
@@ -364,6 +370,7 @@ export function DetachedClipLibraryWindow() {
   const persistTimerRef = useRef<number | null>(null);
   const persistBoundsTimerRef = useRef<number | null>(null);
   const isClosingWindowRef = useRef(false);
+  const currentSnapshotLibraryId = currentSnapshot?.library.id ?? null;
 
   useEffect(() => {
     void hydrate();
@@ -813,15 +820,30 @@ export function DetachedClipLibraryWindow() {
 
   useEffect(() => {
     if (!selectedItems.length) {
-      setSelectedItemId(null);
+      if (selectedItemId !== null) {
+        setSelectedItemId(null);
+      }
       return;
     }
 
     if (selectedItemId && selectedItems.some((item) => item.id === selectedItemId)) {
       return;
     }
-    setSelectedItemId(selectedItems[0].id);
+    if (selectedItemId !== null) {
+      setSelectedItemId(null);
+    }
   }, [selectedItemId, selectedItems]);
+
+  useEffect(() => {
+    setRenderItemLimit(CLIP_ITEM_RENDER_BATCH_SIZE);
+  }, [currentSnapshotLibraryId, mediaTypeFilter, searchQuery, selectedKey, sortMode]);
+
+  const visibleItems = useMemo(
+    () => selectedItems.slice(0, renderItemLimit),
+    [renderItemLimit, selectedItems]
+  );
+  const hasMoreSelectedItems = visibleItems.length < selectedItems.length;
+  const remainingItemCount = selectedItems.length - visibleItems.length;
 
   const selectedItem = useMemo(
     () => selectedItems.find((item) => item.id === selectedItemId) ?? null,
@@ -947,7 +969,7 @@ export function DetachedClipLibraryWindow() {
   }, [applyFocusTarget, currentSnapshot, projectContext]);
 
   useEffect(() => {
-    if (!currentSnapshot) {
+    if (!currentSnapshotLibraryId) {
       return;
     }
 
@@ -958,7 +980,7 @@ export function DetachedClipLibraryWindow() {
     persistTimerRef.current = window.setTimeout(() => {
       persistTimerRef.current = null;
       void saveUiState({
-        libraryId: currentSnapshot.library.id,
+        libraryId: currentSnapshotLibraryId,
         expandedKeysJson: JSON.stringify(expandedKeys),
         selectedKey,
         scrollTop: treeScrollTop,
@@ -983,7 +1005,7 @@ export function DetachedClipLibraryWindow() {
     };
   }, [
     alwaysOnTop,
-    currentSnapshot,
+    currentSnapshotLibraryId,
     expandedKeys,
     leftWidth,
     mediaTypeFilter,
@@ -1529,7 +1551,11 @@ export function DetachedClipLibraryWindow() {
           throw new Error(`Failed to fetch clip detail video (${response.status})`);
         }
 
-        const videoBlob = await response.blob();
+        const videoBlob = await readResponseBlobWithinLimit(
+          response,
+          CLIP_DETAIL_VIDEO_FALLBACK_MAX_BYTES,
+          selectedItem.mimeType ?? 'video/mp4'
+        );
         const objectUrl = URL.createObjectURL(videoBlob);
         if (requestToken !== detailVideoRequestTokenRef.current) {
           URL.revokeObjectURL(objectUrl);
@@ -1822,86 +1848,113 @@ export function DetachedClipLibraryWindow() {
                     {t('clipLibrary.content.empty')}
                   </div>
                 ) : (
-                  <div className="grid grid-cols-1 gap-3 2xl:grid-cols-2">
-                    {selectedItems.map((item) => {
-                      const isSelected = selectedItemId === item.id;
-                      const dragPayload = safeFileDragPayload(item);
-                      const folder = folderMap.get(item.folderId) ?? null;
+                  <>
+                    <div className="grid grid-cols-1 gap-3 2xl:grid-cols-2">
+                      {visibleItems.map((item) => {
+                        const isSelected = selectedItemId === item.id;
+                        const dragPayload = safeFileDragPayload(item);
+                        const folder = folderMap.get(item.folderId) ?? null;
 
-                      return (
-                        <button
-                          key={item.id}
-                          type="button"
-                          className={`rounded-2xl border p-3 text-left transition-all ${
-                            isSelected
-                              ? 'border-accent/40 bg-accent/[0.08]'
-                              : 'border-[rgba(255,255,255,0.08)] bg-white/[0.03] hover:border-[rgba(255,255,255,0.16)]'
-                          } ${dragPayload ? 'cursor-grab active:cursor-grabbing' : ''}`}
-                          draggable={Boolean(dragPayload) && !useNativeSystemDrag}
-                          onMouseDown={
-                            dragPayload
-                              ? (event) => handleExternalFileMouseDown(event, dragPayload)
-                              : undefined
-                          }
-                          onDragStart={
-                            dragPayload
-                              ? (event) => handleExternalFileDragStart(event, item, dragPayload)
-                              : undefined
-                          }
-                          onClick={() => setSelectedItemId(item.id)}
-                          title={dragPayload ? t('clipLibrary.dragHint') : undefined}
-                        >
-                          <div className="flex items-start gap-3">
-                            <div className="h-16 w-16 shrink-0 overflow-hidden rounded-xl bg-bg-dark/70">
-                              {item.mediaType === 'video' && (item.previewPath ?? '').trim() ? (
-                                <CanvasNodeImage
-                                  src={(item.previewPath ?? '').trim()}
-                                  alt={item.name}
-                                  className="h-full w-full object-cover"
-                                  disableViewer
-                                />
-                              ) : item.mediaType === 'video' ? (
-                                <div className="flex h-full items-center justify-center text-cyan-200">
-                                  <Film className="h-6 w-6" />
-                                </div>
-                              ) : (
-                                <div className="flex h-full items-center justify-center text-cyan-200">
-                                  <Music4 className="h-6 w-6" />
-                                </div>
-                              )}
-                            </div>
-                            <div className="min-w-0 flex-1">
-                              <div className="flex items-start justify-between gap-2">
-                                <div className="min-w-0">
-                                  <div className="truncate text-sm font-medium text-text-dark">{item.name}</div>
-                                  <div className="mt-1 text-xs text-text-muted">
-                                    {folder?.numberCode || t('clipLibrary.content.noNumber')}
+                        return (
+                          <button
+                            key={item.id}
+                            type="button"
+                            className={`rounded-2xl border p-3 text-left transition-all ${
+                              isSelected
+                                ? 'border-accent/40 bg-accent/[0.08]'
+                                : 'border-[rgba(255,255,255,0.08)] bg-white/[0.03] hover:border-[rgba(255,255,255,0.16)]'
+                            } ${dragPayload ? 'cursor-grab active:cursor-grabbing' : ''}`}
+                            draggable={Boolean(dragPayload) && !useNativeSystemDrag}
+                            onMouseDown={
+                              dragPayload
+                                ? (event) => handleExternalFileMouseDown(event, dragPayload)
+                                : undefined
+                            }
+                            onDragStart={
+                              dragPayload
+                                ? (event) => handleExternalFileDragStart(event, item, dragPayload)
+                                : undefined
+                            }
+                            onClick={() => setSelectedItemId(item.id)}
+                            title={dragPayload ? t('clipLibrary.dragHint') : undefined}
+                          >
+                            <div className="flex items-start gap-3">
+                              <div className="h-16 w-16 shrink-0 overflow-hidden rounded-xl bg-bg-dark/70">
+                                {item.mediaType === 'video' && (item.previewPath ?? '').trim() ? (
+                                  <CanvasNodeImage
+                                    src={(item.previewPath ?? '').trim()}
+                                    alt={item.name}
+                                    className="h-full w-full object-cover"
+                                    loading="lazy"
+                                    decoding="async"
+                                    disableViewer
+                                  />
+                                ) : item.mediaType === 'video' ? (
+                                  <div className="flex h-full items-center justify-center text-cyan-200">
+                                    <Film className="h-6 w-6" />
                                   </div>
+                                ) : (
+                                  <div className="flex h-full items-center justify-center text-cyan-200">
+                                    <Music4 className="h-6 w-6" />
+                                  </div>
+                                )}
+                              </div>
+                              <div className="min-w-0 flex-1">
+                                <div className="flex items-start justify-between gap-2">
+                                  <div className="min-w-0">
+                                    <div className="truncate text-sm font-medium text-text-dark">{item.name}</div>
+                                    <div className="mt-1 text-xs text-text-muted">
+                                      {folder?.numberCode || t('clipLibrary.content.noNumber')}
+                                    </div>
+                                  </div>
+                                  {dragPayload ? (
+                                    <span
+                                      draggable={!useNativeSystemDrag}
+                                      onMouseDown={(event) => handleExternalFileMouseDown(event, dragPayload)}
+                                      onDragStart={(event) => handleExternalFileDragStart(event, item, dragPayload)}
+                                      className="inline-flex h-8 w-8 shrink-0 cursor-grab items-center justify-center rounded-lg border border-[rgba(255,255,255,0.08)] bg-white/[0.03] text-text-muted hover:text-text-dark active:cursor-grabbing"
+                                      title={t('clipLibrary.dragHint')}
+                                    >
+                                      <GripVertical className="h-4 w-4" />
+                                    </span>
+                                  ) : null}
                                 </div>
-                                {dragPayload ? (
-                                  <span
-                                    draggable={!useNativeSystemDrag}
-                                    onMouseDown={(event) => handleExternalFileMouseDown(event, dragPayload)}
-                                    onDragStart={(event) => handleExternalFileDragStart(event, item, dragPayload)}
-                                    className="inline-flex h-8 w-8 shrink-0 cursor-grab items-center justify-center rounded-lg border border-[rgba(255,255,255,0.08)] bg-white/[0.03] text-text-muted hover:text-text-dark active:cursor-grabbing"
-                                    title={t('clipLibrary.dragHint')}
-                                  >
-                                    <GripVertical className="h-4 w-4" />
-                                  </span>
-                                ) : null}
-                              </div>
-                              <div className="mt-2 line-clamp-2 text-xs text-text-muted">
-                                {firstLineSummary(item.descriptionText) || item.fileName}
-                              </div>
-                              <div className="mt-2 text-[11px] text-text-muted">
-                                {item.sourceProjectName || t('clipLibrary.details.unknown')}
+                                <div className="mt-2 line-clamp-2 text-xs text-text-muted">
+                                  {firstLineSummary(item.descriptionText) || item.fileName}
+                                </div>
+                                <div className="mt-2 text-[11px] text-text-muted">
+                                  {item.sourceProjectName || t('clipLibrary.details.unknown')}
+                                </div>
                               </div>
                             </div>
-                          </div>
-                        </button>
-                      );
-                    })}
-                  </div>
+                          </button>
+                        );
+                      })}
+                    </div>
+                    {hasMoreSelectedItems ? (
+                      <div className="mt-4 flex flex-col items-center gap-2 rounded-2xl border border-[rgba(255,255,255,0.08)] bg-white/[0.03] px-4 py-3 text-center">
+                        <div className="text-xs text-text-muted">
+                          {t('clipLibrary.content.renderedSummary', {
+                            visible: visibleItems.length,
+                            total: selectedItems.length,
+                            remaining: remainingItemCount,
+                          })}
+                        </div>
+                        <UiButton
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => {
+                            setRenderItemLimit((currentLimit) => (
+                              currentLimit + CLIP_ITEM_RENDER_BATCH_SIZE
+                            ));
+                          }}
+                        >
+                          {t('clipLibrary.content.showMore')}
+                        </UiButton>
+                      </div>
+                    ) : null}
+                  </>
                 )}
               </div>
             </UiPanel>
@@ -1951,6 +2004,7 @@ export function DetachedClipLibraryWindow() {
                         <div className="space-y-4 p-4">
                           <audio
                             controls
+                            preload="metadata"
                             src={resolveAudioDisplayUrl(selectedItem.sourcePath)}
                             className="w-full"
                           />

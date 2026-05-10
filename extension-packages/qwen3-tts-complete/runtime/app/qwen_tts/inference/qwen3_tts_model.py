@@ -129,13 +129,18 @@ class Qwen3TTSModel:
         AutoModel.register(Qwen3TTSConfig, Qwen3TTSForConditionalGeneration)
         AutoProcessor.register(Qwen3TTSConfig, Qwen3TTSProcessor)
 
+        local_files_only = bool(kwargs.get("local_files_only", False))
         model = AutoModel.from_pretrained(pretrained_model_name_or_path, **kwargs)
         if not isinstance(model, Qwen3TTSForConditionalGeneration):
             raise TypeError(
                 f"AutoModel returned {type(model)}, expected Qwen3TTSForConditionalGeneration. "
             )
 
-        processor = AutoProcessor.from_pretrained(pretrained_model_name_or_path, fix_mistral_regex=True,)
+        processor = AutoProcessor.from_pretrained(
+            pretrained_model_name_or_path,
+            fix_mistral_regex=True,
+            local_files_only=local_files_only,
+        )
 
         generate_defaults = model.generate_config
         return cls(model=model, processor=processor, generate_defaults=generate_defaults)

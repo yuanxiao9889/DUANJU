@@ -84,7 +84,11 @@ class Qwen3TTSTokenizer:
         AutoConfig.register("qwen3_tts_tokenizer_12hz", Qwen3TTSTokenizerV2Config)
         AutoModel.register(Qwen3TTSTokenizerV2Config, Qwen3TTSTokenizerV2Model)
 
-        inst.feature_extractor = AutoFeatureExtractor.from_pretrained(pretrained_model_name_or_path)
+        local_files_only = bool(kwargs.get("local_files_only", False))
+        inst.feature_extractor = AutoFeatureExtractor.from_pretrained(
+            pretrained_model_name_or_path,
+            local_files_only=local_files_only,
+        )
         inst.model = AutoModel.from_pretrained(pretrained_model_name_or_path, **kwargs)
         inst.config = inst.model.config
 

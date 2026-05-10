@@ -1963,7 +1963,16 @@
     "download": "下载图片",
     "noMetadata": "这张图片暂时没有生成信息",
     "promptEmpty": "未记录提示词",
-    "unavailable": "暂无"
+    "unavailable": "暂无",
+    "compare": {
+      "title": "放大对比",
+      "hint": "可以在放大模式里拖动分隔线，细看两张图之间的差异。",
+      "base": "基图",
+      "overlay": "覆盖图",
+      "source": "来源",
+      "sourceUpload": "上传图片",
+      "sourceGenerated": "生成结果"
+    }
   },
   "split": {
     "title": "切割",
@@ -3385,6 +3394,8 @@
       "rewriteInstruction": "改写要求",
       "runRewrite": "生成改单版本",
       "applyVariant": "替换当前单元格",
+      "viewColumns": "查看",
+      "toggleColumns": "切换列",
       "status": {
         "empty": "未生成",
         "drafting": "编辑中",
@@ -3838,7 +3849,9 @@
       "title": "内容区",
       "summary": "{{count}} 条结果 · {{mediaType}}",
       "empty": "当前筛选下没有匹配的素材。",
-      "noNumber": "未编号"
+      "noNumber": "未编号",
+      "renderedSummary": "已显示 {{visible}} / {{total}}，剩余 {{remaining}} 条",
+      "showMore": "显示更多"
     },
     "details": {
       "title": "详情",

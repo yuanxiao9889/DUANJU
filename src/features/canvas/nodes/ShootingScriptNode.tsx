@@ -1,6 +1,7 @@
 import { memo, useCallback, useMemo, useState } from 'react';
+import type { CSSProperties } from 'react';
 import { Handle, Position } from '@xyflow/react';
-import { Clapperboard, ExternalLink, Plus } from 'lucide-react';
+import { Check, ChevronDown, Clapperboard, ExternalLink, Eye, Plus } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 
 import { UiScrollArea } from '@/components/ui';
@@ -33,6 +34,25 @@ const MIN_NODE_WIDTH = 960;
 const MIN_NODE_HEIGHT = 460;
 const MAX_NODE_WIDTH = 2800;
 const MAX_NODE_HEIGHT = 1800;
+const TABLE_BASE_SCREEN_FONT_SIZE = 13;
+const TABLE_MIN_CSS_FONT_SIZE = 6.5;
+const TABLE_ACTION_COLUMN_WIDTH = 108;
+const DEFAULT_VISIBLE_SHOOTING_SCRIPT_COLUMNS: ShootingScriptColumnKey[] = [
+  'shotNumber',
+  'beat',
+  'action',
+  'composition',
+  'camera',
+  'duration',
+  'audio',
+  'genTarget',
+];
+
+type ShootingScriptTableStyle = CSSProperties & {
+  '--shooting-script-font-size': string;
+  '--shooting-script-header-font-size': string;
+  '--shooting-script-line-height': string;
+};
 
 function resolveNodeDimension(value: number | undefined, fallback: number): number {
   if (typeof value === 'number' && Number.isFinite(value) && value > 1) {
@@ -73,6 +93,7 @@ export const ShootingScriptNode = memo(({
   const { t } = useTranslation();
   const updateNodeData = useCanvasStore((state) => state.updateNodeData);
   const setSelectedNode = useCanvasStore((state) => state.setSelectedNode);
+  const canvasZoom = useCanvasStore((state) => state.currentViewport.zoom);
   const focusShootingScript = useScriptEditorStore((state) => state.focusShootingScript);
   const focusShootingScriptCell = useScriptEditorStore((state) => state.focusShootingScriptCell);
   const activeScriptNodeId = useScriptEditorStore((state) => state.activeScriptNodeId);
@@ -82,6 +103,10 @@ export const ShootingScriptNode = memo(({
     columnKey: ShootingScriptColumnKey;
     value: string;
   } | null>(null);
+  const [visibleColumnKeys, setVisibleColumnKeys] = useState<ShootingScriptColumnKey[]>(
+    DEFAULT_VISIBLE_SHOOTING_SCRIPT_COLUMNS
+  );
+  const [isColumnMenuOpen, setIsColumnMenuOpen] = useState(false);
 
   const resolvedWidth = resolveNodeDimension(width, SHOOTING_SCRIPT_NODE_DEFAULT_WIDTH);
   const resolvedHeight = resolveNodeDimension(height, SHOOTING_SCRIPT_NODE_DEFAULT_HEIGHT);
@@ -176,6 +201,45 @@ export const ShootingScriptNode = memo(({
     { value: 'video', label: t('script.shootingScript.genTarget.video') },
     { value: 'storyboard', label: t('script.shootingScript.genTarget.storyboard') },
   ]), [t]);
+  const visibleColumns = useMemo(() => {
+    const visibleKeySet = new Set(visibleColumnKeys);
+    const nextColumns = SHOOTING_SCRIPT_PRIMARY_COLUMNS.filter((column) => visibleKeySet.has(column.key));
+    return nextColumns.length > 0 ? nextColumns : [SHOOTING_SCRIPT_PRIMARY_COLUMNS[0]];
+  }, [visibleColumnKeys]);
+  const visibleColumnCount = visibleColumns.length;
+  const visibleTableMinWidth = useMemo(() => (
+    visibleColumns.reduce(
+      (sum, column) => sum + (column.widthPx ?? 160),
+      TABLE_ACTION_COLUMN_WIDTH
+    )
+  ), [visibleColumns]);
+  const tableTypographyStyle = useMemo<ShootingScriptTableStyle>(() => {
+    const normalizedZoom = Number.isFinite(canvasZoom) && canvasZoom > 1 ? canvasZoom : 1;
+    const fontSize = Math.max(
+      TABLE_MIN_CSS_FONT_SIZE,
+      Math.min(TABLE_BASE_SCREEN_FONT_SIZE, TABLE_BASE_SCREEN_FONT_SIZE / normalizedZoom)
+    );
+    return {
+      '--shooting-script-font-size': `${fontSize}px`,
+      '--shooting-script-header-font-size': `${Math.max(6, fontSize * 0.92)}px`,
+      '--shooting-script-line-height': `${Math.max(10, fontSize * 1.48)}px`,
+      fontSize: 'var(--shooting-script-font-size)',
+      lineHeight: 'var(--shooting-script-line-height)',
+      minWidth: visibleTableMinWidth,
+    };
+  }, [canvasZoom, visibleTableMinWidth]);
+  const toggleColumnVisibility = useCallback((columnKey: ShootingScriptColumnKey) => {
+    commitCellEdit();
+    setVisibleColumnKeys((current) => {
+      if (current.includes(columnKey)) {
+        return current.length <= 1 ? current : current.filter((key) => key !== columnKey);
+      }
+      const nextKeySet = new Set([...current, columnKey]);
+      return SHOOTING_SCRIPT_PRIMARY_COLUMNS
+        .map((column) => column.key)
+        .filter((key) => nextKeySet.has(key));
+    });
+  }, [commitCellEdit]);
 
   return (
     <div
@@ -251,38 +315,91 @@ export const ShootingScriptNode = memo(({
           <span className="rounded-full bg-cyan-500/10 px-2.5 py-1 text-cyan-100">
             {t(`script.shootingScript.status.${data.status}`)}
           </span>
+          <div className="relative">
+            <button
+              type="button"
+              onClick={(event) => {
+                event.stopPropagation();
+                setIsColumnMenuOpen((current) => !current);
+              }}
+              className="nodrag inline-flex items-center gap-1.5 rounded-lg border border-border-dark bg-bg-dark px-3 py-1.5 text-xs font-medium text-text-dark transition-colors hover:bg-bg-dark/80"
+              title={t('script.shootingScript.viewColumns')}
+            >
+              <Eye className="h-3.5 w-3.5" />
+              {t('script.shootingScript.viewColumns')}
+              <ChevronDown className={`h-3.5 w-3.5 transition-transform ${isColumnMenuOpen ? 'rotate-180' : ''}`} />
+            </button>
+            {isColumnMenuOpen ? (
+              <div
+                className="nodrag nowheel absolute left-0 top-[calc(100%+6px)] z-30 w-[190px] overflow-hidden rounded-xl border border-border-dark bg-surface-dark/98 py-1.5 text-xs shadow-[0_18px_36px_rgba(0,0,0,0.36)] backdrop-blur"
+                onPointerDown={stopInteractionPropagation}
+                onMouseDown={stopInteractionPropagation}
+                onClick={stopInteractionPropagation}
+                onDoubleClick={stopInteractionPropagation}
+              >
+                <div className="border-b border-border-dark/70 px-3 pb-1.5 pt-0.5 text-[11px] font-medium text-text-muted">
+                  {t('script.shootingScript.toggleColumns')}
+                </div>
+                {SHOOTING_SCRIPT_PRIMARY_COLUMNS.map((column) => {
+                  const isVisible = visibleColumnKeys.includes(column.key);
+                  const isLastVisible = isVisible && visibleColumnCount <= 1;
+                  return (
+                    <button
+                      key={column.key}
+                      type="button"
+                      disabled={isLastVisible}
+                      onClick={() => toggleColumnVisibility(column.key)}
+                      className="flex w-full items-center justify-between gap-2 px-3 py-2 text-left font-medium text-text-dark transition-colors hover:bg-bg-dark/80 disabled:cursor-not-allowed disabled:opacity-55"
+                    >
+                      <span className="min-w-0 truncate">{t(column.labelKey)}</span>
+                      {isVisible ? <Check className="h-3.5 w-3.5 shrink-0 text-cyan-200" /> : <span className="h-3.5 w-3.5 shrink-0" />}
+                    </button>
+                  );
+                })}
+              </div>
+            ) : null}
+          </div>
         </div>
 
         <UiScrollArea
           className="nodrag nowheel mt-3 min-h-0 flex-1 rounded-2xl border border-border-dark bg-bg-dark/25"
           viewportClassName="h-full"
-          contentClassName="min-w-full"
+          contentClassName="min-w-full pr-5"
           onPointerDown={stopInteractionPropagation}
           onMouseDown={stopInteractionPropagation}
           onDoubleClick={stopInteractionPropagation}
         >
-          <table className="min-w-[2320px] w-full table-fixed border-separate border-spacing-0 text-left text-[15px]">
-            <thead className="sticky top-0 z-10 bg-surface-dark/95 text-[14px] text-text-muted">
+          <table
+            className="w-full table-fixed border-separate border-spacing-0 text-left"
+            style={tableTypographyStyle}
+          >
+            <colgroup>
+              {visibleColumns.map((column) => (
+                <col key={column.key} style={{ width: column.widthPx ?? 160 }} />
+              ))}
+              <col style={{ width: TABLE_ACTION_COLUMN_WIDTH }} />
+            </colgroup>
+            <thead className="sticky top-0 z-10 bg-surface-dark/95 text-text-muted" style={{ fontSize: 'var(--shooting-script-header-font-size)' }}>
               <tr>
-                {SHOOTING_SCRIPT_PRIMARY_COLUMNS.map((column) => (
-                  <th key={column.key} className={`border-b border-border-dark px-3 py-2.5 font-medium ${column.widthClassName ?? ''}`}>
+                {visibleColumns.map((column) => (
+                  <th key={column.key} className="border-b border-border-dark px-2 py-2 font-medium">
                     {t(column.labelKey)}
                   </th>
                 ))}
-                <th className="w-[128px] border-b border-border-dark px-3 py-2.5 font-medium">{t('common.actions')}</th>
+                <th className="border-b border-border-dark px-2 py-2 font-medium">{t('common.actions')}</th>
               </tr>
             </thead>
             <tbody>
               {data.rows.length > 0 ? data.rows.map((row, index) => (
                 <tr key={row.id} className="align-top">
-                  {SHOOTING_SCRIPT_PRIMARY_COLUMNS.map((column) => {
+                  {visibleColumns.map((column) => {
                     const cellKey = `${row.id}:${column.key}`;
                     const isSelectedCell = selectedCellKey === cellKey;
                     const isEditingCell = editingCell?.rowId === row.id && editingCell.columnKey === column.key;
                     const isEditable = isEditableColumn(column.key);
 
                     return (
-                      <td key={column.key} className="border-b border-border-dark/70 px-2.5 py-2.5">
+                      <td key={column.key} className="border-b border-border-dark/70 px-2 py-2">
                         {isEditingCell ? (
                           column.key === 'genTarget' ? (
                             <select
@@ -293,7 +410,7 @@ export const ShootingScriptNode = memo(({
                               onPointerDown={stopInteractionPropagation}
                               onMouseDown={stopInteractionPropagation}
                               onClick={stopInteractionPropagation}
-                              className="nodrag nowheel w-full rounded-lg border border-cyan-500/35 bg-bg-dark px-2.5 py-2 text-[15px] text-text-dark outline-none"
+                              className="nodrag nowheel w-full rounded-lg border border-cyan-500/35 bg-bg-dark px-2 py-1.5 text-text-dark outline-none"
                             >
                               {genTargetOptions.map((option) => (
                                 <option key={option.value} value={option.value}>
@@ -317,7 +434,7 @@ export const ShootingScriptNode = memo(({
                                   commitCellEdit();
                                 }
                               }}
-                              className="nodrag nowheel w-full resize-none rounded-lg border border-cyan-500/35 bg-bg-dark px-2.5 py-2 text-[15px] leading-7 text-text-dark outline-none"
+                              className="nodrag nowheel w-full resize-none rounded-lg border border-cyan-500/35 bg-bg-dark px-2 py-1.5 text-text-dark outline-none [overflow-wrap:anywhere]"
                             />
                           )
                         ) : (
@@ -349,13 +466,13 @@ export const ShootingScriptNode = memo(({
                                 });
                               }
                             }}
-                            className={`nodrag flex min-h-[88px] min-w-0 w-full rounded-xl border px-3 py-2.5 text-left text-[15px] transition-colors ${
+                            className={`nodrag flex min-h-[68px] min-w-0 w-full rounded-lg border px-2 py-2 text-left transition-colors ${
                               isSelectedCell
                                 ? 'border-cyan-400/40 bg-cyan-500/12 text-cyan-50'
                                 : 'border-transparent bg-transparent text-text-dark hover:border-cyan-500/20 hover:bg-cyan-500/[0.05]'
                             }`}
                           >
-                            <span className="min-w-0 whitespace-pre-wrap break-words leading-7">
+                            <span className="min-w-0 whitespace-pre-wrap break-words [overflow-wrap:anywhere]">
                               {readCellValue(row, column.key) || (
                                 <span className="text-text-muted/65">{t('script.shootingScript.emptyCell')}</span>
                               )}
@@ -365,8 +482,8 @@ export const ShootingScriptNode = memo(({
                       </td>
                     );
                   })}
-                  <td className="border-b border-border-dark/70 px-2.5 py-2.5">
-                    <div className="flex flex-col gap-2">
+                  <td className="border-b border-border-dark/70 px-2 py-2">
+                    <div className="flex flex-col gap-1.5">
                       <button
                         type="button"
                         disabled={index === 0}
@@ -374,7 +491,7 @@ export const ShootingScriptNode = memo(({
                           event.stopPropagation();
                           moveRow(row.id, 'up');
                         }}
-                        className="nodrag rounded-lg border border-border-dark bg-bg-dark px-2.5 py-1.5 text-xs font-medium text-text-dark disabled:opacity-40"
+                        className="nodrag rounded-lg border border-border-dark bg-bg-dark px-2 py-1.5 font-medium text-text-dark disabled:opacity-40"
                       >
                         {t('common.moveUp')}
                       </button>
@@ -385,7 +502,7 @@ export const ShootingScriptNode = memo(({
                           event.stopPropagation();
                           moveRow(row.id, 'down');
                         }}
-                        className="nodrag rounded-lg border border-border-dark bg-bg-dark px-2.5 py-1.5 text-xs font-medium text-text-dark disabled:opacity-40"
+                        className="nodrag rounded-lg border border-border-dark bg-bg-dark px-2 py-1.5 font-medium text-text-dark disabled:opacity-40"
                       >
                         {t('common.moveDown')}
                       </button>
@@ -395,7 +512,7 @@ export const ShootingScriptNode = memo(({
                           event.stopPropagation();
                           deleteRow(row.id);
                         }}
-                        className="nodrag rounded-lg border border-red-400/25 bg-red-500/10 px-2.5 py-1.5 text-xs font-medium text-red-200"
+                        className="nodrag rounded-lg border border-red-400/25 bg-red-500/10 px-2 py-1.5 font-medium text-red-200"
                       >
                         {t('common.delete')}
                       </button>
@@ -404,7 +521,7 @@ export const ShootingScriptNode = memo(({
                 </tr>
               )) : (
                 <tr>
-                  <td colSpan={SHOOTING_SCRIPT_PRIMARY_COLUMNS.length + 1} className="px-3 py-12 text-center text-sm text-text-muted">
+                  <td colSpan={visibleColumns.length + 1} className="px-3 py-12 text-center text-sm text-text-muted">
                     {t('script.shootingScript.emptyRows')}
                   </td>
                 </tr>
