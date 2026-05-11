@@ -266,7 +266,7 @@ export function TitleBar({
           <img
             src={titlebarLogo}
             alt=""
-            className="h-5 w-auto shrink-0 object-contain select-none"
+            className={`h-5 w-auto shrink-0 object-contain select-none ${theme === 'light' ? 'brightness-0' : ''}`}
             draggable={false}
           />
           {runtimeVersion ? (

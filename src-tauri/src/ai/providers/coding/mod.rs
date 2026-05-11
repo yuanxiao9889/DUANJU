@@ -1,7 +1,10 @@
 mod registry;
 
+use base64::{engine::general_purpose::STANDARD, Engine};
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
+use serde_json::{json, Value};
+use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 use tracing::info;
@@ -28,7 +31,7 @@ struct CodingRequest {
 #[derive(Debug, Serialize, Deserialize)]
 struct CodingMessage {
     role: String,
-    content: String,
+    content: Value,
 }
 
 // OpenAI compatible response format
@@ -97,6 +100,160 @@ impl CodingProvider {
         key.clone()
     }
 
+    fn decode_file_url_path(value: &str) -> String {
+        let raw = value.trim_start_matches("file://");
+        let decoded = urlencoding::decode(raw)
+            .map(|result| result.into_owned())
+            .unwrap_or_else(|_| raw.to_string());
+        let normalized = if decoded.starts_with('/')
+            && decoded.len() > 2
+            && decoded.as_bytes().get(2) == Some(&b':')
+        {
+            &decoded[1..]
+        } else {
+            &decoded
+        };
+        normalized.to_string()
+    }
+
+    async fn source_to_bytes(source: &str) -> Result<Vec<u8>, AIError> {
+        let trimmed = source.trim();
+        if trimmed.is_empty() {
+            return Err(AIError::InvalidRequest("image source is empty".to_string()));
+        }
+
+        if let Some((meta, payload)) = trimmed.split_once(',') {
+            if meta.starts_with("data:") && meta.ends_with(";base64") && !payload.is_empty() {
+                return STANDARD.decode(payload).map_err(|error| {
+                    AIError::InvalidRequest(format!("invalid base64 payload: {}", error))
+                });
+            }
+        }
+
+        let likely_base64 = trimmed.len() > 256
+            && trimmed
+                .chars()
+                .all(|ch| ch.is_ascii_alphanumeric() || ch == '+' || ch == '/' || ch == '=');
+        if likely_base64 {
+            return STANDARD.decode(trimmed).map_err(|error| {
+                AIError::InvalidRequest(format!("invalid base64 payload: {}", error))
+            });
+        }
+
+        if trimmed.starts_with("http://") || trimmed.starts_with("https://") {
+            let response = reqwest::get(trimmed).await?;
+            let bytes = response.bytes().await?;
+            return Ok(bytes.to_vec());
+        }
+
+        let path = if trimmed.starts_with("file://") {
+            PathBuf::from(Self::decode_file_url_path(trimmed))
+        } else {
+            PathBuf::from(trimmed)
+        };
+        Ok(std::fs::read(path)?)
+    }
+
+    fn file_extension_from_source(source: &str) -> &'static str {
+        let trimmed = source.trim();
+        let lower = trimmed.to_ascii_lowercase();
+        if lower.starts_with("data:image/jpeg") || lower.starts_with("data:image/jpg") {
+            return "jpg";
+        }
+        if lower.starts_with("data:image/webp") {
+            return "webp";
+        }
+        if lower.starts_with("data:image/gif") {
+            return "gif";
+        }
+        if lower.starts_with("data:image/bmp") {
+            return "bmp";
+        }
+        if lower.starts_with("data:image/avif") {
+            return "avif";
+        }
+        if lower.starts_with("data:image/png") {
+            return "png";
+        }
+
+        let path = if trimmed.starts_with("file://") {
+            PathBuf::from(Self::decode_file_url_path(trimmed))
+        } else {
+            PathBuf::from(trimmed)
+        };
+
+        path.extension()
+            .and_then(|raw| raw.to_str())
+            .map(|raw| raw.trim().to_ascii_lowercase())
+            .filter(|raw| !raw.is_empty())
+            .and_then(|raw| match raw.as_str() {
+                "jpg" | "jpeg" => Some("jpg"),
+                "png" => Some("png"),
+                "webp" => Some("webp"),
+                "gif" => Some("gif"),
+                "bmp" => Some("bmp"),
+                "avif" => Some("avif"),
+                _ => None,
+            })
+            .unwrap_or("png")
+    }
+
+    fn mime_type_from_extension(extension: &str) -> &'static str {
+        match extension {
+            "jpg" => "image/jpeg",
+            "png" => "image/png",
+            "webp" => "image/webp",
+            "gif" => "image/gif",
+            "bmp" => "image/bmp",
+            "avif" => "image/avif",
+            _ => "image/png",
+        }
+    }
+
+    async fn source_to_data_url(source: &str) -> Result<String, AIError> {
+        let trimmed = source.trim();
+        if trimmed.starts_with("http://") || trimmed.starts_with("https://") {
+            return Ok(trimmed.to_string());
+        }
+        if trimmed.starts_with("data:") {
+            return Ok(trimmed.to_string());
+        }
+
+        let extension = Self::file_extension_from_source(trimmed);
+        let mime_type = Self::mime_type_from_extension(extension);
+        let bytes = Self::source_to_bytes(trimmed).await?;
+        Ok(format!(
+            "data:{};base64,{}",
+            mime_type,
+            STANDARD.encode(bytes)
+        ))
+    }
+
+    async fn build_message_content(request: &GenerateRequest) -> Result<Value, AIError> {
+        let Some(reference_images) = request
+            .reference_images
+            .as_ref()
+            .filter(|images| !images.is_empty())
+        else {
+            return Ok(Value::String(request.prompt.clone()));
+        };
+
+        let mut content = vec![json!({
+            "type": "text",
+            "text": request.prompt.clone(),
+        })];
+        for source in reference_images {
+            content.push(json!({
+                "type": "image_url",
+                "image_url": {
+                    "url": Self::source_to_data_url(source).await?,
+                },
+            }));
+        }
+
+        Ok(Value::Array(content))
+    }
+
     pub fn get_endpoint(&self, model: &str) -> String {
         let default_endpoint = format!(
             "{}/v1/chat/completions",
@@ -152,12 +309,13 @@ impl AIProvider for CodingProvider {
             .model_registry
             .resolve(&request.model)
             .ok_or_else(|| AIError::ModelNotSupported(request.model.clone()))?;
+        let message_content = Self::build_message_content(&request).await?;
 
         let req = CodingRequest {
             model: model.to_string(),
             messages: vec![CodingMessage {
                 role: "user".to_string(),
-                content: request.prompt.clone(),
+                content: message_content,
             }],
             temperature: Some(0.7),
             max_tokens: Some(2048),
@@ -208,7 +366,7 @@ impl AIProvider for CodingProvider {
                     .as_ref()
                     .and_then(|m| {
                         if m.role == "assistant" || m.role == "model" {
-                            Some(m.content.clone())
+                            m.content.as_str().map(ToString::to_string)
                         } else {
                             None
                         }

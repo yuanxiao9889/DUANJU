@@ -83,7 +83,7 @@ const BRANCH_MENU_ITEM: SpecialMenuItem = {
 
 function renderIcon(iconKey: MenuIconKey) {
   const Icon = iconMap[iconKey] ?? Image;
-  return <Icon className="h-4 w-4 text-accent" />;
+  return <Icon className="h-4 w-4 text-text-muted" />;
 }
 
 function dedupeMenuDefinitions(definitions: CanvasNodeDefinition[]): CanvasNodeDefinition[] {
@@ -371,7 +371,7 @@ export function NodeSelectionMenu({
       {(showBranchOption || onlyBranchOption) && renderSpecialButton(
         BRANCH_MENU_ITEM,
         `flex w-full items-center gap-2.5 px-3 py-2.5 text-left transition-colors hover:bg-bg-dark ${!onlyBranchOption ? 'border-b border-border-dark' : ''}`,
-        'bg-purple-500/20 text-purple-400',
+        'bg-bg-dark text-text-muted',
         0
       )}
 

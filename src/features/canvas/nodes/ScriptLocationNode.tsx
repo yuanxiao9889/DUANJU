@@ -163,8 +163,8 @@ export const ScriptLocationNode = memo(({
           }}
           className={`${SCRIPT_NODE_ICON_BUTTON_CLASS} ${
             isOptimizing
-              ? 'border-accent/30 bg-accent/12 text-accent'
-              : 'hover:border-accent/30 hover:bg-accent/10 hover:text-accent'
+              ? 'border-border-dark bg-bg-dark text-text-dark'
+              : 'hover:border-border-dark hover:bg-bg-dark hover:text-text-dark'
           }`}
           title={isOptimizing ? t('scriptNodes.common.optimizing') : t('scriptNodes.common.optimize')}
           disabled={isOptimizing}

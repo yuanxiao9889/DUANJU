@@ -41,14 +41,14 @@ export function GroupSidebar({
 
   return (
     <aside
-      className={`pointer-events-auto absolute left-4 top-4 z-[1100] overflow-hidden rounded-2xl border border-border-dark bg-surface-dark/92 shadow-[0_18px_36px_rgba(0,0,0,0.32)] backdrop-blur ${collapsed ? 'w-[52px]' : 'w-[244px]'}`}
+      className={`pointer-events-auto absolute left-4 top-4 z-[1100] overflow-hidden border border-border-dark bg-surface-dark/92 shadow-[0_8px_20px_rgba(15,23,42,0.12)] backdrop-blur dark:shadow-[0_10px_24px_rgba(0,0,0,0.22)] ${collapsed ? 'flex h-[52px] w-[52px] items-center justify-center rounded-full' : 'w-[244px] rounded-2xl'}`}
     >
       {collapsed ? (
-        <div className="flex flex-col items-center gap-2 border-b border-border-dark px-2 py-3">
+        <div className="flex items-center justify-center">
           <button
             type="button"
             onClick={() => setCollapsed(false)}
-            className="flex h-8 w-8 items-center justify-center rounded-md text-accent transition-colors hover:bg-bg-dark hover:text-accent"
+            className="flex h-9 w-9 items-center justify-center rounded-full text-text-muted transition-colors hover:bg-bg-dark hover:text-text-dark dark:text-accent dark:hover:text-accent"
             title={t('group.expandSidebar')}
           >
             <LayoutGrid className="h-4 w-4" />

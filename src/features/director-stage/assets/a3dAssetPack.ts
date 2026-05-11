@@ -3,6 +3,8 @@ import type { DirectorStageAssetPack } from '../domain/types';
 const A3D_ROOT = '/vendor/a3d';
 const CHARACTERS_ROOT = `${A3D_ROOT}/characters`;
 const SKYBOX_ROOT = `${A3D_ROOT}/demoAssets/skybox`;
+const XBOT_EXTRA_POSES_ROOT = `${CHARACTERS_ROOT}/xbot/extra-poses`;
+const XBOT_EXTRA_POSES_REST_PATH = `${XBOT_EXTRA_POSES_ROOT}/rest-pose.fbx`;
 
 export const A3D_ASSET_PACK: DirectorStageAssetPack = {
   id: 'a3d',
@@ -44,6 +46,10 @@ export const A3D_ASSET_PACK: DirectorStageAssetPack = {
         'xbot-jump',
         'xbot-sitting',
         'xbot-female-dance',
+        'xbot-cross-legged-sitting',
+        'xbot-relaxed-lying',
+        'xbot-side-lying',
+        'xbot-lying',
       ],
     },
     {
@@ -138,7 +144,8 @@ export const A3D_ASSET_PACK: DirectorStageAssetPack = {
     {
       id: 'xbot-sitting',
       labelKey: 'directorStage.poses.sitting',
-      animationPath: `${CHARACTERS_ROOT}/xbot/animations/Sitting.fbx`,
+      animationPath: `${XBOT_EXTRA_POSES_ROOT}/sitting.fbx`,
+      restPosePath: XBOT_EXTRA_POSES_REST_PATH,
       sampleRatio: 0.2,
       compatibleAssetIds: ['xbot'],
     },
@@ -147,6 +154,38 @@ export const A3D_ASSET_PACK: DirectorStageAssetPack = {
       labelKey: 'directorStage.poses.femaleDance',
       animationPath: `${CHARACTERS_ROOT}/xbot/animations/Female%20Dance%20Pose.fbx`,
       sampleRatio: 0.25,
+      compatibleAssetIds: ['xbot'],
+    },
+    {
+      id: 'xbot-cross-legged-sitting',
+      labelKey: 'directorStage.poses.crossLeggedSitting',
+      animationPath: `${XBOT_EXTRA_POSES_ROOT}/cross-legged-sitting.fbx`,
+      restPosePath: XBOT_EXTRA_POSES_REST_PATH,
+      sampleRatio: 0.2,
+      compatibleAssetIds: ['xbot'],
+    },
+    {
+      id: 'xbot-relaxed-lying',
+      labelKey: 'directorStage.poses.relaxedLying',
+      animationPath: `${XBOT_EXTRA_POSES_ROOT}/relaxed-lying.fbx`,
+      restPosePath: XBOT_EXTRA_POSES_REST_PATH,
+      sampleRatio: 0.2,
+      compatibleAssetIds: ['xbot'],
+    },
+    {
+      id: 'xbot-side-lying',
+      labelKey: 'directorStage.poses.sideLying',
+      animationPath: `${XBOT_EXTRA_POSES_ROOT}/side-lying.fbx`,
+      restPosePath: XBOT_EXTRA_POSES_REST_PATH,
+      sampleRatio: 0.2,
+      compatibleAssetIds: ['xbot'],
+    },
+    {
+      id: 'xbot-lying',
+      labelKey: 'directorStage.poses.lying',
+      animationPath: `${XBOT_EXTRA_POSES_ROOT}/lying.fbx`,
+      restPosePath: XBOT_EXTRA_POSES_REST_PATH,
+      sampleRatio: 0.2,
       compatibleAssetIds: ['xbot'],
     },
     {

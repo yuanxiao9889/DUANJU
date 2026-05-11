@@ -16,6 +16,7 @@ import {
 import { listErrorLogItems, type ErrorLogItemRecord } from '@/commands/errorLog';
 import {
   useSettingsStore,
+  type OfficialVideoProviderId,
   type ThirdPartyVideoProviderId,
 } from '@/stores/settingsStore';
 import { useProjectStore } from '@/stores/projectStore';
@@ -27,6 +28,7 @@ import {
   createDatabaseBackup,
   restoreDatabaseBackup,
   migrateStorage, 
+  adoptExistingStoragePath,
   openStorageFolder, 
   selectStorageFolder, 
   formatBytes,
@@ -67,7 +69,9 @@ import {
   listModelProviders,
   normalizeStoryboardApi2OkModelConfig,
   normalizeStoryboardNewApiModelConfig,
+  normalizeStoryboardNewApiCustomModelType,
   type StoryboardApi2OkModelConfig,
+  type StoryboardNewApiCustomModelType,
   type StoryboardNewApiModelConfig,
   upsertCustomStoryboardModelEntry,
 } from '@/features/canvas/models';
@@ -143,7 +147,7 @@ const STORYBOARD_PROVIDER_GROUP_CONFIGS: ProviderGroupConfig[] = [
   {
     id: 'stable',
     labelKey: 'settings.providerGroupStable',
-    providerIds: ['grsai', 'kie', 'ppio', 'fal', 'volcengine'],
+    providerIds: ['grsai', 'kie', 'ppio', 'fal'],
     defaultCollapsed: true,
   },
   {
@@ -175,6 +179,28 @@ const THIRD_PARTY_VIDEO_PROVIDER = {
   name: 'Third-party Video',
   label: 'Third-party Video',
 };
+const VIDU_OFFICIAL_VIDEO_PROVIDER_ID: OfficialVideoProviderId = 'vidu';
+const SEEDANCE_OFFICIAL_VIDEO_PROVIDER_ID: OfficialVideoProviderId = 'volcengine';
+const DEFAULT_OFFICIAL_VIDEO_PROVIDER_ID = SEEDANCE_OFFICIAL_VIDEO_PROVIDER_ID;
+const OFFICIAL_VIDEO_PROVIDERS: Array<{
+  id: OfficialVideoProviderId;
+  name: string;
+  label: string;
+  descriptionKey: string;
+}> = [
+  {
+    id: SEEDANCE_OFFICIAL_VIDEO_PROVIDER_ID,
+    name: 'Official Seedance 2.0',
+    label: 'Seedance2.0官方',
+    descriptionKey: 'settings.officialVideoSeedanceDesc',
+  },
+  {
+    id: VIDU_OFFICIAL_VIDEO_PROVIDER_ID,
+    name: 'Vidu',
+    label: 'Vidu',
+    descriptionKey: 'settings.officialVideoViduDesc',
+  },
+];
 
 const ABOUT_FEEDBACK_QQ_GROUP = '835213642';
 const ABOUT_OOPII_QQ_GROUP_URL = 'https://qm.qq.com/q/TcWYG0Ri0w';
@@ -273,6 +299,13 @@ function resolveProviderDisplayName(
     }
   }
 
+  return language.startsWith('zh') ? provider.label : provider.name;
+}
+
+function resolveOfficialVideoProviderDisplayName(
+  provider: (typeof OFFICIAL_VIDEO_PROVIDERS)[number],
+  language: string
+): string {
   return language.startsWith('zh') ? provider.label : provider.name;
 }
 
@@ -485,6 +518,7 @@ export function SettingsDialog({
     scriptApiKeys,
     storyboardApiKeys,
     mjApiKeys,
+    officialVideoApiKeys,
     thirdPartyVideoApiKeys,
     thirdPartyVideoProviderConfig,
     scriptProviderEnabled,
@@ -522,6 +556,7 @@ export function SettingsDialog({
     setScriptProviderApiKey,
     setStoryboardProviderApiKey,
     setMjProviderApiKey,
+    setOfficialVideoProviderApiKey,
     setThirdPartyVideoProviderApiKey,
     setThirdPartyVideoProviderConfig,
     setScriptProviderEnabled,
@@ -604,6 +639,7 @@ export function SettingsDialog({
       && p.id !== 'coding'
       && p.id !== SCRIPT_DEEPSEEK_PROVIDER_ID
       && p.id !== 'jimeng'
+      && p.id !== SEEDANCE_OFFICIAL_VIDEO_PROVIDER_ID
     )),
     [providers]
   );
@@ -627,6 +663,7 @@ export function SettingsDialog({
   const [localScriptApiKeys, setLocalScriptApiKeys] = useState<Record<string, string>>(scriptApiKeys);
   const [localStoryboardApiKeys, setLocalStoryboardApiKeys] = useState<Record<string, string>>(storyboardApiKeys);
   const [localMjApiKeys, setLocalMjApiKeys] = useState<Record<string, string>>(mjApiKeys);
+  const [localOfficialVideoApiKeys, setLocalOfficialVideoApiKeys] = useState<Record<OfficialVideoProviderId, string>>(officialVideoApiKeys);
   const [localThirdPartyVideoApiKeys, setLocalThirdPartyVideoApiKeys] = useState<Record<ThirdPartyVideoProviderId, string>>(thirdPartyVideoApiKeys);
   const [localThirdPartyVideoBaseUrl, setLocalThirdPartyVideoBaseUrl] = useState(
     thirdPartyVideoProviderConfig.gptBest.baseUrl
@@ -645,6 +682,8 @@ export function SettingsDialog({
   );
   const [selectedThirdPartyVideoProvider, setSelectedThirdPartyVideoProvider] =
     useState<ThirdPartyVideoProviderId>(THIRD_PARTY_VIDEO_PROVIDER_ID);
+  const [selectedOfficialVideoProvider, setSelectedOfficialVideoProvider] =
+    useState<OfficialVideoProviderId>(DEFAULT_OFFICIAL_VIDEO_PROVIDER_ID);
   const [localScriptModelOverrides, setLocalScriptModelOverrides] =
     useState<Record<string, string>>(scriptModelOverrides);
   const [localScriptProviderCustomModels, setLocalScriptProviderCustomModels] =
@@ -663,6 +702,8 @@ export function SettingsDialog({
     useState<Record<string, string>>({});
   const [localStoryboardModelDisplayNameInputs, setLocalStoryboardModelDisplayNameInputs] =
     useState<Record<string, string>>({});
+  const [localStoryboardModelTypeInputs, setLocalStoryboardModelTypeInputs] =
+    useState<Record<string, StoryboardNewApiCustomModelType | ''>>({});
   const [localStoryboardCompatibleModelConfig, setLocalStoryboardCompatibleModelConfig] =
     useState(storyboardCompatibleModelConfig);
   const [localStoryboardApi2OkModelConfig, setLocalStoryboardApi2OkModelConfig] =
@@ -838,6 +879,13 @@ export function SettingsDialog({
     setLocalScriptApiKeys(scriptApiKeys);
     setLocalStoryboardApiKeys(storyboardApiKeys);
     setLocalMjApiKeys(mjApiKeys);
+    setLocalOfficialVideoApiKeys({
+      ...officialVideoApiKeys,
+      [SEEDANCE_OFFICIAL_VIDEO_PROVIDER_ID]:
+        officialVideoApiKeys[SEEDANCE_OFFICIAL_VIDEO_PROVIDER_ID]
+        || storyboardApiKeys[SEEDANCE_OFFICIAL_VIDEO_PROVIDER_ID]
+        || '',
+    });
     setLocalThirdPartyVideoApiKeys(thirdPartyVideoApiKeys);
     setLocalThirdPartyVideoBaseUrl(thirdPartyVideoProviderConfig.gptBest.baseUrl);
     setLocalDownloadPresetPaths(downloadPresetPaths);
@@ -847,6 +895,7 @@ export function SettingsDialog({
     setSelectedScriptProvider(scriptProviderEnabled || scriptProviders[0]?.id || '');
     setSelectedStoryboardProvider(storyboardProviders[0]?.id || '');
     setSelectedMjProvider(mjProviderEnabled || mjProviders[0]?.id || '');
+    setSelectedOfficialVideoProvider(DEFAULT_OFFICIAL_VIDEO_PROVIDER_ID);
     setLocalScriptModelOverrides(scriptModelOverrides);
     setLocalScriptProviderCustomModels(scriptProviderCustomModels);
     setLocalScriptCompatibleProviderConfig(scriptCompatibleProviderConfig);
@@ -898,6 +947,7 @@ export function SettingsDialog({
     scriptApiKeys,
     storyboardApiKeys,
     mjApiKeys,
+    officialVideoApiKeys,
     thirdPartyVideoApiKeys,
     thirdPartyVideoProviderConfig,
     downloadPresetPaths,
@@ -978,6 +1028,14 @@ export function SettingsDialog({
       return;
     }
 
+    if (
+      initialProviderTab === 'officialVideo'
+      && OFFICIAL_VIDEO_PROVIDERS.some((provider) => provider.id === initialProviderId)
+    ) {
+      setSelectedOfficialVideoProvider(initialProviderId as OfficialVideoProviderId);
+      return;
+    }
+
     if (initialProviderTab === 'thirdPartyVideo' && initialProviderId === THIRD_PARTY_VIDEO_PROVIDER_ID) {
       setSelectedThirdPartyVideoProvider(THIRD_PARTY_VIDEO_PROVIDER_ID);
     }
@@ -1009,7 +1067,7 @@ export function SettingsDialog({
   }, [localMjProviderEnabled, mjProviders, selectedMjProvider]);
 
   useEffect(() => {
-    if (localProviderTab === 'thirdPartyVideo') {
+    if (localProviderTab === 'officialVideo' || localProviderTab === 'thirdPartyVideo') {
       return;
     }
     const selectedProviderId =
@@ -1263,6 +1321,26 @@ export function SettingsDialog({
     }
   }, [isMigrating]);
 
+  const handleAdoptStoragePath = useCallback(async () => {
+    if (isMigrating) return;
+
+    try {
+      const newPath = await selectStorageFolder();
+      if (!newPath) return;
+
+      setMigrationError(null);
+      setIsMigrating(true);
+
+      await useProjectStore.getState().flushCurrentProjectToDisk();
+      await adoptExistingStoragePath(newPath);
+      window.location.reload();
+    } catch (error) {
+      setMigrationError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setIsMigrating(false);
+    }
+  }, [isMigrating]);
+
   const handleOpenStorageFolder = useCallback(async () => {
     try {
       await openStorageFolder();
@@ -1379,13 +1457,23 @@ export function SettingsDialog({
     if (!nextModelId) {
       return;
     }
+    const nextNewApiModelType =
+      providerId === 'newapi'
+        ? (localStoryboardModelTypeInputs[providerId] ?? '')
+        : undefined;
+    if (providerId === 'newapi' && !nextNewApiModelType) {
+      return;
+    }
 
     const nextDisplayName = (localStoryboardModelDisplayNameInputs[providerId] ?? '').trim();
     const nextEntries = upsertCustomStoryboardModelEntry(
       providerId,
       getCustomStoryboardModels(providerId, localStoryboardProviderCustomModels),
       nextModelId,
-      nextDisplayName
+      nextDisplayName,
+      providerId === 'newapi'
+        ? { newApiModelType: normalizeStoryboardNewApiCustomModelType(nextNewApiModelType) }
+        : undefined
     );
     const nextResolvedModelId = toStoryboardProviderModelId(providerId, nextModelId);
 
@@ -1399,6 +1487,7 @@ export function SettingsDialog({
     }));
     setLocalStoryboardModelIdInputs((previous) => ({ ...previous, [providerId]: '' }));
     setLocalStoryboardModelDisplayNameInputs((previous) => ({ ...previous, [providerId]: '' }));
+    setLocalStoryboardModelTypeInputs((previous) => ({ ...previous, [providerId]: '' }));
 
     if (providerId === 'compatible') {
       setLocalStoryboardCompatibleModelConfig((previous) =>
@@ -1432,6 +1521,7 @@ export function SettingsDialog({
   }, [
     localStoryboardModelDisplayNameInputs,
     localStoryboardModelIdInputs,
+    localStoryboardModelTypeInputs,
     localStoryboardProviderCustomModels,
   ]);
 
@@ -1548,6 +1638,12 @@ export function SettingsDialog({
         setMjProviderApiKey(provider.id, localMjApiKeys[provider.id] ?? '');
       }
     });
+    OFFICIAL_VIDEO_PROVIDERS.forEach((provider) => {
+      setOfficialVideoProviderApiKey(
+        provider.id,
+        localOfficialVideoApiKeys[provider.id] ?? ''
+      );
+    });
     setThirdPartyVideoProviderApiKey(
       THIRD_PARTY_VIDEO_PROVIDER_ID,
       localThirdPartyVideoApiKeys[THIRD_PARTY_VIDEO_PROVIDER_ID] ?? ''
@@ -1621,6 +1717,7 @@ export function SettingsDialog({
     localScriptApiKeys,
     localStoryboardApiKeys,
     localMjApiKeys,
+    localOfficialVideoApiKeys,
     localThirdPartyVideoApiKeys,
     localThirdPartyVideoBaseUrl,
     localDownloadPresetPaths,
@@ -1663,6 +1760,7 @@ export function SettingsDialog({
     setScriptProviderApiKey,
     setStoryboardProviderApiKey,
     setMjProviderApiKey,
+    setOfficialVideoProviderApiKey,
     setThirdPartyVideoProviderApiKey,
     setThirdPartyVideoProviderConfig,
     setGrsaiNanoBananaProModel,
@@ -2014,6 +2112,16 @@ export function SettingsDialog({
                       {t('settings.mjApiEnabled')}
                     </button>
                     <button
+                      onClick={() => setLocalProviderTab('officialVideo')}
+                      className={`shrink-0 px-4 py-2 text-sm font-medium rounded-t transition-colors ${
+                        localProviderTab === 'officialVideo'
+                          ? 'bg-surface-dark text-text-dark border-t border-l border-r border-border-dark -mb-px'
+                          : 'text-text-muted hover:text-text-dark'
+                      }`}
+                    >
+                      {t('settings.officialVideoApiEnabled')}
+                    </button>
+                    <button
                       onClick={() => setLocalProviderTab('thirdPartyVideo')}
                       className={`shrink-0 px-4 py-2 text-sm font-medium rounded-t transition-colors ${
                         localProviderTab === 'thirdPartyVideo'
@@ -2032,7 +2140,39 @@ export function SettingsDialog({
                       {t('settings.providerList')}
                     </div>
                     <nav className="flex-1 overflow-y-auto ui-scrollbar">
-                      {localProviderTab === 'thirdPartyVideo' ? (
+                      {localProviderTab === 'officialVideo' ? (
+                        OFFICIAL_VIDEO_PROVIDERS.map((provider) => {
+                          const providerApiKey = localOfficialVideoApiKeys[provider.id] ?? '';
+                          const hasKey = Boolean(providerApiKey.trim());
+                          const isSelected = selectedOfficialVideoProvider === provider.id;
+                          const providerDisplayName = resolveOfficialVideoProviderDisplayName(
+                            provider,
+                            i18n.language
+                          );
+
+                          return (
+                            <button
+                              key={provider.id}
+                              onClick={() => setSelectedOfficialVideoProvider(provider.id)}
+                              className={`ml-2 flex w-[calc(100%-8px)] items-center gap-2 rounded-l-md px-3 py-2 text-left transition-colors ${
+                                isSelected
+                                  ? 'border-l-2 border-accent bg-accent/10 text-text-dark'
+                                  : 'text-text-muted hover:bg-surface-dark hover:text-text-dark'
+                              }`}
+                            >
+                              <span
+                                className={`h-2 w-2 shrink-0 rounded-full ${
+                                  hasKey ? 'bg-green-500' : 'bg-border-dark'
+                                }`}
+                                title={hasKey ? t('settings.keyConfigured') : t('settings.keyNotConfigured')}
+                              />
+                              <span className="min-w-0 flex-1 truncate text-xs">
+                                {providerDisplayName}
+                              </span>
+                            </button>
+                          );
+                        })
+                      ) : localProviderTab === 'thirdPartyVideo' ? (
                         <button
                           key={THIRD_PARTY_VIDEO_PROVIDER.id}
                           onClick={() => setSelectedThirdPartyVideoProvider(THIRD_PARTY_VIDEO_PROVIDER_ID)}
@@ -2258,6 +2398,105 @@ export function SettingsDialog({
 
                   <div className="min-w-0 flex-1 overflow-y-auto ui-scrollbar p-5">
                     {(() => {
+                      if (localProviderTab === 'officialVideo') {
+                        const currentProvider =
+                          OFFICIAL_VIDEO_PROVIDERS.find(
+                            (provider) => provider.id === selectedOfficialVideoProvider
+                          ) ?? OFFICIAL_VIDEO_PROVIDERS[0];
+                        const currentProviderId = currentProvider.id;
+                        const displayName = resolveOfficialVideoProviderDisplayName(
+                          currentProvider,
+                          i18n.language
+                        );
+                        const currentApiKey =
+                          localOfficialVideoApiKeys[currentProviderId] ?? '';
+                        const revealKey = `${localProviderTab}:${currentProviderId}`;
+                        const isRevealed = Boolean(revealedApiKeys[revealKey]);
+                        const hasKey = Boolean(currentApiKey.trim());
+
+                        return (
+                          <div className="space-y-4">
+                            <div className="flex items-center justify-between">
+                              <div className="flex items-center gap-3">
+                                <span
+                                  className={`h-3 w-3 rounded-full ${
+                                    hasKey ? 'bg-green-500' : 'bg-border-dark'
+                                  }`}
+                                />
+                                <h3 className="text-base font-medium text-text-dark">
+                                  {displayName}
+                                </h3>
+                                {hasKey ? (
+                                  <span className="rounded bg-green-500/10 px-2 py-0.5 text-xs text-green-500">
+                                    {t('settings.keyConfigured')}
+                                  </span>
+                                ) : null}
+                              </div>
+                            </div>
+
+                            <div className="rounded-lg border border-border-dark bg-bg-dark p-4">
+                              <div className="mb-2 text-xs font-medium text-text-dark">
+                                {t('settings.apiKey')}
+                              </div>
+                              <p className="mb-3 text-xs leading-5 text-text-muted">
+                                {t(currentProvider.descriptionKey)}
+                              </p>
+                              <div className="relative">
+                                <input
+                                  type={isRevealed ? 'text' : 'password'}
+                                  value={currentApiKey}
+                                  onChange={(event) =>
+                                    setLocalOfficialVideoApiKeys((previous) => ({
+                                      ...previous,
+                                      [currentProviderId]: event.target.value,
+                                    }))
+                                  }
+                                  placeholder={t('settings.enterApiKey')}
+                                  className="w-full rounded border border-border-dark bg-surface-dark px-3 py-2 pr-20 text-sm text-text-dark placeholder:text-text-muted"
+                                />
+                                <div className="absolute right-2 top-1/2 flex -translate-y-1/2 items-center gap-1">
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setLocalOfficialVideoApiKeys((previous) => ({
+                                        ...previous,
+                                        [currentProviderId]: '',
+                                      }));
+                                      setRevealedApiKeys((previous) => ({
+                                        ...previous,
+                                        [revealKey]: false,
+                                      }));
+                                    }}
+                                    disabled={!currentApiKey}
+                                    title={`${t('common.delete')} ${t('settings.apiKey')}`}
+                                    aria-label={`${t('common.delete')} ${t('settings.apiKey')}`}
+                                    className="rounded p-1 hover:bg-bg-dark disabled:cursor-not-allowed disabled:opacity-40"
+                                  >
+                                    <X className="h-4 w-4 text-text-muted" />
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() =>
+                                      setRevealedApiKeys((previous) => ({
+                                        ...previous,
+                                        [revealKey]: !isRevealed,
+                                      }))
+                                    }
+                                    className="rounded p-1 hover:bg-bg-dark"
+                                  >
+                                    {isRevealed ? (
+                                      <EyeOff className="h-4 w-4 text-text-muted" />
+                                    ) : (
+                                      <Eye className="h-4 w-4 text-text-muted" />
+                                    )}
+                                  </button>
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      }
+
                       if (localProviderTab === 'thirdPartyVideo') {
                         const currentApiKey =
                           localThirdPartyVideoApiKeys[THIRD_PARTY_VIDEO_PROVIDER_ID] ?? '';
@@ -2485,6 +2724,8 @@ export function SettingsDialog({
                         localStoryboardModelDisplayNameInputs[provider.id] ?? '';
                       const customStoryboardModelIdInput =
                         localStoryboardModelIdInputs[provider.id] ?? '';
+                      const customStoryboardModelTypeInput =
+                        localStoryboardModelTypeInputs[provider.id] ?? '';
                       const showActivationButton = isScriptTab || isMjTab;
                       const canActivateProvider = isScriptTab
                         ? hasKey && isScriptProviderReady
@@ -2745,6 +2986,7 @@ export function SettingsDialog({
                               customStoryboardModelDisplayNameInput={
                                 customStoryboardModelDisplayNameInput
                               }
+                              customStoryboardModelTypeInput={customStoryboardModelTypeInput}
                               onStoryboardModelIdInputChange={(value) =>
                                 setLocalStoryboardModelIdInputs((previous) => ({
                                   ...previous,
@@ -2753,6 +2995,12 @@ export function SettingsDialog({
                               }
                               onStoryboardModelDisplayNameInputChange={(value) =>
                                 setLocalStoryboardModelDisplayNameInputs((previous) => ({
+                                  ...previous,
+                                  [provider.id]: value,
+                                }))
+                              }
+                              onStoryboardModelTypeInputChange={(value) =>
+                                setLocalStoryboardModelTypeInputs((previous) => ({
                                   ...previous,
                                   [provider.id]: value,
                                 }))
@@ -3503,7 +3751,25 @@ export function SettingsDialog({
                             ) : (
                               <>
                                 <FolderOpen className="mr-1.5 h-3.5 w-3.5" />
-                                {t('settings.changePath')}
+                                {t('settings.migrateCurrentStorage')}
+                              </>
+                            )}
+                          </button>
+                          <button
+                            type="button"
+                            disabled={isMigrating}
+                            onClick={() => void handleAdoptStoragePath()}
+                            className="inline-flex h-9 items-center justify-center rounded border border-border-dark bg-surface-dark px-3 text-xs text-text-dark transition-colors hover:bg-bg-dark disabled:opacity-50"
+                          >
+                            {isMigrating ? (
+                              <>
+                                <UiLoadingAnimation size="xs" className="mr-1.5" />
+                                {t('settings.migrating')}
+                              </>
+                            ) : (
+                              <>
+                                <FolderOpen className="mr-1.5 h-3.5 w-3.5" />
+                                {t('settings.adoptExistingStorage')}
                               </>
                             )}
                           </button>

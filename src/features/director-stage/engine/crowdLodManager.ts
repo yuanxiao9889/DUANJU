@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { SimplifyModifier } from 'three/examples/jsm/modifiers/SimplifyModifier.js';
 import { clone as cloneSkeletonObject } from 'three/examples/jsm/utils/SkeletonUtils.js';
 
-import { getA3dPosePreset } from '../assets/a3dAssetPack';
+import { getDirectorStagePosePreset } from '../assets/directorStageAssetRegistry';
 import type {
   DirectorStageBuiltInAsset,
   DirectorStageCrowdGroup,
@@ -302,7 +302,7 @@ async function bakeCrowdGeometryParts(
   refreshDirectorStageObjectContentRoot(workingObject);
   rememberDirectorStageBasePose(workingObject);
 
-  const posePreset = getA3dPosePreset(posePresetId);
+  const posePreset = getDirectorStagePosePreset(posePresetId);
   if (posePreset) {
     notifyCrowdLodProgress(onProgress, {
       phase: 'posing',

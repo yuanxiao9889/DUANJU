@@ -15,8 +15,11 @@
   --text-rgb: 0 0 0;
   --text-muted: #666666;
   --text-muted-rgb: 102 102 102;
-  --accent: #3B82F6;
-  --accent-rgb: 59 130 246;
+  --accent: #222222;
+  --accent-rgb: 34 34 34;
+  --canvas-grid-dot: rgba(34, 34, 34, 0.22);
+  --canvas-guide-solid: rgba(34, 34, 34, 0.72);
+  --canvas-guide-dashed: rgba(34, 34, 34, 0.52);
   --ui-surface-panel: rgba(255, 255, 255, 0.96);
   --ui-surface-field: rgba(248, 250, 252, 0.95);
   --ui-border-soft: rgba(15, 23, 42, 0.12);
@@ -51,6 +54,8 @@
   --ui-range-thumb-border: rgba(var(--text-rgb), 0.16);
   --ui-range-thumb-shadow: 0 4px 12px rgba(15, 23, 42, 0.14);
   --ui-range-thumb-shadow-hover: 0 0 0 5px rgba(var(--accent-rgb), 0.12), 0 6px 14px rgba(15, 23, 42, 0.18);
+  --node-selected-border: #222222;
+  --node-selected-shadow: 0 0 0 2px rgba(34, 34, 34, 0.38), 0 4px 14px rgba(15, 23, 42, 0.12);
   --node-radius: 12px;
   --node-inner-radius: var(--node-radius);
 }
@@ -66,7 +71,11 @@
   --text-rgb: 255 255 255;
   --text-muted: #888888;
   --text-muted-rgb: 136 136 136;
+  --accent: #3B82F6;
   --accent-rgb: 59 130 246;
+  --canvas-grid-dot: rgba(255, 255, 255, 0.12);
+  --canvas-guide-solid: rgba(var(--accent-rgb), 0.82);
+  --canvas-guide-dashed: rgba(var(--accent-rgb), 0.6);
   --ui-surface-panel: rgb(26, 26, 26);
   --ui-surface-field: rgba(10, 10, 12, 0.92);
   --ui-border-soft: rgba(255, 255, 255, 0.14);
@@ -97,6 +106,8 @@
   --ui-range-thumb-border: rgba(255, 255, 255, 0.14);
   --ui-range-thumb-shadow: 0 6px 14px rgba(0, 0, 0, 0.28);
   --ui-range-thumb-shadow-hover: 0 0 0 5px rgba(var(--accent-rgb), 0.16), 0 8px 16px rgba(0, 0, 0, 0.34);
+  --node-selected-border: rgba(245, 245, 245, 0.78);
+  --node-selected-shadow: 0 0 0 2px rgba(245, 245, 245, 0.2), 0 4px 14px rgba(0, 0, 0, 0.24);
   --node-radius: 12px;
   --node-inner-radius: var(--node-radius);
 }
@@ -397,6 +408,11 @@ html[data-platform='macos'] #root {
 
 .react-flow__node {
   border-radius: var(--node-radius);
+}
+
+.react-flow__node.selected > :first-child {
+  border-color: var(--node-selected-border) !important;
+  box-shadow: var(--node-selected-shadow) !important;
 }
 
 .react-flow__node.canvas-node--layout-animating {

@@ -49,8 +49,14 @@ import { resolveImageDisplayUrl } from '@/features/canvas/application/imageData'
 import { useAssetStore } from '@/stores/assetStore';
 import { useCanvasStore } from '@/stores/canvasStore';
 import { useProjectStore } from '@/stores/projectStore';
-import type { AssetCategory, AssetItemRecord } from '@/features/assets/domain/types';
-import { A3D_ASSET_PACK, getA3dCharacterAsset, getA3dPosePreset } from '../assets/a3dAssetPack';
+import type { AssetCategory, AssetItemRecord, AssetMetadata } from '@/features/assets/domain/types';
+import {
+  DIRECTOR_STAGE_ASSET_PACKS,
+  DIRECTOR_STAGE_BUILT_IN_POSE_PRESETS,
+  DIRECTOR_STAGE_SKYBOX_PRESETS,
+  getDirectorStageCharacterAsset,
+  getDirectorStagePosePreset,
+} from '../assets/directorStageAssetRegistry';
 import { DirectorStageNumberInput } from './DirectorStageNumberInput';
 import {
   createStageVector3,
@@ -70,6 +76,7 @@ import {
   type DirectorStageLimbPose,
   type DirectorStageLimbPoseKey,
   type DirectorStageLight,
+  type DirectorStagePosePreset,
   type DirectorStageProject,
   type DirectorStageSnapshotAspectRatio,
   type DirectorStageTransformMode,
@@ -151,6 +158,10 @@ interface DirectorStageWorkspaceProps {
 }
 
 type WorkspaceTab = 'a3d' | 'library';
+type DirectorStagePoseOption = DirectorStagePosePreset & {
+  origin: 'builtin' | 'user';
+  assetItem?: AssetItemRecord;
+};
 
 type DirectorStageCommitOptions = {
   history?: 'push' | 'skip';
@@ -175,6 +186,8 @@ interface CameraLensPanelState {
 
 const DIRECTOR_STAGE_CROWD_RENDER_STRATEGY_VERSION = 'static-full-v2';
 const DIRECTOR_STAGE_MODEL_LIBRARY_URL = 'https://sketchfab.com/feed';
+const DIRECTOR_STAGE_USER_POSE_PRESET_PREFIX = 'asset:';
+const DIRECTOR_STAGE_USER_ANIMATION_SAMPLE_RATIO = 0.2;
 const DIRECTOR_STAGE_GROUND_SAMPLE_SIZE = 32;
 const CAMERA_LENS_PANEL_WIDTH = 260;
 const CAMERA_LENS_PANEL_HEIGHT = 206;
@@ -235,8 +248,31 @@ async function sampleDirectorStageGroundColor(source: string): Promise<THREE.Col
   return new THREE.Color(red / samples / 255, green / samples / 255, blue / samples / 255);
 }
 
+function isObjectRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function getDirectorStageAssetMetadata(item: AssetItemRecord): Record<string, unknown> | null {
+  const metadata = item.metadata;
+  if (!isObjectRecord(metadata)) {
+    return null;
+  }
+  const directorStage = metadata.directorStage;
+  return isObjectRecord(directorStage) ? directorStage : null;
+}
+
+function isDirectorStageAnimationAsset(item: AssetItemRecord): boolean {
+  const directorStage = getDirectorStageAssetMetadata(item);
+  return item.mediaType === 'model'
+    && item.category === 'character'
+    && directorStage?.kind === 'animation'
+    && /\.fbx(?:[?#].*)?$/i.test(item.sourcePath.trim());
+}
+
 function isModelAsset(item: AssetItemRecord): boolean {
-  return item.mediaType === 'model' && ['character', 'scene', 'prop'].includes(item.category);
+  return item.mediaType === 'model'
+    && ['character', 'scene', 'prop'].includes(item.category)
+    && !isDirectorStageAnimationAsset(item);
 }
 
 function categoryToEntityKind(category: AssetCategory): DirectorStageEntity['kind'] {
@@ -258,6 +294,82 @@ function extensionToMime(path: string): string | null {
     return 'application/octet-stream';
   }
   return null;
+}
+
+function toUserPosePresetId(assetItemId: string): string {
+  return `${DIRECTOR_STAGE_USER_POSE_PRESET_PREFIX}${assetItemId}`;
+}
+
+function getDirectorStageAnimationCompatibleAssetId(item: AssetItemRecord): string | null {
+  const directorStage = getDirectorStageAssetMetadata(item);
+  const compatibleAssetId = directorStage?.compatibleAssetId;
+  return typeof compatibleAssetId === 'string' && compatibleAssetId.trim()
+    ? compatibleAssetId.trim()
+    : null;
+}
+
+function getDirectorStageAnimationSampleRatio(item: AssetItemRecord): number {
+  const directorStage = getDirectorStageAssetMetadata(item);
+  const sampleRatio = directorStage?.sampleRatio;
+  return typeof sampleRatio === 'number' && Number.isFinite(sampleRatio)
+    ? Math.max(0, Math.min(1, sampleRatio))
+    : DIRECTOR_STAGE_USER_ANIMATION_SAMPLE_RATIO;
+}
+
+function createUserPosePresetFromAsset(item: AssetItemRecord): DirectorStagePoseOption | null {
+  const compatibleAssetId = getDirectorStageAnimationCompatibleAssetId(item);
+  if (!compatibleAssetId || !isDirectorStageAnimationAsset(item)) {
+    return null;
+  }
+  return {
+    id: toUserPosePresetId(item.id),
+    labelKey: item.name,
+    animationPath: item.sourcePath,
+    sampleRatio: getDirectorStageAnimationSampleRatio(item),
+    compatibleAssetIds: [compatibleAssetId],
+    origin: 'user',
+    assetItem: item,
+  };
+}
+
+function createStoredEntityPosePreset(entity: DirectorStageEntity): DirectorStagePosePreset | null {
+  if (!entity.posePath) {
+    return null;
+  }
+  return {
+    id: entity.posePresetId ?? `path:${entity.posePath}`,
+    labelKey: entity.name,
+    animationPath: entity.posePath,
+    sampleRatio: DIRECTOR_STAGE_USER_ANIMATION_SAMPLE_RATIO,
+    compatibleAssetIds: [entity.assetId],
+  };
+}
+
+function buildDirectorStageAnimationMetadata(params: {
+  entity: DirectorStageEntity;
+  sourcePath: string;
+  fileName: string;
+  existingMetadata?: AssetMetadata | null;
+}): AssetMetadata {
+  const baseMetadata = isObjectRecord(params.existingMetadata)
+    ? { ...params.existingMetadata }
+    : {};
+  const existingDirectorStage = isObjectRecord(baseMetadata.directorStage)
+    ? baseMetadata.directorStage
+    : {};
+  return {
+    ...baseMetadata,
+    directorStage: {
+      ...existingDirectorStage,
+      kind: 'animation',
+      compatibleAssetId: params.entity.assetId,
+      compatibleSource: params.entity.source,
+      sampleRatio: DIRECTOR_STAGE_USER_ANIMATION_SAMPLE_RATIO,
+      importedAt: Date.now(),
+      originalSourcePath: params.sourcePath,
+      originalFileName: params.fileName,
+    },
+  };
 }
 
 function basename(path: string): string {
@@ -530,6 +642,7 @@ export function DirectorStageWorkspace({
   const libraries = useAssetStore((state) => state.libraries);
   const createLibrary = useAssetStore((state) => state.createLibrary);
   const createItem = useAssetStore((state) => state.createItem);
+  const updateItem = useAssetStore((state) => state.updateItem);
   const deleteItem = useAssetStore((state) => state.deleteItem);
   const currentProject = useProjectStore((state) => state.currentProject);
   const setCurrentProjectAssetLibrary = useProjectStore(
@@ -543,8 +656,11 @@ export function DirectorStageWorkspace({
   const [crowdRenderProgress, setCrowdRenderProgress] = useState<Record<string, CrowdRenderProgressItem>>({});
   const [isCapturing, setIsCapturing] = useState(false);
   const [isImportingModel, setIsImportingModel] = useState(false);
+  const [isImportingAnimation, setIsImportingAnimation] = useState(false);
   const [deletingModelAssetIds, setDeletingModelAssetIds] = useState<Set<string>>(() => new Set());
+  const [deletingAnimationAssetIds, setDeletingAnimationAssetIds] = useState<Set<string>>(() => new Set());
   const [isScaleLocked, setIsScaleLocked] = useState(true);
+  const [isPoseControlsOpen, setIsPoseControlsOpen] = useState(true);
   const [isBodyControlsOpen, setIsBodyControlsOpen] = useState(false);
   const [viewportSize, setViewportSize] = useState({ width: 0, height: 0 });
   const [crowdDialogAsset, setCrowdDialogAsset] = useState<DirectorStageBuiltInAsset | null>(null);
@@ -660,6 +776,36 @@ export function DirectorStageWorkspace({
       }),
     [libraries]
   );
+  const userAnimationAssets = useMemo(
+    () => libraries
+      .flatMap((library) => library.items.filter(isDirectorStageAnimationAsset))
+      .sort((left, right) => {
+        const nameCompare = left.name.localeCompare(right.name, 'zh-Hans-CN', {
+          sensitivity: 'base',
+        });
+        return nameCompare || right.updatedAt - left.updatedAt;
+      }),
+    [libraries]
+  );
+  const userPosePresets = useMemo(
+    () => userAnimationAssets
+      .map(createUserPosePresetFromAsset)
+      .filter((preset): preset is DirectorStagePoseOption => preset !== null),
+    [userAnimationAssets]
+  );
+  const resolvePosePresetById = useCallback((posePresetId: string | null | undefined): DirectorStagePoseOption | null => {
+    const builtInPreset = getDirectorStagePosePreset(posePresetId);
+    if (builtInPreset) {
+      return {
+        ...builtInPreset,
+        origin: 'builtin',
+      };
+    }
+    return userPosePresets.find((preset) => preset.id === posePresetId) ?? null;
+  }, [userPosePresets]);
+  const resolveEntityPosePreset = useCallback((entity: DirectorStageEntity): DirectorStagePosePreset | null => {
+    return resolvePosePresetById(entity.posePresetId) ?? createStoredEntityPosePreset(entity);
+  }, [resolvePosePresetById]);
   const snapshotFrameStyle = useMemo<CSSProperties | null>(() => {
     if (!project.snapshot.showMask || viewportSize.width <= 0 || viewportSize.height <= 0) {
       return null;
@@ -1330,7 +1476,7 @@ export function DirectorStageWorkspace({
     };
 
     project.crowdGroups.forEach((group) => {
-      const asset = getA3dCharacterAsset(group.assetId);
+      const asset = getDirectorStageCharacterAsset(group.assetId);
       if (!asset) {
         return;
       }
@@ -1535,7 +1681,7 @@ export function DirectorStageWorkspace({
             frameEntityObjectInView(entity.id);
           }
           requestRenderRef.current();
-          const posePreset = getA3dPosePreset(currentEntity.posePresetId);
+          const posePreset = resolveEntityPosePreset(currentEntity);
           if (posePreset) {
             lastPoseByEntityRef.current.set(entity.id, posePreset.id);
             void applyPosePresetToObject(object, posePreset)
@@ -1584,7 +1730,14 @@ export function DirectorStageWorkspace({
         });
     });
     Array.from(pendingFrameCrowdGroupIdsRef.current).forEach(tryFramePendingCrowdGroup);
-  }, [frameCrowdGroupObjectInView, frameEntityObjectInView, project.crowdGroups, project.entities, t]);
+  }, [
+    frameCrowdGroupObjectInView,
+    frameEntityObjectInView,
+    project.crowdGroups,
+    project.entities,
+    resolveEntityPosePreset,
+    t,
+  ]);
 
   useEffect(() => {
     const selectedEntityId = project.selectedEntityId;
@@ -1593,7 +1746,7 @@ export function DirectorStageWorkspace({
         return;
       }
       const object = entityObjectsRef.current.get(entity.id);
-      const posePreset = getA3dPosePreset(entity.posePresetId);
+      const posePreset = resolveEntityPosePreset(entity);
       const lastPoseId = lastPoseByEntityRef.current.get(entity.id) ?? null;
       if (!object) {
         return;
@@ -1640,7 +1793,7 @@ export function DirectorStageWorkspace({
           );
         });
     });
-  }, [project.entities, project.selectedEntityId]);
+  }, [project.entities, project.selectedEntityId, resolveEntityPosePreset]);
 
   useEffect(() => {
     const lightGroup = lightGroupRef.current;
@@ -2163,13 +2316,151 @@ export function DirectorStageWorkspace({
   }, [commitDeferredProjectEdit, commitProject, previewProjectEdit]);
 
   const selectEntityPosePreset = useCallback((entityId: string, posePresetId: string | null) => {
-    const preset = getA3dPosePreset(posePresetId);
+    const preset = resolvePosePresetById(posePresetId);
     updateEntity(entityId, {
       posePresetId: preset?.id ?? null,
       posePath: preset?.animationPath ?? null,
       skeletonCompatible: true,
     });
-  }, [updateEntity]);
+  }, [resolvePosePresetById, updateEntity]);
+
+  const importAnimationForSelectedEntity = useCallback(async () => {
+    const entity = projectRef.current.entities.find((item) => item.id === projectRef.current.selectedEntityId);
+    if (!entity || isImportingAnimation) {
+      return;
+    }
+
+    setIsImportingAnimation(true);
+    try {
+      const selected = await open({
+        multiple: false,
+        directory: false,
+        filters: [
+          {
+            name: t('directorStage.animationLibrary.animationFilter'),
+            extensions: ['fbx'],
+          },
+        ],
+      });
+      const path = Array.isArray(selected) ? selected[0] : selected;
+      if (!path || !/\.fbx(?:[?#].*)?$/i.test(path.trim())) {
+        return;
+      }
+
+      let libraryId = currentProject?.assetLibraryId ?? null;
+      if (!libraryId || !libraries.some((library) => library.id === libraryId)) {
+        const defaultLibraryName = t('directorStage.modelLibrary.defaultLibraryName');
+        const library = libraries.find((item) => item.name.trim() === defaultLibraryName)
+          ?? await createLibrary(defaultLibraryName);
+        libraryId = library.id;
+        setCurrentProjectAssetLibrary(library.id);
+      }
+
+      const fileName = basename(path);
+      let item = await createItem({
+        libraryId,
+        category: 'character',
+        mediaType: 'model',
+        subcategoryId: null,
+        name: withoutExtension(fileName),
+        description: '',
+        tags: ['3d', 'animation'],
+        sourcePath: path,
+        previewPath: null,
+        mimeType: extensionToMime(path),
+        durationMs: null,
+        aspectRatio: '1:1',
+        metadata: buildDirectorStageAnimationMetadata({
+          entity,
+          sourcePath: path,
+          fileName,
+        }),
+      });
+
+      const compatibleAssetId = getDirectorStageAnimationCompatibleAssetId(item);
+      if (!isDirectorStageAnimationAsset(item) || compatibleAssetId !== entity.assetId) {
+        item = await updateItem({
+          id: item.id,
+          libraryId: item.libraryId,
+          category: item.category,
+          mediaType: item.mediaType,
+          subcategoryId: item.subcategoryId,
+          name: item.name,
+          description: item.description,
+          tags: Array.from(new Set([...item.tags, '3d', 'animation'])),
+          sourcePath: item.sourcePath,
+          previewPath: item.previewPath,
+          mimeType: item.mimeType,
+          durationMs: item.durationMs,
+          aspectRatio: item.aspectRatio,
+          metadata: buildDirectorStageAnimationMetadata({
+            entity,
+            sourcePath: path,
+            fileName,
+            existingMetadata: item.metadata,
+          }),
+        });
+      }
+
+      updateEntity(entity.id, {
+        posePresetId: toUserPosePresetId(item.id),
+        posePath: item.sourcePath,
+        skeletonCompatible: true,
+      });
+      await flushCurrentProjectToDisk();
+      setStatusText(t('directorStage.animationLibrary.imported'));
+    } catch (error) {
+      console.error('Failed to import director stage animation', error);
+      setStatusText(t('directorStage.animationLibrary.importFailed'));
+    } finally {
+      setIsImportingAnimation(false);
+    }
+  }, [
+    createItem,
+    createLibrary,
+    currentProject?.assetLibraryId,
+    flushCurrentProjectToDisk,
+    isImportingAnimation,
+    libraries,
+    setCurrentProjectAssetLibrary,
+    t,
+    updateEntity,
+    updateItem,
+  ]);
+
+  const deleteAnimationAssetFromLibrary = useCallback(async (item: AssetItemRecord) => {
+    if (deletingAnimationAssetIds.has(item.id)) {
+      return;
+    }
+
+    setDeletingAnimationAssetIds((current) => {
+      const next = new Set(current);
+      next.add(item.id);
+      return next;
+    });
+
+    try {
+      commitProject(projectRef.current, { history: 'skip' });
+      await flushCurrentProjectToDisk();
+      await deleteItem(item.id);
+      setStatusText(t('directorStage.animationLibrary.deleted'));
+    } catch (error) {
+      console.error('Failed to delete director stage animation asset', error);
+      setStatusText(t('directorStage.animationLibrary.deleteFailed'));
+    } finally {
+      setDeletingAnimationAssetIds((current) => {
+        const next = new Set(current);
+        next.delete(item.id);
+        return next;
+      });
+    }
+  }, [
+    commitProject,
+    deleteItem,
+    deletingAnimationAssetIds,
+    flushCurrentProjectToDisk,
+    t,
+  ]);
 
   const updateSelectedEntityLimbPose = useCallback((
     limbKey: DirectorStageLimbPoseKey,
@@ -2382,7 +2673,7 @@ export function DirectorStageWorkspace({
     if (!group || group.mode !== 'crowd') {
       return;
     }
-    const asset = getA3dCharacterAsset(group.assetId);
+    const asset = getDirectorStageCharacterAsset(group.assetId);
     if (!asset) {
       return;
     }
@@ -2528,7 +2819,7 @@ export function DirectorStageWorkspace({
   }, [applyCameraShotToView, commitDeferredProjectEdit, commitProject, previewProjectEdit]);
 
   const setBuiltInEnvironment = useCallback((skyboxId: string) => {
-    const skybox = A3D_ASSET_PACK.skyboxes.find((item) => item.id === skyboxId);
+    const skybox = DIRECTOR_STAGE_SKYBOX_PRESETS.find((item) => item.id === skyboxId);
     if (!skybox) {
       patchProject({
         environment: {
@@ -2621,10 +2912,15 @@ export function DirectorStageWorkspace({
   }, [addDerivedExportNode, isCapturing, nodeId, t, updateNodeData]);
 
   const compatiblePosePresets = selectedEntity
-    ? A3D_ASSET_PACK.posePresets.filter((preset) => {
-        const builtInAsset = getA3dCharacterAsset(selectedEntity.assetId);
-        return Boolean(builtInAsset) && preset.compatibleAssetIds.includes(selectedEntity.assetId);
-      })
+    ? [
+        ...DIRECTOR_STAGE_BUILT_IN_POSE_PRESETS
+          .filter((preset) => preset.compatibleAssetIds.includes(selectedEntity.assetId))
+          .map((preset): DirectorStagePoseOption => ({
+            ...preset,
+            origin: 'builtin',
+          })),
+        ...userPosePresets.filter((preset) => preset.compatibleAssetIds.includes(selectedEntity.assetId)),
+      ]
     : [];
   const selectedObjectTransform = selectedCrowdGroup?.transform ?? selectedEntity?.transform ?? null;
   const resolveCameraShotDisplayName = useCallback((shot: DirectorStageCameraShot): string => {
@@ -2643,6 +2939,126 @@ export function DirectorStageWorkspace({
     ? cameraShotFocalLengthValue(cameraLensPanelShot)
     : null;
   const showBodyControls = supportsDirectorStageLimbControls(selectedEntity);
+
+  const renderPoseControls = () => {
+    if (!selectedEntity) {
+      return null;
+    }
+
+    return (
+      <div className="space-y-2 rounded-md border border-white/10 bg-white/[0.03] p-2.5">
+        <div className="flex h-7 items-center justify-between gap-2">
+          <button
+            type="button"
+            className="flex min-w-0 flex-1 items-center gap-1.5 text-left text-xs font-semibold uppercase text-white/45"
+            aria-expanded={isPoseControlsOpen}
+            onClick={() => setIsPoseControlsOpen((current) => !current)}
+          >
+            {isPoseControlsOpen
+              ? <ChevronDown className="h-3.5 w-3.5 shrink-0" />
+              : <ChevronRight className="h-3.5 w-3.5 shrink-0" />}
+            <span className="truncate">{t('directorStage.poses.title')}</span>
+          </button>
+          <button
+            type="button"
+            className="flex h-7 shrink-0 items-center gap-1.5 rounded-md border border-white/10 bg-black/24 px-2 text-[11px] text-white/58 transition-colors hover:border-emerald-300/40 hover:bg-emerald-300/10 hover:text-emerald-100 disabled:cursor-not-allowed disabled:opacity-45"
+            disabled={isImportingAnimation}
+            onClick={() => void importAnimationForSelectedEntity()}
+          >
+            {isImportingAnimation ? (
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            ) : (
+              <Upload className="h-3.5 w-3.5" />
+            )}
+            {isImportingAnimation
+              ? t('directorStage.animationLibrary.importing')
+              : t('directorStage.animationLibrary.import')}
+          </button>
+        </div>
+        {isPoseControlsOpen ? (
+          compatiblePosePresets.length > 0 ? (
+            <div
+              className="grid grid-cols-2 gap-1.5"
+              role="radiogroup"
+              aria-label={t('directorStage.poses.title')}
+            >
+              <button
+                type="button"
+                role="radio"
+                aria-checked={!selectedEntity.posePresetId}
+                className={`flex h-8 min-w-0 items-center justify-between gap-1 rounded-md border px-2 text-left text-xs transition-colors ${
+                  !selectedEntity.posePresetId
+                    ? 'border-emerald-300/50 bg-emerald-300/12 text-emerald-100'
+                    : 'border-white/10 bg-black/24 text-white/58 hover:bg-white/[0.07] hover:text-white'
+                }`}
+                onClick={() => selectEntityPosePreset(selectedEntity.id, null)}
+              >
+                <span className="min-w-0 truncate">{t('directorStage.poses.none')}</span>
+                {!selectedEntity.posePresetId ? <Check className="h-3.5 w-3.5 shrink-0" /> : null}
+              </button>
+              {compatiblePosePresets.map((preset) => {
+                const isSelectedPose = selectedEntity.posePresetId === preset.id;
+                const animationAssetItem = preset.assetItem;
+                const isDeletingAnimationAsset = animationAssetItem
+                  ? deletingAnimationAssetIds.has(animationAssetItem.id)
+                  : false;
+                return (
+                  <div
+                    key={preset.id}
+                    className={`flex h-8 min-w-0 items-center justify-between gap-1 rounded-md border px-2 text-left text-xs transition-colors ${
+                      isSelectedPose
+                        ? 'border-emerald-300/50 bg-emerald-300/12 text-emerald-100'
+                        : 'border-white/10 bg-black/24 text-white/58 hover:bg-white/[0.07] hover:text-white'
+                    }`}
+                  >
+                    <button
+                      type="button"
+                      role="radio"
+                      aria-checked={isSelectedPose}
+                      className="min-w-0 flex-1 truncate text-left"
+                      onClick={() => selectEntityPosePreset(selectedEntity.id, preset.id)}
+                    >
+                      {preset.origin === 'user' ? preset.labelKey : t(preset.labelKey)}
+                    </button>
+                    {isSelectedPose ? <Check className="h-3.5 w-3.5 shrink-0" /> : null}
+                    {animationAssetItem ? (
+                      <button
+                        type="button"
+                        className="flex h-5 w-5 shrink-0 items-center justify-center rounded text-white/35 transition-colors hover:bg-red-400/12 hover:text-red-200 disabled:cursor-not-allowed disabled:opacity-45"
+                        disabled={isDeletingAnimationAsset}
+                        title={isDeletingAnimationAsset
+                          ? t('directorStage.animationLibrary.deleting')
+                          : t('directorStage.animationLibrary.delete')}
+                        aria-label={isDeletingAnimationAsset
+                          ? t('directorStage.animationLibrary.deleting')
+                          : t('directorStage.animationLibrary.delete')}
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          void deleteAnimationAssetFromLibrary(animationAssetItem);
+                        }}
+                      >
+                        {isDeletingAnimationAsset ? (
+                          <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                        ) : (
+                          <Trash2 className="h-3.5 w-3.5" />
+                        )}
+                      </button>
+                    ) : null}
+                  </div>
+                );
+              })}
+            </div>
+          ) : (
+            <div className="rounded-md border border-white/10 bg-black/24 p-3 text-xs text-white/45">
+              {selectedEntity.source === 'user'
+                ? t('directorStage.poses.userModelHint')
+                : t('directorStage.poses.incompatible')}
+            </div>
+          )
+        ) : null}
+      </div>
+    );
+  };
 
   const renderBodyControls = () => {
     if (!selectedEntity || !showBodyControls) {
@@ -2813,11 +3229,17 @@ export function DirectorStageWorkspace({
 
         <div className="flex items-center gap-2">
           {statusText ? <div className="text-xs text-emerald-300">{statusText}</div> : null}
-          <UiButton type="button" variant="muted" size="sm" className="gap-1.5" onClick={saveProject}>
+          <UiButton
+            type="button"
+            variant="muted"
+            size="sm"
+            className="gap-1.5 !border !border-white/10 !bg-white/[0.06] !text-white hover:!bg-white/[0.1] hover:!text-white [&_svg]:!text-white"
+            onClick={saveProject}
+          >
             <Save className="h-3.5 w-3.5" />
             {t('common.save')}
           </UiButton>
-          <div className="flex h-8 items-center gap-2 rounded-md border border-white/10 bg-white/[0.03] pl-2 pr-1 text-xs text-white/55">
+          <div className="flex h-8 items-center gap-2 rounded-md border border-white/10 bg-white/[0.03] pl-2 pr-1 text-xs text-white">
             <button
               type="button"
               className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-md transition-colors ${
@@ -2840,7 +3262,7 @@ export function DirectorStageWorkspace({
             <UiSelect
               value={project.snapshot.aspectRatio}
               aria-label={t('directorStage.snapshot.aspectRatio')}
-              className="h-7 w-[86px] border-white/10 bg-black/24 text-white/78"
+              className="h-7 w-[86px] !border-white/10 !bg-white/[0.06] !text-white [&>span]:!text-white [&_svg]:!text-white"
               onChange={(event) => {
                 setSnapshotAspectRatio(event.target.value as DirectorStageSnapshotAspectRatio);
               }}
@@ -2856,7 +3278,7 @@ export function DirectorStageWorkspace({
             type="button"
             variant="primary"
             size="sm"
-            className="gap-1.5"
+            className="gap-1.5 !text-white [&_svg]:!text-white"
             disabled={isCapturing}
             onClick={captureToCanvas}
           >
@@ -2899,45 +3321,52 @@ export function DirectorStageWorkspace({
           <div className="ui-scrollbar min-h-0 flex-1 overflow-y-auto p-3">
             {activeTab === 'a3d' ? (
               <div className="space-y-3">
-                {A3D_ASSET_PACK.characters.map((asset) => (
-                  <div
-                    key={asset.id}
-                    className="flex w-full items-center gap-2 rounded-md border border-white/10 bg-white/[0.035] p-2 text-left transition-colors hover:border-white/18 hover:bg-white/[0.06]"
-                  >
-                    <button
-                      type="button"
-                      className="flex min-w-0 flex-1 items-center gap-3 text-left"
-                      onClick={() => addBuiltInAsset(asset)}
-                    >
-                      <div className="h-14 w-14 shrink-0 overflow-hidden rounded-md bg-black/30">
-                        {asset.previewPath ? (
-                          <img
-                            src={asset.previewPath}
-                            alt={t(asset.labelKey)}
-                            className="h-full w-full object-cover"
-                          />
-                        ) : (
-                          <Box className="m-auto h-6 w-6 text-white/45" />
-                        )}
+                {DIRECTOR_STAGE_ASSET_PACKS.map((pack) => (
+                  <div key={pack.id} className="space-y-2">
+                    <div className="text-xs font-semibold uppercase text-white/45">
+                      {t(pack.labelKey)}
+                    </div>
+                    {pack.characters.map((asset) => (
+                      <div
+                        key={asset.id}
+                        className="flex w-full items-center gap-2 rounded-md border border-white/10 bg-white/[0.035] p-2 text-left transition-colors hover:border-white/18 hover:bg-white/[0.06]"
+                      >
+                        <button
+                          type="button"
+                          className="flex min-w-0 flex-1 items-center gap-3 text-left"
+                          onClick={() => addBuiltInAsset(asset)}
+                        >
+                          <div className="h-14 w-14 shrink-0 overflow-hidden rounded-md bg-black/30">
+                            {asset.previewPath ? (
+                              <img
+                                src={asset.previewPath}
+                                alt={t(asset.labelKey)}
+                                className="h-full w-full object-cover"
+                              />
+                            ) : (
+                              <Box className="m-auto h-6 w-6 text-white/45" />
+                            )}
+                          </div>
+                          <div className="min-w-0">
+                            <div className="truncate text-sm font-medium">{t(asset.labelKey)}</div>
+                            <div className="mt-1 text-xs text-white/45">
+                              {t('directorStage.assetCard.poseCount', {
+                                count: asset.posePresetIds.length,
+                              })}
+                            </div>
+                          </div>
+                        </button>
+                        <button
+                          type="button"
+                          className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md border border-white/10 bg-black/24 text-white/52 transition-colors hover:border-emerald-300/40 hover:bg-emerald-300/10 hover:text-emerald-100"
+                          title={t('directorStage.crowd.open')}
+                          aria-label={t('directorStage.crowd.open')}
+                          onClick={() => openCrowdModeDialog(asset)}
+                        >
+                          <Users className="h-4 w-4" />
+                        </button>
                       </div>
-                      <div className="min-w-0">
-                        <div className="truncate text-sm font-medium">{t(asset.labelKey)}</div>
-                        <div className="mt-1 text-xs text-white/45">
-                          {t('directorStage.assetCard.poseCount', {
-                            count: asset.posePresetIds.length,
-                          })}
-                        </div>
-                      </div>
-                    </button>
-                    <button
-                      type="button"
-                      className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md border border-white/10 bg-black/24 text-white/52 transition-colors hover:border-emerald-300/40 hover:bg-emerald-300/10 hover:text-emerald-100"
-                      title={t('directorStage.crowd.open')}
-                      aria-label={t('directorStage.crowd.open')}
-                      onClick={() => openCrowdModeDialog(asset)}
-                    >
-                      <Users className="h-4 w-4" />
-                    </button>
+                    ))}
                   </div>
                 ))}
 
@@ -2962,7 +3391,7 @@ export function DirectorStageWorkspace({
                         {t('directorStage.skyboxes.grid')}
                       </div>
                     </button>
-                    {A3D_ASSET_PACK.skyboxes.map((skybox) => (
+                    {DIRECTOR_STAGE_SKYBOX_PRESETS.map((skybox) => (
                       <button
                         key={skybox.id}
                         type="button"
@@ -3111,7 +3540,7 @@ export function DirectorStageWorkspace({
                       <UiButton
                         type="button"
                         variant="muted"
-                        className="w-full gap-2"
+                        className="w-full gap-2 !border !border-white/10 !bg-white/[0.06] !text-white hover:!bg-white/[0.1] hover:!text-white [&_svg]:!text-white"
                         onClick={openSketchfabModelFeed}
                       >
                         <ExternalLink className="h-4 w-4" />
@@ -3337,14 +3766,6 @@ export function DirectorStageWorkspace({
 
             {selectedCrowdGroup ? (
               <section className="space-y-3">
-                <UiInput
-                  value={selectedCrowdGroup.name}
-                  onChange={(event) =>
-                    updateCrowdGroup(selectedCrowdGroup.id, { name: event.target.value }, { history: 'skip' })
-                  }
-                  onBlur={commitDeferredProjectEdit}
-                  className="h-9 rounded-md border-white/10 bg-black/24 text-sm"
-                />
                 <div className="rounded-md border border-white/10 bg-white/[0.03] px-3 py-2 text-xs text-white/55">
                   {selectedCrowdGroup.mode === 'formation'
                     ? t('directorStage.crowd.formationSummary', {
@@ -3394,14 +3815,6 @@ export function DirectorStageWorkspace({
 
             {selectedEntity ? (
               <section className="space-y-3">
-                <UiInput
-                  value={selectedEntity.name}
-                  onChange={(event) =>
-                    updateEntity(selectedEntity.id, { name: event.target.value }, { history: 'skip' })
-                  }
-                  onBlur={commitDeferredProjectEdit}
-                  className="h-9 rounded-md border-white/10 bg-black/24 text-sm"
-                />
                 <div className="flex items-center gap-2">
                   <label className="inline-flex w-fit items-center gap-2 text-xs text-white/55">
                     <span>{t('directorStage.properties.color')}</span>
@@ -3421,57 +3834,7 @@ export function DirectorStageWorkspace({
                     </span>
                   </label>
                 </div>
-                {compatiblePosePresets.length > 0 ? (
-                  <div className="space-y-2">
-                    <div className="text-xs text-white/55">{t('directorStage.poses.title')}</div>
-                    <div
-                      className="grid grid-cols-2 gap-1.5"
-                      role="radiogroup"
-                      aria-label={t('directorStage.poses.title')}
-                    >
-                      <button
-                        type="button"
-                        role="radio"
-                        aria-checked={!selectedEntity.posePresetId}
-                        className={`flex h-8 min-w-0 items-center justify-between gap-1 rounded-md border px-2 text-left text-xs transition-colors ${
-                          !selectedEntity.posePresetId
-                            ? 'border-emerald-300/50 bg-emerald-300/12 text-emerald-100'
-                            : 'border-white/10 bg-black/24 text-white/58 hover:bg-white/[0.07] hover:text-white'
-                        }`}
-                        onClick={() => selectEntityPosePreset(selectedEntity.id, null)}
-                      >
-                        <span className="min-w-0 truncate">{t('directorStage.poses.none')}</span>
-                        {!selectedEntity.posePresetId ? <Check className="h-3.5 w-3.5 shrink-0" /> : null}
-                      </button>
-                      {compatiblePosePresets.map((preset) => {
-                        const isSelectedPose = selectedEntity.posePresetId === preset.id;
-                        return (
-                          <button
-                            key={preset.id}
-                            type="button"
-                            role="radio"
-                            aria-checked={isSelectedPose}
-                            className={`flex h-8 min-w-0 items-center justify-between gap-1 rounded-md border px-2 text-left text-xs transition-colors ${
-                              isSelectedPose
-                                ? 'border-emerald-300/50 bg-emerald-300/12 text-emerald-100'
-                                : 'border-white/10 bg-black/24 text-white/58 hover:bg-white/[0.07] hover:text-white'
-                            }`}
-                            onClick={() => selectEntityPosePreset(selectedEntity.id, preset.id)}
-                          >
-                            <span className="min-w-0 truncate">{t(preset.labelKey)}</span>
-                            {isSelectedPose ? <Check className="h-3.5 w-3.5 shrink-0" /> : null}
-                          </button>
-                        );
-                      })}
-                    </div>
-                  </div>
-                ) : (
-                  <div className="rounded-md border border-white/10 bg-white/[0.03] p-3 text-xs text-white/45">
-                    {selectedEntity.source === 'user'
-                      ? t('directorStage.poses.userModelHint')
-                      : t('directorStage.poses.incompatible')}
-                  </div>
-                )}
+                {renderPoseControls()}
                 {renderBodyControls()}
                 {renderTransformInputs('position', 'directorStage.transform.position')}
                 {renderTransformInputs('rotation', 'directorStage.transform.rotation')}
@@ -3686,7 +4049,7 @@ export function DirectorStageWorkspace({
             type="button"
             variant={project.isFreeView ? 'primary' : 'muted'}
             size="sm"
-            className="shrink-0 gap-1.5"
+            className="shrink-0 gap-1.5 !text-white [&_svg]:!text-white"
             onClick={enterFreeView}
           >
             <Eye className="h-3.5 w-3.5" />
@@ -3696,7 +4059,7 @@ export function DirectorStageWorkspace({
             type="button"
             variant="muted"
             size="sm"
-            className="shrink-0 gap-1.5"
+            className="shrink-0 gap-1.5 !border !border-white/10 !bg-white/[0.06] !text-white hover:!bg-white/[0.1] hover:!text-white [&_svg]:!text-white"
             onClick={captureCameraShot}
           >
             <Camera className="h-3.5 w-3.5" />

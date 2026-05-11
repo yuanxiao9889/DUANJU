@@ -171,7 +171,12 @@ export function CrowdModeDialog({
       </div>
 
       <div className="flex justify-end gap-2 pt-1">
-        <UiButton type="button" variant="muted" onClick={onClose}>
+        <UiButton
+          type="button"
+          variant="muted"
+          className="!border !border-white/10 !bg-white/[0.06] !text-white hover:!bg-white/[0.1] hover:!text-white"
+          onClick={onClose}
+        >
           {t('common.cancel')}
         </UiButton>
         <UiButton

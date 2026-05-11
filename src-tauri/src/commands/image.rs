@@ -1662,6 +1662,12 @@ fn extension_from_mime(mime: &str) -> String {
         "audio/mp4" | "audio/x-m4a" => "m4a".to_string(),
         "audio/aac" => "aac".to_string(),
         "audio/flac" | "audio/x-flac" => "flac".to_string(),
+        "video/mp4" => "mp4".to_string(),
+        "video/webm" => "webm".to_string(),
+        "video/ogg" => "ogv".to_string(),
+        "video/quicktime" => "mov".to_string(),
+        "video/x-msvideo" => "avi".to_string(),
+        "video/x-matroska" => "mkv".to_string(),
         _ => "png".to_string(),
     }
 }
@@ -1692,6 +1698,12 @@ fn mime_type_from_path_like(value: &str) -> String {
         Some("avif") => "image/avif".to_string(),
         Some("tiff") | Some("tif") => "image/tiff".to_string(),
         Some("svg") => "image/svg+xml".to_string(),
+        Some("mp4") => "video/mp4".to_string(),
+        Some("webm") => "video/webm".to_string(),
+        Some("ogv") | Some("ogg") => "video/ogg".to_string(),
+        Some("mov") => "video/quicktime".to_string(),
+        Some("avi") => "video/x-msvideo".to_string(),
+        Some("mkv") => "video/x-matroska".to_string(),
         _ => "image/png".to_string(),
     }
 }
@@ -1812,7 +1824,8 @@ fn resolve_required_local_image_source_path(source: &str) -> Result<PathBuf, Str
 }
 
 fn resolve_readable_local_image_path(app: &AppHandle, source: &str) -> Result<PathBuf, String> {
-    let local_path = resolve_required_local_image_source_path(source)?;
+    let decoded_source = storage::decode_storage_media_ref(app, source);
+    let local_path = resolve_required_local_image_source_path(&decoded_source)?;
     if verify_persisted_image_path(&local_path).is_ok() {
         return Ok(local_path);
     }

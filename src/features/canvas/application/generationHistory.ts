@@ -8,6 +8,7 @@ import {
   isJimengVideoResultNode,
   isMjResultNode,
   isSeedanceVideoResultNode,
+  isViduVideoResultNode,
   isVideoNode,
   type AudioNodeData,
   type CanvasEdge,
@@ -20,6 +21,7 @@ import {
   type MjResultBatch,
   type MjResultNodeData,
   type SeedanceVideoResultNodeData,
+  type ViduVideoResultNodeData,
   type VideoNodeData,
 } from '@/features/canvas/domain/canvasNodes';
 import { resolveNodeDisplayName } from '@/features/canvas/domain/nodeDisplay';
@@ -68,6 +70,7 @@ export interface GenerationHistoryDraft {
 type VideoLikeNode =
   | Node<JimengVideoResultNodeData, typeof CANVAS_NODE_TYPES.jimengVideoResult>
   | Node<SeedanceVideoResultNodeData, typeof CANVAS_NODE_TYPES.seedanceVideoResult>
+  | Node<ViduVideoResultNodeData, typeof CANVAS_NODE_TYPES.viduVideoResult>
   | Node<VideoNodeData, typeof CANVAS_NODE_TYPES.video>;
 
 function cloneValue<T>(value: T): T {
@@ -544,7 +547,7 @@ export function collectGenerationHistoryDrafts(
       continue;
     }
 
-    if (isJimengVideoResultNode(node) || isSeedanceVideoResultNode(node)) {
+    if (isJimengVideoResultNode(node) || isSeedanceVideoResultNode(node) || isViduVideoResultNode(node)) {
       appendVideoDraft(drafts, projectId, node, now);
       continue;
     }
@@ -653,7 +656,7 @@ export function buildGenerationHistoryContentSignature(
       continue;
     }
 
-    if (isJimengVideoResultNode(node) || isSeedanceVideoResultNode(node)) {
+    if (isJimengVideoResultNode(node) || isSeedanceVideoResultNode(node) || isViduVideoResultNode(node)) {
       if (!node.data.isGenerating) {
         appendGenerationHistorySignaturePart(
           parts,
@@ -784,7 +787,12 @@ export function collectGenerationHistoryItemNodeIds(
         )));
       }
 
-      if (isJimengVideoResultNode(node) || isSeedanceVideoResultNode(node) || isVideoNode(node)) {
+      if (
+        isJimengVideoResultNode(node)
+        || isSeedanceVideoResultNode(node)
+        || isViduVideoResultNode(node)
+        || isVideoNode(node)
+      ) {
         return (
           matchesPath(node.data.videoUrl)
           || matchesPath(node.data.previewImageUrl)

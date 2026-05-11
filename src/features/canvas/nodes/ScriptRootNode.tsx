@@ -29,26 +29,23 @@ export const ScriptRootNode = memo(({ id, data, selected }: ScriptRootNodeProps)
 
   return (
     <div
-      className={`relative min-w-[320px] rounded-[18px] border-2 transition-all duration-200 ${
+      className={`group relative min-w-[320px] rounded-[18px] border bg-surface-dark shadow-[0_12px_24px_rgba(2,6,23,0.12)] transition-all duration-200 dark:shadow-[0_14px_28px_rgba(0,0,0,0.24)] ${
         selected
-          ? 'border-amber-500/50 shadow-[0_0_0_2px_rgba(245,158,11,0.25)] shadow-amber-500/20'
-          : 'border-amber-500/20 hover:border-amber-500/40'
+          ? 'border-[rgba(15,23,42,0.42)] dark:border-white/36'
+          : 'border-[rgba(15,23,42,0.2)] hover:border-[rgba(15,23,42,0.34)] dark:border-white/18 dark:hover:border-white/30'
       }`}
-      style={{
-        background: 'linear-gradient(135deg, rgb(79 52 10) 0%, rgb(15 23 42) 50%, rgb(15 23 42) 100%)',
-      }}
     >
       <Handle
         type="target"
         id="target"
         position={Position.Left}
-        className="!h-3 !w-3 !border-surface-dark !bg-amber-400"
+        className="!h-3 !w-3 !border-surface-dark !bg-[#222222] dark:!bg-text-muted"
       />
       
       {/* Header */}
-      <div className="flex items-center gap-3 px-4 py-3 border-b border-amber-500/20">
-        <div className="p-2 rounded-xl bg-amber-500/20">
-          <FileText className="w-5 h-5 text-amber-400" />
+      <div className="flex items-center gap-3 border-b border-border-dark px-4 py-3">
+        <div className="rounded-xl border border-border-dark bg-bg-dark p-2">
+          <FileText className="h-5 w-5 text-text-muted" />
         </div>
         <div className="flex-1 min-w-0">
           {isEditing ? (
@@ -58,7 +55,7 @@ export const ScriptRootNode = memo(({ id, data, selected }: ScriptRootNodeProps)
                 value={editTitle}
                 onChange={(e) => setEditTitle(e.target.value)}
                 placeholder="输入剧本名称"
-                className="flex-1 px-2 py-1 text-lg font-bold bg-amber-950/50 border border-amber-500/30 rounded-lg text-amber-100 outline-none focus:border-amber-400"
+                className="flex-1 rounded-lg border border-border-dark bg-bg-dark px-2 py-1 text-lg font-bold text-text-dark outline-none focus:border-text-muted/60"
                 autoFocus
               />
               <button
@@ -69,14 +66,14 @@ export const ScriptRootNode = memo(({ id, data, selected }: ScriptRootNodeProps)
               </button>
               <button
                 onClick={handleSaveEdit}
-                className="p-1.5 rounded-lg bg-amber-500/30 text-amber-200 hover:bg-amber-500/40"
+                className="rounded-lg border border-border-dark bg-bg-dark p-1.5 text-text-dark hover:bg-bg-dark/80"
               >
                 <Check className="w-4 h-4" />
               </button>
             </div>
           ) : (
             <div className="flex items-center gap-2">
-              <h2 className="text-lg font-bold text-amber-100 truncate">
+              <h2 className="truncate text-lg font-bold text-text-dark">
                 {data.title || resolvedTitle}
               </h2>
               <button
@@ -84,9 +81,9 @@ export const ScriptRootNode = memo(({ id, data, selected }: ScriptRootNodeProps)
                   setEditTitle(data.title || '');
                   setIsEditing(true);
                 }}
-                className="p-1 rounded-lg opacity-0 group-hover:opacity-100 hover:bg-amber-500/20 transition-opacity"
+                className="rounded-lg p-1 opacity-0 transition-opacity hover:bg-bg-dark group-hover:opacity-100"
               >
-                <Edit2 className="w-3.5 h-3.5 text-amber-400" />
+                <Edit2 className="h-3.5 w-3.5 text-text-muted" />
               </button>
             </div>
           )}
@@ -94,14 +91,14 @@ export const ScriptRootNode = memo(({ id, data, selected }: ScriptRootNodeProps)
       </div>
 
       {/* Stats */}
-      <div className="px-4 py-3 flex items-center gap-4 text-xs text-amber-300/60">
+      <div className="flex items-center gap-4 px-4 py-3 text-xs text-text-muted">
         <div className="flex items-center gap-1.5">
-          <span className="font-medium text-amber-400">{data.totalChapters || 0}</span>
+          <span className="font-medium text-text-dark">{data.totalChapters || 0}</span>
           <span>章节</span>
         </div>
         {data.genre && (
           <div className="flex items-center gap-1.5">
-            <span className="px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-300 text-xs">
+            <span className="rounded-full bg-bg-dark px-2 py-0.5 text-xs text-text-muted">
               {data.genre}
             </span>
           </div>
@@ -112,12 +109,12 @@ export const ScriptRootNode = memo(({ id, data, selected }: ScriptRootNodeProps)
         type="source"
         id="source"
         position={Position.Right}
-        className="!h-3 !w-3 !border-surface-dark !bg-amber-400"
+        className="!h-3 !w-3 !border-surface-dark !bg-[#222222] dark:!bg-text-muted"
       />
 
       {/* Decorative corner accent */}
-      <div className="absolute top-0 right-0 w-10 h-10 overflow-hidden rounded-tr-[16px]">
-        <div className="absolute -top-5 -right-5 w-10 h-10 bg-amber-500/10 rotate-45" />
+      <div className="absolute right-0 top-0 h-10 w-10 overflow-hidden rounded-tr-[16px]">
+        <div className="absolute -right-5 -top-5 h-10 w-10 rotate-45 bg-border-dark/40" />
       </div>
     </div>
   );

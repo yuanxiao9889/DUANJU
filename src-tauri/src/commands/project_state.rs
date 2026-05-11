@@ -2,6 +2,7 @@ use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::sync::{Mutex, OnceLock};
 use std::time::Duration;
 
 use rusqlite::{params, Connection};
@@ -13,6 +14,7 @@ use super::generation_history;
 use super::storage;
 
 const STYLE_TEMPLATE_SETTINGS_REFS_PROJECT_ID: &str = "__settings_style_template_refs__";
+static NORMALIZED_STORAGE_DBS: OnceLock<Mutex<HashSet<String>>> = OnceLock::new();
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -1145,6 +1147,7 @@ fn is_media_path_key(key: &str) -> bool {
             | "audioUrl"
             | "referenceUrl"
             | "modelPath"
+            | "posePath"
     )
 }
 
@@ -1311,6 +1314,54 @@ where
     Ok(Some((next_nodes_json, next_history_json)))
 }
 
+fn encode_project_payload_storage_refs(
+    app: &AppHandle,
+    nodes_json: &str,
+    history_json: &str,
+) -> Result<Option<(String, String)>, String> {
+    rewrite_project_payload_media_paths(nodes_json, history_json, &|value| {
+        let next = storage::encode_storage_media_ref(app, value);
+        (next != value).then_some(next)
+    })
+}
+
+fn decode_project_payload_storage_refs(
+    app: &AppHandle,
+    nodes_json: &str,
+    history_json: &str,
+) -> Result<Option<(String, String)>, String> {
+    rewrite_project_payload_media_paths(nodes_json, history_json, &|value| {
+        let next = storage::decode_storage_media_ref(app, value);
+        (next != value).then_some(next)
+    })
+}
+
+fn decode_project_record_storage_refs(
+    app: &AppHandle,
+    record: &mut ProjectRecord,
+) -> Result<(), String> {
+    if let Some((next_nodes_json, next_history_json)) =
+        decode_project_payload_storage_refs(app, &record.nodes_json, &record.history_json)?
+    {
+        record.nodes_json = next_nodes_json;
+        record.history_json = next_history_json;
+    }
+    Ok(())
+}
+
+fn encode_project_record_storage_refs(
+    app: &AppHandle,
+    record: &mut ProjectRecord,
+) -> Result<(), String> {
+    if let Some((next_nodes_json, next_history_json)) =
+        encode_project_payload_storage_refs(app, &record.nodes_json, &record.history_json)?
+    {
+        record.nodes_json = next_nodes_json;
+        record.history_json = next_history_json;
+    }
+    Ok(())
+}
+
 fn resolve_image_ref(value: &str, image_pool: &[String]) -> Option<String> {
     const IMAGE_REF_PREFIX: &str = "__img_ref__:";
 
@@ -1473,7 +1524,9 @@ fn is_suspicious_project_media_drop(
         incoming_node_count > 0
     } else {
         incoming_node_count.saturating_mul(STABLE_NODE_COUNT_DENOMINATOR)
-            >= existing.node_count.saturating_mul(STABLE_NODE_COUNT_NUMERATOR)
+            >= existing
+                .node_count
+                .saturating_mul(STABLE_NODE_COUNT_NUMERATOR)
     };
     if !stable_node_count {
         return false;
@@ -1497,11 +1550,7 @@ fn guard_project_media_refs_before_upsert(
 
     let incoming_media_ref_count =
         extract_project_image_paths(&record.nodes_json, &record.history_json).len();
-    if !is_suspicious_project_media_drop(
-        &existing,
-        record.node_count,
-        incoming_media_ref_count,
-    ) {
+    if !is_suspicious_project_media_drop(&existing, record.node_count, incoming_media_ref_count) {
         return Ok(());
     }
 
@@ -1886,6 +1935,7 @@ fn repair_project_record_storage_aliases_if_needed(
         return Ok(false);
     };
 
+    storage::ensure_storage_session_write_allowed(app)?;
     let tx = conn.transaction().map_err(|e| {
         format!(
             "Failed to begin project storage alias repair transaction: {}",
@@ -2090,6 +2140,350 @@ pub(crate) fn rewrite_storage_media_paths_in_connection(
     Ok(changed_any)
 }
 
+pub(crate) fn normalize_storage_media_refs_in_connection(
+    app: &AppHandle,
+    conn: &mut Connection,
+) -> Result<storage::StorageMediaMigrationStats, String> {
+    ensure_projects_table(conn)?;
+
+    let encode = |value: &str| storage::encode_storage_media_ref(app, value);
+    let mut stats = storage::StorageMediaMigrationStats::default();
+
+    let project_rows: Vec<(String, String, String)> = {
+        let mut stmt = conn
+            .prepare("SELECT id, nodes_json, history_json FROM projects")
+            .map_err(|e| format!("Failed to prepare project URI normalization query: {}", e))?;
+        let rows = stmt
+            .query_map([], |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, String>(2)?,
+                ))
+            })
+            .map_err(|e| format!("Failed to query projects for URI normalization: {}", e))?;
+
+        let mut collected = Vec::new();
+        for row in rows {
+            collected.push(
+                row.map_err(|e| format!("Failed to read project URI normalization row: {}", e))?,
+            );
+        }
+        collected
+    };
+
+    let asset_rows: Vec<(String, String, Option<String>)> = {
+        let mut stmt = conn
+            .prepare(
+                r#"
+                SELECT
+                  id,
+                  COALESCE(NULLIF(TRIM(source_path), ''), image_path) AS source_path,
+                  NULLIF(TRIM(COALESCE(preview_path, preview_image_path, '')), '') AS preview_path
+                FROM asset_items
+                "#,
+            )
+            .map_err(|e| format!("Failed to prepare asset URI normalization query: {}", e))?;
+        let rows = stmt
+            .query_map([], |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, Option<String>>(2)?,
+                ))
+            })
+            .map_err(|e| format!("Failed to query assets for URI normalization: {}", e))?;
+
+        let mut collected = Vec::new();
+        for row in rows {
+            collected.push(
+                row.map_err(|e| format!("Failed to read asset URI normalization row: {}", e))?,
+            );
+        }
+        collected
+    };
+
+    let generation_rows: Vec<(String, String, Option<String>, String)> = if table_exists(
+        conn,
+        "generation_history_items",
+    )? {
+        let mut stmt = conn
+            .prepare(
+                "SELECT id, source_path, preview_path, snapshot_json FROM generation_history_items",
+            )
+            .map_err(|e| {
+                format!(
+                    "Failed to prepare generation history URI normalization query: {}",
+                    e
+                )
+            })?;
+        let rows = stmt
+            .query_map([], |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, Option<String>>(2)?,
+                    row.get::<_, String>(3)?,
+                ))
+            })
+            .map_err(|e| {
+                format!(
+                    "Failed to query generation history for URI normalization: {}",
+                    e
+                )
+            })?;
+        let mut collected = Vec::new();
+        for row in rows {
+            collected.push(row.map_err(|e| {
+                format!(
+                    "Failed to read generation history URI normalization row: {}",
+                    e
+                )
+            })?);
+        }
+        collected
+    } else {
+        Vec::new()
+    };
+
+    let queue_rows: Vec<(String, String)> = if table_exists(conn, "jimeng_video_queue_jobs")? {
+        let mut stmt = conn
+            .prepare("SELECT job_id, payload_json FROM jimeng_video_queue_jobs")
+            .map_err(|e| format!("Failed to prepare Jimeng URI normalization query: {}", e))?;
+        let rows = stmt
+            .query_map([], |row| {
+                Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+            })
+            .map_err(|e| format!("Failed to query Jimeng queue for URI normalization: {}", e))?;
+        let mut collected = Vec::new();
+        for row in rows {
+            collected.push(
+                row.map_err(|e| format!("Failed to read Jimeng URI normalization row: {}", e))?,
+            );
+        }
+        collected
+    } else {
+        Vec::new()
+    };
+
+    let clip_rows: Vec<(String, String, Option<String>, Option<String>)> =
+        if table_exists(conn, "clip_items")? {
+            let mut stmt = conn
+                .prepare("SELECT id, source_path, preview_path, waveform_path FROM clip_items")
+                .map_err(|e| format!("Failed to prepare clip URI normalization query: {}", e))?;
+            let rows = stmt
+                .query_map([], |row| {
+                    Ok((
+                        row.get::<_, String>(0)?,
+                        row.get::<_, String>(1)?,
+                        row.get::<_, Option<String>>(2)?,
+                        row.get::<_, Option<String>>(3)?,
+                    ))
+                })
+                .map_err(|e| format!("Failed to query clip items for URI normalization: {}", e))?;
+            let mut collected = Vec::new();
+            for row in rows {
+                collected.push(
+                    row.map_err(|e| format!("Failed to read clip URI normalization row: {}", e))?,
+                );
+            }
+            collected
+        } else {
+            Vec::new()
+        };
+
+    let tx = conn
+        .transaction()
+        .map_err(|e| format!("Failed to begin URI normalization transaction: {}", e))?;
+
+    for (project_id, nodes_json, history_json) in project_rows {
+        let Some((next_nodes_json, next_history_json)) =
+            encode_project_payload_storage_refs(app, &nodes_json, &history_json)?
+        else {
+            continue;
+        };
+        tx.execute(
+            "UPDATE projects SET nodes_json = ?1, history_json = ?2 WHERE id = ?3",
+            params![next_nodes_json, next_history_json, project_id],
+        )
+        .map_err(|e| format!("Failed to update normalized project media refs: {}", e))?;
+        replace_project_image_refs(&tx, &project_id, &nodes_json, &history_json)?;
+        stats.project_payloads_rewritten += 1;
+    }
+
+    for (asset_id, source_path, preview_path) in asset_rows {
+        let next_source_path = encode(&source_path);
+        let next_preview_path = preview_path.as_deref().map(encode);
+        if next_source_path == source_path && next_preview_path == preview_path {
+            continue;
+        }
+        tx.execute(
+            r#"
+            UPDATE asset_items
+            SET
+              source_path = ?2,
+              preview_path = ?3,
+              image_path = ?2,
+              preview_image_path = COALESCE(?3, '')
+            WHERE id = ?1
+            "#,
+            params![asset_id, next_source_path, next_preview_path],
+        )
+        .map_err(|e| format!("Failed to update normalized asset media refs: {}", e))?;
+        replace_asset_image_refs_in_tx(&tx, &asset_id, &source_path, preview_path.as_deref())?;
+        stats.asset_items_rewritten += 1;
+    }
+
+    for (item_id, source_path, preview_path, snapshot_json) in generation_rows {
+        let next_source_path = encode(&source_path);
+        let next_preview_path = preview_path.as_deref().map(encode);
+        let next_snapshot_json =
+            storage::rewrite_media_refs_in_json_string(&snapshot_json, &encode)?
+                .unwrap_or_else(|| snapshot_json.clone());
+        if next_source_path == source_path
+            && next_preview_path == preview_path
+            && next_snapshot_json == snapshot_json
+        {
+            continue;
+        }
+        tx.execute(
+            "UPDATE generation_history_items SET source_path = ?2, preview_path = ?3, snapshot_json = ?4 WHERE id = ?1",
+            params![item_id, next_source_path, next_preview_path, next_snapshot_json],
+        )
+        .map_err(|e| format!("Failed to update normalized generation history refs: {}", e))?;
+        stats.generation_history_items_rewritten += 1;
+    }
+
+    for (job_id, payload_json) in queue_rows {
+        let Some(next_payload_json) =
+            storage::rewrite_media_refs_in_json_string(&payload_json, &encode)?
+        else {
+            continue;
+        };
+        tx.execute(
+            "UPDATE jimeng_video_queue_jobs SET payload_json = ?2 WHERE job_id = ?1",
+            params![job_id, next_payload_json],
+        )
+        .map_err(|e| format!("Failed to update normalized Jimeng queue refs: {}", e))?;
+        stats.jimeng_queue_jobs_rewritten += 1;
+    }
+
+    for (item_id, source_path, preview_path, waveform_path) in clip_rows {
+        let next_source_path = encode(&source_path);
+        let next_preview_path = preview_path.as_deref().map(encode);
+        let next_waveform_path = waveform_path.as_deref().map(encode);
+        if next_source_path == source_path
+            && next_preview_path == preview_path
+            && next_waveform_path == waveform_path
+        {
+            continue;
+        }
+        tx.execute(
+            "UPDATE clip_items SET source_path = ?2, preview_path = ?3, waveform_path = ?4 WHERE id = ?1",
+            params![item_id, next_source_path, next_preview_path, next_waveform_path],
+        )
+        .map_err(|e| format!("Failed to update normalized clip item refs: {}", e))?;
+        stats.clip_items_rewritten += 1;
+    }
+
+    tx.commit()
+        .map_err(|e| format!("Failed to commit URI normalization transaction: {}", e))?;
+    rebuild_media_ref_indexes(app, conn)?;
+
+    Ok(stats)
+}
+
+pub(crate) fn rebuild_media_ref_indexes(
+    app: &AppHandle,
+    conn: &mut Connection,
+) -> Result<(), String> {
+    ensure_projects_table(conn)?;
+
+    let project_rows: Vec<(String, String, String)> = {
+        let mut stmt = conn
+            .prepare("SELECT id, nodes_json, history_json FROM projects")
+            .map_err(|e| format!("Failed to prepare project media ref rebuild query: {}", e))?;
+        let rows = stmt
+            .query_map([], |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, String>(2)?,
+                ))
+            })
+            .map_err(|e| format!("Failed to query projects for media ref rebuild: {}", e))?;
+        let mut collected = Vec::new();
+        for row in rows {
+            collected.push(
+                row.map_err(|e| format!("Failed to read project media ref rebuild row: {}", e))?,
+            );
+        }
+        collected
+    };
+
+    let asset_rows: Vec<(String, String, Option<String>)> = {
+        let mut stmt = conn
+            .prepare(
+                r#"
+                SELECT
+                  id,
+                  COALESCE(NULLIF(TRIM(source_path), ''), image_path) AS source_path,
+                  NULLIF(TRIM(COALESCE(preview_path, preview_image_path, '')), '') AS preview_path
+                FROM asset_items
+                "#,
+            )
+            .map_err(|e| format!("Failed to prepare asset media ref rebuild query: {}", e))?;
+        let rows = stmt
+            .query_map([], |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, Option<String>>(2)?,
+                ))
+            })
+            .map_err(|e| format!("Failed to query assets for media ref rebuild: {}", e))?;
+        let mut collected = Vec::new();
+        for row in rows {
+            collected
+                .push(row.map_err(|e| format!("Failed to read asset media ref rebuild row: {}", e))?);
+        }
+        collected
+    };
+
+    let tx = conn
+        .transaction()
+        .map_err(|e| format!("Failed to begin media ref rebuild transaction: {}", e))?;
+
+    for (project_id, nodes_json, history_json) in project_rows {
+        let decoded_payload =
+            decode_project_payload_storage_refs(app, &nodes_json, &history_json)?
+                .unwrap_or((nodes_json, history_json));
+        replace_project_image_refs(
+            &tx,
+            &project_id,
+            &decoded_payload.0,
+            &decoded_payload.1,
+        )?;
+    }
+
+    for (asset_id, source_path, preview_path) in asset_rows {
+        let decoded_source_path = storage::decode_storage_media_ref(app, &source_path);
+        let decoded_preview_path = preview_path
+            .as_deref()
+            .map(|value| storage::decode_storage_media_ref(app, value));
+        replace_asset_image_refs_in_tx(
+            &tx,
+            &asset_id,
+            &decoded_source_path,
+            decoded_preview_path.as_deref(),
+        )?;
+    }
+
+    tx.commit()
+        .map_err(|e| format!("Failed to commit media ref rebuild transaction: {}", e))?;
+    Ok(())
+}
+
 pub(crate) fn prune_unreferenced_images(app: &AppHandle) -> Result<(), String> {
     let _ = app;
     Ok(())
@@ -2124,6 +2518,7 @@ pub(crate) fn replace_project_image_refs(
 
 #[tauri::command]
 pub fn sync_style_template_image_refs(app: AppHandle, paths: Vec<String>) -> Result<(), String> {
+    storage::ensure_storage_session_write_allowed(&app)?;
     let known_media_dirs = storage::resolve_known_media_dirs(&app)?;
     let mut conn = open_db(&app)?;
     let tx = conn
@@ -2163,9 +2558,10 @@ pub fn sync_style_template_image_refs(app: AppHandle, paths: Vec<String>) -> Res
 }
 
 pub(crate) fn open_db(app: &AppHandle) -> Result<Connection, String> {
+    storage::ensure_storage_session_write_allowed(app)?;
     let db_path = resolve_db_path(app)?;
     let mut conn =
-        Connection::open(db_path).map_err(|e| format!("Failed to open SQLite DB: {}", e))?;
+        Connection::open(&db_path).map_err(|e| format!("Failed to open SQLite DB: {}", e))?;
 
     conn.pragma_update(None, "journal_mode", "WAL")
         .map_err(|e| format!("Failed to set journal_mode=WAL: {}", e))?;
@@ -2178,6 +2574,28 @@ pub(crate) fn open_db(app: &AppHandle) -> Result<Connection, String> {
 
     ensure_projects_table(&conn)?;
     import_legacy_projects_if_needed(&mut conn, app)?;
+    let db_key = db_path
+        .to_string_lossy()
+        .replace('\\', "/")
+        .to_ascii_lowercase();
+    let should_normalize = {
+        let normalized = NORMALIZED_STORAGE_DBS.get_or_init(|| Mutex::new(HashSet::new()));
+        let mut guard = normalized
+            .lock()
+            .map_err(|_| "Failed to lock normalized storage db set".to_string())?;
+        guard.insert(db_key)
+    };
+    if should_normalize {
+        let stats = normalize_storage_media_refs_in_connection(app, &mut conn)?;
+        if stats.project_payloads_rewritten > 0
+            || stats.asset_items_rewritten > 0
+            || stats.generation_history_items_rewritten > 0
+            || stats.jimeng_queue_jobs_rewritten > 0
+            || stats.clip_items_rewritten > 0
+        {
+            tracing::info!("normalized storage media refs: {:?}", stats);
+        }
+    }
     Ok(conn)
 }
 
@@ -2291,6 +2709,7 @@ pub fn get_project_record(
     match result {
         Ok(mut record) => {
             repair_project_record_storage_aliases_if_needed(&mut conn, &app, &mut record)?;
+            decode_project_record_storage_refs(&app, &mut record)?;
             Ok(Some(record))
         }
         Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
@@ -2300,6 +2719,7 @@ pub fn get_project_record(
 
 #[tauri::command]
 pub fn upsert_project_record(app: AppHandle, mut record: ProjectRecord) -> Result<(), String> {
+    storage::ensure_storage_session_write_allowed(&app)?;
     if let Some((next_nodes_json, next_history_json)) =
         rewrite_project_payload_media_paths_to_known_storage(
             &app,
@@ -2313,6 +2733,9 @@ pub fn upsert_project_record(app: AppHandle, mut record: ProjectRecord) -> Resul
 
     let mut conn = open_db(&app)?;
     guard_project_media_refs_before_upsert(&app, &conn, &record)?;
+    let refs_nodes_json = record.nodes_json.clone();
+    let refs_history_json = record.history_json.clone();
+    encode_project_record_storage_refs(&app, &mut record)?;
 
     let tx = conn
         .transaction()
@@ -2380,7 +2803,7 @@ pub fn upsert_project_record(app: AppHandle, mut record: ProjectRecord) -> Resul
     )
     .map_err(|e| format!("Failed to upsert project: {}", e))?;
 
-    replace_project_image_refs(&tx, &record.id, &record.nodes_json, &record.history_json)?;
+    replace_project_image_refs(&tx, &record.id, &refs_nodes_json, &refs_history_json)?;
 
     tx.commit()
         .map_err(|e| format!("Failed to commit upsert transaction: {}", e))?;
@@ -2395,6 +2818,7 @@ pub fn update_project_viewport_record(
     project_id: String,
     viewport_json: String,
 ) -> Result<(), String> {
+    storage::ensure_storage_session_write_allowed(&app)?;
     let conn = open_db(&app)?;
     conn.execute(
         "UPDATE projects SET viewport_json = ?1 WHERE id = ?2",
@@ -2411,6 +2835,7 @@ pub fn rename_project_record(
     name: String,
     updated_at: i64,
 ) -> Result<(), String> {
+    storage::ensure_storage_session_write_allowed(&app)?;
     let conn = open_db(&app)?;
     conn.execute(
         "UPDATE projects SET name = ?1, updated_at = ?2 WHERE id = ?3",
@@ -2422,6 +2847,7 @@ pub fn rename_project_record(
 
 #[tauri::command]
 pub fn delete_project_record(app: AppHandle, project_id: String) -> Result<(), String> {
+    storage::ensure_storage_session_write_allowed(&app)?;
     let mut conn = open_db(&app)?;
     let project_media_root = storage::resolve_project_media_root(&app, &project_id)?;
     let tx = conn
@@ -2463,6 +2889,7 @@ pub fn organize_project_media(
     app: AppHandle,
     project_id: String,
 ) -> Result<OrganizeProjectMediaResult, String> {
+    storage::ensure_storage_session_write_allowed(&app)?;
     let normalized_project_id = project_id.trim().to_string();
     if normalized_project_id.is_empty() {
         return Err("Project id is required".to_string());
@@ -2483,51 +2910,47 @@ pub fn organize_project_media(
     let copied_by_source = RefCell::new(HashMap::<String, String>::new());
     let copied_count = RefCell::new(0_u64);
 
-    let rewritten = rewrite_project_payload_media_paths(
-        &nodes_json,
-        &history_json,
-        &|value| {
-            let normalized_value = normalize_image_ref_path(value)?;
-            if let Some(cached_path) = copied_by_source.borrow().get(&normalized_value) {
-                return Some(cached_path.clone());
-            }
+    let rewritten = rewrite_project_payload_media_paths(&nodes_json, &history_json, &|value| {
+        let normalized_value = normalize_image_ref_path(value)?;
+        if let Some(cached_path) = copied_by_source.borrow().get(&normalized_value) {
+            return Some(cached_path.clone());
+        }
 
-            if !is_legacy_images_path(value, &legacy_images_dirs) {
-                return None;
-            }
+        if !is_legacy_images_path(value, &legacy_images_dirs) {
+            return None;
+        }
 
-            let local_path = PathBuf::from(value.trim());
-            if !local_path.is_file() {
-                return None;
-            }
+        let local_path = PathBuf::from(value.trim());
+        if !local_path.is_file() {
+            return None;
+        }
 
-            let bytes = fs::read(&local_path).ok()?;
-            if bytes.is_empty() {
-                return None;
-            }
+        let bytes = fs::read(&local_path).ok()?;
+        if bytes.is_empty() {
+            return None;
+        }
 
-            let extension = extension_from_local_path(&local_path);
-            let media_context = storage::MediaPersistContext {
-                project_id: Some(normalized_project_id.clone()),
-                media_type: Some(storage::media_type_from_extension(&extension)),
-                role: None,
-            };
-            let persisted_path = storage::persist_media_bytes(
-                &app,
-                &bytes,
-                &extension,
-                Some(&media_context),
-                "original",
-            )
-            .ok()?;
+        let extension = extension_from_local_path(&local_path);
+        let media_context = storage::MediaPersistContext {
+            project_id: Some(normalized_project_id.clone()),
+            media_type: Some(storage::media_type_from_extension(&extension)),
+            role: None,
+        };
+        let persisted_path = storage::persist_media_bytes(
+            &app,
+            &bytes,
+            &extension,
+            Some(&media_context),
+            "original",
+        )
+        .ok()?;
 
-            copied_by_source
-                .borrow_mut()
-                .insert(normalized_value, persisted_path.clone());
-            *copied_count.borrow_mut() += 1;
-            Some(persisted_path)
-        },
-    )?;
+        copied_by_source
+            .borrow_mut()
+            .insert(normalized_value, persisted_path.clone());
+        *copied_count.borrow_mut() += 1;
+        Some(persisted_path)
+    })?;
 
     let Some((next_nodes_json, next_history_json)) = rewritten else {
         return Ok(OrganizeProjectMediaResult {
@@ -2537,15 +2960,20 @@ pub fn organize_project_media(
         });
     };
 
+    let (persisted_nodes_json, persisted_history_json) =
+        encode_project_payload_storage_refs(&app, &next_nodes_json, &next_history_json)?
+            .unwrap_or((next_nodes_json.clone(), next_history_json.clone()));
+
     let tx = conn
         .transaction()
         .map_err(|e| format!("Failed to begin media organization transaction: {}", e))?;
     update_project_payload_in_tx(
         &tx,
         &normalized_project_id,
-        &next_nodes_json,
-        &next_history_json,
+        &persisted_nodes_json,
+        &persisted_history_json,
     )?;
+    replace_project_image_refs(&tx, &normalized_project_id, &next_nodes_json, &next_history_json)?;
     tx.commit()
         .map_err(|e| format!("Failed to commit media organization transaction: {}", e))?;
 

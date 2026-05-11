@@ -146,7 +146,7 @@ export const ScriptStoryNoteNode = memo(({
             onClick={handleToggleEnabled}
             className={`${SCRIPT_NODE_ICON_BUTTON_CLASS} ${
               data.isEnabled
-                ? 'border-emerald-400/25 bg-emerald-500/10 text-emerald-200 hover:border-emerald-400/35 hover:bg-emerald-500/16'
+                ? 'border-border-dark bg-bg-dark text-text-dark hover:border-[rgba(15,23,42,0.34)] hover:bg-bg-dark/80 dark:hover:border-white/26'
                 : 'border-border-dark/70 bg-bg-dark/60 text-text-muted hover:border-border-dark hover:bg-bg-dark'
             }`}
             title={data.isEnabled ? t('scriptNodes.storyNote.disable') : t('scriptNodes.storyNote.enable')}
@@ -165,8 +165,8 @@ export const ScriptStoryNoteNode = memo(({
             }}
             className={`${SCRIPT_NODE_ICON_BUTTON_CLASS} ${
               isOptimizing
-                ? 'border-accent/30 bg-accent/12 text-accent'
-                : 'hover:border-accent/30 hover:bg-accent/10 hover:text-accent'
+                ? 'border-border-dark bg-bg-dark text-text-dark'
+                : 'hover:border-border-dark hover:bg-bg-dark hover:text-text-dark'
             }`}
             title={isOptimizing ? t('scriptNodes.common.optimizing') : t('scriptNodes.common.optimize')}
             disabled={isOptimizing}
@@ -249,7 +249,7 @@ export const ScriptStoryNoteNode = memo(({
           <div className="flex flex-wrap items-center gap-2">
             <span className={`rounded-full px-2 py-0.5 text-[11px] ${
               data.isEnabled
-                ? 'bg-emerald-500/14 text-emerald-200'
+                ? 'bg-bg-dark text-text-dark'
                 : 'bg-white/8 text-text-muted'
             }`}>
               {data.isEnabled

@@ -584,7 +584,7 @@ impl NewApiProvider {
             .and_then(Value::as_str)
             .map(str::trim)
             .map(str::to_ascii_lowercase)
-            .filter(|quality| matches!(quality.as_str(), "low" | "medium" | "high"));
+            .filter(|quality| matches!(quality.as_str(), "low" | "medium" | "high" | "auto"));
 
         if from_extra_params.is_some() {
             return from_extra_params;
@@ -2818,6 +2818,29 @@ mod tests {
         assert_eq!(
             body.get("quality"),
             Some(&Value::String("high".to_string()))
+        );
+    }
+
+    #[test]
+    fn build_openai_generations_body_for_gpt_image_2_allows_auto_quality() {
+        let mut extra_params = std::collections::HashMap::new();
+        extra_params.insert("quality".to_string(), Value::String("auto".to_string()));
+        let request = crate::ai::GenerateRequest {
+            prompt: "make it cinematic".to_string(),
+            model: "newapi/gpt-image-2".to_string(),
+            size: "2K".to_string(),
+            aspect_ratio: "16:9".to_string(),
+            reference_images: None,
+            extra_params: Some(extra_params),
+        };
+
+        let fields = NewApiProvider::resolve_openai_request_fields(&request, "gpt-image-2")
+            .expect("expected gpt-image-2 fields");
+        let body = NewApiProvider::build_openai_generations_body(&request, &fields);
+
+        assert_eq!(
+            body.get("quality"),
+            Some(&Value::String("auto".to_string()))
         );
     }
 

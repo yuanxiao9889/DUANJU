@@ -228,8 +228,11 @@ async fn normalize_asset_media_paths(
     let preview_context = asset_media_context("image", Some("preview"));
     let media_dir = storage::resolve_media_dir(app, Some(&media_context), "", "original")?;
     let known_media_dirs = storage::resolve_known_media_dirs(app)?;
-    let normalized_source_path = source_path.trim().to_string();
-    let normalized_preview_path = normalize_optional_text(preview_path);
+    let normalized_source_path = storage::decode_storage_media_ref(app, source_path.trim())
+        .trim()
+        .to_string();
+    let normalized_preview_path = normalize_optional_text(preview_path)
+        .map(|value| storage::decode_storage_media_ref(app, &value));
 
     let safe_source_path = if let Some(relocated_path) =
         storage::relocate_storage_path_to_known_media_dirs(
@@ -268,6 +271,14 @@ async fn normalize_asset_media_paths(
     };
 
     Ok((safe_source_path, safe_preview_path))
+}
+
+fn decode_asset_item_record_storage_refs(app: &AppHandle, item: &mut AssetItemRecord) {
+    item.source_path = storage::decode_storage_media_ref(app, &item.source_path);
+    item.preview_path = item
+        .preview_path
+        .as_deref()
+        .map(|value| storage::decode_storage_media_ref(app, value));
 }
 
 fn serialize_tags(tags: &[String]) -> Result<String, String> {
@@ -721,6 +732,7 @@ fn detach_deleted_asset_from_history(
 }
 
 fn sync_asset_item_to_projects(
+    app: &AppHandle,
     conn: &mut Connection,
     item: &AssetItemRecord,
 ) -> Result<(), String> {
@@ -768,9 +780,20 @@ fn sync_asset_item_to_projects(
             continue;
         }
 
+        let persisted_nodes_json =
+            storage::rewrite_media_refs_in_json_string(&next_nodes_json, &|value| {
+                storage::encode_storage_media_ref(app, value)
+            })?
+            .unwrap_or_else(|| next_nodes_json.clone());
+        let persisted_history_json =
+            storage::rewrite_media_refs_in_json_string(&next_history_json, &|value| {
+                storage::encode_storage_media_ref(app, value)
+            })?
+            .unwrap_or_else(|| next_history_json.clone());
+
         tx.execute(
             "UPDATE projects SET nodes_json = ?1, history_json = ?2 WHERE id = ?3",
-            params![next_nodes_json, next_history_json, project_id],
+            params![persisted_nodes_json, persisted_history_json, project_id],
         )
         .map_err(|e| format!("Failed to update synced project nodes: {}", e))?;
 
@@ -803,7 +826,17 @@ async fn migrate_asset_item_paths_if_needed(
     let tx = conn
         .transaction()
         .map_err(|e| format!("Failed to begin asset item migration transaction: {}", e))?;
+    let persisted_source_path = storage::encode_storage_media_ref(app, &next_source_path);
+    let persisted_preview_path = next_preview_path
+        .as_deref()
+        .map(|value| storage::encode_storage_media_ref(app, value));
     update_asset_item_paths(
+        &tx,
+        &item.id,
+        &persisted_source_path,
+        persisted_preview_path.as_deref(),
+    )?;
+    replace_asset_image_refs(
         &tx,
         &item.id,
         &next_source_path,
@@ -814,7 +847,7 @@ async fn migrate_asset_item_paths_if_needed(
 
     item.source_path = next_source_path;
     item.preview_path = next_preview_path;
-    sync_asset_item_to_projects(conn, item)?;
+    sync_asset_item_to_projects(app, conn, item)?;
     Ok(true)
 }
 
@@ -1159,6 +1192,12 @@ pub async fn list_asset_libraries(app: AppHandle) -> Result<Vec<AssetLibraryReco
         prune_unreferenced_images(&app)?;
     }
 
+    for library in &mut libraries {
+        for item in &mut library.items {
+            decode_asset_item_record_storage_refs(&app, item);
+        }
+    }
+
     Ok(libraries)
 }
 
@@ -1431,6 +1470,10 @@ async fn create_or_update_asset_item(
     if normalized_source_path.is_empty() {
         return Err("Asset source path is required".to_string());
     }
+    let persisted_source_path = storage::encode_storage_media_ref(app, &normalized_source_path);
+    let persisted_preview_path = normalized_preview_path
+        .as_deref()
+        .map(|value| storage::encode_storage_media_ref(app, value));
 
     let tags_json = serialize_tags(&payload.tags)?;
 
@@ -1445,14 +1488,16 @@ async fn create_or_update_asset_item(
                 ORDER BY updated_at DESC
                 LIMIT 1
                 "#,
-                params![normalized_source_path],
+                params![persisted_source_path],
                 |row| row.get::<_, String>(0),
             )
             .optional()
             .map_err(|e| format!("Failed to find existing model asset: {}", e))?;
 
         if let Some(existing_model_item_id) = existing_model_item_id {
-            return load_asset_item_record_by_id(&conn, &existing_model_item_id);
+            let mut item = load_asset_item_record_by_id(&conn, &existing_model_item_id)?;
+            decode_asset_item_record_storage_refs(app, &mut item);
+            return Ok(item);
         }
     }
 
@@ -1521,13 +1566,13 @@ async fn create_or_update_asset_item(
             normalized_name,
             normalized_description,
             tags_json,
-            normalized_source_path.clone(),
-            normalized_preview_path.clone(),
+            persisted_source_path.clone(),
+            persisted_preview_path.clone(),
             normalized_mime_type,
             normalized_duration_ms,
             metadata_json,
-            normalized_source_path.clone(),
-            normalized_preview_path.clone().unwrap_or_default(),
+            persisted_source_path.clone(),
+            persisted_preview_path.clone().unwrap_or_default(),
             normalized_aspect_ratio,
             now,
             now
@@ -1549,11 +1594,12 @@ async fn create_or_update_asset_item(
     tx.commit()
         .map_err(|e| format!("Failed to commit asset item upsert transaction: {}", e))?;
 
-    let item = load_asset_item_record_by_id(&open_db(app)?, &item_id)?;
+    let mut item = load_asset_item_record_by_id(&open_db(app)?, &item_id)?;
+    decode_asset_item_record_storage_refs(app, &mut item);
 
     if payload.id.is_some() {
         let mut sync_conn = open_db(app)?;
-        sync_asset_item_to_projects(&mut sync_conn, &item)?;
+        sync_asset_item_to_projects(app, &mut sync_conn, &item)?;
     }
 
     prune_unreferenced_images(app)?;
@@ -1595,6 +1641,7 @@ pub async fn repair_asset_item_preview(
 ) -> Result<AssetItemRecord, String> {
     let mut conn = open_db(&app)?;
     let mut item = load_asset_item_record_by_id(&conn, &asset_item_id)?;
+    decode_asset_item_record_storage_refs(&app, &mut item);
     if item.media_type != "image" {
         return Ok(item);
     }
@@ -1618,7 +1665,15 @@ pub async fn repair_asset_item_preview(
     let tx = conn
         .transaction()
         .map_err(|e| format!("Failed to begin asset preview repair transaction: {}", e))?;
+    let persisted_source_path = storage::encode_storage_media_ref(&app, &item.source_path);
+    let persisted_preview_path = storage::encode_storage_media_ref(&app, &repaired_preview_path);
     update_asset_item_paths(
+        &tx,
+        &item.id,
+        &persisted_source_path,
+        Some(persisted_preview_path.as_str()),
+    )?;
+    replace_asset_image_refs(
         &tx,
         &item.id,
         &item.source_path,
@@ -1637,7 +1692,7 @@ pub async fn repair_asset_item_preview(
     item.updated_at = now;
 
     let mut sync_conn = open_db(&app)?;
-    sync_asset_item_to_projects(&mut sync_conn, &item)?;
+    sync_asset_item_to_projects(&app, &mut sync_conn, &item)?;
     prune_unreferenced_images(&app)?;
     Ok(item)
 }

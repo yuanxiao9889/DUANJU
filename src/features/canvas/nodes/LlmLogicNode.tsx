@@ -5,12 +5,13 @@ import {
   useUpdateNodeInternals,
   type NodeProps,
 } from '@xyflow/react';
-import { Loader2, Settings2, Sparkles, TriangleAlert } from 'lucide-react';
+import { ImageIcon, Loader2, Settings2, Sparkles, TriangleAlert } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 
 import { UiButton, UiSelect, UiTextArea } from '@/components/ui';
 import { generateText } from '@/commands/textGen';
 import { resolveConnectedCanvasText } from '@/features/canvas/application/connectedText';
+import { resolveReadableReferenceImageSources } from '@/features/canvas/application/referenceImageSources';
 import {
   CANVAS_NODE_TYPES,
   LLM_LOGIC_NODE_DEFAULT_HEIGHT,
@@ -29,6 +30,8 @@ import {
   resolveConfiguredScriptModel,
   resolveScriptModelOptions,
 } from '@/features/canvas/models';
+import { useCanvasConnectedReferenceImages } from '@/features/canvas/hooks/useCanvasNodeGraph';
+import { CanvasNodeImage } from '@/features/canvas/ui/CanvasNodeImage';
 import { NodeHeader, NODE_HEADER_FLOATING_POSITION_CLASS } from '@/features/canvas/ui/NodeHeader';
 import { NodeResizeHandle } from '@/features/canvas/ui/NodeResizeHandle';
 import { NodeStatusBadge } from '@/features/canvas/ui/NodeStatusBadge';
@@ -224,7 +227,8 @@ function buildLlmDirectionInstruction(
 function buildLlmPrompt(
   systemInstruction: string,
   connectedText: string,
-  directionInstruction: string
+  directionInstruction: string,
+  referenceImageCount: number
 ): string {
   const sections = ['You are a professional screenplay text editing assistant.'];
 
@@ -232,7 +236,15 @@ function buildLlmPrompt(
     sections.push(`System Instruction:\n${systemInstruction}`);
   }
 
-  sections.push(`Input Text:\n${connectedText}`);
+  if (connectedText) {
+    sections.push(`Input Text:\n${connectedText}`);
+  }
+
+  if (referenceImageCount > 0) {
+    sections.push(
+      `Reference Images:\nThis request includes ${referenceImageCount} reference image${referenceImageCount === 1 ? '' : 's'}. You can refer to them in order as Image 1, Image 2, and so on.`
+    );
+  }
 
   if (directionInstruction) {
     sections.push(`Revision Goal:\n${directionInstruction}`);
@@ -269,6 +281,7 @@ export const LlmLogicNode = memo(({
   const addEdge = useCanvasStore((state) => state.addEdge);
   const findNodePosition = useCanvasStore((state) => state.findNodePosition);
   const settings = useSettingsStore((state) => state);
+  const connectedReferenceImages = useCanvasConnectedReferenceImages(id);
 
   const resolvedTitle = resolveNodeDisplayName(CANVAS_NODE_TYPES.llmLogic, data);
   const resolvedWidth = Math.max(MIN_WIDTH, Math.round(width ?? LLM_LOGIC_NODE_DEFAULT_WIDTH));
@@ -477,6 +490,7 @@ export const LlmLogicNode = memo(({
       useCanvasStore.getState().nodes,
       useCanvasStore.getState().edges
     ).trim();
+    const referenceImageCount = connectedReferenceImages.length;
     const customDirection = normalizeString(data.userPrompt);
     const directionInstruction = buildLlmDirectionInstruction(
       resolvedPresetCategoryKey,
@@ -484,7 +498,7 @@ export const LlmLogicNode = memo(({
       customDirection
     );
 
-    if (!upstreamText) {
+    if (!upstreamText && referenceImageCount === 0) {
       updateNodeData(
         id,
         {
@@ -526,7 +540,8 @@ export const LlmLogicNode = memo(({
     const prompt = buildLlmPrompt(
       normalizeString(data.systemInstruction),
       upstreamText,
-      directionInstruction
+      directionInstruction,
+      referenceImageCount
     );
     const requestId = createLlmRequestId();
     const outputNodeId = prepareOutputNodeForRun(mode);
@@ -549,9 +564,11 @@ export const LlmLogicNode = memo(({
     );
 
     try {
+      const referenceImages = await resolveReadableReferenceImageSources(connectedReferenceImages);
       const result = await generateText({
         prompt,
         model: resolvedModel,
+        referenceImages,
       });
       const completedAt = Date.now();
       const remainingPendingRequestIds = resolveRemainingPendingRequestIds(requestId);
@@ -619,6 +636,7 @@ export const LlmLogicNode = memo(({
     }
   }, [
     configurationError,
+    connectedReferenceImages,
     data.systemInstruction,
     data.userPrompt,
     id,
@@ -762,6 +780,51 @@ export const LlmLogicNode = memo(({
                 ))}
               </UiSelect>
             </div>
+          </div>
+
+          <div className="flex flex-col gap-2 rounded-lg border border-white/10 bg-black/10 px-3 py-2.5">
+            <div className="flex items-center justify-between gap-2 text-[11px] text-text-muted">
+              <span className="inline-flex items-center gap-1.5 font-medium uppercase tracking-[0.08em] text-text-muted/85">
+                <ImageIcon className="h-3.5 w-3.5" />
+                {t('node.llmLogic.referenceImages')}
+              </span>
+              <span>
+                {t('node.llmLogic.referenceImageCount', {
+                  count: connectedReferenceImages.length,
+                })}
+              </span>
+            </div>
+            {connectedReferenceImages.length > 0 ? (
+              <div className="flex gap-2 overflow-x-auto pb-1">
+                {connectedReferenceImages.slice(0, 8).map((item, index) => (
+                  <div
+                    key={`${item.sourceEdgeId}-${item.imageUrl}`}
+                    className="relative h-14 w-16 shrink-0 overflow-hidden rounded-md border border-white/10 bg-black/30"
+                    title={t('node.llmLogic.referenceImageLabel', { index: index + 1 })}
+                  >
+                    <CanvasNodeImage
+                      src={item.previewImageUrl ?? item.imageUrl}
+                      fallbackSrc={item.imageUrl}
+                      alt={t('node.llmLogic.referenceImageLabel', { index: index + 1 })}
+                      className="h-full w-full object-cover"
+                      disableViewer
+                    />
+                    <span className="absolute left-1 top-1 rounded bg-black/60 px-1 text-[10px] leading-4 text-white">
+                      {index + 1}
+                    </span>
+                  </div>
+                ))}
+                {connectedReferenceImages.length > 8 ? (
+                  <div className="flex h-14 w-16 shrink-0 items-center justify-center rounded-md border border-white/10 bg-white/[0.04] text-xs text-text-muted">
+                    +{connectedReferenceImages.length - 8}
+                  </div>
+                ) : null}
+              </div>
+            ) : (
+              <div className="text-xs leading-5 text-text-muted">
+                {t('node.llmLogic.referenceImageHint')}
+              </div>
+            )}
           </div>
 
           <div className="flex min-h-0 flex-1 flex-col gap-3">

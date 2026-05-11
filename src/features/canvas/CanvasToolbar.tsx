@@ -97,7 +97,7 @@ export const CanvasToolbar = memo(({ isLocked, onToggleLock }: CanvasToolbarProp
               ${
                 isLocked
                   ? 'cursor-not-allowed bg-border-dark text-text-muted'
-                  : 'bg-amber-500 text-white hover:bg-amber-500/80'
+                  : 'bg-[#222222] text-white hover:bg-black dark:bg-accent dark:hover:bg-accent/80'
               }
             `}
           >
@@ -113,7 +113,7 @@ export const CanvasToolbar = memo(({ isLocked, onToggleLock }: CanvasToolbarProp
               ${
                 isLocked
                   ? 'cursor-not-allowed bg-border-dark text-text-muted'
-                  : 'bg-amber-500/80 text-white hover:bg-amber-500/70'
+                  : 'bg-[#222222] text-white hover:bg-black dark:bg-accent/90 dark:hover:bg-accent/80'
               }
             `}
           >
@@ -130,7 +130,7 @@ export const CanvasToolbar = memo(({ isLocked, onToggleLock }: CanvasToolbarProp
             ${
               isLocked
                 ? 'cursor-not-allowed bg-border-dark text-text-muted'
-                : 'bg-accent text-white hover:bg-accent/80'
+                : 'bg-[#222222] text-white hover:bg-black dark:bg-accent dark:hover:bg-accent/80'
             }
           `}
         >
@@ -145,7 +145,7 @@ export const CanvasToolbar = memo(({ isLocked, onToggleLock }: CanvasToolbarProp
         <>
           <button
             onClick={() => setShowExportDialog(true)}
-            className="flex items-center gap-1.5 rounded px-3 py-1.5 text-sm font-medium transition-colors duration-200 bg-amber-500/20 text-amber-400 hover:bg-amber-500/30"
+            className="flex items-center gap-1.5 rounded bg-[rgba(15,23,42,0.08)] px-3 py-1.5 text-sm font-medium text-text-dark transition-colors duration-200 hover:bg-[rgba(15,23,42,0.14)] dark:bg-bg-dark/80 dark:hover:bg-bg-dark"
             title={t('scriptExportDialog.exportScript')}
           >
             <Download className="h-4 w-4" />
@@ -153,7 +153,7 @@ export const CanvasToolbar = memo(({ isLocked, onToggleLock }: CanvasToolbarProp
           </button>
           <button
             onClick={handleExportNativePackage}
-            className="flex items-center gap-1.5 rounded px-3 py-1.5 text-sm font-medium transition-colors duration-200 bg-cyan-500/15 text-cyan-300 hover:bg-cyan-500/25"
+            className="flex items-center gap-1.5 rounded bg-[rgba(15,23,42,0.08)] px-3 py-1.5 text-sm font-medium text-text-dark transition-colors duration-200 hover:bg-[rgba(15,23,42,0.14)] dark:bg-bg-dark/80 dark:hover:bg-bg-dark"
             title={t('scriptExportDialog.exportPackage')}
           >
             <Package className="h-4 w-4" />
@@ -197,7 +197,7 @@ export const CanvasToolbar = memo(({ isLocked, onToggleLock }: CanvasToolbarProp
         title={isLocked ? t('canvas.toolbar.unlock') : t('canvas.toolbar.lock')}
       >
         {isLocked ? (
-          <Lock className="h-4 w-4 text-accent" />
+          <Lock className="h-4 w-4 text-text-dark" />
         ) : (
           <Unlock className="h-4 w-4 text-text-muted" />
         )}

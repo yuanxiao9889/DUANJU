@@ -27,6 +27,8 @@ export const DEFAULT_NODE_DISPLAY_NAME: Record<CanvasNodeType, string> = {
   [CANVAS_NODE_TYPES.gptBestSeedance]: '\u7b2c\u4e09\u65b9 Seedance 2.0',
   [CANVAS_NODE_TYPES.gptBestGrokVideo]: '\u7b2c\u4e09\u65b9 Grok \u89c6\u9891',
   [CANVAS_NODE_TYPES.gptBestVideoResult]: '\u751f\u6210\u7ed3\u679c',
+  [CANVAS_NODE_TYPES.vidu]: 'Vidu \u5b98\u65b9\u89c6\u9891',
+  [CANVAS_NODE_TYPES.viduVideoResult]: '\u751f\u6210\u7ed3\u679c',
   [CANVAS_NODE_TYPES.exportImage]: '\u7ed3\u679c\u56fe\u7247',
   [CANVAS_NODE_TYPES.textAnnotation]: '\u6587\u672c\u8282\u70b9',
   [CANVAS_NODE_TYPES.llmLogic]: 'LLM \u903b\u8f91',

@@ -71,6 +71,7 @@ export interface CustomStoryboardModelEntry {
   id: string;
   modelId: string;
   displayName: string;
+  newApiModelType?: StoryboardNewApiCustomModelType;
 }
 
 export interface StoryboardModelOption {
@@ -91,6 +92,40 @@ export interface StoryboardModelSettingsLike {
 const STORYBOARD_CUSTOM_MODEL_PROVIDER_ID_SET = new Set<string>(
   STORYBOARD_CUSTOM_MODEL_PROVIDER_IDS
 );
+
+export const STORYBOARD_NEWAPI_CUSTOM_MODEL_TYPES = [
+  'gpt-image-2',
+  'google-image',
+  'openai-compatible',
+] as const;
+
+export type StoryboardNewApiCustomModelType =
+  typeof STORYBOARD_NEWAPI_CUSTOM_MODEL_TYPES[number];
+
+export const DEFAULT_STORYBOARD_NEWAPI_CUSTOM_MODEL_TYPE: StoryboardNewApiCustomModelType =
+  'openai-compatible';
+
+export function normalizeStoryboardNewApiCustomModelType(
+  input: unknown
+): StoryboardNewApiCustomModelType {
+  const normalizedInput = normalizeTrimmedString(input);
+  return STORYBOARD_NEWAPI_CUSTOM_MODEL_TYPES.find((type) => type === normalizedInput)
+    ?? DEFAULT_STORYBOARD_NEWAPI_CUSTOM_MODEL_TYPE;
+}
+
+function resolveStoryboardNewApiCustomModelApiFormat(
+  modelType: StoryboardNewApiCustomModelType
+) {
+  if (modelType === 'gpt-image-2') {
+    return 'openai-images';
+  }
+
+  if (modelType === 'google-image') {
+    return 'gemini';
+  }
+
+  return 'openai';
+}
 
 const FULL_ASPECT_RATIOS = [
   '1:1',
@@ -307,6 +342,13 @@ export function normalizeCustomStoryboardModelEntries(
       id,
       modelId,
       displayName,
+      ...(resolvedProviderId === STORYBOARD_NEWAPI_PROVIDER_ID
+        ? {
+          newApiModelType: normalizeStoryboardNewApiCustomModelType(
+            record?.newApiModelType ?? record?.modelType
+          ),
+        }
+        : {}),
     });
   }
 
@@ -352,6 +394,7 @@ function createLegacyNewApiModelEntry(
       normalizedConfig.requestModel
     ),
     displayName: normalizedConfig.displayName,
+    newApiModelType: DEFAULT_STORYBOARD_NEWAPI_CUSTOM_MODEL_TYPE,
   };
 }
 
@@ -592,7 +635,10 @@ export function upsertCustomStoryboardModelEntry(
   providerId: string,
   entries: CustomStoryboardModelEntry[],
   nextModelId: string,
-  nextDisplayName: string
+  nextDisplayName: string,
+  options?: {
+    newApiModelType?: StoryboardNewApiCustomModelType | null;
+  }
 ): CustomStoryboardModelEntry[] {
   const normalizedModelId = normalizeStoryboardRequestModelId(providerId, nextModelId);
   if (!isStoryboardCustomModelProviderId(providerId) || !normalizedModelId) {
@@ -604,6 +650,13 @@ export function upsertCustomStoryboardModelEntry(
     id: buildCustomStoryboardModelEntryId(providerId, normalizedModelId),
     modelId: normalizedModelId,
     displayName,
+    ...(providerId === STORYBOARD_NEWAPI_PROVIDER_ID
+      ? {
+        newApiModelType: normalizeStoryboardNewApiCustomModelType(
+          options?.newApiModelType
+        ),
+      }
+      : {}),
   };
 
   return normalizeCustomStoryboardModelEntries(
@@ -678,6 +731,9 @@ export function resolveStoryboardNewApiModelConfigForModel(
   return resolveStoryboardNewApiRuntimeModelConfig(
     normalizeStoryboardNewApiModelConfig({
       ...normalizedConfig,
+      apiFormat: resolveStoryboardNewApiCustomModelApiFormat(
+        normalizeStoryboardNewApiCustomModelType(matchedEntry.newApiModelType)
+      ),
       requestModel: matchedEntry.modelId,
       displayName: matchedEntry.displayName,
     }),
@@ -871,6 +927,12 @@ function createNewApiCustomStoryboardImageModel(
     ...legacyModel,
     id: providerModelId,
     displayName: entry.displayName || entry.modelId,
+    description:
+      entry.newApiModelType === 'gpt-image-2'
+        ? 'Custom NewAPI gpt-image-2 model using OpenAI Images routing.'
+        : entry.newApiModelType === 'google-image'
+          ? 'Custom NewAPI Google image model using Gemini generateContent routing.'
+          : legacyModel.description,
     resolveRequest: ({ referenceImageCount }) => ({
       requestModel: providerModelId,
       modeLabel: resolveStoryboardNewApiModeLabel(

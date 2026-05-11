@@ -9,7 +9,7 @@ import {
   isCanvasSemanticColor,
 } from '@/features/canvas/domain/semanticColors';
 
-const SELECTED_RING_SHADOW = '0 0 0 3px rgba(59, 130, 246, 0.28)';
+const SELECTED_RING_SHADOW = '0 0 0 3px rgba(34, 34, 34, 0.24)';
 
 type SemanticNodeStyle = CSSProperties & {
   '--canvas-semantic-border-color'?: string;

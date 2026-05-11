@@ -8,7 +8,7 @@ export type SettingsCategory =
   | 'psIntegration'
   | 'about';
 
-export type ProviderTab = 'script' | 'storyboard' | 'mj' | 'thirdPartyVideo';
+export type ProviderTab = 'script' | 'storyboard' | 'mj' | 'officialVideo' | 'thirdPartyVideo';
 
 interface OpenSettingsEventDetail {
   category?: SettingsCategory;

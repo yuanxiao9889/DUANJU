@@ -148,7 +148,7 @@ function parseUiSelectItems(children: ReactNode): UiSelectItem[] {
 
 function resolveButtonVariant(variant: ButtonVariant): string {
   if (variant === 'primary') {
-    return 'bg-accent text-white hover:bg-accent/85';
+    return 'bg-[#222222] text-white hover:bg-black dark:bg-accent dark:hover:bg-accent/85';
   }
 
   if (variant === 'ghost') {
@@ -179,7 +179,7 @@ export function UiButton({
 export function UiIconButton({ className = '', active = false, ...props }: UiIconButtonProps) {
   return (
     <button
-      className={`inline-flex h-10 w-10 items-center justify-center border ui-field transition-colors ${active ? 'border-accent/45 bg-accent/18 text-text-dark' : 'text-text-muted hover:bg-[rgba(15,23,42,0.08)] dark:hover:bg-bg-dark'} ${className}`}
+      className={`inline-flex h-10 w-10 items-center justify-center border ui-field transition-colors ${active ? 'border-[#222222]/45 bg-[#222222]/10 text-text-dark dark:border-accent/45 dark:bg-accent/18' : 'text-text-muted hover:bg-[rgba(15,23,42,0.08)] dark:hover:bg-bg-dark'} ${className}`}
       {...props}
     />
   );
@@ -195,7 +195,7 @@ export const UiChipButton = forwardRef<HTMLButtonElement, UiChipButtonProps>(
       data-ui-icon-only={isIconOnly ? 'true' : undefined}
       className={`inline-flex h-10 items-center justify-center gap-2 border ui-field px-3 text-sm transition-colors ${
         isIconOnly ? '[&_svg]:h-4 [&_svg]:w-4' : ''
-      } ${active ? 'border-accent/45 bg-accent/15 text-text-dark' : 'text-text-dark hover:bg-[rgba(15,23,42,0.08)] dark:hover:bg-bg-dark'} ${className}`}
+      } ${active ? 'border-[#222222]/45 bg-[#222222]/10 text-text-dark dark:border-accent/45 dark:bg-accent/15' : 'text-text-dark hover:bg-[rgba(15,23,42,0.08)] dark:hover:bg-bg-dark'} ${className}`}
       {...props}
     >
       {children}
@@ -260,8 +260,8 @@ export const UiCheckbox = forwardRef<HTMLButtonElement, UiCheckboxProps>(
       aria-checked={checked}
       className={`inline-flex h-5 w-5 items-center justify-center rounded border transition-colors ${
         checked
-          ? 'border-accent/60 bg-accent/20 text-accent'
-          : 'border-[rgba(255,255,255,0.2)] bg-bg-dark/60 text-transparent hover:border-[rgba(255,255,255,0.32)]'
+          ? 'border-[#222222]/60 bg-[#222222]/10 text-text-dark dark:border-accent/60 dark:bg-accent/20 dark:text-accent'
+          : 'border-[rgba(15,23,42,0.16)] bg-bg-dark/60 text-transparent hover:border-[rgba(15,23,42,0.28)] dark:border-[rgba(255,255,255,0.2)] dark:hover:border-[rgba(255,255,255,0.32)]'
       } ${className}`}
       onClick={(event) => {
         onClick?.(event);
@@ -591,8 +591,8 @@ export function UiSelect({ className = '', children, ...props }: UiSelectProps) 
                         item.disabled
                           ? 'cursor-not-allowed opacity-40'
                           : isSelected
-                            ? 'bg-accent text-white'
-                            : 'text-text-dark hover:bg-[rgba(255,255,255,0.08)] dark:hover:bg-white/[0.06]'
+                            ? 'bg-[#222222] text-white dark:bg-accent'
+                            : 'text-text-dark hover:bg-[rgba(15,23,42,0.08)] dark:hover:bg-white/[0.06]'
                       }`}
                       onClick={() => {
                         if (item.disabled) {

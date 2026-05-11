@@ -20,6 +20,7 @@ pub mod style_preset_package;
 pub mod system;
 pub mod text_gen;
 pub mod update;
+pub mod vidu;
 
 pub use ad_skill_package::*;
 pub use ai::*;
@@ -43,3 +44,4 @@ pub use style_preset_package::*;
 pub use system::*;
 pub use text_gen::*;
 pub use update::*;
+pub use vidu::*;

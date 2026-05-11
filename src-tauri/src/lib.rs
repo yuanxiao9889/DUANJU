@@ -24,6 +24,7 @@ use commands::style_preset_package;
 use commands::system;
 use commands::text_gen;
 use commands::update;
+use commands::vidu;
 use tauri::menu::{Menu, MenuItem};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
 use tauri::{Emitter, LogicalSize, Manager, WebviewWindow};
@@ -432,11 +433,17 @@ pub fn run() {
             commands::storage::restore_database_backup,
             commands::storage::migrate_storage,
             commands::storage::reset_storage_to_default,
+            commands::storage::adopt_existing_storage_path,
+            commands::storage::check_storage_session,
+            commands::storage::refresh_storage_session,
             commands::storage::open_storage_folder,
             seedance::create_seedance_video_task,
             seedance::get_seedance_video_task,
             gpt_best_video::create_gpt_best_video_task,
             gpt_best_video::get_gpt_best_video_task,
+            vidu::create_vidu_video_task,
+            vidu::create_vidu_voice_clone,
+            vidu::get_vidu_video_task,
             ps_server::start_ps_server,
             ps_server::stop_ps_server,
             ps_server::get_ps_server_status,

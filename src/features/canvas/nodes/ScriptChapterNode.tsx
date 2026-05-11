@@ -565,7 +565,7 @@ export const ScriptChapterNode = memo(({ id, data, selected, width, height }: Sc
         ref={nodeContainerRef}
         className={`group relative overflow-visible rounded-[18px] border ${
           selected
-            ? 'border-amber-500/50 shadow-[0_0_0_1px_rgba(245,158,11,0.35)]'
+            ? 'border-[rgba(15,23,42,0.42)] shadow-[0_0_0_1px_rgba(15,23,42,0.16)] dark:border-white/36 dark:shadow-[0_0_0_1px_rgba(255,255,255,0.16)]'
             : 'border-[rgba(15,23,42,0.2)] dark:border-[rgba(255,255,255,0.26)]'
         }`}
         style={{
@@ -578,11 +578,11 @@ export const ScriptChapterNode = memo(({ id, data, selected, width, height }: Sc
           type="target"
           id="target"
           position={Position.Left}
-          className="!h-2 !w-2 !border-surface-dark !bg-amber-400"
+          className="!h-2 !w-2 !border-surface-dark !bg-[#222222] dark:!bg-text-muted"
         />
         <NodeHeader
           className={NODE_HEADER_FLOATING_POSITION_CLASS}
-          icon={<FileText className="h-4 w-4 text-amber-400" />}
+          icon={<FileText className="h-4 w-4 text-text-muted" />}
           titleText={resolvedTitle}
           editable
           onTitleChange={handleTitleChange}
@@ -591,7 +591,7 @@ export const ScriptChapterNode = memo(({ id, data, selected, width, height }: Sc
         <div className="flex h-full flex-col overflow-hidden">
           <div className="shrink-0 px-3 pt-3">
             <div
-                className={`${SCRIPT_CHAPTER_NODE_DRAG_HANDLE_CLASS} flex h-7 items-center justify-center gap-2 rounded-xl border border-amber-500/18 bg-bg-dark text-[11px] text-amber-200/75 transition-colors cursor-grab active:cursor-grabbing hover:border-amber-500/28 hover:bg-surface-dark`}
+                className={`${SCRIPT_CHAPTER_NODE_DRAG_HANDLE_CLASS} flex h-7 cursor-grab items-center justify-center gap-2 rounded-xl border border-border-dark bg-bg-dark text-[11px] text-text-muted transition-colors active:cursor-grabbing hover:border-[rgba(15,23,42,0.3)] hover:bg-surface-dark dark:hover:border-white/24`}
             >
               <GripHorizontal className="h-3.5 w-3.5" />
               <div className="flex items-center gap-1">
@@ -607,8 +607,8 @@ export const ScriptChapterNode = memo(({ id, data, selected, width, height }: Sc
               <div className="flex items-center gap-2">
                 <span className={`rounded px-1.5 py-0.5 text-xs ${
                   data.branchType === 'branch'
-                    ? 'bg-purple-500/20 text-purple-400'
-                    : 'bg-amber-500/20 text-amber-400'
+                    ? 'bg-bg-dark text-text-muted'
+                    : 'bg-bg-dark text-text-muted'
                 }`}>
                   {data.branchType === 'branch'
                     ? `${data.chapterNumber || 1}-${data.branchIndex || 1}`
@@ -620,25 +620,25 @@ export const ScriptChapterNode = memo(({ id, data, selected, width, height }: Sc
                   onChange={(event) => updateNodeData(id, { title: event.target.value })}
                   onMouseDown={(event) => event.stopPropagation()}
                   placeholder={t('script.sceneStudio.untitledChapter')}
-                  className="nodrag flex-1 rounded border border-border-dark bg-bg-dark px-2 py-1 text-sm text-text-dark placeholder:text-text-muted focus:border-amber-500 focus:outline-none"
+                  className="nodrag flex-1 rounded border border-border-dark bg-bg-dark px-2 py-1 text-sm text-text-dark placeholder:text-text-muted focus:border-text-muted/60 focus:outline-none"
                 />
                 {data.branchType === 'branch' ? (
                   <span title="Branch chapter">
-                    <GitBranch className="h-4 w-4 text-purple-400" />
+                    <GitBranch className="h-4 w-4 text-text-muted" />
                   </span>
                 ) : null}
               </div>
 
               {hasMergedBranches ? (
                 <div className="mt-1 flex flex-wrap items-center gap-1">
-                  <GitFork className="h-3 w-3 text-cyan-400" />
-                  <span className="text-xs text-cyan-400">鏉ヨ嚜</span>
+                  <GitFork className="h-3 w-3 text-text-muted" />
+                  <span className="text-xs text-text-muted">鏉ヨ嚜</span>
                   {mergedBranchContents.filter((branch) => branch.branchLabel).map((branch, index, branches) => (
                     <Fragment key={branch.branchLabel ?? index}>
-                      <span className="rounded bg-cyan-500/20 px-1.5 py-0.5 text-xs font-medium text-cyan-400">
+                      <span className="rounded bg-bg-dark px-1.5 py-0.5 text-xs font-medium text-text-muted">
                         {branch.branchLabel}
                       </span>
-                      {index < branches.length - 1 ? <span className="text-xs text-cyan-400">,</span> : null}
+                      {index < branches.length - 1 ? <span className="text-xs text-text-muted">,</span> : null}
                     </Fragment>
                   ))}
                 </div>
@@ -663,7 +663,7 @@ export const ScriptChapterNode = memo(({ id, data, selected, width, height }: Sc
                           type="button"
                           onClick={() => setAiDialogMode('expandFromMerged')}
                           disabled={hasMaterializedSceneNodes}
-                          className="flex h-8 w-8 items-center justify-center rounded-lg border border-cyan-500/18 bg-cyan-500/8 text-cyan-300 transition-colors hover:bg-cyan-500/16 disabled:cursor-not-allowed disabled:opacity-45"
+                          className="flex h-8 w-8 items-center justify-center rounded-lg border border-border-dark bg-bg-dark text-text-muted transition-colors hover:bg-bg-dark/80 disabled:cursor-not-allowed disabled:opacity-45"
                           title={t('script.chapterCatalog.expandFromMerged')}
                         >
                           <GitFork className="h-4 w-4" />
@@ -673,7 +673,7 @@ export const ScriptChapterNode = memo(({ id, data, selected, width, height }: Sc
                         type="button"
                         onClick={() => setAiDialogMode('expandFromSummary')}
                         disabled={hasMaterializedSceneNodes}
-                        className="flex h-8 w-8 items-center justify-center rounded-lg border border-amber-500/20 bg-amber-500/8 text-amber-300 transition-colors hover:bg-amber-500/16 disabled:cursor-not-allowed disabled:opacity-45"
+                        className="flex h-8 w-8 items-center justify-center rounded-lg border border-border-dark bg-bg-dark text-text-muted transition-colors hover:bg-bg-dark/80 disabled:cursor-not-allowed disabled:opacity-45"
                         title={t('script.chapterCatalog.expandFromSummary')}
                       >
                         <Sparkles className="h-4 w-4" />
@@ -710,11 +710,11 @@ export const ScriptChapterNode = memo(({ id, data, selected, width, height }: Sc
                       }}
                       className={`w-full rounded-lg border px-3 py-2 text-left transition-colors ${
                         isFocusedScene
-                          ? 'border-amber-400/35 bg-amber-500/10'
+                          ? 'border-[rgba(15,23,42,0.34)] bg-bg-dark dark:border-white/28'
                           : isActive
-                            ? 'border-cyan-500/35 bg-cyan-500/10'
+                            ? 'border-[rgba(15,23,42,0.3)] bg-bg-dark/80 dark:border-white/24'
                             : sceneNode
-                              ? 'border-cyan-500/20 bg-cyan-500/5'
+                              ? 'border-border-dark bg-bg-dark/60'
                               : 'border-border-dark bg-surface-dark hover:bg-bg-dark'
                       }`}
                     >
@@ -728,13 +728,13 @@ export const ScriptChapterNode = memo(({ id, data, selected, width, height }: Sc
                           </div>
                         </div>
                         {sceneNode ? (
-                          <div className="shrink-0 rounded-lg border border-cyan-500/25 bg-cyan-500/10 px-2.5 py-1 text-[11px] font-medium text-cyan-200">
+                          <div className="shrink-0 rounded-lg border border-border-dark bg-bg-dark px-2.5 py-1 text-[11px] font-medium text-text-muted">
                             {t('script.chapterCatalog.created')}
                           </div>
                         ) : null}
                       </div>
                       {sceneNode ? (
-                        <div className="mt-2 flex items-center justify-between gap-2 text-[11px] text-cyan-200/80">
+                        <div className="mt-2 flex items-center justify-between gap-2 text-[11px] text-text-muted">
                           <span>{t('script.chapterCatalog.created')}</span>
                           <span>
                             {t('script.sceneWorkbench.episodeCount', {
@@ -749,7 +749,7 @@ export const ScriptChapterNode = memo(({ id, data, selected, width, height }: Sc
               </UiScrollArea>
 
               {hasMaterializedSceneNodes && data.summary ? (
-                <div className="mt-3 border-t border-border-dark pt-2 text-[11px] leading-5 text-cyan-200/80">
+                <div className="mt-3 border-t border-border-dark pt-2 text-[11px] leading-5 text-text-muted">
                   {t('script.chapterCatalog.summaryExpandLocked')}
                 </div>
               ) : null}
@@ -759,7 +759,7 @@ export const ScriptChapterNode = memo(({ id, data, selected, width, height }: Sc
               <button
                 type="button"
                 onClick={() => undefined}
-                className="mt-3 flex w-full items-center justify-center gap-2 rounded-lg border border-purple-500/30 bg-purple-500/10 py-2 text-sm text-purple-400 transition-colors hover:bg-purple-500/20"
+                className="mt-3 flex w-full items-center justify-center gap-2 rounded-lg border border-border-dark bg-bg-dark py-2 text-sm text-text-dark transition-colors hover:bg-bg-dark/80"
               >
                 <GitBranch className="h-4 w-4" />
                 Create branch
@@ -772,7 +772,7 @@ export const ScriptChapterNode = memo(({ id, data, selected, width, height }: Sc
           type="source"
           id="source"
           position={Position.Right}
-          className="!h-3 !w-3 !-right-1.5 !top-1/2 !rounded-full !border-surface-dark !bg-purple-400"
+          className="!h-3 !w-3 !-right-1.5 !top-1/2 !rounded-full !border-surface-dark !bg-[#222222] dark:!bg-text-muted"
         />
         <NodeResizeHandle
           minWidth={MIN_NODE_WIDTH}

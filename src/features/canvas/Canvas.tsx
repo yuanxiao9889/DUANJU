@@ -233,6 +233,23 @@ interface ImageCompareNoticeState {
   tone: ImageCompareNoticeTone;
 }
 
+interface CanvasPoint {
+  x: number;
+  y: number;
+}
+
+interface EdgeCutGestureVisual {
+  screenPoints: CanvasPoint[];
+  hitEdgeIds: string[];
+}
+
+interface EdgeCutGestureState {
+  pointerId: number;
+  flowPoints: CanvasPoint[];
+  screenPoints: CanvasPoint[];
+  hitEdgeIds: Set<string>;
+}
+
 type ImageCompareValidationReason =
   | 'invalidNode'
   | 'missingImage'
@@ -254,6 +271,10 @@ const STALE_GENERATION_SUBMISSION_ERROR =
   'generation job not found: submission interrupted before job id was saved';
 const DRAG_OVERLAY_IDLE_CLEAR_MS = 420;
 const IMAGE_COMPARE_NOTICE_DURATION_MS = 2200;
+const EDGE_CUT_NOTICE_DURATION_MS = 1800;
+const EDGE_CUT_MIN_POINT_DISTANCE = 3;
+const EDGE_CUT_PATH_SAMPLE_STEP = 10;
+const EDGE_CUT_PATH_SELECTOR = '.react-flow__edge-path';
 const IMAGE_COMPARE_ASPECT_RATIO_DELTA_THRESHOLD = 0.05;
 const CLIPBOARD_IMAGE_PATH_PATTERN = /\.(png|jpe?g|webp|gif|bmp|tiff?|avif)$/i;
 const CLIPBOARD_VIDEO_PATH_PATTERN = /\.(mp4|webm|ogv|mov|avi|mkv)$/i;
@@ -553,6 +574,154 @@ function isTypingTarget(target: EventTarget | null): boolean {
   }
   const tagName = element.tagName.toLowerCase();
   return tagName === 'input' || tagName === 'textarea' || element.isContentEditable;
+}
+
+function getDistance(left: CanvasPoint, right: CanvasPoint): number {
+  return Math.hypot(right.x - left.x, right.y - left.y);
+}
+
+function getRelativePointerPoint(
+  event: PointerEvent,
+  containerElement: HTMLElement
+): CanvasPoint {
+  const rect = containerElement.getBoundingClientRect();
+  return {
+    x: event.clientX - rect.left,
+    y: event.clientY - rect.top,
+  };
+}
+
+function isPointOnSegment(
+  point: CanvasPoint,
+  start: CanvasPoint,
+  end: CanvasPoint
+): boolean {
+  const epsilon = 0.5;
+  return (
+    point.x <= Math.max(start.x, end.x) + epsilon
+    && point.x >= Math.min(start.x, end.x) - epsilon
+    && point.y <= Math.max(start.y, end.y) + epsilon
+    && point.y >= Math.min(start.y, end.y) - epsilon
+  );
+}
+
+function getSegmentOrientation(
+  first: CanvasPoint,
+  second: CanvasPoint,
+  third: CanvasPoint
+): number {
+  const value =
+    (second.y - first.y) * (third.x - second.x)
+    - (second.x - first.x) * (third.y - second.y);
+  return Math.abs(value) < 0.5 ? 0 : value > 0 ? 1 : 2;
+}
+
+function doLineSegmentsIntersect(
+  firstStart: CanvasPoint,
+  firstEnd: CanvasPoint,
+  secondStart: CanvasPoint,
+  secondEnd: CanvasPoint
+): boolean {
+  const orientationA = getSegmentOrientation(firstStart, firstEnd, secondStart);
+  const orientationB = getSegmentOrientation(firstStart, firstEnd, secondEnd);
+  const orientationC = getSegmentOrientation(secondStart, secondEnd, firstStart);
+  const orientationD = getSegmentOrientation(secondStart, secondEnd, firstEnd);
+
+  if (orientationA !== orientationB && orientationC !== orientationD) {
+    return true;
+  }
+
+  return (
+    (orientationA === 0 && isPointOnSegment(secondStart, firstStart, firstEnd))
+    || (orientationB === 0 && isPointOnSegment(secondEnd, firstStart, firstEnd))
+    || (orientationC === 0 && isPointOnSegment(firstStart, secondStart, secondEnd))
+    || (orientationD === 0 && isPointOnSegment(firstEnd, secondStart, secondEnd))
+  );
+}
+
+function doPolylinesIntersect(
+  firstPolyline: CanvasPoint[],
+  secondPolyline: CanvasPoint[]
+): boolean {
+  if (firstPolyline.length < 2 || secondPolyline.length < 2) {
+    return false;
+  }
+
+  for (let firstIndex = 0; firstIndex < firstPolyline.length - 1; firstIndex += 1) {
+    const firstStart = firstPolyline[firstIndex];
+    const firstEnd = firstPolyline[firstIndex + 1];
+
+    for (let secondIndex = 0; secondIndex < secondPolyline.length - 1; secondIndex += 1) {
+      if (
+        doLineSegmentsIntersect(
+          firstStart,
+          firstEnd,
+          secondPolyline[secondIndex],
+          secondPolyline[secondIndex + 1]
+        )
+      ) {
+        return true;
+      }
+    }
+  }
+
+  return false;
+}
+
+function sampleSvgPath(pathElement: SVGPathElement): CanvasPoint[] {
+  try {
+    const totalLength = pathElement.getTotalLength();
+    if (!Number.isFinite(totalLength) || totalLength <= 0) {
+      return [];
+    }
+
+    const sampleCount = Math.max(1, Math.ceil(totalLength / EDGE_CUT_PATH_SAMPLE_STEP));
+    const points: CanvasPoint[] = [];
+    for (let index = 0; index <= sampleCount; index += 1) {
+      const point = pathElement.getPointAtLength((totalLength * index) / sampleCount);
+      points.push({ x: point.x, y: point.y });
+    }
+    return points;
+  } catch {
+    return [];
+  }
+}
+
+function getEdgeIdFromPath(pathElement: SVGPathElement): string | null {
+  const edgeElement = pathElement.closest('.react-flow__edge');
+  const rawId =
+    edgeElement?.getAttribute('data-id')
+    ?? pathElement.getAttribute('data-id')
+    ?? pathElement.id;
+  const edgeId = rawId?.trim();
+  return edgeId || null;
+}
+
+function collectIntersectingEdgeIds(
+  containerElement: HTMLElement,
+  cutFlowPoints: CanvasPoint[]
+): Set<string> {
+  const hitEdgeIds = new Set<string>();
+  if (cutFlowPoints.length < 2) {
+    return hitEdgeIds;
+  }
+
+  const edgePathElements = containerElement.querySelectorAll<SVGPathElement>(
+    EDGE_CUT_PATH_SELECTOR
+  );
+  edgePathElements.forEach((pathElement) => {
+    const edgeId = getEdgeIdFromPath(pathElement);
+    if (!edgeId || hitEdgeIds.has(edgeId)) {
+      return;
+    }
+
+    const edgePoints = sampleSvgPath(pathElement);
+    if (doPolylinesIntersect(cutFlowPoints, edgePoints)) {
+      hitEdgeIds.add(edgeId);
+    }
+  });
+
+  return hitEdgeIds;
 }
 
 function areAlignmentGuidesEqual(
@@ -909,6 +1078,8 @@ export function Canvas() {
     useState<PreviewConnectionVisual | null>(null);
   const [dragOverlayKind, setDragOverlayKind] = useState<CanvasDragOverlayKind>(null);
   const [imageCompareNotice, setImageCompareNotice] = useState<ImageCompareNoticeState | null>(null);
+  const [edgeCutVisual, setEdgeCutVisual] = useState<EdgeCutGestureVisual | null>(null);
+  const [edgeCutNoticeCount, setEdgeCutNoticeCount] = useState<number | null>(null);
 
   const isRestoringCanvasRef = useRef(true);
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -918,6 +1089,7 @@ export function Canvas() {
   const pendingPasteHandledRef = useRef<Promise<boolean> | null>(null);
   const dragOverlayClearTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const imageCompareNoticeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const edgeCutNoticeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const alignmentFrameRef = useRef<number | null>(null);
   const restoredCanvasProjectIdRef = useRef<string | null>(null);
   const pendingAlignmentNodeRef = useRef<CanvasNode | null>(null);
@@ -928,6 +1100,8 @@ export function Canvas() {
   const connectionPointerRef = useRef<{ x: number; y: number } | null>(null);
   const connectionSpacePanActiveRef = useRef(false);
   const connectionSpacePanMovedRef = useRef(false);
+  const edgeCutKeyPressedRef = useRef(false);
+  const edgeCutGestureRef = useRef<EdgeCutGestureState | null>(null);
   const altDragCopyRef = useRef<{
     sourceNodeIds: string[];
     startPositions: globalThis.Map<string, { x: number; y: number }>;
@@ -979,6 +1153,7 @@ export function Canvas() {
     (state) => state.ensureShootingScriptNodeFromSceneEpisode
   );
   const deleteEdge = useCanvasStore((state) => state.deleteEdge);
+  const deleteEdges = useCanvasStore((state) => state.deleteEdges);
   const deleteNode = useCanvasStore((state) => state.deleteNode);
   const deleteNodes = useCanvasStore((state) => state.deleteNodes);
   const groupNodes = useCanvasStore((state) => state.groupNodes);
@@ -1320,6 +1495,10 @@ export function Canvas() {
       if (imageCompareNoticeTimerRef.current) {
         clearTimeout(imageCompareNoticeTimerRef.current);
         imageCompareNoticeTimerRef.current = null;
+      }
+      if (edgeCutNoticeTimerRef.current) {
+        clearTimeout(edgeCutNoticeTimerRef.current);
+        edgeCutNoticeTimerRef.current = null;
       }
       if (alignmentFrameRef.current !== null) {
         cancelAnimationFrame(alignmentFrameRef.current);
@@ -2268,6 +2447,154 @@ export function Canvas() {
   }, [cancelPendingViewportPersist]);
 
   useEffect(() => {
+    const wrapperElement = reactFlowWrapperRef.current;
+    if (!wrapperElement) {
+      return;
+    }
+
+    const stopEdgeCutEvent = (event: PointerEvent) => {
+      event.preventDefault();
+      event.stopPropagation();
+      event.stopImmediatePropagation();
+    };
+
+    const appendEdgeCutPoint = (event: PointerEvent): EdgeCutGestureState | null => {
+      const gesture = edgeCutGestureRef.current;
+      if (!gesture || event.pointerId !== gesture.pointerId) {
+        return null;
+      }
+
+      const nextFlowPoint = reactFlowInstance.screenToFlowPosition({
+        x: event.clientX,
+        y: event.clientY,
+      });
+      const lastFlowPoint = gesture.flowPoints[gesture.flowPoints.length - 1];
+      if (lastFlowPoint && getDistance(lastFlowPoint, nextFlowPoint) < EDGE_CUT_MIN_POINT_DISTANCE) {
+        return gesture;
+      }
+
+      gesture.flowPoints.push(nextFlowPoint);
+      gesture.screenPoints.push(getRelativePointerPoint(event, wrapperElement));
+      gesture.hitEdgeIds = collectIntersectingEdgeIds(wrapperElement, gesture.flowPoints);
+      setEdgeCutVisual({
+        screenPoints: [...gesture.screenPoints],
+        hitEdgeIds: Array.from(gesture.hitEdgeIds),
+      });
+      return gesture;
+    };
+
+    const resetEdgeCutGesture = () => {
+      edgeCutGestureRef.current = null;
+      setEdgeCutVisual(null);
+      setIsViewportInteracting(false);
+    };
+
+    const handlePointerDown = (event: PointerEvent) => {
+      if (
+        event.button !== 0
+        || !edgeCutKeyPressedRef.current
+        || isImageViewerOpen
+        || isTypingTarget(event.target)
+      ) {
+        return;
+      }
+
+      const targetElement = event.target as HTMLElement | null;
+      if (!targetElement?.closest('.react-flow')) {
+        return;
+      }
+
+      stopEdgeCutEvent(event);
+      suppressNextEdgeClickRef.current = true;
+      cancelPendingViewportPersist();
+
+      const firstFlowPoint = reactFlowInstance.screenToFlowPosition({
+        x: event.clientX,
+        y: event.clientY,
+      });
+      const firstScreenPoint = getRelativePointerPoint(event, wrapperElement);
+      edgeCutGestureRef.current = {
+        pointerId: event.pointerId,
+        flowPoints: [firstFlowPoint],
+        screenPoints: [firstScreenPoint],
+        hitEdgeIds: new Set<string>(),
+      };
+      wrapperElement.setPointerCapture?.(event.pointerId);
+      setIsViewportInteracting(true);
+      setEdgeCutVisual({
+        screenPoints: [firstScreenPoint],
+        hitEdgeIds: [],
+      });
+    };
+
+    const handlePointerMove = (event: PointerEvent) => {
+      const gesture = edgeCutGestureRef.current;
+      if (!gesture || event.pointerId !== gesture.pointerId) {
+        return;
+      }
+
+      stopEdgeCutEvent(event);
+      appendEdgeCutPoint(event);
+    };
+
+    const handlePointerUp = (event: PointerEvent) => {
+      const gesture = edgeCutGestureRef.current;
+      if (!gesture || event.pointerId !== gesture.pointerId) {
+        return;
+      }
+
+      stopEdgeCutEvent(event);
+      const completedGesture = appendEdgeCutPoint(event) ?? gesture;
+      const deletedCount = deleteEdges(Array.from(completedGesture.hitEdgeIds));
+      wrapperElement.releasePointerCapture?.(event.pointerId);
+      resetEdgeCutGesture();
+
+      if (deletedCount === 0) {
+        return;
+      }
+
+      scheduleCanvasPersist(0);
+      setEdgeCutNoticeCount(deletedCount);
+      if (edgeCutNoticeTimerRef.current) {
+        clearTimeout(edgeCutNoticeTimerRef.current);
+      }
+      edgeCutNoticeTimerRef.current = setTimeout(() => {
+        edgeCutNoticeTimerRef.current = null;
+        setEdgeCutNoticeCount(null);
+      }, EDGE_CUT_NOTICE_DURATION_MS);
+    };
+
+    const handlePointerCancel = (event: PointerEvent) => {
+      const gesture = edgeCutGestureRef.current;
+      if (!gesture || event.pointerId !== gesture.pointerId) {
+        return;
+      }
+
+      stopEdgeCutEvent(event);
+      wrapperElement.releasePointerCapture?.(event.pointerId);
+      resetEdgeCutGesture();
+    };
+
+    wrapperElement.addEventListener('pointerdown', handlePointerDown, true);
+    window.addEventListener('pointermove', handlePointerMove, true);
+    window.addEventListener('pointerup', handlePointerUp, true);
+    window.addEventListener('pointercancel', handlePointerCancel, true);
+
+    return () => {
+      wrapperElement.removeEventListener('pointerdown', handlePointerDown, true);
+      window.removeEventListener('pointermove', handlePointerMove, true);
+      window.removeEventListener('pointerup', handlePointerUp, true);
+      window.removeEventListener('pointercancel', handlePointerCancel, true);
+    };
+  }, [
+    cancelPendingViewportPersist,
+    deleteEdges,
+    isImageViewerOpen,
+    reactFlowInstance,
+    scheduleCanvasPersist,
+  ]);
+
+  useEffect(() => {
     const wrapperElement = wrapperRef.current;
     if (!wrapperElement) {
       return;
@@ -2277,7 +2604,7 @@ export function Canvas() {
     const dragThreshold = 4;
 
     const handlePointerDown = (event: PointerEvent) => {
-      if (event.button !== 0) {
+      if (event.button !== 0 || edgeCutKeyPressedRef.current) {
         return;
       }
 
@@ -2946,6 +3273,16 @@ export function Canvas() {
         return;
       }
 
+      if (
+        event.key.toLowerCase() === 'x'
+        && !event.ctrlKey
+        && !event.metaKey
+        && !event.altKey
+      ) {
+        edgeCutKeyPressedRef.current = true;
+        return;
+      }
+
       if (event.key === ' ' && pendingConnectStart) {
         event.preventDefault();
         connectionSpacePanActiveRef.current = true;
@@ -3062,7 +3399,13 @@ export function Canvas() {
     };
 
     document.addEventListener('keydown', handleKeyDown);
+    const handleWindowBlur = () => {
+      edgeCutKeyPressedRef.current = false;
+    };
     const handleKeyUp = (event: KeyboardEvent) => {
+      if (event.key.toLowerCase() === 'x') {
+        edgeCutKeyPressedRef.current = false;
+      }
       if (event.key === ' ') {
         connectionSpacePanActiveRef.current = false;
         connectionPointerRef.current = null;
@@ -3070,9 +3413,12 @@ export function Canvas() {
       }
     };
     document.addEventListener('keyup', handleKeyUp);
+    window.addEventListener('blur', handleWindowBlur);
     return () => {
       document.removeEventListener('keydown', handleKeyDown);
       document.removeEventListener('keyup', handleKeyUp);
+      window.removeEventListener('blur', handleWindowBlur);
+      edgeCutKeyPressedRef.current = false;
     };
   }, [
     cancelPendingViewportPersist,
@@ -4807,6 +5153,28 @@ export function Canvas() {
     }),
     [nodes]
   );
+  const edgeCutHitEdgeIds = useMemo(
+    () => new Set(edgeCutVisual?.hitEdgeIds ?? []),
+    [edgeCutVisual?.hitEdgeIds]
+  );
+  const flowEdges = useMemo<CanvasEdge[]>(() => {
+    if (edgeCutHitEdgeIds.size === 0) {
+      return edges;
+    }
+
+    return edges.map((edge) => (
+      edgeCutHitEdgeIds.has(edge.id)
+        ? {
+            ...edge,
+            style: {
+              ...edge.style,
+              stroke: 'rgb(var(--accent-rgb) / 0.98)',
+              strokeWidth: 3.8,
+            },
+          }
+        : edge
+    ));
+  }, [edgeCutHitEdgeIds, edges]);
   const colorLegendLabels = project?.colorLabels ?? createDefaultCanvasColorLabelMap();
   const selectedColorableNodes = useMemo<CanvasNode[]>(
     () => selectedNodes.filter((node) => node.type !== CANVAS_NODE_TYPES.group),
@@ -5051,6 +5419,13 @@ export function Canvas() {
           </div>
         </div>
       )}
+      {!isImageViewerOpen && edgeCutNoticeCount !== null && (
+        <div className="pointer-events-none absolute inset-x-0 top-14 z-[90] flex justify-center px-4">
+          <div className="max-w-[min(420px,100%)] rounded-full border border-accent/45 bg-accent/18 px-4 py-2 text-sm font-medium text-text-dark shadow-[0_18px_48px_rgba(15,23,42,0.22)] backdrop-blur">
+            {t('canvas.edgeCutDisconnected', { count: edgeCutNoticeCount })}
+          </div>
+        </div>
+      )}
       {!isImageViewerOpen && (
         <GroupSidebar
           groups={groupNodesList}
@@ -5061,7 +5436,7 @@ export function Canvas() {
       )}
       <ReactFlow
         nodes={flowNodes}
-        edges={edges}
+        edges={flowEdges}
         onNodesChange={handleNodesChange}
         onEdgesChange={handleEdgesChange}
         onEdgeClick={handleEdgeClick}
@@ -5087,7 +5462,7 @@ export function Canvas() {
         minZoom={0.1}
         maxZoom={5}
         selectionOnDrag
-        selectionMode={SelectionMode.Partial}
+        selectionMode={SelectionMode.Full}
         multiSelectionKeyCode={['Control', 'Meta']}
         selectionKeyCode={['Control', 'Meta']}
         deleteKeyCode={null}
@@ -5098,7 +5473,12 @@ export function Canvas() {
         proOptions={{ hideAttribution: true }}
         className="bg-bg-dark"
       >
-        <Background variant={BackgroundVariant.Dots} gap={snapGridSize} size={1.5} color={showGrid ? "rgba(255,255,255,0.12)" : "transparent"} />
+        <Background
+          variant={BackgroundVariant.Dots}
+          gap={snapGridSize}
+          size={1.5}
+          color={showGrid ? "var(--canvas-grid-dot)" : "transparent"}
+        />
         
         {showMiniMap && !isViewportInteracting && !isImageViewerOpen && (
           <MiniMap
@@ -5129,6 +5509,27 @@ export function Canvas() {
           />
         )}
       </ReactFlow>
+
+      {edgeCutVisual && edgeCutVisual.screenPoints.length > 0 && (
+        <svg className="pointer-events-none absolute inset-0 z-[120] overflow-visible">
+          <polyline
+            points={edgeCutVisual.screenPoints.map((point) => `${point.x},${point.y}`).join(' ')}
+            fill="none"
+            stroke="rgb(var(--accent-rgb) / 0.22)"
+            strokeWidth={10}
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          />
+          <polyline
+            points={edgeCutVisual.screenPoints.map((point) => `${point.x},${point.y}`).join(' ')}
+            fill="none"
+            stroke="rgb(var(--accent-rgb) / 0.95)"
+            strokeWidth={2.5}
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          />
+        </svg>
+      )}
 
       {/* 合并锚点 - 多选时显示 */}
       {selectedNodes.length >= 2 && !isDraggingBranchConnection && !isViewportInteracting && !isImageViewerOpen && (
@@ -5174,7 +5575,7 @@ export function Canvas() {
         <button
           onClick={() => setSnapToGrid(!snapToGrid)}
           style={{ 
-            color: snapToGrid ? '#3b82f6' : '#6b7280',
+            color: snapToGrid ? 'rgb(var(--accent-rgb))' : 'rgb(var(--text-muted-rgb))',
             padding: '6px',
             borderRadius: '4px'
           }}
@@ -5183,13 +5584,13 @@ export function Canvas() {
           <Grid3x3 style={{ width: '16px', height: '16px' }} />
         </button>
 
-        <div style={{ width: '1px', height: '16px', backgroundColor: '#374151' }} />
+        <div style={{ width: '1px', height: '16px', backgroundColor: 'rgb(var(--border-rgb))' }} />
 
         {/* 对齐辅助线开关 */}
         <button
           onClick={() => setShowAlignmentGuides(!showAlignmentGuides)}
           style={{
-            color: showAlignmentGuides ? '#3b82f6' : '#6b7280',
+            color: showAlignmentGuides ? 'rgb(var(--accent-rgb))' : 'rgb(var(--text-muted-rgb))',
             padding: '6px',
             borderRadius: '4px'
           }}
@@ -5202,12 +5603,12 @@ export function Canvas() {
           <AlignCenter style={{ width: '16px', height: '16px' }} />
         </button>
 
-        <div style={{ width: '1px', height: '16px', backgroundColor: '#374151' }} />
+        <div style={{ width: '1px', height: '16px', backgroundColor: 'rgb(var(--border-rgb))' }} />
 
         <button
           onClick={() => setShowJimengQueuePanel((value) => !value)}
           style={{
-            color: showJimengQueuePanel ? '#3b82f6' : '#6b7280',
+            color: showJimengQueuePanel ? 'rgb(var(--accent-rgb))' : 'rgb(var(--text-muted-rgb))',
             padding: '6px',
             borderRadius: '4px',
             position: 'relative',
@@ -5228,7 +5629,7 @@ export function Canvas() {
           data-generation-history-toggle="true"
           onClick={() => setShowGenerationHistoryPanel((value) => !value)}
           style={{
-            color: showGenerationHistoryPanel ? '#3b82f6' : '#6b7280',
+            color: showGenerationHistoryPanel ? 'rgb(var(--accent-rgb))' : 'rgb(var(--text-muted-rgb))',
             padding: '6px',
             borderRadius: '4px',
             position: 'relative',
@@ -5250,7 +5651,7 @@ export function Canvas() {
         <button
           onClick={() => setShowMiniMap(!showMiniMap)}
           style={{ 
-            color: showMiniMap ? '#3b82f6' : '#6b7280',
+            color: showMiniMap ? 'rgb(var(--accent-rgb))' : 'rgb(var(--text-muted-rgb))',
             padding: '6px',
             borderRadius: '4px'
           }}
@@ -5259,13 +5660,13 @@ export function Canvas() {
           <MapIcon style={{ width: '16px', height: '16px' }} />
         </button>
 
-        <div style={{ width: '1px', height: '16px', backgroundColor: '#374151' }} />
+        <div style={{ width: '1px', height: '16px', backgroundColor: 'rgb(var(--border-rgb))' }} />
 
         {/* 缩小 */}
         <button
           onClick={() => zoomOut()}
           style={{ 
-            color: '#6b7280',
+            color: 'rgb(var(--text-muted-rgb))',
             padding: '6px',
             borderRadius: '4px'
           }}
@@ -5281,7 +5682,7 @@ export function Canvas() {
         <button
           onClick={() => zoomIn()}
           style={{ 
-            color: '#6b7280',
+            color: 'rgb(var(--text-muted-rgb))',
             padding: '6px',
             borderRadius: '4px'
           }}

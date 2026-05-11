@@ -31,16 +31,16 @@ export function AlignmentGuides({ guides }: AlignmentGuidesProps) {
                 right: 0,
                 height: '1px',
                 borderTop: isCenterGuide
-                  ? '1px solid rgba(59, 130, 246, 0.82)'
-                  : '1px dashed rgba(59, 130, 246, 0.6)',
+                  ? '1px solid var(--canvas-guide-solid)'
+                  : '1px dashed var(--canvas-guide-dashed)',
               } : {
                 left: screenPosition,
                 top: 0,
                 bottom: 0,
                 width: '1px',
                 borderLeft: isCenterGuide
-                  ? '1px solid rgba(59, 130, 246, 0.82)'
-                  : '1px dashed rgba(59, 130, 246, 0.6)',
+                  ? '1px solid var(--canvas-guide-solid)'
+                  : '1px dashed var(--canvas-guide-dashed)',
               }),
             }}
           />

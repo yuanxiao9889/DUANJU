@@ -66,6 +66,7 @@ const BARE_LOADING_WIDTH = 'min(320px, calc(100% - 2rem))';
 const BARE_LOADING_HEIGHT = '120px';
 const BARE_LOADING_TRIM_INSET = '18%';
 const BARE_LOADING_ZOOM = 1.45;
+const BANNER_LOADING_TRIM_INSET = '12%';
 
 export function UiLoadingAnimation({
   size = 'md',
@@ -186,6 +187,8 @@ export function UiLoadingBanner({
           width="100%"
           height="100%"
           style={{ display: 'block' }}
+          trimBars
+          trimInset={BANNER_LOADING_TRIM_INSET}
         />
         <span className="sr-only">{t('common.loading')}</span>
       </div>

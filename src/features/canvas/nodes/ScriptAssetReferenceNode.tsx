@@ -73,6 +73,19 @@ const MAX_NODE_HEIGHT = 1080;
 const JIMENG_IMAGE_NODE_DEFAULT_WIDTH = 640;
 const JIMENG_IMAGE_NODE_DEFAULT_HEIGHT = 340;
 
+const SCRIPT_ASSET_REFERENCE_NODE_BASE_CLASS =
+  'group relative overflow-visible rounded-[20px] border bg-surface-dark shadow-[0_12px_24px_rgba(2,6,23,0.12)] dark:shadow-[0_14px_28px_rgba(0,0,0,0.24)]';
+const SCRIPT_ASSET_REFERENCE_NODE_SELECTED_CLASS =
+  'border-[rgba(15,23,42,0.42)] dark:border-white/36';
+const SCRIPT_ASSET_REFERENCE_NODE_IDLE_CLASS =
+  'border-[rgba(15,23,42,0.2)] hover:border-[rgba(15,23,42,0.34)] dark:border-white/18 dark:hover:border-white/30';
+const SCRIPT_ASSET_REFERENCE_HANDLE_CLASS =
+  '!h-3 !w-3 !rounded-full !border-surface-dark !bg-[#222222] dark:!bg-text-muted';
+const SCRIPT_ASSET_REFERENCE_CHIP_CLASS =
+  'rounded-full bg-bg-dark px-2 py-0.5 text-text-muted';
+const SCRIPT_ASSET_REFERENCE_ACTION_BUTTON_CLASS =
+  'inline-flex items-center gap-1.5 rounded-lg border border-border-dark bg-bg-dark px-3 py-1.5 text-xs font-medium text-text-dark transition-colors hover:border-[rgba(15,23,42,0.34)] hover:bg-bg-dark/80 dark:hover:border-white/26 disabled:opacity-60';
+
 const SCRIPT_ASSET_REFERENCE_DOWNSTREAM_TARGETS = {
   image: {
     type: CANVAS_NODE_TYPES.imageEdit,
@@ -465,7 +478,7 @@ function ScriptAssetReferenceNode({
 
   return (
     <div
-      className={`group relative overflow-visible rounded-[20px] border bg-surface-dark shadow-[0_20px_40px_rgba(2,6,23,0.22)] ${selected ? 'border-cyan-300/55' : 'border-cyan-300/18 hover:border-cyan-300/32'}`}
+      className={`${SCRIPT_ASSET_REFERENCE_NODE_BASE_CLASS} ${selected ? SCRIPT_ASSET_REFERENCE_NODE_SELECTED_CLASS : SCRIPT_ASSET_REFERENCE_NODE_IDLE_CLASS}`}
       style={{ width: resolvedWidth, height: resolvedHeight }}
       onClick={() => setSelectedNode(id)}
     >
@@ -473,28 +486,25 @@ function ScriptAssetReferenceNode({
         type="target"
         id="target"
         position={Position.Left}
-        className="!h-3 !w-3 !-left-1.5 !rounded-full !border-surface-dark !bg-cyan-400"
+        className={`${SCRIPT_ASSET_REFERENCE_HANDLE_CLASS} !-left-1.5`}
       />
       <Handle
         type="source"
         id="source"
         position={Position.Right}
-        className="!h-3 !w-3 !-right-1.5 !rounded-full !border-surface-dark !bg-teal-400"
+        className={`${SCRIPT_ASSET_REFERENCE_HANDLE_CLASS} !-right-1.5`}
       />
 
       <div className="relative flex h-full flex-col overflow-hidden rounded-[20px] p-3">
-        <div className="pointer-events-none absolute inset-0 overflow-hidden rounded-[20px]">
-          <div className="absolute inset-x-0 top-0 h-[2px] bg-cyan-300/70" />
-        </div>
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0">
-            <div className="flex flex-wrap items-center gap-2 text-[11px] text-cyan-200/85">
-              <span className="rounded-full bg-cyan-500/10 px-2 py-0.5">
+            <div className="flex flex-wrap items-center gap-2 text-[11px] text-text-muted">
+              <span className={SCRIPT_ASSET_REFERENCE_CHIP_CLASS}>
                 <Icon className="mr-1 inline h-3 w-3" />
                 {badgeLabel}
               </span>
               {linkedProjectName ? (
-                <span className="rounded-full bg-amber-500/12 px-2 py-0.5 text-amber-200">
+                <span className={SCRIPT_ASSET_REFERENCE_CHIP_CLASS}>
                   <Link2 className="mr-1 inline h-3 w-3" />
                   {linkedProjectName}
                 </span>
@@ -510,7 +520,7 @@ function ScriptAssetReferenceNode({
                 event.stopPropagation();
                 void loadLinkedProject();
               }}
-              className="flex h-8 w-8 items-center justify-center rounded-lg border border-transparent text-text-muted hover:border-cyan-400/25 hover:bg-cyan-500/10 hover:text-cyan-100"
+              className="flex h-8 w-8 items-center justify-center rounded-lg border border-transparent text-text-muted transition-colors hover:border-border-dark hover:bg-bg-dark hover:text-text-dark"
               title={t('node.scriptAssetReference.refreshLibrary')}
             >
               <RefreshCcw className="h-4 w-4" />
@@ -523,7 +533,7 @@ function ScriptAssetReferenceNode({
             {selectedAsset?.name || data.referencedAssetName || t('node.scriptAssetReference.unselected')}
           </span>
           {statusMessage !== t('node.scriptAssetReference.ready') ? (
-            <span className="inline-flex items-center gap-1 rounded-full bg-amber-500/10 px-2.5 py-1 text-amber-200">
+            <span className="inline-flex items-center gap-1 rounded-full bg-bg-dark px-2.5 py-1 text-text-muted">
               <TriangleAlert className="h-3.5 w-3.5" />
               {t('node.scriptAssetReference.warning')}
             </span>
@@ -538,7 +548,7 @@ function ScriptAssetReferenceNode({
               event.stopPropagation();
               createDownstreamNode('image');
             }}
-            className="inline-flex items-center gap-1.5 rounded-lg border border-cyan-500/30 bg-cyan-500/10 px-3 py-1.5 text-xs font-medium text-cyan-200 disabled:opacity-60"
+            className={SCRIPT_ASSET_REFERENCE_ACTION_BUTTON_CLASS}
           >
             <ImageIcon className="h-3.5 w-3.5" />
             {t('node.scriptAssetReference.generateImage')}
@@ -550,7 +560,7 @@ function ScriptAssetReferenceNode({
               event.stopPropagation();
               createDownstreamNode('mjImage');
             }}
-            className="inline-flex items-center gap-1.5 rounded-lg border border-fuchsia-500/30 bg-fuchsia-500/10 px-3 py-1.5 text-xs font-medium text-fuchsia-200 disabled:opacity-60"
+            className={SCRIPT_ASSET_REFERENCE_ACTION_BUTTON_CLASS}
           >
             <Sparkles className="h-3.5 w-3.5" />
             {t('node.scriptAssetReference.generateMidjourneyImage')}
@@ -562,7 +572,7 @@ function ScriptAssetReferenceNode({
               event.stopPropagation();
               createDownstreamNode('jimengImage');
             }}
-            className="inline-flex items-center gap-1.5 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-1.5 text-xs font-medium text-amber-200 disabled:opacity-60"
+            className={SCRIPT_ASSET_REFERENCE_ACTION_BUTTON_CLASS}
           >
             <ImageIcon className="h-3.5 w-3.5" />
             {t('node.scriptAssetReference.generateJimengImage')}
@@ -584,7 +594,7 @@ function ScriptAssetReferenceNode({
               <div className="rounded-xl border border-border-dark/70 bg-bg-dark px-3 py-3">
                 <div className="grid gap-2">
                   <div className="grid grid-cols-[88px,minmax(0,1fr)] items-center gap-2">
-                    <div className="text-[11px] font-medium uppercase tracking-[0.08em] text-cyan-200">
+                    <div className="text-[11px] font-medium uppercase tracking-[0.08em] text-text-muted">
                       {t('node.scriptAssetReference.selectLabel', { assetType: assetTypeLabel })}
                     </div>
                     {availableAssets.length > 0 ? (
@@ -627,7 +637,7 @@ function ScriptAssetReferenceNode({
                   <div className="flex h-full min-h-0 flex-col">
                     <div className="flex items-center justify-between gap-3 border-b border-border-dark/70 px-3 py-3">
                       <div className="min-w-0">
-                        <div className="text-xs font-medium text-cyan-200">{assetTypeLabel}</div>
+                        <div className="text-xs font-medium text-text-muted">{assetTypeLabel}</div>
                         <div className="truncate text-sm font-semibold text-text-dark">
                           {selectedSnapshot.name}
                         </div>
@@ -654,7 +664,7 @@ function ScriptAssetReferenceNode({
                       contentClassName="space-y-3 px-3 py-3 pr-5"
                     >
                       <div className="rounded-xl border border-border-dark/70 bg-surface-dark px-3 py-3">
-                        <div className="text-[11px] font-medium uppercase tracking-[0.08em] text-cyan-200">
+                        <div className="text-[11px] font-medium uppercase tracking-[0.08em] text-text-muted">
                           {t('node.scriptAssetReference.promptPreview')}
                         </div>
                         <pre className="mt-2 whitespace-pre-wrap break-words font-sans text-xs leading-6 text-text-dark">

@@ -39,7 +39,7 @@ export function NodeResizeHandle({
       position={position}
       className={`!h-4 !w-4 !min-h-0 !min-w-0 !rounded-none !border-0 !bg-transparent !p-0 transition-opacity duration-150 ${isVisible ? '!opacity-100' : '!opacity-0'} hover:!opacity-100 focus-within:!opacity-100 group-hover:!opacity-70`}
     >
-      <div className={`pointer-events-none absolute h-2.5 w-2.5 border-accent/70 ${CORNER_STYLES[position]}`} />
+      <div className={`pointer-events-none absolute h-2.5 w-2.5 border-[#222222]/70 dark:border-white/65 ${CORNER_STYLES[position]}`} />
     </NodeResizeControl>
   );
 }

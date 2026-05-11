@@ -2,12 +2,15 @@ use std::collections::HashSet;
 use std::fs;
 use std::io::{self, Read, Write};
 use std::path::{Path, PathBuf};
+use std::sync::OnceLock;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use rusqlite::{Connection, DatabaseName};
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 use tauri::{AppHandle, Manager};
 use tracing::info;
+use uuid::Uuid;
 
 use super::project_state;
 
@@ -31,6 +34,9 @@ pub struct MediaPersistContext {
 }
 
 const STORAGE_CONFIG_FILE: &str = "storage_config.json";
+const STORAGE_SESSION_FILE: &str = "storage-session.json";
+const STORAGE_MEDIA_URI_PREFIX: &str = "sb://storage/";
+const STORAGE_SESSION_STALE_MS: i64 = 2 * 60 * 1000;
 const AUTO_DATABASE_BACKUP_KIND: &str = "auto";
 const MANUAL_DATABASE_BACKUP_KIND: &str = "manual";
 const PRE_RESTORE_DATABASE_BACKUP_KIND: &str = "pre_restore";
@@ -41,6 +47,7 @@ const PRE_RESTORE_DATABASE_BACKUP_RETENTION_COUNT: usize = 2;
 const PRE_PERSIST_DATABASE_BACKUP_RETENTION_COUNT: usize = 8;
 const AUTOMATIC_DATABASE_BACKUP_MAX_BYTES: u64 = 2 * 1024 * 1024 * 1024;
 const DATABASE_BACKUP_SIDECAR_CLEANUP_GRACE_MS: i64 = 5 * 60 * 1000;
+static CURRENT_STORAGE_SESSION_ID: OnceLock<String> = OnceLock::new();
 const LEGACY_STORAGE_DIR_NAMES: &[&str] = &[
     "Storyboard-Copilot",
     "storyboard-copilot",
@@ -57,6 +64,57 @@ struct LegacyStorageCandidate {
     path: PathBuf,
     score: u8,
     modified_at: i64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct StorageSessionStatus {
+    pub current_path: String,
+    pub machine_id: String,
+    pub session_id: String,
+    pub process_id: u32,
+    pub active: bool,
+    pub stale: bool,
+    #[serde(default)]
+    pub owner_machine_id: Option<String>,
+    #[serde(default)]
+    pub owner_session_id: Option<String>,
+    #[serde(default)]
+    pub owner_process_id: Option<u32>,
+    #[serde(default)]
+    pub started_at: Option<i64>,
+    #[serde(default)]
+    pub updated_at: Option<i64>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct StorageSessionRecord {
+    pub machine_id: String,
+    #[serde(default)]
+    pub session_id: Option<String>,
+    #[serde(default)]
+    pub process_id: Option<u32>,
+    pub started_at: i64,
+    pub updated_at: i64,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct StorageAdoptionResult {
+    pub previous_path: String,
+    pub adopted_path: String,
+    pub safety_backup: Option<DatabaseBackupRecord>,
+}
+
+#[derive(Debug, Clone, Serialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct StorageMediaMigrationStats {
+    pub project_payloads_rewritten: u64,
+    pub asset_items_rewritten: u64,
+    pub generation_history_items_rewritten: u64,
+    pub jimeng_queue_jobs_rewritten: u64,
+    pub clip_items_rewritten: u64,
 }
 
 fn get_config_path(app: &AppHandle) -> Result<PathBuf, String> {
@@ -610,6 +668,226 @@ pub(crate) fn normalize_storage_path_string(value: &str) -> Option<String> {
     Some(normalized)
 }
 
+fn is_transient_or_remote_media_value(value: &str) -> bool {
+    let lower = value.trim().to_ascii_lowercase();
+    lower.starts_with("data:")
+        || lower.starts_with("http://")
+        || lower.starts_with("https://")
+        || lower.starts_with("blob:")
+        || lower.starts_with("asset://")
+        || lower.starts_with("tauri:")
+}
+
+fn decode_file_url_path(value: &str) -> String {
+    let raw = value.trim_start_matches("file://");
+    let decoded = urlencoding::decode(raw)
+        .map(|result| result.into_owned())
+        .unwrap_or_else(|_| raw.to_string());
+
+    if cfg!(target_os = "windows")
+        && decoded.starts_with('/')
+        && decoded
+            .chars()
+            .nth(1)
+            .is_some_and(|ch| ch.is_ascii_alphabetic())
+        && decoded.chars().nth(2) == Some(':')
+    {
+        decoded[1..].to_string()
+    } else {
+        decoded
+    }
+}
+
+fn normalize_local_media_path_value(value: &str) -> Option<String> {
+    let trimmed = value.trim();
+    if trimmed.is_empty()
+        || trimmed.starts_with(STORAGE_MEDIA_URI_PREFIX)
+        || is_transient_or_remote_media_value(trimmed)
+    {
+        return None;
+    }
+
+    if trimmed.to_ascii_lowercase().starts_with("file://") {
+        return normalize_storage_path_string(&decode_file_url_path(trimmed));
+    }
+
+    normalize_storage_path_string(trimmed)
+}
+
+fn encode_storage_uri_relative_path(relative_path: &str) -> String {
+    relative_path
+        .split('/')
+        .map(urlencoding::encode)
+        .map(|item| item.into_owned())
+        .collect::<Vec<_>>()
+        .join("/")
+}
+
+fn decode_storage_uri_relative_path(relative_path: &str) -> Option<String> {
+    if relative_path.trim().is_empty() {
+        return None;
+    }
+
+    let mut segments = Vec::new();
+    for raw_segment in relative_path.split('/') {
+        if raw_segment.is_empty() {
+            return None;
+        }
+        let segment = urlencoding::decode(raw_segment).ok()?.into_owned();
+        if segment.is_empty()
+            || segment == "."
+            || segment == ".."
+            || segment.contains('/')
+            || segment.contains('\\')
+            || segment.contains(':')
+        {
+            return None;
+        }
+        segments.push(segment);
+    }
+
+    Some(segments.join("/"))
+}
+
+fn storage_relative_path_from_absolute(value: &str, base_path: &Path) -> Option<String> {
+    let normalized_value = normalize_local_media_path_value(value)?;
+    let normalized_base = normalize_storage_path_string(&base_path.to_string_lossy())?;
+    let compare_value = storage_path_compare_key(&normalized_value);
+    let compare_base = storage_path_compare_key(&normalized_base);
+
+    if compare_value == compare_base {
+        return None;
+    }
+
+    let compare_prefix = format!("{}/", compare_base);
+    if !compare_value.starts_with(&compare_prefix) {
+        return None;
+    }
+
+    let relative_path = normalized_value[normalized_base.len() + 1..].to_string();
+    if relative_path
+        .split('/')
+        .any(|segment| segment.is_empty() || segment == "." || segment == "..")
+    {
+        return None;
+    }
+
+    Some(relative_path)
+}
+
+pub(crate) fn encode_storage_media_ref_in_base(base_path: &Path, value: &str) -> String {
+    let trimmed = value.trim();
+    if trimmed.is_empty() || trimmed.starts_with(STORAGE_MEDIA_URI_PREFIX) {
+        return value.to_string();
+    }
+
+    let Some(relative_path) = storage_relative_path_from_absolute(trimmed, base_path) else {
+        return value.to_string();
+    };
+
+    format!(
+        "{}{}",
+        STORAGE_MEDIA_URI_PREFIX,
+        encode_storage_uri_relative_path(&relative_path)
+    )
+}
+
+pub(crate) fn decode_storage_media_ref_in_base(base_path: &Path, value: &str) -> String {
+    let trimmed = value.trim();
+    let Some(relative_path) = trimmed.strip_prefix(STORAGE_MEDIA_URI_PREFIX) else {
+        return value.to_string();
+    };
+    let Some(decoded_relative_path) = decode_storage_uri_relative_path(relative_path) else {
+        return value.to_string();
+    };
+
+    let mut path = base_path.to_path_buf();
+    for segment in decoded_relative_path.split('/') {
+        path.push(segment);
+    }
+    path.to_string_lossy().to_string()
+}
+
+pub fn encode_storage_media_ref(app: &AppHandle, value: &str) -> String {
+    resolve_storage_base_path(app)
+        .map(|base_path| encode_storage_media_ref_in_base(&base_path, value))
+        .unwrap_or_else(|_| value.to_string())
+}
+
+pub fn decode_storage_media_ref(app: &AppHandle, value: &str) -> String {
+    resolve_storage_base_path(app)
+        .map(|base_path| decode_storage_media_ref_in_base(&base_path, value))
+        .unwrap_or_else(|_| value.to_string())
+}
+
+pub(crate) fn is_media_reference_key(key: &str) -> bool {
+    matches!(
+        key,
+        "imageUrl"
+            | "previewImageUrl"
+            | "thumbnailUrl"
+            | "sourceImageUrl"
+            | "maskImageUrl"
+            | "videoUrl"
+            | "audioUrl"
+            | "sourceUrl"
+            | "posterSourceUrl"
+            | "referenceUrl"
+            | "sourcePath"
+            | "previewPath"
+            | "source_path"
+            | "preview_path"
+            | "image_path"
+            | "preview_image_path"
+            | "waveform_path"
+    )
+}
+
+pub(crate) fn rewrite_media_refs_in_json_value<F>(value: &mut Value, rewrite: &F) -> bool
+where
+    F: Fn(&str) -> String,
+{
+    match value {
+        Value::Object(record) => {
+            let mut changed = false;
+            for (key, nested) in record {
+                if is_media_reference_key(key) {
+                    if let Some(current) = nested.as_str() {
+                        let next = rewrite(current);
+                        if next != current {
+                            *nested = Value::String(next);
+                            changed = true;
+                        }
+                    }
+                }
+                changed |= rewrite_media_refs_in_json_value(nested, rewrite);
+            }
+            changed
+        }
+        Value::Array(items) => items.iter_mut().fold(false, |changed, item| {
+            rewrite_media_refs_in_json_value(item, rewrite) || changed
+        }),
+        _ => false,
+    }
+}
+
+pub(crate) fn rewrite_media_refs_in_json_string<F>(
+    json: &str,
+    rewrite: &F,
+) -> Result<Option<String>, String>
+where
+    F: Fn(&str) -> String,
+{
+    let mut parsed = serde_json::from_str::<Value>(json)
+        .map_err(|e| format!("Failed to parse media ref json payload: {}", e))?;
+    if !rewrite_media_refs_in_json_value(&mut parsed, rewrite) {
+        return Ok(None);
+    }
+    serde_json::to_string(&parsed)
+        .map(Some)
+        .map_err(|e| format!("Failed to serialize media ref json payload: {}", e))
+}
+
 fn storage_path_compare_key(value: &str) -> String {
     if cfg!(target_os = "windows") {
         value.to_ascii_lowercase()
@@ -930,6 +1208,222 @@ fn current_timestamp_ms() -> i64 {
         .duration_since(UNIX_EPOCH)
         .unwrap_or_default()
         .as_millis() as i64
+}
+
+fn resolve_machine_id_path(app: &AppHandle) -> Result<PathBuf, String> {
+    let app_data_dir = app
+        .path()
+        .app_data_dir()
+        .map_err(|e| format!("Failed to resolve app data dir: {}", e))?;
+    fs::create_dir_all(&app_data_dir)
+        .map_err(|e| format!("Failed to create app data dir: {}", e))?;
+    Ok(app_data_dir.join("machine_id"))
+}
+
+fn read_or_create_machine_id(app: &AppHandle) -> Result<String, String> {
+    let path = resolve_machine_id_path(app)?;
+    if path.exists() {
+        let value = fs::read_to_string(&path)
+            .map_err(|e| format!("Failed to read machine id: {}", e))?
+            .trim()
+            .to_string();
+        if !value.is_empty() {
+            return Ok(value);
+        }
+    }
+
+    let value = Uuid::new_v4().to_string();
+    fs::write(&path, &value).map_err(|e| format!("Failed to write machine id: {}", e))?;
+    Ok(value)
+}
+
+fn current_storage_session_id() -> String {
+    CURRENT_STORAGE_SESSION_ID
+        .get_or_init(|| Uuid::new_v4().to_string())
+        .clone()
+}
+
+fn process_is_running(process_id: u32) -> bool {
+    if process_id == 0 {
+        return false;
+    }
+    if process_id == std::process::id() {
+        return true;
+    }
+
+    #[cfg(target_os = "windows")]
+    {
+        let output = std::process::Command::new("tasklist")
+            .args([
+                "/FI",
+                &format!("PID eq {}", process_id),
+                "/FO",
+                "CSV",
+                "/NH",
+            ])
+            .output();
+        let Ok(output) = output else {
+            return true;
+        };
+        if !output.status.success() {
+            return false;
+        }
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        stdout.contains(&process_id.to_string()) && !stdout.trim_start().starts_with("INFO:")
+    }
+
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
+    {
+        std::process::Command::new("kill")
+            .args(["-0", &process_id.to_string()])
+            .status()
+            .map(|status| status.success())
+            .unwrap_or(true)
+    }
+
+    #[cfg(not(any(target_os = "windows", target_os = "linux", target_os = "macos")))]
+    {
+        true
+    }
+}
+
+fn resolve_storage_session_path(app: &AppHandle) -> Result<PathBuf, String> {
+    Ok(resolve_storage_base_path(app)?.join(STORAGE_SESSION_FILE))
+}
+
+fn read_storage_session_record_at_path(
+    base_path: &Path,
+) -> Result<Option<StorageSessionRecord>, String> {
+    let path = base_path.join(STORAGE_SESSION_FILE);
+    if !path.exists() {
+        return Ok(None);
+    }
+
+    let content =
+        fs::read_to_string(&path).map_err(|e| format!("Failed to read storage session: {}", e))?;
+    if content.trim().is_empty() {
+        return Ok(None);
+    }
+
+    serde_json::from_str::<StorageSessionRecord>(&content)
+        .map(Some)
+        .map_err(|e| format!("Failed to parse storage session: {}", e))
+}
+
+fn write_storage_session_record(
+    app: &AppHandle,
+    record: &StorageSessionRecord,
+) -> Result<(), String> {
+    let path = resolve_storage_session_path(app)?;
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent)
+            .map_err(|e| format!("Failed to create storage session dir: {}", e))?;
+    }
+    let content = serde_json::to_string_pretty(record)
+        .map_err(|e| format!("Failed to serialize storage session: {}", e))?;
+    fs::write(path, content).map_err(|e| format!("Failed to write storage session: {}", e))
+}
+
+fn check_storage_session_for_path(
+    app: &AppHandle,
+    current_path: &Path,
+) -> Result<StorageSessionStatus, String> {
+    let machine_id = read_or_create_machine_id(app)?;
+    let session_id = current_storage_session_id();
+    let process_id = std::process::id();
+    let now = current_timestamp_ms();
+    let existing = read_storage_session_record_at_path(current_path)?;
+
+    let (
+        active,
+        stale,
+        owner_machine_id,
+        owner_session_id,
+        owner_process_id,
+        started_at,
+        updated_at,
+    ) = match existing {
+        Some(record) => {
+            let same_machine = record.machine_id == machine_id;
+            let same_session = record
+                .session_id
+                .as_deref()
+                .is_some_and(|value| value == session_id)
+                || (record.session_id.is_none() && same_machine);
+            let time_stale = now.saturating_sub(record.updated_at) > STORAGE_SESSION_STALE_MS;
+            let owner_process_alive = if same_machine && !same_session {
+                record.process_id.is_some_and(process_is_running)
+            } else {
+                true
+            };
+            let stale = time_stale || !owner_process_alive;
+            (
+                !same_session && !stale,
+                stale,
+                Some(record.machine_id),
+                record.session_id,
+                record.process_id,
+                Some(record.started_at),
+                Some(record.updated_at),
+            )
+        }
+        None => (false, false, None, None, None, None, None),
+    };
+
+    Ok(StorageSessionStatus {
+        current_path: current_path.to_string_lossy().to_string(),
+        machine_id,
+        session_id,
+        process_id,
+        active,
+        stale,
+        owner_machine_id,
+        owner_session_id,
+        owner_process_id,
+        started_at,
+        updated_at,
+    })
+}
+
+#[tauri::command]
+pub fn check_storage_session(app: AppHandle) -> Result<StorageSessionStatus, String> {
+    let current_path = resolve_storage_base_path(&app)?;
+    check_storage_session_for_path(&app, &current_path)
+}
+
+pub(crate) fn ensure_storage_session_write_allowed(app: &AppHandle) -> Result<(), String> {
+    let current_path = resolve_storage_base_path(app)?;
+    let status = check_storage_session_for_path(app, &current_path)?;
+    if status.active {
+        return Err(format!(
+            "This storage is currently active on another device. Please close the other app instance or wait until its session becomes stale. Storage: {}",
+            status.current_path
+        ));
+    }
+
+    let machine_id = status.machine_id;
+    let now = current_timestamp_ms();
+    let started_at = if status.stale {
+        now
+    } else {
+        status.started_at.unwrap_or(now)
+    };
+
+    write_storage_session_record(
+        app,
+        &StorageSessionRecord {
+            machine_id,
+            session_id: Some(current_storage_session_id()),
+            process_id: Some(std::process::id()),
+            started_at,
+            updated_at: now,
+        },
+    )
+}
+
+#[tauri::command]
+pub fn refresh_storage_session(app: AppHandle) -> Result<(), String> {
+    ensure_storage_session_write_allowed(&app)
 }
 
 fn system_time_to_timestamp_ms(value: SystemTime) -> i64 {
@@ -1623,6 +2117,7 @@ pub struct StorageInfo {
 
 #[tauri::command]
 pub fn get_storage_info(app: AppHandle) -> Result<StorageInfo, String> {
+    ensure_storage_session_write_allowed(&app)?;
     prune_database_backups(&app)?;
 
     let default_path = get_default_storage_path(&app)?;
@@ -1663,18 +2158,21 @@ pub fn get_storage_info(app: AppHandle) -> Result<StorageInfo, String> {
 
 #[tauri::command]
 pub fn list_database_backups(app: AppHandle) -> Result<Vec<DatabaseBackupRecord>, String> {
+    ensure_storage_session_write_allowed(&app)?;
     prune_database_backups(&app)?;
     list_database_backup_records(&app)
 }
 
 #[tauri::command]
 pub fn create_database_backup(app: AppHandle) -> Result<DatabaseBackupRecord, String> {
+    ensure_storage_session_write_allowed(&app)?;
     create_database_backup_internal(&app, MANUAL_DATABASE_BACKUP_KIND)
 }
 
 pub(crate) fn create_pre_persist_database_backup(
     app: &AppHandle,
 ) -> Result<DatabaseBackupRecord, String> {
+    ensure_storage_session_write_allowed(app)?;
     create_database_backup_internal(app, PRE_PERSIST_DATABASE_BACKUP_KIND)
 }
 
@@ -1682,6 +2180,7 @@ pub(crate) fn create_pre_persist_database_backup(
 pub fn ensure_daily_database_backup(
     app: AppHandle,
 ) -> Result<Option<DatabaseBackupRecord>, String> {
+    ensure_storage_session_write_allowed(&app)?;
     prune_database_backups(&app)?;
 
     let source_db_path = resolve_db_path(&app)?;
@@ -1717,6 +2216,7 @@ pub fn restore_database_backup(
     app: AppHandle,
     backup_id: String,
 ) -> Result<RestoreDatabaseBackupResult, String> {
+    ensure_storage_session_write_allowed(&app)?;
     let backup_path = resolve_database_backup_file(&app, &backup_id)?;
     let target_db_path = resolve_db_path(&app)?;
 
@@ -1797,6 +2297,7 @@ pub fn migrate_storage(
     new_path: String,
     delete_old: bool,
 ) -> Result<StorageMigrationResult, String> {
+    ensure_storage_session_write_allowed(&app)?;
     let current_path = resolve_storage_base_path(&app)?;
     let target_path = PathBuf::from(&new_path);
     let normalized_target_path = normalize_storage_path_string(&target_path.to_string_lossy())
@@ -1866,6 +2367,12 @@ pub fn migrate_storage(
     let config = normalize_storage_config(config);
     write_storage_config(&app, &config)?;
     ensure_storage_asset_scope(&app)?;
+    if db_path.exists() {
+        let target_db = target_path.join("projects.db");
+        let mut target_conn = open_sqlite_connection(&target_db)?;
+        project_state::normalize_storage_media_refs_in_connection(&app, &mut target_conn)?;
+    }
+    ensure_storage_session_write_allowed(&app)?;
 
     Ok(StorageMigrationResult {
         current_path: current_path.to_string_lossy().to_string(),
@@ -1879,6 +2386,7 @@ pub fn reset_storage_to_default(
     app: AppHandle,
     delete_custom: bool,
 ) -> Result<StorageMigrationResult, String> {
+    ensure_storage_session_write_allowed(&app)?;
     let current_path = resolve_storage_base_path(&app)?;
     let default_path = get_default_storage_path(&app)?;
 
@@ -1942,7 +2450,11 @@ pub fn reset_storage_to_default(
     }
 
     let mut validation = validate_storage_migration(&current_path, &default_path)?;
-    append_preserved_storage_cleanup_warning(&mut validation.warnings, delete_custom, &current_path);
+    append_preserved_storage_cleanup_warning(
+        &mut validation.warnings,
+        delete_custom,
+        &current_path,
+    );
 
     let mut config = read_storage_config(&app)?;
     remember_legacy_storage_path(&mut config, &current_path);
@@ -1950,11 +2462,87 @@ pub fn reset_storage_to_default(
     let config = normalize_storage_config(config);
     write_storage_config(&app, &config)?;
     ensure_storage_asset_scope(&app)?;
+    if db_path.exists() {
+        let target_db = default_path.join("projects.db");
+        let mut target_conn = open_sqlite_connection(&target_db)?;
+        project_state::normalize_storage_media_refs_in_connection(&app, &mut target_conn)?;
+    }
+    ensure_storage_session_write_allowed(&app)?;
 
     Ok(StorageMigrationResult {
         current_path: current_path.to_string_lossy().to_string(),
         target_path: default_path.to_string_lossy().to_string(),
         validation,
+    })
+}
+
+pub fn normalize_storage_media_refs_in_connection(
+    app: &AppHandle,
+    conn: &mut Connection,
+) -> Result<StorageMediaMigrationStats, String> {
+    project_state::normalize_storage_media_refs_in_connection(app, conn)
+}
+
+pub fn rebuild_media_ref_indexes(app: &AppHandle, conn: &mut Connection) -> Result<(), String> {
+    project_state::rebuild_media_ref_indexes(app, conn)
+}
+
+#[tauri::command]
+pub fn adopt_existing_storage_path(
+    app: AppHandle,
+    new_path: String,
+) -> Result<StorageAdoptionResult, String> {
+    ensure_storage_session_write_allowed(&app)?;
+    let previous_path = resolve_storage_base_path(&app)?;
+    let target_path = PathBuf::from(&new_path);
+    let normalized_target_path = normalize_storage_path_string(&target_path.to_string_lossy())
+        .unwrap_or_else(|| target_path.to_string_lossy().to_string());
+    let target_db_path = target_path.join("projects.db");
+
+    if !target_path.is_dir() {
+        return Err(format!(
+            "The selected storage directory does not exist: {}",
+            target_path.display()
+        ));
+    }
+    if !target_db_path.is_file() {
+        return Err(format!(
+            "The selected storage directory does not contain projects.db: {}",
+            target_db_path.display()
+        ));
+    }
+    let target_session_status = check_storage_session_for_path(&app, &target_path)?;
+    if target_session_status.active {
+        return Err(format!(
+            "The selected storage directory is currently active on another device. Please close the other app instance or wait until its session becomes stale. Storage: {}",
+            target_session_status.current_path
+        ));
+    }
+
+    let safety_backup = if previous_path.join("projects.db").exists() {
+        Some(create_database_backup_internal(
+            &app,
+            PRE_RESTORE_DATABASE_BACKUP_KIND,
+        )?)
+    } else {
+        None
+    };
+
+    let mut config = read_storage_config(&app)?;
+    remember_legacy_storage_path(&mut config, &previous_path);
+    config.custom_path = Some(normalized_target_path.clone());
+    let config = normalize_storage_config(config);
+    write_storage_config(&app, &config)?;
+    ensure_storage_asset_scope(&app)?;
+
+    let mut target_conn = open_sqlite_connection(&target_db_path)?;
+    project_state::normalize_storage_media_refs_in_connection(&app, &mut target_conn)?;
+    ensure_storage_session_write_allowed(&app)?;
+
+    Ok(StorageAdoptionResult {
+        previous_path: previous_path.to_string_lossy().to_string(),
+        adopted_path: normalized_target_path,
+        safety_backup,
     })
 }
 
@@ -1995,7 +2583,8 @@ pub fn open_storage_folder(app: AppHandle) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::{
-        count_projects_in_db, persist_media_bytes_in_base, rebase_storage_path_string,
+        count_projects_in_db, decode_storage_media_ref_in_base, encode_storage_media_ref_in_base,
+        persist_media_bytes_in_base, rebase_storage_path_string,
         relocate_storage_path_to_known_images_dirs, resolve_media_dir_in_base,
         validate_storage_migration, MediaPersistContext,
     };
@@ -2005,6 +2594,84 @@ mod tests {
 
     fn normalize_path_for_assertion(path: &std::path::Path) -> String {
         path.to_string_lossy().replace('\\', "/")
+    }
+
+    #[test]
+    fn storage_media_ref_encodes_internal_paths_as_uri() {
+        let root = std::env::temp_dir().join(format!(
+            "storyboard-storage-uri-encode-{}",
+            std::process::id()
+        ));
+        let source = root
+            .join("projects")
+            .join("project-1")
+            .join("images")
+            .join("frame 01.png");
+
+        let encoded = encode_storage_media_ref_in_base(&root, &source.to_string_lossy());
+
+        assert_eq!(
+            encoded,
+            "sb://storage/projects/project-1/images/frame%2001.png"
+        );
+    }
+
+    #[test]
+    fn storage_media_ref_decodes_uri_against_current_root() {
+        let root = std::env::temp_dir().join(format!(
+            "storyboard-storage-uri-decode-{}",
+            std::process::id()
+        ));
+
+        let decoded = decode_storage_media_ref_in_base(
+            &root,
+            "sb://storage/projects/project-1/images/frame%2001.png",
+        );
+
+        assert_eq!(
+            decoded,
+            root.join("projects")
+                .join("project-1")
+                .join("images")
+                .join("frame 01.png")
+                .to_string_lossy()
+                .to_string()
+        );
+    }
+
+    #[test]
+    fn storage_media_ref_keeps_external_and_remote_values_unchanged() {
+        let root = std::env::temp_dir().join("storyboard-storage-uri-external");
+        let external = std::env::temp_dir()
+            .join("outside-library")
+            .join("asset.png")
+            .to_string_lossy()
+            .to_string();
+
+        assert_eq!(
+            encode_storage_media_ref_in_base(&root, "https://example.com/a.png"),
+            "https://example.com/a.png"
+        );
+        assert_eq!(
+            encode_storage_media_ref_in_base(&root, "data:image/png;base64,abc"),
+            "data:image/png;base64,abc"
+        );
+        assert_eq!(encode_storage_media_ref_in_base(&root, &external), external);
+    }
+
+    #[test]
+    fn storage_media_ref_rejects_unsafe_uri_segments() {
+        let root = std::env::temp_dir().join("storyboard-storage-uri-unsafe");
+        for value in [
+            "sb://storage/",
+            "sb://storage/../escape.png",
+            "sb://storage/projects//escape.png",
+            "sb://storage/C%3A/escape.png",
+            "sb://storage/projects/%2E%2E/escape.png",
+            "sb://storage/projects/%5Cescape.png",
+        ] {
+            assert_eq!(decode_storage_media_ref_in_base(&root, value), value);
+        }
     }
 
     #[test]

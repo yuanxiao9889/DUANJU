@@ -215,13 +215,13 @@ function hasDroppedFiles(dataTransfer: DataTransfer | null): boolean {
 function resolveCategoryIcon(category: AssetCategory) {
   switch (category) {
     case 'character':
-      return <UserRound className="h-4 w-4 text-amber-400" />;
+      return <UserRound className="h-4 w-4 text-text-muted" />;
     case 'scene':
-      return <MapPin className="h-4 w-4 text-emerald-400" />;
+      return <MapPin className="h-4 w-4 text-text-muted" />;
     case 'prop':
-      return <Package className="h-4 w-4 text-sky-400" />;
+      return <Package className="h-4 w-4 text-text-muted" />;
     case 'voice':
-      return <AudioLines className="h-4 w-4 text-rose-400" />;
+      return <AudioLines className="h-4 w-4 text-text-muted" />;
   }
 }
 
@@ -375,10 +375,10 @@ function AssetCategorySection({
           </div>
         </div>
       ) : null}
-      <div className="border-b border-[rgba(255,255,255,0.08)] px-5 py-4">
+      <div className="border-b border-border-dark px-5 py-4">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div className="flex items-center gap-3">
-            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-white/[0.04]">
+            <div className="flex h-10 w-10 items-center justify-center rounded-xl border border-border-dark bg-bg-dark">
               {resolveCategoryIcon(category)}
             </div>
             <div>
@@ -437,7 +437,7 @@ function AssetCategorySection({
                   className={`flex items-center gap-2 rounded-full border px-2 py-1.5 text-sm transition-colors ${
                     selectedSubcategoryId === subcategory.id
                       ? 'border-accent/35 bg-accent/12 text-text-dark'
-                      : 'border-[rgba(255,255,255,0.12)] bg-white/[0.04] text-text-dark'
+                      : 'border-border-dark bg-bg-dark text-text-dark'
                   }`}
                 >
                   <button
@@ -497,7 +497,7 @@ function AssetCategorySection({
 
         <div>
           {filteredAssets.length === 0 ? (
-            <div className="rounded-xl border border-dashed border-[rgba(255,255,255,0.12)] px-5 py-10 text-center">
+            <div className="rounded-xl border border-dashed border-border-dark px-5 py-10 text-center">
               <div className="text-sm text-text-muted">
                 {selectedSubcategoryId ? t('assets.emptyFilterResult') : t('assets.emptyAssets')}
               </div>
@@ -517,13 +517,13 @@ function AssetCategorySection({
               {filteredAssets.map((asset) => (
                 <div
                   key={asset.id}
-                  className="group w-full max-w-[220px] justify-self-start overflow-hidden rounded-xl border border-[rgba(255,255,255,0.1)] bg-white/[0.03]"
+                  className="group w-full max-w-[220px] justify-self-start overflow-hidden rounded-xl border border-border-dark bg-surface-dark shadow-[0_10px_24px_rgba(15,23,42,0.08)]"
                   title={asset.name}
                 >
                   <div className="relative aspect-[4/3] overflow-hidden bg-bg-dark/70">
                     {asset.mediaType === 'audio' ? (
-                      <div className="flex h-full flex-col justify-between bg-[linear-gradient(160deg,rgba(255,255,255,0.07),rgba(255,255,255,0.02))] p-3">
-                        <div className="flex h-10 w-10 items-center justify-center rounded-full bg-white/[0.06] text-rose-300">
+                      <div className="flex h-full flex-col justify-between bg-bg-dark p-3">
+                        <div className="flex h-10 w-10 items-center justify-center rounded-full border border-border-dark bg-surface-dark text-text-muted">
                           <AudioLines className="h-5 w-5" />
                         </div>
                         <div className="space-y-1">
@@ -547,14 +547,14 @@ function AssetCategorySection({
                     <div className="absolute inset-x-0 top-0 flex justify-end gap-1 p-2 opacity-0 transition-opacity duration-150 group-hover:opacity-100">
                       <UiIconButton
                         type="button"
-                        className="h-8 w-8 border-none bg-black/45 text-white hover:bg-black/60"
+                        className="h-8 w-8 border border-border-dark bg-surface-dark/95 text-text-dark shadow-[0_8px_18px_rgba(15,23,42,0.12)] hover:bg-bg-dark dark:bg-black/55 dark:text-white dark:hover:bg-black/70"
                         onClick={() => onEditAsset(asset)}
                       >
                         <Pencil className="h-4 w-4" />
                       </UiIconButton>
                       <UiIconButton
                         type="button"
-                        className="h-8 w-8 border-none bg-black/45 text-white hover:bg-red-500/70"
+                        className="h-8 w-8 border border-border-dark bg-surface-dark/95 text-text-dark shadow-[0_8px_18px_rgba(15,23,42,0.12)] hover:bg-bg-dark hover:text-red-900 dark:bg-black/55 dark:text-white dark:hover:bg-red-500/70 dark:hover:text-white"
                         onClick={() => onDeleteAsset(asset.id)}
                       >
                         <Trash2 className="h-4 w-4" />
@@ -562,7 +562,7 @@ function AssetCategorySection({
                     </div>
                   </div>
                   <div
-                    className="border-t border-[rgba(255,255,255,0.08)] bg-black/10 px-2.5 py-1.5"
+                    className="border-t border-border-dark bg-bg-dark px-2.5 py-1.5"
                     title={
                       asset.subcategoryId
                         ? (subcategoryNameMap.get(asset.subcategoryId) ?? t('assets.unassigned'))

@@ -40,6 +40,16 @@ const MIN_NODE_WIDTH = 360;
 const MIN_NODE_HEIGHT = 320;
 const MAX_NODE_WIDTH = 760;
 const MAX_NODE_HEIGHT = 920;
+const SCRIPT_SCENE_NODE_BASE_CLASS =
+  'group relative overflow-visible rounded-[20px] border bg-surface-dark shadow-[0_12px_24px_rgba(2,6,23,0.12)] transition-[border-color,box-shadow] duration-200 dark:shadow-[0_14px_28px_rgba(0,0,0,0.24)]';
+const SCRIPT_SCENE_NODE_SELECTED_CLASS =
+  'border-[rgba(15,23,42,0.42)] dark:border-white/36';
+const SCRIPT_SCENE_NODE_IDLE_CLASS =
+  'border-[rgba(15,23,42,0.2)] hover:border-[rgba(15,23,42,0.34)] dark:border-white/18 dark:hover:border-white/30';
+const SCRIPT_SCENE_HANDLE_CLASS =
+  '!h-3 !w-3 !rounded-full !border-surface-dark !bg-[#222222] dark:!bg-text-muted';
+const SCRIPT_SCENE_ACTION_BUTTON_CLASS =
+  'inline-flex items-center gap-1.5 rounded-lg border border-border-dark bg-bg-dark px-3 py-1.5 text-xs font-medium text-text-dark transition-colors hover:border-[rgba(15,23,42,0.34)] hover:bg-bg-dark/80 dark:hover:border-white/26 disabled:cursor-not-allowed disabled:opacity-60';
 
 function resolveNodeDimension(value: number | undefined, fallback: number): number {
   if (typeof value === 'number' && Number.isFinite(value) && value > 1) {
@@ -136,11 +146,7 @@ export const ScriptSceneNode = memo(({
 
   return (
     <div
-      className={`group relative overflow-visible rounded-[20px] border bg-surface-dark shadow-[0_20px_40px_rgba(2,6,23,0.22)] transition-[border-color,box-shadow] duration-200 ${
-        selected
-          ? 'border-cyan-300/55 shadow-[0_0_0_1px_rgba(103,232,249,0.4),0_22px_42px_rgba(6,78,110,0.25)]'
-          : 'border-cyan-300/18 hover:border-cyan-300/32'
-      }`}
+      className={`${SCRIPT_SCENE_NODE_BASE_CLASS} ${selected ? SCRIPT_SCENE_NODE_SELECTED_CLASS : SCRIPT_SCENE_NODE_IDLE_CLASS}`}
       style={{ width: resolvedWidth, height: resolvedHeight }}
       onClick={() => openWorkbench(activeSceneNodeId === id ? activeEpisodeId : undefined)}
     >
@@ -148,27 +154,23 @@ export const ScriptSceneNode = memo(({
         type="target"
         id="target"
         position={Position.Left}
-        className="!h-3 !w-3 !-left-1.5 !rounded-full !border-surface-dark !bg-cyan-400"
+        className={`${SCRIPT_SCENE_HANDLE_CLASS} !-left-1.5`}
       />
       <Handle
         type="source"
         id="source"
         position={Position.Right}
-        className="!h-3 !w-3 !-right-1.5 !rounded-full !border-surface-dark !bg-teal-400"
+        className={`${SCRIPT_SCENE_HANDLE_CLASS} !-right-1.5`}
       />
 
       <div className="relative flex h-full flex-col overflow-hidden rounded-[20px] p-3">
-        <div className="pointer-events-none absolute inset-0 overflow-hidden rounded-[20px]">
-          <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_right,rgba(45,212,191,0.14),transparent_42%)]" />
-          <div className="absolute inset-x-0 top-0 h-[2px] bg-cyan-300/70" />
-        </div>
         <div className="flex items-start gap-3">
           <div className="min-w-0">
-            <div className="flex flex-wrap items-center gap-2 text-[11px] text-cyan-200/85">
-              <span className="rounded-full bg-amber-500/12 px-2 py-0.5 text-amber-200">
+            <div className="flex flex-wrap items-center gap-2 text-[11px] text-text-muted">
+              <span className="rounded-full bg-bg-dark px-2 py-0.5">
                 {t('script.sceneStudio.chapterLabel', { number: data.chapterNumber || 1 })}
               </span>
-              <span className="rounded-full bg-cyan-500/10 px-2 py-0.5">
+              <span className="rounded-full bg-bg-dark px-2 py-0.5">
                 {t('script.sceneCatalog.sceneLabel', { number: data.sourceSceneOrder + 1 })}
               </span>
             </div>
@@ -188,7 +190,7 @@ export const ScriptSceneNode = memo(({
               event.stopPropagation();
               openWorkbench();
             }}
-            className="inline-flex items-center gap-1.5 rounded-lg border border-cyan-500/35 bg-cyan-500/10 px-3 py-1.5 text-xs font-medium text-cyan-200 transition-colors hover:bg-cyan-500/18"
+            className={SCRIPT_SCENE_ACTION_BUTTON_CLASS}
           >
             <ExternalLink className="h-3.5 w-3.5" />
             {t('script.sceneWorkbench.openWorkbench')}
@@ -199,7 +201,7 @@ export const ScriptSceneNode = memo(({
               event.stopPropagation();
               handleAddEpisode();
             }}
-            className="inline-flex items-center gap-1.5 rounded-lg border border-border-dark bg-bg-dark px-3 py-1.5 text-xs font-medium text-text-dark transition-colors hover:bg-bg-dark/80"
+            className={SCRIPT_SCENE_ACTION_BUTTON_CLASS}
           >
             <Plus className="h-3.5 w-3.5" />
             {t('script.sceneWorkbench.addEpisode')}
@@ -211,7 +213,7 @@ export const ScriptSceneNode = memo(({
               event.stopPropagation();
               void handleGenerateEpisodes(data.episodes.length > 0 ? 'regenerate' : 'initial');
             }}
-            className="inline-flex items-center gap-1.5 rounded-lg border border-teal-500/30 bg-teal-500/10 px-3 py-1.5 text-xs font-medium text-teal-200 transition-colors hover:bg-teal-500/18 disabled:cursor-not-allowed disabled:opacity-60"
+            className={SCRIPT_SCENE_ACTION_BUTTON_CLASS}
           >
             {data.episodes.length > 0 ? (
               <RotateCcw className="h-3.5 w-3.5" />
@@ -226,11 +228,11 @@ export const ScriptSceneNode = memo(({
 
         <div className="mt-3 flex items-center justify-between gap-2 text-xs text-text-muted">
           <span className="inline-flex items-center gap-1.5">
-            <Clapperboard className="h-3.5 w-3.5 text-cyan-300" />
+            <Clapperboard className="h-3.5 w-3.5 text-text-muted" />
             {t('script.sceneWorkbench.episodeCount', { count: data.episodes.length })}
           </span>
           {isGenerating ? (
-            <span className="text-teal-200">{t('script.sceneWorkbench.generating')}</span>
+            <span className="text-text-muted">{t('script.sceneWorkbench.generating')}</span>
           ) : null}
         </div>
 
@@ -253,15 +255,15 @@ export const ScriptSceneNode = memo(({
                   }}
                   className={`w-full rounded-xl border px-3 py-2 text-left transition-colors ${
                     isActive
-                      ? 'border-cyan-400/35 bg-cyan-500/12'
-                      : 'border-border-dark bg-bg-dark/45 hover:border-cyan-500/25 hover:bg-cyan-500/[0.08]'
+                      ? 'border-[rgba(15,23,42,0.34)] bg-surface-dark dark:border-white/28'
+                      : 'border-border-dark bg-bg-dark/45 hover:border-[rgba(15,23,42,0.3)] hover:bg-bg-dark dark:hover:border-white/24'
                   }`}
                 >
                   <div className="flex items-center justify-between gap-2">
                     <div className="truncate text-sm font-medium text-text-dark">
                       {episode.title || t('script.sceneWorkbench.untitledEpisode')}
                     </div>
-                    <span className="shrink-0 rounded-full bg-cyan-500/10 px-2 py-0.5 text-[11px] text-cyan-200">
+                    <span className="shrink-0 rounded-full bg-bg-dark px-2 py-0.5 text-[11px] text-text-muted">
                       {`${data.chapterNumber || 1}-${episode.episodeNumber}`}
                     </span>
                   </div>

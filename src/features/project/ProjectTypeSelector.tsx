@@ -40,10 +40,10 @@ export function ProjectTypeSelector({ onClose, onSelectType }: ProjectTypeSelect
           <div className="mb-6 grid grid-cols-1 gap-5 sm:grid-cols-3">
             <button
               onClick={() => onSelectType('storyboard')}
-              className="group flex flex-col items-center gap-4 rounded-2xl border-2 border-border-dark/50 bg-bg-dark/30 p-6 transition-all duration-300 hover:border-accent/50 hover:bg-accent/5 hover:shadow-[0_8px_24px_rgba(59,130,246,0.15)]"
+              className="group flex flex-col items-center gap-4 rounded-2xl border-2 border-border-dark/50 bg-bg-dark/30 p-6 transition-all duration-300 hover:border-[rgba(15,23,42,0.28)] hover:bg-[rgba(15,23,42,0.06)] hover:shadow-[0_8px_24px_rgba(15,23,42,0.1)] dark:hover:border-accent/50 dark:hover:bg-accent/5 dark:hover:shadow-[0_8px_24px_rgba(var(--accent-rgb),0.15)]"
             >
-              <div className="flex h-16 w-16 items-center justify-center rounded-xl bg-accent/10 transition-all group-hover:scale-110 group-hover:bg-accent/20">
-                <Film className="h-8 w-8 text-accent" />
+              <div className="flex h-16 w-16 items-center justify-center rounded-xl bg-bg-dark text-text-muted transition-all group-hover:scale-110 group-hover:bg-[rgba(15,23,42,0.08)] group-hover:text-text-dark dark:bg-accent/10 dark:text-accent dark:group-hover:bg-accent/20">
+                <Film className="h-8 w-8" />
               </div>
               <div className="text-center">
                 <h3 className="font-semibold text-text-dark">{t('project.types.storyboard')}</h3>
@@ -52,10 +52,10 @@ export function ProjectTypeSelector({ onClose, onSelectType }: ProjectTypeSelect
 
             <button
               onClick={() => onSelectType('script')}
-              className="group flex flex-col items-center gap-4 rounded-2xl border-2 border-border-dark/50 bg-bg-dark/30 p-6 transition-all duration-300 hover:border-amber-500/50 hover:bg-amber-500/5 hover:shadow-[0_8px_24px_rgba(245,158,11,0.15)]"
+              className="group flex flex-col items-center gap-4 rounded-2xl border-2 border-border-dark/50 bg-bg-dark/30 p-6 transition-all duration-300 hover:border-[rgba(15,23,42,0.28)] hover:bg-[rgba(15,23,42,0.06)] hover:shadow-[0_8px_24px_rgba(15,23,42,0.1)] dark:hover:border-amber-500/50 dark:hover:bg-amber-500/5 dark:hover:shadow-[0_8px_24px_rgba(245,158,11,0.15)]"
             >
-              <div className="flex h-16 w-16 items-center justify-center rounded-xl bg-amber-500/10 transition-all group-hover:scale-110 group-hover:bg-amber-500/20">
-                <FileText className="h-8 w-8 text-amber-400" />
+              <div className="flex h-16 w-16 items-center justify-center rounded-xl bg-bg-dark text-text-muted transition-all group-hover:scale-110 group-hover:bg-[rgba(15,23,42,0.08)] group-hover:text-text-dark dark:bg-amber-500/10 dark:text-amber-400 dark:group-hover:bg-amber-500/20">
+                <FileText className="h-8 w-8" />
               </div>
               <div className="text-center">
                 <h3 className="font-semibold text-text-dark">{t('project.types.script')}</h3>
@@ -64,10 +64,10 @@ export function ProjectTypeSelector({ onClose, onSelectType }: ProjectTypeSelect
 
             <button
               onClick={() => onSelectType('ad')}
-              className="group flex flex-col items-center gap-4 rounded-2xl border-2 border-border-dark/50 bg-bg-dark/30 p-6 transition-all duration-300 hover:border-emerald-500/50 hover:bg-emerald-500/5 hover:shadow-[0_8px_24px_rgba(16,185,129,0.15)]"
+              className="group flex flex-col items-center gap-4 rounded-2xl border-2 border-border-dark/50 bg-bg-dark/30 p-6 transition-all duration-300 hover:border-[rgba(15,23,42,0.28)] hover:bg-[rgba(15,23,42,0.06)] hover:shadow-[0_8px_24px_rgba(15,23,42,0.1)] dark:hover:border-emerald-500/50 dark:hover:bg-emerald-500/5 dark:hover:shadow-[0_8px_24px_rgba(16,185,129,0.15)]"
             >
-              <div className="flex h-16 w-16 items-center justify-center rounded-xl bg-emerald-500/10 transition-all group-hover:scale-110 group-hover:bg-emerald-500/20">
-                <Clapperboard className="h-8 w-8 text-emerald-400" />
+              <div className="flex h-16 w-16 items-center justify-center rounded-xl bg-bg-dark text-text-muted transition-all group-hover:scale-110 group-hover:bg-[rgba(15,23,42,0.08)] group-hover:text-text-dark dark:bg-emerald-500/10 dark:text-emerald-400 dark:group-hover:bg-emerald-500/20">
+                <Clapperboard className="h-8 w-8" />
               </div>
               <div className="text-center">
                 <h3 className="font-semibold text-text-dark">{t('project.types.ad')}</h3>

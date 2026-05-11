@@ -46,7 +46,10 @@ import {
 } from "@/features/canvas/ui/NodeHeader";
 import { NodeResizeHandle } from "@/features/canvas/ui/NodeResizeHandle";
 import { NodeStatusBadge } from "@/features/canvas/ui/NodeStatusBadge";
-import { NODE_CONTROL_ACTION_BUTTON_CLASS } from "@/features/canvas/ui/nodeControlStyles";
+import {
+  NODE_CONTROL_ACTION_BUTTON_CLASS,
+  NODE_CONTROL_MEDIA_BADGE_CLASS,
+} from "@/features/canvas/ui/nodeControlStyles";
 import {
   NodeDescriptionPanel,
   NODE_DESCRIPTION_PANEL_EXPANDED_TOTAL_HEIGHT,
@@ -953,8 +956,8 @@ export const JimengVideoResultNode = memo(
                   title={!isVideoReady ? t("node.videoNode.screenshotNotReady") : t("node.videoNode.screenshot")}
                   className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-medium transition-colors ${
                     screenshotButtonDisabled || showBlockingOverlay
-                      ? "cursor-not-allowed border-accent/10 bg-accent/8 text-accent/45"
-                      : "border-accent/18 bg-accent/14 text-accent hover:border-accent/30 hover:bg-accent/20"
+                      ? "cursor-not-allowed border-white/10 bg-white/[0.03] text-white/35"
+                      : "border-white/28 bg-white/[0.08] text-white hover:border-white/45 hover:bg-white/[0.14]"
                   }`}
                 >
                   {isCapturingScreenshot ? (
@@ -999,7 +1002,7 @@ export const JimengVideoResultNode = memo(
           <div className="min-w-0 flex-1">
             {resolutionText ? (
               <div
-                className="inline-flex max-w-full items-center rounded-full border border-white/10 bg-white/[0.04] px-2.5 py-1 text-[10px] leading-4 text-text-muted"
+                className={NODE_CONTROL_MEDIA_BADGE_CLASS}
                 title={resolutionText}
               >
                 <span className="truncate">{resolutionText}</span>

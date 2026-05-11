@@ -1973,7 +1973,7 @@ export const StoryboardGenNode = memo(({ id, data, selected, width, height }: St
       className={`
         group relative flex h-full flex-col overflow-visible rounded-[var(--node-radius)] border bg-surface-dark/95 p-3 transition-colors duration-150
         ${selected
-          ? 'border-accent shadow-[0_0_0_1px_rgba(59,130,246,0.32)]'
+          ? 'border-[#222222] shadow-[0_0_0_2px_rgba(34,34,34,0.34),0_4px_14px_rgba(15,23,42,0.1)] dark:border-white/70 dark:shadow-[0_0_0_2px_rgba(245,245,245,0.18),0_4px_14px_rgba(0,0,0,0.22)]'
           : 'border-[rgba(15,23,42,0.22)] hover:border-[rgba(15,23,42,0.34)] dark:border-[rgba(255,255,255,0.22)] dark:hover:border-[rgba(255,255,255,0.34)]'
         }
       `}

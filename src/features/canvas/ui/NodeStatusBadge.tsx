@@ -14,9 +14,9 @@ const TONE_CLASS_MAP: Record<NodeStatusTone, string> = {
   processing:
     'border-accent/30 bg-accent/12 text-accent shadow-[0_8px_16px_rgba(var(--accent-rgb),0.12)]',
   warning:
-    'border-amber-400/28 bg-amber-400/12 text-amber-200 shadow-[0_8px_16px_rgba(251,191,36,0.08)]',
+    'border-[rgba(15,23,42,0.18)] bg-bg-dark text-[#222222] shadow-[0_8px_16px_rgba(15,23,42,0.06)] dark:border-white/18 dark:bg-white/[0.06] dark:text-text-dark dark:shadow-[0_8px_16px_rgba(0,0,0,0.18)]',
   danger:
-    'border-red-400/28 bg-red-400/12 text-red-200 shadow-[0_8px_16px_rgba(248,113,113,0.08)]',
+    'border-red-900/30 bg-red-950/[0.06] text-red-900 shadow-[0_8px_16px_rgba(127,29,29,0.08)] dark:border-red-400/28 dark:bg-red-400/12 dark:text-red-200 dark:shadow-[0_8px_16px_rgba(248,113,113,0.08)]',
 };
 
 export function NodeStatusBadge({

@@ -37,6 +37,14 @@ const MAX_NODE_HEIGHT = 1800;
 const TABLE_BASE_SCREEN_FONT_SIZE = 13;
 const TABLE_MIN_CSS_FONT_SIZE = 6.5;
 const TABLE_ACTION_COLUMN_WIDTH = 108;
+const SHOOTING_SCRIPT_NODE_BASE_CLASS =
+  'group relative overflow-visible rounded-[22px] border bg-surface-dark shadow-[0_12px_24px_rgba(2,6,23,0.12)] transition-[border-color,box-shadow] duration-200 dark:shadow-[0_14px_28px_rgba(0,0,0,0.24)]';
+const SHOOTING_SCRIPT_NODE_SELECTED_CLASS =
+  'border-[rgba(15,23,42,0.42)] dark:border-white/36';
+const SHOOTING_SCRIPT_NODE_IDLE_CLASS =
+  'border-[rgba(15,23,42,0.2)] hover:border-[rgba(15,23,42,0.34)] dark:border-white/18 dark:hover:border-white/30';
+const SHOOTING_SCRIPT_HANDLE_CLASS =
+  '!h-3 !w-3 !rounded-full !border-surface-dark !bg-[#222222] dark:!bg-text-muted';
 const DEFAULT_VISIBLE_SHOOTING_SCRIPT_COLUMNS: ShootingScriptColumnKey[] = [
   'shotNumber',
   'beat',
@@ -243,11 +251,7 @@ export const ShootingScriptNode = memo(({
 
   return (
     <div
-      className={`group relative overflow-visible rounded-[22px] border bg-surface-dark shadow-[0_20px_40px_rgba(2,6,23,0.22)] transition-[border-color,box-shadow] duration-200 ${
-        selected
-          ? 'border-cyan-300/55 shadow-[0_0_0_1px_rgba(103,232,249,0.4),0_22px_42px_rgba(6,78,110,0.25)]'
-          : 'border-cyan-300/18 hover:border-cyan-300/32'
-      }`}
+      className={`${SHOOTING_SCRIPT_NODE_BASE_CLASS} ${selected ? SHOOTING_SCRIPT_NODE_SELECTED_CLASS : SHOOTING_SCRIPT_NODE_IDLE_CLASS}`}
       style={{ width: resolvedWidth, height: resolvedHeight }}
       onClick={() => openWorkbench(activeScriptCell?.rowId, activeScriptCell?.columnKey)}
     >
@@ -255,26 +259,22 @@ export const ShootingScriptNode = memo(({
         type="target"
         id="target"
         position={Position.Left}
-        className="!h-3 !w-3 !-left-1.5 !rounded-full !border-surface-dark !bg-cyan-400"
+        className={`${SHOOTING_SCRIPT_HANDLE_CLASS} !-left-1.5`}
       />
 
       <div className="relative flex h-full flex-col overflow-hidden rounded-[22px] p-3">
-        <div className="pointer-events-none absolute inset-0 overflow-hidden rounded-[22px]">
-          <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_right,rgba(34,211,238,0.12),transparent_38%)]" />
-          <div className="absolute inset-x-0 top-0 h-[2px] bg-cyan-300/70" />
-        </div>
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0">
-            <div className="flex flex-wrap items-center gap-2 text-[11px] text-cyan-200/85">
-              <span className="rounded-full bg-amber-500/12 px-2 py-0.5 text-amber-200">
+            <div className="flex flex-wrap items-center gap-2 text-[11px] text-text-muted">
+              <span className="rounded-full bg-bg-dark px-2 py-0.5">
                 {t('script.sceneCatalog.chapterLabel', { number: data.chapterNumber || 1 })}
               </span>
-              <span className="rounded-full bg-cyan-500/10 px-2.5 py-0.5 text-cyan-100">
+              <span className="rounded-full bg-bg-dark px-2.5 py-0.5">
                 {t('script.shootingScript.nodeTitle', { label: scriptLabel })}
               </span>
             </div>
             <div className="mt-2 flex items-center gap-2">
-              <Clapperboard className="h-4 w-4 text-cyan-300" />
+              <Clapperboard className="h-4 w-4 text-text-muted" />
               <span className="truncate text-sm font-semibold text-text-dark">{resolvedTitle}</span>
             </div>
             <div className="mt-1 line-clamp-1 text-xs text-text-muted">
@@ -289,7 +289,7 @@ export const ShootingScriptNode = memo(({
                 event.stopPropagation();
                 openWorkbench();
               }}
-              className="nodrag flex h-8 w-8 items-center justify-center rounded-lg border border-transparent text-text-muted transition-colors hover:border-cyan-400/25 hover:bg-cyan-500/10 hover:text-cyan-100"
+              className="nodrag flex h-8 w-8 items-center justify-center rounded-lg border border-transparent text-text-muted transition-colors hover:border-border-dark hover:bg-bg-dark hover:text-text-dark"
               title={t('script.sceneWorkbench.openWorkbench')}
             >
               <ExternalLink className="h-4 w-4" />
@@ -312,7 +312,7 @@ export const ShootingScriptNode = memo(({
           <span className="rounded-full bg-bg-dark/60 px-2.5 py-1 text-text-muted">
             {t('script.shootingScript.rowCount', { count: data.rows.length })}
           </span>
-          <span className="rounded-full bg-cyan-500/10 px-2.5 py-1 text-cyan-100">
+          <span className="rounded-full bg-bg-dark px-2.5 py-1 text-text-muted">
             {t(`script.shootingScript.status.${data.status}`)}
           </span>
           <div className="relative">
@@ -352,7 +352,7 @@ export const ShootingScriptNode = memo(({
                       className="flex w-full items-center justify-between gap-2 px-3 py-2 text-left font-medium text-text-dark transition-colors hover:bg-bg-dark/80 disabled:cursor-not-allowed disabled:opacity-55"
                     >
                       <span className="min-w-0 truncate">{t(column.labelKey)}</span>
-                      {isVisible ? <Check className="h-3.5 w-3.5 shrink-0 text-cyan-200" /> : <span className="h-3.5 w-3.5 shrink-0" />}
+                      {isVisible ? <Check className="h-3.5 w-3.5 shrink-0 text-text-muted" /> : <span className="h-3.5 w-3.5 shrink-0" />}
                     </button>
                   );
                 })}
@@ -410,7 +410,7 @@ export const ShootingScriptNode = memo(({
                               onPointerDown={stopInteractionPropagation}
                               onMouseDown={stopInteractionPropagation}
                               onClick={stopInteractionPropagation}
-                              className="nodrag nowheel w-full rounded-lg border border-cyan-500/35 bg-bg-dark px-2 py-1.5 text-text-dark outline-none"
+                              className="nodrag nowheel w-full rounded-lg border border-border-dark bg-bg-dark px-2 py-1.5 text-text-dark outline-none focus:border-text-muted/60"
                             >
                               {genTargetOptions.map((option) => (
                                 <option key={option.value} value={option.value}>
@@ -434,7 +434,7 @@ export const ShootingScriptNode = memo(({
                                   commitCellEdit();
                                 }
                               }}
-                              className="nodrag nowheel w-full resize-none rounded-lg border border-cyan-500/35 bg-bg-dark px-2 py-1.5 text-text-dark outline-none [overflow-wrap:anywhere]"
+                              className="nodrag nowheel w-full resize-none rounded-lg border border-border-dark bg-bg-dark px-2 py-1.5 text-text-dark outline-none focus:border-text-muted/60 [overflow-wrap:anywhere]"
                             />
                           )
                         ) : (
@@ -468,8 +468,8 @@ export const ShootingScriptNode = memo(({
                             }}
                             className={`nodrag flex min-h-[68px] min-w-0 w-full rounded-lg border px-2 py-2 text-left transition-colors ${
                               isSelectedCell
-                                ? 'border-cyan-400/40 bg-cyan-500/12 text-cyan-50'
-                                : 'border-transparent bg-transparent text-text-dark hover:border-cyan-500/20 hover:bg-cyan-500/[0.05]'
+                                ? 'border-[rgba(15,23,42,0.34)] bg-bg-dark text-text-dark dark:border-white/28'
+                                : 'border-transparent bg-transparent text-text-dark hover:border-[rgba(15,23,42,0.24)] hover:bg-bg-dark/70 dark:hover:border-white/20'
                             }`}
                           >
                             <span className="min-w-0 whitespace-pre-wrap break-words [overflow-wrap:anywhere]">

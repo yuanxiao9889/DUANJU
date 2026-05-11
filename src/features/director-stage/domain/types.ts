@@ -137,6 +137,7 @@ export interface DirectorStagePosePreset {
   id: string;
   labelKey: string;
   animationPath: string;
+  restPosePath?: string;
   sampleRatio: number;
   compatibleAssetIds: string[];
 }
@@ -191,6 +192,7 @@ export const DIRECTOR_STAGE_SNAPSHOT_ASPECT_RATIOS = [
 ] as const;
 export const DIRECTOR_STAGE_DEFAULT_SNAPSHOT_ASPECT_RATIO: DirectorStageSnapshotAspectRatio = '16:9';
 export const DIRECTOR_STAGE_LIMB_POSE_KEYS = [
+  'head',
   'leftUpperArm',
   'leftForeArm',
   'rightUpperArm',
@@ -407,7 +409,10 @@ export function normalizeDirectorStageProject(
             candidate.kind === 'scene' || candidate.kind === 'prop' || candidate.kind === 'model'
               ? candidate.kind
               : 'character';
-          const source: DirectorStageEntitySource = candidate.source === 'user' ? 'user' : 'a3d';
+          const source: DirectorStageEntitySource =
+            candidate.source === 'user'
+              ? candidate.source
+              : 'a3d';
           return {
             id,
             kind,

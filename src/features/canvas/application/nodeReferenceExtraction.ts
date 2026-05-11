@@ -10,6 +10,8 @@ import {
   isJimengVideoResultNode,
   isSeedanceNode,
   isSeedanceVideoResultNode,
+  isViduNode,
+  isViduVideoResultNode,
   isStoryboardGenNode,
   isUploadNode,
   isVideoNode,
@@ -155,7 +157,12 @@ export function extractReferenceVisuals(node: CanvasNode): ExtractedReferenceVis
       );
   }
 
-  if (isVideoNode(node) || isJimengVideoResultNode(node) || isSeedanceVideoResultNode(node)) {
+  if (
+    isVideoNode(node)
+    || isJimengVideoResultNode(node)
+    || isSeedanceVideoResultNode(node)
+    || isViduVideoResultNode(node)
+  ) {
     const referenceUrl = node.data.videoUrl?.trim() ?? '';
     const posterSourceUrl =
       typeof node.data.posterSourceUrl === 'string'
@@ -224,5 +231,6 @@ export function canNodeInheritAltDuplicatedReferenceInputs(
     || isStoryboardGenNode(node)
     || isJimengImageNode(node)
     || isJimengNode(node)
-    || isSeedanceNode(node);
+    || isSeedanceNode(node)
+    || isViduNode(node);
 }

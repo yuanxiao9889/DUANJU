@@ -27,6 +27,26 @@ export interface RestoreDatabaseBackupResult {
   safetyBackup: DatabaseBackupRecord | null;
 }
 
+export interface StorageAdoptionResult {
+  previousPath: string;
+  adoptedPath: string;
+  safetyBackup: DatabaseBackupRecord | null;
+}
+
+export interface StorageSessionStatus {
+  currentPath: string;
+  machineId: string;
+  sessionId: string;
+  processId: number;
+  active: boolean;
+  stale: boolean;
+  ownerMachineId: string | null;
+  ownerSessionId: string | null;
+  ownerProcessId: number | null;
+  startedAt: number | null;
+  updatedAt: number | null;
+}
+
 export interface StorageMigrationValidation {
   sourceProjectCount: number;
   targetProjectCount: number;
@@ -78,6 +98,20 @@ export async function resetStorageToDefault(
   deleteCustom: boolean
 ): Promise<StorageMigrationResult> {
   return invoke<StorageMigrationResult>('reset_storage_to_default', { deleteCustom });
+}
+
+export async function adoptExistingStoragePath(
+  newPath: string
+): Promise<StorageAdoptionResult> {
+  return invoke<StorageAdoptionResult>('adopt_existing_storage_path', { newPath });
+}
+
+export async function checkStorageSession(): Promise<StorageSessionStatus> {
+  return invoke<StorageSessionStatus>('check_storage_session');
+}
+
+export async function refreshStorageSession(): Promise<void> {
+  return invoke<void>('refresh_storage_session');
 }
 
 export async function openStorageFolder(): Promise<void> {

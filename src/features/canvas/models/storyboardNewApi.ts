@@ -269,6 +269,7 @@ export function createStoryboardNewApiImageModel(
           defaultValue: 'medium',
           visibleResolutions: ['2K', '4K'],
           options: [
+            { value: 'auto', label: 'Auto', labelKey: 'modelParams.generationQualityAuto' },
             { value: 'low', label: 'Low', labelKey: 'modelParams.generationQualityLow' },
             { value: 'medium', label: 'Medium', labelKey: 'modelParams.generationQualityMedium' },
             { value: 'high', label: 'High', labelKey: 'modelParams.generationQualityHigh' },

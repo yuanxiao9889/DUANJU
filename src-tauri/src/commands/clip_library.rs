@@ -10,7 +10,7 @@ use tauri::{AppHandle, Manager};
 use uuid::Uuid;
 
 use super::project_state::{open_db, project_nodes_array, project_nodes_array_mut, ProjectRecord};
-use super::storage::move_path_to_system_trash;
+use super::storage::{self, move_path_to_system_trash};
 
 const DEFAULT_LIBRARY_NAME: &str = "Untitled Clip Library";
 const DEFAULT_CHAPTER_NAME: &str = "Untitled Chapter";
@@ -1107,6 +1107,42 @@ fn build_clip_library_snapshot(
     })
 }
 
+fn decode_clip_snapshot_storage_refs(app: &AppHandle, snapshot: &mut ClipLibrarySnapshot) {
+    for item in &mut snapshot.items {
+        decode_clip_item_storage_refs(app, item);
+    }
+}
+
+fn decode_clip_item_storage_refs(app: &AppHandle, item: &mut ClipItemRecord) {
+    item.source_path = storage::decode_storage_media_ref(app, &item.source_path);
+    item.preview_path = item
+        .preview_path
+        .as_deref()
+        .map(|value| storage::decode_storage_media_ref(app, value));
+    item.waveform_path = item
+        .waveform_path
+        .as_deref()
+        .map(|value| storage::decode_storage_media_ref(app, value));
+}
+
+fn encode_clip_path_for_storage(app: &AppHandle, value: &str) -> String {
+    storage::encode_storage_media_ref(app, value)
+}
+
+fn encode_optional_clip_path_for_storage(app: &AppHandle, value: Option<&str>) -> Option<String> {
+    value.map(|path| encode_clip_path_for_storage(app, path))
+}
+
+fn read_decoded_item(
+    app: &AppHandle,
+    conn: &Connection,
+    item_id: &str,
+) -> Result<ClipItemRecord, String> {
+    let mut item = read_item(conn, item_id)?;
+    decode_clip_item_storage_refs(app, &mut item);
+    Ok(item)
+}
+
 fn touch_library_updated_at(tx: &Transaction<'_>, library_id: &str) -> Result<(), String> {
     tx.execute(
         "UPDATE clip_libraries SET updated_at = ?1 WHERE id = ?2",
@@ -1116,8 +1152,13 @@ fn touch_library_updated_at(tx: &Transaction<'_>, library_id: &str) -> Result<()
     Ok(())
 }
 
-fn load_project_record(conn: &Connection, project_id: &str) -> Result<ProjectRecord, String> {
-    conn.query_row(
+fn load_project_record(
+    app: &AppHandle,
+    conn: &Connection,
+    project_id: &str,
+) -> Result<ProjectRecord, String> {
+    let mut record = conn
+        .query_row(
         r#"
         SELECT
           id,
@@ -1162,9 +1203,24 @@ fn load_project_record(conn: &Connection, project_id: &str) -> Result<ProjectRec
                 color_labels_json: row.get(15)?,
                 script_welcome_skipped: row.get(16)?,
             })
-        },
-    )
-    .map_err(|_| "The requested project could not be found".to_string())
+            },
+        )
+        .map_err(|_| "The requested project could not be found".to_string())?;
+    if let Some(next_nodes_json) =
+        storage::rewrite_media_refs_in_json_string(&record.nodes_json, &|value| {
+            storage::decode_storage_media_ref(app, value)
+        })?
+    {
+        record.nodes_json = next_nodes_json;
+    }
+    if let Some(next_history_json) =
+        storage::rewrite_media_refs_in_json_string(&record.history_json, &|value| {
+            storage::decode_storage_media_ref(app, value)
+        })?
+    {
+        record.history_json = next_history_json;
+    }
+    Ok(record)
 }
 
 fn load_project_binding_states(
@@ -1532,8 +1588,13 @@ fn cleanup_empty_dirs(path: &Path, keep_paths: &HashSet<String>) {
     }
 }
 
-fn reconcile_library_files(tx: &Transaction<'_>, library_id: &str) -> Result<(), String> {
-    let snapshot = build_clip_library_snapshot(tx, library_id)?;
+fn reconcile_library_files(
+    app: &AppHandle,
+    tx: &Transaction<'_>,
+    library_id: &str,
+) -> Result<(), String> {
+    let mut snapshot = build_clip_library_snapshot(tx, library_id)?;
+    decode_clip_snapshot_storage_refs(app, &mut snapshot);
     let root_path = PathBuf::from(&snapshot.library.root_path);
     ensure_dir(&root_path)?;
 
@@ -1584,12 +1645,15 @@ fn reconcile_library_files(tx: &Transaction<'_>, library_id: &str) -> Result<(),
         )?;
 
         if next_source_path != item.source_path || next_preview_path != item.preview_path {
+            let persisted_source_path = encode_clip_path_for_storage(app, &next_source_path);
+            let persisted_preview_path =
+                encode_optional_clip_path_for_storage(app, next_preview_path.as_deref());
             tx.execute(
                 "UPDATE clip_items SET source_path = ?1, file_name = ?2, preview_path = ?3, updated_at = ?4 WHERE id = ?5",
                 params![
-                    next_source_path,
+                    persisted_source_path,
                     next_file_name,
-                    next_preview_path,
+                    persisted_preview_path,
                     current_timestamp_ms(),
                     item.id
                 ],
@@ -1995,6 +2059,7 @@ where
 }
 
 fn update_project_binding_state_in_tx(
+    app: &AppHandle,
     tx: &Transaction<'_>,
     project_id: &str,
     nodes_json: &str,
@@ -2002,6 +2067,17 @@ fn update_project_binding_state_in_tx(
     clip_library_id: Option<&str>,
     clip_last_folder_id: Option<&str>,
 ) -> Result<(), String> {
+    let persisted_nodes_json =
+        storage::rewrite_media_refs_in_json_string(nodes_json, &|value| {
+            storage::encode_storage_media_ref(app, value)
+        })?
+        .unwrap_or_else(|| nodes_json.to_string());
+    let persisted_history_json =
+        storage::rewrite_media_refs_in_json_string(history_json, &|value| {
+            storage::encode_storage_media_ref(app, value)
+        })?
+        .unwrap_or_else(|| history_json.to_string());
+
     tx.execute(
         r#"
         UPDATE projects
@@ -2013,8 +2089,8 @@ fn update_project_binding_state_in_tx(
         WHERE id = ?6
         "#,
         params![
-            nodes_json,
-            history_json,
+            persisted_nodes_json,
+            persisted_history_json,
             clip_library_id,
             clip_last_folder_id,
             current_timestamp_ms(),
@@ -2026,6 +2102,7 @@ fn update_project_binding_state_in_tx(
 }
 
 fn clear_clip_bindings_in_projects(
+    app: &AppHandle,
     tx: &Transaction<'_>,
     target: &BindingPatchTarget,
 ) -> Result<(), String> {
@@ -2064,6 +2141,7 @@ fn clear_clip_bindings_in_projects(
 
         if changed {
             update_project_binding_state_in_tx(
+                app,
                 tx,
                 &record.id,
                 &next_nodes_json,
@@ -2078,6 +2156,7 @@ fn clear_clip_bindings_in_projects(
 }
 
 fn rebind_clip_item_in_projects(
+    app: &AppHandle,
     tx: &Transaction<'_>,
     item_id: &str,
     clip_library_id: &str,
@@ -2093,6 +2172,7 @@ fn rebind_clip_item_in_projects(
         };
 
         update_project_binding_state_in_tx(
+            app,
             tx,
             &record.id,
             &next_nodes_json,
@@ -2106,6 +2186,7 @@ fn rebind_clip_item_in_projects(
 }
 
 fn patch_clip_binding_on_project_node(
+    app: &AppHandle,
     tx: &Transaction<'_>,
     record: &ProjectRecord,
     node_id: &str,
@@ -2122,6 +2203,7 @@ fn patch_clip_binding_on_project_node(
     };
 
     update_project_binding_state_in_tx(
+        app,
         tx,
         &record.id,
         &next_nodes_json,
@@ -2212,10 +2294,16 @@ fn delete_item_files(snapshot: &ClipLibrarySnapshot, item_ids: &HashSet<String>)
     }
 }
 
-fn finalize_layout(tx: &Transaction<'_>, library_id: &str) -> Result<ClipLibrarySnapshot, String> {
+fn finalize_layout(
+    app: &AppHandle,
+    tx: &Transaction<'_>,
+    library_id: &str,
+) -> Result<ClipLibrarySnapshot, String> {
     recompute_clip_library_layout(tx, library_id)?;
-    reconcile_library_files(tx, library_id)?;
-    build_clip_library_snapshot(tx, library_id)
+    reconcile_library_files(app, tx, library_id)?;
+    let mut snapshot = build_clip_library_snapshot(tx, library_id)?;
+    decode_clip_snapshot_storage_refs(app, &mut snapshot);
+    Ok(snapshot)
 }
 
 #[tauri::command]
@@ -2258,7 +2346,8 @@ pub fn get_clip_library_snapshot(
     library_id: String,
 ) -> Result<ClipLibrarySnapshot, String> {
     let conn = open_db(&app)?;
-    let snapshot = build_clip_library_snapshot(&conn, library_id.trim())?;
+    let mut snapshot = build_clip_library_snapshot(&conn, library_id.trim())?;
+    decode_clip_snapshot_storage_refs(&app, &mut snapshot);
     allow_clip_library_asset_scope(&app, &snapshot.library.root_path)?;
     Ok(snapshot)
 }
@@ -2326,7 +2415,8 @@ pub fn update_clip_library(
 #[tauri::command]
 pub fn delete_clip_library(app: AppHandle, library_id: String) -> Result<(), String> {
     let mut conn = open_db(&app)?;
-    let snapshot = build_clip_library_snapshot(&conn, library_id.trim())?;
+    let mut snapshot = build_clip_library_snapshot(&conn, library_id.trim())?;
+    decode_clip_snapshot_storage_refs(&app, &mut snapshot);
     let item_ids = snapshot
         .items
         .iter()
@@ -2347,7 +2437,7 @@ pub fn delete_clip_library(app: AppHandle, library_id: String) -> Result<(), Str
         .transaction()
         .map_err(|e| format!("Failed to begin clip library delete transaction: {}", e))?;
 
-    clear_clip_bindings_in_projects(&tx, &target)?;
+    clear_clip_bindings_in_projects(&app, &tx, &target)?;
     tx.execute(
         "DELETE FROM clip_items WHERE library_id = ?1",
         params![snapshot.library.id],
@@ -2418,7 +2508,7 @@ pub fn create_clip_library_chapter(
     let insert_index = clamp_insert_index(payload.insert_index, ordered_ids.len());
     insert_id_at(&mut ordered_ids, chapter_id.clone(), insert_index);
     write_chapter_sort_orders(&tx, &library.id, &ordered_ids)?;
-    finalize_layout(&tx, &library.id)?;
+    finalize_layout(&app, &tx, &library.id)?;
     tx.commit()
         .map_err(|e| format!("Failed to commit clip chapter create transaction: {}", e))?;
 
@@ -2446,7 +2536,7 @@ pub fn update_clip_library_chapter(
     )
     .map_err(|e| format!("Failed to update clip chapter: {}", e))?;
 
-    finalize_layout(&tx, &chapter.library_id)?;
+    finalize_layout(&app, &tx, &chapter.library_id)?;
     tx.commit()
         .map_err(|e| format!("Failed to commit clip chapter update transaction: {}", e))?;
 
@@ -2469,7 +2559,7 @@ pub fn move_clip_library_chapter(
     relocate_id(&mut ordered_ids, &chapter.id, target_index)?;
     write_chapter_sort_orders(&tx, &chapter.library_id, &ordered_ids)?;
 
-    let snapshot = finalize_layout(&tx, &chapter.library_id)?;
+    let snapshot = finalize_layout(&app, &tx, &chapter.library_id)?;
     tx.commit()
         .map_err(|e| format!("Failed to commit clip chapter move transaction: {}", e))?;
     Ok(snapshot)
@@ -2498,7 +2588,7 @@ pub fn delete_clip_library_chapter(app: AppHandle, chapter_id: String) -> Result
         .transaction()
         .map_err(|e| format!("Failed to begin clip chapter delete transaction: {}", e))?;
 
-    clear_clip_bindings_in_projects(&tx, &target)?;
+    clear_clip_bindings_in_projects(&app, &tx, &target)?;
     tx.execute(
         "DELETE FROM clip_items WHERE library_id = ?1 AND folder_id IN (SELECT id FROM clip_folders WHERE chapter_id = ?2)",
         params![chapter.library_id, chapter.id],
@@ -2515,7 +2605,7 @@ pub fn delete_clip_library_chapter(app: AppHandle, chapter_id: String) -> Result
     )
     .map_err(|e| format!("Failed to delete clip chapter: {}", e))?;
 
-    finalize_layout(&tx, &chapter.library_id)?;
+    finalize_layout(&app, &tx, &chapter.library_id)?;
     tx.commit()
         .map_err(|e| format!("Failed to commit clip chapter delete transaction: {}", e))?;
 
@@ -2639,7 +2729,7 @@ pub fn create_clip_folder(
         parent_id.as_deref(),
         &sibling_ids,
     )?;
-    finalize_layout(&tx, &library.id)?;
+    finalize_layout(&app, &tx, &library.id)?;
     tx.commit()
         .map_err(|e| format!("Failed to commit clip folder create transaction: {}", e))?;
 
@@ -2723,7 +2813,7 @@ pub fn move_clip_folder(
         &target_sibling_ids,
     )?;
 
-    let snapshot = finalize_layout(&tx, &folder.library_id)?;
+    let snapshot = finalize_layout(&app, &tx, &folder.library_id)?;
     tx.commit()
         .map_err(|e| format!("Failed to commit clip folder move transaction: {}", e))?;
     Ok(snapshot)
@@ -2757,7 +2847,7 @@ pub fn rename_clip_folder(
     )
     .map_err(|e| format!("Failed to rename clip folder: {}", e))?;
 
-    finalize_layout(&tx, &folder.library_id)?;
+    finalize_layout(&app, &tx, &folder.library_id)?;
     tx.commit()
         .map_err(|e| format!("Failed to commit clip folder rename transaction: {}", e))?;
 
@@ -2768,7 +2858,8 @@ pub fn rename_clip_folder(
 pub fn delete_clip_folder(app: AppHandle, folder_id: String) -> Result<(), String> {
     let mut conn = open_db(&app)?;
     let folder = read_folder(&conn, folder_id.trim())?;
-    let snapshot = build_clip_library_snapshot(&conn, &folder.library_id)?;
+    let mut snapshot = build_clip_library_snapshot(&conn, &folder.library_id)?;
+    decode_clip_snapshot_storage_refs(&app, &mut snapshot);
     let folder_ids = collect_descendant_folder_ids(&snapshot, &folder.id);
     let item_ids = collect_item_ids_for_folders(&snapshot, &folder_ids);
     let target = BindingPatchTarget {
@@ -2781,7 +2872,7 @@ pub fn delete_clip_folder(app: AppHandle, folder_id: String) -> Result<(), Strin
         .transaction()
         .map_err(|e| format!("Failed to begin clip folder delete transaction: {}", e))?;
 
-    clear_clip_bindings_in_projects(&tx, &target)?;
+    clear_clip_bindings_in_projects(&app, &tx, &target)?;
     for item_id in &item_ids {
         tx.execute("DELETE FROM clip_items WHERE id = ?1", params![item_id])
             .map_err(|e| format!("Failed to delete clip item under folder: {}", e))?;
@@ -2809,7 +2900,7 @@ pub fn delete_clip_folder(app: AppHandle, folder_id: String) -> Result<(), Strin
         &sibling_ids,
     )?;
 
-    finalize_layout(&tx, &folder.library_id)?;
+    finalize_layout(&app, &tx, &folder.library_id)?;
     tx.commit()
         .map_err(|e| format!("Failed to commit clip folder delete transaction: {}", e))?;
 
@@ -2826,7 +2917,7 @@ pub fn add_node_media_to_clip_library(
     payload: AddNodeMediaToClipLibraryPayload,
 ) -> Result<AddNodeMediaToClipLibraryResult, String> {
     let mut conn = open_db(&app)?;
-    let project = load_project_record(&conn, &payload.project_id)?;
+    let project = load_project_record(&app, &conn, &payload.project_id)?;
     validate_storyboard_project(&project)?;
 
     let library_id = payload.library_id.trim();
@@ -2878,6 +2969,10 @@ pub fn add_node_media_to_clip_library(
     let copied_path = target_dir.join(&copied_file_name);
     let copied_preview_path =
         copy_optional_preview_to_dir(media.preview_path.as_deref(), &source_path, &target_dir)?;
+    let copied_path_value = copied_path.to_string_lossy().to_string();
+    let persisted_copied_path = encode_clip_path_for_storage(&app, &copied_path_value);
+    let persisted_copied_preview_path =
+        encode_optional_clip_path_for_storage(&app, copied_preview_path.as_deref());
 
     let tx = conn
         .transaction()
@@ -2917,8 +3012,8 @@ pub fn add_node_media_to_clip_library(
             media.title,
             media.description_text,
             copied_file_name,
-            copied_path.to_string_lossy().to_string(),
-            copied_preview_path,
+            persisted_copied_path,
+            persisted_copied_preview_path,
             media.duration_ms,
             media.mime_type,
             media.node_id,
@@ -2932,6 +3027,7 @@ pub fn add_node_media_to_clip_library(
     .map_err(|e| format!("Failed to insert clip item: {}", e))?;
 
     patch_clip_binding_on_project_node(
+        &app,
         &tx,
         &project,
         &payload.node_id,
@@ -2943,7 +3039,8 @@ pub fn add_node_media_to_clip_library(
     tx.commit()
         .map_err(|e| format!("Failed to commit clip item add transaction: {}", e))?;
 
-    let item = read_item(&conn, &item_id)?;
+    let mut item = read_item(&conn, &item_id)?;
+    decode_clip_item_storage_refs(&app, &mut item);
     Ok(AddNodeMediaToClipLibraryResult {
         item,
         clip_library_id: library.id,
@@ -2967,7 +3064,7 @@ pub fn update_clip_item_description(
         ],
     )
     .map_err(|e| format!("Failed to update clip item description: {}", e))?;
-    read_item(&conn, &item.id)
+    read_decoded_item(&app, &conn, &item.id)
 }
 
 #[tauri::command]
@@ -2976,7 +3073,7 @@ pub fn rename_clip_item(
     payload: RenameClipItemPayload,
 ) -> Result<ClipItemRecord, String> {
     let mut conn = open_db(&app)?;
-    let item = read_item(&conn, &payload.item_id)?;
+    let item = read_decoded_item(&app, &conn, &payload.item_id)?;
     let folder = read_folder(&conn, &item.folder_id)?;
     let library = read_clip_library(&conn, &item.library_id)?;
     let tx = conn
@@ -3019,6 +3116,9 @@ pub fn rename_clip_item(
         Path::new(&next_source_path),
         &target_dir,
     )?;
+    let persisted_next_source_path = encode_clip_path_for_storage(&app, &next_source_path);
+    let persisted_next_preview_path =
+        encode_optional_clip_path_for_storage(&app, next_preview_path.as_deref());
 
     tx.execute(
         r#"
@@ -3033,8 +3133,8 @@ pub fn rename_clip_item(
         params![
             next_name,
             next_file_name,
-            next_source_path,
-            next_preview_path,
+            persisted_next_source_path,
+            persisted_next_preview_path,
             current_timestamp_ms(),
             item.id
         ],
@@ -3045,7 +3145,7 @@ pub fn rename_clip_item(
     tx.commit()
         .map_err(|e| format!("Failed to commit clip item rename transaction: {}", e))?;
 
-    read_item(&conn, &item.id)
+    read_decoded_item(&app, &conn, &item.id)
 }
 
 #[tauri::command]
@@ -3054,7 +3154,7 @@ pub fn move_clip_item(
     payload: MoveClipItemPayload,
 ) -> Result<ClipItemRecord, String> {
     let mut conn = open_db(&app)?;
-    let item = read_item(&conn, &payload.item_id)?;
+    let item = read_decoded_item(&app, &conn, &payload.item_id)?;
     let target_folder = read_folder(&conn, &payload.target_folder_id)?;
     if target_folder.library_id != item.library_id {
         return Err("Clip items can only be moved within the same clip library".to_string());
@@ -3090,33 +3190,37 @@ pub fn move_clip_item(
         Path::new(&next_source_path),
         &target_dir,
     )?;
+    let persisted_next_source_path = encode_clip_path_for_storage(&app, &next_source_path);
+    let persisted_next_preview_path =
+        encode_optional_clip_path_for_storage(&app, next_preview_path.as_deref());
 
     tx.execute(
         "UPDATE clip_items SET folder_id = ?1, file_name = ?2, source_path = ?3, preview_path = ?4, updated_at = ?5 WHERE id = ?6",
         params![
             target_folder.id,
             next_file_name,
-            next_source_path,
-            next_preview_path,
+            persisted_next_source_path,
+            persisted_next_preview_path,
             current_timestamp_ms(),
             item.id
         ],
     )
     .map_err(|e| format!("Failed to move clip item: {}", e))?;
 
-    rebind_clip_item_in_projects(&tx, &item.id, &item.library_id, &target_folder.id)?;
+    rebind_clip_item_in_projects(&app, &tx, &item.id, &item.library_id, &target_folder.id)?;
     touch_library_updated_at(&tx, &item.library_id)?;
     tx.commit()
         .map_err(|e| format!("Failed to commit clip item move transaction: {}", e))?;
 
-    read_item(&conn, &item.id)
+    read_decoded_item(&app, &conn, &item.id)
 }
 
 #[tauri::command]
 pub fn delete_clip_item(app: AppHandle, item_id: String) -> Result<(), String> {
     let mut conn = open_db(&app)?;
-    let item = read_item(&conn, item_id.trim())?;
-    let snapshot = build_clip_library_snapshot(&conn, &item.library_id)?;
+    let item = read_decoded_item(&app, &conn, item_id.trim())?;
+    let mut snapshot = build_clip_library_snapshot(&conn, &item.library_id)?;
+    decode_clip_snapshot_storage_refs(&app, &mut snapshot);
     let target = BindingPatchTarget {
         library_id: None,
         folder_ids: HashSet::new(),
@@ -3127,7 +3231,7 @@ pub fn delete_clip_item(app: AppHandle, item_id: String) -> Result<(), String> {
         .transaction()
         .map_err(|e| format!("Failed to begin clip item delete transaction: {}", e))?;
 
-    clear_clip_bindings_in_projects(&tx, &target)?;
+    clear_clip_bindings_in_projects(&app, &tx, &target)?;
     tx.execute("DELETE FROM clip_items WHERE id = ?1", params![item.id])
         .map_err(|e| format!("Failed to delete clip item: {}", e))?;
     touch_library_updated_at(&tx, &item.library_id)?;

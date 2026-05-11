@@ -86,7 +86,7 @@ export const DirectorStageNode = memo(({
         className="!h-3 !w-3 !border-2 !border-surface-dark !bg-accent"
       />
 
-      <div className="flex h-full flex-col overflow-hidden rounded-[var(--node-inner-radius)] bg-[#111214] text-text-dark">
+      <div className="flex h-full flex-col overflow-hidden rounded-[var(--node-inner-radius)] bg-[#111214] text-white">
         <div className="relative min-h-0 flex-1 overflow-hidden bg-[#14161a]">
           {snapshotSource ? (
             <img
@@ -105,16 +105,16 @@ export const DirectorStageNode = memo(({
             </div>
           )}
 
-          <div className="absolute left-3 top-3 inline-flex items-center gap-1.5 rounded-md border border-white/10 bg-black/45 px-2 py-1 text-[11px] font-medium text-white/82 backdrop-blur">
-            <Box className="h-3.5 w-3.5" />
+          <div className="absolute left-3 top-3 inline-flex items-center gap-1.5 rounded-md border border-white/25 bg-black/65 px-2 py-1 text-[11px] font-semibold text-white shadow-none backdrop-blur">
+            <Box className="h-3.5 w-3.5 text-white/90" />
             {t('node.directorStage.objectCount', { count: objectCount })}
           </div>
         </div>
 
         <div className="grid shrink-0 grid-cols-[1fr_auto] gap-3 border-t border-white/10 bg-[#191b20] p-3">
           <div className="min-w-0">
-            <div className="flex items-center gap-2 text-xs text-text-muted">
-              <Camera className="h-3.5 w-3.5" />
+            <div className="flex items-center gap-2 text-xs font-medium text-white/76">
+              <Camera className="h-3.5 w-3.5 text-white/58" />
               <span className="truncate">
                 {t('node.directorStage.cameraSummary', {
                   count: cameraShotCount,
@@ -122,7 +122,7 @@ export const DirectorStageNode = memo(({
                 })}
               </span>
             </div>
-            <div className="mt-1 truncate text-[11px] text-text-muted/80">
+            <div className="mt-1 truncate text-[11px] text-white/52">
               {data.lastSnapshotAt
                 ? t('node.directorStage.snapshotSaved')
                 : t('node.directorStage.noSnapshot')}

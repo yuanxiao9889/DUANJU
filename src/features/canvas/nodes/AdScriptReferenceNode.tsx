@@ -64,6 +64,21 @@ const AD_ROW_GRID_STYLE = {
   gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))',
 };
 
+const AD_REFERENCE_NODE_BASE_CLASS =
+  'group relative overflow-visible rounded-[20px] border bg-surface-dark shadow-[0_12px_24px_rgba(2,6,23,0.12)] dark:shadow-[0_14px_28px_rgba(0,0,0,0.24)]';
+const AD_REFERENCE_NODE_SELECTED_CLASS =
+  'border-[rgba(15,23,42,0.42)] dark:border-white/36';
+const AD_REFERENCE_NODE_IDLE_CLASS =
+  'border-[rgba(15,23,42,0.2)] hover:border-[rgba(15,23,42,0.34)] dark:border-white/18 dark:hover:border-white/30';
+const AD_REFERENCE_HANDLE_CLASS =
+  '!h-3 !w-3 !rounded-full !border-surface-dark !bg-[#222222] dark:!bg-text-muted';
+const AD_REFERENCE_CHIP_CLASS =
+  'rounded-full bg-bg-dark px-2 py-0.5 text-text-muted';
+const AD_REFERENCE_ACTION_BUTTON_CLASS =
+  'inline-flex items-center gap-1.5 rounded-lg border border-border-dark bg-bg-dark px-3 py-1.5 text-xs font-medium text-text-dark transition-colors hover:border-[rgba(15,23,42,0.34)] hover:bg-bg-dark/80 dark:hover:border-white/26 disabled:opacity-60';
+const AD_REFERENCE_PILL_BUTTON_CLASS =
+  'inline-flex items-center rounded-full border border-border-dark bg-bg-dark px-2.5 py-1 text-text-muted transition hover:border-[rgba(15,23,42,0.34)] hover:text-text-dark dark:hover:border-white/26 disabled:cursor-not-allowed disabled:opacity-50';
+
 const AD_REFERENCE_DOWNSTREAM_TARGETS = {
   image: {
     type: CANVAS_NODE_TYPES.imageEdit,
@@ -164,7 +179,7 @@ function AdReferenceFieldCard({
   const normalizedValue = value.trim();
   return (
     <div className="rounded-lg bg-surface-dark px-2.5 py-2 text-[11px]">
-      <div className="font-medium text-emerald-200">{label}</div>
+      <div className="font-medium text-text-muted">{label}</div>
       <div className="mt-1 whitespace-pre-wrap break-words text-text-dark">
         {normalizedValue || '-'}
       </div>
@@ -195,7 +210,7 @@ function AdScriptRowCard({
     <div
       className={`rounded-xl border px-3 py-3 transition ${
         selected
-          ? 'border-emerald-400/55 bg-emerald-500/[0.08]'
+          ? 'border-[rgba(15,23,42,0.34)] bg-bg-dark dark:border-white/28'
           : 'border-border-dark/60 bg-surface-dark'
       }`}
     >
@@ -210,11 +225,11 @@ function AdScriptRowCard({
             event.stopPropagation();
             onToggleSelected();
           }}
-          className="mt-0.5 h-4 w-4 rounded border-border-dark bg-bg-dark text-emerald-400"
+          className="mt-0.5 h-4 w-4 rounded border-border-dark bg-bg-dark text-[#222222] dark:text-text-muted"
         />
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-2 text-[11px]">
-            <span className="rounded-full bg-emerald-500/12 px-2 py-0.5 font-medium text-emerald-200">
+            <span className="rounded-full bg-bg-dark px-2 py-0.5 font-medium text-text-dark">
               {t('node.adScriptReference.rowNumber', { number: row.shotNumber || '-' })}
             </span>
             {row.duration.trim() ? (
@@ -237,7 +252,7 @@ function AdScriptRowCard({
             <button
               type="button"
               onClick={() => setExpanded((current) => !current)}
-              className="flex w-full items-center justify-center text-emerald-200/80 transition hover:text-emerald-100"
+              className="flex w-full items-center justify-center text-text-muted transition hover:text-text-dark"
             >
               <ChevronDown className={`h-4 w-4 transition-transform ${expanded ? 'rotate-180' : ''}`} />
             </button>
@@ -578,23 +593,20 @@ export const AdScriptReferenceNode = memo(({
 
   return (
     <div
-      className={`group relative overflow-visible rounded-[20px] border bg-surface-dark shadow-[0_20px_40px_rgba(2,6,23,0.22)] ${selected ? 'border-emerald-300/55' : 'border-emerald-300/18 hover:border-emerald-300/32'}`}
+      className={`${AD_REFERENCE_NODE_BASE_CLASS} ${selected ? AD_REFERENCE_NODE_SELECTED_CLASS : AD_REFERENCE_NODE_IDLE_CLASS}`}
       style={{ width: resolvedWidth, height: resolvedHeight }}
       onClick={() => setSelectedNode(id)}
     >
-      <Handle type="target" id="target" position={Position.Left} className="!h-3 !w-3 !-left-1.5 !rounded-full !border-surface-dark !bg-emerald-400" />
-      <Handle type="source" id="source" position={Position.Right} className="!h-3 !w-3 !-right-1.5 !rounded-full !border-surface-dark !bg-teal-400" />
+      <Handle type="target" id="target" position={Position.Left} className={`${AD_REFERENCE_HANDLE_CLASS} !-left-1.5`} />
+      <Handle type="source" id="source" position={Position.Right} className={`${AD_REFERENCE_HANDLE_CLASS} !-right-1.5`} />
 
       <div className="relative flex h-full flex-col overflow-hidden rounded-[20px] p-3">
-        <div className="pointer-events-none absolute inset-0 overflow-hidden rounded-[20px]">
-          <div className="absolute inset-x-0 top-0 h-[2px] bg-emerald-300/70" />
-        </div>
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0">
-            <div className="flex flex-wrap items-center gap-2 text-[11px] text-emerald-200/85">
-              <span className="rounded-full bg-emerald-500/10 px-2 py-0.5">{t('node.adScriptReference.badge')}</span>
+            <div className="flex flex-wrap items-center gap-2 text-[11px] text-text-muted">
+              <span className={AD_REFERENCE_CHIP_CLASS}>{t('node.adScriptReference.badge')}</span>
               {linkedProjectName ? (
-                <span className="rounded-full bg-amber-500/12 px-2 py-0.5 text-amber-200">
+                <span className={AD_REFERENCE_CHIP_CLASS}>
                   <Link2 className="mr-1 inline h-3 w-3" />
                   {linkedProjectName}
                 </span>
@@ -610,7 +622,7 @@ export const AdScriptReferenceNode = memo(({
                 event.stopPropagation();
                 void loadLinkedProject();
               }}
-              className="flex h-8 w-8 items-center justify-center rounded-lg border border-transparent text-text-muted hover:border-emerald-400/25 hover:bg-emerald-500/10 hover:text-emerald-100"
+              className="flex h-8 w-8 items-center justify-center rounded-lg border border-transparent text-text-muted transition-colors hover:border-border-dark hover:bg-bg-dark hover:text-text-dark"
               title={t('node.adScriptReference.refresh')}
             >
               <RefreshCcw className="h-4 w-4" />
@@ -619,12 +631,12 @@ export const AdScriptReferenceNode = memo(({
         </div>
 
         <div className="mt-3 flex flex-wrap gap-2">
-          <button type="button" disabled={selectedRows.length === 0} onClick={(event) => { event.stopPropagation(); createDownstreamNodes('image'); }} className="inline-flex items-center gap-1.5 rounded-lg border border-cyan-500/30 bg-cyan-500/10 px-3 py-1.5 text-xs font-medium text-cyan-200 disabled:opacity-60"><ImageIcon className="h-3.5 w-3.5" />{t('node.adScriptReference.generateImage')}</button>
-          <button type="button" disabled={selectedRows.length === 0} onClick={(event) => { event.stopPropagation(); createDownstreamNodes('mjImage'); }} className="inline-flex items-center gap-1.5 rounded-lg border border-fuchsia-500/30 bg-fuchsia-500/10 px-3 py-1.5 text-xs font-medium text-fuchsia-200 disabled:opacity-60"><Sparkles className="h-3.5 w-3.5" />{t('node.adScriptReference.generateMidjourneyImage')}</button>
-          <button type="button" disabled={selectedRows.length === 0} onClick={(event) => { event.stopPropagation(); createDownstreamNodes('video'); }} className="inline-flex items-center gap-1.5 rounded-lg border border-violet-500/30 bg-violet-500/10 px-3 py-1.5 text-xs font-medium text-violet-200 disabled:opacity-60"><Video className="h-3.5 w-3.5" />{t('node.adScriptReference.generateVideo')}</button>
-          <button type="button" disabled={selectedRows.length === 0} onClick={(event) => { event.stopPropagation(); createStoryboardNode(); }} className="inline-flex items-center gap-1.5 rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-3 py-1.5 text-xs font-medium text-emerald-200 disabled:opacity-60"><Film className="h-3.5 w-3.5" />{t('node.adScriptReference.addStoryboardGen')}</button>
-          <button type="button" disabled={selectedRows.length === 0} onClick={(event) => { event.stopPropagation(); createDownstreamNodes('jimengImage'); }} className="inline-flex items-center gap-1.5 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-1.5 text-xs font-medium text-amber-200 disabled:opacity-60"><ImageIcon className="h-3.5 w-3.5" />{t('node.adScriptReference.generateJimengImage')}</button>
-          <button type="button" disabled={selectedRows.length === 0} onClick={(event) => { event.stopPropagation(); createDownstreamNodes('jimengVideo'); }} className="inline-flex items-center gap-1.5 rounded-lg border border-rose-500/30 bg-rose-500/10 px-3 py-1.5 text-xs font-medium text-rose-200 disabled:opacity-60"><Video className="h-3.5 w-3.5" />{t('node.adScriptReference.generateJimengVideo')}</button>
+          <button type="button" disabled={selectedRows.length === 0} onClick={(event) => { event.stopPropagation(); createDownstreamNodes('image'); }} className={AD_REFERENCE_ACTION_BUTTON_CLASS}><ImageIcon className="h-3.5 w-3.5" />{t('node.adScriptReference.generateImage')}</button>
+          <button type="button" disabled={selectedRows.length === 0} onClick={(event) => { event.stopPropagation(); createDownstreamNodes('mjImage'); }} className={AD_REFERENCE_ACTION_BUTTON_CLASS}><Sparkles className="h-3.5 w-3.5" />{t('node.adScriptReference.generateMidjourneyImage')}</button>
+          <button type="button" disabled={selectedRows.length === 0} onClick={(event) => { event.stopPropagation(); createDownstreamNodes('video'); }} className={AD_REFERENCE_ACTION_BUTTON_CLASS}><Video className="h-3.5 w-3.5" />{t('node.adScriptReference.generateVideo')}</button>
+          <button type="button" disabled={selectedRows.length === 0} onClick={(event) => { event.stopPropagation(); createStoryboardNode(); }} className={AD_REFERENCE_ACTION_BUTTON_CLASS}><Film className="h-3.5 w-3.5" />{t('node.adScriptReference.addStoryboardGen')}</button>
+          <button type="button" disabled={selectedRows.length === 0} onClick={(event) => { event.stopPropagation(); createDownstreamNodes('jimengImage'); }} className={AD_REFERENCE_ACTION_BUTTON_CLASS}><ImageIcon className="h-3.5 w-3.5" />{t('node.adScriptReference.generateJimengImage')}</button>
+          <button type="button" disabled={selectedRows.length === 0} onClick={(event) => { event.stopPropagation(); createDownstreamNodes('jimengVideo'); }} className={AD_REFERENCE_ACTION_BUTTON_CLASS}><Video className="h-3.5 w-3.5" />{t('node.adScriptReference.generateJimengVideo')}</button>
         </div>
 
         <div
@@ -642,7 +654,7 @@ export const AdScriptReferenceNode = memo(({
               <div className="rounded-xl border border-border-dark/70 bg-bg-dark px-3 py-3">
                 <div className="flex flex-wrap items-start justify-between gap-3">
                   <div className="min-w-0">
-                    <div className="text-xs font-medium text-emerald-200">
+                    <div className="text-xs font-medium text-text-dark">
                       {selectedTemplateLabel || t('node.adScriptReference.templateFallback')}
                     </div>
                     <div className="mt-1 line-clamp-3 whitespace-pre-wrap text-xs text-text-muted">
@@ -671,7 +683,7 @@ export const AdScriptReferenceNode = memo(({
                     event.stopPropagation();
                     handleSelectAllRows();
                   }}
-                  className="inline-flex items-center rounded-full border border-border-dark bg-bg-dark px-2.5 py-1 text-text-muted transition hover:border-emerald-400/25 hover:text-emerald-100 disabled:cursor-not-allowed disabled:opacity-50"
+                  className={AD_REFERENCE_PILL_BUTTON_CLASS}
                 >
                   {t('project.selectAll')}
                 </button>
@@ -682,12 +694,12 @@ export const AdScriptReferenceNode = memo(({
                     event.stopPropagation();
                     handleDeselectAllRows();
                   }}
-                  className="inline-flex items-center rounded-full border border-border-dark bg-bg-dark px-2.5 py-1 text-text-muted transition hover:border-emerald-400/25 hover:text-emerald-100 disabled:cursor-not-allowed disabled:opacity-50"
+                  className={AD_REFERENCE_PILL_BUTTON_CLASS}
                 >
                   {t('project.deselectAll')}
                 </button>
                 {showWarningBadge ? (
-                  <span className="inline-flex items-center gap-1 rounded-full bg-amber-500/10 px-2.5 py-1 text-amber-200">
+                  <span className="inline-flex items-center gap-1 rounded-full bg-bg-dark px-2.5 py-1 text-text-muted">
                     <TriangleAlert className="h-3.5 w-3.5" />
                     {t('node.adScriptReference.warning')}
                   </span>

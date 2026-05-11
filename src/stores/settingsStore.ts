@@ -121,6 +121,7 @@ export type ThemeTonePreset = 'neutral' | 'warm' | 'cool';
 export type CanvasEdgeRoutingMode = 'spline' | 'orthogonal' | 'smartOrthogonal';
 export type ProviderApiKeys = Record<string, string>;
 export const DEFAULT_GRSAI_NANO_BANANA_PRO_MODEL = 'nano-banana-pro';
+export type OfficialVideoProviderId = 'vidu' | 'volcengine';
 export type ThirdPartyVideoProviderId = 'gptBest';
 
 export interface ThirdPartyVideoProviderConfig {
@@ -140,6 +141,7 @@ interface SettingsState {
   scriptApiKeys: ProviderApiKeys;
   storyboardApiKeys: ProviderApiKeys;
   mjApiKeys: ProviderApiKeys;
+  officialVideoApiKeys: Record<OfficialVideoProviderId, string>;
   thirdPartyVideoApiKeys: Record<ThirdPartyVideoProviderId, string>;
   thirdPartyVideoProviderConfig: ThirdPartyVideoProviderConfig;
   scriptProviderEnabled: string;
@@ -211,6 +213,10 @@ interface SettingsState {
   setScriptProviderApiKey: (providerId: string, key: string) => void;
   setStoryboardProviderApiKey: (providerId: string, key: string) => void;
   setMjProviderApiKey: (providerId: MidjourneyProviderId, key: string) => void;
+  setOfficialVideoProviderApiKey: (
+    providerId: OfficialVideoProviderId,
+    key: string
+  ) => void;
   setThirdPartyVideoProviderApiKey: (
     providerId: ThirdPartyVideoProviderId,
     key: string
@@ -605,6 +611,15 @@ function normalizeThirdPartyVideoApiKeys(
   };
 }
 
+function normalizeOfficialVideoApiKeys(
+  input: Partial<Record<OfficialVideoProviderId, string>> | null | undefined
+): Record<OfficialVideoProviderId, string> {
+  return {
+    vidu: normalizeApiKey(input?.vidu ?? ''),
+    volcengine: normalizeApiKey(input?.volcengine ?? ''),
+  };
+}
+
 function normalizeThirdPartyVideoProviderConfig(
   input: Partial<ThirdPartyVideoProviderConfig> | null | undefined
 ): ThirdPartyVideoProviderConfig {
@@ -639,6 +654,7 @@ export const useSettingsStore = create<SettingsState>()(
       scriptApiKeys: {},
       storyboardApiKeys: {},
       mjApiKeys: {},
+      officialVideoApiKeys: { vidu: '', volcengine: '' },
       thirdPartyVideoApiKeys: { gptBest: '' },
       thirdPartyVideoProviderConfig: DEFAULT_THIRD_PARTY_VIDEO_PROVIDER_CONFIG,
       scriptProviderEnabled: 'alibaba',
@@ -734,6 +750,13 @@ export const useSettingsStore = create<SettingsState>()(
         set((state) => ({
           mjApiKeys: {
             ...state.mjApiKeys,
+            [providerId]: normalizeApiKey(key),
+          },
+        })),
+      setOfficialVideoProviderApiKey: (providerId, key) =>
+        set((state) => ({
+          officialVideoApiKeys: {
+            ...state.officialVideoApiKeys,
             [providerId]: normalizeApiKey(key),
           },
         })),
@@ -1600,6 +1623,7 @@ export const useSettingsStore = create<SettingsState>()(
           scriptApiKeys?: ProviderApiKeys;
           storyboardApiKeys?: ProviderApiKeys;
           mjApiKeys?: ProviderApiKeys;
+          officialVideoApiKeys?: Partial<Record<OfficialVideoProviderId, string>>;
           thirdPartyVideoApiKeys?: Partial<Record<ThirdPartyVideoProviderId, string>>;
           thirdPartyVideoProviderConfig?: Partial<ThirdPartyVideoProviderConfig>;
           scriptProviderEnabled?: string;
@@ -1664,6 +1688,13 @@ export const useSettingsStore = create<SettingsState>()(
         const migratedScriptApiKeys = normalizeApiKeys(state.scriptApiKeys);
         const migratedStoryboardApiKeys = normalizeApiKeys(state.storyboardApiKeys);
         const migratedMjApiKeys = normalizeApiKeys(state.mjApiKeys);
+        const migratedOfficialVideoApiKeys = normalizeOfficialVideoApiKeys({
+          ...state.officialVideoApiKeys,
+          volcengine:
+            state.officialVideoApiKeys?.volcengine
+            ?? migratedStoryboardApiKeys.volcengine
+            ?? '',
+        });
         const migratedThirdPartyVideoApiKeys = normalizeThirdPartyVideoApiKeys(
           state.thirdPartyVideoApiKeys
         );
@@ -1777,6 +1808,7 @@ export const useSettingsStore = create<SettingsState>()(
           scriptApiKeys: resolvedScriptApiKeys,
           storyboardApiKeys: resolvedStoryboardApiKeys,
           mjApiKeys: resolvedMjApiKeys,
+          officialVideoApiKeys: migratedOfficialVideoApiKeys,
           thirdPartyVideoApiKeys: migratedThirdPartyVideoApiKeys,
           thirdPartyVideoProviderConfig: normalizedThirdPartyVideoProviderConfig,
           scriptProviderEnabled: normalizedScriptProviderEnabled,

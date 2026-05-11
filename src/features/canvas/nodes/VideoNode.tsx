@@ -795,8 +795,8 @@ export const VideoNode = memo(({ id, data, selected, width }: VideoNodeProps) =>
                   title={!isVideoReady ? t('node.videoNode.screenshotNotReady') : t('node.videoNode.screenshot')}
                   className={`nodrag inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-medium transition-colors ${
                     screenshotButtonDisabled
-                      ? 'cursor-not-allowed border-accent/10 bg-accent/8 text-accent/45'
-                      : 'border-accent/18 bg-accent/14 text-accent hover:border-accent/30 hover:bg-accent/20'
+                      ? 'cursor-not-allowed border-white/10 bg-white/[0.03] text-white/35'
+                      : 'border-white/28 bg-white/[0.08] text-white hover:border-white/45 hover:bg-white/[0.14]'
                   }`}
                 >
                   {isCapturingScreenshot ? (

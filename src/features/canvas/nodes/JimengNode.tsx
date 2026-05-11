@@ -76,6 +76,7 @@ import {
   NODE_CONTROL_GENERATE_ICON_CLASS,
   NODE_CONTROL_PRIMARY_BUTTON_CLASS,
 } from "@/features/canvas/ui/nodeControlStyles";
+import { PROMPT_REFERENCE_TOKEN_HIGHLIGHT_CLASS } from "@/features/canvas/ui/promptReferenceTokenStyles";
 import { UiButton, UiChipButton, UiSelect } from "@/components/ui";
 import { insertShotParamToken } from "@/features/canvas/shot-params/shotParamsPrompt";
 import {
@@ -775,7 +776,7 @@ function renderPromptWithHighlights(
     segments.push(
       <span
         key={`ref-${token.start}`}
-        className="relative z-0 text-white [text-shadow:0.24px_0_currentColor,-0.24px_0_currentColor] before:absolute before:-inset-x-[4px] before:-inset-y-[1px] before:-z-10 before:rounded-[7px] before:bg-accent/55 before:content-['']"
+        className={PROMPT_REFERENCE_TOKEN_HIGHLIGHT_CLASS}
       >
         {token.token}
       </span>,

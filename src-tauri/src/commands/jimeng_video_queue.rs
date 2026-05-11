@@ -153,7 +153,15 @@ pub fn list_jimeng_video_queue_jobs(
 
     let mut records = Vec::new();
     for row in rows {
-        records.push(row.map_err(|e| format!("Failed to read Jimeng queue job row: {}", e))?);
+        let mut record = row.map_err(|e| format!("Failed to read Jimeng queue job row: {}", e))?;
+        if let Some(next_payload_json) =
+            storage::rewrite_media_refs_in_json_string(&record.payload_json, &|value| {
+                storage::decode_storage_media_ref(&app, value)
+            })?
+        {
+            record.payload_json = next_payload_json;
+        }
+        records.push(record);
     }
 
     Ok(records)
@@ -162,9 +170,16 @@ pub fn list_jimeng_video_queue_jobs(
 #[tauri::command]
 pub fn upsert_jimeng_video_queue_job(
     app: AppHandle,
-    record: JimengVideoQueueJobRecord,
+    mut record: JimengVideoQueueJobRecord,
 ) -> Result<(), String> {
     let conn = open_db(&app)?;
+    if let Some(next_payload_json) =
+        storage::rewrite_media_refs_in_json_string(&record.payload_json, &|value| {
+            storage::encode_storage_media_ref(&app, value)
+        })?
+    {
+        record.payload_json = next_payload_json;
+    }
     conn.execute(
         r#"
         INSERT INTO jimeng_video_queue_jobs (

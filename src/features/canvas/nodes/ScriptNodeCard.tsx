@@ -30,65 +30,59 @@ const ACCENT_CLASS_MAP: Record<
     iconWrap: string;
     iconText: string;
     divider: string;
-    topBar: string;
   }
 > = {
   violet: {
-    idle: 'border-violet-300/18 hover:border-violet-300/32',
+    idle: 'border-[rgba(15,23,42,0.2)] hover:border-[rgba(15,23,42,0.34)] dark:border-white/18 dark:hover:border-white/30',
     selected:
-      'border-violet-300/55 shadow-[0_0_0_1px_rgba(196,181,253,0.42),0_18px_30px_rgba(15,23,42,0.2)]',
-    iconWrap: 'bg-violet-400/12',
-    iconText: 'text-violet-200',
-    divider: 'border-violet-300/10',
-    topBar: 'bg-violet-300/60',
+      'border-[rgba(15,23,42,0.42)] shadow-[0_0_0_1px_rgba(15,23,42,0.16),0_14px_26px_rgba(2,6,23,0.12)] dark:border-white/36 dark:shadow-[0_0_0_1px_rgba(255,255,255,0.16),0_16px_30px_rgba(0,0,0,0.26)]',
+    iconWrap: 'border border-border-dark bg-bg-dark',
+    iconText: 'text-text-muted',
+    divider: 'border-border-dark/70',
   },
   emerald: {
-    idle: 'border-emerald-300/18 hover:border-emerald-300/32',
+    idle: 'border-[rgba(15,23,42,0.2)] hover:border-[rgba(15,23,42,0.34)] dark:border-white/18 dark:hover:border-white/30',
     selected:
-      'border-emerald-300/55 shadow-[0_0_0_1px_rgba(167,243,208,0.42),0_18px_30px_rgba(15,23,42,0.2)]',
-    iconWrap: 'bg-emerald-400/12',
-    iconText: 'text-emerald-200',
-    divider: 'border-emerald-300/10',
-    topBar: 'bg-emerald-300/60',
+      'border-[rgba(15,23,42,0.42)] shadow-[0_0_0_1px_rgba(15,23,42,0.16),0_14px_26px_rgba(2,6,23,0.12)] dark:border-white/36 dark:shadow-[0_0_0_1px_rgba(255,255,255,0.16),0_16px_30px_rgba(0,0,0,0.26)]',
+    iconWrap: 'border border-border-dark bg-bg-dark',
+    iconText: 'text-text-muted',
+    divider: 'border-border-dark/70',
   },
   amber: {
-    idle: 'border-amber-300/18 hover:border-amber-300/32',
+    idle: 'border-[rgba(15,23,42,0.2)] hover:border-[rgba(15,23,42,0.34)] dark:border-white/18 dark:hover:border-white/30',
     selected:
-      'border-amber-300/55 shadow-[0_0_0_1px_rgba(252,211,77,0.42),0_18px_30px_rgba(15,23,42,0.2)]',
-    iconWrap: 'bg-amber-400/12',
-    iconText: 'text-amber-200',
-    divider: 'border-amber-300/10',
-    topBar: 'bg-amber-300/60',
+      'border-[rgba(15,23,42,0.42)] shadow-[0_0_0_1px_rgba(15,23,42,0.16),0_14px_26px_rgba(2,6,23,0.12)] dark:border-white/36 dark:shadow-[0_0_0_1px_rgba(255,255,255,0.16),0_16px_30px_rgba(0,0,0,0.26)]',
+    iconWrap: 'border border-border-dark bg-bg-dark',
+    iconText: 'text-text-muted',
+    divider: 'border-border-dark/70',
   },
   rose: {
-    idle: 'border-rose-300/18 hover:border-rose-300/32',
+    idle: 'border-[rgba(15,23,42,0.2)] hover:border-[rgba(15,23,42,0.34)] dark:border-white/18 dark:hover:border-white/30',
     selected:
-      'border-rose-300/55 shadow-[0_0_0_1px_rgba(253,164,175,0.42),0_18px_30px_rgba(15,23,42,0.2)]',
-    iconWrap: 'bg-rose-400/12',
-    iconText: 'text-rose-200',
-    divider: 'border-rose-300/10',
-    topBar: 'bg-rose-300/60',
+      'border-[rgba(15,23,42,0.42)] shadow-[0_0_0_1px_rgba(15,23,42,0.16),0_14px_26px_rgba(2,6,23,0.12)] dark:border-white/36 dark:shadow-[0_0_0_1px_rgba(255,255,255,0.16),0_16px_30px_rgba(0,0,0,0.26)]',
+    iconWrap: 'border border-border-dark bg-bg-dark',
+    iconText: 'text-text-muted',
+    divider: 'border-border-dark/70',
   },
   cyan: {
-    idle: 'border-cyan-300/18 hover:border-cyan-300/32',
+    idle: 'border-[rgba(15,23,42,0.2)] hover:border-[rgba(15,23,42,0.34)] dark:border-white/18 dark:hover:border-white/30',
     selected:
-      'border-cyan-300/55 shadow-[0_0_0_1px_rgba(165,243,252,0.42),0_18px_30px_rgba(15,23,42,0.2)]',
-    iconWrap: 'bg-cyan-400/12',
-    iconText: 'text-cyan-200',
-    divider: 'border-cyan-300/10',
-    topBar: 'bg-cyan-300/60',
+      'border-[rgba(15,23,42,0.42)] shadow-[0_0_0_1px_rgba(15,23,42,0.16),0_14px_26px_rgba(2,6,23,0.12)] dark:border-white/36 dark:shadow-[0_0_0_1px_rgba(255,255,255,0.16),0_16px_30px_rgba(0,0,0,0.26)]',
+    iconWrap: 'border border-border-dark bg-bg-dark',
+    iconText: 'text-text-muted',
+    divider: 'border-border-dark/70',
   },
 };
 
 export const SCRIPT_NODE_LABEL_CLASS =
   'mb-1 block text-[11px] font-medium tracking-[0.01em] text-text-muted';
 export const SCRIPT_NODE_INPUT_CLASS =
-  'nodrag nowheel w-full border ui-field px-3 py-2 text-sm text-text-dark outline-none transition-colors placeholder:text-text-muted/70 focus:border-accent/55';
+  'nodrag nowheel w-full border ui-field px-3 py-2 text-sm text-text-dark outline-none transition-colors placeholder:text-text-muted/70 focus:border-text-muted/60';
 export const SCRIPT_NODE_TEXTAREA_CLASS = `${SCRIPT_NODE_INPUT_CLASS} ui-scrollbar resize-none`;
 export const SCRIPT_NODE_SECONDARY_BUTTON_CLASS =
   'nodrag inline-flex items-center gap-1.5 rounded-lg border border-border-dark/70 bg-bg-dark px-3 py-1.5 text-xs font-medium text-text-dark transition-colors hover:border-border-dark hover:bg-bg-dark/80';
 export const SCRIPT_NODE_PRIMARY_BUTTON_CLASS =
-  'nodrag inline-flex items-center gap-1.5 rounded-lg border border-accent/28 bg-accent/12 px-3 py-1.5 text-xs font-medium text-accent transition-colors hover:bg-accent/18';
+  'nodrag inline-flex items-center gap-1.5 rounded-lg border border-border-dark bg-bg-dark px-3 py-1.5 text-xs font-medium text-text-dark transition-colors hover:border-[rgba(15,23,42,0.34)] hover:bg-bg-dark/80 dark:hover:border-white/26';
 export const SCRIPT_NODE_ICON_BUTTON_CLASS =
   'nodrag flex h-8 w-8 items-center justify-center rounded-lg border border-transparent bg-transparent text-text-muted transition-colors hover:border-border-dark/70 hover:bg-bg-dark hover:text-text-dark disabled:cursor-not-allowed disabled:opacity-60';
 export const SCRIPT_NODE_EMPTY_HINT_CLASS =
@@ -128,14 +122,13 @@ export function ScriptNodeCard({
 
   return (
     <div
-      className={`group relative flex flex-col overflow-visible rounded-[18px] border bg-surface-dark shadow-[0_18px_34px_rgba(2,6,23,0.18)] transition-[border-color,box-shadow,transform] duration-200 ${
+      className={`group relative flex flex-col overflow-visible rounded-[18px] border bg-surface-dark shadow-[0_12px_24px_rgba(2,6,23,0.12)] transition-[border-color,box-shadow,transform] duration-200 dark:shadow-[0_14px_28px_rgba(0,0,0,0.24)] ${
         selected ? accentClasses.selected : accentClasses.idle
       }`}
       style={{ width, minHeight, height }}
       onClick={onClick}
     >
       <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_top_right,rgba(255,255,255,0.06),transparent_42%)]" />
-      <div className={`absolute inset-x-0 top-0 h-[2px] ${accentClasses.topBar}`} />
 
       <div className={`relative flex items-center gap-2 border-b px-3 py-2.5 ${accentClasses.divider}`}>
         <div className={`flex h-8 w-8 items-center justify-center rounded-xl ${accentClasses.iconWrap} ${accentClasses.iconText}`}>

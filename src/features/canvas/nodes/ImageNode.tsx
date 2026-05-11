@@ -390,8 +390,8 @@ export const ImageNode = memo(({ id, data, selected, type, width }: ImageNodePro
         group relative flex flex-col overflow-visible rounded-[var(--node-radius)] border bg-surface-dark/85 p-0 transition-all duration-150
         ${hasGenerationError
           ? (selected
-            ? 'border-red-400 shadow-[0_0_0_2px_rgba(248,113,113,0.5),0_4px_20px_rgba(248,113,113,0.25)]'
-            : 'border-red-500/70 bg-[rgba(127,29,29,0.12)] hover:border-red-400/80 dark:border-red-500/70 dark:hover:border-red-400/80')
+            ? 'border-red-900 shadow-[0_0_0_2px_rgba(127,29,29,0.28),0_4px_20px_rgba(127,29,29,0.16)] dark:border-red-400 dark:shadow-[0_0_0_2px_rgba(248,113,113,0.5),0_4px_20px_rgba(248,113,113,0.25)]'
+            : 'border-red-900/55 bg-red-950/[0.06] hover:border-red-900/75 dark:border-red-500/70 dark:bg-[rgba(127,29,29,0.12)] dark:hover:border-red-400/80')
           : selected
           ? 'border-accent shadow-[0_0_0_2px_rgba(59,130,246,0.5),0_4px_20px_rgba(59,130,246,0.2)]'
           : isReferenceSourceHighlighted
@@ -414,7 +414,7 @@ export const ImageNode = memo(({ id, data, selected, type, width }: ImageNodePro
       />
 
       <div
-        className={`relative min-h-0 flex-1 overflow-hidden rounded-[var(--node-radius)] ${hasGenerationError ? 'bg-[rgba(127,29,29,0.2)]' : 'bg-bg-dark'}`}
+        className={`relative min-h-0 flex-1 overflow-hidden rounded-[var(--node-radius)] ${hasGenerationError ? 'bg-red-950/[0.08] dark:bg-[rgba(127,29,29,0.2)]' : 'bg-bg-dark'}`}
       >
         {hasRenderableImage ? (
           <CanvasNodeImage
@@ -426,12 +426,12 @@ export const ImageNode = memo(({ id, data, selected, type, width }: ImageNodePro
             className="h-full w-full object-contain"
           />
         ) : hasGenerationError ? (
-          <div className="flex h-full w-full flex-col items-center justify-center gap-2 px-4 text-red-300">
+          <div className="flex h-full w-full flex-col items-center justify-center gap-2 px-4 text-red-800 dark:text-red-300">
             <AlertTriangle className="h-7 w-7 opacity-90" />
-            <span className="text-center text-[12px] font-medium leading-5 text-red-200">
+            <span className="text-center text-[12px] font-semibold leading-5 text-red-900 dark:text-red-200">
               {generationFailedTitle}
             </span>
-            <span className="max-h-[88px] overflow-y-auto break-words text-center text-[11px] leading-5 text-red-200/90">
+            <span className="max-h-[88px] overflow-y-auto break-words text-center text-[11px] font-medium leading-5 text-red-900/90 dark:text-red-200/90">
               {generationError}
             </span>
           </div>

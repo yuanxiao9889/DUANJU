@@ -34,6 +34,8 @@ export const CANVAS_NODE_TYPES = {
   jimengVideoResult: 'jimengVideoResultNode',
   seedance: 'seedanceNode',
   seedanceVideoResult: 'seedanceVideoResultNode',
+  vidu: 'viduNode',
+  viduVideoResult: 'viduVideoResultNode',
   gptBestSeedance: 'gptBestSeedanceNode',
   gptBestGrokVideo: 'gptBestGrokVideoNode',
   gptBestVideoResult: 'gptBestVideoResultNode',
@@ -135,6 +137,14 @@ export const GPT_BEST_VIDEO_RESULT_NODE_DEFAULT_WIDTH = 520;
 export const GPT_BEST_VIDEO_RESULT_NODE_DEFAULT_HEIGHT = 388;
 export const GPT_BEST_VIDEO_RESULT_NODE_MIN_WIDTH = 360;
 export const GPT_BEST_VIDEO_RESULT_NODE_MIN_HEIGHT = 280;
+export const VIDU_VIDEO_NODE_DEFAULT_WIDTH = 920;
+export const VIDU_VIDEO_NODE_DEFAULT_HEIGHT = 560;
+export const VIDU_VIDEO_NODE_MIN_WIDTH = 760;
+export const VIDU_VIDEO_NODE_MIN_HEIGHT = 440;
+export const VIDU_VIDEO_RESULT_NODE_DEFAULT_WIDTH = 520;
+export const VIDU_VIDEO_RESULT_NODE_DEFAULT_HEIGHT = 388;
+export const VIDU_VIDEO_RESULT_NODE_MIN_WIDTH = 360;
+export const VIDU_VIDEO_RESULT_NODE_MIN_HEIGHT = 280;
 export const AUDIO_NODE_DEFAULT_WIDTH = 320;
 export const AUDIO_NODE_DEFAULT_HEIGHT = 96;
 export const TTS_TEXT_NODE_DEFAULT_WIDTH = 500;
@@ -273,6 +283,29 @@ export const GPT_BEST_SEEDANCE_MODEL_IDS = [
   'doubao-seedance-2-0-fast-260128',
 ] as const;
 export const GPT_BEST_GROK_VIDEO_MODEL_IDS = ['grok-video-3'] as const;
+export const VIDU_INPUT_MODES = [
+  'textToVideo',
+  'firstFrame',
+  'firstLastFrame',
+  'reference',
+] as const;
+export const VIDU_MODEL_IDS = [
+  'viduq3-turbo',
+  'viduq3-pro',
+  'viduq3-pro-fast',
+  'viduq3-mix',
+  'viduq3',
+  'viduq2-pro-fast',
+  'viduq2-pro',
+  'viduq2-turbo',
+  'viduq2',
+  'viduq1',
+  'viduq1-classic',
+  'vidu2.0',
+] as const;
+export const VIDU_ASPECT_RATIOS = ['16:9', '9:16', '4:3', '3:4', '1:1'] as const;
+export const VIDU_DURATION_SECONDS = [1, 2, 3, 4, 5, 8, 10, 16] as const;
+export const VIDU_RESOLUTIONS = ['540p', '720p', '1080p'] as const;
 export const SEEDVR2_IMAGE_TARGET_RESOLUTIONS = [1080, 1440, 2160] as const;
 export const SEEDVR2_VIDEO_TARGET_RESOLUTIONS = [720, 1080, 1440] as const;
 
@@ -298,6 +331,11 @@ export type GptBestVideoDurationSeconds = (typeof GPT_BEST_VIDEO_DURATION_SECOND
 export type GptBestVideoResolution = (typeof GPT_BEST_VIDEO_RESOLUTIONS)[number];
 export type GptBestSeedanceModelId = (typeof GPT_BEST_SEEDANCE_MODEL_IDS)[number];
 export type GptBestGrokVideoModelId = (typeof GPT_BEST_GROK_VIDEO_MODEL_IDS)[number];
+export type ViduInputMode = (typeof VIDU_INPUT_MODES)[number];
+export type ViduModelId = (typeof VIDU_MODEL_IDS)[number];
+export type ViduAspectRatio = (typeof VIDU_ASPECT_RATIOS)[number];
+export type ViduDurationSeconds = (typeof VIDU_DURATION_SECONDS)[number];
+export type ViduResolution = (typeof VIDU_RESOLUTIONS)[number];
 export type Seedvr2ImageTargetResolution = (typeof SEEDVR2_IMAGE_TARGET_RESOLUTIONS)[number];
 export type Seedvr2VideoTargetResolution = (typeof SEEDVR2_VIDEO_TARGET_RESOLUTIONS)[number];
 
@@ -1057,6 +1095,57 @@ export interface GptBestVideoResultNodeData extends NodeDisplayData {
   resolution?: string | null;
   duration?: number;
   requestSnapshot?: GptBestVideoRequestSnapshot | null;
+  isGenerating?: boolean;
+  generationStartedAt?: number | null;
+  generationDurationMs?: number;
+  lastGeneratedAt?: number | null;
+  lastError?: string | null;
+}
+
+export interface ViduNodeData extends NodeDisplayData {
+  prompt: string;
+  inputMode: ViduInputMode;
+  modelId: ViduModelId;
+  aspectRatio: ViduAspectRatio;
+  durationSeconds: ViduDurationSeconds;
+  resolution: ViduResolution;
+  audio: boolean;
+  bgm: boolean;
+  isSubmitting?: boolean;
+  lastSubmittedAt?: number | null;
+  lastError?: string | null;
+}
+
+export interface ViduVideoRequestSnapshot {
+  provider: 'vidu';
+  inputMode: ViduInputMode;
+  modelId: string;
+  prompt: string;
+  imageCount: number;
+  videoCount: number;
+  aspectRatio: string;
+  durationSeconds: number;
+  resolution: string;
+  audio: boolean;
+  bgm: boolean;
+  submittedAt: number;
+}
+
+export interface ViduVideoResultNodeData extends NodeDisplayData {
+  sourceNodeId?: string | null;
+  provider?: 'vidu';
+  inputMode?: ViduInputMode | null;
+  taskId?: string | null;
+  taskStatus?: string | null;
+  taskUpdatedAt?: number | null;
+  modelId?: string | null;
+  videoUrl: string | null;
+  previewImageUrl?: string | null;
+  videoFileName?: string | null;
+  aspectRatio: string;
+  resolution?: string | null;
+  duration?: number;
+  requestSnapshot?: ViduVideoRequestSnapshot | null;
   isGenerating?: boolean;
   generationStartedAt?: number | null;
   generationDurationMs?: number;
@@ -2302,6 +2391,8 @@ export type CanvasNodeData =
   | SeedanceVideoResultNodeData
   | GptBestVideoNodeData
   | GptBestVideoResultNodeData
+  | ViduNodeData
+  | ViduVideoResultNodeData
   | StoryboardSplitNodeData
   | StoryboardSplitResultNodeData
   | StoryboardGenNodeData
@@ -3588,6 +3679,18 @@ export function isGptBestVideoResultNode(
   return node?.type === CANVAS_NODE_TYPES.gptBestVideoResult;
 }
 
+export function isViduNode(
+  node: CanvasNode | null | undefined
+): node is Node<ViduNodeData, typeof CANVAS_NODE_TYPES.vidu> {
+  return node?.type === CANVAS_NODE_TYPES.vidu;
+}
+
+export function isViduVideoResultNode(
+  node: CanvasNode | null | undefined
+): node is Node<ViduVideoResultNodeData, typeof CANVAS_NODE_TYPES.viduVideoResult> {
+  return node?.type === CANVAS_NODE_TYPES.viduVideoResult;
+}
+
 export function isExportImageNode(
   node: CanvasNode | null | undefined
 ): node is Node<ExportImageNodeData, typeof CANVAS_NODE_TYPES.exportImage> {
@@ -3655,6 +3758,7 @@ export function nodeSupportsDescriptionPanel(
     || isJimengVideoResultNode(node)
     || isSeedanceVideoResultNode(node)
     || isGptBestVideoResultNode(node)
+    || isViduVideoResultNode(node)
     || isAudioNode(node)
   );
 }
@@ -3966,6 +4070,7 @@ export function resolveSingleVideoConnectionSource(
     || isJimengVideoResultNode(node)
     || isSeedanceVideoResultNode(node)
     || isGptBestVideoResultNode(node)
+    || isViduVideoResultNode(node)
   ) {
     const videoUrl = normalizeVideoSource(node.data.videoUrl);
     if (!videoUrl) {

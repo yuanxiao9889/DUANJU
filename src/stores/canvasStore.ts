@@ -674,6 +674,7 @@ interface CanvasState {
   detachNodesFromGroup: (nodeIds: string[]) => boolean;
   ungroupNode: (groupNodeId: string) => boolean;
   deleteEdge: (edgeId: string) => void;
+  deleteEdges: (edgeIds: string[]) => number;
   setSelectedNode: (nodeId: string | null) => void;
   setHighlightedReferenceSourceNode: (nodeId: string | null) => void;
   openShotParamsPanel: (nodeId: string) => void;
@@ -5951,6 +5952,39 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
         dragHistorySnapshot: null,
       };
     });
+  },
+
+  deleteEdges: (edgeIds) => {
+    const edgeIdSet = new Set(edgeIds.filter((edgeId) => edgeId.trim().length > 0));
+    if (edgeIdSet.size === 0) {
+      return 0;
+    }
+
+    let deletedCount = 0;
+    set((state) => {
+      deletedCount = state.edges.reduce(
+        (count, edge) => count + (edgeIdSet.has(edge.id) ? 1 : 0),
+        0
+      );
+      if (deletedCount === 0) {
+        return {};
+      }
+
+      const nextEdges = state.edges.filter((edge) => !edgeIdSet.has(edge.id));
+      const nextNodes = cleanupImageCollageNodesForRemovedEdges(state.nodes, state.edges, nextEdges);
+
+      return {
+        nodes: nextNodes,
+        edges: nextEdges,
+        history: {
+          past: pushSnapshot(state.history.past, createSnapshot(state.nodes, state.edges)),
+          future: [],
+        },
+        dragHistorySnapshot: null,
+      };
+    });
+
+    return deletedCount;
   },
 
   setSelectedNode: (nodeId) => {

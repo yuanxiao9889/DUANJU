@@ -65,7 +65,7 @@ const toolIconMap: Record<ToolIconKey, typeof Crop> = {
 
 const TOOLBAR_BUTTON_RADIUS_CLASS = 'rounded-full';
 const TOOLBAR_NEUTRAL_BUTTON_CLASS =
-  'border-[rgba(255,255,255,0.18)] bg-bg-dark/70 text-text-dark hover:border-[rgba(255,255,255,0.32)] hover:bg-bg-dark';
+  'border-[rgba(15,23,42,0.16)] bg-bg-dark/70 text-text-dark hover:border-[rgba(15,23,42,0.28)] hover:bg-bg-dark dark:border-[rgba(255,255,255,0.18)] dark:hover:border-[rgba(255,255,255,0.32)]';
 const DOWNLOAD_MENU_MIN_WIDTH = 280;
 const DOWNLOAD_MENU_VIEWPORT_MARGIN = 12;
 const DOWNLOAD_MENU_BUTTON_OFFSET = 8;
@@ -129,6 +129,17 @@ function resolveAudioExtensionFromMime(mimeType: unknown): string {
   if (normalized === 'audio/mp4' || normalized === 'audio/x-m4a') return 'm4a';
   if (normalized === 'audio/aac') return 'aac';
   if (normalized === 'audio/flac' || normalized === 'audio/x-flac') return 'flac';
+  return '';
+}
+
+function resolveVideoExtensionFromMime(mimeType: unknown): string {
+  const normalized = normalizeText(mimeType).split(';', 1)[0]?.toLowerCase() ?? '';
+  if (normalized === 'video/mp4') return 'mp4';
+  if (normalized === 'video/webm') return 'webm';
+  if (normalized === 'video/ogg') return 'ogv';
+  if (normalized === 'video/quicktime') return 'mov';
+  if (normalized === 'video/x-msvideo') return 'avi';
+  if (normalized === 'video/x-matroska') return 'mkv';
   return '';
 }
 
@@ -241,6 +252,10 @@ export const NodeActionToolbar = memo(({ node }: NodeActionToolbarProps) => {
     }
     return null;
   }, [node]);
+  const videoSource = useMemo(() => {
+    const source = normalizeText((node.data as { videoUrl?: unknown }).videoUrl);
+    return source || null;
+  }, [node]);
   const canSaveVoicePreset = useMemo(() => {
     if (!isAudioNode(node)) {
       return false;
@@ -267,7 +282,7 @@ export const NodeActionToolbar = memo(({ node }: NodeActionToolbarProps) => {
     typeof node.data.nodeDescription === 'string'
     && node.data.nodeDescription.trim().length > 0;
   const canHandleImage = Boolean(imageSource);
-  const downloadableSource = audioSource ?? imageSource;
+  const downloadableSource = audioSource ?? videoSource ?? imageSource;
   const canDownloadMedia = Boolean(downloadableSource);
   const downloadDefaultFileName = useMemo(() => {
     if (isAudioNode(node)) {
@@ -286,12 +301,28 @@ export const NodeActionToolbar = memo(({ node }: NodeActionToolbarProps) => {
       return getFileExtension(safeName) ? safeName : `${safeName}.${audioExtension}`;
     }
 
+    if (videoSource) {
+      const sourceExtension = getFileExtension(videoSource);
+      const videoFileName = normalizeText((node.data as { videoFileName?: unknown }).videoFileName);
+      const videoExtension =
+        getFileExtension(videoFileName)
+        || sourceExtension
+        || resolveVideoExtensionFromMime((node.data as { mimeType?: unknown }).mimeType)
+        || 'mp4';
+      const baseName =
+        videoFileName
+        || getFileNameFromPathLike(videoSource)
+        || `node-${node.id}`;
+      const safeName = sanitizeDownloadFileName(baseName);
+      return getFileExtension(safeName) ? safeName : `${safeName}.${videoExtension}`;
+    }
+
     const imageFileName = getFileNameFromPathLike(imageSource ?? '');
     const imageExtension = getFileExtension(imageFileName) || 'png';
     const baseName = imageFileName || `node-${node.id}`;
     const safeName = sanitizeDownloadFileName(baseName);
     return getFileExtension(safeName) ? safeName : `${safeName}.${imageExtension}`;
-  }, [audioSource, imageSource, node]);
+  }, [audioSource, imageSource, node, videoSource]);
   const downloadSuggestedFileStem = useMemo(
     () => stripFileExtension(downloadDefaultFileName) || `node-${node.id}`,
     [downloadDefaultFileName, node.id]
@@ -694,14 +725,7 @@ export const NodeActionToolbar = memo(({ node }: NodeActionToolbarProps) => {
         {!isImageEdit && canAddToClipLibrary && (
           <NodeAddToClipLibraryButton
             node={node}
-            mediaSource={
-              audioSource
-              ?? (
-                typeof (node.data as { videoUrl?: unknown }).videoUrl === 'string'
-                  ? ((node.data as { videoUrl?: string }).videoUrl ?? '')
-                  : ''
-              )
-            }
+            mediaSource={audioSource ?? videoSource ?? ''}
             className={`h-8 ${TOOLBAR_BUTTON_RADIUS_CLASS} px-2.5 text-xs ${TOOLBAR_NEUTRAL_BUTTON_CLASS}`}
           />
         )}
@@ -803,7 +827,7 @@ export const NodeActionToolbar = memo(({ node }: NodeActionToolbarProps) => {
         {!isImageEdit && isImageCompareNode(node) && (
           <UiChipButton
             key="image-compare-separate"
-            className={`h-8 ${TOOLBAR_BUTTON_RADIUS_CLASS} px-2.5 text-xs ${TOOLBAR_NEUTRAL_BUTTON_CLASS} hover:!border-amber-400/60 hover:!bg-amber-500/20 hover:!text-amber-100`}
+            className={`h-8 ${TOOLBAR_BUTTON_RADIUS_CLASS} px-2.5 text-xs ${TOOLBAR_NEUTRAL_BUTTON_CLASS} hover:!border-[rgba(15,23,42,0.32)] hover:!bg-[rgba(15,23,42,0.1)] hover:!text-text-dark dark:hover:!border-accent/45 dark:hover:!bg-accent/14`}
             onClick={(event) => {
               event.stopPropagation();
               closeDownloadMenu();
@@ -817,7 +841,7 @@ export const NodeActionToolbar = memo(({ node }: NodeActionToolbarProps) => {
         {!isImageEdit && isGroupNode(node) && (
           <UiChipButton
             key="group-layout"
-            className={`h-8 ${TOOLBAR_BUTTON_RADIUS_CLASS} px-2.5 text-xs ${TOOLBAR_NEUTRAL_BUTTON_CLASS} hover:!border-cyan-400/60 hover:!bg-cyan-500/20 hover:!text-cyan-100`}
+            className={`h-8 ${TOOLBAR_BUTTON_RADIUS_CLASS} px-2.5 text-xs ${TOOLBAR_NEUTRAL_BUTTON_CLASS} hover:!border-[rgba(15,23,42,0.32)] hover:!bg-[rgba(15,23,42,0.1)] hover:!text-text-dark dark:hover:!border-accent/45 dark:hover:!bg-accent/14`}
             onClick={(event) => {
               event.stopPropagation();
               closeDownloadMenu();
@@ -831,7 +855,7 @@ export const NodeActionToolbar = memo(({ node }: NodeActionToolbarProps) => {
         {!isImageEdit && isGroupNode(node) && (
           <UiChipButton
             key="group-ungroup"
-            className={`h-8 ${TOOLBAR_BUTTON_RADIUS_CLASS} px-2.5 text-xs ${TOOLBAR_NEUTRAL_BUTTON_CLASS} hover:!border-amber-400/60 hover:!bg-amber-500/20 hover:!text-amber-200`}
+            className={`h-8 ${TOOLBAR_BUTTON_RADIUS_CLASS} px-2.5 text-xs ${TOOLBAR_NEUTRAL_BUTTON_CLASS} hover:!border-[rgba(15,23,42,0.32)] hover:!bg-[rgba(15,23,42,0.1)] hover:!text-text-dark dark:hover:!border-accent/45 dark:hover:!bg-accent/14`}
             onClick={(event) => {
               event.stopPropagation();
               closeDownloadMenu();

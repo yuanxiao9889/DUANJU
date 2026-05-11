@@ -88,6 +88,7 @@ import {
   NODE_CONTROL_CHIP_CLASS,
   NODE_CONTROL_PRIMARY_BUTTON_CLASS,
 } from "@/features/canvas/ui/nodeControlStyles";
+import { PROMPT_REFERENCE_TOKEN_HIGHLIGHT_CLASS } from "@/features/canvas/ui/promptReferenceTokenStyles";
 import {
   insertShotParamToken,
 } from "@/features/canvas/shot-params/shotParamsPrompt";
@@ -516,7 +517,7 @@ function renderPromptWithHighlights(
     segments.push(
       <span
         key={`ref-${token.start}`}
-        className="relative z-0 text-white [text-shadow:0.24px_0_currentColor,-0.24px_0_currentColor] before:absolute before:-inset-x-[4px] before:-inset-y-[1px] before:-z-10 before:rounded-[7px] before:bg-accent/55 before:content-['']"
+        className={PROMPT_REFERENCE_TOKEN_HIGHLIGHT_CLASS}
       >
         {token.token}
       </span>,
@@ -725,8 +726,8 @@ export const SeedanceNode = memo(
       hasConnectedTextSource,
       hasNonEmptyConnectedText,
     } = useCanvasConnectedTextInput(id);
-    const storyboardApiKeys = useSettingsStore(
-      (state) => state.storyboardApiKeys,
+    const officialVideoApiKeys = useSettingsStore(
+      (state) => state.officialVideoApiKeys,
     );
     const setSelectedNode = useCanvasStore((state) => state.setSelectedNode);
     const highlightedReferenceSourceNodeId = useCanvasStore(
@@ -749,7 +750,7 @@ export const SeedanceNode = memo(
       (state) => state.closeShotParamsPanel,
     );
 
-    const apiKey = storyboardApiKeys.volcengine?.trim() ?? "";
+    const apiKey = officialVideoApiKeys.volcengine?.trim() ?? "";
     const resolvedTitle = useMemo(
       () => resolveNodeDisplayName(CANVAS_NODE_TYPES.seedance, data),
       [data],
@@ -1564,7 +1565,7 @@ export const SeedanceNode = memo(
         if (!apiKey) {
           openSettingsDialog({
             category: "providers",
-            providerTab: "storyboard",
+            providerTab: "officialVideo",
             providerId: "volcengine",
           });
         }

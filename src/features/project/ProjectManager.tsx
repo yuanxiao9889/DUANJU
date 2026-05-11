@@ -275,18 +275,18 @@ function ProjectListView({
                     <div
                       className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-lg ${
                         project.projectType === 'script'
-                          ? 'bg-amber-500/15'
+                          ? 'bg-bg-dark text-text-muted dark:bg-amber-500/15 dark:text-amber-400'
                           : project.projectType === 'ad'
-                            ? 'bg-emerald-500/15'
-                            : 'bg-accent/15'
+                            ? 'bg-bg-dark text-text-muted dark:bg-emerald-500/15 dark:text-emerald-400'
+                            : 'bg-bg-dark text-text-muted dark:bg-accent/15 dark:text-accent'
                       }`}
                     >
                       {project.projectType === 'script' ? (
-                        <FileText className="h-5 w-5 text-amber-400" />
+                        <FileText className="h-5 w-5" />
                       ) : project.projectType === 'ad' ? (
-                        <Clapperboard className="h-5 w-5 text-emerald-400" />
+                        <Clapperboard className="h-5 w-5" />
                       ) : (
-                        <Film className="h-5 w-5 text-accent" />
+                        <Film className="h-5 w-5" />
                       )}
                     </div>
                     <div className="min-w-0 flex-1">
@@ -306,13 +306,13 @@ function ProjectListView({
                         )}
                         className={`rounded-lg p-1.5 transition-colors ${
                           project.projectType === 'storyboard'
-                            ? 'hover:bg-cyan-500/10'
+                            ? 'hover:bg-[rgba(15,23,42,0.08)] dark:hover:bg-cyan-500/10'
                             : 'cursor-default opacity-40'
                         }`}
                         title={t('project.linkBindingsTitle')}
                         disabled={project.projectType !== 'storyboard'}
                       >
-                        <Link2 className="h-4 w-4 text-text-muted hover:text-cyan-300" />
+                        <Link2 className="h-4 w-4 text-text-muted hover:text-text-dark dark:hover:text-cyan-300" />
                       </button>
                       <button
                         type="button"
@@ -338,10 +338,10 @@ function ProjectListView({
                   <span
                     className={`inline-flex items-center rounded-full px-2.5 py-1 text-xs ${
                       project.projectType === 'script'
-                        ? 'bg-amber-500/15 text-amber-400'
+                        ? 'bg-bg-dark text-text-muted dark:bg-amber-500/15 dark:text-amber-400'
                         : project.projectType === 'ad'
-                          ? 'bg-emerald-500/15 text-emerald-300'
-                          : 'bg-accent/15 text-accent'
+                          ? 'bg-bg-dark text-text-muted dark:bg-emerald-500/15 dark:text-emerald-300'
+                          : 'bg-bg-dark text-text-muted dark:bg-accent/15 dark:text-accent'
                     }`}
                   >
                     {project.projectType === 'script'
@@ -360,9 +360,9 @@ function ProjectListView({
                         <span
                           className={
                             activeLinkedSourceType === 'script'
-                              ? 'text-cyan-200'
+                              ? 'text-text-dark dark:text-cyan-200'
                               : activeLinkedSourceType === 'ad'
-                                ? 'text-emerald-200'
+                                ? 'text-text-dark dark:text-emerald-200'
                                 : ''
                           }
                         >
@@ -375,7 +375,7 @@ function ProjectListView({
                       </p>
                       <p className="flex items-center gap-1.5">
                         <span className="opacity-60">{t('project.clipLibraryLabel')}:</span>
-                        <span className={linkedClipLibraryName ? 'text-accent' : ''}>
+                        <span className={linkedClipLibraryName ? 'text-text-dark dark:text-accent' : ''}>
                           {linkedClipLibraryName || t('project.clipLibraryEmpty')}
                         </span>
                       </p>
@@ -552,7 +552,7 @@ function LinkProjectDialog({
       </label>
 
       {scriptProjects.length === 0 ? (
-        <p className="mt-3 text-sm text-amber-200">{t('project.linkScriptNoScripts')}</p>
+        <p className="mt-3 text-sm text-text-muted dark:text-amber-200">{t('project.linkScriptNoScripts')}</p>
       ) : null}
     </div>
   );
@@ -582,7 +582,7 @@ function LinkProjectDialog({
       </label>
 
       {adProjects.length === 0 ? (
-        <p className="mt-3 text-sm text-amber-200">{t('project.linkAdNoAds')}</p>
+        <p className="mt-3 text-sm text-text-muted dark:text-amber-200">{t('project.linkAdNoAds')}</p>
       ) : null}
     </div>
   );
@@ -622,14 +622,14 @@ function LinkProjectDialog({
       )}
 
       {isSwitchingLibrary ? (
-        <UiPanel className="rounded-xl border-amber-500/30 bg-amber-500/10 px-4 py-3">
+        <UiPanel className="rounded-xl border-[rgba(15,23,42,0.16)] bg-bg-dark/70 px-4 py-3 dark:border-amber-500/30 dark:bg-amber-500/10">
           <div className="flex items-start gap-3">
-            <Film className="mt-0.5 h-4 w-4 shrink-0 text-amber-300" />
+            <Film className="mt-0.5 h-4 w-4 shrink-0 text-text-muted dark:text-amber-300" />
             <div>
-              <div className="text-sm font-medium text-amber-100">
+              <div className="text-sm font-medium text-text-dark dark:text-amber-100">
                 {t('project.rebindClipLibraryWarningTitle')}
               </div>
-              <p className="mt-1 text-xs text-amber-100/85">
+              <p className="mt-1 text-xs text-text-muted dark:text-amber-100/85">
                 {t('project.rebindClipLibraryWarning')}
               </p>
             </div>

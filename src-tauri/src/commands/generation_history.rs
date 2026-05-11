@@ -3,6 +3,7 @@ use serde::{Deserialize, Serialize};
 use tauri::AppHandle;
 
 use super::project_state::{open_db, prune_unreferenced_images};
+use super::storage;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -113,7 +114,21 @@ pub fn list_generation_history_items(
 
     let mut records = Vec::new();
     for row in rows {
-        records.push(row.map_err(|e| format!("Failed to read generation history row: {}", e))?);
+        let mut record =
+            row.map_err(|e| format!("Failed to read generation history row: {}", e))?;
+        record.source_path = storage::decode_storage_media_ref(&app, &record.source_path);
+        record.preview_path = record
+            .preview_path
+            .as_deref()
+            .map(|value| storage::decode_storage_media_ref(&app, value));
+        if let Some(next_snapshot_json) =
+            storage::rewrite_media_refs_in_json_string(&record.snapshot_json, &|value| {
+                storage::decode_storage_media_ref(&app, value)
+            })?
+        {
+            record.snapshot_json = next_snapshot_json;
+        }
+        records.push(record);
     }
 
     Ok(records)
@@ -122,10 +137,22 @@ pub fn list_generation_history_items(
 #[tauri::command]
 pub fn upsert_generation_history_item(
     app: AppHandle,
-    record: GenerationHistoryItemRecord,
+    mut record: GenerationHistoryItemRecord,
 ) -> Result<(), String> {
     let mut conn = open_db(&app)?;
     ensure_generation_history_ready(&conn)?;
+    record.source_path = storage::encode_storage_media_ref(&app, &record.source_path);
+    record.preview_path = record
+        .preview_path
+        .as_deref()
+        .map(|value| storage::encode_storage_media_ref(&app, value));
+    if let Some(next_snapshot_json) =
+        storage::rewrite_media_refs_in_json_string(&record.snapshot_json, &|value| {
+            storage::encode_storage_media_ref(&app, value)
+        })?
+    {
+        record.snapshot_json = next_snapshot_json;
+    }
 
     let tx = conn
         .transaction()

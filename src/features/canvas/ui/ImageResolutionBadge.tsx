@@ -34,7 +34,7 @@ export const ImageResolutionBadge = memo(({
 
   return (
     <div
-      className={`pointer-events-none absolute bottom-2 right-2 z-20 border border-white/12 bg-[rgba(15,23,42,0.72)] px-2.5 py-1.5 text-white/92 opacity-0 shadow-[0_6px_20px_rgba(15,23,42,0.2)] backdrop-blur-sm transition-all duration-150 group-hover:translate-y-0 group-hover:opacity-100 group-focus-within:translate-y-0 group-focus-within:opacity-100 translate-y-1 ${
+      className={`pointer-events-none absolute bottom-2 right-2 z-20 border border-white/25 bg-black/70 px-2.5 py-1.5 text-white opacity-0 shadow-[0_4px_12px_rgba(0,0,0,0.18)] backdrop-blur-sm transition-all duration-150 group-hover:translate-y-0 group-hover:opacity-100 group-focus-within:translate-y-0 group-focus-within:opacity-100 translate-y-1 ${
         resolvedProviderName ? 'rounded-2xl' : 'rounded-full'
       } ${className ?? ''}`}
       title={
@@ -45,17 +45,17 @@ export const ImageResolutionBadge = memo(({
     >
       {resolvedProviderName ? (
         <div className="flex max-w-[180px] flex-col gap-0.5 leading-none">
-          <span className="truncate text-[9px] text-white/70">
+          <span className="truncate text-[9px] text-white/80">
             {resolvedProviderName}
           </span>
-          <span className="text-[10px] font-medium text-white/92">
+          <span className="text-[10px] font-semibold text-white">
             {resolvedWidth}
             {' x '}
             {resolvedHeight}
           </span>
         </div>
       ) : (
-        <span className="text-[10px] font-medium leading-none">
+        <span className="text-[10px] font-semibold leading-none text-white">
           {resolvedWidth}
           {' x '}
           {resolvedHeight}

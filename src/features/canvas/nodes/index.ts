@@ -24,6 +24,8 @@ import {
   GptBestSeedanceNode,
 } from './GptBestVideoNode';
 import { GptBestVideoResultNode } from './GptBestVideoResultNode';
+import { ViduNode } from './ViduNode';
+import { ViduVideoResultNode } from './ViduVideoResultNode';
 import { StoryboardGenNode } from './StoryboardGenNode';
 import { ImageCollageNode } from './ImageCollageNode';
 import { StoryboardNode } from './StoryboardNode';
@@ -80,6 +82,8 @@ export const nodeTypes: NodeTypes = {
   gptBestSeedanceNode: GptBestSeedanceNode,
   gptBestGrokVideoNode: GptBestGrokVideoNode,
   gptBestVideoResultNode: GptBestVideoResultNode,
+  viduNode: ViduNode,
+  viduVideoResultNode: ViduVideoResultNode,
   storyboardGenNode: StoryboardGenNode,
   imageCollageNode: ImageCollageNode,
   storyboardNode: StoryboardNode,
@@ -135,6 +139,8 @@ export {
   GptBestSeedanceNode,
   GptBestGrokVideoNode,
   GptBestVideoResultNode,
+  ViduNode,
+  ViduVideoResultNode,
   StoryboardGenNode, 
   ImageCollageNode,
   StoryboardNode, 

@@ -5,6 +5,7 @@ import { UiInput, UiSelect } from '@/components/ui';
 import {
   STORYBOARD_COMPATIBLE_API_FORMATS,
   STORYBOARD_NEWAPI_API_FORMATS,
+  STORYBOARD_NEWAPI_CUSTOM_MODEL_TYPES,
   type CustomScriptModelEntry,
   type CustomStoryboardModelEntry,
   type ModelProviderDefinition,
@@ -12,6 +13,7 @@ import {
   type StoryboardCompatibleApiFormat,
   type StoryboardCompatibleModelConfig,
   type StoryboardNewApiApiFormat,
+  type StoryboardNewApiCustomModelType,
   type StoryboardNewApiModelConfig,
 } from '@/features/canvas/models';
 import { GRSAI_NANO_BANANA_PRO_MODEL_OPTIONS } from '@/features/canvas/models/providers/grsai';
@@ -44,8 +46,10 @@ interface ProviderModelSettingsSectionProps {
   customStoryboardModels: CustomStoryboardModelEntry[];
   customStoryboardModelIdInput: string;
   customStoryboardModelDisplayNameInput: string;
+  customStoryboardModelTypeInput: StoryboardNewApiCustomModelType | '';
   onStoryboardModelIdInputChange: (value: string) => void;
   onStoryboardModelDisplayNameInputChange: (value: string) => void;
+  onStoryboardModelTypeInputChange: (value: StoryboardNewApiCustomModelType | '') => void;
   onAddCustomStoryboardModel: () => void;
   onRemoveCustomStoryboardModel: (model: CustomStoryboardModelEntry) => void;
   storyboardCompatibleModelConfig: StoryboardCompatibleModelConfig;
@@ -71,6 +75,15 @@ const STORYBOARD_NEWAPI_FORMAT_LABEL_KEYS: Record<StoryboardNewApiApiFormat, str
   gemini: 'settings.storyboardNewApiFormatGemini',
 };
 
+const STORYBOARD_NEWAPI_CUSTOM_MODEL_TYPE_LABEL_KEYS: Record<
+  StoryboardNewApiCustomModelType,
+  string
+> = {
+  'gpt-image-2': 'settings.storyboardNewApiCustomModelTypeGptImage2',
+  'google-image': 'settings.storyboardNewApiCustomModelTypeGoogleImage',
+  'openai-compatible': 'settings.storyboardNewApiCustomModelTypeOpenaiCompatible',
+};
+
 function resolveCompatibleEndpointPlaceholder(apiFormat: StoryboardCompatibleApiFormat): string {
   if (apiFormat === 'gemini-generate-content') {
     return 'https://generativelanguage.googleapis.com';
@@ -93,7 +106,7 @@ function resolveStoryboardCustomModelIdPlaceholder(providerId: string, fallback:
   }
 
   if (providerId === 'newapi') {
-    return 'gemini-3.1-flash-image / gemini-3.0-pro-image';
+    return 'gpt-image-2 / gemini-3.1-flash-image / gemini-3.0-pro-image';
   }
 
   if (providerId === 'api2ok') {
@@ -146,8 +159,10 @@ export function ProviderModelSettingsSection({
   customStoryboardModels,
   customStoryboardModelIdInput,
   customStoryboardModelDisplayNameInput,
+  customStoryboardModelTypeInput,
   onStoryboardModelIdInputChange,
   onStoryboardModelDisplayNameInputChange,
+  onStoryboardModelTypeInputChange,
   onAddCustomStoryboardModel,
   onRemoveCustomStoryboardModel,
   storyboardCompatibleModelConfig,
@@ -162,6 +177,9 @@ export function ProviderModelSettingsSection({
   const { t } = useTranslation();
   const customScriptModelMap = new Map(customScriptModels.map((model) => [model.id, model]));
   const customStoryboardModelMap = new Map(customStoryboardModels.map((model) => [model.id, model]));
+  const isNewApiStoryboardProvider = provider.id === 'newapi';
+  const canAddCustomStoryboardModel =
+    !isNewApiStoryboardProvider || Boolean(customStoryboardModelTypeInput);
   const scriptModelSelectionDescKey =
     provider.id === 'oopii'
       ? 'settings.scriptOopiiModelSelectionDesc'
@@ -361,10 +379,36 @@ export function ProviderModelSettingsSection({
                   className="h-9 rounded-lg text-sm"
                 />
               </div>
+              {isNewApiStoryboardProvider ? (
+                <div>
+                  <div className="mb-1 text-[11px] font-medium text-text-muted">
+                    {t('settings.storyboardNewApiCustomModelType')}
+                  </div>
+                  <UiSelect
+                    value={customStoryboardModelTypeInput}
+                    onChange={(event) =>
+                      onStoryboardModelTypeInputChange(
+                        event.target.value as StoryboardNewApiCustomModelType | ''
+                      )
+                    }
+                    className="h-9 rounded-lg text-sm"
+                  >
+                    <option value="">
+                      {t('settings.storyboardNewApiCustomModelTypePlaceholder')}
+                    </option>
+                    {STORYBOARD_NEWAPI_CUSTOM_MODEL_TYPES.map((type) => (
+                      <option key={type} value={type}>
+                        {t(STORYBOARD_NEWAPI_CUSTOM_MODEL_TYPE_LABEL_KEYS[type])}
+                      </option>
+                    ))}
+                  </UiSelect>
+                </div>
+              ) : null}
               <button
                 type="button"
                 onClick={onAddCustomStoryboardModel}
-                className="inline-flex h-9 w-full items-center justify-center gap-1 rounded-lg border border-border-dark bg-surface-dark px-3 text-xs text-text-dark transition-colors hover:bg-bg-dark"
+                disabled={!canAddCustomStoryboardModel}
+                className="inline-flex h-9 w-full items-center justify-center gap-1 rounded-lg border border-border-dark bg-surface-dark px-3 text-xs text-text-dark transition-colors hover:bg-bg-dark disabled:cursor-not-allowed disabled:opacity-50"
               >
                 <Plus className="h-3.5 w-3.5" />
                 {t('settings.scriptCustomModelAdd')}
@@ -386,6 +430,13 @@ export function ProviderModelSettingsSection({
                       <div className="min-w-0 flex-1">
                         <div className="truncate text-sm text-text-dark">{option.label}</div>
                         <div className="truncate text-[11px] text-text-muted">{option.modelId}</div>
+                        {isNewApiStoryboardProvider && customModel?.newApiModelType ? (
+                          <div className="mt-1 text-[11px] text-text-muted">
+                            {t(STORYBOARD_NEWAPI_CUSTOM_MODEL_TYPE_LABEL_KEYS[
+                              customModel.newApiModelType
+                            ])}
+                          </div>
+                        ) : null}
                       </div>
                       {customModel ? (
                         <button
