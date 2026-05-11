@@ -189,7 +189,7 @@ export const ScriptCharacterNode = memo(({
             type="source"
             id="source"
             position={Position.Right}
-            className="!h-3 !w-3 !right-0 !rounded-full !border-surface-dark !bg-[#222222] dark:!bg-text-muted"
+            className="!h-2.5 !w-2.5 !rounded-full !border-2 !border-surface-dark !bg-accent"
           />
           <NodeResizeHandle
             minWidth={MIN_WIDTH}

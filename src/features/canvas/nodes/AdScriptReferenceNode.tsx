@@ -65,13 +65,13 @@ const AD_ROW_GRID_STYLE = {
 };
 
 const AD_REFERENCE_NODE_BASE_CLASS =
-  'group relative overflow-visible rounded-[20px] border bg-surface-dark shadow-[0_12px_24px_rgba(2,6,23,0.12)] dark:shadow-[0_14px_28px_rgba(0,0,0,0.24)]';
+  'group relative overflow-visible rounded-[var(--node-radius)] border bg-surface-dark/90 transition-all duration-150';
 const AD_REFERENCE_NODE_SELECTED_CLASS =
-  'border-[rgba(15,23,42,0.42)] dark:border-white/36';
+  'border-[#222222] shadow-[0_0_0_2px_rgba(34,34,34,0.38),0_4px_14px_rgba(15,23,42,0.12)] dark:border-white/70 dark:shadow-[0_0_0_2px_rgba(245,245,245,0.2),0_4px_14px_rgba(0,0,0,0.24)]';
 const AD_REFERENCE_NODE_IDLE_CLASS =
-  'border-[rgba(15,23,42,0.2)] hover:border-[rgba(15,23,42,0.34)] dark:border-white/18 dark:hover:border-white/30';
+  'border-[rgba(15,23,42,0.22)] hover:border-[rgba(15,23,42,0.34)] hover:shadow-[0_4px_16px_rgba(0,0,0,0.12)] dark:border-[rgba(255,255,255,0.22)] dark:hover:border-[rgba(255,255,255,0.34)] dark:hover:shadow-[0_4px_16px_rgba(0,0,0,0.25)]';
 const AD_REFERENCE_HANDLE_CLASS =
-  '!h-3 !w-3 !rounded-full !border-surface-dark !bg-[#222222] dark:!bg-text-muted';
+  '!h-2.5 !w-2.5 !rounded-full !border-2 !border-surface-dark !bg-accent';
 const AD_REFERENCE_CHIP_CLASS =
   'rounded-full bg-bg-dark px-2 py-0.5 text-text-muted';
 const AD_REFERENCE_ACTION_BUTTON_CLASS =
@@ -597,10 +597,10 @@ export const AdScriptReferenceNode = memo(({
       style={{ width: resolvedWidth, height: resolvedHeight }}
       onClick={() => setSelectedNode(id)}
     >
-      <Handle type="target" id="target" position={Position.Left} className={`${AD_REFERENCE_HANDLE_CLASS} !-left-1.5`} />
-      <Handle type="source" id="source" position={Position.Right} className={`${AD_REFERENCE_HANDLE_CLASS} !-right-1.5`} />
+      <Handle type="target" id="target" position={Position.Left} className={AD_REFERENCE_HANDLE_CLASS} />
+      <Handle type="source" id="source" position={Position.Right} className={AD_REFERENCE_HANDLE_CLASS} />
 
-      <div className="relative flex h-full flex-col overflow-hidden rounded-[20px] p-3">
+      <div className="relative flex h-full flex-col overflow-hidden rounded-[var(--node-radius)] p-3">
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0">
             <div className="flex flex-wrap items-center gap-2 text-[11px] text-text-muted">

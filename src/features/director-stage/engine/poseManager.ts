@@ -18,6 +18,7 @@ const LIMB_CONTROL_ASSET_IDS = new Set(['lily', 'xbot', 'mannequin']);
 
 const LIMB_BONE_SUFFIXES: Record<DirectorStageLimbPoseKey, string[]> = {
   head: ['Head'],
+  neck: ['Neck'],
   leftUpperArm: ['LeftArm'],
   leftForeArm: ['LeftForeArm'],
   rightUpperArm: ['RightArm'],

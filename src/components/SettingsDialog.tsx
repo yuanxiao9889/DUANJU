@@ -1937,7 +1937,7 @@ export function SettingsDialog({
       />
       <div ref={panelRef} className={panelPositionClassName} style={panelStyle}>
         <div
-          className={`relative overflow-hidden rounded-lg border border-border-dark bg-surface-dark shadow-xl ${isDragging ? 'transition-none' : 'transition-opacity duration-200'} ${isVisible ? 'opacity-100' : 'opacity-0'} flex flex-col ${isDialogExpanded ? 'w-[min(94vw,1000px)] h-[min(90vh,700px)]' : 'w-[700px] h-[500px]'}`}
+          className={`relative overflow-hidden rounded-lg border border-border-dark bg-surface-dark shadow-xl ${isDragging ? 'transition-none' : 'transition-opacity duration-200'} ${isVisible ? 'opacity-100' : 'opacity-0'} flex flex-col ${isDialogExpanded ? 'w-[min(94vw,1200px)] h-[min(90vh,780px)]' : 'w-[min(92vw,960px)] h-[min(86vh,660px)]'}`}
         >
           <div
             className={`flex items-center justify-between border-b border-border-dark px-4 py-3 ${dragHandleClassName}`}

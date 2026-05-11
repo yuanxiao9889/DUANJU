@@ -188,6 +188,13 @@ const DIRECTOR_STAGE_CROWD_RENDER_STRATEGY_VERSION = 'static-full-v2';
 const DIRECTOR_STAGE_MODEL_LIBRARY_URL = 'https://sketchfab.com/feed';
 const DIRECTOR_STAGE_USER_POSE_PRESET_PREFIX = 'asset:';
 const DIRECTOR_STAGE_USER_ANIMATION_SAMPLE_RATIO = 0.2;
+const DIRECTOR_STAGE_TRANSFORM_SHORTCUTS: Record<DirectorStageTransformMode, string> = {
+  translate: 'W',
+  rotate: 'E',
+  scale: 'R',
+};
+const DIRECTOR_STAGE_FRAME_SELECTED_SHORTCUT = 'F';
+const DIRECTOR_STAGE_GROUND_GRID_SHORTCUT = 'G';
 const DIRECTOR_STAGE_GROUND_SAMPLE_SIZE = 32;
 const CAMERA_LENS_PANEL_WIDTH = 260;
 const CAMERA_LENS_PANEL_HEIGHT = 206;
@@ -250,6 +257,21 @@ async function sampleDirectorStageGroundColor(source: string): Promise<THREE.Col
 
 function isObjectRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function isDirectorStageShortcutEditableTarget(target: EventTarget | null): boolean {
+  if (!(target instanceof HTMLElement)) {
+    return false;
+  }
+  const tagName = target.tagName.toLowerCase();
+  return target.isContentEditable
+    || tagName === 'input'
+    || tagName === 'textarea'
+    || tagName === 'select';
+}
+
+function shortcutTitle(label: string, shortcut: string): string {
+  return `${label} (${shortcut})`;
 }
 
 function getDirectorStageAssetMetadata(item: AssetItemRecord): Record<string, unknown> | null {
@@ -2577,6 +2599,48 @@ export function DirectorStageWorkspace({
     }
   }, [commitActiveCameraShotFromView, frameCrowdGroupObjectInView, frameEntityObjectInView, patchProject]);
 
+  useEffect(() => {
+    const handleStageShortcut = (event: KeyboardEvent) => {
+      if (
+        event.ctrlKey
+        || event.metaKey
+        || event.altKey
+        || isDirectorStageShortcutEditableTarget(event.target)
+      ) {
+        return;
+      }
+
+      const key = event.key.toLowerCase();
+      if (key === 'w') {
+        event.preventDefault();
+        setTransformMode('translate');
+        return;
+      }
+      if (key === 'e') {
+        event.preventDefault();
+        setTransformMode('rotate');
+        return;
+      }
+      if (key === 'r') {
+        event.preventDefault();
+        setTransformMode('scale');
+        return;
+      }
+      if (key === 'f' && !event.repeat) {
+        event.preventDefault();
+        frameSelectedEntityInView();
+        return;
+      }
+      if (key === 'g' && !event.repeat) {
+        event.preventDefault();
+        toggleGroundGrid();
+      }
+    };
+
+    window.addEventListener('keydown', handleStageShortcut);
+    return () => window.removeEventListener('keydown', handleStageShortcut);
+  }, [frameSelectedEntityInView, setTransformMode, toggleGroundGrid]);
+
   const addLight = useCallback((kind: DirectorStageLight['kind']) => {
     const now = Date.now();
     const light: DirectorStageLight = {
@@ -3561,15 +3625,17 @@ export function DirectorStageWorkspace({
               className="pointer-events-none absolute z-10 border border-emerald-200/80 shadow-[0_0_0_9999px_rgba(0,0,0,0.46)] ring-1 ring-black/35"
               style={snapshotFrameStyle}
             >
-              <div className="absolute inset-y-0 left-1/3 border-l border-white/12" />
-              <div className="absolute inset-y-0 left-2/3 border-l border-white/12" />
-              <div className="absolute inset-x-0 top-1/3 border-t border-white/12" />
-              <div className="absolute inset-x-0 top-2/3 border-t border-white/12" />
+              <div className="absolute inset-y-0 left-1/3 border-l border-white/[0.055]" />
+              <div className="absolute inset-y-0 left-2/3 border-l border-white/[0.055]" />
+              <div className="absolute inset-x-0 top-1/3 border-t border-white/[0.055]" />
+              <div className="absolute inset-x-0 top-2/3 border-t border-white/[0.055]" />
             </div>
           ) : null}
           <div className="pointer-events-none absolute left-4 top-4 z-20 flex gap-2">
             {(['translate', 'rotate', 'scale'] as const).map((mode) => {
               const Icon = mode === 'translate' ? Move3D : mode === 'rotate' ? Rotate3D : Scale3D;
+              const shortcut = DIRECTOR_STAGE_TRANSFORM_SHORTCUTS[mode];
+              const label = t(`directorStage.transformModes.${mode}`);
               return (
                 <button
                   key={mode}
@@ -3580,7 +3646,9 @@ export function DirectorStageWorkspace({
                       : 'border-white/10 bg-black/35 text-white/55 hover:bg-white/[0.08]'
                   }`}
                   onClick={() => setTransformMode(mode)}
-                  title={t(`directorStage.transformModes.${mode}`)}
+                  title={shortcutTitle(label, shortcut)}
+                  aria-label={shortcutTitle(label, shortcut)}
+                  aria-keyshortcuts={shortcut}
                 >
                   <Icon className="h-4 w-4" />
                 </button>
@@ -3595,7 +3663,9 @@ export function DirectorStageWorkspace({
               }`}
               disabled={!selectedEntity && !selectedCrowdGroup}
               onClick={frameSelectedEntityInView}
-              title={t('directorStage.camera.frameSelected')}
+              title={shortcutTitle(t('directorStage.camera.frameSelected'), DIRECTOR_STAGE_FRAME_SELECTED_SHORTCUT)}
+              aria-label={shortcutTitle(t('directorStage.camera.frameSelected'), DIRECTOR_STAGE_FRAME_SELECTED_SHORTCUT)}
+              aria-keyshortcuts={DIRECTOR_STAGE_FRAME_SELECTED_SHORTCUT}
             >
               <Maximize2 className="h-4 w-4" />
             </button>
@@ -3608,9 +3678,19 @@ export function DirectorStageWorkspace({
               }`}
               aria-pressed={project.showGroundGrid}
               onClick={toggleGroundGrid}
-              title={project.showGroundGrid
-                ? t('directorStage.viewport.hideGroundGrid')
-                : t('directorStage.viewport.showGroundGrid')}
+              title={shortcutTitle(
+                project.showGroundGrid
+                  ? t('directorStage.viewport.hideGroundGrid')
+                  : t('directorStage.viewport.showGroundGrid'),
+                DIRECTOR_STAGE_GROUND_GRID_SHORTCUT
+              )}
+              aria-label={shortcutTitle(
+                project.showGroundGrid
+                  ? t('directorStage.viewport.hideGroundGrid')
+                  : t('directorStage.viewport.showGroundGrid'),
+                DIRECTOR_STAGE_GROUND_GRID_SHORTCUT
+              )}
+              aria-keyshortcuts={DIRECTOR_STAGE_GROUND_GRID_SHORTCUT}
             >
               <Grid3X3 className="h-4 w-4" />
             </button>

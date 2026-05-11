@@ -4301,6 +4301,7 @@
       "title": "Body Controls",
       "reset": "Reset body",
       "head": "Head",
+      "neck": "Neck",
       "leftUpperArm": "Left upper arm",
       "leftForeArm": "Left forearm",
       "rightUpperArm": "Right upper arm",

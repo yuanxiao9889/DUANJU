@@ -29,17 +29,17 @@ export const ScriptRootNode = memo(({ id, data, selected }: ScriptRootNodeProps)
 
   return (
     <div
-      className={`group relative min-w-[320px] rounded-[18px] border bg-surface-dark shadow-[0_12px_24px_rgba(2,6,23,0.12)] transition-all duration-200 dark:shadow-[0_14px_28px_rgba(0,0,0,0.24)] ${
+      className={`group relative min-w-[320px] rounded-[var(--node-radius)] border bg-surface-dark/90 transition-all duration-150 ${
         selected
-          ? 'border-[rgba(15,23,42,0.42)] dark:border-white/36'
-          : 'border-[rgba(15,23,42,0.2)] hover:border-[rgba(15,23,42,0.34)] dark:border-white/18 dark:hover:border-white/30'
+          ? 'border-[#222222] shadow-[0_0_0_2px_rgba(34,34,34,0.38),0_4px_14px_rgba(15,23,42,0.12)] dark:border-white/70 dark:shadow-[0_0_0_2px_rgba(245,245,245,0.2),0_4px_14px_rgba(0,0,0,0.24)]'
+          : 'border-[rgba(15,23,42,0.22)] hover:border-[rgba(15,23,42,0.34)] hover:shadow-[0_4px_16px_rgba(0,0,0,0.12)] dark:border-[rgba(255,255,255,0.22)] dark:hover:border-[rgba(255,255,255,0.34)] dark:hover:shadow-[0_4px_16px_rgba(0,0,0,0.25)]'
       }`}
     >
       <Handle
         type="target"
         id="target"
         position={Position.Left}
-        className="!h-3 !w-3 !border-surface-dark !bg-[#222222] dark:!bg-text-muted"
+        className="!h-2.5 !w-2.5 !border-2 !border-surface-dark !bg-accent"
       />
       
       {/* Header */}
@@ -109,11 +109,11 @@ export const ScriptRootNode = memo(({ id, data, selected }: ScriptRootNodeProps)
         type="source"
         id="source"
         position={Position.Right}
-        className="!h-3 !w-3 !border-surface-dark !bg-[#222222] dark:!bg-text-muted"
+        className="!h-2.5 !w-2.5 !border-2 !border-surface-dark !bg-accent"
       />
 
       {/* Decorative corner accent */}
-      <div className="absolute right-0 top-0 h-10 w-10 overflow-hidden rounded-tr-[16px]">
+      <div className="absolute right-0 top-0 h-10 w-10 overflow-hidden rounded-tr-[var(--node-radius)]">
         <div className="absolute -right-5 -top-5 h-10 w-10 rotate-45 bg-border-dark/40" />
       </div>
     </div>

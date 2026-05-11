@@ -33,41 +33,41 @@ const ACCENT_CLASS_MAP: Record<
   }
 > = {
   violet: {
-    idle: 'border-[rgba(15,23,42,0.2)] hover:border-[rgba(15,23,42,0.34)] dark:border-white/18 dark:hover:border-white/30',
+    idle: 'border-[rgba(15,23,42,0.22)] hover:border-[rgba(15,23,42,0.34)] hover:shadow-[0_4px_16px_rgba(0,0,0,0.12)] dark:border-[rgba(255,255,255,0.22)] dark:hover:border-[rgba(255,255,255,0.34)] dark:hover:shadow-[0_4px_16px_rgba(0,0,0,0.25)]',
     selected:
-      'border-[rgba(15,23,42,0.42)] shadow-[0_0_0_1px_rgba(15,23,42,0.16),0_14px_26px_rgba(2,6,23,0.12)] dark:border-white/36 dark:shadow-[0_0_0_1px_rgba(255,255,255,0.16),0_16px_30px_rgba(0,0,0,0.26)]',
+      'border-[#222222] shadow-[0_0_0_2px_rgba(34,34,34,0.38),0_4px_14px_rgba(15,23,42,0.12)] dark:border-white/70 dark:shadow-[0_0_0_2px_rgba(245,245,245,0.2),0_4px_14px_rgba(0,0,0,0.24)]',
     iconWrap: 'border border-border-dark bg-bg-dark',
     iconText: 'text-text-muted',
     divider: 'border-border-dark/70',
   },
   emerald: {
-    idle: 'border-[rgba(15,23,42,0.2)] hover:border-[rgba(15,23,42,0.34)] dark:border-white/18 dark:hover:border-white/30',
+    idle: 'border-[rgba(15,23,42,0.22)] hover:border-[rgba(15,23,42,0.34)] hover:shadow-[0_4px_16px_rgba(0,0,0,0.12)] dark:border-[rgba(255,255,255,0.22)] dark:hover:border-[rgba(255,255,255,0.34)] dark:hover:shadow-[0_4px_16px_rgba(0,0,0,0.25)]',
     selected:
-      'border-[rgba(15,23,42,0.42)] shadow-[0_0_0_1px_rgba(15,23,42,0.16),0_14px_26px_rgba(2,6,23,0.12)] dark:border-white/36 dark:shadow-[0_0_0_1px_rgba(255,255,255,0.16),0_16px_30px_rgba(0,0,0,0.26)]',
+      'border-[#222222] shadow-[0_0_0_2px_rgba(34,34,34,0.38),0_4px_14px_rgba(15,23,42,0.12)] dark:border-white/70 dark:shadow-[0_0_0_2px_rgba(245,245,245,0.2),0_4px_14px_rgba(0,0,0,0.24)]',
     iconWrap: 'border border-border-dark bg-bg-dark',
     iconText: 'text-text-muted',
     divider: 'border-border-dark/70',
   },
   amber: {
-    idle: 'border-[rgba(15,23,42,0.2)] hover:border-[rgba(15,23,42,0.34)] dark:border-white/18 dark:hover:border-white/30',
+    idle: 'border-[rgba(15,23,42,0.22)] hover:border-[rgba(15,23,42,0.34)] hover:shadow-[0_4px_16px_rgba(0,0,0,0.12)] dark:border-[rgba(255,255,255,0.22)] dark:hover:border-[rgba(255,255,255,0.34)] dark:hover:shadow-[0_4px_16px_rgba(0,0,0,0.25)]',
     selected:
-      'border-[rgba(15,23,42,0.42)] shadow-[0_0_0_1px_rgba(15,23,42,0.16),0_14px_26px_rgba(2,6,23,0.12)] dark:border-white/36 dark:shadow-[0_0_0_1px_rgba(255,255,255,0.16),0_16px_30px_rgba(0,0,0,0.26)]',
+      'border-[#222222] shadow-[0_0_0_2px_rgba(34,34,34,0.38),0_4px_14px_rgba(15,23,42,0.12)] dark:border-white/70 dark:shadow-[0_0_0_2px_rgba(245,245,245,0.2),0_4px_14px_rgba(0,0,0,0.24)]',
     iconWrap: 'border border-border-dark bg-bg-dark',
     iconText: 'text-text-muted',
     divider: 'border-border-dark/70',
   },
   rose: {
-    idle: 'border-[rgba(15,23,42,0.2)] hover:border-[rgba(15,23,42,0.34)] dark:border-white/18 dark:hover:border-white/30',
+    idle: 'border-[rgba(15,23,42,0.22)] hover:border-[rgba(15,23,42,0.34)] hover:shadow-[0_4px_16px_rgba(0,0,0,0.12)] dark:border-[rgba(255,255,255,0.22)] dark:hover:border-[rgba(255,255,255,0.34)] dark:hover:shadow-[0_4px_16px_rgba(0,0,0,0.25)]',
     selected:
-      'border-[rgba(15,23,42,0.42)] shadow-[0_0_0_1px_rgba(15,23,42,0.16),0_14px_26px_rgba(2,6,23,0.12)] dark:border-white/36 dark:shadow-[0_0_0_1px_rgba(255,255,255,0.16),0_16px_30px_rgba(0,0,0,0.26)]',
+      'border-[#222222] shadow-[0_0_0_2px_rgba(34,34,34,0.38),0_4px_14px_rgba(15,23,42,0.12)] dark:border-white/70 dark:shadow-[0_0_0_2px_rgba(245,245,245,0.2),0_4px_14px_rgba(0,0,0,0.24)]',
     iconWrap: 'border border-border-dark bg-bg-dark',
     iconText: 'text-text-muted',
     divider: 'border-border-dark/70',
   },
   cyan: {
-    idle: 'border-[rgba(15,23,42,0.2)] hover:border-[rgba(15,23,42,0.34)] dark:border-white/18 dark:hover:border-white/30',
+    idle: 'border-[rgba(15,23,42,0.22)] hover:border-[rgba(15,23,42,0.34)] hover:shadow-[0_4px_16px_rgba(0,0,0,0.12)] dark:border-[rgba(255,255,255,0.22)] dark:hover:border-[rgba(255,255,255,0.34)] dark:hover:shadow-[0_4px_16px_rgba(0,0,0,0.25)]',
     selected:
-      'border-[rgba(15,23,42,0.42)] shadow-[0_0_0_1px_rgba(15,23,42,0.16),0_14px_26px_rgba(2,6,23,0.12)] dark:border-white/36 dark:shadow-[0_0_0_1px_rgba(255,255,255,0.16),0_16px_30px_rgba(0,0,0,0.26)]',
+      'border-[#222222] shadow-[0_0_0_2px_rgba(34,34,34,0.38),0_4px_14px_rgba(15,23,42,0.12)] dark:border-white/70 dark:shadow-[0_0_0_2px_rgba(245,245,245,0.2),0_4px_14px_rgba(0,0,0,0.24)]',
     iconWrap: 'border border-border-dark bg-bg-dark',
     iconText: 'text-text-muted',
     divider: 'border-border-dark/70',
@@ -122,7 +122,7 @@ export function ScriptNodeCard({
 
   return (
     <div
-      className={`group relative flex flex-col overflow-visible rounded-[18px] border bg-surface-dark shadow-[0_12px_24px_rgba(2,6,23,0.12)] transition-[border-color,box-shadow,transform] duration-200 dark:shadow-[0_14px_28px_rgba(0,0,0,0.24)] ${
+      className={`group relative flex flex-col overflow-visible rounded-[var(--node-radius)] border bg-surface-dark/90 transition-all duration-150 ${
         selected ? accentClasses.selected : accentClasses.idle
       }`}
       style={{ width, minHeight, height }}

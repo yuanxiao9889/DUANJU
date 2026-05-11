@@ -193,6 +193,7 @@ export const DIRECTOR_STAGE_SNAPSHOT_ASPECT_RATIOS = [
 export const DIRECTOR_STAGE_DEFAULT_SNAPSHOT_ASPECT_RATIO: DirectorStageSnapshotAspectRatio = '16:9';
 export const DIRECTOR_STAGE_LIMB_POSE_KEYS = [
   'head',
+  'neck',
   'leftUpperArm',
   'leftForeArm',
   'rightUpperArm',
