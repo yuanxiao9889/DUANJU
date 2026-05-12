@@ -119,6 +119,11 @@ const AdProjectWorkspace = lazy(() =>
     default: module.AdProjectWorkspace,
   })),
 );
+const CommerceAdProjectWorkspace = lazy(() =>
+  import("./features/commerce-ad/CommerceAdProjectWorkspace").then((module) => ({
+    default: module.CommerceAdProjectWorkspace,
+  })),
+);
 const ProjectManager = lazy(() =>
   import("./features/project/ProjectManager").then((module) => ({
     default: module.ProjectManager,
@@ -1210,7 +1215,13 @@ function MainApp() {
               />
             ) : shouldRenderProjectWorkspace ? (
               <div className="relative h-full w-full">
-                {currentProjectType === "ad" ? <AdProjectWorkspace /> : <CanvasScreen />}
+                {currentProjectType === "ad" ? (
+                  <AdProjectWorkspace />
+                ) : currentProjectType === "commerceAd" ? (
+                  <CommerceAdProjectWorkspace />
+                ) : (
+                  <CanvasScreen />
+                )}
                 {shouldShowProjectLoader ? (
                   <div className="absolute inset-0 z-20">
                     <CanvasProjectLoadingScreen

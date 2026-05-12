@@ -868,6 +868,7 @@ export const JimengVideoResultNode = memo(
                     fit="contain"
                     trimBars
                     trimInset="18%"
+                    maskInternalBars
                     zoom={1.45}
                   />
                   <span className="sr-only">{t("common.loading")}</span>

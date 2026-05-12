@@ -18,6 +18,19 @@ import type {
 } from '@/features/canvas/domain/canvasNodes';
 import type { ShootingScriptCellSelection } from '@/stores/scriptEditorStore';
 
+const SHOOTING_SCRIPT_DANGER_SURFACE_CLASS =
+  'border-red-900/25 bg-red-950/[0.06] text-red-900 dark:border-red-400/20 dark:bg-red-500/8 dark:text-red-200';
+const SHOOTING_SCRIPT_DANGER_BUTTON_CLASS =
+  'border-red-900/30 bg-red-950/[0.06] text-red-900 hover:border-red-900/45 hover:bg-red-950/[0.1] dark:border-red-400/25 dark:bg-red-500/10 dark:text-red-200 dark:hover:bg-red-500/18';
+const SHOOTING_SCRIPT_ACTION_BUTTON_CLASS =
+  'border-[rgba(15,23,42,0.18)] bg-[#222222]/[0.06] text-[#222222] hover:border-[rgba(15,23,42,0.32)] hover:bg-[#222222]/[0.1] dark:border-white/18 dark:bg-white/[0.08] dark:text-white dark:hover:bg-white/[0.14]';
+const SHOOTING_SCRIPT_BADGE_CLASS =
+  'bg-[rgba(15,23,42,0.06)] text-text-muted dark:bg-white/[0.08] dark:text-text-muted';
+const SHOOTING_SCRIPT_ACTIVE_BADGE_CLASS =
+  'bg-[#222222]/10 text-[#222222] dark:bg-white/12 dark:text-white';
+const SHOOTING_SCRIPT_ACTIVE_CARD_CLASS =
+  'border-[#222222]/35 bg-[#222222]/[0.06] text-text-dark dark:border-white/24 dark:bg-white/[0.08] dark:text-white';
+
 function Field({
   label,
   value,
@@ -37,7 +50,7 @@ function Field({
     `w-full rounded-xl border border-border-dark px-3 py-2 text-sm text-text-dark outline-none transition-colors placeholder:text-text-muted/60 ${
       readOnly
         ? 'bg-bg-dark/35 text-text-muted'
-        : 'bg-bg-dark/60 focus:border-cyan-500/35'
+        : 'bg-bg-dark/60 focus:border-text-muted/60'
     }`;
 
   return (
@@ -156,11 +169,11 @@ export function ShootingScriptWorkbenchPanel({
         <section className="rounded-2xl border border-border-dark bg-surface-dark/80 p-4">
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div>
-              <div className="flex flex-wrap items-center gap-2 text-[11px] text-cyan-200/85">
-                <span className="rounded-full bg-amber-500/12 px-2 py-0.5 text-amber-200">
+              <div className="flex flex-wrap items-center gap-2 text-[11px] text-text-muted">
+                <span className={`rounded-full px-2 py-0.5 ${SHOOTING_SCRIPT_ACTIVE_BADGE_CLASS}`}>
                   {t('script.sceneCatalog.chapterLabel', { number: nodeData.chapterNumber || 1 })}
                 </span>
-                <span className="rounded-full bg-cyan-500/10 px-2 py-0.5 text-cyan-100">
+                <span className={`rounded-full px-2 py-0.5 ${SHOOTING_SCRIPT_BADGE_CLASS}`}>
                   {formatShootingScriptNodeLabel(numberingContext)}
                 </span>
                 <span className="rounded-full bg-bg-dark/60 px-2 py-0.5 text-text-muted">
@@ -188,7 +201,7 @@ export function ShootingScriptWorkbenchPanel({
                 type="button"
                 onClick={() => void onGenerate(nodeData.rows.length > 0 ? 'regenerate' : 'initial')}
                 disabled={isGenerating}
-                className="inline-flex items-center gap-1.5 rounded-lg border border-cyan-500/30 bg-cyan-500/10 px-3 py-1.5 text-xs font-medium text-cyan-200 disabled:opacity-60"
+                className={`inline-flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs font-medium disabled:opacity-60 ${SHOOTING_SCRIPT_ACTION_BUTTON_CLASS}`}
               >
                 <RefreshCcw className="h-3.5 w-3.5" />
                 {nodeData.rows.length > 0
@@ -207,7 +220,7 @@ export function ShootingScriptWorkbenchPanel({
           </div>
 
           {generationError ? (
-            <div className="mt-3 rounded-xl border border-red-400/20 bg-red-500/8 px-3 py-2 text-xs leading-5 text-red-200">
+            <div className={`mt-3 rounded-xl border px-3 py-2 text-xs leading-5 ${SHOOTING_SCRIPT_DANGER_SURFACE_CLASS}`}>
               {generationError}
             </div>
           ) : null}
@@ -232,8 +245,8 @@ export function ShootingScriptWorkbenchPanel({
                   onClick={() => onSelectCell(row.id, activeCell?.columnKey ?? 'beat')}
                   className={`w-[148px] rounded-xl border px-2.5 py-2 text-left transition-colors ${
                     isActive
-                      ? 'border-cyan-400/40 bg-cyan-500/12 text-cyan-50'
-                      : 'border-border-dark bg-bg-dark/35 text-text-muted hover:border-cyan-500/25 hover:text-text-dark'
+                      ? SHOOTING_SCRIPT_ACTIVE_CARD_CLASS
+                      : 'border-border-dark bg-bg-dark/35 text-text-muted hover:border-[rgba(15,23,42,0.28)] hover:text-text-dark dark:hover:border-white/20'
                   }`}
                 >
                   <div className="text-[10px] font-medium uppercase tracking-[0.08em]">
@@ -263,7 +276,7 @@ export function ShootingScriptWorkbenchPanel({
                 <button
                   type="button"
                   onClick={() => void onRegenerateRow(selectedRow.id)}
-                  className="inline-flex items-center gap-1.5 rounded-lg border border-cyan-500/30 bg-cyan-500/10 px-3 py-1.5 text-xs font-medium text-cyan-200"
+                  className={`inline-flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs font-medium ${SHOOTING_SCRIPT_ACTION_BUTTON_CLASS}`}
                 >
                   <RefreshCcw className="h-3.5 w-3.5" />
                   {t('common.regenerate')}
@@ -285,7 +298,7 @@ export function ShootingScriptWorkbenchPanel({
                 <button
                   type="button"
                   onClick={() => onDeleteRow(selectedRow.id)}
-                  className="inline-flex items-center gap-1.5 rounded-lg border border-red-400/25 bg-red-500/10 px-3 py-1.5 text-xs font-medium text-red-200"
+                  className={`inline-flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs font-medium ${SHOOTING_SCRIPT_DANGER_BUTTON_CLASS}`}
                 >
                   <Trash2 className="h-3.5 w-3.5" />
                   {t('common.delete')}
@@ -305,7 +318,7 @@ export function ShootingScriptWorkbenchPanel({
                   onChange={(event) => onUpdateRow(selectedRow.id, {
                     genTarget: event.target.value as ShootingScriptRow['genTarget'],
                   })}
-                  className="w-full rounded-xl border border-border-dark bg-bg-dark/60 px-3 py-2 text-sm text-text-dark outline-none focus:border-cyan-500/35"
+                  className="w-full rounded-xl border border-border-dark bg-bg-dark/60 px-3 py-2 text-sm text-text-dark outline-none focus:border-text-muted/60"
                 >
                   {genTargetOptions.map((option) => (
                     <option key={option.value} value={option.value}>
@@ -374,7 +387,7 @@ export function ShootingScriptWorkbenchPanel({
                 <select
                   value={selectedRow.status}
                   onChange={(event) => onUpdateRow(selectedRow.id, { status: event.target.value as ShootingScriptRow['status'] })}
-                  className="w-full rounded-xl border border-border-dark bg-bg-dark/60 px-3 py-2 text-sm text-text-dark outline-none focus:border-cyan-500/35"
+                  className="w-full rounded-xl border border-border-dark bg-bg-dark/60 px-3 py-2 text-sm text-text-dark outline-none focus:border-text-muted/60"
                 >
                   {rowStatusOptions.map((option) => (
                     <option key={option.value} value={option.value}>
@@ -389,7 +402,7 @@ export function ShootingScriptWorkbenchPanel({
 
         <section className="rounded-2xl border border-border-dark bg-surface-dark/80 p-4">
           <div className="mb-3 flex items-center gap-2 text-sm font-semibold text-text-dark">
-            <Sparkles className="h-4 w-4 text-cyan-300" />
+            <Sparkles className="h-4 w-4 text-text-muted" />
             {t('script.shootingScript.rewriteTitle')}
           </div>
           <Field
@@ -414,7 +427,7 @@ export function ShootingScriptWorkbenchPanel({
               type="button"
               onClick={() => void onRunRewrite()}
               disabled={!selectedRow || !activeCell || isSelectedCellReadOnly}
-              className="inline-flex items-center gap-1.5 rounded-lg border border-cyan-500/30 bg-cyan-500/10 px-3 py-1.5 text-xs font-medium text-cyan-200 disabled:opacity-60"
+              className={`inline-flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs font-medium disabled:opacity-60 ${SHOOTING_SCRIPT_ACTION_BUTTON_CLASS}`}
             >
               <Sparkles className="h-3.5 w-3.5" />
               {t('script.shootingScript.runRewrite')}
@@ -422,7 +435,7 @@ export function ShootingScriptWorkbenchPanel({
           </div>
 
           {rewriteError ? (
-            <div className="mt-3 rounded-xl border border-red-400/20 bg-red-500/8 px-3 py-2 text-xs leading-5 text-red-200">
+            <div className={`mt-3 rounded-xl border px-3 py-2 text-xs leading-5 ${SHOOTING_SCRIPT_DANGER_SURFACE_CLASS}`}>
               {rewriteError}
             </div>
           ) : null}
@@ -435,7 +448,7 @@ export function ShootingScriptWorkbenchPanel({
                   <button
                     type="button"
                     onClick={() => onApplyRewriteVariant(variant)}
-                    className="mt-3 inline-flex items-center gap-1.5 rounded-lg border border-cyan-500/30 bg-cyan-500/10 px-3 py-1.5 text-xs font-medium text-cyan-200"
+                    className={`mt-3 inline-flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs font-medium ${SHOOTING_SCRIPT_ACTION_BUTTON_CLASS}`}
                   >
                     {t('script.shootingScript.applyVariant')}
                   </button>

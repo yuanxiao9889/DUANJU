@@ -10,6 +10,20 @@ import {
   type AdProjectRootState,
 } from '@/features/ad/types';
 import {
+  createDefaultCommerceAdBatchGenerateState,
+  createDefaultCommerceAdBriefState,
+  createDefaultCommerceAdProductState,
+  createDefaultCommerceAdResultGroupState,
+  normalizeCommerceAdBatchGenerateState,
+  normalizeCommerceAdBriefState,
+  normalizeCommerceAdProductState,
+  normalizeCommerceAdResultGroupState,
+  type CommerceAdBatchGenerateState,
+  type CommerceAdBriefState,
+  type CommerceAdProductState,
+  type CommerceAdResultGroupState,
+} from '@/features/commerce-ad/types';
+import {
   normalizeMidjourneyProviderId,
   type MidjourneyProviderId,
 } from '@/features/midjourney/domain/providers';
@@ -57,6 +71,10 @@ export const CANVAS_NODE_TYPES = {
   voxCpmVoiceClone: 'voxCpmVoiceCloneNode',
   voxCpmUltimateClone: 'voxCpmUltimateCloneNode',
   adProjectRoot: 'adProjectRootNode',
+  commerceProduct: 'commerceProductNode',
+  commerceBrief: 'commerceBriefNode',
+  commerceBatchGenerate: 'commerceBatchGenerateNode',
+  commerceResultGroup: 'commerceResultGroupNode',
   scriptRoot: 'scriptRootNode',
   scriptChapter: 'scriptChapterNode',
   scriptScene: 'scriptSceneNode',
@@ -79,6 +97,8 @@ export type CanvasNodeType = (typeof CANVAS_NODE_TYPES)[keyof typeof CANVAS_NODE
 export const DEFAULT_ASPECT_RATIO = '1:1';
 export const AUTO_REQUEST_ASPECT_RATIO = 'auto';
 export const DEFAULT_NODE_WIDTH = 220;
+export const COMMERCE_STAGE_NODE_DEFAULT_WIDTH = 380;
+export const COMMERCE_STAGE_NODE_DEFAULT_HEIGHT = 460;
 export const IMAGE_EDIT_NODE_DEFAULT_WIDTH = 500;
 export const IMAGE_EDIT_NODE_DEFAULT_HEIGHT = 280;
 export const MULTI_ANGLE_IMAGE_NODE_DEFAULT_WIDTH = 560;
@@ -2365,6 +2385,14 @@ export interface ScriptCharacterPromptEntry {
 
 export interface AdProjectRootNodeData extends NodeDisplayData, AdProjectRootState {}
 
+export interface CommerceProductNodeData extends NodeDisplayData, CommerceAdProductState {}
+
+export interface CommerceBriefNodeData extends NodeDisplayData, CommerceAdBriefState {}
+
+export interface CommerceBatchGenerateNodeData extends NodeDisplayData, CommerceAdBatchGenerateState {}
+
+export interface CommerceResultGroupNodeData extends NodeDisplayData, CommerceAdResultGroupState {}
+
 export type CanvasNodeData =
   | UploadImageNodeData
   | ExportImageNodeData
@@ -2405,6 +2433,10 @@ export type CanvasNodeData =
   | VoxCpmVoiceCloneNodeData
   | VoxCpmUltimateCloneNodeData
   | AdProjectRootNodeData
+  | CommerceProductNodeData
+  | CommerceBriefNodeData
+  | CommerceBatchGenerateNodeData
+  | CommerceResultGroupNodeData
   | ScriptRootNodeData
   | ScriptChapterNodeData
   | ScriptSceneNodeData
@@ -3265,6 +3297,54 @@ export function normalizeAdProjectRootNodeData(
   return {
     ...createDefaultAdProjectRootState(),
     ...normalizedState,
+    displayName: normalizeString(data?.displayName).trim() || undefined,
+    nodeDescription: normalizeString(data?.nodeDescription).trim() || null,
+    semanticColor: data?.semanticColor ?? null,
+  };
+}
+
+export function normalizeCommerceProductNodeData(
+  data: Partial<CommerceProductNodeData> | null | undefined
+): CommerceProductNodeData {
+  return {
+    ...createDefaultCommerceAdProductState(),
+    ...normalizeCommerceAdProductState(data),
+    displayName: normalizeString(data?.displayName).trim() || undefined,
+    nodeDescription: normalizeString(data?.nodeDescription).trim() || null,
+    semanticColor: data?.semanticColor ?? null,
+  };
+}
+
+export function normalizeCommerceBriefNodeData(
+  data: Partial<CommerceBriefNodeData> | null | undefined
+): CommerceBriefNodeData {
+  return {
+    ...createDefaultCommerceAdBriefState(),
+    ...normalizeCommerceAdBriefState(data),
+    displayName: normalizeString(data?.displayName).trim() || undefined,
+    nodeDescription: normalizeString(data?.nodeDescription).trim() || null,
+    semanticColor: data?.semanticColor ?? null,
+  };
+}
+
+export function normalizeCommerceBatchGenerateNodeData(
+  data: Partial<CommerceBatchGenerateNodeData> | null | undefined
+): CommerceBatchGenerateNodeData {
+  return {
+    ...createDefaultCommerceAdBatchGenerateState(),
+    ...normalizeCommerceAdBatchGenerateState(data),
+    displayName: normalizeString(data?.displayName).trim() || undefined,
+    nodeDescription: normalizeString(data?.nodeDescription).trim() || null,
+    semanticColor: data?.semanticColor ?? null,
+  };
+}
+
+export function normalizeCommerceResultGroupNodeData(
+  data: Partial<CommerceResultGroupNodeData> | null | undefined
+): CommerceResultGroupNodeData {
+  return {
+    ...createDefaultCommerceAdResultGroupState(),
+    ...normalizeCommerceAdResultGroupState(data),
     displayName: normalizeString(data?.displayName).trim() || undefined,
     nodeDescription: normalizeString(data?.nodeDescription).trim() || null,
     semanticColor: data?.semanticColor ?? null,

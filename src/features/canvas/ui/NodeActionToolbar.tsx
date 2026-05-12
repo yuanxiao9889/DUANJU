@@ -66,6 +66,10 @@ const toolIconMap: Record<ToolIconKey, typeof Crop> = {
 const TOOLBAR_BUTTON_RADIUS_CLASS = 'rounded-full';
 const TOOLBAR_NEUTRAL_BUTTON_CLASS =
   'border-[rgba(15,23,42,0.16)] bg-bg-dark/70 text-text-dark hover:border-[rgba(15,23,42,0.28)] hover:bg-bg-dark dark:border-[rgba(255,255,255,0.18)] dark:hover:border-[rgba(255,255,255,0.32)]';
+const TOOLBAR_DANGER_BUTTON_CLASS =
+  'border-red-900/35 bg-red-950/[0.06] text-red-900 hover:border-red-900/55 hover:bg-red-950/[0.1] dark:border-red-400/30 dark:bg-red-400/10 dark:text-red-200 dark:hover:bg-red-400/16';
+const TOOLBAR_DANGER_BUTTON_OVERRIDE_CLASS =
+  '!border-red-900/35 !bg-red-950/[0.06] !text-red-900 hover:!border-red-900/55 hover:!bg-red-950/[0.1] dark:!border-red-400/30 dark:!bg-red-400/10 dark:!text-red-200 dark:hover:!bg-red-400/16';
 const DOWNLOAD_MENU_MIN_WIDTH = 280;
 const DOWNLOAD_MENU_VIEWPORT_MARGIN = 12;
 const DOWNLOAD_MENU_BUTTON_OFFSET = 8;
@@ -751,7 +755,7 @@ export const NodeActionToolbar = memo(({ node }: NodeActionToolbarProps) => {
             className={`h-8 ${TOOLBAR_BUTTON_RADIUS_CLASS} px-2.5 text-xs ${TOOLBAR_NEUTRAL_BUTTON_CLASS} ${
               isCopyErrorSuccess
                 ? '!border-emerald-400/70 !bg-emerald-500/20 !text-emerald-200 hover:!bg-emerald-500/30'
-                : '!border-red-500/45 !bg-red-500/15 !text-red-200 hover:!bg-red-500/25'
+                : TOOLBAR_DANGER_BUTTON_OVERRIDE_CLASS
             }`}
             onClick={() => {
               void handleCopyGenerationError();
@@ -869,7 +873,7 @@ export const NodeActionToolbar = memo(({ node }: NodeActionToolbarProps) => {
         {!isAssetNode && (
           <UiChipButton
             key="node-delete"
-            className={`h-8 ${TOOLBAR_BUTTON_RADIUS_CLASS} border-red-500/45 bg-red-500/15 px-2.5 text-xs text-red-300 hover:bg-red-500/25`}
+            className={`h-8 ${TOOLBAR_BUTTON_RADIUS_CLASS} px-2.5 text-xs ${TOOLBAR_DANGER_BUTTON_CLASS}`}
             onClick={(event) => {
               event.stopPropagation();
               closeDownloadMenu();

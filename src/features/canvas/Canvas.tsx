@@ -1080,6 +1080,7 @@ export function Canvas() {
   const [imageCompareNotice, setImageCompareNotice] = useState<ImageCompareNoticeState | null>(null);
   const [edgeCutVisual, setEdgeCutVisual] = useState<EdgeCutGestureVisual | null>(null);
   const [edgeCutNoticeCount, setEdgeCutNoticeCount] = useState<number | null>(null);
+  const [isCanvasSelectionKeyPressed, setIsCanvasSelectionKeyPressed] = useState(false);
 
   const isRestoringCanvasRef = useRef(true);
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -2445,6 +2446,25 @@ export function Canvas() {
     setIsViewportInteracting(true);
     cancelPendingViewportPersist();
   }, [cancelPendingViewportPersist]);
+
+  useEffect(() => {
+    const syncSelectionKeyState = (event: KeyboardEvent) => {
+      setIsCanvasSelectionKeyPressed(event.ctrlKey || event.metaKey);
+    };
+    const clearSelectionKeyState = () => {
+      setIsCanvasSelectionKeyPressed(false);
+    };
+
+    window.addEventListener('keydown', syncSelectionKeyState);
+    window.addEventListener('keyup', syncSelectionKeyState);
+    window.addEventListener('blur', clearSelectionKeyState);
+
+    return () => {
+      window.removeEventListener('keydown', syncSelectionKeyState);
+      window.removeEventListener('keyup', syncSelectionKeyState);
+      window.removeEventListener('blur', clearSelectionKeyState);
+    };
+  }, []);
 
   useEffect(() => {
     const wrapperElement = reactFlowWrapperRef.current;
@@ -5462,11 +5482,12 @@ export function Canvas() {
         minZoom={0.1}
         maxZoom={5}
         selectionOnDrag
-        selectionMode={SelectionMode.Full}
+        selectionMode={SelectionMode.Partial}
         multiSelectionKeyCode={['Control', 'Meta']}
         selectionKeyCode={['Control', 'Meta']}
         deleteKeyCode={null}
-        onlyRenderVisibleElements
+        // React Flow treats unmeasured nodes as selectable, so render all while Ctrl/Meta box-selecting.
+        onlyRenderVisibleElements={!isCanvasSelectionKeyPressed}
         zoomOnDoubleClick={false}
         snapToGrid={snapToGrid}
         snapGrid={[snapGridSize, snapGridSize]}

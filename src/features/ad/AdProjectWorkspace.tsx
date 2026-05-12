@@ -129,6 +129,27 @@ const COLUMN_LABEL_KEYS: Record<AdBuiltInScriptColumnKey, string> = {
 
 const STATUS_OPTIONS = ['draft', 'ready', 'locked'] as const;
 const WORKFLOW_STEP_ORDER: AdWorkflowStep[] = ['directorSkill', 'brief', 'script'];
+const AD_CARD_BASE_CLASS =
+  'border-[rgba(15,23,42,0.12)] bg-white/80 dark:border-white/10 dark:bg-white/[0.03]';
+const AD_CARD_HOVER_CLASS =
+  'hover:border-[rgba(15,23,42,0.22)] hover:bg-white dark:hover:border-white/16 dark:hover:bg-white/[0.05]';
+const AD_CARD_ACTIVE_CLASS =
+  'border-[#222222]/35 bg-[#222222]/[0.05] dark:border-white/24 dark:bg-white/[0.08]';
+const AD_CARD_COMPLETE_CLASS =
+  'border-[rgba(15,23,42,0.16)] bg-[rgba(15,23,42,0.04)] hover:bg-[rgba(15,23,42,0.065)] dark:border-white/14 dark:bg-white/[0.04] dark:hover:bg-white/[0.07]';
+const AD_CARD_DISABLED_CLASS =
+  'border-[rgba(15,23,42,0.1)] bg-[rgba(15,23,42,0.025)] opacity-60 dark:border-white/10 dark:bg-white/[0.02]';
+const AD_STATUS_BADGE_ACTIVE_CLASS =
+  'bg-[#222222]/10 text-[#222222] dark:bg-white/12 dark:text-white';
+const AD_STATUS_BADGE_MUTED_CLASS =
+  'bg-[rgba(15,23,42,0.06)] text-text-muted dark:bg-white/8 dark:text-text-muted';
+const AD_DANGER_TEXT_CLASS = 'text-red-900 dark:text-red-200';
+const AD_DANGER_SURFACE_CLASS =
+  'border-red-900/25 bg-red-950/[0.06] text-red-900 dark:border-red-400/25 dark:bg-red-400/10 dark:text-red-200';
+const AD_SUCCESS_SURFACE_CLASS =
+  'border-emerald-800/25 bg-emerald-900/[0.06] text-emerald-900 dark:border-emerald-400/25 dark:bg-emerald-400/10 dark:text-emerald-200';
+const AD_NEUTRAL_NOTICE_CLASS =
+  'border-[rgba(15,23,42,0.12)] bg-[rgba(15,23,42,0.035)] text-text-muted dark:border-white/10 dark:bg-white/[0.04] dark:text-text-muted';
 
 const BUILT_IN_SKILL_STARTERS: Array<{
   id: 'conversion' | 'problemSolver' | 'brandEmotion';
@@ -499,8 +520,8 @@ function StatusBanner({ status }: { status: ActionStatus | null }) {
     <div
       className={`rounded-[18px] border px-4 py-3 text-sm ${
         status.tone === 'success'
-          ? 'border-emerald-500/25 bg-emerald-500/10 text-emerald-100'
-          : 'border-rose-500/25 bg-rose-500/10 text-rose-100'
+          ? AD_SUCCESS_SURFACE_CLASS
+          : AD_DANGER_SURFACE_CLASS
       }`}
     >
       {status.message}
@@ -676,17 +697,17 @@ function SkillLibraryModal({
               {t('adProject.skill.categoryList')}
             </div>
             <div className="space-y-2">
-              <div className="rounded-[14px] border border-white/10 bg-white/[0.03] px-3 py-2 text-sm text-text-muted">
+              <div className={`rounded-[14px] border px-3 py-2 text-sm text-text-muted ${AD_CARD_BASE_CLASS}`}>
                 {t('adProject.skill.noCategory')}
               </div>
               {categories.length === 0 ? (
-                <div className="rounded-[14px] border border-dashed border-white/10 px-3 py-6 text-center text-sm text-text-muted">
+                <div className="rounded-[14px] border border-dashed border-[rgba(15,23,42,0.16)] px-3 py-6 text-center text-sm text-text-muted dark:border-white/10">
                   {t('adProject.skill.emptyCategories')}
                 </div>
               ) : categories.map((category) => (
                 <div
                   key={category.id}
-                  className="flex items-center justify-between rounded-[14px] border border-white/10 bg-white/[0.03] px-3 py-2"
+                  className={`flex items-center justify-between rounded-[14px] border px-3 py-2 ${AD_CARD_BASE_CLASS}`}
                 >
                   <div>
                     <div className="text-sm font-medium text-text-dark">{category.name}</div>
@@ -698,7 +719,7 @@ function SkillLibraryModal({
                     variant="ghost"
                     size="sm"
                     onClick={() => onDeleteCategory(category.id)}
-                    className="gap-1 text-rose-200 hover:bg-rose-500/10"
+                    className={`gap-1 ${AD_DANGER_TEXT_CLASS} hover:bg-red-950/[0.06] dark:hover:bg-red-400/10`}
                   >
                     <Trash2 className="h-3.5 w-3.5" />
                     {t('common.delete')}
@@ -714,13 +735,13 @@ function SkillLibraryModal({
             </div>
             <div className="space-y-3">
               {templates.length === 0 ? (
-                <div className="rounded-[14px] border border-dashed border-white/10 px-3 py-10 text-center text-sm text-text-muted">
+                <div className="rounded-[14px] border border-dashed border-[rgba(15,23,42,0.16)] px-3 py-10 text-center text-sm text-text-muted dark:border-white/10">
                   {t('adProject.skill.emptyLibrary')}
                 </div>
               ) : templates.map((template) => (
                 <div
                   key={template.id}
-                  className="rounded-[16px] border border-white/10 bg-white/[0.03] p-3"
+                  className={`rounded-[16px] border p-3 ${AD_CARD_BASE_CLASS}`}
                 >
                   <div className="flex items-start justify-between gap-3">
                     <div className="min-w-0 flex-1">
@@ -749,7 +770,7 @@ function SkillLibraryModal({
                         variant="ghost"
                         size="sm"
                         onClick={() => onDeleteTemplate(template.id)}
-                        className="gap-1 text-rose-200 hover:bg-rose-500/10"
+                        className={`gap-1 ${AD_DANGER_TEXT_CLASS} hover:bg-red-950/[0.06] dark:hover:bg-red-400/10`}
                       >
                         <Trash2 className="h-3.5 w-3.5" />
                         {t('common.delete')}
@@ -1436,12 +1457,12 @@ export function AdProjectWorkspace() {
   };
 
   return (
-    <div className="ui-scrollbar h-full overflow-y-auto bg-[radial-gradient(circle_at_top,_rgba(16,185,129,0.12),_transparent_32%),linear-gradient(180deg,_rgba(10,14,20,0.96),_rgba(8,10,15,1))]">
+    <div className="ui-scrollbar h-full overflow-y-auto bg-[linear-gradient(180deg,_rgba(248,250,252,0.96),_rgba(241,245,249,1))] dark:bg-[radial-gradient(circle_at_top,_rgba(255,255,255,0.06),_transparent_32%),linear-gradient(180deg,_rgba(10,14,20,0.96),_rgba(8,10,15,1))]">
       <div className="mx-auto flex max-w-[1640px] flex-col gap-6 px-6 py-6">
-        <UiPanel className="rounded-[28px] border border-white/10 bg-black/25 p-6">
+        <UiPanel className="rounded-[28px] p-6">
           <div className="flex flex-wrap items-start justify-between gap-4">
             <div className="max-w-3xl">
-              <div className="mb-2 inline-flex items-center gap-2 rounded-full border border-emerald-400/20 bg-emerald-500/10 px-3 py-1 text-xs uppercase tracking-[0.16em] text-emerald-200">
+              <div className="mb-2 inline-flex items-center gap-2 rounded-full border border-[#222222]/15 bg-[#222222]/[0.04] px-3 py-1 text-xs uppercase tracking-[0.16em] text-text-muted dark:border-white/12 dark:bg-white/[0.06]">
                 <Clapperboard className="h-3.5 w-3.5" />
                 {t('project.types.ad')}
               </div>
@@ -1500,12 +1521,12 @@ export function AdProjectWorkspace() {
                   onClick={() => handleWorkflowStepChange(step)}
                   className={`rounded-[18px] border px-4 py-4 text-left transition-colors ${
                     isActive
-                      ? 'border-emerald-400/30 bg-emerald-500/12'
+                      ? AD_CARD_ACTIVE_CLASS
                       : !isUnlocked
-                        ? 'border-white/10 bg-white/[0.02] opacity-60'
+                        ? AD_CARD_DISABLED_CLASS
                         : isCompleted
-                          ? 'border-emerald-400/20 bg-emerald-500/8 hover:bg-emerald-500/12'
-                          : 'border-white/10 bg-white/[0.02] hover:bg-white/[0.04]'
+                          ? AD_CARD_COMPLETE_CLASS
+                          : `${AD_CARD_BASE_CLASS} ${AD_CARD_HOVER_CLASS}`
                   }`}
                 >
                   <div className="flex items-start justify-between gap-3">
@@ -1514,10 +1535,10 @@ export function AdProjectWorkspace() {
                     </div>
                     <span className={`rounded-full px-2 py-0.5 text-[10px] font-medium ${
                       isActive
-                        ? 'bg-emerald-500/15 text-emerald-200'
+                        ? AD_STATUS_BADGE_ACTIVE_CLASS
                         : isCompleted
-                          ? 'bg-emerald-500/10 text-emerald-200'
-                          : 'bg-white/5 text-text-muted'
+                          ? AD_STATUS_BADGE_ACTIVE_CLASS
+                          : AD_STATUS_BADGE_MUTED_CLASS
                     }`}>
                       {isActive
                         ? t('adProject.steps.status.current')
@@ -1535,7 +1556,7 @@ export function AdProjectWorkspace() {
                     {t(`adProject.steps.${step}.description`)}
                   </div>
                   {!isUnlocked && step !== 'directorSkill' ? (
-                    <div className="mt-3 text-xs text-amber-200">
+                    <div className={`mt-3 text-xs ${AD_DANGER_TEXT_CLASS}`}>
                       {step === 'brief'
                         ? t('adProject.steps.gates.brief')
                         : t('adProject.steps.gates.script')}
@@ -1550,12 +1571,12 @@ export function AdProjectWorkspace() {
         <StatusBanner status={actionStatus} />
 
         {rootState.lastError ? (
-          <UiPanel className="rounded-[20px] border border-rose-500/20 bg-rose-500/10 p-4 text-sm text-rose-100">
+          <UiPanel className={`rounded-[20px] p-4 text-sm ${AD_DANGER_SURFACE_CLASS}`}>
             {rootState.lastError}
           </UiPanel>
         ) : null}
 
-        <UiPanel className="rounded-[24px] border border-amber-500/15 bg-amber-500/10 p-4 text-sm leading-6 text-amber-100">
+        <UiPanel className={`rounded-[24px] p-4 text-sm leading-6 ${AD_NEUTRAL_NOTICE_CLASS}`}>
           {t('adProject.limitNote')}
         </UiPanel>
 
@@ -1593,7 +1614,7 @@ export function AdProjectWorkspace() {
                   <button
                     key={starter.id}
                     type="button"
-                    className="rounded-[18px] border border-white/10 bg-white/[0.03] p-4 text-left transition-colors hover:bg-white/[0.05]"
+                    className={`rounded-[18px] border p-4 text-left transition-colors ${AD_CARD_BASE_CLASS} ${AD_CARD_HOVER_CLASS}`}
                     onClick={() => commitRootState({
                       directorSkillProfile: buildStarterProfile(starter.id, t),
                       selectedSkillTemplateId: null,
@@ -1721,7 +1742,7 @@ export function AdProjectWorkspace() {
               </div>
 
               {!directorSkillCompleted ? (
-                <div className="mt-3 text-sm text-amber-200">
+                <div className={`mt-3 text-sm ${AD_DANGER_TEXT_CLASS}`}>
                   {t('adProject.skill.completeHint')}
                 </div>
               ) : null}
@@ -1836,7 +1857,7 @@ export function AdProjectWorkspace() {
               </div>
 
               {!briefCompleted ? (
-                <div className="mt-3 text-sm text-amber-200">
+                <div className={`mt-3 text-sm ${AD_DANGER_TEXT_CLASS}`}>
                   {t('adProject.brief.completeHint')}
                 </div>
               ) : null}
@@ -1858,8 +1879,8 @@ export function AdProjectWorkspace() {
                     key={field}
                     className={`rounded-full border px-3 py-1 text-xs ${
                       missingBriefFields.includes(field)
-                        ? 'border-rose-500/25 bg-rose-500/10 text-rose-100'
-                        : 'border-emerald-500/25 bg-emerald-500/10 text-emerald-100'
+                        ? AD_DANGER_SURFACE_CLASS
+                        : AD_STATUS_BADGE_ACTIVE_CLASS
                     }`}
                   >
                     {t(BRIEF_FIELD_LABEL_KEYS[field])}
@@ -1933,8 +1954,8 @@ export function AdProjectWorkspace() {
                       })}
                       className={`rounded-[18px] border p-4 text-left transition-colors ${
                         isActive
-                          ? 'border-emerald-400/30 bg-emerald-500/10'
-                          : 'border-white/10 bg-white/[0.03] hover:bg-white/[0.05]'
+                          ? AD_CARD_ACTIVE_CLASS
+                          : `${AD_CARD_BASE_CLASS} ${AD_CARD_HOVER_CLASS}`
                       }`}
                     >
                       <div className="text-sm font-medium text-text-dark">
@@ -1989,7 +2010,7 @@ export function AdProjectWorkspace() {
                     .map((column) => (
                       <div
                         key={column.key}
-                        className="flex items-center justify-between rounded-[12px] border border-white/10 bg-white/[0.03] px-2.5 py-2"
+                        className={`flex items-center justify-between rounded-[12px] border px-2.5 py-2 ${AD_CARD_BASE_CLASS}`}
                       >
                         <div className="flex min-w-0 items-center gap-2">
                           <UiCheckbox
@@ -2031,7 +2052,7 @@ export function AdProjectWorkspace() {
                             onClick={() => commitRootState({
                               columnLayout: reorderLayout(rootState.columnLayout, column.key, -1),
                             })}
-                            className="h-6 w-6 px-0 text-text-muted hover:bg-white/[0.06] hover:text-text-dark"
+                            className="h-6 w-6 px-0 text-text-muted hover:bg-[rgba(15,23,42,0.08)] hover:text-text-dark dark:hover:bg-white/[0.06]"
                           >
                             <ArrowUp className="h-3.5 w-3.5 shrink-0 stroke-[2.4]" />
                           </UiButton>
@@ -2041,7 +2062,7 @@ export function AdProjectWorkspace() {
                             onClick={() => commitRootState({
                               columnLayout: reorderLayout(rootState.columnLayout, column.key, 1),
                             })}
-                            className="h-6 w-6 px-0 text-text-muted hover:bg-white/[0.06] hover:text-text-dark"
+                            className="h-6 w-6 px-0 text-text-muted hover:bg-[rgba(15,23,42,0.08)] hover:text-text-dark dark:hover:bg-white/[0.06]"
                           >
                             <ArrowDown className="h-3.5 w-3.5 shrink-0 stroke-[2.4]" />
                           </UiButton>
@@ -2050,7 +2071,7 @@ export function AdProjectWorkspace() {
                               variant="ghost"
                               size="sm"
                               onClick={() => handleRemoveCustomColumn(column.key)}
-                              className="h-6 w-6 px-0 text-text-muted hover:bg-rose-500/10 hover:text-rose-200"
+                              className={`h-6 w-6 px-0 text-text-muted hover:bg-red-950/[0.06] hover:text-red-900 dark:hover:bg-red-400/10 dark:hover:text-red-200`}
                             >
                               <Trash2 className="h-3.5 w-3.5 shrink-0 stroke-[2.2]" />
                             </UiButton>
@@ -2084,29 +2105,29 @@ export function AdProjectWorkspace() {
                 </div>
 
                 {rootState.rows.length === 0 ? (
-                  <div className="rounded-[18px] border border-dashed border-white/10 px-4 py-16 text-center text-sm text-text-muted">
+                  <div className="rounded-[18px] border border-dashed border-[rgba(15,23,42,0.16)] px-4 py-16 text-center text-sm text-text-muted dark:border-white/10">
                     {missingBriefFields.length > 0
                       ? t('adProject.table.missingBriefHint')
                       : t('adProject.table.emptyTable')}
                   </div>
                 ) : (
-                  <div className="overflow-hidden rounded-[20px] border border-white/10 bg-[#06080d]/85">
+                  <div className="overflow-hidden rounded-[20px] border border-border-dark bg-bg-dark">
                     <div className="min-h-[360px] max-h-[62vh] overflow-auto">
                       <table className="min-w-max border-separate border-spacing-0">
                       <thead>
                         <tr>
-                          <th className="sticky left-0 top-0 z-30 border-b border-white/10 bg-[#0a0d12] px-3 py-3 text-left text-xs font-medium uppercase tracking-[0.14em] text-text-muted">
+                          <th className="sticky left-0 top-0 z-30 border-b border-border-dark bg-surface-dark px-3 py-3 text-left text-xs font-medium uppercase tracking-[0.14em] text-text-muted">
                             {t('adProject.table.drag')}
                           </th>
                           {visibleColumns.map((column) => (
                             <th
                               key={column.key}
-                              className="sticky top-0 z-20 border-b border-white/10 bg-[#0a0d12] px-3 py-3 text-left text-xs font-medium uppercase tracking-[0.14em] text-text-muted"
+                              className="sticky top-0 z-20 border-b border-border-dark bg-surface-dark px-3 py-3 text-left text-xs font-medium uppercase tracking-[0.14em] text-text-muted"
                             >
                               {columnHeaders[column.key]}
                             </th>
                           ))}
-                          <th className="sticky top-0 z-20 min-w-[132px] border-b border-white/10 bg-[#0a0d12] px-3 py-3 text-left text-xs font-medium uppercase tracking-[0.14em] whitespace-nowrap text-text-muted">
+                          <th className="sticky top-0 z-20 min-w-[132px] border-b border-border-dark bg-surface-dark px-3 py-3 text-left text-xs font-medium uppercase tracking-[0.14em] whitespace-nowrap text-text-muted">
                             {t('adProject.table.actions')}
                           </th>
                         </tr>
@@ -2135,18 +2156,18 @@ export function AdProjectWorkspace() {
                                 }}
                                 className="align-top"
                               >
-                                <td className={`sticky left-0 z-[1] border-b border-white/6 px-3 py-3 ${
+                                <td className={`sticky left-0 z-[1] border-b border-border-dark px-3 py-3 ${
                                   isSelectedRow
-                                    ? 'bg-emerald-500/[0.14] shadow-[inset_3px_0_0_0_rgba(52,211,153,0.95)]'
-                                    : 'bg-[#090c11]'
+                                    ? 'bg-[#222222]/[0.06] shadow-[inset_3px_0_0_0_rgba(34,34,34,0.9)] dark:bg-white/[0.08] dark:shadow-[inset_3px_0_0_0_rgba(255,255,255,0.72)]'
+                                    : 'bg-bg-dark'
                                 }`}>
                                   <div className="flex items-center gap-2 text-text-muted">
-                                    <GripVertical className={`h-4 w-4 ${isSelectedRow ? 'text-emerald-200' : ''}`} />
-                                    <span className={`text-xs ${isSelectedRow ? 'font-medium text-emerald-100' : ''}`}>
+                                    <GripVertical className={`h-4 w-4 ${isSelectedRow ? 'text-text-dark' : ''}`} />
+                                    <span className={`text-xs ${isSelectedRow ? 'font-medium text-text-dark' : ''}`}>
                                       {row.shotNumber}
                                     </span>
                                     {isSelectedRow ? (
-                                      <span className="rounded-full bg-emerald-500/12 px-2 py-0.5 text-[10px] font-medium text-emerald-200">
+                                      <span className={AD_STATUS_BADGE_ACTIVE_CLASS + ' rounded-full px-2 py-0.5 text-[10px] font-medium'}>
                                         {t('adProject.table.selectedRowBadge')}
                                       </span>
                                     ) : null}
@@ -2155,11 +2176,11 @@ export function AdProjectWorkspace() {
                                 {visibleColumns.map((column) => (
                                   <td
                                     key={column.key}
-                                    className={`border-b border-white/6 px-2 py-2 ${
+                                    className={`border-b border-border-dark px-2 py-2 ${
                                       selectedCell?.rowId === row.id && selectedCell.columnKey === column.key
-                                        ? 'bg-emerald-500/18'
+                                        ? 'bg-[#222222]/[0.08] dark:bg-white/[0.1]'
                                         : isSelectedRow
-                                          ? 'bg-emerald-500/[0.09]'
+                                          ? 'bg-[#222222]/[0.04] dark:bg-white/[0.06]'
                                           : ''
                                     }`}
                                     onClick={() => {
@@ -2205,13 +2226,13 @@ export function AdProjectWorkspace() {
                                               : item
                                           )));
                                         }}
-                                        className={`min-w-[180px] ${isSelectedRow ? 'bg-emerald-500/[0.04]' : 'bg-transparent'}`}
+                                        className={`min-w-[180px] ${isSelectedRow ? 'bg-[#222222]/[0.03] dark:bg-white/[0.05]' : 'bg-transparent'}`}
                                       />
                                     )}
                                   </td>
                                 ))}
-                                <td className={`min-w-[132px] border-b border-white/6 px-3 py-2 align-top ${
-                                  isSelectedRow ? 'bg-emerald-500/[0.09]' : ''
+                                <td className={`min-w-[132px] border-b border-border-dark px-3 py-2 align-top ${
+                                  isSelectedRow ? 'bg-[#222222]/[0.04] dark:bg-white/[0.06]' : ''
                                 }`}>
                                   <div className="flex min-w-[108px] flex-col gap-2">
                                     <UiButton
@@ -2229,7 +2250,7 @@ export function AdProjectWorkspace() {
                                       onClick={() => {
                                         updateRows(rootState.rows.filter((item) => item.id !== row.id));
                                       }}
-                                      className="w-full justify-start gap-1 whitespace-nowrap text-rose-200 hover:bg-rose-500/10"
+                                      className={`w-full justify-start gap-1 whitespace-nowrap ${AD_DANGER_TEXT_CLASS} hover:bg-red-950/[0.06] dark:hover:bg-red-400/10`}
                                     >
                                       <Trash2 className="h-3.5 w-3.5" />
                                       {t('common.delete')}
@@ -2242,16 +2263,16 @@ export function AdProjectWorkspace() {
                                 <tr>
                                   <td
                                     colSpan={visibleColumns.length + 2}
-                                    className="border-b border-white/6 bg-emerald-500/[0.05] px-3 py-4"
+                                    className="border-b border-border-dark bg-[#222222]/[0.03] px-3 py-4 dark:bg-white/[0.04]"
                                   >
-                                    <div className="rounded-[18px] border border-emerald-400/20 bg-black/20 p-4">
+                                    <div className="rounded-[18px] border border-[rgba(15,23,42,0.12)] bg-white/70 p-4 dark:border-white/10 dark:bg-black/20">
                                       <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-                                        <div className="text-sm font-medium text-emerald-100">
+                                        <div className="text-sm font-medium text-text-dark">
                                           {t('adProject.table.rowVariantsTitle', {
                                             count: rewriteDraft.rowVariants.length,
                                           })}
                                         </div>
-                                        <div className="text-xs text-emerald-200/80">
+                                        <div className="text-xs text-text-muted">
                                           {t('adProject.table.rowVariantsDescription')}
                                         </div>
                                       </div>
@@ -2262,18 +2283,18 @@ export function AdProjectWorkspace() {
                                             key={`${variant.id}-${index}`}
                                             type="button"
                                             onClick={() => applyRowVariant(variant)}
-                                            className="w-full rounded-[16px] border border-white/10 bg-white/[0.03] px-4 py-4 text-left transition-colors hover:bg-white/[0.06]"
+                                            className={`w-full rounded-[16px] border px-4 py-4 text-left transition-colors ${AD_CARD_BASE_CLASS} ${AD_CARD_HOVER_CLASS}`}
                                           >
                                             <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
                                               <div className="flex items-center gap-2">
-                                                <span className="rounded-full bg-emerald-500/12 px-2 py-1 text-[11px] font-medium text-emerald-100">
+                                                <span className={AD_STATUS_BADGE_ACTIVE_CLASS + ' rounded-full px-2 py-1 text-[11px] font-medium'}>
                                                   {t('adProject.table.rowVariantCandidate', { index: index + 1 })}
                                                 </span>
                                                 <span className="text-sm font-medium text-text-dark">
                                                   {variant.shotNumber} · {variant.objective || t('adProject.table.noObjective')}
                                                 </span>
                                               </div>
-                                              <span className="text-xs text-emerald-200/80">
+                                              <span className="text-xs text-text-muted">
                                                 {t('adProject.table.applyVariant')}
                                               </span>
                                             </div>
@@ -2284,7 +2305,7 @@ export function AdProjectWorkspace() {
                                                   <div className="text-[11px] uppercase tracking-[0.14em] text-text-muted">
                                                     {columnHeaders[column.key]}
                                                   </div>
-                                                  <div className="rounded-[12px] border border-white/8 bg-black/15 px-3 py-2 text-sm leading-6 text-text-dark">
+                                                  <div className="rounded-[12px] border border-[rgba(15,23,42,0.1)] bg-[rgba(15,23,42,0.03)] px-3 py-2 text-sm leading-6 text-text-dark dark:border-white/8 dark:bg-black/15">
                                                     {column.key === 'status'
                                                       ? t(`adProject.table.status.${variant.status}`)
                                                       : variant[column.key] || t('adProject.table.emptyValue')}
@@ -2309,15 +2330,15 @@ export function AdProjectWorkspace() {
                 )}
 
                 {rewriteDraft?.scope === 'table' && rewriteDraft.previewRows && false ? (
-                  <UiPanel className="mt-6 rounded-[20px] border border-emerald-500/20 bg-emerald-500/8 p-4">
-                    <div className="mb-3 text-sm font-medium text-emerald-100">
+                  <UiPanel className="mt-6 rounded-[20px] p-4">
+                    <div className="mb-3 text-sm font-medium text-text-dark">
                       {t('adProject.table.previewTableTitle')}
                     </div>
                     <div className="space-y-2">
                       {rewriteDraft?.previewRows?.map((row) => (
                         <div
                           key={row.id}
-                          className="rounded-[14px] border border-white/10 bg-black/15 px-3 py-3"
+                          className={`rounded-[14px] border px-3 py-3 ${AD_CARD_BASE_CLASS}`}
                         >
                           <div className="text-sm font-medium text-text-dark">
                             {row.shotNumber} · {row.objective || t('adProject.table.noObjective')}
@@ -2392,7 +2413,7 @@ export function AdProjectWorkspace() {
                 </div>
 
                 {rewriteDraft ? (
-                  <UiPanel className="mt-6 rounded-[18px] border border-white/10 bg-black/15 p-4">
+                  <UiPanel className="mt-6 rounded-[18px] p-4">
                     <div className="mb-3 text-sm font-medium text-text-dark">
                       {t(`adProject.table.rewriteScopes.${rewriteDraft.scope}`)}
                     </div>
@@ -2404,7 +2425,7 @@ export function AdProjectWorkspace() {
                             key={`${variant}-${index}`}
                             type="button"
                             onClick={() => applyCellVariant(variant)}
-                            className="w-full rounded-[14px] border border-white/10 bg-white/[0.03] px-3 py-3 text-left text-sm text-text-dark transition-colors hover:bg-white/[0.05]"
+                            className={`w-full rounded-[14px] border px-3 py-3 text-left text-sm text-text-dark transition-colors ${AD_CARD_BASE_CLASS} ${AD_CARD_HOVER_CLASS}`}
                           >
                             {variant}
                           </button>
@@ -2413,7 +2434,7 @@ export function AdProjectWorkspace() {
                     ) : null}
 
                     {rewriteDraft.scope === 'row' && rewriteDraft.rowVariants.length > 0 ? (
-                      <div className="rounded-[14px] border border-emerald-400/20 bg-emerald-500/8 px-3 py-3 text-sm text-emerald-100">
+                      <div className={`rounded-[14px] border px-3 py-3 text-sm ${AD_NEUTRAL_NOTICE_CLASS}`}>
                         {t('adProject.table.inlineRowVariantsHint')}
                       </div>
                     ) : null}
@@ -2445,15 +2466,15 @@ export function AdProjectWorkspace() {
                 ) : null}
 
                 {rewriteDraft?.scope === 'table' && rewriteDraft.previewRows ? (
-                  <UiPanel className="mt-6 rounded-[20px] border border-emerald-500/20 bg-emerald-500/8 p-4">
-                    <div className="mb-3 text-sm font-medium text-emerald-100">
+                  <UiPanel className="mt-6 rounded-[20px] p-4">
+                    <div className="mb-3 text-sm font-medium text-text-dark">
                       {t('adProject.table.previewTableTitle')}
                     </div>
                     <div className="space-y-2">
                       {rewriteDraft.previewRows.map((row) => (
                         <div
                           key={row.id}
-                          className="rounded-[14px] border border-white/10 bg-black/15 px-3 py-3"
+                          className={`rounded-[14px] border px-3 py-3 ${AD_CARD_BASE_CLASS}`}
                         >
                           <div className="text-sm font-medium text-text-dark">
                             {row.shotNumber} / {row.objective || t('adProject.table.noObjective')}

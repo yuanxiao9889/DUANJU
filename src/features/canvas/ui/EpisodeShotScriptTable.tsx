@@ -18,6 +18,12 @@ interface EpisodeShotScriptTableProps {
 
 const GEN_TARGET_OPTIONS: ShotRow['genTarget'][] = ['image', 'video', 'storyboard'];
 const STATUS_OPTIONS: ShotRow['status'][] = ['draft', 'ready', 'locked'];
+const SHOT_SCRIPT_DANGER_SURFACE_CLASS =
+  'border-red-900/25 bg-red-950/[0.06] text-red-900 dark:border-red-400/20 dark:bg-red-500/8 dark:text-red-200';
+const SHOT_SCRIPT_DANGER_BUTTON_CLASS =
+  'border-red-900/30 bg-red-950/[0.06] text-red-900 hover:border-red-900/45 hover:bg-red-950/[0.1] dark:border-red-400/25 dark:bg-red-500/10 dark:text-red-200 dark:hover:bg-red-500/18';
+const SHOT_SCRIPT_ACTION_BUTTON_CLASS =
+  'border-[rgba(15,23,42,0.18)] bg-[#222222]/[0.06] text-[#222222] hover:border-[rgba(15,23,42,0.32)] hover:bg-[#222222]/[0.1] dark:border-white/18 dark:bg-white/[0.08] dark:text-white dark:hover:bg-white/[0.14]';
 
 function CellInput({
   value,
@@ -30,7 +36,7 @@ function CellInput({
   placeholder: string;
   multiline?: boolean;
 }) {
-  const className = 'w-full rounded-lg border border-border-dark bg-bg-dark/60 px-2 py-1.5 text-xs text-text-dark outline-none placeholder:text-text-muted/60 focus:border-cyan-500/35';
+  const className = 'w-full rounded-lg border border-border-dark bg-bg-dark/60 px-2 py-1.5 text-xs text-text-dark outline-none placeholder:text-text-muted/60 focus:border-text-muted/60';
   return multiline ? (
     <textarea
       rows={3}
@@ -71,7 +77,7 @@ export function EpisodeShotScriptTable({
           type="button"
           onClick={() => void onGenerate(episode.shotRows.length > 0 ? 'regenerate' : 'initial')}
           disabled={isGenerating}
-          className="inline-flex items-center gap-1.5 rounded-lg border border-cyan-500/30 bg-cyan-500/10 px-3 py-1.5 text-xs font-medium text-cyan-200 disabled:opacity-60"
+          className={`inline-flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs font-medium disabled:opacity-60 ${SHOT_SCRIPT_ACTION_BUTTON_CLASS}`}
         >
           <RefreshCcw className="h-3.5 w-3.5" />
           {episode.shotRows.length > 0
@@ -92,7 +98,7 @@ export function EpisodeShotScriptTable({
       </div>
 
       {error ? (
-        <div className="rounded-xl border border-red-400/20 bg-red-500/8 px-3 py-2 text-xs leading-5 text-red-200">
+        <div className={`rounded-xl border px-3 py-2 text-xs leading-5 ${SHOT_SCRIPT_DANGER_SURFACE_CLASS}`}>
           {error}
         </div>
       ) : null}
@@ -193,17 +199,17 @@ function FragmentRow({
           <CellInput value={row.audioCue} onChange={(value) => onUpdateRow(row.id, { audioCue: value })} placeholder={t('script.sceneWorkbench.audioCuePlaceholder')} />
         </td>
         <td className="px-3 py-3">
-          <select value={row.genTarget} onChange={(event) => onUpdateRow(row.id, { genTarget: event.target.value as ShotRow['genTarget'] })} className="w-full rounded-lg border border-border-dark bg-bg-dark/60 px-2 py-1.5 text-xs text-text-dark outline-none focus:border-cyan-500/35">
+          <select value={row.genTarget} onChange={(event) => onUpdateRow(row.id, { genTarget: event.target.value as ShotRow['genTarget'] })} className="w-full rounded-lg border border-border-dark bg-bg-dark/60 px-2 py-1.5 text-xs text-text-dark outline-none focus:border-text-muted/60">
             {GEN_TARGET_OPTIONS.map((option) => <option key={option} value={option}>{option}</option>)}
           </select>
         </td>
         <td className="px-3 py-3"><CellInput value={row.genPrompt} onChange={(value) => onUpdateRow(row.id, { genPrompt: value })} placeholder={t('script.sceneWorkbench.genPromptPlaceholder')} multiline /></td>
         <td className="px-3 py-3">
           <div className="flex flex-col gap-2">
-            <button type="button" onClick={() => void onRegenerateRow(row.id)} className="rounded-lg border border-cyan-500/30 bg-cyan-500/10 px-2 py-1 text-[11px] font-medium text-cyan-200 hover:bg-cyan-500/18">{t('common.regenerate')}</button>
+            <button type="button" onClick={() => void onRegenerateRow(row.id)} className={`rounded-lg border px-2 py-1 text-[11px] font-medium ${SHOT_SCRIPT_ACTION_BUTTON_CLASS}`}>{t('common.regenerate')}</button>
             <button type="button" disabled={!canMoveUp} onClick={() => onMoveRow(row.id, 'up')} className="rounded-lg border border-border-dark bg-bg-dark px-2 py-1 text-[11px] font-medium text-text-dark disabled:opacity-40">{t('common.moveUp')}</button>
             <button type="button" disabled={!canMoveDown} onClick={() => onMoveRow(row.id, 'down')} className="rounded-lg border border-border-dark bg-bg-dark px-2 py-1 text-[11px] font-medium text-text-dark disabled:opacity-40">{t('common.moveDown')}</button>
-            <button type="button" onClick={() => onDeleteRow(row.id)} className="inline-flex items-center justify-center rounded-lg border border-red-400/25 bg-red-500/10 px-2 py-1 text-[11px] font-medium text-red-200 hover:bg-red-500/18"><Trash2 className="h-3.5 w-3.5" /></button>
+            <button type="button" onClick={() => onDeleteRow(row.id)} className={`inline-flex items-center justify-center rounded-lg border px-2 py-1 text-[11px] font-medium ${SHOT_SCRIPT_DANGER_BUTTON_CLASS}`}><Trash2 className="h-3.5 w-3.5" /></button>
           </div>
         </td>
       </tr>
@@ -215,7 +221,7 @@ function FragmentRow({
               <CellInput value={row.artLighting} onChange={(value) => onUpdateRow(row.id, { artLighting: value })} placeholder={t('script.sceneWorkbench.artLightingPlaceholder')} multiline />
               <CellInput value={row.continuityNote} onChange={(value) => onUpdateRow(row.id, { continuityNote: value })} placeholder={t('script.sceneWorkbench.continuityNotePlaceholder')} multiline />
               <div className="space-y-2">
-                <select value={row.status} onChange={(event) => onUpdateRow(row.id, { status: event.target.value as ShotRow['status'] })} className="w-full rounded-lg border border-border-dark bg-bg-dark/60 px-2 py-1.5 text-xs text-text-dark outline-none focus:border-cyan-500/35">
+                <select value={row.status} onChange={(event) => onUpdateRow(row.id, { status: event.target.value as ShotRow['status'] })} className="w-full rounded-lg border border-border-dark bg-bg-dark/60 px-2 py-1.5 text-xs text-text-dark outline-none focus:border-text-muted/60">
                   {STATUS_OPTIONS.map((option) => <option key={option} value={option}>{option}</option>)}
                 </select>
               </div>

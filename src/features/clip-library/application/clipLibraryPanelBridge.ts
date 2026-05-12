@@ -16,7 +16,7 @@ const DEFAULT_CLIP_LIBRARY_PANEL_HEIGHT = 900;
 const MIN_CLIP_LIBRARY_PANEL_WIDTH = 900;
 const MIN_CLIP_LIBRARY_PANEL_HEIGHT = 620;
 
-export type ClipLibraryPanelProjectType = 'storyboard' | 'script' | 'ad';
+export type ClipLibraryPanelProjectType = 'storyboard' | 'script' | 'ad' | 'commerceAd';
 
 export interface ClipLibraryPanelProjectContext {
   projectId: string | null;

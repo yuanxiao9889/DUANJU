@@ -459,6 +459,7 @@ export const ImageNode = memo(({ id, data, selected, type, width }: ImageNodePro
               fit="contain"
               trimBars
               trimInset="18%"
+              maskInternalBars
               zoom={1.45}
             />
             <span className="max-w-[240px] text-center text-[12px] leading-5 text-text-dark/88">

@@ -17,6 +17,7 @@ import {
   Palette,
   Pencil,
   Plus,
+  ShoppingBag,
   Square,
   Trash2,
   X,
@@ -278,13 +279,17 @@ function ProjectListView({
                           ? 'bg-bg-dark text-text-muted dark:bg-amber-500/15 dark:text-amber-400'
                           : project.projectType === 'ad'
                             ? 'bg-bg-dark text-text-muted dark:bg-emerald-500/15 dark:text-emerald-400'
-                            : 'bg-bg-dark text-text-muted dark:bg-accent/15 dark:text-accent'
+                            : project.projectType === 'commerceAd'
+                              ? 'bg-bg-dark text-text-muted dark:bg-cyan-500/15 dark:text-cyan-300'
+                              : 'bg-bg-dark text-text-muted dark:bg-accent/15 dark:text-accent'
                       }`}
                     >
                       {project.projectType === 'script' ? (
                         <FileText className="h-5 w-5" />
                       ) : project.projectType === 'ad' ? (
                         <Clapperboard className="h-5 w-5" />
+                      ) : project.projectType === 'commerceAd' ? (
+                        <ShoppingBag className="h-5 w-5" />
                       ) : (
                         <Film className="h-5 w-5" />
                       )}
@@ -341,14 +346,18 @@ function ProjectListView({
                         ? 'bg-bg-dark text-text-muted dark:bg-amber-500/15 dark:text-amber-400'
                         : project.projectType === 'ad'
                           ? 'bg-bg-dark text-text-muted dark:bg-emerald-500/15 dark:text-emerald-300'
-                          : 'bg-bg-dark text-text-muted dark:bg-accent/15 dark:text-accent'
+                          : project.projectType === 'commerceAd'
+                            ? 'bg-bg-dark text-text-muted dark:bg-cyan-500/15 dark:text-cyan-200'
+                            : 'bg-bg-dark text-text-muted dark:bg-accent/15 dark:text-accent'
                     }`}
                   >
                     {project.projectType === 'script'
                       ? t('project.types.script')
                       : project.projectType === 'ad'
                         ? t('project.typeBadgeLabels.ad')
-                        : t('project.types.storyboard')}
+                        : project.projectType === 'commerceAd'
+                          ? t('project.typeBadgeLabels.commerceAd')
+                          : t('project.types.storyboard')}
                   </span>
                 </div>
 
@@ -385,10 +394,14 @@ function ProjectListView({
                       <span className="opacity-60">{t('project.linkedStoryboardCountLabel')}:</span>
                       <span>{t('project.linkedStoryboardCountValue', { count: linkedStoryboardCount })}</span>
                     </p>
-                  ) : (
+                  ) : project.projectType === 'ad' ? (
                     <p className="flex items-center gap-1.5">
                       <span className="opacity-60">{t('project.linkedStoryboardCountLabel')}:</span>
                       <span>{t('project.linkedStoryboardCountValue', { count: linkedStoryboardCountForAd })}</span>
+                    </p>
+                  ) : (
+                    <p className="flex items-center gap-1.5">
+                      <span className="opacity-60">{t('project.commerceAdCardHint')}</span>
                     </p>
                   )}
                   <p className="flex items-center gap-1.5">

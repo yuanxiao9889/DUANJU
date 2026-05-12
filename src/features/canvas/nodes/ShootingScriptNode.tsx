@@ -45,6 +45,8 @@ const SHOOTING_SCRIPT_NODE_IDLE_CLASS =
   'border-[rgba(15,23,42,0.22)] hover:border-[rgba(15,23,42,0.34)] hover:shadow-[0_4px_16px_rgba(0,0,0,0.12)] dark:border-[rgba(255,255,255,0.22)] dark:hover:border-[rgba(255,255,255,0.34)] dark:hover:shadow-[0_4px_16px_rgba(0,0,0,0.25)]';
 const SHOOTING_SCRIPT_HANDLE_CLASS =
   '!h-2.5 !w-2.5 !rounded-full !border-2 !border-surface-dark !bg-accent';
+const SHOOTING_SCRIPT_DANGER_BUTTON_CLASS =
+  'border-red-900/30 bg-red-950/[0.06] text-red-900 hover:border-red-900/45 hover:bg-red-950/[0.1] dark:border-red-400/25 dark:bg-red-500/10 dark:text-red-200 dark:hover:bg-red-500/18';
 const DEFAULT_VISIBLE_SHOOTING_SCRIPT_COLUMNS: ShootingScriptColumnKey[] = [
   'shotNumber',
   'beat',
@@ -512,7 +514,7 @@ export const ShootingScriptNode = memo(({
                           event.stopPropagation();
                           deleteRow(row.id);
                         }}
-                        className="nodrag rounded-lg border border-red-400/25 bg-red-500/10 px-2 py-1.5 font-medium text-red-200"
+                        className={`nodrag rounded-lg border px-2 py-1.5 font-medium ${SHOOTING_SCRIPT_DANGER_BUTTON_CLASS}`}
                       >
                         {t('common.delete')}
                       </button>

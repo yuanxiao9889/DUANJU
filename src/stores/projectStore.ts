@@ -75,7 +75,7 @@ const viewportUpsertsInFlight = new Set<string>();
 const deletingProjectIds = new Set<string>();
 const historyBudgetWarnedProjectIds = new Set<string>();
 
-export type ProjectType = 'storyboard' | 'script' | 'ad';
+export type ProjectType = 'storyboard' | 'script' | 'ad' | 'commerceAd';
 
 export interface ProjectSummary {
   id: string;

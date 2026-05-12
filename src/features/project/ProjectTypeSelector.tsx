@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Clapperboard, Film, FileText } from 'lucide-react';
+import { Clapperboard, Film, FileText, ShoppingBag } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { useProjectStore, type ProjectType } from '@/stores/projectStore';
 import { UI_CONTENT_OVERLAY_INSET_CLASS } from '@/components/ui/motion';
@@ -37,7 +37,7 @@ export function ProjectTypeSelector({ onClose, onSelectType }: ProjectTypeSelect
             <p className="mt-2 text-text-muted">{t('project.selectMode')}</p>
           </div>
 
-          <div className="mb-6 grid grid-cols-1 gap-5 sm:grid-cols-3">
+          <div className="mb-6 grid grid-cols-1 gap-5 sm:grid-cols-4">
             <button
               onClick={() => onSelectType('storyboard')}
               className="group flex flex-col items-center gap-4 rounded-2xl border-2 border-border-dark/50 bg-bg-dark/30 p-6 transition-all duration-300 hover:border-[rgba(15,23,42,0.28)] hover:bg-[rgba(15,23,42,0.06)] hover:shadow-[0_8px_24px_rgba(15,23,42,0.1)] dark:hover:border-accent/50 dark:hover:bg-accent/5 dark:hover:shadow-[0_8px_24px_rgba(var(--accent-rgb),0.15)]"
@@ -71,6 +71,18 @@ export function ProjectTypeSelector({ onClose, onSelectType }: ProjectTypeSelect
               </div>
               <div className="text-center">
                 <h3 className="font-semibold text-text-dark">{t('project.types.ad')}</h3>
+              </div>
+            </button>
+
+            <button
+              onClick={() => onSelectType('commerceAd')}
+              className="group flex flex-col items-center gap-4 rounded-2xl border-2 border-border-dark/50 bg-bg-dark/30 p-6 transition-all duration-300 hover:border-[rgba(15,23,42,0.28)] hover:bg-[rgba(15,23,42,0.06)] hover:shadow-[0_8px_24px_rgba(15,23,42,0.1)] dark:hover:border-cyan-500/50 dark:hover:bg-cyan-500/5 dark:hover:shadow-[0_8px_24px_rgba(6,182,212,0.15)]"
+            >
+              <div className="flex h-16 w-16 items-center justify-center rounded-xl bg-bg-dark text-text-muted transition-all group-hover:scale-110 group-hover:bg-[rgba(15,23,42,0.08)] group-hover:text-text-dark dark:bg-cyan-500/10 dark:text-cyan-300 dark:group-hover:bg-cyan-500/20">
+                <ShoppingBag className="h-8 w-8" />
+              </div>
+              <div className="text-center">
+                <h3 className="font-semibold text-text-dark">{t('project.types.commerceAd')}</h3>
               </div>
             </button>
           </div>
@@ -129,7 +141,9 @@ export function CreateProjectDialog({ projectType, isOpen, onClose }: CreateProj
     ? t('project.types.script')
     : projectType === 'ad'
       ? t('project.types.ad')
-      : t('project.types.storyboard');
+      : projectType === 'commerceAd'
+        ? t('project.types.commerceAd')
+        : t('project.types.storyboard');
 
   return (
     <div className={`fixed ${UI_CONTENT_OVERLAY_INSET_CLASS} z-50 ${overlayLayoutClassName}`}>

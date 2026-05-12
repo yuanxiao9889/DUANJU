@@ -58,6 +58,7 @@ import { ScriptItemNode } from './ScriptItemNode';
 import { ScriptStoryNoteNode } from './ScriptStoryNoteNode';
 import { ScriptPlotPointNode } from './ScriptPlotPointNode';
 import { LegacyNode } from './LegacyNode';
+import { CommerceStageNode } from './CommerceStageNode';
 
 export const nodeTypes: NodeTypes = {
   exportImageNode: ImageNode,
@@ -105,6 +106,10 @@ export const nodeTypes: NodeTypes = {
   shootingScriptNode: ShootingScriptNode,
   scriptReferenceNode: ScriptReferenceNode,
   adScriptReferenceNode: AdScriptReferenceNode,
+  commerceProductNode: CommerceStageNode,
+  commerceBriefNode: CommerceStageNode,
+  commerceBatchGenerateNode: CommerceStageNode,
+  commerceResultGroupNode: CommerceStageNode,
   scriptCharacterReferenceNode: ScriptCharacterReferenceNode,
   scriptLocationReferenceNode: ScriptLocationReferenceNode,
   scriptItemReferenceNode: ScriptItemReferenceNode,
@@ -162,6 +167,7 @@ export {
   ShootingScriptNode,
   ScriptReferenceNode,
   AdScriptReferenceNode,
+  CommerceStageNode,
   ScriptCharacterReferenceNode,
   ScriptLocationReferenceNode,
   ScriptItemReferenceNode,

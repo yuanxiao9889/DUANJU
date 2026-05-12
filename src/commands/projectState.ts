@@ -1,6 +1,6 @@
 import { invoke } from '@tauri-apps/api/core';
 
-export type ProjectType = 'storyboard' | 'script' | 'ad';
+export type ProjectType = 'storyboard' | 'script' | 'ad' | 'commerceAd';
 
 export interface ProjectSummaryRecord {
   id: string;

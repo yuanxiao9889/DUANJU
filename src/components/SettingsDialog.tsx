@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect, useMemo, type KeyboardEvent as ReactKeyboardEvent } from 'react';
+import { useState, useCallback, useEffect, useMemo, type CSSProperties, type KeyboardEvent as ReactKeyboardEvent } from 'react';
 import { X, Eye, EyeOff, FolderOpen, Plus, Trash2, Maximize2, Minimize2, HardDrive, Circle, Keyboard, RotateCcw, ChevronDown, ChevronRight, FileWarning } from 'lucide-react';
 import type { TFunction } from 'i18next';
 import { useTranslation } from 'react-i18next';
@@ -205,6 +205,9 @@ const OFFICIAL_VIDEO_PROVIDERS: Array<{
 const ABOUT_FEEDBACK_QQ_GROUP = '835213642';
 const ABOUT_OOPII_QQ_GROUP_URL = 'https://qm.qq.com/q/TcWYG0Ri0w';
 const ABOUT_FEEDBACK_QR_SRC = '/community-qq-835213642.jpg';
+const MASKED_API_KEY_INPUT_STYLE = {
+  WebkitTextSecurity: 'disc',
+} as unknown as CSSProperties;
 
 function resolveErrorLogDiagnosticId(record: ErrorLogItemRecord | undefined): string | null {
   if (!record) {
@@ -2443,7 +2446,7 @@ export function SettingsDialog({
                               </p>
                               <div className="relative">
                                 <input
-                                  type={isRevealed ? 'text' : 'password'}
+                                  type="text"
                                   value={currentApiKey}
                                   onChange={(event) =>
                                     setLocalOfficialVideoApiKeys((previous) => ({
@@ -2451,6 +2454,9 @@ export function SettingsDialog({
                                       [currentProviderId]: event.target.value,
                                     }))
                                   }
+                                  style={isRevealed ? undefined : MASKED_API_KEY_INPUT_STYLE}
+                                  autoComplete="off"
+                                  spellCheck={false}
                                   placeholder={t('settings.enterApiKey')}
                                   className="w-full rounded border border-border-dark bg-surface-dark px-3 py-2 pr-20 text-sm text-text-dark placeholder:text-text-muted"
                                 />
@@ -2534,7 +2540,7 @@ export function SettingsDialog({
                               </p>
                               <div className="relative">
                                 <input
-                                  type={isRevealed ? 'text' : 'password'}
+                                  type="text"
                                   value={currentApiKey}
                                   onChange={(event) =>
                                     setLocalThirdPartyVideoApiKeys((previous) => ({
@@ -2542,6 +2548,9 @@ export function SettingsDialog({
                                       [THIRD_PARTY_VIDEO_PROVIDER_ID]: event.target.value,
                                     }))
                                   }
+                                  style={isRevealed ? undefined : MASKED_API_KEY_INPUT_STYLE}
+                                  autoComplete="off"
+                                  spellCheck={false}
                                   placeholder={t('settings.enterApiKey')}
                                   className="w-full rounded border border-border-dark bg-surface-dark px-3 py-2 pr-20 text-sm text-text-dark placeholder:text-text-muted"
                                 />
@@ -2826,11 +2835,14 @@ export function SettingsDialog({
                             )}
                             <div className="relative">
                               <input
-                                type={isRevealed ? 'text' : 'password'}
+                                type="text"
                                 value={currentApiKey}
                                 onChange={(event) => {
                                   updateCurrentApiKey(event.target.value);
                                 }}
+                                style={isRevealed ? undefined : MASKED_API_KEY_INPUT_STYLE}
+                                autoComplete="off"
+                                spellCheck={false}
                                 placeholder={t('settings.enterApiKey')}
                                 className="w-full rounded border border-border-dark bg-surface-dark px-3 py-2 pr-20 text-sm text-text-dark placeholder:text-text-muted"
                               />

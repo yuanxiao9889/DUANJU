@@ -15,7 +15,7 @@ const DEFAULT_ASSET_PANEL_HEIGHT = 860;
 const MIN_ASSET_PANEL_WIDTH = 560;
 const MIN_ASSET_PANEL_HEIGHT = 560;
 
-export type AssetPanelProjectType = 'storyboard' | 'script' | 'ad';
+export type AssetPanelProjectType = 'storyboard' | 'script' | 'ad' | 'commerceAd';
 
 export interface AssetPanelProjectContext {
   projectId: string | null;

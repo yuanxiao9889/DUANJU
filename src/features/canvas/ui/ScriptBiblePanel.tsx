@@ -51,6 +51,11 @@ const SCRIPT_BIBLE_PANEL_DEFAULT_WIDTH = 272;
 const SCRIPT_BIBLE_PANEL_MIN_WIDTH = 220;
 const SCRIPT_BIBLE_PANEL_MAX_WIDTH = 520;
 const SCRIPT_BIBLE_PANEL_COLLAPSED_WIDTH = 52;
+const SCRIPT_PANEL_ACTION_ICON_CLASS = 'text-[#222222] hover:text-black dark:text-white/82 dark:hover:text-white';
+const SCRIPT_PANEL_ACCENT_CARD_CLASS =
+  'border-[rgba(15,23,42,0.14)] bg-[rgba(15,23,42,0.035)] hover:border-[rgba(15,23,42,0.26)] hover:bg-[rgba(15,23,42,0.06)] dark:border-white/12 dark:bg-white/[0.04] dark:hover:border-white/20 dark:hover:bg-white/[0.07]';
+const SCRIPT_PANEL_ACCENT_BADGE_CLASS =
+  'border-[rgba(15,23,42,0.14)] bg-[rgba(15,23,42,0.05)] text-text-dark dark:border-white/14 dark:bg-white/[0.08] dark:text-white/86';
 
 function clampPanelWidth(value: number): number {
   return Math.min(
@@ -351,7 +356,7 @@ function AssetItem({ label, description, onClick, onEdit, onShowOnCanvas, showOn
             onShowOnCanvas();
           }}
           disabled={showOnCanvasDisabled}
-          className="mt-2 shrink-0 rounded p-1 text-cyan-400 opacity-0 hover:bg-cyan-500/20 group-hover:opacity-100 disabled:opacity-50"
+          className="mt-2 shrink-0 rounded p-1 text-text-muted opacity-0 hover:bg-[rgba(15,23,42,0.08)] hover:text-text-dark group-hover:opacity-100 disabled:opacity-50 dark:hover:bg-white/10"
           title="显示到画布"
         >
           <Eye className="w-3 h-3" />
@@ -1111,8 +1116,8 @@ export function ScriptBiblePanel() {
           className="flex flex-col items-center justify-center py-4 px-1 hover:bg-bg-dark transition-colors group"
           title="展开资产栏"
         >
-          <ExpandIcon className="w-5 h-5 text-text-muted group-hover:text-amber-400 transition-colors" />
-          <FileText className="w-4 h-4 text-amber-400 mt-2" />
+          <ExpandIcon className="w-5 h-5 text-text-muted group-hover:text-text-dark transition-colors" />
+          <FileText className="w-4 h-4 text-text-dark mt-2" />
           <span className="text-xs text-text-muted mt-1">资产</span>
         </button>
       </div>
@@ -1129,7 +1134,7 @@ export function ScriptBiblePanel() {
       style={{ width: panelWidthStyle }}
     >
       <div
-        className="absolute right-0 top-0 z-10 h-full w-[4px] translate-x-full cursor-col-resize touch-none transition-colors hover:bg-amber-400/25"
+        className="absolute right-0 top-0 z-10 h-full w-[4px] translate-x-full cursor-col-resize touch-none transition-colors hover:bg-[rgba(15,23,42,0.16)] dark:hover:bg-white/16"
         onPointerDown={(event) => {
           event.preventDefault();
           panelResizeStateRef.current = {
@@ -1142,14 +1147,14 @@ export function ScriptBiblePanel() {
       <div className="h-full overflow-hidden flex flex-col">
       <div className="sticky top-0 bg-surface-dark border-b border-border-dark px-3 py-2 flex items-center justify-between z-10">
         <div className="flex items-center gap-2 flex-1">
-          <FileText className="w-4 h-4 text-amber-400" />
+          <FileText className="w-4 h-4 text-text-dark" />
           <span className="text-sm font-semibold text-text-dark">剧本资产</span>
         </div>
         <div className="flex items-center gap-1">
           <button
             onClick={handleExtractAssets}
             disabled={isExtracting}
-            className="p-1 rounded hover:bg-bg-dark text-amber-400 hover:text-amber-300"
+            className={`p-1 rounded hover:bg-bg-dark ${SCRIPT_PANEL_ACTION_ICON_CLASS}`}
             title="一键提取资产"
           >
             <Sparkles className={`w-4 h-4 ${isExtracting ? 'animate-pulse' : ''}`} />
@@ -1163,7 +1168,7 @@ export function ScriptBiblePanel() {
           </button>
           <button
             onClick={handleExportNativePackage}
-            className="p-1 rounded hover:bg-bg-dark text-cyan-300 hover:text-cyan-200"
+            className="p-1 rounded hover:bg-bg-dark text-text-muted hover:text-text-dark"
             title={t('scriptExportDialog.exportPackage')}
           >
             <Package className="w-4 h-4" />
@@ -1193,19 +1198,19 @@ export function ScriptBiblePanel() {
         {rootNode ? (
           <CollapsibleSection
             title={t('script.storyStart.storyProfile')}
-            icon={<Sparkles className="w-4 h-4 text-amber-400" />}
+            icon={<Sparkles className="w-4 h-4 text-text-muted" />}
             count={storyProfileItems.length || 1}
           >
             <button
               onClick={() => handleNodeClick(rootNode.id)}
-              className="w-full rounded-xl border border-amber-500/20 bg-amber-500/5 px-3 py-3 text-left transition-colors hover:border-amber-500/40 hover:bg-amber-500/10"
+              className={`w-full rounded-xl border px-3 py-3 text-left transition-colors ${SCRIPT_PANEL_ACCENT_CARD_CLASS}`}
             >
               <div className="text-sm font-semibold text-text-dark">
                 {rootNode.data.title || rootNode.data.displayName}
               </div>
               <div className="mt-2 flex flex-wrap gap-2 text-[11px] text-text-muted">
                 {rootNode.data.genre ? (
-                  <span className="rounded-full border border-amber-500/25 bg-amber-500/10 px-2 py-1 text-amber-300">
+                  <span className={`rounded-full border px-2 py-1 ${SCRIPT_PANEL_ACCENT_BADGE_CLASS}`}>
                     {rootNode.data.genre}
                   </span>
                 ) : null}
@@ -1262,7 +1267,7 @@ export function ScriptBiblePanel() {
 
           <CollapsibleSection
             title="世界观"
-            icon={<Globe className="w-4 h-4 text-cyan-400" />}
+            icon={<Globe className="w-4 h-4 text-text-muted" />}
             count={scriptNodes.worldviews.length}
             onAdd={() => handleAddAsset('worldview')}
           >

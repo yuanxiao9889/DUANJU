@@ -68,6 +68,10 @@ import {
   type UploadImageNodeData,
   type AudioNodeData,
   type AdProjectRootNodeData,
+  type CommerceBatchGenerateNodeData,
+  type CommerceBriefNodeData,
+  type CommerceProductNodeData,
+  type CommerceResultGroupNodeData,
   type VideoNodeData,
   type ScriptRootNodeData,
   type ScriptChapterNodeData,
@@ -87,6 +91,12 @@ import {
   createDefaultSceneCard,
 } from './canvasNodes';
 import { createDefaultAdProjectRootState } from '@/features/ad/types';
+import {
+  createDefaultCommerceAdBatchGenerateState,
+  createDefaultCommerceAdBriefState,
+  createDefaultCommerceAdProductState,
+  createDefaultCommerceAdResultGroupState,
+} from '@/features/commerce-ad/types';
 import { createDefaultDirectorStageProject } from '@/features/director-stage/domain/types';
 import { DEFAULT_NODE_DISPLAY_NAME } from './nodeDisplay';
 import { DEFAULT_IMAGE_MODEL_ID } from '../models';
@@ -107,7 +117,7 @@ export type MenuIconKey =
   | 'audio'
   | 'link'
   | 'package';
-export type NodeMenuProjectType = 'storyboard' | 'script' | 'ad';
+export type NodeMenuProjectType = 'storyboard' | 'script' | 'ad' | 'commerceAd';
 export type NodeMenuGroupKey =
   | 'imageGeneration'
   | 'jimeng'
@@ -575,7 +585,7 @@ const gptBestVideoResultNodeDefinition: CanvasNodeDefinition<GptBestVideoResultN
   },
   connectivity: {
     sourceHandle: true,
-    targetHandle: true,
+    targetHandle: false,
     connectMenu: {
       fromSource: false,
       fromTarget: false,
@@ -1353,7 +1363,7 @@ const ttsTextNodeDefinition: CanvasNodeDefinition<TtsTextNodeData> = {
   },
   connectivity: {
     sourceHandle: true,
-    targetHandle: false,
+    targetHandle: true,
     connectMenu: {
       fromSource: false,
       fromTarget: false,
@@ -1597,6 +1607,102 @@ const adProjectRootNodeDefinition: CanvasNodeDefinition<AdProjectRootNodeData> =
   createDefaultData: () => ({
     displayName: DEFAULT_NODE_DISPLAY_NAME[CANVAS_NODE_TYPES.adProjectRoot],
     ...createDefaultAdProjectRootState(),
+  }),
+};
+
+const commerceProductNodeDefinition: CanvasNodeDefinition<CommerceProductNodeData> = {
+  type: CANVAS_NODE_TYPES.commerceProduct,
+  menuLabelKey: 'commerceAd.nodes.product',
+  menuIcon: 'package',
+  visibleInMenu: false,
+  menuProjectTypes: ['commerceAd'],
+  capabilities: {
+    toolbar: true,
+    promptInput: false,
+  },
+  connectivity: {
+    sourceHandle: true,
+    targetHandle: false,
+    connectMenu: {
+      fromSource: false,
+      fromTarget: false,
+    },
+  },
+  createDefaultData: () => ({
+    displayName: DEFAULT_NODE_DISPLAY_NAME[CANVAS_NODE_TYPES.commerceProduct],
+    ...createDefaultCommerceAdProductState(),
+  }),
+};
+
+const commerceBriefNodeDefinition: CanvasNodeDefinition<CommerceBriefNodeData> = {
+  type: CANVAS_NODE_TYPES.commerceBrief,
+  menuLabelKey: 'commerceAd.nodes.brief',
+  menuIcon: 'text',
+  visibleInMenu: false,
+  menuProjectTypes: ['commerceAd'],
+  capabilities: {
+    toolbar: true,
+    promptInput: false,
+  },
+  connectivity: {
+    sourceHandle: true,
+    targetHandle: true,
+    connectMenu: {
+      fromSource: false,
+      fromTarget: false,
+    },
+  },
+  createDefaultData: () => ({
+    displayName: DEFAULT_NODE_DISPLAY_NAME[CANVAS_NODE_TYPES.commerceBrief],
+    ...createDefaultCommerceAdBriefState(),
+  }),
+};
+
+const commerceBatchGenerateNodeDefinition: CanvasNodeDefinition<CommerceBatchGenerateNodeData> = {
+  type: CANVAS_NODE_TYPES.commerceBatchGenerate,
+  menuLabelKey: 'commerceAd.nodes.batch',
+  menuIcon: 'sparkles',
+  visibleInMenu: false,
+  menuProjectTypes: ['commerceAd'],
+  capabilities: {
+    toolbar: true,
+    promptInput: false,
+  },
+  connectivity: {
+    sourceHandle: true,
+    targetHandle: true,
+    connectMenu: {
+      fromSource: false,
+      fromTarget: false,
+    },
+  },
+  createDefaultData: () => ({
+    displayName: DEFAULT_NODE_DISPLAY_NAME[CANVAS_NODE_TYPES.commerceBatchGenerate],
+    ...createDefaultCommerceAdBatchGenerateState(),
+  }),
+};
+
+const commerceResultGroupNodeDefinition: CanvasNodeDefinition<CommerceResultGroupNodeData> = {
+  type: CANVAS_NODE_TYPES.commerceResultGroup,
+  menuLabelKey: 'commerceAd.nodes.results',
+  menuIcon: 'layout',
+  visibleInMenu: false,
+  menuProjectTypes: ['commerceAd'],
+  capabilities: {
+    toolbar: true,
+    promptInput: false,
+  },
+  connectivity: {
+    sourceHandle: false,
+    targetHandle: true,
+    connectMenu: {
+      fromSource: false,
+      fromTarget: false,
+    },
+  },
+  createDefaultData: () => ({
+    displayName: DEFAULT_NODE_DISPLAY_NAME[CANVAS_NODE_TYPES.commerceResultGroup],
+    ...createDefaultCommerceAdResultGroupState(),
   }),
 };
 
@@ -2111,6 +2217,10 @@ export const canvasNodeDefinitions: Record<CanvasNodeType, CanvasNodeDefinition>
   [CANVAS_NODE_TYPES.voxCpmVoiceClone]: voxCpmVoiceCloneNodeDefinition,
   [CANVAS_NODE_TYPES.voxCpmUltimateClone]: voxCpmUltimateCloneNodeDefinition,
   [CANVAS_NODE_TYPES.adProjectRoot]: adProjectRootNodeDefinition,
+  [CANVAS_NODE_TYPES.commerceProduct]: commerceProductNodeDefinition,
+  [CANVAS_NODE_TYPES.commerceBrief]: commerceBriefNodeDefinition,
+  [CANVAS_NODE_TYPES.commerceBatchGenerate]: commerceBatchGenerateNodeDefinition,
+  [CANVAS_NODE_TYPES.commerceResultGroup]: commerceResultGroupNodeDefinition,
   [CANVAS_NODE_TYPES.scriptRoot]: scriptRootNodeDefinition,
   [CANVAS_NODE_TYPES.scriptChapter]: scriptChapterNodeDefinition,
   [CANVAS_NODE_TYPES.scriptScene]: scriptSceneNodeDefinition,

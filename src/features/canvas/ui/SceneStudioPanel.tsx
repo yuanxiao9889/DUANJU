@@ -1600,7 +1600,7 @@ export function SceneStudioPanel() {
     >
       <div
         className={`absolute -left-1 top-0 z-30 h-full w-3 cursor-col-resize touch-none transition-colors ${
-          isPanelCollapsed ? 'pointer-events-none opacity-0' : 'hover:bg-cyan-500/25'
+          isPanelCollapsed ? 'pointer-events-none opacity-0' : 'hover:bg-[rgba(15,23,42,0.16)] dark:hover:bg-white/16'
         }`}
         onPointerDown={(event) => {
           if (isPanelCollapsed) {

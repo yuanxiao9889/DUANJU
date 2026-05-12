@@ -10,6 +10,8 @@ import { v4 as uuidv4 } from 'uuid';
 import {
   AUTO_REQUEST_ASPECT_RATIO,
   CANVAS_NODE_TYPES,
+  COMMERCE_STAGE_NODE_DEFAULT_HEIGHT,
+  COMMERCE_STAGE_NODE_DEFAULT_WIDTH,
   DEFAULT_ASPECT_RATIO,
   DEFAULT_NODE_WIDTH,
   DIRECTOR_STAGE_NODE_DEFAULT_HEIGHT,
@@ -51,6 +53,10 @@ import {
   type CanvasNode,
   type CanvasNodeData,
   type CanvasNodeType,
+  type CommerceBatchGenerateNodeData,
+  type CommerceBriefNodeData,
+  type CommerceProductNodeData,
+  type CommerceResultGroupNodeData,
   type DirectorStageNodeData,
   type LegacyNodeData,
   type EpisodeCard,
@@ -95,6 +101,10 @@ import {
   normalizeScriptCharacterNodeData,
   normalizeScriptCharacterReferenceNodeData,
   normalizeAdScriptReferenceNodeData,
+  normalizeCommerceBatchGenerateNodeData,
+  normalizeCommerceBriefNodeData,
+  normalizeCommerceProductNodeData,
+  normalizeCommerceResultGroupNodeData,
   normalizeScriptItemReferenceNodeData,
   normalizeScriptLocationReferenceNodeData,
   normalizeScriptReferenceNodeData,
@@ -943,6 +953,34 @@ function normalizeNodes(rawNodes: CanvasNode[]): CanvasNode[] {
         Object.assign(
           mergedData,
           normalizeAdScriptReferenceNodeData(mergedData as AdScriptReferenceNodeData)
+        );
+      }
+
+      if (normalizedNodeType === CANVAS_NODE_TYPES.commerceProduct) {
+        Object.assign(
+          mergedData,
+          normalizeCommerceProductNodeData(mergedData as CommerceProductNodeData)
+        );
+      }
+
+      if (normalizedNodeType === CANVAS_NODE_TYPES.commerceBrief) {
+        Object.assign(
+          mergedData,
+          normalizeCommerceBriefNodeData(mergedData as CommerceBriefNodeData)
+        );
+      }
+
+      if (normalizedNodeType === CANVAS_NODE_TYPES.commerceBatchGenerate) {
+        Object.assign(
+          mergedData,
+          normalizeCommerceBatchGenerateNodeData(mergedData as CommerceBatchGenerateNodeData)
+        );
+      }
+
+      if (normalizedNodeType === CANVAS_NODE_TYPES.commerceResultGroup) {
+        Object.assign(
+          mergedData,
+          normalizeCommerceResultGroupNodeData(mergedData as CommerceResultGroupNodeData)
         );
       }
 
@@ -1881,15 +1919,47 @@ function withLlmLogicDefaultSize(node: CanvasNode): CanvasNode {
   };
 }
 
+function withCommerceStageDefaultSize(node: CanvasNode): CanvasNode {
+  return {
+    ...node,
+    width: COMMERCE_STAGE_NODE_DEFAULT_WIDTH,
+    height: COMMERCE_STAGE_NODE_DEFAULT_HEIGHT,
+    style: {
+      ...(node.style ?? {}),
+      width: COMMERCE_STAGE_NODE_DEFAULT_WIDTH,
+      height: COMMERCE_STAGE_NODE_DEFAULT_HEIGHT,
+    },
+  };
+}
+
 function isScriptAssetReferenceNodeType(type: CanvasNodeType): boolean {
   return type === CANVAS_NODE_TYPES.scriptCharacterReference
     || type === CANVAS_NODE_TYPES.scriptLocationReference
     || type === CANVAS_NODE_TYPES.scriptItemReference;
 }
 
+function isCommerceStageNodeType(type: CanvasNodeType): boolean {
+  return type === CANVAS_NODE_TYPES.commerceProduct
+    || type === CANVAS_NODE_TYPES.commerceBrief
+    || type === CANVAS_NODE_TYPES.commerceBatchGenerate
+    || type === CANVAS_NODE_TYPES.commerceResultGroup;
+}
+
 function applyDefaultNodeSize(node: CanvasNode, data: CanvasNodeData): CanvasNode {
   if (shouldApplyImageEditDefaultSize(node, data)) {
     return withImageEditDefaultSize(node);
+  }
+
+  if (isCommerceStageNodeType(node.type)) {
+    const resolvedWidth =
+      resolveNumericNodeDimension(node.width)
+      ?? resolveNumericNodeDimension(node.style?.width);
+    const resolvedHeight =
+      resolveNumericNodeDimension(node.height)
+      ?? resolveNumericNodeDimension(node.style?.height);
+    if (resolvedWidth === null || resolvedHeight === null) {
+      return withCommerceStageDefaultSize(node);
+    }
   }
 
   if (node.type === CANVAS_NODE_TYPES.multiAngleImage) {
@@ -4463,6 +4533,30 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
           Object.assign(
             mergedData,
             normalizeAdScriptReferenceNodeData(mergedData as AdScriptReferenceNodeData)
+          );
+        }
+        if (node.type === CANVAS_NODE_TYPES.commerceProduct) {
+          Object.assign(
+            mergedData,
+            normalizeCommerceProductNodeData(mergedData as CommerceProductNodeData)
+          );
+        }
+        if (node.type === CANVAS_NODE_TYPES.commerceBrief) {
+          Object.assign(
+            mergedData,
+            normalizeCommerceBriefNodeData(mergedData as CommerceBriefNodeData)
+          );
+        }
+        if (node.type === CANVAS_NODE_TYPES.commerceBatchGenerate) {
+          Object.assign(
+            mergedData,
+            normalizeCommerceBatchGenerateNodeData(mergedData as CommerceBatchGenerateNodeData)
+          );
+        }
+        if (node.type === CANVAS_NODE_TYPES.commerceResultGroup) {
+          Object.assign(
+            mergedData,
+            normalizeCommerceResultGroupNodeData(mergedData as CommerceResultGroupNodeData)
           );
         }
         if (node.type === CANVAS_NODE_TYPES.scriptCharacterReference) {
