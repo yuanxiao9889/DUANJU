@@ -1,0 +1,6 @@
+[submodule ".external/Auto-Photoshop-StableDiffusion-Plugin"]
+	path = .external/Auto-Photoshop-StableDiffusion-Plugin
+	url = https://github.com/AbdullahAlfaraj/Auto-Photoshop-StableDiffusion-Plugin.git
+[submodule ".external/sd-ppp"]
+	path = .external/sd-ppp
+	url = https://github.com/zombieyang/sd-ppp.git
