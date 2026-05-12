@@ -26,6 +26,7 @@ import {
   type GptBestVideoSourceKind,
 } from '@/features/canvas/domain/canvasNodes';
 import { resolveNodeDisplayName } from '@/features/canvas/domain/nodeDisplay';
+import { useIsOverviewCanvasRender } from '@/features/canvas/CanvasPerformanceContext';
 import { useCanvasConnectedReferenceImages, useCanvasNodeById } from '@/features/canvas/hooks/useCanvasNodeGraph';
 import { CanvasNodeImage } from '@/features/canvas/ui/CanvasNodeImage';
 import { CameraTriggerIcon } from '@/features/canvas/ui/CameraTriggerIcon';
@@ -141,6 +142,7 @@ function buildModelOptions(sourceKind: GptBestVideoSourceKind): GptBestOption<st
 export const GptBestVideoNode = memo(
   ({ id, data, selected, width, type }: GptBestVideoNodeProps) => {
     const { t, i18n } = useTranslation();
+    const isOverviewRender = useIsOverviewCanvasRender();
     const currentNode = useCanvasNodeById(id);
     const connectedImages = useCanvasConnectedReferenceImages(id);
     const thirdPartyVideoApiKeys = useSettingsStore((state) => state.thirdPartyVideoApiKeys);
@@ -524,17 +526,27 @@ export const GptBestVideoNode = memo(
         />
 
         <div className="flex min-h-0 flex-1 flex-col pt-5">
-          <textarea
-            ref={promptRef}
-            value={data.prompt}
-            onChange={(event) => handlePromptChange(event.target.value)}
-            placeholder={sourceKind === 'grok'
-              ? t('node.gptBestVideo.grokPromptPlaceholder')
-              : t('node.gptBestVideo.seedancePromptPlaceholder')}
-            className="min-h-0 flex-1 resize-none rounded-[var(--node-radius)] border border-white/10 bg-bg-dark/80 px-3 py-3 text-sm leading-6 text-text-dark outline-none transition-colors placeholder:text-text-muted focus:border-accent/50"
-            onPointerDown={(event) => event.stopPropagation()}
-            onClick={(event) => event.stopPropagation()}
-          />
+          {isOverviewRender ? (
+            <div className="min-h-0 flex-1 overflow-hidden rounded-[var(--node-radius)] border border-white/10 bg-bg-dark/80 px-3 py-3 text-sm leading-6 text-text-muted">
+              <div className="line-clamp-6 whitespace-pre-wrap">
+                {data.prompt.trim() || (sourceKind === 'grok'
+                  ? t('node.gptBestVideo.grokPromptPlaceholder')
+                  : t('node.gptBestVideo.seedancePromptPlaceholder'))}
+              </div>
+            </div>
+          ) : (
+            <textarea
+              ref={promptRef}
+              value={data.prompt}
+              onChange={(event) => handlePromptChange(event.target.value)}
+              placeholder={sourceKind === 'grok'
+                ? t('node.gptBestVideo.grokPromptPlaceholder')
+                : t('node.gptBestVideo.seedancePromptPlaceholder')}
+              className="min-h-0 flex-1 resize-none rounded-[var(--node-radius)] border border-white/10 bg-bg-dark/80 px-3 py-3 text-sm leading-6 text-text-dark outline-none transition-colors placeholder:text-text-muted focus:border-accent/50"
+              onPointerDown={(event) => event.stopPropagation()}
+              onClick={(event) => event.stopPropagation()}
+            />
+          )}
 
           <div className="mt-3 rounded-[var(--node-radius)] border border-white/10 bg-bg-dark/50 p-2">
             <div className="mb-2 flex items-center justify-between gap-2 text-xs text-text-muted">
@@ -570,6 +582,7 @@ export const GptBestVideoNode = memo(
           </div>
         </div>
 
+        {!isOverviewRender ? (
         <div className="mt-2 space-y-1.5">
           <div className="flex items-center gap-2">
             <div className="ui-scrollbar min-w-0 flex-1 overflow-x-auto overflow-y-hidden">
@@ -706,8 +719,9 @@ export const GptBestVideoNode = memo(
             {statusInfoText}
           </div>
         </div>
+        ) : null}
 
-        {isShotParamsPanelOpen ? (
+        {isShotParamsPanelOpen && !isOverviewRender ? (
           <ShotParamsPanel
             onClose={closeShotParamsPanel}
             onInsert={(option) => insertPromptText(option.value)}

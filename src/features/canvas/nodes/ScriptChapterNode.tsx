@@ -16,6 +16,7 @@ import { collectEnabledScriptStoryNotes } from '@/features/canvas/application/sc
 import { AiWriterDialog } from '@/features/canvas/ui/AiWriterDialog';
 import { NodeHeader, NODE_HEADER_FLOATING_POSITION_CLASS } from '@/features/canvas/ui/NodeHeader';
 import { NodeResizeHandle } from '@/features/canvas/ui/NodeResizeHandle';
+import { useIsOverviewCanvasRender } from '@/features/canvas/CanvasPerformanceContext';
 import {
   CANVAS_NODE_TYPES,
   SCRIPT_CHAPTER_NODE_DEFAULT_HEIGHT,
@@ -30,7 +31,12 @@ import {
   type ScriptSceneNodeData,
 } from '@/features/canvas/domain/canvasNodes';
 import { resolveNodeDisplayName } from '@/features/canvas/domain/nodeDisplay';
-import { useCanvasNodesByIds } from '@/features/canvas/hooks/useCanvasNodeGraph';
+import {
+  useCanvasFirstNodeByType,
+  useCanvasIncomingSourceNodes,
+  useCanvasNodesByIds,
+  useCanvasNodesByTypes,
+} from '@/features/canvas/hooks/useCanvasNodeGraph';
 import { useCanvasStore } from '@/stores/canvasStore';
 import { useScriptEditorStore } from '@/stores/scriptEditorStore';
 
@@ -209,6 +215,9 @@ const MIN_NODE_HEIGHT = 280;
 const MAX_NODE_WIDTH = 800;
 const MAX_NODE_HEIGHT = 900;
 const EMPTY_NODE_IDS: string[] = [];
+const SCRIPT_SCENE_GRAPH_NODE_TYPES = [CANVAS_NODE_TYPES.scriptScene] as const;
+const SCRIPT_CHAPTER_GRAPH_NODE_TYPES = [CANVAS_NODE_TYPES.scriptChapter] as const;
+const SCRIPT_STORY_NOTE_GRAPH_NODE_TYPES = [CANVAS_NODE_TYPES.scriptStoryNote] as const;
 export const SCRIPT_CHAPTER_NODE_DRAG_HANDLE_CLASS = 'script-chapter-node__drag-handle';
 
 function resolveNodeDimension(value: number | undefined, fallback: number): number {
@@ -220,10 +229,14 @@ function resolveNodeDimension(value: number | undefined, fallback: number): numb
 
 export const ScriptChapterNode = memo(({ id, data, selected, width, height }: ScriptChapterNodeProps) => {
   const { t } = useTranslation();
+  const isOverviewRender = useIsOverviewCanvasRender();
   const updateNodeData = useCanvasStore((state) => state.updateNodeData);
   const setSelectedNode = useCanvasStore((state) => state.setSelectedNode);
-  const nodes = useCanvasStore((state) => state.nodes);
-  const edges = useCanvasStore((state) => state.edges);
+  const scriptSceneNodes = useCanvasNodesByTypes(SCRIPT_SCENE_GRAPH_NODE_TYPES);
+  const scriptChapterNodes = useCanvasNodesByTypes(SCRIPT_CHAPTER_GRAPH_NODE_TYPES);
+  const scriptRootNode = useCanvasFirstNodeByType(CANVAS_NODE_TYPES.scriptRoot);
+  const scriptStoryNoteNodes = useCanvasNodesByTypes(SCRIPT_STORY_NOTE_GRAPH_NODE_TYPES);
+  const incomingSourceNodes = useCanvasIncomingSourceNodes(id);
   const activeChapterId = useScriptEditorStore((state) => state.activeChapterId);
   const activeChapterSceneId = useScriptEditorStore((state) => state.activeChapterSceneId);
   const activeSceneNodeId = useScriptEditorStore((state) => state.activeSceneNodeId);
@@ -239,7 +252,7 @@ export const ScriptChapterNode = memo(({ id, data, selected, width, height }: Sc
   const mergedBranchNodes = useCanvasNodesByIds(mergedBranchNodeIds);
   const sceneNodeBySceneId = useMemo(() => {
     const nextMap = new Map<string, { id: string; data: ScriptSceneNodeData }>();
-    nodes.forEach((node) => {
+    scriptSceneNodes.forEach((node) => {
       if (node.type !== CANVAS_NODE_TYPES.scriptScene) {
         return;
       }
@@ -255,29 +268,22 @@ export const ScriptChapterNode = memo(({ id, data, selected, width, height }: Sc
       });
     });
     return nextMap;
-  }, [id, nodes]);
+  }, [id, scriptSceneNodes]);
   const hasMaterializedSceneNodes = sceneNodeBySceneId.size > 0;
   const hasMergedBranches = Boolean(data.mergedFromBranches && data.mergedFromBranches.length > 0);
   const isMergePoint = data.isMergePoint || (hasMergedBranches && (data.mergedFromBranches?.length ?? 0) >= 2);
   const storyRootData = useMemo(() => {
-    const incomingSourceIds = new Set(
-      edges
-        .filter((edge) => edge.target === id)
-        .map((edge) => edge.source)
-    );
-    const connectedRootNode = nodes.find(
-      (node) => incomingSourceIds.has(node.id) && node.type === CANVAS_NODE_TYPES.scriptRoot
-    );
-    const rootNode = connectedRootNode
-      ?? nodes.find((node) => node.type === CANVAS_NODE_TYPES.scriptRoot)
-      ?? null;
+    const connectedRootNode = incomingSourceNodes.find(
+      ({ node }) => node.type === CANVAS_NODE_TYPES.scriptRoot
+    )?.node;
+    const rootNode = connectedRootNode ?? scriptRootNode ?? null;
 
     return rootNode
       ? normalizeScriptRootNodeData(rootNode.data as ScriptRootNodeData)
       : null;
-  }, [edges, id, nodes]);
+  }, [incomingSourceNodes, scriptRootNode]);
   const adjacentChapterSummaries = useMemo(() => {
-    const sortedChapters = getSortedScriptChapterNodes(nodes);
+    const sortedChapters = getSortedScriptChapterNodes(scriptChapterNodes);
     const currentIndex = sortedChapters.findIndex((node) => node.id === id);
     if (currentIndex < 0) {
       return {
@@ -293,9 +299,17 @@ export const ScriptChapterNode = memo(({ id, data, selected, width, height }: Sc
       previousChapterSummary: (previousChapter?.data.summary || '').trim(),
       nextChapterSummary: (nextChapter?.data.summary || '').trim(),
     };
-  }, [id, nodes]);
+  }, [id, scriptChapterNodes]);
+  const scriptContinuityNodes = useMemo(
+    () => [
+      ...scriptChapterNodes,
+      ...scriptStoryNoteNodes,
+      ...(scriptRootNode ? [scriptRootNode] : []),
+    ],
+    [scriptChapterNodes, scriptRootNode, scriptStoryNoteNodes]
+  );
   const chapterContinuityContext = useMemo<SummaryExpandContinuityContext | null>(() => {
-    const sortedChapters = getSortedScriptChapterNodes(nodes);
+    const sortedChapters = getSortedScriptChapterNodes(scriptChapterNodes);
     const currentIndex = sortedChapters.findIndex((node) => node.id === id);
     if (currentIndex < 0) {
       return null;
@@ -305,7 +319,7 @@ export const ScriptChapterNode = memo(({ id, data, selected, width, height }: Sc
     const firstScene = scenes[0];
     const baseContext = firstScene
       ? buildSceneContinuityContext({
-          nodes,
+          nodes: scriptContinuityNodes,
           currentChapterId: id,
           currentSceneId: firstScene.id,
           currentScene: firstScene,
@@ -330,7 +344,7 @@ export const ScriptChapterNode = memo(({ id, data, selected, width, height }: Sc
       guardrails,
       relevantMemories: primaryHandoff ? [primaryHandoff, ...relatedMemories] : relatedMemories,
     };
-  }, [id, nodes, scenes, storyRootData]);
+  }, [id, scenes, scriptChapterNodes, scriptContinuityNodes, storyRootData]);
   const mergedBranchContents = useMemo(
     () =>
       mergedBranchNodes.map((branchNode) => {
@@ -349,10 +363,21 @@ export const ScriptChapterNode = memo(({ id, data, selected, width, height }: Sc
       }),
     [mergedBranchNodes],
   );
-  const storyNotes = useMemo(() => collectEnabledScriptStoryNotes(nodes), [nodes]);
+  const storyNotes = useMemo(
+    () => collectEnabledScriptStoryNotes(scriptStoryNoteNodes),
+    [scriptStoryNoteNodes]
+  );
+  const incomingCharacterNodes = useMemo(
+    () => incomingSourceNodes.map(({ node }) => node),
+    [incomingSourceNodes]
+  );
+  const incomingCharacterEdges = useMemo(
+    () => incomingSourceNodes.map(({ edge }) => edge),
+    [incomingSourceNodes]
+  );
   const characterNotes = useMemo(
-    () => collectConnectedScriptCharacterNotes(id, nodes, edges),
-    [edges, id, nodes]
+    () => collectConnectedScriptCharacterNotes(id, incomingCharacterNodes, incomingCharacterEdges),
+    [id, incomingCharacterEdges, incomingCharacterNodes]
   );
   const summaryExpandContext = useMemo<Omit<SummaryExpandRequest, 'instruction'>>(() => ({
     summary: data.summary || '',
@@ -614,14 +639,20 @@ export const ScriptChapterNode = memo(({ id, data, selected, width, height }: Sc
                     ? `${data.chapterNumber || 1}-${data.branchIndex || 1}`
                     : data.chapterNumber || 1}
                 </span>
-                <input
-                  type="text"
-                  value={data.title || ''}
-                  onChange={(event) => updateNodeData(id, { title: event.target.value })}
-                  onMouseDown={(event) => event.stopPropagation()}
-                  placeholder={t('script.sceneStudio.untitledChapter')}
-                  className="nodrag flex-1 rounded border border-border-dark bg-bg-dark px-2 py-1 text-sm text-text-dark placeholder:text-text-muted focus:border-text-muted/60 focus:outline-none"
-                />
+                {isOverviewRender ? (
+                  <div className="min-w-0 flex-1 truncate px-2 py-1 text-sm font-medium text-text-dark">
+                    {data.title || t('script.sceneStudio.untitledChapter')}
+                  </div>
+                ) : (
+                  <input
+                    type="text"
+                    value={data.title || ''}
+                    onChange={(event) => updateNodeData(id, { title: event.target.value })}
+                    onMouseDown={(event) => event.stopPropagation()}
+                    placeholder={t('script.sceneStudio.untitledChapter')}
+                    className="nodrag flex-1 rounded border border-border-dark bg-bg-dark px-2 py-1 text-sm text-text-dark placeholder:text-text-muted focus:border-text-muted/60 focus:outline-none"
+                  />
+                )}
                 {data.branchType === 'branch' ? (
                   <span title="Branch chapter">
                     <GitBranch className="h-4 w-4 text-text-muted" />
@@ -655,98 +686,110 @@ export const ScriptChapterNode = memo(({ id, data, selected, width, height }: Sc
                     {t('script.sceneStudio.sceneCount', { count: scenes.length })}
                   </div>
                 </div>
-                <div className="flex items-center gap-2">
-                  {data.summary ? (
-                    <>
-                      {isMergePoint ? (
+                {!isOverviewRender ? (
+                  <div className="flex items-center gap-2">
+                    {data.summary ? (
+                      <>
+                        {isMergePoint ? (
+                          <button
+                            type="button"
+                            onClick={() => setAiDialogMode('expandFromMerged')}
+                            disabled={hasMaterializedSceneNodes}
+                            className="flex h-8 w-8 items-center justify-center rounded-lg border border-border-dark bg-bg-dark text-text-muted transition-colors hover:bg-bg-dark/80 disabled:cursor-not-allowed disabled:opacity-45"
+                            title={t('script.chapterCatalog.expandFromMerged')}
+                          >
+                            <GitFork className="h-4 w-4" />
+                          </button>
+                        ) : null}
                         <button
                           type="button"
-                          onClick={() => setAiDialogMode('expandFromMerged')}
+                          onClick={() => setAiDialogMode('expandFromSummary')}
                           disabled={hasMaterializedSceneNodes}
                           className="flex h-8 w-8 items-center justify-center rounded-lg border border-border-dark bg-bg-dark text-text-muted transition-colors hover:bg-bg-dark/80 disabled:cursor-not-allowed disabled:opacity-45"
-                          title={t('script.chapterCatalog.expandFromMerged')}
+                          title={t('script.chapterCatalog.expandFromSummary')}
                         >
-                          <GitFork className="h-4 w-4" />
+                          <Sparkles className="h-4 w-4" />
                         </button>
-                      ) : null}
-                      <button
-                        type="button"
-                        onClick={() => setAiDialogMode('expandFromSummary')}
-                        disabled={hasMaterializedSceneNodes}
-                        className="flex h-8 w-8 items-center justify-center rounded-lg border border-border-dark bg-bg-dark text-text-muted transition-colors hover:bg-bg-dark/80 disabled:cursor-not-allowed disabled:opacity-45"
-                        title={t('script.chapterCatalog.expandFromSummary')}
-                      >
-                        <Sparkles className="h-4 w-4" />
-                      </button>
-                    </>
-                  ) : null}
-                  <button
-                    type="button"
-                    onClick={handleAddScene}
-                    className="rounded-lg border border-border-dark bg-surface-dark px-2.5 py-1 text-xs text-text-dark transition-colors hover:bg-bg-dark"
-                  >
-                    {t('script.chapterCatalog.addScene')}
-                  </button>
-                </div>
+                      </>
+                    ) : null}
+                    <button
+                      type="button"
+                      onClick={handleAddScene}
+                      className="rounded-lg border border-border-dark bg-surface-dark px-2.5 py-1 text-xs text-text-dark transition-colors hover:bg-bg-dark"
+                    >
+                      {t('script.chapterCatalog.addScene')}
+                    </button>
+                  </div>
+                ) : null}
               </div>
 
-              <UiScrollArea
-                className="mt-3 min-h-0 flex-1"
-                viewportClassName="h-full"
-                contentClassName="space-y-2 pr-3"
-              >
-                {scenes.map((scene) => {
-                  const sceneNode = sceneNodeBySceneId.get(scene.id);
-                  const isFocusedScene = activeChapterId === id && activeChapterSceneId === scene.id;
-                  const isActive = isFocusedScene || activeSceneNodeId === sceneNode?.id;
+              {isOverviewRender ? (
+                <div className="mt-3 min-h-0 flex-1 overflow-hidden rounded-lg border border-border-dark bg-surface-dark px-3 py-2 text-xs leading-5 text-text-muted">
+                  <div className="line-clamp-6">
+                    {scenes.length > 0
+                      ? scenes.map((scene) => scene.title || t('script.sceneStudio.untitledScene')).join(' / ')
+                      : t('script.sceneStudio.sceneCount', { count: 0 })}
+                  </div>
+                </div>
+              ) : (
+                <UiScrollArea
+                  className="mt-3 min-h-0 flex-1"
+                  viewportClassName="h-full"
+                  contentClassName="space-y-2 pr-3"
+                >
+                  {scenes.map((scene) => {
+                    const sceneNode = sceneNodeBySceneId.get(scene.id);
+                    const isFocusedScene = activeChapterId === id && activeChapterSceneId === scene.id;
+                    const isActive = isFocusedScene || activeSceneNodeId === sceneNode?.id;
 
-                  return (
-                    <button
-                      key={scene.id}
-                      type="button"
-                      onClick={(event) => {
-                        event.stopPropagation();
-                        handleFocusScene(scene.id);
-                      }}
-                      className={`w-full rounded-lg border px-3 py-2 text-left transition-colors ${
-                        isFocusedScene
-                          ? 'border-[rgba(15,23,42,0.34)] bg-bg-dark dark:border-white/28'
-                          : isActive
-                            ? 'border-[rgba(15,23,42,0.3)] bg-bg-dark/80 dark:border-white/24'
-                            : sceneNode
-                              ? 'border-border-dark bg-bg-dark/60'
-                              : 'border-border-dark bg-surface-dark hover:bg-bg-dark'
-                      }`}
-                    >
-                      <div className="flex items-center justify-between gap-2">
-                        <div className="min-w-0">
-                          <div className="truncate text-sm font-medium text-text-dark">
-                            {scene.title || t('script.sceneStudio.untitledScene')}
+                    return (
+                      <button
+                        key={scene.id}
+                        type="button"
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          handleFocusScene(scene.id);
+                        }}
+                        className={`w-full rounded-lg border px-3 py-2 text-left transition-colors ${
+                          isFocusedScene
+                            ? 'border-[rgba(15,23,42,0.34)] bg-bg-dark dark:border-white/28'
+                            : isActive
+                              ? 'border-[rgba(15,23,42,0.3)] bg-bg-dark/80 dark:border-white/24'
+                              : sceneNode
+                                ? 'border-border-dark bg-bg-dark/60'
+                                : 'border-border-dark bg-surface-dark hover:bg-bg-dark'
+                        }`}
+                      >
+                        <div className="flex items-center justify-between gap-2">
+                          <div className="min-w-0">
+                            <div className="truncate text-sm font-medium text-text-dark">
+                              {scene.title || t('script.sceneStudio.untitledScene')}
+                            </div>
+                            <div className="mt-1 text-[11px] text-text-muted">
+                              {t('script.sceneStudio.sceneLabel', { number: scene.order + 1 })}
+                            </div>
                           </div>
-                          <div className="mt-1 text-[11px] text-text-muted">
-                            {t('script.sceneStudio.sceneLabel', { number: scene.order + 1 })}
-                          </div>
+                          {sceneNode ? (
+                            <div className="shrink-0 rounded-lg border border-border-dark bg-bg-dark px-2.5 py-1 text-[11px] font-medium text-text-muted">
+                              {t('script.chapterCatalog.created')}
+                            </div>
+                          ) : null}
                         </div>
                         {sceneNode ? (
-                          <div className="shrink-0 rounded-lg border border-border-dark bg-bg-dark px-2.5 py-1 text-[11px] font-medium text-text-muted">
-                            {t('script.chapterCatalog.created')}
+                          <div className="mt-2 flex items-center justify-between gap-2 text-[11px] text-text-muted">
+                            <span>{t('script.chapterCatalog.created')}</span>
+                            <span>
+                              {t('script.sceneWorkbench.episodeCount', {
+                                count: sceneNode.data.episodes.length,
+                              })}
+                            </span>
                           </div>
                         ) : null}
-                      </div>
-                      {sceneNode ? (
-                        <div className="mt-2 flex items-center justify-between gap-2 text-[11px] text-text-muted">
-                          <span>{t('script.chapterCatalog.created')}</span>
-                          <span>
-                            {t('script.sceneWorkbench.episodeCount', {
-                              count: sceneNode.data.episodes.length,
-                            })}
-                          </span>
-                        </div>
-                      ) : null}
-                    </button>
-                  );
-                })}
-              </UiScrollArea>
+                      </button>
+                    );
+                  })}
+                </UiScrollArea>
+              )}
 
               {hasMaterializedSceneNodes && data.summary ? (
                 <div className="mt-3 border-t border-border-dark pt-2 text-[11px] leading-5 text-text-muted">
@@ -783,7 +826,7 @@ export const ScriptChapterNode = memo(({ id, data, selected, width, height }: Sc
         />
       </div>
 
-      {aiDialogMode ? (
+      {aiDialogMode && !isOverviewRender ? (
         <AiWriterDialog
           isOpen
           mode={aiDialogMode}

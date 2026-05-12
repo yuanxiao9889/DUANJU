@@ -44,6 +44,8 @@ import {
   NodeDescriptionPanel,
   NODE_DESCRIPTION_PANEL_EXPANDED_TOTAL_HEIGHT,
 } from '@/features/canvas/ui/NodeDescriptionPanel';
+import { useCanvasNodeById } from '@/features/canvas/hooks/useCanvasNodeGraph';
+import { useShouldSuspendCanvasMedia } from '@/features/canvas/CanvasPerformanceContext';
 import { useAssetStore } from '@/stores/assetStore';
 import { useCanvasStore } from '@/stores/canvasStore';
 import { useProjectStore } from '@/stores/projectStore';
@@ -106,14 +108,15 @@ function isVoicePresetGenerationSource(value: unknown): boolean {
 
 export const AudioNode = memo(({ id, data, selected, width }: AudioNodeProps) => {
   const { t } = useTranslation();
+  const shouldSuspendMedia = useShouldSuspendCanvasMedia();
   const updateNodeInternals = useUpdateNodeInternals();
   const setSelectedNode = useCanvasStore((state) => state.setSelectedNode);
   const updateNodeData = useCanvasStore((state) => state.updateNodeData);
   const isDescriptionPanelOpen = useCanvasStore(
     (state) => Boolean(state.nodeDescriptionPanelOpenById[id])
   );
-  const nodes = useCanvasStore((state) => state.nodes);
-  const edges = useCanvasStore((state) => state.edges);
+  const sourceNodeId = normalizeText(data.sourceNodeId);
+  const sourceNode = useCanvasNodeById(sourceNodeId);
   const useUploadFilenameAsNodeTitle = useSettingsStore((state) => state.useUploadFilenameAsNodeTitle);
   const assetLibraries = useAssetStore((state) => state.libraries);
   const hydrateAssets = useAssetStore((state) => state.hydrate);
@@ -163,19 +166,13 @@ export const AudioNode = memo(({ id, data, selected, width }: AudioNodeProps) =>
     }
     return resolveNodeDisplayName(CANVAS_NODE_TYPES.audio, data);
   }, [data, useUploadFilenameAsNodeTitle]);
-  const sourceNode = useMemo(() => {
-    const sourceNodeId = normalizeText(data.sourceNodeId);
-    if (!sourceNodeId) {
-      return null;
-    }
-
-    return nodes.find((node) => node.id === sourceNodeId) ?? null;
-  }, [data.sourceNodeId, nodes]);
   const fallbackPresetReferenceText = useMemo(
     () => {
       if (!sourceNode) {
         return '';
       }
+
+      const { nodes, edges } = useCanvasStore.getState();
 
       if (
         sourceNode.type === CANVAS_NODE_TYPES.ttsVoiceDesign
@@ -194,7 +191,7 @@ export const AudioNode = memo(({ id, data, selected, width }: AudioNodeProps) =>
 
       return '';
     },
-    [edges, nodes, sourceNode]
+    [sourceNode]
   );
   const voicePresetSource = useMemo(() => {
     const source = data.voicePresetSource;
@@ -363,6 +360,15 @@ export const AudioNode = memo(({ id, data, selected, width }: AudioNodeProps) =>
     setIsPlaying(false);
     setCurrentTime(0);
   }, [audioSource]);
+
+  useEffect(() => {
+    if (!shouldSuspendMedia) {
+      return;
+    }
+
+    audioRef.current?.pause();
+    setIsPlaying(false);
+  }, [shouldSuspendMedia]);
 
   useEffect(() => {
     setPlaybackDuration(resolvePlaybackTime(data.duration));
@@ -744,73 +750,92 @@ export const AudioNode = memo(({ id, data, selected, width }: AudioNodeProps) =>
               onClick={(event) => event.stopPropagation()}
               onPointerDown={(event) => event.stopPropagation()}
             >
-          <audio
-            ref={audioRef}
-            src={audioSource ?? undefined}
-            preload="metadata"
-            className="hidden"
-            onLoadedMetadata={syncDurationFromAudio}
-            onDurationChange={syncDurationFromAudio}
-            onTimeUpdate={() => {
-              if (!audioRef.current) {
-                return;
-              }
-              setCurrentTime(audioRef.current.currentTime);
-            }}
-            onPlay={() => setIsPlaying(true)}
-            onPause={() => setIsPlaying(false)}
-            onEnded={() => {
-              setIsPlaying(false);
-              setCurrentTime(resolvePlaybackTime(audioRef.current?.duration));
-            }}
-            onError={() => {
-              setIsPlaying(false);
-              setAudioError(t('node.audioNode.loadFailed'));
-            }}
-          />
-
-          <div className="flex items-center gap-3">
-            <button
-              type="button"
-              onClick={(event) => {
-                event.stopPropagation();
-                void togglePlayback();
-              }}
-              className="nodrag inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-white/[0.12] bg-white/[0.06] text-text-dark transition-colors hover:border-accent/35 hover:bg-accent/10 hover:text-accent"
-              title={isPlaying ? t('node.audioNode.pause') : t('node.audioNode.play')}
-            >
-              {isPlaying ? <Pause className="h-4 w-4" /> : <Play className="h-4 w-4 translate-x-[1px]" />}
-            </button>
-
-            <div className="min-w-0 flex-1">
-              <div className="flex items-center justify-between gap-3">
-                <div className="flex min-w-0 items-center gap-1.5 text-[11px] text-text-muted">
-                  <AudioLines className="h-3.5 w-3.5 shrink-0 text-accent/80" />
-                  <span className="truncate" title={audioMetaLabel}>{audioMetaLabel}</span>
-                </div>
-                <div className="shrink-0 text-[11px] tabular-nums text-text-muted">
-                  {formatAudioDuration(effectiveCurrentTime)} / {formatAudioDuration(playbackDuration)}
+          {shouldSuspendMedia ? (
+            <div className="flex items-center gap-3 text-text-muted">
+              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-white/[0.1] bg-white/[0.05]">
+                <AudioLines className="h-4 w-4 text-accent/80" />
+              </div>
+              <div className="min-w-0 flex-1">
+                <div className="truncate text-xs" title={audioMetaLabel}>{audioMetaLabel}</div>
+                <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-white/10">
+                  <div className="h-full rounded-full bg-accent/70" style={{ width: `${playbackProgress}%` }} />
                 </div>
               </div>
-
-              <div className="relative mt-2 h-4">
-                <div className="absolute inset-x-0 top-1/2 h-1.5 -translate-y-1/2 rounded-full bg-white/10" />
-                <div
-                  className="absolute left-0 top-1/2 h-1.5 -translate-y-1/2 rounded-full bg-accent transition-[width] duration-150"
-                  style={{ width: `${playbackProgress}%` }}
-                />
-                <input
-                  type="range"
-                  min={0}
-                  max={playbackDuration > 0 ? playbackDuration : 1}
-                  step={0.01}
-                  value={effectiveCurrentTime}
-                  onChange={handleSeekChange}
-                  className="nodrag nowheel absolute inset-0 h-4 w-full cursor-pointer appearance-none bg-transparent opacity-0"
-                />
+              <div className="shrink-0 text-[11px] tabular-nums">
+                {formatAudioDuration(playbackDuration)}
               </div>
             </div>
-          </div>
+          ) : (
+            <>
+              <audio
+                ref={audioRef}
+                src={audioSource ?? undefined}
+                preload="metadata"
+                className="hidden"
+                onLoadedMetadata={syncDurationFromAudio}
+                onDurationChange={syncDurationFromAudio}
+                onTimeUpdate={() => {
+                  if (!audioRef.current) {
+                    return;
+                  }
+                  setCurrentTime(audioRef.current.currentTime);
+                }}
+                onPlay={() => setIsPlaying(true)}
+                onPause={() => setIsPlaying(false)}
+                onEnded={() => {
+                  setIsPlaying(false);
+                  setCurrentTime(resolvePlaybackTime(audioRef.current?.duration));
+                }}
+                onError={() => {
+                  setIsPlaying(false);
+                  setAudioError(t('node.audioNode.loadFailed'));
+                }}
+              />
+
+              <div className="flex items-center gap-3">
+                <button
+                  type="button"
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    void togglePlayback();
+                  }}
+                  className="nodrag inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-white/[0.12] bg-white/[0.06] text-text-dark transition-colors hover:border-accent/35 hover:bg-accent/10 hover:text-accent"
+                  title={isPlaying ? t('node.audioNode.pause') : t('node.audioNode.play')}
+                >
+                  {isPlaying ? <Pause className="h-4 w-4" /> : <Play className="h-4 w-4 translate-x-[1px]" />}
+                </button>
+
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="flex min-w-0 items-center gap-1.5 text-[11px] text-text-muted">
+                      <AudioLines className="h-3.5 w-3.5 shrink-0 text-accent/80" />
+                      <span className="truncate" title={audioMetaLabel}>{audioMetaLabel}</span>
+                    </div>
+                    <div className="shrink-0 text-[11px] tabular-nums text-text-muted">
+                      {formatAudioDuration(effectiveCurrentTime)} / {formatAudioDuration(playbackDuration)}
+                    </div>
+                  </div>
+
+                  <div className="relative mt-2 h-4">
+                    <div className="absolute inset-x-0 top-1/2 h-1.5 -translate-y-1/2 rounded-full bg-white/10" />
+                    <div
+                      className="absolute left-0 top-1/2 h-1.5 -translate-y-1/2 rounded-full bg-accent transition-[width] duration-150"
+                      style={{ width: `${playbackProgress}%` }}
+                    />
+                    <input
+                      type="range"
+                      min={0}
+                      max={playbackDuration > 0 ? playbackDuration : 1}
+                      step={0.01}
+                      value={effectiveCurrentTime}
+                      onChange={handleSeekChange}
+                      className="nodrag nowheel absolute inset-0 h-4 w-full cursor-pointer appearance-none bg-transparent opacity-0"
+                    />
+                  </div>
+                </div>
+              </div>
+            </>
+          )}
 
           {audioError ? (
             <div
@@ -894,12 +919,14 @@ export const AudioNode = memo(({ id, data, selected, width }: AudioNodeProps) =>
             </button>
           )}
         </div>
-        <NodeDescriptionPanel
-          isOpen={isDescriptionPanelOpen}
-          value={nodeDescription}
-          placeholder={t('nodeToolbar.descriptionPlaceholder')}
-          onChange={(value) => updateNodeData(id, { nodeDescription: value })}
-        />
+        {!shouldSuspendMedia ? (
+          <NodeDescriptionPanel
+            isOpen={isDescriptionPanelOpen}
+            value={nodeDescription}
+            placeholder={t('nodeToolbar.descriptionPlaceholder')}
+            onChange={(value) => updateNodeData(id, { nodeDescription: value })}
+          />
+        ) : null}
 
         <Handle
           type="target"
@@ -916,6 +943,7 @@ export const AudioNode = memo(({ id, data, selected, width }: AudioNodeProps) =>
         />
       </div>
 
+      {!shouldSuspendMedia ? (
       <UiModal
         isOpen={isPresetModalOpen}
         title={t('node.audioNode.saveAsPreset')}
@@ -1047,6 +1075,7 @@ export const AudioNode = memo(({ id, data, selected, width }: AudioNodeProps) =>
           ) : null}
         </div>
       </UiModal>
+      ) : null}
     </>
   );
 });

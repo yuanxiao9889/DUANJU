@@ -25,6 +25,8 @@ import {
 } from '@/features/canvas/application/sceneEpisodeGenerator';
 import { collectConnectedScriptCharacterNotes } from '@/features/canvas/application/scriptCharacterNotes';
 import { collectEnabledScriptStoryNotes } from '@/features/canvas/application/scriptStoryNotes';
+import { useCanvasNodeById } from '@/features/canvas/hooks/useCanvasNodeGraph';
+import { useIsOverviewCanvasRender } from '@/features/canvas/CanvasPerformanceContext';
 import { useCanvasStore } from '@/stores/canvasStore';
 import { useScriptEditorStore } from '@/stores/scriptEditorStore';
 
@@ -78,8 +80,7 @@ export const ScriptSceneNode = memo(({
   height,
 }: ScriptSceneNodeProps) => {
   const { t } = useTranslation();
-  const nodes = useCanvasStore((state) => state.nodes);
-  const edges = useCanvasStore((state) => state.edges);
+  const isOverviewRender = useIsOverviewCanvasRender();
   const updateNodeData = useCanvasStore((state) => state.updateNodeData);
   const setSelectedNode = useCanvasStore((state) => state.setSelectedNode);
   const focusSceneNode = useScriptEditorStore((state) => state.focusSceneNode);
@@ -90,12 +91,11 @@ export const ScriptSceneNode = memo(({
 
   const resolvedWidth = resolveNodeDimension(width, SCRIPT_SCENE_NODE_DEFAULT_WIDTH);
   const resolvedHeight = resolveNodeDimension(height, SCRIPT_SCENE_NODE_DEFAULT_HEIGHT);
-  const sourceChapterNode = useMemo(() => {
-    return nodes.find(
-      (node) => node.id === data.sourceChapterId && node.type === CANVAS_NODE_TYPES.scriptChapter
-    ) ?? null;
-  }, [data.sourceChapterId, nodes]);
-  const sourceChapterData = sourceChapterNode?.data as ScriptChapterNodeData | undefined;
+  const sourceChapterNode = useCanvasNodeById(data.sourceChapterId);
+  const sourceChapterData =
+    sourceChapterNode?.type === CANVAS_NODE_TYPES.scriptChapter
+      ? (sourceChapterNode.data as ScriptChapterNodeData)
+      : undefined;
   const resolvedTitle = resolveNodeDisplayName(CANVAS_NODE_TYPES.scriptScene, data);
   const sourceChapterTitle = sourceChapterData?.title || sourceChapterData?.displayName || '';
   const previewEpisodes = useMemo(() => {
@@ -124,6 +124,7 @@ export const ScriptSceneNode = memo(({
     setGenerationError('');
     setIsGenerating(true);
     try {
+      const { nodes, edges } = useCanvasStore.getState();
       const defaultCount = mode === 'regenerate'
         ? Math.max(1, data.episodes.length || 3)
         : Math.max(3, data.episodes.length);
@@ -142,7 +143,7 @@ export const ScriptSceneNode = memo(({
     } finally {
       setIsGenerating(false);
     }
-  }, [data, edges, id, nodes, openWorkbench, sourceChapterData, t, updateNodeData]);
+  }, [data, id, openWorkbench, sourceChapterData, t, updateNodeData]);
 
   return (
     <div
@@ -183,48 +184,50 @@ export const ScriptSceneNode = memo(({
           </div>
         </div>
 
-        <div className="mt-3 flex flex-wrap gap-2">
-          <button
-            type="button"
-            onClick={(event) => {
-              event.stopPropagation();
-              openWorkbench();
-            }}
-            className={SCRIPT_SCENE_ACTION_BUTTON_CLASS}
-          >
-            <ExternalLink className="h-3.5 w-3.5" />
-            {t('script.sceneWorkbench.openWorkbench')}
-          </button>
-          <button
-            type="button"
-            onClick={(event) => {
-              event.stopPropagation();
-              handleAddEpisode();
-            }}
-            className={SCRIPT_SCENE_ACTION_BUTTON_CLASS}
-          >
-            <Plus className="h-3.5 w-3.5" />
-            {t('script.sceneWorkbench.addEpisode')}
-          </button>
-          <button
-            type="button"
-            disabled={isGenerating || !sourceChapterData}
-            onClick={(event) => {
-              event.stopPropagation();
-              void handleGenerateEpisodes(data.episodes.length > 0 ? 'regenerate' : 'initial');
-            }}
-            className={SCRIPT_SCENE_ACTION_BUTTON_CLASS}
-          >
-            {data.episodes.length > 0 ? (
-              <RotateCcw className="h-3.5 w-3.5" />
-            ) : (
-              <Sparkles className="h-3.5 w-3.5" />
-            )}
-            {data.episodes.length > 0
-              ? t('script.sceneWorkbench.regenerateEpisodes')
-              : t('script.sceneWorkbench.generateEpisodes')}
-          </button>
-        </div>
+        {!isOverviewRender ? (
+          <div className="mt-3 flex flex-wrap gap-2">
+            <button
+              type="button"
+              onClick={(event) => {
+                event.stopPropagation();
+                openWorkbench();
+              }}
+              className={SCRIPT_SCENE_ACTION_BUTTON_CLASS}
+            >
+              <ExternalLink className="h-3.5 w-3.5" />
+              {t('script.sceneWorkbench.openWorkbench')}
+            </button>
+            <button
+              type="button"
+              onClick={(event) => {
+                event.stopPropagation();
+                handleAddEpisode();
+              }}
+              className={SCRIPT_SCENE_ACTION_BUTTON_CLASS}
+            >
+              <Plus className="h-3.5 w-3.5" />
+              {t('script.sceneWorkbench.addEpisode')}
+            </button>
+            <button
+              type="button"
+              disabled={isGenerating || !sourceChapterData}
+              onClick={(event) => {
+                event.stopPropagation();
+                void handleGenerateEpisodes(data.episodes.length > 0 ? 'regenerate' : 'initial');
+              }}
+              className={SCRIPT_SCENE_ACTION_BUTTON_CLASS}
+            >
+              {data.episodes.length > 0 ? (
+                <RotateCcw className="h-3.5 w-3.5" />
+              ) : (
+                <Sparkles className="h-3.5 w-3.5" />
+              )}
+              {data.episodes.length > 0
+                ? t('script.sceneWorkbench.regenerateEpisodes')
+                : t('script.sceneWorkbench.generateEpisodes')}
+            </button>
+          </div>
+        ) : null}
 
         <div className="mt-3 flex items-center justify-between gap-2 text-xs text-text-muted">
           <span className="inline-flex items-center gap-1.5">
@@ -236,46 +239,56 @@ export const ScriptSceneNode = memo(({
           ) : null}
         </div>
 
-        <UiScrollArea
-          className="mt-3 min-h-0 flex-1"
-          viewportClassName="h-full"
-          contentClassName="space-y-2 pr-3"
-        >
-          {previewEpisodes.length > 0 ? (
-            previewEpisodes.map((episode) => {
-              const isActive = activeSceneNodeId === id && activeEpisodeId === episode.id;
-
-              return (
-                <button
-                  key={episode.id}
-                  type="button"
-                  onClick={(event) => {
-                    event.stopPropagation();
-                    openWorkbench(episode.id);
-                  }}
-                  className={`w-full rounded-xl border px-3 py-2 text-left transition-colors ${
-                    isActive
-                      ? 'border-[rgba(15,23,42,0.34)] bg-surface-dark dark:border-white/28'
-                      : 'border-border-dark bg-bg-dark/45 hover:border-[rgba(15,23,42,0.3)] hover:bg-bg-dark dark:hover:border-white/24'
-                  }`}
-                >
-                  <div className="flex items-center justify-between gap-2">
-                    <div className="truncate text-sm font-medium text-text-dark">
-                      {episode.title || t('script.sceneWorkbench.untitledEpisode')}
-                    </div>
-                    <span className="shrink-0 rounded-full bg-bg-dark px-2 py-0.5 text-[11px] text-text-muted">
-                      {`${data.chapterNumber || 1}-${episode.episodeNumber}`}
-                    </span>
-                  </div>
-                </button>
-              );
-            })
-          ) : (
-            <div className="rounded-xl border border-dashed border-border-dark/70 bg-bg-dark/40 px-3 py-5 text-center text-xs text-text-muted">
-              {t('script.sceneWorkbench.emptyEpisodes')}
+        {isOverviewRender ? (
+          <div className="mt-3 min-h-0 flex-1 overflow-hidden rounded-xl border border-border-dark bg-bg-dark/45 px-3 py-2 text-xs leading-5 text-text-muted">
+            <div className="line-clamp-5">
+              {previewEpisodes.length > 0
+                ? previewEpisodes.map((episode) => episode.title || t('script.sceneWorkbench.untitledEpisode')).join(' / ')
+                : t('script.sceneWorkbench.emptyEpisodes')}
             </div>
-          )}
-        </UiScrollArea>
+          </div>
+        ) : (
+          <UiScrollArea
+            className="mt-3 min-h-0 flex-1"
+            viewportClassName="h-full"
+            contentClassName="space-y-2 pr-3"
+          >
+            {previewEpisodes.length > 0 ? (
+              previewEpisodes.map((episode) => {
+                const isActive = activeSceneNodeId === id && activeEpisodeId === episode.id;
+
+                return (
+                  <button
+                    key={episode.id}
+                    type="button"
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      openWorkbench(episode.id);
+                    }}
+                    className={`w-full rounded-xl border px-3 py-2 text-left transition-colors ${
+                      isActive
+                        ? 'border-[rgba(15,23,42,0.34)] bg-surface-dark dark:border-white/28'
+                        : 'border-border-dark bg-bg-dark/45 hover:border-[rgba(15,23,42,0.3)] hover:bg-bg-dark dark:hover:border-white/24'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="truncate text-sm font-medium text-text-dark">
+                        {episode.title || t('script.sceneWorkbench.untitledEpisode')}
+                      </div>
+                      <span className="shrink-0 rounded-full bg-bg-dark px-2 py-0.5 text-[11px] text-text-muted">
+                        {`${data.chapterNumber || 1}-${episode.episodeNumber}`}
+                      </span>
+                    </div>
+                  </button>
+                );
+              })
+            ) : (
+              <div className="rounded-xl border border-dashed border-border-dark/70 bg-bg-dark/40 px-3 py-5 text-center text-xs text-text-muted">
+                {t('script.sceneWorkbench.emptyEpisodes')}
+              </div>
+            )}
+          </UiScrollArea>
+        )}
 
         {generationError ? (
           <div className="mt-3 rounded-xl border border-red-400/20 bg-red-500/8 px-3 py-2 text-xs leading-5 text-red-200">

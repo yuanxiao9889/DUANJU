@@ -40,6 +40,7 @@ import {
 import { resolveNodeDisplayName } from "@/features/canvas/domain/nodeDisplay";
 import { useNodeVideoPlaybackControls } from "@/features/canvas/hooks/useNodeVideoPlaybackControls";
 import { useStableImageDisplaySource } from "@/features/canvas/hooks/useStableImageDisplaySource";
+import { useShouldSuspendCanvasMedia } from "@/features/canvas/CanvasPerformanceContext";
 import {
   NodeHeader,
   NODE_HEADER_FLOATING_POSITION_CLASS,
@@ -119,6 +120,7 @@ function resolveAutoRequeryIntervalSeconds(
 export const JimengVideoResultNode = memo(
   ({ id, data, selected, width }: JimengVideoResultNodeProps) => {
     const { t } = useTranslation();
+    const shouldSuspendMedia = useShouldSuspendCanvasMedia();
     const updateNodeInternals = useUpdateNodeInternals();
     const currentNode = useCanvasNodeById(id);
     const setSelectedNode = useCanvasStore((state) => state.setSelectedNode);
@@ -820,7 +822,7 @@ export const JimengVideoResultNode = memo(
               className={`relative overflow-hidden bg-black ${flashFrame ? "animate-pulse bg-white/20" : ""} ${hasExplicitHeight ? "min-h-0 flex-1" : ""}`}
               style={hasExplicitHeight ? undefined : { aspectRatio: resolvedAspectRatio }}
             >
-              {posterSource && (!isVideoReady || Boolean(videoError)) ? (
+              {posterSource && (shouldSuspendMedia || !isVideoReady || Boolean(videoError)) ? (
                 <CanvasNodeImage
                   src={posterSource}
                   alt={t("node.videoNode.posterAlt")}
@@ -833,7 +835,7 @@ export const JimengVideoResultNode = memo(
                 onClick={(event) => event.stopPropagation()}
                 onPointerDown={(event) => event.stopPropagation()}
               >
-                {videoSource ? (
+                {videoSource && !shouldSuspendMedia ? (
                   <video
                     ref={videoRef}
                     src={videoSource}
@@ -855,7 +857,7 @@ export const JimengVideoResultNode = memo(
                   />
                 ) : (
                   <div className="flex h-full w-full items-center justify-center bg-[radial-gradient(circle_at_top,#1f2937_0%,#0f172a_72%)] text-sm text-text-muted">
-                    {showBlockingOverlay ? null : placeholderText}
+                    {showBlockingOverlay || (shouldSuspendMedia && posterSource) ? null : placeholderText}
                   </div>
                 )}
               </div>

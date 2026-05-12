@@ -132,6 +132,10 @@ import { appendStyleTemplatePrompt } from '@/features/project/styleTemplatePromp
 import { CanvasNodeImage } from '@/features/canvas/ui/CanvasNodeImage';
 import { NodePriceBadge } from '@/features/canvas/ui/NodePriceBadge';
 import { NodeStatusBadge } from '@/features/canvas/ui/NodeStatusBadge';
+import {
+  useIsOverviewCanvasRender,
+  useShouldSuspendCanvasMedia,
+} from '@/features/canvas/CanvasPerformanceContext';
 import { UiButton, UiChipButton } from '@/components/ui';
 import { useCanvasStore } from '@/stores/canvasStore';
 import { useSettingsStore } from '@/stores/settingsStore';
@@ -320,6 +324,8 @@ function buildAiResultNodeTitle(prompt: string, fallbackTitle: string): string {
 
 export const ImageEditNode = memo(({ id, data, selected, width, height }: ImageEditNodeProps) => {
   const { t, i18n } = useTranslation();
+  const isOverviewRender = useIsOverviewCanvasRender();
+  const shouldSuspendMedia = useShouldSuspendCanvasMedia();
   const zoom = useCanvasZoom();
   const updateNodeInternals = useUpdateNodeInternals();
   const [error, setError] = useState<string | null>(null);
@@ -1527,6 +1533,7 @@ export const ImageEditNode = memo(({ id, data, selected, width, height }: ImageE
     ?? promptLockStatusText
     ?? t('node.imageEdit.statusHint');
   const showBlockingOverlay = Boolean(data.isGenerating || isOptimizingPrompt);
+  const showOverviewReferenceThumbnails = isOverviewRender && !shouldSuspendMedia;
 
   const hidePromptReferencePreview = useCallback(() => {
     setPromptReferencePreview(null);
@@ -1597,6 +1604,29 @@ export const ImageEditNode = memo(({ id, data, selected, width, height }: ImageE
         ref={promptPanelRef}
         className="relative min-h-0 flex-1 rounded-lg border border-[rgba(255,255,255,0.1)] bg-bg-dark/45 p-2"
       >
+        {isOverviewRender ? (
+          <div className="flex h-full min-h-0 flex-col gap-2 overflow-hidden text-xs leading-5 text-text-muted">
+            <div className="line-clamp-4 whitespace-pre-wrap break-words">
+              {displayedPrompt.trim() || t('node.imageEdit.promptPlaceholder')}
+            </div>
+            {showOverviewReferenceThumbnails && incomingImageItems.length > 0 ? (
+              <div className="mt-auto flex min-h-0 gap-1 overflow-hidden">
+                {incomingImageItems.slice(0, 4).map((item, index) => (
+                  <CanvasNodeImage
+                    key={`${item.referenceUrl}-${index}`}
+                    src={item.displayUrl}
+                    alt={item.label}
+                    viewerSourceUrl={item.referenceUrl}
+                    viewerImageList={incomingImageViewerList}
+                    className="h-10 w-10 shrink-0 rounded object-cover"
+                    draggable={false}
+                  />
+                ))}
+              </div>
+            ) : null}
+          </div>
+        ) : (
+        <>
         <div ref={promptPreviewHostRef} className="relative h-full min-h-0">
           <div
             ref={promptHighlightRef}
@@ -1737,8 +1767,11 @@ export const ImageEditNode = memo(({ id, data, selected, width, height }: ImageE
             </div>
           </div>
         )}
+        </>
+        )}
       </div>
 
+      {!isOverviewRender ? (
       <div className="mt-2 flex shrink-0 items-center gap-2">
         <div className="ui-scrollbar min-w-0 flex-1 overflow-x-auto overflow-y-hidden">
           <div className="flex w-max min-w-full items-center gap-1">
@@ -1877,6 +1910,7 @@ export const ImageEditNode = memo(({ id, data, selected, width, height }: ImageE
           </div>
         </div>
       </div>
+      ) : null}
       <div
         className={`mt-1 min-h-[18px] text-[10px] leading-4 ${
           error ? 'text-red-200' : 'text-text-muted'
@@ -1912,7 +1946,7 @@ export const ImageEditNode = memo(({ id, data, selected, width, height }: ImageE
       />
       
       <CameraParamsDialog
-        isOpen={showCameraParamsDialog}
+        isOpen={!isOverviewRender && showCameraParamsDialog}
         value={resolvedCameraParams}
         onApply={(nextValue) => updateNodeData(id, { cameraParams: nextValue })}
         onClose={() => setShowCameraParamsDialog(false)}

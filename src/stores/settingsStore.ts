@@ -3,6 +3,10 @@ import { persist } from 'zustand/middleware';
 import { isTauri } from '@tauri-apps/api/core';
 import { syncStyleTemplateImageRefs } from '@/commands/projectState';
 import {
+  getStyleTemplateState,
+  saveStyleTemplateState,
+} from '@/commands/styleTemplateState';
+import {
   DEFAULT_GRSAI_CREDIT_TIER_ID,
   PRICE_DISPLAY_CURRENCY_MODES,
   type GrsaiCreditTierId,
@@ -396,6 +400,8 @@ function normalizeMidjourneyRawMode(input: boolean | null | undefined): boolean 
 }
 
 let lastSyncedSettingsImageRefsSignature: string | null = null;
+let lastSavedStyleTemplateStateSignature: string | null = null;
+let styleTemplateStatePersistQueue: Promise<void> = Promise.resolve();
 
 function collectSettingsImageRefs(
   styleTemplates: StyleTemplate[],
@@ -447,6 +453,78 @@ function scheduleSettingsImageRefsSync(
     .catch((error) => {
       console.error('failed to sync style template image refs', error);
     });
+}
+
+function buildStyleTemplateStateSignature(
+  categories: StyleTemplateCategory[],
+  templates: StyleTemplate[]
+): string {
+  return `${JSON.stringify(categories)}\n${JSON.stringify(templates)}`;
+}
+
+function scheduleStyleTemplateStatePersist(
+  categories: StyleTemplateCategory[],
+  templates: StyleTemplate[],
+  mjStyleCodePresets: MjStyleCodePreset[]
+): void {
+  if (!isTauri()) {
+    scheduleSettingsImageRefsSync(templates, mjStyleCodePresets);
+    return;
+  }
+
+  const categoriesJson = JSON.stringify(categories);
+  const templatesJson = JSON.stringify(templates);
+  const signature = `${categoriesJson}\n${templatesJson}`;
+
+  if (lastSavedStyleTemplateStateSignature === signature) {
+    scheduleSettingsImageRefsSync(templates, mjStyleCodePresets);
+    return;
+  }
+
+  styleTemplateStatePersistQueue = styleTemplateStatePersistQueue
+    .catch(() => undefined)
+    .then(async () => {
+      await saveStyleTemplateState({ categoriesJson, templatesJson });
+      lastSavedStyleTemplateStateSignature = signature;
+      scheduleSettingsImageRefsSync(templates, mjStyleCodePresets);
+    })
+    .catch((error) => {
+      console.error('failed to persist style template state', error);
+    });
+  void styleTemplateStatePersistQueue;
+}
+
+function parsePersistedJsonArray(value: string): unknown[] {
+  try {
+    const parsed = JSON.parse(value);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+function normalizeAndSeedStyleTemplateState(
+  categoriesInput: unknown,
+  templatesInput: unknown,
+  hasInjectedPanoramaStyleTemplate: boolean
+): {
+  categories: StyleTemplateCategory[];
+  templates: StyleTemplate[];
+  hasInjectedPanoramaStyleTemplate: boolean;
+} {
+  const categories = normalizeStyleTemplateCategories(categoriesInput);
+  const categoryIds = new Set(categories.map((category) => category.id));
+  const templates = normalizeStyleTemplates(templatesInput, categoryIds);
+  const seededState = seedBuiltinStyleTemplates({
+    styleTemplates: templates,
+    hasInjectedPanoramaStyleTemplate,
+  });
+
+  return {
+    categories,
+    templates: seededState.styleTemplates,
+    hasInjectedPanoramaStyleTemplate: seededState.hasInjectedPanoramaStyleTemplate,
+  };
 }
 
 function normalizePriceDisplayCurrencyMode(
@@ -1157,32 +1235,48 @@ export const useSettingsStore = create<SettingsState>()(
         }
 
         const id = crypto.randomUUID();
+        let nextStyleTemplateCategories: StyleTemplateCategory[] = [];
+        let nextStyleTemplates: StyleTemplate[] = [];
+        let nextMjStyleCodePresets: MjStyleCodePreset[] = [];
         set((state) => {
+          nextStyleTemplates = state.styleTemplates;
+          nextMjStyleCodePresets = state.mjStyleCodePresets;
           const now = Date.now();
           const nextSortOrder =
             state.styleTemplateCategories.reduce(
               (maxOrder, category) => Math.max(maxOrder, category.sortOrder),
               -1
             ) + 1;
+          nextStyleTemplateCategories = sortStyleTemplateCategories([
+            ...state.styleTemplateCategories,
+            {
+              id,
+              name: trimmedName,
+              sortOrder: nextSortOrder,
+              createdAt: now,
+              updatedAt: now,
+            },
+          ]);
 
           return {
-            styleTemplateCategories: sortStyleTemplateCategories([
-              ...state.styleTemplateCategories,
-              {
-                id,
-                name: trimmedName,
-                sortOrder: nextSortOrder,
-                createdAt: now,
-                updatedAt: now,
-              },
-            ]),
+            styleTemplateCategories: nextStyleTemplateCategories,
           };
         });
+        scheduleStyleTemplateStatePersist(
+          nextStyleTemplateCategories,
+          nextStyleTemplates,
+          nextMjStyleCodePresets
+        );
         return id;
       },
-      updateStyleTemplateCategory: (id, updates) =>
-        set((state) => ({
-          styleTemplateCategories: sortStyleTemplateCategories(
+      updateStyleTemplateCategory: (id, updates) => {
+        let nextStyleTemplateCategories: StyleTemplateCategory[] = [];
+        let nextStyleTemplates: StyleTemplate[] = [];
+        let nextMjStyleCodePresets: MjStyleCodePreset[] = [];
+        set((state) => {
+          nextStyleTemplates = state.styleTemplates;
+          nextMjStyleCodePresets = state.mjStyleCodePresets;
+          nextStyleTemplateCategories = sortStyleTemplateCategories(
             state.styleTemplateCategories.map((category) =>
               category.id === id
                 ? {
@@ -1196,14 +1290,28 @@ export const useSettingsStore = create<SettingsState>()(
                   }
                 : category
             )
-          ),
-        })),
-      deleteStyleTemplateCategory: (id) =>
-        set((state) => ({
-          styleTemplateCategories: state.styleTemplateCategories.filter(
+          );
+
+          return {
+            styleTemplateCategories: nextStyleTemplateCategories,
+          };
+        });
+        scheduleStyleTemplateStatePersist(
+          nextStyleTemplateCategories,
+          nextStyleTemplates,
+          nextMjStyleCodePresets
+        );
+      },
+      deleteStyleTemplateCategory: (id) => {
+        let nextStyleTemplateCategories: StyleTemplateCategory[] = [];
+        let nextStyleTemplates: StyleTemplate[] = [];
+        let nextMjStyleCodePresets: MjStyleCodePreset[] = [];
+        set((state) => {
+          nextMjStyleCodePresets = state.mjStyleCodePresets;
+          nextStyleTemplateCategories = state.styleTemplateCategories.filter(
             (category) => category.id !== id
-          ),
-          styleTemplates: sortStyleTemplates(
+          );
+          nextStyleTemplates = sortStyleTemplates(
             state.styleTemplates.map((template) =>
               template.categoryId === id
                 ? {
@@ -1213,8 +1321,19 @@ export const useSettingsStore = create<SettingsState>()(
                   }
                 : template
             )
-          ),
-        })),
+          );
+
+          return {
+            styleTemplateCategories: nextStyleTemplateCategories,
+            styleTemplates: nextStyleTemplates,
+          };
+        });
+        scheduleStyleTemplateStatePersist(
+          nextStyleTemplateCategories,
+          nextStyleTemplates,
+          nextMjStyleCodePresets
+        );
+      },
       addStyleTemplate: (template) => {
         const trimmedName = template.name.trim();
         const trimmedPrompt = template.prompt.trim();
@@ -1223,9 +1342,11 @@ export const useSettingsStore = create<SettingsState>()(
         }
 
         const id = crypto.randomUUID();
+        let nextStyleTemplateCategories: StyleTemplateCategory[] = [];
         let nextStyleTemplates: StyleTemplate[] = [];
         let nextMjStyleCodePresets: MjStyleCodePreset[] = [];
         set((state) => {
+          nextStyleTemplateCategories = state.styleTemplateCategories;
           nextMjStyleCodePresets = state.mjStyleCodePresets;
           const now = Date.now();
           const nextSortOrder =
@@ -1264,13 +1385,19 @@ export const useSettingsStore = create<SettingsState>()(
             styleTemplates: nextStyleTemplates,
           };
         });
-        scheduleSettingsImageRefsSync(nextStyleTemplates, nextMjStyleCodePresets);
+        scheduleStyleTemplateStatePersist(
+          nextStyleTemplateCategories,
+          nextStyleTemplates,
+          nextMjStyleCodePresets
+        );
         return id;
       },
       updateStyleTemplate: (id, updates) => {
+        let nextStyleTemplateCategories: StyleTemplateCategory[] = [];
         let nextStyleTemplates: StyleTemplate[] = [];
         let nextMjStyleCodePresets: MjStyleCodePreset[] = [];
         set((state) => {
+          nextStyleTemplateCategories = state.styleTemplateCategories;
           nextMjStyleCodePresets = state.mjStyleCodePresets;
           nextStyleTemplates = sortStyleTemplates(
             state.styleTemplates.map((template) => {
@@ -1316,23 +1443,38 @@ export const useSettingsStore = create<SettingsState>()(
 
           return { styleTemplates: nextStyleTemplates };
         });
-        scheduleSettingsImageRefsSync(nextStyleTemplates, nextMjStyleCodePresets);
+        scheduleStyleTemplateStatePersist(
+          nextStyleTemplateCategories,
+          nextStyleTemplates,
+          nextMjStyleCodePresets
+        );
       },
       deleteStyleTemplate: (id) => {
+        let nextStyleTemplateCategories: StyleTemplateCategory[] = [];
         let nextStyleTemplates: StyleTemplate[] = [];
         let nextMjStyleCodePresets: MjStyleCodePreset[] = [];
         set((state) => {
+          nextStyleTemplateCategories = state.styleTemplateCategories;
           nextMjStyleCodePresets = state.mjStyleCodePresets;
           nextStyleTemplates = state.styleTemplates.filter((t) => t.id !== id);
           return {
             styleTemplates: nextStyleTemplates,
           };
         });
-        scheduleSettingsImageRefsSync(nextStyleTemplates, nextMjStyleCodePresets);
+        scheduleStyleTemplateStatePersist(
+          nextStyleTemplateCategories,
+          nextStyleTemplates,
+          nextMjStyleCodePresets
+        );
       },
-      markStyleTemplateUsed: (id) =>
-        set((state) => ({
-          styleTemplates: sortStyleTemplates(
+      markStyleTemplateUsed: (id) => {
+        let nextStyleTemplateCategories: StyleTemplateCategory[] = [];
+        let nextStyleTemplates: StyleTemplate[] = [];
+        let nextMjStyleCodePresets: MjStyleCodePreset[] = [];
+        set((state) => {
+          nextStyleTemplateCategories = state.styleTemplateCategories;
+          nextMjStyleCodePresets = state.mjStyleCodePresets;
+          nextStyleTemplates = sortStyleTemplates(
             state.styleTemplates.map((template) =>
               template.id === id
                 ? {
@@ -1342,8 +1484,18 @@ export const useSettingsStore = create<SettingsState>()(
                   }
                 : template
             )
-          ),
-        })),
+          );
+
+          return {
+            styleTemplates: nextStyleTemplates,
+          };
+        });
+        scheduleStyleTemplateStatePersist(
+          nextStyleTemplateCategories,
+          nextStyleTemplates,
+          nextMjStyleCodePresets
+        );
+      },
       addMjStyleCodePreset: (preset) => {
         const normalizedCode = normalizeMjPersonalizationCode(preset.code);
         const normalizedCodeIdentity = normalizeMjPersonalizationCodeIdentity(
@@ -1560,7 +1712,11 @@ export const useSettingsStore = create<SettingsState>()(
           };
         });
 
-        scheduleSettingsImageRefsSync(nextStyleTemplates, nextMjStyleCodePresets);
+        scheduleStyleTemplateStatePersist(
+          nextStyleTemplateCategories,
+          nextStyleTemplates,
+          nextMjStyleCodePresets
+        );
         return summary;
       },
       importMjStyleCodePackageData: (data) => {
@@ -1608,12 +1764,9 @@ export const useSettingsStore = create<SettingsState>()(
             console.error('failed to hydrate settings storage', error);
           }
           if (state) {
-            scheduleSettingsImageRefsSync(
-              state.styleTemplates,
-              state.mjStyleCodePresets
-            );
+            state.setIsHydrated(false);
+            void hydrateStyleTemplateStateFromSqlite(state);
           }
-          state?.setIsHydrated(true);
         };
       },
       migrate: (persistedState: unknown, persistedVersion) => {
@@ -1804,7 +1957,7 @@ export const useSettingsStore = create<SettingsState>()(
 
         return {
           ...(persistedState as object),
-          isHydrated: true,
+          isHydrated: false,
           scriptApiKeys: resolvedScriptApiKeys,
           storyboardApiKeys: resolvedStoryboardApiKeys,
           mjApiKeys: resolvedMjApiKeys,
@@ -1920,3 +2073,71 @@ export const useSettingsStore = create<SettingsState>()(
     }
   )
 );
+
+async function hydrateStyleTemplateStateFromSqlite(
+  rehydratedState: SettingsState
+): Promise<void> {
+  if (!isTauri()) {
+    rehydratedState.setIsHydrated(true);
+    scheduleSettingsImageRefsSync(
+      rehydratedState.styleTemplates,
+      rehydratedState.mjStyleCodePresets
+    );
+    return;
+  }
+
+  try {
+    const storedState = await getStyleTemplateState();
+    const currentState = useSettingsStore.getState();
+    const hasStoredState = Boolean(storedState && storedState.updatedAt > 0);
+
+    const nextStyleTemplateState = hasStoredState && storedState
+      ? normalizeAndSeedStyleTemplateState(
+          parsePersistedJsonArray(storedState.categoriesJson),
+          parsePersistedJsonArray(storedState.templatesJson),
+          currentState.hasInjectedPanoramaStyleTemplate
+        )
+      : normalizeAndSeedStyleTemplateState(
+          currentState.styleTemplateCategories,
+          currentState.styleTemplates,
+          currentState.hasInjectedPanoramaStyleTemplate
+        );
+
+    useSettingsStore.setState({
+      styleTemplateCategories: nextStyleTemplateState.categories,
+      styleTemplates: nextStyleTemplateState.templates,
+      hasInjectedPanoramaStyleTemplate:
+        nextStyleTemplateState.hasInjectedPanoramaStyleTemplate,
+      isHydrated: true,
+    });
+
+    if (!hasStoredState) {
+      const signature = buildStyleTemplateStateSignature(
+        nextStyleTemplateState.categories,
+        nextStyleTemplateState.templates
+      );
+      await saveStyleTemplateState({
+        categoriesJson: JSON.stringify(nextStyleTemplateState.categories),
+        templatesJson: JSON.stringify(nextStyleTemplateState.templates),
+      });
+      lastSavedStyleTemplateStateSignature = signature;
+    } else {
+      lastSavedStyleTemplateStateSignature = buildStyleTemplateStateSignature(
+        nextStyleTemplateState.categories,
+        nextStyleTemplateState.templates
+      );
+    }
+
+    scheduleSettingsImageRefsSync(
+      nextStyleTemplateState.templates,
+      useSettingsStore.getState().mjStyleCodePresets
+    );
+  } catch (error) {
+    console.error('failed to hydrate style template state from SQLite', error);
+    useSettingsStore.setState({ isHydrated: true });
+    scheduleSettingsImageRefsSync(
+      rehydratedState.styleTemplates,
+      rehydratedState.mjStyleCodePresets
+    );
+  }
+}

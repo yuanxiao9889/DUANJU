@@ -66,6 +66,10 @@ import {
 } from "@/features/canvas/ui/NodeHeader";
 import { NodeResizeHandle } from "@/features/canvas/ui/NodeResizeHandle";
 import { CanvasNodeImage } from "@/features/canvas/ui/CanvasNodeImage";
+import {
+  useIsOverviewCanvasRender,
+  useShouldSuspendCanvasMedia,
+} from "@/features/canvas/CanvasPerformanceContext";
 import { CameraTriggerIcon } from "@/features/canvas/ui/CameraTriggerIcon";
 import { ReferenceVisualChip } from "@/features/canvas/ui/ReferenceVisualChip";
 import { ShotParamsPanel } from "@/features/canvas/ui/ShotParamsPanel";
@@ -1136,6 +1140,8 @@ function resolveJimengVideoResolutionValues(
 export const JimengNode = memo(
   ({ id, data, selected, width, height }: JimengNodeProps) => {
     const { t, i18n } = useTranslation();
+    const isOverviewRender = useIsOverviewCanvasRender();
+    const shouldSuspendMedia = useShouldSuspendCanvasMedia();
     const zoom = useCanvasZoom();
     const updateNodeInternals = useUpdateNodeInternals();
     const rootRef = useRef<HTMLDivElement>(null);
@@ -1218,6 +1224,8 @@ export const JimengNode = memo(
     );
     const isPromptLockedByUpstream = hasConnectedTextSource;
     const displayedPrompt = promptDraft;
+    const showOverviewReferenceThumbnails =
+      isOverviewRender && !shouldSuspendMedia;
     const effectivePrompt = isPromptLockedByUpstream ? connectedText : promptDraft;
     const orderedReferenceVisualUrls = useMemo(
       () =>
@@ -2909,6 +2917,30 @@ export const JimengNode = memo(
           ref={promptPanelRef}
           className="relative min-h-0 flex-1 rounded-lg border border-[rgba(255,255,255,0.1)] bg-bg-dark/45 p-2"
         >
+          {isOverviewRender ? (
+            <div className="flex h-full min-h-0 flex-col gap-2 overflow-hidden text-xs leading-5 text-text-muted">
+              <div className="line-clamp-5 whitespace-pre-wrap break-words">
+                {displayedPrompt.trim() || t("node.jimeng.promptPlaceholder")}
+              </div>
+              {showOverviewReferenceThumbnails && incomingVisualItems.length > 0 ? (
+                <div className="mt-auto flex min-h-0 gap-1 overflow-hidden">
+                  {incomingVisualItems.slice(0, 4).map((item, index) => (
+                    <ReferenceVisualThumbnail
+                      key={`${item.referenceUrl}-${index}`}
+                      kind={item.kind}
+                      displayUrl={item.displayUrl}
+                      label={item.label}
+                      durationSeconds={item.durationSeconds}
+                      imageClassName="h-10 w-10 shrink-0 rounded object-cover"
+                      placeholderClassName="flex h-10 w-10 shrink-0 items-center justify-center rounded border border-white/10 bg-white/[0.06] text-text-muted"
+                      viewerImageList={incomingVisualDisplayList}
+                    />
+                  ))}
+                </div>
+              ) : null}
+            </div>
+          ) : (
+          <>
           <div className="flex h-full min-h-0 flex-col gap-2">
             <div
               ref={promptPreviewHostRef}
@@ -3164,9 +3196,11 @@ export const JimengNode = memo(
               </div>
             </div>
           )}
+          </>
+          )}
         </div>
 
-        {draggedReferenceItem && dragReferencePreview ? (
+        {draggedReferenceItem && dragReferencePreview && !isOverviewRender ? (
           <div
             className="pointer-events-none absolute z-40"
             style={{
@@ -3200,6 +3234,7 @@ export const JimengNode = memo(
           </div>
         ) : null}
 
+        {!isOverviewRender ? (
         <div className="mt-2 flex items-center gap-2">
           <div className="ui-scrollbar min-w-0 flex-1 overflow-x-auto overflow-y-hidden">
             <div className="flex w-max min-w-full items-center gap-1.5 pr-1">
@@ -3324,6 +3359,7 @@ export const JimengNode = memo(
             </UiButton>
           </div>
         </div>
+        ) : null}
 
         {statusInfoText ? (
           <div
@@ -3336,7 +3372,7 @@ export const JimengNode = memo(
           </div>
         ) : null}
 
-        {isShotParamsPanelOpen && !isPromptLockedByUpstream ? (
+        {isShotParamsPanelOpen && !isPromptLockedByUpstream && !isOverviewRender ? (
           <ShotParamsPanel
             onClose={closeShotParamsPanel}
             onInsert={(option) => handleShotParamInsert(option.value)}
@@ -3366,7 +3402,7 @@ export const JimengNode = memo(
           variant="bare"
         />
         <JimengVideoQueueScheduleModal
-          isOpen={showQueueScheduleModal}
+          isOpen={!isOverviewRender && showQueueScheduleModal}
           title={t("jimengQueue.schedule.createTitle")}
           initialScheduledAt={null}
           confirmLabel={t("node.jimeng.addToQueue")}

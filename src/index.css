@@ -410,9 +410,42 @@ html[data-platform='macos'] #root {
   border-radius: var(--node-radius);
 }
 
+.canvas-render-overview .react-flow__node > :first-child {
+  box-shadow: none !important;
+  transition: none !important;
+  contain: layout paint style;
+}
+
+.canvas-render-overview .react-flow__node textarea,
+.canvas-render-overview .react-flow__node input:not([type="file"]),
+.canvas-render-overview .react-flow__node select,
+.canvas-render-overview .react-flow__node audio,
+.canvas-render-overview .react-flow__node video,
+.canvas-render-overview .react-flow__node button,
+.canvas-render-overview .react-flow__node .ProseMirror,
+.canvas-render-overview .react-flow__node .canvas-textarea-wrap,
+.canvas-render-overview .react-flow__node .ui-scrollbar {
+  display: none !important;
+}
+
+.canvas-render-overview .react-flow__handle,
+.canvas-render-overview .react-flow__handle::after {
+  transition: none !important;
+}
+
+.canvas-render-overview .react-flow__handle::after,
+.canvas-render-overview .react-flow__node:hover .react-flow__handle::after {
+  transform: translate(-50%, -50%) !important;
+  box-shadow: none !important;
+}
+
 .react-flow__node.selected > :first-child {
   border-color: var(--node-selected-border) !important;
   box-shadow: var(--node-selected-shadow) !important;
+}
+
+.canvas-render-overview .react-flow__node.selected > :first-child {
+  box-shadow: 0 0 0 1px var(--node-selected-border) !important;
 }
 
 .react-flow__node.canvas-node--layout-animating {

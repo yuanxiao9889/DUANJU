@@ -23,6 +23,7 @@ import { showErrorDialog } from '@/features/canvas/application/errorDialog';
 import { resolveNodeDisplayName } from '@/features/canvas/domain/nodeDisplay';
 import { NodeHeader, NODE_HEADER_FLOATING_POSITION_CLASS } from '@/features/canvas/ui/NodeHeader';
 import { NodeResizeHandle } from '@/features/canvas/ui/NodeResizeHandle';
+import { useIsOverviewCanvasRender } from '@/features/canvas/CanvasPerformanceContext';
 import { useCanvasStore } from '@/stores/canvasStore';
 
 type TextAnnotationNodeProps = NodeProps & {
@@ -78,6 +79,7 @@ export const TextAnnotationNode = memo(({
   height,
 }: TextAnnotationNodeProps) => {
   const { t } = useTranslation();
+  const isOverviewRender = useIsOverviewCanvasRender();
   const updateNodeInternals = useUpdateNodeInternals();
   const setSelectedNode = useCanvasStore((state) => state.setSelectedNode);
   const updateNodeData = useCanvasStore((state) => state.updateNodeData);
@@ -172,7 +174,7 @@ export const TextAnnotationNode = memo(({
         isVisible={selected}
       />
 
-      {showCopyButton && !isGeneratingOutput ? (
+      {showCopyButton && !isGeneratingOutput && !isOverviewRender ? (
         <button
           type="button"
           title={copyButtonLabel}
@@ -199,7 +201,13 @@ export const TextAnnotationNode = memo(({
         </div>
       ) : null}
 
-      {selected ? (
+      {isOverviewRender ? (
+        <div className="h-full w-full overflow-hidden px-1 py-0.5 pb-2 text-sm leading-6 text-text-dark">
+          <div className="line-clamp-5 whitespace-pre-wrap break-words text-text-muted">
+            {content.trim().length > 0 ? content : t(`${translationKeyPrefix}.empty`)}
+          </div>
+        </div>
+      ) : selected ? (
         <textarea
           autoFocus
           readOnly={isGeneratingOutput}

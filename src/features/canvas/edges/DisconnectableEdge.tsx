@@ -9,6 +9,7 @@ import {
 
 import { CANVAS_NODE_TYPES } from '@/features/canvas/domain/canvasNodes';
 import { useCanvasNodesByIds } from '@/features/canvas/hooks/useCanvasNodeGraph';
+import { useCanvasPerformanceState } from '@/features/canvas/CanvasPerformanceContext';
 import { useCanvasStore, type CanvasNode } from '@/stores/canvasStore';
 import { useSettingsStore } from '@/stores/settingsStore';
 import { buildOrthogonalRoute } from './edgeRouting';
@@ -33,10 +34,13 @@ export const DisconnectableEdge = memo(function DisconnectableEdge(props: EdgePr
   } = props;
   const deleteEdge = useCanvasStore((state) => state.deleteEdge);
   const canvasEdgeRoutingMode = useSettingsStore((state) => state.canvasEdgeRoutingMode);
+  const { edgeRenderMode } = useCanvasPerformanceState();
+  const shouldSimplifyEdge = edgeRenderMode !== 'full';
+  const effectiveRoutingMode = shouldSimplifyEdge ? 'spline' : canvasEdgeRoutingMode;
   const edgeNodeIds = useMemo(() => [source, target] as const, [source, target]);
   const [sourceNode, targetNode] = useCanvasNodesByIds(edgeNodeIds);
   const routingNodes = useCanvasStore((state) => (
-    canvasEdgeRoutingMode === 'smartOrthogonal' ? state.nodes : EMPTY_ROUTING_NODES
+    effectiveRoutingMode === 'smartOrthogonal' ? state.nodes : EMPTY_ROUTING_NODES
   ));
 
   const isTargetNodeSelected = targetNode?.selected === true;
@@ -44,7 +48,7 @@ export const DisconnectableEdge = memo(function DisconnectableEdge(props: EdgePr
   const isRelatedHighlight = selected || isTargetNodeSelected;
 
   const { edgePath, labelX, labelY } = useMemo(() => {
-    if (canvasEdgeRoutingMode === 'spline') {
+    if (effectiveRoutingMode === 'spline') {
       const [path, nextLabelX, nextLabelY] = getBezierPath({
         sourceX,
         sourceY,
@@ -70,7 +74,7 @@ export const DisconnectableEdge = memo(function DisconnectableEdge(props: EdgePr
       targetY,
       targetPosition: targetPosition ?? Position.Left,
       nodes: routingNodes,
-      smartAvoidance: canvasEdgeRoutingMode === 'smartOrthogonal',
+      smartAvoidance: effectiveRoutingMode === 'smartOrthogonal',
     });
     return {
       edgePath: route.path,
@@ -78,7 +82,7 @@ export const DisconnectableEdge = memo(function DisconnectableEdge(props: EdgePr
       labelY: route.labelY,
     };
   }, [
-    canvasEdgeRoutingMode,
+    effectiveRoutingMode,
     routingNodes,
     source,
     sourcePosition,
@@ -117,21 +121,13 @@ export const DisconnectableEdge = memo(function DisconnectableEdge(props: EdgePr
     ? (isRelatedHighlight ? 2.8 : 2.3)
     : (isRelatedHighlight ? 2.5 : 2);
 
-  const showParticles = isRelatedHighlight || isProcessingEdge;
+  const showProcessingEffects = edgeRenderMode === 'full';
+  const showParticles = showProcessingEffects && isProcessingEdge;
   const particleColor = isRelatedHighlight ? '#3B82F6' : '#3B82F6';
 
   return (
     <>
-      <path
-        d={edgePath}
-        fill="none"
-        stroke={isRelatedHighlight ? 'rgb(var(--accent-rgb) / 0.3)' : 'rgb(var(--accent-rgb) / 0.15)'}
-        strokeWidth={isRelatedHighlight ? 8 : 6}
-        strokeLinecap="round"
-        className={isRelatedHighlight ? 'canvas-edge-glow' : ''}
-        style={{ pointerEvents: 'none' }}
-      />
-      {isProcessingEdge && (
+      {showProcessingEffects && isProcessingEdge && (
         <path
           d={edgePath}
           fill="none"
@@ -163,7 +159,7 @@ export const DisconnectableEdge = memo(function DisconnectableEdge(props: EdgePr
           opacity={0.7}
         />
       )}
-      {selected && (
+      {selected && edgeRenderMode === 'full' && (
         <EdgeLabelRenderer>
           <button
             type="button"

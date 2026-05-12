@@ -12,6 +12,7 @@ import {
 import { resolveNodeDisplayName } from '@/features/canvas/domain/nodeDisplay';
 import { NodeHeader, NODE_HEADER_FLOATING_POSITION_CLASS } from '@/features/canvas/ui/NodeHeader';
 import { NodeResizeHandle } from '@/features/canvas/ui/NodeResizeHandle';
+import { useIsOverviewCanvasRender } from '@/features/canvas/CanvasPerformanceContext';
 import { useCanvasStore } from '@/stores/canvasStore';
 
 type TtsTextNodeProps = NodeProps & {
@@ -33,6 +34,7 @@ export const TtsTextNode = memo(({
   height,
 }: TtsTextNodeProps) => {
   const { t } = useTranslation();
+  const isOverviewRender = useIsOverviewCanvasRender();
   const updateNodeInternals = useUpdateNodeInternals();
   const setSelectedNode = useCanvasStore((state) => state.setSelectedNode);
   const updateNodeData = useCanvasStore((state) => state.updateNodeData);
@@ -77,14 +79,22 @@ export const TtsTextNode = memo(({
         isVisible={selected}
       />
 
-      <textarea
-        value={content}
-        onChange={(event) => {
-          updateNodeData(id, { content: event.target.value });
-        }}
-        placeholder={t('node.ttsText.placeholder')}
-        className="nodrag nowheel h-full w-full resize-none border-none bg-transparent px-1 py-0.5 text-sm leading-6 text-text-dark outline-none placeholder:text-text-muted/70"
-      />
+      {isOverviewRender ? (
+        <div className="h-full w-full overflow-hidden px-1 py-0.5 text-sm leading-6 text-text-muted">
+          <div className="line-clamp-5 whitespace-pre-wrap break-words">
+            {content.trim().length > 0 ? content : t('node.ttsText.empty')}
+          </div>
+        </div>
+      ) : (
+        <textarea
+          value={content}
+          onChange={(event) => {
+            updateNodeData(id, { content: event.target.value });
+          }}
+          placeholder={t('node.ttsText.placeholder')}
+          className="nodrag nowheel h-full w-full resize-none border-none bg-transparent px-1 py-0.5 text-sm leading-6 text-text-dark outline-none placeholder:text-text-muted/70"
+        />
+      )}
 
       <Handle
         type="source"

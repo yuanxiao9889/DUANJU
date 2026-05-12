@@ -62,6 +62,7 @@ import { useCanvasStore } from '@/stores/canvasStore';
 import { useSettingsStore } from '@/stores/settingsStore';
 import { CanvasNodeImage } from '@/features/canvas/ui/CanvasNodeImage';
 import { NodeStatusBadge } from '@/features/canvas/ui/NodeStatusBadge';
+import { useShouldSuspendCanvasMedia } from '@/features/canvas/CanvasPerformanceContext';
 import {
   NodeDescriptionPanel,
   NODE_DESCRIPTION_PANEL_EXPANDED_TOTAL_HEIGHT,
@@ -99,6 +100,7 @@ function resolveDroppedVideoFile(event: DragEvent<HTMLElement>): File | null {
 
 export const VideoNode = memo(({ id, data, selected, width }: VideoNodeProps) => {
   const { t } = useTranslation();
+  const shouldSuspendMedia = useShouldSuspendCanvasMedia();
   const updateNodeInternals = useUpdateNodeInternals();
   const setSelectedNode = useCanvasStore((state) => state.setSelectedNode);
   const updateNodeData = useCanvasStore((state) => state.updateNodeData);
@@ -662,7 +664,7 @@ export const VideoNode = memo(({ id, data, selected, width }: VideoNodeProps) =>
           <>
             <div className="flex h-full flex-col overflow-hidden rounded-[var(--node-radius)] bg-[linear-gradient(165deg,rgba(255,255,255,0.05),rgba(255,255,255,0.015))]">
             <div className={`relative min-h-0 flex-1 overflow-hidden bg-black ${flashFrame ? 'animate-pulse bg-white/20' : ''}`}>
-              {posterSource && (!isVideoReady || Boolean(videoError)) ? (
+              {posterSource && (shouldSuspendMedia || !isVideoReady || Boolean(videoError)) ? (
                 <CanvasNodeImage
                   src={posterSource}
                   alt={t('node.videoNode.posterAlt')}
@@ -675,25 +677,29 @@ export const VideoNode = memo(({ id, data, selected, width }: VideoNodeProps) =>
                 onClick={(event) => event.stopPropagation()}
                 onPointerDown={(event) => event.stopPropagation()}
               >
-                <video
-                  ref={videoRef}
-                  src={videoSource ?? undefined}
-                  poster={posterDisplaySource ?? undefined}
-                  preload="metadata"
-                  controls
-                  className={`nodrag nowheel h-full w-full bg-black object-contain transition-opacity duration-150 ${
-                    videoError ? 'opacity-35' : 'opacity-100'
-                  }`}
-                  onPlay={handleVideoPlay}
-                  onPause={handleVideoPause}
-                  onTimeUpdate={handleTimeUpdate}
-                  onSeeked={handleTimeUpdate}
-                  onLoadedMetadata={handleLoadedMetadata}
-                  onLoadedData={handleLoadedData}
-                  onCanPlay={handleCanPlay}
-                  onError={handleVideoError}
-                  playsInline
-                />
+                {videoSource && !shouldSuspendMedia ? (
+                  <video
+                    ref={videoRef}
+                    src={videoSource}
+                    poster={posterDisplaySource ?? undefined}
+                    preload="metadata"
+                    controls
+                    className={`nodrag nowheel h-full w-full bg-black object-contain transition-opacity duration-150 ${
+                      videoError ? 'opacity-35' : 'opacity-100'
+                    }`}
+                    onPlay={handleVideoPlay}
+                    onPause={handleVideoPause}
+                    onTimeUpdate={handleTimeUpdate}
+                    onSeeked={handleTimeUpdate}
+                    onLoadedMetadata={handleLoadedMetadata}
+                    onLoadedData={handleLoadedData}
+                    onCanPlay={handleCanPlay}
+                    onError={handleVideoError}
+                    playsInline
+                  />
+                ) : (
+                  <div className="h-full w-full bg-black" />
+                )}
               </div>
 
               {videoError ? (

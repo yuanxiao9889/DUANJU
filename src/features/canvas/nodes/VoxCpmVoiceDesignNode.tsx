@@ -17,6 +17,8 @@ import {
 import { resolveNodeDisplayName } from '@/features/canvas/domain/nodeDisplay';
 import { NodeHeader, NODE_HEADER_FLOATING_POSITION_CLASS } from '@/features/canvas/ui/NodeHeader';
 import { NodeStatusBadge } from '@/features/canvas/ui/NodeStatusBadge';
+import { useIsOverviewCanvasRender } from '@/features/canvas/CanvasPerformanceContext';
+import { useCanvasConnectedTextInput } from '@/features/canvas/hooks/useCanvasNodeGraph';
 import {
   generateVoxCpmVoiceDesignAudio,
   resolveVoxCpmExtensionState,
@@ -30,7 +32,6 @@ import {
   DEFAULT_VOXCPM_INFERENCE_TIMESTEPS,
   formatGeneratedTime,
   OptimizableTextAreaField,
-  resolveConnectedVoxText,
   resolveRuntimeTone,
   SliderField,
   SummaryCard,
@@ -49,14 +50,14 @@ export const VoxCpmVoiceDesignNode = memo(({
   selected,
 }: VoxCpmVoiceDesignNodeProps) => {
   const { t, i18n } = useTranslation();
+  const isOverviewRender = useIsOverviewCanvasRender();
   const updateNodeInternals = useUpdateNodeInternals();
   const setSelectedNode = useCanvasStore((state) => state.setSelectedNode);
   const updateNodeData = useCanvasStore((state) => state.updateNodeData);
   const addNode = useCanvasStore((state) => state.addNode);
   const addEdge = useCanvasStore((state) => state.addEdge);
   const findNodePosition = useCanvasStore((state) => state.findNodePosition);
-  const nodes = useCanvasStore((state) => state.nodes);
-  const edges = useCanvasStore((state) => state.edges);
+  const { connectedText } = useCanvasConnectedTextInput(id);
   const extensionPackages = useExtensionsStore((state) => state.packages);
   const enabledExtensionIds = useExtensionsStore((state) => state.enabledExtensionIds);
   const runtimeById = useExtensionsStore((state) => state.runtimeById);
@@ -70,11 +71,6 @@ export const VoxCpmVoiceDesignNode = memo(({
   const extensionRuntime = extensionState.runtime;
   const isExtensionReady = Boolean(readyExtensionPackage);
   const isExtensionStarting = extensionRuntime?.status === 'starting';
-  const connectedText = useMemo(
-    () => resolveConnectedVoxText(id, nodes, edges),
-    [edges, id, nodes]
-  );
-
   const connectedTextTrimmed = connectedText.trim();
   const connectedTextPreview = connectedTextTrimmed.length > 0
     ? connectedTextTrimmed
@@ -265,57 +261,69 @@ export const VoxCpmVoiceDesignNode = memo(({
           subtitle={connectedTextPreview}
         />
 
-        <OptimizableTextAreaField
-          label={t('node.voxCpm.voicePrompt')}
-          value={typeof data.voicePrompt === 'string' ? data.voicePrompt : ''}
-          placeholder={t('node.voxCpm.voicePromptPlaceholder')}
-          helperText={t('node.voxCpm.voicePromptHint')}
-          emptyMessage={t('node.voxCpm.voicePromptRequired')}
-          optimizeFailedMessage={t('node.voxCpm.optimizeVoicePromptFailed')}
-          dialogTitle={t('node.voxCpm.optimizationDialogTitle')}
-          optimizeTitle={t('node.voxCpm.optimizePrompt')}
-          optimizingTitle={t('node.voxCpm.optimizingPrompt')}
-          undoTitle={t('node.voxCpm.undoOptimizedPrompt')}
-          onChange={(value) => handleFieldChange('voicePrompt', value)}
-        />
+        {isOverviewRender ? (
+          <div className="rounded-xl border border-white/10 bg-black/10 px-3 py-2.5 text-xs leading-5 text-text-muted">
+            <div className="line-clamp-4 whitespace-pre-wrap">
+              {(typeof data.voicePrompt === 'string' && data.voicePrompt.trim())
+                ? data.voicePrompt
+                : t('node.voxCpm.voicePromptRequired')}
+            </div>
+          </div>
+        ) : (
+          <>
+            <OptimizableTextAreaField
+              label={t('node.voxCpm.voicePrompt')}
+              value={typeof data.voicePrompt === 'string' ? data.voicePrompt : ''}
+              placeholder={t('node.voxCpm.voicePromptPlaceholder')}
+              helperText={t('node.voxCpm.voicePromptHint')}
+              emptyMessage={t('node.voxCpm.voicePromptRequired')}
+              optimizeFailedMessage={t('node.voxCpm.optimizeVoicePromptFailed')}
+              dialogTitle={t('node.voxCpm.optimizationDialogTitle')}
+              optimizeTitle={t('node.voxCpm.optimizePrompt')}
+              optimizingTitle={t('node.voxCpm.optimizingPrompt')}
+              undoTitle={t('node.voxCpm.undoOptimizedPrompt')}
+              onChange={(value) => handleFieldChange('voicePrompt', value)}
+            />
 
-        <div className="grid gap-3 md:grid-cols-2">
-          <SliderField
-            label={t('node.voxCpm.cfgValue')}
-            valueLabel={cfgValue.toFixed(1)}
-            helperText={t('node.voxCpm.cfgValueHint')}
-            min={0.1}
-            max={5}
-            step={0.1}
-            value={cfgValue}
-            onChange={(value) => handleFieldChange('cfgValue', value)}
-          />
-          <SliderField
-            label={t('node.voxCpm.inferenceTimesteps')}
-            valueLabel={String(inferenceTimesteps)}
-            helperText={t('node.voxCpm.inferenceTimestepsHint')}
-            min={1}
-            max={40}
-            step={1}
-            value={inferenceTimesteps}
-            onChange={(value) => handleFieldChange('inferenceTimesteps', value)}
-          />
-        </div>
+            <div className="grid gap-3 md:grid-cols-2">
+              <SliderField
+                label={t('node.voxCpm.cfgValue')}
+                valueLabel={cfgValue.toFixed(1)}
+                helperText={t('node.voxCpm.cfgValueHint')}
+                min={0.1}
+                max={5}
+                step={0.1}
+                value={cfgValue}
+                onChange={(value) => handleFieldChange('cfgValue', value)}
+              />
+              <SliderField
+                label={t('node.voxCpm.inferenceTimesteps')}
+                valueLabel={String(inferenceTimesteps)}
+                helperText={t('node.voxCpm.inferenceTimestepsHint')}
+                min={1}
+                max={40}
+                step={1}
+                value={inferenceTimesteps}
+                onChange={(value) => handleFieldChange('inferenceTimesteps', value)}
+              />
+            </div>
 
-        <div className="grid gap-3 md:grid-cols-2">
-          <ToggleField
-            label={t('node.voxCpm.normalize')}
-            helperText={t('node.voxCpm.normalizeHint')}
-            checked={normalize}
-            onChange={(value) => handleFieldChange('normalize', value)}
-          />
-          <ToggleField
-            label={t('node.voxCpm.denoise')}
-            helperText={t('node.voxCpm.denoiseHint')}
-            checked={denoise}
-            onChange={(value) => handleFieldChange('denoise', value)}
-          />
-        </div>
+            <div className="grid gap-3 md:grid-cols-2">
+              <ToggleField
+                label={t('node.voxCpm.normalize')}
+                helperText={t('node.voxCpm.normalizeHint')}
+                checked={normalize}
+                onChange={(value) => handleFieldChange('normalize', value)}
+              />
+              <ToggleField
+                label={t('node.voxCpm.denoise')}
+                helperText={t('node.voxCpm.denoiseHint')}
+                checked={denoise}
+                onChange={(value) => handleFieldChange('denoise', value)}
+              />
+            </div>
+          </>
+        )}
 
         {data.lastError ? (
           <div className="rounded-xl border border-red-400/25 bg-red-400/10 px-3 py-2 text-[11px] leading-4 text-red-100">
@@ -323,13 +331,15 @@ export const VoxCpmVoiceDesignNode = memo(({
           </div>
         ) : null}
 
-        <UiButton
-          type="button"
-          onClick={handleGenerate}
-          className="nodrag h-10 w-full rounded-lg"
-        >
-          {t('node.voxCpm.voiceDesignGenerate')}
-        </UiButton>
+        {!isOverviewRender ? (
+          <UiButton
+            type="button"
+            onClick={handleGenerate}
+            className="nodrag h-10 w-full rounded-lg"
+          >
+            {t('node.voxCpm.voiceDesignGenerate')}
+          </UiButton>
+        ) : null}
       </div>
 
       <Handle

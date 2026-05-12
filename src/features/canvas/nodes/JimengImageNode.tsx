@@ -85,6 +85,7 @@ import {
 } from "@/features/canvas/ui/NodeHeader";
 import { NodeResizeHandle } from "@/features/canvas/ui/NodeResizeHandle";
 import { CanvasNodeImage } from "@/features/canvas/ui/CanvasNodeImage";
+import { useIsOverviewCanvasRender } from "@/features/canvas/CanvasPerformanceContext";
 import { CameraParamsDialog } from "@/features/canvas/ui/CameraParamsDialog";
 import { CameraTriggerIcon } from "@/features/canvas/ui/CameraTriggerIcon";
 import { NodeStatusBadge } from "@/features/canvas/ui/NodeStatusBadge";
@@ -342,6 +343,7 @@ function FixedControlChip<T extends string>({
 export const JimengImageNode = memo(
   ({ id, data, selected, width, height }: JimengImageNodeProps) => {
     const { t, i18n } = useTranslation();
+    const isOverviewRender = useIsOverviewCanvasRender();
     const zoom = useCanvasZoom();
     const updateNodeInternals = useUpdateNodeInternals();
     const rootRef = useRef<HTMLDivElement>(null);
@@ -1379,6 +1381,29 @@ export const JimengImageNode = memo(
           ref={promptPanelRef}
           className="relative min-h-0 flex-1 rounded-lg border border-[rgba(255,255,255,0.1)] bg-bg-dark/45 p-2"
         >
+          {isOverviewRender ? (
+            <div className="flex h-full min-h-0 flex-col gap-2 overflow-hidden text-xs leading-5 text-text-muted">
+              <div className="line-clamp-5 whitespace-pre-wrap break-words">
+                {displayedPrompt.trim() || t("node.jimengImage.promptPlaceholder")}
+              </div>
+              {incomingImageItems.length > 0 ? (
+                <div className="mt-auto flex min-h-0 gap-1 overflow-hidden">
+                  {incomingImageItems.slice(0, 4).map((item, index) => (
+                    <CanvasNodeImage
+                      key={`${item.imageUrl}-${index}`}
+                      src={item.displayUrl}
+                      alt={item.label}
+                      viewerSourceUrl={item.displayUrl}
+                      viewerImageList={incomingImageDisplayList}
+                      className="h-10 w-10 shrink-0 rounded object-cover"
+                      draggable={false}
+                    />
+                  ))}
+                </div>
+              ) : null}
+            </div>
+          ) : (
+          <>
           <div className="flex h-full min-h-0 flex-col gap-2">
             <div
               ref={promptPreviewHostRef}
@@ -1562,8 +1587,11 @@ export const JimengImageNode = memo(
               </div>
             </div>
           )}
+          </>
+          )}
         </div>
 
+        {!isOverviewRender ? (
         <div className="mt-2 flex shrink-0 items-center gap-2">
           <div className="ui-scrollbar min-w-0 flex-1 overflow-x-auto overflow-y-hidden">
             <div className="flex w-max min-w-full items-center gap-1.5 pr-1">
@@ -1688,6 +1716,7 @@ export const JimengImageNode = memo(
             </UiButton>
           </div>
         </div>
+        ) : null}
 
         {statusInfoText ? (
           <div
@@ -1725,7 +1754,7 @@ export const JimengImageNode = memo(
           variant="bare"
         />
         <CameraParamsDialog
-          isOpen={showCameraParamsDialog}
+          isOpen={!isOverviewRender && showCameraParamsDialog}
           value={resolvedCameraParams}
           onApply={(nextValue) => updateNodeData(id, { cameraParams: nextValue })}
           onClose={() => setShowCameraParamsDialog(false)}

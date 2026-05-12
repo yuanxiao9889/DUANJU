@@ -21,6 +21,11 @@ import {
 import { resolveNodeDisplayName } from '@/features/canvas/domain/nodeDisplay';
 import { NodeHeader, NODE_HEADER_FLOATING_POSITION_CLASS } from '@/features/canvas/ui/NodeHeader';
 import { NodeStatusBadge } from '@/features/canvas/ui/NodeStatusBadge';
+import { useIsOverviewCanvasRender } from '@/features/canvas/CanvasPerformanceContext';
+import {
+  useCanvasConnectedTextInput,
+  useCanvasIncomingSourceNodes,
+} from '@/features/canvas/hooks/useCanvasNodeGraph';
 import {
   generateVoxCpmUltimateCloneAudio,
   resolveVoxCpmExtensionState,
@@ -35,8 +40,6 @@ import {
   findSelectedAudioAsset,
   formatGeneratedTime,
   PresetDetailCard,
-  resolveConnectedReferenceAudio,
-  resolveConnectedVoxText,
   resolveReferenceAudioName,
   resolveReferenceAudioPath,
   resolveReferenceSourceLabel,
@@ -61,6 +64,7 @@ export const VoxCpmUltimateCloneNode = memo(({
   selected,
 }: VoxCpmUltimateCloneNodeProps) => {
   const { t, i18n } = useTranslation();
+  const isOverviewRender = useIsOverviewCanvasRender();
   const updateNodeInternals = useUpdateNodeInternals();
   const hydrateAssets = useAssetStore((state) => state.hydrate);
   const assetLibraries = useAssetStore((state) => state.libraries);
@@ -69,8 +73,8 @@ export const VoxCpmUltimateCloneNode = memo(({
   const addNode = useCanvasStore((state) => state.addNode);
   const addEdge = useCanvasStore((state) => state.addEdge);
   const findNodePosition = useCanvasStore((state) => state.findNodePosition);
-  const nodes = useCanvasStore((state) => state.nodes);
-  const edges = useCanvasStore((state) => state.edges);
+  const { connectedText } = useCanvasConnectedTextInput(id);
+  const incomingSourceNodes = useCanvasIncomingSourceNodes(id);
   const extensionPackages = useExtensionsStore((state) => state.packages);
   const enabledExtensionIds = useExtensionsStore((state) => state.enabledExtensionIds);
   const runtimeById = useExtensionsStore((state) => state.runtimeById);
@@ -91,13 +95,16 @@ export const VoxCpmUltimateCloneNode = memo(({
   const extensionRuntime = extensionState.runtime;
   const isExtensionReady = Boolean(readyExtensionPackage);
   const isExtensionStarting = extensionRuntime?.status === 'starting';
-  const connectedText = useMemo(
-    () => resolveConnectedVoxText(id, nodes, edges),
-    [edges, id, nodes]
-  );
   const connectedReferenceAudio = useMemo(
-    () => resolveConnectedReferenceAudio(id, nodes, edges),
-    [edges, id, nodes]
+    () => {
+      const sourceAudioNode = incomingSourceNodes.find(({ node }) => (
+        node.type === CANVAS_NODE_TYPES.audio
+        && typeof (node.data as AudioNodeData).audioUrl === 'string'
+        && (node.data as AudioNodeData).audioUrl?.trim().length
+      ))?.node;
+      return sourceAudioNode ? (sourceAudioNode.data as AudioNodeData) : null;
+    },
+    [incomingSourceNodes]
   );
   const availablePresetGroups = useMemo(
     () => collectVoicePresetGroups(assetLibraries),
@@ -356,19 +363,21 @@ export const VoxCpmUltimateCloneNode = memo(({
 
   return (
     <>
-      <audio
-        ref={presetPreviewAudioRef}
-        src={resolvedPreviewAudioSource ?? undefined}
-        preload="metadata"
-        className="hidden"
-        onPlay={() => setIsPresetPreviewPlaying(true)}
-        onPause={() => setIsPresetPreviewPlaying(false)}
-        onEnded={() => setIsPresetPreviewPlaying(false)}
-        onError={() => {
-          setIsPresetPreviewPlaying(false);
-          setPresetPreviewError(t('node.audioNode.playFailed'));
-        }}
-      />
+      {!isOverviewRender ? (
+        <audio
+          ref={presetPreviewAudioRef}
+          src={resolvedPreviewAudioSource ?? undefined}
+          preload="metadata"
+          className="hidden"
+          onPlay={() => setIsPresetPreviewPlaying(true)}
+          onPause={() => setIsPresetPreviewPlaying(false)}
+          onEnded={() => setIsPresetPreviewPlaying(false)}
+          onError={() => {
+            setIsPresetPreviewPlaying(false);
+            setPresetPreviewError(t('node.audioNode.playFailed'));
+          }}
+        />
+      ) : null}
 
       <div
         className={`
@@ -441,6 +450,16 @@ export const VoxCpmUltimateCloneNode = memo(({
           subtitle={connectedTextPreview}
         />
 
+        {isOverviewRender ? (
+          <div className="rounded-xl border border-white/10 bg-black/10 px-3 py-2.5 text-xs leading-5 text-text-muted">
+            <div className="truncate text-text-dark">
+              {referenceAudioName || t('node.voxCpm.referenceMissing')}
+            </div>
+            <div className="mt-1 line-clamp-3 whitespace-pre-wrap">
+              {promptTextDraft.trim() || t('node.voxCpm.promptTextPlaceholder')}
+            </div>
+          </div>
+        ) : (
         <div className="rounded-xl border border-white/10 bg-black/10 px-3 py-3">
           <div className="mb-3">
             <div className="mb-1 text-xs font-medium text-text-muted">
@@ -562,74 +581,79 @@ export const VoxCpmUltimateCloneNode = memo(({
             </div>
           ) : null}
         </div>
+        )}
 
-        <label className="block rounded-xl border border-white/10 bg-black/10 px-3 py-2.5">
-          <div className="mb-2 text-xs font-medium text-text-muted">
-            {t('node.voxCpm.promptText')}
-          </div>
-          <textarea
-            value={promptTextDraft}
-            onChange={(event) => handlePromptTextChange(event.target.value)}
-            onBlur={handlePromptTextBlur}
-            onCompositionStart={handlePromptTextCompositionStart}
-            onCompositionEnd={handlePromptTextCompositionEnd}
-            onMouseDown={handlePromptTextPointerDown}
-            onPointerDown={handlePromptTextPointerDown}
-            placeholder={t('node.voxCpm.promptTextPlaceholder')}
-            className="nodrag nowheel min-h-[96px] w-full resize-y rounded-lg border border-white/10 bg-black/10 px-3 py-2 text-sm text-text-dark outline-none transition-colors placeholder:text-text-muted/70 focus:border-accent"
-          />
-          <div className="mt-2 text-[11px] leading-4 text-text-muted">
-            {t('node.voxCpm.promptTextHint')}
-          </div>
-        </label>
+        {!isOverviewRender ? (
+          <>
+            <label className="block rounded-xl border border-white/10 bg-black/10 px-3 py-2.5">
+              <div className="mb-2 text-xs font-medium text-text-muted">
+                {t('node.voxCpm.promptText')}
+              </div>
+              <textarea
+                value={promptTextDraft}
+                onChange={(event) => handlePromptTextChange(event.target.value)}
+                onBlur={handlePromptTextBlur}
+                onCompositionStart={handlePromptTextCompositionStart}
+                onCompositionEnd={handlePromptTextCompositionEnd}
+                onMouseDown={handlePromptTextPointerDown}
+                onPointerDown={handlePromptTextPointerDown}
+                placeholder={t('node.voxCpm.promptTextPlaceholder')}
+                className="nodrag nowheel min-h-[96px] w-full resize-y rounded-lg border border-white/10 bg-black/10 px-3 py-2 text-sm text-text-dark outline-none transition-colors placeholder:text-text-muted/70 focus:border-accent"
+              />
+              <div className="mt-2 text-[11px] leading-4 text-text-muted">
+                {t('node.voxCpm.promptTextHint')}
+              </div>
+            </label>
 
-        <label className="flex items-center gap-2 rounded-xl border border-white/10 bg-black/10 px-3 py-2.5 text-sm text-text-dark">
-          <input
-            type="checkbox"
-            checked={useReferenceAsReference}
-            onChange={(event) => handleFieldChange('useReferenceAsReference', event.target.checked)}
-            className="nodrag h-4 w-4 rounded border-white/20 bg-black/10 text-accent"
-          />
-          <span>{t('node.voxCpm.useReferenceAsReference')}</span>
-        </label>
+            <label className="flex items-center gap-2 rounded-xl border border-white/10 bg-black/10 px-3 py-2.5 text-sm text-text-dark">
+              <input
+                type="checkbox"
+                checked={useReferenceAsReference}
+                onChange={(event) => handleFieldChange('useReferenceAsReference', event.target.checked)}
+                className="nodrag h-4 w-4 rounded border-white/20 bg-black/10 text-accent"
+              />
+              <span>{t('node.voxCpm.useReferenceAsReference')}</span>
+            </label>
 
-        <div className="grid gap-3 md:grid-cols-2">
-          <SliderField
-            label={t('node.voxCpm.cfgValue')}
-            valueLabel={cfgValue.toFixed(1)}
-            helperText={t('node.voxCpm.cfgValueHint')}
-            min={0.1}
-            max={5}
-            step={0.1}
-            value={cfgValue}
-            onChange={(value) => handleFieldChange('cfgValue', value)}
-          />
-          <SliderField
-            label={t('node.voxCpm.inferenceTimesteps')}
-            valueLabel={String(inferenceTimesteps)}
-            helperText={t('node.voxCpm.inferenceTimestepsHint')}
-            min={1}
-            max={40}
-            step={1}
-            value={inferenceTimesteps}
-            onChange={(value) => handleFieldChange('inferenceTimesteps', value)}
-          />
-        </div>
+            <div className="grid gap-3 md:grid-cols-2">
+              <SliderField
+                label={t('node.voxCpm.cfgValue')}
+                valueLabel={cfgValue.toFixed(1)}
+                helperText={t('node.voxCpm.cfgValueHint')}
+                min={0.1}
+                max={5}
+                step={0.1}
+                value={cfgValue}
+                onChange={(value) => handleFieldChange('cfgValue', value)}
+              />
+              <SliderField
+                label={t('node.voxCpm.inferenceTimesteps')}
+                valueLabel={String(inferenceTimesteps)}
+                helperText={t('node.voxCpm.inferenceTimestepsHint')}
+                min={1}
+                max={40}
+                step={1}
+                value={inferenceTimesteps}
+                onChange={(value) => handleFieldChange('inferenceTimesteps', value)}
+              />
+            </div>
 
-        <div className="grid gap-3 md:grid-cols-2">
-          <ToggleField
-            label={t('node.voxCpm.normalize')}
-            helperText={t('node.voxCpm.normalizeHint')}
-            checked={normalize}
-            onChange={(value) => handleFieldChange('normalize', value)}
-          />
-          <ToggleField
-            label={t('node.voxCpm.denoise')}
-            helperText={t('node.voxCpm.denoiseHint')}
-            checked={denoise}
-            onChange={(value) => handleFieldChange('denoise', value)}
-          />
-        </div>
+            <div className="grid gap-3 md:grid-cols-2">
+              <ToggleField
+                label={t('node.voxCpm.normalize')}
+                helperText={t('node.voxCpm.normalizeHint')}
+                checked={normalize}
+                onChange={(value) => handleFieldChange('normalize', value)}
+              />
+              <ToggleField
+                label={t('node.voxCpm.denoise')}
+                helperText={t('node.voxCpm.denoiseHint')}
+                checked={denoise}
+                onChange={(value) => handleFieldChange('denoise', value)}
+              />
+            </div>
+          </>
+        ) : null}
 
         {data.lastError ? (
           <div className="rounded-xl border border-red-400/25 bg-red-400/10 px-3 py-2 text-[11px] leading-4 text-red-100">
@@ -637,13 +661,15 @@ export const VoxCpmUltimateCloneNode = memo(({
           </div>
         ) : null}
 
-        <UiButton
-          type="button"
-          onClick={handleGenerate}
-          className="nodrag h-10 w-full rounded-lg"
-        >
-          {t('node.voxCpm.ultimateCloneGenerate')}
-        </UiButton>
+        {!isOverviewRender ? (
+          <UiButton
+            type="button"
+            onClick={handleGenerate}
+            className="nodrag h-10 w-full rounded-lg"
+          >
+            {t('node.voxCpm.ultimateCloneGenerate')}
+          </UiButton>
+        ) : null}
       </div>
 
         <Handle

@@ -14,6 +14,7 @@ use super::generation_history;
 use super::storage;
 
 const STYLE_TEMPLATE_SETTINGS_REFS_PROJECT_ID: &str = "__settings_style_template_refs__";
+const STYLE_TEMPLATE_STATE_ID: &str = "default";
 static NORMALIZED_STORAGE_DBS: OnceLock<Mutex<HashSet<String>>> = OnceLock::new();
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -77,6 +78,21 @@ pub struct OrganizeProjectMediaResult {
     pub project_id: String,
     pub rewritten: bool,
     pub copied_count: u64,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct StyleTemplateStateRecord {
+    pub categories_json: String,
+    pub templates_json: String,
+    pub updated_at: i64,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SaveStyleTemplateStatePayload {
+    pub categories_json: String,
+    pub templates_json: String,
 }
 
 #[derive(Debug, Clone)]
@@ -546,6 +562,12 @@ fn ensure_projects_table(conn: &Connection) -> Result<(), String> {
           PRIMARY KEY(project_id, path)
         );
         CREATE INDEX IF NOT EXISTS idx_project_image_refs_path ON project_image_refs(path);
+        CREATE TABLE IF NOT EXISTS style_template_state (
+          id TEXT PRIMARY KEY,
+          categories_json TEXT NOT NULL DEFAULT '[]',
+          templates_json TEXT NOT NULL DEFAULT '[]',
+          updated_at INTEGER NOT NULL DEFAULT 0
+        );
         CREATE TABLE IF NOT EXISTS legacy_project_imports (
           legacy_id TEXT PRIMARY KEY,
           project_id TEXT NOT NULL,
@@ -632,6 +654,24 @@ fn ensure_projects_table(conn: &Connection) -> Result<(), String> {
     .map_err(|e| format!("Failed to initialize projects table: {}", e))?;
 
     generation_history::ensure_generation_history_ready(conn)?;
+    ensure_table_column(
+        conn,
+        "style_template_state",
+        "categories_json",
+        "TEXT NOT NULL DEFAULT '[]'",
+    )?;
+    ensure_table_column(
+        conn,
+        "style_template_state",
+        "templates_json",
+        "TEXT NOT NULL DEFAULT '[]'",
+    )?;
+    ensure_table_column(
+        conn,
+        "style_template_state",
+        "updated_at",
+        "INTEGER NOT NULL DEFAULT 0",
+    )?;
 
     let mut has_node_count = false;
     let mut has_project_type = false;
@@ -2516,6 +2556,117 @@ pub(crate) fn replace_project_image_refs(
     Ok(())
 }
 
+fn empty_style_template_state_record() -> StyleTemplateStateRecord {
+    StyleTemplateStateRecord {
+        categories_json: "[]".to_string(),
+        templates_json: "[]".to_string(),
+        updated_at: 0,
+    }
+}
+
+fn validate_style_template_json_array(value: &str, label: &str) -> Result<String, String> {
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        return Ok("[]".to_string());
+    }
+
+    let parsed = serde_json::from_str::<Value>(trimmed)
+        .map_err(|e| format!("Failed to parse style template {label} json: {}", e))?;
+    if !parsed.is_array() {
+        return Err(format!("Style template {label} json must be an array"));
+    }
+
+    serde_json::to_string(&parsed)
+        .map_err(|e| format!("Failed to serialize style template {label} json: {}", e))
+}
+
+fn read_style_template_state_from_connection(
+    conn: &Connection,
+) -> Result<StyleTemplateStateRecord, String> {
+    let result = conn.query_row(
+        r#"
+        SELECT categories_json, templates_json, updated_at
+        FROM style_template_state
+        WHERE id = ?1
+        LIMIT 1
+        "#,
+        params![STYLE_TEMPLATE_STATE_ID],
+        |row| {
+            Ok(StyleTemplateStateRecord {
+                categories_json: row.get(0)?,
+                templates_json: row.get(1)?,
+                updated_at: row.get(2)?,
+            })
+        },
+    );
+
+    match result {
+        Ok(record) => Ok(record),
+        Err(rusqlite::Error::QueryReturnedNoRows) => Ok(empty_style_template_state_record()),
+        Err(error) => Err(format!("Failed to read style template state: {}", error)),
+    }
+}
+
+fn save_style_template_state_in_connection(
+    conn: &Connection,
+    payload: &SaveStyleTemplateStatePayload,
+) -> Result<StyleTemplateStateRecord, String> {
+    let categories_json =
+        validate_style_template_json_array(&payload.categories_json, "categories")?;
+    let templates_json = validate_style_template_json_array(&payload.templates_json, "templates")?;
+    let updated_at = now_timestamp_ms();
+
+    conn.execute(
+        r#"
+        INSERT INTO style_template_state (
+          id,
+          categories_json,
+          templates_json,
+          updated_at
+        )
+        VALUES (?1, ?2, ?3, ?4)
+        ON CONFLICT(id) DO UPDATE SET
+          categories_json = excluded.categories_json,
+          templates_json = excluded.templates_json,
+          updated_at = excluded.updated_at
+        "#,
+        params![
+            STYLE_TEMPLATE_STATE_ID,
+            categories_json,
+            templates_json,
+            updated_at
+        ],
+    )
+    .map_err(|e| format!("Failed to save style template state: {}", e))?;
+
+    Ok(StyleTemplateStateRecord {
+        categories_json,
+        templates_json,
+        updated_at,
+    })
+}
+
+#[tauri::command]
+pub fn get_style_template_state(app: AppHandle) -> Result<StyleTemplateStateRecord, String> {
+    let conn = open_db(&app)?;
+    read_style_template_state_from_connection(&conn)
+}
+
+#[tauri::command]
+pub fn save_style_template_state(
+    app: AppHandle,
+    payload: SaveStyleTemplateStatePayload,
+) -> Result<StyleTemplateStateRecord, String> {
+    let mut conn = open_db(&app)?;
+    let tx = conn
+        .transaction()
+        .map_err(|e| format!("Failed to begin style template state transaction: {}", e))?;
+    let record = save_style_template_state_in_connection(&tx, &payload)?;
+    tx.commit()
+        .map_err(|e| format!("Failed to commit style template state transaction: {}", e))?;
+    Ok(record)
+}
+
 #[tauri::command]
 pub fn sync_style_template_image_refs(app: AppHandle, paths: Vec<String>) -> Result<(), String> {
     storage::ensure_storage_session_write_allowed(&app)?;
@@ -2990,8 +3141,10 @@ mod tests {
     use super::storage;
     use super::{
         ensure_projects_table, extract_project_image_paths, find_restore_target_project_id,
-        normalize_image_ref_path, project_has_meaningful_content, read_table_columns,
-        rewrite_project_payload_media_paths, LegacyProjectPayload,
+        normalize_image_ref_path, project_has_meaningful_content,
+        read_style_template_state_from_connection, read_table_columns,
+        rewrite_project_payload_media_paths, save_style_template_state_in_connection,
+        LegacyProjectPayload, SaveStyleTemplateStatePayload,
     };
     use rusqlite::Connection;
     use std::fs;
@@ -3123,6 +3276,107 @@ mod tests {
             !legacy_project_script_welcome_skipped,
             "legacy projects should default script_welcome_skipped to false"
         );
+    }
+
+    #[test]
+    fn style_template_state_empty_read_returns_empty_arrays() {
+        let conn = Connection::open_in_memory().expect("failed to open in-memory db");
+        ensure_projects_table(&conn).expect("failed to prepare projects schema");
+
+        let state = read_style_template_state_from_connection(&conn)
+            .expect("empty style template state should read");
+
+        assert_eq!(state.categories_json, "[]");
+        assert_eq!(state.templates_json, "[]");
+        assert_eq!(state.updated_at, 0);
+    }
+
+    #[test]
+    fn style_template_state_round_trips_saved_payload() {
+        let conn = Connection::open_in_memory().expect("failed to open in-memory db");
+        ensure_projects_table(&conn).expect("failed to prepare projects schema");
+
+        let saved = save_style_template_state_in_connection(
+            &conn,
+            &SaveStyleTemplateStatePayload {
+                categories_json:
+                    r#"[{"id":"category-1","name":"Custom","sortOrder":0,"createdAt":1,"updatedAt":1}]"#
+                        .to_string(),
+                templates_json:
+                    r#"[{"id":"template-1","name":"Look","prompt":"cinematic","imageUrl":null,"categoryId":"category-1","sortOrder":0,"createdAt":1,"updatedAt":1,"lastUsedAt":null}]"#
+                        .to_string(),
+            },
+        )
+        .expect("style template state should save");
+        let loaded = read_style_template_state_from_connection(&conn)
+            .expect("saved style template state should read");
+
+        assert_eq!(loaded.categories_json, saved.categories_json);
+        assert_eq!(loaded.templates_json, saved.templates_json);
+        assert!(loaded.updated_at > 0);
+    }
+
+    #[test]
+    fn ensure_projects_table_preserves_projects_when_adding_style_template_state() {
+        let conn = Connection::open_in_memory().expect("failed to open in-memory db");
+        conn.execute_batch(
+            r#"
+            CREATE TABLE projects (
+              id TEXT PRIMARY KEY,
+              name TEXT NOT NULL,
+              created_at INTEGER NOT NULL,
+              updated_at INTEGER NOT NULL,
+              node_count INTEGER NOT NULL DEFAULT 0,
+              nodes_json TEXT NOT NULL,
+              edges_json TEXT NOT NULL,
+              viewport_json TEXT NOT NULL,
+              history_json TEXT NOT NULL,
+              project_type TEXT NOT NULL DEFAULT 'storyboard'
+            );
+            INSERT INTO projects (
+              id,
+              name,
+              created_at,
+              updated_at,
+              node_count,
+              nodes_json,
+              edges_json,
+              viewport_json,
+              history_json,
+              project_type
+            )
+            VALUES (
+              'project-1',
+              'Storyboard A',
+              1,
+              1,
+              0,
+              '[]',
+              '[]',
+              '{}',
+              '{"past":[],"future":[]}',
+              'storyboard'
+            );
+            "#,
+        )
+        .expect("failed to seed legacy projects table");
+
+        ensure_projects_table(&conn).expect("schema migration should succeed");
+
+        let project_name: String = conn
+            .query_row(
+                "SELECT name FROM projects WHERE id = 'project-1'",
+                [],
+                |row| row.get(0),
+            )
+            .expect("existing project should remain readable");
+        let style_columns = read_table_columns(&conn, "style_template_state")
+            .expect("style_template_state schema should be readable");
+
+        assert_eq!(project_name, "Storyboard A");
+        assert!(style_columns.contains("categories_json"));
+        assert!(style_columns.contains("templates_json"));
+        assert!(style_columns.contains("updated_at"));
     }
 
     #[test]

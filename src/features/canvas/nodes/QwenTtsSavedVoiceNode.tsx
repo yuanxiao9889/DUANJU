@@ -41,6 +41,11 @@ import {
 import { QWEN_TTS_COMPLETE_EXTENSION_ID } from '@/features/extensions/domain/types';
 import { NodeHeader, NODE_HEADER_FLOATING_POSITION_CLASS } from '@/features/canvas/ui/NodeHeader';
 import { NodeStatusBadge } from '@/features/canvas/ui/NodeStatusBadge';
+import { useIsOverviewCanvasRender } from '@/features/canvas/CanvasPerformanceContext';
+import {
+  useCanvasConnectedTextInput,
+  useCanvasIncomingSourceNodes,
+} from '@/features/canvas/hooks/useCanvasNodeGraph';
 import { useAssetStore } from '@/stores/assetStore';
 import { useCanvasStore } from '@/stores/canvasStore';
 import { useExtensionsStore } from '@/stores/extensionsStore';
@@ -57,7 +62,6 @@ import {
   MAX_NEW_TOKEN_OPTIONS,
   OUTPUT_FORMAT_OPTIONS,
   QWEN_TTS_PAUSE_FIELDS,
-  resolveConnectedTtsText,
   resolvePauseConfig,
   resolveRuntimeTone,
   type VoiceLanguage,
@@ -244,6 +248,7 @@ function shouldRefreshSavedVoiceBundle(error: unknown): boolean {
 
 export const QwenTtsSavedVoiceNode = memo(({ id, data, selected }: QwenTtsSavedVoiceNodeProps) => {
   const { t, i18n } = useTranslation();
+  const isOverviewRender = useIsOverviewCanvasRender();
   const updateNodeInternals = useUpdateNodeInternals();
   const setSelectedNode = useCanvasStore((state) => state.setSelectedNode);
   const updateNodeData = useCanvasStore((state) => state.updateNodeData);
@@ -251,8 +256,8 @@ export const QwenTtsSavedVoiceNode = memo(({ id, data, selected }: QwenTtsSavedV
   const addEdge = useCanvasStore((state) => state.addEdge);
   const findNodePosition = useCanvasStore((state) => state.findNodePosition);
   const deleteEdge = useCanvasStore((state) => state.deleteEdge);
-  const nodes = useCanvasStore((state) => state.nodes);
-  const edges = useCanvasStore((state) => state.edges);
+  const { connectedText } = useCanvasConnectedTextInput(id);
+  const incomingSourceNodes = useCanvasIncomingSourceNodes(id);
   const assetLibraries = useAssetStore((state) => state.libraries);
   const hydrateAssets = useAssetStore((state) => state.hydrate);
   const isAssetStoreHydrated = useAssetStore((state) => state.isHydrated);
@@ -279,7 +284,6 @@ export const QwenTtsSavedVoiceNode = memo(({ id, data, selected }: QwenTtsSavedV
   const isExtensionStarting = extensionRuntime?.status === 'starting';
   const supportsMp3Output = activeExtensionPackage?.id === QWEN_TTS_COMPLETE_EXTENSION_ID;
 
-  const connectedText = useMemo(() => resolveConnectedTtsText(id, nodes, edges), [edges, id, nodes]);
   const availablePresetGroups = useMemo(
     () =>
       assetLibraries
@@ -303,32 +307,28 @@ export const QwenTtsSavedVoiceNode = memo(({ id, data, selected }: QwenTtsSavedV
     );
   }, [assetLibraries, data.presetAssetId]);
   const incomingReferenceAudioEdges = useMemo(() => {
-    const nodeMap = new Map(nodes.map((node) => [node.id, node] as const));
-    return edges.filter((edge) => {
-      if (edge.target !== id) {
-        return false;
-      }
-
-      const sourceNode = nodeMap.get(edge.source);
-      return Boolean(
-        sourceNode
-        && sourceNode.type === CANVAS_NODE_TYPES.audio
+    return incomingSourceNodes
+      .filter(({ node: sourceNode }) => (
+        sourceNode.type === CANVAS_NODE_TYPES.audio
         && typeof (sourceNode.data as AudioNodeData).audioUrl === 'string'
         && (sourceNode.data as AudioNodeData).audioUrl?.trim().length
-      );
-    });
-  }, [edges, id, nodes]);
+      ))
+      .map(({ edge }) => edge);
+  }, [incomingSourceNodes]);
   const legacyReferenceAudioData = useMemo(() => {
     const firstIncomingAudioEdge = incomingReferenceAudioEdges[0];
     if (!firstIncomingAudioEdge) {
       return null;
     }
 
-    const sourceAudioNode = nodes.find(
-      (node) => node.id === firstIncomingAudioEdge.source && node.type === CANVAS_NODE_TYPES.audio
+    const sourceItem = incomingSourceNodes.find(
+      ({ edge }) => edge.id === firstIncomingAudioEdge.id
     );
-    return sourceAudioNode ? (sourceAudioNode.data as AudioNodeData) : null;
-  }, [incomingReferenceAudioEdges, nodes]);
+    const sourceAudioNode = sourceItem?.node;
+    return sourceAudioNode?.type === CANVAS_NODE_TYPES.audio
+      ? (sourceAudioNode.data as AudioNodeData)
+      : null;
+  }, [incomingReferenceAudioEdges, incomingSourceNodes]);
   const selectedPresetMetadata = useMemo(
     () => resolveVoicePresetAssetMetadata(selectedPresetAsset),
     [selectedPresetAsset]
@@ -429,22 +429,26 @@ export const QwenTtsSavedVoiceNode = memo(({ id, data, selected }: QwenTtsSavedV
     pauseConfig.commaPause !== DEFAULT_QWEN_TTS_PAUSE_CONFIG.commaPause ||
     pauseConfig.questionPause !== DEFAULT_QWEN_TTS_PAUSE_CONFIG.questionPause ||
     pauseConfig.hyphenPause !== DEFAULT_QWEN_TTS_PAUSE_CONFIG.hyphenPause;
-  const pendingAudioTaskCount = useMemo(() => {
-    const nodeMap = new Map(nodes.map((node) => [node.id, node] as const));
-    return edges
-      .filter((edge) => edge.source === id)
-      .map((edge) => nodeMap.get(edge.target))
-      .filter((node): node is NonNullable<typeof node> => Boolean(node))
-      .filter((node) => node.type === CANVAS_NODE_TYPES.audio)
-      .map((node) => node.data as AudioNodeData)
-      .filter((audioData) => {
-        if (audioData.generationSource !== 'ttsSavedVoice' || audioData.audioUrl) {
-          return false;
-        }
-        return audioData.isGenerating || typeof audioData.queuePosition === 'number';
-      })
-      .length;
-  }, [edges, id, nodes]);
+  const pendingAudioTaskCountSelector = useMemo(
+    () => (state: ReturnType<typeof useCanvasStore.getState>) => {
+      const nodeMap = new Map(state.nodes.map((node) => [node.id, node] as const));
+      return state.edges
+        .filter((edge) => edge.source === id)
+        .map((edge) => nodeMap.get(edge.target))
+        .filter((node): node is NonNullable<typeof node> => Boolean(node))
+        .filter((node) => node.type === CANVAS_NODE_TYPES.audio)
+        .map((node) => node.data as AudioNodeData)
+        .filter((audioData) => {
+          if (audioData.generationSource !== 'ttsSavedVoice' || audioData.audioUrl) {
+            return false;
+          }
+          return audioData.isGenerating || typeof audioData.queuePosition === 'number';
+        })
+        .length;
+    },
+    [id]
+  );
+  const pendingAudioTaskCount = useCanvasStore(pendingAudioTaskCountSelector);
   const advancedSummary = t('node.qwenTts.advancedSummary', {
     temperature: temperature.toFixed(2),
     topP: topP.toFixed(2),
@@ -986,19 +990,21 @@ export const QwenTtsSavedVoiceNode = memo(({ id, data, selected }: QwenTtsSavedV
 
   return (
     <>
-      <audio
-        ref={presetPreviewAudioRef}
-        src={selectedPresetAudioSource ?? undefined}
-        preload="metadata"
-        className="hidden"
-        onPlay={() => setIsPresetPreviewPlaying(true)}
-        onPause={() => setIsPresetPreviewPlaying(false)}
-        onEnded={() => setIsPresetPreviewPlaying(false)}
-        onError={() => {
-          setIsPresetPreviewPlaying(false);
-          setPresetPreviewError(t('node.audioNode.playFailed'));
-        }}
-      />
+      {!isOverviewRender ? (
+        <audio
+          ref={presetPreviewAudioRef}
+          src={selectedPresetAudioSource ?? undefined}
+          preload="metadata"
+          className="hidden"
+          onPlay={() => setIsPresetPreviewPlaying(true)}
+          onPause={() => setIsPresetPreviewPlaying(false)}
+          onEnded={() => setIsPresetPreviewPlaying(false)}
+          onError={() => {
+            setIsPresetPreviewPlaying(false);
+            setPresetPreviewError(t('node.audioNode.playFailed'));
+          }}
+        />
+      ) : null}
 
       <div
         className={`
@@ -1120,6 +1126,16 @@ export const QwenTtsSavedVoiceNode = memo(({ id, data, selected }: QwenTtsSavedV
             ) : null}
           </div>
 
+          {isOverviewRender ? (
+            <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-3 text-xs leading-5 text-text-muted">
+              <div className="truncate text-sm font-medium text-text-dark">
+                {referenceAudioName || t('node.qwenTts.savedVoice.referenceMissing')}
+              </div>
+              <div className="mt-2 line-clamp-4 whitespace-pre-wrap">
+                {referenceTranscriptTrimmed || t('node.qwenTts.savedVoice.noReferenceTranscript')}
+              </div>
+            </div>
+          ) : (
           <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-3">
             <div className="mb-3 flex items-center justify-between gap-3">
               <div className="flex min-w-0 items-center gap-1.5">
@@ -1328,7 +1344,9 @@ export const QwenTtsSavedVoiceNode = memo(({ id, data, selected }: QwenTtsSavedV
               </div>
             </div>
           </div>
+          )}
 
+          {!isOverviewRender ? (
           <div className="grid grid-cols-3 gap-2">
             <SummaryActionCard
               icon={<Languages className="h-4 w-4" />}
@@ -1355,6 +1373,7 @@ export const QwenTtsSavedVoiceNode = memo(({ id, data, selected }: QwenTtsSavedV
               onClick={() => setIsAdvancedModalOpen(true)}
             />
           </div>
+          ) : null}
 
           {data.isExtracting ? (
             <div className="space-y-2 rounded-xl border border-accent/20 bg-accent/10 px-3 py-2.5">
@@ -1376,7 +1395,7 @@ export const QwenTtsSavedVoiceNode = memo(({ id, data, selected }: QwenTtsSavedV
             </div>
           ) : null}
 
-          {!isExtensionReady ? (
+          {!isExtensionReady && !isOverviewRender ? (
             <div className="rounded-xl border border-amber-400/20 bg-amber-400/10 px-3 py-2 text-xs text-amber-200">
               {isExtensionStarting
                 ? t('node.qwenTts.extensionStarting')
@@ -1384,6 +1403,7 @@ export const QwenTtsSavedVoiceNode = memo(({ id, data, selected }: QwenTtsSavedV
             </div>
           ) : null}
 
+          {!isOverviewRender ? (
           <button
             type="button"
             disabled={!canGenerate}
@@ -1397,6 +1417,7 @@ export const QwenTtsSavedVoiceNode = memo(({ id, data, selected }: QwenTtsSavedV
             <Sparkles className="h-4 w-4" />
             {t('node.qwenTts.savedVoice.generateWithSavedVoice')}
           </button>
+          ) : null}
         </div>
 
         <Handle
@@ -1414,7 +1435,7 @@ export const QwenTtsSavedVoiceNode = memo(({ id, data, selected }: QwenTtsSavedV
       </div>
 
       <UiModal
-        isOpen={isReuseModalOpen}
+        isOpen={!isOverviewRender && isReuseModalOpen}
         title={t('node.qwenTts.savedVoice.languageTitle')}
         onClose={() => setIsReuseModalOpen(false)}
         widthClassName="w-[520px]"
@@ -1475,7 +1496,7 @@ export const QwenTtsSavedVoiceNode = memo(({ id, data, selected }: QwenTtsSavedV
       </UiModal>
 
       <UiModal
-        isOpen={isPauseModalOpen}
+        isOpen={!isOverviewRender && isPauseModalOpen}
         title={t('node.qwenTts.pauseTitle')}
         onClose={() => setIsPauseModalOpen(false)}
         widthClassName="w-[620px]"
@@ -1512,7 +1533,7 @@ export const QwenTtsSavedVoiceNode = memo(({ id, data, selected }: QwenTtsSavedV
       </UiModal>
 
       <UiModal
-        isOpen={isAdvancedModalOpen}
+        isOpen={!isOverviewRender && isAdvancedModalOpen}
         title={t('node.qwenTts.advancedSettings')}
         onClose={() => setIsAdvancedModalOpen(false)}
         widthClassName="w-[620px]"

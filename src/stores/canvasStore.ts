@@ -171,6 +171,9 @@ export type {
 const VIEWPORT_POSITION_EPSILON = 0.5;
 const VIEWPORT_ZOOM_EPSILON = 0.0005;
 
+type CanvasNodeSelectChange = Extract<NodeChange<CanvasNode>, { type: 'select' }>;
+type CanvasNodePositionChange = Extract<NodeChange<CanvasNode>, { type: 'position' }>;
+
 function areViewportsNearlyEqual(left: Viewport, right: Viewport): boolean {
   return (
     Math.abs(left.x - right.x) < VIEWPORT_POSITION_EPSILON
@@ -183,7 +186,116 @@ function applyNodeChangesLocal(
   changes: NodeChange<CanvasNode>[],
   nodes: CanvasNode[]
 ): CanvasNode[] {
-  let nextNodes = [...nodes];
+  if (changes.length === 0) {
+    return nodes;
+  }
+
+  if (changes.every((change): change is CanvasNodeSelectChange => change.type === 'select')) {
+    const selectedById = new globalThis.Map<string, boolean>();
+    for (const change of changes) {
+      selectedById.set(change.id, change.selected);
+    }
+
+    let didChange = false;
+    const nextNodes = nodes.map((node) => {
+      if (!selectedById.has(node.id)) {
+        return node;
+      }
+
+      const selected = selectedById.get(node.id) ?? false;
+      if (node.selected === selected) {
+        return node;
+      }
+
+      didChange = true;
+      return { ...node, selected };
+    });
+
+    return didChange ? nextNodes : nodes;
+  }
+
+  if (changes.every((change) => change.type === 'select' || change.type === 'position')) {
+    const selectedById = new globalThis.Map<string, boolean>();
+    const positionById = new globalThis.Map<string, CanvasNodePositionChange>();
+
+    for (const change of changes) {
+      if (change.type === 'select') {
+        selectedById.set(change.id, change.selected);
+        continue;
+      }
+
+      positionById.set(change.id, change);
+    }
+
+    let didChange = false;
+    const nextNodes = nodes.map((node) => {
+      const selectChange = selectedById.has(node.id)
+        ? selectedById.get(node.id) ?? false
+        : node.selected;
+      const positionChange = positionById.get(node.id);
+      const nextPosition = positionChange?.position ?? node.position;
+      const nextDragging = positionChange && 'dragging' in positionChange
+        ? positionChange.dragging
+        : node.dragging;
+      const hasSelectChange = selectChange !== node.selected;
+      const hasPositionChange =
+        nextPosition.x !== node.position.x || nextPosition.y !== node.position.y;
+      const hasDraggingChange = nextDragging !== node.dragging;
+
+      if (!hasSelectChange && !hasPositionChange && !hasDraggingChange) {
+        return node;
+      }
+
+      didChange = true;
+      return {
+        ...node,
+        selected: selectChange,
+        position: hasPositionChange ? nextPosition : node.position,
+        dragging: nextDragging,
+      };
+    });
+
+    return didChange ? nextNodes : nodes;
+  }
+
+  if (changes.every((change): change is CanvasNodePositionChange => change.type === 'position')) {
+    const changeById = new globalThis.Map<string, CanvasNodePositionChange>();
+    for (const change of changes) {
+      changeById.set(change.id, change);
+    }
+
+    let didChange = false;
+    const nextNodes = nodes.map((node) => {
+      const change = changeById.get(node.id);
+      if (!change) {
+        return node;
+      }
+
+      const nextPosition = change.position ?? node.position;
+      const nextDragging =
+        'dragging' in change
+          ? change.dragging
+          : node.dragging;
+      const hasPositionChange =
+        nextPosition.x !== node.position.x || nextPosition.y !== node.position.y;
+      const hasDraggingChange = nextDragging !== node.dragging;
+
+      if (!hasPositionChange && !hasDraggingChange) {
+        return node;
+      }
+
+      didChange = true;
+      return {
+        ...node,
+        position: hasPositionChange ? nextPosition : node.position,
+        dragging: nextDragging,
+      };
+    });
+
+    return didChange ? nextNodes : nodes;
+  }
+
+  let nextNodes = nodes;
 
   for (const change of changes) {
     switch (change.type) {
@@ -3141,6 +3253,7 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
 
   onNodesChange: (changes) => {
     set((state) => {
+      const hasSelectChange = changes.some((change) => change.type === 'select');
       const resizedNodeIds = new Set(
         changes
           .filter(
@@ -3194,6 +3307,9 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
           'resizing' in change &&
           change.resizing === false
       );
+      const shouldResolveNodeReferences = changes.some(
+        (change) => change.type === 'remove' || change.type === 'replace'
+      );
       const interactionNodeIds = changes
         .filter((change): change is NodeChange<CanvasNode> & { id: string } =>
           (change.type === 'position' || change.type === 'dimensions')
@@ -3233,14 +3349,37 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
         nextDragHistorySnapshot = null;
       }
 
+      const nextSelectedNodeId = hasSelectChange
+        ? (() => {
+            const selectedNodes = nextNodes.filter((node) => node.selected);
+            return selectedNodes.length === 1 ? selectedNodes[0].id : null;
+          })()
+        : shouldResolveNodeReferences
+          ? resolveSelectedNodeId(state.selectedNodeId, nextNodes)
+          : state.selectedNodeId;
+      const nextActiveToolDialog = shouldResolveNodeReferences
+        ? resolveActiveToolDialog(state.activeToolDialog, nextNodes)
+        : state.activeToolDialog;
+      const nextActiveShotParamsPanelNodeId = shouldResolveNodeReferences
+        ? resolveActiveShotParamsPanelNodeId(state.activeShotParamsPanelNodeId, nextNodes)
+        : state.activeShotParamsPanelNodeId;
+
+      if (
+        nextNodes === state.nodes
+        && nextSelectedNodeId === state.selectedNodeId
+        && nextActiveToolDialog === state.activeToolDialog
+        && nextActiveShotParamsPanelNodeId === state.activeShotParamsPanelNodeId
+        && nextHistory === state.history
+        && nextDragHistorySnapshot === state.dragHistorySnapshot
+      ) {
+        return state;
+      }
+
       return {
         nodes: nextNodes,
-        selectedNodeId: resolveSelectedNodeId(state.selectedNodeId, nextNodes),
-        activeToolDialog: resolveActiveToolDialog(state.activeToolDialog, nextNodes),
-        activeShotParamsPanelNodeId: resolveActiveShotParamsPanelNodeId(
-          state.activeShotParamsPanelNodeId,
-          nextNodes,
-        ),
+        selectedNodeId: nextSelectedNodeId,
+        activeToolDialog: nextActiveToolDialog,
+        activeShotParamsPanelNodeId: nextActiveShotParamsPanelNodeId,
         history: nextHistory,
         dragHistorySnapshot: nextDragHistorySnapshot,
       };

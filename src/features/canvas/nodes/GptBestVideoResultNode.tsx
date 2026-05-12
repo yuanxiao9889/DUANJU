@@ -18,6 +18,7 @@ import { resolveNodeDisplayName } from '@/features/canvas/domain/nodeDisplay';
 import { useCanvasNodeById } from '@/features/canvas/hooks/useCanvasNodeGraph';
 import { useNodeVideoPlaybackControls } from '@/features/canvas/hooks/useNodeVideoPlaybackControls';
 import { useStableImageDisplaySource } from '@/features/canvas/hooks/useStableImageDisplaySource';
+import { useShouldSuspendCanvasMedia } from '@/features/canvas/CanvasPerformanceContext';
 import { CanvasNodeImage } from '@/features/canvas/ui/CanvasNodeImage';
 import { NodeHeader, NODE_HEADER_FLOATING_POSITION_CLASS } from '@/features/canvas/ui/NodeHeader';
 import { NodeResizeHandle } from '@/features/canvas/ui/NodeResizeHandle';
@@ -69,6 +70,7 @@ function normalizeTaskStatus(
 export const GptBestVideoResultNode = memo(
   ({ id, data, selected, width }: GptBestVideoResultNodeProps) => {
     const { t } = useTranslation();
+    const shouldSuspendMedia = useShouldSuspendCanvasMedia();
     const currentNode = useCanvasNodeById(id);
     const thirdPartyVideoApiKeys = useSettingsStore((state) => state.thirdPartyVideoApiKeys);
     const thirdPartyVideoProviderConfig = useSettingsStore((state) => state.thirdPartyVideoProviderConfig);
@@ -401,7 +403,7 @@ export const GptBestVideoResultNode = memo(
               className={`relative overflow-hidden bg-black ${flashFrame ? 'animate-pulse bg-white/20' : ''} ${hasExplicitHeight ? 'min-h-0 flex-1' : ''}`}
               style={hasExplicitHeight ? undefined : { aspectRatio: resolvedAspectRatio }}
             >
-              {posterSource && (!isVideoReady || Boolean(videoError)) ? (
+              {posterSource && (shouldSuspendMedia || !isVideoReady || Boolean(videoError)) ? (
                 <CanvasNodeImage
                   src={posterSource}
                   alt={t('node.videoNode.posterAlt')}
@@ -414,7 +416,7 @@ export const GptBestVideoResultNode = memo(
                 onClick={(event) => event.stopPropagation()}
                 onPointerDown={(event) => event.stopPropagation()}
               >
-                {videoSource ? (
+                {videoSource && !shouldSuspendMedia ? (
                   <video
                     ref={videoRef}
                     src={videoSource}
@@ -434,7 +436,7 @@ export const GptBestVideoResultNode = memo(
                   />
                 ) : (
                   <div className="flex h-full w-full items-center justify-center bg-[radial-gradient(circle_at_top,#1f2937_0%,#0f172a_72%)] text-sm text-text-muted">
-                    {showBlockingOverlay ? null : t('node.gptBestVideoResult.empty')}
+                    {showBlockingOverlay || (shouldSuspendMedia && posterSource) ? null : t('node.gptBestVideoResult.empty')}
                   </div>
                 )}
               </div>

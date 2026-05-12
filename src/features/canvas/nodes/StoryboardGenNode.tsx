@@ -103,6 +103,7 @@ import {
   useCanvasConnectedReferenceVisuals,
 } from '@/features/canvas/hooks/useCanvasNodeGraph';
 import { useCanvasZoom } from '@/features/canvas/hooks/useCanvasZoom';
+import { useIsOverviewCanvasRender } from '@/features/canvas/CanvasPerformanceContext';
 import { ModelParamsControls } from '@/features/canvas/ui/ModelParamsControls';
 import { CanvasNodeImage } from '@/features/canvas/ui/CanvasNodeImage';
 import {
@@ -574,6 +575,7 @@ function generateGridImageDataUrl(
 
 export const StoryboardGenNode = memo(({ id, data, selected, width, height }: StoryboardGenNodeProps) => {
   const { t, i18n } = useTranslation();
+  const isOverviewRender = useIsOverviewCanvasRender();
   const zoom = useCanvasZoom();
   const updateNodeInternals = useUpdateNodeInternals();
   const setSelectedNode = useCanvasStore((state) => state.setSelectedNode);
@@ -1998,22 +2000,28 @@ export const StoryboardGenNode = memo(({ id, data, selected, width, height }: St
 
       {/* Frame summary + grid settings */}
       <div className="mb-2.5 flex shrink-0 items-center justify-between gap-2">
-        <div className="flex items-center gap-1.5">
-          <GridStepperControl
-            label={t('node.storyboardGen.rowsShort')}
-            value={nodeData.gridRows}
-            onDecrease={() => handleRowChange(-1)}
-            onIncrease={() => handleRowChange(1)}
-          />
-          <GridStepperControl
-            label={t('node.storyboardGen.colsShort')}
-            value={nodeData.gridCols}
-            onDecrease={() => handleColChange(-1)}
-            onIncrease={() => handleColChange(1)}
-          />
-        </div>
+        {!isOverviewRender ? (
+          <div className="flex items-center gap-1.5">
+            <GridStepperControl
+              label={t('node.storyboardGen.rowsShort')}
+              value={nodeData.gridRows}
+              onDecrease={() => handleRowChange(-1)}
+              onIncrease={() => handleRowChange(1)}
+            />
+            <GridStepperControl
+              label={t('node.storyboardGen.colsShort')}
+              value={nodeData.gridCols}
+              onDecrease={() => handleColChange(-1)}
+              onIncrease={() => handleColChange(1)}
+            />
+          </div>
+        ) : (
+          <div className={GRID_SUMMARY_CLASS}>
+            {nodeData.gridRows}x{nodeData.gridCols}
+          </div>
+        )}
 
-        {showStoryboardGenAdvancedRatioControls && (
+        {showStoryboardGenAdvancedRatioControls && !isOverviewRender && (
           <div className="min-w-0 flex-1 rounded-full border border-[rgba(255,255,255,0.12)] bg-[rgba(255,255,255,0.04)] px-2 py-0.5 text-center text-[10px] text-text-muted">
             <span>{t('node.storyboardGen.cellAspectRatio')}: {resolvedAspectRatios.cellAspectRatioLabel}</span>
             <span className="mx-1 text-[rgba(255,255,255,0.22)]">|</span>
@@ -2022,7 +2030,7 @@ export const StoryboardGenNode = memo(({ id, data, selected, width, height }: St
         )}
 
         <div className="flex items-center gap-1">
-          {showStoryboardGenAdvancedRatioControls && (
+          {showStoryboardGenAdvancedRatioControls && !isOverviewRender && (
             <div className="flex h-5 items-center rounded-full border border-[rgba(255,255,255,0.14)] bg-[rgba(255,255,255,0.04)] p-0.5">
               <button
                 type="button"
@@ -2080,98 +2088,110 @@ export const StoryboardGenNode = memo(({ id, data, selected, width, height }: St
                 className="relative overflow-hidden rounded border border-[rgba(255,255,255,0.06)] bg-bg-dark/40"
                 style={{ aspectRatio: frameLayout.cellAspectRatio }}
               >
-                <div
-                  ref={(element) => {
-                    frameHighlightRefs.current[frame.id] = element;
-                  }}
-                  aria-hidden="true"
-                  className={`ui-scrollbar pointer-events-none absolute inset-0 overflow-y-auto overflow-x-hidden text-[10px] leading-4 text-text-dark transition-opacity ${showNativeFrameText ? 'opacity-0' : 'opacity-100'}`}
-                  style={{ scrollbarGutter: 'stable' }}
-                >
-                  <div className="canvas-textarea-wrap min-h-full px-1.5 py-1 text-left">
-            {renderFrameDescriptionWithHighlights(frameDescription, incomingImages.length)}
+                {isOverviewRender ? (
+                  <div className="absolute inset-0 overflow-hidden px-1.5 py-1 text-left text-[10px] leading-4 text-text-muted">
+                    <div className="line-clamp-4 break-words">
+                      {frameDescription || t('node.storyboardGen.framePlaceholder', {
+                        index: String(index + 1).padStart(2, '0'),
+                      })}
+                    </div>
                   </div>
-                </div>
-                <div
-                  ref={(element) => {
-                    frameHoverRefs.current[frame.id] = element;
-                  }}
-                  aria-hidden="true"
-                  className={`ui-scrollbar pointer-events-none absolute inset-0 z-20 overflow-y-auto overflow-x-hidden text-[10px] leading-4 text-transparent transition-opacity ${showNativeFrameText ? 'opacity-0' : 'opacity-100'}`}
-                  style={{ scrollbarGutter: 'stable' }}
-                >
-                  <div className="canvas-textarea-wrap min-h-full px-1.5 py-1 text-left">
-                    {renderFrameReferenceHoverTargets(
-                      frameDescription,
-                      incomingImages.length,
-                      handleFrameReferenceTokenHover,
-                      hideFrameReferencePreview,
-                      (tokenEnd, event) => handleFrameReferenceTokenMouseDown(frame.id, tokenEnd, event)
-                    )}
-                  </div>
-                </div>
-                <textarea
-                  ref={(element) => {
-                    frameTextareaRefs.current[frame.id] = element;
-                  }}
-                  value={frameDescription}
-                  onChange={(event) => {
-                    const nextValue = event.target.value;
-                    handleFrameDescriptionChange(index, nextValue);
-                    rememberFrameSelection(frame.id, event.currentTarget);
-                  }}
-                  onBeforeInput={(event) => handleFrameDescriptionBeforeInput(index, event)}
-                  onKeyDown={(event) => handleFrameDescriptionKeyDown(index, event)}
-                  onScroll={() => syncFrameHighlightScroll(frame.id)}
-                  onMouseDown={(event) => {
-                    event.stopPropagation();
-                    hideFrameReferencePreview();
-                  }}
-                  onPointerDown={(event) => {
-                    event.stopPropagation();
-                    lastPointerAnchorRef.current = {
-                      frameIndex: index,
-                      anchor: resolvePointerAnchor(rootRef.current, event.clientX, event.clientY, zoom),
-                    };
-                  }}
-                  onFocus={(event) => {
-                    setActiveFrameId(frame.id);
-                    rememberFrameSelection(frame.id, event.currentTarget);
-                    syncFrameHighlightScroll(frame.id);
-                  }}
-                  onCompositionStart={() => {
-                    setActiveFrameId(frame.id);
-                    setComposingFrameId(frame.id);
-                    hideFrameReferencePreview();
-                  }}
-                  onCompositionEnd={(event) => {
-                    rememberFrameSelection(frame.id, event.currentTarget);
-                    setComposingFrameId((current) => (current === frame.id ? null : current));
-                  }}
-                  onBlur={(event) => {
-                    rememberFrameSelection(frame.id, event.currentTarget);
-                    setActiveFrameId((current) => (current === frame.id ? null : current));
-                    setComposingFrameId((current) => (current === frame.id ? null : current));
-                  }}
-                  onSelect={(event) => rememberFrameSelection(frame.id, event.currentTarget)}
-                  onMouseUp={(event) => rememberFrameSelection(frame.id, event.currentTarget)}
-                  onKeyUp={(event) => rememberFrameSelection(frame.id, event.currentTarget)}
-                  placeholder={t('node.storyboardGen.framePlaceholder', {
-                    index: String(index + 1).padStart(2, '0'),
-                  })}
-                  wrap="soft"
-                  className={`canvas-textarea-wrap ui-scrollbar nodrag nowheel relative z-10 h-full w-full resize-none overflow-y-auto overflow-x-hidden border-none bg-transparent px-1.5 py-1 text-left text-[10px] leading-4 caret-text-dark outline-none placeholder:text-text-muted/40 ${showNativeFrameText
-                    ? 'text-text-dark selection:bg-accent/30'
-                    : 'text-transparent selection:bg-accent/30 selection:text-transparent'
-                    }`}
-                  style={{ scrollbarGutter: 'stable' }}
-                />
+                ) : (
+                  <>
+                    <div
+                      ref={(element) => {
+                        frameHighlightRefs.current[frame.id] = element;
+                      }}
+                      aria-hidden="true"
+                      className={`ui-scrollbar pointer-events-none absolute inset-0 overflow-y-auto overflow-x-hidden text-[10px] leading-4 text-text-dark transition-opacity ${showNativeFrameText ? 'opacity-0' : 'opacity-100'}`}
+                      style={{ scrollbarGutter: 'stable' }}
+                    >
+                      <div className="canvas-textarea-wrap min-h-full px-1.5 py-1 text-left">
+                        {renderFrameDescriptionWithHighlights(frameDescription, incomingImages.length)}
+                      </div>
+                    </div>
+                    <div
+                      ref={(element) => {
+                        frameHoverRefs.current[frame.id] = element;
+                      }}
+                      aria-hidden="true"
+                      className={`ui-scrollbar pointer-events-none absolute inset-0 z-20 overflow-y-auto overflow-x-hidden text-[10px] leading-4 text-transparent transition-opacity ${showNativeFrameText ? 'opacity-0' : 'opacity-100'}`}
+                      style={{ scrollbarGutter: 'stable' }}
+                    >
+                      <div className="canvas-textarea-wrap min-h-full px-1.5 py-1 text-left">
+                        {renderFrameReferenceHoverTargets(
+                          frameDescription,
+                          incomingImages.length,
+                          handleFrameReferenceTokenHover,
+                          hideFrameReferencePreview,
+                          (tokenEnd, event) => handleFrameReferenceTokenMouseDown(frame.id, tokenEnd, event)
+                        )}
+                      </div>
+                    </div>
+                    <textarea
+                      ref={(element) => {
+                        frameTextareaRefs.current[frame.id] = element;
+                      }}
+                      value={frameDescription}
+                      onChange={(event) => {
+                        const nextValue = event.target.value;
+                        handleFrameDescriptionChange(index, nextValue);
+                        rememberFrameSelection(frame.id, event.currentTarget);
+                      }}
+                      onBeforeInput={(event) => handleFrameDescriptionBeforeInput(index, event)}
+                      onKeyDown={(event) => handleFrameDescriptionKeyDown(index, event)}
+                      onScroll={() => syncFrameHighlightScroll(frame.id)}
+                      onMouseDown={(event) => {
+                        event.stopPropagation();
+                        hideFrameReferencePreview();
+                      }}
+                      onPointerDown={(event) => {
+                        event.stopPropagation();
+                        lastPointerAnchorRef.current = {
+                          frameIndex: index,
+                          anchor: resolvePointerAnchor(rootRef.current, event.clientX, event.clientY, zoom),
+                        };
+                      }}
+                      onFocus={(event) => {
+                        setActiveFrameId(frame.id);
+                        rememberFrameSelection(frame.id, event.currentTarget);
+                        syncFrameHighlightScroll(frame.id);
+                      }}
+                      onCompositionStart={() => {
+                        setActiveFrameId(frame.id);
+                        setComposingFrameId(frame.id);
+                        hideFrameReferencePreview();
+                      }}
+                      onCompositionEnd={(event) => {
+                        rememberFrameSelection(frame.id, event.currentTarget);
+                        setComposingFrameId((current) => (current === frame.id ? null : current));
+                      }}
+                      onBlur={(event) => {
+                        rememberFrameSelection(frame.id, event.currentTarget);
+                        setActiveFrameId((current) => (current === frame.id ? null : current));
+                        setComposingFrameId((current) => (current === frame.id ? null : current));
+                      }}
+                      onSelect={(event) => rememberFrameSelection(frame.id, event.currentTarget)}
+                      onMouseUp={(event) => rememberFrameSelection(frame.id, event.currentTarget)}
+                      onKeyUp={(event) => rememberFrameSelection(frame.id, event.currentTarget)}
+                      placeholder={t('node.storyboardGen.framePlaceholder', {
+                        index: String(index + 1).padStart(2, '0'),
+                      })}
+                      wrap="soft"
+                      className={`canvas-textarea-wrap ui-scrollbar nodrag nowheel relative z-10 h-full w-full resize-none overflow-y-auto overflow-x-hidden border-none bg-transparent px-1.5 py-1 text-left text-[10px] leading-4 caret-text-dark outline-none placeholder:text-text-muted/40 ${showNativeFrameText
+                        ? 'text-text-dark selection:bg-accent/30'
+                        : 'text-transparent selection:bg-accent/30 selection:text-transparent'
+                        }`}
+                      style={{ scrollbarGutter: 'stable' }}
+                    />
+                  </>
+                )}
               </div>
             );
           })}
         </div>
 
-        {frameReferencePreview ? (
+        {frameReferencePreview && !isOverviewRender ? (
           <div
             className="pointer-events-none absolute z-30 w-fit overflow-hidden rounded-xl shadow-[0_12px_28px_rgba(0,0,0,0.28)]"
             style={{
@@ -2191,7 +2211,7 @@ export const StoryboardGenNode = memo(({ id, data, selected, width, height }: St
         ) : null}
       </div>
 
-      {showImagePicker && incomingImageItems.length > 0 && (
+      {showImagePicker && incomingImageItems.length > 0 && !isOverviewRender && (
         <div
           className="nowheel absolute z-30 w-[120px] overflow-hidden rounded-xl border border-[rgba(255,255,255,0.16)] bg-surface-dark shadow-xl"
           style={{ left: pickerAnchor.left, top: pickerAnchor.top }}
@@ -2231,61 +2251,63 @@ export const StoryboardGenNode = memo(({ id, data, selected, width, height }: St
       )}
 
       {/* AI Parameters */}
-      <div
-        className="relative mx-auto mt-auto flex shrink-0 items-center justify-between"
-        style={{ width: `${frameLayout.paramsRowWidth}px` }}
-      >
-        <ModelParamsControls
-          imageModels={imageModels}
-          selectedModel={selectedModel}
-          resolutionOptions={resolutionOptions}
-          selectedResolution={selectedResolution}
-          selectedAspectRatio={selectedAspectRatio}
-          aspectRatioOptions={aspectRatioOptions}
-          onModelChange={(modelId) => updateNodeData(id, { model: modelId })}
-          onResolutionChange={(resolution) =>
-            updateNodeData(id, { size: resolution as ImageSize })
-          }
-          onAspectRatioChange={(aspectRatio) =>
-            updateNodeData(id, { requestAspectRatio: aspectRatio })
-          }
-          extraParams={resolvedModelExtraParams}
-          onExtraParamChange={(key, value) => {
-            updateNodeData(id, {
-              extraParams: {
-                ...(nodeData.extraParams ?? {}),
-                [key]: value,
-              },
-            });
-            setLastImageGenerationExtraParams({ [key]: value });
-          }}
-          triggerSize="sm"
-          chipClassName={NODE_CONTROL_CHIP_CLASS}
-          modelChipClassName={NODE_CONTROL_MODEL_CHIP_CLASS}
-          paramsChipClassName={NODE_CONTROL_PARAMS_CHIP_CLASS}
-          modelPanelAlign="center"
-          paramsPanelAlign="center"
-          modelPanelClassName="w-[560px] max-w-[calc(100vw-32px)] p-2"
-          paramsPanelClassName="w-[420px] p-3"
-        />
-
-        <div className="p-2 -m-2 shrink-0">
-          <UiButton
-            onClick={(event: ReactMouseEvent<HTMLButtonElement>) => {
-              event.stopPropagation();
-              const previewGridOnly =
-                enableStoryboardGenGridPreviewShortcut && event.ctrlKey && event.altKey && event.shiftKey;
-              void handleGenerate(previewGridOnly);
+      {!isOverviewRender ? (
+        <div
+          className="relative mx-auto mt-auto flex shrink-0 items-center justify-between"
+          style={{ width: `${frameLayout.paramsRowWidth}px` }}
+        >
+          <ModelParamsControls
+            imageModels={imageModels}
+            selectedModel={selectedModel}
+            resolutionOptions={resolutionOptions}
+            selectedResolution={selectedResolution}
+            selectedAspectRatio={selectedAspectRatio}
+            aspectRatioOptions={aspectRatioOptions}
+            onModelChange={(modelId) => updateNodeData(id, { model: modelId })}
+            onResolutionChange={(resolution) =>
+              updateNodeData(id, { size: resolution as ImageSize })
+            }
+            onAspectRatioChange={(aspectRatio) =>
+              updateNodeData(id, { requestAspectRatio: aspectRatio })
+            }
+            extraParams={resolvedModelExtraParams}
+            onExtraParamChange={(key, value) => {
+              updateNodeData(id, {
+                extraParams: {
+                  ...(nodeData.extraParams ?? {}),
+                  [key]: value,
+                },
+              });
+              setLastImageGenerationExtraParams({ [key]: value });
             }}
-            variant="primary"
-            size="sm"
-            className={`!min-w-0 ${NODE_CONTROL_PRIMARY_BUTTON_CLASS}`}
-          >
-            <Sparkles className={NODE_CONTROL_GENERATE_ICON_CLASS} strokeWidth={2.5} />
-            {t('canvas.generate')}
-          </UiButton>
+            triggerSize="sm"
+            chipClassName={NODE_CONTROL_CHIP_CLASS}
+            modelChipClassName={NODE_CONTROL_MODEL_CHIP_CLASS}
+            paramsChipClassName={NODE_CONTROL_PARAMS_CHIP_CLASS}
+            modelPanelAlign="center"
+            paramsPanelAlign="center"
+            modelPanelClassName="w-[560px] max-w-[calc(100vw-32px)] p-2"
+            paramsPanelClassName="w-[420px] p-3"
+          />
+
+          <div className="p-2 -m-2 shrink-0">
+            <UiButton
+              onClick={(event: ReactMouseEvent<HTMLButtonElement>) => {
+                event.stopPropagation();
+                const previewGridOnly =
+                  enableStoryboardGenGridPreviewShortcut && event.ctrlKey && event.altKey && event.shiftKey;
+                void handleGenerate(previewGridOnly);
+              }}
+              variant="primary"
+              size="sm"
+              className={`!min-w-0 ${NODE_CONTROL_PRIMARY_BUTTON_CLASS}`}
+            >
+              <Sparkles className={NODE_CONTROL_GENERATE_ICON_CLASS} strokeWidth={2.5} />
+              {t('canvas.generate')}
+            </UiButton>
+          </div>
         </div>
-      </div>
+      ) : null}
 
       <Handle
         type="target"

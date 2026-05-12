@@ -139,6 +139,11 @@ import { useGenerationHistoryStore } from '@/stores/generationHistoryStore';
 import { CanvasColorLegend } from './ui/CanvasColorLegend';
 import { CanvasZoomIndicator } from './ui/CanvasZoomIndicator';
 import { GenerationHistoryPanel } from './ui/GenerationHistoryPanel';
+import {
+  CanvasPerformanceContext,
+  type CanvasEdgeRenderMode,
+  type CanvasRenderMode,
+} from './CanvasPerformanceContext';
 import { withSemanticNodePresentation } from './ui/nodeSemanticStyles';
 import {
   createDefaultCanvasColorLabelMap,
@@ -250,6 +255,15 @@ interface EdgeCutGestureState {
   hitEdgeIds: Set<string>;
 }
 
+interface AlignmentDragSession {
+  startNodeId: string;
+  startPosition: CanvasPoint;
+  draggedNodeIds: string[];
+  draggedNodeIdSet: Set<string>;
+  otherNodes: CanvasNode[] | null;
+  hasMovedEnough: boolean;
+}
+
 type ImageCompareValidationReason =
   | 'invalidNode'
   | 'missingImage'
@@ -259,6 +273,12 @@ type ImageCompareValidationReason =
 
 const ALT_DRAG_COPY_Z_INDEX = 2000;
 const SCRIPT_CHAPTER_NODE_DRAG_HANDLE_SELECTOR = '.script-chapter-node__drag-handle';
+const NODE_ALIGNMENT_DRAG_START_THRESHOLD = 4;
+const CANVAS_OVERVIEW_ZOOM_ENTER = 0.6;
+const CANVAS_OVERVIEW_ZOOM_EXIT = 0.68;
+const CANVAS_EDGE_HIDDEN_ZOOM_ENTER = 0.35;
+const CANVAS_EDGE_HIDDEN_ZOOM_EXIT = 0.4;
+const CANVAS_OVERVIEW_RESTORE_DELAY_MS = 120;
 const GENERATION_JOB_POLL_INTERVAL_MS = 1400;
 const GENERATION_JOB_RECOVERY_THRESHOLD_MS = 2 * 60 * 1000;
 const GENERATION_JOB_RECOVERY_SWEEP_INTERVAL_MS = 15 * 1000;
@@ -1052,7 +1072,6 @@ export function Canvas() {
   const [hasMountedImageViewer, setHasMountedImageViewer] = useState(false);
   const [alignmentGuides, setAlignmentGuides] = useState<AlignmentGuide[]>([]);
   const [isDraggingNode, setIsDraggingNode] = useState(false);
-  const [isViewportInteracting, setIsViewportInteracting] = useState(false);
   const [isDraggingBranchConnection, setIsDraggingBranchConnection] = useState(false);
   const [branchConnectionSource, setBranchConnectionSource] = useState<CanvasNode[]>([]);
   const [branchConnectionPosition, setBranchConnectionPosition] = useState<{ x: number; y: number } | null>(null);
@@ -1081,9 +1100,14 @@ export function Canvas() {
   const [edgeCutVisual, setEdgeCutVisual] = useState<EdgeCutGestureVisual | null>(null);
   const [edgeCutNoticeCount, setEdgeCutNoticeCount] = useState<number | null>(null);
   const [isCanvasSelectionKeyPressed, setIsCanvasSelectionKeyPressed] = useState(false);
+  const [canvasRenderMode, setCanvasRenderMode] = useState<CanvasRenderMode>('full');
+  const [canvasEdgeRenderMode, setCanvasEdgeRenderMode] = useState<CanvasEdgeRenderMode>('full');
+  const [isNodeDragInteracting, setIsNodeDragInteracting] = useState(false);
 
   const isRestoringCanvasRef = useRef(true);
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const skipNextCanvasAutoPersistRef = useRef(false);
+  const canvasOverviewRestoreTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const copiedSnapshotRef = useRef<ClipboardSnapshot | null>(null);
   const pasteIterationRef = useRef(0);
   const pasteImageHandledRef = useRef(false);
@@ -1094,6 +1118,7 @@ export function Canvas() {
   const alignmentFrameRef = useRef<number | null>(null);
   const restoredCanvasProjectIdRef = useRef<string | null>(null);
   const pendingAlignmentNodeRef = useRef<CanvasNode | null>(null);
+  const alignmentDragSessionRef = useRef<AlignmentDragSession | null>(null);
   const activeGenerationPollNodeIdsRef = useRef(new Set<string>());
   const activeGenerationRecoveryNodeIdsRef = useRef(new Set<string>());
   const generationNodeActivityAtRef = useRef(new Map<string, number>());
@@ -1125,6 +1150,8 @@ export function Canvas() {
   const edges = useCanvasStore((state) => state.edges);
   const history = useCanvasStore((state) => state.history);
   const dragHistorySnapshot = useCanvasStore((state) => state.dragHistorySnapshot);
+  const canvasViewport = useCanvasStore((state) => state.currentViewport);
+  const canvasZoom = canvasViewport.zoom;
   const applyNodesChange = useCanvasStore((state) => state.onNodesChange);
   const applyEdgesChange = useCanvasStore((state) => state.onEdgesChange);
   const connectNodes = useCanvasStore((state) => state.onConnect);
@@ -1341,6 +1368,61 @@ export function Canvas() {
     [setViewportState]
   );
 
+  useEffect(() => {
+    if (canvasOverviewRestoreTimerRef.current) {
+      clearTimeout(canvasOverviewRestoreTimerRef.current);
+      canvasOverviewRestoreTimerRef.current = null;
+    }
+
+    if (canvasZoom <= CANVAS_OVERVIEW_ZOOM_ENTER) {
+      setCanvasRenderMode((currentMode) => (
+        currentMode === 'overview' ? currentMode : 'overview'
+      ));
+      return undefined;
+    }
+
+    if (canvasZoom >= CANVAS_OVERVIEW_ZOOM_EXIT) {
+      canvasOverviewRestoreTimerRef.current = setTimeout(() => {
+        canvasOverviewRestoreTimerRef.current = null;
+        setCanvasRenderMode((currentMode) => (
+          currentMode === 'full' ? currentMode : 'full'
+        ));
+      }, CANVAS_OVERVIEW_RESTORE_DELAY_MS);
+    }
+
+    return undefined;
+  }, [canvasZoom]);
+
+  useEffect(() => {
+    setCanvasEdgeRenderMode((currentMode) => {
+      if (canvasZoom <= CANVAS_EDGE_HIDDEN_ZOOM_ENTER) {
+        return 'hidden';
+      }
+
+      if (currentMode === 'hidden' && canvasZoom < CANVAS_EDGE_HIDDEN_ZOOM_EXIT) {
+        return 'hidden';
+      }
+
+      if (canvasRenderMode === 'overview') {
+        return 'light';
+      }
+
+      return 'full';
+    });
+  }, [canvasRenderMode, canvasZoom]);
+
+  const canvasPerformanceState = useMemo(
+    () => ({
+      renderMode: canvasRenderMode,
+      edgeRenderMode: canvasEdgeRenderMode,
+      suspendMedia: canvasRenderMode === 'overview',
+    }),
+    [canvasEdgeRenderMode, canvasRenderMode]
+  );
+  const isCanvasOverviewRender = canvasRenderMode === 'overview';
+  const shouldHideCanvasChrome = isCanvasOverviewRender;
+  const shouldHideSelectionChrome = shouldHideCanvasChrome || isNodeDragInteracting;
+
   const clearDragOverlay = useCallback(() => {
     if (dragOverlayClearTimerRef.current) {
       clearTimeout(dragOverlayClearTimerRef.current);
@@ -1391,21 +1473,47 @@ export function Canvas() {
       return;
     }
 
+    let alignmentSession = alignmentDragSessionRef.current;
+    const currentNodes = useCanvasStore.getState().nodes;
+    if (!alignmentSession || alignmentSession.startNodeId !== pendingNode.id) {
+      const draggedNodeIds = currentNodes.some(
+        (candidate) => candidate.id === pendingNode.id && candidate.selected
+      )
+        ? currentNodes
+          .filter((candidate) => candidate.selected)
+          .map((candidate) => candidate.id)
+        : [pendingNode.id];
+      alignmentSession = {
+        startNodeId: pendingNode.id,
+        startPosition: pendingNode.position,
+        draggedNodeIds,
+        draggedNodeIdSet: new Set(draggedNodeIds),
+        otherNodes: null,
+        hasMovedEnough: false,
+      };
+      alignmentDragSessionRef.current = alignmentSession;
+    }
+
+    if (!alignmentSession.hasMovedEnough) {
+      const deltaX = pendingNode.position.x - alignmentSession.startPosition.x;
+      const deltaY = pendingNode.position.y - alignmentSession.startPosition.y;
+      if (Math.hypot(deltaX, deltaY) < NODE_ALIGNMENT_DRAG_START_THRESHOLD) {
+        return;
+      }
+      alignmentSession.hasMovedEnough = true;
+    }
+
     setIsDraggingNode(true);
 
-    const currentNodes = useCanvasStore.getState().nodes;
-    const draggedNodeIds = currentNodes.some(
-      (candidate) => candidate.id === pendingNode.id && candidate.selected
-    )
-      ? currentNodes
-        .filter((candidate) => candidate.selected)
-        .map((candidate) => candidate.id)
-      : [pendingNode.id];
-    const draggedNodeIdSet = new Set(draggedNodeIds);
-    const otherNodes = currentNodes.filter(
-      (candidate) =>
-        !draggedNodeIdSet.has(candidate.id) && candidate.parentId === pendingNode.parentId
-    );
+    if (!alignmentSession.otherNodes) {
+      alignmentSession.otherNodes = currentNodes.filter(
+        (candidate) =>
+          !alignmentSession.draggedNodeIdSet.has(candidate.id) &&
+          candidate.parentId === pendingNode.parentId
+      );
+    }
+
+    const otherNodes = alignmentSession.otherNodes;
 
     if (otherNodes.length === 0) {
       setAlignmentGuides((previousGuides) => (previousGuides.length === 0 ? previousGuides : []));
@@ -1430,7 +1538,7 @@ export function Canvas() {
       return;
     }
 
-    const snapChanges = draggedNodeIds
+    const snapChanges = alignmentSession.draggedNodeIds
       .map((draggedNodeId) => {
         const currentNode =
           draggedNodeId === pendingNode.id
@@ -1505,7 +1613,12 @@ export function Canvas() {
         cancelAnimationFrame(alignmentFrameRef.current);
         alignmentFrameRef.current = null;
       }
+      if (canvasOverviewRestoreTimerRef.current) {
+        clearTimeout(canvasOverviewRestoreTimerRef.current);
+        canvasOverviewRestoreTimerRef.current = null;
+      }
       pendingAlignmentNodeRef.current = null;
+      alignmentDragSessionRef.current = null;
     };
   }, []);
 
@@ -2088,6 +2201,11 @@ export function Canvas() {
       return;
     }
 
+    if (skipNextCanvasAutoPersistRef.current) {
+      skipNextCanvasAutoPersistRef.current = false;
+      return;
+    }
+
     scheduleCanvasPersist();
   }, [nodes, edges, history, dragHistorySnapshot, scheduleCanvasPersist]);
 
@@ -2345,7 +2463,17 @@ export function Canvas() {
 
   const handleNodesChange = useCallback(
     (changes: NodeChange<CanvasNode>[]) => {
+      if (changes.length === 0) {
+        return;
+      }
+
       applyNodesChange(changes);
+
+      const hasMeaningfulChange = changes.some((change) => change.type !== 'select');
+      if (!hasMeaningfulChange) {
+        skipNextCanvasAutoPersistRef.current = true;
+        return;
+      }
 
       const hasDragMove = changes.some(
         (change) =>
@@ -2390,7 +2518,17 @@ export function Canvas() {
 
   const handleEdgesChange = useCallback(
     (changes: EdgeChange<CanvasEdge>[]) => {
+      if (changes.length === 0) {
+        return;
+      }
+
       applyEdgesChange(changes);
+      const hasMeaningfulChange = changes.some((change) => change.type !== 'select');
+      if (!hasMeaningfulChange) {
+        skipNextCanvasAutoPersistRef.current = true;
+        return;
+      }
+
       scheduleCanvasPersist();
     },
     [applyEdgesChange, scheduleCanvasPersist]
@@ -2424,7 +2562,6 @@ export function Canvas() {
 
   const handleMoveEnd = useCallback(
     (_event: unknown, viewport: Viewport) => {
-      setIsViewportInteracting(false);
       syncViewportState(viewport);
       const project = getCurrentProject();
       if (!project || isRestoringCanvasRef.current) {
@@ -2443,7 +2580,6 @@ export function Canvas() {
   );
 
   const handleMoveStart = useCallback(() => {
-    setIsViewportInteracting(true);
     cancelPendingViewportPersist();
   }, [cancelPendingViewportPersist]);
 
@@ -2506,7 +2642,6 @@ export function Canvas() {
     const resetEdgeCutGesture = () => {
       edgeCutGestureRef.current = null;
       setEdgeCutVisual(null);
-      setIsViewportInteracting(false);
     };
 
     const handlePointerDown = (event: PointerEvent) => {
@@ -2540,7 +2675,6 @@ export function Canvas() {
         hitEdgeIds: new Set<string>(),
       };
       wrapperElement.setPointerCapture?.(event.pointerId);
-      setIsViewportInteracting(true);
       setEdgeCutVisual({
         screenPoints: [firstScreenPoint],
         hitEdgeIds: [],
@@ -2653,7 +2787,6 @@ export function Canvas() {
         zoom: viewport.zoom,
         moved: false,
       };
-      setIsViewportInteracting(true);
       cancelPendingViewportPersist();
     };
 
@@ -2691,7 +2824,6 @@ export function Canvas() {
       }
 
       edgePanGestureRef.current = null;
-      setIsViewportInteracting(false);
       if (!gesture.moved) {
         return;
       }
@@ -3244,7 +3376,6 @@ export function Canvas() {
     const handlePointerUp = () => {
       connectionPointerRef.current = null;
       connectionSpacePanActiveRef.current = false;
-      setIsViewportInteracting(false);
     };
 
     window.addEventListener('pointermove', handlePointerMove, true);
@@ -3272,7 +3403,6 @@ export function Canvas() {
 
     connectionSpacePanMovedRef.current = false;
     const viewport = reactFlowInstance.getViewport();
-    setIsViewportInteracting(false);
     syncViewportState(viewport);
     const currentProject = getCurrentProject();
     if (!currentProject || isRestoringCanvasRef.current) {
@@ -3306,7 +3436,6 @@ export function Canvas() {
       if (event.key === ' ' && pendingConnectStart) {
         event.preventDefault();
         connectionSpacePanActiveRef.current = true;
-        setIsViewportInteracting(true);
         cancelPendingViewportPersist();
         return;
       }
@@ -3429,7 +3558,6 @@ export function Canvas() {
       if (event.key === ' ') {
         connectionSpacePanActiveRef.current = false;
         connectionPointerRef.current = null;
-        setIsViewportInteracting(false);
       }
     };
     document.addEventListener('keyup', handleKeyUp);
@@ -4606,14 +4734,32 @@ export function Canvas() {
 
   const handleNodeDragStart = useCallback(
     (event: ReactMouseEvent, node: CanvasNode) => {
+      setIsNodeDragInteracting(true);
+      if (alignmentFrameRef.current !== null) {
+        cancelAnimationFrame(alignmentFrameRef.current);
+        alignmentFrameRef.current = null;
+      }
+      pendingAlignmentNodeRef.current = null;
+      alignmentDragSessionRef.current = null;
+
+      const draggedNodeIds = selectedNodeIds.includes(node.id)
+        ? selectedNodeIds
+        : [node.id];
+
       if (!event.altKey) {
         altDragCopyRef.current = null;
+        alignmentDragSessionRef.current = {
+          startNodeId: node.id,
+          startPosition: { x: node.position.x, y: node.position.y },
+          draggedNodeIds,
+          draggedNodeIdSet: new Set(draggedNodeIds),
+          otherNodes: null,
+          hasMovedEnough: false,
+        };
         return;
       }
 
-      const sourceNodeIds = selectedNodeIds.includes(node.id)
-        ? selectedNodeIds
-        : [node.id];
+      const sourceNodeIds = draggedNodeIds;
       if (sourceNodeIds.length === 0) {
         altDragCopyRef.current = null;
         return;
@@ -4752,11 +4898,13 @@ export function Canvas() {
 
   const handleNodeDragStop = useCallback(
     (_event: ReactMouseEvent, node: CanvasNode) => {
+      setIsNodeDragInteracting(false);
       if (alignmentFrameRef.current !== null) {
         cancelAnimationFrame(alignmentFrameRef.current);
         alignmentFrameRef.current = null;
       }
       pendingAlignmentNodeRef.current = null;
+      alignmentDragSessionRef.current = null;
       setIsDraggingNode(false);
       // Clear alignment guides after drag ends.
       setAlignmentGuides((previousGuides) => (previousGuides.length === 0 ? previousGuides : []));
@@ -5195,10 +5343,18 @@ export function Canvas() {
         : edge
     ));
   }, [edgeCutHitEdgeIds, edges]);
+  const visibleFlowEdges = useMemo<CanvasEdge[]>(
+    () => (canvasEdgeRenderMode === 'hidden' ? [] : flowEdges),
+    [canvasEdgeRenderMode, flowEdges]
+  );
   const colorLegendLabels = project?.colorLabels ?? createDefaultCanvasColorLabelMap();
   const selectedColorableNodes = useMemo<CanvasNode[]>(
-    () => selectedNodes.filter((node) => node.type !== CANVAS_NODE_TYPES.group),
-    [selectedNodes]
+    () => (
+      isNodeDragInteracting
+        ? []
+        : selectedNodes.filter((node) => node.type !== CANVAS_NODE_TYPES.group)
+    ),
+    [isNodeDragInteracting, selectedNodes]
   );
   const activeSelectedSemanticColor = useMemo<CanvasSemanticColor | null>(() => {
     if (selectedColorableNodes.length === 0) {
@@ -5218,12 +5374,16 @@ export function Canvas() {
       : null;
   }, [selectedColorableNodes]);
   const selectedNodesForOverlay = useMemo<CanvasNode[]>(() => {
+    if (isNodeDragInteracting) {
+      return [];
+    }
+
     const nodeMap = new globalThis.Map(nodes.map((node) => [node.id, node] as const));
     return selectedNodes.map((node) => ({
       ...node,
       position: resolveAbsoluteNodePosition(node, nodeMap),
     }));
-  }, [nodes, selectedNodes]);
+  }, [isNodeDragInteracting, nodes, selectedNodes]);
   const activeDirectorStageNode = useMemo(
     () => nodes.find(
       (node) =>
@@ -5266,8 +5426,12 @@ export function Canvas() {
     }
   }, [activeDirectorStageNode, activeDirectorStageNodeId, closeDirectorStage]);
   const selectedDownloadNodes = useMemo(
-    () =>
-      selectedNodes.flatMap((node, index) => {
+    () => {
+      if (isNodeDragInteracting) {
+        return [];
+      }
+
+      return selectedNodes.flatMap((node, index) => {
         const downloadSource = getNodePrimaryDownloadSource(node);
         if (!downloadSource) {
           return [];
@@ -5283,8 +5447,9 @@ export function Canvas() {
             ),
           },
         ];
-      }),
-    [selectedNodes]
+      });
+    },
+    [isNodeDragInteracting, selectedNodes]
   );
   const handleApplySemanticColor = useCallback((color: CanvasSemanticColor) => {
     applySemanticColorToSelected(color);
@@ -5398,6 +5563,7 @@ export function Canvas() {
   }, [branchConnectionSource, addNode, connectNodesWithBusinessRules, resetBranchConnectionState, scheduleCanvasPersist]);
 
   return (
+    <CanvasPerformanceContext.Provider value={canvasPerformanceState}>
     <div ref={wrapperRef} className="relative h-full w-full flex">
       {isScriptProject && (
         <Suspense fallback={null}>
@@ -5417,7 +5583,7 @@ export function Canvas() {
         </Suspense>
       )}
       <div ref={reactFlowWrapperRef} className="relative min-w-0 flex-1">
-      {!isImageViewerOpen && (
+      {!isImageViewerOpen && !shouldHideSelectionChrome && (
         <CanvasColorLegend
           colorLabels={colorLegendLabels}
           eligibleSelectedCount={selectedColorableNodes.length}
@@ -5446,7 +5612,7 @@ export function Canvas() {
           </div>
         </div>
       )}
-      {!isImageViewerOpen && (
+      {!isImageViewerOpen && !shouldHideCanvasChrome && (
         <GroupSidebar
           groups={groupNodesList}
           selectedGroupId={selectedGroupId}
@@ -5456,7 +5622,7 @@ export function Canvas() {
       )}
       <ReactFlow
         nodes={flowNodes}
-        edges={flowEdges}
+        edges={visibleFlowEdges}
         onNodesChange={handleNodesChange}
         onEdgesChange={handleEdgesChange}
         onEdgeClick={handleEdgeClick}
@@ -5493,16 +5659,16 @@ export function Canvas() {
         snapToGrid={snapToGrid}
         snapGrid={[snapGridSize, snapGridSize]}
         proOptions={{ hideAttribution: true }}
-        className="bg-bg-dark"
+        className={`bg-bg-dark ${isCanvasOverviewRender ? 'canvas-render-overview' : 'canvas-render-full'}`}
       >
         <Background
           variant={BackgroundVariant.Dots}
           gap={snapGridSize}
           size={1.5}
-          color={showGrid ? "var(--canvas-grid-dot)" : "transparent"}
+          color={showGrid && !shouldHideCanvasChrome ? "var(--canvas-grid-dot)" : "transparent"}
         />
         
-        {showMiniMap && !isViewportInteracting && !isImageViewerOpen && (
+        {showMiniMap && !shouldHideCanvasChrome && !isImageViewerOpen && (
           <MiniMap
             className="canvas-minimap nopan nowheel !border-border-dark !bg-surface-dark"
             style={{ pointerEvents: 'all', zIndex: 10000, bottom: 84, right: 16 }}
@@ -5513,8 +5679,8 @@ export function Canvas() {
           />
         )}
 
-        <SelectedNodeOverlay />
-        {!isViewportInteracting && !isImageViewerOpen && (
+        {!shouldHideSelectionChrome && <SelectedNodeOverlay />}
+        {!shouldHideSelectionChrome && !isImageViewerOpen && (
           <SelectionGroupBar
             selectedNodes={selectedNodesForOverlay}
             onGroup={handleGroupSelectedNodes}
@@ -5554,7 +5720,7 @@ export function Canvas() {
       )}
 
       {/* 合并锚点 - 多选时显示 */}
-      {selectedNodes.length >= 2 && !isDraggingBranchConnection && !isViewportInteracting && !isImageViewerOpen && (
+      {selectedNodes.length >= 2 && !isDraggingBranchConnection && !shouldHideSelectionChrome && !isImageViewerOpen && (
         <MergedConnectionAnchor
           selectedNodes={selectedNodesForOverlay}
           onMouseDown={handleMergedAnchorMouseDown}
@@ -5562,7 +5728,7 @@ export function Canvas() {
       )}
 
       {/* 分支连线预览 */}
-      {isDraggingBranchConnection && branchConnectionPosition && !isViewportInteracting && !isImageViewerOpen && (
+      {isDraggingBranchConnection && branchConnectionPosition && !shouldHideCanvasChrome && !isImageViewerOpen && (
         <BranchConnectionPreview
           sourceNodes={branchConnectionSource}
           currentPosition={branchConnectionPosition}
@@ -5570,7 +5736,7 @@ export function Canvas() {
       )}
 
       {/* 批量操作菜单 */}
-      {showBatchMenu && branchConnectionSource.length > 0 && !isImageViewerOpen && (
+      {showBatchMenu && branchConnectionSource.length > 0 && !shouldHideSelectionChrome && !isImageViewerOpen && (
         <BatchOperationMenu
           position={batchMenuPosition}
           sourceNodeIds={branchConnectionSource.map(n => n.id)}
@@ -5582,7 +5748,7 @@ export function Canvas() {
       )}
 
       {/* 右下角控制条 */}
-      {!isImageViewerOpen && <CanvasAssetDock />}
+      {!isImageViewerOpen && !shouldHideCanvasChrome && <CanvasAssetDock />}
 
       {!isImageViewerOpen && (
         <div 
@@ -5880,5 +6046,6 @@ export function Canvas() {
         </Suspense>
       )}
     </div>
+    </CanvasPerformanceContext.Provider>
   );
 }

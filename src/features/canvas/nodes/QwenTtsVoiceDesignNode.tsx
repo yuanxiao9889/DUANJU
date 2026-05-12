@@ -31,6 +31,8 @@ import {
 import { resolveNodeDisplayName } from '@/features/canvas/domain/nodeDisplay';
 import { NodeHeader, NODE_HEADER_FLOATING_POSITION_CLASS } from '@/features/canvas/ui/NodeHeader';
 import { NodeStatusBadge } from '@/features/canvas/ui/NodeStatusBadge';
+import { useIsOverviewCanvasRender } from '@/features/canvas/CanvasPerformanceContext';
+import { useCanvasConnectedTextInput } from '@/features/canvas/hooks/useCanvasNodeGraph';
 import {
   generateQwenTtsVoiceDesignAudio,
   resolveQwenTtsExtensionState,
@@ -51,7 +53,6 @@ import {
   MAX_NEW_TOKEN_OPTIONS,
   OUTPUT_FORMAT_OPTIONS,
   QWEN_TTS_PAUSE_FIELDS,
-  resolveConnectedTtsText,
   resolvePauseConfig,
   resolvePitchDescriptorKey,
   resolveRuntimeTone,
@@ -204,14 +205,14 @@ export const QwenTtsVoiceDesignNode = memo(({
   selected,
 }: QwenTtsVoiceDesignNodeProps) => {
   const { t, i18n } = useTranslation();
+  const isOverviewRender = useIsOverviewCanvasRender();
   const updateNodeInternals = useUpdateNodeInternals();
   const setSelectedNode = useCanvasStore((state) => state.setSelectedNode);
   const updateNodeData = useCanvasStore((state) => state.updateNodeData);
   const addNode = useCanvasStore((state) => state.addNode);
   const addEdge = useCanvasStore((state) => state.addEdge);
   const findNodePosition = useCanvasStore((state) => state.findNodePosition);
-  const nodes = useCanvasStore((state) => state.nodes);
-  const edges = useCanvasStore((state) => state.edges);
+  const { connectedText } = useCanvasConnectedTextInput(id);
   const voicePromptTextareaRef = useRef<HTMLTextAreaElement | null>(null);
   const voicePromptValueRef = useRef(data.voicePrompt ?? '');
   const extensionPackages = useExtensionsStore((state) => state.packages);
@@ -236,11 +237,6 @@ export const QwenTtsVoiceDesignNode = memo(({
   const isExtensionReady = Boolean(readyExtensionPackage);
   const isExtensionStarting = extensionRuntime?.status === 'starting';
   const supportsMp3Output = activeExtensionPackage?.id === QWEN_TTS_COMPLETE_EXTENSION_ID;
-
-  const connectedText = useMemo(
-    () => resolveConnectedTtsText(id, nodes, edges),
-    [edges, id, nodes]
-  );
 
   const speakingRate = typeof data.speakingRate === 'number' ? data.speakingRate : 1;
   const pitch = typeof data.pitch === 'number' ? data.pitch : 0;
@@ -298,23 +294,27 @@ export const QwenTtsVoiceDesignNode = memo(({
   const speakingRateDescriptor = t(resolveSpeakingRateDescriptorKey(speakingRate));
   const pitchDescriptor = t(resolvePitchDescriptorKey(pitch));
   const pitchValueLabel = pitch > 0 ? `+${pitch}` : `${pitch}`;
-  const pendingAudioTaskCount = useMemo(() => {
-    const nodeMap = new Map(nodes.map((node) => [node.id, node] as const));
-    return edges
-      .filter((edge) => edge.source === id)
-      .map((edge) => nodeMap.get(edge.target))
-      .filter((node): node is NonNullable<typeof node> => Boolean(node))
-      .filter((node) => node.type === CANVAS_NODE_TYPES.audio)
-      .map((node) => node.data as AudioNodeData)
-      .filter((audioData) => {
-        if (audioData.generationSource !== 'ttsVoiceDesign' || audioData.audioUrl) {
-          return false;
-        }
+  const pendingAudioTaskCountSelector = useMemo(
+    () => (state: ReturnType<typeof useCanvasStore.getState>) => {
+      const nodeMap = new Map(state.nodes.map((node) => [node.id, node] as const));
+      return state.edges
+        .filter((edge) => edge.source === id)
+        .map((edge) => nodeMap.get(edge.target))
+        .filter((node): node is NonNullable<typeof node> => Boolean(node))
+        .filter((node) => node.type === CANVAS_NODE_TYPES.audio)
+        .map((node) => node.data as AudioNodeData)
+        .filter((audioData) => {
+          if (audioData.generationSource !== 'ttsVoiceDesign' || audioData.audioUrl) {
+            return false;
+          }
 
-        return audioData.isGenerating || typeof audioData.queuePosition === 'number';
-      })
-      .length;
-  }, [edges, id, nodes]);
+          return audioData.isGenerating || typeof audioData.queuePosition === 'number';
+        })
+        .length;
+    },
+    [id]
+  );
+  const pendingAudioTaskCount = useCanvasStore(pendingAudioTaskCountSelector);
   const combinedError = voicePromptOptimizationError ?? data.lastError;
   const showBlockingOverlay = Boolean(pendingAudioTaskCount > 0 || isOptimizingVoicePrompt);
 
@@ -722,6 +722,7 @@ export const QwenTtsVoiceDesignNode = memo(({
                   {t('node.qwenTts.recipeTitle')}
                 </div>
               </div>
+              {!isOverviewRender ? (
               <div className="flex shrink-0 items-center gap-1">
                 <button
                   type="button"
@@ -773,45 +774,57 @@ export const QwenTtsVoiceDesignNode = memo(({
                   <Settings2 className="h-3.5 w-3.5" />
                 </button>
               </div>
+              ) : null}
             </div>
 
-            <textarea
-              ref={voicePromptTextareaRef}
-              value={data.voicePrompt ?? ''}
-              onChange={(event) => handleFieldChange('voicePrompt', event.target.value)}
-              placeholder={t('node.qwenTts.voicePromptPlaceholder')}
-              className="nodrag nowheel h-28 w-full resize-none rounded-xl border border-white/10 bg-black/10 px-3 py-2.5 text-sm text-text-dark outline-none transition-colors placeholder:text-text-muted/70 focus:border-accent"
-            />
+            {isOverviewRender ? (
+              <div className="rounded-xl border border-white/10 bg-black/10 px-3 py-2.5 text-xs leading-5 text-text-muted">
+                <div className="line-clamp-4 whitespace-pre-wrap">
+                  {(data.voicePrompt ?? '').trim() || t('node.qwenTts.voicePromptPlaceholder')}
+                </div>
+              </div>
+            ) : (
+              <>
+                <textarea
+                  ref={voicePromptTextareaRef}
+                  value={data.voicePrompt ?? ''}
+                  onChange={(event) => handleFieldChange('voicePrompt', event.target.value)}
+                  placeholder={t('node.qwenTts.voicePromptPlaceholder')}
+                  className="nodrag nowheel h-28 w-full resize-none rounded-xl border border-white/10 bg-black/10 px-3 py-2.5 text-sm text-text-dark outline-none transition-colors placeholder:text-text-muted/70 focus:border-accent"
+                />
 
-            <label className="mt-2 block">
-              <div className="mb-1.5 flex items-center justify-between gap-2 text-[11px] font-medium text-text-muted">
-                <span>{t('node.qwenTts.stylePreset')}</span>
-                <span className="truncate text-[10px] text-text-muted/80">
-                  {t(styleOption.labelKey)}
-                </span>
-              </div>
-              <UiSelect
-                value={data.stylePreset ?? 'natural'}
-                onChange={(event: ChangeEvent<HTMLSelectElement>) => {
-                  handleFieldChange(
-                    'stylePreset',
-                    event.target.value as TtsVoiceDesignNodeData['stylePreset']
-                  );
-                }}
-                className="!h-8 !rounded-lg !border-white/10 !bg-black/10 !px-2.5 !text-xs"
-              >
-                {STYLE_OPTIONS.map((option) => (
-                  <option key={option.value} value={option.value}>
-                    {t(option.labelKey)}
-                  </option>
-                ))}
-              </UiSelect>
-              <div className="mt-1.5 text-[11px] leading-4 text-text-muted">
-                {t(styleOption.descriptionKey)}
-              </div>
-            </label>
+                <label className="mt-2 block">
+                  <div className="mb-1.5 flex items-center justify-between gap-2 text-[11px] font-medium text-text-muted">
+                    <span>{t('node.qwenTts.stylePreset')}</span>
+                    <span className="truncate text-[10px] text-text-muted/80">
+                      {t(styleOption.labelKey)}
+                    </span>
+                  </div>
+                  <UiSelect
+                    value={data.stylePreset ?? 'natural'}
+                    onChange={(event: ChangeEvent<HTMLSelectElement>) => {
+                      handleFieldChange(
+                        'stylePreset',
+                        event.target.value as TtsVoiceDesignNodeData['stylePreset']
+                      );
+                    }}
+                    className="!h-8 !rounded-lg !border-white/10 !bg-black/10 !px-2.5 !text-xs"
+                  >
+                    {STYLE_OPTIONS.map((option) => (
+                      <option key={option.value} value={option.value}>
+                        {t(option.labelKey)}
+                      </option>
+                    ))}
+                  </UiSelect>
+                  <div className="mt-1.5 text-[11px] leading-4 text-text-muted">
+                    {t(styleOption.descriptionKey)}
+                  </div>
+                </label>
+              </>
+            )}
           </div>
 
+          {!isOverviewRender ? (
           <div className="grid grid-cols-3 gap-2">
             <SummaryActionCard
               icon={<Languages className="h-4 w-4" />}
@@ -838,14 +851,15 @@ export const QwenTtsVoiceDesignNode = memo(({
               onClick={() => setIsAdvancedModalOpen(true)}
             />
           </div>
+          ) : null}
 
-          {combinedError ? (
+          {combinedError && !isOverviewRender ? (
             <div className="rounded-xl border border-red-400/25 bg-red-400/10 px-3 py-2 text-xs text-red-200">
               {combinedError}
             </div>
           ) : null}
 
-          {!isExtensionReady ? (
+          {!isExtensionReady && !isOverviewRender ? (
             <div className="rounded-xl border border-amber-400/20 bg-amber-400/10 px-3 py-2 text-xs text-amber-200">
               {isExtensionStarting
                 ? t('node.qwenTts.extensionStarting')
@@ -853,6 +867,7 @@ export const QwenTtsVoiceDesignNode = memo(({
             </div>
           ) : null}
 
+          {!isOverviewRender ? (
           <button
             type="button"
             disabled={!isExtensionReady}
@@ -866,6 +881,7 @@ export const QwenTtsVoiceDesignNode = memo(({
             <Sparkles className="h-4 w-4" />
             {t('node.qwenTts.generate')}
           </button>
+          ) : null}
         </div>
 
         <Handle
@@ -889,7 +905,7 @@ export const QwenTtsVoiceDesignNode = memo(({
       </div>
 
       <UiModal
-        isOpen={isRecipeModalOpen}
+        isOpen={!isOverviewRender && isRecipeModalOpen}
         title={t('node.qwenTts.recipeTitle')}
         onClose={() => setIsRecipeModalOpen(false)}
         widthClassName="w-[520px]"
@@ -950,7 +966,7 @@ export const QwenTtsVoiceDesignNode = memo(({
       </UiModal>
 
       <UiModal
-        isOpen={isRhythmModalOpen}
+        isOpen={!isOverviewRender && isRhythmModalOpen}
         title={t('node.qwenTts.rhythmTitle')}
         onClose={() => setIsRhythmModalOpen(false)}
         widthClassName="w-[560px]"
@@ -987,7 +1003,7 @@ export const QwenTtsVoiceDesignNode = memo(({
       </UiModal>
 
       <UiModal
-        isOpen={isPauseModalOpen}
+        isOpen={!isOverviewRender && isPauseModalOpen}
         title={t('node.qwenTts.pauseTitle')}
         onClose={() => setIsPauseModalOpen(false)}
         widthClassName="w-[620px]"
@@ -1026,7 +1042,7 @@ export const QwenTtsVoiceDesignNode = memo(({
       </UiModal>
 
       <UiModal
-        isOpen={isAdvancedModalOpen}
+        isOpen={!isOverviewRender && isAdvancedModalOpen}
         title={t('node.qwenTts.advancedSettings')}
         onClose={() => setIsAdvancedModalOpen(false)}
         widthClassName="w-[620px]"

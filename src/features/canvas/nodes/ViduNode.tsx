@@ -57,6 +57,10 @@ import {
 } from '@/features/canvas/hooks/useCanvasNodeGraph';
 import { useCanvasZoom } from '@/features/canvas/hooks/useCanvasZoom';
 import { CanvasNodeImage } from '@/features/canvas/ui/CanvasNodeImage';
+import {
+  useIsOverviewCanvasRender,
+  useShouldSuspendCanvasMedia,
+} from '@/features/canvas/CanvasPerformanceContext';
 import { CameraTriggerIcon } from '@/features/canvas/ui/CameraTriggerIcon';
 import { NodeHeader, NODE_HEADER_FLOATING_POSITION_CLASS } from '@/features/canvas/ui/NodeHeader';
 import { NodeResizeHandle } from '@/features/canvas/ui/NodeResizeHandle';
@@ -486,6 +490,8 @@ async function resolveInitialViduResultAspectRatio(
 
 export const ViduNode = memo(({ id, data, selected, width }: ViduNodeProps) => {
   const { t, i18n } = useTranslation();
+  const isOverviewRender = useIsOverviewCanvasRender();
+  const shouldSuspendMedia = useShouldSuspendCanvasMedia();
   const zoom = useCanvasZoom();
   const currentNode = useCanvasNodeById(id);
   const connectedVisuals = useCanvasConnectedReferenceVisuals(id);
@@ -519,6 +525,7 @@ export const ViduNode = memo(({ id, data, selected, width }: ViduNodeProps) => {
   const [promptOptimizationError, setPromptOptimizationError] = useState<string | null>(null);
   const [lastPromptOptimizationUndoState, setLastPromptOptimizationUndoState] =
     useState<PromptOptimizationUndoState | null>(null);
+  const showOverviewReferenceThumbnails = isOverviewRender && !shouldSuspendMedia;
 
   const apiKey = officialVideoApiKeys.vidu?.trim() ?? '';
   const selectedInputMode = normalizeViduInputMode(data.inputMode);
@@ -1221,6 +1228,29 @@ export const ViduNode = memo(({ id, data, selected, width }: ViduNodeProps) => {
       />
 
       <div ref={promptPanelRef} className="relative flex min-h-0 flex-1 flex-col pt-5">
+        {isOverviewRender ? (
+          <div className="flex min-h-0 flex-1 flex-col gap-2 overflow-hidden rounded-xl border border-white/10 bg-black/15 px-3 py-2 text-xs leading-5 text-text-muted">
+            <div className="line-clamp-5 whitespace-pre-wrap break-words">
+              {promptDraft.trim() || t('node.vidu.promptPlaceholder')}
+            </div>
+            {showOverviewReferenceThumbnails && referenceVisualItems.length > 0 ? (
+              <div className="mt-auto flex min-h-0 gap-1 overflow-hidden">
+                {referenceVisualItems.slice(0, 4).map((item) => (
+                  <CanvasNodeImage
+                    key={`${item.sourceEdgeId}-${item.referenceUrl}`}
+                    src={item.displayUrl ?? item.previewImageUrl ?? item.referenceUrl}
+                    fallbackSrc={item.referenceUrl}
+                    alt={item.label}
+                    className="h-10 w-10 shrink-0 rounded object-cover"
+                    disableViewer
+                    draggable={false}
+                  />
+                ))}
+              </div>
+            ) : null}
+          </div>
+        ) : (
+        <>
         <div
           ref={promptPreviewHostRef}
           className="relative min-h-0 flex-1 rounded-xl border border-white/10 bg-black/15"
@@ -1462,8 +1492,11 @@ export const ViduNode = memo(({ id, data, selected, width }: ViduNodeProps) => {
             </div>
           </div>
         ) : null}
+        </>
+        )}
       </div>
 
+      {!isOverviewRender ? (
       <div className="mt-2 space-y-1.5">
         <div className="flex items-center gap-2">
           <div className="ui-scrollbar min-w-0 flex-1 overflow-x-auto overflow-y-hidden">
@@ -1610,8 +1643,9 @@ export const ViduNode = memo(({ id, data, selected, width }: ViduNodeProps) => {
           {combinedError ?? statusInfoText}
         </div>
       </div>
+      ) : null}
 
-      {isShotParamsPanelOpen ? (
+      {isShotParamsPanelOpen && !isOverviewRender ? (
         <ShotParamsPanel
           onClose={closeShotParamsPanel}
           onInsert={(option) => insertPromptText(option.value)}

@@ -222,8 +222,6 @@ export const NodeActionToolbar = memo(({ node }: NodeActionToolbarProps) => {
   const toggleNodeDescriptionPanel = useCanvasStore(
     (state) => state.toggleNodeDescriptionPanel
   );
-  const nodes = useCanvasStore((state) => state.nodes);
-  const edges = useCanvasStore((state) => state.edges);
   const downloadPresetPaths = useSettingsStore((state) => state.downloadPresetPaths);
   const ignoreAtTagWhenCopyingAndGenerating = useSettingsStore(
     (state) => state.ignoreAtTagWhenCopyingAndGenerating
@@ -279,8 +277,13 @@ export const NodeActionToolbar = memo(({ node }: NodeActionToolbarProps) => {
     }
 
     const sourceNodeId = typeof node.data.sourceNodeId === 'string' ? node.data.sourceNodeId.trim() : '';
-    return sourceNodeId.length > 0 && resolveConnectedTtsText(sourceNodeId, nodes, edges).trim().length > 0;
-  }, [edges, node, nodes]);
+    if (sourceNodeId.length === 0) {
+      return false;
+    }
+
+    const { nodes, edges } = useCanvasStore.getState();
+    return resolveConnectedTtsText(sourceNodeId, nodes, edges).trim().length > 0;
+  }, [node]);
   const supportsDescriptionPanel = nodeSupportsDescriptionPanel(node);
   const hasNodeDescription =
     typeof node.data.nodeDescription === 'string'

@@ -74,6 +74,10 @@ import {
 } from "@/features/canvas/hooks/useCanvasNodeGraph";
 import { useCanvasZoom } from "@/features/canvas/hooks/useCanvasZoom";
 import { CanvasNodeImage } from "@/features/canvas/ui/CanvasNodeImage";
+import {
+  useIsOverviewCanvasRender,
+  useShouldSuspendCanvasMedia,
+} from "@/features/canvas/CanvasPerformanceContext";
 import { CameraTriggerIcon } from "@/features/canvas/ui/CameraTriggerIcon";
 import {
   NodeHeader,
@@ -716,6 +720,8 @@ function ReferenceAudioChip({ item }: { item: ReferenceAudioItem }) {
 export const SeedanceNode = memo(
   ({ id, data, selected, width }: SeedanceNodeProps) => {
     const { t, i18n } = useTranslation();
+    const isOverviewRender = useIsOverviewCanvasRender();
+    const shouldSuspendMedia = useShouldSuspendCanvasMedia();
     const zoom = useCanvasZoom();
     const updateNodeInternals = useUpdateNodeInternals();
     const currentNode = useCanvasNodeById(id);
@@ -798,6 +804,8 @@ export const SeedanceNode = memo(
     const [promptDraft, setPromptDraft] = useState(() => data.prompt ?? "");
     const isPromptLockedByUpstream = hasConnectedTextSource;
     const displayedPrompt = promptDraft;
+    const showOverviewReferenceThumbnails =
+      isOverviewRender && !shouldSuspendMedia;
     const effectivePrompt = isPromptLockedByUpstream ? connectedText : promptDraft;
     const promptValueRef = useRef(promptDraft);
     const lastPromptSelectionRef = useRef<TextSelectionRange | null>(null);
@@ -1852,6 +1860,31 @@ export const SeedanceNode = memo(
             ref={promptPanelRef}
             className="relative min-h-0 flex-1 rounded-xl border border-white/10 bg-black/12 p-2"
           >
+            {isOverviewRender ? (
+              <div className="flex h-full min-h-0 flex-col gap-2 overflow-hidden text-xs leading-5 text-text-muted">
+                <div className="line-clamp-5 whitespace-pre-wrap break-words">
+                  {displayedPrompt.trim() || t("node.seedance.promptPlaceholder")}
+                </div>
+                {showOverviewReferenceThumbnails && referenceVisualItems.length > 0 ? (
+                  <div className="mt-auto flex min-h-0 gap-1 overflow-hidden">
+                    {referenceVisualItems.slice(0, 4).map((item) => (
+                      item.displayUrl ? (
+                        <CanvasNodeImage
+                          key={`${item.sourceEdgeId}-${item.referenceUrl}`}
+                          src={item.displayUrl}
+                          alt={item.label}
+                          className="h-10 w-10 shrink-0 rounded object-cover"
+                          viewerSourceUrl={item.displayUrl}
+                          disableViewer
+                          draggable={false}
+                        />
+                      ) : null
+                    ))}
+                  </div>
+                ) : null}
+              </div>
+            ) : (
+            <>
             <div className="flex h-full min-h-0 flex-col gap-2">
               <div
                 ref={promptPreviewHostRef}
@@ -2010,8 +2043,10 @@ export const SeedanceNode = memo(
                 ) : null}
               </div>
             </div>
+            </>
+            )}
 
-            {showImagePicker && referencePickerItems.length > 0 ? (
+            {showImagePicker && referencePickerItems.length > 0 && !isOverviewRender ? (
               <div
                 className="nowheel absolute z-30 w-[168px] overflow-hidden rounded-xl border border-[rgba(255,255,255,0.16)] bg-surface-dark shadow-xl"
                 style={{ left: pickerAnchor.left, top: pickerAnchor.top }}
@@ -2084,6 +2119,7 @@ export const SeedanceNode = memo(
             ) : null}
           </div>
 
+          {!isOverviewRender ? (
           <div className="flex items-center gap-2">
             <div className="ui-scrollbar min-w-0 flex-1 overflow-x-auto overflow-y-hidden">
               <div className="flex w-max min-w-full items-center gap-1.5 pr-1">
@@ -2232,6 +2268,7 @@ export const SeedanceNode = memo(
                 : t("node.seedance.submit")}
             </UiButton>
           </div>
+          ) : null}
 
           <div
             className={`min-h-[16px] truncate text-[10px] leading-4 ${
@@ -2243,7 +2280,7 @@ export const SeedanceNode = memo(
           </div>
         </div>
 
-        {isShotParamsPanelOpen && !isPromptLockedByUpstream ? (
+        {isShotParamsPanelOpen && !isPromptLockedByUpstream && !isOverviewRender ? (
           <ShotParamsPanel
             onClose={closeShotParamsPanel}
             onInsert={(option) => handleShotParamInsert(option.value)}
