@@ -14,7 +14,7 @@ import { Image as ImageIcon, Loader2, Music4, Sparkles, TriangleAlert, Undo2, Vi
 import { useTranslation } from 'react-i18next';
 
 import { UiButton, UiChipButton, UiSelect } from '@/components/ui';
-import { detectImageDimensions } from '@/features/canvas/application/imageData';
+import { detectImageDimensions, reduceAspectRatio } from '@/features/canvas/application/imageData';
 import { showErrorDialog } from '@/features/canvas/application/errorDialog';
 import { flushCurrentProjectToDiskSafely } from '@/features/canvas/application/projectPersistence';
 import { optimizeCanvasPrompt } from '@/features/canvas/application/promptOptimization';
@@ -462,6 +462,28 @@ function areImageAspectRatiosCompatible(
   return ratioDelta >= 0.8 && ratioDelta <= 1.25;
 }
 
+async function resolveInitialViduResultAspectRatio(
+  inputMode: string,
+  images: Array<{ referenceUrl: string }>,
+  fallbackAspectRatio: string
+): Promise<string> {
+  if (inputMode !== 'firstFrame' && inputMode !== 'firstLastFrame') {
+    return fallbackAspectRatio;
+  }
+
+  const primaryImage = images[0]?.referenceUrl?.trim();
+  if (!primaryImage) {
+    return fallbackAspectRatio;
+  }
+
+  try {
+    const dimensions = await detectImageDimensions(primaryImage);
+    return reduceAspectRatio(dimensions.width, dimensions.height);
+  } catch {
+    return fallbackAspectRatio;
+  }
+}
+
 export const ViduNode = memo(({ id, data, selected, width }: ViduNodeProps) => {
   const { t, i18n } = useTranslation();
   const zoom = useCanvasZoom();
@@ -511,6 +533,8 @@ export const ViduNode = memo(({ id, data, selected, width }: ViduNodeProps) => {
   const selectedResolution = normalizeViduResolution(data.resolution);
   const selectedAudio = selectedModelIsQ3 ? (data.audio ?? true) : false;
   const selectedBgm = selectedModelIsQ3 ? false : (data.bgm ?? false);
+  const supportsSelectableAspectRatio =
+    selectedInputMode === 'textToVideo' || selectedInputMode === 'reference';
   const referenceVisualItems = useMemo<ReferenceVisualItem[]>(
     () =>
       connectedVisuals.map((item, index) => {
@@ -1021,6 +1045,11 @@ export const ViduNode = memo(({ id, data, selected, width }: ViduNodeProps) => {
     updateCurrentNodeData({ isSubmitting: true, lastError: null });
 
     try {
+      const resultAspectRatio = await resolveInitialViduResultAspectRatio(
+        selectedInputMode,
+        connectedImages,
+        selectedAspectRatio
+      );
       const resultNodePosition = findNodePosition(
         id,
         VIDU_VIDEO_RESULT_NODE_DEFAULT_WIDTH,
@@ -1041,7 +1070,7 @@ export const ViduNode = memo(({ id, data, selected, width }: ViduNodeProps) => {
           videoUrl: null,
           previewImageUrl: null,
           videoFileName: null,
-          aspectRatio: selectedAspectRatio,
+          aspectRatio: resultAspectRatio,
           resolution: selectedResolution,
           duration: selectedDuration,
           requestSnapshot: {
@@ -1051,7 +1080,7 @@ export const ViduNode = memo(({ id, data, selected, width }: ViduNodeProps) => {
             prompt: promptDraft.trim(),
             imageCount: connectedImages.length,
             videoCount: connectedVideos.length,
-            aspectRatio: selectedAspectRatio,
+            aspectRatio: resultAspectRatio,
             durationSeconds: selectedDuration,
             resolution: selectedResolution,
             audio: selectedAudio,
@@ -1451,15 +1480,17 @@ export const ViduNode = memo(({ id, data, selected, width }: ViduNodeProps) => {
                 options={VIDU_INPUT_MODE_OPTIONS}
                 onChange={(value) => updateCurrentNodeData({ inputMode: value, lastError: null })}
               />
-              <FixedControlChip
-                label={t('node.vidu.aspectRatioLabel')}
-                value={selectedAspectRatio}
-                options={VIDU_ASPECT_RATIOS.map((value) => ({
-                  value,
-                  labelKey: `node.vidu.aspectRatios.${value}`,
-                }))}
-                onChange={(value) => updateCurrentNodeData({ aspectRatio: value })}
-              />
+              {supportsSelectableAspectRatio ? (
+                <FixedControlChip
+                  label={t('node.vidu.aspectRatioLabel')}
+                  value={selectedAspectRatio}
+                  options={VIDU_ASPECT_RATIOS.map((value) => ({
+                    value,
+                    labelKey: `node.vidu.aspectRatios.${value}`,
+                  }))}
+                  onChange={(value) => updateCurrentNodeData({ aspectRatio: value })}
+                />
+              ) : null}
               <FixedControlChip
                 label={t('node.vidu.durationLabel')}
                 value={selectedDuration}

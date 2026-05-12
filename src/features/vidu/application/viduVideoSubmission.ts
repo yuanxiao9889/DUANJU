@@ -14,6 +14,7 @@ import {
 import { createCurrentProjectMediaContext } from '@/features/canvas/application/mediaPersistenceContext';
 import {
   captureVideoFrameFromSource,
+  prepareNodeVideoFromSource,
   resolveVideoDisplayUrl,
   videoUrlToDataUrl,
 } from '@/features/canvas/application/videoData';
@@ -281,22 +282,38 @@ async function buildGeneratedVideoItem(
     throw new Error('Vidu result is missing a video URL');
   }
 
-  const persistedVideoUrl = isTauri()
-    ? await persistMediaSource(rawVideoUrl, createCurrentProjectMediaContext('video'))
-    : rawVideoUrl;
-  const previewImageUrl = await prepareViduVideoPreviewImage(
-    primaryCreation?.cover_url ?? null,
-    persistedVideoUrl,
-    task.duration ?? null
-  );
+  let preparedVideo: Awaited<ReturnType<typeof prepareNodeVideoFromSource>> | null = null;
+  let persistedVideoUrl = rawVideoUrl;
+
+  try {
+    preparedVideo = await prepareNodeVideoFromSource(
+      rawVideoUrl,
+      createCurrentProjectMediaContext('video')
+    );
+    persistedVideoUrl = preparedVideo.videoUrl;
+  } catch (error) {
+    console.warn('[vidu] failed to inspect generated video metadata', error);
+    persistedVideoUrl = isTauri()
+      ? await persistMediaSource(rawVideoUrl, createCurrentProjectMediaContext('video'))
+      : rawVideoUrl;
+  }
+
+  let previewImageUrl = preparedVideo?.previewImageUrl ?? null;
+  if (primaryCreation?.cover_url || !previewImageUrl) {
+    previewImageUrl = await prepareViduVideoPreviewImage(
+      primaryCreation?.cover_url ?? null,
+      persistedVideoUrl,
+      task.duration ?? preparedVideo?.duration ?? null
+    );
+  }
 
   return {
     taskId: task.id,
     modelId: task.model ?? null,
     videoUrl: persistedVideoUrl,
     previewImageUrl,
-    aspectRatio: task.aspect_ratio ?? '16:9',
-    duration: task.duration ?? undefined,
+    aspectRatio: task.aspect_ratio ?? preparedVideo?.aspectRatio ?? '16:9',
+    duration: task.duration ?? preparedVideo?.duration ?? undefined,
     resolution: task.resolution ?? null,
     fileName: `vidu-video-${task.id}.mp4`,
   };
@@ -393,7 +410,7 @@ export async function submitViduVideoTask(
     prompt: normalizedPrompt,
     images: referenceImages,
     videos: inputMode === 'reference' ? referenceVideos : [],
-    aspectRatio: inputMode === 'textToVideo'
+    aspectRatio: inputMode === 'textToVideo' || inputMode === 'reference'
       ? normalizeViduAspectRatio(payload.aspectRatio)
       : undefined,
     duration,

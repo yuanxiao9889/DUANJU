@@ -5481,11 +5481,12 @@ export function Canvas() {
         defaultViewport={DEFAULT_VIEWPORT}
         minZoom={0.1}
         maxZoom={5}
-        selectionOnDrag
+        selectionOnDrag={isCanvasSelectionKeyPressed}
         selectionMode={SelectionMode.Partial}
         multiSelectionKeyCode={['Control', 'Meta']}
-        selectionKeyCode={['Control', 'Meta']}
+        selectionKeyCode={null}
         deleteKeyCode={null}
+        panOnDrag={!isCanvasSelectionKeyPressed}
         // React Flow treats unmeasured nodes as selectable, so render all while Ctrl/Meta box-selecting.
         onlyRenderVisibleElements={!isCanvasSelectionKeyPressed}
         zoomOnDoubleClick={false}
