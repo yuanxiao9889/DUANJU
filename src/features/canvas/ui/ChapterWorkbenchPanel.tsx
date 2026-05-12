@@ -27,6 +27,11 @@ type WorkbenchTab = 'overview' | 'draft' | 'director';
 
 type SectionState = Record<string, boolean>;
 
+const AMBER_ACTIVE_CHIP_CLASS =
+  'border-amber-300/55 bg-amber-400/12 text-[#8a5200] dark:border-amber-400/40 dark:bg-amber-500/12 dark:text-amber-100';
+const CYAN_ACTIVE_CHIP_CLASS =
+  'border-cyan-300/45 bg-cyan-400/12 text-[#0f5c73] dark:border-cyan-500/25 dark:bg-cyan-500/10 dark:text-cyan-200';
+
 function CollapsibleSection({
   title,
   description,
@@ -266,7 +271,7 @@ export function ChapterWorkbenchPanel({
                     onClick={() => onSelectScene(scene.id)}
                     className={`flex h-[72px] w-[92px] shrink-0 flex-col rounded-2xl border px-2.5 py-2 text-left transition-colors ${
                       isActive
-                        ? 'border-amber-400/40 bg-amber-500/12 text-amber-100'
+                        ? AMBER_ACTIVE_CHIP_CLASS
                         : 'border-border-dark bg-bg-dark/45 text-text-muted hover:border-amber-500/25 hover:text-text-dark'
                     }`}
                   >
@@ -293,14 +298,14 @@ export function ChapterWorkbenchPanel({
                 <div className="flex items-start justify-between gap-3">
                   <div className="min-w-0">
                     <div className="flex items-center gap-2">
-                      <span className="rounded-full bg-amber-500/10 px-2 py-0.5 text-[11px] text-amber-200">
+                      <span className="rounded-full bg-amber-400/12 px-2 py-0.5 text-[11px] text-[#8a5200] dark:text-amber-200">
                         {t('script.sceneCatalog.sceneLabel', { number: selectedChapterScene.order + 1 })}
                       </span>
                       <span className="truncate text-sm font-medium text-text-dark">
                         {selectedChapterScene.title || t('script.sceneStudio.untitledScene')}
                       </span>
                       {isSelectedSceneLocked ? (
-                        <span className="rounded-full border border-cyan-500/25 bg-cyan-500/10 px-2 py-0.5 text-[11px] text-cyan-200">
+                        <span className={`rounded-full border px-2 py-0.5 text-[11px] ${CYAN_ACTIVE_CHIP_CLASS}`}>
                           {t('script.chapterCatalog.lockedBadge')}
                         </span>
                       ) : null}
@@ -309,14 +314,14 @@ export function ChapterWorkbenchPanel({
                       {selectedScenePreview || t('script.sceneStudio.sceneCardHint')}
                     </p>
                     {isSelectedSceneLocked ? (
-                      <p className="mt-2 text-xs leading-5 text-cyan-100/85">
+                      <p className="mt-2 text-xs leading-5 text-[#0f5c73]/85 dark:text-cyan-100/85">
                         {t('script.chapterCatalog.lockedHint')}
                       </p>
                     ) : null}
                   </div>
                   <div className="flex shrink-0 items-start gap-2">
                     {selectedSceneNode ? (
-                      <div className="rounded-xl border border-cyan-500/25 bg-cyan-500/10 px-3 py-2 text-right text-[11px] leading-5 text-cyan-100">
+                      <div className={`rounded-xl border px-3 py-2 text-right text-[11px] leading-5 ${CYAN_ACTIVE_CHIP_CLASS}`}>
                         <div>{t('script.chapterCatalog.created')}</div>
                         <div>
                           {t('script.sceneWorkbench.episodeCount', {
@@ -364,7 +369,7 @@ export function ChapterWorkbenchPanel({
               onClick={() => onChangeTab(tab.id as WorkbenchTab)}
               className={`rounded-xl border px-3 py-2 text-xs font-medium transition-colors ${
                 activeTab === tab.id
-                  ? 'border-amber-500/40 bg-amber-500/12 text-amber-100'
+                  ? AMBER_ACTIVE_CHIP_CLASS
                   : 'border-border-dark bg-bg-dark/45 text-text-muted hover:text-text-dark'
               }`}
             >
@@ -427,7 +432,7 @@ export function ChapterWorkbenchPanel({
                 >
                   <div className="space-y-3">
                     {isSelectedSceneLocked ? (
-                      <div className="rounded-xl border border-cyan-500/20 bg-cyan-500/8 px-3 py-2 text-xs leading-5 text-cyan-100">
+                      <div className={`rounded-xl border px-3 py-2 text-xs leading-5 ${CYAN_ACTIVE_CHIP_CLASS}`}>
                         {t('script.chapterCatalog.lockedPanelHint')}
                       </div>
                     ) : null}
@@ -505,7 +510,7 @@ export function ChapterWorkbenchPanel({
                         type="button"
                         onClick={() => void onRunContinuityCheck()}
                         disabled={isContinuityLoading || isSelectedSceneLocked}
-                        className="inline-flex items-center gap-1.5 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-1.5 text-xs font-medium text-amber-200 transition-colors hover:bg-amber-500/18 disabled:opacity-60"
+                        className="inline-flex items-center gap-1.5 rounded-lg border border-amber-300/45 bg-amber-400/12 px-3 py-1.5 text-xs font-medium text-[#8a5200] transition-colors hover:bg-amber-400/18 disabled:opacity-60 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-200 dark:hover:bg-amber-500/18"
                       >
                         <AlertTriangle className="h-3.5 w-3.5" />
                         {t('script.sceneWorkbench.checkContinuity')}
@@ -544,8 +549,8 @@ export function ChapterWorkbenchPanel({
                     {latestContinuityCheck ? (
                       <div className={`rounded-xl border px-3 py-2 text-xs leading-5 ${
                         latestContinuityCheck.status === 'warning'
-                          ? 'border-amber-500/25 bg-amber-500/10 text-amber-100'
-                          : 'border-emerald-500/20 bg-emerald-500/8 text-emerald-100'
+                          ? 'border-amber-300/45 bg-amber-400/10 text-[#8a5200] dark:border-amber-500/25 dark:bg-amber-500/10 dark:text-amber-100'
+                          : 'border-emerald-300/45 bg-emerald-400/10 text-[#166534] dark:border-emerald-500/20 dark:bg-emerald-500/8 dark:text-emerald-100'
                       }`}>
                         <div className="font-medium">{latestContinuityCheck.summary}</div>
                       </div>
@@ -601,7 +606,7 @@ export function ChapterWorkbenchPanel({
               onToggle={() => toggleSection('draft')}
               actions={(
                 <div className="flex items-center gap-2">
-                  <button type="button" onClick={() => void onRunCopilot('continue')} disabled={isCopilotLoading || isSelectedSceneLocked} className="inline-flex items-center gap-1.5 rounded-lg border border-cyan-500/30 bg-cyan-500/10 px-3 py-1.5 text-xs font-medium text-cyan-200 transition-colors hover:bg-cyan-500/18 disabled:opacity-60">
+                  <button type="button" onClick={() => void onRunCopilot('continue')} disabled={isCopilotLoading || isSelectedSceneLocked} className="inline-flex items-center gap-1.5 rounded-lg border border-cyan-300/45 bg-cyan-400/12 px-3 py-1.5 text-xs font-medium text-[#0f5c73] transition-colors hover:bg-cyan-400/18 disabled:opacity-60 dark:border-cyan-500/30 dark:bg-cyan-500/10 dark:text-cyan-200 dark:hover:bg-cyan-500/18">
                     <Sparkles className="h-3.5 w-3.5" />
                     {t('script.sceneStudio.copilotActionContinue')}
                   </button>

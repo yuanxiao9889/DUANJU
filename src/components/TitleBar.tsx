@@ -25,6 +25,8 @@ interface TitleBarProps {
   onBackClick?: () => void;
   projectName?: string | null;
   projectType?: ProjectType | null;
+  projectImageCount?: number | null;
+  projectNodeCount?: number | null;
 }
 
 export function TitleBar({
@@ -36,6 +38,8 @@ export function TitleBar({
   onBackClick,
   projectName,
   projectType,
+  projectImageCount,
+  projectNodeCount,
 }: TitleBarProps) {
   const { t, i18n } = useTranslation();
   const { theme, toggleTheme } = useThemeStore();
@@ -48,9 +52,16 @@ export function TitleBar({
   const projectTypeLabel = normalizedProjectType
     ? t(`titleBar.projectTypes.${normalizedProjectType}`)
     : '';
+  const projectStatsText =
+    typeof projectImageCount === 'number' && typeof projectNodeCount === 'number'
+      ? t('titleBar.projectStats', {
+        images: projectImageCount,
+        nodes: projectNodeCount,
+      })
+      : '';
   const projectTitle =
     normalizedProjectName && projectTypeLabel
-      ? `${projectTypeLabel}-${normalizedProjectName}`
+      ? `${projectTypeLabel}-${normalizedProjectName}${projectStatsText ? ` ${projectStatsText}` : ''}`
       : '';
   const isMac =
     typeof navigator !== 'undefined'

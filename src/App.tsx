@@ -318,6 +318,9 @@ function MainApp() {
   const currentProjectType = useProjectStore(
     (state) => state.currentProject?.projectType ?? null,
   );
+  const currentProjectNodes = useProjectStore(
+    (state) => state.currentProject?.nodes,
+  );
   const currentProjectAssetLibraryId = useProjectStore(
     (state) => state.currentProject?.assetLibraryId ?? null,
   );
@@ -610,6 +613,20 @@ function MainApp() {
       currentProjectName,
       currentProjectType,
     ],
+  );
+  const storyboardProjectStats = useMemo(
+    () => {
+      if (currentProjectType !== "storyboard") {
+        return null;
+      }
+
+      const nodes = currentProjectNodes ?? [];
+      return {
+        imageCount: collectProjectImagePreloadEntries(nodes).length,
+        nodeCount: nodes.length,
+      };
+    },
+    [currentProjectNodes, currentProjectType],
   );
 
   useEffect(() => {
@@ -1200,6 +1217,8 @@ function MainApp() {
         onBackClick={closeProject}
         projectName={currentProjectName}
         projectType={currentProjectType}
+        projectImageCount={storyboardProjectStats?.imageCount ?? null}
+        projectNodeCount={storyboardProjectStats?.nodeCount ?? null}
       />
 
       <main className="relative flex-1 min-h-0 overflow-hidden">

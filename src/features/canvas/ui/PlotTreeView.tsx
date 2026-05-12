@@ -11,6 +11,13 @@ import {
 import { useCanvasStore } from '@/stores/canvasStore';
 import { useScriptEditorStore } from '@/stores/scriptEditorStore';
 
+const CYAN_ACTIVE_ITEM_CLASS =
+  'bg-cyan-400/12 text-[#0f5c73] dark:bg-cyan-500/12 dark:text-cyan-200';
+const CYAN_ACTIVE_BADGE_CLASS =
+  'bg-cyan-400/12 text-[#0f5c73] dark:bg-cyan-500/12 dark:text-cyan-200';
+const CYAN_ACTIVE_ICON_CLASS =
+  'text-[#0f5c73] dark:text-cyan-300';
+
 type ChapterNode = { id: string; data: ScriptChapterNodeData };
 
 interface PlotTreeNodeProps {
@@ -152,7 +159,7 @@ function PlotTreeNode({
                 key={scene.id}
                 className={`ml-5 flex w-[calc(100%-20px)] items-center gap-2 rounded-md px-2 py-1.5 transition-colors ${
                   isActive
-                    ? 'bg-cyan-500/12 text-cyan-200'
+                    ? CYAN_ACTIVE_ITEM_CLASS
                     : 'text-text-muted hover:bg-bg-dark hover:text-text-dark'
                 }`}
                 style={{ marginLeft: `${level * 12 + 28}px` }}
@@ -162,7 +169,7 @@ function PlotTreeNode({
                   onClick={() => handleFocusSourceScene(scene.id)}
                   className="flex min-w-0 flex-1 items-center gap-2 text-left"
                 >
-                  <Clapperboard className={`h-3.5 w-3.5 ${isActive ? 'text-cyan-300' : 'text-text-muted/70'}`} />
+                  <Clapperboard className={`h-3.5 w-3.5 ${isActive ? CYAN_ACTIVE_ICON_CLASS : 'text-text-muted/70'}`} />
                   <div className="min-w-0 flex-1">
                     <div className="truncate text-[11px] font-medium">
                       {scene.title || t('script.sceneCatalog.untitledScene')}
@@ -173,7 +180,7 @@ function PlotTreeNode({
                   </div>
                 </button>
                 {isActive ? (
-                  <span className="shrink-0 rounded-full bg-cyan-500/12 px-2 py-0.5 text-[10px] font-medium text-cyan-200">
+                  <span className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-medium ${CYAN_ACTIVE_BADGE_CLASS}`}>
                     {t('script.chapterCatalog.created')}
                   </span>
                 ) : null}

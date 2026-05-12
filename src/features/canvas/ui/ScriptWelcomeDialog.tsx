@@ -418,7 +418,7 @@ export function ScriptWelcomeDialog({
       <div className="relative flex max-h-[92vh] w-[1180px] max-w-[calc(100vw-1.5rem)] flex-col overflow-hidden rounded-2xl border border-border-dark bg-surface-dark shadow-2xl">
         <div className="flex items-center justify-between border-b border-border-dark px-5 py-4">
           <div className="flex items-center gap-2">
-            <Sparkles className="h-5 w-5 text-amber-400" />
+            <Sparkles className="h-5 w-5 text-[#222222] dark:text-text-muted" />
             <div>
               <h2 className="text-lg font-semibold text-text-dark">
                 {mode === 'select'
@@ -441,11 +441,11 @@ export function ScriptWelcomeDialog({
             <button
               type="button"
               onClick={() => setMode('create')}
-              className="rounded-2xl border border-amber-500/20 bg-gradient-to-br from-amber-500/10 to-transparent p-5 text-left transition-colors hover:border-amber-500/40 hover:bg-amber-500/10"
+              className="rounded-2xl border border-border-dark bg-bg-dark/35 p-5 text-left transition-colors hover:border-border-dark/80 hover:bg-bg-dark/55"
             >
               <div className="flex items-start gap-3">
-                <div className="rounded-xl bg-amber-500/15 p-2.5">
-                  <Wand2 className="h-6 w-6 text-amber-300" />
+                <div className="rounded-xl bg-[#222222]/[0.08] p-2.5 dark:bg-white/[0.06]">
+                  <Wand2 className="h-6 w-6 text-[#222222] dark:text-text-muted" />
                 </div>
                 <div className="min-w-0">
                   <div className="text-base font-semibold text-text-dark">
@@ -464,8 +464,8 @@ export function ScriptWelcomeDialog({
               className="rounded-2xl border border-border-dark bg-bg-dark/35 p-5 text-left transition-colors hover:border-border-dark/80 hover:bg-bg-dark/55"
             >
               <div className="flex items-start gap-3">
-                <div className="rounded-xl bg-accent/10 p-2.5">
-                  <Upload className="h-6 w-6 text-accent" />
+                <div className="rounded-xl bg-[#222222]/[0.08] p-2.5 dark:bg-white/[0.06]">
+                  <Upload className="h-6 w-6 text-[#222222] dark:text-text-muted" />
                 </div>
                 <div className="min-w-0">
                   <div className="text-base font-semibold text-text-dark">
@@ -518,8 +518,8 @@ export function ScriptWelcomeDialog({
               <div className="space-y-4">
                 <div className="rounded-2xl border border-border-dark bg-bg-dark/30 p-5">
                   <div className="flex items-start gap-3">
-                    <div className="rounded-xl bg-accent/10 p-2.5">
-                      <Upload className="h-6 w-6 text-accent" />
+                    <div className="rounded-xl bg-[#222222]/[0.08] p-2.5 dark:bg-white/[0.06]">
+                      <Upload className="h-6 w-6 text-[#222222] dark:text-text-muted" />
                     </div>
                     <div className="min-w-0">
                       <div className="text-base font-semibold text-text-dark">
@@ -536,7 +536,7 @@ export function ScriptWelcomeDialog({
                   </div>
 
                   {importError ? (
-                    <div className="mt-4 rounded-xl border border-red-500/20 bg-red-500/8 px-3 py-2 text-sm leading-6 text-red-200">
+                    <div className="mt-4 rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm leading-6 text-red-900 dark:border-red-500/20 dark:bg-red-500/[0.08] dark:text-red-200">
                       {importError}
                     </div>
                   ) : null}
@@ -616,7 +616,7 @@ export function ScriptWelcomeDialog({
                 ) : (
                   <div className="flex h-full min-h-[420px] items-center justify-center">
                     <div className="max-w-[360px] text-center">
-                      <FileText className="mx-auto h-14 w-14 text-accent/65" />
+                      <FileText className="mx-auto h-14 w-14 text-[#222222]/60 dark:text-text-muted" />
                       <h3 className="mt-4 text-lg font-semibold text-text-dark">
                         {t('script.storyStart.importPreviewEmptyTitle')}
                       </h3>
@@ -635,7 +635,7 @@ export function ScriptWelcomeDialog({
           <div className="grid min-h-0 flex-1 gap-0 lg:grid-cols-[360px_minmax(0,1fr)]">
             <div className="overflow-y-auto border-r border-border-dark p-5">
               {!hasScriptProvider ? (
-                <div className="mb-4 rounded-xl border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-sm text-amber-300">
+                <div className="mb-4 rounded-xl border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:border-amber-500/25 dark:bg-amber-500/10 dark:text-amber-200">
                   {t('script.storyStart.providerMissing')}
                 </div>
               ) : null}
@@ -646,8 +646,8 @@ export function ScriptWelcomeDialog({
                   onClick={() => updateForm('mode', 'guided')}
                   className={`rounded-lg px-3 py-2 text-sm font-medium transition-colors ${
                     form.mode === 'outline'
-                      ? 'text-text-muted hover:bg-white/5 hover:text-text-dark'
-                      : 'bg-amber-500/15 text-amber-200 shadow-[0_0_0_1px_rgba(245,158,11,0.16)]'
+                      ? 'text-text-muted hover:bg-[#222222]/[0.06] hover:text-text-dark dark:hover:bg-white/[0.06]'
+                      : 'bg-[#222222] text-white shadow-none dark:bg-white/[0.1] dark:text-text-dark'
                   }`}
                 >
                   {t('script.storyStart.guidedTab')}
@@ -657,8 +657,8 @@ export function ScriptWelcomeDialog({
                   onClick={() => updateForm('mode', 'outline')}
                   className={`rounded-lg px-3 py-2 text-sm font-medium transition-colors ${
                     form.mode === 'outline'
-                      ? 'bg-amber-500/15 text-amber-200 shadow-[0_0_0_1px_rgba(245,158,11,0.16)]'
-                      : 'text-text-muted hover:bg-white/5 hover:text-text-dark'
+                      ? 'bg-[#222222] text-white shadow-none dark:bg-white/[0.1] dark:text-text-dark'
+                      : 'text-text-muted hover:bg-[#222222]/[0.06] hover:text-text-dark dark:hover:bg-white/[0.06]'
                   }`}
                 >
                   {t('script.storyStart.outlineTab')}
@@ -667,7 +667,7 @@ export function ScriptWelcomeDialog({
 
               {form.mode === 'outline' ? (
                 <div className="space-y-4">
-                  <div className="rounded-xl border border-amber-500/20 bg-amber-500/8 px-3 py-2 text-xs leading-6 text-amber-100/80">
+                  <div className="rounded-xl border border-border-dark/55 bg-bg-dark/35 px-3 py-2 text-xs leading-6 text-text-dark">
                     {t('script.storyStart.outlineModeDesc')}
                   </div>
 
@@ -680,7 +680,7 @@ export function ScriptWelcomeDialog({
                       onChange={(event) => updateForm('outlineText', event.target.value)}
                       rows={14}
                       placeholder={t('script.storyStart.outlineTextPlaceholder')}
-                      className="w-full resize-none rounded-xl border border-border-dark bg-bg-dark px-3 py-2 text-sm leading-6 text-text-dark outline-none transition-colors placeholder:text-text-muted/60 focus:border-amber-500/45"
+                      className="w-full resize-none rounded-xl border border-border-dark bg-bg-dark px-3 py-2 text-sm leading-6 text-text-dark outline-none transition-colors placeholder:text-text-muted/60 focus:border-[#222222]/45 dark:focus:border-white/[0.28]"
                     />
                   </label>
 
@@ -695,7 +695,7 @@ export function ScriptWelcomeDialog({
                         step={1}
                         value={form.chapterCount}
                         onChange={(event) => handleChapterCountChange(event.target.value)}
-                        className="w-full bg-transparent text-sm font-medium text-amber-300 outline-none [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
+                        className="w-full bg-transparent text-sm font-medium text-text-dark outline-none [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
                       />
                     </div>
                   </label>
@@ -711,7 +711,7 @@ export function ScriptWelcomeDialog({
                     onChange={(event) => updateForm('premise', event.target.value)}
                     rows={5}
                     placeholder={t('script.storyStart.premisePlaceholder')}
-                    className="w-full resize-none rounded-xl border border-border-dark bg-bg-dark px-3 py-2 text-sm text-text-dark outline-none transition-colors placeholder:text-text-muted/60 focus:border-amber-500/45"
+                    className="w-full resize-none rounded-xl border border-border-dark bg-bg-dark px-3 py-2 text-sm text-text-dark outline-none transition-colors placeholder:text-text-muted/60 focus:border-[#222222]/45 dark:focus:border-white/[0.28]"
                   />
                 </label>
 
@@ -725,7 +725,7 @@ export function ScriptWelcomeDialog({
                       value={form.protagonist}
                       onChange={(event) => updateForm('protagonist', event.target.value)}
                       placeholder={t('script.storyStart.protagonistPlaceholder')}
-                      className="w-full rounded-xl border border-border-dark bg-bg-dark px-3 py-2 text-sm text-text-dark outline-none transition-colors placeholder:text-text-muted/60 focus:border-amber-500/45"
+                      className="w-full rounded-xl border border-border-dark bg-bg-dark px-3 py-2 text-sm text-text-dark outline-none transition-colors placeholder:text-text-muted/60 focus:border-[#222222]/45 dark:focus:border-white/[0.28]"
                     />
                   </label>
                   <label className="block">
@@ -737,7 +737,7 @@ export function ScriptWelcomeDialog({
                       value={form.want}
                       onChange={(event) => updateForm('want', event.target.value)}
                       placeholder={t('script.storyStart.wantPlaceholder')}
-                      className="w-full rounded-xl border border-border-dark bg-bg-dark px-3 py-2 text-sm text-text-dark outline-none transition-colors placeholder:text-text-muted/60 focus:border-amber-500/45"
+                      className="w-full rounded-xl border border-border-dark bg-bg-dark px-3 py-2 text-sm text-text-dark outline-none transition-colors placeholder:text-text-muted/60 focus:border-[#222222]/45 dark:focus:border-white/[0.28]"
                     />
                   </label>
                 </div>
@@ -751,7 +751,7 @@ export function ScriptWelcomeDialog({
                     onChange={(event) => updateForm('stakes', event.target.value)}
                     rows={3}
                     placeholder={t('script.storyStart.stakesPlaceholder')}
-                    className="w-full resize-none rounded-xl border border-border-dark bg-bg-dark px-3 py-2 text-sm text-text-dark outline-none transition-colors placeholder:text-text-muted/60 focus:border-amber-500/45"
+                    className="w-full resize-none rounded-xl border border-border-dark bg-bg-dark px-3 py-2 text-sm text-text-dark outline-none transition-colors placeholder:text-text-muted/60 focus:border-[#222222]/45 dark:focus:border-white/[0.28]"
                   />
                 </label>
 
@@ -765,7 +765,7 @@ export function ScriptWelcomeDialog({
                       value={form.genre}
                       onChange={(event) => updateForm('genre', event.target.value)}
                       placeholder={t('script.storyStart.genrePlaceholder')}
-                      className="w-full rounded-xl border border-border-dark bg-bg-dark px-3 py-2 text-sm text-text-dark outline-none transition-colors placeholder:text-text-muted/60 focus:border-amber-500/45"
+                      className="w-full rounded-xl border border-border-dark bg-bg-dark px-3 py-2 text-sm text-text-dark outline-none transition-colors placeholder:text-text-muted/60 focus:border-[#222222]/45 dark:focus:border-white/[0.28]"
                     />
                   </label>
                   <label className="block">
@@ -777,7 +777,7 @@ export function ScriptWelcomeDialog({
                       value={form.theme}
                       onChange={(event) => updateForm('theme', event.target.value)}
                       placeholder={t('script.storyStart.themePlaceholder')}
-                      className="w-full rounded-xl border border-border-dark bg-bg-dark px-3 py-2 text-sm text-text-dark outline-none transition-colors placeholder:text-text-muted/60 focus:border-amber-500/45"
+                      className="w-full rounded-xl border border-border-dark bg-bg-dark px-3 py-2 text-sm text-text-dark outline-none transition-colors placeholder:text-text-muted/60 focus:border-[#222222]/45 dark:focus:border-white/[0.28]"
                     />
                   </label>
                 </div>
@@ -792,7 +792,7 @@ export function ScriptWelcomeDialog({
                       value={form.tone}
                       onChange={(event) => updateForm('tone', event.target.value)}
                       placeholder={t('script.storyStart.tonePlaceholder')}
-                      className="w-full rounded-xl border border-border-dark bg-bg-dark px-3 py-2 text-sm text-text-dark outline-none transition-colors placeholder:text-text-muted/60 focus:border-amber-500/45"
+                      className="w-full rounded-xl border border-border-dark bg-bg-dark px-3 py-2 text-sm text-text-dark outline-none transition-colors placeholder:text-text-muted/60 focus:border-[#222222]/45 dark:focus:border-white/[0.28]"
                     />
                   </label>
                   <label className="block">
@@ -806,7 +806,7 @@ export function ScriptWelcomeDialog({
                         step={1}
                         value={form.chapterCount}
                         onChange={(event) => handleChapterCountChange(event.target.value)}
-                        className="w-full bg-transparent text-sm font-medium text-amber-300 outline-none [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
+                        className="w-full bg-transparent text-sm font-medium text-text-dark outline-none [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
                       />
                     </div>
                   </label>
@@ -821,7 +821,7 @@ export function ScriptWelcomeDialog({
                     onChange={(event) => updateForm('directorVision', event.target.value)}
                     rows={3}
                     placeholder={t('script.storyStart.directorVisionPlaceholder')}
-                    className="w-full resize-none rounded-xl border border-border-dark bg-bg-dark px-3 py-2 text-sm text-text-dark outline-none transition-colors placeholder:text-text-muted/60 focus:border-amber-500/45"
+                    className="w-full resize-none rounded-xl border border-border-dark bg-bg-dark px-3 py-2 text-sm text-text-dark outline-none transition-colors placeholder:text-text-muted/60 focus:border-[#222222]/45 dark:focus:border-white/[0.28]"
                   />
                 </label>
 
@@ -834,7 +834,7 @@ export function ScriptWelcomeDialog({
                     onChange={(event) => updateForm('worldviewDescription', event.target.value)}
                     rows={3}
                     placeholder={t('script.storyStart.worldviewPlaceholder')}
-                    className="w-full resize-none rounded-xl border border-border-dark bg-bg-dark px-3 py-2 text-sm text-text-dark outline-none transition-colors placeholder:text-text-muted/60 focus:border-amber-500/45"
+                    className="w-full resize-none rounded-xl border border-border-dark bg-bg-dark px-3 py-2 text-sm text-text-dark outline-none transition-colors placeholder:text-text-muted/60 focus:border-[#222222]/45 dark:focus:border-white/[0.28]"
                   />
                 </label>
               </div>
@@ -864,11 +864,11 @@ export function ScriptWelcomeDialog({
                 <>
                   <div className="border-b border-border-dark px-5 py-4">
                     <div className="flex items-start justify-between gap-4">
-                      <div>
+                      <div className="min-w-0 flex-1">
                         <div className="text-xs uppercase tracking-[0.08em] text-text-muted">
                           {t('script.storyStart.preview')}
                         </div>
-                        <h3 className="mt-1 text-xl font-semibold text-text-dark">
+                        <h3 className="mt-1 break-words text-xl font-semibold text-text-dark">
                           {plannedStory.title}
                         </h3>
                         <p className="mt-2 text-sm leading-6 text-text-muted">
@@ -876,8 +876,9 @@ export function ScriptWelcomeDialog({
                         </p>
                       </div>
                       <UiButton
-                        variant="primary"
+                        variant="muted"
                         onClick={() => createGraphFromPlan(plannedStory)}
+                        className="shrink-0 whitespace-nowrap border border-border-dark/55 bg-bg-dark/80 px-4 text-text-dark shadow-none hover:border-border-dark/80 hover:bg-bg-dark dark:!bg-white/[0.08] dark:hover:!bg-white/[0.12]"
                       >
                         {t('script.storyStart.createWorkspace')}
                       </UiButton>
@@ -944,7 +945,7 @@ export function ScriptWelcomeDialog({
                                   {chapter.summary}
                                 </p>
                               </div>
-                              <span className="shrink-0 rounded-full border border-amber-500/25 bg-amber-500/10 px-2 py-1 text-[11px] text-amber-300">
+                              <span className="shrink-0 rounded-full border border-border-dark/55 bg-bg-dark/60 px-2 py-1 text-[11px] text-text-dark">
                                 {t('script.storyStart.sceneCount', { count: chapter.scenes.length })}
                               </span>
                             </div>
@@ -955,7 +956,7 @@ export function ScriptWelcomeDialog({
                                   <div className="mt-2 text-xs leading-6 text-text-muted">
                                     {scene.summary || scene.purpose}
                                   </div>
-                                  <div className="mt-3 text-[11px] leading-5 text-amber-300">
+                                  <div className="mt-3 text-[11px] leading-5 text-text-muted">
                                     {scene.visualHook || scene.goal}
                                   </div>
                                 </div>
@@ -970,7 +971,7 @@ export function ScriptWelcomeDialog({
               ) : (
                 <div className="flex flex-1 items-center justify-center p-10">
                   <div className="max-w-[420px] rounded-2xl border border-dashed border-border-dark bg-bg-dark/35 p-6 text-center">
-                    <Sparkles className="mx-auto h-10 w-10 text-amber-400" />
+                    <Sparkles className="mx-auto h-10 w-10 text-[#222222]/70 dark:text-text-muted" />
                     <h3 className="mt-3 text-lg font-semibold text-text-dark">
                       {t('script.storyStart.previewEmptyTitle')}
                     </h3>

@@ -4,6 +4,15 @@ import { useTranslation } from 'react-i18next';
 
 import { UI_POPOVER_TRANSITION_MS } from '@/components/ui/motion';
 
+const CYAN_EYEBROW_CLASS =
+  'text-[#0f5c73] dark:text-cyan-200/80';
+const AMBER_BADGE_CLASS =
+  'bg-amber-400/12 text-[#8a5200] dark:bg-amber-500/15 dark:text-amber-300';
+const CYAN_BADGE_CLASS =
+  'bg-cyan-400/12 text-[#0f5c73] dark:bg-cyan-500/10 dark:text-cyan-200';
+const CYAN_ICON_CLASS =
+  'text-[#0f5c73] dark:text-cyan-200';
+
 interface EpisodeCatalogMenuItem {
   id: string;
   episodeNumber: number;
@@ -71,15 +80,15 @@ export function EpisodeCatalogMenu({
     >
       <div className="w-[340px] overflow-hidden rounded-xl border border-border-dark bg-surface-dark shadow-xl">
         <div className="border-b border-border-dark px-4 py-3">
-          <div className="flex items-center gap-2 text-[11px] font-medium uppercase tracking-[0.12em] text-cyan-200/80">
+          <div className={`flex items-center gap-2 text-[11px] font-medium uppercase tracking-[0.12em] ${CYAN_EYEBROW_CLASS}`}>
             <Clapperboard className="h-3.5 w-3.5" />
             {t('script.episodeCatalog.title')}
           </div>
           <div className="mt-2 flex flex-wrap items-center gap-2">
-            <span className="rounded-full bg-amber-500/15 px-2 py-0.5 text-[11px] text-amber-300">
+            <span className={`rounded-full px-2 py-0.5 text-[11px] ${AMBER_BADGE_CLASS}`}>
               {t('script.sceneCatalog.chapterLabel', { number: chapterNumber })}
             </span>
-            <span className="rounded-full bg-cyan-500/10 px-2 py-0.5 text-[11px] text-cyan-200">
+            <span className={`rounded-full px-2 py-0.5 text-[11px] ${CYAN_BADGE_CLASS}`}>
               {t('script.sceneCatalog.sceneLabel', { number: sceneOrder + 1 })}
             </span>
             <span className="truncate text-sm font-medium text-text-dark">
@@ -100,7 +109,7 @@ export function EpisodeCatalogMenu({
                   : 'border-border-dark bg-bg-dark/30 hover:border-cyan-500/35 hover:bg-cyan-500/8'
               }`}
             >
-              <div className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-bg-dark text-cyan-200">
+              <div className={`mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-bg-dark ${CYAN_ICON_CLASS}`}>
                 {episode.created ? (
                   <CheckCircle2 className="h-4 w-4" />
                 ) : (
@@ -112,7 +121,7 @@ export function EpisodeCatalogMenu({
                   <span className="truncate text-sm font-medium text-text-dark">
                     {episode.title || t('script.sceneWorkbench.untitledEpisode')}
                   </span>
-                  <span className="shrink-0 rounded-full bg-cyan-500/10 px-2 py-0.5 text-[11px] text-cyan-200">
+                  <span className={`shrink-0 rounded-full px-2 py-0.5 text-[11px] ${CYAN_BADGE_CLASS}`}>
                     {`${chapterNumber}-${episode.episodeNumber}`}
                   </span>
                 </div>

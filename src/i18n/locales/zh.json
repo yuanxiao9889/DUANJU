@@ -302,6 +302,7 @@
     "clipLibraryOpenFailed": "打开剪辑素材库窗口失败。",
     "clipLibraryStoryboardOnly": "只有 storyboard 项目支持剪辑素材库。",
     "extensions": "扩展中心",
+    "projectStats": "（图片：{{images}} | 节点：{{nodes}}）",
     "minimize": "最小化",
     "maximize": "最大化",
     "restore": "还原",

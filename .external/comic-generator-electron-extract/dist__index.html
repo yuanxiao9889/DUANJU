@@ -1,0 +1,44 @@
+�<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <script>
+      window.cvReady = false;
+      window.onOpenCvReady = function () {
+        window.cvReady = true;
+        console.log("OpenCV.js is ready");
+      };
+    </script>
+    <script
+      async
+      src="https://docs.opencv.org/4.8.0/opencv.js"
+      onload="window.onOpenCvReady()"
+      type="text/javascript"
+    ></script>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <link rel="icon" type="image/png" href="./favicon.png" />
+    <!-- ⚡ 内容安全策略 - 允许所有样式和脚本（最大性能） -->
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="
+      default-src 'self' data: blob: https: http:;
+      style-src 'self' 'unsafe-inline' data: blob: https: http:;
+      script-src 'self' 'unsafe-inline' 'unsafe-eval' data: blob: https: http:;
+      img-src 'self' 'unsafe-inline' data: blob: https: http: local-image: file:;
+      font-src 'self' data: blob: https: http:;
+      connect-src 'self' https: http: ws: wss:;
+      media-src 'self' data: blob: https: http: local-image: file:;
+    "
+    />
+    <title>应用启动中</title>
+    <script type="module" crossorigin src="./assets/index-CyiON8JT.js"></script>
+    <link rel="modulepreload" crossorigin href="./assets/vendor-vue-CnZblflB.js">
+    <link rel="modulepreload" crossorigin href="./assets/vendor-editor-D5AdNeJp.js">
+    <link rel="modulepreload" crossorigin href="./assets/vendor-antd-BPzAoTTB.js">
+    <link rel="modulepreload" crossorigin href="./assets/vendor-vxe-B7IPFQzM.js">
+    <link rel="stylesheet" crossorigin href="./assets/index-CCZb-cNI.css">
+  </head>
+  <body>
+    <div id="app"></div>
+  </body>
+</html>

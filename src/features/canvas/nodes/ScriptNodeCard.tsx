@@ -4,6 +4,11 @@ import { useTranslation } from 'react-i18next';
 
 type ScriptNodeAccent = 'violet' | 'emerald' | 'amber' | 'rose' | 'cyan';
 
+const SCRIPT_NODE_IDLE_BORDER_CLASS =
+  'border-[rgba(15,23,42,0.16)] hover:border-[rgba(15,23,42,0.24)] hover:shadow-[0_4px_16px_rgba(0,0,0,0.1)] dark:border-white/[0.14] dark:hover:border-white/[0.22] dark:hover:shadow-[0_4px_16px_rgba(0,0,0,0.2)]';
+const SCRIPT_NODE_SELECTED_BORDER_CLASS =
+  'border-[#222222] shadow-[0_0_0_2px_rgba(34,34,34,0.3),0_4px_14px_rgba(15,23,42,0.1)] dark:border-white/[0.42] dark:shadow-[0_0_0_1px_rgba(245,245,245,0.16),0_4px_14px_rgba(0,0,0,0.2)]';
+
 interface ScriptNodeCardProps {
   accent: ScriptNodeAccent;
   icon: ReactNode;
@@ -33,44 +38,39 @@ const ACCENT_CLASS_MAP: Record<
   }
 > = {
   violet: {
-    idle: 'border-[rgba(15,23,42,0.22)] hover:border-[rgba(15,23,42,0.34)] hover:shadow-[0_4px_16px_rgba(0,0,0,0.12)] dark:border-[rgba(255,255,255,0.22)] dark:hover:border-[rgba(255,255,255,0.34)] dark:hover:shadow-[0_4px_16px_rgba(0,0,0,0.25)]',
-    selected:
-      'border-[#222222] shadow-[0_0_0_2px_rgba(34,34,34,0.38),0_4px_14px_rgba(15,23,42,0.12)] dark:border-white/70 dark:shadow-[0_0_0_2px_rgba(245,245,245,0.2),0_4px_14px_rgba(0,0,0,0.24)]',
-    iconWrap: 'border border-border-dark bg-bg-dark',
+    idle: SCRIPT_NODE_IDLE_BORDER_CLASS,
+    selected: SCRIPT_NODE_SELECTED_BORDER_CLASS,
+    iconWrap: 'border border-border-dark/55 bg-bg-dark',
     iconText: 'text-text-muted',
-    divider: 'border-border-dark/70',
+    divider: 'border-border-dark/45',
   },
   emerald: {
-    idle: 'border-[rgba(15,23,42,0.22)] hover:border-[rgba(15,23,42,0.34)] hover:shadow-[0_4px_16px_rgba(0,0,0,0.12)] dark:border-[rgba(255,255,255,0.22)] dark:hover:border-[rgba(255,255,255,0.34)] dark:hover:shadow-[0_4px_16px_rgba(0,0,0,0.25)]',
-    selected:
-      'border-[#222222] shadow-[0_0_0_2px_rgba(34,34,34,0.38),0_4px_14px_rgba(15,23,42,0.12)] dark:border-white/70 dark:shadow-[0_0_0_2px_rgba(245,245,245,0.2),0_4px_14px_rgba(0,0,0,0.24)]',
-    iconWrap: 'border border-border-dark bg-bg-dark',
+    idle: SCRIPT_NODE_IDLE_BORDER_CLASS,
+    selected: SCRIPT_NODE_SELECTED_BORDER_CLASS,
+    iconWrap: 'border border-border-dark/55 bg-bg-dark',
     iconText: 'text-text-muted',
-    divider: 'border-border-dark/70',
+    divider: 'border-border-dark/45',
   },
   amber: {
-    idle: 'border-[rgba(15,23,42,0.22)] hover:border-[rgba(15,23,42,0.34)] hover:shadow-[0_4px_16px_rgba(0,0,0,0.12)] dark:border-[rgba(255,255,255,0.22)] dark:hover:border-[rgba(255,255,255,0.34)] dark:hover:shadow-[0_4px_16px_rgba(0,0,0,0.25)]',
-    selected:
-      'border-[#222222] shadow-[0_0_0_2px_rgba(34,34,34,0.38),0_4px_14px_rgba(15,23,42,0.12)] dark:border-white/70 dark:shadow-[0_0_0_2px_rgba(245,245,245,0.2),0_4px_14px_rgba(0,0,0,0.24)]',
-    iconWrap: 'border border-border-dark bg-bg-dark',
+    idle: SCRIPT_NODE_IDLE_BORDER_CLASS,
+    selected: SCRIPT_NODE_SELECTED_BORDER_CLASS,
+    iconWrap: 'border border-border-dark/55 bg-bg-dark',
     iconText: 'text-text-muted',
-    divider: 'border-border-dark/70',
+    divider: 'border-border-dark/45',
   },
   rose: {
-    idle: 'border-[rgba(15,23,42,0.22)] hover:border-[rgba(15,23,42,0.34)] hover:shadow-[0_4px_16px_rgba(0,0,0,0.12)] dark:border-[rgba(255,255,255,0.22)] dark:hover:border-[rgba(255,255,255,0.34)] dark:hover:shadow-[0_4px_16px_rgba(0,0,0,0.25)]',
-    selected:
-      'border-[#222222] shadow-[0_0_0_2px_rgba(34,34,34,0.38),0_4px_14px_rgba(15,23,42,0.12)] dark:border-white/70 dark:shadow-[0_0_0_2px_rgba(245,245,245,0.2),0_4px_14px_rgba(0,0,0,0.24)]',
-    iconWrap: 'border border-border-dark bg-bg-dark',
+    idle: SCRIPT_NODE_IDLE_BORDER_CLASS,
+    selected: SCRIPT_NODE_SELECTED_BORDER_CLASS,
+    iconWrap: 'border border-border-dark/55 bg-bg-dark',
     iconText: 'text-text-muted',
-    divider: 'border-border-dark/70',
+    divider: 'border-border-dark/45',
   },
   cyan: {
-    idle: 'border-[rgba(15,23,42,0.22)] hover:border-[rgba(15,23,42,0.34)] hover:shadow-[0_4px_16px_rgba(0,0,0,0.12)] dark:border-[rgba(255,255,255,0.22)] dark:hover:border-[rgba(255,255,255,0.34)] dark:hover:shadow-[0_4px_16px_rgba(0,0,0,0.25)]',
-    selected:
-      'border-[#222222] shadow-[0_0_0_2px_rgba(34,34,34,0.38),0_4px_14px_rgba(15,23,42,0.12)] dark:border-white/70 dark:shadow-[0_0_0_2px_rgba(245,245,245,0.2),0_4px_14px_rgba(0,0,0,0.24)]',
-    iconWrap: 'border border-border-dark bg-bg-dark',
+    idle: SCRIPT_NODE_IDLE_BORDER_CLASS,
+    selected: SCRIPT_NODE_SELECTED_BORDER_CLASS,
+    iconWrap: 'border border-border-dark/55 bg-bg-dark',
     iconText: 'text-text-muted',
-    divider: 'border-border-dark/70',
+    divider: 'border-border-dark/45',
   },
 };
 
@@ -80,17 +80,17 @@ export const SCRIPT_NODE_INPUT_CLASS =
   'nodrag nowheel w-full border ui-field px-3 py-2 text-sm text-text-dark outline-none transition-colors placeholder:text-text-muted/70 focus:border-text-muted/60';
 export const SCRIPT_NODE_TEXTAREA_CLASS = `${SCRIPT_NODE_INPUT_CLASS} ui-scrollbar resize-none`;
 export const SCRIPT_NODE_SECONDARY_BUTTON_CLASS =
-  'nodrag inline-flex items-center gap-1.5 rounded-lg border border-border-dark/70 bg-bg-dark px-3 py-1.5 text-xs font-medium text-text-dark transition-colors hover:border-border-dark hover:bg-bg-dark/80';
+  'nodrag inline-flex items-center gap-1.5 rounded-lg border border-border-dark/45 bg-bg-dark px-3 py-1.5 text-xs font-medium text-text-dark transition-colors hover:border-border-dark/70 hover:bg-bg-dark/80';
 export const SCRIPT_NODE_PRIMARY_BUTTON_CLASS =
-  'nodrag inline-flex items-center gap-1.5 rounded-lg border border-border-dark bg-bg-dark px-3 py-1.5 text-xs font-medium text-text-dark transition-colors hover:border-[rgba(15,23,42,0.34)] hover:bg-bg-dark/80 dark:hover:border-white/26';
+  'nodrag inline-flex items-center gap-1.5 rounded-lg border border-border-dark/55 bg-bg-dark px-3 py-1.5 text-xs font-medium text-text-dark transition-colors hover:border-[rgba(15,23,42,0.34)] hover:bg-bg-dark/80 dark:hover:border-white/[0.26]';
 export const SCRIPT_NODE_ICON_BUTTON_CLASS =
-  'nodrag flex h-8 w-8 items-center justify-center rounded-lg border border-transparent bg-transparent text-text-muted transition-colors hover:border-border-dark/70 hover:bg-bg-dark hover:text-text-dark disabled:cursor-not-allowed disabled:opacity-60';
+  'nodrag flex h-8 w-8 items-center justify-center rounded-lg border border-transparent bg-transparent text-text-muted transition-colors hover:border-border-dark/45 hover:bg-bg-dark hover:text-text-dark disabled:cursor-not-allowed disabled:opacity-60';
 export const SCRIPT_NODE_EMPTY_HINT_CLASS =
-  'rounded-lg border border-dashed border-border-dark/70 bg-bg-dark/45 px-3 py-4 text-center text-xs text-text-muted';
+  'rounded-lg border border-dashed border-border-dark/45 bg-bg-dark/35 px-3 py-4 text-center text-xs text-text-muted';
 export const SCRIPT_NODE_SCROLL_AREA_CLASS =
   'ui-scrollbar nodrag nowheel min-h-0 flex-1 overflow-y-auto pr-1';
 export const SCRIPT_NODE_SECTION_CARD_CLASS =
-  'rounded-xl border border-white/8 bg-black/10 px-3 py-2.5';
+  'rounded-xl border border-white/[0.07] bg-black/[0.08] px-3 py-2.5';
 
 export function resolveScriptNodeDimension(value: number | undefined, fallback: number): number {
   if (typeof value === 'number' && Number.isFinite(value) && value > 1) {

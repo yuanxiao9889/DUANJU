@@ -303,6 +303,7 @@
     "clipLibraryOpenFailed": "Failed to open the clip library window.",
     "clipLibraryStoryboardOnly": "Only storyboard projects support clip libraries.",
     "extensions": "Extensions Center",
+    "projectStats": "(Images: {{images}} | Nodes: {{nodes}})",
     "minimize": "Minimize",
     "maximize": "Maximize",
     "restore": "Restore",

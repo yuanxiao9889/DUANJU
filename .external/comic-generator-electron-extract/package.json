@@ -1,0 +1,17 @@
+
+{
+  "name": "comic-generator-electron",
+  "version": "3.0.3",
+  "description": "画镜AI",
+  "main": "dist-electron/main.js",
+  "type": "module",
+  "dependencies": {
+    "axios": "^1.6.0",
+    "electron-log": "^5.4.3",
+    "electron-updater": "^6.6.2",
+    "form-data": "^4.0.1",
+    "gsap": "^3.15.0",
+    "sharp": "^0.34.5",
+    "y-websocket": "^2.0.4",
+    "yjs": "^13.6.30"
+  }

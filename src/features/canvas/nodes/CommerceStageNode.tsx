@@ -48,7 +48,7 @@ function FieldRow({ label, value }: { label: string; value: string | null | unde
   }
 
   return (
-    <div className="rounded-lg border border-white/8 bg-black/10 px-3 py-2">
+    <div className="rounded-lg border border-white/[0.07] bg-black/[0.08] px-3 py-2">
       <div className="text-[11px] text-text-muted">{label}</div>
       <div className="mt-1 whitespace-pre-wrap break-words text-sm leading-5 text-text-dark">
         {normalizedValue}
@@ -67,7 +67,7 @@ function ChipList({ items }: { items: string[] }) {
       {items.map((item) => (
         <span
           key={item}
-          className="rounded-full border border-border-dark/70 bg-bg-dark px-2 py-1 text-[11px] text-text-dark"
+          className="rounded-full border border-border-dark/45 bg-bg-dark/80 px-2 py-1 text-[11px] text-text-dark"
         >
           {item}
         </span>
@@ -84,7 +84,7 @@ function ProductContent({ data }: { data: CommerceProductNodeData }) {
   return (
     <div className={`${SCRIPT_NODE_SCROLL_AREA_CLASS} space-y-3`}>
       {primaryImage ? (
-        <div className="overflow-hidden rounded-xl border border-white/10 bg-black/20">
+        <div className="overflow-hidden rounded-xl border border-white/[0.07] bg-black/[0.14]">
           <img
             src={resolveImageDisplayUrl(primaryImage.previewImageUrl || primaryImage.imageUrl)}
             alt={primaryImage.label}
@@ -186,10 +186,10 @@ function ResultContent({ data }: { data: CommerceResultGroupNodeData }) {
       {activeBatch ? (
         <>
           <div className="flex flex-wrap gap-1.5">
-            <span className="rounded-full border border-border-dark/70 bg-bg-dark px-2 py-1 text-[11px] text-text-dark">
+            <span className="rounded-full border border-border-dark/45 bg-bg-dark/80 px-2 py-1 text-[11px] text-text-dark">
               {t('commerceAd.fields.batches')}: {data.batches.length}
             </span>
-            <span className="rounded-full border border-border-dark/70 bg-bg-dark px-2 py-1 text-[11px] text-text-dark">
+            <span className="rounded-full border border-border-dark/45 bg-bg-dark/80 px-2 py-1 text-[11px] text-text-dark">
               {t('commerceAd.fields.images')}: {images.length}
             </span>
           </div>
@@ -197,7 +197,7 @@ function ResultContent({ data }: { data: CommerceResultGroupNodeData }) {
             {images.slice(0, 8).map((image) => (
               <div
                 key={image.id}
-                className="min-h-[72px] rounded-lg border border-white/10 bg-black/15 px-2 py-2 text-xs text-text-muted"
+                className="min-h-[72px] rounded-lg border border-white/[0.07] bg-black/[0.1] px-2 py-2 text-xs text-text-muted"
               >
                 <div className="font-medium text-text-dark">{image.aspectRatio}</div>
                 <div className="mt-1">{t(`commerceAd.status.${image.status}`)}</div>
