@@ -36,6 +36,10 @@ import {
   resolveNodeDownloadDefaultFileName,
   resolveNodeDownloadSuggestedFileStem,
 } from '@/features/canvas/application/downloadFileName';
+import {
+  resolveErrorContent,
+  showErrorDialog,
+} from '@/features/canvas/application/errorDialog';
 import { useSettingsStore } from '@/stores/settingsStore';
 import { useCanvasStore } from '@/stores/canvasStore';
 import { usePsIntegrationStore } from '@/stores/psIntegrationStore';
@@ -524,8 +528,10 @@ export const NodeActionToolbar = memo(({ node }: NodeActionToolbarProps) => {
       closeDownloadMenu();
     } catch (error) {
       console.error('Failed to save media with save-as', error);
+      const { message, details } = resolveErrorContent(error, t('nodeToolbar.downloadFailed'));
+      await showErrorDialog(message, t('common.error'), details);
     }
-  }, [closeDownloadMenu, downloadableSource, downloadDefaultFileName]);
+  }, [closeDownloadMenu, downloadableSource, downloadDefaultFileName, t]);
 
   const handleDownloadToPreset = useCallback(
     async (targetDir: string) => {
@@ -537,15 +543,17 @@ export const NodeActionToolbar = memo(({ node }: NodeActionToolbarProps) => {
         closeDownloadMenu();
       } catch (error) {
         console.error('Failed to save media to preset dir', error);
+        const { message, details } = resolveErrorContent(error, t('nodeToolbar.downloadFailed'));
+        await showErrorDialog(message, t('common.error'), details);
       }
     },
-    [closeDownloadMenu, downloadableSource, downloadSuggestedFileStem]
+    [closeDownloadMenu, downloadableSource, downloadSuggestedFileStem, t]
   );
 
   const downloadMenuContent = !isImageEdit && downloadMenu ? (
     <div
       ref={downloadMenuRef}
-      className={`fixed z-[120] min-w-[280px] rounded-xl border border-[rgba(255,255,255,0.18)] bg-surface-dark/95 p-2 shadow-2xl backdrop-blur-sm transition-opacity duration-150 ${isDownloadMenuVisible ? 'opacity-100' : 'opacity-0'}`}
+      className={`fixed z-[100100] min-w-[280px] rounded-xl border border-[rgba(255,255,255,0.18)] bg-surface-dark/95 p-2 shadow-2xl backdrop-blur-sm transition-opacity duration-150 ${isDownloadMenuVisible ? 'opacity-100' : 'pointer-events-none opacity-0'}`}
       style={{ left: `${downloadMenu.x}px`, top: `${downloadMenu.y}px` }}
     >
       <button

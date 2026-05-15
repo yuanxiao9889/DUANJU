@@ -521,6 +521,7 @@
     "ungroup": "Ungroup",
     "separateCompare": "Separate",
     "saveAs": "Save as...",
+    "downloadFailed": "Failed to download this media.",
     "noDownloadPresetPathsHint": "No preset path. Add one in Settings > General.",
     "storyboardLine": "Storyboard {{index}}: {{content}}"
   },

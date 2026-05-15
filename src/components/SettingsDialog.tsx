@@ -153,7 +153,7 @@ const STORYBOARD_PROVIDER_GROUP_CONFIGS: ProviderGroupConfig[] = [
   {
     id: 'cheap',
     labelKey: 'settings.providerGroupAffordable',
-    providerIds: ['azemm', 'zhenzhen', 'comfly', 'bltcy', 'runninghub', 'api2ok'],
+    providerIds: ['azemm', 'zhenzhen', 'comfly', 'bltcy', 'runninghub'],
     defaultCollapsed: true,
   },
   {
@@ -621,7 +621,6 @@ export function SettingsDialog({
       'bltcy',
       'volcengine',
       'runninghub',
-      'api2ok',
       'alibaba',
       'deepseek',
       'coding',

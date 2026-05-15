@@ -21,10 +21,8 @@ import {
   type StoryboardNewApiModelConfig,
 } from './storyboardNewApi';
 import {
-  createStoryboardApi2OkImageModel,
   findStoryboardApi2OkBuiltinModel,
   normalizeStoryboardApi2OkModelConfig,
-  resolveStoryboardApi2OkModeLabel,
   STORYBOARD_API2OK_PROVIDER_ID,
   STORYBOARD_API2OK_BUILTIN_MODELS,
   type StoryboardApi2OkModelConfig,
@@ -943,40 +941,6 @@ function createNewApiCustomStoryboardImageModel(
   };
 }
 
-function createApi2OkCustomStoryboardImageModel(
-  entry: CustomStoryboardModelEntry,
-  api2OkConfig: StoryboardApi2OkModelConfig | null | undefined
-): ImageModelDefinition | null {
-  const resolvedConfig = resolveStoryboardApi2OkModelConfigForModel(
-    toStoryboardProviderModelId(STORYBOARD_API2OK_PROVIDER_ID, entry.modelId),
-    api2OkConfig,
-    { [STORYBOARD_API2OK_PROVIDER_ID]: [entry] }
-  );
-
-  const legacyModel = createStoryboardApi2OkImageModel(resolvedConfig);
-  if (!legacyModel) {
-    return null;
-  }
-
-  const providerModelId = toStoryboardProviderModelId(
-    STORYBOARD_API2OK_PROVIDER_ID,
-    entry.modelId
-  );
-
-  return {
-    ...legacyModel,
-    id: providerModelId,
-    displayName: entry.displayName || entry.modelId,
-    resolveRequest: ({ referenceImageCount }) => ({
-      requestModel: providerModelId,
-      modeLabel: resolveStoryboardApi2OkModeLabel(
-        resolvedConfig.apiFormat,
-        referenceImageCount
-      ),
-    }),
-  };
-}
-
 function createOopiiCustomStoryboardImageModel(
   entry: CustomStoryboardModelEntry
 ): ImageModelDefinition | null {
@@ -1015,6 +979,10 @@ export function createCustomStoryboardImageModels(
   const seenModelIds = new Set<string>();
 
   for (const providerId of STORYBOARD_CUSTOM_MODEL_PROVIDER_IDS) {
+    if (providerId === STORYBOARD_API2OK_PROVIDER_ID) {
+      continue;
+    }
+
     for (const entry of getCustomStoryboardModels(providerId, normalizedCustomModels)) {
       const model =
         providerId === STORYBOARD_OOPII_PROVIDER_ID
@@ -1023,8 +991,6 @@ export function createCustomStoryboardImageModels(
           ? createCompatibleCustomStoryboardImageModel(entry, compatibleConfig)
           : providerId === STORYBOARD_NEWAPI_PROVIDER_ID
             ? createNewApiCustomStoryboardImageModel(entry, newApiConfig)
-          : providerId === STORYBOARD_API2OK_PROVIDER_ID
-            ? createApi2OkCustomStoryboardImageModel(entry, api2OkConfig)
             : createProviderCustomStoryboardImageModel(providerId, entry);
 
       if (!model) {

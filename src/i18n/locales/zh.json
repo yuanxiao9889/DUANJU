@@ -511,6 +511,7 @@
     "arrangeGroup": "整理分组",
     "ungroup": "解散",
     "saveAs": "另存为...",
+    "downloadFailed": "下载失败，请稍后重试",
     "noDownloadPresetPathsHint": "暂无预设路径，请在设置 - 通用中添加",
     "storyboardLine": "分镜 {{index}}：{{content}}",
     "addToClipLibrary": "加入剪辑素材库",

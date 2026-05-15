@@ -213,7 +213,6 @@ export const ModelParamsControls = memo(({
       'zhenzhen',
       'bltcy',
       'runninghub',
-      'api2ok',
       'newapi',
       'compatible',
     ];

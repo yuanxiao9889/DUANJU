@@ -16,8 +16,6 @@ import {
   type StoryboardNewApiModelConfig,
 } from './storyboardNewApi';
 import {
-  createStoryboardApi2OkImageModels,
-  isStoryboardApi2OkModelId,
   type StoryboardApi2OkModelConfig,
 } from './storyboardApi2Ok';
 import {
@@ -71,7 +69,6 @@ const imageModelAliasMap = new Map<string, string>([
   ['zhenzhen/nano-banana-pro-2k', 'zhenzhen/nano-banana-pro'],
   ['zhenzhen/nano-banana-pro-4k', 'zhenzhen/nano-banana-pro'],
   ['zhenzhen/gemini-3.1-flash-image-preview-4k', 'zhenzhen/gemini-3.1-flash-image-preview'],
-  ['api2ok/storyboard-experimental', 'api2ok/gemini-3-pro-image-preview'],
 ]);
 
 function resolveCompatibleModelList(
@@ -100,14 +97,12 @@ function resolveCompatibleModelList(
     hasNewApiCustomModels
       ? null
       : createStoryboardNewApiImageModel(newApiConfig);
-  const api2OkModels = createStoryboardApi2OkImageModels();
   const oopiiModels = createStoryboardOopiiImageModels();
   return [
     ...imageModels,
     ...customModels,
     ...(compatibleModel ? [compatibleModel] : []),
     ...(newApiModel ? [newApiModel] : []),
-    ...api2OkModels,
     ...oopiiModels,
   ];
 }
@@ -185,9 +180,6 @@ function resolveImageModel(
       createStoryboardNewApiImageModel(newApiConfig)
       ?? imageModelMap.get(DEFAULT_IMAGE_MODEL_ID)!
     );
-  }
-  if (isStoryboardApi2OkModelId(resolvedModelId)) {
-    return createStoryboardApi2OkImageModels()[0] ?? imageModelMap.get(DEFAULT_IMAGE_MODEL_ID)!;
   }
   if (isStoryboardOopiiModelId(resolvedModelId)) {
     return (
