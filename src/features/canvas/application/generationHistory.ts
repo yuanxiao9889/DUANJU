@@ -4,6 +4,7 @@ import {
   CANVAS_NODE_TYPES,
   isAudioNode,
   isExportImageNode,
+  isGptBestVideoResultNode,
   isJimengImageResultNode,
   isJimengVideoResultNode,
   isMjResultNode,
@@ -15,6 +16,7 @@ import {
   type CanvasNode,
   type CanvasNodeType,
   type ExportImageNodeData,
+  type GptBestVideoResultNodeData,
   type JimengImageResultNodeData,
   type JimengVideoResultNodeData,
   type MjBatchImageItem,
@@ -70,6 +72,7 @@ export interface GenerationHistoryDraft {
 type VideoLikeNode =
   | Node<JimengVideoResultNodeData, typeof CANVAS_NODE_TYPES.jimengVideoResult>
   | Node<SeedanceVideoResultNodeData, typeof CANVAS_NODE_TYPES.seedanceVideoResult>
+  | Node<GptBestVideoResultNodeData, typeof CANVAS_NODE_TYPES.gptBestVideoResult>
   | Node<ViduVideoResultNodeData, typeof CANVAS_NODE_TYPES.viduVideoResult>
   | Node<VideoNodeData, typeof CANVAS_NODE_TYPES.video>;
 
@@ -547,7 +550,12 @@ export function collectGenerationHistoryDrafts(
       continue;
     }
 
-    if (isJimengVideoResultNode(node) || isSeedanceVideoResultNode(node) || isViduVideoResultNode(node)) {
+    if (
+      isJimengVideoResultNode(node)
+      || isSeedanceVideoResultNode(node)
+      || isGptBestVideoResultNode(node)
+      || isViduVideoResultNode(node)
+    ) {
       appendVideoDraft(drafts, projectId, node, now);
       continue;
     }
@@ -656,7 +664,12 @@ export function buildGenerationHistoryContentSignature(
       continue;
     }
 
-    if (isJimengVideoResultNode(node) || isSeedanceVideoResultNode(node) || isViduVideoResultNode(node)) {
+    if (
+      isJimengVideoResultNode(node)
+      || isSeedanceVideoResultNode(node)
+      || isGptBestVideoResultNode(node)
+      || isViduVideoResultNode(node)
+    ) {
       if (!node.data.isGenerating) {
         appendGenerationHistorySignaturePart(
           parts,
@@ -719,6 +732,7 @@ export function isGeneratedContentNode(
     || node.type === CANVAS_NODE_TYPES.mjResult
     || node.type === CANVAS_NODE_TYPES.jimengVideoResult
     || node.type === CANVAS_NODE_TYPES.seedanceVideoResult
+    || node.type === CANVAS_NODE_TYPES.gptBestVideoResult
   ) {
     return true;
   }
@@ -790,6 +804,7 @@ export function collectGenerationHistoryItemNodeIds(
       if (
         isJimengVideoResultNode(node)
         || isSeedanceVideoResultNode(node)
+        || isGptBestVideoResultNode(node)
         || isViduVideoResultNode(node)
         || isVideoNode(node)
       ) {
