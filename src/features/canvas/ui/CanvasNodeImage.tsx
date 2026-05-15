@@ -20,6 +20,10 @@ import {
 import { resolveLocalFileSourcePath } from '@/features/canvas/application/imageData';
 import type { ImageViewerMetadata } from '@/features/canvas/domain/canvasNodes';
 import { useStableImageDisplaySource } from '@/features/canvas/hooks/useStableImageDisplaySource';
+import {
+  useIsOverviewCanvasRender,
+  useShouldPreferCanvasThumbnailMedia,
+} from '@/features/canvas/CanvasPerformanceContext';
 import { useCanvasStore } from '@/stores/canvasStore';
 
 export interface CanvasNodeImageProps extends ImgHTMLAttributes<HTMLImageElement> {
@@ -28,6 +32,7 @@ export interface CanvasNodeImageProps extends ImgHTMLAttributes<HTMLImageElement
   viewerMetadata?: ImageViewerMetadata | null;
   disableViewer?: boolean;
   fallbackSrc?: string | null;
+  overviewSrc?: string | null;
   onSourceUnavailable?: (error?: unknown) => void;
 }
 
@@ -139,6 +144,7 @@ export const CanvasNodeImage = memo(forwardRef<HTMLImageElement, CanvasNodeImage
   viewerMetadata = null,
   disableViewer = false,
   fallbackSrc,
+  overviewSrc,
   onSourceUnavailable,
   onDoubleClick,
   onError,
@@ -147,9 +153,20 @@ export const CanvasNodeImage = memo(forwardRef<HTMLImageElement, CanvasNodeImage
   ...props
 }, forwardedRef) => {
   const openImageViewer = useCanvasStore((state) => state.openImageViewer);
-  const requestedSrc = useMemo(
+  const isOverviewRender = useIsOverviewCanvasRender();
+  const shouldPreferThumbnailMedia = useShouldPreferCanvasThumbnailMedia();
+  const primarySrc = useMemo(
     () => normalizeImageSrc(typeof src === 'string' ? src : null),
     [src]
+  );
+  const normalizedOverviewSrc = useMemo(() => normalizeImageSrc(overviewSrc), [overviewSrc]);
+  const requestedSrc = useMemo(
+    () => (
+      isOverviewRender || shouldPreferThumbnailMedia
+        ? (normalizedOverviewSrc ?? primarySrc)
+        : primarySrc
+    ),
+    [isOverviewRender, normalizedOverviewSrc, primarySrc, shouldPreferThumbnailMedia]
   );
   const normalizedFallbackSrc = useMemo(() => normalizeImageSrc(fallbackSrc), [fallbackSrc]);
   const normalizedViewerSource = useMemo(
@@ -161,12 +178,28 @@ export const CanvasNodeImage = memo(forwardRef<HTMLImageElement, CanvasNodeImage
       return normalizedFallbackSrc;
     }
 
-    if (normalizedViewerSource && normalizedViewerSource !== requestedSrc) {
+    if (
+      !isOverviewRender
+      && !shouldPreferThumbnailMedia
+      && normalizedViewerSource
+      && normalizedViewerSource !== requestedSrc
+    ) {
       return normalizedViewerSource;
     }
 
+    if ((isOverviewRender || shouldPreferThumbnailMedia) && primarySrc && primarySrc !== requestedSrc) {
+      return primarySrc;
+    }
+
     return null;
-  }, [normalizedFallbackSrc, normalizedViewerSource, requestedSrc]);
+  }, [
+    isOverviewRender,
+    normalizedFallbackSrc,
+    normalizedViewerSource,
+    primarySrc,
+    requestedSrc,
+    shouldPreferThumbnailMedia,
+  ]);
   const resolvedDisplayState = useMemo(
     () => resolveDisplayState(requestedSrc, resolvedFallbackSrc),
     [requestedSrc, resolvedFallbackSrc]

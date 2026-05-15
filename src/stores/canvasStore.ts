@@ -13,7 +13,6 @@ import {
   COMMERCE_STAGE_NODE_DEFAULT_HEIGHT,
   COMMERCE_STAGE_NODE_DEFAULT_WIDTH,
   DEFAULT_ASPECT_RATIO,
-  DEFAULT_NODE_WIDTH,
   DIRECTOR_STAGE_NODE_DEFAULT_HEIGHT,
   DIRECTOR_STAGE_NODE_DEFAULT_WIDTH,
   EXPORT_RESULT_NODE_DEFAULT_WIDTH,
@@ -46,6 +45,18 @@ import {
   SCRIPT_SCENE_NODE_DEFAULT_WIDTH,
   SHOOTING_SCRIPT_NODE_DEFAULT_HEIGHT,
   SHOOTING_SCRIPT_NODE_DEFAULT_WIDTH,
+  SCRIPT_CHARACTER_NODE_DEFAULT_HEIGHT,
+  SCRIPT_CHARACTER_NODE_DEFAULT_WIDTH,
+  SCRIPT_LOCATION_NODE_DEFAULT_HEIGHT,
+  SCRIPT_LOCATION_NODE_DEFAULT_WIDTH,
+  SCRIPT_ITEM_NODE_DEFAULT_HEIGHT,
+  SCRIPT_ITEM_NODE_DEFAULT_WIDTH,
+  SCRIPT_PLOT_LINE_NODE_DEFAULT_HEIGHT,
+  SCRIPT_PLOT_LINE_NODE_DEFAULT_WIDTH,
+  SCRIPT_ASSET_EXTRACT_NODE_DEFAULT_HEIGHT,
+  SCRIPT_ASSET_EXTRACT_NODE_DEFAULT_WIDTH,
+  DIRECTOR_STORYBOARD_REFERENCE_NODE_DEFAULT_HEIGHT,
+  DIRECTOR_STORYBOARD_REFERENCE_NODE_DEFAULT_WIDTH,
   type JimengImageNodeData,
   type JimengNodeData,
   type ActiveToolDialog,
@@ -80,16 +91,21 @@ import {
   type ScriptSceneNodeData,
   type UploadImageNodeData,
   type ShootingScriptNodeData,
+  type ScriptAssetExtractNodeData,
+  type DirectorStoryboardReferenceNodeData,
   type ScriptReferenceNodeData,
   type AdScriptReferenceNodeData,
   type ScriptCharacterReferenceNodeData,
   type ScriptLocationReferenceNodeData,
   type ScriptItemReferenceNodeData,
   type ScriptCharacterNodeData,
+  type ScriptPlotLineNodeData,
   type ScriptStoryNoteNodeData,
   createDefaultSceneCard,
   isImageCompareNode,
   normalizeShootingScriptNodeData,
+  normalizeScriptAssetExtractNodeData,
+  normalizeDirectorStoryboardReferenceNodeData,
   normalizeImageCompareNodeData,
   normalizeImageCollageNodeData,
   normalizeLlmLogicNodeData,
@@ -106,6 +122,7 @@ import {
   normalizeCommerceProductNodeData,
   normalizeCommerceResultGroupNodeData,
   normalizeScriptItemReferenceNodeData,
+  normalizeScriptPlotLineNodeData,
   normalizeScriptLocationReferenceNodeData,
   normalizeScriptReferenceNodeData,
   normalizeScriptRootNodeData,
@@ -141,6 +158,13 @@ import {
   GROUP_NODE_TOP_PADDING,
   layoutGroupChildren,
 } from '@/features/canvas/application/groupLayout';
+import {
+  createCanvasRect,
+  getCanvasNodeRect,
+  getCanvasNodeSize as getNodeSize,
+  rectIntersects,
+  resolveAbsoluteCanvasNodePosition as resolveAbsolutePosition,
+} from '@/features/canvas/application/nodeGeometry';
 import type { AssetItemRecord } from '@/features/assets/domain/types';
 import { collectGeneratedContentNodeIds } from '@/features/canvas/application/generationHistory';
 import { useSettingsStore } from '@/stores/settingsStore';
@@ -173,6 +197,22 @@ const VIEWPORT_ZOOM_EPSILON = 0.0005;
 
 type CanvasNodeSelectChange = Extract<NodeChange<CanvasNode>, { type: 'select' }>;
 type CanvasNodePositionChange = Extract<NodeChange<CanvasNode>, { type: 'position' }>;
+
+const nodeIndexByIdCache = new WeakMap<CanvasNode[], Map<string, number>>();
+
+function getNodeIndexByIdMap(nodes: CanvasNode[]): Map<string, number> {
+  const cached = nodeIndexByIdCache.get(nodes);
+  if (cached) {
+    return cached;
+  }
+
+  const map = new Map<string, number>();
+  nodes.forEach((node, index) => {
+    map.set(node.id, index);
+  });
+  nodeIndexByIdCache.set(nodes, map);
+  return map;
+}
 
 function areViewportsNearlyEqual(left: Viewport, right: Viewport): boolean {
   return (
@@ -228,7 +268,20 @@ function applyNodeChangesLocal(
     }
 
     let didChange = false;
-    const nextNodes = nodes.map((node) => {
+    let nextNodes: CanvasNode[] | null = null;
+    const nodeIndexById = getNodeIndexByIdMap(nodes);
+    const changedNodeIds = new Set<string>([
+      ...selectedById.keys(),
+      ...positionById.keys(),
+    ]);
+
+    for (const nodeId of changedNodeIds) {
+      const index = nodeIndexById.get(nodeId);
+      if (typeof index !== 'number') {
+        continue;
+      }
+
+      const node = nodes[index];
       const selectChange = selectedById.has(node.id)
         ? selectedById.get(node.id) ?? false
         : node.selected;
@@ -243,19 +296,22 @@ function applyNodeChangesLocal(
       const hasDraggingChange = nextDragging !== node.dragging;
 
       if (!hasSelectChange && !hasPositionChange && !hasDraggingChange) {
-        return node;
+        continue;
       }
 
       didChange = true;
-      return {
+      if (!nextNodes) {
+        nextNodes = nodes.slice();
+      }
+      nextNodes[index] = {
         ...node,
         selected: selectChange,
         position: hasPositionChange ? nextPosition : node.position,
         dragging: nextDragging,
       };
-    });
+    }
 
-    return didChange ? nextNodes : nodes;
+    return didChange && nextNodes ? nextNodes : nodes;
   }
 
   if (changes.every((change): change is CanvasNodePositionChange => change.type === 'position')) {
@@ -265,12 +321,16 @@ function applyNodeChangesLocal(
     }
 
     let didChange = false;
-    const nextNodes = nodes.map((node) => {
-      const change = changeById.get(node.id);
-      if (!change) {
-        return node;
+    let nextNodes: CanvasNode[] | null = null;
+    const nodeIndexById = getNodeIndexByIdMap(nodes);
+
+    for (const change of changeById.values()) {
+      const index = nodeIndexById.get(change.id);
+      if (typeof index !== 'number') {
+        continue;
       }
 
+      const node = nodes[index];
       const nextPosition = change.position ?? node.position;
       const nextDragging =
         'dragging' in change
@@ -281,18 +341,21 @@ function applyNodeChangesLocal(
       const hasDraggingChange = nextDragging !== node.dragging;
 
       if (!hasPositionChange && !hasDraggingChange) {
-        return node;
+        continue;
       }
 
       didChange = true;
-      return {
+      if (!nextNodes) {
+        nextNodes = nodes.slice();
+      }
+      nextNodes[index] = {
         ...node,
         position: hasPositionChange ? nextPosition : node.position,
         dragging: nextDragging,
       };
-    });
+    }
 
-    return didChange ? nextNodes : nodes;
+    return didChange && nextNodes ? nextNodes : nodes;
   }
 
   let nextNodes = nodes;
@@ -494,6 +557,7 @@ const DERIVED_NODE_COLUMN_GAP = 28;
 const DERIVED_NODE_STACK_GAP = 20;
 const IMAGE_EDIT_DERIVED_NODE_STACK_GAP = 12;
 const DERIVED_NODE_MAX_ROWS_PER_COLUMN = 4;
+const DERIVED_NODE_MAX_COLUMN_SEARCH = 16;
 const DERIVED_NODE_NEXT_COLUMN_GAP = 32;
 const DERIVED_NODE_COLUMN_ALIGNMENT_THRESHOLD = 48;
 const LEGACY_IMAGE_EDIT_NODE_DEFAULT_WIDTHS = new Set([620]);
@@ -678,6 +742,7 @@ interface CanvasState {
     aspectRatio: string,
     previewImageUrl?: string,
     options?: {
+      thumbnailUrl?: string | null;
       imageWidth?: number;
       imageHeight?: number;
     }
@@ -688,6 +753,7 @@ interface CanvasState {
     aspectRatio: string,
     previewImageUrl?: string,
     options?: {
+      thumbnailUrl?: string | null;
       defaultTitle?: string;
       resultKind?: ExportImageNodeResultKind;
       aspectRatioStrategy?: 'provided' | 'derivedFromSource';
@@ -713,6 +779,7 @@ interface CanvasState {
     frames: Array<{
       imageUrl: string;
       previewImageUrl?: string | null;
+      thumbnailUrl?: string | null;
       aspectRatio?: string | null;
       title?: string | null;
     }>,
@@ -757,6 +824,10 @@ interface CanvasState {
     data: Partial<CanvasNodeData>,
     options?: UpdateNodeDataOptions
   ) => void;
+  updateNodeSize: (
+    nodeId: string,
+    size: { width: number; height: number }
+  ) => void;
   updateNodesData: (
     nodeIds: Iterable<string>,
     data: Partial<CanvasNodeData>,
@@ -792,12 +863,14 @@ interface CanvasState {
   deleteNodes: (nodeIds: string[]) => void;
   groupNodes: (nodeIds: string[]) => string | null;
   layoutGroupNode: (groupNodeId: string) => boolean;
+  fitGroupNodeToChildren: (groupNodeId: string) => boolean;
   reparentNodesToGroup: (nodeIds: string[], groupNodeId: string) => boolean;
   detachNodesFromGroup: (nodeIds: string[]) => boolean;
   ungroupNode: (groupNodeId: string) => boolean;
   deleteEdge: (edgeId: string) => void;
   deleteEdges: (edgeIds: string[]) => number;
   setSelectedNode: (nodeId: string | null) => void;
+  setSelectedNodeIds: (nodeIds: string[]) => void;
   setHighlightedReferenceSourceNode: (nodeId: string | null) => void;
   openShotParamsPanel: (nodeId: string) => void;
   closeShotParamsPanel: () => void;
@@ -922,9 +995,11 @@ function normalizeNodes(rawNodes: CanvasNode[]): CanvasNode[] {
         return null;
       }
 
-      const normalizedNodeType = isKnownCanvasNodeType(node.type)
-        ? (node.type as CanvasNodeType)
-        : CANVAS_NODE_TYPES.legacy;
+      const normalizedNodeType = node.type === CANVAS_NODE_TYPES.directorWorkPackage
+        ? CANVAS_NODE_TYPES.scriptAssetExtract
+        : isKnownCanvasNodeType(node.type)
+          ? (node.type as CanvasNodeType)
+          : CANVAS_NODE_TYPES.legacy;
       const definition = nodeCatalog.getDefinition(normalizedNodeType);
       const mergedData = {
         ...definition.createDefaultData(),
@@ -1040,6 +1115,13 @@ function normalizeNodes(rawNodes: CanvasNode[]): CanvasNode[] {
         );
       }
 
+      if (normalizedNodeType === CANVAS_NODE_TYPES.scriptPlotLine) {
+        Object.assign(
+          mergedData,
+          normalizeScriptPlotLineNodeData(mergedData as ScriptPlotLineNodeData)
+        );
+      }
+
       if (normalizedNodeType === CANVAS_NODE_TYPES.scriptStoryNote) {
         Object.assign(
           mergedData,
@@ -1051,6 +1133,25 @@ function normalizeNodes(rawNodes: CanvasNode[]): CanvasNode[] {
         Object.assign(
           mergedData,
           normalizeShootingScriptNodeData(mergedData as ShootingScriptNodeData)
+        );
+      }
+
+      if (
+        normalizedNodeType === CANVAS_NODE_TYPES.scriptAssetExtract
+        || normalizedNodeType === CANVAS_NODE_TYPES.directorWorkPackage
+      ) {
+        Object.assign(
+          mergedData,
+          normalizeScriptAssetExtractNodeData(mergedData as ScriptAssetExtractNodeData)
+        );
+      }
+
+      if (normalizedNodeType === CANVAS_NODE_TYPES.directorStoryboardReference) {
+        Object.assign(
+          mergedData,
+          normalizeDirectorStoryboardReferenceNodeData(
+            mergedData as DirectorStoryboardReferenceNodeData
+          )
         );
       }
 
@@ -1529,7 +1630,7 @@ function createNodePatchSnapshot(
   fallbackEdges: CanvasEdge[]
 ): CanvasHistorySnapshot {
   const seenNodeIds = new Set<string>();
-  const previousNodeById = new Map(nodes.map((node) => [node.id, node] as const));
+  const nodeIndexById = getNodeIndexByIdMap(nodes);
   const entries: CanvasNodePatchHistoryEntry[] = [];
 
   for (const nodeId of nodeIds) {
@@ -1538,7 +1639,10 @@ function createNodePatchSnapshot(
     }
 
     seenNodeIds.add(nodeId);
-    const previousNode = previousNodeById.get(nodeId);
+    const previousNodeIndex = nodeIndexById.get(nodeId);
+    const previousNode = typeof previousNodeIndex === 'number'
+      ? nodes[previousNodeIndex]
+      : null;
     if (!previousNode) {
       continue;
     }
@@ -1845,23 +1949,6 @@ function collectNodeIdsWithDescendants(nodes: CanvasNode[], seedIds: string[]): 
   return deleteSet;
 }
 
-function getNodeSize(node: CanvasNode): { width: number; height: number } {
-  return {
-    width:
-      typeof node.measured?.width === 'number'
-        ? node.measured.width
-        : typeof node.width === 'number'
-          ? node.width
-          : DEFAULT_NODE_WIDTH,
-    height:
-      typeof node.measured?.height === 'number'
-        ? node.measured.height
-        : typeof node.height === 'number'
-          ? node.height
-          : 200,
-  };
-}
-
 function resolveNumericNodeDimension(value: unknown): number | null {
   if (typeof value === 'number' && Number.isFinite(value)) {
     return Math.round(value);
@@ -1949,6 +2036,84 @@ function withShootingScriptDefaultSize(node: CanvasNode): CanvasNode {
       ...(node.style ?? {}),
       width: SHOOTING_SCRIPT_NODE_DEFAULT_WIDTH,
       height: SHOOTING_SCRIPT_NODE_DEFAULT_HEIGHT,
+    },
+  };
+}
+
+function withScriptCharacterDefaultSize(node: CanvasNode): CanvasNode {
+  return {
+    ...node,
+    width: SCRIPT_CHARACTER_NODE_DEFAULT_WIDTH,
+    height: SCRIPT_CHARACTER_NODE_DEFAULT_HEIGHT,
+    style: {
+      ...(node.style ?? {}),
+      width: SCRIPT_CHARACTER_NODE_DEFAULT_WIDTH,
+      height: SCRIPT_CHARACTER_NODE_DEFAULT_HEIGHT,
+    },
+  };
+}
+
+function withScriptLocationDefaultSize(node: CanvasNode): CanvasNode {
+  return {
+    ...node,
+    width: SCRIPT_LOCATION_NODE_DEFAULT_WIDTH,
+    height: SCRIPT_LOCATION_NODE_DEFAULT_HEIGHT,
+    style: {
+      ...(node.style ?? {}),
+      width: SCRIPT_LOCATION_NODE_DEFAULT_WIDTH,
+      height: SCRIPT_LOCATION_NODE_DEFAULT_HEIGHT,
+    },
+  };
+}
+
+function withScriptItemDefaultSize(node: CanvasNode): CanvasNode {
+  return {
+    ...node,
+    width: SCRIPT_ITEM_NODE_DEFAULT_WIDTH,
+    height: SCRIPT_ITEM_NODE_DEFAULT_HEIGHT,
+    style: {
+      ...(node.style ?? {}),
+      width: SCRIPT_ITEM_NODE_DEFAULT_WIDTH,
+      height: SCRIPT_ITEM_NODE_DEFAULT_HEIGHT,
+    },
+  };
+}
+
+function withScriptPlotLineDefaultSize(node: CanvasNode): CanvasNode {
+  return {
+    ...node,
+    width: SCRIPT_PLOT_LINE_NODE_DEFAULT_WIDTH,
+    height: SCRIPT_PLOT_LINE_NODE_DEFAULT_HEIGHT,
+    style: {
+      ...(node.style ?? {}),
+      width: SCRIPT_PLOT_LINE_NODE_DEFAULT_WIDTH,
+      height: SCRIPT_PLOT_LINE_NODE_DEFAULT_HEIGHT,
+    },
+  };
+}
+
+function withScriptAssetExtractDefaultSize(node: CanvasNode): CanvasNode {
+  return {
+    ...node,
+    width: SCRIPT_ASSET_EXTRACT_NODE_DEFAULT_WIDTH,
+    height: SCRIPT_ASSET_EXTRACT_NODE_DEFAULT_HEIGHT,
+    style: {
+      ...(node.style ?? {}),
+      width: SCRIPT_ASSET_EXTRACT_NODE_DEFAULT_WIDTH,
+      height: SCRIPT_ASSET_EXTRACT_NODE_DEFAULT_HEIGHT,
+    },
+  };
+}
+
+function withDirectorStoryboardReferenceDefaultSize(node: CanvasNode): CanvasNode {
+  return {
+    ...node,
+    width: DIRECTOR_STORYBOARD_REFERENCE_NODE_DEFAULT_WIDTH,
+    height: DIRECTOR_STORYBOARD_REFERENCE_NODE_DEFAULT_HEIGHT,
+    style: {
+      ...(node.style ?? {}),
+      width: DIRECTOR_STORYBOARD_REFERENCE_NODE_DEFAULT_WIDTH,
+      height: DIRECTOR_STORYBOARD_REFERENCE_NODE_DEFAULT_HEIGHT,
     },
   };
 }
@@ -2170,6 +2335,33 @@ function applyDefaultNodeSize(node: CanvasNode, data: CanvasNodeData): CanvasNod
     }
   }
 
+  if (node.type === CANVAS_NODE_TYPES.directorStoryboardReference) {
+    const resolvedWidth =
+      resolveNumericNodeDimension(node.width)
+      ?? resolveNumericNodeDimension(node.style?.width);
+    const resolvedHeight =
+      resolveNumericNodeDimension(node.height)
+      ?? resolveNumericNodeDimension(node.style?.height);
+    if (resolvedWidth === null || resolvedHeight === null) {
+      return withDirectorStoryboardReferenceDefaultSize(node);
+    }
+  }
+
+  if (
+    node.type === CANVAS_NODE_TYPES.scriptAssetExtract
+    || node.type === CANVAS_NODE_TYPES.directorWorkPackage
+  ) {
+    const resolvedWidth =
+      resolveNumericNodeDimension(node.width)
+      ?? resolveNumericNodeDimension(node.style?.width);
+    const resolvedHeight =
+      resolveNumericNodeDimension(node.height)
+      ?? resolveNumericNodeDimension(node.style?.height);
+    if (resolvedWidth === null || resolvedHeight === null) {
+      return withScriptAssetExtractDefaultSize(node);
+    }
+  }
+
   if (node.type === CANVAS_NODE_TYPES.scriptReference || isScriptAssetReferenceNodeType(node.type)) {
     const resolvedWidth =
       resolveNumericNodeDimension(node.width)
@@ -2203,6 +2395,54 @@ function applyDefaultNodeSize(node: CanvasNode, data: CanvasNodeData): CanvasNod
       ?? resolveNumericNodeDimension(node.style?.height);
     if (resolvedWidth === null || resolvedHeight === null) {
       return withShootingScriptDefaultSize(node);
+    }
+  }
+
+  if (node.type === CANVAS_NODE_TYPES.scriptCharacter) {
+    const resolvedWidth =
+      resolveNumericNodeDimension(node.width)
+      ?? resolveNumericNodeDimension(node.style?.width);
+    const resolvedHeight =
+      resolveNumericNodeDimension(node.height)
+      ?? resolveNumericNodeDimension(node.style?.height);
+    if (resolvedWidth === null || resolvedHeight === null) {
+      return withScriptCharacterDefaultSize(node);
+    }
+  }
+
+  if (node.type === CANVAS_NODE_TYPES.scriptLocation) {
+    const resolvedWidth =
+      resolveNumericNodeDimension(node.width)
+      ?? resolveNumericNodeDimension(node.style?.width);
+    const resolvedHeight =
+      resolveNumericNodeDimension(node.height)
+      ?? resolveNumericNodeDimension(node.style?.height);
+    if (resolvedWidth === null || resolvedHeight === null) {
+      return withScriptLocationDefaultSize(node);
+    }
+  }
+
+  if (node.type === CANVAS_NODE_TYPES.scriptItem) {
+    const resolvedWidth =
+      resolveNumericNodeDimension(node.width)
+      ?? resolveNumericNodeDimension(node.style?.width);
+    const resolvedHeight =
+      resolveNumericNodeDimension(node.height)
+      ?? resolveNumericNodeDimension(node.style?.height);
+    if (resolvedWidth === null || resolvedHeight === null) {
+      return withScriptItemDefaultSize(node);
+    }
+  }
+
+  if (node.type === CANVAS_NODE_TYPES.scriptPlotLine) {
+    const resolvedWidth =
+      resolveNumericNodeDimension(node.width)
+      ?? resolveNumericNodeDimension(node.style?.width);
+    const resolvedHeight =
+      resolveNumericNodeDimension(node.height)
+      ?? resolveNumericNodeDimension(node.style?.height);
+    if (resolvedWidth === null || resolvedHeight === null) {
+      return withScriptPlotLineDefaultSize(node);
     }
   }
 
@@ -2310,20 +2550,13 @@ function collidesWithExistingNodes(
   height: number,
   ignoredNodeIds?: Set<string>
 ): boolean {
+  const candidateRect = createCanvasRect(x, y, width, height);
   return nodes.some((node) => {
     if (ignoredNodeIds?.has(node.id)) {
       return false;
     }
 
-    const absolutePosition = resolveAbsolutePosition(node, nodeMap);
-    const nodeSize = getNodeSize(node);
-    const margin = 8;
-    return (
-      x < absolutePosition.x + nodeSize.width + margin &&
-      x + width + margin > absolutePosition.x &&
-      y < absolutePosition.y + nodeSize.height + margin &&
-      y + height + margin > absolutePosition.y
-    );
+    return rectIntersects(candidateRect, getCanvasNodeRect(node, nodeMap), 8);
   });
 }
 
@@ -2335,7 +2568,7 @@ function resolveDerivedNodeStackGap(sourceNode: CanvasNode): number {
 
 function resolvePreferredDerivedColumnPosition(
   nodes: CanvasNode[],
-  edges: CanvasEdge[],
+  _edges: CanvasEdge[],
   sourceNode: CanvasNode,
   newNodeWidth: number,
   newNodeHeight: number,
@@ -2351,46 +2584,13 @@ function resolvePreferredDerivedColumnPosition(
   const stepX = newNodeWidth + DERIVED_NODE_NEXT_COLUMN_GAP;
   const stepY = newNodeHeight + stackGap;
 
-  const directTargetIds = new Set(
-    edges
-      .filter((edge) => edge.source === sourceNode.id)
-      .map((edge) => edge.target)
-  );
-
-  const directTargets = nodes.filter((node) => {
-    if (!directTargetIds.has(node.id)) {
-      return false;
-    }
-
-    return resolveAbsolutePosition(node, nodeMap).x >= minAcceptedColumnX;
-  });
-
-  const occupiedSlots = new Set<string>();
-  for (const targetNode of directTargets) {
-    const targetPosition = resolveAbsolutePosition(targetNode, nodeMap);
-    const columnOffset = Math.max(0, targetPosition.x - anchorX);
-    const rowOffset = Math.max(0, targetPosition.y - anchorY);
-    const rawColumnIndex = Math.max(0, Math.round(columnOffset / stepX));
-    const rawRowIndex = Math.max(0, Math.round(rowOffset / stepY));
-    const columnIndex = rawColumnIndex + Math.floor(rawRowIndex / DERIVED_NODE_MAX_ROWS_PER_COLUMN);
-    const rowIndex = rawRowIndex % DERIVED_NODE_MAX_ROWS_PER_COLUMN;
-    occupiedSlots.add(`${columnIndex}:${rowIndex}`);
-  }
-
-  const maxColumnCount = Math.max(
-    2,
-    Math.ceil((directTargets.length + 1) / DERIVED_NODE_MAX_ROWS_PER_COLUMN) + 1
-  );
-
-  for (let columnIndex = 0; columnIndex < maxColumnCount; columnIndex += 1) {
+  for (let columnIndex = 0; columnIndex < DERIVED_NODE_MAX_COLUMN_SEARCH; columnIndex += 1) {
     for (let rowIndex = 0; rowIndex < DERIVED_NODE_MAX_ROWS_PER_COLUMN; rowIndex += 1) {
-      const slotKey = `${columnIndex}:${rowIndex}`;
-      if (occupiedSlots.has(slotKey)) {
-        continue;
-      }
-
       const candidateX = anchorX + columnIndex * stepX;
       const candidateY = anchorY + rowIndex * stepY;
+      if (candidateX < minAcceptedColumnX) {
+        continue;
+      }
       if (
         !collidesWithExistingNodes(
           nodes,
@@ -2440,7 +2640,7 @@ function resolveBatchDerivedNodePosition(
   const stepX = newNodeWidth + DERIVED_NODE_NEXT_COLUMN_GAP;
   const stepY = newNodeHeight + resolveDerivedNodeStackGap(sourceNode);
 
-  for (let columnIndex = 0; columnIndex < 12; columnIndex += 1) {
+  for (let columnIndex = 0; columnIndex < DERIVED_NODE_MAX_COLUMN_SEARCH; columnIndex += 1) {
     for (let rowIndex = 0; rowIndex < DERIVED_NODE_MAX_ROWS_PER_COLUMN; rowIndex += 1) {
       const candidateX = anchorX + columnIndex * stepX;
       const candidateY = anchorY + rowIndex * stepY;
@@ -2461,7 +2661,7 @@ function resolveBatchDerivedNodePosition(
   }
 
   return {
-    x: anchorX + stepX,
+    x: anchorX + DERIVED_NODE_MAX_COLUMN_SEARCH * stepX,
     y: anchorY,
   };
 }
@@ -2730,6 +2930,7 @@ function syncAssetItemToNode(
     imageUrl?: string | null;
     audioUrl?: string | null;
     previewImageUrl?: string | null;
+    thumbnailUrl?: string | null;
     aspectRatio?: string;
     audioFileName?: string | null;
     duration?: number;
@@ -2786,6 +2987,9 @@ function syncAssetItemToNode(
 
     setField('imageUrl', nextImageUrl);
     setField('previewImageUrl', nextPreviewImageUrl);
+    if (resetImageDimensions) {
+      setField('thumbnailUrl', null);
+    }
     setField('aspectRatio', nextAspectRatio);
     setField('sourceFileName', item.name);
 
@@ -2949,29 +3153,6 @@ function mapHistorySnapshots(
     history: changed ? nextHistory : history,
     changed,
   };
-}
-
-function resolveAbsolutePosition(
-  node: CanvasNode,
-  nodeMap: Map<string, CanvasNode>
-): { x: number; y: number } {
-  let x = node.position.x;
-  let y = node.position.y;
-  let currentParentId = node.parentId;
-  const visited = new Set<string>();
-
-  while (currentParentId && !visited.has(currentParentId)) {
-    visited.add(currentParentId);
-    const parent = nodeMap.get(currentParentId);
-    if (!parent) {
-      break;
-    }
-    x += parent.position.x;
-    y += parent.position.y;
-    currentParentId = parent.parentId;
-  }
-
-  return { x, y };
 }
 
 function collectAncestorGroupNodeIds(
@@ -3323,7 +3504,9 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
       let nextDragHistorySnapshot = state.dragHistorySnapshot;
 
       if (hasInteractionMove && !nextDragHistorySnapshot) {
-        nextDragHistorySnapshot = createSnapshot(state.nodes, state.edges);
+        nextDragHistorySnapshot = interactionNodeIds.length > 0
+          ? createNodePatchSnapshot(state.nodes, interactionNodeIds, state.edges)
+          : createSnapshot(state.nodes, state.edges);
       }
 
       if (hasInteractionEnd) {
@@ -3816,6 +3999,7 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
     let node = canvasNodeFactory.createNode(CANVAS_NODE_TYPES.upload, position, {
       imageUrl,
       previewImageUrl: previewImageUrl ?? null,
+      thumbnailUrl: options?.thumbnailUrl ?? null,
       aspectRatio: resolvedAspectRatio,
       imageWidth: options?.imageWidth,
       imageHeight: options?.imageHeight,
@@ -3888,6 +4072,7 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
     const exportNodeData: Partial<CanvasNodeData> = {
       imageUrl,
       previewImageUrl: previewImageUrl ?? null,
+      thumbnailUrl: options?.thumbnailUrl ?? null,
       aspectRatio: resolvedAspectRatio,
       generationSummary: sourceGenerationSummary,
     };
@@ -4063,6 +4248,7 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
       const nodeData: Partial<CanvasNodeData> = {
         imageUrl: frame.imageUrl,
         previewImageUrl: frame.previewImageUrl ?? null,
+        thumbnailUrl: frame.thumbnailUrl ?? null,
         aspectRatio: resolvedAspectRatio,
         resultKind: 'storyboardFrameEdit',
         displayName: frame.title?.trim() || EXPORT_RESULT_DISPLAY_NAME.storyboardFrameEdit,
@@ -4650,6 +4836,12 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
             normalizeScriptCharacterNodeData(mergedData as ScriptCharacterNodeData)
           );
         }
+        if (node.type === CANVAS_NODE_TYPES.scriptPlotLine) {
+          Object.assign(
+            mergedData,
+            normalizeScriptPlotLineNodeData(mergedData as ScriptPlotLineNodeData)
+          );
+        }
         if (node.type === CANVAS_NODE_TYPES.scriptStoryNote) {
           Object.assign(
             mergedData,
@@ -4660,6 +4852,23 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
           Object.assign(
             mergedData,
             normalizeShootingScriptNodeData(mergedData as ShootingScriptNodeData)
+          );
+        }
+        if (
+          node.type === CANVAS_NODE_TYPES.scriptAssetExtract
+          || node.type === CANVAS_NODE_TYPES.directorWorkPackage
+        ) {
+          Object.assign(
+            mergedData,
+            normalizeScriptAssetExtractNodeData(mergedData as ScriptAssetExtractNodeData)
+          );
+        }
+        if (node.type === CANVAS_NODE_TYPES.directorStoryboardReference) {
+          Object.assign(
+            mergedData,
+            normalizeDirectorStoryboardReferenceNodeData(
+              mergedData as DirectorStoryboardReferenceNodeData
+            )
           );
         }
         if (node.type === CANVAS_NODE_TYPES.scriptReference) {
@@ -4807,6 +5016,45 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
     });
   },
 
+  updateNodeSize: (nodeId, size) => {
+    const nextWidth = Math.max(1, Math.round(size.width));
+    const nextHeight = Math.max(1, Math.round(size.height));
+
+    set((state) => {
+      let changed = false;
+      const nextNodes = state.nodes.map((node) => {
+        if (node.id !== nodeId) {
+          return node;
+        }
+
+        if (
+          Math.round(node.width ?? 0) === nextWidth
+          && Math.round(node.height ?? 0) === nextHeight
+        ) {
+          return node;
+        }
+
+        changed = true;
+        return {
+          ...node,
+          width: nextWidth,
+          height: nextHeight,
+          style: {
+            ...(node.style ?? {}),
+            width: nextWidth,
+            height: nextHeight,
+          },
+        };
+      });
+
+      if (!changed) {
+        return {};
+      }
+
+      return { nodes: nextNodes };
+    });
+  },
+
   updateNodesData: (nodeIds, data, options) => {
     const normalizedNodeIds = Array.from(
       new Set(
@@ -4867,6 +5115,12 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
             normalizeScriptCharacterNodeData(mergedData as ScriptCharacterNodeData)
           );
         }
+        if (node.type === CANVAS_NODE_TYPES.scriptPlotLine) {
+          Object.assign(
+            mergedData,
+            normalizeScriptPlotLineNodeData(mergedData as ScriptPlotLineNodeData)
+          );
+        }
         if (node.type === CANVAS_NODE_TYPES.scriptStoryNote) {
           Object.assign(
             mergedData,
@@ -4877,6 +5131,23 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
           Object.assign(
             mergedData,
             normalizeShootingScriptNodeData(mergedData as ShootingScriptNodeData)
+          );
+        }
+        if (
+          node.type === CANVAS_NODE_TYPES.scriptAssetExtract
+          || node.type === CANVAS_NODE_TYPES.directorWorkPackage
+        ) {
+          Object.assign(
+            mergedData,
+            normalizeScriptAssetExtractNodeData(mergedData as ScriptAssetExtractNodeData)
+          );
+        }
+        if (node.type === CANVAS_NODE_TYPES.directorStoryboardReference) {
+          Object.assign(
+            mergedData,
+            normalizeDirectorStoryboardReferenceNodeData(
+              mergedData as DirectorStoryboardReferenceNodeData
+            )
           );
         }
         if (node.type === CANVAS_NODE_TYPES.imageCollage) {
@@ -5870,10 +6141,10 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
         return {};
       }
 
-      const directChildren = state.nodes.filter((node) => node.parentId === groupNodeId);
-      if (directChildren.length < 2) {
-        return {};
-      }
+        const directChildren = state.nodes.filter((node) => node.parentId === groupNodeId);
+        if (directChildren.length === 0) {
+          return {};
+        }
 
       const childIdSet = new Set(directChildren.map((node) => node.id));
       const internalEdges = state.edges.filter(
@@ -5994,6 +6265,37 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
     }
 
     return didLayout;
+  },
+
+  fitGroupNodeToChildren: (groupNodeId) => {
+    let didFit = false;
+
+    set((state) => {
+      const groupNode = state.nodes.find(
+        (node) => node.id === groupNodeId && node.type === CANVAS_NODE_TYPES.group
+      );
+      if (!groupNode) {
+        return {};
+      }
+
+      const nextNodes = fitGroupNodeToChildren(state.nodes, groupNodeId);
+      if (nextNodes === state.nodes) {
+        return {};
+      }
+
+      const changed = nextNodes.some((node, index) => node !== state.nodes[index]);
+      if (!changed) {
+        return {};
+      }
+
+      didFit = true;
+      return {
+        nodes: nextNodes,
+        selectedNodeId: groupNodeId,
+      };
+    });
+
+    return didFit;
   },
 
   reparentNodesToGroup: (nodeIds, groupNodeId) => {
@@ -6226,6 +6528,44 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
         ? state
         : { selectedNodeId: nodeId }
     ));
+  },
+
+  setSelectedNodeIds: (nodeIds) => {
+    const selectedIdSet = new Set(
+      nodeIds
+        .filter((nodeId) => typeof nodeId === 'string')
+        .map((nodeId) => nodeId.trim())
+        .filter((nodeId) => nodeId.length > 0)
+    );
+
+    set((state) => {
+      let didChange = false;
+      const nextNodes = state.nodes.map((node) => {
+        const shouldSelect = selectedIdSet.has(node.id);
+        if (Boolean(node.selected) === shouldSelect) {
+          return node;
+        }
+
+        didChange = true;
+        return {
+          ...node,
+          selected: shouldSelect,
+        };
+      });
+
+      const nextSelectedNodeId = selectedIdSet.size === 1
+        ? nextNodes.find((node) => node.selected)?.id ?? null
+        : null;
+
+      if (!didChange && state.selectedNodeId === nextSelectedNodeId) {
+        return state;
+      }
+
+      return {
+        nodes: nextNodes,
+        selectedNodeId: nextSelectedNodeId,
+      };
+    });
   },
 
   setHighlightedReferenceSourceNode: (nodeId) => {
@@ -6500,6 +6840,7 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
     const node = canvasNodeFactory.createNode(CANVAS_NODE_TYPES.upload, { x: centerX - nodeSize.width / 2, y: centerY - nodeSize.height / 2 }, {
       imageUrl: result.imagePath,
       previewImageUrl: result.previewImagePath,
+      thumbnailUrl: result.thumbnailImagePath,
       aspectRatio: result.aspectRatio,
     });
     node.width = nodeSize.width;

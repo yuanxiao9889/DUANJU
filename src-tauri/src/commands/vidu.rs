@@ -2,10 +2,7 @@ use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 
-const VIDU_API_BASES: [&str; 2] = [
-    "https://api.vidu.cn/ent/v2",
-    "https://api.vidu.com/ent/v2",
-];
+const VIDU_API_BASES: [&str; 2] = ["https://api.vidu.cn/ent/v2", "https://api.vidu.com/ent/v2"];
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CreateViduVideoTaskPayload {
@@ -196,9 +193,10 @@ fn extract_task_id(payload: &Value) -> Option<String> {
 async fn parse_json_response(response: reqwest::Response, label: &str) -> Result<Value, String> {
     let status = response.status();
     let status_code = status.as_u16();
-    let response_text = response.text().await.map_err(|error| {
-        format!("Failed to read Vidu {} response: {}", label, error)
-    })?;
+    let response_text = response
+        .text()
+        .await
+        .map_err(|error| format!("Failed to read Vidu {} response: {}", label, error))?;
 
     if !status.is_success() && response_text.trim().is_empty() {
         return Err(format!(
@@ -216,7 +214,10 @@ async fn parse_json_response(response: reqwest::Response, label: &str) -> Result
 
     if !status.is_success() {
         return Err(extract_error_message(&payload).unwrap_or_else(|| {
-            format!("Vidu {} API returned HTTP {}: {}", label, status_code, payload)
+            format!(
+                "Vidu {} API returned HTTP {}: {}",
+                label, status_code, payload
+            )
         }));
     }
 
@@ -318,7 +319,10 @@ fn build_voice_clone_body(payload: &CreateViduVoiceClonePayload) -> Result<Value
     }
 
     let mut body = Map::new();
-    body.insert("audio_url".to_string(), Value::String(audio_url.to_string()));
+    body.insert(
+        "audio_url".to_string(),
+        Value::String(audio_url.to_string()),
+    );
     body.insert("voice_id".to_string(), Value::String(voice_id.to_string()));
     body.insert("text".to_string(), Value::String(text.to_string()));
     Ok(Value::Object(body))

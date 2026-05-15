@@ -38,11 +38,13 @@
   "appCloseDialog": {
     "idle": {
       "title": "关闭 OOpii？",
-      "description": "你可以先最小化到托盘，之后再恢复窗口；也可以直接完全关闭应用。"
+      "description": "你可以先最小化到托盘，之后再恢复窗口；也可以直接完全关闭应用。",
+      "descriptionNoTray": "macOS 当前不使用托盘隐藏窗口。关闭前会先保存当前项目状态。"
     },
     "active": {
       "title": "有任务正在生成",
-      "description": "当前画布仍有生成任务在进行中，你可以先最小化到托盘继续后台运行，或者直接关闭应用。"
+      "description": "当前画布仍有生成任务在进行中，你可以先最小化到托盘继续后台运行，或者直接关闭应用。",
+      "descriptionNoTray": "当前画布仍有生成任务在进行中。macOS 当前不使用托盘隐藏窗口，如继续关闭会结束应用。"
     },
     "hint": "选择“最小化”后，主窗口会被隐藏，你之后可以从托盘重新打开应用。",
     "minimize": "最小化到托盘",
@@ -382,7 +384,7 @@
     "emptyHintTitle": "双击鼠标添加节点",
     "emptyHintSubtitle": "Double-click to add a node",
     "dropFilesHint": "释放图片、视频或音频以上传",
-    "edgeCutDisconnected": "\u5df2\u65ad\u5f00 {{count}} \u6761\u8fde\u7ebf",
+    "edgeCutDisconnected": "已断开 {{count}} 条连线",
     "toolbar": {
       "zoomIn": "放大",
       "zoomOut": "缩小",
@@ -598,7 +600,11 @@
       "scriptLocationReference": "场景引用",
       "scriptItemReference": "道具引用",
       "imageCompare": "图片对比",
-      "directorStage": "3D 导演台"
+      "directorStage": "3D 导演台",
+      "directorWorkPackage": "剧本资产提取节点",
+      "scriptAssetExtract": "剧本资产提取节点",
+      "scriptPlotLine": "剧情线",
+      "directorStoryboardReference": "导演分镜台"
     },
     "menuGroup": {
       "imageGeneration": "图片生成",
@@ -625,8 +631,8 @@
       "waitingResult": "等待输出结果图片",
       "waitingResultDelayed": "已经等待 {{minutes}} 分钟了，还没有结果。继续等待中...",
       "submittingRequest": "正在提交请求...",
-      "optimizedReferenceRequest": "多张参考图已压缩，正在生成...",
-      "optimizedReferenceRequestDowngraded": "多张参考图已压缩，4K 已自动改为 2K...",
+      "optimizedReferenceRequest": "参考图已预处理，正在生成...",
+      "optimizedReferenceRequestDowngraded": "参考图已预处理，4K 已自动改为 2K...",
       "selectToEdit": "选中后在下方输入提示词生成或编辑图片",
       "submissionFailed": "请求未成功发出",
       "generationFailed": "生成失败",
@@ -1070,6 +1076,7 @@
         "clarity": "表达清晰度",
         "voiceSeparation": "人物语气区分",
         "cinematicImagery": "画面感增强",
+        "reverseImageContent": "反推图片内容",
         "rhythmPause": "节奏停顿",
         "emotionProgression": "情绪递进",
         "subtext": "潜台词",
@@ -1725,13 +1732,13 @@
     },
     "gptBestVideo": {
       "promptRequired": "请输入第三方视频生成提示词",
-      "apiKeyRequired": "请先在设置的“第三方视频”中填写第三方视频 API Key",
-      "baseUrlRequired": "请先在设置的“第三方视频”中填写第三方视频 Base URL",
-      "seedancePromptPlaceholder": "描述场景、动作、构图和节奏，用于第三方 Seedance 2.0 视频生成",
-      "grokPromptPlaceholder": "描述视频内容，可在提示词中用 @img1、@img2 引用连接的参考图",
+      "apiKeyRequired": "请先在 设置 > 提供商 > 第三方视频 中填写 OOpii 视频 API Key",
+      "baseUrlRequired": "请先在 设置 > 提供商 > 第三方视频 中填写 OOpii 视频 Base URL",
+      "seedancePromptPlaceholder": "描述场景、动作、构图、运镜和氛围，用于 OOpii 视频生成",
+      "grokPromptPlaceholder": "描述场景、动作、构图、运镜和氛围，用于 OOpii Grok 视频生成",
       "submit": "生成视频",
       "submitting": "提交中",
-      "submitFailed": "第三方视频生成提交失败",
+      "submitFailed": "OOpii 视频任务提交失败",
       "optimizePrompt": "优化视频提示词",
       "optimizingPrompt": "正在优化视频提示词",
       "optimizePromptFailed": "视频提示词优化失败",
@@ -1744,13 +1751,28 @@
       "resolutionLabel": "清晰度",
       "referenceImages": "{{count}} 张参考图",
       "referenceImageAlt": "参考图 {{index}}",
+      "referenceImageLabel": "参考图 {{index}}",
+      "referenceVideoLabel": "参考视频 {{index}}",
       "noReferences": "连接上游图片后，可作为图生视频参考。",
       "lastSubmitted": "上次提交 {{time}}",
+      "secondsSuffix": "秒",
+      "sizeLabel": "尺寸",
+      "referenceStatusLabel": "参考图状态",
+      "referenceUnsupported": "Grok 视频支持最多 7 张参考图。输入 @ 可插入 @图1，提交时会自动映射为 <IMAGE_1>。",
+      "referenceUnsupportedConnected": "已连接 {{count}} 张参考图，可在提示词输入 @ 选择 @图1 等引用。",
+      "referenceUnsupportedError": "Grok 视频最多支持 7 张参考图，请减少上游图片后再提交。",
+      "referenceUnsupportedProtocol": "当前选择的模型不支持 reference_images；请切换 Grok 模型或断开参考图。",
+      "referenceUnsupportedConnectedProtocol": "当前已连接 {{count}} 张图片，但当前选择的模型不支持 reference_images。",
+      "referenceUnsupportedErrorProtocol": "当前选择的模型不支持 reference_images，请切换 Grok 模型或断开上游图片后再提交。",
+      "referenceVideoUnsupportedConnected": "已连接 {{count}} 个视频参考；OOpii Grok 当前只支持图片 reference_images。",
+      "referenceVideoUnsupportedError": "OOpii Grok 当前只支持图片 reference_images，请先断开上游视频后再提交。",
+      "invalidSecondsForModel": "{{model}} 仅支持特定秒数，请改为可用时长后再提交。",
+      "oopiiHint": "OOpii 视频支持模型、秒数、尺寸；Grok 模型可连接最多 7 张参考图。",
       "textToVideoNoReferences": "文生视频模式不能连接参考图，请断开上游图片或切换模式。",
       "firstFrameRequiresOneImage": "首帧图生视频需要正好 1 张参考图。",
       "firstLastFrameRequiresTwoImages": "首尾帧图生视频需要正好 2 张参考图。",
       "grokImageLimit": "Grok 视频最多支持 {{count}} 张参考图。",
-      "grokModeHint": "Grok 视频可使用提示词，也可连接参考图并用 @img1、@img2 引用。",
+      "grokModeHint": "Grok 视频可使用提示词，也可连接参考图并用 @图1、@图2 引用。",
       "modeHints": {
         "textToVideo": "文生视频只使用提示词，提交前请断开参考图。",
         "firstFrame": "连接 1 张图片作为首帧参考。",
@@ -1764,7 +1786,7 @@
       "modelOptions": {
         "doubao-seedance-2-0-260128": "Seedance 2.0",
         "doubao-seedance-2-0-fast-260128": "Seedance 2.0 Fast",
-        "grok-video-3": "Grok Video 3"
+        "OK-video": "OK-video"
       },
       "aspectRatios": {
         "16:9": "16:9",
@@ -1784,13 +1806,13 @@
       }
     },
     "gptBestVideoResult": {
-      "empty": "等待第三方视频返回结果。",
-      "ready": "已回传",
-      "statusQueued": "任务排队中，等待第三方视频服务开始处理。",
-      "statusRunning": "第三方视频服务正在生成视频。",
+      "empty": "等待 OOpii 视频返回结果。",
+      "ready": "已就绪",
+      "statusQueued": "任务排队中，等待 OOpii 视频服务开始处理。",
+      "statusRunning": "OOpii 视频服务正在生成视频。",
       "requery": "重新查询",
-      "requeryUnavailable": "当前第三方视频结果节点还没有可用的 task_id，暂时无法重新查询结果。",
-      "requeryFailed": "重新查询第三方视频结果失败",
+      "requeryUnavailable": "当前 OOpii 视频结果节点还没有可用的 task_id，暂时无法重新查询结果。",
+      "requeryFailed": "重新查询 OOpii 视频结果失败",
       "taskStatuses": {
         "queued": "排队中",
         "running": "生成中",
@@ -1800,10 +1822,10 @@
       }
     },
     "vidu": {
-    "promptRequired": "请输入 Vidu 视频生成提示词",
-    "apiKeyRequired": "请先在设置的“官方视频”中填写 Vidu API Key",
-    "officialAuthError": "Vidu 官方鉴权失败。请确认“官方视频”里的 Vidu API Key 来自 Vidu Platform API Keys；粘贴时可以只填 Key 本体，不需要填写 Authorization 头。如果密钥无误，请检查 Vidu 账号额度与 API 权限。",
-    "promptPlaceholder": "描述场景、动作、构图和节奏，用于官方 Vidu 视频生成",
+      "promptRequired": "请输入 Vidu 视频生成提示词",
+      "apiKeyRequired": "请先在设置的“官方视频”中填写 Vidu API Key",
+      "officialAuthError": "Vidu 官方鉴权失败。请确认“官方视频”里的 Vidu API Key 来自 Vidu Platform API Keys；粘贴时可以只填 Key 本体，不需要填写 Authorization 头。如果密钥无误，请检查 Vidu 账号额度与 API 权限。",
+      "promptPlaceholder": "描述场景、动作、构图和节奏，用于官方 Vidu 视频生成",
       "submit": "生成视频",
       "submitting": "提交中",
       "submitFailed": "Vidu 视频生成提交失败",
@@ -2063,6 +2085,96 @@
       "cameraSummary": "{{count}} 个镜头 / {{name}}",
       "snapshotSaved": "已保存截图",
       "noSnapshot": "暂无截图"
+    },
+    "directorStoryboardReference": {
+      "sourceScript": "剧本驱动",
+      "versionLabel": "分镜包 v{{version}}",
+      "noPackage": "暂无分镜包",
+      "sync": "同步导演分镜",
+      "expandAll": "展开全部",
+      "expandSection": "展开段落",
+      "expanded": "已展开",
+      "queueImages": "加入出图队列",
+      "lockSection": "锁定段落",
+      "unlockSection": "解除锁定",
+      "sectionCount": "{{count}} 个段落",
+      "shotCount": "{{count}} 个镜头",
+      "referenceCount": "{{count}} 个参考",
+      "queueSummary": "{{completed}} / {{total}} 个出图任务",
+      "empty": "还没有导演分镜包，请先在剧本侧生成。",
+      "untitledSection": "段落 {{number}}",
+      "emptySummary": "暂无段落摘要",
+      "shotFallback": "镜头 {{number}}",
+      "emptyShotPrompt": "暂无提示词草稿",
+      "moreShots": "还有 {{count}} 个镜头",
+      "syncStatus": {
+        "idle": "等待同步",
+        "ready": "导演分镜已就绪",
+        "stale": "上游剧本已有更新",
+        "missingProject": "缺少关联剧本项目",
+        "missingSource": "缺少来源脚本节点",
+        "error": "同步失败"
+      }
+    },
+    "directorWorkPackage": {
+      "sourceMode": {
+        "chapterSelection": "章节选择",
+        "manualText": "手工文本"
+      },
+      "status": {
+        "idle": "待生成",
+        "planning": "生成中",
+        "ready": "已就绪",
+        "error": "生成失败"
+      },
+      "emptyHint": "先选章节或输入剧本再生成。",
+      "openWorkbench": "打开导演工作台",
+      "chapterCount": "{{count}} 个章节",
+      "sectionCount": "{{count}} 个 section",
+      "shotCount": "{{count}} 个镜头",
+      "generate": "生成",
+      "generating": "生成中...",
+      "createStoryboard": "创建分镜项目",
+      "creatingStoryboard": "正在创建分镜项目...",
+      "empty": "还没有导演工作包，请先生成。",
+      "untitledSection": "Section {{number}}",
+      "emptySummary": "暂无段落摘要",
+      "moreSections": "还有 {{count}} 个 section"
+    },
+    "scriptAssetExtract": {
+      "tabs": {
+        "characters": "角色",
+        "scenes": "场景",
+        "items": "物品"
+      },
+      "source": {
+        "connectedText": "已连接文本节点",
+        "chapterSelection": "已选择 {{count}} 个章节"
+      },
+      "status": {
+        "idle": "待提取",
+        "extracting": "提取中",
+        "planning": "提取中",
+        "ready": "已完成",
+        "error": "提取失败"
+      },
+      "emptyHint": "先连接文本节点，或在右侧勾选章节。",
+      "openWorkbench": "打开资产工作台",
+      "startHint": "连接文本节点后开始提取，或在右侧勾选章节。",
+      "extract": "开始提取",
+      "extracting": "提取中...",
+      "emptyTab": "这个分类下还没有提取结果。",
+      "emptyRowSummary": "暂无摘要",
+      "reextract": "重新提取",
+      "expand": "展开",
+      "meta": {
+        "aliases": "别名：{{value}}",
+        "continuity": "连续性：{{value}}",
+        "lighting": "光影：{{value}}",
+        "space": "空间：{{value}}",
+        "function": "作用：{{value}}",
+        "owner": "归属：{{value}}"
+      }
     }
   },
   "viewer": {
@@ -2111,6 +2223,7 @@
       "policyViolation": "提交内容被上游平台的安全规则拦截。请调整提示词或参考图，尽量避免敏感、色情、暴力、仿冒、侵权或平台禁止的内容后再试。",
       "timeout": "上游生成服务响应超时。任务可能排队过久、图片过大或服务暂时繁忙，请稍后重试；也可以减少参考图/尺寸，或换一个模型/渠道。",
       "payloadTooLarge": "本次提交的参考图或请求内容过大。请压缩图片、减少参考图数量，或降低分辨率后再试。",
+      "invalidReferenceImage": "至少有一张参考图无法解码为有效图片。请重新上传参考图，避免使用预览链接或无效文件后再试。",
       "endpointMismatch": "当前模型和接口路径不匹配。这通常是中转站模型配置问题，需要检查该模型是否走 /v1/images/generations 或 /v1/images/edits。",
       "modelUnavailable": "当前模型没有可用渠道，或模型映射配置不正确。请检查中转站里的模型名、渠道状态和分组权限。",
       "insufficientBalance": "当前账号或令牌余额不足，预扣费失败。请充值、降低生成规格，或切换可用的 API Key 后再试。",
@@ -2126,6 +2239,7 @@
       "policyViolation": "安全规则",
       "timeout": "超时",
       "payloadTooLarge": "请求过大",
+      "invalidReferenceImage": "图片",
       "endpointMismatch": "接口不匹配",
       "modelUnavailable": "模型不可用",
       "insufficientBalance": "余额不足",
@@ -2894,9 +3008,19 @@
     "officialVideoSeedanceDesc": "官方 Seedance 2.0 视频节点使用这组 API Key，请填写火山引擎官方平台生成的密钥。",
     "officialVideoViduDesc": "Vidu 官方视频节点使用这组 API Key，请填写官方平台生成的密钥。",
     "thirdPartyVideoApiEnabled": "第三方视频",
+    "thirdPartyVideoOopiiName": "OOpii 视频 API",
+    "thirdPartyVideoOopiiDesc": "第三方 Grok 视频和第三方 Seedance 2.0 节点共用这组 OOpii 视频 API 配置。",
     "thirdPartyVideoGptBestDesc": "第三方 Seedance 2.0 和第三方 Grok 视频节点共用这组密钥。",
     "thirdPartyVideoBaseUrl": "Base URL",
-    "thirdPartyVideoBaseUrlHint": "填写第三方视频平台提供的 Base URL；调用时会自动拼接 /v2/videos/generations。",
+    "thirdPartyVideoBaseUrlHint": "填写 OOpii 站点根地址或 API 根地址；调用时会使用 /api/v1/videos、/api/v1/videos/{task_id} 和 /api/v1/videos/{task_id}/content。",
+    "thirdPartyVideoDocTitle": "文档与站点",
+    "thirdPartyVideoDocDescription": "当前第三方视频页按 AetherAI 视频生成协议接入，但请求域名切到你的 OOpii 部署地址。",
+    "thirdPartyVideoCapabilityTitle": "支持的模型与参数",
+    "thirdPartyVideoModelSupport": "模型：OK-video",
+    "thirdPartyVideoSecondsSupport": "时长：OK-video 固定 10 秒。",
+    "thirdPartyVideoSizeSupport": "尺寸：720x1280、1280x720、1024x1024、1024x1792、1792x1024",
+    "thirdPartyVideoReferenceSupport": "参考图：Grok 模型支持 reference_images，最多 7 张；提示词中的 @图1 会提交为 <IMAGE_1>。",
+    "thirdPartyVideoEndpointHint": "接口：POST /api/v1/videos，GET /api/v1/videos/{task_id}，GET /api/v1/videos/{task_id}/content",
     "scriptApiDisabled": "未启用",
     "storyboardApiDisabled": "未启用",
     "scriptApiDesc": "选择用于剧本生成的 API 提供商",
@@ -3472,6 +3596,109 @@
       "summaryItems": "道具",
       "summaryWorldviews": "世界观"
     },
+    "directorWorkPackage": {
+        "workbenchTitle": "导演工作台",
+        "workbenchSubtitle": "先整理章节来源，再把导演拆解和 prompt 草稿集中在这里编辑。",
+        "shortTitleSuffix": "导演包",
+        "sourceTitle": "来源内容",
+        "sourceSubtitle": "可以选多个章节，也可以直接粘贴完整剧本文本。",
+        "refreshSource": "刷新来源",
+        "sourceMode": {
+          "chapterSelection": "章节选择",
+          "manualText": "手工文本"
+        },
+        "noChapters": "当前项目还没有章节节点。",
+        "manualText": "剧本文本",
+        "manualTextPlaceholder": "粘贴你要交给导演工作包处理的完整剧本或拆解文本。",
+        "chapterCount": "{{count}} 个章节",
+        "sceneCount": "{{count}} 个场景",
+        "shootingScriptCount": "{{count}} 个拍摄脚本",
+        "packageTitle": "导演拆解结果",
+        "packageSubtitle": "可以在这里编辑 section 和 shot，它会成为后面 storyboard 的正式来源。",
+        "generate": "生成导演工作包",
+        "generating": "生成中...",
+        "createStoryboard": "派生分镜项目",
+        "creatingStoryboard": "正在派生分镜项目...",
+        "emptyPackage": "还没有可编辑的导演工作包。",
+        "sectionCount": "{{count}} 个 section",
+        "shotCount": "{{count}} 个镜头",
+        "referenceCount": "{{count}} 个参考",
+        "addSection": "新增 section",
+        "sectionLabel": "Section {{number}}",
+        "lockSection": "锁定 section",
+        "unlockSection": "解锁 section",
+        "sectionReferences": "section 参考",
+        "shotsTitle": "Shots",
+        "addShot": "新增 shot",
+        "shotLabel": "Shot {{number}}",
+        "shotReferences": "shot 参考",
+        "fields": {
+          "sectionTitle": "Section 标题",
+          "dramaticGoal": "戏剧目标",
+          "summary": "段落摘要",
+          "visualIntent": "视觉意图",
+          "continuityNotes": "连贯提醒",
+          "shotLabel": "Shot 标签",
+          "shotPurpose": "Shot 目的",
+          "compositionHint": "构图提示",
+          "cameraHint": "机位提示",
+          "motionHint": "动作/运动提示",
+          "promptDraft": "图片 Prompt 草稿",
+          "videoPromptDraft": "视频 Prompt 草稿"
+        },
+        "placeholders": {
+          "sectionTitle": "这个 section 要叫什么",
+          "dramaticGoal": "这一段必须完成什么戏剧任务",
+          "summary": "用几句话概括这一段发生了什么",
+          "visualIntent": "这一段希望拍成什么样的画面感",
+          "continuityNotes": "需要连续保持的人物/场面/道具状态",
+          "shotLabel": "例如：近景反打 1",
+          "shotPurpose": "这个 shot 在情绪或信息上要起什么作用",
+          "compositionHint": "例如：中景，偏右构图",
+          "cameraHint": "例如：手持跟拍，微推近",
+          "motionHint": "例如：人物先停顿后逐步逼近",
+          "promptDraft": "图片生成用的 prompt 草稿",
+          "videoPromptDraft": "视频生成用的 prompt 草稿"
+        }
+      },
+    "scriptAssetExtract": {
+      "workbenchTitle": "剧本资产提取",
+      "workbenchSubtitle": "优先使用已连接的文本节点；如果没有文本节点，再从这里勾选章节内容。",
+      "sourceTitle": "来源内容",
+      "sourceSubtitle": "来源只支持两种：上游文本节点，或右侧勾选章节。",
+      "refreshSource": "刷新来源",
+      "connectedTextTitle": "已连接文本节点",
+      "connectedTextLockedHint": "当前已有上游文本节点接入，本次提取会优先使用它，章节勾选会暂时锁定。",
+      "noChapters": "当前剧本项目里还没有章节节点。",
+      "sourceMode": {
+        "connectedText": "文本节点"
+      },
+      "chapterCount": "{{count}} 个章节",
+      "sceneCount": "{{count}} 个场景",
+      "resultTitle": "提取结果",
+      "resultSubtitle": "提取角色、场景、物品，生成可展开的设定资产包。",
+      "extract": "开始提取",
+      "extracting": "提取中...",
+      "emptyResult": "还没有提取结果。",
+      "tabs": {
+        "characters": "角色",
+        "scenes": "场景",
+        "items": "物品"
+      },
+      "expandHint": "提取完成后，点击展开，就会在画布上生成分类 group 和独立资产节点。"
+    },
+    "scriptCatalog": {
+      "panelExpand": "展开剧本目录",
+      "panelCollapse": "收起剧本目录",
+      "shortTitle": "目录",
+      "title": "剧本目录",
+      "addChapter": "新增章节",
+      "export": "导出剧本",
+      "defaultScriptTitle": "未命名剧本",
+      "chapterCount": "{{count}} 个章节",
+      "directoryTitle": "章节目录",
+      "directorySubtitle": "用目录快速查看和跳转章节、场景。"
+    },
     "sceneStudio": {
       "title": "场景工作台",
       "subtitle": "按场景推进剧情、角色目标和导演感。",
@@ -3694,7 +3921,11 @@
         "expand": "扩写",
         "cinematic": "更电影化",
         "shootable": "更可拍"
-      }
+      },
+      "createStoryboardProject": "生成分镜项目",
+      "creatingStoryboardProject": "正在生成分镜项目...",
+      "createDirectorWorkPackage": "创建导演工作包",
+      "creatingDirectorWorkPackage": "正在创建导演工作包..."
     },
     "chapterCatalog": {
       "title": "源场景目录",
@@ -3810,7 +4041,11 @@
         "audio": "对白声音",
         "genTarget": "生成目标",
         "genPrompt": "生成提示"
-      }
+      },
+      "createStoryboardProject": "生成分镜项目",
+      "creatingStoryboardProject": "正在生成分镜项目...",
+      "createDirectorWorkPackage": "创建导演工作包",
+      "creatingDirectorWorkPackage": "正在创建导演工作包..."
     },
     "storyStart": {
       "title": "故事起稿台",
@@ -4058,6 +4293,22 @@
       "payoff": "回收",
       "descriptionPlaceholder": "描述这个{{type}}",
       "emptyHint": "点击编辑添加{{type}}内容"
+    },
+    "plotLine": {
+      "titleFallback": "剧情线",
+      "title": "剧情线标题",
+      "titlePlaceholder": "输入这条剧情线的标题",
+      "summary": "摘要",
+      "summaryPlaceholder": "概括这条剧情线当前推进了什么",
+      "statusTag": "状态标签",
+      "statusTagPlaceholder": "例如：铺垫、进行中、爆发、收束",
+      "relatedCharacterNames": "相关角色",
+      "relatedCharacterNamesPlaceholder": "多个角色请用逗号分隔",
+      "relatedSceneNames": "相关场景",
+      "relatedSceneNamesPlaceholder": "多个场景请用逗号分隔",
+      "relatedCharactersValue": "角色：{{names}}",
+      "relatedScenesValue": "场景：{{names}}",
+      "emptyHint": "点击编辑补充这条剧情线"
     },
     "worldview": {
       "name": "世界观名称",

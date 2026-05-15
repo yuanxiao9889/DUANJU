@@ -17,7 +17,7 @@ import type {
 
 const configuredApiKeyByProvider = new Map<string, string>();
 const pendingApiKeySyncByProvider = new Map<string, Promise<void>>();
-const API_REFERENCE_OPTIMIZATION_MIN_COUNT = 3;
+const API_REFERENCE_OPTIMIZATION_MIN_COUNT = 1;
 const API_REFERENCE_MAX_DIMENSION = 2048;
 const API_REFERENCE_MAX_BYTES = 3 * 1024 * 1024;
 

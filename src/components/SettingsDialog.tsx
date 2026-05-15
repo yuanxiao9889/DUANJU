@@ -173,11 +173,11 @@ const MJ_PROVIDER_GROUP_CONFIGS: ProviderGroupConfig[] = [
   },
 ];
 
-const THIRD_PARTY_VIDEO_PROVIDER_ID: ThirdPartyVideoProviderId = 'gptBest';
+const THIRD_PARTY_VIDEO_PROVIDER_ID: ThirdPartyVideoProviderId = 'oopii';
 const THIRD_PARTY_VIDEO_PROVIDER = {
   id: THIRD_PARTY_VIDEO_PROVIDER_ID,
-  name: 'Third-party Video',
-  label: 'Third-party Video',
+  name: 'OOpii Video API',
+  label: 'OOpii Video API',
 };
 const VIDU_OFFICIAL_VIDEO_PROVIDER_ID: OfficialVideoProviderId = 'vidu';
 const SEEDANCE_OFFICIAL_VIDEO_PROVIDER_ID: OfficialVideoProviderId = 'volcengine';
@@ -669,7 +669,7 @@ export function SettingsDialog({
   const [localOfficialVideoApiKeys, setLocalOfficialVideoApiKeys] = useState<Record<OfficialVideoProviderId, string>>(officialVideoApiKeys);
   const [localThirdPartyVideoApiKeys, setLocalThirdPartyVideoApiKeys] = useState<Record<ThirdPartyVideoProviderId, string>>(thirdPartyVideoApiKeys);
   const [localThirdPartyVideoBaseUrl, setLocalThirdPartyVideoBaseUrl] = useState(
-    thirdPartyVideoProviderConfig.gptBest.baseUrl
+    thirdPartyVideoProviderConfig.oopii.baseUrl
   );
   const [localGrsaiNanoBananaProModel, setLocalGrsaiNanoBananaProModel] = useState(
    hrsaiNanoBananaProModel
@@ -890,7 +890,7 @@ export function SettingsDialog({
         || '',
     });
     setLocalThirdPartyVideoApiKeys(thirdPartyVideoApiKeys);
-    setLocalThirdPartyVideoBaseUrl(thirdPartyVideoProviderConfig.gptBest.baseUrl);
+    setLocalThirdPartyVideoBaseUrl(thirdPartyVideoProviderConfig.oopii.baseUrl);
     setLocalDownloadPresetPaths(downloadPresetPaths);
     setLocalGrsaiNanoBananaProModel(hrsaiNanoBananaProModel);
     setLocalScriptProviderEnabled(scriptProviderEnabled);
@@ -2187,18 +2187,18 @@ export function SettingsDialog({
                         >
                           <span
                             className={`h-2 w-2 shrink-0 rounded-full ${
-                              (localThirdPartyVideoApiKeys.gptBest ?? '').trim()
+                              (localThirdPartyVideoApiKeys[THIRD_PARTY_VIDEO_PROVIDER_ID] ?? '').trim()
                                 ? 'bg-green-500'
                                 : 'bg-border-dark'
                             }`}
                             title={
-                              (localThirdPartyVideoApiKeys.gptBest ?? '').trim()
+                              (localThirdPartyVideoApiKeys[THIRD_PARTY_VIDEO_PROVIDER_ID] ?? '').trim()
                                 ? t('settings.keyConfigured')
                                 : t('settings.keyNotConfigured')
                             }
                           />
                           <span className="min-w-0 flex-1 truncate text-xs">
-                            {t('settings.thirdPartyVideoApiEnabled')}
+                            {t('settings.thirdPartyVideoOopiiName')}
                           </span>
                         </button>
                       ) : (
@@ -2521,7 +2521,7 @@ export function SettingsDialog({
                                   }`}
                                 />
                                 <h3 className="text-base font-medium text-text-dark">
-                                  {t('settings.thirdPartyVideoApiEnabled')}
+                                  {t('settings.thirdPartyVideoOopiiName')}
                                 </h3>
                                 {hasKey && hasBaseUrl ? (
                                   <span className="rounded bg-green-500/10 px-2 py-0.5 text-xs text-green-500">
@@ -2536,7 +2536,7 @@ export function SettingsDialog({
                                 {t('settings.apiKey')}
                               </div>
                               <p className="mb-3 text-xs leading-5 text-text-muted">
-                                {t('settings.thirdPartyVideoGptBestDesc')}
+                                {t('settings.thirdPartyVideoOopiiDesc')}
                               </p>
                               <div className="relative">
                                 <input
@@ -2603,12 +2603,42 @@ export function SettingsDialog({
                                 onChange={(event) =>
                                   setLocalThirdPartyVideoBaseUrl(event.target.value)
                                 }
-                                placeholder="https://your-third-party-video-host"
+                                placeholder="https://www.oopii.cn"
                                 className="w-full rounded border border-border-dark bg-surface-dark px-3 py-2 text-sm text-text-dark placeholder:text-text-muted"
                               />
                               <p className="mt-2 text-xs leading-5 text-text-muted">
                                 {t('settings.thirdPartyVideoBaseUrlHint')}
                               </p>
+                            </div>
+
+                            <div className="rounded-lg border border-border-dark bg-bg-dark p-4">
+                              <div className="mb-2 text-xs font-medium text-text-dark">
+                                {t('settings.thirdPartyVideoDocTitle')}
+                              </div>
+                              <p className="text-xs leading-5 text-text-muted">
+                                {t('settings.thirdPartyVideoDocDescription')}
+                              </p>
+                              <a
+                                href="https://www.oopii.cn"
+                                target="_blank"
+                                rel="noreferrer"
+                                className="mt-3 inline-flex text-xs text-accent transition-colors hover:text-accent/80"
+                              >
+                                https://www.oopii.cn
+                              </a>
+                            </div>
+
+                            <div className="rounded-lg border border-border-dark bg-bg-dark p-4">
+                              <div className="mb-2 text-xs font-medium text-text-dark">
+                                {t('settings.thirdPartyVideoCapabilityTitle')}
+                              </div>
+                              <div className="space-y-2 text-xs leading-5 text-text-muted">
+                                <p>{t('settings.thirdPartyVideoModelSupport')}</p>
+                                <p>{t('settings.thirdPartyVideoSecondsSupport')}</p>
+                                <p>{t('settings.thirdPartyVideoSizeSupport')}</p>
+                                <p>{t('settings.thirdPartyVideoReferenceSupport')}</p>
+                                <p>{t('settings.thirdPartyVideoEndpointHint')}</p>
+                              </div>
                             </div>
                           </div>
                         );

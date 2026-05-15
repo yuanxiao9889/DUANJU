@@ -371,6 +371,7 @@ export function NodeToolDialog() {
           prepared.aspectRatio,
           prepared.previewImageUrl,
           {
+            thumbnailUrl: prepared.thumbnailImageUrl,
             defaultTitle: resolveResultNodeTitle(activeToolDialog.toolType),
             resultKind: 'generic',
             aspectRatioStrategy: 'provided',

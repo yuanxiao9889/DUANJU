@@ -12,7 +12,10 @@ import {
 import { prepareNodeAudio } from '@/features/canvas/application/audioData';
 import { prepareNodeImage } from '@/features/canvas/application/imageData';
 import { createSharedMediaContext } from '@/features/canvas/application/mediaPersistenceContext';
-import type { CanvasNode } from '@/features/canvas/domain/canvasNodes';
+import {
+  isJimengImageResultNode,
+  type CanvasNode,
+} from '@/features/canvas/domain/canvasNodes';
 import { useAssetStore } from '@/stores/assetStore';
 import { useCanvasStore } from '@/stores/canvasStore';
 import { useProjectStore } from '@/stores/projectStore';
@@ -61,10 +64,19 @@ function resolveDefaultAssetName(node: CanvasNode, fallbackName: string): string
     sourceFileName?: unknown;
     audioFileName?: unknown;
     videoFileName?: unknown;
+    resultImages?: unknown;
   };
+  const firstResultImageFileName = Array.isArray(data.resultImages)
+    ? stripFileExtension(
+        normalizeText(
+          (data.resultImages[0] as { fileName?: unknown } | undefined)?.fileName
+        )
+      )
+    : '';
   const candidates = [
     normalizeText(data.assetName),
     normalizeText(data.displayName),
+    firstResultImageFileName,
     stripFileExtension(normalizeText(data.audioFileName)),
     stripFileExtension(normalizeText(data.videoFileName)),
     stripFileExtension(normalizeText(data.sourceFileName)),
@@ -364,6 +376,28 @@ export function NodeAddToAssetsButton({
           assetLibraryId: item.libraryId,
           assetName: item.name,
           assetCategory: item.category,
+        });
+      } else if (isJimengImageResultNode(node)) {
+        const [firstResultImage] = node.data.resultImages;
+        updateNodeData(node.id, {
+          displayName: item.name,
+          resultImages: firstResultImage
+            ? [
+                {
+                  ...firstResultImage,
+                  imageUrl: item.sourcePath,
+                  previewImageUrl: item.previewPath,
+                  aspectRatio: item.aspectRatio,
+                  fileName: item.name,
+                },
+              ]
+            : node.data.resultImages,
+          aspectRatio: item.aspectRatio,
+          assetId: item.id,
+          assetLibraryId: item.libraryId,
+          assetName: item.name,
+          assetCategory: item.category,
+          sourceFileName: item.name,
         });
       } else {
         updateNodeData(node.id, {

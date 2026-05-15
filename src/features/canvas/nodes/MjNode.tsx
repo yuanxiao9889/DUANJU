@@ -7,13 +7,13 @@ import {
   useState,
   type CSSProperties,
   type MouseEvent as ReactMouseEvent,
-} from 'react';
+} from "react";
 import {
-  Handle,
   Position,
   useUpdateNodeInternals,
   type NodeProps,
-} from '@xyflow/react';
+} from "@xyflow/react";
+import { CanvasHandle } from "@/features/canvas/ui/CanvasHandle";
 import {
   Languages,
   Loader2,
@@ -21,23 +21,17 @@ import {
   Sparkles,
   Undo2,
   Wand2,
-} from 'lucide-react';
-import { useTranslation } from 'react-i18next';
-import { v4 as uuidv4 } from 'uuid';
-
-import {
-  UiButton,
-  UiChipButton,
-  UiPanel,
-  UiSelect,
-} from '@/components/ui';
-import { createUiRangeStyle } from '@/components/ui/rangeStyle';
+} from "lucide-react";
+import { useTranslation } from "react-i18next";
+import { v4 as uuidv4 } from "uuid";
+import { UiButton, UiChipButton, UiPanel, UiSelect } from "@/components/ui";
+import { createUiRangeStyle } from "@/components/ui/rangeStyle";
 import {
   resolveErrorContent,
   showErrorDialog,
-} from '@/features/canvas/application/errorDialog';
-import { flushCurrentProjectToDiskSafely } from '@/features/canvas/application/projectPersistence';
-import { resolveReadableReferenceImageSources } from '@/features/canvas/application/referenceImageSources';
+} from "@/features/canvas/application/errorDialog";
+import { flushCurrentProjectToDiskSafely } from "@/features/canvas/application/projectPersistence";
+import { resolveReadableReferenceImageSources } from "@/features/canvas/application/referenceImageSources";
 import {
   CANVAS_NODE_TYPES,
   MJ_NODE_DEFAULT_HEIGHT,
@@ -53,52 +47,52 @@ import {
   type MidjourneyVersionPreset,
   type MjNodeData,
   type MjResultBatch,
-} from '@/features/canvas/domain/canvasNodes';
-import { resolveNodeDisplayName } from '@/features/canvas/domain/nodeDisplay';
+} from "@/features/canvas/domain/canvasNodes";
+import { resolveNodeDisplayName } from "@/features/canvas/domain/nodeDisplay";
 import {
   useCanvasConnectedReferenceImages,
   useCanvasConnectedTextInput,
   useCanvasNodeById,
-} from '@/features/canvas/hooks/useCanvasNodeGraph';
-import { CanvasNodeImage } from '@/features/canvas/ui/CanvasNodeImage';
+} from "@/features/canvas/hooks/useCanvasNodeGraph";
+import { CanvasNodeImage } from "@/features/canvas/ui/CanvasNodeImage";
 import {
   NodeHeader,
   NODE_HEADER_FLOATING_POSITION_CLASS,
-} from '@/features/canvas/ui/NodeHeader';
-import { NodeResizeHandle } from '@/features/canvas/ui/NodeResizeHandle';
-import { UpstreamPromptLockOverlay } from '@/features/canvas/ui/UpstreamPromptLockOverlay';
-import { resolveNodeStyleDimension } from '@/features/canvas/ui/nodeDimensionUtils';
+} from "@/features/canvas/ui/NodeHeader";
+import { NodeResizeHandle } from "@/features/canvas/ui/NodeResizeHandle";
+import { UpstreamPromptLockOverlay } from "@/features/canvas/ui/UpstreamPromptLockOverlay";
+import { resolveNodeStyleDimension } from "@/features/canvas/ui/nodeDimensionUtils";
 import {
   NODE_CONTROL_CHIP_CLASS,
   NODE_CONTROL_GENERATE_ICON_CLASS,
   NODE_CONTROL_PRIMARY_BUTTON_CLASS,
-} from '@/features/canvas/ui/nodeControlStyles';
+} from "@/features/canvas/ui/nodeControlStyles";
 import {
   appendMjResultBatch,
   areMjReferencesEqual,
   buildSyncedMjReferences,
   createRootMjResultNodeData,
   updateMjResultBatch,
-} from '@/features/midjourney/application/midjourneyNodes';
+} from "@/features/midjourney/application/midjourneyNodes";
 import {
   optimizeMidjourneyPrompt,
   stripMidjourneyParams,
   translateMidjourneyPrompt,
-} from '@/features/midjourney/application/midjourneyPrompt';
-import { submitMidjourneyImagineTask } from '@/features/midjourney/application/midjourneyGeneration';
+} from "@/features/midjourney/application/midjourneyPrompt";
+import { submitMidjourneyImagineTask } from "@/features/midjourney/application/midjourneyGeneration";
 import {
   MIDJOURNEY_ADVANCED_PARAM_RANGES,
   buildMidjourneyAdvancedParams,
   parseMidjourneyAdvancedParams,
   validateMidjourneyAdvancedParams,
   type MidjourneyAdvancedParamsDraft,
-} from '@/features/midjourney/domain/prompt';
-import { createPendingMjBatch } from '@/features/midjourney/domain/task';
-import { resolveMidjourneyProviderLabel } from '@/features/midjourney/domain/providers';
-import { MjStyleCodeDialog } from '@/features/midjourney/ui/MjStyleCodeDialog';
-import { openSettingsDialog } from '@/features/settings/settingsEvents';
-import { useCanvasStore } from '@/stores/canvasStore';
-import { useSettingsStore } from '@/stores/settingsStore';
+} from "@/features/midjourney/domain/prompt";
+import { createPendingMjBatch } from "@/features/midjourney/domain/task";
+import { resolveMidjourneyProviderLabel } from "@/features/midjourney/domain/providers";
+import { MjStyleCodeDialog } from "@/features/midjourney/ui/MjStyleCodeDialog";
+import { openSettingsDialog } from "@/features/settings/settingsEvents";
+import { useCanvasStore } from "@/stores/canvasStore";
+import { useSettingsStore } from "@/stores/settingsStore";
 
 type MjNodeProps = NodeProps & {
   id: string;
@@ -140,7 +134,7 @@ function FixedControlChip<T extends string>({
           onChange={(event) => onChange(event.target.value as T)}
         >
           {options.map((option) => (
-            <option key={option.value || 'default'} value={option.value}>
+            <option key={option.value || "default"} value={option.value}>
               {option.label}
             </option>
           ))}
@@ -167,21 +161,23 @@ function AdvancedParamSlider({
 }) {
   const sliderStyle = {
     ...createUiRangeStyle(value, min, max),
-    '--ui-range-track-size': '5px',
-    '--ui-range-thumb-size': '12px',
-    '--ui-range-track': 'rgba(104, 112, 128, 0.56)',
-    '--ui-range-track-fill-start': 'rgba(104, 112, 128, 0.92)',
-    '--ui-range-track-fill-end': 'rgba(104, 112, 128, 0.92)',
-    '--ui-range-thumb-bg': 'rgba(196, 202, 214, 0.98)',
-    '--ui-range-thumb-border': 'rgba(233, 237, 245, 0.18)',
-    '--ui-range-thumb-shadow': 'none',
-    '--ui-range-thumb-shadow-hover': '0 0 0 4px rgba(255,255,255,0.05)',
+    "--ui-range-track-size": "5px",
+    "--ui-range-thumb-size": "12px",
+    "--ui-range-track": "rgba(104, 112, 128, 0.56)",
+    "--ui-range-track-fill-start": "rgba(104, 112, 128, 0.92)",
+    "--ui-range-track-fill-end": "rgba(104, 112, 128, 0.92)",
+    "--ui-range-thumb-bg": "rgba(196, 202, 214, 0.98)",
+    "--ui-range-thumb-border": "rgba(233, 237, 245, 0.18)",
+    "--ui-range-thumb-shadow": "none",
+    "--ui-range-thumb-shadow-hover": "0 0 0 4px rgba(255,255,255,0.05)",
   } as CSSProperties;
 
   return (
     <div className="border-t border-border-dark/90 px-5 py-5 first:border-t-0">
       <div className="grid grid-cols-[88px_minmax(0,1fr)_auto] items-center gap-4">
-        <span className="text-[15px] font-medium leading-none text-[#d7dbe3]">{label}</span>
+        <span className="text-[15px] font-medium leading-none text-[#d7dbe3]">
+          {label}
+        </span>
         <div className="flex min-w-0 items-center">
           <input
             type="range"
@@ -191,7 +187,9 @@ function AdvancedParamSlider({
             value={value}
             className="ui-range nodrag h-5"
             style={sliderStyle}
-            onChange={(event) => onChange(Number.parseInt(event.target.value, 10))}
+            onChange={(event) =>
+              onChange(Number.parseInt(event.target.value, 10))
+            }
           />
         </div>
         <span className="min-w-[30px] rounded-md border border-white/8 bg-black/18 px-2 py-1 text-center text-[11px] font-medium leading-none text-[#c8ced9] shadow-[inset_0_1px_0_rgba(255,255,255,0.03)]">
@@ -206,44 +204,44 @@ export const MjNode = memo(({ id, data, selected, width }: MjNodeProps) => {
   const { t, i18n } = useTranslation();
   const updateNodeInternals = useUpdateNodeInternals();
   const mjApiKeys = useSettingsStore((state) => state.mjApiKeys);
-  const mjProviderEnabled = useSettingsStore((state) => state.mjProviderEnabled);
+  const mjProviderEnabled = useSettingsStore(
+    (state) => state.mjProviderEnabled,
+  );
   const lastMidjourneyAdvancedParams = useSettingsStore(
-    (state) => state.lastMidjourneyAdvancedParams
+    (state) => state.lastMidjourneyAdvancedParams,
   );
   const lastMidjourneyAspectRatio = useSettingsStore(
-    (state) => state.lastMidjourneyAspectRatio
+    (state) => state.lastMidjourneyAspectRatio,
   );
   const lastMidjourneyVersionPreset = useSettingsStore(
-    (state) => state.lastMidjourneyVersionPreset
+    (state) => state.lastMidjourneyVersionPreset,
   );
   const lastMidjourneyRawMode = useSettingsStore(
-    (state) => state.lastMidjourneyRawMode
+    (state) => state.lastMidjourneyRawMode,
   );
   const lastMidjourneyPersonalizationCodes = useSettingsStore(
-    (state) => state.lastMidjourneyPersonalizationCodes
+    (state) => state.lastMidjourneyPersonalizationCodes,
   );
   const setLastMidjourneyDefaults = useSettingsStore(
-    (state) => state.setLastMidjourneyDefaults
+    (state) => state.setLastMidjourneyDefaults,
   );
   const setLastMidjourneyAdvancedParams = useSettingsStore(
-    (state) => state.setLastMidjourneyAdvancedParams
+    (state) => state.setLastMidjourneyAdvancedParams,
   );
   const currentNode = useCanvasNodeById(id);
   const connectedReferenceImages = useCanvasConnectedReferenceImages(id);
-  const {
-    connectedText,
-    hasConnectedTextSource,
-    hasNonEmptyConnectedText,
-  } = useCanvasConnectedTextInput(id);
-  const linkedNode = useCanvasNodeById(data.linkedResultNodeId ?? '');
+  const { connectedText, hasConnectedTextSource, hasNonEmptyConnectedText } =
+    useCanvasConnectedTextInput(id);
+  const linkedNode = useCanvasNodeById(data.linkedResultNodeId ?? "");
   const isPromptLockedByUpstream = hasConnectedTextSource;
   const linkedResultNode = useMemo(() => {
-    if (!isMjResultNode(linkedNode) || linkedNode.data.nodeRole !== 'root') {
+    if (!isMjResultNode(linkedNode) || linkedNode.data.nodeRole !== "root") {
       return null;
     }
 
-    const linkedSourceNodeId = linkedNode.data.sourceNodeId?.trim() ?? '';
-    const linkedRootSourceNodeId = linkedNode.data.rootSourceNodeId?.trim() ?? '';
+    const linkedSourceNodeId = linkedNode.data.sourceNodeId?.trim() ?? "";
+    const linkedRootSourceNodeId =
+      linkedNode.data.rootSourceNodeId?.trim() ?? "";
     if (linkedSourceNodeId !== id && linkedRootSourceNodeId !== id) {
       return null;
     }
@@ -260,76 +258,89 @@ export const MjNode = memo(({ id, data, selected, width }: MjNodeProps) => {
   const advancedParamsPanelRef = useRef<HTMLDivElement>(null);
   const generateRequestInFlightRef = useRef(false);
 
-  const [promptDraft, setPromptDraft] = useState(() => data.prompt ?? '');
+  const [promptDraft, setPromptDraft] = useState(() => data.prompt ?? "");
   const displayedPrompt = promptDraft;
-  const effectivePrompt = isPromptLockedByUpstream ? connectedText : promptDraft;
-  const promptDraftRef = useRef(data.prompt ?? '');
-  const [advancedParamsDraft, setAdvancedParamsDraft] = useState<MidjourneyAdvancedParamsDraft>(
-    () => parseMidjourneyAdvancedParams(data.advancedParams || lastMidjourneyAdvancedParams)
-  );
+  const effectivePrompt = isPromptLockedByUpstream
+    ? connectedText
+    : promptDraft;
+  const promptDraftRef = useRef(data.prompt ?? "");
+  const [advancedParamsDraft, setAdvancedParamsDraft] =
+    useState<MidjourneyAdvancedParamsDraft>(() =>
+      parseMidjourneyAdvancedParams(
+        data.advancedParams || lastMidjourneyAdvancedParams,
+      ),
+    );
   const [isAdvancedParamsOpen, setIsAdvancedParamsOpen] = useState(false);
   const [isStyleCodeDialogOpen, setIsStyleCodeDialogOpen] = useState(false);
   const [isOptimizingPrompt, setIsOptimizingPrompt] = useState(false);
   const [isTranslatingPrompt, setIsTranslatingPrompt] = useState(false);
-  const [promptRewriteError, setPromptRewriteError] = useState<string | null>(null);
+  const [promptRewriteError, setPromptRewriteError] = useState<string | null>(
+    null,
+  );
   const [lastPromptRewriteUndoState, setLastPromptRewriteUndoState] =
     useState<PromptRewriteUndoState | null>(null);
   const resolvedTitle = useMemo(
     () => resolveNodeDisplayName(CANVAS_NODE_TYPES.mj, data),
-    [data]
+    [data],
   );
   const resolvedWidth = Math.max(
     MJ_NODE_MIN_WIDTH,
-    Math.round(width ?? MJ_NODE_DEFAULT_WIDTH)
+    Math.round(width ?? MJ_NODE_DEFAULT_WIDTH),
   );
   const explicitHeight =
-    typeof currentNode?.height === 'number' && Number.isFinite(currentNode.height)
+    typeof currentNode?.height === "number" &&
+    Number.isFinite(currentNode.height)
       ? currentNode.height
       : resolveNodeStyleDimension(currentNode?.style?.height);
   const hasExplicitHeight =
-    typeof explicitHeight === 'number'
-    && Math.abs(explicitHeight - MJ_NODE_DEFAULT_HEIGHT) > 1;
+    typeof explicitHeight === "number" &&
+    Math.abs(explicitHeight - MJ_NODE_DEFAULT_HEIGHT) > 1;
   const resolvedHeight = hasExplicitHeight
     ? Math.max(MJ_NODE_MIN_HEIGHT, Math.round(explicitHeight))
     : null;
-  const apiKey = mjApiKeys[mjProviderEnabled]?.trim() ?? '';
-  const providerLabel = resolveMidjourneyProviderLabel(mjProviderEnabled, i18n.language);
-  const syncedReferences = useMemo(
-    () => buildSyncedMjReferences(connectedReferenceImages, data.references ?? []),
-    [connectedReferenceImages, data.references]
+  const apiKey = mjApiKeys[mjProviderEnabled]?.trim() ?? "";
+  const providerLabel = resolveMidjourneyProviderLabel(
+    mjProviderEnabled,
+    i18n.language,
   );
-  const pendingBatchCount = linkedResultNode?.data.batches.filter((batch) => batch.isPolling).length ?? 0;
+  const syncedReferences = useMemo(
+    () =>
+      buildSyncedMjReferences(connectedReferenceImages, data.references ?? []),
+    [connectedReferenceImages, data.references],
+  );
+  const pendingBatchCount =
+    linkedResultNode?.data.batches.filter((batch) => batch.isPolling).length ??
+    0;
   const personalizationCodeCount = data.personalizationCodes?.length ?? 0;
   const isSubmitting = Boolean(data.isSubmitting);
-  const isPromptBusy = isSubmitting || isOptimizingPrompt || isTranslatingPrompt;
+  const isPromptBusy =
+    isSubmitting || isOptimizingPrompt || isTranslatingPrompt;
   const canRewritePrompt = stripMidjourneyParams(promptDraft).length > 0;
   const canUndoPromptRewrite = Boolean(
-    lastPromptRewriteUndoState
-    && promptDraft === lastPromptRewriteUndoState.appliedPrompt
+    lastPromptRewriteUndoState &&
+    promptDraft === lastPromptRewriteUndoState.appliedPrompt,
   );
   const aspectRatioOptions = useMemo(
     () => MIDJOURNEY_ASPECT_RATIOS.map((value) => ({ value, label: value })),
-    []
+    [],
   );
   const versionOptions = useMemo(
     () =>
       MIDJOURNEY_VERSION_PRESETS.map((value) => ({
         value,
-        label: value ? `V${value}` : t('node.midjourney.versionDefault'),
+        label: value ? `V${value}` : t("node.midjourney.versionDefault"),
       })),
-    [t]
+    [t],
   );
-  const resolvedAspectRatio = (
-    data.aspectRatio ?? lastMidjourneyAspectRatio
-  ) as MidjourneyAspectRatio;
-  const resolvedVersionPreset = (
-    data.versionPreset ?? lastMidjourneyVersionPreset
-  ) as MidjourneyVersionPreset;
+  const resolvedAspectRatio = (data.aspectRatio ??
+    lastMidjourneyAspectRatio) as MidjourneyAspectRatio;
+  const resolvedVersionPreset = (data.versionPreset ??
+    lastMidjourneyVersionPreset) as MidjourneyVersionPreset;
   const resolvedRawMode = data.rawMode ?? lastMidjourneyRawMode;
 
   useEffect(() => {
-    promptDraftRef.current = data.prompt ?? '';
-    setPromptDraft(data.prompt ?? '');
+    promptDraftRef.current = data.prompt ?? "";
+    setPromptDraft(data.prompt ?? "");
   }, [data.prompt]);
 
   useEffect(() => {
@@ -339,13 +350,15 @@ export const MjNode = memo(({ id, data, selected, width }: MjNodeProps) => {
   useEffect(() => {
     if (!isAdvancedParamsOpen) {
       setAdvancedParamsDraft(
-        parseMidjourneyAdvancedParams(data.advancedParams || lastMidjourneyAdvancedParams)
+        parseMidjourneyAdvancedParams(
+          data.advancedParams || lastMidjourneyAdvancedParams,
+        ),
       );
     }
   }, [data.advancedParams, isAdvancedParamsOpen, lastMidjourneyAdvancedParams]);
 
   useEffect(() => {
-    const nodeAdvancedParams = data.advancedParams?.trim() ?? '';
+    const nodeAdvancedParams = data.advancedParams?.trim() ?? "";
     const persistedAdvancedParams = lastMidjourneyAdvancedParams.trim();
     if (nodeAdvancedParams || !persistedAdvancedParams) {
       return;
@@ -354,25 +367,37 @@ export const MjNode = memo(({ id, data, selected, width }: MjNodeProps) => {
     updateNodeData(
       id,
       { advancedParams: persistedAdvancedParams },
-      { historyMode: 'skip' }
+      { historyMode: "skip" },
     );
   }, [data.advancedParams, id, lastMidjourneyAdvancedParams, updateNodeData]);
 
   useEffect(() => {
-    if ((data.personalizationCodes?.length ?? 0) > 0 || lastMidjourneyPersonalizationCodes.length === 0) {
+    if (
+      (data.personalizationCodes?.length ?? 0) > 0 ||
+      lastMidjourneyPersonalizationCodes.length === 0
+    ) {
       return;
     }
 
     updateNodeData(
       id,
       { personalizationCodes: lastMidjourneyPersonalizationCodes },
-      { historyMode: 'skip' }
+      { historyMode: "skip" },
     );
-  }, [data.personalizationCodes, id, lastMidjourneyPersonalizationCodes, updateNodeData]);
+  }, [
+    data.personalizationCodes,
+    id,
+    lastMidjourneyPersonalizationCodes,
+    updateNodeData,
+  ]);
 
   useEffect(() => {
     if (!areMjReferencesEqual(data.references ?? [], syncedReferences)) {
-      updateNodeData(id, { references: syncedReferences }, { historyMode: 'skip' });
+      updateNodeData(
+        id,
+        { references: syncedReferences },
+        { historyMode: "skip" },
+      );
     }
   }, [data.references, id, syncedReferences, updateNodeData]);
 
@@ -392,13 +417,26 @@ export const MjNode = memo(({ id, data, selected, width }: MjNodeProps) => {
             }
           : {}),
       },
-      { historyMode: 'skip' }
+      { historyMode: "skip" },
     );
-  }, [data.isSubmitting, data.linkedResultNodeId, id, linkedResultNode, updateNodeData]);
+  }, [
+    data.isSubmitting,
+    data.linkedResultNodeId,
+    id,
+    linkedResultNode,
+    updateNodeData,
+  ]);
 
   useEffect(() => {
     updateNodeInternals(id);
-  }, [hasExplicitHeight, id, resolvedHeight, resolvedWidth, syncedReferences.length, updateNodeInternals]);
+  }, [
+    hasExplicitHeight,
+    id,
+    resolvedHeight,
+    resolvedWidth,
+    syncedReferences.length,
+    updateNodeInternals,
+  ]);
 
   useEffect(() => {
     const host = containerRef.current;
@@ -437,18 +475,20 @@ export const MjNode = memo(({ id, data, selected, width }: MjNodeProps) => {
 
       setIsAdvancedParamsOpen(false);
       setAdvancedParamsDraft(
-        parseMidjourneyAdvancedParams(data.advancedParams || lastMidjourneyAdvancedParams)
+        parseMidjourneyAdvancedParams(
+          data.advancedParams || lastMidjourneyAdvancedParams,
+        ),
       );
     };
 
-    window.addEventListener('pointerdown', handlePointerDown);
+    window.addEventListener("pointerdown", handlePointerDown);
     return () => {
-      window.removeEventListener('pointerdown', handlePointerDown);
+      window.removeEventListener("pointerdown", handlePointerDown);
     };
   }, [data.advancedParams, isAdvancedParamsOpen, lastMidjourneyAdvancedParams]);
 
   const commitPromptDraft = useCallback(() => {
-    if (promptDraft !== (data.prompt ?? '')) {
+    if (promptDraft !== (data.prompt ?? "")) {
       updateNodeData(id, { prompt: promptDraft });
     }
   }, [data.prompt, id, promptDraft, updateNodeData]);
@@ -467,7 +507,7 @@ export const MjNode = memo(({ id, data, selected, width }: MjNodeProps) => {
         lastError: null,
       });
     },
-    [id, updateNodeData]
+    [id, updateNodeData],
   );
 
   const handleOptimizePrompt = useCallback(async () => {
@@ -478,15 +518,15 @@ export const MjNode = memo(({ id, data, selected, width }: MjNodeProps) => {
     const sourcePrompt = promptDraftRef.current;
     const currentPrompt = stripMidjourneyParams(sourcePrompt);
     if (!currentPrompt) {
-      const errorMessage = t('node.midjourney.promptRequired');
+      const errorMessage = t("node.midjourney.promptRequired");
       setPromptRewriteError(errorMessage);
-      await showErrorDialog(errorMessage, t('common.error'));
+      await showErrorDialog(errorMessage, t("common.error"));
       return;
     }
 
     setIsOptimizingPrompt(true);
     setPromptRewriteError(null);
-    updateNodeData(id, { lastError: null }, { historyMode: 'skip' });
+    updateNodeData(id, { lastError: null }, { historyMode: "skip" });
 
     try {
       const result = await optimizeMidjourneyPrompt({
@@ -500,10 +540,14 @@ export const MjNode = memo(({ id, data, selected, width }: MjNodeProps) => {
     } catch (error) {
       const content = resolveErrorContent(
         error,
-        t('node.midjourney.optimizePromptFailed')
+        t("node.midjourney.optimizePromptFailed"),
       );
       setPromptRewriteError(content.message);
-      await showErrorDialog(content.message, t('common.error'), content.details);
+      await showErrorDialog(
+        content.message,
+        t("common.error"),
+        content.details,
+      );
     } finally {
       setIsOptimizingPrompt(false);
     }
@@ -524,15 +568,15 @@ export const MjNode = memo(({ id, data, selected, width }: MjNodeProps) => {
     const sourcePrompt = promptDraftRef.current;
     const currentPrompt = stripMidjourneyParams(sourcePrompt);
     if (!currentPrompt) {
-      const errorMessage = t('node.midjourney.promptRequired');
+      const errorMessage = t("node.midjourney.promptRequired");
       setPromptRewriteError(errorMessage);
-      await showErrorDialog(errorMessage, t('common.error'));
+      await showErrorDialog(errorMessage, t("common.error"));
       return;
     }
 
     setIsTranslatingPrompt(true);
     setPromptRewriteError(null);
-    updateNodeData(id, { lastError: null }, { historyMode: 'skip' });
+    updateNodeData(id, { lastError: null }, { historyMode: "skip" });
 
     try {
       const result = await translateMidjourneyPrompt({
@@ -546,14 +590,25 @@ export const MjNode = memo(({ id, data, selected, width }: MjNodeProps) => {
     } catch (error) {
       const content = resolveErrorContent(
         error,
-        t('node.midjourney.translatePromptFailed')
+        t("node.midjourney.translatePromptFailed"),
       );
       setPromptRewriteError(content.message);
-      await showErrorDialog(content.message, t('common.error'), content.details);
+      await showErrorDialog(
+        content.message,
+        t("common.error"),
+        content.details,
+      );
     } finally {
       setIsTranslatingPrompt(false);
     }
-  }, [applyPromptRewrite, id, isPromptBusy, isPromptLockedByUpstream, t, updateNodeData]);
+  }, [
+    applyPromptRewrite,
+    id,
+    isPromptBusy,
+    isPromptLockedByUpstream,
+    t,
+    updateNodeData,
+  ]);
 
   const handleUndoPromptRewrite = useCallback(() => {
     if (isPromptLockedByUpstream) {
@@ -576,7 +631,12 @@ export const MjNode = memo(({ id, data, selected, width }: MjNodeProps) => {
       prompt: lastPromptRewriteUndoState.previousPrompt,
       lastError: null,
     });
-  }, [id, isPromptLockedByUpstream, lastPromptRewriteUndoState, updateNodeData]);
+  }, [
+    id,
+    isPromptLockedByUpstream,
+    lastPromptRewriteUndoState,
+    updateNodeData,
+  ]);
 
   const handleToggleReferenceRole = useCallback(
     (imageUrl: string) => {
@@ -585,25 +645,24 @@ export const MjNode = memo(({ id, data, selected, width }: MjNodeProps) => {
           ? {
               ...item,
               role:
-                item.role === 'styleReference'
-                  ? 'reference'
-                  : 'styleReference',
+                item.role === "styleReference" ? "reference" : "styleReference",
             }
-          : item
+          : item,
       );
       updateNodeData(id, { references: nextReferences });
     },
-    [data.references, id, updateNodeData]
+    [data.references, id, updateNodeData],
   );
 
   const handleApplyAdvancedParams = useCallback(async () => {
-    const nextAdvancedParams = buildMidjourneyAdvancedParams(advancedParamsDraft);
+    const nextAdvancedParams =
+      buildMidjourneyAdvancedParams(advancedParamsDraft);
     const validation = validateMidjourneyAdvancedParams(nextAdvancedParams);
     if (!validation.valid) {
-      const message = t('node.midjourney.advancedParamsConflict', {
-        params: validation.duplicatedReservedParams.join(', '),
+      const message = t("node.midjourney.advancedParamsConflict", {
+        params: validation.duplicatedReservedParams.join(", "),
       });
-      await showErrorDialog(message, t('common.error'));
+      await showErrorDialog(message, t("common.error"));
       return;
     }
 
@@ -622,10 +681,13 @@ export const MjNode = memo(({ id, data, selected, width }: MjNodeProps) => {
     updateNodeData,
   ]);
 
-  const handleAspectRatioChange = useCallback((nextValue: MidjourneyAspectRatio) => {
-    updateNodeData(id, { aspectRatio: nextValue });
-    setLastMidjourneyDefaults({ aspectRatio: nextValue });
-  }, [id, setLastMidjourneyDefaults, updateNodeData]);
+  const handleAspectRatioChange = useCallback(
+    (nextValue: MidjourneyAspectRatio) => {
+      updateNodeData(id, { aspectRatio: nextValue });
+      setLastMidjourneyDefaults({ aspectRatio: nextValue });
+    },
+    [id, setLastMidjourneyDefaults, updateNodeData],
+  );
 
   const handleToggleRawMode = useCallback(() => {
     const nextRawMode = !resolvedRawMode;
@@ -633,27 +695,30 @@ export const MjNode = memo(({ id, data, selected, width }: MjNodeProps) => {
     setLastMidjourneyDefaults({ rawMode: nextRawMode });
   }, [id, resolvedRawMode, setLastMidjourneyDefaults, updateNodeData]);
 
-  const handleVersionPresetChange = useCallback((nextValue: MidjourneyVersionPreset) => {
-    updateNodeData(id, { versionPreset: nextValue });
-    setLastMidjourneyDefaults({ versionPreset: nextValue });
-  }, [id, setLastMidjourneyDefaults, updateNodeData]);
+  const handleVersionPresetChange = useCallback(
+    (nextValue: MidjourneyVersionPreset) => {
+      updateNodeData(id, { versionPreset: nextValue });
+      setLastMidjourneyDefaults({ versionPreset: nextValue });
+    },
+    [id, setLastMidjourneyDefaults, updateNodeData],
+  );
 
   const handleGenerate = useCallback(async () => {
     const prompt = effectivePrompt.trim();
     if (!prompt) {
-      const message = t('node.midjourney.promptRequired');
+      const message = t("node.midjourney.promptRequired");
       updateNodeData(id, { lastError: message });
-      await showErrorDialog(message, t('common.error'));
+      await showErrorDialog(message, t("common.error"));
       return;
     }
 
     if (!apiKey) {
-      const message = t('node.midjourney.apiKeyRequired', {
+      const message = t("node.midjourney.apiKeyRequired", {
         provider: providerLabel,
       });
       updateNodeData(id, { lastError: message });
-      openSettingsDialog({ category: 'providers', providerTab: 'mj' });
-      await showErrorDialog(message, t('common.error'));
+      openSettingsDialog({ category: "providers", providerTab: "mj" });
+      await showErrorDialog(message, t("common.error"));
       return;
     }
 
@@ -662,14 +727,14 @@ export const MjNode = memo(({ id, data, selected, width }: MjNodeProps) => {
     }
 
     const advancedParamValidation = validateMidjourneyAdvancedParams(
-      data.advancedParams ?? ''
+      data.advancedParams ?? "",
     );
     if (!advancedParamValidation.valid) {
-      const message = t('node.midjourney.advancedParamsConflict', {
-        params: advancedParamValidation.duplicatedReservedParams.join(', '),
+      const message = t("node.midjourney.advancedParamsConflict", {
+        params: advancedParamValidation.duplicatedReservedParams.join(", "),
       });
       updateNodeData(id, { lastError: message });
-      await showErrorDialog(message, t('common.error'));
+      await showErrorDialog(message, t("common.error"));
       return;
     }
 
@@ -678,13 +743,13 @@ export const MjNode = memo(({ id, data, selected, width }: MjNodeProps) => {
       const resultNodePosition = findNodePosition(
         id,
         MJ_RESULT_NODE_DEFAULT_WIDTH,
-        MJ_RESULT_NODE_DEFAULT_HEIGHT
+        MJ_RESULT_NODE_DEFAULT_HEIGHT,
       );
       resultNodeId = addNode(
         CANVAS_NODE_TYPES.mjResult,
         resultNodePosition,
-        createRootMjResultNodeData(id, t('node.midjourney.resultNodeTitle')),
-        { inheritParentFromNodeId: id }
+        createRootMjResultNodeData(id, t("node.midjourney.resultNodeTitle")),
+        { inheritParentFromNodeId: id },
       );
       addEdge(id, resultNodeId);
       updateNodeData(
@@ -692,7 +757,7 @@ export const MjNode = memo(({ id, data, selected, width }: MjNodeProps) => {
         {
           linkedResultNodeId: resultNodeId,
         },
-        { historyMode: 'skip' }
+        { historyMode: "skip" },
       );
     }
 
@@ -705,11 +770,11 @@ export const MjNode = memo(({ id, data, selected, width }: MjNodeProps) => {
     const placeholderBatchId = `mj-batch-${uuidv4()}`;
     const placeholderBatch: MjResultBatch = {
       id: placeholderBatchId,
-      taskId: '',
+      taskId: "",
       providerId: mjProviderEnabled,
       action: null,
-      status: 'SUBMITTED',
-      progress: '',
+      status: "SUBMITTED",
+      progress: "",
       prompt,
       promptEn: null,
       finalPrompt: null,
@@ -728,11 +793,13 @@ export const MjNode = memo(({ id, data, selected, width }: MjNodeProps) => {
       const initialResultNode = useCanvasStore
         .getState()
         .nodes.find((node) => node.id === resultNodeId);
-      const initialResultData =
-        isMjResultNode(initialResultNode)
-          ? initialResultNode.data
-          : createRootMjResultNodeData(id, t('node.midjourney.resultNodeTitle'));
-      const seededResultData = appendMjResultBatch(initialResultData, placeholderBatch);
+      const initialResultData = isMjResultNode(initialResultNode)
+        ? initialResultNode.data
+        : createRootMjResultNodeData(id, t("node.midjourney.resultNodeTitle"));
+      const seededResultData = appendMjResultBatch(
+        initialResultData,
+        placeholderBatch,
+      );
 
       updateNodeData(
         resultNodeId,
@@ -740,15 +807,19 @@ export const MjNode = memo(({ id, data, selected, width }: MjNodeProps) => {
           ...seededResultData,
           sourceNodeId: id,
         },
-        { historyMode: 'skip' }
+        { historyMode: "skip" },
       );
-      updateNodeData(id, {
-        prompt: promptDraft,
-        linkedResultNodeId: resultNodeId,
-        isSubmitting: true,
-        activeTaskId: null,
-        lastError: null,
-      }, { historyMode: 'skip' });
+      updateNodeData(
+        id,
+        {
+          prompt: promptDraft,
+          linkedResultNodeId: resultNodeId,
+          isSubmitting: true,
+          activeTaskId: null,
+          lastError: null,
+        },
+        { historyMode: "skip" },
+      );
 
       const readableReferenceImageSources =
         await resolveReadableReferenceImageSources(syncedReferences);
@@ -764,7 +835,7 @@ export const MjNode = memo(({ id, data, selected, width }: MjNodeProps) => {
         aspectRatio: resolvedAspectRatio,
         rawMode: resolvedRawMode,
         versionPreset: resolvedVersionPreset,
-        advancedParams: data.advancedParams ?? '',
+        advancedParams: data.advancedParams ?? "",
       });
 
       const pendingBatch = createPendingMjBatch({
@@ -780,10 +851,9 @@ export const MjNode = memo(({ id, data, selected, width }: MjNodeProps) => {
       const latestResultNode = useCanvasStore
         .getState()
         .nodes.find((node) => node.id === resultNodeId);
-      const currentResultData =
-        isMjResultNode(latestResultNode)
-          ? latestResultNode.data
-          : createRootMjResultNodeData(id, t('node.midjourney.resultNodeTitle'));
+      const currentResultData = isMjResultNode(latestResultNode)
+        ? latestResultNode.data
+        : createRootMjResultNodeData(id, t("node.midjourney.resultNodeTitle"));
       const nextResultData = updateMjResultBatch(
         currentResultData,
         placeholderBatchId,
@@ -791,7 +861,7 @@ export const MjNode = memo(({ id, data, selected, width }: MjNodeProps) => {
           ...batch,
           ...pendingBatch,
           id: batch.id,
-        })
+        }),
       );
 
       updateNodeData(
@@ -800,7 +870,7 @@ export const MjNode = memo(({ id, data, selected, width }: MjNodeProps) => {
           ...nextResultData,
           sourceNodeId: id,
         },
-        { historyMode: 'skip' }
+        { historyMode: "skip" },
       );
       updateNodeData(
         id,
@@ -812,13 +882,13 @@ export const MjNode = memo(({ id, data, selected, width }: MjNodeProps) => {
           lastSubmittedAt: startedAt,
           lastError: null,
         },
-        { historyMode: 'skip' }
+        { historyMode: "skip" },
       );
-      await flushCurrentProjectToDiskSafely('saving MJ imagine submission');
+      await flushCurrentProjectToDiskSafely("saving MJ imagine submission");
     } catch (error) {
       const content = resolveErrorContent(
         error,
-        t('node.midjourney.generateFailed')
+        t("node.midjourney.generateFailed"),
       );
       updateNodeData(
         id,
@@ -827,27 +897,29 @@ export const MjNode = memo(({ id, data, selected, width }: MjNodeProps) => {
           activeTaskId: null,
           lastError: content.message,
         },
-        { historyMode: 'skip' }
+        { historyMode: "skip" },
       );
       if (resultNodeId) {
         const latestResultNode = useCanvasStore
           .getState()
           .nodes.find((node) => node.id === resultNodeId);
-        const currentResultData =
-          isMjResultNode(latestResultNode)
-            ? latestResultNode.data
-            : createRootMjResultNodeData(id, t('node.midjourney.resultNodeTitle'));
+        const currentResultData = isMjResultNode(latestResultNode)
+          ? latestResultNode.data
+          : createRootMjResultNodeData(
+              id,
+              t("node.midjourney.resultNodeTitle"),
+            );
         const failedResultData = updateMjResultBatch(
           currentResultData,
           placeholderBatchId,
           (batch) => ({
             ...batch,
-            status: 'FAILURE',
-            progress: '',
+            status: "FAILURE",
+            progress: "",
             failReason: content.message,
             isPolling: false,
             finishTime: Date.now(),
-          })
+          }),
         );
         updateNodeData(
           resultNodeId,
@@ -855,10 +927,14 @@ export const MjNode = memo(({ id, data, selected, width }: MjNodeProps) => {
             ...failedResultData,
             lastError: content.message,
           },
-          { historyMode: 'skip' }
+          { historyMode: "skip" },
         );
       }
-      await showErrorDialog(content.message, t('common.error'), content.details);
+      await showErrorDialog(
+        content.message,
+        t("common.error"),
+        content.details,
+      );
     } finally {
       generateRequestInFlightRef.current = false;
     }
@@ -890,8 +966,8 @@ export const MjNode = memo(({ id, data, selected, width }: MjNodeProps) => {
         group relative flex flex-col overflow-visible rounded-[var(--node-radius)] border bg-surface-dark/90 p-2 transition-colors duration-150
         ${
           selected
-            ? 'border-accent shadow-[0_0_0_1px_rgba(59,130,246,0.32)]'
-            : 'border-[rgba(15,23,42,0.22)] hover:border-[rgba(15,23,42,0.34)] dark:border-[rgba(255,255,255,0.22)] dark:hover:border-[rgba(255,255,255,0.34)]'
+            ? "border-accent shadow-[0_0_0_1px_rgba(59,130,246,0.32)]"
+            : "border-[rgba(15,23,42,0.22)] hover:border-[rgba(15,23,42,0.34)] dark:border-[rgba(255,255,255,0.22)] dark:hover:border-[rgba(255,255,255,0.34)]"
         }
       `}
       style={{
@@ -906,7 +982,9 @@ export const MjNode = memo(({ id, data, selected, width }: MjNodeProps) => {
         icon={<Sparkles className="h-3.5 w-3.5" />}
         titleText={resolvedTitle}
         editable
-        onTitleChange={(nextTitle) => updateNodeData(id, { displayName: nextTitle })}
+        onTitleChange={(nextTitle) =>
+          updateNodeData(id, { displayName: nextTitle })
+        }
       />
 
       <div className="flex min-h-0 flex-1 flex-col">
@@ -930,13 +1008,13 @@ export const MjNode = memo(({ id, data, selected, width }: MjNodeProps) => {
               }
             }}
             onBlur={commitPromptDraft}
-            placeholder={t('node.midjourney.promptPlaceholder')}
+            placeholder={t("node.midjourney.promptPlaceholder")}
             className={`canvas-textarea-wrap ui-scrollbar nodrag nowheel relative block min-h-[132px] w-full resize-none overflow-y-auto overflow-x-hidden border-none bg-transparent px-1 py-0.5 text-sm leading-6 text-text-dark outline-none placeholder:text-text-muted/80 focus-visible:ring-0 ${
               isPromptLockedByUpstream
-                ? 'cursor-default caret-transparent'
-                : 'caret-text-dark focus:border-transparent'
+                ? "cursor-default caret-transparent"
+                : "caret-text-dark focus:border-transparent"
             }`}
-            style={{ scrollbarGutter: 'stable' }}
+            style={{ scrollbarGutter: "stable" }}
           />
 
           {isPromptLockedByUpstream ? (
@@ -954,22 +1032,23 @@ export const MjNode = memo(({ id, data, selected, width }: MjNodeProps) => {
         >
           <div className="mb-2 flex items-center justify-between">
             <div className="text-[11px] font-medium uppercase tracking-[0.14em] text-text-muted">
-              {t('node.midjourney.referencesTitle')}
+              {t("node.midjourney.referencesTitle")}
             </div>
             <div className="text-[11px] text-text-muted">
               {syncedReferences.length > 0
-                ? t('node.midjourney.referencesCount', {
+                ? t("node.midjourney.referencesCount", {
                     count: syncedReferences.length,
                   })
-                : t('node.midjourney.referencesEmpty')}
+                : t("node.midjourney.referencesEmpty")}
             </div>
           </div>
 
           {syncedReferences.length > 0 ? (
             <div className="flex gap-2 overflow-x-auto pb-1">
               {syncedReferences.map((reference) => {
-                const displayUrl = reference.previewImageUrl?.trim() || reference.imageUrl;
-                const isStyleReference = reference.role === 'styleReference';
+                const displayUrl =
+                  reference.previewImageUrl?.trim() || reference.imageUrl;
+                const isStyleReference = reference.role === "styleReference";
 
                 return (
                   <div
@@ -979,7 +1058,7 @@ export const MjNode = memo(({ id, data, selected, width }: MjNodeProps) => {
                     <div className="overflow-hidden rounded-lg bg-black/40">
                       <CanvasNodeImage
                         src={displayUrl}
-                        alt={t('node.midjourney.referenceAlt')}
+                        alt={t("node.midjourney.referenceAlt")}
                         viewerSourceUrl={reference.imageUrl}
                         viewerImageList={[displayUrl]}
                         className="h-[72px] w-full object-cover"
@@ -994,19 +1073,19 @@ export const MjNode = memo(({ id, data, selected, width }: MjNodeProps) => {
                         type="button"
                         className={`rounded-full px-2 py-0.5 text-[10px] font-medium transition-colors ${
                           isStyleReference
-                            ? 'bg-amber-500/16 text-amber-200'
-                            : 'bg-sky-500/14 text-sky-200'
+                            ? "bg-amber-500/16 text-amber-200"
+                            : "bg-sky-500/14 text-sky-200"
                         }`}
                         onClick={(
-                          event: ReactMouseEvent<HTMLButtonElement>
+                          event: ReactMouseEvent<HTMLButtonElement>,
                         ) => {
                           event.stopPropagation();
                           handleToggleReferenceRole(reference.imageUrl);
                         }}
                       >
                         {isStyleReference
-                          ? t('node.midjourney.referenceRoleStyle')
-                          : t('node.midjourney.referenceRoleReference')}
+                          ? t("node.midjourney.referenceRoleStyle")
+                          : t("node.midjourney.referenceRoleReference")}
                       </button>
                     </div>
                   </div>
@@ -1015,7 +1094,7 @@ export const MjNode = memo(({ id, data, selected, width }: MjNodeProps) => {
             </div>
           ) : (
             <div className="rounded-lg border border-dashed border-[rgba(255,255,255,0.06)] bg-white/[0.02] px-3 py-4 text-sm text-text-muted">
-              {t('node.midjourney.referencesHint')}
+              {t("node.midjourney.referencesHint")}
             </div>
           )}
         </div>
@@ -1026,7 +1105,7 @@ export const MjNode = memo(({ id, data, selected, width }: MjNodeProps) => {
           onPointerDown={(event) => event.stopPropagation()}
         >
           <FixedControlChip
-            label={t('node.midjourney.aspectRatio')}
+            label={t("node.midjourney.aspectRatio")}
             value={resolvedAspectRatio}
             options={aspectRatioOptions}
             onChange={handleAspectRatioChange}
@@ -1038,11 +1117,11 @@ export const MjNode = memo(({ id, data, selected, width }: MjNodeProps) => {
             className={NODE_CONTROL_CHIP_CLASS}
             onClick={handleToggleRawMode}
           >
-            {t('node.midjourney.raw')}
+            {t("node.midjourney.raw")}
           </UiChipButton>
 
           <FixedControlChip
-            label={t('node.midjourney.version')}
+            label={t("node.midjourney.version")}
             value={resolvedVersionPreset}
             options={versionOptions}
             onChange={handleVersionPresetChange}
@@ -1052,8 +1131,8 @@ export const MjNode = memo(({ id, data, selected, width }: MjNodeProps) => {
             type="button"
             active={isStyleCodeDialogOpen || personalizationCodeCount > 0}
             className={`${NODE_CONTROL_CHIP_CLASS} shrink-0 gap-1 px-2`}
-            aria-label={t('node.midjourney.personalization.button')}
-            title={t('node.midjourney.personalization.button')}
+            aria-label={t("node.midjourney.personalization.button")}
+            title={t("node.midjourney.personalization.button")}
             onClick={(event) => {
               event.stopPropagation();
               setIsStyleCodeDialogOpen(true);
@@ -1070,17 +1149,19 @@ export const MjNode = memo(({ id, data, selected, width }: MjNodeProps) => {
           <UiChipButton
             type="button"
             active={isOptimizingPrompt}
-            disabled={isPromptLockedByUpstream || isPromptBusy || !canRewritePrompt}
+            disabled={
+              isPromptLockedByUpstream || isPromptBusy || !canRewritePrompt
+            }
             className={`${NODE_CONTROL_CHIP_CLASS} shrink-0 !w-8 !px-0 justify-center`}
             aria-label={
               isOptimizingPrompt
-                ? t('node.midjourney.optimizingPrompt')
-                : t('node.midjourney.optimizePrompt')
+                ? t("node.midjourney.optimizingPrompt")
+                : t("node.midjourney.optimizePrompt")
             }
             title={
               isOptimizingPrompt
-                ? t('node.midjourney.optimizingPrompt')
-                : t('node.midjourney.optimizePrompt')
+                ? t("node.midjourney.optimizingPrompt")
+                : t("node.midjourney.optimizePrompt")
             }
             onClick={() => void handleOptimizePrompt()}
           >
@@ -1093,17 +1174,19 @@ export const MjNode = memo(({ id, data, selected, width }: MjNodeProps) => {
           <UiChipButton
             type="button"
             active={isTranslatingPrompt}
-            disabled={isPromptLockedByUpstream || isPromptBusy || !canRewritePrompt}
+            disabled={
+              isPromptLockedByUpstream || isPromptBusy || !canRewritePrompt
+            }
             className={`${NODE_CONTROL_CHIP_CLASS} shrink-0 !w-8 !px-0 justify-center`}
             aria-label={
               isTranslatingPrompt
-                ? t('node.midjourney.translatingPrompt')
-                : t('node.midjourney.translatePrompt')
+                ? t("node.midjourney.translatingPrompt")
+                : t("node.midjourney.translatePrompt")
             }
             title={
               isTranslatingPrompt
-                ? t('node.midjourney.translatingPrompt')
-                : t('node.midjourney.translatePrompt')
+                ? t("node.midjourney.translatingPrompt")
+                : t("node.midjourney.translatePrompt")
             }
             onClick={() => void handleTranslatePrompt()}
           >
@@ -1115,10 +1198,12 @@ export const MjNode = memo(({ id, data, selected, width }: MjNodeProps) => {
 
           <UiChipButton
             type="button"
-            disabled={isPromptLockedByUpstream || isPromptBusy || !canUndoPromptRewrite}
+            disabled={
+              isPromptLockedByUpstream || isPromptBusy || !canUndoPromptRewrite
+            }
             className={`${NODE_CONTROL_CHIP_CLASS} shrink-0 !w-8 !px-0 justify-center`}
-            aria-label={t('node.midjourney.undoPromptRewrite')}
-            title={t('node.midjourney.undoPromptRewrite')}
+            aria-label={t("node.midjourney.undoPromptRewrite")}
+            title={t("node.midjourney.undoPromptRewrite")}
             onClick={handleUndoPromptRewrite}
           >
             <Undo2
@@ -1127,22 +1212,25 @@ export const MjNode = memo(({ id, data, selected, width }: MjNodeProps) => {
             />
           </UiChipButton>
 
-          <div ref={advancedParamsTriggerRef} className="relative flex shrink-0">
+          <div
+            ref={advancedParamsTriggerRef}
+            className="relative flex shrink-0"
+          >
             <UiChipButton
               type="button"
-              title={t('node.midjourney.advancedParamsButton')}
-              aria-label={t('node.midjourney.advancedParamsButton')}
+              title={t("node.midjourney.advancedParamsButton")}
+              aria-label={t("node.midjourney.advancedParamsButton")}
               className={`${NODE_CONTROL_CHIP_CLASS} shrink-0 !w-8 !px-0 justify-center ${
                 isAdvancedParamsOpen
-                  ? '!bg-white/[0.06] !text-text-dark hover:!bg-white/[0.08]'
-                  : '!text-text-dark hover:!bg-white/[0.06]'
+                  ? "!bg-white/[0.06] !text-text-dark hover:!bg-white/[0.08]"
+                  : "!text-text-dark hover:!bg-white/[0.06]"
               }`}
               onClick={(event) => {
                 event.stopPropagation();
                 setAdvancedParamsDraft(
                   parseMidjourneyAdvancedParams(
-                    data.advancedParams || lastMidjourneyAdvancedParams
-                  )
+                    data.advancedParams || lastMidjourneyAdvancedParams,
+                  ),
                 );
                 setIsAdvancedParamsOpen((current) => !current);
               }}
@@ -1163,7 +1251,7 @@ export const MjNode = memo(({ id, data, selected, width }: MjNodeProps) => {
                 <UiPanel className="overflow-hidden rounded-[22px] border border-border-dark/95 bg-[linear-gradient(180deg,rgba(30,33,40,0.98),rgba(20,22,28,0.98))] p-0 shadow-[0_24px_56px_rgba(0,0,0,0.46)] backdrop-blur-xl">
                   <div className="relative border-b border-border-dark/95 px-5 py-4 text-center">
                     <div className="text-[18px] font-semibold tracking-[-0.01em] text-text-dark">
-                      {t('node.midjourney.advancedParamsTitle')}
+                      {t("node.midjourney.advancedParamsTitle")}
                     </div>
                     <button
                       type="button"
@@ -1178,12 +1266,12 @@ export const MjNode = memo(({ id, data, selected, width }: MjNodeProps) => {
                         })
                       }
                     >
-                      {t('node.midjourney.advancedParamsReset')}
+                      {t("node.midjourney.advancedParamsReset")}
                     </button>
                   </div>
 
                   <AdvancedParamSlider
-                    label={t('node.midjourney.advancedParamStylize')}
+                    label={t("node.midjourney.advancedParamStylize")}
                     value={advancedParamsDraft.stylize}
                     min={MIDJOURNEY_ADVANCED_PARAM_RANGES.stylize.min}
                     max={MIDJOURNEY_ADVANCED_PARAM_RANGES.stylize.max}
@@ -1197,7 +1285,7 @@ export const MjNode = memo(({ id, data, selected, width }: MjNodeProps) => {
                   />
 
                   <AdvancedParamSlider
-                    label={t('node.midjourney.advancedParamWeird')}
+                    label={t("node.midjourney.advancedParamWeird")}
                     value={advancedParamsDraft.weird}
                     min={MIDJOURNEY_ADVANCED_PARAM_RANGES.weird.min}
                     max={MIDJOURNEY_ADVANCED_PARAM_RANGES.weird.max}
@@ -1211,7 +1299,7 @@ export const MjNode = memo(({ id, data, selected, width }: MjNodeProps) => {
                   />
 
                   <AdvancedParamSlider
-                    label={t('node.midjourney.advancedParamChaos')}
+                    label={t("node.midjourney.advancedParamChaos")}
                     value={advancedParamsDraft.chaos}
                     min={MIDJOURNEY_ADVANCED_PARAM_RANGES.chaos.min}
                     max={MIDJOURNEY_ADVANCED_PARAM_RANGES.chaos.max}
@@ -1226,7 +1314,7 @@ export const MjNode = memo(({ id, data, selected, width }: MjNodeProps) => {
 
                   <div className="border-t border-border-dark/95 px-5 py-4">
                     <div className="text-[11px] leading-6 text-text-muted/85">
-                      {t('node.midjourney.advancedParamsHint')}
+                      {t("node.midjourney.advancedParamsHint")}
                     </div>
                   </div>
 
@@ -1238,13 +1326,13 @@ export const MjNode = memo(({ id, data, selected, width }: MjNodeProps) => {
                       onClick={() => {
                         setAdvancedParamsDraft(
                           parseMidjourneyAdvancedParams(
-                            data.advancedParams || lastMidjourneyAdvancedParams
-                          )
+                            data.advancedParams || lastMidjourneyAdvancedParams,
+                          ),
                         );
                         setIsAdvancedParamsOpen(false);
                       }}
                     >
-                      {t('common.cancel')}
+                      {t("common.cancel")}
                     </UiButton>
                     <UiButton
                       type="button"
@@ -1252,7 +1340,7 @@ export const MjNode = memo(({ id, data, selected, width }: MjNodeProps) => {
                       variant="primary"
                       onClick={() => void handleApplyAdvancedParams()}
                     >
-                      {t('common.confirm')}
+                      {t("common.confirm")}
                     </UiButton>
                   </div>
                 </UiPanel>
@@ -1269,11 +1357,13 @@ export const MjNode = memo(({ id, data, selected, width }: MjNodeProps) => {
             onClick={() => void handleGenerate()}
           >
             {isSubmitting ? (
-              <Loader2 className={`${NODE_CONTROL_GENERATE_ICON_CLASS} animate-spin`} />
+              <Loader2
+                className={`${NODE_CONTROL_GENERATE_ICON_CLASS} animate-spin`}
+              />
             ) : (
               <Sparkles className={NODE_CONTROL_GENERATE_ICON_CLASS} />
             )}
-            {t('canvas.generate')}
+            {t("canvas.generate")}
           </UiButton>
         </div>
 
@@ -1283,30 +1373,37 @@ export const MjNode = memo(({ id, data, selected, width }: MjNodeProps) => {
           ) : data.lastError ? (
             <span className="text-rose-300">{data.lastError}</span>
           ) : isOptimizingPrompt ? (
-            <span>{t('node.midjourney.optimizingPrompt')}</span>
+            <span>{t("node.midjourney.optimizingPrompt")}</span>
           ) : isTranslatingPrompt ? (
-            <span>{t('node.midjourney.translatingPrompt')}</span>
+            <span>{t("node.midjourney.translatingPrompt")}</span>
           ) : isSubmitting ? (
-            <span>{t('node.midjourney.statusSubmitting')}</span>
+            <span>{t("node.midjourney.statusSubmitting")}</span>
           ) : pendingBatchCount > 0 ? (
-            <span>{t('node.midjourney.statusPollingBatches', { count: pendingBatchCount })}</span>
+            <span>
+              {t("node.midjourney.statusPollingBatches", {
+                count: pendingBatchCount,
+              })}
+            </span>
           ) : isPromptLockedByUpstream ? (
             <span>
               {hasNonEmptyConnectedText
-                ? t('common.upstreamTextDisconnectHint')
-                : t('common.upstreamTextEmpty')}
+                ? t("common.upstreamTextDisconnectHint")
+                : t("common.upstreamTextEmpty")}
             </span>
           ) : !apiKey ? (
-            <span>{t('node.midjourney.apiKeyHint')}</span>
+            <span>{t("node.midjourney.apiKeyHint")}</span>
           ) : (
-            <span>{t('node.midjourney.statusIdle')}</span>
+            <span>{t("node.midjourney.statusIdle")}</span>
           )}
         </div>
       </div>
 
-      <Handle type="target" position={Position.Left} id="target" />
-      <Handle type="source" position={Position.Right} id="source" />
-      <NodeResizeHandle minWidth={MJ_NODE_MIN_WIDTH} minHeight={MJ_NODE_MIN_HEIGHT} />
+      <CanvasHandle type="target" position={Position.Left} id="target" />
+      <CanvasHandle type="source" position={Position.Right} id="source" />
+      <NodeResizeHandle
+        minWidth={MJ_NODE_MIN_WIDTH}
+        minHeight={MJ_NODE_MIN_HEIGHT}
+      />
       <MjStyleCodeDialog
         isOpen={isStyleCodeDialogOpen}
         selectedCodes={data.personalizationCodes ?? []}
@@ -1321,4 +1418,4 @@ export const MjNode = memo(({ id, data, selected, width }: MjNodeProps) => {
   );
 });
 
-MjNode.displayName = 'MjNode';
+MjNode.displayName = "MjNode";

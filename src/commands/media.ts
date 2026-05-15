@@ -1,7 +1,7 @@
 import { invoke } from '@tauri-apps/api/core';
 
 export type MediaPersistType = 'image' | 'video' | 'audio';
-export type MediaPersistRole = 'original' | 'preview' | 'cache';
+export type MediaPersistRole = 'original' | 'preview' | 'thumbnail' | 'cache';
 
 export interface MediaPersistContext {
   projectId?: string | null;

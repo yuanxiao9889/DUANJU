@@ -231,6 +231,7 @@ async function prepareMidjourneyBatchImage(
       id: `mj-batch-image-${uuidv4()}`,
       imageUrl: prepared.imageUrl,
       previewImageUrl: prepared.previewImageUrl,
+      thumbnailUrl: prepared.thumbnailImageUrl,
       sourceUrl,
       index,
       aspectRatio:
@@ -246,6 +247,7 @@ async function prepareMidjourneyBatchImage(
       id: `mj-batch-image-${uuidv4()}`,
       imageUrl: sourceUrl,
       previewImageUrl: sourceUrl,
+      thumbnailUrl: null,
       sourceUrl,
       index,
       aspectRatio: dimensions

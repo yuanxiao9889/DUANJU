@@ -126,16 +126,16 @@ export type CanvasEdgeRoutingMode = 'spline' | 'orthogonal' | 'smartOrthogonal';
 export type ProviderApiKeys = Record<string, string>;
 export const DEFAULT_GRSAI_NANO_BANANA_PRO_MODEL = 'nano-banana-pro';
 export type OfficialVideoProviderId = 'vidu' | 'volcengine';
-export type ThirdPartyVideoProviderId = 'gptBest';
+export type ThirdPartyVideoProviderId = 'oopii';
 
 export interface ThirdPartyVideoProviderConfig {
-  gptBest: {
+  oopii: {
     baseUrl: string;
   };
 }
 
 export const DEFAULT_THIRD_PARTY_VIDEO_PROVIDER_CONFIG: ThirdPartyVideoProviderConfig = {
-  gptBest: {
+  oopii: {
     baseUrl: '',
   },
 };
@@ -226,7 +226,7 @@ interface SettingsState {
     key: string
   ) => void;
   setThirdPartyVideoProviderConfig: (
-    config: Partial<ThirdPartyVideoProviderConfig['gptBest']>
+    config: Partial<ThirdPartyVideoProviderConfig['oopii']>
   ) => void;
   setScriptProviderEnabled: (providerId: string) => void;
   setMjProviderEnabled: (providerId: MidjourneyProviderId) => void;
@@ -682,10 +682,12 @@ function normalizeApiKeys(input: ProviderApiKeys | null | undefined): ProviderAp
 }
 
 function normalizeThirdPartyVideoApiKeys(
-  input: Partial<Record<ThirdPartyVideoProviderId, string>> | null | undefined
+  input: Partial<Record<string, string>> | null | undefined
 ): Record<ThirdPartyVideoProviderId, string> {
+  const oopiiKey = normalizeApiKey(input?.oopii ?? '');
+  const legacyGptBestKey = normalizeApiKey(input?.gptBest ?? '');
   return {
-    gptBest: normalizeApiKey(input?.gptBest ?? ''),
+    oopii: oopiiKey || legacyGptBestKey,
   };
 }
 
@@ -699,11 +701,13 @@ function normalizeOfficialVideoApiKeys(
 }
 
 function normalizeThirdPartyVideoProviderConfig(
-  input: Partial<ThirdPartyVideoProviderConfig> | null | undefined
+  input: Partial<Record<string, { baseUrl?: string | null | undefined }>> | null | undefined
 ): ThirdPartyVideoProviderConfig {
+  const oopiiBaseUrl = normalizeApiKey(input?.oopii?.baseUrl ?? '');
+  const legacyGptBestBaseUrl = normalizeApiKey(input?.gptBest?.baseUrl ?? '');
   return {
-    gptBest: {
-      baseUrl: normalizeApiKey(input?.gptBest?.baseUrl ?? ''),
+    oopii: {
+      baseUrl: oopiiBaseUrl || legacyGptBestBaseUrl,
     },
   };
 }
@@ -733,7 +737,7 @@ export const useSettingsStore = create<SettingsState>()(
       storyboardApiKeys: {},
       mjApiKeys: {},
       officialVideoApiKeys: { vidu: '', volcengine: '' },
-      thirdPartyVideoApiKeys: { gptBest: '' },
+      thirdPartyVideoApiKeys: { oopii: '' },
       thirdPartyVideoProviderConfig: DEFAULT_THIRD_PARTY_VIDEO_PROVIDER_CONFIG,
       scriptProviderEnabled: 'alibaba',
       mjProviderEnabled: 'comfly',
@@ -849,8 +853,8 @@ export const useSettingsStore = create<SettingsState>()(
         set((state) => ({
           thirdPartyVideoProviderConfig: normalizeThirdPartyVideoProviderConfig({
             ...state.thirdPartyVideoProviderConfig,
-            gptBest: {
-              ...state.thirdPartyVideoProviderConfig.gptBest,
+            oopii: {
+              ...state.thirdPartyVideoProviderConfig.oopii,
               ...config,
             },
           }),
@@ -1757,7 +1761,7 @@ export const useSettingsStore = create<SettingsState>()(
     }),
     {
       name: 'settings-storage',
-      version: 43,
+      version: 44,
       onRehydrateStorage: () => {
         return (state, error) => {
           if (error) {

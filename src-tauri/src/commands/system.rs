@@ -3,7 +3,10 @@ use std::process::Command;
 use std::time::Duration;
 use tracing::warn;
 
-use crate::{minimize_main_window_to_tray as hide_main_window_to_tray, set_main_tray_visible};
+use crate::set_main_tray_visible;
+
+#[cfg(target_os = "windows")]
+use crate::minimize_main_window_to_tray as hide_main_window_to_tray;
 
 #[cfg(target_os = "windows")]
 use std::os::windows::process::CommandExt;
@@ -874,7 +877,16 @@ pub async fn request_app_exit(app: tauri::AppHandle) -> Result<(), String> {
 
 #[tauri::command]
 pub fn minimize_main_window_to_tray(app: tauri::AppHandle) -> Result<(), String> {
-    hide_main_window_to_tray(&app)
+    #[cfg(target_os = "windows")]
+    {
+        return hide_main_window_to_tray(&app);
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    {
+        let _ = app;
+        Err("minimize to tray is only supported on Windows".to_string())
+    }
 }
 
 #[tauri::command]

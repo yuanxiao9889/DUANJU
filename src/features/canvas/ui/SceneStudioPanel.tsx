@@ -35,11 +35,13 @@ import {
   rewriteShootingScriptCell,
 } from '@/features/canvas/application/shootingScriptGenerator';
 import { ShootingScriptWorkbenchPanel } from './ShootingScriptWorkbenchPanel';
+import { DirectorWorkPackageWorkbenchPanel } from './DirectorWorkPackageWorkbenchPanel';
 import {
   CANVAS_NODE_TYPES,
   createDefaultSceneCard,
   normalizeShootingScriptNumberingContext,
   normalizeSceneCards,
+  type ScriptAssetExtractNodeData,
   type EpisodeCard,
   type SceneCard,
   type SceneContinuityCheck,
@@ -225,6 +227,8 @@ export function SceneStudioPanel() {
   const activeSceneNodeId = useScriptEditorStore((state) => state.activeSceneNodeId);
   const activeEpisodeId = useScriptEditorStore((state) => state.activeEpisodeId);
   const activeScriptNodeId = useScriptEditorStore((state) => state.activeScriptNodeId);
+  const activeScriptAssetExtractNodeId = useScriptEditorStore((state) => state.activeScriptAssetExtractNodeId);
+  const activeScriptAssetExtractRequestKey = useScriptEditorStore((state) => state.activeScriptAssetExtractRequestKey);
   const activeScriptCell = useScriptEditorStore((state) => state.activeScriptCell);
   const focusSceneNode = useScriptEditorStore((state) => state.focusSceneNode);
   const focusShootingScript = useScriptEditorStore((state) => state.focusShootingScript);
@@ -235,6 +239,7 @@ export function SceneStudioPanel() {
   const activeChapterWorkbenchNode = useCanvasNodeById(activeChapterId ?? '');
   const activeSceneWorkbenchNode = useCanvasNodeById(activeSceneNodeId ?? '');
   const activeScriptWorkbenchNode = useCanvasNodeById(activeScriptNodeId ?? '');
+  const activeScriptAssetExtractWorkbenchNode = useCanvasNodeById(activeScriptAssetExtractNodeId ?? '');
   const rootNode = useCanvasFirstNodeByType(CANVAS_NODE_TYPES.scriptRoot);
   const [panelWidth, setPanelWidth] = useState(() => readPanelWidth());
   const [isPanelCollapsed, setIsPanelCollapsed] = useState(() => readPanelCollapsed());
@@ -274,6 +279,16 @@ export function SceneStudioPanel() {
 
   const resolvedWorkbenchNode = useMemo(() => {
     if (
+      activeWorkbenchKind === 'scriptAssetExtract'
+      && (
+        activeScriptAssetExtractWorkbenchNode?.type === CANVAS_NODE_TYPES.scriptAssetExtract
+        || activeScriptAssetExtractWorkbenchNode?.type === CANVAS_NODE_TYPES.directorWorkPackage
+      )
+    ) {
+      return activeScriptAssetExtractWorkbenchNode;
+    }
+
+    if (
       activeWorkbenchKind === 'shootingScript'
       && activeScriptWorkbenchNode?.type === CANVAS_NODE_TYPES.shootingScript
     ) {
@@ -292,6 +307,8 @@ export function SceneStudioPanel() {
       selectedWorkbenchNode?.type === CANVAS_NODE_TYPES.scriptScene
       || selectedWorkbenchNode?.type === CANVAS_NODE_TYPES.scriptChapter
       || selectedWorkbenchNode?.type === CANVAS_NODE_TYPES.shootingScript
+      || selectedWorkbenchNode?.type === CANVAS_NODE_TYPES.scriptAssetExtract
+      || selectedWorkbenchNode?.type === CANVAS_NODE_TYPES.directorWorkPackage
     ) {
       return selectedWorkbenchNode;
     }
@@ -299,6 +316,7 @@ export function SceneStudioPanel() {
     return null;
   }, [
     activeChapterWorkbenchNode,
+    activeScriptAssetExtractWorkbenchNode,
     activeSceneWorkbenchNode,
     activeScriptWorkbenchNode,
     activeWorkbenchKind,
@@ -326,6 +344,16 @@ export function SceneStudioPanel() {
     ? shootingScriptNodeRecord.data as ShootingScriptNodeData
     : null;
   const shootingScriptNodeId = shootingScriptNodeRecord?.id ?? null;
+  const directorWorkPackageNodeRecord = (
+    resolvedWorkbenchNode?.type === CANVAS_NODE_TYPES.scriptAssetExtract
+    || resolvedWorkbenchNode?.type === CANVAS_NODE_TYPES.directorWorkPackage
+  )
+    ? resolvedWorkbenchNode
+    : null;
+  const directorWorkPackageNodeData = directorWorkPackageNodeRecord
+    ? directorWorkPackageNodeRecord.data as ScriptAssetExtractNodeData
+    : null;
+  const directorWorkPackageNodeId = directorWorkPackageNodeRecord?.id ?? null;
   const sourceChapterNode = useCanvasNodeById(
     sceneNodeData?.sourceChapterId ?? shootingScriptNodeData?.sourceChapterId ?? ''
   );
@@ -397,6 +425,7 @@ export function SceneStudioPanel() {
   const isChapterMode = chapterNodeData !== null;
   const isSceneMode = sceneNodeData !== null;
   const isShootingScriptMode = shootingScriptNodeData !== null;
+  const isDirectorWorkPackageMode = directorWorkPackageNodeData !== null;
 
   const selectedEpisode = useMemo(() => {
     const resolvedSceneNodeData = sceneNodeData ?? sourceSceneData;
@@ -1591,6 +1620,22 @@ export function SceneStudioPanel() {
     shootingScriptNodeId,
   ]);
 
+  useEffect(() => {
+    if (
+      !isPanelCollapsed
+      || activeWorkbenchKind !== 'scriptAssetExtract'
+      || !directorWorkPackageNodeId
+    ) {
+      return;
+    }
+
+    setIsPanelCollapsed(false);
+  }, [
+    activeWorkbenchKind,
+    directorWorkPackageNodeId,
+    activeScriptAssetExtractRequestKey,
+  ]);
+
   return (
     <aside
       className={`relative z-20 h-full shrink-0 border-l border-border-dark bg-bg-dark/92 backdrop-blur ${
@@ -1631,14 +1676,18 @@ export function SceneStudioPanel() {
             <>
               <div className="min-w-0">
                 <div className="text-sm font-semibold text-text-dark">
-                  {isShootingScriptMode
+                  {isDirectorWorkPackageMode
+                    ? t('script.scriptAssetExtract.workbenchTitle')
+                    : isShootingScriptMode
                     ? t('script.shootingScript.workbenchTitle')
                     : isSceneMode
                       ? t('script.sceneWorkbench.title')
                       : t('script.sceneStudio.title')}
                 </div>
                 <p className="mt-1 text-xs leading-5 text-text-muted">
-                  {isShootingScriptMode
+                  {isDirectorWorkPackageMode
+                    ? t('script.scriptAssetExtract.workbenchSubtitle')
+                    : isShootingScriptMode
                     ? t('script.shootingScript.workbenchSubtitle')
                     : isSceneMode
                     ? t('script.sceneWorkbench.subtitle')
@@ -1727,6 +1776,11 @@ export function SceneStudioPanel() {
             onApplyRewriteVariant={handleApplyShootingScriptRewriteVariant}
             onRunRewrite={handleRunShootingScriptRewrite}
             onOpenSourceEpisode={handleOpenSourceEpisode}
+          />
+        ) : isDirectorWorkPackageMode && directorWorkPackageNodeData && directorWorkPackageNodeId ? (
+          <DirectorWorkPackageWorkbenchPanel
+            nodeId={directorWorkPackageNodeId}
+            nodeData={directorWorkPackageNodeData}
           />
         ) : !sceneNodeData ? (
           <div className="flex flex-1 items-center justify-center px-6 text-center">

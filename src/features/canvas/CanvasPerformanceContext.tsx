@@ -7,12 +7,14 @@ export interface CanvasPerformanceState {
   renderMode: CanvasRenderMode;
   edgeRenderMode: CanvasEdgeRenderMode;
   suspendMedia: boolean;
+  preferThumbnailMedia: boolean;
 }
 
 const DEFAULT_CANVAS_PERFORMANCE_STATE: CanvasPerformanceState = {
   renderMode: 'full',
   edgeRenderMode: 'full',
   suspendMedia: false,
+  preferThumbnailMedia: false,
 };
 
 export const CanvasPerformanceContext = createContext<CanvasPerformanceState>(
@@ -29,4 +31,8 @@ export function useIsOverviewCanvasRender(): boolean {
 
 export function useShouldSuspendCanvasMedia(): boolean {
   return useCanvasPerformanceState().suspendMedia;
+}
+
+export function useShouldPreferCanvasThumbnailMedia(): boolean {
+  return useCanvasPerformanceState().preferThumbnailMedia;
 }

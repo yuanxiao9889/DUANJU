@@ -6,7 +6,7 @@ export interface AlignmentGuide {
   style: 'top' | 'center' | 'bottom' | 'left' | 'middle' | 'right';
 }
 
-interface NodeBounds {
+export interface NodeBounds {
   id: string;
   x: number;
   y: number;
@@ -41,16 +41,25 @@ export function detectAlignments(
   otherNodes: Node[],
   threshold: number = DEFAULT_THRESHOLD
 ): AlignmentResult[] {
-  const draggedBounds = getNodeBounds(draggedNode);
+  return detectAlignmentsFromBounds(
+    getAlignmentNodeBounds(draggedNode),
+    otherNodes.map(getAlignmentNodeBounds),
+    threshold
+  );
+}
+
+export function detectAlignmentsFromBounds(
+  draggedBounds: NodeBounds,
+  otherBoundsList: NodeBounds[],
+  threshold: number = DEFAULT_THRESHOLD
+): AlignmentResult[] {
   let bestHorizontal: AlignmentCandidate | null = null;
   let bestVertical: AlignmentCandidate | null = null;
 
-  for (const otherNode of otherNodes) {
-    if (otherNode.id === draggedNode.id) {
+  for (const otherBounds of otherBoundsList) {
+    if (otherBounds.id === draggedBounds.id) {
       continue;
     }
-
-    const otherBounds = getNodeBounds(otherNode);
 
     const horizontalCandidates: AlignmentCandidate[] = [
       {
@@ -156,7 +165,7 @@ function getAlignmentStylePriority(style: AlignmentGuide['style']): number {
   return 1;
 }
 
-function getNodeBounds(node: Node): NodeBounds {
+export function getAlignmentNodeBounds(node: Node): NodeBounds {
   const width = node.measured?.width ?? node.width ?? 200;
   const height = node.measured?.height ?? node.height ?? 100;
   const x = node.position.x;

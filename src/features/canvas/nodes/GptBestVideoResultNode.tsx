@@ -1,41 +1,64 @@
-import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Handle, Position, type NodeProps } from '@xyflow/react';
-import { Camera, ChevronLeft, ChevronRight, Loader2, Pause, Play, Sparkles, TriangleAlert, Video } from 'lucide-react';
-import { useTranslation } from 'react-i18next';
-
-import { UiButton, UiLoadingAnimation } from '@/components/ui';
-import { resolveErrorContent, showErrorDialog } from '@/features/canvas/application/errorDialog';
-import { flushCurrentProjectToDiskSafely } from '@/features/canvas/application/projectPersistence';
-import { formatVideoTime, resolveVideoDisplayUrl } from '@/features/canvas/application/videoData';
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Position, type NodeProps } from "@xyflow/react";
+import { CanvasHandle } from "@/features/canvas/ui/CanvasHandle";
+import {
+  Camera,
+  ChevronLeft,
+  ChevronRight,
+  Loader2,
+  Pause,
+  Play,
+  Sparkles,
+  TriangleAlert,
+  Video,
+} from "lucide-react";
+import { useTranslation } from "react-i18next";
+import { UiButton, UiLoadingAnimation } from "@/components/ui";
+import {
+  resolveErrorContent,
+  showErrorDialog,
+} from "@/features/canvas/application/errorDialog";
+import { flushCurrentProjectToDiskSafely } from "@/features/canvas/application/projectPersistence";
+import {
+  formatVideoTime,
+  resolveVideoDisplayUrl,
+} from "@/features/canvas/application/videoData";
 import {
   CANVAS_NODE_TYPES,
   GPT_BEST_VIDEO_RESULT_NODE_DEFAULT_WIDTH,
   GPT_BEST_VIDEO_RESULT_NODE_MIN_HEIGHT,
   GPT_BEST_VIDEO_RESULT_NODE_MIN_WIDTH,
   type GptBestVideoResultNodeData,
-} from '@/features/canvas/domain/canvasNodes';
-import { resolveNodeDisplayName } from '@/features/canvas/domain/nodeDisplay';
-import { useCanvasNodeById } from '@/features/canvas/hooks/useCanvasNodeGraph';
-import { useNodeVideoPlaybackControls } from '@/features/canvas/hooks/useNodeVideoPlaybackControls';
-import { useStableImageDisplaySource } from '@/features/canvas/hooks/useStableImageDisplaySource';
-import { useShouldSuspendCanvasMedia } from '@/features/canvas/CanvasPerformanceContext';
-import { CanvasNodeImage } from '@/features/canvas/ui/CanvasNodeImage';
-import { NodeHeader, NODE_HEADER_FLOATING_POSITION_CLASS } from '@/features/canvas/ui/NodeHeader';
-import { NodeResizeHandle } from '@/features/canvas/ui/NodeResizeHandle';
-import { NodeStatusBadge } from '@/features/canvas/ui/NodeStatusBadge';
+} from "@/features/canvas/domain/canvasNodes";
+import { resolveNodeDisplayName } from "@/features/canvas/domain/nodeDisplay";
+import { useCanvasNodeById } from "@/features/canvas/hooks/useCanvasNodeGraph";
+import { useNodeVideoPlaybackControls } from "@/features/canvas/hooks/useNodeVideoPlaybackControls";
+import { useStableImageDisplaySource } from "@/features/canvas/hooks/useStableImageDisplaySource";
+import { useShouldSuspendCanvasMedia } from "@/features/canvas/CanvasPerformanceContext";
+import { CanvasNodeImage } from "@/features/canvas/ui/CanvasNodeImage";
+import {
+  NodeHeader,
+  NODE_HEADER_FLOATING_POSITION_CLASS,
+} from "@/features/canvas/ui/NodeHeader";
+import { NodeResizeHandle } from "@/features/canvas/ui/NodeResizeHandle";
+import { NodeStatusBadge } from "@/features/canvas/ui/NodeStatusBadge";
 import {
   NODE_CONTROL_ACTION_BUTTON_CLASS,
   NODE_CONTROL_MEDIA_BADGE_CLASS,
-} from '@/features/canvas/ui/nodeControlStyles';
-import { NodeDescriptionPanel, NODE_DESCRIPTION_PANEL_EXPANDED_TOTAL_HEIGHT } from '@/features/canvas/ui/NodeDescriptionPanel';
-import { resolveNodeStyleDimension } from '@/features/canvas/ui/nodeDimensionUtils';
+} from "@/features/canvas/ui/nodeControlStyles";
+import {
+  NodeDescriptionPanel,
+  NODE_DESCRIPTION_PANEL_EXPANDED_TOTAL_HEIGHT,
+} from "@/features/canvas/ui/NodeDescriptionPanel";
+import { resolveNodeStyleDimension } from "@/features/canvas/ui/nodeDimensionUtils";
 import {
   GPT_BEST_VIDEO_RESULT_POLL_INTERVAL_MS,
   queryGptBestVideoResult,
-} from '@/features/gpt-best-video/application/gptBestVideoSubmission';
-import { openSettingsDialog } from '@/features/settings/settingsEvents';
-import { useCanvasStore } from '@/stores/canvasStore';
-import { useSettingsStore } from '@/stores/settingsStore';
+} from "@/features/gpt-best-video/application/gptBestVideoSubmission";
+import { OOPII_VIDEO_PROVIDER_ID } from "@/features/gpt-best-video/domain/oopiiVideoModels";
+import { openSettingsDialog } from "@/features/settings/settingsEvents";
+import { useCanvasStore } from "@/stores/canvasStore";
+import { useSettingsStore } from "@/stores/settingsStore";
 
 type GptBestVideoResultNodeProps = NodeProps & {
   id: string;
@@ -44,26 +67,47 @@ type GptBestVideoResultNodeProps = NodeProps & {
 };
 
 function toCssAspectRatio(aspectRatio: string): string {
-  const [rawWidth = '16', rawHeight = '9'] = aspectRatio.split(':');
+  const [rawWidth = "16", rawHeight = "9"] = aspectRatio.split(":");
   const width = Number(rawWidth);
   const height = Number(rawHeight);
-  return Number.isFinite(width) && Number.isFinite(height) && width > 0 && height > 0
+  return Number.isFinite(width) &&
+    Number.isFinite(height) &&
+    width > 0 &&
+    height > 0
     ? `${width} / ${height}`
-    : '16 / 9';
+    : "16 / 9";
 }
 
 function normalizeTaskStatus(
-  status: string | null | undefined
-): 'queued' | 'running' | 'succeeded' | 'failed' | 'unknown' {
-  const normalized = status?.trim().toLowerCase() ?? '';
+  status: string | null | undefined,
+): "queued" | "running" | "succeeded" | "failed" | "unknown" {
+  const normalized = status?.trim().toLowerCase() ?? "";
   switch (normalized) {
-    case 'queued':
-    case 'running':
-    case 'succeeded':
-    case 'failed':
-      return normalized;
+    case "not_start":
+    case "not-start":
+    case "not start":
+    case "queued":
+    case "pending":
+    case "submitted":
+      return "queued";
+    case "in_progress":
+    case "in-progress":
+    case "in progress":
+    case "running":
+    case "processing":
+      return "running";
+    case "success":
+    case "succeeded":
+    case "completed":
+      return "succeeded";
+    case "failure":
+    case "failed":
+    case "error":
+    case "canceled":
+    case "cancelled":
+      return "failed";
     default:
-      return 'unknown';
+      return "unknown";
   }
 }
 
@@ -72,59 +116,91 @@ export const GptBestVideoResultNode = memo(
     const { t } = useTranslation();
     const shouldSuspendMedia = useShouldSuspendCanvasMedia();
     const currentNode = useCanvasNodeById(id);
-    const thirdPartyVideoApiKeys = useSettingsStore((state) => state.thirdPartyVideoApiKeys);
-    const thirdPartyVideoProviderConfig = useSettingsStore((state) => state.thirdPartyVideoProviderConfig);
+    const thirdPartyVideoApiKeys = useSettingsStore(
+      (state) => state.thirdPartyVideoApiKeys,
+    );
+    const thirdPartyVideoProviderConfig = useSettingsStore(
+      (state) => state.thirdPartyVideoProviderConfig,
+    );
     const setSelectedNode = useCanvasStore((state) => state.setSelectedNode);
     const updateNodeData = useCanvasStore((state) => state.updateNodeData);
     const addNode = useCanvasStore((state) => state.addNode);
     const addEdge = useCanvasStore((state) => state.addEdge);
-    const isDescriptionPanelOpen = useCanvasStore(
-      (state) => Boolean(state.nodeDescriptionPanelOpenById[id])
+    const edges = useCanvasStore((state) => state.edges);
+    const isDescriptionPanelOpen = useCanvasStore((state) =>
+      Boolean(state.nodeDescriptionPanelOpenById[id]),
     );
     const [isRequerying, setIsRequerying] = useState(false);
     const [statusNotice, setStatusNotice] = useState<string | null>(null);
     const pollTimerRef = useRef<number | null>(null);
     const isPollingRef = useRef(false);
 
-    const apiKey = thirdPartyVideoApiKeys.gptBest?.trim() ?? '';
-    const baseUrl = thirdPartyVideoProviderConfig.gptBest.baseUrl.trim();
+    const providerId = OOPII_VIDEO_PROVIDER_ID;
+    const apiKey = thirdPartyVideoApiKeys[providerId]?.trim() ?? "";
+    const baseUrl = thirdPartyVideoProviderConfig[providerId].baseUrl.trim();
     const resolvedTitle = useMemo(
       () => resolveNodeDisplayName(CANVAS_NODE_TYPES.gptBestVideoResult, data),
-      [data]
+      [data],
     );
     const resolvedWidth = Math.max(
       GPT_BEST_VIDEO_RESULT_NODE_MIN_WIDTH,
-      Math.round(width ?? GPT_BEST_VIDEO_RESULT_NODE_DEFAULT_WIDTH)
+      Math.round(width ?? GPT_BEST_VIDEO_RESULT_NODE_DEFAULT_WIDTH),
     );
-    const explicitHeight = resolveNodeStyleDimension(currentNode?.style?.height);
-    const hasExplicitHeight = typeof explicitHeight === 'number';
+    const explicitHeight = resolveNodeStyleDimension(
+      currentNode?.style?.height,
+    );
+    const hasExplicitHeight = typeof explicitHeight === "number";
     const descriptionPanelHeight = isDescriptionPanelOpen
       ? NODE_DESCRIPTION_PANEL_EXPANDED_TOTAL_HEIGHT
       : 0;
     const collapsedHeight = Math.max(
       explicitHeight ?? GPT_BEST_VIDEO_RESULT_NODE_MIN_HEIGHT,
-      GPT_BEST_VIDEO_RESULT_NODE_MIN_HEIGHT
+      GPT_BEST_VIDEO_RESULT_NODE_MIN_HEIGHT,
     );
-    const resolvedMinHeight = GPT_BEST_VIDEO_RESULT_NODE_MIN_HEIGHT + descriptionPanelHeight;
-    const resolvedHeight = hasExplicitHeight ? collapsedHeight + descriptionPanelHeight : null;
+    const resolvedMinHeight =
+      GPT_BEST_VIDEO_RESULT_NODE_MIN_HEIGHT + descriptionPanelHeight;
+    const resolvedHeight = hasExplicitHeight
+      ? collapsedHeight + descriptionPanelHeight
+      : null;
     const resolvedAspectRatio = useMemo(
-      () => toCssAspectRatio(data.aspectRatio ?? '16:9'),
-      [data.aspectRatio]
+      () => toCssAspectRatio(data.aspectRatio ?? "16:9"),
+      [data.aspectRatio],
     );
     const videoSource = useMemo(() => {
-      const source = data.videoUrl?.trim() ?? '';
+      const source = data.videoUrl?.trim() ?? "";
       return source ? resolveVideoDisplayUrl(source) : null;
     }, [data.videoUrl]);
-    const posterSource = useMemo(() => data.previewImageUrl?.trim() || null, [data.previewImageUrl]);
-    const { displaySource: posterDisplaySource } = useStableImageDisplaySource(posterSource);
+    const posterSource = useMemo(
+      () => data.previewImageUrl?.trim() || null,
+      [data.previewImageUrl],
+    );
+    const { displaySource: posterDisplaySource } =
+      useStableImageDisplaySource(posterSource);
     const normalizedTaskStatus = normalizeTaskStatus(data.taskStatus);
-    const taskStatusLabel = t(`node.gptBestVideoResult.taskStatuses.${normalizedTaskStatus}`);
+    const taskStatusLabel = t(
+      `node.gptBestVideoResult.taskStatuses.${normalizedTaskStatus}`,
+    );
     const taskStatusNotice =
-      normalizedTaskStatus === 'queued'
-        ? t('node.gptBestVideoResult.statusQueued')
-        : normalizedTaskStatus === 'running'
-          ? t('node.gptBestVideoResult.statusRunning')
+      normalizedTaskStatus === "queued"
+        ? t("node.gptBestVideoResult.statusQueued")
+        : normalizedTaskStatus === "running"
+          ? t("node.gptBestVideoResult.statusRunning")
           : null;
+    const sourceNodeId = data.sourceNodeId?.trim() ?? "";
+    const hasSourceEdge = useMemo(
+      () =>
+        sourceNodeId
+          ? edges.some((edge) => edge.source === sourceNodeId && edge.target === id)
+          : true,
+      [edges, id, sourceNodeId],
+    );
+
+    useEffect(() => {
+      if (!sourceNodeId || hasSourceEdge) {
+        return;
+      }
+      addEdge(sourceNodeId, id);
+    }, [addEdge, hasSourceEdge, id, sourceNodeId]);
 
     const clearScheduledPoll = useCallback(() => {
       if (pollTimerRef.current !== null) {
@@ -134,30 +210,33 @@ export const GptBestVideoResultNode = memo(
     }, []);
 
     const handleRequeryResult = useCallback(
-      async (options?: { suppressErrorDialog?: boolean; scheduleNextPoll?: boolean }) => {
-        const taskId = data.taskId?.trim() ?? '';
+      async (options?: {
+        suppressErrorDialog?: boolean;
+        scheduleNextPoll?: boolean;
+      }) => {
+        const taskId = data.taskId?.trim() ?? "";
         if (!taskId) {
-          const message = t('node.gptBestVideoResult.requeryUnavailable');
+          const message = t("node.gptBestVideoResult.requeryUnavailable");
           setStatusNotice(message);
           if (!options?.suppressErrorDialog) {
-            await showErrorDialog(message, t('common.error'));
+            await showErrorDialog(message, t("common.error"));
           }
           return;
         }
 
         if (!apiKey || !baseUrl) {
           const message = !apiKey
-            ? t('node.gptBestVideo.apiKeyRequired')
-            : t('node.gptBestVideo.baseUrlRequired');
+            ? t("node.gptBestVideo.apiKeyRequired")
+            : t("node.gptBestVideo.baseUrlRequired");
           setStatusNotice(message);
           updateNodeData(id, { lastError: message });
           openSettingsDialog({
-            category: 'providers',
-            providerTab: 'thirdPartyVideo',
-            providerId: 'gptBest',
+            category: "providers",
+            providerTab: "thirdPartyVideo",
+            providerId,
           });
           if (!options?.suppressErrorDialog) {
-            await showErrorDialog(message, t('common.error'));
+            await showErrorDialog(message, t("common.error"));
           }
           return;
         }
@@ -177,11 +256,17 @@ export const GptBestVideoResultNode = memo(
           lastError: null,
         });
         if (!options?.suppressErrorDialog) {
-          await flushCurrentProjectToDiskSafely('starting third-party video requery');
+          await flushCurrentProjectToDiskSafely(
+            "starting third-party video requery",
+          );
         }
 
         try {
-          const response = await queryGptBestVideoResult({ apiKey, baseUrl, taskId });
+          const response = await queryGptBestVideoResult({
+            apiKey,
+            baseUrl,
+            taskId,
+          });
           const nextTaskUpdatedAt = response.updatedAt ?? Date.now();
 
           if (response.pending) {
@@ -195,9 +280,9 @@ export const GptBestVideoResultNode = memo(
               lastError: null,
             });
             setStatusNotice(
-              pendingStatus === 'queued'
-                ? t('node.gptBestVideoResult.statusQueued')
-                : t('node.gptBestVideoResult.statusRunning')
+              pendingStatus === "queued"
+                ? t("node.gptBestVideoResult.statusQueued")
+                : t("node.gptBestVideoResult.statusRunning"),
             );
             if (options?.scheduleNextPoll) {
               pollTimerRef.current = window.setTimeout(() => {
@@ -211,7 +296,9 @@ export const GptBestVideoResultNode = memo(
           }
 
           if (!response.video) {
-            const errorMessage = response.errorMessage ?? t('node.gptBestVideoResult.requeryFailed');
+            const errorMessage =
+              response.errorMessage ??
+              t("node.gptBestVideoResult.requeryFailed");
             updateNodeData(id, {
               taskId: response.taskId,
               isGenerating: false,
@@ -221,9 +308,11 @@ export const GptBestVideoResultNode = memo(
               lastError: errorMessage,
             });
             setStatusNotice(errorMessage);
-            await flushCurrentProjectToDiskSafely('saving third-party video failed requery result');
+            await flushCurrentProjectToDiskSafely(
+              "saving third-party video failed requery result",
+            );
             if (!options?.suppressErrorDialog) {
-              await showErrorDialog(errorMessage, t('common.error'));
+              await showErrorDialog(errorMessage, t("common.error"));
             }
             return;
           }
@@ -232,23 +321,29 @@ export const GptBestVideoResultNode = memo(
           setStatusNotice(null);
           updateNodeData(id, {
             taskId: response.taskId,
-            taskStatus: 'succeeded',
+            taskStatus: "succeeded",
             taskUpdatedAt: response.updatedAt ?? completedAt,
             modelId: response.video.modelId ?? data.modelId ?? null,
             videoUrl: response.video.videoUrl,
             previewImageUrl: response.video.previewImageUrl ?? null,
             videoFileName: response.video.fileName ?? null,
             aspectRatio: response.video.aspectRatio ?? data.aspectRatio,
-            resolution: response.video.resolution ?? data.resolution ?? null,
+            size: response.video.size ?? data.size ?? data.resolution ?? null,
+            resolution: response.video.size ?? data.resolution ?? data.size ?? null,
             duration: response.video.duration ?? data.duration ?? undefined,
             isGenerating: false,
             generationStartedAt: null,
             lastGeneratedAt: completedAt,
             lastError: null,
           });
-          await flushCurrentProjectToDiskSafely('saving third-party video requery result');
+          await flushCurrentProjectToDiskSafely(
+            "saving third-party video requery result",
+          );
         } catch (error) {
-          const content = resolveErrorContent(error, t('node.gptBestVideoResult.requeryFailed'));
+          const content = resolveErrorContent(
+            error,
+            t("node.gptBestVideoResult.requeryFailed"),
+          );
           setStatusNotice(content.message);
           updateNodeData(id, {
             ...(options?.scheduleNextPoll
@@ -270,10 +365,16 @@ export const GptBestVideoResultNode = memo(
               });
             }, GPT_BEST_VIDEO_RESULT_POLL_INTERVAL_MS * 2);
           } else {
-            await flushCurrentProjectToDiskSafely('saving third-party video requery error');
+            await flushCurrentProjectToDiskSafely(
+              "saving third-party video requery error",
+            );
           }
           if (!options?.suppressErrorDialog && !options?.scheduleNextPoll) {
-            await showErrorDialog(content.message, t('common.error'), content.details);
+            await showErrorDialog(
+              content.message,
+              t("common.error"),
+              content.details,
+            );
           }
         } finally {
           isPollingRef.current = false;
@@ -289,29 +390,43 @@ export const GptBestVideoResultNode = memo(
         data.generationStartedAt,
         data.modelId,
         data.resolution,
+        data.size,
+        data.provider,
         data.taskId,
         data.taskStatus,
         id,
+        providerId,
         t,
         updateNodeData,
-      ]
+      ],
     );
 
     useEffect(() => {
-      const taskId = data.taskId?.trim() ?? '';
+      const taskId = data.taskId?.trim() ?? "";
       if (!data.isGenerating || !taskId || !apiKey || !baseUrl) {
         clearScheduledPoll();
         return;
       }
-      void handleRequeryResult({ suppressErrorDialog: true, scheduleNextPoll: true });
+      void handleRequeryResult({
+        suppressErrorDialog: true,
+        scheduleNextPoll: true,
+      });
       return () => {
         clearScheduledPoll();
       };
-    }, [apiKey, baseUrl, clearScheduledPoll, data.isGenerating, data.taskId, handleRequeryResult]);
+    }, [
+      apiKey,
+      baseUrl,
+      clearScheduledPoll,
+      data.isGenerating,
+      data.taskId,
+      handleRequeryResult,
+    ]);
 
     useEffect(() => () => clearScheduledPoll(), [clearScheduledPoll]);
 
-    const nodeDescription = typeof data.nodeDescription === 'string' ? data.nodeDescription : '';
+    const nodeDescription =
+      typeof data.nodeDescription === "string" ? data.nodeDescription : "";
     const showBlockingOverlay = Boolean(data.isGenerating || isRequerying);
     const {
       videoRef,
@@ -356,31 +471,38 @@ export const GptBestVideoResultNode = memo(
     });
     const combinedError = videoError ?? data.lastError ?? null;
     const headerStatus = data.isGenerating ? (
-      <NodeStatusBadge label={taskStatusLabel} tone="processing" title={taskStatusLabel} />
+      <NodeStatusBadge
+        label={taskStatusLabel}
+        tone="processing"
+        title={taskStatusLabel}
+      />
     ) : combinedError ? (
       <NodeStatusBadge
         icon={<TriangleAlert className="h-3 w-3" />}
-        label={t('nodeStatus.error')}
+        label={t("nodeStatus.error")}
         tone="danger"
         title={combinedError}
       />
     ) : videoSource ? (
       <NodeStatusBadge
         icon={<Sparkles className="h-3 w-3" />}
-        label={t('node.gptBestVideoResult.ready')}
+        label={t("node.gptBestVideoResult.ready")}
         tone="warning"
       />
     ) : undefined;
-    const resolutionText = typeof data.resolution === 'string' && data.resolution.trim()
-      ? data.resolution.trim()
-      : null;
+    const resolutionText =
+      typeof data.size === "string" && data.size.trim()
+        ? data.size.trim()
+        : typeof data.resolution === "string" && data.resolution.trim()
+          ? data.resolution.trim()
+        : null;
 
     return (
       <div
         className={`group relative flex flex-col overflow-visible rounded-[var(--node-radius)] border bg-surface-dark/90 p-2 transition-colors duration-150 ${
           selected
-            ? 'border-accent shadow-[0_0_0_1px_rgba(59,130,246,0.32)]'
-            : 'border-[rgba(15,23,42,0.22)] hover:border-[rgba(15,23,42,0.34)] dark:border-[rgba(255,255,255,0.22)] dark:hover:border-[rgba(255,255,255,0.34)]'
+            ? "border-accent shadow-[0_0_0_1px_rgba(59,130,246,0.32)]"
+            : "border-[rgba(15,23,42,0.22)] hover:border-[rgba(15,23,42,0.34)] dark:border-[rgba(255,255,255,0.22)] dark:hover:border-[rgba(255,255,255,0.34)]"
         }`}
         style={{
           width: `${resolvedWidth}px`,
@@ -397,16 +519,25 @@ export const GptBestVideoResultNode = memo(
           onTitleChange={(displayName) => updateNodeData(id, { displayName })}
         />
 
-        <div className={`flex flex-col pt-5 ${hasExplicitHeight ? 'min-h-0 flex-1' : ''}`}>
-          <div className={`flex flex-col overflow-hidden rounded-[var(--node-radius)] bg-[linear-gradient(165deg,rgba(255,255,255,0.05),rgba(255,255,255,0.015))] ${hasExplicitHeight ? 'min-h-0 flex-1' : ''}`}>
+        <div
+          className={`flex flex-col pt-5 ${hasExplicitHeight ? "min-h-0 flex-1" : ""}`}
+        >
+          <div
+            className={`flex flex-col overflow-hidden rounded-[var(--node-radius)] bg-[linear-gradient(165deg,rgba(255,255,255,0.05),rgba(255,255,255,0.015))] ${hasExplicitHeight ? "min-h-0 flex-1" : ""}`}
+          >
             <div
-              className={`relative overflow-hidden bg-black ${flashFrame ? 'animate-pulse bg-white/20' : ''} ${hasExplicitHeight ? 'min-h-0 flex-1' : ''}`}
-              style={hasExplicitHeight ? undefined : { aspectRatio: resolvedAspectRatio }}
+              className={`relative overflow-hidden bg-black ${flashFrame ? "animate-pulse bg-white/20" : ""} ${hasExplicitHeight ? "min-h-0 flex-1" : ""}`}
+              style={
+                hasExplicitHeight
+                  ? undefined
+                  : { aspectRatio: resolvedAspectRatio }
+              }
             >
-              {posterSource && (shouldSuspendMedia || !isVideoReady || Boolean(videoError)) ? (
+              {posterSource &&
+              (shouldSuspendMedia || !isVideoReady || Boolean(videoError)) ? (
                 <CanvasNodeImage
                   src={posterSource}
-                  alt={t('node.videoNode.posterAlt')}
+                  alt={t("node.videoNode.posterAlt")}
                   className="absolute inset-0 h-full w-full object-cover"
                   disableViewer
                 />
@@ -424,7 +555,7 @@ export const GptBestVideoResultNode = memo(
                     preload="metadata"
                     playsInline
                     poster={posterDisplaySource ?? undefined}
-                    className={`h-full w-full bg-black object-contain transition-opacity duration-150 ${videoError ? 'opacity-35' : 'opacity-100'}`}
+                    className={`h-full w-full bg-black object-contain transition-opacity duration-150 ${videoError ? "opacity-35" : "opacity-100"}`}
                     onPlay={handleVideoPlay}
                     onPause={handleVideoPause}
                     onTimeUpdate={handleTimeUpdate}
@@ -436,7 +567,9 @@ export const GptBestVideoResultNode = memo(
                   />
                 ) : (
                   <div className="flex h-full w-full items-center justify-center bg-[radial-gradient(circle_at_top,#1f2937_0%,#0f172a_72%)] text-sm text-text-muted">
-                    {showBlockingOverlay || (shouldSuspendMedia && posterSource) ? null : t('node.gptBestVideoResult.empty')}
+                    {showBlockingOverlay || (shouldSuspendMedia && posterSource)
+                      ? null
+                      : t("node.gptBestVideoResult.empty")}
                   </div>
                 )}
               </div>
@@ -452,7 +585,7 @@ export const GptBestVideoResultNode = memo(
                     maskInternalBars
                     zoom={1.45}
                   />
-                  <span className="sr-only">{t('common.loading')}</span>
+                  <span className="sr-only">{t("common.loading")}</span>
                 </div>
               ) : null}
               {videoError ? (
@@ -461,8 +594,12 @@ export const GptBestVideoResultNode = memo(
                     <TriangleAlert className="h-5 w-5" />
                   </div>
                   <div className="space-y-1">
-                    <div className="text-sm font-medium text-text-dark">{t('node.videoNode.loadFailed')}</div>
-                    <div className="text-xs leading-5 text-text-muted">{videoError}</div>
+                    <div className="text-sm font-medium text-text-dark">
+                      {t("node.videoNode.loadFailed")}
+                    </div>
+                    <div className="text-xs leading-5 text-text-muted">
+                      {videoError}
+                    </div>
                   </div>
                   <button
                     type="button"
@@ -473,7 +610,7 @@ export const GptBestVideoResultNode = memo(
                     className="inline-flex items-center gap-2 rounded-full border border-border-dark/70 bg-bg-dark/92 px-3 py-2 text-xs font-medium text-text-dark transition-colors hover:border-accent/40 hover:bg-bg-dark"
                   >
                     <Loader2 className="h-3.5 w-3.5" />
-                    {t('node.videoNode.retryLoad')}
+                    {t("node.videoNode.retryLoad")}
                   </button>
                 </div>
               ) : null}
@@ -489,8 +626,8 @@ export const GptBestVideoResultNode = memo(
                   type="button"
                   onClick={() => seekToPrevFrame()}
                   disabled={isPlaying || !isVideoReady}
-                  className={`inline-flex h-8 w-8 items-center justify-center rounded-full border transition-colors ${isPlaying || !isVideoReady ? 'cursor-not-allowed border-white/[0.06] bg-white/[0.02] text-text-muted/40' : 'border-white/[0.08] bg-white/[0.05] text-text-dark hover:border-accent/35 hover:bg-accent/10 hover:text-accent'}`}
-                  title={t('node.videoNode.prevFrame')}
+                  className={`inline-flex h-8 w-8 items-center justify-center rounded-full border transition-colors ${isPlaying || !isVideoReady ? "cursor-not-allowed border-white/[0.06] bg-white/[0.02] text-text-muted/40" : "border-white/[0.08] bg-white/[0.05] text-text-dark hover:border-accent/35 hover:bg-accent/10 hover:text-accent"}`}
+                  title={t("node.videoNode.prevFrame")}
                 >
                   <ChevronLeft className="h-4 w-4" />
                 </button>
@@ -498,17 +635,25 @@ export const GptBestVideoResultNode = memo(
                   type="button"
                   onClick={() => togglePlay()}
                   disabled={!isVideoReady}
-                  className={`inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full border transition-colors ${!isVideoReady ? 'cursor-not-allowed border-white/[0.06] bg-white/[0.02] text-text-muted/40' : 'border-white/[0.1] bg-white/[0.06] text-text-dark hover:border-accent/40 hover:bg-accent/12 hover:text-accent'}`}
-                  title={isPlaying ? t('node.videoNode.pause') : t('node.videoNode.play')}
+                  className={`inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full border transition-colors ${!isVideoReady ? "cursor-not-allowed border-white/[0.06] bg-white/[0.02] text-text-muted/40" : "border-white/[0.1] bg-white/[0.06] text-text-dark hover:border-accent/40 hover:bg-accent/12 hover:text-accent"}`}
+                  title={
+                    isPlaying
+                      ? t("node.videoNode.pause")
+                      : t("node.videoNode.play")
+                  }
                 >
-                  {isPlaying ? <Pause className="h-4 w-4" /> : <Play className="h-4 w-4" />}
+                  {isPlaying ? (
+                    <Pause className="h-4 w-4" />
+                  ) : (
+                    <Play className="h-4 w-4" />
+                  )}
                 </button>
                 <button
                   type="button"
                   onClick={() => seekToNextFrame()}
                   disabled={isPlaying || !isVideoReady}
-                  className={`inline-flex h-8 w-8 items-center justify-center rounded-full border transition-colors ${isPlaying || !isVideoReady ? 'cursor-not-allowed border-white/[0.06] bg-white/[0.02] text-text-muted/40' : 'border-white/[0.08] bg-white/[0.05] text-text-dark hover:border-accent/35 hover:bg-accent/10 hover:text-accent'}`}
-                  title={t('node.videoNode.nextFrame')}
+                  className={`inline-flex h-8 w-8 items-center justify-center rounded-full border transition-colors ${isPlaying || !isVideoReady ? "cursor-not-allowed border-white/[0.06] bg-white/[0.02] text-text-muted/40" : "border-white/[0.08] bg-white/[0.05] text-text-dark hover:border-accent/35 hover:bg-accent/10 hover:text-accent"}`}
+                  title={t("node.videoNode.nextFrame")}
                 >
                   <ChevronRight className="h-4 w-4" />
                 </button>
@@ -521,25 +666,40 @@ export const GptBestVideoResultNode = memo(
                   type="button"
                   onClick={() => void handleScreenshot()}
                   disabled={screenshotButtonDisabled || showBlockingOverlay}
-                  title={!isVideoReady ? t('node.videoNode.screenshotNotReady') : t('node.videoNode.screenshot')}
-                  className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-medium transition-colors ${screenshotButtonDisabled || showBlockingOverlay ? 'cursor-not-allowed border-white/10 bg-white/[0.03] text-white/35' : 'border-white/28 bg-white/[0.08] text-white hover:border-white/45 hover:bg-white/[0.14]'}`}
+                  title={
+                    !isVideoReady
+                      ? t("node.videoNode.screenshotNotReady")
+                      : t("node.videoNode.screenshot")
+                  }
+                  className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-medium transition-colors ${screenshotButtonDisabled || showBlockingOverlay ? "cursor-not-allowed border-white/10 bg-white/[0.03] text-white/35" : "border-white/28 bg-white/[0.08] text-white hover:border-white/45 hover:bg-white/[0.14]"}`}
                 >
-                  {isCapturingScreenshot ? <UiLoadingAnimation size="xs" /> : <Camera className="h-3.5 w-3.5" />}
-                  {isCapturingScreenshot ? t('node.videoNode.screenshotPending') : t('node.videoNode.screenshot')}
+                  {isCapturingScreenshot ? (
+                    <UiLoadingAnimation size="xs" />
+                  ) : (
+                    <Camera className="h-3.5 w-3.5" />
+                  )}
+                  {isCapturingScreenshot
+                    ? t("node.videoNode.screenshotPending")
+                    : t("node.videoNode.screenshot")}
                 </button>
               </div>
 
               {screenshotStatus ? (
                 <div
-                  className={`mt-2 truncate rounded-full px-2.5 py-1 text-[11px] ${screenshotStatus.tone === 'success' ? 'bg-emerald-500/12 text-emerald-200' : screenshotStatus.tone === 'danger' ? 'bg-red-500/12 text-red-200' : 'bg-white/8 text-text-muted'}`}
+                  className={`mt-2 truncate rounded-full px-2.5 py-1 text-[11px] ${screenshotStatus.tone === "success" ? "bg-emerald-500/12 text-emerald-200" : screenshotStatus.tone === "danger" ? "bg-red-500/12 text-red-200" : "bg-white/8 text-text-muted"}`}
                   title={screenshotStatus.message}
                 >
                   {screenshotStatus.message}
                 </div>
               ) : combinedError || statusNotice || taskStatusNotice ? (
                 <div
-                  className={`mt-2 truncate rounded-full px-2.5 py-1 text-[11px] ${combinedError ? 'bg-red-500/12 text-red-200' : 'bg-white/8 text-text-muted'}`}
-                  title={combinedError ?? statusNotice ?? taskStatusNotice ?? undefined}
+                  className={`mt-2 truncate rounded-full px-2.5 py-1 text-[11px] ${combinedError ? "bg-red-500/12 text-red-200" : "bg-white/8 text-text-muted"}`}
+                  title={
+                    combinedError ??
+                    statusNotice ??
+                    taskStatusNotice ??
+                    undefined
+                  }
                 >
                   {combinedError ?? statusNotice ?? taskStatusNotice}
                 </div>
@@ -551,7 +711,10 @@ export const GptBestVideoResultNode = memo(
         <div className="mt-2 flex min-h-[28px] items-center justify-between gap-2">
           <div className="min-w-0 flex-1">
             {resolutionText ? (
-              <div className={NODE_CONTROL_MEDIA_BADGE_CLASS} title={resolutionText}>
+              <div
+                className={NODE_CONTROL_MEDIA_BADGE_CLASS}
+                title={resolutionText}
+              >
                 <span className="truncate">{resolutionText}</span>
               </div>
             ) : null}
@@ -567,33 +730,36 @@ export const GptBestVideoResultNode = memo(
               void handleRequeryResult();
             }}
           >
-            {t('node.gptBestVideoResult.requery')}
+            {t("node.gptBestVideoResult.requery")}
           </UiButton>
         </div>
 
         <NodeDescriptionPanel
           isOpen={isDescriptionPanelOpen}
           value={nodeDescription}
-          placeholder={t('nodeToolbar.descriptionPlaceholder')}
+          placeholder={t("nodeToolbar.descriptionPlaceholder")}
           onChange={(value) => updateNodeData(id, { nodeDescription: value })}
         />
 
-        <Handle
+        <CanvasHandle
           type="target"
           id="target"
           position={Position.Left}
-          className="!h-2.5 !w-2.5 !border-2 !border-surface-dark !bg-accent"
+          className="!border-2 !border-surface-dark !bg-accent"
         />
-        <Handle
+        <CanvasHandle
           type="source"
           id="source"
           position={Position.Right}
-          className="!h-2.5 !w-2.5 !border-2 !border-surface-dark !bg-accent"
+          className="!border-2 !border-surface-dark !bg-accent"
         />
-        <NodeResizeHandle minWidth={GPT_BEST_VIDEO_RESULT_NODE_MIN_WIDTH} minHeight={resolvedMinHeight} />
+        <NodeResizeHandle
+          minWidth={GPT_BEST_VIDEO_RESULT_NODE_MIN_WIDTH}
+          minHeight={resolvedMinHeight}
+        />
       </div>
     );
-  }
+  },
 );
 
-GptBestVideoResultNode.displayName = 'GptBestVideoResultNode';
+GptBestVideoResultNode.displayName = "GptBestVideoResultNode";

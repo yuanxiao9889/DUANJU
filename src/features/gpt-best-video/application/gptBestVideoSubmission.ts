@@ -1,36 +1,42 @@
-import { isTauri } from '@tauri-apps/api/core';
-
 import {
   createGptBestVideoTask,
+  downloadGptBestVideoContent,
   getGptBestVideoTask,
   type CreateGptBestVideoTaskPayload,
+  type OopiiVideoImageInput,
 } from '@/commands/gptBestVideo';
-import { persistMediaSource } from '@/commands/media';
 import {
   createPreviewDataUrl,
   prepareNodeImage,
 } from '@/features/canvas/application/imageData';
 import { createCurrentProjectMediaContext } from '@/features/canvas/application/mediaPersistenceContext';
+import { findReferenceTokens } from '@/features/canvas/application/referenceTokenEditing';
 import {
   captureVideoFrameFromSource,
   resolveVideoDisplayUrl,
 } from '@/features/canvas/application/videoData';
+import { type GptBestVideoSourceKind } from '@/features/canvas/domain/canvasNodes';
 import {
-  GPT_BEST_GROK_VIDEO_MODEL_IDS,
-  GPT_BEST_SEEDANCE_INPUT_MODES,
-  GPT_BEST_SEEDANCE_MODEL_IDS,
-  GPT_BEST_VIDEO_ASPECT_RATIOS,
-  GPT_BEST_VIDEO_DURATION_SECONDS,
-  GPT_BEST_VIDEO_RESOLUTIONS,
-  type GptBestSeedanceInputMode,
-  type GptBestVideoAspectRatio,
-  type GptBestVideoDurationSeconds,
-  type GptBestVideoResolution,
-  type GptBestVideoSourceKind,
-} from '@/features/canvas/domain/canvasNodes';
+  normalizeOopiiVideoModelId,
+  normalizeOopiiVideoSeconds,
+  normalizeOopiiVideoSize,
+  resolveAllowedSecondsForOopiiVideoModel,
+  resolveAspectRatioFromOopiiVideoSize,
+  type OopiiVideoModelId,
+  type OopiiVideoSecondsOption,
+  type OopiiVideoSizeOption,
+} from '@/features/gpt-best-video/domain/oopiiVideoModels';
 
 export const GPT_BEST_VIDEO_RESULT_POLL_INTERVAL_MS = 2_500;
-const GPT_BEST_REFERENCE_IMAGE_MAX_DIMENSION = 1600;
+const OOPII_GROK_REFERENCE_IMAGE_LIMIT = 7;
+const OOPII_VIDEO_REFERENCE_IMAGE_MAX_BYTES = 950 * 1024;
+const OOPII_VIDEO_REFERENCE_IMAGE_COMPRESSION_STEPS = [
+  { maxDimension: 1280, quality: 0.82 },
+  { maxDimension: 1024, quality: 0.78 },
+  { maxDimension: 896, quality: 0.74 },
+  { maxDimension: 768, quality: 0.72 },
+  { maxDimension: 640, quality: 0.7 },
+] as const;
 
 export interface GenerateGptBestVideoPayload {
   apiKey: string;
@@ -38,10 +44,11 @@ export interface GenerateGptBestVideoPayload {
   sourceKind: GptBestVideoSourceKind;
   prompt: string;
   modelId: string;
-  inputMode?: GptBestSeedanceInputMode | string | null;
-  aspectRatio?: GptBestVideoAspectRatio | string | null;
-  durationSeconds?: GptBestVideoDurationSeconds | number | null;
-  resolution?: GptBestVideoResolution | string | null;
+  seconds?: OopiiVideoSecondsOption | number | null;
+  size?: OopiiVideoSizeOption | string | null;
+  legacyAspectRatio?: string | null;
+  legacyResolution?: string | null;
+  firstFrameImageSource?: string | null;
   referenceImageSources?: string[];
   onSubmitted?: (payload: { taskId: string }) => void | Promise<void>;
 }
@@ -58,7 +65,7 @@ export interface GptBestGeneratedVideoItem {
   previewImageUrl?: string | null;
   aspectRatio: string;
   duration?: number;
-  resolution?: string | null;
+  size?: string | null;
   fileName?: string | null;
 }
 
@@ -91,74 +98,123 @@ function normalizeUniqueSources(sources: string[] | undefined): string[] {
   return [...new Set((sources ?? []).map((source) => source.trim()).filter(Boolean))];
 }
 
-export function normalizeGptBestSeedanceInputMode(
-  inputMode: GptBestSeedanceInputMode | string | null | undefined
-): GptBestSeedanceInputMode {
-  return GPT_BEST_SEEDANCE_INPUT_MODES.includes(inputMode as GptBestSeedanceInputMode)
-    ? (inputMode as GptBestSeedanceInputMode)
-    : 'textToVideo';
+function isGrokReferenceVideoModel(modelId: OopiiVideoModelId): boolean {
+  return modelId === 'OK-video';
 }
 
-export function normalizeGptBestVideoAspectRatio(
-  aspectRatio: GptBestVideoAspectRatio | string | null | undefined
-): GptBestVideoAspectRatio {
-  return GPT_BEST_VIDEO_ASPECT_RATIOS.includes(aspectRatio as GptBestVideoAspectRatio)
-    ? (aspectRatio as GptBestVideoAspectRatio)
-    : '16:9';
+function mapPromptReferenceTokensToOopiiTokens(
+  prompt: string,
+  maxReferenceCount: number
+): string {
+  const referenceTokens = findReferenceTokens(prompt, maxReferenceCount);
+  if (referenceTokens.length === 0) {
+    return prompt;
+  }
+
+  let nextPrompt = prompt;
+  for (let index = referenceTokens.length - 1; index >= 0; index -= 1) {
+    const token = referenceTokens[index];
+    nextPrompt = `${nextPrompt.slice(0, token.start)}<IMAGE_${token.value}>${nextPrompt.slice(token.end)}`;
+  }
+  return nextPrompt;
 }
 
-export function normalizeGptBestVideoDurationSeconds(
-  duration: GptBestVideoDurationSeconds | number | null | undefined
-): GptBestVideoDurationSeconds {
-  return GPT_BEST_VIDEO_DURATION_SECONDS.includes(duration as GptBestVideoDurationSeconds)
-    ? (duration as GptBestVideoDurationSeconds)
-    : 5;
+function promptHasOopiiReferenceTokens(prompt: string): boolean {
+  return /<IMAGE_[1-7]>/i.test(prompt);
 }
 
-export function normalizeGptBestVideoResolution(
-  resolution: GptBestVideoResolution | string | null | undefined
-): GptBestVideoResolution {
-  return GPT_BEST_VIDEO_RESOLUTIONS.includes(resolution as GptBestVideoResolution)
-    ? (resolution as GptBestVideoResolution)
-    : '720p';
+function ensurePromptReferencesOopiiImages(
+  prompt: string,
+  referenceImageCount: number
+): string {
+  if (referenceImageCount <= 0 || promptHasOopiiReferenceTokens(prompt)) {
+    return prompt;
+  }
+
+  const referencePrefix = Array.from(
+    { length: Math.min(referenceImageCount, OOPII_GROK_REFERENCE_IMAGE_LIMIT) },
+    (_, index) => `<IMAGE_${index + 1}>`
+  ).join(' ');
+  return normalizeWhitespace(`${referencePrefix} ${prompt}`);
+}
+
+function isHttpsUrl(value: string): boolean {
+  return /^https:\/\//i.test(value.trim());
+}
+
+async function prepareOopiiVideoImageDataUrl(source: string): Promise<string> {
+  let fallback = '';
+  for (const step of OOPII_VIDEO_REFERENCE_IMAGE_COMPRESSION_STEPS) {
+    const dataUrl = await createPreviewDataUrl(source, step.maxDimension, {
+      mimeType: 'image/jpeg',
+      quality: step.quality,
+      forceRender: true,
+    });
+    fallback = dataUrl;
+    if (new Blob([dataUrl]).size <= OOPII_VIDEO_REFERENCE_IMAGE_MAX_BYTES) {
+      return dataUrl;
+    }
+  }
+  return fallback;
+}
+
+async function prepareOopiiVideoImageInput(
+  source: string
+): Promise<OopiiVideoImageInput> {
+  const normalizedSource = source.trim();
+  if (isHttpsUrl(normalizedSource)) {
+    return { url: normalizedSource };
+  }
+
+  const dataUrl = await prepareOopiiVideoImageDataUrl(normalizedSource);
+  return { url: dataUrl };
+}
+
+async function prepareOopiiVideoReferenceImages(
+  sources: string[] | undefined
+): Promise<OopiiVideoImageInput[]> {
+  const uniqueSources = normalizeUniqueSources(sources).slice(0, OOPII_GROK_REFERENCE_IMAGE_LIMIT);
+  if (uniqueSources.length === 0) {
+    return [];
+  }
+
+  return await Promise.all(uniqueSources.map((source) => prepareOopiiVideoImageInput(source)));
 }
 
 export function normalizeGptBestVideoModel(
   sourceKind: GptBestVideoSourceKind,
   modelId: string | null | undefined
-): string {
-  const normalized = modelId?.trim() ?? '';
-  if (sourceKind === 'grok') {
-    return normalized || GPT_BEST_GROK_VIDEO_MODEL_IDS[0];
-  }
-  return normalized || GPT_BEST_SEEDANCE_MODEL_IDS[0];
+): OopiiVideoModelId {
+  return normalizeOopiiVideoModelId(sourceKind, modelId);
 }
 
-async function prepareReferenceImages(sources: string[] | undefined): Promise<string[]> {
-  const uniqueSources = normalizeUniqueSources(sources);
-  if (uniqueSources.length === 0) {
-    return [];
-  }
-
-  return await Promise.all(
-    uniqueSources.map((source) =>
-      createPreviewDataUrl(source, GPT_BEST_REFERENCE_IMAGE_MAX_DIMENSION)
-    )
+export function normalizeGptBestVideoSeconds(
+  sourceKind: GptBestVideoSourceKind,
+  modelId: string | null | undefined,
+  seconds: number | string | null | undefined
+): OopiiVideoSecondsOption {
+  return normalizeOopiiVideoSeconds(
+    normalizeOopiiVideoModelId(sourceKind, modelId),
+    seconds
   );
 }
 
-function buildGrokPrompt(prompt: string, imageCount: number): string {
-  if (imageCount <= 0) {
-    return prompt;
-  }
+export function normalizeGptBestVideoSize(
+  sourceKind: GptBestVideoSourceKind,
+  size: string | null | undefined,
+  legacyAspectRatio?: string | null,
+  legacyResolution?: string | null
+): OopiiVideoSizeOption {
+  return normalizeOopiiVideoSize(sourceKind, size, legacyAspectRatio, legacyResolution);
+}
 
-  const imageLabels = Array.from({ length: imageCount }, (_, index) => `@img${index + 1}`).join(', ');
-  return [
-    `Reference images are attached in order as ${imageLabels}.`,
-    'When the prompt mentions one of these image tags, use the corresponding attached image.',
-    '',
-    prompt,
-  ].join('\n');
+export function resolveAllowedSecondsForGptBestVideoModel(
+  sourceKind: GptBestVideoSourceKind,
+  modelId: string | null | undefined
+): readonly OopiiVideoSecondsOption[] {
+  return resolveAllowedSecondsForOopiiVideoModel(
+    normalizeOopiiVideoModelId(sourceKind, modelId)
+  );
 }
 
 function normalizeTaskStatus(
@@ -171,6 +227,7 @@ function normalizeTaskStatus(
     case 'not start':
     case 'queued':
     case 'pending':
+    case 'submitted':
       return 'queued';
     case 'in_progress':
     case 'in-progress':
@@ -185,6 +242,8 @@ function normalizeTaskStatus(
     case 'failure':
     case 'failed':
     case 'error':
+    case 'canceled':
+    case 'cancelled':
       return 'failed';
     default:
       return 'unknown';
@@ -204,15 +263,15 @@ function resolvePosterCaptureTime(durationSeconds?: number | null): number {
 }
 
 async function prepareGptBestVideoPreviewImage(
-  lastFrameSourceUrl: string | null | undefined,
+  coverSourceUrl: string | null | undefined,
   videoUrl: string,
   durationSeconds?: number | null
 ): Promise<string | null> {
-  const normalizedLastFrameSource = lastFrameSourceUrl?.trim() ?? '';
-  if (normalizedLastFrameSource) {
+  const normalizedCoverSource = coverSourceUrl?.trim() ?? '';
+  if (normalizedCoverSource) {
     try {
       const preparedPoster = await prepareNodeImage(
-        normalizedLastFrameSource,
+        normalizedCoverSource,
         640,
         createCurrentProjectMediaContext('image', 'preview')
       );
@@ -241,20 +300,27 @@ async function prepareGptBestVideoPreviewImage(
 }
 
 async function buildGeneratedVideoItem(
-  task: Awaited<ReturnType<typeof getGptBestVideoTask>>
+  task: Awaited<ReturnType<typeof getGptBestVideoTask>>,
+  payload: QueryGptBestVideoResultPayload
 ): Promise<GptBestGeneratedVideoItem> {
-  const rawVideoUrl = task.video_url?.trim() ?? '';
-  if (!rawVideoUrl) {
-    throw new Error('Third-party video result is missing a video URL');
+  const downloadedVideo = await downloadGptBestVideoContent({
+    apiKey: payload.apiKey,
+    baseUrl: payload.baseUrl,
+    taskId: payload.taskId,
+    mediaContext: createCurrentProjectMediaContext('video'),
+  });
+
+  const persistedVideoUrl = downloadedVideo.video_url.trim();
+  if (!persistedVideoUrl) {
+    throw new Error('Third-party video content download did not return a saved video path');
   }
 
-  const persistedVideoUrl = isTauri()
-    ? await persistMediaSource(rawVideoUrl, createCurrentProjectMediaContext('video'))
-    : rawVideoUrl;
+  const normalizedSize = task.size?.trim() ?? null;
+  const normalizedSeconds = task.seconds ?? undefined;
   const previewImageUrl = await prepareGptBestVideoPreviewImage(
-    task.last_frame_url ?? null,
+    task.cover_url ?? null,
     persistedVideoUrl,
-    task.duration ?? null
+    normalizedSeconds ?? null
   );
 
   return {
@@ -262,10 +328,10 @@ async function buildGeneratedVideoItem(
     modelId: task.model ?? null,
     videoUrl: persistedVideoUrl,
     previewImageUrl,
-    aspectRatio: task.ratio ?? '16:9',
-    duration: task.duration ?? undefined,
-    resolution: task.resolution ?? null,
-    fileName: `third-party-video-${task.task_id}.mp4`,
+    aspectRatio: resolveAspectRatioFromOopiiVideoSize(normalizedSize),
+    duration: normalizedSeconds,
+    size: normalizedSize,
+    fileName: downloadedVideo.file_name ?? `third-party-video-${task.task_id}.mp4`,
   };
 }
 
@@ -307,7 +373,7 @@ export async function queryGptBestVideoResult(
     status: normalizedStatus,
     createdAt: task.created_at ?? null,
     updatedAt: task.updated_at ?? null,
-    video: await buildGeneratedVideoItem(task),
+    video: await buildGeneratedVideoItem(task, payload),
     errorMessage: null,
   };
 }
@@ -330,18 +396,47 @@ export async function submitGptBestVideoTask(
     throw new Error('Prompt is required for third-party video generation');
   }
 
-  const referenceImages = await prepareReferenceImages(payload.referenceImageSources);
+  const normalizedModelId = normalizeOopiiVideoModelId(payload.sourceKind, payload.modelId);
+  const normalizedSeconds = normalizeOopiiVideoSeconds(normalizedModelId, payload.seconds);
+  const normalizedSize = normalizeOopiiVideoSize(
+    payload.sourceKind,
+    payload.size,
+    payload.legacyAspectRatio,
+    payload.legacyResolution
+  );
+  const referenceImageSources = normalizeUniqueSources(payload.referenceImageSources);
+  if (
+    isGrokReferenceVideoModel(normalizedModelId)
+    && referenceImageSources.length > OOPII_GROK_REFERENCE_IMAGE_LIMIT
+  ) {
+    throw new Error(`Grok video supports up to ${OOPII_GROK_REFERENCE_IMAGE_LIMIT} reference images`);
+  }
+  const referenceImages = isGrokReferenceVideoModel(normalizedModelId)
+    ? await prepareOopiiVideoReferenceImages(referenceImageSources)
+    : [];
+  const firstFrameImageSource = payload.firstFrameImageSource?.trim() ?? '';
+  const firstFrameImage = firstFrameImageSource
+    ? await prepareOopiiVideoImageInput(firstFrameImageSource)
+    : null;
+  const promptWithReferenceTokens = isGrokReferenceVideoModel(normalizedModelId)
+    ? ensurePromptReferencesOopiiImages(
+      mapPromptReferenceTokensToOopiiTokens(
+        normalizedPrompt,
+        Math.min(referenceImages.length || OOPII_GROK_REFERENCE_IMAGE_LIMIT, OOPII_GROK_REFERENCE_IMAGE_LIMIT)
+      ),
+      referenceImages.length
+    )
+    : normalizedPrompt;
+
   const createPayload: CreateGptBestVideoTaskPayload = {
     apiKey: normalizedApiKey,
     baseUrl: normalizedBaseUrl,
-    model: normalizeGptBestVideoModel(payload.sourceKind, payload.modelId),
-    prompt: payload.sourceKind === 'grok'
-      ? buildGrokPrompt(normalizedPrompt, referenceImages.length)
-      : normalizedPrompt,
-    images: referenceImages,
-    ratio: normalizeGptBestVideoAspectRatio(payload.aspectRatio),
-    duration: normalizeGptBestVideoDurationSeconds(payload.durationSeconds),
-    resolution: normalizeGptBestVideoResolution(payload.resolution),
+    model: normalizedModelId,
+    prompt: promptWithReferenceTokens,
+    seconds: normalizedSeconds,
+    size: normalizedSize,
+    image: firstFrameImage,
+    referenceImages,
   };
 
   const submitResponse = await createGptBestVideoTask(createPayload);

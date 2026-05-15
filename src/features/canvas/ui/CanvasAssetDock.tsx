@@ -120,6 +120,7 @@ export function CanvasAssetDock() {
   const [isDetachedPanelOpen, setIsDetachedPanelOpen] = useState(false);
   const [dockPanelHeight, setDockPanelHeight] = useState(readDockPanelHeight);
   const [isPanelResizing, setIsPanelResizing] = useState(false);
+  const dockRootRef = useRef<HTMLDivElement | null>(null);
   const panelResizeStateRef = useRef<{ startY: number; startHeight: number } | null>(null);
 
   useEffect(() => {
@@ -291,6 +292,27 @@ export function CanvasAssetDock() {
     };
   }, [isPanelResizing]);
 
+  useEffect(() => {
+    if (!isExpanded || isPanelResizing || typeof document === 'undefined') {
+      return;
+    }
+
+    const handleOutsidePointerDown = (event: PointerEvent) => {
+      const dockRoot = dockRootRef.current;
+      const eventTarget = event.target;
+      if (!dockRoot || !(eventTarget instanceof Node) || dockRoot.contains(eventTarget)) {
+        return;
+      }
+
+      setActiveCategory(null);
+    };
+
+    document.addEventListener('pointerdown', handleOutsidePointerDown, true);
+    return () => {
+      document.removeEventListener('pointerdown', handleOutsidePointerDown, true);
+    };
+  }, [isExpanded, isPanelResizing]);
+
   const handleStartPanelResize = useCallback(
     (event: ReactPointerEvent<HTMLDivElement>) => {
       if (event.button !== 0 || !isPanelVisible) {
@@ -436,6 +458,7 @@ export function CanvasAssetDock() {
   return (
     <div className="pointer-events-none absolute inset-x-0 bottom-4 z-[10010] flex justify-center px-4">
       <div
+        ref={dockRootRef}
         className={`pointer-events-auto relative transition-[max-width,transform] duration-200 ease-out ${
           isDockOpen
             ? 'w-full max-w-[760px] -translate-y-0.5'

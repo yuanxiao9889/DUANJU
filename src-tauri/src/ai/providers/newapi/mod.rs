@@ -2231,11 +2231,17 @@ impl NewApiProvider {
 
         let image_field_names = Self::build_openai_images_edits_image_field_names(sources.len());
         let mut file_parts = Vec::with_capacity(sources.len());
+        let mut total_upload_bytes = 0usize;
         for (index, source) in sources.iter().enumerate() {
-            let bytes = Self::source_to_bytes(source).await?;
-            let extension = Self::file_extension_from_source(source);
-            file_parts.push((image_field_names[index].to_string(), bytes, extension));
+            let bytes = Self::source_to_png_bytes(source).await?;
+            total_upload_bytes += bytes.len();
+            file_parts.push((image_field_names[index].to_string(), bytes, "png"));
         }
+        info!(
+            "[NewAPI] prepared {} normalized reference images for openai-edits upload: total_bytes={}",
+            file_parts.len(),
+            total_upload_bytes
+        );
 
         Self::send_multipart_request_with_curl(
             endpoint,
@@ -2310,11 +2316,17 @@ impl NewApiProvider {
         let text_fields = Self::build_openai_images_edits_text_fields(request, &fields);
         let image_field_names = Self::build_openai_images_edits_image_field_names(sources.len());
         let mut file_parts = Vec::with_capacity(sources.len());
+        let mut total_upload_bytes = 0usize;
         for (index, source) in sources.iter().enumerate() {
-            let bytes = Self::source_to_bytes(source).await?;
-            let extension = Self::file_extension_from_source(source);
-            file_parts.push((image_field_names[index].to_string(), bytes, extension));
+            let bytes = Self::source_to_png_bytes(source).await?;
+            total_upload_bytes += bytes.len();
+            file_parts.push((image_field_names[index].to_string(), bytes, "png"));
         }
+        info!(
+            "[NewAPI] prepared {} normalized reference images for openai-images-edits upload: total_bytes={}",
+            file_parts.len(),
+            total_upload_bytes
+        );
 
         Self::send_multipart_request_with_curl(
             endpoint,

@@ -22,6 +22,7 @@ use super::storage::{self, MediaPersistContext};
 const STORYBOARD_METADATA_PNG_TEXT_KEY: &str = "StoryboardCopilotMetadata";
 const FAST_PREVIEW_BYPASS_MAX_BYTES: usize = 2_000_000;
 const FAST_PREVIEW_BYPASS_MAX_DIMENSION: u32 = 2048;
+const OVERVIEW_THUMBNAIL_MAX_DIMENSION: u32 = 96;
 const IMAGE_SOURCE_CONNECT_TIMEOUT_SECONDS: u64 = 10;
 const IMAGE_SOURCE_TOTAL_TIMEOUT_SECONDS: u64 = 45;
 const DEFAULT_API_REFERENCE_MAX_DIMENSION: u32 = 2048;
@@ -414,6 +415,7 @@ pub struct MergeStoryboardImagesResult {
 pub struct PrepareNodeImageResult {
     pub image_path: String,
     pub preview_image_path: String,
+    pub thumbnail_image_path: String,
     pub aspect_ratio: String,
 }
 
@@ -808,6 +810,17 @@ fn resize_image_to_max_dimension(source: &DynamicImage, max_dimension: u32) -> D
         })
 }
 
+fn persist_thumbnail_image(
+    app: &AppHandle,
+    image: &DynamicImage,
+    max_dimension: u32,
+    media_context: Option<&MediaPersistContext>,
+) -> Result<String, String> {
+    let resized = resize_image_to_max_dimension(image, max_dimension.max(1));
+    let encoded = encode_png_image(&resized)?;
+    persist_image_bytes_with_role(app, &encoded, "png", media_context, "thumbnail")
+}
+
 fn image_has_transparency(source: &DynamicImage) -> bool {
     source.to_rgba8().pixels().any(|pixel| pixel.0[3] < 255)
 }
@@ -964,10 +977,11 @@ fn prepare_node_image_from_bytes(
     let image_path = persist_image_bytes(app, bytes, extension, media_context.as_ref())?;
     let persist_elapsed = persist_started.elapsed().as_millis();
     let longest_side = width.max(height);
+    let needs_thumbnail = longest_side > OVERVIEW_THUMBNAIL_MAX_DIMENSION;
     let bypass_preview = longest_side <= safe_max_dimension
         || (bytes.len() <= FAST_PREVIEW_BYPASS_MAX_BYTES
             && longest_side <= FAST_PREVIEW_BYPASS_MAX_DIMENSION);
-    if bypass_preview {
+    if bypass_preview && !needs_thumbnail {
         info!(
             "prepare_node_image done [{}]: bytes={}, ext={}, size={}x{}, max_preview={}, probe={}ms, decode=0ms, persist_original={}ms, resize=0ms, bypass_preview=true, total={}ms",
             trace_tag,
@@ -982,7 +996,8 @@ fn prepare_node_image_from_bytes(
         );
         return Ok(PrepareNodeImageResult {
             image_path: image_path.clone(),
-            preview_image_path: image_path,
+            preview_image_path: image_path.clone(),
+            thumbnail_image_path: image_path,
             aspect_ratio: reduce_aspect_ratio(width, height),
         });
     }
@@ -993,32 +1008,46 @@ fn prepare_node_image_from_bytes(
     let decode_elapsed = decode_started.elapsed().as_millis();
 
     let resize_started = Instant::now();
-    let scale = safe_max_dimension as f64 / longest_side as f64;
-    let target_width = ((width as f64) * scale).round().max(1.0) as u32;
-    let target_height = ((height as f64) * scale).round().max(1.0) as u32;
-    let resized_rgba =
-        resize_image_fast(&image, target_width, target_height).unwrap_or_else(|_| {
-            image
-                .resize(
-                    target_width,
-                    target_height,
-                    image::imageops::FilterType::Triangle,
-                )
-                .to_rgba8()
-        });
-    let resized = DynamicImage::ImageRgba8(resized_rgba);
+    let preview_image_path = if bypass_preview {
+        image_path.clone()
+    } else {
+        let scale = safe_max_dimension as f64 / longest_side as f64;
+        let target_width = ((width as f64) * scale).round().max(1.0) as u32;
+        let target_height = ((height as f64) * scale).round().max(1.0) as u32;
+        let resized_rgba =
+            resize_image_fast(&image, target_width, target_height).unwrap_or_else(|_| {
+                image
+                    .resize(
+                        target_width,
+                        target_height,
+                        image::imageops::FilterType::Triangle,
+                    )
+                    .to_rgba8()
+            });
+        let resized = DynamicImage::ImageRgba8(resized_rgba);
 
-    let mut preview_buffer = Cursor::new(Vec::new());
-    resized
-        .write_to(&mut preview_buffer, image::ImageFormat::Png)
-        .map_err(|e| format!("Failed to encode preview image: {}", e))?;
-    let preview_image_path = persist_image_bytes_with_role(
-        app,
-        preview_buffer.get_ref(),
-        "png",
-        media_context.as_ref(),
-        "preview",
-    )?;
+        let mut preview_buffer = Cursor::new(Vec::new());
+        resized
+            .write_to(&mut preview_buffer, image::ImageFormat::Png)
+            .map_err(|e| format!("Failed to encode preview image: {}", e))?;
+        persist_image_bytes_with_role(
+            app,
+            preview_buffer.get_ref(),
+            "png",
+            media_context.as_ref(),
+            "preview",
+        )?
+    };
+    let thumbnail_image_path = if needs_thumbnail {
+        persist_thumbnail_image(
+            app,
+            &image,
+            OVERVIEW_THUMBNAIL_MAX_DIMENSION,
+            media_context.as_ref(),
+        )?
+    } else {
+        image_path.clone()
+    };
     let resize_elapsed = resize_started.elapsed().as_millis();
 
     info!(
@@ -1039,8 +1068,35 @@ fn prepare_node_image_from_bytes(
     Ok(PrepareNodeImageResult {
         image_path,
         preview_image_path,
+        thumbnail_image_path,
         aspect_ratio: reduce_aspect_ratio(width, height),
     })
+}
+
+fn create_node_thumbnail_from_bytes(
+    app: &AppHandle,
+    bytes: &[u8],
+    media_context: Option<MediaPersistContext>,
+) -> Result<String, String> {
+    let (raw_width, raw_height) = ImageReader::new(Cursor::new(bytes))
+        .with_guessed_format()
+        .map_err(|e| format!("Failed to guess image format: {}", e))?
+        .into_dimensions()
+        .map_err(|e| format!("Failed to parse image dimensions: {}", e))?;
+    let width = raw_width.max(1);
+    let height = raw_height.max(1);
+    if width.max(height) <= OVERVIEW_THUMBNAIL_MAX_DIMENSION {
+        return Err("Image is already within thumbnail size".to_string());
+    }
+
+    let image = image::load_from_memory(bytes)
+        .map_err(|e| format!("Failed to decode image source: {}", e))?;
+    persist_thumbnail_image(
+        app,
+        &image,
+        OVERVIEW_THUMBNAIL_MAX_DIMENSION,
+        media_context.as_ref(),
+    )
 }
 
 #[tauri::command]
@@ -1128,6 +1184,32 @@ pub async fn prepare_node_image_binary(
         started.elapsed().as_millis()
     );
     Ok(result)
+}
+
+#[tauri::command]
+pub async fn create_node_thumbnail_source(
+    app: AppHandle,
+    source: String,
+    media_context: Option<MediaPersistContext>,
+) -> Result<String, String> {
+    let trimmed = source.trim();
+    if trimmed.is_empty() {
+        return Err("Image source is empty".to_string());
+    }
+
+    let (bytes, _extension) = resolve_source_bytes(trimmed).await?;
+    let app_handle = app.clone();
+    let blocking_media_context = media_context.clone();
+    match tokio::task::spawn_blocking(move || {
+        create_node_thumbnail_from_bytes(&app_handle, &bytes, blocking_media_context)
+    })
+    .await
+    .map_err(|e| format!("Failed to join thumbnail task: {}", e))?
+    {
+        Ok(path) => Ok(path),
+        Err(error) if error == "Image is already within thumbnail size" => Ok(trimmed.to_string()),
+        Err(error) => Err(error),
+    }
 }
 
 #[tauri::command]
@@ -2217,12 +2299,21 @@ fn sanitize_file_stem(raw: &str) -> String {
         sanitized.push(ch);
     }
 
-    let compact = sanitized.trim().trim_matches('.').to_string();
+    let compact = sanitized.trim().trim_matches(['.', ' ']).to_string();
     if compact.is_empty() {
         fallback.to_string()
+    } else if is_windows_reserved_file_name(&compact) {
+        format!("{}-file", compact)
     } else {
         compact
     }
+}
+
+fn is_windows_reserved_file_name(value: &str) -> bool {
+    let upper = value.trim().trim_matches(['.', ' ']).to_ascii_uppercase();
+    matches!(upper.as_str(), "CON" | "PRN" | "AUX" | "NUL" | "CLOCK$")
+        || matches!(upper.strip_prefix("COM"), Some(num) if matches!(num, "1" | "2" | "3" | "4" | "5" | "6" | "7" | "8" | "9"))
+        || matches!(upper.strip_prefix("LPT"), Some(num) if matches!(num, "1" | "2" | "3" | "4" | "5" | "6" | "7" | "8" | "9"))
 }
 
 fn ensure_unique_path(path: PathBuf) -> PathBuf {

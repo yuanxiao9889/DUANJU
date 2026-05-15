@@ -51,10 +51,16 @@ export interface ScriptRewriteRequest {
 }
 
 export interface ExtractedScriptCharacter {
+  id?: string;
   name: string;
+  aliases?: string[];
+  roleWeight?: number;
   description: string;
   personality: string;
   appearance: string;
+  visualDesc?: string;
+  continuityNotes?: string;
+  referencePrompt?: string;
 }
 
 export interface ExtractedScriptLocation {
@@ -62,9 +68,69 @@ export interface ExtractedScriptLocation {
   description: string;
 }
 
-export interface ExtractedScriptItem {
+export interface ExtractedScriptScene {
+  id?: string;
   name: string;
   description: string;
+  relatedCharacterNames: string[];
+  sceneDesc?: string;
+  timeTone?: string;
+  lightLock?: string;
+  spaceLayout?: string;
+  referencePrompt?: string;
+}
+
+export interface ExtractedScriptItem {
+  id?: string;
+  name: string;
+  description: string;
+  visualDesc?: string;
+  function?: string;
+  ownerCharacterIds?: string[];
+  continuityNotes?: string;
+}
+
+export interface ExtractedScriptPlotLine {
+  id?: string;
+  title: string;
+  summary: string;
+  statusTag: string;
+  relatedCharacterNames: string[];
+  relatedSceneNames: string[];
+  relatedItemNames?: string[];
+}
+
+export interface ExtractedScriptEmotion {
+  id?: string;
+  name: string;
+  description: string;
+  visualPrompt: string;
+  relatedCharacterNames: string[];
+  relatedSceneNames: string[];
+}
+
+export interface ExtractedScriptLineBlueprint {
+  seq: number;
+  comicText: string;
+  plotPoint: string;
+  characterIds: string[];
+  sceneId: string;
+  itemIds: string[];
+  mood: string;
+  shotHint: string;
+  compositionHint: string;
+  cameraHint: string;
+  motionHint: string;
+}
+
+export interface ExtractedScriptPromptRow {
+  seq: number;
+  comicText: string;
+  imagePrompt: string;
+  videoFirstFramePrompt: string;
+  characterNames: string[];
+  sceneName: string;
+  referenceAssetHints: string[];
 }
 
 export interface ExtractedScriptWorldview {
@@ -81,7 +147,15 @@ export interface ExtractedScriptWorldview {
 export interface ExtractedScriptAssets {
   characters: ExtractedScriptCharacter[];
   locations: ExtractedScriptLocation[];
+  scenes: ExtractedScriptScene[];
   items: ExtractedScriptItem[];
+  plotLines: ExtractedScriptPlotLine[];
+  emotions: ExtractedScriptEmotion[];
+  charactersCatalog: ExtractedScriptCharacter[];
+  scenesCatalog: ExtractedScriptScene[];
+  itemsCatalog: ExtractedScriptItem[];
+  lineBlueprints: ExtractedScriptLineBlueprint[];
+  promptRows: ExtractedScriptPromptRow[];
   worldview: ExtractedScriptWorldview | null;
 }
 
@@ -191,10 +265,16 @@ function normalizeExtractedScriptCharacter(value: unknown): ExtractedScriptChara
   }
 
   return {
+    id: readStringValue(record, ['id', 'characterId']),
     name,
+    aliases: normalizeStringArray(record.aliases),
+    roleWeight: Number.isFinite(record.roleWeight) ? Number(record.roleWeight) : undefined,
     description: readStringValue(record, ['description', 'summary', 'role']),
     personality: readStringValue(record, ['personality', 'temperament', 'traits']),
-    appearance: readStringValue(record, ['appearance', 'look', 'visual']),
+    appearance: readStringValue(record, ['appearance', 'look', 'visual', 'visualDesc']),
+    visualDesc: readStringValue(record, ['visualDesc', 'visual_desc', 'appearance', 'look', 'visual']),
+    continuityNotes: readStringValue(record, ['continuityNotes', 'continuity_notes', 'continuity']),
+    referencePrompt: readStringValue(record, ['referencePrompt', 'reference_prompt', 'assetPrompt']),
   };
 }
 
@@ -227,8 +307,154 @@ function normalizeExtractedScriptItem(value: unknown): ExtractedScriptItem | nul
   }
 
   return {
+    id: readStringValue(record, ['id', 'itemId', 'propId']),
     name,
-    description: readStringValue(record, ['description', 'summary', 'function']),
+    description: readStringValue(record, ['description', 'summary', 'function', 'visualDesc']),
+    visualDesc: readStringValue(record, ['visualDesc', 'visual_desc', 'appearance', 'look']),
+    function: readStringValue(record, ['function', 'purpose', 'storyFunction']),
+    ownerCharacterIds: normalizeStringArray(record.ownerCharacterIds ?? record.owner_character_ids),
+    continuityNotes: readStringValue(record, ['continuityNotes', 'continuity_notes', 'continuity']),
+  };
+}
+
+function normalizeExtractedScriptScene(value: unknown): ExtractedScriptScene | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return null;
+  }
+
+  const record = value as Record<string, unknown>;
+  const name = readStringValue(record, ['name', 'sceneName', 'locationName', 'label']);
+  if (!name) {
+    return null;
+  }
+
+  return {
+    id: readStringValue(record, ['id', 'sceneId']),
+    name,
+    description: readStringValue(record, ['description', 'summary', 'function', 'sceneDesc', 'scene_desc']),
+    relatedCharacterNames: normalizeStringArray(
+      record.relatedCharacterNames ?? record.characters ?? record.characterNames
+    ),
+    sceneDesc: readStringValue(record, ['sceneDesc', 'scene_desc', 'description', 'summary']),
+    timeTone: readStringValue(record, ['timeTone', 'time_tone', 'lighting', 'lightTone']),
+    lightLock: readStringValue(record, ['lightLock', 'light_lock', 'lightContinuity']),
+    spaceLayout: readStringValue(record, ['spaceLayout', 'space_layout', 'layout']),
+    referencePrompt: readStringValue(record, ['referencePrompt', 'reference_prompt', 'assetPrompt']),
+  };
+}
+
+function normalizeExtractedScriptPlotLine(value: unknown): ExtractedScriptPlotLine | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return null;
+  }
+
+  const record = value as Record<string, unknown>;
+  const title = readStringValue(record, ['title', 'name', 'plotLineTitle', 'label']);
+  if (!title) {
+    return null;
+  }
+
+  return {
+    id: readStringValue(record, ['id', 'plotLineId']),
+    title,
+    summary: readStringValue(record, ['summary', 'description', 'progress']),
+    statusTag: readStringValue(record, ['statusTag', 'status', 'stage']),
+    relatedCharacterNames: normalizeStringArray(
+      record.relatedCharacterNames ?? record.characters ?? record.characterNames
+    ),
+    relatedSceneNames: normalizeStringArray(
+      record.relatedSceneNames ?? record.scenes ?? record.sceneNames ?? record.locationNames
+    ),
+    relatedItemNames: normalizeStringArray(
+      record.relatedItemNames ?? record.items ?? record.itemNames
+    ),
+  };
+}
+
+function normalizeExtractedScriptEmotion(value: unknown): ExtractedScriptEmotion | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return null;
+  }
+
+  const record = value as Record<string, unknown>;
+  const name = readStringValue(record, ['name', 'title', 'emotionName', 'label']);
+  if (!name) {
+    return null;
+  }
+
+  return {
+    id: readStringValue(record, ['id', 'emotionId']),
+    name,
+    description: readStringValue(record, ['description', 'summary', 'statusTag']),
+    visualPrompt: readStringValue(record, ['visualPrompt', 'visual_prompt', 'referencePrompt', 'imagePrompt', 'prompt']),
+    relatedCharacterNames: normalizeStringArray(
+      record.relatedCharacterNames ?? record.characters ?? record.characterNames
+    ),
+    relatedSceneNames: normalizeStringArray(
+      record.relatedSceneNames ?? record.scenes ?? record.sceneNames ?? record.locationNames
+    ),
+  };
+}
+
+function normalizeExtractedScriptLineBlueprint(
+  value: unknown,
+  fallbackIndex: number
+): ExtractedScriptLineBlueprint | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return null;
+  }
+
+  const record = value as Record<string, unknown>;
+  const comicText = readStringValue(record, ['comicText', 'comic_text', 'text', 'lineText']);
+  const plotPoint = readStringValue(record, ['plotPoint', 'plot_point', 'summary', 'beat']);
+  if (!comicText && !plotPoint) {
+    return null;
+  }
+
+  return {
+    seq: Number.isFinite(record.seq) ? Math.max(1, Math.floor(Number(record.seq))) : fallbackIndex + 1,
+    comicText,
+    plotPoint,
+    characterIds: normalizeStringArray(record.characterIds ?? record.character_ids),
+    sceneId: readStringValue(record, ['sceneId', 'scene_id']),
+    itemIds: normalizeStringArray(record.itemIds ?? record.item_ids),
+    mood: readStringValue(record, ['mood', 'emotion']),
+    shotHint: readStringValue(record, ['shotHint', 'shot_hint']),
+    compositionHint: readStringValue(record, ['compositionHint', 'composition_hint', 'composition']),
+    cameraHint: readStringValue(record, ['cameraHint', 'camera_hint', 'camera']),
+    motionHint: readStringValue(record, ['motionHint', 'motion_hint', 'motion']),
+  };
+}
+
+function normalizeExtractedScriptPromptRow(
+  value: unknown,
+  fallbackIndex: number
+): ExtractedScriptPromptRow | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return null;
+  }
+
+  const record = value as Record<string, unknown>;
+  const comicText = readStringValue(record, ['comicText', 'comic_text', 'text']);
+  const imagePrompt = readStringValue(record, ['imagePrompt', 'image_prompt', 'promptText', 'prompt_text']);
+  const videoFirstFramePrompt = readStringValue(record, [
+    'videoFirstFramePrompt',
+    'video_first_frame_prompt',
+    'videoPrompt',
+    'video_prompt',
+  ]);
+  if (!comicText && !imagePrompt && !videoFirstFramePrompt) {
+    return null;
+  }
+
+  return {
+    seq: Number.isFinite(record.seq) ? Math.max(1, Math.floor(Number(record.seq))) : fallbackIndex + 1,
+    comicText,
+    imagePrompt,
+    videoFirstFramePrompt,
+    characterNames: normalizeStringArray(record.characterNames ?? record.characters),
+    sceneName: readStringValue(record, ['sceneName', 'scene']),
+    referenceAssetHints: normalizeStringArray(record.referenceAssetHints ?? record.referenceAssets),
   };
 }
 
@@ -266,17 +492,93 @@ function normalizeExtractedScriptAssets(value: unknown): ExtractedScriptAssets {
   const record = value && typeof value === 'object'
     ? value as Record<string, unknown>
     : {};
+  const locations = (Array.isArray(record.locations) ? record.locations : [])
+    .map((item) => normalizeExtractedScriptLocation(item))
+    .filter((item): item is ExtractedScriptLocation => Boolean(item));
+  const scenes = (Array.isArray(record.scenes) ? record.scenes : [])
+    .map((item) => normalizeExtractedScriptScene(item))
+    .filter((item): item is ExtractedScriptScene => Boolean(item));
+  const normalizedScenes = scenes.length > 0
+    ? scenes
+    : locations.map((location) => ({
+      name: location.name,
+      description: location.description,
+      relatedCharacterNames: [],
+    }));
+  const normalizedLocations = locations.length > 0
+    ? locations
+    : normalizedScenes.map((scene) => ({
+      name: scene.name,
+      description: scene.description,
+    }));
+  const characters = (Array.isArray(record.characters) ? record.characters : [])
+    .map((item) => normalizeExtractedScriptCharacter(item))
+    .filter((item): item is ExtractedScriptCharacter => Boolean(item));
+  const items = (Array.isArray(record.items) ? record.items : [])
+    .map((item) => normalizeExtractedScriptItem(item))
+    .filter((item): item is ExtractedScriptItem => Boolean(item));
+  const charactersCatalog = (
+    Array.isArray(record.charactersCatalog)
+      ? record.charactersCatalog
+      : Array.isArray(record.characters_catalog)
+        ? record.characters_catalog
+        : []
+  )
+    .map((item) => normalizeExtractedScriptCharacter(item))
+    .filter((item): item is ExtractedScriptCharacter => Boolean(item));
+  const scenesCatalog = (
+    Array.isArray(record.scenesCatalog)
+      ? record.scenesCatalog
+      : Array.isArray(record.scenes_catalog)
+        ? record.scenes_catalog
+        : []
+  )
+    .map((item) => normalizeExtractedScriptScene(item))
+    .filter((item): item is ExtractedScriptScene => Boolean(item));
+  const itemsCatalog = (
+    Array.isArray(record.itemsCatalog)
+      ? record.itemsCatalog
+      : Array.isArray(record.items_catalog)
+        ? record.items_catalog
+        : []
+  )
+    .map((item) => normalizeExtractedScriptItem(item))
+    .filter((item): item is ExtractedScriptItem => Boolean(item));
 
   return {
-    characters: (Array.isArray(record.characters) ? record.characters : [])
-      .map((item) => normalizeExtractedScriptCharacter(item))
-      .filter((item): item is ExtractedScriptCharacter => Boolean(item)),
-    locations: (Array.isArray(record.locations) ? record.locations : [])
-      .map((item) => normalizeExtractedScriptLocation(item))
-      .filter((item): item is ExtractedScriptLocation => Boolean(item)),
-    items: (Array.isArray(record.items) ? record.items : [])
-      .map((item) => normalizeExtractedScriptItem(item))
-      .filter((item): item is ExtractedScriptItem => Boolean(item)),
+    characters,
+    locations: normalizedLocations,
+    scenes: normalizedScenes,
+    items,
+    plotLines: (Array.isArray(record.plotLines) ? record.plotLines : [])
+      .map((item) => normalizeExtractedScriptPlotLine(item))
+      .filter((item): item is ExtractedScriptPlotLine => Boolean(item)),
+    emotions: (Array.isArray(record.emotions) ? record.emotions : [])
+      .map((item) => normalizeExtractedScriptEmotion(item))
+      .filter((item): item is ExtractedScriptEmotion => Boolean(item)),
+    charactersCatalog: charactersCatalog.length > 0 ? charactersCatalog : characters,
+    scenesCatalog: scenesCatalog.length > 0 ? scenesCatalog : normalizedScenes,
+    itemsCatalog: itemsCatalog.length > 0 ? itemsCatalog : items,
+    lineBlueprints: (
+      Array.isArray(record.lineBlueprints)
+        ? record.lineBlueprints
+        : Array.isArray(record.line_blueprints)
+          ? record.line_blueprints
+          : []
+    )
+      .map((item, index) => normalizeExtractedScriptLineBlueprint(item, index))
+      .filter((item): item is ExtractedScriptLineBlueprint => Boolean(item))
+      .sort((left, right) => left.seq - right.seq),
+    promptRows: (
+      Array.isArray(record.promptRows)
+        ? record.promptRows
+        : Array.isArray(record.prompt_rows)
+          ? record.prompt_rows
+          : []
+    )
+      .map((item, index) => normalizeExtractedScriptPromptRow(item, index))
+      .filter((item): item is ExtractedScriptPromptRow => Boolean(item))
+      .sort((left, right) => left.seq - right.seq),
     worldview: normalizeExtractedScriptWorldview(record.worldview),
   };
 }
@@ -1864,82 +2166,108 @@ ${content}
   return { chapters: [], characters: [], locations: [] };
 }
 
-export async function extractScriptAssets(
+function buildEmptyExtractedScriptAssets(): ExtractedScriptAssets {
+  return {
+    characters: [],
+    locations: [],
+    scenes: [],
+    items: [],
+    plotLines: [],
+    emotions: [],
+    charactersCatalog: [],
+    scenesCatalog: [],
+    itemsCatalog: [],
+    lineBlueprints: [],
+    promptRows: [],
+    worldview: null,
+  };
+}
+
+function stableJson(value: unknown): string {
+  return JSON.stringify(value, null, 2);
+}
+
+async function extractScriptAssetsLegacy(
   request: ScriptAssetExtractionRequest
 ): Promise<ExtractedScriptAssets> {
   const content = request.content.trim();
   if (!content) {
-    return {
-      characters: [],
-      locations: [],
-      items: [],
-      worldview: null,
-    };
+    return buildEmptyExtractedScriptAssets();
   }
 
   const prompt = [
-    '你是一名专业的编剧开发顾问，负责从剧本片段中提炼结构化资产。',
-    '目标是保留后续做分镜、美术设计和设定整理最需要的核心资产。',
-    '只提取文本中已经明确出现、或被强烈暗示且足够稳定的信息，不要脑补，不要补全未出现设定。',
+    '你是一名“剧本资产提取导演”：既要像漫画分镜编剧兼镜头导演一样理解剧情，又要像美术设定制片一样沉淀后续分镜、画布组合、生图和视频生成可复用的资产。',
+    '你的目标不是抽名词，而是把剧本文本整理成可生产的前置资产包：角色设定、场景短名、关键物品都必须能服务后续分镜/生图/视频连续性。',
+    '你必须在内部完成导演工作包式理解和筛选，但最终只返回 JSON，不要输出思考过程，不要使用 Markdown 代码块，不要添加解释。',
     '输出语言必须与输入内容保持一致。',
-    '返回 JSON，不要使用 Markdown 代码块，不要添加解释。',
     '',
-    '请严格提取四类内容：',
-    '1. characters：核心人物。只保留具名主角、关键配角、关键反派，或反复承担明确剧情功能的无名角色；一次性路人、背景人群、泛称身份不要提取。',
-    '2. locations：核心场景。只保留对剧情推进、视觉设计或反复出场有意义的具体空间；同一物理空间的不同叫法或局部区域要合并成一个稳定名称；抽象地点、过场背景不要提取。',
-    '3. items：关键道具。只保留推动冲突、承载线索、体现身份、或反复使用的物件；普通家具、普通武器、普通日用品如果不是关键物，不要提取。',
-    '4. worldview：世界观 / 设定。只保留跨场景稳定成立、会影响人物行为、剧情规则或视觉设计的世界设定。',
+    '内部处理流程（只在心里执行，不要输出）：',
+    '1. 先按资料包里的章节、场景、镜头证据建立“分镜蓝图”：把原文理解成一组视觉拍点，标出每个拍点的人物、空间、动作趋势、情绪微表情、关键道具、光影氛围和剧情推进。',
+    '2. 再按生产价值提取资产：凡是会影响人物一致性、场景一致性、道具连续性、镜头组织或后续生图提示词的内容，都应该沉淀；只过滤一次性背景噪音和没有画面价值的抽象名词。',
+    '3. 最后去重、合并同义项、建立稳定名称：角色名稳定统一；场景使用 2-6 字短名；物品使用具体物名。',
     '',
-    '世界观提取规则：',
-    '- 只有当这一批文本中存在足够明确、稳定、可复用的设定信息时，才返回 worldview。',
-    '- 如果只是一次性背景描写、局部场景细节、或证据不足，请返回 null。',
-    '- worldview.description 只写世界设定核心概括，不要写剧情摘要。',
-    '- era / technology / magic / society / geography / rules 只填写有文本证据支持的内容，没有就留空字符串或空数组。',
+    '请严格提取三类内容：',
+    '1. characters：角色/行动主体。提取具名人物、关键配角、关键反派、明确承担剧情行动的组织/群体，以及虽无姓名但会反复出镜或影响分镜的功能角色；不要把抽象概念、情绪、能力、身份标签、任务、危机、命运、计划提取成角色。',
+    '2. scenes：场景/空间。提取具体可拍摄或可设计的物理/虚拟空间，并为同一物理空间建立稳定短名；不要把事件、危机、关系、章节标题、抽象区域、纯氛围词提取成场景。',
+    '3. items：物品/道具。提取推动冲突、承载线索、体现身份、反复使用、需要视觉设计或影响镜头连续性的具体物件；不要把能力、策略、行动、事件、普通背景用品提取成物品。',
+    '',
+    '导演工作包式筛选标准：',
+    '- 角色要看“谁在行动/做选择/制造或承受冲突”，并补足后续生图需要的身份、关系、气质、可见外观线索。',
+    '- 场景要看“镜头会在哪里发生/美术需要搭什么空间”，并保留时间、地点、光影基调、空间层次、可复用短名。',
+    '- 物品要看“这个东西是否影响剧情、身份、线索或视觉连续性”，并保留归属、用途、视觉特征或状态变化。',
+    '- 如果资料包包含镜头证据，镜头行优先级高于普通摘要；如果镜头证据缺失，再依据场景正文/章节正文判断。',
+    '- 参考目标软件的生产思路：先保证剧情覆盖和视觉可拍，再保证资产稳定、短名统一、后续提示词可直接拼装。',
+    '',
+    '归一化规则：',
+    '- scene 与 location 视为同义概念，但请优先按 scenes 字段输出。',
+    '- locations 字段继续保留给兼容链路使用，内容应与 scenes 对应的主场景保持一致。',
+    '- worldview 固定返回 null。',
+    '- 角色、场景、物品都先去重后输出；同一对象不同叫法合并为最稳定、最短、最贴近原文且适合节点标题的名称。',
+    '- relatedCharacterNames 和 relatedSceneNames 优先使用本次输出里已经存在的角色/场景名称，不要新增幽灵名称。',
+    '- description / summary / statusTag 要短，但必须说明它对剧情、分镜或生图生产为什么重要，而不是复述空泛设定。',
+    '- 不要为了少而漏掉生产要素：只要会影响后续分镜/生图/视频连续性，就应保留；只要只是背景噪音或无画面价值，就应过滤。',
     '',
     'JSON 结构必须严格如下：',
     '{',
     '  "characters": [',
     '    {',
     '      "name": "角色名",',
-    '      "description": "角色的核心身份、剧情作用或关系定位，一句话以内",',
-    '      "personality": "稳定且有证据的性格特征，2-4 个短词或短语；没有就空字符串",',
-    '      "appearance": "最关键的辨识特征，例如年龄段、性别、发型、服装或显著外观；没有就空字符串"',
+    '      "description": "角色的身份/关系/剧情作用，并说明后续分镜为何需要追踪，一句话以内",',
+    '      "personality": "稳定且有证据的性格、气质或行动倾向，2-4 个短词或短语；没有就空字符串",',
+    '      "appearance": "文本中明确或强支撑的可见外观线索，例如年龄段、性别、发型、服装、姿态、显著特征；没有就空字符串"',
+    '    }',
+    '  ],',
+    '  "scenes": [',
+    '    {',
+    '      "name": "2-6 字场景短名，适合画布节点和生图提示词复用",',
+    '      "description": "空镜头式场景设定：时间/地点/光影/空间层次/叙事功能，不要出现人物动作主体",',
+    '      "relatedCharacterNames": ["相关角色名"]',
     '    }',
     '  ],',
     '  "locations": [',
     '    {',
-    '      "name": "场景主名称",',
-    '      "description": "空镜头式的场景描述，只保留空间类型、时间/光线、2-3 个关键陈设或氛围；不要出现人物"',
+    '      "name": "兼容用场景主名称",',
+    '      "description": "与 scenes 对应的兼容描述"',
     '    }',
     '  ],',
     '  "items": [',
     '    {',
     '      "name": "道具名",',
-    '      "description": "道具的关键用途、归属或最醒目的视觉特征，没有就空字符串"',
+    '      "description": "道具的归属、关键用途、线索作用、状态变化或醒目视觉特征，没有就空字符串"',
     '    }',
     '  ],',
-    '  "worldview": {',
-    '    "name": "世界观名称，没有就空字符串",',
-    '    "description": "世界设定核心概括，没有就空字符串",',
-    '    "era": "时代背景，没有就空字符串",',
-    '    "technology": "科技水平，没有就空字符串",',
-    '    "magic": "魔法/超自然/异能设定，没有就空字符串",',
-    '    "society": "社会结构或秩序，没有就空字符串",',
-    '    "geography": "地理环境或空间格局，没有就空字符串",',
-    '    "rules": ["关键世界规则 1", "关键世界规则 2"]',
-    '  }',
+    '  "worldview": null',
     '}',
     '',
-    '如果没有足够明确的世界观信息，请把 "worldview" 设为 null。',
-    '',
     '约束：',
-    '- 先判断是否真的值得沉淀成资产卡，宁缺毋滥。',
+    '- 先判断是否真的服务后续生产：角色一致性、场景一致性、道具连续性、剧情追踪、分镜/生图提示词都算生产价值。',
     '- 去重后再输出，不同字段不要重复换说法。',
     '- name 必须稳定、简洁、便于跨批次去重，不要为了文艺化改名。',
-    '- description / personality / appearance 尽量简短，适合直接落成资产节点。',
-    '- 人物外形只写文本中明确出现或强烈支撑的辨识点，不要擅自补完整套服装设定。',
-    '- 场景描述默认采用空镜头视角，不出现人物姓名、代词或动作主体。',
-    '- 不要输出剧情摘要，不要输出章节列表。',
+    '- name/title 不要是完整句子，不要包含“讲述了/描写了/关于/如何”等摘要式表达。',
+    '- description / summary / personality / appearance 尽量简短但信息密度要高，适合直接落成资产节点并进入后续提示词组装。',
+    '- 人物外形只写文本中明确出现或强烈支撑的辨识点；不要在资产提取阶段重新发明服装颜色、材质、发型、发色。',
+    '- 场景描述默认采用空镜头视角，不出现人物姓名、代词或动作主体；同一地点必须复用同一短名。',
+    '- 输出要“生产够用”：宁可把有分镜价值的关键资产提全，也不要只给极少数主角和地点。',
     '',
     request.batchLabel ? `当前批次：${request.batchLabel}` : '',
     '待提取文本：',
@@ -1951,7 +2279,7 @@ export async function extractScriptAssets(
   const result = await generateText({
     prompt,
     temperature: 0.2,
-    maxTokens: 4096,
+    maxTokens: 8192,
   });
 
   const parsed = extractJsonValue(result.text);
@@ -1961,6 +2289,326 @@ export async function extractScriptAssets(
 
   return normalizeExtractedScriptAssets(parsed);
 }
+
+export async function extractScriptDirectorBlueprint(
+  request: ScriptAssetExtractionRequest
+): Promise<ExtractedScriptAssets> {
+  const content = request.content.trim();
+  if (!content) {
+    return buildEmptyExtractedScriptAssets();
+  }
+
+  const prompt = [
+    '你是顶级“短剧分镜导演 + 实体抽取工程师”。当前是两阶段流程的第一步：只做导演蓝图和资产目录，不生成最终绘图提示词。',
+    '目标：把输入文本拆成后续分镜、生图、视频都能复用的导演级结构化数据。输出必须是严格 JSON，不要 Markdown，不要解释。',
+    '',
+    '拆解铁律：',
+    '1. 必须覆盖完整剧情时间线，不能总结替代，不能跳过关键动作、关系变化、伏笔和冲突。',
+    '2. lineBlueprints 是镜头级蓝图，每条尽量对应一个可拍画面；文案节奏参考 8-30 个中文字符，短句向下合并，长句按视觉动作/情绪停顿拆分。',
+    '3. 角色名必须是叙事实体，不要把 Pan、Tilt、Zoom、Dolly、Track、Truck、ECU、CU、MCU、POV、OTS 或镜头术语当角色。',
+    '4. 场景名必须稳定，2-6 字短名优先；同一物理空间不要换多个名字。',
+    '5. 角色 visualDesc 必填，至少覆盖 6 个维度：年龄性别、肤色质感、五官、发型发饰、服装层次颜色材质、配饰鞋履、体态站姿、气质神情。严禁“气质鲜明、面部轮廓清晰、发型自然、材质丰富”等空泛词。',
+    '6. 场景要能作为空镜/环境参考，写清时间、地点、光影、空间层次和可复用环境词。',
+    '7. 物品只保留推动冲突、承载线索、体现身份、需要视觉连续性的具体道具。',
+    '8. 剧情线不是章节摘要，而是需要持续追踪的目标、冲突、线索或关系推进。',
+    '',
+    'JSON 结构必须严格如下：',
+    '{',
+    '  "charactersCatalog": [',
+    '    {',
+    '      "id": "c1",',
+    '      "name": "角色名",',
+    '      "aliases": ["别名"],',
+    '      "roleWeight": 0.9,',
+    '      "description": "身份/关系/剧情作用，一句话",',
+    '      "personality": "性格和行动倾向，短语",',
+    '      "appearance": "可见外观摘要",',
+    '      "visualDesc": "可直接用于角色设定图的全身视觉描述",',
+    '      "continuityNotes": "后续镜头必须保持一致的识别点",',
+    '      "referencePrompt": "生成角色参考图时可直接使用的提示词"',
+    '    }',
+    '  ],',
+    '  "scenesCatalog": [',
+    '    {',
+    '      "id": "s1",',
+    '      "name": "场景短名",',
+    '      "description": "场景摘要",',
+    '      "sceneDesc": "空镜头式环境描述",',
+    '      "timeTone": "时间与光影基调",',
+    '      "lightLock": "同场景后续镜头继承的光影词",',
+    '      "spaceLayout": "前景/中景/远景、左右关系或空间结构",',
+    '      "referencePrompt": "生成场景参考图时可直接使用的提示词",',
+    '      "relatedCharacterNames": ["角色名"]',
+    '    }',
+    '  ],',
+    '  "itemsCatalog": [',
+    '    {',
+    '      "id": "i1",',
+    '      "name": "物品名",',
+    '      "description": "剧情作用",',
+    '      "visualDesc": "可见形态、材质、状态",',
+    '      "function": "线索/身份/冲突/连续性作用",',
+    '      "ownerCharacterIds": ["c1"],',
+    '      "continuityNotes": "状态变化或镜头连续性备注"',
+    '    }',
+    '  ],',
+    '  "plotLines": [',
+    '    {',
+    '      "id": "p1",',
+    '      "title": "剧情线标题",',
+    '      "summary": "起因 -> 推进 -> 当前悬念/结果",',
+    '      "statusTag": "铺垫/推进中/爆发/收束",',
+    '      "relatedCharacterNames": ["角色名"],',
+    '      "relatedSceneNames": ["场景短名"],',
+    '      "relatedItemNames": ["物品名"]',
+    '    }',
+    '  ],',
+    '  "lineBlueprints": [',
+    '    {',
+    '      "seq": 1,',
+    '      "comicText": "拆分后的原文/文案行",',
+    '      "plotPoint": "该行剧情点",',
+    '      "characterIds": ["c1"],',
+    '      "sceneId": "s1",',
+    '      "itemIds": ["i1"],',
+    '      "mood": "情绪",',
+    '      "shotHint": "景别/角度/关系镜头提示",',
+    '      "compositionHint": "构图层次和空间关系",',
+    '      "cameraHint": "机位/运动/轴线提示",',
+    '      "motionHint": "起始帧动作趋势"',
+    '    }',
+    '  ],',
+    '  "worldview": null',
+    '}',
+    '',
+    request.batchLabel ? `当前批次：${request.batchLabel}` : '',
+    '待拆解文本：',
+    content,
+  ]
+    .filter((line) => line.length > 0)
+    .join('\n');
+
+  const result = await generateText({
+    prompt,
+    temperature: 0.18,
+    maxTokens: 8192,
+  });
+
+  const parsed = extractJsonValue(result.text);
+  if (!parsed) {
+    throw new Error('未能解析导演蓝图 JSON。');
+  }
+
+  const extracted = normalizeExtractedScriptAssets(parsed);
+  return normalizeExtractedScriptAssets({
+    ...extracted,
+    characters: extracted.charactersCatalog,
+    scenes: extracted.scenesCatalog,
+    locations: extracted.scenesCatalog.map((scene) => ({
+      name: scene.name,
+      description: scene.description || scene.sceneDesc || '',
+    })),
+    items: extracted.itemsCatalog,
+    worldview: null,
+  });
+}
+
+export async function generateScriptDirectorPromptRows(
+  blueprint: ExtractedScriptAssets
+): Promise<ExtractedScriptPromptRow[]> {
+  if (blueprint.lineBlueprints.length === 0) {
+    return [];
+  }
+
+  const prompt = [
+    '你是顶级“导演 + 镜头大师 + 灯光大师”。当前是两阶段流程的第二步：基于给定角色/场景/物品目录和 lineBlueprints，逐行生成可用于图片和视频首帧的提示词。',
+    '输出必须是严格 JSON，不要 Markdown，不要解释。',
+    '',
+    '生成铁律：',
+    '1. promptRows 必须与 lineBlueprints 一一对应，不得漏序、合并或改序。',
+    '2. imagePrompt 要可直接用于生图：包含角色括号、镜头、场景、画面描述、构图层次、情绪微表情、参考资产提示。',
+    '3. videoFirstFramePrompt 描述视频第一帧，必须包含“起始瞬间/运动趋势/重心变化/动作势能”，不要写动作完成后的静止状态。',
+    '4. 多人镜头拒绝大头贴，必须写过肩、侧拍、脏前景、前中后景或 Z 轴关系。',
+    '5. 单人镜头禁止默认正脸看镜头，必须写面部朝向和视线落点。',
+    '6. 同一 sceneId 继承场景的 lightLock、spaceLayout 和 timeTone，保持光影与空间轴线连续。',
+    '7. 角色造型以 charactersCatalog.visualDesc/referencePrompt 为准；行提示词不要反复改写服装、发色、材质，只写动作、表情、朝向、关系和光影。',
+    '',
+    '输出 JSON 结构：',
+    '{',
+    '  "promptRows": [',
+    '    {',
+    '      "seq": 1,',
+    '      "comicText": "与蓝图一致的文案行",',
+    '      "imagePrompt": "序号：1（角色A），（角色B）；镜头：...；场景：【场景短名】...；画面描述：...",',
+    '      "videoFirstFramePrompt": "视频第一帧描述，包含运动趋势和连续性",',
+    '      "characterNames": ["角色A"],',
+    '      "sceneName": "场景短名",',
+    '      "referenceAssetHints": ["角色A参考", "场景参考"]',
+    '    }',
+    '  ]',
+    '}',
+    '',
+    '导演蓝图 JSON：',
+    stableJson({
+      charactersCatalog: blueprint.charactersCatalog,
+      scenesCatalog: blueprint.scenesCatalog,
+      itemsCatalog: blueprint.itemsCatalog,
+      plotLines: blueprint.plotLines,
+      lineBlueprints: blueprint.lineBlueprints,
+    }),
+  ].join('\n');
+
+  const result = await generateText({
+    prompt,
+    temperature: 0.18,
+    maxTokens: 8192,
+  });
+
+  const parsed = extractJsonValue(result.text);
+  if (!parsed) {
+    throw new Error('未能解析分镜提示词 JSON。');
+  }
+
+  return normalizeExtractedScriptAssets(parsed).promptRows;
+}
+
+export async function runScriptDirectorExtraction(
+  request: ScriptAssetExtractionRequest
+): Promise<ExtractedScriptAssets> {
+  const blueprint = await extractScriptDirectorBlueprint(request);
+  const promptRows = await generateScriptDirectorPromptRows(blueprint);
+
+  return normalizeExtractedScriptAssets({
+    ...blueprint,
+    characters: blueprint.charactersCatalog,
+    scenes: blueprint.scenesCatalog,
+    locations: blueprint.scenesCatalog.map((scene) => ({
+      name: scene.name,
+      description: scene.description || scene.sceneDesc || '',
+    })),
+    items: blueprint.itemsCatalog,
+    promptRows,
+    worldview: null,
+  });
+}
+
+async function extractScriptSettingAssets(
+  request: ScriptAssetExtractionRequest
+): Promise<ExtractedScriptAssets> {
+  const content = request.content.trim();
+  if (!content) {
+    return buildEmptyExtractedScriptAssets();
+  }
+
+  const prompt = [
+    '你是“剧本设定资产提取导演”。你的任务是从剧本文本中提取后续分镜、生图、视频制作会反复复用的设定资产。',
+    '本节点只做设定资产提取，不做智能分镜，不输出分镜蓝图，不输出逐行镜头，不输出 COMIC_TEXT，不输出 PROMPT_TEXT。',
+    '最终只返回严格 JSON，不要 Markdown，不要解释，不要输出思考过程。',
+    '',
+    '提取目标：',
+    '1. characters：角色。只提取会影响画面连续性的人物、组织或反复出镜的功能角色。',
+    '2. scenes：场景。只提取可被画出来的物理/虚拟空间，场景名用 2-6 字稳定短名。',
+    '3. items：物品。只提取推动剧情、体现身份、承载线索或需要视觉连续性的具体道具。',
+    '',
+    '生图描述硬规则：',
+    '- 角色 referencePrompt 必须可直接用于角色设定图，推荐格式：全身视角，名叫{角色名}的{年龄/身份}站在白色背景前，后续写清气质、五官、发型、服饰、配饰、体态。',
+    '- 角色描述必须尽量补足年龄/性别、肤色质感、眉眼鼻唇、发型发饰、服装层次颜色材质、配饰鞋履、身形站姿、气质神情；不要用“气质鲜明、细节丰富、材质真实”这类空话。',
+    '- 场景 referencePrompt 必须可直接用于环境设定图，推荐格式：中景视角，{场景名}，后续写清空间结构、地面墙面、主体陈设、前中后景、光影、色调、氛围。',
+    '- 物品 visualDesc 必须可直接用于道具设定图，推荐格式：特写视角，{物品名}放置在白色背景上，后续写清材质、形状、纹理、颜色、磨损、裂纹、标识或使用痕迹。',
+    '- 若原文没有明确外观，可基于时代、身份、门派、职业和语境做合理补全，但不要和原文冲突。',
+    '- 去重合并同一对象的不同叫法，名称稳定、简洁、可作为节点标题。',
+    '',
+    'JSON 结构必须严格如下：',
+    '{',
+    '  "characters": [',
+    '    {',
+    '      "id": "c1",',
+    '      "name": "角色名",',
+    '      "aliases": ["别名"],',
+    '      "roleWeight": 0.9,',
+    '      "description": "身份、关系和剧情作用，一句话",',
+    '      "personality": "性格和行动倾向，短语",',
+    '      "appearance": "可见外观摘要",',
+    '      "visualDesc": "完整角色视觉设定描述",',
+    '      "continuityNotes": "后续画面必须保持一致的识别点",',
+    '      "referencePrompt": "可直接用于角色设定图的完整提示词"',
+    '    }',
+    '  ],',
+    '  "scenes": [',
+    '    {',
+    '      "id": "s1",',
+    '      "name": "场景短名",',
+    '      "description": "场景剧情功能摘要",',
+    '      "sceneDesc": "完整环境视觉描述",',
+    '      "timeTone": "时间与光影基调",',
+    '      "lightLock": "后续同场景需要继承的光影描述",',
+    '      "spaceLayout": "前景/中景/远景、左右关系或空间结构",',
+    '      "referencePrompt": "可直接用于场景设定图的完整提示词",',
+    '      "relatedCharacterNames": ["角色名"]',
+    '    }',
+    '  ],',
+    '  "locations": [',
+    '    { "name": "场景短名", "description": "与 scenes 对应的兼容描述" }',
+    '  ],',
+    '  "items": [',
+    '    {',
+    '      "id": "i1",',
+    '      "name": "物品名",',
+    '      "description": "剧情作用",',
+    '      "visualDesc": "可直接用于道具设定图的完整提示词",',
+    '      "function": "线索/身份/冲突/连续性作用",',
+    '      "ownerCharacterIds": ["c1"],',
+    '      "continuityNotes": "状态变化或镜头连续性备注"',
+    '    }',
+    '  ],',
+    '  "worldview": null',
+    '}',
+    '',
+    '禁止输出 plotLines、emotions、lineBlueprints、promptRows、分镜蓝图、镜头行或视频首帧提示词。',
+    request.batchLabel ? `当前批次：${request.batchLabel}` : '',
+    '待提取文本：',
+    content,
+  ]
+    .filter((line) => line.length > 0)
+    .join('\n');
+
+  const result = await generateText({
+    prompt,
+    temperature: 0.2,
+    maxTokens: 8192,
+  });
+
+  const parsed = extractJsonValue(result.text);
+  if (!parsed) {
+    throw new Error('未能解析剧本资产提取 JSON。');
+  }
+
+  const extracted = normalizeExtractedScriptAssets(parsed);
+  return normalizeExtractedScriptAssets({
+    ...extracted,
+    charactersCatalog: extracted.charactersCatalog.length ? extracted.charactersCatalog : extracted.characters,
+    scenesCatalog: extracted.scenesCatalog.length ? extracted.scenesCatalog : extracted.scenes,
+    itemsCatalog: extracted.itemsCatalog.length ? extracted.itemsCatalog : extracted.items,
+    characters: extracted.charactersCatalog.length ? extracted.charactersCatalog : extracted.characters,
+    scenes: extracted.scenesCatalog.length ? extracted.scenesCatalog : extracted.scenes,
+    locations: (extracted.scenesCatalog.length ? extracted.scenesCatalog : extracted.scenes).map((scene) => ({
+      name: scene.name,
+      description: scene.description || scene.sceneDesc || scene.referencePrompt || '',
+    })),
+    items: extracted.itemsCatalog.length ? extracted.itemsCatalog : extracted.items,
+    lineBlueprints: [],
+    promptRows: [],
+    worldview: null,
+  });
+}
+
+export async function extractScriptAssets(
+  request: ScriptAssetExtractionRequest
+): Promise<ExtractedScriptAssets> {
+  return extractScriptSettingAssets(request);
+}
+
+void extractScriptAssetsLegacy;
 
 export interface TestConnectionRequest {
   provider: string;

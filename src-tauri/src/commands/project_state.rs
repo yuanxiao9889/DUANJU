@@ -2243,11 +2243,9 @@ pub(crate) fn normalize_storage_media_refs_in_connection(
         collected
     };
 
-    let generation_rows: Vec<(String, String, Option<String>, String)> = if table_exists(
-        conn,
-        "generation_history_items",
-    )? {
-        let mut stmt = conn
+    let generation_rows: Vec<(String, String, Option<String>, String)> =
+        if table_exists(conn, "generation_history_items")? {
+            let mut stmt = conn
             .prepare(
                 "SELECT id, source_path, preview_path, snapshot_json FROM generation_history_items",
             )
@@ -2257,34 +2255,34 @@ pub(crate) fn normalize_storage_media_refs_in_connection(
                     e
                 )
             })?;
-        let rows = stmt
-            .query_map([], |row| {
-                Ok((
-                    row.get::<_, String>(0)?,
-                    row.get::<_, String>(1)?,
-                    row.get::<_, Option<String>>(2)?,
-                    row.get::<_, String>(3)?,
-                ))
-            })
-            .map_err(|e| {
-                format!(
-                    "Failed to query generation history for URI normalization: {}",
-                    e
-                )
-            })?;
-        let mut collected = Vec::new();
-        for row in rows {
-            collected.push(row.map_err(|e| {
-                format!(
-                    "Failed to read generation history URI normalization row: {}",
-                    e
-                )
-            })?);
-        }
-        collected
-    } else {
-        Vec::new()
-    };
+            let rows = stmt
+                .query_map([], |row| {
+                    Ok((
+                        row.get::<_, String>(0)?,
+                        row.get::<_, String>(1)?,
+                        row.get::<_, Option<String>>(2)?,
+                        row.get::<_, String>(3)?,
+                    ))
+                })
+                .map_err(|e| {
+                    format!(
+                        "Failed to query generation history for URI normalization: {}",
+                        e
+                    )
+                })?;
+            let mut collected = Vec::new();
+            for row in rows {
+                collected.push(row.map_err(|e| {
+                    format!(
+                        "Failed to read generation history URI normalization row: {}",
+                        e
+                    )
+                })?);
+            }
+            collected
+        } else {
+            Vec::new()
+        };
 
     let queue_rows: Vec<(String, String)> = if table_exists(conn, "jimeng_video_queue_jobs")? {
         let mut stmt = conn
@@ -2484,8 +2482,9 @@ pub(crate) fn rebuild_media_ref_indexes(
             .map_err(|e| format!("Failed to query assets for media ref rebuild: {}", e))?;
         let mut collected = Vec::new();
         for row in rows {
-            collected
-                .push(row.map_err(|e| format!("Failed to read asset media ref rebuild row: {}", e))?);
+            collected.push(
+                row.map_err(|e| format!("Failed to read asset media ref rebuild row: {}", e))?,
+            );
         }
         collected
     };
@@ -2495,15 +2494,9 @@ pub(crate) fn rebuild_media_ref_indexes(
         .map_err(|e| format!("Failed to begin media ref rebuild transaction: {}", e))?;
 
     for (project_id, nodes_json, history_json) in project_rows {
-        let decoded_payload =
-            decode_project_payload_storage_refs(app, &nodes_json, &history_json)?
-                .unwrap_or((nodes_json, history_json));
-        replace_project_image_refs(
-            &tx,
-            &project_id,
-            &decoded_payload.0,
-            &decoded_payload.1,
-        )?;
+        let decoded_payload = decode_project_payload_storage_refs(app, &nodes_json, &history_json)?
+            .unwrap_or((nodes_json, history_json));
+        replace_project_image_refs(&tx, &project_id, &decoded_payload.0, &decoded_payload.1)?;
     }
 
     for (asset_id, source_path, preview_path) in asset_rows {
@@ -3124,7 +3117,12 @@ pub fn organize_project_media(
         &persisted_nodes_json,
         &persisted_history_json,
     )?;
-    replace_project_image_refs(&tx, &normalized_project_id, &next_nodes_json, &next_history_json)?;
+    replace_project_image_refs(
+        &tx,
+        &normalized_project_id,
+        &next_nodes_json,
+        &next_history_json,
+    )?;
     tx.commit()
         .map_err(|e| format!("Failed to commit media organization transaction: {}", e))?;
 

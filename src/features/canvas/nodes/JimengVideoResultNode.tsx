@@ -1,10 +1,10 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
-  Handle,
   Position,
   useUpdateNodeInternals,
   type NodeProps,
 } from "@xyflow/react";
+import { CanvasHandle } from "@/features/canvas/ui/CanvasHandle";
 import {
   Camera,
   ChevronLeft,
@@ -18,8 +18,12 @@ import {
   Video,
 } from "lucide-react";
 import { useTranslation } from "react-i18next";
-
-import { UiButton, UiCheckbox, UiLoadingAnimation, UiSelect } from "@/components/ui";
+import {
+  UiButton,
+  UiCheckbox,
+  UiLoadingAnimation,
+  UiSelect,
+} from "@/components/ui";
 import {
   CANVAS_NODE_TYPES,
   JIMENG_VIDEO_RESULT_NODE_DEFAULT_WIDTH,
@@ -127,8 +131,8 @@ export const JimengVideoResultNode = memo(
     const updateNodeData = useCanvasStore((state) => state.updateNodeData);
     const addNode = useCanvasStore((state) => state.addNode);
     const addEdge = useCanvasStore((state) => state.addEdge);
-    const isDescriptionPanelOpen = useCanvasStore(
-      (state) => Boolean(state.nodeDescriptionPanelOpenById[id]),
+    const isDescriptionPanelOpen = useCanvasStore((state) =>
+      Boolean(state.nodeDescriptionPanelOpenById[id]),
     );
     const isReferenceSourceHighlighted = useCanvasStore(
       (state) => state.highlightedReferenceSourceNodeId === id,
@@ -158,7 +162,9 @@ export const JimengVideoResultNode = memo(
       JIMENG_VIDEO_RESULT_NODE_MIN_WIDTH,
       Math.round(width ?? JIMENG_VIDEO_RESULT_NODE_DEFAULT_WIDTH),
     );
-    const explicitHeight = resolveNodeStyleDimension(currentNode?.style?.height);
+    const explicitHeight = resolveNodeStyleDimension(
+      currentNode?.style?.height,
+    );
     const hasExplicitHeight = typeof explicitHeight === "number";
     const descriptionPanelHeight = isDescriptionPanelOpen
       ? NODE_DESCRIPTION_PANEL_EXPANDED_TOTAL_HEIGHT
@@ -167,7 +173,8 @@ export const JimengVideoResultNode = memo(
       explicitHeight ?? JIMENG_VIDEO_RESULT_NODE_MIN_HEIGHT,
       JIMENG_VIDEO_RESULT_NODE_MIN_HEIGHT,
     );
-    const resolvedMinHeight = JIMENG_VIDEO_RESULT_NODE_MIN_HEIGHT + descriptionPanelHeight;
+    const resolvedMinHeight =
+      JIMENG_VIDEO_RESULT_NODE_MIN_HEIGHT + descriptionPanelHeight;
     const resolvedHeight = hasExplicitHeight
       ? collapsedHeight + descriptionPanelHeight
       : null;
@@ -187,16 +194,15 @@ export const JimengVideoResultNode = memo(
       const source = data.previewImageUrl?.trim() ?? "";
       return source || null;
     }, [data.previewImageUrl]);
-    const { displaySource: posterDisplaySource } = useStableImageDisplaySource(posterSource);
-    const queueStatus = (data.queueStatus ?? null) as
-      | JimengVideoQueueJobStatus
-      | null;
+    const { displaySource: posterDisplaySource } =
+      useStableImageDisplaySource(posterSource);
+    const queueStatus = (data.queueStatus ??
+      null) as JimengVideoQueueJobStatus | null;
     const queueLastError = data.lastError?.trim() ?? null;
     const isServerConcurrencyBlocked =
       queueStatus === "retrying" &&
       isJimengVideoQueueServerConcurrencyMessage(queueLastError);
-    const canRequery =
-      Boolean(normalizedSubmitId || normalizedQueueJobId);
+    const canRequery = Boolean(normalizedSubmitId || normalizedQueueJobId);
     const hasPendingResult =
       !hasVideoResult &&
       (Boolean(data.isGenerating) ||
@@ -260,234 +266,245 @@ export const JimengVideoResultNode = memo(
       updateNodeData,
     ]);
 
-    const handleRequeryResult = useCallback(async (options?: RequeryOptions) => {
-      let submitId = normalizedSubmitId;
-      const historyOptions = options?.suppressErrorDialog
-        ? { historyMode: "skip" as const }
-        : undefined;
-      if (!submitId && normalizedQueueJobId) {
-        try {
-          const cachedSubmit = await resolveJimengDreaminaVideoSubmitIdCache({
-            trackingId: normalizedQueueJobId,
-          });
-          submitId = cachedSubmit.submitId?.trim() ?? "";
-          if (submitId) {
+    const handleRequeryResult = useCallback(
+      async (options?: RequeryOptions) => {
+        let submitId = normalizedSubmitId;
+        const historyOptions = options?.suppressErrorDialog
+          ? { historyMode: "skip" as const }
+          : undefined;
+        if (!submitId && normalizedQueueJobId) {
+          try {
+            const cachedSubmit = await resolveJimengDreaminaVideoSubmitIdCache({
+              trackingId: normalizedQueueJobId,
+            });
+            submitId = cachedSubmit.submitId?.trim() ?? "";
+            if (submitId) {
+              updateNodeData(
+                id,
+                {
+                  submitId,
+                  queueStatus: "submitted",
+                  lastError: null,
+                },
+                historyOptions,
+              );
+            }
+          } catch (error) {
+            console.warn(
+              "[JimengVideoResultNode] failed to recover submit id",
+              {
+                queueJobId: normalizedQueueJobId,
+                error,
+              },
+            );
+          }
+        }
+
+        if (!submitId) {
+          const message = t("node.jimengVideoResult.requeryUnavailable");
+          setStatusNotice(message);
+          if (options?.keepPollingOnFailure) {
             updateNodeData(
               id,
               {
-                submitId,
-                queueStatus: "submitted",
-                lastError: null,
+                autoRequeryEnabled: false,
+                isGenerating: false,
+                generationStartedAt: null,
+                lastError: message,
               },
               historyOptions,
             );
           }
-        } catch (error) {
-          console.warn("[JimengVideoResultNode] failed to recover submit id", {
-            queueJobId: normalizedQueueJobId,
-            error,
-          });
-        }
-      }
-
-      if (!submitId) {
-        const message = t("node.jimengVideoResult.requeryUnavailable");
-        setStatusNotice(message);
-        if (options?.keepPollingOnFailure) {
-          updateNodeData(
-            id,
-            {
-              autoRequeryEnabled: false,
-              isGenerating: false,
-              generationStartedAt: null,
-              lastError: message,
-            },
-            historyOptions,
-          );
-        }
-        if (!options?.suppressErrorDialog) {
-          await showErrorDialog(message, t("common.error"));
-        }
-        return;
-      }
-
-      const dreaminaStatus = await ensureDreaminaCliReady({
-        feature: "video",
-        action: "requery",
-      });
-      if (!dreaminaStatus.ready) {
-        const message = resolveDreaminaSetupBlockedMessage(
-          t,
-          dreaminaStatus.code,
-        );
-        setStatusNotice(message);
-        updateNodeData(
-          id,
-          {
-            autoRequeryEnabled: options?.keepPollingOnFailure
-              ? false
-              : autoRequeryEnabled,
-            isGenerating: options?.keepPollingOnFailure
-              ? false
-              : data.isGenerating,
-            generationStartedAt: options?.keepPollingOnFailure
-              ? null
-              : data.generationStartedAt,
-            lastError: message,
-          },
-          historyOptions,
-        );
-        return;
-      }
-
-      setStatusNotice(null);
-      setIsRequerying(true);
-      updateNodeData(
-        id,
-        {
-          isGenerating: true,
-          generationStartedAt: data.generationStartedAt ?? Date.now(),
-          lastError: null,
-        },
-        historyOptions,
-      );
-      if (!options?.suppressStartFlush) {
-        await flushCurrentProjectToDiskSafely("starting Jimeng video requery");
-      }
-
-      try {
-        const response = await queryJimengVideoResult({ submitId });
-        if (response.status === "failed") {
-          const message =
-            response.failureMessage?.trim() ||
-            response.warnings.find((warning) => warning.trim().length > 0) ||
-            t("node.jimengVideoResult.requeryFailed");
-          setStatusNotice(message);
-          updateNodeData(
-            id,
-            {
-              autoRequeryEnabled: false,
-              isGenerating: false,
-              generationStartedAt: null,
-              lastError: message,
-            },
-            historyOptions,
-          );
-          await flushCurrentProjectToDiskSafely(
-            "saving Jimeng video requery failure",
-          );
           if (!options?.suppressErrorDialog) {
             await showErrorDialog(message, t("common.error"));
           }
           return;
         }
 
-        const primaryResult = response.videos[0] ?? null;
-        const hasResult = primaryResult !== null;
-        const completedAt = hasResult
-          ? Date.now()
-          : (data.lastGeneratedAt ?? null);
-        const nextNoticeParts = [
-          response.pending ? t("node.jimengVideoResult.requeryPending") : null,
-          response.warnings.length > 0 ? response.warnings.join(" | ") : null,
-        ].filter(Boolean);
-        setStatusNotice(
-          nextNoticeParts.length > 0 ? nextNoticeParts.join(" | ") : null,
-        );
+        const dreaminaStatus = await ensureDreaminaCliReady({
+          feature: "video",
+          action: "requery",
+        });
+        if (!dreaminaStatus.ready) {
+          const message = resolveDreaminaSetupBlockedMessage(
+            t,
+            dreaminaStatus.code,
+          );
+          setStatusNotice(message);
+          updateNodeData(
+            id,
+            {
+              autoRequeryEnabled: options?.keepPollingOnFailure
+                ? false
+                : autoRequeryEnabled,
+              isGenerating: options?.keepPollingOnFailure
+                ? false
+                : data.isGenerating,
+              generationStartedAt: options?.keepPollingOnFailure
+                ? null
+                : data.generationStartedAt,
+              lastError: message,
+            },
+            historyOptions,
+          );
+          return;
+        }
 
+        setStatusNotice(null);
+        setIsRequerying(true);
         updateNodeData(
           id,
           {
-            submitId: response.submitId,
-            sourceUrl: primaryResult?.sourceUrl ?? data.sourceUrl ?? null,
-            posterSourceUrl:
-              primaryResult?.posterSourceUrl ?? data.posterSourceUrl ?? null,
-            videoUrl: primaryResult?.videoUrl ?? data.videoUrl ?? null,
-            previewImageUrl:
-              primaryResult?.previewImageUrl ?? data.previewImageUrl ?? null,
-            videoFileName: primaryResult?.fileName ?? data.videoFileName ?? null,
-            aspectRatio: primaryResult?.aspectRatio ?? data.aspectRatio,
-            duration: primaryResult?.duration ?? data.duration,
-            width: primaryResult?.width ?? data.width,
-            height: primaryResult?.height ?? data.height,
-            queueStatus: hasResult
-              ? "completed"
-              : response.pending
-                ? "generating"
-                : data.queueStatus,
-            autoRequeryEnabled: hasResult
-              ? false
-              : response.pending
-                ? true
-                : autoRequeryEnabled,
-            isGenerating: hasResult ? false : response.pending,
-            generationStartedAt: response.pending
-              ? hasResult
-                ? null
-                : (data.generationStartedAt ?? Date.now())
-              : null,
-            lastGeneratedAt: completedAt,
+            isGenerating: true,
+            generationStartedAt: data.generationStartedAt ?? Date.now(),
             lastError: null,
           },
           historyOptions,
         );
-        await flushCurrentProjectToDiskSafely(
-          "saving Jimeng video requery result",
-        );
-      } catch (error) {
-        const content = resolveErrorContent(
-          error,
-          t("node.jimengVideoResult.requeryFailed"),
-        );
-        setStatusNotice(content.message);
-        updateNodeData(
-          id,
-          {
-            isGenerating: Boolean(options?.keepPollingOnFailure),
-            generationStartedAt: options?.keepPollingOnFailure
-              ? (data.generationStartedAt ?? Date.now())
-              : null,
-            lastError: content.message,
-          },
-          historyOptions,
-        );
-        if (!options?.keepPollingOnFailure) {
+        if (!options?.suppressStartFlush) {
           await flushCurrentProjectToDiskSafely(
-            "saving Jimeng video requery error",
+            "starting Jimeng video requery",
           );
         }
-        if (!options?.suppressErrorDialog) {
-          await showErrorDialog(
-            content.message,
-            t("common.error"),
-            content.details,
+
+        try {
+          const response = await queryJimengVideoResult({ submitId });
+          if (response.status === "failed") {
+            const message =
+              response.failureMessage?.trim() ||
+              response.warnings.find((warning) => warning.trim().length > 0) ||
+              t("node.jimengVideoResult.requeryFailed");
+            setStatusNotice(message);
+            updateNodeData(
+              id,
+              {
+                autoRequeryEnabled: false,
+                isGenerating: false,
+                generationStartedAt: null,
+                lastError: message,
+              },
+              historyOptions,
+            );
+            await flushCurrentProjectToDiskSafely(
+              "saving Jimeng video requery failure",
+            );
+            if (!options?.suppressErrorDialog) {
+              await showErrorDialog(message, t("common.error"));
+            }
+            return;
+          }
+
+          const primaryResult = response.videos[0] ?? null;
+          const hasResult = primaryResult !== null;
+          const completedAt = hasResult
+            ? Date.now()
+            : (data.lastGeneratedAt ?? null);
+          const nextNoticeParts = [
+            response.pending
+              ? t("node.jimengVideoResult.requeryPending")
+              : null,
+            response.warnings.length > 0 ? response.warnings.join(" | ") : null,
+          ].filter(Boolean);
+          setStatusNotice(
+            nextNoticeParts.length > 0 ? nextNoticeParts.join(" | ") : null,
           );
+
+          updateNodeData(
+            id,
+            {
+              submitId: response.submitId,
+              sourceUrl: primaryResult?.sourceUrl ?? data.sourceUrl ?? null,
+              posterSourceUrl:
+                primaryResult?.posterSourceUrl ?? data.posterSourceUrl ?? null,
+              videoUrl: primaryResult?.videoUrl ?? data.videoUrl ?? null,
+              previewImageUrl:
+                primaryResult?.previewImageUrl ?? data.previewImageUrl ?? null,
+              videoFileName:
+                primaryResult?.fileName ?? data.videoFileName ?? null,
+              aspectRatio: primaryResult?.aspectRatio ?? data.aspectRatio,
+              duration: primaryResult?.duration ?? data.duration,
+              width: primaryResult?.width ?? data.width,
+              height: primaryResult?.height ?? data.height,
+              queueStatus: hasResult
+                ? "completed"
+                : response.pending
+                  ? "generating"
+                  : data.queueStatus,
+              autoRequeryEnabled: hasResult
+                ? false
+                : response.pending
+                  ? true
+                  : autoRequeryEnabled,
+              isGenerating: hasResult ? false : response.pending,
+              generationStartedAt: response.pending
+                ? hasResult
+                  ? null
+                  : (data.generationStartedAt ?? Date.now())
+                : null,
+              lastGeneratedAt: completedAt,
+              lastError: null,
+            },
+            historyOptions,
+          );
+          await flushCurrentProjectToDiskSafely(
+            "saving Jimeng video requery result",
+          );
+        } catch (error) {
+          const content = resolveErrorContent(
+            error,
+            t("node.jimengVideoResult.requeryFailed"),
+          );
+          setStatusNotice(content.message);
+          updateNodeData(
+            id,
+            {
+              isGenerating: Boolean(options?.keepPollingOnFailure),
+              generationStartedAt: options?.keepPollingOnFailure
+                ? (data.generationStartedAt ?? Date.now())
+                : null,
+              lastError: content.message,
+            },
+            historyOptions,
+          );
+          if (!options?.keepPollingOnFailure) {
+            await flushCurrentProjectToDiskSafely(
+              "saving Jimeng video requery error",
+            );
+          }
+          if (!options?.suppressErrorDialog) {
+            await showErrorDialog(
+              content.message,
+              t("common.error"),
+              content.details,
+            );
+          }
+        } finally {
+          setIsRequerying(false);
         }
-      } finally {
-        setIsRequerying(false);
-      }
-    }, [
-      autoRequeryEnabled,
-      data.aspectRatio,
-      data.duration,
-      data.generationStartedAt,
-      data.height,
-      data.isGenerating,
-      data.lastGeneratedAt,
-      data.posterSourceUrl,
-      data.previewImageUrl,
-      data.queueStatus,
-      data.sourceUrl,
-      data.videoFileName,
-      data.videoUrl,
-      data.width,
-      flushCurrentProjectToDiskSafely,
-      id,
-      normalizedQueueJobId,
-      normalizedSubmitId,
-      t,
-      updateNodeData,
-    ]);
+      },
+      [
+        autoRequeryEnabled,
+        data.aspectRatio,
+        data.duration,
+        data.generationStartedAt,
+        data.height,
+        data.isGenerating,
+        data.lastGeneratedAt,
+        data.posterSourceUrl,
+        data.previewImageUrl,
+        data.queueStatus,
+        data.sourceUrl,
+        data.videoFileName,
+        data.videoUrl,
+        data.width,
+        flushCurrentProjectToDiskSafely,
+        id,
+        normalizedQueueJobId,
+        normalizedSubmitId,
+        t,
+        updateNodeData,
+      ],
+    );
 
     useEffect(() => {
       if (!shouldAutoRequery || isRequerying) {
@@ -501,13 +518,16 @@ export const JimengVideoResultNode = memo(
       const shouldRequerySoon =
         lastAutoRequerySubmitIdRef.current !== submitIdKey;
       lastAutoRequerySubmitIdRef.current = submitIdKey;
-      const timer = window.setTimeout(() => {
-        void handleRequeryResult({
-          suppressErrorDialog: true,
-          keepPollingOnFailure: true,
-          suppressStartFlush: true,
-        });
-      }, shouldRequerySoon ? 800 : autoRequeryIntervalSeconds * 1000);
+      const timer = window.setTimeout(
+        () => {
+          void handleRequeryResult({
+            suppressErrorDialog: true,
+            keepPollingOnFailure: true,
+            suppressStartFlush: true,
+          });
+        },
+        shouldRequerySoon ? 800 : autoRequeryIntervalSeconds * 1000,
+      );
 
       return () => {
         window.clearTimeout(timer);
@@ -794,7 +814,7 @@ export const JimengVideoResultNode = memo(
             ? "border-accent shadow-[0_0_0_1px_rgba(59,130,246,0.32)]"
             : isReferenceSourceHighlighted
               ? "border-accent/80 shadow-[0_0_0_2px_rgba(59,130,246,0.24),0_4px_18px_rgba(59,130,246,0.1)]"
-            : "border-[rgba(15,23,42,0.22)] hover:border-[rgba(15,23,42,0.34)] dark:border-[rgba(255,255,255,0.22)] dark:hover:border-[rgba(255,255,255,0.34)]"
+              : "border-[rgba(15,23,42,0.22)] hover:border-[rgba(15,23,42,0.34)] dark:border-[rgba(255,255,255,0.22)] dark:hover:border-[rgba(255,255,255,0.34)]"
         }
       `}
         style={{
@@ -814,15 +834,22 @@ export const JimengVideoResultNode = memo(
           }
         />
 
-        <div className={`flex flex-col pt-5 ${hasExplicitHeight ? "min-h-0 flex-1" : ""}`}>
+        <div
+          className={`flex flex-col pt-5 ${hasExplicitHeight ? "min-h-0 flex-1" : ""}`}
+        >
           <div
             className={`flex flex-col overflow-hidden rounded-[var(--node-radius)] bg-[linear-gradient(165deg,rgba(255,255,255,0.05),rgba(255,255,255,0.015))] ${hasExplicitHeight ? "min-h-0 flex-1" : ""}`}
           >
             <div
               className={`relative overflow-hidden bg-black ${flashFrame ? "animate-pulse bg-white/20" : ""} ${hasExplicitHeight ? "min-h-0 flex-1" : ""}`}
-              style={hasExplicitHeight ? undefined : { aspectRatio: resolvedAspectRatio }}
+              style={
+                hasExplicitHeight
+                  ? undefined
+                  : { aspectRatio: resolvedAspectRatio }
+              }
             >
-              {posterSource && (shouldSuspendMedia || !isVideoReady || Boolean(videoError)) ? (
+              {posterSource &&
+              (shouldSuspendMedia || !isVideoReady || Boolean(videoError)) ? (
                 <CanvasNodeImage
                   src={posterSource}
                   alt={t("node.videoNode.posterAlt")}
@@ -857,7 +884,9 @@ export const JimengVideoResultNode = memo(
                   />
                 ) : (
                   <div className="flex h-full w-full items-center justify-center bg-[radial-gradient(circle_at_top,#1f2937_0%,#0f172a_72%)] text-sm text-text-muted">
-                    {showBlockingOverlay || (shouldSuspendMedia && posterSource) ? null : placeholderText}
+                    {showBlockingOverlay || (shouldSuspendMedia && posterSource)
+                      ? null
+                      : placeholderText}
                   </div>
                 )}
               </div>
@@ -885,7 +914,9 @@ export const JimengVideoResultNode = memo(
                     <div className="text-sm font-medium text-text-dark">
                       {t("node.videoNode.loadFailed")}
                     </div>
-                    <div className="text-xs leading-5 text-text-muted">{videoError}</div>
+                    <div className="text-xs leading-5 text-text-muted">
+                      {videoError}
+                    </div>
                   </div>
                   <button
                     type="button"
@@ -930,9 +961,17 @@ export const JimengVideoResultNode = memo(
                       ? "cursor-not-allowed border-white/[0.06] bg-white/[0.02] text-text-muted/40"
                       : "border-white/[0.1] bg-white/[0.06] text-text-dark hover:border-accent/40 hover:bg-accent/12 hover:text-accent"
                   }`}
-                  title={isPlaying ? t("node.videoNode.pause") : t("node.videoNode.play")}
+                  title={
+                    isPlaying
+                      ? t("node.videoNode.pause")
+                      : t("node.videoNode.play")
+                  }
                 >
-                  {isPlaying ? <Pause className="h-4 w-4" /> : <Play className="h-4 w-4" />}
+                  {isPlaying ? (
+                    <Pause className="h-4 w-4" />
+                  ) : (
+                    <Play className="h-4 w-4" />
+                  )}
                 </button>
                 <button
                   type="button"
@@ -956,7 +995,11 @@ export const JimengVideoResultNode = memo(
                   type="button"
                   onClick={() => void handleScreenshot()}
                   disabled={screenshotButtonDisabled || showBlockingOverlay}
-                  title={!isVideoReady ? t("node.videoNode.screenshotNotReady") : t("node.videoNode.screenshot")}
+                  title={
+                    !isVideoReady
+                      ? t("node.videoNode.screenshotNotReady")
+                      : t("node.videoNode.screenshot")
+                  }
                   className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-medium transition-colors ${
                     screenshotButtonDisabled || showBlockingOverlay
                       ? "cursor-not-allowed border-white/10 bg-white/[0.03] text-white/35"
@@ -968,7 +1011,9 @@ export const JimengVideoResultNode = memo(
                   ) : (
                     <Camera className="h-3.5 w-3.5" />
                   )}
-                  {isCapturingScreenshot ? t("node.videoNode.screenshotPending") : t("node.videoNode.screenshot")}
+                  {isCapturingScreenshot
+                    ? t("node.videoNode.screenshotPending")
+                    : t("node.videoNode.screenshot")}
                 </button>
               </div>
 
@@ -1085,17 +1130,17 @@ export const JimengVideoResultNode = memo(
           onChange={(value) => updateNodeData(id, { nodeDescription: value })}
         />
 
-        <Handle
+        <CanvasHandle
           type="target"
           id="target"
           position={Position.Left}
-          className="!h-2.5 !w-2.5 !border-2 !border-surface-dark !bg-accent"
+          className="!border-2 !border-surface-dark !bg-accent"
         />
-        <Handle
+        <CanvasHandle
           type="source"
           id="source"
           position={Position.Right}
-          className="!h-2.5 !w-2.5 !border-2 !border-surface-dark !bg-accent"
+          className="!border-2 !border-surface-dark !bg-accent"
         />
         <NodeResizeHandle
           minWidth={JIMENG_VIDEO_RESULT_NODE_MIN_WIDTH}

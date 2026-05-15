@@ -1,12 +1,22 @@
-import { memo, useCallback, useMemo, useState } from 'react';
-import type { CSSProperties } from 'react';
-import { Handle, Position } from '@xyflow/react';
-import { Check, ChevronDown, Clapperboard, ExternalLink, Eye, Plus } from 'lucide-react';
-import { useTranslation } from 'react-i18next';
-
-import { UiScrollArea } from '@/components/ui';
-import { SHOOTING_SCRIPT_PRIMARY_COLUMNS } from '@/features/canvas/application/shootingScriptSchema';
-import { createManualShootingScriptRow, reindexShootingScriptRows } from '@/features/canvas/application/shootingScriptGenerator';
+import { memo, useCallback, useMemo, useState } from "react";
+import type { CSSProperties } from "react";
+import { Position } from "@xyflow/react";
+import { CanvasHandle } from "@/features/canvas/ui/CanvasHandle";
+import {
+  Check,
+  ChevronDown,
+  Clapperboard,
+  ExternalLink,
+  Eye,
+  Plus,
+} from "lucide-react";
+import { useTranslation } from "react-i18next";
+import { UiScrollArea } from "@/components/ui";
+import { SHOOTING_SCRIPT_PRIMARY_COLUMNS } from "@/features/canvas/application/shootingScriptSchema";
+import {
+  createManualShootingScriptRow,
+  reindexShootingScriptRows,
+} from "@/features/canvas/application/shootingScriptGenerator";
 import {
   CANVAS_NODE_TYPES,
   SHOOTING_SCRIPT_NODE_DEFAULT_HEIGHT,
@@ -16,11 +26,11 @@ import {
   type ShootingScriptColumnKey,
   type ShootingScriptNodeData,
   type ShootingScriptRow,
-} from '@/features/canvas/domain/canvasNodes';
-import { resolveNodeDisplayName } from '@/features/canvas/domain/nodeDisplay';
-import { NodeResizeHandle } from '@/features/canvas/ui/NodeResizeHandle';
-import { useCanvasStore } from '@/stores/canvasStore';
-import { useScriptEditorStore } from '@/stores/scriptEditorStore';
+} from "@/features/canvas/domain/canvasNodes";
+import { resolveNodeDisplayName } from "@/features/canvas/domain/nodeDisplay";
+import { NodeResizeHandle } from "@/features/canvas/ui/NodeResizeHandle";
+import { useCanvasStore } from "@/stores/canvasStore";
+import { useScriptEditorStore } from "@/stores/scriptEditorStore";
 
 type ShootingScriptNodeProps = {
   id: string;
@@ -38,510 +48,674 @@ const TABLE_BASE_SCREEN_FONT_SIZE = 13;
 const TABLE_MIN_CSS_FONT_SIZE = 6.5;
 const TABLE_ACTION_COLUMN_WIDTH = 108;
 const SHOOTING_SCRIPT_NODE_BASE_CLASS =
-  'group relative overflow-visible rounded-[var(--node-radius)] border bg-surface-dark/90 transition-all duration-150';
+  "group relative overflow-visible rounded-[var(--node-radius)] border bg-surface-dark/90 transition-all duration-150";
 const SHOOTING_SCRIPT_NODE_SELECTED_CLASS =
-  'border-[#222222] shadow-[0_0_0_2px_rgba(34,34,34,0.38),0_4px_14px_rgba(15,23,42,0.12)] dark:border-white/70 dark:shadow-[0_0_0_2px_rgba(245,245,245,0.2),0_4px_14px_rgba(0,0,0,0.24)]';
+  "border-[#222222] shadow-[0_0_0_2px_rgba(34,34,34,0.38),0_4px_14px_rgba(15,23,42,0.12)] dark:border-white/70 dark:shadow-[0_0_0_2px_rgba(245,245,245,0.2),0_4px_14px_rgba(0,0,0,0.24)]";
 const SHOOTING_SCRIPT_NODE_IDLE_CLASS =
-  'border-[rgba(15,23,42,0.22)] hover:border-[rgba(15,23,42,0.34)] hover:shadow-[0_4px_16px_rgba(0,0,0,0.12)] dark:border-[rgba(255,255,255,0.22)] dark:hover:border-[rgba(255,255,255,0.34)] dark:hover:shadow-[0_4px_16px_rgba(0,0,0,0.25)]';
+  "border-[rgba(15,23,42,0.22)] hover:border-[rgba(15,23,42,0.34)] hover:shadow-[0_4px_16px_rgba(0,0,0,0.12)] dark:border-[rgba(255,255,255,0.22)] dark:hover:border-[rgba(255,255,255,0.34)] dark:hover:shadow-[0_4px_16px_rgba(0,0,0,0.25)]";
 const SHOOTING_SCRIPT_HANDLE_CLASS =
-  '!h-2.5 !w-2.5 !rounded-full !border-2 !border-surface-dark !bg-accent';
+  "!rounded-full !border-2 !border-surface-dark !bg-accent";
 const SHOOTING_SCRIPT_DANGER_BUTTON_CLASS =
-  'border-red-900/30 bg-red-950/[0.06] text-red-900 hover:border-red-900/45 hover:bg-red-950/[0.1] dark:border-red-400/25 dark:bg-red-500/10 dark:text-red-200 dark:hover:bg-red-500/18';
+  "border-red-900/30 bg-red-950/[0.06] text-red-900 hover:border-red-900/45 hover:bg-red-950/[0.1] dark:border-red-400/25 dark:bg-red-500/10 dark:text-red-200 dark:hover:bg-red-500/18";
 const DEFAULT_VISIBLE_SHOOTING_SCRIPT_COLUMNS: ShootingScriptColumnKey[] = [
-  'shotNumber',
-  'beat',
-  'action',
-  'composition',
-  'camera',
-  'duration',
-  'audio',
-  'genTarget',
+  "shotNumber",
+  "beat",
+  "action",
+  "composition",
+  "camera",
+  "duration",
+  "audio",
+  "genTarget",
 ];
 
 type ShootingScriptTableStyle = CSSProperties & {
-  '--shooting-script-font-size': string;
-  '--shooting-script-header-font-size': string;
-  '--shooting-script-line-height': string;
+  "--shooting-script-font-size": string;
+  "--shooting-script-header-font-size": string;
+  "--shooting-script-line-height": string;
 };
 
-function resolveNodeDimension(value: number | undefined, fallback: number): number {
-  if (typeof value === 'number' && Number.isFinite(value) && value > 1) {
+function resolveNodeDimension(
+  value: number | undefined,
+  fallback: number,
+): number {
+  if (typeof value === "number" && Number.isFinite(value) && value > 1) {
     return Math.round(value);
   }
   return fallback;
 }
 
-function readCellValue(row: ShootingScriptRow, key: ShootingScriptColumnKey): string {
-  return String(row[key] ?? '');
+function readCellValue(
+  row: ShootingScriptRow,
+  key: ShootingScriptColumnKey,
+): string {
+  return String(row[key] ?? "");
 }
 
-function buildRowPatch(key: ShootingScriptColumnKey, value: string): Partial<ShootingScriptRow> {
-  if (key === 'genTarget') {
-    return { genTarget: value as ShootingScriptRow['genTarget'] };
+function buildRowPatch(
+  key: ShootingScriptColumnKey,
+  value: string,
+): Partial<ShootingScriptRow> {
+  if (key === "genTarget") {
+    return { genTarget: value as ShootingScriptRow["genTarget"] };
   }
-  if (key === 'status') {
-    return { status: value as ShootingScriptRow['status'] };
+  if (key === "status") {
+    return { status: value as ShootingScriptRow["status"] };
   }
   return { [key]: value } as Partial<ShootingScriptRow>;
 }
 
 function isEditableColumn(key: ShootingScriptColumnKey): boolean {
-  return key !== 'shotNumber';
+  return key !== "shotNumber";
 }
 
 function stopInteractionPropagation(event: { stopPropagation: () => void }) {
   event.stopPropagation();
 }
 
-export const ShootingScriptNode = memo(({
-  id,
-  data,
-  selected,
-  width,
-  height,
-}: ShootingScriptNodeProps) => {
-  const { t } = useTranslation();
-  const updateNodeData = useCanvasStore((state) => state.updateNodeData);
-  const setSelectedNode = useCanvasStore((state) => state.setSelectedNode);
-  const canvasZoom = useCanvasStore((state) => state.currentViewport.zoom);
-  const focusShootingScript = useScriptEditorStore((state) => state.focusShootingScript);
-  const focusShootingScriptCell = useScriptEditorStore((state) => state.focusShootingScriptCell);
-  const activeScriptNodeId = useScriptEditorStore((state) => state.activeScriptNodeId);
-  const activeScriptCell = useScriptEditorStore((state) => state.activeScriptCell);
-  const [editingCell, setEditingCell] = useState<{
-    rowId: string;
-    columnKey: ShootingScriptColumnKey;
-    value: string;
-  } | null>(null);
-  const [visibleColumnKeys, setVisibleColumnKeys] = useState<ShootingScriptColumnKey[]>(
-    DEFAULT_VISIBLE_SHOOTING_SCRIPT_COLUMNS
-  );
-  const [isColumnMenuOpen, setIsColumnMenuOpen] = useState(false);
-
-  const resolvedWidth = resolveNodeDimension(width, SHOOTING_SCRIPT_NODE_DEFAULT_WIDTH);
-  const resolvedHeight = resolveNodeDimension(height, SHOOTING_SCRIPT_NODE_DEFAULT_HEIGHT);
-  const resolvedTitle = resolveNodeDisplayName(CANVAS_NODE_TYPES.shootingScript, data);
-  const isActiveScriptNode = activeScriptNodeId === id;
-  const numberingContext = useMemo(() => normalizeShootingScriptNumberingContext({
-    chapterNumber: data.chapterNumber,
-    sceneNumber: data.sceneNumber,
-    episodeNumber: data.episodeNumber,
-  }), [data.chapterNumber, data.episodeNumber, data.sceneNumber]);
-
-  const commitCellEdit = useCallback(() => {
-    if (!editingCell) {
-      return;
-    }
-
-    const nextRows = data.rows.map((row) => (
-      row.id === editingCell.rowId
-        ? { ...row, ...buildRowPatch(editingCell.columnKey, editingCell.value) }
-        : row
-    ));
-    updateNodeData(id, { rows: nextRows, status: nextRows.length > 0 ? 'drafting' : 'empty' }, { historyMode: 'skip' });
-    setEditingCell(null);
-  }, [data.rows, editingCell, id, updateNodeData]);
-
-  const openWorkbench = useCallback((rowId?: string, columnKey?: ShootingScriptColumnKey) => {
-    const cell = rowId && columnKey ? { rowId, columnKey } : null;
-    setSelectedNode(id);
-    focusShootingScript(id, {
-      sceneNodeId: data.sourceSceneNodeId,
-      episodeId: data.sourceEpisodeId,
-      cell,
-    });
-  }, [data.sourceEpisodeId, data.sourceSceneNodeId, focusShootingScript, id, setSelectedNode]);
-
-  const handleSelectCell = useCallback((rowId: string, columnKey: ShootingScriptColumnKey) => {
-    setSelectedNode(id);
-    focusShootingScriptCell(id, { rowId, columnKey }, {
-      sceneNodeId: data.sourceSceneNodeId,
-      episodeId: data.sourceEpisodeId,
-    });
-  }, [data.sourceEpisodeId, data.sourceSceneNodeId, focusShootingScriptCell, id, setSelectedNode]);
-
-  const addRow = useCallback(() => {
-    const nextRows = reindexShootingScriptRows([
-      ...data.rows,
-      createManualShootingScriptRow(data.rows.length, numberingContext),
-    ], numberingContext);
-    updateNodeData(id, { rows: nextRows, status: nextRows.length > 0 ? 'drafting' : 'empty' }, { historyMode: 'skip' });
-    const newRow = nextRows[nextRows.length - 1];
-    if (newRow) {
-      handleSelectCell(newRow.id, 'beat');
-    }
-  }, [data.rows, handleSelectCell, id, numberingContext, updateNodeData]);
-
-  const moveRow = useCallback((rowId: string, direction: 'up' | 'down') => {
-    const currentIndex = data.rows.findIndex((row) => row.id === rowId);
-    if (currentIndex < 0) {
-      return;
-    }
-
-    const targetIndex = direction === 'up' ? currentIndex - 1 : currentIndex + 1;
-    if (targetIndex < 0 || targetIndex >= data.rows.length) {
-      return;
-    }
-
-    const nextRows = [...data.rows];
-    const [movedRow] = nextRows.splice(currentIndex, 1);
-    nextRows.splice(targetIndex, 0, movedRow);
-    updateNodeData(id, {
-      rows: reindexShootingScriptRows(nextRows, numberingContext),
-      status: nextRows.length > 0 ? 'drafting' : 'empty',
-    }, { historyMode: 'skip' });
-  }, [data.rows, id, numberingContext, updateNodeData]);
-
-  const deleteRow = useCallback((rowId: string) => {
-    const nextRows = reindexShootingScriptRows(
-      data.rows.filter((row) => row.id !== rowId),
-      numberingContext
+export const ShootingScriptNode = memo(
+  ({ id, data, selected, width, height }: ShootingScriptNodeProps) => {
+    const { t } = useTranslation();
+    const updateNodeData = useCanvasStore((state) => state.updateNodeData);
+    const setSelectedNode = useCanvasStore((state) => state.setSelectedNode);
+    const canvasZoom = useCanvasStore((state) => state.currentViewport.zoom);
+    const focusShootingScript = useScriptEditorStore(
+      (state) => state.focusShootingScript,
     );
-    updateNodeData(id, { rows: nextRows, status: nextRows.length > 0 ? 'drafting' : 'empty' }, { historyMode: 'skip' });
-  }, [data.rows, id, numberingContext, updateNodeData]);
-
-  const selectedCellKey = useMemo(() => (
-    isActiveScriptNode && activeScriptCell
-      ? `${activeScriptCell.rowId}:${activeScriptCell.columnKey}`
-      : null
-  ), [activeScriptCell, isActiveScriptNode]);
-  const scriptLabel = formatShootingScriptNodeLabel(numberingContext);
-  const genTargetOptions = useMemo(() => ([
-    { value: 'image', label: t('script.shootingScript.genTarget.image') },
-    { value: 'video', label: t('script.shootingScript.genTarget.video') },
-    { value: 'storyboard', label: t('script.shootingScript.genTarget.storyboard') },
-  ]), [t]);
-  const visibleColumns = useMemo(() => {
-    const visibleKeySet = new Set(visibleColumnKeys);
-    const nextColumns = SHOOTING_SCRIPT_PRIMARY_COLUMNS.filter((column) => visibleKeySet.has(column.key));
-    return nextColumns.length > 0 ? nextColumns : [SHOOTING_SCRIPT_PRIMARY_COLUMNS[0]];
-  }, [visibleColumnKeys]);
-  const visibleColumnCount = visibleColumns.length;
-  const visibleTableMinWidth = useMemo(() => (
-    visibleColumns.reduce(
-      (sum, column) => sum + (column.widthPx ?? 160),
-      TABLE_ACTION_COLUMN_WIDTH
-    )
-  ), [visibleColumns]);
-  const tableTypographyStyle = useMemo<ShootingScriptTableStyle>(() => {
-    const normalizedZoom = Number.isFinite(canvasZoom) && canvasZoom > 1 ? canvasZoom : 1;
-    const fontSize = Math.max(
-      TABLE_MIN_CSS_FONT_SIZE,
-      Math.min(TABLE_BASE_SCREEN_FONT_SIZE, TABLE_BASE_SCREEN_FONT_SIZE / normalizedZoom)
+    const focusShootingScriptCell = useScriptEditorStore(
+      (state) => state.focusShootingScriptCell,
     );
-    return {
-      '--shooting-script-font-size': `${fontSize}px`,
-      '--shooting-script-header-font-size': `${Math.max(6, fontSize * 0.92)}px`,
-      '--shooting-script-line-height': `${Math.max(10, fontSize * 1.48)}px`,
-      fontSize: 'var(--shooting-script-font-size)',
-      lineHeight: 'var(--shooting-script-line-height)',
-      minWidth: visibleTableMinWidth,
-    };
-  }, [canvasZoom, visibleTableMinWidth]);
-  const toggleColumnVisibility = useCallback((columnKey: ShootingScriptColumnKey) => {
-    commitCellEdit();
-    setVisibleColumnKeys((current) => {
-      if (current.includes(columnKey)) {
-        return current.length <= 1 ? current : current.filter((key) => key !== columnKey);
+    const activeScriptNodeId = useScriptEditorStore(
+      (state) => state.activeScriptNodeId,
+    );
+    const activeScriptCell = useScriptEditorStore(
+      (state) => state.activeScriptCell,
+    );
+    const [editingCell, setEditingCell] = useState<{
+      rowId: string;
+      columnKey: ShootingScriptColumnKey;
+      value: string;
+    } | null>(null);
+    const [visibleColumnKeys, setVisibleColumnKeys] = useState<
+      ShootingScriptColumnKey[]
+    >(DEFAULT_VISIBLE_SHOOTING_SCRIPT_COLUMNS);
+    const [isColumnMenuOpen, setIsColumnMenuOpen] = useState(false);
+
+    const resolvedWidth = resolveNodeDimension(
+      width,
+      SHOOTING_SCRIPT_NODE_DEFAULT_WIDTH,
+    );
+    const resolvedHeight = resolveNodeDimension(
+      height,
+      SHOOTING_SCRIPT_NODE_DEFAULT_HEIGHT,
+    );
+    const resolvedTitle = resolveNodeDisplayName(
+      CANVAS_NODE_TYPES.shootingScript,
+      data,
+    );
+    const isActiveScriptNode = activeScriptNodeId === id;
+    const numberingContext = useMemo(
+      () =>
+        normalizeShootingScriptNumberingContext({
+          chapterNumber: data.chapterNumber,
+          sceneNumber: data.sceneNumber,
+          episodeNumber: data.episodeNumber,
+        }),
+      [data.chapterNumber, data.episodeNumber, data.sceneNumber],
+    );
+
+    const commitCellEdit = useCallback(() => {
+      if (!editingCell) {
+        return;
       }
-      const nextKeySet = new Set([...current, columnKey]);
-      return SHOOTING_SCRIPT_PRIMARY_COLUMNS
-        .map((column) => column.key)
-        .filter((key) => nextKeySet.has(key));
-    });
-  }, [commitCellEdit]);
 
-  return (
-    <div
-      className={`${SHOOTING_SCRIPT_NODE_BASE_CLASS} ${selected ? SHOOTING_SCRIPT_NODE_SELECTED_CLASS : SHOOTING_SCRIPT_NODE_IDLE_CLASS}`}
-      style={{ width: resolvedWidth, height: resolvedHeight }}
-      onClick={() => openWorkbench(activeScriptCell?.rowId, activeScriptCell?.columnKey)}
-    >
-      <Handle
-        type="target"
-        id="target"
-        position={Position.Left}
-        className={SHOOTING_SCRIPT_HANDLE_CLASS}
-      />
+      const nextRows = data.rows.map((row) =>
+        row.id === editingCell.rowId
+          ? {
+              ...row,
+              ...buildRowPatch(editingCell.columnKey, editingCell.value),
+            }
+          : row,
+      );
+      updateNodeData(
+        id,
+        { rows: nextRows, status: nextRows.length > 0 ? "drafting" : "empty" },
+        { historyMode: "skip" },
+      );
+      setEditingCell(null);
+    }, [data.rows, editingCell, id, updateNodeData]);
 
-      <div className="relative flex h-full flex-col overflow-hidden rounded-[var(--node-radius)] p-3">
-        <div className="flex items-start justify-between gap-3">
-          <div className="min-w-0">
-            <div className="flex flex-wrap items-center gap-2 text-[11px] text-text-muted">
-              <span className="rounded-full bg-bg-dark px-2 py-0.5">
-                {t('script.sceneCatalog.chapterLabel', { number: data.chapterNumber || 1 })}
-              </span>
-              <span className="rounded-full bg-bg-dark px-2.5 py-0.5">
-                {t('script.shootingScript.nodeTitle', { label: scriptLabel })}
-              </span>
+    const openWorkbench = useCallback(
+      (rowId?: string, columnKey?: ShootingScriptColumnKey) => {
+        const cell = rowId && columnKey ? { rowId, columnKey } : null;
+        setSelectedNode(id);
+        focusShootingScript(id, {
+          sceneNodeId: data.sourceSceneNodeId,
+          episodeId: data.sourceEpisodeId,
+          cell,
+        });
+      },
+      [
+        data.sourceEpisodeId,
+        data.sourceSceneNodeId,
+        focusShootingScript,
+        id,
+        setSelectedNode,
+      ],
+    );
+
+    const handleSelectCell = useCallback(
+      (rowId: string, columnKey: ShootingScriptColumnKey) => {
+        setSelectedNode(id);
+        focusShootingScriptCell(
+          id,
+          { rowId, columnKey },
+          {
+            sceneNodeId: data.sourceSceneNodeId,
+            episodeId: data.sourceEpisodeId,
+          },
+        );
+      },
+      [
+        data.sourceEpisodeId,
+        data.sourceSceneNodeId,
+        focusShootingScriptCell,
+        id,
+        setSelectedNode,
+      ],
+    );
+
+    const addRow = useCallback(() => {
+      const nextRows = reindexShootingScriptRows(
+        [
+          ...data.rows,
+          createManualShootingScriptRow(data.rows.length, numberingContext),
+        ],
+        numberingContext,
+      );
+      updateNodeData(
+        id,
+        { rows: nextRows, status: nextRows.length > 0 ? "drafting" : "empty" },
+        { historyMode: "skip" },
+      );
+      const newRow = nextRows[nextRows.length - 1];
+      if (newRow) {
+        handleSelectCell(newRow.id, "beat");
+      }
+    }, [data.rows, handleSelectCell, id, numberingContext, updateNodeData]);
+
+    const moveRow = useCallback(
+      (rowId: string, direction: "up" | "down") => {
+        const currentIndex = data.rows.findIndex((row) => row.id === rowId);
+        if (currentIndex < 0) {
+          return;
+        }
+
+        const targetIndex =
+          direction === "up" ? currentIndex - 1 : currentIndex + 1;
+        if (targetIndex < 0 || targetIndex >= data.rows.length) {
+          return;
+        }
+
+        const nextRows = [...data.rows];
+        const [movedRow] = nextRows.splice(currentIndex, 1);
+        nextRows.splice(targetIndex, 0, movedRow);
+        updateNodeData(
+          id,
+          {
+            rows: reindexShootingScriptRows(nextRows, numberingContext),
+            status: nextRows.length > 0 ? "drafting" : "empty",
+          },
+          { historyMode: "skip" },
+        );
+      },
+      [data.rows, id, numberingContext, updateNodeData],
+    );
+
+    const deleteRow = useCallback(
+      (rowId: string) => {
+        const nextRows = reindexShootingScriptRows(
+          data.rows.filter((row) => row.id !== rowId),
+          numberingContext,
+        );
+        updateNodeData(
+          id,
+          {
+            rows: nextRows,
+            status: nextRows.length > 0 ? "drafting" : "empty",
+          },
+          { historyMode: "skip" },
+        );
+      },
+      [data.rows, id, numberingContext, updateNodeData],
+    );
+
+    const selectedCellKey = useMemo(
+      () =>
+        isActiveScriptNode && activeScriptCell
+          ? `${activeScriptCell.rowId}:${activeScriptCell.columnKey}`
+          : null,
+      [activeScriptCell, isActiveScriptNode],
+    );
+    const scriptLabel = formatShootingScriptNodeLabel(numberingContext);
+    const genTargetOptions = useMemo(
+      () => [
+        { value: "image", label: t("script.shootingScript.genTarget.image") },
+        { value: "video", label: t("script.shootingScript.genTarget.video") },
+        {
+          value: "storyboard",
+          label: t("script.shootingScript.genTarget.storyboard"),
+        },
+      ],
+      [t],
+    );
+    const visibleColumns = useMemo(() => {
+      const visibleKeySet = new Set(visibleColumnKeys);
+      const nextColumns = SHOOTING_SCRIPT_PRIMARY_COLUMNS.filter((column) =>
+        visibleKeySet.has(column.key),
+      );
+      return nextColumns.length > 0
+        ? nextColumns
+        : [SHOOTING_SCRIPT_PRIMARY_COLUMNS[0]];
+    }, [visibleColumnKeys]);
+    const visibleColumnCount = visibleColumns.length;
+    const visibleTableMinWidth = useMemo(
+      () =>
+        visibleColumns.reduce(
+          (sum, column) => sum + (column.widthPx ?? 160),
+          TABLE_ACTION_COLUMN_WIDTH,
+        ),
+      [visibleColumns],
+    );
+    const tableTypographyStyle = useMemo<ShootingScriptTableStyle>(() => {
+      const normalizedZoom =
+        Number.isFinite(canvasZoom) && canvasZoom > 1 ? canvasZoom : 1;
+      const fontSize = Math.max(
+        TABLE_MIN_CSS_FONT_SIZE,
+        Math.min(
+          TABLE_BASE_SCREEN_FONT_SIZE,
+          TABLE_BASE_SCREEN_FONT_SIZE / normalizedZoom,
+        ),
+      );
+      return {
+        "--shooting-script-font-size": `${fontSize}px`,
+        "--shooting-script-header-font-size": `${Math.max(6, fontSize * 0.92)}px`,
+        "--shooting-script-line-height": `${Math.max(10, fontSize * 1.48)}px`,
+        fontSize: "var(--shooting-script-font-size)",
+        lineHeight: "var(--shooting-script-line-height)",
+        minWidth: visibleTableMinWidth,
+      };
+    }, [canvasZoom, visibleTableMinWidth]);
+    const toggleColumnVisibility = useCallback(
+      (columnKey: ShootingScriptColumnKey) => {
+        commitCellEdit();
+        setVisibleColumnKeys((current) => {
+          if (current.includes(columnKey)) {
+            return current.length <= 1
+              ? current
+              : current.filter((key) => key !== columnKey);
+          }
+          const nextKeySet = new Set([...current, columnKey]);
+          return SHOOTING_SCRIPT_PRIMARY_COLUMNS.map(
+            (column) => column.key,
+          ).filter((key) => nextKeySet.has(key));
+        });
+      },
+      [commitCellEdit],
+    );
+
+    return (
+      <div
+        className={`${SHOOTING_SCRIPT_NODE_BASE_CLASS} ${selected ? SHOOTING_SCRIPT_NODE_SELECTED_CLASS : SHOOTING_SCRIPT_NODE_IDLE_CLASS}`}
+        style={{ width: resolvedWidth, height: resolvedHeight }}
+        onClick={() =>
+          openWorkbench(activeScriptCell?.rowId, activeScriptCell?.columnKey)
+        }
+      >
+        <CanvasHandle
+          type="target"
+          id="target"
+          position={Position.Left}
+          className={SHOOTING_SCRIPT_HANDLE_CLASS}
+        />
+
+        <div className="relative flex h-full flex-col overflow-hidden rounded-[var(--node-radius)] p-3">
+          <div className="flex items-start justify-between gap-3">
+            <div className="min-w-0">
+              <div className="flex flex-wrap items-center gap-2 text-[11px] text-text-muted">
+                <span className="rounded-full bg-bg-dark px-2 py-0.5">
+                  {t("script.sceneCatalog.chapterLabel", {
+                    number: data.chapterNumber || 1,
+                  })}
+                </span>
+                <span className="rounded-full bg-bg-dark px-2.5 py-0.5">
+                  {t("script.shootingScript.nodeTitle", { label: scriptLabel })}
+                </span>
+              </div>
+              <div className="mt-2 flex items-center gap-2">
+                <Clapperboard className="h-4 w-4 text-text-muted" />
+                <span className="truncate text-sm font-semibold text-text-dark">
+                  {resolvedTitle}
+                </span>
+              </div>
+              <div className="mt-1 line-clamp-1 text-xs text-text-muted">
+                {data.sceneTitle || t("script.sceneStudio.untitledScene")}
+              </div>
             </div>
-            <div className="mt-2 flex items-center gap-2">
-              <Clapperboard className="h-4 w-4 text-text-muted" />
-              <span className="truncate text-sm font-semibold text-text-dark">{resolvedTitle}</span>
-            </div>
-            <div className="mt-1 line-clamp-1 text-xs text-text-muted">
-              {data.sceneTitle || t('script.sceneStudio.untitledScene')}
+
+            <div className="flex items-center gap-1">
+              <button
+                type="button"
+                onClick={(event) => {
+                  event.stopPropagation();
+                  openWorkbench();
+                }}
+                className="nodrag flex h-8 w-8 items-center justify-center rounded-lg border border-transparent text-text-muted transition-colors hover:border-border-dark hover:bg-bg-dark hover:text-text-dark"
+                title={t("script.sceneWorkbench.openWorkbench")}
+              >
+                <ExternalLink className="h-4 w-4" />
+              </button>
             </div>
           </div>
 
-          <div className="flex items-center gap-1">
+          <div className="mt-3 flex flex-wrap items-center gap-2 text-xs">
             <button
               type="button"
               onClick={(event) => {
                 event.stopPropagation();
-                openWorkbench();
-              }}
-              className="nodrag flex h-8 w-8 items-center justify-center rounded-lg border border-transparent text-text-muted transition-colors hover:border-border-dark hover:bg-bg-dark hover:text-text-dark"
-              title={t('script.sceneWorkbench.openWorkbench')}
-            >
-              <ExternalLink className="h-4 w-4" />
-            </button>
-          </div>
-        </div>
-
-        <div className="mt-3 flex flex-wrap items-center gap-2 text-xs">
-          <button
-            type="button"
-            onClick={(event) => {
-              event.stopPropagation();
-              addRow();
-            }}
-            className="nodrag inline-flex items-center gap-1.5 rounded-lg border border-border-dark bg-bg-dark px-3 py-1.5 text-xs font-medium text-text-dark transition-colors hover:bg-bg-dark/80"
-          >
-            <Plus className="h-3.5 w-3.5" />
-            {t('script.shootingScript.addRow')}
-          </button>
-          <span className="rounded-full bg-bg-dark/60 px-2.5 py-1 text-text-muted">
-            {t('script.shootingScript.rowCount', { count: data.rows.length })}
-          </span>
-          <span className="rounded-full bg-bg-dark px-2.5 py-1 text-text-muted">
-            {t(`script.shootingScript.status.${data.status}`)}
-          </span>
-          <div className="relative">
-            <button
-              type="button"
-              onClick={(event) => {
-                event.stopPropagation();
-                setIsColumnMenuOpen((current) => !current);
+                addRow();
               }}
               className="nodrag inline-flex items-center gap-1.5 rounded-lg border border-border-dark bg-bg-dark px-3 py-1.5 text-xs font-medium text-text-dark transition-colors hover:bg-bg-dark/80"
-              title={t('script.shootingScript.viewColumns')}
             >
-              <Eye className="h-3.5 w-3.5" />
-              {t('script.shootingScript.viewColumns')}
-              <ChevronDown className={`h-3.5 w-3.5 transition-transform ${isColumnMenuOpen ? 'rotate-180' : ''}`} />
+              <Plus className="h-3.5 w-3.5" />
+              {t("script.shootingScript.addRow")}
             </button>
-            {isColumnMenuOpen ? (
-              <div
-                className="nodrag nowheel absolute left-0 top-[calc(100%+6px)] z-30 w-[190px] overflow-hidden rounded-xl border border-border-dark bg-surface-dark/98 py-1.5 text-xs shadow-[0_18px_36px_rgba(0,0,0,0.36)] backdrop-blur"
-                onPointerDown={stopInteractionPropagation}
-                onMouseDown={stopInteractionPropagation}
-                onClick={stopInteractionPropagation}
-                onDoubleClick={stopInteractionPropagation}
+            <span className="rounded-full bg-bg-dark/60 px-2.5 py-1 text-text-muted">
+              {t("script.shootingScript.rowCount", { count: data.rows.length })}
+            </span>
+            <span className="rounded-full bg-bg-dark px-2.5 py-1 text-text-muted">
+              {t(`script.shootingScript.status.${data.status}`)}
+            </span>
+            <div className="relative">
+              <button
+                type="button"
+                onClick={(event) => {
+                  event.stopPropagation();
+                  setIsColumnMenuOpen((current) => !current);
+                }}
+                className="nodrag inline-flex items-center gap-1.5 rounded-lg border border-border-dark bg-bg-dark px-3 py-1.5 text-xs font-medium text-text-dark transition-colors hover:bg-bg-dark/80"
+                title={t("script.shootingScript.viewColumns")}
               >
-                <div className="border-b border-border-dark/70 px-3 pb-1.5 pt-0.5 text-[11px] font-medium text-text-muted">
-                  {t('script.shootingScript.toggleColumns')}
-                </div>
-                {SHOOTING_SCRIPT_PRIMARY_COLUMNS.map((column) => {
-                  const isVisible = visibleColumnKeys.includes(column.key);
-                  const isLastVisible = isVisible && visibleColumnCount <= 1;
-                  return (
-                    <button
-                      key={column.key}
-                      type="button"
-                      disabled={isLastVisible}
-                      onClick={() => toggleColumnVisibility(column.key)}
-                      className="flex w-full items-center justify-between gap-2 px-3 py-2 text-left font-medium text-text-dark transition-colors hover:bg-bg-dark/80 disabled:cursor-not-allowed disabled:opacity-55"
-                    >
-                      <span className="min-w-0 truncate">{t(column.labelKey)}</span>
-                      {isVisible ? <Check className="h-3.5 w-3.5 shrink-0 text-text-muted" /> : <span className="h-3.5 w-3.5 shrink-0" />}
-                    </button>
-                  );
-                })}
-              </div>
-            ) : null}
-          </div>
-        </div>
-
-        <UiScrollArea
-          className="nodrag nowheel mt-3 min-h-0 flex-1 rounded-2xl border border-border-dark bg-bg-dark/25"
-          viewportClassName="h-full"
-          contentClassName="min-w-full pr-5"
-          onPointerDown={stopInteractionPropagation}
-          onMouseDown={stopInteractionPropagation}
-          onDoubleClick={stopInteractionPropagation}
-        >
-          <table
-            className="w-full table-fixed border-separate border-spacing-0 text-left"
-            style={tableTypographyStyle}
-          >
-            <colgroup>
-              {visibleColumns.map((column) => (
-                <col key={column.key} style={{ width: column.widthPx ?? 160 }} />
-              ))}
-              <col style={{ width: TABLE_ACTION_COLUMN_WIDTH }} />
-            </colgroup>
-            <thead className="sticky top-0 z-10 bg-surface-dark/95 text-text-muted" style={{ fontSize: 'var(--shooting-script-header-font-size)' }}>
-              <tr>
-                {visibleColumns.map((column) => (
-                  <th key={column.key} className="border-b border-border-dark px-2 py-2 font-medium">
-                    {t(column.labelKey)}
-                  </th>
-                ))}
-                <th className="border-b border-border-dark px-2 py-2 font-medium">{t('common.actions')}</th>
-              </tr>
-            </thead>
-            <tbody>
-              {data.rows.length > 0 ? data.rows.map((row, index) => (
-                <tr key={row.id} className="align-top">
-                  {visibleColumns.map((column) => {
-                    const cellKey = `${row.id}:${column.key}`;
-                    const isSelectedCell = selectedCellKey === cellKey;
-                    const isEditingCell = editingCell?.rowId === row.id && editingCell.columnKey === column.key;
-                    const isEditable = isEditableColumn(column.key);
-
+                <Eye className="h-3.5 w-3.5" />
+                {t("script.shootingScript.viewColumns")}
+                <ChevronDown
+                  className={`h-3.5 w-3.5 transition-transform ${isColumnMenuOpen ? "rotate-180" : ""}`}
+                />
+              </button>
+              {isColumnMenuOpen ? (
+                <div
+                  className="nodrag nowheel absolute left-0 top-[calc(100%+6px)] z-30 w-[190px] overflow-hidden rounded-xl border border-border-dark bg-surface-dark/98 py-1.5 text-xs shadow-[0_18px_36px_rgba(0,0,0,0.36)] backdrop-blur"
+                  onPointerDown={stopInteractionPropagation}
+                  onMouseDown={stopInteractionPropagation}
+                  onClick={stopInteractionPropagation}
+                  onDoubleClick={stopInteractionPropagation}
+                >
+                  <div className="border-b border-border-dark/70 px-3 pb-1.5 pt-0.5 text-[11px] font-medium text-text-muted">
+                    {t("script.shootingScript.toggleColumns")}
+                  </div>
+                  {SHOOTING_SCRIPT_PRIMARY_COLUMNS.map((column) => {
+                    const isVisible = visibleColumnKeys.includes(column.key);
+                    const isLastVisible = isVisible && visibleColumnCount <= 1;
                     return (
-                      <td key={column.key} className="border-b border-border-dark/70 px-2 py-2">
-                        {isEditingCell ? (
-                          column.key === 'genTarget' ? (
-                            <select
-                              autoFocus
-                              value={editingCell.value}
-                              onChange={(event) => setEditingCell((current) => current ? { ...current, value: event.target.value } : current)}
-                              onBlur={commitCellEdit}
-                              onPointerDown={stopInteractionPropagation}
-                              onMouseDown={stopInteractionPropagation}
-                              onClick={stopInteractionPropagation}
-                              className="nodrag nowheel w-full rounded-lg border border-border-dark bg-bg-dark px-2 py-1.5 text-text-dark outline-none focus:border-text-muted/60"
-                            >
-                              {genTargetOptions.map((option) => (
-                                <option key={option.value} value={option.value}>
-                                  {option.label}
-                                </option>
-                              ))}
-                            </select>
-                          ) : (
-                            <textarea
-                              autoFocus
-                              rows={column.multiline ? 4 : 1}
-                              value={editingCell.value}
-                              onChange={(event) => setEditingCell((current) => current ? { ...current, value: event.target.value } : current)}
-                              onBlur={commitCellEdit}
-                              onPointerDown={stopInteractionPropagation}
-                              onMouseDown={stopInteractionPropagation}
-                              onClick={stopInteractionPropagation}
-                              onKeyDown={(event) => {
-                                if (event.key === 'Enter' && (event.metaKey || event.ctrlKey)) {
-                                  event.preventDefault();
-                                  commitCellEdit();
-                                }
-                              }}
-                              className="nodrag nowheel w-full resize-none rounded-lg border border-border-dark bg-bg-dark px-2 py-1.5 text-text-dark outline-none focus:border-text-muted/60 [overflow-wrap:anywhere]"
-                            />
-                          )
+                      <button
+                        key={column.key}
+                        type="button"
+                        disabled={isLastVisible}
+                        onClick={() => toggleColumnVisibility(column.key)}
+                        className="flex w-full items-center justify-between gap-2 px-3 py-2 text-left font-medium text-text-dark transition-colors hover:bg-bg-dark/80 disabled:cursor-not-allowed disabled:opacity-55"
+                      >
+                        <span className="min-w-0 truncate">
+                          {t(column.labelKey)}
+                        </span>
+                        {isVisible ? (
+                          <Check className="h-3.5 w-3.5 shrink-0 text-text-muted" />
                         ) : (
+                          <span className="h-3.5 w-3.5 shrink-0" />
+                        )}
+                      </button>
+                    );
+                  })}
+                </div>
+              ) : null}
+            </div>
+          </div>
+
+          <UiScrollArea
+            className="nodrag nowheel mt-3 min-h-0 flex-1 rounded-2xl border border-border-dark bg-bg-dark/25"
+            viewportClassName="h-full"
+            contentClassName="min-w-full pr-5"
+            onPointerDown={stopInteractionPropagation}
+            onMouseDown={stopInteractionPropagation}
+            onDoubleClick={stopInteractionPropagation}
+          >
+            <table
+              className="w-full table-fixed border-separate border-spacing-0 text-left"
+              style={tableTypographyStyle}
+            >
+              <colgroup>
+                {visibleColumns.map((column) => (
+                  <col
+                    key={column.key}
+                    style={{ width: column.widthPx ?? 160 }}
+                  />
+                ))}
+                <col style={{ width: TABLE_ACTION_COLUMN_WIDTH }} />
+              </colgroup>
+              <thead
+                className="sticky top-0 z-10 bg-surface-dark/95 text-text-muted"
+                style={{ fontSize: "var(--shooting-script-header-font-size)" }}
+              >
+                <tr>
+                  {visibleColumns.map((column) => (
+                    <th
+                      key={column.key}
+                      className="border-b border-border-dark px-2 py-2 font-medium"
+                    >
+                      {t(column.labelKey)}
+                    </th>
+                  ))}
+                  <th className="border-b border-border-dark px-2 py-2 font-medium">
+                    {t("common.actions")}
+                  </th>
+                </tr>
+              </thead>
+              <tbody>
+                {data.rows.length > 0 ? (
+                  data.rows.map((row, index) => (
+                    <tr key={row.id} className="align-top">
+                      {visibleColumns.map((column) => {
+                        const cellKey = `${row.id}:${column.key}`;
+                        const isSelectedCell = selectedCellKey === cellKey;
+                        const isEditingCell =
+                          editingCell?.rowId === row.id &&
+                          editingCell.columnKey === column.key;
+                        const isEditable = isEditableColumn(column.key);
+
+                        return (
+                          <td
+                            key={column.key}
+                            className="border-b border-border-dark/70 px-2 py-2"
+                          >
+                            {isEditingCell ? (
+                              column.key === "genTarget" ? (
+                                <select
+                                  autoFocus
+                                  value={editingCell.value}
+                                  onChange={(event) =>
+                                    setEditingCell((current) =>
+                                      current
+                                        ? {
+                                            ...current,
+                                            value: event.target.value,
+                                          }
+                                        : current,
+                                    )
+                                  }
+                                  onBlur={commitCellEdit}
+                                  onPointerDown={stopInteractionPropagation}
+                                  onMouseDown={stopInteractionPropagation}
+                                  onClick={stopInteractionPropagation}
+                                  className="nodrag nowheel w-full rounded-lg border border-border-dark bg-bg-dark px-2 py-1.5 text-text-dark outline-none focus:border-text-muted/60"
+                                >
+                                  {genTargetOptions.map((option) => (
+                                    <option
+                                      key={option.value}
+                                      value={option.value}
+                                    >
+                                      {option.label}
+                                    </option>
+                                  ))}
+                                </select>
+                              ) : (
+                                <textarea
+                                  autoFocus
+                                  rows={column.multiline ? 4 : 1}
+                                  value={editingCell.value}
+                                  onChange={(event) =>
+                                    setEditingCell((current) =>
+                                      current
+                                        ? {
+                                            ...current,
+                                            value: event.target.value,
+                                          }
+                                        : current,
+                                    )
+                                  }
+                                  onBlur={commitCellEdit}
+                                  onPointerDown={stopInteractionPropagation}
+                                  onMouseDown={stopInteractionPropagation}
+                                  onClick={stopInteractionPropagation}
+                                  onKeyDown={(event) => {
+                                    if (
+                                      event.key === "Enter" &&
+                                      (event.metaKey || event.ctrlKey)
+                                    ) {
+                                      event.preventDefault();
+                                      commitCellEdit();
+                                    }
+                                  }}
+                                  className="nodrag nowheel w-full resize-none rounded-lg border border-border-dark bg-bg-dark px-2 py-1.5 text-text-dark outline-none focus:border-text-muted/60 [overflow-wrap:anywhere]"
+                                />
+                              )
+                            ) : (
+                              <button
+                                type="button"
+                                onClick={(event) => {
+                                  event.stopPropagation();
+                                  handleSelectCell(row.id, column.key);
+                                }}
+                                onDoubleClick={(event) => {
+                                  event.stopPropagation();
+                                  handleSelectCell(row.id, column.key);
+                                  if (!isEditable) {
+                                    return;
+                                  }
+                                  setEditingCell({
+                                    rowId: row.id,
+                                    columnKey: column.key,
+                                    value: readCellValue(row, column.key),
+                                  });
+                                }}
+                                onKeyDown={(event) => {
+                                  if (event.key === "Enter" && isEditable) {
+                                    event.preventDefault();
+                                    setEditingCell({
+                                      rowId: row.id,
+                                      columnKey: column.key,
+                                      value: readCellValue(row, column.key),
+                                    });
+                                  }
+                                }}
+                                className={`nodrag flex min-h-[68px] min-w-0 w-full rounded-lg border px-2 py-2 text-left transition-colors ${
+                                  isSelectedCell
+                                    ? "border-[rgba(15,23,42,0.34)] bg-bg-dark text-text-dark dark:border-white/28"
+                                    : "border-transparent bg-transparent text-text-dark hover:border-[rgba(15,23,42,0.24)] hover:bg-bg-dark/70 dark:hover:border-white/20"
+                                }`}
+                              >
+                                <span className="min-w-0 whitespace-pre-wrap break-words [overflow-wrap:anywhere]">
+                                  {readCellValue(row, column.key) || (
+                                    <span className="text-text-muted/65">
+                                      {t("script.shootingScript.emptyCell")}
+                                    </span>
+                                  )}
+                                </span>
+                              </button>
+                            )}
+                          </td>
+                        );
+                      })}
+                      <td className="border-b border-border-dark/70 px-2 py-2">
+                        <div className="flex flex-col gap-1.5">
+                          <button
+                            type="button"
+                            disabled={index === 0}
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              moveRow(row.id, "up");
+                            }}
+                            className="nodrag rounded-lg border border-border-dark bg-bg-dark px-2 py-1.5 font-medium text-text-dark disabled:opacity-40"
+                          >
+                            {t("common.moveUp")}
+                          </button>
+                          <button
+                            type="button"
+                            disabled={index === data.rows.length - 1}
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              moveRow(row.id, "down");
+                            }}
+                            className="nodrag rounded-lg border border-border-dark bg-bg-dark px-2 py-1.5 font-medium text-text-dark disabled:opacity-40"
+                          >
+                            {t("common.moveDown")}
+                          </button>
                           <button
                             type="button"
                             onClick={(event) => {
                               event.stopPropagation();
-                              handleSelectCell(row.id, column.key);
+                              deleteRow(row.id);
                             }}
-                            onDoubleClick={(event) => {
-                              event.stopPropagation();
-                              handleSelectCell(row.id, column.key);
-                              if (!isEditable) {
-                                return;
-                              }
-                              setEditingCell({
-                                rowId: row.id,
-                                columnKey: column.key,
-                                value: readCellValue(row, column.key),
-                              });
-                            }}
-                            onKeyDown={(event) => {
-                              if (event.key === 'Enter' && isEditable) {
-                                event.preventDefault();
-                                setEditingCell({
-                                  rowId: row.id,
-                                  columnKey: column.key,
-                                  value: readCellValue(row, column.key),
-                                });
-                              }
-                            }}
-                            className={`nodrag flex min-h-[68px] min-w-0 w-full rounded-lg border px-2 py-2 text-left transition-colors ${
-                              isSelectedCell
-                                ? 'border-[rgba(15,23,42,0.34)] bg-bg-dark text-text-dark dark:border-white/28'
-                                : 'border-transparent bg-transparent text-text-dark hover:border-[rgba(15,23,42,0.24)] hover:bg-bg-dark/70 dark:hover:border-white/20'
-                            }`}
+                            className={`nodrag rounded-lg border px-2 py-1.5 font-medium ${SHOOTING_SCRIPT_DANGER_BUTTON_CLASS}`}
                           >
-                            <span className="min-w-0 whitespace-pre-wrap break-words [overflow-wrap:anywhere]">
-                              {readCellValue(row, column.key) || (
-                                <span className="text-text-muted/65">{t('script.shootingScript.emptyCell')}</span>
-                              )}
-                            </span>
+                            {t("common.delete")}
                           </button>
-                        )}
+                        </div>
                       </td>
-                    );
-                  })}
-                  <td className="border-b border-border-dark/70 px-2 py-2">
-                    <div className="flex flex-col gap-1.5">
-                      <button
-                        type="button"
-                        disabled={index === 0}
-                        onClick={(event) => {
-                          event.stopPropagation();
-                          moveRow(row.id, 'up');
-                        }}
-                        className="nodrag rounded-lg border border-border-dark bg-bg-dark px-2 py-1.5 font-medium text-text-dark disabled:opacity-40"
-                      >
-                        {t('common.moveUp')}
-                      </button>
-                      <button
-                        type="button"
-                        disabled={index === data.rows.length - 1}
-                        onClick={(event) => {
-                          event.stopPropagation();
-                          moveRow(row.id, 'down');
-                        }}
-                        className="nodrag rounded-lg border border-border-dark bg-bg-dark px-2 py-1.5 font-medium text-text-dark disabled:opacity-40"
-                      >
-                        {t('common.moveDown')}
-                      </button>
-                      <button
-                        type="button"
-                        onClick={(event) => {
-                          event.stopPropagation();
-                          deleteRow(row.id);
-                        }}
-                        className={`nodrag rounded-lg border px-2 py-1.5 font-medium ${SHOOTING_SCRIPT_DANGER_BUTTON_CLASS}`}
-                      >
-                        {t('common.delete')}
-                      </button>
-                    </div>
-                  </td>
-                </tr>
-              )) : (
-                <tr>
-                  <td colSpan={visibleColumns.length + 1} className="px-3 py-12 text-center text-sm text-text-muted">
-                    {t('script.shootingScript.emptyRows')}
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
-        </UiScrollArea>
+                    </tr>
+                  ))
+                ) : (
+                  <tr>
+                    <td
+                      colSpan={visibleColumns.length + 1}
+                      className="px-3 py-12 text-center text-sm text-text-muted"
+                    >
+                      {t("script.shootingScript.emptyRows")}
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </UiScrollArea>
+        </div>
+
+        <NodeResizeHandle
+          minWidth={MIN_NODE_WIDTH}
+          minHeight={MIN_NODE_HEIGHT}
+          maxWidth={MAX_NODE_WIDTH}
+          maxHeight={MAX_NODE_HEIGHT}
+          isVisible={selected}
+        />
       </div>
+    );
+  },
+);
 
-      <NodeResizeHandle
-        minWidth={MIN_NODE_WIDTH}
-        minHeight={MIN_NODE_HEIGHT}
-        maxWidth={MAX_NODE_WIDTH}
-        maxHeight={MAX_NODE_HEIGHT}
-        isVisible={selected}
-      />
-    </div>
-  );
-});
-
-ShootingScriptNode.displayName = 'ShootingScriptNode';
+ShootingScriptNode.displayName = "ShootingScriptNode";

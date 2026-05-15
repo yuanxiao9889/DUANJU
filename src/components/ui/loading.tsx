@@ -1,7 +1,11 @@
 import type { CSSProperties, ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 
-import readingLoaderUrl from '@/assets/animations/reading-loader.webm';
+import loadingLogoDarkBgUrl from '@/assets/animations/loading-logo-dark-bg.gif';
+import loadingLogoLightBgUrl from '@/assets/animations/loading-logo-light-bg.gif';
+import { useThemeStore } from '@/stores/themeStore';
+
+type UiLoadingBackgroundTone = 'auto' | 'dark' | 'light';
 
 export type UiLoadingSize = 'xs' | 'sm' | 'md' | 'lg' | 'xl';
 
@@ -17,6 +21,7 @@ interface UiLoadingAnimationProps {
   trimInset?: string;
   maskInternalBars?: boolean;
   zoom?: number;
+  backgroundTone?: UiLoadingBackgroundTone;
 }
 
 interface UiLoadingIndicatorProps extends UiLoadingAnimationProps {
@@ -65,11 +70,6 @@ const FIT_CLASS_MAP: Record<NonNullable<UiLoadingAnimationProps['fit']>, string>
 
 const BARE_LOADING_WIDTH = 'min(320px, calc(100% - 2rem))';
 const BARE_LOADING_HEIGHT = '120px';
-const BARE_LOADING_TRIM_INSET = '18%';
-const BARE_LOADING_ZOOM = 1.45;
-const BANNER_LOADING_TRIM_INSET = '12%';
-const LOADING_INTERNAL_BAR_MASK =
-  'linear-gradient(to bottom, #000 0 27%, transparent 27% 40%, #000 40% 62%, transparent 62% 75%, #000 75% 100%)';
 
 export function UiLoadingAnimation({
   size = 'md',
@@ -79,15 +79,13 @@ export function UiLoadingAnimation({
   title,
   style,
   fit = 'contain',
-  trimBars = false,
-  trimInset = BARE_LOADING_TRIM_INSET,
-  maskInternalBars = false,
-  zoom = 1,
+  backgroundTone = 'auto',
 }: UiLoadingAnimationProps) {
-  const resolvedZoom =
-    typeof zoom === 'number' && Number.isFinite(zoom) && zoom > 0
-      ? zoom
-      : 1;
+  const theme = useThemeStore((state) => state.theme);
+  const resolvedBackgroundTone =
+    backgroundTone === 'auto' ? (theme === 'light' ? 'light' : 'dark') : backgroundTone;
+  const loadingAssetUrl =
+    resolvedBackgroundTone === 'light' ? loadingLogoLightBgUrl : loadingLogoDarkBgUrl;
   const resolvedStyle: CSSProperties | undefined =
     width || height || style
       ? {
@@ -96,41 +94,25 @@ export function UiLoadingAnimation({
           height,
           backgroundColor: 'transparent',
           objectPosition: 'center',
-          clipPath: trimBars ? `inset(${trimInset} 0 ${trimInset} 0)` : undefined,
-          maskImage: maskInternalBars ? LOADING_INTERNAL_BAR_MASK : undefined,
-          WebkitMaskImage: maskInternalBars ? LOADING_INTERNAL_BAR_MASK : undefined,
-          transform: resolvedZoom !== 1 ? `scale(${resolvedZoom})` : undefined,
-          transformOrigin: 'center',
           ...style,
         }
       : {
           display: 'block',
           backgroundColor: 'transparent',
           objectPosition: 'center',
-          clipPath: trimBars ? `inset(${trimInset} 0 ${trimInset} 0)` : undefined,
-          maskImage: maskInternalBars ? LOADING_INTERNAL_BAR_MASK : undefined,
-          WebkitMaskImage: maskInternalBars ? LOADING_INTERNAL_BAR_MASK : undefined,
-          transform: resolvedZoom !== 1 ? `scale(${resolvedZoom})` : undefined,
-          transformOrigin: 'center',
           ...(style ?? {}),
         };
 
   return (
     <span
-      className={`inline-flex shrink-0 items-center justify-center ${trimBars || resolvedZoom !== 1 ? 'overflow-hidden' : ''} ${className}`.trim()}
+      className={`inline-flex shrink-0 items-center justify-center ${className}`.trim()}
       title={title}
       aria-hidden="true"
     >
-      <video
-        src={readingLoaderUrl}
-        autoPlay
-        loop
-        muted
-        playsInline
-        preload="auto"
-        tabIndex={-1}
-        disablePictureInPicture
-        disableRemotePlayback
+      <img
+        src={loadingAssetUrl}
+        alt=""
+        draggable={false}
         className={`${!width && !height ? SIZE_CLASS_MAP[size] : ''} pointer-events-none select-none ${FIT_CLASS_MAP[fit]}`}
         style={resolvedStyle}
       />
@@ -195,9 +177,6 @@ export function UiLoadingBanner({
           width="100%"
           height="100%"
           style={{ display: 'block' }}
-          trimBars
-          trimInset={BANNER_LOADING_TRIM_INSET}
-          maskInternalBars
         />
         <span className="sr-only">{t('common.loading')}</span>
       </div>
@@ -237,10 +216,6 @@ export function UiLoadingOverlay({
           width={variant === 'bare' ? BARE_LOADING_WIDTH : '100%'}
           height={variant === 'bare' ? BARE_LOADING_HEIGHT : '96px'}
           fit={variant === 'bare' ? 'contain' : 'cover'}
-          trimBars={variant === 'bare'}
-          trimInset={variant === 'bare' ? BARE_LOADING_TRIM_INSET : undefined}
-          maskInternalBars={variant === 'bare'}
-          zoom={variant === 'bare' ? BARE_LOADING_ZOOM : 1}
         />
         <span className="sr-only">{t('common.loading')}</span>
       </div>

@@ -125,6 +125,7 @@ async function buildGeneratedImageItems(
         sourceUrl: result.sourceUrl,
         imageUrl: prepared.imageUrl,
         previewImageUrl: prepared.previewImageUrl,
+        thumbnailUrl: prepared.thumbnailImageUrl,
         aspectRatio: aspectRatio ?? "1:1",
         width: result.width ?? undefined,
         height: result.height ?? undefined,

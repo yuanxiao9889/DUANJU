@@ -180,12 +180,32 @@ fn ensure_error_log_table(conn: &rusqlite::Connection) -> Result<(), String> {
     )
     .map_err(|e| format!("Failed to initialize error log table: {}", e))?;
 
-    ensure_table_column(conn, "ai_error_logs", "user_id", "INTEGER NOT NULL DEFAULT 0")?;
+    ensure_table_column(
+        conn,
+        "ai_error_logs",
+        "user_id",
+        "INTEGER NOT NULL DEFAULT 0",
+    )?;
     ensure_table_column(conn, "ai_error_logs", "type", "INTEGER NOT NULL DEFAULT 5")?;
     ensure_table_column(conn, "ai_error_logs", "content", "TEXT NOT NULL DEFAULT ''")?;
-    ensure_table_column(conn, "ai_error_logs", "username", "TEXT NOT NULL DEFAULT ''")?;
-    ensure_table_column(conn, "ai_error_logs", "token_name", "TEXT NOT NULL DEFAULT ''")?;
-    ensure_table_column(conn, "ai_error_logs", "model_name", "TEXT NOT NULL DEFAULT ''")?;
+    ensure_table_column(
+        conn,
+        "ai_error_logs",
+        "username",
+        "TEXT NOT NULL DEFAULT ''",
+    )?;
+    ensure_table_column(
+        conn,
+        "ai_error_logs",
+        "token_name",
+        "TEXT NOT NULL DEFAULT ''",
+    )?;
+    ensure_table_column(
+        conn,
+        "ai_error_logs",
+        "model_name",
+        "TEXT NOT NULL DEFAULT ''",
+    )?;
     ensure_table_column(conn, "ai_error_logs", "quota", "INTEGER NOT NULL DEFAULT 0")?;
     ensure_table_column(
         conn,
@@ -199,12 +219,42 @@ fn ensure_error_log_table(conn: &rusqlite::Connection) -> Result<(), String> {
         "completion_tokens",
         "INTEGER NOT NULL DEFAULT 0",
     )?;
-    ensure_table_column(conn, "ai_error_logs", "use_time", "INTEGER NOT NULL DEFAULT 0")?;
-    ensure_table_column(conn, "ai_error_logs", "is_stream", "INTEGER NOT NULL DEFAULT 0")?;
-    ensure_table_column(conn, "ai_error_logs", "channel", "INTEGER NOT NULL DEFAULT 0")?;
-    ensure_table_column(conn, "ai_error_logs", "channel_name", "TEXT NOT NULL DEFAULT ''")?;
-    ensure_table_column(conn, "ai_error_logs", "token_id", "INTEGER NOT NULL DEFAULT 0")?;
-    ensure_table_column(conn, "ai_error_logs", "\"group\"", "TEXT NOT NULL DEFAULT ''")?;
+    ensure_table_column(
+        conn,
+        "ai_error_logs",
+        "use_time",
+        "INTEGER NOT NULL DEFAULT 0",
+    )?;
+    ensure_table_column(
+        conn,
+        "ai_error_logs",
+        "is_stream",
+        "INTEGER NOT NULL DEFAULT 0",
+    )?;
+    ensure_table_column(
+        conn,
+        "ai_error_logs",
+        "channel",
+        "INTEGER NOT NULL DEFAULT 0",
+    )?;
+    ensure_table_column(
+        conn,
+        "ai_error_logs",
+        "channel_name",
+        "TEXT NOT NULL DEFAULT ''",
+    )?;
+    ensure_table_column(
+        conn,
+        "ai_error_logs",
+        "token_id",
+        "INTEGER NOT NULL DEFAULT 0",
+    )?;
+    ensure_table_column(
+        conn,
+        "ai_error_logs",
+        "\"group\"",
+        "TEXT NOT NULL DEFAULT ''",
+    )?;
     ensure_table_column(conn, "ai_error_logs", "ip", "TEXT NOT NULL DEFAULT ''")?;
     ensure_table_column(conn, "ai_error_logs", "request_id", "TEXT")?;
     ensure_table_column(conn, "ai_error_logs", "other", "TEXT NOT NULL DEFAULT ''")?;
@@ -234,8 +284,11 @@ fn ensure_error_log_table(conn: &rusqlite::Connection) -> Result<(), String> {
 
 fn prune_error_logs_with_conn(conn: &rusqlite::Connection) -> Result<(), String> {
     let cutoff = now_ms() - ERROR_LOG_RETENTION_MS;
-    conn.execute("DELETE FROM ai_error_logs WHERE created_at < ?1", params![cutoff])
-        .map_err(|e| format!("Failed to prune old error logs: {}", e))?;
+    conn.execute(
+        "DELETE FROM ai_error_logs WHERE created_at < ?1",
+        params![cutoff],
+    )
+    .map_err(|e| format!("Failed to prune old error logs: {}", e))?;
     Ok(())
 }
 

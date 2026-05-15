@@ -18,6 +18,65 @@ import { EdgeParticles } from './EdgeParticles';
 const EMPTY_ROUTING_NODES: CanvasNode[] = [];
 
 export const DisconnectableEdge = memo(function DisconnectableEdge(props: EdgeProps) {
+  const { edgeRenderMode } = useCanvasPerformanceState();
+  if (edgeRenderMode !== 'full') {
+    return <LightDisconnectableEdge {...props} />;
+  }
+
+  return <FullDisconnectableEdge {...props} edgeRenderMode={edgeRenderMode} />;
+});
+
+function LightDisconnectableEdge({
+  id,
+  markerEnd,
+  selected,
+  sourcePosition,
+  sourceX,
+  sourceY,
+  style,
+  targetPosition,
+  targetX,
+  targetY,
+}: EdgeProps) {
+  const edgePath = useMemo(() => {
+    const [path] = getBezierPath({
+      sourceX,
+      sourceY,
+      sourcePosition,
+      targetX,
+      targetY,
+      targetPosition,
+    });
+    return path;
+  }, [
+    sourcePosition,
+    sourceX,
+    sourceY,
+    targetPosition,
+    targetX,
+    targetY,
+  ]);
+
+  return (
+    <BaseEdge
+      id={id}
+      markerEnd={markerEnd}
+      path={edgePath}
+      style={{
+        stroke: selected
+          ? 'rgb(var(--accent-rgb) / 0.78)'
+          : 'rgb(var(--text-muted-rgb) / 0.46)',
+        strokeWidth: selected ? 2.3 : 1.8,
+        ...style,
+      }}
+    />
+  );
+}
+
+function FullDisconnectableEdge({
+  edgeRenderMode,
+  ...props
+}: EdgeProps & { edgeRenderMode: 'full' }) {
   const {
     id,
     source,
@@ -34,9 +93,7 @@ export const DisconnectableEdge = memo(function DisconnectableEdge(props: EdgePr
   } = props;
   const deleteEdge = useCanvasStore((state) => state.deleteEdge);
   const canvasEdgeRoutingMode = useSettingsStore((state) => state.canvasEdgeRoutingMode);
-  const { edgeRenderMode } = useCanvasPerformanceState();
-  const shouldSimplifyEdge = edgeRenderMode !== 'full';
-  const effectiveRoutingMode = shouldSimplifyEdge ? 'spline' : canvasEdgeRoutingMode;
+  const effectiveRoutingMode = canvasEdgeRoutingMode;
   const edgeNodeIds = useMemo(() => [source, target] as const, [source, target]);
   const [sourceNode, targetNode] = useCanvasNodesByIds(edgeNodeIds);
   const routingNodes = useCanvasStore((state) => (
@@ -187,4 +244,4 @@ export const DisconnectableEdge = memo(function DisconnectableEdge(props: EdgePr
       )}
     </>
   );
-});
+}

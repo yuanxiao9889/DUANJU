@@ -11,6 +11,14 @@ interface ProjectTypeSelectorProps {
   onSelectType: (type: ProjectType) => void;
 }
 
+function BetaBadge() {
+  return (
+    <span className="inline-flex items-center rounded-full border border-amber-400/25 bg-amber-500/10 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-[0.12em] text-amber-300">
+      BATE
+    </span>
+  );
+}
+
 export function ProjectTypeSelector({ onClose, onSelectType }: ProjectTypeSelectorProps) {
   const { t } = useTranslation();
   const {
@@ -58,7 +66,10 @@ export function ProjectTypeSelector({ onClose, onSelectType }: ProjectTypeSelect
                 <FileText className="h-8 w-8" />
               </div>
               <div className="text-center">
-                <h3 className="font-semibold text-text-dark">{t('project.types.script')}</h3>
+                <div className="flex items-center justify-center gap-1.5">
+                  <h3 className="font-semibold text-text-dark">{t('project.types.script')}</h3>
+                  <BetaBadge />
+                </div>
               </div>
             </button>
 
@@ -70,7 +81,10 @@ export function ProjectTypeSelector({ onClose, onSelectType }: ProjectTypeSelect
                 <Clapperboard className="h-8 w-8" />
               </div>
               <div className="text-center">
-                <h3 className="font-semibold text-text-dark">{t('project.types.ad')}</h3>
+                <div className="flex items-center justify-center gap-1.5">
+                  <h3 className="font-semibold text-text-dark">{t('project.types.ad')}</h3>
+                  <BetaBadge />
+                </div>
               </div>
             </button>
 
@@ -82,7 +96,10 @@ export function ProjectTypeSelector({ onClose, onSelectType }: ProjectTypeSelect
                 <ShoppingBag className="h-8 w-8" />
               </div>
               <div className="text-center">
-                <h3 className="font-semibold text-text-dark">{t('project.types.commerceAd')}</h3>
+                <div className="flex items-center justify-center gap-1.5">
+                  <h3 className="font-semibold text-text-dark">{t('project.types.commerceAd')}</h3>
+                  <BetaBadge />
+                </div>
               </div>
             </button>
           </div>

@@ -79,6 +79,9 @@ export const CANVAS_NODE_TYPES = {
   scriptChapter: 'scriptChapterNode',
   scriptScene: 'scriptSceneNode',
   shootingScript: 'shootingScriptNode',
+  scriptAssetExtract: 'scriptAssetExtractNode',
+  directorWorkPackage: 'directorWorkPackageNode',
+  directorStoryboardReference: 'directorStoryboardReferenceNode',
   scriptReference: 'scriptReferenceNode',
   adScriptReference: 'adScriptReferenceNode',
   scriptCharacterReference: 'scriptCharacterReferenceNode',
@@ -87,6 +90,7 @@ export const CANVAS_NODE_TYPES = {
   scriptCharacter: 'scriptCharacterNode',
   scriptLocation: 'scriptLocationNode',
   scriptItem: 'scriptItemNode',
+  scriptPlotLine: 'scriptPlotLineNode',
   scriptStoryNote: 'scriptStoryNoteNode',
   scriptPlotPoint: 'scriptPlotPointNode',
   scriptWorldview: 'scriptWorldviewNode',
@@ -170,13 +174,27 @@ export const AUDIO_NODE_DEFAULT_HEIGHT = 96;
 export const TTS_TEXT_NODE_DEFAULT_WIDTH = 500;
 export const TTS_TEXT_NODE_DEFAULT_HEIGHT = 300;
 export const LLM_LOGIC_NODE_DEFAULT_WIDTH = 520;
-export const LLM_LOGIC_NODE_DEFAULT_HEIGHT = 420;
+export const LLM_LOGIC_NODE_DEFAULT_HEIGHT = 540;
 export const SCRIPT_CHAPTER_NODE_DEFAULT_WIDTH = 420;
 export const SCRIPT_CHAPTER_NODE_DEFAULT_HEIGHT = 380;
 export const SCRIPT_SCENE_NODE_DEFAULT_WIDTH = 460;
 export const SCRIPT_SCENE_NODE_DEFAULT_HEIGHT = 420;
 export const SHOOTING_SCRIPT_NODE_DEFAULT_WIDTH = 1680;
 export const SHOOTING_SCRIPT_NODE_DEFAULT_HEIGHT = 760;
+export const SCRIPT_CHARACTER_NODE_DEFAULT_WIDTH = 320;
+export const SCRIPT_CHARACTER_NODE_DEFAULT_HEIGHT = 360;
+export const SCRIPT_LOCATION_NODE_DEFAULT_WIDTH = 320;
+export const SCRIPT_LOCATION_NODE_DEFAULT_HEIGHT = 300;
+export const SCRIPT_ITEM_NODE_DEFAULT_WIDTH = 320;
+export const SCRIPT_ITEM_NODE_DEFAULT_HEIGHT = 300;
+export const SCRIPT_PLOT_LINE_NODE_DEFAULT_WIDTH = 420;
+export const SCRIPT_PLOT_LINE_NODE_DEFAULT_HEIGHT = 156;
+export const SCRIPT_ASSET_EXTRACT_NODE_DEFAULT_WIDTH = 620;
+export const SCRIPT_ASSET_EXTRACT_NODE_DEFAULT_HEIGHT = 420;
+export const DIRECTOR_WORK_PACKAGE_NODE_DEFAULT_WIDTH = 620;
+export const DIRECTOR_WORK_PACKAGE_NODE_DEFAULT_HEIGHT = 420;
+export const DIRECTOR_STORYBOARD_REFERENCE_NODE_DEFAULT_WIDTH = 760;
+export const DIRECTOR_STORYBOARD_REFERENCE_NODE_DEFAULT_HEIGHT = 620;
 export const SCRIPT_REFERENCE_NODE_DEFAULT_WIDTH = 620;
 export const SCRIPT_REFERENCE_NODE_DEFAULT_HEIGHT = 620;
 export const AD_SCRIPT_REFERENCE_NODE_DEFAULT_WIDTH = 620;
@@ -283,26 +301,17 @@ export const SEEDANCE_ASPECT_RATIOS = [
 export const SEEDANCE_DURATION_SECONDS = [-1, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15] as const;
 export const SEEDANCE_RESOLUTIONS = ['480p', '720p'] as const;
 export const GPT_BEST_VIDEO_SOURCE_KINDS = ['seedance', 'grok'] as const;
-export const GPT_BEST_SEEDANCE_INPUT_MODES = [
-  'textToVideo',
-  'firstFrame',
-  'firstLastFrame',
+export const GPT_BEST_VIDEO_DURATION_SECONDS = [5, 6, 10, 12, 16, 20] as const;
+export const GPT_BEST_VIDEO_SIZES = [
+  '720x1280',
+  '1280x720',
+  '1024x1024',
+  '1024x1792',
+  '1792x1024',
 ] as const;
-export const GPT_BEST_VIDEO_ASPECT_RATIOS = [
-  '16:9',
-  '9:16',
-  '1:1',
-  '4:3',
-  '3:4',
-  '21:9',
+export const GPT_BEST_VIDEO_MODEL_IDS = [
+  'OK-video',
 ] as const;
-export const GPT_BEST_VIDEO_DURATION_SECONDS = [5, 10] as const;
-export const GPT_BEST_VIDEO_RESOLUTIONS = ['720p', '1080p'] as const;
-export const GPT_BEST_SEEDANCE_MODEL_IDS = [
-  'doubao-seedance-2-0-260128',
-  'doubao-seedance-2-0-fast-260128',
-] as const;
-export const GPT_BEST_GROK_VIDEO_MODEL_IDS = ['grok-video-3'] as const;
 export const VIDU_INPUT_MODES = [
   'textToVideo',
   'firstFrame',
@@ -345,12 +354,9 @@ export type SeedanceAspectRatio = (typeof SEEDANCE_ASPECT_RATIOS)[number];
 export type SeedanceDurationSeconds = (typeof SEEDANCE_DURATION_SECONDS)[number];
 export type SeedanceResolution = (typeof SEEDANCE_RESOLUTIONS)[number];
 export type GptBestVideoSourceKind = (typeof GPT_BEST_VIDEO_SOURCE_KINDS)[number];
-export type GptBestSeedanceInputMode = (typeof GPT_BEST_SEEDANCE_INPUT_MODES)[number];
-export type GptBestVideoAspectRatio = (typeof GPT_BEST_VIDEO_ASPECT_RATIOS)[number];
 export type GptBestVideoDurationSeconds = (typeof GPT_BEST_VIDEO_DURATION_SECONDS)[number];
-export type GptBestVideoResolution = (typeof GPT_BEST_VIDEO_RESOLUTIONS)[number];
-export type GptBestSeedanceModelId = (typeof GPT_BEST_SEEDANCE_MODEL_IDS)[number];
-export type GptBestGrokVideoModelId = (typeof GPT_BEST_GROK_VIDEO_MODEL_IDS)[number];
+export type GptBestVideoSize = (typeof GPT_BEST_VIDEO_SIZES)[number];
+export type GptBestVideoModelId = (typeof GPT_BEST_VIDEO_MODEL_IDS)[number];
 export type ViduInputMode = (typeof VIDU_INPUT_MODES)[number];
 export type ViduModelId = (typeof VIDU_MODEL_IDS)[number];
 export type ViduAspectRatio = (typeof VIDU_ASPECT_RATIOS)[number];
@@ -394,6 +400,7 @@ export interface VoicePresetSourceData {
 export interface NodeImageData extends NodeDisplayData {
   imageUrl: string | null;
   previewImageUrl?: string | null;
+  thumbnailUrl?: string | null;
   aspectRatio: string;
   imageWidth?: number;
   imageHeight?: number;
@@ -460,6 +467,7 @@ export interface ImageCompareNodeImageSnapshot {
   sourceNodeType: ImageCompareSourceNodeType | null;
   imageUrl: string | null;
   previewImageUrl?: string | null;
+  thumbnailUrl?: string | null;
   aspectRatio: string;
   displayName?: string | null;
 }
@@ -490,6 +498,8 @@ export interface GroupNodeData extends NodeDisplayData {
   label: string;
   layoutDirection?: 'horizontal' | 'vertical';
   maxItemsPerLine?: number;
+  visualStyle?: 'default' | 'scriptPlotLinePanel';
+  plotLineEntries?: ExtractedScriptPlotLine[];
   [key: string]: unknown;
 }
 
@@ -513,6 +523,7 @@ export type LlmLogicPresetKey =
   | 'clarity'
   | 'voiceSeparation'
   | 'cinematicImagery'
+  | 'reverseImageContent'
   | 'rhythmPause'
   | 'emotionProgression'
   | 'subtext'
@@ -543,6 +554,7 @@ export interface LlmLogicNodeData extends NodeDisplayData {
 export interface VideoNodeData extends NodeDisplayData {
   videoUrl: string | null;
   previewImageUrl?: string | null;
+  thumbnailUrl?: string | null;
   videoFileName?: string | null;
   descriptionText?: string | null;
   clipLibraryId?: string | null;
@@ -551,6 +563,11 @@ export interface VideoNodeData extends NodeDisplayData {
   aspectRatio: string;
   duration?: number;
   isSizeManuallyAdjusted?: boolean;
+  sourceDirectorPackageId?: string | null;
+  sourceSectionId?: string | null;
+  sourceShotIds?: string[];
+  referenceAssets?: ReferenceAssetSnapshot[];
+  productionJobId?: string | null;
   [key: string]: unknown;
 }
 
@@ -846,6 +863,7 @@ export interface JimengGeneratedImageItem {
   sourceUrl?: string | null;
   imageUrl: string | null;
   previewImageUrl?: string | null;
+  thumbnailUrl?: string | null;
   aspectRatio: string;
   width?: number;
   height?: number;
@@ -857,6 +875,7 @@ export type MjReferenceRole = 'reference' | 'styleReference';
 export interface MjReferenceItem {
   imageUrl: string;
   previewImageUrl?: string | null;
+  thumbnailUrl?: string | null;
   sourceNodeId: string;
   sourceEdgeId: string;
   role: MjReferenceRole;
@@ -867,6 +886,7 @@ export interface MjBatchImageItem {
   id: string;
   imageUrl: string | null;
   previewImageUrl?: string | null;
+  thumbnailUrl?: string | null;
   sourceUrl?: string | null;
   index: number;
   aspectRatio: string;
@@ -1078,31 +1098,31 @@ export interface SeedanceVideoResultNodeData extends NodeDisplayData {
 export interface GptBestVideoNodeData extends NodeDisplayData {
   prompt: string;
   sourceKind: GptBestVideoSourceKind;
+  providerId?: string | null;
   modelId: string;
-  inputMode?: GptBestSeedanceInputMode;
-  aspectRatio: GptBestVideoAspectRatio;
-  durationSeconds: GptBestVideoDurationSeconds;
-  resolution: GptBestVideoResolution;
+  size?: GptBestVideoSize | string | null;
+  seconds?: GptBestVideoDurationSeconds | number | null;
+  aspectRatio?: string | null;
+  durationSeconds?: number | null;
+  resolution?: string | null;
   isSubmitting?: boolean;
   lastSubmittedAt?: number | null;
   lastError?: string | null;
 }
 
 export interface GptBestVideoRequestSnapshot {
-  provider: 'gptBest';
+  provider: string;
   sourceKind: GptBestVideoSourceKind;
   modelId: string;
   prompt: string;
-  imageCount: number;
-  aspectRatio: string;
-  durationSeconds: number;
-  resolution: string;
+  size: string;
+  seconds: number;
   submittedAt: number;
 }
 
 export interface GptBestVideoResultNodeData extends NodeDisplayData {
   sourceNodeId?: string | null;
-  provider?: 'gptBest';
+  provider?: string;
   sourceKind: GptBestVideoSourceKind;
   taskId?: string | null;
   taskStatus?: string | null;
@@ -1112,6 +1132,7 @@ export interface GptBestVideoResultNodeData extends NodeDisplayData {
   previewImageUrl?: string | null;
   videoFileName?: string | null;
   aspectRatio: string;
+  size?: string | null;
   resolution?: string | null;
   duration?: number;
   requestSnapshot?: GptBestVideoRequestSnapshot | null;
@@ -1177,6 +1198,7 @@ export interface StoryboardFrameItem {
   id: string;
   imageUrl: string | null;
   previewImageUrl?: string | null;
+  thumbnailUrl?: string | null;
   aspectRatio?: string;
   sourceNodeId?: string | null;
   sourceEdgeId?: string | null;
@@ -1245,6 +1267,13 @@ export interface StoryboardGenNodeData {
   isGenerating?: boolean;
   generationStartedAt?: number | null;
   generationDurationMs?: number;
+  sourceDirectorPackageId?: string | null;
+  sourceSectionId?: string | null;
+  sourceShotId?: string | null;
+  promptText?: string;
+  videoPromptText?: string;
+  referenceAssets?: ReferenceAssetSnapshot[];
+  productionJobId?: string | null;
   [key: string]: unknown;
 }
 
@@ -1472,6 +1501,7 @@ function normalizeMjReferenceItems(value: unknown): MjReferenceItem[] {
       return {
         imageUrl,
         previewImageUrl: previewImageUrl || null,
+        thumbnailUrl: normalizeString(record.thumbnailUrl).trim() || null,
         sourceNodeId,
         sourceEdgeId,
         role: normalizeMjReferenceRole(record.role),
@@ -1557,6 +1587,7 @@ function normalizeMjBatchImageItems(value: unknown, fallbackAspectRatio: string)
         id: normalizeString(record.id, `mj-batch-image-${index + 1}`),
         imageUrl: normalizeString(record.imageUrl).trim() || null,
         previewImageUrl: normalizeString(record.previewImageUrl).trim() || null,
+        thumbnailUrl: normalizeString(record.thumbnailUrl).trim() || null,
         sourceUrl: normalizeString(record.sourceUrl).trim() || null,
         index: Math.max(0, Math.round(normalizeFiniteNumber(record.index, index))),
         aspectRatio: normalizeString(record.aspectRatio).trim() || fallbackAspectRatio,
@@ -1705,6 +1736,7 @@ function normalizeImageCompareNodeImageSnapshot(
     sourceNodeType: normalizeImageCompareSourceNodeType(record.sourceNodeType),
     imageUrl: normalizeString(record.imageUrl).trim() || null,
     previewImageUrl: normalizeString(record.previewImageUrl).trim() || null,
+    thumbnailUrl: normalizeString(record.thumbnailUrl).trim() || null,
     aspectRatio: normalizeLooseAspectRatioValue(record.aspectRatio),
     displayName: normalizeString(record.displayName).trim() || null,
   };
@@ -1724,6 +1756,7 @@ function normalizeStaticImageCompareSnapshotData(
     semanticColor: record.semanticColor ?? null,
     imageUrl: normalizeString(record.imageUrl).trim() || null,
     previewImageUrl: normalizeString(record.previewImageUrl).trim() || null,
+    thumbnailUrl: normalizeString(record.thumbnailUrl).trim() || null,
     aspectRatio: normalizeLooseAspectRatioValue(record.aspectRatio),
     imageWidth: Number.isFinite(record.imageWidth) ? Number(record.imageWidth) : undefined,
     imageHeight: Number.isFinite(record.imageHeight) ? Number(record.imageHeight) : undefined,
@@ -2194,6 +2227,286 @@ export interface ScriptItemAsset {
   appearances: string[];
 }
 
+export type ReferenceAssetKind = 'character' | 'location' | 'item' | 'image';
+export type ReferenceAssetSourceType = 'scriptAsset' | 'libraryAsset' | 'upload' | 'nodeOutput';
+export type ReferenceBindingRole = 'subject' | 'environment' | 'prop' | 'style' | 'continuity';
+export type ScriptAssetExtractSourceMode = 'connectedText' | 'chapterSelection';
+export type DirectorWorkPackageSourceMode = ScriptAssetExtractSourceMode;
+export type DirectorStoryboardGenerationPhase = 'idle' | 'planning' | 'ready' | 'error';
+export type DirectorStoryboardPackageStatus = 'ready' | 'stale' | 'error';
+export type ProductionJobKind = 'image' | 'video';
+export type ProductionJobStatus =
+  | 'idle'
+  | 'queued'
+  | 'running'
+  | 'completed'
+  | 'failed'
+  | 'skipped';
+export type DirectorStoryboardReferenceSyncStatus =
+  | 'idle'
+  | 'ready'
+  | 'stale'
+  | 'missingProject'
+  | 'missingSource'
+  | 'error';
+
+export interface ReferenceAssetSnapshot {
+  id: string;
+  kind: ReferenceAssetKind;
+  sourceType: ReferenceAssetSourceType;
+  sourceProjectId: string | null;
+  sourceNodeId: string | null;
+  assetId: string | null;
+  assetLibraryId: string | null;
+  name: string;
+  imageUrl: string | null;
+  previewImageUrl?: string | null;
+  description?: string | null;
+  locked?: boolean;
+}
+
+export interface ReferenceAssetBinding {
+  referenceId: string;
+  targetType: 'section' | 'shot' | 'video';
+  targetId: string;
+  role: ReferenceBindingRole;
+  weight?: number;
+  notes?: string | null;
+}
+
+export interface ReferenceContextSnapshot {
+  assets: ReferenceAssetSnapshot[];
+  bindings: ReferenceAssetBinding[];
+  updatedAt: number | null;
+}
+
+export interface DirectorStoryboardShotDraft {
+  id: string;
+  sectionId: string;
+  order: number;
+  shotLabel: string;
+  shotPurpose: string;
+  compositionHint: string;
+  cameraHint: string;
+  motionHint: string;
+  promptDraft: string;
+  videoPromptDraft: string;
+  referenceBindings: ReferenceAssetBinding[];
+}
+
+export interface DirectorStoryboardSection {
+  id: string;
+  order: number;
+  title: string;
+  summary: string;
+  dramaticGoal: string;
+  visualIntent: string;
+  continuityNotes: string;
+  styleHints: string[];
+  referenceBindings: ReferenceAssetBinding[];
+  shots: DirectorStoryboardShotDraft[];
+}
+
+export interface DirectorStoryboardGenerationState {
+  requestId: string | null;
+  phase: DirectorStoryboardGenerationPhase;
+  statusText: string | null;
+  lastError: string | null;
+  lastGeneratedAt: number | null;
+}
+
+export interface DirectorStoryboardPackage {
+  id: string;
+  sourceScriptProjectId: string;
+  sourceScriptRootNodeId: string | null;
+  sourceDirectorWorkPackageNodeId?: string | null;
+  sourceSceneNodeId: string | null;
+  sourceShootingScriptNodeId: string | null;
+  sourceMode?: DirectorWorkPackageSourceMode | null;
+  sourceChapterNodeIds?: string[];
+  version: number;
+  generatedAt: number;
+  status: DirectorStoryboardPackageStatus;
+  sections: DirectorStoryboardSection[];
+  referenceAssets: ReferenceAssetSnapshot[];
+  generation: DirectorStoryboardGenerationState;
+}
+
+export interface ScriptAssetExtractSourceSnapshot {
+  mode: ScriptAssetExtractSourceMode;
+  chapterNodeIds: string[];
+  chapterLabels: string[];
+  sourceNodeId: string | null;
+  sourceNodeTitle: string | null;
+  chapterCount: number;
+  sceneCount: number;
+  sourceText: string;
+  updatedAt: number | null;
+}
+
+export type DirectorWorkPackageSourceSnapshot = ScriptAssetExtractSourceSnapshot;
+
+export interface ScriptAssetExtractCharacter {
+  id?: string;
+  name: string;
+  aliases?: string[];
+  roleWeight?: number;
+  description: string;
+  personality: string;
+  appearance: string;
+  visualDesc?: string;
+  continuityNotes?: string;
+  referencePrompt?: string;
+}
+
+export interface ExtractedScriptScene {
+  id?: string;
+  name: string;
+  description: string;
+  relatedCharacterNames: string[];
+  sceneDesc?: string;
+  timeTone?: string;
+  lightLock?: string;
+  spaceLayout?: string;
+  referencePrompt?: string;
+}
+
+export interface ScriptAssetExtractItem {
+  id?: string;
+  name: string;
+  description: string;
+  visualDesc?: string;
+  function?: string;
+  ownerCharacterIds?: string[];
+  continuityNotes?: string;
+}
+
+export interface ExtractedScriptPlotLine {
+  id?: string;
+  title: string;
+  summary: string;
+  statusTag: string;
+  relatedCharacterNames: string[];
+  relatedSceneNames: string[];
+  relatedItemNames?: string[];
+}
+
+export interface ExtractedScriptEmotion {
+  id?: string;
+  name: string;
+  description: string;
+  visualPrompt: string;
+  relatedCharacterNames: string[];
+  relatedSceneNames: string[];
+}
+
+export interface ScriptAssetLineBlueprint {
+  seq: number;
+  comicText: string;
+  plotPoint: string;
+  characterIds: string[];
+  sceneId: string;
+  itemIds: string[];
+  mood: string;
+  shotHint: string;
+  compositionHint: string;
+  cameraHint: string;
+  motionHint: string;
+}
+
+export interface ScriptAssetPromptRow {
+  seq: number;
+  comicText: string;
+  imagePrompt: string;
+  videoFirstFramePrompt: string;
+  characterNames: string[];
+  sceneName: string;
+  referenceAssetHints: string[];
+}
+
+export interface ScriptAssetExtractionResult {
+  schemaVersion?: number;
+  version: number;
+  generatedAt: number;
+  characters: ScriptAssetExtractCharacter[];
+  scenes: ExtractedScriptScene[];
+  items: ScriptAssetExtractItem[];
+  plotLines: ExtractedScriptPlotLine[];
+  emotions: ExtractedScriptEmotion[];
+  charactersCatalog: ScriptAssetExtractCharacter[];
+  scenesCatalog: ExtractedScriptScene[];
+  itemsCatalog: ScriptAssetExtractItem[];
+  lineBlueprints: ScriptAssetLineBlueprint[];
+  promptRows: ScriptAssetPromptRow[];
+}
+
+export interface ScriptAssetExtractionState {
+  requestId: string | null;
+  phase: 'idle' | 'extracting' | 'ready' | 'error';
+  statusText: string | null;
+  lastError: string | null;
+  lastGeneratedAt: number | null;
+}
+
+export interface ProductionJobRecord {
+  jobId: string;
+  kind: ProductionJobKind;
+  sourceSectionId: string | null;
+  sourceShotId: string | null;
+  sourceNodeId: string | null;
+  status: ProductionJobStatus;
+  requestId: string | null;
+  resultNodeIds: string[];
+  startedAt: number | null;
+  finishedAt: number | null;
+  error: string | null;
+}
+
+export interface ProductionQueueState {
+  imageJobs: ProductionJobRecord[];
+  videoJobs: ProductionJobRecord[];
+  activeJobIds: string[];
+  lastRunAt: number | null;
+  lastError: string | null;
+  batchScope: string | null;
+}
+
+export interface DirectorStoryboardOverrides {
+  lockedSectionIds: string[];
+  expandedSectionIds: string[];
+  sectionGroupNodeIds: Record<string, string>;
+  shotNodeIds: Record<string, string>;
+  shotPromptOverrides: Record<string, string>;
+  shotVideoPromptOverrides: Record<string, string>;
+  shotReferenceAssetIds: Record<string, string[]>;
+}
+
+export interface DirectorStoryboardReferenceNodeData extends NodeDisplayData {
+  linkedScriptProjectId: string | null;
+  directorStoryboardSourceProjectId: string | null;
+  directorStoryboardSourceNodeId: string | null;
+  directorStoryboardSourceVersion: number | null;
+  directorStoryboardSnapshot: DirectorStoryboardPackage | null;
+  directorStoryboardOverrides: DirectorStoryboardOverrides;
+  referenceContext: ReferenceContextSnapshot | null;
+  productionQueue: ProductionQueueState;
+  syncStatus: DirectorStoryboardReferenceSyncStatus;
+  syncMessage?: string | null;
+  lastSyncedAt?: number | null;
+}
+
+export interface ScriptAssetExtractNodeData extends NodeDisplayData {
+  sourceMode: ScriptAssetExtractSourceMode;
+  selectedChapterIds: string[];
+  resolvedSourceSnapshot: ScriptAssetExtractSourceSnapshot | null;
+  extractionResult: ScriptAssetExtractionResult | null;
+  extractionState: ScriptAssetExtractionState;
+  expandedGroupNodeIds: string[];
+  lastExpandedAt?: number | null;
+}
+
+export type DirectorWorkPackageNodeData = ScriptAssetExtractNodeData;
+
 export interface ScriptRootNodeData extends NodeDisplayData {
   title: string;
   genre: string;
@@ -2266,6 +2579,8 @@ export interface ScriptSceneNodeData extends NodeDisplayData {
   sourceDraftHtml?: string;
   draftHtml: string;
   episodes: EpisodeCard[];
+  directorStoryboardPackage?: DirectorStoryboardPackage | null;
+  directorStoryboardGeneration?: DirectorStoryboardGenerationState | null;
 }
 
 export interface ShootingScriptNodeData extends NodeDisplayData {
@@ -2282,6 +2597,8 @@ export interface ShootingScriptNodeData extends NodeDisplayData {
   lastGeneratedAt?: number | null;
   lastError?: string | null;
   sourceSnapshot: ShootingScriptSourceSnapshot | null;
+  directorStoryboardPackage?: DirectorStoryboardPackage | null;
+  directorStoryboardGeneration?: DirectorStoryboardGenerationState | null;
 }
 
 export interface ScriptReferenceNodeData extends NodeDisplayData {
@@ -2345,6 +2662,26 @@ export interface ScriptItemNodeData extends NodeDisplayData {
   name: string;
   description: string;
   appearances: string[];
+}
+
+export interface ScriptPlotLineNodeData extends NodeDisplayData {
+  panelKind?: 'plotLines' | 'characters' | 'scenes' | 'items' | 'emotions' | 'blueprints';
+  title: string;
+  summary: string;
+  statusTag: string;
+  relatedCharacterNames: string[];
+  relatedSceneNames: string[];
+  entries?: ExtractedScriptPlotLine[];
+  assetPanelRows?: ScriptAssetPanelRow[];
+}
+
+export interface ScriptAssetPanelRow {
+  id: string;
+  title: string;
+  subtitle?: string;
+  body: string;
+  meta?: string[];
+  prompt?: string;
 }
 
 export interface ScriptStoryNoteNodeData extends NodeDisplayData {
@@ -2441,6 +2778,9 @@ export type CanvasNodeData =
   | ScriptChapterNodeData
   | ScriptSceneNodeData
   | ShootingScriptNodeData
+  | ScriptAssetExtractNodeData
+  | DirectorWorkPackageNodeData
+  | DirectorStoryboardReferenceNodeData
   | ScriptReferenceNodeData
   | AdScriptReferenceNodeData
   | ScriptCharacterReferenceNodeData
@@ -2449,6 +2789,7 @@ export type CanvasNodeData =
   | ScriptCharacterNodeData
   | ScriptLocationNodeData
   | ScriptItemNodeData
+  | ScriptPlotLineNodeData
   | ScriptStoryNoteNodeData
   | ScriptPlotPointNodeData
   | ScriptWorldviewNodeData;
@@ -2662,6 +3003,668 @@ function normalizeStringArray(values: unknown): string[] {
   return values
     .map((value) => normalizeString(value).trim())
     .filter((value) => value.length > 0);
+}
+
+function normalizeStringRecord(value: unknown): Record<string, string> {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return {};
+  }
+
+  return Object.fromEntries(
+    Object.entries(value)
+      .map(([key, entryValue]) => [normalizeString(key).trim(), normalizeString(entryValue).trim()] as const)
+      .filter(([key, entryValue]) => key.length > 0 && entryValue.length > 0)
+  );
+}
+
+function normalizeStringArrayRecord(value: unknown): Record<string, string[]> {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return {};
+  }
+
+  return Object.fromEntries(
+    Object.entries(value)
+      .map(([key, entryValue]) => [normalizeString(key).trim(), normalizeStringArray(entryValue)] as const)
+      .filter(([key, entryValue]) => key.length > 0 && entryValue.length > 0)
+  );
+}
+
+function normalizeReferenceAssetKind(value: unknown): ReferenceAssetKind {
+  return value === 'location' || value === 'item' || value === 'image' ? value : 'character';
+}
+
+function normalizeReferenceAssetSourceType(value: unknown): ReferenceAssetSourceType {
+  return value === 'libraryAsset' || value === 'upload' || value === 'nodeOutput'
+    ? value
+    : 'scriptAsset';
+}
+
+function normalizeReferenceBindingRole(value: unknown): ReferenceBindingRole {
+  switch (value) {
+    case 'environment':
+    case 'prop':
+    case 'style':
+    case 'continuity':
+      return value;
+    default:
+      return 'subject';
+  }
+}
+
+function normalizeDirectorStoryboardGenerationPhase(
+  value: unknown
+): DirectorStoryboardGenerationPhase {
+  switch (value) {
+    case 'planning':
+    case 'ready':
+    case 'error':
+      return value;
+    default:
+      return 'idle';
+  }
+}
+
+function normalizeDirectorStoryboardPackageStatus(value: unknown): DirectorStoryboardPackageStatus {
+  return value === 'stale' || value === 'error' ? value : 'ready';
+}
+
+function normalizeProductionJobKind(value: unknown): ProductionJobKind {
+  return value === 'video' ? 'video' : 'image';
+}
+
+function normalizeProductionJobStatus(value: unknown): ProductionJobStatus {
+  switch (value) {
+    case 'queued':
+    case 'running':
+    case 'completed':
+    case 'failed':
+    case 'skipped':
+      return value;
+    default:
+      return 'idle';
+  }
+}
+
+function normalizeDirectorStoryboardReferenceSyncStatus(
+  value: unknown
+): DirectorStoryboardReferenceSyncStatus {
+  switch (value) {
+    case 'ready':
+    case 'stale':
+    case 'missingProject':
+    case 'missingSource':
+    case 'error':
+      return value;
+    default:
+      return 'idle';
+  }
+}
+
+export function normalizeReferenceAssetSnapshot(value: unknown): ReferenceAssetSnapshot | null {
+  if (!value || typeof value !== 'object') {
+    return null;
+  }
+
+  const record = value as Partial<ReferenceAssetSnapshot>;
+  const id = normalizeString(record.id).trim();
+  const name = normalizeString(record.name).trim();
+  if (!id || !name) {
+    return null;
+  }
+
+  return {
+    id,
+    kind: normalizeReferenceAssetKind(record.kind),
+    sourceType: normalizeReferenceAssetSourceType(record.sourceType),
+    sourceProjectId: normalizeString(record.sourceProjectId).trim() || null,
+    sourceNodeId: normalizeString(record.sourceNodeId).trim() || null,
+    assetId: normalizeString(record.assetId).trim() || null,
+    assetLibraryId: normalizeString(record.assetLibraryId).trim() || null,
+    name,
+    imageUrl: normalizeString(record.imageUrl).trim() || null,
+    previewImageUrl: normalizeString(record.previewImageUrl).trim() || null,
+    description: normalizeString(record.description).trim() || null,
+    locked: normalizeBooleanValue(record.locked),
+  };
+}
+
+export function normalizeReferenceAssetSnapshots(value: unknown): ReferenceAssetSnapshot[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value
+    .map((item) => normalizeReferenceAssetSnapshot(item))
+    .filter((item): item is ReferenceAssetSnapshot => Boolean(item));
+}
+
+export function normalizeReferenceAssetBinding(value: unknown): ReferenceAssetBinding | null {
+  if (!value || typeof value !== 'object') {
+    return null;
+  }
+
+  const record = value as Partial<ReferenceAssetBinding>;
+  const referenceId = normalizeString(record.referenceId).trim();
+  const targetId = normalizeString(record.targetId).trim();
+  if (!referenceId || !targetId) {
+    return null;
+  }
+
+  const targetType = record.targetType === 'section' || record.targetType === 'video' ? record.targetType : 'shot';
+
+  return {
+    referenceId,
+    targetType,
+    targetId,
+    role: normalizeReferenceBindingRole(record.role),
+    weight: Number.isFinite(record.weight) ? Number(record.weight) : 1,
+    notes: normalizeString(record.notes).trim() || null,
+  };
+}
+
+export function normalizeReferenceAssetBindings(value: unknown): ReferenceAssetBinding[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value
+    .map((item) => normalizeReferenceAssetBinding(item))
+    .filter((item): item is ReferenceAssetBinding => Boolean(item));
+}
+
+export function normalizeReferenceContextSnapshot(value: unknown): ReferenceContextSnapshot | null {
+  if (!value || typeof value !== 'object') {
+    return null;
+  }
+
+  const record = value as Partial<ReferenceContextSnapshot>;
+  return {
+    assets: normalizeReferenceAssetSnapshots(record.assets),
+    bindings: normalizeReferenceAssetBindings(record.bindings),
+    updatedAt: Number.isFinite(record.updatedAt) ? Number(record.updatedAt) : null,
+  };
+}
+
+export function normalizeDirectorStoryboardShotDraft(
+  value: unknown,
+  fallbackSectionId = '',
+  fallbackOrder = 0
+): DirectorStoryboardShotDraft | null {
+  if (!value || typeof value !== 'object') {
+    return null;
+  }
+
+  const record = value as Partial<DirectorStoryboardShotDraft>;
+  const id = normalizeString(record.id).trim();
+  if (!id) {
+    return null;
+  }
+
+  return {
+    id,
+    sectionId: normalizeString(record.sectionId).trim() || fallbackSectionId,
+    order: Number.isFinite(record.order) ? Math.max(0, Math.floor(Number(record.order))) : fallbackOrder,
+    shotLabel: normalizeString(record.shotLabel),
+    shotPurpose: normalizeString(record.shotPurpose),
+    compositionHint: normalizeString(record.compositionHint),
+    cameraHint: normalizeString(record.cameraHint),
+    motionHint: normalizeString(record.motionHint),
+    promptDraft: normalizeString(record.promptDraft),
+    videoPromptDraft: normalizeString(record.videoPromptDraft),
+    referenceBindings: normalizeReferenceAssetBindings(record.referenceBindings),
+  };
+}
+
+export function normalizeDirectorStoryboardSection(value: unknown): DirectorStoryboardSection | null {
+  if (!value || typeof value !== 'object') {
+    return null;
+  }
+
+  const record = value as Partial<DirectorStoryboardSection>;
+  const id = normalizeString(record.id).trim();
+  if (!id) {
+    return null;
+  }
+
+  const shots = Array.isArray(record.shots)
+    ? record.shots
+        .map((shot, index) => normalizeDirectorStoryboardShotDraft(shot, id, index))
+        .filter((shot): shot is DirectorStoryboardShotDraft => Boolean(shot))
+        .sort((left, right) => left.order - right.order)
+    : [];
+
+  return {
+    id,
+    order: Number.isFinite(record.order) ? Math.max(0, Math.floor(Number(record.order))) : 0,
+    title: normalizeString(record.title),
+    summary: normalizeString(record.summary),
+    dramaticGoal: normalizeString(record.dramaticGoal),
+    visualIntent: normalizeString(record.visualIntent),
+    continuityNotes: normalizeString(record.continuityNotes),
+    styleHints: normalizeStringArray(record.styleHints),
+    referenceBindings: normalizeReferenceAssetBindings(record.referenceBindings),
+    shots,
+  };
+}
+
+export function normalizeDirectorStoryboardSections(value: unknown): DirectorStoryboardSection[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value
+    .map((item) => normalizeDirectorStoryboardSection(item))
+    .filter((item): item is DirectorStoryboardSection => Boolean(item))
+    .sort((left, right) => left.order - right.order);
+}
+
+export function normalizeDirectorStoryboardGenerationState(
+  value: unknown
+): DirectorStoryboardGenerationState {
+  const record = value && typeof value === 'object'
+    ? value as Partial<DirectorStoryboardGenerationState>
+    : {};
+
+  return {
+    requestId: normalizeString(record.requestId).trim() || null,
+    phase: normalizeDirectorStoryboardGenerationPhase(record.phase),
+    statusText: normalizeString(record.statusText).trim() || null,
+    lastError: normalizeString(record.lastError).trim() || null,
+    lastGeneratedAt: Number.isFinite(record.lastGeneratedAt) ? Number(record.lastGeneratedAt) : null,
+  };
+}
+
+export function normalizeDirectorStoryboardPackage(
+  value: unknown
+): DirectorStoryboardPackage | null {
+  if (!value || typeof value !== 'object') {
+    return null;
+  }
+
+  const record = value as Partial<DirectorStoryboardPackage>;
+  const id = normalizeString(record.id).trim();
+  const sourceScriptProjectId = normalizeString(record.sourceScriptProjectId).trim();
+  if (!id || !sourceScriptProjectId) {
+    return null;
+  }
+
+  return {
+    id,
+    sourceScriptProjectId,
+    sourceScriptRootNodeId: normalizeString(record.sourceScriptRootNodeId).trim() || null,
+    sourceDirectorWorkPackageNodeId:
+      normalizeString(record.sourceDirectorWorkPackageNodeId).trim() || null,
+    sourceSceneNodeId: normalizeString(record.sourceSceneNodeId).trim() || null,
+    sourceShootingScriptNodeId: normalizeString(record.sourceShootingScriptNodeId).trim() || null,
+    sourceMode:
+      record.sourceMode === 'chapterSelection' || record.sourceMode === 'connectedText'
+        ? record.sourceMode
+        : null,
+    sourceChapterNodeIds: normalizeStringArray(record.sourceChapterNodeIds),
+    version: Number.isFinite(record.version) ? Math.max(1, Math.floor(Number(record.version))) : 1,
+    generatedAt: Number.isFinite(record.generatedAt) ? Number(record.generatedAt) : Date.now(),
+    status: normalizeDirectorStoryboardPackageStatus(record.status),
+    sections: normalizeDirectorStoryboardSections(record.sections),
+    referenceAssets: normalizeReferenceAssetSnapshots(record.referenceAssets),
+    generation: normalizeDirectorStoryboardGenerationState(record.generation),
+  };
+}
+
+export function normalizeScriptAssetExtractSourceSnapshot(
+  value: unknown
+): ScriptAssetExtractSourceSnapshot | null {
+  if (!value || typeof value !== 'object') {
+    return null;
+  }
+
+  const record = value as Partial<ScriptAssetExtractSourceSnapshot>;
+  const mode =
+    record.mode === 'chapterSelection' || record.mode === 'connectedText'
+      ? record.mode
+      : null;
+  if (!mode) {
+    return null;
+  }
+
+  const sourceText = normalizeString(record.sourceText).trim();
+  return {
+    mode,
+    chapterNodeIds: normalizeStringArray(record.chapterNodeIds),
+    chapterLabels: normalizeStringArray(record.chapterLabels),
+    sourceNodeId: normalizeString(record.sourceNodeId).trim() || null,
+    sourceNodeTitle: normalizeString(record.sourceNodeTitle).trim() || null,
+    chapterCount: Number.isFinite(record.chapterCount)
+      ? Math.max(0, Math.floor(Number(record.chapterCount)))
+      : 0,
+    sceneCount: Number.isFinite(record.sceneCount)
+      ? Math.max(0, Math.floor(Number(record.sceneCount)))
+      : 0,
+    sourceText,
+    updatedAt: Number.isFinite(record.updatedAt) ? Number(record.updatedAt) : null,
+  };
+}
+
+export const normalizeDirectorWorkPackageSourceSnapshot = normalizeScriptAssetExtractSourceSnapshot;
+
+export function normalizeScriptAssetExtractionResult(
+  value: unknown
+): ScriptAssetExtractionResult | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return null;
+  }
+
+  const record = value as Partial<ScriptAssetExtractionResult>;
+  const normalizeCharacter = (item: unknown): ScriptAssetExtractCharacter | null => {
+    if (!item || typeof item !== 'object' || Array.isArray(item)) {
+      return null;
+    }
+    const row = item as Partial<ScriptAssetExtractCharacter>;
+    const name = normalizeString(row.name).trim();
+    if (!name) {
+      return null;
+    }
+    return {
+      id: normalizeString(row.id).trim() || undefined,
+      name,
+      aliases: normalizeStringArray(row.aliases),
+      roleWeight: Number.isFinite(row.roleWeight) ? Number(row.roleWeight) : undefined,
+      description: normalizeString(row.description).trim(),
+      personality: normalizeString(row.personality).trim(),
+      appearance: normalizeString(row.appearance).trim(),
+      visualDesc: normalizeString(row.visualDesc).trim(),
+      continuityNotes: normalizeString(row.continuityNotes).trim(),
+      referencePrompt: normalizeString(row.referencePrompt).trim(),
+    };
+  };
+  const normalizeScene = (item: unknown): ExtractedScriptScene | null => {
+    if (!item || typeof item !== 'object' || Array.isArray(item)) {
+      return null;
+    }
+    const row = item as Partial<ExtractedScriptScene>;
+    const name = normalizeString(row.name).trim();
+    if (!name) {
+      return null;
+    }
+    return {
+      id: normalizeString(row.id).trim() || undefined,
+      name,
+      description: normalizeString(row.description).trim(),
+      relatedCharacterNames: normalizeStringArray(row.relatedCharacterNames),
+      sceneDesc: normalizeString(row.sceneDesc).trim(),
+      timeTone: normalizeString(row.timeTone).trim(),
+      lightLock: normalizeString(row.lightLock).trim(),
+      spaceLayout: normalizeString(row.spaceLayout).trim(),
+      referencePrompt: normalizeString(row.referencePrompt).trim(),
+    };
+  };
+  const normalizeItem = (item: unknown): ScriptAssetExtractItem | null => {
+    if (!item || typeof item !== 'object' || Array.isArray(item)) {
+      return null;
+    }
+    const row = item as Partial<ScriptAssetExtractItem>;
+    const name = normalizeString(row.name).trim();
+    if (!name) {
+      return null;
+    }
+    return {
+      id: normalizeString(row.id).trim() || undefined,
+      name,
+      description: normalizeString(row.description).trim(),
+      visualDesc: normalizeString(row.visualDesc).trim(),
+      function: normalizeString(row.function).trim(),
+      ownerCharacterIds: normalizeStringArray(row.ownerCharacterIds),
+      continuityNotes: normalizeString(row.continuityNotes).trim(),
+    };
+  };
+  const normalizePlotLine = (item: unknown): ExtractedScriptPlotLine | null => {
+    if (!item || typeof item !== 'object' || Array.isArray(item)) {
+      return null;
+    }
+    const row = item as Partial<ExtractedScriptPlotLine>;
+    const title = normalizeString(row.title).trim();
+    if (!title) {
+      return null;
+    }
+    return {
+      id: normalizeString(row.id).trim() || undefined,
+      title,
+      summary: normalizeString(row.summary).trim(),
+      statusTag: normalizeString(row.statusTag).trim(),
+      relatedCharacterNames: normalizeStringArray(row.relatedCharacterNames),
+      relatedSceneNames: normalizeStringArray(row.relatedSceneNames),
+      relatedItemNames: normalizeStringArray(row.relatedItemNames),
+    };
+  };
+  const normalizeEmotion = (item: unknown): ExtractedScriptEmotion | null => {
+    if (!item || typeof item !== 'object' || Array.isArray(item)) {
+      return null;
+    }
+    const row = item as Partial<ExtractedScriptEmotion>;
+    const name = normalizeString(row.name).trim();
+    if (!name) {
+      return null;
+    }
+    return {
+      id: normalizeString(row.id).trim() || undefined,
+      name,
+      description: normalizeString(row.description).trim(),
+      visualPrompt: normalizeString(row.visualPrompt).trim(),
+      relatedCharacterNames: normalizeStringArray(row.relatedCharacterNames),
+      relatedSceneNames: normalizeStringArray(row.relatedSceneNames),
+    };
+  };
+  const normalizeLineBlueprint = (item: unknown, index: number): ScriptAssetLineBlueprint | null => {
+    if (!item || typeof item !== 'object' || Array.isArray(item)) {
+      return null;
+    }
+    const row = item as Partial<ScriptAssetLineBlueprint>;
+    const seq = Number.isFinite(row.seq) ? Math.max(1, Math.floor(Number(row.seq))) : index + 1;
+    const comicText = normalizeString(row.comicText).trim();
+    const plotPoint = normalizeString(row.plotPoint).trim();
+    if (!comicText && !plotPoint) {
+      return null;
+    }
+    return {
+      seq,
+      comicText,
+      plotPoint,
+      characterIds: normalizeStringArray(row.characterIds),
+      sceneId: normalizeString(row.sceneId).trim(),
+      itemIds: normalizeStringArray(row.itemIds),
+      mood: normalizeString(row.mood).trim(),
+      shotHint: normalizeString(row.shotHint).trim(),
+      compositionHint: normalizeString(row.compositionHint).trim(),
+      cameraHint: normalizeString(row.cameraHint).trim(),
+      motionHint: normalizeString(row.motionHint).trim(),
+    };
+  };
+  const normalizePromptRow = (item: unknown, index: number): ScriptAssetPromptRow | null => {
+    if (!item || typeof item !== 'object' || Array.isArray(item)) {
+      return null;
+    }
+    const row = item as Partial<ScriptAssetPromptRow>;
+    const seq = Number.isFinite(row.seq) ? Math.max(1, Math.floor(Number(row.seq))) : index + 1;
+    const imagePrompt = normalizeString(row.imagePrompt).trim();
+    const videoFirstFramePrompt = normalizeString(row.videoFirstFramePrompt).trim();
+    const comicText = normalizeString(row.comicText).trim();
+    if (!imagePrompt && !videoFirstFramePrompt && !comicText) {
+      return null;
+    }
+    return {
+      seq,
+      comicText,
+      imagePrompt,
+      videoFirstFramePrompt,
+      characterNames: normalizeStringArray(row.characterNames),
+      sceneName: normalizeString(row.sceneName).trim(),
+      referenceAssetHints: normalizeStringArray(row.referenceAssetHints),
+    };
+  };
+  const characters = (Array.isArray(record.characters) ? record.characters : [])
+    .map((item) => normalizeCharacter(item))
+    .filter((item): item is ScriptAssetExtractCharacter => Boolean(item));
+  const scenes = (Array.isArray(record.scenes) ? record.scenes : [])
+    .map((item) => normalizeScene(item))
+    .filter((item): item is ExtractedScriptScene => Boolean(item));
+  const items = (Array.isArray(record.items) ? record.items : [])
+    .map((item) => normalizeItem(item))
+    .filter((item): item is ScriptAssetExtractItem => Boolean(item));
+  const plotLines = (Array.isArray(record.plotLines) ? record.plotLines : [])
+    .map((item) => normalizePlotLine(item))
+    .filter((item): item is ExtractedScriptPlotLine => Boolean(item));
+  const emotions = (Array.isArray(record.emotions) ? record.emotions : [])
+    .map((item) => normalizeEmotion(item))
+    .filter((item): item is ExtractedScriptEmotion => Boolean(item));
+  const charactersCatalog = (Array.isArray(record.charactersCatalog) ? record.charactersCatalog : [])
+    .map((item) => normalizeCharacter(item))
+    .filter((item): item is ScriptAssetExtractCharacter => Boolean(item));
+  const scenesCatalog = (Array.isArray(record.scenesCatalog) ? record.scenesCatalog : [])
+    .map((item) => normalizeScene(item))
+    .filter((item): item is ExtractedScriptScene => Boolean(item));
+  const itemsCatalog = (Array.isArray(record.itemsCatalog) ? record.itemsCatalog : [])
+    .map((item) => normalizeItem(item))
+    .filter((item): item is ScriptAssetExtractItem => Boolean(item));
+
+  return {
+    schemaVersion: Number.isFinite(record.schemaVersion)
+      ? Math.max(1, Math.floor(Number(record.schemaVersion)))
+      : 1,
+    version: Number.isFinite(record.version) ? Math.max(1, Math.floor(Number(record.version))) : 1,
+    generatedAt: Number.isFinite(record.generatedAt) ? Number(record.generatedAt) : Date.now(),
+    characters,
+    scenes,
+    items,
+    plotLines,
+    emotions,
+    charactersCatalog: charactersCatalog.length > 0 ? charactersCatalog : characters,
+    scenesCatalog: scenesCatalog.length > 0 ? scenesCatalog : scenes,
+    itemsCatalog: itemsCatalog.length > 0 ? itemsCatalog : items,
+    lineBlueprints: (Array.isArray(record.lineBlueprints) ? record.lineBlueprints : [])
+      .map((item, index) => normalizeLineBlueprint(item, index))
+      .filter((item): item is ScriptAssetLineBlueprint => Boolean(item))
+      .sort((left, right) => left.seq - right.seq),
+    promptRows: (Array.isArray(record.promptRows) ? record.promptRows : [])
+      .map((item, index) => normalizePromptRow(item, index))
+      .filter((item): item is ScriptAssetPromptRow => Boolean(item))
+      .sort((left, right) => left.seq - right.seq),
+  };
+}
+
+export function normalizeScriptAssetExtractionState(
+  value: unknown
+): ScriptAssetExtractionState {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return {
+      requestId: null,
+      phase: 'idle',
+      statusText: null,
+      lastError: null,
+      lastGeneratedAt: null,
+    };
+  }
+
+  const record = value as Partial<ScriptAssetExtractionState>;
+  const phase = record.phase === 'extracting' || record.phase === 'ready' || record.phase === 'error'
+    ? record.phase
+    : 'idle';
+
+  return {
+    requestId: normalizeString(record.requestId).trim() || null,
+    phase,
+    statusText: normalizeString(record.statusText).trim() || null,
+    lastError: normalizeString(record.lastError).trim() || null,
+    lastGeneratedAt: Number.isFinite(record.lastGeneratedAt) ? Number(record.lastGeneratedAt) : null,
+  };
+}
+
+export function normalizeProductionJobRecord(value: unknown): ProductionJobRecord | null {
+  if (!value || typeof value !== 'object') {
+    return null;
+  }
+
+  const record = value as Partial<ProductionJobRecord>;
+  const jobId = normalizeString(record.jobId).trim();
+  if (!jobId) {
+    return null;
+  }
+
+  return {
+    jobId,
+    kind: normalizeProductionJobKind(record.kind),
+    sourceSectionId: normalizeString(record.sourceSectionId).trim() || null,
+    sourceShotId: normalizeString(record.sourceShotId).trim() || null,
+    sourceNodeId: normalizeString(record.sourceNodeId).trim() || null,
+    status: normalizeProductionJobStatus(record.status),
+    requestId: normalizeString(record.requestId).trim() || null,
+    resultNodeIds: normalizeStringArray(record.resultNodeIds),
+    startedAt: Number.isFinite(record.startedAt) ? Number(record.startedAt) : null,
+    finishedAt: Number.isFinite(record.finishedAt) ? Number(record.finishedAt) : null,
+    error: normalizeString(record.error).trim() || null,
+  };
+}
+
+function normalizeProductionJobRecords(value: unknown): ProductionJobRecord[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value
+    .map((item) => normalizeProductionJobRecord(item))
+    .filter((item): item is ProductionJobRecord => Boolean(item));
+}
+
+export function createEmptyProductionQueueState(): ProductionQueueState {
+  return {
+    imageJobs: [],
+    videoJobs: [],
+    activeJobIds: [],
+    lastRunAt: null,
+    lastError: null,
+    batchScope: null,
+  };
+}
+
+export function normalizeProductionQueueState(value: unknown): ProductionQueueState {
+  const record = value && typeof value === 'object'
+    ? value as Partial<ProductionQueueState>
+    : {};
+
+  return {
+    imageJobs: normalizeProductionJobRecords(record.imageJobs),
+    videoJobs: normalizeProductionJobRecords(record.videoJobs),
+    activeJobIds: normalizeStringArray(record.activeJobIds),
+    lastRunAt: Number.isFinite(record.lastRunAt) ? Number(record.lastRunAt) : null,
+    lastError: normalizeString(record.lastError).trim() || null,
+    batchScope: normalizeString(record.batchScope).trim() || null,
+  };
+}
+
+export function createEmptyDirectorStoryboardOverrides(): DirectorStoryboardOverrides {
+  return {
+    lockedSectionIds: [],
+    expandedSectionIds: [],
+    sectionGroupNodeIds: {},
+    shotNodeIds: {},
+    shotPromptOverrides: {},
+    shotVideoPromptOverrides: {},
+    shotReferenceAssetIds: {},
+  };
+}
+
+export function normalizeDirectorStoryboardOverrides(value: unknown): DirectorStoryboardOverrides {
+  const record = value && typeof value === 'object'
+    ? value as Partial<DirectorStoryboardOverrides>
+    : {};
+
+  return {
+    lockedSectionIds: normalizeStringArray(record.lockedSectionIds),
+    expandedSectionIds: normalizeStringArray(record.expandedSectionIds),
+    sectionGroupNodeIds: normalizeStringRecord(record.sectionGroupNodeIds),
+    shotNodeIds: normalizeStringRecord(record.shotNodeIds),
+    shotPromptOverrides: normalizeStringRecord(record.shotPromptOverrides),
+    shotVideoPromptOverrides: normalizeStringRecord(record.shotVideoPromptOverrides),
+    shotReferenceAssetIds: normalizeStringArrayRecord(record.shotReferenceAssetIds),
+  };
 }
 
 function normalizeSceneCopilotThread(
@@ -3390,6 +4393,7 @@ export function normalizeLlmLogicNodeData(data: LlmLogicNodeData): LlmLogicNodeD
     'clarity',
     'voiceSeparation',
     'cinematicImagery',
+    'reverseImageContent',
     'rhythmPause',
     'emotionProgression',
     'subtext',
@@ -3405,6 +4409,7 @@ export function normalizeLlmLogicNodeData(data: LlmLogicNodeData): LlmLogicNodeD
         clarity: 'writing',
         voiceSeparation: 'voice',
         cinematicImagery: 'screen',
+        reverseImageContent: 'screen',
         rhythmPause: 'voice',
         emotionProgression: 'screen',
         subtext: 'screen',
@@ -3466,6 +4471,10 @@ export function normalizeScriptSceneNodeData(data: ScriptSceneNodeData): ScriptS
     sourceDraftHtml: normalizeString(data.sourceDraftHtml).trim() || undefined,
     draftHtml: normalizeString(data.draftHtml),
     episodes: normalizeEpisodeCards(data.episodes),
+    directorStoryboardPackage: normalizeDirectorStoryboardPackage(data.directorStoryboardPackage),
+    directorStoryboardGeneration: normalizeDirectorStoryboardGenerationState(
+      data.directorStoryboardGeneration
+    ),
   };
 }
 
@@ -3528,6 +4537,128 @@ export function normalizeShootingScriptNodeData(
       : null,
     lastError: normalizeString(data.lastError).trim() || null,
     sourceSnapshot: normalizeShootingScriptSourceSnapshot(data.sourceSnapshot),
+    directorStoryboardPackage: normalizeDirectorStoryboardPackage(data.directorStoryboardPackage),
+    directorStoryboardGeneration: normalizeDirectorStoryboardGenerationState(
+      data.directorStoryboardGeneration
+    ),
+  };
+}
+
+export function normalizeScriptAssetExtractNodeData(
+  data: ScriptAssetExtractNodeData
+): ScriptAssetExtractNodeData {
+  return {
+    sourceMode:
+      data.sourceMode === 'connectedText'
+        ? 'connectedText'
+        : 'chapterSelection',
+    selectedChapterIds: normalizeStringArray(data.selectedChapterIds),
+    resolvedSourceSnapshot: normalizeScriptAssetExtractSourceSnapshot(data.resolvedSourceSnapshot),
+    extractionResult: normalizeScriptAssetExtractionResult(data.extractionResult),
+    extractionState: normalizeScriptAssetExtractionState(data.extractionState),
+    expandedGroupNodeIds: normalizeStringArray(data.expandedGroupNodeIds),
+    lastExpandedAt: Number.isFinite(data.lastExpandedAt) ? Number(data.lastExpandedAt) : null,
+    displayName: normalizeString(data.displayName).trim() || data.displayName,
+    description: normalizeString(data.description).trim() || undefined,
+    semanticColor: data.semanticColor ?? null,
+  };
+}
+
+export const normalizeDirectorWorkPackageNodeData = normalizeScriptAssetExtractNodeData;
+
+export function normalizeScriptPlotLineNodeData(
+  data: ScriptPlotLineNodeData
+): ScriptPlotLineNodeData {
+  const normalizePlotLineEntry = (item: unknown): ExtractedScriptPlotLine | null => {
+    if (!item || typeof item !== 'object' || Array.isArray(item)) {
+      return null;
+    }
+
+    const row = item as Partial<ExtractedScriptPlotLine>;
+    const title = normalizeString(row.title).trim();
+    if (!title) {
+      return null;
+    }
+
+    return {
+      title,
+      summary: normalizeString(row.summary).trim(),
+      statusTag: normalizeString(row.statusTag).trim(),
+      relatedCharacterNames: normalizeStringArray(row.relatedCharacterNames),
+      relatedSceneNames: normalizeStringArray(row.relatedSceneNames),
+      relatedItemNames: normalizeStringArray(row.relatedItemNames),
+    };
+  };
+  const normalizePanelRow = (item: unknown, index: number): ScriptAssetPanelRow | null => {
+    if (!item || typeof item !== 'object' || Array.isArray(item)) {
+      return null;
+    }
+
+    const row = item as Partial<ScriptAssetPanelRow>;
+    const rowId = normalizeString(row.id).trim();
+    const title = normalizeString(row.title).trim();
+    const body = normalizeString(row.body).trim();
+    const prompt = normalizeString(row.prompt).trim();
+    if (!rowId && !title && !body && !prompt) {
+      return null;
+    }
+
+    return {
+      id: rowId || `panel-row-${index + 1}`,
+      title: title || (rowId ? '' : `条目 ${index + 1}`),
+      subtitle: normalizeString(row.subtitle).trim(),
+      body,
+      meta: normalizeStringArray(row.meta),
+      prompt,
+    };
+  };
+  const panelKind = (
+    data.panelKind === 'characters'
+    || data.panelKind === 'scenes'
+    || data.panelKind === 'items'
+    || data.panelKind === 'emotions'
+    || data.panelKind === 'blueprints'
+  )
+    ? data.panelKind
+    : 'plotLines';
+
+  return {
+    ...data,
+    panelKind,
+    title: normalizeString(data.title),
+    summary: normalizeString(data.summary),
+    statusTag: normalizeString(data.statusTag),
+    relatedCharacterNames: normalizeStringArray(data.relatedCharacterNames),
+    relatedSceneNames: normalizeStringArray(data.relatedSceneNames),
+    entries: (Array.isArray(data.entries) ? data.entries : [])
+      .map((item) => normalizePlotLineEntry(item))
+      .filter((item): item is ExtractedScriptPlotLine => item !== null),
+    assetPanelRows: (Array.isArray(data.assetPanelRows) ? data.assetPanelRows : [])
+      .map((item, index) => normalizePanelRow(item, index))
+      .filter((item): item is ScriptAssetPanelRow => item !== null),
+  };
+}
+
+export function normalizeDirectorStoryboardReferenceNodeData(
+  data: DirectorStoryboardReferenceNodeData
+): DirectorStoryboardReferenceNodeData {
+  return {
+    ...data,
+    linkedScriptProjectId: normalizeString(data.linkedScriptProjectId).trim() || null,
+    directorStoryboardSourceProjectId:
+      normalizeString(data.directorStoryboardSourceProjectId).trim() || null,
+    directorStoryboardSourceNodeId:
+      normalizeString(data.directorStoryboardSourceNodeId).trim() || null,
+    directorStoryboardSourceVersion: Number.isFinite(data.directorStoryboardSourceVersion)
+      ? Math.max(1, Math.floor(Number(data.directorStoryboardSourceVersion)))
+      : null,
+    directorStoryboardSnapshot: normalizeDirectorStoryboardPackage(data.directorStoryboardSnapshot),
+    directorStoryboardOverrides: normalizeDirectorStoryboardOverrides(data.directorStoryboardOverrides),
+    referenceContext: normalizeReferenceContextSnapshot(data.referenceContext),
+    productionQueue: normalizeProductionQueueState(data.productionQueue),
+    syncStatus: normalizeDirectorStoryboardReferenceSyncStatus(data.syncStatus),
+    syncMessage: normalizeString(data.syncMessage).trim() || null,
+    lastSyncedAt: Number.isFinite(data.lastSyncedAt) ? Number(data.lastSyncedAt) : null,
   };
 }
 
@@ -3984,6 +5115,7 @@ export function isScriptWorldviewNode(
 export interface SingleImageConnectionSource {
   imageUrl: string;
   previewImageUrl: string;
+  thumbnailUrl: string | null;
   aspectRatio: string;
 }
 
@@ -4075,6 +5207,7 @@ export function resolveSingleImageConnectionSource(
     return {
       imageUrl,
       previewImageUrl: normalizeImageSource(node.data.previewImageUrl) ?? imageUrl,
+      thumbnailUrl: normalizeImageSource(node.data.thumbnailUrl),
       aspectRatio: normalizeImageSource(node.data.aspectRatio) ?? DEFAULT_ASPECT_RATIO,
     };
   }
@@ -4090,6 +5223,7 @@ export function resolveSingleImageConnectionSource(
     return {
       imageUrl,
       previewImageUrl: normalizeImageSource(node.data.lastSnapshotPreviewUrl) ?? imageUrl,
+      thumbnailUrl: null,
       aspectRatio: '16:9',
     };
   }
@@ -4109,6 +5243,7 @@ export function resolveSingleImageConnectionSource(
             ?? normalizeImageSource(item.imageUrl)
             ?? normalizeImageSource(item.sourceUrl)
             ?? imageUrl,
+          thumbnailUrl: normalizeImageSource(item.thumbnailUrl),
           aspectRatio:
             normalizeImageSource(item.aspectRatio)
             ?? normalizeImageSource(node.data.aspectRatio)

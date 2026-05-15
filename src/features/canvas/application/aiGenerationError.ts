@@ -4,6 +4,7 @@ export type AiGenerationErrorCategory =
   | 'policyViolation'
   | 'timeout'
   | 'payloadTooLarge'
+  | 'invalidReferenceImage'
   | 'endpointMismatch'
   | 'modelUnavailable'
   | 'insufficientBalance'
@@ -188,6 +189,19 @@ function resolveCategory(normalized: string, statusCode?: number): AiGenerationE
 
   if (
     hasAny(normalized, [
+      'does not represent a valid image',
+      'failed to decode reference image',
+      'failed to decode image source',
+      'reference image is not a valid image',
+      'invalid image data',
+      'invalid image',
+    ])
+  ) {
+    return 'invalidReferenceImage';
+  }
+
+  if (
+    hasAny(normalized, [
       'only supported on /v1/images/generations and /v1/images/edits',
       'endpoint not supported',
       '/v1/chat/completions endpoint not supported',
@@ -232,6 +246,7 @@ function resolveCategory(normalized: string, statusCode?: number): AiGenerationE
       'bad gateway',
       'service unavailable',
       'broken pipe',
+      'stream disconnected before completion',
       'no such host',
       'system memory overloaded',
       '消息流出现异常',

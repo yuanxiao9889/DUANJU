@@ -1,10 +1,6 @@
-import {
-  memo,
-  useMemo,
-} from 'react';
+import { memo, useMemo, } from 'react';
 import type { NodeProps } from '@xyflow/react';
 import { Image as ImageIcon } from 'lucide-react';
-
 import {
   CANVAS_NODE_TYPES,
   IMAGE_COMPARE_NODE_DEFAULT_HEIGHT,

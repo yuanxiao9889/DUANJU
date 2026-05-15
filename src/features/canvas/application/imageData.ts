@@ -2,6 +2,7 @@ import { convertFileSrc, isTauri } from '@tauri-apps/api/core';
 
 import {
   prepareNodeImageBinary,
+  createNodeThumbnailSource,
   persistImageSource,
   prepareNodeImageSource,
   readLocalImageBinary,
@@ -41,6 +42,7 @@ function greatestCommonDivisor(a: number, b: number): number {
 }
 
 const DEFAULT_PREVIEW_MAX_DIMENSION = 512;
+export const OVERVIEW_THUMBNAIL_MAX_DIMENSION = 96;
 const LOCAL_PATH_PREFIX_PATTERN = /^(?:[A-Za-z]:[\\/]|\\\\|\/)/;
 const URL_SCHEME_PREFIX_PATTERN = /^[a-z][a-z0-9+\-.]*:\/\//i;
 const LOCAL_IMAGE_DISPLAY_SOURCE_CACHE_LIMIT = 512;
@@ -79,6 +81,7 @@ const BUNDLED_APP_ASSET_PATHS = new Set([
 export interface PreparedNodeImage {
   imageUrl: string;
   previewImageUrl: string;
+  thumbnailImageUrl: string;
   aspectRatio: string;
 }
 
@@ -614,6 +617,30 @@ export async function ensurePreparedNodeImageReadable(
   };
 }
 
+export async function createNodeOverviewThumbnail(
+  source: string,
+  mediaContext: MediaPersistContext = createCurrentProjectMediaContext('image')
+): Promise<string> {
+  const trimmedSource = source.trim();
+  if (!trimmedSource) {
+    throw createImagePipelineError('Thumbnail source is empty', 'source is empty');
+  }
+
+  if (isTauri()) {
+    return await createNodeThumbnailSource(trimmedSource, mediaContext);
+  }
+
+  const thumbnailDataUrl = await createPreviewDataUrl(
+    trimmedSource,
+    OVERVIEW_THUMBNAIL_MAX_DIMENSION,
+    { forceRender: true, mimeType: 'image/png' }
+  );
+  return await persistImageLocally(
+    thumbnailDataUrl,
+    { ...mediaContext, mediaType: 'image', role: 'thumbnail' }
+  );
+}
+
 export async function loadImageElement(source: string): Promise<HTMLImageElement> {
   const image = new Image();
   const displaySource = await loadStableImageDisplaySource(source);
@@ -749,6 +776,7 @@ export async function prepareNodeImageFromFile(
     return {
       imageUrl: prepared.imagePath,
       previewImageUrl: prepared.previewImagePath,
+      thumbnailImageUrl: prepared.thumbnailImagePath,
       aspectRatio: prepared.aspectRatio,
     };
   }
@@ -823,14 +851,47 @@ function renderPreviewDataUrl(
   return canvas.toDataURL(mimeType);
 }
 
+export interface CreatePreviewDataUrlOptions {
+  mimeType?: 'image/jpeg' | 'image/png' | 'image/webp';
+  quality?: number;
+  forceRender?: boolean;
+}
+
 export async function createPreviewDataUrl(
   imageUrl: string,
-  maxDimension = DEFAULT_PREVIEW_MAX_DIMENSION
+  maxDimension = DEFAULT_PREVIEW_MAX_DIMENSION,
+  options: CreatePreviewDataUrlOptions = {}
 ): Promise<string> {
   const normalizedDataUrl = await imageUrlToDataUrl(imageUrl);
   const image = await loadImageElement(normalizedDataUrl);
   const safeMaxDimension = Math.max(64, Math.floor(maxDimension));
-  return renderPreviewDataUrl(image, normalizedDataUrl, safeMaxDimension);
+  if (!options.forceRender && !options.mimeType && !options.quality) {
+    return renderPreviewDataUrl(image, normalizedDataUrl, safeMaxDimension);
+  }
+
+  const longestSide = Math.max(image.naturalWidth, image.naturalHeight);
+  const scale = longestSide > safeMaxDimension ? safeMaxDimension / longestSide : 1;
+  const targetWidth = Math.max(1, Math.round(image.naturalWidth * scale));
+  const targetHeight = Math.max(1, Math.round(image.naturalHeight * scale));
+  const canvas = document.createElement('canvas');
+  canvas.width = targetWidth;
+  canvas.height = targetHeight;
+
+  const context = canvas.getContext('2d');
+  if (!context) {
+    return renderPreviewDataUrl(image, normalizedDataUrl, safeMaxDimension);
+  }
+
+  const mimeType = options.mimeType ?? resolvePreviewMimeType(normalizedDataUrl);
+  if (mimeType === 'image/jpeg') {
+    context.fillStyle = '#ffffff';
+    context.fillRect(0, 0, targetWidth, targetHeight);
+  }
+  context.imageSmoothingEnabled = true;
+  context.imageSmoothingQuality = 'high';
+  context.drawImage(image, 0, 0, targetWidth, targetHeight);
+
+  return canvas.toDataURL(mimeType, options.quality);
 }
 
 export async function prepareNodeImage(
@@ -859,6 +920,7 @@ export async function prepareNodeImage(
       return {
         imageUrl: prepared.imagePath,
         previewImageUrl: prepared.previewImagePath,
+        thumbnailImageUrl: prepared.thumbnailImagePath,
         aspectRatio: prepared.aspectRatio,
       };
     } catch (error) {
@@ -883,6 +945,18 @@ export async function prepareNodeImage(
           previewDataUrl,
           { ...mediaContext, mediaType: 'image', role: 'preview' }
         );
+    const thumbnailDataUrl = await createPreviewDataUrl(
+      persistedImagePath,
+      OVERVIEW_THUMBNAIL_MAX_DIMENSION,
+      { forceRender: true, mimeType: 'image/png' }
+    );
+    const thumbnailImagePath =
+      thumbnailDataUrl === normalizedDataUrl
+        ? persistedImagePath
+        : await persistImageLocally(
+          thumbnailDataUrl,
+          { ...mediaContext, mediaType: 'image', role: 'thumbnail' }
+        );
 
     console.info(
       `[upload-perf][imageData] prepareNodeImage browser-fallback total=${Math.round(performance.now() - started)}ms`
@@ -890,6 +964,7 @@ export async function prepareNodeImage(
     return {
       imageUrl: persistedImagePath,
       previewImageUrl: previewImagePath,
+      thumbnailImageUrl: thumbnailImagePath,
       aspectRatio: reduceAspectRatio(image.naturalWidth, image.naturalHeight),
     };
   } catch (error) {

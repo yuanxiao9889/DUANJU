@@ -140,6 +140,61 @@ fn emit_main_window_close_request(app: &tauri::AppHandle) {
     }
 }
 
+fn setup_main_tray(app: &tauri::App) -> Result<(), String> {
+    let tray_icon = app
+        .default_window_icon()
+        .cloned()
+        .ok_or_else(|| "missing default window icon for tray".to_string())?;
+    let show_main_window_item = MenuItem::with_id(
+        app,
+        MAIN_TRAY_SHOW_WINDOW_MENU_ID,
+        "显示主窗口",
+        true,
+        None::<&str>,
+    )
+    .map_err(|err| format!("failed to create tray show menu item: {err}"))?;
+    let quit_app_item =
+        MenuItem::with_id(app, MAIN_TRAY_QUIT_MENU_ID, "退出应用", true, None::<&str>)
+            .map_err(|err| format!("failed to create tray quit menu item: {err}"))?;
+    let tray_menu = Menu::with_items(app, &[&show_main_window_item, &quit_app_item])
+        .map_err(|err| format!("failed to create tray menu: {err}"))?;
+    let tray = TrayIconBuilder::with_id(MAIN_TRAY_ID)
+        .icon(tray_icon)
+        .menu(&tray_menu)
+        .tooltip("OOpii Infinite Canvas")
+        .show_menu_on_left_click(false)
+        .on_menu_event(|app, event| {
+            if event.id() == MAIN_TRAY_SHOW_WINDOW_MENU_ID {
+                show_main_window(app);
+                return;
+            }
+
+            if event.id() == MAIN_TRAY_QUIT_MENU_ID {
+                emit_main_window_close_request(app);
+            }
+        })
+        .on_tray_icon_event(|tray, event| {
+            if matches!(
+                event,
+                TrayIconEvent::Click {
+                    button: MouseButton::Left,
+                    button_state: MouseButtonState::Up,
+                    ..
+                }
+            ) {
+                show_main_window(tray.app_handle());
+            }
+        })
+        .build(app)
+        .map_err(|err| format!("failed to build main tray icon: {err}"))?;
+
+    if let Err(err) = tray.set_visible(false) {
+        warn!("failed to hide tray icon on startup: {err}");
+    }
+
+    Ok(())
+}
+
 fn fit_main_window_to_work_area(
     window: &WebviewWindow,
     window_config: &tauri::utils::config::WindowConfig,
@@ -231,51 +286,8 @@ pub fn run() {
                 warn!("failed to focus main window on startup: {err}");
             }
 
-            let tray_icon = app
-                .default_window_icon()
-                .cloned()
-                .ok_or_else(|| "missing default window icon for tray".to_string())?;
-            let show_main_window_item = MenuItem::with_id(
-                app,
-                MAIN_TRAY_SHOW_WINDOW_MENU_ID,
-                "显示主窗口",
-                true,
-                None::<&str>,
-            )?;
-            let quit_app_item =
-                MenuItem::with_id(app, MAIN_TRAY_QUIT_MENU_ID, "退出应用", true, None::<&str>)?;
-            let tray_menu = Menu::with_items(app, &[&show_main_window_item, &quit_app_item])?;
-            let tray = TrayIconBuilder::with_id(MAIN_TRAY_ID)
-                .icon(tray_icon)
-                .menu(&tray_menu)
-                .tooltip("OOpii Infinite Canvas")
-                .show_menu_on_left_click(false)
-                .on_menu_event(|app, event| {
-                    if event.id() == MAIN_TRAY_SHOW_WINDOW_MENU_ID {
-                        show_main_window(app);
-                        return;
-                    }
-
-                    if event.id() == MAIN_TRAY_QUIT_MENU_ID {
-                        emit_main_window_close_request(app);
-                    }
-                })
-                .on_tray_icon_event(|tray, event| {
-                    if matches!(
-                        event,
-                        TrayIconEvent::Click {
-                            button: MouseButton::Left,
-                            button_state: MouseButtonState::Up,
-                            ..
-                        }
-                    ) {
-                        show_main_window(tray.app_handle());
-                    }
-                })
-                .build(app)?;
-
-            if let Err(err) = tray.set_visible(false) {
-                warn!("failed to hide tray icon on startup: {err}");
+            if let Err(err) = setup_main_tray(app) {
+                warn!("{err}");
             }
 
             let app_handle = app.handle().clone();
@@ -334,6 +346,7 @@ pub fn run() {
             image::split_image_source,
             image::prepare_node_image_source,
             image::prepare_node_image_binary,
+            image::create_node_thumbnail_source,
             image::crop_image_source,
             image::merge_storyboard_images,
             image::read_storyboard_image_metadata,
@@ -443,6 +456,7 @@ pub fn run() {
             seedance::get_seedance_video_task,
             gpt_best_video::create_gpt_best_video_task,
             gpt_best_video::get_gpt_best_video_task,
+            gpt_best_video::download_gpt_best_video_content,
             vidu::create_vidu_video_task,
             vidu::create_vidu_voice_clone,
             vidu::get_vidu_video_task,

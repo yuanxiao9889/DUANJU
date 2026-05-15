@@ -1,45 +1,52 @@
+import { memo, useEffect, useMemo, useState, useCallback, useRef } from "react";
+import { createPortal } from "react-dom";
+import { useTranslation } from "react-i18next";
 import {
-  memo,
-  useEffect,
-  useMemo,
-  useState,
-  useCallback,
-  useRef,
-} from 'react';
-import { createPortal } from 'react-dom';
-import { useTranslation } from 'react-i18next';
-import {
-  Handle,
   Position,
   useUpdateNodeInternals,
   type NodeProps,
-} from '@xyflow/react';
-import { Download, FolderOpen, ImagePlus, SlidersHorizontal, SquareArrowOutUpRight, Minus, Plus, Trash2 } from 'lucide-react';
-import { open } from '@tauri-apps/plugin-dialog';
-import { openPath, revealItemInDir } from '@tauri-apps/plugin-opener';
-import { join } from '@tauri-apps/api/path';
-
+} from "@xyflow/react";
+import { CanvasHandle } from "@/features/canvas/ui/CanvasHandle";
+import {
+  Download,
+  FolderOpen,
+  ImagePlus,
+  SlidersHorizontal,
+  SquareArrowOutUpRight,
+  Minus,
+  Plus,
+  Trash2,
+} from "lucide-react";
+import { open } from "@tauri-apps/plugin-dialog";
+import { openPath, revealItemInDir } from "@tauri-apps/plugin-opener";
+import { join } from "@tauri-apps/api/path";
 import {
   embedStoryboardImageMetadata,
   mergeStoryboardImages,
   saveImageSourceToDirectory,
   type MergeStoryboardImagesResult,
-} from '@/commands/image';
-import { createCurrentProjectMediaContext } from '@/features/canvas/application/mediaPersistenceContext';
-import { NodeHeader, NODE_HEADER_FLOATING_POSITION_CLASS } from '@/features/canvas/ui/NodeHeader';
-import { NodeResizeHandle } from '@/features/canvas/ui/NodeResizeHandle';
-import { CanvasNodeImage } from '@/features/canvas/ui/CanvasNodeImage';
+} from "@/commands/image";
+import { createCurrentProjectMediaContext } from "@/features/canvas/application/mediaPersistenceContext";
+import {
+  NodeHeader,
+  NODE_HEADER_FLOATING_POSITION_CLASS,
+} from "@/features/canvas/ui/NodeHeader";
+import { NodeResizeHandle } from "@/features/canvas/ui/NodeResizeHandle";
+import { CanvasNodeImage } from "@/features/canvas/ui/CanvasNodeImage";
 import type {
   StoryboardExportOptions,
   StoryboardFrameItem,
   StoryboardSplitNodeData,
-} from '@/features/canvas/domain/canvasNodes';
+} from "@/features/canvas/domain/canvasNodes";
 import {
   CANVAS_NODE_TYPES,
   DEFAULT_ASPECT_RATIO,
   resolveSingleImageConnectionSource,
-} from '@/features/canvas/domain/canvasNodes';
-import { EXPORT_RESULT_DISPLAY_NAME, resolveNodeDisplayName } from '@/features/canvas/domain/nodeDisplay';
+} from "@/features/canvas/domain/canvasNodes";
+import {
+  EXPORT_RESULT_DISPLAY_NAME,
+  resolveNodeDisplayName,
+} from "@/features/canvas/domain/nodeDisplay";
 import {
   canvasToDataUrl,
   loadImageElement,
@@ -47,18 +54,25 @@ import {
   persistImageLocally,
   reduceAspectRatio,
   shouldUseOriginalImageByZoom,
-} from '@/features/canvas/application/imageData';
-import { UiButton, UiCheckbox, UiChipButton, UiInput, UiPanel, UiSelect } from '@/components/ui';
+} from "@/features/canvas/application/imageData";
+import {
+  UiButton,
+  UiCheckbox,
+  UiChipButton,
+  UiInput,
+  UiPanel,
+  UiSelect,
+} from "@/components/ui";
 import {
   NODE_CONTROL_CHIP_CLASS,
   NODE_CONTROL_ICON_CLASS,
   NODE_CONTROL_PRIMARY_BUTTON_CLASS,
-} from '@/features/canvas/ui/nodeControlStyles';
-import { useCanvasIncomingSourceNodes } from '@/features/canvas/hooks/useCanvasNodeGraph';
-import { useCanvasZoom } from '@/features/canvas/hooks/useCanvasZoom';
-import { useCanvasStore } from '@/stores/canvasStore';
-import { useProjectStore } from '@/stores/projectStore';
-import { useSettingsStore } from '@/stores/settingsStore';
+} from "@/features/canvas/ui/nodeControlStyles";
+import { useCanvasIncomingSourceNodes } from "@/features/canvas/hooks/useCanvasNodeGraph";
+import { useCanvasZoom } from "@/features/canvas/hooks/useCanvasZoom";
+import { useCanvasStore } from "@/stores/canvasStore";
+import { useProjectStore } from "@/stores/projectStore";
+import { useSettingsStore } from "@/stores/settingsStore";
 
 type StoryboardNodeProps = NodeProps & {
   id: string;
@@ -71,7 +85,7 @@ const STORYBOARD_NODE_MIN_WIDTH_PX = 620;
 const STORYBOARD_NODE_MIN_HEIGHT_PX = 360;
 const STORYBOARD_GRID_GAP_PX = 1;
 const EXPORT_MAX_DIMENSION = 4096;
-const EXPORT_TRACE_PREFIX = '[StoryboardExport]';
+const EXPORT_TRACE_PREFIX = "[StoryboardExport]";
 const STORYBOARD_SPLIT_HEADER_ADJUST = { x: 0, y: 0, scale: 1 };
 const STORYBOARD_SPLIT_ICON_ADJUST = { x: 0, y: 0, scale: 1 };
 const STORYBOARD_SPLIT_TITLE_ADJUST = { x: 0, y: 0, scale: 1 };
@@ -79,11 +93,14 @@ const STORYBOARD_NODE_WIDTH_PADDING_PX = 200;
 const STORYBOARD_NODE_HEIGHT_PADDING_PX = 160;
 const STORYBOARD_NODE_COL_WIDTH_PX = 136;
 const STORYBOARD_NODE_ROW_HEIGHT_PX = 92;
-const GRID_CONTROL_CONTAINER_CLASS = 'flex h-6 items-center gap-1 rounded-full border border-[rgba(255,255,255,0.14)] bg-[rgba(255,255,255,0.05)] px-1.5';
-const GRID_CONTROL_LABEL_CLASS = 'text-[10px] text-text-muted';
-const GRID_CONTROL_BUTTON_CLASS = 'flex h-4 w-4 items-center justify-center rounded-full text-text-muted transition-colors hover:bg-white/10 hover:text-text-dark disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-text-muted';
-const GRID_CONTROL_ICON_CLASS = 'h-2.5 w-2.5';
-const GRID_CONTROL_VALUE_CLASS = 'min-w-[16px] text-center text-[10px] font-semibold text-text-dark';
+const GRID_CONTROL_CONTAINER_CLASS =
+  "flex h-6 items-center gap-1 rounded-full border border-[rgba(255,255,255,0.14)] bg-[rgba(255,255,255,0.05)] px-1.5";
+const GRID_CONTROL_LABEL_CLASS = "text-[10px] text-text-muted";
+const GRID_CONTROL_BUTTON_CLASS =
+  "flex h-4 w-4 items-center justify-center rounded-full text-text-muted transition-colors hover:bg-white/10 hover:text-text-dark disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-text-muted";
+const GRID_CONTROL_ICON_CLASS = "h-2.5 w-2.5";
+const GRID_CONTROL_VALUE_CLASS =
+  "min-w-[16px] text-center text-[10px] font-semibold text-text-dark";
 
 function SplitResultIcon({ className }: { className?: string }) {
   return (
@@ -103,18 +120,23 @@ function clamp(value: number, min: number, max: number): number {
   return Math.max(min, Math.min(max, value));
 }
 
-function resolveStoryboardNodeDefaultSize(rows: number, cols: number): { width: number; height: number } {
+function resolveStoryboardNodeDefaultSize(
+  rows: number,
+  cols: number,
+): { width: number; height: number } {
   const safeRows = Math.max(1, Math.floor(rows));
   const safeCols = Math.max(1, Math.floor(cols));
 
   return {
     width: Math.max(
       STORYBOARD_NODE_WIDTH_PX,
-      STORYBOARD_NODE_WIDTH_PADDING_PX + safeCols * STORYBOARD_NODE_COL_WIDTH_PX
+      STORYBOARD_NODE_WIDTH_PADDING_PX +
+        safeCols * STORYBOARD_NODE_COL_WIDTH_PX,
     ),
     height: Math.max(
       STORYBOARD_NODE_MIN_HEIGHT_PX,
-      STORYBOARD_NODE_HEIGHT_PADDING_PX + safeRows * STORYBOARD_NODE_ROW_HEIGHT_PX
+      STORYBOARD_NODE_HEIGHT_PADDING_PX +
+        safeRows * STORYBOARD_NODE_ROW_HEIGHT_PX,
     ),
   };
 }
@@ -126,36 +148,41 @@ function sanitizePathSegment(raw: string, fallback: string): string {
   }
 
   const sanitized = Array.from(trimmed)
-    .filter((ch) => !/[<>:"/\\|?*]/.test(ch) && ch >= ' ')
-    .join('')
+    .filter((ch) => !/[<>:"/\\|?*]/.test(ch) && ch >= " ")
+    .join("")
     .trim()
-    .replace(/\.+$/g, '');
+    .replace(/\.+$/g, "");
 
   return sanitized || fallback;
 }
 
 function sanitizeExportLabel(raw: string, maxLength = 50): string {
-  const compact = sanitizePathSegment(raw, '').replace(/\s+/g, ' ').trim();
+  const compact = sanitizePathSegment(raw, "").replace(/\s+/g, " ").trim();
   if (!compact) {
-    return '';
+    return "";
   }
   return compact.slice(0, maxLength);
 }
 
 function toCssAspectRatio(aspectRatio: string): string {
-  const [rawWidth = '1', rawHeight = '1'] = aspectRatio.split(':');
+  const [rawWidth = "1", rawHeight = "1"] = aspectRatio.split(":");
   const width = Number(rawWidth);
   const height = Number(rawHeight);
 
-  if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) {
-    return '1 / 1';
+  if (
+    !Number.isFinite(width) ||
+    !Number.isFinite(height) ||
+    width <= 0 ||
+    height <= 0
+  ) {
+    return "1 / 1";
   }
 
   return `${width} / ${height}`;
 }
 
 function normalizeAspectRatioValue(aspectRatio: unknown): string | null {
-  if (typeof aspectRatio !== 'string') {
+  if (typeof aspectRatio !== "string") {
     return null;
   }
 
@@ -164,7 +191,7 @@ function normalizeAspectRatioValue(aspectRatio: unknown): string | null {
 }
 
 function normalizeStoryboardStringValue(value: unknown): string | null {
-  if (typeof value !== 'string') {
+  if (typeof value !== "string") {
     return null;
   }
 
@@ -172,7 +199,9 @@ function normalizeStoryboardStringValue(value: unknown): string | null {
   return trimmed.length > 0 ? trimmed : null;
 }
 
-function resolveStoryboardFrameImageKeys(frame: Pick<StoryboardFrameItem, 'imageUrl' | 'previewImageUrl'>): string[] {
+function resolveStoryboardFrameImageKeys(
+  frame: Pick<StoryboardFrameItem, "imageUrl" | "previewImageUrl">,
+): string[] {
   const imageKeys = [
     normalizeStoryboardStringValue(frame.imageUrl),
     normalizeStoryboardStringValue(frame.previewImageUrl),
@@ -183,33 +212,36 @@ function resolveStoryboardFrameImageKeys(frame: Pick<StoryboardFrameItem, 'image
 
 function resolveStoryboardGridAspectRatio(
   frameAspectRatio: unknown,
-  firstFrameAspectRatio?: unknown
+  firstFrameAspectRatio?: unknown,
 ): string {
-  const normalizedFrameAspectRatio = normalizeAspectRatioValue(frameAspectRatio);
-  const normalizedFirstFrameAspectRatio = normalizeAspectRatioValue(firstFrameAspectRatio);
+  const normalizedFrameAspectRatio =
+    normalizeAspectRatioValue(frameAspectRatio);
+  const normalizedFirstFrameAspectRatio = normalizeAspectRatioValue(
+    firstFrameAspectRatio,
+  );
 
   if (
-    normalizedFrameAspectRatio
-    && normalizedFrameAspectRatio !== DEFAULT_ASPECT_RATIO
+    normalizedFrameAspectRatio &&
+    normalizedFrameAspectRatio !== DEFAULT_ASPECT_RATIO
   ) {
     return normalizedFrameAspectRatio;
   }
 
   return (
-    normalizedFirstFrameAspectRatio
-    ?? normalizedFrameAspectRatio
-    ?? DEFAULT_ASPECT_RATIO
+    normalizedFirstFrameAspectRatio ??
+    normalizedFrameAspectRatio ??
+    DEFAULT_ASPECT_RATIO
   );
 }
 
 function resolveStoryboardFrameAspectRatio(
   frameAspectRatio: unknown,
-  fallbackAspectRatio?: unknown
+  fallbackAspectRatio?: unknown,
 ): string {
   return (
-    normalizeAspectRatioValue(frameAspectRatio)
-    ?? normalizeAspectRatioValue(fallbackAspectRatio)
-    ?? DEFAULT_ASPECT_RATIO
+    normalizeAspectRatioValue(frameAspectRatio) ??
+    normalizeAspectRatioValue(fallbackAspectRatio) ??
+    DEFAULT_ASPECT_RATIO
   );
 }
 
@@ -217,27 +249,28 @@ function createDefaultExportOptions(): StoryboardExportOptions {
   return {
     showFrameIndex: false,
     showFrameNote: false,
-    notePlacement: 'overlay',
-    imageFit: 'cover',
-    frameIndexPrefix: 'S',
+    notePlacement: "overlay",
+    imageFit: "cover",
+    frameIndexPrefix: "S",
     cellGap: 8,
     outerPadding: 0,
     fontSize: 4,
-    backgroundColor: '#0f1115',
-    textColor: '#f8fafc',
+    backgroundColor: "#0f1115",
+    textColor: "#f8fafc",
   };
 }
 
-function resolveExportOptions(options: StoryboardSplitNodeData['exportOptions']): StoryboardExportOptions {
+function resolveExportOptions(
+  options: StoryboardSplitNodeData["exportOptions"],
+): StoryboardExportOptions {
   const merged = {
     ...createDefaultExportOptions(),
     ...(options ?? {}),
   };
 
   const rawFontSize = Number.isFinite(merged.fontSize) ? merged.fontSize : 4;
-  const normalizedFontPercent = rawFontSize > 20
-    ? Math.round(rawFontSize / 6)
-    : rawFontSize;
+  const normalizedFontPercent =
+    rawFontSize > 20 ? Math.round(rawFontSize / 6) : rawFontSize;
 
   return {
     ...merged,
@@ -248,11 +281,11 @@ function resolveExportOptions(options: StoryboardSplitNodeData['exportOptions'])
 function trimTextToWidth(
   context: CanvasRenderingContext2D,
   text: string,
-  maxWidth: number
+  maxWidth: number,
 ): string {
   const safeText = text.trim();
   if (!safeText) {
-    return '';
+    return "";
   }
 
   if (context.measureText(safeText).width <= maxWidth) {
@@ -268,7 +301,7 @@ function trimTextToWidth(
     }
   }
 
-  return '...';
+  return "...";
 }
 
 async function applyStoryboardTextOverlay(
@@ -277,25 +310,25 @@ async function applyStoryboardTextOverlay(
   options: StoryboardExportOptions,
   rows: number,
   cols: number,
-  layout: MergeStoryboardImagesResult
+  layout: MergeStoryboardImagesResult,
 ): Promise<string> {
   if (!options.showFrameIndex && !options.showFrameNote) {
     return imageSource;
   }
 
   const image = await loadImageElement(imageSource);
-  const canvas = document.createElement('canvas');
+  const canvas = document.createElement("canvas");
   canvas.width = layout.canvasWidth;
   canvas.height = layout.canvasHeight;
 
-  const context = canvas.getContext('2d');
+  const context = canvas.getContext("2d");
   if (!context) {
-    throw new Error('导出画布初始化失败');
+    throw new Error("导出画布初始化失败");
   }
 
   context.drawImage(image, 0, 0, canvas.width, canvas.height);
-  context.textBaseline = 'middle';
-  context.textAlign = 'left';
+  context.textBaseline = "middle";
+  context.textAlign = "left";
   context.font = `${Math.max(500, Math.round(layout.fontSize * 1.2))} ${layout.fontSize}px sans-serif`;
 
   for (let index = 0; index < frames.length; index += 1) {
@@ -307,16 +340,18 @@ async function applyStoryboardTextOverlay(
     }
 
     const x = layout.padding + col * (layout.cellWidth + layout.gap);
-    const y = layout.padding + row * (layout.cellHeight + layout.noteHeight + layout.gap);
+    const y =
+      layout.padding +
+      row * (layout.cellHeight + layout.noteHeight + layout.gap);
 
     if (options.showFrameIndex) {
-      const label = `${options.frameIndexPrefix || 'S'}${index + 1}`;
+      const label = `${options.frameIndexPrefix || "S"}${index + 1}`;
       const badgePaddingX = Math.max(6, Math.round(layout.fontSize * 0.35));
       const badgeHeight = Math.max(18, Math.round(layout.fontSize * 1.15));
       const textWidth = context.measureText(label).width;
       const badgeWidth = Math.round(textWidth + badgePaddingX * 2);
 
-      context.fillStyle = 'rgba(0,0,0,0.65)';
+      context.fillStyle = "rgba(0,0,0,0.65)";
       context.fillRect(x + 6, y + 6, badgeWidth, badgeHeight);
       context.fillStyle = options.textColor;
       context.fillText(label, x + 6 + badgePaddingX, y + 6 + badgeHeight / 2);
@@ -325,18 +360,18 @@ async function applyStoryboardTextOverlay(
     if (options.showFrameNote) {
       const note = trimTextToWidth(
         context,
-        frame.note || '',
-        Math.max(20, layout.cellWidth - 14)
+        frame.note || "",
+        Math.max(20, layout.cellWidth - 14),
       );
 
       if (!note) {
         continue;
       }
 
-      if (options.notePlacement === 'overlay') {
+      if (options.notePlacement === "overlay") {
         const overlayHeight = Math.max(18, Math.round(layout.fontSize * 1.35));
         const overlayY = y + layout.cellHeight - overlayHeight;
-        context.fillStyle = 'rgba(0, 0, 0, 0.6)';
+        context.fillStyle = "rgba(0, 0, 0, 0.6)";
         context.fillRect(x, overlayY, layout.cellWidth, overlayHeight);
         context.fillStyle = options.textColor;
         context.fillText(note, x + 7, overlayY + overlayHeight / 2);
@@ -423,7 +458,7 @@ interface FrameCardProps {
   frame: StoryboardFrameItem;
   index: number;
   fallbackFrameAspectRatio: string;
-  imageFit: StoryboardExportOptions['imageFit'];
+  imageFit: StoryboardExportOptions["imageFit"];
   viewerImageList: string[];
   draggedFrameId: string | null;
   dropTargetFrameId: string | null;
@@ -439,6 +474,7 @@ interface IncomingImageItem {
   sourceEdgeId: string;
   imageUrl: string;
   previewImageUrl: string | null;
+  thumbnailUrl?: string | null;
   aspectRatio?: string;
   displayUrl: string;
   label: string;
@@ -450,7 +486,7 @@ interface PanelAnchor {
 }
 
 function createStoryboardFrameId(): string {
-  if (typeof globalThis.crypto?.randomUUID === 'function') {
+  if (typeof globalThis.crypto?.randomUUID === "function") {
     return globalThis.crypto.randomUUID();
   }
 
@@ -473,10 +509,12 @@ const FrameCard = memo(
     onEditFrame,
     onRemoveFrame,
   }: FrameCardProps) => {
-    const updateStoryboardFrame = useCanvasStore((state) => state.updateStoryboardFrame);
+    const updateStoryboardFrame = useCanvasStore(
+      (state) => state.updateStoryboardFrame,
+    );
     const zoom = useCanvasZoom();
 
-    const isWhitePlaceholder = frame.imageUrl === 'white-placeholder';
+    const isWhitePlaceholder = frame.imageUrl === "white-placeholder";
 
     const imageSource = useMemo(() => {
       if (isWhitePlaceholder) return null;
@@ -494,9 +532,12 @@ const FrameCard = memo(
     const frameAspectRatioCss = useMemo(
       () =>
         toCssAspectRatio(
-          resolveStoryboardFrameAspectRatio(frame.aspectRatio, fallbackFrameAspectRatio)
+          resolveStoryboardFrameAspectRatio(
+            frame.aspectRatio,
+            fallbackFrameAspectRatio,
+          ),
         ),
-      [fallbackFrameAspectRatio, frame.aspectRatio]
+      [fallbackFrameAspectRatio, frame.aspectRatio],
     );
 
     const dragging = draggedFrameId === frame.id;
@@ -513,15 +554,16 @@ const FrameCard = memo(
           onSortHover(frame.id);
         }}
         onMouseDown={(event) => event.stopPropagation()}
-        className={`nodrag relative bg-bg-dark/85 transition-colors ${dragging
-          ? 'z-10 opacity-55 ring-1 ring-accent/65'
-          : asDropTarget
-            ? 'z-10 ring-1 ring-emerald-400/70'
-            : ''
-          }`}
+        className={`nodrag relative bg-bg-dark/85 transition-colors ${
+          dragging
+            ? "z-10 opacity-55 ring-1 ring-accent/65"
+            : asDropTarget
+              ? "z-10 ring-1 ring-emerald-400/70"
+              : ""
+        }`}
       >
         <div
-          className={`group/frame relative overflow-hidden bg-surface-dark ${dragging ? 'cursor-grabbing' : 'cursor-grab'}`}
+          className={`group/frame relative overflow-hidden bg-surface-dark ${dragging ? "cursor-grabbing" : "cursor-grab"}`}
           style={{ aspectRatio: frameAspectRatioCss }}
           onPointerDown={(event) => {
             if (event.button !== 0) {
@@ -538,15 +580,17 @@ const FrameCard = memo(
             </div>
           ) : frame.imageUrl ? (
             <CanvasNodeImage
-              src={imageSource ?? ''}
+              src={imageSource ?? ""}
+              overviewSrc={frame.thumbnailUrl ?? null}
               alt={`Frame ${index + 1}`}
               viewerSourceUrl={viewerSource}
               viewerImageList={viewerImageList}
-              className={`h-full w-full ${imageFit === 'contain' ? 'object-contain' : 'object-cover'}`}
+              className={`h-full w-full ${imageFit === "contain" ? "object-contain" : "object-cover"}`}
               draggable={false}
             />
           ) : (
-            <div className="flex h-full w-full cursor-pointer items-center justify-center bg-white/5 text-[11px] text-text-muted hover:bg-white/10"
+            <div
+              className="flex h-full w-full cursor-pointer items-center justify-center bg-white/5 text-[11px] text-text-muted hover:bg-white/10"
               onClick={(e) => {
                 e.stopPropagation();
                 onTogglePicker(frame.id, e.clientX, e.clientY);
@@ -606,1143 +650,1318 @@ const FrameCard = memo(
           }}
           onMouseDown={(event) => event.stopPropagation()}
           onWheelCapture={(event) => event.stopPropagation()}
-          placeholder={`分镜 ${String(index + 1).padStart(2, '0')} 描述`}
+          placeholder={`分镜 ${String(index + 1).padStart(2, "0")} 描述`}
           className="ui-scrollbar nodrag nowheel h-10 w-full resize-none overflow-y-auto border-0 border-t border-[rgba(255,255,255,0.12)] bg-bg-dark/90 px-1.5 py-0.5 text-[11px] text-text-dark outline-none placeholder:text-text-muted/50"
         />
       </div>
     );
-  }
+  },
 );
 
-FrameCard.displayName = 'FrameCard';
+FrameCard.displayName = "FrameCard";
 
-export const StoryboardNode = memo(({ id, data, selected, width, height }: StoryboardNodeProps) => {
-  const { t } = useTranslation();
-  const updateNodeInternals = useUpdateNodeInternals();
-  const rootRef = useRef<HTMLDivElement>(null);
-  const pickerMenuRef = useRef<HTMLDivElement>(null);
-  const exportSettingsTriggerRef = useRef<HTMLDivElement>(null);
-  const exportSettingsPanelRef = useRef<HTMLDivElement>(null);
-  const setSelectedNode = useCanvasStore((state) => state.setSelectedNode);
-  const incomingSourceNodes = useCanvasIncomingSourceNodes(id);
-  const reorderStoryboardFrame = useCanvasStore((state) => state.reorderStoryboardFrame);
-  const addDerivedExportNode = useCanvasStore((state) => state.addDerivedExportNode);
-  const addEdge = useCanvasStore((state) => state.addEdge);
-  const updateStoryboardFrame = useCanvasStore((state) => state.updateStoryboardFrame);
-  const updateStoryboardGridLayout = useCanvasStore((state) => state.updateStoryboardGridLayout);
-  const updateNodeData = useCanvasStore((state) => state.updateNodeData);
-  const addStoryboardFrame = useCanvasStore((state) => state.addStoryboardFrame);
-  const removeStoryboardFrame = useCanvasStore((state) => state.removeStoryboardFrame);
-  const currentProjectName = useProjectStore((state) => state.currentProject?.name);
-  const downloadPresetPaths = useSettingsStore((state) => state.downloadPresetPaths);
-
-  const [draggedFrameId, setDraggedFrameId] = useState<string | null>(null);
-  const [dropTargetFrameId, setDropTargetFrameId] = useState<string | null>(null);
-  const [pickerState, setPickerState] = useState<{ frameId: string; x: number; y: number } | null>(null);
-  const [isExporting, setIsExporting] = useState(false);
-  const [isPackingSingleImages, setIsPackingSingleImages] = useState(false);
-  const [exportError, setExportError] = useState<string | null>(null);
-  const [isExportPanelOpen, setIsExportPanelOpen] = useState(false);
-  const [isExportPanelVisible, setIsExportPanelVisible] = useState(false);
-  const [exportPanelAnchor, setExportPanelAnchor] = useState<PanelAnchor | null>(null);
-  const [isPackDoneDialogOpen, setIsPackDoneDialogOpen] = useState(false);
-  const [packOutputDir, setPackOutputDir] = useState<string>('');
-  const [packRevealFilePath, setPackRevealFilePath] = useState<string>('');
-
-  const orderedFrames = useMemo(
-    () => [...data.frames].sort((a, b) => a.order - b.order),
-    [data.frames]
-  );
-  const firstFrameAspectRatio = useMemo(
-    () =>
-      orderedFrames.find((frame) => normalizeAspectRatioValue(frame.aspectRatio))
-        ?.aspectRatio ?? null,
-    [orderedFrames]
-  );
-
-  const frameAspectRatio = useMemo(() => {
-    return resolveStoryboardGridAspectRatio(data.frameAspectRatio, firstFrameAspectRatio);
-  }, [data.frameAspectRatio, firstFrameAspectRatio]);
-
-  const frameAspectRatioCss = useMemo(
-    () => toCssAspectRatio(frameAspectRatio),
-    [frameAspectRatio]
-  );
-
-  const gridCols = Math.max(1, data.gridCols);
-  const gridRows = Math.max(1, data.gridRows);
-  const totalFrames = orderedFrames.length;
-  const totalGridSlots = Math.max(1, gridRows * gridCols);
-  const emptyFrameSlotCount = Math.max(0, totalGridSlots - totalFrames);
-  const maxLayoutDimension = Math.max(1, totalFrames);
-  const defaultNodeSize = useMemo(
-    () => resolveStoryboardNodeDefaultSize(gridRows, gridCols),
-    [gridCols, gridRows]
-  );
-  const resolvedNodeWidth = Math.max(
-    STORYBOARD_NODE_MIN_WIDTH_PX,
-    Math.round(width ?? defaultNodeSize.width)
-  );
-  const resolvedNodeHeight = Math.max(
-    STORYBOARD_NODE_MIN_HEIGHT_PX,
-    Math.round(height ?? defaultNodeSize.height)
-  );
-
-  useEffect(() => {
-    updateNodeInternals(id);
-  }, [id, resolvedNodeHeight, resolvedNodeWidth, updateNodeInternals]);
-
-  const resolvedTitle = useMemo(
-    () => resolveNodeDisplayName(CANVAS_NODE_TYPES.storyboardSplit, data),
-    [data]
-  );
-
-  const exportOptions = useMemo(
-    () => resolveExportOptions(data.exportOptions),
-    [data.exportOptions]
-  );
-
-  const incomingImageRefs = useMemo(() => {
-    return incomingSourceNodes.flatMap(({ edge, node: sourceNode }) => {
-      const singleImageSource = resolveSingleImageConnectionSource(sourceNode);
-      if (!singleImageSource) {
-        return [];
-      }
-
-      return [{
-        sourceNodeId: sourceNode.id,
-        sourceEdgeId: edge.id,
-        imageUrl: singleImageSource.imageUrl,
-        previewImageUrl: singleImageSource.previewImageUrl,
-        aspectRatio: singleImageSource.aspectRatio,
-      }];
-    });
-  }, [incomingSourceNodes]);
-
-  const incomingImageItems = useMemo<IncomingImageItem[]>(
-    () =>
-      incomingImageRefs.map((item, index) => ({
-        sourceNodeId: item.sourceNodeId,
-        sourceEdgeId: item.sourceEdgeId,
-        imageUrl: item.imageUrl,
-        previewImageUrl: item.previewImageUrl,
-        aspectRatio: item.aspectRatio,
-        displayUrl: item.previewImageUrl || item.imageUrl,
-        label: `图${index + 1}`,
-      })),
-    [incomingImageRefs]
-  );
-  const frameViewerImageList = useMemo(
-    () =>
-      orderedFrames
-        .map((frame) => {
-          const source = frame.imageUrl || frame.previewImageUrl;
-          return source || null;
-        })
-        .filter((item): item is string => Boolean(item)),
-    [orderedFrames]
-  );
-  const incomingImageViewerList = useMemo(
-    () => incomingImageItems.map((item) => item.imageUrl),
-    [incomingImageItems]
-  );
-
-  useEffect(() => {
-    if (!firstFrameAspectRatio) {
-      return;
-    }
-
-    const nextFrameAspectRatio = resolveStoryboardGridAspectRatio(
-      data.frameAspectRatio,
-      firstFrameAspectRatio
+export const StoryboardNode = memo(
+  ({ id, data, selected, width, height }: StoryboardNodeProps) => {
+    const { t } = useTranslation();
+    const updateNodeInternals = useUpdateNodeInternals();
+    const rootRef = useRef<HTMLDivElement>(null);
+    const pickerMenuRef = useRef<HTMLDivElement>(null);
+    const exportSettingsTriggerRef = useRef<HTMLDivElement>(null);
+    const exportSettingsPanelRef = useRef<HTMLDivElement>(null);
+    const setSelectedNode = useCanvasStore((state) => state.setSelectedNode);
+    const incomingSourceNodes = useCanvasIncomingSourceNodes(id);
+    const reorderStoryboardFrame = useCanvasStore(
+      (state) => state.reorderStoryboardFrame,
     );
-    const normalizedAspectRatio = normalizeAspectRatioValue(data.aspectRatio);
-    const normalizedFrameAspectRatio = normalizeAspectRatioValue(data.frameAspectRatio);
+    const addDerivedExportNode = useCanvasStore(
+      (state) => state.addDerivedExportNode,
+    );
+    const addEdge = useCanvasStore((state) => state.addEdge);
+    const updateStoryboardFrame = useCanvasStore(
+      (state) => state.updateStoryboardFrame,
+    );
+    const updateStoryboardGridLayout = useCanvasStore(
+      (state) => state.updateStoryboardGridLayout,
+    );
+    const updateNodeData = useCanvasStore((state) => state.updateNodeData);
+    const addStoryboardFrame = useCanvasStore(
+      (state) => state.addStoryboardFrame,
+    );
+    const removeStoryboardFrame = useCanvasStore(
+      (state) => state.removeStoryboardFrame,
+    );
+    const currentProjectName = useProjectStore(
+      (state) => state.currentProject?.name,
+    );
+    const downloadPresetPaths = useSettingsStore(
+      (state) => state.downloadPresetPaths,
+    );
 
-    if (
-      normalizedFrameAspectRatio === nextFrameAspectRatio
-      && normalizedAspectRatio === nextFrameAspectRatio
-    ) {
-      return;
-    }
+    const [draggedFrameId, setDraggedFrameId] = useState<string | null>(null);
+    const [dropTargetFrameId, setDropTargetFrameId] = useState<string | null>(
+      null,
+    );
+    const [pickerState, setPickerState] = useState<{
+      frameId: string;
+      x: number;
+      y: number;
+    } | null>(null);
+    const [isExporting, setIsExporting] = useState(false);
+    const [isPackingSingleImages, setIsPackingSingleImages] = useState(false);
+    const [exportError, setExportError] = useState<string | null>(null);
+    const [isExportPanelOpen, setIsExportPanelOpen] = useState(false);
+    const [isExportPanelVisible, setIsExportPanelVisible] = useState(false);
+    const [exportPanelAnchor, setExportPanelAnchor] =
+      useState<PanelAnchor | null>(null);
+    const [isPackDoneDialogOpen, setIsPackDoneDialogOpen] = useState(false);
+    const [packOutputDir, setPackOutputDir] = useState<string>("");
+    const [packRevealFilePath, setPackRevealFilePath] = useState<string>("");
 
-    updateNodeData(id, {
-      frameAspectRatio: nextFrameAspectRatio,
-      aspectRatio: nextFrameAspectRatio,
-    });
-  }, [
-    data.aspectRatio,
-    data.frameAspectRatio,
-    firstFrameAspectRatio,
-    id,
-    updateNodeData,
-  ]);
+    const orderedFrames = useMemo(
+      () => [...data.frames].sort((a, b) => a.order - b.order),
+      [data.frames],
+    );
+    const firstFrameAspectRatio = useMemo(
+      () =>
+        orderedFrames.find((frame) =>
+          normalizeAspectRatioValue(frame.aspectRatio),
+        )?.aspectRatio ?? null,
+      [orderedFrames],
+    );
 
-  useEffect(() => {
-    if (incomingImageItems.length === 0) {
-      return;
-    }
+    const frameAspectRatio = useMemo(() => {
+      return resolveStoryboardGridAspectRatio(
+        data.frameAspectRatio,
+        firstFrameAspectRatio,
+      );
+    }, [data.frameAspectRatio, firstFrameAspectRatio]);
 
-    const existingFrameKeys = new Set(
-      orderedFrames.flatMap((frame) => {
-        const keys: string[] = [];
-        const sourceEdgeId = normalizeStoryboardStringValue(frame.sourceEdgeId);
-        const sourceNodeId = normalizeStoryboardStringValue(frame.sourceNodeId);
-        if (sourceEdgeId) {
-          keys.push(`edge:${sourceEdgeId}`);
+    const frameAspectRatioCss = useMemo(
+      () => toCssAspectRatio(frameAspectRatio),
+      [frameAspectRatio],
+    );
+
+    const gridCols = Math.max(1, data.gridCols);
+    const gridRows = Math.max(1, data.gridRows);
+    const totalFrames = orderedFrames.length;
+    const totalGridSlots = Math.max(1, gridRows * gridCols);
+    const emptyFrameSlotCount = Math.max(0, totalGridSlots - totalFrames);
+    const maxLayoutDimension = Math.max(1, totalFrames);
+    const defaultNodeSize = useMemo(
+      () => resolveStoryboardNodeDefaultSize(gridRows, gridCols),
+      [gridCols, gridRows],
+    );
+    const resolvedNodeWidth = Math.max(
+      STORYBOARD_NODE_MIN_WIDTH_PX,
+      Math.round(width ?? defaultNodeSize.width),
+    );
+    const resolvedNodeHeight = Math.max(
+      STORYBOARD_NODE_MIN_HEIGHT_PX,
+      Math.round(height ?? defaultNodeSize.height),
+    );
+
+    useEffect(() => {
+      updateNodeInternals(id);
+    }, [id, resolvedNodeHeight, resolvedNodeWidth, updateNodeInternals]);
+
+    const resolvedTitle = useMemo(
+      () => resolveNodeDisplayName(CANVAS_NODE_TYPES.storyboardSplit, data),
+      [data],
+    );
+
+    const exportOptions = useMemo(
+      () => resolveExportOptions(data.exportOptions),
+      [data.exportOptions],
+    );
+
+    const incomingImageRefs = useMemo(() => {
+      return incomingSourceNodes.flatMap(({ edge, node: sourceNode }) => {
+        const singleImageSource =
+          resolveSingleImageConnectionSource(sourceNode);
+        if (!singleImageSource) {
+          return [];
         }
-        if (sourceNodeId) {
-          keys.push(`node:${sourceNodeId}`);
-        }
+
         return [
-          ...keys,
-          ...resolveStoryboardFrameImageKeys(frame).map((value) => `image:${value}`),
+          {
+            sourceNodeId: sourceNode.id,
+            sourceEdgeId: edge.id,
+            imageUrl: singleImageSource.imageUrl,
+            previewImageUrl: singleImageSource.previewImageUrl,
+            thumbnailUrl: singleImageSource.thumbnailUrl ?? null,
+            aspectRatio: singleImageSource.aspectRatio,
+          },
         ];
-      })
+      });
+    }, [incomingSourceNodes]);
+
+    const incomingImageItems = useMemo<IncomingImageItem[]>(
+      () =>
+        incomingImageRefs.map((item, index) => ({
+          sourceNodeId: item.sourceNodeId,
+          sourceEdgeId: item.sourceEdgeId,
+          imageUrl: item.imageUrl,
+          previewImageUrl: item.previewImageUrl,
+          thumbnailUrl: item.thumbnailUrl ?? null,
+          aspectRatio: item.aspectRatio,
+          displayUrl: item.previewImageUrl || item.imageUrl,
+          label: `图${index + 1}`,
+        })),
+      [incomingImageRefs],
+    );
+    const frameViewerImageList = useMemo(
+      () =>
+        orderedFrames
+          .map((frame) => {
+            const source = frame.imageUrl || frame.previewImageUrl;
+            return source || null;
+          })
+          .filter((item): item is string => Boolean(item)),
+      [orderedFrames],
+    );
+    const incomingImageViewerList = useMemo(
+      () => incomingImageItems.map((item) => item.imageUrl),
+      [incomingImageItems],
     );
 
-    const appendedFrames = incomingImageItems
-      .filter((item) => {
-        if (existingFrameKeys.has(`edge:${item.sourceEdgeId}`)) {
-          return false;
-        }
-        if (existingFrameKeys.has(`node:${item.sourceNodeId}`)) {
-          return false;
-        }
-        if (existingFrameKeys.has(`image:${item.imageUrl}`)) {
-          return false;
-        }
-        if (item.previewImageUrl && existingFrameKeys.has(`image:${item.previewImageUrl}`)) {
-          return false;
-        }
-        return true;
-      })
-      .map((item, index) => ({
-        id: createStoryboardFrameId(),
-        imageUrl: item.imageUrl,
-        previewImageUrl: item.previewImageUrl ?? item.imageUrl,
-        aspectRatio: item.aspectRatio ?? frameAspectRatio,
-        sourceNodeId: item.sourceNodeId,
-        sourceEdgeId: item.sourceEdgeId,
-        note: '',
-        order: orderedFrames.length + index,
-      }));
-
-    if (appendedFrames.length === 0) {
-      return;
-    }
-
-    const nextFrames = [...orderedFrames, ...appendedFrames];
-    const nextGridCols = Math.max(1, Math.min(Math.max(1, gridCols), nextFrames.length));
-    const nextGridRows = Math.max(1, Math.ceil(nextFrames.length / nextGridCols));
-    const nextFrameAspectRatio = resolveStoryboardGridAspectRatio(
-      data.frameAspectRatio,
-      nextFrames.find((frame) => normalizeAspectRatioValue(frame.aspectRatio))?.aspectRatio
-    );
-
-    updateNodeData(id, {
-      frames: nextFrames,
-      gridRows: nextGridRows,
-      gridCols: nextGridCols,
-      frameAspectRatio: nextFrameAspectRatio,
-      aspectRatio: nextFrameAspectRatio,
-    });
-  }, [
-    data.frameAspectRatio,
-    frameAspectRatio,
-    gridCols,
-    id,
-    incomingImageItems,
-    orderedFrames,
-    updateNodeData,
-  ]);
-
-  useEffect(() => {
-    const handleOutsidePointerDown = (event: PointerEvent) => {
-      if (!rootRef.current) {
+    useEffect(() => {
+      if (!firstFrameAspectRatio) {
         return;
       }
 
-      const target = event.target as Node;
-      const insideRoot = rootRef.current.contains(target);
-      const insidePickerMenu = pickerMenuRef.current?.contains(target) ?? false;
-      const insideExportPanel = exportSettingsPanelRef.current?.contains(target) ?? false;
-      const insideExportTrigger = exportSettingsTriggerRef.current?.contains(target) ?? false;
+      const nextFrameAspectRatio = resolveStoryboardGridAspectRatio(
+        data.frameAspectRatio,
+        firstFrameAspectRatio,
+      );
+      const normalizedAspectRatio = normalizeAspectRatioValue(data.aspectRatio);
+      const normalizedFrameAspectRatio = normalizeAspectRatioValue(
+        data.frameAspectRatio,
+      );
 
-      if (!insideRoot && !insidePickerMenu) {
-        setPickerState(null);
+      if (
+        normalizedFrameAspectRatio === nextFrameAspectRatio &&
+        normalizedAspectRatio === nextFrameAspectRatio
+      ) {
+        return;
       }
 
-      if (!insideExportPanel && !insideExportTrigger) {
-        setIsExportPanelOpen(false);
-      }
-    };
-
-    document.addEventListener('pointerdown', handleOutsidePointerDown, true);
-    return () => {
-      document.removeEventListener('pointerdown', handleOutsidePointerDown, true);
-    };
-  }, []);
-
-  useEffect(() => {
-    if (!isExportPanelOpen) {
-      setIsExportPanelVisible(false);
-      return;
-    }
-
-    let raf2: number | null = null;
-    const raf1 = requestAnimationFrame(() => {
-      raf2 = requestAnimationFrame(() => {
-        setIsExportPanelVisible(true);
-      });
-    });
-
-    return () => {
-      cancelAnimationFrame(raf1);
-      if (raf2 !== null) {
-        cancelAnimationFrame(raf2);
-      }
-    };
-  }, [isExportPanelOpen]);
-
-  const getPanelAnchor = useCallback((triggerElement: HTMLDivElement | null): PanelAnchor | null => {
-    if (!triggerElement) {
-      return null;
-    }
-    const rect = triggerElement.getBoundingClientRect();
-    return {
-      left: rect.left + rect.width / 2,
-      top: rect.top - 8,
-    };
-  }, []);
-
-  const patchExportOptions = useCallback(
-    (patch: Partial<StoryboardExportOptions>) => {
       updateNodeData(id, {
-        exportOptions: {
-          ...exportOptions,
-          ...patch,
-        },
+        frameAspectRatio: nextFrameAspectRatio,
+        aspectRatio: nextFrameAspectRatio,
       });
-    },
-    [exportOptions, id, updateNodeData]
-  );
+    }, [
+      data.aspectRatio,
+      data.frameAspectRatio,
+      firstFrameAspectRatio,
+      id,
+      updateNodeData,
+    ]);
 
-  const handleSortStart = useCallback((frameId: string) => {
-    setDraggedFrameId(frameId);
-    setDropTargetFrameId(frameId);
-    setPickerState(null);
-  }, []);
+    useEffect(() => {
+      if (incomingImageItems.length === 0) {
+        return;
+      }
 
-  const handleSortHover = useCallback(
-    (frameId: string) => {
+      const existingFrameKeys = new Set(
+        orderedFrames.flatMap((frame) => {
+          const keys: string[] = [];
+          const sourceEdgeId = normalizeStoryboardStringValue(
+            frame.sourceEdgeId,
+          );
+          const sourceNodeId = normalizeStoryboardStringValue(
+            frame.sourceNodeId,
+          );
+          if (sourceEdgeId) {
+            keys.push(`edge:${sourceEdgeId}`);
+          }
+          if (sourceNodeId) {
+            keys.push(`node:${sourceNodeId}`);
+          }
+          return [
+            ...keys,
+            ...resolveStoryboardFrameImageKeys(frame).map(
+              (value) => `image:${value}`,
+            ),
+          ];
+        }),
+      );
+
+      const appendedFrames = incomingImageItems
+        .filter((item) => {
+          if (existingFrameKeys.has(`edge:${item.sourceEdgeId}`)) {
+            return false;
+          }
+          if (existingFrameKeys.has(`node:${item.sourceNodeId}`)) {
+            return false;
+          }
+          if (existingFrameKeys.has(`image:${item.imageUrl}`)) {
+            return false;
+          }
+          if (
+            item.previewImageUrl &&
+            existingFrameKeys.has(`image:${item.previewImageUrl}`)
+          ) {
+            return false;
+          }
+          return true;
+        })
+        .map((item, index) => ({
+          id: createStoryboardFrameId(),
+          imageUrl: item.imageUrl,
+          previewImageUrl: item.previewImageUrl ?? item.imageUrl,
+          thumbnailUrl: item.thumbnailUrl ?? null,
+          aspectRatio: item.aspectRatio ?? frameAspectRatio,
+          sourceNodeId: item.sourceNodeId,
+          sourceEdgeId: item.sourceEdgeId,
+          note: "",
+          order: orderedFrames.length + index,
+        }));
+
+      if (appendedFrames.length === 0) {
+        return;
+      }
+
+      const nextFrames = [...orderedFrames, ...appendedFrames];
+      const nextGridCols = Math.max(
+        1,
+        Math.min(Math.max(1, gridCols), nextFrames.length),
+      );
+      const nextGridRows = Math.max(
+        1,
+        Math.ceil(nextFrames.length / nextGridCols),
+      );
+      const nextFrameAspectRatio = resolveStoryboardGridAspectRatio(
+        data.frameAspectRatio,
+        nextFrames.find((frame) => normalizeAspectRatioValue(frame.aspectRatio))
+          ?.aspectRatio,
+      );
+
+      updateNodeData(id, {
+        frames: nextFrames,
+        gridRows: nextGridRows,
+        gridCols: nextGridCols,
+        frameAspectRatio: nextFrameAspectRatio,
+        aspectRatio: nextFrameAspectRatio,
+      });
+    }, [
+      data.frameAspectRatio,
+      frameAspectRatio,
+      gridCols,
+      id,
+      incomingImageItems,
+      orderedFrames,
+      updateNodeData,
+    ]);
+
+    useEffect(() => {
+      const handleOutsidePointerDown = (event: PointerEvent) => {
+        if (!rootRef.current) {
+          return;
+        }
+
+        const target = event.target as Node;
+        const insideRoot = rootRef.current.contains(target);
+        const insidePickerMenu =
+          pickerMenuRef.current?.contains(target) ?? false;
+        const insideExportPanel =
+          exportSettingsPanelRef.current?.contains(target) ?? false;
+        const insideExportTrigger =
+          exportSettingsTriggerRef.current?.contains(target) ?? false;
+
+        if (!insideRoot && !insidePickerMenu) {
+          setPickerState(null);
+        }
+
+        if (!insideExportPanel && !insideExportTrigger) {
+          setIsExportPanelOpen(false);
+        }
+      };
+
+      document.addEventListener("pointerdown", handleOutsidePointerDown, true);
+      return () => {
+        document.removeEventListener(
+          "pointerdown",
+          handleOutsidePointerDown,
+          true,
+        );
+      };
+    }, []);
+
+    useEffect(() => {
+      if (!isExportPanelOpen) {
+        setIsExportPanelVisible(false);
+        return;
+      }
+
+      let raf2: number | null = null;
+      const raf1 = requestAnimationFrame(() => {
+        raf2 = requestAnimationFrame(() => {
+          setIsExportPanelVisible(true);
+        });
+      });
+
+      return () => {
+        cancelAnimationFrame(raf1);
+        if (raf2 !== null) {
+          cancelAnimationFrame(raf2);
+        }
+      };
+    }, [isExportPanelOpen]);
+
+    const getPanelAnchor = useCallback(
+      (triggerElement: HTMLDivElement | null): PanelAnchor | null => {
+        if (!triggerElement) {
+          return null;
+        }
+        const rect = triggerElement.getBoundingClientRect();
+        return {
+          left: rect.left + rect.width / 2,
+          top: rect.top - 8,
+        };
+      },
+      [],
+    );
+
+    const patchExportOptions = useCallback(
+      (patch: Partial<StoryboardExportOptions>) => {
+        updateNodeData(id, {
+          exportOptions: {
+            ...exportOptions,
+            ...patch,
+          },
+        });
+      },
+      [exportOptions, id, updateNodeData],
+    );
+
+    const handleSortStart = useCallback((frameId: string) => {
+      setDraggedFrameId(frameId);
+      setDropTargetFrameId(frameId);
+      setPickerState(null);
+    }, []);
+
+    const handleSortHover = useCallback(
+      (frameId: string) => {
+        if (!draggedFrameId) {
+          return;
+        }
+        setDropTargetFrameId(frameId);
+      },
+      [draggedFrameId],
+    );
+
+    const finalizeSort = useCallback(() => {
       if (!draggedFrameId) {
         return;
       }
-      setDropTargetFrameId(frameId);
-    },
-    [draggedFrameId]
-  );
 
-  const finalizeSort = useCallback(() => {
-    if (!draggedFrameId) {
-      return;
-    }
+      if (dropTargetFrameId && dropTargetFrameId !== draggedFrameId) {
+        reorderStoryboardFrame(id, draggedFrameId, dropTargetFrameId);
+      }
 
-    if (dropTargetFrameId && dropTargetFrameId !== draggedFrameId) {
-      reorderStoryboardFrame(id, draggedFrameId, dropTargetFrameId);
-    }
+      setDraggedFrameId(null);
+      setDropTargetFrameId(null);
+    }, [draggedFrameId, dropTargetFrameId, id, reorderStoryboardFrame]);
 
-    setDraggedFrameId(null);
-    setDropTargetFrameId(null);
-  }, [draggedFrameId, dropTargetFrameId, id, reorderStoryboardFrame]);
+    useEffect(() => {
+      if (!draggedFrameId) {
+        return;
+      }
 
-  useEffect(() => {
-    if (!draggedFrameId) {
-      return;
-    }
+      const handlePointerUp = () => {
+        finalizeSort();
+      };
 
-    const handlePointerUp = () => {
-      finalizeSort();
-    };
+      const previousUserSelect = document.body.style.userSelect;
+      const previousCursor = document.body.style.cursor;
+      document.body.style.userSelect = "none";
+      document.body.style.cursor = "grabbing";
 
-    const previousUserSelect = document.body.style.userSelect;
-    const previousCursor = document.body.style.cursor;
-    document.body.style.userSelect = 'none';
-    document.body.style.cursor = 'grabbing';
+      window.addEventListener("pointerup", handlePointerUp);
+      window.addEventListener("pointercancel", handlePointerUp);
 
-    window.addEventListener('pointerup', handlePointerUp);
-    window.addEventListener('pointercancel', handlePointerUp);
+      return () => {
+        document.body.style.userSelect = previousUserSelect;
+        document.body.style.cursor = previousCursor;
+        window.removeEventListener("pointerup", handlePointerUp);
+        window.removeEventListener("pointercancel", handlePointerUp);
+      };
+    }, [draggedFrameId, finalizeSort]);
 
-    return () => {
-      document.body.style.userSelect = previousUserSelect;
-      document.body.style.cursor = previousCursor;
-      window.removeEventListener('pointerup', handlePointerUp);
-      window.removeEventListener('pointercancel', handlePointerUp);
-    };
-  }, [draggedFrameId, finalizeSort]);
+    const handleEditFrame = useCallback(
+      async (frame: StoryboardFrameItem) => {
+        try {
+          const sourceImage = frame.imageUrl ?? frame.previewImageUrl;
+          if (!sourceImage) {
+            setExportError("该分镜没有可编辑图片");
+            return;
+          }
+          const frameIndex = orderedFrames.findIndex(
+            (item) => item.id === frame.id,
+          );
+          const frameTitle =
+            frameIndex >= 0
+              ? `分镜 ${frameIndex + 1}`
+              : EXPORT_RESULT_DISPLAY_NAME.storyboardFrameEdit;
 
-  const handleEditFrame = useCallback(
-    async (frame: StoryboardFrameItem) => {
-      try {
-        const sourceImage = frame.imageUrl ?? frame.previewImageUrl;
-        if (!sourceImage) {
-          setExportError('该分镜没有可编辑图片');
-          return;
+          const prepared = await prepareNodeImage(sourceImage);
+          const createdNodeId = addDerivedExportNode(
+            id,
+            prepared.imageUrl,
+            prepared.aspectRatio,
+            prepared.previewImageUrl,
+            {
+              thumbnailUrl: prepared.thumbnailImageUrl,
+              defaultTitle: frameTitle,
+              resultKind: "storyboardFrameEdit",
+            },
+          );
+
+          if (createdNodeId) {
+            addEdge(id, createdNodeId);
+          }
+        } catch (error) {
+          setExportError(
+            error instanceof Error ? error.message : "创建编辑节点失败",
+          );
         }
-        const frameIndex = orderedFrames.findIndex((item) => item.id === frame.id);
-        const frameTitle = frameIndex >= 0
-          ? `分镜 ${frameIndex + 1}`
-          : EXPORT_RESULT_DISPLAY_NAME.storyboardFrameEdit;
+      },
+      [addDerivedExportNode, addEdge, id, orderedFrames],
+    );
 
-        const prepared = await prepareNodeImage(sourceImage);
+    const handleExport = useCallback(async () => {
+      if (isExporting) {
+        return;
+      }
+
+      const traceId = `${id}-${Date.now()}`;
+      const traceStart = performance.now();
+      console.info(`${EXPORT_TRACE_PREFIX} start`, {
+        traceId,
+        nodeId: id,
+        rows: gridRows,
+        cols: gridCols,
+        frameCount: orderedFrames.length,
+      });
+
+      setIsExporting(true);
+      setExportError(null);
+
+      try {
+        const stageFrameStart = performance.now();
+        const frameSources = orderedFrames.map((frame) => {
+          if (frame.imageUrl === "white-placeholder") {
+            return "";
+          }
+          return frame.imageUrl ?? frame.previewImageUrl ?? "";
+        });
+        if (frameSources.length === 0) {
+          throw new Error("没有可导出的分镜");
+        }
+        console.info(`${EXPORT_TRACE_PREFIX} frame-sources-ready`, {
+          traceId,
+          elapsedMs: Math.round(performance.now() - stageFrameStart),
+          nonEmptyFrames: frameSources.filter((source) => source.length > 0)
+            .length,
+        });
+
+        const options = exportOptions;
+        const rawGap = clamp(Math.round(options.cellGap), 0, 120);
+        const rawPadding = 0;
+        const fontPercent = clamp(
+          Number.isFinite(options.fontSize) ? options.fontSize : 4,
+          1,
+          20,
+        );
+        const firstFrameSource =
+          frameSources.find((source) => source.length > 0) ?? null;
+        let referenceFrameHeight = 1024;
+        if (firstFrameSource) {
+          const fontProbeStart = performance.now();
+          try {
+            const referenceImage = await loadImageElement(firstFrameSource);
+            referenceFrameHeight = Math.max(
+              64,
+              referenceImage.naturalHeight ||
+                referenceImage.height ||
+                referenceFrameHeight,
+            );
+          } catch {
+            // Keep fallback size when reference frame cannot be read.
+          }
+          console.info(`${EXPORT_TRACE_PREFIX} font-reference-resolved`, {
+            traceId,
+            elapsedMs: Math.round(performance.now() - fontProbeStart),
+            referenceFrameHeight,
+          });
+        }
+        const rawFontSize = clamp(
+          Math.round(referenceFrameHeight * (fontPercent / 100)),
+          10,
+          240,
+        );
+        const rawNoteHeight =
+          options.showFrameNote && options.notePlacement === "bottom"
+            ? Math.max(Math.round(rawFontSize * 1.7), 24)
+            : 0;
+
+        const mergeStart = performance.now();
+        const mergeResult = await mergeStoryboardImages(
+          {
+            frameSources,
+            rows: gridRows,
+            cols: gridCols,
+            cellGap: rawGap,
+            outerPadding: rawPadding,
+            noteHeight: rawNoteHeight,
+            fontSize: rawFontSize,
+            backgroundColor: options.backgroundColor,
+            maxDimension: EXPORT_MAX_DIMENSION,
+            showFrameIndex: options.showFrameIndex,
+            showFrameNote: options.showFrameNote,
+            notePlacement: options.notePlacement,
+            imageFit: options.imageFit,
+            frameIndexPrefix: options.frameIndexPrefix,
+            textColor: options.textColor,
+            frameNotes: orderedFrames.map((frame) => frame.note ?? ""),
+          },
+          createCurrentProjectMediaContext("image"),
+        );
+        console.info(`${EXPORT_TRACE_PREFIX} merge-done`, {
+          traceId,
+          elapsedMs: Math.round(performance.now() - mergeStart),
+          canvasWidth: mergeResult.canvasWidth,
+          canvasHeight: mergeResult.canvasHeight,
+          textOverlayApplied: mergeResult.textOverlayApplied,
+        });
+
+        const aspectRatio = reduceAspectRatio(
+          mergeResult.canvasWidth,
+          mergeResult.canvasHeight,
+        );
+        const needsOverlay =
+          (options.showFrameIndex || options.showFrameNote) &&
+          !mergeResult.textOverlayApplied;
+        let finalImagePath = mergeResult.imagePath;
+        let finalPreviewPath = mergeResult.imagePath;
+
+        if (needsOverlay) {
+          const overlayStart = performance.now();
+          const mergedBlob = await applyStoryboardTextOverlay(
+            mergeResult.imagePath,
+            orderedFrames,
+            options,
+            gridRows,
+            gridCols,
+            mergeResult,
+          );
+          console.info(`${EXPORT_TRACE_PREFIX} overlay-done`, {
+            traceId,
+            elapsedMs: Math.round(performance.now() - overlayStart),
+            dataUrlLength: mergedBlob.length,
+          });
+          const persistStart = performance.now();
+          finalImagePath = await persistImageLocally(mergedBlob);
+          finalPreviewPath = finalImagePath;
+          console.info(`${EXPORT_TRACE_PREFIX} overlay-persisted`, {
+            traceId,
+            elapsedMs: Math.round(performance.now() - persistStart),
+            persistedPath: finalImagePath,
+          });
+        }
+
+        const metadataStart = performance.now();
+        const metadataFrameNotes = orderedFrames.map(
+          (frame) => frame.note ?? "",
+        );
+        const imagePathWithMetadata = await embedStoryboardImageMetadata(
+          finalImagePath,
+          {
+            gridRows,
+            gridCols,
+            frameNotes: metadataFrameNotes,
+          },
+          createCurrentProjectMediaContext("image"),
+        ).catch((error) => {
+          console.warn(
+            "[StoryboardMetadata] embed failed on storyboard export",
+            error,
+          );
+          return finalImagePath;
+        });
+        finalImagePath = imagePathWithMetadata;
+        finalPreviewPath = imagePathWithMetadata;
+        console.info(`${EXPORT_TRACE_PREFIX} metadata-embedded`, {
+          traceId,
+          elapsedMs: Math.round(performance.now() - metadataStart),
+          imagePath: finalImagePath,
+        });
+
+        const createNodeStart = performance.now();
         const createdNodeId = addDerivedExportNode(
           id,
-          prepared.imageUrl,
-          prepared.aspectRatio,
-          prepared.previewImageUrl,
+          finalImagePath,
+          aspectRatio,
+          finalPreviewPath,
           {
-            defaultTitle: frameTitle,
-            resultKind: 'storyboardFrameEdit',
-          }
+            defaultTitle: EXPORT_RESULT_DISPLAY_NAME.storyboardSplitExport,
+            resultKind: "storyboardSplitExport",
+          },
         );
+        console.info(`${EXPORT_TRACE_PREFIX} derived-node-created`, {
+          traceId,
+          elapsedMs: Math.round(performance.now() - createNodeStart),
+          createdNodeId,
+        });
 
         if (createdNodeId) {
           addEdge(id, createdNodeId);
         }
+        console.info(`${EXPORT_TRACE_PREFIX} done`, {
+          traceId,
+          totalElapsedMs: Math.round(performance.now() - traceStart),
+        });
       } catch (error) {
-        setExportError(error instanceof Error ? error.message : '创建编辑节点失败');
-      }
-    },
-    [addDerivedExportNode, addEdge, id, orderedFrames]
-  );
-
-  const handleExport = useCallback(async () => {
-    if (isExporting) {
-      return;
-    }
-
-    const traceId = `${id}-${Date.now()}`;
-    const traceStart = performance.now();
-    console.info(`${EXPORT_TRACE_PREFIX} start`, {
-      traceId,
-      nodeId: id,
-      rows: gridRows,
-      cols: gridCols,
-      frameCount: orderedFrames.length,
-    });
-
-    setIsExporting(true);
-    setExportError(null);
-
-    try {
-      const stageFrameStart = performance.now();
-      const frameSources = orderedFrames.map(
-        (frame) => {
-          if (frame.imageUrl === 'white-placeholder') {
-            return '';
-          }
-          return frame.imageUrl ?? frame.previewImageUrl ?? '';
-        }
-      );
-      if (frameSources.length === 0) {
-        throw new Error('没有可导出的分镜');
-      }
-      console.info(`${EXPORT_TRACE_PREFIX} frame-sources-ready`, {
-        traceId,
-        elapsedMs: Math.round(performance.now() - stageFrameStart),
-        nonEmptyFrames: frameSources.filter((source) => source.length > 0).length,
-      });
-
-      const options = exportOptions;
-      const rawGap = clamp(Math.round(options.cellGap), 0, 120);
-      const rawPadding = 0;
-      const fontPercent = clamp(Number.isFinite(options.fontSize) ? options.fontSize : 4, 1, 20);
-      const firstFrameSource = frameSources.find((source) => source.length > 0) ?? null;
-      let referenceFrameHeight = 1024;
-      if (firstFrameSource) {
-        const fontProbeStart = performance.now();
-        try {
-          const referenceImage = await loadImageElement(firstFrameSource);
-          referenceFrameHeight = Math.max(
-            64,
-            referenceImage.naturalHeight || referenceImage.height || referenceFrameHeight
-          );
-        } catch {
-          // Keep fallback size when reference frame cannot be read.
-        }
-        console.info(`${EXPORT_TRACE_PREFIX} font-reference-resolved`, {
+        console.error(`${EXPORT_TRACE_PREFIX} failed`, {
           traceId,
-          elapsedMs: Math.round(performance.now() - fontProbeStart),
-          referenceFrameHeight,
+          elapsedMs: Math.round(performance.now() - traceStart),
+          error,
         });
+        setExportError(error instanceof Error ? error.message : "导出失败");
+      } finally {
+        setIsExporting(false);
       }
-      const rawFontSize = clamp(
-        Math.round(referenceFrameHeight * (fontPercent / 100)),
-        10,
-        240
-      );
-      const rawNoteHeight =
-        options.showFrameNote && options.notePlacement === 'bottom'
-          ? Math.max(Math.round(rawFontSize * 1.7), 24)
-          : 0;
+    }, [
+      addDerivedExportNode,
+      addEdge,
+      exportOptions,
+      gridCols,
+      gridRows,
+      id,
+      isExporting,
+      orderedFrames,
+    ]);
 
-      const mergeStart = performance.now();
-      const mergeResult = await mergeStoryboardImages({
-        frameSources,
-        rows: gridRows,
-        cols: gridCols,
-        cellGap: rawGap,
-        outerPadding: rawPadding,
-        noteHeight: rawNoteHeight,
-        fontSize: rawFontSize,
-        backgroundColor: options.backgroundColor,
-        maxDimension: EXPORT_MAX_DIMENSION,
-        showFrameIndex: options.showFrameIndex,
-        showFrameNote: options.showFrameNote,
-        notePlacement: options.notePlacement,
-        imageFit: options.imageFit,
-        frameIndexPrefix: options.frameIndexPrefix,
-        textColor: options.textColor,
-        frameNotes: orderedFrames.map((frame) => frame.note ?? ''),
-      }, createCurrentProjectMediaContext('image'));
-      console.info(`${EXPORT_TRACE_PREFIX} merge-done`, {
-        traceId,
-        elapsedMs: Math.round(performance.now() - mergeStart),
-        canvasWidth: mergeResult.canvasWidth,
-        canvasHeight: mergeResult.canvasHeight,
-        textOverlayApplied: mergeResult.textOverlayApplied,
+    const resolvePackRootDir = useCallback(async (): Promise<string | null> => {
+      const presetPath =
+        downloadPresetPaths.find((path) => path.trim().length > 0)?.trim() ??
+        "";
+      if (presetPath) {
+        return presetPath;
+      }
+
+      const selected = await open({
+        directory: true,
+        multiple: false,
+        title: "选择分镜导出文件夹",
       });
-
-      const aspectRatio = reduceAspectRatio(mergeResult.canvasWidth, mergeResult.canvasHeight);
-      const needsOverlay = (options.showFrameIndex || options.showFrameNote) && !mergeResult.textOverlayApplied;
-      let finalImagePath = mergeResult.imagePath;
-      let finalPreviewPath = mergeResult.imagePath;
-
-      if (needsOverlay) {
-        const overlayStart = performance.now();
-        const mergedBlob = await applyStoryboardTextOverlay(
-          mergeResult.imagePath,
-          orderedFrames,
-          options,
-          gridRows,
-          gridCols,
-          mergeResult
-        );
-        console.info(`${EXPORT_TRACE_PREFIX} overlay-done`, {
-          traceId,
-          elapsedMs: Math.round(performance.now() - overlayStart),
-          dataUrlLength: mergedBlob.length,
-        });
-        const persistStart = performance.now();
-        finalImagePath = await persistImageLocally(mergedBlob);
-        finalPreviewPath = finalImagePath;
-        console.info(`${EXPORT_TRACE_PREFIX} overlay-persisted`, {
-          traceId,
-          elapsedMs: Math.round(performance.now() - persistStart),
-          persistedPath: finalImagePath,
-        });
-      }
-
-      const metadataStart = performance.now();
-      const metadataFrameNotes = orderedFrames.map((frame) => frame.note ?? '');
-      const imagePathWithMetadata = await embedStoryboardImageMetadata(finalImagePath, {
-        gridRows,
-        gridCols,
-        frameNotes: metadataFrameNotes,
-      }, createCurrentProjectMediaContext('image')).catch((error) => {
-        console.warn('[StoryboardMetadata] embed failed on storyboard export', error);
-        return finalImagePath;
-      });
-      finalImagePath = imagePathWithMetadata;
-      finalPreviewPath = imagePathWithMetadata;
-      console.info(`${EXPORT_TRACE_PREFIX} metadata-embedded`, {
-        traceId,
-        elapsedMs: Math.round(performance.now() - metadataStart),
-        imagePath: finalImagePath,
-      });
-
-      const createNodeStart = performance.now();
-      const createdNodeId = addDerivedExportNode(
-        id,
-        finalImagePath,
-        aspectRatio,
-        finalPreviewPath,
-        {
-          defaultTitle: EXPORT_RESULT_DISPLAY_NAME.storyboardSplitExport,
-          resultKind: 'storyboardSplitExport',
-        }
-      );
-      console.info(`${EXPORT_TRACE_PREFIX} derived-node-created`, {
-        traceId,
-        elapsedMs: Math.round(performance.now() - createNodeStart),
-        createdNodeId,
-      });
-
-      if (createdNodeId) {
-        addEdge(id, createdNodeId);
-      }
-      console.info(`${EXPORT_TRACE_PREFIX} done`, {
-        traceId,
-        totalElapsedMs: Math.round(performance.now() - traceStart),
-      });
-    } catch (error) {
-      console.error(`${EXPORT_TRACE_PREFIX} failed`, {
-        traceId,
-        elapsedMs: Math.round(performance.now() - traceStart),
-        error,
-      });
-      setExportError(error instanceof Error ? error.message : '导出失败');
-    } finally {
-      setIsExporting(false);
-    }
-  }, [
-    addDerivedExportNode,
-    addEdge,
-    exportOptions,
-    gridCols,
-    gridRows,
-    id,
-    isExporting,
-    orderedFrames,
-  ]);
-
-  const resolvePackRootDir = useCallback(async (): Promise<string | null> => {
-    const presetPath = downloadPresetPaths.find((path) => path.trim().length > 0)?.trim() ?? '';
-    if (presetPath) {
-      return presetPath;
-    }
-
-    const selected = await open({
-      directory: true,
-      multiple: false,
-      title: '选择分镜导出文件夹',
-    });
-    if (!selected || Array.isArray(selected)) {
-      return null;
-    }
-
-    return selected;
-  }, [downloadPresetPaths]);
-
-  const handlePackSingleImages = useCallback(async () => {
-    if (isExporting || isPackingSingleImages) {
-      return;
-    }
-
-    setExportError(null);
-    setIsPackingSingleImages(true);
-
-    try {
-      const frameEntries = orderedFrames
-        .map((frame, index) => ({
-          source: frame.imageUrl ?? frame.previewImageUrl ?? '',
-          index,
-          note: frame.note ?? '',
-        }))
-        .filter((item) => item.source.length > 0);
-
-      if (frameEntries.length === 0) {
-        throw new Error('该分镜没有可导出的图片');
-      }
-
-      const rootDir = await resolvePackRootDir();
-      if (!rootDir) {
-        return;
-      }
-
-      const normalizedProjectName = sanitizePathSegment(currentProjectName ?? '', '未命名项目');
-      const outputDir = await join(rootDir, normalizedProjectName);
-      const fileProjectName = sanitizeExportLabel(normalizedProjectName, 40) || '项目';
-      let firstSavedFilePath = '';
-
-      for (const item of frameEntries) {
-        const frameNo = String(item.index + 1).padStart(2, '0');
-        const noteLabel = sanitizeExportLabel(item.note, 60);
-        const fileStem = noteLabel
-          ? `${fileProjectName}_${frameNo}_${noteLabel}`
-          : `${fileProjectName}_${frameNo}`;
-        const savedPath = await saveImageSourceToDirectory(item.source, outputDir, fileStem);
-        if (!firstSavedFilePath) {
-          firstSavedFilePath = savedPath;
-        }
-      }
-
-      setPackOutputDir(outputDir);
-      setPackRevealFilePath(firstSavedFilePath);
-      setIsPackDoneDialogOpen(true);
-    } catch (error) {
-      setExportError(error instanceof Error ? error.message : '打包下载失败');
-    } finally {
-      setIsPackingSingleImages(false);
-    }
-  }, [
-    currentProjectName,
-    isExporting,
-    isPackingSingleImages,
-    orderedFrames,
-    resolvePackRootDir,
-  ]);
-
-  const handleOpenPackFolder = useCallback(async () => {
-    if (!packRevealFilePath && !packOutputDir) {
-      return;
-    }
-    try {
-      if (packRevealFilePath) {
-        await revealItemInDir(packRevealFilePath);
-        return;
-      }
-      if (packOutputDir) {
-        await openPath(packOutputDir);
-      }
-    } catch {
-      try {
-        if (packOutputDir) {
-          await openPath(packOutputDir);
-          return;
-        }
-      } catch (error) {
-        setExportError(error instanceof Error ? error.message : '打开文件夹失败');
-      }
-    }
-  }, [packOutputDir, packRevealFilePath]);
-
-  const isAnyExporting = isExporting || isPackingSingleImages;
-
-  const handleTogglePicker = useCallback((frameId: string, x: number, y: number) => {
-    setPickerState((previous) => {
-      if (previous?.frameId === frameId) {
+      if (!selected || Array.isArray(selected)) {
         return null;
       }
-      return { frameId, x, y };
-    });
-  }, []);
 
-  const handleReplaceFromInput = useCallback(
-    (frameId: string, imageUrl: string) => {
+      return selected;
+    }, [downloadPresetPaths]);
+
+    const handlePackSingleImages = useCallback(async () => {
+      if (isExporting || isPackingSingleImages) {
+        return;
+      }
+
       setExportError(null);
-      const matched = incomingImageItems.find((item) => item.imageUrl === imageUrl);
-      updateStoryboardFrame(id, frameId, {
-        imageUrl: matched?.imageUrl ?? imageUrl,
-        previewImageUrl: matched?.previewImageUrl ?? matched?.imageUrl ?? imageUrl,
-        aspectRatio: matched?.aspectRatio ?? frameAspectRatio,
-        sourceNodeId: matched?.sourceNodeId ?? null,
-        sourceEdgeId: matched?.sourceEdgeId ?? null,
-      });
-      setPickerState(null);
-    },
-    [frameAspectRatio, id, incomingImageItems, updateStoryboardFrame]
-  );
+      setIsPackingSingleImages(true);
 
-  const handleGridRowsChange = useCallback((delta: number) => {
-    const nextRows = clamp(gridRows + delta, 1, maxLayoutDimension);
-    updateStoryboardGridLayout(id, 'rows', nextRows);
-  }, [gridRows, id, maxLayoutDimension, updateStoryboardGridLayout]);
+      try {
+        const frameEntries = orderedFrames
+          .map((frame, index) => ({
+            source: frame.imageUrl ?? frame.previewImageUrl ?? "",
+            index,
+            note: frame.note ?? "",
+          }))
+          .filter((item) => item.source.length > 0);
 
-  const handleGridColsChange = useCallback((delta: number) => {
-    const nextCols = clamp(gridCols + delta, 1, maxLayoutDimension);
-    updateStoryboardGridLayout(id, 'cols', nextCols);
-  }, [gridCols, id, maxLayoutDimension, updateStoryboardGridLayout]);
-
-  return (
-    <div
-      ref={rootRef}
-      className={`
-        group relative flex h-full flex-col overflow-visible rounded-[var(--node-radius)] border bg-surface-dark/90 p-2 transition-colors duration-150
-        ${selected
-          ? 'border-accent shadow-[0_0_0_1px_rgba(59,130,246,0.32)]'
-          : 'border-[rgba(15,23,42,0.22)] hover:border-[rgba(15,23,42,0.34)] dark:border-[rgba(255,255,255,0.22)] dark:hover:border-[rgba(255,255,255,0.34)]'}
-      `}
-      style={{ width: `${resolvedNodeWidth}px`, height: `${resolvedNodeHeight}px` }}
-      onClick={() => setSelectedNode(id)}
-    >
-      <NodeHeader
-        className={NODE_HEADER_FLOATING_POSITION_CLASS}
-        icon={<SplitResultIcon className="h-3.5 w-3.5" />}
-        titleText={resolvedTitle}
-        headerAdjust={STORYBOARD_SPLIT_HEADER_ADJUST}
-        iconAdjust={STORYBOARD_SPLIT_ICON_ADJUST}
-        titleAdjust={STORYBOARD_SPLIT_TITLE_ADJUST}
-        editable
-        onTitleChange={(nextTitle) => updateNodeData(id, { displayName: nextTitle })}
-        rightSlot={
-          <div className="flex items-center gap-1">
-            <button
-              onClick={(e) => {
-                e.stopPropagation();
-                addStoryboardFrame(id, false);
-              }}
-              className="p-1.5 rounded-lg hover:bg-white/10 transition-colors"
-              title="添加空白格"
-            >
-              <Plus className="w-3.5 h-3.5 text-white/60" />
-            </button>
-            <button
-              onClick={(e) => {
-                e.stopPropagation();
-                addStoryboardFrame(id, true);
-              }}
-              className="p-1.5 rounded-lg hover:bg-white/10 transition-colors"
-              title="添加白色占位格"
-            >
-              <div className="w-3.5 h-3.5 bg-white/60 rounded-sm" />
-            </button>
-          </div>
+        if (frameEntries.length === 0) {
+          throw new Error("该分镜没有可导出的图片");
         }
-      />
 
+        const rootDir = await resolvePackRootDir();
+        if (!rootDir) {
+          return;
+        }
+
+        const normalizedProjectName = sanitizePathSegment(
+          currentProjectName ?? "",
+          "未命名项目",
+        );
+        const outputDir = await join(rootDir, normalizedProjectName);
+        const fileProjectName =
+          sanitizeExportLabel(normalizedProjectName, 40) || "项目";
+        let firstSavedFilePath = "";
+
+        for (const item of frameEntries) {
+          const frameNo = String(item.index + 1).padStart(2, "0");
+          const noteLabel = sanitizeExportLabel(item.note, 60);
+          const fileStem = noteLabel
+            ? `${fileProjectName}_${frameNo}_${noteLabel}`
+            : `${fileProjectName}_${frameNo}`;
+          const savedPath = await saveImageSourceToDirectory(
+            item.source,
+            outputDir,
+            fileStem,
+          );
+          if (!firstSavedFilePath) {
+            firstSavedFilePath = savedPath;
+          }
+        }
+
+        setPackOutputDir(outputDir);
+        setPackRevealFilePath(firstSavedFilePath);
+        setIsPackDoneDialogOpen(true);
+      } catch (error) {
+        setExportError(error instanceof Error ? error.message : "打包下载失败");
+      } finally {
+        setIsPackingSingleImages(false);
+      }
+    }, [
+      currentProjectName,
+      isExporting,
+      isPackingSingleImages,
+      orderedFrames,
+      resolvePackRootDir,
+    ]);
+
+    const handleOpenPackFolder = useCallback(async () => {
+      if (!packRevealFilePath && !packOutputDir) {
+        return;
+      }
+      try {
+        if (packRevealFilePath) {
+          await revealItemInDir(packRevealFilePath);
+          return;
+        }
+        if (packOutputDir) {
+          await openPath(packOutputDir);
+        }
+      } catch {
+        try {
+          if (packOutputDir) {
+            await openPath(packOutputDir);
+            return;
+          }
+        } catch (error) {
+          setExportError(
+            error instanceof Error ? error.message : "打开文件夹失败",
+          );
+        }
+      }
+    }, [packOutputDir, packRevealFilePath]);
+
+    const isAnyExporting = isExporting || isPackingSingleImages;
+
+    const handleTogglePicker = useCallback(
+      (frameId: string, x: number, y: number) => {
+        setPickerState((previous) => {
+          if (previous?.frameId === frameId) {
+            return null;
+          }
+          return { frameId, x, y };
+        });
+      },
+      [],
+    );
+
+    const handleReplaceFromInput = useCallback(
+      (frameId: string, imageUrl: string) => {
+        setExportError(null);
+        const matched = incomingImageItems.find(
+          (item) => item.imageUrl === imageUrl,
+        );
+        updateStoryboardFrame(id, frameId, {
+          imageUrl: matched?.imageUrl ?? imageUrl,
+          previewImageUrl:
+            matched?.previewImageUrl ?? matched?.imageUrl ?? imageUrl,
+          aspectRatio: matched?.aspectRatio ?? frameAspectRatio,
+          sourceNodeId: matched?.sourceNodeId ?? null,
+          sourceEdgeId: matched?.sourceEdgeId ?? null,
+        });
+        setPickerState(null);
+      },
+      [frameAspectRatio, id, incomingImageItems, updateStoryboardFrame],
+    );
+
+    const handleGridRowsChange = useCallback(
+      (delta: number) => {
+        const nextRows = clamp(gridRows + delta, 1, maxLayoutDimension);
+        updateStoryboardGridLayout(id, "rows", nextRows);
+      },
+      [gridRows, id, maxLayoutDimension, updateStoryboardGridLayout],
+    );
+
+    const handleGridColsChange = useCallback(
+      (delta: number) => {
+        const nextCols = clamp(gridCols + delta, 1, maxLayoutDimension);
+        updateStoryboardGridLayout(id, "cols", nextCols);
+      },
+      [gridCols, id, maxLayoutDimension, updateStoryboardGridLayout],
+    );
+
+    return (
       <div
-        className="ui-scrollbar nowheel min-h-0 flex-1 overflow-auto"
-        onWheelCapture={(event) => event.stopPropagation()}
+        ref={rootRef}
+        className={`
+        group relative flex h-full flex-col overflow-visible rounded-[var(--node-radius)] border bg-surface-dark/90 p-2 transition-colors duration-150
+        ${
+          selected
+            ? "border-accent shadow-[0_0_0_1px_rgba(59,130,246,0.32)]"
+            : "border-[rgba(15,23,42,0.22)] hover:border-[rgba(15,23,42,0.34)] dark:border-[rgba(255,255,255,0.22)] dark:hover:border-[rgba(255,255,255,0.34)]"
+        }
+      `}
+        style={{
+          width: `${resolvedNodeWidth}px`,
+          height: `${resolvedNodeHeight}px`,
+        }}
+        onClick={() => setSelectedNode(id)}
       >
-        <div
-          className="grid overflow-hidden rounded-lg border border-[rgba(255,255,255,0.16)] bg-[rgba(255,255,255,0.14)]"
-          style={{
-            gap: `${STORYBOARD_GRID_GAP_PX}px`,
-            gridTemplateColumns: `repeat(${gridCols}, minmax(0, 1fr))`,
-          }}
-        >
-          {orderedFrames.map((frame, index) => (
-            <FrameCard
-              key={frame.id}
-              nodeId={id}
-              frame={frame}
-              index={index}
-              fallbackFrameAspectRatio={frameAspectRatio}
-              imageFit={exportOptions.imageFit}
-              viewerImageList={frameViewerImageList}
-              draggedFrameId={draggedFrameId}
-              dropTargetFrameId={dropTargetFrameId}
-              onSortStart={handleSortStart}
-              onSortHover={handleSortHover}
-              onTogglePicker={handleTogglePicker}
-              onEditFrame={(targetFrame) => {
-                void handleEditFrame(targetFrame);
-              }}
-              onRemoveFrame={(frameId) => removeStoryboardFrame(id, frameId)}
-            />
-          ))}
-          {Array.from({ length: emptyFrameSlotCount }, (_, index) => (
-            <EmptyFrameSlot
-              key={`empty-frame-slot-${index}`}
-              frameAspectRatioCss={frameAspectRatioCss}
-              label={t('node.storyboardNode.emptySlot')}
-            />
-          ))}
-        </div>
-      </div>
+        <NodeHeader
+          className={NODE_HEADER_FLOATING_POSITION_CLASS}
+          icon={<SplitResultIcon className="h-3.5 w-3.5" />}
+          titleText={resolvedTitle}
+          headerAdjust={STORYBOARD_SPLIT_HEADER_ADJUST}
+          iconAdjust={STORYBOARD_SPLIT_ICON_ADJUST}
+          titleAdjust={STORYBOARD_SPLIT_TITLE_ADJUST}
+          editable
+          onTitleChange={(nextTitle) =>
+            updateNodeData(id, { displayName: nextTitle })
+          }
+          rightSlot={
+            <div className="flex items-center gap-1">
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  addStoryboardFrame(id, false);
+                }}
+                className="p-1.5 rounded-lg hover:bg-white/10 transition-colors"
+                title="添加空白格"
+              >
+                <Plus className="w-3.5 h-3.5 text-white/60" />
+              </button>
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  addStoryboardFrame(id, true);
+                }}
+                className="p-1.5 rounded-lg hover:bg-white/10 transition-colors"
+                title="添加白色占位格"
+              >
+                <div className="w-3.5 h-3.5 bg-white/60 rounded-sm" />
+              </button>
+            </div>
+          }
+        />
 
-      {pickerState && typeof document !== 'undefined'
-        ? createPortal(
+        <div
+          className="ui-scrollbar nowheel min-h-0 flex-1 overflow-auto"
+          onWheelCapture={(event) => event.stopPropagation()}
+        >
           <div
-            ref={pickerMenuRef}
-            className="nowheel fixed z-[140] w-[120px] overflow-hidden rounded-xl border border-[rgba(255,255,255,0.16)] bg-surface-dark shadow-xl"
-            style={{ left: `${pickerState.x}px`, top: `${pickerState.y}px` }}
-            onMouseDown={(event) => event.stopPropagation()}
-            onWheelCapture={(event) => event.stopPropagation()}
+            className="grid overflow-hidden rounded-lg border border-[rgba(255,255,255,0.16)] bg-[rgba(255,255,255,0.14)]"
+            style={{
+              gap: `${STORYBOARD_GRID_GAP_PX}px`,
+              gridTemplateColumns: `repeat(${gridCols}, minmax(0, 1fr))`,
+            }}
           >
-            {incomingImageItems.length > 0 ? (
+            {orderedFrames.map((frame, index) => (
+              <FrameCard
+                key={frame.id}
+                nodeId={id}
+                frame={frame}
+                index={index}
+                fallbackFrameAspectRatio={frameAspectRatio}
+                imageFit={exportOptions.imageFit}
+                viewerImageList={frameViewerImageList}
+                draggedFrameId={draggedFrameId}
+                dropTargetFrameId={dropTargetFrameId}
+                onSortStart={handleSortStart}
+                onSortHover={handleSortHover}
+                onTogglePicker={handleTogglePicker}
+                onEditFrame={(targetFrame) => {
+                  void handleEditFrame(targetFrame);
+                }}
+                onRemoveFrame={(frameId) => removeStoryboardFrame(id, frameId)}
+              />
+            ))}
+            {Array.from({ length: emptyFrameSlotCount }, (_, index) => (
+              <EmptyFrameSlot
+                key={`empty-frame-slot-${index}`}
+                frameAspectRatioCss={frameAspectRatioCss}
+                label={t("node.storyboardNode.emptySlot")}
+              />
+            ))}
+          </div>
+        </div>
+
+        {pickerState && typeof document !== "undefined"
+          ? createPortal(
               <div
-                className="ui-scrollbar nowheel max-h-[180px] overflow-y-auto"
+                ref={pickerMenuRef}
+                className="nowheel fixed z-[140] w-[120px] overflow-hidden rounded-xl border border-[rgba(255,255,255,0.16)] bg-surface-dark shadow-xl"
+                style={{
+                  left: `${pickerState.x}px`,
+                  top: `${pickerState.y}px`,
+                }}
+                onMouseDown={(event) => event.stopPropagation()}
                 onWheelCapture={(event) => event.stopPropagation()}
               >
-                {incomingImageItems.map((item) => (
-                  <button
-                    key={`${pickerState.frameId}-${item.imageUrl}`}
-                    type="button"
-                    className="flex w-full items-center gap-2 border border-transparent bg-bg-dark/70 px-2 py-2 text-left text-sm text-text-dark transition-colors hover:border-[rgba(255,255,255,0.18)]"
-                    onClick={(event) => {
-                      event.stopPropagation();
-                      handleReplaceFromInput(pickerState.frameId, item.imageUrl);
-                    }}
-                    title={item.label}
+                {incomingImageItems.length > 0 ? (
+                  <div
+                    className="ui-scrollbar nowheel max-h-[180px] overflow-y-auto"
+                    onWheelCapture={(event) => event.stopPropagation()}
                   >
-                    <CanvasNodeImage
-                      src={item.displayUrl}
-                      alt={item.label}
-                      viewerSourceUrl={item.imageUrl}
-                      viewerImageList={incomingImageViewerList}
-                      className="h-8 w-8 rounded object-cover"
-                      draggable={false}
-                    />
-                    <span className="truncate">{item.label}</span>
-                  </button>
-                ))}
-              </div>
-            ) : (
-              <div className="px-2 py-2 text-sm text-text-muted">
-                暂无输入图片
-              </div>
-            )}
-          </div>,
-          document.body
-        )
-        : null}
+                    {incomingImageItems.map((item) => (
+                      <button
+                        key={`${pickerState.frameId}-${item.imageUrl}`}
+                        type="button"
+                        className="flex w-full items-center gap-2 border border-transparent bg-bg-dark/70 px-2 py-2 text-left text-sm text-text-dark transition-colors hover:border-[rgba(255,255,255,0.18)]"
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          handleReplaceFromInput(
+                            pickerState.frameId,
+                            item.imageUrl,
+                          );
+                        }}
+                        title={item.label}
+                      >
+                        <CanvasNodeImage
+                          src={item.displayUrl}
+                          alt={item.label}
+                          viewerSourceUrl={item.imageUrl}
+                          viewerImageList={incomingImageViewerList}
+                          className="h-8 w-8 rounded object-cover"
+                          draggable={false}
+                        />
+                        <span className="truncate">{item.label}</span>
+                      </button>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="px-2 py-2 text-sm text-text-muted">
+                    暂无输入图片
+                  </div>
+                )}
+              </div>,
+              document.body,
+            )
+          : null}
 
-      <div className="mt-2 flex shrink-0 items-center justify-between gap-2">
-        <div className="flex min-w-0 items-center gap-2">
-          <div className="flex shrink-0 items-center gap-1.5">
-            <GridStepperControl
-              label={t('node.storyboardNode.rowsShort')}
-              value={gridRows}
-              canDecrease={gridRows > 1}
-              canIncrease={gridRows < maxLayoutDimension}
-              onDecrease={() => handleGridRowsChange(-1)}
-              onIncrease={() => handleGridRowsChange(1)}
-            />
-            <GridStepperControl
-              label={t('node.storyboardNode.colsShort')}
-              value={gridCols}
-              canDecrease={gridCols > 1}
-              canIncrease={gridCols < maxLayoutDimension}
-              onDecrease={() => handleGridColsChange(-1)}
-              onIncrease={() => handleGridColsChange(1)}
-            />
+        <div className="mt-2 flex shrink-0 items-center justify-between gap-2">
+          <div className="flex min-w-0 items-center gap-2">
+            <div className="flex shrink-0 items-center gap-1.5">
+              <GridStepperControl
+                label={t("node.storyboardNode.rowsShort")}
+                value={gridRows}
+                canDecrease={gridRows > 1}
+                canIncrease={gridRows < maxLayoutDimension}
+                onDecrease={() => handleGridRowsChange(-1)}
+                onIncrease={() => handleGridRowsChange(1)}
+              />
+              <GridStepperControl
+                label={t("node.storyboardNode.colsShort")}
+                value={gridCols}
+                canDecrease={gridCols > 1}
+                canIncrease={gridCols < maxLayoutDimension}
+                onDecrease={() => handleGridColsChange(-1)}
+                onIncrease={() => handleGridColsChange(1)}
+              />
+            </div>
+            <div
+              ref={exportSettingsTriggerRef}
+              className="nodrag relative flex"
+            >
+              <UiChipButton
+                active={isExportPanelOpen}
+                className={NODE_CONTROL_CHIP_CLASS}
+                onClick={(event) => {
+                  event.stopPropagation();
+                  if (isExportPanelOpen) {
+                    setIsExportPanelOpen(false);
+                    return;
+                  }
+                  setExportPanelAnchor(
+                    getPanelAnchor(exportSettingsTriggerRef.current),
+                  );
+                  setIsExportPanelOpen(true);
+                }}
+              >
+                <SlidersHorizontal
+                  className={`${NODE_CONTROL_ICON_CLASS} shrink-0`}
+                />
+                <span>导出设置</span>
+              </UiChipButton>
+            </div>
+
+            <div className="truncate text-[11px] text-text-muted/80">
+              {t("node.storyboardNode.layoutSummary", {
+                rows: gridRows,
+                cols: gridCols,
+                count: totalFrames,
+                capacity: totalGridSlots,
+              })}
+            </div>
           </div>
-          <div ref={exportSettingsTriggerRef} className="nodrag relative flex">
-            <UiChipButton
-              active={isExportPanelOpen}
-              className={NODE_CONTROL_CHIP_CLASS}
+
+          <div className="flex min-w-0 items-center gap-2">
+            <UiButton
+              size="sm"
+              variant="muted"
+              className={`nodrag ${NODE_CONTROL_PRIMARY_BUTTON_CLASS}`}
               onClick={(event) => {
                 event.stopPropagation();
-                if (isExportPanelOpen) {
-                  setIsExportPanelOpen(false);
-                  return;
-                }
-                setExportPanelAnchor(getPanelAnchor(exportSettingsTriggerRef.current));
-                setIsExportPanelOpen(true);
+                void handlePackSingleImages();
               }}
+              disabled={isAnyExporting}
             >
-              <SlidersHorizontal className={`${NODE_CONTROL_ICON_CLASS} shrink-0`} />
-              <span>导出设置</span>
-            </UiChipButton>
-          </div>
-
-          <div className="truncate text-[11px] text-text-muted/80">
-            {t('node.storyboardNode.layoutSummary', {
-              rows: gridRows,
-              cols: gridCols,
-              count: totalFrames,
-              capacity: totalGridSlots,
-            })}
+              <FolderOpen className={NODE_CONTROL_ICON_CLASS} />
+              {isPackingSingleImages ? "打包中..." : "打包下载"}
+            </UiButton>
+            <UiButton
+              size="sm"
+              variant="primary"
+              className={`nodrag ${NODE_CONTROL_PRIMARY_BUTTON_CLASS}`}
+              onClick={(event) => {
+                event.stopPropagation();
+                void handleExport();
+              }}
+              disabled={isAnyExporting}
+            >
+              <Download className={NODE_CONTROL_ICON_CLASS} />
+              {isExporting ? "导出中..." : "合并分镜"}
+            </UiButton>
           </div>
         </div>
 
-        <div className="flex min-w-0 items-center gap-2">
-          <UiButton
-            size="sm"
-            variant="muted"
-            className={`nodrag ${NODE_CONTROL_PRIMARY_BUTTON_CLASS}`}
-            onClick={(event) => {
-              event.stopPropagation();
-              void handlePackSingleImages();
-            }}
-            disabled={isAnyExporting}
-          >
-            <FolderOpen className={NODE_CONTROL_ICON_CLASS} />
-            {isPackingSingleImages ? '打包中...' : '打包下载'}
-          </UiButton>
-          <UiButton
-            size="sm"
-            variant="primary"
-            className={`nodrag ${NODE_CONTROL_PRIMARY_BUTTON_CLASS}`}
-            onClick={(event) => {
-              event.stopPropagation();
-              void handleExport();
-            }}
-            disabled={isAnyExporting}
-          >
-            <Download className={NODE_CONTROL_ICON_CLASS} />
-            {isExporting ? '导出中...' : '合并分镜'}
-          </UiButton>
-        </div>
+        {typeof document !== "undefined" &&
+          isExportPanelOpen &&
+          createPortal(
+            <div
+              ref={exportSettingsPanelRef}
+              className={`fixed z-[120] w-[340px] transition-opacity duration-200 ease-out ${
+                isExportPanelVisible
+                  ? "opacity-100"
+                  : "pointer-events-none opacity-0"
+              }`}
+              style={
+                exportPanelAnchor
+                  ? {
+                      left: exportPanelAnchor.left,
+                      top: exportPanelAnchor.top,
+                      transform: "translateX(-50%) translateY(-100%)",
+                    }
+                  : undefined
+              }
+              onMouseDown={(event) => event.stopPropagation()}
+            >
+              <UiPanel className="p-2.5">
+                <div className="space-y-2 text-xs text-text-muted">
+                  <label className="flex items-center gap-2">
+                    <UiCheckbox
+                      checked={exportOptions.showFrameIndex}
+                      onCheckedChange={(checked) =>
+                        patchExportOptions({ showFrameIndex: checked })
+                      }
+                    />
+                    显示分镜序号
+                  </label>
+
+                  <label className="flex items-center gap-2">
+                    <UiCheckbox
+                      checked={exportOptions.showFrameNote}
+                      onCheckedChange={(checked) =>
+                        patchExportOptions({ showFrameNote: checked })
+                      }
+                    />
+                    显示分镜描述
+                  </label>
+
+                  <div className="grid grid-cols-2 gap-2">
+                    <div>
+                      <div className="mb-1">图片填充</div>
+                      <UiSelect
+                        value={exportOptions.imageFit}
+                        onChange={(event) =>
+                          patchExportOptions({
+                            imageFit:
+                              event.target.value === "contain"
+                                ? "contain"
+                                : "cover",
+                          })
+                        }
+                      >
+                        <option value="cover">填充满格子</option>
+                        <option value="contain">完整显示</option>
+                      </UiSelect>
+                    </div>
+                    <div>
+                      <div className="mb-1">序号前缀</div>
+                      <UiInput
+                        value={exportOptions.frameIndexPrefix}
+                        maxLength={4}
+                        className="h-8"
+                        onChange={(event) =>
+                          patchExportOptions({
+                            frameIndexPrefix: event.target.value,
+                          })
+                        }
+                      />
+                    </div>
+                    <div>
+                      <div className="mb-1">描述位置</div>
+                      <UiSelect
+                        value={exportOptions.notePlacement}
+                        onChange={(event) =>
+                          patchExportOptions({
+                            notePlacement:
+                              event.target.value === "bottom"
+                                ? "bottom"
+                                : "overlay",
+                          })
+                        }
+                      >
+                        <option value="overlay">图上遮罩</option>
+                        <option value="bottom">图下文字</option>
+                      </UiSelect>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-2">
+                    <div>
+                      <div className="mb-1">间距</div>
+                      <UiInput
+                        type="number"
+                        min={0}
+                        max={120}
+                        value={exportOptions.cellGap}
+                        className="h-8"
+                        onChange={(event) =>
+                          patchExportOptions({
+                            cellGap: Number(event.target.value) || 0,
+                          })
+                        }
+                      />
+                    </div>
+                    <div>
+                      <div className="mb-1">字号(%)</div>
+                      <UiInput
+                        type="number"
+                        min={1}
+                        max={20}
+                        value={exportOptions.fontSize}
+                        className="h-8"
+                        onChange={(event) =>
+                          patchExportOptions({
+                            fontSize: Number(event.target.value) || 4,
+                          })
+                        }
+                      />
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-2">
+                    <label className="flex items-center gap-2">
+                      <span>背景</span>
+                      <input
+                        type="color"
+                        value={exportOptions.backgroundColor}
+                        onChange={(event) =>
+                          patchExportOptions({
+                            backgroundColor: event.target.value,
+                          })
+                        }
+                        className="h-7 w-full rounded border border-[rgba(255,255,255,0.14)] bg-transparent"
+                      />
+                    </label>
+                    <label className="flex items-center gap-2">
+                      <span>文字</span>
+                      <input
+                        type="color"
+                        value={exportOptions.textColor}
+                        onChange={(event) =>
+                          patchExportOptions({ textColor: event.target.value })
+                        }
+                        className="h-7 w-full rounded border border-[rgba(255,255,255,0.14)] bg-transparent"
+                      />
+                    </label>
+                  </div>
+                </div>
+              </UiPanel>
+            </div>,
+            document.body,
+          )}
+
+        {exportError && (
+          <div className="mt-2 shrink-0 text-xs text-red-400">
+            {exportError}
+          </div>
+        )}
+
+        <CanvasHandle
+          type="target"
+          id="target"
+          position={Position.Left}
+          className="!h-2 !w-2 !border-surface-dark !bg-accent"
+        />
+        <CanvasHandle
+          type="source"
+          id="source"
+          position={Position.Right}
+          className="!h-2 !w-2 !border-surface-dark !bg-accent"
+        />
+        <NodeResizeHandle
+          minWidth={STORYBOARD_NODE_MIN_WIDTH_PX}
+          minHeight={STORYBOARD_NODE_MIN_HEIGHT_PX}
+          maxWidth={2000}
+          maxHeight={1600}
+          isVisible={selected}
+        />
+
+        {typeof document !== "undefined" && isPackDoneDialogOpen
+          ? createPortal(
+              <div className="fixed inset-0 z-[220] flex items-center justify-center">
+                <div className="absolute inset-0 bg-black/55" />
+                <UiPanel className="relative w-[440px] p-4">
+                  <div className="text-sm font-medium text-text-dark">
+                    导出完成
+                  </div>
+                  <div className="mt-2 text-xs text-text-muted">
+                    图片已导出到以下路径：
+                  </div>
+                  <div className="mt-1 break-all rounded border border-[rgba(255,255,255,0.12)] bg-bg-dark/70 px-2 py-1.5 text-xs text-text-dark">
+                    {packOutputDir}
+                  </div>
+                  <div className="mt-4 flex justify-end gap-2">
+                    <UiButton
+                      size="sm"
+                      variant="muted"
+                      onClick={() => {
+                        void handleOpenPackFolder();
+                      }}
+                    >
+                      打开文件夹
+                    </UiButton>
+                    <UiButton
+                      size="sm"
+                      variant="primary"
+                      onClick={() => setIsPackDoneDialogOpen(false)}
+                    >
+                      确定
+                    </UiButton>
+                  </div>
+                </UiPanel>
+              </div>,
+              document.body,
+            )
+          : null}
       </div>
+    );
+  },
+);
 
-      {typeof document !== 'undefined' && isExportPanelOpen && createPortal(
-        <div
-          ref={exportSettingsPanelRef}
-          className={`fixed z-[120] w-[340px] transition-opacity duration-200 ease-out ${isExportPanelVisible ? 'opacity-100' : 'pointer-events-none opacity-0'
-            }`}
-          style={exportPanelAnchor
-            ? {
-              left: exportPanelAnchor.left,
-              top: exportPanelAnchor.top,
-              transform: 'translateX(-50%) translateY(-100%)',
-            }
-            : undefined}
-          onMouseDown={(event) => event.stopPropagation()}
-        >
-          <UiPanel className="p-2.5">
-            <div className="space-y-2 text-xs text-text-muted">
-              <label className="flex items-center gap-2">
-                <UiCheckbox
-                  checked={exportOptions.showFrameIndex}
-                  onCheckedChange={(checked) => patchExportOptions({ showFrameIndex: checked })}
-                />
-                显示分镜序号
-              </label>
-
-              <label className="flex items-center gap-2">
-                <UiCheckbox
-                  checked={exportOptions.showFrameNote}
-                  onCheckedChange={(checked) => patchExportOptions({ showFrameNote: checked })}
-                />
-                显示分镜描述
-              </label>
-
-              <div className="grid grid-cols-2 gap-2">
-                <div>
-                  <div className="mb-1">图片填充</div>
-                  <UiSelect
-                    value={exportOptions.imageFit}
-                    onChange={(event) =>
-                      patchExportOptions({
-                        imageFit: event.target.value === 'contain' ? 'contain' : 'cover',
-                      })
-                    }
-                  >
-                    <option value="cover">填充满格子</option>
-                    <option value="contain">完整显示</option>
-                  </UiSelect>
-                </div>
-                <div>
-                  <div className="mb-1">序号前缀</div>
-                  <UiInput
-                    value={exportOptions.frameIndexPrefix}
-                    maxLength={4}
-                    className="h-8"
-                    onChange={(event) => patchExportOptions({ frameIndexPrefix: event.target.value })}
-                  />
-                </div>
-                <div>
-                  <div className="mb-1">描述位置</div>
-                  <UiSelect
-                    value={exportOptions.notePlacement}
-                    onChange={(event) =>
-                      patchExportOptions({
-                        notePlacement: event.target.value === 'bottom' ? 'bottom' : 'overlay',
-                      })
-                    }
-                  >
-                    <option value="overlay">图上遮罩</option>
-                    <option value="bottom">图下文字</option>
-                  </UiSelect>
-                </div>
-              </div>
-
-              <div className="grid grid-cols-2 gap-2">
-                <div>
-                  <div className="mb-1">间距</div>
-                  <UiInput
-                    type="number"
-                    min={0}
-                    max={120}
-                    value={exportOptions.cellGap}
-                    className="h-8"
-                    onChange={(event) =>
-                      patchExportOptions({ cellGap: Number(event.target.value) || 0 })
-                    }
-                  />
-                </div>
-                <div>
-                  <div className="mb-1">字号(%)</div>
-                  <UiInput
-                    type="number"
-                    min={1}
-                    max={20}
-                    value={exportOptions.fontSize}
-                    className="h-8"
-                    onChange={(event) =>
-                      patchExportOptions({ fontSize: Number(event.target.value) || 4 })
-                    }
-                  />
-                </div>
-              </div>
-
-              <div className="grid grid-cols-2 gap-2">
-                <label className="flex items-center gap-2">
-                  <span>背景</span>
-                  <input
-                    type="color"
-                    value={exportOptions.backgroundColor}
-                    onChange={(event) => patchExportOptions({ backgroundColor: event.target.value })}
-                    className="h-7 w-full rounded border border-[rgba(255,255,255,0.14)] bg-transparent"
-                  />
-                </label>
-                <label className="flex items-center gap-2">
-                  <span>文字</span>
-                  <input
-                    type="color"
-                    value={exportOptions.textColor}
-                    onChange={(event) => patchExportOptions({ textColor: event.target.value })}
-                    className="h-7 w-full rounded border border-[rgba(255,255,255,0.14)] bg-transparent"
-                  />
-                </label>
-              </div>
-            </div>
-          </UiPanel>
-        </div>,
-        document.body
-      )}
-
-      {exportError && <div className="mt-2 shrink-0 text-xs text-red-400">{exportError}</div>}
-
-      <Handle
-        type="target"
-        id="target"
-        position={Position.Left}
-        className="!h-2 !w-2 !border-surface-dark !bg-accent"
-      />
-      <Handle
-        type="source"
-        id="source"
-        position={Position.Right}
-        className="!h-2 !w-2 !border-surface-dark !bg-accent"
-      />
-      <NodeResizeHandle
-        minWidth={STORYBOARD_NODE_MIN_WIDTH_PX}
-        minHeight={STORYBOARD_NODE_MIN_HEIGHT_PX}
-        maxWidth={2000}
-        maxHeight={1600}
-        isVisible={selected}
-      />
-
-      {typeof document !== 'undefined' && isPackDoneDialogOpen
-        ? createPortal(
-          <div className="fixed inset-0 z-[220] flex items-center justify-center">
-            <div className="absolute inset-0 bg-black/55" />
-            <UiPanel className="relative w-[440px] p-4">
-              <div className="text-sm font-medium text-text-dark">导出完成</div>
-              <div className="mt-2 text-xs text-text-muted">图片已导出到以下路径：</div>
-              <div className="mt-1 break-all rounded border border-[rgba(255,255,255,0.12)] bg-bg-dark/70 px-2 py-1.5 text-xs text-text-dark">
-                {packOutputDir}
-              </div>
-              <div className="mt-4 flex justify-end gap-2">
-                <UiButton
-                  size="sm"
-                  variant="muted"
-                  onClick={() => {
-                    void handleOpenPackFolder();
-                  }}
-                >
-                  打开文件夹
-                </UiButton>
-                <UiButton
-                  size="sm"
-                  variant="primary"
-                  onClick={() => setIsPackDoneDialogOpen(false)}
-                >
-                  确定
-                </UiButton>
-              </div>
-            </UiPanel>
-          </div>,
-          document.body
-        )
-        : null}
-    </div>
-  );
-});
-
-StoryboardNode.displayName = 'StoryboardNode';
+StoryboardNode.displayName = "StoryboardNode";

@@ -1159,7 +1159,7 @@ fn load_project_record(
 ) -> Result<ProjectRecord, String> {
     let mut record = conn
         .query_row(
-        r#"
+            r#"
         SELECT
           id,
           name,
@@ -1182,27 +1182,27 @@ fn load_project_record(
         WHERE id = ?1
         LIMIT 1
         "#,
-        params![project_id],
-        |row| {
-            Ok(ProjectRecord {
-                id: row.get(0)?,
-                name: row.get(1)?,
-                project_type: row.get(2)?,
-                asset_library_id: row.get(3)?,
-                clip_library_id: row.get(4)?,
-                clip_last_folder_id: row.get(5)?,
-                linked_script_project_id: row.get(6)?,
-                linked_ad_project_id: row.get(7)?,
-                created_at: row.get(8)?,
-                updated_at: row.get(9)?,
-                node_count: row.get(10)?,
-                nodes_json: row.get(11)?,
-                edges_json: row.get(12)?,
-                viewport_json: row.get(13)?,
-                history_json: row.get(14)?,
-                color_labels_json: row.get(15)?,
-                script_welcome_skipped: row.get(16)?,
-            })
+            params![project_id],
+            |row| {
+                Ok(ProjectRecord {
+                    id: row.get(0)?,
+                    name: row.get(1)?,
+                    project_type: row.get(2)?,
+                    asset_library_id: row.get(3)?,
+                    clip_library_id: row.get(4)?,
+                    clip_last_folder_id: row.get(5)?,
+                    linked_script_project_id: row.get(6)?,
+                    linked_ad_project_id: row.get(7)?,
+                    created_at: row.get(8)?,
+                    updated_at: row.get(9)?,
+                    node_count: row.get(10)?,
+                    nodes_json: row.get(11)?,
+                    edges_json: row.get(12)?,
+                    viewport_json: row.get(13)?,
+                    history_json: row.get(14)?,
+                    color_labels_json: row.get(15)?,
+                    script_welcome_skipped: row.get(16)?,
+                })
             },
         )
         .map_err(|_| "The requested project could not be found".to_string())?;
@@ -2067,11 +2067,10 @@ fn update_project_binding_state_in_tx(
     clip_library_id: Option<&str>,
     clip_last_folder_id: Option<&str>,
 ) -> Result<(), String> {
-    let persisted_nodes_json =
-        storage::rewrite_media_refs_in_json_string(nodes_json, &|value| {
-            storage::encode_storage_media_ref(app, value)
-        })?
-        .unwrap_or_else(|| nodes_json.to_string());
+    let persisted_nodes_json = storage::rewrite_media_refs_in_json_string(nodes_json, &|value| {
+        storage::encode_storage_media_ref(app, value)
+    })?
+    .unwrap_or_else(|| nodes_json.to_string());
     let persisted_history_json =
         storage::rewrite_media_refs_in_json_string(history_json, &|value| {
             storage::encode_storage_media_ref(app, value)

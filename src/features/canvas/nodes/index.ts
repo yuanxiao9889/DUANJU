@@ -1,5 +1,5 @@
 import type { NodeTypes } from '@xyflow/react';
-
+import { CANVAS_NODE_TYPES } from '@/features/canvas/domain/canvasNodes';
 import { GroupNode } from './GroupNode';
 import { AudioNode } from './AudioNode';
 import { ImageCompareNode } from './ImageCompareNode';
@@ -35,6 +35,8 @@ import { TextAnnotationNode } from './TextAnnotationNode';
 import { TtsTextNode } from './TtsTextNode';
 import { ScriptSceneNode } from './ScriptSceneNode';
 import { ShootingScriptNode } from './ShootingScriptNode';
+import { DirectorWorkPackageNode } from './DirectorWorkPackageNode';
+import { DirectorStoryboardReferenceNode } from './DirectorStoryboardReferenceNode';
 import { ScriptReferenceNode } from './ScriptReferenceNode';
 import { AdScriptReferenceNode } from './AdScriptReferenceNode';
 import {
@@ -57,8 +59,10 @@ import { ScriptLocationNode } from './ScriptLocationNode';
 import { ScriptItemNode } from './ScriptItemNode';
 import { ScriptStoryNoteNode } from './ScriptStoryNoteNode';
 import { ScriptPlotPointNode } from './ScriptPlotPointNode';
+import { ScriptPlotLineNode } from './ScriptPlotLineNode';
 import { LegacyNode } from './LegacyNode';
 import { CommerceStageNode } from './CommerceStageNode';
+import { CanvasOverviewNode } from './CanvasOverviewNode';
 
 export const nodeTypes: NodeTypes = {
   exportImageNode: ImageNode,
@@ -104,6 +108,9 @@ export const nodeTypes: NodeTypes = {
   scriptChapterNode: ScriptChapterNode,
   scriptSceneNode: ScriptSceneNode,
   shootingScriptNode: ShootingScriptNode,
+  scriptAssetExtractNode: DirectorWorkPackageNode,
+  directorWorkPackageNode: DirectorWorkPackageNode,
+  directorStoryboardReferenceNode: DirectorStoryboardReferenceNode,
   scriptReferenceNode: ScriptReferenceNode,
   adScriptReferenceNode: AdScriptReferenceNode,
   commerceProductNode: CommerceStageNode,
@@ -117,9 +124,14 @@ export const nodeTypes: NodeTypes = {
   scriptCharacterNode: ScriptCharacterNode,
   scriptLocationNode: ScriptLocationNode,
   scriptItemNode: ScriptItemNode,
+  scriptPlotLineNode: ScriptPlotLineNode,
   scriptStoryNoteNode: ScriptStoryNoteNode,
   scriptPlotPointNode: ScriptPlotPointNode,
 };
+
+export const overviewNodeTypes: NodeTypes = Object.fromEntries(
+  Object.values(CANVAS_NODE_TYPES).map((type) => [type, CanvasOverviewNode])
+);
 
 export { 
   GroupNode, 
@@ -165,6 +177,8 @@ export {
   ScriptChapterNode, 
   ScriptSceneNode,
   ShootingScriptNode,
+  DirectorWorkPackageNode,
+  DirectorStoryboardReferenceNode,
   ScriptReferenceNode,
   AdScriptReferenceNode,
   CommerceStageNode,
@@ -175,6 +189,8 @@ export {
   ScriptCharacterNode,
   ScriptLocationNode,
   ScriptItemNode,
+  ScriptPlotLineNode,
   ScriptStoryNoteNode,
   ScriptPlotPointNode,
+  CanvasOverviewNode,
 };

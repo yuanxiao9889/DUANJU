@@ -1,10 +1,10 @@
 import { memo, useCallback, useEffect, useMemo, useState } from "react";
 import {
-  Handle,
   Position,
   useUpdateNodeInternals,
   type NodeProps,
 } from "@xyflow/react";
+import { CanvasHandle } from "@/features/canvas/ui/CanvasHandle";
 import {
   Loader2,
   Sparkles,
@@ -12,7 +12,6 @@ import {
   TriangleAlert,
 } from "lucide-react";
 import { useTranslation } from "react-i18next";
-
 import { UiButton, UiLoadingOverlay } from "@/components/ui";
 import { flushCurrentProjectToDiskSafely } from "@/features/canvas/application/projectPersistence";
 import { prepareNodeImage } from "@/features/canvas/application/imageData";
@@ -163,8 +162,8 @@ export const JimengImageResultNode = memo(
     );
     const setSelectedNode = useCanvasStore((state) => state.setSelectedNode);
     const updateNodeData = useCanvasStore((state) => state.updateNodeData);
-    const isDescriptionPanelOpen = useCanvasStore(
-      (state) => Boolean(state.nodeDescriptionPanelOpenById[id]),
+    const isDescriptionPanelOpen = useCanvasStore((state) =>
+      Boolean(state.nodeDescriptionPanelOpenById[id]),
     );
     const isReferenceSourceHighlighted = useCanvasStore(
       (state) => state.highlightedReferenceSourceNodeId === id,
@@ -217,7 +216,9 @@ export const JimengImageResultNode = memo(
       JIMENG_IMAGE_RESULT_NODE_MIN_WIDTH,
       Math.round(width ?? JIMENG_IMAGE_RESULT_NODE_DEFAULT_WIDTH),
     );
-    const explicitHeight = resolveNodeStyleDimension(currentNode?.style?.height);
+    const explicitHeight = resolveNodeStyleDimension(
+      currentNode?.style?.height,
+    );
     const hasExplicitHeight = typeof explicitHeight === "number";
     const descriptionPanelHeight = isDescriptionPanelOpen
       ? NODE_DESCRIPTION_PANEL_EXPANDED_TOTAL_HEIGHT
@@ -226,7 +227,8 @@ export const JimengImageResultNode = memo(
       explicitHeight ?? JIMENG_IMAGE_RESULT_NODE_MIN_HEIGHT,
       JIMENG_IMAGE_RESULT_NODE_MIN_HEIGHT,
     );
-    const resolvedMinHeight = JIMENG_IMAGE_RESULT_NODE_MIN_HEIGHT + descriptionPanelHeight;
+    const resolvedMinHeight =
+      JIMENG_IMAGE_RESULT_NODE_MIN_HEIGHT + descriptionPanelHeight;
     const resolvedHeight = hasExplicitHeight
       ? collapsedHeight + descriptionPanelHeight
       : null;
@@ -240,11 +242,14 @@ export const JimengImageResultNode = memo(
     );
     const viewerMetadata = useMemo<ImageViewerMetadata>(() => {
       const submittedPrompt =
-        normalizeText(data.prompt) || normalizeText(sourceJimengImageData?.prompt);
+        normalizeText(data.prompt) ||
+        normalizeText(sourceJimengImageData?.prompt);
       const modelVersion =
-        normalizeText(data.modelVersion) || normalizeText(sourceJimengImageData?.modelVersion);
+        normalizeText(data.modelVersion) ||
+        normalizeText(sourceJimengImageData?.modelVersion);
       const resolutionType =
-        normalizeText(data.resolutionType) || normalizeText(sourceJimengImageData?.resolutionType);
+        normalizeText(data.resolutionType) ||
+        normalizeText(sourceJimengImageData?.resolutionType);
       const referenceImageCount =
         typeof data.referenceImageCount === "number" &&
         Number.isFinite(data.referenceImageCount)
@@ -425,6 +430,7 @@ export const JimengImageResultNode = memo(
             prepared.aspectRatio || item.aspectRatio || data.aspectRatio,
             prepared.previewImageUrl,
             {
+              thumbnailUrl: prepared.thumbnailImageUrl,
               defaultTitle: t("node.jimengImageResult.extractedTitle", {
                 index: index + 1,
               }),
@@ -510,7 +516,7 @@ export const JimengImageResultNode = memo(
             ? "border-accent shadow-[0_0_0_1px_rgba(59,130,246,0.32)]"
             : isReferenceSourceHighlighted
               ? "border-accent/80 shadow-[0_0_0_2px_rgba(59,130,246,0.24),0_4px_18px_rgba(59,130,246,0.1)]"
-            : "border-[rgba(15,23,42,0.22)] hover:border-[rgba(15,23,42,0.34)] dark:border-[rgba(255,255,255,0.22)] dark:hover:border-[rgba(255,255,255,0.34)]"
+              : "border-[rgba(15,23,42,0.22)] hover:border-[rgba(15,23,42,0.34)] dark:border-[rgba(255,255,255,0.22)] dark:hover:border-[rgba(255,255,255,0.34)]"
         }
       `}
         style={{
@@ -570,6 +576,7 @@ export const JimengImageResultNode = memo(
                     {source && viewerSource ? (
                       <CanvasNodeImage
                         src={source}
+                        overviewSrc={item?.thumbnailUrl ?? null}
                         alt={
                           item?.fileName ??
                           t("node.jimengImageResult.slotLabel", {
@@ -587,10 +594,10 @@ export const JimengImageResultNode = memo(
                         {showBlockingOverlay
                           ? null
                           : data.isGenerating
-                          ? t("node.jimengImageResult.pending")
-                          : t("node.jimengImageResult.slotLabel", {
-                              index: index + 1,
-                            })}
+                            ? t("node.jimengImageResult.pending")
+                            : t("node.jimengImageResult.slotLabel", {
+                                index: index + 1,
+                              })}
                       </div>
                     )}
                   </div>
@@ -651,17 +658,17 @@ export const JimengImageResultNode = memo(
           onChange={(value) => updateNodeData(id, { nodeDescription: value })}
         />
 
-        <Handle
+        <CanvasHandle
           type="target"
           id="target"
           position={Position.Left}
-          className="!h-2.5 !w-2.5 !border-2 !border-surface-dark !bg-accent"
+          className="!border-2 !border-surface-dark !bg-accent"
         />
-        <Handle
+        <CanvasHandle
           type="source"
           id="source"
           position={Position.Right}
-          className="!h-2.5 !w-2.5 !border-2 !border-surface-dark !bg-accent"
+          className="!border-2 !border-surface-dark !bg-accent"
         />
         <NodeResizeHandle
           minWidth={JIMENG_IMAGE_RESULT_NODE_MIN_WIDTH}

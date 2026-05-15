@@ -38,7 +38,6 @@ import {
   type UpdateDownloadProgress,
   type UpdateErrorCode,
 } from "./features/update/application/checkForUpdate";
-import { checkStorageSession, refreshStorageSession } from "./commands/storage";
 import {
   subscribeOpenGlobalErrorDialog,
   type GlobalErrorDialogDetail,
@@ -101,12 +100,16 @@ function hasActiveGenerationFlag(data: unknown): boolean {
   return Boolean((data as { isGenerating?: boolean } | null)?.isGenerating);
 }
 
-function isWindowsUpdaterRuntime(): boolean {
+function isWindowsRuntime(): boolean {
   return (
     isTauri() &&
     typeof navigator !== "undefined" &&
     /Windows/i.test(navigator.userAgent)
   );
+}
+
+function isWindowsUpdaterRuntime(): boolean {
+  return isWindowsRuntime();
 }
 
 const CanvasScreen = lazy(() =>
@@ -364,71 +367,9 @@ function MainApp() {
   const isWindowCloseInProgressRef = useRef(false);
   const hasAttemptedDreaminaAutoUpdateRef = useRef(false);
   const canvasEntryPreloadRunRef = useRef(0);
-  const storageSessionWarningShownRef = useRef(false);
-
   useEffect(() => {
     void hydrate();
   }, [hydrate]);
-
-  useEffect(() => {
-    if (!isTauri()) {
-      return;
-    }
-
-    let cancelled = false;
-    const refresh = async () => {
-      try {
-        const status = await checkStorageSession();
-        if (!cancelled && status.active) {
-          console.warn("Storage is active on another device", status);
-          if (!storageSessionWarningShownRef.current) {
-            storageSessionWarningShownRef.current = true;
-            const sameMachine =
-              status.ownerMachineId != null &&
-              status.ownerMachineId === status.machineId;
-            setGlobalError({
-              title: sameMachine
-                ? t("settings.storageSessionActiveSameMachineTitle")
-                : t("settings.storageSessionActiveTitle"),
-              message: sameMachine
-                ? t("settings.storageSessionActiveSameMachineMessage", {
-                    path: status.currentPath,
-                  })
-                : t("settings.storageSessionActiveMessage", {
-                    path: status.currentPath,
-                  }),
-              details: sameMachine
-                ? t("settings.storageSessionActiveSameMachineDetails", {
-                    processId: status.ownerProcessId ?? "-",
-                  })
-                : status.ownerMachineId
-                  ? t("settings.storageSessionActiveDetails", {
-                      machineId: status.ownerMachineId,
-                    })
-                  : undefined,
-            });
-          }
-          return;
-        }
-        await refreshStorageSession();
-        if (!cancelled) {
-          storageSessionWarningShownRef.current = false;
-        }
-      } catch (error) {
-        console.warn("Failed to refresh storage session", error);
-      }
-    };
-
-    void refresh();
-    const timer = window.setInterval(() => {
-      void refresh();
-    }, 60_000);
-
-    return () => {
-      cancelled = true;
-      window.clearInterval(timer);
-    };
-  }, [t]);
 
   useEffect(() => {
     if (!settingsHydrated) {
@@ -1331,6 +1272,7 @@ function MainApp() {
         isOpen={showAppCloseDialog}
         hasActiveGeneration={hasMainWindowActiveGeneration}
         actionState={closeDialogActionState}
+        canMinimizeToTray={isWindowsRuntime()}
         onClose={() => {
           if (closeDialogActionState !== "idle") {
             return;

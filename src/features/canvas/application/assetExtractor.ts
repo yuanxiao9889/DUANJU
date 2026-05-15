@@ -533,10 +533,27 @@ export async function extractAssetsFromChunk(chunk: AssetExtractionChunk): Promi
     batchLabel: chunk.label,
   });
 
+  const characters = dedupeCharacters(result.characters);
+  const locations = dedupeLocations(result.locations);
+  const scenes = result.scenes ?? result.locations.map((location) => ({
+      name: location.name,
+      description: location.description,
+      relatedCharacterNames: [],
+    }));
+  const items = dedupeItems(result.items);
+
   return {
-    characters: dedupeCharacters(result.characters),
-    locations: dedupeLocations(result.locations),
-    items: dedupeItems(result.items),
+    characters,
+    locations,
+    scenes,
+    items,
+    plotLines: result.plotLines ?? [],
+    emotions: result.emotions ?? [],
+    charactersCatalog: result.charactersCatalog?.length ? result.charactersCatalog : characters,
+    scenesCatalog: result.scenesCatalog?.length ? result.scenesCatalog : scenes,
+    itemsCatalog: result.itemsCatalog?.length ? result.itemsCatalog : items,
+    lineBlueprints: result.lineBlueprints ?? [],
+    promptRows: result.promptRows ?? [],
     worldview: mergeExtractedWorldviews(null, result.worldview),
   };
 }

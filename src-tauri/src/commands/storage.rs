@@ -1394,16 +1394,9 @@ pub fn check_storage_session(app: AppHandle) -> Result<StorageSessionStatus, Str
 pub(crate) fn ensure_storage_session_write_allowed(app: &AppHandle) -> Result<(), String> {
     let current_path = resolve_storage_base_path(app)?;
     let status = check_storage_session_for_path(app, &current_path)?;
-    if status.active {
-        return Err(format!(
-            "This storage is currently active on another device. Please close the other app instance or wait until its session becomes stale. Storage: {}",
-            status.current_path
-        ));
-    }
-
     let machine_id = status.machine_id;
     let now = current_timestamp_ms();
-    let started_at = if status.stale {
+    let started_at = if status.stale || status.active {
         now
     } else {
         status.started_at.unwrap_or(now)
@@ -2509,13 +2502,6 @@ pub fn adopt_existing_storage_path(
         return Err(format!(
             "The selected storage directory does not contain projects.db: {}",
             target_db_path.display()
-        ));
-    }
-    let target_session_status = check_storage_session_for_path(&app, &target_path)?;
-    if target_session_status.active {
-        return Err(format!(
-            "The selected storage directory is currently active on another device. Please close the other app instance or wait until its session becomes stale. Storage: {}",
-            target_session_status.current_path
         ));
     }
 

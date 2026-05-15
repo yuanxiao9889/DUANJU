@@ -11,11 +11,11 @@ import {
   useState,
 } from "react";
 import {
-  Handle,
   Position,
   useUpdateNodeInternals,
   type NodeProps,
 } from "@xyflow/react";
+import { CanvasHandle } from "@/features/canvas/ui/CanvasHandle";
 import {
   AudioLines,
   Loader2,
@@ -26,7 +26,6 @@ import {
   Wand2,
 } from "lucide-react";
 import { useTranslation } from "react-i18next";
-
 import { UiLoadingOverlay } from "@/components/ui";
 import {
   CANVAS_NODE_TYPES,
@@ -1088,7 +1087,9 @@ function resolveJimengCliVideoCommand({
   return "multiframe2video";
 }
 
-function jimengFrames2VideoModelSupports1080p(model: JimengVideoModelId): boolean {
+function jimengFrames2VideoModelSupports1080p(
+  model: JimengVideoModelId,
+): boolean {
   return (
     model === "3.0" ||
     model === "3.5pro" ||
@@ -1213,11 +1214,8 @@ export const JimengNode = memo(
     );
 
     const connectedReferenceVisuals = useCanvasConnectedReferenceVisuals(id);
-    const {
-      connectedText,
-      hasConnectedTextSource,
-      hasNonEmptyConnectedText,
-    } = useCanvasConnectedTextInput(id);
+    const { connectedText, hasConnectedTextSource, hasNonEmptyConnectedText } =
+      useCanvasConnectedTextInput(id);
     const incomingReferenceVisualUrls = useMemo(
       () => connectedReferenceVisuals.map((item) => item.referenceUrl),
       [connectedReferenceVisuals],
@@ -1226,7 +1224,9 @@ export const JimengNode = memo(
     const displayedPrompt = promptDraft;
     const showOverviewReferenceThumbnails =
       isOverviewRender && !shouldSuspendMedia;
-    const effectivePrompt = isPromptLockedByUpstream ? connectedText : promptDraft;
+    const effectivePrompt = isPromptLockedByUpstream
+      ? connectedText
+      : promptDraft;
     const orderedReferenceVisualUrls = useMemo(
       () =>
         resolveOrderedReferenceImages(
@@ -1645,11 +1645,11 @@ export const JimengNode = memo(
         scrollSnapshot?: TextareaScrollSnapshot | null,
       ) => {
         requestAnimationFrame(() => {
-        restoreTextareaSelection(
-          promptRef.current,
-          selection,
-          promptRef.current?.value.length ?? promptValueRef.current.length,
-          {
+          restoreTextareaSelection(
+            promptRef.current,
+            selection,
+            promptRef.current?.value.length ?? promptValueRef.current.length,
+            {
               scrollSnapshot,
               syncScroll: syncPromptHighlightScroll,
               onAfterRestore: (textarea, nextSelection) => {
@@ -1736,7 +1736,8 @@ export const JimengNode = memo(
         const scrollSnapshot = readTextareaScroll(promptRef.current);
         const selection = resolveTextSelection({
           textarea: promptRef.current,
-          lastSelection: pickerSelectionRef.current ?? lastPromptSelectionRef.current,
+          lastSelection:
+            pickerSelectionRef.current ?? lastPromptSelectionRef.current,
           fallbackLength: currentPrompt.length,
           requireFocus: true,
         });
@@ -1782,7 +1783,11 @@ export const JimengNode = memo(
         handlePromptChange(nextText);
         schedulePromptSelectionRestore(nextCursor);
       },
-      [handlePromptChange, isPromptLockedByUpstream, schedulePromptSelectionRestore],
+      [
+        handlePromptChange,
+        isPromptLockedByUpstream,
+        schedulePromptSelectionRestore,
+      ],
     );
 
     const handleReferenceSortStart = useCallback(
@@ -1936,16 +1941,16 @@ export const JimengNode = memo(
                   imageUrl,
                 } satisfies PromptReferenceImageCandidate;
               })
-              .filter(
-                (item): item is PromptReferenceImageCandidate => Boolean(item),
+              .filter((item): item is PromptReferenceImageCandidate =>
+                Boolean(item),
               ),
           );
         const result = await optimizeCanvasPrompt({
           mode: "jimeng",
           prompt: currentPrompt,
-          referenceImages: incomingVisualItems.map(
-            (item) => item.previewImageUrl,
-          ).filter((item): item is string => Boolean(item)),
+          referenceImages: incomingVisualItems
+            .map((item) => item.previewImageUrl)
+            .filter((item): item is string => Boolean(item)),
           referenceImageBindings: optimizationReferenceImageBindings,
         });
         if (promptValueRef.current !== sourcePrompt) {
@@ -2043,162 +2048,167 @@ export const JimengNode = memo(
       updatePrompt,
     ]);
 
-    const enqueueJimengVideoJob = useCallback(async (scheduledAt: number | null) => {
-      const prompt = effectivePrompt.trim();
-      let createdResultNodeId: string | null = null;
-      const resultNodeTitle = buildJimengVideoResultNodeTitle(
-        t("node.jimeng.resultNodeTitle"),
-      );
-      try {
-        if (!prompt) {
-          const message = t("node.jimeng.promptRequired");
-          updateNodeData(id, { lastError: message });
-          await showErrorDialog(message, t("common.error"));
-          return;
-        }
+    const enqueueJimengVideoJob = useCallback(
+      async (scheduledAt: number | null) => {
+        const prompt = effectivePrompt.trim();
+        let createdResultNodeId: string | null = null;
+        const resultNodeTitle = buildJimengVideoResultNodeTitle(
+          t("node.jimeng.resultNodeTitle"),
+        );
+        try {
+          if (!prompt) {
+            const message = t("node.jimeng.promptRequired");
+            updateNodeData(id, { lastError: message });
+            await showErrorDialog(message, t("common.error"));
+            return;
+          }
 
-        if (isGenerateBlocked) {
-          const message = hasTooManyReferenceVideos
-            ? t("node.jimeng.referenceVideoTooMany", {
-                count: MAX_REFERENCE_VIDEO_COUNT,
-              })
-            : hasReferenceVideoTooLong
-              ? t("node.jimeng.referenceVideoTooLong", {
-                  seconds: MAX_REFERENCE_VIDEO_DURATION_SECONDS,
+          if (isGenerateBlocked) {
+            const message = hasTooManyReferenceVideos
+              ? t("node.jimeng.referenceVideoTooMany", {
+                  count: MAX_REFERENCE_VIDEO_COUNT,
                 })
-              : isFirstLastFrameCountInvalid
-                ? t("node.jimeng.firstLastFrameRequiresTwoImages")
-                : t("node.jimeng.cliBlockedAudioNeedsImage");
-          updateNodeData(id, { lastError: message });
-          await showErrorDialog(message, t("common.error"));
-          return;
-        }
+              : hasReferenceVideoTooLong
+                ? t("node.jimeng.referenceVideoTooLong", {
+                    seconds: MAX_REFERENCE_VIDEO_DURATION_SECONDS,
+                  })
+                : isFirstLastFrameCountInvalid
+                  ? t("node.jimeng.firstLastFrameRequiresTwoImages")
+                  : t("node.jimeng.cliBlockedAudioNeedsImage");
+            updateNodeData(id, { lastError: message });
+            await showErrorDialog(message, t("common.error"));
+            return;
+          }
 
-        if (!currentProjectId) {
-          const message = t("node.jimeng.queueProjectUnavailable");
-          updateNodeData(id, { lastError: message });
-          await showErrorDialog(message, t("common.error"));
-          return;
-        }
+          if (!currentProjectId) {
+            const message = t("node.jimeng.queueProjectUnavailable");
+            updateNodeData(id, { lastError: message });
+            await showErrorDialog(message, t("common.error"));
+            return;
+          }
 
-        setPromptOptimizationError(null);
-        updateNodeData(id, { lastError: null });
+          setPromptOptimizationError(null);
+          updateNodeData(id, { lastError: null });
 
-        const resultNodePosition = findNodePosition(
-          id,
-          JIMENG_VIDEO_RESULT_NODE_DEFAULT_WIDTH,
-          JIMENG_VIDEO_RESULT_NODE_DEFAULT_HEIGHT,
-        );
-        createdResultNodeId = addNode(
-          CANVAS_NODE_TYPES.jimengVideoResult,
-          resultNodePosition,
-          {
-            sourceNodeId: id,
-            displayName: resultNodeTitle,
-            queueJobId: null,
-            queueStatus: "waiting",
-            queueScheduledAt: scheduledAt,
-            queueAttemptCount: 0,
-            queueMaxAttempts: 3,
-            submitId: null,
-            sourceUrl: null,
-            posterSourceUrl: null,
-            videoUrl: null,
-            previewImageUrl: null,
-            videoFileName: null,
-            aspectRatio: selectedAspectRatio,
-            duration: selectedDuration,
-            isGenerating: false,
-            generationStartedAt: null,
-            generationDurationMs: 180000,
-            lastGeneratedAt: null,
-            lastError: null,
-          },
-          { inheritParentFromNodeId: id },
-        );
-        addEdge(id, createdResultNodeId);
-        await flushCurrentProjectToDiskSafely(
-          "creating Jimeng video result node",
-        );
-
-        if (!createdResultNodeId) {
-          throw new Error(t("node.jimeng.queueResultNodeMissing"));
-        }
-
-        const readableReferenceImageSources =
-          await resolveReadableReferenceImageSources(
-            incomingVisualItems.filter((item) => item.kind === "image"),
+          const resultNodePosition = findNodePosition(
+            id,
+            JIMENG_VIDEO_RESULT_NODE_DEFAULT_WIDTH,
+            JIMENG_VIDEO_RESULT_NODE_DEFAULT_HEIGHT,
+          );
+          createdResultNodeId = addNode(
+            CANVAS_NODE_TYPES.jimengVideoResult,
+            resultNodePosition,
+            {
+              sourceNodeId: id,
+              displayName: resultNodeTitle,
+              queueJobId: null,
+              queueStatus: "waiting",
+              queueScheduledAt: scheduledAt,
+              queueAttemptCount: 0,
+              queueMaxAttempts: 3,
+              submitId: null,
+              sourceUrl: null,
+              posterSourceUrl: null,
+              videoUrl: null,
+              previewImageUrl: null,
+              videoFileName: null,
+              aspectRatio: selectedAspectRatio,
+              duration: selectedDuration,
+              isGenerating: false,
+              generationStartedAt: null,
+              generationDurationMs: 180000,
+              lastGeneratedAt: null,
+              lastError: null,
+            },
+            { inheritParentFromNodeId: id },
+          );
+          addEdge(id, createdResultNodeId);
+          await flushCurrentProjectToDiskSafely(
+            "creating Jimeng video result node",
           );
 
-        await enqueueJimengQueueJob({
-          projectId: currentProjectId,
-          sourceNodeId: id,
-          resultNodeId: createdResultNodeId,
-          title: resultNodeTitle,
-          scheduledAt,
-          payload: {
-            prompt,
-            modelVersion: selectedModel,
-            referenceMode: selectedReferenceMode,
-            aspectRatio: selectedAspectRatio,
-            durationSeconds: selectedDuration,
-            videoResolution: selectedVideoResolution,
-            referenceImageSources: readableReferenceImageSources,
-            referenceVideoSources,
-            referenceAudioSources: incomingAudios.map((item) => item.audioUrl),
-          },
-        });
+          if (!createdResultNodeId) {
+            throw new Error(t("node.jimeng.queueResultNodeMissing"));
+          }
 
-        updateNodeData(id, {
-          lastError: null,
-        });
-      } catch (error) {
-        const content = resolveErrorContent(
-          error,
-          t("node.jimeng.queueEnqueueFailed"),
-        );
-        updateNodeData(id, { lastError: content.message });
-        if (createdResultNodeId) {
-          updateNodeData(createdResultNodeId, {
-            isGenerating: false,
-            generationStartedAt: null,
-            queueStatus: "failed",
-            lastError: content.message,
+          const readableReferenceImageSources =
+            await resolveReadableReferenceImageSources(
+              incomingVisualItems.filter((item) => item.kind === "image"),
+            );
+
+          await enqueueJimengQueueJob({
+            projectId: currentProjectId,
+            sourceNodeId: id,
+            resultNodeId: createdResultNodeId,
+            title: resultNodeTitle,
+            scheduledAt,
+            payload: {
+              prompt,
+              modelVersion: selectedModel,
+              referenceMode: selectedReferenceMode,
+              aspectRatio: selectedAspectRatio,
+              durationSeconds: selectedDuration,
+              videoResolution: selectedVideoResolution,
+              referenceImageSources: readableReferenceImageSources,
+              referenceVideoSources,
+              referenceAudioSources: incomingAudios.map(
+                (item) => item.audioUrl,
+              ),
+            },
           });
+
+          updateNodeData(id, {
+            lastError: null,
+          });
+        } catch (error) {
+          const content = resolveErrorContent(
+            error,
+            t("node.jimeng.queueEnqueueFailed"),
+          );
+          updateNodeData(id, { lastError: content.message });
+          if (createdResultNodeId) {
+            updateNodeData(createdResultNodeId, {
+              isGenerating: false,
+              generationStartedAt: null,
+              queueStatus: "failed",
+              lastError: content.message,
+            });
+          }
+          await flushCurrentProjectToDiskSafely(
+            "saving Jimeng video queue error",
+          );
+          await showErrorDialog(
+            content.message,
+            t("common.error"),
+            content.details,
+          );
         }
-        await flushCurrentProjectToDiskSafely(
-          "saving Jimeng video queue error",
-        );
-        await showErrorDialog(
-          content.message,
-          t("common.error"),
-          content.details,
-        );
-      }
-    }, [
-      addEdge,
-      addNode,
-      currentProjectId,
-      effectivePrompt,
-      enqueueJimengQueueJob,
-      findNodePosition,
-      flushCurrentProjectToDiskSafely,
-      hasTooManyReferenceVideos,
-      hasReferenceVideoTooLong,
-      id,
-      incomingAudios,
-      isGenerateBlocked,
-      isFirstLastFrameCountInvalid,
-      referenceImageSources,
-      referenceVideoSources,
-      selectedAspectRatio,
-      selectedDuration,
-      selectedModel,
-      selectedReferenceMode,
-      selectedVideoResolution,
-      t,
-      updateNodeData,
-    ]);
+      },
+      [
+        addEdge,
+        addNode,
+        currentProjectId,
+        effectivePrompt,
+        enqueueJimengQueueJob,
+        findNodePosition,
+        flushCurrentProjectToDiskSafely,
+        hasTooManyReferenceVideos,
+        hasReferenceVideoTooLong,
+        id,
+        incomingAudios,
+        isGenerateBlocked,
+        isFirstLastFrameCountInvalid,
+        referenceImageSources,
+        referenceVideoSources,
+        selectedAspectRatio,
+        selectedDuration,
+        selectedModel,
+        selectedReferenceMode,
+        selectedVideoResolution,
+        t,
+        updateNodeData,
+      ],
+    );
 
     const handleGenerate = useCallback(async () => {
       closeShotParamsPanel();
@@ -2484,8 +2494,11 @@ export const JimengNode = memo(
           event.preventDefault();
           event.stopPropagation();
           const selection =
-            readTextareaSelection(event.currentTarget, promptValueRef.current.length)
-            ?? resolveTextSelection({
+            readTextareaSelection(
+              event.currentTarget,
+              promptValueRef.current.length,
+            ) ??
+            resolveTextSelection({
               textarea: event.currentTarget,
               lastSelection: lastPromptSelectionRef.current,
               fallbackLength: promptValueRef.current.length,
@@ -2610,11 +2623,9 @@ export const JimengNode = memo(
       t,
     );
     const promptLockStatusText = isPromptLockedByUpstream
-      ? (
-          hasNonEmptyConnectedText
-            ? t("common.upstreamTextDisconnectHint")
-            : t("common.upstreamTextEmpty")
-        )
+      ? hasNonEmptyConnectedText
+        ? t("common.upstreamTextDisconnectHint")
+        : t("common.upstreamTextEmpty")
       : null;
     const cliModeHint = useMemo(() => {
       if (isFirstLastFrameCountInvalid) {
@@ -2763,16 +2774,18 @@ export const JimengNode = memo(
 
     const statusInfoText =
       combinedError ??
-      (promptLockStatusText ??
+      promptLockStatusText ??
       (lastSubmittedTime
         ? t("node.jimeng.resultReturnedAt", { time: lastSubmittedTime })
         : [cliModeHint, durationSuggestionText, promptOptimizationNotice]
             .filter(Boolean)
-            .join(" | ")));
+            .join(" | "));
     const shotParamsButtonClassName = isShotParamsPanelOpen
       ? `${NODE_CONTROL_CHIP_CLASS} shrink-0 !w-8 !border-accent/55 !bg-accent/15 !px-0 justify-center text-accent shadow-[0_0_0_1px_rgba(59,130,246,0.18)]`
       : `${NODE_CONTROL_CHIP_CLASS} shrink-0 !w-8 !px-0 justify-center`;
-    const showBlockingOverlay = Boolean(data.isGenerating || isOptimizingPrompt);
+    const showBlockingOverlay = Boolean(
+      data.isGenerating || isOptimizingPrompt,
+    );
 
     const handleModelChange = useCallback(
       (nextValue: JimengVideoModelId) => {
@@ -2922,7 +2935,8 @@ export const JimengNode = memo(
               <div className="line-clamp-5 whitespace-pre-wrap break-words">
                 {displayedPrompt.trim() || t("node.jimeng.promptPlaceholder")}
               </div>
-              {showOverviewReferenceThumbnails && incomingVisualItems.length > 0 ? (
+              {showOverviewReferenceThumbnails &&
+              incomingVisualItems.length > 0 ? (
                 <div className="mt-auto flex min-h-0 gap-1 overflow-hidden">
                   {incomingVisualItems.slice(0, 4).map((item, index) => (
                     <ReferenceVisualThumbnail
@@ -2940,263 +2954,270 @@ export const JimengNode = memo(
               ) : null}
             </div>
           ) : (
-          <>
-          <div className="flex h-full min-h-0 flex-col gap-2">
-            <div
-              ref={promptPreviewHostRef}
-              className="relative min-h-[148px] flex-1"
-            >
-              <div
-                ref={promptHighlightRef}
-                aria-hidden="true"
-                className="ui-scrollbar pointer-events-none absolute inset-0 overflow-y-auto overflow-x-hidden text-sm leading-6 text-text-dark"
-                style={{ scrollbarGutter: "stable" }}
-              >
-                <div className="canvas-textarea-wrap min-h-full rounded-xl border border-transparent px-3 py-2">
-                  {renderPromptWithHighlights(
-                    displayedPrompt,
-                    incomingVisualItems.length,
-                    incomingAudios.length,
-                  )}
-                </div>
-              </div>
-
-              <div
-                ref={promptHoverLayerRef}
-                aria-hidden="true"
-                className="ui-scrollbar pointer-events-none absolute inset-0 z-20 overflow-y-auto overflow-x-hidden text-sm leading-6 text-transparent"
-                style={{ scrollbarGutter: "stable" }}
-              >
-                <div className="canvas-textarea-wrap min-h-full rounded-xl border border-transparent px-3 py-2">
-                    {renderPromptReferenceHoverTargets(
-                      displayedPrompt,
-                      incomingVisualItems.length,
-                      incomingAudios.length,
-                      handlePromptReferenceTokenHover,
-                    hidePromptReferencePreview,
-                    handlePromptReferenceTokenMouseDown,
-                  )}
-                </div>
-              </div>
-
-              <textarea
-                ref={promptRef}
-                value={displayedPrompt}
-                readOnly={isPromptLockedByUpstream}
-                aria-readonly={isPromptLockedByUpstream}
-                aria-disabled={isPromptLockedByUpstream}
-                tabIndex={isPromptLockedByUpstream ? -1 : undefined}
-                onChange={(event) => {
-                  handlePromptChange(event.target.value);
-                  rememberPromptSelection(event.currentTarget);
-                }}
-                placeholder={t("node.jimeng.promptPlaceholder")}
-                className={`canvas-textarea-wrap ui-scrollbar nodrag nowheel relative z-10 h-full w-full resize-none rounded-xl border border-white/10 bg-black/15 px-3 py-2 text-sm leading-6 text-transparent outline-none placeholder:text-text-muted/70 selection:bg-accent/30 selection:text-transparent ${
-                  isPromptLockedByUpstream
-                    ? "cursor-default caret-transparent"
-                    : "caret-text-dark focus:border-accent/50"
-                }`}
-                style={{ scrollbarGutter: "stable" }}
-                onScroll={syncPromptHighlightScroll}
-                onMouseDown={(event) => {
-                  event.stopPropagation();
-                  hidePromptReferencePreview();
-                }}
-                onSelect={(event) =>
-                  rememberPromptSelection(event.currentTarget)
-                }
-                onMouseUp={(event) =>
-                  rememberPromptSelection(event.currentTarget)
-                }
-                onKeyUp={(event) =>
-                  rememberPromptSelection(event.currentTarget)
-                }
-                onBlur={() => setIsPromptTextSelectionActive(false)}
-                onKeyDownCapture={handlePromptKeyDown}
-              />
-
-              {isPromptLockedByUpstream ? (
-                <UpstreamPromptLockOverlay
-                  empty={!hasNonEmptyConnectedText}
-                />
-              ) : null}
-
-              {promptReferencePreview ? (
+            <>
+              <div className="flex h-full min-h-0 flex-col gap-2">
                 <div
-                  className="pointer-events-none absolute z-30 w-fit overflow-hidden rounded-xl shadow-[0_12px_28px_rgba(0,0,0,0.28)]"
-                  style={{
-                    left: `${promptReferencePreview.left}px`,
-                    top: `${promptReferencePreview.top}px`,
-                  }}
+                  ref={promptPreviewHostRef}
+                  className="relative min-h-[148px] flex-1"
                 >
-                  <ReferenceVisualThumbnail
-                    kind={promptReferencePreview.kind}
-                    displayUrl={promptReferencePreview.displayUrl}
-                    label={promptReferencePreview.alt}
-                    durationSeconds={promptReferencePreview.durationSeconds}
-                    imageClassName="block max-h-[132px] max-w-[144px] rounded-xl object-contain"
-                    placeholderClassName="flex h-[132px] w-[144px] items-center justify-center rounded-xl border border-white/10 bg-black/70 text-text-dark"
-                    viewerImageList={incomingVisualDisplayList}
-                    showVideoBadge={false}
+                  <div
+                    ref={promptHighlightRef}
+                    aria-hidden="true"
+                    className="ui-scrollbar pointer-events-none absolute inset-0 overflow-y-auto overflow-x-hidden text-sm leading-6 text-text-dark"
+                    style={{ scrollbarGutter: "stable" }}
+                  >
+                    <div className="canvas-textarea-wrap min-h-full rounded-xl border border-transparent px-3 py-2">
+                      {renderPromptWithHighlights(
+                        displayedPrompt,
+                        incomingVisualItems.length,
+                        incomingAudios.length,
+                      )}
+                    </div>
+                  </div>
+
+                  <div
+                    ref={promptHoverLayerRef}
+                    aria-hidden="true"
+                    className="ui-scrollbar pointer-events-none absolute inset-0 z-20 overflow-y-auto overflow-x-hidden text-sm leading-6 text-transparent"
+                    style={{ scrollbarGutter: "stable" }}
+                  >
+                    <div className="canvas-textarea-wrap min-h-full rounded-xl border border-transparent px-3 py-2">
+                      {renderPromptReferenceHoverTargets(
+                        displayedPrompt,
+                        incomingVisualItems.length,
+                        incomingAudios.length,
+                        handlePromptReferenceTokenHover,
+                        hidePromptReferencePreview,
+                        handlePromptReferenceTokenMouseDown,
+                      )}
+                    </div>
+                  </div>
+
+                  <textarea
+                    ref={promptRef}
+                    value={displayedPrompt}
+                    readOnly={isPromptLockedByUpstream}
+                    aria-readonly={isPromptLockedByUpstream}
+                    aria-disabled={isPromptLockedByUpstream}
+                    tabIndex={isPromptLockedByUpstream ? -1 : undefined}
+                    onChange={(event) => {
+                      handlePromptChange(event.target.value);
+                      rememberPromptSelection(event.currentTarget);
+                    }}
+                    placeholder={t("node.jimeng.promptPlaceholder")}
+                    className={`canvas-textarea-wrap ui-scrollbar nodrag nowheel relative z-10 h-full w-full resize-none rounded-xl border border-white/10 bg-black/15 px-3 py-2 text-sm leading-6 text-transparent outline-none placeholder:text-text-muted/70 selection:bg-accent/30 selection:text-transparent ${
+                      isPromptLockedByUpstream
+                        ? "cursor-default caret-transparent"
+                        : "caret-text-dark focus:border-accent/50"
+                    }`}
+                    style={{ scrollbarGutter: "stable" }}
+                    onScroll={syncPromptHighlightScroll}
+                    onMouseDown={(event) => {
+                      event.stopPropagation();
+                      hidePromptReferencePreview();
+                    }}
+                    onSelect={(event) =>
+                      rememberPromptSelection(event.currentTarget)
+                    }
+                    onMouseUp={(event) =>
+                      rememberPromptSelection(event.currentTarget)
+                    }
+                    onKeyUp={(event) =>
+                      rememberPromptSelection(event.currentTarget)
+                    }
+                    onBlur={() => setIsPromptTextSelectionActive(false)}
+                    onKeyDownCapture={handlePromptKeyDown}
                   />
-                  {promptReferencePreview.kind === "video" ? (
-                    <div className="absolute inset-x-0 bottom-0 flex items-center justify-between gap-2 bg-black/55 px-2 py-1 text-[10px] text-white">
-                      <span className="inline-flex items-center gap-1">
-                        <Video className="h-3 w-3" strokeWidth={2.2} />
-                        {t("node.jimeng.referenceVideoBadge")}
-                      </span>
-                      {promptReferencePreview.durationSeconds ? (
-                        <span>
-                          {formatReferenceDuration(
-                            promptReferencePreview.durationSeconds,
-                          )}
-                        </span>
+
+                  {isPromptLockedByUpstream ? (
+                    <UpstreamPromptLockOverlay
+                      empty={!hasNonEmptyConnectedText}
+                    />
+                  ) : null}
+
+                  {promptReferencePreview ? (
+                    <div
+                      className="pointer-events-none absolute z-30 w-fit overflow-hidden rounded-xl shadow-[0_12px_28px_rgba(0,0,0,0.28)]"
+                      style={{
+                        left: `${promptReferencePreview.left}px`,
+                        top: `${promptReferencePreview.top}px`,
+                      }}
+                    >
+                      <ReferenceVisualThumbnail
+                        kind={promptReferencePreview.kind}
+                        displayUrl={promptReferencePreview.displayUrl}
+                        label={promptReferencePreview.alt}
+                        durationSeconds={promptReferencePreview.durationSeconds}
+                        imageClassName="block max-h-[132px] max-w-[144px] rounded-xl object-contain"
+                        placeholderClassName="flex h-[132px] w-[144px] items-center justify-center rounded-xl border border-white/10 bg-black/70 text-text-dark"
+                        viewerImageList={incomingVisualDisplayList}
+                        showVideoBadge={false}
+                      />
+                      {promptReferencePreview.kind === "video" ? (
+                        <div className="absolute inset-x-0 bottom-0 flex items-center justify-between gap-2 bg-black/55 px-2 py-1 text-[10px] text-white">
+                          <span className="inline-flex items-center gap-1">
+                            <Video className="h-3 w-3" strokeWidth={2.2} />
+                            {t("node.jimeng.referenceVideoBadge")}
+                          </span>
+                          {promptReferencePreview.durationSeconds ? (
+                            <span>
+                              {formatReferenceDuration(
+                                promptReferencePreview.durationSeconds,
+                              )}
+                            </span>
+                          ) : null}
+                        </div>
                       ) : null}
                     </div>
                   ) : null}
                 </div>
-              ) : null}
-            </div>
 
-            <div className="flex min-h-[44px] flex-wrap items-center gap-2 rounded-xl border border-white/10 bg-black/10 px-2 py-2">
-              {incomingVisualItems.length > 0 ? (
-                <div className="flex min-w-0 flex-wrap items-center gap-2">
-                  {incomingVisualItems.map((item, index) => (
-                    <ReferenceVisualChip
-                      key={`${item.referenceUrl}-${index}`}
-                      kind={item.kind}
-                      displayUrl={item.displayUrl}
-                      label={item.label}
-                      tokenLabel={item.tokenLabel}
-                      metaLabel={
-                        item.kind === "video"
-                          ? (formatReferenceDuration(item.durationSeconds) ?? "VIDEO")
-                          : null
-                      }
-                      viewerImageList={incomingVisualDisplayList}
-                      isActive={highlightedReferenceSourceNodeId === item.sourceNodeId}
-                      isDragging={draggingReferenceIndex === index}
-                      isDragTarget={dragOverReferenceIndex === index}
-                      cursorClassName="cursor-grab"
-                      reorderHint={t("node.jimeng.referenceReorderHint")}
-                      removeLabel={t("common.delete")}
-                      onMouseDown={(event) => event.stopPropagation()}
-                      onPointerDown={(event) =>
-                        handleReferenceSortStart(index, event)
-                      }
-                      onPointerEnter={(event) => {
-                        event.stopPropagation();
-                        handleReferenceSortHover(index);
-                      }}
-                      onPointerMove={(event) => {
-                        event.stopPropagation();
-                        handleReferenceSortHover(index);
-                      }}
-                      onPointerCancel={handleReferenceSortCancel}
-                      onRemove={() => handleRemoveReferenceVisual(item.sourceEdgeId)}
-                    />
-                  ))}
-                </div>
-              ) : null}
-
-              {incomingVisualItems.length > 1 ? (
-                <div className="pointer-events-none ml-auto hidden items-center rounded-full border border-white/10 bg-white/[0.04] px-2 py-1 text-[10px] text-text-muted md:flex">
-                  {t("node.jimeng.referenceReorderHint")}
-                </div>
-              ) : null}
-
-              {incomingAudios.length > 0 ? (
-                <div className="flex min-w-0 flex-wrap items-center gap-2">
-                  {incomingAudios.map((audio, index) => (
-                    <div
-                      key={`${audio.audioUrl}-${index}`}
-                      className="flex max-w-full items-center gap-1.5 rounded-lg border border-white/10 bg-white/[0.04] px-2 py-1.5 text-[11px] text-text-dark"
-                      onMouseDown={(event) => event.stopPropagation()}
-                    >
-                      <AudioLines className="h-3.5 w-3.5 shrink-0 text-text-muted" />
-                      <span className="rounded bg-white/[0.08] px-1 py-0.5 text-[10px] font-medium text-text-muted">
-                        {audio.tokenLabel}
-                      </span>
-                      <span className="max-w-[92px] truncate">
-                        {audio.label}
-                      </span>
-                    </div>
-                  ))}
-                </div>
-              ) : null}
-
-              {incomingVisualItems.length === 0 &&
-              incomingAudios.length === 0 ? (
-                <div className="text-[11px] text-text-muted">
-                  {t("node.jimeng.referenceEmpty")}
-                </div>
-              ) : null}
-            </div>
-          </div>
-
-          {showImagePicker && referencePickerItems.length > 0 && (
-            <div
-              className="nowheel absolute z-30 w-[156px] overflow-hidden rounded-xl border border-[rgba(255,255,255,0.16)] bg-surface-dark shadow-xl"
-              style={{ left: pickerAnchor.left, top: pickerAnchor.top }}
-              onMouseDown={(event) => event.stopPropagation()}
-              onWheelCapture={(event) => event.stopPropagation()}
-            >
-              <div
-                className="ui-scrollbar nowheel max-h-[200px] overflow-y-auto"
-                onWheelCapture={(event) => event.stopPropagation()}
-                role="listbox"
-              >
-                {referencePickerItems.map((item, index) => (
-                  <button
-                    key={item.key}
-                    ref={(node) => {
-                      pickerItemRefs.current[index] = node;
-                    }}
-                    type="button"
-                    onClick={(event) => {
-                      event.stopPropagation();
-                      insertReferenceItem(index);
-                    }}
-                    onMouseEnter={() => setPickerActiveIndex(index)}
-                    role="option"
-                    aria-selected={pickerActiveIndex === index}
-                    className={`flex w-full items-center gap-2 border border-transparent bg-bg-dark/70 px-2 py-2 text-left text-sm text-text-dark transition-colors hover:border-[rgba(255,255,255,0.18)] ${
-                      pickerActiveIndex === index
-                        ? "border-accent/55 bg-white/[0.08] shadow-[0_0_0_1px_rgba(59,130,246,0.22)]"
-                        : ""
-                      }`}
-                    >
-                    {item.kind === "visual" ? (
-                      <div className="relative h-8 w-8 shrink-0">
-                        <ReferenceVisualThumbnail
-                          kind={item.previewKind ?? "image"}
-                          displayUrl={item.displayUrl ?? null}
+                <div className="flex min-h-[44px] flex-wrap items-center gap-2 rounded-xl border border-white/10 bg-black/10 px-2 py-2">
+                  {incomingVisualItems.length > 0 ? (
+                    <div className="flex min-w-0 flex-wrap items-center gap-2">
+                      {incomingVisualItems.map((item, index) => (
+                        <ReferenceVisualChip
+                          key={`${item.referenceUrl}-${index}`}
+                          kind={item.kind}
+                          displayUrl={item.displayUrl}
                           label={item.label}
-                          durationSeconds={item.durationSeconds ?? null}
-                          imageClassName="h-8 w-8 rounded object-cover"
-                          placeholderClassName="flex h-8 w-8 items-center justify-center rounded border border-white/10 bg-white/[0.06] text-text-muted"
+                          tokenLabel={item.tokenLabel}
+                          metaLabel={
+                            item.kind === "video"
+                              ? (formatReferenceDuration(
+                                  item.durationSeconds,
+                                ) ?? "VIDEO")
+                              : null
+                          }
                           viewerImageList={incomingVisualDisplayList}
+                          isActive={
+                            highlightedReferenceSourceNodeId ===
+                            item.sourceNodeId
+                          }
+                          isDragging={draggingReferenceIndex === index}
+                          isDragTarget={dragOverReferenceIndex === index}
+                          cursorClassName="cursor-grab"
+                          reorderHint={t("node.jimeng.referenceReorderHint")}
+                          removeLabel={t("common.delete")}
+                          onMouseDown={(event) => event.stopPropagation()}
+                          onPointerDown={(event) =>
+                            handleReferenceSortStart(index, event)
+                          }
+                          onPointerEnter={(event) => {
+                            event.stopPropagation();
+                            handleReferenceSortHover(index);
+                          }}
+                          onPointerMove={(event) => {
+                            event.stopPropagation();
+                            handleReferenceSortHover(index);
+                          }}
+                          onPointerCancel={handleReferenceSortCancel}
+                          onRemove={() =>
+                            handleRemoveReferenceVisual(item.sourceEdgeId)
+                          }
                         />
-                      </div>
-                    ) : (
-                      <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded bg-white/[0.06] text-text-muted">
-                        <AudioLines className="h-4 w-4" />
-                      </div>
-                    )}
-                    <div className="min-w-0">
-                      <div className="truncate text-[11px] font-medium text-text-dark">
-                        {item.tokenLabel}
-                      </div>
-                      <div className="truncate text-[11px] text-text-muted">
-                        {item.label}
-                      </div>
+                      ))}
                     </div>
-                  </button>
-                ))}
+                  ) : null}
+
+                  {incomingVisualItems.length > 1 ? (
+                    <div className="pointer-events-none ml-auto hidden items-center rounded-full border border-white/10 bg-white/[0.04] px-2 py-1 text-[10px] text-text-muted md:flex">
+                      {t("node.jimeng.referenceReorderHint")}
+                    </div>
+                  ) : null}
+
+                  {incomingAudios.length > 0 ? (
+                    <div className="flex min-w-0 flex-wrap items-center gap-2">
+                      {incomingAudios.map((audio, index) => (
+                        <div
+                          key={`${audio.audioUrl}-${index}`}
+                          className="flex max-w-full items-center gap-1.5 rounded-lg border border-white/10 bg-white/[0.04] px-2 py-1.5 text-[11px] text-text-dark"
+                          onMouseDown={(event) => event.stopPropagation()}
+                        >
+                          <AudioLines className="h-3.5 w-3.5 shrink-0 text-text-muted" />
+                          <span className="rounded bg-white/[0.08] px-1 py-0.5 text-[10px] font-medium text-text-muted">
+                            {audio.tokenLabel}
+                          </span>
+                          <span className="max-w-[92px] truncate">
+                            {audio.label}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  ) : null}
+
+                  {incomingVisualItems.length === 0 &&
+                  incomingAudios.length === 0 ? (
+                    <div className="text-[11px] text-text-muted">
+                      {t("node.jimeng.referenceEmpty")}
+                    </div>
+                  ) : null}
+                </div>
               </div>
-            </div>
-          )}
-          </>
+
+              {showImagePicker && referencePickerItems.length > 0 && (
+                <div
+                  className="nowheel absolute z-30 w-[156px] overflow-hidden rounded-xl border border-[rgba(255,255,255,0.16)] bg-surface-dark shadow-xl"
+                  style={{ left: pickerAnchor.left, top: pickerAnchor.top }}
+                  onMouseDown={(event) => event.stopPropagation()}
+                  onWheelCapture={(event) => event.stopPropagation()}
+                >
+                  <div
+                    className="ui-scrollbar nowheel max-h-[200px] overflow-y-auto"
+                    onWheelCapture={(event) => event.stopPropagation()}
+                    role="listbox"
+                  >
+                    {referencePickerItems.map((item, index) => (
+                      <button
+                        key={item.key}
+                        ref={(node) => {
+                          pickerItemRefs.current[index] = node;
+                        }}
+                        type="button"
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          insertReferenceItem(index);
+                        }}
+                        onMouseEnter={() => setPickerActiveIndex(index)}
+                        role="option"
+                        aria-selected={pickerActiveIndex === index}
+                        className={`flex w-full items-center gap-2 border border-transparent bg-bg-dark/70 px-2 py-2 text-left text-sm text-text-dark transition-colors hover:border-[rgba(255,255,255,0.18)] ${
+                          pickerActiveIndex === index
+                            ? "border-accent/55 bg-white/[0.08] shadow-[0_0_0_1px_rgba(59,130,246,0.22)]"
+                            : ""
+                        }`}
+                      >
+                        {item.kind === "visual" ? (
+                          <div className="relative h-8 w-8 shrink-0">
+                            <ReferenceVisualThumbnail
+                              kind={item.previewKind ?? "image"}
+                              displayUrl={item.displayUrl ?? null}
+                              label={item.label}
+                              durationSeconds={item.durationSeconds ?? null}
+                              imageClassName="h-8 w-8 rounded object-cover"
+                              placeholderClassName="flex h-8 w-8 items-center justify-center rounded border border-white/10 bg-white/[0.06] text-text-muted"
+                              viewerImageList={incomingVisualDisplayList}
+                            />
+                          </div>
+                        ) : (
+                          <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded bg-white/[0.06] text-text-muted">
+                            <AudioLines className="h-4 w-4" />
+                          </div>
+                        )}
+                        <div className="min-w-0">
+                          <div className="truncate text-[11px] font-medium text-text-dark">
+                            {item.tokenLabel}
+                          </div>
+                          <div className="truncate text-[11px] text-text-muted">
+                            {item.label}
+                          </div>
+                        </div>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </>
           )}
         </div>
 
@@ -3235,130 +3256,130 @@ export const JimengNode = memo(
         ) : null}
 
         {!isOverviewRender ? (
-        <div className="mt-2 flex items-center gap-2">
-          <div className="ui-scrollbar min-w-0 flex-1 overflow-x-auto overflow-y-hidden">
-            <div className="flex w-max min-w-full items-center gap-1.5 pr-1">
-              <FixedControlChip
-                label={t("node.jimeng.parameters.model")}
-                value={selectedModel}
-                options={modelOptions}
-                onChange={handleModelChange}
-              />
-              <FixedControlChip
-                label={t("node.jimeng.parameters.referenceMode")}
-                value={selectedReferenceMode}
-                options={referenceModeOptions}
-                onChange={handleReferenceModeChange}
-              />
-              <FixedControlChip
-                label={t("node.jimeng.parameters.aspectRatio")}
-                value={selectedAspectRatio}
-                options={aspectRatioOptions}
-                onChange={handleAspectRatioChange}
-              />
-              <FixedControlChip
-                label={t("node.jimeng.parameters.duration")}
-                value={selectedDuration}
-                options={durationOptions}
-                onChange={handleDurationChange}
-              />
-              <FixedControlChip
-                label={t("node.jimeng.parameters.videoResolution")}
-                value={selectedVideoResolution}
-                options={videoResolutionOptions}
-                onChange={handleVideoResolutionChange}
-              />
-              <StyleTemplatePicker
-                className={`${NODE_CONTROL_CHIP_CLASS} shrink-0 !w-8 !px-0 justify-center`}
-                disabled={isPromptLockedByUpstream}
-                onTemplateApply={(template) => {
-                  if (isPromptLockedByUpstream) {
-                    return;
-                  }
-                  const nextPrompt = appendStyleTemplatePrompt(
-                    promptValueRef.current,
-                    template.prompt,
-                  );
-                  updatePrompt(nextPrompt);
-                  setLastPromptOptimizationMeta(null);
-                  setLastPromptOptimizationUndoState(null);
-                }}
-              />
-              <UiChipButton
-                type="button"
-                active={isShotParamsPanelOpen}
-                disabled={isPromptLockedByUpstream}
-                className={shotParamsButtonClassName}
-                aria-label={shotParamsTriggerTitle}
-                title={shotParamsTriggerTitle}
-                onClick={(event) => {
-                  event.stopPropagation();
-                  toggleShotParamsPanel(id);
-                }}
-              >
+          <div className="mt-2 flex items-center gap-2">
+            <div className="ui-scrollbar min-w-0 flex-1 overflow-x-auto overflow-y-hidden">
+              <div className="flex w-max min-w-full items-center gap-1.5 pr-1">
+                <FixedControlChip
+                  label={t("node.jimeng.parameters.model")}
+                  value={selectedModel}
+                  options={modelOptions}
+                  onChange={handleModelChange}
+                />
+                <FixedControlChip
+                  label={t("node.jimeng.parameters.referenceMode")}
+                  value={selectedReferenceMode}
+                  options={referenceModeOptions}
+                  onChange={handleReferenceModeChange}
+                />
+                <FixedControlChip
+                  label={t("node.jimeng.parameters.aspectRatio")}
+                  value={selectedAspectRatio}
+                  options={aspectRatioOptions}
+                  onChange={handleAspectRatioChange}
+                />
+                <FixedControlChip
+                  label={t("node.jimeng.parameters.duration")}
+                  value={selectedDuration}
+                  options={durationOptions}
+                  onChange={handleDurationChange}
+                />
+                <FixedControlChip
+                  label={t("node.jimeng.parameters.videoResolution")}
+                  value={selectedVideoResolution}
+                  options={videoResolutionOptions}
+                  onChange={handleVideoResolutionChange}
+                />
+                <StyleTemplatePicker
+                  className={`${NODE_CONTROL_CHIP_CLASS} shrink-0 !w-8 !px-0 justify-center`}
+                  disabled={isPromptLockedByUpstream}
+                  onTemplateApply={(template) => {
+                    if (isPromptLockedByUpstream) {
+                      return;
+                    }
+                    const nextPrompt = appendStyleTemplatePrompt(
+                      promptValueRef.current,
+                      template.prompt,
+                    );
+                    updatePrompt(nextPrompt);
+                    setLastPromptOptimizationMeta(null);
+                    setLastPromptOptimizationUndoState(null);
+                  }}
+                />
+                <UiChipButton
+                  type="button"
+                  active={isShotParamsPanelOpen}
+                  disabled={isPromptLockedByUpstream}
+                  className={shotParamsButtonClassName}
+                  aria-label={shotParamsTriggerTitle}
+                  title={shotParamsTriggerTitle}
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    toggleShotParamsPanel(id);
+                  }}
+                >
                   <CameraTriggerIcon
                     active={isShotParamsPanelOpen}
                     variant="video"
                     className="h-4 w-4 origin-center scale-[1.18]"
                   />
-              </UiChipButton>
-              <UiChipButton
+                </UiChipButton>
+                <UiChipButton
+                  type="button"
+                  className={`${NODE_CONTROL_CHIP_CLASS} shrink-0 !w-8 !px-0 justify-center`}
+                  disabled={isPromptLockedByUpstream || isOptimizingPrompt}
+                  aria-label={t("node.jimeng.optimizePrompt")}
+                  title={t("node.jimeng.optimizePrompt")}
+                  onClick={() => void handleOptimizePrompt()}
+                >
+                  <Wand2
+                    className="h-4 w-4 origin-center scale-[1.18]"
+                    strokeWidth={2.45}
+                  />
+                </UiChipButton>
+                <UiChipButton
+                  type="button"
+                  disabled={
+                    isPromptLockedByUpstream ||
+                    isOptimizingPrompt ||
+                    !canUndoPromptOptimization
+                  }
+                  className={`${NODE_CONTROL_CHIP_CLASS} shrink-0 !w-8 !px-0 justify-center`}
+                  aria-label={t("node.jimeng.undoOptimizedPrompt")}
+                  title={t("node.jimeng.undoOptimizedPrompt")}
+                  onClick={handleUndoOptimizedPrompt}
+                >
+                  <Undo2
+                    className="h-4 w-4 origin-center scale-[1.08]"
+                    strokeWidth={2.3}
+                  />
+                </UiChipButton>
+              </div>
+            </div>
+            <div className="flex items-center gap-2">
+              <UiButton
                 type="button"
-                className={`${NODE_CONTROL_CHIP_CLASS} shrink-0 !w-8 !px-0 justify-center`}
-                disabled={isPromptLockedByUpstream || isOptimizingPrompt}
-                aria-label={t("node.jimeng.optimizePrompt")}
-                title={t("node.jimeng.optimizePrompt")}
-                onClick={() => void handleOptimizePrompt()}
+                variant="muted"
+                className={NODE_CONTROL_PRIMARY_BUTTON_CLASS}
+                disabled={isOptimizingPrompt || isGenerateBlocked}
+                onClick={() => setShowQueueScheduleModal(true)}
               >
-                <Wand2
-                  className="h-4 w-4 origin-center scale-[1.18]"
-                  strokeWidth={2.45}
-                />
-              </UiChipButton>
-              <UiChipButton
+                {t("node.jimeng.addToQueue")}
+              </UiButton>
+              <UiButton
                 type="button"
-                disabled={
-                  isPromptLockedByUpstream
-                  || isOptimizingPrompt
-                  || !canUndoPromptOptimization
-                }
-                className={`${NODE_CONTROL_CHIP_CLASS} shrink-0 !w-8 !px-0 justify-center`}
-                aria-label={t("node.jimeng.undoOptimizedPrompt")}
-                title={t("node.jimeng.undoOptimizedPrompt")}
-                onClick={handleUndoOptimizedPrompt}
+                variant="primary"
+                className={NODE_CONTROL_PRIMARY_BUTTON_CLASS}
+                disabled={isOptimizingPrompt || isGenerateBlocked}
+                onClick={() => void handleGenerate()}
               >
-                <Undo2
-                  className="h-4 w-4 origin-center scale-[1.08]"
-                  strokeWidth={2.3}
+                <Sparkles
+                  className={NODE_CONTROL_GENERATE_ICON_CLASS}
+                  strokeWidth={2.5}
                 />
-              </UiChipButton>
+                {t("node.jimeng.submit")}
+              </UiButton>
             </div>
           </div>
-          <div className="flex items-center gap-2">
-            <UiButton
-              type="button"
-              variant="muted"
-              className={NODE_CONTROL_PRIMARY_BUTTON_CLASS}
-              disabled={isOptimizingPrompt || isGenerateBlocked}
-              onClick={() => setShowQueueScheduleModal(true)}
-            >
-              {t("node.jimeng.addToQueue")}
-            </UiButton>
-            <UiButton
-              type="button"
-              variant="primary"
-              className={NODE_CONTROL_PRIMARY_BUTTON_CLASS}
-              disabled={isOptimizingPrompt || isGenerateBlocked}
-              onClick={() => void handleGenerate()}
-            >
-              <Sparkles
-                className={NODE_CONTROL_GENERATE_ICON_CLASS}
-                strokeWidth={2.5}
-              />
-              {t("node.jimeng.submit")}
-            </UiButton>
-          </div>
-        </div>
         ) : null}
 
         {statusInfoText ? (
@@ -3372,24 +3393,26 @@ export const JimengNode = memo(
           </div>
         ) : null}
 
-        {isShotParamsPanelOpen && !isPromptLockedByUpstream && !isOverviewRender ? (
+        {isShotParamsPanelOpen &&
+        !isPromptLockedByUpstream &&
+        !isOverviewRender ? (
           <ShotParamsPanel
             onClose={closeShotParamsPanel}
             onInsert={(option) => handleShotParamInsert(option.value)}
           />
         ) : null}
 
-        <Handle
+        <CanvasHandle
           type="target"
           id="target"
           position={Position.Left}
-          className="!h-2.5 !w-2.5 !border-2 !border-surface-dark !bg-accent"
+          className="!border-2 !border-surface-dark !bg-accent"
         />
-        <Handle
+        <CanvasHandle
           type="source"
           id="source"
           position={Position.Right}
-          className="!h-2.5 !w-2.5 !border-2 !border-surface-dark !bg-accent"
+          className="!border-2 !border-surface-dark !bg-accent"
         />
         <NodeResizeHandle
           minWidth={JIMENG_NODE_MIN_WIDTH}

@@ -13,6 +13,7 @@ import {
   isGroupNode,
   isImageCompareNode,
   isImageEditNode,
+  isJimengImageResultNode,
   isPanorama360Node,
   isStoryboardGenNode,
   isStoryboardSplitNode,
@@ -31,6 +32,10 @@ import {
   saveImageSourceToPath,
 } from '@/commands/image';
 import { sendImageToPhotoshop } from '@/commands/psIntegration';
+import {
+  resolveNodeDownloadDefaultFileName,
+  resolveNodeDownloadSuggestedFileStem,
+} from '@/features/canvas/application/downloadFileName';
 import { useSettingsStore } from '@/stores/settingsStore';
 import { useCanvasStore } from '@/stores/canvasStore';
 import { usePsIntegrationStore } from '@/stores/psIntegrationStore';
@@ -93,66 +98,23 @@ function normalizeText(value: unknown): string {
   return typeof value === 'string' ? value.trim() : '';
 }
 
-function stripUrlSearchAndHash(value: string): string {
-  const separatorIndex = value.search(/[?#]/);
-  return separatorIndex >= 0 ? value.slice(0, separatorIndex) : value;
-}
-
-function getFileNameFromPathLike(value: string): string {
-  const cleaned = stripUrlSearchAndHash(value.trim()).replace(/\\/g, '/');
-  const segments = cleaned.split('/').filter(Boolean);
-  return segments.length > 0 ? segments[segments.length - 1] : '';
-}
-
-function stripFileExtension(value: string): string {
-  return value.replace(/\.[^.]+$/, '').trim();
-}
-
-function getFileExtension(value: string): string {
-  const fileName = getFileNameFromPathLike(value);
-  const dotIndex = fileName.lastIndexOf('.');
-  if (dotIndex < 0 || dotIndex >= fileName.length - 1) {
-    return '';
+function resolveSingleJimengResultAssetSource(node: CanvasNode): string | null {
+  if (!isJimengImageResultNode(node)) {
+    return null;
   }
-  return fileName.slice(dotIndex + 1).toLowerCase();
-}
 
-function resolveAudioExtensionFromMime(mimeType: unknown): string {
-  const normalized = normalizeText(mimeType).split(';', 1)[0]?.toLowerCase() ?? '';
-  if (normalized === 'audio/mpeg' || normalized === 'audio/mp3') return 'mp3';
-  if (
-    normalized === 'audio/wav'
-    || normalized === 'audio/x-wav'
-    || normalized === 'audio/wave'
-    || normalized === 'audio/x-pn-wav'
-  ) {
-    return 'wav';
+  const resultImages = Array.isArray(node.data.resultImages) ? node.data.resultImages : [];
+  if (resultImages.length !== 1) {
+    return null;
   }
-  if (normalized === 'audio/ogg') return 'ogg';
-  if (normalized === 'audio/webm') return 'webm';
-  if (normalized === 'audio/mp4' || normalized === 'audio/x-m4a') return 'm4a';
-  if (normalized === 'audio/aac') return 'aac';
-  if (normalized === 'audio/flac' || normalized === 'audio/x-flac') return 'flac';
-  return '';
-}
 
-function resolveVideoExtensionFromMime(mimeType: unknown): string {
-  const normalized = normalizeText(mimeType).split(';', 1)[0]?.toLowerCase() ?? '';
-  if (normalized === 'video/mp4') return 'mp4';
-  if (normalized === 'video/webm') return 'webm';
-  if (normalized === 'video/ogg') return 'ogv';
-  if (normalized === 'video/quicktime') return 'mov';
-  if (normalized === 'video/x-msvideo') return 'avi';
-  if (normalized === 'video/x-matroska') return 'mkv';
-  return '';
-}
-
-function sanitizeDownloadFileName(value: string): string {
-  const sanitized = value
-    .replace(/[<>:"/\\|?*\u0000-\u001f]/g, '')
-    .trim()
-    .replace(/^\.+|\.+$/g, '');
-  return sanitized || 'node-media';
+  const [resultImage] = resultImages;
+  return (
+    normalizeText(resultImage.imageUrl)
+    || normalizeText(resultImage.previewImageUrl)
+    || normalizeText(resultImage.sourceUrl)
+    || null
+  );
 }
 
 function clampNumber(value: number, min: number, max: number): number {
@@ -248,6 +210,10 @@ export const NodeActionToolbar = memo(({ node }: NodeActionToolbarProps) => {
     }
     return null;
   }, [node]);
+  const assetImageSource = useMemo(
+    () => imageSource ?? resolveSingleJimengResultAssetSource(node),
+    [imageSource, node]
+  );
   const audioSource = useMemo(() => {
     if (isAudioNode(node)) {
       return node.data.audioUrl || null;
@@ -292,49 +258,13 @@ export const NodeActionToolbar = memo(({ node }: NodeActionToolbarProps) => {
   const downloadableSource = audioSource ?? videoSource ?? imageSource;
   const canDownloadMedia = Boolean(downloadableSource);
   const downloadDefaultFileName = useMemo(() => {
-    if (isAudioNode(node)) {
-      const sourceExtension = getFileExtension(audioSource ?? '');
-      const audioExtension =
-        getFileExtension(normalizeText(node.data.audioFileName))
-        || sourceExtension
-        || resolveAudioExtensionFromMime(node.data.mimeType)
-        || 'mp3';
-      const baseName =
-        normalizeText(node.data.audioFileName)
-        || normalizeText(node.data.assetName)
-        || getFileNameFromPathLike(audioSource ?? '')
-        || `node-${node.id}`;
-      const safeName = sanitizeDownloadFileName(baseName);
-      return getFileExtension(safeName) ? safeName : `${safeName}.${audioExtension}`;
-    }
-
-    if (videoSource) {
-      const sourceExtension = getFileExtension(videoSource);
-      const videoFileName = normalizeText((node.data as { videoFileName?: unknown }).videoFileName);
-      const videoExtension =
-        getFileExtension(videoFileName)
-        || sourceExtension
-        || resolveVideoExtensionFromMime((node.data as { mimeType?: unknown }).mimeType)
-        || 'mp4';
-      const baseName =
-        videoFileName
-        || getFileNameFromPathLike(videoSource)
-        || `node-${node.id}`;
-      const safeName = sanitizeDownloadFileName(baseName);
-      return getFileExtension(safeName) ? safeName : `${safeName}.${videoExtension}`;
-    }
-
-    const imageFileName = getFileNameFromPathLike(imageSource ?? '');
-    const imageExtension = getFileExtension(imageFileName) || 'png';
-    const baseName = imageFileName || `node-${node.id}`;
-    const safeName = sanitizeDownloadFileName(baseName);
-    return getFileExtension(safeName) ? safeName : `${safeName}.${imageExtension}`;
-  }, [audioSource, imageSource, node, videoSource]);
+    return resolveNodeDownloadDefaultFileName(node);
+  }, [node]);
   const downloadSuggestedFileStem = useMemo(
-    () => stripFileExtension(downloadDefaultFileName) || `node-${node.id}`,
-    [downloadDefaultFileName, node.id]
+    () => resolveNodeDownloadSuggestedFileStem(node),
+    [node]
   );
-  const canAddToAssets = Boolean(imageSource || audioSource);
+  const canAddToAssets = Boolean(assetImageSource || audioSource);
   const canAddToClipLibrary =
     Boolean(audioSource)
     || (
@@ -663,7 +593,12 @@ export const NodeActionToolbar = memo(({ node }: NodeActionToolbarProps) => {
       offset={NODE_TOOLBAR_OFFSET}
       className={NODE_TOOLBAR_CLASS}
     >
-      <UiPanel className="flex items-center gap-1 rounded-full p-1">
+      <UiPanel
+        className="flex items-center gap-1 rounded-full p-1"
+        onPointerDown={(event) => event.stopPropagation()}
+        onMouseDown={(event) => event.stopPropagation()}
+        onClick={(event) => event.stopPropagation()}
+      >
         {!isImageEdit && tools.map((tool) => {
           const Icon = toolIconMap[tool.icon] ?? Crop;
 
@@ -724,7 +659,7 @@ export const NodeActionToolbar = memo(({ node }: NodeActionToolbarProps) => {
         {!isImageEdit && canAddToAssets && (
           <NodeAddToAssetsButton
             node={node}
-            mediaSource={audioSource ?? imageSource ?? ''}
+            mediaSource={audioSource ?? assetImageSource ?? ''}
             mediaType={audioSource ? 'audio' : 'image'}
             className={`h-8 ${TOOLBAR_BUTTON_RADIUS_CLASS} px-2.5 text-xs ${TOOLBAR_NEUTRAL_BUTTON_CLASS}`}
           />

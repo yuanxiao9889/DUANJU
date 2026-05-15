@@ -10,11 +10,11 @@ import {
   useState,
 } from "react";
 import {
-  Handle,
   Position,
   useUpdateNodeInternals,
   type NodeProps,
 } from "@xyflow/react";
+import { CanvasHandle } from "@/features/canvas/ui/CanvasHandle";
 import {
   Image as ImageIcon,
   Loader2,
@@ -27,7 +27,6 @@ import {
 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { openSettingsDialog } from "@/features/settings/settingsEvents";
-
 import {
   UiButton,
   UiChipButton,
@@ -93,9 +92,7 @@ import {
   NODE_CONTROL_PRIMARY_BUTTON_CLASS,
 } from "@/features/canvas/ui/nodeControlStyles";
 import { PROMPT_REFERENCE_TOKEN_HIGHLIGHT_CLASS } from "@/features/canvas/ui/promptReferenceTokenStyles";
-import {
-  insertShotParamToken,
-} from "@/features/canvas/shot-params/shotParamsPrompt";
+import { insertShotParamToken } from "@/features/canvas/shot-params/shotParamsPrompt";
 import {
   DEFAULT_PICKER_ANCHOR,
   type PickerAnchor,
@@ -727,11 +724,8 @@ export const SeedanceNode = memo(
     const currentNode = useCanvasNodeById(id);
     const connectedVisuals = useCanvasConnectedReferenceVisuals(id);
     const connectedAudios = useCanvasConnectedAudioReferences(id);
-    const {
-      connectedText,
-      hasConnectedTextSource,
-      hasNonEmptyConnectedText,
-    } = useCanvasConnectedTextInput(id);
+    const { connectedText, hasConnectedTextSource, hasNonEmptyConnectedText } =
+      useCanvasConnectedTextInput(id);
     const officialVideoApiKeys = useSettingsStore(
       (state) => state.officialVideoApiKeys,
     );
@@ -806,7 +800,9 @@ export const SeedanceNode = memo(
     const displayedPrompt = promptDraft;
     const showOverviewReferenceThumbnails =
       isOverviewRender && !shouldSuspendMedia;
-    const effectivePrompt = isPromptLockedByUpstream ? connectedText : promptDraft;
+    const effectivePrompt = isPromptLockedByUpstream
+      ? connectedText
+      : promptDraft;
     const promptValueRef = useRef(promptDraft);
     const lastPromptSelectionRef = useRef<TextSelectionRange | null>(null);
     const pickerSelectionRef = useRef<TextSelectionRange | null>(null);
@@ -835,21 +831,19 @@ export const SeedanceNode = memo(
         connectedVisuals.map((item, index) => {
           const isOfficialSeedanceAsset =
             item.kind === "image" && isSeedanceAssetUri(item.referenceUrl);
-          const previewSource =
-            isOfficialSeedanceAsset
-              ? item.previewImageUrl?.trim() ?? ""
-              : item.previewImageUrl?.trim() || item.referenceUrl.trim();
+          const previewSource = isOfficialSeedanceAsset
+            ? (item.previewImageUrl?.trim() ?? "")
+            : item.previewImageUrl?.trim() || item.referenceUrl.trim();
           return {
             sourceEdgeId: item.sourceEdgeId,
             sourceNodeId: item.sourceNodeId,
             kind: item.kind,
             referenceUrl: isOfficialSeedanceAsset
-              ? normalizeSeedanceAssetUri(item.referenceUrl) ?? item.referenceUrl
+              ? (normalizeSeedanceAssetUri(item.referenceUrl) ??
+                item.referenceUrl)
               : item.referenceUrl,
             previewImageUrl: item.previewImageUrl ?? null,
-            displayUrl: previewSource
-              ? previewSource
-              : null,
+            displayUrl: previewSource ? previewSource : null,
             tokenLabel:
               item.kind === "video"
                 ? buildVideoReferenceToken(index)
@@ -914,7 +908,8 @@ export const SeedanceNode = memo(
       [referenceVisualItems],
     );
     const hasSeedanceOfficialImageReferences = useMemo(
-      () => imageReferences.some((item) => isSeedanceAssetUri(item.referenceUrl)),
+      () =>
+        imageReferences.some((item) => isSeedanceAssetUri(item.referenceUrl)),
       [imageReferences],
     );
     const videoReferences = useMemo(
@@ -1100,11 +1095,11 @@ export const SeedanceNode = memo(
         scrollSnapshot?: TextareaScrollSnapshot | null,
       ) => {
         requestAnimationFrame(() => {
-        restoreTextareaSelection(
-          promptRef.current,
-          selection,
-          promptRef.current?.value.length ?? promptValueRef.current.length,
-          {
+          restoreTextareaSelection(
+            promptRef.current,
+            selection,
+            promptRef.current?.value.length ?? promptValueRef.current.length,
+            {
               scrollSnapshot,
               syncScroll: syncPromptHighlightScroll,
               onAfterRestore: (textarea, nextSelection) => {
@@ -1132,7 +1127,8 @@ export const SeedanceNode = memo(
         const scrollSnapshot = readTextareaScroll(promptRef.current);
         const selection = resolveTextSelection({
           textarea: promptRef.current,
-          lastSelection: pickerSelectionRef.current ?? lastPromptSelectionRef.current,
+          lastSelection:
+            pickerSelectionRef.current ?? lastPromptSelectionRef.current,
           fallbackLength: promptValueRef.current.length,
           requireFocus: true,
         });
@@ -1177,7 +1173,11 @@ export const SeedanceNode = memo(
         handlePromptChange(nextText);
         schedulePromptSelectionRestore(nextCursor);
       },
-      [handlePromptChange, isPromptLockedByUpstream, schedulePromptSelectionRestore],
+      [
+        handlePromptChange,
+        isPromptLockedByUpstream,
+        schedulePromptSelectionRestore,
+      ],
     );
 
     const handleOptimizePrompt = useCallback(async () => {
@@ -1205,7 +1205,10 @@ export const SeedanceNode = memo(
             currentPrompt,
             referenceVisualItems
               .map((item, index) => {
-                if (item.kind !== "image" || isSeedanceAssetUri(item.referenceUrl)) {
+                if (
+                  item.kind !== "image" ||
+                  isSeedanceAssetUri(item.referenceUrl)
+                ) {
                   return null;
                 }
 
@@ -1424,8 +1427,11 @@ export const SeedanceNode = memo(
           event.preventDefault();
           event.stopPropagation();
           const selection =
-            readTextareaSelection(event.currentTarget, promptValueRef.current.length)
-            ?? resolveTextSelection({
+            readTextareaSelection(
+              event.currentTarget,
+              promptValueRef.current.length,
+            ) ??
+            resolveTextSelection({
               textarea: event.currentTarget,
               lastSelection: lastPromptSelectionRef.current,
               fallbackLength: promptValueRef.current.length,
@@ -1478,8 +1484,8 @@ export const SeedanceNode = memo(
       }
 
       if (
-        hasSeedanceOfficialImageReferences
-        && selectedInputMode !== "reference"
+        hasSeedanceOfficialImageReferences &&
+        selectedInputMode !== "reference"
       ) {
         return t("node.seedance.seedanceOfficialAssetReferenceModeOnly");
       }
@@ -1795,21 +1801,19 @@ export const SeedanceNode = memo(
         })}`
       : null;
     const promptLockStatusText = isPromptLockedByUpstream
-      ? (
-          hasNonEmptyConnectedText
-            ? t("common.upstreamTextDisconnectHint")
-            : t("common.upstreamTextEmpty")
-        )
+      ? hasNonEmptyConnectedText
+        ? t("common.upstreamTextDisconnectHint")
+        : t("common.upstreamTextEmpty")
       : null;
     const statusInfoText =
       combinedError ??
       (data.isSubmitting
         ? t("node.seedance.submitting")
         : (promptLockStatusText ??
-          (promptOptimizationNotice ??
+          promptOptimizationNotice ??
           (lastSubmittedTime
             ? t("node.seedance.lastSubmitted", { time: lastSubmittedTime })
-            : t(modeHintKey)))));
+            : t(modeHintKey))));
     const showBlockingOverlay = Boolean(
       data.isSubmitting || data.isGenerating || isOptimizingPrompt,
     );
@@ -1863,190 +1867,198 @@ export const SeedanceNode = memo(
             {isOverviewRender ? (
               <div className="flex h-full min-h-0 flex-col gap-2 overflow-hidden text-xs leading-5 text-text-muted">
                 <div className="line-clamp-5 whitespace-pre-wrap break-words">
-                  {displayedPrompt.trim() || t("node.seedance.promptPlaceholder")}
+                  {displayedPrompt.trim() ||
+                    t("node.seedance.promptPlaceholder")}
                 </div>
-                {showOverviewReferenceThumbnails && referenceVisualItems.length > 0 ? (
+                {showOverviewReferenceThumbnails &&
+                referenceVisualItems.length > 0 ? (
                   <div className="mt-auto flex min-h-0 gap-1 overflow-hidden">
-                    {referenceVisualItems.slice(0, 4).map((item) => (
-                      item.displayUrl ? (
-                        <CanvasNodeImage
-                          key={`${item.sourceEdgeId}-${item.referenceUrl}`}
-                          src={item.displayUrl}
-                          alt={item.label}
-                          className="h-10 w-10 shrink-0 rounded object-cover"
-                          viewerSourceUrl={item.displayUrl}
-                          disableViewer
-                          draggable={false}
-                        />
-                      ) : null
-                    ))}
+                    {referenceVisualItems
+                      .slice(0, 4)
+                      .map((item) =>
+                        item.displayUrl ? (
+                          <CanvasNodeImage
+                            key={`${item.sourceEdgeId}-${item.referenceUrl}`}
+                            src={item.displayUrl}
+                            alt={item.label}
+                            className="h-10 w-10 shrink-0 rounded object-cover"
+                            viewerSourceUrl={item.displayUrl}
+                            disableViewer
+                            draggable={false}
+                          />
+                        ) : null,
+                      )}
                   </div>
                 ) : null}
               </div>
             ) : (
-            <>
-            <div className="flex h-full min-h-0 flex-col gap-2">
-              <div
-                ref={promptPreviewHostRef}
-                className="relative min-h-[148px] flex-1 overflow-hidden rounded-xl"
-              >
-                <div
-                  ref={promptHighlightRef}
-                  aria-hidden="true"
-                  className="ui-scrollbar pointer-events-none absolute inset-0 overflow-y-auto overflow-x-hidden text-sm leading-6 text-text-dark"
-                  style={{ scrollbarGutter: "stable" }}
-                >
-                  <div className="canvas-textarea-wrap min-h-full rounded-xl border border-transparent px-3 py-2">
-                    {renderPromptWithHighlights(
-                      displayedPrompt,
-                      referenceVisualItems.length,
-                      referenceAudioItems.length,
-                    )}
-                  </div>
-                </div>
-
-                <div
-                  ref={promptHoverLayerRef}
-                  aria-hidden="true"
-                  className="ui-scrollbar pointer-events-none absolute inset-0 z-20 overflow-y-auto overflow-x-hidden text-sm leading-6 text-transparent"
-                  style={{ scrollbarGutter: "stable" }}
-                >
-                  <div className="canvas-textarea-wrap min-h-full rounded-xl border border-transparent px-3 py-2">
-                    {renderPromptReferenceHoverTargets(
-                      displayedPrompt,
-                      referenceVisualItems.length,
-                      referenceAudioItems.length,
-                      handlePromptReferenceTokenHover,
-                      hidePromptReferencePreview,
-                      handlePromptReferenceTokenMouseDown,
-                    )}
-                  </div>
-                </div>
-
-                <textarea
-                  ref={promptRef}
-                  value={displayedPrompt}
-                  readOnly={isPromptLockedByUpstream}
-                  aria-readonly={isPromptLockedByUpstream}
-                  aria-disabled={isPromptLockedByUpstream}
-                  tabIndex={isPromptLockedByUpstream ? -1 : undefined}
-                  onChange={(event) => {
-                    handlePromptChange(event.target.value);
-                    rememberPromptSelection(event.currentTarget);
-                  }}
-                  placeholder={t("node.seedance.promptPlaceholder")}
-                  className={`canvas-textarea-wrap ui-scrollbar nodrag nowheel relative z-10 h-full min-h-[148px] w-full resize-none rounded-xl border border-transparent bg-transparent px-3 py-2 text-sm leading-6 text-transparent outline-none placeholder:text-text-muted/70 selection:bg-accent/30 selection:text-transparent ${
-                    isPromptLockedByUpstream
-                      ? "cursor-default caret-transparent"
-                      : "caret-text-dark focus:border-accent/50"
-                  }`}
-                  style={{ scrollbarGutter: "stable" }}
-                  onScroll={syncPromptHighlightScroll}
-                  onMouseDown={(event) => {
-                    event.stopPropagation();
-                    hidePromptReferencePreview();
-                  }}
-                  onSelect={(event) =>
-                    rememberPromptSelection(event.currentTarget)
-                  }
-                  onMouseUp={(event) =>
-                    rememberPromptSelection(event.currentTarget)
-                  }
-                  onKeyUp={(event) =>
-                    rememberPromptSelection(event.currentTarget)
-                  }
-                  onBlur={() => setIsPromptTextSelectionActive(false)}
-                  onKeyDownCapture={handlePromptKeyDown}
-                />
-
-                {isPromptLockedByUpstream ? (
-                  <UpstreamPromptLockOverlay
-                    empty={!hasNonEmptyConnectedText}
-                  />
-                ) : null}
-
-                {promptReferencePreview ? (
+              <>
+                <div className="flex h-full min-h-0 flex-col gap-2">
                   <div
-                    className="pointer-events-none absolute z-30 w-fit overflow-hidden rounded-xl shadow-[0_12px_28px_rgba(0,0,0,0.28)]"
-                    style={{
-                      left: `${promptReferencePreview.left}px`,
-                      top: `${promptReferencePreview.top}px`,
-                    }}
+                    ref={promptPreviewHostRef}
+                    className="relative min-h-[148px] flex-1 overflow-hidden rounded-xl"
                   >
-                    <ReferenceVisualCard
-                      item={{
-                        sourceEdgeId: "",
-                        sourceNodeId: "",
-                        kind: promptReferencePreview.kind,
-                        referenceUrl: promptReferencePreview.imageUrl ?? "",
-                        previewImageUrl: promptReferencePreview.imageUrl,
-                        displayUrl: promptReferencePreview.displayUrl,
-                        label: promptReferencePreview.alt,
-                        durationSeconds: promptReferencePreview.durationSeconds,
-                        tokenLabel: "",
+                    <div
+                      ref={promptHighlightRef}
+                      aria-hidden="true"
+                      className="ui-scrollbar pointer-events-none absolute inset-0 overflow-y-auto overflow-x-hidden text-sm leading-6 text-text-dark"
+                      style={{ scrollbarGutter: "stable" }}
+                    >
+                      <div className="canvas-textarea-wrap min-h-full rounded-xl border border-transparent px-3 py-2">
+                        {renderPromptWithHighlights(
+                          displayedPrompt,
+                          referenceVisualItems.length,
+                          referenceAudioItems.length,
+                        )}
+                      </div>
+                    </div>
+
+                    <div
+                      ref={promptHoverLayerRef}
+                      aria-hidden="true"
+                      className="ui-scrollbar pointer-events-none absolute inset-0 z-20 overflow-y-auto overflow-x-hidden text-sm leading-6 text-transparent"
+                      style={{ scrollbarGutter: "stable" }}
+                    >
+                      <div className="canvas-textarea-wrap min-h-full rounded-xl border border-transparent px-3 py-2">
+                        {renderPromptReferenceHoverTargets(
+                          displayedPrompt,
+                          referenceVisualItems.length,
+                          referenceAudioItems.length,
+                          handlePromptReferenceTokenHover,
+                          hidePromptReferencePreview,
+                          handlePromptReferenceTokenMouseDown,
+                        )}
+                      </div>
+                    </div>
+
+                    <textarea
+                      ref={promptRef}
+                      value={displayedPrompt}
+                      readOnly={isPromptLockedByUpstream}
+                      aria-readonly={isPromptLockedByUpstream}
+                      aria-disabled={isPromptLockedByUpstream}
+                      tabIndex={isPromptLockedByUpstream ? -1 : undefined}
+                      onChange={(event) => {
+                        handlePromptChange(event.target.value);
+                        rememberPromptSelection(event.currentTarget);
                       }}
+                      placeholder={t("node.seedance.promptPlaceholder")}
+                      className={`canvas-textarea-wrap ui-scrollbar nodrag nowheel relative z-10 h-full min-h-[148px] w-full resize-none rounded-xl border border-transparent bg-transparent px-3 py-2 text-sm leading-6 text-transparent outline-none placeholder:text-text-muted/70 selection:bg-accent/30 selection:text-transparent ${
+                        isPromptLockedByUpstream
+                          ? "cursor-default caret-transparent"
+                          : "caret-text-dark focus:border-accent/50"
+                      }`}
+                      style={{ scrollbarGutter: "stable" }}
+                      onScroll={syncPromptHighlightScroll}
+                      onMouseDown={(event) => {
+                        event.stopPropagation();
+                        hidePromptReferencePreview();
+                      }}
+                      onSelect={(event) =>
+                        rememberPromptSelection(event.currentTarget)
+                      }
+                      onMouseUp={(event) =>
+                        rememberPromptSelection(event.currentTarget)
+                      }
+                      onKeyUp={(event) =>
+                        rememberPromptSelection(event.currentTarget)
+                      }
+                      onBlur={() => setIsPromptTextSelectionActive(false)}
+                      onKeyDownCapture={handlePromptKeyDown}
                     />
-                  </div>
-                ) : null}
-              </div>
 
-              <div className="flex min-h-[44px] flex-wrap items-center gap-2 rounded-xl border border-white/10 bg-black/10 px-2 py-2">
-                {referenceVisualItems.length > 0 ? (
-                  <div className="flex min-w-0 flex-wrap items-center gap-2">
-                    {referenceVisualItems.map((item) => (
-                      <ReferenceVisualChip
-                        key={`${item.sourceEdgeId}-${item.referenceUrl}`}
-                        kind={item.kind}
-                        displayUrl={item.displayUrl}
-                        label={item.label}
-                        tokenLabel={item.tokenLabel}
-                        metaLabel={
-                          item.kind === "video"
-                            ? item.durationSeconds
-                              ? formatVideoTime(item.durationSeconds)
-                              : "VIDEO"
-                            : isSeedanceAssetUri(item.referenceUrl)
-                              ? t("assets.seedanceOfficialBadge")
-                              : null
-                        }
-                        isActive={
-                          highlightedReferenceSourceNodeId === item.sourceNodeId
-                        }
-                        onMouseDown={(event) => {
-                          event.stopPropagation();
-                          if (event.button !== 0) {
-                            return;
-                          }
-                          handleReferenceSourceHighlight(item.sourceNodeId);
+                    {isPromptLockedByUpstream ? (
+                      <UpstreamPromptLockOverlay
+                        empty={!hasNonEmptyConnectedText}
+                      />
+                    ) : null}
+
+                    {promptReferencePreview ? (
+                      <div
+                        className="pointer-events-none absolute z-30 w-fit overflow-hidden rounded-xl shadow-[0_12px_28px_rgba(0,0,0,0.28)]"
+                        style={{
+                          left: `${promptReferencePreview.left}px`,
+                          top: `${promptReferencePreview.top}px`,
                         }}
-                      />
-                    ))}
+                      >
+                        <ReferenceVisualCard
+                          item={{
+                            sourceEdgeId: "",
+                            sourceNodeId: "",
+                            kind: promptReferencePreview.kind,
+                            referenceUrl: promptReferencePreview.imageUrl ?? "",
+                            previewImageUrl: promptReferencePreview.imageUrl,
+                            displayUrl: promptReferencePreview.displayUrl,
+                            label: promptReferencePreview.alt,
+                            durationSeconds:
+                              promptReferencePreview.durationSeconds,
+                            tokenLabel: "",
+                          }}
+                        />
+                      </div>
+                    ) : null}
                   </div>
-                ) : null}
 
-                {referenceAudioItems.length > 0 ? (
-                  <div className="flex min-w-0 flex-wrap items-center gap-2">
-                    {referenceAudioItems.map((item) => (
-                      <ReferenceAudioChip
-                        key={`${item.sourceEdgeId}-${item.audioUrl}`}
-                        item={item}
-                      />
-                    ))}
-                  </div>
-                ) : null}
+                  <div className="flex min-h-[44px] flex-wrap items-center gap-2 rounded-xl border border-white/10 bg-black/10 px-2 py-2">
+                    {referenceVisualItems.length > 0 ? (
+                      <div className="flex min-w-0 flex-wrap items-center gap-2">
+                        {referenceVisualItems.map((item) => (
+                          <ReferenceVisualChip
+                            key={`${item.sourceEdgeId}-${item.referenceUrl}`}
+                            kind={item.kind}
+                            displayUrl={item.displayUrl}
+                            label={item.label}
+                            tokenLabel={item.tokenLabel}
+                            metaLabel={
+                              item.kind === "video"
+                                ? item.durationSeconds
+                                  ? formatVideoTime(item.durationSeconds)
+                                  : "VIDEO"
+                                : isSeedanceAssetUri(item.referenceUrl)
+                                  ? t("assets.seedanceOfficialBadge")
+                                  : null
+                            }
+                            isActive={
+                              highlightedReferenceSourceNodeId ===
+                              item.sourceNodeId
+                            }
+                            onMouseDown={(event) => {
+                              event.stopPropagation();
+                              if (event.button !== 0) {
+                                return;
+                              }
+                              handleReferenceSourceHighlight(item.sourceNodeId);
+                            }}
+                          />
+                        ))}
+                      </div>
+                    ) : null}
 
-                {referenceVisualItems.length === 0 &&
-                referenceAudioItems.length === 0 ? (
-                  <div className="text-[11px] text-text-muted">
-                    {t("node.seedance.noReferences")}
+                    {referenceAudioItems.length > 0 ? (
+                      <div className="flex min-w-0 flex-wrap items-center gap-2">
+                        {referenceAudioItems.map((item) => (
+                          <ReferenceAudioChip
+                            key={`${item.sourceEdgeId}-${item.audioUrl}`}
+                            item={item}
+                          />
+                        ))}
+                      </div>
+                    ) : null}
+
+                    {referenceVisualItems.length === 0 &&
+                    referenceAudioItems.length === 0 ? (
+                      <div className="text-[11px] text-text-muted">
+                        {t("node.seedance.noReferences")}
+                      </div>
+                    ) : null}
                   </div>
-                ) : null}
-              </div>
-            </div>
-            </>
+                </div>
+              </>
             )}
 
-            {showImagePicker && referencePickerItems.length > 0 && !isOverviewRender ? (
+            {showImagePicker &&
+            referencePickerItems.length > 0 &&
+            !isOverviewRender ? (
               <div
                 className="nowheel absolute z-30 w-[168px] overflow-hidden rounded-xl border border-[rgba(255,255,255,0.16)] bg-surface-dark shadow-xl"
                 style={{ left: pickerAnchor.left, top: pickerAnchor.top }}
@@ -2120,154 +2132,154 @@ export const SeedanceNode = memo(
           </div>
 
           {!isOverviewRender ? (
-          <div className="flex items-center gap-2">
-            <div className="ui-scrollbar min-w-0 flex-1 overflow-x-auto overflow-y-hidden">
-              <div className="flex w-max min-w-full items-center gap-1.5 pr-1">
-                <FixedControlChip
-                  label={t("node.seedance.modelLabel")}
-                  value={selectedModelId}
-                  options={translatedModelOptions}
-                  onChange={(nextValue) =>
-                    updateSeedanceNodeData({
-                      modelId: nextValue as SeedanceModelId,
-                      lastError: null,
-                    })
-                  }
-                />
-                <FixedControlChip
-                  label={t("node.seedance.inputModeLabel")}
-                  value={selectedInputMode}
-                  options={translatedInputModeOptions}
-                  onChange={(nextValue) =>
-                    updateSeedanceNodeData({
-                      inputMode: nextValue as SeedanceInputMode,
-                      lastError: null,
-                    })
-                  }
-                />
-                <FixedControlChip
-                  label={t("node.seedance.aspectRatioLabel")}
-                  value={selectedAspectRatio}
-                  options={translatedAspectRatioOptions}
-                  onChange={(nextValue) =>
-                    updateSeedanceNodeData({
-                      aspectRatio: nextValue as SeedanceAspectRatio,
-                    })
-                  }
-                />
-                <FixedControlChip
-                  label={t("node.seedance.durationLabel")}
-                  value={selectedDuration}
-                  options={translatedDurationOptions}
-                  onChange={(nextValue) =>
-                    updateSeedanceNodeData({
-                      durationSeconds: nextValue as SeedanceDurationSeconds,
-                    })
-                  }
-                />
-                <StyleTemplatePicker
-                  className={`${NODE_CONTROL_CHIP_CLASS} shrink-0 !w-8 !px-0 justify-center`}
-                  disabled={isPromptLockedByUpstream}
-                  onTemplateApply={(template) => {
-                    if (isPromptLockedByUpstream) {
-                      return;
+            <div className="flex items-center gap-2">
+              <div className="ui-scrollbar min-w-0 flex-1 overflow-x-auto overflow-y-hidden">
+                <div className="flex w-max min-w-full items-center gap-1.5 pr-1">
+                  <FixedControlChip
+                    label={t("node.seedance.modelLabel")}
+                    value={selectedModelId}
+                    options={translatedModelOptions}
+                    onChange={(nextValue) =>
+                      updateSeedanceNodeData({
+                        modelId: nextValue as SeedanceModelId,
+                        lastError: null,
+                      })
                     }
-                    const nextPrompt = appendStyleTemplatePrompt(
-                      promptValueRef.current,
-                      template.prompt,
-                    );
-                    handlePromptChange(nextPrompt);
-                    setLastPromptOptimizationMeta(null);
-                    setLastPromptOptimizationUndoState(null);
-                  }}
-                />
-                <UiChipButton
-                  type="button"
-                  active={isShotParamsPanelOpen}
-                  disabled={isPromptLockedByUpstream}
-                  className={shotParamsButtonClassName}
-                  aria-label={shotParamsTriggerTitle}
-                  title={shotParamsTriggerTitle}
-                  onClick={(event) => {
-                    event.stopPropagation();
-                    toggleShotParamsPanel(id);
-                  }}
-                >
-                  <CameraTriggerIcon
+                  />
+                  <FixedControlChip
+                    label={t("node.seedance.inputModeLabel")}
+                    value={selectedInputMode}
+                    options={translatedInputModeOptions}
+                    onChange={(nextValue) =>
+                      updateSeedanceNodeData({
+                        inputMode: nextValue as SeedanceInputMode,
+                        lastError: null,
+                      })
+                    }
+                  />
+                  <FixedControlChip
+                    label={t("node.seedance.aspectRatioLabel")}
+                    value={selectedAspectRatio}
+                    options={translatedAspectRatioOptions}
+                    onChange={(nextValue) =>
+                      updateSeedanceNodeData({
+                        aspectRatio: nextValue as SeedanceAspectRatio,
+                      })
+                    }
+                  />
+                  <FixedControlChip
+                    label={t("node.seedance.durationLabel")}
+                    value={selectedDuration}
+                    options={translatedDurationOptions}
+                    onChange={(nextValue) =>
+                      updateSeedanceNodeData({
+                        durationSeconds: nextValue as SeedanceDurationSeconds,
+                      })
+                    }
+                  />
+                  <StyleTemplatePicker
+                    className={`${NODE_CONTROL_CHIP_CLASS} shrink-0 !w-8 !px-0 justify-center`}
+                    disabled={isPromptLockedByUpstream}
+                    onTemplateApply={(template) => {
+                      if (isPromptLockedByUpstream) {
+                        return;
+                      }
+                      const nextPrompt = appendStyleTemplatePrompt(
+                        promptValueRef.current,
+                        template.prompt,
+                      );
+                      handlePromptChange(nextPrompt);
+                      setLastPromptOptimizationMeta(null);
+                      setLastPromptOptimizationUndoState(null);
+                    }}
+                  />
+                  <UiChipButton
+                    type="button"
                     active={isShotParamsPanelOpen}
-                    variant="video"
-                    className="h-4 w-4 origin-center scale-[1.18]"
-                  />
-                </UiChipButton>
-                <UiChipButton
-                  type="button"
-                  active={isOptimizingPrompt}
-                  disabled={
-                    isPromptLockedByUpstream
-                    || isOptimizingPrompt
-                    || promptDraft.trim().length === 0
-                  }
-                  className={`${NODE_CONTROL_CHIP_CLASS} shrink-0 !w-8 !px-0 justify-center`}
-                  aria-label={
-                    isOptimizingPrompt
-                      ? t("node.seedance.optimizingPrompt")
-                      : t("node.seedance.optimizePrompt")
-                  }
-                  title={
-                    isOptimizingPrompt
-                      ? t("node.seedance.optimizingPrompt")
-                      : t("node.seedance.optimizePrompt")
-                  }
-                  onClick={(event) => {
-                    event.stopPropagation();
-                    void handleOptimizePrompt();
-                  }}
-                >
-                  <Wand2
-                    className="h-4 w-4 origin-center scale-[1.18]"
-                    strokeWidth={2.45}
-                  />
-                </UiChipButton>
-                <UiChipButton
-                  type="button"
-                  disabled={
-                    isPromptLockedByUpstream
-                    || isOptimizingPrompt
-                    || !canUndoPromptOptimization
-                  }
-                  className={`${NODE_CONTROL_CHIP_CLASS} shrink-0 !w-8 !px-0 justify-center`}
-                  aria-label={t("node.seedance.undoOptimizedPrompt")}
-                  title={t("node.seedance.undoOptimizedPrompt")}
-                  onClick={(event) => {
-                    event.stopPropagation();
-                    handleUndoOptimizedPrompt();
-                  }}
-                >
-                  <Undo2
-                    className="h-4 w-4 origin-center scale-[1.08]"
-                    strokeWidth={2.3}
-                  />
-                </UiChipButton>
+                    disabled={isPromptLockedByUpstream}
+                    className={shotParamsButtonClassName}
+                    aria-label={shotParamsTriggerTitle}
+                    title={shotParamsTriggerTitle}
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      toggleShotParamsPanel(id);
+                    }}
+                  >
+                    <CameraTriggerIcon
+                      active={isShotParamsPanelOpen}
+                      variant="video"
+                      className="h-4 w-4 origin-center scale-[1.18]"
+                    />
+                  </UiChipButton>
+                  <UiChipButton
+                    type="button"
+                    active={isOptimizingPrompt}
+                    disabled={
+                      isPromptLockedByUpstream ||
+                      isOptimizingPrompt ||
+                      promptDraft.trim().length === 0
+                    }
+                    className={`${NODE_CONTROL_CHIP_CLASS} shrink-0 !w-8 !px-0 justify-center`}
+                    aria-label={
+                      isOptimizingPrompt
+                        ? t("node.seedance.optimizingPrompt")
+                        : t("node.seedance.optimizePrompt")
+                    }
+                    title={
+                      isOptimizingPrompt
+                        ? t("node.seedance.optimizingPrompt")
+                        : t("node.seedance.optimizePrompt")
+                    }
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      void handleOptimizePrompt();
+                    }}
+                  >
+                    <Wand2
+                      className="h-4 w-4 origin-center scale-[1.18]"
+                      strokeWidth={2.45}
+                    />
+                  </UiChipButton>
+                  <UiChipButton
+                    type="button"
+                    disabled={
+                      isPromptLockedByUpstream ||
+                      isOptimizingPrompt ||
+                      !canUndoPromptOptimization
+                    }
+                    className={`${NODE_CONTROL_CHIP_CLASS} shrink-0 !w-8 !px-0 justify-center`}
+                    aria-label={t("node.seedance.undoOptimizedPrompt")}
+                    title={t("node.seedance.undoOptimizedPrompt")}
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      handleUndoOptimizedPrompt();
+                    }}
+                  >
+                    <Undo2
+                      className="h-4 w-4 origin-center scale-[1.08]"
+                      strokeWidth={2.3}
+                    />
+                  </UiChipButton>
+                </div>
               </div>
-            </div>
 
-            <UiButton
-              type="button"
-              size="sm"
-              variant="primary"
-              disabled={Boolean(data.isSubmitting)}
-              className={`${NODE_CONTROL_PRIMARY_BUTTON_CLASS} shrink-0`}
-              onClick={(event) => {
-                event.stopPropagation();
-                void handleGenerate();
-              }}
-            >
-              <Sparkles className="h-4 w-4" strokeWidth={2.3} />
-              {data.isSubmitting
-                ? t("node.seedance.submitting")
-                : t("node.seedance.submit")}
-            </UiButton>
-          </div>
+              <UiButton
+                type="button"
+                size="sm"
+                variant="primary"
+                disabled={Boolean(data.isSubmitting)}
+                className={`${NODE_CONTROL_PRIMARY_BUTTON_CLASS} shrink-0`}
+                onClick={(event) => {
+                  event.stopPropagation();
+                  void handleGenerate();
+                }}
+              >
+                <Sparkles className="h-4 w-4" strokeWidth={2.3} />
+                {data.isSubmitting
+                  ? t("node.seedance.submitting")
+                  : t("node.seedance.submit")}
+              </UiButton>
+            </div>
           ) : null}
 
           <div
@@ -2280,24 +2292,26 @@ export const SeedanceNode = memo(
           </div>
         </div>
 
-        {isShotParamsPanelOpen && !isPromptLockedByUpstream && !isOverviewRender ? (
+        {isShotParamsPanelOpen &&
+        !isPromptLockedByUpstream &&
+        !isOverviewRender ? (
           <ShotParamsPanel
             onClose={closeShotParamsPanel}
             onInsert={(option) => handleShotParamInsert(option.value)}
           />
         ) : null}
 
-        <Handle
+        <CanvasHandle
           type="target"
           id="target"
           position={Position.Left}
-          className="!h-2.5 !w-2.5 !border-2 !border-surface-dark !bg-accent"
+          className="!border-2 !border-surface-dark !bg-accent"
         />
-        <Handle
+        <CanvasHandle
           type="source"
           id="source"
           position={Position.Right}
-          className="!h-2.5 !w-2.5 !border-2 !border-surface-dark !bg-accent"
+          className="!border-2 !border-surface-dark !bg-accent"
         />
         <NodeResizeHandle
           minWidth={SEEDANCE_NODE_MIN_WIDTH}

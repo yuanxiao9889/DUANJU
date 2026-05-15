@@ -9,11 +9,11 @@ import {
   useCallback,
   useEffect,
   useRef,
-} from 'react';
-import { Handle, Position, useUpdateNodeInternals } from '@xyflow/react';
-import { AlertTriangle, Minus, Plus, Sparkles } from 'lucide-react';
-import { useTranslation } from 'react-i18next';
-
+} from "react";
+import { Position, useUpdateNodeInternals } from "@xyflow/react";
+import { CanvasHandle } from "@/features/canvas/ui/CanvasHandle";
+import { AlertTriangle, Minus, Plus, Sparkles } from "lucide-react";
+import { useTranslation } from "react-i18next";
 import {
   AUTO_REQUEST_ASPECT_RATIO,
   CANVAS_NODE_TYPES,
@@ -22,50 +22,55 @@ import {
   EXPORT_RESULT_NODE_MIN_WIDTH,
   type ExportImageGenerationSummary,
   type ImageSize,
+  type ReferenceAssetSnapshot,
   type StoryboardRatioControlMode,
   type StoryboardGenNodeData,
-} from '@/features/canvas/domain/canvasNodes';
+} from "@/features/canvas/domain/canvasNodes";
 import {
   GRSAI_GPT_IMAGE_2_MODEL_ID,
   normalizeGrsaiGptImage2AspectRatio,
-} from '@/features/canvas/models/image/grsai/gptImage2';
-import { resolveMinEdgeFittedSize } from '@/features/canvas/application/imageNodeSizing';
-import { EXPORT_RESULT_DISPLAY_NAME, resolveNodeDisplayName } from '@/features/canvas/domain/nodeDisplay';
-import { useCanvasStore } from '@/stores/canvasStore';
-import { useSettingsStore } from '@/stores/settingsStore';
-import { openSettingsDialog } from '@/features/settings/settingsEvents';
+} from "@/features/canvas/models/image/grsai/gptImage2";
+import { resolveMinEdgeFittedSize } from "@/features/canvas/application/imageNodeSizing";
 import {
-  canvasAiGateway,
-} from '@/features/canvas/application/canvasServices';
-import { resolveErrorContent, showErrorDialog } from '@/features/canvas/application/errorDialog';
-import { recordImageGenerationErrorLog } from '@/features/canvas/application/errorLog';
+  EXPORT_RESULT_DISPLAY_NAME,
+  resolveNodeDisplayName,
+} from "@/features/canvas/domain/nodeDisplay";
+import { useCanvasStore } from "@/stores/canvasStore";
+import { useSettingsStore } from "@/stores/settingsStore";
+import { openSettingsDialog } from "@/features/settings/settingsEvents";
+import { canvasAiGateway } from "@/features/canvas/application/canvasServices";
+import {
+  resolveErrorContent,
+  showErrorDialog,
+} from "@/features/canvas/application/errorDialog";
+import { recordImageGenerationErrorLog } from "@/features/canvas/application/errorLog";
 import {
   detectAspectRatio,
   parseAspectRatio,
   resolveReadableImageSource,
-} from '@/features/canvas/application/imageData';
+} from "@/features/canvas/application/imageData";
 import {
   buildGenerationErrorReport,
   CURRENT_RUNTIME_SESSION_ID,
   createReferenceImagePlaceholders,
   getRuntimeDiagnostics,
   type GenerationDebugContext,
-} from '@/features/canvas/application/generationErrorReport';
+} from "@/features/canvas/application/generationErrorReport";
 import {
   buildReferenceAwareGenerationPrompt,
   normalizeReferenceImagePrompt,
-} from '@/features/canvas/application/referenceImagePrompting';
+} from "@/features/canvas/application/referenceImagePrompting";
 import {
   sanitizeStoryboardPromptText,
   sanitizeStoryboardText,
-} from '@/features/canvas/application/storyboardText';
+} from "@/features/canvas/application/storyboardText";
 import {
   buildShortReferenceToken,
   findReferenceTokens,
   insertReferenceToken,
   removeTextRange,
   resolveReferenceAwareDeleteRange,
-} from '@/features/canvas/application/referenceTokenEditing';
+} from "@/features/canvas/application/referenceTokenEditing";
 import {
   DEFAULT_PICKER_ANCHOR,
   type PickerAnchor,
@@ -77,7 +82,7 @@ import {
   restoreTextareaSelection,
   type TextareaScrollSnapshot,
   type TextSelectionRange,
-} from '@/features/canvas/application/textareaSelection';
+} from "@/features/canvas/application/textareaSelection";
 import {
   DEFAULT_IMAGE_MODEL_ID,
   getStoryboardImageModel,
@@ -96,30 +101,29 @@ import {
   toStoryboardApi2OkExtraParamsPayload,
   toStoryboardCompatibleExtraParamsPayload,
   toStoryboardNewApiExtraParamsPayload,
-} from '@/features/canvas/models';
-import { GRSAI_NANO_BANANA_PRO_MODEL_ID } from '@/features/canvas/models/image/grsai/nanoBananaPro';
-import { resolveModelPriceDisplay } from '@/features/canvas/pricing';
+} from "@/features/canvas/models";
+import { GRSAI_NANO_BANANA_PRO_MODEL_ID } from "@/features/canvas/models/image/grsai/nanoBananaPro";
+import { resolveModelPriceDisplay } from "@/features/canvas/pricing";
+import { useCanvasConnectedReferenceVisuals } from "@/features/canvas/hooks/useCanvasNodeGraph";
+import { useCanvasZoom } from "@/features/canvas/hooks/useCanvasZoom";
+import { useIsOverviewCanvasRender } from "@/features/canvas/CanvasPerformanceContext";
+import { ModelParamsControls } from "@/features/canvas/ui/ModelParamsControls";
+import { CanvasNodeImage } from "@/features/canvas/ui/CanvasNodeImage";
+import { UiButton } from "@/components/ui";
 import {
-  useCanvasConnectedReferenceVisuals,
-} from '@/features/canvas/hooks/useCanvasNodeGraph';
-import { useCanvasZoom } from '@/features/canvas/hooks/useCanvasZoom';
-import { useIsOverviewCanvasRender } from '@/features/canvas/CanvasPerformanceContext';
-import { ModelParamsControls } from '@/features/canvas/ui/ModelParamsControls';
-import { CanvasNodeImage } from '@/features/canvas/ui/CanvasNodeImage';
-import {
-  UiButton,
-} from '@/components/ui';
-import { NodeHeader, NODE_HEADER_FLOATING_POSITION_CLASS } from '@/features/canvas/ui/NodeHeader';
-import { NodePriceBadge } from '@/features/canvas/ui/NodePriceBadge';
-import { NodeResizeHandle } from '@/features/canvas/ui/NodeResizeHandle';
-import { NodeStatusBadge } from '@/features/canvas/ui/NodeStatusBadge';
+  NodeHeader,
+  NODE_HEADER_FLOATING_POSITION_CLASS,
+} from "@/features/canvas/ui/NodeHeader";
+import { NodePriceBadge } from "@/features/canvas/ui/NodePriceBadge";
+import { NodeResizeHandle } from "@/features/canvas/ui/NodeResizeHandle";
+import { NodeStatusBadge } from "@/features/canvas/ui/NodeStatusBadge";
 import {
   NODE_CONTROL_CHIP_CLASS,
   NODE_CONTROL_MODEL_CHIP_CLASS,
   NODE_CONTROL_PARAMS_CHIP_CLASS,
   NODE_CONTROL_PRIMARY_BUTTON_CLASS,
   NODE_CONTROL_GENERATE_ICON_CLASS,
-} from '@/features/canvas/ui/nodeControlStyles';
+} from "@/features/canvas/ui/nodeControlStyles";
 
 type StoryboardGenNodeProps = {
   id: string;
@@ -153,12 +157,16 @@ const STORYBOARD_GEN_NODE_MIN_HEIGHT_PX = 320;
 const STORYBOARD_GEN_HEADER_ADJUST = { x: 0, y: 0, scale: 1 };
 const STORYBOARD_GEN_ICON_ADJUST = { x: 0, y: 0, scale: 0.95 };
 const STORYBOARD_GEN_TITLE_ADJUST = { x: 0, y: 0, scale: 1 };
-const GRID_CONTROL_CONTAINER_CLASS = 'flex h-5 items-center gap-0.5 rounded-full border border-[rgba(255,255,255,0.14)] bg-[rgba(255,255,255,0.04)] px-1';
-const GRID_CONTROL_LABEL_CLASS = 'text-[9px] text-text-muted';
-const GRID_CONTROL_BUTTON_CLASS = 'flex h-3 w-3 items-center justify-center rounded text-text-muted transition-colors hover:bg-white/10 hover:text-text-dark';
-const GRID_CONTROL_ICON_CLASS = 'h-1.5 w-1.5';
-const GRID_CONTROL_VALUE_CLASS = 'min-w-[14px] text-center text-[9px] font-semibold text-text-dark';
-const GRID_SUMMARY_CLASS = 'flex h-5 items-center rounded-full border border-[rgba(255,255,255,0.14)] bg-[rgba(255,255,255,0.05)] px-1.5 text-[9px] text-text-muted';
+const GRID_CONTROL_CONTAINER_CLASS =
+  "flex h-5 items-center gap-0.5 rounded-full border border-[rgba(255,255,255,0.14)] bg-[rgba(255,255,255,0.04)] px-1";
+const GRID_CONTROL_LABEL_CLASS = "text-[9px] text-text-muted";
+const GRID_CONTROL_BUTTON_CLASS =
+  "flex h-3 w-3 items-center justify-center rounded text-text-muted transition-colors hover:bg-white/10 hover:text-text-dark";
+const GRID_CONTROL_ICON_CLASS = "h-1.5 w-1.5";
+const GRID_CONTROL_VALUE_CLASS =
+  "min-w-[14px] text-center text-[9px] font-semibold text-text-dark";
+const GRID_SUMMARY_CLASS =
+  "flex h-5 items-center rounded-full border border-[rgba(255,255,255,0.14)] bg-[rgba(255,255,255,0.05)] px-1.5 text-[9px] text-text-muted";
 const FRAME_GRID_GAP_PX = 2;
 const CONTROL_ROW_HEIGHT_PX = 20;
 const CONTROL_ROW_MARGIN_BOTTOM_PX = 10;
@@ -168,28 +176,28 @@ const NODE_VERTICAL_PADDING_PX = 24;
 const FRAME_CELL_MIN_WIDTH_PX = 24;
 const FRAME_CELL_MIN_HEIGHT_PX = 16;
 const GRID_LINE_THICKNESS_PERCENT = 0.4;
-const REFERENCE_PICKER_TRIGGER_CHARACTERS = new Set(['@', '\uFF20']);
+const REFERENCE_PICKER_TRIGGER_CHARACTERS = new Set(["@", "\uFF20"]);
 const RATIO_CONTROL_MODE_BUTTON_CLASS =
-  'flex h-5 items-center rounded-full border px-1.5 text-[9px] transition-colors';
+  "flex h-5 items-center rounded-full border px-1.5 text-[9px] transition-colors";
 const FRIENDLY_ASPECT_RATIO_CANDIDATES = [
-  '1:1',
-  '16:9',
-  '9:16',
-  '4:3',
-  '3:4',
-  '21:9',
-  '9:21',
-  '3:2',
-  '2:3',
-  '5:4',
-  '4:5',
+  "1:1",
+  "16:9",
+  "9:16",
+  "4:3",
+  "3:4",
+  "21:9",
+  "9:21",
+  "3:2",
+  "2:3",
+  "5:4",
+  "4:5",
 ];
 
 function resolvePointerAnchor(
   container: HTMLDivElement | null,
   clientX: number,
   clientY: number,
-  zoom: number
+  zoom: number,
 ): PickerAnchor {
   if (!container) {
     return DEFAULT_PICKER_ANCHOR;
@@ -206,7 +214,7 @@ function resolvePointerAnchor(
 
 function resolveReferenceIndexFromDescription(
   description: string,
-  maxImageCount: number
+  maxImageCount: number,
 ): number | null {
   const firstReference = findReferenceTokens(description, maxImageCount)[0];
   if (!firstReference) {
@@ -216,9 +224,12 @@ function resolveReferenceIndexFromDescription(
   return firstReference.value - 1;
 }
 
-function renderFrameDescriptionWithHighlights(description: string, maxImageCount: number): ReactNode {
+function renderFrameDescriptionWithHighlights(
+  description: string,
+  maxImageCount: number,
+): ReactNode {
   if (!description) {
-    return ' ';
+    return " ";
   }
 
   const segments: ReactNode[] = [];
@@ -230,7 +241,9 @@ function renderFrameDescriptionWithHighlights(description: string, maxImageCount
 
     if (matchStart > lastIndex) {
       segments.push(
-        <span key={`plain-${lastIndex}`}>{description.slice(lastIndex, matchStart)}</span>
+        <span key={`plain-${lastIndex}`}>
+          {description.slice(lastIndex, matchStart)}
+        </span>,
       );
     }
 
@@ -240,14 +253,16 @@ function renderFrameDescriptionWithHighlights(description: string, maxImageCount
         className="relative z-0 text-white [text-shadow:0.24px_0_currentColor,-0.24px_0_currentColor] before:absolute before:-inset-x-[4px] before:-inset-y-[1px] before:-z-10 before:rounded-[7px] before:bg-accent/55 before:content-['']"
       >
         {matchText}
-      </span>
+      </span>,
     );
 
     lastIndex = matchStart + matchText.length;
   }
 
   if (lastIndex < description.length) {
-    segments.push(<span key={`plain-${lastIndex}`}>{description.slice(lastIndex)}</span>);
+    segments.push(
+      <span key={`plain-${lastIndex}`}>{description.slice(lastIndex)}</span>,
+    );
   }
 
   return segments;
@@ -256,12 +271,18 @@ function renderFrameDescriptionWithHighlights(description: string, maxImageCount
 function renderFrameReferenceHoverTargets(
   description: string,
   maxImageCount: number,
-  onTokenHover: (tokenIndex: number, event: ReactMouseEvent<HTMLSpanElement>) => void,
+  onTokenHover: (
+    tokenIndex: number,
+    event: ReactMouseEvent<HTMLSpanElement>,
+  ) => void,
   onTokenLeave: () => void,
-  onTokenMouseDown: (tokenEnd: number, event: ReactMouseEvent<HTMLSpanElement>) => void
+  onTokenMouseDown: (
+    tokenEnd: number,
+    event: ReactMouseEvent<HTMLSpanElement>,
+  ) => void,
 ): ReactNode {
   if (!description) {
-    return ' ';
+    return " ";
   }
 
   const segments: ReactNode[] = [];
@@ -274,7 +295,7 @@ function renderFrameReferenceHoverTargets(
       segments.push(
         <span key={`hover-plain-${lastIndex}`} className="text-transparent">
           {description.slice(lastIndex, matchStart)}
-        </span>
+        </span>,
       );
     }
 
@@ -288,7 +309,7 @@ function renderFrameReferenceHoverTargets(
         onMouseDown={(event) => onTokenMouseDown(token.end, event)}
       >
         {token.token}
-      </span>
+      </span>,
     );
 
     lastIndex = token.end;
@@ -298,7 +319,7 @@ function renderFrameReferenceHoverTargets(
     segments.push(
       <span key={`hover-plain-${lastIndex}`} className="text-transparent">
         {description.slice(lastIndex)}
-      </span>
+      </span>,
     );
   }
 
@@ -306,7 +327,7 @@ function renderFrameReferenceHoverTargets(
 }
 
 function buildFrameDescriptionDrafts(
-  frames: StoryboardGenNodeData['frames']
+  frames: StoryboardGenNodeData["frames"],
 ): Record<string, string> {
   const drafts: Record<string, string> = {};
   for (const frame of frames) {
@@ -317,7 +338,7 @@ function buildFrameDescriptionDrafts(
 
 function areFrameDescriptionDraftsEqual(
   left: Record<string, string>,
-  right: Record<string, string>
+  right: Record<string, string>,
 ): boolean {
   const leftEntries = Object.entries(left);
   const rightEntries = Object.entries(right);
@@ -334,7 +355,9 @@ function areFrameDescriptionDraftsEqual(
   return true;
 }
 
-function isReferencePickerTriggerCharacter(value: string | null | undefined): boolean {
+function isReferencePickerTriggerCharacter(
+  value: string | null | undefined,
+): boolean {
   if (!value) {
     return false;
   }
@@ -385,9 +408,10 @@ function GridStepperControl({
 
 function pickClosestAspectRatio(
   targetRatio: number,
-  supportedAspectRatios: string[]
+  supportedAspectRatios: string[],
 ): string {
-  const supported = supportedAspectRatios.length > 0 ? supportedAspectRatios : ['1:1'];
+  const supported =
+    supportedAspectRatios.length > 0 ? supportedAspectRatios : ["1:1"];
   let bestValue = supported[0];
   let bestDistance = Number.POSITIVE_INFINITY;
 
@@ -430,7 +454,10 @@ function formatFriendlyAspectRatio(ratioValue: number): string {
     return DEFAULT_ASPECT_RATIO;
   }
 
-  const snapped = pickClosestAspectRatio(ratioValue, FRIENDLY_ASPECT_RATIO_CANDIDATES);
+  const snapped = pickClosestAspectRatio(
+    ratioValue,
+    FRIENDLY_ASPECT_RATIO_CANDIDATES,
+  );
   const snappedValue = parseAspectRatio(snapped);
   const snapDistance = Math.abs(Math.log(snappedValue / ratioValue));
   if (snapDistance <= Math.log(1.04)) {
@@ -448,7 +475,7 @@ function resolveStoryboardAspectRatios(
   mode: StoryboardRatioControlMode,
   controlRatioValue: number,
   rows: number,
-  cols: number
+  cols: number,
 ): {
   cellRatioValue: number;
   overallRatioValue: number;
@@ -459,16 +486,15 @@ function resolveStoryboardAspectRatios(
 } {
   const safeRows = Math.max(1, rows);
   const safeCols = Math.max(1, cols);
-  const safeControl = Number.isFinite(controlRatioValue) && controlRatioValue > 0
-    ? controlRatioValue
-    : 1;
+  const safeControl =
+    Number.isFinite(controlRatioValue) && controlRatioValue > 0
+      ? controlRatioValue
+      : 1;
 
-  const cellRatioValue = mode === 'cell'
-    ? safeControl
-    : safeControl * (safeRows / safeCols);
-  const overallRatioValue = mode === 'overall'
-    ? safeControl
-    : safeControl * (safeCols / safeRows);
+  const cellRatioValue =
+    mode === "cell" ? safeControl : safeControl * (safeRows / safeCols);
+  const overallRatioValue =
+    mode === "overall" ? safeControl : safeControl * (safeCols / safeRows);
 
   return {
     cellRatioValue,
@@ -485,7 +511,7 @@ function generateFrameId(): string {
 }
 
 function toCssAspectRatio(aspectRatio: string): string {
-  const [width = '1', height = '1'] = aspectRatio.split(':');
+  const [width = "1", height = "1"] = aspectRatio.split(":");
   return `${width} / ${height}`;
 }
 
@@ -494,10 +520,10 @@ function toCssAspectRatio(aspectRatio: string): string {
  */
 function resolveSizeToPixels(size: string): number {
   const sizeMap: Record<string, number> = {
-    '0.5K': 512,
-    '1K': 1024,
-    '2K': 2048,
-    '4K': 4096,
+    "0.5K": 512,
+    "1K": 1024,
+    "2K": 2048,
+    "4K": 4096,
   };
   return sizeMap[size] ?? 1024;
 }
@@ -512,9 +538,9 @@ function generateGridImageDataUrl(
   rows: number,
   cols: number,
   resolution: string,
-  lineThicknessPercent: number = GRID_LINE_THICKNESS_PERCENT
+  lineThicknessPercent: number = GRID_LINE_THICKNESS_PERCENT,
 ): string {
-  const [ratioW = '16', ratioH = '9'] = aspectRatio.split(':');
+  const [ratioW = "16", ratioH = "9"] = aspectRatio.split(":");
   const ratioWNum = parseFloat(ratioW);
   const ratioHNum = parseFloat(ratioH);
 
@@ -527,7 +553,9 @@ function generateGridImageDataUrl(
   const canvasHeight = Math.round(totalPixels * (ratioHNum / ratioWNum));
   const thickness = Math.max(
     1,
-    Math.round((Math.min(canvasWidth, canvasHeight) * lineThicknessPercent) / 100)
+    Math.round(
+      (Math.min(canvasWidth, canvasHeight) * lineThicknessPercent) / 100,
+    ),
   );
 
   // 计算单个格子的像素尺寸
@@ -535,21 +563,21 @@ function generateGridImageDataUrl(
   const cellHeight = canvasHeight / rows;
 
   // 创建 canvas 并绘制
-  const canvas = document.createElement('canvas');
+  const canvas = document.createElement("canvas");
   canvas.width = canvasWidth;
   canvas.height = canvasHeight;
-  const ctx = canvas.getContext('2d');
+  const ctx = canvas.getContext("2d");
 
   if (!ctx) {
-    throw new Error('Failed to create canvas context');
+    throw new Error("Failed to create canvas context");
   }
 
   // 白色背景
-  ctx.fillStyle = '#ffffff';
+  ctx.fillStyle = "#ffffff";
   ctx.fillRect(0, 0, canvasWidth, canvasHeight);
 
   // 黑色线条
-  ctx.strokeStyle = '#000000';
+  ctx.strokeStyle = "#000000";
   ctx.lineWidth = thickness;
 
   // 绘制内部垂直线 (不包含最左边和最右边)
@@ -570,96 +598,121 @@ function generateGridImageDataUrl(
     ctx.stroke();
   }
 
-  return canvas.toDataURL('image/png');
+  return canvas.toDataURL("image/png");
 }
 
-export const StoryboardGenNode = memo(({ id, data, selected, width, height }: StoryboardGenNodeProps) => {
-  const { t, i18n } = useTranslation();
-  const isOverviewRender = useIsOverviewCanvasRender();
-  const zoom = useCanvasZoom();
-  const updateNodeInternals = useUpdateNodeInternals();
-  const setSelectedNode = useCanvasStore((state) => state.setSelectedNode);
-  const updateNodeData = useCanvasStore((state) => state.updateNodeData);
-  const addNode = useCanvasStore((state) => state.addNode);
-  const addEdge = useCanvasStore((state) => state.addEdge);
-  const findNodePosition = useCanvasStore((state) => state.findNodePosition);
-  const storyboardApiKeys = useSettingsStore((state) => state.storyboardApiKeys);
-  const hrsaiNanoBananaProModel = useSettingsStore((state) => state.hrsaiNanoBananaProModel);
-  const storyboardCompatibleModelConfig = useSettingsStore(
-    (state) => state.storyboardCompatibleModelConfig
-  );
-  const storyboardApi2OkModelConfig = useSettingsStore(
-    (state) => state.storyboardApi2OkModelConfig
-  );
-  const storyboardNewApiModelConfig = useSettingsStore(
-    (state) => state.storyboardNewApiModelConfig
-  );
-  const storyboardProviderCustomModels = useSettingsStore(
-    (state) => state.storyboardProviderCustomModels
-  );
-  const storyboardGenKeepStyleConsistent = useSettingsStore(
-    (state) => state.storyboardGenKeepStyleConsistent
-  );
-  const storyboardGenDisableTextInImage = useSettingsStore(
-    (state) => state.storyboardGenDisableTextInImage
-  );
-  const storyboardGenAutoInferEmptyFrame = useSettingsStore(
-    (state) => state.storyboardGenAutoInferEmptyFrame
-  );
-  const ignoreAtTagWhenCopyingAndGenerating = useSettingsStore(
-    (state) => state.ignoreAtTagWhenCopyingAndGenerating
-  );
-  const enableStoryboardGenGridPreviewShortcut = useSettingsStore(
-    (state) => state.enableStoryboardGenGridPreviewShortcut
-  );
-  const showStoryboardGenAdvancedRatioControls = useSettingsStore(
-    (state) => state.showStoryboardGenAdvancedRatioControls
-  );
-  const lastImageGenerationExtraParams = useSettingsStore(
-    (state) => state.lastImageGenerationExtraParams
-  );
-  const setLastImageGenerationExtraParams = useSettingsStore(
-    (state) => state.setLastImageGenerationExtraParams
-  );
-  const showNodePrice = useSettingsStore((state) => state.showNodePrice);
-  const priceDisplayCurrencyMode = useSettingsStore((state) => state.priceDisplayCurrencyMode);
-  const usdToCnyRate = useSettingsStore((state) => state.usdToCnyRate);
-  const preferDiscountedPrice = useSettingsStore((state) => state.preferDiscountedPrice);
-  const grsaiCreditTierId = useSettingsStore((state) => state.grsaiCreditTierId);
+export const StoryboardGenNode = memo(
+  ({ id, data, selected, width, height }: StoryboardGenNodeProps) => {
+    const { t, i18n } = useTranslation();
+    const isOverviewRender = useIsOverviewCanvasRender();
+    const zoom = useCanvasZoom();
+    const updateNodeInternals = useUpdateNodeInternals();
+    const setSelectedNode = useCanvasStore((state) => state.setSelectedNode);
+    const updateNodeData = useCanvasStore((state) => state.updateNodeData);
+    const addNode = useCanvasStore((state) => state.addNode);
+    const addEdge = useCanvasStore((state) => state.addEdge);
+    const findNodePosition = useCanvasStore((state) => state.findNodePosition);
+    const storyboardApiKeys = useSettingsStore(
+      (state) => state.storyboardApiKeys,
+    );
+    const hrsaiNanoBananaProModel = useSettingsStore(
+      (state) => state.hrsaiNanoBananaProModel,
+    );
+    const storyboardCompatibleModelConfig = useSettingsStore(
+      (state) => state.storyboardCompatibleModelConfig,
+    );
+    const storyboardApi2OkModelConfig = useSettingsStore(
+      (state) => state.storyboardApi2OkModelConfig,
+    );
+    const storyboardNewApiModelConfig = useSettingsStore(
+      (state) => state.storyboardNewApiModelConfig,
+    );
+    const storyboardProviderCustomModels = useSettingsStore(
+      (state) => state.storyboardProviderCustomModels,
+    );
+    const storyboardGenKeepStyleConsistent = useSettingsStore(
+      (state) => state.storyboardGenKeepStyleConsistent,
+    );
+    const storyboardGenDisableTextInImage = useSettingsStore(
+      (state) => state.storyboardGenDisableTextInImage,
+    );
+    const storyboardGenAutoInferEmptyFrame = useSettingsStore(
+      (state) => state.storyboardGenAutoInferEmptyFrame,
+    );
+    const ignoreAtTagWhenCopyingAndGenerating = useSettingsStore(
+      (state) => state.ignoreAtTagWhenCopyingAndGenerating,
+    );
+    const enableStoryboardGenGridPreviewShortcut = useSettingsStore(
+      (state) => state.enableStoryboardGenGridPreviewShortcut,
+    );
+    const showStoryboardGenAdvancedRatioControls = useSettingsStore(
+      (state) => state.showStoryboardGenAdvancedRatioControls,
+    );
+    const lastImageGenerationExtraParams = useSettingsStore(
+      (state) => state.lastImageGenerationExtraParams,
+    );
+    const setLastImageGenerationExtraParams = useSettingsStore(
+      (state) => state.setLastImageGenerationExtraParams,
+    );
+    const showNodePrice = useSettingsStore((state) => state.showNodePrice);
+    const priceDisplayCurrencyMode = useSettingsStore(
+      (state) => state.priceDisplayCurrencyMode,
+    );
+    const usdToCnyRate = useSettingsStore((state) => state.usdToCnyRate);
+    const preferDiscountedPrice = useSettingsStore(
+      (state) => state.preferDiscountedPrice,
+    );
+    const grsaiCreditTierId = useSettingsStore(
+      (state) => state.grsaiCreditTierId,
+    );
 
-  const [error, setError] = useState<string | null>(null);
-  const rootRef = useRef<HTMLDivElement>(null);
-  const pickerItemRefs = useRef<Array<HTMLButtonElement | null>>([]);
-  const [showImagePicker, setShowImagePicker] = useState(false);
-  const [pickerFrameIndex, setPickerFrameIndex] = useState<number | null>(null);
-  const [pickerActiveIndex, setPickerActiveIndex] = useState(0);
-  const [pickerAnchor, setPickerAnchor] = useState<PickerAnchor>(DEFAULT_PICKER_ANCHOR);
-  const [activeFrameId, setActiveFrameId] = useState<string | null>(null);
-  const [composingFrameId, setComposingFrameId] = useState<string | null>(null);
-  const [frameReferencePreview, setFrameReferencePreview] =
-    useState<FrameReferencePreviewState | null>(null);
-  const lastPointerAnchorRef = useRef<{ frameIndex: number; anchor: PickerAnchor } | null>(null);
-  const framePreviewHostRef = useRef<HTMLDivElement>(null);
-  const frameTextareaRefs = useRef<Record<string, HTMLTextAreaElement | null>>({});
-  const frameHighlightRefs = useRef<Record<string, HTMLDivElement | null>>({});
-  const frameHoverRefs = useRef<Record<string, HTMLDivElement | null>>({});
+    const [error, setError] = useState<string | null>(null);
+    const rootRef = useRef<HTMLDivElement>(null);
+    const pickerItemRefs = useRef<Array<HTMLButtonElement | null>>([]);
+    const [showImagePicker, setShowImagePicker] = useState(false);
+    const [pickerFrameIndex, setPickerFrameIndex] = useState<number | null>(
+      null,
+    );
+    const [pickerActiveIndex, setPickerActiveIndex] = useState(0);
+    const [pickerAnchor, setPickerAnchor] = useState<PickerAnchor>(
+      DEFAULT_PICKER_ANCHOR,
+    );
+    const [activeFrameId, setActiveFrameId] = useState<string | null>(null);
+    const [composingFrameId, setComposingFrameId] = useState<string | null>(
+      null,
+    );
+    const [frameReferencePreview, setFrameReferencePreview] =
+      useState<FrameReferencePreviewState | null>(null);
+    const lastPointerAnchorRef = useRef<{
+      frameIndex: number;
+      anchor: PickerAnchor;
+    } | null>(null);
+    const framePreviewHostRef = useRef<HTMLDivElement>(null);
+    const frameTextareaRefs = useRef<
+      Record<string, HTMLTextAreaElement | null>
+    >({});
+    const frameHighlightRefs = useRef<Record<string, HTMLDivElement | null>>(
+      {},
+    );
+    const frameHoverRefs = useRef<Record<string, HTMLDivElement | null>>({});
 
-  const nodeData = data as StoryboardGenNodeData;
-  const [frameDescriptionDrafts, setFrameDescriptionDrafts] = useState<Record<string, string>>(() =>
-    buildFrameDescriptionDrafts(nodeData.frames)
-  );
-  const frameDescriptionDraftsRef = useRef(frameDescriptionDrafts);
-  const frameSelectionRangesRef = useRef<Record<string, TextSelectionRange | null>>({});
-  const resolvedTitle = useMemo(
-    () => resolveNodeDisplayName(CANVAS_NODE_TYPES.storyboardGen, nodeData),
-    [nodeData]
-  );
+    const nodeData = data as StoryboardGenNodeData;
+    const [frameDescriptionDrafts, setFrameDescriptionDrafts] = useState<
+      Record<string, string>
+    >(() => buildFrameDescriptionDrafts(nodeData.frames));
+    const frameDescriptionDraftsRef = useRef(frameDescriptionDrafts);
+    const frameSelectionRangesRef = useRef<
+      Record<string, TextSelectionRange | null>
+    >({});
+    const resolvedTitle = useMemo(
+      () => resolveNodeDisplayName(CANVAS_NODE_TYPES.storyboardGen, nodeData),
+      [nodeData],
+    );
 
-  const connectedReferenceVisuals = useCanvasConnectedReferenceVisuals(id);
-  const incomingRequestImageItems = useMemo(
-    () =>
-      connectedReferenceVisuals
-        .filter((item) => item.kind === 'image')
+    const connectedReferenceVisuals = useCanvasConnectedReferenceVisuals(id);
+    const incomingRequestImageItems = useMemo(() => {
+      const connectedItems = connectedReferenceVisuals
+        .filter((item) => item.kind === "image")
         .map((item) => {
           const referenceUrl = item.referenceUrl.trim();
           if (!referenceUrl) {
@@ -673,1663 +726,1927 @@ export const StoryboardGenNode = memo(({ id, data, selected, width, height }: St
         })
         .filter(
           (
-            item
+            item,
           ): item is {
             referenceUrl: string;
             previewImageUrl: string;
-          } => Boolean(item)
-        ),
-    [connectedReferenceVisuals]
-  );
-  const incomingImageItems = useMemo(
-    () =>
-      incomingRequestImageItems.map((item, index) => ({
-        imageUrl: item.referenceUrl,
-        displayUrl: item.previewImageUrl,
-        label: `图${index + 1}`,
-      })),
-    [incomingRequestImageItems]
-  );
-  const incomingImages = useMemo(
-    () => incomingImageItems.map((item) => item.imageUrl),
-    [incomingImageItems]
-  );
-  const incomingImageViewerList = useMemo(
-    () => incomingImageItems.map((item) => item.displayUrl),
-    [incomingImageItems]
-  );
+          } => Boolean(item),
+        );
 
-  const imageModels = useMemo(
-    () => listStoryboardImageModels(
-      storyboardCompatibleModelConfig,
-      storyboardNewApiModelConfig,
-      storyboardApi2OkModelConfig,
-      storyboardProviderCustomModels
-    ),
-    [
-      storyboardCompatibleModelConfig,
-      storyboardNewApiModelConfig,
-      storyboardApi2OkModelConfig,
-      storyboardProviderCustomModels,
-    ]
-  );
+      const embeddedReferenceItems = (nodeData.referenceAssets ?? [])
+        .map((asset: ReferenceAssetSnapshot) => {
+          const referenceUrl = asset.imageUrl?.trim() || "";
+          if (!referenceUrl) {
+            return null;
+          }
 
-  const selectedModel = useMemo(() => {
-    const modelId = nodeData.model ?? DEFAULT_IMAGE_MODEL_ID;
-    return getStoryboardImageModel(
-      modelId,
-      storyboardCompatibleModelConfig,
-      storyboardNewApiModelConfig,
-      storyboardApi2OkModelConfig,
-      storyboardProviderCustomModels
-    );
-  }, [
-    nodeData.model,
-    storyboardCompatibleModelConfig,
-    storyboardNewApiModelConfig,
-    storyboardApi2OkModelConfig,
-    storyboardProviderCustomModels,
-  ]);
-  const resolvedCompatibleModelConfig = useMemo(
-    () =>
-      isStoryboardCompatibleModelId(selectedModel.id)
-        ? resolveStoryboardCompatibleModelConfigForModel(
-          selectedModel.id,
-          storyboardCompatibleModelConfig,
-          storyboardProviderCustomModels
-        )
-        : storyboardCompatibleModelConfig,
-    [
-      selectedModel.id,
-      storyboardCompatibleModelConfig,
-      storyboardProviderCustomModels,
-    ]
-  );
-  const resolvedApi2OkModelConfig = useMemo(
-    () =>
-      isStoryboardApi2OkModelId(selectedModel.id)
-        ? resolveStoryboardApi2OkModelConfigForModel(
-          selectedModel.id,
-          storyboardApi2OkModelConfig,
-          storyboardProviderCustomModels
-        )
-        : storyboardApi2OkModelConfig,
-    [
-      selectedModel.id,
-      storyboardApi2OkModelConfig,
-      storyboardProviderCustomModels,
-    ]
-  );
-  const resolvedModelExtraParams = useMemo(
-    () =>
-      resolveImageModelExtraParams(
-        selectedModel,
-        selectedModel.defaultExtraParams,
-        lastImageGenerationExtraParams,
-        nodeData.extraParams
-    ),
-    [lastImageGenerationExtraParams, nodeData.extraParams, selectedModel]
-  );
-  const requestedNewApiResolution = useMemo(
-    () =>
-      isStoryboardNewApiModelId(selectedModel.id)
-        ? resolveImageModelResolution(selectedModel, nodeData.size, {
-          extraParams: resolvedModelExtraParams,
-        }).value
-        : null,
-    [nodeData.size, resolvedModelExtraParams, selectedModel]
-  );
-  const resolvedNewApiModelConfig = useMemo(
-    () =>
-      isStoryboardNewApiModelId(selectedModel.id)
-        ? resolveStoryboardNewApiModelConfigForModel(
-          selectedModel.id,
-          storyboardNewApiModelConfig,
-          storyboardProviderCustomModels,
-          {
-            resolution: requestedNewApiResolution,
-            extraParams: resolvedModelExtraParams,
-          }
-        )
-        : storyboardNewApiModelConfig,
-    [
-      requestedNewApiResolution,
-      resolvedModelExtraParams,
-      selectedModel.id,
-      storyboardNewApiModelConfig,
-      storyboardProviderCustomModels,
-    ]
-  );
-  const requestedOopiiResolution = useMemo(
-    () =>
-      isStoryboardOopiiModelId(selectedModel.id)
-        ? resolveImageModelResolution(selectedModel, nodeData.size, {
-          extraParams: resolvedModelExtraParams,
-        }).value
-        : null,
-    [nodeData.size, resolvedModelExtraParams, selectedModel]
-  );
-  const resolvedOopiiModelConfig = useMemo(
-    () =>
-      isStoryboardOopiiModelId(selectedModel.id)
-        ? resolveStoryboardOopiiModelConfigForModel(
-          selectedModel.id,
-          storyboardProviderCustomModels,
-          {
-            resolution: requestedOopiiResolution,
-            extraParams: resolvedModelExtraParams,
-          }
-        )
-        : resolveStoryboardOopiiModelConfigForModel(null, storyboardProviderCustomModels),
-    [
-      requestedOopiiResolution,
-      resolvedModelExtraParams,
-      selectedModel.id,
-      storyboardProviderCustomModels,
-    ]
-  );
-  const providerApiKey = storyboardApiKeys[selectedModel.providerId] ?? '';
-  const effectiveExtraParams = useMemo(
-    () => ({
-      ...resolvedModelExtraParams,
-      ...(selectedModel.id === GRSAI_NANO_BANANA_PRO_MODEL_ID
-        ? { grsai_pro_model: hrsaiNanoBananaProModel }
-        : {}),
-      ...(isStoryboardCompatibleModelId(selectedModel.id)
-        ? {
-          compatible_config: toStoryboardCompatibleExtraParamsPayload(
-            resolvedCompatibleModelConfig
-          ),
+          return {
+            referenceUrl,
+            previewImageUrl: asset.previewImageUrl?.trim() || referenceUrl,
+          };
+        })
+        .filter(
+          (
+            item,
+          ): item is {
+            referenceUrl: string;
+            previewImageUrl: string;
+          } => Boolean(item),
+        );
+
+      const deduped = new Map<
+        string,
+        { referenceUrl: string; previewImageUrl: string }
+      >();
+      [...connectedItems, ...embeddedReferenceItems].forEach((item) => {
+        if (!deduped.has(item.referenceUrl)) {
+          deduped.set(item.referenceUrl, item);
         }
-        : isStoryboardOopiiModelId(selectedModel.id)
-          ? {
-            newapi_config: toStoryboardNewApiExtraParamsPayload(
-              resolvedOopiiModelConfig
-            ),
-          }
-        : isStoryboardNewApiModelId(selectedModel.id)
-          ? {
-            newapi_config: toStoryboardNewApiExtraParamsPayload(
-              resolvedNewApiModelConfig
-            ),
-          }
-        : isStoryboardApi2OkModelId(selectedModel.id)
-          ? {
-            api2ok_config: toStoryboardApi2OkExtraParamsPayload(
-              resolvedApi2OkModelConfig
-            ),
-          }
-        : {}),
-    }),
-    [
-      hrsaiNanoBananaProModel,
-      resolvedModelExtraParams,
-      resolvedApi2OkModelConfig,
-      resolvedCompatibleModelConfig,
-      resolvedNewApiModelConfig,
-      resolvedOopiiModelConfig,
-      selectedModel.id,
-    ]
-  );
-  const resolutionOptions = useMemo(
-    () => resolveImageModelResolutions(selectedModel, { extraParams: effectiveExtraParams }),
-    [effectiveExtraParams, selectedModel]
-  );
+      });
 
-  const selectedResolution = useMemo((): AspectRatioChoice => {
-    return resolveImageModelResolution(selectedModel, nodeData.size, {
-      extraParams: effectiveExtraParams,
-    });
-  }, [effectiveExtraParams, nodeData.size, selectedModel]);
-
-  const aspectRatioOptions = useMemo<AspectRatioChoice[]>(
-    () => [{
-      value: AUTO_REQUEST_ASPECT_RATIO,
-      label: t('modelParams.autoAspectRatio'),
-    }, ...selectedModel.aspectRatios],
-    [selectedModel.aspectRatios, t]
-  );
-
-  const normalizedRequestAspectRatio = useMemo(
-    () =>
-      selectedModel.id === GRSAI_GPT_IMAGE_2_MODEL_ID
-        ? normalizeGrsaiGptImage2AspectRatio(nodeData.requestAspectRatio) ?? AUTO_REQUEST_ASPECT_RATIO
-        : nodeData.requestAspectRatio,
-    [nodeData.requestAspectRatio, selectedModel.id]
-  );
-
-  const selectedAspectRatio = useMemo((): AspectRatioChoice => {
-    const nodeAspectRatio = normalizedRequestAspectRatio;
-    const found = nodeAspectRatio ? aspectRatioOptions.find((item) => item.value === nodeAspectRatio) : undefined;
-    return found ?? aspectRatioOptions[0];
-  }, [aspectRatioOptions, normalizedRequestAspectRatio]);
-
-  const ratioControlMode: StoryboardRatioControlMode = showStoryboardGenAdvancedRatioControls
-    ? (nodeData.ratioControlMode === 'overall' ? 'overall' : 'cell')
-    : 'cell';
-  const controlAspectRatioValue = useMemo(() => {
-    if (selectedAspectRatio.value === AUTO_REQUEST_ASPECT_RATIO) {
-      return nodeData.aspectRatio || DEFAULT_ASPECT_RATIO;
-    }
-    return selectedAspectRatio.value || DEFAULT_ASPECT_RATIO;
-  }, [nodeData.aspectRatio, selectedAspectRatio.value]);
-  const resolvedAspectRatios = useMemo(
-    () => resolveStoryboardAspectRatios(
-      ratioControlMode,
-      parseAspectRatio(controlAspectRatioValue),
-      nodeData.gridRows,
-      nodeData.gridCols
-    ),
-    [controlAspectRatioValue, nodeData.gridCols, nodeData.gridRows, ratioControlMode]
-  );
-  const frameAspectRatioValue = resolvedAspectRatios.cellAspectRatio;
-
-  const baseFrameLayout = useMemo(() => {
-    const aspectRatio = Math.max(0.1, parseAspectRatio(frameAspectRatioValue));
-    let cellWidth = STORYBOARD_GRID_BASE_CELL_HEIGHT_PX * aspectRatio;
-    let gridWidth = nodeData.gridCols * cellWidth + Math.max(0, nodeData.gridCols - 1) * STORYBOARD_GRID_GAP_PX;
-
-    if (gridWidth > STORYBOARD_GRID_MAX_WIDTH_PX) {
-      const scale = STORYBOARD_GRID_MAX_WIDTH_PX / gridWidth;
-      cellWidth *= scale;
-      gridWidth =
-        nodeData.gridCols * cellWidth + Math.max(0, nodeData.gridCols - 1) * STORYBOARD_GRID_GAP_PX;
-    }
-
-    const roundedCellWidth = Math.max(FRAME_CELL_MIN_WIDTH_PX, Math.round(cellWidth));
-    const roundedCellHeight = Math.max(FRAME_CELL_MIN_HEIGHT_PX, Math.round(roundedCellWidth / aspectRatio));
-    const roundedGridWidth =
-      nodeData.gridCols * roundedCellWidth + Math.max(0, nodeData.gridCols - 1) * STORYBOARD_GRID_GAP_PX;
-    const roundedGridHeight =
-      nodeData.gridRows * roundedCellHeight + Math.max(0, nodeData.gridRows - 1) * FRAME_GRID_GAP_PX;
-    const nodeInnerWidth = Math.max(
-      STORYBOARD_CONTROL_ROW_WIDTH_PX,
-      STORYBOARD_PARAMS_ROW_WIDTH_PX,
-      roundedGridWidth
+      return Array.from(deduped.values());
+    }, [connectedReferenceVisuals, nodeData.referenceAssets]);
+    const incomingImageItems = useMemo(
+      () =>
+        incomingRequestImageItems.map((item, index) => ({
+          imageUrl: item.referenceUrl,
+          displayUrl: item.previewImageUrl,
+          label: `图${index + 1}`,
+        })),
+      [incomingRequestImageItems],
     );
-    const nodeWidth = Math.max(
-      STORYBOARD_GEN_NODE_MIN_WIDTH_PX,
-      Math.round(nodeInnerWidth + STORYBOARD_NODE_HORIZONTAL_PADDING_PX)
+    const incomingImages = useMemo(
+      () => incomingImageItems.map((item) => item.imageUrl),
+      [incomingImageItems],
     );
-    const nodeHeight = Math.max(
-      STORYBOARD_GEN_NODE_MIN_HEIGHT_PX,
-      Math.round(
-        NODE_VERTICAL_PADDING_PX +
-        CONTROL_ROW_HEIGHT_PX +
-        CONTROL_ROW_MARGIN_BOTTOM_PX +
-        roundedGridHeight +
-        FRAME_GRID_MARGIN_BOTTOM_PX +
-        PARAM_ROW_HEIGHT_PX
-      )
+    const incomingImageViewerList = useMemo(
+      () => incomingImageItems.map((item) => item.displayUrl),
+      [incomingImageItems],
     );
 
-    return {
-      nodeWidth,
-      nodeHeight,
-    };
-  }, [frameAspectRatioValue, nodeData.gridCols, nodeData.gridRows]);
+    const imageModels = useMemo(
+      () =>
+        listStoryboardImageModels(
+          storyboardCompatibleModelConfig,
+          storyboardNewApiModelConfig,
+          storyboardApi2OkModelConfig,
+          storyboardProviderCustomModels,
+        ),
+      [
+        storyboardCompatibleModelConfig,
+        storyboardNewApiModelConfig,
+        storyboardApi2OkModelConfig,
+        storyboardProviderCustomModels,
+      ],
+    );
 
-  const requestResolution = selectedModel.resolveRequest({
-    referenceImageCount: incomingImages.length,
-  });
-  const debugRequestModel = useMemo(
-    () =>
-      isStoryboardCompatibleModelId(selectedModel.id)
-        ? resolvedCompatibleModelConfig.requestModel
-        : isStoryboardNewApiModelId(selectedModel.id)
-          ? resolvedNewApiModelConfig.requestModel
-        : isStoryboardApi2OkModelId(selectedModel.id)
-          ? resolvedApi2OkModelConfig.requestModel
-        : requestResolution.requestModel,
-    [
-      requestResolution.requestModel,
-      selectedModel.id,
-      resolvedApi2OkModelConfig.requestModel,
-      resolvedCompatibleModelConfig.requestModel,
-      resolvedNewApiModelConfig.requestModel,
-    ]
-  );
-  const resolvedPriceDisplay = useMemo(
-    () =>
-      showNodePrice
-        ? resolveModelPriceDisplay(selectedModel, {
-          resolution: selectedResolution.value,
-          extraParams: effectiveExtraParams,
-          language: i18n.language,
-          settings: {
-            displayCurrencyMode: priceDisplayCurrencyMode,
-            usdToCnyRate,
-            preferDiscountedPrice,
-            grsaiCreditTierId,
-          },
-        })
-        : null,
-    [
-      grsaiCreditTierId,
-      i18n.language,
-      preferDiscountedPrice,
-      priceDisplayCurrencyMode,
-      effectiveExtraParams,
-      selectedModel,
-      selectedResolution.value,
-      showNodePrice,
-      usdToCnyRate,
-    ]
-  );
-  const resolvedPriceTooltip = useMemo(() => {
-    if (!resolvedPriceDisplay) {
-      return undefined;
-    }
-
-    const lines = [resolvedPriceDisplay.label];
-    if (resolvedPriceDisplay.nativeLabel) {
-      lines.push(t('pricing.nativePrice', { value: resolvedPriceDisplay.nativeLabel }));
-    }
-    if (resolvedPriceDisplay.originalLabel) {
-      lines.push(t('pricing.originalPrice', { value: resolvedPriceDisplay.originalLabel }));
-    }
-    if (resolvedPriceDisplay.pointsCost) {
-      lines.push(t('pricing.pointsCost', { count: resolvedPriceDisplay.pointsCost }));
-    }
-    if (resolvedPriceDisplay.grsaiCreditTier) {
-      lines.push(
-        t('pricing.grsaiTier', {
-          price: resolvedPriceDisplay.grsaiCreditTier.priceCny.toFixed(2),
-          credits: resolvedPriceDisplay.grsaiCreditTier.credits.toLocaleString(
-            i18n.language.startsWith('zh') ? 'zh-CN' : 'en-US'
-          ),
-        })
+    const selectedModel = useMemo(() => {
+      const modelId = nodeData.model ?? DEFAULT_IMAGE_MODEL_ID;
+      return getStoryboardImageModel(
+        modelId,
+        storyboardCompatibleModelConfig,
+        storyboardNewApiModelConfig,
+        storyboardApi2OkModelConfig,
+        storyboardProviderCustomModels,
       );
-    }
-    return lines.join('\n');
-  }, [i18n.language, resolvedPriceDisplay, t]);
-  const headerStatus = useMemo(() => {
-    if (!error) {
-      return null;
-    }
-
-    return (
-      <NodeStatusBadge
-        icon={<AlertTriangle className="h-3 w-3" />}
-        label={t('nodeStatus.error')}
-        tone="danger"
-        title={error}
-      />
+    }, [
+      nodeData.model,
+      storyboardCompatibleModelConfig,
+      storyboardNewApiModelConfig,
+      storyboardApi2OkModelConfig,
+      storyboardProviderCustomModels,
+    ]);
+    const resolvedCompatibleModelConfig = useMemo(
+      () =>
+        isStoryboardCompatibleModelId(selectedModel.id)
+          ? resolveStoryboardCompatibleModelConfigForModel(
+              selectedModel.id,
+              storyboardCompatibleModelConfig,
+              storyboardProviderCustomModels,
+            )
+          : storyboardCompatibleModelConfig,
+      [
+        selectedModel.id,
+        storyboardCompatibleModelConfig,
+        storyboardProviderCustomModels,
+      ],
     );
-  }, [error, t]);
-  const headerRightSlot = useMemo(() => {
-    if (!resolvedPriceDisplay && !headerStatus) {
-      return undefined;
-    }
-
-    return (
-      <div className="mr-2 flex items-center gap-2">
-        {resolvedPriceDisplay ? (
-          <NodePriceBadge
-            label={resolvedPriceDisplay.label}
-            title={resolvedPriceTooltip}
-            className="mr-0"
-          />
-        ) : null}
-        {headerStatus}
-      </div>
+    const resolvedApi2OkModelConfig = useMemo(
+      () =>
+        isStoryboardApi2OkModelId(selectedModel.id)
+          ? resolveStoryboardApi2OkModelConfigForModel(
+              selectedModel.id,
+              storyboardApi2OkModelConfig,
+              storyboardProviderCustomModels,
+            )
+          : storyboardApi2OkModelConfig,
+      [
+        selectedModel.id,
+        storyboardApi2OkModelConfig,
+        storyboardProviderCustomModels,
+      ],
     );
-  }, [headerStatus, resolvedPriceDisplay, resolvedPriceTooltip]);
-
-  const supportedAspectRatioValues = useMemo(
-    () => selectedModel.aspectRatios.map((item) => item.value),
-    [selectedModel.aspectRatios]
-  );
-  const mappedOverallRequestAspectRatio = useMemo(
-    () =>
-      pickClosestAspectRatio(
-        resolvedAspectRatios.overallRatioValue,
-        supportedAspectRatioValues
-      ),
-    [resolvedAspectRatios.overallRatioValue, supportedAspectRatioValues]
-  );
-
-  const totalFrames = useMemo(
-    () => (nodeData.gridRows ?? 1) * (nodeData.gridCols ?? 1),
-    [nodeData.gridRows, nodeData.gridCols]
-  );
-  const resolvedNodeWidth = Math.max(
-    baseFrameLayout.nodeWidth,
-    Math.round(width ?? baseFrameLayout.nodeWidth)
-  );
-  const resolvedNodeHeight = Math.max(
-    baseFrameLayout.nodeHeight,
-    Math.round(height ?? baseFrameLayout.nodeHeight)
-  );
-  const frameLayout = useMemo(() => {
-    const cols = Math.max(1, nodeData.gridCols);
-    const rows = Math.max(1, nodeData.gridRows);
-    const aspectRatio = Math.max(0.1, parseAspectRatio(frameAspectRatioValue));
-    const innerWidth = Math.max(120, resolvedNodeWidth - STORYBOARD_NODE_HORIZONTAL_PADDING_PX);
-    const availableGridHeight = Math.max(
-      72,
-      resolvedNodeHeight
-      - NODE_VERTICAL_PADDING_PX
-      - CONTROL_ROW_HEIGHT_PX
-      - CONTROL_ROW_MARGIN_BOTTOM_PX
-      - FRAME_GRID_MARGIN_BOTTOM_PX
-      - PARAM_ROW_HEIGHT_PX
+    const resolvedModelExtraParams = useMemo(
+      () =>
+        resolveImageModelExtraParams(
+          selectedModel,
+          selectedModel.defaultExtraParams,
+          lastImageGenerationExtraParams,
+          nodeData.extraParams,
+        ),
+      [lastImageGenerationExtraParams, nodeData.extraParams, selectedModel],
     );
-    const widthLimitedCellWidth =
-      (innerWidth - Math.max(0, cols - 1) * STORYBOARD_GRID_GAP_PX) / cols;
-    const heightLimitedCellHeight =
-      (availableGridHeight - Math.max(0, rows - 1) * FRAME_GRID_GAP_PX) / rows;
-    const heightLimitedCellWidth = heightLimitedCellHeight * aspectRatio;
-    const resolvedCellWidth = Math.floor(Math.min(widthLimitedCellWidth, heightLimitedCellWidth));
-    const cellWidth = Math.max(FRAME_CELL_MIN_WIDTH_PX, resolvedCellWidth);
-    const gridWidth = cols * cellWidth + Math.max(0, cols - 1) * STORYBOARD_GRID_GAP_PX;
-    const paramsRowWidth = Math.max(
-      STORYBOARD_PARAMS_ROW_WIDTH_PX,
-      Math.floor(innerWidth)
+    const requestedNewApiResolution = useMemo(
+      () =>
+        isStoryboardNewApiModelId(selectedModel.id)
+          ? resolveImageModelResolution(selectedModel, nodeData.size, {
+              extraParams: resolvedModelExtraParams,
+            }).value
+          : null,
+      [nodeData.size, resolvedModelExtraParams, selectedModel],
+    );
+    const resolvedNewApiModelConfig = useMemo(
+      () =>
+        isStoryboardNewApiModelId(selectedModel.id)
+          ? resolveStoryboardNewApiModelConfigForModel(
+              selectedModel.id,
+              storyboardNewApiModelConfig,
+              storyboardProviderCustomModels,
+              {
+                resolution: requestedNewApiResolution,
+                extraParams: resolvedModelExtraParams,
+              },
+            )
+          : storyboardNewApiModelConfig,
+      [
+        requestedNewApiResolution,
+        resolvedModelExtraParams,
+        selectedModel.id,
+        storyboardNewApiModelConfig,
+        storyboardProviderCustomModels,
+      ],
+    );
+    const requestedOopiiResolution = useMemo(
+      () =>
+        isStoryboardOopiiModelId(selectedModel.id)
+          ? resolveImageModelResolution(selectedModel, nodeData.size, {
+              extraParams: resolvedModelExtraParams,
+            }).value
+          : null,
+      [nodeData.size, resolvedModelExtraParams, selectedModel],
+    );
+    const resolvedOopiiModelConfig = useMemo(
+      () =>
+        isStoryboardOopiiModelId(selectedModel.id)
+          ? resolveStoryboardOopiiModelConfigForModel(
+              selectedModel.id,
+              storyboardProviderCustomModels,
+              {
+                resolution: requestedOopiiResolution,
+                extraParams: resolvedModelExtraParams,
+              },
+            )
+          : resolveStoryboardOopiiModelConfigForModel(
+              null,
+              storyboardProviderCustomModels,
+            ),
+      [
+        requestedOopiiResolution,
+        resolvedModelExtraParams,
+        selectedModel.id,
+        storyboardProviderCustomModels,
+      ],
+    );
+    const providerApiKey = storyboardApiKeys[selectedModel.providerId] ?? "";
+    const effectiveExtraParams = useMemo(
+      () => ({
+        ...resolvedModelExtraParams,
+        ...(selectedModel.id === GRSAI_NANO_BANANA_PRO_MODEL_ID
+          ? { grsai_pro_model: hrsaiNanoBananaProModel }
+          : {}),
+        ...(isStoryboardCompatibleModelId(selectedModel.id)
+          ? {
+              compatible_config: toStoryboardCompatibleExtraParamsPayload(
+                resolvedCompatibleModelConfig,
+              ),
+            }
+          : isStoryboardOopiiModelId(selectedModel.id)
+            ? {
+                newapi_config: toStoryboardNewApiExtraParamsPayload(
+                  resolvedOopiiModelConfig,
+                ),
+              }
+            : isStoryboardNewApiModelId(selectedModel.id)
+              ? {
+                  newapi_config: toStoryboardNewApiExtraParamsPayload(
+                    resolvedNewApiModelConfig,
+                  ),
+                }
+              : isStoryboardApi2OkModelId(selectedModel.id)
+                ? {
+                    api2ok_config: toStoryboardApi2OkExtraParamsPayload(
+                      resolvedApi2OkModelConfig,
+                    ),
+                  }
+                : {}),
+      }),
+      [
+        hrsaiNanoBananaProModel,
+        resolvedModelExtraParams,
+        resolvedApi2OkModelConfig,
+        resolvedCompatibleModelConfig,
+        resolvedNewApiModelConfig,
+        resolvedOopiiModelConfig,
+        selectedModel.id,
+      ],
+    );
+    const resolutionOptions = useMemo(
+      () =>
+        resolveImageModelResolutions(selectedModel, {
+          extraParams: effectiveExtraParams,
+        }),
+      [effectiveExtraParams, selectedModel],
     );
 
-    return {
-      cellWidth,
-      gridWidth,
-      paramsRowWidth,
-      cellAspectRatio: toCssAspectRatio(frameAspectRatioValue),
-    };
-  }, [frameAspectRatioValue, nodeData.gridCols, nodeData.gridRows, resolvedNodeHeight, resolvedNodeWidth]);
+    const selectedResolution = useMemo((): AspectRatioChoice => {
+      return resolveImageModelResolution(selectedModel, nodeData.size, {
+        extraParams: effectiveExtraParams,
+      });
+    }, [effectiveExtraParams, nodeData.size, selectedModel]);
 
-  useEffect(() => {
-    frameDescriptionDraftsRef.current = frameDescriptionDrafts;
-  }, [frameDescriptionDrafts]);
-
-  useEffect(() => {
-    const nextDrafts = buildFrameDescriptionDrafts(nodeData.frames);
-    setFrameDescriptionDrafts((previous) =>
-      areFrameDescriptionDraftsEqual(previous, nextDrafts) ? previous : nextDrafts
+    const aspectRatioOptions = useMemo<AspectRatioChoice[]>(
+      () => [
+        {
+          value: AUTO_REQUEST_ASPECT_RATIO,
+          label: t("modelParams.autoAspectRatio"),
+        },
+        ...selectedModel.aspectRatios,
+      ],
+      [selectedModel.aspectRatios, t],
     );
-  }, [nodeData.frames]);
 
-  useEffect(() => {
-    const validFrameIds = new Set(nodeData.frames.map((frame) => frame.id));
-    Object.keys(frameSelectionRangesRef.current).forEach((frameId) => {
-      if (!validFrameIds.has(frameId)) {
-        delete frameSelectionRangesRef.current[frameId];
+    const normalizedRequestAspectRatio = useMemo(
+      () =>
+        selectedModel.id === GRSAI_GPT_IMAGE_2_MODEL_ID
+          ? (normalizeGrsaiGptImage2AspectRatio(nodeData.requestAspectRatio) ??
+            AUTO_REQUEST_ASPECT_RATIO)
+          : nodeData.requestAspectRatio,
+      [nodeData.requestAspectRatio, selectedModel.id],
+    );
+
+    const selectedAspectRatio = useMemo((): AspectRatioChoice => {
+      const nodeAspectRatio = normalizedRequestAspectRatio;
+      const found = nodeAspectRatio
+        ? aspectRatioOptions.find((item) => item.value === nodeAspectRatio)
+        : undefined;
+      return found ?? aspectRatioOptions[0];
+    }, [aspectRatioOptions, normalizedRequestAspectRatio]);
+
+    const ratioControlMode: StoryboardRatioControlMode =
+      showStoryboardGenAdvancedRatioControls
+        ? nodeData.ratioControlMode === "overall"
+          ? "overall"
+          : "cell"
+        : "cell";
+    const controlAspectRatioValue = useMemo(() => {
+      if (selectedAspectRatio.value === AUTO_REQUEST_ASPECT_RATIO) {
+        return nodeData.aspectRatio || DEFAULT_ASPECT_RATIO;
       }
-    });
-    Object.keys(frameHoverRefs.current).forEach((frameId) => {
-      if (!validFrameIds.has(frameId)) {
-        delete frameHoverRefs.current[frameId];
+      return selectedAspectRatio.value || DEFAULT_ASPECT_RATIO;
+    }, [nodeData.aspectRatio, selectedAspectRatio.value]);
+    const resolvedAspectRatios = useMemo(
+      () =>
+        resolveStoryboardAspectRatios(
+          ratioControlMode,
+          parseAspectRatio(controlAspectRatioValue),
+          nodeData.gridRows,
+          nodeData.gridCols,
+        ),
+      [
+        controlAspectRatioValue,
+        nodeData.gridCols,
+        nodeData.gridRows,
+        ratioControlMode,
+      ],
+    );
+    const frameAspectRatioValue = resolvedAspectRatios.cellAspectRatio;
+
+    const baseFrameLayout = useMemo(() => {
+      const aspectRatio = Math.max(
+        0.1,
+        parseAspectRatio(frameAspectRatioValue),
+      );
+      let cellWidth = STORYBOARD_GRID_BASE_CELL_HEIGHT_PX * aspectRatio;
+      let gridWidth =
+        nodeData.gridCols * cellWidth +
+        Math.max(0, nodeData.gridCols - 1) * STORYBOARD_GRID_GAP_PX;
+
+      if (gridWidth > STORYBOARD_GRID_MAX_WIDTH_PX) {
+        const scale = STORYBOARD_GRID_MAX_WIDTH_PX / gridWidth;
+        cellWidth *= scale;
+        gridWidth =
+          nodeData.gridCols * cellWidth +
+          Math.max(0, nodeData.gridCols - 1) * STORYBOARD_GRID_GAP_PX;
       }
+
+      const roundedCellWidth = Math.max(
+        FRAME_CELL_MIN_WIDTH_PX,
+        Math.round(cellWidth),
+      );
+      const roundedCellHeight = Math.max(
+        FRAME_CELL_MIN_HEIGHT_PX,
+        Math.round(roundedCellWidth / aspectRatio),
+      );
+      const roundedGridWidth =
+        nodeData.gridCols * roundedCellWidth +
+        Math.max(0, nodeData.gridCols - 1) * STORYBOARD_GRID_GAP_PX;
+      const roundedGridHeight =
+        nodeData.gridRows * roundedCellHeight +
+        Math.max(0, nodeData.gridRows - 1) * FRAME_GRID_GAP_PX;
+      const nodeInnerWidth = Math.max(
+        STORYBOARD_CONTROL_ROW_WIDTH_PX,
+        STORYBOARD_PARAMS_ROW_WIDTH_PX,
+        roundedGridWidth,
+      );
+      const nodeWidth = Math.max(
+        STORYBOARD_GEN_NODE_MIN_WIDTH_PX,
+        Math.round(nodeInnerWidth + STORYBOARD_NODE_HORIZONTAL_PADDING_PX),
+      );
+      const nodeHeight = Math.max(
+        STORYBOARD_GEN_NODE_MIN_HEIGHT_PX,
+        Math.round(
+          NODE_VERTICAL_PADDING_PX +
+            CONTROL_ROW_HEIGHT_PX +
+            CONTROL_ROW_MARGIN_BOTTOM_PX +
+            roundedGridHeight +
+            FRAME_GRID_MARGIN_BOTTOM_PX +
+            PARAM_ROW_HEIGHT_PX,
+        ),
+      );
+
+      return {
+        nodeWidth,
+        nodeHeight,
+      };
+    }, [frameAspectRatioValue, nodeData.gridCols, nodeData.gridRows]);
+
+    const requestResolution = selectedModel.resolveRequest({
+      referenceImageCount: incomingImages.length,
     });
-    setActiveFrameId((current) => (current && validFrameIds.has(current) ? current : null));
-    setComposingFrameId((current) => (current && validFrameIds.has(current) ? current : null));
-  }, [nodeData.frames]);
+    const debugRequestModel = useMemo(
+      () =>
+        isStoryboardCompatibleModelId(selectedModel.id)
+          ? resolvedCompatibleModelConfig.requestModel
+          : isStoryboardNewApiModelId(selectedModel.id)
+            ? resolvedNewApiModelConfig.requestModel
+            : isStoryboardApi2OkModelId(selectedModel.id)
+              ? resolvedApi2OkModelConfig.requestModel
+              : requestResolution.requestModel,
+      [
+        requestResolution.requestModel,
+        selectedModel.id,
+        resolvedApi2OkModelConfig.requestModel,
+        resolvedCompatibleModelConfig.requestModel,
+        resolvedNewApiModelConfig.requestModel,
+      ],
+    );
+    const resolvedPriceDisplay = useMemo(
+      () =>
+        showNodePrice
+          ? resolveModelPriceDisplay(selectedModel, {
+              resolution: selectedResolution.value,
+              extraParams: effectiveExtraParams,
+              language: i18n.language,
+              settings: {
+                displayCurrencyMode: priceDisplayCurrencyMode,
+                usdToCnyRate,
+                preferDiscountedPrice,
+                grsaiCreditTierId,
+              },
+            })
+          : null,
+      [
+        grsaiCreditTierId,
+        i18n.language,
+        preferDiscountedPrice,
+        priceDisplayCurrencyMode,
+        effectiveExtraParams,
+        selectedModel,
+        selectedResolution.value,
+        showNodePrice,
+        usdToCnyRate,
+      ],
+    );
+    const resolvedPriceTooltip = useMemo(() => {
+      if (!resolvedPriceDisplay) {
+        return undefined;
+      }
 
-  useEffect(() => {
-    updateNodeInternals(id);
-  }, [id, resolvedNodeHeight, resolvedNodeWidth, updateNodeInternals]);
+      const lines = [resolvedPriceDisplay.label];
+      if (resolvedPriceDisplay.nativeLabel) {
+        lines.push(
+          t("pricing.nativePrice", { value: resolvedPriceDisplay.nativeLabel }),
+        );
+      }
+      if (resolvedPriceDisplay.originalLabel) {
+        lines.push(
+          t("pricing.originalPrice", {
+            value: resolvedPriceDisplay.originalLabel,
+          }),
+        );
+      }
+      if (resolvedPriceDisplay.pointsCost) {
+        lines.push(
+          t("pricing.pointsCost", { count: resolvedPriceDisplay.pointsCost }),
+        );
+      }
+      if (resolvedPriceDisplay.grsaiCreditTier) {
+        lines.push(
+          t("pricing.grsaiTier", {
+            price: resolvedPriceDisplay.grsaiCreditTier.priceCny.toFixed(2),
+            credits:
+              resolvedPriceDisplay.grsaiCreditTier.credits.toLocaleString(
+                i18n.language.startsWith("zh") ? "zh-CN" : "en-US",
+              ),
+          }),
+        );
+      }
+      return lines.join("\n");
+    }, [i18n.language, resolvedPriceDisplay, t]);
+    const headerStatus = useMemo(() => {
+      if (!error) {
+        return null;
+      }
 
-  // Sync model, size, aspect ratio with node data
-  useEffect(() => {
-    if (nodeData.model !== selectedModel.id) {
-      updateNodeData(id, { model: selectedModel.id });
-    }
+      return (
+        <NodeStatusBadge
+          icon={<AlertTriangle className="h-3 w-3" />}
+          label={t("nodeStatus.error")}
+          tone="danger"
+          title={error}
+        />
+      );
+    }, [error, t]);
+    const headerRightSlot = useMemo(() => {
+      if (!resolvedPriceDisplay && !headerStatus) {
+        return undefined;
+      }
 
-    if (nodeData.size !== selectedResolution.value) {
-      updateNodeData(id, { size: selectedResolution.value as ImageSize });
-    }
+      return (
+        <div className="mr-2 flex items-center gap-2">
+          {resolvedPriceDisplay ? (
+            <NodePriceBadge
+              label={resolvedPriceDisplay.label}
+              title={resolvedPriceTooltip}
+              className="mr-0"
+            />
+          ) : null}
+          {headerStatus}
+        </div>
+      );
+    }, [headerStatus, resolvedPriceDisplay, resolvedPriceTooltip]);
 
-    if (nodeData.requestAspectRatio !== selectedAspectRatio.value) {
-      updateNodeData(id, { requestAspectRatio: selectedAspectRatio.value });
-    }
-  }, [
-    id,
-    nodeData,
-    selectedModel.id,
-    selectedResolution.value,
-    selectedAspectRatio.value,
-    updateNodeData,
-  ]);
+    const supportedAspectRatioValues = useMemo(
+      () => selectedModel.aspectRatios.map((item) => item.value),
+      [selectedModel.aspectRatios],
+    );
+    const mappedOverallRequestAspectRatio = useMemo(
+      () =>
+        pickClosestAspectRatio(
+          resolvedAspectRatios.overallRatioValue,
+          supportedAspectRatioValues,
+        ),
+      [resolvedAspectRatios.overallRatioValue, supportedAspectRatioValues],
+    );
 
-  useEffect(() => {
-    if (incomingImages.length === 0) {
+    const totalFrames = useMemo(
+      () => (nodeData.gridRows ?? 1) * (nodeData.gridCols ?? 1),
+      [nodeData.gridRows, nodeData.gridCols],
+    );
+    const resolvedNodeWidth = Math.max(
+      baseFrameLayout.nodeWidth,
+      Math.round(width ?? baseFrameLayout.nodeWidth),
+    );
+    const resolvedNodeHeight = Math.max(
+      baseFrameLayout.nodeHeight,
+      Math.round(height ?? baseFrameLayout.nodeHeight),
+    );
+    const frameLayout = useMemo(() => {
+      const cols = Math.max(1, nodeData.gridCols);
+      const rows = Math.max(1, nodeData.gridRows);
+      const aspectRatio = Math.max(
+        0.1,
+        parseAspectRatio(frameAspectRatioValue),
+      );
+      const innerWidth = Math.max(
+        120,
+        resolvedNodeWidth - STORYBOARD_NODE_HORIZONTAL_PADDING_PX,
+      );
+      const availableGridHeight = Math.max(
+        72,
+        resolvedNodeHeight -
+          NODE_VERTICAL_PADDING_PX -
+          CONTROL_ROW_HEIGHT_PX -
+          CONTROL_ROW_MARGIN_BOTTOM_PX -
+          FRAME_GRID_MARGIN_BOTTOM_PX -
+          PARAM_ROW_HEIGHT_PX,
+      );
+      const widthLimitedCellWidth =
+        (innerWidth - Math.max(0, cols - 1) * STORYBOARD_GRID_GAP_PX) / cols;
+      const heightLimitedCellHeight =
+        (availableGridHeight - Math.max(0, rows - 1) * FRAME_GRID_GAP_PX) /
+        rows;
+      const heightLimitedCellWidth = heightLimitedCellHeight * aspectRatio;
+      const resolvedCellWidth = Math.floor(
+        Math.min(widthLimitedCellWidth, heightLimitedCellWidth),
+      );
+      const cellWidth = Math.max(FRAME_CELL_MIN_WIDTH_PX, resolvedCellWidth);
+      const gridWidth =
+        cols * cellWidth + Math.max(0, cols - 1) * STORYBOARD_GRID_GAP_PX;
+      const paramsRowWidth = Math.max(
+        STORYBOARD_PARAMS_ROW_WIDTH_PX,
+        Math.floor(innerWidth),
+      );
+
+      return {
+        cellWidth,
+        gridWidth,
+        paramsRowWidth,
+        cellAspectRatio: toCssAspectRatio(frameAspectRatioValue),
+      };
+    }, [
+      frameAspectRatioValue,
+      nodeData.gridCols,
+      nodeData.gridRows,
+      resolvedNodeHeight,
+      resolvedNodeWidth,
+    ]);
+
+    useEffect(() => {
+      frameDescriptionDraftsRef.current = frameDescriptionDrafts;
+    }, [frameDescriptionDrafts]);
+
+    useEffect(() => {
+      const nextDrafts = buildFrameDescriptionDrafts(nodeData.frames);
+      setFrameDescriptionDrafts((previous) =>
+        areFrameDescriptionDraftsEqual(previous, nextDrafts)
+          ? previous
+          : nextDrafts,
+      );
+    }, [nodeData.frames]);
+
+    useEffect(() => {
+      const validFrameIds = new Set(nodeData.frames.map((frame) => frame.id));
+      Object.keys(frameSelectionRangesRef.current).forEach((frameId) => {
+        if (!validFrameIds.has(frameId)) {
+          delete frameSelectionRangesRef.current[frameId];
+        }
+      });
+      Object.keys(frameHoverRefs.current).forEach((frameId) => {
+        if (!validFrameIds.has(frameId)) {
+          delete frameHoverRefs.current[frameId];
+        }
+      });
+      setActiveFrameId((current) =>
+        current && validFrameIds.has(current) ? current : null,
+      );
+      setComposingFrameId((current) =>
+        current && validFrameIds.has(current) ? current : null,
+      );
+    }, [nodeData.frames]);
+
+    useEffect(() => {
+      updateNodeInternals(id);
+    }, [id, resolvedNodeHeight, resolvedNodeWidth, updateNodeInternals]);
+
+    // Sync model, size, aspect ratio with node data
+    useEffect(() => {
+      if (nodeData.model !== selectedModel.id) {
+        updateNodeData(id, { model: selectedModel.id });
+      }
+
+      if (nodeData.size !== selectedResolution.value) {
+        updateNodeData(id, { size: selectedResolution.value as ImageSize });
+      }
+
+      if (nodeData.requestAspectRatio !== selectedAspectRatio.value) {
+        updateNodeData(id, { requestAspectRatio: selectedAspectRatio.value });
+      }
+    }, [
+      id,
+      nodeData,
+      selectedModel.id,
+      selectedResolution.value,
+      selectedAspectRatio.value,
+      updateNodeData,
+    ]);
+
+    useEffect(() => {
+      if (incomingImages.length === 0) {
+        setShowImagePicker(false);
+        setPickerFrameIndex(null);
+        setPickerActiveIndex(0);
+        setFrameReferencePreview(null);
+        return;
+      }
+
+      setPickerActiveIndex((previous) =>
+        Math.min(previous, incomingImages.length - 1),
+      );
+    }, [incomingImages.length]);
+
+    useEffect(() => {
+      setFrameReferencePreview(null);
+    }, [frameDescriptionDrafts, incomingImages]);
+
+    useEffect(() => {
+      if (!showImagePicker) {
+        return;
+      }
+
+      pickerItemRefs.current[pickerActiveIndex]?.scrollIntoView({
+        block: "nearest",
+      });
+    }, [pickerActiveIndex, showImagePicker]);
+
+    useEffect(() => {
+      const handleOutsidePointerDown = (event: PointerEvent) => {
+        if (rootRef.current?.contains(event.target as Node)) {
+          return;
+        }
+
+        setShowImagePicker(false);
+        setPickerFrameIndex(null);
+        setFrameReferencePreview(null);
+      };
+
+      document.addEventListener("pointerdown", handleOutsidePointerDown, true);
+      return () => {
+        document.removeEventListener(
+          "pointerdown",
+          handleOutsidePointerDown,
+          true,
+        );
+      };
+    }, []);
+
+    // Auto-generate frames when grid changes
+    useEffect(() => {
+      const currentFrames = nodeData.frames;
+      const targetCount = totalFrames;
+
+      if (currentFrames.length === targetCount) {
+        return;
+      }
+
+      const newFrames: StoryboardGenNodeData["frames"] = [];
+      for (let i = 0; i < targetCount; i++) {
+        if (i < currentFrames.length) {
+          newFrames.push(currentFrames[i]);
+        } else {
+          newFrames.push({
+            id: generateFrameId(),
+            description: "",
+            referenceIndex: null,
+          });
+        }
+      }
+
+      updateNodeData(id, { frames: newFrames });
+    }, [id, nodeData.frames, totalFrames, updateNodeData]);
+
+    // Build prompt from frames
+    const buildPrompt = useCallback((): string => {
+      if (!nodeData) {
+        return "";
+      }
+
+      const { gridRows, gridCols, frames } = nodeData;
+      const parts: string[] = [];
+
+      const promptDirectives: string[] = [
+        `生成一张${gridRows}×${gridCols}的${gridRows * gridCols}宫格分镜图`,
+      ];
+      if (storyboardGenKeepStyleConsistent) {
+        promptDirectives.push("图片风格与参考图保持一致");
+      }
+      if (storyboardGenDisableTextInImage) {
+        promptDirectives.push("禁止添加描述文本");
+      }
+      parts.push(`${promptDirectives.join("，")}。`);
+
+      frames.forEach((frame, index) => {
+        const frameDescription =
+          frameDescriptionDraftsRef.current[frame.id] ?? frame.description;
+        const sanitizedDescription =
+          sanitizeStoryboardPromptText(frameDescription);
+        if (!sanitizedDescription) {
+          if (storyboardGenAutoInferEmptyFrame) {
+            parts.push(`分镜${index + 1}：依据之前的内容进行推测`);
+          }
+          return;
+        }
+
+        parts.push(`分镜${index + 1}：${sanitizedDescription}`);
+      });
+
+      return parts.join("\n");
+    }, [
+      nodeData,
+      storyboardGenAutoInferEmptyFrame,
+      storyboardGenDisableTextInImage,
+      storyboardGenKeepStyleConsistent,
+    ]);
+
+    const resolveEffectiveRequestAspectRatio =
+      useCallback(async (): Promise<string> => {
+        const safeRows = Math.max(1, nodeData.gridRows);
+        const safeCols = Math.max(1, nodeData.gridCols);
+        if (selectedAspectRatio.value !== AUTO_REQUEST_ASPECT_RATIO) {
+          return mappedOverallRequestAspectRatio;
+        }
+
+        let autoControlRatioValue = 1;
+        if (incomingRequestImageItems.length > 0) {
+          try {
+            const sourceImageUrl = await resolveReadableImageSource(
+              incomingRequestImageItems[0].referenceUrl,
+              incomingRequestImageItems[0].previewImageUrl,
+            );
+            const sourceAspectRatio = await detectAspectRatio(sourceImageUrl);
+            autoControlRatioValue = Math.max(
+              0.1,
+              parseAspectRatio(sourceAspectRatio),
+            );
+          } catch {
+            autoControlRatioValue = 1;
+          }
+        }
+
+        const autoResolvedRatios = resolveStoryboardAspectRatios(
+          ratioControlMode,
+          autoControlRatioValue,
+          safeRows,
+          safeCols,
+        );
+        return pickClosestAspectRatio(
+          autoResolvedRatios.overallRatioValue,
+          supportedAspectRatioValues,
+        );
+      }, [
+        incomingRequestImageItems,
+        mappedOverallRequestAspectRatio,
+        nodeData.gridCols,
+        nodeData.gridRows,
+        ratioControlMode,
+        selectedAspectRatio.value,
+        supportedAspectRatioValues,
+      ]);
+
+    const handleGenerate = useCallback(
+      async (previewGridOnly = false) => {
+        if (!nodeData) {
+          return;
+        }
+
+        const safeRows = Math.max(1, nodeData.gridRows);
+        const safeCols = Math.max(1, nodeData.gridCols);
+        const resolvedRequestAspectRatio =
+          await resolveEffectiveRequestAspectRatio();
+        const predictedResultSize = resolveMinEdgeFittedSize(
+          resolvedRequestAspectRatio,
+          {
+            minWidth: EXPORT_RESULT_NODE_MIN_WIDTH,
+            minHeight: EXPORT_RESULT_NODE_MIN_HEIGHT,
+          },
+        );
+
+        if (previewGridOnly) {
+          const gridImageDataUrl = generateGridImageDataUrl(
+            resolvedRequestAspectRatio,
+            safeRows,
+            safeCols,
+            selectedResolution.value,
+          );
+          const newNodePosition = findNodePosition(
+            id,
+            predictedResultSize.width,
+            predictedResultSize.height,
+          );
+          const previewNodeId = addNode(
+            CANVAS_NODE_TYPES.exportImage,
+            newNodePosition,
+            {
+              displayName: t("node.storyboardGen.gridPreviewTitle"),
+              resultKind: "storyboardGenOutput",
+              imageUrl: gridImageDataUrl,
+              previewImageUrl: gridImageDataUrl,
+              aspectRatio: resolvedRequestAspectRatio,
+              isGenerating: false,
+              generationStartedAt: null,
+              requestAspectRatio: resolvedRequestAspectRatio,
+            },
+            { inheritParentFromNodeId: id },
+          );
+          addEdge(id, previewNodeId);
+          setSelectedNode(null);
+          setError(null);
+          return;
+        }
+
+        const basePrompt = buildPrompt();
+        const displayPrompt = normalizeReferenceImagePrompt(basePrompt).trim();
+        if (!displayPrompt) {
+          const errorMessage = t("node.storyboardGen.promptRequired");
+          setError(errorMessage);
+          void showErrorDialog(errorMessage, t("common.error"));
+          return;
+        }
+
+        if (!providerApiKey) {
+          const errorMessage = t("node.storyboardGen.apiKeyRequired");
+          setError(errorMessage);
+          openSettingsDialog({
+            category: "providers",
+            providerTab: "storyboard",
+            providerId: selectedModel.providerId,
+          });
+          void showErrorDialog(errorMessage, t("common.error"));
+          return;
+        }
+
+        const generationDurationMs = selectedModel.expectedDurationMs ?? 60000;
+        const generationStartedAt = Date.now();
+        const runtimeDiagnosticsPromise = getRuntimeDiagnostics();
+        const submittedPrompt = buildReferenceAwareGenerationPrompt(
+          basePrompt,
+          incomingRequestImageItems.length + 1,
+        );
+        const generationSummary: ExportImageGenerationSummary = {
+          sourceType: "storyboardGen",
+          providerId: selectedModel.providerId,
+          requestModel: debugRequestModel,
+          prompt: submittedPrompt,
+          generatedAt: null,
+        };
+
+        // Create new image node with generating state immediately
+        // Use auto-positioning to avoid collisions with existing nodes
+        const newNodePosition = findNodePosition(
+          id,
+          predictedResultSize.width,
+          predictedResultSize.height,
+        );
+        const newNodeId = addNode(
+          CANVAS_NODE_TYPES.exportImage,
+          newNodePosition,
+          {
+            isGenerating: true,
+            generationPhase: "submitting",
+            generationFailureStage: null,
+            generationStartedAt,
+            generationDurationMs,
+            displayName: EXPORT_RESULT_DISPLAY_NAME.storyboardGenOutput,
+            resultKind: "storyboardGenOutput",
+            prompt: "",
+            model: selectedModel.id,
+            size: selectedResolution.value as ImageSize,
+            aspectRatio: resolvedRequestAspectRatio,
+            requestAspectRatio: mappedOverallRequestAspectRatio,
+            generationSummary,
+          },
+          { inheritParentFromNodeId: id },
+        );
+
+        // Connect the storyboard node to the new image node
+        addEdge(id, newNodeId);
+
+        setSelectedNode(null);
+        setError(null);
+
+        let effectiveRequestSize = selectedResolution.value;
+        let referenceImageOptimization: GenerationDebugContext["referenceImageOptimization"];
+        let resolutionDowngrade: GenerationDebugContext["resolutionDowngrade"];
+
+        try {
+          await canvasAiGateway.setApiKey(
+            selectedModel.providerId,
+            providerApiKey,
+          );
+
+          // 生成网格图片作为最后一张参考图片
+          const gridImageDataUrl = generateGridImageDataUrl(
+            resolvedRequestAspectRatio,
+            safeRows,
+            safeCols,
+            selectedResolution.value,
+          );
+
+          const resolvedIncomingRequestImages = await Promise.all(
+            incomingRequestImageItems.map(
+              async (item) =>
+                await resolveReadableImageSource(
+                  item.referenceUrl,
+                  item.previewImageUrl,
+                ),
+            ),
+          );
+          const allRequestReferenceImages = [
+            ...resolvedIncomingRequestImages,
+            gridImageDataUrl,
+          ];
+
+          const metadataFrameNotes = nodeData.frames
+            .slice(0, safeRows * safeCols)
+            .map((frame) => {
+              const description =
+                frameDescriptionDraftsRef.current[frame.id] ??
+                frame.description;
+              return sanitizeStoryboardText(
+                description,
+                ignoreAtTagWhenCopyingAndGenerating,
+              );
+            });
+
+          const resolvedGeneratePayload =
+            await canvasAiGateway.resolveGenerateImagePayload({
+              prompt: submittedPrompt,
+              model: requestResolution.requestModel,
+              size: selectedResolution.value,
+              aspectRatio: resolvedRequestAspectRatio,
+              referenceImages: allRequestReferenceImages,
+              extraParams: effectiveExtraParams,
+            });
+          effectiveRequestSize = resolvedGeneratePayload.effectiveSize;
+          referenceImageOptimization =
+            resolvedGeneratePayload.referenceImageOptimization;
+          resolutionDowngrade = resolvedGeneratePayload.resolutionDowngrade;
+          const generationStatusText = resolutionDowngrade
+            ? t("node.imageNode.optimizedReferenceRequestDowngraded")
+            : referenceImageOptimization?.applied
+              ? t("node.imageNode.optimizedReferenceRequest")
+              : null;
+          const jobId = await canvasAiGateway.submitGenerateImageJob(
+            resolvedGeneratePayload,
+          );
+          const runtimeDiagnostics = await runtimeDiagnosticsPromise;
+          const generationDebugContext: GenerationDebugContext = {
+            sourceType: "storyboardGen",
+            providerId: selectedModel.providerId,
+            requestModel: debugRequestModel,
+            requestSize: selectedResolution.value,
+            effectiveRequestSize,
+            requestAspectRatio: resolvedRequestAspectRatio,
+            prompt: submittedPrompt,
+            extraParams: effectiveExtraParams,
+            referenceImageCount: allRequestReferenceImages.length,
+            referenceImagePlaceholders: createReferenceImagePlaceholders(
+              allRequestReferenceImages.length,
+            ),
+            referenceImageOptimization,
+            resolutionDowngrade,
+            appVersion: runtimeDiagnostics.appVersion,
+            osName: runtimeDiagnostics.osName,
+            osVersion: runtimeDiagnostics.osVersion,
+            osBuild: runtimeDiagnostics.osBuild,
+            networkProxySummary: runtimeDiagnostics.networkProxySummary,
+            userAgent: runtimeDiagnostics.userAgent,
+          };
+          updateNodeData(newNodeId, {
+            isGenerating: true,
+            generationJobId: jobId,
+            generationPhase: "queued",
+            generationFailureStage: null,
+            generationStartedAt,
+            generationSourceType: "storyboardGen",
+            generationProviderId: selectedModel.providerId,
+            generationClientSessionId: CURRENT_RUNTIME_SESSION_ID,
+            generationStatusText,
+            generationError: null,
+            generationErrorDetails: null,
+            generationDebugContext,
+            generationStoryboardMetadata: {
+              gridRows: safeRows,
+              gridCols: safeCols,
+              frameNotes: metadataFrameNotes,
+            },
+          });
+        } catch (generationError) {
+          const finalResolvedError = resolveErrorContent(
+            generationError,
+            t("ai.error"),
+          );
+          const runtimeDiagnostics = await runtimeDiagnosticsPromise;
+          const generationDebugContext: GenerationDebugContext = {
+            sourceType: "storyboardGen",
+            providerId: selectedModel.providerId,
+            requestModel: debugRequestModel,
+            requestSize: selectedResolution.value,
+            effectiveRequestSize,
+            requestAspectRatio: resolvedRequestAspectRatio,
+            prompt: submittedPrompt,
+            extraParams: effectiveExtraParams,
+            referenceImageCount: incomingRequestImageItems.length + 1,
+            referenceImagePlaceholders: createReferenceImagePlaceholders(
+              incomingRequestImageItems.length + 1,
+            ),
+            referenceImageOptimization,
+            resolutionDowngrade,
+            appVersion: runtimeDiagnostics.appVersion,
+            osName: runtimeDiagnostics.osName,
+            osVersion: runtimeDiagnostics.osVersion,
+            osBuild: runtimeDiagnostics.osBuild,
+            networkProxySummary: runtimeDiagnostics.networkProxySummary,
+            userAgent: runtimeDiagnostics.userAgent,
+          };
+          const reportText = buildGenerationErrorReport({
+            errorMessage: finalResolvedError.message,
+            errorDetails: finalResolvedError.details,
+            context: generationDebugContext,
+            errorCategory: finalResolvedError.category,
+            statusCode: finalResolvedError.statusCode,
+            traceId: finalResolvedError.traceId,
+            requestId: finalResolvedError.requestId,
+          });
+          setError(finalResolvedError.message);
+          void showErrorDialog(
+            finalResolvedError.message,
+            t("common.error"),
+            finalResolvedError.details,
+            reportText,
+          );
+          void recordImageGenerationErrorLog({
+            nodeId: newNodeId,
+            sourceType: "storyboardGen",
+            failureStage: "submit",
+            errorMessage: finalResolvedError.message,
+            errorDetails: finalResolvedError.details,
+            context: generationDebugContext,
+            errorCategory: finalResolvedError.category,
+            statusCode: finalResolvedError.statusCode,
+            traceId: finalResolvedError.traceId,
+            requestId: finalResolvedError.requestId,
+            providerId: selectedModel.providerId,
+            startedAt: generationStartedAt,
+          }).catch((error) => {
+            console.warn(
+              "[StoryboardGenNode] failed to record error log",
+              error,
+            );
+          });
+          updateNodeData(newNodeId, {
+            isGenerating: false,
+            generationPhase: "failed",
+            generationFailureStage: "submit",
+            generationStartedAt: null,
+            generationJobId: null,
+            generationProviderId: null,
+            generationClientSessionId: null,
+            generationStatusText: null,
+            generationStoryboardMetadata: undefined,
+            generationError: finalResolvedError.message,
+            generationErrorDetails: finalResolvedError.details ?? null,
+            generationDebugContext,
+          });
+          return;
+        }
+      },
+      [
+        providerApiKey,
+        nodeData,
+        incomingImages,
+        incomingRequestImageItems,
+        requestResolution.requestModel,
+        debugRequestModel,
+        effectiveExtraParams,
+        selectedModel.expectedDurationMs,
+        selectedModel.id,
+        selectedModel.providerId,
+        supportedAspectRatioValues,
+        setSelectedNode,
+        selectedAspectRatio.value,
+        selectedResolution.value,
+        addNode,
+        addEdge,
+        buildPrompt,
+        selectedModel.id,
+        findNodePosition,
+        updateNodeData,
+        mappedOverallRequestAspectRatio,
+        resolveEffectiveRequestAspectRatio,
+        t,
+        ignoreAtTagWhenCopyingAndGenerating,
+      ],
+    );
+
+    const handleRowChange = useCallback(
+      (delta: number) => {
+        if (!nodeData) {
+          return;
+        }
+        const newRows = Math.max(1, Math.min(9, nodeData.gridRows + delta));
+        updateNodeData(id, { gridRows: newRows });
+      },
+      [nodeData, updateNodeData],
+    );
+
+    const handleColChange = useCallback(
+      (delta: number) => {
+        if (!nodeData) {
+          return;
+        }
+        const newCols = Math.max(1, Math.min(9, nodeData.gridCols + delta));
+        updateNodeData(id, { gridCols: newCols });
+      },
+      [nodeData, updateNodeData],
+    );
+
+    const handleFrameDescriptionChange = useCallback(
+      (index: number, description: string) => {
+        const frame = nodeData.frames[index];
+        if (!frame) {
+          return;
+        }
+
+        setFrameDescriptionDrafts((previous) =>
+          previous[frame.id] === description
+            ? previous
+            : {
+                ...previous,
+                [frame.id]: description,
+              },
+        );
+
+        const referenceIndex = resolveReferenceIndexFromDescription(
+          description,
+          incomingImages.length,
+        );
+        if (
+          frame.description === description &&
+          frame.referenceIndex === referenceIndex
+        ) {
+          return;
+        }
+
+        const newFrames = [...nodeData.frames];
+        newFrames[index] = { ...frame, description, referenceIndex };
+        updateNodeData(id, { frames: newFrames });
+      },
+      [id, incomingImages.length, nodeData.frames, updateNodeData],
+    );
+
+    const closeImagePicker = useCallback(() => {
       setShowImagePicker(false);
       setPickerFrameIndex(null);
       setPickerActiveIndex(0);
       setFrameReferencePreview(null);
-      return;
-    }
+    }, []);
 
-    setPickerActiveIndex((previous) => Math.min(previous, incomingImages.length - 1));
-  }, [incomingImages.length]);
-
-  useEffect(() => {
-    setFrameReferencePreview(null);
-  }, [frameDescriptionDrafts, incomingImages]);
-
-  useEffect(() => {
-    if (!showImagePicker) {
-      return;
-    }
-
-    pickerItemRefs.current[pickerActiveIndex]?.scrollIntoView({
-      block: 'nearest',
-    });
-  }, [pickerActiveIndex, showImagePicker]);
-
-  useEffect(() => {
-    const handleOutsidePointerDown = (event: PointerEvent) => {
-      if (rootRef.current?.contains(event.target as Node)) {
-        return;
-      }
-
-      setShowImagePicker(false);
-      setPickerFrameIndex(null);
+    const hideFrameReferencePreview = useCallback(() => {
       setFrameReferencePreview(null);
-    };
+    }, []);
 
-    document.addEventListener('pointerdown', handleOutsidePointerDown, true);
-    return () => {
-      document.removeEventListener('pointerdown', handleOutsidePointerDown, true);
-    };
-  }, []);
+    const openFrameImagePicker = useCallback(
+      (
+        index: number,
+        frameId: string,
+        textarea: HTMLTextAreaElement,
+        selection: TextSelectionRange,
+        caretIndex: number = selection.start,
+      ) => {
+        frameSelectionRangesRef.current[frameId] = selection;
+        setFrameReferencePreview(null);
 
-  // Auto-generate frames when grid changes
-  useEffect(() => {
-    const currentFrames = nodeData.frames;
-    const targetCount = totalFrames;
-
-    if (currentFrames.length === targetCount) {
-      return;
-    }
-
-    const newFrames: StoryboardGenNodeData['frames'] = [];
-    for (let i = 0; i < targetCount; i++) {
-      if (i < currentFrames.length) {
-        newFrames.push(currentFrames[i]);
-      } else {
-        newFrames.push({
-          id: generateFrameId(),
-          description: '',
-          referenceIndex: null,
-        });
-      }
-    }
-
-    updateNodeData(id, { frames: newFrames });
-  }, [id, nodeData.frames, totalFrames, updateNodeData]);
-
-  // Build prompt from frames
-  const buildPrompt = useCallback((): string => {
-    if (!nodeData) {
-      return '';
-    }
-
-    const { gridRows, gridCols, frames } = nodeData;
-    const parts: string[] = [];
-
-    const promptDirectives: string[] = [
-      `生成一张${gridRows}×${gridCols}的${gridRows * gridCols}宫格分镜图`,
-    ];
-    if (storyboardGenKeepStyleConsistent) {
-      promptDirectives.push('图片风格与参考图保持一致');
-    }
-    if (storyboardGenDisableTextInImage) {
-      promptDirectives.push('禁止添加描述文本');
-    }
-    parts.push(`${promptDirectives.join('，')}。`);
-
-    frames.forEach((frame, index) => {
-      const frameDescription = frameDescriptionDraftsRef.current[frame.id] ?? frame.description;
-      const sanitizedDescription = sanitizeStoryboardPromptText(frameDescription);
-      if (!sanitizedDescription) {
-        if (storyboardGenAutoInferEmptyFrame) {
-          parts.push(`分镜${index + 1}：依据之前的内容进行推测`);
-        }
-        return;
-      }
-
-      parts.push(`分镜${index + 1}：${sanitizedDescription}`);
-    });
-
-    return parts.join('\n');
-  }, [
-    nodeData,
-    storyboardGenAutoInferEmptyFrame,
-    storyboardGenDisableTextInImage,
-    storyboardGenKeepStyleConsistent,
-  ]);
-
-  const resolveEffectiveRequestAspectRatio = useCallback(async (): Promise<string> => {
-    const safeRows = Math.max(1, nodeData.gridRows);
-    const safeCols = Math.max(1, nodeData.gridCols);
-    if (selectedAspectRatio.value !== AUTO_REQUEST_ASPECT_RATIO) {
-      return mappedOverallRequestAspectRatio;
-    }
-
-    let autoControlRatioValue = 1;
-    if (incomingRequestImageItems.length > 0) {
-      try {
-        const sourceImageUrl = await resolveReadableImageSource(
-          incomingRequestImageItems[0].referenceUrl,
-          incomingRequestImageItems[0].previewImageUrl
-        );
-        const sourceAspectRatio = await detectAspectRatio(sourceImageUrl);
-        autoControlRatioValue = Math.max(0.1, parseAspectRatio(sourceAspectRatio));
-      } catch {
-        autoControlRatioValue = 1;
-      }
-    }
-
-    const autoResolvedRatios = resolveStoryboardAspectRatios(
-      ratioControlMode,
-      autoControlRatioValue,
-      safeRows,
-      safeCols
-    );
-    return pickClosestAspectRatio(
-      autoResolvedRatios.overallRatioValue,
-      supportedAspectRatioValues
-    );
-  }, [
-    incomingRequestImageItems,
-    mappedOverallRequestAspectRatio,
-    nodeData.gridCols,
-    nodeData.gridRows,
-    ratioControlMode,
-    selectedAspectRatio.value,
-    supportedAspectRatioValues,
-  ]);
-
-  const handleGenerate = useCallback(async (previewGridOnly = false) => {
-    if (!nodeData) {
-      return;
-    }
-
-    const safeRows = Math.max(1, nodeData.gridRows);
-    const safeCols = Math.max(1, nodeData.gridCols);
-    const resolvedRequestAspectRatio = await resolveEffectiveRequestAspectRatio();
-    const predictedResultSize = resolveMinEdgeFittedSize(resolvedRequestAspectRatio, {
-      minWidth: EXPORT_RESULT_NODE_MIN_WIDTH,
-      minHeight: EXPORT_RESULT_NODE_MIN_HEIGHT,
-    });
-
-    if (previewGridOnly) {
-      const gridImageDataUrl = generateGridImageDataUrl(
-        resolvedRequestAspectRatio,
-        safeRows,
-        safeCols,
-        selectedResolution.value
-      );
-      const newNodePosition = findNodePosition(
-        id,
-        predictedResultSize.width,
-        predictedResultSize.height
-      );
-      const previewNodeId = addNode(
-        CANVAS_NODE_TYPES.exportImage,
-        newNodePosition,
-        {
-          displayName: t('node.storyboardGen.gridPreviewTitle'),
-          resultKind: 'storyboardGenOutput',
-          imageUrl: gridImageDataUrl,
-          previewImageUrl: gridImageDataUrl,
-          aspectRatio: resolvedRequestAspectRatio,
-          isGenerating: false,
-          generationStartedAt: null,
-          requestAspectRatio: resolvedRequestAspectRatio,
-        },
-        { inheritParentFromNodeId: id }
-      );
-      addEdge(id, previewNodeId);
-      setSelectedNode(null);
-      setError(null);
-      return;
-    }
-
-    const basePrompt = buildPrompt();
-    const displayPrompt = normalizeReferenceImagePrompt(basePrompt).trim();
-    if (!displayPrompt) {
-      const errorMessage = t('node.storyboardGen.promptRequired');
-      setError(errorMessage);
-      void showErrorDialog(errorMessage, t('common.error'));
-      return;
-    }
-
-    if (!providerApiKey) {
-      const errorMessage = t('node.storyboardGen.apiKeyRequired');
-      setError(errorMessage);
-      openSettingsDialog({
-        category: 'providers',
-        providerTab: 'storyboard',
-        providerId: selectedModel.providerId,
-      });
-      void showErrorDialog(errorMessage, t('common.error'));
-      return;
-    }
-
-    const generationDurationMs = selectedModel.expectedDurationMs ?? 60000;
-    const generationStartedAt = Date.now();
-    const runtimeDiagnosticsPromise = getRuntimeDiagnostics();
-    const submittedPrompt = buildReferenceAwareGenerationPrompt(
-      basePrompt,
-      incomingRequestImageItems.length + 1
-    );
-    const generationSummary: ExportImageGenerationSummary = {
-      sourceType: 'storyboardGen',
-      providerId: selectedModel.providerId,
-      requestModel: debugRequestModel,
-      prompt: submittedPrompt,
-      generatedAt: null,
-    };
-
-    // Create new image node with generating state immediately
-    // Use auto-positioning to avoid collisions with existing nodes
-    const newNodePosition = findNodePosition(
-      id,
-      predictedResultSize.width,
-      predictedResultSize.height
-    );
-    const newNodeId = addNode(
-      CANVAS_NODE_TYPES.exportImage,
-      newNodePosition,
-      {
-        isGenerating: true,
-        generationPhase: 'submitting',
-        generationFailureStage: null,
-        generationStartedAt,
-        generationDurationMs,
-        displayName: EXPORT_RESULT_DISPLAY_NAME.storyboardGenOutput,
-        resultKind: 'storyboardGenOutput',
-        prompt: '',
-        model: selectedModel.id,
-        size: selectedResolution.value as ImageSize,
-        aspectRatio: resolvedRequestAspectRatio,
-        requestAspectRatio: mappedOverallRequestAspectRatio,
-        generationSummary,
-      },
-      { inheritParentFromNodeId: id }
-    );
-
-    // Connect the storyboard node to the new image node
-    addEdge(id, newNodeId);
-
-    setSelectedNode(null);
-    setError(null);
-
-    let effectiveRequestSize = selectedResolution.value;
-    let referenceImageOptimization: GenerationDebugContext['referenceImageOptimization'];
-    let resolutionDowngrade: GenerationDebugContext['resolutionDowngrade'];
-
-    try {
-      await canvasAiGateway.setApiKey(selectedModel.providerId, providerApiKey);
-
-      // 生成网格图片作为最后一张参考图片
-      const gridImageDataUrl = generateGridImageDataUrl(
-        resolvedRequestAspectRatio,
-        safeRows,
-        safeCols,
-        selectedResolution.value
-      );
-
-      const resolvedIncomingRequestImages = await Promise.all(
-        incomingRequestImageItems.map(async (item) =>
-          await resolveReadableImageSource(item.referenceUrl, item.previewImageUrl)
-        )
-      );
-      const allRequestReferenceImages = [...resolvedIncomingRequestImages, gridImageDataUrl];
-
-      const metadataFrameNotes = nodeData.frames
-        .slice(0, safeRows * safeCols)
-        .map((frame) => {
-          const description = frameDescriptionDraftsRef.current[frame.id] ?? frame.description;
-          return sanitizeStoryboardText(description, ignoreAtTagWhenCopyingAndGenerating);
-        });
-
-      const resolvedGeneratePayload = await canvasAiGateway.resolveGenerateImagePayload({
-        prompt: submittedPrompt,
-        model: requestResolution.requestModel,
-        size: selectedResolution.value,
-        aspectRatio: resolvedRequestAspectRatio,
-        referenceImages: allRequestReferenceImages,
-        extraParams: effectiveExtraParams,
-      });
-      effectiveRequestSize = resolvedGeneratePayload.effectiveSize;
-      referenceImageOptimization = resolvedGeneratePayload.referenceImageOptimization;
-      resolutionDowngrade = resolvedGeneratePayload.resolutionDowngrade;
-      const generationStatusText = resolutionDowngrade
-        ? t('node.imageNode.optimizedReferenceRequestDowngraded')
-        : referenceImageOptimization?.applied
-          ? t('node.imageNode.optimizedReferenceRequest')
-          : null;
-      const jobId = await canvasAiGateway.submitGenerateImageJob(resolvedGeneratePayload);
-      const runtimeDiagnostics = await runtimeDiagnosticsPromise;
-      const generationDebugContext: GenerationDebugContext = {
-        sourceType: 'storyboardGen',
-        providerId: selectedModel.providerId,
-        requestModel: debugRequestModel,
-        requestSize: selectedResolution.value,
-        effectiveRequestSize,
-        requestAspectRatio: resolvedRequestAspectRatio,
-        prompt: submittedPrompt,
-        extraParams: effectiveExtraParams,
-        referenceImageCount: allRequestReferenceImages.length,
-        referenceImagePlaceholders: createReferenceImagePlaceholders(allRequestReferenceImages.length),
-        referenceImageOptimization,
-        resolutionDowngrade,
-        appVersion: runtimeDiagnostics.appVersion,
-        osName: runtimeDiagnostics.osName,
-        osVersion: runtimeDiagnostics.osVersion,
-        osBuild: runtimeDiagnostics.osBuild,
-        networkProxySummary: runtimeDiagnostics.networkProxySummary,
-        userAgent: runtimeDiagnostics.userAgent,
-      };
-      updateNodeData(newNodeId, {
-        isGenerating: true,
-        generationJobId: jobId,
-        generationPhase: 'queued',
-        generationFailureStage: null,
-        generationStartedAt,
-        generationSourceType: 'storyboardGen',
-        generationProviderId: selectedModel.providerId,
-        generationClientSessionId: CURRENT_RUNTIME_SESSION_ID,
-        generationStatusText,
-        generationError: null,
-        generationErrorDetails: null,
-        generationDebugContext,
-        generationStoryboardMetadata: {
-          gridRows: safeRows,
-          gridCols: safeCols,
-          frameNotes: metadataFrameNotes,
-        },
-      });
-    } catch (generationError) {
-      const finalResolvedError = resolveErrorContent(generationError, t('ai.error'));
-      const runtimeDiagnostics = await runtimeDiagnosticsPromise;
-      const generationDebugContext: GenerationDebugContext = {
-        sourceType: 'storyboardGen',
-        providerId: selectedModel.providerId,
-        requestModel: debugRequestModel,
-        requestSize: selectedResolution.value,
-        effectiveRequestSize,
-        requestAspectRatio: resolvedRequestAspectRatio,
-        prompt: submittedPrompt,
-        extraParams: effectiveExtraParams,
-        referenceImageCount: incomingRequestImageItems.length + 1,
-        referenceImagePlaceholders: createReferenceImagePlaceholders(incomingRequestImageItems.length + 1),
-        referenceImageOptimization,
-        resolutionDowngrade,
-        appVersion: runtimeDiagnostics.appVersion,
-        osName: runtimeDiagnostics.osName,
-        osVersion: runtimeDiagnostics.osVersion,
-        osBuild: runtimeDiagnostics.osBuild,
-        networkProxySummary: runtimeDiagnostics.networkProxySummary,
-        userAgent: runtimeDiagnostics.userAgent,
-      };
-      const reportText = buildGenerationErrorReport({
-        errorMessage: finalResolvedError.message,
-        errorDetails: finalResolvedError.details,
-        context: generationDebugContext,
-        errorCategory: finalResolvedError.category,
-        statusCode: finalResolvedError.statusCode,
-        traceId: finalResolvedError.traceId,
-        requestId: finalResolvedError.requestId,
-      });
-      setError(finalResolvedError.message);
-      void showErrorDialog(
-        finalResolvedError.message,
-        t('common.error'),
-        finalResolvedError.details,
-        reportText
-      );
-      void recordImageGenerationErrorLog({
-        nodeId: newNodeId,
-        sourceType: 'storyboardGen',
-        failureStage: 'submit',
-        errorMessage: finalResolvedError.message,
-        errorDetails: finalResolvedError.details,
-        context: generationDebugContext,
-        errorCategory: finalResolvedError.category,
-        statusCode: finalResolvedError.statusCode,
-        traceId: finalResolvedError.traceId,
-        requestId: finalResolvedError.requestId,
-        providerId: selectedModel.providerId,
-        startedAt: generationStartedAt,
-      }).catch((error) => {
-        console.warn('[StoryboardGenNode] failed to record error log', error);
-      });
-      updateNodeData(newNodeId, {
-        isGenerating: false,
-        generationPhase: 'failed',
-        generationFailureStage: 'submit',
-        generationStartedAt: null,
-        generationJobId: null,
-        generationProviderId: null,
-        generationClientSessionId: null,
-        generationStatusText: null,
-        generationStoryboardMetadata: undefined,
-        generationError: finalResolvedError.message,
-        generationErrorDetails: finalResolvedError.details ?? null,
-        generationDebugContext,
-      });
-      return;
-    }
-  }, [
-    providerApiKey,
-    nodeData,
-    incomingImages,
-    incomingRequestImageItems,
-    requestResolution.requestModel,
-    debugRequestModel,
-    effectiveExtraParams,
-    selectedModel.expectedDurationMs,
-    selectedModel.id,
-    selectedModel.providerId,
-    supportedAspectRatioValues,
-    setSelectedNode,
-    selectedAspectRatio.value,
-    selectedResolution.value,
-    addNode,
-    addEdge,
-    buildPrompt,
-    selectedModel.id,
-    findNodePosition,
-    updateNodeData,
-    mappedOverallRequestAspectRatio,
-    resolveEffectiveRequestAspectRatio,
-    t,
-    ignoreAtTagWhenCopyingAndGenerating,
-  ]);
-
-  const handleRowChange = useCallback(
-    (delta: number) => {
-      if (!nodeData) {
-        return;
-      }
-      const newRows = Math.max(1, Math.min(9, nodeData.gridRows + delta));
-      updateNodeData(id, { gridRows: newRows });
-    },
-    [nodeData, updateNodeData]
-  );
-
-  const handleColChange = useCallback(
-    (delta: number) => {
-      if (!nodeData) {
-        return;
-      }
-      const newCols = Math.max(1, Math.min(9, nodeData.gridCols + delta));
-      updateNodeData(id, { gridCols: newCols });
-    },
-    [nodeData, updateNodeData]
-  );
-
-  const handleFrameDescriptionChange = useCallback(
-    (index: number, description: string) => {
-      const frame = nodeData.frames[index];
-      if (!frame) {
-        return;
-      }
-
-      setFrameDescriptionDrafts((previous) =>
-        previous[frame.id] === description
-          ? previous
-          : {
-            ...previous,
-            [frame.id]: description,
-          }
-      );
-
-      const referenceIndex = resolveReferenceIndexFromDescription(description, incomingImages.length);
-      if (frame.description === description && frame.referenceIndex === referenceIndex) {
-        return;
-      }
-
-      const newFrames = [...nodeData.frames];
-      newFrames[index] = { ...frame, description, referenceIndex };
-      updateNodeData(id, { frames: newFrames });
-    },
-    [id, incomingImages.length, nodeData.frames, updateNodeData]
-  );
-
-  const closeImagePicker = useCallback(() => {
-    setShowImagePicker(false);
-    setPickerFrameIndex(null);
-    setPickerActiveIndex(0);
-    setFrameReferencePreview(null);
-  }, []);
-
-  const hideFrameReferencePreview = useCallback(() => {
-    setFrameReferencePreview(null);
-  }, []);
-
-  const openFrameImagePicker = useCallback((
-    index: number,
-    frameId: string,
-    textarea: HTMLTextAreaElement,
-    selection: TextSelectionRange,
-    caretIndex: number = selection.start
-  ) => {
-    frameSelectionRangesRef.current[frameId] = selection;
-    setFrameReferencePreview(null);
-
-    const pointerAnchor = lastPointerAnchorRef.current;
-    if (pointerAnchor && pointerAnchor.frameIndex === index) {
-      setPickerAnchor(pointerAnchor.anchor);
-    } else {
-      setPickerAnchor(resolveTextareaPickerAnchor({
-        container: rootRef.current,
-        textarea,
-        caretIndex,
-        zoom,
-        yOffset: 0,
-      }));
-    }
-
-    setPickerFrameIndex(index);
-    setPickerActiveIndex(0);
-    setShowImagePicker(true);
-  }, [zoom]);
-
-  const syncFrameHighlightScroll = useCallback((frameId: string) => {
-    const textarea = frameTextareaRefs.current[frameId];
-    const highlight = frameHighlightRefs.current[frameId];
-    if (!textarea || !highlight) {
-      return;
-    }
-
-    highlight.scrollTop = textarea.scrollTop;
-    highlight.scrollLeft = textarea.scrollLeft;
-    const hover = frameHoverRefs.current[frameId];
-    if (hover) {
-      hover.scrollTop = textarea.scrollTop;
-      hover.scrollLeft = textarea.scrollLeft;
-    }
-  }, []);
-
-  const rememberFrameSelection = useCallback((frameId: string, textarea: HTMLTextAreaElement | null) => {
-    frameSelectionRangesRef.current[frameId] = readTextareaSelection(
-      textarea,
-      textarea?.value.length ?? (frameDescriptionDraftsRef.current[frameId] ?? '').length
-    );
-    setFrameReferencePreview(null);
-  }, []);
-
-  const scheduleFrameSelectionRestore = useCallback((
-    frameId: string,
-    selection: TextSelectionRange | number,
-    scrollSnapshot?: TextareaScrollSnapshot | null
-  ) => {
-    requestAnimationFrame(() => {
-      const textarea = frameTextareaRefs.current[frameId];
-      const fallbackLength =
-        textarea?.value.length ?? (frameDescriptionDraftsRef.current[frameId] ?? '').length;
-      const restoredSelection = restoreTextareaSelection(
-        textarea,
-        selection,
-        fallbackLength,
-        {
-          scrollSnapshot,
-          syncScroll: () => syncFrameHighlightScroll(frameId),
-        }
-      );
-      if (!restoredSelection || !textarea) {
-        return;
-      }
-
-      frameSelectionRangesRef.current[frameId] = restoredSelection;
-    });
-  }, [syncFrameHighlightScroll]);
-
-  const insertImageReference = useCallback((imageIndex: number) => {
-    if (!nodeData || pickerFrameIndex === null) {
-      return;
-    }
-
-    const frame = nodeData.frames[pickerFrameIndex];
-    if (!frame) {
-      closeImagePicker();
-      return;
-    }
-
-    const marker = buildShortReferenceToken(imageIndex);
-    const currentDescription = frameDescriptionDraftsRef.current[frame.id] ?? frame.description;
-    const scrollSnapshot = readTextareaScroll(frameTextareaRefs.current[frame.id]);
-    const selection = resolveTextSelection({
-      textarea: frameTextareaRefs.current[frame.id],
-      lastSelection: frameSelectionRangesRef.current[frame.id],
-      fallbackLength: currentDescription.length,
-      requireFocus: true,
-    });
-    const cursor = selection.start;
-    const { nextText: nextDescription, nextCursor } = insertReferenceToken(
-      currentDescription,
-      cursor,
-      marker
-    );
-    handleFrameDescriptionChange(pickerFrameIndex, nextDescription);
-    closeImagePicker();
-    scheduleFrameSelectionRestore(frame.id, nextCursor, scrollSnapshot);
-  }, [closeImagePicker, handleFrameDescriptionChange, nodeData, pickerFrameIndex, scheduleFrameSelectionRestore]);
-
-  const handleFrameDescriptionKeyDown = useCallback(
-    (index: number, event: ReactKeyboardEvent<HTMLTextAreaElement>) => {
-      const frame = nodeData.frames[index];
-
-      if (showImagePicker && incomingImages.length > 0 && pickerFrameIndex === index) {
-        if (event.key === 'ArrowDown') {
-          event.preventDefault();
-          setPickerActiveIndex((previous) => (previous + 1) % incomingImages.length);
-          return;
-        }
-
-        if (event.key === 'ArrowUp') {
-          event.preventDefault();
-          setPickerActiveIndex((previous) =>
-            previous === 0 ? incomingImages.length - 1 : previous - 1
+        const pointerAnchor = lastPointerAnchorRef.current;
+        if (pointerAnchor && pointerAnchor.frameIndex === index) {
+          setPickerAnchor(pointerAnchor.anchor);
+        } else {
+          setPickerAnchor(
+            resolveTextareaPickerAnchor({
+              container: rootRef.current,
+              textarea,
+              caretIndex,
+              zoom,
+              yOffset: 0,
+            }),
           );
-          return;
         }
 
-        if (event.key === 'Enter') {
-          event.preventDefault();
-          insertImageReference(pickerActiveIndex);
-          return;
-        }
+        setPickerFrameIndex(index);
+        setPickerActiveIndex(0);
+        setShowImagePicker(true);
+      },
+      [zoom],
+    );
+
+    const syncFrameHighlightScroll = useCallback((frameId: string) => {
+      const textarea = frameTextareaRefs.current[frameId];
+      const highlight = frameHighlightRefs.current[frameId];
+      if (!textarea || !highlight) {
+        return;
       }
 
-      if (event.key === 'Backspace' || event.key === 'Delete') {
-        if (!frame) {
-          return;
-        }
+      highlight.scrollTop = textarea.scrollTop;
+      highlight.scrollLeft = textarea.scrollLeft;
+      const hover = frameHoverRefs.current[frameId];
+      if (hover) {
+        hover.scrollTop = textarea.scrollTop;
+        hover.scrollLeft = textarea.scrollLeft;
+      }
+    }, []);
 
-        const currentDescription = frameDescriptionDraftsRef.current[frame.id] ?? frame.description;
-        const selectionStart = event.currentTarget.selectionStart ?? currentDescription.length;
-        const selectionEnd = event.currentTarget.selectionEnd ?? selectionStart;
-        const deleteDirection = event.key === 'Backspace' ? 'backward' : 'forward';
-        const deleteRange = resolveReferenceAwareDeleteRange(
-          currentDescription,
-          selectionStart,
-          selectionEnd,
-          deleteDirection,
-          incomingImages.length
+    const rememberFrameSelection = useCallback(
+      (frameId: string, textarea: HTMLTextAreaElement | null) => {
+        frameSelectionRangesRef.current[frameId] = readTextareaSelection(
+          textarea,
+          textarea?.value.length ??
+            (frameDescriptionDraftsRef.current[frameId] ?? "").length,
         );
-        if (deleteRange) {
-          event.preventDefault();
-          const { nextText, nextCursor } = removeTextRange(currentDescription, deleteRange);
-          handleFrameDescriptionChange(index, nextText);
-          scheduleFrameSelectionRestore(frame.id, nextCursor);
+        setFrameReferencePreview(null);
+      },
+      [],
+    );
+
+    const scheduleFrameSelectionRestore = useCallback(
+      (
+        frameId: string,
+        selection: TextSelectionRange | number,
+        scrollSnapshot?: TextareaScrollSnapshot | null,
+      ) => {
+        requestAnimationFrame(() => {
+          const textarea = frameTextareaRefs.current[frameId];
+          const fallbackLength =
+            textarea?.value.length ??
+            (frameDescriptionDraftsRef.current[frameId] ?? "").length;
+          const restoredSelection = restoreTextareaSelection(
+            textarea,
+            selection,
+            fallbackLength,
+            {
+              scrollSnapshot,
+              syncScroll: () => syncFrameHighlightScroll(frameId),
+            },
+          );
+          if (!restoredSelection || !textarea) {
+            return;
+          }
+
+          frameSelectionRangesRef.current[frameId] = restoredSelection;
+        });
+      },
+      [syncFrameHighlightScroll],
+    );
+
+    const insertImageReference = useCallback(
+      (imageIndex: number) => {
+        if (!nodeData || pickerFrameIndex === null) {
           return;
         }
-      }
 
-      if (isReferencePickerTriggerCharacter(event.key) && incomingImages.length > 0) {
+        const frame = nodeData.frames[pickerFrameIndex];
         if (!frame) {
+          closeImagePicker();
+          return;
+        }
+
+        const marker = buildShortReferenceToken(imageIndex);
+        const currentDescription =
+          frameDescriptionDraftsRef.current[frame.id] ?? frame.description;
+        const scrollSnapshot = readTextareaScroll(
+          frameTextareaRefs.current[frame.id],
+        );
+        const selection = resolveTextSelection({
+          textarea: frameTextareaRefs.current[frame.id],
+          lastSelection: frameSelectionRangesRef.current[frame.id],
+          fallbackLength: currentDescription.length,
+          requireFocus: true,
+        });
+        const cursor = selection.start;
+        const { nextText: nextDescription, nextCursor } = insertReferenceToken(
+          currentDescription,
+          cursor,
+          marker,
+        );
+        handleFrameDescriptionChange(pickerFrameIndex, nextDescription);
+        closeImagePicker();
+        scheduleFrameSelectionRestore(frame.id, nextCursor, scrollSnapshot);
+      },
+      [
+        closeImagePicker,
+        handleFrameDescriptionChange,
+        nodeData,
+        pickerFrameIndex,
+        scheduleFrameSelectionRestore,
+      ],
+    );
+
+    const handleFrameDescriptionKeyDown = useCallback(
+      (index: number, event: ReactKeyboardEvent<HTMLTextAreaElement>) => {
+        const frame = nodeData.frames[index];
+
+        if (
+          showImagePicker &&
+          incomingImages.length > 0 &&
+          pickerFrameIndex === index
+        ) {
+          if (event.key === "ArrowDown") {
+            event.preventDefault();
+            setPickerActiveIndex(
+              (previous) => (previous + 1) % incomingImages.length,
+            );
+            return;
+          }
+
+          if (event.key === "ArrowUp") {
+            event.preventDefault();
+            setPickerActiveIndex((previous) =>
+              previous === 0 ? incomingImages.length - 1 : previous - 1,
+            );
+            return;
+          }
+
+          if (event.key === "Enter") {
+            event.preventDefault();
+            insertImageReference(pickerActiveIndex);
+            return;
+          }
+        }
+
+        if (event.key === "Backspace" || event.key === "Delete") {
+          if (!frame) {
+            return;
+          }
+
+          const currentDescription =
+            frameDescriptionDraftsRef.current[frame.id] ?? frame.description;
+          const selectionStart =
+            event.currentTarget.selectionStart ?? currentDescription.length;
+          const selectionEnd =
+            event.currentTarget.selectionEnd ?? selectionStart;
+          const deleteDirection =
+            event.key === "Backspace" ? "backward" : "forward";
+          const deleteRange = resolveReferenceAwareDeleteRange(
+            currentDescription,
+            selectionStart,
+            selectionEnd,
+            deleteDirection,
+            incomingImages.length,
+          );
+          if (deleteRange) {
+            event.preventDefault();
+            const { nextText, nextCursor } = removeTextRange(
+              currentDescription,
+              deleteRange,
+            );
+            handleFrameDescriptionChange(index, nextText);
+            scheduleFrameSelectionRestore(frame.id, nextCursor);
+            return;
+          }
+        }
+
+        if (
+          isReferencePickerTriggerCharacter(event.key) &&
+          incomingImages.length > 0
+        ) {
+          if (!frame) {
+            return;
+          }
+
+          event.preventDefault();
+          const selection =
+            readTextareaSelection(
+              event.currentTarget,
+              event.currentTarget.value.length,
+            ) ??
+            resolveTextSelection({
+              textarea: event.currentTarget,
+              lastSelection: frameSelectionRangesRef.current[frame.id],
+              fallbackLength: event.currentTarget.value.length,
+            });
+          openFrameImagePicker(index, frame.id, event.currentTarget, selection);
+          return;
+        }
+
+        if (event.key === "Escape" && showImagePicker) {
+          event.preventDefault();
+          closeImagePicker();
+        }
+      },
+      [
+        closeImagePicker,
+        handleFrameDescriptionChange,
+        incomingImages.length,
+        insertImageReference,
+        nodeData.frames,
+        openFrameImagePicker,
+        pickerActiveIndex,
+        pickerFrameIndex,
+        scheduleFrameSelectionRestore,
+        showImagePicker,
+      ],
+    );
+
+    const handleFrameDescriptionBeforeInput = useCallback(
+      (index: number, event: ReactFormEvent<HTMLTextAreaElement>) => {
+        const frame = nodeData.frames[index];
+        if (!frame || incomingImages.length <= 0) {
+          return;
+        }
+
+        const nativeEvent = event.nativeEvent as InputEvent;
+        if (!isReferencePickerTriggerCharacter(nativeEvent.data)) {
           return;
         }
 
         event.preventDefault();
+        event.stopPropagation();
+
         const selection =
-          readTextareaSelection(event.currentTarget, event.currentTarget.value.length)
-          ?? resolveTextSelection({
+          readTextareaSelection(
+            event.currentTarget,
+            event.currentTarget.value.length,
+          ) ??
+          resolveTextSelection({
             textarea: event.currentTarget,
             lastSelection: frameSelectionRangesRef.current[frame.id],
             fallbackLength: event.currentTarget.value.length,
           });
+
         openFrameImagePicker(index, frame.id, event.currentTarget, selection);
-        return;
-      }
+      },
+      [incomingImages.length, nodeData.frames, openFrameImagePicker],
+    );
 
-      if (event.key === 'Escape' && showImagePicker) {
-        event.preventDefault();
-        closeImagePicker();
-      }
-    },
-    [
-      closeImagePicker,
-      handleFrameDescriptionChange,
-      incomingImages.length,
-      insertImageReference,
-      nodeData.frames,
-      openFrameImagePicker,
-      pickerActiveIndex,
-      pickerFrameIndex,
-      scheduleFrameSelectionRestore,
-      showImagePicker,
-    ]
-  );
+    const handleFrameReferenceTokenHover = useCallback(
+      (tokenIndex: number, event: ReactMouseEvent<HTMLSpanElement>) => {
+        const item = incomingImageItems[tokenIndex];
+        const previewHost = framePreviewHostRef.current;
+        if (!item || !previewHost) {
+          setFrameReferencePreview(null);
+          return;
+        }
 
-  const handleFrameDescriptionBeforeInput = useCallback(
-    (index: number, event: ReactFormEvent<HTMLTextAreaElement>) => {
-      const frame = nodeData.frames[index];
-      if (!frame || incomingImages.length <= 0) {
-        return;
-      }
-
-      const nativeEvent = event.nativeEvent as InputEvent;
-      if (!isReferencePickerTriggerCharacter(nativeEvent.data)) {
-        return;
-      }
-
-      event.preventDefault();
-      event.stopPropagation();
-
-      const selection =
-        readTextareaSelection(event.currentTarget, event.currentTarget.value.length)
-        ?? resolveTextSelection({
-          textarea: event.currentTarget,
-          lastSelection: frameSelectionRangesRef.current[frame.id],
-          fallbackLength: event.currentTarget.value.length,
+        const previewMaxWidth = 144;
+        const previewMaxHeight = 132;
+        const previewPosition = resolveFloatingPreviewPosition({
+          container: previewHost,
+          clientX: event.clientX,
+          clientY: event.clientY,
+          previewWidth: previewMaxWidth,
+          previewHeight: previewMaxHeight,
+          zoom,
         });
 
-      openFrameImagePicker(index, frame.id, event.currentTarget, selection);
-    },
-    [incomingImages.length, nodeData.frames, openFrameImagePicker]
-  );
+        setFrameReferencePreview({
+          imageUrl: item.imageUrl,
+          displayUrl: item.displayUrl,
+          alt: item.label,
+          left: previewPosition.left,
+          top: previewPosition.top,
+        });
+      },
+      [incomingImageItems, zoom],
+    );
 
-  const handleFrameReferenceTokenHover = useCallback((
-    tokenIndex: number,
-    event: ReactMouseEvent<HTMLSpanElement>
-  ) => {
-    const item = incomingImageItems[tokenIndex];
-    const previewHost = framePreviewHostRef.current;
-    if (!item || !previewHost) {
-      setFrameReferencePreview(null);
-      return;
+    const handleFrameReferenceTokenMouseDown = useCallback(
+      (
+        frameId: string,
+        tokenEnd: number,
+        event: ReactMouseEvent<HTMLSpanElement>,
+      ) => {
+        event.preventDefault();
+        event.stopPropagation();
+        scheduleFrameSelectionRestore(frameId, tokenEnd);
+      },
+      [scheduleFrameSelectionRestore],
+    );
+
+    if (!nodeData) {
+      return null;
     }
 
-    const previewMaxWidth = 144;
-    const previewMaxHeight = 132;
-    const previewPosition = resolveFloatingPreviewPosition({
-      container: previewHost,
-      clientX: event.clientX,
-      clientY: event.clientY,
-      previewWidth: previewMaxWidth,
-      previewHeight: previewMaxHeight,
-      zoom,
-    });
-
-    setFrameReferencePreview({
-      imageUrl: item.imageUrl,
-      displayUrl: item.displayUrl,
-      alt: item.label,
-      left: previewPosition.left,
-      top: previewPosition.top,
-    });
-  }, [incomingImageItems, zoom]);
-
-  const handleFrameReferenceTokenMouseDown = useCallback((
-    frameId: string,
-    tokenEnd: number,
-    event: ReactMouseEvent<HTMLSpanElement>
-  ) => {
-    event.preventDefault();
-    event.stopPropagation();
-    scheduleFrameSelectionRestore(frameId, tokenEnd);
-  }, [scheduleFrameSelectionRestore]);
-
-  if (!nodeData) {
-    return null;
-  }
-
-  return (
-    <div
-      ref={rootRef}
-      className={`
+    return (
+      <div
+        ref={rootRef}
+        className={`
         group relative flex h-full flex-col overflow-visible rounded-[var(--node-radius)] border bg-surface-dark/95 p-3 transition-colors duration-150
-        ${selected
-          ? 'border-[#222222] shadow-[0_0_0_2px_rgba(34,34,34,0.34),0_4px_14px_rgba(15,23,42,0.1)] dark:border-white/70 dark:shadow-[0_0_0_2px_rgba(245,245,245,0.18),0_4px_14px_rgba(0,0,0,0.22)]'
-          : 'border-[rgba(15,23,42,0.22)] hover:border-[rgba(15,23,42,0.34)] dark:border-[rgba(255,255,255,0.22)] dark:hover:border-[rgba(255,255,255,0.34)]'
+        ${
+          selected
+            ? "border-[#222222] shadow-[0_0_0_2px_rgba(34,34,34,0.34),0_4px_14px_rgba(15,23,42,0.1)] dark:border-white/70 dark:shadow-[0_0_0_2px_rgba(245,245,245,0.18),0_4px_14px_rgba(0,0,0,0.22)]"
+            : "border-[rgba(15,23,42,0.22)] hover:border-[rgba(15,23,42,0.34)] dark:border-[rgba(255,255,255,0.22)] dark:hover:border-[rgba(255,255,255,0.34)]"
         }
       `}
-      style={{
-        width: `${resolvedNodeWidth}px`,
-        height: `${resolvedNodeHeight}px`,
-      }}
-      onClick={() => setSelectedNode(id)}
-    >
-      {/* Floating title */}
-      <NodeHeader
-        className={NODE_HEADER_FLOATING_POSITION_CLASS}
-        icon={<Sparkles className="h-4 w-4" />}
-        titleText={resolvedTitle}
-        headerAdjust={STORYBOARD_GEN_HEADER_ADJUST}
-        iconAdjust={STORYBOARD_GEN_ICON_ADJUST}
-        titleAdjust={STORYBOARD_GEN_TITLE_ADJUST}
-        rightSlot={headerRightSlot}
-        editable
-        onTitleChange={(nextTitle) => updateNodeData(id, { displayName: nextTitle })}
-      />
+        style={{
+          width: `${resolvedNodeWidth}px`,
+          height: `${resolvedNodeHeight}px`,
+        }}
+        onClick={() => setSelectedNode(id)}
+      >
+        {/* Floating title */}
+        <NodeHeader
+          className={NODE_HEADER_FLOATING_POSITION_CLASS}
+          icon={<Sparkles className="h-4 w-4" />}
+          titleText={resolvedTitle}
+          headerAdjust={STORYBOARD_GEN_HEADER_ADJUST}
+          iconAdjust={STORYBOARD_GEN_ICON_ADJUST}
+          titleAdjust={STORYBOARD_GEN_TITLE_ADJUST}
+          rightSlot={headerRightSlot}
+          editable
+          onTitleChange={(nextTitle) =>
+            updateNodeData(id, { displayName: nextTitle })
+          }
+        />
 
-      {/* Frame summary + grid settings */}
-      <div className="mb-2.5 flex shrink-0 items-center justify-between gap-2">
-        {!isOverviewRender ? (
-          <div className="flex items-center gap-1.5">
-            <GridStepperControl
-              label={t('node.storyboardGen.rowsShort')}
-              value={nodeData.gridRows}
-              onDecrease={() => handleRowChange(-1)}
-              onIncrease={() => handleRowChange(1)}
-            />
-            <GridStepperControl
-              label={t('node.storyboardGen.colsShort')}
-              value={nodeData.gridCols}
-              onDecrease={() => handleColChange(-1)}
-              onIncrease={() => handleColChange(1)}
-            />
-          </div>
-        ) : (
-          <div className={GRID_SUMMARY_CLASS}>
-            {nodeData.gridRows}x{nodeData.gridCols}
-          </div>
-        )}
-
-        {showStoryboardGenAdvancedRatioControls && !isOverviewRender && (
-          <div className="min-w-0 flex-1 rounded-full border border-[rgba(255,255,255,0.12)] bg-[rgba(255,255,255,0.04)] px-2 py-0.5 text-center text-[10px] text-text-muted">
-            <span>{t('node.storyboardGen.cellAspectRatio')}: {resolvedAspectRatios.cellAspectRatioLabel}</span>
-            <span className="mx-1 text-[rgba(255,255,255,0.22)]">|</span>
-            <span>{t('node.storyboardGen.overallAspectRatio')}: {resolvedAspectRatios.overallAspectRatioLabel}</span>
-          </div>
-        )}
-
-        <div className="flex items-center gap-1">
-          {showStoryboardGenAdvancedRatioControls && !isOverviewRender && (
-            <div className="flex h-5 items-center rounded-full border border-[rgba(255,255,255,0.14)] bg-[rgba(255,255,255,0.04)] p-0.5">
-              <button
-                type="button"
-                className={`${RATIO_CONTROL_MODE_BUTTON_CLASS} ${ratioControlMode === 'overall'
-                  ? 'border-accent/55 bg-accent/18 text-text-dark'
-                  : 'border-transparent bg-transparent text-text-muted hover:bg-white/5'
-                  }`}
-                onClick={(event) => {
-                  event.stopPropagation();
-                  updateNodeData(id, { ratioControlMode: 'overall' });
-                }}
-              >
-                {t('node.storyboardGen.ratioModeOverall')}
-              </button>
-              <button
-                type="button"
-                className={`${RATIO_CONTROL_MODE_BUTTON_CLASS} ${ratioControlMode === 'cell'
-                  ? 'border-accent/55 bg-accent/18 text-text-dark'
-                  : 'border-transparent bg-transparent text-text-muted hover:bg-white/5'
-                  }`}
-                onClick={(event) => {
-                  event.stopPropagation();
-                  updateNodeData(id, { ratioControlMode: 'cell' });
-                }}
-              >
-                {t('node.storyboardGen.ratioModeCell')}
-              </button>
+        {/* Frame summary + grid settings */}
+        <div className="mb-2.5 flex shrink-0 items-center justify-between gap-2">
+          {!isOverviewRender ? (
+            <div className="flex items-center gap-1.5">
+              <GridStepperControl
+                label={t("node.storyboardGen.rowsShort")}
+                value={nodeData.gridRows}
+                onDecrease={() => handleRowChange(-1)}
+                onIncrease={() => handleRowChange(1)}
+              />
+              <GridStepperControl
+                label={t("node.storyboardGen.colsShort")}
+                value={nodeData.gridCols}
+                onDecrease={() => handleColChange(-1)}
+                onIncrease={() => handleColChange(1)}
+              />
+            </div>
+          ) : (
+            <div className={GRID_SUMMARY_CLASS}>
+              {nodeData.gridRows}x{nodeData.gridCols}
             </div>
           )}
-          <div className={GRID_SUMMARY_CLASS}>
-            {t('node.storyboardGen.frameCount', { count: totalFrames })}
+
+          {showStoryboardGenAdvancedRatioControls && !isOverviewRender && (
+            <div className="min-w-0 flex-1 rounded-full border border-[rgba(255,255,255,0.12)] bg-[rgba(255,255,255,0.04)] px-2 py-0.5 text-center text-[10px] text-text-muted">
+              <span>
+                {t("node.storyboardGen.cellAspectRatio")}:{" "}
+                {resolvedAspectRatios.cellAspectRatioLabel}
+              </span>
+              <span className="mx-1 text-[rgba(255,255,255,0.22)]">|</span>
+              <span>
+                {t("node.storyboardGen.overallAspectRatio")}:{" "}
+                {resolvedAspectRatios.overallAspectRatioLabel}
+              </span>
+            </div>
+          )}
+
+          <div className="flex items-center gap-1">
+            {showStoryboardGenAdvancedRatioControls && !isOverviewRender && (
+              <div className="flex h-5 items-center rounded-full border border-[rgba(255,255,255,0.14)] bg-[rgba(255,255,255,0.04)] p-0.5">
+                <button
+                  type="button"
+                  className={`${RATIO_CONTROL_MODE_BUTTON_CLASS} ${
+                    ratioControlMode === "overall"
+                      ? "border-accent/55 bg-accent/18 text-text-dark"
+                      : "border-transparent bg-transparent text-text-muted hover:bg-white/5"
+                  }`}
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    updateNodeData(id, { ratioControlMode: "overall" });
+                  }}
+                >
+                  {t("node.storyboardGen.ratioModeOverall")}
+                </button>
+                <button
+                  type="button"
+                  className={`${RATIO_CONTROL_MODE_BUTTON_CLASS} ${
+                    ratioControlMode === "cell"
+                      ? "border-accent/55 bg-accent/18 text-text-dark"
+                      : "border-transparent bg-transparent text-text-muted hover:bg-white/5"
+                  }`}
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    updateNodeData(id, { ratioControlMode: "cell" });
+                  }}
+                >
+                  {t("node.storyboardGen.ratioModeCell")}
+                </button>
+              </div>
+            )}
+            <div className={GRID_SUMMARY_CLASS}>
+              {t("node.storyboardGen.frameCount", { count: totalFrames })}
+            </div>
           </div>
         </div>
-      </div>
 
-      {/* Frame Grid */}
-      <div
-        ref={framePreviewHostRef}
-        className="relative mb-2 flex min-h-0 flex-1 items-center justify-center overflow-visible"
-      >
+        {/* Frame Grid */}
         <div
-          className="grid gap-0.5"
-          style={{
-            width: `${frameLayout.gridWidth}px`,
-            gridTemplateColumns: `repeat(${nodeData.gridCols}, ${frameLayout.cellWidth}px)`,
-          }}
+          ref={framePreviewHostRef}
+          className="relative mb-2 flex min-h-0 flex-1 items-center justify-center overflow-visible"
         >
-          {nodeData.frames.map((frame, index) => {
-            const frameDescription = frameDescriptionDrafts[frame.id] ?? frame.description;
-            const showNativeFrameText =
-              activeFrameId === frame.id && composingFrameId === frame.id;
-            return (
-              <div
-                key={frame.id}
-                className="relative overflow-hidden rounded border border-[rgba(255,255,255,0.06)] bg-bg-dark/40"
-                style={{ aspectRatio: frameLayout.cellAspectRatio }}
-              >
-                {isOverviewRender ? (
-                  <div className="absolute inset-0 overflow-hidden px-1.5 py-1 text-left text-[10px] leading-4 text-text-muted">
-                    <div className="line-clamp-4 break-words">
-                      {frameDescription || t('node.storyboardGen.framePlaceholder', {
-                        index: String(index + 1).padStart(2, '0'),
-                      })}
-                    </div>
-                  </div>
-                ) : (
-                  <>
-                    <div
-                      ref={(element) => {
-                        frameHighlightRefs.current[frame.id] = element;
-                      }}
-                      aria-hidden="true"
-                      className={`ui-scrollbar pointer-events-none absolute inset-0 overflow-y-auto overflow-x-hidden text-[10px] leading-4 text-text-dark transition-opacity ${showNativeFrameText ? 'opacity-0' : 'opacity-100'}`}
-                      style={{ scrollbarGutter: 'stable' }}
-                    >
-                      <div className="canvas-textarea-wrap min-h-full px-1.5 py-1 text-left">
-                        {renderFrameDescriptionWithHighlights(frameDescription, incomingImages.length)}
-                      </div>
-                    </div>
-                    <div
-                      ref={(element) => {
-                        frameHoverRefs.current[frame.id] = element;
-                      }}
-                      aria-hidden="true"
-                      className={`ui-scrollbar pointer-events-none absolute inset-0 z-20 overflow-y-auto overflow-x-hidden text-[10px] leading-4 text-transparent transition-opacity ${showNativeFrameText ? 'opacity-0' : 'opacity-100'}`}
-                      style={{ scrollbarGutter: 'stable' }}
-                    >
-                      <div className="canvas-textarea-wrap min-h-full px-1.5 py-1 text-left">
-                        {renderFrameReferenceHoverTargets(
-                          frameDescription,
-                          incomingImages.length,
-                          handleFrameReferenceTokenHover,
-                          hideFrameReferencePreview,
-                          (tokenEnd, event) => handleFrameReferenceTokenMouseDown(frame.id, tokenEnd, event)
-                        )}
-                      </div>
-                    </div>
-                    <textarea
-                      ref={(element) => {
-                        frameTextareaRefs.current[frame.id] = element;
-                      }}
-                      value={frameDescription}
-                      onChange={(event) => {
-                        const nextValue = event.target.value;
-                        handleFrameDescriptionChange(index, nextValue);
-                        rememberFrameSelection(frame.id, event.currentTarget);
-                      }}
-                      onBeforeInput={(event) => handleFrameDescriptionBeforeInput(index, event)}
-                      onKeyDown={(event) => handleFrameDescriptionKeyDown(index, event)}
-                      onScroll={() => syncFrameHighlightScroll(frame.id)}
-                      onMouseDown={(event) => {
-                        event.stopPropagation();
-                        hideFrameReferencePreview();
-                      }}
-                      onPointerDown={(event) => {
-                        event.stopPropagation();
-                        lastPointerAnchorRef.current = {
-                          frameIndex: index,
-                          anchor: resolvePointerAnchor(rootRef.current, event.clientX, event.clientY, zoom),
-                        };
-                      }}
-                      onFocus={(event) => {
-                        setActiveFrameId(frame.id);
-                        rememberFrameSelection(frame.id, event.currentTarget);
-                        syncFrameHighlightScroll(frame.id);
-                      }}
-                      onCompositionStart={() => {
-                        setActiveFrameId(frame.id);
-                        setComposingFrameId(frame.id);
-                        hideFrameReferencePreview();
-                      }}
-                      onCompositionEnd={(event) => {
-                        rememberFrameSelection(frame.id, event.currentTarget);
-                        setComposingFrameId((current) => (current === frame.id ? null : current));
-                      }}
-                      onBlur={(event) => {
-                        rememberFrameSelection(frame.id, event.currentTarget);
-                        setActiveFrameId((current) => (current === frame.id ? null : current));
-                        setComposingFrameId((current) => (current === frame.id ? null : current));
-                      }}
-                      onSelect={(event) => rememberFrameSelection(frame.id, event.currentTarget)}
-                      onMouseUp={(event) => rememberFrameSelection(frame.id, event.currentTarget)}
-                      onKeyUp={(event) => rememberFrameSelection(frame.id, event.currentTarget)}
-                      placeholder={t('node.storyboardGen.framePlaceholder', {
-                        index: String(index + 1).padStart(2, '0'),
-                      })}
-                      wrap="soft"
-                      className={`canvas-textarea-wrap ui-scrollbar nodrag nowheel relative z-10 h-full w-full resize-none overflow-y-auto overflow-x-hidden border-none bg-transparent px-1.5 py-1 text-left text-[10px] leading-4 caret-text-dark outline-none placeholder:text-text-muted/40 ${showNativeFrameText
-                        ? 'text-text-dark selection:bg-accent/30'
-                        : 'text-transparent selection:bg-accent/30 selection:text-transparent'
-                        }`}
-                      style={{ scrollbarGutter: 'stable' }}
-                    />
-                  </>
-                )}
-              </div>
-            );
-          })}
-        </div>
-
-        {frameReferencePreview && !isOverviewRender ? (
           <div
-            className="pointer-events-none absolute z-30 w-fit overflow-hidden rounded-xl shadow-[0_12px_28px_rgba(0,0,0,0.28)]"
+            className="grid gap-0.5"
             style={{
-              left: `${frameReferencePreview.left}px`,
-              top: `${frameReferencePreview.top}px`,
+              width: `${frameLayout.gridWidth}px`,
+              gridTemplateColumns: `repeat(${nodeData.gridCols}, ${frameLayout.cellWidth}px)`,
             }}
           >
-            <CanvasNodeImage
-              src={frameReferencePreview.displayUrl}
-              alt={frameReferencePreview.alt}
-              viewerSourceUrl={frameReferencePreview.imageUrl}
-              viewerImageList={incomingImageViewerList}
-              className="block max-h-[132px] max-w-[144px] rounded-xl object-contain"
-              draggable={false}
+            {nodeData.frames.map((frame, index) => {
+              const frameDescription =
+                frameDescriptionDrafts[frame.id] ?? frame.description;
+              const showNativeFrameText =
+                activeFrameId === frame.id && composingFrameId === frame.id;
+              return (
+                <div
+                  key={frame.id}
+                  className="relative overflow-hidden rounded border border-[rgba(255,255,255,0.06)] bg-bg-dark/40"
+                  style={{ aspectRatio: frameLayout.cellAspectRatio }}
+                >
+                  {isOverviewRender ? (
+                    <div className="absolute inset-0 overflow-hidden px-1.5 py-1 text-left text-[10px] leading-4 text-text-muted">
+                      <div className="line-clamp-4 break-words">
+                        {frameDescription ||
+                          t("node.storyboardGen.framePlaceholder", {
+                            index: String(index + 1).padStart(2, "0"),
+                          })}
+                      </div>
+                    </div>
+                  ) : (
+                    <>
+                      <div
+                        ref={(element) => {
+                          frameHighlightRefs.current[frame.id] = element;
+                        }}
+                        aria-hidden="true"
+                        className={`ui-scrollbar pointer-events-none absolute inset-0 overflow-y-auto overflow-x-hidden text-[10px] leading-4 text-text-dark transition-opacity ${showNativeFrameText ? "opacity-0" : "opacity-100"}`}
+                        style={{ scrollbarGutter: "stable" }}
+                      >
+                        <div className="canvas-textarea-wrap min-h-full px-1.5 py-1 text-left">
+                          {renderFrameDescriptionWithHighlights(
+                            frameDescription,
+                            incomingImages.length,
+                          )}
+                        </div>
+                      </div>
+                      <div
+                        ref={(element) => {
+                          frameHoverRefs.current[frame.id] = element;
+                        }}
+                        aria-hidden="true"
+                        className={`ui-scrollbar pointer-events-none absolute inset-0 z-20 overflow-y-auto overflow-x-hidden text-[10px] leading-4 text-transparent transition-opacity ${showNativeFrameText ? "opacity-0" : "opacity-100"}`}
+                        style={{ scrollbarGutter: "stable" }}
+                      >
+                        <div className="canvas-textarea-wrap min-h-full px-1.5 py-1 text-left">
+                          {renderFrameReferenceHoverTargets(
+                            frameDescription,
+                            incomingImages.length,
+                            handleFrameReferenceTokenHover,
+                            hideFrameReferencePreview,
+                            (tokenEnd, event) =>
+                              handleFrameReferenceTokenMouseDown(
+                                frame.id,
+                                tokenEnd,
+                                event,
+                              ),
+                          )}
+                        </div>
+                      </div>
+                      <textarea
+                        ref={(element) => {
+                          frameTextareaRefs.current[frame.id] = element;
+                        }}
+                        value={frameDescription}
+                        onChange={(event) => {
+                          const nextValue = event.target.value;
+                          handleFrameDescriptionChange(index, nextValue);
+                          rememberFrameSelection(frame.id, event.currentTarget);
+                        }}
+                        onBeforeInput={(event) =>
+                          handleFrameDescriptionBeforeInput(index, event)
+                        }
+                        onKeyDown={(event) =>
+                          handleFrameDescriptionKeyDown(index, event)
+                        }
+                        onScroll={() => syncFrameHighlightScroll(frame.id)}
+                        onMouseDown={(event) => {
+                          event.stopPropagation();
+                          hideFrameReferencePreview();
+                        }}
+                        onPointerDown={(event) => {
+                          event.stopPropagation();
+                          lastPointerAnchorRef.current = {
+                            frameIndex: index,
+                            anchor: resolvePointerAnchor(
+                              rootRef.current,
+                              event.clientX,
+                              event.clientY,
+                              zoom,
+                            ),
+                          };
+                        }}
+                        onFocus={(event) => {
+                          setActiveFrameId(frame.id);
+                          rememberFrameSelection(frame.id, event.currentTarget);
+                          syncFrameHighlightScroll(frame.id);
+                        }}
+                        onCompositionStart={() => {
+                          setActiveFrameId(frame.id);
+                          setComposingFrameId(frame.id);
+                          hideFrameReferencePreview();
+                        }}
+                        onCompositionEnd={(event) => {
+                          rememberFrameSelection(frame.id, event.currentTarget);
+                          setComposingFrameId((current) =>
+                            current === frame.id ? null : current,
+                          );
+                        }}
+                        onBlur={(event) => {
+                          rememberFrameSelection(frame.id, event.currentTarget);
+                          setActiveFrameId((current) =>
+                            current === frame.id ? null : current,
+                          );
+                          setComposingFrameId((current) =>
+                            current === frame.id ? null : current,
+                          );
+                        }}
+                        onSelect={(event) =>
+                          rememberFrameSelection(frame.id, event.currentTarget)
+                        }
+                        onMouseUp={(event) =>
+                          rememberFrameSelection(frame.id, event.currentTarget)
+                        }
+                        onKeyUp={(event) =>
+                          rememberFrameSelection(frame.id, event.currentTarget)
+                        }
+                        placeholder={t("node.storyboardGen.framePlaceholder", {
+                          index: String(index + 1).padStart(2, "0"),
+                        })}
+                        wrap="soft"
+                        className={`canvas-textarea-wrap ui-scrollbar nodrag nowheel relative z-10 h-full w-full resize-none overflow-y-auto overflow-x-hidden border-none bg-transparent px-1.5 py-1 text-left text-[10px] leading-4 caret-text-dark outline-none placeholder:text-text-muted/40 ${
+                          showNativeFrameText
+                            ? "text-text-dark selection:bg-accent/30"
+                            : "text-transparent selection:bg-accent/30 selection:text-transparent"
+                        }`}
+                        style={{ scrollbarGutter: "stable" }}
+                      />
+                    </>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+
+          {frameReferencePreview && !isOverviewRender ? (
+            <div
+              className="pointer-events-none absolute z-30 w-fit overflow-hidden rounded-xl shadow-[0_12px_28px_rgba(0,0,0,0.28)]"
+              style={{
+                left: `${frameReferencePreview.left}px`,
+                top: `${frameReferencePreview.top}px`,
+              }}
+            >
+              <CanvasNodeImage
+                src={frameReferencePreview.displayUrl}
+                alt={frameReferencePreview.alt}
+                viewerSourceUrl={frameReferencePreview.imageUrl}
+                viewerImageList={incomingImageViewerList}
+                className="block max-h-[132px] max-w-[144px] rounded-xl object-contain"
+                draggable={false}
+              />
+            </div>
+          ) : null}
+        </div>
+
+        {showImagePicker &&
+          incomingImageItems.length > 0 &&
+          !isOverviewRender && (
+            <div
+              className="nowheel absolute z-30 w-[120px] overflow-hidden rounded-xl border border-[rgba(255,255,255,0.16)] bg-surface-dark shadow-xl"
+              style={{ left: pickerAnchor.left, top: pickerAnchor.top }}
+              onMouseDown={(event) => event.stopPropagation()}
+              onWheelCapture={(event) => event.stopPropagation()}
+            >
+              <div
+                className="ui-scrollbar nowheel max-h-[180px] overflow-y-auto"
+                onWheelCapture={(event) => event.stopPropagation()}
+              >
+                {incomingImageItems.map((item, imageIndex) => (
+                  <button
+                    key={`${item.imageUrl}-${imageIndex}`}
+                    type="button"
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      insertImageReference(imageIndex);
+                    }}
+                    onMouseEnter={() => setPickerActiveIndex(imageIndex)}
+                    className={`flex w-full items-center gap-2 border border-transparent bg-bg-dark/70 px-2 py-2 text-left text-sm text-text-dark transition-colors hover:border-[rgba(255,255,255,0.18)] ${
+                      pickerActiveIndex === imageIndex
+                        ? "border-[rgba(255,255,255,0.24)] bg-bg-dark"
+                        : ""
+                    }`}
+                  >
+                    <CanvasNodeImage
+                      src={item.displayUrl}
+                      alt={t("node.storyboardGen.referenceImageLabel", {
+                        index: imageIndex + 1,
+                      })}
+                      viewerSourceUrl={item.imageUrl}
+                      viewerImageList={incomingImageViewerList}
+                      className="h-8 w-8 rounded object-cover"
+                    />
+                    <span>
+                      {t("node.storyboardGen.referenceImageLabel", {
+                        index: imageIndex + 1,
+                      })}
+                    </span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+
+        {/* AI Parameters */}
+        {!isOverviewRender ? (
+          <div
+            className="relative mx-auto mt-auto flex shrink-0 items-center justify-between"
+            style={{ width: `${frameLayout.paramsRowWidth}px` }}
+          >
+            <ModelParamsControls
+              imageModels={imageModels}
+              selectedModel={selectedModel}
+              resolutionOptions={resolutionOptions}
+              selectedResolution={selectedResolution}
+              selectedAspectRatio={selectedAspectRatio}
+              aspectRatioOptions={aspectRatioOptions}
+              onModelChange={(modelId) =>
+                updateNodeData(id, { model: modelId })
+              }
+              onResolutionChange={(resolution) =>
+                updateNodeData(id, { size: resolution as ImageSize })
+              }
+              onAspectRatioChange={(aspectRatio) =>
+                updateNodeData(id, { requestAspectRatio: aspectRatio })
+              }
+              extraParams={resolvedModelExtraParams}
+              onExtraParamChange={(key, value) => {
+                updateNodeData(id, {
+                  extraParams: {
+                    ...(nodeData.extraParams ?? {}),
+                    [key]: value,
+                  },
+                });
+                setLastImageGenerationExtraParams({ [key]: value });
+              }}
+              triggerSize="sm"
+              chipClassName={NODE_CONTROL_CHIP_CLASS}
+              modelChipClassName={NODE_CONTROL_MODEL_CHIP_CLASS}
+              paramsChipClassName={NODE_CONTROL_PARAMS_CHIP_CLASS}
+              modelPanelAlign="center"
+              paramsPanelAlign="center"
+              modelPanelClassName="w-[560px] max-w-[calc(100vw-32px)] p-2"
+              paramsPanelClassName="w-[420px] p-3"
             />
+
+            <div className="p-2 -m-2 shrink-0">
+              <UiButton
+                onClick={(event: ReactMouseEvent<HTMLButtonElement>) => {
+                  event.stopPropagation();
+                  const previewGridOnly =
+                    enableStoryboardGenGridPreviewShortcut &&
+                    event.ctrlKey &&
+                    event.altKey &&
+                    event.shiftKey;
+                  void handleGenerate(previewGridOnly);
+                }}
+                variant="primary"
+                size="sm"
+                className={`!min-w-0 ${NODE_CONTROL_PRIMARY_BUTTON_CLASS}`}
+              >
+                <Sparkles
+                  className={NODE_CONTROL_GENERATE_ICON_CLASS}
+                  strokeWidth={2.5}
+                />
+                {t("canvas.generate")}
+              </UiButton>
+            </div>
           </div>
         ) : null}
+
+        <CanvasHandle
+          type="target"
+          id="target"
+          position={Position.Left}
+          className="!h-2 !w-2 !border-surface-dark !bg-accent"
+        />
+        <CanvasHandle
+          type="source"
+          id="source"
+          position={Position.Right}
+          className="!h-2 !w-2 !border-surface-dark !bg-accent"
+        />
+        <NodeResizeHandle
+          minWidth={280}
+          minHeight={240}
+          maxWidth={2000}
+          maxHeight={1600}
+          isVisible={selected}
+        />
       </div>
+    );
+  },
+);
 
-      {showImagePicker && incomingImageItems.length > 0 && !isOverviewRender && (
-        <div
-          className="nowheel absolute z-30 w-[120px] overflow-hidden rounded-xl border border-[rgba(255,255,255,0.16)] bg-surface-dark shadow-xl"
-          style={{ left: pickerAnchor.left, top: pickerAnchor.top }}
-          onMouseDown={(event) => event.stopPropagation()}
-          onWheelCapture={(event) => event.stopPropagation()}
-        >
-          <div
-            className="ui-scrollbar nowheel max-h-[180px] overflow-y-auto"
-            onWheelCapture={(event) => event.stopPropagation()}
-          >
-            {incomingImageItems.map((item, imageIndex) => (
-              <button
-                key={`${item.imageUrl}-${imageIndex}`}
-                type="button"
-                onClick={(event) => {
-                  event.stopPropagation();
-                  insertImageReference(imageIndex);
-                }}
-                onMouseEnter={() => setPickerActiveIndex(imageIndex)}
-                className={`flex w-full items-center gap-2 border border-transparent bg-bg-dark/70 px-2 py-2 text-left text-sm text-text-dark transition-colors hover:border-[rgba(255,255,255,0.18)] ${pickerActiveIndex === imageIndex
-                  ? 'border-[rgba(255,255,255,0.24)] bg-bg-dark'
-                  : ''
-                  }`}
-              >
-                <CanvasNodeImage
-                  src={item.displayUrl}
-                  alt={t('node.storyboardGen.referenceImageLabel', { index: imageIndex + 1 })}
-                  viewerSourceUrl={item.imageUrl}
-                  viewerImageList={incomingImageViewerList}
-                  className="h-8 w-8 rounded object-cover"
-                />
-                <span>{t('node.storyboardGen.referenceImageLabel', { index: imageIndex + 1 })}</span>
-              </button>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {/* AI Parameters */}
-      {!isOverviewRender ? (
-        <div
-          className="relative mx-auto mt-auto flex shrink-0 items-center justify-between"
-          style={{ width: `${frameLayout.paramsRowWidth}px` }}
-        >
-          <ModelParamsControls
-            imageModels={imageModels}
-            selectedModel={selectedModel}
-            resolutionOptions={resolutionOptions}
-            selectedResolution={selectedResolution}
-            selectedAspectRatio={selectedAspectRatio}
-            aspectRatioOptions={aspectRatioOptions}
-            onModelChange={(modelId) => updateNodeData(id, { model: modelId })}
-            onResolutionChange={(resolution) =>
-              updateNodeData(id, { size: resolution as ImageSize })
-            }
-            onAspectRatioChange={(aspectRatio) =>
-              updateNodeData(id, { requestAspectRatio: aspectRatio })
-            }
-            extraParams={resolvedModelExtraParams}
-            onExtraParamChange={(key, value) => {
-              updateNodeData(id, {
-                extraParams: {
-                  ...(nodeData.extraParams ?? {}),
-                  [key]: value,
-                },
-              });
-              setLastImageGenerationExtraParams({ [key]: value });
-            }}
-            triggerSize="sm"
-            chipClassName={NODE_CONTROL_CHIP_CLASS}
-            modelChipClassName={NODE_CONTROL_MODEL_CHIP_CLASS}
-            paramsChipClassName={NODE_CONTROL_PARAMS_CHIP_CLASS}
-            modelPanelAlign="center"
-            paramsPanelAlign="center"
-            modelPanelClassName="w-[560px] max-w-[calc(100vw-32px)] p-2"
-            paramsPanelClassName="w-[420px] p-3"
-          />
-
-          <div className="p-2 -m-2 shrink-0">
-            <UiButton
-              onClick={(event: ReactMouseEvent<HTMLButtonElement>) => {
-                event.stopPropagation();
-                const previewGridOnly =
-                  enableStoryboardGenGridPreviewShortcut && event.ctrlKey && event.altKey && event.shiftKey;
-                void handleGenerate(previewGridOnly);
-              }}
-              variant="primary"
-              size="sm"
-              className={`!min-w-0 ${NODE_CONTROL_PRIMARY_BUTTON_CLASS}`}
-            >
-              <Sparkles className={NODE_CONTROL_GENERATE_ICON_CLASS} strokeWidth={2.5} />
-              {t('canvas.generate')}
-            </UiButton>
-          </div>
-        </div>
-      ) : null}
-
-      <Handle
-        type="target"
-        id="target"
-        position={Position.Left}
-        className="!h-2 !w-2 !border-surface-dark !bg-accent"
-      />
-      <Handle
-        type="source"
-        id="source"
-        position={Position.Right}
-        className="!h-2 !w-2 !border-surface-dark !bg-accent"
-      />
-      <NodeResizeHandle
-        minWidth={280}
-        minHeight={240}
-        maxWidth={2000}
-        maxHeight={1600}
-        isVisible={selected}
-      />
-    </div>
-  );
-});
-
-StoryboardGenNode.displayName = 'StoryboardGenNode';
+StoryboardGenNode.displayName = "StoryboardGenNode";

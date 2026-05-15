@@ -63,6 +63,7 @@ export interface StoryboardImageMetadata {
 export interface PrepareNodeImageSourceResult {
   imagePath: string;
   previewImagePath: string;
+  thumbnailImagePath: string;
   aspectRatio: string;
 }
 
@@ -156,6 +157,16 @@ export async function prepareNodeImageBinary(
     bytes: Array.from(bytes),
     extension,
     maxPreviewDimension,
+    mediaContext,
+  });
+}
+
+export async function createNodeThumbnailSource(
+  source: string,
+  mediaContext?: MediaPersistContext
+): Promise<string> {
+  return await invoke('create_node_thumbnail_source', {
+    source,
     mediaContext,
   });
 }

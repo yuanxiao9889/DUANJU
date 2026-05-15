@@ -17,12 +17,8 @@ import {
   SEEDANCE_INPUT_MODES,
   SEEDANCE_MODEL_IDS,
   SEEDANCE_RESOLUTIONS,
-  GPT_BEST_GROK_VIDEO_MODEL_IDS,
-  GPT_BEST_SEEDANCE_INPUT_MODES,
-  GPT_BEST_SEEDANCE_MODEL_IDS,
-  GPT_BEST_VIDEO_ASPECT_RATIOS,
   GPT_BEST_VIDEO_DURATION_SECONDS,
-  GPT_BEST_VIDEO_RESOLUTIONS,
+  GPT_BEST_VIDEO_SIZES,
   VIDU_ASPECT_RATIOS,
   VIDU_DURATION_SECONDS,
   VIDU_INPUT_MODES,
@@ -77,6 +73,8 @@ import {
   type ScriptChapterNodeData,
   type ScriptSceneNodeData,
   type ShootingScriptNodeData,
+  type ScriptAssetExtractNodeData,
+  type DirectorStoryboardReferenceNodeData,
   type ScriptReferenceNodeData,
   type AdScriptReferenceNodeData,
   type ScriptCharacterReferenceNodeData,
@@ -85,10 +83,13 @@ import {
   type ScriptCharacterNodeData,
   type ScriptLocationNodeData,
   type ScriptItemNodeData,
+  type ScriptPlotLineNodeData,
   type ScriptStoryNoteNodeData,
   type ScriptPlotPointNodeData,
   type ScriptWorldviewNodeData,
   createDefaultSceneCard,
+  createEmptyDirectorStoryboardOverrides,
+  createEmptyProductionQueueState,
 } from './canvasNodes';
 import { createDefaultAdProjectRootState } from '@/features/ad/types';
 import {
@@ -511,7 +512,7 @@ const gptBestSeedanceNodeDefinition: CanvasNodeDefinition<GptBestVideoNodeData> 
   menuLabelKey: 'node.menu.gptBestSeedanceVideo',
   menuIcon: 'sparkles',
   menuGroup: 'media',
-  visibleInMenu: true,
+  visibleInMenu: false,
   menuProjectTypes: ['storyboard'],
   capabilities: {
     toolbar: true,
@@ -521,7 +522,7 @@ const gptBestSeedanceNodeDefinition: CanvasNodeDefinition<GptBestVideoNodeData> 
     sourceHandle: true,
     targetHandle: true,
     connectMenu: {
-      fromSource: true,
+      fromSource: false,
       fromTarget: false,
     },
   },
@@ -529,11 +530,13 @@ const gptBestSeedanceNodeDefinition: CanvasNodeDefinition<GptBestVideoNodeData> 
     displayName: DEFAULT_NODE_DISPLAY_NAME[CANVAS_NODE_TYPES.gptBestSeedance],
     prompt: '',
     sourceKind: 'seedance',
-    modelId: GPT_BEST_SEEDANCE_MODEL_IDS[0],
-    inputMode: GPT_BEST_SEEDANCE_INPUT_MODES[0],
-    aspectRatio: GPT_BEST_VIDEO_ASPECT_RATIOS[0],
+    providerId: 'oopii',
+    modelId: 'OK-video',
+    size: '1280x720',
+    aspectRatio: '16:9',
+    seconds: GPT_BEST_VIDEO_DURATION_SECONDS[0],
     durationSeconds: GPT_BEST_VIDEO_DURATION_SECONDS[0],
-    resolution: GPT_BEST_VIDEO_RESOLUTIONS[0],
+    resolution: GPT_BEST_VIDEO_SIZES[1],
     isSubmitting: false,
     lastSubmittedAt: null,
     lastError: null,
@@ -563,10 +566,13 @@ const gptBestGrokVideoNodeDefinition: CanvasNodeDefinition<GptBestVideoNodeData>
     displayName: DEFAULT_NODE_DISPLAY_NAME[CANVAS_NODE_TYPES.gptBestGrokVideo],
     prompt: '',
     sourceKind: 'grok',
-    modelId: GPT_BEST_GROK_VIDEO_MODEL_IDS[0],
-    aspectRatio: GPT_BEST_VIDEO_ASPECT_RATIOS[0],
-    durationSeconds: GPT_BEST_VIDEO_DURATION_SECONDS[0],
-    resolution: GPT_BEST_VIDEO_RESOLUTIONS[0],
+    providerId: 'oopii',
+    modelId: 'OK-video',
+    size: '1280x720',
+    aspectRatio: '16:9',
+    seconds: 10,
+    durationSeconds: 10,
+    resolution: GPT_BEST_VIDEO_SIZES[1],
     isSubmitting: false,
     lastSubmittedAt: null,
     lastError: null,
@@ -585,7 +591,7 @@ const gptBestVideoResultNodeDefinition: CanvasNodeDefinition<GptBestVideoResultN
   },
   connectivity: {
     sourceHandle: true,
-    targetHandle: false,
+    targetHandle: true,
     connectMenu: {
       fromSource: false,
       fromTarget: false,
@@ -594,7 +600,7 @@ const gptBestVideoResultNodeDefinition: CanvasNodeDefinition<GptBestVideoResultN
   createDefaultData: () => ({
     displayName: DEFAULT_NODE_DISPLAY_NAME[CANVAS_NODE_TYPES.gptBestVideoResult],
     sourceNodeId: null,
-    provider: 'gptBest',
+    provider: 'oopii',
     sourceKind: 'seedance',
     taskId: null,
     taskStatus: null,
@@ -604,6 +610,7 @@ const gptBestVideoResultNodeDefinition: CanvasNodeDefinition<GptBestVideoResultN
     previewImageUrl: null,
     videoFileName: null,
     aspectRatio: '16:9',
+    size: '1280x720',
     resolution: null,
     duration: undefined,
     requestSnapshot: null,
@@ -819,7 +826,7 @@ const textAnnotationNodeDefinition: CanvasNodeDefinition<TextAnnotationNodeData>
   menuIcon: 'text',
   menuGroup: 'text',
   visibleInMenu: true,
-  menuProjectTypes: ['storyboard'],
+  menuProjectTypes: ['storyboard', 'script'],
   capabilities: {
     toolbar: true,
     promptInput: false,
@@ -1859,6 +1866,78 @@ const shootingScriptNodeDefinition: CanvasNodeDefinition<ShootingScriptNodeData>
   }),
 };
 
+const scriptAssetExtractNodeDefinition: CanvasNodeDefinition<ScriptAssetExtractNodeData> = {
+  type: CANVAS_NODE_TYPES.scriptAssetExtract,
+  menuLabelKey: 'node.menu.scriptAssetExtract',
+  menuIcon: 'package',
+  menuGroup: 'text',
+  visibleInMenu: true,
+  menuProjectTypes: ['script'],
+  capabilities: {
+    toolbar: true,
+    promptInput: false,
+  },
+  connectivity: {
+    sourceHandle: true,
+    targetHandle: true,
+    connectMenu: {
+      fromSource: false,
+      fromTarget: false,
+    },
+  },
+  createDefaultData: () => ({
+    displayName: DEFAULT_NODE_DISPLAY_NAME[CANVAS_NODE_TYPES.scriptAssetExtract],
+    sourceMode: 'chapterSelection',
+    selectedChapterIds: [],
+    resolvedSourceSnapshot: null,
+    extractionResult: null,
+    extractionState: {
+      requestId: null,
+      phase: 'idle',
+      statusText: null,
+      lastError: null,
+      lastGeneratedAt: null,
+    },
+    expandedGroupNodeIds: [],
+    lastExpandedAt: null,
+  }),
+};
+
+const directorStoryboardReferenceNodeDefinition: CanvasNodeDefinition<DirectorStoryboardReferenceNodeData> = {
+  type: CANVAS_NODE_TYPES.directorStoryboardReference,
+  menuLabelKey: 'node.menu.directorStoryboardReference',
+  menuIcon: 'link',
+  menuGroup: 'scriptReference',
+  visibleInMenu: false,
+  menuProjectTypes: ['storyboard'],
+  capabilities: {
+    toolbar: true,
+    promptInput: false,
+  },
+  connectivity: {
+    sourceHandle: true,
+    targetHandle: true,
+    connectMenu: {
+      fromSource: false,
+      fromTarget: false,
+    },
+  },
+  createDefaultData: () => ({
+    displayName: DEFAULT_NODE_DISPLAY_NAME[CANVAS_NODE_TYPES.directorStoryboardReference],
+    linkedScriptProjectId: null,
+    directorStoryboardSourceProjectId: null,
+    directorStoryboardSourceNodeId: null,
+    directorStoryboardSourceVersion: null,
+    directorStoryboardSnapshot: null,
+    directorStoryboardOverrides: createEmptyDirectorStoryboardOverrides(),
+    referenceContext: null,
+    productionQueue: createEmptyProductionQueueState(),
+    syncStatus: 'idle',
+    syncMessage: null,
+    lastSyncedAt: null,
+  }),
+};
+
 const scriptReferenceNodeDefinition: CanvasNodeDefinition<ScriptReferenceNodeData> = {
   type: CANVAS_NODE_TYPES.scriptReference,
   menuLabelKey: 'node.menu.scriptReference',
@@ -2094,6 +2173,35 @@ const scriptItemNodeDefinition: CanvasNodeDefinition<ScriptItemNodeData> = {
   }),
 };
 
+const scriptPlotLineNodeDefinition: CanvasNodeDefinition<ScriptPlotLineNodeData> = {
+  type: CANVAS_NODE_TYPES.scriptPlotLine,
+  menuLabelKey: 'node.menu.scriptPlotLine',
+  menuIcon: 'text',
+  visibleInMenu: false,
+  menuProjectTypes: ['script'],
+  capabilities: {
+    toolbar: false,
+    promptInput: false,
+  },
+  connectivity: {
+    sourceHandle: true,
+    targetHandle: false,
+    connectMenu: {
+      fromSource: false,
+      fromTarget: false,
+    },
+  },
+  createDefaultData: () => ({
+    displayName: DEFAULT_NODE_DISPLAY_NAME[CANVAS_NODE_TYPES.scriptPlotLine] || '剧情线',
+    title: '',
+    summary: '',
+    statusTag: '',
+    relatedCharacterNames: [],
+    relatedSceneNames: [],
+    entries: [],
+  }),
+};
+
 const scriptStoryNoteNodeDefinition: CanvasNodeDefinition<ScriptStoryNoteNodeData> = {
   type: CANVAS_NODE_TYPES.scriptStoryNote,
   menuLabelKey: 'node.menu.scriptStoryNote',
@@ -2225,6 +2333,13 @@ export const canvasNodeDefinitions: Record<CanvasNodeType, CanvasNodeDefinition>
   [CANVAS_NODE_TYPES.scriptChapter]: scriptChapterNodeDefinition,
   [CANVAS_NODE_TYPES.scriptScene]: scriptSceneNodeDefinition,
   [CANVAS_NODE_TYPES.shootingScript]: shootingScriptNodeDefinition,
+  [CANVAS_NODE_TYPES.scriptAssetExtract]: scriptAssetExtractNodeDefinition,
+  [CANVAS_NODE_TYPES.directorWorkPackage]: {
+    ...scriptAssetExtractNodeDefinition,
+    type: CANVAS_NODE_TYPES.directorWorkPackage,
+    visibleInMenu: false,
+  },
+  [CANVAS_NODE_TYPES.directorStoryboardReference]: directorStoryboardReferenceNodeDefinition,
   [CANVAS_NODE_TYPES.scriptReference]: scriptReferenceNodeDefinition,
   [CANVAS_NODE_TYPES.adScriptReference]: adScriptReferenceNodeDefinition,
   [CANVAS_NODE_TYPES.scriptCharacterReference]: scriptCharacterReferenceNodeDefinition,
@@ -2233,6 +2348,7 @@ export const canvasNodeDefinitions: Record<CanvasNodeType, CanvasNodeDefinition>
   [CANVAS_NODE_TYPES.scriptCharacter]: scriptCharacterNodeDefinition,
   [CANVAS_NODE_TYPES.scriptLocation]: scriptLocationNodeDefinition,
   [CANVAS_NODE_TYPES.scriptItem]: scriptItemNodeDefinition,
+  [CANVAS_NODE_TYPES.scriptPlotLine]: scriptPlotLineNodeDefinition,
   [CANVAS_NODE_TYPES.scriptStoryNote]: scriptStoryNoteNodeDefinition,
   [CANVAS_NODE_TYPES.scriptPlotPoint]: scriptPlotPointNodeDefinition,
   [CANVAS_NODE_TYPES.scriptWorldview]: scriptWorldviewNodeDefinition,

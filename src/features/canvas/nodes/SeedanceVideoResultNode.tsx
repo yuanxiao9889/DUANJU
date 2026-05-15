@@ -1,10 +1,10 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
-  Handle,
   Position,
   useUpdateNodeInternals,
   type NodeProps,
 } from "@xyflow/react";
+import { CanvasHandle } from "@/features/canvas/ui/CanvasHandle";
 import {
   Camera,
   ChevronLeft,
@@ -17,7 +17,6 @@ import {
   Video,
 } from "lucide-react";
 import { useTranslation } from "react-i18next";
-
 import { UiButton, UiLoadingAnimation } from "@/components/ui";
 import {
   resolveErrorContent,
@@ -89,7 +88,14 @@ function toCssAspectRatio(aspectRatio: string): string {
 
 function normalizeSeedanceTaskStatus(
   status: string | null | undefined,
-): "queued" | "running" | "succeeded" | "failed" | "cancelled" | "expired" | "unknown" {
+):
+  | "queued"
+  | "running"
+  | "succeeded"
+  | "failed"
+  | "cancelled"
+  | "expired"
+  | "unknown" {
   const normalized = status?.trim().toLowerCase() ?? "";
 
   switch (normalized) {
@@ -111,13 +117,15 @@ export const SeedanceVideoResultNode = memo(
     const shouldSuspendMedia = useShouldSuspendCanvasMedia();
     const updateNodeInternals = useUpdateNodeInternals();
     const currentNode = useCanvasNodeById(id);
-    const officialVideoApiKeys = useSettingsStore((state) => state.officialVideoApiKeys);
+    const officialVideoApiKeys = useSettingsStore(
+      (state) => state.officialVideoApiKeys,
+    );
     const setSelectedNode = useCanvasStore((state) => state.setSelectedNode);
     const updateNodeData = useCanvasStore((state) => state.updateNodeData);
     const addNode = useCanvasStore((state) => state.addNode);
     const addEdge = useCanvasStore((state) => state.addEdge);
-    const isDescriptionPanelOpen = useCanvasStore(
-      (state) => Boolean(state.nodeDescriptionPanelOpenById[id]),
+    const isDescriptionPanelOpen = useCanvasStore((state) =>
+      Boolean(state.nodeDescriptionPanelOpenById[id]),
     );
     const isReferenceSourceHighlighted = useCanvasStore(
       (state) => state.highlightedReferenceSourceNodeId === id,
@@ -129,15 +137,16 @@ export const SeedanceVideoResultNode = memo(
 
     const apiKey = officialVideoApiKeys.volcengine?.trim() ?? "";
     const resolvedTitle = useMemo(
-      () =>
-        resolveNodeDisplayName(CANVAS_NODE_TYPES.seedanceVideoResult, data),
+      () => resolveNodeDisplayName(CANVAS_NODE_TYPES.seedanceVideoResult, data),
       [data],
     );
     const resolvedWidth = Math.max(
       SEEDANCE_VIDEO_RESULT_NODE_MIN_WIDTH,
       Math.round(width ?? SEEDANCE_VIDEO_RESULT_NODE_DEFAULT_WIDTH),
     );
-    const explicitHeight = resolveNodeStyleDimension(currentNode?.style?.height);
+    const explicitHeight = resolveNodeStyleDimension(
+      currentNode?.style?.height,
+    );
     const hasExplicitHeight = typeof explicitHeight === "number";
     const descriptionPanelHeight = isDescriptionPanelOpen
       ? NODE_DESCRIPTION_PANEL_EXPANDED_TOTAL_HEIGHT
@@ -146,7 +155,8 @@ export const SeedanceVideoResultNode = memo(
       explicitHeight ?? SEEDANCE_VIDEO_RESULT_NODE_MIN_HEIGHT,
       SEEDANCE_VIDEO_RESULT_NODE_MIN_HEIGHT,
     );
-    const resolvedMinHeight = SEEDANCE_VIDEO_RESULT_NODE_MIN_HEIGHT + descriptionPanelHeight;
+    const resolvedMinHeight =
+      SEEDANCE_VIDEO_RESULT_NODE_MIN_HEIGHT + descriptionPanelHeight;
     const resolvedHeight = hasExplicitHeight
       ? collapsedHeight + descriptionPanelHeight
       : null;
@@ -165,7 +175,8 @@ export const SeedanceVideoResultNode = memo(
       const source = data.previewImageUrl?.trim() ?? "";
       return source || null;
     }, [data.previewImageUrl]);
-    const { displaySource: posterDisplaySource } = useStableImageDisplaySource(posterSource);
+    const { displaySource: posterDisplaySource } =
+      useStableImageDisplaySource(posterSource);
     const normalizedTaskStatus = useMemo(
       () => normalizeSeedanceTaskStatus(data.taskStatus),
       [data.taskStatus],
@@ -251,7 +262,9 @@ export const SeedanceVideoResultNode = memo(
           lastError: null,
         });
         if (!options?.suppressErrorDialog) {
-          await flushCurrentProjectToDiskSafely("starting Seedance video requery");
+          await flushCurrentProjectToDiskSafely(
+            "starting Seedance video requery",
+          );
         }
 
         try {
@@ -405,11 +418,20 @@ export const SeedanceVideoResultNode = memo(
       return () => {
         clearScheduledPoll();
       };
-    }, [apiKey, clearScheduledPoll, data.isGenerating, data.taskId, handleRequeryResult]);
+    }, [
+      apiKey,
+      clearScheduledPoll,
+      data.isGenerating,
+      data.taskId,
+      handleRequeryResult,
+    ]);
 
-    useEffect(() => () => {
-      clearScheduledPoll();
-    }, [clearScheduledPoll]);
+    useEffect(
+      () => () => {
+        clearScheduledPoll();
+      },
+      [clearScheduledPoll],
+    );
 
     const placeholderText = data.isGenerating
       ? taskStatusLabel
@@ -509,7 +531,7 @@ export const SeedanceVideoResultNode = memo(
               ? "border-accent shadow-[0_0_0_1px_rgba(59,130,246,0.32)]"
               : isReferenceSourceHighlighted
                 ? "border-accent/80 shadow-[0_0_0_2px_rgba(59,130,246,0.24),0_4px_18px_rgba(59,130,246,0.1)]"
-              : "border-[rgba(15,23,42,0.22)] hover:border-[rgba(15,23,42,0.34)] dark:border-[rgba(255,255,255,0.22)] dark:hover:border-[rgba(255,255,255,0.34)]"
+                : "border-[rgba(15,23,42,0.22)] hover:border-[rgba(15,23,42,0.34)] dark:border-[rgba(255,255,255,0.22)] dark:hover:border-[rgba(255,255,255,0.34)]"
           }
         `}
         style={{
@@ -529,15 +551,22 @@ export const SeedanceVideoResultNode = memo(
           }
         />
 
-        <div className={`flex flex-col pt-5 ${hasExplicitHeight ? "min-h-0 flex-1" : ""}`}>
+        <div
+          className={`flex flex-col pt-5 ${hasExplicitHeight ? "min-h-0 flex-1" : ""}`}
+        >
           <div
             className={`flex flex-col overflow-hidden rounded-[var(--node-radius)] bg-[linear-gradient(165deg,rgba(255,255,255,0.05),rgba(255,255,255,0.015))] ${hasExplicitHeight ? "min-h-0 flex-1" : ""}`}
           >
             <div
               className={`relative overflow-hidden bg-black ${flashFrame ? "animate-pulse bg-white/20" : ""} ${hasExplicitHeight ? "min-h-0 flex-1" : ""}`}
-              style={hasExplicitHeight ? undefined : { aspectRatio: resolvedAspectRatio }}
+              style={
+                hasExplicitHeight
+                  ? undefined
+                  : { aspectRatio: resolvedAspectRatio }
+              }
             >
-              {posterSource && (shouldSuspendMedia || !isVideoReady || Boolean(videoError)) ? (
+              {posterSource &&
+              (shouldSuspendMedia || !isVideoReady || Boolean(videoError)) ? (
                 <CanvasNodeImage
                   src={posterSource}
                   alt={t("node.videoNode.posterAlt")}
@@ -572,7 +601,9 @@ export const SeedanceVideoResultNode = memo(
                   />
                 ) : (
                   <div className="flex h-full w-full items-center justify-center bg-[radial-gradient(circle_at_top,#1f2937_0%,#0f172a_72%)] text-sm text-text-muted">
-                    {showBlockingOverlay || (shouldSuspendMedia && posterSource) ? null : placeholderText}
+                    {showBlockingOverlay || (shouldSuspendMedia && posterSource)
+                      ? null
+                      : placeholderText}
                   </div>
                 )}
               </div>
@@ -600,7 +631,9 @@ export const SeedanceVideoResultNode = memo(
                     <div className="text-sm font-medium text-text-dark">
                       {t("node.videoNode.loadFailed")}
                     </div>
-                    <div className="text-xs leading-5 text-text-muted">{videoError}</div>
+                    <div className="text-xs leading-5 text-text-muted">
+                      {videoError}
+                    </div>
                   </div>
                   <button
                     type="button"
@@ -645,9 +678,17 @@ export const SeedanceVideoResultNode = memo(
                       ? "cursor-not-allowed border-white/[0.06] bg-white/[0.02] text-text-muted/40"
                       : "border-white/[0.1] bg-white/[0.06] text-text-dark hover:border-accent/40 hover:bg-accent/12 hover:text-accent"
                   }`}
-                  title={isPlaying ? t("node.videoNode.pause") : t("node.videoNode.play")}
+                  title={
+                    isPlaying
+                      ? t("node.videoNode.pause")
+                      : t("node.videoNode.play")
+                  }
                 >
-                  {isPlaying ? <Pause className="h-4 w-4" /> : <Play className="h-4 w-4" />}
+                  {isPlaying ? (
+                    <Pause className="h-4 w-4" />
+                  ) : (
+                    <Play className="h-4 w-4" />
+                  )}
                 </button>
                 <button
                   type="button"
@@ -671,7 +712,11 @@ export const SeedanceVideoResultNode = memo(
                   type="button"
                   onClick={() => void handleScreenshot()}
                   disabled={screenshotButtonDisabled || showBlockingOverlay}
-                  title={!isVideoReady ? t("node.videoNode.screenshotNotReady") : t("node.videoNode.screenshot")}
+                  title={
+                    !isVideoReady
+                      ? t("node.videoNode.screenshotNotReady")
+                      : t("node.videoNode.screenshot")
+                  }
                   className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-medium transition-colors ${
                     screenshotButtonDisabled || showBlockingOverlay
                       ? "cursor-not-allowed border-white/10 bg-white/[0.03] text-white/35"
@@ -683,7 +728,9 @@ export const SeedanceVideoResultNode = memo(
                   ) : (
                     <Camera className="h-3.5 w-3.5" />
                   )}
-                  {isCapturingScreenshot ? t("node.videoNode.screenshotPending") : t("node.videoNode.screenshot")}
+                  {isCapturingScreenshot
+                    ? t("node.videoNode.screenshotPending")
+                    : t("node.videoNode.screenshot")}
                 </button>
               </div>
 
@@ -707,7 +754,12 @@ export const SeedanceVideoResultNode = memo(
                       ? "bg-red-500/12 text-red-200"
                       : "bg-white/8 text-text-muted"
                   }`}
-                  title={combinedError ?? statusNotice ?? taskStatusNotice ?? undefined}
+                  title={
+                    combinedError ??
+                    statusNotice ??
+                    taskStatusNotice ??
+                    undefined
+                  }
                 >
                   {combinedError ?? statusNotice ?? taskStatusNotice}
                 </div>
@@ -749,17 +801,17 @@ export const SeedanceVideoResultNode = memo(
           onChange={(value) => updateNodeData(id, { nodeDescription: value })}
         />
 
-        <Handle
+        <CanvasHandle
           type="target"
           id="target"
           position={Position.Left}
-          className="!h-2.5 !w-2.5 !border-2 !border-surface-dark !bg-accent"
+          className="!border-2 !border-surface-dark !bg-accent"
         />
-        <Handle
+        <CanvasHandle
           type="source"
           id="source"
           position={Position.Right}
-          className="!h-2.5 !w-2.5 !border-2 !border-surface-dark !bg-accent"
+          className="!border-2 !border-surface-dark !bg-accent"
         />
         <NodeResizeHandle
           minWidth={SEEDANCE_VIDEO_RESULT_NODE_MIN_WIDTH}

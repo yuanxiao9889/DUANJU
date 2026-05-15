@@ -2,7 +2,7 @@ import { create } from 'zustand';
 
 import type { ShootingScriptColumnKey } from '@/features/canvas/domain/canvasNodes';
 
-export type ScriptWorkbenchKind = 'none' | 'chapter' | 'scene' | 'shootingScript';
+export type ScriptWorkbenchKind = 'none' | 'chapter' | 'scene' | 'shootingScript' | 'scriptAssetExtract';
 
 export interface ShootingScriptCellSelection {
   rowId: string;
@@ -16,6 +16,8 @@ interface ScriptEditorState {
   activeSceneNodeId: string | null;
   activeEpisodeId: string | null;
   activeScriptNodeId: string | null;
+  activeScriptAssetExtractNodeId: string | null;
+  activeScriptAssetExtractRequestKey: number;
   activeScriptCell: ShootingScriptCellSelection | null;
   focusChapter: (chapterId: string, sceneId?: string | null) => void;
   focusChapterScene: (chapterId: string, sceneId: string) => void;
@@ -36,6 +38,7 @@ interface ScriptEditorState {
       episodeId?: string | null;
     }
   ) => void;
+  focusScriptAssetExtract: (nodeId: string) => void;
   clearSelection: () => void;
 }
 
@@ -46,6 +49,8 @@ export const useScriptEditorStore = create<ScriptEditorState>((set) => ({
   activeSceneNodeId: null,
   activeEpisodeId: null,
   activeScriptNodeId: null,
+  activeScriptAssetExtractNodeId: null,
+  activeScriptAssetExtractRequestKey: 0,
   activeScriptCell: null,
   focusChapter: (chapterId, sceneId) => {
     set({
@@ -55,6 +60,8 @@ export const useScriptEditorStore = create<ScriptEditorState>((set) => ({
       activeSceneNodeId: null,
       activeEpisodeId: null,
       activeScriptNodeId: null,
+      activeScriptAssetExtractNodeId: null,
+      activeScriptAssetExtractRequestKey: 0,
       activeScriptCell: null,
     });
   },
@@ -66,6 +73,8 @@ export const useScriptEditorStore = create<ScriptEditorState>((set) => ({
       activeSceneNodeId: null,
       activeEpisodeId: null,
       activeScriptNodeId: null,
+      activeScriptAssetExtractNodeId: null,
+      activeScriptAssetExtractRequestKey: 0,
       activeScriptCell: null,
     });
   },
@@ -77,6 +86,8 @@ export const useScriptEditorStore = create<ScriptEditorState>((set) => ({
       activeSceneNodeId: sceneNodeId,
       activeEpisodeId: episodeId ?? null,
       activeScriptNodeId: null,
+      activeScriptAssetExtractNodeId: null,
+      activeScriptAssetExtractRequestKey: 0,
       activeScriptCell: null,
     });
   },
@@ -88,6 +99,8 @@ export const useScriptEditorStore = create<ScriptEditorState>((set) => ({
       activeSceneNodeId: options?.sceneNodeId ?? null,
       activeEpisodeId: options?.episodeId ?? null,
       activeScriptNodeId: scriptNodeId,
+      activeScriptAssetExtractNodeId: null,
+      activeScriptAssetExtractRequestKey: 0,
       activeScriptCell: options?.cell ?? null,
     });
   },
@@ -99,7 +112,23 @@ export const useScriptEditorStore = create<ScriptEditorState>((set) => ({
       activeSceneNodeId: options?.sceneNodeId ?? state.activeSceneNodeId,
       activeEpisodeId: options?.episodeId ?? state.activeEpisodeId,
       activeScriptNodeId: scriptNodeId,
+      activeScriptAssetExtractNodeId: null,
+      activeScriptAssetExtractRequestKey: 0,
       activeScriptCell: cell,
+    }));
+  },
+  focusScriptAssetExtract: (nodeId) => {
+    set((state) => ({
+      activeWorkbenchKind: 'scriptAssetExtract',
+      activeChapterId: null,
+      activeChapterSceneId: null,
+      activeSceneNodeId: null,
+      activeEpisodeId: null,
+      activeScriptNodeId: null,
+      activeScriptAssetExtractNodeId: nodeId,
+      activeScriptAssetExtractRequestKey:
+        state.activeScriptAssetExtractRequestKey + 1,
+      activeScriptCell: null,
     }));
   },
   clearSelection: () => {
@@ -110,6 +139,8 @@ export const useScriptEditorStore = create<ScriptEditorState>((set) => ({
       activeSceneNodeId: null,
       activeEpisodeId: null,
       activeScriptNodeId: null,
+      activeScriptAssetExtractNodeId: null,
+      activeScriptAssetExtractRequestKey: 0,
       activeScriptCell: null,
     });
   },
