@@ -362,6 +362,7 @@ pub fn run() {
             image::save_image_source_to_app_debug_dir,
             image::copy_image_source_to_clipboard,
             jimeng_video_queue::list_jimeng_video_queue_jobs,
+            jimeng_video_queue::list_all_jimeng_video_queue_jobs,
             jimeng_video_queue::upsert_jimeng_video_queue_job,
             jimeng_video_queue::delete_jimeng_video_queue_job,
             generation_history::list_generation_history_items,

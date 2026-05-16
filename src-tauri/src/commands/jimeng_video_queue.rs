@@ -168,6 +168,80 @@ pub fn list_jimeng_video_queue_jobs(
 }
 
 #[tauri::command]
+pub fn list_all_jimeng_video_queue_jobs(
+    app: AppHandle,
+) -> Result<Vec<JimengVideoQueueJobRecord>, String> {
+    let conn = open_db(&app)?;
+    let mut stmt = conn
+        .prepare(
+            r#"
+            SELECT
+              job_id,
+              project_id,
+              source_node_id,
+              result_node_id,
+              title,
+              status,
+              scheduled_at,
+              submit_id,
+              payload_json,
+              attempt_count,
+              max_attempts,
+              last_error,
+              warnings_json,
+              started_at,
+              next_retry_at,
+              completed_at,
+              created_at,
+              updated_at
+            FROM jimeng_video_queue_jobs
+            ORDER BY created_at ASC
+            "#,
+        )
+        .map_err(|e| format!("Failed to prepare Jimeng queue query: {}", e))?;
+
+    let rows = stmt
+        .query_map([], |row| {
+            Ok(JimengVideoQueueJobRecord {
+                job_id: row.get(0)?,
+                project_id: row.get(1)?,
+                source_node_id: row.get(2)?,
+                result_node_id: row.get(3)?,
+                title: row.get(4)?,
+                status: row.get(5)?,
+                scheduled_at: row.get(6)?,
+                submit_id: row.get(7)?,
+                payload_json: row.get(8)?,
+                attempt_count: row.get(9)?,
+                max_attempts: row.get(10)?,
+                last_error: row.get(11)?,
+                warnings_json: row.get(12)?,
+                started_at: row.get(13)?,
+                next_retry_at: row.get(14)?,
+                completed_at: row.get(15)?,
+                created_at: row.get(16)?,
+                updated_at: row.get(17)?,
+            })
+        })
+        .map_err(|e| format!("Failed to query Jimeng queue jobs: {}", e))?;
+
+    let mut records = Vec::new();
+    for row in rows {
+        let mut record = row.map_err(|e| format!("Failed to read Jimeng queue job row: {}", e))?;
+        if let Some(next_payload_json) =
+            storage::rewrite_media_refs_in_json_string(&record.payload_json, &|value| {
+                storage::decode_storage_media_ref(&app, value)
+            })?
+        {
+            record.payload_json = next_payload_json;
+        }
+        records.push(record);
+    }
+
+    Ok(records)
+}
+
+#[tauri::command]
 pub fn upsert_jimeng_video_queue_job(
     app: AppHandle,
     mut record: JimengVideoQueueJobRecord,

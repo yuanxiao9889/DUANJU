@@ -147,6 +147,8 @@ import { createPreviewConnectionPath } from './application/connectionPreviewPath
 import { GroupSidebar } from './ui/GroupSidebar';
 import { SelectionGroupBar } from './ui/SelectionGroupBar';
 import { CanvasAssetDock } from './ui/CanvasAssetDock';
+import { StoryboardAssetExpandDialog } from './ui/StoryboardAssetExpandDialog';
+import { BatchAddToAssetsDialog } from './ui/BatchAddToAssetsDialog';
 import { JimengVideoQueuePanel } from '@/features/jimeng/ui/JimengVideoQueuePanel';
 import { useJimengVideoQueueStore } from '@/stores/jimengVideoQueueStore';
 import { useGenerationHistoryStore } from '@/stores/generationHistoryStore';
@@ -163,6 +165,11 @@ import {
   createDefaultCanvasColorLabelMap,
   type CanvasSemanticColor,
 } from './domain/semanticColors';
+import {
+  buildBatchAssetDraftsFromSelectedNodes,
+  isBatchAssetAddableNode,
+  type BatchAssetSourceResolution,
+} from './application/batchAddToAssets';
 
 const ScriptBiblePanel = lazy(async () => {
   const module = await import('./ui/ScriptBiblePanel');
@@ -687,7 +694,8 @@ function findImageCompareDropTarget(
 function hasRectCollision(
   candidateRect: { x: number; y: number; width: number; height: number },
   nodes: CanvasNode[],
-  ignoreNodeIds: Set<string>
+  ignoreNodeIds: Set<string>,
+  nodeMap: Map<string, CanvasNode>
 ): boolean {
   const margin = 18;
   return nodes.some((node) => {
@@ -695,11 +703,12 @@ function hasRectCollision(
       return false;
     }
     const size = getNodeSize(node);
+    const absolutePosition = resolveAbsoluteNodePosition(node, nodeMap);
     return (
-      candidateRect.x < node.position.x + size.width + margin &&
-      candidateRect.x + candidateRect.width + margin > node.position.x &&
-      candidateRect.y < node.position.y + size.height + margin &&
-      candidateRect.y + candidateRect.height + margin > node.position.y
+      candidateRect.x < absolutePosition.x + size.width + margin &&
+      candidateRect.x + candidateRect.width + margin > absolutePosition.x &&
+      candidateRect.y < absolutePosition.y + size.height + margin &&
+      candidateRect.y + candidateRect.height + margin > absolutePosition.y
     );
   });
 }
@@ -1192,6 +1201,9 @@ export function Canvas() {
   const [showSceneCatalogMenu, setShowSceneCatalogMenu] = useState(false);
   const [showEpisodeCatalogMenu, setShowEpisodeCatalogMenu] = useState(false);
   const [showWelcomeDialog, setShowWelcomeDialog] = useState(false);
+  const [storyboardAssetExpandSourceNodeId, setStoryboardAssetExpandSourceNodeId] = useState<string | null>(null);
+  const [batchAddToAssetsResolution, setBatchAddToAssetsResolution] =
+    useState<BatchAssetSourceResolution | null>(null);
   const [hasMountedToolDialog, setHasMountedToolDialog] = useState(false);
   const [hasMountedImageViewer, setHasMountedImageViewer] = useState(false);
   const [alignmentGuides, setAlignmentGuides] = useState<AlignmentGuide[]>([]);
@@ -1207,6 +1219,7 @@ export function Canvas() {
     setShowGenerationHistoryPanel(false);
   }, []);
   const [isExportingSelectedImages, setIsExportingSelectedImages] = useState(false);
+  const [isPreparingSelectedAssets, setIsPreparingSelectedAssets] = useState(false);
   const [batchMenuPosition, setBatchMenuPosition] = useState({ x: 0, y: 0 });
   const [menuPosition, setMenuPosition] = useState({ x: 0, y: 0 });
   const [flowPosition, setFlowPosition] = useState({ x: 0, y: 0 });
@@ -2274,10 +2287,14 @@ export function Canvas() {
     const unsubscribeClose = canvasEventBus.subscribe('tool-dialog/close', () => {
       closeToolDialog();
     });
+    const unsubscribeStoryboardExpand = canvasEventBus.subscribe('storyboard-asset-expand/open', ({ nodeId }) => {
+      setStoryboardAssetExpandSourceNodeId(nodeId);
+    });
 
     return () => {
       unsubscribeOpen();
       unsubscribeClose();
+      unsubscribeStoryboardExpand();
     };
   }, [openToolDialog, closeToolDialog]);
 
@@ -3723,6 +3740,7 @@ export function Canvas() {
           return;
         }
         event.preventDefault();
+        pasteIterationRef.current = 0;
         const selectedIdSet = new Set(selectedNodeIds);
         const copiedNodes = nodes.filter(
           (node) =>
@@ -4691,6 +4709,12 @@ export function Canvas() {
       const sourceIdSet = new Set(sourceNodes.map((node) => node.id));
       const sourceById = new globalThis.Map(sourceNodes.map((sourceNode) => [sourceNode.id, sourceNode] as const));
       const allNodeById = new globalThis.Map(nodes.map((currentNode) => [currentNode.id, currentNode] as const));
+      const sourceAbsolutePositionById = new globalThis.Map(
+        sourceNodes.map((sourceNode) => [
+          sourceNode.id,
+          resolveAbsoluteNodePosition(sourceNode, allNodeById),
+        ] as const)
+      );
       const internalEdges = edges.filter(
         (edge) => sourceIdSet.has(edge.source) && sourceIdSet.has(edge.target)
       );
@@ -4717,21 +4741,31 @@ export function Canvas() {
         { x: 96, y: 42 },
       ];
       const existingNodes = useCanvasStore.getState().nodes;
+      const existingNodeMap = new globalThis.Map(
+        existingNodes.map((currentNode) => [currentNode.id, currentNode] as const)
+      );
       const ignoreNodeIds = new Set<string>();
       const offsetStep = options.disableOffsetIteration ? 0 : pasteIterationRef.current;
       let chosenOffset = options.explicitOffset ?? baseOffsets[0];
+      const resolveTotalOffset = (offset: { x: number; y: number }) => ({
+        x: offset.x + offsetStep * 8,
+        y: offset.y + offsetStep * 6,
+      });
 
       const isOffsetAvailable = (offset: { x: number; y: number }) => sourceNodes.every((node) => {
         const size = getNodeSize(node);
+        const sourceAbsolutePosition = sourceAbsolutePositionById.get(node.id) ?? node.position;
+        const totalOffset = resolveTotalOffset(offset);
         return !hasRectCollision(
           {
-            x: node.position.x + offset.x + offsetStep * 8,
-            y: node.position.y + offset.y + offsetStep * 6,
+            x: sourceAbsolutePosition.x + totalOffset.x,
+            y: sourceAbsolutePosition.y + totalOffset.y,
             width: size.width,
             height: size.height,
           },
           existingNodes,
-          ignoreNodeIds
+          ignoreNodeIds,
+          existingNodeMap
         );
       });
 
@@ -4753,6 +4787,7 @@ export function Canvas() {
 
       const idMap = new globalThis.Map<string, string>();
       const sizeMap = new globalThis.Map<string, { width: number; height: number }>();
+      const totalOffset = resolveTotalOffset(chosenOffset);
       for (const sourceNode of sourceNodes) {
         const data = cloneNodeData(sourceNode.data);
         if (sourceNode.type === CANVAS_NODE_TYPES.mj) {
@@ -4799,12 +4834,13 @@ export function Canvas() {
         if ('generationStatusText' in (data as Record<string, unknown>)) {
           (data as { generationStatusText?: string | null }).generationStatusText = null;
         }
+        const sourceAbsolutePosition = sourceAbsolutePositionById.get(sourceNode.id) ?? sourceNode.position;
 
         const nextNodeId = addNode(
           sourceNode.type as CanvasNodeType,
           {
-            x: sourceNode.position.x + chosenOffset.x + offsetStep * 8,
-            y: sourceNode.position.y + chosenOffset.y + offsetStep * 6,
+            x: sourceAbsolutePosition.x + totalOffset.x,
+            y: sourceAbsolutePosition.y + totalOffset.y,
           },
           { ...data }
         );
@@ -4835,9 +4871,25 @@ export function Canvas() {
             return currentNode;
           }
 
+          const isUsingCopiedParent = Boolean(sourceNode.parentId && idMap.has(sourceNode.parentId));
           const copiedParentId = sourceNode.parentId
             ? (idMap.get(sourceNode.parentId) ?? sourceNode.parentId)
             : undefined;
+          const sourceAbsolutePosition = sourceAbsolutePositionById.get(sourceNode.id) ?? sourceNode.position;
+          const nextPosition = copiedParentId
+            ? isUsingCopiedParent
+              ? {
+                  x: Math.round(sourceNode.position.x),
+                  y: Math.round(sourceNode.position.y),
+                }
+              : {
+                  x: Math.round(sourceNode.position.x + totalOffset.x),
+                  y: Math.round(sourceNode.position.y + totalOffset.y),
+                }
+            : {
+                x: Math.round(sourceAbsolutePosition.x + totalOffset.x),
+                y: Math.round(sourceAbsolutePosition.y + totalOffset.y),
+              };
           const remapCopiedReferenceId = (value: unknown): string | null => {
             const normalizedValue = typeof value === 'string' ? value.trim() : '';
             if (!normalizedValue) {
@@ -4871,6 +4923,7 @@ export function Canvas() {
             ...currentNode,
             parentId: copiedParentId,
             extent: undefined,
+            position: nextPosition,
             data: nextData,
           };
         }),
@@ -4919,8 +4972,15 @@ export function Canvas() {
         pasteIterationRef.current += 1;
       }
       const firstNodeId = idMap.get(sourceNodes[0].id) ?? null;
-      if (firstNodeId && !options.suppressSelect) {
-        setSelectedNode(firstNodeId);
+      if (!options.suppressSelect) {
+        const copiedNodeIds = sourceNodes
+          .map((sourceNode) => idMap.get(sourceNode.id))
+          .filter((nodeId): nodeId is string => Boolean(nodeId));
+        if (copiedNodeIds.length > 0) {
+          setSelectedNodeIds(copiedNodeIds);
+        } else if (firstNodeId) {
+          setSelectedNode(firstNodeId);
+        }
       }
       if (!options.suppressPersist) {
         scheduleCanvasPersist(0);
@@ -4936,6 +4996,7 @@ export function Canvas() {
       nodes,
       scheduleCanvasPersist,
       setSelectedNode,
+      setSelectedNodeIds,
     ]
   );
 
@@ -5751,6 +5812,10 @@ export function Canvas() {
     },
     [selectedNodes]
   );
+  const selectedAssetAddableNodeIds = useMemo(
+    () => selectedNodes.filter(isBatchAssetAddableNode).map((node) => node.id),
+    [selectedNodes]
+  );
   const handleApplySemanticColor = useCallback((color: CanvasSemanticColor) => {
     applySemanticColorToSelected(color);
   }, [applySemanticColorToSelected]);
@@ -5808,6 +5873,21 @@ export function Canvas() {
       setIsExportingSelectedImages(false);
     }
   }, [isExportingSelectedImages, selectedDownloadNodes, t]);
+  const handleAddSelectedToAssets = useCallback(() => {
+    if (selectedAssetAddableNodeIds.length === 0 || isPreparingSelectedAssets) {
+      return;
+    }
+
+    setIsPreparingSelectedAssets(true);
+    try {
+      const resolution = buildBatchAssetDraftsFromSelectedNodes(selectedAssetAddableNodeIds);
+      if (resolution.drafts.length > 0) {
+        setBatchAddToAssetsResolution(resolution);
+      }
+    } finally {
+      setIsPreparingSelectedAssets(false);
+    }
+  }, [isPreparingSelectedAssets, selectedAssetAddableNodeIds]);
 
   const handleLocateGroup = useCallback((groupId: string) => {
     const groupNode = nodes.find((node) => node.id === groupId && node.type === CANVAS_NODE_TYPES.group);
@@ -5882,6 +5962,16 @@ export function Canvas() {
           />
         </Suspense>
       )}
+      <StoryboardAssetExpandDialog
+        isOpen={storyboardAssetExpandSourceNodeId !== null}
+        sourceNodeId={storyboardAssetExpandSourceNodeId}
+        onClose={() => setStoryboardAssetExpandSourceNodeId(null)}
+      />
+      <BatchAddToAssetsDialog
+        isOpen={batchAddToAssetsResolution !== null}
+        resolution={batchAddToAssetsResolution}
+        onClose={() => setBatchAddToAssetsResolution(null)}
+      />
       <div ref={reactFlowWrapperRef} className="relative min-w-0 flex-1">
       {!isImageViewerOpen && !shouldHideSelectionChrome && (
         <CanvasColorLegend
@@ -5992,6 +6082,9 @@ export function Canvas() {
             downloadableCount={selectedDownloadNodes.length}
             onExportSelected={handleExportSelectedMedia}
             isExportingSelected={isExportingSelectedImages}
+            assetAddableCount={selectedAssetAddableNodeIds.length}
+            onAddSelectedToAssets={handleAddSelectedToAssets}
+            isAddingSelectedToAssets={isPreparingSelectedAssets}
           />
         )}
 

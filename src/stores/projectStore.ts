@@ -27,13 +27,13 @@ import {
 } from '@/features/canvas/domain/semanticColors';
 import { setActiveMediaProjectId } from '@/features/canvas/application/mediaPersistenceContext';
 
-const DEFAULT_VIEWPORT: Viewport = {
+export const DEFAULT_VIEWPORT: Viewport = {
   x: 0,
   y: 0,
   zoom: 1,
 };
 
-function createEmptyHistory(): CanvasHistoryState {
+export function createEmptyHistory(): CanvasHistoryState {
   return {
     past: [],
     future: [],
@@ -561,7 +561,7 @@ function toProjectSummary(record: ProjectSummaryRecord): ProjectSummary {
   };
 }
 
-function projectToSummary(project: Project): ProjectSummary {
+export function projectToSummary(project: Project): ProjectSummary {
   return {
     id: project.id,
     name: project.name,
@@ -577,7 +577,7 @@ function projectToSummary(project: Project): ProjectSummary {
   };
 }
 
-function toProjectRecord(project: Project): ProjectRecord {
+export function toProjectRecord(project: Project): ProjectRecord {
   const encodedProject = encodeProjectForPersistence(project);
   const persistedNodesPayload: PersistedNodesPayload = {
     nodes: encodedProject.nodes,
@@ -605,7 +605,7 @@ function toProjectRecord(project: Project): ProjectRecord {
   };
 }
 
-function fromProjectRecord(record: ProjectRecord): Project {
+export function fromProjectRecord(record: ProjectRecord): Project {
   const parsedNodesPayload = parsePersistedNodesPayload(safeParseJson<unknown>(record.nodesJson, []));
   const parsedNodes = parsedNodesPayload.nodes;
   const parsedEdges = safeParseJson<CanvasEdge[]>(record.edgesJson, []);

@@ -1,4 +1,5 @@
 import { memo, useCallback, useMemo, useState } from 'react';
+import { Position } from '@xyflow/react';
 import { Check, GitBranch, PenSquare, Plus, Trash2, X } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 
@@ -8,6 +9,7 @@ import {
   type ExtractedScriptPlotLine,
   type ScriptPlotLineNodeData,
 } from '@/features/canvas/domain/canvasNodes';
+import { CanvasHandle } from '@/features/canvas/ui/CanvasHandle';
 import { useCanvasStore } from '@/stores/canvasStore';
 
 import {
@@ -28,6 +30,8 @@ type ScriptPlotLineNodeProps = {
 
 const DEFAULT_WIDTH = SCRIPT_PLOT_LINE_NODE_DEFAULT_WIDTH;
 const DEFAULT_MIN_HEIGHT = SCRIPT_PLOT_LINE_NODE_DEFAULT_HEIGHT;
+const SCRIPT_PLOT_LINE_HANDLE_CLASS =
+  '!rounded-full !border-2 !border-[#151515] !bg-[#4d8dff]';
 
 function resolvePlotLineTagClass(statusTag: string): string {
   const normalizedTag = statusTag.trim().toLowerCase();
@@ -218,10 +222,27 @@ export const ScriptPlotLineNode = memo(({
     });
   }, [assetPanelRows, id, isNewAssetRow, updateNodeData]);
 
+  const connectionHandles = (
+    <>
+      <CanvasHandle
+        type="target"
+        id="target"
+        position={Position.Left}
+        className={SCRIPT_PLOT_LINE_HANDLE_CLASS}
+      />
+      <CanvasHandle
+        type="source"
+        id="source"
+        position={Position.Right}
+        className={SCRIPT_PLOT_LINE_HANDLE_CLASS}
+      />
+    </>
+  );
+
   if (assetPanelRows.length > 0 && !isEditing) {
     return (
       <div
-        className={`group relative h-full w-full overflow-hidden rounded-[var(--node-radius)] border bg-[#151515] transition-all duration-150 ${
+        className={`group relative h-full w-full overflow-visible rounded-[var(--node-radius)] border bg-[#151515] transition-all duration-150 ${
           selected
             ? 'border-[#f0a34b]/42 shadow-[0_0_0_1px_rgba(240,163,75,0.18),0_12px_28px_rgba(0,0,0,0.22)]'
             : 'border-white/[0.14] hover:border-[#f0a34b]/24'
@@ -229,8 +250,9 @@ export const ScriptPlotLineNode = memo(({
         onClick={() => setSelectedNode(id)}
         onDoubleClick={(event) => event.stopPropagation()}
       >
-        <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_top_left,rgba(255,178,92,0.08),transparent_32%),linear-gradient(180deg,rgba(255,255,255,0.035),transparent_52%)]" />
-        <div className="relative flex h-full min-h-0 w-full flex-col">
+        {connectionHandles}
+        <div className="pointer-events-none absolute inset-0 rounded-[var(--node-radius)] bg-[radial-gradient(circle_at_top_left,rgba(255,178,92,0.08),transparent_32%),linear-gradient(180deg,rgba(255,255,255,0.035),transparent_52%)]" />
+        <div className="relative flex h-full min-h-0 w-full flex-col overflow-hidden rounded-[var(--node-radius)]">
           <div className="flex h-12 shrink-0 items-center gap-2 border-b border-white/[0.08] px-5">
             <GitBranch className="h-4 w-4 text-[#f0a34b]" />
             <div className="min-w-0 flex-1 truncate text-sm font-semibold text-[#f0a34b]">
@@ -386,7 +408,7 @@ export const ScriptPlotLineNode = memo(({
   if (entries.length > 0 && !isEditing) {
     return (
       <div
-        className={`group relative h-full w-full overflow-hidden rounded-[var(--node-radius)] border bg-[#151515] transition-all duration-150 ${
+        className={`group relative h-full w-full overflow-visible rounded-[var(--node-radius)] border bg-[#151515] transition-all duration-150 ${
           selected
             ? 'border-[#f0a34b]/42 shadow-[0_0_0_1px_rgba(240,163,75,0.18),0_12px_28px_rgba(0,0,0,0.22)]'
             : 'border-white/[0.14] hover:border-[#f0a34b]/24'
@@ -394,8 +416,9 @@ export const ScriptPlotLineNode = memo(({
         onClick={() => setSelectedNode(id)}
         onDoubleClick={(event) => event.stopPropagation()}
       >
-        <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_top_left,rgba(255,178,92,0.08),transparent_32%),linear-gradient(180deg,rgba(255,255,255,0.035),transparent_52%)]" />
-        <div className="relative flex h-full min-h-0 w-full flex-col">
+        {connectionHandles}
+        <div className="pointer-events-none absolute inset-0 rounded-[var(--node-radius)] bg-[radial-gradient(circle_at_top_left,rgba(255,178,92,0.08),transparent_32%),linear-gradient(180deg,rgba(255,255,255,0.035),transparent_52%)]" />
+        <div className="relative flex h-full min-h-0 w-full flex-col overflow-hidden rounded-[var(--node-radius)]">
           <div className="flex h-12 shrink-0 items-center gap-2 border-b border-white/[0.08] px-5">
             <GitBranch className="h-4 w-4 text-[#f0a34b]" />
             <div className="min-w-0 flex-1 truncate text-sm font-semibold text-[#f0a34b]">
@@ -432,105 +455,108 @@ export const ScriptPlotLineNode = memo(({
 
   if (isEditing) {
     return (
-      <ScriptNodeCard
-        accent="rose"
-        icon={<PenSquare className="h-4 w-4" />}
-        title={data.title || t('scriptNodes.plotLine.titleFallback')}
-        selected={selected}
-        width={DEFAULT_WIDTH}
-        minHeight={240}
-        isEditing={isEditing}
-        onToggleEdit={handleCancelEdit}
-        onDelete={() => deleteNode(id)}
-        onClick={() => setSelectedNode(id)}
-      >
-        <div className="space-y-3">
-          <div>
-            <label className={SCRIPT_NODE_LABEL_CLASS}>{t('scriptNodes.plotLine.title')}</label>
-            <input
-              type="text"
-              value={editData.title}
-              onChange={(event) => setEditData((previous) => ({ ...previous, title: event.target.value }))}
-              className={SCRIPT_NODE_INPUT_CLASS}
-              placeholder={t('scriptNodes.plotLine.titlePlaceholder')}
-            />
+      <div className="relative overflow-visible">
+        {connectionHandles}
+        <ScriptNodeCard
+          accent="rose"
+          icon={<PenSquare className="h-4 w-4" />}
+          title={data.title || t('scriptNodes.plotLine.titleFallback')}
+          selected={selected}
+          width={DEFAULT_WIDTH}
+          minHeight={240}
+          isEditing={isEditing}
+          onToggleEdit={handleCancelEdit}
+          onDelete={() => deleteNode(id)}
+          onClick={() => setSelectedNode(id)}
+        >
+          <div className="space-y-3">
+            <div>
+              <label className={SCRIPT_NODE_LABEL_CLASS}>{t('scriptNodes.plotLine.title')}</label>
+              <input
+                type="text"
+                value={editData.title}
+                onChange={(event) => setEditData((previous) => ({ ...previous, title: event.target.value }))}
+                className={SCRIPT_NODE_INPUT_CLASS}
+                placeholder={t('scriptNodes.plotLine.titlePlaceholder')}
+              />
+            </div>
+            <div>
+              <label className={SCRIPT_NODE_LABEL_CLASS}>{t('scriptNodes.plotLine.summary')}</label>
+              <textarea
+                value={editData.summary}
+                onChange={(event) => setEditData((previous) => ({ ...previous, summary: event.target.value }))}
+                className={SCRIPT_NODE_TEXTAREA_CLASS}
+                rows={4}
+                placeholder={t('scriptNodes.plotLine.summaryPlaceholder')}
+              />
+            </div>
+            <div>
+              <label className={SCRIPT_NODE_LABEL_CLASS}>{t('scriptNodes.plotLine.statusTag')}</label>
+              <input
+                type="text"
+                value={editData.statusTag}
+                onChange={(event) => setEditData((previous) => ({ ...previous, statusTag: event.target.value }))}
+                className={SCRIPT_NODE_INPUT_CLASS}
+                placeholder={t('scriptNodes.plotLine.statusTagPlaceholder')}
+              />
+            </div>
+            <div>
+              <label className={SCRIPT_NODE_LABEL_CLASS}>{t('scriptNodes.plotLine.relatedCharacterNames')}</label>
+              <input
+                type="text"
+                value={editData.relatedCharacterNames.join(', ')}
+                onChange={(event) =>
+                  setEditData((previous) => ({
+                    ...previous,
+                    relatedCharacterNames: event.target.value.split(',').map((item) => item.trim()).filter(Boolean),
+                  }))
+                }
+                className={SCRIPT_NODE_INPUT_CLASS}
+                placeholder={t('scriptNodes.plotLine.relatedCharacterNamesPlaceholder')}
+              />
+            </div>
+            <div>
+              <label className={SCRIPT_NODE_LABEL_CLASS}>{t('scriptNodes.plotLine.relatedSceneNames')}</label>
+              <input
+                type="text"
+                value={editData.relatedSceneNames.join(', ')}
+                onChange={(event) =>
+                  setEditData((previous) => ({
+                    ...previous,
+                    relatedSceneNames: event.target.value.split(',').map((item) => item.trim()).filter(Boolean),
+                  }))
+                }
+                className={SCRIPT_NODE_INPUT_CLASS}
+                placeholder={t('scriptNodes.plotLine.relatedSceneNamesPlaceholder')}
+              />
+            </div>
+            <div className="flex justify-end gap-2 pt-1">
+              <button
+                type="button"
+                onClick={handleCancelEdit}
+                className={SCRIPT_NODE_SECONDARY_BUTTON_CLASS}
+              >
+                <X className="h-3.5 w-3.5" />
+                {t('common.cancel')}
+              </button>
+              <button
+                type="button"
+                onClick={handleSaveEdit}
+                className={SCRIPT_NODE_PRIMARY_BUTTON_CLASS}
+              >
+                <Check className="h-3.5 w-3.5" />
+                {t('common.save')}
+              </button>
+            </div>
           </div>
-          <div>
-            <label className={SCRIPT_NODE_LABEL_CLASS}>{t('scriptNodes.plotLine.summary')}</label>
-            <textarea
-              value={editData.summary}
-              onChange={(event) => setEditData((previous) => ({ ...previous, summary: event.target.value }))}
-              className={SCRIPT_NODE_TEXTAREA_CLASS}
-              rows={4}
-              placeholder={t('scriptNodes.plotLine.summaryPlaceholder')}
-            />
-          </div>
-          <div>
-            <label className={SCRIPT_NODE_LABEL_CLASS}>{t('scriptNodes.plotLine.statusTag')}</label>
-            <input
-              type="text"
-              value={editData.statusTag}
-              onChange={(event) => setEditData((previous) => ({ ...previous, statusTag: event.target.value }))}
-              className={SCRIPT_NODE_INPUT_CLASS}
-              placeholder={t('scriptNodes.plotLine.statusTagPlaceholder')}
-            />
-          </div>
-          <div>
-            <label className={SCRIPT_NODE_LABEL_CLASS}>{t('scriptNodes.plotLine.relatedCharacterNames')}</label>
-            <input
-              type="text"
-              value={editData.relatedCharacterNames.join(', ')}
-              onChange={(event) =>
-                setEditData((previous) => ({
-                  ...previous,
-                  relatedCharacterNames: event.target.value.split(',').map((item) => item.trim()).filter(Boolean),
-                }))
-              }
-              className={SCRIPT_NODE_INPUT_CLASS}
-              placeholder={t('scriptNodes.plotLine.relatedCharacterNamesPlaceholder')}
-            />
-          </div>
-          <div>
-            <label className={SCRIPT_NODE_LABEL_CLASS}>{t('scriptNodes.plotLine.relatedSceneNames')}</label>
-            <input
-              type="text"
-              value={editData.relatedSceneNames.join(', ')}
-              onChange={(event) =>
-                setEditData((previous) => ({
-                  ...previous,
-                  relatedSceneNames: event.target.value.split(',').map((item) => item.trim()).filter(Boolean),
-                }))
-              }
-              className={SCRIPT_NODE_INPUT_CLASS}
-              placeholder={t('scriptNodes.plotLine.relatedSceneNamesPlaceholder')}
-            />
-          </div>
-          <div className="flex justify-end gap-2 pt-1">
-            <button
-              type="button"
-              onClick={handleCancelEdit}
-              className={SCRIPT_NODE_SECONDARY_BUTTON_CLASS}
-            >
-              <X className="h-3.5 w-3.5" />
-              {t('common.cancel')}
-            </button>
-            <button
-              type="button"
-              onClick={handleSaveEdit}
-              className={SCRIPT_NODE_PRIMARY_BUTTON_CLASS}
-            >
-              <Check className="h-3.5 w-3.5" />
-              {t('common.save')}
-            </button>
-          </div>
-        </div>
-      </ScriptNodeCard>
+        </ScriptNodeCard>
+      </div>
     );
   }
 
   return (
     <div
-      className={`group relative overflow-hidden rounded-[var(--node-radius)] border bg-[#151515] transition-all duration-150 ${
+      className={`group relative overflow-visible rounded-[var(--node-radius)] border bg-[#151515] transition-all duration-150 ${
         selected
           ? 'border-[#f0a34b]/42 shadow-[0_0_0_1px_rgba(240,163,75,0.18)]'
           : 'border-white/[0.14] hover:border-[#f0a34b]/24'
@@ -538,7 +564,8 @@ export const ScriptPlotLineNode = memo(({
       style={{ width: DEFAULT_WIDTH, minHeight: DEFAULT_MIN_HEIGHT }}
       onClick={() => setSelectedNode(id)}
     >
-      <div className="relative flex gap-4 px-2 py-1">
+      {connectionHandles}
+      <div className="relative flex gap-4 overflow-hidden rounded-[var(--node-radius)] px-2 py-1">
         <div className="pointer-events-none flex w-6 flex-col items-center">
           <span className="mt-1 h-3.5 w-3.5 rounded-full border border-[#f7a34b]/80 bg-[#ff9d3f] shadow-[0_0_0_3px_rgba(255,157,63,0.16)]" />
           <span className="mt-2 min-h-[94px] w-px flex-1 bg-[linear-gradient(180deg,rgba(240,163,75,0.85),rgba(240,163,75,0.12))]" />

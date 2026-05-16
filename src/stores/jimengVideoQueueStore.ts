@@ -3,7 +3,7 @@ import { v4 as uuidv4 } from "uuid";
 
 import {
   deleteJimengVideoQueueJob,
-  listJimengVideoQueueJobs,
+  listAllJimengVideoQueueJobs,
   type JimengVideoQueueJobRecord,
   upsertJimengVideoQueueJob,
 } from "@/commands/jimengVideoQueue";
@@ -12,6 +12,7 @@ import {
   resolveJimengDreaminaVideoSubmitIdCache,
   type DreaminaCliStatusCode,
 } from "@/commands/dreaminaCli";
+import { getProjectRecord, upsertProjectRecord } from "@/commands/projectState";
 import { resolveErrorContent } from "@/features/canvas/application/errorDialog";
 import { subscribeCanvasNodesDeleted } from "@/features/canvas/application/nodeDeletionEvents";
 import { flushCurrentProjectToDiskSafely } from "@/features/canvas/application/projectPersistence";
@@ -41,10 +42,17 @@ import { resolveDreaminaSetupBlockedMessage } from "@/features/jimeng/applicatio
 import {
   queryJimengVideoResult,
   submitJimengVideoJob,
+  type QueryJimengVideoResultResponse,
 } from "@/features/jimeng/application/jimengVideoSubmission";
 import i18n from "@/i18n";
 import { useCanvasStore } from "@/stores/canvasStore";
-import { useProjectStore } from "@/stores/projectStore";
+import {
+  fromProjectRecord,
+  projectToSummary,
+  toProjectRecord,
+  useProjectStore,
+  type Project,
+} from "@/stores/projectStore";
 
 interface EnqueueJimengVideoQueueJobInput {
   projectId: string;
@@ -58,7 +66,10 @@ interface EnqueueJimengVideoQueueJobInput {
 interface JimengVideoQueueState {
   currentProjectId: string | null;
   jobs: JimengVideoQueueJob[];
+  allJobs: JimengVideoQueueJob[];
   isHydrating: boolean;
+  isInitialized: boolean;
+  initialize: () => Promise<void>;
   openProject: (projectId: string) => Promise<void>;
   closeProject: () => void;
   syncCurrentProjectNodes: () => void;
@@ -89,7 +100,8 @@ const STATUS_SORT_ORDER: Record<JimengVideoQueueJobStatus, number> = {
 
 let schedulerTimerId: number | null = null;
 let isSchedulerTickRunning = false;
-let projectLoadRequestSeq = 0;
+let projectViewRequestSeq = 0;
+let queueHydrationPromise: Promise<void> | null = null;
 const projectLoadedAtById = new Map<string, number>();
 
 const inflightJobIds = new Set<string>();
@@ -97,7 +109,7 @@ const nextPollAtByJobId = new Map<string, number>();
 const discardedJobIds = new Set<string>();
 const concurrencyBackoffAttemptByJobId = new Map<string, number>();
 
-function sortJobs(jobs: JimengVideoQueueJob[]): JimengVideoQueueJob[] {
+function sortJobs(jobs: readonly JimengVideoQueueJob[]): JimengVideoQueueJob[] {
   return [...jobs].sort((left, right) => {
     const statusDelta =
       STATUS_SORT_ORDER[left.status] - STATUS_SORT_ORDER[right.status];
@@ -113,6 +125,38 @@ function sortJobs(jobs: JimengVideoQueueJob[]): JimengVideoQueueJob[] {
 
     return left.createdAt - right.createdAt;
   });
+}
+
+function filterJobsForProject(
+  allJobs: readonly JimengVideoQueueJob[],
+  projectId: string | null,
+): JimengVideoQueueJob[] {
+  if (!projectId) {
+    return [];
+  }
+
+  return sortJobs(allJobs.filter((job) => job.projectId === projectId));
+}
+
+function syncProjectViewState(
+  state: JimengVideoQueueState,
+  overrides: Partial<JimengVideoQueueState>,
+): JimengVideoQueueState {
+  const currentProjectId =
+    overrides.currentProjectId !== undefined
+      ? overrides.currentProjectId
+      : state.currentProjectId;
+  const allJobs = overrides.allJobs ?? state.allJobs;
+
+  return {
+    ...state,
+    ...overrides,
+    currentProjectId,
+    allJobs,
+    jobs:
+      overrides.jobs ??
+      filterJobsForProject(allJobs, currentProjectId),
+  };
 }
 
 function serializeJobRecord(job: JimengVideoQueueJob): JimengVideoQueueJobRecord {
@@ -257,34 +301,34 @@ function hasNode(nodeId: string): boolean {
   return useCanvasStore.getState().nodes.some((node) => node.id === nodeId);
 }
 
-function upsertOpenProjectJob(job: JimengVideoQueueJob): void {
+function updateProjectSummaryInStore(project: Project): void {
+  const summary = projectToSummary(project);
+  useProjectStore.setState((state) => ({
+    ...state,
+    projects: state.projects.map((item) => (item.id === project.id ? summary : item)),
+  }));
+}
+
+function upsertRuntimeJob(job: JimengVideoQueueJob): void {
   useJimengVideoQueueStore.setState((state) => {
-    if (state.currentProjectId !== job.projectId) {
-      return state;
-    }
+    const nextAllJobs = sortJobs(
+      state.allJobs.some((item) => item.jobId === job.jobId)
+        ? state.allJobs.map((item) => (item.jobId === job.jobId ? job : item))
+        : [...state.allJobs, job],
+    );
 
-    const nextJobs = state.jobs.some((item) => item.jobId === job.jobId)
-      ? state.jobs.map((item) => (item.jobId === job.jobId ? job : item))
-      : [...state.jobs, job];
-
-    return {
-      ...state,
-      jobs: sortJobs(nextJobs),
-    };
+    return syncProjectViewState(state, {
+      allJobs: nextAllJobs,
+    });
   });
 }
 
-function removeOpenProjectJob(projectId: string, jobId: string): void {
-  useJimengVideoQueueStore.setState((state) => {
-    if (state.currentProjectId !== projectId) {
-      return state;
-    }
-
-    return {
-      ...state,
-      jobs: state.jobs.filter((item) => item.jobId !== jobId),
-    };
-  });
+function removeRuntimeJob(jobId: string): void {
+  useJimengVideoQueueStore.setState((state) =>
+    syncProjectViewState(state, {
+      allJobs: state.allJobs.filter((item) => item.jobId !== jobId),
+    }),
+  );
 }
 
 function resolveQueueStatusIsGenerating(status: JimengVideoQueueJobStatus): boolean {
@@ -313,6 +357,62 @@ function buildResultNodePatch(
       : null,
     lastError: job.lastError,
   };
+}
+
+function buildCompletedJob(
+  job: JimengVideoQueueJob,
+  warnings: string[],
+  now: number,
+): JimengVideoQueueJob {
+  return {
+    ...job,
+    status: "completed",
+    updatedAt: now,
+    warnings,
+    completedAt: now,
+    lastError: null,
+  };
+}
+
+function buildCompletedResultNodePatch(
+  job: JimengVideoQueueJob,
+  primaryResult: QueryJimengVideoResultResponse["videos"][number],
+  warnings: string[],
+  now: number,
+): Partial<JimengVideoResultNodeData> {
+  return {
+    ...buildResultNodePatch(buildCompletedJob(job, warnings, now)),
+    sourceUrl: primaryResult?.sourceUrl ?? null,
+    posterSourceUrl: primaryResult?.posterSourceUrl ?? null,
+    videoUrl: primaryResult?.videoUrl ?? null,
+    previewImageUrl: primaryResult?.previewImageUrl ?? null,
+    videoFileName: primaryResult?.fileName ?? null,
+    aspectRatio: primaryResult?.aspectRatio ?? "16:9",
+    duration: primaryResult?.duration ?? undefined,
+    width: primaryResult?.width ?? undefined,
+    height: primaryResult?.height ?? undefined,
+    lastGeneratedAt: now,
+    generationStartedAt: null,
+    isGenerating: false,
+    lastError: null,
+  };
+}
+
+function applyCompletedResultNodeToCanvas(
+  job: JimengVideoQueueJob,
+  primaryResult: QueryJimengVideoResultResponse["videos"][number],
+  warnings: string[],
+  now: number,
+): void {
+  if (!hasNode(job.resultNodeId)) {
+    return;
+  }
+
+  useCanvasStore.getState().updateNodeData(
+    job.resultNodeId,
+    buildCompletedResultNodePatch(job, primaryResult, warnings, now),
+    { historyMode: "skip" },
+  );
 }
 
 async function ensureResultNodeExists(
@@ -389,9 +489,10 @@ function syncCurrentProjectNodesInternal(projectId: string): void {
     return;
   }
 
+  const projectJobs = queueState.allJobs.filter((job) => job.projectId === projectId);
   const { updateNodeData } = useCanvasStore.getState();
   const currentNodes = useCanvasStore.getState().nodes;
-  const liveJobIds = new Set(queueState.jobs.map((job) => job.jobId));
+  const liveJobIds = new Set(projectJobs.map((job) => job.jobId));
 
   currentNodes.forEach((node: CanvasNode) => {
     const nodeData = node.data as Record<string, unknown>;
@@ -414,7 +515,7 @@ function syncCurrentProjectNodesInternal(projectId: string): void {
     );
   });
 
-  queueState.jobs.forEach((job) => {
+  projectJobs.forEach((job) => {
     if (hasNode(job.resultNodeId)) {
       updateNodeData(job.resultNodeId, buildResultNodePatch(job), {
         historyMode: "skip",
@@ -457,7 +558,7 @@ async function commitJob(
     return;
   }
 
-  upsertOpenProjectJob(job);
+  upsertRuntimeJob(job);
   await persistJob(job);
 
   if (options.syncNodes !== false) {
@@ -571,6 +672,102 @@ function canJobStartNow(job: JimengVideoQueueJob, now: number): boolean {
   return !job.scheduledAt || job.scheduledAt <= now;
 }
 
+async function loadDetachedProject(projectId: string): Promise<Project | "project-open" | null> {
+  if (isCurrentProjectOpen(projectId)) {
+    return "project-open";
+  }
+
+  const record = await getProjectRecord(projectId);
+  if (!record) {
+    return null;
+  }
+
+  if (isCurrentProjectOpen(projectId)) {
+    return "project-open";
+  }
+
+  return fromProjectRecord(record);
+}
+
+async function persistDetachedProject(project: Project): Promise<boolean> {
+  if (isCurrentProjectOpen(project.id)) {
+    return false;
+  }
+
+  await upsertProjectRecord(toProjectRecord(project));
+  updateProjectSummaryInStore(project);
+  return true;
+}
+
+async function verifyDetachedJobSourceNode(job: JimengVideoQueueJob): Promise<boolean> {
+  const detachedProject = await loadDetachedProject(job.projectId);
+  if (detachedProject === "project-open") {
+    return true;
+  }
+
+  if (!detachedProject) {
+    return false;
+  }
+
+  return detachedProject.nodes.some((node) => node.id === job.sourceNodeId);
+}
+
+async function persistCompletedDetachedResult(
+  job: JimengVideoQueueJob,
+  primaryResult: QueryJimengVideoResultResponse["videos"][number],
+  warnings: string[],
+  now: number,
+): Promise<"persisted" | "project-open" | "missing"> {
+  const detachedProject = await loadDetachedProject(job.projectId);
+  if (detachedProject === "project-open") {
+    return "project-open";
+  }
+
+  if (!detachedProject) {
+    return "missing";
+  }
+
+  let hasResultNode = false;
+  const nextNodes = detachedProject.nodes.map((node) => {
+    if (node.id === job.resultNodeId) {
+      hasResultNode = true;
+      return {
+        ...node,
+        data: {
+          ...(node.data as Record<string, unknown>),
+          ...buildCompletedResultNodePatch(job, primaryResult, warnings, now),
+        },
+      };
+    }
+
+    if (node.id === job.sourceNodeId) {
+      return {
+        ...node,
+        data: {
+          ...(node.data as Record<string, unknown>),
+          lastSubmittedAt: now,
+          lastError: null,
+        },
+      };
+    }
+
+    return node;
+  });
+
+  if (!hasResultNode) {
+    return "missing";
+  }
+
+  const nextProject: Project = {
+    ...detachedProject,
+    nodes: nextNodes,
+    nodeCount: nextNodes.length,
+    updatedAt: now,
+  };
+  const persisted = await persistDetachedProject(nextProject);
+  return persisted ? "persisted" : "project-open";
+}
+
 async function discardJobsForDeletedResultNodes(
   nodeIds: readonly string[],
 ): Promise<void> {
@@ -588,7 +785,7 @@ async function discardJobsForDeletedResultNodes(
 
   const jobsToDiscard = useJimengVideoQueueStore
     .getState()
-    .jobs.filter(
+    .allJobs.filter(
       (job) =>
         job.projectId === currentProjectId &&
         deletedNodeIdSet.has(job.resultNodeId),
@@ -602,7 +799,7 @@ async function discardJobsForDeletedResultNodes(
     inflightJobIds.delete(job.jobId);
     nextPollAtByJobId.delete(job.jobId);
     clearConcurrencyBackoff(job.jobId);
-    removeOpenProjectJob(currentProjectId, job.jobId);
+    removeRuntimeJob(job.jobId);
   });
 
   await Promise.all(
@@ -718,6 +915,21 @@ async function startJobAttempt(job: JimengVideoQueueJob): Promise<void> {
     return;
   }
 
+  if (!isCurrentProjectOpen(job.projectId)) {
+    const sourceNodeExists = await verifyDetachedJobSourceNode(job);
+    if (!sourceNodeExists) {
+      const cancelledJob: JimengVideoQueueJob = {
+        ...job,
+        status: "cancelled",
+        completedAt: Date.now(),
+        updatedAt: Date.now(),
+        lastError: i18n.t("jimengQueue.errors.sourceNodeMissing"),
+      };
+      await commitJob(cancelledJob, { flushProject: false });
+      return;
+    }
+  }
+
   inflightJobIds.add(job.jobId);
   const attemptStartedAt = Date.now();
   let currentJob: JimengVideoQueueJob = {
@@ -805,50 +1017,46 @@ async function pollJob(job: JimengVideoQueueJob): Promise<void> {
     const primaryResult = response.videos[0] ?? null;
 
     if (primaryResult) {
-      if (!isCurrentProjectOpen(workingJob.projectId)) {
-        nextPollAtByJobId.set(workingJob.jobId, now + JIMENG_VIDEO_QUEUE_POLL_INTERVAL_MS);
-        return;
-      }
-
-      workingJob = await ensureResultNodeExists(workingJob);
-      if (hasNode(workingJob.resultNodeId)) {
-        useCanvasStore.getState().updateNodeData(
-          workingJob.resultNodeId,
-          {
-            ...buildResultNodePatch({
-              ...workingJob,
-              status: "completed",
-              warnings: response.warnings,
-              completedAt: now,
-              updatedAt: now,
-              lastError: null,
-            }),
-            sourceUrl: primaryResult.sourceUrl ?? null,
-            posterSourceUrl: primaryResult.posterSourceUrl ?? null,
-            videoUrl: primaryResult.videoUrl ?? null,
-            previewImageUrl: primaryResult.previewImageUrl ?? null,
-            videoFileName: primaryResult.fileName ?? null,
-            aspectRatio: primaryResult.aspectRatio ?? "16:9",
-            duration: primaryResult.duration ?? undefined,
-            width: primaryResult.width ?? undefined,
-            height: primaryResult.height ?? undefined,
-            lastGeneratedAt: now,
-            generationStartedAt: null,
-            isGenerating: false,
-            lastError: null,
-          } satisfies Partial<JimengVideoResultNodeData>,
-          { historyMode: "skip" },
+      if (isCurrentProjectOpen(workingJob.projectId)) {
+        workingJob = await ensureResultNodeExists(workingJob);
+        applyCompletedResultNodeToCanvas(
+          workingJob,
+          primaryResult,
+          response.warnings,
+          now,
         );
+      } else {
+        const detachedPersistResult = await persistCompletedDetachedResult(
+          workingJob,
+          primaryResult,
+          response.warnings,
+          now,
+        );
+        if (detachedPersistResult === "project-open") {
+          workingJob = await ensureResultNodeExists(workingJob);
+          applyCompletedResultNodeToCanvas(
+            workingJob,
+            primaryResult,
+            response.warnings,
+            now,
+          );
+        } else if (detachedPersistResult === "missing") {
+          const failedJob = buildAttemptFailureJob(
+            workingJob,
+            i18n.t("node.jimeng.queueResultNodeMissing"),
+          );
+          clearConcurrencyBackoff(workingJob.jobId);
+          nextPollAtByJobId.delete(workingJob.jobId);
+          await commitJob(failedJob, { flushProject: false });
+          return;
+        }
       }
 
-      const completedJob: JimengVideoQueueJob = {
-        ...workingJob,
-        status: "completed",
-        updatedAt: now,
-        warnings: response.warnings,
-        completedAt: now,
-        lastError: null,
-      };
+      const completedJob = buildCompletedJob(
+        workingJob,
+        response.warnings,
+        now,
+      );
       clearConcurrencyBackoff(workingJob.jobId);
       nextPollAtByJobId.delete(workingJob.jobId);
       await commitJob(completedJob, { flushProject: true, syncNodes: false });
@@ -923,24 +1131,30 @@ async function schedulerTick(): Promise<void> {
   }
 
   const queueState = useJimengVideoQueueStore.getState();
-  const projectId = queueState.currentProjectId;
-  if (!projectId) {
+  if (queueState.allJobs.length === 0) {
     return;
   }
 
   isSchedulerTickRunning = true;
   try {
     const now = Date.now();
-    const jobs = sortJobs(queueState.jobs);
-    const projectLoadedAt = projectLoadedAtById.get(projectId) ?? 0;
-    const shouldDeferMissingNodeChecks =
-      now - projectLoadedAt < SOURCE_NODE_MISSING_GRACE_MS;
+    const jobs = sortJobs(queueState.allJobs);
+    const currentProjectId = queueState.currentProjectId;
+    const currentProjectLoadedAt = currentProjectId
+      ? (projectLoadedAtById.get(currentProjectId) ?? 0)
+      : 0;
 
     for (const job of jobs) {
       if (isJimengVideoQueueTerminalStatus(job.status)) {
         continue;
       }
 
+      if (job.projectId !== currentProjectId) {
+        continue;
+      }
+
+      const shouldDeferMissingNodeChecks =
+        now - currentProjectLoadedAt < SOURCE_NODE_MISSING_GRACE_MS;
       if (shouldDeferMissingNodeChecks) {
         continue;
       }
@@ -962,12 +1176,12 @@ async function schedulerTick(): Promise<void> {
       }
     }
 
-    let freshJobs = sortJobs(useJimengVideoQueueStore.getState().jobs);
+    let freshJobs = sortJobs(useJimengVideoQueueStore.getState().allJobs);
     for (const job of freshJobs) {
       await recoverSubmittedInactiveJob(job, now);
     }
 
-    freshJobs = sortJobs(useJimengVideoQueueStore.getState().jobs);
+    freshJobs = sortJobs(useJimengVideoQueueStore.getState().allJobs);
     const activeJobs = freshJobs.filter((job) =>
       isJimengVideoQueueActiveStatus(job.status),
     );
@@ -981,7 +1195,7 @@ async function schedulerTick(): Promise<void> {
       }
     }
 
-    freshJobs = sortJobs(useJimengVideoQueueStore.getState().jobs);
+    freshJobs = sortJobs(useJimengVideoQueueStore.getState().allJobs);
     const refreshedActiveJobs = freshJobs.filter((job) =>
       isJimengVideoQueueActiveStatus(job.status),
     );
@@ -994,9 +1208,10 @@ async function schedulerTick(): Promise<void> {
         }
       } else {
         const nextRunnableJob = freshJobs.find(
-          (job) =>
-            (job.status === "waiting" || job.status === "waitingConcurrency") &&
-            canJobStartNow(job, now),
+          (candidate) =>
+            (candidate.status === "waiting" ||
+              candidate.status === "waitingConcurrency") &&
+            canJobStartNow(candidate, now),
         );
         if (nextRunnableJob) {
           void startJobAttempt(nextRunnableJob);
@@ -1006,14 +1221,14 @@ async function schedulerTick(): Promise<void> {
 
     const jobsToPoll = useJimengVideoQueueStore
       .getState()
-      .jobs.filter(
-        (job) =>
-          (job.status === "submitted" || job.status === "generating") &&
-          job.submitId &&
-          (nextPollAtByJobId.get(job.jobId) ?? 0) <= now,
+      .allJobs.filter(
+        (candidate) =>
+          (candidate.status === "submitted" || candidate.status === "generating") &&
+          candidate.submitId &&
+          (nextPollAtByJobId.get(candidate.jobId) ?? 0) <= now,
       );
-    for (const job of jobsToPoll) {
-      void pollJob(job);
+    for (const jobToPoll of jobsToPoll) {
+      void pollJob(jobToPoll);
     }
   } finally {
     isSchedulerTickRunning = false;
@@ -1031,75 +1246,100 @@ function ensureSchedulerRunning(): void {
   void schedulerTick();
 }
 
-function stopScheduler(): void {
-  if (schedulerTimerId !== null) {
-    window.clearInterval(schedulerTimerId);
-    schedulerTimerId = null;
-  }
-}
-
 export const useJimengVideoQueueStore = create<JimengVideoQueueState>(
   (set, get) => ({
     currentProjectId: null,
     jobs: [],
+    allJobs: [],
     isHydrating: false,
+    isInitialized: false,
+
+    initialize: async () => {
+      if (get().isInitialized) {
+        ensureSchedulerRunning();
+        return;
+      }
+
+      if (queueHydrationPromise) {
+        return queueHydrationPromise;
+      }
+
+      set((state) => syncProjectViewState(state, { isHydrating: true }));
+
+      queueHydrationPromise = (async () => {
+        try {
+          const records = await listAllJimengVideoQueueJobs();
+          const recoveredJobs = await recoverHydratedJobs(records.map(parseJobRecord));
+          set((state) =>
+            syncProjectViewState(state, {
+              allJobs: recoveredJobs,
+              isHydrating: false,
+              isInitialized: true,
+            }),
+          );
+
+          const currentProjectId = get().currentProjectId;
+          if (currentProjectId) {
+            syncCurrentProjectNodesInternal(currentProjectId);
+          }
+          ensureSchedulerRunning();
+        } catch (error) {
+          console.error("[jimengQueue] failed to hydrate jobs", error);
+          set((state) =>
+            syncProjectViewState(state, {
+              isHydrating: false,
+            }),
+          );
+        } finally {
+          queueHydrationPromise = null;
+        }
+      })();
+
+      return queueHydrationPromise;
+    },
 
     openProject: async (projectId) => {
-      const requestSeq = ++projectLoadRequestSeq;
-      set({
-        currentProjectId: projectId,
-        jobs: [],
-        isHydrating: true,
-      });
-
-      try {
-        const records = await listJimengVideoQueueJobs(projectId);
-        if (requestSeq !== projectLoadRequestSeq) {
-          return;
-        }
-
-        const recoveredJobs = await recoverHydratedJobs(records.map(parseJobRecord));
-        if (requestSeq !== projectLoadRequestSeq) {
-          return;
-        }
-
-        set({
+      const requestSeq = ++projectViewRequestSeq;
+      set((state) =>
+        syncProjectViewState(state, {
           currentProjectId: projectId,
-          jobs: recoveredJobs,
-          isHydrating: false,
-        });
-        projectLoadedAtById.set(projectId, Date.now());
-        syncCurrentProjectNodesInternal(projectId);
-        ensureSchedulerRunning();
-      } catch (error) {
-        console.error("[jimengQueue] failed to load jobs", error);
-        if (requestSeq !== projectLoadRequestSeq) {
-          return;
-        }
+          isHydrating: !state.isInitialized,
+        }),
+      );
+      projectLoadedAtById.set(projectId, Date.now());
 
-        set({
-          currentProjectId: projectId,
-          jobs: [],
-          isHydrating: false,
-        });
-        projectLoadedAtById.set(projectId, Date.now());
-        ensureSchedulerRunning();
+      await get().initialize();
+      if (requestSeq !== projectViewRequestSeq) {
+        return;
       }
+
+      set((state) =>
+        syncProjectViewState(state, {
+          currentProjectId: projectId,
+          isHydrating: false,
+        }),
+      );
+      syncCurrentProjectNodesInternal(projectId);
+      ensureSchedulerRunning();
     },
 
     closeProject: () => {
-      projectLoadRequestSeq += 1;
+      projectViewRequestSeq += 1;
       const currentProjectId = get().currentProjectId;
       if (currentProjectId) {
         projectLoadedAtById.delete(currentProjectId);
-        get().jobs.forEach((job) => clearConcurrencyBackoff(job.jobId));
+        get()
+          .allJobs.filter((job) => job.projectId === currentProjectId)
+          .forEach((job) => clearConcurrencyBackoff(job.jobId));
       }
-      stopScheduler();
-      set({
-        currentProjectId: null,
-        jobs: [],
-        isHydrating: false,
-      });
+
+      set((state) =>
+        syncProjectViewState(state, {
+          currentProjectId: null,
+          jobs: [],
+          isHydrating: false,
+        }),
+      );
     },
 
     syncCurrentProjectNodes: () => {
@@ -1119,10 +1359,7 @@ export const useJimengVideoQueueStore = create<JimengVideoQueueState>(
         sourceNodeId: input.sourceNodeId,
         resultNodeId: input.resultNodeId,
         title: input.title,
-        status:
-          input.scheduledAt && input.scheduledAt > now
-            ? "waiting"
-            : "waiting",
+        status: "waiting",
         scheduledAt: input.scheduledAt,
         submitId: null,
         payload: input.payload,
@@ -1144,7 +1381,7 @@ export const useJimengVideoQueueStore = create<JimengVideoQueueState>(
 
     updateJobSchedule: async (jobId, scheduledAt) => {
       const currentProjectId = get().currentProjectId;
-      const job = get().jobs.find((item) => item.jobId === jobId);
+      const job = get().allJobs.find((item) => item.jobId === jobId);
       if (!job || !currentProjectId || job.projectId !== currentProjectId) {
         return;
       }
@@ -1156,7 +1393,7 @@ export const useJimengVideoQueueStore = create<JimengVideoQueueState>(
       await commitJob(
         {
           ...job,
-          status: scheduledAt && scheduledAt > now ? "waiting" : "waiting",
+          status: "waiting",
           scheduledAt,
           submitId: job.status === "failed" ? null : job.submitId,
           attemptCount: job.status === "failed" ? 0 : job.attemptCount,
@@ -1173,7 +1410,7 @@ export const useJimengVideoQueueStore = create<JimengVideoQueueState>(
     },
 
     sendJobNow: async (jobId) => {
-      const job = get().jobs.find((item) => item.jobId === jobId);
+      const job = get().allJobs.find((item) => item.jobId === jobId);
       if (!job || !canJimengVideoQueueJobBeRescheduled(job.status)) {
         return;
       }
@@ -1195,7 +1432,7 @@ export const useJimengVideoQueueStore = create<JimengVideoQueueState>(
     },
 
     cancelJob: async (jobId) => {
-      const job = get().jobs.find((item) => item.jobId === jobId);
+      const job = get().allJobs.find((item) => item.jobId === jobId);
       if (!job) {
         return;
       }
@@ -1223,7 +1460,7 @@ export const useJimengVideoQueueStore = create<JimengVideoQueueState>(
     },
 
     retryJob: async (jobId) => {
-      const job = get().jobs.find((item) => item.jobId === jobId);
+      const job = get().allJobs.find((item) => item.jobId === jobId);
       if (!job || job.status !== "failed") {
         return;
       }
@@ -1249,7 +1486,7 @@ export const useJimengVideoQueueStore = create<JimengVideoQueueState>(
 
     removeJob: async (jobId) => {
       const currentProjectId = get().currentProjectId;
-      const job = get().jobs.find((item) => item.jobId === jobId);
+      const job = get().allJobs.find((item) => item.jobId === jobId);
       if (!job || !currentProjectId || job.projectId !== currentProjectId) {
         return;
       }
@@ -1268,7 +1505,7 @@ export const useJimengVideoQueueStore = create<JimengVideoQueueState>(
         );
       }
 
-      removeOpenProjectJob(currentProjectId, jobId);
+      removeRuntimeJob(jobId);
       nextPollAtByJobId.delete(jobId);
       clearConcurrencyBackoff(jobId);
       try {
@@ -1276,7 +1513,9 @@ export const useJimengVideoQueueStore = create<JimengVideoQueueState>(
       } catch (error) {
         console.error("[jimengQueue] failed to delete job", error);
       }
-      await flushCurrentProjectToDiskSafely("removing Jimeng queue job");
+      if (isCurrentProjectOpen(job.projectId)) {
+        await flushCurrentProjectToDiskSafely("removing Jimeng queue job");
+      }
     },
   }),
 );

@@ -1,6 +1,6 @@
 import { useMemo } from 'react';
 import type { Node } from '@xyflow/react';
-import { Download, FolderPlus } from 'lucide-react';
+import { Download, FolderPlus, ImagePlus } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 
 import { UiLoadingAnimation } from '@/components/ui';
@@ -14,6 +14,9 @@ interface SelectionGroupBarProps {
   downloadableCount?: number;
   onExportSelected?: () => void;
   isExportingSelected?: boolean;
+  assetAddableCount?: number;
+  onAddSelectedToAssets?: () => void;
+  isAddingSelectedToAssets?: boolean;
 }
 
 export function SelectionGroupBar({
@@ -22,6 +25,9 @@ export function SelectionGroupBar({
   downloadableCount = 0,
   onExportSelected,
   isExportingSelected = false,
+  assetAddableCount = 0,
+  onAddSelectedToAssets,
+  isAddingSelectedToAssets = false,
 }: SelectionGroupBarProps) {
   const { t } = useTranslation();
   const viewport = useCanvasStore((state) => state.currentViewport);
@@ -72,6 +78,21 @@ export function SelectionGroupBar({
               <Download className="h-4 w-4 text-accent" />
             )}
             <span>{t('selection.exportSelected', { count: downloadableCount })}</span>
+          </button>
+        ) : null}
+        {assetAddableCount >= 1 && onAddSelectedToAssets ? (
+          <button
+            type="button"
+            onClick={onAddSelectedToAssets}
+            disabled={isAddingSelectedToAssets}
+            className="flex items-center gap-2 rounded-full border border-border-dark/70 bg-surface-dark/95 px-3 py-2 text-sm font-medium text-text-dark shadow-[0_10px_24px_rgba(0,0,0,0.28)] transition-colors hover:border-accent/40 hover:bg-surface-dark disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            {isAddingSelectedToAssets ? (
+              <UiLoadingAnimation size="sm" />
+            ) : (
+              <ImagePlus className="h-4 w-4 text-accent" />
+            )}
+            <span>{t('selection.addSelectedToAssets')}</span>
           </button>
         ) : null}
       </div>

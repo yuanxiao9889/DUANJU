@@ -40,7 +40,7 @@ import {
   NODE_HEADER_FLOATING_POSITION_CLASS,
 } from "@/features/canvas/ui/NodeHeader";
 import { NodeResizeHandle } from "@/features/canvas/ui/NodeResizeHandle";
-import { canvasAiGateway } from "@/features/canvas/application/canvasServices";
+import { canvasAiGateway, canvasEventBus } from "@/features/canvas/application/canvasServices";
 import {
   resolveErrorContent,
   showErrorDialog,
@@ -136,6 +136,10 @@ import { CameraTriggerIcon } from "@/features/canvas/ui/CameraTriggerIcon";
 import { ModelParamsControls } from "@/features/canvas/ui/ModelParamsControls";
 import { UpstreamPromptLockOverlay } from "@/features/canvas/ui/UpstreamPromptLockOverlay";
 import { appendStyleTemplatePrompt } from "@/features/project/styleTemplatePrompt";
+import {
+  getCanvasNodeSize,
+  resolveAbsoluteCanvasNodePosition,
+} from "@/features/canvas/application/nodeGeometry";
 import { CanvasNodeImage } from "@/features/canvas/ui/CanvasNodeImage";
 import { NodePriceBadge } from "@/features/canvas/ui/NodePriceBadge";
 import { NodeStatusBadge } from "@/features/canvas/ui/NodeStatusBadge";
@@ -188,6 +192,10 @@ interface IncomingReferenceImageItem {
 const PICKER_Y_OFFSET_PX = 20;
 const IMAGE_EDIT_NODE_MIN_WIDTH = 480;
 const IMAGE_EDIT_NODE_MIN_HEIGHT = 180;
+const ASSET_BATCH_RESULT_AREA_GAP_X = 56;
+const ASSET_BATCH_RESULT_GRID_GAP_X = 28;
+const ASSET_BATCH_RESULT_GRID_GAP_Y = 28;
+const ASSET_BATCH_RESULT_GRID_COLS = 2;
 const IMAGE_EDIT_NODE_MAX_WIDTH = 1400;
 const IMAGE_EDIT_NODE_MAX_HEIGHT = 1000;
 
@@ -390,6 +398,7 @@ export const ImageEditNode = memo(
     const [, setIsPromptTextSelectionActive] = useState(false);
 
     const setSelectedNode = useCanvasStore((state) => state.setSelectedNode);
+    const nodes = useCanvasStore((state) => state.nodes);
     const updateNodeData = useCanvasStore((state) => state.updateNodeData);
     const addNode = useCanvasStore((state) => state.addNode);
     const findNodePosition = useCanvasStore((state) => state.findNodePosition);
@@ -437,11 +446,226 @@ export const ImageEditNode = memo(
     const { connectedText, hasConnectedTextSource, hasNonEmptyConnectedText } =
       useCanvasConnectedTextInput(id);
     const incomingSourceNodes = useCanvasIncomingSourceNodes(id);
+    const batchParentGroup = useMemo(() => {
+      const currentNode = nodes.find((node) => node.id === id);
+      if (!currentNode?.parentId) {
+        return null;
+      }
+
+      return (
+        nodes.find(
+          (node) =>
+            node.id === currentNode.parentId &&
+            node.type === CANVAS_NODE_TYPES.group &&
+            (node.data as { visualStyle?: string }).visualStyle === "assetBatchGroup",
+        ) ?? null
+      );
+    }, [id, nodes]);
+    const isInAssetBatchGroup =
+      batchParentGroup?.type === CANVAS_NODE_TYPES.group &&
+      (batchParentGroup.data as { visualStyle?: string }).visualStyle === "assetBatchGroup";
+    const isBatchGroupOverrideActive =
+      isInAssetBatchGroup &&
+      (batchParentGroup.data as { globalOverrideEnabled?: boolean })
+        .globalOverrideEnabled === true;
+    const effectiveModelId =
+      isBatchGroupOverrideActive &&
+      typeof (batchParentGroup?.data as { globalModelId?: string | null })?.globalModelId ===
+        "string" &&
+      ((batchParentGroup?.data as { globalModelId?: string | null }).globalModelId?.trim()
+        .length ?? 0) > 0
+        ? (batchParentGroup?.data as { globalModelId?: string }).globalModelId
+        : data.model ?? DEFAULT_IMAGE_MODEL_ID;
+    const effectiveSize =
+      isBatchGroupOverrideActive &&
+      typeof (batchParentGroup?.data as { globalSize?: ImageSize | null })?.globalSize ===
+        "string"
+        ? (batchParentGroup?.data as { globalSize?: ImageSize }).globalSize
+        : data.size;
+    const effectiveRequestAspectRatioValue =
+      isBatchGroupOverrideActive &&
+      typeof (batchParentGroup?.data as { globalAspectRatio?: string | null })
+        ?.globalAspectRatio === "string"
+        ? (batchParentGroup?.data as { globalAspectRatio?: string }).globalAspectRatio
+        : data.requestAspectRatio;
+    const effectiveStyleTemplatePrompt =
+      isBatchGroupOverrideActive &&
+      typeof (batchParentGroup?.data as { globalStyleTemplatePrompt?: string | null })
+        ?.globalStyleTemplatePrompt === "string"
+        ? (batchParentGroup?.data as { globalStyleTemplatePrompt?: string }).globalStyleTemplatePrompt
+        : "";
+    const isPromptOptimizationControlledByGroup = isBatchGroupOverrideActive;
     const isPromptLockedByUpstream = hasConnectedTextSource;
     const displayedPrompt = promptDraft;
     const effectivePrompt = isPromptLockedByUpstream
       ? connectedText
       : promptDraft;
+    const relayoutBatchGroupResultNodes = useCallback(() => {
+      if (!isInAssetBatchGroup || !batchParentGroup) {
+        return;
+      }
+
+      const state = useCanvasStore.getState();
+      const nodeMap = new Map(state.nodes.map((node) => [node.id, node] as const));
+      const latestGroupNode = nodeMap.get(batchParentGroup.id);
+      if (!latestGroupNode) {
+        return;
+      }
+
+      const groupChildren = state.nodes.filter(
+        (node) =>
+          node.parentId === latestGroupNode.id &&
+          node.type === CANVAS_NODE_TYPES.imageEdit,
+      );
+      if (groupChildren.length === 0) {
+        return;
+      }
+
+      const sortedChildren = [...groupChildren].sort((left, right) => {
+        const leftAbsolute = resolveAbsoluteCanvasNodePosition(left, nodeMap);
+        const rightAbsolute = resolveAbsoluteCanvasNodePosition(right, nodeMap);
+        if (leftAbsolute.y !== rightAbsolute.y) {
+          return leftAbsolute.y - rightAbsolute.y;
+        }
+        return leftAbsolute.x - rightAbsolute.x;
+      });
+      const childOrder = new Map(
+        sortedChildren.map((childNode, index) => [childNode.id, index] as const),
+      );
+
+      const resultEntries = state.edges
+        .filter(
+          (edge) =>
+            childOrder.has(edge.source) &&
+            nodeMap.get(edge.target)?.type === CANVAS_NODE_TYPES.exportImage,
+        )
+        .map((edge) => {
+          const resultNode = nodeMap.get(edge.target);
+          if (!resultNode || resultNode.type !== CANVAS_NODE_TYPES.exportImage) {
+            return null;
+          }
+
+          const resultData = resultNode.data as { generationStartedAt?: number | null };
+          return {
+            sourceId: edge.source,
+            resultNode,
+            createdAt: resultData.generationStartedAt ?? 0,
+          };
+        })
+        .filter(
+          (
+            value,
+          ): value is {
+            sourceId: string;
+            resultNode: (typeof state.nodes)[number];
+            createdAt: number;
+          } => value !== null,
+        )
+        .sort((left, right) => {
+          const sourceOrderDelta =
+            (childOrder.get(left.sourceId) ?? Number.MAX_SAFE_INTEGER) -
+            (childOrder.get(right.sourceId) ?? Number.MAX_SAFE_INTEGER);
+          if (sourceOrderDelta !== 0) {
+            return sourceOrderDelta;
+          }
+          if (left.createdAt !== right.createdAt) {
+            return left.createdAt - right.createdAt;
+          }
+          return left.resultNode.id.localeCompare(right.resultNode.id);
+        });
+
+      if (resultEntries.length === 0) {
+        return;
+      }
+
+      const groupAbsolutePosition = resolveAbsoluteCanvasNodePosition(
+        latestGroupNode,
+        nodeMap,
+      );
+      const groupSize = getCanvasNodeSize(latestGroupNode);
+      const baseX = Math.round(
+        groupAbsolutePosition.x + groupSize.width + ASSET_BATCH_RESULT_AREA_GAP_X,
+      );
+      const baseY = Math.round(
+        sortedChildren.reduce((minY, childNode) => {
+          const absolute = resolveAbsoluteCanvasNodePosition(childNode, nodeMap);
+          return Math.min(minY, absolute.y);
+        }, Number.POSITIVE_INFINITY),
+      );
+
+      const columnWidths = new Array(ASSET_BATCH_RESULT_GRID_COLS).fill(0);
+      resultEntries.forEach((entry, index) => {
+        const columnIndex = index % ASSET_BATCH_RESULT_GRID_COLS;
+        const size = getCanvasNodeSize(entry.resultNode);
+        columnWidths[columnIndex] = Math.max(
+          columnWidths[columnIndex],
+          Math.round(size.width),
+        );
+      });
+
+      const rowHeights: number[] = [];
+      resultEntries.forEach((entry, index) => {
+        const rowIndex = Math.floor(index / ASSET_BATCH_RESULT_GRID_COLS);
+        const size = getCanvasNodeSize(entry.resultNode);
+        rowHeights[rowIndex] = Math.max(
+          rowHeights[rowIndex] ?? 0,
+          Math.round(size.height),
+        );
+      });
+
+      const columnOffsets = columnWidths.map((_, columnIndex) => {
+        let offset = 0;
+        for (let index = 0; index < columnIndex; index += 1) {
+          offset += columnWidths[index] + ASSET_BATCH_RESULT_GRID_GAP_X;
+        }
+        return offset;
+      });
+      const rowOffsets = rowHeights.map((_, rowIndex) => {
+        let offset = 0;
+        for (let index = 0; index < rowIndex; index += 1) {
+          offset += rowHeights[index] + ASSET_BATCH_RESULT_GRID_GAP_Y;
+        }
+        return offset;
+      });
+
+      const currentResultNodeIds = new Set(resultEntries.map((entry) => entry.resultNode.id));
+      useCanvasStore.setState((currentState) => ({
+        nodes: currentState.nodes.map((node) => {
+          if (!currentResultNodeIds.has(node.id)) {
+            return node;
+          }
+
+          const layoutIndex = resultEntries.findIndex(
+            (entry) => entry.resultNode.id === node.id,
+          );
+          if (layoutIndex === -1) {
+            return node;
+          }
+
+          const columnIndex = layoutIndex % ASSET_BATCH_RESULT_GRID_COLS;
+          const rowIndex = Math.floor(layoutIndex / ASSET_BATCH_RESULT_GRID_COLS);
+          const nextPosition = {
+            x: Math.round(baseX + columnOffsets[columnIndex]),
+            y: Math.round(baseY + rowOffsets[rowIndex]),
+          };
+
+          if (
+            node.parentId === undefined &&
+            node.position.x === nextPosition.x &&
+            node.position.y === nextPosition.y
+          ) {
+            return node;
+          }
+
+          return {
+            ...node,
+            parentId: undefined,
+            extent: undefined,
+            position: nextPosition,
+          };
+        }),
+      }));
+    }, [batchParentGroup, isInAssetBatchGroup]);
 
     const imageModels = useMemo(
       () =>
@@ -460,7 +684,7 @@ export const ImageEditNode = memo(
     );
 
     const selectedModel = useMemo(() => {
-      const modelId = data.model ?? DEFAULT_IMAGE_MODEL_ID;
+      const modelId = effectiveModelId ?? DEFAULT_IMAGE_MODEL_ID;
       return getImageModel(
         modelId,
         storyboardCompatibleModelConfig,
@@ -469,7 +693,7 @@ export const ImageEditNode = memo(
         storyboardProviderCustomModels,
       );
     }, [
-      data.model,
+      effectiveModelId,
       storyboardCompatibleModelConfig,
       storyboardNewApiModelConfig,
       storyboardApi2OkModelConfig,
@@ -518,11 +742,11 @@ export const ImageEditNode = memo(
     const requestedNewApiResolution = useMemo(
       () =>
         isStoryboardNewApiModelId(selectedModel.id)
-          ? resolveImageModelResolution(selectedModel, data.size, {
+          ? resolveImageModelResolution(selectedModel, effectiveSize, {
               extraParams: resolvedModelExtraParams,
             }).value
           : null,
-      [data.size, resolvedModelExtraParams, selectedModel],
+      [effectiveSize, resolvedModelExtraParams, selectedModel],
     );
     const resolvedNewApiModelConfig = useMemo(
       () =>
@@ -548,11 +772,11 @@ export const ImageEditNode = memo(
     const requestedOopiiResolution = useMemo(
       () =>
         isStoryboardOopiiModelId(selectedModel.id)
-          ? resolveImageModelResolution(selectedModel, data.size, {
+          ? resolveImageModelResolution(selectedModel, effectiveSize, {
               extraParams: resolvedModelExtraParams,
             }).value
           : null,
-      [data.size, resolvedModelExtraParams, selectedModel],
+      [effectiveSize, resolvedModelExtraParams, selectedModel],
     );
     const resolvedOopiiModelConfig = useMemo(
       () =>
@@ -670,10 +894,10 @@ export const ImageEditNode = memo(
 
     const selectedResolution = useMemo(
       () =>
-        resolveImageModelResolution(selectedModel, data.size, {
+        resolveImageModelResolution(selectedModel, effectiveSize, {
           extraParams: effectiveExtraParams,
         }),
-      [data.size, effectiveExtraParams, selectedModel],
+      [effectiveSize, effectiveExtraParams, selectedModel],
     );
 
     const aspectRatioOptions = useMemo<AspectRatioChoice[]>(
@@ -690,10 +914,12 @@ export const ImageEditNode = memo(
     const normalizedRequestAspectRatio = useMemo(
       () =>
         selectedModel.id === GRSAI_GPT_IMAGE_2_MODEL_ID
-          ? (normalizeGrsaiGptImage2AspectRatio(data.requestAspectRatio) ??
+          ? (normalizeGrsaiGptImage2AspectRatio(
+            effectiveRequestAspectRatioValue,
+          ) ??
             AUTO_REQUEST_ASPECT_RATIO)
-          : data.requestAspectRatio,
-      [data.requestAspectRatio, selectedModel.id],
+          : effectiveRequestAspectRatioValue,
+      [effectiveRequestAspectRatioValue, selectedModel.id],
     );
 
     const selectedAspectRatio = useMemo(
@@ -922,6 +1148,10 @@ export const ImageEditNode = memo(
     }, [commitPromptDraft, incomingImages]);
 
     useEffect(() => {
+      if (isBatchGroupOverrideActive) {
+        return;
+      }
+
       if (data.model !== selectedModel.id) {
         updateNodeData(id, { model: selectedModel.id });
       }
@@ -938,6 +1168,7 @@ export const ImageEditNode = memo(
       data.requestAspectRatio,
       data.size,
       id,
+      isBatchGroupOverrideActive,
       selectedAspectRatio.value,
       selectedModel.id,
       selectedResolution.value,
@@ -1056,9 +1287,9 @@ export const ImageEditNode = memo(
       [syncPromptHighlightScroll, syncPromptTextSelectionState],
     );
 
-    const handleOptimizePrompt = useCallback(async () => {
+    const handleOptimizePrompt = useCallback(async (): Promise<boolean> => {
       if (isPromptLockedByUpstream) {
-        return;
+        return false;
       }
 
       const sourcePrompt = promptDraftRef.current;
@@ -1067,7 +1298,7 @@ export const ImageEditNode = memo(
         const errorMessage = t("node.imageEdit.promptRequired");
         setError(errorMessage);
         void showErrorDialog(errorMessage, t("common.error"));
-        return;
+        return false;
       }
 
       setIsOptimizingPrompt(true);
@@ -1102,7 +1333,7 @@ export const ImageEditNode = memo(
           maxPromptLength: optimizedPromptMaxLength,
         });
         if (promptDraftRef.current !== sourcePrompt) {
-          return;
+          return false;
         }
         const nextPrompt = result.prompt;
         setLastPromptOptimizationMeta({
@@ -1122,6 +1353,7 @@ export const ImageEditNode = memo(
         setPromptDraft(nextPrompt);
         commitPromptDraft(nextPrompt);
         schedulePromptSelectionRestore(nextPrompt.length);
+        return true;
       } catch (optimizationError) {
         const errorMessage =
           optimizationError instanceof Error &&
@@ -1130,6 +1362,7 @@ export const ImageEditNode = memo(
             : t("node.imageEdit.optimizePromptFailed");
         setError(errorMessage);
         void showErrorDialog(errorMessage, t("common.error"));
+        return false;
       } finally {
         setIsOptimizingPrompt(false);
       }
@@ -1170,14 +1403,14 @@ export const ImageEditNode = memo(
       schedulePromptSelectionRestore,
     ]);
 
-    const handleGenerate = useCallback(async () => {
+    const handleGenerate = useCallback(async (): Promise<boolean> => {
       const displayPrompt =
         normalizeReferenceImagePrompt(effectivePrompt).trim();
       if (!displayPrompt) {
         const errorMessage = t("node.imageEdit.promptRequired");
         setError(errorMessage);
         void showErrorDialog(errorMessage, t("common.error"));
-        return;
+        return false;
       }
 
       if (!providerApiKey) {
@@ -1189,7 +1422,7 @@ export const ImageEditNode = memo(
           providerId: selectedModel.providerId,
         });
         void showErrorDialog(errorMessage, t("common.error"));
-        return;
+        return false;
       }
 
       const generationDurationMs = selectedModel.expectedDurationMs ?? 60000;
@@ -1213,9 +1446,15 @@ export const ImageEditNode = memo(
         selectedAspectRatio.value === AUTO_REQUEST_ASPECT_RATIO
           ? pickClosestAspectRatio(1, supportedAspectRatioValues)
           : selectedAspectRatio.value;
+      const styledPrompt = effectiveStyleTemplatePrompt
+        ? appendStyleTemplatePrompt(
+          effectivePrompt,
+          effectiveStyleTemplatePrompt,
+        )
+        : effectivePrompt;
       const submittedPrompt = appendCameraParamsToPrompt(
         buildReferenceAwareGenerationPrompt(
-          effectivePrompt,
+          styledPrompt,
           incomingImages.length,
         ),
         resolvedCameraParams,
@@ -1234,11 +1473,14 @@ export const ImageEditNode = memo(
           minHeight: EXPORT_RESULT_NODE_MIN_HEIGHT,
         },
       );
-      const newNodePosition = findNodePosition(
-        id,
-        predictedResultSize.width,
-        predictedResultSize.height,
-      );
+      const newNodePosition =
+        isInAssetBatchGroup && batchParentGroup
+          ? { x: 0, y: 0 }
+          : findNodePosition(
+            id,
+            predictedResultSize.width,
+            predictedResultSize.height,
+          );
       const newNodeId = addNode(
         CANVAS_NODE_TYPES.exportImage,
         newNodePosition,
@@ -1253,9 +1495,11 @@ export const ImageEditNode = memo(
           aspectRatio: initialRequestAspectRatio,
           generationSummary,
         },
-        { inheritParentFromNodeId: id },
       );
       addEdge(id, newNodeId);
+      if (isInAssetBatchGroup && batchParentGroup) {
+        relayoutBatchGroupResultNodes();
+      }
 
       let resolvedRequestAspectRatio = initialRequestAspectRatio;
       let effectiveRequestSize = selectedResolution.value;
@@ -1353,6 +1597,7 @@ export const ImageEditNode = memo(
           generationErrorDetails: null,
           generationDebugContext,
         });
+        return true;
       } catch (generationError) {
         const resolvedError = resolveErrorContent(
           generationError,
@@ -1426,6 +1671,7 @@ export const ImageEditNode = memo(
           generationErrorDetails: resolvedError.details ?? null,
           generationDebugContext,
         });
+        return false;
       }
     }, [
       addNode,
@@ -1434,6 +1680,7 @@ export const ImageEditNode = memo(
       findNodePosition,
       resolvedCameraParams,
       effectivePrompt,
+      effectiveStyleTemplatePrompt,
       effectiveExtraParams,
       id,
       incomingImages,
@@ -1448,7 +1695,44 @@ export const ImageEditNode = memo(
       supportedAspectRatioValues,
       t,
       updateNodeData,
+      relayoutBatchGroupResultNodes,
+      isInAssetBatchGroup,
+      batchParentGroup,
     ]);
+
+    useEffect(() => {
+      return canvasEventBus.subscribe("image-edit/optimize-prompt", (payload) => {
+        if (payload.nodeId !== id) {
+          return;
+        }
+
+        void handleOptimizePrompt()
+          .then((ok) => payload.onSettled?.({ ok, error: ok ? null : null }))
+          .catch((error: unknown) => {
+            payload.onSettled?.({
+              ok: false,
+              error: error instanceof Error ? error.message : String(error),
+            });
+          });
+      });
+    }, [handleOptimizePrompt, id]);
+
+    useEffect(() => {
+      return canvasEventBus.subscribe("image-edit/submit-generate", (payload) => {
+        if (payload.nodeId !== id) {
+          return;
+        }
+
+        void handleGenerate()
+          .then((ok) => payload.onSettled?.({ ok, error: ok ? null : null }))
+          .catch((error: unknown) => {
+            payload.onSettled?.({
+              ok: false,
+              error: error instanceof Error ? error.message : String(error),
+            });
+          });
+      });
+    }, [handleGenerate, id]);
 
     const insertImageReference = useCallback(
       (imageIndex: number) => {
@@ -2009,7 +2293,14 @@ export const ImageEditNode = memo(
                   modelChipClassName={NODE_CONTROL_MODEL_CHIP_CLASS}
                   paramsChipClassName={NODE_CONTROL_PARAMS_CHIP_CLASS}
                   styleTemplateTriggerMode="icon"
-                  styleTemplateDisabled={isPromptLockedByUpstream}
+                  styleTemplateDisabled={
+                    isPromptLockedByUpstream || isBatchGroupOverrideActive
+                  }
+                  modelSelectionDisabled={isBatchGroupOverrideActive}
+                  paramsSelectionDisabled={isBatchGroupOverrideActive}
+                  modelSelectionLockedByGroup={isBatchGroupOverrideActive}
+                  paramsSelectionLockedByGroup={isBatchGroupOverrideActive}
+                  styleTemplateLockedByGroup={isBatchGroupOverrideActive}
                   afterStyleTemplateSlot={
                     <Fragment>
                       <UiChipButton
@@ -2039,7 +2330,8 @@ export const ImageEditNode = memo(
                         disabled={
                           isPromptLockedByUpstream ||
                           isOptimizingPrompt ||
-                          promptDraft.trim().length === 0
+                          promptDraft.trim().length === 0 ||
+                          isPromptOptimizationControlledByGroup
                         }
                         className={`${NODE_CONTROL_CHIP_CLASS} !w-8 !px-0 shrink-0 justify-center`}
                         aria-label={
@@ -2067,7 +2359,8 @@ export const ImageEditNode = memo(
                         disabled={
                           isPromptLockedByUpstream ||
                           isOptimizingPrompt ||
-                          !canUndoPromptOptimization
+                          !canUndoPromptOptimization ||
+                          isPromptOptimizationControlledByGroup
                         }
                         className={`${NODE_CONTROL_CHIP_CLASS} !w-8 !px-0 shrink-0 justify-center`}
                         aria-label={t("node.imageEdit.undoOptimizedPrompt")}

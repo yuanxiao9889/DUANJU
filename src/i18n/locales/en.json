@@ -453,9 +453,58 @@
     "groupSelected": "Group {{count}} nodes"
   },
   "selection": {
+    "addSelectedToAssets": "Add to Assets",
     "exportSelected": "Export {{count}} files",
     "exportFolderPickerTitle": "Choose export location",
-    "exportFailed": "Failed to export selected files"
+    "exportFailed": "Failed to export selected files",
+    "batchAddAssets": {
+      "title": "Batch Add to Assets",
+      "summaryTitle": "Selection Summary",
+      "libraryTitle": "Target Asset Library",
+      "libraryLockedLabel": "Project Binding Active",
+      "libraryLockedHint": "This batch will be added directly into the asset library linked to the current project.",
+      "libraryRequired": "Choose an asset library before continuing.",
+      "mixedNotice": "This selection contains multiple asset types and has been grouped for you.",
+      "groupSummary": "{{count}} recognized item(s)",
+      "groupAssigned": "{{count}} assigned",
+      "groupInherited": "{{count}} unresolved item(s) will inherit this destination",
+      "groupConfigHint": "Choose the destination once here and every item in this type will reuse it.",
+      "groupActiveHint": "Current active subcategory: {{name}}. Click cards below to assign them here.",
+      "groupPickActiveHint": "Choose an active subcategory first, then click cards below to assign them.",
+      "groupEmpty": "No item was directly recognized as this type yet. Unresolved items switched here will inherit this destination.",
+      "activeSubcategoryLabel": "Current Active Subcategory",
+      "chooseActiveSubcategory": "Choose an active subcategory",
+      "unresolvedTitle": "Needs Confirmation",
+      "unresolvedHint": "These images could not be traced back to a standard batch source. Choose a category before submitting them.",
+      "chooseCategory": "Choose a category",
+      "unresolvedUsesGroupTarget": "Assigned to {{category}} and will inherit that group's destination when submitted.",
+      "unresolvedPending": "Choose a category before this item can be submitted.",
+      "assignedBadge": "Assigned: {{name}}",
+      "assignedCardHint": "This image has already been assigned. Clear it first to reassign it.",
+      "clickToAssignHint": "Click this card to assign it into {{name}}.",
+      "pickSubcategoryFirstHint": "Choose an active subcategory first, then click this card to assign it.",
+      "clearAssignment": "Clear",
+      "maskAssignedActive": "Already in current group",
+      "maskAssignedInactive": "Assigned to another group",
+      "itemAdded": "Added",
+      "partialFailure": "Some items failed to add. Successful items were kept and failed ones can be retried.",
+      "submitFailed": "Failed to batch add assets.",
+      "submitItemFailed": "Failed to add asset",
+      "confirm": "Add Selected Assets",
+      "submitting": "Adding...",
+      "footerNeedsConfirm": "Some unresolved items still need a category.",
+      "footerNeedsAssignment": "Some images still need to be assigned to the current subcategories.",
+      "footerReady": "Everything is ready for batch add.",
+      "footerPending": "{{count}} pending",
+      "summary": {
+        "total": "{{count}} total",
+        "character": "{{count}} character",
+        "scene": "{{count}} scene",
+        "prop": "{{count}} prop",
+        "unresolved": "{{count}} unresolved",
+        "skipped": "{{count}} skipped"
+      }
+    }
   },
   "tool": {
     "crop": "Crop",
@@ -722,6 +771,8 @@
       "emptyRowSummary": "No summary yet.",
       "reextract": "Extract Again",
       "expand": "Expand",
+      "expandToStoryboard": "Expand On Storyboard Canvas",
+      "storyboardMirrorHint": "Mirror snapshot from {{source}}",
       "meta": {
         "aliases": "Aliases: {{value}}",
         "continuity": "Continuity: {{value}}",
@@ -729,6 +780,30 @@
         "space": "Space: {{value}}",
         "function": "Function: {{value}}",
         "owner": "Owner: {{value}}"
+      }
+    },
+    "assetBatchGroup": {
+      "nodeCount": "{{count}} image nodes",
+      "globalEnabled": "Global override on",
+      "globalOverride": "Use global settings for child image nodes",
+      "optimizePromptBeforeGenerate": "Optimize each prompt before generate",
+      "optimizeSequential": "Optimize Prompts",
+      "optimizing": "Optimizing...",
+      "runSequential": "Start Sequential Generate",
+      "running": "Generating...",
+      "sameSource": "Same source",
+      "batchKind": {
+        "character": "Character",
+        "scene": "Scene",
+        "item": "Item"
+      },
+      "queue": {
+        "pending": "Pending {{count}}",
+        "running": "Running {{count}}",
+        "completed": "Completed {{count}}",
+        "failed": "Failed {{count}}",
+        "current": "Current: {{name}}",
+        "lastRunAt": "Last run: {{value}}"
       }
     },
     "imageCompare": {
@@ -2506,6 +2581,31 @@
     "typeBadgeLabels": {
       "ad": "Ad",
       "commerceAd": "Commerce"
+    },
+    "storyboardAssetExpand": {
+      "title": "Expand Assets To Storyboard",
+      "confirm": "Expand",
+      "submitting": "Expanding...",
+      "modeNew": "New storyboard",
+      "modeNewHint": "Create a new storyboard project and place this asset block there.",
+      "modeExisting": "Existing storyboard",
+      "modeExistingHint": "Choose an existing storyboard project and expand into an empty region.",
+      "newNameLabel": "New storyboard name",
+      "newNamePlaceholder": "Enter storyboard project name",
+      "existingLabel": "Choose existing storyboard",
+      "existingPlaceholder": "Select a storyboard project",
+      "recommended": "Recommended",
+      "sameSource": "Same script",
+      "updatedAt": "Updated: {{value}}",
+      "noCandidates": "No storyboard projects available yet.",
+      "defaultProjectName": "{{source}} Storyboard",
+      "errors": {
+        "generic": "Failed to expand assets to storyboard.",
+        "noSourceProject": "No active script project was found.",
+        "nodeMissing": "The source asset extraction node could not be found.",
+        "noExtractionResult": "Run asset extraction first.",
+        "targetProjectMissing": "The target storyboard project could not be found."
+      }
     },
     "adProjectCardHint": "Guided director skill and ad script workflow",
     "commerceAdCardHint": "Product image to batch ad image workflow",

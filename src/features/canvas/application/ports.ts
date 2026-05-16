@@ -139,6 +139,9 @@ export interface CanvasEventMap {
     toolType: NodeToolType;
   };
   'tool-dialog/close': undefined;
+  'storyboard-asset-expand/open': {
+    nodeId: string;
+  };
   'audio-node/open-save-preset': {
     nodeId: string;
   };
@@ -148,6 +151,14 @@ export interface CanvasEventMap {
   'upload-node/paste-image': {
     nodeId: string;
     file: File;
+  };
+  'image-edit/submit-generate': {
+    nodeId: string;
+    onSettled?: (result: { ok: boolean; error?: string | null }) => void;
+  };
+  'image-edit/optimize-prompt': {
+    nodeId: string;
+    onSettled?: (result: { ok: boolean; error?: string | null }) => void;
   };
 }
 

@@ -30,6 +30,14 @@ export async function listJimengVideoQueueJobs(
   );
 }
 
+export async function listAllJimengVideoQueueJobs(): Promise<
+  JimengVideoQueueJobRecord[]
+> {
+  return await invoke<JimengVideoQueueJobRecord[]>(
+    "list_all_jimeng_video_queue_jobs",
+  );
+}
+
 export async function upsertJimengVideoQueueJob(
   record: JimengVideoQueueJobRecord,
 ): Promise<void> {

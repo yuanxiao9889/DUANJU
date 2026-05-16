@@ -1,6 +1,6 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState, type ReactNode, type SyntheticEvent } from 'react';
 import { createPortal } from 'react-dom';
-import { SlidersHorizontal, Zap, Palette } from 'lucide-react';
+import { SlidersHorizontal, Zap, Palette, Check, Lock, X } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 
 import { AUTO_REQUEST_ASPECT_RATIO } from '@/features/canvas/domain/canvasNodes';
@@ -38,6 +38,7 @@ interface ModelParamsControlsProps {
   extraParams?: Record<string, unknown>;
   onExtraParamChange?: (key: string, value: boolean | number | string) => void;
   onStyleTemplateApply?: (template: StyleTemplate) => void;
+  onStyleTemplateClear?: () => void;
   onOpenStyleTemplateManager?: () => void;
   showProviderName?: boolean;
   triggerSize?: 'md' | 'sm';
@@ -52,6 +53,13 @@ interface ModelParamsControlsProps {
   modelOptionClassName?: string;
   styleTemplateTriggerMode?: 'label' | 'icon';
   styleTemplateDisabled?: boolean;
+  selectedStyleTemplateName?: string | null;
+  modelSelectionDisabled?: boolean;
+  paramsSelectionDisabled?: boolean;
+  otherParamsDisabled?: boolean;
+  modelSelectionLockedByGroup?: boolean;
+  paramsSelectionLockedByGroup?: boolean;
+  styleTemplateLockedByGroup?: boolean;
   afterStyleTemplateSlot?: ReactNode;
 }
 
@@ -135,6 +143,7 @@ export const ModelParamsControls = memo(({
   extraParams,
   onExtraParamChange,
   onStyleTemplateApply,
+  onStyleTemplateClear,
   onOpenStyleTemplateManager,
   showProviderName = true,
   triggerSize = 'md',
@@ -149,6 +158,13 @@ export const ModelParamsControls = memo(({
   modelOptionClassName = DEFAULT_MODEL_OPTION_CLASS_NAME,
   styleTemplateTriggerMode = 'label',
   styleTemplateDisabled = false,
+  selectedStyleTemplateName = null,
+  modelSelectionDisabled = false,
+  paramsSelectionDisabled = false,
+  otherParamsDisabled = false,
+  modelSelectionLockedByGroup = false,
+  paramsSelectionLockedByGroup = false,
+  styleTemplateLockedByGroup = false,
   afterStyleTemplateSlot,
 }: ModelParamsControlsProps) => {
   const { t } = useTranslation();
@@ -187,6 +203,16 @@ export const ModelParamsControls = memo(({
   );
   const selectedProviderName = selectedProvider.label || selectedProvider.name;
   const styleTemplateTriggerTitle = t('styleTemplate.selectTemplate');
+  const resolvedSelectedStyleTemplateName =
+    typeof selectedStyleTemplateName === 'string' && selectedStyleTemplateName.trim().length > 0
+      ? selectedStyleTemplateName.trim()
+      : null;
+  const styleTemplateTriggerLabel = resolvedSelectedStyleTemplateName ?? styleTemplateTriggerTitle;
+  const styleTemplateSelected = resolvedSelectedStyleTemplateName !== null;
+  const groupControlledChipClassName =
+    'disabled:!cursor-not-allowed disabled:!opacity-100 !border-sky-400/35 !border-dashed !bg-sky-500/10 !text-sky-100 hover:!bg-sky-500/10';
+  const groupControlledSecondaryTextClassName = 'text-sky-100/70';
+  const groupControlledLockClassName = 'h-3 w-3 shrink-0 text-sky-200/85';
   const resolveProviderButtonClassName = useCallback(
     (providerId: string, active: boolean) => {
       if (providerId === 'oopii') {
@@ -429,11 +455,17 @@ export const ModelParamsControls = memo(({
       <div ref={modelTriggerRef} className="nodrag nopan relative flex">
         <UiChipButton
           active={openPanel === 'model'}
-          className={`${chipClassName} ${modelChipClassName}`}
+          disabled={modelSelectionDisabled}
+          className={`${chipClassName} ${modelChipClassName} ${
+            modelSelectionLockedByGroup ? groupControlledChipClassName : ''
+          }`}
           onMouseDown={stopInteractionPropagation}
           onPointerDown={stopInteractionPropagation}
           onClick={(event) => {
             event.stopPropagation();
+            if (modelSelectionDisabled) {
+              return;
+            }
             if (openPanel === 'model') {
               setOpenPanel(null);
               return;
@@ -450,19 +482,36 @@ export const ModelParamsControls = memo(({
         >
           <span className={modelTextClassName}>{selectedModelName}</span>
           {showProviderName && (
-            <span className={providerTextClassName}>{selectedProviderName}</span>
+            <span
+              className={
+                modelSelectionLockedByGroup
+                  ? `${providerTextClassName} ${groupControlledSecondaryTextClassName}`
+                  : providerTextClassName
+              }
+            >
+              {selectedProviderName}
+            </span>
           )}
+          {modelSelectionLockedByGroup ? (
+            <Lock className={groupControlledLockClassName} />
+          ) : null}
         </UiChipButton>
       </div>
 
       <div ref={paramsTriggerRef} className="nodrag nopan relative flex">
         <UiChipButton
           active={openPanel === 'params'}
-          className={`${chipClassName} ${paramsChipClassName}`}
+          disabled={paramsSelectionDisabled}
+          className={`${chipClassName} ${paramsChipClassName} ${
+            paramsSelectionLockedByGroup ? groupControlledChipClassName : ''
+          }`}
           onMouseDown={stopInteractionPropagation}
           onPointerDown={stopInteractionPropagation}
           onClick={(event) => {
             event.stopPropagation();
+            if (paramsSelectionDisabled) {
+              return;
+            }
             if (openPanel === 'params') {
               setOpenPanel(null);
               return;
@@ -476,24 +525,43 @@ export const ModelParamsControls = memo(({
             setOpenPanel('params');
           }}
         >
-          <SlidersHorizontal className={paramsIconClassName} />
+          <SlidersHorizontal
+            className={`${paramsIconClassName} ${
+              paramsSelectionLockedByGroup ? 'text-sky-100' : ''
+            }`}
+          />
           <span className={paramsPrimaryTextClassName}>{selectedAspectRatio.label}</span>
-          <span className={paramsSecondaryTextClassName}>· {selectedResolution.label}</span>
+          <span
+            className={
+              paramsSelectionLockedByGroup
+                ? `${paramsSecondaryTextClassName} ${groupControlledSecondaryTextClassName}`
+                : paramsSecondaryTextClassName
+            }
+          >
+            · {selectedResolution.label}
+          </span>
+          {paramsSelectionLockedByGroup ? (
+            <Lock className={groupControlledLockClassName} />
+          ) : null}
         </UiChipButton>
       </div>
 
       {onStyleTemplateApply && (
-        <div className="nodrag nopan relative flex">
+        <div className="nodrag nopan relative flex items-center gap-1">
           <UiChipButton
-            active={styleTemplatePanelOpen}
+            active={styleTemplatePanelOpen || styleTemplateSelected}
             disabled={styleTemplateDisabled}
             className={
               styleTemplateTriggerMode === 'icon'
-                ? `${chipClassName} !w-8 !px-0 shrink-0 justify-center`
-                : `${chipClassName} w-auto shrink-0 justify-center`
+                ? `${chipClassName} !w-8 !px-0 shrink-0 justify-center ${
+                  styleTemplateSelected ? '!border-emerald-400/40 !bg-emerald-400/12' : ''
+                } ${styleTemplateLockedByGroup ? groupControlledChipClassName : ''}`
+                : `${chipClassName} w-auto shrink-0 justify-center ${
+                  styleTemplateSelected ? '!border-emerald-400/40 !bg-emerald-400/12 !text-text-dark' : ''
+                } ${styleTemplateLockedByGroup ? groupControlledChipClassName : ''}`
             }
-            title={styleTemplateTriggerTitle}
-            aria-label={styleTemplateTriggerTitle}
+            title={styleTemplateTriggerLabel}
+            aria-label={styleTemplateTriggerLabel}
             onMouseDown={stopInteractionPropagation}
             onPointerDown={stopInteractionPropagation}
             onClick={(event) => {
@@ -506,13 +574,48 @@ export const ModelParamsControls = memo(({
               setStyleTemplatePanelOpen(true);
             }}
           >
-            <Palette className={paramsIconClassName} />
+            <Palette
+              className={`${paramsIconClassName} ${
+                styleTemplateLockedByGroup ? 'text-sky-100' : ''
+              }`}
+            />
+            {styleTemplateTriggerMode === 'icon' && styleTemplateLockedByGroup ? (
+              <Lock className="absolute -right-1 -top-1 h-3.5 w-3.5 rounded-full bg-sky-500/25 p-[2px] text-sky-100" />
+            ) : null}
             {styleTemplateTriggerMode === 'label' && (
-              <span className={paramsPrimaryTextClassName}>
-                {styleTemplateTriggerTitle}
+              <span className={`${paramsPrimaryTextClassName} inline-flex items-center gap-1.5`}>
+                {styleTemplateSelected ? (
+                  <span className="inline-flex h-4 w-4 items-center justify-center rounded-full bg-emerald-400/20 text-emerald-200">
+                    <Check className="h-3 w-3" strokeWidth={3} />
+                  </span>
+                ) : null}
+                <span className={styleTemplateSelected ? 'text-emerald-100' : undefined}>
+                  {styleTemplateTriggerLabel}
+                </span>
+                {styleTemplateLockedByGroup ? (
+                  <Lock className={groupControlledLockClassName} />
+                ) : null}
               </span>
             )}
           </UiChipButton>
+          {styleTemplateSelected && onStyleTemplateClear ? (
+            <UiChipButton
+              type="button"
+              disabled={styleTemplateDisabled}
+              className={`${chipClassName} !h-8 !w-8 !px-0 shrink-0 justify-center border-white/10 bg-white/5 text-text-muted hover:border-red-400/30 hover:bg-red-500/10 hover:text-red-200`}
+              title={t('common.clear')}
+              aria-label={t('common.clear')}
+              onMouseDown={stopInteractionPropagation}
+              onPointerDown={stopInteractionPropagation}
+              onClick={(event) => {
+                event.stopPropagation();
+                setStyleTemplatePanelOpen(false);
+                onStyleTemplateClear();
+              }}
+            >
+              <X className="h-3.5 w-3.5" />
+            </UiChipButton>
+          ) : null}
         </div>
       )}
 
@@ -522,11 +625,15 @@ export const ModelParamsControls = memo(({
         <div ref={otherParamsTriggerRef} className="nodrag nopan relative flex">
           <UiChipButton
             active={openPanel === 'otherParams'}
+            disabled={otherParamsDisabled}
             className={`${chipClassName} w-auto shrink-0 justify-center`}
             onMouseDown={stopInteractionPropagation}
             onPointerDown={stopInteractionPropagation}
             onClick={(event) => {
               event.stopPropagation();
+              if (otherParamsDisabled) {
+                return;
+              }
               if (openPanel === 'otherParams') {
                 setOpenPanel(null);
                 return;

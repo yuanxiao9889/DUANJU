@@ -8,6 +8,7 @@ import {
   Rows3,
   Sparkles,
   Users,
+  Waypoints,
 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { UiScrollArea } from "@/components/ui";
@@ -16,6 +17,7 @@ import {
   resolveScriptAssetExtractSource,
   runScriptAssetExtractionForNode,
 } from "@/features/canvas/application/directorWorkPackage";
+import { openStoryboardExpandDialogForAssetNode } from "@/features/canvas/application/storyboardAssetExpand";
 import {
   CANVAS_NODE_TYPES,
   SCRIPT_ASSET_EXTRACT_NODE_DEFAULT_HEIGHT,
@@ -78,6 +80,7 @@ export const DirectorWorkPackageNode = memo(
     );
     const [isExtracting, setIsExtracting] = useState(false);
     const [activeTab, setActiveTab] = useState<ResultTabKey>("characters");
+    const isStoryboardMirror = data.presentationMode === "storyboardMirror";
 
     const resolvedWidth = resolveNodeDimension(
       width,
@@ -93,6 +96,14 @@ export const DirectorWorkPackageNode = memo(
     );
     const extractionResult = data.extractionResult;
     const hasResult = Boolean(extractionResult);
+    const expandToStoryboardLabelRaw = t(
+      "node.scriptAssetExtract.expandToStoryboard",
+    );
+    const expandToStoryboardLabel =
+      expandToStoryboardLabelRaw.trim().length > 0 &&
+      expandToStoryboardLabelRaw !== "node.scriptAssetExtract.expandToStoryboard"
+        ? expandToStoryboardLabelRaw
+        : "在分镜画布展开";
     const tabs = useMemo(
       () => [
         {
@@ -224,6 +235,10 @@ export const DirectorWorkPackageNode = memo(
       expandScriptAssetExtractionResultForNode(id);
     };
 
+    const handleExpandToStoryboard = () => {
+      openStoryboardExpandDialogForAssetNode(id);
+    };
+
     return (
       <div
         className={`${NODE_BASE_CLASS} ${selected ? NODE_SELECTED_CLASS : NODE_IDLE_CLASS}`}
@@ -272,40 +287,52 @@ export const DirectorWorkPackageNode = memo(
               </div>
             </div>
 
-            <button
-              type="button"
-              onClick={(event) => {
-                event.stopPropagation();
-                openWorkbench();
-              }}
-              className="nodrag flex h-8 w-8 items-center justify-center rounded-lg border border-transparent text-text-muted transition-colors hover:border-border-dark hover:bg-bg-dark hover:text-text-dark"
-              title={t("node.scriptAssetExtract.openWorkbench")}
-            >
-              <ExternalLink className="h-4 w-4" />
-            </button>
+            {!isStoryboardMirror ? (
+              <button
+                type="button"
+                onClick={(event) => {
+                  event.stopPropagation();
+                  openWorkbench();
+                }}
+                className="nodrag flex h-8 w-8 items-center justify-center rounded-lg border border-transparent text-text-muted transition-colors hover:border-border-dark hover:bg-bg-dark hover:text-text-dark"
+                title={t("node.scriptAssetExtract.openWorkbench")}
+              >
+                <ExternalLink className="h-4 w-4" />
+              </button>
+            ) : null}
           </div>
+
+          {isStoryboardMirror && data.expansionSource?.sourceLabel ? (
+            <div className="mt-3 rounded-2xl border border-border-dark bg-bg-dark/30 px-3 py-2 text-xs text-text-muted">
+              {t("node.scriptAssetExtract.storyboardMirrorHint", {
+                source: data.expansionSource.sourceLabel,
+              })}
+            </div>
+          ) : null}
 
           {!hasResult ? (
             <div className="mt-4 flex min-h-0 flex-1 flex-col justify-between">
               <div className="rounded-2xl border border-dashed border-border-dark bg-bg-dark/20 p-4 text-sm leading-6 text-text-muted">
                 {t("node.scriptAssetExtract.startHint")}
               </div>
-              <div className="mt-3 flex gap-2">
-                <button
-                  type="button"
-                  onClick={(event) => {
-                    event.stopPropagation();
-                    void handleExtract();
-                  }}
-                  className={ACTION_BUTTON_CLASS}
-                  disabled={isExtracting}
-                >
-                  <Sparkles className="h-3.5 w-3.5" />
-                  {isExtracting
-                    ? t("node.scriptAssetExtract.extracting")
-                    : t("node.scriptAssetExtract.extract")}
-                </button>
-              </div>
+              {!isStoryboardMirror ? (
+                <div className="mt-3 flex gap-2">
+                  <button
+                    type="button"
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      void handleExtract();
+                    }}
+                    className={ACTION_BUTTON_CLASS}
+                    disabled={isExtracting}
+                  >
+                    <Sparkles className="h-3.5 w-3.5" />
+                    {isExtracting
+                      ? t("node.scriptAssetExtract.extracting")
+                      : t("node.scriptAssetExtract.extract")}
+                  </button>
+                </div>
+              ) : null}
             </div>
           ) : (
             <>
@@ -375,32 +402,46 @@ export const DirectorWorkPackageNode = memo(
                 )}
               </UiScrollArea>
 
-              <div className="mt-3 flex flex-wrap gap-2">
-                <button
-                  type="button"
-                  onClick={(event) => {
-                    event.stopPropagation();
-                    void handleExtract();
-                  }}
-                  className={ACTION_BUTTON_CLASS}
-                  disabled={isExtracting}
-                >
-                  <RefreshCcw className="h-3.5 w-3.5" />
-                  {isExtracting
-                    ? t("node.scriptAssetExtract.extracting")
-                    : t("node.scriptAssetExtract.reextract")}
-                </button>
-                <button
-                  type="button"
-                  onClick={(event) => {
-                    event.stopPropagation();
-                    handleExpand();
-                  }}
-                  className={ACTION_BUTTON_CLASS}
-                >
-                  {t("node.scriptAssetExtract.expand")}
-                </button>
-              </div>
+              {!isStoryboardMirror ? (
+                <div className="mt-3 flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      void handleExtract();
+                    }}
+                    className={ACTION_BUTTON_CLASS}
+                    disabled={isExtracting}
+                  >
+                    <RefreshCcw className="h-3.5 w-3.5" />
+                    {isExtracting
+                      ? t("node.scriptAssetExtract.extracting")
+                      : t("node.scriptAssetExtract.reextract")}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      handleExpand();
+                    }}
+                    className={ACTION_BUTTON_CLASS}
+                  >
+                    {t("node.scriptAssetExtract.expand")}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      handleExpandToStoryboard();
+                    }}
+                    className={`${ACTION_BUTTON_CLASS} border-accent/35 bg-accent/10 text-text-dark hover:border-accent/55 hover:bg-accent/16`}
+                    title={expandToStoryboardLabel}
+                  >
+                    <Waypoints className="h-3.5 w-3.5" />
+                    {expandToStoryboardLabel}
+                  </button>
+                </div>
+              ) : null}
             </>
           )}
         </div>

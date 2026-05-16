@@ -2715,6 +2715,10 @@ fn select_video_command(
     audio_count: usize,
     reference_mode: Option<&str>,
 ) -> Result<VideoCommand, String> {
+    let normalized_reference_mode = reference_mode
+        .map(|value| value.trim().to_ascii_lowercase())
+        .unwrap_or_default();
+
     if video_count > 0 {
         if video_count > 3 {
             return Err(
@@ -2734,16 +2738,10 @@ fn select_video_command(
     if audio_count > 0 {
         return Ok(VideoCommand::Multimodal2Video);
     }
-    if image_count == 1 {
-        return Ok(VideoCommand::Image2Video);
-    }
-    match reference_mode
-        .map(|value| value.trim().to_ascii_lowercase())
-        .unwrap_or_default()
-        .as_str()
-    {
+    match normalized_reference_mode.as_str() {
         "firstlastframe" => Ok(VideoCommand::Frames2Video),
         "allaround" | "subject" => Ok(VideoCommand::Multimodal2Video),
+        _ if image_count == 1 => Ok(VideoCommand::Image2Video),
         _ => Ok(VideoCommand::Multiframe2Video),
     }
 }

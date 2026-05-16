@@ -56,6 +56,7 @@ import { ensureDailyDatabaseBackup } from "./commands/storage";
 import { minimizeMainWindowToTray } from "./commands/system";
 import { useJimengVideoQueueStore } from "./stores/jimengVideoQueueStore";
 import { useGenerationHistoryStore } from "./stores/generationHistoryStore";
+import { isJimengVideoQueueTerminalStatus } from "./features/jimeng/domain/jimengVideoQueue";
 import {
   checkDreaminaCliUpdate,
   updateDreaminaCli,
@@ -347,9 +348,13 @@ function MainApp() {
   const openJimengVideoQueueProject = useJimengVideoQueueStore(
     (state) => state.openProject,
   );
+  const initializeJimengVideoQueue = useJimengVideoQueueStore(
+    (state) => state.initialize,
+  );
   const closeJimengVideoQueueProject = useJimengVideoQueueStore(
     (state) => state.closeProject,
   );
+  const allJimengQueueJobs = useJimengVideoQueueStore((state) => state.allJobs);
   const openGenerationHistoryProject = useGenerationHistoryStore(
     (state) => state.openProject,
   );
@@ -370,6 +375,14 @@ function MainApp() {
   useEffect(() => {
     void hydrate();
   }, [hydrate]);
+
+  useEffect(() => {
+    if (!isHydrated) {
+      return;
+    }
+
+    void initializeJimengVideoQueue();
+  }, [initializeJimengVideoQueue, isHydrated]);
 
   useEffect(() => {
     if (!settingsHydrated) {
@@ -912,10 +925,19 @@ function MainApp() {
     });
   }, [isHydrated]);
 
+  const hasPendingJimengQueueJobs = useMemo(
+    () =>
+      allJimengQueueJobs.some(
+        (job) => !isJimengVideoQueueTerminalStatus(job.status),
+      ),
+    [allJimengQueueJobs],
+  );
+
   const hasMainWindowActiveGeneration =
-    currentProjectId != null &&
-    currentProjectType !== "ad" &&
-    hasActiveCanvasGeneration;
+    hasPendingJimengQueueJobs ||
+    (currentProjectId != null &&
+      currentProjectType !== "ad" &&
+      hasActiveCanvasGeneration);
 
   const requestWindowClose = useCallback(async () => {
     if (isWindowCloseInProgressRef.current) {

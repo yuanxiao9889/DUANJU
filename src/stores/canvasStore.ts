@@ -69,6 +69,7 @@ import {
   type CommerceProductNodeData,
   type CommerceResultGroupNodeData,
   type DirectorStageNodeData,
+  type GroupNodeData,
   type LegacyNodeData,
   type EpisodeCard,
   type ImageCompareNodeData,
@@ -121,6 +122,7 @@ import {
   normalizeCommerceBriefNodeData,
   normalizeCommerceProductNodeData,
   normalizeCommerceResultGroupNodeData,
+  normalizeGroupNodeData,
   normalizeScriptItemReferenceNodeData,
   normalizeScriptPlotLineNodeData,
   normalizeScriptLocationReferenceNodeData,
@@ -152,11 +154,15 @@ import {
   DEFAULT_LAYOUT_CONFIG,
 } from '@/features/canvas/application/mindMapLayout';
 import {
+  ASSET_BATCH_GROUP_BOTTOM_PADDING,
+  ASSET_BATCH_GROUP_SIDE_PADDING,
+  ASSET_BATCH_GROUP_TOP_PADDING,
   DEFAULT_GROUP_LAYOUT_MAX_ITEMS_PER_LINE,
   GROUP_NODE_BOTTOM_PADDING,
   GROUP_NODE_SIDE_PADDING,
   GROUP_NODE_TOP_PADDING,
   layoutGroupChildren,
+  resolveGroupLayoutOptions,
 } from '@/features/canvas/application/groupLayout';
 import {
   createCanvasRect,
@@ -952,14 +958,38 @@ function normalizeEdgesWithNodes(rawEdges: CanvasEdge[], nodes: CanvasNode[]): C
       }
       return nodeHasSourceHandle(sourceNode.type) && nodeHasTargetHandle(targetNode.type);
     })
-    .map((edge) => ({
-      ...edge,
-      type: edge.type ?? 'disconnectableEdge',
-      sourceHandle:
-        normalizeHandleId((edge as CanvasEdge & { sourceHandle?: unknown }).sourceHandle) ?? 'source',
-      targetHandle:
-        normalizeHandleId((edge as CanvasEdge & { targetHandle?: unknown }).targetHandle) ?? 'target',
-    }));
+    .map((edge) => {
+      const sourceNode = nodeMap.get(edge.source);
+      const targetNode = nodeMap.get(edge.target);
+      const targetParentNode = targetNode?.parentId ? nodeMap.get(targetNode.parentId) : null;
+      const isAssetBatchGroupTarget =
+        targetParentNode?.type === CANVAS_NODE_TYPES.group
+        && (targetParentNode.data as GroupNodeData).visualStyle === 'assetBatchGroup';
+      const isStoryboardAssetExpansionEdge =
+        (sourceNode?.type === CANVAS_NODE_TYPES.directorWorkPackage
+          || sourceNode?.type === CANVAS_NODE_TYPES.scriptAssetExtract)
+          && targetNode?.type === CANVAS_NODE_TYPES.scriptPlotLine
+        || sourceNode?.type === CANVAS_NODE_TYPES.scriptPlotLine && isAssetBatchGroupTarget;
+
+      return {
+        ...edge,
+        type: edge.type ?? 'disconnectableEdge',
+        sourceHandle:
+          normalizeHandleId((edge as CanvasEdge & { sourceHandle?: unknown }).sourceHandle) ?? 'source',
+        targetHandle:
+          normalizeHandleId((edge as CanvasEdge & { targetHandle?: unknown }).targetHandle) ?? 'target',
+        style: isStoryboardAssetExpansionEdge
+          ? {
+            stroke:
+              sourceNode?.type === CANVAS_NODE_TYPES.scriptPlotLine
+                ? 'rgb(77 141 255 / 0.72)'
+                : 'rgb(77 141 255 / 0.78)',
+            strokeWidth: sourceNode?.type === CANVAS_NODE_TYPES.scriptPlotLine ? 2 : 2.2,
+            ...(edge.style ?? {}),
+          }
+          : edge.style,
+      };
+    });
 }
 
 function isKnownCanvasNodeType(value: unknown): value is CanvasNodeType {
@@ -1008,6 +1038,10 @@ function normalizeNodes(rawNodes: CanvasNode[]): CanvasNode[] {
 
       if (normalizedNodeType === CANVAS_NODE_TYPES.legacy) {
         Object.assign(mergedData, normalizeLegacyNodeData(node));
+      }
+
+      if (normalizedNodeType === CANVAS_NODE_TYPES.group) {
+        Object.assign(mergedData, normalizeGroupNodeData(mergedData as GroupNodeData));
       }
 
       if (
@@ -3248,6 +3282,19 @@ function fitGroupNodeToChildren(nodes: CanvasNode[], groupNodeId: string): Canva
 
   const groupAbsolutePosition = resolveAbsolutePosition(groupNode, nodeMap);
   const groupSize = getNodeSize(groupNode);
+  const groupData = groupNode.data as GroupNodeData;
+  const sidePadding =
+    groupData.visualStyle === 'assetBatchGroup'
+      ? ASSET_BATCH_GROUP_SIDE_PADDING
+      : GROUP_NODE_SIDE_PADDING;
+  const topPadding =
+    groupData.visualStyle === 'assetBatchGroup'
+      ? ASSET_BATCH_GROUP_TOP_PADDING
+      : GROUP_NODE_TOP_PADDING;
+  const bottomPadding =
+    groupData.visualStyle === 'assetBatchGroup'
+      ? ASSET_BATCH_GROUP_BOTTOM_PADDING
+      : GROUP_NODE_BOTTOM_PADDING;
   const childBounds = directChildren.reduce(
     (acc, childNode) => {
       const absolutePosition = resolveAbsolutePosition(childNode, nodeMap);
@@ -3272,16 +3319,16 @@ function fitGroupNodeToChildren(nodes: CanvasNode[], groupNodeId: string): Canva
   }
 
   const nextAbsoluteX = Math.round(
-    Math.min(groupAbsolutePosition.x, childBounds.minX - GROUP_NODE_SIDE_PADDING)
+    Math.min(groupAbsolutePosition.x, childBounds.minX - sidePadding)
   );
   const nextAbsoluteY = Math.round(
-    Math.min(groupAbsolutePosition.y, childBounds.minY - GROUP_NODE_TOP_PADDING)
+    Math.min(groupAbsolutePosition.y, childBounds.minY - topPadding)
   );
   const nextRight = Math.round(
-    Math.max(groupAbsolutePosition.x + groupSize.width, childBounds.maxX + GROUP_NODE_SIDE_PADDING)
+    Math.max(groupAbsolutePosition.x + groupSize.width, childBounds.maxX + sidePadding)
   );
   const nextBottom = Math.round(
-    Math.max(groupAbsolutePosition.y + groupSize.height, childBounds.maxY + GROUP_NODE_BOTTOM_PADDING)
+    Math.max(groupAbsolutePosition.y + groupSize.height, childBounds.maxY + bottomPadding)
   );
   const nextWidth = Math.max(220, nextRight - nextAbsoluteX);
   const nextHeight = Math.max(140, nextBottom - nextAbsoluteY);
@@ -4836,6 +4883,12 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
             normalizeScriptCharacterNodeData(mergedData as ScriptCharacterNodeData)
           );
         }
+        if (node.type === CANVAS_NODE_TYPES.group) {
+          Object.assign(
+            mergedData,
+            normalizeGroupNodeData(mergedData as GroupNodeData)
+          );
+        }
         if (node.type === CANVAS_NODE_TYPES.scriptPlotLine) {
           Object.assign(
             mergedData,
@@ -6151,12 +6204,16 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
         (edge) => childIdSet.has(edge.source) && childIdSet.has(edge.target)
       );
 
-      const layoutResult = layoutGroupChildren(directChildren, internalEdges, {
-        maxItemsPerLine:
-          typeof groupNode.data.maxItemsPerLine === 'number'
-            ? groupNode.data.maxItemsPerLine
-            : DEFAULT_GROUP_LAYOUT_MAX_ITEMS_PER_LINE,
-      });
+      const layoutResult = layoutGroupChildren(
+        directChildren,
+        internalEdges,
+        resolveGroupLayoutOptions(groupNode.data as GroupNodeData, {
+          maxItemsPerLine:
+            typeof groupNode.data.maxItemsPerLine === 'number'
+              ? groupNode.data.maxItemsPerLine
+              : DEFAULT_GROUP_LAYOUT_MAX_ITEMS_PER_LINE,
+        })
+      );
 
       const nextNodes = state.nodes.map((node) => {
         if (node.id === groupNodeId) {
@@ -6523,11 +6580,33 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
   },
 
   setSelectedNode: (nodeId) => {
-    set((state) => (
-      state.selectedNodeId === nodeId
-        ? state
-        : { selectedNodeId: nodeId }
-    ));
+    set((state) => {
+      const normalizedNodeId = typeof nodeId === 'string' ? nodeId.trim() : '';
+      const nextSelectedNodeId = normalizedNodeId.length > 0 ? normalizedNodeId : null;
+      let didChange = state.selectedNodeId !== nextSelectedNodeId;
+
+      const nextNodes = state.nodes.map((node) => {
+        const shouldSelect = nextSelectedNodeId === node.id;
+        if (Boolean(node.selected) === shouldSelect) {
+          return node;
+        }
+
+        didChange = true;
+        return {
+          ...node,
+          selected: shouldSelect,
+        };
+      });
+
+      if (!didChange) {
+        return state;
+      }
+
+      return {
+        nodes: nextNodes,
+        selectedNodeId: nextSelectedNodeId,
+      };
+    });
   },
 
   setSelectedNodeIds: (nodeIds) => {

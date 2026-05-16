@@ -498,9 +498,33 @@ export interface GroupNodeData extends NodeDisplayData {
   label: string;
   layoutDirection?: 'horizontal' | 'vertical';
   maxItemsPerLine?: number;
-  visualStyle?: 'default' | 'scriptPlotLinePanel';
+  visualStyle?: 'default' | 'scriptPlotLinePanel' | 'assetBatchGroup';
+  batchKind?: 'character' | 'scene' | 'item';
+  batchSource?: {
+    sourceMirrorNodeId: string | null;
+    sourcePanelNodeId: string | null;
+    sourceProjectId: string | null;
+    sourceNodeId: string | null;
+  } | null;
+  globalOverrideEnabled?: boolean;
+  globalModelId?: string | null;
+  globalSize?: ImageSize | null;
+  globalAspectRatio?: string | null;
+  globalStyleTemplateId?: string | null;
+  globalStyleTemplateName?: string | null;
+  globalStyleTemplatePrompt?: string | null;
+  optimizePromptBeforeGenerate?: boolean;
+  queueState?: AssetBatchQueueState | null;
   plotLineEntries?: ExtractedScriptPlotLine[];
   [key: string]: unknown;
+}
+
+export interface AssetBatchQueueState {
+  pendingNodeIds: string[];
+  runningNodeId: string | null;
+  completedNodeIds: string[];
+  failedNodeIds: string[];
+  lastRunAt: number | null;
 }
 
 export interface TextAnnotationGenerationSource {
@@ -2496,6 +2520,14 @@ export interface DirectorStoryboardReferenceNodeData extends NodeDisplayData {
 }
 
 export interface ScriptAssetExtractNodeData extends NodeDisplayData {
+  presentationMode?: 'editable' | 'storyboardMirror';
+  expansionSource?: {
+    sourceProjectId: string;
+    sourceProjectName: string;
+    sourceNodeId: string;
+    sourceNodeVersion: number | null;
+    sourceLabel: string;
+  } | null;
   sourceMode: ScriptAssetExtractSourceMode;
   selectedChapterIds: string[];
   resolvedSourceSnapshot: ScriptAssetExtractSourceSnapshot | null;
@@ -3624,6 +3656,31 @@ export function createEmptyProductionQueueState(): ProductionQueueState {
   };
 }
 
+export function createEmptyAssetBatchQueueState(): AssetBatchQueueState {
+  return {
+    pendingNodeIds: [],
+    runningNodeId: null,
+    completedNodeIds: [],
+    failedNodeIds: [],
+    lastRunAt: null,
+  };
+}
+
+export function normalizeAssetBatchQueueState(value: unknown): AssetBatchQueueState {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return createEmptyAssetBatchQueueState();
+  }
+
+  const record = value as Partial<AssetBatchQueueState>;
+  return {
+    pendingNodeIds: normalizeStringArray(record.pendingNodeIds),
+    runningNodeId: normalizeString(record.runningNodeId).trim() || null,
+    completedNodeIds: normalizeStringArray(record.completedNodeIds),
+    failedNodeIds: normalizeStringArray(record.failedNodeIds),
+    lastRunAt: Number.isFinite(record.lastRunAt) ? Number(record.lastRunAt) : null,
+  };
+}
+
 export function normalizeProductionQueueState(value: unknown): ProductionQueueState {
   const record = value && typeof value === 'object'
     ? value as Partial<ProductionQueueState>
@@ -4503,6 +4560,54 @@ export function normalizeScriptStoryNoteNodeData(
   };
 }
 
+export function normalizeGroupNodeData(
+  data: GroupNodeData
+): GroupNodeData {
+  const batchSource =
+    data.batchSource && typeof data.batchSource === 'object' && !Array.isArray(data.batchSource)
+      ? {
+          sourceMirrorNodeId:
+            normalizeString(data.batchSource.sourceMirrorNodeId).trim() || null,
+          sourcePanelNodeId:
+            normalizeString(data.batchSource.sourcePanelNodeId).trim() || null,
+          sourceProjectId:
+            normalizeString(data.batchSource.sourceProjectId).trim() || null,
+          sourceNodeId:
+            normalizeString(data.batchSource.sourceNodeId).trim() || null,
+        }
+      : null;
+
+  return {
+    ...data,
+    label: normalizeString(data.label),
+    layoutDirection: data.layoutDirection === 'vertical' ? 'vertical' : 'horizontal',
+    maxItemsPerLine: Number.isFinite(data.maxItemsPerLine)
+      ? Math.max(1, Math.round(Number(data.maxItemsPerLine)))
+      : undefined,
+    visualStyle:
+      data.visualStyle === 'scriptPlotLinePanel' || data.visualStyle === 'assetBatchGroup'
+        ? data.visualStyle
+        : 'default',
+    batchKind:
+      data.batchKind === 'character' || data.batchKind === 'scene' || data.batchKind === 'item'
+        ? data.batchKind
+        : undefined,
+    batchSource,
+    globalOverrideEnabled: normalizeBooleanValue(data.globalOverrideEnabled, false),
+    globalModelId: normalizeString(data.globalModelId).trim() || null,
+    globalSize:
+      typeof data.globalSize === 'string' && data.globalSize.trim().length > 0
+        ? (data.globalSize.trim() as ImageSize)
+        : null,
+    globalAspectRatio: normalizeString(data.globalAspectRatio).trim() || null,
+    globalStyleTemplateId: normalizeString(data.globalStyleTemplateId).trim() || null,
+    globalStyleTemplateName: normalizeString(data.globalStyleTemplateName).trim() || null,
+    globalStyleTemplatePrompt: normalizeString(data.globalStyleTemplatePrompt).trim() || null,
+    optimizePromptBeforeGenerate: normalizeBooleanValue(data.optimizePromptBeforeGenerate, false),
+    queueState: normalizeAssetBatchQueueState(data.queueState),
+  };
+}
+
 export function normalizeShootingScriptNodeData(
   data: ShootingScriptNodeData
 ): ShootingScriptNodeData {
@@ -4547,7 +4652,34 @@ export function normalizeShootingScriptNodeData(
 export function normalizeScriptAssetExtractNodeData(
   data: ScriptAssetExtractNodeData
 ): ScriptAssetExtractNodeData {
+  const expansionSource =
+    data.expansionSource && typeof data.expansionSource === 'object' && !Array.isArray(data.expansionSource)
+      ? {
+          sourceProjectId:
+            normalizeString(data.expansionSource.sourceProjectId).trim(),
+          sourceProjectName:
+            normalizeString(data.expansionSource.sourceProjectName).trim(),
+          sourceNodeId:
+            normalizeString(data.expansionSource.sourceNodeId).trim(),
+          sourceNodeVersion:
+            Number.isFinite(data.expansionSource.sourceNodeVersion)
+              ? Math.max(1, Math.floor(Number(data.expansionSource.sourceNodeVersion)))
+              : null,
+          sourceLabel:
+            normalizeString(data.expansionSource.sourceLabel).trim(),
+        }
+      : null;
+
   return {
+    presentationMode: data.presentationMode === 'storyboardMirror'
+      ? 'storyboardMirror'
+      : 'editable',
+    expansionSource:
+      expansionSource
+      && expansionSource.sourceProjectId
+      && expansionSource.sourceNodeId
+        ? expansionSource
+        : null,
     sourceMode:
       data.sourceMode === 'connectedText'
         ? 'connectedText'

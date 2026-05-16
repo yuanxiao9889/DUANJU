@@ -88,6 +88,7 @@ import {
   type ScriptPlotPointNodeData,
   type ScriptWorldviewNodeData,
   createDefaultSceneCard,
+  createEmptyAssetBatchQueueState,
   createEmptyDirectorStoryboardOverrides,
   createEmptyProductionQueueState,
 } from './canvasNodes';
@@ -791,7 +792,11 @@ const groupNodeDefinition: CanvasNodeDefinition<GroupNodeData> = {
   },
   createDefaultData: () => ({
     displayName: DEFAULT_NODE_DISPLAY_NAME[CANVAS_NODE_TYPES.group],
-    label: '组',
+    label: DEFAULT_NODE_DISPLAY_NAME[CANVAS_NODE_TYPES.group],
+    visualStyle: 'default',
+    globalOverrideEnabled: false,
+    optimizePromptBeforeGenerate: false,
+    queueState: createEmptyAssetBatchQueueState(),
   }),
 };
 
@@ -1887,6 +1892,8 @@ const scriptAssetExtractNodeDefinition: CanvasNodeDefinition<ScriptAssetExtractN
   },
   createDefaultData: () => ({
     displayName: DEFAULT_NODE_DISPLAY_NAME[CANVAS_NODE_TYPES.scriptAssetExtract],
+    presentationMode: 'editable',
+    expansionSource: null,
     sourceMode: 'chapterSelection',
     selectedChapterIds: [],
     resolvedSourceSnapshot: null,
@@ -2185,7 +2192,7 @@ const scriptPlotLineNodeDefinition: CanvasNodeDefinition<ScriptPlotLineNodeData>
   },
   connectivity: {
     sourceHandle: true,
-    targetHandle: false,
+    targetHandle: true,
     connectMenu: {
       fromSource: false,
       fromTarget: false,

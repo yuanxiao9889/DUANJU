@@ -29,11 +29,45 @@ export const GROUP_NODE_SIDE_PADDING = 20;
 export const GROUP_NODE_TOP_PADDING = 34;
 export const GROUP_NODE_BOTTOM_PADDING = 20;
 export const DEFAULT_GROUP_LAYOUT_MAX_ITEMS_PER_LINE = 5;
+export const ASSET_BATCH_GROUP_SIDE_PADDING = 24;
+export const ASSET_BATCH_GROUP_TOP_PADDING = 360;
+export const ASSET_BATCH_GROUP_BOTTOM_PADDING = 40;
+export const ASSET_BATCH_GROUP_GAP_X = 24;
+export const ASSET_BATCH_GROUP_GAP_Y = 24;
+export const ASSET_BATCH_GROUP_MAX_ITEMS_PER_LINE = 3;
+export const ASSET_BATCH_GROUP_MIN_WIDTH = 560;
+export const ASSET_BATCH_GROUP_MIN_HEIGHT = 420;
 
 const DEFAULT_GROUP_LAYOUT_GAP_X = 28;
 const DEFAULT_GROUP_LAYOUT_GAP_Y = 24;
 const GROUP_NODE_MIN_WIDTH = 220;
 const GROUP_NODE_MIN_HEIGHT = 140;
+
+export function resolveGroupLayoutOptions(
+  groupData: GroupNodeData | undefined,
+  overrides?: GroupLayoutOptions
+): GroupLayoutOptions {
+  if (groupData?.visualStyle === 'assetBatchGroup') {
+    return {
+      maxItemsPerLine:
+        typeof groupData.maxItemsPerLine === 'number'
+          ? groupData.maxItemsPerLine
+          : ASSET_BATCH_GROUP_MAX_ITEMS_PER_LINE,
+      gapX: ASSET_BATCH_GROUP_GAP_X,
+      gapY: ASSET_BATCH_GROUP_GAP_Y,
+      sidePadding: ASSET_BATCH_GROUP_SIDE_PADDING,
+      topPadding: ASSET_BATCH_GROUP_TOP_PADDING,
+      bottomPadding: ASSET_BATCH_GROUP_BOTTOM_PADDING,
+      minWidth: ASSET_BATCH_GROUP_MIN_WIDTH,
+      minHeight: ASSET_BATCH_GROUP_MIN_HEIGHT,
+      ...(overrides ?? {}),
+    };
+  }
+
+  return {
+    ...(overrides ?? {}),
+  };
+}
 
 function normalizeTimestamp(value: unknown): number | null {
   return typeof value === 'number' && Number.isFinite(value) ? value : null;

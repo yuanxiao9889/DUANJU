@@ -452,9 +452,58 @@
     "groupSelected": "编组 {{count}} 个节点"
   },
   "selection": {
+    "addSelectedToAssets": "加入资产",
     "exportSelected": "导出 {{count}} 个文件",
     "exportFolderPickerTitle": "选择批量导出位置",
-    "exportFailed": "批量导出文件失败，请重试"
+    "exportFailed": "批量导出文件失败，请重试",
+    "batchAddAssets": {
+      "title": "批量加入资产",
+      "summaryTitle": "本次选择摘要",
+      "libraryTitle": "目标资产库",
+      "libraryLockedLabel": "当前项目已绑定",
+      "libraryLockedHint": "本次批量加入会直接写入当前绑定的资产库。",
+      "libraryRequired": "请先选择一个目标资产库，再继续批量加入。",
+      "mixedNotice": "本次选择包含多种素材类型，已按类型分组处理。",
+      "groupSummary": "{{count}} 个已识别素材",
+      "groupAssigned": "已归类 {{count}} 个素材",
+      "groupInherited": "{{count}} 个待确认素材会继承这里的位置配置",
+      "groupConfigHint": "这一组里的素材共用一次“放入位置”配置。",
+      "groupActiveHint": "当前正在归类到 {{name}}，点击下方图片即可归入。",
+      "groupPickActiveHint": "请先选择当前归类到的二级分类，再点击图片进行归类。",
+      "groupEmpty": "当前没有直接识别到这个类型的素材，待确认项切到这里后会继承本组位置。",
+      "activeSubcategoryLabel": "当前归类到",
+      "chooseActiveSubcategory": "请选择当前归类到的二级分类",
+      "unresolvedTitle": "待确认",
+      "unresolvedHint": "这些素材没有追溯到标准批量来源，请先手动指定分类。",
+      "chooseCategory": "请选择素材分类",
+      "unresolvedUsesGroupTarget": "已归入 {{category}}，提交时会继承该分组的位置配置。",
+      "unresolvedPending": "请先选择分类，才能继续提交这条素材。",
+      "assignedBadge": "已归入 {{name}}",
+      "assignedCardHint": "这张图片已经归类，如需改到其他分类，请先清除。",
+      "clickToAssignHint": "点击这张图片，将其归入 {{name}}。",
+      "pickSubcategoryFirstHint": "请先选择当前归类到的二级分类，再点击图片。",
+      "clearAssignment": "清除归类",
+      "maskAssignedActive": "已在当前分类",
+      "maskAssignedInactive": "已归入其他分类",
+      "itemAdded": "已加入",
+      "partialFailure": "部分素材加入失败，成功项已保留，失败项可继续修改后重试。",
+      "submitFailed": "批量加入资产失败，请稍后重试。",
+      "submitItemFailed": "加入资产失败",
+      "confirm": "确认加入",
+      "submitting": "正在加入...",
+      "footerNeedsConfirm": "还有待确认素材需要先指定分类。",
+      "footerNeedsAssignment": "还有图片没有归入当前的二级分类。",
+      "footerReady": "分类和位置已就绪，可以开始批量加入。",
+      "footerPending": "待处理 {{count}} 条",
+      "summary": {
+        "total": "共 {{count}} 条",
+        "character": "角色 {{count}}",
+        "scene": "场景 {{count}}",
+        "prop": "道具 {{count}}",
+        "unresolved": "待确认 {{count}}",
+        "skipped": "跳过 {{count}}"
+      }
+    }
   },
   "tool": {
     "crop": "裁剪",
@@ -2168,6 +2217,8 @@
       "emptyRowSummary": "暂无摘要",
       "reextract": "重新提取",
       "expand": "展开",
+      "expandToStoryboard": "在分镜画布展开",
+      "storyboardMirrorHint": "来自 {{source}} 的镜像快照",
       "meta": {
         "aliases": "别名：{{value}}",
         "continuity": "连续性：{{value}}",
@@ -2175,6 +2226,30 @@
         "space": "空间：{{value}}",
         "function": "作用：{{value}}",
         "owner": "归属：{{value}}"
+      }
+    },
+    "assetBatchGroup": {
+      "nodeCount": "{{count}} 个图片节点",
+      "globalEnabled": "已开启全局接管",
+      "globalOverride": "由组头统一接管子图片节点参数",
+      "optimizePromptBeforeGenerate": "生成前先优化每个提示词",
+      "optimizeSequential": "逐个优化提示词",
+      "optimizing": "优化中...",
+      "runSequential": "开始依次生成",
+      "running": "生成中...",
+      "sameSource": "同源",
+      "batchKind": {
+        "character": "角色",
+        "scene": "场景",
+        "item": "物品"
+      },
+      "queue": {
+        "pending": "待处理 {{count}}",
+        "running": "运行中 {{count}}",
+        "completed": "完成 {{count}}",
+        "failed": "失败 {{count}}",
+        "current": "当前：{{name}}",
+        "lastRunAt": "最近执行：{{value}}"
       }
     }
   },
@@ -2301,6 +2376,31 @@
     "typeBadgeLabels": {
       "ad": "广告",
       "commerceAd": "电商"
+    },
+    "storyboardAssetExpand": {
+      "title": "展开到分镜画布",
+      "confirm": "开始展开",
+      "submitting": "正在展开...",
+      "modeNew": "新建分镜画布",
+      "modeNewHint": "创建一个新的分镜项目，并把这批资产展开进去。",
+      "modeExisting": "已有分镜画布",
+      "modeExistingHint": "选择现有分镜项目，在空白区域展开这批资产。",
+      "newNameLabel": "新分镜画布名称",
+      "newNamePlaceholder": "输入新的分镜项目名称",
+      "existingLabel": "选择已有分镜画布",
+      "existingPlaceholder": "请选择一个分镜项目",
+      "recommended": "推荐",
+      "sameSource": "同源剧本",
+      "updatedAt": "最近更新：{{value}}",
+      "noCandidates": "当前还没有可用的分镜项目。",
+      "defaultProjectName": "{{source}} 分镜",
+      "errors": {
+        "generic": "展开到分镜画布失败。",
+        "noSourceProject": "当前没有可用的剧本项目。",
+        "nodeMissing": "没有找到来源资产提取节点。",
+        "noExtractionResult": "请先完成资产提取。",
+        "targetProjectMissing": "没有找到目标分镜项目。"
+      }
     },
     "adProjectCardHint": "导演 skill 引导与广告脚本工作台",
     "commerceAdCardHint": "商品图到批量广告图的节点工作流",

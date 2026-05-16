@@ -1072,16 +1072,16 @@ function resolveJimengCliVideoCommand({
     return "multimodal2video";
   }
 
-  if (referenceImageCount === 1) {
-    return "image2video";
-  }
-
   if (referenceMode === "firstLastFrame") {
     return "frames2video";
   }
 
   if (referenceMode === "allAround" || referenceMode === "subject") {
     return "multimodal2video";
+  }
+
+  if (referenceImageCount === 1) {
+    return "image2video";
   }
 
   return "multiframe2video";
@@ -2680,7 +2680,10 @@ export const JimengNode = memo(
         });
       }
 
-      if (referenceImageSources.length === 1) {
+      if (
+        referenceImageSources.length === 1 &&
+        cliVideoCommand === "image2video"
+      ) {
         return t("node.jimeng.cliHint.image2video", {
           command: t("node.jimeng.cliMode.image2video"),
           duration: resolveJimengVideoModelDurationRange(selectedModel),
@@ -2742,6 +2745,7 @@ export const JimengNode = memo(
       referenceImageSources.length,
       selectedModel,
       selectedReferenceMode,
+      cliVideoCommand,
       selectedVideoResolution,
       t,
     ]);
