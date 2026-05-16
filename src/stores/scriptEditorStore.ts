@@ -2,7 +2,13 @@ import { create } from 'zustand';
 
 import type { ShootingScriptColumnKey } from '@/features/canvas/domain/canvasNodes';
 
-export type ScriptWorkbenchKind = 'none' | 'chapter' | 'scene' | 'shootingScript' | 'scriptAssetExtract';
+export type ScriptWorkbenchKind =
+  | 'none'
+  | 'chapter'
+  | 'scene'
+  | 'shootingScript'
+  | 'scriptAssetExtract'
+  | 'smartDirectorStoryboard';
 
 export interface ShootingScriptCellSelection {
   rowId: string;
@@ -18,6 +24,7 @@ interface ScriptEditorState {
   activeScriptNodeId: string | null;
   activeScriptAssetExtractNodeId: string | null;
   activeScriptAssetExtractRequestKey: number;
+  activeSmartDirectorStoryboardNodeId: string | null;
   activeScriptCell: ShootingScriptCellSelection | null;
   focusChapter: (chapterId: string, sceneId?: string | null) => void;
   focusChapterScene: (chapterId: string, sceneId: string) => void;
@@ -39,6 +46,7 @@ interface ScriptEditorState {
     }
   ) => void;
   focusScriptAssetExtract: (nodeId: string) => void;
+  focusSmartDirectorStoryboard: (nodeId: string) => void;
   clearSelection: () => void;
 }
 
@@ -51,6 +59,7 @@ export const useScriptEditorStore = create<ScriptEditorState>((set) => ({
   activeScriptNodeId: null,
   activeScriptAssetExtractNodeId: null,
   activeScriptAssetExtractRequestKey: 0,
+  activeSmartDirectorStoryboardNodeId: null,
   activeScriptCell: null,
   focusChapter: (chapterId, sceneId) => {
     set({
@@ -62,6 +71,7 @@ export const useScriptEditorStore = create<ScriptEditorState>((set) => ({
       activeScriptNodeId: null,
       activeScriptAssetExtractNodeId: null,
       activeScriptAssetExtractRequestKey: 0,
+      activeSmartDirectorStoryboardNodeId: null,
       activeScriptCell: null,
     });
   },
@@ -75,6 +85,7 @@ export const useScriptEditorStore = create<ScriptEditorState>((set) => ({
       activeScriptNodeId: null,
       activeScriptAssetExtractNodeId: null,
       activeScriptAssetExtractRequestKey: 0,
+      activeSmartDirectorStoryboardNodeId: null,
       activeScriptCell: null,
     });
   },
@@ -101,6 +112,7 @@ export const useScriptEditorStore = create<ScriptEditorState>((set) => ({
       activeScriptNodeId: scriptNodeId,
       activeScriptAssetExtractNodeId: null,
       activeScriptAssetExtractRequestKey: 0,
+      activeSmartDirectorStoryboardNodeId: null,
       activeScriptCell: options?.cell ?? null,
     });
   },
@@ -114,6 +126,7 @@ export const useScriptEditorStore = create<ScriptEditorState>((set) => ({
       activeScriptNodeId: scriptNodeId,
       activeScriptAssetExtractNodeId: null,
       activeScriptAssetExtractRequestKey: 0,
+      activeSmartDirectorStoryboardNodeId: null,
       activeScriptCell: cell,
     }));
   },
@@ -128,8 +141,23 @@ export const useScriptEditorStore = create<ScriptEditorState>((set) => ({
       activeScriptAssetExtractNodeId: nodeId,
       activeScriptAssetExtractRequestKey:
         state.activeScriptAssetExtractRequestKey + 1,
+      activeSmartDirectorStoryboardNodeId: null,
       activeScriptCell: null,
     }));
+  },
+  focusSmartDirectorStoryboard: (nodeId) => {
+    set({
+      activeWorkbenchKind: 'smartDirectorStoryboard',
+      activeChapterId: null,
+      activeChapterSceneId: null,
+      activeSceneNodeId: null,
+      activeEpisodeId: null,
+      activeScriptNodeId: null,
+      activeScriptAssetExtractNodeId: null,
+      activeScriptAssetExtractRequestKey: 0,
+      activeSmartDirectorStoryboardNodeId: nodeId,
+      activeScriptCell: null,
+    });
   },
   clearSelection: () => {
     set({
@@ -141,6 +169,7 @@ export const useScriptEditorStore = create<ScriptEditorState>((set) => ({
       activeScriptNodeId: null,
       activeScriptAssetExtractNodeId: null,
       activeScriptAssetExtractRequestKey: 0,
+      activeSmartDirectorStoryboardNodeId: null,
       activeScriptCell: null,
     });
   },

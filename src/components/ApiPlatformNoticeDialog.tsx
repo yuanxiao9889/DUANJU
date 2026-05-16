@@ -2,7 +2,7 @@ import { useTranslation } from 'react-i18next';
 
 import { UiButton, UiModal } from '@/components/ui';
 
-const OOPII_URL = 'https://www.oopii.cn/';
+const OOPII_URL = 'https://www.oopii.cc/';
 const OOPII_QQ_GROUP_URL = 'https://qm.qq.com/q/TcWYG0Ri0w';
 const OOPII_QQ_GROUP = '835213642';
 

@@ -27,6 +27,7 @@ import {
   IMAGE_EDIT_NODE_DEFAULT_HEIGHT,
   IMAGE_EDIT_NODE_DEFAULT_WIDTH,
   type ExportImageGenerationSummary,
+  type ExportImageNodeData,
   type ImageEditNodeData,
   type ImageSize,
 } from "@/features/canvas/domain/canvasNodes";
@@ -78,7 +79,7 @@ import {
 import {
   areReferenceImageOrdersEqual,
   buildShortReferenceToken,
-  findReferenceTokens,
+  findReferenceTokensWithNamedCandidates,
   insertReferenceToken,
   remapReferenceTokensByImageOrder,
   removeTextRange,
@@ -187,6 +188,13 @@ interface IncomingReferenceImageItem {
   displayUrl: string;
   tokenLabel: string;
   label: string;
+  assetId: string | null;
+  displayName: string | null;
+}
+
+interface PromptReferenceTokenCandidate {
+  tokenLabel: string;
+  value: number;
 }
 
 const PICKER_Y_OFFSET_PX = 20;
@@ -202,6 +210,7 @@ const IMAGE_EDIT_NODE_MAX_HEIGHT = 1000;
 function renderPromptWithHighlights(
   prompt: string,
   maxImageCount: number,
+  namedCandidates: PromptReferenceTokenCandidate[] = [],
 ): ReactNode {
   if (!prompt) {
     return " ";
@@ -209,7 +218,7 @@ function renderPromptWithHighlights(
 
   const segments: ReactNode[] = [];
   let lastIndex = 0;
-  const referenceTokens = findReferenceTokens(prompt, maxImageCount);
+  const referenceTokens = findReferenceTokensWithNamedCandidates(prompt, maxImageCount, namedCandidates);
   for (const token of referenceTokens) {
     const matchStart = token.start;
     const matchText = token.token;
@@ -246,6 +255,7 @@ function renderPromptWithHighlights(
 function renderPromptReferenceHoverTargets(
   prompt: string,
   maxImageCount: number,
+  namedCandidates: PromptReferenceTokenCandidate[],
   onTokenHover: (
     token: number,
     event: ReactMouseEvent<HTMLSpanElement>,
@@ -262,7 +272,7 @@ function renderPromptReferenceHoverTargets(
 
   const segments: ReactNode[] = [];
   let lastIndex = 0;
-  const referenceTokens = findReferenceTokens(prompt, maxImageCount);
+  const referenceTokens = findReferenceTokensWithNamedCandidates(prompt, maxImageCount, namedCandidates);
   for (const token of referenceTokens) {
     const matchStart = token.start;
 
@@ -304,6 +314,7 @@ function renderPromptReferenceHoverTargets(
 function resolveOptimizationReferenceImages(
   prompt: string,
   imageUrls: string[],
+  namedCandidates: PromptReferenceTokenCandidate[] = [],
 ): string[] {
   if (imageUrls.length === 0) {
     return [];
@@ -311,7 +322,7 @@ function resolveOptimizationReferenceImages(
 
   const referencedImageIndexes = [
     ...new Set(
-      findReferenceTokens(prompt, imageUrls.length)
+      findReferenceTokensWithNamedCandidates(prompt, imageUrls.length, namedCandidates)
         .map((token) => token.value - 1)
         .filter((index) => index >= 0 && index < imageUrls.length),
     ),
@@ -399,6 +410,7 @@ export const ImageEditNode = memo(
 
     const setSelectedNode = useCanvasStore((state) => state.setSelectedNode);
     const nodes = useCanvasStore((state) => state.nodes);
+    const edges = useCanvasStore((state) => state.edges);
     const updateNodeData = useCanvasStore((state) => state.updateNodeData);
     const addNode = useCanvasStore((state) => state.addNode);
     const findNodePosition = useCanvasStore((state) => state.findNodePosition);
@@ -817,14 +829,26 @@ export const ImageEditNode = memo(
               requestImageUrl: referenceUrl,
               previewImageUrl,
               displayUrl: previewImageUrl,
-              tokenLabel: buildShortReferenceToken(index),
-              label: t("node.imageEdit.referenceImageLabel", {
-                index: index + 1,
-              }),
+              tokenLabel: item.tokenAlias?.trim() || buildShortReferenceToken(index),
+              label:
+                item.displayName?.trim()
+                || t("node.imageEdit.referenceImageLabel", {
+                  index: index + 1,
+                }),
+              assetId: item.assetId ?? null,
+              displayName: item.displayName ?? null,
             };
           })
-          .filter((item): item is IncomingReferenceImageItem => Boolean(item)),
+          .filter((item): item is IncomingReferenceImageItem => item !== null),
       [connectedReferenceVisuals, t],
+    );
+    const namedReferenceTokenCandidates = useMemo<PromptReferenceTokenCandidate[]>(
+      () =>
+        incomingImageItems.map((item, index) => ({
+          tokenLabel: item.tokenLabel,
+          value: index + 1,
+        })),
+      [incomingImageItems],
     );
     const incomingImages = useMemo(
       () => incomingImageItems.map((item) => item.referenceUrl),
@@ -1317,13 +1341,17 @@ export const ImageEditNode = memo(
         const optimizationReferenceImages = resolveOptimizationReferenceImages(
           currentPrompt,
           resolvedRequestReferenceImages,
+          namedReferenceTokenCandidates,
         );
         const optimizationReferenceImageBindings =
           resolvePromptReferenceImageBindings(
             currentPrompt,
             buildSequentialPromptReferenceImageCandidates(
               resolvedRequestReferenceImages,
-            ),
+            ).map((candidate, index) => ({
+              ...candidate,
+              tokenLabel: incomingImageItems[index]?.tokenLabel ?? null,
+            })),
           );
         const result = await optimizeCanvasPrompt({
           mode: "image",
@@ -1481,11 +1509,23 @@ export const ImageEditNode = memo(
             predictedResultSize.width,
             predictedResultSize.height,
           );
-      const newNodeId = addNode(
-        CANVAS_NODE_TYPES.exportImage,
-        newNodePosition,
-        {
+      const placeholderResultNode = edges
+        .filter((edge) => edge.source === id)
+        .map((edge) => nodes.find((node) => node.id === edge.target))
+        .find((node): node is typeof nodes[number] & {
+          type: typeof CANVAS_NODE_TYPES.exportImage;
+          data: ExportImageNodeData;
+        } => (
+          Boolean(node)
+          && node?.type === CANVAS_NODE_TYPES.exportImage
+          && (node.data as ExportImageNodeData).isStoryboardProductionPlaceholder === true
+        ));
+      let newNodeId = placeholderResultNode?.id ?? null;
+      const resultNodeData = {
           isGenerating: true,
+          imageUrl: null,
+          previewImageUrl: null,
+          thumbnailUrl: null,
           generationPhase: "submitting",
           generationFailureStage: null,
           generationStartedAt,
@@ -1494,9 +1534,17 @@ export const ImageEditNode = memo(
           displayName: resultNodeTitle,
           aspectRatio: initialRequestAspectRatio,
           generationSummary,
-        },
-      );
-      addEdge(id, newNodeId);
+      } satisfies Partial<ExportImageNodeData>;
+      if (newNodeId) {
+        updateNodeData(newNodeId, resultNodeData);
+      } else {
+        newNodeId = addNode(
+          CANVAS_NODE_TYPES.exportImage,
+          newNodePosition,
+          resultNodeData,
+        );
+        addEdge(id, newNodeId);
+      }
       if (isInAssetBatchGroup && batchParentGroup) {
         relayoutBatchGroupResultNodes();
       }
@@ -1676,6 +1724,7 @@ export const ImageEditNode = memo(
     }, [
       addNode,
       addEdge,
+      edges,
       providerApiKey,
       findNodePosition,
       resolvedCameraParams,
@@ -1685,6 +1734,8 @@ export const ImageEditNode = memo(
       id,
       incomingImages,
       incomingImageItems,
+      namedReferenceTokenCandidates,
+      nodes,
       debugRequestModel,
       requestResolution.requestModel,
       selectedAspectRatio.value,
@@ -2103,6 +2154,7 @@ export const ImageEditNode = memo(
                     {renderPromptWithHighlights(
                       displayedPrompt,
                       incomingImages.length,
+                      namedReferenceTokenCandidates,
                     )}
                   </div>
                 </div>
@@ -2117,6 +2169,7 @@ export const ImageEditNode = memo(
                     {renderPromptReferenceHoverTargets(
                       displayedPrompt,
                       incomingImages.length,
+                      namedReferenceTokenCandidates,
                       handlePromptReferenceTokenHover,
                       hidePromptReferencePreview,
                       handlePromptReferenceTokenMouseDown,

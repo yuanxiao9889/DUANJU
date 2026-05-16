@@ -24,6 +24,7 @@ import {
   Undo2,
   Video,
   Wand2,
+  X,
 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { openSettingsDialog } from "@/features/settings/settingsEvents";
@@ -46,6 +47,7 @@ import {
 } from "@/features/canvas/application/promptReferenceImageBindings";
 import {
   buildShortReferenceToken,
+  findNamedReferenceTokens,
   insertReferenceToken,
   removeTextRange,
 } from "@/features/canvas/application/referenceTokenEditing";
@@ -141,6 +143,8 @@ interface ReferenceVisualItem {
   tokenLabel: string;
   label: string;
   durationSeconds: number | null;
+  assetId: string | null;
+  displayName: string | null;
 }
 
 interface ReferenceAudioItem {
@@ -383,6 +387,7 @@ function findSeedancePromptReferenceTokens(
   prompt: string,
   maxVisualReferenceCount: number,
   maxAudioReferenceCount: number,
+  namedVisualCandidates: Array<{ tokenLabel: string; value: number }> = [],
 ): SeedancePromptReferenceToken[] {
   return [
     ...findPromptReferenceTokensByPrefixes(
@@ -397,6 +402,10 @@ function findSeedancePromptReferenceTokens(
       AUDIO_REFERENCE_TOKEN_PREFIXES,
       "audio",
     ),
+    ...findNamedReferenceTokens(prompt, namedVisualCandidates).map((token) => ({
+      ...token,
+      kind: "visual" as const,
+    })),
   ].sort((left, right) => left.start - right.start);
 }
 
@@ -494,6 +503,7 @@ function renderPromptWithHighlights(
   prompt: string,
   maxVisualReferenceCount: number,
   maxAudioReferenceCount: number,
+  namedVisualCandidates: Array<{ tokenLabel: string; value: number }> = [],
 ): ReactNode {
   if (!prompt) {
     return " ";
@@ -505,6 +515,7 @@ function renderPromptWithHighlights(
     prompt,
     maxVisualReferenceCount,
     maxAudioReferenceCount,
+    namedVisualCandidates,
   );
   for (const token of referenceTokens) {
     if (token.start > lastIndex) {
@@ -539,6 +550,7 @@ function renderPromptReferenceHoverTargets(
   prompt: string,
   maxVisualReferenceCount: number,
   maxAudioReferenceCount: number,
+  namedVisualCandidates: Array<{ tokenLabel: string; value: number }>,
   onTokenHover: (
     token: SeedancePromptReferenceToken,
     event: ReactMouseEvent<HTMLSpanElement>,
@@ -559,6 +571,7 @@ function renderPromptReferenceHoverTargets(
     prompt,
     maxVisualReferenceCount,
     maxAudioReferenceCount,
+    namedVisualCandidates,
   );
   for (const token of referenceTokens) {
     if (token.start > lastIndex) {
@@ -694,12 +707,43 @@ function ReferenceVisualCard({ item }: { item: ReferenceVisualItem }) {
   );
 }
 
-function ReferenceAudioChip({ item }: { item: ReferenceAudioItem }) {
+function ReferenceAudioChip({
+  item,
+  removeLabel,
+  onRemove,
+}: {
+  item: ReferenceAudioItem;
+  removeLabel?: string;
+  onRemove?: () => void;
+}) {
   return (
     <div
-      className="flex max-w-full items-center gap-1.5 rounded-lg border border-white/10 bg-white/[0.04] px-2 py-1.5 text-[11px] text-text-dark"
+      className="group/reference relative flex max-w-full items-center gap-1.5 rounded-lg border border-white/10 bg-white/[0.04] px-2 py-1.5 text-[11px] text-text-dark"
       onMouseDown={(event) => event.stopPropagation()}
     >
+      {onRemove && removeLabel ? (
+        <button
+          type="button"
+          draggable={false}
+          className="absolute -right-1 -top-1 z-10 flex h-5 w-5 items-center justify-center rounded-full border border-white/15 bg-black/75 text-text-dark opacity-0 shadow-[0_6px_18px_rgba(0,0,0,0.28)] transition-opacity hover:bg-rose-500 hover:text-white group-hover/reference:opacity-100"
+          aria-label={removeLabel}
+          title={removeLabel}
+          onPointerDown={(event) => {
+            event.preventDefault();
+            event.stopPropagation();
+          }}
+          onMouseDown={(event) => {
+            event.preventDefault();
+            event.stopPropagation();
+          }}
+          onClick={(event) => {
+            event.stopPropagation();
+            onRemove();
+          }}
+        >
+          <X className="h-3 w-3" strokeWidth={2.4} />
+        </button>
+      ) : null}
       <Music4 className="h-3.5 w-3.5 shrink-0 text-text-muted" />
       <span className="rounded bg-white/[0.08] px-1 py-0.5 text-[10px] font-medium text-text-muted">
         {item.tokenLabel}
@@ -736,6 +780,7 @@ export const SeedanceNode = memo(
     const setHighlightedReferenceSourceNode = useCanvasStore(
       (state) => state.setHighlightedReferenceSourceNode,
     );
+    const deleteEdge = useCanvasStore((state) => state.deleteEdge);
     const addEdge = useCanvasStore((state) => state.addEdge);
     const addNode = useCanvasStore((state) => state.addNode);
     const findNodePosition = useCanvasStore((state) => state.findNodePosition);
@@ -845,21 +890,33 @@ export const SeedanceNode = memo(
             previewImageUrl: item.previewImageUrl ?? null,
             displayUrl: previewSource ? previewSource : null,
             tokenLabel:
-              item.kind === "video"
+              item.tokenAlias?.trim()
+              || (item.kind === "video"
                 ? buildVideoReferenceToken(index)
-                : buildShortReferenceToken(index),
+                : buildShortReferenceToken(index)),
             label:
-              item.kind === "video"
+              item.displayName?.trim()
+              || (item.kind === "video"
                 ? t("node.seedance.referenceVideoLabel", {
                     index: index + 1,
                   })
                 : t("node.seedance.referenceImageLabel", {
                     index: index + 1,
-                  }),
+                  })),
             durationSeconds: item.durationSeconds ?? null,
+            assetId: item.assetId ?? null,
+            displayName: item.displayName ?? null,
           };
         }),
       [connectedVisuals, t],
+    );
+    const namedVisualTokenCandidates = useMemo(
+      () =>
+        referenceVisualItems.map((item, index) => ({
+          tokenLabel: item.tokenLabel,
+          value: index + 1,
+        })),
+      [referenceVisualItems],
     );
 
     const referenceAudioItems = useMemo<ReferenceAudioItem[]>(
@@ -1221,11 +1278,14 @@ export const SeedanceNode = memo(
                 return {
                   referenceNumber: index + 1,
                   imageUrl,
+                  tokenLabel: item.tokenLabel,
                 } satisfies PromptReferenceImageCandidate;
               })
-              .filter((item): item is PromptReferenceImageCandidate =>
-                Boolean(item),
-              ),
+              .filter((item): item is {
+                referenceNumber: number;
+                imageUrl: string;
+                tokenLabel: string;
+              } => item !== null),
           );
         const result = await optimizeCanvasPrompt({
           mode: "video",
@@ -1827,6 +1887,15 @@ export const SeedanceNode = memo(
       },
       [highlightedReferenceSourceNodeId, setHighlightedReferenceSourceNode],
     );
+    const handleRemoveReferenceAudio = useCallback(
+      (sourceEdgeId: string) => {
+        setShowImagePicker(false);
+        pickerSelectionRef.current = null;
+        setPromptReferencePreview(null);
+        deleteEdge(sourceEdgeId);
+      },
+      [deleteEdge],
+    );
     const shotParamsButtonClassName = isShotParamsPanelOpen
       ? `${NODE_CONTROL_CHIP_CLASS} shrink-0 !w-8 !border-accent/55 !bg-accent/15 !px-0 justify-center text-accent shadow-[0_0_0_1px_rgba(59,130,246,0.18)]`
       : `${NODE_CONTROL_CHIP_CLASS} shrink-0 !w-8 !px-0 justify-center`;
@@ -1909,6 +1978,7 @@ export const SeedanceNode = memo(
                           displayedPrompt,
                           referenceVisualItems.length,
                           referenceAudioItems.length,
+                          namedVisualTokenCandidates,
                         )}
                       </div>
                     </div>
@@ -1924,6 +1994,7 @@ export const SeedanceNode = memo(
                           displayedPrompt,
                           referenceVisualItems.length,
                           referenceAudioItems.length,
+                          namedVisualTokenCandidates,
                           handlePromptReferenceTokenHover,
                           hidePromptReferencePreview,
                           handlePromptReferenceTokenMouseDown,
@@ -1993,6 +2064,8 @@ export const SeedanceNode = memo(
                             durationSeconds:
                               promptReferencePreview.durationSeconds,
                             tokenLabel: "",
+                            assetId: null,
+                            displayName: null,
                           }}
                         />
                       </div>
@@ -2040,6 +2113,10 @@ export const SeedanceNode = memo(
                           <ReferenceAudioChip
                             key={`${item.sourceEdgeId}-${item.audioUrl}`}
                             item={item}
+                            removeLabel={t("common.delete")}
+                            onRemove={() =>
+                              handleRemoveReferenceAudio(item.sourceEdgeId)
+                            }
                           />
                         ))}
                       </div>

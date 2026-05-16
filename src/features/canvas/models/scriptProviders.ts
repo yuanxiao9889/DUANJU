@@ -12,8 +12,9 @@ import {
   SCRIPT_DEEPSEEK_PROVIDER_ID,
 } from './scriptDeepseek';
 import {
-  DEFAULT_OOPII_TEXT_MODEL,
+  OOPII_TEXT_MODEL_OPTIONS,
   SCRIPT_OOPII_PROVIDER_ID,
+  normalizeScriptOopiiModel,
 } from './scriptOopii';
 
 export const DEFAULT_BLTCY_TEXT_MODEL = 'gpt-5.4-2026-03-05';
@@ -99,13 +100,11 @@ const BUILT_IN_SCRIPT_MODELS: Record<ScriptProviderId, readonly ScriptModelOptio
   volcengine: [],
   zhenzhen: [],
   comfly: [],
-  oopii: [
-    {
-      modelId: DEFAULT_OOPII_TEXT_MODEL,
-      label: DEFAULT_OOPII_TEXT_MODEL,
-      source: 'builtin',
-    },
-  ],
+  oopii: OOPII_TEXT_MODEL_OPTIONS.map((modelId) => ({
+    modelId,
+    label: modelId,
+    source: 'builtin',
+  })),
   compatible: [],
 };
 
@@ -319,7 +318,9 @@ export function resolveConfiguredScriptModel(
 
   const explicitModel = normalizeTrimmedString(settings.scriptModelOverrides?.[providerId]);
   if (explicitModel) {
-    return explicitModel;
+    return providerId === SCRIPT_OOPII_PROVIDER_ID
+      ? normalizeScriptOopiiModel(explicitModel)
+      : explicitModel;
   }
 
   if (providerId === 'alibaba') {
@@ -351,11 +352,17 @@ export function normalizeScriptModelOverrides(
 
   return SCRIPT_PROVIDER_IDS.reduce<Record<string, string>>((result, providerId) => {
     const rawModel = normalizeTrimmedString(record[providerId] ?? legacyDefaults?.[providerId]);
+    const normalizedRawModel =
+      providerId === SCRIPT_OOPII_PROVIDER_ID
+        ? normalizeScriptOopiiModel(rawModel)
+        : rawModel;
     result[providerId] = resolveConfiguredScriptModel(providerId, {
-      scriptModelOverrides: rawModel ? { [providerId]: rawModel } : undefined,
+      scriptModelOverrides: normalizedRawModel
+        ? { [providerId]: normalizedRawModel }
+        : undefined,
       scriptProviderCustomModels: customModels,
-      alibabaTextModel: providerId === 'alibaba' ? rawModel : legacyDefaults?.alibaba,
-      codingModel: providerId === 'coding' ? rawModel : legacyDefaults?.coding,
+      alibabaTextModel: providerId === 'alibaba' ? normalizedRawModel : legacyDefaults?.alibaba,
+      codingModel: providerId === 'coding' ? normalizedRawModel : legacyDefaults?.coding,
     });
     return result;
   }, {});

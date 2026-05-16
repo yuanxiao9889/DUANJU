@@ -5,7 +5,7 @@ import {
   isImageEditNode,
   isPanorama360Node,
   isUploadNode,
-  isVideoNode,
+  resolveSingleVideoConnectionSource,
   type CanvasNode,
 } from '../domain/canvasNodes';
 import { stringifyAnnotationItems } from './annotation';
@@ -20,16 +20,17 @@ function supportsImageSourceNode(node: CanvasNode): boolean {
 
 export const cropToolPlugin: CanvasToolPlugin = {
   type: NODE_TOOL_TYPES.crop,
-  label: '裁剪',
+  label: 'Crop',
   icon: 'crop',
   editor: 'crop',
+  executionMode: 'dialog',
   supportsNode: (node) => {
     if (supportsImageSourceNode(node)) {
       return Boolean(node.data.imageUrl);
     }
 
-    if (isVideoNode(node)) {
-      return Boolean(node.data.videoUrl);
+    if (resolveSingleVideoConnectionSource(node)) {
+      return true;
     }
 
     if (isAudioNode(node)) {
@@ -39,16 +40,16 @@ export const cropToolPlugin: CanvasToolPlugin = {
     return false;
   },
   createInitialOptions: (node) => {
-    if (isVideoNode(node)) {
+    const videoSource = resolveSingleVideoConnectionSource(node);
+    if (videoSource) {
       return {
         mediaType: 'video',
         startTime: 0,
-        endTime: typeof node.data.duration === 'number' ? node.data.duration : 0,
-        duration: typeof node.data.duration === 'number' ? node.data.duration : 0,
-        fileName: typeof node.data.videoFileName === 'string' ? node.data.videoFileName : '',
-        aspectRatio: typeof node.data.aspectRatio === 'string' ? node.data.aspectRatio : '16:9',
-        previewImageUrl:
-          typeof node.data.previewImageUrl === 'string' ? node.data.previewImageUrl : '',
+        endTime: typeof videoSource.duration === 'number' ? videoSource.duration : 0,
+        duration: typeof videoSource.duration === 'number' ? videoSource.duration : 0,
+        fileName: typeof videoSource.videoFileName === 'string' ? videoSource.videoFileName : '',
+        aspectRatio: videoSource.aspectRatio,
+        previewImageUrl: videoSource.previewImageUrl ?? '',
       } as ToolOptions;
     }
 
@@ -71,10 +72,10 @@ export const cropToolPlugin: CanvasToolPlugin = {
   fields: [
     {
       key: 'aspectRatio',
-      label: '目标比例',
+      label: 'Aspect Ratio',
       type: 'select',
       options: [
-        { label: '自由', value: 'free' },
+        { label: 'Free', value: 'free' },
         { label: '1:1', value: '1:1' },
         { label: '16:9', value: '16:9' },
         { label: '9:16', value: '9:16' },
@@ -89,9 +90,10 @@ export const cropToolPlugin: CanvasToolPlugin = {
 
 export const annotateToolPlugin: CanvasToolPlugin = {
   type: NODE_TOOL_TYPES.annotate,
-  label: '标注',
+  label: 'Annotate',
   icon: 'annotate',
   editor: 'annotate',
+  executionMode: 'dialog',
   supportsNode: (node) => supportsImageSourceNode(node) && Boolean(node.data.imageUrl),
   createInitialOptions: () => ({
     color: '#ff4d4f',
@@ -106,9 +108,10 @@ export const annotateToolPlugin: CanvasToolPlugin = {
 
 export const splitStoryboardToolPlugin: CanvasToolPlugin = {
   type: NODE_TOOL_TYPES.splitStoryboard,
-  label: '切割',
+  label: 'Split',
   icon: 'split',
   editor: 'split',
+  executionMode: 'dialog',
   supportsNode: (node) => supportsImageSourceNode(node) && Boolean(node.data.imageUrl),
   createInitialOptions: () => ({
     rows: 3,
@@ -120,8 +123,29 @@ export const splitStoryboardToolPlugin: CanvasToolPlugin = {
     await context.processTool(NODE_TOOL_TYPES.splitStoryboard, sourceImageUrl, options),
 };
 
+export const extractAudioToolPlugin: CanvasToolPlugin = {
+  type: NODE_TOOL_TYPES.extractAudio,
+  label: 'Extract Audio',
+  icon: 'audio',
+  editor: 'form',
+  executionMode: 'instant',
+  supportsNode: (node) => Boolean(resolveSingleVideoConnectionSource(node)),
+  createInitialOptions: (node) => {
+    const videoSource = resolveSingleVideoConnectionSource(node);
+    return {
+      mediaType: 'video',
+      duration: typeof videoSource?.duration === 'number' ? videoSource.duration : 0,
+      fileName: typeof videoSource?.videoFileName === 'string' ? videoSource.videoFileName : '',
+    } as ToolOptions;
+  },
+  fields: [],
+  execute: async (sourceImageUrl, options, context) =>
+    await context.processTool(NODE_TOOL_TYPES.extractAudio, sourceImageUrl, options),
+};
+
 export const builtInToolPlugins: CanvasToolPlugin[] = [
   cropToolPlugin,
   annotateToolPlugin,
   splitStoryboardToolPlugin,
+  extractAudioToolPlugin,
 ];

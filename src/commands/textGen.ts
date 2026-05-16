@@ -2492,6 +2492,151 @@ export async function runScriptDirectorExtraction(
   });
 }
 
+export function buildScriptDirectorBlueprintPrompt(
+  request: ScriptAssetExtractionRequest
+): string {
+  const content = request.content.trim();
+  const batchLabel = request.batchLabel?.trim();
+
+  return [
+    '你是“导演级分镜拆解助手”。',
+    '任务是把剧本文本拆成后续可用于分镜表、生图提示词和视频首帧提示的结构化导演蓝图。',
+    '只输出严格 JSON，不输出 Markdown，不解释。',
+    '',
+    '拆解规则：',
+    '1. 必须完整覆盖剧情推进，不跳过关键动作、关系变化、空间切换和情绪转折。',
+    '2. lineBlueprints 按可拍画面拆分，每行尽量对应一个镜头单位。',
+    '3. 同一物理场景使用稳定短名；同一角色使用稳定名字。',
+    '4. 角色、场景、物品都要保留后续生图需要的识别信息和连续性约束。',
+    '5. 镜头拆分优先依据动作停顿、视角切换、空间切换、情绪转折和叙事重点变化。',
+    '6. 多人镜头要体现空间关系，单人镜头要体现朝向和视线，动作要体现起始姿态和运动趋势。',
+    '',
+    '输出 JSON 结构：',
+    '{',
+    '  "charactersCatalog": [',
+    '    {',
+    '      "id": "c1",',
+    '      "name": "角色名",',
+    '      "aliases": ["别名"],',
+    '      "roleWeight": 0.9,',
+    '      "description": "身份与剧情作用",',
+    '      "personality": "性格与行动倾向",',
+    '      "appearance": "可见外观摘要",',
+    '      "visualDesc": "可直接服务角色设定图的完整描述",',
+    '      "continuityNotes": "后续镜头必须保持一致的识别点",',
+    '      "referencePrompt": "角色参考图提示词"',
+    '    }',
+    '  ],',
+    '  "scenesCatalog": [',
+    '    {',
+    '      "id": "s1",',
+    '      "name": "场景短名",',
+    '      "description": "场景剧情作用",',
+    '      "sceneDesc": "可直接服务场景设定图的环境描述",',
+    '      "timeTone": "时间与色调",',
+    '      "lightLock": "光影连续性",',
+    '      "spaceLayout": "空间层次和轴线关系",',
+    '      "referencePrompt": "场景参考图提示词",',
+    '      "relatedCharacterNames": ["角色名"]',
+    '    }',
+    '  ],',
+    '  "itemsCatalog": [',
+    '    {',
+    '      "id": "i1",',
+    '      "name": "物品名",',
+    '      "description": "剧情作用",',
+    '      "visualDesc": "可见材质与状态",',
+    '      "function": "线索/身份/冲突/连续性作用",',
+    '      "ownerCharacterIds": ["c1"],',
+    '      "continuityNotes": "状态变化或连续性备注"',
+    '    }',
+    '  ],',
+    '  "plotLines": [',
+    '    {',
+    '      "id": "p1",',
+    '      "title": "剧情线标题",',
+    '      "summary": "剧情线推进摘要",',
+    '      "statusTag": "铺垫/推进中/爆发/收束",',
+    '      "relatedCharacterNames": ["角色名"],',
+    '      "relatedSceneNames": ["场景短名"],',
+    '      "relatedItemNames": ["物品名"]',
+    '    }',
+    '  ],',
+    '  "lineBlueprints": [',
+    '    {',
+    '      "seq": 1,',
+    '      "comicText": "该行对应的镜头文案",',
+    '      "plotPoint": "该镜头承载的剧情点",',
+    '      "characterIds": ["c1"],',
+    '      "sceneId": "s1",',
+    '      "itemIds": ["i1"],',
+    '      "mood": "情绪基调",',
+    '      "shotHint": "景别和镜头目标",',
+    '      "compositionHint": "构图和空间关系",',
+    '      "cameraHint": "机位、角度、运动方式",',
+    '      "motionHint": "动作起始帧和运动趋势"',
+    '    }',
+    '  ],',
+    '  "worldview": null',
+    '}',
+    '',
+    batchLabel ? `当前批次：${batchLabel}` : '',
+    '待拆解文本：',
+    content,
+  ]
+    .filter((line) => line.length > 0)
+    .join('\n');
+}
+
+export function buildScriptDirectorRowPrompt(
+  blueprint: ExtractedScriptAssets,
+  row: ExtractedScriptLineBlueprint
+): string {
+  const scene = blueprint.scenesCatalog.find((item) => (item.id || item.name) === row.sceneId) ?? null;
+  const characters = row.characterIds
+    .map((id) => blueprint.charactersCatalog.find((item) => (item.id || item.name) === id) ?? null)
+    .filter((item): item is ExtractedScriptCharacter => Boolean(item));
+  const items = row.itemIds
+    .map((id) => blueprint.itemsCatalog.find((item) => (item.id || item.name) === id) ?? null)
+    .filter((item): item is ExtractedScriptItem => Boolean(item));
+
+  return [
+    '你是“导演分镜提示词助手”。',
+    '你会基于单条镜头蓝图生成一条可直接用于后续图片生成的镜头结果。',
+    '只输出严格 JSON，不输出 Markdown，不解释。',
+    '',
+    '输出要求：',
+    '1. imagePrompt 必须能直接用于生图。',
+    '2. 多人镜头必须明确人物空间关系、前后景关系或轴线关系。',
+    '3. 单人镜头必须写明面部朝向、视线落点、姿态起始状态。',
+    '4. 动作必须写成“起始瞬间 + 运动趋势”，不要写成动作结束后的静止结果。',
+    '5. 继承场景的 timeTone、lightLock、spaceLayout，保持同场景连续性。',
+    '',
+    '输出 JSON 结构：',
+    '{',
+    '  "seq": 1,',
+    '  "comicText": "与原镜头文案一致",',
+    '  "imagePrompt": "完整生图提示词",',
+    '  "videoFirstFramePrompt": "视频首帧提示词",',
+    '  "characterNames": ["角色名"],',
+    '  "sceneName": "场景短名",',
+    '  "referenceAssetHints": ["角色参考", "场景参考"]',
+    '}',
+    '',
+    '角色目录：',
+    stableJson(characters),
+    '',
+    '场景目录：',
+    stableJson(scene ? [scene] : []),
+    '',
+    '物品目录：',
+    stableJson(items),
+    '',
+    '当前镜头蓝图：',
+    stableJson(row),
+  ].join('\n');
+}
+
 async function extractScriptSettingAssets(
   request: ScriptAssetExtractionRequest
 ): Promise<ExtractedScriptAssets> {

@@ -11,6 +11,9 @@ export interface ConnectedReferenceVisual {
   referenceUrl: string;
   previewImageUrl?: string | null;
   durationSeconds?: number | null;
+  assetId?: string | null;
+  displayName?: string | null;
+  tokenAlias?: string | null;
 }
 
 export function collectConnectedReferenceVisuals(
@@ -47,6 +50,9 @@ export function collectConnectedReferenceVisuals(
         referenceUrl: normalizedReferenceUrl,
         previewImageUrl: normalizedPreviewImageUrl || null,
         durationSeconds: item.durationSeconds ?? null,
+        assetId: item.assetId ?? null,
+        displayName: item.displayName ?? null,
+        tokenAlias: item.tokenAlias ?? null,
       });
     }
   }

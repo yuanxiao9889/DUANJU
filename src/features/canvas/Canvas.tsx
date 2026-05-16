@@ -148,6 +148,8 @@ import { GroupSidebar } from './ui/GroupSidebar';
 import { SelectionGroupBar } from './ui/SelectionGroupBar';
 import { CanvasAssetDock } from './ui/CanvasAssetDock';
 import { StoryboardAssetExpandDialog } from './ui/StoryboardAssetExpandDialog';
+import { SmartDirectorStoryboardExpandDialog } from './ui/SmartDirectorStoryboardExpandDialog';
+import { SmartDirectorStoryboardResultChoiceDialog } from './ui/SmartDirectorStoryboardResultChoiceDialog';
 import { BatchAddToAssetsDialog } from './ui/BatchAddToAssetsDialog';
 import { JimengVideoQueuePanel } from '@/features/jimeng/ui/JimengVideoQueuePanel';
 import { useJimengVideoQueueStore } from '@/stores/jimengVideoQueueStore';
@@ -257,6 +259,11 @@ type ImageCompareNoticeTone = 'success' | 'error';
 interface ImageCompareNoticeState {
   message: string;
   tone: ImageCompareNoticeTone;
+}
+
+interface SmartDirectorStoryboardResultChoiceState {
+  nodeId: string;
+  onResolve: (choice: 'reuse' | 'new' | null) => void;
 }
 
 interface CanvasPoint {
@@ -1202,6 +1209,9 @@ export function Canvas() {
   const [showEpisodeCatalogMenu, setShowEpisodeCatalogMenu] = useState(false);
   const [showWelcomeDialog, setShowWelcomeDialog] = useState(false);
   const [storyboardAssetExpandSourceNodeId, setStoryboardAssetExpandSourceNodeId] = useState<string | null>(null);
+  const [smartDirectorStoryboardExpandSourceNodeId, setSmartDirectorStoryboardExpandSourceNodeId] = useState<string | null>(null);
+  const [smartDirectorStoryboardResultChoice, setSmartDirectorStoryboardResultChoice] =
+    useState<SmartDirectorStoryboardResultChoiceState | null>(null);
   const [batchAddToAssetsResolution, setBatchAddToAssetsResolution] =
     useState<BatchAssetSourceResolution | null>(null);
   const [hasMountedToolDialog, setHasMountedToolDialog] = useState(false);
@@ -2290,11 +2300,28 @@ export function Canvas() {
     const unsubscribeStoryboardExpand = canvasEventBus.subscribe('storyboard-asset-expand/open', ({ nodeId }) => {
       setStoryboardAssetExpandSourceNodeId(nodeId);
     });
+    const unsubscribeSmartDirectorStoryboardExpand = canvasEventBus.subscribe(
+      'smart-director-storyboard-transfer/open',
+      ({ nodeId }) => {
+        setSmartDirectorStoryboardExpandSourceNodeId(nodeId);
+      }
+    );
+    const unsubscribeSmartDirectorStoryboardResultChoice = canvasEventBus.subscribe(
+      'smart-director-storyboard-result-choice/open',
+      ({ nodeId, onResolve }) => {
+        setSmartDirectorStoryboardResultChoice({
+          nodeId,
+          onResolve,
+        });
+      }
+    );
 
     return () => {
       unsubscribeOpen();
       unsubscribeClose();
       unsubscribeStoryboardExpand();
+      unsubscribeSmartDirectorStoryboardExpand();
+      unsubscribeSmartDirectorStoryboardResultChoice();
     };
   }, [openToolDialog, closeToolDialog]);
 
@@ -5966,6 +5993,22 @@ export function Canvas() {
         isOpen={storyboardAssetExpandSourceNodeId !== null}
         sourceNodeId={storyboardAssetExpandSourceNodeId}
         onClose={() => setStoryboardAssetExpandSourceNodeId(null)}
+      />
+      <SmartDirectorStoryboardExpandDialog
+        isOpen={smartDirectorStoryboardExpandSourceNodeId !== null}
+        sourceNodeId={smartDirectorStoryboardExpandSourceNodeId}
+        onClose={() => setSmartDirectorStoryboardExpandSourceNodeId(null)}
+      />
+      <SmartDirectorStoryboardResultChoiceDialog
+        isOpen={smartDirectorStoryboardResultChoice !== null}
+        onClose={() => {
+          smartDirectorStoryboardResultChoice?.onResolve(null);
+          setSmartDirectorStoryboardResultChoice(null);
+        }}
+        onSelect={(choice) => {
+          smartDirectorStoryboardResultChoice?.onResolve(choice);
+          setSmartDirectorStoryboardResultChoice(null);
+        }}
       />
       <BatchAddToAssetsDialog
         isOpen={batchAddToAssetsResolution !== null}

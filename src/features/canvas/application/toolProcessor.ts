@@ -14,6 +14,7 @@ import { prepareNodeAudioFromFile } from './audioData';
 import { trimMediaSource } from './mediaTrim';
 import { createCurrentProjectMediaContext } from './mediaPersistenceContext';
 import { prepareNodeVideoFromFile } from './videoData';
+import { extractAudioFromVideo } from '@/commands/media';
 import { cropImageSource, readStoryboardImageMetadata } from '@/commands/image';
 import { drawAnnotations, parseAnnotationItems } from '../tools/annotation';
 import type {
@@ -54,16 +55,16 @@ export class CanvasToolProcessor implements ToolProcessor {
       case NODE_TOOL_TYPES.crop:
         return await this.cropSource(sourceImageUrl, options);
       case NODE_TOOL_TYPES.annotate:
-        // Keep annotate on frontend for now because it supports free-form vector annotations.
-        // Prefer local source first to avoid CORS taint and repeated remote fetches.
         return {
           outputImageUrl: await this.annotateImage(
             await persistImageLocally(sourceImageUrl),
             options
           ),
         };
+      case NODE_TOOL_TYPES.extractAudio:
+        return await this.extractAudio(sourceImageUrl, options);
       default:
-        throw new Error('不支持的工具类型');
+        throw new Error('Unsupported tool type');
     }
   }
 
@@ -149,7 +150,7 @@ export class CanvasToolProcessor implements ToolProcessor {
 
     const context = canvas.getContext('2d');
     if (!context) {
-      throw new Error('无法初始化画布');
+      throw new Error('Failed to initialize canvas context');
     }
 
     context.drawImage(
@@ -236,6 +237,25 @@ export class CanvasToolProcessor implements ToolProcessor {
     };
   }
 
+  private async extractAudio(
+    sourceVideo: string,
+    options: Record<string, unknown>
+  ): Promise<ToolProcessorResult> {
+    const sourceFileName = String(options.fileName ?? 'video').trim();
+    const extractedAudio = await extractAudioFromVideo({
+      source: sourceVideo,
+      outputFileStem: this.buildExtractedAudioStem(sourceFileName),
+      mediaContext: createCurrentProjectMediaContext('audio'),
+    });
+
+    return {
+      outputAudioUrl: extractedAudio.audioPath,
+      duration: extractedAudio.duration,
+      mimeType: extractedAudio.mimeType,
+      outputFileName: extractedAudio.outputFileName,
+    };
+  }
+
   private buildTrimmedFileName(sourceFileName: string, extension: string): string {
     const normalizedSourceFileName = sourceFileName.trim();
     const fileNameWithoutExtension = normalizedSourceFileName.includes('.')
@@ -243,6 +263,15 @@ export class CanvasToolProcessor implements ToolProcessor {
       : normalizedSourceFileName;
     const baseName = fileNameWithoutExtension || 'clip';
     return `${baseName}-clip.${extension}`;
+  }
+
+  private buildExtractedAudioStem(sourceFileName: string): string {
+    const normalizedSourceFileName = sourceFileName.trim();
+    const fileNameWithoutExtension = normalizedSourceFileName.includes('.')
+      ? normalizedSourceFileName.replace(/\.[^.]+$/, '')
+      : normalizedSourceFileName;
+    const baseName = fileNameWithoutExtension || 'video';
+    return `${baseName}-audio`;
   }
 
   private async annotateImage(
@@ -256,7 +285,7 @@ export class CanvasToolProcessor implements ToolProcessor {
 
     const context = canvas.getContext('2d');
     if (!context) {
-      throw new Error('无法初始化画布');
+      throw new Error('Failed to initialize canvas context');
     }
 
     context.drawImage(image, 0, 0, canvas.width, canvas.height);
@@ -338,7 +367,7 @@ export class CanvasToolProcessor implements ToolProcessor {
     );
 
     if (safeRows <= 0 || safeCols <= 0) {
-      throw new Error('分镜行列必须大于 0');
+      throw new Error('Storyboard split rows and cols must be greater than 0');
     }
 
     let outputs: string[];
@@ -352,7 +381,6 @@ export class CanvasToolProcessor implements ToolProcessor {
         rowRatios
       );
     } catch {
-      // Fallback when Tauri command is unavailable or fails.
       outputs = await this.localSplit(sourceImage, safeRows, safeCols, safeLineThickness, colRatios, rowRatios);
     }
 
@@ -453,6 +481,68 @@ export class CanvasToolProcessor implements ToolProcessor {
     );
   }
 
+  private resolveSegmentSizesFromRatios(
+    totalSize: number,
+    segmentCount: number,
+    ratios?: number[]
+  ): number[] {
+    if (!ratios || ratios.length !== segmentCount) {
+      return this.splitIntoSegments(totalSize, segmentCount);
+    }
+
+    const numericRatios = ratios.map((ratio) => Number(ratio));
+    if (numericRatios.some((ratio) => !Number.isFinite(ratio) || ratio <= 0)) {
+      return this.splitIntoSegments(totalSize, segmentCount);
+    }
+
+    if (totalSize <= 0 || segmentCount <= 0) {
+      return [];
+    }
+
+    const resolvedSizes = Array.from({ length: segmentCount }, () => 1);
+    let remaining = totalSize - segmentCount;
+    if (remaining <= 0) {
+      return resolvedSizes;
+    }
+
+    const ratioTotal = numericRatios.reduce((sum, ratio) => sum + ratio, 0);
+    if (!(ratioTotal > 0)) {
+      return this.splitIntoSegments(totalSize, segmentCount);
+    }
+
+    const exactExtras = numericRatios.map((ratio) => (ratio / ratioTotal) * remaining);
+    const flooredExtras = exactExtras.map((value) => Math.floor(value));
+
+    for (let index = 0; index < segmentCount; index += 1) {
+      resolvedSizes[index] += flooredExtras[index] ?? 0;
+    }
+
+    remaining -= flooredExtras.reduce((sum, value) => sum + value, 0);
+    if (remaining > 0) {
+      const rankedRemainders = exactExtras
+        .map((value, index) => ({
+          index,
+          remainder: value - Math.floor(value),
+        }))
+        .sort((left, right) => {
+          if (right.remainder !== left.remainder) {
+            return right.remainder - left.remainder;
+          }
+          return left.index - right.index;
+        });
+
+      for (let offset = 0; offset < remaining; offset += 1) {
+        const target = rankedRemainders[offset % rankedRemainders.length];
+        if (!target) {
+          break;
+        }
+        resolvedSizes[target.index] += 1;
+      }
+    }
+
+    return resolvedSizes;
+  }
+
   private async localSplit(
     sourceImage: string,
     rows: number,
@@ -475,14 +565,14 @@ export class CanvasToolProcessor implements ToolProcessor {
     const usableHeight = image.naturalHeight - (rows - 1) * resolvedLineThickness;
 
     if (usableWidth < cols || usableHeight < rows) {
-      throw new Error('分割线过粗，无法完成切割');
+      throw new Error('Split line is too thick to complete the storyboard split');
     }
 
     const columnWidths = colRatios && colRatios.length === cols
-      ? colRatios.map(r => Math.max(1, Math.floor(usableWidth * r / 100)))
+      ? this.resolveSegmentSizesFromRatios(usableWidth, cols, colRatios)
       : this.splitIntoSegments(usableWidth, cols);
     const rowHeights = rowRatios && rowRatios.length === rows
-      ? rowRatios.map(r => Math.max(1, Math.floor(usableHeight * r / 100)))
+      ? this.resolveSegmentSizesFromRatios(usableHeight, rows, rowRatios)
       : this.splitIntoSegments(usableHeight, rows);
 
     const results: string[] = [];
@@ -518,7 +608,7 @@ export class CanvasToolProcessor implements ToolProcessor {
 
         const context = canvas.getContext('2d');
         if (!context) {
-          throw new Error('无法初始化画布');
+          throw new Error('Failed to initialize canvas context');
         }
 
         context.drawImage(

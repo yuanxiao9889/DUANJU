@@ -1,5 +1,6 @@
 import {
   isAudioNode,
+  isAssetMaterialNode,
   isExportImageNode,
   isImageEditNode,
   isJimengNode,
@@ -18,12 +19,17 @@ import {
   getMjResultNodeActiveImages,
   type CanvasNode,
 } from '../domain/canvasNodes';
+import { useAssetStore } from '@/stores/assetStore';
 
 export interface ExtractedReferenceVisual {
   kind: 'image' | 'video';
   referenceUrl: string;
   previewImageUrl?: string | null;
   durationSeconds?: number | null;
+  assetId?: string | null;
+  displayName?: string | null;
+  tokenAlias?: string | null;
+  sourceNodeId?: string | null;
 }
 
 export interface ExtractedAudioReference {
@@ -76,6 +82,48 @@ export function extractReferenceImageUrls(node: CanvasNode): string[] {
 }
 
 export function extractReferenceVisuals(node: CanvasNode): ExtractedReferenceVisual[] {
+  if (isAssetMaterialNode(node)) {
+    const selectedIds = new Set(node.data.selectedAssetIds);
+    if (selectedIds.size === 0) {
+      return [];
+    }
+
+    const libraries = useAssetStore.getState().libraries;
+    const selectedItems = libraries
+      .flatMap((library) => library.items)
+      .filter((item) => selectedIds.has(item.id) && item.mediaType === 'image');
+
+    const nameCounts = new Map<string, number>();
+    return selectedItems
+      .map((item) => {
+        const referenceUrl = item.sourcePath?.trim() || item.previewPath?.trim() || '';
+        if (!referenceUrl) {
+          return null;
+        }
+        const tokenName = item.name.replace(/\s+/g, '').trim() || item.name;
+        const duplicateIndex = nameCounts.get(tokenName) ?? 0;
+        nameCounts.set(tokenName, duplicateIndex + 1);
+        return {
+          kind: 'image' as const,
+          referenceUrl,
+          previewImageUrl: item.previewPath?.trim() || referenceUrl,
+          assetId: item.id,
+          displayName: item.name,
+          tokenAlias: `@${tokenName}${duplicateIndex > 0 ? duplicateIndex + 1 : ''}`,
+          sourceNodeId: node.id,
+        };
+      })
+      .filter((item): item is {
+        kind: 'image';
+        referenceUrl: string;
+        previewImageUrl: string;
+        assetId: string;
+        displayName: string;
+        tokenAlias: string;
+        sourceNodeId: string;
+      } => Boolean(item));
+  }
+
   if (
     isUploadNode(node)
     || isImageEditNode(node)

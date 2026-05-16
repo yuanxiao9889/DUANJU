@@ -12,8 +12,16 @@ import {
 import type { CustomStoryboardModelEntry } from './storyboardProviders';
 
 export const STORYBOARD_OOPII_PROVIDER_ID = 'oopii';
-export const STORYBOARD_OOPII_BASE_URL = 'https://www.oopii.cn/';
-export const STORYBOARD_OOPII_GPT_IMAGE_2_REQUEST_MODEL = 'gpt-image-2';
+export const STORYBOARD_OOPII_BASE_URL = 'https://www.oopii.cc/';
+export const STORYBOARD_OOPII_GPT_IMAGE_2_REQUEST_MODEL = 'all-image-2';
+export const STORYBOARD_OOPII_MONKEY_PRO_REQUEST_MODEL = 'monkey-image-pro';
+export const STORYBOARD_OOPII_MONKEY_FLASH_2_REQUEST_MODEL = 'monkey-image-flash 2';
+
+const STORYBOARD_OOPII_LEGACY_MODEL_ALIASES: Record<string, string> = {
+  'gpt-image-2': STORYBOARD_OOPII_GPT_IMAGE_2_REQUEST_MODEL,
+  'gemini-3-pro-image-preview': STORYBOARD_OOPII_MONKEY_PRO_REQUEST_MODEL,
+  'gemini-3.1-flash-image-preview': STORYBOARD_OOPII_MONKEY_FLASH_2_REQUEST_MODEL,
+};
 
 const OOPII_GPT_IMAGE_2_ASPECT_RATIOS = [
   '1:1',
@@ -48,7 +56,7 @@ export interface StoryboardOopiiBuiltinModel {
 
 export const STORYBOARD_OOPII_BUILTIN_MODELS = [
   {
-    id: `${STORYBOARD_OOPII_PROVIDER_ID}/gpt-image-2`,
+    id: `${STORYBOARD_OOPII_PROVIDER_ID}/${STORYBOARD_OOPII_GPT_IMAGE_2_REQUEST_MODEL}`,
     apiFormat: 'openai-images',
     requestModel: STORYBOARD_OOPII_GPT_IMAGE_2_REQUEST_MODEL,
     displayName: STORYBOARD_OOPII_GPT_IMAGE_2_REQUEST_MODEL,
@@ -60,16 +68,16 @@ export const STORYBOARD_OOPII_BUILTIN_MODELS = [
     displayName: 'grok-image',
   },
   {
-    id: `${STORYBOARD_OOPII_PROVIDER_ID}/gemini-3-pro-image-preview`,
+    id: `${STORYBOARD_OOPII_PROVIDER_ID}/${STORYBOARD_OOPII_MONKEY_PRO_REQUEST_MODEL}`,
     apiFormat: 'gemini',
-    requestModel: 'gemini-3-pro-image-preview',
-    displayName: '香蕉Pro',
+    requestModel: STORYBOARD_OOPII_MONKEY_PRO_REQUEST_MODEL,
+    displayName: 'monkey-pro',
   },
   {
-    id: `${STORYBOARD_OOPII_PROVIDER_ID}/gemini-3.1-flash-image-preview`,
+    id: `${STORYBOARD_OOPII_PROVIDER_ID}/${STORYBOARD_OOPII_MONKEY_FLASH_2_REQUEST_MODEL}`,
     apiFormat: 'gemini',
-    requestModel: 'gemini-3.1-flash-image-preview',
-    displayName: '香蕉2',
+    requestModel: STORYBOARD_OOPII_MONKEY_FLASH_2_REQUEST_MODEL,
+    displayName: 'monkey-2',
   },
 ] as const satisfies readonly StoryboardOopiiBuiltinModel[];
 
@@ -90,10 +98,10 @@ function normalizeStoryboardOopiiRequestModel(
 
   const prefix = `${STORYBOARD_OOPII_PROVIDER_ID}/`;
   if (trimmed.toLowerCase().startsWith(prefix.toLowerCase())) {
-    return trimmed.slice(prefix.length).trim();
+    return normalizeStoryboardOopiiRequestModel(trimmed.slice(prefix.length));
   }
 
-  return trimmed;
+  return STORYBOARD_OOPII_LEGACY_MODEL_ALIASES[trimmed.toLowerCase()] ?? trimmed;
 }
 
 function inferStoryboardOopiiApiFormat(
@@ -111,6 +119,7 @@ function inferStoryboardOopiiApiFormat(
   if (
     normalizedRequestModel.includes('gemini')
     || normalizedRequestModel.includes('imagen')
+    || normalizedRequestModel.includes('monkey-image')
   ) {
     return 'gemini';
   }
@@ -302,7 +311,7 @@ export function createStoryboardOopiiImageModel(
       : normalizedConfig.displayName,
     providerId: STORYBOARD_OOPII_PROVIDER_ID,
     description: isGptImage2Model
-      ? 'OOpii gpt-image-2 via OpenAI Images with size/quality parameters.'
+      ? 'OOpii all-image-2 via OpenAI Images with size/quality parameters.'
       : 'Fixed OOpii storyboard image endpoint',
     defaultAspectRatio: isGptImage2Model ? '1:1' : legacyModel.defaultAspectRatio,
     defaultResolution: isGptImage2Model ? '1K' : legacyModel.defaultResolution,
@@ -317,7 +326,7 @@ export function createStoryboardOopiiImageModel(
           label: 'Generation quality',
           labelKey: 'modelParams.generationQuality',
           description:
-            'Controls image fidelity, latency, and cost for gpt-image-2 output.',
+            'Controls image fidelity, latency, and cost for all-image-2 output.',
           descriptionKey: 'modelParams.generationQualityDesc',
           type: 'enum',
           defaultValue: 'medium',

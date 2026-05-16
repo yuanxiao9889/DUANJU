@@ -1,8 +1,12 @@
-import { findReferenceTokens } from "./referenceTokenEditing";
+import {
+  findNamedReferenceTokens,
+  findReferenceTokens,
+} from "./referenceTokenEditing";
 
 export interface PromptReferenceImageCandidate {
   referenceNumber: number;
   imageUrl: string;
+  tokenLabel?: string | null;
 }
 
 export interface PromptReferenceImageBinding {
@@ -38,6 +42,7 @@ export function resolvePromptReferenceImageBindings(
   }
 
   const candidateByReferenceNumber = new Map<number, string>();
+  const namedCandidates: Array<{ tokenLabel: string; value: number }> = [];
   for (const candidate of candidates) {
     const referenceNumber = normalizeReferenceNumber(candidate.referenceNumber);
     const imageUrl = candidate.imageUrl.trim();
@@ -50,6 +55,13 @@ export function resolvePromptReferenceImageBindings(
     }
 
     candidateByReferenceNumber.set(referenceNumber, imageUrl);
+    const tokenLabel = candidate.tokenLabel?.trim();
+    if (tokenLabel) {
+      namedCandidates.push({
+        tokenLabel,
+        value: referenceNumber,
+      });
+    }
   }
 
   if (candidateByReferenceNumber.size === 0) {
@@ -59,7 +71,12 @@ export function resolvePromptReferenceImageBindings(
   const bindings: PromptReferenceImageBinding[] = [];
   const seenReferenceNumbers = new Set<number>();
 
-  for (const token of findReferenceTokens(normalizedPrompt)) {
+  const tokens = [
+    ...findReferenceTokens(normalizedPrompt),
+    ...findNamedReferenceTokens(normalizedPrompt, namedCandidates),
+  ].sort((left, right) => left.start - right.start || right.end - left.end);
+
+  for (const token of tokens) {
     if (seenReferenceNumbers.has(token.value)) {
       continue;
     }

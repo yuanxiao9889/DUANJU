@@ -9,6 +9,19 @@ export interface MediaPersistContext {
   role?: MediaPersistRole;
 }
 
+export interface ExtractAudioFromVideoPayload {
+  source: string;
+  outputFileStem?: string | null;
+  mediaContext?: MediaPersistContext;
+}
+
+export interface ExtractAudioFromVideoResult {
+  audioPath: string;
+  duration: number;
+  mimeType: string;
+  outputFileName: string;
+}
+
 function normalizeMediaContext(
   context: MediaPersistContext | undefined,
   fallbackMediaType: MediaPersistType,
@@ -48,4 +61,16 @@ export function normalizeImageMediaContext(
   role: MediaPersistRole = 'original'
 ): MediaPersistContext {
   return normalizeMediaContext(context, 'image', role);
+}
+
+export async function extractAudioFromVideo(
+  payload: ExtractAudioFromVideoPayload
+): Promise<ExtractAudioFromVideoResult> {
+  return await invoke<ExtractAudioFromVideoResult>('extract_audio_from_video', {
+    payload: {
+      source: payload.source,
+      outputFileStem: payload.outputFileStem?.trim() || null,
+    },
+    mediaContext: normalizeMediaContext(payload.mediaContext, 'audio'),
+  });
 }

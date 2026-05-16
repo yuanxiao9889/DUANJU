@@ -1,0 +1,4 @@
+*
+!.gitignore
+!.ffmpeg-manifest.json
+!README.md

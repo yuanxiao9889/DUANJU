@@ -48,14 +48,16 @@ export interface ToolExecutionContext {
   ) => Promise<ToolProcessorResult>;
 }
 
-export type ToolIconKey = 'crop' | 'annotate' | 'split' | 'import' | 'table' | 'ai';
+export type ToolIconKey = 'crop' | 'annotate' | 'split' | 'import' | 'table' | 'ai' | 'audio';
 export type ToolEditorKind = 'form' | 'crop' | 'annotate' | 'split' | 'import';
+export type ToolExecutionMode = 'dialog' | 'instant';
 
 export interface CanvasToolPlugin {
   type: NodeToolType;
   label: string;
   icon: ToolIconKey;
   editor: ToolEditorKind;
+  executionMode: ToolExecutionMode;
   supportsNode: (node: CanvasNode) => boolean;
   createInitialOptions: (node: CanvasNode) => ToolOptions;
   fields: ToolFieldSchema[];

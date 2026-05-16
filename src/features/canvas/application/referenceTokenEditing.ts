@@ -10,6 +10,11 @@ export interface ReferenceTokenMatch extends TextRange {
   value: number;
 }
 
+export interface NamedReferenceTokenCandidate {
+  tokenLabel: string;
+  value: number;
+}
+
 interface TokenRange extends TextRange {
   blockStart: number;
   blockEnd: number;
@@ -50,6 +55,14 @@ function resolveReferenceTokenPrefix(text: string, index: number): string | null
 
 export function buildShortReferenceToken(referenceIndex: number): string {
   return buildReferenceTokenWithPrefix(SHORT_REFERENCE_TOKEN_PREFIX, referenceIndex + 1);
+}
+
+export function buildNamedReferenceToken(name: string, duplicateIndex = 0): string {
+  const normalizedName = name.replace(/\s+/g, '').trim();
+  if (!normalizedName) {
+    return buildShortReferenceToken(duplicateIndex);
+  }
+  return `@${normalizedName}${duplicateIndex > 0 ? duplicateIndex + 1 : ''}`;
 }
 
 function buildReferenceTokenWithPrefix(prefix: string, referenceNumber: number): string {
@@ -204,6 +217,61 @@ export function findReferenceTokens(text: string, maxImageCount?: number): Refer
   }
 
   return tokens;
+}
+
+export function findNamedReferenceTokens(
+  text: string,
+  candidates: NamedReferenceTokenCandidate[],
+): ReferenceTokenMatch[] {
+  if (!text || candidates.length === 0) {
+    return [];
+  }
+
+  const normalizedCandidates = candidates
+    .map((candidate) => ({
+      tokenLabel: candidate.tokenLabel.trim(),
+      value: candidate.value,
+    }))
+    .filter((candidate) => candidate.tokenLabel.startsWith('@') && candidate.tokenLabel.length > 1)
+    .sort((left, right) => right.tokenLabel.length - left.tokenLabel.length);
+  if (normalizedCandidates.length === 0) {
+    return [];
+  }
+
+  const tokens: ReferenceTokenMatch[] = [];
+  for (let index = 0; index < text.length; index += 1) {
+    if (text[index] !== '@') {
+      continue;
+    }
+
+    const matchedCandidate = normalizedCandidates.find((candidate) =>
+      text.startsWith(candidate.tokenLabel, index)
+    );
+    if (!matchedCandidate) {
+      continue;
+    }
+
+    tokens.push({
+      start: index,
+      end: index + matchedCandidate.tokenLabel.length,
+      token: matchedCandidate.tokenLabel,
+      value: matchedCandidate.value,
+    });
+    index += matchedCandidate.tokenLabel.length - 1;
+  }
+
+  return tokens;
+}
+
+export function findReferenceTokensWithNamedCandidates(
+  text: string,
+  maxImageCount: number | undefined,
+  candidates: NamedReferenceTokenCandidate[],
+): ReferenceTokenMatch[] {
+  return [
+    ...findReferenceTokens(text, maxImageCount),
+    ...findNamedReferenceTokens(text, candidates),
+  ].sort((left, right) => left.start - right.start || right.end - left.end);
 }
 
 function findTokenRanges(text: string, maxImageCount?: number): TokenRange[] {

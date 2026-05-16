@@ -37,6 +37,13 @@ export const ASSET_BATCH_GROUP_GAP_Y = 24;
 export const ASSET_BATCH_GROUP_MAX_ITEMS_PER_LINE = 3;
 export const ASSET_BATCH_GROUP_MIN_WIDTH = 560;
 export const ASSET_BATCH_GROUP_MIN_HEIGHT = 420;
+export const STORYBOARD_PRODUCTION_CARD_SIDE_PADDING = 24;
+export const STORYBOARD_PRODUCTION_CARD_TOP_PADDING = 300;
+export const STORYBOARD_PRODUCTION_CARD_BOTTOM_PADDING = 28;
+export const STORYBOARD_PRODUCTION_CARD_GAP_X = 24;
+export const STORYBOARD_PRODUCTION_CARD_GAP_Y = 24;
+export const STORYBOARD_PRODUCTION_CARD_MIN_WIDTH = 2440;
+export const STORYBOARD_PRODUCTION_CARD_MIN_HEIGHT = 820;
 
 const DEFAULT_GROUP_LAYOUT_GAP_X = 28;
 const DEFAULT_GROUP_LAYOUT_GAP_Y = 24;
@@ -47,6 +54,20 @@ export function resolveGroupLayoutOptions(
   groupData: GroupNodeData | undefined,
   overrides?: GroupLayoutOptions
 ): GroupLayoutOptions {
+  if (groupData?.visualStyle === 'storyboardProductionGroup' || groupData?.visualStyle === 'storyboardProductionCard') {
+    return {
+      maxItemsPerLine: 3,
+      gapX: STORYBOARD_PRODUCTION_CARD_GAP_X,
+      gapY: STORYBOARD_PRODUCTION_CARD_GAP_Y,
+      sidePadding: STORYBOARD_PRODUCTION_CARD_SIDE_PADDING,
+      topPadding: STORYBOARD_PRODUCTION_CARD_TOP_PADDING,
+      bottomPadding: STORYBOARD_PRODUCTION_CARD_BOTTOM_PADDING,
+      minWidth: STORYBOARD_PRODUCTION_CARD_MIN_WIDTH,
+      minHeight: STORYBOARD_PRODUCTION_CARD_MIN_HEIGHT,
+      ...(overrides ?? {}),
+    };
+  }
+
   if (groupData?.visualStyle === 'assetBatchGroup') {
     return {
       maxItemsPerLine:

@@ -16,6 +16,8 @@ const PREVIEW_VIEWPORT_PADDING_PX = 24;
 const MIN_ZOOM = 1;
 const MAX_ZOOM = 4;
 const ZOOM_STEP = 0.25;
+const MIN_PREVIEW_LINE_THICKNESS_PX = 2;
+const MIN_PREVIEW_LINE_HIT_SIZE_PX = 10;
 
 interface OverlayRect {
   x: number;
@@ -99,6 +101,66 @@ function splitSizes(total: number, segments: number): number[] {
   return Array.from({ length: segments }, (_value, index) => base + (index < remainder ? 1 : 0));
 }
 
+function resolveSegmentSizesFromRatios(
+  total: number,
+  segments: number,
+  ratios?: number[]
+): number[] {
+  if (!ratios || ratios.length !== segments) {
+    return splitSizes(total, segments);
+  }
+
+  const numericRatios = ratios.map((ratio) => toFiniteNumber(ratio, Number.NaN));
+  if (numericRatios.some((ratio) => !Number.isFinite(ratio) || ratio <= 0)) {
+    return splitSizes(total, segments);
+  }
+
+  if (total <= 0 || segments <= 0) {
+    return [];
+  }
+
+  const safeBaseSizes = Array.from({ length: segments }, () => 1);
+  let remaining = total - segments;
+  if (remaining <= 0) {
+    return safeBaseSizes;
+  }
+
+  const ratioTotal = numericRatios.reduce((sum, ratio) => sum + ratio, 0);
+  if (!(ratioTotal > 0)) {
+    return splitSizes(total, segments);
+  }
+
+  const weights = numericRatios.map((ratio) => ratio / ratioTotal);
+  const extraExactSizes = weights.map((weight) => weight * remaining);
+  const extraFloorSizes = extraExactSizes.map((size) => Math.floor(size));
+  const resolvedSizes = safeBaseSizes.map((baseSize, index) => baseSize + extraFloorSizes[index]);
+  remaining -= extraFloorSizes.reduce((sum, size) => sum + size, 0);
+
+  if (remaining > 0) {
+    const rankedRemainders = extraExactSizes
+      .map((size, index) => ({
+        index,
+        remainder: size - Math.floor(size),
+      }))
+      .sort((left, right) => {
+        if (right.remainder !== left.remainder) {
+          return right.remainder - left.remainder;
+        }
+        return left.index - right.index;
+      });
+
+    for (let offset = 0; offset < remaining; offset += 1) {
+      const target = rankedRemainders[offset % rankedRemainders.length];
+      if (!target) {
+        break;
+      }
+      resolvedSizes[target.index] += 1;
+    }
+  }
+
+  return resolvedSizes;
+}
+
 function computeSplitLayout(
   imageWidth: number,
   imageHeight: number,
@@ -116,10 +178,10 @@ function computeSplitLayout(
   }
 
   const colWidths = colRatios && colRatios.length === cols
-    ? colRatios.map(r => Math.max(1, Math.floor(usableWidth * r / 100)))
+    ? resolveSegmentSizesFromRatios(usableWidth, cols, colRatios)
     : splitSizes(usableWidth, cols);
   const rowHeights = rowRatios && rowRatios.length === rows
-    ? rowRatios.map(r => Math.max(1, Math.floor(usableHeight * r / 100)))
+    ? resolveSegmentSizesFromRatios(usableHeight, rows, rowRatios)
     : splitSizes(usableHeight, rows);
 
   const lineRects: OverlayRect[] = [];
@@ -191,14 +253,6 @@ function computeSplitLayout(
     verticalLineInfos,
     horizontalLineInfos,
   };
-}
-
-function toPercent(value: number, total: number): string {
-  if (total <= 0) {
-    return '0%';
-  }
-
-  return `${(value / total) * 100}%`;
 }
 
 function splitSizeLabel(min: number, max: number): string {
@@ -450,6 +504,17 @@ export function SplitStoryboardToolEditor({ sourceImageUrl, options, onOptionsCh
       rowRatios.length === rows ? rowRatios : undefined
     );
   }, [cols, lineThicknessPx, naturalSize, rows, colRatios, rowRatios]);
+
+  const previewScale = useMemo(() => {
+    if (!naturalSize || !renderedImageSize) {
+      return null;
+    }
+
+    return {
+      x: renderedImageSize.width / naturalSize.width,
+      y: renderedImageSize.height / naturalSize.height,
+    };
+  }, [naturalSize, renderedImageSize]);
 
   const commitRatios = useCallback(
     (nextColRatios: number[], nextRowRatios: number[]) => {
@@ -742,23 +807,39 @@ export function SplitStoryboardToolEditor({ sourceImageUrl, options, onOptionsCh
               draggable={false}
             />
 
-            {naturalSize && layout && (
-              <div className="pointer-events-none absolute inset-0 rounded-lg">
+            {naturalSize && layout && previewScale && (
+              <div className="pointer-events-none absolute inset-0 overflow-hidden rounded-lg">
                 {layout.lineRects.map((rect, index) => {
                   const isVertical = rect.width < rect.height;
                   const lineIndex = isVertical 
                     ? layout.verticalLineInfos.findIndex(v => Math.abs(v.x - (rect.x + rect.width / 2)) < 2)
                     : layout.horizontalLineInfos.findIndex(h => Math.abs(h.y - (rect.y + rect.height / 2)) < 2);
+                  const actualWidth = rect.width * previewScale.x;
+                  const actualHeight = rect.height * previewScale.y;
+                  const hitWidth = isVertical
+                    ? Math.max(actualWidth, MIN_PREVIEW_LINE_HIT_SIZE_PX / zoom)
+                    : actualWidth;
+                  const hitHeight = isVertical
+                    ? actualHeight
+                    : Math.max(actualHeight, MIN_PREVIEW_LINE_HIT_SIZE_PX / zoom);
+                  const visibleWidth = isVertical
+                    ? Math.max(actualWidth, MIN_PREVIEW_LINE_THICKNESS_PX / zoom)
+                    : actualWidth;
+                  const visibleHeight = isVertical
+                    ? actualHeight
+                    : Math.max(actualHeight, MIN_PREVIEW_LINE_THICKNESS_PX / zoom);
+                  const left = rect.x * previewScale.x - (hitWidth - actualWidth) / 2;
+                  const top = rect.y * previewScale.y - (hitHeight - actualHeight) / 2;
                   
                   return (
                     <div
                       key={`line-${index}`}
                       className={`absolute ${isVertical ? 'cursor-ew-resize' : 'cursor-ns-resize'} pointer-events-auto group`}
                       style={{
-                        left: toPercent(rect.x, naturalSize.width),
-                        top: toPercent(rect.y, naturalSize.height),
-                        width: toPercent(rect.width, naturalSize.width),
-                        height: toPercent(rect.height, naturalSize.height),
+                        left: `${left}px`,
+                        top: `${top}px`,
+                        width: `${hitWidth}px`,
+                        height: `${hitHeight}px`,
                       }}
                       onMouseDown={(e) => {
                         if (lineIndex >= 0) {
@@ -770,7 +851,16 @@ export function SplitStoryboardToolEditor({ sourceImageUrl, options, onOptionsCh
                         }
                       }}
                     >
-                      <div className="absolute inset-0 bg-red-400/35 group-hover:bg-yellow-400/50 transition-colors" />
+                      <div
+                        className="absolute transition-colors group-hover:bg-yellow-400/50"
+                        style={{
+                          left: isVertical ? `${(hitWidth - visibleWidth) / 2}px` : '0px',
+                          top: isVertical ? '0px' : `${(hitHeight - visibleHeight) / 2}px`,
+                          width: isVertical ? `${visibleWidth}px` : '100%',
+                          height: isVertical ? '100%' : `${visibleHeight}px`,
+                          backgroundColor: 'rgba(248, 113, 113, 0.35)',
+                        }}
+                      />
                       {lineIndex >= 0 && (
                         <div className={`absolute ${isVertical ? 'top-1/2 -translate-y-1/2 left-1/2 -translate-x-1/2' : 'left-1/2 -translate-x-1/2 top-1/2 -translate-y-1/2'} hidden group-hover:flex items-center justify-center bg-black/70 rounded px-1 py-0.5 text-[9px] text-white whitespace-nowrap z-10`}>
                           {isVertical 
@@ -788,10 +878,10 @@ export function SplitStoryboardToolEditor({ sourceImageUrl, options, onOptionsCh
                     key={`cell-${index}`}
                     className="absolute border border-white/40"
                     style={{
-                      left: toPercent(cell.x, naturalSize.width),
-                      top: toPercent(cell.y, naturalSize.height),
-                      width: toPercent(cell.width, naturalSize.width),
-                      height: toPercent(cell.height, naturalSize.height),
+                      left: `${cell.x * previewScale.x}px`,
+                      top: `${cell.y * previewScale.y}px`,
+                      width: `${cell.width * previewScale.x}px`,
+                      height: `${cell.height * previewScale.y}px`,
                     }}
                   />
                 ))}

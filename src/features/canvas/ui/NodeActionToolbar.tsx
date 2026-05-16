@@ -1,7 +1,7 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { NodeToolbar as ReactFlowNodeToolbar } from '@xyflow/react';
-import { Copy, Crop, Download, FileText, FolderOpen, PenLine, RefreshCw, Save, Scissors, Trash2, Unlink2, Table, Upload, Sparkles, Send, Check, LayoutTemplate } from 'lucide-react';
+import { Copy, Crop, Download, FileText, FolderOpen, PenLine, RefreshCw, Save, Scissors, Trash2, Unlink2, Table, Upload, Sparkles, Send, Check, LayoutTemplate, Music4 } from 'lucide-react';
 import { save } from '@tauri-apps/plugin-dialog';
 import { useTranslation } from 'react-i18next';
 
@@ -46,6 +46,10 @@ import { usePsIntegrationStore } from '@/stores/psIntegrationStore';
 import { UI_POPOVER_TRANSITION_MS } from '@/components/ui/motion';
 import { sanitizeStoryboardText } from '@/features/canvas/application/storyboardText';
 import {
+  executeNodeToolAndApplyResult,
+  resolveNodeToolErrorContent,
+} from '@/features/canvas/application/nodeToolExecution';
+import {
   buildGenerationErrorReport,
   CURRENT_RUNTIME_SESSION_ID,
 } from '@/features/canvas/application/generationErrorReport';
@@ -70,6 +74,7 @@ const toolIconMap: Record<ToolIconKey, typeof Crop> = {
   table: Table,
   import: Upload,
   ai: Sparkles,
+  audio: Music4,
 };
 
 const TOOLBAR_BUTTON_RADIUS_CLASS = 'rounded-full';
@@ -199,6 +204,7 @@ export const NodeActionToolbar = memo(({ node }: NodeActionToolbarProps) => {
   const [isCopyErrorSuccess, setIsCopyErrorSuccess] = useState(false);
   const [isSendingToPs, setIsSendingToPs] = useState(false);
   const [isPsSendSuccess, setIsPsSendSuccess] = useState(false);
+  const [runningToolType, setRunningToolType] = useState<NodeToolType | null>(null);
   const downloadMenuRef = useRef<HTMLDivElement | null>(null);
   const copyTextFeedbackTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const copyErrorFeedbackTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -333,6 +339,9 @@ export const NodeActionToolbar = memo(({ node }: NodeActionToolbarProps) => {
     }
     if (toolType === NODE_TOOL_TYPES.splitStoryboard) {
       return t('tool.split');
+    }
+    if (toolType === NODE_TOOL_TYPES.extractAudio) {
+      return t('tool.extractAudio');
     }
     return '';
   }, [t]);
@@ -609,19 +618,42 @@ export const NodeActionToolbar = memo(({ node }: NodeActionToolbarProps) => {
       >
         {!isImageEdit && tools.map((tool) => {
           const Icon = toolIconMap[tool.icon] ?? Crop;
+          const isInstantToolRunning = runningToolType === tool.type;
 
           return (
             <UiChipButton
               key={tool.type}
               className={`h-8 ${TOOLBAR_BUTTON_RADIUS_CLASS} px-2.5 text-xs ${TOOLBAR_NEUTRAL_BUTTON_CLASS}`}
-              onClick={() =>
+              disabled={isInstantToolRunning}
+              onClick={() => {
+                if (tool.executionMode === 'instant') {
+                  setRunningToolType(tool.type);
+                  void executeNodeToolAndApplyResult({
+                    sourceNode: node,
+                    toolType: tool.type,
+                    t,
+                    plugin: tool,
+                  }).catch(async (error) => {
+                    console.error('Failed to execute instant node tool', error);
+                    const { message, details } = resolveNodeToolErrorContent(error, tool.type, t);
+                    await showErrorDialog(message, t('common.error'), details);
+                  }).finally(() => {
+                    setRunningToolType((current) => (current === tool.type ? null : current));
+                  });
+                  return;
+                }
+
                 canvasEventBus.publish('tool-dialog/open', {
                   nodeId: node.id,
                   toolType: tool.type,
-                })
-              }
+                });
+              }}
             >
-              <Icon className="h-3.5 w-3.5" />
+              {isInstantToolRunning ? (
+                <UiLoadingAnimation size="xs" />
+              ) : (
+                <Icon className="h-3.5 w-3.5" />
+              )}
               {resolveToolLabel(tool.type)}
             </UiChipButton>
           );

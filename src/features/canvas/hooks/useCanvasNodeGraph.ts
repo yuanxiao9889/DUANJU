@@ -415,6 +415,9 @@ function createConnectedReferenceVisualsSelector(nodeId: string) {
           referenceUrl: normalizedReferenceUrl,
           previewImageUrl: normalizedPreviewImageUrl || null,
           durationSeconds: item.durationSeconds ?? null,
+          assetId: item.assetId ?? null,
+          displayName: item.displayName ?? null,
+          tokenAlias: item.tokenAlias ?? null,
         });
       }
     });

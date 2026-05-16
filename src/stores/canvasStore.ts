@@ -55,6 +55,12 @@ import {
   SCRIPT_PLOT_LINE_NODE_DEFAULT_WIDTH,
   SCRIPT_ASSET_EXTRACT_NODE_DEFAULT_HEIGHT,
   SCRIPT_ASSET_EXTRACT_NODE_DEFAULT_WIDTH,
+  SMART_DIRECTOR_STORYBOARD_NODE_DEFAULT_HEIGHT,
+  SMART_DIRECTOR_STORYBOARD_NODE_DEFAULT_WIDTH,
+  SCRIPT_STORYBOARD_TABLE_NODE_DEFAULT_HEIGHT,
+  SCRIPT_STORYBOARD_TABLE_NODE_DEFAULT_WIDTH,
+  ASSET_MATERIAL_NODE_DEFAULT_HEIGHT,
+  ASSET_MATERIAL_NODE_DEFAULT_WIDTH,
   DIRECTOR_STORYBOARD_REFERENCE_NODE_DEFAULT_HEIGHT,
   DIRECTOR_STORYBOARD_REFERENCE_NODE_DEFAULT_WIDTH,
   type JimengImageNodeData,
@@ -93,6 +99,9 @@ import {
   type UploadImageNodeData,
   type ShootingScriptNodeData,
   type ScriptAssetExtractNodeData,
+  type SmartDirectorStoryboardNodeData,
+  type ScriptStoryboardTableNodeData,
+  type AssetMaterialNodeData,
   type DirectorStoryboardReferenceNodeData,
   type ScriptReferenceNodeData,
   type AdScriptReferenceNodeData,
@@ -106,6 +115,9 @@ import {
   isImageCompareNode,
   normalizeShootingScriptNodeData,
   normalizeScriptAssetExtractNodeData,
+  normalizeSmartDirectorStoryboardNodeData,
+  normalizeScriptStoryboardTableNodeData,
+  normalizeAssetMaterialNodeData,
   normalizeDirectorStoryboardReferenceNodeData,
   normalizeImageCompareNodeData,
   normalizeImageCollageNodeData,
@@ -157,6 +169,9 @@ import {
   ASSET_BATCH_GROUP_BOTTOM_PADDING,
   ASSET_BATCH_GROUP_SIDE_PADDING,
   ASSET_BATCH_GROUP_TOP_PADDING,
+  STORYBOARD_PRODUCTION_CARD_BOTTOM_PADDING,
+  STORYBOARD_PRODUCTION_CARD_SIDE_PADDING,
+  STORYBOARD_PRODUCTION_CARD_TOP_PADDING,
   DEFAULT_GROUP_LAYOUT_MAX_ITEMS_PER_LINE,
   GROUP_NODE_BOTTOM_PADDING,
   GROUP_NODE_SIDE_PADDING,
@@ -1180,6 +1195,31 @@ function normalizeNodes(rawNodes: CanvasNode[]): CanvasNode[] {
         );
       }
 
+      if (normalizedNodeType === CANVAS_NODE_TYPES.smartDirectorStoryboard) {
+        Object.assign(
+          mergedData,
+          normalizeSmartDirectorStoryboardNodeData(
+            mergedData as SmartDirectorStoryboardNodeData
+          )
+        );
+      }
+
+      if (normalizedNodeType === CANVAS_NODE_TYPES.scriptStoryboardTable) {
+        Object.assign(
+          mergedData,
+          normalizeScriptStoryboardTableNodeData(
+            mergedData as ScriptStoryboardTableNodeData
+          )
+        );
+      }
+
+      if (normalizedNodeType === CANVAS_NODE_TYPES.assetMaterial) {
+        Object.assign(
+          mergedData,
+          normalizeAssetMaterialNodeData(mergedData as AssetMaterialNodeData)
+        );
+      }
+
       if (normalizedNodeType === CANVAS_NODE_TYPES.directorStoryboardReference) {
         Object.assign(
           mergedData,
@@ -2139,6 +2179,45 @@ function withScriptAssetExtractDefaultSize(node: CanvasNode): CanvasNode {
   };
 }
 
+function withSmartDirectorStoryboardDefaultSize(node: CanvasNode): CanvasNode {
+  return {
+    ...node,
+    width: SMART_DIRECTOR_STORYBOARD_NODE_DEFAULT_WIDTH,
+    height: SMART_DIRECTOR_STORYBOARD_NODE_DEFAULT_HEIGHT,
+    style: {
+      ...(node.style ?? {}),
+      width: SMART_DIRECTOR_STORYBOARD_NODE_DEFAULT_WIDTH,
+      height: SMART_DIRECTOR_STORYBOARD_NODE_DEFAULT_HEIGHT,
+    },
+  };
+}
+
+function withScriptStoryboardTableDefaultSize(node: CanvasNode): CanvasNode {
+  return {
+    ...node,
+    width: SCRIPT_STORYBOARD_TABLE_NODE_DEFAULT_WIDTH,
+    height: SCRIPT_STORYBOARD_TABLE_NODE_DEFAULT_HEIGHT,
+    style: {
+      ...(node.style ?? {}),
+      width: SCRIPT_STORYBOARD_TABLE_NODE_DEFAULT_WIDTH,
+      height: SCRIPT_STORYBOARD_TABLE_NODE_DEFAULT_HEIGHT,
+    },
+  };
+}
+
+function withAssetMaterialDefaultSize(node: CanvasNode): CanvasNode {
+  return {
+    ...node,
+    width: ASSET_MATERIAL_NODE_DEFAULT_WIDTH,
+    height: ASSET_MATERIAL_NODE_DEFAULT_HEIGHT,
+    style: {
+      ...(node.style ?? {}),
+      width: ASSET_MATERIAL_NODE_DEFAULT_WIDTH,
+      height: ASSET_MATERIAL_NODE_DEFAULT_HEIGHT,
+    },
+  };
+}
+
 function withDirectorStoryboardReferenceDefaultSize(node: CanvasNode): CanvasNode {
   return {
     ...node,
@@ -2393,6 +2472,42 @@ function applyDefaultNodeSize(node: CanvasNode, data: CanvasNodeData): CanvasNod
       ?? resolveNumericNodeDimension(node.style?.height);
     if (resolvedWidth === null || resolvedHeight === null) {
       return withScriptAssetExtractDefaultSize(node);
+    }
+  }
+
+  if (node.type === CANVAS_NODE_TYPES.smartDirectorStoryboard) {
+    const resolvedWidth =
+      resolveNumericNodeDimension(node.width)
+      ?? resolveNumericNodeDimension(node.style?.width);
+    const resolvedHeight =
+      resolveNumericNodeDimension(node.height)
+      ?? resolveNumericNodeDimension(node.style?.height);
+    if (resolvedWidth === null || resolvedHeight === null) {
+      return withSmartDirectorStoryboardDefaultSize(node);
+    }
+  }
+
+  if (node.type === CANVAS_NODE_TYPES.scriptStoryboardTable) {
+    const resolvedWidth =
+      resolveNumericNodeDimension(node.width)
+      ?? resolveNumericNodeDimension(node.style?.width);
+    const resolvedHeight =
+      resolveNumericNodeDimension(node.height)
+      ?? resolveNumericNodeDimension(node.style?.height);
+    if (resolvedWidth === null || resolvedHeight === null) {
+      return withScriptStoryboardTableDefaultSize(node);
+    }
+  }
+
+  if (node.type === CANVAS_NODE_TYPES.assetMaterial) {
+    const resolvedWidth =
+      resolveNumericNodeDimension(node.width)
+      ?? resolveNumericNodeDimension(node.style?.width);
+    const resolvedHeight =
+      resolveNumericNodeDimension(node.height)
+      ?? resolveNumericNodeDimension(node.style?.height);
+    if (resolvedWidth === null || resolvedHeight === null) {
+      return withAssetMaterialDefaultSize(node);
     }
   }
 
@@ -3283,16 +3398,25 @@ function fitGroupNodeToChildren(nodes: CanvasNode[], groupNodeId: string): Canva
   const groupAbsolutePosition = resolveAbsolutePosition(groupNode, nodeMap);
   const groupSize = getNodeSize(groupNode);
   const groupData = groupNode.data as GroupNodeData;
+  const isStoryboardProductionCard =
+    groupData.visualStyle === 'storyboardProductionGroup'
+    || groupData.visualStyle === 'storyboardProductionCard';
   const sidePadding =
-    groupData.visualStyle === 'assetBatchGroup'
+    isStoryboardProductionCard
+      ? STORYBOARD_PRODUCTION_CARD_SIDE_PADDING
+      : groupData.visualStyle === 'assetBatchGroup'
       ? ASSET_BATCH_GROUP_SIDE_PADDING
       : GROUP_NODE_SIDE_PADDING;
   const topPadding =
-    groupData.visualStyle === 'assetBatchGroup'
+    isStoryboardProductionCard
+      ? STORYBOARD_PRODUCTION_CARD_TOP_PADDING
+      : groupData.visualStyle === 'assetBatchGroup'
       ? ASSET_BATCH_GROUP_TOP_PADDING
       : GROUP_NODE_TOP_PADDING;
   const bottomPadding =
-    groupData.visualStyle === 'assetBatchGroup'
+    isStoryboardProductionCard
+      ? STORYBOARD_PRODUCTION_CARD_BOTTOM_PADDING
+      : groupData.visualStyle === 'assetBatchGroup'
       ? ASSET_BATCH_GROUP_BOTTOM_PADDING
       : GROUP_NODE_BOTTOM_PADDING;
   const childBounds = directChildren.reduce(
@@ -4916,6 +5040,29 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
             normalizeScriptAssetExtractNodeData(mergedData as ScriptAssetExtractNodeData)
           );
         }
+        if (node.type === CANVAS_NODE_TYPES.smartDirectorStoryboard) {
+          Object.assign(
+            mergedData,
+            normalizeSmartDirectorStoryboardNodeData(
+              mergedData as SmartDirectorStoryboardNodeData
+            )
+          );
+        }
+
+        if (node.type === CANVAS_NODE_TYPES.scriptStoryboardTable) {
+          Object.assign(
+            mergedData,
+            normalizeScriptStoryboardTableNodeData(
+              mergedData as ScriptStoryboardTableNodeData
+            )
+          );
+        }
+        if (node.type === CANVAS_NODE_TYPES.assetMaterial) {
+          Object.assign(
+            mergedData,
+            normalizeAssetMaterialNodeData(mergedData as AssetMaterialNodeData)
+          );
+        }
         if (node.type === CANVAS_NODE_TYPES.directorStoryboardReference) {
           Object.assign(
             mergedData,
@@ -5193,6 +5340,29 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
           Object.assign(
             mergedData,
             normalizeScriptAssetExtractNodeData(mergedData as ScriptAssetExtractNodeData)
+          );
+        }
+        if (node.type === CANVAS_NODE_TYPES.smartDirectorStoryboard) {
+          Object.assign(
+            mergedData,
+            normalizeSmartDirectorStoryboardNodeData(
+              mergedData as SmartDirectorStoryboardNodeData
+            )
+          );
+        }
+
+        if (node.type === CANVAS_NODE_TYPES.scriptStoryboardTable) {
+          Object.assign(
+            mergedData,
+            normalizeScriptStoryboardTableNodeData(
+              mergedData as ScriptStoryboardTableNodeData
+            )
+          );
+        }
+        if (node.type === CANVAS_NODE_TYPES.assetMaterial) {
+          Object.assign(
+            mergedData,
+            normalizeAssetMaterialNodeData(mergedData as AssetMaterialNodeData)
           );
         }
         if (node.type === CANVAS_NODE_TYPES.directorStoryboardReference) {

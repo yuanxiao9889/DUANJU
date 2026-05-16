@@ -12,37 +12,27 @@ import {
 import { useTranslation } from 'react-i18next';
 
 import {
-  AUDIO_NODE_DEFAULT_HEIGHT,
-  AUDIO_NODE_DEFAULT_WIDTH,
-  CANVAS_NODE_TYPES,
-  EXPORT_RESULT_NODE_MIN_HEIGHT,
-  EXPORT_RESULT_NODE_MIN_WIDTH,
   NODE_TOOL_TYPES,
-  isAudioNode,
-  isExportImageNode,
-  isImageEditNode,
-  isPanorama360Node,
-  isUploadNode,
-  isVideoNode,
   type NodeToolType,
 } from '@/features/canvas/domain/canvasNodes';
-import { EXPORT_RESULT_DISPLAY_NAME } from '@/features/canvas/domain/nodeDisplay';
 import {
   canvasEventBus,
-  canvasToolProcessor,
 } from '@/features/canvas/application/canvasServices';
 import { useCanvasNodeById } from '@/features/canvas/hooks/useCanvasNodeGraph';
 import {
   loadImageElement,
-  prepareNodeImage,
   resolveReadableImageSource,
 } from '@/features/canvas/application/imageData';
-import { resolveMinEdgeFittedSize } from '@/features/canvas/application/imageNodeSizing';
 import { readStoryboardImageMetadata } from '@/commands/image';
 import { getToolPlugin, type ToolOptions } from '@/features/canvas/tools';
 import { useCanvasStore } from '@/stores/canvasStore';
 import { UiButton, UiLoadingBanner, UiLoadingOverlay, UiModal } from '@/components/ui';
 import { UI_DIALOG_TRANSITION_MS } from '@/components/ui/motion';
+import {
+  executeNodeToolAndApplyResult,
+  resolveNodeToolErrorContent,
+  resolveNodeToolSourceAsset,
+} from '@/features/canvas/application/nodeToolExecution';
 import { MediaTrimToolEditor } from './tool-editors/MediaTrimToolEditor';
 
 const FormToolEditor = lazy(async () => {
@@ -100,11 +90,6 @@ class ToolEditorErrorBoundary extends Component<{
 export function NodeToolDialog() {
   const { t } = useTranslation();
   const activeToolDialog = useCanvasStore((state) => state.activeToolDialog);
-  const addNode = useCanvasStore((state) => state.addNode);
-  const addDerivedExportNode = useCanvasStore((state) => state.addDerivedExportNode);
-  const addStoryboardSplitResultNode = useCanvasStore((state) => state.addStoryboardSplitResultNode);
-  const addEdge = useCanvasStore((state) => state.addEdge);
-  const findNodePosition = useCanvasStore((state) => state.findNodePosition);
 
   const [isProcessing, setIsProcessing] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -129,40 +114,7 @@ export function NodeToolDialog() {
 
   const sourceNode = useCanvasNodeById(displayToolDialog?.nodeId ?? '');
 
-  const sourceAsset = useMemo(() => {
-    if (!sourceNode) {
-      return null;
-    }
-
-    if (
-      isUploadNode(sourceNode)
-      || isImageEditNode(sourceNode)
-      || isPanorama360Node(sourceNode)
-      || isExportImageNode(sourceNode)
-    ) {
-      return {
-        mediaType: 'image' as const,
-        sourceUrl: sourceNode.data.imageUrl,
-        previewUrl: sourceNode.data.previewImageUrl ?? null,
-      };
-    }
-
-    if (isVideoNode(sourceNode)) {
-      return {
-        mediaType: 'video' as const,
-        sourceUrl: sourceNode.data.videoUrl,
-      };
-    }
-
-    if (isAudioNode(sourceNode)) {
-      return {
-        mediaType: 'audio' as const,
-        sourceUrl: sourceNode.data.audioUrl,
-      };
-    }
-
-    return null;
-  }, [sourceNode]);
+  const sourceAsset = useMemo(() => resolveNodeToolSourceAsset(sourceNode), [sourceNode]);
 
   const sourceImageUrl = sourceAsset?.mediaType === 'image' ? sourceAsset.sourceUrl : null;
   const sourcePreviewImageUrl = sourceAsset?.mediaType === 'image'
@@ -211,7 +163,7 @@ export function NodeToolDialog() {
     setSplitSourceImageUrl(splitPrimarySource);
 
     void resolveReadableImageSource(splitPrimarySource, splitFallbackSource)
-      .then((resolvedSource) => {
+      .then((resolvedSource: string | null) => {
         if (!cancelled) {
           setSplitSourceImageUrl(resolvedSource || splitPrimarySource);
         }
@@ -315,18 +267,11 @@ export function NodeToolDialog() {
     if (toolType === NODE_TOOL_TYPES.splitStoryboard) {
       return t('tool.split');
     }
+    if (toolType === NODE_TOOL_TYPES.extractAudio) {
+      return t('tool.extractAudio');
+    }
     return '';
   }, [t]);
-  const resolveResultNodeTitle = useCallback((toolType: NodeToolType | undefined) => {
-    if (toolType === NODE_TOOL_TYPES.crop) {
-      return t('toolDialog.cropResultTitle');
-    }
-    if (toolType === NODE_TOOL_TYPES.annotate) {
-      return t('toolDialog.annotateResultTitle');
-    }
-    return EXPORT_RESULT_DISPLAY_NAME.generic;
-  }, [t]);
-
   const handleApply = useCallback(async () => {
     if (!activeToolDialog || !sourceNode || !activePlugin) {
       setError(t('toolDialog.noProcessableImage'));
@@ -337,94 +282,21 @@ export function NodeToolDialog() {
     setError(null);
 
     try {
-      const processSourceUrl =
-        activePlugin.editor === 'split'
-          ? await resolveReadableImageSource(splitPrimarySource, splitFallbackSource)
-          : sourceMediaUrl;
-
-      if (!processSourceUrl) {
-        setError(t('toolDialog.noProcessableImage'));
-        return;
-      }
-
-      const result = await activePlugin.execute(processSourceUrl, options, {
-        processTool: (toolType, imageUrl, toolOptions) =>
-          canvasToolProcessor.process(toolType, imageUrl, toolOptions),
+      await executeNodeToolAndApplyResult({
+        sourceNode,
+        toolType: activeToolDialog.toolType,
+        t,
+        options,
+        plugin: activePlugin,
       });
-
-      if (result.storyboardFrames && result.rows && result.cols) {
-        const createdNodeId = addStoryboardSplitResultNode(
-          sourceNode.id,
-          result.rows,
-          result.cols,
-          result.storyboardFrames,
-          result.frameAspectRatio
-        );
-        if (createdNodeId) {
-          addEdge(sourceNode.id, createdNodeId);
-        }
-      } else if (result.outputImageUrl) {
-        const prepared = await prepareNodeImage(result.outputImageUrl);
-        const createdNodeId = addDerivedExportNode(
-          sourceNode.id,
-          prepared.imageUrl,
-          prepared.aspectRatio,
-          prepared.previewImageUrl,
-          {
-            thumbnailUrl: prepared.thumbnailImageUrl,
-            defaultTitle: resolveResultNodeTitle(activeToolDialog.toolType),
-            resultKind: 'generic',
-            aspectRatioStrategy: 'provided',
-            sizeStrategy: 'autoMinEdge',
-          }
-        );
-        if (createdNodeId) {
-          addEdge(sourceNode.id, createdNodeId);
-        }
-      } else if (result.outputVideoUrl) {
-        const aspectRatio = result.aspectRatio?.trim() || '16:9';
-        const mediaSize = resolveMinEdgeFittedSize(aspectRatio, {
-          minWidth: EXPORT_RESULT_NODE_MIN_WIDTH,
-          minHeight: EXPORT_RESULT_NODE_MIN_HEIGHT,
-        });
-        const createdNodeId = addNode(
-          CANVAS_NODE_TYPES.video,
-          findNodePosition(sourceNode.id, mediaSize.width, mediaSize.height + 54),
-          {
-            videoUrl: result.outputVideoUrl,
-            previewImageUrl: result.previewImageUrl ?? null,
-            videoFileName: result.outputFileName ?? undefined,
-            aspectRatio,
-            duration: result.duration,
-            displayName: t('toolDialog.trimResultTitle'),
-          },
-          { inheritParentFromNodeId: sourceNode.id }
-        );
-        if (createdNodeId) {
-          addEdge(sourceNode.id, createdNodeId);
-        }
-      } else if (result.outputAudioUrl) {
-        const createdNodeId = addNode(
-          CANVAS_NODE_TYPES.audio,
-          findNodePosition(sourceNode.id, AUDIO_NODE_DEFAULT_WIDTH, AUDIO_NODE_DEFAULT_HEIGHT),
-          {
-            audioUrl: result.outputAudioUrl,
-            previewImageUrl: result.previewImageUrl ?? null,
-            audioFileName: result.outputFileName ?? undefined,
-            duration: result.duration,
-            mimeType: result.mimeType,
-            displayName: t('toolDialog.trimResultTitle'),
-          },
-          { inheritParentFromNodeId: sourceNode.id }
-        );
-        if (createdNodeId) {
-          addEdge(sourceNode.id, createdNodeId);
-        }
-      }
-
       closeDialog();
     } catch (processError) {
-      setError(processError instanceof Error ? processError.message : t('toolDialog.processFailed'));
+      const resolvedError = resolveNodeToolErrorContent(
+        processError,
+        activeToolDialog.toolType,
+        t
+      );
+      setError(resolvedError.message);
     } finally {
       setIsProcessing(false);
     }
@@ -433,16 +305,8 @@ export function NodeToolDialog() {
     sourceNode,
     sourceMediaUrl,
     activePlugin,
-    splitFallbackSource,
-    splitPrimarySource,
     options,
-    addNode,
-    addStoryboardSplitResultNode,
-    addDerivedExportNode,
-    addEdge,
     closeDialog,
-    findNodePosition,
-    resolveResultNodeTitle,
     t,
   ]);
 

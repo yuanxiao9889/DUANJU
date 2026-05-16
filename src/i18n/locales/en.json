@@ -509,7 +509,8 @@
   "tool": {
     "crop": "Crop",
     "annotate": "Annotate",
-    "split": "Split"
+    "split": "Split",
+    "extractAudio": "Extract Audio"
   },
   "toolDialog": {
     "suffix": " Tool",
@@ -520,6 +521,8 @@
     "cropResultTitle": "Crop Result",
     "annotateResultTitle": "Annotation Result",
     "trimResultTitle": "Trim Result",
+    "extractAudioFailed": "Audio extraction failed",
+    "videoHasNoAudioTrack": "This video does not contain an audio track",
     "editorLoadFailed": "Failed to load the tool editor",
     "editorLoadFailedHint": "Close this dialog and try again. If it still fails, refresh the current page.",
     "mediaTrim": {
@@ -535,7 +538,8 @@
       "quickSeek": "Quick Seek",
       "previewStart": "Preview Start",
       "previewEnd": "Preview End"
-    }
+    },
+    "extractAudioResultTitle": "Extracted Audio"
   },
   "nodeToolbar": {
     "reupload": "Reupload",
@@ -587,7 +591,7 @@
     "otherParams": "Other Params",
     "extraOptions": "Extra options",
     "generationQuality": "Generation quality",
-    "generationQualityDesc": "Controls detail level, latency, and cost for gpt-image-2.",
+    "generationQualityDesc": "Controls detail level, latency, and cost for all-image-2.",
     "generationQualityAuto": "Auto",
     "generationQualityLow": "Low",
     "generationQualityMedium": "Medium",
@@ -656,7 +660,10 @@
       "directorStage": "3D Director Stage",
       "directorWorkPackage": "Script Asset Extract",
       "scriptAssetExtract": "Script Asset Extract",
-      "scriptPlotLine": "Story Line"
+      "scriptPlotLine": "Story Line",
+      "smartDirectorStoryboard": "Smart Director Storyboard",
+      "scriptStoryboardTable": "Script Storyboard Table",
+      "assetMaterial": "Asset Material"
     },
     "menuGroup": {
       "imageGeneration": "Image Generation",
@@ -804,6 +811,41 @@
         "failed": "Failed {{count}}",
         "current": "Current: {{name}}",
         "lastRunAt": "Last run: {{value}}"
+      }
+    },
+    "storyboardProductionGroup": {
+      "nodeCount": "{{count}} storyboard groups",
+      "continuousEnabled": "Continuous reference on",
+      "prepareHint": "Storyboard production groups are ready. Image/video generation is intentionally left for the next production step.",
+      "shotCount": "{{count}} shots",
+      "totalDuration": "Total {{value}}",
+      "targetDuration": "Target {{value}}",
+      "shots": "Shots",
+      "imageNodeTitle": "Group Image {{index}}",
+      "imageResultTitle": "Storyboard Image Placeholder {{index}}",
+      "jimengVideoTitle": "Jimeng Video {{index}}",
+      "seedanceVideoTitle": "Seedance Video {{index}}",
+      "batchKind": {
+        "storyboard10s": "10s Video Group",
+        "storyboard15s": "15s Video Group"
+      }
+    },
+    "assetMaterial": {
+      "displayName": "Asset Material",
+      "library": "Asset library",
+      "noLibrary": "No asset library",
+      "empty": "Select or create an asset library first.",
+      "emptyCategory": "No image assets in this category yet.",
+      "uncategorized": "Uncategorized",
+      "category": {
+        "character": "Characters",
+        "scene": "Scenes",
+        "prop": "Props"
+      },
+      "categoryShort": {
+        "character": "Role",
+        "scene": "Scene",
+        "prop": "Prop"
       }
     },
     "imageCompare": {
@@ -1465,7 +1507,7 @@
       "referenceVideoUnsupportedConnected": "{{count}} video reference(s) connected. OOpii Grok currently supports image reference_images only.",
       "referenceVideoUnsupportedError": "OOpii Grok currently supports image reference_images only. Disconnect upstream videos before submitting.",
       "invalidSecondsForModel": "{{model}} only supports specific duration values. Please choose a supported seconds option.",
-      "oopiiHint": "OOpii video supports model, seconds, and size options; Grok models can use up to 7 reference images.",
+      "oopiiHint": "OK-video currently supports 6s and 10s. Duration, ratio, and clarity are exposed here; Grok reference images support up to 7 images.",
       "textToVideoNoReferences": "Text-to-video mode cannot use reference images. Disconnect upstream images or switch mode.",
       "firstFrameRequiresOneImage": "First-frame mode requires exactly 1 reference image.",
       "firstLastFrameRequiresTwoImages": "First/last-frame mode requires exactly 2 reference images.",
@@ -1487,19 +1529,19 @@
         "OK-video": "OK-video"
       },
       "aspectRatios": {
-        "16:9": "16:9",
-        "9:16": "9:16",
-        "1:1": "1:1",
+        "16:9": "16:9 Landscape",
+        "9:16": "9:16 Portrait",
+        "1:1": "1:1 Square",
         "4:3": "4:3",
         "3:4": "3:4",
         "21:9": "21:9"
       },
       "durations": {
-        "5": "5s",
+        "6": "6s",
         "10": "10s"
       },
       "resolutions": {
-        "720p": "720p",
+        "720p": "720P",
         "1080p": "1080p"
       }
     },
@@ -1520,10 +1562,10 @@
       }
     },
     "vidu": {
-    "promptRequired": "Please enter a prompt for Vidu video generation",
-    "apiKeyRequired": "Please set the Vidu API key in Settings > Official Video",
-    "officialAuthError": "Official Vidu authentication failed. Confirm the Vidu API key in Settings > Official Video comes from Vidu Platform API Keys. You can paste only the key itself, without the Authorization header. If the key is correct, check the Vidu account balance and API permissions.",
-    "promptPlaceholder": "Describe the scene, motion, framing, and timing for official Vidu video generation",
+      "promptRequired": "Please enter a prompt for Vidu video generation",
+      "apiKeyRequired": "Please set the Vidu API key in Settings > Official Video",
+      "officialAuthError": "Official Vidu authentication failed. Confirm the Vidu API key in Settings > Official Video comes from Vidu Platform API Keys. You can paste only the key itself, without the Authorization header. If the key is correct, check the Vidu account balance and API permissions.",
+      "promptPlaceholder": "Describe the scene, motion, framing, and timing for official Vidu video generation",
       "submit": "Generate Video",
       "submitting": "Submitting",
       "submitFailed": "Failed to submit the Vidu video task",
@@ -2308,6 +2350,74 @@
       "cameraSummary": "{{count}} shots / {{name}}",
       "snapshotSaved": "Snapshot saved",
       "noSnapshot": "No snapshot yet"
+    },
+    "smartDirectorStoryboard": {
+      "boundAssetReady": "Asset extract bound",
+      "boundAssetMissing": "Asset extract missing",
+      "missingAsset": "Connect a script asset extract node first",
+      "status": {
+        "idle": "Idle",
+        "generating": "Generating",
+        "ready": "Ready",
+        "error": "Error"
+      },
+      "openWorkbench": "Open storyboard workbench",
+      "startHint": "Use the shared text source and extracted assets to build a script storyboard table for the next canvas stage.",
+      "requireAssetHint": "Connect a completed script asset extract node before generating smart director storyboards.",
+      "generate": "Generate Storyboard",
+      "generating": "Generating...",
+      "regenerate": "Regenerate",
+      "openStoryboard": "Go To Storyboard",
+      "expandToStoryboard": "Expand To Storyboard Canvas",
+      "openingStoryboard": "Opening...",
+      "storyboardMirrorHint": "Mirror snapshot from {{source}}"
+    },
+    "scriptStoryboardTable": {
+      "nodeBadge": "Result Table",
+      "emptyHint": "The storyboard table will appear here once generation starts.",
+      "generatedRows": "{{completed}} / {{total}} rows",
+      "emptyGroup": "Ungrouped",
+      "summary": {
+        "rows": "Rows",
+        "generatedRows": "Generated",
+        "duration": "Duration",
+        "continuousGroups": "Continuous",
+        "groups10s": "10s Groups",
+        "groups15s": "15s Groups"
+      },
+      "columns": {
+        "sceneNumber": "Scene",
+        "shotNumber": "Shot",
+        "sketch": "Storyboard Sketch",
+        "shotSize": "Shot Size",
+        "cameraAngle": "Camera Angle",
+        "cameraMovement": "Camera Movement",
+        "blockingAction": "Blocking / Action",
+        "dialogueOrSound": "Dialogue / Sound",
+        "duration": "Duration",
+        "assets": "Referenced Assets",
+        "remark": "Remark",
+        "imagePrompt": "Image Prompt"
+      },
+      "rowState": {
+        "queued": "Queued",
+        "generating": "Generating",
+        "ready": "Ready",
+        "error": "Error"
+      },
+      "continuity": {
+        "continuous": "Continuous with previous shot",
+        "newSegment": "New continuous segment"
+      },
+      "streamPhase": {
+        "idle": "Idle",
+        "preparing": "Preparing",
+        "outlining": "Outlining",
+        "streaming": "Streaming",
+        "completed": "Completed",
+        "error": "Error",
+        "cancelled": "Cancelled"
+      }
     }
   },
   "nodeStatus": {
@@ -2656,7 +2766,38 @@
     "rebindClipLibraryWarning": "Existing media already stored in the previous clip library will be kept. New imports will go to the newly bound library.",
     "bindClipLibraryFailed": "Failed to update the clip library binding.",
     "unbindClipLibraryConfirm": "Unbind the clip library from \"{{name}}\"?",
-    "unbindClipLibraryFailed": "Failed to unbind the clip library."
+    "unbindClipLibraryFailed": "Failed to unbind the clip library.",
+    "smartDirectorStoryboardExpand": {
+      "title": "Go To Storyboard",
+      "confirm": "Open",
+      "submitting": "Processing...",
+      "modeNew": "New storyboard",
+      "modeNewHint": "Create a new storyboard project and transfer the script storyboard table.",
+      "modeExisting": "Existing storyboard",
+      "modeExistingHint": "Sync the current script storyboard table into an existing storyboard project.",
+      "newNameLabel": "New storyboard name",
+      "newNamePlaceholder": "Enter storyboard project name",
+      "existingLabel": "Choose existing storyboard",
+      "existingPlaceholder": "Select a storyboard project",
+      "recommended": "Recommended",
+      "sameSource": "Same script",
+      "updatedAt": "Updated: {{value}}",
+      "noCandidates": "No storyboard projects available yet.",
+      "errors": {
+        "generic": "Failed to open storyboard canvas."
+      }
+    },
+    "smartDirectorStoryboard": {
+      "resultChoiceDialog": {
+        "title": "Storyboard Result Already Exists",
+        "subtitle": "This smart director storyboard is already linked to a script storyboard table node. You can overwrite the current result or create a new result node to keep the previous version.",
+        "reuseTitle": "Overwrite Current Result",
+        "reuseHint": "Keep the current result node position and connections, then refill it with the new streaming storyboard output.",
+        "newTitle": "Create New Result Node",
+        "newHint": "Create a new script storyboard table node on the right and keep the old result for comparison.",
+        "cancel": "Cancel"
+      }
+    }
   },
   "adProject": {
     "heroDescription": "Build a director skill, complete the ad brief, and turn it into an editable shot-by-shot script table for short-form ads.",
@@ -3251,14 +3392,14 @@
     "codingModel": "Coding Plan Model",
     "scriptModelSelection": "Script Model",
     "scriptModelSelectionDesc": "Choose the active model for this script provider. You can also add your own model IDs below.",
-    "scriptOopiiModelSelectionDesc": "OOpii uses gpt-5.4 by default once you add an API key. You can still add and switch your own model IDs below if needed.",
+    "scriptOopiiModelSelectionDesc": "OOpii uses all-5.4 by default and includes all-5.5 as a built-in option once you add an API key. You can still add and switch your own model IDs below if needed.",
     "scriptCustomModelAdd": "Add Model",
     "scriptCustomModelEmpty": "No custom models added for this provider yet.",
     "scriptCustomModelDelete": "Delete custom model",
     "scriptCustomModelIdLabel": "Model ID",
     "scriptCustomModelDisplayNameLabel": "Display Name",
-    "scriptCustomModelDisplayNamePlaceholder": "Display name, for example gpt-5.4",
-    "scriptCustomModelIdPlaceholder": "Model ID, for example gpt-5.4-2026-03-05",
+    "scriptCustomModelDisplayNamePlaceholder": "Display name, for example all-5.4",
+    "scriptCustomModelIdPlaceholder": "Model ID, for example all-5.5",
     "scriptCompatibleTitle": "Custom Script API",
     "scriptCompatibleDesc": "Use a custom OpenAI-compatible chat completions endpoint for script generation. Models are still managed in the model list above.",
     "scriptCompatibleEndpointUrl": "Endpoint URL",
@@ -3271,7 +3412,7 @@
     "storyboardCustomModelDisplayNamePlaceholder": "Display name, for example Banana Pro",
     "storyboardNewApiCustomModelType": "Model Type",
     "storyboardNewApiCustomModelTypePlaceholder": "Choose a NewAPI model type",
-    "storyboardNewApiCustomModelTypeGptImage2": "gpt-image-2 (OpenAI Images)",
+    "storyboardNewApiCustomModelTypeGptImage2": "all-image-2 (OpenAI Images)",
     "storyboardNewApiCustomModelTypeGoogleImage": "Google/Gemini Image",
     "storyboardNewApiCustomModelTypeOpenaiCompatible": "OpenAI Compatible Fallback",
     "addProvider": "Add Provider",
@@ -3293,7 +3434,7 @@
     "storyboardCompatibleHint": "Save after setting the request format, endpoint URL, and compatible model list. Compatible models without a valid endpoint will not appear in the AI image node or storyboard node model lists.",
     "storyboardCompatibleNoConnectionTest": "This experimental compatible entry does not reuse the current text connection test. Save it first, then verify the generation flow directly from a storyboard node.",
     "storyboardNewApiTitle": "NewAPI Image API",
-    "storyboardNewApiDesc": "Configure only the endpoint URL and default request format here. Add and switch specific models in the model selection section above. When adding NewAPI models, classify them as gpt-image-2, Google/Gemini image, or OpenAI compatible fallback.",
+    "storyboardNewApiDesc": "Configure only the endpoint URL and default request format here. Add and switch specific models in the model selection section above. When adding NewAPI models, classify them as all-image-2, Google/Gemini image, or OpenAI compatible fallback.",
     "storyboardNewApiFormat": "Request Format",
     "storyboardNewApiFormatOpenai": "OpenAI Compatible",
     "storyboardNewApiFormatOpenaiImages": "OpenAI Images Direct",
@@ -3311,8 +3452,8 @@
     "storyboardApi2OkDesc": "This provider is fixed to XGJ API's built-in storyboard endpoint. The site URL and request format are now built in as the Gemini route, so you only need to manage the model list above.",
     "storyboardApi2OkFormat": "Request Format",
     "storyboardApi2OkEndpointUrl": "Fixed Endpoint URL",
-    "storyboardApi2OkHintOpenai": "Use XGJ API's OpenAI-compatible route and reuse the existing NewAPI fallback logic. Enter only the base model ID, for example gemini-3-pro-image-preview.",
-    "storyboardApi2OkHintGemini": "Use XGJ API's native Gemini generateContent route. The site URL and request format are hidden because they are built in; enter only the base model ID, for example gemini-3-pro-image-preview.",
+    "storyboardApi2OkHintOpenai": "Use XGJ API's OpenAI-compatible route and reuse the existing NewAPI fallback logic. Enter only the base model ID, for example monkey-image-pro.",
+    "storyboardApi2OkHintGemini": "Use XGJ API's native Gemini generateContent route. The site URL and request format are hidden because they are built in; enter only the base model ID, for example monkey-image-pro.",
     "storyboardApi2OkNoConnectionTest": "The XGJ API storyboard endpoint does not reuse the current text connection test. Save it first, then verify the generation flow directly from a storyboard node.",
     "comingSoon": "Coming soon...",
     "radiusPreset": "Corner Radius",
@@ -3370,12 +3511,12 @@
     "thirdPartyVideoOopiiDesc": "Third-party Grok Video and Third-party Seedance 2.0 nodes share this OOpii video API configuration.",
     "thirdPartyVideoGptBestDesc": "Third-party Seedance 2.0 and third-party Grok video nodes share this key.",
     "thirdPartyVideoBaseUrl": "Base URL",
-    "thirdPartyVideoBaseUrlHint": "Use the OOpii site root or API root. The app will call /api/v1/videos, /api/v1/videos/{task_id}, and /api/v1/videos/{task_id}/content.",
+    "thirdPartyVideoBaseUrlHint": "Use your relay site root or API root. The app will call /api/v1/videos, /api/v1/videos/{task_id}, and /api/v1/videos/{task_id}/content.",
     "thirdPartyVideoDocTitle": "Docs & site",
-    "thirdPartyVideoDocDescription": "This page follows the AetherAI video generation protocol while routing requests to your OOpii deployment domain.",
+    "thirdPartyVideoDocDescription": "This page follows the AetherAI video generation protocol while keeping requests on your own relay API domain.",
     "thirdPartyVideoCapabilityTitle": "Supported models and parameters",
     "thirdPartyVideoModelSupport": "Model: OK-video",
-    "thirdPartyVideoSecondsSupport": "Seconds: OK-video is fixed at 10 seconds.",
+    "thirdPartyVideoSecondsSupport": "Seconds: OK-video currently supports 6s and 10s.",
     "thirdPartyVideoSizeSupport": "Sizes: 720x1280, 1280x720, 1024x1024, 1024x1792, 1792x1024",
     "thirdPartyVideoReferenceSupport": "References: Grok models support up to 7 reference_images; @图1 in the prompt is submitted as <IMAGE_1>.",
     "thirdPartyVideoEndpointHint": "Endpoints: POST /api/v1/videos, GET /api/v1/videos/{task_id}, GET /api/v1/videos/{task_id}/content",
@@ -3540,7 +3681,7 @@
       }
     },
     "providerGroupRecommended": "Recommended",
-    "storyboardOopiiModelSelectionDesc": "OOpii uses the built-in NewAPI image route. By default you can choose gpt-image-2, Banana Pro, or Banana 2 right away. Add your API key to use it, and you can still append custom model IDs below if needed.",
+    "storyboardOopiiModelSelectionDesc": "OOpii uses the built-in NewAPI image route. By default you can choose all-image-2, monkey-pro, or monkey-2 right away. Add your API key to use it, and you can still append custom model IDs below if needed.",
     "storyboardOopiiNoConnectionTest": "The OOpii storyboard endpoint is fixed to the built-in NewAPI image route. Save it first, then verify the generation flow directly from a storyboard node.",
     "appUpdateSectionTitle": "App updates",
     "appUpdateSectionDesc": "Choose whether to check on launch, keep update reminders enabled, or manually trigger a check right now."
@@ -4554,6 +4695,36 @@
         "genTarget": "Generation Target",
         "genPrompt": "Generation Prompt"
       }
+    },
+    "smartDirectorStoryboard": {
+      "workbenchTitle": "Smart Director Storyboard",
+      "workbenchSubtitle": "Generate a script storyboard table from the shared text source and extracted assets of the upstream asset node.",
+      "sourceTitle": "Source And Assets",
+      "sourceSubtitle": "This node does not repeat material picking. It reuses the shared source from the upstream script asset extract node.",
+      "sourceMissing": "Connect a completed script asset extract node first.",
+      "sourceConnectedText": "Using the connected upstream text node as the source",
+      "sourceChapterSelection": "Using the shared source from {{count}} chapters",
+      "assetSummary": "Inherited assets: {{characters}} characters, {{scenes}} scenes, {{items}} items",
+      "resultTitle": "Script Storyboard Table",
+      "resultSubtitle": "Generate shot-level storyboard rows and image prompts for the next storyboard-canvas stage.",
+      "generate": "Generate Storyboard",
+      "generating": "Generating...",
+      "regenerate": "Regenerate",
+      "viewResult": "View Result",
+      "openStoryboard": "Go To Storyboard",
+      "openingStoryboard": "Opening...",
+      "emptyResult": "No storyboard table has been generated yet.",
+      "resultLinked": "A result table node is already linked.",
+      "resultLinkedBadge": "Linked",
+      "resultLinkedHint": "Open the linked result node to inspect the full streaming storyboard table.",
+      "availableAssetsTitle": "Available Assets",
+      "availableAssetsSubtitle": "Automatically used during storyboard generation",
+      "assetCount": "{{count}} assets",
+      "assetGroups": {
+        "characters": "Characters",
+        "scenes": "Scenes",
+        "items": "Items"
+      }
     }
   },
   "scriptImportDialog": {
@@ -4857,6 +5028,78 @@
       "saved": "Project saved",
       "snapshotSent": "Snapshot sent to canvas",
       "modelLoadFailed": "Model failed to load"
+    }
+  },
+  "scriptStoryboardTable": {
+    "nodeBadge": "Result Table",
+    "emptyHint": "The storyboard table will appear here once generation starts.",
+    "generatedRows": "{{completed}} / {{total}} rows",
+    "emptyGroup": "Ungrouped",
+    "emptyRows": "No shots yet. Generate or add a shot to start editing.",
+    "emptyCell": "Double-click to edit",
+    "addRow": "Add Shot",
+    "insertRow": "Insert",
+    "viewColumns": "Columns",
+    "toggleColumns": "Toggle Columns",
+    "rowHeight": "Row Height",
+    "regenerate": "Regenerate",
+    "expandToStoryboard": "Open Storyboard Canvas",
+    "viewSource": "View Control Node",
+    "summary": {
+      "rows": "Rows",
+      "duration": "Duration",
+      "estimatedVideos": "Estimated Videos"
+    },
+    "production": {
+      "video15s": "15s Video",
+      "video10s": "10s Video",
+      "continuous": "Continuous Storyboard",
+      "continuousEnabled": "Continuous Reference On",
+      "generateGroups": "Generate storyboard groups",
+      "groupTitle15s": "15s Video Storyboard Groups",
+      "groupTitle10s": "10s Video Storyboard Groups",
+      "chooseVideoTitle": "Choose video node",
+      "chooseVideoDescription": "Choose which video node type should be prepared for these storyboard groups.",
+      "videoKindJimeng": "Jimeng Video",
+      "videoKindJimengHint": "Create Jimeng video nodes with prompt and duration prefilled.",
+      "videoKindSeedance": "Official Seedance",
+      "videoKindSeedanceHint": "Create official Seedance video nodes with prompt and duration prefilled.",
+      "confirmGenerate": "Generate",
+      "generating": "Generating...",
+      "noGroups": "No usable video groups are available. Please make sure the table has storyboard shots first."
+    },
+    "columns": {
+      "sceneNumber": "Scene",
+      "shotNumber": "Shot",
+      "sketch": "Frame Description",
+      "shotSize": "Shot Size",
+      "cameraAngle": "Camera Angle",
+      "cameraMovement": "Camera Movement",
+      "blockingAction": "Blocking / Action",
+      "dialogueOrSound": "Dialogue / Sound",
+      "duration": "Duration",
+      "assets": "Referenced Assets",
+      "remark": "Remark",
+      "imagePrompt": "Image Prompt"
+    },
+    "rowState": {
+      "queued": "Queued",
+      "generating": "Generating",
+      "ready": "Ready",
+      "error": "Error"
+    },
+    "continuity": {
+      "continuous": "Continuous with previous shot",
+      "newSegment": "New continuous segment"
+    },
+    "streamPhase": {
+      "idle": "Idle",
+      "preparing": "Preparing",
+      "outlining": "Outlining",
+      "streaming": "Streaming",
+      "completed": "Completed",
+      "error": "Error",
+      "cancelled": "Cancelled"
     }
   }
 }

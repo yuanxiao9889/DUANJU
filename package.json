@@ -6,11 +6,12 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build",
-    "build:app": "npm run prepare:portable-git && npm run prepare:dreamina-cli && npm run build",
+    "build:app": "npm run prepare:portable-git && npm run prepare:dreamina-cli && npm run prepare:app-ffmpeg && npm run build",
     "preview": "vite preview",
     "tauri": "tauri",
     "prepare:portable-git": "node scripts/prepare-portable-git.mjs",
     "prepare:dreamina-cli": "node scripts/prepare-dreamina-cli.mjs",
+    "prepare:app-ffmpeg": "node scripts/prepare-app-ffmpeg.mjs",
     "prepare:qwen3-tts-extension": "node scripts/prepare-qwen3-tts-extension.mjs",
     "prepare:voxcpm2-extension": "node scripts/prepare-voxcpm2-extension.mjs",
     "prepare:rmbg2-extension": "node scripts/prepare-rmbg2-extension.mjs",

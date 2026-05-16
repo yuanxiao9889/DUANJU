@@ -114,7 +114,7 @@ function resolveStoryboardCustomModelIdPlaceholder(providerId: string, fallback:
   }
 
   if (providerId === 'oopii') {
-    return 'gpt-image-2 / gemini-3-pro-image-preview';
+    return 'all-image-2 / monkey-image-pro / monkey-image-flash 2';
   }
 
   return fallback;

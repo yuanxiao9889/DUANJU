@@ -62,6 +62,7 @@ export const CANVAS_NODE_TYPES = {
   imageCollage: 'imageCollageNode',
   storyboardSplitResult: 'storyboardSplitResultNode',
   storyboardGen: 'storyboardGenNode',
+  assetMaterial: 'assetMaterialNode',
   video: 'videoNode',
   audio: 'audioNode',
   ttsText: 'ttsTextNode',
@@ -80,6 +81,8 @@ export const CANVAS_NODE_TYPES = {
   scriptScene: 'scriptSceneNode',
   shootingScript: 'shootingScriptNode',
   scriptAssetExtract: 'scriptAssetExtractNode',
+  smartDirectorStoryboard: 'smartDirectorStoryboardNode',
+  scriptStoryboardTable: 'scriptStoryboardTableNode',
   directorWorkPackage: 'directorWorkPackageNode',
   directorStoryboardReference: 'directorStoryboardReferenceNode',
   scriptReference: 'scriptReferenceNode',
@@ -191,6 +194,12 @@ export const SCRIPT_PLOT_LINE_NODE_DEFAULT_WIDTH = 420;
 export const SCRIPT_PLOT_LINE_NODE_DEFAULT_HEIGHT = 156;
 export const SCRIPT_ASSET_EXTRACT_NODE_DEFAULT_WIDTH = 620;
 export const SCRIPT_ASSET_EXTRACT_NODE_DEFAULT_HEIGHT = 420;
+export const SMART_DIRECTOR_STORYBOARD_NODE_DEFAULT_WIDTH = 860;
+export const SMART_DIRECTOR_STORYBOARD_NODE_DEFAULT_HEIGHT = 520;
+export const SCRIPT_STORYBOARD_TABLE_NODE_DEFAULT_WIDTH = 1780;
+export const SCRIPT_STORYBOARD_TABLE_NODE_DEFAULT_HEIGHT = 720;
+export const ASSET_MATERIAL_NODE_DEFAULT_WIDTH = 420;
+export const ASSET_MATERIAL_NODE_DEFAULT_HEIGHT = 520;
 export const DIRECTOR_WORK_PACKAGE_NODE_DEFAULT_WIDTH = 620;
 export const DIRECTOR_WORK_PACKAGE_NODE_DEFAULT_HEIGHT = 420;
 export const DIRECTOR_STORYBOARD_REFERENCE_NODE_DEFAULT_WIDTH = 760;
@@ -301,7 +310,7 @@ export const SEEDANCE_ASPECT_RATIOS = [
 export const SEEDANCE_DURATION_SECONDS = [-1, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15] as const;
 export const SEEDANCE_RESOLUTIONS = ['480p', '720p'] as const;
 export const GPT_BEST_VIDEO_SOURCE_KINDS = ['seedance', 'grok'] as const;
-export const GPT_BEST_VIDEO_DURATION_SECONDS = [5, 6, 10, 12, 16, 20] as const;
+export const GPT_BEST_VIDEO_DURATION_SECONDS = [6, 10] as const;
 export const GPT_BEST_VIDEO_SIZES = [
   '720x1280',
   '1280x720',
@@ -456,6 +465,11 @@ export interface ExportImageNodeData extends NodeImageData {
   generationPhase?: ExportImageGenerationPhase | null;
   generationFailureStage?: ExportImageGenerationFailureStage | null;
   generationStatusText?: string | null;
+  isStoryboardProductionPlaceholder?: boolean;
+  sourceImageNodeId?: string | null;
+  sourceStoryboardTableNodeId?: string | null;
+  sourceStoryboardRowIds?: string[];
+  sourceDurationGroupId?: string | null;
 }
 
 export type ImageCompareSourceNodeType =
@@ -494,12 +508,23 @@ export interface ImageCompareNodeData extends NodeDisplayData {
   mergeMeta: ImageCompareNodeMergeMeta | null;
 }
 
+export interface AssetMaterialNodeData extends NodeDisplayData {
+  assetLibraryId: string | null;
+  selectedAssetIds: string[];
+  sourceStoryboardTableNodeId?: string | null;
+  sourceStoryboardRowIds?: string[];
+  sourceDurationGroupId?: string | null;
+  defaultMatchedAssetNames?: string[];
+  displayMode: 'nameOnlyAccordion';
+  outputMode?: 'namedReference';
+}
+
 export interface GroupNodeData extends NodeDisplayData {
   label: string;
   layoutDirection?: 'horizontal' | 'vertical';
   maxItemsPerLine?: number;
-  visualStyle?: 'default' | 'scriptPlotLinePanel' | 'assetBatchGroup';
-  batchKind?: 'character' | 'scene' | 'item';
+  visualStyle?: 'default' | 'scriptPlotLinePanel' | 'assetBatchGroup' | 'storyboardProductionGroup' | 'storyboardProductionCard';
+  batchKind?: 'character' | 'scene' | 'item' | 'storyboard10s' | 'storyboard15s';
   batchSource?: {
     sourceMirrorNodeId: string | null;
     sourcePanelNodeId: string | null;
@@ -781,6 +806,18 @@ export interface ImageEditNodeData extends NodeImageData {
   isGenerating?: boolean;
   generationStartedAt?: number | null;
   generationDurationMs?: number;
+  sourceStoryboardTableNodeId?: string | null;
+  sourceStoryboardRowIds?: string[];
+  sourceDurationGroupId?: string | null;
+  targetVideoDurationSeconds?: 10 | 15;
+  sourceAssetMaterialNodeId?: string | null;
+  sourceImageResultNodeId?: string | null;
+  referenceTokenMode?: 'namedAsset' | 'indexedImage';
+  continuousReferenceChain?: {
+    enabled: boolean;
+    previousImageNodeId?: string | null;
+    previousRowId?: string | null;
+  };
 }
 
 export interface MultiAngleImageNodeData extends NodeDisplayData {
@@ -880,6 +917,14 @@ export interface JimengNodeData extends NodeDisplayData {
   isSubmitting?: boolean;
   lastSubmittedAt?: number | null;
   lastError?: string | null;
+  sourceStoryboardTableNodeId?: string | null;
+  sourceStoryboardRowIds?: string[];
+  sourceDurationGroupId?: string | null;
+  targetVideoDurationSeconds?: 10 | 15;
+  sourceImageNodeId?: string | null;
+  sourceAssetMaterialNodeId?: string | null;
+  sourceImageResultNodeId?: string | null;
+  referenceTokenMode?: 'namedAsset' | 'indexedImage';
 }
 
 export interface JimengGeneratedImageItem {
@@ -1095,6 +1140,14 @@ export interface SeedanceNodeData extends NodeDisplayData {
   isSubmitting?: boolean;
   lastSubmittedAt?: number | null;
   lastError?: string | null;
+  sourceStoryboardTableNodeId?: string | null;
+  sourceStoryboardRowIds?: string[];
+  sourceDurationGroupId?: string | null;
+  targetVideoDurationSeconds?: 10 | 15;
+  sourceImageNodeId?: string | null;
+  sourceAssetMaterialNodeId?: string | null;
+  sourceImageResultNodeId?: string | null;
+  referenceTokenMode?: 'namedAsset' | 'indexedImage';
 }
 
 export interface SeedanceVideoResultNodeData extends NodeDisplayData {
@@ -1294,6 +1347,14 @@ export interface StoryboardGenNodeData {
   sourceDirectorPackageId?: string | null;
   sourceSectionId?: string | null;
   sourceShotId?: string | null;
+  sourceStoryboardTableNodeId?: string | null;
+  sourceStoryboardRowIds?: string[];
+  sourceDurationGroupId?: string | null;
+  targetVideoDurationSeconds?: 10 | 15;
+  continuousReferenceChain?: {
+    enabled: boolean;
+    previousRowId?: string | null;
+  };
   promptText?: string;
   videoPromptText?: string;
   referenceAssets?: ReferenceAssetSnapshot[];
@@ -1807,6 +1868,11 @@ function normalizeStaticImageCompareSnapshotData(
       record.generationFailureStage
     ),
     generationStatusText: normalizeString(record.generationStatusText).trim() || null,
+    isStoryboardProductionPlaceholder: normalizeBooleanValue(record.isStoryboardProductionPlaceholder, false),
+    sourceImageNodeId: normalizeString(record.sourceImageNodeId).trim() || null,
+    sourceStoryboardTableNodeId: normalizeString(record.sourceStoryboardTableNodeId).trim() || null,
+    sourceStoryboardRowIds: normalizeStringArray(record.sourceStoryboardRowIds),
+    sourceDurationGroupId: normalizeString(record.sourceDurationGroupId).trim() || null,
   };
 }
 
@@ -2472,6 +2538,150 @@ export interface ScriptAssetExtractionState {
   lastGeneratedAt: number | null;
 }
 
+export type SmartDirectorStoryboardGenerationPhase =
+  | 'idle'
+  | 'generating'
+  | 'ready'
+  | 'error';
+
+export type SmartDirectorStoryboardTransferStatus =
+  | 'idle'
+  | 'ready'
+  | 'missingProject'
+  | 'error';
+
+export interface SmartDirectorStoryboardGenerationState {
+  requestId: string | null;
+  phase: SmartDirectorStoryboardGenerationPhase;
+  statusText: string | null;
+  lastError: string | null;
+  lastGeneratedAt: number | null;
+}
+
+export interface DirectorStoryboardTableRow {
+  id: string;
+  rowState: ScriptStoryboardTableRowState;
+  rowError?: string | null;
+  sceneNumber: string;
+  shotNumber: string;
+  sketch: string;
+  shotSize: string;
+  cameraAngle: string;
+  cameraMovement: string;
+  blockingAction: string;
+  dialogueOrSound: string;
+  durationSeconds: number;
+  assetRefs: string[];
+  imagePrompt: string;
+  remark: string;
+  group10sId: string;
+  group15sId: string;
+  isContinuousWithPrev: boolean;
+}
+
+export interface DirectorStoryboardDurationGroup {
+  id: string;
+  label: string;
+  rowIds: string[];
+  totalDurationSeconds: number;
+  startShotNumber: string;
+  endShotNumber: string;
+}
+
+export interface SmartDirectorStoryboardResult {
+  schemaVersion?: number;
+  version: number;
+  generatedAt: number;
+  rows: DirectorStoryboardTableRow[];
+  continuousGroups: DirectorStoryboardDurationGroup[];
+  groups10s: DirectorStoryboardDurationGroup[];
+  groups15s: DirectorStoryboardDurationGroup[];
+  totalDurationSeconds: number;
+}
+
+export type ScriptStoryboardTableRowState =
+  | 'queued'
+  | 'generating'
+  | 'ready'
+  | 'error';
+
+export type ScriptStoryboardTableStreamPhase =
+  | 'idle'
+  | 'preparing'
+  | 'outlining'
+  | 'streaming'
+  | 'completed'
+  | 'error'
+  | 'cancelled';
+
+export interface ScriptStoryboardTableColumn {
+  key: string;
+  label: string;
+}
+
+export interface ScriptStoryboardTableSummary {
+  rowCount: number;
+  generatedRowCount: number;
+  totalDurationSeconds: number;
+  continuousGroupCount: number;
+  groups10sCount: number;
+  groups15sCount: number;
+  lastUpdatedAt: number | null;
+}
+
+export interface ScriptStoryboardTableStreamState {
+  requestId: string | null;
+  phase: ScriptStoryboardTableStreamPhase;
+  statusText: string | null;
+  error: string | null;
+  activeRowId: string | null;
+  completedRowCount: number;
+  totalRowCount: number;
+  lastEventAt: number | null;
+}
+
+export interface ScriptStoryboardTableEditingCell {
+  rowId: string;
+  columnKey: string;
+}
+
+export interface ScriptStoryboardTableNodeData extends NodeDisplayData {
+  presentationMode?: 'editable' | 'storyboardMirror';
+  expansionSource?: {
+    sourceProjectId: string;
+    sourceProjectName: string;
+    sourceNodeId: string;
+    sourceNodeVersion: number | null;
+    sourceLabel: string;
+  } | null;
+  sourceSmartDirectorStoryboardNodeId: string | null;
+  sourceAssetExtractNodeId: string | null;
+  sourceSnapshotVersion: number | null;
+  sourceLabel?: string | null;
+  tableSchema: ScriptStoryboardTableColumn[];
+  rows: DirectorStoryboardTableRow[];
+  summary: ScriptStoryboardTableSummary;
+  streamState: ScriptStoryboardTableStreamState;
+  rowHeight?: number;
+  visibleColumnKeys?: string[];
+  activeEditingCell?: ScriptStoryboardTableEditingCell | null;
+  manualEditVersion?: number;
+  manuallyEditedRowIds?: string[];
+  storyboardProductionMode?: 'none' | '10s' | '15s';
+  continuousReferenceEnabled?: boolean;
+  expandedProductionGroupNodeIds?: string[];
+  linkedStoryboardProjectId: string | null;
+  storyboardTransferStatus: SmartDirectorStoryboardTransferStatus;
+  storyboardTransferSnapshot: DirectorStoryboardTransferSnapshot | null;
+}
+
+export interface DirectorStoryboardTransferSnapshot {
+  version: number;
+  generatedAt: number;
+  rowCount: number;
+  totalDurationSeconds: number;
+}
+
 export interface ProductionJobRecord {
   jobId: string;
   kind: ProductionJobKind;
@@ -2538,6 +2748,26 @@ export interface ScriptAssetExtractNodeData extends NodeDisplayData {
 }
 
 export type DirectorWorkPackageNodeData = ScriptAssetExtractNodeData;
+
+export interface SmartDirectorStoryboardNodeData extends NodeDisplayData {
+  presentationMode?: 'editable' | 'storyboardMirror';
+  expansionSource?: {
+    sourceProjectId: string;
+    sourceProjectName: string;
+    sourceNodeId: string;
+    sourceNodeVersion: number | null;
+    sourceLabel: string;
+  } | null;
+  sourceAssetExtractNodeId: string | null;
+  resolvedSourceSnapshot: ScriptAssetExtractSourceSnapshot | null;
+  generationState: SmartDirectorStoryboardGenerationState;
+  activeResultNodeId: string | null;
+  generatedResultNodeIds: string[];
+  result: SmartDirectorStoryboardResult | null;
+  linkedStoryboardProjectId: string | null;
+  storyboardTransferStatus: SmartDirectorStoryboardTransferStatus;
+  storyboardTransferSnapshot: DirectorStoryboardTransferSnapshot | null;
+}
 
 export interface ScriptRootNodeData extends NodeDisplayData {
   title: string;
@@ -2793,6 +3023,7 @@ export type CanvasNodeData =
   | StoryboardSplitNodeData
   | StoryboardSplitResultNodeData
   | StoryboardGenNodeData
+  | AssetMaterialNodeData
   | VideoNodeData
   | AudioNodeData
   | TtsTextNodeData
@@ -2811,6 +3042,8 @@ export type CanvasNodeData =
   | ScriptSceneNodeData
   | ShootingScriptNodeData
   | ScriptAssetExtractNodeData
+  | SmartDirectorStoryboardNodeData
+  | ScriptStoryboardTableNodeData
   | DirectorWorkPackageNodeData
   | DirectorStoryboardReferenceNodeData
   | ScriptReferenceNodeData
@@ -2846,6 +3079,7 @@ export const NODE_TOOL_TYPES = {
   crop: 'crop',
   annotate: 'annotate',
   splitStoryboard: 'split-storyboard',
+  extractAudio: 'extract-audio',
 } as const;
 
 export type NodeToolType = (typeof NODE_TOOL_TYPES)[keyof typeof NODE_TOOL_TYPES];
@@ -3606,6 +3840,295 @@ export function normalizeScriptAssetExtractionState(
     statusText: normalizeString(record.statusText).trim() || null,
     lastError: normalizeString(record.lastError).trim() || null,
     lastGeneratedAt: Number.isFinite(record.lastGeneratedAt) ? Number(record.lastGeneratedAt) : null,
+  };
+}
+
+function normalizeSmartDirectorStoryboardGenerationPhase(
+  value: unknown
+): SmartDirectorStoryboardGenerationPhase {
+  return value === 'generating' || value === 'ready' || value === 'error'
+    ? value
+    : 'idle';
+}
+
+function normalizeSmartDirectorStoryboardTransferStatus(
+  value: unknown
+): SmartDirectorStoryboardTransferStatus {
+  return value === 'ready' || value === 'missingProject' || value === 'error'
+    ? value
+    : 'idle';
+}
+
+function normalizeScriptStoryboardTableRowState(
+  value: unknown
+): ScriptStoryboardTableRowState {
+  return value === 'generating' || value === 'ready' || value === 'error'
+    ? value
+    : 'queued';
+}
+
+function normalizeScriptStoryboardTableStreamPhase(
+  value: unknown
+): ScriptStoryboardTableStreamPhase {
+  return value === 'preparing'
+    || value === 'outlining'
+    || value === 'streaming'
+    || value === 'completed'
+    || value === 'error'
+    || value === 'cancelled'
+    ? value
+    : 'idle';
+}
+
+export function normalizeSmartDirectorStoryboardGenerationState(
+  value: unknown
+): SmartDirectorStoryboardGenerationState {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return {
+      requestId: null,
+      phase: 'idle',
+      statusText: null,
+      lastError: null,
+      lastGeneratedAt: null,
+    };
+  }
+
+  const record = value as Partial<SmartDirectorStoryboardGenerationState>;
+  return {
+    requestId: normalizeString(record.requestId).trim() || null,
+    phase: normalizeSmartDirectorStoryboardGenerationPhase(record.phase),
+    statusText: normalizeString(record.statusText).trim() || null,
+    lastError: normalizeString(record.lastError).trim() || null,
+    lastGeneratedAt: Number.isFinite(record.lastGeneratedAt) ? Number(record.lastGeneratedAt) : null,
+  };
+}
+
+export function normalizeDirectorStoryboardTableRow(
+  value: unknown,
+  fallbackIndex: number
+): DirectorStoryboardTableRow | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return null;
+  }
+
+  const record = value as Partial<DirectorStoryboardTableRow>;
+  const sketch = normalizeString(
+    (record as { sketch?: unknown; frameDescription?: unknown; comicText?: unknown }).sketch
+      ?? (record as { frameDescription?: unknown }).frameDescription
+      ?? (record as { comicText?: unknown }).comicText
+  ).trim();
+  const imagePrompt = normalizeString(record.imagePrompt).trim();
+  if (!sketch && !imagePrompt) {
+    return null;
+  }
+
+  return {
+    id: normalizeString(record.id).trim() || `director-row-${fallbackIndex + 1}`,
+    rowState: normalizeScriptStoryboardTableRowState(record.rowState),
+    rowError: normalizeString((record as { rowError?: unknown }).rowError).trim() || null,
+    sceneNumber: normalizeString(
+      (record as { sceneNumber?: unknown; sceneLabel?: unknown }).sceneNumber
+        ?? (record as { sceneLabel?: unknown }).sceneLabel
+    ).trim(),
+    shotNumber: normalizeString(record.shotNumber).trim() || String(fallbackIndex + 1),
+    sketch,
+    shotSize: normalizeString(
+      (record as { shotSize?: unknown; shotType?: unknown }).shotSize
+        ?? (record as { shotType?: unknown }).shotType
+    ).trim(),
+    cameraAngle: normalizeString(record.cameraAngle).trim(),
+    cameraMovement: normalizeString(record.cameraMovement).trim(),
+    blockingAction: normalizeString(record.blockingAction).trim(),
+    dialogueOrSound: normalizeString(
+      (record as { dialogueOrSound?: unknown; dialogueOrVoiceover?: unknown }).dialogueOrSound
+        ?? (record as { dialogueOrVoiceover?: unknown }).dialogueOrVoiceover
+    ).trim(),
+    durationSeconds: Number.isFinite(record.durationSeconds)
+      ? Math.max(0.5, Number(record.durationSeconds))
+      : 3,
+    assetRefs: normalizeStringArray(record.assetRefs),
+    imagePrompt,
+    remark: normalizeString(
+      (record as { remark?: unknown; continuityNote?: unknown }).remark
+        ?? (record as { continuityNote?: unknown }).continuityNote
+    ).trim(),
+    group10sId: normalizeString(record.group10sId).trim(),
+    group15sId: normalizeString(record.group15sId).trim(),
+    isContinuousWithPrev: Boolean(record.isContinuousWithPrev),
+  };
+}
+
+export function normalizeDirectorStoryboardDurationGroup(
+  value: unknown,
+  fallbackIndex: number
+): DirectorStoryboardDurationGroup | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return null;
+  }
+
+  const record = value as Partial<DirectorStoryboardDurationGroup>;
+  const rowIds = normalizeStringArray(record.rowIds);
+  if (rowIds.length === 0) {
+    return null;
+  }
+
+  return {
+    id: normalizeString(record.id).trim() || `director-group-${fallbackIndex + 1}`,
+    label: normalizeString(record.label).trim() || `Group ${fallbackIndex + 1}`,
+    rowIds,
+    totalDurationSeconds: Number.isFinite(record.totalDurationSeconds)
+      ? Math.max(0, Number(record.totalDurationSeconds))
+      : 0,
+    startShotNumber: normalizeString(record.startShotNumber).trim(),
+    endShotNumber: normalizeString(record.endShotNumber).trim(),
+  };
+}
+
+export function normalizeSmartDirectorStoryboardResult(
+  value: unknown
+): SmartDirectorStoryboardResult | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return null;
+  }
+
+  const record = value as Partial<SmartDirectorStoryboardResult>;
+  return {
+    schemaVersion: Number.isFinite(record.schemaVersion)
+      ? Math.max(1, Math.floor(Number(record.schemaVersion)))
+      : 1,
+    version: Number.isFinite(record.version) ? Math.max(1, Math.floor(Number(record.version))) : 1,
+    generatedAt: Number.isFinite(record.generatedAt) ? Number(record.generatedAt) : Date.now(),
+    rows: (Array.isArray(record.rows) ? record.rows : [])
+      .map((item, index) => normalizeDirectorStoryboardTableRow(item, index))
+      .filter((item): item is DirectorStoryboardTableRow => Boolean(item)),
+    continuousGroups: (Array.isArray(record.continuousGroups) ? record.continuousGroups : [])
+      .map((item, index) => normalizeDirectorStoryboardDurationGroup(item, index))
+      .filter((item): item is DirectorStoryboardDurationGroup => Boolean(item)),
+    groups10s: (Array.isArray(record.groups10s) ? record.groups10s : [])
+      .map((item, index) => normalizeDirectorStoryboardDurationGroup(item, index))
+      .filter((item): item is DirectorStoryboardDurationGroup => Boolean(item)),
+    groups15s: (Array.isArray(record.groups15s) ? record.groups15s : [])
+      .map((item, index) => normalizeDirectorStoryboardDurationGroup(item, index))
+      .filter((item): item is DirectorStoryboardDurationGroup => Boolean(item)),
+    totalDurationSeconds: Number.isFinite(record.totalDurationSeconds)
+      ? Math.max(0, Number(record.totalDurationSeconds))
+      : 0,
+  };
+}
+
+export function normalizeScriptStoryboardTableColumn(
+  value: unknown,
+  fallbackIndex: number
+): ScriptStoryboardTableColumn | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return null;
+  }
+
+  const record = value as Partial<ScriptStoryboardTableColumn>;
+  const key = normalizeString(record.key).trim();
+  const label = normalizeString(record.label).trim();
+  if (!key && !label) {
+    return null;
+  }
+
+  return {
+    key: key || `column-${fallbackIndex + 1}`,
+    label: label || key || `Column ${fallbackIndex + 1}`,
+  };
+}
+
+export function normalizeScriptStoryboardTableSummary(
+  value: unknown
+): ScriptStoryboardTableSummary {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return {
+      rowCount: 0,
+      generatedRowCount: 0,
+      totalDurationSeconds: 0,
+      continuousGroupCount: 0,
+      groups10sCount: 0,
+      groups15sCount: 0,
+      lastUpdatedAt: null,
+    };
+  }
+
+  const record = value as Partial<ScriptStoryboardTableSummary>;
+  return {
+    rowCount: Number.isFinite(record.rowCount) ? Math.max(0, Math.floor(Number(record.rowCount))) : 0,
+    generatedRowCount: Number.isFinite(record.generatedRowCount)
+      ? Math.max(0, Math.floor(Number(record.generatedRowCount)))
+      : 0,
+    totalDurationSeconds: Number.isFinite(record.totalDurationSeconds)
+      ? Math.max(0, Number(record.totalDurationSeconds))
+      : 0,
+    continuousGroupCount: Number.isFinite(record.continuousGroupCount)
+      ? Math.max(0, Math.floor(Number(record.continuousGroupCount)))
+      : 0,
+    groups10sCount: Number.isFinite(record.groups10sCount)
+      ? Math.max(0, Math.floor(Number(record.groups10sCount)))
+      : 0,
+    groups15sCount: Number.isFinite(record.groups15sCount)
+      ? Math.max(0, Math.floor(Number(record.groups15sCount)))
+      : 0,
+    lastUpdatedAt: Number.isFinite(record.lastUpdatedAt) ? Number(record.lastUpdatedAt) : null,
+  };
+}
+
+export function normalizeScriptStoryboardTableStreamState(
+  value: unknown
+): ScriptStoryboardTableStreamState {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return {
+      requestId: null,
+      phase: 'idle',
+      statusText: null,
+      error: null,
+      activeRowId: null,
+      completedRowCount: 0,
+      totalRowCount: 0,
+      lastEventAt: null,
+    };
+  }
+
+  const record = value as Partial<ScriptStoryboardTableStreamState>;
+  return {
+    requestId: normalizeString(record.requestId).trim() || null,
+    phase: normalizeScriptStoryboardTableStreamPhase(record.phase),
+    statusText: normalizeString(record.statusText).trim() || null,
+    error: normalizeString(record.error).trim() || null,
+    activeRowId: normalizeString(record.activeRowId).trim() || null,
+    completedRowCount: Number.isFinite(record.completedRowCount)
+      ? Math.max(0, Math.floor(Number(record.completedRowCount)))
+      : 0,
+    totalRowCount: Number.isFinite(record.totalRowCount)
+      ? Math.max(0, Math.floor(Number(record.totalRowCount)))
+      : 0,
+    lastEventAt: Number.isFinite(record.lastEventAt) ? Number(record.lastEventAt) : null,
+  };
+}
+
+export function normalizeDirectorStoryboardTransferSnapshot(
+  value: unknown
+): DirectorStoryboardTransferSnapshot | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return null;
+  }
+
+  const record = value as Partial<DirectorStoryboardTransferSnapshot>;
+  const version = Number.isFinite(record.version) ? Math.max(1, Math.floor(Number(record.version))) : 0;
+  if (!version) {
+    return null;
+  }
+
+  return {
+    version,
+    generatedAt: Number.isFinite(record.generatedAt) ? Number(record.generatedAt) : Date.now(),
+    rowCount: Number.isFinite((record as { rowCount?: unknown }).rowCount)
+      ? Math.max(0, Math.floor(Number((record as { rowCount?: unknown }).rowCount)))
+      : 0,
+    totalDurationSeconds: Number.isFinite(record.totalDurationSeconds)
+      ? Math.max(0, Number(record.totalDurationSeconds))
+      : 0,
   };
 }
 
@@ -4585,11 +5108,18 @@ export function normalizeGroupNodeData(
       ? Math.max(1, Math.round(Number(data.maxItemsPerLine)))
       : undefined,
     visualStyle:
-      data.visualStyle === 'scriptPlotLinePanel' || data.visualStyle === 'assetBatchGroup'
+      data.visualStyle === 'scriptPlotLinePanel'
+      || data.visualStyle === 'assetBatchGroup'
+      || data.visualStyle === 'storyboardProductionGroup'
+      || data.visualStyle === 'storyboardProductionCard'
         ? data.visualStyle
         : 'default',
     batchKind:
-      data.batchKind === 'character' || data.batchKind === 'scene' || data.batchKind === 'item'
+      data.batchKind === 'character'
+      || data.batchKind === 'scene'
+      || data.batchKind === 'item'
+      || data.batchKind === 'storyboard10s'
+      || data.batchKind === 'storyboard15s'
         ? data.batchKind
         : undefined,
     batchSource,
@@ -4605,6 +5135,28 @@ export function normalizeGroupNodeData(
     globalStyleTemplatePrompt: normalizeString(data.globalStyleTemplatePrompt).trim() || null,
     optimizePromptBeforeGenerate: normalizeBooleanValue(data.optimizePromptBeforeGenerate, false),
     queueState: normalizeAssetBatchQueueState(data.queueState),
+  };
+}
+
+export function normalizeAssetMaterialNodeData(
+  data: AssetMaterialNodeData
+): AssetMaterialNodeData {
+  return {
+    ...data,
+    assetLibraryId: normalizeString(data.assetLibraryId).trim() || null,
+    selectedAssetIds: normalizeStringArray(data.selectedAssetIds)
+      .filter((value, index, array) => value.length > 0 && array.indexOf(value) === index),
+    sourceStoryboardTableNodeId: normalizeString(data.sourceStoryboardTableNodeId).trim() || null,
+    sourceStoryboardRowIds: normalizeStringArray(data.sourceStoryboardRowIds)
+      .filter((value, index, array) => value.length > 0 && array.indexOf(value) === index),
+    sourceDurationGroupId: normalizeString(data.sourceDurationGroupId).trim() || null,
+    defaultMatchedAssetNames: normalizeStringArray(data.defaultMatchedAssetNames)
+      .filter((value, index, array) => value.length > 0 && array.indexOf(value) === index),
+    displayMode: 'nameOnlyAccordion',
+    outputMode: 'namedReference',
+    displayName: normalizeString(data.displayName).trim() || data.displayName,
+    description: normalizeString(data.description).trim() || undefined,
+    semanticColor: data.semanticColor ?? null,
   };
 }
 
@@ -4697,6 +5249,136 @@ export function normalizeScriptAssetExtractNodeData(
 }
 
 export const normalizeDirectorWorkPackageNodeData = normalizeScriptAssetExtractNodeData;
+
+export function normalizeSmartDirectorStoryboardNodeData(
+  data: SmartDirectorStoryboardNodeData
+): SmartDirectorStoryboardNodeData {
+  const expansionSource =
+    data.expansionSource && typeof data.expansionSource === 'object' && !Array.isArray(data.expansionSource)
+      ? {
+          sourceProjectId: normalizeString(data.expansionSource.sourceProjectId).trim(),
+          sourceProjectName: normalizeString(data.expansionSource.sourceProjectName).trim(),
+          sourceNodeId: normalizeString(data.expansionSource.sourceNodeId).trim(),
+          sourceNodeVersion: Number.isFinite(data.expansionSource.sourceNodeVersion)
+            ? Math.max(1, Math.floor(Number(data.expansionSource.sourceNodeVersion)))
+            : null,
+          sourceLabel: normalizeString(data.expansionSource.sourceLabel).trim(),
+        }
+      : null;
+
+  return {
+    presentationMode: data.presentationMode === 'storyboardMirror'
+      ? 'storyboardMirror'
+      : 'editable',
+    expansionSource:
+      expansionSource
+      && expansionSource.sourceProjectId
+      && expansionSource.sourceNodeId
+        ? expansionSource
+        : null,
+    sourceAssetExtractNodeId: normalizeString(data.sourceAssetExtractNodeId).trim() || null,
+    resolvedSourceSnapshot: normalizeScriptAssetExtractSourceSnapshot(data.resolvedSourceSnapshot),
+    generationState: normalizeSmartDirectorStoryboardGenerationState(data.generationState),
+    activeResultNodeId: normalizeString((data as { activeResultNodeId?: unknown }).activeResultNodeId).trim() || null,
+    generatedResultNodeIds: normalizeStringArray((data as { generatedResultNodeIds?: unknown }).generatedResultNodeIds),
+    result: normalizeSmartDirectorStoryboardResult(data.result),
+    linkedStoryboardProjectId: normalizeString(data.linkedStoryboardProjectId).trim() || null,
+    storyboardTransferStatus: normalizeSmartDirectorStoryboardTransferStatus(data.storyboardTransferStatus),
+    storyboardTransferSnapshot: normalizeDirectorStoryboardTransferSnapshot(data.storyboardTransferSnapshot),
+    displayName: normalizeString(data.displayName).trim() || data.displayName,
+    description: normalizeString(data.description).trim() || undefined,
+    semanticColor: data.semanticColor ?? null,
+  };
+}
+
+export function normalizeScriptStoryboardTableNodeData(
+  data: ScriptStoryboardTableNodeData
+): ScriptStoryboardTableNodeData {
+  const expansionSource =
+    data.expansionSource && typeof data.expansionSource === 'object' && !Array.isArray(data.expansionSource)
+      ? {
+          sourceProjectId: normalizeString(data.expansionSource.sourceProjectId).trim(),
+          sourceProjectName: normalizeString(data.expansionSource.sourceProjectName).trim(),
+          sourceNodeId: normalizeString(data.expansionSource.sourceNodeId).trim(),
+          sourceNodeVersion: Number.isFinite(data.expansionSource.sourceNodeVersion)
+            ? Math.max(1, Math.floor(Number(data.expansionSource.sourceNodeVersion)))
+            : null,
+          sourceLabel: normalizeString(data.expansionSource.sourceLabel).trim(),
+        }
+      : null;
+
+  const visibleColumnKeys = normalizeStringArray(
+    (data as { visibleColumnKeys?: unknown }).visibleColumnKeys
+  ).filter((value, index, array) => value.length > 0 && array.indexOf(value) === index);
+  const activeEditingCellValue = (data as { activeEditingCell?: unknown }).activeEditingCell;
+  const activeEditingCell =
+    activeEditingCellValue
+    && typeof activeEditingCellValue === 'object'
+    && !Array.isArray(activeEditingCellValue)
+      ? {
+          rowId: normalizeString(
+            (activeEditingCellValue as { rowId?: unknown }).rowId
+          ).trim(),
+          columnKey: normalizeString(
+            (activeEditingCellValue as { columnKey?: unknown }).columnKey
+          ).trim(),
+        }
+      : null;
+
+  return {
+    presentationMode: data.presentationMode === 'storyboardMirror'
+      ? 'storyboardMirror'
+      : 'editable',
+    expansionSource:
+      expansionSource
+      && expansionSource.sourceProjectId
+      && expansionSource.sourceNodeId
+        ? expansionSource
+        : null,
+    sourceSmartDirectorStoryboardNodeId:
+      normalizeString(data.sourceSmartDirectorStoryboardNodeId).trim() || null,
+    sourceAssetExtractNodeId: normalizeString(data.sourceAssetExtractNodeId).trim() || null,
+    sourceSnapshotVersion: Number.isFinite(data.sourceSnapshotVersion)
+      ? Math.max(1, Math.floor(Number(data.sourceSnapshotVersion)))
+      : null,
+    sourceLabel: normalizeString((data as { sourceLabel?: unknown }).sourceLabel).trim() || null,
+    tableSchema: (Array.isArray(data.tableSchema) ? data.tableSchema : [])
+      .map((item, index) => normalizeScriptStoryboardTableColumn(item, index))
+      .filter((item): item is ScriptStoryboardTableColumn => Boolean(item)),
+    rows: (Array.isArray(data.rows) ? data.rows : [])
+      .map((item, index) => normalizeDirectorStoryboardTableRow(item, index))
+      .filter((item): item is DirectorStoryboardTableRow => Boolean(item)),
+    summary: normalizeScriptStoryboardTableSummary(data.summary),
+    streamState: normalizeScriptStoryboardTableStreamState(data.streamState),
+    rowHeight: Number.isFinite((data as { rowHeight?: unknown }).rowHeight)
+      ? Math.min(160, Math.max(56, Math.round(Number((data as { rowHeight?: unknown }).rowHeight))))
+      : 72,
+    visibleColumnKeys,
+    activeEditingCell:
+      activeEditingCell && activeEditingCell.rowId && activeEditingCell.columnKey
+        ? activeEditingCell
+        : null,
+    manualEditVersion: Number.isFinite((data as { manualEditVersion?: unknown }).manualEditVersion)
+      ? Math.max(0, Math.floor(Number((data as { manualEditVersion?: unknown }).manualEditVersion)))
+      : 0,
+    manuallyEditedRowIds: normalizeStringArray(
+      (data as { manuallyEditedRowIds?: unknown }).manuallyEditedRowIds
+    ).filter((value, index, array) => value.length > 0 && array.indexOf(value) === index),
+    storyboardProductionMode:
+      data.storyboardProductionMode === '10s' || data.storyboardProductionMode === '15s'
+        ? data.storyboardProductionMode
+        : 'none',
+    continuousReferenceEnabled: normalizeBooleanValue(data.continuousReferenceEnabled, false),
+    expandedProductionGroupNodeIds: normalizeStringArray(data.expandedProductionGroupNodeIds)
+      .filter((value, index, array) => value.length > 0 && array.indexOf(value) === index),
+    linkedStoryboardProjectId: normalizeString(data.linkedStoryboardProjectId).trim() || null,
+    storyboardTransferStatus: normalizeSmartDirectorStoryboardTransferStatus(data.storyboardTransferStatus),
+    storyboardTransferSnapshot: normalizeDirectorStoryboardTransferSnapshot(data.storyboardTransferSnapshot),
+    displayName: normalizeString(data.displayName).trim() || data.displayName,
+    description: normalizeString(data.description).trim() || undefined,
+    semanticColor: data.semanticColor ?? null,
+  };
+}
 
 export function normalizeScriptPlotLineNodeData(
   data: ScriptPlotLineNodeData
@@ -5158,6 +5840,12 @@ export function isStoryboardGenNode(
   node: CanvasNode | null | undefined
 ): node is Node<StoryboardGenNodeData, typeof CANVAS_NODE_TYPES.storyboardGen> {
   return node?.type === CANVAS_NODE_TYPES.storyboardGen;
+}
+
+export function isAssetMaterialNode(
+  node: CanvasNode | null | undefined
+): node is Node<AssetMaterialNodeData, typeof CANVAS_NODE_TYPES.assetMaterial> {
+  return node?.type === CANVAS_NODE_TYPES.assetMaterial;
 }
 
 export function isScriptRootNode(

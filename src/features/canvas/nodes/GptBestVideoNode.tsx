@@ -76,9 +76,12 @@ import {
 } from '@/features/gpt-best-video/application/gptBestVideoSubmission';
 import {
   OOPII_VIDEO_MODEL_IDS,
+  OOPII_VIDEO_ASPECT_RATIO_OPTIONS,
   OOPII_VIDEO_PROVIDER_ID,
-  OOPII_VIDEO_SIZE_OPTIONS,
-  resolveAspectRatioFromOopiiVideoSize,
+  OOPII_VIDEO_RESOLUTION_OPTIONS,
+  normalizeOopiiVideoAspectRatio,
+  normalizeOopiiVideoResolution,
+  resolveOopiiVideoSizeFromDisplayOptions,
 } from '@/features/gpt-best-video/domain/oopiiVideoModels';
 import { StyleTemplatePicker } from '@/features/project/StyleTemplatePicker';
 import { appendStyleTemplatePrompt } from '@/features/project/styleTemplatePrompt';
@@ -445,6 +448,8 @@ export const GptBestVideoNode = memo(
     );
     const selectedModelLabel = resolveModelLabel(t, selectedModelId);
     const providerName = t('settings.thirdPartyVideoOopiiName');
+    const selectedAspectRatio = normalizeOopiiVideoAspectRatio(data.aspectRatio, selectedSize);
+    const selectedResolution = normalizeOopiiVideoResolution(data.resolution);
     const resolvedTitle = useMemo(
       () => resolveNodeDisplayName(
         sourceKind === 'grok' ? CANVAS_NODE_TYPES.gptBestGrokVideo : CANVAS_NODE_TYPES.gptBestSeedance,
@@ -482,6 +487,14 @@ export const GptBestVideoNode = memo(
       })),
       [t]
     );
+    const aspectRatioOptions = useMemo(
+      () =>
+        OOPII_VIDEO_ASPECT_RATIO_OPTIONS.map((value) => ({
+          value,
+          label: t(`node.gptBestVideo.aspectRatios.${value}`),
+        })),
+      [t]
+    );
     const secondsOptions = useMemo(
       () =>
         resolveAllowedSecondsForGptBestVideoModel(sourceKind, selectedModelId).map((value) => ({
@@ -490,9 +503,13 @@ export const GptBestVideoNode = memo(
         })),
       [selectedModelId, sourceKind, t]
     );
-    const sizeOptions = useMemo(
-      () => OOPII_VIDEO_SIZE_OPTIONS.map((value) => ({ value, label: value })),
-      []
+    const resolutionOptions = useMemo(
+      () =>
+        OOPII_VIDEO_RESOLUTION_OPTIONS.map((value) => ({
+          value,
+          label: t(`node.gptBestVideo.resolutions.${value}`),
+        })),
+      [t]
     );
     const referenceVisualItems = useMemo<ReferenceVisualItem[]>(
       () =>
@@ -1021,9 +1038,9 @@ export const GptBestVideoNode = memo(
             videoUrl: null,
             previewImageUrl: null,
             videoFileName: null,
-            aspectRatio: resolveAspectRatioFromOopiiVideoSize(selectedSize),
+            aspectRatio: selectedAspectRatio,
             size: selectedSize,
-            resolution: selectedSize,
+            resolution: selectedResolution,
             duration: selectedSeconds,
             requestSnapshot: {
               provider: providerId,
@@ -1079,9 +1096,9 @@ export const GptBestVideoNode = memo(
           modelId: selectedModelId,
           size: selectedSize,
           seconds: selectedSeconds,
-          aspectRatio: resolveAspectRatioFromOopiiVideoSize(selectedSize),
+          aspectRatio: selectedAspectRatio,
           durationSeconds: selectedSeconds,
-          resolution: selectedSize,
+          resolution: selectedResolution,
         });
         await flushCurrentProjectToDiskSafely('saving third-party video task id');
       } catch (error) {
@@ -1117,8 +1134,10 @@ export const GptBestVideoNode = memo(
       id,
       promptDraft,
       providerId,
+      selectedAspectRatio,
       selectedModelId,
       selectedModelSupportsReferenceImages,
+      selectedResolution,
       selectedSeconds,
       selectedSize,
       sourceKind,
@@ -1468,14 +1487,28 @@ export const GptBestVideoNode = memo(
                     }
                   />
                   <FixedControlChip
-                    label={t('node.gptBestVideo.sizeLabel')}
-                    value={selectedSize}
-                    options={sizeOptions}
+                    label={t('node.gptBestVideo.aspectRatioLabel')}
+                    value={selectedAspectRatio}
+                    options={aspectRatioOptions}
                     onChange={(value) =>
                       updateCurrentNodeData({
-                        size: value,
+                        size: resolveOopiiVideoSizeFromDisplayOptions(value, selectedResolution),
+                        aspectRatio: value,
+                        resolution: selectedResolution,
+                        lastError: null,
+                      })
+                    }
+                  />
+                  <FixedControlChip
+                    label={t('node.gptBestVideo.resolutionLabel')}
+                    value={selectedResolution}
+                    options={resolutionOptions}
+                    disabled={resolutionOptions.length === 1}
+                    onChange={(value) =>
+                      updateCurrentNodeData({
+                        size: resolveOopiiVideoSizeFromDisplayOptions(selectedAspectRatio, value),
                         resolution: value,
-                        aspectRatio: resolveAspectRatioFromOopiiVideoSize(value),
+                        aspectRatio: selectedAspectRatio,
                         lastError: null,
                       })
                     }
@@ -1549,6 +1582,7 @@ export const GptBestVideoNode = memo(
               <UiButton
                 type="button"
                 size="sm"
+                variant="primary"
                 disabled={Boolean(data.isSubmitting || isOptimizingPrompt)}
                 className={`${NODE_CONTROL_PRIMARY_BUTTON_CLASS} shrink-0`}
                 onClick={(event) => {

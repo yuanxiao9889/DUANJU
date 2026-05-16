@@ -508,7 +508,8 @@
   "tool": {
     "crop": "裁剪",
     "annotate": "标注",
-    "split": "切割"
+    "split": "切割",
+    "extractAudio": "\u63d0\u53d6\u97f3\u9891"
   },
   "toolDialog": {
     "suffix": "工具",
@@ -534,7 +535,10 @@
       "quickSeek": "快速定位",
       "previewStart": "预览开始",
       "previewEnd": "预览结束"
-    }
+    },
+    "extractAudioFailed": "\u97f3\u9891\u5206\u79bb\u5931\u8d25",
+    "videoHasNoAudioTrack": "\u8fd9\u4e2a\u89c6\u9891\u6ca1\u6709\u53ef\u5206\u79bb\u7684\u97f3\u8f68",
+    "extractAudioResultTitle": "\u97f3\u9891\u5206\u79bb\u7ed3\u679c"
   },
   "nodeToolbar": {
     "reupload": "重新上传",
@@ -586,7 +590,7 @@
     "otherParams": "其他参数",
     "extraOptions": "额外参数",
     "generationQuality": "生成质量",
-    "generationQualityDesc": "控制 gpt-image-2 的细节强度、耗时与成本。",
+    "generationQualityDesc": "控制 all-image-2 的细节强度、耗时与成本。",
     "generationQualityAuto": "自动",
     "generationQualityLow": "低",
     "generationQualityMedium": "中",
@@ -654,7 +658,10 @@
       "directorWorkPackage": "剧本资产提取节点",
       "scriptAssetExtract": "剧本资产提取节点",
       "scriptPlotLine": "剧情线",
-      "directorStoryboardReference": "导演分镜台"
+      "directorStoryboardReference": "导演分镜台",
+      "smartDirectorStoryboard": "智能导演分镜",
+      "scriptStoryboardTable": "剧本分镜表节点",
+      "assetMaterial": "资产素材节点"
     },
     "menuGroup": {
       "imageGeneration": "图片生成",
@@ -1817,7 +1824,7 @@
       "referenceVideoUnsupportedConnected": "已连接 {{count}} 个视频参考；OOpii Grok 当前只支持图片 reference_images。",
       "referenceVideoUnsupportedError": "OOpii Grok 当前只支持图片 reference_images，请先断开上游视频后再提交。",
       "invalidSecondsForModel": "{{model}} 仅支持特定秒数，请改为可用时长后再提交。",
-      "oopiiHint": "OOpii 视频支持模型、秒数、尺寸；Grok 模型可连接最多 7 张参考图。",
+      "oopiiHint": "OK-video 当前支持 6 秒和 10 秒，参数面板可设置时长、比例和清晰度；Grok 参考图最多 7 张。",
       "textToVideoNoReferences": "文生视频模式不能连接参考图，请断开上游图片或切换模式。",
       "firstFrameRequiresOneImage": "首帧图生视频需要正好 1 张参考图。",
       "firstLastFrameRequiresTwoImages": "首尾帧图生视频需要正好 2 张参考图。",
@@ -1839,19 +1846,19 @@
         "OK-video": "OK-video"
       },
       "aspectRatios": {
-        "16:9": "16:9",
-        "9:16": "9:16",
-        "1:1": "1:1",
+        "16:9": "16:9 横屏",
+        "9:16": "9:16 竖屏",
+        "1:1": "1:1 方图",
         "4:3": "4:3",
         "3:4": "3:4",
         "21:9": "21:9"
       },
       "durations": {
-        "5": "5 秒",
+        "6": "6 秒",
         "10": "10 秒"
       },
       "resolutions": {
-        "720p": "720p",
+        "720p": "720P",
         "1080p": "1080p"
       }
     },
@@ -2251,6 +2258,109 @@
         "current": "当前：{{name}}",
         "lastRunAt": "最近执行：{{value}}"
       }
+    },
+    "storyboardProductionGroup": {
+      "nodeCount": "{{count}} 个分镜组合节点",
+      "continuousEnabled": "已开启连续参考",
+      "prepareHint": "分镜组合已准备好。本步骤只完成组合与参考链准备，后续再进入出图/视频生产。",
+      "shotCount": "{{count}} 个镜头",
+      "totalDuration": "合计 {{value}}",
+      "targetDuration": "目标 {{value}}",
+      "shots": "组合镜头",
+      "imageNodeTitle": "组合生图 {{index}}",
+      "imageResultTitle": "分镜图占位 {{index}}",
+      "jimengVideoTitle": "即梦视频 {{index}}",
+      "seedanceVideoTitle": "Seedance 视频 {{index}}",
+      "batchKind": {
+        "storyboard10s": "10s视频组合",
+        "storyboard15s": "15s视频组合"
+      }
+    },
+    "assetMaterial": {
+      "displayName": "资产素材节点",
+      "library": "选择素材资产库",
+      "noLibrary": "暂无资产库",
+      "empty": "请先选择或创建素材资产库",
+      "emptyCategory": "这个分类里还没有图片素材",
+      "uncategorized": "未分类",
+      "category": {
+        "character": "角色",
+        "scene": "场景",
+        "prop": "道具"
+      },
+      "categoryShort": {
+        "character": "角色",
+        "scene": "场景",
+        "prop": "物品"
+      }
+    },
+    "smartDirectorStoryboard": {
+      "boundAssetReady": "已绑定资产提取节点",
+      "boundAssetMissing": "未绑定资产提取节点",
+      "missingAsset": "请先连接剧本资产提取节点",
+      "status": {
+        "idle": "待生成",
+        "generating": "生成中",
+        "ready": "已完成",
+        "error": "生成失败"
+      },
+      "openWorkbench": "打开分镜工作台",
+      "startHint": "使用同源文本和已提取资产，生成后续可流转到分镜画布的剧本分镜表。",
+      "requireAssetHint": "先连接并完成剧本资产提取节点，才能生成智能导演分镜。",
+      "generate": "生成分镜",
+      "generating": "生成中...",
+      "regenerate": "重新生成",
+      "openStoryboard": "去分镜画布",
+      "expandToStoryboard": "展开到分镜画布",
+      "openingStoryboard": "正在进入...",
+      "storyboardMirrorHint": "来自 {{source}} 的分镜镜像快照"
+    },
+    "scriptStoryboardTable": {
+      "nodeBadge": "结果表",
+      "emptyHint": "开始生成后，这里会逐行流式填充分镜表内容。",
+      "generatedRows": "{{completed}} / {{total}} 行",
+      "emptyGroup": "未分组",
+      "summary": {
+        "rows": "镜头数",
+        "generatedRows": "已完成",
+        "duration": "总时长",
+        "continuousGroups": "连续分镜段",
+        "groups10s": "10 秒组",
+        "groups15s": "15 秒组"
+      },
+      "columns": {
+        "sceneNumber": "场次",
+        "shotNumber": "镜头",
+        "sketch": "画面草图",
+        "shotSize": "景别",
+        "cameraAngle": "机位 / 角度",
+        "cameraMovement": "镜头运动",
+        "blockingAction": "动作 / 调度",
+        "dialogueOrSound": "台词 / 声音",
+        "duration": "时长",
+        "assets": "涉及素材",
+        "remark": "备注",
+        "imagePrompt": "生图提示词"
+      },
+      "rowState": {
+        "queued": "排队中",
+        "generating": "生成中",
+        "ready": "已完成",
+        "error": "失败"
+      },
+      "continuity": {
+        "continuous": "延续上一镜头",
+        "newSegment": "新的连续段"
+      },
+      "streamPhase": {
+        "idle": "待生成",
+        "preparing": "准备中",
+        "outlining": "搭建表格中",
+        "streaming": "逐行生成中",
+        "completed": "已完成",
+        "error": "失败",
+        "cancelled": "已取消"
+      }
     }
   },
   "viewer": {
@@ -2448,7 +2558,38 @@
     "currentClipLibrary": "当前主素材库",
     "boundClipLibraryChapterHint": "这个项目当前绑定到 {{library}}。",
     "rebindClipLibraryWarningTitle": "切换绑定库只会影响后续入库",
-    "rebindClipLibraryWarning": "旧库里已经存在的素材会保留，新加入的素材会进入新绑定的剪辑素材库。"
+    "rebindClipLibraryWarning": "旧库里已经存在的素材会保留，新加入的素材会进入新绑定的剪辑素材库。",
+    "smartDirectorStoryboardExpand": {
+      "title": "去分镜画布",
+      "confirm": "进入",
+      "submitting": "正在处理...",
+      "modeNew": "新建分镜画布",
+      "modeNewHint": "创建新的分镜项目，并把剧本分镜表传过去。",
+      "modeExisting": "选择已有分镜画布",
+      "modeExistingHint": "将当前剧本分镜表同步到已有分镜项目。",
+      "newNameLabel": "新分镜画布名称",
+      "newNamePlaceholder": "输入新的分镜项目名称",
+      "existingLabel": "选择已有分镜画布",
+      "existingPlaceholder": "请选择一个分镜项目",
+      "recommended": "推荐",
+      "sameSource": "同源剧本",
+      "updatedAt": "最近更新：{{value}}",
+      "noCandidates": "当前还没有可用的分镜项目。",
+      "errors": {
+        "generic": "去分镜画布失败。"
+      }
+    },
+    "smartDirectorStoryboard": {
+      "resultChoiceDialog": {
+        "title": "已有分镜结果",
+        "subtitle": "这个智能导演分镜已经关联了一个剧本分镜表节点。你可以直接覆盖当前结果，也可以新建一个结果节点保留旧版本。",
+        "reuseTitle": "覆盖当前结果",
+        "reuseHint": "保留当前结果节点的位置和连线，用新的流式分镜内容重新填充。",
+        "newTitle": "新建结果节点",
+        "newHint": "在右侧创建一个新的剧本分镜表节点，旧结果会继续保留方便对比。",
+        "cancel": "取消"
+      }
+    }
   },
   "adProject": {
     "heroDescription": "先构建导演 skill，再整理广告 brief，最后生成可编辑、可追问导演的镜头级广告脚本表。",
@@ -2994,14 +3135,14 @@
     "codingModel": "Coding Plan 模型",
     "scriptModelSelection": "剧本模型",
     "scriptModelSelectionDesc": "选择当前剧本供应商启用的模型，也可以在下方追加你自己的模型 ID。",
-    "scriptOopiiModelSelectionDesc": "OOpii 默认使用 gpt-5.4，填入 API Key 后即可激活；如有需要，仍可在下方添加并切换你自己的模型 ID。",
+    "scriptOopiiModelSelectionDesc": "OOpii 默认使用 all-5.4，并内置 all-5.5；填入 API Key 后即可激活，如有需要仍可在下方添加并切换你自己的模型 ID。",
     "scriptCustomModelAdd": "添加模型",
     "scriptCustomModelEmpty": "当前供应商还没有添加自定义模型。",
     "scriptCustomModelDelete": "删除自定义模型",
     "scriptCustomModelIdLabel": "模型 ID",
     "scriptCustomModelDisplayNameLabel": "显示名称",
-    "scriptCustomModelDisplayNamePlaceholder": "显示名称，例如 gpt-5.4",
-    "scriptCustomModelIdPlaceholder": "模型 ID，例如 gpt-5.4-2026-03-05",
+    "scriptCustomModelDisplayNamePlaceholder": "显示名称，例如 all-5.4",
+    "scriptCustomModelIdPlaceholder": "模型 ID，例如 all-5.5",
     "scriptCompatibleTitle": "自定义剧本 API",
     "scriptCompatibleDesc": "使用自定义 OpenAI 兼容的 chat completions 接口来生成剧本，模型仍然在上方的模型列表中管理。",
     "scriptCompatibleEndpointUrl": "接口地址",
@@ -3014,7 +3155,7 @@
     "storyboardCustomModelDisplayNamePlaceholder": "显示名称，例如 香蕉2",
     "storyboardNewApiCustomModelType": "模型类型",
     "storyboardNewApiCustomModelTypePlaceholder": "请选择 NewAPI 模型类型",
-    "storyboardNewApiCustomModelTypeGptImage2": "gpt-image-2（OpenAI 图片）",
+    "storyboardNewApiCustomModelTypeGptImage2": "all-image-2（OpenAI 图片）",
     "storyboardNewApiCustomModelTypeGoogleImage": "Google/Gemini 图片",
     "storyboardNewApiCustomModelTypeOpenaiCompatible": "OpenAI 兼容兜底",
     "addProvider": "添加供应商",
@@ -3036,7 +3177,7 @@
     "storyboardCompatibleHint": "设置好请求格式、接口地址与上方的兼容模型列表后再保存。未配置有效接口的兼容模型，不会出现在 AI 图片节点和分镜节点的模型列表中。",
     "storyboardCompatibleNoConnectionTest": "这条实验兼容配置不复用当前的文本连接测试。请保存后直接在分镜节点里验证生成链路。",
     "storyboardNewApiTitle": "NewAPI 图片接口",
-    "storyboardNewApiDesc": "这里只配置接口地址和默认请求格式。具体模型统一在上方“模型选择”里添加和切换；添加 NewAPI 模型时请按 gpt-image-2、Google/Gemini 图片或 OpenAI 兼容兜底分类。",
+    "storyboardNewApiDesc": "这里只配置接口地址和默认请求格式。具体模型统一在上方“模型选择”里添加和切换；添加 NewAPI 模型时请按 all-image-2、Google/Gemini 图片或 OpenAI 兼容兜底分类。",
     "storyboardNewApiFormat": "请求格式",
     "storyboardNewApiFormatOpenai": "OpenAI 兼容",
     "storyboardNewApiFormatOpenaiImages": "OpenAI 图片直连",
@@ -3054,8 +3195,8 @@
     "storyboardApi2OkDesc": "这个供应商固定连接到 XGJ API 的内置分镜接口。网站地址和请求格式已经内置为 Gemini 链路，这里只需要在上方维护模型列表。",
     "storyboardApi2OkFormat": "请求格式",
     "storyboardApi2OkEndpointUrl": "固定接口地址",
-    "storyboardApi2OkHintOpenai": "固定走 XGJ API 站点的 OpenAI 兼容入口，并复用现有 NewAPI 的兼容兜底逻辑。模型 ID 只填写基础模型 ID，例如 gemini-3-pro-image-preview。",
-    "storyboardApi2OkHintGemini": "固定走 XGJ API 站点的 Gemini generateContent 入口。网站地址与请求格式不会单独显示；模型 ID 只填写基础模型 ID，例如 gemini-3-pro-image-preview。",
+    "storyboardApi2OkHintOpenai": "固定走 XGJ API 站点的 OpenAI 兼容入口，并复用现有 NewAPI 的兼容兜底逻辑。模型 ID 只填写基础模型 ID，例如 monkey-image-pro。",
+    "storyboardApi2OkHintGemini": "固定走 XGJ API 站点的 Gemini generateContent 入口。网站地址与请求格式不会单独显示；模型 ID 只填写基础模型 ID，例如 monkey-image-pro。",
     "storyboardApi2OkNoConnectionTest": "XGJ API 分镜接口暂不复用当前的文本连接测试。请保存后直接在分镜节点里验证生成链路。",
     "comingSoon": "即将推出...",
     "radiusPreset": "圆角大小",
@@ -3113,12 +3254,12 @@
     "thirdPartyVideoOopiiDesc": "第三方 Grok 视频和第三方 Seedance 2.0 节点共用这组 OOpii 视频 API 配置。",
     "thirdPartyVideoGptBestDesc": "第三方 Seedance 2.0 和第三方 Grok 视频节点共用这组密钥。",
     "thirdPartyVideoBaseUrl": "Base URL",
-    "thirdPartyVideoBaseUrlHint": "填写 OOpii 站点根地址或 API 根地址；调用时会使用 /api/v1/videos、/api/v1/videos/{task_id} 和 /api/v1/videos/{task_id}/content。",
+    "thirdPartyVideoBaseUrlHint": "填写你的中转站点根地址或 API 根地址；调用时会使用 /api/v1/videos、/api/v1/videos/{task_id} 和 /api/v1/videos/{task_id}/content。",
     "thirdPartyVideoDocTitle": "文档与站点",
-    "thirdPartyVideoDocDescription": "当前第三方视频页按 AetherAI 视频生成协议接入，但请求域名切到你的 OOpii 部署地址。",
+    "thirdPartyVideoDocDescription": "当前第三方视频页按 AetherAI 视频生成协议接入，但请求域名保持为你自己的中转 API 地址。",
     "thirdPartyVideoCapabilityTitle": "支持的模型与参数",
     "thirdPartyVideoModelSupport": "模型：OK-video",
-    "thirdPartyVideoSecondsSupport": "时长：OK-video 固定 10 秒。",
+    "thirdPartyVideoSecondsSupport": "时长：OK-video 当前支持 6 秒和 10 秒。",
     "thirdPartyVideoSizeSupport": "尺寸：720x1280、1280x720、1024x1024、1024x1792、1792x1024",
     "thirdPartyVideoReferenceSupport": "参考图：Grok 模型支持 reference_images，最多 7 张；提示词中的 @图1 会提交为 <IMAGE_1>。",
     "thirdPartyVideoEndpointHint": "接口：POST /api/v1/videos，GET /api/v1/videos/{task_id}，GET /api/v1/videos/{task_id}/content",
@@ -3137,7 +3278,7 @@
     "aboutAuthor": "痕继痕迹",
     "aboutRepositoryLabel": "项目仓库",
     "apiPlatformNoticeTitle": "软件使用声明",
-    "apiPlatformNoticeBody": "本软件连接多家 AI API 中转与上游服务，生成、编辑、视频、MJ 等功能的稳定性会受对应服务影响。\n\n如果出现 500、502、503、504，通常是上游繁忙、维护或临时不可用；如果出现 429、401、403，则多半与限流、余额、密钥或权限有关。\n\n如需更稳且带售后支持的 API，可用 OOpii：https://www.oopii.cn/。QQ群：835213642。",
+    "apiPlatformNoticeBody": "本软件连接多家 AI API 中转与上游服务，生成、编辑、视频、MJ 等功能的稳定性会受对应服务影响。\n\n如果出现 500、502、503、504，通常是上游繁忙、维护或临时不可用；如果出现 429、401、403，则多半与限流、余额、密钥或权限有关。\n\n如需更稳且带售后支持的 API，可用 OOpii：https://www.oopii.cc/。QQ群：835213642。",
     "apiPlatformNoticeWebsiteLabel": "官网",
     "apiPlatformNoticeQqLabel": "QQ群",
     "apiPlatformNoticeJoinGroupLabel": "加入群聊",
@@ -3283,7 +3424,7 @@
       }
     },
     "providerGroupRecommended": "推荐组",
-    "storyboardOopiiModelSelectionDesc": "OOpii 固定使用内置的 NewAPI 图片接口，默认可直接选择 gpt-image-2、香蕉Pro、香蕉2；填入 API Key 后即可使用，如有需要仍可在下方追加自定义模型 ID。",
+    "storyboardOopiiModelSelectionDesc": "OOpii 固定使用内置的 NewAPI 图片接口，默认可直接选择 all-image-2、monkey-pro、monkey-2；填入 API Key 后即可使用，如有需要仍可在下方追加自定义模型 ID。",
     "storyboardOopiiNoConnectionTest": "OOpii 分镜接口固定复用内置的 NewAPI 图片链路。请保存后直接在分镜节点里验证生成链路。",
     "appUpdateSectionTitle": "应用更新",
     "appUpdateSectionDesc": "选择是否在启动时检查更新、是否保留更新提醒，或立即手动检查一次新版本。"
@@ -3698,70 +3839,70 @@
       "summaryWorldviews": "世界观"
     },
     "directorWorkPackage": {
-        "workbenchTitle": "导演工作台",
-        "workbenchSubtitle": "先整理章节来源，再把导演拆解和 prompt 草稿集中在这里编辑。",
-        "shortTitleSuffix": "导演包",
-        "sourceTitle": "来源内容",
-        "sourceSubtitle": "可以选多个章节，也可以直接粘贴完整剧本文本。",
-        "refreshSource": "刷新来源",
-        "sourceMode": {
-          "chapterSelection": "章节选择",
-          "manualText": "手工文本"
-        },
-        "noChapters": "当前项目还没有章节节点。",
-        "manualText": "剧本文本",
-        "manualTextPlaceholder": "粘贴你要交给导演工作包处理的完整剧本或拆解文本。",
-        "chapterCount": "{{count}} 个章节",
-        "sceneCount": "{{count}} 个场景",
-        "shootingScriptCount": "{{count}} 个拍摄脚本",
-        "packageTitle": "导演拆解结果",
-        "packageSubtitle": "可以在这里编辑 section 和 shot，它会成为后面 storyboard 的正式来源。",
-        "generate": "生成导演工作包",
-        "generating": "生成中...",
-        "createStoryboard": "派生分镜项目",
-        "creatingStoryboard": "正在派生分镜项目...",
-        "emptyPackage": "还没有可编辑的导演工作包。",
-        "sectionCount": "{{count}} 个 section",
-        "shotCount": "{{count}} 个镜头",
-        "referenceCount": "{{count}} 个参考",
-        "addSection": "新增 section",
-        "sectionLabel": "Section {{number}}",
-        "lockSection": "锁定 section",
-        "unlockSection": "解锁 section",
-        "sectionReferences": "section 参考",
-        "shotsTitle": "Shots",
-        "addShot": "新增 shot",
-        "shotLabel": "Shot {{number}}",
-        "shotReferences": "shot 参考",
-        "fields": {
-          "sectionTitle": "Section 标题",
-          "dramaticGoal": "戏剧目标",
-          "summary": "段落摘要",
-          "visualIntent": "视觉意图",
-          "continuityNotes": "连贯提醒",
-          "shotLabel": "Shot 标签",
-          "shotPurpose": "Shot 目的",
-          "compositionHint": "构图提示",
-          "cameraHint": "机位提示",
-          "motionHint": "动作/运动提示",
-          "promptDraft": "图片 Prompt 草稿",
-          "videoPromptDraft": "视频 Prompt 草稿"
-        },
-        "placeholders": {
-          "sectionTitle": "这个 section 要叫什么",
-          "dramaticGoal": "这一段必须完成什么戏剧任务",
-          "summary": "用几句话概括这一段发生了什么",
-          "visualIntent": "这一段希望拍成什么样的画面感",
-          "continuityNotes": "需要连续保持的人物/场面/道具状态",
-          "shotLabel": "例如：近景反打 1",
-          "shotPurpose": "这个 shot 在情绪或信息上要起什么作用",
-          "compositionHint": "例如：中景，偏右构图",
-          "cameraHint": "例如：手持跟拍，微推近",
-          "motionHint": "例如：人物先停顿后逐步逼近",
-          "promptDraft": "图片生成用的 prompt 草稿",
-          "videoPromptDraft": "视频生成用的 prompt 草稿"
-        }
+      "workbenchTitle": "导演工作台",
+      "workbenchSubtitle": "先整理章节来源，再把导演拆解和 prompt 草稿集中在这里编辑。",
+      "shortTitleSuffix": "导演包",
+      "sourceTitle": "来源内容",
+      "sourceSubtitle": "可以选多个章节，也可以直接粘贴完整剧本文本。",
+      "refreshSource": "刷新来源",
+      "sourceMode": {
+        "chapterSelection": "章节选择",
+        "manualText": "手工文本"
       },
+      "noChapters": "当前项目还没有章节节点。",
+      "manualText": "剧本文本",
+      "manualTextPlaceholder": "粘贴你要交给导演工作包处理的完整剧本或拆解文本。",
+      "chapterCount": "{{count}} 个章节",
+      "sceneCount": "{{count}} 个场景",
+      "shootingScriptCount": "{{count}} 个拍摄脚本",
+      "packageTitle": "导演拆解结果",
+      "packageSubtitle": "可以在这里编辑 section 和 shot，它会成为后面 storyboard 的正式来源。",
+      "generate": "生成导演工作包",
+      "generating": "生成中...",
+      "createStoryboard": "派生分镜项目",
+      "creatingStoryboard": "正在派生分镜项目...",
+      "emptyPackage": "还没有可编辑的导演工作包。",
+      "sectionCount": "{{count}} 个 section",
+      "shotCount": "{{count}} 个镜头",
+      "referenceCount": "{{count}} 个参考",
+      "addSection": "新增 section",
+      "sectionLabel": "Section {{number}}",
+      "lockSection": "锁定 section",
+      "unlockSection": "解锁 section",
+      "sectionReferences": "section 参考",
+      "shotsTitle": "Shots",
+      "addShot": "新增 shot",
+      "shotLabel": "Shot {{number}}",
+      "shotReferences": "shot 参考",
+      "fields": {
+        "sectionTitle": "Section 标题",
+        "dramaticGoal": "戏剧目标",
+        "summary": "段落摘要",
+        "visualIntent": "视觉意图",
+        "continuityNotes": "连贯提醒",
+        "shotLabel": "Shot 标签",
+        "shotPurpose": "Shot 目的",
+        "compositionHint": "构图提示",
+        "cameraHint": "机位提示",
+        "motionHint": "动作/运动提示",
+        "promptDraft": "图片 Prompt 草稿",
+        "videoPromptDraft": "视频 Prompt 草稿"
+      },
+      "placeholders": {
+        "sectionTitle": "这个 section 要叫什么",
+        "dramaticGoal": "这一段必须完成什么戏剧任务",
+        "summary": "用几句话概括这一段发生了什么",
+        "visualIntent": "这一段希望拍成什么样的画面感",
+        "continuityNotes": "需要连续保持的人物/场面/道具状态",
+        "shotLabel": "例如：近景反打 1",
+        "shotPurpose": "这个 shot 在情绪或信息上要起什么作用",
+        "compositionHint": "例如：中景，偏右构图",
+        "cameraHint": "例如：手持跟拍，微推近",
+        "motionHint": "例如：人物先停顿后逐步逼近",
+        "promptDraft": "图片生成用的 prompt 草稿",
+        "videoPromptDraft": "视频生成用的 prompt 草稿"
+      }
+    },
     "scriptAssetExtract": {
       "workbenchTitle": "剧本资产提取",
       "workbenchSubtitle": "优先使用已连接的文本节点；如果没有文本节点，再从这里勾选章节内容。",
@@ -4231,6 +4372,36 @@
       "sceneCount": "{{count}} 个场景",
       "blankTitle": "新剧本",
       "blankChapterTitle": "第 {{number}} 章"
+    },
+    "smartDirectorStoryboard": {
+      "workbenchTitle": "智能导演分镜",
+      "workbenchSubtitle": "用前置资产提取节点的同源文本和资产来生成剧本分镜表。",
+      "sourceTitle": "来源与资产",
+      "sourceSubtitle": "这个节点不再重复选材，只读取前置剧本资产提取节点的同源内容。",
+      "sourceMissing": "请先连接一个已完成提取的剧本资产提取节点。",
+      "sourceConnectedText": "当前使用上游文本节点作为来源",
+      "sourceChapterSelection": "当前使用 {{count}} 个章节的同源内容作为来源",
+      "assetSummary": "已继承资产：{{characters}} 个角色，{{scenes}} 个场景，{{items}} 个物品",
+      "resultTitle": "剧本分镜表",
+      "resultSubtitle": "按镜头层级生成可用于后续分镜画布的剧本分镜表和生图提示词。",
+      "generate": "生成分镜",
+      "generating": "生成中...",
+      "regenerate": "重新生成",
+      "openStoryboard": "去分镜画布",
+      "openingStoryboard": "正在进入...",
+      "emptyResult": "还没有生成的剧本分镜表。",
+      "availableAssetsTitle": "可用素材",
+      "availableAssetsSubtitle": "生成分镜时自动使用",
+      "assetCount": "{{count}} 素材",
+      "assetGroups": {
+        "characters": "角色",
+        "scenes": "场景",
+        "items": "物品"
+      },
+      "viewResult": "查看结果",
+      "resultLinked": "已关联一个结果表节点。",
+      "resultLinkedBadge": "已关联",
+      "resultLinkedHint": "打开已关联的结果节点，即可查看完整的流式分镜表。"
     }
   },
   "scriptImportDialog": {
@@ -4730,6 +4901,125 @@
       "saved": "项目已保存",
       "snapshotSent": "截图已发送到画布",
       "modelLoadFailed": "模型加载失败"
+    }
+  },
+  "scriptStoryboardTable": {
+    "nodeBadge": "结果表",
+    "emptyHint": "开始生成后，这里会逐行流式填充分镜表内容。",
+    "generatedRows": "{{completed}} / {{total}} 行",
+    "emptyGroup": "未分组",
+    "summary": {
+      "rows": "镜头数",
+      "generatedRows": "已完成",
+      "duration": "总时长",
+      "continuousGroups": "连续分镜段",
+      "groups10s": "10 秒组",
+      "groups15s": "15 秒组"
+    },
+    "columns": {
+      "sceneNumber": "场次",
+      "shotNumber": "镜头",
+      "sketch": "画面草图",
+      "shotSize": "景别",
+      "cameraAngle": "机位 / 角度",
+      "cameraMovement": "镜头运动",
+      "blockingAction": "动作 / 调度",
+      "dialogueOrSound": "台词 / 声音",
+      "duration": "时长",
+      "assets": "涉及素材",
+      "remark": "备注",
+      "imagePrompt": "生图提示词"
+    },
+    "rowState": {
+      "queued": "排队中",
+      "generating": "生成中",
+      "ready": "已完成",
+      "error": "失败"
+    },
+    "continuity": {
+      "continuous": "延续上一镜头",
+      "newSegment": "新的连续段"
+    },
+    "streamPhase": {
+      "idle": "待生成",
+      "preparing": "准备中",
+      "outlining": "搭建表格中",
+      "streaming": "逐行生成中",
+      "completed": "已完成",
+      "error": "失败",
+      "cancelled": "已取消"
+    }
+  },
+  "scriptStoryboardTable": {
+    "nodeBadge": "结果表",
+    "emptyHint": "开始生成后，这里会逐行填充分镜表内容。",
+    "generatedRows": "{{completed}} / {{total}} 行",
+    "emptyGroup": "未分组",
+    "emptyRows": "还没有镜头内容，可以先生成，或手动新增镜头。",
+    "emptyCell": "双击编辑",
+    "addRow": "新增镜头",
+    "insertRow": "插入",
+    "viewColumns": "查看列",
+    "toggleColumns": "切换列",
+    "rowHeight": "行高",
+    "regenerate": "重新生成",
+    "expandToStoryboard": "展开到分镜画布",
+    "viewSource": "查看控制节点",
+    "summary": {
+      "rows": "镜头数",
+      "duration": "总时长",
+      "estimatedVideos": "预计视频数"
+    },
+    "production": {
+      "video15s": "15s视频",
+      "video10s": "10s视频",
+      "continuous": "连续分镜",
+      "continuousEnabled": "已开启连续参考",
+      "generateGroups": "生成分镜组合",
+      "groupTitle15s": "15s视频分镜组合",
+      "groupTitle10s": "10s视频分镜组合",
+      "chooseVideoTitle": "选择视频节点",
+      "chooseVideoDescription": "请选择这批分镜组合要预创建的视频节点类型。",
+      "videoKindJimeng": "即梦视频",
+      "videoKindJimengHint": "生成即梦视频节点，并预填提示词和时长。",
+      "videoKindSeedance": "官方 Seedance",
+      "videoKindSeedanceHint": "生成官方 Seedance 视频节点，并预填提示词和时长。",
+      "confirmGenerate": "确定生成",
+      "generating": "生成中...",
+      "noGroups": "当前没有可展开的视频分组，请先确认表格里已有可用镜头。"
+    },
+    "columns": {
+      "sceneNumber": "场次",
+      "shotNumber": "镜头",
+      "sketch": "画面描述",
+      "shotSize": "景别",
+      "cameraAngle": "机位 / 角度",
+      "cameraMovement": "运镜",
+      "blockingAction": "动作 / 调度",
+      "dialogueOrSound": "台词 / 音效",
+      "duration": "时长",
+      "assets": "素材引用",
+      "remark": "备注",
+      "imagePrompt": "生图提示词"
+    },
+    "rowState": {
+      "queued": "排队中",
+      "generating": "生成中",
+      "ready": "已完成",
+      "error": "失败"
+    },
+    "continuity": {
+      "continuous": "承接上一镜头",
+      "newSegment": "新的连续段"
+    },
+    "streamPhase": {
+      "idle": "待生成",
+      "preparing": "准备中",
+      "outlining": "搭建表格中",
+      "streaming": "逐行生成中",
+      "completed": "已完成",
+      "error": "失败",
+      "cancelled": "已取消"
     }
   }
 }

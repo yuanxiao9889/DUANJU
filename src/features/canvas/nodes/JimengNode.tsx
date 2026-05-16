@@ -24,6 +24,7 @@ import {
   Undo2,
   Video,
   Wand2,
+  X,
 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { UiLoadingOverlay } from "@/components/ui";
@@ -104,6 +105,7 @@ import {
 import {
   areReferenceImageOrdersEqual,
   buildShortReferenceToken,
+  findNamedReferenceTokens,
   LONG_REFERENCE_TOKEN_PREFIX,
   SHORT_REFERENCE_TOKEN_PREFIX,
   insertReferenceToken,
@@ -165,9 +167,12 @@ interface IncomingReferenceVisualItem {
   tokenLabel: string;
   label: string;
   durationSeconds: number | null;
+  assetId: string | null;
+  displayName: string | null;
 }
 
 interface IncomingAudioItem {
+  sourceEdgeId: string;
   audioUrl: string;
   label: string;
   tokenLabel: string;
@@ -545,6 +550,7 @@ function findJimengPromptReferenceTokens(
   prompt: string,
   maxVisualReferenceCount: number,
   maxAudioReferenceCount: number,
+  namedVisualCandidates: Array<{ tokenLabel: string; value: number }> = [],
 ): JimengPromptReferenceToken[] {
   return [
     ...findPromptReferenceTokensByPrefixes(
@@ -559,6 +565,10 @@ function findJimengPromptReferenceTokens(
       AUDIO_REFERENCE_TOKEN_PREFIXES,
       "audio",
     ),
+    ...findNamedReferenceTokens(prompt, namedVisualCandidates).map((token) => ({
+      ...token,
+      kind: "visual" as const,
+    })),
   ].sort((left, right) => left.start - right.start);
 }
 
@@ -755,6 +765,7 @@ function renderPromptWithHighlights(
   prompt: string,
   maxVisualReferenceCount: number,
   maxAudioReferenceCount: number,
+  namedVisualCandidates: Array<{ tokenLabel: string; value: number }> = [],
 ): ReactNode {
   if (!prompt) {
     return " ";
@@ -766,6 +777,7 @@ function renderPromptWithHighlights(
     prompt,
     maxVisualReferenceCount,
     maxAudioReferenceCount,
+    namedVisualCandidates,
   );
   for (const token of referenceTokens) {
     if (token.start > lastIndex) {
@@ -801,6 +813,7 @@ function renderPromptReferenceHoverTargets(
   prompt: string,
   maxVisualReferenceCount: number,
   maxAudioReferenceCount: number,
+  namedVisualCandidates: Array<{ tokenLabel: string; value: number }>,
   onTokenHover: (
     token: JimengPromptReferenceToken,
     event: ReactMouseEvent<HTMLSpanElement>,
@@ -821,6 +834,7 @@ function renderPromptReferenceHoverTargets(
     prompt,
     maxVisualReferenceCount,
     maxAudioReferenceCount,
+    namedVisualCandidates,
   );
   for (const token of referenceTokens) {
     if (token.start > lastIndex) {
@@ -1264,20 +1278,33 @@ export const JimengNode = memo(
                 ? connectedItem.previewImageUrl
                 : null,
               tokenLabel:
-                connectedItem.kind === "video"
+                connectedItem.tokenAlias?.trim()
+                || (connectedItem.kind === "video"
                   ? buildVideoReferenceToken(index)
-                  : buildShortReferenceToken(index),
-              label: t(
-                connectedItem.kind === "video"
-                  ? "node.jimeng.referenceVideoLabel"
-                  : "node.jimeng.referenceImageLabel",
-                { index: index + 1 },
-              ),
+                  : buildShortReferenceToken(index)),
+              label:
+                connectedItem.displayName?.trim()
+                || t(
+                  connectedItem.kind === "video"
+                    ? "node.jimeng.referenceVideoLabel"
+                    : "node.jimeng.referenceImageLabel",
+                  { index: index + 1 },
+                ),
               durationSeconds: connectedItem.durationSeconds ?? null,
+              assetId: connectedItem.assetId ?? null,
+              displayName: connectedItem.displayName ?? null,
             };
           })
-          .filter((item): item is IncomingReferenceVisualItem => Boolean(item)),
+          .filter((item): item is IncomingReferenceVisualItem => item !== null),
       [connectedReferenceVisualByUrl, orderedReferenceVisualUrls, t],
+    );
+    const namedVisualTokenCandidates = useMemo(
+      () =>
+        incomingVisualItems.map((item, index) => ({
+          tokenLabel: item.tokenLabel,
+          value: index + 1,
+        })),
+      [incomingVisualItems],
     );
     const incomingVisualDisplayList = useMemo(
       () =>
@@ -1290,6 +1317,7 @@ export const JimengNode = memo(
     const incomingAudios = useMemo<IncomingAudioItem[]>(
       () =>
         connectedAudioReferences.map((item, index) => ({
+          sourceEdgeId: item.sourceEdgeId,
           audioUrl: item.audioUrl,
           label:
             item.displayName ||
@@ -1690,6 +1718,15 @@ export const JimengNode = memo(
       },
       [deleteEdge],
     );
+    const handleRemoveReferenceAudio = useCallback(
+      (sourceEdgeId: string) => {
+        setShowImagePicker(false);
+        pickerSelectionRef.current = null;
+        setPromptReferencePreview(null);
+        deleteEdge(sourceEdgeId);
+      },
+      [deleteEdge],
+    );
 
     useEffect(() => {
       const previousOrderedReferenceImages =
@@ -1939,11 +1976,14 @@ export const JimengNode = memo(
                 return {
                   referenceNumber: index + 1,
                   imageUrl,
+                  tokenLabel: item.tokenLabel,
                 } satisfies PromptReferenceImageCandidate;
               })
-              .filter((item): item is PromptReferenceImageCandidate =>
-                Boolean(item),
-              ),
+              .filter((item): item is {
+                referenceNumber: number;
+                imageUrl: string;
+                tokenLabel: string;
+              } => item !== null),
           );
         const result = await optimizeCanvasPrompt({
           mode: "jimeng",
@@ -2975,6 +3015,7 @@ export const JimengNode = memo(
                         displayedPrompt,
                         incomingVisualItems.length,
                         incomingAudios.length,
+                        namedVisualTokenCandidates,
                       )}
                     </div>
                   </div>
@@ -2990,6 +3031,7 @@ export const JimengNode = memo(
                         displayedPrompt,
                         incomingVisualItems.length,
                         incomingAudios.length,
+                        namedVisualTokenCandidates,
                         handlePromptReferenceTokenHover,
                         hidePromptReferencePreview,
                         handlePromptReferenceTokenMouseDown,
@@ -3135,9 +3177,30 @@ export const JimengNode = memo(
                       {incomingAudios.map((audio, index) => (
                         <div
                           key={`${audio.audioUrl}-${index}`}
-                          className="flex max-w-full items-center gap-1.5 rounded-lg border border-white/10 bg-white/[0.04] px-2 py-1.5 text-[11px] text-text-dark"
+                          className="group/reference relative flex max-w-full items-center gap-1.5 rounded-lg border border-white/10 bg-white/[0.04] px-2 py-1.5 text-[11px] text-text-dark"
                           onMouseDown={(event) => event.stopPropagation()}
                         >
+                          <button
+                            type="button"
+                            draggable={false}
+                            className="absolute -right-1 -top-1 z-10 flex h-5 w-5 items-center justify-center rounded-full border border-white/15 bg-black/75 text-text-dark opacity-0 shadow-[0_6px_18px_rgba(0,0,0,0.28)] transition-opacity hover:bg-rose-500 hover:text-white group-hover/reference:opacity-100"
+                            aria-label={t("common.delete")}
+                            title={t("common.delete")}
+                            onPointerDown={(event) => {
+                              event.preventDefault();
+                              event.stopPropagation();
+                            }}
+                            onMouseDown={(event) => {
+                              event.preventDefault();
+                              event.stopPropagation();
+                            }}
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              handleRemoveReferenceAudio(audio.sourceEdgeId);
+                            }}
+                          >
+                            <X className="h-3 w-3" strokeWidth={2.4} />
+                          </button>
                           <AudioLines className="h-3.5 w-3.5 shrink-0 text-text-muted" />
                           <span className="rounded bg-white/[0.08] px-1 py-0.5 text-[10px] font-medium text-text-muted">
                             {audio.tokenLabel}

@@ -198,10 +198,7 @@ pub async fn split_image_source(
 
     let column_widths = if let Some(ratios) = col_ratios {
         if ratios.len() == safe_cols as usize {
-            ratios
-                .iter()
-                .map(|r| (usable_width as f64 * r / 100.0).max(1.0) as u32)
-                .collect()
+            split_sizes_from_ratios(usable_width, safe_cols, &ratios)
         } else {
             split_sizes(usable_width, safe_cols)
         }
@@ -211,10 +208,7 @@ pub async fn split_image_source(
 
     let row_heights = if let Some(ratios) = row_ratios {
         if ratios.len() == safe_rows as usize {
-            ratios
-                .iter()
-                .map(|r| (usable_height as f64 * r / 100.0).max(1.0) as u32)
-                .collect()
+            split_sizes_from_ratios(usable_height, safe_rows, &ratios)
         } else {
             split_sizes(usable_height, safe_rows)
         }
@@ -302,10 +296,7 @@ fn split_image_source_blocking(
 
     let column_widths = if let Some(ratios) = col_ratios {
         if ratios.len() == safe_cols as usize {
-            ratios
-                .iter()
-                .map(|r| (usable_width as f64 * r / 100.0).max(1.0) as u32)
-                .collect()
+            split_sizes_from_ratios(usable_width, safe_cols, &ratios)
         } else {
             split_sizes(usable_width, safe_cols)
         }
@@ -315,10 +306,7 @@ fn split_image_source_blocking(
 
     let row_heights = if let Some(ratios) = row_ratios {
         if ratios.len() == safe_rows as usize {
-            ratios
-                .iter()
-                .map(|r| (usable_height as f64 * r / 100.0).max(1.0) as u32)
-                .collect()
+            split_sizes_from_ratios(usable_height, safe_rows, &ratios)
         } else {
             split_sizes(usable_height, safe_rows)
         }
@@ -469,6 +457,73 @@ fn split_sizes(total: u32, segments: u32) -> Vec<u32> {
     (0..safe_segments)
         .map(|index| base + if index < remainder { 1 } else { 0 })
         .collect()
+}
+
+fn split_sizes_from_ratios(total: u32, segments: u32, ratios: &[f64]) -> Vec<u32> {
+    let safe_segments = segments.max(1);
+    if ratios.len() != safe_segments as usize
+        || ratios
+            .iter()
+            .any(|ratio| !ratio.is_finite() || *ratio <= 0.0)
+    {
+        return split_sizes(total, safe_segments);
+    }
+
+    if total == 0 {
+        return Vec::new();
+    }
+
+    let mut sizes = vec![1_u32; safe_segments as usize];
+    let mut remaining = total.saturating_sub(safe_segments);
+    if remaining == 0 {
+        return sizes;
+    }
+
+    let ratio_total: f64 = ratios.iter().sum();
+    if !(ratio_total > 0.0) {
+        return split_sizes(total, safe_segments);
+    }
+
+    let exact_extras: Vec<f64> = ratios
+        .iter()
+        .map(|ratio| (ratio / ratio_total) * remaining as f64)
+        .collect();
+    let floored_extras: Vec<u32> = exact_extras
+        .iter()
+        .map(|value| value.floor().max(0.0) as u32)
+        .collect();
+
+    for (size, extra) in sizes.iter_mut().zip(floored_extras.iter()) {
+        *size = size.saturating_add(*extra);
+    }
+
+    let allocated: u32 = floored_extras.iter().sum();
+    remaining = remaining.saturating_sub(allocated);
+    if remaining > 0 {
+        let mut ranked_remainders: Vec<(usize, f64)> = exact_extras
+            .iter()
+            .enumerate()
+            .map(|(index, value)| (index, value - value.floor()))
+            .collect();
+        ranked_remainders.sort_by(|left, right| {
+            right
+                .1
+                .partial_cmp(&left.1)
+                .unwrap_or(std::cmp::Ordering::Equal)
+                .then_with(|| left.0.cmp(&right.0))
+        });
+
+        for offset in 0..remaining as usize {
+            let target = ranked_remainders
+                .get(offset % ranked_remainders.len())
+                .map(|item| item.0);
+            if let Some(index) = target {
+                sizes[index] = sizes[index].saturating_add(1);
+            }
+        }
+    }
+
+    sizes
 }
 
 fn gcd_u32(a: u32, b: u32) -> u32 {

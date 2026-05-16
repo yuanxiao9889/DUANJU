@@ -27,6 +27,7 @@ import { GptBestVideoResultNode } from './GptBestVideoResultNode';
 import { ViduNode } from './ViduNode';
 import { ViduVideoResultNode } from './ViduVideoResultNode';
 import { StoryboardGenNode } from './StoryboardGenNode';
+import { AssetMaterialNode } from './AssetMaterialNode';
 import { ImageCollageNode } from './ImageCollageNode';
 import { StoryboardNode } from './StoryboardNode';
 import { StoryboardSplitResultNode } from './StoryboardSplitResultNode';
@@ -36,6 +37,8 @@ import { TtsTextNode } from './TtsTextNode';
 import { ScriptSceneNode } from './ScriptSceneNode';
 import { ShootingScriptNode } from './ShootingScriptNode';
 import { DirectorWorkPackageNode } from './DirectorWorkPackageNode';
+import { SmartDirectorStoryboardNode } from './SmartDirectorStoryboardNode';
+import { ScriptStoryboardTableNode } from './ScriptStoryboardTableNode';
 import { DirectorStoryboardReferenceNode } from './DirectorStoryboardReferenceNode';
 import { ScriptReferenceNode } from './ScriptReferenceNode';
 import { AdScriptReferenceNode } from './AdScriptReferenceNode';
@@ -90,6 +93,7 @@ export const nodeTypes: NodeTypes = {
   viduNode: ViduNode,
   viduVideoResultNode: ViduVideoResultNode,
   storyboardGenNode: StoryboardGenNode,
+  assetMaterialNode: AssetMaterialNode,
   imageCollageNode: ImageCollageNode,
   storyboardNode: StoryboardNode,
   storyboardSplitResultNode: StoryboardSplitResultNode,
@@ -109,6 +113,8 @@ export const nodeTypes: NodeTypes = {
   scriptSceneNode: ScriptSceneNode,
   shootingScriptNode: ShootingScriptNode,
   scriptAssetExtractNode: DirectorWorkPackageNode,
+  smartDirectorStoryboardNode: SmartDirectorStoryboardNode,
+  scriptStoryboardTableNode: ScriptStoryboardTableNode,
   directorWorkPackageNode: DirectorWorkPackageNode,
   directorStoryboardReferenceNode: DirectorStoryboardReferenceNode,
   scriptReferenceNode: ScriptReferenceNode,
@@ -159,6 +165,7 @@ export {
   ViduNode,
   ViduVideoResultNode,
   StoryboardGenNode, 
+  AssetMaterialNode,
   ImageCollageNode,
   StoryboardNode, 
   StoryboardSplitResultNode,
@@ -178,6 +185,8 @@ export {
   ScriptSceneNode,
   ShootingScriptNode,
   DirectorWorkPackageNode,
+  SmartDirectorStoryboardNode,
+  ScriptStoryboardTableNode,
   DirectorStoryboardReferenceNode,
   ScriptReferenceNode,
   AdScriptReferenceNode,

@@ -15,6 +15,7 @@ use commands::generation_history;
 use commands::gpt_best_video;
 use commands::image;
 use commands::jimeng_video_queue;
+use commands::media_audio;
 use commands::midjourney;
 use commands::project_state;
 use commands::ps_server;
@@ -361,6 +362,7 @@ pub fn run() {
             image::save_image_source_to_directory,
             image::save_image_source_to_app_debug_dir,
             image::copy_image_source_to_clipboard,
+            media_audio::extract_audio_from_video,
             jimeng_video_queue::list_jimeng_video_queue_jobs,
             jimeng_video_queue::list_all_jimeng_video_queue_jobs,
             jimeng_video_queue::upsert_jimeng_video_queue_job,
@@ -430,6 +432,8 @@ pub fn run() {
             system::request_app_exit,
             system::start_system_file_drag,
             text_gen::generate_text,
+            text_gen::start_script_director_storyboard_stream,
+            text_gen::cancel_script_director_storyboard_stream,
             text_gen::test_provider_connection,
             text_gen::get_active_text_model_status,
             update::check_latest_release_tag,

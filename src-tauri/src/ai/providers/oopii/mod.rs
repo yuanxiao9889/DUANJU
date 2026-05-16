@@ -11,12 +11,15 @@ use crate::ai::{
 };
 
 pub const OOPII_PROVIDER_ID: &str = "oopii";
-pub const DEFAULT_OOPII_TEXT_MODEL: &str = "gpt-5.4";
-pub const OOPII_STORYBOARD_BASE_URL: &str = "https://www.oopii.cn/";
+pub const DEFAULT_OOPII_TEXT_MODEL: &str = "all-5.4";
+pub const OOPII_ALT_TEXT_MODEL: &str = "all-5.5";
+pub const OOPII_STORYBOARD_BASE_URL: &str = "https://www.oopii.cc/";
 const OOPII_STORYBOARD_DEFAULT_API_FORMAT: &str = "openai";
 const OOPII_STORYBOARD_OPENAI_IMAGES_API_FORMAT: &str = "openai-images";
 const OOPII_STORYBOARD_GEMINI_API_FORMAT: &str = "gemini";
-const OOPII_STORYBOARD_GPT_IMAGE_2_REQUEST_MODEL: &str = "gpt-image-2";
+const OOPII_STORYBOARD_GPT_IMAGE_2_REQUEST_MODEL: &str = "all-image-2";
+const OOPII_STORYBOARD_MONKEY_PRO_REQUEST_MODEL: &str = "monkey-image-pro";
+const OOPII_STORYBOARD_MONKEY_FLASH_2_REQUEST_MODEL: &str = "monkey-image-flash 2";
 
 #[derive(Debug, Clone, Default, Deserialize)]
 struct OopiiStoryboardPayload {
@@ -55,18 +58,35 @@ impl OopiiProvider {
                 && request.model.trim().starts_with("oopii/"))
     }
 
+    fn normalize_oopii_model_alias(model: &str) -> String {
+        match model.trim().to_ascii_lowercase().as_str() {
+            "gpt-5.4" => DEFAULT_OOPII_TEXT_MODEL.to_string(),
+            "gpt-5.5" => OOPII_ALT_TEXT_MODEL.to_string(),
+            "gpt-image-2" => OOPII_STORYBOARD_GPT_IMAGE_2_REQUEST_MODEL.to_string(),
+            "gemini-3-pro-image-preview" => OOPII_STORYBOARD_MONKEY_PRO_REQUEST_MODEL.to_string(),
+            "gemini-3.1-flash-image-preview" => {
+                OOPII_STORYBOARD_MONKEY_FLASH_2_REQUEST_MODEL.to_string()
+            }
+            _ => model.trim().to_string(),
+        }
+    }
+
     fn strip_provider_prefix(model: &str) -> String {
-        model
+        let stripped = model
             .split_once('/')
             .map(|(_, bare)| bare.trim().to_string())
-            .unwrap_or_else(|| model.trim().to_string())
+            .unwrap_or_else(|| model.trim().to_string());
+        Self::normalize_oopii_model_alias(&stripped)
     }
 
     fn infer_storyboard_api_format(request_model: &str) -> &'static str {
         let normalized = request_model.trim().to_ascii_lowercase();
         if Self::is_storyboard_gpt_image_2_request_model(&normalized) {
             OOPII_STORYBOARD_OPENAI_IMAGES_API_FORMAT
-        } else if normalized.contains("gemini") || normalized.contains("imagen") {
+        } else if normalized.contains("gemini")
+            || normalized.contains("imagen")
+            || normalized.contains("monkey-image")
+        {
             OOPII_STORYBOARD_GEMINI_API_FORMAT
         } else {
             OOPII_STORYBOARD_DEFAULT_API_FORMAT
@@ -124,14 +144,18 @@ impl OopiiProvider {
     fn resolve_storyboard_display_name(payload_display_name: &str, request_model: &str) -> String {
         let trimmed = payload_display_name.trim();
         if !trimmed.is_empty() {
-            return trimmed.to_string();
+            return Self::normalize_oopii_model_alias(trimmed);
         }
 
         if Self::is_storyboard_gpt_image_2_request_model(request_model) {
             return OOPII_STORYBOARD_GPT_IMAGE_2_REQUEST_MODEL.to_string();
         }
 
-        request_model.trim().to_string()
+        match request_model.trim() {
+            OOPII_STORYBOARD_MONKEY_PRO_REQUEST_MODEL => "monkey-pro".to_string(),
+            OOPII_STORYBOARD_MONKEY_FLASH_2_REQUEST_MODEL => "monkey-2".to_string(),
+            _ => request_model.trim().to_string(),
+        }
     }
 
     fn inject_newapi_config(request: &mut GenerateRequest) -> Result<(), AIError> {
@@ -139,7 +163,7 @@ impl OopiiProvider {
         let base_request_model = if payload.request_model.trim().is_empty() {
             Self::strip_provider_prefix(&request.model)
         } else {
-            payload.request_model.trim().to_string()
+            Self::normalize_oopii_model_alias(payload.request_model.trim())
         };
         if base_request_model.is_empty() {
             return Err(AIError::InvalidRequest(
@@ -183,12 +207,17 @@ impl AIProvider for OopiiProvider {
     }
 
     fn supports_model(&self, model: &str) -> bool {
-        let trimmed = model.trim();
-        trimmed.eq_ignore_ascii_case(DEFAULT_OOPII_TEXT_MODEL) || trimmed.starts_with("oopii/")
+        let normalized = Self::normalize_oopii_model_alias(model);
+        normalized.eq_ignore_ascii_case(DEFAULT_OOPII_TEXT_MODEL)
+            || normalized.eq_ignore_ascii_case(OOPII_ALT_TEXT_MODEL)
+            || model.trim().starts_with("oopii/")
     }
 
     fn list_models(&self) -> Vec<String> {
-        vec![DEFAULT_OOPII_TEXT_MODEL.to_string()]
+        vec![
+            DEFAULT_OOPII_TEXT_MODEL.to_string(),
+            OOPII_ALT_TEXT_MODEL.to_string(),
+        ]
     }
 
     async fn set_api_key(&self, api_key: String) -> Result<(), AIError> {
@@ -244,7 +273,8 @@ mod tests {
     use serde_json::json;
 
     use super::{
-        OopiiProvider, DEFAULT_OOPII_TEXT_MODEL, OOPII_PROVIDER_ID, OOPII_STORYBOARD_BASE_URL,
+        OopiiProvider, DEFAULT_OOPII_TEXT_MODEL, OOPII_ALT_TEXT_MODEL, OOPII_PROVIDER_ID,
+        OOPII_STORYBOARD_BASE_URL,
     };
     use crate::ai::AIProvider;
     use crate::ai::GenerateRequest;
@@ -255,14 +285,20 @@ mod tests {
         assert_eq!(provider.name(), OOPII_PROVIDER_ID);
         assert_eq!(
             provider.list_models(),
-            vec![DEFAULT_OOPII_TEXT_MODEL.to_string()]
+            vec![
+                DEFAULT_OOPII_TEXT_MODEL.to_string(),
+                OOPII_ALT_TEXT_MODEL.to_string()
+            ]
         );
     }
 
     #[test]
-    fn supports_default_and_prefixed_models() {
+    fn supports_default_legacy_and_prefixed_models() {
         let provider = OopiiProvider::new();
         assert!(provider.supports_model(DEFAULT_OOPII_TEXT_MODEL));
+        assert!(provider.supports_model(OOPII_ALT_TEXT_MODEL));
+        assert!(provider.supports_model("gpt-5.4"));
+        assert!(provider.supports_model("gpt-5.5"));
         assert!(provider.supports_model("oopii/custom-model"));
         assert!(!provider.supports_model("compatible/storyboard-experimental"));
     }
@@ -271,7 +307,7 @@ mod tests {
     fn detects_storyboard_requests_from_prefixed_models() {
         let request = GenerateRequest {
             prompt: "test".to_string(),
-            model: "oopii/gpt-image-2".to_string(),
+            model: "oopii/all-image-2".to_string(),
             size: "2K".to_string(),
             aspect_ratio: "1:1".to_string(),
             reference_images: None,
@@ -285,15 +321,15 @@ mod tests {
     fn injects_fixed_newapi_payload_for_storyboard_generation() {
         let mut request = GenerateRequest {
             prompt: "test".to_string(),
-            model: "oopii/gemini-3-pro-image-preview".to_string(),
+            model: "oopii/monkey-image-pro".to_string(),
             size: "2K".to_string(),
             aspect_ratio: "1:1".to_string(),
             reference_images: None,
             extra_params: Some(HashMap::from([(
                 "newapi_config".to_string(),
                 json!({
-                    "request_model": "gemini-3-pro-image-preview",
-                    "display_name": "香蕉Pro",
+                    "request_model": "monkey-image-pro",
+                    "display_name": "monkey-pro",
                 }),
             )])),
         };
@@ -311,17 +347,17 @@ mod tests {
             json!({
                 "api_format": "gemini",
                 "endpoint_url": OOPII_STORYBOARD_BASE_URL,
-                "request_model": "gemini-3-pro-image-preview",
-                "display_name": "香蕉Pro",
+                "request_model": "monkey-image-pro",
+                "display_name": "monkey-pro",
             })
         );
     }
 
     #[test]
-    fn injects_openai_payload_for_gpt_image_2_storyboard_generation() {
+    fn injects_openai_payload_for_all_image_2_storyboard_generation() {
         let mut request = GenerateRequest {
             prompt: "test".to_string(),
-            model: "oopii/gpt-image-2".to_string(),
+            model: "oopii/all-image-2".to_string(),
             size: "1K".to_string(),
             aspect_ratio: "1:1".to_string(),
             reference_images: None,
@@ -341,17 +377,17 @@ mod tests {
             json!({
                 "api_format": "openai-images",
                 "endpoint_url": OOPII_STORYBOARD_BASE_URL,
-                "request_model": "gpt-image-2",
-                "display_name": "gpt-image-2",
+                "request_model": "all-image-2",
+                "display_name": "all-image-2",
             })
         );
     }
 
     #[test]
-    fn upgrades_legacy_openai_format_for_gpt_image_2_to_openai_images() {
+    fn upgrades_legacy_openai_format_for_all_image_2_to_openai_images() {
         let mut request = GenerateRequest {
             prompt: "test".to_string(),
-            model: "oopii/gpt-image-2".to_string(),
+            model: "oopii/all-image-2".to_string(),
             size: "1K".to_string(),
             aspect_ratio: "1:1".to_string(),
             reference_images: None,
@@ -360,8 +396,8 @@ mod tests {
                 json!({
                     "api_format": "openai",
                     "endpoint_url": OOPII_STORYBOARD_BASE_URL,
-                    "request_model": "gpt-image-2",
-                    "display_name": "gpt-image-2",
+                    "request_model": "all-image-2",
+                    "display_name": "all-image-2",
                 }),
             )])),
         };
@@ -379,17 +415,17 @@ mod tests {
             json!({
                 "api_format": "openai-images",
                 "endpoint_url": OOPII_STORYBOARD_BASE_URL,
-                "request_model": "gpt-image-2",
-                "display_name": "gpt-image-2",
+                "request_model": "all-image-2",
+                "display_name": "all-image-2",
             })
         );
     }
 
     #[test]
-    fn keeps_base_request_model_for_2k_gpt_image_2_requests() {
+    fn normalizes_legacy_storyboard_aliases() {
         let mut request = GenerateRequest {
             prompt: "test".to_string(),
-            model: "oopii/gpt-image-2".to_string(),
+            model: "oopii/gemini-3-pro-image-preview".to_string(),
             size: "2K".to_string(),
             aspect_ratio: "1:1".to_string(),
             reference_images: None,
@@ -407,49 +443,19 @@ mod tests {
         assert_eq!(
             payload,
             json!({
-                "api_format": "openai-images",
+                "api_format": "gemini",
                 "endpoint_url": OOPII_STORYBOARD_BASE_URL,
-                "request_model": "gpt-image-2",
-                "display_name": "gpt-image-2",
+                "request_model": "monkey-image-pro",
+                "display_name": "monkey-pro",
             })
         );
     }
 
     #[test]
-    fn keeps_base_request_model_for_4k_gpt_image_2_requests() {
+    fn normalizes_legacy_all_image_2_aliases_back_to_base_model() {
         let mut request = GenerateRequest {
             prompt: "test".to_string(),
-            model: "oopii/gpt-image-2".to_string(),
-            size: "4K".to_string(),
-            aspect_ratio: "9:16".to_string(),
-            reference_images: None,
-            extra_params: Some(HashMap::from([("quality".to_string(), json!("high"))])),
-        };
-
-        OopiiProvider::inject_newapi_config(&mut request).unwrap();
-        let payload = request
-            .extra_params
-            .as_ref()
-            .and_then(|params| params.get("newapi_config"))
-            .cloned()
-            .unwrap();
-
-        assert_eq!(
-            payload,
-            json!({
-                "api_format": "openai-images",
-                "endpoint_url": OOPII_STORYBOARD_BASE_URL,
-                "request_model": "gpt-image-2",
-                "display_name": "gpt-image-2",
-            })
-        );
-    }
-
-    #[test]
-    fn normalizes_legacy_gpt_image_2_aliases_back_to_base_model() {
-        let mut request = GenerateRequest {
-            prompt: "test".to_string(),
-            model: "oopii/gpt-image-2".to_string(),
+            model: "oopii/all-image-2".to_string(),
             size: "4K".to_string(),
             aspect_ratio: "16:9".to_string(),
             reference_images: None,
@@ -457,7 +463,7 @@ mod tests {
                 "newapi_config".to_string(),
                 json!({
                     "request_model": "gpt-image-2-4k-high",
-                    "display_name": "gpt-image-2",
+                    "display_name": "all-image-2",
                 }),
             )])),
         };
@@ -475,18 +481,18 @@ mod tests {
             json!({
                 "api_format": "openai-images",
                 "endpoint_url": OOPII_STORYBOARD_BASE_URL,
-                "request_model": "gpt-image-2",
-                "display_name": "gpt-image-2",
+                "request_model": "all-image-2",
+                "display_name": "all-image-2",
             })
         );
     }
 
     #[test]
-    fn storyboard_gpt_image_2_uses_sync_newapi_image_requests() {
+    fn storyboard_all_image_2_uses_sync_newapi_image_requests() {
         let provider = OopiiProvider::new();
         let request = GenerateRequest {
             prompt: "test".to_string(),
-            model: "oopii/gpt-image-2".to_string(),
+            model: "oopii/all-image-2".to_string(),
             size: "2K".to_string(),
             aspect_ratio: "1:1".to_string(),
             reference_images: None,

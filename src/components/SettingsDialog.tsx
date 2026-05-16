@@ -313,7 +313,7 @@ function resolveOfficialVideoProviderDisplayName(
 }
 
 const PROVIDER_REGISTER_URLS: Record<string, string> = {
-  oopii: 'https://www.oopii.cn/',
+  oopii: 'https://www.oopii.cc/',
   ppio: 'https://ppio.com/user/register?invited_by=WGY0DZ',
   grsai: 'https://grsai.com',
   kie: 'https://kie.ai?ref=63c2653eb5b2ceb249033cc97b1b7ec3',
@@ -329,7 +329,7 @@ const PROVIDER_REGISTER_URLS: Record<string, string> = {
 };
 
 const PROVIDER_GET_KEY_URLS: Record<string, string> = {
-  oopii: 'https://www.oopii.cn/',
+  oopii: 'https://www.oopii.cc/',
   ppio: 'https://ppio.com/settings/key-management',
   grsai: 'https://grsai.com/zh/dashboard/api-keys',
   kie: 'https://kie.ai?ref=63c2653eb5b2ceb249033cc97b1b7ec3',
@@ -2602,7 +2602,7 @@ export function SettingsDialog({
                                 onChange={(event) =>
                                   setLocalThirdPartyVideoBaseUrl(event.target.value)
                                 }
-                                placeholder="https://www.oopii.cn"
+                                placeholder="https://www.oopii.cc"
                                 className="w-full rounded border border-border-dark bg-surface-dark px-3 py-2 text-sm text-text-dark placeholder:text-text-muted"
                               />
                               <p className="mt-2 text-xs leading-5 text-text-muted">
@@ -2618,12 +2618,12 @@ export function SettingsDialog({
                                 {t('settings.thirdPartyVideoDocDescription')}
                               </p>
                               <a
-                                href="https://www.oopii.cn"
+                                href="https://www.oopii.cc"
                                 target="_blank"
                                 rel="noreferrer"
                                 className="mt-3 inline-flex text-xs text-accent transition-colors hover:text-accent/80"
                               >
-                                https://www.oopii.cn
+                                https://www.oopii.cc
                               </a>
                             </div>
 
@@ -4219,7 +4219,7 @@ export function SettingsDialog({
                         </h3>
                         <p className="mt-2 whitespace-pre-line text-[13px] leading-6 text-text-muted">
                           {t('settings.apiPlatformNoticeBody', {
-                            oopiiUrl: 'https://www.oopii.cn/',
+                            oopiiUrl: 'https://www.oopii.cc/',
                             qqGroup: '835213642',
                           })}
                         </p>
@@ -4229,12 +4229,12 @@ export function SettingsDialog({
                               {t('settings.apiPlatformNoticeWebsiteLabel')}:
                             </span>
                             <a
-                              href="https://www.oopii.cn/"
+                              href="https://www.oopii.cc/"
                               target="_blank"
                               rel="noreferrer"
                               className="break-all text-accent hover:underline"
                             >
-                              https://www.oopii.cn/
+                              https://www.oopii.cc/
                             </a>
                           </div>
                           <div className="flex flex-wrap items-center gap-x-2 gap-y-1">

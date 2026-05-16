@@ -52,9 +52,14 @@ export const GroupNode = memo(({ id, data, selected }: GroupNodeProps) => {
   );
   const isPlotLinePanel = data.visualStyle === 'scriptPlotLinePanel';
   const isAssetBatchGroup = data.visualStyle === 'assetBatchGroup';
+  const isStoryboardProductionGroup = data.visualStyle === 'storyboardProductionGroup';
+  const isProductionLikeGroup = isAssetBatchGroup || isStoryboardProductionGroup;
   const directChildNodes = useMemo(
-    () => nodes.filter((node) => node.parentId === id && node.type === CANVAS_NODE_TYPES.imageEdit),
-    [id, nodes]
+    () => nodes.filter((node) => (
+      node.parentId === id
+      && (isStoryboardProductionGroup || node.type === CANVAS_NODE_TYPES.imageEdit)
+    )),
+    [id, isStoryboardProductionGroup, nodes]
   );
   const imageModels = useMemo(
     () =>
@@ -125,7 +130,7 @@ export const GroupNode = memo(({ id, data, selected }: GroupNodeProps) => {
   }, [directChildNodes, queueState.runningNodeId]);
 
   useEffect(() => {
-    if (!isAssetBatchGroup || autoRelayoutAttemptedRef.current) {
+    if (!isProductionLikeGroup || autoRelayoutAttemptedRef.current) {
       return;
     }
 
@@ -141,7 +146,7 @@ export const GroupNode = memo(({ id, data, selected }: GroupNodeProps) => {
 
     autoRelayoutAttemptedRef.current = true;
     layoutGroupNode(id);
-  }, [directChildNodes, id, isAssetBatchGroup, layoutGroupNode]);
+  }, [directChildNodes, id, isProductionLikeGroup, layoutGroupNode]);
 
   const handleBatchRun = async () => {
     setIsRunningBatch(true);
@@ -161,7 +166,141 @@ export const GroupNode = memo(({ id, data, selected }: GroupNodeProps) => {
     }
   };
 
-  if (isAssetBatchGroup) {
+  if (isStoryboardProductionGroup) {
+    const shotLabels = Array.isArray(data.sourceStoryboardShotLabels)
+      ? data.sourceStoryboardShotLabels.filter((item): item is string => typeof item === 'string')
+      : [];
+    const shotSummaries = Array.isArray(data.sourceStoryboardShotSummaries)
+      ? data.sourceStoryboardShotSummaries
+          .map((item) => {
+            if (!item || typeof item !== 'object' || Array.isArray(item)) {
+              return null;
+            }
+            const record = item as {
+              shotNumber?: unknown;
+              durationSeconds?: unknown;
+              content?: unknown;
+            };
+            const shotNumber = typeof record.shotNumber === 'string'
+              ? record.shotNumber.trim()
+              : '';
+            const content = typeof record.content === 'string'
+              ? record.content.trim()
+              : '';
+            return {
+              shotNumber,
+              durationSeconds:
+                typeof record.durationSeconds === 'number' && Number.isFinite(record.durationSeconds)
+                  ? record.durationSeconds
+                  : null,
+              content,
+            };
+          })
+          .filter((item): item is { shotNumber: string; durationSeconds: number | null; content: string } =>
+            Boolean(item && (item.shotNumber || item.content))
+          )
+      : [];
+    const totalDurationSeconds =
+      typeof data.totalDurationSeconds === 'number' && Number.isFinite(data.totalDurationSeconds)
+        ? data.totalDurationSeconds
+        : 0;
+    const targetDurationSeconds =
+      typeof data.targetVideoDurationSeconds === 'number'
+        ? data.targetVideoDurationSeconds
+        : null;
+
+    return (
+      <div
+        className={`group relative h-full w-full overflow-visible rounded-[24px] border transition-all ${
+          selected
+            ? 'border-[#d7c6a2] bg-[#171513] shadow-[0_0_0_1px_rgba(215,198,162,0.22),0_18px_44px_rgba(0,0,0,0.24)]'
+            : 'border-[rgba(255,255,255,0.12)] bg-[#141312] shadow-[0_14px_36px_rgba(0,0,0,0.2)]'
+        }`}
+      >
+        <div className="pointer-events-none absolute inset-0 rounded-[24px] bg-[radial-gradient(circle_at_top_left,rgba(255,214,153,0.1),transparent_30%),linear-gradient(180deg,rgba(255,255,255,0.035),transparent_52%)]" />
+        <NodeHeader
+          className={NODE_HEADER_FLOATING_POSITION_CLASS}
+          icon={<LayoutGrid className="h-4 w-4" />}
+          titleText={resolvedTitle}
+          titleClassName="text-[#f5d59b]"
+          editable
+          onTitleChange={(nextTitle) => updateNodeData(id, {
+            displayName: nextTitle,
+            label: nextTitle,
+          })}
+        />
+
+        <div className="nodrag nopan pointer-events-none absolute left-5 right-5 top-12 z-10 rounded-2xl border border-white/10 bg-black/22 px-4 py-3">
+          <div className="flex min-w-0 items-center gap-2 text-[11px] text-text-muted">
+            <div className="min-w-0 flex-1 truncate text-xs font-semibold text-[#f5d59b]">
+              {resolvedTitle}
+              {shotLabels.length > 0 ? ` · ${t('node.storyboardProductionGroup.shots')}: ${shotLabels.join(' / ')}` : ''}
+            </div>
+            <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
+              <span className="rounded-full border border-white/10 bg-white/5 px-2.5 py-1">
+                {t('node.storyboardProductionGroup.nodeCount', { count: directChildNodes.length })}
+              </span>
+              <span className="rounded-full border border-white/10 bg-white/5 px-2.5 py-1">
+                {t('node.storyboardProductionGroup.shotCount', { count: shotLabels.length })}
+              </span>
+              <span className="rounded-full border border-white/10 bg-white/5 px-2.5 py-1">
+                {t('node.storyboardProductionGroup.totalDuration', { value: `${totalDurationSeconds}s` })}
+              </span>
+              {targetDurationSeconds ? (
+                <span className="rounded-full border border-white/10 bg-white/5 px-2.5 py-1">
+                  {t('node.storyboardProductionGroup.targetDuration', { value: `${targetDurationSeconds}s` })}
+                </span>
+              ) : null}
+              {data.continuousReferenceEnabled === true ? (
+                <span className="inline-flex items-center gap-1 rounded-full border border-emerald-400/25 bg-emerald-400/12 px-2.5 py-1 text-emerald-200">
+                  <LockKeyhole className="h-3.5 w-3.5" />
+                  {t('node.storyboardProductionGroup.continuousEnabled')}
+                </span>
+              ) : null}
+            </div>
+          </div>
+          {shotSummaries.length > 0 ? (
+            <div className="mt-3 grid max-h-[178px] grid-cols-4 gap-3 overflow-y-auto pr-1">
+              {shotSummaries.map((shot, index) => (
+                <div
+                  key={`${shot.shotNumber || 'shot'}-${index}`}
+                  className="min-h-[128px] rounded-2xl border border-white/10 bg-white/[0.045] px-3 py-2.5 shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]"
+                >
+                  <div className="mb-1.5 flex items-center justify-between gap-2 text-[11px]">
+                    <span className="min-w-0 truncate font-semibold text-[#f5d59b]">
+                      {shot.shotNumber || `${index + 1}`}
+                    </span>
+                    {shot.durationSeconds !== null ? (
+                      <span className="shrink-0 rounded-full border border-white/10 bg-black/20 px-2 py-0.5 text-text-muted">
+                        {shot.durationSeconds}s
+                      </span>
+                    ) : null}
+                  </div>
+                  <div className="line-clamp-5 whitespace-pre-wrap break-words text-[11px] leading-5 text-text-dark/90">
+                    {shot.content || '-'}
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="mt-3 rounded-2xl border border-white/10 bg-white/[0.035] px-3 py-4 text-xs text-text-muted">
+              {shotLabels.length > 0 ? shotLabels.join(' / ') : t('node.storyboardProductionGroup.shots')}
+            </div>
+          )}
+        </div>
+
+        <NodeResizeHandle minWidth={720} minHeight={360} maxWidth={2600} maxHeight={1600} isVisible={selected} />
+      </div>
+    );
+  }
+
+  if (isProductionLikeGroup) {
+    const groupNodeCountLabel = isStoryboardProductionGroup
+      ? t('node.storyboardProductionGroup.nodeCount', { count: directChildNodes.length })
+      : t('node.assetBatchGroup.nodeCount', { count: directChildNodes.length });
+    const groupKindLabel = isStoryboardProductionGroup
+      ? t(`node.storyboardProductionGroup.batchKind.${data.batchKind === 'storyboard10s' ? 'storyboard10s' : 'storyboard15s'}`)
+      : t(`node.assetBatchGroup.batchKind.${data.batchKind ?? 'character'}`);
     return (
       <div
         className={`group relative h-full w-full overflow-visible rounded-[24px] border transition-all ${
@@ -186,11 +325,17 @@ export const GroupNode = memo(({ id, data, selected }: GroupNodeProps) => {
         <div className="nodrag nopan flex h-full min-h-0 flex-col gap-3 px-5 pb-4 pt-12">
           <div className="flex flex-wrap items-center gap-2">
             <span className="rounded-full border border-white/10 bg-white/5 px-2.5 py-1 text-[11px] text-text-muted">
-              {t('node.assetBatchGroup.nodeCount', { count: directChildNodes.length })}
+              {groupNodeCountLabel}
             </span>
             <span className="rounded-full border border-white/10 bg-white/5 px-2.5 py-1 text-[11px] text-text-muted">
-              {t(`node.assetBatchGroup.batchKind.${data.batchKind ?? 'character'}`)}
+              {groupKindLabel}
             </span>
+            {isStoryboardProductionGroup && data.continuousReferenceEnabled === true ? (
+              <span className="inline-flex items-center gap-1 rounded-full border border-emerald-400/25 bg-emerald-400/12 px-2.5 py-1 text-[11px] text-emerald-200">
+                <LockKeyhole className="h-3.5 w-3.5" />
+                {t('node.storyboardProductionGroup.continuousEnabled')}
+              </span>
+            ) : null}
             {data.globalOverrideEnabled ? (
               <span className="inline-flex items-center gap-1 rounded-full border border-emerald-400/25 bg-emerald-400/12 px-2.5 py-1 text-[11px] text-emerald-200">
                 <LockKeyhole className="h-3.5 w-3.5" />
@@ -259,43 +404,54 @@ export const GroupNode = memo(({ id, data, selected }: GroupNodeProps) => {
                 paramsChipClassName="w-auto justify-start"
                 styleTemplateTriggerMode="label"
               />
-              <UiButton
-                type="button"
-                variant="ghost"
-                className="h-9 shrink-0 rounded-xl border border-white/10 bg-white/5 px-3 text-sm text-text-dark hover:border-white/20 hover:bg-white/10"
-                disabled={isOptimizingBatch || isRunningBatch || directChildNodes.length === 0}
-                onClick={() => void handleBatchOptimize()}
-              >
-                <Wand2 className="h-4 w-4" />
-                {isOptimizingBatch
-                  ? t('node.assetBatchGroup.optimizing')
-                  : t('node.assetBatchGroup.optimizeSequential')}
-              </UiButton>
+              {!isStoryboardProductionGroup ? (
+                <UiButton
+                  type="button"
+                  variant="ghost"
+                  className="h-9 shrink-0 rounded-xl border border-white/10 bg-white/5 px-3 text-sm text-text-dark hover:border-white/20 hover:bg-white/10"
+                  disabled={isOptimizingBatch || isRunningBatch || directChildNodes.length === 0}
+                  onClick={() => void handleBatchOptimize()}
+                >
+                  <Wand2 className="h-4 w-4" />
+                  {isOptimizingBatch
+                    ? t('node.assetBatchGroup.optimizing')
+                    : t('node.assetBatchGroup.optimizeSequential')}
+                </UiButton>
+              ) : null}
             </div>
           </div>
 
           <div className="rounded-2xl border border-white/8 bg-black/20 px-4 py-3 text-xs text-text-muted">
-            <div className="flex flex-wrap items-center gap-3">
-              <span>{t('node.assetBatchGroup.queue.pending', { count: queueState.pendingNodeIds.length })}</span>
-              <span>{t('node.assetBatchGroup.queue.running', { count: queueState.runningNodeId ? 1 : 0 })}</span>
-              <span>{t('node.assetBatchGroup.queue.completed', { count: queueState.completedNodeIds.length })}</span>
-              <span>{t('node.assetBatchGroup.queue.failed', { count: queueState.failedNodeIds.length })}</span>
-            </div>
-            {runningNodeTitle ? (
-              <div className="mt-2 text-[11px] text-text-dark">
-                {t('node.assetBatchGroup.queue.current', { name: runningNodeTitle })}
+            {isStoryboardProductionGroup ? (
+              <div className="leading-5">
+                {t('node.storyboardProductionGroup.prepareHint')}
               </div>
-            ) : null}
-            {queueState.lastRunAt ? (
-              <div className="mt-1 text-[11px]">
-                {t('node.assetBatchGroup.queue.lastRunAt', {
-                  value: new Date(queueState.lastRunAt).toLocaleString(),
-                })}
-              </div>
-            ) : null}
+            ) : (
+              <>
+                <div className="flex flex-wrap items-center gap-3">
+                  <span>{t('node.assetBatchGroup.queue.pending', { count: queueState.pendingNodeIds.length })}</span>
+                  <span>{t('node.assetBatchGroup.queue.running', { count: queueState.runningNodeId ? 1 : 0 })}</span>
+                  <span>{t('node.assetBatchGroup.queue.completed', { count: queueState.completedNodeIds.length })}</span>
+                  <span>{t('node.assetBatchGroup.queue.failed', { count: queueState.failedNodeIds.length })}</span>
+                </div>
+                {runningNodeTitle ? (
+                  <div className="mt-2 text-[11px] text-text-dark">
+                    {t('node.assetBatchGroup.queue.current', { name: runningNodeTitle })}
+                  </div>
+                ) : null}
+                {queueState.lastRunAt ? (
+                  <div className="mt-1 text-[11px]">
+                    {t('node.assetBatchGroup.queue.lastRunAt', {
+                      value: new Date(queueState.lastRunAt).toLocaleString(),
+                    })}
+                  </div>
+                ) : null}
+              </>
+            )}
           </div>
 
-          <div className="mt-auto flex justify-end">
+          {!isStoryboardProductionGroup ? (
+            <div className="mt-auto flex justify-end">
             <UiButton
               type="button"
               variant="primary"
@@ -308,7 +464,8 @@ export const GroupNode = memo(({ id, data, selected }: GroupNodeProps) => {
                 ? t('node.assetBatchGroup.running')
                 : t('node.assetBatchGroup.runSequential')}
             </UiButton>
-          </div>
+            </div>
+          ) : null}
         </div>
 
         <NodeResizeHandle minWidth={360} minHeight={420} maxWidth={2600} maxHeight={2200} isVisible={selected} />

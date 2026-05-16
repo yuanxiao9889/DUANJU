@@ -142,6 +142,13 @@ export interface CanvasEventMap {
   'storyboard-asset-expand/open': {
     nodeId: string;
   };
+  'smart-director-storyboard-transfer/open': {
+    nodeId: string;
+  };
+  'smart-director-storyboard-result-choice/open': {
+    nodeId: string;
+    onResolve: (choice: 'reuse' | 'new' | null) => void;
+  };
   'audio-node/open-save-preset': {
     nodeId: string;
   };
