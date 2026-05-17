@@ -248,6 +248,8 @@ export const GroupNode = memo(({ id, data, selected }: GroupNodeProps) => {
       typeof data.targetVideoDurationSeconds === 'number'
         ? data.targetVideoDurationSeconds
         : null;
+    const storyboardMetaPillClass =
+      'rounded-full border border-white/10 bg-white/5 px-2.5 py-1';
 
     return (
       <div
@@ -271,7 +273,37 @@ export const GroupNode = memo(({ id, data, selected }: GroupNodeProps) => {
         />
 
         <div
-          className="nodrag nowheel absolute left-5 right-5 top-12 z-10 rounded-2xl border border-white/10 bg-[#171513]/92 px-4 py-3"
+          className="pointer-events-none absolute left-5 right-5 top-4 z-10 flex justify-end"
+          onPointerDown={(event) => event.stopPropagation()}
+          onMouseDown={(event) => event.stopPropagation()}
+          onDoubleClick={(event) => event.stopPropagation()}
+        >
+          <div className="pointer-events-auto nodrag nowheel flex max-w-full flex-wrap items-center justify-end gap-2 text-[11px] text-text-muted">
+            <span className={storyboardMetaPillClass}>
+              {t('node.storyboardProductionGroup.nodeCount', { count: directChildNodes.length })}
+            </span>
+            <span className={storyboardMetaPillClass}>
+              {t('node.storyboardProductionGroup.shotCount', { count: shotLabels.length })}
+            </span>
+            <span className={storyboardMetaPillClass}>
+              {t('node.storyboardProductionGroup.totalDuration', { value: `${totalDurationSeconds}s` })}
+            </span>
+            {targetDurationSeconds ? (
+              <span className={storyboardMetaPillClass}>
+                {t('node.storyboardProductionGroup.targetDuration', { value: `${targetDurationSeconds}s` })}
+              </span>
+            ) : null}
+            {data.continuousReferenceEnabled === true ? (
+              <span className="inline-flex items-center gap-1 rounded-full border border-emerald-400/25 bg-emerald-400/12 px-2.5 py-1 text-emerald-200">
+                <LockKeyhole className="h-3.5 w-3.5" />
+                {t('node.storyboardProductionGroup.continuousEnabled')}
+              </span>
+            ) : null}
+          </div>
+        </div>
+
+        <div
+          className="nodrag nowheel absolute left-5 right-5 top-14 z-10 rounded-2xl border border-white/10 bg-[#171513]/92 px-4 py-3"
           onPointerDown={(event) => event.stopPropagation()}
           onMouseDown={(event) => event.stopPropagation()}
           onDoubleClick={(event) => event.stopPropagation()}
@@ -280,28 +312,6 @@ export const GroupNode = memo(({ id, data, selected }: GroupNodeProps) => {
             <div className="min-w-0 flex-1 truncate text-xs font-semibold text-[#f5d59b]">
               {resolvedTitle}
               {shotLabels.length > 0 ? ` · ${t('node.storyboardProductionGroup.shots')}: ${shotLabels.join(' / ')}` : ''}
-            </div>
-            <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
-              <span className="rounded-full border border-white/10 bg-white/5 px-2.5 py-1">
-                {t('node.storyboardProductionGroup.nodeCount', { count: directChildNodes.length })}
-              </span>
-              <span className="rounded-full border border-white/10 bg-white/5 px-2.5 py-1">
-                {t('node.storyboardProductionGroup.shotCount', { count: shotLabels.length })}
-              </span>
-              <span className="rounded-full border border-white/10 bg-white/5 px-2.5 py-1">
-                {t('node.storyboardProductionGroup.totalDuration', { value: `${totalDurationSeconds}s` })}
-              </span>
-              {targetDurationSeconds ? (
-                <span className="rounded-full border border-white/10 bg-white/5 px-2.5 py-1">
-                  {t('node.storyboardProductionGroup.targetDuration', { value: `${targetDurationSeconds}s` })}
-                </span>
-              ) : null}
-              {data.continuousReferenceEnabled === true ? (
-                <span className="inline-flex items-center gap-1 rounded-full border border-emerald-400/25 bg-emerald-400/12 px-2.5 py-1 text-emerald-200">
-                  <LockKeyhole className="h-3.5 w-3.5" />
-                  {t('node.storyboardProductionGroup.continuousEnabled')}
-                </span>
-              ) : null}
             </div>
           </div>
           {shotSummaries.length > 0 ? (

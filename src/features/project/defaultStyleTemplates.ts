@@ -5,7 +5,14 @@ import panorama360Image from '@/assets/style-templates/panorama-360.jpg';
 import {
   sortStyleTemplates,
   type StyleTemplate,
+  type StyleTemplateCategory,
 } from '@/features/project/styleTemplateUtils';
+import {
+  DEFAULT_STORYBOARD_PRODUCTION_SKETCH_STYLE_PROMPT,
+  STORYBOARD_PRODUCTION_STYLE_CATEGORY_ID,
+  STORYBOARD_PRODUCTION_SKETCH_STYLE_TEMPLATE_ID,
+  STORYBOARD_PRODUCTION_SKETCH_STYLE_TEMPLATE_NAME,
+} from '@/features/project/storyboardProductionStyle';
 
 export const PANORAMA_STYLE_TEMPLATE_ID = 'builtin-panorama-360';
 export const CINEMATIC_ATMOSPHERE_STYLE_TEMPLATE_ID =
@@ -60,17 +67,6 @@ const BUILTIN_STYLE_TEMPLATE_IMAGE_ASSETS = {
   characterThreeView: characterThreeViewImage,
   mechaMaterialEnhance: mechaMaterialEnhanceImage,
 } as const;
-const BUILTIN_STYLE_TEMPLATE_IMAGE_PREFIXES = [
-  '/assets/',
-  './assets/',
-  'assets/',
-  '/src/assets/',
-  './src/assets/',
-  'src/assets/',
-  '/style-templates/',
-  './style-templates/',
-  'style-templates/',
-] as const;
 
 function defineBundledBuiltinStyleTemplate(
   input: BundledBuiltinStyleTemplateInput
@@ -114,7 +110,19 @@ const BUILTIN_STYLE_TEMPLATE_DEFINITIONS: readonly BuiltinStyleTemplateDefinitio
     imageAssetUrl: BUILTIN_STYLE_TEMPLATE_IMAGE_ASSETS.mechaMaterialEnhance,
     imageFileName: 'mecha-material-enhance.jpg',
   }),
+  {
+    id: STORYBOARD_PRODUCTION_SKETCH_STYLE_TEMPLATE_ID,
+    name: STORYBOARD_PRODUCTION_SKETCH_STYLE_TEMPLATE_NAME,
+    prompt: DEFAULT_STORYBOARD_PRODUCTION_SKETCH_STYLE_PROMPT,
+    imageUrl: null,
+    imageFileName: null,
+    categoryId: null,
+  },
 ];
+
+const BUILTIN_STYLE_TEMPLATE_IDS = new Set(
+  BUILTIN_STYLE_TEMPLATE_DEFINITIONS.map((template) => template.id)
+);
 
 interface BuiltinStyleTemplateSeedInput {
   styleTemplates: StyleTemplate[];
@@ -134,89 +142,6 @@ function normalizeTemplateImageUrl(imageUrl: string | null | undefined): string 
 
   const trimmedImageUrl = imageUrl.trim();
   return trimmedImageUrl.length > 0 ? trimmedImageUrl : null;
-}
-
-function escapeRegExp(value: string): string {
-  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-}
-
-function stripImageUrlSearchAndHash(source: string): string {
-  const separatorIndex = source.search(/[?#]/);
-  return separatorIndex >= 0 ? source.slice(0, separatorIndex) : source;
-}
-
-function extractImageUrlPathnameCandidate(source: string): string {
-  const trimmedSource = source.trim();
-  if (!trimmedSource) {
-    return '';
-  }
-
-  try {
-    return decodeURIComponent(new URL(trimmedSource).pathname);
-  } catch {
-    return stripImageUrlSearchAndHash(trimmedSource);
-  }
-}
-
-function extractImageUrlBaseName(source: string): string {
-  const pathnameCandidate = extractImageUrlPathnameCandidate(source);
-  if (!pathnameCandidate) {
-    return '';
-  }
-
-  const segments = pathnameCandidate.split(/[\\/]/);
-  return segments[segments.length - 1]?.trim() ?? '';
-}
-
-function isBundledStyleTemplatePreviewUrl(imageUrl: string): boolean {
-  const trimmedImageUrl = imageUrl.trim();
-  if (!trimmedImageUrl) {
-    return false;
-  }
-
-  const normalizedPathCandidate = (() => {
-    try {
-      return new URL(trimmedImageUrl).pathname;
-    } catch {
-      return trimmedImageUrl;
-    }
-  })();
-
-  return BUILTIN_STYLE_TEMPLATE_IMAGE_PREFIXES.some((prefix) =>
-    normalizedPathCandidate.startsWith(prefix)
-  );
-}
-
-function isLikelyBundledStyleTemplatePreviewFileName(
-  imageUrl: string,
-  builtinTemplate: BuiltinStyleTemplateDefinition
-): boolean {
-  const expectedFileName = builtinTemplate.imageFileName?.trim();
-  if (!expectedFileName) {
-    return false;
-  }
-
-  const imageBaseName = extractImageUrlBaseName(imageUrl).toLowerCase();
-  if (!imageBaseName) {
-    return false;
-  }
-
-  const normalizedExpectedFileName = expectedFileName.toLowerCase();
-  if (imageBaseName === normalizedExpectedFileName) {
-    return true;
-  }
-
-  const extensionIndex = normalizedExpectedFileName.lastIndexOf('.');
-  if (extensionIndex <= 0 || extensionIndex >= normalizedExpectedFileName.length - 1) {
-    return false;
-  }
-
-  const expectedStem = normalizedExpectedFileName.slice(0, extensionIndex);
-  const expectedExtension = normalizedExpectedFileName.slice(extensionIndex + 1);
-  return new RegExp(
-    `^${escapeRegExp(expectedStem)}(?:-[a-z0-9_-]+)?\\.${escapeRegExp(expectedExtension)}$`,
-    'i'
-  ).test(imageBaseName);
 }
 
 function resolveMatchingBuiltinStyleTemplate(
@@ -243,29 +168,6 @@ export function resolveBuiltinStyleTemplatePreviewImageUrl(
   template: Pick<StyleTemplate, 'id' | 'name' | 'prompt'>
 ): string | null {
   return normalizeTemplateImageUrl(resolveMatchingBuiltinStyleTemplate(template)?.imageUrl);
-}
-
-function resolveBuiltinTemplateImageUrl(
-  builtinTemplate: BuiltinStyleTemplateDefinition,
-  matchedTemplate: StyleTemplate | null
-): string | null {
-  const matchedImageUrl = normalizeTemplateImageUrl(matchedTemplate?.imageUrl);
-  if (!matchedImageUrl) {
-    return normalizeTemplateImageUrl(builtinTemplate.imageUrl);
-  }
-
-  // Upgrade previously persisted bundled SVG placeholders to the current
-  // bundled raster previews while still preserving real user-local images.
-  // Older installed builds may have persisted absolute app-resource paths,
-  // so we also detect stale bundled file names and replace them here.
-  if (
-    isBundledStyleTemplatePreviewUrl(matchedImageUrl)
-    || isLikelyBundledStyleTemplatePreviewFileName(matchedImageUrl, builtinTemplate)
-  ) {
-    return normalizeTemplateImageUrl(builtinTemplate.imageUrl);
-  }
-
-  return matchedImageUrl;
 }
 
 function getBuiltinStyleTemplateMatchScore(
@@ -323,15 +225,19 @@ function createBuiltinStyleTemplate(
 
   return {
     id: builtinTemplate.id,
-    name: matchedTemplate?.name.trim() || builtinTemplate.name,
-    prompt: matchedTemplate?.prompt.trim() || builtinTemplate.prompt,
-    imageUrl: resolveBuiltinTemplateImageUrl(builtinTemplate, matchedTemplate),
-    categoryId: matchedTemplate?.categoryId ?? builtinTemplate.categoryId,
+    name: builtinTemplate.name,
+    prompt: builtinTemplate.prompt,
+    imageUrl: normalizeTemplateImageUrl(builtinTemplate.imageUrl),
+    categoryId: builtinTemplate.categoryId,
     sortOrder: matchedTemplate?.sortOrder ?? fallbackSortOrder,
     createdAt,
     updatedAt,
     lastUsedAt: matchedTemplate?.lastUsedAt ?? null,
   };
+}
+
+export function isBuiltinStyleTemplateId(templateId: string): boolean {
+  return BUILTIN_STYLE_TEMPLATE_IDS.has(templateId.trim());
 }
 
 export function seedBuiltinStyleTemplates(
@@ -367,4 +273,12 @@ export function seedBuiltinStyleTemplates(
     styleTemplates: sortStyleTemplates([...builtinTemplates, ...remainingTemplates]),
     hasInjectedPanoramaStyleTemplate: true,
   };
+}
+
+export function seedBuiltinStyleTemplateCategories(
+  categoriesInput: StyleTemplateCategory[]
+): StyleTemplateCategory[] {
+  return categoriesInput.filter(
+    (category) => category.id !== STORYBOARD_PRODUCTION_STYLE_CATEGORY_ID
+  );
 }

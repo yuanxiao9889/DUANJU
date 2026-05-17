@@ -572,9 +572,7 @@ impl NewApiProvider {
     }
 
     fn is_oopii_all_image_2_request_model(request_model: &str) -> bool {
-        request_model
-            .trim()
-            .eq_ignore_ascii_case("all-image-2")
+        request_model.trim().eq_ignore_ascii_case("all-image-2")
     }
 
     fn is_gpt2api_image_request_model(request_model: &str) -> bool {

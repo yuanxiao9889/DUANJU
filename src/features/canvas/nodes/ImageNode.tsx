@@ -564,7 +564,8 @@ export const ImageNode = memo(
                 {storyboardProductionResults.length > 0 ? (
                   storyboardProductionResults.map((item, index) => {
                     const isSelected = item.id === selectedStoryboardProductionResultId;
-                    const previewUrl = item.thumbnailUrl || item.previewImageUrl || item.imageUrl;
+                    const previewUrl =
+                      item.previewImageUrl || item.imageUrl || item.thumbnailUrl || undefined;
                     return (
                       <button
                         key={item.id}

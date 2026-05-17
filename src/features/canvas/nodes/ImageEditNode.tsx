@@ -1609,17 +1609,13 @@ export const ImageEditNode = memo(
           && (node.data as ExportImageNodeData).isStoryboardProductionPlaceholder === true
         ));
       let newNodeId = placeholderResultNode?.id ?? null;
+      const shouldResetStoryboardProductionPreview =
+        placeholderResultNode?.data.isStoryboardProductionPlaceholder === true;
       const resultNodeData = {
           isGenerating: true,
-          imageUrl: placeholderResultNode?.data.isStoryboardProductionPlaceholder === true
-            ? placeholderResultNode.data.imageUrl ?? null
-            : null,
-          previewImageUrl: placeholderResultNode?.data.isStoryboardProductionPlaceholder === true
-            ? placeholderResultNode.data.previewImageUrl ?? null
-            : null,
-          thumbnailUrl: placeholderResultNode?.data.isStoryboardProductionPlaceholder === true
-            ? placeholderResultNode.data.thumbnailUrl ?? null
-            : null,
+          imageUrl: null,
+          previewImageUrl: null,
+          thumbnailUrl: null,
           generationPhase: "submitting",
           generationFailureStage: null,
           generationStartedAt,
@@ -1628,6 +1624,11 @@ export const ImageEditNode = memo(
           displayName: resultNodeTitle,
           aspectRatio: initialRequestAspectRatio,
           generationSummary,
+          ...(shouldResetStoryboardProductionPreview
+            ? {
+              generationForceRefreshRequestedAt: generationStartedAt,
+            }
+            : {}),
       } satisfies Partial<ExportImageNodeData>;
       if (newNodeId) {
         updateNodeData(newNodeId, resultNodeData);

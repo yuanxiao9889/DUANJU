@@ -89,7 +89,11 @@ import {
   sortStyleTemplateCategories,
   sortStyleTemplates,
 } from '@/features/project/styleTemplateUtils';
-import { seedBuiltinStyleTemplates } from '@/features/project/defaultStyleTemplates';
+import {
+  isBuiltinStyleTemplateId,
+  seedBuiltinStyleTemplateCategories,
+  seedBuiltinStyleTemplates,
+} from '@/features/project/defaultStyleTemplates';
 import {
   MJ_PROVIDER_IDS,
   normalizeMidjourneyProviderEnabledSelection,
@@ -512,7 +516,9 @@ function normalizeAndSeedStyleTemplateState(
   templates: StyleTemplate[];
   hasInjectedPanoramaStyleTemplate: boolean;
 } {
-  const categories = normalizeStyleTemplateCategories(categoriesInput);
+  const categories = seedBuiltinStyleTemplateCategories(
+    normalizeStyleTemplateCategories(categoriesInput)
+  );
   const categoryIds = new Set(categories.map((category) => category.id));
   const templates = normalizeStyleTemplates(templatesInput, categoryIds);
   const seededState = seedBuiltinStyleTemplates({
@@ -1397,6 +1403,9 @@ export const useSettingsStore = create<SettingsState>()(
         return id;
       },
       updateStyleTemplate: (id, updates) => {
+        if (isBuiltinStyleTemplateId(id)) {
+          return;
+        }
         let nextStyleTemplateCategories: StyleTemplateCategory[] = [];
         let nextStyleTemplates: StyleTemplate[] = [];
         let nextMjStyleCodePresets: MjStyleCodePreset[] = [];
@@ -1454,6 +1463,9 @@ export const useSettingsStore = create<SettingsState>()(
         );
       },
       deleteStyleTemplate: (id) => {
+        if (isBuiltinStyleTemplateId(id)) {
+          return;
+        }
         let nextStyleTemplateCategories: StyleTemplateCategory[] = [];
         let nextStyleTemplates: StyleTemplate[] = [];
         let nextMjStyleCodePresets: MjStyleCodePreset[] = [];
@@ -1706,13 +1718,28 @@ export const useSettingsStore = create<SettingsState>()(
             importedTemplates: data.templates,
           });
 
-          nextStyleTemplateCategories = merged.categories;
-          nextStyleTemplates = merged.templates;
+          nextStyleTemplateCategories = seedBuiltinStyleTemplateCategories(
+            normalizeStyleTemplateCategories(merged.categories)
+          );
+          const nextStyleTemplateCategoryIds = new Set(
+            nextStyleTemplateCategories.map((category) => category.id)
+          );
+          const normalizedMergedStyleTemplates = normalizeStyleTemplates(
+            merged.templates,
+            nextStyleTemplateCategoryIds
+          );
+          const seededStyleTemplateState = seedBuiltinStyleTemplates({
+            styleTemplates: normalizedMergedStyleTemplates,
+            hasInjectedPanoramaStyleTemplate: state.hasInjectedPanoramaStyleTemplate,
+          });
+          nextStyleTemplates = seededStyleTemplateState.styleTemplates;
           summary = merged.summary;
 
           return {
             styleTemplateCategories: nextStyleTemplateCategories,
             styleTemplates: nextStyleTemplates,
+            hasInjectedPanoramaStyleTemplate:
+              seededStyleTemplateState.hasInjectedPanoramaStyleTemplate,
           };
         });
 
@@ -1928,8 +1955,8 @@ export const useSettingsStore = create<SettingsState>()(
             oopii: DEFAULT_OOPII_TEXT_MODEL,
           }
         );
-        const normalizedStyleTemplateCategories = normalizeStyleTemplateCategories(
-          state.styleTemplateCategories
+        const normalizedStyleTemplateCategories = seedBuiltinStyleTemplateCategories(
+          normalizeStyleTemplateCategories(state.styleTemplateCategories)
         );
         const normalizedAdDirectorSkillCategories = normalizeAdDirectorSkillCategories(
           state.adDirectorSkillCategories

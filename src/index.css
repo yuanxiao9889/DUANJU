@@ -224,16 +224,8 @@ body {
 
 .canvas-textarea-wrap {
   white-space: pre-wrap;
-  overflow-wrap: break-word;
-  word-break: break-word;
-  font: inherit;
-  line-height: inherit;
-  letter-spacing: inherit;
-  text-transform: inherit;
-  text-indent: inherit;
-  tab-size: 4;
-  font-kerning: none;
-  font-variant-ligatures: none;
+  overflow-wrap: anywhere;
+  word-break: normal;
 }
 
 .canvas-textarea-wrap:not(textarea)::after {
@@ -241,8 +233,8 @@ body {
 }
 
 textarea.canvas-textarea-wrap {
-  overflow-wrap: break-word;
-  word-break: break-word;
+  overflow-wrap: normal;
+  word-break: normal;
 }
 
 textarea.canvas-textarea-mirror-input {

@@ -156,7 +156,7 @@ export const StyleTemplateMenuPanel = memo(
       t("styleTemplate.all");
 
     const panelContent = (
-      <div className="grid h-[470px] max-h-[calc(100vh-180px)] grid-cols-[136px_minmax(0,1fr)] gap-2.5 overflow-hidden">
+      <div className={`${embedded ? 'grid h-full min-h-0' : 'grid h-[470px] max-h-[calc(100vh-180px)]'} grid-cols-[136px_minmax(0,1fr)] gap-2.5 overflow-hidden`}>
         <div className="ui-scrollbar overflow-y-auto rounded-[14px] border border-white/[0.05] bg-black/[0.14] p-2">
           {menuCategories.map((category) => {
             const isActive = category.id === activeCategoryId;

@@ -960,6 +960,10 @@ export const StoryboardNode = memo(
         }
 
         const target = event.target as Node;
+        const insideUiSelectListbox =
+          target instanceof Element
+            ? target.closest('[data-ui-select-listbox="true"]') !== null
+            : false;
         const insideRoot = rootRef.current.contains(target);
         const insidePickerMenu =
           pickerMenuRef.current?.contains(target) ?? false;
@@ -972,7 +976,7 @@ export const StoryboardNode = memo(
           setPickerState(null);
         }
 
-        if (!insideExportPanel && !insideExportTrigger) {
+        if (!insideExportPanel && !insideExportTrigger && !insideUiSelectListbox) {
           setIsExportPanelOpen(false);
         }
       };

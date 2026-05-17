@@ -9,7 +9,7 @@ use rusqlite::{Connection, DatabaseName};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use tauri::{AppHandle, Manager};
-use tracing::info;
+use tracing::{info, warn};
 use uuid::Uuid;
 
 use super::project_state;
@@ -1291,6 +1291,119 @@ fn resolve_storage_session_path(app: &AppHandle) -> Result<PathBuf, String> {
     Ok(resolve_storage_base_path(app)?.join(STORAGE_SESSION_FILE))
 }
 
+fn build_storage_session_temp_path(path: &Path, attempt: u32) -> Result<PathBuf, String> {
+    let file_name = path
+        .file_name()
+        .and_then(|value| value.to_str())
+        .ok_or_else(|| {
+            format!(
+                "Storage session target has no valid file name: {}",
+                path.display()
+            )
+        })?;
+
+    let stamp = current_timestamp_ms();
+    Ok(path.with_file_name(format!(
+        "{file_name}.tmp-{}-{}-{attempt}",
+        std::process::id(),
+        stamp
+    )))
+}
+
+fn build_invalid_storage_session_backup_path(path: &Path, attempt: u32) -> Result<PathBuf, String> {
+    let file_name = path
+        .file_name()
+        .and_then(|value| value.to_str())
+        .ok_or_else(|| {
+            format!(
+                "Storage session target has no valid file name: {}",
+                path.display()
+            )
+        })?;
+
+    let stamp = current_timestamp_ms();
+    Ok(path.with_file_name(format!(
+        "{file_name}.corrupt-{}-{}-{attempt}.bak",
+        std::process::id(),
+        stamp
+    )))
+}
+
+fn write_text_file_atomically(path: &Path, content: &str, label: &str) -> Result<(), String> {
+    let parent = path
+        .parent()
+        .ok_or_else(|| format!("{label} target has no parent directory: {}", path.display()))?;
+    fs::create_dir_all(parent).map_err(|e| format!("Failed to create {label} dir: {}", e))?;
+
+    for attempt in 0..24_u32 {
+        let temp_path = build_storage_session_temp_path(path, attempt)?;
+        let temp_file_result = fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&temp_path);
+
+        let mut temp_file = match temp_file_result {
+            Ok(file) => file,
+            Err(err) if err.kind() == io::ErrorKind::AlreadyExists => continue,
+            Err(err) => return Err(format!("Failed to create temp {label} file: {}", err)),
+        };
+
+        if let Err(err) = temp_file.write_all(content.as_bytes()) {
+            let _ = fs::remove_file(&temp_path);
+            return Err(format!("Failed to write temp {label} file: {}", err));
+        }
+
+        if let Err(err) = temp_file.sync_all() {
+            let _ = fs::remove_file(&temp_path);
+            return Err(format!("Failed to sync temp {label} file: {}", err));
+        }
+
+        drop(temp_file);
+
+        match fs::rename(&temp_path, path) {
+            Ok(()) => return Ok(()),
+            Err(err) => {
+                let copy_result = if path.exists() {
+                    fs::copy(&temp_path, path).map(|_| ())
+                } else {
+                    Err(err)
+                };
+                let _ = fs::remove_file(&temp_path);
+                copy_result
+                    .map_err(|copy_err| format!("Failed to finalize {label} file: {}", copy_err))?;
+                return Ok(());
+            }
+        }
+    }
+
+    Err(format!(
+        "Failed to allocate temp {label} file after multiple attempts"
+    ))
+}
+
+fn quarantine_invalid_storage_session_file(path: &Path) -> Result<Option<PathBuf>, String> {
+    for attempt in 0..24_u32 {
+        let backup_path = build_invalid_storage_session_backup_path(path, attempt)?;
+        match fs::rename(path, &backup_path) {
+            Ok(()) => return Ok(Some(backup_path)),
+            Err(err) if err.kind() == io::ErrorKind::AlreadyExists => continue,
+            Err(err) if err.kind() == io::ErrorKind::NotFound => return Ok(None),
+            Err(err) => {
+                return Err(format!(
+                    "Failed to quarantine invalid storage session file {}: {}",
+                    path.display(),
+                    err
+                ))
+            }
+        }
+    }
+
+    Err(format!(
+        "Failed to allocate invalid storage session backup path for {}",
+        path.display()
+    ))
+}
+
 fn read_storage_session_record_at_path(
     base_path: &Path,
 ) -> Result<Option<StorageSessionRecord>, String> {
@@ -1305,9 +1418,31 @@ fn read_storage_session_record_at_path(
         return Ok(None);
     }
 
-    serde_json::from_str::<StorageSessionRecord>(&content)
-        .map(Some)
-        .map_err(|e| format!("Failed to parse storage session: {}", e))
+    match serde_json::from_str::<StorageSessionRecord>(&content) {
+        Ok(record) => Ok(Some(record)),
+        Err(error) => {
+            match quarantine_invalid_storage_session_file(&path) {
+                Ok(Some(backup_path)) => warn!(
+                    "Ignored invalid storage session file {} (backed up to {}): {}",
+                    path.display(),
+                    backup_path.display(),
+                    error
+                ),
+                Ok(None) => warn!(
+                    "Ignored invalid storage session file {} because it disappeared during recovery: {}",
+                    path.display(),
+                    error
+                ),
+                Err(quarantine_error) => warn!(
+                    "Ignored invalid storage session file {} but failed to back it up: {}. Parse error: {}",
+                    path.display(),
+                    quarantine_error,
+                    error
+                ),
+            }
+            Ok(None)
+        }
+    }
 }
 
 fn write_storage_session_record(
@@ -1315,13 +1450,9 @@ fn write_storage_session_record(
     record: &StorageSessionRecord,
 ) -> Result<(), String> {
     let path = resolve_storage_session_path(app)?;
-    if let Some(parent) = path.parent() {
-        fs::create_dir_all(parent)
-            .map_err(|e| format!("Failed to create storage session dir: {}", e))?;
-    }
     let content = serde_json::to_string_pretty(record)
         .map_err(|e| format!("Failed to serialize storage session: {}", e))?;
-    fs::write(path, content).map_err(|e| format!("Failed to write storage session: {}", e))
+    write_text_file_atomically(&path, &content, "storage session")
 }
 
 fn check_storage_session_for_path(
@@ -2570,9 +2701,10 @@ pub fn open_storage_folder(app: AppHandle) -> Result<(), String> {
 mod tests {
     use super::{
         count_projects_in_db, decode_storage_media_ref_in_base, encode_storage_media_ref_in_base,
-        persist_media_bytes_in_base, rebase_storage_path_string,
-        relocate_storage_path_to_known_images_dirs, resolve_media_dir_in_base,
-        validate_storage_migration, MediaPersistContext,
+        persist_media_bytes_in_base, read_storage_session_record_at_path,
+        rebase_storage_path_string, relocate_storage_path_to_known_images_dirs,
+        resolve_media_dir_in_base, validate_storage_migration, write_text_file_atomically,
+        MediaPersistContext, STORAGE_SESSION_FILE,
     };
     use rusqlite::Connection;
     use std::fs;
@@ -2862,6 +2994,79 @@ mod tests {
         assert!(
             result.is_err(),
             "migration validation should fail when target loses projects"
+        );
+
+        let _ = fs::remove_dir_all(temp_root);
+    }
+
+    #[test]
+    fn read_storage_session_record_at_path_quarantines_invalid_json() {
+        let temp_root = std::env::temp_dir().join(format!(
+            "storyboard-storage-session-invalid-{}",
+            std::process::id()
+        ));
+        let _ = fs::remove_dir_all(&temp_root);
+        fs::create_dir_all(&temp_root).expect("failed to create temp root");
+
+        let session_path = temp_root.join(STORAGE_SESSION_FILE);
+        fs::write(&session_path, "not-json").expect("failed to seed invalid storage session");
+
+        let session = read_storage_session_record_at_path(&temp_root)
+            .expect("invalid storage session should be ignored");
+        assert!(
+            session.is_none(),
+            "invalid storage session should be ignored"
+        );
+        assert!(
+            !session_path.exists(),
+            "invalid storage session should be moved aside"
+        );
+
+        let backup_paths = fs::read_dir(&temp_root)
+            .expect("failed to list temp root")
+            .filter_map(Result::ok)
+            .map(|entry| entry.path())
+            .filter(|path| {
+                path.file_name()
+                    .and_then(|value| value.to_str())
+                    .is_some_and(|value| {
+                        value.starts_with("storage-session.json.corrupt-")
+                            && value.ends_with(".bak")
+                    })
+            })
+            .collect::<Vec<_>>();
+
+        assert_eq!(
+            backup_paths.len(),
+            1,
+            "expected one quarantined session backup"
+        );
+        assert_eq!(
+            fs::read_to_string(&backup_paths[0]).expect("failed to read quarantined backup"),
+            "not-json"
+        );
+
+        let _ = fs::remove_dir_all(temp_root);
+    }
+
+    #[test]
+    fn write_text_file_atomically_replaces_existing_content() {
+        let temp_root = std::env::temp_dir().join(format!(
+            "storyboard-storage-session-write-{}",
+            std::process::id()
+        ));
+        let _ = fs::remove_dir_all(&temp_root);
+        fs::create_dir_all(&temp_root).expect("failed to create temp root");
+
+        let session_path = temp_root.join(STORAGE_SESSION_FILE);
+        fs::write(&session_path, "stale").expect("failed to seed stale session file");
+
+        write_text_file_atomically(&session_path, "{\"ok\":true}", "storage session")
+            .expect("atomic write should succeed");
+
+        assert_eq!(
+            fs::read_to_string(&session_path).expect("failed to read storage session"),
+            "{\"ok\":true}"
         );
 
         let _ = fs::remove_dir_all(temp_root);

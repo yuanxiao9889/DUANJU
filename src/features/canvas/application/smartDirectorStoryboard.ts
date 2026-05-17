@@ -15,6 +15,7 @@ import { resolveScriptAssetExtractSource } from '@/features/canvas/application/d
 import {
   AUTO_REQUEST_ASPECT_RATIO,
   CANVAS_NODE_TYPES,
+  DEFAULT_PRODUCTION_IMAGE_MODEL_ID,
   type CanvasEdge,
   type CanvasNode,
   type DirectorStoryboardDurationGroup,
@@ -41,11 +42,14 @@ import {
 import { resolveNodeDisplayName } from '@/features/canvas/domain/nodeDisplay';
 import { createDefaultCanvasColorLabelMap } from '@/features/canvas/domain/semanticColors';
 import {
-  DEFAULT_IMAGE_MODEL_ID,
   getImageModel,
   resolveImageModelResolution,
 } from '@/features/canvas/models';
-import { appendStyleTemplatePrompt } from '@/features/project/styleTemplatePrompt';
+import {
+  DEFAULT_STORYBOARD_PRODUCTION_SKETCH_STYLE_PROMPT,
+  STORYBOARD_PRODUCTION_SKETCH_STYLE_TEMPLATE_ID,
+  STORYBOARD_PRODUCTION_SKETCH_STYLE_TEMPLATE_NAME,
+} from '@/features/project/storyboardProductionStyle';
 import {
   DEFAULT_VIEWPORT,
   fromProjectRecord,
@@ -179,11 +183,6 @@ const PRODUCTION_RESULT_NODE_HEIGHT = 520;
 const PRODUCTION_VIDEO_NODE_WIDTH = 980;
 const PRODUCTION_VIDEO_NODE_HEIGHT = 520;
 const PRODUCTION_CHILD_TOP = 300;
-export const DEFAULT_STORYBOARD_PRODUCTION_SKETCH_STYLE_PROMPT = [
-  '分镜拍摄草图，导演预演图，16:9 横版电影构图，写实电影感但低细节，浅景深，轻微虚焦，现场抓拍感。',
-  '重点表现镜头构图、人物站位、空间关系、动作趋势、光影氛围和叙事信息；人物五官不要过度清晰，只保留服装色块、体态、朝向和队列关系。',
-  '禁止：精修人像、写真海报、过度清晰五官、插画漫画风、夸张特效、文字水印、UI 字幕、过度装饰。',
-].join('\n');
 export type ScriptStoryboardProductionVideoKind = 'jimeng' | 'seedanceOfficial';
 const STREAM_PREPARING_MESSAGE = '正在准备导演分镜生成...';
 const STREAM_OUTLINING_MESSAGE = '正在创建分镜表框架...';
@@ -1546,15 +1545,6 @@ function resolveProductionGroupsForMode(
   return mode === '10s' ? groups.groups10s : groups.groups15s;
 }
 
-function resolveStoryboardFrameDescription(row: DirectorStoryboardTableRow): string {
-  return [
-    normalizeText(row.imagePrompt),
-    normalizeText(row.sketch),
-    normalizeText(row.blockingAction),
-    normalizeText(row.remark),
-  ].find((value) => value.length > 0) ?? '';
-}
-
 function normalizeAssetMatchName(value: string): string {
   return value.replace(/^@+/, '').trim().toLowerCase();
 }
@@ -1678,15 +1668,37 @@ function buildImagePromptForRows(input: {
 }): string {
   const referenceTokens = buildAssetReferenceTokens(input);
   const sketchStylePrompt = normalizeText(input.sketchStylePrompt);
+  const totalDurationSeconds = input.rows.reduce((sum, row) => sum + row.durationSeconds, 0);
+  const shotLines = input.rows
+    .map((row, index) => {
+      const shotLabel = row.shotNumber || `镜头${index + 1}`;
+      const parts = [
+        `镜头 ${shotLabel}`,
+        `时长 ${row.durationSeconds || 0}s`,
+        row.shotSize ? `景别 ${row.shotSize}` : '',
+        row.cameraAngle ? `角度 ${row.cameraAngle}` : '',
+        row.cameraMovement ? `运镜 ${row.cameraMovement}` : '',
+        row.assetRefs.length > 0 ? `主体/素材 ${row.assetRefs.join('、')}` : '',
+        row.sketch ? `画面 ${row.sketch}` : '',
+        row.blockingAction ? `动作调度 ${row.blockingAction}` : '',
+        row.dialogueOrSound ? `台词/音效 ${row.dialogueOrSound}` : '',
+        row.remark ? `备注 ${row.remark}` : '',
+      ].map(normalizeText).filter(Boolean);
+      return parts.join('；');
+    })
+    .join('\n');
+
   return [
     referenceTokens.length > 0 ? referenceTokens.join(' ') : '',
     sketchStylePrompt,
-    input.rows
-      .map((row, index) => {
-        const shotLabel = row.shotNumber || `${index + 1}`;
-        return `${shotLabel}：${resolveStoryboardFrameDescription(row)}`;
-      })
-      .join('\n'),
+    [
+      '请把下面这些镜头组合成同一张拍摄分镜板页面，不要分别输出多张图。',
+      `本页镜头数：${input.rows.length}，合计时长：${totalDurationSeconds}s。`,
+      '每个镜头都要同时包含：左侧画面格、中间机位/站位图、右侧导演信息表。',
+      '根据镜头内容自动绘制底部场景平面图、动作动线、摄影机机位、光影与色彩氛围说明。',
+      '镜头内容：',
+      shotLines,
+    ].filter(Boolean).join('\n'),
   ].filter((value) => value.trim().length > 0).join('\n');
 }
 
@@ -1768,9 +1780,6 @@ interface ProductionContext {
   imageModelId: string;
   imageSize: ImageEditNodeData['size'];
   imageAspectRatio: string;
-  styleTemplateId: string | null;
-  styleTemplateName: string | null;
-  styleTemplatePrompt: string | null;
   groupTitle: string;
 }
 
@@ -1778,9 +1787,6 @@ interface ScriptStoryboardTableProductionImageSettings {
   modelId: string;
   size: ImageEditNodeData['size'];
   requestAspectRatio: string;
-  styleTemplateId: string | null;
-  styleTemplateName: string | null;
-  styleTemplatePrompt: string | null;
 }
 
 function resolveScriptStoryboardTableProductionImageSettings(
@@ -1793,7 +1799,7 @@ function resolveScriptStoryboardTableProductionImageSettings(
     storyboardProviderCustomModels,
   } = useSettingsStore.getState();
   const model = getImageModel(
-    normalizeText(data.productionImageModelId) || DEFAULT_IMAGE_MODEL_ID,
+    normalizeText(data.productionImageModelId) || DEFAULT_PRODUCTION_IMAGE_MODEL_ID,
     storyboardCompatibleModelConfig,
     storyboardNewApiModelConfig,
     storyboardApi2OkModelConfig,
@@ -1816,21 +1822,7 @@ function resolveScriptStoryboardTableProductionImageSettings(
     modelId: model.id,
     size: resolvedResolution.value as ImageEditNodeData['size'],
     requestAspectRatio: resolvedAspectRatio,
-    styleTemplateId: normalizeText(data.productionStyleTemplateId) || null,
-    styleTemplateName: normalizeText(data.productionStyleTemplateName) || null,
-    styleTemplatePrompt: normalizeText(data.productionStyleTemplatePrompt) || null,
   };
-}
-
-function applyStoryboardProductionStyleTemplate(
-  prompt: string,
-  styleTemplatePrompt: string | null | undefined
-): string {
-  const normalizedTemplatePrompt = normalizeText(styleTemplatePrompt);
-  if (!normalizedTemplatePrompt) {
-    return prompt;
-  }
-  return appendStyleTemplatePrompt(prompt, normalizedTemplatePrompt);
 }
 
 interface ProductionGroupChildren {
@@ -1891,20 +1883,11 @@ function buildProductionContext(input: {
     assetNames,
     assetLibraryId,
     selectedAssetIds,
-    imagePrompt: applyStoryboardProductionStyleTemplate(
-      buildImagePromptForRows(promptReferenceInput),
-      productionImageSettings.styleTemplatePrompt
-    ),
-    videoPrompt: applyStoryboardProductionStyleTemplate(
-      buildVideoPromptForRowsWithAssets(promptReferenceInput),
-      productionImageSettings.styleTemplatePrompt
-    ),
+    imagePrompt: buildImagePromptForRows(promptReferenceInput),
+    videoPrompt: buildVideoPromptForRowsWithAssets(promptReferenceInput),
     imageModelId: productionImageSettings.modelId,
     imageSize: productionImageSettings.size,
     imageAspectRatio: productionImageSettings.requestAspectRatio,
-    styleTemplateId: productionImageSettings.styleTemplateId,
-    styleTemplateName: productionImageSettings.styleTemplateName,
-    styleTemplatePrompt: productionImageSettings.styleTemplatePrompt,
     groupTitle: `${input.durationGroup.label} 路 ${input.mode}`,
   };
 }
@@ -2447,7 +2430,7 @@ function buildProductionCardAndChildren(input: {
       storyboardProductionMode: input.mode,
       sourceStoryboardGroupIndex: input.index,
       continuousReferenceEnabled: input.tableNode.data.continuousReferenceEnabled === true,
-      totalDurationSeconds: context.targetVideoDurationSeconds,
+      totalDurationSeconds: context.rows.reduce((sum, row) => sum + row.durationSeconds, 0),
       targetVideoDurationSeconds: context.targetVideoDurationSeconds,
       videoKind: input.videoKind,
     } satisfies Partial<GroupNodeData> & Record<string, unknown>
@@ -2489,9 +2472,9 @@ function buildProductionCardAndChildren(input: {
       targetVideoDurationSeconds: context.targetVideoDurationSeconds,
       sourceAssetMaterialNodeId: assetNode.id,
       referenceTokenMode: 'namedAsset',
-      selectedStyleTemplateId: context.styleTemplateId,
-      selectedStyleTemplateName: context.styleTemplateName,
-      selectedStyleTemplatePrompt: context.styleTemplatePrompt,
+      selectedStyleTemplateId: null,
+      selectedStyleTemplateName: null,
+      selectedStyleTemplatePrompt: null,
       continuousReferenceChain:
         input.tableNode.data.continuousReferenceEnabled === true
           ? {
@@ -2851,7 +2834,7 @@ function updateExistingProductionGroup(input: {
       storyboardProductionMode: input.mode,
       sourceStoryboardGroupIndex: input.index,
       continuousReferenceEnabled: input.tableNode.data.continuousReferenceEnabled === true,
-      totalDurationSeconds: input.context.targetVideoDurationSeconds,
+      totalDurationSeconds: input.context.rows.reduce((sum, row) => sum + row.durationSeconds, 0),
       targetVideoDurationSeconds: input.context.targetVideoDurationSeconds,
       videoKind: input.videoKind,
       isStaleStoryboardProductionGroup: false,
@@ -2862,7 +2845,7 @@ function updateExistingProductionGroup(input: {
     ...children.assetNode,
     data: {
       ...children.assetNode.data,
-      assetLibraryId: children.assetNode.data.assetLibraryId ?? input.context.assetLibraryId,
+      assetLibraryId: input.context.assetLibraryId,
       selectedAssetIds: mergeAssetIdLists(children.assetNode.data.selectedAssetIds, input.context.selectedAssetIds),
       sourceStoryboardTableNodeId: input.tableNode.id,
       sourceStoryboardRowIds: input.context.rowIds,
@@ -2888,9 +2871,9 @@ function updateExistingProductionGroup(input: {
       sourceAssetMaterialNodeId: children.assetNode.id,
       sourceImageResultNodeId: children.imageResultNode.id,
       referenceTokenMode: 'namedAsset',
-      selectedStyleTemplateId: input.context.styleTemplateId,
-      selectedStyleTemplateName: input.context.styleTemplateName,
-      selectedStyleTemplatePrompt: input.context.styleTemplatePrompt,
+      selectedStyleTemplateId: null,
+      selectedStyleTemplateName: null,
+      selectedStyleTemplatePrompt: null,
       continuousReferenceChain:
         input.tableNode.data.continuousReferenceEnabled === true
           ? {
@@ -3101,6 +3084,7 @@ export function expandScriptStoryboardTableToProductionGroups(input: {
       })
     )
     .filter((node): node is CanvasNode => Boolean(node));
+  const groupNodeIds = new Set(groupNodes.map((node) => node.id));
 
   useCanvasStore.setState((state) => {
     const nextActiveGroupIds = groupNodes.map((groupNode) => groupNode.id);
@@ -3155,7 +3139,20 @@ export function expandScriptStoryboardTableToProductionGroups(input: {
           ...node,
           selected: nextActiveGroupIds[0] === node.id,
         })),
-      ],
+      ].map((node) => (
+        groupNodeIds.has(node.id)
+          ? {
+            ...node,
+            data: {
+              ...node.data,
+              storyboardProductionMode: input.mode,
+              videoKind: input.videoKind,
+              continuousReferenceEnabled: latestTableNode.data.continuousReferenceEnabled === true,
+              isStaleStoryboardProductionGroup: false,
+            },
+          }
+          : node
+      )),
       edges: [
         ...state.edges.filter((edge) =>
           !deletedNodeIds.has(edge.source)
@@ -3455,7 +3452,7 @@ export function createScriptStoryboardTableNode(
       manuallyEditedRowIds: [],
       storyboardProductionMode: 'none',
       continuousReferenceEnabled: false,
-      productionImageModelId: DEFAULT_IMAGE_MODEL_ID,
+      productionImageModelId: DEFAULT_PRODUCTION_IMAGE_MODEL_ID,
       productionImageSize: '2K',
       productionImageAspectRatio: AUTO_REQUEST_ASPECT_RATIO,
       productionStyleTemplateId: null,
@@ -4296,31 +4293,62 @@ export async function createOrSelectStoryboardProjectForDirectorTable(
 
   const buildMirrorData = (
     preservedData?: ScriptStoryboardTableNodeData | null
-  ): ScriptStoryboardTableNodeData => ({
-    ...context.tableNode.data,
-    presentationMode: 'storyboardMirror',
-    expansionSource: {
-      sourceProjectId: context.sourceProject.id,
-      sourceProjectName: context.sourceProject.name,
-      sourceNodeId: context.tableNode.id,
-      sourceNodeVersion: context.sourceVersion,
-      sourceLabel: context.sourceLabel,
-    },
-    linkedStoryboardProjectId: targetProject.id,
-    storyboardProductionMode: preservedData?.storyboardProductionMode ?? 'none',
-    continuousReferenceEnabled: preservedData?.continuousReferenceEnabled ?? false,
-    productionSketchStylePrompt:
-      preservedData && Object.prototype.hasOwnProperty.call(preservedData, 'productionSketchStylePrompt')
+  ): ScriptStoryboardTableNodeData => {
+    const sourceHasSketchPrompt = Object.prototype.hasOwnProperty.call(
+      context.tableNode.data,
+      'productionSketchStylePrompt'
+    );
+    const mirroredSketchPrompt = sourceHasSketchPrompt
+      ? context.tableNode.data.productionSketchStylePrompt
+      : preservedData && Object.prototype.hasOwnProperty.call(preservedData, 'productionSketchStylePrompt')
         ? preservedData.productionSketchStylePrompt
-        : context.tableNode.data.productionSketchStylePrompt,
-    expandedProductionGroupNodeIds: preservedData?.expandedProductionGroupNodeIds ?? [],
-    storyboardTransferStatus: 'ready',
-    storyboardTransferSnapshot: nextSnapshot,
-    streamState: {
-      ...context.tableNode.data.streamState,
-      phase: 'completed',
-    },
-  });
+        : undefined;
+    const shouldUseDefaultSketchTemplate = mirroredSketchPrompt === undefined;
+
+    return {
+      ...context.tableNode.data,
+      presentationMode: 'storyboardMirror',
+      expansionSource: {
+        sourceProjectId: context.sourceProject.id,
+        sourceProjectName: context.sourceProject.name,
+        sourceNodeId: context.tableNode.id,
+        sourceNodeVersion: context.sourceVersion,
+        sourceLabel: context.sourceLabel,
+      },
+      linkedStoryboardProjectId: targetProject.id,
+      storyboardProductionMode: preservedData?.storyboardProductionMode ?? 'none',
+      continuousReferenceEnabled: preservedData?.continuousReferenceEnabled ?? false,
+      productionSketchStylePrompt: mirroredSketchPrompt,
+      productionImageModelId:
+        context.tableNode.data.productionImageModelId ?? preservedData?.productionImageModelId,
+      productionImageSize:
+        context.tableNode.data.productionImageSize ?? preservedData?.productionImageSize,
+      productionImageAspectRatio:
+        context.tableNode.data.productionImageAspectRatio ?? preservedData?.productionImageAspectRatio,
+      productionStyleTemplateId:
+        context.tableNode.data.productionStyleTemplateId
+          ?? (shouldUseDefaultSketchTemplate
+            ? STORYBOARD_PRODUCTION_SKETCH_STYLE_TEMPLATE_ID
+            : preservedData?.productionStyleTemplateId),
+      productionStyleTemplateName:
+        context.tableNode.data.productionStyleTemplateName
+          ?? (shouldUseDefaultSketchTemplate
+            ? STORYBOARD_PRODUCTION_SKETCH_STYLE_TEMPLATE_NAME
+            : preservedData?.productionStyleTemplateName),
+      productionStyleTemplatePrompt:
+        context.tableNode.data.productionStyleTemplatePrompt
+          ?? (shouldUseDefaultSketchTemplate
+            ? DEFAULT_STORYBOARD_PRODUCTION_SKETCH_STYLE_PROMPT
+            : preservedData?.productionStyleTemplatePrompt),
+      expandedProductionGroupNodeIds: preservedData?.expandedProductionGroupNodeIds ?? [],
+      storyboardTransferStatus: 'ready',
+      storyboardTransferSnapshot: nextSnapshot,
+      streamState: {
+        ...context.tableNode.data.streamState,
+        phase: 'completed',
+      },
+    };
+  };
 
   let mirrorNode: CanvasNode;
   let nextNodes: CanvasNode[];

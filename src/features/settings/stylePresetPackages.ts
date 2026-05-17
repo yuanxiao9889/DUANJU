@@ -386,6 +386,12 @@ export function mergeImportedStyleTemplatePackageData(
 
   const importedTemplates = sortStyleTemplates(input.importedTemplates);
   for (const importedTemplate of importedTemplates) {
+    if (isBuiltinStyleTemplateId(importedTemplate.id)) {
+      summary.skipped += 1;
+      summary.skippedTemplates += 1;
+      continue;
+    }
+
     const matchedTemplateId =
       templateIdToIndex.has(importedTemplate.id)
         ? importedTemplate.id
@@ -402,6 +408,12 @@ export function mergeImportedStyleTemplatePackageData(
       }
 
       const matchedTemplate = nextTemplates[matchedTemplateIndex];
+      if (isBuiltinStyleTemplateId(matchedTemplate.id)) {
+        summary.skipped += 1;
+        summary.skippedTemplates += 1;
+        continue;
+      }
+
       if (isImportedTemplateNewer(importedTemplate, matchedTemplate)) {
         const previousTemplateMatchKey = buildTemplateMatchKey(matchedTemplate);
         const nextTemplate: StyleTemplate = {

@@ -126,14 +126,15 @@ fn media_runtime_root(app: &AppHandle) -> Result<PathBuf, String> {
         .app_data_dir()
         .map_err(|error| format!("failed to resolve app data dir: {error}"))?
         .join(FFMPEG_RUNTIME_DIR_NAME);
-    fs::create_dir_all(&path).map_err(|error| format!("failed to create ffmpeg runtime dir: {error}"))?;
+    fs::create_dir_all(&path)
+        .map_err(|error| format!("failed to create ffmpeg runtime dir: {error}"))?;
     Ok(path)
 }
 
 fn resolve_local_media_source_path(source: &str) -> Option<PathBuf> {
     let trimmed = source.trim();
     if trimmed.is_empty() {
-      return None;
+        return None;
     }
 
     let decoded = trimmed.to_string();
@@ -201,7 +202,8 @@ fn resolve_readable_local_video_path(app: &AppHandle, source: &str) -> Result<Pa
 }
 
 fn verify_media_path(path: &Path) -> Result<(), String> {
-    let metadata = fs::metadata(path).map_err(|error| format!("Failed to inspect media file: {error}"))?;
+    let metadata =
+        fs::metadata(path).map_err(|error| format!("Failed to inspect media file: {error}"))?;
     if !metadata.is_file() {
         return Err(format!("Media path is not a file: {}", path.display()));
     }
@@ -384,11 +386,7 @@ fn run_ffprobe(ffprobe_path: &Path, source_path: &Path) -> Result<(bool, f64), S
     Ok((has_audio, duration.max(0.0)))
 }
 
-fn run_ffmpeg(
-    ffmpeg_path: &Path,
-    source_path: &Path,
-    output_path: &Path,
-) -> Result<(), String> {
+fn run_ffmpeg(ffmpeg_path: &Path, source_path: &Path, output_path: &Path) -> Result<(), String> {
     let output = Command::new(ffmpeg_path)
         .arg("-y")
         .arg("-i")
@@ -448,7 +446,9 @@ pub async fn extract_audio_from_video(
         return Err("The selected video does not contain an audio track.".to_string());
     }
 
-    let temp_dir = env::temp_dir().join("storyboard-copilot").join("audio-extract");
+    let temp_dir = env::temp_dir()
+        .join("storyboard-copilot")
+        .join("audio-extract");
     fs::create_dir_all(&temp_dir)
         .map_err(|error| format!("Failed to create temp extraction dir: {error}"))?;
     let output_file_name = format!(
@@ -470,7 +470,9 @@ pub async fn extract_audio_from_video(
                 .as_ref()
                 .and_then(|context| context.project_id.clone()),
             media_type: Some("audio".to_string()),
-            role: media_context.as_ref().and_then(|context| context.role.clone()),
+            role: media_context
+                .as_ref()
+                .and_then(|context| context.role.clone()),
         }),
     )
     .await?;

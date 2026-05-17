@@ -4958,7 +4958,15 @@
       "sketchStyleDescription": "这段内容只会追加到当前剧本分镜表展开出的 AI 图片节点 prompt，用来约束分镜草图的拍摄感、低细节和镜头调度风格。",
       "sketchStylePlaceholder": "输入分镜拍摄草图风格提示词",
       "sketchStyleEmptyHint": "清空并保存后，后续组合生图不会追加草图风格提示词。",
-      "restoreDefaultSketchStyle": "恢复默认"
+      "restoreDefaultSketchStyle": "恢复默认",
+      "productionStyle": "生产风格",
+      "productionStyleTitle": "分镜生产风格",
+      "productionStyleDescription": "选择一个持久化风格模板，或直接编辑当前剧本分镜表的生产风格提示词。这段内容只追加到组合生图 AI 图片节点，不影响普通 AI 图片节点和视频节点。",
+      "chooseProductionStyle": "选择风格模板",
+      "selectedProductionStyle": "当前模板",
+      "clearProductionStyle": "清空风格",
+      "productionStylePlaceholder": "输入分镜生产风格提示词",
+      "productionStyleEmptyHint": "清空并保存后，后续组合生图不会追加生产风格提示词。"
     },
     "columns": {
       "sceneNumber": "场次",

@@ -5085,7 +5085,15 @@
       "sketchStyleDescription": "This text is only appended to AI image node prompts created from this storyboard table. Use it to control the shooting-sketch look, low detail, and camera blocking style.",
       "sketchStylePlaceholder": "Enter the storyboard shooting sketch style prompt",
       "sketchStyleEmptyHint": "Save an empty value to stop appending a sketch style prompt to future production image prompts.",
-      "restoreDefaultSketchStyle": "Restore default"
+      "restoreDefaultSketchStyle": "Restore default",
+      "productionStyle": "Production Style",
+      "productionStyleTitle": "Storyboard production style",
+      "productionStyleDescription": "Choose a persisted style template, or edit the production style prompt for this storyboard table. This text is only appended to grouped AI image nodes, not regular AI image nodes or video nodes.",
+      "chooseProductionStyle": "Choose style template",
+      "selectedProductionStyle": "Current template",
+      "clearProductionStyle": "Clear style",
+      "productionStylePlaceholder": "Enter the storyboard production style prompt",
+      "productionStyleEmptyHint": "Save an empty value to stop appending a production style prompt to future grouped image prompts."
     },
     "columns": {
       "sceneNumber": "Scene",

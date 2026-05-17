@@ -344,10 +344,12 @@ fn compute_is_continuous_with_prev(
         .any(|item| next_item_ids.iter().any(|next| next == item))
 }
 
-fn compute_storyboard_summary(rows: &[StoryboardOutlineRow], generated_row_count: usize) -> StoryboardSummaryState {
-    let total_duration_seconds = (rows.iter().map(|row| row.duration_seconds).sum::<f64>() * 10.0)
-        .round()
-        / 10.0;
+fn compute_storyboard_summary(
+    rows: &[StoryboardOutlineRow],
+    generated_row_count: usize,
+) -> StoryboardSummaryState {
+    let total_duration_seconds =
+        (rows.iter().map(|row| row.duration_seconds).sum::<f64>() * 10.0).round() / 10.0;
 
     let mut continuous_group_count = 0usize;
     for (index, row) in rows.iter().enumerate() {
@@ -527,29 +529,49 @@ fn parse_storyboard_outline_rows(value: &Value) -> Result<Vec<StoryboardOutlineR
         let shot_number = read_string(item, &["shotNumber", "shotNo"]);
         let sketch = read_string(item, &["sketch", "frameDescription", "comicText"]);
         let shot_size = read_string(item, &["shotSize", "shotHint", "shotType"]);
-        let camera_angle = read_string(item, &["cameraAngle", "compositionHint", "composition", "cameraAngleHint"]);
-        let camera_movement = read_string(item, &["cameraMovement", "cameraHint", "camera", "cameraMove"]);
-        let blocking_action = read_string(item, &["blockingAction", "motionHint", "motion", "action", "blocking"]);
-        let dialogue_or_sound = read_string(item, &["dialogueOrSound", "dialogue", "sound", "audioCue"]);
+        let camera_angle = read_string(
+            item,
+            &[
+                "cameraAngle",
+                "compositionHint",
+                "composition",
+                "cameraAngleHint",
+            ],
+        );
+        let camera_movement = read_string(
+            item,
+            &["cameraMovement", "cameraHint", "camera", "cameraMove"],
+        );
+        let blocking_action = read_string(
+            item,
+            &[
+                "blockingAction",
+                "motionHint",
+                "motion",
+                "action",
+                "blocking",
+            ],
+        );
+        let dialogue_or_sound =
+            read_string(item, &["dialogueOrSound", "dialogue", "sound", "audioCue"]);
         let character_ids = read_string_array(item, &["characterIds", "characterNames"]);
         let item_ids = read_string_array(item, &["itemIds", "itemNames"]);
         let scene_id = read_string(item, &["sceneId", "sceneName"]);
         let mood = read_string(item, &["mood", "tone"]);
         let remark = read_string(item, &["remark", "note", "notes", "plotPoint", "storyBeat"]);
-        let asset_refs = read_string_array(item, &["assetRefs", "referenceAssetHints", "mentionedMaterials"]);
-        let duration_seconds = read_f64(item, &["durationSeconds", "duration", "rhythmDuration"])
-            .unwrap_or(0.0);
+        let asset_refs = read_string_array(
+            item,
+            &["assetRefs", "referenceAssetHints", "mentionedMaterials"],
+        );
+        let duration_seconds =
+            read_f64(item, &["durationSeconds", "duration", "rhythmDuration"]).unwrap_or(0.0);
 
         if sketch.is_empty() && blocking_action.is_empty() && remark.is_empty() {
             continue;
         }
 
-        let is_continuous_with_prev = compute_is_continuous_with_prev(
-            rows.last(),
-            &scene_id,
-            &character_ids,
-            &item_ids,
-        );
+        let is_continuous_with_prev =
+            compute_is_continuous_with_prev(rows.last(), &scene_id, &character_ids, &item_ids);
         let duration_seconds = if duration_seconds > 0.0 {
             duration_seconds
         } else {
@@ -656,13 +678,12 @@ fn parse_storyboard_row_batch_completions(
 
     rows.iter()
         .map(|row| {
-            let matched = items
-                .and_then(|items| {
-                    items.iter().find(|item| {
-                        read_string(item, &["rowId", "row_id"]) == row.row_id
-                            || read_u32(item, &["seq", "shotNumber"], 0) == row.seq
-                    })
-                });
+            let matched = items.and_then(|items| {
+                items.iter().find(|item| {
+                    read_string(item, &["rowId", "row_id"]) == row.row_id
+                        || read_u32(item, &["seq", "shotNumber"], 0) == row.seq
+                })
+            });
 
             matched
                 .map(|item| {
@@ -711,7 +732,10 @@ async fn generate_text_with_provider(
             size: String::new(),
             aspect_ratio: String::new(),
             reference_images: None,
-            extra_params: request.extra_params.clone().filter(|params| !params.is_empty()),
+            extra_params: request
+                .extra_params
+                .clone()
+                .filter(|params| !params.is_empty()),
         })
         .await
         .map_err(|error| error.to_string())

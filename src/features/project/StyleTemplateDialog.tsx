@@ -20,6 +20,7 @@ import { StyleTemplateCard } from "@/features/project/StyleTemplateCard";
 import { StyleTemplateEditorModal } from "@/features/project/StyleTemplateEditorModal";
 import {
   buildStyleTemplatePackageData,
+  isBuiltinStyleTemplateId,
   prepareStyleTemplatePackageDataForExport,
   STYLE_TEMPLATE_PACKAGE_FILE_NAME,
 } from "@/features/settings/stylePresetPackages";
@@ -528,44 +529,50 @@ export function StyleTemplateDialog({
                 </div>
               ) : (
                 <div className="grid grid-cols-[repeat(auto-fill,minmax(214px,214px))] content-start justify-start gap-3">
-                  {filteredTemplates.map((template) => (
-                    <StyleTemplateCard
-                      key={template.id}
-                      template={template}
-                      radius="compact"
-                      categoryLabel={
-                        template.categoryId
-                          ? categoryNameById.get(template.categoryId) ??
-                            t("styleTemplate.uncategorized")
-                          : t("styleTemplate.uncategorized")
-                      }
-                      className="w-full"
-                      actions={
-                        <>
-                          <button
-                            type="button"
-                            className="rounded-full p-1.5 text-text-muted transition-colors hover:bg-white/[0.06] hover:text-text-dark"
-                            onClick={() => setEditingTemplate(template)}
-                          >
-                            <Pencil className="h-3.5 w-3.5" />
-                          </button>
-                          <button
-                            type="button"
-                            className="rounded-full p-1.5 text-text-muted transition-colors hover:bg-rose-500/12 hover:text-rose-300"
-                            onClick={() =>
-                              setPendingDelete({
-                                type: "template",
-                                id: template.id,
-                                name: template.name,
-                              })
-                            }
-                          >
-                            <Trash2 className="h-3.5 w-3.5" />
-                          </button>
-                        </>
-                      }
-                    />
-                  ))}
+                  {filteredTemplates.map((template) => {
+                    const isBuiltinTemplate = isBuiltinStyleTemplateId(template.id);
+
+                    return (
+                      <StyleTemplateCard
+                        key={template.id}
+                        template={template}
+                        radius="compact"
+                        categoryLabel={
+                          template.categoryId
+                            ? categoryNameById.get(template.categoryId) ??
+                              t("styleTemplate.uncategorized")
+                            : t("styleTemplate.uncategorized")
+                        }
+                        className="w-full"
+                        actions={
+                          isBuiltinTemplate ? null : (
+                            <>
+                              <button
+                                type="button"
+                                className="rounded-full p-1.5 text-text-muted transition-colors hover:bg-white/[0.06] hover:text-text-dark"
+                                onClick={() => setEditingTemplate(template)}
+                              >
+                                <Pencil className="h-3.5 w-3.5" />
+                              </button>
+                              <button
+                                type="button"
+                                className="rounded-full p-1.5 text-text-muted transition-colors hover:bg-rose-500/12 hover:text-rose-300"
+                                onClick={() =>
+                                  setPendingDelete({
+                                    type: "template",
+                                    id: template.id,
+                                    name: template.name,
+                                  })
+                                }
+                              >
+                                <Trash2 className="h-3.5 w-3.5" />
+                              </button>
+                            </>
+                          )
+                        }
+                      />
+                    );
+                  })}
                 </div>
               )}
             </div>
@@ -633,6 +640,11 @@ export function StyleTemplateDialog({
             return;
           }
 
+          if (isBuiltinStyleTemplateId(editingTemplate.id)) {
+            setEditingTemplate(null);
+            return;
+          }
+
           updateStyleTemplate(editingTemplate.id, input);
           setEditingTemplate(null);
         }}
@@ -652,6 +664,10 @@ export function StyleTemplateDialog({
               setSelectedCategoryId(STYLE_TEMPLATE_UNGROUPED_CATEGORY_ID);
             }
           } else {
+            if (isBuiltinStyleTemplateId(pendingDelete.id)) {
+              setPendingDelete(null);
+              return;
+            }
             deleteStyleTemplate(pendingDelete.id);
           }
 

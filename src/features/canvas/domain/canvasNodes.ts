@@ -103,7 +103,7 @@ export type CanvasNodeType = (typeof CANVAS_NODE_TYPES)[keyof typeof CANVAS_NODE
 
 export const DEFAULT_ASPECT_RATIO = '1:1';
 export const AUTO_REQUEST_ASPECT_RATIO = 'auto';
-export const DEFAULT_PRODUCTION_IMAGE_MODEL_ID = 'kie/nano-banana-2';
+export const DEFAULT_PRODUCTION_IMAGE_MODEL_ID = 'oopii/all-image-2';
 export const DEFAULT_NODE_WIDTH = 220;
 export const COMMERCE_STAGE_NODE_DEFAULT_WIDTH = 380;
 export const COMMERCE_STAGE_NODE_DEFAULT_HEIGHT = 460;

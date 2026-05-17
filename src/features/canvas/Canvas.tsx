@@ -2084,6 +2084,27 @@ export function Canvas() {
             .filter((item): item is StoryboardProductionImageResult => Boolean(item))
         : [];
       const createdAt = Date.now();
+      const duplicateResult = existingResults.find((item) => (
+        item.imageUrl === result.imageUrl
+        || item.previewImageUrl === result.previewImageUrl
+        || (result.thumbnailUrl ? item.thumbnailUrl === result.thumbnailUrl : false)
+      ));
+      if (duplicateResult) {
+        const currentSelectedId =
+          typeof currentData.selectedStoryboardProductionResultId === 'string'
+            ? currentData.selectedStoryboardProductionResultId.trim()
+            : '';
+        const hasSelectedResult = existingResults.some(
+          (item) => item.id === currentSelectedId
+        );
+        return {
+          storyboardProductionResults: existingResults,
+          selectedStoryboardProductionResultId: hasSelectedResult
+            ? currentSelectedId
+            : duplicateResult.id,
+        };
+      }
+
       const nextResult: StoryboardProductionImageResult = {
         id: `storyboard-production-result-${createdAt}-${existingResults.length + 1}`,
         imageUrl: result.imageUrl,
