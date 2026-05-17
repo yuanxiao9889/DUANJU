@@ -244,10 +244,6 @@ export const GroupNode = memo(({ id, data, selected }: GroupNodeProps) => {
       typeof data.totalDurationSeconds === 'number' && Number.isFinite(data.totalDurationSeconds)
         ? data.totalDurationSeconds
         : 0;
-    const targetDurationSeconds =
-      typeof data.targetVideoDurationSeconds === 'number'
-        ? data.targetVideoDurationSeconds
-        : null;
     const storyboardMetaPillClass =
       'rounded-full border border-white/10 bg-white/5 px-2.5 py-1';
 
@@ -288,11 +284,6 @@ export const GroupNode = memo(({ id, data, selected }: GroupNodeProps) => {
             <span className={storyboardMetaPillClass}>
               {t('node.storyboardProductionGroup.totalDuration', { value: `${totalDurationSeconds}s` })}
             </span>
-            {targetDurationSeconds ? (
-              <span className={storyboardMetaPillClass}>
-                {t('node.storyboardProductionGroup.targetDuration', { value: `${targetDurationSeconds}s` })}
-              </span>
-            ) : null}
             {data.continuousReferenceEnabled === true ? (
               <span className="inline-flex items-center gap-1 rounded-full border border-emerald-400/25 bg-emerald-400/12 px-2.5 py-1 text-emerald-200">
                 <LockKeyhole className="h-3.5 w-3.5" />

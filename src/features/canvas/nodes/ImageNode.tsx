@@ -11,6 +11,7 @@ import {
   Image as ImageIcon,
   RefreshCw,
   Sparkles,
+  Trash2,
 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { UiLoadingAnimation } from "@/components/ui";
@@ -40,7 +41,10 @@ import { NodeResizeHandle } from "@/features/canvas/ui/NodeResizeHandle";
 import { CanvasNodeImage } from "@/features/canvas/ui/CanvasNodeImage";
 import { ImageResolutionBadge } from "@/features/canvas/ui/ImageResolutionBadge";
 import { NodeStatusBadge } from "@/features/canvas/ui/NodeStatusBadge";
-import { selectStoryboardProductionImageResult } from "@/features/canvas/application/smartDirectorStoryboard";
+import {
+  deleteStoryboardProductionImageResult,
+  selectStoryboardProductionImageResult,
+} from "@/features/canvas/application/smartDirectorStoryboard";
 import {
   NodeDescriptionPanel,
   NODE_DESCRIPTION_PANEL_EXPANDED_TOTAL_HEIGHT,
@@ -570,7 +574,7 @@ export const ImageNode = memo(
                       <button
                         key={item.id}
                         type="button"
-                        className={`relative block h-[150px] w-full overflow-hidden rounded-xl border bg-black/25 transition ${
+                        className={`group relative block h-[150px] w-full overflow-hidden rounded-xl border bg-black/25 transition ${
                           isSelected
                             ? "border-emerald-300 shadow-[0_0_0_2px_rgba(110,231,183,0.28)]"
                             : "border-white/12 hover:border-[#f5d59b]/45"
@@ -598,6 +602,32 @@ export const ImageNode = memo(
                             <Check className="h-3.5 w-3.5" />
                           </span>
                         ) : null}
+                        <span
+                          role="button"
+                          tabIndex={0}
+                          title={t("common.delete")}
+                          className="absolute bottom-2 right-2 inline-flex h-7 w-7 items-center justify-center rounded-full border border-white/15 bg-black/70 text-white/80 opacity-0 shadow-lg transition hover:border-red-300/60 hover:bg-red-500/85 hover:text-white group-hover:opacity-100"
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            deleteStoryboardProductionImageResult({
+                              resultNodeId: id,
+                              resultId: item.id,
+                            });
+                          }}
+                          onKeyDown={(event) => {
+                            if (event.key !== "Enter" && event.key !== " ") {
+                              return;
+                            }
+                            event.preventDefault();
+                            event.stopPropagation();
+                            deleteStoryboardProductionImageResult({
+                              resultNodeId: id,
+                              resultId: item.id,
+                            });
+                          }}
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </span>
                       </button>
                     );
                   })
@@ -671,11 +701,13 @@ export const ImageNode = memo(
               <span className="sr-only">{t("common.loading")}</span>
             </div>
           )}
-          <ImageResolutionBadge
-            width={imageWidth}
-            height={imageHeight}
-            providerName={resolutionProviderName}
-          />
+          {(!isStoryboardProductionPlaceholder || storyboardProductionResults.length > 0 || hasRenderableImage) ? (
+            <ImageResolutionBadge
+              width={imageWidth}
+              height={imageHeight}
+              providerName={resolutionProviderName}
+            />
+          ) : null}
         </div>
         <NodeDescriptionPanel
           isOpen={isDescriptionPanelOpen}

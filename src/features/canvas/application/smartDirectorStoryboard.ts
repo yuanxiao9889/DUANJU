@@ -26,6 +26,7 @@ import {
   type GroupNodeData,
   type AssetMaterialNodeData,
   type ImageEditNodeData,
+  type JimengDurationSeconds,
   type JimengNodeData,
   type ScriptAssetExtractNodeData,
   type ScriptAssetExtractionResult,
@@ -34,6 +35,7 @@ import {
   type ScriptStoryboardTableNodeData,
   type ScriptStoryboardTableSummary,
   type ScriptStoryboardTableStreamState,
+  type SeedanceDurationSeconds,
   type SeedanceNodeData,
   type SmartDirectorStoryboardGenerationState,
   type SmartDirectorStoryboardNodeData,
@@ -1546,11 +1548,15 @@ function resolveProductionGroupsForMode(
 }
 
 function normalizeAssetMatchName(value: string): string {
-  return value.replace(/^@+/, '').trim().toLowerCase();
+  return normalizeAssetLookupKey(value.replace(/^@+/, ''));
 }
 
 function normalizeAssetTokenName(value: string): string {
-  return value.replace(/^@+/, '').replace(/\s+/g, '').trim();
+  return normalizeText(value)
+    .replace(/^@+/, '')
+    .replace(/^(人物|角色|场景|物品|道具)[\s:：,，、/\\|"'“”‘’（）()[\]{}<>《》]*/u, '')
+    .replace(/\s+/g, '')
+    .trim();
 }
 
 function buildAssetMatchKey(name: string): string {
@@ -1641,17 +1647,24 @@ function buildAssetReferenceTokens(input: {
       .filter((item) => selectedIdSet.has(item.id) && item.mediaType === 'image')
       .map((item) => item.name)
     ?? [];
+  const selectedNameKeys = new Set(selectedNames.map(normalizeAssetMatchName).filter(Boolean));
   const fallbackNames = input.assetNames.filter((name) => {
     const normalizedName = normalizeAssetMatchName(name);
-    return !selectedNames.some((selectedName) => normalizeAssetMatchName(selectedName) === normalizedName);
+    return normalizedName && !selectedNameKeys.has(normalizedName);
   });
 
   return [...selectedNames, ...fallbackNames]
-    .map(normalizeAssetTokenName)
-    .filter(Boolean)
-    .filter((name, index, names) =>
-      names.findIndex((candidate) => candidate.toLowerCase() === name.toLowerCase()) === index
-    )
+    .reduce<string[]>((uniqueNames, name) => {
+      const tokenName = normalizeAssetTokenName(name);
+      const tokenKey = normalizeAssetMatchName(tokenName);
+      if (!tokenName || !tokenKey) {
+        return uniqueNames;
+      }
+      if (uniqueNames.some((candidate) => normalizeAssetMatchName(candidate) === tokenKey)) {
+        return uniqueNames;
+      }
+      return [...uniqueNames, tokenName];
+    }, [])
     .map((name) => {
       const count = nameCounts.get(name) ?? 0;
       nameCounts.set(name, count + 1);
@@ -1776,7 +1789,8 @@ interface ProductionContext {
     durationSeconds: number;
     content: string;
   }>;
-  targetVideoDurationSeconds: 10 | 15;
+  totalDurationSeconds: number;
+  videoDurationSeconds: number;
   assetNames: string[];
   assetLibraryId: string | null;
   selectedAssetIds: string[];
@@ -1786,6 +1800,25 @@ interface ProductionContext {
   imageSize: ImageEditNodeData['size'];
   imageAspectRatio: string;
   groupTitle: string;
+}
+
+function roundDurationSeconds(value: number): number {
+  return Math.round(value * 10) / 10;
+}
+
+function clampProductionVideoDurationSeconds(value: number): number {
+  if (!Number.isFinite(value) || value <= 0) {
+    return 4;
+  }
+  return Math.max(4, Math.min(15, Math.round(value)));
+}
+
+function toJimengProductionDurationSeconds(value: number): JimengDurationSeconds {
+  return clampProductionVideoDurationSeconds(value) as JimengDurationSeconds;
+}
+
+function toSeedanceProductionDurationSeconds(value: number): SeedanceDurationSeconds {
+  return clampProductionVideoDurationSeconds(value) as SeedanceDurationSeconds;
 }
 
 interface ScriptStoryboardTableProductionImageSettings {
@@ -1858,7 +1891,10 @@ function buildProductionContext(input: {
   mode: '10s' | '15s';
 }): ProductionContext {
   const rows = resolveGroupRows(input.tableNode, input.durationGroup);
-  const targetVideoDurationSeconds: 10 | 15 = input.mode === '15s' ? 15 : 10;
+  const totalDurationSeconds = roundDurationSeconds(
+    rows.reduce((sum, row) => sum + row.durationSeconds, 0)
+  );
+  const videoDurationSeconds = clampProductionVideoDurationSeconds(totalDurationSeconds);
   const assetNames = Array.from(new Set(rows.flatMap((row) => row.assetRefs).map(normalizeText).filter(Boolean)));
   const assetLibraryId =
     useProjectStore.getState().currentProject?.assetLibraryId
@@ -1884,7 +1920,8 @@ function buildProductionContext(input: {
     rowIds: rows.map((row) => row.id),
     shotLabels: rows.map((row) => row.shotNumber || row.sceneNumber).filter(Boolean),
     shotSummaries: buildProductionShotSummaries(rows),
-    targetVideoDurationSeconds,
+    totalDurationSeconds,
+    videoDurationSeconds,
     assetNames,
     assetLibraryId,
     selectedAssetIds,
@@ -1893,7 +1930,7 @@ function buildProductionContext(input: {
     imageModelId: productionImageSettings.modelId,
     imageSize: productionImageSettings.size,
     imageAspectRatio: productionImageSettings.requestAspectRatio,
-    groupTitle: `${input.durationGroup.label} 路 ${input.mode}`,
+    groupTitle: `${input.durationGroup.label} · ${totalDurationSeconds}s`,
   };
 }
 
@@ -2071,6 +2108,68 @@ export function selectStoryboardProductionImageResult(input: {
       thumbnailUrl: nextResult?.thumbnailUrl ?? null,
       aspectRatio: nextResult?.aspectRatio ?? resultNode.data.aspectRatio,
       generationSummary: nextResult?.generationSummary ?? resultNode.data.generationSummary,
+    } satisfies Partial<ExportImageNodeData>,
+    { historyMode: 'skip' }
+  );
+}
+
+export function deleteStoryboardProductionImageResult(input: {
+  resultNodeId: string;
+  resultId: string;
+}): void {
+  const state = useCanvasStore.getState();
+  const resultNode = state.nodes.find((node): node is CanvasNode & {
+    type: typeof CANVAS_NODE_TYPES.exportImage;
+    data: ExportImageNodeData;
+  } => (
+    node.id === input.resultNodeId
+    && node.type === CANVAS_NODE_TYPES.exportImage
+    && (node.data as ExportImageNodeData).isStoryboardProductionPlaceholder === true
+  ));
+  if (!resultNode) {
+    return;
+  }
+
+  const results = resultNode.data.storyboardProductionResults ?? [];
+  const removedIndex = results.findIndex((item) => item.id === input.resultId);
+  if (removedIndex < 0) {
+    return;
+  }
+
+  const nextResults = results.filter((item) => item.id !== input.resultId);
+  const currentSelectedId = resultNode.data.selectedStoryboardProductionResultId ?? null;
+  const nextSelectedResult =
+    currentSelectedId === input.resultId
+      ? nextResults[Math.min(removedIndex, nextResults.length - 1)] ?? null
+      : nextResults.find((item) => item.id === currentSelectedId) ?? null;
+
+  useCanvasStore.getState().updateNodeData(
+    input.resultNodeId,
+    {
+      storyboardProductionResults: nextResults,
+      selectedStoryboardProductionResultId: nextSelectedResult?.id ?? null,
+      imageUrl: nextSelectedResult?.imageUrl ?? null,
+      previewImageUrl: nextSelectedResult?.previewImageUrl ?? null,
+      thumbnailUrl: nextSelectedResult?.thumbnailUrl ?? null,
+      aspectRatio: nextSelectedResult?.aspectRatio ?? resultNode.data.aspectRatio,
+      generationSummary: nextSelectedResult?.generationSummary ?? resultNode.data.generationSummary,
+      ...(nextSelectedResult
+        ? {}
+        : {
+          isGenerating: false,
+          generationPhase: null,
+          generationFailureStage: null,
+          generationStartedAt: null,
+          generationJobId: null,
+          generationProviderId: null,
+          generationClientSessionId: null,
+          generationStatusText: null,
+          generationForceRefreshRequestedAt: null,
+          generationError: null,
+          generationErrorDetails: null,
+          generationDebugContext: undefined,
+          generationSummary: null,
+        }),
     } satisfies Partial<ExportImageNodeData>,
     { historyMode: 'skip' }
   );
@@ -2417,7 +2516,7 @@ function buildProductionCardAndChildren(input: {
     durationGroup: input.durationGroup,
     mode: input.mode,
   });
-  const groupTitle = `${input.durationGroup.label} · ${input.mode}`;
+  const groupTitle = context.groupTitle;
   const groupNode = canvasNodeFactory.createNode(
     CANVAS_NODE_TYPES.group,
     input.position,
@@ -2435,8 +2534,8 @@ function buildProductionCardAndChildren(input: {
       storyboardProductionMode: input.mode,
       sourceStoryboardGroupIndex: input.index,
       continuousReferenceEnabled: input.tableNode.data.continuousReferenceEnabled === true,
-      totalDurationSeconds: context.rows.reduce((sum, row) => sum + row.durationSeconds, 0),
-      targetVideoDurationSeconds: context.targetVideoDurationSeconds,
+      totalDurationSeconds: context.totalDurationSeconds,
+      targetVideoDurationSeconds: context.videoDurationSeconds,
       videoKind: input.videoKind,
     } satisfies Partial<GroupNodeData> & Record<string, unknown>
   );
@@ -2474,7 +2573,7 @@ function buildProductionCardAndChildren(input: {
       sourceStoryboardTableNodeId: input.tableNode.id,
       sourceStoryboardRowIds: context.rowIds,
       sourceDurationGroupId: input.durationGroup.id,
-      targetVideoDurationSeconds: context.targetVideoDurationSeconds,
+      targetVideoDurationSeconds: context.videoDurationSeconds,
       sourceAssetMaterialNodeId: assetNode.id,
       referenceTokenMode: 'namedAsset',
       selectedStyleTemplateId: null,
@@ -2542,11 +2641,11 @@ function buildProductionCardAndChildren(input: {
       ? ({
           displayName: i18n.t('node.storyboardProductionGroup.jimengVideoTitle', { index: input.index + 1 }),
           prompt: context.videoPrompt,
-          durationSeconds: context.targetVideoDurationSeconds,
+          durationSeconds: toJimengProductionDurationSeconds(context.videoDurationSeconds),
           sourceStoryboardTableNodeId: input.tableNode.id,
           sourceStoryboardRowIds: context.rowIds,
           sourceDurationGroupId: input.durationGroup.id,
-          targetVideoDurationSeconds: context.targetVideoDurationSeconds,
+          targetVideoDurationSeconds: context.videoDurationSeconds,
           sourceImageNodeId: imageNode.id,
           sourceAssetMaterialNodeId: assetNode.id,
           sourceImageResultNodeId: imageResultNode.id,
@@ -2563,11 +2662,11 @@ function buildProductionCardAndChildren(input: {
       : ({
           displayName: i18n.t('node.storyboardProductionGroup.seedanceVideoTitle', { index: input.index + 1 }),
           prompt: context.videoPrompt,
-          durationSeconds: context.targetVideoDurationSeconds,
+          durationSeconds: toSeedanceProductionDurationSeconds(context.videoDurationSeconds),
           sourceStoryboardTableNodeId: input.tableNode.id,
           sourceStoryboardRowIds: context.rowIds,
           sourceDurationGroupId: input.durationGroup.id,
-          targetVideoDurationSeconds: context.targetVideoDurationSeconds,
+          targetVideoDurationSeconds: context.videoDurationSeconds,
           sourceImageNodeId: imageNode.id,
           sourceAssetMaterialNodeId: assetNode.id,
           sourceImageResultNodeId: imageResultNode.id,
@@ -2691,11 +2790,11 @@ function createProductionVideoNode(input: {
       ? ({
           displayName: i18n.t('node.storyboardProductionGroup.jimengVideoTitle', { index: input.index + 1 }),
           prompt: input.context.videoPrompt,
-          durationSeconds: input.context.targetVideoDurationSeconds,
+          durationSeconds: toJimengProductionDurationSeconds(input.context.videoDurationSeconds),
           sourceStoryboardTableNodeId: input.tableNode.id,
           sourceStoryboardRowIds: input.context.rowIds,
           sourceDurationGroupId: input.durationGroup.id,
-          targetVideoDurationSeconds: input.context.targetVideoDurationSeconds,
+          targetVideoDurationSeconds: input.context.videoDurationSeconds,
           sourceImageNodeId: input.imageNodeId,
           sourceAssetMaterialNodeId: input.assetNodeId,
           sourceImageResultNodeId: input.imageResultNodeId,
@@ -2712,11 +2811,11 @@ function createProductionVideoNode(input: {
       : ({
           displayName: i18n.t('node.storyboardProductionGroup.seedanceVideoTitle', { index: input.index + 1 }),
           prompt: input.context.videoPrompt,
-          durationSeconds: input.context.targetVideoDurationSeconds,
+          durationSeconds: toSeedanceProductionDurationSeconds(input.context.videoDurationSeconds),
           sourceStoryboardTableNodeId: input.tableNode.id,
           sourceStoryboardRowIds: input.context.rowIds,
           sourceDurationGroupId: input.durationGroup.id,
-          targetVideoDurationSeconds: input.context.targetVideoDurationSeconds,
+          targetVideoDurationSeconds: input.context.videoDurationSeconds,
           sourceImageNodeId: input.imageNodeId,
           sourceAssetMaterialNodeId: input.assetNodeId,
           sourceImageResultNodeId: input.imageResultNodeId,
@@ -2810,11 +2909,13 @@ function updateExistingProductionGroup(input: {
           ...existingVideoNode!.data,
           displayName: existingVideoNode!.data.displayName,
           prompt: input.context.videoPrompt,
-          durationSeconds: input.context.targetVideoDurationSeconds,
+          durationSeconds: existingVideoNode!.type === CANVAS_NODE_TYPES.jimeng
+            ? toJimengProductionDurationSeconds(input.context.videoDurationSeconds)
+            : toSeedanceProductionDurationSeconds(input.context.videoDurationSeconds),
           sourceStoryboardTableNodeId: input.tableNode.id,
           sourceStoryboardRowIds: input.context.rowIds,
           sourceDurationGroupId: input.durationGroup.id,
-          targetVideoDurationSeconds: input.context.targetVideoDurationSeconds,
+          targetVideoDurationSeconds: input.context.videoDurationSeconds,
           sourceImageNodeId: children.imageNode.id,
           sourceAssetMaterialNodeId: children.assetNode.id,
           sourceImageResultNodeId: children.imageResultNode.id,
@@ -2850,8 +2951,8 @@ function updateExistingProductionGroup(input: {
       storyboardProductionMode: input.mode,
       sourceStoryboardGroupIndex: input.index,
       continuousReferenceEnabled: input.tableNode.data.continuousReferenceEnabled === true,
-      totalDurationSeconds: input.context.rows.reduce((sum, row) => sum + row.durationSeconds, 0),
-      targetVideoDurationSeconds: input.context.targetVideoDurationSeconds,
+      totalDurationSeconds: input.context.totalDurationSeconds,
+      targetVideoDurationSeconds: input.context.videoDurationSeconds,
       videoKind: input.videoKind,
       isStaleStoryboardProductionGroup: false,
     } satisfies GroupNodeData & Record<string, unknown>,
@@ -2883,7 +2984,7 @@ function updateExistingProductionGroup(input: {
       sourceStoryboardTableNodeId: input.tableNode.id,
       sourceStoryboardRowIds: input.context.rowIds,
       sourceDurationGroupId: input.durationGroup.id,
-      targetVideoDurationSeconds: input.context.targetVideoDurationSeconds,
+      targetVideoDurationSeconds: input.context.videoDurationSeconds,
       sourceAssetMaterialNodeId: children.assetNode.id,
       sourceImageResultNodeId: children.imageResultNode.id,
       referenceTokenMode: 'namedAsset',

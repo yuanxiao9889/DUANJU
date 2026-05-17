@@ -1603,6 +1603,7 @@ export const ImageEditNode = memo(
 
       const generationDurationMs = selectedModel.expectedDurationMs ?? 60000;
       const generationStartedAt = Date.now();
+      const generationClientSessionId = `${CURRENT_RUNTIME_SESSION_ID}:${id}:${generationStartedAt}`;
       const resultNodeTitle = buildAiResultNodeTitle(
         displayPrompt,
         t("node.imageEdit.resultTitle"),
@@ -1679,6 +1680,13 @@ export const ImageEditNode = memo(
           aspectRatio: initialRequestAspectRatio,
           generationSummary,
           generationStoryboardMetadata: data.generationStoryboardMetadata ?? undefined,
+          generationJobId: null,
+          generationProviderId: null,
+          generationClientSessionId,
+          generationStatusText: null,
+          generationError: null,
+          generationErrorDetails: null,
+          generationDebugContext: undefined,
           ...(shouldResetStoryboardProductionPreview
             ? {
               generationForceRefreshRequestedAt: generationStartedAt,
@@ -1836,7 +1844,7 @@ export const ImageEditNode = memo(
           generationStartedAt,
           generationSourceType: "imageEdit",
           generationProviderId: selectedModel.providerId,
-          generationClientSessionId: CURRENT_RUNTIME_SESSION_ID,
+          generationClientSessionId,
           generationStatusText,
           generationError: null,
           generationErrorDetails: null,

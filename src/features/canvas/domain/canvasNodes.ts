@@ -827,7 +827,7 @@ export interface ImageEditNodeData extends NodeImageData {
   sourceStoryboardTableNodeId?: string | null;
   sourceStoryboardRowIds?: string[];
   sourceDurationGroupId?: string | null;
-  targetVideoDurationSeconds?: 10 | 15;
+  targetVideoDurationSeconds?: number;
   sourceAssetMaterialNodeId?: string | null;
   sourceImageResultNodeId?: string | null;
   referenceTokenMode?: 'namedAsset' | 'indexedImage';
@@ -946,7 +946,7 @@ export interface JimengNodeData extends NodeDisplayData {
   sourceStoryboardTableNodeId?: string | null;
   sourceStoryboardRowIds?: string[];
   sourceDurationGroupId?: string | null;
-  targetVideoDurationSeconds?: 10 | 15;
+  targetVideoDurationSeconds?: number;
   sourceImageNodeId?: string | null;
   sourceAssetMaterialNodeId?: string | null;
   sourceImageResultNodeId?: string | null;
@@ -1174,7 +1174,7 @@ export interface SeedanceNodeData extends NodeDisplayData {
   sourceStoryboardTableNodeId?: string | null;
   sourceStoryboardRowIds?: string[];
   sourceDurationGroupId?: string | null;
-  targetVideoDurationSeconds?: 10 | 15;
+  targetVideoDurationSeconds?: number;
   sourceImageNodeId?: string | null;
   sourceAssetMaterialNodeId?: string | null;
   sourceImageResultNodeId?: string | null;
@@ -1386,7 +1386,7 @@ export interface StoryboardGenNodeData {
   sourceStoryboardTableNodeId?: string | null;
   sourceStoryboardRowIds?: string[];
   sourceDurationGroupId?: string | null;
-  targetVideoDurationSeconds?: 10 | 15;
+  targetVideoDurationSeconds?: number;
   continuousReferenceChain?: {
     enabled: boolean;
     previousRowId?: string | null;

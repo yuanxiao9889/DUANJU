@@ -2137,6 +2137,31 @@ export function Canvas() {
       markGenerationNodeActivity(nodeId);
 
       try {
+        const latestNode = useCanvasStore.getState().nodes.find((node) => node.id === nodeId);
+        const latestData = (latestNode?.data ?? {}) as Record<string, unknown>;
+        const currentSessionId =
+          typeof currentData.generationClientSessionId === 'string'
+            ? currentData.generationClientSessionId
+            : '';
+        const latestSessionId =
+          typeof latestData.generationClientSessionId === 'string'
+            ? latestData.generationClientSessionId
+            : '';
+        const currentJobId =
+          typeof currentData.generationJobId === 'string' ? currentData.generationJobId : '';
+        const latestJobId =
+          typeof latestData.generationJobId === 'string' ? latestData.generationJobId : '';
+        if (
+          currentSessionId
+          && latestSessionId
+          && currentSessionId !== latestSessionId
+        ) {
+          return true;
+        }
+        if (currentJobId && latestJobId && currentJobId !== latestJobId) {
+          return true;
+        }
+
         const prepared = await prepareNodeImage(resultSource);
         const storyboardMetadataRaw = currentData.generationStoryboardMetadata;
         let imageWithMetadata = prepared.imageUrl;
