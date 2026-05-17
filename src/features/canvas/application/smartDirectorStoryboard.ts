@@ -179,6 +179,11 @@ const PRODUCTION_RESULT_NODE_HEIGHT = 520;
 const PRODUCTION_VIDEO_NODE_WIDTH = 980;
 const PRODUCTION_VIDEO_NODE_HEIGHT = 520;
 const PRODUCTION_CHILD_TOP = 300;
+export const DEFAULT_STORYBOARD_PRODUCTION_SKETCH_STYLE_PROMPT = [
+  '分镜拍摄草图，导演预演图，16:9 横版电影构图，写实电影感但低细节，浅景深，轻微虚焦，现场抓拍感。',
+  '重点表现镜头构图、人物站位、空间关系、动作趋势、光影氛围和叙事信息；人物五官不要过度清晰，只保留服装色块、体态、朝向和队列关系。',
+  '禁止：精修人像、写真海报、过度清晰五官、插画漫画风、夸张特效、文字水印、UI 字幕、过度装饰。',
+].join('\n');
 export type ScriptStoryboardProductionVideoKind = 'jimeng' | 'seedanceOfficial';
 const STREAM_PREPARING_MESSAGE = '正在准备导演分镜生成...';
 const STREAM_OUTLINING_MESSAGE = '正在创建分镜表框架...';
@@ -1669,10 +1674,13 @@ function buildImagePromptForRows(input: {
   assetLibraryId: string | null;
   selectedAssetIds: string[];
   assetNames: string[];
+  sketchStylePrompt?: string | null;
 }): string {
   const referenceTokens = buildAssetReferenceTokens(input);
+  const sketchStylePrompt = normalizeText(input.sketchStylePrompt);
   return [
     referenceTokens.length > 0 ? referenceTokens.join(' ') : '',
+    sketchStylePrompt,
     input.rows
       .map((row, index) => {
         const shotLabel = row.shotNumber || `${index + 1}`;
@@ -1865,6 +1873,10 @@ function buildProductionContext(input: {
     assetLibraryId,
     selectedAssetIds,
     assetNames,
+    sketchStylePrompt:
+      input.tableNode.data.productionSketchStylePrompt === undefined
+        ? DEFAULT_STORYBOARD_PRODUCTION_SKETCH_STYLE_PROMPT
+        : input.tableNode.data.productionSketchStylePrompt,
   };
   const productionImageSettings = resolveScriptStoryboardTableProductionImageSettings(
     input.tableNode.data
@@ -3449,6 +3461,7 @@ export function createScriptStoryboardTableNode(
       productionStyleTemplateId: null,
       productionStyleTemplateName: null,
       productionStyleTemplatePrompt: null,
+      productionSketchStylePrompt: undefined,
       expandedProductionGroupNodeIds: [],
       linkedStoryboardProjectId: smartNode.data.linkedStoryboardProjectId,
       storyboardTransferStatus: 'idle',
@@ -4296,6 +4309,10 @@ export async function createOrSelectStoryboardProjectForDirectorTable(
     linkedStoryboardProjectId: targetProject.id,
     storyboardProductionMode: preservedData?.storyboardProductionMode ?? 'none',
     continuousReferenceEnabled: preservedData?.continuousReferenceEnabled ?? false,
+    productionSketchStylePrompt:
+      preservedData && Object.prototype.hasOwnProperty.call(preservedData, 'productionSketchStylePrompt')
+        ? preservedData.productionSketchStylePrompt
+        : context.tableNode.data.productionSketchStylePrompt,
     expandedProductionGroupNodeIds: preservedData?.expandedProductionGroupNodeIds ?? [],
     storyboardTransferStatus: 'ready',
     storyboardTransferSnapshot: nextSnapshot,

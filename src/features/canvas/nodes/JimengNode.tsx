@@ -114,6 +114,7 @@ import {
   SHORT_REFERENCE_TOKEN_PREFIX,
   insertReferenceToken,
   removeTextRange,
+  selectNonOverlappingTextRanges,
 } from "@/features/canvas/application/referenceTokenEditing";
 import {
   JIMENG_ASPECT_RATIO_OPTIONS,
@@ -556,7 +557,7 @@ function findJimengPromptReferenceTokens(
   maxAudioReferenceCount: number,
   namedVisualCandidates: Array<{ tokenLabel: string; value: number }> = [],
 ): JimengPromptReferenceToken[] {
-  return [
+  return selectNonOverlappingTextRanges([
     ...findPromptReferenceTokensByPrefixes(
       prompt,
       maxVisualReferenceCount,
@@ -573,7 +574,7 @@ function findJimengPromptReferenceTokens(
       ...token,
       kind: "visual" as const,
     })),
-  ].sort((left, right) => left.start - right.start);
+  ]);
 }
 
 function findJimengPromptTokenRanges(

@@ -2,6 +2,7 @@ import {
   buildShortReferenceToken,
   findNamedReferenceTokens,
   findReferenceTokens,
+  selectNonOverlappingTextRanges,
 } from "./referenceTokenEditing";
 
 export interface PromptReferenceImageCandidate {
@@ -100,7 +101,7 @@ function collectPromptReferenceTokenMatches(
       value: candidate.referenceNumber,
     }));
 
-  return [
+  return selectNonOverlappingTextRanges([
     ...findReferenceTokens(prompt).map((token) => ({
       ...token,
       tokenKind: "indexed" as const,
@@ -109,7 +110,7 @@ function collectPromptReferenceTokenMatches(
       ...token,
       tokenKind: "named" as const,
     })),
-  ].sort((left, right) => left.start - right.start || right.end - left.end);
+  ]);
 }
 
 export function resolvePromptReferenceImageBindings(

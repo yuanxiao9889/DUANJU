@@ -2741,6 +2741,7 @@ export interface ScriptStoryboardTableNodeData extends NodeDisplayData {
   productionStyleTemplateId?: string | null;
   productionStyleTemplateName?: string | null;
   productionStyleTemplatePrompt?: string | null;
+  productionSketchStylePrompt?: string | null;
   expandedProductionGroupNodeIds?: string[];
   linkedStoryboardProjectId: string | null;
   storyboardTransferStatus: SmartDirectorStoryboardTransferStatus;
@@ -5460,6 +5461,10 @@ export function normalizeScriptStoryboardTableNodeData(
     productionStyleTemplateId: normalizeString(data.productionStyleTemplateId).trim() || null,
     productionStyleTemplateName: normalizeString(data.productionStyleTemplateName).trim() || null,
     productionStyleTemplatePrompt: normalizeString(data.productionStyleTemplatePrompt).trim() || null,
+    productionSketchStylePrompt:
+      Object.prototype.hasOwnProperty.call(data, 'productionSketchStylePrompt')
+        ? normalizeString(data.productionSketchStylePrompt)
+        : undefined,
     expandedProductionGroupNodeIds: normalizeStringArray(data.expandedProductionGroupNodeIds)
       .filter((value, index, array) => value.length > 0 && array.indexOf(value) === index),
     linkedStoryboardProjectId: normalizeString(data.linkedStoryboardProjectId).trim() || null,

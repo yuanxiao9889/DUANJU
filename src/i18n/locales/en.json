@@ -5079,7 +5079,13 @@
       "missingPreviousTitle": "Previous group has no reference image",
       "missingPreviousBody": "The previous production group has not selected a storyboard image to pass forward. You can generate and choose one there first, or continue generating this group directly.",
       "continueWithoutPrevious": "Generate anyway",
-      "autoContinuous": "Auto chain"
+      "autoContinuous": "Auto chain",
+      "sketchStyle": "Sketch Style",
+      "sketchStyleTitle": "Storyboard shooting sketch prompt",
+      "sketchStyleDescription": "This text is only appended to AI image node prompts created from this storyboard table. Use it to control the shooting-sketch look, low detail, and camera blocking style.",
+      "sketchStylePlaceholder": "Enter the storyboard shooting sketch style prompt",
+      "sketchStyleEmptyHint": "Save an empty value to stop appending a sketch style prompt to future production image prompts.",
+      "restoreDefaultSketchStyle": "Restore default"
     },
     "columns": {
       "sceneNumber": "Scene",

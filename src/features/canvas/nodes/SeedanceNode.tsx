@@ -54,6 +54,7 @@ import {
   findNamedReferenceTokens,
   insertReferenceToken,
   removeTextRange,
+  selectNonOverlappingTextRanges,
 } from "@/features/canvas/application/referenceTokenEditing";
 import { formatVideoTime } from "@/features/canvas/application/videoData";
 import {
@@ -405,7 +406,7 @@ function findSeedancePromptReferenceTokens(
   maxAudioReferenceCount: number,
   namedVisualCandidates: Array<{ tokenLabel: string; value: number }> = [],
 ): SeedancePromptReferenceToken[] {
-  return [
+  return selectNonOverlappingTextRanges([
     ...findPromptReferenceTokensByPrefixes(
       prompt,
       maxVisualReferenceCount,
@@ -422,7 +423,7 @@ function findSeedancePromptReferenceTokens(
       ...token,
       kind: "visual" as const,
     })),
-  ].sort((left, right) => left.start - right.start);
+  ]);
 }
 
 function findSeedancePromptTokenRanges(

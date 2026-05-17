@@ -2058,6 +2058,7 @@ const scriptStoryboardTableNodeDefinition: CanvasNodeDefinition<ScriptStoryboard
     productionStyleTemplateId: null,
     productionStyleTemplateName: null,
     productionStyleTemplatePrompt: null,
+    productionSketchStylePrompt: undefined,
     expandedProductionGroupNodeIds: [],
     linkedStoryboardProjectId: null,
     storyboardTransferStatus: 'idle',

@@ -4952,7 +4952,13 @@
       "missingPreviousTitle": "前一编组未选择参考图",
       "missingPreviousBody": "前一个生产编组还没有选择用于传递的分镜图。你可以先去前一个编组生成并选择结果，也可以继续直接生成当前编组。",
       "continueWithoutPrevious": "仍然生成",
-      "autoContinuous": "自动连续"
+      "autoContinuous": "自动连续",
+      "sketchStyle": "草图风格",
+      "sketchStyleTitle": "分镜拍摄草图提示词",
+      "sketchStyleDescription": "这段内容只会追加到当前剧本分镜表展开出的 AI 图片节点 prompt，用来约束分镜草图的拍摄感、低细节和镜头调度风格。",
+      "sketchStylePlaceholder": "输入分镜拍摄草图风格提示词",
+      "sketchStyleEmptyHint": "清空并保存后，后续组合生图不会追加草图风格提示词。",
+      "restoreDefaultSketchStyle": "恢复默认"
     },
     "columns": {
       "sceneNumber": "场次",

@@ -1,4 +1,4 @@
-import { ArrowDown, ArrowUp, Check, ChevronDown, Eye, Film, Link2, Loader2, Minus, Play, Plus, Trash2 } from 'lucide-react';
+import { ArrowDown, ArrowUp, Check, ChevronDown, Eye, Film, Link2, Loader2, Minus, PencilLine, Play, Plus, Trash2 } from 'lucide-react';
 import { memo, useCallback, useMemo, useState } from 'react';
 import type { CSSProperties } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -14,6 +14,7 @@ import {
   addScriptStoryboardTableRow,
   deleteScriptStoryboardTableRow,
   expandScriptStoryboardTableToProductionGroups,
+  DEFAULT_STORYBOARD_PRODUCTION_SKETCH_STYLE_PROMPT,
   moveScriptStoryboardTableRow,
   runStoryboardProductionAutoImageSequence,
   setScriptStoryboardActiveEditingCell,
@@ -156,6 +157,8 @@ export const SmartDirectorStoryboardTable = memo(function SmartDirectorStoryboar
   const [isExpandingProduction, setIsExpandingProduction] = useState(false);
   const [isRunningAutoProduction, setIsRunningAutoProduction] = useState(false);
   const [productionExpandError, setProductionExpandError] = useState<string | null>(null);
+  const [isSketchStyleModalOpen, setIsSketchStyleModalOpen] = useState(false);
+  const [sketchStyleDraft, setSketchStyleDraft] = useState('');
 
   const rowHeight = data.rowHeight ?? SCRIPT_STORYBOARD_TABLE_DEFAULT_ROW_HEIGHT;
   const visibleColumnKeys =
@@ -217,6 +220,10 @@ export const SmartDirectorStoryboardTable = memo(function SmartDirectorStoryboar
       ) ?? productionAspectRatioOptions[0],
     [data.productionImageAspectRatio, productionAspectRatioOptions]
   );
+  const resolvedProductionSketchStylePrompt =
+    data.productionSketchStylePrompt === undefined
+      ? DEFAULT_STORYBOARD_PRODUCTION_SKETCH_STYLE_PROMPT
+      : data.productionSketchStylePrompt;
 
   const visibleColumns = useMemo(() => {
     const visibleKeySet = new Set(visibleColumnKeys);
@@ -342,6 +349,26 @@ export const SmartDirectorStoryboardTable = memo(function SmartDirectorStoryboar
       productionStyleTemplatePrompt: null,
     });
   }, [nodeId, updateNodeData]);
+
+  const openSketchStyleModal = useCallback(() => {
+    setSketchStyleDraft(resolvedProductionSketchStylePrompt ?? '');
+    setIsSketchStyleModalOpen(true);
+  }, [resolvedProductionSketchStylePrompt]);
+
+  const closeSketchStyleModal = useCallback(() => {
+    setIsSketchStyleModalOpen(false);
+  }, []);
+
+  const saveSketchStylePrompt = useCallback(() => {
+    updateNodeData(nodeId, {
+      productionSketchStylePrompt: sketchStyleDraft,
+    });
+    setIsSketchStyleModalOpen(false);
+  }, [nodeId, sketchStyleDraft, updateNodeData]);
+
+  const resetSketchStylePrompt = useCallback(() => {
+    setSketchStyleDraft(DEFAULT_STORYBOARD_PRODUCTION_SKETCH_STYLE_PROMPT);
+  }, []);
 
   const handleProductionExpand = useCallback((mode: '10s' | '15s') => {
     setPendingProductionMode(mode);
@@ -497,6 +524,17 @@ export const SmartDirectorStoryboardTable = memo(function SmartDirectorStoryboar
               paramsChipClassName="w-auto justify-start"
               styleTemplateTriggerMode="icon"
             />
+            <button
+              type="button"
+              onClick={(event) => {
+                event.stopPropagation();
+                openSketchStyleModal();
+              }}
+              className="inline-flex shrink-0 items-center gap-1.5 rounded-xl border border-border-dark bg-surface-dark px-3 py-1.5 font-semibold text-text-dark transition-colors hover:border-accent/45 hover:bg-accent/12"
+            >
+              <PencilLine className="h-3.5 w-3.5 text-accent" />
+              {t('scriptStoryboardTable.production.sketchStyle')}
+            </button>
             <button
               type="button"
               aria-pressed={isAutoContinuousEnabled}
@@ -909,6 +947,58 @@ export const SmartDirectorStoryboardTable = memo(function SmartDirectorStoryboar
               {productionExpandError}
             </div>
           ) : null}
+        </div>
+      </UiModal>
+      <UiModal
+        isOpen={isSketchStyleModalOpen}
+        title={t('scriptStoryboardTable.production.sketchStyleTitle')}
+        onClose={closeSketchStyleModal}
+        widthClassName="w-[640px]"
+        draggable
+        footer={(
+          <div className="flex w-full items-center justify-between gap-2">
+            <UiButton
+              type="button"
+              variant="ghost"
+              onClick={resetSketchStylePrompt}
+            >
+              {t('scriptStoryboardTable.production.restoreDefaultSketchStyle')}
+            </UiButton>
+            <div className="flex items-center gap-2">
+              <UiButton
+                type="button"
+                variant="ghost"
+                onClick={closeSketchStyleModal}
+              >
+                {t('common.cancel')}
+              </UiButton>
+              <UiButton
+                type="button"
+                variant="primary"
+                onClick={saveSketchStylePrompt}
+              >
+                {t('common.save')}
+              </UiButton>
+            </div>
+          </div>
+        )}
+      >
+        <div className="space-y-3">
+          <p className="text-xs leading-5 text-text-muted">
+            {t('scriptStoryboardTable.production.sketchStyleDescription')}
+          </p>
+          <textarea
+            value={sketchStyleDraft}
+            onChange={(event) => setSketchStyleDraft(event.target.value)}
+            onPointerDown={stopInteractionPropagation}
+            onMouseDown={stopInteractionPropagation}
+            onDoubleClick={stopInteractionPropagation}
+            className="nodrag nowheel min-h-[220px] w-full resize-y rounded-2xl border border-border-dark bg-bg-dark px-3 py-3 text-sm leading-6 text-text-dark outline-none transition-colors placeholder:text-text-muted/60 focus:border-accent/60"
+            placeholder={t('scriptStoryboardTable.production.sketchStylePlaceholder')}
+          />
+          <p className="text-[11px] leading-5 text-text-muted">
+            {t('scriptStoryboardTable.production.sketchStyleEmptyHint')}
+          </p>
         </div>
       </UiModal>
     </div>

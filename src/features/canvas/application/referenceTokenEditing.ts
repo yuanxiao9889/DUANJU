@@ -43,6 +43,26 @@ function isAsciiDigit(char: string): boolean {
   return char >= '0' && char <= '9';
 }
 
+export function selectNonOverlappingTextRanges<T extends TextRange>(
+  ranges: T[],
+): T[] {
+  const selectedRanges: T[] = [];
+  const sortedRanges = [...ranges].sort(
+    (left, right) => left.start - right.start || right.end - left.end,
+  );
+
+  for (const range of sortedRanges) {
+    const previousRange = selectedRanges[selectedRanges.length - 1];
+    if (previousRange && range.start < previousRange.end) {
+      continue;
+    }
+
+    selectedRanges.push(range);
+  }
+
+  return selectedRanges;
+}
+
 function resolveReferenceTokenPrefix(text: string, index: number): string | null {
   for (const prefix of REFERENCE_TOKEN_PREFIXES) {
     if (text.startsWith(prefix, index)) {
@@ -268,10 +288,10 @@ export function findReferenceTokensWithNamedCandidates(
   maxImageCount: number | undefined,
   candidates: NamedReferenceTokenCandidate[],
 ): ReferenceTokenMatch[] {
-  return [
+  return selectNonOverlappingTextRanges([
     ...findReferenceTokens(text, maxImageCount),
     ...findNamedReferenceTokens(text, candidates),
-  ].sort((left, right) => left.start - right.start || right.end - left.end);
+  ]);
 }
 
 function findTokenRanges(text: string, maxImageCount?: number): TokenRange[] {
