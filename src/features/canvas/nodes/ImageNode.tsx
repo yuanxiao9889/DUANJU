@@ -7,6 +7,7 @@ import {
 import { CanvasHandle } from "@/features/canvas/ui/CanvasHandle";
 import {
   AlertTriangle,
+  Check,
   Image as ImageIcon,
   RefreshCw,
   Sparkles,
@@ -39,6 +40,7 @@ import { NodeResizeHandle } from "@/features/canvas/ui/NodeResizeHandle";
 import { CanvasNodeImage } from "@/features/canvas/ui/CanvasNodeImage";
 import { ImageResolutionBadge } from "@/features/canvas/ui/ImageResolutionBadge";
 import { NodeStatusBadge } from "@/features/canvas/ui/NodeStatusBadge";
+import { selectStoryboardProductionImageResult } from "@/features/canvas/application/smartDirectorStoryboard";
 import {
   NodeDescriptionPanel,
   NODE_DESCRIPTION_PANEL_EXPANDED_TOTAL_HEIGHT,
@@ -54,6 +56,8 @@ type ImageNodeProps = NodeProps & {
 };
 
 const GENERATION_STATUS_TICK_MS = 1000;
+const STORYBOARD_PRODUCTION_PLACEHOLDER_MIN_WIDTH = 420;
+const STORYBOARD_PRODUCTION_PLACEHOLDER_MIN_HEIGHT = 520;
 
 function resolveNodeDimension(
   value: number | undefined,
@@ -80,6 +84,9 @@ export const ImageNode = memo(
     );
     const [now, setNow] = useState(() => Date.now());
     const isExportResultNode = type === CANVAS_NODE_TYPES.exportImage;
+    const isStoryboardProductionPlaceholder =
+      isExportResultNode
+      && (data as ExportImageNodeData).isStoryboardProductionPlaceholder === true;
     const isGenerating =
       typeof data.isGenerating === "boolean" ? data.isGenerating : false;
     const hasPersistedImage = Boolean(data.imageUrl || data.previewImageUrl);
@@ -157,17 +164,27 @@ export const ImageNode = memo(
         ? data.generationStartedAt
         : null;
     const resolvedAspectRatio = data.aspectRatio || DEFAULT_ASPECT_RATIO;
-    const compactSize = resolveMinEdgeFittedSize(resolvedAspectRatio, {
-      minWidth: EXPORT_RESULT_NODE_MIN_WIDTH,
-      minHeight: EXPORT_RESULT_NODE_MIN_HEIGHT,
-    });
-    const resizeConstraints = resolveResizeMinConstraintsByAspect(
-      resolvedAspectRatio,
-      {
-        minWidth: EXPORT_RESULT_NODE_MIN_WIDTH,
-        minHeight: EXPORT_RESULT_NODE_MIN_HEIGHT,
-      },
-    );
+    const compactSize = isStoryboardProductionPlaceholder
+      ? {
+          width: STORYBOARD_PRODUCTION_PLACEHOLDER_MIN_WIDTH,
+          height: STORYBOARD_PRODUCTION_PLACEHOLDER_MIN_HEIGHT,
+        }
+      : resolveMinEdgeFittedSize(resolvedAspectRatio, {
+          minWidth: EXPORT_RESULT_NODE_MIN_WIDTH,
+          minHeight: EXPORT_RESULT_NODE_MIN_HEIGHT,
+        });
+    const resizeConstraints = isStoryboardProductionPlaceholder
+      ? {
+          minWidth: STORYBOARD_PRODUCTION_PLACEHOLDER_MIN_WIDTH,
+          minHeight: STORYBOARD_PRODUCTION_PLACEHOLDER_MIN_HEIGHT,
+        }
+      : resolveResizeMinConstraintsByAspect(
+          resolvedAspectRatio,
+          {
+            minWidth: EXPORT_RESULT_NODE_MIN_WIDTH,
+            minHeight: EXPORT_RESULT_NODE_MIN_HEIGHT,
+          },
+        );
     const resizeMinWidth = resizeConstraints.minWidth;
     const explicitHeight =
       resolveNodeStyleDimension(currentNode?.height) ??
@@ -193,7 +210,12 @@ export const ImageNode = memo(
       data.imageHeight > 0
         ? Math.round(data.imageHeight)
         : null;
-    const resolvedWidth = resolveNodeDimension(width, compactSize.width);
+    const resolvedWidth = isStoryboardProductionPlaceholder
+      ? Math.max(
+          resolveNodeDimension(width, compactSize.width),
+          STORYBOARD_PRODUCTION_PLACEHOLDER_MIN_WIDTH,
+        )
+      : resolveNodeDimension(width, compactSize.width);
     const resolvedHeight =
       collapsedHeight +
       (isDescriptionPanelOpen
@@ -423,6 +445,14 @@ export const ImageNode = memo(
 
       return (data as ExportImageNodeData).generationSummary ?? null;
     }, [data, isExportResultNode]);
+    const storyboardProductionResults =
+      isStoryboardProductionPlaceholder
+        ? ((data as ExportImageNodeData).storyboardProductionResults ?? [])
+        : [];
+    const selectedStoryboardProductionResultId =
+      isStoryboardProductionPlaceholder
+        ? ((data as ExportImageNodeData).selectedStoryboardProductionResultId ?? null)
+        : null;
 
     const hasRenderableImage = Boolean(imageSource || fallbackImageSource);
     const nodeDescription =
@@ -513,7 +543,77 @@ export const ImageNode = memo(
         <div
           className={`relative min-h-0 flex-1 overflow-hidden rounded-[var(--node-radius)] ${hasGenerationError ? "bg-red-950/[0.08] dark:bg-[rgba(127,29,29,0.2)]" : "bg-bg-dark"}`}
         >
-          {hasRenderableImage ? (
+          {isStoryboardProductionPlaceholder ? (
+            <div
+              className="nodrag nowheel flex h-full min-h-0 flex-col gap-2 overflow-hidden bg-[#11100f] p-2"
+              onPointerDown={(event) => event.stopPropagation()}
+              onMouseDown={(event) => event.stopPropagation()}
+              onDoubleClick={(event) => event.stopPropagation()}
+            >
+              <div className="flex items-center justify-between gap-2 px-1 text-[11px]">
+                <span className="min-w-0 truncate font-semibold text-[#f5d59b]">
+                  {t("scriptStoryboardTable.production.resultListTitle")}
+                </span>
+                <span className="shrink-0 text-text-muted">
+                  {selectedStoryboardProductionResultId
+                    ? t("scriptStoryboardTable.production.selectedReference")
+                    : t("scriptStoryboardTable.production.noSelectedReference")}
+                </span>
+              </div>
+              <div className="ui-scrollbar flex-1 space-y-2 overflow-y-auto pr-1">
+                {storyboardProductionResults.length > 0 ? (
+                  storyboardProductionResults.map((item, index) => {
+                    const isSelected = item.id === selectedStoryboardProductionResultId;
+                    const previewUrl = item.thumbnailUrl || item.previewImageUrl || item.imageUrl;
+                    return (
+                      <button
+                        key={item.id}
+                        type="button"
+                        className={`relative block h-[150px] w-full overflow-hidden rounded-xl border bg-black/25 transition ${
+                          isSelected
+                            ? "border-emerald-300 shadow-[0_0_0_2px_rgba(110,231,183,0.28)]"
+                            : "border-white/12 hover:border-[#f5d59b]/45"
+                        }`}
+                        onClick={() => {
+                          selectStoryboardProductionImageResult({
+                            resultNodeId: id,
+                            resultId: item.id,
+                          });
+                        }}
+                      >
+                        <CanvasNodeImage
+                          src={previewUrl}
+                          fallbackSrc={item.imageUrl}
+                          alt={`${t("scriptStoryboardTable.production.resultListTitle")} ${index + 1}`}
+                          viewerSourceUrl={item.imageUrl}
+                          viewerMetadata={item.generationSummary ?? undefined}
+                          className="h-full w-full object-cover"
+                        />
+                        <span className="absolute left-2 top-2 rounded-full bg-black/65 px-2 py-0.5 text-[11px] font-semibold text-white">
+                          #{index + 1}
+                        </span>
+                        {isSelected ? (
+                          <span className="absolute right-2 top-2 inline-flex h-6 w-6 items-center justify-center rounded-full bg-emerald-400 text-black">
+                            <Check className="h-3.5 w-3.5" />
+                          </span>
+                        ) : null}
+                      </button>
+                    );
+                  })
+                ) : (
+                  <div className="flex h-full min-h-[320px] flex-col items-center justify-center gap-2 rounded-xl border border-dashed border-white/18 bg-white/[0.025] px-4 text-center text-text-muted/85">
+                    <ImageIcon className="h-7 w-7 opacity-60" />
+                    <span className="text-[12px] leading-5">
+                      {t("scriptStoryboardTable.production.emptyResults")}
+                    </span>
+                  </div>
+                )}
+              </div>
+              <div className="rounded-lg border border-white/10 bg-white/[0.035] px-2 py-1.5 text-[11px] leading-4 text-text-muted">
+                {t("scriptStoryboardTable.production.resultListHint")}
+              </div>
+            </div>
+          ) : hasRenderableImage ? (
             <CanvasNodeImage
               src={imageSource ?? ""}
               alt={

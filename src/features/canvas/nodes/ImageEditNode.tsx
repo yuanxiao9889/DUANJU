@@ -358,6 +358,95 @@ function buildAiResultNodeTitle(prompt: string, fallbackTitle: string): string {
   return normalizedPrompt;
 }
 
+function isStoryboardProductionImageNode(data: ImageEditNodeData): boolean {
+  return Boolean(
+    data.sourceStoryboardTableNodeId?.trim()
+      && data.sourceDurationGroupId?.trim()
+      && data.sourceImageResultNodeId?.trim(),
+  );
+}
+
+function resolveStoryboardContinuousReferenceImage(
+  currentNodeData: ImageEditNodeData,
+  nodes: ReturnType<typeof useCanvasStore.getState>["nodes"],
+  edges: ReturnType<typeof useCanvasStore.getState>["edges"],
+): string | null {
+  if (
+    !isStoryboardProductionImageNode(currentNodeData)
+    || currentNodeData.continuousReferenceChain?.enabled !== true
+  ) {
+    return null;
+  }
+
+  const previousImageNodeId =
+    currentNodeData.continuousReferenceChain.previousImageNodeId?.trim();
+  if (!previousImageNodeId) {
+    return null;
+  }
+
+  const nodeMap = new Map(nodes.map((node) => [node.id, node] as const));
+  const previousResultNode = edges
+    .filter((edge) => edge.source === previousImageNodeId)
+    .map((edge) => nodeMap.get(edge.target))
+    .find((node): node is typeof nodes[number] & {
+      type: typeof CANVAS_NODE_TYPES.exportImage;
+      data: ExportImageNodeData;
+    } => (
+      Boolean(node)
+      && node?.type === CANVAS_NODE_TYPES.exportImage
+      && (node.data as ExportImageNodeData).isStoryboardProductionPlaceholder === true
+    ));
+
+  if (!previousResultNode) {
+    return null;
+  }
+
+  const selectedResultId = previousResultNode.data.selectedStoryboardProductionResultId?.trim();
+  const selectedResult = selectedResultId
+    ? previousResultNode.data.storyboardProductionResults?.find(
+        (item) => item.id === selectedResultId,
+      ) ?? null
+    : null;
+
+  if (selectedResult) {
+    return (
+      selectedResult.imageUrl?.trim()
+        || selectedResult.previewImageUrl?.trim()
+        || selectedResult.thumbnailUrl?.trim()
+        || null
+    );
+  }
+
+  return null;
+}
+
+function appendUniqueReferenceImage(
+  referenceImages: string[],
+  imageUrl: string | null,
+): string[] {
+  const normalizedImageUrl = imageUrl?.trim();
+  if (!normalizedImageUrl) {
+    return referenceImages;
+  }
+
+  if (referenceImages.some((item) => item.trim() === normalizedImageUrl)) {
+    return referenceImages;
+  }
+
+  return [...referenceImages, normalizedImageUrl];
+}
+
+function appendStoryboardContinuityPrompt(prompt: string): string {
+  const continuityPrompt =
+    "承接上一镜画面，保持角色外观、服装、场景空间、光影方向、镜头轴线和动作状态连续。";
+  const normalizedPrompt = prompt.trim();
+  if (!normalizedPrompt || normalizedPrompt.includes(continuityPrompt)) {
+    return prompt;
+  }
+
+  return `${prompt}\n${continuityPrompt}`;
+}
+
 export const ImageEditNode = memo(
   ({ id, data, selected, width, height }: ImageEditNodeProps) => {
     const { t, i18n } = useTranslation();
@@ -1521,9 +1610,15 @@ export const ImageEditNode = memo(
       let newNodeId = placeholderResultNode?.id ?? null;
       const resultNodeData = {
           isGenerating: true,
-          imageUrl: null,
-          previewImageUrl: null,
-          thumbnailUrl: null,
+          imageUrl: placeholderResultNode?.data.isStoryboardProductionPlaceholder === true
+            ? placeholderResultNode.data.imageUrl ?? null
+            : null,
+          previewImageUrl: placeholderResultNode?.data.isStoryboardProductionPlaceholder === true
+            ? placeholderResultNode.data.previewImageUrl ?? null
+            : null,
+          thumbnailUrl: placeholderResultNode?.data.isStoryboardProductionPlaceholder === true
+            ? placeholderResultNode.data.thumbnailUrl ?? null
+            : null,
           generationPhase: "submitting",
           generationFailureStage: null,
           generationStartedAt,
@@ -1571,12 +1666,24 @@ export const ImageEditNode = memo(
         requestReferenceImages = boundRequestImages.length > 0
           ? boundRequestImages.map((item) => item.candidate.imageUrl)
           : resolvedRequestReferenceImages;
+        const continuousReferenceImage = resolveStoryboardContinuousReferenceImage(
+          data,
+          nodes,
+          edges,
+        );
+        requestReferenceImages = appendUniqueReferenceImage(
+          requestReferenceImages,
+          continuousReferenceImage,
+        );
         const resolvedRequestPrompt = boundRequestImages.length > 0
           ? rewritePromptReferenceTokensForRequest(styledPrompt, boundRequestImages)
           : styledPrompt;
+        const continuityAwarePrompt = continuousReferenceImage
+          ? appendStoryboardContinuityPrompt(resolvedRequestPrompt)
+          : resolvedRequestPrompt;
         submittedPrompt = appendCameraParamsToPrompt(
           buildReferenceAwareGenerationPrompt(
-            resolvedRequestPrompt,
+            continuityAwarePrompt,
             requestReferenceImages.length,
           ),
           resolvedCameraParams,
@@ -2406,6 +2513,11 @@ export const ImageEditNode = memo(
                     if (isPromptLockedByUpstream) {
                       return;
                     }
+                    updateNodeData(id, {
+                      selectedStyleTemplateId: template.id,
+                      selectedStyleTemplateName: template.name,
+                      selectedStyleTemplatePrompt: template.prompt,
+                    });
                     const nextPrompt = appendStyleTemplatePrompt(
                       promptDraftRef.current,
                       template.prompt,
@@ -2414,6 +2526,7 @@ export const ImageEditNode = memo(
                     commitPromptDraft(nextPrompt);
                     setLastPromptOptimizationUndoState(null);
                   }}
+                  selectedStyleTemplateName={data.selectedStyleTemplateName ?? null}
                   triggerSize="sm"
                   chipClassName={NODE_CONTROL_CHIP_CLASS}
                   modelChipClassName={NODE_CONTROL_MODEL_CHIP_CLASS}

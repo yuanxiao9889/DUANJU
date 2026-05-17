@@ -60,6 +60,9 @@ import {
   type CanvasNodeType,
   type CanvasNodeData,
   type DirectorStageNodeData,
+  type ExportImageGenerationSummary,
+  type ExportImageNodeData,
+  type StoryboardProductionImageResult,
   normalizeExportImageGenerationSummary,
   type ScriptChapterNodeData,
   type ScriptSceneNodeData,
@@ -2027,6 +2030,87 @@ export function Canvas() {
     [storyboardApiKeys]
   );
 
+  const buildStoryboardProductionResultPatch = useCallback(
+    (
+      currentData: Record<string, unknown>,
+      result: {
+        imageUrl: string;
+        previewImageUrl: string;
+        thumbnailUrl: string | null;
+        aspectRatio: string;
+        generationSummary: ExportImageGenerationSummary | null;
+      }
+    ): Partial<ExportImageNodeData> | null => {
+      if (currentData.isStoryboardProductionPlaceholder !== true) {
+        return null;
+      }
+
+      const existingResults = Array.isArray(currentData.storyboardProductionResults)
+        ? currentData.storyboardProductionResults
+            .map((item, index): StoryboardProductionImageResult | null => {
+              if (!item || typeof item !== 'object' || Array.isArray(item)) {
+                return null;
+              }
+              const record = item as Partial<StoryboardProductionImageResult>;
+              const imageUrl =
+                typeof record.imageUrl === 'string' ? record.imageUrl.trim() : '';
+              if (!imageUrl) {
+                return null;
+              }
+              return {
+                id:
+                  typeof record.id === 'string' && record.id.trim()
+                    ? record.id.trim()
+                    : `storyboard-production-result-${index + 1}`,
+                imageUrl,
+                previewImageUrl:
+                  typeof record.previewImageUrl === 'string' && record.previewImageUrl.trim()
+                    ? record.previewImageUrl.trim()
+                    : imageUrl,
+                thumbnailUrl:
+                  typeof record.thumbnailUrl === 'string' && record.thumbnailUrl.trim()
+                    ? record.thumbnailUrl.trim()
+                    : null,
+                aspectRatio:
+                  typeof record.aspectRatio === 'string' && record.aspectRatio.trim()
+                    ? record.aspectRatio.trim()
+                    : null,
+                generationSummary: normalizeExportImageGenerationSummary(record.generationSummary),
+                createdAt: Number.isFinite(record.createdAt)
+                  ? Number(record.createdAt)
+                  : Date.now(),
+              };
+            })
+            .filter((item): item is StoryboardProductionImageResult => Boolean(item))
+        : [];
+      const createdAt = Date.now();
+      const nextResult: StoryboardProductionImageResult = {
+        id: `storyboard-production-result-${createdAt}-${existingResults.length + 1}`,
+        imageUrl: result.imageUrl,
+        previewImageUrl: result.previewImageUrl,
+        thumbnailUrl: result.thumbnailUrl,
+        aspectRatio: result.aspectRatio,
+        generationSummary: result.generationSummary,
+        createdAt,
+      };
+      const currentSelectedId =
+        typeof currentData.selectedStoryboardProductionResultId === 'string'
+          ? currentData.selectedStoryboardProductionResultId.trim()
+          : '';
+      const hasSelectedResult = existingResults.some(
+        (item) => item.id === currentSelectedId
+      );
+
+      return {
+        storyboardProductionResults: [...existingResults, nextResult],
+        selectedStoryboardProductionResultId: hasSelectedResult
+          ? currentSelectedId
+          : nextResult.id,
+      };
+    },
+    []
+  );
+
   const applyGenerationSuccessResult = useCallback(
     async (nodeId: string, currentData: Record<string, unknown>, resultSource: string) => {
       markGenerationNodeActivity(nodeId);
@@ -2056,6 +2140,22 @@ export function Canvas() {
         const generationSummary = normalizeExportImageGenerationSummary(
           currentData.generationSummary
         );
+        const nextGenerationSummary = generationSummary
+          ? {
+            ...generationSummary,
+            generatedAt: Date.now(),
+          }
+          : null;
+        const storyboardProductionPatch = buildStoryboardProductionResultPatch(
+          currentData,
+          {
+            imageUrl: imageWithMetadata,
+            previewImageUrl: previewWithMetadata,
+            thumbnailUrl: prepared.thumbnailImageUrl,
+            aspectRatio: prepared.aspectRatio,
+            generationSummary: nextGenerationSummary,
+          }
+        );
 
         updateNodeData(nodeId, {
           imageUrl: imageWithMetadata,
@@ -2073,12 +2173,8 @@ export function Canvas() {
           generationError: null,
           generationErrorDetails: null,
           generationDebugContext: undefined,
-          generationSummary: generationSummary
-            ? {
-              ...generationSummary,
-              generatedAt: Date.now(),
-            }
-            : null,
+          generationSummary: nextGenerationSummary,
+          ...(storyboardProductionPatch ?? {}),
         });
         generationNodeActivityAtRef.current.delete(nodeId);
         return true;
@@ -2091,7 +2187,11 @@ export function Canvas() {
         return false;
       }
     },
-    [markGenerationNodeActivity, updateNodeData]
+    [
+      buildStoryboardProductionResultPatch,
+      markGenerationNodeActivity,
+      updateNodeData,
+    ]
   );
 
   const applyGenerationFailureState = useCallback(

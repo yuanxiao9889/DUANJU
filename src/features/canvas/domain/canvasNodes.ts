@@ -103,6 +103,7 @@ export type CanvasNodeType = (typeof CANVAS_NODE_TYPES)[keyof typeof CANVAS_NODE
 
 export const DEFAULT_ASPECT_RATIO = '1:1';
 export const AUTO_REQUEST_ASPECT_RATIO = 'auto';
+export const DEFAULT_PRODUCTION_IMAGE_MODEL_ID = 'kie/nano-banana-2';
 export const DEFAULT_NODE_WIDTH = 220;
 export const COMMERCE_STAGE_NODE_DEFAULT_WIDTH = 380;
 export const COMMERCE_STAGE_NODE_DEFAULT_HEIGHT = 460;
@@ -459,6 +460,16 @@ export interface ImageViewerMetadata {
 
 export interface ExportImageGenerationSummary extends ImageViewerMetadata {}
 
+export interface StoryboardProductionImageResult {
+  id: string;
+  imageUrl: string;
+  previewImageUrl?: string | null;
+  thumbnailUrl?: string | null;
+  aspectRatio?: string | null;
+  generationSummary?: ExportImageGenerationSummary | null;
+  createdAt: number;
+}
+
 export interface ExportImageNodeData extends NodeImageData {
   resultKind?: ExportImageNodeResultKind;
   generationSummary?: ExportImageGenerationSummary | null;
@@ -470,6 +481,8 @@ export interface ExportImageNodeData extends NodeImageData {
   sourceStoryboardTableNodeId?: string | null;
   sourceStoryboardRowIds?: string[];
   sourceDurationGroupId?: string | null;
+  storyboardProductionResults?: StoryboardProductionImageResult[];
+  selectedStoryboardProductionResultId?: string | null;
 }
 
 export type ImageCompareSourceNodeType =
@@ -813,6 +826,9 @@ export interface ImageEditNodeData extends NodeImageData {
   sourceAssetMaterialNodeId?: string | null;
   sourceImageResultNodeId?: string | null;
   referenceTokenMode?: 'namedAsset' | 'indexedImage';
+  selectedStyleTemplateId?: string | null;
+  selectedStyleTemplateName?: string | null;
+  selectedStyleTemplatePrompt?: string | null;
   continuousReferenceChain?: {
     enabled: boolean;
     previousImageNodeId?: string | null;
@@ -925,6 +941,11 @@ export interface JimengNodeData extends NodeDisplayData {
   sourceAssetMaterialNodeId?: string | null;
   sourceImageResultNodeId?: string | null;
   referenceTokenMode?: 'namedAsset' | 'indexedImage';
+  continuousReferenceChain?: {
+    enabled: boolean;
+    previousImageNodeId?: string | null;
+    previousRowId?: string | null;
+  };
 }
 
 export interface JimengGeneratedImageItem {
@@ -1148,6 +1169,11 @@ export interface SeedanceNodeData extends NodeDisplayData {
   sourceAssetMaterialNodeId?: string | null;
   sourceImageResultNodeId?: string | null;
   referenceTokenMode?: 'namedAsset' | 'indexedImage';
+  continuousReferenceChain?: {
+    enabled: boolean;
+    previousImageNodeId?: string | null;
+    previousRowId?: string | null;
+  };
 }
 
 export interface SeedanceVideoResultNodeData extends NodeDisplayData {
@@ -1450,6 +1476,39 @@ export function normalizeExportImageGenerationSummary(
     prompt: normalizeString(record.prompt).trim(),
     generatedAt: Number.isFinite(record.generatedAt) ? Number(record.generatedAt) : null,
   };
+}
+
+function normalizeStoryboardProductionImageResult(
+  value: unknown,
+  index: number
+): StoryboardProductionImageResult | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return null;
+  }
+
+  const record = value as Partial<StoryboardProductionImageResult>;
+  const imageUrl = normalizeString(record.imageUrl).trim();
+  if (!imageUrl) {
+    return null;
+  }
+
+  return {
+    id: normalizeString(record.id).trim() || `storyboard-production-result-${index + 1}`,
+    imageUrl,
+    previewImageUrl: normalizeString(record.previewImageUrl).trim() || imageUrl,
+    thumbnailUrl: normalizeString(record.thumbnailUrl).trim() || null,
+    aspectRatio: normalizeString(record.aspectRatio).trim() || null,
+    generationSummary: normalizeExportImageGenerationSummary(record.generationSummary),
+    createdAt: Number.isFinite(record.createdAt) ? Number(record.createdAt) : Date.now(),
+  };
+}
+
+function normalizeStoryboardProductionImageResults(
+  value: unknown
+): StoryboardProductionImageResult[] {
+  return (Array.isArray(value) ? value : [])
+    .map((item, index) => normalizeStoryboardProductionImageResult(item, index))
+    .filter((item): item is StoryboardProductionImageResult => Boolean(item));
 }
 
 function normalizeMidjourneyAspectRatioValue(value: unknown): MidjourneyAspectRatio {
@@ -1873,6 +1932,11 @@ function normalizeStaticImageCompareSnapshotData(
     sourceStoryboardTableNodeId: normalizeString(record.sourceStoryboardTableNodeId).trim() || null,
     sourceStoryboardRowIds: normalizeStringArray(record.sourceStoryboardRowIds),
     sourceDurationGroupId: normalizeString(record.sourceDurationGroupId).trim() || null,
+    storyboardProductionResults: normalizeStoryboardProductionImageResults(
+      record.storyboardProductionResults
+    ),
+    selectedStoryboardProductionResultId:
+      normalizeString(record.selectedStoryboardProductionResultId).trim() || null,
   };
 }
 
@@ -2669,6 +2733,14 @@ export interface ScriptStoryboardTableNodeData extends NodeDisplayData {
   manuallyEditedRowIds?: string[];
   storyboardProductionMode?: 'none' | '10s' | '15s';
   continuousReferenceEnabled?: boolean;
+  autoStoryboardProductionEnabled?: boolean;
+  activeStoryboardProductionMode?: '10s' | '15s' | null;
+  productionImageModelId?: string | null;
+  productionImageSize?: ImageSize | null;
+  productionImageAspectRatio?: string | null;
+  productionStyleTemplateId?: string | null;
+  productionStyleTemplateName?: string | null;
+  productionStyleTemplatePrompt?: string | null;
   expandedProductionGroupNodeIds?: string[];
   linkedStoryboardProjectId: string | null;
   storyboardTransferStatus: SmartDirectorStoryboardTransferStatus;
@@ -5369,6 +5441,25 @@ export function normalizeScriptStoryboardTableNodeData(
         ? data.storyboardProductionMode
         : 'none',
     continuousReferenceEnabled: normalizeBooleanValue(data.continuousReferenceEnabled, false),
+    autoStoryboardProductionEnabled: normalizeBooleanValue(
+      data.autoStoryboardProductionEnabled,
+      false
+    ),
+    activeStoryboardProductionMode:
+      data.activeStoryboardProductionMode === '10s' || data.activeStoryboardProductionMode === '15s'
+        ? data.activeStoryboardProductionMode
+        : null,
+    productionImageModelId:
+      normalizeString(data.productionImageModelId).trim() || DEFAULT_PRODUCTION_IMAGE_MODEL_ID,
+    productionImageSize:
+      typeof data.productionImageSize === 'string' && data.productionImageSize.trim().length > 0
+        ? (data.productionImageSize.trim() as ImageSize)
+        : ('2K' as ImageSize),
+    productionImageAspectRatio:
+      normalizeString(data.productionImageAspectRatio).trim() || AUTO_REQUEST_ASPECT_RATIO,
+    productionStyleTemplateId: normalizeString(data.productionStyleTemplateId).trim() || null,
+    productionStyleTemplateName: normalizeString(data.productionStyleTemplateName).trim() || null,
+    productionStyleTemplatePrompt: normalizeString(data.productionStyleTemplatePrompt).trim() || null,
     expandedProductionGroupNodeIds: normalizeStringArray(data.expandedProductionGroupNodeIds)
       .filter((value, index, array) => value.length > 0 && array.indexOf(value) === index),
     linkedStoryboardProjectId: normalizeString(data.linkedStoryboardProjectId).trim() || null,

@@ -1,4 +1,4 @@
-import { ArrowDown, ArrowUp, Check, ChevronDown, Eye, Film, Link2, Loader2, Minus, Plus, Trash2 } from 'lucide-react';
+import { ArrowDown, ArrowUp, Check, ChevronDown, Eye, Film, Link2, Loader2, Minus, Play, Plus, Trash2 } from 'lucide-react';
 import { memo, useCallback, useMemo, useState } from 'react';
 import type { CSSProperties } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -15,6 +15,7 @@ import {
   deleteScriptStoryboardTableRow,
   expandScriptStoryboardTableToProductionGroups,
   moveScriptStoryboardTableRow,
+  runStoryboardProductionAutoImageSequence,
   setScriptStoryboardActiveEditingCell,
   setScriptStoryboardTableContinuousReference,
   setScriptStoryboardTableRowHeight,
@@ -22,12 +23,26 @@ import {
   updateScriptStoryboardTableCell,
   type ScriptStoryboardProductionVideoKind,
 } from '@/features/canvas/application/smartDirectorStoryboard';
+import {
+  AUTO_REQUEST_ASPECT_RATIO,
+  type ImageSize,
+} from '@/features/canvas/domain/canvasNodes';
 import type {
   DirectorStoryboardTableRow,
   ScriptStoryboardTableEditingCell,
   ScriptStoryboardTableNodeData,
   ScriptStoryboardTableSummary,
 } from '@/features/canvas/domain/canvasNodes';
+import {
+  DEFAULT_IMAGE_MODEL_ID,
+  getImageModel,
+  listImageModels,
+  resolveImageModelResolution,
+  resolveImageModelResolutions,
+} from '@/features/canvas/models';
+import { ModelParamsControls } from '@/features/canvas/ui/ModelParamsControls';
+import { useCanvasStore } from '@/stores/canvasStore';
+import { useSettingsStore } from '@/stores/settingsStore';
 
 interface SmartDirectorStoryboardSummaryProps {
   summary: ScriptStoryboardTableSummary;
@@ -129,11 +144,17 @@ export const SmartDirectorStoryboardTable = memo(function SmartDirectorStoryboar
   className = '',
 }: SmartDirectorStoryboardTableProps) {
   const { t } = useTranslation();
+  const updateNodeData = useCanvasStore((state) => state.updateNodeData);
+  const storyboardCompatibleModelConfig = useSettingsStore((state) => state.storyboardCompatibleModelConfig);
+  const storyboardNewApiModelConfig = useSettingsStore((state) => state.storyboardNewApiModelConfig);
+  const storyboardApi2OkModelConfig = useSettingsStore((state) => state.storyboardApi2OkModelConfig);
+  const storyboardProviderCustomModels = useSettingsStore((state) => state.storyboardProviderCustomModels);
   const [editingValue, setEditingValue] = useState('');
   const [isColumnMenuOpen, setIsColumnMenuOpen] = useState(false);
   const [pendingProductionMode, setPendingProductionMode] = useState<'10s' | '15s' | null>(null);
   const [selectedVideoKind, setSelectedVideoKind] = useState<ScriptStoryboardProductionVideoKind | null>(null);
   const [isExpandingProduction, setIsExpandingProduction] = useState(false);
+  const [isRunningAutoProduction, setIsRunningAutoProduction] = useState(false);
   const [productionExpandError, setProductionExpandError] = useState<string | null>(null);
 
   const rowHeight = data.rowHeight ?? SCRIPT_STORYBOARD_TABLE_DEFAULT_ROW_HEIGHT;
@@ -143,6 +164,59 @@ export const SmartDirectorStoryboardTable = memo(function SmartDirectorStoryboar
       : DEFAULT_SCRIPT_STORYBOARD_VISIBLE_COLUMN_KEYS;
   const activeEditingCell: ScriptStoryboardTableEditingCell | null =
     data.activeEditingCell ?? null;
+  const imageModels = useMemo(
+    () =>
+      listImageModels(
+        storyboardCompatibleModelConfig,
+        storyboardNewApiModelConfig,
+        storyboardApi2OkModelConfig,
+        storyboardProviderCustomModels,
+      ),
+    [
+      storyboardCompatibleModelConfig,
+      storyboardNewApiModelConfig,
+      storyboardApi2OkModelConfig,
+      storyboardProviderCustomModels,
+    ]
+  );
+  const selectedImageModel = useMemo(
+    () => getImageModel(
+      data.productionImageModelId ?? DEFAULT_IMAGE_MODEL_ID,
+      storyboardCompatibleModelConfig,
+      storyboardNewApiModelConfig,
+      storyboardApi2OkModelConfig,
+      storyboardProviderCustomModels,
+    ),
+    [
+      data.productionImageModelId,
+      storyboardCompatibleModelConfig,
+      storyboardNewApiModelConfig,
+      storyboardApi2OkModelConfig,
+      storyboardProviderCustomModels,
+    ]
+  );
+  const productionResolutionOptions = useMemo(
+    () => resolveImageModelResolutions(selectedImageModel, {}),
+    [selectedImageModel]
+  );
+  const selectedProductionResolution = useMemo(
+    () => resolveImageModelResolution(selectedImageModel, data.productionImageSize ?? undefined, {}),
+    [data.productionImageSize, selectedImageModel]
+  );
+  const productionAspectRatioOptions = useMemo(
+    () => [
+      { value: AUTO_REQUEST_ASPECT_RATIO, label: t('modelParams.autoAspectRatio') },
+      ...selectedImageModel.aspectRatios,
+    ],
+    [selectedImageModel.aspectRatios, t]
+  );
+  const selectedProductionAspectRatio = useMemo(
+    () =>
+      productionAspectRatioOptions.find(
+        (option) => option.value === (data.productionImageAspectRatio ?? AUTO_REQUEST_ASPECT_RATIO)
+      ) ?? productionAspectRatioOptions[0],
+    [data.productionImageAspectRatio, productionAspectRatioOptions]
+  );
 
   const visibleColumns = useMemo(() => {
     const visibleKeySet = new Set(visibleColumnKeys);
@@ -228,6 +302,47 @@ export const SmartDirectorStoryboardTable = memo(function SmartDirectorStoryboar
     });
   }, [nodeId, rowHeight]);
 
+  const handleProductionImageModelChange = useCallback((modelId: string) => {
+    const nextModel = getImageModel(
+      modelId,
+      storyboardCompatibleModelConfig,
+      storyboardNewApiModelConfig,
+      storyboardApi2OkModelConfig,
+      storyboardProviderCustomModels,
+    );
+    const nextResolution = resolveImageModelResolution(
+      nextModel,
+      selectedProductionResolution.value as ImageSize,
+      {}
+    );
+    const nextAspectRatio =
+      nextModel.aspectRatios.find(
+        (option) => option.value === selectedProductionAspectRatio.value
+      )?.value ?? AUTO_REQUEST_ASPECT_RATIO;
+    updateNodeData(nodeId, {
+      productionImageModelId: nextModel.id,
+      productionImageSize: nextResolution.value as ImageSize,
+      productionImageAspectRatio: nextAspectRatio,
+    });
+  }, [
+    nodeId,
+    selectedProductionAspectRatio.value,
+    selectedProductionResolution.value,
+    storyboardApi2OkModelConfig,
+    storyboardCompatibleModelConfig,
+    storyboardNewApiModelConfig,
+    storyboardProviderCustomModels,
+    updateNodeData,
+  ]);
+
+  const handleProductionStyleTemplateClear = useCallback(() => {
+    updateNodeData(nodeId, {
+      productionStyleTemplateId: null,
+      productionStyleTemplateName: null,
+      productionStyleTemplatePrompt: null,
+    });
+  }, [nodeId, updateNodeData]);
+
   const handleProductionExpand = useCallback((mode: '10s' | '15s') => {
     setPendingProductionMode(mode);
     setSelectedVideoKind(null);
@@ -264,14 +379,61 @@ export const SmartDirectorStoryboardTable = memo(function SmartDirectorStoryboar
     setSelectedVideoKind(null);
   }, [isExpandingProduction, nodeId, pendingProductionMode, selectedVideoKind, t]);
 
-  const toggleContinuousReference = useCallback(() => {
+  const isAutoContinuousEnabled =
+    data.continuousReferenceEnabled === true
+    && data.autoStoryboardProductionEnabled === true;
+
+  const toggleAutoContinuous = useCallback(() => {
+    const nextEnabled = !(
+      data.continuousReferenceEnabled === true
+      && data.autoStoryboardProductionEnabled === true
+    );
     setScriptStoryboardTableContinuousReference({
       nodeId,
-      enabled: data.continuousReferenceEnabled !== true,
+      enabled: nextEnabled,
     });
-  }, [data.continuousReferenceEnabled, nodeId]);
+    updateNodeData(nodeId, {
+      autoStoryboardProductionEnabled: nextEnabled,
+    });
+  }, [
+    data.autoStoryboardProductionEnabled,
+    data.continuousReferenceEnabled,
+    nodeId,
+    updateNodeData,
+  ]);
+
+  const handleAutoProductionRun = useCallback(async () => {
+    const mode =
+      data.storyboardProductionMode === '10s' || data.storyboardProductionMode === '15s'
+        ? data.storyboardProductionMode
+        : null;
+    if (!mode || data.autoStoryboardProductionEnabled !== true || isRunningAutoProduction) {
+      return;
+    }
+
+    setIsRunningAutoProduction(true);
+    setProductionExpandError(null);
+    const result = await runStoryboardProductionAutoImageSequence({
+      tableNodeId: nodeId,
+      mode,
+    });
+    setIsRunningAutoProduction(false);
+    if (!result.ok) {
+      setProductionExpandError(result.error ?? t('common.error'));
+    }
+  }, [
+    data.autoStoryboardProductionEnabled,
+    data.storyboardProductionMode,
+    isRunningAutoProduction,
+    nodeId,
+    t,
+  ]);
 
   const isStoryboardMirror = data.presentationMode === 'storyboardMirror';
+  const canRunAutoProduction =
+    isStoryboardMirror
+    && isAutoContinuousEnabled
+    && (data.storyboardProductionMode === '10s' || data.storyboardProductionMode === '15s');
 
   return (
     <div className={`flex min-h-0 flex-1 flex-col ${className}`}>
@@ -308,23 +470,68 @@ export const SmartDirectorStoryboardTable = memo(function SmartDirectorStoryboar
               <Film className="h-3.5 w-3.5 text-accent" />
               {t('scriptStoryboardTable.production.video10s')}
             </button>
+            <ModelParamsControls
+              imageModels={imageModels}
+              selectedModel={selectedImageModel}
+              resolutionOptions={productionResolutionOptions}
+              selectedResolution={selectedProductionResolution}
+              selectedAspectRatio={selectedProductionAspectRatio}
+              aspectRatioOptions={productionAspectRatioOptions}
+              onModelChange={handleProductionImageModelChange}
+              onResolutionChange={(resolution) => updateNodeData(nodeId, {
+                productionImageSize: resolution as ImageSize,
+              })}
+              onAspectRatioChange={(aspectRatio) => updateNodeData(nodeId, {
+                productionImageAspectRatio: aspectRatio,
+              })}
+              onStyleTemplateApply={(template) => updateNodeData(nodeId, {
+                productionStyleTemplateId: template.id,
+                productionStyleTemplateName: template.name,
+                productionStyleTemplatePrompt: template.prompt,
+              })}
+              onStyleTemplateClear={handleProductionStyleTemplateClear}
+              selectedStyleTemplateName={data.productionStyleTemplateName}
+              triggerSize="sm"
+              chipClassName="border-border-dark bg-surface-dark text-text-dark"
+              modelChipClassName="w-auto justify-start"
+              paramsChipClassName="w-auto justify-start"
+              styleTemplateTriggerMode="icon"
+            />
             <button
               type="button"
-              aria-pressed={data.continuousReferenceEnabled === true}
+              aria-pressed={isAutoContinuousEnabled}
               onClick={(event) => {
                 event.stopPropagation();
-                toggleContinuousReference();
+                toggleAutoContinuous();
               }}
               className={`inline-flex shrink-0 items-center gap-1.5 rounded-xl border px-3 py-1.5 font-semibold transition-colors ${
-                data.continuousReferenceEnabled === true
+                isAutoContinuousEnabled
                   ? 'border-emerald-400/35 bg-emerald-400/12 text-emerald-200'
                   : 'border-border-dark bg-surface-dark text-text-muted hover:border-accent/45 hover:bg-accent/12 hover:text-text-dark'
               }`}
             >
               <Link2 className="h-3.5 w-3.5" />
-              {data.continuousReferenceEnabled === true
-                ? t('scriptStoryboardTable.production.continuousEnabled')
-                : t('scriptStoryboardTable.production.continuous')}
+              {t('scriptStoryboardTable.production.autoContinuous')}
+            </button>
+            <button
+              type="button"
+              disabled={!canRunAutoProduction || isRunningAutoProduction}
+              onClick={(event) => {
+                event.stopPropagation();
+                void handleAutoProductionRun();
+              }}
+              className={`inline-flex shrink-0 items-center gap-1.5 rounded-xl border px-3 py-1.5 font-semibold transition-colors ${
+                canRunAutoProduction
+                  ? 'border-accent/35 bg-accent/14 text-accent hover:bg-accent/20'
+                  : 'cursor-not-allowed border-border-dark bg-surface-dark text-text-muted/55'
+              }`}
+            >
+              {isRunningAutoProduction ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <Play className="h-3.5 w-3.5" />
+              )}
+              {t('scriptStoryboardTable.production.autoGenerateImages')}
             </button>
             <div className="h-5 w-px shrink-0 bg-border-dark/80" />
           </>

@@ -64,6 +64,7 @@ import {
   SEEDANCE_NODE_MIN_WIDTH,
   SEEDANCE_VIDEO_RESULT_NODE_DEFAULT_HEIGHT,
   SEEDANCE_VIDEO_RESULT_NODE_DEFAULT_WIDTH,
+  type ExportImageNodeData,
   type SeedanceAspectRatio,
   type SeedanceDurationSeconds,
   type SeedanceInputMode,
@@ -800,6 +801,8 @@ export const SeedanceNode = memo(
     const addNode = useCanvasStore((state) => state.addNode);
     const findNodePosition = useCanvasStore((state) => state.findNodePosition);
     const updateNodeData = useCanvasStore((state) => state.updateNodeData);
+    const nodes = useCanvasStore((state) => state.nodes);
+    const edges = useCanvasStore((state) => state.edges);
     const isShotParamsPanelOpen = useCanvasStore(
       (state) => state.activeShotParamsPanelNodeId === id,
     );
@@ -1039,6 +1042,57 @@ export const SeedanceNode = memo(
         referenceVisualItems,
       ],
     );
+    const storyboardContinuousReferenceImage = useMemo(() => {
+      if (
+        !data.sourceStoryboardTableNodeId?.trim()
+        || !data.sourceDurationGroupId?.trim()
+        || !data.sourceImageResultNodeId?.trim()
+        || data.continuousReferenceChain?.enabled !== true
+      ) {
+        return null;
+      }
+
+      const previousImageNodeId = data.continuousReferenceChain.previousImageNodeId?.trim();
+      if (!previousImageNodeId) {
+        return null;
+      }
+
+      const nodeMap = new Map(nodes.map((node) => [node.id, node] as const));
+      const previousResultNode = edges
+        .filter((edge) => edge.source === previousImageNodeId)
+        .map((edge) => nodeMap.get(edge.target))
+        .find((node): node is typeof nodes[number] & {
+          type: typeof CANVAS_NODE_TYPES.exportImage;
+          data: ExportImageNodeData;
+        } => (
+          Boolean(node)
+          && node?.type === CANVAS_NODE_TYPES.exportImage
+          && (node.data as ExportImageNodeData).isStoryboardProductionPlaceholder === true
+        ));
+      const selectedResultId = previousResultNode?.data.selectedStoryboardProductionResultId?.trim();
+      const selectedResult = selectedResultId
+        ? previousResultNode?.data.storyboardProductionResults?.find((item) => item.id === selectedResultId) ?? null
+        : null;
+      return selectedResult?.imageUrl?.trim()
+        || selectedResult?.previewImageUrl?.trim()
+        || null;
+    }, [
+      data.continuousReferenceChain,
+      data.sourceDurationGroupId,
+      data.sourceImageResultNodeId,
+      data.sourceStoryboardTableNodeId,
+      edges,
+      nodes,
+    ]);
+    const appendStoryboardVideoContinuityPrompt = useCallback((prompt: string) => {
+      if (!storyboardContinuousReferenceImage) {
+        return prompt;
+      }
+      const continuityPrompt = "承接上一段分镜图，保持角色外观、服装、场景空间、光影方向、动作状态和镜头轴线连续。";
+      return prompt.includes(continuityPrompt)
+        ? prompt
+        : `${prompt}\n${continuityPrompt}`;
+    }, [storyboardContinuousReferenceImage]);
     const hasSeedanceOfficialImageReferences = useMemo(
       () =>
         imageReferences.some((item) => isSeedanceAssetUri(item.referenceUrl)),
@@ -1755,7 +1809,13 @@ export const SeedanceNode = memo(
       try {
         const readableReferenceImageSources =
           await resolveReadableReferenceImageSources(imageReferences);
-        const requestPrompt =
+        if (
+          storyboardContinuousReferenceImage
+          && !readableReferenceImageSources.includes(storyboardContinuousReferenceImage)
+        ) {
+          readableReferenceImageSources.push(storyboardContinuousReferenceImage);
+        }
+        const requestPrompt = appendStoryboardVideoContinuityPrompt(
           boundPromptImageReferences.length > 0
             ? normalizeReferenceImagePrompt(
                 rewritePromptReferenceTokensForRequest(
@@ -1763,7 +1823,11 @@ export const SeedanceNode = memo(
                   boundPromptImageReferences,
                 ),
               )
-            : normalizeReferenceImagePrompt(prompt);
+            : normalizeReferenceImagePrompt(prompt)
+        );
+        const requestInputMode = data.sourceStoryboardTableNodeId?.trim()
+          ? "reference"
+          : selectedInputMode;
 
         const resultNodePosition = findNodePosition(
           id,
@@ -1782,7 +1846,7 @@ export const SeedanceNode = memo(
             taskStatus: null,
             taskUpdatedAt: null,
             modelId: selectedModelId,
-            inputMode: selectedInputMode,
+            inputMode: requestInputMode,
             videoUrl: null,
             previewImageUrl: null,
             videoFileName: null,
@@ -1807,7 +1871,7 @@ export const SeedanceNode = memo(
         const submitResponse = await submitSeedanceVideoTask({
           apiKey,
           prompt: requestPrompt,
-          inputMode: selectedInputMode,
+          inputMode: requestInputMode,
           modelId: selectedModelId,
           aspectRatio: selectedAspectRatio,
           durationSeconds: selectedDuration,
@@ -1855,7 +1919,7 @@ export const SeedanceNode = memo(
             taskStatus: submitResponse.status,
             taskUpdatedAt: completedAt,
             modelId: selectedModelId,
-            inputMode: selectedInputMode,
+            inputMode: requestInputMode,
             generateAudio: resolvedGenerateAudio,
             returnLastFrame: resolvedReturnLastFrame,
             isGenerating: true,

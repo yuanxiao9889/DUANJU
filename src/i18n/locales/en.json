@@ -5066,7 +5066,20 @@
       "videoKindSeedanceHint": "Create official Seedance video nodes with prompt and duration prefilled.",
       "confirmGenerate": "Generate",
       "generating": "Generating...",
-      "noGroups": "No usable video groups are available. Please make sure the table has storyboard shots first."
+      "noGroups": "No usable video groups are available. Please make sure the table has storyboard shots first.",
+      "autoMode": "Auto generation mode",
+      "autoGenerateImages": "Auto generate images",
+      "resultListTitle": "Storyboard image results",
+      "selectedReference": "1 transfer reference selected",
+      "noSelectedReference": "No transfer reference selected",
+      "emptyResults": "No generated results yet",
+      "generateImage": "Generate image",
+      "generatingImage": "Generating",
+      "resultListHint": "Generate multiple times, then pick one image to pass to the next segment.",
+      "missingPreviousTitle": "Previous group has no reference image",
+      "missingPreviousBody": "The previous production group has not selected a storyboard image to pass forward. You can generate and choose one there first, or continue generating this group directly.",
+      "continueWithoutPrevious": "Generate anyway",
+      "autoContinuous": "Auto chain"
     },
     "columns": {
       "sceneNumber": "Scene",

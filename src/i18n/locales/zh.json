@@ -509,7 +509,7 @@
     "crop": "裁剪",
     "annotate": "标注",
     "split": "切割",
-    "extractAudio": "\u63d0\u53d6\u97f3\u9891"
+    "extractAudio": "提取音频"
   },
   "toolDialog": {
     "suffix": "工具",
@@ -536,9 +536,9 @@
       "previewStart": "预览开始",
       "previewEnd": "预览结束"
     },
-    "extractAudioFailed": "\u97f3\u9891\u5206\u79bb\u5931\u8d25",
-    "videoHasNoAudioTrack": "\u8fd9\u4e2a\u89c6\u9891\u6ca1\u6709\u53ef\u5206\u79bb\u7684\u97f3\u8f68",
-    "extractAudioResultTitle": "\u97f3\u9891\u5206\u79bb\u7ed3\u679c"
+    "extractAudioFailed": "音频分离失败",
+    "videoHasNoAudioTrack": "这个视频没有可分离的音轨",
+    "extractAudioResultTitle": "音频分离结果"
   },
   "nodeToolbar": {
     "reupload": "重新上传",
@@ -4905,53 +4905,6 @@
   },
   "scriptStoryboardTable": {
     "nodeBadge": "结果表",
-    "emptyHint": "开始生成后，这里会逐行流式填充分镜表内容。",
-    "generatedRows": "{{completed}} / {{total}} 行",
-    "emptyGroup": "未分组",
-    "summary": {
-      "rows": "镜头数",
-      "generatedRows": "已完成",
-      "duration": "总时长",
-      "continuousGroups": "连续分镜段",
-      "groups10s": "10 秒组",
-      "groups15s": "15 秒组"
-    },
-    "columns": {
-      "sceneNumber": "场次",
-      "shotNumber": "镜头",
-      "sketch": "画面草图",
-      "shotSize": "景别",
-      "cameraAngle": "机位 / 角度",
-      "cameraMovement": "镜头运动",
-      "blockingAction": "动作 / 调度",
-      "dialogueOrSound": "台词 / 声音",
-      "duration": "时长",
-      "assets": "涉及素材",
-      "remark": "备注",
-      "imagePrompt": "生图提示词"
-    },
-    "rowState": {
-      "queued": "排队中",
-      "generating": "生成中",
-      "ready": "已完成",
-      "error": "失败"
-    },
-    "continuity": {
-      "continuous": "延续上一镜头",
-      "newSegment": "新的连续段"
-    },
-    "streamPhase": {
-      "idle": "待生成",
-      "preparing": "准备中",
-      "outlining": "搭建表格中",
-      "streaming": "逐行生成中",
-      "completed": "已完成",
-      "error": "失败",
-      "cancelled": "已取消"
-    }
-  },
-  "scriptStoryboardTable": {
-    "nodeBadge": "结果表",
     "emptyHint": "开始生成后，这里会逐行填充分镜表内容。",
     "generatedRows": "{{completed}} / {{total}} 行",
     "emptyGroup": "未分组",
@@ -4986,7 +4939,20 @@
       "videoKindSeedanceHint": "生成官方 Seedance 视频节点，并预填提示词和时长。",
       "confirmGenerate": "确定生成",
       "generating": "生成中...",
-      "noGroups": "当前没有可展开的视频分组，请先确认表格里已有可用镜头。"
+      "noGroups": "当前没有可展开的视频分组，请先确认表格里已有可用镜头。",
+      "autoMode": "自动生成模式",
+      "autoGenerateImages": "自动生成图片",
+      "resultListTitle": "分镜图结果",
+      "selectedReference": "已选择 1 张传递参考",
+      "noSelectedReference": "未选择传递参考",
+      "emptyResults": "暂无生成结果",
+      "generateImage": "生成图片",
+      "generatingImage": "生成中",
+      "resultListHint": "可多次生成，点击结果图选择 1 张传给下一段。",
+      "missingPreviousTitle": "前一编组未选择参考图",
+      "missingPreviousBody": "前一个生产编组还没有选择用于传递的分镜图。你可以先去前一个编组生成并选择结果，也可以继续直接生成当前编组。",
+      "continueWithoutPrevious": "仍然生成",
+      "autoContinuous": "自动连续"
     },
     "columns": {
       "sceneNumber": "场次",

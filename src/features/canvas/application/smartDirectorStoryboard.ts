@@ -21,6 +21,7 @@ import {
   type DirectorStoryboardTableRow,
   type DirectorStoryboardTransferSnapshot,
   type ExportImageNodeData,
+  type StoryboardProductionImageResult,
   type GroupNodeData,
   type AssetMaterialNodeData,
   type ImageEditNodeData,
@@ -39,7 +40,12 @@ import {
 } from '@/features/canvas/domain/canvasNodes';
 import { resolveNodeDisplayName } from '@/features/canvas/domain/nodeDisplay';
 import { createDefaultCanvasColorLabelMap } from '@/features/canvas/domain/semanticColors';
-import { DEFAULT_IMAGE_MODEL_ID } from '@/features/canvas/models';
+import {
+  DEFAULT_IMAGE_MODEL_ID,
+  getImageModel,
+  resolveImageModelResolution,
+} from '@/features/canvas/models';
+import { appendStyleTemplatePrompt } from '@/features/project/styleTemplatePrompt';
 import {
   DEFAULT_VIEWPORT,
   fromProjectRecord,
@@ -49,6 +55,7 @@ import {
 } from '@/stores/projectStore';
 import { useCanvasStore } from '@/stores/canvasStore';
 import { useAssetStore } from '@/stores/assetStore';
+import { useSettingsStore } from '@/stores/settingsStore';
 import i18n from '@/i18n';
 
 export interface ResolveSmartDirectorStoryboardSourceInput {
@@ -70,6 +77,14 @@ export interface ResolvedSmartDirectorStoryboardSource {
   extractionResult: ScriptAssetExtractionResult;
   sourceLabel: string;
   sourceText: string;
+}
+
+const storyboardProductionImageQueues = new Set<string>();
+const STORYBOARD_PRODUCTION_RESULT_WAIT_TIMEOUT_MS = 10 * 60 * 1000;
+const STORYBOARD_PRODUCTION_RESULT_POLL_INTERVAL_MS = 1500;
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => window.setTimeout(resolve, ms));
 }
 
 export type SmartDirectorStoryboardBindingStatus =
@@ -159,7 +174,7 @@ const PRODUCTION_ASSET_NODE_WIDTH = 420;
 const PRODUCTION_ASSET_NODE_HEIGHT = 520;
 const PRODUCTION_IMAGE_NODE_WIDTH = 500;
 const PRODUCTION_IMAGE_NODE_HEIGHT = 520;
-const PRODUCTION_RESULT_NODE_WIDTH = 360;
+const PRODUCTION_RESULT_NODE_WIDTH = 420;
 const PRODUCTION_RESULT_NODE_HEIGHT = 520;
 const PRODUCTION_VIDEO_NODE_WIDTH = 980;
 const PRODUCTION_VIDEO_NODE_HEIGHT = 520;
@@ -1711,6 +1726,679 @@ function buildProductionShotSummaries(rows: DirectorStoryboardTableRow[]): Array
   }));
 }
 
+function resolveProductionVideoNodeType(videoKind: ScriptStoryboardProductionVideoKind) {
+  return videoKind === 'jimeng'
+    ? CANVAS_NODE_TYPES.jimeng
+    : CANVAS_NODE_TYPES.seedance;
+}
+
+function isProductionVideoNode(node: CanvasNode | null | undefined): node is CanvasNode & {
+  type: typeof CANVAS_NODE_TYPES.jimeng | typeof CANVAS_NODE_TYPES.seedance;
+  data: JimengNodeData | SeedanceNodeData;
+} {
+  return Boolean(
+    node
+    && (node.type === CANVAS_NODE_TYPES.jimeng || node.type === CANVAS_NODE_TYPES.seedance)
+  );
+}
+
+interface ProductionContext {
+  rows: DirectorStoryboardTableRow[];
+  rowIds: string[];
+  shotLabels: string[];
+  shotSummaries: Array<{
+    shotNumber: string;
+    durationSeconds: number;
+    content: string;
+  }>;
+  targetVideoDurationSeconds: 10 | 15;
+  assetNames: string[];
+  assetLibraryId: string | null;
+  selectedAssetIds: string[];
+  imagePrompt: string;
+  videoPrompt: string;
+  imageModelId: string;
+  imageSize: ImageEditNodeData['size'];
+  imageAspectRatio: string;
+  styleTemplateId: string | null;
+  styleTemplateName: string | null;
+  styleTemplatePrompt: string | null;
+  groupTitle: string;
+}
+
+interface ScriptStoryboardTableProductionImageSettings {
+  modelId: string;
+  size: ImageEditNodeData['size'];
+  requestAspectRatio: string;
+  styleTemplateId: string | null;
+  styleTemplateName: string | null;
+  styleTemplatePrompt: string | null;
+}
+
+function resolveScriptStoryboardTableProductionImageSettings(
+  data: ScriptStoryboardTableNodeData
+): ScriptStoryboardTableProductionImageSettings {
+  const {
+    storyboardCompatibleModelConfig,
+    storyboardNewApiModelConfig,
+    storyboardApi2OkModelConfig,
+    storyboardProviderCustomModels,
+  } = useSettingsStore.getState();
+  const model = getImageModel(
+    normalizeText(data.productionImageModelId) || DEFAULT_IMAGE_MODEL_ID,
+    storyboardCompatibleModelConfig,
+    storyboardNewApiModelConfig,
+    storyboardApi2OkModelConfig,
+    storyboardProviderCustomModels
+  );
+  const resolvedResolution = resolveImageModelResolution(
+    model,
+    data.productionImageSize ?? undefined,
+    {}
+  );
+  const requestedAspectRatio = normalizeText(data.productionImageAspectRatio)
+    || AUTO_REQUEST_ASPECT_RATIO;
+  const resolvedAspectRatio =
+    requestedAspectRatio === AUTO_REQUEST_ASPECT_RATIO
+    || model.aspectRatios.some((option) => option.value === requestedAspectRatio)
+      ? requestedAspectRatio
+      : AUTO_REQUEST_ASPECT_RATIO;
+
+  return {
+    modelId: model.id,
+    size: resolvedResolution.value as ImageEditNodeData['size'],
+    requestAspectRatio: resolvedAspectRatio,
+    styleTemplateId: normalizeText(data.productionStyleTemplateId) || null,
+    styleTemplateName: normalizeText(data.productionStyleTemplateName) || null,
+    styleTemplatePrompt: normalizeText(data.productionStyleTemplatePrompt) || null,
+  };
+}
+
+function applyStoryboardProductionStyleTemplate(
+  prompt: string,
+  styleTemplatePrompt: string | null | undefined
+): string {
+  const normalizedTemplatePrompt = normalizeText(styleTemplatePrompt);
+  if (!normalizedTemplatePrompt) {
+    return prompt;
+  }
+  return appendStyleTemplatePrompt(prompt, normalizedTemplatePrompt);
+}
+
+interface ProductionGroupChildren {
+  assetNode: (CanvasNode & {
+    type: typeof CANVAS_NODE_TYPES.assetMaterial;
+    data: AssetMaterialNodeData;
+  }) | null;
+  imageNode: (CanvasNode & {
+    type: typeof CANVAS_NODE_TYPES.imageEdit;
+    data: ImageEditNodeData;
+  }) | null;
+  imageResultNode: (CanvasNode & {
+    type: typeof CANVAS_NODE_TYPES.exportImage;
+    data: ExportImageNodeData;
+  }) | null;
+  videoNode: (CanvasNode & {
+    type: typeof CANVAS_NODE_TYPES.jimeng | typeof CANVAS_NODE_TYPES.seedance;
+    data: JimengNodeData | SeedanceNodeData;
+  }) | null;
+}
+
+function buildProductionContext(input: {
+  tableNode: CanvasNode & {
+    type: typeof CANVAS_NODE_TYPES.scriptStoryboardTable;
+    data: ScriptStoryboardTableNodeData;
+  };
+  durationGroup: DirectorStoryboardDurationGroup;
+  mode: '10s' | '15s';
+}): ProductionContext {
+  const rows = resolveGroupRows(input.tableNode, input.durationGroup);
+  const targetVideoDurationSeconds: 10 | 15 = input.mode === '15s' ? 15 : 10;
+  const assetNames = Array.from(new Set(rows.flatMap((row) => row.assetRefs).map(normalizeText).filter(Boolean)));
+  const assetLibraryId =
+    useProjectStore.getState().currentProject?.assetLibraryId
+    ?? useAssetStore.getState().libraries[0]?.id
+    ?? null;
+  const selectedAssetIds = resolveMatchedAssetIds({ assetLibraryId, assetNames });
+  const promptReferenceInput = {
+    rows,
+    assetLibraryId,
+    selectedAssetIds,
+    assetNames,
+  };
+  const productionImageSettings = resolveScriptStoryboardTableProductionImageSettings(
+    input.tableNode.data
+  );
+
+  return {
+    rows,
+    rowIds: rows.map((row) => row.id),
+    shotLabels: rows.map((row) => row.shotNumber || row.sceneNumber).filter(Boolean),
+    shotSummaries: buildProductionShotSummaries(rows),
+    targetVideoDurationSeconds,
+    assetNames,
+    assetLibraryId,
+    selectedAssetIds,
+    imagePrompt: applyStoryboardProductionStyleTemplate(
+      buildImagePromptForRows(promptReferenceInput),
+      productionImageSettings.styleTemplatePrompt
+    ),
+    videoPrompt: applyStoryboardProductionStyleTemplate(
+      buildVideoPromptForRowsWithAssets(promptReferenceInput),
+      productionImageSettings.styleTemplatePrompt
+    ),
+    imageModelId: productionImageSettings.modelId,
+    imageSize: productionImageSettings.size,
+    imageAspectRatio: productionImageSettings.requestAspectRatio,
+    styleTemplateId: productionImageSettings.styleTemplateId,
+    styleTemplateName: productionImageSettings.styleTemplateName,
+    styleTemplatePrompt: productionImageSettings.styleTemplatePrompt,
+    groupTitle: `${input.durationGroup.label} 路 ${input.mode}`,
+  };
+}
+
+function mergeAssetIdLists(primary: string[], secondary: string[]): string[] {
+  return Array.from(new Set([...primary, ...secondary].map(normalizeText).filter(Boolean)));
+}
+
+function sizeProductionChildNode<T extends CanvasNode>(
+  node: T,
+  parentId: string,
+  width: number,
+  height: number
+): T {
+  return {
+    ...node,
+    parentId,
+    width,
+    height,
+    style: {
+      ...(node.style ?? {}),
+      width,
+      height,
+    },
+  };
+}
+
+function createProductionEdges(input: {
+  assetNodeId: string;
+  imageNodeId: string;
+  imageResultNodeId: string;
+  videoNodeId: string;
+}): CanvasEdge[] {
+  return [
+    {
+      id: `e-${input.assetNodeId}-${input.imageNodeId}`,
+      source: input.assetNodeId,
+      target: input.imageNodeId,
+      sourceHandle: 'source',
+      targetHandle: 'target',
+      type: 'disconnectableEdge',
+    },
+    {
+      id: `e-${input.imageNodeId}-${input.imageResultNodeId}`,
+      source: input.imageNodeId,
+      target: input.imageResultNodeId,
+      sourceHandle: 'source',
+      targetHandle: 'target',
+      type: 'disconnectableEdge',
+    },
+    {
+      id: `e-${input.imageResultNodeId}-${input.videoNodeId}`,
+      source: input.imageResultNodeId,
+      target: input.videoNodeId,
+      sourceHandle: 'source',
+      targetHandle: 'target',
+      type: 'disconnectableEdge',
+    },
+    {
+      id: `e-${input.assetNodeId}-${input.videoNodeId}`,
+      source: input.assetNodeId,
+      target: input.videoNodeId,
+      sourceHandle: 'source',
+      targetHandle: 'target',
+      type: 'disconnectableEdge',
+    },
+  ];
+}
+
+function resolveProductionGroupChildren(nodes: CanvasNode[], groupId: string): ProductionGroupChildren {
+  const directChildren = nodes.filter((node) => node.parentId === groupId);
+  return {
+    assetNode:
+      directChildren.find((node): node is CanvasNode & {
+        type: typeof CANVAS_NODE_TYPES.assetMaterial;
+        data: AssetMaterialNodeData;
+      } => node.type === CANVAS_NODE_TYPES.assetMaterial) ?? null,
+    imageNode:
+      directChildren.find((node): node is CanvasNode & {
+        type: typeof CANVAS_NODE_TYPES.imageEdit;
+        data: ImageEditNodeData;
+      } => node.type === CANVAS_NODE_TYPES.imageEdit) ?? null,
+    imageResultNode:
+      directChildren.find((node): node is CanvasNode & {
+        type: typeof CANVAS_NODE_TYPES.exportImage;
+        data: ExportImageNodeData;
+      } => (
+        node.type === CANVAS_NODE_TYPES.exportImage
+        && (node.data as ExportImageNodeData).isStoryboardProductionPlaceholder === true
+      )) ?? null,
+    videoNode:
+      directChildren.find(isProductionVideoNode) ?? null,
+  };
+}
+
+function resolveSelectedStoryboardProductionResult(
+  imageResultNode: CanvasNode & {
+    type: typeof CANVAS_NODE_TYPES.exportImage;
+    data: ExportImageNodeData;
+  }
+): StoryboardProductionImageResult | null {
+  const results = imageResultNode.data.storyboardProductionResults ?? [];
+  const selectedId = imageResultNode.data.selectedStoryboardProductionResultId?.trim();
+  const selectedResult =
+    selectedId
+      ? results.find((item) => item.id === selectedId) ?? null
+      : null;
+
+  if (selectedResult) {
+    return selectedResult;
+  }
+
+  const fallbackImageUrl =
+    imageResultNode.data.imageUrl?.trim()
+    || imageResultNode.data.previewImageUrl?.trim()
+    || '';
+  if (!fallbackImageUrl) {
+    return null;
+  }
+
+  return {
+    id: selectedId || 'current',
+    imageUrl: fallbackImageUrl,
+    previewImageUrl: imageResultNode.data.previewImageUrl?.trim() || fallbackImageUrl,
+    thumbnailUrl: imageResultNode.data.thumbnailUrl?.trim() || null,
+    aspectRatio: imageResultNode.data.aspectRatio ?? null,
+    generationSummary: imageResultNode.data.generationSummary ?? null,
+    createdAt: imageResultNode.data.generationSummary?.generatedAt ?? Date.now(),
+  };
+}
+
+export function resolveSelectedStoryboardProductionReferenceImage(input: {
+  groupNodeId: string;
+}): StoryboardProductionImageResult | null {
+  const state = useCanvasStore.getState();
+  const imageResultNode = resolveProductionGroupChildren(
+    state.nodes,
+    input.groupNodeId
+  ).imageResultNode;
+  return imageResultNode
+    ? resolveSelectedStoryboardProductionResult(imageResultNode)
+    : null;
+}
+
+export function selectStoryboardProductionImageResult(input: {
+  resultNodeId: string;
+  resultId: string | null;
+}): void {
+  const state = useCanvasStore.getState();
+  const resultNode = state.nodes.find((node): node is CanvasNode & {
+    type: typeof CANVAS_NODE_TYPES.exportImage;
+    data: ExportImageNodeData;
+  } => (
+    node.id === input.resultNodeId
+    && node.type === CANVAS_NODE_TYPES.exportImage
+    && (node.data as ExportImageNodeData).isStoryboardProductionPlaceholder === true
+  ));
+  if (!resultNode) {
+    return;
+  }
+
+  const currentSelectedId = resultNode.data.selectedStoryboardProductionResultId ?? null;
+  const nextSelectedId = currentSelectedId === input.resultId ? null : input.resultId;
+  const nextResult = nextSelectedId
+    ? (resultNode.data.storyboardProductionResults ?? []).find(
+        (item) => item.id === nextSelectedId
+      ) ?? null
+    : null;
+
+  useCanvasStore.getState().updateNodeData(
+    input.resultNodeId,
+    {
+      selectedStoryboardProductionResultId: nextResult?.id ?? null,
+      imageUrl: nextResult?.imageUrl ?? null,
+      previewImageUrl: nextResult?.previewImageUrl ?? null,
+      thumbnailUrl: nextResult?.thumbnailUrl ?? null,
+      aspectRatio: nextResult?.aspectRatio ?? resultNode.data.aspectRatio,
+      generationSummary: nextResult?.generationSummary ?? resultNode.data.generationSummary,
+    } satisfies Partial<ExportImageNodeData>,
+    { historyMode: 'skip' }
+  );
+}
+
+function updateProductionGroupQueueState(
+  groupNodeId: string,
+  patch: Partial<NonNullable<GroupNodeData['queueState']>>
+): void {
+  const groupNode = useCanvasStore.getState().nodes.find((node): node is CanvasNode & {
+    type: typeof CANVAS_NODE_TYPES.group;
+    data: GroupNodeData;
+  } => node.id === groupNodeId && node.type === CANVAS_NODE_TYPES.group);
+  if (!groupNode) {
+    return;
+  }
+
+  useCanvasStore.getState().updateNodeData(
+    groupNodeId,
+    {
+      queueState: {
+        ...(groupNode.data.queueState ?? {
+          pendingNodeIds: [],
+          runningNodeId: null,
+          completedNodeIds: [],
+          failedNodeIds: [],
+          lastRunAt: null,
+        }),
+        ...patch,
+      },
+    },
+    { historyMode: 'skip' }
+  );
+}
+
+function getProductionResultCount(resultNodeId: string): number {
+  const resultNode = useCanvasStore.getState().nodes.find(
+    (node): node is CanvasNode & {
+      type: typeof CANVAS_NODE_TYPES.exportImage;
+      data: ExportImageNodeData;
+    } => node.id === resultNodeId && node.type === CANVAS_NODE_TYPES.exportImage
+  );
+  return resultNode?.data.storyboardProductionResults?.length ?? 0;
+}
+
+async function waitForStoryboardProductionImageResult(input: {
+  resultNodeId: string;
+  previousResultCount: number;
+  timeoutMs?: number;
+}): Promise<StoryboardProductionImageResult | null> {
+  const startedAt = Date.now();
+  const timeoutMs = input.timeoutMs ?? STORYBOARD_PRODUCTION_RESULT_WAIT_TIMEOUT_MS;
+  while (Date.now() - startedAt < timeoutMs) {
+    const resultNode = useCanvasStore.getState().nodes.find(
+      (node): node is CanvasNode & {
+        type: typeof CANVAS_NODE_TYPES.exportImage;
+        data: ExportImageNodeData;
+      } => node.id === input.resultNodeId && node.type === CANVAS_NODE_TYPES.exportImage
+    );
+    if (!resultNode) {
+      return null;
+    }
+    const results = resultNode.data.storyboardProductionResults ?? [];
+    if (results.length > input.previousResultCount) {
+      return results[results.length - 1] ?? null;
+    }
+    if (resultNode.data.generationPhase === 'failed') {
+      return null;
+    }
+    await sleep(STORYBOARD_PRODUCTION_RESULT_POLL_INTERVAL_MS);
+  }
+  return null;
+}
+
+function publishImageGeneration(
+  nodeId: string
+): Promise<{ ok: boolean; error?: string | null }> {
+  return new Promise((resolve) => {
+    canvasEventBus.publish('image-edit/submit-generate', {
+      nodeId,
+      onSettled: resolve,
+    });
+  });
+}
+
+function resolvePreviousProductionGroup(
+  groupNode: CanvasNode & { type: typeof CANVAS_NODE_TYPES.group; data: GroupNodeData }
+): (CanvasNode & { type: typeof CANVAS_NODE_TYPES.group; data: GroupNodeData }) | null {
+  const sourceNodeId = normalizeText(
+    (groupNode.data as { sourceStoryboardTableNodeId?: string | null }).sourceStoryboardTableNodeId ?? ''
+  );
+  const mode = (groupNode.data as { storyboardProductionMode?: unknown }).storyboardProductionMode;
+  if (!sourceNodeId || (mode !== '10s' && mode !== '15s')) {
+    return null;
+  }
+
+  const groups = findProductionGroupsForMode({
+    nodes: useCanvasStore.getState().nodes,
+    sourceNodeId,
+    mode,
+  }).sort((left, right) => {
+    const leftIndex = Number((left.data as { sourceStoryboardGroupIndex?: unknown }).sourceStoryboardGroupIndex);
+    const rightIndex = Number((right.data as { sourceStoryboardGroupIndex?: unknown }).sourceStoryboardGroupIndex);
+    if (Number.isFinite(leftIndex) && Number.isFinite(rightIndex) && leftIndex !== rightIndex) {
+      return leftIndex - rightIndex;
+    }
+    return left.position.x - right.position.x || left.position.y - right.position.y;
+  });
+  const currentIndex = groups.findIndex((item) => item.id === groupNode.id);
+  return currentIndex > 0 ? groups[currentIndex - 1] ?? null : null;
+}
+
+export async function runStoryboardProductionGroupImageGeneration(input: {
+  groupNodeId: string;
+  confirmWithoutPrevious?: boolean;
+}): Promise<{ ok: boolean; missingPrevious?: boolean; error?: string | null }> {
+  const state = useCanvasStore.getState();
+  const groupNode = state.nodes.find((node): node is CanvasNode & {
+    type: typeof CANVAS_NODE_TYPES.group;
+    data: GroupNodeData;
+  } => (
+    node.id === input.groupNodeId
+    && node.type === CANVAS_NODE_TYPES.group
+    && (node.data as GroupNodeData).visualStyle === 'storyboardProductionGroup'
+  ));
+  if (!groupNode) {
+    return { ok: false, error: 'production group not found' };
+  }
+
+  const previousGroup = resolvePreviousProductionGroup(groupNode);
+  if (
+    previousGroup
+    && !resolveSelectedStoryboardProductionReferenceImage({ groupNodeId: previousGroup.id })
+    && input.confirmWithoutPrevious !== true
+  ) {
+    return { ok: false, missingPrevious: true };
+  }
+
+  const children = resolveProductionGroupChildren(state.nodes, groupNode.id);
+  if (!children.imageNode || !children.imageResultNode) {
+    return { ok: false, error: 'production image node not found' };
+  }
+
+  updateProductionGroupQueueState(groupNode.id, {
+    pendingNodeIds: [],
+    runningNodeId: children.imageNode.id,
+    completedNodeIds: [],
+    failedNodeIds: [],
+    lastRunAt: Date.now(),
+  });
+
+  const previousResultCount = getProductionResultCount(children.imageResultNode.id);
+  const submitResult = await publishImageGeneration(children.imageNode.id);
+  if (!submitResult.ok) {
+    updateProductionGroupQueueState(groupNode.id, {
+      runningNodeId: null,
+      failedNodeIds: [children.imageNode.id],
+      lastRunAt: Date.now(),
+    });
+    return submitResult;
+  }
+
+  const generatedResult = await waitForStoryboardProductionImageResult({
+    resultNodeId: children.imageResultNode.id,
+    previousResultCount,
+  });
+  if (!generatedResult) {
+    updateProductionGroupQueueState(groupNode.id, {
+      runningNodeId: null,
+      failedNodeIds: [children.imageNode.id],
+      lastRunAt: Date.now(),
+    });
+    return { ok: false, error: 'image result timeout' };
+  }
+
+  const latestResultNode = useCanvasStore.getState().nodes.find(
+    (node): node is CanvasNode & {
+      type: typeof CANVAS_NODE_TYPES.exportImage;
+      data: ExportImageNodeData;
+    } => node.id === children.imageResultNode!.id && node.type === CANVAS_NODE_TYPES.exportImage
+  );
+  if (!latestResultNode?.data.selectedStoryboardProductionResultId) {
+    selectStoryboardProductionImageResult({
+      resultNodeId: children.imageResultNode.id,
+      resultId: generatedResult.id,
+    });
+  }
+
+  updateProductionGroupQueueState(groupNode.id, {
+    runningNodeId: null,
+    completedNodeIds: [children.imageNode.id],
+    failedNodeIds: [],
+    lastRunAt: Date.now(),
+  });
+  return { ok: true };
+}
+
+export async function runStoryboardProductionAutoImageSequence(input: {
+  tableNodeId: string;
+  mode: '10s' | '15s';
+}): Promise<{ ok: boolean; error?: string | null }> {
+  const queueKey = `${input.tableNodeId}:${input.mode}`;
+  if (storyboardProductionImageQueues.has(queueKey)) {
+    return { ok: false, error: 'queue is already running' };
+  }
+
+  const tableNode = findScriptStoryboardTableNode(input.tableNodeId);
+  if (!tableNode || tableNode.data.presentationMode !== 'storyboardMirror') {
+    return { ok: false, error: 'storyboard table not found' };
+  }
+
+  const groups = findProductionGroupsForMode({
+    nodes: useCanvasStore.getState().nodes,
+    sourceNodeId: input.tableNodeId,
+    mode: input.mode,
+  }).sort((left, right) => {
+    const leftIndex = Number((left.data as { sourceStoryboardGroupIndex?: unknown }).sourceStoryboardGroupIndex);
+    const rightIndex = Number((right.data as { sourceStoryboardGroupIndex?: unknown }).sourceStoryboardGroupIndex);
+    if (Number.isFinite(leftIndex) && Number.isFinite(rightIndex) && leftIndex !== rightIndex) {
+      return leftIndex - rightIndex;
+    }
+    return left.position.x - right.position.x || left.position.y - right.position.y;
+  });
+  if (groups.length === 0) {
+    return { ok: false, error: 'production groups not found' };
+  }
+
+  storyboardProductionImageQueues.add(queueKey);
+  useCanvasStore.getState().updateNodeData(
+    input.tableNodeId,
+    {
+      autoStoryboardProductionEnabled: true,
+      activeStoryboardProductionMode: input.mode,
+    } satisfies Partial<ScriptStoryboardTableNodeData>,
+    { historyMode: 'skip' }
+  );
+
+  try {
+    for (const group of groups) {
+      const result = await runStoryboardProductionGroupImageGeneration({
+        groupNodeId: group.id,
+        confirmWithoutPrevious: true,
+      });
+      if (!result.ok) {
+        return result;
+      }
+
+      const children = resolveProductionGroupChildren(
+        useCanvasStore.getState().nodes,
+        group.id
+      );
+      const selectedId = children.imageResultNode?.data.selectedStoryboardProductionResultId;
+      const productionResults = children.imageResultNode?.data.storyboardProductionResults ?? [];
+      const latestResult = productionResults[productionResults.length - 1] ?? null;
+      if (children.imageResultNode && latestResult && selectedId !== latestResult.id) {
+        selectStoryboardProductionImageResult({
+          resultNodeId: children.imageResultNode.id,
+          resultId: latestResult.id,
+        });
+      }
+    }
+    return { ok: true };
+  } finally {
+    storyboardProductionImageQueues.delete(queueKey);
+    useCanvasStore.getState().updateNodeData(
+      input.tableNodeId,
+      { activeStoryboardProductionMode: null } satisfies Partial<ScriptStoryboardTableNodeData>,
+      { historyMode: 'skip' }
+    );
+  }
+}
+
+function hasGeneratedProductionImage(nodes: CanvasNode[], groupId: string): boolean {
+  const imageResultNode = resolveProductionGroupChildren(nodes, groupId).imageResultNode;
+  return Boolean(imageResultNode && resolveSelectedStoryboardProductionResult(imageResultNode));
+}
+
+function findExistingProductionGroup(input: {
+  nodes: CanvasNode[];
+  sourceNodeId: string;
+  mode: '10s' | '15s';
+  durationGroupId: string;
+}): (CanvasNode & { type: typeof CANVAS_NODE_TYPES.group; data: GroupNodeData }) | null {
+  return input.nodes.find((node): node is CanvasNode & {
+    type: typeof CANVAS_NODE_TYPES.group;
+    data: GroupNodeData;
+  } => {
+    if (node.type !== CANVAS_NODE_TYPES.group) {
+      return false;
+    }
+    const data = node.data as GroupNodeData & {
+      sourceStoryboardTableNodeId?: string | null;
+      storyboardProductionMode?: string | null;
+      sourceDurationGroupId?: string | null;
+    };
+    return (
+      data.visualStyle === 'storyboardProductionGroup'
+      && data.sourceStoryboardTableNodeId === input.sourceNodeId
+      && data.storyboardProductionMode === input.mode
+      && data.sourceDurationGroupId === input.durationGroupId
+    );
+  }) ?? null;
+}
+
+function findProductionGroupsForMode(input: {
+  nodes: CanvasNode[];
+  sourceNodeId: string;
+  mode: '10s' | '15s';
+}): Array<CanvasNode & { type: typeof CANVAS_NODE_TYPES.group; data: GroupNodeData }> {
+  return input.nodes.filter((node): node is CanvasNode & {
+    type: typeof CANVAS_NODE_TYPES.group;
+    data: GroupNodeData;
+  } => {
+    if (node.type !== CANVAS_NODE_TYPES.group) {
+      return false;
+    }
+    const data = node.data as GroupNodeData & {
+      sourceStoryboardTableNodeId?: string | null;
+      storyboardProductionMode?: string | null;
+    };
+    return (
+      data.visualStyle === 'storyboardProductionGroup'
+      && data.sourceStoryboardTableNodeId === input.sourceNodeId
+      && data.storyboardProductionMode === input.mode
+    );
+  });
+}
+
 function buildProductionCardAndChildren(input: {
   tableNode: CanvasNode & {
     type: typeof CANVAS_NODE_TYPES.scriptStoryboardTable;
@@ -1724,20 +2412,11 @@ function buildProductionCardAndChildren(input: {
   previousImageNodeId: string | null;
   previousRowId: string | null;
 }): { groupNode: CanvasNode; childNodes: CanvasNode[]; edges: CanvasEdge[]; imageNodeId: string } {
-  const rows = resolveGroupRows(input.tableNode, input.durationGroup);
-  const targetVideoDurationSeconds = input.mode === '15s' ? 15 : 10;
-  const assetNames = Array.from(new Set(rows.flatMap((row) => row.assetRefs).map(normalizeText).filter(Boolean)));
-  const assetLibraryId =
-    useProjectStore.getState().currentProject?.assetLibraryId
-    ?? useAssetStore.getState().libraries[0]?.id
-    ?? null;
-  const selectedAssetIds = resolveMatchedAssetIds({ assetLibraryId, assetNames });
-  const promptReferenceInput = {
-    rows,
-    assetLibraryId,
-    selectedAssetIds,
-    assetNames,
-  };
+  const context = buildProductionContext({
+    tableNode: input.tableNode,
+    durationGroup: input.durationGroup,
+    mode: input.mode,
+  });
   const groupTitle = `${input.durationGroup.label} · ${input.mode}`;
   const groupNode = canvasNodeFactory.createNode(
     CANVAS_NODE_TYPES.group,
@@ -1749,14 +2428,15 @@ function buildProductionCardAndChildren(input: {
       batchKind: input.mode === '15s' ? 'storyboard15s' : 'storyboard10s',
       maxItemsPerLine: 3,
       sourceStoryboardTableNodeId: input.tableNode.id,
-      sourceStoryboardRowIds: rows.map((row) => row.id),
-      sourceStoryboardShotLabels: rows.map((row) => row.shotNumber || row.sceneNumber).filter(Boolean),
-      sourceStoryboardShotSummaries: buildProductionShotSummaries(rows),
+      sourceStoryboardRowIds: context.rowIds,
+      sourceStoryboardShotLabels: context.shotLabels,
+      sourceStoryboardShotSummaries: context.shotSummaries,
       sourceDurationGroupId: input.durationGroup.id,
       storyboardProductionMode: input.mode,
+      sourceStoryboardGroupIndex: input.index,
       continuousReferenceEnabled: input.tableNode.data.continuousReferenceEnabled === true,
-      totalDurationSeconds: targetVideoDurationSeconds,
-      targetVideoDurationSeconds,
+      totalDurationSeconds: context.targetVideoDurationSeconds,
+      targetVideoDurationSeconds: context.targetVideoDurationSeconds,
       videoKind: input.videoKind,
     } satisfies Partial<GroupNodeData> & Record<string, unknown>
   );
@@ -1773,12 +2453,12 @@ function buildProductionCardAndChildren(input: {
     { x: 24, y: PRODUCTION_CHILD_TOP },
     {
       displayName: i18n.t('node.assetMaterial.displayName'),
-      assetLibraryId,
-      selectedAssetIds,
+      assetLibraryId: context.assetLibraryId,
+      selectedAssetIds: context.selectedAssetIds,
       sourceStoryboardTableNodeId: input.tableNode.id,
-      sourceStoryboardRowIds: rows.map((row) => row.id),
+      sourceStoryboardRowIds: context.rowIds,
       sourceDurationGroupId: input.durationGroup.id,
-      defaultMatchedAssetNames: assetNames,
+      defaultMatchedAssetNames: context.assetNames,
       displayMode: 'nameOnlyAccordion',
     } satisfies Partial<AssetMaterialNodeData>
   );
@@ -1787,16 +2467,19 @@ function buildProductionCardAndChildren(input: {
     { x: 24 + PRODUCTION_ASSET_NODE_WIDTH + 24, y: PRODUCTION_CHILD_TOP },
     {
       displayName: i18n.t('node.storyboardProductionGroup.imageNodeTitle', { index: input.index + 1 }),
-      prompt: buildImagePromptForRows(promptReferenceInput),
-      model: DEFAULT_IMAGE_MODEL_ID,
-      size: '2K',
-      requestAspectRatio: AUTO_REQUEST_ASPECT_RATIO,
+      prompt: context.imagePrompt,
+      model: context.imageModelId,
+      size: context.imageSize,
+      requestAspectRatio: context.imageAspectRatio,
       sourceStoryboardTableNodeId: input.tableNode.id,
-      sourceStoryboardRowIds: rows.map((row) => row.id),
+      sourceStoryboardRowIds: context.rowIds,
       sourceDurationGroupId: input.durationGroup.id,
-      targetVideoDurationSeconds,
+      targetVideoDurationSeconds: context.targetVideoDurationSeconds,
       sourceAssetMaterialNodeId: assetNode.id,
       referenceTokenMode: 'namedAsset',
+      selectedStyleTemplateId: context.styleTemplateId,
+      selectedStyleTemplateName: context.styleTemplateName,
+      selectedStyleTemplatePrompt: context.styleTemplatePrompt,
       continuousReferenceChain:
         input.tableNode.data.continuousReferenceEnabled === true
           ? {
@@ -1824,7 +2507,7 @@ function buildProductionCardAndChildren(input: {
       isStoryboardProductionPlaceholder: true,
       sourceImageNodeId: imageNode.id,
       sourceStoryboardTableNodeId: input.tableNode.id,
-      sourceStoryboardRowIds: rows.map((row) => row.id),
+      sourceStoryboardRowIds: context.rowIds,
       sourceDurationGroupId: input.durationGroup.id,
     } satisfies Partial<ExportImageNodeData>
   );
@@ -1847,29 +2530,45 @@ function buildProductionCardAndChildren(input: {
     input.videoKind === 'jimeng'
       ? ({
           displayName: i18n.t('node.storyboardProductionGroup.jimengVideoTitle', { index: input.index + 1 }),
-          prompt: buildVideoPromptForRowsWithAssets(promptReferenceInput),
-          durationSeconds: targetVideoDurationSeconds,
+          prompt: context.videoPrompt,
+          durationSeconds: context.targetVideoDurationSeconds,
           sourceStoryboardTableNodeId: input.tableNode.id,
-          sourceStoryboardRowIds: rows.map((row) => row.id),
+          sourceStoryboardRowIds: context.rowIds,
           sourceDurationGroupId: input.durationGroup.id,
-          targetVideoDurationSeconds,
+          targetVideoDurationSeconds: context.targetVideoDurationSeconds,
           sourceImageNodeId: imageNode.id,
           sourceAssetMaterialNodeId: assetNode.id,
           sourceImageResultNodeId: imageResultNode.id,
           referenceTokenMode: 'namedAsset',
+          continuousReferenceChain:
+            input.tableNode.data.continuousReferenceEnabled === true
+              ? {
+                  enabled: true,
+                  previousImageNodeId: input.previousImageNodeId,
+                  previousRowId: input.previousRowId,
+                }
+              : undefined,
         } satisfies Partial<JimengNodeData>)
       : ({
           displayName: i18n.t('node.storyboardProductionGroup.seedanceVideoTitle', { index: input.index + 1 }),
-          prompt: buildVideoPromptForRowsWithAssets(promptReferenceInput),
-          durationSeconds: targetVideoDurationSeconds,
+          prompt: context.videoPrompt,
+          durationSeconds: context.targetVideoDurationSeconds,
           sourceStoryboardTableNodeId: input.tableNode.id,
-          sourceStoryboardRowIds: rows.map((row) => row.id),
+          sourceStoryboardRowIds: context.rowIds,
           sourceDurationGroupId: input.durationGroup.id,
-          targetVideoDurationSeconds,
+          targetVideoDurationSeconds: context.targetVideoDurationSeconds,
           sourceImageNodeId: imageNode.id,
           sourceAssetMaterialNodeId: assetNode.id,
           sourceImageResultNodeId: imageResultNode.id,
           referenceTokenMode: 'namedAsset',
+          continuousReferenceChain:
+            input.tableNode.data.continuousReferenceEnabled === true
+              ? {
+                  enabled: true,
+                  previousImageNodeId: input.previousImageNodeId,
+                  previousRowId: input.previousRowId,
+                }
+              : undefined,
         } satisfies Partial<SeedanceNodeData>)
   );
 
@@ -1949,6 +2648,282 @@ function buildProductionCardAndChildren(input: {
   };
 }
 
+function createProductionVideoNode(input: {
+  tableNode: CanvasNode & {
+    type: typeof CANVAS_NODE_TYPES.scriptStoryboardTable;
+    data: ScriptStoryboardTableNodeData;
+  };
+  context: ProductionContext;
+  durationGroup: DirectorStoryboardDurationGroup;
+  mode: '10s' | '15s';
+  videoKind: ScriptStoryboardProductionVideoKind;
+  parentId: string;
+  index: number;
+  assetNodeId: string;
+  imageNodeId: string;
+  imageResultNodeId: string;
+}): CanvasNode & {
+  type: typeof CANVAS_NODE_TYPES.jimeng | typeof CANVAS_NODE_TYPES.seedance;
+  data: JimengNodeData | SeedanceNodeData;
+} {
+  const videoType = resolveProductionVideoNodeType(input.videoKind);
+  const videoNode = canvasNodeFactory.createNode(
+    videoType,
+    {
+      x: 24
+        + PRODUCTION_ASSET_NODE_WIDTH + 24
+        + PRODUCTION_IMAGE_NODE_WIDTH + 24
+        + PRODUCTION_RESULT_NODE_WIDTH + 24,
+      y: PRODUCTION_CHILD_TOP,
+    },
+    input.videoKind === 'jimeng'
+      ? ({
+          displayName: i18n.t('node.storyboardProductionGroup.jimengVideoTitle', { index: input.index + 1 }),
+          prompt: input.context.videoPrompt,
+          durationSeconds: input.context.targetVideoDurationSeconds,
+          sourceStoryboardTableNodeId: input.tableNode.id,
+          sourceStoryboardRowIds: input.context.rowIds,
+          sourceDurationGroupId: input.durationGroup.id,
+          targetVideoDurationSeconds: input.context.targetVideoDurationSeconds,
+          sourceImageNodeId: input.imageNodeId,
+          sourceAssetMaterialNodeId: input.assetNodeId,
+          sourceImageResultNodeId: input.imageResultNodeId,
+          referenceTokenMode: 'namedAsset',
+          continuousReferenceChain:
+            input.tableNode.data.continuousReferenceEnabled === true
+              ? {
+                  enabled: true,
+                  previousImageNodeId: null,
+                  previousRowId: null,
+                }
+              : undefined,
+        } satisfies Partial<JimengNodeData>)
+      : ({
+          displayName: i18n.t('node.storyboardProductionGroup.seedanceVideoTitle', { index: input.index + 1 }),
+          prompt: input.context.videoPrompt,
+          durationSeconds: input.context.targetVideoDurationSeconds,
+          sourceStoryboardTableNodeId: input.tableNode.id,
+          sourceStoryboardRowIds: input.context.rowIds,
+          sourceDurationGroupId: input.durationGroup.id,
+          targetVideoDurationSeconds: input.context.targetVideoDurationSeconds,
+          sourceImageNodeId: input.imageNodeId,
+          sourceAssetMaterialNodeId: input.assetNodeId,
+          sourceImageResultNodeId: input.imageResultNodeId,
+          referenceTokenMode: 'namedAsset',
+          continuousReferenceChain:
+            input.tableNode.data.continuousReferenceEnabled === true
+              ? {
+                  enabled: true,
+                  previousImageNodeId: null,
+                  previousRowId: null,
+                }
+              : undefined,
+        } satisfies Partial<SeedanceNodeData>)
+  ) as CanvasNode & {
+    type: typeof CANVAS_NODE_TYPES.jimeng | typeof CANVAS_NODE_TYPES.seedance;
+    data: JimengNodeData | SeedanceNodeData;
+  };
+
+  return sizeProductionChildNode(
+    videoNode,
+    input.parentId,
+    PRODUCTION_VIDEO_NODE_WIDTH,
+    PRODUCTION_VIDEO_NODE_HEIGHT
+  );
+}
+
+function updateExistingProductionGroup(input: {
+  nodes: CanvasNode[];
+  groupNode: CanvasNode & { type: typeof CANVAS_NODE_TYPES.group; data: GroupNodeData };
+  tableNode: CanvasNode & {
+    type: typeof CANVAS_NODE_TYPES.scriptStoryboardTable;
+    data: ScriptStoryboardTableNodeData;
+  };
+  context: ProductionContext;
+  durationGroup: DirectorStoryboardDurationGroup;
+  mode: '10s' | '15s';
+  videoKind: ScriptStoryboardProductionVideoKind;
+  index: number;
+  previousImageNodeId: string | null;
+  previousRowId: string | null;
+}): {
+  nodes: CanvasNode[];
+  edges: CanvasEdge[];
+  imageNodeId: string | null;
+  removedNodeIds: string[];
+} {
+  const children = resolveProductionGroupChildren(input.nodes, input.groupNode.id);
+  if (!children.assetNode || !children.imageNode || !children.imageResultNode) {
+    const built = buildProductionCardAndChildren({
+      tableNode: input.tableNode,
+      durationGroup: input.durationGroup,
+      mode: input.mode,
+      videoKind: input.videoKind,
+      position: input.groupNode.position,
+      index: input.index,
+      previousImageNodeId: input.previousImageNodeId,
+      previousRowId: input.previousRowId,
+    });
+    return {
+      nodes: [
+        { ...built.groupNode, id: input.groupNode.id, position: input.groupNode.position },
+        ...built.childNodes,
+      ],
+      edges: built.edges,
+      imageNodeId: built.imageNodeId,
+      removedNodeIds: input.nodes
+        .filter((node) => node.parentId === input.groupNode.id)
+        .map((node) => node.id),
+    };
+  }
+
+  const expectedVideoType = resolveProductionVideoNodeType(input.videoKind);
+  const shouldReplaceVideo = !children.videoNode || children.videoNode.type !== expectedVideoType;
+  const existingVideoNode = children.videoNode;
+  const videoNode = shouldReplaceVideo
+    ? createProductionVideoNode({
+        tableNode: input.tableNode,
+        context: input.context,
+        durationGroup: input.durationGroup,
+        mode: input.mode,
+        videoKind: input.videoKind,
+        parentId: input.groupNode.id,
+        index: input.index,
+        assetNodeId: children.assetNode.id,
+        imageNodeId: children.imageNode.id,
+        imageResultNodeId: children.imageResultNode.id,
+      })
+    : ({
+        ...existingVideoNode,
+        data: {
+          ...existingVideoNode!.data,
+          displayName: existingVideoNode!.data.displayName,
+          prompt: input.context.videoPrompt,
+          durationSeconds: input.context.targetVideoDurationSeconds,
+          sourceStoryboardTableNodeId: input.tableNode.id,
+          sourceStoryboardRowIds: input.context.rowIds,
+          sourceDurationGroupId: input.durationGroup.id,
+          targetVideoDurationSeconds: input.context.targetVideoDurationSeconds,
+          sourceImageNodeId: children.imageNode.id,
+          sourceAssetMaterialNodeId: children.assetNode.id,
+          sourceImageResultNodeId: children.imageResultNode.id,
+          referenceTokenMode: 'namedAsset',
+          continuousReferenceChain:
+            input.tableNode.data.continuousReferenceEnabled === true
+              ? {
+                  enabled: true,
+                  previousImageNodeId: input.previousImageNodeId,
+                  previousRowId: input.previousRowId,
+                }
+              : undefined,
+        },
+      } as CanvasNode & {
+        type: typeof CANVAS_NODE_TYPES.jimeng | typeof CANVAS_NODE_TYPES.seedance;
+        data: JimengNodeData | SeedanceNodeData;
+      });
+
+  const updatedGroupNode: CanvasNode = {
+    ...input.groupNode,
+    data: {
+      ...input.groupNode.data,
+      displayName: input.context.groupTitle,
+      label: input.context.groupTitle,
+      visualStyle: 'storyboardProductionGroup',
+      batchKind: input.mode === '15s' ? 'storyboard15s' : 'storyboard10s',
+      maxItemsPerLine: 3,
+      sourceStoryboardTableNodeId: input.tableNode.id,
+      sourceStoryboardRowIds: input.context.rowIds,
+      sourceStoryboardShotLabels: input.context.shotLabels,
+      sourceStoryboardShotSummaries: input.context.shotSummaries,
+      sourceDurationGroupId: input.durationGroup.id,
+      storyboardProductionMode: input.mode,
+      sourceStoryboardGroupIndex: input.index,
+      continuousReferenceEnabled: input.tableNode.data.continuousReferenceEnabled === true,
+      totalDurationSeconds: input.context.targetVideoDurationSeconds,
+      targetVideoDurationSeconds: input.context.targetVideoDurationSeconds,
+      videoKind: input.videoKind,
+      isStaleStoryboardProductionGroup: false,
+    } satisfies GroupNodeData & Record<string, unknown>,
+  };
+
+  const updatedAssetNode: CanvasNode = {
+    ...children.assetNode,
+    data: {
+      ...children.assetNode.data,
+      assetLibraryId: children.assetNode.data.assetLibraryId ?? input.context.assetLibraryId,
+      selectedAssetIds: mergeAssetIdLists(children.assetNode.data.selectedAssetIds, input.context.selectedAssetIds),
+      sourceStoryboardTableNodeId: input.tableNode.id,
+      sourceStoryboardRowIds: input.context.rowIds,
+      sourceDurationGroupId: input.durationGroup.id,
+      defaultMatchedAssetNames: input.context.assetNames,
+      displayMode: 'nameOnlyAccordion',
+      outputMode: 'namedReference',
+    } satisfies AssetMaterialNodeData,
+  };
+
+  const updatedImageNode: CanvasNode = {
+    ...children.imageNode,
+    data: {
+      ...children.imageNode.data,
+      prompt: input.context.imagePrompt,
+      model: input.context.imageModelId,
+      size: input.context.imageSize,
+      requestAspectRatio: input.context.imageAspectRatio,
+      sourceStoryboardTableNodeId: input.tableNode.id,
+      sourceStoryboardRowIds: input.context.rowIds,
+      sourceDurationGroupId: input.durationGroup.id,
+      targetVideoDurationSeconds: input.context.targetVideoDurationSeconds,
+      sourceAssetMaterialNodeId: children.assetNode.id,
+      sourceImageResultNodeId: children.imageResultNode.id,
+      referenceTokenMode: 'namedAsset',
+      selectedStyleTemplateId: input.context.styleTemplateId,
+      selectedStyleTemplateName: input.context.styleTemplateName,
+      selectedStyleTemplatePrompt: input.context.styleTemplatePrompt,
+      continuousReferenceChain:
+        input.tableNode.data.continuousReferenceEnabled === true
+          ? {
+              enabled: true,
+              previousImageNodeId: input.previousImageNodeId,
+              previousRowId: input.previousRowId,
+            }
+          : undefined,
+    } satisfies ImageEditNodeData,
+  };
+
+  const updatedImageResultNode: CanvasNode = {
+    ...children.imageResultNode,
+    data: {
+      ...children.imageResultNode.data,
+      isStoryboardProductionPlaceholder: true,
+      sourceImageNodeId: children.imageNode.id,
+      sourceStoryboardTableNodeId: input.tableNode.id,
+      sourceStoryboardRowIds: input.context.rowIds,
+      sourceDurationGroupId: input.durationGroup.id,
+    } satisfies ExportImageNodeData,
+  };
+
+  const removedNodeIds = shouldReplaceVideo && existingVideoNode
+    ? [existingVideoNode.id]
+    : [];
+  return {
+    nodes: [
+      updatedGroupNode,
+      updatedAssetNode,
+      updatedImageNode,
+      updatedImageResultNode,
+      videoNode,
+    ],
+    edges: createProductionEdges({
+      assetNodeId: children.assetNode.id,
+      imageNodeId: children.imageNode.id,
+      imageResultNodeId: children.imageResultNode.id,
+      videoNodeId: videoNode.id,
+    }),
+    imageNodeId: children.imageNode.id,
+    removedNodeIds,
+  };
+}
+
 export function setScriptStoryboardTableContinuousReference(input: {
   nodeId: string;
   enabled: boolean;
@@ -1970,22 +2945,11 @@ export function removePreviousScriptStoryboardProductionGroups(input: {
   mode: '10s' | '15s';
 }): void {
   const state = useCanvasStore.getState();
-  const groupIds = state.nodes
-    .filter((node) => {
-      if (node.type !== CANVAS_NODE_TYPES.group) {
-        return false;
-      }
-      const data = node.data as GroupNodeData & {
-        sourceStoryboardTableNodeId?: string | null;
-        storyboardProductionMode?: string | null;
-      };
-      return (
-        data.visualStyle === 'storyboardProductionGroup'
-        && data.sourceStoryboardTableNodeId === input.sourceNodeId
-        && data.storyboardProductionMode === input.mode
-      );
-    })
-    .map((node) => node.id);
+  const groupIds = findProductionGroupsForMode({
+    nodes: state.nodes,
+    sourceNodeId: input.sourceNodeId,
+    mode: input.mode,
+  }).map((node) => node.id);
 
   if (groupIds.length > 0) {
     state.deleteNodes(groupIds);
@@ -2007,69 +2971,192 @@ export function expandScriptStoryboardTableToProductionGroups(input: {
     return null;
   }
 
-  removePreviousScriptStoryboardProductionGroups({
-    sourceNodeId: input.nodeId,
-    mode: input.mode,
-  });
-
   const latestTableNode = findScriptStoryboardTableNode(input.nodeId) ?? tableNode;
   let previousImageNodeId: string | null = null;
   let previousRowId: string | null = null;
+  const initialState = useCanvasStore.getState();
   const builtCards = groups.map((durationGroup, index) => {
-    const built = buildProductionCardAndChildren({
+    const context = buildProductionContext({
       tableNode: latestTableNode,
       durationGroup,
       mode: input.mode,
-      videoKind: input.videoKind,
-      position: resolveProductionCardPosition(latestTableNode, index),
-      index,
-      previousImageNodeId,
-      previousRowId,
     });
-    const rows = resolveGroupRows(latestTableNode, durationGroup);
+    const existingGroup = findExistingProductionGroup({
+      nodes: initialState.nodes,
+      sourceNodeId: input.nodeId,
+      mode: input.mode,
+      durationGroupId: durationGroup.id,
+    });
+
+    const built = existingGroup
+      ? updateExistingProductionGroup({
+          nodes: initialState.nodes,
+          groupNode: existingGroup,
+          tableNode: latestTableNode,
+          context,
+          durationGroup,
+          mode: input.mode,
+          videoKind: input.videoKind,
+          index,
+          previousImageNodeId,
+          previousRowId,
+        })
+      : (() => {
+          const created = buildProductionCardAndChildren({
+            tableNode: latestTableNode,
+            durationGroup,
+            mode: input.mode,
+            videoKind: input.videoKind,
+            position: resolveProductionCardPosition(latestTableNode, index),
+            index,
+            previousImageNodeId,
+            previousRowId,
+          });
+          return {
+            nodes: [created.groupNode, ...created.childNodes],
+            edges: created.edges,
+            imageNodeId: created.imageNodeId,
+            removedNodeIds: [],
+          };
+        })();
+
     previousImageNodeId = built.imageNodeId;
-    previousRowId = rows[rows.length - 1]?.id ?? previousRowId;
+    previousRowId = context.rows[context.rows.length - 1]?.id ?? previousRowId;
     return built;
   });
-  const groupNodes = builtCards.map((item) => item.groupNode);
-  const childNodes = builtCards.flatMap((item) => item.childNodes);
-  const edges: CanvasEdge[] = builtCards.flatMap((item) => item.edges);
+  const nextGroupIds = new Set(groups.map((group) => group.id));
+  const staleGroups = findProductionGroupsForMode({
+    nodes: initialState.nodes,
+    sourceNodeId: input.nodeId,
+    mode: input.mode,
+  }).filter((groupNode) => {
+    const durationGroupId = normalizeText(
+      (groupNode.data as GroupNodeData & { sourceDurationGroupId?: string | null }).sourceDurationGroupId
+    );
+    return !nextGroupIds.has(durationGroupId);
+  });
+  const staleGroupIdsToKeep = new Set(
+    staleGroups
+      .filter((groupNode) => hasGeneratedProductionImage(initialState.nodes, groupNode.id))
+      .map((groupNode) => groupNode.id)
+  );
+  const staleGroupIdsToDelete = new Set(
+    staleGroups
+      .filter((groupNode) => !staleGroupIdsToKeep.has(groupNode.id))
+      .map((groupNode) => groupNode.id)
+  );
+  const replacementNodeMap = new Map<string, CanvasNode>();
+  builtCards.flatMap((item) => item.nodes).forEach((node) => {
+    replacementNodeMap.set(node.id, node);
+  });
+  staleGroups
+    .filter((groupNode) => staleGroupIdsToKeep.has(groupNode.id))
+    .forEach((groupNode) => {
+      replacementNodeMap.set(groupNode.id, {
+        ...groupNode,
+        selected: false,
+        data: {
+          ...groupNode.data,
+          isStaleStoryboardProductionGroup: true,
+        } satisfies GroupNodeData & Record<string, unknown>,
+      });
+    });
+  const explicitlyRemovedNodeIds = new Set(builtCards.flatMap((item) => item.removedNodeIds));
+  const deletedGroupChildIds = new Set(
+    initialState.nodes
+      .filter((node) => node.parentId && staleGroupIdsToDelete.has(node.parentId))
+      .map((node) => node.id)
+  );
+  const deletedNodeIds = new Set([
+    ...explicitlyRemovedNodeIds,
+    ...staleGroupIdsToDelete,
+    ...deletedGroupChildIds,
+  ]);
+  const newNodes = Array.from(replacementNodeMap.values()).filter(
+    (node) => !initialState.nodes.some((existingNode) => existingNode.id === node.id)
+  );
+  const updatedEdges: CanvasEdge[] = builtCards.flatMap((item) => item.edges);
+  const managedNodeIds = new Set(
+    Array.from(replacementNodeMap.keys()).filter((nodeId) =>
+      initialState.nodes.some((node) => node.id === nodeId)
+    )
+  );
+  const groupNodes = groups
+    .map((group) =>
+      Array.from(replacementNodeMap.values()).find((node) => {
+        const data = node.data as GroupNodeData & { sourceDurationGroupId?: string | null };
+        return node.type === CANVAS_NODE_TYPES.group && data.sourceDurationGroupId === group.id;
+      })
+    )
+    .filter((node): node is CanvasNode => Boolean(node));
 
   useCanvasStore.setState((state) => {
-    const existingNodeIds = new Set(state.nodes.map((node) => node.id));
+    const nextActiveGroupIds = groupNodes.map((groupNode) => groupNode.id);
+    const existingNodeIds = new Set(
+      state.nodes
+        .filter((node) => !deletedNodeIds.has(node.id))
+        .map((node) => node.id)
+    );
     const nextExpandedIds = Array.from(
       new Set([
         ...(latestTableNode.data.expandedProductionGroupNodeIds ?? []).filter(
-          (nodeId) => existingNodeIds.has(nodeId) && !groupNodes.some((groupNode) => groupNode.id === nodeId)
+          (nodeId) => existingNodeIds.has(nodeId) && !nextActiveGroupIds.includes(nodeId)
         ),
-        ...groupNodes.map((groupNode) => groupNode.id),
+        ...nextActiveGroupIds,
       ])
     );
+    const nextNodes: CanvasNode[] = state.nodes.reduce<CanvasNode[]>((acc, node) => {
+      if (deletedNodeIds.has(node.id)) {
+        return acc;
+      }
+
+      const replacementNode = replacementNodeMap.get(node.id);
+      if (replacementNode) {
+        acc.push({
+          ...replacementNode,
+          selected: nextActiveGroupIds[0] === node.id,
+        });
+        return acc;
+      }
+
+      if (node.id === latestTableNode.id) {
+        acc.push({
+          ...node,
+          selected: false,
+          data: {
+            ...node.data,
+            storyboardProductionMode: input.mode,
+            expandedProductionGroupNodeIds: nextExpandedIds,
+          },
+        });
+        return acc;
+      }
+
+      acc.push({ ...node, selected: false });
+      return acc;
+    }, []);
+
     return {
       nodes: [
-        ...state.nodes.map((node) =>
-          node.id === latestTableNode.id
-            ? {
-                ...node,
-                selected: false,
-                data: {
-                  ...node.data,
-                  storyboardProductionMode: input.mode,
-                  expandedProductionGroupNodeIds: nextExpandedIds,
-                },
-              }
-            : { ...node, selected: false }
-        ),
-        ...groupNodes.map((groupNode, index) => ({ ...groupNode, selected: index === 0 })),
-        ...childNodes,
+        ...nextNodes,
+        ...newNodes.map((node) => ({
+          ...node,
+          selected: nextActiveGroupIds[0] === node.id,
+        })),
       ],
       edges: [
         ...state.edges.filter((edge) =>
-          !edges.some((nextEdge) => nextEdge.id === edge.id)
+          !deletedNodeIds.has(edge.source)
+          && !deletedNodeIds.has(edge.target)
+          && !updatedEdges.some((nextEdge) => nextEdge.id === edge.id)
+          && !(
+            managedNodeIds.has(edge.source)
+            || managedNodeIds.has(edge.target)
+          )
         ),
-        ...edges,
+        ...updatedEdges,
       ],
-      selectedNodeId: groupNodes[0]?.id ?? null,
+      selectedNodeId: nextActiveGroupIds[0] ?? null,
       currentViewport: buildFocusViewport({
         x: groupNodes[0]?.position.x ?? latestTableNode.position.x,
         y: groupNodes[0]?.position.y ?? latestTableNode.position.y,
@@ -2353,11 +3440,17 @@ export function createScriptStoryboardTableNode(
       visibleColumnKeys: [...DEFAULT_SCRIPT_STORYBOARD_VISIBLE_COLUMN_KEYS],
       activeEditingCell: null,
       manualEditVersion: 0,
-    manuallyEditedRowIds: [],
-    storyboardProductionMode: 'none',
-    continuousReferenceEnabled: false,
-    expandedProductionGroupNodeIds: [],
-    linkedStoryboardProjectId: smartNode.data.linkedStoryboardProjectId,
+      manuallyEditedRowIds: [],
+      storyboardProductionMode: 'none',
+      continuousReferenceEnabled: false,
+      productionImageModelId: DEFAULT_IMAGE_MODEL_ID,
+      productionImageSize: '2K',
+      productionImageAspectRatio: AUTO_REQUEST_ASPECT_RATIO,
+      productionStyleTemplateId: null,
+      productionStyleTemplateName: null,
+      productionStyleTemplatePrompt: null,
+      expandedProductionGroupNodeIds: [],
+      linkedStoryboardProjectId: smartNode.data.linkedStoryboardProjectId,
       storyboardTransferStatus: 'idle',
       storyboardTransferSnapshot: null,
     }

@@ -571,9 +571,24 @@ impl NewApiProvider {
         )
     }
 
+    fn is_oopii_all_image_2_request_model(request_model: &str) -> bool {
+        request_model
+            .trim()
+            .eq_ignore_ascii_case("all-image-2")
+    }
+
     fn is_gpt2api_image_request_model(request_model: &str) -> bool {
         request_model.trim().eq_ignore_ascii_case("gpt-image-2")
+            || Self::is_oopii_all_image_2_request_model(request_model)
             || Self::is_gpt2api_image_request_model_alias(request_model)
+    }
+
+    fn resolve_gpt2api_transport_model(request_model: &str) -> &'static str {
+        if Self::is_oopii_all_image_2_request_model(request_model) {
+            "all-image-2"
+        } else {
+            "gpt-image-2"
+        }
     }
 
     fn resolve_gpt2api_quality(request: &GenerateRequest, request_model: &str) -> Option<String> {
@@ -684,7 +699,8 @@ impl NewApiProvider {
             })?;
 
             return Ok(OpenAiRequestFields {
-                request_model: "gpt-image-2".to_string(),
+                request_model: Self::resolve_gpt2api_transport_model(config_request_model)
+                    .to_string(),
                 size: Some(image_size.to_string()),
                 aspect_ratio: None,
                 image_size: None,
@@ -2487,6 +2503,41 @@ mod tests {
     use serde_json::{json, Value};
     use std::collections::HashMap;
 
+    fn gpt2api_expected_size_cases() -> Vec<(&'static str, &'static str, &'static str)> {
+        vec![
+            ("1K", "1:1", "1024x1024"),
+            ("1K", "5:4", "1120x896"),
+            ("1K", "9:16", "720x1280"),
+            ("1K", "21:9", "1456x624"),
+            ("1K", "16:9", "1280x720"),
+            ("1K", "4:3", "1152x864"),
+            ("1K", "3:2", "1248x832"),
+            ("1K", "4:5", "896x1120"),
+            ("1K", "3:4", "864x1152"),
+            ("1K", "2:3", "832x1248"),
+            ("2K", "1:1", "2048x2048"),
+            ("2K", "5:4", "2240x1792"),
+            ("2K", "9:16", "1440x2560"),
+            ("2K", "21:9", "3024x1296"),
+            ("2K", "16:9", "2560x1440"),
+            ("2K", "4:3", "2304x1728"),
+            ("2K", "3:2", "2496x1664"),
+            ("2K", "4:5", "1792x2240"),
+            ("2K", "3:4", "1728x2304"),
+            ("2K", "2:3", "1664x2496"),
+            ("4K", "1:1", "2880x2880"),
+            ("4K", "5:4", "3200x2560"),
+            ("4K", "9:16", "2160x3840"),
+            ("4K", "21:9", "3696x1584"),
+            ("4K", "16:9", "3840x2160"),
+            ("4K", "4:3", "3264x2448"),
+            ("4K", "3:2", "3504x2336"),
+            ("4K", "4:5", "2560x3200"),
+            ("4K", "3:4", "2448x3264"),
+            ("4K", "2:3", "2336x3504"),
+        ]
+    }
+
     #[test]
     fn resolve_endpoint_encodes_slash_model_names() {
         let endpoint = NewApiProvider::resolve_endpoint(
@@ -2857,6 +2908,126 @@ mod tests {
     }
 
     #[test]
+    fn build_openai_request_fields_for_oopii_all_image_2_keeps_model_and_uses_exact_3_4_size() {
+        let mut extra_params = std::collections::HashMap::new();
+        extra_params.insert("quality".to_string(), Value::String("medium".to_string()));
+        let request = crate::ai::GenerateRequest {
+            prompt: "make it cinematic".to_string(),
+            model: "oopii/all-image-2".to_string(),
+            size: "2K".to_string(),
+            aspect_ratio: "3:4".to_string(),
+            reference_images: None,
+            extra_params: Some(extra_params),
+        };
+
+        let fields = NewApiProvider::resolve_openai_request_fields(&request, "all-image-2")
+            .expect("expected all-image-2 fields");
+        let body = NewApiProvider::build_openai_generations_body(&request, &fields);
+
+        assert_eq!(fields.request_model, "all-image-2".to_string());
+        assert_eq!(fields.size.as_deref(), Some("1728x2304"));
+        assert_eq!(
+            body.get("model"),
+            Some(&Value::String("all-image-2".to_string()))
+        );
+        assert_eq!(
+            body.get("size"),
+            Some(&Value::String("1728x2304".to_string()))
+        );
+        assert!(!body.contains_key("aspect_ratio"));
+    }
+
+    #[test]
+    fn gpt_image_2_exact_size_table_covers_all_supported_ratios() {
+        for (resolution, aspect_ratio, expected_size) in gpt2api_expected_size_cases() {
+            let request = crate::ai::GenerateRequest {
+                prompt: "make it cinematic".to_string(),
+                model: "newapi/gpt-image-2".to_string(),
+                size: resolution.to_string(),
+                aspect_ratio: aspect_ratio.to_string(),
+                reference_images: None,
+                extra_params: None,
+            };
+
+            let fields = NewApiProvider::resolve_openai_request_fields(&request, "gpt-image-2")
+                .unwrap_or_else(|_| {
+                    panic!(
+                        "expected mapping for resolution={} aspect_ratio={}",
+                        resolution, aspect_ratio
+                    )
+                });
+
+            assert_eq!(
+                fields.request_model, "gpt-image-2",
+                "unexpected model for resolution={} aspect_ratio={}",
+                resolution, aspect_ratio
+            );
+            assert_eq!(
+                fields.size.as_deref(),
+                Some(expected_size),
+                "unexpected size for resolution={} aspect_ratio={}",
+                resolution,
+                aspect_ratio
+            );
+            assert!(
+                fields.aspect_ratio.is_none(),
+                "aspect_ratio field should be omitted for resolution={} aspect_ratio={}",
+                resolution,
+                aspect_ratio
+            );
+        }
+    }
+
+    #[test]
+    fn oopii_all_image_2_exact_size_table_matches_gpt_image_2_for_all_supported_ratios() {
+        for (resolution, aspect_ratio, expected_size) in gpt2api_expected_size_cases() {
+            let request = crate::ai::GenerateRequest {
+                prompt: "make it cinematic".to_string(),
+                model: "oopii/all-image-2".to_string(),
+                size: resolution.to_string(),
+                aspect_ratio: aspect_ratio.to_string(),
+                reference_images: None,
+                extra_params: None,
+            };
+
+            let fields = NewApiProvider::resolve_openai_request_fields(&request, "all-image-2")
+                .unwrap_or_else(|_| {
+                    panic!(
+                        "expected OOpii mapping for resolution={} aspect_ratio={}",
+                        resolution, aspect_ratio
+                    )
+                });
+            let body = NewApiProvider::build_openai_generations_body(&request, &fields);
+
+            assert_eq!(
+                fields.request_model, "all-image-2",
+                "unexpected model for resolution={} aspect_ratio={}",
+                resolution, aspect_ratio
+            );
+            assert_eq!(
+                fields.size.as_deref(),
+                Some(expected_size),
+                "unexpected size for resolution={} aspect_ratio={}",
+                resolution,
+                aspect_ratio
+            );
+            assert_eq!(
+                body.get("size"),
+                Some(&Value::String(expected_size.to_string())),
+                "unexpected body size for resolution={} aspect_ratio={}",
+                resolution,
+                aspect_ratio
+            );
+            assert!(
+                !body.contains_key("aspect_ratio"),
+                "aspect_ratio field should be omitted for resolution={} aspect_ratio={}",
+                resolution,
+                aspect_ratio
+            );
+        }
+    }
+
+    #[test]
     fn build_openai_images_edits_text_fields_for_gpt2api_alias_uses_doc_fields() {
         let request = crate::ai::GenerateRequest {
             prompt: "make it cinematic".to_string(),
@@ -3189,6 +3360,9 @@ mod tests {
         ));
         assert!(NewApiProvider::is_gpt2api_image_request_model(
             "gpt-image-2-4k-high"
+        ));
+        assert!(NewApiProvider::is_gpt2api_image_request_model(
+            "all-image-2"
         ));
         assert!(!NewApiProvider::is_gpt2api_image_request_model("gpt-4.1"));
     }

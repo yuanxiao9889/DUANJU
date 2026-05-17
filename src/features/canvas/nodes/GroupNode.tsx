@@ -1,15 +1,19 @@
 import { memo, useEffect, useMemo, useRef, useState } from 'react';
-import { LayoutGrid, LockKeyhole, Play, Sparkles, Wand2 } from 'lucide-react';
+import { ImageIcon, LayoutGrid, LockKeyhole, Play, Sparkles, Wand2 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 
-import { UiButton, UiCheckbox } from '@/components/ui';
+import { UiButton, UiCheckbox, UiModal } from '@/components/ui';
 import {
   runAssetBatchGeneration,
   runAssetBatchPromptOptimization,
 } from '@/features/canvas/application/imageEditBatchActions';
 import {
+  runStoryboardProductionGroupImageGeneration,
+} from '@/features/canvas/application/smartDirectorStoryboard';
+import {
   AUTO_REQUEST_ASPECT_RATIO,
   CANVAS_NODE_TYPES,
+  type ExportImageNodeData,
   type GroupNodeData,
   type ImageSize,
 } from '@/features/canvas/domain/canvasNodes';
@@ -44,6 +48,9 @@ export const GroupNode = memo(({ id, data, selected }: GroupNodeProps) => {
   const storyboardProviderCustomModels = useSettingsStore((state) => state.storyboardProviderCustomModels);
   const [isRunningBatch, setIsRunningBatch] = useState(false);
   const [isOptimizingBatch, setIsOptimizingBatch] = useState(false);
+  const [isRunningStoryboardImage, setIsRunningStoryboardImage] = useState(false);
+  const [showMissingPreviousConfirm, setShowMissingPreviousConfirm] = useState(false);
+  const [storyboardImageError, setStoryboardImageError] = useState<string | null>(null);
   const autoRelayoutAttemptedRef = useRef(false);
 
   const resolvedTitle = useMemo(
@@ -128,6 +135,19 @@ export const GroupNode = memo(({ id, data, selected }: GroupNodeProps) => {
     const runningNode = directChildNodes.find((node) => node.id === queueState.runningNodeId);
     return runningNode ? resolveNodeDisplayName(CANVAS_NODE_TYPES.imageEdit, runningNode.data) : null;
   }, [directChildNodes, queueState.runningNodeId]);
+  const productionImageResultNode = useMemo(
+    () =>
+      directChildNodes.find((node): node is typeof directChildNodes[number] & {
+        type: typeof CANVAS_NODE_TYPES.exportImage;
+        data: ExportImageNodeData;
+      } => (
+        node.type === CANVAS_NODE_TYPES.exportImage
+        && (node.data as ExportImageNodeData).isStoryboardProductionPlaceholder === true
+      )) ?? null,
+    [directChildNodes]
+  );
+  const selectedProductionResultId =
+    productionImageResultNode?.data.selectedStoryboardProductionResultId ?? null;
 
   useEffect(() => {
     if (!isProductionLikeGroup || autoRelayoutAttemptedRef.current) {
@@ -163,6 +183,26 @@ export const GroupNode = memo(({ id, data, selected }: GroupNodeProps) => {
       await runAssetBatchPromptOptimization(id);
     } finally {
       setIsOptimizingBatch(false);
+    }
+  };
+
+  const handleStoryboardImageGenerate = async (confirmWithoutPrevious = false) => {
+    setIsRunningStoryboardImage(true);
+    setStoryboardImageError(null);
+    try {
+      const result = await runStoryboardProductionGroupImageGeneration({
+        groupNodeId: id,
+        confirmWithoutPrevious,
+      });
+      if (result.missingPrevious) {
+        setShowMissingPreviousConfirm(true);
+        return;
+      }
+      if (!result.ok) {
+        setStoryboardImageError(result.error ?? t('common.error'));
+      }
+    } finally {
+      setIsRunningStoryboardImage(false);
     }
   };
 
@@ -230,7 +270,12 @@ export const GroupNode = memo(({ id, data, selected }: GroupNodeProps) => {
           })}
         />
 
-        <div className="nodrag nopan pointer-events-none absolute left-5 right-5 top-12 z-10 rounded-2xl border border-white/10 bg-black/22 px-4 py-3">
+        <div
+          className="nodrag nowheel absolute left-5 right-5 top-12 z-10 rounded-2xl border border-white/10 bg-[#171513]/92 px-4 py-3"
+          onPointerDown={(event) => event.stopPropagation()}
+          onMouseDown={(event) => event.stopPropagation()}
+          onDoubleClick={(event) => event.stopPropagation()}
+        >
           <div className="flex min-w-0 items-center gap-2 text-[11px] text-text-muted">
             <div className="min-w-0 flex-1 truncate text-xs font-semibold text-[#f5d59b]">
               {resolvedTitle}
@@ -260,13 +305,18 @@ export const GroupNode = memo(({ id, data, selected }: GroupNodeProps) => {
             </div>
           </div>
           {shotSummaries.length > 0 ? (
-            <div className="mt-3 grid max-h-[178px] grid-cols-4 gap-3 overflow-y-auto pr-1">
+            <div
+              className="nodrag nowheel mt-3 grid max-h-[204px] grid-cols-4 gap-3 overflow-y-auto pr-1"
+              onPointerDown={(event) => event.stopPropagation()}
+              onMouseDown={(event) => event.stopPropagation()}
+              onDoubleClick={(event) => event.stopPropagation()}
+            >
               {shotSummaries.map((shot, index) => (
                 <div
                   key={`${shot.shotNumber || 'shot'}-${index}`}
-                  className="min-h-[128px] rounded-2xl border border-white/10 bg-white/[0.045] px-3 py-2.5 shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]"
+                  className="min-h-[136px] rounded-2xl border border-white/10 bg-[#2a2520] px-3 py-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]"
                 >
-                  <div className="mb-1.5 flex items-center justify-between gap-2 text-[11px]">
+                  <div className="mb-2 flex items-center justify-between gap-2 text-xs">
                     <span className="min-w-0 truncate font-semibold text-[#f5d59b]">
                       {shot.shotNumber || `${index + 1}`}
                     </span>
@@ -276,7 +326,12 @@ export const GroupNode = memo(({ id, data, selected }: GroupNodeProps) => {
                       </span>
                     ) : null}
                   </div>
-                  <div className="line-clamp-5 whitespace-pre-wrap break-words text-[11px] leading-5 text-text-dark/90">
+                  <div
+                    className="nodrag nowheel ui-scrollbar max-h-[92px] overflow-y-auto whitespace-pre-wrap break-words pr-1 text-sm leading-6 text-text-dark"
+                    onPointerDown={(event) => event.stopPropagation()}
+                    onMouseDown={(event) => event.stopPropagation()}
+                    onDoubleClick={(event) => event.stopPropagation()}
+                  >
                     {shot.content || '-'}
                   </div>
                 </div>
@@ -288,6 +343,76 @@ export const GroupNode = memo(({ id, data, selected }: GroupNodeProps) => {
             </div>
           )}
         </div>
+
+        <div
+          className="nodrag nowheel absolute bottom-5 left-5 z-20 flex max-w-[360px] items-center gap-2 rounded-2xl border border-white/10 bg-[#171513]/94 p-2 shadow-[0_18px_36px_rgba(0,0,0,0.28)]"
+          onPointerDown={(event) => event.stopPropagation()}
+          onMouseDown={(event) => event.stopPropagation()}
+          onDoubleClick={(event) => event.stopPropagation()}
+        >
+          <div className="flex min-w-0 items-center gap-2">
+            <UiButton
+              type="button"
+              size="sm"
+              disabled={isRunningStoryboardImage || Boolean(queueState.runningNodeId)}
+              onClick={() => void handleStoryboardImageGenerate(false)}
+            >
+              {isRunningStoryboardImage || queueState.runningNodeId ? (
+                <>
+                  <Sparkles className="h-3.5 w-3.5 animate-pulse" />
+                  {t('scriptStoryboardTable.production.generatingImage')}
+                </>
+              ) : (
+                <>
+                  <ImageIcon className="h-3.5 w-3.5" />
+                  {t('scriptStoryboardTable.production.generateImage')}
+                </>
+              )}
+            </UiButton>
+            {storyboardImageError ? (
+              <div className="max-w-[180px] truncate text-[11px] text-red-200">
+                {storyboardImageError}
+              </div>
+            ) : (
+              <div className="max-w-[180px] truncate text-[11px] text-text-muted">
+                {selectedProductionResultId
+                  ? t('scriptStoryboardTable.production.selectedReference')
+                  : t('scriptStoryboardTable.production.noSelectedReference')}
+              </div>
+            )}
+          </div>
+        </div>
+
+        <UiModal
+          isOpen={showMissingPreviousConfirm}
+          title={t('scriptStoryboardTable.production.missingPreviousTitle')}
+          onClose={() => setShowMissingPreviousConfirm(false)}
+          widthClassName="w-[420px]"
+          footer={(
+            <>
+              <UiButton
+                type="button"
+                variant="ghost"
+                onClick={() => setShowMissingPreviousConfirm(false)}
+              >
+                {t('common.cancel')}
+              </UiButton>
+              <UiButton
+                type="button"
+                onClick={() => {
+                  setShowMissingPreviousConfirm(false);
+                  void handleStoryboardImageGenerate(true);
+                }}
+              >
+                {t('scriptStoryboardTable.production.continueWithoutPrevious')}
+              </UiButton>
+            </>
+          )}
+        >
+          <p className="text-sm leading-6 text-text-muted">
+            {t('scriptStoryboardTable.production.missingPreviousBody')}
+          </p>
+        </UiModal>
 
         <NodeResizeHandle minWidth={720} minHeight={360} maxWidth={2600} maxHeight={1600} isVisible={selected} />
       </div>
