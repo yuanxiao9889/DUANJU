@@ -6189,7 +6189,7 @@ export function Canvas() {
       )}
 
       {/* 右下角控制条 */}
-      {!isImageViewerOpen && !shouldHideCanvasChrome && <CanvasAssetDock />}
+      {!isImageViewerOpen && <CanvasAssetDock />}
 
       {!isImageViewerOpen && (
         <div 

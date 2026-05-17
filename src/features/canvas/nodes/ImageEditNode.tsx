@@ -1,4 +1,5 @@
 import {
+  type FormEvent as ReactFormEvent,
   type KeyboardEvent,
   type MouseEvent as ReactMouseEvent,
   type ReactNode,
@@ -55,7 +56,11 @@ import {
 import { optimizeCanvasPrompt } from "@/features/canvas/application/promptOptimization";
 import {
   buildSequentialPromptReferenceImageCandidates,
+  resolvePromptBoundReferenceImages,
+  resolvePromptReferenceImageCandidateByToken,
   resolvePromptReferenceImageBindings,
+  rewritePromptReferenceTokensForRequest,
+  type PromptReferenceImageCandidate,
 } from "@/features/canvas/application/promptReferenceImageBindings";
 import { resolveMinEdgeFittedSize } from "@/features/canvas/application/imageNodeSizing";
 import { appendCameraParamsToPrompt } from "@/features/canvas/camera/cameraPrompt";
@@ -84,6 +89,7 @@ import {
   remapReferenceTokensByImageOrder,
   removeTextRange,
   resolveReferenceAwareDeleteRange,
+  type ReferenceTokenMatch,
 } from "@/features/canvas/application/referenceTokenEditing";
 import {
   DEFAULT_PICKER_ANCHOR,
@@ -206,6 +212,17 @@ const ASSET_BATCH_RESULT_GRID_GAP_Y = 28;
 const ASSET_BATCH_RESULT_GRID_COLS = 2;
 const IMAGE_EDIT_NODE_MAX_WIDTH = 1400;
 const IMAGE_EDIT_NODE_MAX_HEIGHT = 1000;
+const REFERENCE_PICKER_TRIGGER_CHARACTERS = new Set(["@", "\uFF20"]);
+
+function isReferencePickerTriggerCharacter(
+  value: string | null | undefined,
+): boolean {
+  if (!value) {
+    return false;
+  }
+
+  return REFERENCE_PICKER_TRIGGER_CHARACTERS.has(value);
+}
 
 function renderPromptWithHighlights(
   prompt: string,
@@ -257,7 +274,7 @@ function renderPromptReferenceHoverTargets(
   maxImageCount: number,
   namedCandidates: PromptReferenceTokenCandidate[],
   onTokenHover: (
-    token: number,
+    token: ReferenceTokenMatch,
     event: ReactMouseEvent<HTMLSpanElement>,
   ) => void,
   onTokenLeave: () => void,
@@ -288,8 +305,8 @@ function renderPromptReferenceHoverTargets(
       <span
         key={`hover-ref-${matchStart}`}
         className="pointer-events-auto cursor-help select-none text-transparent"
-        onMouseEnter={(event) => onTokenHover(token.value - 1, event)}
-        onMouseMove={(event) => onTokenHover(token.value - 1, event)}
+        onMouseEnter={(event) => onTokenHover(token, event)}
+        onMouseMove={(event) => onTokenHover(token, event)}
         onMouseLeave={onTokenLeave}
         onMouseDown={(event) => onTokenMouseDown(token.end, event)}
       >
@@ -309,35 +326,6 @@ function renderPromptReferenceHoverTargets(
   }
 
   return segments;
-}
-
-function resolveOptimizationReferenceImages(
-  prompt: string,
-  imageUrls: string[],
-  namedCandidates: PromptReferenceTokenCandidate[] = [],
-): string[] {
-  if (imageUrls.length === 0) {
-    return [];
-  }
-
-  const referencedImageIndexes = [
-    ...new Set(
-      findReferenceTokensWithNamedCandidates(prompt, imageUrls.length, namedCandidates)
-        .map((token) => token.value - 1)
-        .filter((index) => index >= 0 && index < imageUrls.length),
-    ),
-  ];
-
-  if (referencedImageIndexes.length === 0) {
-    return [];
-  }
-
-  return referencedImageIndexes
-    .map((index) => imageUrls[index])
-    .filter(
-      (imageUrl): imageUrl is string =>
-        typeof imageUrl === "string" && imageUrl.trim().length > 0,
-    );
 }
 
 function pickClosestAspectRatio(
@@ -850,6 +838,17 @@ export const ImageEditNode = memo(
         })),
       [incomingImageItems],
     );
+    const promptReferenceCandidates = useMemo<PromptReferenceImageCandidate[]>(
+      () =>
+        incomingImageItems.map((item, index) => ({
+          referenceNumber: index + 1,
+          imageUrl: item.requestImageUrl,
+          previewImageUrl: item.previewImageUrl,
+          tokenLabel: item.tokenLabel,
+          assetId: item.assetId,
+        })),
+      [incomingImageItems],
+    );
     const incomingImages = useMemo(
       () => incomingImageItems.map((item) => item.referenceUrl),
       [incomingImageItems],
@@ -1338,20 +1337,25 @@ export const ImageEditNode = memo(
               ),
           ),
         );
-        const optimizationReferenceImages = resolveOptimizationReferenceImages(
-          currentPrompt,
+        const requestReferenceCandidates = buildSequentialPromptReferenceImageCandidates(
           resolvedRequestReferenceImages,
-          namedReferenceTokenCandidates,
+        ).map((candidate, index) => ({
+          ...candidate,
+          tokenLabel: incomingImageItems[index]?.tokenLabel ?? null,
+          previewImageUrl: incomingImageItems[index]?.previewImageUrl ?? null,
+          assetId: incomingImageItems[index]?.assetId ?? null,
+        }));
+        const boundOptimizationImages = resolvePromptBoundReferenceImages(
+          currentPrompt,
+          requestReferenceCandidates,
+        );
+        const optimizationReferenceImages = boundOptimizationImages.map(
+          (item) => item.candidate.imageUrl,
         );
         const optimizationReferenceImageBindings =
           resolvePromptReferenceImageBindings(
             currentPrompt,
-            buildSequentialPromptReferenceImageCandidates(
-              resolvedRequestReferenceImages,
-            ).map((candidate, index) => ({
-              ...candidate,
-              tokenLabel: incomingImageItems[index]?.tokenLabel ?? null,
-            })),
+            requestReferenceCandidates,
           );
         const result = await optimizeCanvasPrompt({
           mode: "image",
@@ -1480,14 +1484,8 @@ export const ImageEditNode = memo(
           effectiveStyleTemplatePrompt,
         )
         : effectivePrompt;
-      const submittedPrompt = appendCameraParamsToPrompt(
-        buildReferenceAwareGenerationPrompt(
-          styledPrompt,
-          incomingImages.length,
-        ),
-        resolvedCameraParams,
-      );
-      const generationSummary: ExportImageGenerationSummary = {
+      let submittedPrompt = styledPrompt;
+      let generationSummary: ExportImageGenerationSummary = {
         sourceType: "imageEdit",
         providerId: selectedModel.providerId,
         requestModel: debugRequestModel,
@@ -1551,17 +1549,52 @@ export const ImageEditNode = memo(
 
       let resolvedRequestAspectRatio = initialRequestAspectRatio;
       let effectiveRequestSize = selectedResolution.value;
+      let requestReferenceImages: string[] = [];
       let referenceImageOptimization: GenerationDebugContext["referenceImageOptimization"];
       let resolutionDowngrade: GenerationDebugContext["resolutionDowngrade"];
 
       try {
         const resolvedRequestReferenceImages =
           await resolvedRequestReferenceImagesPromise;
+        const requestReferenceCandidates = buildSequentialPromptReferenceImageCandidates(
+          resolvedRequestReferenceImages,
+        ).map((candidate, index) => ({
+          ...candidate,
+          tokenLabel: promptReferenceCandidates[index]?.tokenLabel ?? null,
+          previewImageUrl: promptReferenceCandidates[index]?.previewImageUrl ?? null,
+          assetId: promptReferenceCandidates[index]?.assetId ?? null,
+        }));
+        const boundRequestImages = resolvePromptBoundReferenceImages(
+          styledPrompt,
+          requestReferenceCandidates,
+        );
+        requestReferenceImages = boundRequestImages.length > 0
+          ? boundRequestImages.map((item) => item.candidate.imageUrl)
+          : resolvedRequestReferenceImages;
+        const resolvedRequestPrompt = boundRequestImages.length > 0
+          ? rewritePromptReferenceTokensForRequest(styledPrompt, boundRequestImages)
+          : styledPrompt;
+        submittedPrompt = appendCameraParamsToPrompt(
+          buildReferenceAwareGenerationPrompt(
+            resolvedRequestPrompt,
+            requestReferenceImages.length,
+          ),
+          resolvedCameraParams,
+        );
+        generationSummary = {
+          ...generationSummary,
+          prompt: submittedPrompt,
+        };
+        updateNodeData(
+          newNodeId,
+          { generationSummary },
+          { historyMode: "skip" },
+        );
         if (selectedAspectRatio.value === AUTO_REQUEST_ASPECT_RATIO) {
-          if (resolvedRequestReferenceImages.length > 0) {
+          if (requestReferenceImages.length > 0) {
             try {
               const sourceAspectRatio = await detectAspectRatio(
-                resolvedRequestReferenceImages[0],
+                requestReferenceImages[0],
               );
               const sourceAspectRatioValue =
                 parseAspectRatio(sourceAspectRatio);
@@ -1593,7 +1626,7 @@ export const ImageEditNode = memo(
             model: requestResolution.requestModel,
             size: selectedResolution.value,
             aspectRatio: resolvedRequestAspectRatio,
-            referenceImages: resolvedRequestReferenceImages,
+            referenceImages: requestReferenceImages,
             extraParams: effectiveExtraParams,
           });
         effectiveRequestSize = resolvedGeneratePayload.effectiveSize;
@@ -1618,9 +1651,9 @@ export const ImageEditNode = memo(
           requestAspectRatio: resolvedRequestAspectRatio,
           prompt: submittedPrompt,
           extraParams: effectiveExtraParams,
-          referenceImageCount: incomingImages.length,
+          referenceImageCount: requestReferenceImages.length,
           referenceImagePlaceholders: createReferenceImagePlaceholders(
-            incomingImages.length,
+            requestReferenceImages.length,
           ),
           referenceImageOptimization,
           resolutionDowngrade,
@@ -1661,9 +1694,9 @@ export const ImageEditNode = memo(
           requestAspectRatio: resolvedRequestAspectRatio,
           prompt: submittedPrompt,
           extraParams: effectiveExtraParams,
-          referenceImageCount: incomingImages.length,
+          referenceImageCount: requestReferenceImages.length,
           referenceImagePlaceholders: createReferenceImagePlaceholders(
-            incomingImages.length,
+            requestReferenceImages.length,
           ),
           referenceImageOptimization,
           resolutionDowngrade,
@@ -1734,8 +1767,8 @@ export const ImageEditNode = memo(
       id,
       incomingImages,
       incomingImageItems,
-      namedReferenceTokenCandidates,
       nodes,
+      promptReferenceCandidates,
       debugRequestModel,
       requestResolution.requestModel,
       selectedAspectRatio.value,
@@ -1791,7 +1824,12 @@ export const ImageEditNode = memo(
           return;
         }
 
-        const marker = buildShortReferenceToken(imageIndex);
+        const selectedItem = incomingImageItems[imageIndex];
+        if (!selectedItem) {
+          return;
+        }
+
+        const marker = selectedItem.tokenLabel || buildShortReferenceToken(imageIndex);
         const currentPrompt = promptDraftRef.current;
         const scrollSnapshot = readTextareaScroll(promptRef.current);
         const selection = resolveTextSelection({
@@ -1816,9 +1854,35 @@ export const ImageEditNode = memo(
       },
       [
         commitManualPromptDraft,
+        incomingImageItems,
         isPromptLockedByUpstream,
         schedulePromptSelectionRestore,
       ],
+    );
+
+    const openImagePicker = useCallback(
+      (textarea: HTMLTextAreaElement) => {
+        const selection =
+          readTextareaSelection(textarea, promptDraftRef.current.length) ??
+          resolveTextSelection({
+            textarea,
+            lastSelection: lastPromptSelectionRef.current,
+            fallbackLength: promptDraftRef.current.length,
+          });
+        lastPromptSelectionRef.current = selection;
+        pickerSelectionRef.current = selection;
+        setPickerAnchor(
+          resolveTextareaPickerAnchor({
+            container: promptPanelRef.current,
+            textarea,
+            caretIndex: selection.start,
+            yOffset: PICKER_Y_OFFSET_PX,
+          }),
+        );
+        setShowImagePicker(true);
+        setPickerActiveIndex(0);
+      },
+      [],
     );
 
     const handlePromptKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
@@ -1884,31 +1948,13 @@ export const ImageEditNode = memo(
         }
       }
 
-      if (event.key === "@" && incomingImages.length > 0) {
+      if (
+        isReferencePickerTriggerCharacter(event.key) &&
+        incomingImageItems.length > 0
+      ) {
         event.preventDefault();
         event.stopPropagation();
-        const selection =
-          readTextareaSelection(
-            event.currentTarget,
-            promptDraftRef.current.length,
-          ) ??
-          resolveTextSelection({
-            textarea: event.currentTarget,
-            lastSelection: lastPromptSelectionRef.current,
-            fallbackLength: promptDraftRef.current.length,
-          });
-        lastPromptSelectionRef.current = selection;
-        pickerSelectionRef.current = selection;
-        setPickerAnchor(
-          resolveTextareaPickerAnchor({
-            container: promptPanelRef.current,
-            textarea: event.currentTarget,
-            caretIndex: selection.start,
-            yOffset: PICKER_Y_OFFSET_PX,
-          }),
-        );
-        setShowImagePicker(true);
-        setPickerActiveIndex(0);
+        openImagePicker(event.currentTarget);
         return;
       }
 
@@ -1927,6 +1973,24 @@ export const ImageEditNode = memo(
         void handleGenerate();
       }
     };
+
+    const handlePromptBeforeInput = useCallback(
+      (event: ReactFormEvent<HTMLTextAreaElement>) => {
+        if (isPromptLockedByUpstream || incomingImageItems.length <= 0) {
+          return;
+        }
+
+        const nativeEvent = event.nativeEvent as InputEvent;
+        if (!isReferencePickerTriggerCharacter(nativeEvent.data)) {
+          return;
+        }
+
+        event.preventDefault();
+        event.stopPropagation();
+        openImagePicker(event.currentTarget);
+      },
+      [incomingImageItems.length, isPromptLockedByUpstream, openImagePicker],
+    );
 
     const handleModelChange = useCallback(
       (modelId: string) => {
@@ -2047,8 +2111,15 @@ export const ImageEditNode = memo(
     }, []);
 
     const handlePromptReferenceTokenHover = useCallback(
-      (tokenIndex: number, event: ReactMouseEvent<HTMLSpanElement>) => {
-        const item = incomingImageItems[tokenIndex];
+      (token: ReferenceTokenMatch, event: ReactMouseEvent<HTMLSpanElement>) => {
+        const matchedCandidate = resolvePromptReferenceImageCandidateByToken(
+          token.token,
+          token.value,
+          promptReferenceCandidates,
+        );
+        const item = matchedCandidate
+          ? incomingImageItems[matchedCandidate.referenceNumber - 1]
+          : null;
         const previewHost = promptPreviewHostRef.current;
         if (!item || !previewHost) {
           setPromptReferencePreview(null);
@@ -2074,7 +2145,7 @@ export const ImageEditNode = memo(
           top: previewPosition.top,
         });
       },
-      [incomingImageItems, zoom],
+      [incomingImageItems, promptReferenceCandidates, zoom],
     );
 
     const handlePromptReferenceTokenMouseDown = useCallback(
@@ -2189,6 +2260,7 @@ export const ImageEditNode = memo(
                     commitManualPromptDraft(nextValue);
                     rememberPromptSelection(event.currentTarget);
                   }}
+                  onBeforeInput={handlePromptBeforeInput}
                   onKeyDownCapture={handlePromptKeyDown}
                   onScroll={syncPromptHighlightScroll}
                   onMouseDown={(event) => {
@@ -2206,12 +2278,13 @@ export const ImageEditNode = memo(
                   }
                   onBlur={() => setIsPromptTextSelectionActive(false)}
                   placeholder={t("node.imageEdit.promptPlaceholder")}
-                  className={`canvas-textarea-wrap ui-scrollbar nodrag nowheel relative z-10 h-full w-full resize-none overflow-y-auto overflow-x-hidden border-none bg-transparent px-1 py-0.5 text-sm leading-6 text-transparent outline-none placeholder:text-text-muted/80 selection:bg-accent/30 selection:text-transparent ${
+                  className={`canvas-textarea-wrap canvas-textarea-mirror-input ui-scrollbar nodrag nowheel relative z-10 h-full w-full resize-none overflow-y-auto overflow-x-hidden border-none bg-transparent px-1 py-0.5 text-sm leading-6 text-transparent outline-none placeholder:text-text-muted/80 selection:bg-accent/30 selection:text-transparent ${
                     isPromptLockedByUpstream
                       ? "cursor-default caret-transparent"
                       : "caret-text-dark focus:border-transparent"
                   }`}
                   style={{ scrollbarGutter: "stable" }}
+                  spellCheck={false}
                 />
 
                 {isPromptLockedByUpstream ? (

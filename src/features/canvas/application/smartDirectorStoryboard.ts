@@ -1539,6 +1539,14 @@ function normalizeAssetMatchName(value: string): string {
   return value.replace(/^@+/, '').trim().toLowerCase();
 }
 
+function normalizeAssetTokenName(value: string): string {
+  return value.replace(/^@+/, '').replace(/\s+/g, '').trim();
+}
+
+function buildAssetMatchKey(name: string): string {
+  return normalizeAssetMatchName(name);
+}
+
 function resolveProductionCardPosition(
   tableNode: CanvasNode & {
     type: typeof CANVAS_NODE_TYPES.scriptStoryboardTable;
@@ -1596,14 +1604,44 @@ function resolveMatchedAssetIds(input: {
         );
       });
 
-  return Array.from(new Set(matches.map((item) => item.id)));
+  const uniqueMatches = new Map<string, string>();
+  matches.forEach((item) => {
+    const matchKey = buildAssetMatchKey(item.name);
+    if (!matchKey || uniqueMatches.has(matchKey)) {
+      return;
+    }
+    uniqueMatches.set(matchKey, item.id);
+  });
+
+  return Array.from(uniqueMatches.values());
 }
 
-function buildAssetReferenceTokens(assetNames: string[]): string[] {
+function buildAssetReferenceTokens(input: {
+  assetLibraryId: string | null;
+  selectedAssetIds: string[];
+  assetNames: string[];
+}): string[] {
   const nameCounts = new Map<string, number>();
-  return assetNames
-    .map((name) => name.replace(/\s+/g, '').trim())
+  const selectedIdSet = new Set(input.selectedAssetIds);
+  const library = input.assetLibraryId
+    ? useAssetStore.getState().libraries.find((item) => item.id === input.assetLibraryId)
+    : null;
+  const selectedNames =
+    library?.items
+      .filter((item) => selectedIdSet.has(item.id) && item.mediaType === 'image')
+      .map((item) => item.name)
+    ?? [];
+  const fallbackNames = input.assetNames.filter((name) => {
+    const normalizedName = normalizeAssetMatchName(name);
+    return !selectedNames.some((selectedName) => normalizeAssetMatchName(selectedName) === normalizedName);
+  });
+
+  return [...selectedNames, ...fallbackNames]
+    .map(normalizeAssetTokenName)
     .filter(Boolean)
+    .filter((name, index, names) =>
+      names.findIndex((candidate) => candidate.toLowerCase() === name.toLowerCase()) === index
+    )
     .map((name) => {
       const count = nameCounts.get(name) ?? 0;
       nameCounts.set(name, count + 1);
@@ -1611,11 +1649,16 @@ function buildAssetReferenceTokens(assetNames: string[]): string[] {
     });
 }
 
-function buildImagePromptForRows(rows: DirectorStoryboardTableRow[], assetNames: string[]): string {
-  const referenceTokens = buildAssetReferenceTokens(assetNames);
+function buildImagePromptForRows(input: {
+  rows: DirectorStoryboardTableRow[];
+  assetLibraryId: string | null;
+  selectedAssetIds: string[];
+  assetNames: string[];
+}): string {
+  const referenceTokens = buildAssetReferenceTokens(input);
   return [
     referenceTokens.length > 0 ? referenceTokens.join(' ') : '',
-    rows
+    input.rows
       .map((row, index) => {
         const shotLabel = row.shotNumber || `${index + 1}`;
         return `${shotLabel}：${resolveStoryboardFrameDescription(row)}`;
@@ -1639,11 +1682,16 @@ function buildVideoPromptForRows(rows: DirectorStoryboardTableRow[]): string {
     .join('\n');
 }
 
-function buildVideoPromptForRowsWithAssets(rows: DirectorStoryboardTableRow[], assetNames: string[]): string {
-  const referenceTokens = buildAssetReferenceTokens(assetNames);
+function buildVideoPromptForRowsWithAssets(input: {
+  rows: DirectorStoryboardTableRow[];
+  assetLibraryId: string | null;
+  selectedAssetIds: string[];
+  assetNames: string[];
+}): string {
+  const referenceTokens = buildAssetReferenceTokens(input);
   return [
     referenceTokens.length > 0 ? referenceTokens.join(' ') : '',
-    buildVideoPromptForRows(rows),
+    buildVideoPromptForRows(input.rows),
   ].filter((value) => value.trim().length > 0).join('\n');
 }
 
@@ -1684,6 +1732,12 @@ function buildProductionCardAndChildren(input: {
     ?? useAssetStore.getState().libraries[0]?.id
     ?? null;
   const selectedAssetIds = resolveMatchedAssetIds({ assetLibraryId, assetNames });
+  const promptReferenceInput = {
+    rows,
+    assetLibraryId,
+    selectedAssetIds,
+    assetNames,
+  };
   const groupTitle = `${input.durationGroup.label} · ${input.mode}`;
   const groupNode = canvasNodeFactory.createNode(
     CANVAS_NODE_TYPES.group,
@@ -1733,7 +1787,7 @@ function buildProductionCardAndChildren(input: {
     { x: 24 + PRODUCTION_ASSET_NODE_WIDTH + 24, y: PRODUCTION_CHILD_TOP },
     {
       displayName: i18n.t('node.storyboardProductionGroup.imageNodeTitle', { index: input.index + 1 }),
-      prompt: buildImagePromptForRows(rows, assetNames),
+      prompt: buildImagePromptForRows(promptReferenceInput),
       model: DEFAULT_IMAGE_MODEL_ID,
       size: '2K',
       requestAspectRatio: AUTO_REQUEST_ASPECT_RATIO,
@@ -1793,7 +1847,7 @@ function buildProductionCardAndChildren(input: {
     input.videoKind === 'jimeng'
       ? ({
           displayName: i18n.t('node.storyboardProductionGroup.jimengVideoTitle', { index: input.index + 1 }),
-          prompt: buildVideoPromptForRowsWithAssets(rows, assetNames),
+          prompt: buildVideoPromptForRowsWithAssets(promptReferenceInput),
           durationSeconds: targetVideoDurationSeconds,
           sourceStoryboardTableNodeId: input.tableNode.id,
           sourceStoryboardRowIds: rows.map((row) => row.id),
@@ -1806,7 +1860,7 @@ function buildProductionCardAndChildren(input: {
         } satisfies Partial<JimengNodeData>)
       : ({
           displayName: i18n.t('node.storyboardProductionGroup.seedanceVideoTitle', { index: input.index + 1 }),
-          prompt: buildVideoPromptForRowsWithAssets(rows, assetNames),
+          prompt: buildVideoPromptForRowsWithAssets(promptReferenceInput),
           durationSeconds: targetVideoDurationSeconds,
           sourceStoryboardTableNodeId: input.tableNode.id,
           sourceStoryboardRowIds: rows.map((row) => row.id),
@@ -2977,6 +3031,31 @@ function removePreviousMirrorNodes(
   };
 }
 
+function findExistingStoryboardMirrorNode(
+  project: Project,
+  sourceProjectId: string,
+  sourceNodeId: string
+): (CanvasNode & {
+  type: typeof CANVAS_NODE_TYPES.scriptStoryboardTable;
+  data: ScriptStoryboardTableNodeData;
+}) | null {
+  return project.nodes.find(
+    (node): node is CanvasNode & {
+      type: typeof CANVAS_NODE_TYPES.scriptStoryboardTable;
+      data: ScriptStoryboardTableNodeData;
+    } => {
+      if (node.type !== CANVAS_NODE_TYPES.scriptStoryboardTable) {
+        return false;
+      }
+      const data = node.data as ScriptStoryboardTableNodeData;
+      return (
+        data.expansionSource?.sourceProjectId === sourceProjectId
+        && data.expansionSource?.sourceNodeId === sourceNodeId
+      );
+    }
+  ) ?? null;
+}
+
 function findMirrorPosition(project: Project): { x: number; y: number } {
   const viewport = project.viewport ?? DEFAULT_VIEWPORT;
   const { canvasViewportSize } = useCanvasStore.getState();
@@ -3091,16 +3170,27 @@ export async function createOrSelectStoryboardProjectForDirectorTable(
     input.targetProjectId,
     input.newProjectName
   );
-  targetProject = removePreviousMirrorNodes(
+  const existingMirrorNode = findExistingStoryboardMirrorNode(
     targetProject,
     context.sourceProject.id,
     context.tableNode.id
   );
 
-  const position = findMirrorPosition(targetProject);
-  const mirrorWidth = resolveNodeWidth(context.tableNode);
-  const mirrorHeight = resolveNodeHeight(context.tableNode);
-  const mirrorData: ScriptStoryboardTableNodeData = {
+  const nextSnapshot: DirectorStoryboardTransferSnapshot = {
+    version: Math.max(
+      1,
+      context.tableNode.data.storyboardTransferSnapshot?.version
+        ?? existingMirrorNode?.data.storyboardTransferSnapshot?.version
+        ?? 0
+    ) + 1,
+    generatedAt: Date.now(),
+    rowCount: context.tableNode.data.summary.rowCount,
+    totalDurationSeconds: context.tableNode.data.summary.totalDurationSeconds,
+  };
+
+  const buildMirrorData = (
+    preservedData?: ScriptStoryboardTableNodeData | null
+  ): ScriptStoryboardTableNodeData => ({
     ...context.tableNode.data,
     presentationMode: 'storyboardMirror',
     expansionSource: {
@@ -3111,61 +3201,88 @@ export async function createOrSelectStoryboardProjectForDirectorTable(
       sourceLabel: context.sourceLabel,
     },
     linkedStoryboardProjectId: targetProject.id,
-    storyboardProductionMode: 'none',
-    continuousReferenceEnabled: false,
-    expandedProductionGroupNodeIds: [],
+    storyboardProductionMode: preservedData?.storyboardProductionMode ?? 'none',
+    continuousReferenceEnabled: preservedData?.continuousReferenceEnabled ?? false,
+    expandedProductionGroupNodeIds: preservedData?.expandedProductionGroupNodeIds ?? [],
     storyboardTransferStatus: 'ready',
-    storyboardTransferSnapshot: {
-      version: Math.max(1, context.tableNode.data.storyboardTransferSnapshot?.version ?? 0) + 1,
-      generatedAt: Date.now(),
-      rowCount: context.tableNode.data.summary.rowCount,
-      totalDurationSeconds: context.tableNode.data.summary.totalDurationSeconds,
-    },
+    storyboardTransferSnapshot: nextSnapshot,
     streamState: {
       ...context.tableNode.data.streamState,
       phase: 'completed',
     },
-  };
+  });
 
-  const mirrorNode: CanvasNode = {
-    ...context.tableNode,
-    id: `${context.tableNode.id}-mirror-${Date.now()}`,
-    position,
-    width: mirrorWidth,
-    height: mirrorHeight,
-    data: mirrorData,
-    style: {
-      ...(context.tableNode.style ?? {}),
+  let mirrorNode: CanvasNode;
+  let nextNodes: CanvasNode[];
+  let nextEdges = [...targetProject.edges];
+  let nextNodeCount = targetProject.nodes.length;
+
+  if (existingMirrorNode) {
+    const mirrorWidth = resolveNodeWidth(existingMirrorNode);
+    const mirrorHeight = resolveNodeHeight(existingMirrorNode);
+    mirrorNode = {
+      ...existingMirrorNode,
+      data: buildMirrorData(existingMirrorNode.data),
       width: mirrorWidth,
       height: mirrorHeight,
-    },
-    selected: true,
-    dragging: false,
-  };
+      style: {
+        ...(existingMirrorNode.style ?? {}),
+        width: mirrorWidth,
+        height: mirrorHeight,
+      },
+      selected: true,
+      dragging: false,
+    };
+    nextNodes = targetProject.nodes.map((node) =>
+      node.id === existingMirrorNode.id
+        ? mirrorNode
+        : { ...node, selected: false }
+    );
+  } else {
+    targetProject = removePreviousMirrorNodes(
+      targetProject,
+      context.sourceProject.id,
+      context.tableNode.id
+    );
+    const position = findMirrorPosition(targetProject);
+    const mirrorWidth = resolveNodeWidth(context.tableNode);
+    const mirrorHeight = resolveNodeHeight(context.tableNode);
+    mirrorNode = {
+      ...context.tableNode,
+      id: `${context.tableNode.id}-mirror-${Date.now()}`,
+      position,
+      width: mirrorWidth,
+      height: mirrorHeight,
+      data: buildMirrorData(null),
+      style: {
+        ...(context.tableNode.style ?? {}),
+        width: mirrorWidth,
+        height: mirrorHeight,
+      },
+      selected: true,
+      dragging: false,
+    };
+    nextNodes = [
+      ...targetProject.nodes.map((node) => ({ ...node, selected: false })),
+      mirrorNode,
+    ];
+    nextEdges = [...targetProject.edges];
+    nextNodeCount = targetProject.nodes.length + 1;
+  }
 
   const nextProject: Project = {
     ...targetProject,
     linkedScriptProjectId: context.sourceProject.id,
-    nodes: [
-      ...targetProject.nodes.map((node) => ({ ...node, selected: false })),
-      mirrorNode,
-    ],
-    edges: [...targetProject.edges],
+    nodes: nextNodes,
+    edges: nextEdges,
     viewport: buildFocusViewport({
-      x: position.x,
-      y: position.y,
-      width: mirrorWidth,
-      height: mirrorHeight,
+      x: mirrorNode.position.x,
+      y: mirrorNode.position.y,
+      width: resolveNodeWidth(mirrorNode),
+      height: resolveNodeHeight(mirrorNode),
     }),
-    nodeCount: targetProject.nodes.length + 1,
+    nodeCount: nextNodeCount,
     updatedAt: Date.now(),
-  };
-
-  const nextSnapshot: DirectorStoryboardTransferSnapshot = {
-    version: Math.max(1, context.tableNode.data.storyboardTransferSnapshot?.version ?? 0) + 1,
-    generatedAt: Date.now(),
-    rowCount: context.tableNode.data.summary.rowCount,
-    totalDurationSeconds: context.tableNode.data.summary.totalDurationSeconds,
   };
 
   useCanvasStore.getState().updateNodeData(

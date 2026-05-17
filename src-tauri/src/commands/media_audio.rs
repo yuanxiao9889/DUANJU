@@ -18,6 +18,22 @@ fn dev_ffmpeg_search_roots() -> Vec<PathBuf> {
     };
 
     vec![
+        workspace
+            .join("src-tauri")
+            .join("resources")
+            .join(BUNDLED_FFMPEG_DIR_NAME),
+        workspace
+            .join("src-tauri")
+            .join("target")
+            .join("debug")
+            .join("resources")
+            .join(BUNDLED_FFMPEG_DIR_NAME),
+        workspace
+            .join("src-tauri")
+            .join("target")
+            .join("release")
+            .join("resources")
+            .join(BUNDLED_FFMPEG_DIR_NAME),
         workspace.join("build").join("downloads").join("ffmpeg-bin"),
         workspace
             .join("build")
@@ -235,9 +251,18 @@ fn resolve_output_file_stem(source_path: &Path, provided_stem: Option<&str>) -> 
 
 fn resolve_bundled_binary_path(app: &AppHandle, file_name: &str) -> Option<PathBuf> {
     for root in bundled_resource_search_roots(app) {
-        let candidate = root.join(BUNDLED_FFMPEG_DIR_NAME).join(file_name);
-        if candidate.is_file() {
-            return Some(candidate);
+        let candidates = [
+            root.join(file_name),
+            root.join(BUNDLED_FFMPEG_DIR_NAME).join(file_name),
+            root.join("resources").join(file_name),
+            root.join("resources")
+                .join(BUNDLED_FFMPEG_DIR_NAME)
+                .join(file_name),
+        ];
+        for candidate in candidates {
+            if candidate.is_file() {
+                return Some(candidate);
+            }
         }
     }
     None
@@ -252,6 +277,37 @@ fn find_in_path(file_name: &str) -> Option<PathBuf> {
         }
     }
     None
+}
+
+fn collect_ffmpeg_search_candidates(app: &AppHandle, file_name: &str) -> Vec<PathBuf> {
+    let mut candidates = Vec::new();
+
+    for root in bundled_resource_search_roots(app) {
+        push_unique_path(&mut candidates, root.join(file_name));
+        push_unique_path(
+            &mut candidates,
+            root.join(BUNDLED_FFMPEG_DIR_NAME).join(file_name),
+        );
+        push_unique_path(&mut candidates, root.join("resources").join(file_name));
+        push_unique_path(
+            &mut candidates,
+            root.join("resources")
+                .join(BUNDLED_FFMPEG_DIR_NAME)
+                .join(file_name),
+        );
+    }
+
+    for root in dev_ffmpeg_search_roots() {
+        push_unique_path(&mut candidates, root.join(file_name));
+    }
+
+    if let Some(path_env) = env::var_os("PATH") {
+        for entry in env::split_paths(&path_env) {
+            push_unique_path(&mut candidates, entry.join(file_name));
+        }
+    }
+
+    candidates
 }
 
 fn ensure_runtime_binary(app: &AppHandle, file_name: &str) -> Result<PathBuf, String> {
@@ -278,9 +334,18 @@ fn ensure_runtime_binary(app: &AppHandle, file_name: &str) -> Result<PathBuf, St
     }
 
     find_in_path(file_name).ok_or_else(|| {
+        let searched_paths = collect_ffmpeg_search_candidates(app, file_name)
+            .into_iter()
+            .map(|path| path.display().to_string())
+            .collect::<Vec<_>>();
+        let searched_paths_summary = if searched_paths.is_empty() {
+            "No candidate paths were generated.".to_string()
+        } else {
+            format!("Searched: {}", searched_paths.join(" | "))
+        };
         format!(
-            "Bundled {file_name} was not found. Copy ffmpeg binaries into `src-tauri/resources/{}`, keep them under `build/downloads/ffmpeg-bin`, or install ffmpeg on PATH.",
-            BUNDLED_FFMPEG_DIR_NAME
+            "Bundled {file_name} was not found. Copy ffmpeg binaries into `src-tauri/resources/{}`, keep them under `build/downloads/ffmpeg-bin`, or install ffmpeg on PATH. {searched_paths_summary}",
+            BUNDLED_FFMPEG_DIR_NAME,
         )
     })
 }

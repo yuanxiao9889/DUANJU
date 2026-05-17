@@ -57,9 +57,12 @@ import {
 } from "@/features/canvas/application/promptOptimization";
 import { resolveReadableReferenceImageSources } from "@/features/canvas/application/referenceImageSources";
 import {
+  resolvePromptBoundReferenceImages,
   resolvePromptReferenceImageBindings,
+  rewritePromptReferenceTokensForRequest,
   type PromptReferenceImageCandidate,
 } from "@/features/canvas/application/promptReferenceImageBindings";
+import { normalizeReferenceImagePrompt } from "@/features/canvas/application/referenceImagePrompting";
 import {
   NodeHeader,
   NODE_HEADER_FLOATING_POSITION_CLASS,
@@ -1306,6 +1309,47 @@ export const JimengNode = memo(
         })),
       [incomingVisualItems],
     );
+    const promptImageReferenceEntries = useMemo(
+      () =>
+        incomingVisualItems.flatMap((item, index) =>
+          item.kind === "image"
+            ? [{
+                referenceNumber: index + 1,
+                item,
+                candidate: {
+                  referenceNumber: index + 1,
+                  imageUrl: item.referenceUrl,
+                  previewImageUrl: item.previewImageUrl,
+                  tokenLabel: item.tokenLabel,
+                  assetId: item.assetId,
+                } satisfies PromptReferenceImageCandidate,
+              }]
+            : [],
+        ),
+      [incomingVisualItems],
+    );
+    const promptImageReferenceCandidates = useMemo(
+      () => promptImageReferenceEntries.map((entry) => entry.candidate),
+      [promptImageReferenceEntries],
+    );
+    const promptImageItemByReferenceNumber = useMemo(
+      () =>
+        new Map(
+          promptImageReferenceEntries.map((entry) => [
+            entry.referenceNumber,
+            entry.item,
+          ] as const),
+        ),
+      [promptImageReferenceEntries],
+    );
+    const boundPromptImageReferences = useMemo(
+      () =>
+        resolvePromptBoundReferenceImages(
+          effectivePrompt,
+          promptImageReferenceCandidates,
+        ),
+      [effectivePrompt, promptImageReferenceCandidates],
+    );
     const incomingVisualDisplayList = useMemo(
       () =>
         incomingVisualItems
@@ -1349,12 +1393,31 @@ export const JimengNode = memo(
       ],
       [incomingAudios, incomingVisualItems],
     );
+    const effectiveImageReferenceItems = useMemo(
+      () => {
+        if (boundPromptImageReferences.length === 0) {
+          return incomingVisualItems.filter((item) => item.kind === "image");
+        }
+
+        return boundPromptImageReferences
+          .map((entry) =>
+            promptImageItemByReferenceNumber.get(entry.candidate.referenceNumber) ??
+            null,
+          )
+          .filter(
+            (item): item is IncomingReferenceVisualItem =>
+              item !== null && item.kind === "image",
+          );
+      },
+      [
+        boundPromptImageReferences,
+        incomingVisualItems,
+        promptImageItemByReferenceNumber,
+      ],
+    );
     const referenceImageSources = useMemo(
-      () =>
-        incomingVisualItems
-          .filter((item) => item.kind === "image")
-          .map((item) => item.referenceUrl),
-      [incomingVisualItems],
+      () => effectiveImageReferenceItems.map((item) => item.referenceUrl),
+      [effectiveImageReferenceItems],
     );
     const referenceVideoSources = useMemo(
       () =>
@@ -1958,39 +2021,28 @@ export const JimengNode = memo(
 
       try {
         const previousDurationSuggestion = readDurationSuggestionSnapshot(data);
+        const optimizationCandidates = promptImageReferenceEntries.map(
+          (entry) => ({
+            ...entry.candidate,
+            imageUrl:
+              entry.item.previewImageUrl?.trim() ?? entry.item.referenceUrl.trim(),
+          }),
+        );
+        const boundOptimizationImages = resolvePromptBoundReferenceImages(
+          currentPrompt,
+          optimizationCandidates,
+        );
         const optimizationReferenceImageBindings =
           resolvePromptReferenceImageBindings(
             currentPrompt,
-            incomingVisualItems
-              .map((item, index) => {
-                if (item.kind !== "image") {
-                  return null;
-                }
-
-                const imageUrl =
-                  item.previewImageUrl?.trim() ?? item.referenceUrl.trim();
-                if (!imageUrl) {
-                  return null;
-                }
-
-                return {
-                  referenceNumber: index + 1,
-                  imageUrl,
-                  tokenLabel: item.tokenLabel,
-                } satisfies PromptReferenceImageCandidate;
-              })
-              .filter((item): item is {
-                referenceNumber: number;
-                imageUrl: string;
-                tokenLabel: string;
-              } => item !== null),
+            optimizationCandidates,
           );
         const result = await optimizeCanvasPrompt({
           mode: "jimeng",
           prompt: currentPrompt,
-          referenceImages: incomingVisualItems
-            .map((item) => item.previewImageUrl)
-            .filter((item): item is string => Boolean(item)),
+          referenceImages: boundOptimizationImages.map(
+            (item) => item.candidate.imageUrl,
+          ),
           referenceImageBindings: optimizationReferenceImageBindings,
         });
         if (promptValueRef.current !== sourcePrompt) {
@@ -2044,8 +2096,8 @@ export const JimengNode = memo(
     }, [
       data,
       id,
-      incomingVisualItems,
       isPromptLockedByUpstream,
+      promptImageReferenceEntries,
       syncPromptHighlightScroll,
       t,
       updateNodeData,
@@ -2173,8 +2225,18 @@ export const JimengNode = memo(
 
           const readableReferenceImageSources =
             await resolveReadableReferenceImageSources(
-              incomingVisualItems.filter((item) => item.kind === "image"),
+              effectiveImageReferenceItems,
             );
+
+          const requestPrompt =
+            boundPromptImageReferences.length > 0
+              ? normalizeReferenceImagePrompt(
+                  rewritePromptReferenceTokensForRequest(
+                    prompt,
+                    boundPromptImageReferences,
+                  ),
+                )
+              : normalizeReferenceImagePrompt(prompt);
 
           await enqueueJimengQueueJob({
             projectId: currentProjectId,
@@ -2183,7 +2245,7 @@ export const JimengNode = memo(
             title: resultNodeTitle,
             scheduledAt,
             payload: {
-              prompt,
+              prompt: requestPrompt,
               modelVersion: selectedModel,
               referenceMode: selectedReferenceMode,
               aspectRatio: selectedAspectRatio,
@@ -2227,7 +2289,9 @@ export const JimengNode = memo(
       [
         addEdge,
         addNode,
+        boundPromptImageReferences,
         currentProjectId,
+        effectiveImageReferenceItems,
         effectivePrompt,
         enqueueJimengQueueJob,
         findNodePosition,
@@ -2350,11 +2414,20 @@ export const JimengNode = memo(
 
         const readableReferenceImageSources =
           await resolveReadableReferenceImageSources(
-            incomingVisualItems.filter((item) => item.kind === "image"),
+            effectiveImageReferenceItems,
           );
+        const requestPrompt =
+          boundPromptImageReferences.length > 0
+            ? normalizeReferenceImagePrompt(
+                rewritePromptReferenceTokensForRequest(
+                  prompt,
+                  boundPromptImageReferences,
+                ),
+              )
+            : normalizeReferenceImagePrompt(prompt);
 
         const generationResponse = await generateJimengVideos({
-          prompt,
+          prompt: requestPrompt,
           modelVersion: selectedModel,
           referenceMode: selectedReferenceMode,
           aspectRatio: selectedAspectRatio,
@@ -2443,7 +2516,9 @@ export const JimengNode = memo(
     }, [
       addEdge,
       addNode,
+      boundPromptImageReferences,
       closeShotParamsPanel,
+      effectiveImageReferenceItems,
       effectivePrompt,
       findNodePosition,
       flushCurrentProjectToDiskSafely,
@@ -2601,7 +2676,9 @@ export const JimengNode = memo(
           return;
         }
 
-        const item = incomingVisualItems[token.value - 1];
+        const item = incomingVisualItems.find(
+          (referenceItem) => referenceItem.tokenLabel === token.token,
+        ) ?? incomingVisualItems[token.value - 1];
         const previewHost = promptPreviewHostRef.current;
         if (!item || !previewHost) {
           setPromptReferencePreview(null);
@@ -3051,12 +3128,13 @@ export const JimengNode = memo(
                       rememberPromptSelection(event.currentTarget);
                     }}
                     placeholder={t("node.jimeng.promptPlaceholder")}
-                    className={`canvas-textarea-wrap ui-scrollbar nodrag nowheel relative z-10 h-full w-full resize-none rounded-xl border border-white/10 bg-black/15 px-3 py-2 text-sm leading-6 text-transparent outline-none placeholder:text-text-muted/70 selection:bg-accent/30 selection:text-transparent ${
+                    className={`canvas-textarea-wrap canvas-textarea-mirror-input ui-scrollbar nodrag nowheel relative z-10 h-full w-full resize-none rounded-xl border border-white/10 bg-black/15 px-3 py-2 text-sm leading-6 text-transparent outline-none placeholder:text-text-muted/70 selection:bg-accent/30 selection:text-transparent ${
                       isPromptLockedByUpstream
                         ? "cursor-default caret-transparent"
                         : "caret-text-dark focus:border-accent/50"
                     }`}
                     style={{ scrollbarGutter: "stable" }}
+                    spellCheck={false}
                     onScroll={syncPromptHighlightScroll}
                     onMouseDown={(event) => {
                       event.stopPropagation();

@@ -1458,12 +1458,13 @@ export const JimengImageNode = memo(
                       rememberPromptSelection(event.currentTarget);
                     }}
                     placeholder={t("node.jimengImage.promptPlaceholder")}
-                    className={`canvas-textarea-wrap ui-scrollbar nodrag nowheel relative z-10 h-full w-full resize-none rounded-xl border border-white/10 bg-black/15 px-3 py-2 text-sm leading-6 text-transparent outline-none placeholder:text-text-muted/70 selection:bg-accent/30 selection:text-transparent ${
+                    className={`canvas-textarea-wrap canvas-textarea-mirror-input ui-scrollbar nodrag nowheel relative z-10 h-full w-full resize-none rounded-xl border border-white/10 bg-black/15 px-3 py-2 text-sm leading-6 text-transparent outline-none placeholder:text-text-muted/70 selection:bg-accent/30 selection:text-transparent ${
                       isPromptLockedByUpstream
                         ? "cursor-default caret-transparent"
                         : "caret-text-dark focus:border-accent/50"
                     }`}
                     style={{ scrollbarGutter: "stable" }}
+                    spellCheck={false}
                     onScroll={syncPromptHighlightScroll}
                     onMouseDown={(event) => {
                       event.stopPropagation();

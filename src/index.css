@@ -224,8 +224,16 @@ body {
 
 .canvas-textarea-wrap {
   white-space: pre-wrap;
-  overflow-wrap: anywhere;
-  word-break: normal;
+  overflow-wrap: break-word;
+  word-break: break-word;
+  font: inherit;
+  line-height: inherit;
+  letter-spacing: inherit;
+  text-transform: inherit;
+  text-indent: inherit;
+  tab-size: 4;
+  font-kerning: none;
+  font-variant-ligatures: none;
 }
 
 .canvas-textarea-wrap:not(textarea)::after {
@@ -233,8 +241,23 @@ body {
 }
 
 textarea.canvas-textarea-wrap {
-  overflow-wrap: normal;
-  word-break: normal;
+  overflow-wrap: break-word;
+  word-break: break-word;
+}
+
+textarea.canvas-textarea-mirror-input {
+  color: transparent;
+  -webkit-text-fill-color: transparent;
+  text-shadow: none;
+}
+
+textarea.canvas-textarea-mirror-input::selection {
+  color: transparent;
+  -webkit-text-fill-color: transparent;
+}
+
+textarea.canvas-textarea-mirror-input::placeholder {
+  -webkit-text-fill-color: currentColor;
 }
 
 #boot-screen {

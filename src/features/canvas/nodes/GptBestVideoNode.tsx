@@ -1287,7 +1287,7 @@ export const GptBestVideoNode = memo(
                 placeholder={sourceKind === 'grok'
                   ? t('node.gptBestVideo.grokPromptPlaceholder')
                   : t('node.gptBestVideo.seedancePromptPlaceholder')}
-                className="canvas-textarea-wrap ui-scrollbar nodrag nowheel relative z-10 h-full min-h-0 w-full resize-none rounded-[var(--node-radius)] border border-transparent bg-transparent px-3 py-3 text-sm leading-6 text-transparent outline-none transition-colors placeholder:text-text-muted/70 selection:bg-accent/30 selection:text-transparent caret-text-dark focus:border-accent/50"
+                className="canvas-textarea-wrap canvas-textarea-mirror-input ui-scrollbar nodrag nowheel relative z-10 h-full min-h-0 w-full resize-none rounded-[var(--node-radius)] border border-transparent bg-transparent px-3 py-3 text-sm leading-6 text-transparent outline-none transition-colors placeholder:text-text-muted/70 selection:bg-accent/30 selection:text-transparent caret-text-dark focus:border-accent/50"
                 style={{ scrollbarGutter: 'stable' }}
                 spellCheck={false}
                 onScroll={syncPromptHighlightScroll}

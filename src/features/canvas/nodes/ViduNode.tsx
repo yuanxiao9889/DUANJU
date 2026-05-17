@@ -1,4 +1,5 @@
 import {
+  type FormEvent as ReactFormEvent,
   type KeyboardEvent,
   type MouseEvent as ReactMouseEvent,
   type ReactNode,
@@ -169,6 +170,7 @@ interface ViduPromptTokenRange {
 }
 
 const PICKER_Y_OFFSET_PX = 20;
+const REFERENCE_PICKER_TRIGGER_CHARACTERS = new Set(["@", "\uFF20"]);
 const VIDEO_REFERENCE_TOKEN_PREFIX = "@视频";
 const VIDU_VISUAL_REFERENCE_TOKEN_PREFIXES = [
   "@图片",
@@ -186,6 +188,16 @@ function clampIndex(value: number, min: number, max: number): number {
 
 function isAsciiDigit(char: string): boolean {
   return char >= "0" && char <= "9";
+}
+
+function isReferencePickerTriggerCharacter(
+  value: string | null | undefined,
+): boolean {
+  if (!value) {
+    return false;
+  }
+
+  return REFERENCE_PICKER_TRIGGER_CHARACTERS.has(value);
 }
 
 function resolveReferenceTokenPrefix(
@@ -895,8 +907,37 @@ export const ViduNode = memo(({ id, data, selected, width }: ViduNodeProps) => {
     [schedulePromptSelectionRestore],
   );
 
+  const openReferencePicker = useCallback(
+    (textarea: HTMLTextAreaElement) => {
+      const selection =
+        readTextareaSelection(textarea, promptDraftRef.current.length) ??
+        resolveTextSelection({
+          textarea,
+          lastSelection: lastPromptSelectionRef.current,
+          fallbackLength: promptDraftRef.current.length,
+        });
+      lastPromptSelectionRef.current = selection;
+      pickerSelectionRef.current = selection;
+      setPickerAnchor(
+        resolveTextareaPickerAnchor({
+          container: promptPanelRef.current,
+          textarea,
+          caretIndex: selection.start,
+          yOffset: PICKER_Y_OFFSET_PX,
+        }),
+      );
+      setShowReferencePicker(true);
+      setPickerActiveIndex(0);
+    },
+    [],
+  );
+
   const handlePromptKeyDown = useCallback(
     (event: KeyboardEvent<HTMLTextAreaElement>) => {
+      if (promptCompositionRef.current || event.nativeEvent.isComposing) {
+        return;
+      }
+
       if (event.key === "Backspace" || event.key === "Delete") {
         const currentPrompt = promptDraftRef.current;
         const selectionStart =
@@ -949,31 +990,13 @@ export const ViduNode = memo(({ id, data, selected, width }: ViduNodeProps) => {
         }
       }
 
-      if (event.key === "@" && referencePickerItems.length > 0) {
+      if (
+        isReferencePickerTriggerCharacter(event.key) &&
+        referencePickerItems.length > 0
+      ) {
         event.preventDefault();
         event.stopPropagation();
-        const selection =
-          readTextareaSelection(
-            event.currentTarget,
-            promptDraftRef.current.length,
-          ) ??
-          resolveTextSelection({
-            textarea: event.currentTarget,
-            lastSelection: lastPromptSelectionRef.current,
-            fallbackLength: promptDraftRef.current.length,
-          });
-        lastPromptSelectionRef.current = selection;
-        pickerSelectionRef.current = selection;
-        setPickerAnchor(
-          resolveTextareaPickerAnchor({
-            container: promptPanelRef.current,
-            textarea: event.currentTarget,
-            caretIndex: selection.start,
-            yOffset: PICKER_Y_OFFSET_PX,
-          }),
-        );
-        setShowReferencePicker(true);
-        setPickerActiveIndex(0);
+        openReferencePicker(event.currentTarget);
         return;
       }
 
@@ -988,12 +1011,31 @@ export const ViduNode = memo(({ id, data, selected, width }: ViduNodeProps) => {
     [
       handlePromptChange,
       insertReferenceItem,
+      openReferencePicker,
       pickerActiveIndex,
       referencePickerItems.length,
       referenceVisualItems.length,
       schedulePromptSelectionRestore,
       showReferencePicker,
     ],
+  );
+
+  const handlePromptBeforeInput = useCallback(
+    (event: ReactFormEvent<HTMLTextAreaElement>) => {
+      if (referencePickerItems.length <= 0) {
+        return;
+      }
+
+      const nativeEvent = event.nativeEvent as InputEvent;
+      if (!isReferencePickerTriggerCharacter(nativeEvent.data)) {
+        return;
+      }
+
+      event.preventDefault();
+      event.stopPropagation();
+      openReferencePicker(event.currentTarget);
+    },
+    [openReferencePicker, referencePickerItems.length],
   );
 
   const insertPromptText = useCallback(
@@ -1471,14 +1513,16 @@ export const ViduNode = memo(({ id, data, selected, width }: ViduNodeProps) => {
                   handlePromptChange(event.currentTarget.value);
                   rememberPromptSelection(event.currentTarget);
                 }}
+                onBeforeInput={handlePromptBeforeInput}
                 onBlur={(event) => {
                   if (event.currentTarget.value !== data.prompt) {
                     handlePromptChange(event.currentTarget.value);
                   }
                 }}
                 placeholder={t("node.vidu.promptPlaceholder")}
-                className="canvas-textarea-wrap ui-scrollbar nodrag nowheel relative z-10 h-full min-h-0 w-full resize-none rounded-xl border border-transparent bg-transparent px-3 py-2 text-sm leading-6 text-transparent outline-none transition-colors placeholder:text-text-muted/70 selection:bg-accent/30 selection:text-transparent caret-text-dark focus:border-accent/50"
+                className="canvas-textarea-wrap canvas-textarea-mirror-input ui-scrollbar nodrag nowheel relative z-10 h-full min-h-0 w-full resize-none rounded-xl border border-transparent bg-transparent px-3 py-2 text-sm leading-6 text-transparent outline-none transition-colors placeholder:text-text-muted/70 selection:bg-accent/30 selection:text-transparent caret-text-dark focus:border-accent/50"
                 style={{ scrollbarGutter: "stable" }}
+                spellCheck={false}
                 onScroll={syncPromptHighlightScroll}
                 onMouseDown={(event) => {
                   event.stopPropagation();

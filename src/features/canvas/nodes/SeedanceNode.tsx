@@ -1,4 +1,5 @@
 import {
+  type FormEvent as ReactFormEvent,
   type KeyboardEvent,
   type MouseEvent as ReactMouseEvent,
   type ReactNode,
@@ -42,9 +43,12 @@ import { flushCurrentProjectToDiskSafely } from "@/features/canvas/application/p
 import { optimizeCanvasPrompt } from "@/features/canvas/application/promptOptimization";
 import { resolveReadableReferenceImageSources } from "@/features/canvas/application/referenceImageSources";
 import {
+  resolvePromptBoundReferenceImages,
   resolvePromptReferenceImageBindings,
+  rewritePromptReferenceTokensForRequest,
   type PromptReferenceImageCandidate,
 } from "@/features/canvas/application/promptReferenceImageBindings";
+import { normalizeReferenceImagePrompt } from "@/features/canvas/application/referenceImagePrompting";
 import {
   buildShortReferenceToken,
   findNamedReferenceTokens,
@@ -213,6 +217,7 @@ const MAX_REFERENCE_VIDEO_COUNT = 3;
 const MAX_REFERENCE_AUDIO_COUNT = 3;
 const MAX_REFERENCE_TOTAL_DURATION_SECONDS = 15;
 const PICKER_Y_OFFSET_PX = 20;
+const REFERENCE_PICKER_TRIGGER_CHARACTERS = new Set(["@", "\uFF20"]);
 const VIDEO_REFERENCE_TOKEN_PREFIX = "@视频";
 const AUDIO_SHORT_REFERENCE_TOKEN_PREFIX = "@音";
 const AUDIO_LONG_REFERENCE_TOKEN_PREFIX = "@音频";
@@ -267,6 +272,16 @@ function clampIndex(value: number, min: number, max: number): number {
 
 function isAsciiDigit(char: string): boolean {
   return char >= "0" && char <= "9";
+}
+
+function isReferencePickerTriggerCharacter(
+  value: string | null | undefined,
+): boolean {
+  if (!value) {
+    return false;
+  }
+
+  return REFERENCE_PICKER_TRIGGER_CHARACTERS.has(value);
 }
 
 function resolveMaxReferenceNumber(maxCount?: number): number {
@@ -849,6 +864,7 @@ export const SeedanceNode = memo(
       ? connectedText
       : promptDraft;
     const promptValueRef = useRef(promptDraft);
+    const promptCompositionRef = useRef(false);
     const lastPromptSelectionRef = useRef<TextSelectionRange | null>(null);
     const pickerSelectionRef = useRef<TextSelectionRange | null>(null);
     const pickerItemRefs = useRef<Array<HTMLButtonElement | null>>([]);
@@ -918,6 +934,47 @@ export const SeedanceNode = memo(
         })),
       [referenceVisualItems],
     );
+    const promptImageReferenceEntries = useMemo(
+      () =>
+        referenceVisualItems.flatMap((item, index) =>
+          item.kind === "image"
+            ? [{
+                referenceNumber: index + 1,
+                item,
+                candidate: {
+                  referenceNumber: index + 1,
+                  imageUrl: item.referenceUrl,
+                  previewImageUrl: item.previewImageUrl,
+                  tokenLabel: item.tokenLabel,
+                  assetId: item.assetId,
+                } satisfies PromptReferenceImageCandidate,
+              }]
+            : [],
+        ),
+      [referenceVisualItems],
+    );
+    const promptImageReferenceCandidates = useMemo(
+      () => promptImageReferenceEntries.map((entry) => entry.candidate),
+      [promptImageReferenceEntries],
+    );
+    const promptImageItemByReferenceNumber = useMemo(
+      () =>
+        new Map(
+          promptImageReferenceEntries.map((entry) => [
+            entry.referenceNumber,
+            entry.item,
+          ] as const),
+        ),
+      [promptImageReferenceEntries],
+    );
+    const boundPromptImageReferences = useMemo(
+      () =>
+        resolvePromptBoundReferenceImages(
+          effectivePrompt,
+          promptImageReferenceCandidates,
+        ),
+      [effectivePrompt, promptImageReferenceCandidates],
+    );
 
     const referenceAudioItems = useMemo<ReferenceAudioItem[]>(
       () =>
@@ -961,8 +1018,26 @@ export const SeedanceNode = memo(
     );
 
     const imageReferences = useMemo(
-      () => referenceVisualItems.filter((item) => item.kind === "image"),
-      [referenceVisualItems],
+      () => {
+        if (boundPromptImageReferences.length === 0) {
+          return referenceVisualItems.filter((item) => item.kind === "image");
+        }
+
+        return boundPromptImageReferences
+          .map((entry) =>
+            promptImageItemByReferenceNumber.get(entry.candidate.referenceNumber) ??
+            null,
+          )
+          .filter(
+            (item): item is ReferenceVisualItem =>
+              item !== null && item.kind === "image",
+          );
+      },
+      [
+        boundPromptImageReferences,
+        promptImageItemByReferenceNumber,
+        referenceVisualItems,
+      ],
     );
     const hasSeedanceOfficialImageReferences = useMemo(
       () =>
@@ -1257,45 +1332,30 @@ export const SeedanceNode = memo(
       updateSeedanceNodeData({ lastError: null });
 
       try {
+        const optimizationCandidates = promptImageReferenceEntries.map(
+          (entry) => ({
+            ...entry.candidate,
+            imageUrl:
+              entry.item.previewImageUrl?.trim() ?? entry.item.referenceUrl.trim(),
+          }),
+        );
+        const boundOptimizationImages = resolvePromptBoundReferenceImages(
+          currentPrompt,
+          optimizationCandidates,
+        );
         const optimizationReferenceImageBindings =
           resolvePromptReferenceImageBindings(
             currentPrompt,
-            referenceVisualItems
-              .map((item, index) => {
-                if (
-                  item.kind !== "image" ||
-                  isSeedanceAssetUri(item.referenceUrl)
-                ) {
-                  return null;
-                }
-
-                const imageUrl =
-                  item.previewImageUrl?.trim() ?? item.referenceUrl.trim();
-                if (!imageUrl) {
-                  return null;
-                }
-
-                return {
-                  referenceNumber: index + 1,
-                  imageUrl,
-                  tokenLabel: item.tokenLabel,
-                } satisfies PromptReferenceImageCandidate;
-              })
-              .filter((item): item is {
-                referenceNumber: number;
-                imageUrl: string;
-                tokenLabel: string;
-              } => item !== null),
+            optimizationCandidates.filter(
+              (candidate) => !isSeedanceAssetUri(candidate.imageUrl),
+            ),
           );
         const result = await optimizeCanvasPrompt({
           mode: "video",
           prompt: currentPrompt,
-          referenceImages: referenceVisualItems
-            .map((item) => item.previewImageUrl ?? item.referenceUrl)
-            .filter(
-              (item): item is string =>
-                Boolean(item) && !isSeedanceAssetUri(item),
-            ),
+          referenceImages: boundOptimizationImages
+            .map((item) => item.candidate.imageUrl)
+            .filter((item) => !isSeedanceAssetUri(item)),
           referenceImageBindings: optimizationReferenceImageBindings,
         });
         if (promptValueRef.current !== sourcePrompt) {
@@ -1333,7 +1393,7 @@ export const SeedanceNode = memo(
     }, [
       handlePromptChange,
       isPromptLockedByUpstream,
-      referenceVisualItems,
+      promptImageReferenceEntries,
       syncPromptHighlightScroll,
       syncPromptTextSelectionState,
       t,
@@ -1382,7 +1442,9 @@ export const SeedanceNode = memo(
           return;
         }
 
-        const item = referenceVisualItems[token.value - 1];
+        const item = referenceVisualItems.find(
+          (referenceItem) => referenceItem.tokenLabel === token.token,
+        ) ?? referenceVisualItems[token.value - 1];
         const previewHost = promptPreviewHostRef.current;
         if (!item || !previewHost) {
           setPromptReferencePreview(null);
@@ -1422,9 +1484,38 @@ export const SeedanceNode = memo(
       [schedulePromptSelectionRestore],
     );
 
+    const openReferencePicker = useCallback(
+      (textarea: HTMLTextAreaElement) => {
+        const selection =
+          readTextareaSelection(textarea, promptValueRef.current.length) ??
+          resolveTextSelection({
+            textarea,
+            lastSelection: lastPromptSelectionRef.current,
+            fallbackLength: promptValueRef.current.length,
+          });
+        lastPromptSelectionRef.current = selection;
+        pickerSelectionRef.current = selection;
+        setPickerAnchor(
+          resolveTextareaPickerAnchor({
+            container: promptPanelRef.current,
+            textarea,
+            caretIndex: selection.start,
+            yOffset: PICKER_Y_OFFSET_PX,
+          }),
+        );
+        setShowImagePicker(true);
+        setPickerActiveIndex(0);
+      },
+      [],
+    );
+
     const handlePromptKeyDown = useCallback(
       (event: KeyboardEvent<HTMLTextAreaElement>) => {
         if (isPromptLockedByUpstream) {
+          return;
+        }
+
+        if (promptCompositionRef.current || event.nativeEvent.isComposing) {
           return;
         }
 
@@ -1483,31 +1574,13 @@ export const SeedanceNode = memo(
           }
         }
 
-        if (event.key === "@" && referencePickerItems.length > 0) {
+        if (
+          isReferencePickerTriggerCharacter(event.key) &&
+          referencePickerItems.length > 0
+        ) {
           event.preventDefault();
           event.stopPropagation();
-          const selection =
-            readTextareaSelection(
-              event.currentTarget,
-              promptValueRef.current.length,
-            ) ??
-            resolveTextSelection({
-              textarea: event.currentTarget,
-              lastSelection: lastPromptSelectionRef.current,
-              fallbackLength: promptValueRef.current.length,
-            });
-          lastPromptSelectionRef.current = selection;
-          pickerSelectionRef.current = selection;
-          setPickerAnchor(
-            resolveTextareaPickerAnchor({
-              container: promptPanelRef.current,
-              textarea: event.currentTarget,
-              caretIndex: selection.start,
-              yOffset: PICKER_Y_OFFSET_PX,
-            }),
-          );
-          setShowImagePicker(true);
-          setPickerActiveIndex(0);
+          openReferencePicker(event.currentTarget);
           return;
         }
 
@@ -1524,12 +1597,35 @@ export const SeedanceNode = memo(
         handlePromptChange,
         isPromptLockedByUpstream,
         insertReferenceItem,
+        openReferencePicker,
         pickerActiveIndex,
         referenceAudioItems.length,
         referencePickerItems.length,
         referenceVisualItems.length,
         showImagePicker,
         schedulePromptSelectionRestore,
+      ],
+    );
+
+    const handlePromptBeforeInput = useCallback(
+      (event: ReactFormEvent<HTMLTextAreaElement>) => {
+        if (isPromptLockedByUpstream || referencePickerItems.length <= 0) {
+          return;
+        }
+
+        const nativeEvent = event.nativeEvent as InputEvent;
+        if (!isReferencePickerTriggerCharacter(nativeEvent.data)) {
+          return;
+        }
+
+        event.preventDefault();
+        event.stopPropagation();
+        openReferencePicker(event.currentTarget);
+      },
+      [
+        isPromptLockedByUpstream,
+        openReferencePicker,
+        referencePickerItems.length,
       ],
     );
 
@@ -1659,6 +1755,15 @@ export const SeedanceNode = memo(
       try {
         const readableReferenceImageSources =
           await resolveReadableReferenceImageSources(imageReferences);
+        const requestPrompt =
+          boundPromptImageReferences.length > 0
+            ? normalizeReferenceImagePrompt(
+                rewritePromptReferenceTokensForRequest(
+                  prompt,
+                  boundPromptImageReferences,
+                ),
+              )
+            : normalizeReferenceImagePrompt(prompt);
 
         const resultNodePosition = findNodePosition(
           id,
@@ -1701,7 +1806,7 @@ export const SeedanceNode = memo(
 
         const submitResponse = await submitSeedanceVideoTask({
           apiKey,
-          prompt,
+          prompt: requestPrompt,
           inputMode: selectedInputMode,
           modelId: selectedModelId,
           aspectRatio: selectedAspectRatio,
@@ -1791,6 +1896,7 @@ export const SeedanceNode = memo(
       addEdge,
       addNode,
       apiKey,
+      boundPromptImageReferences,
       closeShotParamsPanel,
       effectivePrompt,
       findNodePosition,
@@ -2013,13 +2119,23 @@ export const SeedanceNode = memo(
                         handlePromptChange(event.target.value);
                         rememberPromptSelection(event.currentTarget);
                       }}
+                      onCompositionStart={() => {
+                        promptCompositionRef.current = true;
+                      }}
+                      onCompositionEnd={(event) => {
+                        promptCompositionRef.current = false;
+                        handlePromptChange(event.currentTarget.value);
+                        rememberPromptSelection(event.currentTarget);
+                      }}
+                      onBeforeInput={handlePromptBeforeInput}
                       placeholder={t("node.seedance.promptPlaceholder")}
-                      className={`canvas-textarea-wrap ui-scrollbar nodrag nowheel relative z-10 h-full min-h-[148px] w-full resize-none rounded-xl border border-transparent bg-transparent px-3 py-2 text-sm leading-6 text-transparent outline-none placeholder:text-text-muted/70 selection:bg-accent/30 selection:text-transparent ${
+                      className={`canvas-textarea-wrap canvas-textarea-mirror-input ui-scrollbar nodrag nowheel relative z-10 h-full min-h-[148px] w-full resize-none rounded-xl border border-transparent bg-transparent px-3 py-2 text-sm leading-6 text-transparent outline-none placeholder:text-text-muted/70 selection:bg-accent/30 selection:text-transparent ${
                         isPromptLockedByUpstream
                           ? "cursor-default caret-transparent"
                           : "caret-text-dark focus:border-accent/50"
                       }`}
                       style={{ scrollbarGutter: "stable" }}
+                      spellCheck={false}
                       onScroll={syncPromptHighlightScroll}
                       onMouseDown={(event) => {
                         event.stopPropagation();

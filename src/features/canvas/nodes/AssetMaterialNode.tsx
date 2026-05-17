@@ -31,6 +31,10 @@ const MAX_WIDTH = 760;
 const MAX_HEIGHT = 980;
 const VISIBLE_CATEGORIES: AssetCategory[] = ['character', 'scene', 'prop'];
 
+type DisplayAssetItem = AssetItemRecord & {
+  duplicateAssetIds: string[];
+};
+
 function getCategoryIcon(category: AssetCategory) {
   switch (category) {
     case 'character':
@@ -46,6 +50,10 @@ function getCategoryIcon(category: AssetCategory) {
 
 function normalizeName(value: string): string {
   return value.trim().toLowerCase();
+}
+
+function buildAssetNameKey(category: AssetCategory, name: string): string {
+  return `${category}:${normalizeName(name)}`;
 }
 
 export const AssetMaterialNode = memo(function AssetMaterialNode({
@@ -94,6 +102,39 @@ export const AssetMaterialNode = memo(function AssetMaterialNode({
     }
   }, [data.assetLibraryId, id, selectedLibraryId, updateNodeData]);
 
+  useEffect(() => {
+    if (!selectedLibrary || data.selectedAssetIds.length === 0) {
+      return;
+    }
+
+    const itemById = new Map(selectedLibrary.items.map((item) => [item.id, item] as const));
+    const nextSelectedIds: string[] = [];
+    const seenNameKeys = new Set<string>();
+
+    data.selectedAssetIds.forEach((assetId) => {
+      const item = itemById.get(assetId);
+      if (!item || item.mediaType !== 'image' || !VISIBLE_CATEGORIES.includes(item.category)) {
+        return;
+      }
+
+      const nameKey = buildAssetNameKey(item.category, item.name);
+      if (seenNameKeys.has(nameKey)) {
+        return;
+      }
+
+      seenNameKeys.add(nameKey);
+      nextSelectedIds.push(assetId);
+    });
+
+    const hasChanged =
+      nextSelectedIds.length !== data.selectedAssetIds.length
+      || nextSelectedIds.some((assetId, index) => assetId !== data.selectedAssetIds[index]);
+
+    if (hasChanged) {
+      updateNodeData(id, { selectedAssetIds: nextSelectedIds }, { historyMode: 'skip' });
+    }
+  }, [data.selectedAssetIds, id, selectedLibrary, updateNodeData]);
+
   const subcategoryNameById = useMemo(() => {
     const map = new Map<string, string>();
     selectedLibrary?.subcategories.forEach((subcategory) => {
@@ -103,19 +144,45 @@ export const AssetMaterialNode = memo(function AssetMaterialNode({
   }, [selectedLibrary]);
 
   const itemsByCategory = useMemo(() => {
-    const map = new Map<AssetCategory, AssetItemRecord[]>();
+    const map = new Map<AssetCategory, DisplayAssetItem[]>();
     VISIBLE_CATEGORIES.forEach((category) => map.set(category, []));
+    const uniqueItemMap = new Map<string, DisplayAssetItem>();
+
     selectedLibrary?.items.forEach((item) => {
       if (!VISIBLE_CATEGORIES.includes(item.category) || item.mediaType !== 'image') {
         return;
       }
+
+      const nameKey = buildAssetNameKey(item.category, item.name);
+      const existing = uniqueItemMap.get(nameKey);
+      if (existing) {
+        existing.duplicateAssetIds.push(item.id);
+        if (!selectedIdSet.has(existing.id) && selectedIdSet.has(item.id)) {
+          existing.id = item.id;
+          existing.subcategoryId = item.subcategoryId;
+          existing.sourcePath = item.sourcePath;
+          existing.previewPath = item.previewPath;
+          existing.updatedAt = item.updatedAt;
+          existing.createdAt = item.createdAt;
+        }
+        return;
+      }
+
+      uniqueItemMap.set(nameKey, {
+        ...item,
+        duplicateAssetIds: [item.id],
+      });
+    });
+
+    uniqueItemMap.forEach((item) => {
       map.get(item.category)?.push(item);
     });
+
     map.forEach((items) => {
       items.sort((left, right) => left.name.localeCompare(right.name, 'zh-Hans-CN'));
     });
     return map;
-  }, [selectedLibrary]);
+  }, [selectedIdSet, selectedLibrary]);
 
   const toggleCategory = useCallback((category: AssetCategory) => {
     setOpenCategories((current) => {
@@ -129,15 +196,17 @@ export const AssetMaterialNode = memo(function AssetMaterialNode({
     });
   }, []);
 
-  const toggleAsset = useCallback((assetId: string) => {
-    const nextIds = selectedIdSet.has(assetId)
-      ? data.selectedAssetIds.filter((idValue) => idValue !== assetId)
-      : [...data.selectedAssetIds, assetId];
+  const toggleAsset = useCallback((item: DisplayAssetItem) => {
+    const duplicateIdSet = new Set(item.duplicateAssetIds);
+    const isSelected = item.duplicateAssetIds.some((assetId) => selectedIdSet.has(assetId));
+    const nextIds = isSelected
+      ? data.selectedAssetIds.filter((idValue) => !duplicateIdSet.has(idValue))
+      : [...data.selectedAssetIds.filter((idValue) => !duplicateIdSet.has(idValue)), item.id];
     updateNodeData(id, { selectedAssetIds: nextIds }, { historyMode: 'skip' });
   }, [data.selectedAssetIds, id, selectedIdSet, updateNodeData]);
 
-  const groupedBySubcategory = useCallback((items: AssetItemRecord[]) => {
-    const groups = new Map<string, AssetItemRecord[]>();
+  const groupedBySubcategory = useCallback((items: DisplayAssetItem[]) => {
+    const groups = new Map<string, DisplayAssetItem[]>();
     items.forEach((item) => {
       const key = item.subcategoryId ?? '__uncategorized__';
       const group = groups.get(key) ?? [];
@@ -149,10 +218,10 @@ export const AssetMaterialNode = memo(function AssetMaterialNode({
 
   return (
     <div
-      className={`group relative h-full w-full overflow-visible rounded-[22px] border bg-surface-dark/95 p-1.5 transition-colors ${
+      className={`group relative h-full w-full overflow-visible rounded-[var(--node-radius)] border bg-surface-dark/90 p-2 transition-all duration-150 ${
         selected
-          ? 'border-accent shadow-[0_0_0_1px_rgba(59,130,246,0.34),0_18px_40px_rgba(0,0,0,0.24)]'
-          : 'border-[rgba(255,255,255,0.16)] shadow-[0_14px_34px_rgba(0,0,0,0.2)]'
+          ? 'border-[#222222] shadow-[0_0_0_2px_rgba(34,34,34,0.38),0_4px_14px_rgba(15,23,42,0.12)] dark:border-white/70 dark:shadow-[0_0_0_2px_rgba(245,245,245,0.2),0_4px_14px_rgba(0,0,0,0.24)]'
+          : 'border-[rgba(15,23,42,0.22)] hover:border-[rgba(15,23,42,0.34)] hover:shadow-[0_4px_16px_rgba(0,0,0,0.12)] dark:border-[rgba(255,255,255,0.22)] dark:hover:border-[rgba(255,255,255,0.34)] dark:hover:shadow-[0_4px_16px_rgba(0,0,0,0.25)]'
       }`}
       style={{ width: resolvedWidth, height: resolvedHeight }}
       onClick={() => setSelectedNode(id)}
@@ -167,7 +236,7 @@ export const AssetMaterialNode = memo(function AssetMaterialNode({
       <CanvasHandle type="source" position={Position.Right} />
 
       <div className="nodrag nopan flex h-full min-h-0 flex-col gap-3 px-3 pb-3 pt-10">
-        <div className="rounded-2xl border border-white/10 bg-bg-dark/55 p-2">
+        <div className="rounded-lg border border-[rgba(255,255,255,0.1)] bg-bg-dark/45 p-2">
           <div className="mb-1.5 text-[11px] font-medium text-text-muted">
             {t('node.assetMaterial.library')}
           </div>
@@ -189,9 +258,9 @@ export const AssetMaterialNode = memo(function AssetMaterialNode({
         </div>
 
         <UiScrollArea
-          className="nowheel min-h-0 flex-1 rounded-2xl border border-white/10 bg-[#151515]"
+          className="nowheel min-h-0 flex-1 rounded-lg border border-[rgba(255,255,255,0.1)] bg-bg-dark/45"
           viewportClassName="h-full"
-          contentClassName="p-2"
+          contentClassName="p-2 pr-5"
         >
           {selectedLibrary ? (
             <div className="space-y-2">
@@ -200,7 +269,7 @@ export const AssetMaterialNode = memo(function AssetMaterialNode({
                 const items = itemsByCategory.get(category) ?? [];
                 const isOpen = openCategories.has(category);
                 return (
-                  <section key={category} className="overflow-hidden rounded-xl border border-white/8 bg-white/[0.025]">
+                  <section key={category} className="overflow-hidden rounded-lg border border-[rgba(255,255,255,0.1)] bg-bg-dark/45">
                     <button
                       type="button"
                       className="flex w-full items-center justify-between px-3 py-2 text-left text-xs font-semibold text-text-dark"
@@ -217,23 +286,23 @@ export const AssetMaterialNode = memo(function AssetMaterialNode({
                       <ChevronDown className={`h-3.5 w-3.5 text-text-muted transition-transform ${isOpen ? 'rotate-180' : ''}`} />
                     </button>
                     {isOpen ? (
-                      <div className="border-t border-white/8 px-2 py-2">
+                      <div className="border-t border-[rgba(255,255,255,0.1)] px-2 py-2">
                         {items.length > 0 ? (
                           <div className="space-y-2">
                             {groupedBySubcategory(items).map(([subcategoryId, groupItems]) => (
                               <div key={subcategoryId}>
                                 <div className="mb-1.5 flex items-center gap-2 text-[10px] text-text-muted">
-                                  <span className="h-px flex-1 bg-white/10" />
+                                  <span className="h-px flex-1 bg-white/7" />
                                   <span>
                                     {subcategoryId === '__uncategorized__'
                                       ? t('node.assetMaterial.uncategorized')
                                       : subcategoryNameById.get(subcategoryId) ?? t('node.assetMaterial.uncategorized')}
                                   </span>
-                                  <span className="h-px flex-1 bg-white/10" />
+                                  <span className="h-px flex-1 bg-white/7" />
                                 </div>
                                 <div className="flex flex-wrap gap-1.5">
                                   {groupItems.map((item) => {
-                                    const isSelected = selectedIdSet.has(item.id);
+                                    const isSelected = item.duplicateAssetIds.some((assetId) => selectedIdSet.has(assetId));
                                     const isMatched = matchedNameSet.has(normalizeName(item.name));
                                     return (
                                       <button
@@ -248,12 +317,9 @@ export const AssetMaterialNode = memo(function AssetMaterialNode({
                                         }`}
                                         onClick={(event) => {
                                           event.stopPropagation();
-                                          toggleAsset(item.id);
+                                          toggleAsset(item);
                                         }}
                                       >
-                                        <span className="rounded bg-white/10 px-1 text-[10px] text-text-muted">
-                                          {t(`node.assetMaterial.categoryShort.${category}`)}
-                                        </span>
                                         <span className="truncate">@{item.name}</span>
                                       </button>
                                     );

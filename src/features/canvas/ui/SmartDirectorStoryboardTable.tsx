@@ -106,11 +106,11 @@ export function SmartDirectorStoryboardSummary({
   ];
 
   return (
-    <div className={`flex flex-wrap items-center gap-2 ${className}`}>
+    <div className={`flex min-w-0 items-center gap-2 ${className}`}>
       {items.map((item) => (
         <div
           key={item.label}
-          className="inline-flex max-w-full items-center gap-2 rounded-lg border border-border-dark bg-bg-dark/35 px-3 py-1.5"
+          className="inline-flex min-w-0 max-w-full items-center gap-1.5 rounded-lg border border-border-dark bg-bg-dark/35 px-2.5 py-1.5"
         >
           <span className="shrink-0 text-[11px] text-text-muted">
             {item.label}
@@ -275,69 +275,70 @@ export const SmartDirectorStoryboardTable = memo(function SmartDirectorStoryboar
 
   return (
     <div className={`flex min-h-0 flex-1 flex-col ${className}`}>
-      {isStoryboardMirror ? (
-        <div
-          className="nodrag mb-2 flex flex-wrap items-center gap-2 rounded-2xl border border-border-dark bg-bg-dark/45 px-3 py-2 text-xs shadow-sm"
-          onPointerDown={stopInteractionPropagation}
-          onMouseDown={stopInteractionPropagation}
-          onDoubleClick={stopInteractionPropagation}
-        >
-          <span className="shrink-0 text-[11px] font-medium text-text-muted">
-            {t('scriptStoryboardTable.production.generateGroups')}
-          </span>
-          <button
-            type="button"
-            onClick={(event) => {
-              event.stopPropagation();
-              handleProductionExpand('15s');
-            }}
-            className="inline-flex items-center gap-1.5 rounded-xl border border-border-dark bg-surface-dark px-3 py-1.5 font-semibold text-text-dark transition-colors hover:border-accent/45 hover:bg-accent/12"
-          >
-            <Film className="h-3.5 w-3.5 text-accent" />
-            {t('scriptStoryboardTable.production.video15s')}
-          </button>
-          <button
-            type="button"
-            onClick={(event) => {
-              event.stopPropagation();
-              handleProductionExpand('10s');
-            }}
-            className="inline-flex items-center gap-1.5 rounded-xl border border-border-dark bg-surface-dark px-3 py-1.5 font-semibold text-text-dark transition-colors hover:border-accent/45 hover:bg-accent/12"
-          >
-            <Film className="h-3.5 w-3.5 text-accent" />
-            {t('scriptStoryboardTable.production.video10s')}
-          </button>
-          <button
-            type="button"
-            aria-pressed={data.continuousReferenceEnabled === true}
-            onClick={(event) => {
-              event.stopPropagation();
-              toggleContinuousReference();
-            }}
-            className={`inline-flex items-center gap-1.5 rounded-xl border px-3 py-1.5 font-semibold transition-colors ${
-              data.continuousReferenceEnabled === true
-                ? 'border-emerald-400/35 bg-emerald-400/12 text-emerald-200'
-                : 'border-border-dark bg-surface-dark text-text-muted hover:border-accent/45 hover:bg-accent/12 hover:text-text-dark'
-            }`}
-          >
-            <Link2 className="h-3.5 w-3.5" />
-            {data.continuousReferenceEnabled === true
-              ? t('scriptStoryboardTable.production.continuousEnabled')
-              : t('scriptStoryboardTable.production.continuous')}
-          </button>
-        </div>
-      ) : null}
-      <div className="mb-3 flex flex-wrap items-center justify-between gap-2 text-xs">
-        {summary ? <SmartDirectorStoryboardSummary summary={summary} /> : null}
-        <div className="flex flex-wrap items-center gap-2">
-          <div className="relative">
+      <div
+        className="nodrag mb-2 flex min-h-[40px] items-center gap-2 overflow-x-auto whitespace-nowrap rounded-2xl border border-border-dark bg-bg-dark/45 px-3 py-2 text-xs shadow-sm"
+        onPointerDown={stopInteractionPropagation}
+        onMouseDown={stopInteractionPropagation}
+        onDoubleClick={stopInteractionPropagation}
+      >
+        {isStoryboardMirror ? (
+          <>
+            <span className="shrink-0 text-[11px] font-medium text-text-muted">
+              {t('scriptStoryboardTable.production.generateGroups')}
+            </span>
+            <button
+              type="button"
+              onClick={(event) => {
+                event.stopPropagation();
+                handleProductionExpand('15s');
+              }}
+              className="inline-flex shrink-0 items-center gap-1.5 rounded-xl border border-border-dark bg-surface-dark px-3 py-1.5 font-semibold text-text-dark transition-colors hover:border-accent/45 hover:bg-accent/12"
+            >
+              <Film className="h-3.5 w-3.5 text-accent" />
+              {t('scriptStoryboardTable.production.video15s')}
+            </button>
+            <button
+              type="button"
+              onClick={(event) => {
+                event.stopPropagation();
+                handleProductionExpand('10s');
+              }}
+              className="inline-flex shrink-0 items-center gap-1.5 rounded-xl border border-border-dark bg-surface-dark px-3 py-1.5 font-semibold text-text-dark transition-colors hover:border-accent/45 hover:bg-accent/12"
+            >
+              <Film className="h-3.5 w-3.5 text-accent" />
+              {t('scriptStoryboardTable.production.video10s')}
+            </button>
+            <button
+              type="button"
+              aria-pressed={data.continuousReferenceEnabled === true}
+              onClick={(event) => {
+                event.stopPropagation();
+                toggleContinuousReference();
+              }}
+              className={`inline-flex shrink-0 items-center gap-1.5 rounded-xl border px-3 py-1.5 font-semibold transition-colors ${
+                data.continuousReferenceEnabled === true
+                  ? 'border-emerald-400/35 bg-emerald-400/12 text-emerald-200'
+                  : 'border-border-dark bg-surface-dark text-text-muted hover:border-accent/45 hover:bg-accent/12 hover:text-text-dark'
+              }`}
+            >
+              <Link2 className="h-3.5 w-3.5" />
+              {data.continuousReferenceEnabled === true
+                ? t('scriptStoryboardTable.production.continuousEnabled')
+                : t('scriptStoryboardTable.production.continuous')}
+            </button>
+            <div className="h-5 w-px shrink-0 bg-border-dark/80" />
+          </>
+        ) : null}
+        {summary ? <SmartDirectorStoryboardSummary summary={summary} className="shrink-0" /> : null}
+        <div className="h-5 w-px shrink-0 bg-border-dark/80" />
+        <div className="relative shrink-0">
           <button
             type="button"
             onClick={(event) => {
               event.stopPropagation();
               setIsColumnMenuOpen((current) => !current);
             }}
-            className="nodrag inline-flex items-center gap-1.5 rounded-lg border border-border-dark bg-bg-dark px-3 py-1.5 text-xs font-medium text-text-dark transition-colors hover:bg-bg-dark/80"
+            className="inline-flex items-center gap-1.5 rounded-lg border border-border-dark bg-bg-dark px-3 py-1.5 text-xs font-medium text-text-dark transition-colors hover:bg-bg-dark/80"
           >
             <Eye className="h-3.5 w-3.5" />
             {t('scriptStoryboardTable.viewColumns')}
@@ -378,9 +379,8 @@ export const SmartDirectorStoryboardTable = memo(function SmartDirectorStoryboar
               })}
             </div>
           ) : null}
-          </div>
-
-          <div className="inline-flex items-center gap-2 rounded-lg border border-border-dark bg-bg-dark px-2 py-1.5 text-xs text-text-muted">
+        </div>
+        <div className="inline-flex shrink-0 items-center gap-2 rounded-lg border border-border-dark bg-bg-dark px-2 py-1.5 text-xs text-text-muted">
           <span>{t('scriptStoryboardTable.rowHeight')}</span>
           <button
             type="button"
@@ -388,7 +388,7 @@ export const SmartDirectorStoryboardTable = memo(function SmartDirectorStoryboar
               event.stopPropagation();
               adjustRowHeight(-1);
             }}
-            className="nodrag rounded-md p-0.5 text-text-dark transition-colors hover:bg-bg-dark/80"
+            className="rounded-md p-0.5 text-text-dark transition-colors hover:bg-bg-dark/80"
           >
             <Minus className="h-3.5 w-3.5" />
           </button>
@@ -399,14 +399,12 @@ export const SmartDirectorStoryboardTable = memo(function SmartDirectorStoryboar
               event.stopPropagation();
               adjustRowHeight(1);
             }}
-            className="nodrag rounded-md p-0.5 text-text-dark transition-colors hover:bg-bg-dark/80"
+            className="rounded-md p-0.5 text-text-dark transition-colors hover:bg-bg-dark/80"
           >
             <Plus className="h-3.5 w-3.5" />
           </button>
-          </div>
         </div>
       </div>
-
       <UiScrollArea
         className="nodrag nowheel min-h-0 flex-1 rounded-2xl border border-border-dark bg-bg-dark/25"
         viewportClassName="h-full"

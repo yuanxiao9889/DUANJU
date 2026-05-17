@@ -89,11 +89,17 @@ export function extractReferenceVisuals(node: CanvasNode): ExtractedReferenceVis
     }
 
     const libraries = useAssetStore.getState().libraries;
-    const selectedItems = libraries
-      .flatMap((library) => library.items)
-      .filter((item) => selectedIds.has(item.id) && item.mediaType === 'image');
+    const itemById = new Map(
+      libraries
+        .flatMap((library) => library.items)
+        .map((item) => [item.id, item] as const)
+    );
+    const selectedItems = node.data.selectedAssetIds
+      .map((assetId) => itemById.get(assetId))
+      .filter((item): item is (typeof libraries)[number]['items'][number] => Boolean(item && item.mediaType === 'image'));
 
     const nameCounts = new Map<string, number>();
+    const seenTokenNames = new Set<string>();
     return selectedItems
       .map((item) => {
         const referenceUrl = item.sourcePath?.trim() || item.previewPath?.trim() || '';
@@ -101,6 +107,11 @@ export function extractReferenceVisuals(node: CanvasNode): ExtractedReferenceVis
           return null;
         }
         const tokenName = item.name.replace(/\s+/g, '').trim() || item.name;
+        const tokenKey = tokenName.toLowerCase();
+        if (seenTokenNames.has(tokenKey)) {
+          return null;
+        }
+        seenTokenNames.add(tokenKey);
         const duplicateIndex = nameCounts.get(tokenName) ?? 0;
         nameCounts.set(tokenName, duplicateIndex + 1);
         return {
