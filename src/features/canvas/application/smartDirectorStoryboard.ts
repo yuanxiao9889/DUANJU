@@ -1673,7 +1673,7 @@ function buildImagePromptForRows(input: {
     .map((row, index) => {
       const shotLabel = row.shotNumber || `镜头${index + 1}`;
       const parts = [
-        `镜头 ${shotLabel}`,
+        `SHOT ROW ${index + 1} / 镜头 ${shotLabel}`,
         `时长 ${row.durationSeconds || 0}s`,
         row.shotSize ? `景别 ${row.shotSize}` : '',
         row.cameraAngle ? `角度 ${row.cameraAngle}` : '',
@@ -1692,11 +1692,16 @@ function buildImagePromptForRows(input: {
     referenceTokens.length > 0 ? referenceTokens.join(' ') : '',
     sketchStylePrompt,
     [
-      '请把下面这些镜头组合成同一张拍摄分镜板页面，不要分别输出多张图。',
-      `本页镜头数：${input.rows.length}，合计时长：${totalDurationSeconds}s。`,
-      '每个镜头都要同时包含：左侧画面格、中间机位/站位图、右侧导演信息表。',
-      '根据镜头内容自动绘制底部场景平面图、动作动线、摄影机机位、光影与色彩氛围说明。',
-      '镜头内容：',
+      '输出必须是一整张“拍摄分镜板 / SHOOTING STORYBOARD SHEET”，不是单张剧照。',
+      `本页必须包含 ${input.rows.length} 个独立 SHOT ROW / 分镜行，合计时长 ${totalDurationSeconds}s。`,
+      '主体区域按镜头顺序纵向排列：每个镜头只能占一个独立横向分镜行，不要合并镜头，不要只画一个大场景。',
+      '每个分镜行固定三栏：左侧 16:9 分镜画面格，中间俯视机位/站位/动线示意图，右侧导演信息表。',
+      '左侧画面格必须分别表现该镜头自己的构图、人物站位、动作瞬间和光影；镜头之间用清晰横线分隔。',
+      '中间示意图使用摄影机图标、人物圆点、视线箭头、移动路径和动作序号，表现本镜头调度。',
+      '右侧导演信息表写清 SHOT、DURATION、SIZE、ANGLE、MOVE、ACTION、DIALOGUE/SFX、ASSETS。',
+      '顶部保留 STORYBOARD / 分镜板标题栏；底部保留 SCENE LAYOUT / 场景平面图 和 LIGHTING & MOOD / 光影氛围说明。',
+      '如果镜头较多，请压缩每行高度和文字密度，但不能丢失任何 SHOT ROW。',
+      '请把下面每一条镜头内容逐条落到对应的分镜行：',
       shotLines,
     ].filter(Boolean).join('\n'),
   ].filter((value) => value.trim().length > 0).join('\n');
@@ -2475,6 +2480,17 @@ function buildProductionCardAndChildren(input: {
       selectedStyleTemplateId: null,
       selectedStyleTemplateName: null,
       selectedStyleTemplatePrompt: null,
+      generationStoryboardMetadata: {
+        gridRows: Math.max(1, context.rows.length),
+        gridCols: 1,
+        frameNotes: context.shotSummaries.map((shot) =>
+          [
+            shot.shotNumber ? `镜头 ${shot.shotNumber}` : '',
+            shot.durationSeconds ? `${shot.durationSeconds}s` : '',
+            shot.content,
+          ].map(normalizeText).filter(Boolean).join(' / ')
+        ),
+      },
       continuousReferenceChain:
         input.tableNode.data.continuousReferenceEnabled === true
           ? {
@@ -2874,6 +2890,17 @@ function updateExistingProductionGroup(input: {
       selectedStyleTemplateId: null,
       selectedStyleTemplateName: null,
       selectedStyleTemplatePrompt: null,
+      generationStoryboardMetadata: {
+        gridRows: Math.max(1, input.context.rows.length),
+        gridCols: 1,
+        frameNotes: input.context.shotSummaries.map((shot) =>
+          [
+            shot.shotNumber ? `镜头 ${shot.shotNumber}` : '',
+            shot.durationSeconds ? `${shot.durationSeconds}s` : '',
+            shot.content,
+          ].map(normalizeText).filter(Boolean).join(' / ')
+        ),
+      },
       continuousReferenceChain:
         input.tableNode.data.continuousReferenceEnabled === true
           ? {

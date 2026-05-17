@@ -43,6 +43,7 @@ import {
 } from "@/features/canvas/ui/NodeHeader";
 import { NodeResizeHandle } from "@/features/canvas/ui/NodeResizeHandle";
 import { canvasAiGateway, canvasEventBus } from "@/features/canvas/application/canvasServices";
+import { cropImageSource } from "@/commands/image";
 import {
   resolveErrorContent,
   showErrorDialog,
@@ -50,9 +51,11 @@ import {
 import { recordImageGenerationErrorLog } from "@/features/canvas/application/errorLog";
 import {
   detectAspectRatio,
+  detectImageDimensions,
   parseAspectRatio,
   resolveReadableImageSource,
 } from "@/features/canvas/application/imageData";
+import { createCurrentProjectMediaContext } from "@/features/canvas/application/mediaPersistenceContext";
 import { optimizeCanvasPrompt } from "@/features/canvas/application/promptOptimization";
 import {
   buildSequentialPromptReferenceImageCandidates,
@@ -371,18 +374,18 @@ function resolveStoryboardContinuousReferenceImage(
   currentNodeData: ImageEditNodeData,
   nodes: ReturnType<typeof useCanvasStore.getState>["nodes"],
   edges: ReturnType<typeof useCanvasStore.getState>["edges"],
-): string | null {
+): Promise<string | null> {
   if (
     !isStoryboardProductionImageNode(currentNodeData)
     || currentNodeData.continuousReferenceChain?.enabled !== true
   ) {
-    return null;
+    return Promise.resolve(null);
   }
 
   const previousImageNodeId =
     currentNodeData.continuousReferenceChain.previousImageNodeId?.trim();
   if (!previousImageNodeId) {
-    return null;
+    return Promise.resolve(null);
   }
 
   const nodeMap = new Map(nodes.map((node) => [node.id, node] as const));
@@ -399,7 +402,7 @@ function resolveStoryboardContinuousReferenceImage(
     ));
 
   if (!previousResultNode) {
-    return null;
+    return Promise.resolve(null);
   }
 
   const selectedResultId = previousResultNode.data.selectedStoryboardProductionResultId?.trim();
@@ -409,16 +412,67 @@ function resolveStoryboardContinuousReferenceImage(
       ) ?? null
     : null;
 
-  if (selectedResult) {
-    return (
-      selectedResult.imageUrl?.trim()
-        || selectedResult.previewImageUrl?.trim()
-        || selectedResult.thumbnailUrl?.trim()
-        || null
-    );
+  const selectedImageUrl =
+    selectedResult?.imageUrl?.trim()
+    || selectedResult?.previewImageUrl?.trim()
+    || selectedResult?.thumbnailUrl?.trim()
+    || null;
+  if (!selectedImageUrl) {
+    return Promise.resolve(null);
   }
 
-  return null;
+  return cropStoryboardLastShotReferenceImage(
+    selectedImageUrl,
+    previousResultNode.data,
+  );
+}
+
+async function cropStoryboardLastShotReferenceImage(
+  sourceImageUrl: string,
+  previousResultData: ExportImageNodeData,
+): Promise<string | null> {
+  const rowCount = Math.max(
+    1,
+    Math.round(
+      Number(
+        previousResultData.generationStoryboardMetadata?.gridRows
+          ?? previousResultData.sourceStoryboardRowIds?.length
+          ?? 1,
+      ),
+    ),
+  );
+  if (rowCount <= 1) {
+    return sourceImageUrl;
+  }
+
+  try {
+    const dimensions = await detectImageDimensions(sourceImageUrl);
+    const width = Math.max(1, dimensions.width);
+    const height = Math.max(1, dimensions.height);
+    const titleRatio = 0.1;
+    const footerRatio = 0.18;
+    const bodyTop = Math.round(height * titleRatio);
+    const bodyHeight = Math.max(1, Math.round(height * (1 - titleRatio - footerRatio)));
+    const rowHeight = Math.max(1, Math.floor(bodyHeight / rowCount));
+    const cropY = Math.min(height - 1, bodyTop + rowHeight * (rowCount - 1));
+    const cropHeight = Math.max(1, Math.min(rowHeight, height - cropY));
+    const cropX = 0;
+    const cropWidth = Math.max(1, Math.round(width * 0.42));
+
+    return await cropImageSource(
+      {
+        source: sourceImageUrl,
+        cropX,
+        cropY,
+        cropWidth,
+        cropHeight,
+      },
+      createCurrentProjectMediaContext("image"),
+    );
+  } catch (error) {
+    console.warn("[ImageEditNode] failed to crop storyboard continuity reference", error);
+    return sourceImageUrl;
+  }
 }
 
 function appendUniqueReferenceImage(
@@ -439,7 +493,7 @@ function appendUniqueReferenceImage(
 
 function appendStoryboardContinuityPrompt(prompt: string): string {
   const continuityPrompt =
-    "承接上一镜画面，保持角色外观、服装、场景空间、光影方向、镜头轴线和动作状态连续。";
+    "连续分镜参考图来自上一组最后一个镜头行的左侧画面格；本组第一镜必须承接它的角色站位、视线方向、空间轴线、光影方向和动作末状态，但输出仍然是一整张新的拍摄分镜板。";
   const normalizedPrompt = prompt.trim();
   if (!normalizedPrompt || normalizedPrompt.includes(continuityPrompt)) {
     return prompt;
@@ -1624,6 +1678,7 @@ export const ImageEditNode = memo(
           displayName: resultNodeTitle,
           aspectRatio: initialRequestAspectRatio,
           generationSummary,
+          generationStoryboardMetadata: data.generationStoryboardMetadata ?? undefined,
           ...(shouldResetStoryboardProductionPreview
             ? {
               generationForceRefreshRequestedAt: generationStartedAt,
@@ -1668,7 +1723,7 @@ export const ImageEditNode = memo(
         requestReferenceImages = boundRequestImages.length > 0
           ? boundRequestImages.map((item) => item.candidate.imageUrl)
           : resolvedRequestReferenceImages;
-        const continuousReferenceImage = resolveStoryboardContinuousReferenceImage(
+        const continuousReferenceImage = await resolveStoryboardContinuousReferenceImage(
           data,
           nodes,
           edges,

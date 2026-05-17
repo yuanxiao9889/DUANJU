@@ -481,6 +481,11 @@ export interface ExportImageNodeData extends NodeImageData {
   sourceStoryboardTableNodeId?: string | null;
   sourceStoryboardRowIds?: string[];
   sourceDurationGroupId?: string | null;
+  generationStoryboardMetadata?: {
+    gridRows: number;
+    gridCols: number;
+    frameNotes: string[];
+  } | null;
   storyboardProductionResults?: StoryboardProductionImageResult[];
   selectedStoryboardProductionResultId?: string | null;
 }
@@ -829,6 +834,11 @@ export interface ImageEditNodeData extends NodeImageData {
   selectedStyleTemplateId?: string | null;
   selectedStyleTemplateName?: string | null;
   selectedStyleTemplatePrompt?: string | null;
+  generationStoryboardMetadata?: {
+    gridRows: number;
+    gridCols: number;
+    frameNotes: string[];
+  } | null;
   continuousReferenceChain?: {
     enabled: boolean;
     previousImageNodeId?: string | null;
