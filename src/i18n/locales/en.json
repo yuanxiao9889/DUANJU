@@ -404,6 +404,8 @@
       "alignmentGuidesOff": "Enable alignment snapping",
       "miniMapOn": "Hide mini map",
       "miniMapOff": "Show mini map",
+      "connectionLinesOn": "Hide connections",
+      "connectionLinesOff": "Show connections",
       "lock": "Lock Canvas",
       "unlock": "Unlock Canvas"
     },

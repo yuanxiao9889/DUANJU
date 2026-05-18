@@ -230,7 +230,6 @@ export const ModelParamsControls = memo(({
   const providerOptions = useMemo(() => {
     const providerOrder = [
       'oopii',
-      'azemm',
       'kie',
       'ppio',
       'fal',

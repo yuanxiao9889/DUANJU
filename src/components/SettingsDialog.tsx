@@ -132,7 +132,7 @@ const SCRIPT_PROVIDER_GROUP_CONFIGS: ProviderGroupConfig[] = [
   {
     id: 'thirdParty',
     labelKey: 'settings.providerGroupThirdParty',
-    providerIds: ['oopii', 'azemm', 'comfly', 'zhenzhen', 'bltcy', 'compatible'],
+    providerIds: ['oopii', 'comfly', 'zhenzhen', 'bltcy', 'compatible'],
     defaultCollapsed: true,
   },
 ];
@@ -153,7 +153,7 @@ const STORYBOARD_PROVIDER_GROUP_CONFIGS: ProviderGroupConfig[] = [
   {
     id: 'cheap',
     labelKey: 'settings.providerGroupAffordable',
-    providerIds: ['azemm', 'zhenzhen', 'comfly', 'bltcy', 'runninghub'],
+    providerIds: ['zhenzhen', 'comfly', 'bltcy', 'runninghub'],
     defaultCollapsed: true,
   },
   {
@@ -321,7 +321,6 @@ const PROVIDER_REGISTER_URLS: Record<string, string> = {
   alibaba: 'https://bailian.console.aliyun.com',
   deepseek: 'https://platform.deepseek.com/',
   coding: 'https://bailian.console.aliyun.com',
-  azemm: 'https://api.azemm.top',
   comfly: 'https://ai.comfly.chat/register?aff=25c82943753',
   zhenzhen: 'https://ai.t8star.cn/register?aff=9d51cc44298',
   bltcy: 'https://api.bltcy.ai/register?aff=z9mi114199',
@@ -337,7 +336,6 @@ const PROVIDER_GET_KEY_URLS: Record<string, string> = {
   alibaba: 'https://bailian.console.aliyun.com/cn-beijing/#/api-key',
   deepseek: 'https://platform.deepseek.com/api_keys',
   coding: 'https://bailian.console.aliyun.com/cn-beijing/#/api-key',
-  azemm: 'https://api.azemm.top',
   comfly: 'https://ai.comfly.chat/register?aff=25c82943753',
   zhenzhen: 'https://ai.t8star.cn/register?aff=9d51cc44298',
   bltcy: 'https://api.bltcy.ai/register?aff=z9mi114199',
@@ -349,7 +347,6 @@ const DEFAULT_PROVIDER_TEST_MODELS: Record<string, string> = {
   kie: 'kie/nano-banana-2',
   fal: 'fal/nano-banana-2',
   deepseek: DEFAULT_DEEPSEEK_TEXT_MODEL,
-  azemm: 'azemm/gemini-3.1-flash-image-preview',
   comfly: 'comfly/gemini-3.1-flash-image-preview',
   zhenzhen: 'zhenzhen/gemini-3.1-flash-image-preview',
   bltcy: 'bltcy/gemini-3.1-flash-image-preview-4k',
@@ -615,7 +612,6 @@ export function SettingsDialog({
       'ppio',
       'fal',
       'grsai',
-      'azemm',
       'comfly',
       'zhenzhen',
       'bltcy',

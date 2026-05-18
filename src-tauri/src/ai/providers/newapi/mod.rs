@@ -472,6 +472,7 @@ impl NewApiProvider {
 
         let lower = trimmed.to_ascii_lowercase();
         let looks_like_google_image_model = lower.contains("imagen")
+            || lower.contains("monkey-image")
             || (lower.contains("gemini") && (lower.contains("image") || lower.contains("preview")));
         if !looks_like_google_image_model {
             return trimmed.to_string();
@@ -495,6 +496,7 @@ impl NewApiProvider {
     fn resolve_gemini_image_size(request_model: &str, size: &str) -> Option<&'static str> {
         let lower_model = request_model.trim().to_ascii_lowercase();
         let supports_image_size = lower_model.contains("nano-banana-pro")
+            || lower_model.contains("monkey-image")
             || lower_model.contains("3.")
             || lower_model.contains("preview");
         if !supports_image_size {
@@ -1090,6 +1092,7 @@ impl NewApiProvider {
         let normalized = Self::normalize_flow2api_image_request_model(request_model);
         let lower = normalized.to_ascii_lowercase();
         lower.contains("imagen")
+            || lower.contains("monkey-image")
             || (lower.contains("gemini") && (lower.contains("image") || lower.contains("preview")))
     }
 
@@ -2663,6 +2666,12 @@ mod tests {
         assert!(NewApiProvider::is_flow2api_image_request_model(
             "imagen-4.0-generate-preview-square"
         ));
+        assert!(NewApiProvider::is_flow2api_image_request_model(
+            "monkey-image-pro"
+        ));
+        assert!(NewApiProvider::is_flow2api_image_request_model(
+            "monkey-image-flash 2"
+        ));
     }
 
     #[test]
@@ -2687,6 +2696,34 @@ mod tests {
         let extra_body =
             NewApiProvider::build_flow2api_openai_extra_body(&request, "gemini-3.0-pro-image")
                 .expect("expected extra_body for flow2api image model");
+
+        assert_eq!(
+            extra_body,
+            json!({
+                "google": {
+                    "image_config": {
+                        "aspect_ratio": "16:9",
+                        "image_size": "4K",
+                    }
+                }
+            })
+        );
+    }
+
+    #[test]
+    fn build_flow2api_openai_extra_body_supports_monkey_image_models() {
+        let request = crate::ai::GenerateRequest {
+            prompt: "make it night".to_string(),
+            model: "oopii/monkey-image-flash 2".to_string(),
+            size: "4K".to_string(),
+            aspect_ratio: "16:9".to_string(),
+            reference_images: None,
+            extra_params: None,
+        };
+
+        let extra_body =
+            NewApiProvider::build_flow2api_openai_extra_body(&request, "monkey-image-flash 2")
+                .expect("expected extra_body for monkey image model");
 
         assert_eq!(
             extra_body,

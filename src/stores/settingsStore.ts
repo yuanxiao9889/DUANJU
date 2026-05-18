@@ -208,6 +208,7 @@ interface SettingsState {
   showMiniMap: boolean;
   showGrid: boolean;
   showAlignmentGuides: boolean;
+  showCanvasEdges: boolean;
   adDirectorSkillCategories: AdDirectorSkillCategory[];
   adDirectorSkillTemplates: AdDirectorSkillTemplate[];
   styleTemplateCategories: StyleTemplateCategory[];
@@ -312,6 +313,7 @@ interface SettingsState {
   setShowMiniMap: (show: boolean) => void;
   setShowGrid: (show: boolean) => void;
   setShowAlignmentGuides: (show: boolean) => void;
+  setShowCanvasEdges: (show: boolean) => void;
   addAdDirectorSkillCategory: (category: { name: string }) => string;
   updateAdDirectorSkillCategory: (
     id: string,
@@ -807,6 +809,7 @@ export const useSettingsStore = create<SettingsState>()(
       showMiniMap: true,
       showGrid: true,
       showAlignmentGuides: true,
+      showCanvasEdges: true,
       adDirectorSkillCategories: [],
       adDirectorSkillTemplates: [],
       styleTemplateCategories: [],
@@ -1076,6 +1079,7 @@ export const useSettingsStore = create<SettingsState>()(
       setShowMiniMap: (show) => set({ showMiniMap: show }),
       setShowGrid: (show) => set({ showGrid: show }),
       setShowAlignmentGuides: (show) => set({ showAlignmentGuides: show }),
+      setShowCanvasEdges: (show) => set({ showCanvasEdges: show }),
       addAdDirectorSkillCategory: ({ name }) => {
         const trimmedName = name.trim();
         if (!trimmedName) {
@@ -1860,6 +1864,7 @@ export const useSettingsStore = create<SettingsState>()(
           showMiniMap?: boolean;
           showGrid?: boolean;
           showAlignmentGuides?: boolean;
+          showCanvasEdges?: boolean;
           adDirectorSkillCategories?: unknown;
           adDirectorSkillTemplates?: unknown;
           styleTemplateCategories?: unknown;
@@ -2089,6 +2094,7 @@ export const useSettingsStore = create<SettingsState>()(
           showMiniMap: state.showMiniMap ?? true,
           showGrid: state.showGrid ?? true,
           showAlignmentGuides: state.showAlignmentGuides ?? true,
+          showCanvasEdges: state.showCanvasEdges ?? true,
           adDirectorSkillCategories: normalizedAdDirectorSkillCategories,
           adDirectorSkillTemplates: normalizedAdDirectorSkillTemplates,
           styleTemplateCategories: normalizedStyleTemplateCategories,

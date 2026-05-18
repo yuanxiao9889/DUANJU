@@ -396,7 +396,9 @@
       "alignmentGuidesOn": "关闭对齐吸附",
       "alignmentGuidesOff": "开启对齐吸附",
       "miniMapOn": "隐藏小地图",
-      "miniMapOff": "显示小地图"
+      "miniMapOff": "显示小地图",
+      "connectionLinesOn": "隐藏连接线",
+      "connectionLinesOff": "显示连接线"
     },
     "semanticColor": {
       "title": "语义",

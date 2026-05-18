@@ -28,7 +28,7 @@ import { getCurrentWindow } from '@tauri-apps/api/window';
 import { join } from '@tauri-apps/api/path';
 import { open } from '@tauri-apps/plugin-dialog';
 import { useTranslation } from 'react-i18next';
-import { Upload, ImagePlus, Grid3x3, Map as MapIcon, Plus, Minus, AlignCenter, ListOrdered, History } from 'lucide-react';
+import { Upload, ImagePlus, Grid3x3, Map as MapIcon, Plus, Minus, AlignCenter, ListOrdered, History, Link2 } from 'lucide-react';
 import '@xyflow/react/dist/style.css';
 
 import {
@@ -312,7 +312,7 @@ type ImageCompareValidationReason =
 const ALT_DRAG_COPY_Z_INDEX = 2000;
 const SCRIPT_CHAPTER_NODE_DRAG_HANDLE_SELECTOR = '.script-chapter-node__drag-handle';
 const NODE_ALIGNMENT_DRAG_START_THRESHOLD = 4;
-const CANVAS_OVERVIEW_ZOOM_THRESHOLD = 0.6;
+const CANVAS_OVERVIEW_ZOOM_THRESHOLD = 0.4;
 const CANVAS_THUMBNAIL_MEDIA_COUNT_THRESHOLD = 250;
 const GENERATION_JOB_POLL_INTERVAL_MS = 1400;
 const GENERATION_JOB_RECOVERY_THRESHOLD_MS = 2 * 60 * 1000;
@@ -1379,9 +1379,11 @@ export function Canvas() {
   const showMiniMap = useSettingsStore((state) => state.showMiniMap);
   const showGrid = useSettingsStore((state) => state.showGrid);
   const showAlignmentGuides = useSettingsStore((state) => state.showAlignmentGuides);
+  const showCanvasEdges = useSettingsStore((state) => state.showCanvasEdges);
   const groupNodesShortcut = useSettingsStore((state) => state.groupNodesShortcut);
   const setShowMiniMap = useSettingsStore((state) => state.setShowMiniMap);
   const setShowAlignmentGuides = useSettingsStore((state) => state.setShowAlignmentGuides);
+  const setShowCanvasEdges = useSettingsStore((state) => state.setShowCanvasEdges);
   const storyboardApiKeys = useSettingsStore((state) => state.storyboardApiKeys);
   const jimengQueueJobs = useJimengVideoQueueStore((state) => state.jobs);
   const generationHistoryItems = useGenerationHistoryStore((state) => state.items);
@@ -1550,7 +1552,11 @@ export function Canvas() {
   }, [canvasRenderMode]);
 
   const effectiveCanvasEdgeRenderMode: CanvasEdgeRenderMode =
-    canvasRenderMode === 'overview' || dragHistorySnapshot ? 'light' : canvasEdgeRenderMode;
+    !showCanvasEdges
+      ? 'hidden'
+      : canvasRenderMode === 'overview' || dragHistorySnapshot
+        ? 'light'
+        : canvasEdgeRenderMode;
   const canvasPreviewMediaCountRef = useRef(0);
   const canvasPreviewMediaCount = useMemo(() => {
     if (dragHistorySnapshot) {
@@ -6433,6 +6439,23 @@ export function Canvas() {
           title={showMiniMap ? t('canvas.toolbar.miniMapOff') : t('canvas.toolbar.miniMapOn')}
         >
           <MapIcon style={{ width: '16px', height: '16px' }} />
+        </button>
+
+        <button
+          onClick={() => setShowCanvasEdges(!showCanvasEdges)}
+          aria-pressed={showCanvasEdges}
+          style={{
+            color: showCanvasEdges ? 'rgb(var(--accent-rgb))' : 'rgb(var(--text-muted-rgb))',
+            padding: '6px',
+            borderRadius: '4px'
+          }}
+          title={
+            showCanvasEdges
+              ? t('canvas.toolbar.connectionLinesOn')
+              : t('canvas.toolbar.connectionLinesOff')
+          }
+        >
+          <Link2 style={{ width: '16px', height: '16px' }} />
         </button>
 
         <div style={{ width: '1px', height: '16px', backgroundColor: 'rgb(var(--border-rgb))' }} />
