@@ -7,10 +7,9 @@ import {
 import { CanvasHandle } from "@/features/canvas/ui/CanvasHandle";
 import { Check, Copy, FileText, Loader2 } from "lucide-react";
 import ReactMarkdown from "react-markdown";
-import remarkGfm from "remark-gfm";
-import remarkBreaks from "remark-breaks";
 import { useTranslation } from "react-i18next";
 import { openUrl } from "@tauri-apps/plugin-opener";
+import { markdownRemarkPlugins } from "@/features/app/markdownPlugins";
 import {
   CANVAS_NODE_TYPES,
   TTS_TEXT_NODE_DEFAULT_HEIGHT,
@@ -246,7 +245,7 @@ export const TextAnnotationNode = memo(
             {content.trim().length > 0 ? (
               <div className="markdown-body break-words [&_a]:text-accent [&_blockquote]:border-l-2 [&_blockquote]:border-white/20 [&_blockquote]:pl-3 [&_code]:rounded [&_code]:bg-white/10 [&_code]:px-1 [&_code]:py-0.5 [&_h1]:text-base [&_h1]:font-semibold [&_h2]:text-[15px] [&_h2]:font-semibold [&_h3]:text-sm [&_h3]:font-semibold [&_hr]:border-white/10 [&_li]:my-0.5 [&_ol]:list-decimal [&_ol]:pl-5 [&_p]:my-0 [&_p+_p]:mt-4 [&_pre]:overflow-auto [&_pre]:rounded-md [&_pre]:bg-black/30 [&_pre]:p-2 [&_table]:w-full [&_table]:border-collapse [&_table]:text-xs [&_td]:border [&_td]:border-white/10 [&_td]:px-2 [&_td]:py-1 [&_th]:border [&_th]:border-white/10 [&_th]:px-2 [&_th]:py-1 [&_ul]:list-disc [&_ul]:pl-5">
                 <ReactMarkdown
-                  remarkPlugins={[remarkGfm, remarkBreaks]}
+                  remarkPlugins={markdownRemarkPlugins}
                   components={{
                     a: ({ href, children, ...props }) => (
                       <a

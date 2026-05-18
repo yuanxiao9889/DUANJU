@@ -137,7 +137,7 @@ export async function embedStoryboardImageMetadata(
 
 export async function prepareNodeImageSource(
   source: string,
-  maxPreviewDimension = 512,
+  maxPreviewDimension = 256,
   mediaContext?: MediaPersistContext
 ): Promise<PrepareNodeImageSourceResult> {
   return await invoke('prepare_node_image_source', {
@@ -150,7 +150,7 @@ export async function prepareNodeImageSource(
 export async function prepareNodeImageBinary(
   bytes: Uint8Array,
   extension?: string,
-  maxPreviewDimension = 512,
+  maxPreviewDimension = 256,
   mediaContext?: MediaPersistContext
 ): Promise<PrepareNodeImageSourceResult> {
   return await invoke('prepare_node_image_binary', {

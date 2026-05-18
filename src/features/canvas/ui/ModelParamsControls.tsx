@@ -375,6 +375,10 @@ export const ModelParamsControls = memo(({
   useEffect(() => {
     const handleOutside = (event: MouseEvent) => {
       const target = event.target as globalThis.Node;
+      const insideUiSelectListbox =
+        target instanceof Element
+          ? target.closest('[data-ui-select-listbox="true"]') !== null
+          : false;
       if (containerRef.current?.contains(target)) {
         return;
       }
@@ -385,6 +389,9 @@ export const ModelParamsControls = memo(({
         return;
       }
       if (otherParamsPanelRef.current?.contains(target)) {
+        return;
+      }
+      if (insideUiSelectListbox) {
         return;
       }
       setOpenPanel(null);

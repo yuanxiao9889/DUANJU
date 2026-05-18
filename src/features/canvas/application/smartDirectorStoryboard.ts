@@ -556,6 +556,40 @@ function extractPreviewSourceText(snapshot: ScriptAssetExtractSourceSnapshot): s
     .trim();
 }
 
+const PREVIEW_SENTENCE_BREAK_PUNCTUATION = new Set(['。', '！', '？', '!', '?', '；', ';']);
+
+function splitPreviewSentenceParts(text: string): string[] {
+  const parts: string[] = [];
+  let current = '';
+
+  for (let index = 0; index < text.length; index += 1) {
+    const char = text[index];
+
+    if (char === '\n') {
+      if (current.trim().length > 0) {
+        parts.push(current);
+      }
+      current = '';
+      while (text[index + 1] === '\n') {
+        index += 1;
+      }
+      continue;
+    }
+
+    current += char;
+    if (PREVIEW_SENTENCE_BREAK_PUNCTUATION.has(char)) {
+      parts.push(current);
+      current = '';
+    }
+  }
+
+  if (current.trim().length > 0) {
+    parts.push(current);
+  }
+
+  return parts;
+}
+
 function buildLocalPreviewSegments(snapshot: ScriptAssetExtractSourceSnapshot): string[] {
   const sourceText = extractPreviewSourceText(snapshot);
   const normalized = sourceText
@@ -567,8 +601,7 @@ function buildLocalPreviewSegments(snapshot: ScriptAssetExtractSourceSnapshot): 
     return ['正在读取文本，准备拆解分镜。'];
   }
 
-  const sentenceParts = normalized
-    .split(/(?<=[。！？!?；;])|\n+/u)
+  const sentenceParts = splitPreviewSentenceParts(normalized)
     .map((part) => part.trim())
     .filter((part) => part.length > 0);
   const segments: string[] = [];
@@ -1799,6 +1832,7 @@ interface ProductionContext {
   imageModelId: string;
   imageSize: ImageEditNodeData['size'];
   imageAspectRatio: string;
+  imageExtraParams: Record<string, unknown>;
   groupTitle: string;
 }
 
@@ -1825,6 +1859,7 @@ interface ScriptStoryboardTableProductionImageSettings {
   modelId: string;
   size: ImageEditNodeData['size'];
   requestAspectRatio: string;
+  extraParams: Record<string, unknown>;
 }
 
 function resolveScriptStoryboardTableProductionImageSettings(
@@ -1860,6 +1895,11 @@ function resolveScriptStoryboardTableProductionImageSettings(
     modelId: model.id,
     size: resolvedResolution.value as ImageEditNodeData['size'],
     requestAspectRatio: resolvedAspectRatio,
+    extraParams:
+      data.productionExtraParams && typeof data.productionExtraParams === 'object'
+        && !Array.isArray(data.productionExtraParams)
+        ? { ...(data.productionExtraParams as Record<string, unknown>) }
+        : {},
   };
 }
 
@@ -1930,6 +1970,7 @@ function buildProductionContext(input: {
     imageModelId: productionImageSettings.modelId,
     imageSize: productionImageSettings.size,
     imageAspectRatio: productionImageSettings.requestAspectRatio,
+    imageExtraParams: productionImageSettings.extraParams,
     groupTitle: `${input.durationGroup.label} · ${totalDurationSeconds}s`,
   };
 }
@@ -2570,6 +2611,7 @@ function buildProductionCardAndChildren(input: {
       model: context.imageModelId,
       size: context.imageSize,
       requestAspectRatio: context.imageAspectRatio,
+      extraParams: { ...context.imageExtraParams },
       sourceStoryboardTableNodeId: input.tableNode.id,
       sourceStoryboardRowIds: context.rowIds,
       sourceDurationGroupId: input.durationGroup.id,
@@ -2981,6 +3023,7 @@ function updateExistingProductionGroup(input: {
       model: input.context.imageModelId,
       size: input.context.imageSize,
       requestAspectRatio: input.context.imageAspectRatio,
+      extraParams: { ...input.context.imageExtraParams },
       sourceStoryboardTableNodeId: input.tableNode.id,
       sourceStoryboardRowIds: input.context.rowIds,
       sourceDurationGroupId: input.durationGroup.id,
@@ -3583,6 +3626,7 @@ export function createScriptStoryboardTableNode(
       productionImageModelId: DEFAULT_PRODUCTION_IMAGE_MODEL_ID,
       productionImageSize: '2K',
       productionImageAspectRatio: AUTO_REQUEST_ASPECT_RATIO,
+      productionExtraParams: {},
       productionStyleTemplateId: null,
       productionStyleTemplateName: null,
       productionStyleTemplatePrompt: null,
@@ -4453,6 +4497,8 @@ export async function createOrSelectStoryboardProjectForDirectorTable(
         context.tableNode.data.productionImageSize ?? preservedData?.productionImageSize,
       productionImageAspectRatio:
         context.tableNode.data.productionImageAspectRatio ?? preservedData?.productionImageAspectRatio,
+      productionExtraParams:
+        context.tableNode.data.productionExtraParams ?? preservedData?.productionExtraParams ?? {},
       productionStyleTemplateId:
         context.tableNode.data.productionStyleTemplateId
           ?? (shouldUseDefaultSketchTemplate

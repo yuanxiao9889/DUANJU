@@ -1167,7 +1167,7 @@ pub async fn prepare_node_image_source(
         return Err("Image source is empty".to_string());
     }
 
-    let safe_max_dimension = max_preview_dimension.unwrap_or(512).clamp(64, 4096);
+    let safe_max_dimension = max_preview_dimension.unwrap_or(256).clamp(64, 4096);
     let resolve_started = Instant::now();
     let (bytes, extension) = resolve_source_bytes(trimmed).await?;
     let resolve_elapsed = resolve_started.elapsed().as_millis();
@@ -1210,7 +1210,7 @@ pub async fn prepare_node_image_binary(
         return Err("Image bytes are empty".to_string());
     }
 
-    let safe_max_dimension = max_preview_dimension.unwrap_or(512).clamp(64, 4096);
+    let safe_max_dimension = max_preview_dimension.unwrap_or(256).clamp(64, 4096);
     let resolved_extension = extension
         .as_deref()
         .map(normalize_extension)

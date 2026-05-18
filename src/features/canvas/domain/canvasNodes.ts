@@ -2748,6 +2748,7 @@ export interface ScriptStoryboardTableNodeData extends NodeDisplayData {
   productionImageModelId?: string | null;
   productionImageSize?: ImageSize | null;
   productionImageAspectRatio?: string | null;
+  productionExtraParams?: Record<string, unknown>;
   productionStyleTemplateId?: string | null;
   productionStyleTemplateName?: string | null;
   productionStyleTemplatePrompt?: string | null;
@@ -5468,6 +5469,11 @@ export function normalizeScriptStoryboardTableNodeData(
         : ('2K' as ImageSize),
     productionImageAspectRatio:
       normalizeString(data.productionImageAspectRatio).trim() || AUTO_REQUEST_ASPECT_RATIO,
+    productionExtraParams:
+      data.productionExtraParams && typeof data.productionExtraParams === 'object'
+        && !Array.isArray(data.productionExtraParams)
+        ? { ...(data.productionExtraParams as Record<string, unknown>) }
+        : {},
     productionStyleTemplateId: normalizeString(data.productionStyleTemplateId).trim() || null,
     productionStyleTemplateName: normalizeString(data.productionStyleTemplateName).trim() || null,
     productionStyleTemplatePrompt: normalizeString(data.productionStyleTemplatePrompt).trim() || null,

@@ -41,7 +41,7 @@ function greatestCommonDivisor(a: number, b: number): number {
   return x || 1;
 }
 
-const DEFAULT_PREVIEW_MAX_DIMENSION = 512;
+const DEFAULT_PREVIEW_MAX_DIMENSION = 256;
 export const OVERVIEW_THUMBNAIL_MAX_DIMENSION = 96;
 const LOCAL_PATH_PREFIX_PATTERN = /^(?:[A-Za-z]:[\\/]|\\\\|\/)/;
 const URL_SCHEME_PREFIX_PATTERN = /^[a-z][a-z0-9+\-.]*:\/\//i;

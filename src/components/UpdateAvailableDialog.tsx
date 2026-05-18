@@ -1,10 +1,9 @@
 import { useCallback, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import ReactMarkdown from 'react-markdown';
-import remarkBreaks from 'remark-breaks';
-import remarkGfm from 'remark-gfm';
 import { openUrl } from '@tauri-apps/plugin-opener';
 import { UiButton, UiModal } from '@/components/ui';
+import { markdownRemarkPlugins } from '@/features/app/markdownPlugins';
 import type {
   UpdateDownloadProgress,
   UpdateErrorCode,
@@ -271,7 +270,7 @@ export function UpdateAvailableDialog({
           <div className="ui-scrollbar max-h-[360px] overflow-y-auto px-4 py-4">
             {releaseNotes?.trim() ? (
               <div className="prose prose-sm max-w-none text-text-muted prose-headings:text-text-dark prose-strong:text-text-dark prose-a:text-accent prose-code:text-text-dark prose-pre:bg-bg-dark">
-                <ReactMarkdown remarkPlugins={[remarkGfm, remarkBreaks]}>
+                <ReactMarkdown remarkPlugins={markdownRemarkPlugins}>
                   {releaseNotes}
                 </ReactMarkdown>
               </div>

@@ -502,6 +502,13 @@ export const SmartDirectorStoryboardTable = memo(function SmartDirectorStoryboar
               onAspectRatioChange={(aspectRatio) => updateNodeData(nodeId, {
                 productionImageAspectRatio: aspectRatio,
               })}
+              extraParams={data.productionExtraParams ?? {}}
+              onExtraParamChange={(key, value) => updateNodeData(nodeId, {
+                productionExtraParams: {
+                  ...(data.productionExtraParams ?? {}),
+                  [key]: value,
+                },
+              })}
               onStyleTemplateApply={(template) => updateNodeData(nodeId, {
                 productionStyleTemplateId: template.id,
                 productionStyleTemplateName: template.name,
