@@ -1,6 +1,7 @@
 use base64::{engine::general_purpose::STANDARD, Engine};
 use image::imageops::FilterType;
 use image::ImageFormat;
+use reqwest::multipart::{Form, Part};
 use reqwest::{header::HeaderMap, Client};
 use serde::Deserialize;
 use serde_json::{json, Value};
@@ -1088,6 +1089,32 @@ impl NewApiProvider {
                     || normalized.contains("form-data")))
     }
 
+    fn should_fallback_to_curl_for_multipart_provider_error(message: &str) -> bool {
+        if Self::is_timeout_message(message) {
+            return false;
+        }
+
+        let normalized = message.trim().to_ascii_lowercase();
+        Self::is_json_parse_error(message)
+            || normalized.contains("invalid json payload received")
+            || normalized.contains("unable to parse")
+            || normalized.contains("multipart")
+            || normalized.contains("form-data")
+            || normalized.contains("content-type")
+            || normalized.contains("boundary")
+            || normalized.contains("unsupported media type")
+    }
+
+    fn should_fallback_to_curl_for_multipart_error(error: &AIError) -> bool {
+        match error {
+            AIError::Network(network_error) => !network_error.is_timeout(),
+            AIError::Provider(message) => {
+                Self::should_fallback_to_curl_for_multipart_provider_error(message)
+            }
+            _ => false,
+        }
+    }
+
     fn is_flow2api_image_request_model(request_model: &str) -> bool {
         let normalized = Self::normalize_flow2api_image_request_model(request_model);
         let lower = normalized.to_ascii_lowercase();
@@ -1955,6 +1982,115 @@ impl NewApiProvider {
         })?
     }
 
+    async fn send_multipart_request_with_reqwest(
+        &self,
+        endpoint: &str,
+        api_key: &str,
+        text_fields: &[(String, String)],
+        file_parts: &[(String, Vec<u8>, &'static str)],
+        request_kind: &str,
+        timeout_seconds: u64,
+    ) -> Result<Value, AIError> {
+        let mut form = Form::new();
+        for (field_name, field_value) in text_fields {
+            form = form.text(field_name.clone(), field_value.clone());
+        }
+
+        for (index, (field_name, bytes, extension)) in file_parts.iter().enumerate() {
+            let part = Part::bytes(bytes.clone())
+                .file_name(format!("image_{}.{}", index + 1, extension))
+                .mime_str(Self::mime_type_from_extension(extension))
+                .map_err(|error| {
+                    AIError::Provider(format!(
+                        "Failed to create NewAPI {} multipart image part: {}",
+                        request_kind, error
+                    ))
+                })?;
+            form = form.part(field_name.clone(), part);
+        }
+
+        let response = self
+            .client
+            .post(endpoint)
+            .version(reqwest::Version::HTTP_11)
+            .header("Accept", "application/json")
+            .header("Authorization", format!("Bearer {}", api_key))
+            .header("X-API-Key", api_key)
+            .header("X-Banana-Client", BANANA_CLIENT_HEADER_VALUE)
+            .multipart(form)
+            .timeout(Duration::from_secs(timeout_seconds))
+            .send()
+            .await?;
+
+        let status = response.status();
+        let request_id = Self::extract_request_id_from_headers(response.headers());
+        let response_text = response.text().await?;
+        let request_id = request_id.or_else(|| Self::extract_request_id_from_text(&response_text));
+
+        info!(
+            "[NewAPI] {} {} -> {} via reqwest multipart",
+            request_kind, endpoint, status
+        );
+        info!("[NewAPI] {} response: {}", request_kind, response_text);
+
+        if !status.is_success() {
+            return Err(AIError::Provider(Self::append_request_id_to_error(
+                format!(
+                    "NewAPI {} request failed {}: {}",
+                    request_kind, status, response_text
+                ),
+                request_id,
+            )));
+        }
+
+        serde_json::from_str(&response_text).map_err(|error| {
+            AIError::Provider(format!(
+                "Failed to parse NewAPI {} response: {}. Response was: {}",
+                request_kind, error, response_text
+            ))
+        })
+    }
+
+    async fn send_multipart_request(
+        &self,
+        endpoint: String,
+        api_key: String,
+        text_fields: Vec<(String, String)>,
+        file_parts: Vec<(String, Vec<u8>, &'static str)>,
+        request_kind: String,
+        timeout_seconds: u64,
+    ) -> Result<Value, AIError> {
+        match self
+            .send_multipart_request_with_reqwest(
+                &endpoint,
+                &api_key,
+                &text_fields,
+                &file_parts,
+                &request_kind,
+                timeout_seconds,
+            )
+            .await
+        {
+            Ok(payload) => Ok(payload),
+            Err(error) if Self::should_fallback_to_curl_for_multipart_error(&error) => {
+                warn!(
+                    "[NewAPI] {} reqwest multipart failed, falling back to curl: {}",
+                    request_kind, error
+                );
+                Self::send_multipart_request_with_curl(
+                    endpoint,
+                    api_key,
+                    text_fields,
+                    file_parts,
+                    request_kind,
+                    timeout_seconds,
+                )
+                .await
+            }
+            Err(error) => Err(error),
+        }
+    }
+
     async fn build_generate_content_image_part(
         source: &str,
         force_png_reference_images: bool,
@@ -2260,7 +2396,7 @@ impl NewApiProvider {
             total_upload_bytes
         );
 
-        Self::send_multipart_request_with_curl(
+        self.send_multipart_request(
             endpoint,
             api_key.to_string(),
             text_fields,
@@ -2345,7 +2481,7 @@ impl NewApiProvider {
             total_upload_bytes
         );
 
-        Self::send_multipart_request_with_curl(
+        self.send_multipart_request(
             endpoint,
             api_key.to_string(),
             text_fields,
@@ -3233,6 +3369,30 @@ mod tests {
         assert!(NewApiProvider::is_timeout_message(
             "NewAPI generateContent request failed 504 Gateway Timeout: <html><body><center><h1>504 Gateway Time-out</h1></center></body></html>"
         ));
+    }
+
+    #[test]
+    fn multipart_provider_error_fallback_detects_form_data_parse_failures() {
+        assert!(NewApiProvider::should_fallback_to_curl_for_multipart_provider_error(
+            "NewAPI openai-images-edits request failed 400 Bad Request: {\"error\":{\"message\":\"Invalid JSON payload received. Unable to parse number. --boundary\"}}"
+        ));
+        assert!(NewApiProvider::should_fallback_to_curl_for_multipart_provider_error(
+            "NewAPI openai-images-edits request failed 415 Unsupported Media Type: multipart/form-data not supported"
+        ));
+    }
+
+    #[test]
+    fn multipart_provider_error_fallback_skips_timeout_failures() {
+        assert!(
+            !NewApiProvider::should_fallback_to_curl_for_multipart_provider_error(
+                "NewAPI openai-images-edits request failed 504 Gateway Timeout"
+            )
+        );
+        assert!(
+            !NewApiProvider::should_fallback_to_curl_for_multipart_error(&AIError::Provider(
+                "NewAPI openai-images-edits request failed 504 Gateway Timeout".to_string()
+            ))
+        );
     }
 
     #[test]
