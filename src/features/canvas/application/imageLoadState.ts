@@ -4,6 +4,7 @@ export type ImageLoadState = 'loaded' | 'failed';
 
 const IMAGE_FAILURE_RETRY_DELAY_MS = 5 * 60_000;
 const LOCAL_IMAGE_FAILURE_RETRY_DELAY_MS = 3_000;
+const IMAGE_LOAD_STATE_CACHE_LIMIT = 1024;
 const imageLoadStateCache = new Map<string, { state: ImageLoadState; updatedAt: number }>();
 
 function normalizeImageSource(value: string | null | undefined): string | null {
@@ -19,6 +20,44 @@ function resolveImageFailureRetryDelayMs(value: string): number {
   return isRetryableLocalImageSource(value)
     ? LOCAL_IMAGE_FAILURE_RETRY_DELAY_MS
     : IMAGE_FAILURE_RETRY_DELAY_MS;
+}
+
+function isExpiredFailure(
+  source: string,
+  entry: { state: ImageLoadState; updatedAt: number }
+): boolean {
+  return (
+    entry.state === 'failed'
+    && Date.now() - entry.updatedAt >= resolveImageFailureRetryDelayMs(source)
+  );
+}
+
+function pruneImageLoadStateCache(): void {
+  for (const [source, entry] of imageLoadStateCache) {
+    if (isExpiredFailure(source, entry)) {
+      imageLoadStateCache.delete(source);
+    }
+  }
+
+  while (imageLoadStateCache.size > IMAGE_LOAD_STATE_CACHE_LIMIT) {
+    const oldestKey = imageLoadStateCache.keys().next().value;
+    if (!oldestKey) {
+      break;
+    }
+    imageLoadStateCache.delete(oldestKey);
+  }
+}
+
+function rememberImageLoadState(source: string, state: ImageLoadState): void {
+  if (imageLoadStateCache.has(source)) {
+    imageLoadStateCache.delete(source);
+  }
+
+  imageLoadStateCache.set(source, {
+    state,
+    updatedAt: Date.now(),
+  });
+  pruneImageLoadStateCache();
 }
 
 export function getImageLoadRetryDelayMs(
@@ -58,13 +97,14 @@ export function getCachedImageLoadState(
   }
 
   if (
-    cached.state === 'failed'
-    && Date.now() - cached.updatedAt >= resolveImageFailureRetryDelayMs(normalized)
+    isExpiredFailure(normalized, cached)
   ) {
     imageLoadStateCache.delete(normalized);
     return null;
   }
 
+  imageLoadStateCache.delete(normalized);
+  imageLoadStateCache.set(normalized, cached);
   return cached.state;
 }
 
@@ -78,10 +118,7 @@ export function markImageLoadFailed(imageSrc: string | null | undefined): void {
     return;
   }
 
-  imageLoadStateCache.set(normalized, {
-    state: 'failed',
-    updatedAt: Date.now(),
-  });
+  rememberImageLoadState(normalized, 'failed');
 }
 
 export function markImageLoadSucceeded(imageSrc: string | null | undefined): void {
@@ -90,8 +127,5 @@ export function markImageLoadSucceeded(imageSrc: string | null | undefined): voi
     return;
   }
 
-  imageLoadStateCache.set(normalized, {
-    state: 'loaded',
-    updatedAt: Date.now(),
-  });
+  rememberImageLoadState(normalized, 'loaded');
 }

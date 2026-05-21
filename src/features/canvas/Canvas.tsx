@@ -338,6 +338,15 @@ const CLIPBOARD_IMAGE_PATH_PATTERN = /\.(png|jpe?g|webp|gif|bmp|tiff?|avif)$/i;
 const CLIPBOARD_VIDEO_PATH_PATTERN = /\.(mp4|webm|ogv|mov|avi|mkv)$/i;
 const CLIPBOARD_AUDIO_PATH_PATTERN = /\.(mp3|wav|ogg|oga|m4a|aac|flac)$/i;
 const VIEWPORT_ZOOM_SYNC_EPSILON = 0.0005;
+const CANVAS_NODE_PERSISTENCE_IGNORED_KEYS = new Set([
+  'selected',
+  'dragging',
+  'measured',
+  'positionAbsolute',
+  'internals',
+  'handleBounds',
+]);
+const CANVAS_EDGE_PERSISTENCE_IGNORED_KEYS = new Set(['selected']);
 
 interface GenerationStoryboardMetadata {
   gridRows: number;
@@ -375,6 +384,94 @@ function buildNodeIdSignature(nodeIds: readonly string[]): string {
 
 function parseNodeIdSignature(signature: string): string[] {
   return signature ? signature.split('\n').filter(Boolean) : [];
+}
+
+function areCanvasNodePersistenceRecordsEqual(left: CanvasNode, right: CanvasNode): boolean {
+  if (left === right) {
+    return true;
+  }
+
+  const leftRecord = left as Record<string, unknown>;
+  const rightRecord = right as Record<string, unknown>;
+  const keys = new Set([...Object.keys(leftRecord), ...Object.keys(rightRecord)]);
+
+  for (const key of keys) {
+    if (CANVAS_NODE_PERSISTENCE_IGNORED_KEYS.has(key)) {
+      continue;
+    }
+
+    if (leftRecord[key] !== rightRecord[key]) {
+      return false;
+    }
+  }
+
+  return true;
+}
+
+function areCanvasNodesEqualForPersistence(left: CanvasNode[], right: CanvasNode[]): boolean {
+  if (left === right) {
+    return true;
+  }
+
+  if (left.length !== right.length) {
+    return false;
+  }
+
+  for (let index = 0; index < left.length; index += 1) {
+    if (!areCanvasNodePersistenceRecordsEqual(left[index], right[index])) {
+      return false;
+    }
+  }
+
+  return true;
+}
+
+function areCanvasEdgePersistenceRecordsEqual(left: CanvasEdge, right: CanvasEdge): boolean {
+  if (left === right) {
+    return true;
+  }
+
+  const leftRecord = left as Record<string, unknown>;
+  const rightRecord = right as Record<string, unknown>;
+  const keys = new Set([...Object.keys(leftRecord), ...Object.keys(rightRecord)]);
+
+  for (const key of keys) {
+    if (CANVAS_EDGE_PERSISTENCE_IGNORED_KEYS.has(key)) {
+      continue;
+    }
+
+    if (leftRecord[key] !== rightRecord[key]) {
+      return false;
+    }
+  }
+
+  return true;
+}
+
+function areCanvasEdgesEqualForPersistence(left: CanvasEdge[], right: CanvasEdge[]): boolean {
+  if (left === right) {
+    return true;
+  }
+
+  if (left.length !== right.length) {
+    return false;
+  }
+
+  for (let index = 0; index < left.length; index += 1) {
+    if (!areCanvasEdgePersistenceRecordsEqual(left[index], right[index])) {
+      return false;
+    }
+  }
+
+  return true;
+}
+
+function areViewportsEqualForPersistence(left: Viewport, right: Viewport): boolean {
+  return (
+    Math.abs(left.x - right.x) < 0.01
+    && Math.abs(left.y - right.y) < 0.01
+    && Math.abs(left.zoom - right.zoom) < VIEWPORT_ZOOM_SYNC_EPSILON
+  );
 }
 
 function buildPendingGenerationNodeIdSignature(nodes: CanvasNode[]): string {
@@ -1984,10 +2081,23 @@ export function Canvas() {
     const currentNodes = useCanvasStore.getState().nodes;
     const currentEdges = useCanvasStore.getState().edges;
     const currentHistory = useCanvasStore.getState().history;
+    const currentViewport = reactFlowInstance.getViewport();
+    if (
+      currentProject.history === currentHistory
+      && areCanvasNodesEqualForPersistence(currentProject.nodes, currentNodes)
+      && areCanvasEdgesEqualForPersistence(currentProject.edges, currentEdges)
+      && areViewportsEqualForPersistence(
+        currentProject.viewport ?? DEFAULT_VIEWPORT,
+        currentViewport
+      )
+    ) {
+      return;
+    }
+
     saveCurrentProject(
       currentNodes,
       currentEdges,
-      reactFlowInstance.getViewport(),
+      currentViewport,
       currentHistory
     );
   }, [getCurrentProject, reactFlowInstance, saveCurrentProject]);

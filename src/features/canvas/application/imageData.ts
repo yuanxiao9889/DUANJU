@@ -67,6 +67,7 @@ export const OVERVIEW_THUMBNAIL_MAX_DIMENSION = DEFAULT_OVERVIEW_THUMBNAIL_MAX_D
 const LOCAL_PATH_PREFIX_PATTERN = /^(?:[A-Za-z]:[\\/]|\\\\|\/)/;
 const URL_SCHEME_PREFIX_PATTERN = /^[a-z][a-z0-9+\-.]*:\/\//i;
 const LOCAL_IMAGE_DISPLAY_SOURCE_CACHE_LIMIT = 512;
+const LOCAL_IMAGE_DISPLAY_SOURCE_FAILURE_CACHE_LIMIT = 512;
 const BUNDLED_APP_ASSET_PREFIXES = [
   '/assets/',
   './assets/',
@@ -443,6 +444,21 @@ function shouldSkipStableImageDisplaySourceRetry(localFilePath: string): boolean
   return false;
 }
 
+function rememberStableImageDisplaySourceFailure(localFilePath: string): void {
+  if (localImageDisplaySourceFailureCache.has(localFilePath)) {
+    localImageDisplaySourceFailureCache.delete(localFilePath);
+  }
+
+  localImageDisplaySourceFailureCache.set(localFilePath, Date.now());
+  while (localImageDisplaySourceFailureCache.size > LOCAL_IMAGE_DISPLAY_SOURCE_FAILURE_CACHE_LIMIT) {
+    const oldestKey = localImageDisplaySourceFailureCache.keys().next().value;
+    if (!oldestKey) {
+      break;
+    }
+    localImageDisplaySourceFailureCache.delete(oldestKey);
+  }
+}
+
 export async function loadStableImageDisplaySource(source: string): Promise<string> {
   const normalizedSource = source.trim();
   if (!normalizedSource) {
@@ -480,7 +496,7 @@ export async function loadStableImageDisplaySource(source: string): Promise<stri
     })
     .catch((error) => {
       localImageDisplaySourceInflight.delete(localFilePath);
-      localImageDisplaySourceFailureCache.set(localFilePath, Date.now());
+      rememberStableImageDisplaySourceFailure(localFilePath);
       throw error;
     });
 

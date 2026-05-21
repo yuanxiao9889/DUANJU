@@ -38,6 +38,7 @@ interface ThumbnailBackfillScheduleOptions extends ThumbnailBackfillScope {
 const BACKFILL_IDLE_DELAY_MS = 900;
 const BACKFILL_JOB_DELAY_MS = 140;
 const BACKFILL_FAILURE_RETRY_MS = 60_000;
+const BACKFILL_FAILURE_CACHE_LIMIT = 512;
 const TRANSIENT_SOURCE_PREFIXES = ['blob:', 'data:'] as const;
 
 let activeProjectId: string | null = null;
@@ -74,6 +75,21 @@ function hasRecentFailure(source: string): boolean {
 
   failedSourceAt.delete(source);
   return false;
+}
+
+function rememberBackfillFailure(source: string): void {
+  if (failedSourceAt.has(source)) {
+    failedSourceAt.delete(source);
+  }
+
+  failedSourceAt.set(source, Date.now());
+  while (failedSourceAt.size > BACKFILL_FAILURE_CACHE_LIMIT) {
+    const oldestKey = failedSourceAt.keys().next().value;
+    if (!oldestKey) {
+      break;
+    }
+    failedSourceAt.delete(oldestKey);
+  }
 }
 
 function normalizeThumbnailMaxDimension(value: unknown): number {
@@ -355,7 +371,7 @@ async function runThumbnailBackfill(projectId: string): Promise<void> {
           }
           applyThumbnailBackfill(job, thumbnailUrl);
         } catch (error) {
-          failedSourceAt.set(job.source, Date.now());
+          rememberBackfillFailure(job.source);
           console.debug('[thumbnailBackfill] failed to create thumbnail', {
             source: job.source,
             error,
@@ -380,6 +396,7 @@ export function scheduleCanvasThumbnailBackfill(
     activeProjectId = null;
     isBackfillPaused = false;
     activeBackfillScope = null;
+    failedSourceAt.clear();
     if (backfillTimer) {
       clearTimeout(backfillTimer);
       backfillTimer = null;
@@ -387,6 +404,9 @@ export function scheduleCanvasThumbnailBackfill(
     return;
   }
 
+  if (activeProjectId !== projectId) {
+    failedSourceAt.clear();
+  }
   activeProjectId = projectId;
   isBackfillPaused = options.paused === true;
   activeBackfillScope =
