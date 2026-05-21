@@ -1,6 +1,5 @@
 export type SettingsCategory =
   | 'providers'
-  | 'pricing'
   | 'appearance'
   | 'general'
   | 'releaseNotes'

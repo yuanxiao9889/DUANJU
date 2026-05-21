@@ -326,7 +326,7 @@ export function createStoryboardOopiiImageModel(
           label: 'Generation quality',
           labelKey: 'modelParams.generationQuality',
           description:
-            'Controls image fidelity, latency, and cost for all-image-2 output.',
+            'Controls image fidelity and latency for all-image-2 output.',
           descriptionKey: 'modelParams.generationQualityDesc',
           type: 'enum',
           defaultValue: 'medium',

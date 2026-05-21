@@ -149,6 +149,7 @@ export const CanvasNodeImage = memo(forwardRef<HTMLImageElement, CanvasNodeImage
   onDoubleClick,
   onError,
   onLoad,
+  className,
   src,
   ...props
 }, forwardedRef) => {
@@ -441,6 +442,7 @@ export const CanvasNodeImage = memo(forwardRef<HTMLImageElement, CanvasNodeImage
     <img
       {...props}
       ref={forwardedRef}
+      className={className ? `canvas-node-image ${className}` : 'canvas-node-image'}
       src={renderedSrc ?? EMPTY_IMAGE_DATA_URL}
       decoding={props.decoding ?? 'async'}
       fetchPriority={props.fetchPriority ?? 'low'}

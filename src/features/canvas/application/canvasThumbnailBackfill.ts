@@ -1,5 +1,16 @@
+import type { Viewport } from '@xyflow/react';
+
 import { createNodeOverviewThumbnail } from '@/features/canvas/application/imageData';
 import { createCurrentProjectMediaContext } from '@/features/canvas/application/mediaPersistenceContext';
+import {
+  createViewportPreloadRect,
+  type ImagePreloadViewportSize,
+  type ViewportImagePreloadOptions,
+} from '@/features/canvas/application/projectImagePreloader';
+import {
+  getCanvasNodeRect,
+  rectIntersects,
+} from '@/features/canvas/application/nodeGeometry';
 import { useCanvasStore, type CanvasNode, type CanvasNodeData } from '@/stores/canvasStore';
 
 type DataPathSegment = string | number;
@@ -10,6 +21,16 @@ interface ThumbnailBackfillJob {
   source: string;
 }
 
+interface ThumbnailBackfillScope {
+  viewport: Viewport;
+  viewportSize: ImagePreloadViewportSize;
+  options?: ViewportImagePreloadOptions;
+}
+
+interface ThumbnailBackfillScheduleOptions extends ThumbnailBackfillScope {
+  paused?: boolean;
+}
+
 const BACKFILL_IDLE_DELAY_MS = 900;
 const BACKFILL_JOB_DELAY_MS = 140;
 const BACKFILL_FAILURE_RETRY_MS = 60_000;
@@ -17,6 +38,7 @@ const TRANSIENT_SOURCE_PREFIXES = ['blob:', 'data:'] as const;
 
 let activeProjectId: string | null = null;
 let isBackfillPaused = false;
+let activeBackfillScope: ThumbnailBackfillScope | null = null;
 let backfillTimer: ReturnType<typeof setTimeout> | null = null;
 let backfillRunning = false;
 let rerunRequested = false;
@@ -102,10 +124,25 @@ function collectThumbnailJobsFromValue(
   });
 }
 
-function collectThumbnailBackfillJobs(nodes: CanvasNode[]): ThumbnailBackfillJob[] {
+function collectThumbnailBackfillJobs(
+  nodes: CanvasNode[],
+  scope: ThumbnailBackfillScope | null = null
+): ThumbnailBackfillJob[] {
+  const preloadRect = scope
+    ? createViewportPreloadRect(scope.viewport, scope.viewportSize, scope.options)
+    : null;
+  if (scope && !preloadRect) {
+    return [];
+  }
+
   const jobs: ThumbnailBackfillJob[] = [];
+  const nodeMap = preloadRect ? new Map(nodes.map((node) => [node.id, node] as const)) : null;
   const visited = new WeakSet<object>();
   nodes.forEach((node) => {
+    if (preloadRect && nodeMap && !rectIntersects(preloadRect, getCanvasNodeRect(node, nodeMap))) {
+      return;
+    }
+
     collectThumbnailJobsFromValue(node.id, node.data, [], jobs, visited);
   });
   return jobs;
@@ -113,6 +150,18 @@ function collectThumbnailBackfillJobs(nodes: CanvasNode[]): ThumbnailBackfillJob
 
 export function buildCanvasThumbnailBackfillSignature(nodes: CanvasNode[]): string {
   return collectThumbnailBackfillJobs(nodes)
+    .map((job) => `${job.nodeId}:${job.path.join('.')}:${job.source}`)
+    .sort()
+    .join('\n');
+}
+
+export function buildCanvasViewportThumbnailBackfillSignature(
+  nodes: CanvasNode[],
+  viewport: Viewport,
+  viewportSize: ImagePreloadViewportSize,
+  options?: ViewportImagePreloadOptions
+): string {
+  return collectThumbnailBackfillJobs(nodes, { viewport, viewportSize, options })
     .map((job) => `${job.nodeId}:${job.path.join('.')}:${job.source}`)
     .sort()
     .join('\n');
@@ -215,7 +264,10 @@ async function runThumbnailBackfill(projectId: string): Promise<void> {
     do {
       rerunRequested = false;
       while (activeProjectId === projectId && !isBackfillPaused) {
-        const jobs = collectThumbnailBackfillJobs(useCanvasStore.getState().nodes);
+        const jobs = collectThumbnailBackfillJobs(
+          useCanvasStore.getState().nodes,
+          activeBackfillScope
+        );
         const job = jobs[0];
         if (!job) {
           break;
@@ -250,11 +302,12 @@ async function runThumbnailBackfill(projectId: string): Promise<void> {
 
 export function scheduleCanvasThumbnailBackfill(
   projectId: string | null | undefined,
-  options: { paused?: boolean } = {}
+  options: Partial<ThumbnailBackfillScheduleOptions> = {}
 ): void {
   if (!projectId) {
     activeProjectId = null;
     isBackfillPaused = false;
+    activeBackfillScope = null;
     if (backfillTimer) {
       clearTimeout(backfillTimer);
       backfillTimer = null;
@@ -264,6 +317,14 @@ export function scheduleCanvasThumbnailBackfill(
 
   activeProjectId = projectId;
   isBackfillPaused = options.paused === true;
+  activeBackfillScope =
+    options.viewport && options.viewportSize
+      ? {
+        viewport: options.viewport,
+        viewportSize: options.viewportSize,
+        options: options.options,
+      }
+      : null;
   if (backfillTimer) {
     clearTimeout(backfillTimer);
     backfillTimer = null;

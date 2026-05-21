@@ -76,6 +76,7 @@ import {
 import { resolveNodeDownloadSuggestedFileStem } from '@/features/canvas/application/downloadFileName';
 import {
   buildCanvasThumbnailBackfillSignature,
+  buildCanvasViewportThumbnailBackfillSignature,
   scheduleCanvasThumbnailBackfill,
 } from '@/features/canvas/application/canvasThumbnailBackfill';
 import {
@@ -2641,10 +2642,18 @@ export function Canvas() {
       return thumbnailBackfillSignatureRef.current;
     }
 
-    const signature = buildCanvasThumbnailBackfillSignature(nodes);
+    const signature =
+      canvasViewportSize.width > 0 && canvasViewportSize.height > 0
+        ? buildCanvasViewportThumbnailBackfillSignature(
+          nodes,
+          canvasViewport,
+          canvasViewportSize,
+          { marginScreens: 1 }
+        )
+        : buildCanvasThumbnailBackfillSignature(nodes);
     thumbnailBackfillSignatureRef.current = signature;
     return signature;
-  }, [dragHistorySnapshot, nodes]);
+  }, [canvasViewport, canvasViewportSize, dragHistorySnapshot, nodes]);
 
   useEffect(() => {
     if (isRestoringCanvasRef.current) {
@@ -2652,9 +2661,23 @@ export function Canvas() {
     }
 
     scheduleCanvasThumbnailBackfill(currentProjectId, {
-      paused: isCanvasOverviewRender || Boolean(dragHistorySnapshot),
+      paused:
+        isCanvasOverviewRender
+        || Boolean(dragHistorySnapshot)
+        || canvasViewportSize.width <= 0
+        || canvasViewportSize.height <= 0,
+      viewport: canvasViewport,
+      viewportSize: canvasViewportSize,
+      options: { marginScreens: 1 },
     });
-  }, [currentProjectId, dragHistorySnapshot, isCanvasOverviewRender, thumbnailBackfillSignature]);
+  }, [
+    canvasViewport,
+    canvasViewportSize,
+    currentProjectId,
+    dragHistorySnapshot,
+    isCanvasOverviewRender,
+    thumbnailBackfillSignature,
+  ]);
 
   useEffect(() => () => {
     scheduleCanvasThumbnailBackfill(null);

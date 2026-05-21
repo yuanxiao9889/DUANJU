@@ -103,7 +103,6 @@ import {
   toStoryboardNewApiExtraParamsPayload,
 } from "@/features/canvas/models";
 import { GRSAI_NANO_BANANA_PRO_MODEL_ID } from "@/features/canvas/models/image/grsai/nanoBananaPro";
-import { resolveModelPriceDisplay } from "@/features/canvas/pricing";
 import { useCanvasConnectedReferenceVisuals } from "@/features/canvas/hooks/useCanvasNodeGraph";
 import { useCanvasZoom } from "@/features/canvas/hooks/useCanvasZoom";
 import { useIsOverviewCanvasRender } from "@/features/canvas/CanvasPerformanceContext";
@@ -114,7 +113,6 @@ import {
   NodeHeader,
   NODE_HEADER_FLOATING_POSITION_CLASS,
 } from "@/features/canvas/ui/NodeHeader";
-import { NodePriceBadge } from "@/features/canvas/ui/NodePriceBadge";
 import { NodeResizeHandle } from "@/features/canvas/ui/NodeResizeHandle";
 import { NodeStatusBadge } from "@/features/canvas/ui/NodeStatusBadge";
 import { PROMPT_REFERENCE_TOKEN_HIGHLIGHT_CLASS } from "@/features/canvas/ui/promptReferenceTokenStyles";
@@ -604,7 +602,7 @@ function generateGridImageDataUrl(
 
 export const StoryboardGenNode = memo(
   ({ id, data, selected, width, height }: StoryboardGenNodeProps) => {
-    const { t, i18n } = useTranslation();
+    const { t } = useTranslation();
     const isOverviewRender = useIsOverviewCanvasRender();
     const zoom = useCanvasZoom();
     const updateNodeInternals = useUpdateNodeInternals();
@@ -654,17 +652,6 @@ export const StoryboardGenNode = memo(
     );
     const setLastImageGenerationExtraParams = useSettingsStore(
       (state) => state.setLastImageGenerationExtraParams,
-    );
-    const showNodePrice = useSettingsStore((state) => state.showNodePrice);
-    const priceDisplayCurrencyMode = useSettingsStore(
-      (state) => state.priceDisplayCurrencyMode,
-    );
-    const usdToCnyRate = useSettingsStore((state) => state.usdToCnyRate);
-    const preferDiscountedPrice = useSettingsStore(
-      (state) => state.preferDiscountedPrice,
-    );
-    const grsaiCreditTierId = useSettingsStore(
-      (state) => state.grsaiCreditTierId,
     );
 
     const [error, setError] = useState<string | null>(null);
@@ -1111,69 +1098,6 @@ export const StoryboardGenNode = memo(
         resolvedNewApiModelConfig.requestModel,
       ],
     );
-    const resolvedPriceDisplay = useMemo(
-      () =>
-        showNodePrice
-          ? resolveModelPriceDisplay(selectedModel, {
-              resolution: selectedResolution.value,
-              extraParams: effectiveExtraParams,
-              language: i18n.language,
-              settings: {
-                displayCurrencyMode: priceDisplayCurrencyMode,
-                usdToCnyRate,
-                preferDiscountedPrice,
-                grsaiCreditTierId,
-              },
-            })
-          : null,
-      [
-        grsaiCreditTierId,
-        i18n.language,
-        preferDiscountedPrice,
-        priceDisplayCurrencyMode,
-        effectiveExtraParams,
-        selectedModel,
-        selectedResolution.value,
-        showNodePrice,
-        usdToCnyRate,
-      ],
-    );
-    const resolvedPriceTooltip = useMemo(() => {
-      if (!resolvedPriceDisplay) {
-        return undefined;
-      }
-
-      const lines = [resolvedPriceDisplay.label];
-      if (resolvedPriceDisplay.nativeLabel) {
-        lines.push(
-          t("pricing.nativePrice", { value: resolvedPriceDisplay.nativeLabel }),
-        );
-      }
-      if (resolvedPriceDisplay.originalLabel) {
-        lines.push(
-          t("pricing.originalPrice", {
-            value: resolvedPriceDisplay.originalLabel,
-          }),
-        );
-      }
-      if (resolvedPriceDisplay.pointsCost) {
-        lines.push(
-          t("pricing.pointsCost", { count: resolvedPriceDisplay.pointsCost }),
-        );
-      }
-      if (resolvedPriceDisplay.grsaiCreditTier) {
-        lines.push(
-          t("pricing.grsaiTier", {
-            price: resolvedPriceDisplay.grsaiCreditTier.priceCny.toFixed(2),
-            credits:
-              resolvedPriceDisplay.grsaiCreditTier.credits.toLocaleString(
-                i18n.language.startsWith("zh") ? "zh-CN" : "en-US",
-              ),
-          }),
-        );
-      }
-      return lines.join("\n");
-    }, [i18n.language, resolvedPriceDisplay, t]);
     const headerStatus = useMemo(() => {
       if (!error) {
         return null;
@@ -1189,23 +1113,16 @@ export const StoryboardGenNode = memo(
       );
     }, [error, t]);
     const headerRightSlot = useMemo(() => {
-      if (!resolvedPriceDisplay && !headerStatus) {
+      if (!headerStatus) {
         return undefined;
       }
 
       return (
         <div className="mr-2 flex items-center gap-2">
-          {resolvedPriceDisplay ? (
-            <NodePriceBadge
-              label={resolvedPriceDisplay.label}
-              title={resolvedPriceTooltip}
-              className="mr-0"
-            />
-          ) : null}
           {headerStatus}
         </div>
       );
-    }, [headerStatus, resolvedPriceDisplay, resolvedPriceTooltip]);
+    }, [headerStatus]);
 
     const supportedAspectRatioValues = useMemo(
       () => selectedModel.aspectRatios.map((item) => item.value),

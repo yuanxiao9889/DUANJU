@@ -6,12 +6,6 @@ import {
   saveStyleTemplateState,
 } from '@/commands/styleTemplateState';
 import {
-  DEFAULT_GRSAI_CREDIT_TIER_ID,
-  PRICE_DISPLAY_CURRENCY_MODES,
-  type GrsaiCreditTierId,
-  type PriceDisplayCurrencyMode,
-} from '@/features/canvas/pricing/types';
-import {
   DEFAULT_GROUP_NODES_SHORTCUT,
   normalizeShortcut,
 } from '@/features/settings/keyboardShortcuts';
@@ -192,11 +186,6 @@ interface SettingsState {
   enableStoryboardGenGridPreviewShortcut: boolean;
   groupNodesShortcut: string;
   showStoryboardGenAdvancedRatioControls: boolean;
-  showNodePrice: boolean;
-  priceDisplayCurrencyMode: PriceDisplayCurrencyMode;
-  usdToCnyRate: number;
-  preferDiscountedPrice: boolean;
-  grsaiCreditTierId: GrsaiCreditTierId;
   uiRadiusPreset: UiRadiusPreset;
   themeTonePreset: ThemeTonePreset;
   accentColor: string;
@@ -297,11 +286,6 @@ interface SettingsState {
   setEnableStoryboardGenGridPreviewShortcut: (enabled: boolean) => void;
   setGroupNodesShortcut: (shortcut: string) => void;
   setShowStoryboardGenAdvancedRatioControls: (enabled: boolean) => void;
-  setShowNodePrice: (enabled: boolean) => void;
-  setPriceDisplayCurrencyMode: (mode: PriceDisplayCurrencyMode) => void;
-  setUsdToCnyRate: (rate: number) => void;
-  setPreferDiscountedPrice: (enabled: boolean) => void;
-  setGrsaiCreditTierId: (tierId: GrsaiCreditTierId) => void;
   setUiRadiusPreset: (preset: UiRadiusPreset) => void;
   setThemeTonePreset: (preset: ThemeTonePreset) => void;
   setAccentColor: (color: string) => void;
@@ -535,39 +519,6 @@ function normalizeAndSeedStyleTemplateState(
   };
 }
 
-function normalizePriceDisplayCurrencyMode(
-  input: PriceDisplayCurrencyMode | string | null | undefined
-): PriceDisplayCurrencyMode {
-  return PRICE_DISPLAY_CURRENCY_MODES.includes(input as PriceDisplayCurrencyMode)
-    ? (input as PriceDisplayCurrencyMode)
-    : 'auto';
-}
-
-function normalizeUsdToCnyRate(input: number | string | null | undefined): number {
-  const numeric = typeof input === 'number' ? input : Number(input);
-  if (!Number.isFinite(numeric) || numeric <= 0) {
-    return 7.2;
-  }
-
-  return Math.min(100, Math.max(0.01, Math.round(numeric * 100) / 100));
-}
-
-function normalizeGrsaiCreditTierId(
-  input: GrsaiCreditTierId | string | null | undefined
-): GrsaiCreditTierId {
-  switch (input) {
-    case 'tier-10':
-    case 'tier-20':
-    case 'tier-49':
-    case 'tier-99':
-    case 'tier-499':
-    case 'tier-999':
-      return input;
-    default:
-      return DEFAULT_GRSAI_CREDIT_TIER_ID;
-  }
-}
-
 function normalizeGrsaiNanoBananaProModel(input: string | null | undefined): string {
   const trimmed = (input ?? '').trim().toLowerCase();
   if (trimmed === DEFAULT_GRSAI_NANO_BANANA_PRO_MODEL || trimmed.startsWith('nano-banana-pro-')) {
@@ -793,11 +744,6 @@ export const useSettingsStore = create<SettingsState>()(
       enableStoryboardGenGridPreviewShortcut: false,
       groupNodesShortcut: DEFAULT_GROUP_NODES_SHORTCUT,
       showStoryboardGenAdvancedRatioControls: false,
-      showNodePrice: true,
-      priceDisplayCurrencyMode: 'auto',
-      usdToCnyRate: 7.2,
-      preferDiscountedPrice: false,
-      grsaiCreditTierId: DEFAULT_GRSAI_CREDIT_TIER_ID,
       uiRadiusPreset: 'default',
       themeTonePreset: 'neutral',
       accentColor: '#3B82F6',
@@ -1056,17 +1002,6 @@ export const useSettingsStore = create<SettingsState>()(
         set({ groupNodesShortcut: normalizeShortcut(shortcut) }),
       setShowStoryboardGenAdvancedRatioControls: (enabled) =>
         set({ showStoryboardGenAdvancedRatioControls: enabled }),
-      setShowNodePrice: (enabled) => set({ showNodePrice: enabled }),
-      setPriceDisplayCurrencyMode: (priceDisplayCurrencyMode) =>
-        set({
-          priceDisplayCurrencyMode:
-            normalizePriceDisplayCurrencyMode(priceDisplayCurrencyMode),
-        }),
-      setUsdToCnyRate: (usdToCnyRate) =>
-        set({ usdToCnyRate: normalizeUsdToCnyRate(usdToCnyRate) }),
-      setPreferDiscountedPrice: (enabled) => set({ preferDiscountedPrice: enabled }),
-      setGrsaiCreditTierId: (grsaiCreditTierId) =>
-        set({ grsaiCreditTierId: normalizeGrsaiCreditTierId(grsaiCreditTierId) }),
       setUiRadiusPreset: (uiRadiusPreset) => set({ uiRadiusPreset }),
       setThemeTonePreset: (themeTonePreset) => set({ themeTonePreset }),
       setAccentColor: (color) => set({ accentColor: normalizeHexColor(color) }),
@@ -1856,11 +1791,6 @@ export const useSettingsStore = create<SettingsState>()(
           groupNodesShortcut?: string;
           showStoryboardGenAdvancedRatioControls?: boolean;
           storyboardGenAutoInferEmptyFrame?: boolean;
-          showNodePrice?: boolean;
-          priceDisplayCurrencyMode?: PriceDisplayCurrencyMode | string;
-          usdToCnyRate?: number | string;
-          preferDiscountedPrice?: boolean;
-          grsaiCreditTierId?: GrsaiCreditTierId | string;
           showMiniMap?: boolean;
           showGrid?: boolean;
           showAlignmentGuides?: boolean;
@@ -2084,13 +2014,6 @@ export const useSettingsStore = create<SettingsState>()(
           showStoryboardGenAdvancedRatioControls:
             state.showStoryboardGenAdvancedRatioControls ?? false,
           storyboardGenAutoInferEmptyFrame: state.storyboardGenAutoInferEmptyFrame ?? true,
-          showNodePrice: state.showNodePrice ?? true,
-          priceDisplayCurrencyMode: normalizePriceDisplayCurrencyMode(
-            state.priceDisplayCurrencyMode
-          ),
-          usdToCnyRate: normalizeUsdToCnyRate(state.usdToCnyRate),
-          preferDiscountedPrice: state.preferDiscountedPrice ?? false,
-          grsaiCreditTierId: normalizeGrsaiCreditTierId(state.grsaiCreditTierId),
           showMiniMap: state.showMiniMap ?? true,
           showGrid: state.showGrid ?? true,
           showAlignmentGuides: state.showAlignmentGuides ?? true,

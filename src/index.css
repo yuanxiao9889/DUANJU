@@ -478,6 +478,11 @@ html[data-platform="macos"] #root {
   overflow: visible;
 }
 
+.canvas-node-image {
+  backface-visibility: hidden;
+  transform: translateZ(0);
+}
+
 .canvas-render-overview
   .react-flow__node
   > :is(
@@ -549,6 +554,8 @@ html[data-platform="macos"] #root {
   height: 100%;
   object-fit: cover;
   image-rendering: auto;
+  backface-visibility: hidden;
+  transform: translateZ(0);
 }
 
 .canvas-overview-node__shade {
@@ -638,6 +645,21 @@ html[data-platform="macos"] #root {
     .react-flow__handle + .react-flow__handle + :not(.react-flow__handle)
   ) {
   transition: none !important;
+  will-change: transform;
+  transform: translateZ(0);
+  contain: layout paint style;
+}
+
+.canvas-render-dragging
+  .react-flow__node.dragging
+  :is(.canvas-node-image, img, video, canvas) {
+  backface-visibility: hidden;
+  transform: translateZ(0);
+  will-change: transform;
+}
+
+.canvas-render-dragging .react-flow__node.dragging :is(.canvas-edge-glow, .edge-particles circle) {
+  filter: none !important;
 }
 
 .canvas-render-dragging .react-flow__node.dragging *,

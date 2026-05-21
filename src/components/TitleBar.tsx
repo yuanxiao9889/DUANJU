@@ -159,16 +159,6 @@ export function TitleBar({
     [],
   );
 
-  const handleDragStart = useCallback(async (e: React.MouseEvent) => {
-    if (e.button !== 0) return;
-    if (!isTauri()) return;
-    const target = e.target as HTMLElement | null;
-    if (target?.closest('button') || target?.closest('[data-no-drag="true"]')) {
-      return;
-    }
-    await getCurrentWindow().startDragging();
-  }, []);
-
   const handleLanguageClick = useCallback(() => {
     const newLang = i18n.language.startsWith('zh') ? 'en' : 'zh';
     i18n.changeLanguage(newLang);
@@ -260,8 +250,7 @@ export function TitleBar({
       ) : null}
 
       <div
-        className="flex-1 h-full flex items-center px-4 cursor-move"
-        onMouseDown={handleDragStart}
+        className="flex-1 h-full flex items-center px-4 cursor-default"
       >
         {showBackButton && onBackClick && (
           <button
@@ -278,15 +267,16 @@ export function TitleBar({
             <ArrowLeft className="w-4 h-4 text-text-muted hover:text-text-dark" />
           </button>
         )}
-        <div className="flex items-center gap-2 min-w-0">
+        <div className="flex h-full min-w-0 flex-1 items-center gap-2" data-tauri-drag-region>
           <img
             src={titlebarLogo}
             alt=""
             className={`h-5 w-auto shrink-0 object-contain select-none ${theme === 'light' ? 'brightness-0' : ''}`}
             draggable={false}
+            data-tauri-drag-region
           />
           {runtimeVersion ? (
-            <span className="text-xs font-medium text-text-muted">
+            <span className="text-xs font-medium text-text-muted" data-tauri-drag-region>
               v{runtimeVersion}
             </span>
           ) : null}

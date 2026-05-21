@@ -131,15 +131,6 @@ const RIGHT_WIDTH_MIN = 300;
 const RIGHT_WIDTH_MAX = 520;
 const CLIP_ITEM_RENDER_BATCH_SIZE = 80;
 
-function isWindowChromeInteractiveTarget(target: HTMLElement | null): boolean {
-  return Boolean(
-    target?.closest('button')
-    || target?.closest('input')
-    || target?.closest('select')
-    || target?.closest('[data-window-control="true"]')
-  );
-}
-
 function clamp(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value));
 }
@@ -1050,21 +1041,6 @@ export function DetachedClipLibraryWindow() {
     [leftWidth, rightWidth]
   );
 
-  const handleHeaderDrag = useCallback(
-    async (event: ReactMouseEvent<HTMLElement>) => {
-      const target = event.target as HTMLElement | null;
-      if (isWindowChromeInteractiveTarget(target)) {
-        return;
-      }
-      try {
-        await appWindow.startDragging();
-      } catch (error) {
-        console.warn('Failed to start dragging clip library window', error);
-      }
-    },
-    [appWindow]
-  );
-
   const handleMinimizeWindow = useCallback(async () => {
     try {
       await appWindow.minimize();
@@ -1089,12 +1065,7 @@ export function DetachedClipLibraryWindow() {
   }, [appWindow]);
 
   const handleHeaderDoubleClick = useCallback(
-    async (event: ReactMouseEvent<HTMLElement>) => {
-      const target = event.target as HTMLElement | null;
-      if (isWindowChromeInteractiveTarget(target)) {
-        return;
-      }
-
+    async (_event?: ReactMouseEvent<HTMLElement>) => {
       await handleToggleMaximizeWindow();
     },
     [handleToggleMaximizeWindow]
@@ -1581,12 +1552,16 @@ export function DetachedClipLibraryWindow() {
     <div className="flex h-full min-h-0 flex-col bg-bg-dark">
       <header
         className="flex h-12 shrink-0 items-center gap-3 border-b border-border-dark px-4"
-        onMouseDown={handleHeaderDrag}
-        onDoubleClick={(event) => void handleHeaderDoubleClick(event)}
       >
-        <div className="min-w-0 flex-1">
-          <div className="text-sm font-semibold text-text-dark">{t('clipLibrary.windowTitle')}</div>
-          <div className="truncate text-xs text-text-muted">
+        <div
+          className="min-w-0 flex-1"
+          data-tauri-drag-region
+          onDoubleClick={(event) => void handleHeaderDoubleClick(event)}
+        >
+          <div className="text-sm font-semibold text-text-dark" data-tauri-drag-region>
+            {t('clipLibrary.windowTitle')}
+          </div>
+          <div className="truncate text-xs text-text-muted" data-tauri-drag-region>
             {projectContext.projectName
               ? t('clipLibrary.currentProjectLabel', { name: projectContext.projectName })
               : t('clipLibrary.noProject')}

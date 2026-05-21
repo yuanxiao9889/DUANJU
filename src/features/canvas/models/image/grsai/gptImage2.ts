@@ -56,7 +56,7 @@ export const imageModel: ImageModelDefinition = {
       label: 'Generation quality',
       labelKey: 'modelParams.generationQuality',
       description:
-        'Controls image fidelity, latency, and cost for gpt-image-2-vip output.',
+        'Controls image fidelity and latency for gpt-image-2-vip output.',
       descriptionKey: 'modelParams.generationQualityDesc',
       type: 'enum',
       defaultValue: 'auto',

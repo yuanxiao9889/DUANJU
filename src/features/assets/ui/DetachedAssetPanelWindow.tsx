@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState, type MouseEvent as ReactMouseEvent } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { Crosshair, Maximize2, Minus, PanelLeftClose, X } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
@@ -146,22 +146,6 @@ export function DetachedAssetPanelWindow() {
     };
   }, [appWindow, persistBounds, schedulePersistBounds]);
 
-  const handleStartDragging = useCallback(
-    async (event: ReactMouseEvent<HTMLDivElement>) => {
-      if (event.button !== 0) {
-        return;
-      }
-
-      const target = event.target as HTMLElement | null;
-      if (target?.closest('button') || target?.closest('[data-no-drag="true"]')) {
-        return;
-      }
-
-      await appWindow.startDragging();
-    },
-    [appWindow]
-  );
-
   const handleMinimize = useCallback(async () => {
     await appWindow.minimize();
   }, [appWindow]);
@@ -230,9 +214,11 @@ export function DetachedAssetPanelWindow() {
     >
       <div
         className="flex h-10 shrink-0 items-center justify-between gap-2 border-b border-border-dark bg-surface-dark px-3 select-none"
-        onMouseDown={(event) => void handleStartDragging(event)}
       >
-        <div className="min-w-0 flex-1 truncate text-sm font-semibold text-text-dark max-[640px]:text-xs">
+        <div
+          className="min-w-0 flex-1 truncate text-sm font-semibold text-text-dark max-[640px]:text-xs"
+          data-tauri-drag-region
+        >
           {t('assets.detachedTitle')}
         </div>
 

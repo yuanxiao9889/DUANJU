@@ -411,7 +411,7 @@
     "loading": {
       "badge": "画布加载中",
       "title": "正在准备画布",
-      "description": "进入画布前会先把项目里的图片预热到缓存里，避免大量图片节点同时出现时产生明显卡顿。",
+      "description": "进入画布前只会预热当前视口附近的图片，远处内容会在拖动画布时后台按需加载。",
       "projectPhase": "正在打开项目数据",
       "projectHint": "先恢复已保存的画布快照，并准备进入当前工作区。",
       "projectPending": "正在准备项目资源...",
@@ -421,7 +421,7 @@
       "progress": "已准备 {{loaded}} / {{total}} 张图片",
       "failed": "{{count}} 张图片加载失败，已跳过",
       "tipTitle": "为什么会先等待一下",
-      "tipDescription": "这一步会把图片解码压力前置，减少大量图片节点一起挂载时的瞬时卡顿。"
+      "tipDescription": "这一步只处理即将看到的图片，减少首屏挂载时的瞬时卡顿。"
     },
     "compare": {
       "mergeSuccess": "已创建图片对比节点",
@@ -585,7 +585,7 @@
     "generationQualityMedium": "中",
     "generationQualityHigh": "高",
     "thinkingLevel": "思考等级",
-    "thinkingLevelDesc": "仅对 fal 的 Nano Banana 2 生效；高思考会额外增加费用。",
+    "thinkingLevelDesc": "仅对 fal 的 Nano Banana 2 生效；高思考会增加生成耗时。",
     "thinkingDisabled": "关闭",
     "thinkingMinimal": "标准",
     "thinkingHigh": "高"
@@ -3069,9 +3069,7 @@
     "keyNotConfigured": "未配置",
     "dialogExpand": "放大",
     "dialogCollapse": "缩小",
-    "pricing": "价格",
-    "pricingDesc": "管理节点价格展示、汇率换算和积分套餐估算。",
-    "providerGuideText": "不同供应商在模型能力、队列速度、稳定性和价格上可能有差异。建议按当前任务场景切换供应商，并优先使用对应官方文档中的推荐参数。",
+    "providerGuideText": "不同供应商在模型能力、队列速度和稳定性上可能有差异。建议按当前任务场景切换供应商，并优先使用对应官方文档中的推荐参数。",
     "doNotShowAgain": "不再显示",
     "appearance": "外观",
     "appearanceDesc": "自定义应用外观",
@@ -3289,20 +3287,6 @@
     "showStoryboardGenAdvancedRatioControlsDesc": "启用后显示单格/整体比例信息和“整体比/单格比”切换；关闭时默认按单格比逻辑运行。",
     "storyboardGenAutoInferEmptyFrame": "空分镜自动推测",
     "storyboardGenAutoInferEmptyFrameDesc": "启用后，分镜生成时如果某个格子没有填写内容，会自动追加“依据之前的内容进行推测”。",
-    "showNodePrice": "在节点右上角显示价格",
-    "showNodePriceDesc": "实时根据当前模型、分辨率和附加参数显示本次运行的预计消费。",
-    "priceDisplayCurrencyMode": "价格显示币种",
-    "priceDisplayCurrencyModeDesc": "自动模式下，中文界面显示人民币，英文界面显示美元。",
-    "priceCurrencyAuto": "自动跟随语言",
-    "priceCurrencyCny": "人民币",
-    "priceCurrencyUsd": "美元",
-    "usdToCnyRate": "美元兑人民币汇率",
-    "usdToCnyRateDesc": "用于在美元和人民币之间换算显示价格，不影响实际平台扣费。",
-    "preferDiscountedPrice": "优先显示折扣价",
-    "preferDiscountedPriceDesc": "目前仅 KIE 提供原价与折扣价两套价格参考。国内优惠价通常需要向 KIE 单独申请；启用后会优先按折扣价估算。",
-    "grsaiCreditTier": "GRSAI 积分套餐档位",
-    "grsaiCreditTierDesc": "GRSAI 采用积分扣费，不同充值档位对应的单次成本不同。",
-    "grsaiCreditTierOption": "¥{{price}} / {{credits}} 积分",
     "checkUpdateNow": "立即检查更新",
     "checkingUpdate": "正在检查更新...",
     "checkUpdateHasUpdate": "检测到新版本。",
@@ -3541,12 +3525,6 @@
         "selectionSeparator": "、"
       }
     }
-  },
-  "pricing": {
-    "nativePrice": "原币种：{{value}}",
-    "originalPrice": "原价：{{value}}",
-    "pointsCost": "积分消耗：{{count}}",
-    "grsaiTier": "积分档位：¥{{price}} / {{credits}} 积分"
   },
   "dreaminaSetup": {
     "title": "即梦首次使用准备",
