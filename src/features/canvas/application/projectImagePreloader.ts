@@ -3,6 +3,7 @@ import type { CanvasNode } from '@/stores/canvasStore';
 
 import {
   getCachedImageLoadState,
+  markImageLoadFailed,
   markImageLoadSucceeded,
   shouldAttemptImageLoad,
 } from './imageLoadState';
@@ -481,11 +482,7 @@ async function preloadSingleImage(url: string, signal?: AbortSignal): Promise<vo
   await withPreloadTimeout(new Promise<void>((resolve, reject) => {
     const image = new Image();
 
-    if (
-      displaySource.startsWith('http://')
-      || displaySource.startsWith('https://')
-      || displaySource.startsWith('asset:')
-    ) {
+    if (displaySource.startsWith('asset:')) {
       image.crossOrigin = 'anonymous';
     }
 
@@ -499,6 +496,7 @@ async function preloadSingleImage(url: string, signal?: AbortSignal): Promise<vo
       resolve();
     };
     image.onerror = () => {
+      markImageLoadFailed(url);
       reject(new Error(`Failed to preload image: ${url}`));
     };
     image.src = displaySource;
